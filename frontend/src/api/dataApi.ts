@@ -26,7 +26,7 @@ export const dataApi = {
    * @param data 导入数据
    * @returns 导入结果
    */
-  startImport: (data: any) => {
+  startImport: (data: Record<string, unknown>) => {
     return apiRequest.post('/data/import', data);
   },
 
@@ -35,7 +35,7 @@ export const dataApi = {
    * @param data 检查数据
    * @returns 检查结果
    */
-  startQualityCheck: (data: any) => {
+  startQualityCheck: (data: Record<string, unknown>) => {
     return apiRequest.post('/data/quality/check', data);
   },
 
@@ -44,7 +44,7 @@ export const dataApi = {
    * @param data 图表数据
    * @returns 图表 URL
    */
-  generateVisualization: (data: any) => {
+  generateVisualization: (data: Record<string, unknown>) => {
     return apiRequest.post('/data/visualization/generate', data);
   },
 
@@ -53,7 +53,7 @@ export const dataApi = {
    * @param params 查询参数
    * @returns 任务列表
    */
-  getTasks: (params: any) => {
+  getTasks: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/tasks', params);
   },
 
@@ -71,7 +71,7 @@ export const dataApi = {
    * @param data 下载参数
    * @returns 下载结果
    */
-  downloadCryptoData: (data: any) => {
+  downloadCryptoData: (data: Record<string, unknown>) => {
     return apiRequest.post('/data/download/crypto', data);
   },
 
@@ -88,7 +88,7 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、interval、limit等
    * @returns K线数据
    */
-  getKlines: (params: any) => {
+  getKlines: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/klines', params);
   },
 
@@ -97,7 +97,7 @@ export const dataApi = {
    * @param params 查询参数，包括type、exchange、filter、limit、offset等
    * @returns 加密货币符号列表
    */
-  getCryptoSymbols: (params?: any) => {
+  getCryptoSymbols: (params?: Record<string, unknown>) => {
     return apiRequest.get('/data/crypto/symbols', params);
   },
 
@@ -106,7 +106,7 @@ export const dataApi = {
    * @param params 查询参数，包括type和exchange
    * @returns 包含资产池和直接货币对数据的响应
    */
-  getCollectionSymbols: (params?: any) => {
+  getCollectionSymbols: (params?: Record<string, unknown>) => {
     return apiRequest.get('/data-pools/collection/symbols', params);
   },
 
@@ -115,7 +115,7 @@ export const dataApi = {
    * @param params 查询参数，包括market_type、crypto_type、exchange、filter、limit、offset等
    * @returns 商品列表数据
    */
-  getProducts: (params?: any) => {
+  getProducts: (params?: Record<string, unknown>) => {
     return apiRequest.get('/data/products', params);
   },
 
@@ -124,7 +124,7 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、interval、start、end等
    * @returns K线数据质量报告
    */
-  checkKlineQuality: (params: any) => {
+  checkKlineQuality: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/quality/kline', params);
   },
 
@@ -133,7 +133,7 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、interval、start、end等
    * @returns K线重复记录详情
    */
-  getKlineDuplicates: (params: any) => {
+  getKlineDuplicates: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/quality/kline/duplicates', params);
   },
 
@@ -142,7 +142,7 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、interval、strategy、group_key等
    * @returns 重复记录处理结果
    */
-  resolveKlineDuplicates: (params: any) => {
+  resolveKlineDuplicates: (params: Record<string, unknown>) => {
     return apiRequest.post('/data/quality/kline/duplicates/resolve', undefined, { params });
   },
 
@@ -151,7 +151,7 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、market_type、crypto_type等
    * @returns 包含货币对和时间周期列表的数据
    */
-  getQualityOptions: (params: any) => {
+  getQualityOptions: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/quality/options', params);
   },
 

@@ -2444,7 +2444,7 @@ const DataManagementPage = () => {
       title: '',
       key: 'inGroup',
       width: 50,
-      render: (_: any, record: SymbolData) => {
+      render: (_: unknown, record: SymbolData) => {
         // 在"全部"视图时，检查是否在任何自选组中
         // 在特定自选组视图时，只检查是否在当前组中
         const isInActiveGroup = activeGroup 
@@ -2495,7 +2495,7 @@ const DataManagementPage = () => {
       title: t('change_24h') || '24h涨跌',
       key: 'change',
       align: 'right' as const,
-      render: (_: any, record: SymbolData) => {
+      render: (_: unknown, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
           return <Spin size="small" />;
         }
@@ -2530,7 +2530,7 @@ const DataManagementPage = () => {
     {
       title: t('data_status') || '数据状态',
       key: 'dataStatus',
-      render: (_: any, record: SymbolData) => (
+      render: (_: unknown, record: SymbolData) => (
         <Space>
           {record.hasData ? (
             <>
@@ -2549,7 +2549,7 @@ const DataManagementPage = () => {
       title: t('auto_update') || '自动更新',
       key: 'autoUpdate',
       width: 100,
-      render: (_: any, record: SymbolData) => (
+      render: (_: unknown, record: SymbolData) => (
         <Switch
           size="small"
           checked={record.autoUpdate}
@@ -2565,7 +2565,7 @@ const DataManagementPage = () => {
       title: t('action') || '操作',
       key: 'action',
       width: 280,
-      render: (_: any, record: SymbolData) => (
+      render: (_: unknown, record: SymbolData) => (
         <Space>
           {!record.hasData ? (
             <Button

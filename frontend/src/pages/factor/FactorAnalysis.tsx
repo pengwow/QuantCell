@@ -68,7 +68,7 @@ const FactorAnalysis = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Factor) => (
+      render: (_: unknown, record: Factor) => (
         <Space>
           <Button icon={<PlayCircleOutlined />} size="small">计算</Button>
           <Button icon={<EditOutlined />} size="small" onClick={() => handleEdit(record)}>编辑</Button>

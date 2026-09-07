@@ -58,6 +58,13 @@ type TabType = 'strategies' | 'backtests';
 // 分页选项（与系统配置一致）
 const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
 
+// 策略后端返回的 snake_case 扩展字段，仅用于类型读取时的最小收窄
+type StrategyBackendFields = {
+  created_at?: string;
+  updated_at?: string;
+  version?: string;
+};
+
 /**
  * 策略管理页面组件
  * 功能：展示策略列表，支持编辑、删除、回测等操作
@@ -453,13 +460,13 @@ const StrategyManagement = () => {
           bVal = b.name || '';
           break;
         case 'created_at':
-          aVal = (a as any).created_at || '';
-          bVal = (b as any).created_at || '';
+          aVal = (a as unknown as StrategyBackendFields).created_at || '';
+          bVal = (b as unknown as StrategyBackendFields).created_at || '';
           break;
         case 'updated_at':
         default:
-          aVal = (a as any).updated_at || '';
-          bVal = (b as any).updated_at || '';
+          aVal = (a as unknown as StrategyBackendFields).updated_at || '';
+          bVal = (b as unknown as StrategyBackendFields).updated_at || '';
           break;
       }
 
@@ -496,9 +503,9 @@ const StrategyManagement = () => {
         <Tooltip title={text} placement="topLeft">
           <Space>
             <span className="font-medium" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{text}</span>
-            {(record as any).strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-            {(record as any).strategy_type === 'rule' && <Tag color="green">规则</Tag>}
-            <Tag color="blue">v{(record as any).version || '1.0.0'}</Tag>
+            {record.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
+            {record.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
+            <Tag color="blue">v{(record as unknown as StrategyBackendFields).version || '1.0.0'}</Tag>
           </Space>
         </Tooltip>
       ),
@@ -523,20 +530,20 @@ const StrategyManagement = () => {
       title: t('create_time') || '创建时间',
       key: 'created_at',
       width: 160,
-      render: (_: any, record: Strategy) => formatDate((record as any).created_at),
+      render: (_, record: Strategy) => formatDate((record as unknown as StrategyBackendFields).created_at),
     },
     {
       title: t('update_time') || '更新时间',
       key: 'updated_at',
       width: 160,
-      render: (_: any, record: Strategy) => formatDate((record as any).updated_at),
+      render: (_, record: Strategy) => formatDate((record as unknown as StrategyBackendFields).updated_at),
     },
     {
       title: t('action') || '操作',
       key: 'action',
       width: 180,
       fixed: 'right',
-      render: (_: any, record: Strategy) => (
+      render: (_, record: Strategy) => (
         <Space size="small">
           <Tooltip title={t('edit_strategy') || '编辑策略'}>
             <Button
@@ -724,13 +731,13 @@ const StrategyManagement = () => {
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-gray-500 text-sm">{t('strategy_description') || '策略描述'}</span>
                       <Space size={4}>
-                        {(strategy as any).strategy_type === 'rl' && (
+                        {strategy.strategy_type === 'rl' && (
                           <Tag color="purple">RL</Tag>
                         )}
-                        {(strategy as any).strategy_type === 'rule' && (
+                        {strategy.strategy_type === 'rule' && (
                           <Tag color="green">规则</Tag>
                         )}
-                        <Tag color="blue">v{(strategy as any).version || '1.0.0'}</Tag>
+                        <Tag color="blue">v{(strategy as unknown as StrategyBackendFields).version || '1.0.0'}</Tag>
                       </Space>
                     </div>
                     <Tooltip title={strategy.description || t('no_description') || '暂无描述'} placement="topLeft">
@@ -751,11 +758,11 @@ const StrategyManagement = () => {
                   <div className="text-xs text-gray-500 space-y-1">
                     <div className="flex justify-between">
                       <span>{t('create_time') || '创建时间'}:</span>
-                      <span>{formatDate((strategy as any).created_at)}</span>
+                      <span>{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>{t('update_time') || '更新时间'}:</span>
-                      <span>{formatDate((strategy as any).updated_at)}</span>
+                      <span>{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
                     </div>
                   </div>
 
@@ -991,7 +998,7 @@ const StrategyManagement = () => {
       key: 'action',
       width: 150,
       fixed: 'right',
-      render: (_: any, record: BacktestTask) => (
+      render: (_, record: BacktestTask) => (
         <Space size="small">
           <Tooltip title={t('view_details') || '查看详情'}>
             <Button

@@ -461,7 +461,7 @@ const ChartPage = () => {
   const handleSearch = useCallback(async () => {
     setSearchLoading(true);
     try {
-      const response: any = await dataApi.getProducts({
+      const response = await dataApi.getProducts({
         filter: searchKeyword || undefined,
         limit: 100,
       });

@@ -8,7 +8,7 @@ import { notificationApi } from '../api';
  * 获取通知渠道配置
  * @returns 通知渠道配置列表数据
  */
-export const getNotificationChannels = async (): Promise<{ channels: any[] }> => {
+export const getNotificationChannels = async (): Promise<{ channels: unknown[] }> => {
   return notificationApi.getChannels();
 };
 
@@ -17,9 +17,18 @@ export const getNotificationChannels = async (): Promise<{ channels: any[] }> =>
  * @param channels 通知渠道配置列表
  * @returns 保存结果数据
  */
-export const saveNotificationChannels = async (channels: any[]): Promise<{ channels: any[] }> => {
+export const saveNotificationChannels = async (channels: unknown[]): Promise<{ channels: unknown[] }> => {
   return notificationApi.saveChannels(channels);
 };
+
+/**
+ * 通知渠道测试结果（对应后端 /notifications/test 的返回结构）
+ */
+export interface NotificationTestResult {
+  code: number;
+  message?: string;
+  data?: { result?: { error?: string } };
+}
 
 /**
  * 测试通知渠道
@@ -27,6 +36,9 @@ export const saveNotificationChannels = async (channels: any[]): Promise<{ chann
  * @param config 渠道配置
  * @returns 测试结果
  */
-export const testNotificationChannel = async (channelId: string, config: any): Promise<any> => {
-  return notificationApi.testChannel(channelId, config);
+export const testNotificationChannel = async (
+  channelId: string,
+  config: unknown,
+): Promise<NotificationTestResult> => {
+  return (await notificationApi.testChannel(channelId, config)) as NotificationTestResult;
 };

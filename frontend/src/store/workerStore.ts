@@ -316,7 +316,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         try {
           // apiRequest.get() 已在 axios 拦截器中解包 ApiResponse.data，
           // 因此 response 直接就是 { metrics, cumulative_pnl_series, pnl_distribution, window }
-          const response: any = await workerApi.getOverview(workerId, targetWindow);
+          const response = await workerApi.getOverview(workerId, targetWindow);
           if (!response || !response.metrics) {
             throw new Error('总览数据为空');
           }

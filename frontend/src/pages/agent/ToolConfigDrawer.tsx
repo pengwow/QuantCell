@@ -72,7 +72,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
   const [toolParams, setToolParams] = useState<ToolParamsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editValues, setEditValues] = useState<Record<string, any>>({});
+  const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [showSensitive, setShowSensitive] = useState<Record<string, boolean>>({});
 
   // 加载工具列表
@@ -99,7 +99,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
       const data = await toolParamApi.getToolParams(toolName, false);
       setToolParams(data);
       // 初始化编辑值
-      const initialValues: Record<string, any> = {};
+      const initialValues: Record<string, unknown> = {};
       Object.entries(data.params).forEach(([key, param]) => {
         initialValues[key] = param.value;
       });
@@ -150,7 +150,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
   };
 
   // 更新单个参数
-  const handleUpdateParam = async (paramName: string, value: any) => {
+  const handleUpdateParam = async (paramName: string, value: unknown) => {
     setSaving(true);
     try {
       await toolParamApi.setToolParam(selectedTool!, paramName, value);
@@ -239,7 +239,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
         message.error('配置文件格式错误');
       }
     };
-    reader.readAsText(file as any);
+    reader.readAsText(file as unknown as Blob);
     return false; // 阻止自动上传
   };
 
@@ -288,22 +288,22 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
       case 'integer':
         return (
           <InputNumber
-            value={editValues[paramName]}
+            value={editValues[paramName] as number}
             onChange={(value) =>
               setEditValues((prev) => ({ ...prev, [paramName]: value }))
             }
             min={-Infinity}
             max={Infinity}
             style={{ width: '100%' }}
-            onPressEnter={(e: any) =>
-              handleUpdateParam(paramName, e.target.value)
+            onPressEnter={(e: React.KeyboardEvent<HTMLInputElement>) =>
+              handleUpdateParam(paramName, e.currentTarget.value)
             }
           />
         );
       case 'float':
         return (
           <InputNumber
-            value={editValues[paramName]}
+            value={editValues[paramName] as number}
             onChange={(value) =>
               setEditValues((prev) => ({ ...prev, [paramName]: value }))
             }
@@ -316,7 +316,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
       case 'boolean':
         return (
           <Switch
-            checked={editValues[paramName]}
+            checked={Boolean(editValues[paramName])}
             onChange={(checked) => {
               setEditValues((prev) => ({ ...prev, [paramName]: checked }));
               handleUpdateParam(paramName, checked);
@@ -326,7 +326,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
       default:
         return (
           <TextArea
-            value={editValues[paramName]}
+            value={editValues[paramName] as string}
             onChange={(e) =>
               setEditValues((prev) => ({ ...prev, [paramName]: e.target.value }))
             }

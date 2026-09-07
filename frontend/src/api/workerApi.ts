@@ -742,7 +742,7 @@ export interface OverviewApiData {
 export const getOverview = (
   workerId: number,
   window: OverviewWindow = '30d'
-): Promise<ApiResponse<OverviewApiData>> => {
+): Promise<OverviewApiData> => {
   return apiRequest.get(`/workers/${workerId}/stats/overview`, { params: { window } });
 };
 
@@ -754,7 +754,7 @@ export const getOverview = (
 export const getTradingSummaryFiltered = (
   workerId: number,
   params?: { window?: OverviewWindow }
-): Promise<ApiResponse<TradingSummary>> => {
+): Promise<TradingSummary> => {
   return apiRequest.get(`/workers/${workerId}/stats/trading-summary`, { params });
 };
 

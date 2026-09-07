@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Badge, Card, Col, Empty, Row, Spin, Statistic, Table, Tag } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
+import type { PositionInfo } from '@/types/worker';
 import {
   QUANT_COLORS,
   calcROE,
@@ -24,24 +25,8 @@ import {
   formatUSD,
 } from '@/utils/format';
 
-interface Position {
-  id: number;
-  symbol: string;
-  side: 'long' | 'short';
-  quantity: number;
-  entry_price: number;
-  current_price: number;
-  mark_price?: number;
-  liquidation_price?: number;
-  leverage?: number;
-  margin_used?: number;
-  unrealized_pnl: number;
-  pnl_percentage: number;
-  roe?: number;
-  open_time?: string;
-  holding_duration?: string;
-  timestamp: string;
-}
+// 持仓数据模型：直接复用 workerApi.getPositions 的返回类型（PositionInfo）与后端保持一致
+type Position = PositionInfo;
 
 interface WorkerPositionTabProps {
   workerId: number;
@@ -58,16 +43,9 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   const fetchPositionData = useCallback(async () => {
     setLoading(true);
     try {
-      // apiRequest.get() 已解包 ApiResponse.data，response 直接是持仓数组
-      const response: any = await workerApi.getPositions(workerId);
-      if (Array.isArray(response)) {
-        setPositions(response);
-      } else if (response && Array.isArray(response.items)) {
-        // 兜底：万一后端未走 ApiResponse 包装
-        setPositions(response.items);
-      } else {
-        setPositions([]);
-      }
+      // apiRequest.get() 已解包 ApiResponse.data，getPositions 直接返回 PositionInfo[]
+      const items = await workerApi.getPositions(workerId);
+      setPositions(items);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('获取持仓数据失败:', error);
@@ -303,7 +281,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
           <Table
             columns={columns}
             dataSource={positions}
-            rowKey="id"
+            rowKey={(record) => `${record.symbol}-${record.side}`}
             rowClassName={rowClassName}
             pagination={false}
             size="middle"

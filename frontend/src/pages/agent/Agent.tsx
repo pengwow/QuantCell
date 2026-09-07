@@ -44,7 +44,7 @@ import {
   UpOutlined,
 } from '@ant-design/icons';
 import { useAgentStore } from './store/agentStore';
-import type { Message, Tool } from './store/agentStore';
+import type { Message, Session, Tool } from './store/agentStore';
 import {
   toolParamApi,
   ToolParamsResponse,
@@ -192,7 +192,7 @@ const ToolListDrawerWithConfig = ({
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [toolsParams, setToolsParams] = useState<Record<string, ToolParamsResponse>>({});
   const [loadingParams, setLoadingParams] = useState<Set<string>>(new Set());
-  const [editingValues, setEditingValues] = useState<Record<string, Record<string, any>>>({});
+  const [editingValues, setEditingValues] = useState<Record<string, Record<string, unknown>>>({});
   const [showSensitive, setShowSensitive] = useState<Record<string, Record<string, boolean>>>({});
   const { message } = App.useApp();
 
@@ -220,7 +220,7 @@ const ToolListDrawerWithConfig = ({
       
       // 初始化编辑值（仅当有参数时）
       if (data.params && Object.keys(data.params).length > 0) {
-        const initialValues: Record<string, any> = {};
+        const initialValues: Record<string, unknown> = {};
         Object.entries(data.params).forEach(([key, param]) => {
           initialValues[key] = param.value;
         });
@@ -276,7 +276,7 @@ const ToolListDrawerWithConfig = ({
   };
 
   // 更新参数
-  const handleUpdateParam = async (toolName: string, paramName: string, value: any) => {
+  const handleUpdateParam = async (toolName: string, paramName: string, value: unknown) => {
     try {
       await toolParamApi.setToolParam(toolName, paramName, value);
       message.success(`${paramName} 已更新`);
@@ -329,7 +329,7 @@ const ToolListDrawerWithConfig = ({
         return (
           <InputNumber
             size="small"
-            value={editingValues[toolName]?.[paramName]}
+            value={editingValues[toolName]?.[paramName] as number}
             onChange={(value) =>
               setEditingValues(prev => ({
                 ...prev,
@@ -337,8 +337,8 @@ const ToolListDrawerWithConfig = ({
               }))
             }
             style={{ width: 120 }}
-            onPressEnter={(e: any) =>
-              handleUpdateParam(toolName, paramName, e.target.value)
+            onPressEnter={(e: React.KeyboardEvent<HTMLInputElement>) =>
+              handleUpdateParam(toolName, paramName, e.currentTarget.value)
             }
           />
         );
@@ -346,7 +346,7 @@ const ToolListDrawerWithConfig = ({
         return (
           <InputNumber
             size="small"
-            value={editingValues[toolName]?.[paramName]}
+            value={editingValues[toolName]?.[paramName] as number}
             onChange={(value) =>
               setEditingValues(prev => ({
                 ...prev,
@@ -361,7 +361,7 @@ const ToolListDrawerWithConfig = ({
         return (
           <Switch
             size="small"
-            checked={editingValues[toolName]?.[paramName]}
+            checked={Boolean(editingValues[toolName]?.[paramName])}
             onChange={(checked) => {
               setEditingValues(prev => ({
                 ...prev,
@@ -375,7 +375,7 @@ const ToolListDrawerWithConfig = ({
         return (
           <Input
             size="small"
-            value={editingValues[toolName]?.[paramName]}
+            value={editingValues[toolName]?.[paramName] as string}
             onChange={(e) =>
               setEditingValues(prev => ({
                 ...prev,
@@ -558,7 +558,7 @@ const SessionListDrawer = ({
 }: {
   visible: boolean;
   onClose: () => void;
-  sessions: any[];
+  sessions: Session[];
   currentSessionId: string;
   onSwitchSession: (sessionId: string) => void;
   onCreateSession: () => void;

@@ -73,7 +73,7 @@ const ModelManagement = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Model) => (
+      render: (_: unknown, record: Model) => (
         <Space>
           <Button icon={<EyeOutlined />} size="small" onClick={() => { setSelectedModel(record); setDetailVisible(true); }}>详情</Button>
           <Button icon={<PlayCircleOutlined />} size="small" disabled={record.status === 'training'}>训练</Button>

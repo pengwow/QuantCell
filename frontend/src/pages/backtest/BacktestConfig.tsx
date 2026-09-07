@@ -33,6 +33,7 @@ import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/
 import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
+import type { Dayjs } from 'dayjs';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -42,6 +43,24 @@ const { Dragger } = Upload;
 interface BacktestConfigProps {
   onRunBacktest?: () => void;
   strategy?: Strategy;
+}
+
+// 创建策略弹窗表单值
+interface CreateStrategyFormValues {
+  strategyName: string;
+  description?: string;
+  params?: string;
+}
+
+// 回测主表单值
+interface BacktestFormValues {
+  strategy?: string;
+  symbols?: string[];
+  timeRange?: [Dayjs, Dayjs];
+  interval?: string;
+  commission?: number;
+  initialCash?: number;
+  params?: Record<string, unknown>;
 }
 
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
@@ -281,7 +300,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   };
 
   // 保存回测配置到 localStorage
-  const saveBacktestConfig = (values: any, symbols: string[]) => {
+  const saveBacktestConfig = (values: BacktestFormValues, symbols: string[]) => {
     try {
       const config = {
         symbols: symbols,
@@ -373,7 +392,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     setCreateModalVisible(false);
   };
 
-  const handleCreateSubmit = async (values: any) => {
+  const handleCreateSubmit = async (values: CreateStrategyFormValues) => {
     try {
       setLoading(true);
 
@@ -629,7 +648,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     }
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: BacktestFormValues) => {
     try {
       setLoading(true);
       setErrorMessage('');
@@ -685,7 +704,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       setStepStatus({ dataPrep: 'wait', execution: 'wait', analysis: 'wait' });
       setProgressData({ overall: 0 });
 
-      const [startTime, endTime] = values.timeRange;
+      const [startTime, endTime] = values.timeRange!;
 
       const strategyParams = values.params || {};
 

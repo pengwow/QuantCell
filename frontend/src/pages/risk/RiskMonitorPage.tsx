@@ -21,7 +21,7 @@ export default function RiskMonitorPage() {
     finally { setLoading(false); }
   };
 
-  const handleCheck = async (values: any) => {
+  const handleCheck = async (values: { order: string; portfolio: string }) => {
     try {
       const order = JSON.parse(values.order);
       const portfolio = JSON.parse(values.portfolio);

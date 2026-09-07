@@ -36,7 +36,7 @@ export default function ModelRegistry() {
     }
   };
 
-  const handleRegister = async (values: any) => {
+  const handleRegister = async (values: { name: string; model_path: string; algorithm?: string; sharpe?: number }) => {
     try {
       await modelApi.registerModel({
         name: values.name,

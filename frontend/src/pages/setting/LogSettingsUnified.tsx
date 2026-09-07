@@ -332,7 +332,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       title: '',
       key: 'action',
       width: 60,
-      render: (_: any, record: LogFileInfo) => (
+      render: (_: unknown, record: LogFileInfo) => (
         <Button
           type="link"
           size="small"

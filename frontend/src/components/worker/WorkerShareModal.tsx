@@ -318,7 +318,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
     if (!workerId) return;
     setRevokingId(shareId);
     try {
-      const res: any = await retryShareRemoteUpload(workerId, shareId);
+      const res = await retryShareRemoteUpload(workerId, shareId);
       if (res?.short_url) {
         message.success(t('share.retry_remote_success') || '已重新发布到 quantcell.top');
       } else {
@@ -357,7 +357,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         key: 'access_limit',
         width: 130,
         align: 'center',
-        render: (_: any, record: ShareTokenListItem) => {
+        render: (_, record: ShareTokenListItem) => {
           // max_views 优先：1 = 一次性（等同 one_time），>1 = 数字 N
           // 历史数据兼容：one_time=true 但 max_views=null 时仍展示"一次性"
           if (record.max_views === 1 || (record.one_time && record.max_views === null)) {
@@ -394,7 +394,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         title: t('share.status'),
         key: 'status',
         width: 110,
-        render: (_: any, record: ShareTokenListItem) => {
+        render: (_, record: ShareTokenListItem) => {
           const status = computeStatus(record);
           const meta = statusMeta(status);
           return <Tag color={meta.color}>{t(`share.${meta.key}`)}</Tag>;
@@ -405,7 +405,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         key: 'remote_status',
         width: 140,
         align: 'center',
-        render: (_: any, record: ShareTokenListItem) => {
+        render: (_, record: ShareTokenListItem) => {
           const r = record.remote_status;
           if (r === 'UPLOADED') return <Tag color="green">{t('share.remote_uploaded') || '已发布'}</Tag>;
           if (r === 'PENDING') return <Tag color="blue">{t('share.remote_pending') || '推送中'}</Tag>;
@@ -426,7 +426,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         width: 220,
         align: 'center',
         fixed: 'right',
-        render: (_: any, record: ShareTokenListItem) => {
+        render: (_, record: ShareTokenListItem) => {
           const status = computeStatus(record);
           const revokeDisabled = status !== 'active';
           const canRetryRemote =
@@ -531,7 +531,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
               disabled={generating}
             >
               {expiresInOptions.map((opt) => (
-                <Radio.Button key={String(opt.value)} value={opt.value as any}>
+                <Radio.Button key={String(opt.value)} value={opt.value as unknown as string | number | null}>
                   {opt.label}
                 </Radio.Button>
               ))}

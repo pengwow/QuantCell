@@ -212,7 +212,7 @@ const BacktestList = () => {
       key: 'action',
       width: 140,
       fixed: 'right',
-      render: (_: any, record: BacktestTask) => (
+      render: (_, record: BacktestTask) => (
         <Space size="small">
           <Button
             type="link"
