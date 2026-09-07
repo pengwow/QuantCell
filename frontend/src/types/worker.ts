@@ -58,6 +58,13 @@ export interface StrategyInfo {
   description?: string;
   strategy_type: string;  // rule/rl
   version: string;
+  // 策略文件信息（新增，来自后端 /strategy/list）
+  file_name?: string;
+  file_path?: string;
+  source?: string;
+  params?: unknown[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Worker基础信息
@@ -78,7 +85,7 @@ export interface Worker {
   market_type: string;
   trading_mode: string;
   pid?: number;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
   started_at?: string;
@@ -108,7 +115,7 @@ export interface CreateWorkerRequest {
   market_type?: string;
   trading_mode?: string;
   env_vars?: Record<string, string>;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 
 // 更新Worker请求
@@ -122,13 +129,13 @@ export interface UpdateWorkerRequest {
   symbols?: string[];
   timeframe?: string;
   trading_mode?: string;
-  strategy_params?: Record<string, any>;
-  config?: Record<string, any>;
+  strategy_params?: Record<string, unknown>;
+  config?: Record<string, unknown>;
 }
 
 // 更新Worker配置请求
 export interface UpdateWorkerConfigRequest {
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }
 
 // 克隆Worker请求
@@ -228,7 +235,7 @@ export interface WorkerTrade {
 // 策略部署请求
 export interface StrategyDeployRequest {
   strategy_id: number;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, unknown>;
   auto_start?: boolean;
 }
 
@@ -238,8 +245,8 @@ export interface StrategyParameter {
   strategy_id?: number;
   param_name: string;
   param_type: string;
-  default_value?: any;
-  param_value?: any;
+  default_value?: unknown;
+  param_value?: unknown;
   description?: string;
   min_value?: number;
   max_value?: number;
@@ -249,7 +256,7 @@ export interface StrategyParameter {
 
 // 更新策略参数请求
 export interface UpdateStrategyParametersRequest {
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
 }
 
 // 持仓信息
@@ -290,7 +297,7 @@ export interface OrderInfo {
 }
 
 // API响应包装
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   code: number;
   message: string;
   data?: T;
@@ -336,7 +343,7 @@ export interface TradingSignal {
   quantity?: number;
   price?: number;
   order_type?: string;
-  params?: Record<string, any>;
+  params?: Record<string, unknown>;
 }
 
 // ============================================
@@ -449,7 +456,7 @@ export interface WorkerStoreActions {
 
 // WorkerLogStream 类型占位（避免循环依赖）
 // 实际类型在 workerApi.ts 中定义，这里使用 any 作为占位
-type WorkerLogStreamType = any;
+type WorkerLogStreamType = unknown;
 
 // ==================== UI展示扩展类型 ====================
 

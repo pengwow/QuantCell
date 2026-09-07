@@ -202,7 +202,7 @@ export const getWorkerLogs = (workerId: number, params?: LogQueryParams): Promis
  * 清理 Worker 日志文件
  * @param workerId Worker ID
  */
-export const clearWorkerLogs = (workerId: number): Promise<any> => {
+export const clearWorkerLogs = (workerId: number): Promise<unknown> => {
   return apiRequest.delete(`/workers/${workerId}/monitoring/logs`, { confirm: true });
 };
 

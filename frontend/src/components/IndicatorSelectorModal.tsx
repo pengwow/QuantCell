@@ -42,7 +42,7 @@ interface IndicatorSelectorModalProps {
   visible: boolean;
   onClose: () => void;
   activeIndicators: ActiveIndicator[];
-  onToggleIndicator: (indicator: Indicator, params?: Record<string, any>) => void;
+  onToggleIndicator: (indicator: Indicator, params?: Record<string, unknown>) => void;
 }
 
 // 指标类型图标映射

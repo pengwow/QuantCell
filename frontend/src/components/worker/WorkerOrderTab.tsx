@@ -29,6 +29,7 @@ import {
   Tag,
   Tooltip,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import { workerApi } from '@/api/workerApi';
@@ -116,7 +117,6 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       const items = await workerApi.getOrders(workerId, params);
       setOrders(items);
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error('获取委托数据失败:', error);
       setOrders([]);
     } finally {
@@ -171,8 +171,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
   };
 
   // 表格列：标准量化展示顺序
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const columns: any = [
+  const columns: TableColumnsType<Order> = [
     {
       title: '订单ID',
       dataIndex: 'client_order_id',

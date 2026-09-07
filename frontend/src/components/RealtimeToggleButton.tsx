@@ -23,7 +23,7 @@ interface RealtimeToggleButtonProps {
   /** 系统默认实时数据状态 */
   defaultRealtimeEnabled?: boolean;
   /** 实时数据更新回调 */
-  onRealtimeData?: (data: any) => void;
+  onRealtimeData?: (data: unknown) => void;
   /** 状态变化回调 */
   onStatusChange?: (isRealtime: boolean) => void;
 }
@@ -101,7 +101,7 @@ export function RealtimeToggleButton({
   /**
    * 处理WebSocket消息
    */
-  const handleWebSocketMessage = useCallback((data: any) => {
+  const handleWebSocketMessage = useCallback((data: unknown) => {
     console.log('[RealtimeToggleButton] 收到WebSocket消息:', data);
     if (data && onRealtimeData) {
       console.log('[RealtimeToggleButton] 调用onRealtimeData回调');

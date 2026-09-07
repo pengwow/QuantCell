@@ -1,4 +1,5 @@
 import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
+import type { MessageInstance } from 'antd/es/message/interface';
 import { BrowserRouter } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { DynamicRouter } from './router/DynamicRouter';
@@ -11,7 +12,7 @@ import './global.css';
 import './index.css';
 
 function App() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
   const loadConfig = useConfigStore((state) => state.loadConfig);
   const setMessageApi = useWorkerStore((state) => state.setMessageApi);
 
@@ -61,9 +62,6 @@ function App() {
       attributeFilter: ['class'],
     });
 
-    // 初始检查
-    setIsDarkMode(document.documentElement.classList.contains('dark'));
-
     return () => observer.disconnect();
   }, []);
 
@@ -102,7 +100,7 @@ function App() {
 }
 
 // 注入 Ant Design App 的 message API 到 store
-function AppInjector({ setMessageApi }: { setMessageApi: (api: any) => void }) {
+function AppInjector({ setMessageApi }: { setMessageApi: (api: MessageInstance) => void }) {
   const { message: apiMessage } = AntdApp.useApp();
 
   useEffect(() => {

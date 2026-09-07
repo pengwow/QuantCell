@@ -12,7 +12,7 @@ import { strategyApi } from '../api';
 interface StrategyParam {
   name: string;
   type: string;
-  default: any;
+  default: unknown;
   description: string;
   required: boolean;
 }

@@ -3,6 +3,105 @@
  * 从旧版本迁移过来
  */
 import { apiRequest } from './index';
+import type { Task, KlineData } from '../types/data';
+
+// 数据池（自选组）记录
+export interface DataPoolRecord {
+  id: string | number;
+  name: string;
+  description?: string;
+  color?: string;
+  is_default?: boolean;
+  symbols?: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+// 货币对条目
+export interface CryptoSymbol {
+  id?: string | number;
+  symbol: string;
+  base?: string;
+  quote?: string;
+}
+
+// 任务子任务详情条目（任务详情列表元素）
+export interface TaskDetailItem {
+  task_key?: string;
+  symbol?: string;
+  interval?: string;
+  percentage?: number;
+  [key: string]: unknown;
+}
+
+// K线质量检查结果（对应后端 /data/quality/kline 的返回结构）
+export interface KlineQualityReport {
+  total_records?: number;
+  summary?: { status?: string; score?: number };
+  details?: {
+    integrity?: {
+      status?: string;
+      total_records?: number;
+      missing_columns?: string[];
+      missing_values?: Record<string, number>;
+    };
+    continuity?: {
+      status?: string;
+      expected_records?: number;
+      actual_records?: number;
+      missing_records?: number;
+      coverage_ratio?: number;
+      missing_time_ranges?: Array<{ start?: string; end?: string; count?: number }>;
+    };
+    uniqueness?: {
+      status?: string;
+      duplicate_records?: number;
+      duplicate_periods?: string[];
+      duplicate_details?: Array<{
+        key?: string;
+        count?: number;
+        records?: Array<{ row_number?: number; open?: number; high?: number; low?: number; close?: number; volume?: number }>;
+      }>;
+    };
+    validity?: {
+      status?: string;
+      total_invalid_records?: number;
+      negative_prices?: unknown[];
+      negative_volumes?: unknown[];
+      invalid_high_low?: unknown[];
+      invalid_price_logic?: unknown[];
+      abnormal_price_changes?: Array<{ timestamp?: number; change_pct?: number }>;
+      abnormal_volumes?: Array<{ timestamp?: number; volume?: number; avg_30d_volume?: number }>;
+      price_gaps?: Array<{ timestamp?: number; gap_pct?: number }>;
+    };
+    consistency?: {
+      status?: string;
+      time_format_issues?: string[];
+      duplicate_codes?: string[];
+      code_name_mismatches?: string[];
+      inconsistent_adj_factors?: string[];
+    };
+    logic?: {
+      status?: string;
+      trading_time_issues?: string[];
+      suspension_issues?: string[];
+      price_limit_issues?: string[];
+    };
+    coverage?: {
+      status?: string;
+      data_start_date?: string;
+      data_end_date?: string;
+      expected_start_date?: string;
+      expected_end_date?: string;
+      missing_historical_data?: boolean;
+      historical_gap_days?: number;
+      missing_future_data?: boolean;
+      future_gap_days?: number;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
 
 export const dataApi = {
   /**
@@ -53,7 +152,12 @@ export const dataApi = {
    * @param params 查询参数
    * @returns 任务列表
    */
-  getTasks: (params: Record<string, unknown>) => {
+  getTasks: (params: Record<string, unknown>): Promise<{
+    tasks?: Task[];
+    total?: number;
+    page?: number;
+    page_size?: number;
+  }> => {
     return apiRequest.get('/data/tasks', params);
   },
 
@@ -71,7 +175,11 @@ export const dataApi = {
    * @param data 下载参数
    * @returns 下载结果
    */
-  downloadCryptoData: (data: Record<string, unknown>) => {
+  downloadCryptoData: (data: Record<string, unknown>): Promise<{
+    task_id?: string;
+    status?: string;
+    message?: string;
+  }> => {
     return apiRequest.post('/data/download/crypto', data);
   },
 
@@ -88,7 +196,15 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、interval、limit等
    * @returns K线数据
    */
-  getKlines: (params: Record<string, unknown>) => {
+  getKlines: (params: Record<string, unknown>): Promise<
+    KlineData[] | {
+      data?: KlineData[];
+      klines?: KlineData[];
+      total?: number;
+      symbol?: string;
+      interval?: string;
+    }
+  > => {
     return apiRequest.get('/data/klines', params);
   },
 
@@ -97,7 +213,14 @@ export const dataApi = {
    * @param params 查询参数，包括type、exchange、filter、limit、offset等
    * @returns 加密货币符号列表
    */
-  getCryptoSymbols: (params?: Record<string, unknown>) => {
+  getCryptoSymbols: (params?: Record<string, unknown>): Promise<{
+    symbols?: CryptoSymbol[];
+    data?: { symbols?: CryptoSymbol[]; items?: CryptoSymbol[] };
+    total?: number;
+    offset?: number;
+    limit?: number;
+    exchange?: string;
+  }> => {
     return apiRequest.get('/data/crypto/symbols', params);
   },
 
@@ -106,7 +229,10 @@ export const dataApi = {
    * @param params 查询参数，包括type和exchange
    * @returns 包含资产池和直接货币对数据的响应
    */
-  getCollectionSymbols: (params?: Record<string, unknown>) => {
+  getCollectionSymbols: (params?: Record<string, unknown>): Promise<{
+    data_pools?: DataPoolRecord[];
+    direct_symbols?: string[];
+  }> => {
     return apiRequest.get('/data-pools/collection/symbols', params);
   },
 
@@ -115,7 +241,7 @@ export const dataApi = {
    * @param params 查询参数，包括market_type、crypto_type、exchange、filter、limit、offset等
    * @returns 商品列表数据
    */
-  getProducts: (params?: Record<string, unknown>) => {
+  getProducts: (params?: Record<string, unknown>): Promise<{ products: CryptoSymbol[] }> => {
     return apiRequest.get('/data/products', params);
   },
 
@@ -124,7 +250,7 @@ export const dataApi = {
    * @param params 查询参数，包括symbol、interval、start、end等
    * @returns K线数据质量报告
    */
-  checkKlineQuality: (params: Record<string, unknown>) => {
+  checkKlineQuality: (params: Record<string, unknown>): Promise<KlineQualityReport> => {
     return apiRequest.get('/data/quality/kline', params);
   },
 
@@ -162,7 +288,9 @@ export const dataApi = {
    * @param params 查询参数，包括type类型过滤
    * @returns 数据池列表
    */
-  getDataPools: (params?: { type?: string }) => {
+  getDataPools: (params?: { type?: string }): Promise<
+    DataPoolRecord[] | { data?: DataPoolRecord[]; pools?: DataPoolRecord[]; items?: DataPoolRecord[] }
+  > => {
     return apiRequest.get('/data-pools/', params);
   },
 
@@ -177,7 +305,7 @@ export const dataApi = {
     description?: string;
     color?: string;
     tags?: string[];
-  }) => {
+  }): Promise<{ pool_id?: string | number }> => {
     return apiRequest.post('/data-pools/', data);
   },
 
@@ -196,7 +324,7 @@ export const dataApi = {
       color?: string;
       tags?: string[];
     }
-  ) => {
+  ): Promise<{ code?: number; message?: string }> => {
     return apiRequest.put(`/data-pools/${poolId}`, data);
   },
 
@@ -214,7 +342,7 @@ export const dataApi = {
    * @param poolId 数据池ID
    * @returns 资产列表
    */
-  getDataPoolAssets: (poolId: number) => {
+  getDataPoolAssets: (poolId: number): Promise<string[] | { assets?: string[] }> => {
     return apiRequest.get(`/data-pools/${poolId}/assets`);
   },
 
@@ -245,7 +373,7 @@ export const dataApi = {
     symbols: string[];
     exchange?: string;
     force_refresh?: boolean;
-  }) => {
+  }): Promise<Array<Record<string, unknown>> | { data?: Array<Record<string, unknown>> }> => {
     return apiRequest.post('/data/crypto/market-data', data);
   },
 
@@ -263,7 +391,7 @@ export const dataApi = {
    * @param taskId 任务ID
    * @returns 子任务详情列表
    */
-  getTaskDetails: (taskId: string) => {
+  getTaskDetails: (taskId: string): Promise<{ details?: TaskDetailItem[] }> => {
     return apiRequest.get(`/data/tasks/${taskId}/details`);
   },
 
@@ -280,7 +408,13 @@ export const dataApi = {
     clean_type?: 'all' | 'duplicates' | 'invalid';
     market_type?: string;
     crypto_type?: string;
-  }) => {
-    return apiRequest.post('/data/clean', undefined, { params });
+  }): Promise<{
+    deleted_count?: number;
+    symbol?: string;
+    interval?: string;
+    clean_type?: string;
+    total_before?: number;
+  }> => {
+    return apiRequest.post<{ deleted_count?: number }>('/data/clean', undefined, { params });
   },
 };

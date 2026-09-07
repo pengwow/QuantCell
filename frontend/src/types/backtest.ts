@@ -3,6 +3,34 @@
  * 集中管理回测相关的所有类型接口
  */
 
+// 回放数据中的 K 线原始字段（后端字段名与前端类型存在差异，按 index signature 兜底）
+export interface ReplayKline {
+  time?: string | number;
+  timestamp?: number | string;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  volume?: number;
+  [key: string]: unknown;
+}
+
+// 回放数据中的交易原始字段
+export interface ReplayRawTrade {
+  trade_id?: string;
+  timestamp?: number;
+  formatted_time?: string;
+  side?: string;
+  direction?: string;
+  price?: number;
+  quantity?: number;
+  volume?: number;
+  commission?: string | number;
+  status?: string;
+  instrument_id?: string;
+  [key: string]: unknown;
+}
+
 // 交易数据接口
 export interface Trade {
   EntryTime: string;
@@ -42,7 +70,7 @@ export interface BacktestConfig {
 export interface StrategyParam {
   name: string;
   type: string;
-  default: any;
+  default: unknown;
   description: string;
   required: boolean;
 }
@@ -76,7 +104,7 @@ export interface BacktestDetailData {
   strategy_name: string;
   backtest_config: BacktestConfig;
   strategy_config?: {
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
   };
   metrics: BacktestMetric[];
   equity_curve: EquityData[];
@@ -85,13 +113,37 @@ export interface BacktestDetailData {
   created_at: string;
 }
 
-// 回放数据类型
+// 回放交易数据（后端回测引擎字段）
+export interface ReplayTrade {
+  trade_id: string;
+  timestamp?: number;
+  formatted_time?: string;
+  side?: string;
+  direction?: string;
+  price?: number;
+  quantity?: number;
+  volume?: number;
+  commission?: string | number;
+  status?: string;
+  instrument_id?: string;
+  [key: string]: unknown;
+}
+
+// 回放数据类型（字段与后端 /replay 接口返回保持宽松兼容）
 export interface ReplayData {
-  klines: any[];
-  trades: any[];
-  equity_curve: any[];
+  klines: ReplayKline[];
+  trades: ReplayTrade[];
+  equity_curve: Array<{
+    date?: string;
+    datetime?: string;
+    equity?: number;
+    [key: string]: unknown;
+  }>;
   strategy_name: string;
-  backtest_config: any;
+  backtest_config: Partial<BacktestConfig> & {
+    symbol?: string;
+    interval?: string;
+  };
   symbol: string;
   interval: string;
 }

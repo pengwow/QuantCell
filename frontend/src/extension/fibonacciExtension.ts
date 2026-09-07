@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { OverlayTemplate } from 'klinecharts'
+import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
 import { calculateFibonacciExtensions } from './utils'
 
@@ -31,7 +31,7 @@ const fibonacciExtension: OverlayTemplate = {
       
       const fibonacciLevels = calculateFibonacciExtensions(startValue, midValue, endValue)
       const levels = [0, 0.618, 1, 1.618, 2.618]
-      const figures: any[] = []
+      const figures: OverlayFigure[] = []
       
       fibonacciLevels.forEach((level, index) => {
         // 绘制水平线

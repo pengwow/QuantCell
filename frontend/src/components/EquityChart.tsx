@@ -4,7 +4,7 @@
  * 适用场景：回测结果、投资组合收益展示等
  */
 import ReactECharts from 'echarts-for-react';
-import type { EChartsOption } from 'echarts';
+import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallbackParams } from 'echarts';
 
 // 权益数据接口（支持后端返回的小写字段名）
 export interface EquityData {
@@ -65,7 +65,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
   const padding = (maxValue - minValue) * 0.1;
 
   // 构建数据系列 - 只要字段存在就显示，不管值是否相同
-  const series: any[] = [];
+  const series: LineSeriesOption[] = [];
 
   if (hasBalanceField) {
     // 结余线（可用余额，蓝色面积图）
@@ -144,10 +144,11 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
           backgroundColor: '#6a7985',
         },
       },
-      formatter: (params: any) => {
-        let result = `${params[0].name}<br/>`;
-        params.forEach((param: any) => {
-          result += `${param.marker} ${param.seriesName}: ${param.value.toFixed(2)}<br/>`;
+      formatter: (params: TooltipComponentFormatterCallbackParams) => {
+        const list = (Array.isArray(params) ? params : [params]);
+        let result = `${list[0].name}<br/>`;
+        list.forEach((param) => {
+          result += `${param.marker || ''} ${param.seriesName}: ${Number(param.value).toFixed(2)}<br/>`;
         });
         return result;
       },

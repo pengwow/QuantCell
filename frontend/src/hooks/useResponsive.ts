@@ -2,7 +2,7 @@
  * 响应式布局工具组件
  * 功能：提供屏幕尺寸检测和响应式布局工具函数
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 
 // 响应式断点配置
 export const breakpoints = {
@@ -63,23 +63,14 @@ export const useResponsive = () => {
 };
 
 // 媒体查询工具hook
+// 用 useSyncExternalStore 订阅 matchMedia，既避免在 effect 中同步 setState，也能在 query 变化时正确更新
 export const useMediaQuery = (query: string) => {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    setMatches(mediaQuery.matches);
-
-    const handleChange = (event: MediaQueryListEvent) => {
-      setMatches(event.matches);
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-
-    return () => {
-      mediaQuery.removeEventListener('change', handleChange);
-    };
-  }, [query]);
-
-  return matches;
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const mediaQuery = window.matchMedia(query);
+      mediaQuery.addEventListener('change', onStoreChange);
+      return () => mediaQuery.removeEventListener('change', onStoreChange);
+    },
+    () => window.matchMedia(query).matches
+  );
 };

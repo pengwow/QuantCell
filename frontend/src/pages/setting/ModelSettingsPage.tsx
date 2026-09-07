@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   Card,
   Input,
@@ -72,7 +73,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   xiaomi: "/imgs/model_providers/xiaomi.png",
 };
 
-const getPresetProviders = (t: any): PresetProvider[] => [
+const getPresetProviders = (t: TFunction): PresetProvider[] => [
   {
     id: "openrouter",
     name: "OpenRouter",
@@ -376,11 +377,11 @@ const ModelSettingsPage = () => {
         message.success(result.message || t("api_key_valid") || "API密钥有效");
         // 将获取到的模型列表直接填入当前厂商的模型列表
         if (result.models && Array.isArray(result.models)) {
-          const newModels: Model[] = result.models.map((m: any) => ({
+          const newModels: Model[] = result.models.map((m) => ({
             id: m.id,
             name: m.name || m.id,
           }));
-          setFetchedModels(result.models);
+          setFetchedModels(newModels);
           setProviders((prev) =>
             prev.map((p) =>
               p.id === providerId ? { ...p, models: newModels } : p

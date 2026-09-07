@@ -78,9 +78,9 @@ interface BacktestResponse {
     start_time: string;
     end_time: string;
     initial_cash?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
-  strategy_config: Record<string, any>;
+  strategy_config: Record<string, unknown>;
   metrics: BacktestMetrics[];
   trades: BacktestTrade[];
   equity_curve: EquityCurvePoint[];
@@ -125,8 +125,9 @@ const BacktestDetail = () => {
         const response = await backtestApi.getBacktestDetail(backtestId);
 
         // apiRequest 拦截器已经处理了 ApiResponse，直接返回 data 字段
+        // api 层类型遵循共享的 BacktestDetailData，而本页以 BacktestResponse（后端实际结构）为准，二者字段存在差异需桥接断言
         if (response && response.id) {
-          setBacktestData(response as BacktestResponse);
+          setBacktestData(response as unknown as BacktestResponse);
 
           // 从 backtest_config 中获取交易标的列表
           const symbolKeys = response.backtest_config?.symbols || [];

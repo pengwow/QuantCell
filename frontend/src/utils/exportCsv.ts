@@ -27,7 +27,7 @@ export const buildCsv = <T>(rows: T[], columns: CsvColumn<T>[]): string => {
   const dataRows = rows.map((row) =>
     columns
       .map((col) => {
-        const raw = typeof col.accessor === 'function' ? col.accessor(row) : (row as any)[col.accessor]
+        const raw = typeof col.accessor === 'function' ? col.accessor(row) : row[col.accessor as keyof T]
         return escapeCsvCell(raw)
       })
       .join(',')

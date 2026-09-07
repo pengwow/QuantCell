@@ -11,7 +11,8 @@ import type {
   LogAutoCleanupConfig,
   CleanupResult,
 } from '../pages/setting/types';
-import type { StrategyInfo, StrategyParameter } from '../types/worker';
+import type { StrategyInfo } from '../types/worker';
+import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayRawTrade } from '../types/backtest';
 
 // ============================================
 // 全局401错误处理配置
@@ -74,7 +75,7 @@ export interface StrategyGenerateRequest {
   model_id?: string;
   model_name?: string;
   temperature?: number;
-  template_vars?: Record<string, any>;
+  template_vars?: Record<string, unknown>;
   prompt_category?: 'strategy_generation' | 'indicator_generation';
 }
 
@@ -177,7 +178,7 @@ export interface StrategyTemplate {
   parameters: Array<{
     name: string;
     type: string;
-    default: any;
+    default: unknown;
     description: string;
   }>;
   tags?: string[];
@@ -235,9 +236,35 @@ export interface PerformanceStats {
 }
 
 /**
+ * 指标质量检查提示项
+ */
+export interface IndicatorQualityHint {
+  severity?: string;
+  message?: string;
+  rule?: string;
+}
+
+/**
+ * 技术指标实体
+ */
+export interface Indicator {
+  id: number;
+  name: string;
+  description: string;
+  code: string;
+  user_id: number;
+  is_buy: number;
+  end_time: number;
+  publish_to_community: number;
+  pricing_type: string;
+  price: number;
+  is_encrypted: number;
+}
+
+/**
  * API 响应类型
  */
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   code: number;
   message: string;
   data: T;
@@ -312,15 +339,16 @@ api.interceptors.response.use(
 
     // 如果是blob响应（如文件下载），直接返回
     if (response.config.responseType === 'blob') {
-      return response.data;
+      return response.data as unknown as AxiosResponse;
     }
 
     const { code, message, data } = response.data;
     // 兼容两种成功响应码：code=0（标准业务码）和 code=200（HTTP风格）
     if (code === 0 || code === 200) {
-      return data;
+      // 拦截器已解包业务 data，类型不符由 apiRequest 的泛型断言兜底
+      return data as unknown as AxiosResponse;
     } else {
-        const errorMsg = message || (response.data as any)?.detail || '未知错误';
+        const errorMsg = message || (response.data as { detail?: string })?.detail || '未知错误';
         console.error('API 错误:', errorMsg);
         return Promise.reject(new ApiError(code, errorMsg));
       }
@@ -371,23 +399,23 @@ api.interceptors.response.use(
  * API 请求方法封装
  */
 export const apiRequest = {
-  get: <T = any>(url: string, params?: any, config?: AxiosRequestConfig): Promise<T> => {
+  get: <T = unknown>(url: string, params?: unknown, config?: AxiosRequestConfig): Promise<T> => {
     return api.get(url, { params, ...config }) as Promise<T>;
   },
 
-  post: <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+  post: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> => {
     return api.post(url, data, config) as Promise<T>;
   },
 
-  put: <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+  put: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> => {
     return api.put(url, data, config) as Promise<T>;
   },
 
-  patch: <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+  patch: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> => {
     return api.patch(url, data, config) as Promise<T>;
   },
 
-  delete: <T = any>(url: string, params?: any, config?: AxiosRequestConfig): Promise<T> => {
+  delete: <T = unknown>(url: string, params?: unknown, config?: AxiosRequestConfig): Promise<T> => {
     return api.delete(url, { params, ...config }) as Promise<T>;
   },
 };
@@ -400,11 +428,11 @@ export const strategyApi = {
     return apiRequest.get('/strategy/list');
   },
 
-  createStrategy: (data: any) => {
+  createStrategy: <T>(data: T) => {
     return apiRequest.post('/strategy/create', data);
   },
 
-  updateStrategy: (id: string, data: any) => {
+  updateStrategy: <T>(id: string, data: T) => {
     return apiRequest.put(`/strategy/update/${id}`, data);
   },
 
@@ -420,7 +448,7 @@ export const strategyApi = {
     return apiRequest.get('/strategy/stats');
   },
 
-  uploadStrategyFile: (data: any) => {
+  uploadStrategyFile: <T>(data: T) => {
     return apiRequest.post('/strategy/upload', data);
   },
 
@@ -436,105 +464,39 @@ export const strategyApi = {
    * AI生成策略
    * @param data 生成请求数据
    */
-  generateStrategy: (data: any) => {
+  generateStrategy: <T>(data: T) => {
     return apiRequest.post('/strategy/generate', data);
   },
 };
 
 /**
  * 数据管理相关 API
+ * 已迁移至 ./dataApi 模块统一维护，此处再导出以兼容既有调用方
  */
-export const dataApi = {
-  getCryptoData: () => {
-    return apiRequest.get('/data/crypto');
-  },
-
-  getStockData: () => {
-    return apiRequest.get('/data/stock');
-  },
-
-  startImport: (data: any) => {
-    return apiRequest.post('/data/import', data);
-  },
-
-  startQualityCheck: (data: any) => {
-    return apiRequest.post('/data/quality/check', data);
-  },
-
-  generateVisualization: (data: any) => {
-    return apiRequest.post('/data/visualization/generate', data);
-  },
-
-  getTasks: (params: any) => {
-    return apiRequest.get('/data/tasks', params);
-  },
-
-  getTaskStatus: (taskId: string) => {
-    return apiRequest.get(`/data/task/${taskId}`);
-  },
-
-  downloadCryptoData: (data: any) => {
-    return apiRequest.post('/data/download/crypto', data);
-  },
-
-  getServiceStatus: () => {
-    return apiRequest.get('/data/status');
-  },
-
-  getKlines: (params: any) => {
-    return apiRequest.get('/data/klines', params);
-  },
-
-  getCryptoSymbols: (params?: any) => {
-    return apiRequest.get('/data/crypto/symbols', params);
-  },
-
-  getCollectionSymbols: (params?: any) => {
-    return apiRequest.get('/data-pools/collection/symbols', params);
-  },
-
-  getProducts: (params?: any) => {
-    return apiRequest.get('/data/products', params);
-  },
-
-  checkKlineQuality: (params: any) => {
-    return apiRequest.get('/data/quality/kline', params);
-  },
-
-  getKlineDuplicates: (params: any) => {
-    return apiRequest.get('/data/quality/kline/duplicates', params);
-  },
-
-  resolveKlineDuplicates: (params: any) => {
-    return apiRequest.post('/data/quality/kline/duplicates/resolve', undefined, { params });
-  },
-
-  getQualityOptions: (params: any) => {
-    return apiRequest.get('/data/quality/options', params);
-  },
-};
+export { dataApi } from './dataApi';
+export type { DataPoolRecord, CryptoSymbol } from './dataApi';
 
 /**
  * 配置相关 API
  */
 export const configApi = {
-  getConfig: () => {
+  getConfig: (): Promise<Record<string, unknown>> => {
     return apiRequest.get('/config/');
   },
 
-  updateConfig: (data: any) => {
+  updateConfig: <T>(data: T) => {
     return apiRequest.post('/config/batch', data);
   },
 
-  updatePluginConfig: (pluginName: string, data: any) => {
-    const pluginConfigData = data.map((item: any) => ({
+  updatePluginConfig: <T extends Record<string, unknown>>(pluginName: string, data: T[]) => {
+    const pluginConfigData = data.map((item: T) => ({
       ...item,
       plugin: pluginName
     }));
     return apiRequest.post('/config/batch', pluginConfigData);
   },
 
-  getPluginConfig: (pluginName: string) => {
+  getPluginConfig: (pluginName: string): Promise<Record<string, unknown>> => {
     return apiRequest.get(`/config/plugin/${pluginName}`);
   }
 };
@@ -547,11 +509,11 @@ export const dataPoolApi = {
     return apiRequest.get('/data-pools/', { type });
   },
 
-  createDataPool: (data: any) => {
+  createDataPool: <T>(data: T) => {
     return apiRequest.post('/data-pools/', data);
   },
 
-  updateDataPool: (id: string, data: any) => {
+  updateDataPool: <T>(id: string, data: T) => {
     return apiRequest.put(`/data-pools/${id}`, data);
   },
 
@@ -567,7 +529,7 @@ export const dataPoolApi = {
     return apiRequest.get(`/data-pools/${poolId}/assets`);
   },
 
-  addPoolAssets: (poolId: string, data: any) => {
+  addPoolAssets: <T>(poolId: string, data: T) => {
     return apiRequest.post(`/data-pools/${poolId}/assets`, data);
   },
 };
@@ -584,11 +546,11 @@ export const scheduledTaskApi = {
     return apiRequest.get(`/scheduled-tasks/${taskId}`);
   },
 
-  createTask: (data: any) => {
+  createTask: <T>(data: T) => {
     return apiRequest.post('/scheduled-tasks', data);
   },
 
-  updateTask: (taskId: string, data: any) => {
+  updateTask: <T>(taskId: string, data: T) => {
     return apiRequest.put(`/scheduled-tasks/${taskId}`, data);
   },
 
@@ -613,15 +575,20 @@ export const scheduledTaskApi = {
  * 回测相关 API
  */
 export const backtestApi = {
-  getBacktestList: () => {
+  getBacktestList: (): Promise<{ backtests: BacktestTask[] }> => {
     return apiRequest.get('/backtest/list');
   },
 
-  getStrategies: () => {
+  getStrategies: (): Promise<{ strategies: StrategyInfo[] }> => {
     return apiRequest.get('/strategy/list');
   },
 
-  runBacktest: (data: any, signal?: AbortSignal) => {
+  runBacktest: <T>(data: T, signal?: AbortSignal): Promise<{
+    status: string;
+    message?: string;
+    task_id?: string;
+    data?: { task_id?: string } | null;
+  }> => {
     return apiRequest.post('/backtest/run', data, { timeout: 0, signal });
   },
 
@@ -633,7 +600,7 @@ export const backtestApi = {
     return apiRequest.post('/backtest/analyze', { backtest_id: backtestId });
   },
 
-  getBacktestDetail: (backtestId: string) => {
+  getBacktestDetail: (backtestId: string): Promise<BacktestDetailData> => {
     return apiRequest.get(`/backtest/${backtestId}`);
   },
 
@@ -641,19 +608,29 @@ export const backtestApi = {
     return apiRequest.delete(`/backtest/delete/${backtestId}`);
   },
 
-  uploadStrategy: (data: any) => {
+  uploadStrategy: <T>(data: T) => {
     return apiRequest.post('/backtest/strategy', data);
   },
 
-  createStrategyConfig: (data: any) => {
+  createStrategyConfig: <T>(data: T) => {
     return apiRequest.post('/backtest/strategy/config', data);
   },
 
-  getReplayData: (backtestId: string, symbol?: string) => {
+  getReplayData: (backtestId: string, symbol?: string): Promise<{
+    id?: string;
+    strategy_name?: string;
+    backtest_config?: { symbol?: string; interval?: string };
+    status?: string;
+    created_at?: string;
+    kline_data?: ReplayKline[];
+    trades?: ReplayRawTrade[];
+    equity_curve?: Array<{ date?: string; datetime?: string; equity?: number; [key: string]: unknown }>;
+    metadata?: Record<string, unknown>;
+  }> => {
     return apiRequest.get(`/backtest/${backtestId}/replay`, { symbol });
   },
 
-  getBacktestSymbols: (backtestId: string) => {
+  getBacktestSymbols: (backtestId: string): Promise<{ symbols: string[]; total?: number }> => {
     return apiRequest.get(`/backtest/${backtestId}/symbols`);
   },
 };
@@ -662,27 +639,35 @@ export const backtestApi = {
  * 技术指标相关 API
  */
 export const indicatorApi = {
-  getIndicators: () => {
+  getIndicators: (): Promise<Indicator[]> => {
     return apiRequest.get('/indicators');
   },
 
-  getIndicator: (id: number) => {
+  getIndicator: (id: number): Promise<Indicator> => {
     return apiRequest.get(`/indicators/${id}`);
   },
 
-  createIndicator: (data: any) => {
+  createIndicator: (data: Partial<Indicator>): Promise<Indicator> => {
     return apiRequest.post('/indicators', data);
   },
 
-  updateIndicator: (id: number, data: any) => {
+  updateIndicator: (id: number, data: Partial<Indicator>): Promise<Indicator> => {
     return apiRequest.put(`/indicators/${id}`, data);
   },
 
-  deleteIndicator: (id: number) => {
+  deleteIndicator: (id: number): Promise<void> => {
     return apiRequest.delete(`/indicators/${id}`);
   },
 
-  verifyCode: (code: string) => {
+  verifyCode: (code: string): Promise<{
+    valid: boolean;
+    message?: string;
+    quality?: {
+      score: number;
+      level: string;
+      hints: IndicatorQualityHint[];
+    } | null;
+  }> => {
     return apiRequest.post('/indicators/verify', { code });
   },
 
@@ -697,7 +682,7 @@ export const indicatorApi = {
   generateIndicatorStream: (
     data: { prompt: string; existingCode?: string },
     onThinkingChain?: (data: ThinkingChainEventData) => void,
-    onDone?: (result: { code?: string; raw_content?: string; quality?: { score: number; level: string; hints: any[] } }) => void,
+    onDone?: (result: { code?: string; raw_content?: string; quality?: { score: number; level: string; hints: IndicatorQualityHint[] } }) => void,
     onError?: (error: Error) => void
   ): (() => void) => {
     const token = getAccessToken();
@@ -857,7 +842,7 @@ export const notificationApi = {
   /**
    * 获取通知渠道配置
    */
-  getChannels: () => {
+  getChannels: (): Promise<{ channels: unknown[] }> => {
     return apiRequest.get('/notifications/channels');
   },
 
@@ -865,7 +850,7 @@ export const notificationApi = {
    * 保存通知渠道配置
    * @param channels 通知渠道配置列表
    */
-  saveChannels: (channels: any[]) => {
+  saveChannels: <T>(channels: T[]): Promise<{ channels: T[] }> => {
     return apiRequest.post('/notifications/channels', channels);
   },
 
@@ -874,7 +859,7 @@ export const notificationApi = {
    * @param channelId 渠道ID
    * @param config 渠道配置
    */
-  testChannel: (channelId: string, config: any) => {
+  testChannel: <T>(channelId: string, config: T) => {
     return apiRequest.post('/notifications/test', { channel_id: channelId, config });
   },
 };
@@ -894,7 +879,7 @@ export const aiModelApi = {
    * 创建AI模型配置
    * @param data 模型配置数据
    */
-  createModel: (data: any) => {
+  createModel: <T>(data: T) => {
     return apiRequest.post('/ai-models/', data);
   },
 
@@ -903,7 +888,7 @@ export const aiModelApi = {
    * @param id 模型ID
    * @param data 模型配置数据
    */
-  updateModel: (id: string, data: any) => {
+  updateModel: <T>(id: string, data: T) => {
     return apiRequest.put(`/ai-models/${id}`, data);
   },
 
@@ -919,7 +904,19 @@ export const aiModelApi = {
    * 检查模型可用性
    * @param data 检查请求数据
    */
-  checkAvailability: (data: any) => {
+  checkAvailability: (data: {
+    provider: string;
+    api_key?: string;
+    api_host?: string;
+    proxy_enabled?: boolean;
+    proxy_url?: string;
+    proxy_username?: string;
+    proxy_password?: string;
+  }): Promise<{
+    available: boolean;
+    message?: string;
+    models?: Array<{ id: string; name?: string; [key: string]: unknown }>;
+  }> => {
     return apiRequest.post('/ai-models/check', data);
   },
 
@@ -931,10 +928,13 @@ export const aiModelApi = {
   },
 
   /**
-   * 获取默认提供商的模型列表
+   * 获取默认提供商的模型
    * 返回默认提供商中 is_enabled 为 true 的模型列表
    */
-  getDefaultProviderModels: () => {
+  getDefaultProviderModels: (): Promise<{
+    provider: { id: string; name: string; provider?: string };
+    model: { id: string; name: string; provider?: string };
+  }> => {
     return apiRequest.get('/ai-models/default-provider/models');
   },
 
@@ -989,7 +989,7 @@ export const aiModelApi = {
   generateStrategyStream: (
     data: StrategyGenerateRequest,
     onThinkingChain?: (data: ThinkingChainEventData) => void,
-    onDone?: (result: { code?: string; raw_content?: string; metadata?: any }) => void,
+    onDone?: (result: { code?: string; raw_content?: string; metadata?: StrategyGenerateStreamResponse['metadata'] }) => void,
     onError?: (error: Error) => void
   ): (() => void) => {
     const token = getAccessToken();
@@ -1156,7 +1156,7 @@ export const aiModelApi = {
    */
   generateFromTemplate: (
     templateId: string,
-    params: Record<string, any>
+    params: Record<string, unknown>
   ): Promise<StrategyGenerateResponse> => {
     return apiRequest.post('/ai-models/strategy/generate-from-template', {
       template_id: templateId,
@@ -1236,7 +1236,7 @@ export const exchangeConfigApi = {
    * 创建交易所配置
    * @param data 交易所配置数据
    */
-  createConfig: (data: any) => {
+  createConfig: <T>(data: T) => {
     return apiRequest.post('/exchange-configs/', data);
   },
 
@@ -1245,7 +1245,7 @@ export const exchangeConfigApi = {
    * @param key 交易所英文名称（如 "binance", "okx"）
    * @param data 交易所配置数据
    */
-  updateConfig: (key: string, data: any) => {
+  updateConfig: <T>(key: string, data: T) => {
     return apiRequest.put(`/exchange-configs/${key}`, data);
   },
 
@@ -1281,7 +1281,7 @@ export const envVarApi = {
    * 批量保存环境变量
    * @param items 环境变量列表
    */
-  save: (items: any[]) => {
+  save:  <T>(items: T[]) => {
     return apiRequest.post('/env-vars/', items);
   },
 
@@ -1316,7 +1316,9 @@ export const exchangeApi = {
       status: string;
       message: string;
       response_time_ms?: number;
-      details?: any;
+      details?: {
+        tests?: Record<string, { success?: boolean; error?: string; skipped?: boolean; reason?: string }>;
+      };
     }>('/exchanges/test-connection', data);
   },
 

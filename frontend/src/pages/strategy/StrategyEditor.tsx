@@ -42,10 +42,11 @@ interface Strategy {
   file_path: string;
   description: string;
   version: string;
+  strategy_type?: 'rule' | 'rl';
   params: Array<{
     name: string;
     type: string;
-    default: any;
+    default: unknown;
     description: string;
     required: boolean;
   }>;
@@ -118,8 +119,8 @@ const StrategyEditor = () => {
       code: generatedCode,
     };
 
-    // 设置策略类型
-    (newStrategy as any).strategy_type = isRL ? 'rl' : 'rule';
+    // 设置策略类型（根据代码特征判断 RL 策略或规则策略）
+    newStrategy.strategy_type = isRL ? 'rl' : 'rule';
 
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
@@ -627,7 +628,7 @@ class NewStrategy(StrategyBase):
             version: selectedStrategy.version,
             description: selectedStrategy.description,
             params: selectedStrategy.params,
-            strategy_type: (selectedStrategy as any).strategy_type || 'rule',
+            strategy_type: selectedStrategy.strategy_type || 'rule',
           });
 
           message.success(t('strategy_saved') || '策略保存成功');

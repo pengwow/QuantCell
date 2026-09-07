@@ -69,6 +69,7 @@ import type { MenuProps } from 'antd';
 import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
+import type { DataPoolRecord, CryptoSymbol, TaskDetailItem, KlineQualityReport } from '@/api/dataApi';
 import { archiveApi } from '@/api/archiveApi';
 import { derivApi } from '@/api/derivApi';
 import { wsService } from '@/services/websocketService';
@@ -81,6 +82,7 @@ import type {
   ArchiveMeta,
   ArchiveRow,
   DerivKind,
+  DataKind,
 } from '@/types/data';
 import {
   ARCHIVE_KINDS,
@@ -133,7 +135,7 @@ const MARKET_TAG_COLOR: Record<string, string> = {
 interface TaskCardProps {
   task: Task;
   isCurrent: boolean;
-  taskProgressList?: any[];
+  taskProgressList?: TaskDetailItem[];
   isProgressExpanded?: boolean;
   setIsProgressExpanded?: (expanded: boolean) => void;
 }
@@ -146,7 +148,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   setIsProgressExpanded,
 }) => {
   const [expanded, setExpanded] = useState(false);
-  const [details, setDetails] = useState<any[]>([]);
+  const [details, setDetails] = useState<TaskDetailItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   const displayList = externalProgressList.length > 0 ? externalProgressList : details;
@@ -154,8 +156,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const progress = task.progress || { percentage: 0, total: 0, completed: 0, failed: 0, current: '' };
 
   // 从 params 提取数据类型和市场
-  const dataType: string = task.params?.data_type || task.params?.dataType || 'kline';
-  const market: string = task.params?.market || task.params?.candle_type || 'spot';
+  const dataType: string = String(task.params?.data_type ?? task.params?.dataType ?? 'kline');
+  const market: string = String(task.params?.market ?? task.params?.candle_type ?? 'spot');
   const dataTypeLabel = DATA_KIND_LABEL[dataType as keyof typeof DATA_KIND_LABEL] || dataType;
 
   // 获取任务详情
@@ -256,12 +258,12 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
           {displayList.length > 0 ? (
             <>
-              {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask: any) => (
-                <div key={subTask.task_key || subTask.symbol} style={{ marginBottom: 6 }}>
+              {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => (
+                <div key={String(subTask.task_key ?? subTask.symbol ?? '')} style={{ marginBottom: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                     <Space size={4}>
-                      <Text style={{ fontSize: 12, fontWeight: 500 }}>{subTask.symbol}</Text>
-                      {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{subTask.interval}</Tag>}
+                      <Text style={{ fontSize: 12, fontWeight: 500 }}>{String(subTask.symbol ?? '')}</Text>
+                      {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{String(subTask.interval)}</Tag>}
                     </Space>
                     <Text style={{ fontSize: 11, color: '#8c8c8c' }}>{subTask.percentage?.toFixed(1)}%</Text>
                   </div>
@@ -269,8 +271,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
                     percent={subTask.percentage || 0}
                     size="small"
                     showInfo={false}
-                    status={task.status === 'running' && subTask.percentage < 100 ? 'active' : undefined}
-                    strokeColor={subTask.percentage >= 100 ? '#52c41a' : undefined}
+                    status={task.status === 'running' && (subTask.percentage ?? 0) < 100 ? 'active' : undefined}
+                    strokeColor={(subTask.percentage ?? 0) >= 100 ? '#52c41a' : undefined}
                   />
                 </div>
               ))}
@@ -338,6 +340,18 @@ interface SymbolData {
   rank?: number;
 }
 
+// 市场行情点（/data/crypto/market-data 返回的单条行情）
+interface MarketDataPoint {
+  symbol?: string;
+  price?: number;
+  price_change_24h?: number;
+  price_change_percent_24h?: number;
+  volume_24h?: number;
+  high_24h?: number;
+  low_24h?: number;
+  [key: string]: unknown;
+}
+
 // 视图类型
 type ViewType = 'list' | 'card';
 
@@ -357,8 +371,23 @@ const DataManagementPage = () => {
   const location = useLocation();
   const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
 
-  // 从路由状态恢复页面状态
-  const restoredState = location.state as { pageState?: Record<string, any> } | null;
+  // 从路由状态恢复分页/筛选/视图等页面状态
+  const restoredState = location.state as
+    | {
+        pageState?: {
+          activeTab?: string;
+          activeGroupId?: number;
+          searchText?: string;
+          quoteFilter?: string;
+          viewType?: ViewType;
+          sortField?: SortField;
+          sortOrder?: SortOrder;
+          selectedSymbols?: string[];
+          currentPage?: number;
+          pageSize?: number;
+        };
+      }
+    | null;
 
   // 从 URL 参数读取 Tab 状态，优先从恢复的状态读取
   const tabFromUrl = searchParams.get('tab');
@@ -438,12 +467,18 @@ const DataManagementPage = () => {
   const [selectedSymbolForQuality, setSelectedSymbolForQuality] = useState<string>('');
   const [selectedIntervalForQuality, setSelectedIntervalForQuality] = useState<string>('');
   const [qualityLoading, setQualityLoading] = useState(false);
-  const [qualityDetail, setQualityDetail] = useState<any>(null);
+  const [qualityDetail, setQualityDetail] = useState<KlineQualityReport | null>(null);
 
   // ==================== 数据清理状态 ====================
   const [cleanForm] = Form.useForm();
   const [cleanLoading, setCleanLoading] = useState(false);
-  const [cleanResult, setCleanResult] = useState<any>(null);
+  const [cleanResult, setCleanResult] = useState<{
+    deleted_count?: number;
+    symbol?: string;
+    interval?: string;
+    clean_type?: string;
+    total_before?: number;
+  } | null>(null);
   const [isCleanModalOpen, setIsCleanModalOpen] = useState(false);
 
   // ==================== 数据采集状态 ====================
@@ -455,7 +490,7 @@ const DataManagementPage = () => {
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('pending');
   const [taskProgress, setTaskProgress] = useState<number>(0);
   // 任务进度列表 - 支持多时间周期多货币对
-  const [taskProgressList, setTaskProgressList] = useState<any[]>([]);
+  const [taskProgressList, setTaskProgressList] = useState<TaskDetailItem[]>([]);
   // 展开/收起状态
   const [isProgressExpanded, setIsProgressExpanded] = useState<boolean>(false);
   // 任务列表加载状态 & 状态筛选
@@ -612,14 +647,14 @@ const DataManagementPage = () => {
       console.log('getDataPools response:', response);
       
       // 处理可能的不同返回格式
-      let pools: any[] = [];
+      let pools: DataPoolRecord[] = [];
       if (Array.isArray(response)) {
         pools = response;
       } else if (response && Array.isArray(response.data)) {
         pools = response.data;
       } else if (response && typeof response === 'object') {
         // 尝试从各种可能的字段获取数据
-        pools = response.data || response.pools || response.items || [];
+        pools = response.data ?? response.pools ?? response.items ?? [];
       }
       
       console.log('pools:', pools);
@@ -627,31 +662,31 @@ const DataManagementPage = () => {
       if (pools.length > 0) {
         // 转换后端数据格式为前端格式
         const groups: FavoriteGroup[] = await Promise.all(
-          pools.map(async (pool: any) => {
+          pools.map(async (pool) => {
             // 获取每个组的资产
             let symbolIds: string[] = [];
             try {
-              const assetsResponse = await dataApi.getDataPoolAssets(pool.id);
+              const assetsResponse = await dataApi.getDataPoolAssets(Number(pool.id));
               console.log(`assets for pool ${pool.id}:`, assetsResponse);
-              if (Array.isArray(assetsResponse?.assets)) {
-                symbolIds = assetsResponse.assets;
-              } else if (Array.isArray(assetsResponse)) {
+              if (Array.isArray(assetsResponse)) {
                 symbolIds = assetsResponse;
+              } else if (assetsResponse && Array.isArray(assetsResponse.assets)) {
+                symbolIds = assetsResponse.assets;
               }
             } catch (e) {
               console.error(`获取资产失败 pool ${pool.id}:`, e);
             }
             
             return {
-              id: pool.id,
+              id: Number(pool.id),
               name: pool.name,
               description: pool.description,
               color: pool.color || '#1890ff',
               symbolIds: symbolIds,
-              isDefault: pool.is_default || pool.isDefault || false,
-              sortOrder: pool.id,
-              createdAt: pool.created_at || pool.createdAt,
-              updatedAt: pool.updated_at || pool.updatedAt,
+              isDefault: pool.is_default || false,
+              sortOrder: Number(pool.id),
+              createdAt: pool.created_at || '',
+              updatedAt: pool.updated_at || '',
             };
           })
         );
@@ -689,11 +724,13 @@ const DataManagementPage = () => {
   useEffect(() => {
     console.log('[DataManagement] 注册 WebSocket 消息监听');
 
-    const handleTaskProgress = (data: any) => {
-      console.log('[DataManagement] 收到任务进度:', data, '当前任务ID:', currentTaskIdRef.current);
+    const handleTaskProgress = (data: unknown) => {
+      // WebSocket 消息结构未在 wsService 类型中定义，这里按消费字段收窄
+      const msg = data as { task_id?: string; progress?: TaskDetailItem };
+      console.log('[DataManagement] 收到任务进度:', msg, '当前任务ID:', currentTaskIdRef.current);
       // 使用 ref 获取最新的 currentTaskId，避免闭包问题
-      if (data.task_id === currentTaskIdRef.current) {
-        const progress = data.progress;
+      if (msg.task_id === currentTaskIdRef.current) {
+        const progress = msg.progress;
         console.log('[DataManagement] 更新任务进度:', progress?.percentage, progress?.task_key);
 
         // 更新任务进度列表 - 按 task_key 去重
@@ -718,16 +755,17 @@ const DataManagementPage = () => {
           });
         }
       } else {
-        console.log('[DataManagement] 任务ID不匹配，忽略:', data.task_id, '!==', currentTaskIdRef.current);
+        console.log('[DataManagement] 任务ID不匹配，忽略:', msg.task_id, '!==', currentTaskIdRef.current);
       }
     };
 
-    const handleTaskStatus = (data: any) => {
-      console.log('[DataManagement] 收到任务状态:', data);
+    const handleTaskStatus = (data: unknown) => {
+      const msg = data as { task_id?: string; status?: TaskStatus };
+      console.log('[DataManagement] 收到任务状态:', msg);
       // 使用 ref 获取最新的 currentTaskId，避免闭包问题
-      if (data.task_id === currentTaskIdRef.current) {
-        setTaskStatus(data.status);
-        if (data.status === 'completed' || data.status === 'failed') {
+      if (msg.task_id === currentTaskIdRef.current) {
+        setTaskStatus(msg.status ?? 'pending');
+        if (msg.status === 'completed' || msg.status === 'failed') {
           fetchCollectionTasks();
         }
       }
@@ -757,16 +795,16 @@ const DataManagementPage = () => {
       });
 
       // 处理后端返回的 ApiResponse 格式 { code, message, data: { total, symbols } }
-      const responseData = response?.data || response;
+      const responseData = (response?.data || response) as { symbols?: CryptoSymbol[]; items?: CryptoSymbol[] };
       // 后端返回的是 symbols 字段，不是 items
-      const symbolList = responseData?.symbols || responseData?.items || responseData;
+      const symbolList = responseData?.symbols || responseData?.items;
 
       if (symbolList && Array.isArray(symbolList)) {
-        const symbolsData: SymbolData[] = symbolList.map((item: any, index: number) => ({
+        const symbolsData: SymbolData[] = symbolList.map((item, index) => ({
           id: String(item.id || index),
           symbol: item.symbol,
-          baseAsset: item.base,
-          quoteAsset: item.quote,
+          baseAsset: item.base ?? '',
+          quoteAsset: item.quote ?? '',
           price: null, // 初始为空，显示加载动画
           priceChange24h: null,
           priceChangePercent24h: null,
@@ -812,7 +850,7 @@ const DataManagementPage = () => {
     try {
       // 分批获取，每批最多100个
       const batchSize = 100;
-      const newMarketDataMap: Record<string, any> = {};
+      const newMarketDataMap: Record<string, MarketDataPoint> = {};
 
       for (let i = 0; i < symbolList.length; i += batchSize) {
         const batch = symbolList.slice(i, i + batchSize);
@@ -822,11 +860,11 @@ const DataManagementPage = () => {
         });
 
         // 处理后端返回的 ApiResponse 格式 { code, message, data: [...] }
-        const responseData = response?.data || response;
-        const marketDataList = Array.isArray(responseData) ? responseData : [];
+        const rawData = Array.isArray(response) ? response : response?.data;
+        const marketDataList = Array.isArray(rawData) ? rawData : [];
         if (marketDataList.length > 0) {
-          marketDataList.forEach((data: any) => {
-            newMarketDataMap[data.symbol] = data;
+          marketDataList.forEach((data) => {
+            newMarketDataMap[String(data.symbol)] = data as MarketDataPoint;
           });
         }
       }
@@ -837,12 +875,12 @@ const DataManagementPage = () => {
         if (marketData) {
           return {
             ...symbol,
-            price: marketData.price,
-            priceChange24h: marketData.price_change_24h,
-            priceChangePercent24h: marketData.price_change_percent_24h,
-            volume24h: marketData.volume_24h,
-            high24h: marketData.high_24h,
-            low24h: marketData.low_24h,
+            price: marketData.price ?? null,
+            priceChange24h: marketData.price_change_24h ?? null,
+            priceChangePercent24h: marketData.price_change_percent_24h ?? null,
+            volume24h: marketData.volume_24h ?? null,
+            high24h: marketData.high_24h ?? null,
+            low24h: marketData.low_24h ?? null,
             hasData: true,
             dataQuality: 'good',
           };
@@ -909,19 +947,16 @@ const DataManagementPage = () => {
       return;
     }
     try {
-      const response = await dataApi.deleteDataPool(groupId);
-      if (response.code === 0) {
-        message.success('自选组已删除');
-        await fetchFavoriteGroups(); // 刷新列表
-        if (activeGroupId === groupId) {
-          // 删除当前激活的组时，切换到第一个组
-          const remainingGroups = favoriteGroups.filter(g => g.id !== groupId);
-          if (remainingGroups.length > 0) {
-            setActiveGroupId(remainingGroups[0].id);
-          }
+      // 响应拦截器已解包：非 0 code 会走 reject 抛错，走到这里即成功
+      await dataApi.deleteDataPool(groupId);
+      message.success('自选组已删除');
+      await fetchFavoriteGroups(); // 刷新列表
+      if (activeGroupId === groupId) {
+        // 删除当前激活的组时，切换到第一个组
+        const remainingGroups = favoriteGroups.filter(g => g.id !== groupId);
+        if (remainingGroups.length > 0) {
+          setActiveGroupId(remainingGroups[0].id);
         }
-      } else {
-        message.error(response.message || '删除失败');
       }
     } catch (error) {
       message.error('删除自选组失败');
@@ -1097,7 +1132,7 @@ const DataManagementPage = () => {
   const fetchCollectionTasks = async (silent = false) => {
     if (!silent) setTaskListLoading(true);
     try {
-      const params: Record<string, any> = {
+      const params: Record<string, unknown> = {
         page: 1,
         page_size: 20,
         sort_by: 'created_at',
@@ -1584,7 +1619,7 @@ const DataManagementPage = () => {
                 key="delete"
                 title={t('confirm_delete') || '确定删除此自选组？'}
                 description={t('delete_description') || '组内的货币对不会被删除'}
-                onConfirm={(e) => handleDeleteGroup(group.id, e as any)}
+                onConfirm={(e) => handleDeleteGroup(group.id, e)}
                 disabled={group.isDefault}
               >
                 <Button
@@ -2012,7 +2047,7 @@ const DataManagementPage = () => {
   const renderArchiveBrowser = () => {
     const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[archiveKind as string] ?? archiveKind;
     // 仅当 kind 是需要 interval 的 K 线类时显示 interval selector
-    const needInterval = INTERVAL_REQUIRED_KINDS.includes(archiveKind as any);
+    const needInterval = INTERVAL_REQUIRED_KINDS.includes(archiveKind as DataKind);
     return (
     <Row gutter={[16, 16]}>
       {/* 左侧树形导航 */}
@@ -2758,7 +2793,7 @@ const DataManagementPage = () => {
   // 渲染数据采集
   const renderCollection = () => {
     // 判断当前 data_type 是否需要 interval
-    const needInterval = INTERVAL_REQUIRED_KINDS.includes(collectionDataType as any);
+    const needInterval = INTERVAL_REQUIRED_KINDS.includes(collectionDataType as DataKind);
     // 衍生数据仅支持 um/cm，market 里 spot 要禁用
     const FUTURES_ONLY = new Set(['fundingRate', 'openInterest']);
     const spotDisabled = FUTURES_ONLY.has(collectionDataType);
@@ -3180,7 +3215,7 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: '12px 0' }} />
                               <Text strong style={{ color: '#ff4d4f' }}>缺失值统计:</Text>
                               <div style={{ marginTop: 8 }}>
-                                {Object.entries(qualityDetail.details.integrity.missing_values).map(([key, value]: [string, any]) => (
+                                {Object.entries(qualityDetail.details.integrity.missing_values).map(([key, value]) => (
                                   <div key={key} style={{ marginBottom: 4 }}>
                                     <Tag color="warning">{key}</Tag>
                                     <Text type="secondary"> 缺失 {value} 个</Text>
@@ -3219,7 +3254,7 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: '12px 0' }} />
                               <Text strong>缺失时间段:</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
-                                {qualityDetail.details.continuity.missing_time_ranges.map((range: any, index: number) => (
+                                {qualityDetail.details.continuity.missing_time_ranges.map((range, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
                                     <Tag style={{ fontSize: 12 }}>{range.start}</Tag> ~ <Tag style={{ fontSize: 12 }}>{range.end}</Tag>
                                     <Text type="secondary" style={{ marginLeft: 8 }}>
@@ -3262,12 +3297,12 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: '12px 0' }} />
                               <Text strong>重复详情:</Text>
                               <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
-                                {qualityDetail.details.uniqueness.duplicate_details.map((detail: any, index: number) => (
+                                {qualityDetail.details.uniqueness.duplicate_details.map((detail, index: number) => (
                                   <Card key={index} size="small" style={{ marginBottom: 8 }}>
                                     <Text strong>时间: {detail.key}</Text>
                                     <Text style={{ marginLeft: 8 }} type="secondary">({detail.count} 条重复)</Text>
                                     <div style={{ marginTop: 8 }}>
-                                      {detail.records.map((record: any, rIndex: number) => (
+                                      {(detail.records ?? []).map((record, rIndex: number) => (
                                         <div key={rIndex} style={{ fontSize: 12, marginBottom: 4, padding: '4px 8px', background: '#f5f5f5', borderRadius: 4 }}>
                                           <Text type="secondary">#{record.row_number}</Text>
                                           <Text style={{ marginLeft: 8 }}>开: {record.open}</Text>
@@ -3332,7 +3367,7 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: '12px 0' }} />
                               <Text strong style={{ color: '#faad14' }}>异常涨跌幅记录 (&gt;±20%):</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
-                                {qualityDetail.details.validity.abnormal_price_changes.map((item: any, index: number) => (
+                                {qualityDetail.details.validity.abnormal_price_changes.map((item, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
                                     <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
                                     <Text type="secondary" style={{ marginLeft: 8 }}>
@@ -3348,7 +3383,7 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: '12px 0' }} />
                               <Text strong style={{ color: '#faad14' }}>异常成交量记录 (&gt;30日均量10倍):</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
-                                {qualityDetail.details.validity.abnormal_volumes.map((item: any, index: number) => (
+                                {qualityDetail.details.validity.abnormal_volumes.map((item, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
                                     <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
                                     <Text type="secondary" style={{ marginLeft: 8 }}>
@@ -3364,7 +3399,7 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: '12px 0' }} />
                               <Text strong style={{ color: '#faad14' }}>价格跳空记录 (&gt;±5%):</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
-                                {qualityDetail.details.validity.price_gaps.map((item: any, index: number) => (
+                                {qualityDetail.details.validity.price_gaps.map((item, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
                                     <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
                                     <Text type="secondary" style={{ marginLeft: 8 }}>

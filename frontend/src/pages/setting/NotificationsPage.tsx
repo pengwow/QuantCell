@@ -17,7 +17,7 @@ import {
 import {
   IconMail,
 } from "@tabler/icons-react";
-import { testNotificationChannel } from "../../services/notificationService";
+import { testNotificationChannel, type NotificationTestResult } from "../../services/notificationService";
 import { configApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 import { IconPlugConnected } from "@tabler/icons-react";
@@ -26,6 +26,22 @@ const { Text } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
+// 通知渠道的详细配置结构（各渠道字段的并集，按渠道 id 分支出对应字段）
+interface NotificationChannelConfig {
+  smtpHost?: string;
+  smtpPort?: number | string;
+  security?: string;
+  ignoreSSL?: boolean;
+  username?: string;
+  password?: string;
+  senderEmail?: string;
+  senderName?: string;
+  recipientEmail?: string;
+  webhookUrl?: string;
+  useCustomFormat?: boolean;
+  messageFormat?: string;
+}
+
 // 通知渠道类型
 interface NotificationChannel {
   id: string;
@@ -33,7 +49,7 @@ interface NotificationChannel {
   icon: string;
   enabled: boolean;
   isDefault: boolean;
-  config: Record<string, any>;
+  config: NotificationChannelConfig;
 }
 
 // 通知渠道图片路径映射
@@ -63,7 +79,7 @@ const PRESET_CHANNELS = [
 ];
 
 // 默认配置
-const DEFAULT_CONFIGS: Record<string, any> = {
+const DEFAULT_CONFIGS: Record<string, NotificationChannelConfig> = {
   email: {
     smtpHost: "",
     smtpPort: 465,
@@ -113,7 +129,7 @@ const NotificationsPage = () => {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [testingChannel, setTestingChannel] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<NotificationTestResult | null>(null);
 
   // 从后端API加载配置
   useEffect(() => {
@@ -215,7 +231,7 @@ const NotificationsPage = () => {
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
 
   // 更新渠道具体配置项
-  const updateChannelConfig = (channelId: string, key: string, value: any) => {
+  const updateChannelConfig = (channelId: string, key: string, value: string | number | boolean) => {
     setChannels((prev) =>
       prev.map((c) =>
         c.id === channelId

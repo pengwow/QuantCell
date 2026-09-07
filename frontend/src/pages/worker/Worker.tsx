@@ -45,13 +45,18 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import type { TooltipComponentFormatterCallbackParams } from 'echarts';
+import type { MenuProps } from 'antd';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
 import { triggerOptimize } from '../../api/workerApi';
-import type { Worker as WorkerType } from '../../types/worker';
+import type { Worker as WorkerType, ApiResponse } from '../../types/worker';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
+
+// 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
+type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
 
 const { Option } = Select;
 const { Search } = Input;
@@ -189,9 +194,10 @@ const Worker = () => {
       },
       tooltip: {
         trigger: 'axis',
-        formatter: (params: any) => {
-          const param = params[0];
-          return `${param.name}<br/>${t('return_rate')}: ${param.value.toFixed(2)}%`;
+        formatter: (params: TooltipComponentFormatterCallbackParams) => {
+          const items = Array.isArray(params) ? params : [params];
+          const param = items[0];
+          return `${param?.name || ''}<br/>${t('return_rate')}: ${Number(param?.value ?? 0).toFixed(2)}%`;
         },
       },
       series: [
@@ -374,7 +380,7 @@ const Worker = () => {
   const handleOptimize = useCallback(async (worker: WorkerType) => {
     try {
       const result = await triggerOptimize(worker.id);
-      const data = result as any;
+      const data = result as ApiResponse<{ strategy_type?: string }>;
       apiMessage.success(`优化完成 (${data?.data?.strategy_type || 'rule'})`);
       fetchWorkers();
     } catch (error) {
@@ -401,9 +407,8 @@ const Worker = () => {
           `部分成功: ${successCount} 个启动成功, ${failCount} 个失败`,
           5
         );
-        if (result?.results) {
-          console.table(result.results.filter((r: any) => !r.success));
-        }
+        // 注：BatchOperationResponse 仅含 success/failed/total，无 results 明细字段，
+        // 失败详情由 failed 映射 (workerId -> 错误信息) 提供
       }
       setSelectedRowKeys([]);
     } catch (error) {
@@ -1019,7 +1024,7 @@ const Worker = () => {
                         key: 'action',
                         width: 100,
                         fixed: 'right',
-                        render: (_: any, worker: WorkerType) => (
+                        render: (_: unknown, worker: WorkerType) => (
                           <Space size="small">
                             <Tooltip title={t('detail') || '详情'}>
                               <Button
@@ -1035,32 +1040,32 @@ const Worker = () => {
                             <Dropdown
                               menu={{
                                 items: [
-                                  ...(worker.status === 'stopped' ? [{
-                                    key: 'start',
-                                    label: t('start'),
-                                    icon: <CaretRightOutlined />,
-                                    disabled: submittingWorkerIds.has(worker.id),
-                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleStart(worker, e.domEvent); },
-                                  }] : []),
-                                  ...(worker.status === 'running' ? [{
-                                    key: 'stop',
-                                    label: t('stop'),
-                                    icon: <StopOutlined />,
-                                    disabled: submittingWorkerIds.has(worker.id),
-                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleStop(worker, e.domEvent); },
-                                  }] : []),
-                                  {
-                                    key: 'restart',
-                                    label: t('restart'),
-                                    icon: <ReloadOutlined />,
-                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleRestart(worker, e.domEvent); },
-                                  },
-                                  {
-                                    key: 'edit',
-                                    label: t('edit'),
-                                    icon: <EditOutlined />,
-                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleEdit(worker, e.domEvent); },
-                                  },
+                  ...(worker.status === 'stopped' ? [{
+                    key: 'start',
+                    label: t('start'),
+                    icon: <CaretRightOutlined />,
+                    disabled: submittingWorkerIds.has(worker.id),
+                    onClick: (e: MenuItemClickEvent) => { e.domEvent.stopPropagation(); handleStart(worker, e.domEvent as React.MouseEvent); },
+                  }] : []),
+                  ...(worker.status === 'running' ? [{
+                    key: 'stop',
+                    label: t('stop'),
+                    icon: <StopOutlined />,
+                    disabled: submittingWorkerIds.has(worker.id),
+                    onClick: (e: MenuItemClickEvent) => { e.domEvent.stopPropagation(); handleStop(worker, e.domEvent as React.MouseEvent); },
+                  }] : []),
+                  {
+                    key: 'restart',
+                    label: t('restart'),
+                    icon: <ReloadOutlined />,
+                    onClick: (e) => { e.domEvent.stopPropagation(); handleRestart(worker, e.domEvent as React.MouseEvent); },
+                  },
+                  {
+                    key: 'edit',
+                    label: t('edit'),
+                    icon: <EditOutlined />,
+                    onClick: (e) => { e.domEvent.stopPropagation(); handleEdit(worker, e.domEvent as React.MouseEvent); },
+                  },
                                   {
                                     key: 'delete',
                                     label: t('delete'),

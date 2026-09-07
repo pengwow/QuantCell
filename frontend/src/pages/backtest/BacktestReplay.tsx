@@ -20,7 +20,7 @@ import {
   Divider,
   Tooltip,
 } from 'antd';
-import TradeTable from '../../components/TradeTable';
+import TradeTable, { type Trade as TradeTableTrade } from '../../components/TradeTable';
 import {
   CaretRightOutlined,
   PauseOutlined,
@@ -31,9 +31,10 @@ import {
   StockOutlined,
 } from '@ant-design/icons';
 import { init, dispose, registerLocale, registerOverlay } from 'klinecharts';
+import type { Chart, DataLoaderGetBarsParams, KLineData, PeriodType } from 'klinecharts';
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
-import type { ReplayData, SymbolInfo } from '../../types/backtest';
+import type { ReplayData, ReplayKline, SymbolInfo } from '../../types/backtest';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -79,9 +80,22 @@ const formatTime = (seconds: number): string => {
 };
 
 /**
+ * 回放 K 线与 klinecharts 的 KLineData 字段存在差异（时间字段名、类型），统一转换为数值格式
+ */
+const toChartKlines = (klines: ReplayKline[]): KLineData[] =>
+  klines.map((k) => ({
+    timestamp: Number(k.timestamp ?? k.time) || 0,
+    open: Number(k.open) || 0,
+    high: Number(k.high) || 0,
+    low: Number(k.low) || 0,
+    close: Number(k.close) || 0,
+    volume: Number(k.volume) || 0,
+  }));
+
+/**
  * 解析周期字符串为klinecharts需要的格式
  */
-const parseInterval = (interval: string): { span: number; type: any } => {
+const parseInterval = (interval: string): { span: number; type: PeriodType } => {
   const match = interval.match(/\d+/);
   const span = match ? parseInt(match[0]) : 1;
   const unit = interval.replace(/\d+/, '');
@@ -137,7 +151,7 @@ const BacktestReplay = () => {
 
   // 图表引用
   const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<any>(null);
+  const chartInstance = useRef<Chart | null>(null);
   const playTimerRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
 
@@ -233,7 +247,7 @@ const BacktestReplay = () => {
 
       const mappedData = {
         klines: data.kline_data || [],
-        trades: (data.trades || []).map((trade: any, index: number) => {
+        trades: (data.trades || []).map((trade, index) => {
           // 回测引擎返回的字段名: trade_id, side, direction, quantity, price, timestamp, formatted_time
           // 需要映射到前端期望的字段名: EntryTime, ExitTime, EntryPrice, ExitPrice, PnL, Direction
 
@@ -317,9 +331,10 @@ const BacktestReplay = () => {
       }
 
       const chart = init(chartRef.current, { locale: 'zh-CN' });
-      chartInstance.current = chart as any;
 
       if (chart) {
+        chartInstance.current = chart;
+
         chart.setStyles({
           candle: {
             tooltip: {
@@ -337,17 +352,17 @@ const BacktestReplay = () => {
         chart.setPeriod({ span: periodInfo.span, type: periodInfo.type });
 
         chart.setDataLoader({
-          getBars: (params: any) => {
+          getBars: (params: DataLoaderGetBarsParams) => {
             const currentKlines = replayData.klines.slice(0, currentIndex + 1);
-            params.callback(currentKlines);
+            params.callback(toChartKlines(currentKlines));
           },
         });
 
         if (replayData.klines && replayData.klines.length > 0) {
           const initialKlines = replayData.klines.slice(0, 1);
           chart.setDataLoader({
-            getBars: (params: any) => {
-              params.callback(initialKlines);
+            getBars: (params: DataLoaderGetBarsParams) => {
+              params.callback(toChartKlines(initialKlines));
             },
           });
         }
@@ -363,18 +378,18 @@ const BacktestReplay = () => {
    * 更新图表数据
    */
   const updateChart = (index: number) => {
-    if (!chartInstance.current || !replayData || !replayData.klines || replayData.klines.length === 0) return;
+    const chart = chartInstance.current;
+    if (!chart || !replayData || !replayData.klines || replayData.klines.length === 0) return;
 
     try {
-      const chart = chartInstance.current;
       const visibleKlineCount = 100;
       const startIndex = Math.max(0, index - visibleKlineCount + 1);
       const endIndex = index + 1;
       const currentKlines = replayData.klines.slice(startIndex, endIndex);
 
       chart.setDataLoader({
-        getBars: (params: any) => {
-          params.callback(currentKlines);
+        getBars: (params: DataLoaderGetBarsParams) => {
+          params.callback(toChartKlines(currentKlines));
         },
       });
 
@@ -382,8 +397,9 @@ const BacktestReplay = () => {
 
       const currentKline = replayData.klines[index];
       if (currentKline) {
-        const visibleStartTime = replayData.klines[startIndex]?.timestamp || 0;
-        const visibleEndTime = replayData.klines[endIndex - 1]?.timestamp || 0;
+        // 回放数据的时间戳可能来自后端字符串或秒级数字，统一转成 number
+        const visibleStartTime = Number(replayData.klines[startIndex]?.timestamp) || 0;
+        const visibleEndTime = Number(replayData.klines[endIndex - 1]?.timestamp) || 0;
         addTradeMarkers(chart, currentKline, visibleStartTime, visibleEndTime);
       }
     } catch (error) {
@@ -394,7 +410,7 @@ const BacktestReplay = () => {
   /**
    * 添加交易标记
    */
-  const addTradeMarkers = (chart: any, formattedKline: any, visibleStartTime: number, visibleEndTime: number) => {
+  const addTradeMarkers = (chart: Chart, formattedKline: ReplayKline, visibleStartTime: number, visibleEndTime: number) => {
     if (!replayData) return;
 
     const currentTime = formattedKline.timestamp;
@@ -409,7 +425,7 @@ const BacktestReplay = () => {
 
     if (typeof chart.removeOverlay === 'function') {
       const tradeOverlays = chart.getOverlays({ name: 'jsonAnnotation' }) || [];
-      tradeOverlays.forEach((overlay: any) => {
+      tradeOverlays.forEach((overlay) => {
         chart.removeOverlay({ id: overlay.id });
       });
     }
@@ -852,13 +868,14 @@ const BacktestReplay = () => {
             {(() => {
               // 根据当前播放进度过滤交易
               const currentKline = replayData.klines?.[currentIndex];
-              const currentTime = currentKline?.timestamp || 0;
-              
-              const visibleTrades = replayData.trades?.filter((trade: any) => {
+              // 回放K线时间与交易时间统一使用毫秒比较
+              const currentTime = Number(currentKline?.timestamp) || 0;
+
+              const visibleTrades = (replayData.trades?.filter((trade) => {
                 // 回测数据使用 timestamp (秒级)，需要转换为毫秒
                 const tradeTime = trade.timestamp ? trade.timestamp * 1000 : 0;
                 return tradeTime <= currentTime;
-              }) || [];
+              }) || []) as TradeTableTrade[];
               
               return (
                 <>

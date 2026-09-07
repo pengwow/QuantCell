@@ -23,7 +23,7 @@ const defaultAttrs = {
   },
 };
 
-const createIconComponent = (type: "outline" | "filled", iconName: string, iconAttrs: Record<string, any>, iconNode: IconNode) => {
+const createIconComponent = (type: "outline" | "filled", iconName: string, iconAttrs: Record<string, string | number>, iconNode: IconNode) => {
   const Component = forwardRef<SVGSVGElement, IconProps>(({ color = "currentColor", size = 24, stroke = 2, title, className, children, ...rest }: IconProps, ref) =>
     createElement(
       "svg",

@@ -31,10 +31,16 @@ interface IntentPanelProps {
   intent: string;
   roleName: string;
   content: string;
-  structuredData: Record<string, any>;
+  structuredData: Record<string, unknown>;
   actions: IntentAction[];
   onAction: (actionType: string) => void;
 }
+
+// 将结构化数据中的值安全转换为数字，非数字返回 0
+const toNumber = (value: unknown): number => {
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
 
 // 角色主题颜色映射
 const ROLE_THEMES: Record<string, { color: string; bgColor: string; icon: React.ReactNode }> = {
@@ -55,6 +61,8 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const codeText = typeof structuredData.code === 'string' ? structuredData.code : '';
+  const strategyName = typeof structuredData.strategy_name === 'string' ? structuredData.strategy_name : '';
 
   return (
     <Card
@@ -66,7 +74,7 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
     >
-      {structuredData.code && (
+      {codeText && (
         <Collapse defaultActiveKey={['1']}>
           <Panel header="策略代码" key="1">
             <pre style={{
@@ -77,16 +85,16 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
               overflowX: 'auto',
               fontSize: 13,
             }}>
-              {structuredData.code}
+              {codeText}
             </pre>
           </Panel>
         </Collapse>
       )}
 
-      {structuredData.strategy_name && (
+      {strategyName && (
         <div style={{ marginTop: 12 }}>
           <Text strong>策略名称：</Text>
-          <Tag color={theme.color}>{structuredData.strategy_name}</Tag>
+          <Tag color={theme.color}>{strategyName}</Tag>
         </div>
       )}
 
@@ -141,24 +149,27 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
     >
       {metrics.length > 0 ? (
         <div>
-          {metrics.map((metric) => (
-            <div key={metric.key} style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                <Text>{metric.key}</Text>
-                <Text strong style={{ color: metric.color }}>
-                  {metric.value}{metric.suffix}
-                </Text>
+          {metrics.map((metric) => {
+            const metricValue = toNumber(metric.value);
+            return (
+              <div key={metric.key} style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                  <Text>{metric.key}</Text>
+                  <Text strong style={{ color: metric.color }}>
+                    {String(metric.value)}{metric.suffix}
+                  </Text>
+                </div>
+                {metric.key === '最大回撤' && (
+                  <Progress
+                    percent={Math.abs(metricValue)}
+                    status={metricValue > 20 ? 'exception' : metricValue > 10 ? 'active' : 'success'}
+                    strokeColor={metric.color}
+                    style={{ marginTop: 4 }}
+                  />
+                )}
               </div>
-              {metric.key === '最大回撤' && (
-                <Progress
-                  percent={Math.abs(metric.value)}
-                  status={metric.value > 20 ? 'exception' : metric.value > 10 ? 'active' : 'success'}
-                  strokeColor={metric.color}
-                  style={{ marginTop: 4 }}
-                />
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <Text type="secondary">暂无回测指标数据</Text>
@@ -195,7 +206,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
 }) => {
   const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
 
-  const riskLevel = structuredData.risk_level || '未知';
+  const riskLevel = typeof structuredData.risk_level === 'string' ? structuredData.risk_level : '未知';
   const riskColors: Record<string, string> = {
     '低风险': '#52c41a',
     '中风险': '#fa8c16',
@@ -269,10 +280,14 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
 }) => {
   const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
 
+  const direction = typeof structuredData.direction === 'string' ? structuredData.direction : '等待信号';
+  const position = typeof structuredData.position === 'string' ? structuredData.position : '0%';
+  const confidence = toNumber(structuredData.confidence);
+
   const tradeInfo = [
-    { label: '建议方向', value: structuredData.direction || '等待信号', color: '#1890ff' },
-    { label: '建议仓位', value: structuredData.position || '0%', color: '#52c41a' },
-    { label: '置信度', value: structuredData.confidence ? `${structuredData.confidence * 100}%` : '未知', color: '#722ed1' },
+    { label: '建议方向', value: direction, color: '#1890ff' },
+    { label: '建议仓位', value: position, color: '#52c41a' },
+    { label: '置信度', value: confidence ? `${confidence * 100}%` : '未知', color: '#722ed1' },
   ];
 
   return (

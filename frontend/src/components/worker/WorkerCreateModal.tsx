@@ -31,7 +31,13 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
-import { strategyApi, dataApi, configApi } from '../../api';
+import {
+  strategyApi,
+  dataApi,
+  configApi,
+  type DataPoolRecord,
+  type CryptoSymbol,
+} from '../../api';
 import type { StrategyInfo, StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;
@@ -115,6 +121,15 @@ interface WorkerCreateModalProps {
   onSuccess?: () => void;
 }
 
+// 交易标的选项（数据池 / 直接货币对）
+interface SymbolOption {
+  label: React.ReactNode;
+  value: string;
+  type: 'data_pool' | 'direct_symbol';
+  symbols?: string[];
+  poolName?: string;
+}
+
 const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   visible,
   onCancel,
@@ -126,14 +141,14 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const { createWorker } = useWorkerStore();
 
   const [loading, setLoading] = useState(false);
-  const [strategies, setStrategies] = useState<any[]>([]);
+  const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   // 交易所相关
-  const [exchanges, setExchanges] = useState<any[]>([]);
+  const [exchanges, setExchanges] = useState<{ value: string; label: string }[]>([]);
   const [loadingExchanges, setLoadingExchanges] = useState(false);
 
   // 交易相关
-  const [symbolOptions, setSymbolOptions] = useState<any[]>([]);
+  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(false);
 
   // 策略参数
@@ -155,28 +170,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const fetchStrategies = async () => {
     setLoadingStrategies(true);
     try {
-      const response = await strategyApi.getStrategies() as any;
+      // 拦截器已解包 data，直接得到 { strategies: [...] }
+      const response = await strategyApi.getStrategies();
       console.log('策略列表响应:', response);
 
-      // 处理多种可能的响应格式
-      let strategyList: any[] = [];
-
-      if (Array.isArray(response)) {
-        // 格式: [...]
-        strategyList = response;
-      } else if (response?.strategies) {
-        // 格式: { strategies: [...] }
-        strategyList = response.strategies;
-      } else if (response?.data?.strategies) {
-        // 格式: { data: { strategies: [...] } }
-        strategyList = response.data.strategies;
-      } else if (response?.data?.strategies?.[0]) {
-        // 格式: { data: { strategies: [[...]] } } - 嵌套数组
-        strategyList = response.data.strategies[0];
-      }
-
-      console.log('解析后的策略列表:', strategyList);
-      setStrategies(strategyList);
+      setStrategies(response.strategies ?? []);
     } catch (error) {
       console.error('获取策略列表失败:', error);
       message.error('获取策略列表失败');
@@ -197,28 +195,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const fetchExchanges = async () => {
     setLoadingExchanges(true);
     try {
-      // 从系统配置获取交易所配置
+      // GET /config/ 返回按 name 分组的配置：
+      // { exchange: { 'exchange.binance.is_enabled': 'true', 'exchange.binance.name': 'Binance', ... } }
       const response = await configApi.getConfig();
-      const configs = Array.isArray(response) ? response : response?.data || [];
+      const exchangeGroup =
+        response && typeof response.exchange === 'object' && response.exchange !== null
+          ? (response.exchange as Record<string, string>)
+          : {};
 
-      // 过滤出启用的交易所
-      const exchangeConfigs = configs.filter(
-        (config: any) =>
-          config.plugin === 'exchange' &&
-          config.key === 'is_enabled' &&
-          config.value === 'true'
-      );
-
-      // 获取交易所名称
-      const enabledExchanges = exchangeConfigs.map((config: any) => {
-        const nameConfig = configs.find(
-          (c: any) => c.plugin === 'exchange' && c.key === 'name' && c.scope === config.scope
-        );
-        return {
-          value: config.scope,
-          label: nameConfig?.value || config.scope,
-        };
-      });
+      // 解析启用状态的交易所：key 形如 exchange.<scope>.is_enabled
+      const enabledExchanges: { value: string; label: string }[] = [];
+      for (const [key, value] of Object.entries(exchangeGroup)) {
+        const parts = key.split('.');
+        if (parts[0] === 'exchange' && parts[2] === 'is_enabled' && value === 'true') {
+          const scope = parts[1];
+          const name = exchangeGroup[`exchange.${scope}.name`] || scope;
+          enabledExchanges.push({ value: scope, label: name });
+        }
+      }
 
       // 如果没有从配置获取到，使用默认列表
       if (enabledExchanges.length === 0) {
@@ -254,42 +248,37 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 
       console.log('getCollectionSymbols response:', response);
 
-      const dataPoolOptions: any[] = [];
-      let directSymbolOptions: any[] = [];
+      const dataPoolOptions: SymbolOption[] = [];
+      let directSymbolOptions: SymbolOption[] = [];
 
       if (response) {
         // 数据池（自选组）- 只显示组名，不展开内部货币对
-        const dataPools = response.data_pools || response.pools || [];
-        if (Array.isArray(dataPools)) {
-          dataPools.forEach((pool: any) => {
-            dataPoolOptions.push({
-              label: (
-                <Space>
-                  <StarFilled style={{ color: '#faad14' }} />
-                  <span>{pool.name}</span>
-                  <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
-                </Space>
-              ),
-              value: `pool_${pool.id}`,
-              type: 'data_pool',
-              symbols: pool.symbols || [],
-              poolName: pool.name,
-            });
+        const dataPools = response.data_pools ?? [];
+        dataPools.forEach((pool: DataPoolRecord) => {
+          dataPoolOptions.push({
+            label: (
+              <Space>
+                <StarFilled style={{ color: '#faad14' }} />
+                <span>{pool.name}</span>
+                <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
+              </Space>
+            ),
+            value: `pool_${pool.id}`,
+            type: 'data_pool',
+            symbols: pool.symbols || [],
+            poolName: pool.name,
           });
-        }
+        });
 
         // 直接交易标的
-        const directSymbols = response.direct_symbols || response.symbols || [];
-        if (Array.isArray(directSymbols)) {
-          directSymbols.forEach((symbol: any) => {
-            const symbolValue = typeof symbol === 'string' ? symbol : (symbol.symbol || symbol.name || String(symbol));
-            directSymbolOptions.push({
-              label: symbolValue,
-              value: symbolValue,
-              type: 'direct_symbol',
-            });
+        const directSymbols = response.direct_symbols ?? [];
+        directSymbols.forEach((symbol: string) => {
+          directSymbolOptions.push({
+            label: symbol,
+            value: symbol,
+            type: 'direct_symbol',
           });
-        }
+        });
       }
 
       // 如果 direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对
@@ -304,11 +293,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 
           // API 已经通过拦截器解包，response 直接是 data 字段的内容
           // 结构为: { symbols: [...], total: ..., offset: ..., limit: ..., exchange: ... }
-          const symbolList = cryptoResponse?.symbols || [];
+          const symbolList = cryptoResponse.symbols ?? cryptoResponse.data?.symbols ?? [];
 
           if (Array.isArray(symbolList)) {
-            directSymbolOptions = symbolList.map((item: any) => {
-              const symbolValue = typeof item === 'string' ? item : (item.symbol || item.name || String(item));
+            directSymbolOptions = symbolList.map((item: CryptoSymbol) => {
+              const symbolValue = item.symbol || String(item);
               return {
                 label: symbolValue,
                 value: symbolValue,
@@ -389,7 +378,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             acc[param.param_name] = param.default_value;
           }
           return acc;
-        }, {} as Record<string, any>),
+        }, {} as Record<string, unknown>),
 
   
         config: {
@@ -723,12 +712,12 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               name="initial_capital"
               label={t('initial_capital')}
             >
-              <InputNumber
+              <InputNumber<number>
                 min={100}
                 step={1000}
                 style={{ width: '100%' }}
                 formatter={(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={(value) => value?.replace(/\$\s?|(,*)/g, '') as any}
+                parser={(value) => Number(value?.replace(/\$|,/g, '') || 0)}
               />
             </Form.Item>
           </Col>

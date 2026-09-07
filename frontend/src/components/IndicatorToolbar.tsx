@@ -12,7 +12,7 @@ import IndicatorSelectorModal from './IndicatorSelectorModal';
 
 interface IndicatorToolbarProps {
   activeIndicators: ActiveIndicator[];
-  onToggleIndicator: (indicator: Indicator, params?: Record<string, any>) => void;
+  onToggleIndicator: (indicator: Indicator, params?: Record<string, unknown>) => void;
 }
 
 const IndicatorToolbar: React.FC<IndicatorToolbarProps> = ({

@@ -33,8 +33,10 @@ import {
   CalendarOutlined,
 } from '@ant-design/icons';
 import { init, dispose } from 'klinecharts';
+import type { Chart, DataLoaderGetBarsParams } from 'klinecharts';
 import dayjs from 'dayjs';
 import { dataApi } from '@/api/dataApi';
+import type { KlineData } from '@/types/data';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
@@ -81,21 +83,12 @@ const formatTimestamp = (timestamp: number | string): string => {
 /**
  * 格式化K线数据为klinecharts需要的格式
  */
-const formatKlineData = (data: any[]) => {
-  return data.map((item) => ({
-    timestamp: item.timestamp || item[0],
-    open: item.open || item[1],
-    high: item.high || item[2],
-    low: item.low || item[3],
-    close: item.close || item[4],
-    volume: item.volume || item[5] || 0,
-  }));
-};
+const formatKlineData = (data: KlineData[]): KlineData[] => data;
 
 /**
  * 解析周期字符串
  */
-const parseInterval = (interval: string): { span: number; type: any } => {
+const parseInterval = (interval: string): { span: number; type: 'minute' | 'hour' | 'day' | 'week' } => {
   const match = interval.match(/\d+/);
   const span = match ? parseInt(match[0]) : 1;
   const unit = interval.replace(/\d+/, '');
@@ -137,11 +130,11 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
   const returnState = location.state as {
     returnPath?: string;
     returnSearch?: string;
-    pageState?: Record<string, any>;
+    pageState?: Record<string, unknown>;
   } | null;
 
   // K线数据
-  const [klines, setKlines] = useState<any[]>([]);
+  const [klines, setKlines] = useState<KlineData[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -157,7 +150,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
 
   // 图表引用
   const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<any>(null);
+  const chartInstance = useRef<Chart | null>(null);
   const playTimerRef = useRef<number | null>(null);
 
   // 统计数据
@@ -180,7 +173,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
     setError(null);
 
     try {
-      const params: any = {
+      const params: Record<string, unknown> = {
         symbol,
         interval,
         limit: 1000,
@@ -192,7 +185,9 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
       }
 
       const response = await dataApi.getKlines(params);
-      const data = formatKlineData(response.data || response);
+      // 支持直接数组 / { data } / { klines } 三种返回格式
+      const rawData = Array.isArray(response) ? response : response.data ?? response.klines;
+      const data = formatKlineData(rawData ?? []);
 
       if (data.length === 0) {
         setError('未找到K线数据');
@@ -279,16 +274,23 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
    */
   const updateChartDisplay = useCallback(
     (index: number) => {
-      if (!chartInstance.current || klines.length === 0) return;
+      const chart = chartInstance.current;
+      if (!chart || klines.length === 0) return;
 
       try {
-        const chart = chartInstance.current;
-
         // 显示从开头到当前索引的数据
-        const visibleKlines = klines.slice(0, index + 1);
+        // 项目 KlineData 与 klinecharts 的 KLineData 类型索引签名不同，需逐字段映射
+        const visibleKlines = klines.slice(0, index + 1).map((k) => ({
+          timestamp: k.timestamp,
+          open: k.open,
+          high: k.high,
+          low: k.low,
+          close: k.close,
+          volume: k.volume,
+        }));
 
         chart.setDataLoader({
-          getBars: (params: any) => {
+          getBars: (params: DataLoaderGetBarsParams) => {
             params.callback(visibleKlines);
           },
         });
@@ -407,8 +409,9 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
   /**
    * 处理时间范围变化
    */
-  const handleDateRangeChange = useCallback((dates: any) => {
-    setDateRange(dates);
+  const handleDateRangeChange = useCallback((dates: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null) => {
+    // RangePicker 允许选择范围内的单个值为 null，仅当两端都有值时更新
+    setDateRange(dates && dates[0] && dates[1] ? [dates[0], dates[1]] : null);
   }, []);
 
   /**

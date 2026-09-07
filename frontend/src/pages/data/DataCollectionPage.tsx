@@ -30,7 +30,7 @@ import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
 import { archiveApi } from '@/api/archiveApi';
 import { wsService } from '@/services/websocketService';
-import type { Task, ArchiveKind, MarketType } from '@/types/data';
+import type { Task, TaskStatus, ArchiveKind, MarketType } from '@/types/data';
 import {
   ARCHIVE_KINDS,
   KLINE_ARCHIVE_KINDS,
@@ -132,7 +132,8 @@ const DataCollectionPage = () => {
 
       if (response) {
         if (Array.isArray(response.data_pools)) {
-          dataPoolOptions.push(...response.data_pools.map((pool: any) => ({
+          // getCollectionSymbols 返回类型为 DataPoolRecord[]，pool 由 TS 自动推断
+          dataPoolOptions.push(...response.data_pools.map((pool) => ({
             value: `pool_${pool.id}`,
             label: `${pool.name} (数据池)`,
             type: 'data_pool',
@@ -166,16 +167,18 @@ const DataCollectionPage = () => {
 
     wsService.connect();
 
-    const handleTaskProgress = (data: any) => {
-      if (data.task_id === currentTaskId) {
-        setTaskProgress(data.progress.percentage || 0);
+    const handleTaskProgress = (data: unknown) => {
+      const payload = data as { task_id: string; progress?: { percentage?: number } };
+      if (payload.task_id === currentTaskId) {
+        setTaskProgress(payload.progress?.percentage || 0);
       }
     };
 
-    const handleTaskStatus = (data: any) => {
-      if (data.task_id === currentTaskId) {
-        setTaskStatus(data.status);
-        if (data.status === 'completed' || data.status === 'failed') {
+    const handleTaskStatus = (data: unknown) => {
+      const payload = data as { task_id: string; status: TaskStatus };
+      if (payload.task_id === currentTaskId) {
+        setTaskStatus(payload.status);
+        if (payload.status === 'completed' || payload.status === 'failed') {
           getTasks(false);
         }
       }
@@ -573,7 +576,7 @@ const DataCollectionPage = () => {
                                   (task.params.symbols.length > 3 ?
                                     `${task.params.symbols.slice(0, 3).join(', ')}...` :
                                     task.params.symbols.join(', ')) :
-                                  task.params.symbols || '未指定'}
+                                  (task.params.symbols ? String(task.params.symbols) : '未指定')}
                               </Text>
                             </div>
                             <div className="flex-1">
@@ -583,7 +586,7 @@ const DataCollectionPage = () => {
                                   (task.params.interval.length > 2 ?
                                     `${task.params.interval.slice(0, 2).join(', ')}...` :
                                     task.params.interval.join(', ')) :
-                                  task.params.interval || '未指定'}
+                                  (task.params.interval ? String(task.params.interval) : '未指定')}
                               </Text>
                             </div>
                           </Space>

@@ -20,19 +20,19 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
   const { t } = useTranslation();
 
   // 从 config 中提取策略参数（如果存在）
-  const config = worker.config || {};
-  const tradingConfig = worker.trading_config || {};
+  const config: Record<string, unknown> = worker.config ?? {};
 
   // 动态策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
   const [loadingParams, setLoadingParams] = useState(false);
 
   // Worker 实际配置的策略参数值（从 config 或 trading_config 获取）
-  const currentStrategyParams: Record<string, any> = (
-    (tradingConfig as Record<string, any>)?.strategy_params ||
-    config?.strategy_params ||
-    {}
-  );
+  const rawParams =
+    (worker.trading_config as Record<string, unknown> | undefined)?.strategy_params ??
+    config.strategy_params ??
+    {};
+  const currentStrategyParams: Record<string, unknown> =
+    rawParams && typeof rawParams === 'object' ? (rawParams as Record<string, unknown>) : {};
 
   // 加载策略参数定义
   useEffect(() => {
@@ -148,7 +148,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('leverage') || '杠杆倍数'}>
-                <Tag color="orange">{config.leverage || `${config.leverage || '1'}x`}</Tag>
+                <Tag color="orange">{config.leverage ? `${String(config.leverage)}x` : '1x'}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
@@ -157,7 +157,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('total_investment') || '总投入金额'}>
                 <span style={{ fontWeight: 600, color: '#1890ff' }}>
-                  ${config.total_investment?.toFixed(2) || '-'}
+                  ${typeof config.total_investment === 'number' ? config.total_investment.toFixed(2) : '-'}
                 </span>
               </Descriptions.Item>
             </Descriptions>
@@ -166,7 +166,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('order_type') || '下单方式'}>
-                <Tag color="cyan">{config.order_type || t('market_order') || '市价单'}</Tag>
+                <Tag color="cyan">{String(config.order_type) || t('market_order') || '市价单'}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
@@ -270,7 +270,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('max_drawdown') || '最大回撤限制'}>
                 <span style={{ fontWeight: 500, color: '#ff4d4f' }}>
-                  {config.max_drawdown_limit || '-'}%
+                  {String(config.max_drawdown_limit) || '-'}%
                 </span>
               </Descriptions.Item>
             </Descriptions>
@@ -280,7 +280,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('max_position_size') || '最大仓位占比'}>
                 <span style={{ fontWeight: 500 }}>
-                  {config.max_position_size || '-'}%
+                  {String(config.max_position_size) || '-'}%
                 </span>
               </Descriptions.Item>
             </Descriptions>
@@ -290,7 +290,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('trailing_stop') || '移动止损'}>
                 <span style={{ fontWeight: 500 }}>
-                  {config.trailing_stop || '-'}%
+                  {String(config.trailing_stop) || '-'}%
                 </span>
               </Descriptions.Item>
             </Descriptions>

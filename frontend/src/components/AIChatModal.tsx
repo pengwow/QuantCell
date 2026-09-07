@@ -38,6 +38,18 @@ export interface ThinkingChainStepState {
   status: 'pending' | 'processing' | 'completed' | 'error';
 }
 
+// 预加载思维链接口返回的步骤（不同版本字段命名不同，全部声明为可选以兼容）
+interface PreloadedStep {
+  title?: string;
+  name?: string;
+  step_name?: string;
+  step?: number | string;
+  step_number?: number | string;
+  description?: string;
+  content?: string;
+  detail?: string;
+}
+
 // 思维链SSE事件数据类型
 export interface ThinkingChainEventData {
   current_step: number;
@@ -176,7 +188,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       
       if (result && result.steps) {
         // 兼容不同的字段命名：title/name, description/content, step/step_number
-        const steps: ThinkingChainStepState[] = result.steps.map((step: any, index: number) => ({
+        const steps: ThinkingChainStepState[] = result.steps.map((step: PreloadedStep, index: number) => ({
           title: step.title || step.name || step.step_name || `步骤 ${step.step || step.step_number || index + 1}`,
           description: step.description || step.content || step.detail || '',
           status: 'pending' as const,

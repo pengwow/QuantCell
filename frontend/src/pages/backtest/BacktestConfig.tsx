@@ -45,6 +45,16 @@ interface BacktestConfigProps {
   strategy?: Strategy;
 }
 
+// 系统配置项兼容 { value: x } 包装与直接标量两种返回形态，统一抽取标量值
+const extractConfigScalar = (item: unknown): string | number | undefined => {
+  if (typeof item === 'string' || typeof item === 'number') return item;
+  if (item && typeof item === 'object' && 'value' in item) {
+    const wrapped = (item as { value?: unknown }).value;
+    if (typeof wrapped === 'string' || typeof wrapped === 'number') return wrapped;
+  }
+  return undefined;
+};
+
 // 创建策略弹窗表单值
 interface CreateStrategyFormValues {
   strategyName: string;
@@ -128,7 +138,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       if (response) {
         if (Array.isArray(response.data_pools)) {
           console.log('数据池数据:', response.data_pools);
-          dataPoolOptions.push(...response.data_pools.map((pool: any) => ({
+          dataPoolOptions.push(...response.data_pools.map((pool) => ({
             value: `pool_${pool.id}`,
             label: `⭐ ${pool.name}`,
             type: 'data_pool',
@@ -162,7 +172,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         exchange: 'binance'
       });
       if (response && response.data_pools) {
-        const pool = response.data_pools.find((p: any) => p.id === poolId);
+        const pool = response.data_pools.find((p) => p.id === poolId);
         if (pool && pool.symbols) {
           return pool.symbols;
         }
@@ -194,41 +204,50 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       if (configData && typeof configData === 'object') {
         // 处理按 name 分组的新格式
         // 格式: { "backtest": { "default_interval": "15m", ... }, ... }
-        let configs: any = {};
+        let configs: Record<string, unknown> = {};
 
         // 将分组配置扁平化
         Object.entries(configData).forEach(([, groupValues]) => {
           if (groupValues && typeof groupValues === 'object') {
-            Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+            Object.entries(groupValues as Record<string, unknown>).forEach(([key, value]) => {
               configs[key] = value;
             });
           }
         });
 
         // 如果没有获取到配置，尝试兼容旧格式
-        if (Object.keys(configs).length === 0 && configData.configs) {
-          configs = configData.configs;
+        if (Object.keys(configs).length === 0) {
+          const legacyConfigs = configData.configs;
+          if (legacyConfigs && typeof legacyConfigs === 'object') {
+            configs = legacyConfigs as Record<string, unknown>;
+          }
         }
 
-        const intervalConfig = configs.default_interval || configs.DEFAULT_INTERVAL;
-        if (intervalConfig) {
-          const intervalValue = intervalConfig.value || intervalConfig;
-          setDefaultInterval(intervalValue);
-          console.log('成功加载默认时间间隔:', intervalValue);
+        const intervalConfig = configs['default_interval'] || configs['DEFAULT_INTERVAL'];
+        if (intervalConfig !== undefined) {
+          const intervalValue = extractConfigScalar(intervalConfig);
+          if (intervalValue !== undefined) {
+            setDefaultInterval(String(intervalValue));
+            console.log('成功加载默认时间间隔:', intervalValue);
+          }
         }
 
-        const commissionConfig = configs.default_commission || configs.DEFAULT_COMMISSION;
+        const commissionConfig = configs['default_commission'] || configs['DEFAULT_COMMISSION'];
         if (commissionConfig !== undefined) {
-          const commissionValue = commissionConfig.value || commissionConfig;
-          setDefaultCommission(Number(commissionValue));
-          console.log('成功加载默认手续费:', commissionValue);
+          const commissionValue = extractConfigScalar(commissionConfig);
+          if (commissionValue !== undefined) {
+            setDefaultCommission(Number(commissionValue));
+            console.log('成功加载默认手续费:', commissionValue);
+          }
         }
 
-        const initialCashConfig = configs.default_initial_cash || configs.DEFAULT_INITIAL_CASH;
+        const initialCashConfig = configs['default_initial_cash'] || configs['DEFAULT_INITIAL_CASH'];
         if (initialCashConfig !== undefined) {
-          const initialCashValue = initialCashConfig.value || initialCashConfig;
-          setDefaultInitialCash(Number(initialCashValue));
-          console.log('成功加载默认初始资金:', initialCashValue);
+          const initialCashValue = extractConfigScalar(initialCashConfig);
+          if (initialCashValue !== undefined) {
+            setDefaultInitialCash(Number(initialCashValue));
+            console.log('成功加载默认初始资金:', initialCashValue);
+          }
         }
       }
     } catch (error) {
@@ -246,7 +265,18 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       console.log('策略列表响应:', response);
 
       if (response && typeof response === 'object' && Array.isArray(response.strategies)) {
-        setStrategies(response.strategies);
+        // API 返回的 StrategyInfo 字段较宽松，映射为页面需要的 Strategy 结构
+        setStrategies(response.strategies.map((s) => ({
+          name: s.name,
+          file_name: s.file_name ?? s.name,
+          file_path: s.file_path ?? '',
+          description: s.description ?? '',
+          version: s.version,
+          tags: undefined,
+          params: (s.params ?? []) as StrategyParam[],
+          created_at: s.created_at ?? '',
+          updated_at: s.updated_at ?? '',
+        })));
         console.log('成功加载策略列表:', response.strategies);
       } else {
         setStrategies([]);
@@ -346,7 +376,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       console.log('[BacktestConfig] 设置策略到表单:', strategy);
       setSelectedStrategy(strategy);
 
-      const defaultParams: Record<string, any> = {};
+      const defaultParams: Record<string, unknown> = {};
       if (strategy.params) {
         strategy.params.forEach(p => {
           defaultParams[p.name] = p.default;
@@ -434,7 +464,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     setSelectedStrategy(strategy || null);
 
     if (strategy && strategy.params) {
-      const defaultParams: Record<string, any> = {};
+      const defaultParams: Record<string, unknown> = {};
       strategy.params.forEach(param => {
         defaultParams[param.name] = param.default;
       });

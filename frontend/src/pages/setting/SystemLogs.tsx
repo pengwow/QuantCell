@@ -196,7 +196,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                       </div>
 
                       {/* 详细数据（可展开） */}
-                      {log.data && (
+                      {log.data ? (
                         <Collapse
                           ghost
                           className="mt-1 ml-0"
@@ -216,7 +216,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                             </pre>
                           </Panel>
                         </Collapse>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>

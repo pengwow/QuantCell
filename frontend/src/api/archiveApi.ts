@@ -17,6 +17,8 @@ import type {
   ArchiveRow,
   ArchiveTaskRequest,
   MarketType,
+  TaskProgressInfo,
+  TaskStatus,
 } from '@/types/data';
 
 /**
@@ -65,6 +67,19 @@ export interface ArchiveDeleteResponse {
   message: string;
 }
 
+/**
+ * 归档任务详情（与后端 task_manager 返回的 task dict 对齐）
+ */
+export interface ArchiveTaskDetail {
+  task_id: string;
+  status: TaskStatus;
+  progress: TaskProgressInfo;
+  log?: string[];
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export const archiveApi = {
   /**
    * 1) 创建归档下载任务
@@ -78,7 +93,7 @@ export const archiveApi = {
    * 2) 查询归档任务进度
    * 返回 task_manager 中的完整 task dict（含 status/progress/log 等）
    */
-  getTask: (taskId: string): Promise<any> => {
+  getTask: (taskId: string): Promise<ArchiveTaskDetail> => {
     return apiRequest.get(`/data/archive/tasks/${taskId}`);
   },
 

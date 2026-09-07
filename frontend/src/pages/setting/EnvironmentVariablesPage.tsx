@@ -19,7 +19,17 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { envVarApi } from '../../api';
-import type { EnvVariable } from './types';
+import type { EnvVariable, EnvVariableListResponse } from './types';
+
+/**
+ * 归一化 getList 返回的数据结构（兼容 { data: { items } } 与直接 { items } 两种响应形态）
+ */
+const toEnvListItems = (result: unknown): EnvVariable[] => {
+  const direct = result as EnvVariableListResponse | undefined;
+  if (direct?.items) return direct.items;
+  const wrapped = result as { data?: EnvVariableListResponse } | undefined;
+  return wrapped?.data?.items ?? [];
+};
 
 const EnvironmentVariablesPage = () => {
   const { t } = useTranslation();
@@ -35,8 +45,8 @@ const EnvironmentVariablesPage = () => {
   const loadEnvVars = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await envVarApi.getList() as any;
-      const items = result?.items || result?.data?.items || [];
+      const result = await envVarApi.getList();
+      const items = toEnvListItems(result);
       setDataSource(items);
     } catch {
       message.error(t('load_env_vars_failed'));
