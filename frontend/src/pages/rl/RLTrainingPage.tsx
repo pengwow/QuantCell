@@ -17,7 +17,7 @@ export default function RLTrainingPage() {
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<RLModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [backtesting, setBacktesting] = useState(false);
+  const [backtesting] = useState(false);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [totalTimesteps, setTotalTimesteps] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -82,11 +82,13 @@ export default function RLTrainingPage() {
       };
       setResult(result);
       message.success(`训练完成，模型: ${result.model_id}`);
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    } catch (err) {
+      // fetch 中断抛 AbortError（DOMException），业务异常为 Error，统一按 { name, message } 读取
+      const e = err as { name?: string; message?: string };
+      if (e.name === 'AbortError') {
         setError('训练已取消');
       } else {
-        const msg = err?.message || '训练失败';
+        const msg = e.message || '训练失败';
         setError(msg);
         message.error(msg);
       }
@@ -110,54 +112,15 @@ export default function RLTrainingPage() {
       message.warning('请选择一个模型');
       return;
     }
-
-    setBacktesting(true);
-    setBacktestResult(null);
-
-    try {
-      const response = await fetch('/api/rl/backtest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_path: selectedModel,
-          symbol: 'BTCUSDT',
-          interval: '1h',
-          lookback_days: 30,
-        }),
-      });
-
-      const data = await response.json();
-      if (data.code === 0) {
-        setBacktestResult(data.data);
-        message.success('回测完成');
-      } else {
-        throw new Error(data.message || '回测失败');
-      }
-    } catch (err: any) {
-      message.error(err?.message || '回测失败');
-    } finally {
-      setBacktesting(false);
-    }
+    // 后端无 RL 回测端点（rl_routes.py 仅有 train/models/walk-forward，
+    // 推理依赖的 env/rewards 已归档），待后端补齐后在此接真实路由
+    message.warning('RL 回测暂未开放');
   };
 
-  const handleDeleteModel = async (modelName: string) => {
-    try {
-      const response = await fetch(`/api/rl/models/${modelName}`, {
-        method: 'DELETE',
-      });
-      const data = await response.json();
-      if (data.code === 0) {
-        message.success(`模型 ${modelName} 已删除`);
-        fetchModels();
-        if (selectedModel.includes(modelName)) {
-          setSelectedModel('');
-        }
-      } else {
-        message.error(data.message || '删除失败');
-      }
-    } catch (err: any) {
-      message.error(err?.message || '删除失败');
-    }
+  const handleDeleteModel = async () => {
+    // 后端无 DELETE 模型端点（axon_quant registry 仅暴露
+    // register/list/get_production/promote，无 delete），待底层支持后接真实路由
+    message.warning('模型删除暂未开放');
   };
 
   return (

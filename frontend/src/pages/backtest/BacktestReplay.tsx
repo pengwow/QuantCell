@@ -14,7 +14,6 @@ import {
   Space,
   Row,
   Col,
-  Statistic,
   Spin,
   Alert,
   App,
@@ -34,7 +33,7 @@ import {
 import { init, dispose, registerLocale, registerOverlay } from 'klinecharts';
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
-import type { ReplayData, MergeSummary, SymbolInfo } from '../../types/backtest';
+import type { ReplayData, SymbolInfo } from '../../types/backtest';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -129,10 +128,6 @@ const BacktestReplay = () => {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [loadingSymbols, setLoadingSymbols] = useState<boolean>(false);
-
-  // 合并结果相关状态
-  const [mergeSummary, setMergeSummary] = useState<MergeSummary | null>(null);
-  const [showMergeSummary, setShowMergeSummary] = useState<boolean>(true);
 
   // 播放控制状态
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -286,32 +281,6 @@ const BacktestReplay = () => {
       message.error('加载回放数据失败');
     } finally {
       setLoading(false);
-    }
-  };
-
-  /**
-   * 加载合并结果摘要
-   */
-  const loadMergeSummary = async () => {
-    if (!backtestId) return;
-
-    try {
-      const response = await fetch(`/backtest/${backtestId}/results`);
-      if (response.ok) {
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const data = await response.json();
-          if (data.status === 'success' && data.summary) {
-            setMergeSummary(data.summary);
-          }
-        } else {
-          console.warn('加载合并结果: 返回内容不是JSON格式');
-        }
-      } else {
-        console.warn(`加载合并结果: HTTP ${response.status}`);
-      }
-    } catch (err) {
-      console.error('加载合并结果失败:', err);
     }
   };
 
@@ -598,10 +567,9 @@ const BacktestReplay = () => {
     setCurrentIndex(value);
   };
 
-  // 组件挂载时加载货币对列表和合并结果
+  // 组件挂载时加载货币对列表
   useEffect(() => {
     loadSymbols();
-    loadMergeSummary();
 
     return () => {
       if (playTimerRef.current) {
@@ -859,82 +827,6 @@ const BacktestReplay = () => {
             </Col>
           </Row>
         </Card>
-
-        {/* 合并结果显示区域 */}
-        {mergeSummary && showMergeSummary && (
-          <Card
-            size="small"
-            title="合并结果摘要"
-            extra={
-              <Button type="text" onClick={() => setShowMergeSummary(false)}>
-                收起
-              </Button>
-            }
-          >
-            <Row gutter={[16, 16]}>
-              <Col span={6}>
-                <Statistic title="总货币对数量" value={mergeSummary.total_currencies} />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="成功货币对"
-                  value={mergeSummary.successful_currencies}
-                  styles={{ content: { color: '#52c41a' } }}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="失败货币对"
-                  value={mergeSummary.failed_currencies}
-                  styles={{ content: { color: '#f5222d' } }}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic title="总交易次数" value={mergeSummary.total_trades} />
-              </Col>
-              <Col span={6}>
-                <Statistic title="平均每货币对交易次数" value={mergeSummary.average_trades_per_currency} />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="总收益率"
-                  value={`${mergeSummary.total_return}%`}
-                  styles={{ content: { color: mergeSummary.total_return >= 0 ? '#52c41a' : '#f5222d' } }}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="平均收益率"
-                  value={`${mergeSummary.average_return}%`}
-                  styles={{ content: { color: mergeSummary.average_return >= 0 ? '#52c41a' : '#f5222d' } }}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic title="平均最大回撤" value={`${mergeSummary.average_max_drawdown}%`} />
-              </Col>
-              <Col span={6}>
-                <Statistic title="平均夏普比率" value={mergeSummary.average_sharpe_ratio} />
-              </Col>
-              <Col span={6}>
-                <Statistic title="平均索提诺比率" value={mergeSummary.average_sortino_ratio} />
-              </Col>
-              <Col span={6}>
-                <Statistic title="平均卡尔玛比率" value={mergeSummary.average_calmar_ratio} />
-              </Col>
-              <Col span={6}>
-                <Statistic title="平均胜率" value={`${mergeSummary.average_win_rate}%`} />
-              </Col>
-            </Row>
-          </Card>
-        )}
-
-        {mergeSummary && !showMergeSummary && (
-          <div className="text-right">
-            <Button type="link" onClick={() => setShowMergeSummary(true)}>
-              显示合并结果摘要
-            </Button>
-          </div>
-        )}
 
         {/* 图表区域 - 优化布局 */}
         <Card 
