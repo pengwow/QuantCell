@@ -71,24 +71,37 @@ export default defineConfig({
   build: {
     // 代码分割配置 - 减少内存使用
     rollupOptions: {
+      // Circular chunk 由 vite-plugin-federation 的 shared react/react-dom 包装与手动分包叠加产生，
+      // 属规范内的已知噪声（产物无真实循环依赖），仅告警非错误，故显式忽略该告警
+      onwarn: (warning, warn) => {
+        if (typeof warning === 'object' && warning.code === 'CIRCULAR_CHUNK') return
+        warn(warning)
+      },
       output: {
         // 简化代码分割策略，减少并行处理和内存使用
         manualChunks: (id) => {
-          // 只将大型依赖分割到单独的 chunk
-          if (id.includes('node_modules')) {
-            // React 相关
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
-              return 'react-vendor'
-            }
-            // Ant Design 相关
-            if (id.includes('antd') || id.includes('@ant-design')) {
-              return 'ui-vendor'
-            }
-            // 图表库
-            if (id.includes('echarts') || id.includes('klinecharts')) {
-              return 'chart-vendor'
-            }
-            // 其他依赖不单独分割，避免循环依赖
+          if (!id.includes('node_modules')) return
+          // 提取 node_modules 下的主包名（含 @scope/name），按精确包名分组，避免子串误匹配导致循环依赖
+          const match = id.match(/node_modules\/(@[^/]+\/[^/]+|[^/]+)/)
+          const pkg = match ? match[1] : ''
+          // React 生态
+          if (
+            pkg === 'react' ||
+            pkg === 'react-dom' ||
+            pkg === 'react-router' ||
+            pkg === 'react-router-dom' ||
+            pkg === 'react-i18next' ||
+            pkg === 'zustand'
+          ) {
+            return 'react-vendor'
+          }
+          // Ant Design 生态
+          if (pkg === 'antd' || pkg.startsWith('@ant-design')) {
+            return 'ui-vendor'
+          }
+          // 图表库
+          if (pkg === 'echarts' || pkg === 'echarts-for-react' || pkg === 'klinecharts') {
+            return 'chart-vendor'
           }
         },
         // 入口文件命名
