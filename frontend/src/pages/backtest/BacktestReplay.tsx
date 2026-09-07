@@ -578,10 +578,13 @@ const BacktestReplay = () => {
       if (elapsedTimerRef.current) {
         window.clearInterval(elapsedTimerRef.current);
       }
+      // chart 实例在 init 后写入 ref，卸载时必须读取最新引用才能释放
       if (chartRef.current) {
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- 卸载时读取最新 ref 是有意为之
         dispose(chartRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, [backtestId]);
 
   // 货币对列表加载完成后，加载第一个货币对的回放数据
@@ -589,6 +592,7 @@ const BacktestReplay = () => {
     if (selectedSymbol) {
       loadReplayData(selectedSymbol);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [selectedSymbol]);
 
   // 数据加载完成后初始化图表
@@ -596,6 +600,7 @@ const BacktestReplay = () => {
     if (replayData && chartRef.current) {
       initChart();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [replayData]);
 
   // 当前索引变化时更新图表
@@ -603,6 +608,7 @@ const BacktestReplay = () => {
     if (replayData && chartInstance.current) {
       updateChart(currentIndex);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [currentIndex, replayData]);
 
   // 渲染加载状态

@@ -118,6 +118,7 @@ const NotificationsPage = () => {
   // 从后端API加载配置
   useEffect(() => {
     loadChannels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
   // 加载通知渠道配置（从扁平化配置加载）

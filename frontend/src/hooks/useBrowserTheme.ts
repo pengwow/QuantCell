@@ -27,6 +27,7 @@ const useBrowserTheme = (): UseBrowserThemeReturns => {
     } else {
       html.classList.remove('dark');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- theme 对象每渲染重建，补 deps 会重复执行
   }, [themeState.theme, themeState.themeMode]);
 
   // 包装 setThemeMode，确保同时更新 localStorage 和 HTML class

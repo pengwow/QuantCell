@@ -108,6 +108,8 @@ export function DynamicRouter() {
   }, []);
 
   const routes = useMemo(() => {
+    // 插件注册/注销通过订阅递增 pluginVersion，触发路由表重建
+    void pluginVersion;
     const base = createBaseRoutes();
     const rootRoute = base.find((r) => r.path === '/');
     if (!rootRoute || !rootRoute.children) return base;

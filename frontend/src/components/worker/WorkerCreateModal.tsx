@@ -148,6 +148,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       fetchExchanges();
       fetchSymbolsAndGroups();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [visible]);
 
   // 获取策略列表 - 参考策略管理页面的实现

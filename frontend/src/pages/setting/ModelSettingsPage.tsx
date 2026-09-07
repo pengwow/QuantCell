@@ -156,6 +156,7 @@ const ModelSettingsPage = () => {
   // 从后端API加载配置
   useEffect(() => {
     loadProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
   // 从系统配置加载模型配置（从扁平化配置加载）

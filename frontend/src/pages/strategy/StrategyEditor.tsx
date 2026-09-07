@@ -152,6 +152,7 @@ const StrategyEditor = () => {
         handleCreateStrategy();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [params.strategyName]);
 
   // 根据名称加载策略

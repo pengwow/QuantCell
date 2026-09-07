@@ -575,13 +575,14 @@ const DataManagementPage = () => {
     });
 
     return result;
-  }, [symbols, searchText, quoteFilter, activeGroupId, activeGroup, sortField, sortOrder]);
+  }, [symbols, searchText, quoteFilter, activeGroup, sortField, sortOrder]);
 
   // 初始化加载
   useEffect(() => {
     fetchSymbols();
     fetchFavoriteGroups();
     fetchCollectionTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
 
@@ -601,6 +602,7 @@ const DataManagementPage = () => {
     }, 300);
 
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [symbolLoading, filteredSymbols.length, hasFetchedMarketData]);
 
   // 获取自选组列表
@@ -738,6 +740,7 @@ const DataManagementPage = () => {
       wsService.off('task:progress', handleTaskProgress);
       wsService.off('task:status', handleTaskStatus);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []); // 移除 currentTaskId 依赖，避免重复注册
 
   // 获取货币对列表（第一步）
@@ -1133,11 +1136,13 @@ const DataManagementPage = () => {
     if (!hasRunning) return;
     const timer = setInterval(() => fetchCollectionTasks(true), 5000);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [taskStatus, collectionTasks]);
 
   // 状态筛选变化时重新拉取
   useEffect(() => {
     fetchCollectionTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [taskStatusFilter]);
 
   // 开始数据采集

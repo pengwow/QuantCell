@@ -87,6 +87,7 @@ const StrategyGenerateModal: React.FC<StrategyGenerateModalProps> = ({
     if (open) {
       loadTemplates();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [open]);
 
   // 初始需求变化时更新输入

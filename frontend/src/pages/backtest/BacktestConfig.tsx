@@ -312,6 +312,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         abortControllerRef.current.abort();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
   // 处理从策略管理页面传递过来的策略信息
@@ -351,7 +352,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       message.success(`已加载策略: ${strategy.name}`);
     }
-  }, [strategy, form, location.state, locationStrategy, propStrategy, showConfig]);
+  }, [strategy, form, location.state, locationStrategy, propStrategy, showConfig, message]);
 
   useEffect(() => {
     form.setFieldsValue({

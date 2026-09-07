@@ -52,7 +52,7 @@ const LogFileBrowser: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentDir]);
+  }, [currentDir, antMessage]);
 
   useEffect(() => {
     loadDirectoryTree();

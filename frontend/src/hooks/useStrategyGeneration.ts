@@ -215,7 +215,7 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
       setIsGenerating(false);
       message.error(error.message || t('generate_error') || '策略生成失败');
     }
-  }, [t, updateStepStatus, extractCode, generatedContent]);
+  }, [t, updateStepStatus, extractCode, message]);
   
   /**
    * 验证代码
@@ -262,7 +262,7 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
         warnings: [],
       };
     }
-  }, [t]);
+  }, [t, message]);
   
   /**
    * 获取策略模板列表
@@ -280,7 +280,7 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
       message.error(t('get_templates_error') || '获取模板列表失败');
       return [];
     }
-  }, [t]);
+  }, [t, message]);
   
   /**
    * 取消生成
@@ -292,7 +292,7 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
     }
     setIsGenerating(false);
     message.info(t('generate_cancelled') || '已取消生成');
-  }, [t]);
+  }, [t, message]);
   
   /**
    * 重置状态

@@ -115,7 +115,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
     } finally {
       setLoading(false);
     }
-  }, [currentDir]);
+  }, [currentDir, message]);
 
   useEffect(() => {
     loadAllData();

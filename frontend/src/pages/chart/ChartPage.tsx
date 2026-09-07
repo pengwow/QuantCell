@@ -192,7 +192,7 @@ const ChartPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentSymbol, currentPeriod]);
+  }, [currentSymbol, currentPeriod, message]);
 
   // 初始化图表
   useEffect(() => {
@@ -369,6 +369,7 @@ const ChartPage = () => {
         chartInstanceRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
   // 当品种或周期变化时重新加载数据
@@ -494,7 +495,7 @@ const ChartPage = () => {
     } finally {
       setSearchLoading(false);
     }
-  }, [searchKeyword, currentSymbol.code]);
+  }, [searchKeyword, currentSymbol.code, message]);
 
   // 当搜索弹窗打开时自动搜索
   useEffect(() => {
@@ -533,6 +534,7 @@ const DEFAULT_PLOT_COLORS = [
   };
 
   // 注册自定义指标到KLineCharts（支持多plots + 多figures）
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 指标函数每渲染重建，补 deps 会重复执行
   const registerCustomIndicator = (indicator: Indicator, executeResult: any): string | null => {
       if (!executeResult || !executeResult.plots || !Array.isArray(executeResult.plots)) {
           console.error('[Indicator] 无效的执行结果格式');
@@ -859,7 +861,7 @@ const DEFAULT_PLOT_COLORS = [
         }
       }
     }
-  }, [activeIndicators, currentSymbol.code, currentPeriod]);
+  }, [activeIndicators, currentSymbol.code, currentPeriod, message, registerCustomIndicator, t]);
 
   // 处理绘图工具点击
   const handleDrawingItemClick = useCallback((overlay: { name: string; lock: boolean; mode: string }) => {
