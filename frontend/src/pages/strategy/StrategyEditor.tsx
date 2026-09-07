@@ -238,8 +238,8 @@ const StrategyEditor = () => {
       setDataSource('parsed');
       setParseError(null);
       message.success(t('parse_success') || '策略解析成功');
-    } catch (error: any) {
-      const errorMsg = error.message || t('parse_failed') || '解析策略失败';
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : t('parse_failed') || '解析策略失败';
       setParseError(errorMsg);
       message.error(t('parse_failed', { message: errorMsg }) || `策略解析失败: ${errorMsg}`);
     } finally {

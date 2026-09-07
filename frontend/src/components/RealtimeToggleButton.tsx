@@ -195,10 +195,10 @@ export function RealtimeToggleButton({
       if (onStatusChange) {
         onStatusChange(true);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('[RealtimeToggleButton] 启动实时数据失败:', error);
       if (!silent) {
-        message.error(`启动实时数据失败: ${error.message || '请检查网络连接'}`);
+        message.error(`启动实时数据失败: ${error instanceof Error ? error.message : '请检查网络连接'}`);
       }
     } finally {
       setLoading(false);
@@ -259,9 +259,9 @@ export function RealtimeToggleButton({
       if (onStatusChange) {
         onStatusChange(false);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('[RealtimeToggleButton] 停止实时数据失败:', error);
-      message.error(`停止实时数据失败: ${error.message || '未知错误'}`);
+      message.error(`停止实时数据失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setLoading(false);
     }

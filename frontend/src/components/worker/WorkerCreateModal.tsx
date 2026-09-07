@@ -440,9 +440,9 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         onSuccess?.();
         onCancel();
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('创建Worker失败:', error);
-      message.error(error.message || '创建Worker失败');
+      message.error(error instanceof Error ? error.message : '创建Worker失败');
     } finally {
       setLoading(false);
     }

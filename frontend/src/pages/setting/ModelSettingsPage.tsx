@@ -3,6 +3,7 @@
  * 功能：管理AI大模型厂商配置，包括API Key、API Host、代理设置和模型列表
  */
 import { useState, useEffect, useMemo } from "react";
+import axios from "axios";
 import { useTranslation } from "react-i18next";
 import {
   Card,
@@ -390,9 +391,9 @@ const ModelSettingsPage = () => {
         message.error(result.message || t("api_key_invalid") || "API密钥无效");
         setFetchedModels([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("检查可用性失败:", error);
-      const errorMsg = error?.response?.data?.detail || error?.message || t("check_failed") || "检查失败";
+      const errorMsg = (axios.isAxiosError(error) ? error.response?.data?.detail : undefined) || (error instanceof Error ? error.message : undefined) || t("check_failed") || "检查失败";
       message.error(errorMsg);
       setFetchedModels([]);
     } finally {
@@ -482,10 +483,10 @@ const ModelSettingsPage = () => {
       // 调用系统配置批量更新接口
       await configApi.updateConfig(batchConfigs);
       message.success(t("config_saved") || "配置已保存");
-    } catch (error: any) {
-      const errorMsg = error?.message || error?.response?.data?.detail || t("save_failed") || "保存失败";
+    } catch (error) {
+      const errorMsg = (error instanceof Error ? error.message : undefined) || (axios.isAxiosError(error) ? error.response?.data?.detail : undefined) || t("save_failed") || "保存失败";
       console.error(t('save_model_config_failed', { message: error }) || "保存配置失败:", error);
-      if (error?.code === 401 || error?.response?.status === 401) {
+      if ((error as { code?: number })?.code === 401 || (axios.isAxiosError(error) && error.response?.status === 401)) {
         message.warning(errorMsg);
       } else {
         message.error(errorMsg);

@@ -3,6 +3,7 @@
  * 功能：提供主题、语言、分页等通用设置
  */
 import { useState, useMemo } from 'react';
+import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip, Input } from 'antd';
 import { useSettings } from './SettingsContext';
@@ -119,9 +120,9 @@ const GeneralSettingsPage = () => {
       await saveConfig();
       setThemeChanged(false);
       setLocaleChanged(false);
-    } catch (error: any) {
+    } catch (error) {
       // 处理后端返回的权限错误
-      if (error?.response?.data?.code === 403) {
+      if (axios.isAxiosError(error) && error.response?.data?.code === 403) {
         message.error(error.response.data.message || '访客用户无法保存系统配置');
       }
     }

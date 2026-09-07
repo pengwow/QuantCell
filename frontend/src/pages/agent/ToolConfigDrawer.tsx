@@ -158,8 +158,8 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
       // 刷新参数列表
       await loadToolParams(selectedTool!);
       await loadTools(); // 刷新工具列表以更新配置计数
-    } catch (error: any) {
-      message.error(`更新失败: ${error.message || '未知错误'}`);
+    } catch (error) {
+      message.error(`更新失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setSaving(false);
     }
@@ -180,8 +180,8 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
           message.success(`参数 ${paramName} 已删除`);
           await loadToolParams(selectedTool!);
           await loadTools();
-        } catch (error: any) {
-          message.error(`删除失败: ${error.message || '未知错误'}`);
+        } catch (error) {
+          message.error(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`);
         }
       },
     });
@@ -230,8 +230,8 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
               if (selectedTool) {
                 await loadToolParams(selectedTool);
               }
-            } catch (error: any) {
-              message.error(`导入失败: ${error.message || '未知错误'}`);
+            } catch (error) {
+              message.error(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`);
             }
           },
         });

@@ -288,8 +288,8 @@ const Worker = () => {
     try {
       await startWorker(worker.id);
       apiMessage.success(t('worker_start_success'));
-    } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || '未知错误';
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : '未知错误';
 
       if (
         errorMsg.includes('非法状态转换') ||
@@ -330,8 +330,8 @@ const Worker = () => {
     try {
       await stopWorker(worker.id);
       apiMessage.success(t('worker_stop_success'));
-    } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || '未知错误';
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : '未知错误';
 
       if (
         errorMsg.includes('非法状态转换') ||
@@ -377,8 +377,8 @@ const Worker = () => {
       const data = result as any;
       apiMessage.success(`优化完成 (${data?.data?.strategy_type || 'rule'})`);
       fetchWorkers();
-    } catch (error: any) {
-      apiMessage.error(`优化失败: ${error?.message || '未知错误'}`);
+    } catch (error) {
+      apiMessage.error(`优化失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   }, [apiMessage, fetchWorkers]);
 
@@ -406,8 +406,8 @@ const Worker = () => {
         }
       }
       setSelectedRowKeys([]);
-    } catch (error: any) {
-        apiMessage.error(`批量启动失败: ${error.message}`);
+    } catch (error) {
+        apiMessage.error(`批量启动失败: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBatchOperationLoading(false);
     }
@@ -430,8 +430,8 @@ const Worker = () => {
         );
       }
       setSelectedRowKeys([]);
-    } catch (error: any) {
-      apiMessage.error(`批量停止失败: ${error.message}`);
+    } catch (error) {
+      apiMessage.error(`批量停止失败: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBatchOperationLoading(false);
     }
@@ -454,8 +454,8 @@ const Worker = () => {
         );
       }
       setSelectedRowKeys([]);
-    } catch (error: any) {
-      apiMessage.error(`批量重启失败: ${error.message}`);
+    } catch (error) {
+      apiMessage.error(`批量重启失败: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBatchOperationLoading(false);
     }

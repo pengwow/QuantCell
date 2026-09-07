@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import axios from 'axios';
 import {
   LineChartOutlined,
   BarChartOutlined,
@@ -128,9 +129,9 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
         try {
           await deleteIndicator(indicator.id);
           message.success(t('indicator.deleteSuccess', '删除成功'));
-        } catch (error: any) {
+        } catch (error) {
           // 处理后端返回的权限错误
-          if (error?.response?.data?.code === 403) {
+          if (axios.isAxiosError(error) && error.response?.data?.code === 403) {
             message.error(error.response.data.message || '访客用户无法删除指标');
           } else {
             message.error(t('indicator.deleteError', '删除失败'));

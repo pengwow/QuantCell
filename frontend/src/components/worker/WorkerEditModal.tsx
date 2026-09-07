@@ -475,9 +475,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         onSuccess?.();
         onCancel();
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('更新Worker失败:', error);
-      message.error(error.message || '更新Worker失败');
+      message.error(error instanceof Error ? error.message : '更新Worker失败');
     } finally {
       setLoading(false);
     }
