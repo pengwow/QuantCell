@@ -1,19 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { indicatorApi } from '../api';
+import { indicatorApi, type Indicator } from '../api';
 
-export interface Indicator {
-  id: number;
-  name: string;
-  description: string;
-  code: string;
-  user_id: number;
-  is_buy: number;
-  end_time: number;
-  publish_to_community: number;
-  pricing_type: string;
-  price: number;
-  is_encrypted: number;
-}
+export type { Indicator } from '../api';
 
 export interface IndicatorParams {
   [key: string]: unknown;

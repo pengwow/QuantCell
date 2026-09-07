@@ -39,7 +39,7 @@ import {
   IconRotateDot,
 } from '@tabler/icons-react';
 import { systemApi } from '../../api';
-import type { LogDirectoryNode, LogFileInfo, LogAutoCleanupConfig, CleanupResult } from './types';
+import type { LogDirectoryNode, LogFileInfo, LogAutoCleanupConfig, LogDiskUsage, LogTypeInfo, CleanupResult } from './types';
 
 interface LogSettingsUnifiedProps {
   onClose?: () => void;
@@ -49,7 +49,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   const { message } = App.useApp();
   // ========== 状态定义 ==========
   const [directoryTree, setDirectoryTree] = useState<LogDirectoryNode | null>(null);
-  const [diskUsage, setDiskUsage] = useState<any>(null);
+  const [diskUsage, setDiskUsage] = useState<LogDiskUsage | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<LogFileInfo | null>(null);
   const [currentDir, setCurrentDir] = useState<string>('');
@@ -785,9 +785,9 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 className="shadow-sm"
               >
                 <div className="space-y-3">
-                  {Object.entries(diskUsage.log_types).map(([type, info]: [string, any]) => {
-                    const totalBytes = info?.total_size || 0;
-                    const maxBytes = Math.max(...Object.values(diskUsage.log_types).map((i: any) => i?.total_size || 0), 1);
+                  {Object.entries(diskUsage.log_types).map(([type, info]: [string, LogTypeInfo]) => {
+                    const totalBytes = info.total_size || 0;
+                    const maxBytes = Math.max(...Object.values(diskUsage.log_types).map((i: LogTypeInfo) => i.total_size || 0), 1);
                     const percent = (totalBytes / maxBytes) * 100;
                     
                     const colors: Record<string, string> = {

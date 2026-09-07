@@ -2,7 +2,7 @@
  * 设置页面布局组件
  * 功能：提供设置页面的整体布局
  */
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -35,20 +35,16 @@ const SettingLayout = () => {
     ["plugins", t("plugin_management") || "插件管理", <IconPuzzle size="1em" />],
   ] satisfies [string, string, React.ReactElement][];
 
-  // 当前选中的菜单项
-  const [menuKey, setMenuKey] = useState<string>(() => {
-    const pathParts = location.pathname.split("/");
-    return pathParts[2] || "general";
-  });
+  // 当前选中的菜单项由路由 URL 推导，避免 setState-in-effect 与状态不同步问题
+  const menuKey = location.pathname.split("/")[2] || "general";
 
-  // 监听路由变化，更新选中菜单
+  // 监听路由变化，无子路径时重定向到通用设置
   useEffect(() => {
     const subpath = location.pathname.split("/")[2];
     if (!subpath) {
       navigate("/setting/general");
       return;
     }
-    setMenuKey(subpath);
   }, [location.pathname, navigate]);
 
   // 设置页面标题
@@ -58,7 +54,6 @@ const SettingLayout = () => {
 
   // 处理菜单点击
   const handleMenuClick = ({ key }: { key: string }) => {
-    setMenuKey(key);
     navigate(`/setting/${key}`);
   };
 

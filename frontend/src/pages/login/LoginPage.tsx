@@ -12,6 +12,17 @@ import { setPageTitle } from "@/utils/pageTitle";
 
 const { Title, Text } = Typography;
 
+// 登录接口返回的用户数据（access_token 在调用 saveUserInfo 前已确认存在）
+interface LoginResponseData {
+  access_token: string;
+  refresh_token?: string;
+  token_type?: string;
+  role?: string;
+  username?: string;
+  user_id?: string | number;
+  nickname?: string;
+}
+
 const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
   const root = document.documentElement;
   let effectiveTheme: 'light' | 'dark';
@@ -44,11 +55,11 @@ const loadThemeConfig = async () => {
     const result = await response.json();
     const groupedConfig = result?.data || result;
 
-    const flattenConfig: Record<string, any> = {};
+    const flattenConfig: Record<string, unknown> = {};
     if (groupedConfig && typeof groupedConfig === 'object') {
       Object.entries(groupedConfig).forEach(([, groupValues]) => {
         if (groupValues && typeof groupValues === 'object') {
-          Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+          Object.entries(groupValues as Record<string, unknown>).forEach(([key, value]) => {
             flattenConfig[key] = value;
           });
         }
@@ -97,7 +108,7 @@ const LoginPage = () => {
     return '/chart';
   };
 
-  const saveUserInfo = (data: any) => {
+  const saveUserInfo = (data: LoginResponseData) => {
     saveToken({
       access_token: data.access_token,
       refresh_token: data.refresh_token || "",

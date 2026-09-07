@@ -8,11 +8,11 @@ export interface WebSocketMessage {
   type: string;
   id: string;
   timestamp: number;
-  data?: any;
+  data?: unknown;
   error?: {
     code: string;
     message: string;
-    details?: any;
+    details?: unknown;
   };
   topic?: string;
   messages?: WebSocketMessage[];
@@ -29,7 +29,7 @@ export interface WebSocketConfig {
 }
 
 // WebSocket事件监听器类型
-type WebSocketEventListener = (data: any) => void;
+type WebSocketEventListener = (data: unknown) => void;
 
 export class WebSocketService {
   private socket: WebSocket | null = null;
@@ -115,7 +115,9 @@ export class WebSocketService {
           const message: WebSocketMessage = JSON.parse(rawData);
 
           if (message.type === 'kline') {
-            console.debug(`[WebSocket] 收到K线消息: ${message.data?.symbol}@${message.data?.interval}, close=${message.data?.close}`);
+            // data 已收窄为 unknown，编译期无法直接访问字段，此处仅用于日志输出
+            const klineData = message.data as { symbol?: string; interval?: string; close?: number } | undefined;
+            console.debug(`[WebSocket] 收到K线消息: ${klineData?.symbol}@${klineData?.interval}, close=${klineData?.close}`);
           } else if (message.type === 'batch') {
             console.debug(`[WebSocket] 收到批量消息，数量: ${message.messages?.length || 0}`);
           } else {
@@ -370,11 +372,12 @@ export class WebSocketService {
 
     if (message.type === 'batch') {
       let messages: WebSocketMessage[] = [];
-      
+      const batchData = message.data as { messages?: WebSocketMessage[] } | undefined;
+
       if (Array.isArray(message.messages)) {
         messages = message.messages;
-      } else if (message.data && Array.isArray(message.data.messages)) {
-        messages = message.data.messages;
+      } else if (batchData && Array.isArray(batchData.messages)) {
+        messages = batchData.messages;
       }
       
       if (messages.length > 0) {
@@ -412,7 +415,7 @@ export class WebSocketService {
   /**
    * 通知监听器
    */
-  private notifyListeners(event: string, data: any): void {
+  private notifyListeners(event: string, data: unknown): void {
     const listeners = this.messageListeners.get(event);
 
     if (listeners && listeners.size > 0) {

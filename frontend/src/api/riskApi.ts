@@ -12,7 +12,7 @@ export interface RiskCheckResult {
 }
 
 export const riskApi = {
-  checkOrder: (data: { order: Record<string, any>; portfolio: Record<string, any> }) =>
+  checkOrder: (data: { order: Record<string, unknown>; portfolio: Record<string, unknown> }) =>
     apiRequest.post<RiskCheckResult>('/v2/risk/check', data),
   getMetrics: () =>
     apiRequest.get<RiskMetrics>('/v2/risk/metrics'),

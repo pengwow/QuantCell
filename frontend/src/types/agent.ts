@@ -52,7 +52,7 @@ export interface Agent {
   cpu_limit: number;
   memory_limit: number;
   pid?: number;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
   started_at?: string;
@@ -80,7 +80,7 @@ export interface CreateAgentRequest {
   cpu_limit?: number;
   memory_limit?: number;
   env_vars?: Record<string, string>;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 
 // 更新Agent请求
@@ -93,12 +93,12 @@ export interface UpdateAgentRequest {
   trading_mode?: string;
   cpu_limit?: number;
   memory_limit?: number;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 
 // 更新Agent配置请求
 export interface UpdateAgentConfigRequest {
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }
 
 // 克隆Agent请求
@@ -201,14 +201,14 @@ export interface AgentTrade {
 // 策略部署请求
 export interface StrategyDeployRequest {
   strategy_id: number;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, unknown>;
   auto_start?: boolean;
 }
 
 // 策略参数
 export interface StrategyParameter {
   param_name: string;
-  param_value: any;
+  param_value: unknown;
   param_type: string;
   description?: string;
   min_value?: number;
@@ -218,7 +218,7 @@ export interface StrategyParameter {
 
 // 更新策略参数请求
 export interface UpdateStrategyParametersRequest {
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
 }
 
 // 持仓信息
@@ -247,7 +247,7 @@ export interface OrderInfo {
 }
 
 // API响应包装
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   code: number;
   message: string;
   data?: T;
@@ -293,7 +293,7 @@ export interface TradingSignal {
   quantity?: number;
   price?: number;
   order_type?: string;
-  params?: Record<string, any>;
+  params?: Record<string, unknown>;
 }
 
 // ==================== UI展示扩展类型 ====================

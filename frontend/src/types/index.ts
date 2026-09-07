@@ -182,7 +182,7 @@ export interface Task {
   task_id: string;
   status: TaskStatus;
   task_type: string;
-  params: any;
+  params: Record<string, unknown>;
   created_at: string;
   completed_at?: string;
   progress?: {

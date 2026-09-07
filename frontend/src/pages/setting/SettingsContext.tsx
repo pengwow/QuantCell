@@ -14,6 +14,26 @@ import type {
   SystemMetrics,
 } from './types';
 
+// 扩展 window 全局对象，用于保存前端展示用的全局配置快照
+declare global {
+  interface Window {
+    APP_CONFIG?: Record<string, unknown>;
+  }
+}
+
+// 将扁平化配置中的值安全转换为字符串（后端配置项多为字符串或布尔值）
+const toConfigString = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
+// 将扁平化配置中的值转换为布尔
+const toConfigBool = (value: unknown): boolean => value === 'true' || value === true;
+
+// 将扁平化配置中的值转换为整数（如 defaultPerPage）
+const toConfigInt = (value: unknown): number | undefined => {
+  const str = toConfigString(value);
+  return str ? parseInt(str, 10) : undefined;
+};
+
 // 默认通用设置
 const defaultGeneralSettings: GeneralSettings = {
   theme: 'light',
@@ -185,11 +205,11 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       const groupedConfig = response?.data || response;
 
       // 将分组配置扁平化，方便提取
-        const flattenConfig: Record<string, any> = {};
+        const flattenConfig: Record<string, unknown> = {};
         if (groupedConfig && typeof groupedConfig === 'object') {
           Object.entries(groupedConfig).forEach(([, groupValues]) => {
             if (groupValues && typeof groupValues === 'object') {
-              Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+              Object.entries(groupValues as Record<string, unknown>).forEach(([key, value]) => {
                 flattenConfig[key] = value;
               });
             }
@@ -198,14 +218,14 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 从扁平配置中提取通用设置
       const loadedGeneralSettings: Partial<GeneralSettings> = {
-        theme: flattenConfig['theme'],
-        language: flattenConfig['language'],
-        defaultPerPage: flattenConfig['defaultPerPage'] ? parseInt(flattenConfig['defaultPerPage'], 10) : undefined,
-        showTips: flattenConfig['showTips'] === 'true' || flattenConfig['showTips'] === true,
-        timezone: flattenConfig['timezone'],
+        theme: toConfigString(flattenConfig['theme']) as 'light' | 'dark' | 'auto',
+        language: toConfigString(flattenConfig['language']) as 'zh-CN' | 'en-US',
+        defaultPerPage: toConfigInt(flattenConfig['defaultPerPage']),
+        showTips: toConfigBool(flattenConfig['showTips']),
+        timezone: toConfigString(flattenConfig['timezone']),
         user: {
-          username: flattenConfig['user.username'] || '',
-          password: flattenConfig['user.password'] || '',
+          username: toConfigString(flattenConfig['user.username']) || '',
+          password: toConfigString(flattenConfig['user.password']) || '',
         },
       };
 
@@ -239,12 +259,12 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 从扁平配置中提取通知设置
       const loadedNotificationSettings: Partial<NotificationSettings> = {
-        enableEmail: flattenConfig['enableEmail'] === 'true' || flattenConfig['enableEmail'] === true,
-        enableWebhook: flattenConfig['enableWebhook'] === 'true' || flattenConfig['enableWebhook'] === true,
-        webhookUrl: flattenConfig['webhookUrl'],
-        notifyOnAlert: flattenConfig['notifyOnAlert'] === 'true' || flattenConfig['notifyOnAlert'] === true,
-        notifyOnTaskComplete: flattenConfig['notifyOnTaskComplete'] === 'true' || flattenConfig['notifyOnTaskComplete'] === true,
-        notifyOnSystemUpdate: flattenConfig['notifyOnSystemUpdate'] === 'true' || flattenConfig['notifyOnSystemUpdate'] === true,
+        enableEmail: toConfigBool(flattenConfig['enableEmail']),
+        enableWebhook: toConfigBool(flattenConfig['enableWebhook']),
+        webhookUrl: toConfigString(flattenConfig['webhookUrl']),
+        notifyOnAlert: toConfigBool(flattenConfig['notifyOnAlert']),
+        notifyOnTaskComplete: toConfigBool(flattenConfig['notifyOnTaskComplete']),
+        notifyOnSystemUpdate: toConfigBool(flattenConfig['notifyOnSystemUpdate']),
       };
 
       const filteredNotificationSettings = Object.fromEntries(
@@ -260,7 +280,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 从扁平配置中提取 API 设置
       const loadedApiSettings: Partial<ApiSettings> = {
-        apiKey: flattenConfig['apiKey'],
+        apiKey: toConfigString(flattenConfig['apiKey']),
       };
 
       const filteredApiSettings = Object.fromEntries(
@@ -325,13 +345,13 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 更新全局配置
       if (typeof window !== 'undefined') {
-        (window as any).APP_CONFIG = {
-          ...(window as any).APP_CONFIG,
+        window.APP_CONFIG = {
+          ...window.APP_CONFIG,
           generalSettings,
           notificationSettings,
           apiSettings,
         };
-        console.log('[SettingsContext] window.APP_CONFIG 已更新:', (window as any).APP_CONFIG);
+        console.log('[SettingsContext] window.APP_CONFIG 已更新:', window.APP_CONFIG);
       }
 
       message.success('设置保存成功');

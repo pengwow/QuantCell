@@ -16,6 +16,12 @@ export interface PluginRoute {
 
 type Listener = () => void;
 
+// 插件前端模块实例（由插件 bundle 的 registerPlugin() 返回，字段均为可选）
+interface PluginFrontendModule {
+  getRoutes?: () => unknown[];
+  getMenuItems?: () => unknown[];
+}
+
 class PluginRegistry {
   private plugins = new Map<string, PluginInfo>();
   private menuItems: PluginMenuItem[] = [];
@@ -63,16 +69,16 @@ class PluginRegistry {
     }
   }
 
-  private registerPluginInstance(instance: any): void {
+  private registerPluginInstance(instance: PluginFrontendModule): void {
     if (typeof instance.getRoutes === 'function') {
       for (const route of instance.getRoutes()) {
-        this.registerRoute(route);
+        this.registerRoute(route as PluginRoute);
       }
     }
 
     if (typeof instance.getMenuItems === 'function') {
       for (const item of instance.getMenuItems()) {
-        this.registerMenu(item);
+        this.registerMenu(item as PluginMenuItem);
       }
     }
   }

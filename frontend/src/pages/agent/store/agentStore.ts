@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export interface ToolCall {
   id: string;
   name: string;
-  arguments: Record<string, any>;
+  arguments: Record<string, unknown>;
 }
 
 export interface Tool {
@@ -36,7 +36,7 @@ export interface Message {
   intent?: string;
   roleName?: string;
   actions?: IntentAction[];
-  structuredData?: Record<string, any>;
+  structuredData?: Record<string, unknown>;
 }
 
 interface AgentState {

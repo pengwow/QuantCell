@@ -9,7 +9,17 @@ import React, { useState, useEffect } from "react";
 const isTauri = import.meta.env.VITE_IS_TAURI == '1' || import.meta.env.VITE_IS_TAURI == 'true';
 
 // 定义更宽松的TokenIcon组件类型
-let TokenIcon: React.ComponentType<any> | null = null;
+// web3icons 的图标组件 props 较多，这里只声明本组件实际用到的字段
+interface TokenIconProps {
+  symbol: string;
+  size?: string | number;
+  variant?: 'mono' | 'branded' | 'background';
+  style?: React.CSSProperties;
+  onError?: () => void;
+}
+
+type TokenIconComponent = (props: TokenIconProps) => React.ReactNode;
+let TokenIcon: TokenIconComponent | null = null;
 
 interface Props {
   symbol: string;
@@ -34,7 +44,8 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
         setIsLoading(true);
         // 动态导入web3icons包（运行时确定类型，此处无类型错误，无需豁免注解）
         const web3icons = await import("@web3icons/react/dynamic");
-        TokenIcon = web3icons.TokenIcon;
+        // web3icons 的组件是 forwardRef 类型，这里收敛为本组件所需的最小接口
+        TokenIcon = web3icons.TokenIcon as unknown as TokenIconComponent;
         setIsLoading(false);
       } catch (error) {
         console.error("Failed to load TokenIcon:", error);

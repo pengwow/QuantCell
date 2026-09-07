@@ -22,7 +22,7 @@ import { useIndicators, builtInIndicators, type Indicator, type ActiveIndicator 
 
 interface IndicatorPanelProps {
   activeIndicators: ActiveIndicator[];
-  onToggleIndicator: (indicator: Indicator, params?: Record<string, any>) => void;
+  onToggleIndicator: (indicator: Indicator, params?: Record<string, unknown>) => void;
   onOpenEditor: () => void;
   onEditIndicator: (indicator: Indicator) => void;
 }
@@ -48,7 +48,7 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
   const { indicators, loading, deleteIndicator } = useIndicators();
   const [paramModalVisible, setParamModalVisible] = useState(false);
   const [selectedIndicator, setSelectedIndicator] = useState<Indicator | null>(null);
-  const [paramValues, setParamValues] = useState<Record<string, any>>({});
+  const [paramValues, setParamValues] = useState<Record<string, unknown>>({});
 
   // 检查指标是否已激活
   const isIndicatorActive = (indicatorId: number | string) => {
@@ -262,10 +262,10 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
                 <label>{key}</label>
                 <Input
                   type="number"
-                  value={value}
+                  value={typeof value === 'number' ? value : 0}
                   onChange={(e) => setParamValues(prev => ({
                     ...prev,
-                    [key]: parseInt(e.target.value) || value
+                    [key]: parseInt(e.target.value) || (typeof value === 'number' ? value : 0)
                   }))}
                 />
               </div>

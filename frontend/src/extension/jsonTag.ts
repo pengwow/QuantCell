@@ -2,16 +2,30 @@
  * 支持JSON格式的标签组件，用于在图表上显示复杂样式的标签
  * 支持颜色设置、文本换行及其他复杂展示需求
  */
-import type { OverlayTemplate } from 'klinecharts'
+import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
+
+// 任意参数的可调用类型，代替 any 类型的函数类型声明
+type UnknownCallable = (...args: unknown[]) => unknown
 
 // 自定义实现isFunction函数
-const isFunction = (value: unknown): value is Function => {
+const isFunction = (value: unknown): value is UnknownCallable => {
   return typeof value === 'function'
 }
 
 // 自定义实现isValid函数
 const isValid = <T>(value: T | null | undefined): value is T => {
   return value !== null && value !== undefined
+}
+
+// 标签展示数据模型：来自 extendData 的 JSON，字段均为可选以便渲染时用默认值兜底
+interface TagData {
+  lines: string[]
+  colors: string[]
+  fontSize?: number
+  backgroundColor?: string
+  borderColor?: string
+  padding?: number
+  borderRadius?: number
 }
 
 const jsonTag: OverlayTemplate = {
@@ -21,7 +35,7 @@ const jsonTag: OverlayTemplate = {
     line: { style: 'solid' }
   },
   createPointFigures: ({ overlay, coordinates }) => {
-    let jsonData: any = { lines: [], colors: [], fontSize: 12, backgroundColor: 'rgba(255, 255, 255, 0.8)', borderColor: '#000000' }
+    let jsonData: TagData = { lines: [], colors: [], fontSize: 12, backgroundColor: 'rgba(255, 255, 255, 0.8)', borderColor: '#000000' }
     if (isValid(overlay.extendData)) {
       if (!isFunction(overlay.extendData)) {
         const extendData = overlay.extendData as string
@@ -34,7 +48,7 @@ const jsonTag: OverlayTemplate = {
         }
       } else {
         // 如果extendData是函数，执行它获取结果
-        const extendDataFunc = overlay.extendData as Function
+        const extendDataFunc = overlay.extendData as UnknownCallable
         const result = extendDataFunc(overlay)
         if (typeof result === 'string') {
           try {
@@ -43,7 +57,7 @@ const jsonTag: OverlayTemplate = {
             jsonData = { lines: [result], colors: ['#000000'], fontSize: 12, backgroundColor: 'rgba(255, 255, 255, 0.8)', borderColor: '#000000' }
           }
         } else {
-          jsonData = result
+          jsonData = result as TagData
         }
       }
     }
@@ -62,7 +76,7 @@ const jsonTag: OverlayTemplate = {
 
     // 计算文本元素
     let textY = startY - 10
-    const textElements: any[] = []
+    const textElements: OverlayFigure[] = []
     let maxTextWidth = 0
     
     // 为每行文本创建一个text元素并计算最大宽度

@@ -11,6 +11,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Card, Col, Empty, Row, Spin, Statistic, Table, Tag } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
 import type { PositionInfo } from '@/types/worker';
@@ -47,7 +48,6 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       const items = await workerApi.getPositions(workerId);
       setPositions(items);
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error('获取持仓数据失败:', error);
       setPositions([]);
     } finally {
@@ -72,8 +72,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   }, [positions]);
 
   // 表格列：按量化行业标准排序
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const columns: any = [
+  const columns: TableColumnsType<Position> = [
     {
       title: t('symbol') || '交易对',
       dataIndex: 'symbol',

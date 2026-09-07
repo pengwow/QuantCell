@@ -3,16 +3,33 @@
  * 功能：支持JSON格式的自定义注解组件，用于K线图表上的交易标记
  * 适用场景：回测回放、交易信号标记、技术指标标注
  */
-import type { OverlayTemplate } from 'klinecharts'
+import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
 // 自定义实现isFunction函数
-const isFunction = (value: unknown): value is Function => {
+// 使用精确的可调用类型替代 any 的 Function，避免 no-unsafe-function-type
+type UnknownCallable = (...args: unknown[]) => unknown
+
+const isFunction = (value: unknown): value is UnknownCallable => {
   return typeof value === 'function'
 }
 
 // 自定义实现isValid函数
 const isValid = <T>(value: T | null | undefined): value is T => {
   return value !== null && value !== undefined
+}
+
+// JSON注解数据结构定义
+// 与 jsonAnnotation.ts 中的结构保持一致，字段均为可选，保证解析 JSON 后也能回退到默认值
+interface AnnotationData {
+  lines: string[]
+  colors: string[]
+  fontSize?: number
+  align?: string
+  type?: string
+  padding?: number
+  backgroundColor?: string
+  borderColor?: string
+  borderRadius?: number
 }
 
 // 可扩展的颜色配置
@@ -50,7 +67,7 @@ const jsonAnnotation: OverlayTemplate = {
     line: { style: 'dashed' }
   },
   createPointFigures: ({ overlay, coordinates }) => {
-    let jsonData: any = { 
+    let jsonData: AnnotationData = { 
       lines: [], 
       colors: [], 
       fontSize: 12,
@@ -80,7 +97,7 @@ const jsonAnnotation: OverlayTemplate = {
         }
       } else {
         // 如果extendData是函数，执行它获取结果
-        const extendDataFunc = overlay.extendData as Function
+        const extendDataFunc = overlay.extendData as UnknownCallable
         const result = extendDataFunc(overlay)
         if (typeof result === 'string') {
           try {
@@ -95,7 +112,8 @@ const jsonAnnotation: OverlayTemplate = {
             }
           }
         } else {
-          jsonData = result
+          // 函数返回非字符串时直接作为结构化数据使用
+          jsonData = result as AnnotationData
         }
       }
     }
@@ -222,7 +240,7 @@ const jsonAnnotation: OverlayTemplate = {
     
     // 计算文本起始Y坐标 - 从背景框顶部开始往下排列，确保数组顺序与显示顺序一致
     let textY = boxStartY + padding + lineHeight / 2
-    const textElements: any[] = []
+    const textElements: OverlayFigure[] = []
     
     // 计算每行文本的X坐标（根据对齐方式在背景框内部对齐）
     let textX: number

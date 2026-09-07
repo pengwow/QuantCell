@@ -31,9 +31,9 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
-import { strategyApi, dataApi, configApi } from '../../api';
+import { strategyApi, dataApi, configApi, type DataPoolRecord, type CryptoSymbol } from '../../api';
 import { getStrategyParameters } from '../../api/workerApi';
-import type { StrategyInfo, StrategyParameter } from '../../types/worker';
+import type { StrategyInfo, StrategyParameter, Worker as WorkerModel } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -110,11 +110,26 @@ const TRADING_MODES = [
   { value: 'paper', label: '本地模拟' },
 ];
 
+// 可编辑的 worker 对象（含历史兼容字段）
+type EditableWorker = WorkerModel & {
+  symbol?: string;
+  strategy_params?: Record<string, unknown>;
+};
+
 interface WorkerEditModalProps {
   visible: boolean;
-  worker: any; // 使用 any 类型以支持 worker 对象的所有属性
+  worker: EditableWorker | null;
   onCancel: () => void;
   onSuccess?: () => void;
+}
+
+// 交易标的选项（数据池 / 直接货币对）
+interface SymbolOption {
+  label: React.ReactNode;
+  value: string;
+  type: 'data_pool' | 'direct_symbol';
+  symbols?: string[];
+  poolName?: string;
 }
 
 const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
@@ -131,16 +146,16 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const [loading, setLoading] = useState(false);
   
   // 策略相关
-  const [strategies, setStrategies] = useState<any[]>([]);
+  const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   const [, setSelectedStrategyId] = useState<number | null>(null);
 
   // 交易所相关
-  const [exchanges, setExchanges] = useState<any[]>([]);
+  const [exchanges, setExchanges] = useState<{ value: string; label: string }[]>([]);
   const [loadingExchanges, setLoadingExchanges] = useState(false);
 
   // 交易相关
-  const [symbolOptions, setSymbolOptions] = useState<any[]>([]);
+  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(false);
 
   // 策略参数
@@ -167,13 +182,15 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     if (!worker) return;
 
     // 从 trading_config JSON 中提取配置
-    const tradingConfig = typeof worker.trading_config === 'string'
-      ? JSON.parse(worker.trading_config || '{}')
-      : (worker.trading_config || {});
+    const tradingConfig: Record<string, unknown> =
+      typeof worker.trading_config === 'string'
+        ? JSON.parse(worker.trading_config || '{}')
+        : (worker.trading_config || {});
 
-    const config = typeof worker.config === 'string'
-      ? JSON.parse(worker.config || '{}')
-      : (worker.config || {});
+    const config: Record<string, unknown> =
+      typeof worker.config === 'string'
+        ? JSON.parse(worker.config || '{}')
+        : (worker.config || {});
 
     // 获取当前策略 ID
     const currentStrategyId = worker.strategy_info?.id || worker.strategy_id;
@@ -202,7 +219,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 
     // 加载当前策略的参数值到表单
     if (worker.strategy_params && typeof worker.strategy_params === 'object') {
-      const paramsFormValue: Record<string, any> = {};
+      const paramsFormValue: Record<string, unknown> = {};
       Object.entries(worker.strategy_params).forEach(([key, value]) => {
         paramsFormValue[`param_${key}`] = value;
       });
@@ -247,7 +264,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       setStrategyParams(params);
 
       // 将参数默认值设置到表单中
-      const paramsFormValue: Record<string, any> = {};
+      const paramsFormValue: Record<string, unknown> = {};
       params.forEach((p) => {
         const key = `param_${p.param_name}`;
         // 如果当前 worker 有该参数值，使用它；否则使用默认值
@@ -270,25 +287,24 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const fetchExchanges = async () => {
     setLoadingExchanges(true);
     try {
+      // GET /config/ 返回按 name 分组的配置：
+      // { exchange: { 'exchange.binance.is_enabled': 'true', 'exchange.binance.name': 'Binance', ... } }
       const response = await configApi.getConfig();
-      const configs = Array.isArray(response) ? response : response?.data || [];
+      const exchangeGroup =
+        response && typeof response.exchange === 'object' && response.exchange !== null
+          ? (response.exchange as Record<string, string>)
+          : {};
 
-      const exchangeConfigs = configs.filter(
-        (config: any) =>
-          config.plugin === 'exchange' &&
-          config.key === 'is_enabled' &&
-          config.value === 'true'
-      );
-
-      const enabledExchanges = exchangeConfigs.map((config: any) => {
-        const nameConfig = configs.find(
-          (c: any) => c.plugin === 'exchange' && c.key === 'name' && c.scope === config.scope
-        );
-        return {
-          value: config.scope,
-          label: nameConfig?.value || config.scope,
-        };
-      });
+      // 解析启用状态的交易所：key 形如 exchange.<scope>.is_enabled
+      const enabledExchanges: { value: string; label: string }[] = [];
+      for (const [key, value] of Object.entries(exchangeGroup)) {
+        const parts = key.split('.');
+        if (parts[0] === 'exchange' && parts[2] === 'is_enabled' && value === 'true') {
+          const scope = parts[1];
+          const name = exchangeGroup[`exchange.${scope}.name`] || scope;
+          enabledExchanges.push({ value: scope, label: name });
+        }
+      }
 
       if (enabledExchanges.length === 0) {
         setExchanges([
@@ -321,40 +337,37 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 
       console.log('getCollectionSymbols response:', response);
 
-      const dataPoolOptions: any[] = [];
-      let directSymbolOptions: any[] = [];
+      const dataPoolOptions: SymbolOption[] = [];
+      let directSymbolOptions: SymbolOption[] = [];
 
       if (response) {
-        const dataPools = response.data_pools || response.pools || [];
-        if (Array.isArray(dataPools)) {
-          dataPools.forEach((pool: any) => {
-            dataPoolOptions.push({
-              label: (
-                <Space>
-                  <StarFilled style={{ color: '#faad14' }} />
-                  <span>{pool.name}</span>
-                  <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
-                </Space>
-              ),
-              value: `pool_${pool.id}`,
-              type: 'data_pool',
-              symbols: pool.symbols || [],
-              poolName: pool.name,
-            });
+        // 数据池（自选组）- 只显示组名，不展开内部货币对
+        const dataPools = response.data_pools ?? [];
+        dataPools.forEach((pool: DataPoolRecord) => {
+          dataPoolOptions.push({
+            label: (
+              <Space>
+                <StarFilled style={{ color: '#faad14' }} />
+                <span>{pool.name}</span>
+                <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
+              </Space>
+            ),
+            value: `pool_${pool.id}`,
+            type: 'data_pool',
+            symbols: pool.symbols || [],
+            poolName: pool.name,
           });
-        }
+        });
 
-        const directSymbols = response.direct_symbols || response.symbols || [];
-        if (Array.isArray(directSymbols)) {
-          directSymbols.forEach((symbol: any) => {
-            const symbolValue = typeof symbol === 'string' ? symbol : (symbol.symbol || symbol.name || String(symbol));
-            directSymbolOptions.push({
-              label: symbolValue,
-              value: symbolValue,
-              type: 'direct_symbol',
-            });
+        // 直接交易标的
+        const directSymbols = response.direct_symbols ?? [];
+        directSymbols.forEach((symbol: string) => {
+          directSymbolOptions.push({
+            label: symbol,
+            value: symbol,
+            type: 'direct_symbol',
           });
-        }
+        });
       }
 
       if (directSymbolOptions.length === 0) {
@@ -364,11 +377,11 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             offset: 0,
           });
 
-          const symbolList = cryptoResponse?.symbols || [];
+          const symbolList = cryptoResponse.symbols ?? cryptoResponse.data?.symbols ?? [];
 
           if (Array.isArray(symbolList)) {
-            directSymbolOptions = symbolList.map((item: any) => {
-              const symbolValue = typeof item === 'string' ? item : (item.symbol || item.name || String(item));
+            directSymbolOptions = symbolList.map((item: CryptoSymbol) => {
+              const symbolValue = item.symbol || String(item);
               return {
                 label: symbolValue,
                 value: symbolValue,
@@ -445,7 +458,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             acc[param.param_name] = param.default_value;
           }
           return acc;
-        }, {} as Record<string, any>),
+        }, {} as Record<string, unknown>),
 
         config: {
           initial_capital: values.initial_capital || 10000,
@@ -757,12 +770,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               name="initial_capital"
               label={t('initial_capital')}
             >
-              <InputNumber
+              <InputNumber<number>
                 min={100}
                 step={1000}
                 style={{ width: '100%' }}
                 formatter={(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={(value) => value?.replace(/\$\s?|(,*)/g, '') as any}
+                parser={(value) => Number(value?.replace(/\$|,/g, '') || 0)}
               />
             </Form.Item>
           </Col>

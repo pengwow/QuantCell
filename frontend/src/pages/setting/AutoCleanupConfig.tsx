@@ -343,7 +343,7 @@ const AutoCleanupConfig: React.FC = () => {
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
                   <Tag color="blue">{type}</Tag>
                   <span className="font-mono text-sm">
-                    {info.count} 个文件 / {((info as any).totalSize / 1024 / 1024).toFixed(2)} MB
+                    {info.count} 个文件 / {(info.total_size / 1024 / 1024).toFixed(2)} MB
                   </span>
                 </div>
               </Col>

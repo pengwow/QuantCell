@@ -78,7 +78,7 @@ export interface SystemInfo {
 // 配置项类型定义
 export interface ConfigItem {
   key: string;
-  value: any;
+  value: unknown;
   description: string;
   plugin?: string;
   name?: string;
@@ -135,7 +135,7 @@ export interface LogRecord {
   timestamp: string;
   level: LogLevel;
   message: string;
-  data?: any;
+  data?: unknown;
   source?: string;
 }
 
@@ -197,16 +197,18 @@ export interface LogDirectoryNode {
 }
 
 /** 磁盘使用情况 */
+export interface LogTypeInfo {
+  count: number;
+  total_size: number;
+}
+
 export interface LogDiskUsage {
   total_space: number;          // 字节
   used_space: number;
   free_space: number;
   usage_percent: number;
   log_types: {
-    [type: string]: {
-      count: number;
-      total_size: number;
-    };
+    [type: string]: LogTypeInfo;
   };
   logs_total_size?: number;      // 日志总大小
 }

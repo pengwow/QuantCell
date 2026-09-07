@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { OverlayTemplate } from 'klinecharts'
+import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
 const fibonacciSpeedResistanceFan: OverlayTemplate = {
   name: 'fibonacciSpeedResistanceFan',
@@ -28,8 +28,8 @@ const fibonacciSpeedResistanceFan: OverlayTemplate = {
       
       // 斐波那契速度阻力扇形线比例
       const levels = [0, 0.382, 0.5, 0.618, 1]
-      const lines: any[] = []
-      const texts: any[] = []
+      const lines: OverlayFigure[] = []
+      const texts: OverlayFigure[] = []
       
       levels.forEach(level => {
         const value = startValue + (endValue - startValue) * level

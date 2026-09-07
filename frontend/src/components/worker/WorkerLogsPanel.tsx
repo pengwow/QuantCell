@@ -61,8 +61,12 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
   // 使用 ref 存储 connectLogStream/disconnectLogStream 避免引用变化触发无限循环
   const connectLogStreamRef = useRef(connectLogStream);
   const disconnectLogStreamRef = useRef(disconnectLogStream);
-  connectLogStreamRef.current = connectLogStream;
-  disconnectLogStreamRef.current = disconnectLogStream;
+
+  // 在 effect 中同步 ref 指向的最新函数，避免渲染阶段直接读写 ref（react-hooks/refs）
+  useEffect(() => {
+    connectLogStreamRef.current = connectLogStream;
+    disconnectLogStreamRef.current = disconnectLogStream;
+  }, [connectLogStream, disconnectLogStream]);
   // 智能滚动状态
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
@@ -87,25 +91,23 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
 
   // 从 LogRingBuffer 加载最近日志作为初始内容
   const [initialLogsLoaded, setInitialLogsLoaded] = useState(false);
-  const loadInitialLogsFromBuffer = useCallback(async () => {
-    try {
-      const res = await fetchRecentLogs(workerId, { limit: 100 });
-      if (res.code === 0 && res.data.logs.length > 0) {
-        // 缓冲区内有日志则跳过首次加载等待流式推送
-        clearLogs();
-        setInitialLogsLoaded(true);
-      }
-    } catch (error) {
-      console.warn('[WorkerLogsPanel] 加载初始日志失败（非致命）:', error);
-    }
-  }, [workerId, clearLogs]);
 
-  // 组件挂载时加载初始日志
+  // 组件挂载时加载初始日志（setState 放在 then 回调中，避免同步 setState 触发级联渲染）
   useEffect(() => {
     if (workerId && !initialLogsLoaded) {
-      loadInitialLogsFromBuffer();
+      fetchRecentLogs(workerId, { limit: 100 })
+        .then((res) => {
+          if (res.code === 0 && res.data.logs.length > 0) {
+            // 缓冲区内有日志则跳过首次加载等待流式推送
+            clearLogs();
+            setInitialLogsLoaded(true);
+          }
+        })
+        .catch((error) => {
+          console.warn('[WorkerLogsPanel] 加载初始日志失败（非致命）:', error);
+        });
     }
-  }, [workerId, initialLogsLoaded, loadInitialLogsFromBuffer]);
+  }, [workerId, initialLogsLoaded, clearLogs]);
 
   // 智能自动滚动逻辑
   useEffect(() => {

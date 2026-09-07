@@ -35,7 +35,7 @@ import { usePlugins } from '@/plugins';
 
 const { Text, Paragraph } = Typography;
 
-const STATUS_CONFIG: Record<PluginStatus, { color: string; text: string }> = {
+const STATUS_CONFIG: Record<PluginStatus, { color: 'default' | 'success' | 'warning' | 'processing' | 'error'; text: string }> = {
   installed: { color: 'default', text: '已安装' },
   enabled: { color: 'success', text: '运行中' },
   disabled: { color: 'warning', text: '已停止' },
@@ -225,7 +225,7 @@ function PluginCard({
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text strong ellipsis style={{ maxWidth: 160 }}>{plugin.name}</Text>
-            <Badge status={sc.color as any} text={<Text type="secondary" style={{ fontSize: 12 }}>{sc.text}</Text>} />
+            <Badge status={sc.color} text={<Text type="secondary" style={{ fontSize: 12 }}>{sc.text}</Text>} />
           </div>
         }
         description={
@@ -365,7 +365,7 @@ function DetailModal({
         <Descriptions.Item label="版本">{plugin.version}</Descriptions.Item>
         <Descriptions.Item label="作者">{plugin.author || '-'}</Descriptions.Item>
         <Descriptions.Item label="状态">
-          <Badge status={sc.color as any} text={sc.text} />
+          <Badge status={sc.color} text={sc.text} />
         </Descriptions.Item>
         <Descriptions.Item label="加载方式">
           {plugin.load_type === 'hot' ? '热加载' : '重启加载'}

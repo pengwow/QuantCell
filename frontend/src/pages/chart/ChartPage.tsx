@@ -2,6 +2,18 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input, Modal, Spin, Alert, App } from 'antd';
 import { init, dispose, type Nullable, registerIndicator, registerOverlay, registerLocale } from 'klinecharts';
+import type {
+  Chart,
+  DataLoaderGetBarsParams,
+  IndicatorFilter,
+  IndicatorFigure,
+  KLineData,
+  OverlayCreateFiguresCallback,
+  OverlayCreateFiguresCallbackParams,
+  OverlayFigure,
+  PaneOptions,
+  PeriodType,
+} from 'klinecharts';
 import { dataApi } from '../../api';
 import * as realtimeApi from '../../api/realtimeApi';
 import DrawingBar from '../../components/DrawingBar';
@@ -15,8 +27,16 @@ import overlays from '../../extension/index';
 import { setPageTitle } from '@/utils/pageTitle';
 import './ChartPage.css';
 
+// 周期类型（klinecharts PeriodType）
+interface PeriodItem {
+  label: string;
+  value: string;
+  span: number;
+  type: PeriodType;
+}
+
 // 周期配置
-const PERIODS = [
+const PERIODS: PeriodItem[] = [
   { label: '1m', value: '1m', span: 1, type: 'minute' },
   { label: '5m', value: '5m', span: 5, type: 'minute' },
   { label: '15m', value: '15m', span: 15, type: 'minute' },
@@ -28,7 +48,7 @@ const PERIODS = [
 ];
 
 // 更多周期
-const MORE_PERIODS = [
+const MORE_PERIODS: PeriodItem[] = [
   { label: '2H', value: '2h', span: 120, type: 'minute' },
   { label: '1M', value: '1M', span: 1, type: 'month' },
   { label: '1Y', value: '1y', span: 1, type: 'year' },
@@ -54,21 +74,173 @@ interface Symbol {
   base?: string;
 }
 
-// KLineCharts实例类型
-interface KLineChartInstance {
-  setStyles: (styles: any) => void;
-  setSymbol: (symbol: { ticker: string; name?: string }) => void;
-  setPeriod: (period: { span: number; type: string }) => void;
-  setDataLoader: (loader: { getBars: (params: { callback: (data: any[]) => void }) => void }) => void;
-  createIndicator: (name: string, isStack?: boolean, options?: any) => void;
-  removeIndicator: (options: { paneId?: string; indicatorName?: string }) => void;
-  getIndicators: () => Array<{ name: string; paneId: string }>;
-  createOverlay: (options: any) => void;
-  removeOverlay: (options: { groupId?: string }) => void;
-  overrideOverlay: (options: { id: string; [key: string]: any }) => void;
-  getOverlays: (options?: { groupId?: string }) => Array<{ id: string; [key: string]: any }>;
-  resize: () => void;
+// 信号标注 overlay 的扩展数据（由 createOverlay 传入）
+interface SignalExtendData {
+  text?: string;
+  color?: string;
+  side?: string;
 }
+
+// 信号标注点坐标（在基础坐标上附加 extendData）
+type SignalTagCoordinate = { x: number; y: number; extendData?: SignalExtendData };
+
+// 指标执行结果（对应后端 /api/indicators/:id/execute 返回的 data）
+interface IndicatorExecuteResult {
+  plots?: IndicatorPlot[];
+  signals?: IndicatorSignal[];
+  [key: string]: unknown;
+}
+
+// 指标输出的单个 plot
+interface IndicatorPlot {
+  name?: string;
+  data?: Array<number | null | undefined>;
+  type?: string;
+  color?: string;
+  [key: string]: unknown;
+}
+
+// 指标输出的信号（如买/卖点）
+interface IndicatorSignal {
+  type?: string;
+  data?: Array<number | null | undefined>;
+  color?: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+// 归一化后的 figure 配置（注册到 klinecharts 的 figures）
+interface IndicatorFigureConfig {
+  key: string;
+  title?: string;
+  type?: string;
+  color?: string;
+  [key: string]: unknown;
+}
+
+// 信号点位（K线坐标）
+interface SignalPoint {
+  timestamp: number;
+  price: number;
+  anchorPrice: number;
+  side: string;
+  color: string;
+  text: string;
+}
+
+// 商品条目（后端 /data/products 返回的字段）
+interface ProductItem {
+  symbol: string;
+  name?: string;
+  exchange?: string;
+  base?: string;
+  [key: string]: unknown;
+}
+
+// 实时行情K线（交易所推送格式，o/h/l/c/v 为字符串）
+interface RealtimeKline {
+  t: number;
+  s?: number | string;
+  i?: number | string;
+  o: string;
+  h: string;
+  l: string;
+  c: string;
+  v: string;
+  [key: string]: unknown;
+}
+
+// 实时推送消息，data 可能多层嵌套
+interface RealtimeMessage {
+  k?: RealtimeKline;
+  data?: unknown;
+  [key: string]: unknown;
+}
+
+// 判断对象是否为实时K线（具备关键字段 t/o/c）
+const isRealtimeKline = (value: unknown): value is RealtimeKline => {
+  if (value === null || typeof value !== 'object') return false;
+  const node = value as Record<string, unknown>;
+  return typeof node.t === 'number' && typeof node.o === 'string' && typeof node.c === 'string';
+};
+
+// 从实时消息中解析K线，兼容多层 data 嵌套（保持原有 3 层解析逻辑）
+const extractRealtimeKline = (message: unknown): RealtimeKline | null => {
+  let current: unknown = message;
+  for (let depth = 0; depth < 3; depth++) {
+    if (!current || typeof current !== 'object') return null;
+    const node = current as RealtimeMessage;
+    if (node.k) return node.k;
+    if (isRealtimeKline(node)) return node;
+    current = node.data;
+  }
+  return null;
+};
+
+// 创建 signalTag 覆盖物图形：矩形标签 + 文字 + 圆点 + 连线
+const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ coordinates }: OverlayCreateFiguresCallbackParams<unknown>) => {
+  const coord0 = coordinates[0];
+  const coord1 = coordinates[1] as SignalTagCoordinate;
+  if (!coord0 || !coord1) return [] as OverlayFigure[];
+
+  const { extendData = {} } = coord1;
+  const text = extendData.text || '';
+  const color = extendData.color || '#1890ff';
+  const side = extendData.side || 'buy';
+
+  const px = coord0.x ?? 0;
+  const py = coord0.y ?? 0;
+  const p1x = coord1.x ?? px;
+  const p1y = coord1.y ?? py;
+
+  return [
+    {
+      title: text,
+      type: 'rect',
+      attrs: {
+        x: px - 18,
+        y: py - (side === 'buy' ? 22 : 2),
+        width: 36,
+        height: 20,
+        fill: color,
+        borderRadius: 3,
+      },
+    },
+    {
+      type: 'text',
+      attrs: {
+        x: px,
+        y: py + (side === 'buy' ? -10 : 14),
+        text: String(text),
+        fill: '#FFFFFF',
+        fontSize: 11,
+        textAlign: 'center',
+        textBaseline: 'middle',
+      },
+    },
+    {
+      type: 'circle',
+      attrs: {
+        x: px,
+        y: py,
+        r: 4,
+        fill: color,
+      },
+    },
+    {
+      type: 'line',
+      attrs: {
+        coordinates: [
+          { x: px, y: py },
+          { x: p1x, y: p1y },
+        ],
+        stroke: color,
+        strokeWidth: 1,
+        size: 1,
+      },
+    },
+  ] as OverlayFigure[];
+};
 
 // 实时数据更新配置
 const REALTIME_UPDATE_CONFIG = {
@@ -110,7 +282,7 @@ const ChartPage = () => {
   }, [t]);
 
   const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<Nullable<KLineChartInstance>>(null);
+  const chartInstanceRef = useRef<Nullable<Chart>>(null);
 
   // 品种和周期状态
   const [currentSymbol, setCurrentSymbol] = useState<Symbol>({
@@ -144,12 +316,17 @@ const ChartPage = () => {
   });
 
   // 实时数据引用
-  const realtimeDataQueueRef = useRef<any[]>([]);
+  const realtimeDataQueueRef = useRef<unknown[]>([]);
   const lastUpdateTimeRef = useRef<number>(0);
   const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const klineDataRef = useRef<any[]>([]);
+  const klineDataRef = useRef<KLineData[]>([]);
   const volInitializedRef = useRef(false);
-  const customIndicatorDataRef = useRef<Map<string, { plots: any[]; figures: any[]; plotKeys: string[]; plotDataMap: Record<string, number[]> }>>(new Map());
+  const customIndicatorDataRef = useRef<Map<string, {
+    plots: IndicatorPlot[];
+    figures: IndicatorFigureConfig[];
+    plotKeys: string[];
+    plotDataMap: Record<string, number[]>;
+  }>>(new Map());
 
   // 保存用户偏好
   const saveUserPreferences = (symbol: string, period: string) => {
@@ -175,12 +352,13 @@ const ChartPage = () => {
 
       // API 返回的数据已经是正确的格式，直接使用
       if (data && Array.isArray(data)) {
-        klineDataRef.current = data;
+        // types/data 的 KlineData 与 klinecharts KLineData 字段一致（后者多 volume?/turnover? 可选字段与索引签名），此处做受控断言
+        klineDataRef.current = data as unknown as KLineData[];
 
         if (chartInstanceRef.current) {
           chartInstanceRef.current.setDataLoader({
-            getBars: ({ callback }: { callback: (data: any[]) => void }) => {
-              callback(data);
+            getBars: ({ callback }: DataLoaderGetBarsParams) => {
+              callback(klineDataRef.current);
             }
           });
         }
@@ -210,69 +388,7 @@ const ChartPage = () => {
         needDefaultPointFigure: false,
         needDefaultXAxisFigure: false,
         needDefaultYAxisFigure: false,
-        createPointFigures: ({ coordinates }: any) => {
-          const coord0 = coordinates[0];
-          const coord1 = coordinates[1];
-          if (!coord0 || !coord1) return [];
-          
-          const { extendData = {} } = coord1;
-          const text = extendData.text || '';
-          const color = extendData.color || '#1890ff';
-          const side = extendData.side || 'buy';
-
-          const px = coord0.x ?? 0;
-          const py = coord0.y ?? 0;
-          const p1x = coord1.x ?? px;
-          const p1y = coord1.y ?? py;
-          
-          return [
-            {
-              title: text,
-              type: 'rect',
-              attrs: {
-                x: px - 18,
-                y: py - (side === 'buy' ? 22 : 2),
-                width: 36,
-                height: 20,
-                fill: color,
-                borderRadius: 3,
-              },
-            },
-            {
-              type: 'text',
-              attrs: {
-                x: px,
-                y: py + (side === 'buy' ? -10 : 14),
-                text: String(text),
-                fill: '#FFFFFF',
-                fontSize: 11,
-                textAlign: 'center',
-                textBaseline: 'middle',
-              },
-            },
-            {
-              type: 'circle',
-              attrs: {
-                x: px,
-                y: py,
-                r: 4,
-                fill: color,
-              },
-            },
-            {
-              type: 'line',
-              attrs: {
-                coordinates: [
-                  { x: px, y: py },
-                  { x: p1x, y: p1y },
-                ],
-                stroke: color,
-                strokeWidth: 1,
-                size: 1,
-              },
-            },
-          ];
-        },
+        createPointFigures: createSignalTagPointFigures,
       });
     } catch (e) {
       console.warn('[Chart] 注册signalTag overlay失败:', e);
@@ -281,7 +397,8 @@ const ChartPage = () => {
     if (chartRef.current && !chartInstanceRef.current) {
       const chart = init('language-k-line', {
         locale: 'zh-CN',
-      }) as unknown as KLineChartInstance;
+      });
+      if (!chart) return;
 
       chartInstanceRef.current = chart;
 
@@ -321,7 +438,7 @@ const ChartPage = () => {
 
       // 设置数据加载器
       chart.setDataLoader({
-        getBars: ({ callback }: { callback: (data: any[]) => void }) => {
+        getBars: ({ callback }: DataLoaderGetBarsParams) => {
           callback(klineDataRef.current);
         }
       });
@@ -338,7 +455,7 @@ const ChartPage = () => {
             if (!chartInstanceRef.current) return;
             
             const existingIndicators = chartInstanceRef.current.getIndicators() || [];
-            const hasVolIndicator = existingIndicators.some((ind: any) => ind.name === 'VOL');
+            const hasVolIndicator = existingIndicators.some((ind) => ind.name === 'VOL');
             
             // 如果图表上还没有VOL，则创建
             if (!hasVolIndicator) {
@@ -467,10 +584,11 @@ const ChartPage = () => {
       });
 
       // API 返回 { products: [...] } 格式
-      const productsList = response?.products || [];
+      // 后端商品对象可能带 name/exchange 等额外字段，用 ProductItem 承载（CryptoSymbol 为前端最小类型）
+      const productsList = (response?.products || []) as unknown as ProductItem[];
       
       if (productsList.length > 0) {
-        const products = productsList.map((item: any) => ({
+        const products = productsList.map((item: ProductItem) => ({
           code: item.symbol,
           name: item.name || item.symbol,
           exchange: item.exchange,
@@ -535,7 +653,7 @@ const DEFAULT_PLOT_COLORS = [
 
   // 注册自定义指标到KLineCharts（支持多plots + 多figures）
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 指标函数每渲染重建，补 deps 会重复执行
-  const registerCustomIndicator = (indicator: Indicator, executeResult: any): string | null => {
+  const registerCustomIndicator = (indicator: Indicator, executeResult: IndicatorExecuteResult): string | null => {
       if (!executeResult || !executeResult.plots || !Array.isArray(executeResult.plots)) {
           console.error('[Indicator] 无效的执行结果格式');
           return null;
@@ -552,10 +670,10 @@ const DEFAULT_PLOT_COLORS = [
       // 构建plot数据映射：{ figureKey -> number[] }，过滤无效值并双向填充确保无null
       const plotDataMap: Record<string, number[]> = {};
       const plotKeys: string[] = [];
-      plots.forEach((plot: any, idx: number) => {
+      plots.forEach((plot: IndicatorPlot, idx: number) => {
           const key = sanitizeFigureKey(plot.name || `plot_${idx}`);
           plotKeys.push(key);
-          const raw = (plot.data || []).map((v: any) => {
+          const raw: Array<number | null> = (plot.data || []).map((v) => {
               if (v === null || v === undefined) return null;
               if (typeof v === 'number' && !isFinite(v)) return null;
               return v;
@@ -572,7 +690,7 @@ const DEFAULT_PLOT_COLORS = [
           });
 
       // 构建figures配置
-      const figures = plots.map((plot: any, idx: number) => ({
+      const figures: IndicatorFigureConfig[] = plots.map((plot: IndicatorPlot, idx: number) => ({
           key: sanitizeFigureKey(plot.name || `plot_${idx}`),
           title: plot.name || `Plot${idx + 1}`,
           type: plot.type || 'line' as const,
@@ -582,13 +700,13 @@ const DEFAULT_PLOT_COLORS = [
       try {
               // 确保 figures 中的 key 和 plotDataMap 一致
               const invalidFigures: string[] = [];
-              const validFigures = figures.filter((fig: any) => {
+              const validFigures = figures.filter((fig) => {
                   const data = plotDataMap[fig.key];
                   if (!data || !Array.isArray(data) || data.length === 0) {
                       invalidFigures.push(`${fig.key}(no data)`);
                       return false;
                   }
-                  const badValues = data.filter((v: any) => v === null || v === undefined || typeof v !== 'number' || !isFinite(v));
+                  const badValues = data.filter((v) => v === null || v === undefined || typeof v !== 'number' || !isFinite(v));
                   if (badValues.length > 0) {
                       invalidFigures.push(`${fig.key}(bad=${badValues.length}/${data.length})`);
                       return false;
@@ -624,7 +742,7 @@ const DEFAULT_PLOT_COLORS = [
               });
 
               // 构建 klinecharts figures 配置
-              const kcFigures = validFigures.map((fig: any) => {
+              const kcFigures: IndicatorFigure[] = validFigures.map((fig) => {
                   const config = {
                       key: fig.key,
                       title: fig.title || fig.key,
@@ -639,7 +757,7 @@ const DEFAULT_PLOT_COLORS = [
               registerIndicator({
                   name: indicatorName,
                   shortName: indicator.name || 'Custom',
-                  calc: (kLineDataList: any[]) => {
+                  calc: (kLineDataList: KLineData[]) => {
                       
                       if (!kLineDataList || !Array.isArray(kLineDataList) || kLineDataList.length === 0) {
                           return [];
@@ -685,8 +803,8 @@ const DEFAULT_PLOT_COLORS = [
   };
 
   // 解析信号数据为overlay点位
-  const parseSignalData = (signal: any, klineData: any[]): any[] => {
-      const points: any[] = [];
+  const parseSignalData = (signal: IndicatorSignal, klineData: KLineData[]): SignalPoint[] => {
+      const points: SignalPoint[] = [];
       if (!signal.data || !Array.isArray(signal.data)) return points;
 
       const isBuy = signal.type === 'buy';
@@ -743,7 +861,7 @@ const DEFAULT_PLOT_COLORS = [
   };
 
   // 渲染信号overlay到图表上
-  const renderSignalOverlays = (signals: any[], klineData: any[]) => {
+  const renderSignalOverlays = (signals: IndicatorSignal[], klineData: KLineData[]) => {
       if (!chartInstanceRef.current) return;
 
       signals.forEach((signal) => {
@@ -775,7 +893,7 @@ const DEFAULT_PLOT_COLORS = [
   };
 
   // 切换指标
-  const handleToggleIndicator = useCallback(async (indicator: Indicator, params?: Record<string, any>) => {
+  const handleToggleIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>) => {
     if (!chartInstanceRef.current) return;
 
     const builtInId = params?._builtInId;
@@ -785,9 +903,9 @@ const DEFAULT_PLOT_COLORS = [
     if (isActive) {
       // 停止指标
       const indicators = chartInstanceRef.current.getIndicators();
-      indicators.forEach((ind: any) => {
+      indicators.forEach((ind) => {
         if (ind.name === indicatorId || ind.name === builtInIndicatorMap[indicatorId] || ind.name === `custom_${indicator.id}`) {
-          chartInstanceRef.current?.removeIndicator({ paneId: ind.paneId, indicatorName: ind.name });
+          chartInstanceRef.current?.removeIndicator({ paneId: ind.paneId, indicatorName: ind.name } as unknown as IndicatorFilter);
         }
       });
       // 清理自定义指标缓存数据
@@ -800,7 +918,11 @@ const DEFAULT_PLOT_COLORS = [
       if (builtInName) {
         // 内置指标
         const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName);
-        chartInstanceRef.current.createIndicator(builtInName, !isOverlay, { calcParams: params || {} });
+        chartInstanceRef.current.createIndicator(
+          builtInName,
+          !isOverlay,
+          { calcParams: params || {} } as unknown as PaneOptions,
+        );
         // 同步更新activeIndicators状态
         setActiveIndicators(prev => [...prev, {
           id: indicatorId,
@@ -884,7 +1006,7 @@ const DEFAULT_PLOT_COLORS = [
   const handleLockChange = useCallback((lock: boolean) => {
     if (!chartInstanceRef.current) return;
     const overlays = chartInstanceRef.current.getOverlays({ groupId: 'drawing_tools' });
-    overlays.forEach((overlay: any) => {
+    overlays.forEach((overlay) => {
       chartInstanceRef.current?.overrideOverlay({ id: overlay.id, lock });
     });
   }, []);
@@ -893,7 +1015,7 @@ const DEFAULT_PLOT_COLORS = [
   const handleVisibleChange = useCallback((visible: boolean) => {
     if (!chartInstanceRef.current) return;
     const overlays = chartInstanceRef.current.getOverlays({ groupId: 'drawing_tools' });
-    overlays.forEach((overlay: any) => {
+    overlays.forEach((overlay) => {
       chartInstanceRef.current?.overrideOverlay({ id: overlay.id, visible });
     });
   }, []);
@@ -914,21 +1036,13 @@ const DEFAULT_PLOT_COLORS = [
       const currentData = klineDataRef.current || [];
 
       queue.forEach((data) => {
-        let kline = data.k;
-
-        if (!kline && data.data) {
-          kline = data.data.k || data.data;
-        }
-
-        if (!kline && data.data && data.data.data) {
-          kline = data.data.data.k || data.data.data;
-        }
-
+        // 从实时消息（可能嵌套多层）中解析K线
+        const kline = extractRealtimeKline(data);
         if (!kline) {
           return;
         }
 
-        const bar = {
+        const bar: KLineData = {
           timestamp: kline.t,
           open: parseFloat(kline.o),
           high: parseFloat(kline.h),
@@ -938,7 +1052,7 @@ const DEFAULT_PLOT_COLORS = [
         };
 
         const existingIndex = currentData.findIndex(
-          (item: any) => item.timestamp === bar.timestamp
+          (item) => item.timestamp === bar.timestamp
         );
 
         if (existingIndex >= 0) {
@@ -959,7 +1073,7 @@ const DEFAULT_PLOT_COLORS = [
         if (!chartInstanceRef.current) return;
 
         chartInstanceRef.current.setDataLoader({
-          getBars: ({ callback }: { callback: (data: any[]) => void }) => {
+          getBars: ({ callback }: DataLoaderGetBarsParams) => {
             callback(klineDataRef.current);
           }
         });
@@ -976,7 +1090,7 @@ const DEFAULT_PLOT_COLORS = [
   }, []);
 
   // 处理实时数据更新
-  const handleRealtimeData = useCallback((data: any) => {
+  const handleRealtimeData = useCallback((data: unknown) => {
     if (!data) {
       console.warn('[Realtime] 接收到空数据');
       return;
@@ -985,13 +1099,8 @@ const DEFAULT_PLOT_COLORS = [
     const now = Date.now();
     const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
 
-    let kline = data.k;
-    if (!kline && data.data) {
-      kline = data.data.k || data.data;
-    }
-    if (!kline && data.data && data.data.data) {
-      kline = data.data.data.k || data.data.data;
-    }
+    // 从实时消息（可能嵌套多层）中解析K线
+    const kline = extractRealtimeKline(data);
 
     if (kline) {
       console.log(`[Realtime] 收到K线: ${kline.s}@${kline.i}, close=${kline.c}, queue=${realtimeDataQueueRef.current.length + 1}`);

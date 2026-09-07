@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, Col, Empty, Row, Segmented, Skeleton, Statistic, Button, Space } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import type { TooltipComponentFormatterCallbackParams } from 'echarts';
 import { useWorkerStore } from '../../store/workerStore';
 import type { OverviewWindow, OverviewMetrics } from '../../types/worker';
 import { formatUSD, formatPercent, QUANT_COLORS } from '../../utils/format';
@@ -167,10 +168,12 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
     return {
       tooltip: {
         trigger: 'axis',
-        formatter: (params: any) => {
-          const p = params.find((x: any) => x.seriesName === '累计盈亏');
+        formatter: (params: TooltipComponentFormatterCallbackParams) => {
+          const items = Array.isArray(params) ? params : [params];
+          const p = items.find((x) => x.seriesName === '累计盈亏');
           if (!p) return '';
-          return `${p.name}<br/>累计盈亏: <b>${formatUSD(p.value, { showSign: true })}</b>`;
+          const value = typeof p.value === 'number' ? p.value : Number(p.value);
+          return `${p.name}<br/>累计盈亏: <b>${formatUSD(value, { showSign: true })}</b>`;
         },
       },
       grid: { left: '3%', right: '4%', bottom: '12%', top: '10%', containLabel: true },
@@ -263,9 +266,10 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        formatter: (params: any) => {
-          const p = params[0];
-          return `${p.name}<br/>交易次数: <b>${p.value}</b>`;
+        formatter: (params: TooltipComponentFormatterCallbackParams) => {
+          const items = Array.isArray(params) ? params : [params];
+          const p = items[0];
+          return `${p?.name || ''}<br/>交易次数: <b>${p?.value ?? 0}</b>`;
         },
       },
       grid: { left: '3%', right: '4%', bottom: '12%', top: '10%', containLabel: true },
@@ -287,7 +291,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
           type: 'bar',
           data: pnlDist.counts,
           itemStyle: {
-            color: (params: any) => {
+            color: (params: { dataIndex: number }) => {
               const start = pnlDist.bins[params.dataIndex];
               return start >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative;
             },
@@ -306,7 +310,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       timestampedFilename('worker_overview', workerId, localWindow),
       [metrics as unknown as Record<string, unknown>],
       [
-        { header: '指标', accessor: (m: any) => Object.entries(m).map(([k, v]) => `${k}: ${v}`).join('; ') },
+        { header: '指标', accessor: (m) => Object.entries(m).map(([k, v]) => `${k}: ${v}`).join('; ') },
       ],
     );
   };

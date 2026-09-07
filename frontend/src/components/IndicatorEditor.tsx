@@ -30,9 +30,9 @@ import {
   Card,
 } from 'antd';
 import { useTranslation } from 'react-i18next';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
-import { indicatorApi, type ThinkingChainEventData } from '../api';
+import { indicatorApi, type ThinkingChainEventData, type IndicatorQualityHint } from '../api';
 import { useGuestRestriction } from '../hooks/useGuestRestriction';
 
 interface IndicatorEditorProps {
@@ -69,7 +69,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('code');
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   
   // 思维链状态
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
@@ -79,7 +79,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
 
   // AI生成结果（预览用，采纳后才更新到code）
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
-  const [generatedQuality, setGeneratedQuality] = useState<{ score: number; level: string; hints: any[] } | null>(null);
+  const [generatedQuality, setGeneratedQuality] = useState<{ score: number; level: string; hints: IndicatorQualityHint[] } | null>(null);
 
   // 验证结果
   const [verifyResult, setVerifyResult] = useState<{
@@ -87,7 +87,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     message: string;
     plots_count?: number;
     signals_count?: number;
-    quality?: { score: number; level: string; hints: any[] };
+    quality?: { score: number; level: string; hints: IndicatorQualityHint[] } | null;
   } | null>(null);
 
   // 初始化编辑器内容
@@ -134,11 +134,13 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     setLoading(true);
     try {
       const response = await verifyCode(code);
-      const result = response.data || response;
+      // 响应拦截器已解包业务 data，此处直接使用返回值
+      const result = response;
       const normalizedResult = {
         ...result,
-        valid: result.valid === true || result.valid === 'true',
-        quality: result.quality || null,
+        valid: result.valid === true,
+        quality: result.quality ?? null,
+        message: result.message ?? '',
       };
       setVerifyResult(normalizedResult);
       if (normalizedResult.valid) {
@@ -214,7 +216,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           });
         },
         // onDone - 生成完成
-        (result: { code?: string; raw_content?: string; quality?: { score: number; level: string; hints: any[] } }) => {
+        (result: { code?: string; raw_content?: string; quality?: { score: number; level: string; hints: IndicatorQualityHint[] } }) => {
           if (result.code) {
             // 存储到预览状态，不直接更新代码编辑器
             setGeneratedCode(result.code);
@@ -307,7 +309,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   };
 
   // 编辑器挂载处理
-  const handleEditorDidMount = (editor: any) => {
+  const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
   };
 
@@ -417,7 +419,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                             <>
                               <div style={{ marginTop: 8, fontWeight: 600 }}>检查出的问题：</div>
                               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-                                {verifyResult.quality.hints.slice(0, 3).map((hint: any, i: number) => (
+                                {verifyResult.quality.hints.slice(0, 3).map((hint, i) => (
                                   <li key={i}>
                                     <span style={{ color: hint.severity === 'error' ? '#ff4d4f' : hint.severity === 'warn' ? '#faad14' : '#1890ff' }}>
                                       [{hint.severity}]
@@ -567,7 +569,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                             <>
                               <div style={{ marginTop: 8, fontWeight: 600 }}>检查出的问题：</div>
                               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-                                {generatedQuality.hints.slice(0, 3).map((hint: any, i: number) => (
+                                {generatedQuality.hints.slice(0, 3).map((hint: IndicatorQualityHint, i: number) => (
                                   <li key={i}>
                                     <span style={{ color: hint.severity === 'error' ? '#ff4d4f' : hint.severity === 'warn' ? '#faad14' : '#1890ff' }}>
                                       [{hint.severity}]

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { OverlayTemplate } from 'klinecharts'
+import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
 const gannBox: OverlayTemplate = {
   name: 'gannBox',
@@ -32,7 +32,7 @@ const gannBox: OverlayTemplate = {
       const maxX = Math.max(startPoint.x, endPoint.x)
       const maxY = Math.max(startPoint.y, endPoint.y)
       
-      const figures: any[] = []
+      const figures: OverlayFigure[] = []
       
       // 绘制江恩箱边框
       figures.push({

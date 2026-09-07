@@ -13,6 +13,23 @@ export interface ThinkingStep {
 }
 
 /**
+ * 流式生成完成事件的元数据
+ * 与后端 StrategyGenerateStreamResponse 的 metadata 字段结构一致
+ */
+export interface GenerationStreamMetadata {
+  request_id?: string;
+  model?: string;
+  elapsed_time?: number;
+  chunk_count?: number;
+  tokens_used?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  generation_time?: number;
+}
+
+/**
  * 生成结果
  */
 export interface GenerationResult {
@@ -174,7 +191,7 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
           }
         },
         // onDone - 生成完成，一次性返回完整结果
-        (result: { code?: string; raw_content?: string; metadata?: any }) => {
+        (result: { code?: string; raw_content?: string; metadata?: GenerationStreamMetadata }) => {
           updateStepStatus(3, 'completed');
           
           // 提取代码

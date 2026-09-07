@@ -16,15 +16,18 @@ const THEME_IMAGES: Record<string, string> = {
   auto: '/imgs/themes/system.png',
 };
 
+// 翻译函数类型（与 react-i18next 的 useTranslation 返回值一致）
+type TranslateFn = ReturnType<typeof useTranslation>['t'];
+
 // 主题选项
-const getThemeOptions = (t: any) => [
+const getThemeOptions = (t: TranslateFn) => [
   { key: 'light', label: t('theme_light') || '浅色', image: THEME_IMAGES.light },
   { key: 'dark', label: t('theme_dark') || '暗黑', image: THEME_IMAGES.dark },
   { key: 'auto', label: t('theme_auto') || '自动', image: THEME_IMAGES.auto },
 ];
 
 // 语言选项
-const getLanguageOptions = (t: any) => [
+const getLanguageOptions = (t: TranslateFn) => [
   { value: 'zh-CN', label: t('language_zh_cn') || '简体中文' },
   { value: 'en-US', label: 'English' },
 ];
@@ -33,7 +36,7 @@ const getLanguageOptions = (t: any) => [
 const PER_PAGE_OPTIONS = [10, 15, 20, 30, 50, 100];
 
 // 时区选项
-const getTimezoneOptions = (t: any) => [
+const getTimezoneOptions = (t: TranslateFn) => [
   { value: 'Asia/Shanghai', label: t('timezone_shanghai') || 'Asia/Shanghai (中国标准时间, UTC+8)' },
   { value: 'Asia/Hong_Kong', label: t('timezone_hongkong') || 'Asia/Hong_Kong (香港时间, UTC+8)' },
   { value: 'Asia/Tokyo', label: t('timezone_tokyo') || 'Asia/Tokyo (日本标准时间, UTC+9)' },

@@ -14,6 +14,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import type { MessageInstance } from 'antd/es/message/interface';
 import type {
   Worker,
   WorkerStatus,
@@ -28,6 +29,7 @@ import type {
   LogQueryParams,
   OverviewState,
   OverviewWindow,
+  BatchOperationResponse,
 } from '../types/worker';
 import { workerApi, WorkerLogStreamSSE, WorkerLogStream } from '../api/workerApi';
 
@@ -85,7 +87,7 @@ export interface WorkerState {
   isLogStreamConnected: boolean;
 
   // Message API (由 App.useApp() 注入)
-  messageApi: any;
+  messageApi: MessageInstance | null;
 }
 
 // ============================================
@@ -116,9 +118,9 @@ interface WorkerActions {
   restartWorker: (workerId: number) => Promise<boolean>;
 
   // 批量操作
-  batchStartWorkers: (workerIds: number[]) => Promise<any>;
-  batchStopWorkers: (workerIds: number[]) => Promise<any>;
-  batchRestartWorkers: (workerIds: number[]) => Promise<any>;
+  batchStartWorkers: (workerIds: number[]) => Promise<BatchOperationResponse>;
+  batchStopWorkers: (workerIds: number[]) => Promise<BatchOperationResponse>;
+  batchRestartWorkers: (workerIds: number[]) => Promise<BatchOperationResponse>;
 
   // WebSocket
   connectLogStream: (workerId: number) => void;
@@ -132,7 +134,7 @@ interface WorkerActions {
   reset: () => void;
 
   // Message API 注入
-  setMessageApi: (api: any) => void;
+  setMessageApi: (api: MessageInstance | null) => void;
 }
 
 // ============================================
@@ -187,7 +189,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       // Message API 注入
       // ============================================
 
-      setMessageApi: (api: any) => {
+      setMessageApi: (api: MessageInstance | null) => {
         set({ messageApi: api });
       },
 

@@ -33,8 +33,11 @@ export const usePolling = (
   const { interval, enabled = true, pauseWhenHidden = true, immediate = true } = options
 
   // 用 ref 保存最新的 task，避免 task 变化时重启轮询
+  // taskRef 在 render 期间不允许写入，放在 effect 中同步
   const taskRef = useRef(task)
-  taskRef.current = task
+  useEffect(() => {
+    taskRef.current = task
+  }, [task])
 
   useEffect(() => {
     if (!enabled) return

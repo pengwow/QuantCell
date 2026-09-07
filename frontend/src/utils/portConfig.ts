@@ -14,6 +14,19 @@ export interface PortConfig {
   };
 }
 
+/**
+ * 后端 /api/system/ports 返回的 data 结构
+ * 各服务的端口位于各自的子对象中（port 字段）
+ */
+interface PortsResponseData {
+  fastapi?: { port?: number };
+  zmq_data?: { port?: number };
+  zmq_control?: { port?: number };
+  zmq_status?: { port?: number };
+  zmq_broadcast?: { port?: number };
+  metadata?: PortConfig['metadata'];
+}
+
 const DEFAULT_PORTS: PortConfig = {
   fastapi: 8000,
   zmq_data: 5555,
@@ -58,7 +71,7 @@ export async function fetchPortConfig(): Promise<PortConfig> {
     const result = await response.json();
 
     if (result.code === 0 && result.data) {
-      const data = result.data as Record<string, any>;
+      const data = result.data as PortsResponseData;
 
       const portConfig: PortConfig = {
         fastapi: data.fastapi?.port ?? DEFAULT_PORTS.fastapi,
