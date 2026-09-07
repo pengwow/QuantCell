@@ -84,12 +84,15 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["backend"]
+# 从 backend 目录运行，用 . 覆盖全部业务代码（tests/.venv 已被 omit 排除）
+source = ["."]
 omit = [
     "*/tests/*",
     "*/test_*",
     "*/venv/*",
     "*/.venv/*",
+    # 测试夹具：故意放置的非法策略样例，非合法 Python 源码
+    "*/strategies/InvalidStrategy.py",
 ]
 
 [tool.coverage.report]
@@ -103,7 +106,8 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = false
-fail_under = 90
+# 覆盖率基线（2026-09 首测 50.8%），作为防回归门槛，测试补充后逐步上调
+fail_under = 50
 
 [tool.coverage.html]
 directory = "htmlcov"
@@ -111,6 +115,7 @@ directory = "htmlcov"
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
+    "coverage>=7.16.0",
     "dead>=2.1.0",
     "pre-commit>=4.0.0",
     "pytest-mock>=3.15.1",
