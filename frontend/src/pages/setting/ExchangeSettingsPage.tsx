@@ -5,6 +5,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   Card,
   Input,
@@ -80,6 +81,23 @@ interface PresetExchange {
   icon: React.ReactNode;
 }
 
+// 连接测试结果类型（与后端 /exchanges/test-connection 返回结构一致）
+interface TestConnectionDetail {
+  success?: boolean;
+  error?: string;
+  skipped?: boolean;
+  reason?: string;
+}
+interface TestConnectionResult {
+  success: boolean;
+  status?: string;
+  message: string;
+  response_time_ms?: number;
+  details?: {
+    tests?: Record<string, TestConnectionDetail>;
+  };
+}
+
 // 交易所图标映射
 const EXCHANGE_ICONS: Record<string, React.ReactNode> = {
   binance: <ExchangeBinance size={32} variant="branded" />,
@@ -92,7 +110,7 @@ const EXCHANGE_ICONS: Record<string, React.ReactNode> = {
   bitget: <ExchangeBitget size={32} variant="branded" />,
 };
 
-const getPresetExchanges = (t: any): PresetExchange[] => [
+const getPresetExchanges = (t: TFunction): PresetExchange[] => [
   { id: "binance", name: t('exchange_binance') || "币安", icon: EXCHANGE_ICONS.binance },
   { id: "okx", name: "OKX", icon: EXCHANGE_ICONS.okx },
   { id: "bybit", name: "Bybit", icon: EXCHANGE_ICONS.bybit },
@@ -113,14 +131,14 @@ const QUOTE_CURRENCIES = [
 ];
 
 // 交易模式选项
-const getTradingModes = (t: any) => [
+const getTradingModes = (t: TFunction) => [
   { value: "spot", label: t('trading_mode_spot') || "现货" },
   { value: "futures", label: t('trading_mode_futures') || "合约" },
   { value: "margin", label: t('trading_mode_margin') || "杠杆" },
 ];
 
 // 交易环境类型选项
-const getTradingEnvironments = (t: any) => [
+const getTradingEnvironments = (t: TFunction) => [
   {
     value: "live",
     label: t('env_live') || "实盘交易",
@@ -166,7 +184,7 @@ const ExchangeSettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
 
   // 使用 useMemo 缓存翻译后的配置数组
   const PRESET_EXCHANGES = useMemo(() => getPresetExchanges(t), [t]);
@@ -333,12 +351,12 @@ const ExchangeSettingsPage = () => {
         cancelText: t('cancel') || '取消',
         width: 480,
         onOk() {
-          updateExchange(exchangeId, { tradingEnvironment: newEnv as any });
+          updateExchange(exchangeId, { tradingEnvironment: newEnv as ExchangeConfig['tradingEnvironment'] });
         },
       });
     } else {
       // 非实盘环境直接切换
-      updateExchange(exchangeId, { tradingEnvironment: newEnv as any });
+      updateExchange(exchangeId, { tradingEnvironment: newEnv as ExchangeConfig['tradingEnvironment'] });
     }
   };
 

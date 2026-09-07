@@ -35,6 +35,7 @@ import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
 import { formatTimestamp, formatUSD, truncateId, QUANT_COLORS } from '@/utils/format';
 import { downloadCsv, timestampedFilename } from '@/utils/exportCsv';
+import type { OrderInfo } from '@/types/worker';
 
 const { RangePicker } = DatePicker;
 
@@ -73,22 +74,8 @@ const ORDER_TYPE_OPTIONS = [
   { label: 'TAKE_PROFIT_MARKET', value: 'TAKE_PROFIT_MARKET' },
 ];
 
-interface Order {
-  id: number;
-  client_order_id: string;
-  venue_order_id?: string;
-  symbol: string;
-  side: 'BUY' | 'SELL';
-  order_type: string;
-  quantity: number;
-  price?: number;
-  filled_qty: number;
-  avg_fill_price?: number;
-  status: 'OPEN' | 'FILLED' | 'CANCELED' | 'REJECTED' | 'ACCEPTED' | 'PENDING' | 'EXPIRED';
-  position_side?: 'LONG' | 'SHORT' | 'BOTH';
-  created_at: string;
-  submitted_at?: string;
-}
+// 委托数据模型：直接复用 workerApi.getOrders 的返回类型（OrderInfo），避免重复定义导致字段漂移
+type Order = OrderInfo;
 
 interface FilterValues {
   symbol?: string;
@@ -125,15 +112,8 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         params.start_time = appliedFilters.time_range[0].toISOString();
         params.end_time = appliedFilters.time_range[1].toISOString();
       }
-      // apiRequest.get() 已解包 ApiResponse.data，response 直接是委托数组
-      const response: any = await workerApi.getOrders(workerId, params);
-      let items: Order[] = [];
-      if (Array.isArray(response)) {
-        items = response;
-      } else if (response && Array.isArray(response.items)) {
-        // 兜底：万一后端未走 ApiResponse 包装
-        items = response.items;
-      }
+      // apiRequest.get() 已解包 ApiResponse.data，getOrders 直接返回 OrderInfo[]
+      const items = await workerApi.getOrders(workerId, params);
       setOrders(items);
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -181,7 +161,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         { header: '数量', accessor: 'quantity' },
         { header: '委托价', accessor: 'price' },
         { header: '成交均价', accessor: 'avg_fill_price' },
-        { header: '已成交', accessor: 'filled_qty' },
+        { header: '已成交', accessor: 'filled_quantity' },
         { header: '状态', accessor: 'status' },
         { header: '持仓方向', accessor: 'position_side' },
         { header: '创建时间', accessor: (o) => (o.created_at ? formatTimestamp(o.created_at) : '') },
@@ -262,7 +242,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       render: (_: unknown, record: Order) => (
         <span>
           <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-            {(record.filled_qty ?? 0).toFixed(6)}
+            {(record.filled_quantity ?? 0).toFixed(6)}
           </span>
           <span style={{ color: '#999' }}> / {(record.quantity ?? 0).toFixed(6)}</span>
         </span>
@@ -436,7 +416,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
           <Table
             columns={columns}
             dataSource={orders}
-            rowKey="id"
+            rowKey="order_id"
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: true }}
             size="middle"
             scroll={{ x: 'max-content' }}

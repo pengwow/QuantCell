@@ -20,7 +20,7 @@ export default function EnsemblePage() {
     finally { setLoading(false); }
   };
 
-  const handleCreate = async (values: any) => {
+  const handleCreate = async (values: { strategy: string; model_paths: string }) => {
     try {
       await ensembleApi.createEnsemble({
         strategy: values.strategy,

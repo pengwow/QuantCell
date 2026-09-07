@@ -14,9 +14,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 // 自定义API错误类
 export class ApiError extends Error {
   code: number;
-  data?: any;
+  data?: unknown;
 
-  constructor(message: string, code: number, data?: any) {
+  constructor(message: string, code: number, data?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
@@ -30,7 +30,7 @@ export interface Agent {
   name: string;
   description?: string;
   status: 'running' | 'stopped' | 'paused' | 'error';
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -45,7 +45,7 @@ export interface AgentListResponse {
 export interface CreateAgentRequest {
   name: string;
   description?: string;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 
 export interface UpdateAgentRequest {
@@ -54,7 +54,7 @@ export interface UpdateAgentRequest {
 }
 
 export interface UpdateAgentConfigRequest {
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }
 
 export interface CloneAgentRequest {
@@ -119,19 +119,19 @@ export interface AgentTrade {
 
 export interface StrategyDeployRequest {
   strategy_id: number;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, unknown>;
 }
 
 export interface StrategyParameter {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'array' | 'object';
-  default?: any;
+  default?: unknown;
   description?: string;
   required?: boolean;
 }
 
 export interface UpdateStrategyParametersRequest {
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
 }
 
 export interface PositionInfo {
@@ -158,7 +158,7 @@ export interface TradingSignal {
   symbol: string;
   quantity?: number;
   price?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentFilterParams {
@@ -511,7 +511,7 @@ export interface ToolParamTemplate {
   type: 'string' | 'integer' | 'float' | 'boolean';
   required: boolean;
   sensitive: boolean;
-  default?: any;
+  default?: unknown;
   env_key?: string;
   description: string;
   validation?: {
@@ -521,7 +521,7 @@ export interface ToolParamTemplate {
 }
 
 export interface ToolParamValue {
-  value: any;
+  value: unknown;
   configured: boolean;
   source: 'database' | 'environment' | 'default';
   sensitive: boolean;
@@ -550,7 +550,7 @@ export interface BatchUpdateResult {
 export interface ExportConfigResponse {
   export_time: string;
   version: string;
-  tools: Record<string, Record<string, any>>;
+  tools: Record<string, Record<string, unknown>>;
 }
 
 export interface ImportExportResult {
@@ -584,7 +584,7 @@ export const getToolParams = async (
 export const setToolParam = async (
   toolName: string,
   paramName: string,
-  value: any
+  value: unknown
 ): Promise<{ param_name: string; value_masked: string; updated_at: string }> => {
   return apiRequest.put(`/agent/tools/params/${toolName}/${paramName}`, { value });
 };
@@ -594,7 +594,7 @@ export const setToolParam = async (
  */
 export const batchUpdateToolParams = async (
   toolName: string,
-  params: Record<string, any>,
+  params: Record<string, unknown>,
   overwrite: boolean = false
 ): Promise<BatchUpdateResult> => {
   return apiRequest.post<BatchUpdateResult>(`/agent/tools/params/${toolName}/batch`, {

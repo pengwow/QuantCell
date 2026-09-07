@@ -16,7 +16,7 @@ export interface Indicator {
 }
 
 export interface IndicatorParams {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ActiveIndicator {

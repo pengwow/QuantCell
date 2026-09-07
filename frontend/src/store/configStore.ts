@@ -13,7 +13,7 @@ import { configApi } from '../api';
 export interface SystemConfig {
   defaultPerPage: number;
   // 其他系统配置项可以在这里添加
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Config状态接口
@@ -38,7 +38,7 @@ const DEFAULT_CONFIG: SystemConfig = {
 // 从 window.APP_CONFIG 获取配置（如果存在）
 const getConfigFromWindow = (): Partial<SystemConfig> => {
   console.log('[ConfigStore] 尝试从 window.APP_CONFIG 获取配置');
-  const appConfig = (window as any).APP_CONFIG;
+  const appConfig = (window as unknown as { APP_CONFIG?: { generalSettings?: { defaultPerPage?: string } } }).APP_CONFIG;
   console.log('[ConfigStore] window.APP_CONFIG 原始数据:', appConfig);
 
   if (typeof window !== 'undefined' && appConfig) {
@@ -94,12 +94,12 @@ export const useConfigStore = create<ConfigState>()(
             console.log('[ConfigStore] 分组配置数据:', groupedConfig);
 
             // 将分组配置扁平化
-            const flattenConfig: Record<string, any> = {};
+            const flattenConfig: Record<string, unknown> = {};
             if (groupedConfig && typeof groupedConfig === 'object') {
               Object.entries(groupedConfig).forEach(([groupName, groupValues]) => {
                 console.log(`[ConfigStore] 处理分组 ${groupName}:`, groupValues);
                 if (groupValues && typeof groupValues === 'object') {
-                  Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+                  Object.entries(groupValues as Record<string, unknown>).forEach(([key, value]) => {
                     flattenConfig[key] = value;
                     console.log(`[ConfigStore] 提取配置项 ${key}:`, value);
                   });
@@ -111,7 +111,7 @@ export const useConfigStore = create<ConfigState>()(
             // 提取 defaultPerPage
             let defaultPerPage = DEFAULT_CONFIG.defaultPerPage;
             if (flattenConfig.defaultPerPage) {
-              defaultPerPage = parseInt(flattenConfig.defaultPerPage, 10);
+              defaultPerPage = parseInt(flattenConfig.defaultPerPage as string, 10);
               console.log('[ConfigStore] 从 API 获取 defaultPerPage:', defaultPerPage);
             }
 

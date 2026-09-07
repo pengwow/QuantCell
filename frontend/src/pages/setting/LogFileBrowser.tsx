@@ -149,7 +149,7 @@ const LogFileBrowser: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 100,
-      render: (_: any, record: LogFileInfo) => (
+      render: (_, record: LogFileInfo) => (
         <Tooltip title="查看详情">
           <Button
             type="link"
