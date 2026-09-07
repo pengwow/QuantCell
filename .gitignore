@@ -7,6 +7,7 @@
 *.pyc
 *.log
 *.so
+.coverage
 **/.DS_Store
 **/__pycache__/
 frontend/src-tauri/binaries/*
