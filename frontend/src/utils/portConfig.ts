@@ -14,11 +14,6 @@ export interface PortConfig {
   };
 }
 
-interface ServicePortInfo {
-  port: number;
-  service: string;
-}
-
 const DEFAULT_PORTS: PortConfig = {
   fastapi: 8000,
   zmq_data: 5555,

@@ -7,7 +7,6 @@ import {
   Table,
   Button,
   Input,
-  Space,
   Tag,
   Switch,
   InputNumber,
@@ -196,7 +195,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       await systemApi.updateAutoCleanupConfig(config);
       setOriginalConfig({ ...config });
       message.success('配置已保存');
-    } catch (error) {
+    } catch {
       message.error('保存配置失败');
     } finally {
       setSaving(false);
@@ -216,22 +215,6 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         }
       },
     });
-  };
-
-  const handleExportConfig = () => {
-    const exportData = {
-      autoCleanup: config,
-      exportedAt: new Date().toISOString(),
-      version: '1.2.0',
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `log-config-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    message.success('配置已导出');
   };
 
   // 导出选中日志文件为ZIP
@@ -293,7 +276,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       } else {
         message.warning(`删除完成：${result.deleted_count} 成功，${result.errors.length} 失败`);
       }
-    } catch (error) {
+    } catch {
       message.error('删除操作失败');
     } finally {
       setDeleting(false);
@@ -305,7 +288,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
     {
       title: '文件名',
       dataIndex: 'name',
-      render: (name: string, record: LogFileInfo) => (
+      render: (name: string) => (
         <div className="flex items-center gap-2">
           <IconFile size={16} className="text-blue-500" />
           <span className="font-mono text-sm">{name}</span>

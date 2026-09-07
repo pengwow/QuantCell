@@ -580,7 +580,7 @@ const DEFAULT_PLOT_COLORS = [
       try {
               // 确保 figures 中的 key 和 plotDataMap 一致
               const invalidFigures: string[] = [];
-              const validFigures = figures.filter((fig: any, idx: number) => {
+              const validFigures = figures.filter((fig: any) => {
                   const data = plotDataMap[fig.key];
                   if (!data || !Array.isArray(data) || data.length === 0) {
                       invalidFigures.push(`${fig.key}(no data)`);
@@ -622,7 +622,7 @@ const DEFAULT_PLOT_COLORS = [
               });
 
               // 构建 klinecharts figures 配置
-              const kcFigures = validFigures.map((fig: any, idx: number) => {
+              const kcFigures = validFigures.map((fig: any) => {
                   const config = {
                       key: fig.key,
                       title: fig.title || fig.key,

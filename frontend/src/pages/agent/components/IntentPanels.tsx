@@ -20,8 +20,6 @@ import {
   SafetyOutlined,
   ShoppingCartOutlined,
   DatabaseOutlined,
-  EyeOutlined,
-  DownloadOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { IntentAction } from '../store/agentStore';

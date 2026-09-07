@@ -1,6 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { getAccessToken, updateAccessToken, removeToken } from '../utils/tokenManager';
-import { getApiBaseUrl, getCachedPortConfig, initializePortConfig, type PortConfig } from '../utils/portConfig';
+import { getApiBaseUrl, initializePortConfig, type PortConfig } from '../utils/portConfig';
 import type {
   LogQueryParams,
   LogQueryResponse,
@@ -767,7 +767,7 @@ export const indicatorApi = {
                 if (jsonData.type === 'error' && onError) {
                   onError(new Error(jsonData.error || '生成失败'));
                 }
-              } catch (e) {
+              } catch {
                 // 忽略解析错误
               }
             }
@@ -1028,7 +1028,7 @@ export const aiModelApi = {
             } else if (errorData.detail) {
               errorMessage = errorData.detail;
             }
-          } catch (e) {
+          } catch {
             // 如果无法解析JSON，使用默认错误信息
           }
           throw new Error(errorMessage);

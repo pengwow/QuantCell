@@ -261,7 +261,7 @@ const ToolListDrawerWithConfig = ({
           ...prev,
           [toolName]: { ...prev[toolName], [paramName]: true },
         }));
-      } catch (error) {
+      } catch {
         message.error('获取敏感参数值失败');
       }
     } else {

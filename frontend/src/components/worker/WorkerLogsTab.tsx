@@ -6,7 +6,7 @@ interface WorkerLogsTabProps {
 }
 
 const WorkerLogsTab: React.FC<WorkerLogsTabProps> = ({ workerId }) => {
-  const { t } = useTranslation();
+  useTranslation();
 
   return (
     <div style={{ minHeight: 500 }}>

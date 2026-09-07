@@ -45,11 +45,6 @@ function App() {
     };
   }, []);
 
-  // 输出当前全局配置（用于调试）
-  useEffect(() => {
-    const config = useConfigStore.getState().config;
-  }, []);
-
   useEffect(() => {
     // 监听主题变化
     const observer = new MutationObserver((mutations) => {

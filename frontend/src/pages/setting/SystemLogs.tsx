@@ -64,7 +64,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [page, setPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(true);
-  const [total, setTotal] = useState<number>(0);
+  const [, setTotal] = useState<number>(0);
 
   const pageSize = 20;
 

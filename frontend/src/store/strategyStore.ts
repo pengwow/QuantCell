@@ -74,7 +74,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   createStrategy: async (data: Partial<Strategy>) => {
     set({ loading: true, error: null });
     try {
-      const response = await strategyApi.uploadStrategyFile({
+      await strategyApi.uploadStrategyFile({
         strategy_name: data.name || 'new_strategy',
         file_content: data.code || '',
         version: data.version,

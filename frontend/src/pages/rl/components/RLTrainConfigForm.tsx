@@ -1,4 +1,4 @@
-import { Form, Select, InputNumber, Button, Space, Typography, Switch } from 'antd';
+import { Form, Select, InputNumber, Button, Space, Switch } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
