@@ -11,6 +11,7 @@ import type {
   LogAutoCleanupConfig,
   CleanupResult,
 } from '../pages/setting/types';
+import type { StrategyInfo, StrategyParameter } from '../types/worker';
 
 // ============================================
 // 全局401错误处理配置
@@ -395,12 +396,8 @@ export const apiRequest = {
  * 策略相关 API
  */
 export const strategyApi = {
-  getStrategies: () => {
+  getStrategies: (): Promise<{ strategies: StrategyInfo[] }> => {
     return apiRequest.get('/strategy/list');
-  },
-
-  getStrategyParams: (strategyId: number): Promise<ApiResponse> => {
-    return apiRequest.get(`/strategy/parameters/${strategyId}`);
   },
 
   createStrategy: (data: any) => {
