@@ -6,6 +6,7 @@
  */
 
 import { apiRequest } from './index';
+import { getAccessToken, removeToken } from '../utils/tokenManager';
 
 // API基础URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -412,8 +413,7 @@ export const sendTradingSignal = async (
  * 从tokenManager获取token，确保与axios实例使用相同的token来源
  */
 const getWebSocketToken = (): string | undefined => {
-  // 优先使用tokenManager获取token
-  const { getAccessToken } = require('../utils/tokenManager');
+  // 优先使用tokenManager获取token（与axios实例保持同一token来源）
   return getAccessToken();
 };
 
@@ -427,7 +427,6 @@ const handleWebSocketAuthError = (): void => {
   sessionStorage.setItem('redirect_after_login', currentPath);
 
   // 清除认证数据
-  const { removeToken } = require('../utils/tokenManager');
   removeToken();
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');

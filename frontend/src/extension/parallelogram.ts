@@ -49,15 +49,15 @@ const parallelogram: OverlayTemplate = {
   },
   performEventPressedMove: ({ points, performPointIndex, performPoint }) => {
     if (performPointIndex < 2) {
-      // @ts-expect-error
+      // @ts-expect-error 绘图扩展点类型无 price 字段
       points[0].price = performPoint.price
-      // @ts-expect-error
+      // @ts-expect-error 绘图扩展点类型无 price 字段
       points[1].price = performPoint.price
     }
   },
   performEventMoveForDrawing: ({ currentStep, points, performPoint }) => {
     if (currentStep === 2) {
-      // @ts-expect-error
+      // @ts-expect-error 绘图扩展点类型无 price 字段
       points[0].price = performPoint.price
     }
   }

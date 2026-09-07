@@ -197,7 +197,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
               const currentValue = currentStrategyParams[param.param_name];
               const displayValue = currentValue ?? param.default_value ?? param.param_value ?? '-';
               let valueDisplay: React.ReactNode;
-              let valueStyle: React.CSSProperties = { fontWeight: 500 };
+              const valueStyle: React.CSSProperties = { fontWeight: 500 };
 
               if (typeof displayValue === 'number' && param.param_type === 'float') {
                 valueDisplay = typeof displayValue === 'number' ? displayValue.toFixed(2) : String(displayValue);

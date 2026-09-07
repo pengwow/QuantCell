@@ -101,7 +101,7 @@ const jsonAnnotation: OverlayTemplate = {
     }
 
     // 设置默认值
-    let lines = jsonData.lines || []
+    const lines = jsonData.lines || []
     let colors = jsonData.colors || []
     const fontSize = jsonData.fontSize || 12
     const align = jsonData.align || 'center' // 新增：对齐方式

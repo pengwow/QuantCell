@@ -112,7 +112,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       let accumulatedContent = '';
       let currentIntent: string = '';
       let currentRole: string = '';
-      let messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       let assistantMessage: Message | null = null;
 
       while (true) {
