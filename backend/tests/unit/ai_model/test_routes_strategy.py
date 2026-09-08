@@ -80,6 +80,21 @@ if _db_was_mocked:
 client = TestClient(app)
 
 
+@pytest.fixture
+def skip_auth():
+    """参数校验类用例专用：显式进入 debug 跳过认证。
+
+    认证统一迁移（装饰器 → Depends(get_current_user)）后，认证依赖在
+    FastAPI 依赖解析阶段执行、先于 body 校验，无效 token 会优先返回 401。
+    本文件多数用例意图是验证 Pydantic 校验（422），与认证无关，
+    故显式 patch IS_DEBUG_MODE=True 自包含地关闭认证，
+    不依赖外部 DEBUG 环境泄漏，保证单独/全量运行结果一致。
+    注：生产 APP_ENV 仍会对认证强制放行，patch 不影响安全行为。
+    """
+    with patch("utils.auth.IS_DEBUG_MODE", True):
+        yield
+
+
 class TestGenerateStrategyStream:
     """测试流式生成策略端点 /generate"""
 
@@ -145,7 +160,7 @@ class TestGenerateStrategySync:
             "temperature": 0.7,
         }
 
-    def test_generate_sync_missing_requirement(self):
+    def test_generate_sync_missing_requirement(self, skip_auth):
         """测试缺少必需参数"""
         request_data = {"model_id": "gpt-4"}
 
@@ -157,7 +172,7 @@ class TestGenerateStrategySync:
 
         assert response.status_code == 422
 
-    def test_generate_sync_requirement_too_short(self):
+    def test_generate_sync_requirement_too_short(self, skip_auth):
         """测试 requirement 长度太短"""
         request_data = {"requirement": "短描述"}
 
@@ -178,7 +193,7 @@ class TestValidateStrategyCode:
         """有效的代码数据"""
         return {"code": "class MyStrategy:\n    def __init__(self):\n        pass"}
 
-    def test_validate_code_empty_code(self):
+    def test_validate_code_empty_code(self, skip_auth):
         """测试空代码验证"""
         request_data = {"code": ""}
 
@@ -195,7 +210,7 @@ class TestValidateStrategyCode:
 class TestRequestValidation:
     """测试请求参数验证"""
 
-    def test_requirement_min_length(self):
+    def test_requirement_min_length(self, skip_auth):
         """测试 requirement 最小长度验证"""
         request_data = {"requirement": "太短"}
 
@@ -207,7 +222,7 @@ class TestRequestValidation:
 
         assert response.status_code == 422
 
-    def test_requirement_max_length(self):
+    def test_requirement_max_length(self, skip_auth):
         """测试 requirement 最大长度验证"""
         request_data = {
             "requirement": "x" * 5001  # 超过最大长度5000
@@ -221,7 +236,7 @@ class TestRequestValidation:
 
         assert response.status_code == 422
 
-    def test_requirement_whitespace_only(self):
+    def test_requirement_whitespace_only(self, skip_auth):
         """测试 requirement 仅包含空白字符"""
         request_data = {"requirement": "   \n\t  "}
 
@@ -233,7 +248,7 @@ class TestRequestValidation:
 
         assert response.status_code == 422
 
-    def test_temperature_range(self):
+    def test_temperature_range(self, skip_auth):
         """测试 temperature 范围验证"""
         # 测试小于0
         response = client.post(
@@ -257,7 +272,7 @@ class TestRequestValidation:
         )
         assert response.status_code == 422
 
-    def test_code_required_for_validate(self):
+    def test_code_required_for_validate(self, skip_auth):
         """测试验证端点 code 字段必填"""
         response = client.post(
             "/api/v1/ai-models/strategy/validate",

@@ -30,7 +30,7 @@ def other_auth_headers():
 @pytest.fixture
 def mock_jwt_user_a():
     """用户 A：user_id=alice"""
-    with patch("worker.dependencies.decode_jwt_token") as m:
+    with patch("utils.auth.decode_jwt_token") as m:
         m.return_value = {
             "user_id": "alice",
             "user_name": "Alice",
@@ -42,7 +42,7 @@ def mock_jwt_user_a():
 @pytest.fixture
 def mock_jwt_user_b():
     """用户 B：user_id=bob"""
-    with patch("worker.dependencies.decode_jwt_token") as m:
+    with patch("utils.auth.decode_jwt_token") as m:
         m.return_value = {
             "user_id": "bob",
             "user_name": "Bob",

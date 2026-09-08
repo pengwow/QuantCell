@@ -70,16 +70,16 @@ class TestHTTPStatusCodes:
         response = client.put("/api/v1/strategy/list")
         assert response.status_code == 405
 
-    def test_422_unprocessable_entity_missing_field(self, client: TestClient):
+    def test_422_unprocessable_entity_missing_field(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试422无法处理 - 缺少必填字段"""
         request_data = {"strategy_name": "TestStrategy"}
-        response = client.post("/api/v1/strategy/upload", json=request_data)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 422
 
-    def test_422_unprocessable_entity_invalid_type(self, client: TestClient):
+    def test_422_unprocessable_entity_invalid_type(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试422无法处理 - 无效类型"""
         request_data = {"strategy_name": "TestStrategy", "file_content": 12345}
-        response = client.post("/api/v1/strategy/upload", json=request_data)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 422
 
     def test_500_internal_server_error(self, client: TestClient, mocker):

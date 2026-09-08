@@ -251,8 +251,8 @@ class TestAuthEndpointAccess:
             (
                 "POST",
                 "/api/v1/strategy/upload",
-                None,
-                {"strategy_name": "test", "content": "code"},
+                auth_headers,
+                {"strategy_name": "test", "file_content": "code"},
             ),
             ("DELETE", "/api/v1/strategy/test_strategy", auth_headers, None),
         ]

@@ -201,20 +201,22 @@ class TestStrategyUploadAPI:
     # ========== 请求体验证测试 ==========
 
     @pytest.mark.parametrize("missing_field", ["strategy_name", "file_content"])
-    def test_upload_strategy_missing_required_field(self, client: TestClient, missing_field):
+    def test_upload_strategy_missing_required_field(
+        self, client: TestClient, missing_field, valid_auth_headers: dict[str, str]
+    ):
         """测试缺少必填字段"""
         request_data = {
             "strategy_name": "test",
             "file_content": "class Test(Strategy): pass",
         }
         del request_data[missing_field]
-        response = client.post("/api/v1/strategy/upload", json=request_data)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 422
 
-    def test_upload_strategy_empty_content(self, client: TestClient):
+    def test_upload_strategy_empty_content(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试空文件内容"""
         request_data = {"strategy_name": "empty_strategy", "file_content": ""}
-        response = client.post("/api/v1/strategy/upload", json=request_data)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         # 可能接受空内容或返回错误
         assert response.status_code in [200, 400, 422]
 
