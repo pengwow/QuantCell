@@ -10,7 +10,8 @@ QuantCell 主入口文件
 
 # 首先导入策略模型和回测模型以确保正确的表结构被使用
 # 这必须在导入 collector.db.models 之前完成
-from fastapi import FastAPI, Request
+import typer  # CLI 入口参数解析（项目规范：带参数脚本统一用 typer）
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -295,40 +296,15 @@ def get_uvicorn_log_level() -> str:
     return "INFO"
 
 
-def parse_args():
-    """解析命令行参数
+def main(
+    host: str = typer.Option("localhost", "--host", help="服务器监听地址 (默认: localhost)"),
+    port: int | None = typer.Option(None, "--port", help="首选端口号（留空则自动分配）"),
+    debug: bool = typer.Option(False, "--debug", help="启用调试模式 (设置日志级别为 DEBUG)"),
+) -> None:
+    """启动 QuantCell API 服务
 
-    Returns:
-        argparse.Namespace: 解析后的参数
-    """
-    import argparse
-
-    parser = argparse.ArgumentParser(description="QuantCell API Server")
-    parser.add_argument(
-        "--host",
-        type=str,
-        default="localhost",
-        help="服务器监听地址 (默认: localhost)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="首选端口号（留空则自动分配）",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="启用调试模式 (设置日志级别为 DEBUG)",
-    )
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    """当直接运行此文件时启动FastAPI应用服务器
-
-    使用uvicorn作为ASGI服务器，在本地主机的8000端口启动应用
-    禁用自动重载功能，避免DuckDB锁冲突
+    使用 uvicorn 作为 ASGI 服务器，在 localhost:8000 默认启动应用；
+    禁用自动重载，避免 DuckDB 锁冲突。
     """
     import sys
 
@@ -347,13 +323,10 @@ if __name__ == "__main__":
     # 兜底机制：lifespan shutdown 事件中已包含 5 秒强制退出定时器
     # ==============================================================
 
-    # 解析命令行参数
-    args = parse_args()
-
     # ========== 集成 PortManager 动态端口分配 ==========
     try:
-        if args.port:
-            port_manager.set_preferred_port("fastapi", args.port)
+        if port:
+            port_manager.set_preferred_port("fastapi", port)
 
         fastapi_port = port_manager.get_port("fastapi")
         logger.info(f"[PortManager] FastAPI 服务将使用端口: {fastapi_port}")
@@ -371,12 +344,17 @@ if __name__ == "__main__":
     init_db()
 
     # 获取日志级别配置
-    log_level = "DEBUG" if args.debug else get_uvicorn_log_level()
+    log_level = "DEBUG" if debug else get_uvicorn_log_level()
 
     uvicorn.run(
         "main:app",  # 指定应用路径
-        host=args.host,  # 主机地址
+        host=host,  # 主机地址
         port=fastapi_port,  # 使用动态分配的端口
         reload=False,  # 禁用热重载，避免DuckDB锁冲突
         log_level=log_level.lower(),  # 设置日志级别
     )
+
+
+if __name__ == "__main__":
+    """当直接运行此文件时启动应用（typer 解析 --host/--port/--debug）"""
+    typer.run(main)
