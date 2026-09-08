@@ -106,8 +106,9 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = false
-# 覆盖率基线（2026-09 首测 50.8%，collector/services 补测后 52%，data_service/deriv_service 补测后 53%），作为防回归门槛，测试补充后逐步上调
-fail_under = 53
+# 覆盖率基线（2026-09 首测 50.8%，collector/services 补测后 52%，data_service/deriv_service 补测后 53%，
+# exchange/backtest/rl/quality/服务层/realtime 补测后 57%），作为防回归门槛，测试补充后逐步上调
+fail_under = 57
 
 [tool.coverage.html]
 directory = "htmlcov"
