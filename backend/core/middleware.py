@@ -5,11 +5,13 @@
 - request_id：为每个 HTTP 请求生成/透传全局唯一 ID，注入日志上下文
   （utils.logger 的 trace_id），并在响应头 X-Request-ID 返回，便于链路追踪
 - 结构化访问日志：记录 method / path / status / 耗时
+- X-Refreshed-Token：统一注入认证模块写入 request.state.refreshed_token 的续期 token，
+  避免各个路由自行包装响应（Depends 与装饰器两条链路行为一致）
 """
 
 import time
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -70,4 +72,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             },
         )
         response.headers[REQUEST_ID_HEADER] = request_id
+        # 统一注入 JWT 续期 token（认证成功后由 utils.auth 写入 request.state）
+        refreshed_token = getattr(request.state, "refreshed_token", None)
+        if refreshed_token:
+            response.headers["X-Refreshed-Token"] = refreshed_token
         return response

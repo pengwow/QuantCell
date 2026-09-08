@@ -22,13 +22,14 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
+from utils.auth import authenticate_request, get_current_user
 from utils.logger import LogType, get_logger
 from worker.state import connection_manager, strategy_registry
 
 from . import crud, schemas
 from .core_service import worker_core_service
 from .decorators import handle_worker_exceptions
-from .dependencies import get_current_user, get_db_session
+from .dependencies import get_db_session
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
@@ -555,9 +556,8 @@ async def log_stream_sse(
     from fastapi.responses import EventSourceResponse
     from fastapi.sse import format_sse_event
 
-    from .dependencies import get_current_user
-
-    await get_current_user(request, token=token)
+    # EventSource 无法发送 Authorization 头，token 走 query 参数，由统一认证入口校验
+    await authenticate_request(request, token=token)
 
     reader = worker_core_service._get_log_file_reader(str(worker_id))
 

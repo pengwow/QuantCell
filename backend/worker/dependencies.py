@@ -4,43 +4,14 @@ Worker模块依赖注入
 定义FastAPI依赖项
 """
 
-from fastapi import Depends, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends
 
 from collector.db.database import SessionLocal, init_database_config
-from utils.jwt_utils import decode_jwt_token
 
-security = HTTPBearer(auto_error=False)
-
-
-async def get_current_user(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    token: str | None = None,
-) -> dict:
-    """
-    获取当前用户
-
-    支持两种认证方式：
-    1. 从请求头 Authorization 中提取 JWT token（标准方式）
-    2. 从 query 参数中提取 JWT token（用于 SSE 等无法发送自定义头的场景）
-    """
-    # 优先使用 query 参数中的 token（用于 EventSource 等场景）
-    jwt_token = token or (credentials.credentials if credentials else None)
-
-    if not jwt_token:
-        # 开发环境允许匿名访问
-        return {"user_id": "anonymous", "user_name": "Anonymous"}
-
-    try:
-        payload = decode_jwt_token(jwt_token)
-        return {
-            "user_id": payload.get("user_id"),
-            "user_name": payload.get("user_name"),
-            "email": payload.get("email"),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"无效的认证令牌: {e!s}")
+# 认证统一走 utils.auth：
+# - re-export 保持 worker/share 既有 `from worker.dependencies import get_current_user` 引用不变
+# - 统一后不再有「缺 token 匿名放行」的逻辑：未认证一律 401
+from utils.auth import get_current_user, security
 
 
 async def get_db_session():
