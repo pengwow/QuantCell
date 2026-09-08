@@ -61,3 +61,8 @@ def register_commands() -> None:
     from cli.data import app as data_app
 
     app.add_typer(data_app, name="data")
+
+
+# 注意：子命令注册统一放在 cli/__main__.py 的 main() 中，避免 import cli 包时
+# 加载全部子模块产生副作用（如 worker 模块导入时会向 stdout 打日志，
+# 会污染 cli.* 子命令的纯文本/JSON 输出）。

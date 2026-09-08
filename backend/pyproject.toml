@@ -177,7 +177,11 @@ indent-style = "space"
 exclude = ["tests", "data"]
 
 [project.scripts]
-quantcell = "cli.run:cli"
+quantcell = "cli.__main__:main"
+
+# 项目自身作为包安装, uv 才会生成 `quantcell` 命令入口点(否则 project.scripts 会被跳过)
+[tool.uv]
+package = true
 
 [tool.setuptools.packages.find]
 where = ["."]
