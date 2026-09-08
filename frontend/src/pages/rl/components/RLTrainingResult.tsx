@@ -3,7 +3,7 @@ import { TrophyOutlined, LineChartOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
-// 对齐后端 /api/v2/rl/train 响应结构：{ model_id, status, metrics }
+// 对齐后端 /api/v1/rl/train 响应结构：{ model_id, status, metrics }
 export interface TrainingResult {
   model_id: string;
   status: string;

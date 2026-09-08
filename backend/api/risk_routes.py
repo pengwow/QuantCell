@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
 
-router = APIRouter(prefix="/api/v2/risk", tags=["Risk"])
+router = APIRouter(prefix="/api/v1/risk", tags=["Risk"])
 
 
 def _sanitize(obj: Any) -> Any:

@@ -11,7 +11,7 @@ def _debug_mode(monkeypatch):
 
 
 def _make_app():
-    from api.v2.risk_routes import router
+    from api.risk_routes import router
 
     app = FastAPI()
     app.include_router(router)
@@ -21,7 +21,7 @@ def _make_app():
 def test_risk_check_endpoint():
     client = _make_app()
     resp = client.post(
-        "/api/v2/risk/check",
+        "/api/v1/risk/check",
         json={
             "order": {
                 "symbol": "BTC-USDT",
@@ -40,15 +40,15 @@ def test_risk_check_endpoint():
 
 def test_risk_metrics_endpoint():
     client = _make_app()
-    resp = client.get("/api/v2/risk/metrics")
-    assert resp.status_code == 200
+    resp = client.get("/api/v1/risk/metrics")
+    assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["code"] == 0
 
 
 def test_risk_reset_endpoint():
     client = _make_app()
-    resp = client.post("/api/v2/risk/reset")
+    resp = client.post("/api/v1/risk/reset")
     assert resp.status_code == 200
     data = resp.json()
     assert data["code"] == 0

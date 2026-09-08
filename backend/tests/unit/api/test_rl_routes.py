@@ -15,7 +15,7 @@ def _debug_mode(monkeypatch):
 
 
 def _make_app():
-    from api.v2.rl_routes import router
+    from api.rl_routes import router
 
     app = FastAPI()
     app.include_router(router)
@@ -37,7 +37,7 @@ def test_train_endpoint_success():
     with patch("services.rl_service.RLService") as MockSvc:
         MockSvc.return_value.train.return_value = mock_result
         resp = client.post(
-            "/api/v2/rl/train",
+            "/api/v1/rl/train",
             json={"symbol": "BTCUSDT", "algorithm": "ppo", "total_timesteps": 1000},
         )
         assert resp.status_code == 200
@@ -52,7 +52,7 @@ def test_train_endpoint_value_error():
     client = _make_app()
     with patch("services.rl_service.RLService") as MockSvc:
         MockSvc.return_value.train.side_effect = ValueError("bad config")
-        resp = client.post("/api/v2/rl/train", json={"symbol": "BTCUSDT"})
+        resp = client.post("/api/v1/rl/train", json={"symbol": "BTCUSDT"})
         assert resp.status_code == 400
         assert "bad config" in resp.json()["detail"]
 
@@ -60,7 +60,7 @@ def test_train_endpoint_value_error():
 def test_train_endpoint_missing_symbol_returns_422():
     """缺 symbol → Pydantic 必填校验失败 → 422"""
     client = _make_app()
-    resp = client.post("/api/v2/rl/train", json={"algorithm": "ppo"})
+    resp = client.post("/api/v1/rl/train", json={"algorithm": "ppo"})
     assert resp.status_code == 422
     body = resp.json()
     assert any("symbol" in str(err).lower() for err in body.get("detail", []))
@@ -76,7 +76,7 @@ def test_train_endpoint_defaults():
 
     with patch("services.rl_service.RLService") as MockSvc:
         MockSvc.return_value.train.return_value = mock_result
-        resp = client.post("/api/v2/rl/train", json={"symbol": "BTCUSDT"})
+        resp = client.post("/api/v1/rl/train", json={"symbol": "BTCUSDT"})
         assert resp.status_code == 200
 
 
@@ -84,7 +84,7 @@ def test_models_endpoint():
     client = _make_app()
     with patch("services.model_registry.ModelRegistryService") as MockSvc:
         MockSvc.return_value.list_models.return_value = [{"id": "1", "name": "test"}]
-        resp = client.get("/api/v2/rl/models")
+        resp = client.get("/api/v1/rl/models")
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0
@@ -103,7 +103,7 @@ def test_walk_forward_endpoint():
 
     with patch("services.rl_service.RLService") as MockSvc:
         MockSvc.return_value.train.return_value = mock_result
-        resp = client.post("/api/v2/rl/walk-forward", json={"symbol": "BTCUSDT", "n_splits": 3})
+        resp = client.post("/api/v1/rl/walk-forward", json={"symbol": "BTCUSDT", "n_splits": 3})
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 0

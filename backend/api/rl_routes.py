@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
 
-router = APIRouter(prefix="/api/v2/rl", tags=["RL Training"])
+router = APIRouter(prefix="/api/v1/rl", tags=["RL Training"])
 
 
 def _map_rl_exception(exc: Exception) -> HTTPException:

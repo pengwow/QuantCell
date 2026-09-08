@@ -1,6 +1,6 @@
 import { apiRequest } from './index';
 
-// 与后端 api/v2/rl_routes.py 的 TrainRequest 对齐：symbol 必填，其余有默认值
+// 与后端 api/rl_routes.py 的 TrainRequest 对齐：symbol 必填，其余有默认值
 export interface RLTrainRequest {
   algorithm?: string;
   symbol: string;
@@ -28,7 +28,7 @@ export interface RLModelInfo {
 
 export const rlApi = {
   train: (data: RLTrainRequest) =>
-    apiRequest.post<RLTrainResult>('/v2/rl/train', data),
+    apiRequest.post<RLTrainResult>('/rl/train', data),
   listModels: () =>
-    apiRequest.get<RLModelInfo[]>('/v2/rl/models'),
+    apiRequest.get<RLModelInfo[]>('/rl/models'),
 };

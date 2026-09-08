@@ -30,13 +30,11 @@ logger = get_logger(__name__, LogType.SYSTEM)
 from agent.api.routes import router as agent_router
 from ai_model import router as ai_model_router
 from ai_model.routes_strategy import router as ai_model_strategy_router
+from api.ensemble_routes import router as ensemble_router
+from api.model_routes import router as models_router
+from api.risk_routes import router as risk_router
+from api.rl_routes import router as rl_router
 from api.system_ports import router as system_ports_router
-from api.v2.ensemble_routes import router as v2_ensemble_router
-
-# v2 API routes
-from api.v2.model_routes import router as v2_model_router
-from api.v2.risk_routes import router as v2_risk_router
-from api.v2.rl_routes import router as v2_rl_router
 from backtest import router as backtest_router
 from collector.routes import router as collector_router
 from common.notifications.routes import router as notification_router
@@ -109,11 +107,11 @@ app.include_router(system_ports_router)
 app.include_router(plugins_router)
 app.include_router(engine_router)
 
-# v2 API routes
-app.include_router(v2_model_router)
-app.include_router(v2_ensemble_router)
-app.include_router(v2_risk_router)
-app.include_router(v2_rl_router)
+# 模型/集成/风控/RL 服务路由
+app.include_router(models_router)
+app.include_router(ensemble_router)
+app.include_router(risk_router)
+app.include_router(rl_router)
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)

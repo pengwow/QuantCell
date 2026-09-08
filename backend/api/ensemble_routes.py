@@ -9,7 +9,7 @@ from common.schemas import ApiResponse
 from services.ensemble_service import get_ensemble_service
 from utils.auth import jwt_auth_required
 
-router = APIRouter(prefix="/api/v2/ensemble", tags=["Ensemble"])
+router = APIRouter(prefix="/api/v1/ensemble", tags=["Ensemble"])
 
 
 class CreateEnsembleRequest(BaseModel):

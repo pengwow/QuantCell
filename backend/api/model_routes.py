@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
 
-router = APIRouter(prefix="/api/v2/models", tags=["Models"])
+router = APIRouter(prefix="/api/v1/models", tags=["Models"])
 
 
 class RegisterModelRequest(BaseModel):
