@@ -9,9 +9,8 @@ import pytest
 # 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
 # 整个文件已 deprecated,仅保留作为历史参考,本 Sprint 用 importorskip 跳过
 try:
-    from backtest.engines.legacy_engine import LegacyEngine
-
     from backtest.engines.engine import Engine
+    from backtest.engines.legacy_engine import LegacyEngine
 except ImportError:
     pytest.skip(
         "VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供",
@@ -21,8 +20,8 @@ except ImportError:
 from unittest.mock import Mock, patch
 
 import pandas as pd
-
 from backtest.config.settings import EngineType
+
 from backtest.engines.base import BacktestEngineBase
 from backtest.engines.base import EngineType as BaseEngineType
 
