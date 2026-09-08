@@ -86,6 +86,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ========== request_id 链路追踪中间件（注册在 CORS 之后，位于最外层先执行） ==========
+# 为每个请求注入 trace_id 日志上下文，并在响应头回传 X-Request-ID
+from core.middleware import RequestIDMiddleware
+
+app.add_middleware(RequestIDMiddleware)
+
 # 注册业务路由（保持向后兼容）
 app.include_router(ai_model_router)
 app.include_router(ai_model_strategy_router)
@@ -180,6 +186,55 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "message": detail_message,
             "data": {"errors": serializable_errors},
         },
+    )
+
+
+# 全局 HTTPException 处理器（统一响应结构，保持 detail 原样透传）
+# detail 可能是 str / dict / list，现有前端与测试均依赖 {"detail": ...} 的形态
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """处理业务抛出的 HTTPException
+
+    覆盖所有 HTTPException（含 404/405 等框架内部抛出的），
+    保持 FastAPI 默认的 {"detail": ...} 响应结构，并透传自定义响应头。
+
+    Args:
+        request: 请求对象
+        exc: HTTPException 实例
+
+    Returns:
+        JSONResponse: 与默认行为一致的错误响应
+    """
+    logger.warning(f"HTTP {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
+
+
+# 全局未捕获异常兜底：记录完整堆栈，返回通用 500（不向前端泄露内部细节）
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """捕获所有未被业务代码处理的异常
+
+    防止任何一条请求路径因未捕获异常而返回裸 500；异常详情仅写入日志，
+    响应只包含通用提示，避免把内部实现细节暴露给调用方。
+
+    Args:
+        request: 请求对象
+        exc: 未捕获异常
+
+    Returns:
+        JSONResponse: 通用 500 错误响应
+    """
+    logger.error(
+        f"未捕获异常: {request.method} {request.url.path} -> {type(exc).__name__}: {exc}",
+        extra={"path": request.url.path, "method": request.method},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务器内部错误"},
     )
 
 
