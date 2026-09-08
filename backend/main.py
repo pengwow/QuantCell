@@ -63,21 +63,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 添加CORS中间件配置
-# ponytail: 通过环境变量 CORS_ORIGINS 配置，逗号分隔；开发阶段保留默认值
-import os as _os
+# ========== CORS 配置（统一走 config.settings，不再散落 os.environ） ==========
+from config.settings import get_cors_origin_list
 
-_cors_env = _os.environ.get("CORS_ORIGINS", "").strip()
-_cors_origins = (
-    [o.strip() for o in _cors_env.split(",") if o.strip()]
-    if _cors_env
-    else [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ]
-)
+_cors_origins = get_cors_origin_list()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -272,17 +261,18 @@ async def health_check():
 def get_uvicorn_log_level() -> str:
     """获取uvicorn日志级别
 
-    从环境变量或配置文件读取日志级别，默认为INFO
+    优先级：环境变量 LOG_LEVEL（经 pydantic-settings）> config.toml 的 logging.level > 默认 INFO
 
     Returns:
         str: 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
-    import os
     import tomllib
     from pathlib import Path
 
-    # 首先检查环境变量
-    env_level = os.getenv("LOG_LEVEL")
+    from config.settings import get_settings
+
+    # 环境变量优先（pydantic-settings 自动读取 LOG_LEVEL / .env）
+    env_level = get_settings().log_level
     if env_level:
         return env_level.upper()
 
