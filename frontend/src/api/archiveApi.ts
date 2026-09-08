@@ -1,12 +1,12 @@
 /**
  * Binance 归档数据 REST API 客户端
  * 对应后端 6 个端点（backend/collector/api/archive.py）：
- *   1. POST   /api/data/archive/download
- *   2. GET    /api/data/archive/tasks/{task_id}
- *   3. GET    /api/data/archive/symbols
- *   4. GET    /api/data/archive/data
- *   5. GET    /api/data/archive/meta/{kind}/{market}/{symbol}
- *   6. DELETE /api/data/archive/data
+ *   1. POST   /api/v1/data/archive/download
+ *   2. GET    /api/v1/data/archive/tasks/{task_id}
+ *   3. GET    /api/v1/data/archive/symbols
+ *   4. GET    /api/v1/data/archive/data
+ *   5. GET    /api/v1/data/archive/meta/{kind}/{market}/{symbol}
+ *   6. DELETE /api/v1/data/archive/data
  *
  * 复用项目已有的 apiRequest（带 token、401 拦截、code 适配）
  */

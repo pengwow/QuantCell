@@ -84,7 +84,7 @@ interface SignalExtendData {
 // 信号标注点坐标（在基础坐标上附加 extendData）
 type SignalTagCoordinate = { x: number; y: number; extendData?: SignalExtendData };
 
-// 指标执行结果（对应后端 /api/indicators/:id/execute 返回的 data）
+// 指标执行结果（对应后端 /api/v1/indicators/:id/execute 返回的 data）
 interface IndicatorExecuteResult {
   plots?: IndicatorPlot[];
   signals?: IndicatorSignal[];
@@ -937,7 +937,7 @@ const DEFAULT_PLOT_COLORS = [
           const currentKlineData = klineDataRef.current || [];
           console.log(`[自定义指标] 发送请求: indicatorId=${indicator.id}, klineData长度=${currentKlineData.length}`);
           
-          const response = await fetch(`/api/indicators/${indicator.id}/execute`, {
+          const response = await fetch(`/api/v1/indicators/${indicator.id}/execute`, {
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',

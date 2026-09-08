@@ -54,7 +54,7 @@ const ConsoleLayout = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/auth/logout", {
+      await fetch("/api/v1/auth/logout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });

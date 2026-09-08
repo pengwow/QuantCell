@@ -9,7 +9,7 @@ import { apiRequest } from './index';
 import { getAccessToken, removeToken } from '../utils/tokenManager';
 
 // API基础URL
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // 自定义API错误类
 export class ApiError extends Error {

@@ -15,7 +15,7 @@ export interface PortConfig {
 }
 
 /**
- * 后端 /api/system/ports 返回的 data 结构
+ * 后端 /api/v1/system/ports 返回的 data 结构
  * 各服务的端口位于各自的子对象中（port 字段）
  */
 interface PortsResponseData {
@@ -40,9 +40,9 @@ let cachedPortConfig: PortConfig | null = null;
 export async function fetchPortConfig(): Promise<PortConfig> {
   try {
     const possibleUrls = [
-      '/api/system/ports',
-      'http://localhost:8000/api/system/ports',
-      `http://localhost:${DEFAULT_PORTS.fastapi}/api/system/ports`,
+      '/api/v1/system/ports',
+      'http://localhost:8000/api/v1/system/ports',
+      `http://localhost:${DEFAULT_PORTS.fastapi}/api/v1/system/ports`,
     ];
 
     let response: Response | null = null;

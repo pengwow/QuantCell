@@ -29,7 +29,7 @@ export default function RLTrainingPage() {
 
   const fetchModels = async () => {
     try {
-      // 走 rlApi：baseURL=/api 补全为后端真实路由 /api/v2/rl/models，拦截器自动带 Authorization
+      // 走 rlApi：baseURL=/api/v1 补全为后端真实路由 /api/v1/rl/models，拦截器自动带 Authorization
       // 响应拦截器已解包 ApiResponse，直接得到 [{ name }] 数组
       const data = await rlApi.listModels();
       setModels((data || []).map((m: { name: string }) => ({ ...m, path: m.name, size_kb: 0 })));
@@ -49,9 +49,9 @@ export default function RLTrainingPage() {
     abortControllerRef.current = new AbortController();
 
     try {
-      // 后端仅有同步训练端点 /api/v2/rl/train（无 SSE 流），此前调用的 /api/rl/train/stream 从未存在
+      // 后端仅有同步训练端点 /api/v1/rl/train（无 SSE 流），此前调用的 /api/v1/rl/train/stream 从未存在
       // 训练是长任务，保持 fetch（axios 默认 30s 超时会中断训练），手动带 Authorization
-      const response = await fetch('/api/v2/rl/train', {
+      const response = await fetch('/api/v1/rl/train', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

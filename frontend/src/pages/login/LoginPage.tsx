@@ -51,7 +51,7 @@ const loadThemeConfig = async () => {
       return;
     }
 
-    const response = await fetch("/api/config");
+    const response = await fetch("/api/v1/config");
     const result = await response.json();
     const groupedConfig = result?.data || result;
 
@@ -127,7 +127,7 @@ const LoginPage = () => {
   const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch("/api/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
@@ -154,7 +154,7 @@ const LoginPage = () => {
   const handleRegister = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/auth/register", {
+      const response = await fetch("/api/v1/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),

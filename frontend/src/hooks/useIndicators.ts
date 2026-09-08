@@ -168,7 +168,7 @@ export const useIndicators = () => {
   ) => {
     const controller = new AbortController();
 
-    fetch('/api/indicators/ai-generate', {
+    fetch('/api/v1/indicators/ai-generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -290,7 +290,7 @@ const createApiClient = (): AxiosInstance => {
   const baseUrl = getApiBaseUrl();
 
   return axios.create({
-    baseURL: `${baseUrl}/api`,
+    baseURL: `${baseUrl}/api/v1`,
     timeout: 30000,
     headers: {
       'Content-Type': 'application/json',
@@ -304,7 +304,7 @@ export const updateApiClientBaseUrl = (portConfig?: PortConfig): void => {
   const newBaseUrl = getApiBaseUrl(portConfig);
 
   if (newBaseUrl !== api.defaults.baseURL) {
-    api.defaults.baseURL = `${newBaseUrl}/api`;
+    api.defaults.baseURL = `${newBaseUrl}/api/v1`;
     console.log(`[API] Base URL 已更新为: ${api.defaults.baseURL}`);
   }
 };
@@ -502,76 +502,6 @@ export const configApi = {
 };
 
 /**
- * 数据池相关 API
- */
-export const dataPoolApi = {
-  getDataPools: (type: string) => {
-    return apiRequest.get('/data-pools/', { type });
-  },
-
-  createDataPool: <T>(data: T) => {
-    return apiRequest.post('/data-pools/', data);
-  },
-
-  updateDataPool: <T>(id: string, data: T) => {
-    return apiRequest.put(`/data-pools/${id}`, data);
-  },
-
-  deleteDataPool: (id: string, type: string) => {
-    return apiRequest.delete(`/data-pools/${id}`, { type });
-  },
-
-  getDataPoolDetail: (id: string, type: string) => {
-    return apiRequest.get(`/data-pools/${id}`, { params: { type } });
-  },
-
-  getPoolAssets: (poolId: string) => {
-    return apiRequest.get(`/data-pools/${poolId}/assets`);
-  },
-
-  addPoolAssets: <T>(poolId: string, data: T) => {
-    return apiRequest.post(`/data-pools/${poolId}/assets`, data);
-  },
-};
-
-/**
- * 定时任务相关 API
- */
-export const scheduledTaskApi = {
-  getTasks: () => {
-    return apiRequest.get('/scheduled-tasks');
-  },
-
-  getTask: (taskId: string) => {
-    return apiRequest.get(`/scheduled-tasks/${taskId}`);
-  },
-
-  createTask: <T>(data: T) => {
-    return apiRequest.post('/scheduled-tasks', data);
-  },
-
-  updateTask: <T>(taskId: string, data: T) => {
-    return apiRequest.put(`/scheduled-tasks/${taskId}`, data);
-  },
-
-  deleteTask: (taskId: string) => {
-    return apiRequest.delete(`/scheduled-tasks/${taskId}`);
-  },
-
-  runTask: (taskId: string) => {
-    return apiRequest.post(`/scheduled-tasks/${taskId}/run`);
-  },
-
-  pauseTask: (taskId: string) => {
-    return apiRequest.post(`/scheduled-tasks/${taskId}/pause`);
-  },
-
-  resumeTask: (taskId: string) => {
-    return apiRequest.post(`/scheduled-tasks/${taskId}/resume`);
-  },
-};
-
-/**
  * 回测相关 API
  */
 export const backtestApi = {
@@ -676,7 +606,7 @@ export const indicatorApi = {
   },
 
   /**
-   * 流式生成指标代码（SSE），调用 /api/indicators/ai-generate
+   * 流式生成指标代码（SSE），调用 /api/v1/indicators/ai-generate
    * 使用4步思维链展示生成进度
    */
   generateIndicatorStream: (
@@ -688,7 +618,7 @@ export const indicatorApi = {
     const token = getAccessToken();
     const controller = new AbortController();
 
-    const fetchPromise = fetch(`/api/indicators/ai-generate`, {
+    const fetchPromise = fetch(`/api/v1/indicators/ai-generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -956,7 +886,7 @@ export const aiModelApi = {
       throw new Error('登录已过期，请重新登录');
     }
 
-    const url = `/api/ai-models/strategy/generate?token=${encodeURIComponent(token)}`;
+    const url = `/api/v1/ai-models/strategy/generate?token=${encodeURIComponent(token)}`;
 
     // 使用 POST 方法创建 EventSource，需要通过 fetch 实现
     const eventSource = new EventSource(url);
@@ -996,7 +926,7 @@ export const aiModelApi = {
     const controller = new AbortController();
 
     // 使用 Promise 包装 fetch 调用
-    const fetchPromise = fetch('/api/ai-models/strategy/generate', {
+    const fetchPromise = fetch('/api/v1/ai-models/strategy/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

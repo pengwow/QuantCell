@@ -34,7 +34,7 @@ function loadCSS(href: string): Promise<void> {
 }
 
 export async function loadPluginAssets(plugin: PluginInfo): Promise<void> {
-  const base = `/api/plugins/${plugin.name}/assets`;
+  const base = `/api/v1/plugins/${plugin.name}/assets`;
   const cssUrl = `${base}/index.css`;
   const jsUrl = `${base}/index.js`;
 

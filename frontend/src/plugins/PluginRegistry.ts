@@ -54,7 +54,7 @@ class PluginRegistry {
     this.loadingPlugins.add(plugin.name);
 
     try {
-      const bundleUrl = `/api/plugins/${plugin.name}/assets/index.js`;
+      const bundleUrl = `/api/v1/plugins/${plugin.name}/assets/index.js`;
       const module = await import(/* @vite-ignore */ bundleUrl);
 
       if (typeof module.registerPlugin === 'function') {

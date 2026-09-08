@@ -280,7 +280,7 @@ export class WorkerLogStreamSSE {
       host = isDev ? '//localhost:8000' : `//${window.location.host}`;
     }
 
-    const url = `${httpProtocol}${host}/api/workers/${this.workerId}/monitoring/logs/stream`;
+    const url = `${httpProtocol}${host}/api/v1/workers/${this.workerId}/monitoring/logs/stream`;
 
     // 获取 JWT token 并作为 query 参数传递（EventSource 无法发送自定义请求头）
     const authToken = localStorage.getItem('access_token') || localStorage.getItem('quantcell_jwt_token');
@@ -439,7 +439,7 @@ export class WorkerLogStream {
       wsHost = isDev ? '//localhost:8000' : `//${window.location.host}`;
     }
 
-    const wsUrl = `${wsProtocol}${wsHost}/api/workers/${this.workerId}/monitoring/logs/stream`;
+    const wsUrl = `${wsProtocol}${wsHost}/api/v1/workers/${this.workerId}/monitoring/logs/stream`;
 
     console.log(`[WebSocket] 准备连接 Worker ${this.workerId}...`);
     console.log(`[WebSocket] 连接 URL: ${wsUrl}`);

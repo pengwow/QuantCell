@@ -53,7 +53,7 @@ export function subscribeBacktestProgress(
   // 获取 WebSocket 基础 URL
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsHost = window.location.host;
-  const wsUrl = `${wsProtocol}//${wsHost}/api/backtest/progress/${taskId}/stream`;
+  const wsUrl = `${wsProtocol}//${wsHost}/api/v1/backtest/progress/${taskId}/stream`;
   
   let ws: WebSocket | null = null;
   let reconnectAttempts = 0;

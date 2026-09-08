@@ -1,10 +1,10 @@
 /**
  * Binance 衍生数据（fundingRate / openInterest）REST API 客户端
  * 对应后端 4 个端点（backend/collector/api/deriv.py）：
- *   1. GET    /api/data/deriv/symbols
- *   2. GET    /api/data/deriv/data
- *   3. GET    /api/data/deriv/meta/{kind}/{market}/{symbol}
- *   4. DELETE /api/data/deriv/data
+ *   1. GET    /api/v1/data/deriv/symbols
+ *   2. GET    /api/v1/data/deriv/data
+ *   3. GET    /api/v1/data/deriv/meta/{kind}/{market}/{symbol}
+ *   4. DELETE /api/v1/data/deriv/data
  *
  * 下载入口走统一的 downloadCryptoData（data_type=fundingRate|openInterest）。
  */

@@ -66,7 +66,7 @@ export function listenPluginEvents(
   onEvent: (evt: PluginEvent) => void,
 ): () => void {
   const token = getAccessToken();
-  const url = `/api/plugins/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  const url = `/api/v1/plugins/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   const es = new EventSource(url);
 
   es.onmessage = (msg: MessageEvent) => {

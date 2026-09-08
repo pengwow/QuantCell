@@ -92,7 +92,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3分钟超时
 
-      const response = await fetch('/api/agent/chat/stream', {
+      const response = await fetch('/api/v1/agent/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: content, session_id: currentSessionId }),
@@ -281,7 +281,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   
   fetchSessions: async () => {
     try {
-      const response = await fetch('/api/agent/sessions');
+      const response = await fetch('/api/v1/agent/sessions');
       const data = await response.json();
       if (data.success && data.sessions) {
         set({ sessions: data.sessions });
@@ -311,7 +311,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   
   createSession: async () => {
     try {
-      const response = await fetch('/api/agent/sessions', {
+      const response = await fetch('/api/v1/agent/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: `会话 ${new Date().toLocaleString()}` }),
@@ -343,7 +343,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
   
   clearSession: async (sessionId: string) => {
-    await fetch(`/api/agent/sessions/${sessionId}/clear`, { method: 'POST' });
+    await fetch(`/api/v1/agent/sessions/${sessionId}/clear`, { method: 'POST' });
     if (get().currentSessionId === sessionId) {
       set({ messages: [] });
     }
@@ -351,7 +351,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   deleteSession: async (sessionId: string) => {
     try {
-      const response = await fetch(`/api/agent/sessions/${sessionId}`, {
+      const response = await fetch(`/api/v1/agent/sessions/${sessionId}`, {
         method: 'DELETE',
       });
 
@@ -395,7 +395,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   fetchTools: async () => {
     try {
-      const response = await fetch('/api/agent/tools');
+      const response = await fetch('/api/v1/agent/tools');
       const tools = await response.json();
       set({ tools });
     } catch (error) {
@@ -405,7 +405,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   
   fetchHistory: async (sessionId: string) => {
     try {
-      const response = await fetch(`/api/agent/sessions/${sessionId}/history`);
+      const response = await fetch(`/api/v1/agent/sessions/${sessionId}/history`);
       const data = await response.json();
       if (data.success) {
         set({ messages: data.history });
