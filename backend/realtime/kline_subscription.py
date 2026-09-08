@@ -182,6 +182,41 @@ class KlineSubscriptionManager:
                 logger.error(f"Failed to subscribe {client_id} to {symbol}@{interval}: {e}")
                 return False
 
+    def _unsubscribe_locked(self, client_id: str, symbol: str, interval: str) -> bool:
+        """
+        在已持有锁的前提下执行退订逻辑。
+
+        asyncio.Lock 不可重入，unsubscribe_all 若直接嵌套调用 unsubscribe
+        会在取同一把锁时永久阻塞，所以把核心逻辑抽成此方法供两处复用。
+        """
+        symbol = symbol.upper()
+        interval = interval.lower()
+        key = (symbol, interval)
+
+        # 从订阅中移除客户端
+        if key in self._subscriptions:
+            subscription = self._subscriptions[key]
+            if client_id in subscription.client_ids:
+                subscription.client_ids.remove(client_id)
+                logger.info(f"Client {client_id} unsubscribed from {symbol}@{interval}")
+
+            # 如果没有客户端了，删除订阅
+            if not subscription.client_ids:
+                del self._subscriptions[key]
+                logger.info(f"Removed empty subscription: {symbol}@{interval}")
+
+        # 从客户端订阅映射中移除
+        if client_id in self._client_subscriptions:
+            self._client_subscriptions[client_id].discard(key)
+            if not self._client_subscriptions[client_id]:
+                del self._client_subscriptions[client_id]
+
+        # 更新指标
+        self._metrics.total_subscriptions = len(self._subscriptions)
+        self._metrics.active_connections = len(self._client_subscriptions)
+
+        return True
+
     async def unsubscribe(self, client_id: str, symbol: str, interval: str) -> bool:
         """
         取消订阅K线数据
@@ -196,33 +231,7 @@ class KlineSubscriptionManager:
         """
         async with self._lock:
             try:
-                symbol = symbol.upper()
-                interval = interval.lower()
-                key = (symbol, interval)
-
-                # 从订阅中移除客户端
-                if key in self._subscriptions:
-                    subscription = self._subscriptions[key]
-                    if client_id in subscription.client_ids:
-                        subscription.client_ids.remove(client_id)
-                        logger.info(f"Client {client_id} unsubscribed from {symbol}@{interval}")
-
-                    # 如果没有客户端了，删除订阅
-                    if not subscription.client_ids:
-                        del self._subscriptions[key]
-                        logger.info(f"Removed empty subscription: {symbol}@{interval}")
-
-                # 从客户端订阅映射中移除
-                if client_id in self._client_subscriptions:
-                    self._client_subscriptions[client_id].discard(key)
-                    if not self._client_subscriptions[client_id]:
-                        del self._client_subscriptions[client_id]
-
-                # 更新指标
-                self._metrics.total_subscriptions = len(self._subscriptions)
-                self._metrics.active_connections = len(self._client_subscriptions)
-
-                return True
+                return self._unsubscribe_locked(client_id, symbol, interval)
 
             except Exception as e:
                 logger.error(f"Failed to unsubscribe {client_id} from {symbol}@{interval}: {e}")
@@ -246,10 +255,10 @@ class KlineSubscriptionManager:
                 # 获取客户端的所有订阅
                 subscriptions = list(self._client_subscriptions[client_id])
 
-                # 逐个取消订阅
+                # 逐个取消订阅（复用已持有锁的私有方法，避免锁重入死锁）
                 for key in subscriptions:
                     symbol, interval = key
-                    await self.unsubscribe(client_id, symbol, interval)
+                    self._unsubscribe_locked(client_id, symbol, interval)
 
                 logger.info(f"Client {client_id} unsubscribed from all kline channels")
                 return True
