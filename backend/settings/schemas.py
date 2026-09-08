@@ -1,24 +1,8 @@
 # 系统设置相关的Pydantic模型
 # 用于定义API请求和响应的详细结构，以便FastAPI自动生成完整的API文档
+# 注意：统一响应模型 ApiResponse 定义在 common/schemas.py，此处不再重复定义
 
-from datetime import datetime
-from typing import Any
-
-import pytz
 from pydantic import BaseModel, Field
-
-
-class ApiResponse(BaseModel):
-    """统一的API响应格式"""
-
-    code: int = Field(..., description="响应状态码，0表示成功，非0表示失败", examples=[0])
-    message: str = Field(..., description="响应消息", examples=["操作成功"])
-    data: Any = Field(..., description="响应数据", examples=[{"key": "value"}])
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
-        description="响应时间戳",
-        examples=["2026-01-24 18:00:00"],
-    )
 
 
 class SystemConfigItem(BaseModel):
