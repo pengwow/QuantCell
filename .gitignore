@@ -66,12 +66,12 @@ backend/_archive_20260515/*
 
 backend/tmp_deleted/*
 
-.trae_deleted/*
+.trae_deleted/
 
 docs/*
 docs/compose/specs/*
 .mimocode/
-.mimocode/*
+.mimocode/plans/
 .omo/
 .omo/*
 AGENTS.md
