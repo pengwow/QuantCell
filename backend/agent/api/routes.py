@@ -21,7 +21,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 
 router = APIRouter(
-    prefix="/api/agent",
+    prefix="/api/v1/agent",
     tags=["agent"],
     responses={404: {"description": "Not found"}},
 )
@@ -313,7 +313,7 @@ async def chat_stream(request: ChatRequest):
     - error: 错误信息
 
     使用示例:
-        fetch('/api/agent/chat/stream', {
+        fetch('/api/v1/agent/chat/stream', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({message: '你好'})

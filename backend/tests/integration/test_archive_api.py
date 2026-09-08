@@ -42,7 +42,7 @@ def test_post_archive_download_returns_task_id(client, monkeypatch):
     )
 
     resp = client.post(
-        "/api/data/archive/download",
+        "/api/v1/data/archive/download",
         json={
             "symbols": ["BTCUSDT"],
             "kind": "aggTrades",
@@ -71,7 +71,7 @@ def test_post_archive_download_passes_interval_for_kline(client, monkeypatch):
     )
 
     resp = client.post(
-        "/api/data/archive/download",
+        "/api/v1/data/archive/download",
         json={
             "symbols": ["BTCUSDT"],
             "kind": "markPriceKlines",
@@ -90,7 +90,7 @@ def test_post_archive_download_passes_interval_for_kline(client, monkeypatch):
 def test_post_archive_download_invalid_kind_returns_400(client):
     """kind 非法 → 400。"""
     resp = client.post(
-        "/api/data/archive/download",
+        "/api/v1/data/archive/download",
         json={
             "symbols": ["BTCUSDT"],
             "kind": "not_a_kind",
@@ -105,7 +105,7 @@ def test_post_archive_download_invalid_kind_returns_400(client):
 def test_post_archive_download_invalid_market_returns_400(client):
     """market 非法 → 400。"""
     resp = client.post(
-        "/api/data/archive/download",
+        "/api/v1/data/archive/download",
         json={
             "symbols": ["BTCUSDT"],
             "kind": "aggTrades",
@@ -120,7 +120,7 @@ def test_post_archive_download_invalid_market_returns_400(client):
 def test_post_archive_download_missing_symbols_returns_422(client):
     """symbols 缺失 → 422 (Pydantic 验证)。"""
     resp = client.post(
-        "/api/data/archive/download",
+        "/api/v1/data/archive/download",
         json={
             "kind": "aggTrades",
             "market": "spot",
@@ -134,7 +134,7 @@ def test_post_archive_download_missing_symbols_returns_422(client):
 def test_post_archive_download_kline_without_interval_returns_400(client):
     """K 线类缺 interval → service 抛 ValueError → 400。"""
     resp = client.post(
-        "/api/data/archive/download",
+        "/api/v1/data/archive/download",
         json={
             "symbols": ["BTCUSDT"],
             "kind": "markPriceKlines",
@@ -157,7 +157,7 @@ def test_get_archive_task_progress_returns_dict(client, monkeypatch):
         MagicMock(get_task=lambda tid: fake_task),
     )
 
-    resp = client.get("/api/data/archive/tasks/task-1")
+    resp = client.get("/api/v1/data/archive/tasks/task-1")
     assert resp.status_code == 200
     data = resp.json()
     assert data["task_id"] == "task-1"
@@ -171,7 +171,7 @@ def test_get_archive_task_not_found_returns_404(client, monkeypatch):
         MagicMock(get_task=lambda tid: None),
     )
 
-    resp = client.get("/api/data/archive/tasks/missing")
+    resp = client.get("/api/v1/data/archive/tasks/missing")
     assert resp.status_code == 404
 
 
@@ -188,7 +188,7 @@ def test_get_archive_symbols_returns_list(client, monkeypatch):
         lambda self, k, m: ["BTCUSDT", "ETHUSDT"],
     )
 
-    resp = client.get("/api/data/archive/symbols?kind=aggTrades&market=spot")
+    resp = client.get("/api/v1/data/archive/symbols?kind=aggTrades&market=spot")
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
@@ -198,7 +198,7 @@ def test_get_archive_symbols_returns_list(client, monkeypatch):
 
 def test_get_archive_symbols_invalid_kind_returns_400(client):
     """GET /symbols kind 非法 → 400。"""
-    resp = client.get("/api/data/archive/symbols?kind=bad&market=spot")
+    resp = client.get("/api/v1/data/archive/symbols?kind=bad&market=spot")
     assert resp.status_code in (400, 422)
 
 
@@ -220,7 +220,7 @@ def test_get_archive_data_returns_paginated_rows(client, monkeypatch):
     )
 
     resp = client.get(
-        "/api/data/archive/data?kind=aggTrades&market=spot&symbol=BTCUSDT&start_time=0&end_time=99999999999999"
+        "/api/v1/data/archive/data?kind=aggTrades&market=spot&symbol=BTCUSDT&start_time=0&end_time=99999999999999"
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -250,7 +250,7 @@ def test_get_archive_data_with_limit_offset(client, monkeypatch):
     )
 
     resp = client.get(
-        "/api/data/archive/data"
+        "/api/v1/data/archive/data"
         "?kind=aggTrades&market=spot&symbol=ETHUSDT"
         "&start_time=1000&end_time=2000&limit=50&offset=100"
     )
@@ -277,7 +277,7 @@ def test_get_archive_meta_returns_dict(client, monkeypatch):
         },
     )
 
-    resp = client.get("/api/data/archive/meta/aggTrades/spot/BTCUSDT")
+    resp = client.get("/api/v1/data/archive/meta/aggTrades/spot/BTCUSDT")
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
@@ -295,7 +295,7 @@ def test_get_archive_meta_missing_returns_null(client, monkeypatch):
         lambda self, k, m, s: None,
     )
 
-    resp = client.get("/api/data/archive/meta/aggTrades/spot/BTCUSDT")
+    resp = client.get("/api/v1/data/archive/meta/aggTrades/spot/BTCUSDT")
     assert resp.status_code == 200
     data = resp.json()
     assert data["meta"] is None
@@ -320,7 +320,7 @@ def test_delete_archive_data_removes_dir(client, monkeypatch, tmp_path: Path):
     target.mkdir(parents=True)
     (target / "BTCUSDT-aggTrades-2024-12-01.parquet").write_text("x")
 
-    resp = client.delete(f"/api/data/archive/data?kind=aggTrades&market=spot&symbol=BTCUSDT&base_dir={tmp_path}")
+    resp = client.delete(f"/api/v1/data/archive/data?kind=aggTrades&market=spot&symbol=BTCUSDT&base_dir={tmp_path}")
     # 注: DELETE 端点用 svc.base_dir, 实际项目从 system_config 拿.
     # 我们直接断言响应格式.
     assert resp.status_code == 200
@@ -331,5 +331,5 @@ def test_delete_archive_data_removes_dir(client, monkeypatch, tmp_path: Path):
 
 def test_delete_archive_data_invalid_kind_returns_400(client):
     """DELETE /data kind 非法 → 400。"""
-    resp = client.delete("/api/data/archive/data?kind=bad&market=spot&symbol=BTCUSDT")
+    resp = client.delete("/api/v1/data/archive/data?kind=bad&market=spot&symbol=BTCUSDT")
     assert resp.status_code in (400, 422)

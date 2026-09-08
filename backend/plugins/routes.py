@@ -21,7 +21,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 _PLUGIN_ASSETS_BASE = Path(__file__).resolve().parent.parent / "data" / "installed_plugins"
 
 router = APIRouter(
-    prefix="/api/plugins",
+    prefix="/api/v1/plugins",
     tags=["plugins"],
     responses={
         404: {"description": "插件不存在"},

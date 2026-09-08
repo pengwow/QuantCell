@@ -13,7 +13,7 @@ class TestBacktestListAPI:
 
     def test_get_backtest_list_success(self, client: TestClient, assert_api_response):
         """测试获取回测列表成功"""
-        response = client.get("/api/backtest/list")
+        response = client.get("/api/v1/backtest/list")
         assert_api_response(response)
         data = response.json()
         assert "data" in data
@@ -22,7 +22,7 @@ class TestBacktestListAPI:
 
     def test_get_backtest_list_with_pagination(self, client: TestClient, assert_api_response):
         """测试带分页参数获取回测列表"""
-        response = client.get("/api/backtest/list?page=1&page_size=10")
+        response = client.get("/api/v1/backtest/list?page=1&page_size=10")
         assert_api_response(response)
         data = response.json()
         assert "data" in data
@@ -30,7 +30,7 @@ class TestBacktestListAPI:
     def test_get_backtest_list_empty(self, client: TestClient, mocker, assert_api_response):
         """测试获取空回测列表"""
         mocker.patch("backtest.routes.backtest_service.get_result_list", return_value=[])
-        response = client.get("/api/backtest/list")
+        response = client.get("/api/v1/backtest/list")
         assert_api_response(response)
         data = response.json()
         assert data["data"]["backtests"] == []
@@ -41,7 +41,7 @@ class TestBacktestListAPI:
             "backtest.routes.backtest_service.get_result_list",
             side_effect=Exception("Database connection failed"),
         )
-        response = client.get("/api/backtest/list")
+        response = client.get("/api/v1/backtest/list")
         assert response.status_code == 500
         assert "Database connection failed" in str(response.json().get("detail", ""))
 
@@ -51,7 +51,7 @@ class TestBacktestStrategiesAPI:
 
     def test_get_strategy_list_success(self, client: TestClient, assert_api_response):
         """测试获取策略类型列表成功"""
-        response = client.get("/api/backtest/strategies")
+        response = client.get("/api/v1/backtest/strategies")
         assert_api_response(response)
         data = response.json()
         assert "data" in data
@@ -60,7 +60,7 @@ class TestBacktestStrategiesAPI:
 
     def test_get_strategy_list_returns_empty(self, client: TestClient):
         """测试策略类型列表返回空列表（当前实现）"""
-        response = client.get("/api/backtest/strategies")
+        response = client.get("/api/v1/backtest/strategies")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -94,7 +94,7 @@ class TestBacktestRunAPI:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert "task_id" in data["data"]
@@ -115,7 +115,7 @@ class TestBacktestRunAPI:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -125,7 +125,7 @@ class TestBacktestRunAPI:
         """测试执行回测缺少必填字段"""
         request_data = {"strategy_config": {"strategy_name": "SmaCross"}}
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 422
         data = response.json()
         assert data["code"] == 422
@@ -143,7 +143,7 @@ class TestBacktestRunAPI:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 422
 
     def test_run_backtest_invalid_date_format(self, client: TestClient):
@@ -158,7 +158,7 @@ class TestBacktestRunAPI:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_multiple_symbols(self, client: TestClient, mocker, assert_api_response):
@@ -185,7 +185,7 @@ class TestBacktestRunAPI:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert_api_response(response)
 
     def test_run_backtest_different_intervals(self, client: TestClient, mocker, assert_api_response):
@@ -204,7 +204,7 @@ class TestBacktestRunAPI:
                     "end_time": "2023-01-31 23:59:59",
                 },
             }
-            response = client.post("/api/backtest/run", json=request_data)
+            response = client.post("/api/v1/backtest/run", json=request_data)
             assert response.status_code == 200, f"Failed for interval {interval}"
 
 
@@ -217,7 +217,7 @@ class TestBacktestStopAPI:
         mocker.patch("backtest.routes.backtest_service.stop_backtest", return_value=mock_result)
 
         request_data = {"task_id": "bt_1234567890"}
-        response = client.post("/api/backtest/stop", json=request_data)
+        response = client.post("/api/v1/backtest/stop", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["message"] == "回测已终止"
@@ -228,7 +228,7 @@ class TestBacktestStopAPI:
         mocker.patch("backtest.routes.backtest_service.stop_backtest", return_value=mock_result)
 
         request_data = {"task_id": "bt_nonexistent"}
-        response = client.post("/api/backtest/stop", json=request_data)
+        response = client.post("/api/v1/backtest/stop", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -237,13 +237,13 @@ class TestBacktestStopAPI:
     def test_stop_backtest_missing_task_id(self, client: TestClient):
         """测试终止回测缺少任务ID"""
         request_data = {}
-        response = client.post("/api/backtest/stop", json=request_data)
+        response = client.post("/api/v1/backtest/stop", json=request_data)
         assert response.status_code == 422
 
     def test_stop_backtest_empty_task_id(self, client: TestClient):
         """测试终止回测空任务ID"""
         request_data = {"task_id": ""}
-        response = client.post("/api/backtest/stop", json=request_data)
+        response = client.post("/api/v1/backtest/stop", json=request_data)
         assert response.status_code == 422
 
 
@@ -266,7 +266,7 @@ class TestBacktestAnalyzeAPI:
         )
 
         request_data = {"backtest_id": "bt_1234567890"}
-        response = client.post("/api/backtest/analyze", json=request_data)
+        response = client.post("/api/v1/backtest/analyze", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert "analysis" in data["data"]
@@ -280,7 +280,7 @@ class TestBacktestAnalyzeAPI:
         )
 
         request_data = {"backtest_id": "bt_nonexistent"}
-        response = client.post("/api/backtest/analyze", json=request_data)
+        response = client.post("/api/v1/backtest/analyze", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -289,7 +289,7 @@ class TestBacktestAnalyzeAPI:
     def test_analyze_backtest_missing_id(self, client: TestClient):
         """测试分析回测缺少ID"""
         request_data = {}
-        response = client.post("/api/backtest/analyze", json=request_data)
+        response = client.post("/api/v1/backtest/analyze", json=request_data)
         assert response.status_code == 422
 
 
@@ -311,7 +311,7 @@ class TestBacktestDeleteAPI:
         )
         mocker.patch("backtest.routes.backtest_service.delete_backtest_result", return_value=True)
 
-        response = client.delete("/api/backtest/delete/bt_1234567890", headers=auth_headers)
+        response = client.delete("/api/v1/backtest/delete/bt_1234567890", headers=auth_headers)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["backtest_id"] == "bt_1234567890"
@@ -329,19 +329,19 @@ class TestBacktestDeleteAPI:
             return_value=False,
         )
 
-        response = client.delete("/api/backtest/delete/bt_nonexistent", headers=auth_headers)
+        response = client.delete("/api/v1/backtest/delete/bt_nonexistent", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
 
     def test_delete_backtest_without_auth(self, client: TestClient):
         """测试未认证删除回测"""
-        response = client.delete("/api/backtest/delete/bt_1234567890")
+        response = client.delete("/api/v1/backtest/delete/bt_1234567890")
         assert response.status_code == 401
 
     def test_delete_backtest_invalid_id(self, client: TestClient, auth_headers: dict[str, str]):
         """测试删除无效ID的回测"""
-        response = client.delete("/api/backtest/delete/", headers=auth_headers)
+        response = client.delete("/api/v1/backtest/delete/", headers=auth_headers)
         assert response.status_code == 307
 
 
@@ -350,21 +350,21 @@ class TestBacktestDetailAPI:
 
     def test_get_backtest_detail_success(self, client: TestClient, mocker, assert_api_response):
         """测试获取回测详情 - 不存在时返回 code=1"""
-        response = client.get("/api/backtest/bt_1234567890")
+        response = client.get("/api/v1/backtest/bt_1234567890")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
 
     def test_get_backtest_detail_not_found(self, client: TestClient, mocker):
         """测试获取不存在的回测详情"""
-        response = client.get("/api/backtest/bt_nonexistent")
+        response = client.get("/api/v1/backtest/bt_nonexistent")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
 
     def test_get_backtest_detail_empty_id(self, client: TestClient):
         """测试获取空ID的回测详情"""
-        response = client.get("/api/backtest/")
+        response = client.get("/api/v1/backtest/")
         assert response.status_code in [404, 307]
 
 
@@ -388,7 +388,7 @@ class TestBacktestSymbolsAPI:
             return_value=mock_result,
         )
 
-        response = client.get("/api/backtest/bt_1234567890/symbols")
+        response = client.get("/api/v1/backtest/bt_1234567890/symbols")
         assert_api_response(response)
         data = response.json()
         assert "symbols" in data["data"]
@@ -402,7 +402,7 @@ class TestBacktestSymbolsAPI:
             return_value=mock_result,
         )
 
-        response = client.get("/api/backtest/bt_nonexistent/symbols")
+        response = client.get("/api/v1/backtest/bt_nonexistent/symbols")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -415,7 +415,7 @@ class TestStrategyConfigAPI:
         """测试创建策略配置成功"""
         request_data = {"strategy_name": "SmaCross", "params": {"n1": 10, "n2": 20}}
 
-        response = client.post("/api/backtest/strategy/config", json=request_data)
+        response = client.post("/api/v1/backtest/strategy/config", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["strategy_config"]["strategy_name"] == "SmaCross"
@@ -425,7 +425,7 @@ class TestStrategyConfigAPI:
         """测试创建最小策略配置"""
         request_data = {"strategy_name": "TestStrategy"}
 
-        response = client.post("/api/backtest/strategy/config", json=request_data)
+        response = client.post("/api/v1/backtest/strategy/config", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["strategy_config"]["strategy_name"] == "TestStrategy"
@@ -434,14 +434,14 @@ class TestStrategyConfigAPI:
         """测试创建策略配置缺少名称"""
         request_data = {"params": {"n1": 10}}
 
-        response = client.post("/api/backtest/strategy/config", json=request_data)
+        response = client.post("/api/v1/backtest/strategy/config", json=request_data)
         assert response.status_code == 422
 
     def test_create_strategy_config_empty_name(self, client: TestClient):
         """测试创建策略配置空名称"""
         request_data = {"strategy_name": "", "params": {}}
 
-        response = client.post("/api/backtest/strategy/config", json=request_data)
+        response = client.post("/api/v1/backtest/strategy/config", json=request_data)
         assert response.status_code == 422
 
 
@@ -457,7 +457,7 @@ class TestBacktestUploadAPI:
             "file_content": "class MyCustomStrategy:\n    pass",
         }
 
-        response = client.post("/api/backtest/strategy", json=request_data)
+        response = client.post("/api/v1/backtest/strategy", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["strategy_name"] == "MyCustomStrategy"
@@ -471,7 +471,7 @@ class TestBacktestUploadAPI:
             "file_content": "invalid python code",
         }
 
-        response = client.post("/api/backtest/strategy", json=request_data)
+        response = client.post("/api/v1/backtest/strategy", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -480,7 +480,7 @@ class TestBacktestUploadAPI:
         """测试上传策略缺少文件内容"""
         request_data = {"strategy_name": "TestStrategy"}
 
-        response = client.post("/api/backtest/strategy", json=request_data)
+        response = client.post("/api/v1/backtest/strategy", json=request_data)
         assert response.status_code == 422
 
 
@@ -513,7 +513,7 @@ class TestDataIntegrityAPI:
             "crypto_type": "spot",
         }
 
-        response = client.post("/api/backtest/check-data", json=request_data)
+        response = client.post("/api/v1/backtest/check-data", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -544,7 +544,7 @@ class TestDataIntegrityAPI:
             "end_time": "2023-12-31 23:59:59",
         }
 
-        response = client.post("/api/backtest/check-data", json=request_data)
+        response = client.post("/api/v1/backtest/check-data", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert not data["data"]["is_complete"]
@@ -554,7 +554,7 @@ class TestDataIntegrityAPI:
         """测试数据完整性检查缺少必填字段"""
         request_data = {"symbol": "BTCUSDT"}
 
-        response = client.post("/api/backtest/check-data", json=request_data)
+        response = client.post("/api/v1/backtest/check-data", json=request_data)
         assert response.status_code == 422
 
 
@@ -577,7 +577,7 @@ class TestDataDownloadAPI:
             "end_time": "2023-12-31 23:59:59",
         }
 
-        response = client.post("/api/backtest/download-data", json=request_data)
+        response = client.post("/api/v1/backtest/download-data", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -599,7 +599,7 @@ class TestDataDownloadAPI:
             "end_time": "2023-12-31 23:59:59",
         }
 
-        response = client.post("/api/backtest/download-data", json=request_data)
+        response = client.post("/api/v1/backtest/download-data", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -625,7 +625,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_large_commission(self, client: TestClient, mocker):
@@ -644,7 +644,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_same_start_end_time(self, client: TestClient, mocker):
@@ -662,7 +662,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_special_chars_in_symbol(self, client: TestClient, mocker):
@@ -680,7 +680,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_very_long_time_range(self, client: TestClient, mocker):
@@ -698,7 +698,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_unicode_strategy_name(self, client: TestClient, mocker):
@@ -716,7 +716,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_nested_params(self, client: TestClient, mocker):
@@ -740,7 +740,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_run_backtest_empty_symbols(self, client: TestClient):
@@ -755,7 +755,7 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 422
 
     def test_run_backtest_invalid_interval(self, client: TestClient):
@@ -770,14 +770,14 @@ class TestBacktestEdgeCases:
             },
         }
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
         assert response.status_code == 200
 
     def test_backtest_id_with_special_chars(self, client: TestClient, mocker):
         """测试特殊字符回测ID"""
         special_ids = ["bt-123", "bt_123", "bt.123", "bt:123"]
         for backtest_id in special_ids:
-            response = client.get(f"/api/backtest/{backtest_id}")
+            response = client.get(f"/api/v1/backtest/{backtest_id}")
             assert response.status_code == 200, f"Failed for ID: {backtest_id}"
 
     def test_concurrent_backtest_requests(self, client: TestClient, mocker):
@@ -797,7 +797,7 @@ class TestBacktestEdgeCases:
                     "end_time": "2023-12-31 23:59:59",
                 },
             }
-            return client.post("/api/backtest/run", json=request_data)
+            return client.post("/api/v1/backtest/run", json=request_data)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(make_request) for _ in range(5)]

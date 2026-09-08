@@ -269,7 +269,7 @@ def test_route_create_share_upload_success(sample_worker, db_session):
             mock_cfg.return_value = cfg
 
             resp = client.post(
-                f"/api/workers/{sample_worker.id}/share",
+                f"/api/v1/workers/{sample_worker.id}/share",
                 json={"expires_in_seconds": 3600},
             )
             assert resp.status_code == 200, resp.text
@@ -316,7 +316,7 @@ def test_route_create_share_upload_failure_returns_502(sample_worker, db_session
             mock_cfg.return_value = cfg
 
             resp = client.post(
-                f"/api/workers/{sample_worker.id}/share",
+                f"/api/v1/workers/{sample_worker.id}/share",
                 json={"expires_in_seconds": 3600},
             )
             assert resp.status_code == 502, resp.text
@@ -376,7 +376,7 @@ def test_route_create_share_auto_configures_credentials(sample_worker, db_sessio
         ):
             client = _build_test_client(db_session)
             resp = client.post(
-                f"/api/workers/{sample_worker.id}/share",
+                f"/api/v1/workers/{sample_worker.id}/share",
                 json={"expires_in_seconds": 3600},
             )
             assert resp.status_code == 200, resp.text
@@ -410,7 +410,7 @@ def test_route_create_share_no_admin_token_returns_503(sample_worker, db_session
 
     client = _build_test_client(db_session)
     resp = client.post(
-        f"/api/workers/{sample_worker.id}/share",
+        f"/api/v1/workers/{sample_worker.id}/share",
         json={"expires_in_seconds": 3600},
     )
     assert resp.status_code == 503, resp.text
@@ -466,7 +466,7 @@ def test_route_retry_remote_success(sample_worker, db_session):
             mock_cfg.return_value = cfg
 
             resp = client.post(
-                f"/api/workers/{sample_worker.id}/share/{share.id}/retry-remote",
+                f"/api/v1/workers/{sample_worker.id}/share/{share.id}/retry-remote",
                 json={},
             )
             assert resp.status_code == 200, resp.text

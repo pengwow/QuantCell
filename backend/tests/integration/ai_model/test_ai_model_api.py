@@ -54,7 +54,7 @@ class TestAIModelAPI:
             }
         ]
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
-            response = client.get("/api/ai-models/", headers={"Authorization": "Bearer test_token"})
+            response = client.get("/api/v1/ai-models/", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
         data = response.json()
@@ -66,7 +66,7 @@ class TestAIModelAPI:
         """测试创建AI模型配置"""
         with patch("ai_model.routes.save_ai_model_to_config", return_value=True):
             response = client.post(
-                "/api/ai-models/",
+                "/api/v1/ai-models/",
                 headers={"Authorization": "Bearer test_token"},
                 json={
                     "provider": "openai",
@@ -101,7 +101,7 @@ class TestAIModelAPI:
             }
         ]
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
-            response = client.get("/api/ai-models/1", headers={"Authorization": "Bearer test_token"})
+            response = client.get("/api/v1/ai-models/1", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
         data = response.json()
@@ -129,7 +129,7 @@ class TestAIModelAPI:
             patch("ai_model.routes.save_ai_model_to_config", return_value=True),
         ):
             response = client.put(
-                "/api/ai-models/1",
+                "/api/v1/ai-models/1",
                 headers={"Authorization": "Bearer test_token"},
                 json={"name": "Updated Config", "is_default": True},
             )
@@ -142,7 +142,7 @@ class TestAIModelAPI:
     def test_delete_ai_model(self, client, mock_auth, mock_should_refresh):
         """测试删除AI模型配置"""
         with patch("ai_model.routes.delete_ai_model_from_config", return_value=True):
-            response = client.delete("/api/ai-models/1", headers={"Authorization": "Bearer test_token"})
+            response = client.delete("/api/v1/ai-models/1", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
         data = response.json()
@@ -161,7 +161,7 @@ class TestAIModelAPI:
             ]
 
             response = client.get(
-                "/api/ai-models/providers",
+                "/api/v1/ai-models/providers",
                 headers={"Authorization": "Bearer test_token"},
             )
 
@@ -187,7 +187,7 @@ class TestAIModelAPI:
             }
 
             response = client.post(
-                "/api/ai-models/check",
+                "/api/v1/ai-models/check",
                 headers={"Authorization": "Bearer test_token"},
                 json={
                     "provider": "openai",
@@ -213,7 +213,7 @@ class TestAIModelAPI:
             }
 
             response = client.post(
-                "/api/ai-models/check",
+                "/api/v1/ai-models/check",
                 headers={"Authorization": "Bearer test_token"},
                 json={
                     "provider": "invalid_provider",
@@ -262,7 +262,7 @@ class TestAIModelAPI:
             ),
         ):
             response = client.get(
-                "/api/ai-models/1/models",
+                "/api/v1/ai-models/1/models",
                 headers={"Authorization": "Bearer test_token"},
             )
 
@@ -277,7 +277,7 @@ class TestAIModelAPI:
         """测试获取不存在配置的可用模型列表"""
         with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
             response = client.get(
-                "/api/ai-models/999/models",
+                "/api/v1/ai-models/999/models",
                 headers={"Authorization": "Bearer test_token"},
             )
 
@@ -299,7 +299,7 @@ class TestAIModelAPI:
         ]
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get(
-                "/api/ai-models/1/models",
+                "/api/v1/ai-models/1/models",
                 headers={"Authorization": "Bearer test_token"},
             )
 
@@ -314,7 +314,7 @@ class TestAIModelAuth:
 
     def test_unauthorized_access(self, client):
         """测试未授权访问被拒绝"""
-        response = client.get("/api/ai-models/")
+        response = client.get("/api/v1/ai-models/")
 
         assert response.status_code == 401
 
@@ -325,7 +325,7 @@ class TestAIModelAuth:
 
             mock_decode.side_effect = TokenInvalidError("Invalid token")
 
-            response = client.get("/api/ai-models/", headers={"Authorization": "Bearer invalid_token"})
+            response = client.get("/api/v1/ai-models/", headers={"Authorization": "Bearer invalid_token"})
 
         assert response.status_code == 401
 

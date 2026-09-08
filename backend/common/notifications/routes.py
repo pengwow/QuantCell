@@ -35,7 +35,7 @@ from .service import notification_service
 logger = get_logger(__name__, LogType.APPLICATION)
 
 # 创建API路由实例
-router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
 
 class SendNotificationRequest(BaseModel):

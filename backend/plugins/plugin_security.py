@@ -15,13 +15,13 @@ class PluginPermission(StrEnum):
 
 
 SYSTEM_ROUTE_PREFIXES = [
-    "/api/config",
-    "/api/system",
-    "/api/auth",
-    "/api/workers",
-    "/api/logs",
-    "/api/notifications",
-    "/api/system-ports",
+    "/api/v1/config",
+    "/api/v1/system",
+    "/api/v1/auth",
+    "/api/v1/workers",
+    "/api/v1/logs",
+    "/api/v1/notifications",
+    "/api/v1/system-ports",
     "/ws",
 ]
 

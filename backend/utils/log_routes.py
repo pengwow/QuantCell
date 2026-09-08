@@ -17,7 +17,7 @@ from utils.logger import LogType, get_logger
 logger = get_logger(__name__, LogType.API)
 
 # 创建路由
-router = APIRouter(prefix="/api/logs", tags=["日志管理"])
+router = APIRouter(prefix="/api/v1/logs", tags=["日志管理"])
 
 
 class LogResponse(BaseModel):

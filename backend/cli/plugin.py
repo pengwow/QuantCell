@@ -624,7 +624,7 @@ class {class_name}Plugin(PluginBase):
     def __init__(self) -> None:
         super().__init__("{plugin_name}", "0.1.0")
         self.logger = get_plugin_logger("{plugin_name}")
-        self.router = APIRouter(prefix="/api/plugins/{kebab}")
+        self.router = APIRouter(prefix="/api/v1/plugins/{kebab}")
         self._setup_routes()
 
     def _setup_routes(self) -> None:

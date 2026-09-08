@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__, LogType.APPLICATION)
 
 router = APIRouter(
-    prefix="/api/workers",
+    prefix="/api/v1/workers",
     tags=["workers"],
     responses={
         404: {"description": "Worker不存在"},

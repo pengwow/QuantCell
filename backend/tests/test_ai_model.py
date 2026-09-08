@@ -63,7 +63,7 @@ class TestAIModelAPI:
     def test_get_ai_models_empty(self, auth_headers):
         """测试获取空的AI模型列表"""
         with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
-            response = client.get("/api/ai-models/", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -88,7 +88,7 @@ class TestAIModelAPI:
         ]
 
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
-            response = client.get("/api/ai-models/", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -99,7 +99,7 @@ class TestAIModelAPI:
     def test_create_ai_model(self, auth_headers, sample_model_config):
         """测试创建AI模型配置"""
         with patch("ai_model.routes.save_ai_model_to_config", return_value=True):
-            response = client.post("/api/ai-models/", headers=auth_headers, json=sample_model_config)
+            response = client.post("/api/v1/ai-models/", headers=auth_headers, json=sample_model_config)
 
             assert response.status_code == 200
             data = response.json()
@@ -110,7 +110,7 @@ class TestAIModelAPI:
     def test_create_ai_model_failure(self, auth_headers, sample_model_config):
         """测试创建AI模型配置失败"""
         with patch("ai_model.routes.save_ai_model_to_config", return_value=False):
-            response = client.post("/api/ai-models/", headers=auth_headers, json=sample_model_config)
+            response = client.post("/api/v1/ai-models/", headers=auth_headers, json=sample_model_config)
 
             assert response.status_code == 200
             data = response.json()
@@ -134,7 +134,7 @@ class TestAIModelAPI:
         ]
 
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
-            response = client.get(f"/api/ai-models/{model_id}", headers=auth_headers)
+            response = client.get(f"/api/v1/ai-models/{model_id}", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -144,7 +144,7 @@ class TestAIModelAPI:
     def test_get_ai_model_not_found(self, auth_headers):
         """测试获取不存在的AI模型配置"""
         with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
-            response = client.get("/api/ai-models/nonexistent", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/nonexistent", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -172,7 +172,7 @@ class TestAIModelAPI:
             patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers),
             patch("ai_model.routes.save_ai_model_to_config", return_value=True),
         ):
-            response = client.put(f"/api/ai-models/{model_id}", headers=auth_headers, json=update_data)
+            response = client.put(f"/api/v1/ai-models/{model_id}", headers=auth_headers, json=update_data)
 
             assert response.status_code == 200
             data = response.json()
@@ -182,7 +182,7 @@ class TestAIModelAPI:
         """测试更新不存在的AI模型配置"""
         with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
             response = client.put(
-                "/api/ai-models/nonexistent",
+                "/api/v1/ai-models/nonexistent",
                 headers=auth_headers,
                 json={"name": "Test"},
             )
@@ -197,7 +197,7 @@ class TestAIModelAPI:
         model_id = "openai_abc123"
 
         with patch("ai_model.routes.save_ai_model_to_config", return_value=True):
-            response = client.delete(f"/api/ai-models/{model_id}", headers=auth_headers)
+            response = client.delete(f"/api/v1/ai-models/{model_id}", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -206,7 +206,7 @@ class TestAIModelAPI:
 
     def test_get_supported_providers(self, auth_headers):
         """测试获取支持的AI厂商列表"""
-        response = client.get("/api/ai-models/providers", headers=auth_headers)
+        response = client.get("/api/v1/ai-models/providers", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -236,7 +236,7 @@ class TestAIModelAPI:
 
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
             # 按 provider 筛选
-            response = client.get("/api/ai-models/?provider=openai_abc123", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/?provider=openai_abc123", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -260,7 +260,7 @@ class TestAIModelAPI:
             )
 
         with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
-            response = client.get("/api/ai-models/?page=1&limit=10", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/?page=1&limit=10", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -277,7 +277,7 @@ class TestAIModelErrorHandling:
     def test_get_ai_models_config_not_dict(self, auth_headers):
         """测试 get_all_providers 返回非列表类型"""
         with patch("ai_model.routes.get_ai_models_from_config", return_value={}):
-            response = client.get("/api/ai-models/", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -287,7 +287,7 @@ class TestAIModelErrorHandling:
     def test_get_ai_models_invalid_json(self, auth_headers):
         """测试配置值为无效JSON"""
         with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
-            response = client.get("/api/ai-models/", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -299,7 +299,7 @@ class TestAIModelErrorHandling:
         mock_configs = {"openai_abc123": {"key": "openai_abc123", "value": "", "name": "ai_models"}}
 
         with patch.object(SystemConfigBusiness, "get_all_with_details", return_value=mock_configs):
-            response = client.get("/api/ai-models/", headers=auth_headers)
+            response = client.get("/api/v1/ai-models/", headers=auth_headers)
 
             assert response.status_code == 200
             data = response.json()
@@ -308,7 +308,7 @@ class TestAIModelErrorHandling:
 
     def test_unauthorized_access(self):
         """测试未授权访问"""
-        response = client.get("/api/ai-models/")
+        response = client.get("/api/v1/ai-models/")
 
         assert response.status_code == 401
 

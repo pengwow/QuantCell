@@ -40,7 +40,7 @@ class TestBacktestE2E:
         mock_tracker = MagicMock()
         mocker.patch("backtest.routes.get_progress_tracker", return_value=mock_tracker)
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
 
         # 任务应该成功创建
         assert response.status_code == 200
@@ -83,7 +83,7 @@ class TestBacktestE2E:
             mock_tracker = MagicMock()
             mocker.patch("backtest.routes.get_progress_tracker", return_value=mock_tracker)
 
-            response = client.post("/api/backtest/run", json=request_data)
+            response = client.post("/api/v1/backtest/run", json=request_data)
 
             assert response.status_code == 200, f"策略 {strategy_name} 加载失败: {response.text}"
             data = response.json()
@@ -108,7 +108,7 @@ class TestBacktestE2E:
         mock_tracker = MagicMock()
         mocker.patch("backtest.routes.get_progress_tracker", return_value=mock_tracker)
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
 
         # 任务应该成功创建（实际执行时才会失败）
         assert response.status_code == 200
@@ -138,7 +138,7 @@ class TestBacktestE2E:
         mock_tracker = MagicMock()
         mocker.patch("backtest.routes.get_progress_tracker", return_value=mock_tracker)
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
 
         assert response.status_code == 200
         data = response.json()
@@ -170,7 +170,7 @@ class TestBacktestE2E:
         mock_tracker = MagicMock()
         mocker.patch("backtest.routes.get_progress_tracker", return_value=mock_tracker)
 
-        response = client.post("/api/backtest/run", json=request_data)
+        response = client.post("/api/v1/backtest/run", json=request_data)
 
         assert response.status_code == 200
         data = response.json()

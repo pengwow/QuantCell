@@ -144,7 +144,7 @@ def test_client(db_session):
     # 兜底:若 main 中没有注册 share_router,则手动注册
     # getattr 容错：新版 Starlette 的 _IncludedRouter 没有 .path 属性
     routes_paths = [getattr(r, "path", "") for r in app.routes]
-    if not any("/api/share" in (p or "") for p in routes_paths):
+    if not any("/api/v1/share" in (p or "") for p in routes_paths):
         app.include_router(share_router)
 
     # 不走 lifespan,避免 ZMQ 监控 / 调度器等后台任务污染事件循环

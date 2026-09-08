@@ -90,7 +90,7 @@ class TestStatusAPI:
 
     def test_get_status_success(self, test_client, mock_realtime_engine):
         """测试获取状态成功"""
-        response = test_client.get("/api/realtime/status")
+        response = test_client.get("/api/v1/realtime/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -100,7 +100,7 @@ class TestStatusAPI:
 
     def test_get_status_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时的状态"""
-        response = uninitialized_test_client.get("/api/realtime/status")
+        response = uninitialized_test_client.get("/api/v1/realtime/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -112,7 +112,7 @@ class TestStatusAPI:
         """测试获取状态异常"""
         mock_realtime_engine.get_status.side_effect = Exception("测试异常")
 
-        response = test_client.get("/api/realtime/status")
+        response = test_client.get("/api/v1/realtime/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -132,7 +132,7 @@ class TestControlAPI:
 
     def test_start_engine_success(self, test_client, mock_realtime_engine):
         """测试启动引擎成功"""
-        response = test_client.post("/api/realtime/start")
+        response = test_client.post("/api/v1/realtime/start")
 
         assert response.status_code == 200
         data = response.json()
@@ -145,7 +145,7 @@ class TestControlAPI:
         """测试启动引擎失败"""
         mock_realtime_engine.start.return_value = False
 
-        response = test_client.post("/api/realtime/start")
+        response = test_client.post("/api/v1/realtime/start")
 
         assert response.status_code == 200
         data = response.json()
@@ -155,7 +155,7 @@ class TestControlAPI:
 
     def test_start_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时启动"""
-        response = uninitialized_test_client.post("/api/realtime/start")
+        response = uninitialized_test_client.post("/api/v1/realtime/start")
 
         assert response.status_code == 200
         data = response.json()
@@ -167,7 +167,7 @@ class TestControlAPI:
         """测试启动引擎异常"""
         mock_realtime_engine.start.side_effect = Exception("启动异常")
 
-        response = test_client.post("/api/realtime/start")
+        response = test_client.post("/api/v1/realtime/start")
 
         assert response.status_code == 500
         assert "启动异常" in response.json()["detail"]
@@ -176,7 +176,7 @@ class TestControlAPI:
 
     def test_stop_engine_success(self, test_client, mock_realtime_engine):
         """测试停止引擎成功"""
-        response = test_client.post("/api/realtime/stop")
+        response = test_client.post("/api/v1/realtime/stop")
 
         assert response.status_code == 200
         data = response.json()
@@ -189,7 +189,7 @@ class TestControlAPI:
         """测试停止引擎失败"""
         mock_realtime_engine.stop.return_value = False
 
-        response = test_client.post("/api/realtime/stop")
+        response = test_client.post("/api/v1/realtime/stop")
 
         assert response.status_code == 200
         data = response.json()
@@ -199,7 +199,7 @@ class TestControlAPI:
 
     def test_stop_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时停止"""
-        response = uninitialized_test_client.post("/api/realtime/stop")
+        response = uninitialized_test_client.post("/api/v1/realtime/stop")
 
         assert response.status_code == 200
         data = response.json()
@@ -211,7 +211,7 @@ class TestControlAPI:
 
     def test_restart_engine_success(self, test_client, mock_realtime_engine):
         """测试重启引擎成功"""
-        response = test_client.post("/api/realtime/restart")
+        response = test_client.post("/api/v1/realtime/restart")
 
         assert response.status_code == 200
         data = response.json()
@@ -224,7 +224,7 @@ class TestControlAPI:
         """测试重启引擎失败"""
         mock_realtime_engine.restart.return_value = False
 
-        response = test_client.post("/api/realtime/restart")
+        response = test_client.post("/api/v1/realtime/restart")
 
         assert response.status_code == 200
         data = response.json()
@@ -234,7 +234,7 @@ class TestControlAPI:
 
     def test_restart_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时重启"""
-        response = uninitialized_test_client.post("/api/realtime/restart")
+        response = uninitialized_test_client.post("/api/v1/realtime/restart")
 
         assert response.status_code == 200
         data = response.json()
@@ -253,7 +253,7 @@ class TestConfigAPI:
 
     def test_get_config_success(self, test_client, mock_realtime_engine):
         """测试获取配置成功"""
-        response = test_client.get("/api/realtime/config")
+        response = test_client.get("/api/v1/realtime/config")
 
         assert response.status_code == 200
         data = response.json()
@@ -264,7 +264,7 @@ class TestConfigAPI:
 
     def test_get_config_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时获取配置"""
-        response = uninitialized_test_client.get("/api/realtime/config")
+        response = uninitialized_test_client.get("/api/v1/realtime/config")
 
         assert response.status_code == 200
         data = response.json()
@@ -274,7 +274,7 @@ class TestConfigAPI:
     def test_update_config_success(self, test_client, mock_realtime_engine):
         """测试更新配置成功"""
         config = {"realtime_enabled": True, "data_mode": "realtime"}
-        response = test_client.post("/api/realtime/config", json=config)
+        response = test_client.post("/api/v1/realtime/config", json=config)
 
         assert response.status_code == 200
         data = response.json()
@@ -288,7 +288,7 @@ class TestConfigAPI:
         mock_realtime_engine.update_config.return_value = False
 
         config = {"realtime_enabled": False}
-        response = test_client.post("/api/realtime/config", json=config)
+        response = test_client.post("/api/v1/realtime/config", json=config)
 
         assert response.status_code == 200
         data = response.json()
@@ -299,7 +299,7 @@ class TestConfigAPI:
     def test_update_config_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时更新配置"""
         config = {"realtime_enabled": True}
-        response = uninitialized_test_client.post("/api/realtime/config", json=config)
+        response = uninitialized_test_client.post("/api/v1/realtime/config", json=config)
 
         assert response.status_code == 200
         data = response.json()
@@ -319,7 +319,7 @@ class TestSubscribeAPI:
     def test_subscribe_success(self, test_client, mock_realtime_engine):
         """测试订阅频道成功"""
         channels = ["kline.BTCUSDT.1m", "depth.BTCUSDT"]
-        response = test_client.post("/api/realtime/subscribe", json=channels)
+        response = test_client.post("/api/v1/realtime/subscribe", json=channels)
 
         assert response.status_code == 200
         data = response.json()
@@ -333,7 +333,7 @@ class TestSubscribeAPI:
         mock_realtime_engine.subscribe.return_value = False
 
         channels = ["kline.BTCUSDT.1m"]
-        response = test_client.post("/api/realtime/subscribe", json=channels)
+        response = test_client.post("/api/v1/realtime/subscribe", json=channels)
 
         assert response.status_code == 200
         data = response.json()
@@ -344,7 +344,7 @@ class TestSubscribeAPI:
     def test_subscribe_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时订阅"""
         channels = ["kline.BTCUSDT.1m"]
-        response = uninitialized_test_client.post("/api/realtime/subscribe", json=channels)
+        response = uninitialized_test_client.post("/api/v1/realtime/subscribe", json=channels)
 
         assert response.status_code == 200
         data = response.json()
@@ -355,7 +355,7 @@ class TestSubscribeAPI:
     def test_unsubscribe_success(self, test_client, mock_realtime_engine):
         """测试取消订阅成功"""
         channels = ["kline.BTCUSDT.1m"]
-        response = test_client.post("/api/realtime/unsubscribe", json=channels)
+        response = test_client.post("/api/v1/realtime/unsubscribe", json=channels)
 
         assert response.status_code == 200
         data = response.json()
@@ -369,7 +369,7 @@ class TestSubscribeAPI:
         mock_realtime_engine.unsubscribe.return_value = False
 
         channels = ["kline.BTCUSDT.1m"]
-        response = test_client.post("/api/realtime/unsubscribe", json=channels)
+        response = test_client.post("/api/v1/realtime/unsubscribe", json=channels)
 
         assert response.status_code == 200
         data = response.json()
@@ -380,7 +380,7 @@ class TestSubscribeAPI:
     def test_unsubscribe_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时取消订阅"""
         channels = ["kline.BTCUSDT.1m"]
-        response = uninitialized_test_client.post("/api/realtime/unsubscribe", json=channels)
+        response = uninitialized_test_client.post("/api/v1/realtime/unsubscribe", json=channels)
 
         assert response.status_code == 200
         data = response.json()
@@ -399,7 +399,7 @@ class TestDataAPI:
 
     def test_get_symbols_success(self, test_client, mock_realtime_engine):
         """测试获取可用交易对成功"""
-        response = test_client.get("/api/realtime/symbols")
+        response = test_client.get("/api/v1/realtime/symbols")
 
         assert response.status_code == 200
         data = response.json()
@@ -411,7 +411,7 @@ class TestDataAPI:
 
     def test_get_symbols_engine_not_initialized(self, uninitialized_test_client):
         """测试引擎未初始化时获取交易对"""
-        response = uninitialized_test_client.get("/api/realtime/symbols")
+        response = uninitialized_test_client.get("/api/v1/realtime/symbols")
 
         assert response.status_code == 200
         data = response.json()
@@ -420,7 +420,7 @@ class TestDataAPI:
 
     def test_get_data_types(self, test_client):
         """测试获取支持的数据类型"""
-        response = test_client.get("/api/realtime/data-types")
+        response = test_client.get("/api/v1/realtime/data-types")
 
         assert response.status_code == 200
         data = response.json()
@@ -433,7 +433,7 @@ class TestDataAPI:
 
     def test_get_intervals(self, test_client):
         """测试获取支持的时间间隔"""
-        response = test_client.get("/api/realtime/intervals")
+        response = test_client.get("/api/v1/realtime/intervals")
 
         assert response.status_code == 200
         data = response.json()
@@ -456,27 +456,27 @@ class TestIntegrationWorkflow:
     def test_full_workflow(self, test_client, mock_realtime_engine):
         """测试完整工作流: 启动 -> 获取状态 -> 订阅 -> 停止"""
         # 1. 启动引擎
-        response = test_client.post("/api/realtime/start")
+        response = test_client.post("/api/v1/realtime/start")
         assert response.status_code == 200
         assert response.json()["data"]["success"] is True
 
         # 2. 获取状态
-        response = test_client.get("/api/realtime/status")
+        response = test_client.get("/api/v1/realtime/status")
         assert response.status_code == 200
         assert response.json()["data"]["status"] == "running"
 
         # 3. 订阅频道
         channels = ["kline.BTCUSDT.1m"]
-        response = test_client.post("/api/realtime/subscribe", json=channels)
+        response = test_client.post("/api/v1/realtime/subscribe", json=channels)
         assert response.status_code == 200
         assert response.json()["data"]["success"] is True
 
         # 4. 获取配置
-        response = test_client.get("/api/realtime/config")
+        response = test_client.get("/api/v1/realtime/config")
         assert response.status_code == 200
         assert response.json()["code"] == 0
 
         # 5. 停止引擎
-        response = test_client.post("/api/realtime/stop")
+        response = test_client.post("/api/v1/realtime/stop")
         assert response.status_code == 200
         assert response.json()["data"]["success"] is True

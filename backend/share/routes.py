@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-router = APIRouter(prefix="/api", tags=["share"])
+router = APIRouter(prefix="/api/v1", tags=["share"])
 
 
 # ============================================================

@@ -79,7 +79,7 @@ def _returns_dict_to_series(data: dict[str, Any]) -> pd.Series:
 
 # 创建路由
 router = APIRouter(
-    prefix="/api/factor",
+    prefix="/api/v1/factor",
     tags=["factor"],
     responses={
         200: {"description": "成功", "model": ApiResponse},

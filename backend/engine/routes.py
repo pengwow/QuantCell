@@ -16,7 +16,7 @@ from strategy.loader import StrategyLoader
 from utils.auth import jwt_auth_required
 from utils.timestamp_utils import convert_to_datetime
 
-router = APIRouter(prefix="/api/engine", tags=["Engine"])
+router = APIRouter(prefix="/api/v1/engine", tags=["Engine"])
 
 
 def _sanitize(obj: Any) -> Any:

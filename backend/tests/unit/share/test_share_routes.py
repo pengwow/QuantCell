@@ -93,7 +93,7 @@ def _mock_remote_ready():
 def test_create_share_anonymous_allowed_in_dev(test_client, sample_worker):
     """dev 模式下未登录视为 anonymous，依然可创建 share token"""
     with _mock_remote_ready():
-        r = test_client.post(f"/api/workers/{sample_worker.id}/share", json={})
+        r = test_client.post(f"/api/v1/workers/{sample_worker.id}/share", json={})
         # anonymous 用户在 dev 模式下可以创建；返回 200 + token
         assert r.status_code == 200
         body = r.json()
@@ -105,7 +105,7 @@ def test_create_share_invalid_token_format_returns_401(test_client, sample_worke
     """传入格式错误的 token 时返回 401（仅当有 token 但解码失败）"""
     with _mock_remote_ready():
         r = test_client.post(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             json={},
             headers={"Authorization": "Bearer not-a-jwt"},
         )
@@ -118,7 +118,7 @@ def test_create_share_success(test_client, sample_worker, auth_headers, mock_jwt
     """登录后 POST 200，返回明文 token"""
     with _mock_remote_ready():
         r = test_client.post(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             json={"expires_in_seconds": 3600, "one_time": False},
             headers=auth_headers,
         )
@@ -134,7 +134,7 @@ def test_create_share_one_time(test_client, sample_worker, auth_headers, mock_jw
     """一次性 token 创建"""
     with _mock_remote_ready():
         r = test_client.post(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             json={"one_time": True},
             headers=auth_headers,
         )
@@ -146,7 +146,7 @@ def test_create_share_one_time(test_client, sample_worker, auth_headers, mock_jw
 def test_create_share_worker_not_found(test_client, auth_headers, mock_jwt_user_a):
     """worker 不存在返回 404"""
     r = test_client.post(
-        "/api/workers/99999/share",
+        "/api/v1/workers/99999/share",
         json={},
         headers=auth_headers,
     )
@@ -158,18 +158,18 @@ def test_list_shares(test_client, sample_worker, auth_headers, mock_jwt_user_a):
     with _mock_remote_ready():
         # 先创建 2 个
         test_client.post(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             json={"one_time": False},
             headers=auth_headers,
         )
         test_client.post(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             json={"one_time": True},
             headers=auth_headers,
         )
 
         r = test_client.get(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             headers=auth_headers,
         )
         assert r.status_code == 200
@@ -186,14 +186,14 @@ def test_revoke_share(test_client, sample_worker, auth_headers, mock_jwt_user_a)
     """创建后撤销"""
     with _mock_remote_ready():
         create = test_client.post(
-            f"/api/workers/{sample_worker.id}/share",
+            f"/api/v1/workers/{sample_worker.id}/share",
             json={"one_time": False},
             headers=auth_headers,
         )
         share_id = (create.json().get("data") or create.json())["id"]
 
         r = test_client.delete(
-            f"/api/workers/{sample_worker.id}/share/{share_id}",
+            f"/api/v1/workers/{sample_worker.id}/share/{share_id}",
             headers=auth_headers,
         )
         assert r.status_code == 200
@@ -201,7 +201,7 @@ def test_revoke_share(test_client, sample_worker, auth_headers, mock_jwt_user_a)
 
 def test_credentials_status_unconfigured(test_client):
     """凭据未配置时 ready=false,admin_token_configured 取决于环境"""
-    r = test_client.get("/api/share/credentials/status")
+    r = test_client.get("/api/v1/share/credentials/status")
     assert r.status_code == 200
     data = r.json().get("data") or r.json()
     assert "ready" in data
@@ -213,7 +213,7 @@ def test_generate_credentials_no_admin_token_returns_503(test_client, monkeypatc
     """无 admin token 时一键生成凭据返 503"""
     monkeypatch.delenv("SHARE_REMOTE_ADMIN_TOKEN", raising=False)
     r = test_client.post(
-        "/api/share/credentials/generate",
+        "/api/v1/share/credentials/generate",
         json={"name": "TestPC"},
     )
     assert r.status_code == 503

@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-router = APIRouter(prefix="/api/indicators", tags=["指标管理"])
+router = APIRouter(prefix="/api/v1/indicators", tags=["指标管理"])
 
 # 全局执行器实例（带缓存）
 _executor: IndicatorExecutor | None = None

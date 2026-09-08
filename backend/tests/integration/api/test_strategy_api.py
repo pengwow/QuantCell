@@ -54,7 +54,7 @@ class TestStrategyListAPI:
 
     def test_get_strategy_list_success(self, client: TestClient):
         """测试获取策略列表成功"""
-        response = client.get("/api/strategy/list")
+        response = client.get("/api/v1/strategy/list")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -65,7 +65,7 @@ class TestStrategyListAPI:
     def test_get_strategy_list_with_source(self, client: TestClient, source):
         """测试不同来源参数的策略列表获取"""
         params = {"source": source} if source else {}
-        response = client.get("/api/strategy/list", params=params)
+        response = client.get("/api/v1/strategy/list", params=params)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -76,7 +76,7 @@ class TestStrategyListAPI:
     @pytest.mark.parametrize("source", ["", "invalid", "FILES", "DB", "files,db"])
     def test_get_strategy_list_invalid_source(self, client: TestClient, source):
         """测试无效来源参数处理"""
-        response = client.get("/api/strategy/list", params={"source": source})
+        response = client.get("/api/v1/strategy/list", params={"source": source})
         # 根据实现，可能返回400或200（忽略无效参数）
         assert response.status_code in [200, 400]
         if response.status_code == 400:
@@ -85,7 +85,7 @@ class TestStrategyListAPI:
 
     def test_get_strategy_list_empty_source(self, client: TestClient):
         """测试空来源参数"""
-        response = client.get("/api/strategy/list", params={"source": ""})
+        response = client.get("/api/v1/strategy/list", params={"source": ""})
         assert response.status_code in [200, 400]
 
     # ========== 错误场景测试 ==========
@@ -101,7 +101,7 @@ class TestStrategyListAPI:
             "strategy.routes.get_strategy_service",
             lambda: type("MockService", (), {"get_strategy_list": mock_get_strategy_list})(),
         )
-        response = client.get("/api/strategy/list")
+        response = client.get("/api/v1/strategy/list")
         assert response.status_code == 500
         data = response.json()
         assert "detail" in data
@@ -113,7 +113,7 @@ class TestStrategyDetailAPI:
     def test_get_strategy_detail_success(self, client: TestClient):
         """测试获取策略详情成功（如果策略存在）或404（如果策略不存在）"""
         request_data = {"strategy_name": "sma_cross"}
-        response = client.post("/api/strategy/detail", json=request_data)
+        response = client.post("/api/v1/strategy/detail", json=request_data)
         # 策略可能不存在，接受200或404
         assert response.status_code in [200, 404]
         if response.status_code == 200:
@@ -127,13 +127,13 @@ class TestStrategyDetailAPI:
             "strategy_name": "test_strategy",
             "file_content": "class TestStrategy(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/detail", json=request_data)
+        response = client.post("/api/v1/strategy/detail", json=request_data)
         assert response.status_code in [200, 404]
 
     def test_get_strategy_detail_not_found(self, client: TestClient):
         """测试策略不存在场景"""
         request_data = {"strategy_name": "non_existent_strategy_12345"}
-        response = client.post("/api/strategy/detail", json=request_data)
+        response = client.post("/api/v1/strategy/detail", json=request_data)
         # 根据实现可能返回404或200（code=1）
         assert response.status_code in [200, 404]
         if response.status_code == 200:
@@ -144,13 +144,13 @@ class TestStrategyDetailAPI:
     def test_get_strategy_detail_invalid_name(self, client: TestClient, strategy_name):
         """测试无效策略名称"""
         request_data = {"strategy_name": strategy_name}
-        response = client.post("/api/strategy/detail", json=request_data)
+        response = client.post("/api/v1/strategy/detail", json=request_data)
         # 应该返回422验证错误或404
         assert response.status_code in [400, 404, 422]
 
     def test_get_strategy_detail_missing_name(self, client: TestClient):
         """测试缺少策略名称"""
-        response = client.post("/api/strategy/detail", json={})
+        response = client.post("/api/v1/strategy/detail", json={})
         assert response.status_code == 422
 
 
@@ -172,7 +172,7 @@ class TestStrategyUploadAPI:
             "description": "测试策略",
             "tags": ["test", "demo"],
         }
-        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -186,7 +186,7 @@ class TestStrategyUploadAPI:
             "version": "2.0.0",
             "description": "更新后的策略",
         }
-        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
 
     def test_upload_strategy_minimal_data(self, client: TestClient, valid_auth_headers: dict[str, str]):
@@ -195,7 +195,7 @@ class TestStrategyUploadAPI:
             "strategy_name": "minimal_strategy",
             "file_content": "class MinimalStrategy(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
 
     # ========== 请求体验证测试 ==========
@@ -208,20 +208,20 @@ class TestStrategyUploadAPI:
             "file_content": "class Test(Strategy): pass",
         }
         del request_data[missing_field]
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/v1/strategy/upload", json=request_data)
         assert response.status_code == 422
 
     def test_upload_strategy_empty_content(self, client: TestClient):
         """测试空文件内容"""
         request_data = {"strategy_name": "empty_strategy", "file_content": ""}
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/v1/strategy/upload", json=request_data)
         # 可能接受空内容或返回错误
         assert response.status_code in [200, 400, 422]
 
     def test_upload_strategy_invalid_content_type(self, client: TestClient):
         """测试无效内容类型"""
         response = client.post(
-            "/api/strategy/upload",
+            "/api/v1/strategy/upload",
             data="invalid json",
             headers={"Content-Type": "application/json"},
         )
@@ -242,7 +242,7 @@ class TestStrategyExecuteAPI:
                 "initial_capital": 100000.0,
             },
         }
-        response = client.post("/api/strategy/sma_cross/execute", json=request_data)
+        response = client.post("/api/v1/strategy/sma_cross/execute", json=request_data)
         assert response.status_code in [200, 404]
         if response.status_code == 200:
             data = response.json()
@@ -251,33 +251,33 @@ class TestStrategyExecuteAPI:
     def test_execute_strategy_live_mode(self, client: TestClient):
         """测试实盘模式执行策略"""
         request_data = {"params": {"n1": 10, "n2": 20}, "mode": "live"}
-        response = client.post("/api/strategy/sma_cross/execute", json=request_data)
+        response = client.post("/api/v1/strategy/sma_cross/execute", json=request_data)
         assert response.status_code in [200, 404]
 
     def test_execute_strategy_not_found(self, client: TestClient):
         """测试执行不存在的策略"""
         request_data = {"params": {}, "mode": "backtest"}
-        response = client.post("/api/strategy/non_existent_strategy_12345/execute", json=request_data)
+        response = client.post("/api/v1/strategy/non_existent_strategy_12345/execute", json=request_data)
         assert response.status_code == 404
 
     @pytest.mark.parametrize("mode", ["invalid_mode", "", None])
     def test_execute_strategy_invalid_mode(self, client: TestClient, mode):
         """测试无效执行模式（execute 端点已移除，返回404）"""
         request_data = {"params": {}, "mode": mode}
-        response = client.post("/api/strategy/sma_cross/execute", json=request_data)
+        response = client.post("/api/v1/strategy/sma_cross/execute", json=request_data)
         # /execute 路由已随策略执行迁移到 worker 而移除，统一返回 404
         assert response.status_code == 404
 
     def test_execute_strategy_missing_mode(self, client: TestClient):
         """测试缺少执行模式（execute 端点已移除，返回404）"""
         request_data = {"params": {}}
-        response = client.post("/api/strategy/sma_cross/execute", json=request_data)
+        response = client.post("/api/v1/strategy/sma_cross/execute", json=request_data)
         assert response.status_code == 404
 
     def test_execute_strategy_invalid_params(self, client: TestClient):
         """测试无效参数（execute 端点已移除，返回404）"""
         request_data = {"params": "invalid_params_type", "mode": "backtest"}
-        response = client.post("/api/strategy/sma_cross/execute", json=request_data)
+        response = client.post("/api/v1/strategy/sma_cross/execute", json=request_data)
         assert response.status_code == 404
 
 
@@ -296,7 +296,7 @@ class TestStrategyParseAPI:
                 "        pass\n"
             ),
         }
-        response = client.post("/api/strategy/parse", json=request_data)
+        response = client.post("/api/v1/strategy/parse", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -304,13 +304,13 @@ class TestStrategyParseAPI:
     def test_parse_strategy_missing_content(self, client: TestClient):
         """测试缺少文件内容"""
         request_data = {"strategy_name": "test_strategy"}
-        response = client.post("/api/strategy/parse", json=request_data)
+        response = client.post("/api/v1/strategy/parse", json=request_data)
         assert response.status_code == 422
 
     def test_parse_strategy_empty_content(self, client: TestClient):
         """测试空文件内容"""
         request_data = {"strategy_name": "test_strategy", "file_content": ""}
-        response = client.post("/api/strategy/parse", json=request_data)
+        response = client.post("/api/v1/strategy/parse", json=request_data)
         # 可能接受或返回错误
         assert response.status_code in [200, 400, 422]
 
@@ -325,10 +325,10 @@ class TestStrategyDeleteAPI:
             "strategy_name": "strategy_to_delete",
             "file_content": "class StrategyToDelete(Strategy):\n    pass",
         }
-        client.post("/api/strategy/upload", json=upload_data)
+        client.post("/api/v1/strategy/upload", json=upload_data)
 
         # 删除策略
-        response = client.delete("/api/strategy/strategy_to_delete", headers=auth_headers)
+        response = client.delete("/api/v1/strategy/strategy_to_delete", headers=auth_headers)
         assert response.status_code in [200, 401]
         if response.status_code == 200:
             data = response.json()
@@ -338,7 +338,7 @@ class TestStrategyDeleteAPI:
 
     def test_delete_strategy_without_auth(self, client: TestClient):
         """测试未认证访问"""
-        response = client.delete("/api/strategy/test_strategy")
+        response = client.delete("/api/v1/strategy/test_strategy")
         assert response.status_code == 401
         data = response.json()
         assert "detail" in data
@@ -346,31 +346,31 @@ class TestStrategyDeleteAPI:
 
     def test_delete_strategy_with_invalid_token(self, client: TestClient, invalid_auth_headers):
         """测试无效令牌"""
-        response = client.delete("/api/strategy/test_strategy", headers=invalid_auth_headers)
+        response = client.delete("/api/v1/strategy/test_strategy", headers=invalid_auth_headers)
         assert response.status_code == 401
 
     def test_delete_strategy_with_expired_token(self, client: TestClient, expired_auth_headers):
         """测试过期令牌"""
-        response = client.delete("/api/strategy/test_strategy", headers=expired_auth_headers)
+        response = client.delete("/api/v1/strategy/test_strategy", headers=expired_auth_headers)
         assert response.status_code == 401
         data = response.json()
         assert "令牌已过期" in str(data.get("detail", ""))
 
     def test_delete_strategy_malformed_token(self, client: TestClient, malformed_auth_headers):
         """测试格式错误的令牌"""
-        response = client.delete("/api/strategy/test_strategy", headers=malformed_auth_headers)
+        response = client.delete("/api/v1/strategy/test_strategy", headers=malformed_auth_headers)
         assert response.status_code == 401
 
     def test_delete_strategy_missing_bearer(self, client: TestClient, missing_auth_headers):
         """测试缺少Bearer前缀"""
-        response = client.delete("/api/strategy/test_strategy", headers=missing_auth_headers)
+        response = client.delete("/api/v1/strategy/test_strategy", headers=missing_auth_headers)
         assert response.status_code == 401
         data = response.json()
         assert "无效的认证令牌格式" in str(data.get("detail", ""))
 
     def test_delete_strategy_not_found(self, client: TestClient, auth_headers):
         """测试删除不存在的策略"""
-        response = client.delete("/api/strategy/non_existent_strategy_12345", headers=auth_headers)
+        response = client.delete("/api/v1/strategy/non_existent_strategy_12345", headers=auth_headers)
         # 可能返回404或200（code=1）
         assert response.status_code in [200, 401, 404]
 
@@ -395,7 +395,7 @@ class TestStrategyAPIEdgeCases:
             "strategy_name": strategy_name,
             "file_content": f"class {strategy_name.title()}(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         # 应该接受或根据业务规则拒绝
         assert response.status_code in [200, 400]
 
@@ -412,7 +412,7 @@ class TestStrategyAPIEdgeCases:
                 "strategy_name": name,
                 "file_content": "class Test(Strategy):\n    pass",
             }
-            response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+            response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
             # 可能接受或拒绝
             assert response.status_code in [200, 400]
 
@@ -422,7 +422,7 @@ class TestStrategyAPIEdgeCases:
             "strategy_name": "测试策略",
             "file_content": "class TestStrategy(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code in [200, 400]
 
     def test_strategy_large_file_content(self, client: TestClient, valid_auth_headers: dict[str, str]):
@@ -432,7 +432,7 @@ class TestStrategyAPIEdgeCases:
             "strategy_name": "large_strategy",
             "file_content": large_content,
         }
-        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+        response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code in [200, 413]  # 413 = Payload Too Large
 
     def test_concurrent_strategy_uploads(self, client: TestClient, valid_auth_headers: dict[str, str]):
@@ -444,7 +444,7 @@ class TestStrategyAPIEdgeCases:
                 "strategy_name": f"concurrent_strategy_{index}",
                 "file_content": f"class ConcurrentStrategy{index}(Strategy):\n    pass",
             }
-            return client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
+            return client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
 
         # 使用线程池模拟并发
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:

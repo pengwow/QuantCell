@@ -181,7 +181,7 @@ def test_credentials_status_unconfigured(test_client, monkeypatch):
     monkeypatch.setattr(credentials, "CONFIG_LOCAL", target)
     ShareRemoteConfig._instance = None
     with patch.dict(os.environ, {}, clear=True):
-        r = test_client.get("/api/share/credentials/status")
+        r = test_client.get("/api/v1/share/credentials/status")
         assert r.status_code == 200
         data = r.json().get("data") or r.json()
         assert data["ready"] is False
@@ -204,7 +204,7 @@ def test_credentials_status_ready(test_client, monkeypatch):
         },
         clear=True,
     ):
-        r = test_client.get("/api/share/credentials/status")
+        r = test_client.get("/api/v1/share/credentials/status")
         assert r.status_code == 200
         data = r.json().get("data") or r.json()
         assert data["ready"] is True
@@ -245,7 +245,7 @@ def test_generate_credentials_remote_path(test_client, monkeypatch, tmp_path):
         return_value=mock_result,
     ):
         r = test_client.post(
-            "/api/share/credentials/generate",
+            "/api/v1/share/credentials/generate",
             json={"name": "TestPC"},
         )
         assert r.status_code == 200, r.text
@@ -278,7 +278,7 @@ def test_generate_credentials_no_admin_token_returns_503(test_client, monkeypatc
 
     with patch.dict(os.environ, {}, clear=True):
         r = test_client.post(
-            "/api/share/credentials/generate",
+            "/api/v1/share/credentials/generate",
             json={"name": "TestPC"},
         )
         assert r.status_code == 503, r.text
@@ -310,7 +310,7 @@ def test_generate_credentials_remote_failure_returns_502(test_client, monkeypatc
         side_effect=RemoteShareError("远端 500"),
     ):
         r = test_client.post(
-            "/api/share/credentials/generate",
+            "/api/v1/share/credentials/generate",
             json={"name": "TestPC"},
         )
         assert r.status_code == 502, r.text

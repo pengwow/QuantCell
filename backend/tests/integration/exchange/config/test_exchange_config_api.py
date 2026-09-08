@@ -73,7 +73,7 @@ class TestExchangeConfigAPI:
                 "pages": 1,
             }
 
-            response = client.get("/api/exchange-configs/", headers={"Authorization": "Bearer test_token"})
+            response = client.get("/api/v1/exchange-configs/", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
         data = response.json()
@@ -107,7 +107,7 @@ class TestExchangeConfigAPI:
             }
 
             response = client.post(
-                "/api/exchange-configs/",
+                "/api/v1/exchange-configs/",
                 headers={"Authorization": "Bearer test_token"},
                 json={
                     "exchange_id": "binance",
@@ -151,7 +151,7 @@ class TestExchangeConfigAPI:
             }
 
             response = client.get(
-                "/api/exchange-configs/1",
+                "/api/v1/exchange-configs/1",
                 headers={"Authorization": "Bearer test_token"},
             )
 
@@ -187,7 +187,7 @@ class TestExchangeConfigAPI:
             }
 
             response = client.put(
-                "/api/exchange-configs/1",
+                "/api/v1/exchange-configs/1",
                 headers={"Authorization": "Bearer test_token"},
                 json={
                     "name": "币安Pro",
@@ -210,7 +210,7 @@ class TestExchangeConfigAPI:
             mock_delete.return_value = True
 
             response = client.delete(
-                "/api/exchange-configs/1",
+                "/api/v1/exchange-configs/1",
                 headers={"Authorization": "Bearer test_token"},
             )
 
@@ -221,7 +221,7 @@ class TestExchangeConfigAPI:
     def test_get_supported_exchanges(self, client, mock_auth, mock_should_refresh):
         """测试获取支持的交易所列表"""
         response = client.get(
-            "/api/exchange-configs/exchanges",
+            "/api/v1/exchange-configs/exchanges",
             headers={"Authorization": "Bearer test_token"},
         )
 
@@ -239,7 +239,7 @@ class TestExchangeConfigAuth:
 
     def test_unauthorized_access(self, client):
         """测试未授权访问被拒绝"""
-        response = client.get("/api/exchange-configs/")
+        response = client.get("/api/v1/exchange-configs/")
 
         assert response.status_code == 401
 
@@ -251,7 +251,7 @@ class TestExchangeConfigAuth:
             mock_decode.side_effect = TokenInvalidError("Invalid token")
 
             response = client.get(
-                "/api/exchange-configs/",
+                "/api/v1/exchange-configs/",
                 headers={"Authorization": "Bearer invalid_token"},
             )
 

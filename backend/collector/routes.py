@@ -19,7 +19,7 @@ from .api.system import router as system_router
 from .schemas import ApiResponse
 
 # 创建API路由实例
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api/v1")
 
 # 注册数据加载API路由
 router.include_router(data_router)

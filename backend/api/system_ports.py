@@ -15,7 +15,7 @@ from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
-router = APIRouter(prefix="/api/system", tags=["system"])
+router = APIRouter(prefix="/api/v1/system", tags=["system"])
 
 
 @router.get("/ports")

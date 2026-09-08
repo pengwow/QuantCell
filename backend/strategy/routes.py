@@ -45,7 +45,7 @@ def get_strategy_service() -> StrategyService:
 
 
 router = APIRouter(
-    prefix="/api/strategy",
+    prefix="/api/v1/strategy",
     tags=["strategy"],
 )
 

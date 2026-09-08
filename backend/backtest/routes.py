@@ -55,7 +55,7 @@ backtest_service = BacktestService()
 
 # 创建API路由实例
 router = APIRouter(
-    prefix="/api/backtest",
+    prefix="/api/v1/backtest",
     tags=["backtest"],
     responses={
         200: {"description": "成功响应", "model": ApiResponse},
@@ -373,7 +373,7 @@ def delete_backtest_no_id(request: Request) -> JSONResponse:
         content={
             "code": -1,
             "message": "请提供回测ID",
-            "data": {"redirect": "/api/backtest/list"},
+            "data": {"redirect": "/api/v1/backtest/list"},
         },
     )
 

@@ -8,7 +8,7 @@ from utils.logger import LogType, get_logger
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 # 创建API路由实例
-realtime_router = APIRouter(prefix="/api/realtime", tags=["realtime-engine"])
+realtime_router = APIRouter(prefix="/api/v1/realtime", tags=["realtime-engine"])
 
 # 全局实例引用
 from utils.logger import LogType, get_logger

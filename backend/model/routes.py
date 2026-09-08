@@ -25,7 +25,7 @@ model_service = ModelService()
 
 # 创建模型训练API路由子路由
 router_model = APIRouter(
-    prefix="/api/model",
+    prefix="/api/v1/model",
     tags=["model-training"],
     responses={
         200: {"description": "成功响应", "model": ApiResponse},

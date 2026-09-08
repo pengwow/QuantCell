@@ -91,13 +91,13 @@ router = APIRouter()
 auth_router = APIRouter(tags=["auth"])
 
 # 创建配置管理API路由子路由
-config_router = APIRouter(prefix="/api/config", tags=["config-management"])
+config_router = APIRouter(prefix="/api/v1/config", tags=["config-management"])
 
 # 创建系统信息API路由子路由
-system_router = APIRouter(prefix="/api/system", tags=["system-info"])
+system_router = APIRouter(prefix="/api/v1/system", tags=["system-info"])
 
 
-@auth_router.post("/api/auth/login", response_model=ApiResponse)
+@auth_router.post("/api/v1/auth/login", response_model=ApiResponse)
 def login(request: Request, credentials: dict[str, str] = Body(...)):
     """用户登录
 
@@ -146,7 +146,7 @@ def login(request: Request, credentials: dict[str, str] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@auth_router.post("/api/auth/register", response_model=ApiResponse)
+@auth_router.post("/api/v1/auth/register", response_model=ApiResponse)
 def register(request: Request, credentials: dict[str, str] = Body(...)):
     """用户注册
 
@@ -196,7 +196,7 @@ def register(request: Request, credentials: dict[str, str] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@auth_router.post("/api/auth/logout", response_model=ApiResponse)
+@auth_router.post("/api/v1/auth/logout", response_model=ApiResponse)
 def logout(request: Request):
     """用户注销
 
@@ -720,7 +720,7 @@ async def health_check():
 
 
 # 创建通知设置API路由子路由
-notification_router = APIRouter(prefix="/api/notifications", tags=["notification-config"])
+notification_router = APIRouter(prefix="/api/v1/notifications", tags=["notification-config"])
 
 
 @notification_router.get("/channels", response_model=ApiResponse)
@@ -950,7 +950,7 @@ async def test_notification(request: Request, test_request: dict[str, Any] = Bod
 
 
 # 创建交易所配置API路由子路由
-exchange_router = APIRouter(prefix="/api/exchange-configs", tags=["exchange-config"])
+exchange_router = APIRouter(prefix="/api/v1/exchange-configs", tags=["exchange-config"])
 
 
 @exchange_router.get("/", response_model=ApiResponse)
@@ -1206,7 +1206,7 @@ def get_supported_exchanges(request: Request):
 
 
 # 创建环境变量API路由子路由
-env_var_router = APIRouter(prefix="/api/env-vars", tags=["env-variables"])
+env_var_router = APIRouter(prefix="/api/v1/env-vars", tags=["env-variables"])
 
 
 @env_var_router.get("/", response_model=ApiResponse)

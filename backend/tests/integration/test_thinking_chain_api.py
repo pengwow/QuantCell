@@ -19,7 +19,7 @@ class TestThinkingChainAPI:
 
     def test_get_thinking_chains_empty(self, client, auth_headers):
         """测试获取空的思维链列表"""
-        response = client.get("/api/ai-models/strategy/thinking-chains", headers=auth_headers)
+        response = client.get("/api/v1/ai-models/strategy/thinking-chains", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -56,7 +56,7 @@ class TestThinkingChainAPI:
         }
 
         response = client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload,
         )
@@ -83,7 +83,7 @@ class TestThinkingChainAPI:
         }
 
         create_response = client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload,
         )
@@ -91,7 +91,7 @@ class TestThinkingChainAPI:
         chain_id = create_response.json()["data"]["id"]
 
         # 再获取详情
-        response = client.get(f"/api/ai-models/strategy/thinking-chains/{chain_id}", headers=auth_headers)
+        response = client.get(f"/api/v1/ai-models/strategy/thinking-chains/{chain_id}", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
@@ -109,7 +109,7 @@ class TestThinkingChainAPI:
         }
 
         create_response = client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload,
         )
@@ -124,7 +124,7 @@ class TestThinkingChainAPI:
         }
 
         response = client.put(
-            f"/api/ai-models/strategy/thinking-chains/{chain_id}",
+            f"/api/v1/ai-models/strategy/thinking-chains/{chain_id}",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=update_payload,
         )
@@ -148,7 +148,7 @@ class TestThinkingChainAPI:
         }
 
         create_response = client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload,
         )
@@ -156,13 +156,13 @@ class TestThinkingChainAPI:
         chain_id = create_response.json()["data"]["id"]
 
         # 删除
-        response = client.delete(f"/api/ai-models/strategy/thinking-chains/{chain_id}", headers=auth_headers)
+        response = client.delete(f"/api/v1/ai-models/strategy/thinking-chains/{chain_id}", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
 
         # 确认已删除
-        get_response = client.get(f"/api/ai-models/strategy/thinking-chains/{chain_id}", headers=auth_headers)
+        get_response = client.get(f"/api/v1/ai-models/strategy/thinking-chains/{chain_id}", headers=auth_headers)
         assert get_response.status_code == 404
 
     def test_import_thinking_chains_from_toml(self, client, auth_headers):
@@ -195,7 +195,7 @@ order = 2
         try:
             with open(temp_file, "rb") as f:
                 response = client.post(
-                    "/api/ai-models/strategy/thinking-chains/import",
+                    "/api/v1/ai-models/strategy/thinking-chains/import",
                     headers=auth_headers,
                     files={"file": ("test.toml", f, "application/toml")},
                     params={"update_existing": "true"},
@@ -230,20 +230,20 @@ order = 2
         }
 
         client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload1,
         )
 
         client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload2,
         )
 
         # 筛选 strategy_generation 类型
         response = client.get(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers=auth_headers,
             params={"chain_type": "strategy_generation"},
         )
@@ -258,7 +258,7 @@ order = 2
     def test_get_thinking_chain_not_found(self, client, auth_headers):
         """测试获取不存在的思维链"""
         response = client.get(
-            "/api/ai-models/strategy/thinking-chains/non-existent-id",
+            "/api/v1/ai-models/strategy/thinking-chains/non-existent-id",
             headers=auth_headers,
         )
         assert response.status_code == 404
@@ -271,7 +271,7 @@ order = 2
         }
 
         response = client.post(
-            "/api/ai-models/strategy/thinking-chains",
+            "/api/v1/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
             json=payload,
         )
@@ -298,7 +298,7 @@ class TestThinkingChainTomlValidation:
         try:
             with open(temp_file, "rb") as f:
                 response = client.post(
-                    "/api/ai-models/strategy/thinking-chains/import",
+                    "/api/v1/ai-models/strategy/thinking-chains/import",
                     headers=auth_headers,
                     files={"file": ("invalid.toml", f, "application/toml")},
                 )
@@ -324,7 +324,7 @@ name = "缺少类型"
         try:
             with open(temp_file, "rb") as f:
                 response = client.post(
-                    "/api/ai-models/strategy/thinking-chains/import",
+                    "/api/v1/ai-models/strategy/thinking-chains/import",
                     headers=auth_headers,
                     files={"file": ("incomplete.toml", f, "application/toml")},
                 )

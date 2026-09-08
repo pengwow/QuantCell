@@ -47,7 +47,7 @@ from .schemas import (
 from .services import AIModelService
 
 # 创建AI模型配置API路由
-router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
+router = APIRouter(prefix="/api/v1/ai-models", tags=["ai-model-config"])
 
 # 配置名称常量
 AI_MODELS_CONFIG_NAME = "ai_models"

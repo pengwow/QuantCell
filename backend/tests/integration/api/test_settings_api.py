@@ -38,7 +38,7 @@ class TestConfigListAPI:
             return_value=mock_configs,
         )
 
-        response = client.get("/api/config/")
+        response = client.get("/api/v1/config/")
         assert_api_response(response)
         data = response.json()
         # 验证按 name 分组
@@ -53,7 +53,7 @@ class TestConfigListAPI:
         """测试获取空配置列表"""
         mocker.patch("settings.models.SystemConfigBusiness.get_all_with_details", return_value={})
 
-        response = client.get("/api/config/")
+        response = client.get("/api/v1/config/")
         assert_api_response(response)
         data = response.json()
         assert data["data"] == {}
@@ -65,7 +65,7 @@ class TestConfigListAPI:
             side_effect=Exception("Database error"),
         )
 
-        response = client.get("/api/config/")
+        response = client.get("/api/v1/config/")
         assert response.status_code == 500
         assert "Database error" in str(response.json().get("detail", ""))
 
@@ -88,7 +88,7 @@ class TestConfigDetailAPI:
             return_value=mock_config,
         )
 
-        response = client.get("/api/config/qlib_data_dir")
+        response = client.get("/api/v1/config/qlib_data_dir")
         assert_api_response(response)
         data = response.json()
         assert data["data"]["key"] == "qlib_data_dir"
@@ -107,7 +107,7 @@ class TestConfigDetailAPI:
             return_value=mock_config,
         )
 
-        response = client.get("/api/config/api_secret")
+        response = client.get("/api/v1/config/api_secret")
         assert_api_response(response)
         data = response.json()
         assert data["data"]["value"] == ""
@@ -116,7 +116,7 @@ class TestConfigDetailAPI:
         """测试获取不存在的配置"""
         mocker.patch("settings.models.SystemConfigBusiness.get_with_details", return_value=None)
 
-        response = client.get("/api/config/nonexistent_key")
+        response = client.get("/api/v1/config/nonexistent_key")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -124,7 +124,7 @@ class TestConfigDetailAPI:
 
     def test_get_config_empty_key(self, client: TestClient):
         """测试获取空键配置"""
-        response = client.get("/api/config/")
+        response = client.get("/api/v1/config/")
         assert response.status_code == 200
 
     def test_get_config_special_chars_key(self, client: TestClient, mocker, assert_api_response):
@@ -140,7 +140,7 @@ class TestConfigDetailAPI:
             return_value=mock_config,
         )
 
-        response = client.get("/api/config/config_with-special.chars")
+        response = client.get("/api/v1/config/config_with-special.chars")
         assert_api_response(response)
 
 
@@ -160,7 +160,7 @@ class TestConfigUpdateAPI:
             "is_sensitive": False,
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["key"] == "new_config"
@@ -179,7 +179,7 @@ class TestConfigUpdateAPI:
             "is_sensitive": True,
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["value"] == ""
@@ -199,7 +199,7 @@ class TestConfigUpdateAPI:
             "name": "插件设置",
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["plugin"] == "my_plugin"
@@ -209,14 +209,14 @@ class TestConfigUpdateAPI:
         """测试更新配置缺少键"""
         request_data = {"value": "new_value"}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert response.status_code == 422
 
     def test_update_config_missing_value(self, client: TestClient):
         """测试更新配置缺少值"""
         request_data = {"key": "new_config"}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert response.status_code == 422
 
     def test_update_config_empty_key(self, client: TestClient, mocker):
@@ -227,7 +227,7 @@ class TestConfigUpdateAPI:
 
         request_data = {"key": "", "value": "value"}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert response.status_code == 200
 
     def test_update_config_failed(self, client: TestClient, mocker):
@@ -237,7 +237,7 @@ class TestConfigUpdateAPI:
 
         request_data = {"key": "new_config", "value": "new_value"}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert response.status_code == 500
 
 
@@ -255,7 +255,7 @@ class TestConfigDeleteAPI:
         mocker.patch("settings.models.SystemConfigBusiness.delete", return_value=True)
         mocker.patch("utils.config_manager.load_system_configs", return_value={})
 
-        response = client.delete("/api/config/test_config", headers=auth_headers)
+        response = client.delete("/api/v1/config/test_config", headers=auth_headers)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["key"] == "test_config"
@@ -264,17 +264,17 @@ class TestConfigDeleteAPI:
         """测试删除不存在的配置"""
         mocker.patch("settings.models.SystemConfigBusiness.delete", return_value=False)
 
-        response = client.delete("/api/config/nonexistent", headers=auth_headers)
+        response = client.delete("/api/v1/config/nonexistent", headers=auth_headers)
         assert response.status_code == 500
 
     def test_delete_config_without_auth(self, client: TestClient):
         """测试未认证删除配置"""
-        response = client.delete("/api/config/test_config")
+        response = client.delete("/api/v1/config/test_config")
         assert response.status_code == 401
 
     def test_delete_config_invalid_token(self, client: TestClient, invalid_auth_headers: dict[str, str]):
         """测试无效令牌删除配置"""
-        response = client.delete("/api/config/test_config", headers=invalid_auth_headers)
+        response = client.delete("/api/v1/config/test_config", headers=invalid_auth_headers)
         assert response.status_code == 401
 
     def test_delete_config_special_chars_key(
@@ -288,7 +288,7 @@ class TestConfigDeleteAPI:
         mocker.patch("settings.models.SystemConfigBusiness.delete", return_value=True)
         mocker.patch("utils.config_manager.load_system_configs", return_value={})
 
-        response = client.delete("/api/config/config-with_special.chars", headers=auth_headers)
+        response = client.delete("/api/v1/config/config-with_special.chars", headers=auth_headers)
         assert_api_response(response)
 
 
@@ -303,7 +303,7 @@ class TestConfigBatchUpdateAPI:
 
         request_data = {"config1": "value1", "config2": "value2"}
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 2
@@ -329,7 +329,7 @@ class TestConfigBatchUpdateAPI:
             },
         ]
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 2
@@ -342,7 +342,7 @@ class TestConfigBatchUpdateAPI:
 
         request_data = {"configs": {"config1": "value1", "config2": "value2"}}
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 2
@@ -359,7 +359,7 @@ class TestConfigBatchUpdateAPI:
             "__v_skip": "skip_this",
         }
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 1
@@ -371,7 +371,7 @@ class TestConfigBatchUpdateAPI:
 
         request_data = {}
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 0
@@ -386,7 +386,7 @@ class TestConfigBatchUpdateAPI:
 
         request_data = {"config1": "value1"}
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert response.status_code == 500
 
 
@@ -417,7 +417,7 @@ class TestPluginConfigAPI:
             return_value=mock_configs,
         )
 
-        response = client.get("/api/config/plugin/plugin1")
+        response = client.get("/api/v1/config/plugin/plugin1")
         assert_api_response(response)
         data = response.json()
         assert "plugin1_config1" in data["data"]
@@ -428,7 +428,7 @@ class TestPluginConfigAPI:
         """测试获取空插件配置"""
         mocker.patch("settings.models.SystemConfigBusiness.get_all_with_details", return_value={})
 
-        response = client.get("/api/config/plugin/nonexistent_plugin")
+        response = client.get("/api/v1/config/plugin/nonexistent_plugin")
         assert_api_response(response)
         data = response.json()
         assert data["data"] == {}
@@ -447,7 +447,7 @@ class TestPluginConfigAPI:
             return_value=mock_configs,
         )
 
-        response = client.get("/api/config/plugin/my-plugin_v1.0")
+        response = client.get("/api/v1/config/plugin/my-plugin_v1.0")
         assert_api_response(response)
 
 
@@ -480,7 +480,7 @@ class TestSystemInfoAPI:
         }
         mocker.patch("settings.services.SystemService.get_system_info", return_value=mock_result)
 
-        response = client.get("/api/system/info")
+        response = client.get("/api/v1/system/info")
         assert_api_response(response)
         data = response.json()
         assert "version" in data["data"]
@@ -496,7 +496,7 @@ class TestSystemInfoAPI:
         }
         mocker.patch("settings.services.SystemService.get_system_info", return_value=mock_result)
 
-        response = client.get("/api/system/info")
+        response = client.get("/api/v1/system/info")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -508,7 +508,7 @@ class TestSystemInfoAPI:
             side_effect=Exception("System error"),
         )
 
-        response = client.get("/api/system/info")
+        response = client.get("/api/v1/system/info")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -557,7 +557,7 @@ class TestEnvVarsAPI:
             return_value=mock_configs,
         )
 
-        response = client.get("/api/env-vars/", headers=auth_headers)
+        response = client.get("/api/v1/env-vars/", headers=auth_headers)
         assert_api_response(response)
         data = response.json()
         assert "items" in data["data"]
@@ -582,7 +582,7 @@ class TestEnvVarsAPI:
         """测试获取空环境变量列表"""
         mocker.patch("settings.models.SystemConfigBusiness.get_all_with_details", return_value={})
 
-        response = client.get("/api/env-vars/", headers=auth_headers)
+        response = client.get("/api/v1/env-vars/", headers=auth_headers)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["items"] == []
@@ -590,7 +590,7 @@ class TestEnvVarsAPI:
 
     def test_get_env_vars_without_auth(self, client: TestClient):
         """测试未认证获取环境变量"""
-        response = client.get("/api/env-vars/")
+        response = client.get("/api/v1/env-vars/")
         assert response.status_code == 401
 
     def test_save_env_vars_success(self, client: TestClient, mocker, assert_api_response):
@@ -614,7 +614,7 @@ class TestEnvVarsAPI:
             },
         ]
 
-        response = client.post("/api/env-vars/", json=request_data)
+        response = client.post("/api/v1/env-vars/", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 2
@@ -624,7 +624,7 @@ class TestEnvVarsAPI:
         mocker.patch("settings.routes.is_guest_user", return_value=True)
 
         request_data = [{"key": "TEST", "value": "val"}]
-        response = client.post("/api/env-vars/", json=request_data)
+        response = client.post("/api/v1/env-vars/", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 401
@@ -644,7 +644,7 @@ class TestEnvVarsAPI:
         mocker.patch("settings.models.SystemConfigBusiness.delete", return_value=True)
         mocker.patch("utils.config_manager.load_system_configs", return_value={})
 
-        response = client.delete("/api/env-vars/MY_ENV_VAR", headers=auth_headers)
+        response = client.delete("/api/v1/env-vars/MY_ENV_VAR", headers=auth_headers)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["key"] == "MY_ENV_VAR"
@@ -659,7 +659,7 @@ class TestEnvVarsAPI:
         """测试删除不存在的环境变量"""
         mocker.patch("settings.models.SystemConfigBusiness.get_with_details", return_value=None)
 
-        response = client.delete("/api/env-vars/NON_EXISTENT", headers=auth_headers)
+        response = client.delete("/api/v1/env-vars/NON_EXISTENT", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
@@ -677,14 +677,14 @@ class TestEnvVarsAPI:
             return_value={"key": "OTHER_CONFIG", "name": "other"},
         )
 
-        response = client.delete("/api/env-vars/OTHER_CONFIG", headers=auth_headers)
+        response = client.delete("/api/v1/env-vars/OTHER_CONFIG", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
 
     def test_delete_env_var_without_auth(self, client: TestClient):
         """测试未认证删除环境变量"""
-        response = client.delete("/api/env-vars/MY_ENV_VAR")
+        response = client.delete("/api/v1/env-vars/MY_ENV_VAR")
         assert response.status_code == 401
 
 
@@ -700,7 +700,7 @@ class TestSettingsEdgeCases:
         long_key = "a" * 200
         request_data = {"key": long_key, "value": "value"}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_update_config_very_long_value(self, client: TestClient, mocker, assert_api_response):
@@ -712,7 +712,7 @@ class TestSettingsEdgeCases:
         long_value = "b" * 10000
         request_data = {"key": "long_value_config", "value": long_value}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_update_config_unicode(self, client: TestClient, mocker, assert_api_response):
@@ -727,7 +727,7 @@ class TestSettingsEdgeCases:
             "description": "中文描述",
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_update_config_special_chars_in_value(self, client: TestClient, mocker, assert_api_response):
@@ -741,7 +741,7 @@ class TestSettingsEdgeCases:
             "value": "<script>alert('xss')</script>&\"'",
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_batch_update_large_number(self, client: TestClient, mocker, assert_api_response):
@@ -752,7 +752,7 @@ class TestSettingsEdgeCases:
 
         request_data = {f"config_{i}": f"value_{i}" for i in range(100)}
 
-        response = client.post("/api/config/batch", json=request_data)
+        response = client.post("/api/v1/config/batch", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["updated_count"] == 100
@@ -768,7 +768,7 @@ class TestSettingsEdgeCases:
             "value": '{"nested": {"key": "value"}, "array": [1, 2, 3]}',
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_config_with_null_values(self, client: TestClient, mocker, assert_api_response):
@@ -784,7 +784,7 @@ class TestSettingsEdgeCases:
             "plugin": None,
         }
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_boolean_config_values(self, client: TestClient, mocker, assert_api_response):
@@ -795,7 +795,7 @@ class TestSettingsEdgeCases:
 
         request_data = {"key": "bool_config", "value": "true", "is_sensitive": True}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["is_sensitive"]
@@ -808,7 +808,7 @@ class TestSettingsEdgeCases:
 
         request_data = {"key": "numeric_config", "value": "12345"}
 
-        response = client.post("/api/config/", json=request_data)
+        response = client.post("/api/v1/config/", json=request_data)
         assert_api_response(response)
 
     def test_concurrent_config_updates(self, client: TestClient, mocker):
@@ -821,7 +821,7 @@ class TestSettingsEdgeCases:
 
         def make_request(i):
             request_data = {"key": f"concurrent_config_{i}", "value": f"value_{i}"}
-            return client.post("/api/config/", json=request_data)
+            return client.post("/api/v1/config/", json=request_data)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(make_request, i) for i in range(10)]

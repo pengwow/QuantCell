@@ -71,7 +71,7 @@ from .thinking_chain_schemas import (
 )
 
 # 创建策略生成API路由
-router = APIRouter(prefix="/api/ai-models/strategy", tags=["ai-strategy-generation"])
+router = APIRouter(prefix="/api/v1/ai-models/strategy", tags=["ai-strategy-generation"])
 
 # AI模型配置名称常量
 AI_MODELS_CONFIG_NAME = "ai_models"
@@ -308,7 +308,7 @@ async def generate_strategy_stream(request: Request, gen_request: StrategyGenera
 
     前端JavaScript使用示例:
         ```javascript
-        const eventSource = new EventSource('/api/ai-models/strategy/generate', {
+        const eventSource = new EventSource('/api/v1/ai-models/strategy/generate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({

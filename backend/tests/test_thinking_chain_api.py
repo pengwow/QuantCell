@@ -13,7 +13,7 @@ import requests
 
 # API基础URL
 BASE_URL = "http://localhost:8000"
-API_PREFIX = "/api/ai-models/strategy"
+API_PREFIX = "/api/v1/ai-models/strategy"
 
 # 测试用的JWT Token（需要先登录获取）
 # 注意：这里使用一个测试token，实际测试中需要通过登录接口获取

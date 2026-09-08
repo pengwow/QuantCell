@@ -98,7 +98,7 @@ class TestGenerateStrategyStream:
         request_data = {"model_id": "gpt-4"}
 
         response = client.post(
-            "/api/ai-models/strategy/generate",
+            "/api/v1/ai-models/strategy/generate",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -110,7 +110,7 @@ class TestGenerateStrategyStream:
         request_data = {"requirement": "短描述"}
 
         response = client.post(
-            "/api/ai-models/strategy/generate",
+            "/api/v1/ai-models/strategy/generate",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -125,7 +125,7 @@ class TestGenerateStrategyStream:
         }
 
         response = client.post(
-            "/api/ai-models/strategy/generate",
+            "/api/v1/ai-models/strategy/generate",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -150,7 +150,7 @@ class TestGenerateStrategySync:
         request_data = {"model_id": "gpt-4"}
 
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -162,7 +162,7 @@ class TestGenerateStrategySync:
         request_data = {"requirement": "短描述"}
 
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -183,7 +183,7 @@ class TestValidateStrategyCode:
         request_data = {"code": ""}
 
         response = client.post(
-            "/api/ai-models/strategy/validate",
+            "/api/v1/ai-models/strategy/validate",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -200,7 +200,7 @@ class TestRequestValidation:
         request_data = {"requirement": "太短"}
 
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -214,7 +214,7 @@ class TestRequestValidation:
         }
 
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -226,7 +226,7 @@ class TestRequestValidation:
         request_data = {"requirement": "   \n\t  "}
 
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json=request_data,
             headers={"Authorization": "Bearer test-token"},
         )
@@ -237,7 +237,7 @@ class TestRequestValidation:
         """测试 temperature 范围验证"""
         # 测试小于0
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json={
                 "requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出",
                 "temperature": -0.1,
@@ -248,7 +248,7 @@ class TestRequestValidation:
 
         # 测试大于2
         response = client.post(
-            "/api/ai-models/strategy/generate-sync",
+            "/api/v1/ai-models/strategy/generate-sync",
             json={
                 "requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出",
                 "temperature": 2.1,
@@ -260,7 +260,7 @@ class TestRequestValidation:
     def test_code_required_for_validate(self):
         """测试验证端点 code 字段必填"""
         response = client.post(
-            "/api/ai-models/strategy/validate",
+            "/api/v1/ai-models/strategy/validate",
             json={},
             headers={"Authorization": "Bearer test-token"},
         )
@@ -276,7 +276,7 @@ class TestAuthentication:
         # 在非debug模式下测试
         with patch("utils.auth.IS_DEBUG_MODE", False):
             response = client.post(
-                "/api/ai-models/strategy/generate-sync",
+                "/api/v1/ai-models/strategy/generate-sync",
                 json={"requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出"},
             )
 
@@ -286,7 +286,7 @@ class TestAuthentication:
         """测试无效的认证格式"""
         with patch("utils.auth.IS_DEBUG_MODE", False):
             response = client.post(
-                "/api/ai-models/strategy/generate-sync",
+                "/api/v1/ai-models/strategy/generate-sync",
                 json={"requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出"},
                 headers={"Authorization": "InvalidFormat"},
             )
@@ -301,7 +301,7 @@ class TestAuthentication:
             mock_decode.side_effect = TokenExpiredError("Token expired")
 
             response = client.post(
-                "/api/ai-models/strategy/generate-sync",
+                "/api/v1/ai-models/strategy/generate-sync",
                 json={"requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出"},
                 headers={"Authorization": "Bearer expired_token"},
             )
@@ -316,7 +316,7 @@ class TestAuthentication:
             mock_decode.side_effect = TokenInvalidError("Invalid token")
 
             response = client.post(
-                "/api/ai-models/strategy/generate-sync",
+                "/api/v1/ai-models/strategy/generate-sync",
                 json={"requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出"},
                 headers={"Authorization": "Bearer invalid_token"},
             )
@@ -331,7 +331,7 @@ class TestAuthentication:
                 mock_get_config.return_value = None
 
                 response = client.post(
-                    "/api/ai-models/strategy/generate-sync",
+                    "/api/v1/ai-models/strategy/generate-sync",
                     json={"requirement": "创建一个双均线策略，当短期均线上穿长期均线时买入，下穿时卖出"},
                 )
 
