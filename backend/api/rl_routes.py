@@ -2,11 +2,11 @@
 
 import functools
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/rl", tags=["RL Training"])
 
@@ -67,9 +67,8 @@ class WalkForwardRequest(BaseModel):
 
 
 @router.post("/train")
-@jwt_auth_required
 @handle_rl_exceptions
-async def start_training(request: Request, req: TrainRequest):
+async def start_training(req: TrainRequest, current_user: dict = Depends(get_current_user)):
     # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
     from services.rl_service import RLService, RLTrainConfig
 
@@ -99,9 +98,8 @@ async def start_training(request: Request, req: TrainRequest):
 
 
 @router.get("/models")
-@jwt_auth_required
 @handle_rl_exceptions
-async def list_models(request: Request):
+async def list_models(current_user: dict = Depends(get_current_user)):
     # 延迟导入：ModelRegistryService 依赖 axon_quant.registry
     from services.model_registry import ModelRegistryService
 
@@ -109,9 +107,8 @@ async def list_models(request: Request):
 
 
 @router.post("/walk-forward")
-@jwt_auth_required
 @handle_rl_exceptions
-async def run_walk_forward(request: Request, req: WalkForwardRequest):
+async def run_walk_forward(req: WalkForwardRequest, current_user: dict = Depends(get_current_user)):
     # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
     from services.rl_service import RLService, RLTrainConfig
 

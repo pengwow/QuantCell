@@ -26,7 +26,7 @@ AI模型配置API路由
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from utils.logger import LogType, get_logger
 
@@ -36,7 +36,7 @@ from common.schemas import ApiResponse
 
 # 导入系统配置模型
 from settings.models import SystemConfigBusiness as SystemConfig
-from utils.auth import jwt_auth_required, jwt_auth_required_sync
+from utils.auth import get_current_user
 
 from .config_utils import get_default_provider_and_models
 from .schemas import (
@@ -174,15 +174,14 @@ def delete_ai_model_from_config(model_id: str) -> bool:
 
 
 @router.get("/", response_model=ApiResponse)
-@jwt_auth_required_sync
 def get_ai_models(
-    request: Request,
     page: int = Query(1, ge=1, description="页码，从1开始"),
     limit: int = Query(10, ge=1, le=100, description="每页记录数"),
     provider: str | None = Query(None, description="按厂商筛选"),
     is_default: bool | None = Query(True, description="按默认配置筛选"),
     sort_by: str = Query("created_at", description="排序字段"),
     sort_order: str = Query("desc", description="排序顺序，asc或desc"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取AI模型配置列表
 
@@ -250,8 +249,7 @@ def get_ai_models(
 
 
 @router.post("/", response_model=ApiResponse)
-@jwt_auth_required_sync
-def create_ai_model(request: Request, config: AIModelCreate):
+def create_ai_model(config: AIModelCreate, current_user: dict = Depends(get_current_user)):
     """创建AI模型配置
 
     保存到系统配置表，name=ai_models
@@ -315,8 +313,7 @@ def create_ai_model(request: Request, config: AIModelCreate):
 
 
 @router.get("/providers", response_model=ApiResponse)
-@jwt_auth_required_sync
-def get_supported_providers(request: Request):
+def get_supported_providers(current_user: dict = Depends(get_current_user)):
     """获取支持的AI厂商列表
 
     Args:
@@ -345,10 +342,9 @@ def get_supported_providers(request: Request):
 
 
 @router.post("/check", response_model=ApiResponse)
-@jwt_auth_required
 async def check_ai_model_availability(
-    request: Request,
     check_request: AIModelCheckRequest,
+    current_user: dict = Depends(get_current_user),
 ):
     """检查AI模型可用性
 
@@ -391,10 +387,9 @@ async def check_ai_model_availability(
 
 
 @router.get("/{model_id}", response_model=ApiResponse)
-@jwt_auth_required_sync
 def get_ai_model(
-    request: Request,
     model_id: str = Path(..., description="配置ID"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取单个AI模型配置
 
@@ -440,11 +435,10 @@ def get_ai_model(
 
 
 @router.put("/{model_id}", response_model=ApiResponse)
-@jwt_auth_required_sync
 def update_ai_model(
-    request: Request,
     config: AIModelUpdate,
     model_id: str = Path(..., description="配置ID"),
+    current_user: dict = Depends(get_current_user),
 ):
     """更新AI模型配置
 
@@ -521,10 +515,9 @@ def update_ai_model(
 
 
 @router.delete("/{model_id}", response_model=ApiResponse)
-@jwt_auth_required_sync
 def delete_ai_model(
-    request: Request,
     model_id: str = Path(..., description="配置ID"),
+    current_user: dict = Depends(get_current_user),
 ):
     """删除AI模型配置
 
@@ -564,9 +557,8 @@ def delete_ai_model(
 
 
 @router.get("/default-provider/models", response_model=ApiResponse)
-@jwt_auth_required_sync
 def get_default_provider_models(
-    request: Request,
+    current_user: dict = Depends(get_current_user),
 ):
     """获取默认提供商的模型
 
@@ -638,10 +630,9 @@ def get_default_provider_models(
 
 
 @router.get("/{model_id}/models", response_model=ApiResponse)
-@jwt_auth_required
 async def get_available_models(
-    request: Request,
     model_id: str = Path(..., description="配置ID"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取配置的可用模型列表
 

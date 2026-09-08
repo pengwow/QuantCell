@@ -2,11 +2,11 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/models", tags=["Models"])
 
@@ -19,8 +19,7 @@ class RegisterModelRequest(BaseModel):
 
 
 @router.get("/list")
-@jwt_auth_required
-async def list_models(request: Request):
+async def list_models(current_user: dict = Depends(get_current_user)):
     """List all registered models."""
     try:
         from services.model_registry import ModelRegistryService
@@ -32,8 +31,7 @@ async def list_models(request: Request):
 
 
 @router.post("/register")
-@jwt_auth_required
-async def register_model(request: Request, req: RegisterModelRequest):
+async def register_model(req: RegisterModelRequest, current_user: dict = Depends(get_current_user)):
     """Register a new model."""
     try:
         from services.model_registry import ModelRegistryService
@@ -51,8 +49,7 @@ async def register_model(request: Request, req: RegisterModelRequest):
 
 
 @router.post("/{model_id}/promote")
-@jwt_auth_required
-async def promote_model(request: Request, model_id: str):
+async def promote_model(model_id: str, current_user: dict = Depends(get_current_user)):
     """Promote model to production."""
     try:
         from services.model_registry import ModelRegistryService

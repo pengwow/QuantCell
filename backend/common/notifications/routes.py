@@ -22,11 +22,11 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 
 from .models import NotificationCategory, NotificationChannel, NotificationLevel
@@ -89,8 +89,10 @@ def parse_channels(channels: list[str]) -> list[NotificationChannel]:
 
 # ponytail: 全部改为 async def + await，避免 run_until_complete 死锁
 @router.post("/send", response_model=ApiResponse)
-@jwt_auth_required
-async def send_notification(request: Request, data: SendNotificationRequest = Body(...)):
+async def send_notification(
+    data: SendNotificationRequest = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     try:
         logger.info(f"发送通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
@@ -113,8 +115,10 @@ async def send_notification(request: Request, data: SendNotificationRequest = Bo
 
 
 @router.post("/system", response_model=ApiResponse)
-@jwt_auth_required
-async def send_system_notification(request: Request, data: SendSystemNotificationRequest = Body(...)):
+async def send_system_notification(
+    data: SendSystemNotificationRequest = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     try:
         logger.info(f"发送系统通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
@@ -135,8 +139,10 @@ async def send_system_notification(request: Request, data: SendSystemNotificatio
 
 
 @router.post("/alert", response_model=ApiResponse)
-@jwt_auth_required
-async def send_alert(request: Request, data: SendAlertRequest = Body(...)):
+async def send_alert(
+    data: SendAlertRequest = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     try:
         logger.info(f"发送告警通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
@@ -157,8 +163,10 @@ async def send_alert(request: Request, data: SendAlertRequest = Body(...)):
 
 
 @router.post("/task", response_model=ApiResponse)
-@jwt_auth_required
-async def send_task_notification(request: Request, data: SendTaskNotificationRequest = Body(...)):
+async def send_task_notification(
+    data: SendTaskNotificationRequest = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     try:
         logger.info(f"发送任务通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
@@ -180,8 +188,7 @@ async def send_task_notification(request: Request, data: SendTaskNotificationReq
 
 
 @router.get("/status", response_model=ApiResponse)
-@jwt_auth_required
-async def get_notification_status(request: Request):
+async def get_notification_status(current_user: dict = Depends(get_current_user)):
     try:
         logger.info("获取通知渠道状态")
         status = notification_service.get_channel_status()

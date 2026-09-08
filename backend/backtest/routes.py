@@ -24,11 +24,11 @@
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from strategy.schemas import StrategyUploadRequest
-from utils.auth import jwt_auth_required_sync
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
@@ -360,8 +360,7 @@ def analyze_backtest(request: BacktestAnalyzeRequest) -> ApiResponse:
     summary="删除回测结果（无ID）",
     description="删除回测结果（未提供ID时返回重定向提示）",
 )
-@jwt_auth_required_sync
-def delete_backtest_no_id(request: Request) -> JSONResponse:
+def delete_backtest_no_id(request: Request, current_user: dict = Depends(get_current_user)) -> JSONResponse:
     """
     删除回测结果（无ID时返回重定向）
 
@@ -384,8 +383,7 @@ def delete_backtest_no_id(request: Request) -> JSONResponse:
     summary="删除回测结果",
     description="删除指定ID的回测结果",
 )
-@jwt_auth_required_sync
-def delete_backtest(request: Request, backtest_id: str) -> ApiResponse:
+def delete_backtest(request: Request, backtest_id: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """
     删除回测结果
 

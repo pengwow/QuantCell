@@ -2,12 +2,12 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
 from services.ensemble_service import get_ensemble_service
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/ensemble", tags=["Ensemble"])
 
@@ -22,8 +22,7 @@ class PredictRequest(BaseModel):
 
 
 @router.post("/create")
-@jwt_auth_required
-async def create_ensemble(request: Request, req: CreateEnsembleRequest):
+async def create_ensemble(req: CreateEnsembleRequest, current_user: dict = Depends(get_current_user)):
     try:
         svc = get_ensemble_service()
         eid = svc.create_ensemble(strategy=req.strategy, model_paths=req.model_paths)
@@ -35,8 +34,11 @@ async def create_ensemble(request: Request, req: CreateEnsembleRequest):
 
 
 @router.post("/{ensemble_id}/predict")
-@jwt_auth_required
-async def predict(request: Request, ensemble_id: str, req: PredictRequest):
+async def predict(
+    ensemble_id: str,
+    req: PredictRequest,
+    current_user: dict = Depends(get_current_user),
+):
     try:
         svc = get_ensemble_service()
         result = svc.predict(ensemble_id, req.observation)
@@ -48,8 +50,7 @@ async def predict(request: Request, ensemble_id: str, req: PredictRequest):
 
 
 @router.get("/list")
-@jwt_auth_required
-async def list_ensembles(request: Request):
+async def list_ensembles(current_user: dict = Depends(get_current_user)):
     try:
         svc = get_ensemble_service()
         return ApiResponse(code=0, message="success", data=svc.list_ensembles())

@@ -5,10 +5,10 @@
 
 import re
 
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required_sync
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 
 from .schemas import (
@@ -80,8 +80,10 @@ def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
 
 
 @router.post("/upload", response_model=StrategyUploadResponse)
-@jwt_auth_required_sync
-def upload_strategy(request: Request, strategy_request: StrategyUploadRequest) -> StrategyUploadResponse:
+def upload_strategy(
+    strategy_request: StrategyUploadRequest,
+    current_user: dict = Depends(get_current_user),
+) -> StrategyUploadResponse:
     _validate_strategy_name(strategy_request.strategy_name)
     try:
         get_strategy_service().save_strategy(
@@ -118,10 +120,9 @@ def parse_strategy(request: StrategyParseRequest) -> ApiResponse:
 
 
 @router.delete("/{strategy_name}", response_model=ApiResponse)
-@jwt_auth_required_sync
 def delete_strategy(
-    request: Request,
     strategy_name: str = Path(..., description="策略名称"),
+    current_user: dict = Depends(get_current_user),
 ) -> ApiResponse:
     _validate_strategy_name(strategy_name)
     try:
@@ -142,10 +143,9 @@ def delete_strategy(
 
 
 @router.post("/generate", response_model=StrategyGenerateResponse)
-@jwt_auth_required_sync
 def generate_strategy(
-    request: Request,
     generate_request: StrategyGenerateRequest,
+    current_user: dict = Depends(get_current_user),
 ) -> StrategyGenerateResponse:
     try:
         result = get_strategy_service().generate_strategy(

@@ -26,15 +26,15 @@ from datetime import datetime
 from typing import Any
 
 import bcrypt
-from fastapi import APIRouter, Body, HTTPException, Path, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 导入JWT认证装饰器
-from utils.auth import jwt_auth_required_sync
+# 导入统一认证依赖
+from utils.auth import get_current_user
 from utils.jwt_utils import generate_tokens
 
 
@@ -383,8 +383,11 @@ def update_config(request: Request, config: ConfigUpdateRequest):
 
 
 @config_router.delete("/{key}", response_model=ApiResponse)
-@jwt_auth_required_sync
-def delete_config(request: Request, key: str = Path(..., description="要删除的配置项键名")):
+def delete_config(
+    request: Request,
+    key: str = Path(..., description="要删除的配置项键名"),
+    current_user: dict = Depends(get_current_user),
+):
     """删除指定键的系统配置
 
     Args:
@@ -724,8 +727,9 @@ notification_router = APIRouter(prefix="/api/v1/notifications", tags=["notificat
 
 
 @notification_router.get("/channels", response_model=ApiResponse)
-@jwt_auth_required_sync
-def get_notification_channels(request: Request):
+def get_notification_channels(
+    current_user: dict = Depends(get_current_user),
+):
     """获取所有通知渠道配置
 
     从系统配置中获取所有通知渠道配置，每个渠道作为一条记录，name=notification_channel。
@@ -819,8 +823,11 @@ def get_notification_channels(request: Request):
 
 
 @notification_router.post("/channels", response_model=ApiResponse)
-@jwt_auth_required_sync
-def save_notification_channels(request: Request, channels: list[dict[str, Any]] = Body(...)):
+def save_notification_channels(
+    request: Request,
+    channels: list[dict[str, Any]] = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     """保存通知渠道配置
 
     将每个通知渠道配置保存为一条系统配置记录，name=渠道名称，key=notification_channel。
@@ -892,8 +899,10 @@ def save_notification_channels(request: Request, channels: list[dict[str, Any]] 
 
 
 @notification_router.post("/test", response_model=ApiResponse)
-@jwt_auth_required_sync
-async def test_notification(request: Request, test_request: dict[str, Any] = Body(...)):
+async def test_notification(
+    test_request: dict[str, Any] = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     """测试通知渠道
 
     发送测试消息到指定的通知渠道。
@@ -954,8 +963,9 @@ exchange_router = APIRouter(prefix="/api/v1/exchange-configs", tags=["exchange-c
 
 
 @exchange_router.get("/", response_model=ApiResponse)
-@jwt_auth_required_sync
-def get_exchange_configs(request: Request):
+def get_exchange_configs(
+    current_user: dict = Depends(get_current_user),
+):
     """获取所有交易所配置（扁平化存储）
 
     从扁平化存储中获取所有交易所配置，key格式为：exchange.{exchange_id}.{field}。
@@ -1005,8 +1015,11 @@ def get_exchange_configs(request: Request):
 
 
 @exchange_router.post("/", response_model=ApiResponse)
-@jwt_auth_required_sync
-def create_exchange_config(request: Request, config: dict[str, Any] = Body(...)):
+def create_exchange_config(
+    request: Request,
+    config: dict[str, Any] = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     """创建交易所配置（扁平化存储）
 
     将交易所配置以扁平化方式保存，key格式为：exchange.{exchange_id}.{field}。
@@ -1051,7 +1064,9 @@ def create_exchange_config(request: Request, config: dict[str, Any] = Body(...))
         )
 
         if success:
-            # 刷新应用上下文配置
+            # 刷新应用上下文配置（延迟导入避免与 config_manager 循环依赖）
+            from utils.config_manager import load_system_configs
+
             request.app.state.configs = load_system_configs()
             logger.info(f"交易所配置创建成功: {exchange_id}")
             return ApiResponse(
@@ -1068,8 +1083,12 @@ def create_exchange_config(request: Request, config: dict[str, Any] = Body(...))
 
 
 @exchange_router.put("/{key}", response_model=ApiResponse)
-@jwt_auth_required_sync
-def update_exchange_config(request: Request, key: str, config: dict[str, Any] = Body(...)):
+def update_exchange_config(
+    request: Request,
+    key: str,
+    config: dict[str, Any] = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
     """更新交易所配置（扁平化存储）
 
     以扁平化方式更新交易所配置。
@@ -1111,7 +1130,9 @@ def update_exchange_config(request: Request, key: str, config: dict[str, Any] = 
         )
 
         if success:
-            # 刷新应用上下文配置
+            # 刷新应用上下文配置（延迟导入避免与 config_manager 循环依赖）
+            from utils.config_manager import load_system_configs
+
             request.app.state.configs = load_system_configs()
             logger.info(f"交易所配置更新成功: {key}")
             return ApiResponse(
@@ -1128,8 +1149,11 @@ def update_exchange_config(request: Request, key: str, config: dict[str, Any] = 
 
 
 @exchange_router.delete("/{key}", response_model=ApiResponse)
-@jwt_auth_required_sync
-def delete_exchange_config(request: Request, key: str):
+def delete_exchange_config(
+    request: Request,
+    key: str,
+    current_user: dict = Depends(get_current_user),
+):
     """删除交易所配置（扁平化存储）
 
     删除指定交易所的所有扁平化配置记录。
@@ -1149,7 +1173,9 @@ def delete_exchange_config(request: Request, key: str):
         success = SystemConfig.delete_flattened(prefix)
 
         if success:
-            # 刷新应用上下文配置
+            # 刷新应用上下文配置（延迟导入避免与 config_manager 循环依赖）
+            from utils.config_manager import load_system_configs
+
             request.app.state.configs = load_system_configs()
             logger.info(f"交易所配置删除成功: {key}")
             return ApiResponse(code=0, message="交易所配置删除成功", data={"key": key})
@@ -1162,8 +1188,9 @@ def delete_exchange_config(request: Request, key: str):
 
 
 @exchange_router.get("/exchanges", response_model=ApiResponse)
-@jwt_auth_required_sync
-def get_supported_exchanges(request: Request):
+def get_supported_exchanges(
+    current_user: dict = Depends(get_current_user),
+):
     """获取支持的交易所列表
 
     Returns:
@@ -1210,8 +1237,9 @@ env_var_router = APIRouter(prefix="/api/v1/env-vars", tags=["env-variables"])
 
 
 @env_var_router.get("/", response_model=ApiResponse)
-@jwt_auth_required_sync
-def get_env_variables(request: Request):
+def get_env_variables(
+    current_user: dict = Depends(get_current_user),
+):
     """获取所有环境变量配置
 
     从系统配置中获取所有 name="env" 的环境变量配置
@@ -1325,8 +1353,11 @@ def save_env_variables(request: Request, items: list[dict[str, Any]] = Body(...)
 
 
 @env_var_router.delete("/{key}", response_model=ApiResponse)
-@jwt_auth_required_sync
-def delete_env_variable(request: Request, key: str = Path(..., description="要删除的环境变量键名")):
+def delete_env_variable(
+    request: Request,
+    key: str = Path(..., description="要删除的环境变量键名"),
+    current_user: dict = Depends(get_current_user),
+):
     """删除指定环境变量配置
 
     Args:

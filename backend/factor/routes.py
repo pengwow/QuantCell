@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 
 from .service import FactorService
@@ -91,7 +91,6 @@ router = APIRouter(
 factor_service = FactorService()
 
 
-@jwt_auth_required
 @router.get(
     "/list",
     response_model=ApiResponse,
@@ -99,7 +98,7 @@ factor_service = FactorService()
     description="获取所有支持的因子列表",
 )
 def get_factor_list(
-    request: Request,
+    current_user: dict = Depends(get_current_user),
 ) -> ApiResponse:
     """获取所有支持的因子列表"""
     try:
@@ -116,14 +115,13 @@ def get_factor_list(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.get(
     "/expression/{factor_name}",
     response_model=ApiResponse,
     summary="获取因子表达式",
     description="获取指定因子的表达式",
 )
-def get_factor_expression(request: Request, factor_name: str) -> ApiResponse:
+def get_factor_expression(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """获取因子的表达式"""
     try:
         logger.info(f"获取因子表达式请求，因子名称: {factor_name}")
@@ -147,14 +145,13 @@ def get_factor_expression(request: Request, factor_name: str) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/add",
     response_model=ApiResponse,
     summary="添加自定义因子",
     description="添加新的自定义因子",
 )
-def add_factor(http_request: Request, request: FactorAddRequest) -> ApiResponse:
+def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """添加自定义因子"""
     try:
         logger.info(f"添加因子请求，因子名称: {request.factor_name}, 表达式: {request.expression}")
@@ -181,14 +178,13 @@ def add_factor(http_request: Request, request: FactorAddRequest) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.delete(
     "/delete/{factor_name}",
     response_model=ApiResponse,
     summary="删除自定义因子",
     description="删除指定的自定义因子",
 )
-def delete_factor(request: Request, factor_name: str) -> ApiResponse:
+def delete_factor(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """删除自定义因子"""
     try:
         logger.info(f"删除因子请求，因子名称: {factor_name}")
@@ -212,14 +208,13 @@ def delete_factor(request: Request, factor_name: str) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/calculate",
     response_model=ApiResponse,
     summary="计算单因子",
     description="计算指定因子的值",
 )
-def calculate_factor(http_request: Request, request: FactorCalculateRequest) -> ApiResponse:
+def calculate_factor(request: FactorCalculateRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """计算指定因子的值"""
     try:
         logger.info(f"计算因子请求，因子名称: {request.factor_name}")
@@ -254,14 +249,15 @@ def calculate_factor(http_request: Request, request: FactorCalculateRequest) -> 
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/calculate-multi",
     response_model=ApiResponse,
     summary="计算多因子",
     description="计算多个因子的值",
 )
-def calculate_factors(http_request: Request, request: FactorCalculateMultiRequest) -> ApiResponse:
+def calculate_factors(
+    request: FactorCalculateMultiRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """计算多个因子的值"""
     try:
         logger.info(f"计算多个因子请求，因子数量: {len(request.factor_names)}")
@@ -296,14 +292,15 @@ def calculate_factors(http_request: Request, request: FactorCalculateMultiReques
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/calculate-all",
     response_model=ApiResponse,
     summary="计算所有因子",
     description="计算所有内置因子的值",
 )
-def calculate_all_factors(http_request: Request, request: FactorCalculateRequest) -> ApiResponse:
+def calculate_all_factors(
+    request: FactorCalculateRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """计算所有因子的值"""
     try:
         logger.info("计算所有因子请求")
@@ -337,14 +334,15 @@ def calculate_all_factors(http_request: Request, request: FactorCalculateRequest
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/validate",
     response_model=ApiResponse,
     summary="验证因子表达式",
     description="验证因子表达式是否有效",
 )
-def validate_factor_expression(http_request: Request, request: FactorValidateRequest) -> ApiResponse:
+def validate_factor_expression(
+    request: FactorValidateRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """验证因子表达式是否有效"""
     try:
         logger.info(f"验证因子表达式请求，表达式: {request.expression}")
@@ -368,14 +366,15 @@ def validate_factor_expression(http_request: Request, request: FactorValidateReq
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/correlation",
     response_model=ApiResponse,
     summary="计算因子相关性",
     description="计算因子之间的相关性矩阵",
 )
-def get_factor_correlation(http_request: Request, request: FactorCorrelationRequest) -> ApiResponse:
+def get_factor_correlation(
+    request: FactorCorrelationRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """计算因子之间的相关性矩阵"""
     try:
         df = _dict_to_df(request.factor_data)
@@ -394,14 +393,13 @@ def get_factor_correlation(http_request: Request, request: FactorCorrelationRequ
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/stats",
     response_model=ApiResponse,
     summary="获取因子统计",
     description="获取因子的描述性统计信息",
 )
-def get_factor_stats(http_request: Request, request: FactorStatsRequest) -> ApiResponse:
+def get_factor_stats(request: FactorStatsRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """获取因子的描述性统计信息"""
     try:
         df = _dict_to_df(request.factor_data)
@@ -420,14 +418,13 @@ def get_factor_stats(http_request: Request, request: FactorStatsRequest) -> ApiR
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/ic",
     response_model=ApiResponse,
     summary="计算IC",
     description="计算因子的信息系数(IC)",
 )
-def calculate_factor_ic(http_request: Request, request: FactorICRequest) -> ApiResponse:
+def calculate_factor_ic(request: FactorICRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """计算因子的信息系数(IC)"""
     try:
         factor_df = _dict_to_df(request.factor_data)
@@ -452,14 +449,13 @@ def calculate_factor_ic(http_request: Request, request: FactorICRequest) -> ApiR
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/ir",
     response_model=ApiResponse,
     summary="计算IR",
     description="计算因子的信息比率(IR)",
 )
-def calculate_factor_ir(http_request: Request, request: FactorIRRequest) -> ApiResponse:
+def calculate_factor_ir(request: FactorIRRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """计算因子的信息比率(IR)"""
     try:
         factor_df = _dict_to_df(request.factor_data)
@@ -485,14 +481,15 @@ def calculate_factor_ir(http_request: Request, request: FactorIRRequest) -> ApiR
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/group-analysis",
     response_model=ApiResponse,
     summary="分组分析",
     description="因子分组回测分析",
 )
-def factor_group_analysis(http_request: Request, request: FactorGroupAnalysisRequest) -> ApiResponse:
+def factor_group_analysis(
+    request: FactorGroupAnalysisRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """因子分组回测分析"""
     try:
         factor_df = _dict_to_df(request.factor_data)
@@ -520,14 +517,15 @@ def factor_group_analysis(http_request: Request, request: FactorGroupAnalysisReq
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/monotonicity",
     response_model=ApiResponse,
     summary="单调性检验",
     description="因子单调性检验",
 )
-def factor_monotonicity_test(http_request: Request, request: FactorMonotonicityRequest) -> ApiResponse:
+def factor_monotonicity_test(
+    request: FactorMonotonicityRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """因子单调性检验"""
     try:
         factor_df = _dict_to_df(request.factor_data)
@@ -547,14 +545,15 @@ def factor_monotonicity_test(http_request: Request, request: FactorMonotonicityR
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@jwt_auth_required
 @router.post(
     "/stability",
     response_model=ApiResponse,
     summary="稳定性检验",
     description="因子稳定性检验",
 )
-def factor_stability_test(http_request: Request, request: FactorStabilityRequest) -> ApiResponse:
+def factor_stability_test(
+    request: FactorStabilityRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
     """因子稳定性检验"""
     try:
         factor_df = _dict_to_df(request.factor_data)

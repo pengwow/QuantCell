@@ -1,7 +1,9 @@
 # 定时任务管理API
 
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from utils.logger import LogType, get_logger
 
@@ -10,9 +12,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.models import ScheduledTaskBusiness
 from collector.schemas import ApiResponse, ScheduledTaskCreate, ScheduledTaskUpdate
 from collector.utils.scheduled_task_manager import scheduled_task_manager
-
-# 导入JWT认证装饰器
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 
 # 创建API路由实例
 router = APIRouter(prefix="/scheduled-tasks", tags=["scheduled-tasks"])
@@ -199,8 +199,7 @@ async def update_scheduled_task(task_id: int, request: ScheduledTaskUpdate):
 
 
 @router.delete("/{task_id}", response_model=ApiResponse)
-@jwt_auth_required
-async def delete_scheduled_task(request: Request, task_id: int):
+async def delete_scheduled_task(task_id: int, current_user: dict = Depends(get_current_user)):
     """删除定时任务
 
     Args:

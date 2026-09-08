@@ -7,13 +7,13 @@ import math
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse
 from strategy.base import StrategyConfig
 from strategy.loader import StrategyLoader
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 from utils.timestamp_utils import convert_to_datetime
 
 router = APIRouter(prefix="/api/v1/engine", tags=["Engine"])
@@ -61,8 +61,7 @@ class BacktestRequest(BaseModel):
 
 
 @router.get("/status")
-@jwt_auth_required
-async def engine_status(request: Request) -> ApiResponse:
+async def engine_status(current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """获取引擎状态概览"""
     from engine.trading_engine import get_trading_engine
 
@@ -71,8 +70,7 @@ async def engine_status(request: Request) -> ApiResponse:
 
 
 @router.get("/strategies")
-@jwt_auth_required
-async def list_strategies(request: Request) -> ApiResponse:
+async def list_strategies(current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """列出所有策略及其运行状态"""
     from engine.trading_engine import get_trading_engine
 
@@ -81,8 +79,7 @@ async def list_strategies(request: Request) -> ApiResponse:
 
 
 @router.post("/strategies/start")
-@jwt_auth_required
-async def start_strategy(request: Request, req: StartStrategyRequest) -> ApiResponse:
+async def start_strategy(req: StartStrategyRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """启动策略（paper 或 live 模式）"""
     from engine.trading_engine import get_trading_engine
 
@@ -116,8 +113,7 @@ async def start_strategy(request: Request, req: StartStrategyRequest) -> ApiResp
 
 
 @router.post("/strategies/{sid}/stop")
-@jwt_auth_required
-async def stop_strategy(request: Request, sid: str) -> ApiResponse:
+async def stop_strategy(sid: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """停止运行中的策略"""
     from engine.trading_engine import get_trading_engine
 
@@ -129,8 +125,7 @@ async def stop_strategy(request: Request, sid: str) -> ApiResponse:
 
 
 @router.get("/strategies/{sid}/status")
-@jwt_auth_required
-async def get_strategy_status(request: Request, sid: str) -> ApiResponse:
+async def get_strategy_status(sid: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """获取单个策略运行详情"""
     from engine.trading_engine import get_trading_engine
 
@@ -142,8 +137,7 @@ async def get_strategy_status(request: Request, sid: str) -> ApiResponse:
 
 
 @router.post("/backtest")
-@jwt_auth_required
-async def run_backtest(request: Request, req: BacktestRequest) -> ApiResponse:
+async def run_backtest(req: BacktestRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """运行回测"""
     from engine.trading_engine import get_trading_engine
 

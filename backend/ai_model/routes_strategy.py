@@ -32,7 +32,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from utils.logger import LogType, get_logger
@@ -40,7 +40,7 @@ from utils.logger import LogType, get_logger
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required
+from utils.auth import authenticate_request, get_current_user
 
 from .config_utils import get_default_provider_and_models
 from .prompts import PromptCategory
@@ -205,8 +205,14 @@ def create_strategy_generator(
 
 
 @router.post("/generate")
-@jwt_auth_required
-async def generate_strategy_stream(request: Request, gen_request: StrategyGenerateRequest):
+async def generate_strategy_stream(
+    request: Request,
+    gen_request: StrategyGenerateRequest,
+    token: str | None = Query(
+        None,
+        description="JWT token for SSE authentication (EventSource cannot send headers)",
+    ),
+):
     """流式生成策略(SSE)
 
     使用AI模型流式生成策略代码，通过SSE(Server-Sent Events)方式实时返回生成内容。
@@ -337,6 +343,9 @@ async def generate_strategy_stream(request: Request, gen_request: StrategyGenera
         - SSE连接保持期间不要关闭客户端
         - 如果AI模型未配置，会返回400错误
     """
+    # EventSource 无法发送 Authorization 头，token 走 query 参数，由统一认证入口校验
+    await authenticate_request(request, token=token)
+
     try:
         logger.info(f"开始流式生成策略，需求长度: {len(gen_request.requirement)}字符")
 
@@ -379,8 +388,10 @@ async def generate_strategy_stream(request: Request, gen_request: StrategyGenera
 
 
 @router.post("/generate-sync", response_model=ApiResponse)
-@jwt_auth_required
-async def generate_strategy_sync(request: Request, gen_request: StrategyGenerateRequest):
+async def generate_strategy_sync(
+    gen_request: StrategyGenerateRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """同步生成策略
 
     使用AI模型同步生成策略代码，一次性返回完整结果。
@@ -591,8 +602,10 @@ async def generate_strategy_sync(request: Request, gen_request: StrategyGenerate
 
 
 @router.post("/validate", response_model=ApiResponse)
-@jwt_auth_required
-async def validate_strategy_code(request: Request, validate_request: StrategyValidateRequest):
+async def validate_strategy_code(
+    validate_request: StrategyValidateRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """验证策略代码
 
     对生成的策略代码进行语法验证和基本结构检查，确保代码可以正确加载和执行。
@@ -800,16 +813,22 @@ _strategy_templates_db: dict[str, dict[str, Any]] = {
 
 
 def _get_user_id_from_request(request: Request) -> str:
-    """从请求中获取用户ID"""
+    """从请求中获取用户ID
+
+    认证依赖注入后 request.state.user 为 dict（键: sub/user_id/name/user_name/role），
+    优先读取其中的 sub/user_id；同时兼容旧的非 dict 用户对象。
+    """
     user = getattr(request.state, "user", None)
-    if user:
-        return getattr(user, "id", str(uuid.uuid4()))
-    return str(uuid.uuid4())
+    if isinstance(user, dict):
+        return user.get("sub") or user.get("user_id") or str(uuid.uuid4())
+    return getattr(user, "id", None) or str(uuid.uuid4())
 
 
 @router.post("/validate-code", response_model=ApiResponse)
-@jwt_auth_required
-async def validate_code(request: Request, validation_request: CodeValidationRequest):
+async def validate_code(
+    validation_request: CodeValidationRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """通用代码验证端点
 
     对任意代码进行语法验证和基本结构检查，支持多种编程语言。
@@ -873,7 +892,6 @@ async def validate_code(request: Request, validation_request: CodeValidationRequ
 
 
 @router.get("/history", response_model=ApiResponse)
-@jwt_auth_required
 async def get_history_list(
     request: Request,
     page: int = Query(1, ge=1, description="页码"),
@@ -882,6 +900,7 @@ async def get_history_list(
     model_id: str | None = Query(None, description="筛选模型ID"),
     start_date: datetime | None = Query(None, description="开始日期"),
     end_date: datetime | None = Query(None, description="结束日期"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取策略生成历史列表
 
@@ -948,8 +967,11 @@ async def get_history_list(
 
 
 @router.get("/history/{history_id}", response_model=ApiResponse)
-@jwt_auth_required
-async def get_history_detail(request: Request, history_id: str):
+async def get_history_detail(
+    request: Request,
+    history_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """获取单条策略历史记录详情
 
     Args:
@@ -986,8 +1008,11 @@ async def get_history_detail(request: Request, history_id: str):
 
 
 @router.delete("/history/{history_id}", response_model=ApiResponse)
-@jwt_auth_required
-async def delete_history(request: Request, history_id: str):
+async def delete_history(
+    request: Request,
+    history_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """删除策略历史记录
 
     Args:
@@ -1024,8 +1049,11 @@ async def delete_history(request: Request, history_id: str):
 
 
 @router.post("/history/{history_id}/regenerate", response_model=ApiResponse)
-@jwt_auth_required
-async def regenerate_from_history(request: Request, history_id: str):
+async def regenerate_from_history(
+    request: Request,
+    history_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """基于历史记录重新生成策略
 
     使用历史记录中的需求描述重新生成策略代码。
@@ -1121,11 +1149,10 @@ async def regenerate_from_history(request: Request, history_id: str):
 
 
 @router.get("/templates", response_model=ApiResponse)
-@jwt_auth_required
 async def get_template_list(
-    request: Request,
     category: str | None = Query(None, description="模板分类筛选"),
     tag: str | None = Query(None, description="标签筛选"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取策略模板列表
 
@@ -1164,8 +1191,10 @@ async def get_template_list(
 
 
 @router.get("/templates/{template_id}", response_model=ApiResponse)
-@jwt_auth_required
-async def get_template_detail(request: Request, template_id: str):
+async def get_template_detail(
+    template_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """获取单个策略模板详情
 
     Args:
@@ -1198,10 +1227,10 @@ async def get_template_detail(request: Request, template_id: str):
 
 
 @router.post("/generate-from-template", response_model=ApiResponse)
-@jwt_auth_required
 async def generate_from_template(
     request: Request,
     gen_request: StrategyGenerateFromTemplateRequest,
+    current_user: dict = Depends(get_current_user),
 ):
     """基于模板生成策略
 
@@ -1299,10 +1328,10 @@ async def generate_from_template(
 
 
 @router.get("/stats", response_model=ApiResponse)
-@jwt_auth_required
 async def get_performance_stats(
     request: Request,
     days: int = Query(30, ge=1, le=365, description="统计天数"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取性能统计
 
@@ -1388,13 +1417,12 @@ async def get_performance_stats(
 
 
 @router.get("/thinking-chains/preload", response_model=ApiResponse)
-@jwt_auth_required
 async def preload_thinking_chain(
-    request: Request,
     chain_type: str = Query(
         "strategy_generation",
         description="思维链类型: strategy_generation/indicator_generation",
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """预加载思维链配置
 
@@ -1473,15 +1501,14 @@ async def preload_thinking_chain(
 
 
 @router.get("/thinking-chains", response_model=ApiResponse)
-@jwt_auth_required
 async def get_thinking_chains(
-    request: Request,
     chain_type: str | None = Query(None, description="思维链类型筛选: strategy_generation/indicator_generation"),
     is_active: bool | None = Query(None, description="按激活状态筛选"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     sort_by: str = Query("created_at", description="排序字段: created_at/updated_at/name/chain_type"),
     sort_order: str = Query("desc", description="排序顺序: asc/desc"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取思维链配置列表
 
@@ -1555,8 +1582,10 @@ async def get_thinking_chains(
 
 
 @router.get("/thinking-chains/{chain_id}", response_model=ApiResponse)
-@jwt_auth_required
-async def get_thinking_chain_detail(request: Request, chain_id: str):
+async def get_thinking_chain_detail(
+    chain_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """获取单个思维链配置详情
 
     Args:
@@ -1614,8 +1643,10 @@ async def get_thinking_chain_detail(request: Request, chain_id: str):
 
 
 @router.post("/thinking-chains", response_model=ApiResponse)
-@jwt_auth_required
-async def create_thinking_chain(request: Request, chain_data: ThinkingChainCreate):
+async def create_thinking_chain(
+    chain_data: ThinkingChainCreate,
+    current_user: dict = Depends(get_current_user),
+):
     """创建思维链配置
 
     Args:
@@ -1673,11 +1704,10 @@ async def create_thinking_chain(request: Request, chain_data: ThinkingChainCreat
 
 
 @router.put("/thinking-chains/{chain_id}", response_model=ApiResponse)
-@jwt_auth_required
 async def update_thinking_chain(
-    request: Request,
     chain_id: str,
     chain_data: ThinkingChainUpdate,
+    current_user: dict = Depends(get_current_user),
 ):
     """更新思维链配置
 
@@ -1741,8 +1771,10 @@ async def update_thinking_chain(
 
 
 @router.delete("/thinking-chains/{chain_id}", response_model=ApiResponse)
-@jwt_auth_required
-async def delete_thinking_chain(request: Request, chain_id: str):
+async def delete_thinking_chain(
+    chain_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """删除思维链配置
 
     Args:
@@ -1788,11 +1820,10 @@ async def delete_thinking_chain(request: Request, chain_id: str):
 
 
 @router.post("/thinking-chains/import", response_model=ApiResponse)
-@jwt_auth_required
 async def import_thinking_chains_from_toml(
-    request: Request,
     file: UploadFile = File(..., description="TOML配置文件"),
     update_existing: bool = Query(True, description="是否更新已存在的配置"),
+    current_user: dict = Depends(get_current_user),
 ):
     """从TOML文件导入思维链配置
 

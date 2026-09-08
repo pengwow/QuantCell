@@ -7,12 +7,12 @@ import re
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -124,8 +124,11 @@ async def get_plugin(name: str):
 
 
 @router.post("/install/upload", response_model=ApiResponse)
-@jwt_auth_required
-async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
+async def install_plugin_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
     try:
         content = await file.read()
         if not content:
@@ -165,8 +168,11 @@ async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
 
 
 @router.post("/install/git", response_model=ApiResponse)
-@jwt_auth_required
-async def install_plugin_git(request: Request, body: GitInstallRequest):
+async def install_plugin_git(
+    request: Request,
+    body: GitInstallRequest,
+    current_user: dict = Depends(get_current_user),
+):
     try:
         pm = _get_plugin_manager(request)
         success, msg = pm.install_from_git(body.url, body.branch)
@@ -188,8 +194,7 @@ async def install_plugin_git(request: Request, body: GitInstallRequest):
 
 
 @router.delete("/{name}", response_model=ApiResponse)
-@jwt_auth_required
-async def uninstall_plugin(request: Request, name: str):
+async def uninstall_plugin(request: Request, name: str, current_user: dict = Depends(get_current_user)):
     try:
         pm = _get_plugin_manager(request)
         result = pm.uninstall_plugin(name)
@@ -211,8 +216,7 @@ async def uninstall_plugin(request: Request, name: str):
 
 
 @router.post("/{name}/enable", response_model=ApiResponse)
-@jwt_auth_required
-async def enable_plugin(request: Request, name: str):
+async def enable_plugin(request: Request, name: str, current_user: dict = Depends(get_current_user)):
     try:
         pm = _get_plugin_manager(request)
         result = pm.enable_plugin(name)
@@ -234,8 +238,7 @@ async def enable_plugin(request: Request, name: str):
 
 
 @router.post("/{name}/disable", response_model=ApiResponse)
-@jwt_auth_required
-async def disable_plugin(request: Request, name: str):
+async def disable_plugin(request: Request, name: str, current_user: dict = Depends(get_current_user)):
     try:
         pm = _get_plugin_manager(request)
         result = pm.disable_plugin(name)

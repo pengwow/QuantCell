@@ -3,14 +3,14 @@
 提供数据池的创建、查询、更新、删除以及资产管理功能
 """
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 # 导入JWT认证装饰器（utils.auth 真实存在，禁止静默降级导致接口裸奔）
-from utils.auth import jwt_auth_required_sync
+from utils.auth import get_current_user
 
 from ..db import DataPoolBusiness as DataPool
 from ..schemas import ApiResponse
@@ -291,15 +291,14 @@ def update_pool(
         500: {"description": "删除数据池失败"},
     },
 )
-@jwt_auth_required_sync
 def delete_pool(
-    request: Request,
     pool_id: int = Path(
         ...,
         description="数据池ID",
         examples=[1],
         ge=1,
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """删除数据池
 
@@ -565,9 +564,7 @@ def get_collection_symbols(
         500: {"description": "移除资产失败"},
     },
 )
-@jwt_auth_required_sync
 def remove_pool_assets(
-    request: Request,
     pool_id: int = Path(
         ...,
         description="数据池ID",
@@ -575,6 +572,7 @@ def remove_pool_assets(
         ge=1,
     ),
     assets: DataPoolAssetRemove = ...,
+    current_user: dict = Depends(get_current_user),
 ):
     """从数据池移除资产
 
