@@ -17,7 +17,7 @@ import {
   message,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, EyeOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 
@@ -152,7 +152,7 @@ const ModelManagement = () => {
             <p><strong>模型类型:</strong> {selectedModel.type}</p>
             <p><strong>状态:</strong> <Tag color={selectedModel.status === 'trained' ? 'success' : 'processing'}>{selectedModel.status}</Tag></p>
             {selectedModel.status === 'training' && <Progress percent={65} status="active" />}
-            <ReactECharts option={performanceChartOption} style={{ height: 400, marginTop: 20 }} />
+            <EChart option={performanceChartOption} style={{ height: 400, marginTop: 20 }} />
           </>
         )}
       </Modal>

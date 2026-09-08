@@ -17,7 +17,7 @@ import {
   Tabs,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 
@@ -123,7 +123,7 @@ const FactorAnalysis = () => {
             <Table columns={columns} dataSource={factors} rowKey="id" />
           </TabPane>
           <TabPane tab="IC分析" key="ic">
-            <ReactECharts option={icChartOption} style={{ height: 400 }} />
+            <EChart option={icChartOption} style={{ height: 400 }} />
           </TabPane>
         </Tabs>
       </Card>

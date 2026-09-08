@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, Col, Empty, Row, Segmented, Skeleton, Statistic, Button, Space } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import type { TooltipComponentFormatterCallbackParams } from 'echarts';
 import { useWorkerStore } from '../../store/workerStore';
 import type { OverviewWindow, OverviewMetrics } from '../../types/worker';
@@ -398,12 +398,12 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
 
       {/* 累计收益曲线 */}
       <Card title="累计收益曲线" style={{ marginBottom: 16 }}>
-        <ReactECharts option={cumulativePnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
+        <EChart option={cumulativePnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
 
       {/* 盈亏分布 */}
       <Card title="盈亏分布">
-        <ReactECharts option={pnlDistributionOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
+        <EChart option={pnlDistributionOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
     </div>
   );

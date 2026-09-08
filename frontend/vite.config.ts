@@ -96,8 +96,16 @@ export default defineConfig({
             return 'react-vendor'
           }
           // Ant Design 生态
-          if (pkg === 'antd' || pkg.startsWith('@ant-design')) {
+          if (pkg === 'antd') {
             return 'ui-vendor'
+          }
+          // Ant Design X（AIChat 弹窗专属组件，独立分块避免混入 antd 主包）
+          if (pkg === '@ant-design/x') {
+            return 'antd-x-vendor'
+          }
+          // 图标库独立分块（被多个页面按需具名引用，拆开避免撑大 ui-vendor）
+          if (pkg === '@ant-design/icons' || pkg === '@tabler/icons-react' || pkg === '@web3icons/react') {
+            return 'icons-vendor'
           }
           // 图表库：klinecharts 用于主行情图（首屏），echarts 仅模型管理页使用，拆开避免首屏携带 echarts
           if (pkg === 'klinecharts') {
@@ -127,8 +135,8 @@ export default defineConfig({
         },
       },
     },
-    // 代码分割大小限制
-    chunkSizeWarningLimit: 1000,
+    // 代码分割大小限制：antd 主包拆分后约 1.2MB 属正常体量，阈值上调到 1300 消除误报
+    chunkSizeWarningLimit: 1300,
     // 压缩配置 - 使用 esbuild 减少内存使用
     minify: 'esbuild',
     // esbuild 的 drop 选项在 Vite 中通过 rollup 插件配置

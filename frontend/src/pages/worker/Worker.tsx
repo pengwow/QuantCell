@@ -44,7 +44,7 @@ import {
   BorderOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import type { TooltipComponentFormatterCallbackParams } from 'echarts';
 import type { MenuProps } from 'antd';
 import { useWorkerStore } from '../../store/workerStore';
@@ -1114,7 +1114,7 @@ const Worker = () => {
 
                   {/* Return Rate Chart */}
                   <Card title={t('return_rate_chart')} style={{ marginBottom: 16 }}>
-                    <ReactECharts
+                    <EChart
                       option={chartOption}
                       style={{ height: 250 }}
                       opts={{ renderer: 'svg' }}

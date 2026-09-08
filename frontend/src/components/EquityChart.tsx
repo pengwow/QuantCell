@@ -3,7 +3,7 @@
  * 功能：使用ECharts展示权益曲线，支持结余(balance)和权益(equity)两根线
  * 适用场景：回测结果、投资组合收益展示等
  */
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallbackParams } from 'echarts';
 
 // 权益数据接口（支持后端返回的小写字段名）
@@ -224,7 +224,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
   };
 
   return (
-    <ReactECharts
+    <EChart
       option={option}
       style={{ height, width: '100%' }}
       opts={{ renderer: 'canvas' }}
