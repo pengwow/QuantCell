@@ -13,6 +13,5 @@ export { default as WorkerLogsPanel } from './WorkerLogsPanel';
 export { default as WorkerParamsTab } from './WorkerParamsTab';
 export { default as WorkerPositionTab } from './WorkerPositionTab';
 export { default as WorkerOrderTab } from './WorkerOrderTab';
-export { default as WorkerTradesTab } from './WorkerTradesTab';
 export { default as WorkerOverviewTab } from './WorkerOverviewTab';
 export { default as WorkerLogsTab } from './WorkerLogsTab';

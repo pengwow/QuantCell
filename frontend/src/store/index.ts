@@ -8,10 +8,6 @@
 export { useWorkerStore } from './workerStore';
 export type { WorkerState } from './workerStore';
 
-// 导出Strategy Store
-export { useStrategyStore } from './strategyStore';
-export type { StrategyState, Strategy } from './strategyStore';
-
 // 导出Config Store
 export { useConfigStore } from './configStore';
 export type { ConfigState, SystemConfig } from './configStore';
