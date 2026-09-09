@@ -93,9 +93,6 @@ def _check_plots_structure(code: str) -> list[dict[str, Any]]:
                 }
             )
 
-    for m in re.finditer(r"['\"]data['\"]\s*:\s*", code):
-        pass
-
     if not re.search(r"['\"]overlay['\"]", code):
         hints.append(
             {

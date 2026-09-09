@@ -80,10 +80,12 @@ def _get_plugin_manager():
 
 
 def _print_json(data) -> None:
-    pass
+    """以 JSON 格式输出插件信息"""
+    typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _print_table(headers: list[str], rows: list[list[str]]) -> None:
+    """以表格形式输出插件信息（自动按列宽对齐）"""
     if not rows:
         return
 
@@ -92,10 +94,10 @@ def _print_table(headers: list[str], rows: list[list[str]]) -> None:
         for i, cell in enumerate(row):
             col_widths[i] = max(col_widths[i], len(str(cell)))
 
-    " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
-
+    typer.echo(" | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers)))
+    typer.echo("-+-".join("-" * w for w in col_widths))
     for row in rows:
-        pass
+        typer.echo(" | ".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)))
 
 
 def _status_icon(status: str) -> str:

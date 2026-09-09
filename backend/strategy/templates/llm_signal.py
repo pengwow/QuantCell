@@ -110,7 +110,7 @@ class LLMSignalStrategy(BaseStrategy):
             )
         lookback = int(self.config.params.get("lookback", 30))
         recent = ctx.closes[-lookback:] if len(ctx.closes) >= lookback else ctx.closes
-        o, h, l, c = (
+        o, h, low, c = (
             bar.get("open", 0),
             bar.get("high", 0),
             bar.get("low", 0),
@@ -120,7 +120,7 @@ class LLMSignalStrategy(BaseStrategy):
             "你是量化交易分析师。分析以下K线,输出JSON信号。\n"
             '格式: {"action":"Buy"|"Sell"|"Hold","confidence":0.0-1.0,"reasoning":"..."}\n'
             f"只输出JSON。最近收盘价: {recent}\n"
-            f"最新: O={o} H={h} L={l} C={c}"
+            f"最新: O={o} H={h} L={low} C={c}"
         )
         try:
             reply = provider(prompt)

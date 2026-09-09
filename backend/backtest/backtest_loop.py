@@ -67,12 +67,12 @@ class RuleStrategy(ABC):
         ...
 
     def on_start(self) -> None:
-        """策略启动回调"""
-        pass
+        """策略启动回调（可选钩子，默认 no-op）"""
+        return None
 
     def on_stop(self) -> None:
-        """策略停止回调"""
-        pass
+        """策略停止回调（可选钩子，默认 no-op）"""
+        return None
 
 
 class BacktestLoop:

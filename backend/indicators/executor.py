@@ -362,7 +362,7 @@ class IndicatorExecutor:
 
             error_msg = str(e)
             tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
-            user_tb = [l for l in tb_lines if "<string>" in l or "<indicator>" in l]
+            user_tb = [line for line in tb_lines if "<string>" in line or "<indicator>" in line]
             if user_tb:
                 error_msg += "\n" + "".join(user_tb[-3:])
 

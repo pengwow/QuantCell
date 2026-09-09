@@ -16,7 +16,6 @@
 import abc
 import datetime
 import time
-from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -504,7 +503,7 @@ class BaseCollector(abc.ABC):
         )
 
 
-class BaseExchange(ABC):
+class BaseExchange:
     """
     交易所抽象基类
 

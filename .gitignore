@@ -4,6 +4,7 @@
 .shared/*
 .DS_Store
 .vscode/
+.idea/
 *.pyc
 *.log
 *.so

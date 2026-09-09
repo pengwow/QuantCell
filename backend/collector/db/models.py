@@ -2405,7 +2405,7 @@ class ScheduledTaskBusiness:
             logger.error(f"更新定时任务执行状态失败: task_id={task_id}, error={e}")
             return False
         finally:
-            db.close
+            db.close()
 
 
 # 注意：SystemLog 模型和 SystemLogBusiness 类已被移除

@@ -550,7 +550,7 @@ class LogFileReader:
         try:
             with open(log_files[0], encoding="utf-8", errors="ignore") as f:
                 lines = [f.readline() for _ in range(20)]
-                lines = [l for l in lines if l.strip()]
+                lines = [line for line in lines if line.strip()]
                 self.tz_parser.detect_timezone_from_lines(lines)
         except Exception as e:
             logger.warning(f"检测时区失败: {e}")

@@ -42,7 +42,8 @@ import queue
 import threading
 import time
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .agent_traders import StrategyTrader, TraderRegistry
 from .execution_pipeline import ExecutionPipeline

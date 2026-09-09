@@ -40,9 +40,9 @@ class SMACrossover(BaseStrategy):
         trs = []
         for i in range(-atr_period, 0):
             h = ctx.highs[i]
-            l = ctx.lows[i]
+            low = ctx.lows[i]
             prev_c = ctx.closes[i - 1]
-            tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+            tr = max(h - low, abs(h - prev_c), abs(low - prev_c))
             trs.append(tr)
         return sum(trs) / len(trs)
 

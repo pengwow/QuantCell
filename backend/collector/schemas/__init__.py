@@ -1,6 +1,6 @@
 # Pydantic模型定义，用于数据处理API的请求和响应
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 

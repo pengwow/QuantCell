@@ -119,6 +119,8 @@ class BaseStrategy(ABC):
 
     def on_fill(self, fill: dict, ctx: StrategyContext | None = None) -> None:
         """可选：成交回调。"""
+        return None
 
     def on_stop(self, ctx: StrategyContext | None = None) -> None:
         """可选：停止钩子。"""
+        return None
