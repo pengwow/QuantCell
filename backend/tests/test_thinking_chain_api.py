@@ -419,9 +419,6 @@ def run_all_tests():
     passed = sum(1 for _, success in results if success)
     total = len(results)
 
-    for _test_name, success in results:
-        pass
-
     return passed == total
 
 

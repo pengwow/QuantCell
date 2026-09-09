@@ -73,7 +73,7 @@ class TestValidateTimeRange:
         """测试无效格式（太多部分）"""
         assert validate_time_range("20240101-20240102-20240103") is False
 
-    def test_invalid_format_wrong_separator(self):
+    def test_invalid_format_underscore_separator(self):
         """测试无效格式（错误的分隔符）"""
         assert validate_time_range("20240101_20241231") is False
 

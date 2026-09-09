@@ -16,6 +16,7 @@ Worker 交易统计功能单元测试
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from worker import crud
 from worker.models import WorkerOrder, WorkerPosition, WorkerTrade
@@ -977,7 +978,7 @@ class TestDataIntegrity:
         )
         db_session.add(duplicate)
 
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_session.commit()
 
     def test_order_client_order_id_uniqueness(self, db_session):
@@ -1007,7 +1008,7 @@ class TestDataIntegrity:
         )
         db_session.add(duplicate)
 
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_session.commit()
 
     def test_position_position_id_uniqueness(self, db_session):
@@ -1037,5 +1038,5 @@ class TestDataIntegrity:
         )
         db_session.add(duplicate)
 
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_session.commit()

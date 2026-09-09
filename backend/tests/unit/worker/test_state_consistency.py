@@ -177,10 +177,6 @@ class TestMessageTypeHandlerConsistency:
         assert hasattr(MessageType, "PAUSE"), "MessageType 缺少 PAUSE 定义"
         assert hasattr(MessageType, "RESUME"), "MessageType 缺少 RESUME 定义"
 
-    def test_worker_process_handles_all_control_messages(self):
-        """测试 WorkerProcess 是否处理所有定义的 MessageType"""
-        pytest.skip("worker_process.py 已删除，此测试不再适用")
-
 
 class TestWorkerProcessTimeframeConversion:
     """测试时间周期转换逻辑"""

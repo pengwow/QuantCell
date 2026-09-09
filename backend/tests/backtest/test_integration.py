@@ -493,99 +493,11 @@ class TestLegacyEngineIntegration:
 
 class TestEngineSwitching:
     """
-    测试引擎切换功能
+    测试引擎切换相关能力
 
-    验证在不同引擎之间切换的能力
-
-    注意: BacktestService.create_engine 已移除，引擎创建已内联到 run_backtest 中。
-    这些测试暂时跳过，等待测试重构。
+    验证引擎配置加载与回退行为（引擎创建已内联到 run_backtest，
+    旧的 create_engine 相关用例已随该 API 移除而删除）。
     """
-
-    @pytest.mark.skip(reason="BacktestService.create_engine 方法已移除，引擎创建逻辑已重构")
-    def test_engine_factory_default(self):
-        """
-        测试引擎工厂创建 default 引擎
-
-        验证 BacktestService 的 create_engine 方法能正确创建 default 引擎
-        """
-        from backtest.service import BacktestService
-
-        service = BacktestService()
-        config = {
-            "engine_type": "default",
-            "initial_capital": 100000.0,
-            "symbols": ["EURUSD"],
-        }
-
-        engine = service.create_engine(config)
-
-        assert engine is not None, "引擎创建失败"
-        assert isinstance(engine, Engine), "应为 Engine 类型"
-        assert engine.engine_type == EngineType.DEFAULT, "引擎类型应为 advanced"
-
-    @pytest.mark.skip(reason="BacktestService.create_engine 方法已移除，引擎创建逻辑已重构")
-    def test_engine_factory_legacy(self):
-        """
-        测试引擎工厂创建 Legacy 引擎
-
-        验证 BacktestService 的 create_engine 方法能正确创建 Legacy 引擎
-        """
-        from backtest.service import BacktestService
-
-        service = BacktestService()
-        config = {
-            "engine_type": "legacy",
-            "backtest_config": {"symbols": ["BTCUSDT"]},
-            "strategy_config": {"strategy_name": "SmaCross"},
-        }
-
-        engine = service.create_engine(config)
-
-        assert engine is not None, "引擎创建失败"
-        assert isinstance(engine, LegacyEngine), "应为 LegacyEngine 类型"
-        assert engine.engine_type.value == EngineType.LEGACY.value, "引擎类型应为 LEGACY"
-
-    @pytest.mark.skip(reason="BacktestService.create_engine 方法已移除，引擎创建逻辑已重构")
-    def test_engine_factory_default(self):
-        """
-        测试引擎工厂默认行为
-
-        验证 BacktestService 在没有指定引擎类型时默认创建 default 引擎
-        """
-        from backtest.service import BacktestService
-
-        service = BacktestService()
-        config = {
-            "initial_capital": 100000.0,
-            "symbols": ["EURUSD"],
-        }
-
-        engine = service.create_engine(config)
-
-        assert engine is not None, "引擎创建失败"
-        assert isinstance(engine, Engine), "默认应为 Engine 类型"
-
-    @pytest.mark.skip(reason="BacktestService.create_engine 方法已移除，引擎创建逻辑已重构")
-    def test_engine_factory_invalid_type(self):
-        """
-        测试引擎工厂处理无效引擎类型
-
-        验证 BacktestService 在遇到无效引擎类型时回退到默认引擎
-        """
-        from backtest.service import BacktestService
-
-        service = BacktestService()
-        config = {
-            "engine_type": "invalid_engine",
-            "initial_capital": 100000.0,
-            "symbols": ["EURUSD"],
-        }
-
-        engine = service.create_engine(config)
-
-        # 应该回退到默认的 default 引擎
-        assert engine is not None, "引擎创建失败"
-        assert isinstance(engine, Engine), "无效类型应回退到 Engine"
 
     def test_load_engine_config(self):
         """

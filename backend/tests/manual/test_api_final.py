@@ -49,15 +49,12 @@ async def test_with_current_config():
 
         start_time = time.time()
 
-        response = await client.chat.completions.create(
+        await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "请回复'连接成功'四个字"}],
             max_tokens=20,
             temperature=0,
         )
-
-        time.time() - start_time
-        response.choices[0].message.content
 
         return True
 

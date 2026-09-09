@@ -25,14 +25,11 @@ async def test_basic_connection():
 
         start_time = time.time()
 
-        response = await client.chat.completions.create(
+        await client.chat.completions.create(
             model=os.environ.get("DEFAULT_MODEL", "gpt-4o-mini"),
             messages=[{"role": "user", "content": "Hi, 请回复'OK'"}],
             max_tokens=10,
         )
-
-        time.time() - start_time
-        response.choices[0].message.content
 
         return True
 
@@ -59,14 +56,11 @@ async def test_with_longer_timeout():
 
         start_time = time.time()
 
-        response = await client.chat.completions.create(
+        await client.chat.completions.create(
             model=os.environ.get("DEFAULT_MODEL", "gpt-4o-mini"),
             messages=[{"role": "user", "content": "请用一句话介绍你自己"}],
             max_tokens=100,
         )
-
-        time.time() - start_time
-        response.choices[0].message.content
 
         return True
 
@@ -108,22 +102,13 @@ async def test_with_tools():
 
         start_time = time.time()
 
-        response = await client.chat.completions.create(
+        await client.chat.completions.create(
             model=os.environ.get("DEFAULT_MODEL", "gpt-4o-mini"),
             messages=[{"role": "user", "content": "北京今天天气怎么样？"}],
             tools=tools,
             tool_choice="auto",
             max_tokens=200,
         )
-
-        time.time() - start_time
-        message = response.choices[0].message
-
-        if message.tool_calls:
-            for _tc in message.tool_calls:
-                pass
-        else:
-            pass
 
         return True
 

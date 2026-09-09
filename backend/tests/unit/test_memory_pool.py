@@ -368,7 +368,7 @@ class TestSharedMemoryMarketData:
             shared_memory.write_tick(tick)
 
         # 读取所有数据
-        for i, symbol in enumerate(symbols):
+        for _, symbol in enumerate(symbols):
             tick = shared_memory.read_tick(symbol)
             assert tick is not None
             assert tick.symbol == symbol

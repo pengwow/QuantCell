@@ -29,7 +29,7 @@ def test_create_env_raises_without_axon_quant():
     data = pd.DataFrame({"close": [1, 2, 3]})
     # 模拟 TradingEnv 在 axon_bridge.rl 不可用
     with patch("axon_bridge.rl.TradingEnv", None, create=True):
-        with pytest.raises((RuntimeError, AttributeError, TypeError), match=".*"):
+        with pytest.raises((RuntimeError, AttributeError, TypeError)):
             svc.create_env(data)
 
 
@@ -50,7 +50,7 @@ def test_load_data_requires_symbol_or_data():
 
     svc = RLService()
     config = RLTrainConfig()
-    with pytest.raises(ValueError, match="需要 config.data 或 config.symbol"):
+    with pytest.raises(ValueError, match=r"需要 config\.data 或 config\.symbol"):
         svc._load_data(config)
 
 

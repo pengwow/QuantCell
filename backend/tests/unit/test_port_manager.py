@@ -503,7 +503,7 @@ class TestEdgeCasesAndValidation:
         """超出范围的端口号抛出异常"""
         manager = PortManager()
 
-        with pytest.raises(ValueError, match="端口号.*超出"):
+        with pytest.raises(ValueError, match=r"端口号.*超出"):
             manager.set_preferred_port("fastapi", 9000)
 
     def test_environment_variable_override(self, temp_config_dir):

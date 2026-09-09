@@ -209,7 +209,7 @@ class TestExchangeAdapter:
 
     def test_unavailable_raises_runtime_error(self):
         with mock.patch.object(adapter_mod, "AXON_AVAILABLE", False):
-            with pytest.raises(RuntimeError, match="axon_quant.exchange"):
+            with pytest.raises(RuntimeError, match=r"axon_quant\.exchange"):
                 adapter_mod.ExchangeAdapter("binance")
 
     def test_unknown_exchange_raises_value_error(self):

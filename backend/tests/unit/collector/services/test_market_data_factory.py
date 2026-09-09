@@ -125,7 +125,8 @@ class TestSaveMarketDataToDb:
         record = db.query.return_value.filter.return_value.first.return_value
         assert str(record.price) == "42000.5"
         assert str(record.volume_24h) == "1234.5"
-        record.last_update  # 更新了最后更新时间
+        # 已存在的记录应更新最后更新时间，而不是新增
+        assert record.last_update is not None
         db.add.assert_not_called()
         db.commit.assert_called_once()
 

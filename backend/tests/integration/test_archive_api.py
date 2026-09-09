@@ -212,7 +212,7 @@ def test_get_archive_data_returns_paginated_rows(client, monkeypatch):
     monkeypatch.setattr(
         archive_service.ArchiveService,
         "query_data",
-        lambda self, k, m, s, st, et, l, o: {
+        lambda self, k, m, s, st, et, limit, o: {
             "total": 1000,
             "rows": [{"price": 100}, {"price": 101}],
             "truncated": False,
@@ -237,9 +237,9 @@ def test_get_archive_data_with_limit_offset(client, monkeypatch):
     monkeypatch.setattr(
         archive_service.ArchiveService,
         "query_data",
-        lambda self, k, m, s, st, et, l, o: (
+        lambda self, k, m, s, st, et, limit, o: (
             captured.update(
-                limit=l,
+                limit=limit,
                 offset=o,
                 symbol=s,
                 start_time=st,
