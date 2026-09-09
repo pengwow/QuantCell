@@ -284,16 +284,24 @@ def initialize_secret_key() -> str:
     初始化JWT密钥
 
     在应用启动时调用，确保密钥已就绪。
+    HS256 签名算法要求密钥至少 32 字节，过短的密钥等于形同虚设，
+    因此这里从「建议」升级为「拒绝启动」的硬性校验。
 
     Returns:
         str: JWT安全密钥
+
+    Raises:
+        RuntimeError: 密钥长度不足 32 字符
     """
     logger.info("正在初始化JWT安全密钥...")
     key = get_or_create_secret_key()
 
-    # 验证密钥长度
-    if len(key) < 16:
-        logger.warning("JWT密钥长度较短，建议至少32字节")
+    # 硬性校验：密钥 < 32 字符直接拒绝启动，避免带病运行导致 token 可被暴力破解
+    if len(key) < 32:
+        logger.error(f"JWT密钥长度不足（当前 {len(key)} 字符，要求 ≥32 字符）")
+        raise RuntimeError(
+            f"JWT密钥长度不足（{len(key)} 字符 < 32），请在 config.toml 的 [app.secret_key] 配置足够长的密钥"
+        )
 
     logger.info("JWT安全密钥初始化完成")
     return key
