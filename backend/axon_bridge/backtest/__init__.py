@@ -24,6 +24,9 @@ from axon_quant import (
 
 # —— axon_quant 0.6.0 多 leg API 重导出 ——
 # Instrument dict 工厂:把"symbol 字符串"升级为"品种 dict"
+# market_order 也重导出 backtest 版(带 order_id/instrument 的 dict 工厂),
+# 顶层同名的 market_order 是 oms 版 Order 对象工厂,两者签名不同 ——
+# 撮合引擎只接受这里这个版本,业务代码请走 create_market_order。
 from axon_quant.backtest import (
     ImpactedMatchingEngine,
     ImpactedMatchingEngineBuilder,
@@ -32,6 +35,7 @@ from axon_quant.backtest import (
     L2MatchingEngine,
     MultiAssetMatchingEngine,
     limit_order,
+    market_order,
     spot_instrument,
     swap_instrument,
 )

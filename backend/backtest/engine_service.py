@@ -14,6 +14,7 @@
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from utils.logger import LogType, get_logger
@@ -377,7 +378,7 @@ class EventDrivenBacktestService:
             raise
 
     @staticmethod
-    def _parse_symbol(symbol: str) -> tuple:
+    def _parse_symbol(symbol: str) -> tuple[str, str]:
         """
         解析交易对符号，提取基础货币和计价货币
 
@@ -391,10 +392,11 @@ class EventDrivenBacktestService:
             if sep in symbol:
                 parts = symbol.split(sep)
                 return parts[0].upper(), parts[1].upper()
-        return symbol[:3].upper(), symbol[3:].upper() if len(symbol) > 3 else (
-            symbol.upper(),
-            "USDT",
-        )
+        if len(symbol) > 3:
+            return symbol[:3].upper(), symbol[3:].upper()
+        # 短符号(如 "ETH")直接视为 base,quote 兜底 USDT;
+        # 不能返回嵌套 tuple,否则 base, quote = ... 解包时 quote 是 tuple
+        return symbol.upper(), "USDT"
 
     def _load_data_to_engine(
         self,
@@ -510,13 +512,20 @@ class EventDrivenBacktestService:
                     logger.warning(f"时间戳转换警告: {e}")
                     df.index = pd.to_datetime(df.index.astype(str), utc=True)
 
+            # 乱序/重复时间戳防御: 事件驱动引擎要求 bar 按时间单调递增,
+            # 统一排序并去重(保留最后一条),避免乱序 bar 导致回测资金曲线失真
+            df = df.sort_index()
+            df = df[~df.index.duplicated(keep="last")]
+
             for col in required_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
+                    # Inf 转 NaN 后统一清洗,否则 Inf 进入指标计算会产出 NaN 指标
+                    df[col] = df[col].replace([np.inf, -np.inf], np.nan)
                     df[col] = df[col].astype("float64")
                     nan_count = df[col].isna().sum()
                     if nan_count > 0:
-                        logger.warning(f"{symbol} 的 {col} 列有 {nan_count} 个 NaN 值，将填充为 0.0")
+                        logger.warning(f"{symbol} 的 {col} 列有 {nan_count} 个 NaN/Inf 值，将填充为 0.0")
                         df[col] = df[col].fillna(0.0)
 
             non_numeric_cols = df.select_dtypes(exclude=["number"]).columns.tolist()

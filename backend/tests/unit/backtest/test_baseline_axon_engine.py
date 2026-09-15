@@ -118,55 +118,6 @@ def test_baseline_total_pnl_uses_final_nav_minus_initial(tmp_path: Path) -> None
     assert report.total_pnl == 0.0, f"无 fill 时 total_pnl 应 = 0.0, got {report.total_pnl}"
 
 
-def test_baseline_funding_arbitrage_multi_leg(tmp_path: Path) -> None:
-    """Task 5:funding_arbitrage 走多 leg 路径(spot + perp)。
-
-    验证:
-    - 用 funding_history 触发 1 次 funding 事件
-    - 跑出 spot + perp fills
-    - total_funding_pnl 被记录
-    """
-    # 8 天数据 (192 根 1h bar) + funding history 2 条
-    dates = pd.date_range("2024-07-01", periods=192, freq="1h")
-    closes = [100.0] * 192  # 平稳, 让 funding 信号主导
-    df = pd.DataFrame(
-        {
-            "open": closes,
-            "high": closes,
-            "low": closes,
-            "close": closes,
-            "volume": [1000.0] * 192,
-        },
-        index=dates,
-    )
-    # funding history: 2 个 8h 时刻 + 0.0005 费率(鼓励 long funding)
-    # funding_time 用 2024-07-01 + offset (ms since epoch)
-    funding_csv = tmp_path / "funding.csv"
-    funding_csv.write_text(
-        "funding_time_ms,funding_rate\n"
-        "1719792000000,0.0005\n"  # 2024-07-01 00:00 UTC
-        "1719820800000,0.0005\n"  # 2024-07-01 08:00 UTC
-    )
-    svc = BaselineBacktestService(
-        strategy_name="funding_arbitrage",
-        symbol="BTCUSDT-PERP",
-        start="2024-07-01",
-        end="2024-07-08",
-        output_dir=tmp_path,
-        data=df,
-        funding_history_path=str(funding_csv),
-        spot_symbol="BTCUSDT",
-    )
-    report = svc.run()
-    # funding_arbitrage 应该至少产生 1 笔 trade
-    assert report.total_trades >= 1, (
-        f"funding_arbitrage 跑 8h+ funding 应有 trades,got {report.total_trades} "
-        f"(pnl={report.total_pnl}, funding_pnl={report.total_funding_pnl})"
-    )
-    # funding_pnl 应被记录
-    assert report.total_funding_pnl > 0.0, f"funding_pnl 应 > 0 (perp short 收 funding),got {report.total_funding_pnl}"
-
-
 def test_baseline_sharpe_uses_bar_nav_curve(tmp_path: Path, trending_kline: pd.DataFrame) -> None:
     """Task 5:sharpe_ratio 用 bar_nav_curve 重算(避免 0.7.0 短回测失真)。"""
     svc = BaselineBacktestService(

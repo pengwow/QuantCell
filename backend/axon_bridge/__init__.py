@@ -394,8 +394,9 @@ def extract_run_result(result: Any) -> dict[str, Any]:
             "win_rate": float(result.win_rate) if hasattr(result, "win_rate") else 0.0,
             "duration_secs": float(result.duration_secs) if hasattr(result, "duration_secs") else 0.0,
         }
-    except Exception as e:
-        logger.error(f"提取回测结果失败: {e}")
+    except Exception:
+        # 引擎字段变化时不应静默返回空 dict,保留完整堆栈便于定位升级回归
+        logger.exception("提取回测结果失败")
         return {}
 
 
@@ -415,25 +416,29 @@ def extract_run_stats(stats: Any) -> dict[str, Any]:
             "pnl_peak": float(stats.pnl_peak) if hasattr(stats, "pnl_peak") else 0.0,
             "total_pnl": float(stats.total_pnl) if hasattr(stats, "total_pnl") else 0.0,
         }
-    except Exception as e:
-        logger.error(f"提取运行统计失败: {e}")
+    except Exception:
+        # 引擎统计字段变化时保留完整堆栈,避免静默吞错
+        logger.exception("提取运行统计失败")
         return {}
 
 
 # ========== 辅助函数 ==========
 def to_ns_timestamp(ts: Any) -> int:
-    """将时间戳转换为纳秒"""
+    """将时间戳转换为纳秒。
+
+    分档判定:1e18=纳秒 / 1e15=微秒 / 1e12=毫秒 / 1e9=秒。
+    边界用 >=:恰好等于 1e18 的已是纳秒,不能再 x1000 落入微秒档。
+    """
     if isinstance(ts, (int, float)):
-        if ts > 1e18:
+        if ts >= 1e18:
             return int(ts)
-        elif ts > 1e15:
+        elif ts >= 1e15:
             return int(ts * 1000)
-        elif ts > 1e12:
+        elif ts >= 1e12:
             return int(ts * 1_000_000)
-        elif ts > 1e9:
+        elif ts >= 1e9:
             return int(ts * 1_000_000_000)
-        else:
-            return int(ts * 1_000_000_000)
+        return int(ts * 1_000_000_000)
     elif hasattr(ts, "timestamp"):
         return int(ts.timestamp() * 1_000_000_000)
     elif isinstance(ts, str):
