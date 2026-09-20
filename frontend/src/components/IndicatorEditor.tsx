@@ -34,6 +34,7 @@ import Editor, { type OnMount } from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
 import { indicatorApi, type ThinkingChainEventData, type IndicatorQualityHint } from '../api';
 import { useGuestRestriction } from '../hooks/useGuestRestriction';
+import { QUANT_COLORS } from '@/utils/colors';
 
 interface IndicatorEditorProps {
   visible: boolean;
@@ -412,7 +413,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                             <li>输出格式规范——扣30分/项</li>
                             <li>其他规则——扣2~10分/项</li>
                           </ul>
-                          <div style={{ marginTop: 8, color: '#faad14' }}>
+                          <div style={{ marginTop: 8, color: QUANT_COLORS.warning }}>
                             90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
                           </div>
                           {verifyResult.quality.hints && verifyResult.quality.hints.length > 0 && (
@@ -421,7 +422,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
                                 {verifyResult.quality.hints.slice(0, 3).map((hint, i) => (
                                   <li key={i}>
-                                    <span style={{ color: hint.severity === 'error' ? '#ff4d4f' : hint.severity === 'warn' ? '#faad14' : '#1890ff' }}>
+                                    <span style={{ color: hint.severity === 'error' ? QUANT_COLORS.negative : hint.severity === 'warn' ? QUANT_COLORS.warning : QUANT_COLORS.info }}>
                                       [{hint.severity}]
                                     </span> {hint.message || hint.rule}
                                   </li>
@@ -437,7 +438,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                         padding: '2px 8px',
                         borderRadius: 4,
                         background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
-                        color: verifyResult.quality.score >= 80 ? '#52c41a' : verifyResult.quality.score >= 60 ? '#faad14' : '#ff4d4f',
+                        color: verifyResult.quality.score >= 80 ? QUANT_COLORS.positive : verifyResult.quality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                         cursor: 'help',
                       }}>
                         质量评分: {verifyResult.quality.score}/100 ({verifyResult.quality.level})
@@ -515,7 +516,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                           <li>输出格式规范——扣30分/项</li>
                           <li>其他规则——扣2~10分/项</li>
                         </ul>
-                        <div style={{ marginTop: 8, color: '#faad14' }}>
+                        <div style={{ marginTop: 8, color: QUANT_COLORS.warning }}>
                           90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
                         </div>
                       </div>
@@ -524,7 +525,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                     <span style={{
                       fontSize: 12, padding: '2px 8px', borderRadius: 4, cursor: 'help',
                       background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
-                      color: verifyResult.quality.score >= 80 ? '#52c41a' : verifyResult.quality.score >= 60 ? '#faad14' : '#ff4d4f',
+                      color: verifyResult.quality.score >= 80 ? QUANT_COLORS.positive : verifyResult.quality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                     }}>
                       质量评分: {verifyResult.quality.score}/100 ({verifyResult.quality.level})
                       <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
@@ -549,7 +550,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             <Card
               title={
                 <Space>
-                  <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                  <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />
                   <span>{t('indicator.generatedCodePreview', '生成代码预览')}</span>
                   {generatedQuality && (
                     <Tooltip
@@ -562,7 +563,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                             <li>输出格式规范——扣30分/项</li>
                             <li>其他规则——扣2~10分/项</li>
                           </ul>
-                          <div style={{ marginTop: 8, color: '#faad14' }}>
+                          <div style={{ marginTop: 8, color: QUANT_COLORS.warning }}>
                             90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
                           </div>
                           {generatedQuality.hints && generatedQuality.hints.length > 0 && (
@@ -571,7 +572,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
                                 {generatedQuality.hints.slice(0, 3).map((hint: IndicatorQualityHint, i: number) => (
                                   <li key={i}>
-                                    <span style={{ color: hint.severity === 'error' ? '#ff4d4f' : hint.severity === 'warn' ? '#faad14' : '#1890ff' }}>
+                                    <span style={{ color: hint.severity === 'error' ? QUANT_COLORS.negative : hint.severity === 'warn' ? QUANT_COLORS.warning : QUANT_COLORS.info }}>
                                       [{hint.severity}]
                                     </span> {hint.message || hint.rule}
                                   </li>
@@ -590,7 +591,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                         padding: '2px 8px', 
                         borderRadius: 4,
                         background: generatedQuality.score >= 80 ? '#f6ffed' : generatedQuality.score >= 60 ? '#fffbe6' : '#fff2f0',
-                        color: generatedQuality.score >= 80 ? '#52c41a' : generatedQuality.score >= 60 ? '#faad14' : '#ff4d4f',
+                        color: generatedQuality.score >= 80 ? QUANT_COLORS.positive : generatedQuality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                         cursor: 'help',
                       }}>
                         质量评分: {generatedQuality.score}/100 ({generatedQuality.level})

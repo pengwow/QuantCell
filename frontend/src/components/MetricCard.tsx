@@ -4,28 +4,23 @@
  * 适用场景：回测结果、仪表盘、数据展示等
  */
 import { Card, Typography } from 'antd';
+import { QUANT_COLORS } from '@/utils/colors';
 
 const { Text } = Typography;
 
-// 组件属性接口
 export interface MetricCardProps {
   label: string;
   value: string | number;
   type?: 'positive' | 'negative' | 'neutral';
 }
 
-/**
- * 根据类型获取对应的颜色值
- */
+// ponytail: 所有颜色统一从 colors.ts 取 QUANT_COLORS，禁止硬编码 antd v5 风格颜色
 const getColorByType = (type: MetricCardProps['type']): string => {
   switch (type) {
-    case 'positive':
-      return '#52c41a'; // 绿色 - 正向指标
-    case 'negative':
-      return '#ff4d4f'; // 红色 - 负向指标
+    case 'positive': return QUANT_COLORS.positive;
+    case 'negative': return QUANT_COLORS.negative;
     case 'neutral':
-    default:
-      return 'rgba(0, 0, 0, 0.88)'; // 默认颜色
+    default: return QUANT_COLORS.neutral;
   }
 };
 

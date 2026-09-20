@@ -1,5 +1,6 @@
 import { Card, Progress, Statistic, Row, Col } from 'antd';
 import { LineChartOutlined, ClockCircleOutlined, FieldTimeOutlined, TrophyOutlined } from '@ant-design/icons';
+import { QUANT_COLORS } from '@/utils/colors';
 
 export interface TrainingProgress {
   type: 'start' | 'info' | 'progress' | 'complete' | 'error';
@@ -71,7 +72,7 @@ export default function RLTrainingProgress({ progress, totalTimesteps }: RLTrain
             title="Episode奖励"
             value={progress.episode_reward}
             precision={2}
-            valueStyle={{ color: progress.episode_reward >= 0 ? '#52c41a' : '#cf1322' }}
+            valueStyle={{ color: progress.episode_reward >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}
             prefix={<TrophyOutlined />}
           />
         </div>

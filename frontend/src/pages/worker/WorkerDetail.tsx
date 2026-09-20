@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker 详情页
  *
@@ -217,7 +218,7 @@ const WorkerDetail = () => {
           <div style={{ marginBottom: 16 }}>
             <Card>
               <Space>
-                <span style={{ color: '#ff4d4f' }}>{error}</span>
+                <span style={{ color: QUANT_COLORS.negative }}>{error}</span>
                 <Button size="small" onClick={clearErrors}>
                   关闭
                 </Button>
@@ -265,7 +266,7 @@ const WorkerDetail = () => {
                       fontWeight: 600,
                       fontSize: 16,
                       color:
-                        (currentWorker.total_profit || 0) >= 0 ? '#52c41a' : '#ff4d4f',
+                        (currentWorker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
                     }}
                   >
                     {(currentWorker.total_profit || 0) >= 0 ? '+' : ''}$

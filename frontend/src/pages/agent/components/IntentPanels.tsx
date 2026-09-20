@@ -13,6 +13,7 @@ import {
   Progress,
   Table,
   Collapse,
+  theme,
 } from 'antd';
 import {
   CodeOutlined,
@@ -43,15 +44,48 @@ const toNumber = (value: unknown): number => {
 };
 
 // 角色主题颜色映射
-const ROLE_THEMES: Record<string, { color: string; bgColor: string; icon: React.ReactNode }> = {
-  '策略工程师': { color: '#1890ff', bgColor: '#e6f7ff', icon: <CodeOutlined /> },
-  '回测分析师': { color: '#52c41a', bgColor: '#f6ffed', icon: <BarChartOutlined /> },
-  '风控顾问': { color: '#fa8c16', bgColor: '#fff7e6', icon: <SafetyOutlined /> },
-  '交易助手': { color: '#722ed1', bgColor: '#f9f0ff', icon: <ShoppingCartOutlined /> },
-  '数据分析师': { color: '#13c2c2', bgColor: '#e6fffb', icon: <DatabaseOutlined /> },
-  'AI 训练师': { color: '#eb2f96', bgColor: '#fff0f6', icon: <PlayCircleOutlined /> },
-  'AI 助手': { color: '#1890ff', bgColor: '#e6f7ff', icon: <CodeOutlined /> },
+// ponytail: bgColor 和 color 都从 antd token 动态派生，跟随主题切换。
+// icon 保持为静态常量（React 元素引用稳定，不触发重渲染）。
+const ROLE_ICONS: Record<string, React.ReactNode> = {
+  '策略工程师': <CodeOutlined />,
+  '回测分析师': <BarChartOutlined />,
+  '风控顾问': <SafetyOutlined />,
+  '交易助手': <ShoppingCartOutlined />,
+  '数据分析师': <DatabaseOutlined />,
+  'AI 训练师': <PlayCircleOutlined />,
+  'AI 助手': <CodeOutlined />,
 };
+
+export interface RoleTheme {
+  color: string;
+  bgColor: string;
+  icon: React.ReactNode;
+}
+
+/** 从 antd token 派生角色主题 — 颜色跟随主题切换 */
+function deriveRoleTheme(roleName: string, token: ReturnType<typeof theme.useToken>['token']): RoleTheme {
+  const fallbackIcon = ROLE_ICONS['AI 助手'];
+  const icon = ROLE_ICONS[roleName] ?? fallbackIcon;
+
+  // bgColor 映射到 antd token 的 colorXxxBg 语义色
+  const bgMap: Record<string, { color: string; bg: string }> = {
+    '策略工程师': { color: token.colorInfo,        bg: token.colorInfoBg ?? '#e6f7ff' },
+    '回测分析师': { color: token.colorSuccess,     bg: token.colorSuccessBg ?? '#f6ffed' },
+    '风控顾问':   { color: token.colorWarning,     bg: token.colorWarningBg ?? '#fff7e6' },
+    '交易助手':   { color: '#722ed1',              bg: '#f9f0ff' },  // 紫色/粉色保留行业配色
+    '数据分析师': { color: token.colorInfo,        bg: '#e6fffb' },  // cyan bg 无对应 token，保留
+    'AI 训练师':  { color: '#eb2f96',              bg: '#fff0f6' },  // 粉色保留
+    'AI 助手':    { color: token.colorInfo,        bg: token.colorInfoBg ?? '#e6f7ff' },
+  };
+  const pair = bgMap[roleName] ?? bgMap['AI 助手'];
+  return { color: pair.color, bgColor: pair.bg, icon };
+}
+
+/** React hook：跟随主题切换自动更新的角色主题 */
+function useRoleTheme(roleName: string): RoleTheme {
+  const { token } = theme.useToken();
+  return deriveRoleTheme(roleName, token);
+}
 
 // 策略代码面板
 export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
@@ -60,7 +94,7 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
   actions,
   onAction,
 }) => {
-  const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const theme = useRoleTheme(roleName);
   const codeText = typeof structuredData.code === 'string' ? structuredData.code : '';
   const strategyName = typeof structuredData.strategy_name === 'string' ? structuredData.strategy_name : '';
 
@@ -127,7 +161,7 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
   actions,
   onAction,
 }) => {
-  const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const theme = useRoleTheme(roleName);
 
   const metrics = [
     { key: '年化收益率', value: structuredData['年化收益率'], suffix: '%', color: '#52c41a' },
@@ -204,7 +238,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
   actions,
   onAction,
 }) => {
-  const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const theme = useRoleTheme(roleName);
 
   const riskLevel = typeof structuredData.risk_level === 'string' ? structuredData.risk_level : '未知';
   const riskColors: Record<string, string> = {
@@ -278,7 +312,7 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
   actions,
   onAction,
 }) => {
-  const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const theme = useRoleTheme(roleName);
 
   const direction = typeof structuredData.direction === 'string' ? structuredData.direction : '等待信号';
   const position = typeof structuredData.position === 'string' ? structuredData.position : '0%';
@@ -339,7 +373,7 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
   actions,
   onAction,
 }) => {
-  const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const theme = useRoleTheme(roleName);
 
   const dataColumns = [
     { title: '指标', dataIndex: 'key', key: 'key' },
@@ -400,7 +434,7 @@ export const GeneralPanel: React.FC<IntentPanelProps> = ({
   actions,
   onAction,
 }) => {
-  const theme = ROLE_THEMES[roleName] || ROLE_THEMES['AI 助手'];
+  const theme = useRoleTheme(roleName);
 
   return (
     <Card

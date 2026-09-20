@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 统一数据管理页面 - 多自选组管理优化版
  * 整合数据池、数据采集、数据质量三个核心功能模块
@@ -104,10 +105,10 @@ const { useBreakpoint } = Grid;
 
 const TASK_STATUS_CONFIG: Record<TaskStatus, { color: string; label: string; badge: 'processing' | 'success' | 'error' | 'default' | 'warning' }> = {
   running: { color: '#1677ff', label: '运行中', badge: 'processing' },
-  completed: { color: '#52c41a', label: '已完成', badge: 'success' },
-  failed: { color: '#ff4d4f', label: '失败', badge: 'error' },
+  completed: { color: QUANT_COLORS.positive, label: '已完成', badge: 'success' },
+  failed: { color: QUANT_COLORS.negative, label: '失败', badge: 'error' },
   pending: { color: '#d9d9d9', label: '等待中', badge: 'default' },
-  canceled: { color: '#faad14', label: '已取消', badge: 'warning' },
+  canceled: { color: QUANT_COLORS.warning, label: '已取消', badge: 'warning' },
 };
 
 /** 数据类型 → 标签颜色 */
@@ -272,7 +273,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
                     size="small"
                     showInfo={false}
                     status={task.status === 'running' && (subTask.percentage ?? 0) < 100 ? 'active' : undefined}
-                    strokeColor={(subTask.percentage ?? 0) >= 100 ? '#52c41a' : undefined}
+                    strokeColor={(subTask.percentage ?? 0) >= 100 ? QUANT_COLORS.positive : undefined}
                   />
                 </div>
               ))}
@@ -681,7 +682,7 @@ const DataManagementPage = () => {
               id: Number(pool.id),
               name: pool.name,
               description: pool.description,
-              color: pool.color || '#1890ff',
+              color: pool.color || QUANT_COLORS.info,
               symbolIds: symbolIds,
               isDefault: pool.is_default || false,
               sortOrder: Number(pool.id),
@@ -988,7 +989,7 @@ const DataManagementPage = () => {
           name: values.name,
           type: 'crypto',
           description: values.description,
-          color: values.color || '#1890ff',
+          color: values.color || QUANT_COLORS.info,
           tags: [],
         });
         // 拦截器只返回 data 字段，判断 pool_id 是否存在表示成功
@@ -1336,7 +1337,7 @@ const DataManagementPage = () => {
   };
 
   // 获取价格变化颜色
-  const getPriceChangeColor = (change: number) => change >= 0 ? '#52c41a' : '#ff4d4f';
+  const getPriceChangeColor = (change: number) => change >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative;
 
   // 格式化成交量
   const formatVolume = (volume: number) => {
@@ -1364,7 +1365,7 @@ const DataManagementPage = () => {
           <Space>
             <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: group.color }} />
             <span>{group.name}</span>
-            {group.symbolIds.includes(symbolId) && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
+            {group.symbolIds.includes(symbolId) && <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
           </Space>
         ),
         onClick: () => {
@@ -1689,12 +1690,12 @@ const DataManagementPage = () => {
           <Select
             placeholder={t('color_tag_placeholder') || '选择颜色'}
             options={[
-              { value: '#1890ff', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#1890ff', borderRadius: 4 }} />蓝色</Space> },
-              { value: '#52c41a', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#52c41a', borderRadius: 4 }} />绿色</Space> },
-              { value: '#faad14', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#faad14', borderRadius: 4 }} />黄色</Space> },
-              { value: '#f5222d', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#f5222d', borderRadius: 4 }} />红色</Space> },
+              { value: QUANT_COLORS.info, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.info, borderRadius: 4 }} />蓝色</Space> },
+              { value: QUANT_COLORS.positive, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.positive, borderRadius: 4 }} />绿色</Space> },
+              { value: QUANT_COLORS.warning, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.warning, borderRadius: 4 }} />黄色</Space> },
+              { value: QUANT_COLORS.negative, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.negative, borderRadius: 4 }} />红色</Space> },
               { value: '#722ed1', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#722ed1', borderRadius: 4 }} />紫色</Space> },
-              { value: '#13c2c2', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#13c2c2', borderRadius: 4 }} />青色</Space> },
+              { value: QUANT_COLORS.info, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.info, borderRadius: 4 }} />青色</Space> },
             ]}
           />
         </Form.Item>
@@ -1866,7 +1867,7 @@ const DataManagementPage = () => {
                 <Text>时间周期: {cleanResult.interval || '全部'}</Text>
                 <Text>清理类型: {cleanResult.clean_type}</Text>
                 <Text>清理前记录数: {cleanResult.total_before}</Text>
-                <Text strong style={{ color: '#ff4d4f' }}>已清理记录数: {cleanResult.deleted_count}</Text>
+                <Text strong style={{ color: QUANT_COLORS.negative }}>已清理记录数: {cleanResult.deleted_count}</Text>
               </Space>
             }
             type="success"
@@ -2318,7 +2319,7 @@ const DataManagementPage = () => {
               <Row align="middle" justify="space-between">
                 <Col>
                   <Space>
-                    <span style={{ color: '#52c41a', fontWeight: 500 }}>
+                    <span style={{ color: QUANT_COLORS.positive, fontWeight: 500 }}>
                       已选择 {selectedSymbols.length} 个货币对
                     </span>
                     <Button type="link" size="small" onClick={clearSelection}>
@@ -2447,7 +2448,7 @@ const DataManagementPage = () => {
           <Statistic
             title={t('has_data') || '有数据'}
             value={filteredSymbols.filter(s => s.hasData).length}
-            prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+            prefix={<CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
           />
         </Card>
       </Col>
@@ -2456,7 +2457,7 @@ const DataManagementPage = () => {
           <Statistic
             title={t('auto_update') || '自动更新'}
             value={filteredSymbols.filter(s => s.autoUpdate).length}
-            prefix={<ReloadOutlined style={{ color: '#1890ff' }} />}
+            prefix={<ReloadOutlined style={{ color: QUANT_COLORS.info }} />}
           />
         </Card>
       </Col>
@@ -2495,7 +2496,7 @@ const DataManagementPage = () => {
           >
             <Button
               type="text"
-              icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || '#faad14' }} /> : <StarOutlined />}
+              icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || QUANT_COLORS.warning }} /> : <StarOutlined />}
               onClick={(e) => e.stopPropagation()}
             />
           </Dropdown>
@@ -2691,7 +2692,7 @@ const DataManagementPage = () => {
                   <Button
                     type="text"
                     size="small"
-                    icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || '#faad14' }} /> : <StarOutlined />}
+                    icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || QUANT_COLORS.warning }} /> : <StarOutlined />}
                   />
                 </Dropdown>
               }
@@ -3064,21 +3065,21 @@ const DataManagementPage = () => {
                 <Statistic
                   title="良好"
                   value={symbols.filter((s) => s.dataQuality === 'good').length}
-                  styles={{ content: { color: '#52c41a' } }}
+                  styles={{ content: { color: QUANT_COLORS.positive } }}
                 />
               </Col>
               <Col span={12}>
                 <Statistic
                   title="警告"
                   value={symbols.filter((s) => s.dataQuality === 'warning').length}
-                  styles={{ content: { color: '#faad14' } }}
+                  styles={{ content: { color: QUANT_COLORS.warning } }}
                 />
               </Col>
               <Col span={12}>
                 <Statistic
                   title="异常"
                   value={symbols.filter((s) => s.dataQuality === 'bad').length}
-                  styles={{ content: { color: '#ff4d4f' } }}
+                  styles={{ content: { color: QUANT_COLORS.negative } }}
                 />
               </Col>
             </Row>
@@ -3154,7 +3155,7 @@ const DataManagementPage = () => {
                     {(() => {
                       const status = qualityDetail.summary?.status;
                       const statusText = status === 'good' || status === 'pass' ? '通过' : status === 'warning' ? '警告' : '失败';
-                      const statusColor = status === 'good' || status === 'pass' ? '#52c41a' : status === 'warning' ? '#faad14' : '#ff4d4f';
+                      const statusColor = status === 'good' || status === 'pass' ? QUANT_COLORS.positive : status === 'warning' ? QUANT_COLORS.warning : QUANT_COLORS.negative;
                       return (
                         <Statistic
                           title="总体状态"
@@ -3202,7 +3203,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.integrity?.missing_columns && qualityDetail.details.integrity.missing_columns.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>缺失列:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>缺失列:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.integrity.missing_columns.map((col: string) => (
                                   <Tag key={col} color="error" style={{ marginBottom: 4 }}>{col}</Tag>
@@ -3213,7 +3214,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.integrity?.missing_values && Object.keys(qualityDetail.details.integrity.missing_values).length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>缺失值统计:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>缺失值统计:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {Object.entries(qualityDetail.details.integrity.missing_values).map(([key, value]) => (
                                   <div key={key} style={{ marginBottom: 4 }}>
@@ -3337,35 +3338,35 @@ const DataManagementPage = () => {
                           {qualityDetail.details.validity?.negative_prices && qualityDetail.details.validity.negative_prices.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>负价格记录:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>负价格记录:</Text>
                               <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.negative_prices.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.negative_volumes && qualityDetail.details.validity.negative_volumes.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>负成交量记录:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>负成交量记录:</Text>
                               <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.negative_volumes.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.invalid_high_low && qualityDetail.details.validity.invalid_high_low.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>高低价异常记录 (high &lt; low):</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>高低价异常记录 (high &lt; low):</Text>
                               <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.invalid_high_low.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.invalid_price_logic && qualityDetail.details.validity.invalid_price_logic.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>价格逻辑异常记录:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>价格逻辑异常记录:</Text>
                               <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.invalid_price_logic.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.abnormal_price_changes && qualityDetail.details.validity.abnormal_price_changes.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#faad14' }}>异常涨跌幅记录 (&gt;±20%):</Text>
+                              <Text strong style={{ color: QUANT_COLORS.warning }}>异常涨跌幅记录 (&gt;±20%):</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
                                 {qualityDetail.details.validity.abnormal_price_changes.map((item, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
@@ -3381,7 +3382,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.validity?.abnormal_volumes && qualityDetail.details.validity.abnormal_volumes.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#faad14' }}>异常成交量记录 (&gt;30日均量10倍):</Text>
+                              <Text strong style={{ color: QUANT_COLORS.warning }}>异常成交量记录 (&gt;30日均量10倍):</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
                                 {qualityDetail.details.validity.abnormal_volumes.map((item, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
@@ -3397,7 +3398,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.validity?.price_gaps && qualityDetail.details.validity.price_gaps.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#faad14' }}>价格跳空记录 (&gt;±5%):</Text>
+                              <Text strong style={{ color: QUANT_COLORS.warning }}>价格跳空记录 (&gt;±5%):</Text>
                               <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
                                 {qualityDetail.details.validity.price_gaps.map((item, index: number) => (
                                   <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
@@ -3426,7 +3427,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.time_format_issues && qualityDetail.details.consistency.time_format_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>时间格式问题:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>时间格式问题:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.consistency.time_format_issues.map((issue: string, index: number) => (
                                   <div key={index} style={{ marginBottom: 4 }}>
@@ -3439,7 +3440,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.duplicate_codes && qualityDetail.details.consistency.duplicate_codes.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>重复代码:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>重复代码:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.consistency.duplicate_codes.map((code: string, index: number) => (
                                   <Tag key={index} color="error" style={{ marginBottom: 4 }}>{code}</Tag>
@@ -3450,7 +3451,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.code_name_mismatches && qualityDetail.details.consistency.code_name_mismatches.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>代码名称不匹配:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>代码名称不匹配:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.consistency.code_name_mismatches.map((mismatch: string, index: number) => (
                                   <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{mismatch}</Tag>
@@ -3461,7 +3462,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.inconsistent_adj_factors && qualityDetail.details.consistency.inconsistent_adj_factors.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>复权因子不一致:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>复权因子不一致:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.consistency.inconsistent_adj_factors.map((issue: string, index: number) => (
                                   <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{issue}</Tag>
@@ -3485,7 +3486,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.logic?.trading_time_issues && qualityDetail.details.logic.trading_time_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>交易时间异常:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>交易时间异常:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.logic.trading_time_issues.map((issue: string, index: number) => (
                                   <Tag key={index} color="error" style={{ marginBottom: 4 }}>{issue}</Tag>
@@ -3496,7 +3497,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.logic?.suspension_issues && qualityDetail.details.logic.suspension_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>停牌数据问题:</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>停牌数据问题:</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.logic.suspension_issues.map((issue: string, index: number) => (
                                   <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{issue}</Tag>
@@ -3507,7 +3508,7 @@ const DataManagementPage = () => {
                           {qualityDetail.details.logic?.price_limit_issues && qualityDetail.details.logic.price_limit_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: '12px 0' }} />
-                              <Text strong style={{ color: '#ff4d4f' }}>涨跌停异常 (&gt;±10.1%):</Text>
+                              <Text strong style={{ color: QUANT_COLORS.negative }}>涨跌停异常 (&gt;±10.1%):</Text>
                               <div style={{ marginTop: 8 }}>
                                 {qualityDetail.details.logic.price_limit_issues.map((issue: string, index: number) => (
                                   <Tag key={index} color="error" style={{ marginBottom: 4 }}>{issue}</Tag>

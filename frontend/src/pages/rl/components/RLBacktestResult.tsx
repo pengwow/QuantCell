@@ -1,4 +1,5 @@
 import { Card, Statistic, Row, Col, Descriptions } from 'antd';
+import { QUANT_COLORS } from '@/utils/colors';
 
 export interface BacktestResult {
   total_pnl: number;
@@ -24,7 +25,7 @@ export default function RLBacktestResult({ result }: RLBacktestResultProps) {
             title="总收益"
             value={result.total_pnl}
             precision={2}
-            valueStyle={{ color: result.total_pnl >= 0 ? '#3f8600' : '#cf1322' }}
+            valueStyle={{ color: result.total_pnl >= 0 ? '#3f8600' : QUANT_COLORS.negative }}
             prefix="¥"
           />
         </Col>
@@ -33,7 +34,7 @@ export default function RLBacktestResult({ result }: RLBacktestResultProps) {
             title="夏普比率"
             value={result.sharpe_ratio}
             precision={4}
-            valueStyle={{ color: result.sharpe_ratio >= 1 ? '#52c41a' : '#fa8c16' }}
+            valueStyle={{ color: result.sharpe_ratio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.warning }}
           />
         </Col>
         <Col span={8}>
@@ -42,7 +43,7 @@ export default function RLBacktestResult({ result }: RLBacktestResultProps) {
             value={result.max_drawdown}
             precision={2}
             suffix="%"
-            valueStyle={{ color: '#cf1322' }}
+            valueStyle={{ color: QUANT_COLORS.negative }}
           />
         </Col>
       </Row>

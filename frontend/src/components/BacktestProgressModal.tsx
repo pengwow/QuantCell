@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { QUANT_COLORS } from '@/utils/colors';
 
 const { Text } = Typography;
 
@@ -98,9 +99,9 @@ const BacktestProgressModal = ({
       case 'process':
         return <LoadingOutlined />;
       case 'finish':
-        return <CheckCircleFilled style={{ color: '#52c41a' }} />;
+        return <CheckCircleFilled style={{ color: QUANT_COLORS.positive }} />;
       case 'error':
-        return <CloseCircleFilled style={{ color: '#ff4d4f' }} />;
+        return <CloseCircleFilled style={{ color: QUANT_COLORS.negative }} />;
       default:
         return defaultIcon;
     }
@@ -289,7 +290,7 @@ const BacktestProgressModal = ({
             status={isError ? 'exception' : isFinished ? 'success' : 'active'}
             strokeColor={
               isError
-                ? '#ff4d4f'
+                ? QUANT_COLORS.negative
                 : {
                     '0%': '#108ee9',
                     '100%': '#87d068',

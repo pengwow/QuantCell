@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 日志设置统一页面 - 与项目风格统一
  */
@@ -396,7 +397,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   function getProgressColor(percent: number): string {
     if (percent > 85) return '#f5222d';
     if (percent > 70) return '#faad14';
-    return '#52c41a';
+    return QUANT_COLORS.positive;
   }
 
   // ========== 渲染 ==========
@@ -791,9 +792,9 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     const percent = (totalBytes / maxBytes) * 100;
                     
                     const colors: Record<string, string> = {
-                      application: '#1890ff',
-                      system: '#52c41a',
-                      api: '#fa8c16',
+                      application: QUANT_COLORS.info,
+                      system: QUANT_COLORS.positive,
+                      api: QUANT_COLORS.warning,
                     };
                     
                     return (
@@ -811,7 +812,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                             className="h-full rounded-full transition-all duration-300"
                             style={{
                               width: `${percent}%`,
-                              backgroundColor: colors[type] || '#1890ff',
+                              backgroundColor: colors[type] || QUANT_COLORS.info,
                             }}
                           />
                         </div>

@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker Edit Modal
  *
@@ -347,7 +348,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
           dataPoolOptions.push({
             label: (
               <Space>
-                <StarFilled style={{ color: '#faad14' }} />
+                <StarFilled style={{ color: QUANT_COLORS.warning }} />
                 <span>{pool.name}</span>
                 <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
               </Space>

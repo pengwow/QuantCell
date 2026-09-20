@@ -54,6 +54,7 @@ import type { Worker as WorkerType, ApiResponse } from '../../types/worker';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
+import { QUANT_COLORS } from '@/utils/colors';
 
 // 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
 type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
@@ -208,7 +209,7 @@ const Worker = () => {
           smooth: true,
           symbol: 'none',
           lineStyle: {
-            color: '#1890ff',
+            color: QUANT_COLORS.info,
             width: 2,
           },
           areaStyle: {
@@ -532,8 +533,8 @@ const Worker = () => {
           <Statistic
             title={t('running')}
             value={statusStats.running}
-            styles={{ content: { color: '#52c41a' } }}
-            prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+            styles={{ content: { color: QUANT_COLORS.positive } }}
+            prefix={<CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
           />
         </Card>
       </Col>
@@ -554,7 +555,7 @@ const Worker = () => {
             value={statusStats.totalProfit}
             precision={2}
             prefix={'$'}
-            styles={{ content: { color: statusStats.totalProfit >= 0 ? '#52c41a' : '#ff4d4f' } }}
+            styles={{ content: { color: statusStats.totalProfit >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
           />
         </Card>
       </Col>
@@ -587,10 +588,10 @@ const Worker = () => {
       : 0;
 
     const metrics = [
-      { label: t('win_rate'), value: `${performance.win_rate?.toFixed(2) || 0}%`, color: performance.win_rate >= 50 ? '#52c41a' : '#ff4d4f' },
-      { label: t('profit_loss_ratio'), value: profitLossRatio.toFixed(2), color: profitLossRatio >= 1 ? '#52c41a' : '#ff4d4f' },
-      { label: t('max_drawdown'), value: `${performance.max_drawdown?.toFixed(2) || 0}%`, color: '#ff4d4f' },
-      { label: t('sharpe_ratio'), value: performance.sharpe_ratio?.toFixed(2) || '0.00', color: performance.sharpe_ratio >= 1 ? '#52c41a' : '#faad14' },
+      { label: t('win_rate'), value: `${performance.win_rate?.toFixed(2) || 0}%`, color: performance.win_rate >= 50 ? QUANT_COLORS.positive : QUANT_COLORS.negative },
+      { label: t('profit_loss_ratio'), value: profitLossRatio.toFixed(2), color: profitLossRatio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.negative },
+      { label: t('max_drawdown'), value: `${performance.max_drawdown?.toFixed(2) || 0}%`, color: QUANT_COLORS.negative },
+      { label: t('sharpe_ratio'), value: performance.sharpe_ratio?.toFixed(2) || '0.00', color: performance.sharpe_ratio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.warning },
     ];
 
     return (
@@ -696,7 +697,7 @@ const Worker = () => {
                 justifyContent: 'space-between',
               }}
             >
-              <span style={{ fontSize: 14, color: '#1890ff' }}>
+              <span style={{ fontSize: 14, color: QUANT_COLORS.info }}>
                 <CheckSquareOutlined style={{ marginRight: 8 }} />
                 已选择 <strong>{selectedRowKeys.length}</strong> 个 Worker
               </span>
@@ -747,7 +748,7 @@ const Worker = () => {
                   <Space>
                     <FileTextOutlined />
                     {t('worker_list')}
-                    <Badge count={filteredWorkers.length} style={{ backgroundColor: '#1890ff' }} />
+                    <Badge count={filteredWorkers.length} style={{ backgroundColor: QUANT_COLORS.info }} />
                   </Space>
                 }
                 styles={{ body: { padding: 0 } }}
@@ -766,7 +767,7 @@ const Worker = () => {
                           onClick={() => setSelectedWorker(worker)}
                           style={{
                             boxShadow: selectedWorker?.id === worker.id ? '0 0 0 2px #1890ff' : '0 2px 8px rgba(0, 0, 0, 0.1)',
-                            borderColor: selectedWorker?.id === worker.id ? '#1890ff' : undefined,
+                            borderColor: selectedWorker?.id === worker.id ? QUANT_COLORS.info : undefined,
                           }}
                           extra={
                             <Space size={4}>
@@ -836,7 +837,7 @@ const Worker = () => {
                               <span style={{
                                 fontSize: 13,
                                 fontWeight: 500,
-                                color: (worker.total_profit || 0) >= 0 ? '#52c41a' : '#ff4d4f'
+                                color: (worker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
                               }}>
                                 {(worker.total_profit || 0) >= 0 ? '+' : ''}
                                 ${(worker.total_profit || 0).toFixed(2)}
@@ -1012,7 +1013,7 @@ const Worker = () => {
                         render: (profit: number) => (
                           <span style={{
                             fontWeight: 500,
-                            color: (profit || 0) >= 0 ? '#52c41a' : '#ff4d4f'
+                            color: (profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
                           }}>
                             {(profit || 0) >= 0 ? '+' : ''}
                             ${(profit || 0).toFixed(2)}
@@ -1030,7 +1031,7 @@ const Worker = () => {
                               <Button
                                 type="text"
                                 size="small"
-                                icon={<EyeOutlined style={{ color: '#1890ff' }} />}
+                                icon={<EyeOutlined style={{ color: QUANT_COLORS.info }} />}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   navigate(`/strategy-worker/${worker.id}`);

@@ -5,6 +5,8 @@
  */
 import EChart from '@/components/EChart';
 import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallbackParams } from 'echarts';
+import { theme } from 'antd';
+import { useQuantColors } from '@/utils/colors';
 
 // 权益数据接口（支持后端返回的小写字段名）
 export interface EquityData {
@@ -27,15 +29,14 @@ export interface EquityChartProps {
   isDark?: boolean; // 是否为暗色主题
 }
 
-const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProps) => {
+const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: EquityChartProps) => {
+  const { token } = theme.useToken();
+  const qc = useQuantColors();
   if (!data || data.length === 0) {
     return <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>暂无数据</div>;
   }
 
-  // 根据主题设置颜色
-  const textColor = isDark ? '#ffffff' : '#333333';
-  const axisColor = isDark ? '#888888' : '#666666';
-  const gridColor = isDark ? '#333333' : '#eeeeee';
+  // ponytail: 所有颜色统一从 quantColors 派生
 
   // 提取时间（优先使用 formatted_time，其次是 datetime）
   const dates = data.map((item) => item.formatted_time || item.datetime || '');
@@ -77,7 +78,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       symbol: 'none',
       lineStyle: {
         width: 2,
-        color: '#1890ff',
+        color: qc.info,
       },
       areaStyle: {
         color: {
@@ -87,8 +88,10 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
           x2: 0,
           y2: 1,
           colorStops: [
-            { offset: 0, color: 'rgba(24, 144, 255, 0.4)' },
-            { offset: 1, color: 'rgba(24, 144, 255, 0.05)' },
+            // ponytail: EquityChart 是独立面积曲线，用比 chartGradientStart (0.25) 更高的 0.4 透明度，
+            // 因为底下没有回撤阴影层，需要更明显的视觉填充。根据背景色判断暗/亮模式。
+            { offset: 0, color: token.colorBgBase === '#17191c' ? 'rgba(71, 139, 230, 0.40)' : 'rgba(9, 105, 218, 0.40)' },
+            { offset: 1, color: qc.chartGradientEnd },
           ],
         },
       },
@@ -107,7 +110,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       symbol: 'none',
       lineStyle: {
         width: 2,
-        color: '#52c41a',
+        color: qc.chartLine,
         type: 'dashed',
       },
       animationDuration: 1000,
@@ -132,7 +135,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       right: 20,
       show: true,
       textStyle: {
-        color: textColor,
+        color: qc.neutral,
       },
     },
     // 提示框
@@ -141,7 +144,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       axisPointer: {
         type: 'cross',
         label: {
-          backgroundColor: '#6a7985',
+          backgroundColor: token.colorBgElevated,
         },
       },
       formatter: (params: TooltipComponentFormatterCallbackParams) => {
@@ -168,11 +171,11 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       data: dates,
       axisLine: {
         lineStyle: {
-          color: axisColor,
+          color: qc.chartAxis,
         },
       },
       axisLabel: {
-        color: textColor,
+        color: qc.neutral,
         formatter: (value: string) => {
           return value.slice(0, 10);
         },
@@ -181,7 +184,7 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       splitLine: {
         show: true,
         lineStyle: {
-          color: gridColor,
+          color: qc.chartSplit,
         },
       },
     },
@@ -193,17 +196,17 @@ const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProp
       max: maxValue + padding,
       axisLine: {
         lineStyle: {
-          color: axisColor,
+          color: qc.chartAxis,
         },
       },
       axisLabel: {
-        color: textColor,
+        color: qc.neutral,
         formatter: (value: number) => value.toFixed(0),
       },
       splitLine: {
         show: true,
         lineStyle: {
-          color: gridColor,
+          color: qc.chartSplit,
         },
       },
     },

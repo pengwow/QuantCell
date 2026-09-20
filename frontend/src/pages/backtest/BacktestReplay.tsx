@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 回测回放页面组件
  * 功能：回放回测过程，展示K线图表和交易信号
@@ -666,7 +667,7 @@ const BacktestReplay = () => {
             {/* 左侧：货币对选择 */}
             <Col flex="none">
               <Space align="center">
-                <StockOutlined style={{ fontSize: 18, color: '#1890ff' }} />
+                <StockOutlined style={{ fontSize: 18, color: QUANT_COLORS.info }} />
                 <span style={{ fontWeight: 500 }}>货币对</span>
                 <Select
                   value={selectedSymbol}
@@ -698,7 +699,7 @@ const BacktestReplay = () => {
                     onClick={handleStop}
                     disabled={currentIndex === 0 || !replayData}
                     style={{ 
-                      color: currentIndex === 0 ? undefined : '#ff4d4f',
+                      color: currentIndex === 0 ? undefined : QUANT_COLORS.negative,
                       fontSize: 18 
                     }}
                   />
@@ -842,7 +843,7 @@ const BacktestReplay = () => {
                 {formatTimestamp(
                   replayData?.klines?.[currentIndex]?.time || replayData?.klines?.[currentIndex]?.timestamp || ''
                 )}
-                <span style={{ marginLeft: 12, color: '#1890ff' }}>
+                <span style={{ marginLeft: 12, color: QUANT_COLORS.info }}>
                   {progressPercent}%
                 </span>
               </span>

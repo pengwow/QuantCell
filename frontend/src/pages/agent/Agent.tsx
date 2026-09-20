@@ -54,6 +54,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { IntentPanelRenderer } from './components/IntentPanels';
 import './Agent.css';
+import { QUANT_COLORS } from '@/utils/colors';
 
 const { Content } = Layout;
 const { TextArea } = Input;
@@ -108,9 +109,9 @@ const ChatMessage = ({ message }: { message: Message }) => {
       <div className={`chat-message ${message.role} ${isError ? 'error' : ''}`}>
         <div className="message-avatar">
           {isUser ? <Avatar icon={<UserOutlined />} /> :
-           isTool ? <Avatar icon={<CodeOutlined />} style={{ background: '#52c41a' }} /> :
-           isError ? <Avatar icon={<ExclamationCircleOutlined />} style={{ background: '#ff4d4f' }} /> :
-           <Avatar icon={<RobotOutlined />} style={{ background: '#1890ff' }} />}
+           isTool ? <Avatar icon={<CodeOutlined />} style={{ background: QUANT_COLORS.positive }} /> :
+           isError ? <Avatar icon={<ExclamationCircleOutlined />} style={{ background: QUANT_COLORS.negative }} /> :
+           <Avatar icon={<RobotOutlined />} style={{ background: QUANT_COLORS.info }} />}
         </div>
         <div className="message-content">
           <div className="message-header">
@@ -137,7 +138,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
                   <Button
                     type="text"
                     size="small"
-                    icon={<ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />}
+                    icon={<ExclamationCircleOutlined style={{ color: QUANT_COLORS.negative }} />}
                     onClick={() => setErrorModalVisible(true)}
                     className="error-icon-btn"
                   />
@@ -434,7 +435,7 @@ const ToolListDrawerWithConfig = ({
                     <Tag color="blue">{tool.name}</Tag>
                     {params && (
                       params.params && Object.values(params.params).some(p => p.configured) ? (
-                        <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                        <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />
                       ) : null
                     )}
                   </Space>
@@ -465,7 +466,7 @@ const ToolListDrawerWithConfig = ({
                                   <LockOutlined
                                     style={{
                                       fontSize: 12,
-                                      color: '#faad14',
+                                      color: QUANT_COLORS.warning,
                                     }}
                                   />
                                 ) : null}
@@ -614,7 +615,7 @@ const SessionListDrawer = ({
                     {
                       key: 'delete',
                       label: (
-                        <span style={{ color: '#ff4d4f' }}>
+                        <span style={{ color: QUANT_COLORS.negative }}>
                           <DeleteOutlined /> 删除会话
                         </span>
                       ),

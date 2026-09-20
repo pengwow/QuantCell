@@ -196,25 +196,25 @@ const LoginPage = () => {
         >
           <Form.Item
             name="username"
-            label={<span className="dark:text-gray-300">{t("username") || "用户名"}</span>}
+            label={<span>{t("username") || "用户名"}</span>}
             rules={[{ required: true, message: t("username_required") || "请输入用户名" }]}
             validateTrigger="onSubmit"
           >
             <Space.Compact block className="h-10">
-              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
-              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" autoFocus />
+              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
+              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10" autoFocus />
             </Space.Compact>
           </Form.Item>
 
           <Form.Item
             name="password"
-            label={<span className="dark:text-gray-300">{t("password") || "密码"}</span>}
+            label={<span>{t("password") || "密码"}</span>}
             rules={[{ required: true, message: t("password_required") || "请输入密码" }]}
             validateTrigger="onSubmit"
           >
             <Space.Compact block className="h-10">
-              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
-              <Input.Password placeholder={t("enter_password") || "请输入密码"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" />
+              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
+              <Input.Password placeholder={t("enter_password") || "请输入密码"} className="h-10" />
             </Space.Compact>
           </Form.Item>
 
@@ -244,7 +244,7 @@ const LoginPage = () => {
         >
           <Form.Item
             name="username"
-            label={<span className="dark:text-gray-300">{t("username") || "用户名"}</span>}
+            label={<span>{t("username") || "用户名"}</span>}
             rules={[
               { required: true, message: t("username_required") || "请输入用户名" },
               { min: 2, message: t("username_min_length") || "用户名至少2个字符" },
@@ -253,14 +253,14 @@ const LoginPage = () => {
             validateTrigger="onSubmit"
           >
             <Space.Compact block className="h-10">
-              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
-              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" autoFocus />
+              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
+              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10" autoFocus />
             </Space.Compact>
           </Form.Item>
 
           <Form.Item
             name="password"
-            label={<span className="dark:text-gray-300">{t("password") || "密码"}</span>}
+            label={<span>{t("password") || "密码"}</span>}
             rules={[
               { required: true, message: t("password_required") || "请输入密码" },
               { min: 6, message: t("password_min_length") || "密码至少6个字符" },
@@ -268,8 +268,8 @@ const LoginPage = () => {
             validateTrigger="onSubmit"
           >
             <Space.Compact block className="h-10">
-              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
-              <Input.Password placeholder={t("enter_password") || "请输入密码（至少6位）"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" />
+              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
+              <Input.Password placeholder={t("enter_password") || "请输入密码（至少6位）"} className="h-10" />
             </Space.Compact>
           </Form.Item>
 
@@ -288,20 +288,20 @@ const LoginPage = () => {
       <div className="pointer-events-none fixed inset-0" style={bgStyle} />
 
       <div className="flex h-screen w-full items-center justify-center px-4">
-        <Card className="w-full max-w-md rounded-lg shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+        <Card className="w-full max-w-md rounded-lg shadow-lg">
           <div className="px-6 py-8">
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center justify-center">
               <img src="/logo.svg" alt="QuantCell" className="mb-4 h-16 w-16" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              <Title level={3} className="m-0 dark:text-white">QuantCell</Title>
-              <Text type="secondary" className="dark:text-gray-400">{t("login_subtitle") || "量化交易平台"}</Text>
+              <Title level={3} className="m-0">QuantCell</Title>
+              <Text type="secondary">{t("login_subtitle") || "量化交易平台"}</Text>
             </div>
 
             {/* 登录/注册 Tab 切换 */}
-            <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key as 'login' | 'register')} centered items={tabItems} className="dark:[&_.ant-tabs-nav]:mb-4" />
+            <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key as 'login' | 'register')} centered items={tabItems} />
 
             <div className="mt-4 text-center">
-              <Text type="secondary" className="text-xs dark:text-gray-500">
+              <Text type="secondary" className="text-xs">
                 {activeTab === 'login'
                   ? (t("login_hint") || "已有账号？请输入用户名和密码登录")
                   : (t("register_hint") || "创建账号后即可使用完整功能")}

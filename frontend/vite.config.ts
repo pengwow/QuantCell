@@ -137,9 +137,12 @@ export default defineConfig({
     },
     // 代码分割大小限制：antd 主包拆分后约 1.2MB 属正常体量，阈值上调到 1300 消除误报
     chunkSizeWarningLimit: 1300,
+    // ponytail: 生产构建移除所有 console.log/debugger
+    esbuild: {
+      drop: ['console', 'debugger'],
+    },
     // 压缩配置 - 使用 esbuild 减少内存使用
     minify: 'esbuild',
-    // esbuild 的 drop 选项在 Vite 中通过 rollup 插件配置
     // CSS 代码分割
     cssCodeSplit: true,
     // 禁用预加载减少内存使用

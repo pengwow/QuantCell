@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * K线数据回放页面
  * 功能：回放指定货币对的K线数据，支持播放控制、速度调节、时间范围选择
@@ -639,7 +640,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
               <Col flex="none">
                 <Badge
                   count={`${currentIndex + 1} / ${klines.length}`}
-                  style={{ backgroundColor: '#1890ff' }}
+                  style={{ backgroundColor: QUANT_COLORS.info }}
                 />
               </Col>
               <Col flex="auto" style={{ padding: '0 16px' }}>
@@ -685,7 +686,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
                   title="最高价"
                   value={stats.highestPrice}
                   precision={2}
-                  styles={{ content: { color: '#52c41a' } }}
+                  styles={{ content: { color: QUANT_COLORS.positive } }}
                 />
               </Col>
               <Col xs={12} sm={6} md={4}>
@@ -693,7 +694,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
                   title="最低价"
                   value={stats.lowestPrice}
                   precision={2}
-                  styles={{ content: { color: '#f5222d' } }}
+                  styles={{ content: { color: QUANT_COLORS.negative } }}
                 />
               </Col>
               <Col xs={12} sm={6} md={2}>

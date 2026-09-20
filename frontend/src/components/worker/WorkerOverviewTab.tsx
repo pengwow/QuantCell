@@ -10,13 +10,14 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Empty, Row, Segmented, Skeleton, Statistic, Button, Space } from 'antd';
+import { Card, Col, Empty, Row, Segmented, Skeleton, Statistic, Button, Space, theme } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import EChart from '@/components/EChart';
 import type { TooltipComponentFormatterCallbackParams } from 'echarts';
 import { useWorkerStore } from '../../store/workerStore';
 import type { OverviewWindow, OverviewMetrics } from '../../types/worker';
-import { formatUSD, formatPercent, QUANT_COLORS } from '../../utils/format';
+import { formatUSD, formatPercent } from '../../utils/format';
+import { useQuantColors } from '@/utils/colors';
 import { downloadCsv, timestampedFilename } from '../../utils/exportCsv';
 
 const WINDOW_OPTIONS: { label: string; value: OverviewWindow }[] = [
@@ -33,76 +34,23 @@ interface KPICardSpec {
   render: (m: OverviewMetrics) => { value: string; color: string };
 }
 
-const KPI_CARDS: KPICardSpec[] = [
-  {
-    key: 'total_pnl',
-    label: '总盈亏',
-    render: (m) => ({
-      value: formatUSD(m.total_pnl, { showSign: true }),
-      color: m.total_pnl >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-    }),
-  },
-  {
-    key: 'return_rate',
-    label: '收益率',
-    render: (m) => ({
-      value: formatPercent(m.return_rate, { showSign: true }),
-      color: m.return_rate >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-    }),
-  },
-  {
-    key: 'win_rate',
-    label: '胜率',
-    render: (m) => ({
-      value: formatPercent(m.win_rate),
-      color: m.win_rate >= 50 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-    }),
-  },
-  {
-    key: 'profit_loss_ratio',
-    label: '盈亏比',
-    render: (m) => ({
-      value: m.profit_loss_ratio?.toFixed(2) || '0.00',
-      color: m.profit_loss_ratio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-    }),
-  },
-  {
-    key: 'profit_factor',
-    label: 'Profit Factor',
-    render: (m) => ({
-      value: m.profit_factor?.toFixed(2) || '0.00',
-      color: m.profit_factor >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-    }),
-  },
-  {
-    key: 'max_drawdown',
-    label: '最大回撤',
-    render: (m) => ({
-      value: formatPercent(m.max_drawdown),
-      color: QUANT_COLORS.negative,
-    }),
-  },
-  {
-    key: 'sharpe_ratio',
-    label: 'Sharpe Ratio',
-    render: (m) => ({
-      value: m.sharpe_ratio?.toFixed(2) || '0.00',
-      color: m.sharpe_ratio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.warning,
-    }),
-  },
-  {
-    key: 'total_trades',
-    label: '总交易次数',
-    render: (m) => ({
-      value: String(m.total_trades ?? 0),
-      color: QUANT_COLORS.info,
-    }),
-  },
-];
-
 const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNavigate?: (tab: string) => void }> = ({ workerId, active = true, onNavigate }) => {
+  const { token } = theme.useToken();
+  const qc = useQuantColors();
   const { overview, overviewWindow, loadingOverview, fetchOverview } = useWorkerStore();
   const [localWindow, setLocalWindow] = useState<OverviewWindow>(overviewWindow || '30d');
+
+  // ponytail: KPI_CARDS 依赖 quantColors（跟随主题切换），必须放在 useMemo 里重建
+  const KPI_CARDS = useMemo<KPICardSpec[]>(() => [
+    { key: 'total_pnl', label: '总盈亏', render: (m) => ({ value: formatUSD(m.total_pnl, { showSign: true }), color: m.total_pnl >= 0 ? qc.positive : qc.negative }) },
+    { key: 'return_rate', label: '收益率', render: (m) => ({ value: formatPercent(m.return_rate, { showSign: true }), color: m.return_rate >= 0 ? qc.positive : qc.negative }) },
+    { key: 'win_rate', label: '胜率', render: (m) => ({ value: formatPercent(m.win_rate), color: m.win_rate >= 50 ? qc.positive : qc.negative }) },
+    { key: 'profit_loss_ratio', label: '盈亏比', render: (m) => ({ value: m.profit_loss_ratio?.toFixed(2) || '0.00', color: m.profit_loss_ratio >= 1 ? qc.positive : qc.negative }) },
+    { key: 'profit_factor', label: 'Profit Factor', render: (m) => ({ value: m.profit_factor?.toFixed(2) || '0.00', color: m.profit_factor >= 1 ? qc.positive : qc.negative }) },
+    { key: 'max_drawdown', label: '最大回撤', render: (m) => ({ value: formatPercent(m.max_drawdown), color: qc.negative }) },
+    { key: 'sharpe_ratio', label: 'Sharpe Ratio', render: (m) => ({ value: m.sharpe_ratio?.toFixed(2) || '0.00', color: m.sharpe_ratio >= 1 ? qc.positive : qc.warning }) },
+    { key: 'total_trades', label: '总交易次数', render: (m) => ({ value: String(m.total_trades ?? 0), color: qc.info }) },
+  ], [qc]);
 
   // 首次挂载 / window 切换时拉取
   useEffect(() => {
@@ -137,23 +85,17 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
   const pnlDist = overview?.pnlDistribution;
 
   // ============ 累计收益曲线 ECharts 配置 ============
+  // ponytail: 所有颜色从 theme token 派生的 quantColors 取，主题切换时自动重建
   const cumulativePnlOption = useMemo(() => {
     if (!series?.dates?.length) {
       return {
-        title: {
-          text: '暂无数据',
-          left: 'center',
-          top: 'center',
-          textStyle: { color: '#999', fontSize: 14 },
-        },
+        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
         xAxis: { type: 'category', data: [] },
         yAxis: { type: 'value' },
         series: [],
       };
     }
 
-    // 计算最大回撤阴影：从峰值到当前值的负向填充
-    // 使用 IIFE 构建可变 peak 变量以避免 const 不可重新赋值问题
     const values = series.cumulative_pnl;
     let peak = values[0];
     const drawdownData: number[] = [];
@@ -180,14 +122,14 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       xAxis: {
         type: 'category',
         data: series.dates,
-        axisLine: { lineStyle: { color: '#ccc' } },
-        axisLabel: { color: '#666', formatter: (v: string) => v.slice(5), rotate: 30 },
+        axisLine: { lineStyle: { color: qc.chartAxis } },
+        axisLabel: { color: qc.chartMark, formatter: (v: string) => v.slice(5), rotate: 30 },
       },
       yAxis: {
         type: 'value',
-        axisLine: { lineStyle: { color: '#ccc' } },
-        axisLabel: { color: '#666', formatter: (v: number) => `$${v.toFixed(0)}` },
-        splitLine: { lineStyle: { color: '#eee' } },
+        axisLine: { lineStyle: { color: qc.chartAxis } },
+        axisLabel: { color: qc.chartMark, formatter: (v: number) => `$${v.toFixed(0)}` },
+        splitLine: { lineStyle: { color: qc.chartSplit } },
       },
       series: [
         // 最大回撤阴影
@@ -197,7 +139,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
           data: drawdownArea,
           symbol: 'none',
           lineStyle: { opacity: 0 },
-          areaStyle: { color: 'rgba(255, 77, 79, 0.15)' },
+          areaStyle: { color: qc.drawdownArea },
           stack: 'dd',
         },
         {
@@ -215,20 +157,20 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
           data: values,
           smooth: true,
           symbol: 'none',
-          lineStyle: { color: '#1890ff', width: 2 },
+          lineStyle: { color: qc.chartLine, width: 2 },
           areaStyle: {
             color: {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(24, 144, 255, 0.3)' },
-                { offset: 1, color: 'rgba(24, 144, 255, 0.05)' },
+                { offset: 0, color: qc.chartGradientStart },
+                { offset: 1, color: qc.chartGradientEnd },
               ],
             },
           },
           markLine: {
             symbol: 'none',
-            data: [{ yAxis: 0, lineStyle: { color: '#999', type: 'dashed' } }],
+            data: [{ yAxis: 0, lineStyle: { color: qc.chartMark, type: 'dashed' } }],
           },
         },
       ],
@@ -237,18 +179,13 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         { start: 0, end: 100, height: 30, bottom: 10 },
       ],
     };
-  }, [series]);
+  }, [series, qc]);
 
   // ============ 盈亏分布直方图 ECharts 配置 ============
   const pnlDistributionOption = useMemo(() => {
     if (!pnlDist?.bins?.length) {
       return {
-        title: {
-          text: '暂无数据',
-          left: 'center',
-          top: 'center',
-          textStyle: { color: '#999', fontSize: 14 },
-        },
+        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
         xAxis: { type: 'category', data: [] },
         yAxis: { type: 'value' },
         series: [],
@@ -276,14 +213,14 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       xAxis: {
         type: 'category',
         data: binLabels.slice(0, -1),
-        axisLine: { lineStyle: { color: '#ccc' } },
-        axisLabel: { color: '#666', rotate: 30 },
+        axisLine: { lineStyle: { color: qc.chartAxis } },
+        axisLabel: { color: qc.chartMark, rotate: 30 },
       },
       yAxis: {
         type: 'value',
-        axisLine: { lineStyle: { color: '#ccc' } },
-        axisLabel: { color: '#666' },
-        splitLine: { lineStyle: { color: '#eee' } },
+        axisLine: { lineStyle: { color: qc.chartAxis } },
+        axisLabel: { color: qc.chartMark },
+        splitLine: { lineStyle: { color: qc.chartSplit } },
       },
       series: [
         {
@@ -293,7 +230,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
           itemStyle: {
             color: (params: { dataIndex: number }) => {
               const start = pnlDist.bins[params.dataIndex];
-              return start >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative;
+              return start >= 0 ? qc.positive : qc.negative;
             },
             borderRadius: [4, 4, 0, 0],
           },
@@ -301,7 +238,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         },
       ],
     };
-  }, [pnlDist]);
+  }, [pnlDist, qc]);
 
   // ============ CSV 导出 ============
   const handleExport = () => {
@@ -373,6 +310,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       </div>
 
       {/* 8 核心 KPI 卡片 */}
+      {/* ponytail: 所有 KPI 卡片统一 hoverable + cursor:pointer，background 从 theme token 取 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {KPI_CARDS.map((card) => {
           const { value, color } = card.render(metrics);
@@ -381,12 +319,12 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
               <Card
                 size="small"
                 variant="borderless"
-                style={{ background: '#fafafa', cursor: onNavigate ? 'pointer' : 'default' }}
+                hoverable
+                style={{ background: token.colorBgLayout, cursor: 'pointer' }}
                 onClick={() => handleKpiClick(String(card.key))}
-                hoverable={!!onNavigate}
               >
                 <Statistic
-                  title={<span style={{ fontSize: 13, color: '#666' }}>{card.label}</span>}
+                  title={<span style={{ fontSize: 13, color: qc.neutral }}>{card.label}</span>}
                   value={value}
                   styles={{ content: { fontSize: 22, fontWeight: 'bold', color } }}
                 />

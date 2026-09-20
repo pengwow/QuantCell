@@ -40,6 +40,7 @@ import PageContainer from '@/components/PageContainer';
 import type { TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useConfigStore } from '@/store';
+import { QUANT_COLORS } from '@/utils/colors';
 
 const { confirm } = Modal;
 const { Search } = Input;
@@ -969,7 +970,7 @@ const StrategyManagement = () => {
         if (value === undefined || value === null) return 'N/A';
         const isPositive = value >= 0;
         return (
-          <span style={{ color: isPositive ? '#52c41a' : '#ff4d4f' }}>
+          <span style={{ color: isPositive ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
             {isPositive ? '+' : ''}{value.toFixed(2)}%
           </span>
         );
@@ -983,7 +984,7 @@ const StrategyManagement = () => {
       align: 'right',
       render: (value: number | undefined) => {
         if (value === undefined || value === null) return 'N/A';
-        return <span style={{ color: '#ff4d4f' }}>{value.toFixed(2)}%</span>;
+        return <span style={{ color: QUANT_COLORS.negative }}>{value.toFixed(2)}%</span>;
       },
     },
     {
@@ -1102,8 +1103,8 @@ const StrategyManagement = () => {
                           task.total_return === undefined || task.total_return === null
                             ? 'inherit'
                             : task.total_return >= 0
-                              ? '#52c41a'
-                              : '#ff4d4f',
+                              ? QUANT_COLORS.positive
+                              : QUANT_COLORS.negative,
                         fontWeight: 'bold',
                       }}
                     >
@@ -1114,7 +1115,7 @@ const StrategyManagement = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">{t('max_drawdown') || '最大回撤'}</span>
-                    <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+                    <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
                       {task.max_drawdown === undefined || task.max_drawdown === null
                         ? 'N/A'
                         : `${task.max_drawdown.toFixed(2)}%`}

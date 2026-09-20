@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Input, Modal, Spin, Alert, App } from 'antd';
+import { Button, Input, Modal, Spin, Alert, App, theme } from 'antd';
 import { init, dispose, type Nullable, registerIndicator, registerOverlay, registerLocale } from 'klinecharts';
 import type {
   Chart,
@@ -25,6 +25,7 @@ import { getAccessToken } from '../../utils/tokenManager';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
 import { setPageTitle } from '@/utils/pageTitle';
+import { QUANT_COLORS } from '@/utils/colors';
 import './ChartPage.css';
 
 // 周期类型（klinecharts PeriodType）
@@ -185,7 +186,7 @@ const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ co
 
   const { extendData = {} } = coord1;
   const text = extendData.text || '';
-  const color = extendData.color || '#1890ff';
+  const color = extendData.color || QUANT_COLORS.info;
   const side = extendData.side || 'buy';
 
   const px = coord0.x ?? 0;
@@ -275,6 +276,8 @@ registerLocale('zh-HK', {
 const ChartPage = () => {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  // ponytail: klinecharts 独立于 antd theme，需要从 token 派生主题感知的样式值
+  const { token: themeToken } = theme.useToken();
 
   // 设置页面标题
   useEffect(() => {
@@ -402,28 +405,30 @@ const ChartPage = () => {
 
       chartInstanceRef.current = chart;
 
-      // 设置图表样式
+      // ponytail: 网格线和 K 线配色从 antd theme token 派生，主题切换时自动适配
       chart.setStyles({
         grid: {
           show: true,
           horizontal: {
             show: true,
             size: 1,
-            color: '#EDEDED',
+            color: themeToken.colorBorderSecondary,
             style: 'dashed',
           },
           vertical: {
             show: true,
             size: 1,
-            color: '#EDEDED',
+            color: themeToken.colorBorderSecondary,
             style: 'dashed',
           },
         },
         candle: {
           bar: {
-            upColor: '#26A69A',
-            downColor: '#EF5350',
-            noChangeColor: '#888888',
+            // ponytail: K 线配色保持 TradingView 行业惯例（绿涨红跌），
+            // 但跟随暗/亮主题调整亮度，避免在暗色模式下刺眼
+            upColor: themeToken.colorBgBase === '#17191c' ? '#52c7b8' : '#26A69A',
+            downColor: themeToken.colorBgBase === '#17191c' ? '#ff8a80' : '#EF5350',
+            noChangeColor: themeToken.colorTextTertiary ?? '#888888',
           },
         },
       });
@@ -640,11 +645,21 @@ const ChartPage = () => {
     saveUserPreferences(symbol.code, currentPeriod);
   };
 
-  // 默认指标颜色序列
-const DEFAULT_PLOT_COLORS = [
-    '#1890ff', '#f5222d', '#52c41a', '#faad14', '#722ed1',
-    '#13c2c2', '#eb2f96', '#fa8c16', '#a0d911', '#2f54eb',
-  ];
+  // ponytail: 指标调色板从 antd theme token 派生（涨跌语义色），
+  // 剩余 4 个饱和色（紫/粉/亮绿/靛蓝）是区分多条指标线的 palette，
+  // 保留硬编码不跟随主题——用户习惯用这些颜色区分不同指标。
+  const DEFAULT_PLOT_COLORS = useMemo(() => [
+    themeToken.colorInfo,
+    themeToken.colorError,
+    themeToken.colorSuccess,
+    themeToken.colorWarning,
+    '#722ed1',  // 紫
+    themeToken.colorInfo,
+    '#eb2f96',  // 粉
+    themeToken.colorWarning,
+    '#a0d911',  // 亮绿
+    '#2f54eb',  // 靛蓝
+  ], [themeToken.colorInfo, themeToken.colorError, themeToken.colorSuccess, themeToken.colorWarning]);
 
   // 安全的figure key（避免klinecharts特殊字符）
   const sanitizeFigureKey = (name: string): string => {
@@ -747,7 +762,7 @@ const DEFAULT_PLOT_COLORS = [
                       key: fig.key,
                       title: fig.title || fig.key,
                       type: 'line' as const,
-                      color: fig.color || '#1890ff',
+                      color: fig.color || themeToken.colorInfo,
                       baseValue: 0,
                   };
                   return config;

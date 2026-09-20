@@ -22,16 +22,27 @@ body {
   height: 100vh;
 }
 
-/* 全局过渡动画 */
-* {
-  transition-property: color, background-color, border-color;
-  transition-duration: 200ms;
-  transition-timing-function: ease;
-}
+/* ponytail: 全局通配符过渡已移除 — 会导致表格行/Modal/Drawer 的过渡与 antd 内置动画不同步，
+   且在大量表格行的场景下引起 GPU 持续工作。改为在需要的组件上单独添加过渡。 */
 
-/* 禁用某些元素的过渡 */
+/* 保留以下 antd 组件的过渡禁用（它们有自己的动画，不需要额外的颜色过渡） */
 .ant-drawer,
 .ant-modal,
 .ant-dropdown {
   transition: none;
+}
+
+/* ponytail: 精选交互组件 — 加柔和的颜色过渡，hover 更丝滑，同时不影响表格等高密度场景 */
+.ant-card,
+.ant-card-head,
+.ant-btn,
+.ant-tag,
+.ant-select-item,
+.ant-menu-item,
+.ant-input,
+.ant-input-number,
+.ant-select-selector {
+  transition-property: color, background-color, border-color;
+  transition-duration: 160ms;
+  transition-timing-function: ease-out;
 }

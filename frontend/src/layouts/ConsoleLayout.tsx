@@ -34,7 +34,13 @@ const ConsoleLayout = () => {
   const { token: themeToken } = theme.useToken();
   const { themeMode, setThemeMode } = useBrowserTheme();
 
-  const [siderCollapsed, setSiderCollapsed] = useState(true);
+  // ponytail: 默认展开，折叠状态持久化到 localStorage
+  const [siderCollapsed, setSiderCollapsed] = useState(() => localStorage.getItem('sider_collapsed') === 'true');
+
+  // 折叠状态变化时持久化
+  useEffect(() => {
+    localStorage.setItem('sider_collapsed', String(siderCollapsed));
+  }, [siderCollapsed]);
   const username = localStorage.getItem('username') || '';
   const nickname = localStorage.getItem('nickname') || username;
 
@@ -87,7 +93,7 @@ const ConsoleLayout = () => {
         className="group/sider z-20 h-full border-r bg-background max-md:static max-md:hidden"
         style={{ borderColor: themeToken.colorBorderSecondary }}
         theme="light"
-        width={siderCollapsed ? 81 : 256}
+        width={siderCollapsed ? 64 : 240}
       >
         <div className="flex size-full flex-col items-center justify-between overflow-hidden select-none">
           <div className="w-full px-2">
@@ -101,8 +107,8 @@ const ConsoleLayout = () => {
                     className="w-full"
                     styles={{ root: { marginLeft: '60px' } }}
                   >
-                    <div className={`flex cursor-pointer items-center rounded-md py-[10px] transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${siderCollapsed ? 'justify-center -mx-2' : 'gap-3 pl-[20px]'}`} style={{marginLeft: "-10", marginRight: "unset"}}>
-                <span className="anticon scale-125" role="img">
+                    <div className={`flex cursor-pointer items-center rounded-md py-[10px] transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${siderCollapsed ? 'justify-center -mx-2' : 'gap-3 pl-[20px]'}`} style={{marginRight: "unset"}}>
+                <span className="anticon" role="img">
                   <IconUser size="1em" />
                 </span>
                 {!siderCollapsed && (
@@ -116,7 +122,7 @@ const ConsoleLayout = () => {
                 {
                   key: "document",
                   icon: (
-                    <span className="anticon scale-125" role="img">
+                    <span className="anticon" role="img">
                       <IconHelp size="1em" />
                     </span>
                   ),
@@ -126,7 +132,7 @@ const ConsoleLayout = () => {
                 {
                   key: "/setting",
                   icon: (
-                    <span className="anticon scale-125" role="img">
+                    <span className="anticon" role="img">
                       <IconSettings size="1em" />
                     </span>
                   ),
@@ -167,10 +173,11 @@ const ConsoleLayout = () => {
           <div className="absolute inset-0 z-0">
             <div
               className="h-full w-full"
+              // ponytail: 移动端 header 网格用主色低透明度，替代硬编码的白色网格（暗色模式下会刺眼）
               style={{
                 backgroundImage:
-                  "linear-gradient(rgba(255, 255, 255, 0.063) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.063) 1px, transparent 1px)",
-                backgroundSize: "20px 20px",
+                  `linear-gradient(${themeToken.colorPrimary}10 1px, transparent 1px), linear-gradient(90deg, ${themeToken.colorPrimary}10 1px, transparent 1px)`,
+                backgroundSize: '20px 20px',
               }}
             >
               <div className="h-full w-full backdrop-blur-[1px]"></div>
@@ -248,7 +255,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     return {
       key: key,
       icon: (
-        <span className="anticon scale-125" role="img">
+        <span className="anticon" role="img">
           {icon}
         </span>
       ),
@@ -266,7 +273,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const pluginMenuItems: Required<MenuProps>["items"] = pluginMenus.map((pm) => ({
     key: pm.key,
     icon: (
-      <span className="anticon scale-125" role="img">
+      <span className="anticon" role="img">
         {pm.icon || <IconPlug size="1em" />}
       </span>
     ),

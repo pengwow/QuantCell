@@ -10,6 +10,7 @@ import { setPageTitle } from '@/utils/pageTitle';
 import type { BacktestTask } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
 import dayjs from 'dayjs';
+import { QUANT_COLORS } from '@/utils/colors';
 
 const { useBreakpoint } = Grid;
 
@@ -183,7 +184,7 @@ const BacktestList = () => {
         if (value === undefined || value === null) return 'N/A';
         const isPositive = value >= 0;
         return (
-          <span style={{ color: isPositive ? '#52c41a' : '#ff4d4f' }}>
+          <span style={{ color: isPositive ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
             {isPositive ? '+' : ''}{value.toFixed(2)}%
           </span>
         );
@@ -197,7 +198,7 @@ const BacktestList = () => {
       align: 'right',
       render: (value: number | undefined) => {
         if (value === undefined || value === null) return 'N/A';
-        return <span style={{ color: '#ff4d4f' }}>{value.toFixed(2)}%</span>;
+        return <span style={{ color: QUANT_COLORS.negative }}>{value.toFixed(2)}%</span>;
       },
     },
     {
@@ -408,8 +409,8 @@ const BacktestList = () => {
                           task.total_return === undefined || task.total_return === null
                             ? 'inherit'
                             : task.total_return >= 0
-                              ? '#52c41a'
-                              : '#ff4d4f',
+                              ? QUANT_COLORS.positive
+                              : QUANT_COLORS.negative,
                         fontWeight: 'bold',
                       }}
                     >
@@ -420,7 +421,7 @@ const BacktestList = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">最大回撤</span>
-                    <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+                    <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
                       {task.max_drawdown === undefined || task.max_drawdown === null
                         ? 'N/A'
                         : `${task.max_drawdown.toFixed(2)}%`}

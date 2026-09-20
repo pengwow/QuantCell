@@ -1,5 +1,6 @@
 import { Card, Statistic, Row, Col, Descriptions, Tag, Typography } from 'antd';
 import { TrophyOutlined, LineChartOutlined } from '@ant-design/icons';
+import { QUANT_COLORS } from '@/utils/colors';
 
 const { Text } = Typography;
 
@@ -28,7 +29,7 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
               title="夏普比率"
               value={num('sharpe_ratio')}
               precision={2}
-              valueStyle={{ color: num('sharpe_ratio') >= 0 ? '#3f8600' : '#cf1322' }}
+              valueStyle={{ color: num('sharpe_ratio') >= 0 ? '#3f8600' : QUANT_COLORS.negative }}
               prefix={<LineChartOutlined />}
             />
           </Col>
@@ -49,7 +50,7 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
               value={num('max_drawdown_pct')}
               precision={2}
               suffix="%"
-              valueStyle={{ color: '#cf1322' }}
+              valueStyle={{ color: QUANT_COLORS.negative }}
             />
           </Col>
           <Col span={8}>

@@ -3,6 +3,7 @@ import { Card, Button, Statistic, Row, Col, Form, Input, message } from 'antd';
 import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, SafetyOutlined } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
 import { riskApi, RiskMetrics, RiskCheckResult } from '@/api/riskApi';
+import { QUANT_COLORS } from '@/utils/colors';
 
 export default function RiskMonitorPage() {
   const [metrics, setMetrics] = useState<RiskMetrics | null>(null);
@@ -44,7 +45,7 @@ export default function RiskMonitorPage() {
     <PageContainer title="风控监控">
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card><Statistic title="总检查次数" value={metrics?.total_checks ?? '-'} /></Card></Col>
-        <Col span={6}><Card><Statistic title="拒绝订单数" value={metrics?.rejected_orders ?? '-'} valueStyle={{ color: '#cf1322' }} /></Card></Col>
+        <Col span={6}><Card><Statistic title="拒绝订单数" value={metrics?.rejected_orders ?? '-'} valueStyle={{ color: QUANT_COLORS.negative }} /></Card></Col>
         <Col span={6}><Card><Statistic title="拒绝率" value={metrics?.rejection_rate ?? '-'} suffix="%" /></Card></Col>
         <Col span={6}>
           <Card>
@@ -70,9 +71,9 @@ export default function RiskMonitorPage() {
           {checkResult ? (
             <div style={{ textAlign: 'center', padding: 24 }}>
               {checkResult.passed ? (
-                <><CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a' }} /><p>通过</p></>
+                <><CheckCircleOutlined style={{ fontSize: 48, color: QUANT_COLORS.positive }} /><p>通过</p></>
               ) : (
-                <><CloseCircleOutlined style={{ fontSize: 48, color: '#cf1322' }} /><p>拒绝: {checkResult.reason}</p></>
+                <><CloseCircleOutlined style={{ fontSize: 48, color: QUANT_COLORS.negative }} /><p>拒绝: {checkResult.reason}</p></>
               )}
             </div>
           ) : (

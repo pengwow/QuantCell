@@ -1,3 +1,4 @@
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 回测配置页面组件
  * 功能：配置策略回测参数，包括策略信息和回测信息
@@ -927,7 +928,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                           <span style={{
                             marginLeft: 8,
                             fontSize: 12,
-                            color: '#1890ff',
+                            color: QUANT_COLORS.info,
                             background: '#e6f7ff',
                             padding: '2px 6px',
                             borderRadius: 4,

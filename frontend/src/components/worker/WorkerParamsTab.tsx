@@ -10,6 +10,7 @@ import {
 import type { Worker as WorkerType, StrategyParameter } from '../../types/worker';
 import { CodeOutlined, TagOutlined } from '@ant-design/icons';
 import { getStrategyParameters } from '../../api/workerApi';
+import { QUANT_COLORS } from '@/utils/colors';
 import { useState, useEffect } from 'react';
 
 interface WorkerParamsTabProps {
@@ -156,7 +157,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('total_investment') || '总投入金额'}>
-                <span style={{ fontWeight: 600, color: '#1890ff' }}>
+                <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
                   ${typeof config.total_investment === 'number' ? config.total_investment.toFixed(2) : '-'}
                 </span>
               </Descriptions.Item>
@@ -194,9 +195,9 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
               if (typeof displayValue === 'number' && param.param_type === 'float') {
                 valueDisplay = typeof displayValue === 'number' ? displayValue.toFixed(2) : String(displayValue);
                 if (param.param_name?.includes('loss') || param.param_name?.includes('stop')) {
-                  valueStyle.color = '#ff4d4f';
+                  valueStyle.color = QUANT_COLORS.negative;
                 } else if (param.param_name?.includes('profit')) {
-                  valueStyle.color = '#52c41a';
+                  valueStyle.color = QUANT_COLORS.positive;
                 }
               } else if (typeof displayValue === 'boolean') {
                 valueDisplay = (
@@ -269,7 +270,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('max_drawdown') || '最大回撤限制'}>
-                <span style={{ fontWeight: 500, color: '#ff4d4f' }}>
+                <span style={{ fontWeight: 500, color: QUANT_COLORS.negative }}>
                   {String(config.max_drawdown_limit) || '-'}%
                 </span>
               </Descriptions.Item>
