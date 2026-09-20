@@ -65,19 +65,52 @@ function App() {
     return () => observer.disconnect();
   }, []);
 
+  // ponytail: 量化交易语义色，集中在 ConfigProvider token 里作为单一真相源。
+  // 各组件（QUANT_COLORS、ECharts、MetricCard）通过 theme.useToken() 取色，
+  // 禁止在子组件里硬编码 QUANT_COLORS.positive / QUANT_COLORS.negative / QUANT_COLORS.info 等 antd v5 风格颜色。
+  const tradingToken = isDarkMode
+    ? {
+        // 暗色模式
+        colorPrimary: '#f97316',
+        colorInfo: '#478be6',
+        colorSuccess: '#57ab5a',   // 正收益 / 盈利
+        colorWarning: '#daaa3f',
+        colorError: '#e5534b',     // 负收益 / 亏损
+        colorBgBase: '#17191c',
+        colorTextBase: '#fafaf9',
+        // Chart/ECharts 专用
+        colorChartLine: '#478be6',
+        colorChartAxis: '#4b5563',
+        colorChartSplit: '#374151',
+        colorChartMark: '#9ca3af',
+        colorChartGradientStart: 'rgba(71, 139, 230, 0.35)',
+        colorChartGradientEnd: 'rgba(71, 139, 230, 0.04)',
+        colorDrawdownArea: 'rgba(229, 83, 75, 0.18)',
+      }
+    : {
+        // 亮色模式
+        colorPrimary: '#ea580c',
+        colorInfo: '#0969da',
+        colorSuccess: '#1a7f37',
+        colorWarning: '#eac54f',
+        colorError: '#d1242f',
+        colorBgBase: '#ffffff',
+        colorTextBase: '#141414',
+        // Chart/ECharts 专用
+        colorChartLine: '#0969da',
+        colorChartAxis: '#d1d5db',
+        colorChartSplit: '#e5e7eb',
+        colorChartMark: '#9ca3af',
+        colorChartGradientStart: 'rgba(9, 105, 218, 0.25)',
+        colorChartGradientEnd: 'rgba(9, 105, 218, 0.02)',
+        colorDrawdownArea: 'rgba(209, 36, 47, 0.12)',
+      };
+
   return (
     <ConfigProvider
       theme={{
         algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: {
-          colorPrimary: isDarkMode ? '#f97316' : '#ea580c',
-          colorInfo: isDarkMode ? '#478be6' : '#0969da',
-          colorSuccess: isDarkMode ? '#57ab5a' : '#1a7f37',
-          colorWarning: isDarkMode ? '#daaa3f' : '#eac54f',
-          colorError: isDarkMode ? '#e5534b' : '#d1242f',
-          colorBgBase: isDarkMode ? '#17191c' : '#ffffff',
-          colorTextBase: isDarkMode ? '#fafaf9' : '#141414',
-        },
+        token: tradingToken,
         components: {
           Layout: {
             bodyBg: 'transparent',

@@ -5,14 +5,9 @@
  * 确保 Worker 详情页所有 tab 展示风格统一。
  */
 
-// 量化行业标准颜色
-export const QUANT_COLORS = {
-  positive: '#52c41a', // 盈利 / 多头 / 涨
-  negative: '#ff4d4f', // 亏损 / 空头 / 跌
-  neutral: '#666666', // 中性
-  warning: '#faad14', // 警告
-  info: '#1890ff', // 信息
-} as const
+// ponytail: QUANT_COLORS 已迁移至 colors.ts 作为单一真相源，
+// 这里重新导出以保持向后兼容。新代码请直接 import { QUANT_COLORS, useQuantColors } from '@/utils/colors'
+export { QUANT_COLORS } from './colors'
 
 /**
  * 格式化美元金额：千分位 + 2 位小数 + $ 前缀
