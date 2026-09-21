@@ -22,6 +22,7 @@ import {
   IconFlask,
 } from "@tabler/icons-react";
 import { Button, Drawer, Layout, Menu, type MenuProps, theme, Dropdown, Avatar } from "antd";
+import { setPageTitle } from "@/utils/pageTitle";
 
 import AppLocale from "@/components/AppLocale";
 import AppTheme from "@/components/AppTheme";
@@ -230,6 +231,33 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_RISK = "/risk-monitor";
   const MENU_KEY_RL = "/rl-training";
 
+  // ponytail: 路由路径 → 翻译键的映射表，用于自动设置浏览器 tab 标题。
+  // 匹配策略：先精确匹配路径前缀，再 fallback 到通用的路径段
+  const ROUTE_TITLE_KEYS: Array<[string, string]> = [
+    [MENU_KEY_CHART, "chart"],
+    [MENU_KEY_AGENT, "strategy_agent"],
+    [MENU_KEY_STRATEGY, "strategy_management"],
+    [MENU_KEY_STRATEGY_TASK, "strategy_task"],
+    [MENU_KEY_DATA, "data_management"],
+    [MENU_KEY_RL, "rl_training"],
+    [MENU_KEY_MODEL_REGISTRY, "model_registry"],
+    [MENU_KEY_ENSEMBLE, "ensemble"],
+    [MENU_KEY_RISK, "risk_monitor"],
+    // 子路由补全 — menu 里没有但需要正确标题的页面
+    ["/backtest", "backtest"],
+    ["/setting/general", "general"],
+    ["/setting/env", "env"],
+    ["/setting/exchange", "exchange"],
+    ["/setting/notifications", "notifications"],
+    ["/setting/model", "model"],
+    ["/setting/info", "info"],
+    ["/setting/plugins", "plugins"],
+    ["/setting", "setting"],
+    ["/strategy-editor", "strategy_editor"],
+    ["/factor-analysis", "factor_analysis"],
+    ["/model-management", "model_management"],
+  ];
+
   const [pluginMenus, setPluginMenus] = useState(pluginRegistry.getMenuItems());
 
   useEffect(() => {
@@ -242,7 +270,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const baseMenuItems: Required<MenuProps>["items"] = (
     [
       [MENU_KEY_CHART, "chart", <IconChartBar size="1em" />, false],
-      [MENU_KEY_AGENT, "agent", <IconRobot size="1em" />, false],
+      [MENU_KEY_AGENT, "strategy_agent", <IconRobot size="1em" />, false],
       [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />, false],
       [MENU_KEY_STRATEGY_TASK, "strategy_task", <IconBotId size="1em" />, false],
       [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />, false],
@@ -301,6 +329,16 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       setMenuSelectedKey(item.key as string);
     } else {
       setMenuSelectedKey(void 0);
+    }
+
+    // ponytail: 统一自动设置浏览器 tab 标题 — 从 ROUTE_TITLE_KEYS 找最长前缀匹配
+    // 子路由（如 /strategy-worker/123、/backtest/detail/456）会匹配到父路径的标题
+    // 页面内手动 setPageTitle 会在子组件挂载后覆盖这里的值（允许的）
+    const matched = ROUTE_TITLE_KEYS
+      .filter(([path]) => location.pathname === path || location.pathname.startsWith(`${path}/`))
+      .sort((a, b) => b[0].length - a[0].length)[0];
+    if (matched) {
+      setPageTitle(t(matched[1]));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [location.pathname]);
