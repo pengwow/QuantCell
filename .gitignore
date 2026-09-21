@@ -82,3 +82,12 @@ backend/.mimocode/.cron-lock
 backend/*.egg-info/
 .codegraph/
 docs/superpowers/*
+
+# QuantCell desktop (Tauri)
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/quantcell-backend-*
+desktop/ui/node_modules/
+desktop/ui/dist/
+backend/dist/
+backend/build/
+backend/quantcell-backend.spec
