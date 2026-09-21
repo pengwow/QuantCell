@@ -16,7 +16,10 @@ use crate::port::pick_free_port;
 const CORS_ORIGINS: &str =
     "tauri://localhost,http://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420";
 const PORT_ATTEMPTS: usize = 3;
-const SIGTERM_GRACE_SECS: u64 = 5;
+/// 关闭时给 sidecar 进程树的 SIGTERM 宽限，超时逐个 SIGKILL
+const SHUTDOWN_SIGTERM_WAIT_MS: u64 = 1500;
+const SHUTDOWN_POLL_MS: u64 = 200;
+const SHUTDOWN_SIGKILL_WAIT_MS: u64 = 1000;
 
 pub struct RuntimeState {
     pub child: Option<CommandChild>,
@@ -154,44 +157,98 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
     ))
 }
 
-/// 发信号停止 sidecar。unix 先 SIGTERM 走 FastAPI lifespan，超时再 SIGKILL。
+#[cfg(unix)]
+fn collect_process_tree(root_pid: u32) -> Vec<u32> {
+    // 用 pgrep -P 逐层 BFS 枚举后代。
+    // ponytail: 关闭路径每 200ms 调一次 pgrep，macOS 自带该命令；
+    // 上限是多一层外部进程依赖，升级路径是 FFI 调 libproc 替代 pgrep。
+    let mut all = vec![root_pid];
+    let mut frontier = vec![root_pid];
+    while let Some(pid) = frontier.pop() {
+        let Ok(out) = std::process::Command::new("pgrep")
+            .args(["-P", &pid.to_string()])
+            .output()
+        else {
+            continue;
+        };
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            if let Ok(child_pid) = line.trim().parse::<u32>() {
+                all.push(child_pid);
+                frontier.push(child_pid);
+            }
+        }
+    }
+    all
+}
+
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    // kill(pid, 0) 返回 0 表示进程存在（僵尸态也算，但会被 tauri-plugin-shell 的回收线程收走）
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+#[cfg(unix)]
+fn wait_pids_gone(pids: &[u32], timeout_ms: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    while std::time::Instant::now() < deadline {
+        if !pids.iter().copied().any(pid_alive) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(SHUTDOWN_POLL_MS));
+    }
+}
+
+/// 同步回收 sidecar 进程树：SIGTERM 宽限 → 逐个 SIGKILL → 等待消失。
+/// 必须在 app 退出前调用（detached 线程会随进程死亡，来不及兜底）。
+#[cfg(unix)]
+fn terminate_process_tree(root_pid: u32) {
+    let pids = collect_process_tree(root_pid);
+    // onefile bootloader 不保证转发信号，树内每个 PID 都显式发
+    for pid in &pids {
+        unsafe {
+            libc::kill(*pid as i32, libc::SIGTERM);
+        }
+    }
+    wait_pids_gone(&pids, SHUTDOWN_SIGTERM_WAIT_MS);
+
+    let survivors: Vec<u32> = pids.iter().copied().filter(|p| pid_alive(*p)).collect();
+    if survivors.is_empty() {
+        return;
+    }
+    for pid in &survivors {
+        unsafe {
+            libc::kill(*pid as i32, libc::SIGKILL);
+        }
+    }
+    wait_pids_gone(&survivors, SHUTDOWN_SIGKILL_WAIT_MS);
+}
+
+/// 发信号停止 sidecar 并同步等待进程树退出。幂等：Destroyed 与 ExitRequested
+/// 可能先后触发，stopping 已置位或子进程已离场时直接返回。
 pub fn signal_stop(app: &AppHandle) -> Result<(), String> {
     let runtime = app.state::<SharedRuntime>();
     let mut rt = runtime.lock().unwrap();
+    if rt.stopping {
+        return Ok(());
+    }
     let Some(child) = rt.child.as_ref() else {
         rt.status = "stopped".into();
         return Ok(());
     };
-    // 注意：tauri-plugin-shell 2.x 的 CommandChild::pid 是方法不是字段
-    let pid = child.pid();
+    let root_pid = child.pid();
     rt.stopping = true;
     rt.status = "stopped".into();
 
     #[cfg(unix)]
     {
-        unsafe {
-            libc::kill(pid as i32, libc::SIGTERM);
-        }
-        let app_handle = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(SIGTERM_GRACE_SECS));
-            // kill(pid, 0) 返回 0 表示进程仍存在
-            if unsafe { libc::kill(pid as i32, 0) } == 0 {
-                let runtime = app_handle.state::<SharedRuntime>();
-                let mut rt = runtime.lock().unwrap();
-                if let Some(child) = rt.child.take() {
-                    let _ = child.kill();
-                }
-                let _ = app_handle.emit(
-                    "backend:event",
-                    serde_json::json!({"type": "force-killed", "port": rt.port}),
-                );
-            }
-        });
+        // 持锁同步回收：最坏约 2.5s，仅发生在关闭/重启路径；
+        // sidecar 的 Terminated 回调需要同一把锁，会在本函数返回后执行，无死锁。
+        terminate_process_tree(root_pid);
+        rt.child = None;
     }
     #[cfg(not(unix))]
     {
-        // M1 首发 macOS；Windows 无 SIGTERM 语义，直接 kill 兜底
+        // M1 首发 macOS；Windows 无 SIGTERM 与进程树信号语义，直接 kill 兜底
         if let Some(child) = rt.child.take() {
             let _ = child.kill();
         }
@@ -234,9 +291,8 @@ pub fn backend_stop(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn backend_restart(app: AppHandle) -> Result<BackendConfigDto, String> {
     let _ = signal_stop(&app);
-    // ponytail: 固定等 800ms 让端口释放；崩溃恢复场景进程已退出，等待无害。
-    // 上限是极端慢关闭时的偶发端口占用，升级路径是 wait 旧进程退出事件后再 spawn。
-    std::thread::sleep(std::time::Duration::from_millis(800));
+    // signal_stop 已同步等到进程树退出；300ms 仅给内核端口释放兜底
+    std::thread::sleep(std::time::Duration::from_millis(300));
     spawn_sidecar(&app)?;
     let runtime = app.state::<SharedRuntime>();
     let rt = runtime.lock().unwrap();
