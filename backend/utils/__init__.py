@@ -4,6 +4,7 @@
 提供各种实用工具函数和类
 """
 
+import os
 from pathlib import Path
 
 
@@ -17,13 +18,18 @@ def get_backend_root() -> Path:
 
 
 def get_data_dir() -> Path:
-    """获取数据根目录: backend/data"""
-    return get_backend_root() / "data"
+    """获取数据根目录
+
+    默认 backend/data；桌面 sidecar 通过 QUANTCELL_DATA_DIR 重定向到
+    Tauri app_data_dir（安装包目录只读，不能作为写入位置）。
+    """
+    override = os.environ.get("QUANTCELL_DATA_DIR")
+    return Path(override) if override else get_backend_root() / "data"
 
 
 def get_source_data_dir() -> Path:
-    """获取源数据目录: backend/data/source"""
-    return get_backend_root() / "data" / "source"
+    """获取源数据目录：<数据根目录>/source"""
+    return get_data_dir() / "source"
 
 
 from .data_utils import (

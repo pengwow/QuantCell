@@ -4,6 +4,7 @@ ponytail: 仅 add_account 接受明文,其他接口全部返回 Account(无 secr
          或 DecryptedCredential(显式解密)
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -12,14 +13,19 @@ from credentials.account import Account
 from credentials.crypto import decrypt_secret, encrypt_secret, get_machine_fingerprint
 from credentials.store import CredentialsStore
 
-_DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "credentials.db")
+
+def _default_db_path() -> str:
+    """凭证库默认路径；桌面 sidecar 通过 QUANTCELL_DATA_DIR 重定向。"""
+    override = os.environ.get("QUANTCELL_DATA_DIR")
+    base = Path(override) if override else Path(__file__).resolve().parent.parent / "data"
+    return str(base / "credentials.db")
 
 
 class CredentialsService:
     """凭证管理 service — 加密入库、列表去 secret、解密取凭证。"""
 
     def __init__(self, db_path: str | None = None, fingerprint: str | None = None):
-        self.db_path = db_path or str(Path(_DEFAULT_DB_PATH))
+        self.db_path = db_path or _default_db_path()
         self.fingerprint = fingerprint or get_machine_fingerprint()
         self.store = CredentialsStore(self.db_path)
 

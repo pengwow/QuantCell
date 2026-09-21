@@ -15,11 +15,19 @@ import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# 数据库文件默认路径
-default_db_path = Path(__file__).parent.parent.parent / "data"
+
+# 数据库文件默认路径；桌面 sidecar 通过 QUANTCELL_DATA_DIR 重定向到 app_data_dir
+def _default_db_path() -> Path:
+    override = os.environ.get("QUANTCELL_DATA_DIR")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent.parent / "data"
+
+
+default_db_path = _default_db_path()
 
 # 确保数据库目录存在
-default_db_path.parent.mkdir(parents=True, exist_ok=True)
+default_db_path.mkdir(parents=True, exist_ok=True)
 
 # 延迟初始化的全局变量
 db_type = None
