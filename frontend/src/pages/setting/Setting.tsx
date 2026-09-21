@@ -69,7 +69,7 @@ const SettingLayout = () => {
             key,
             label,
             icon: (
-              <span className="anticon scale-125" role="img">
+              <span className="anticon" role="img">
                 {icon}
               </span>
             ),
@@ -90,7 +90,7 @@ const SettingLayout = () => {
               key,
               label,
               icon: (
-                <span className="anticon scale-125" role="img">
+                <span className="anticon" role="img">
                   {icon}
                 </span>
               ),

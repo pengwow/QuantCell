@@ -46,28 +46,3 @@ body {
   transition-duration: 160ms;
   transition-timing-function: ease-out;
 }
-
-/* ============================================================
-   页面布局容器 — ConsoleLayout Content 统一 padding + opt-out
-   ============================================================ */
-
-/* 默认：后台管理类页面（Worker/Strategy/Data/RL 等）统一 px-6 py-4 */
-.content-page {
-  padding: 1rem 1.5rem; /* py-4 px-6 */
-}
-
-/* 全屏页面 opt-out：ChartPage 全屏 K 线图 / Agent 全屏聊天 */
-.content-page:has(.page-fullscreen) {
-  padding: 0;
-  overflow: hidden;
-}
-
-/* 自己管 padding 的子 Layout opt-out：BacktestLayout 等 */
-.content-page:has(> .page-nopad) {
-  padding: 0;
-}
-
-/* ChartPage 旧样式兼容 — 它自己定义了 height: 100vh */
-.chart-page-fullscreen {
-  height: 100%; /* 代替旧的 100vh，因为现在在 Content flex 子容器里 */
-}

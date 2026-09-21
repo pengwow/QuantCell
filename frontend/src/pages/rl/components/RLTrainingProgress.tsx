@@ -1,6 +1,6 @@
-import { Card, Progress, Statistic, Row, Col } from 'antd';
+import { Card, Progress, Statistic, Row, Col, theme } from 'antd';
 import { LineChartOutlined, ClockCircleOutlined, FieldTimeOutlined, TrophyOutlined } from '@ant-design/icons';
-import { QUANT_COLORS } from '@/utils/colors';
+import { QUANT_COLORS } from "@/utils/colors";
 
 export interface TrainingProgress {
   type: 'start' | 'info' | 'progress' | 'complete' | 'error';
@@ -19,6 +19,7 @@ interface RLTrainingProgressProps {
 }
 
 export default function RLTrainingProgress({ progress, totalTimesteps }: RLTrainingProgressProps) {
+  const { token } = theme.useToken();
   const progressPercent = progress?.timestep && progress?.total_timesteps
     ? Math.min((progress.timestep / progress.total_timesteps) * 100, 100)
     : progress?.timestep && totalTimesteps
@@ -32,8 +33,8 @@ export default function RLTrainingProgress({ progress, totalTimesteps }: RLTrain
           percent={Math.round(progressPercent)}
           status={progress?.type === 'complete' ? 'success' : 'active'}
           strokeColor={{
-            '0%': '#108ee9',
-            '100%': '#87d068',
+            '0%': token.colorInfo,
+            '100%': QUANT_COLORS.positive,
           }}
         />
       </div>
@@ -79,7 +80,7 @@ export default function RLTrainingProgress({ progress, totalTimesteps }: RLTrain
       )}
 
       {progress?.message && (
-        <div style={{ marginTop: 12, color: '#999' }}>
+        <div style={{ marginTop: 12, color: token.colorTextSecondary }}>
           {progress.message}
         </div>
       )}
