@@ -1,20 +1,23 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop-scaffold",
+  "productName": "QuantCell",
   "version": "0.1.0",
   "identifier": "top.quantcell.desktop",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
-    "frontendDist": "../dist"
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build"
   },
   "app": {
     "windows": [
       {
-        "title": "desktop-scaffold",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "QuantCell",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
       }
     ],
     "security": {
@@ -30,6 +33,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": ["binaries/quantcell-backend"]
   }
 }

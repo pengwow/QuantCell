@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -58,6 +57,7 @@ pub fn save(app_data_dir: &Path, cfg: &PersistedConfig) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     /// 不用 tempfile 第三方 crate，用 pid+纳秒构造唯一临时目录
     fn unique_tmp_dir() -> PathBuf {
