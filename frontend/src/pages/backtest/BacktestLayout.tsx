@@ -36,7 +36,8 @@ const BacktestLayout = () => {
   };
 
   return (
-    <div>
+    // ponytail: .page-nopad 抵消 ConsoleLayout Content 的默认 padding（自己管 px-6 pt-4）
+    <div className="page-nopad">
       {/* 页面标题区域 - 仅在非列表页显示返回按钮 */}
       {!isListPage && (
         <div className="px-6 pt-4 pb-2">

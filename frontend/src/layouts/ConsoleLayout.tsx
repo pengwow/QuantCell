@@ -208,7 +208,13 @@ const ConsoleLayout = () => {
           </div>
         </Layout.Header>
 
-        <Layout.Content className="relative flex-1 overflow-x-hidden overflow-y-auto">
+        {/*
+          ponytail: Content 区统一默认 padding px-6 py-4，给后台类页面（Worker/Strategy/Data/RL 等）
+          提供一致的内容容器。需要全屏展示的页面（ChartPage 全屏 K 线 / Agent 全屏聊天）
+          在自己的根元素上加 .page-fullscreen 类抵消 padding 和 height。
+          BacktestLayout 因为自己有 px-6 pt-4，也加 .page-nopad 抵消外层 padding。
+        */}
+        <Layout.Content className="relative flex-1 overflow-x-hidden overflow-y-auto content-page">
           <Outlet />
         </Layout.Content>
       </Layout>

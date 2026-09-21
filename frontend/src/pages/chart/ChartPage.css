@@ -2,7 +2,7 @@
 .chart-page-fullscreen {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   width: 100%;
   overflow: hidden;
   padding-left: 16px; /* 为侧边栏收缩按钮留出空间 */

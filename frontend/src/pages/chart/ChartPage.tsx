@@ -1184,7 +1184,7 @@ const ChartPage = () => {
   }, []);
 
   return (
-    <div className="chart-page-fullscreen">
+    <div className="chart-page-fullscreen page-fullscreen">
       <div className="chart-page">
         {/* 顶部工具栏 */}
         <div className="chart-toolbar">

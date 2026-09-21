@@ -738,7 +738,8 @@ const Agent = () => {
   };
 
   return (
-    <Layout className="ai-agent-layout">
+    // ponytail: Agent 是全屏聊天界面，page-fullscreen 抵消 ConsoleLayout Content 的 padding
+    <Layout className="ai-agent-layout page-fullscreen">
       {/* 主内容区 */}
       <Layout className="agent-content-layout">
         {/* 头部 */}
