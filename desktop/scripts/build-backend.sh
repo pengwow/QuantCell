@@ -17,7 +17,9 @@ fi
 cd "$BACKEND_DIR"
 
 # pyinstaller 用 uv --with 临时引入，不写入 backend/pyproject.toml
-# torch / stable_baselines3 在后端为函数内懒加载，M1 不打入，控制体积
+# 注意：torch 虽在业务代码中懒加载，但经 axon_quant 依赖链被静态打入，
+# 当前 onefile 产物约 430MB、冷启动自解压约 1 分钟；瘦身（--exclude-module
+# torch/stable_baselines3 或改 onedir+resources）作为后续优化任务
 # backend 以 PEP 660 editable 方式安装（__editable__ finder 绝对路径映射），
 # PyInstaller 的 modulegraph 无法透过该 finder 解析本地包，必须显式把 backend
 # 目录（即当前目录）加入模块搜索路径，否则冻结产物运行时 ModuleNotFoundError
