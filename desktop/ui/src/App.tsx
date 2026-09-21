@@ -1,51 +1,114 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import "./App.css";
+import { useBackend } from "./hooks/useBackend";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+const HEALTH_LABEL: Record<string, string> = {
+  unknown: "检测中…",
+  starting: "后端启动中…",
+  ok: "后端在线",
+  down: "后端不可用",
+};
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+export default function App() {
+  const { config, health, busy, switchMode, restart } = useBackend();
+  const [modeDraft, setModeDraft] = useState<"local" | "remote">(
+    config?.mode ?? "local",
+  );
+  const [urlDraft, setUrlDraft] = useState(config?.remoteUrl ?? "");
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // 配置加载/外部切换后，把表单初值同步为当前已生效配置
+  useEffect(() => {
+    if (config) {
+      setModeDraft(config.mode);
+      setUrlDraft(config.remoteUrl ?? "");
+    }
+  }, [config]);
+
+  // local 模式 sidecar 非正常退出时展示重启条
+  const crashed = health === "down" && config?.mode === "local";
+
+  const handleSave = async () => {
+    setFormError(null);
+    try {
+      await switchMode(modeDraft, modeDraft === "remote" ? urlDraft : undefined);
+    } catch (e) {
+      setFormError(String(e));
+    }
+  };
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">QuantCell</div>
+        <nav className="nav">
+          <span className="nav-item active">工作台（M1 占位）</span>
+        </nav>
+      </aside>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      <main className="workspace">
+        <header className="topbar">
+          <span className={`badge badge-${health}`}>
+            {HEALTH_LABEL[health] ?? health}
+          </span>
+          <span className="endpoint">{config?.baseUrl ?? "（无后端地址）"}</span>
+        </header>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+        {crashed && (
+          <div className="crash-banner">
+            本机后端已退出（非正常停止）。
+            <button type="button" onClick={() => void restart()} disabled={busy}>
+              重启后端
+            </button>
+          </div>
+        )}
+
+        <section className="card">
+          <h2>后端模式（M1 设置页占位）</h2>
+          <div className="form-row">
+            <label>
+              <input
+                type="radio"
+                value="local"
+                checked={modeDraft === "local"}
+                onChange={() => setModeDraft("local")}
+              />
+              本机后端（应用自启 sidecar）
+            </label>
+          </div>
+          <div className="form-row">
+            <label>
+              <input
+                type="radio"
+                value="remote"
+                checked={modeDraft === "remote"}
+                onChange={() => setModeDraft("remote")}
+              />
+              远程后端
+            </label>
+            <input
+              className="url-input"
+              type="text"
+              placeholder="https://api.example.com"
+              value={urlDraft}
+              disabled={modeDraft !== "remote"}
+              onChange={(e) => setUrlDraft(e.target.value)}
+            />
+          </div>
+          {formError && <div className="form-error">{formError}</div>}
+          <button
+            type="button"
+            className="save-btn"
+            onClick={() => void handleSave()}
+            disabled={busy}
+          >
+            {busy ? "处理中…" : "保存并切换"}
+          </button>
+          <p className="hint">
+            M1 仅交付启动/探活/模式切换；工作台、回测、策略等页面在 M2 实现。
+          </p>
+        </section>
+      </main>
+    </div>
   );
 }
-
-export default App;
