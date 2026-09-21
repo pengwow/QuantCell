@@ -223,8 +223,8 @@ fn terminate_process_tree(root_pid: u32) {
     wait_pids_gone(&survivors, SHUTDOWN_SIGKILL_WAIT_MS);
 }
 
-/// 发信号停止 sidecar 并同步等待进程树退出。幂等：Destroyed 与 ExitRequested
-/// 可能先后触发，stopping 已置位或子进程已离场时直接返回。
+/// 发信号停止 sidecar 并同步等待进程树退出。幂等：Destroyed、ExitRequested、
+/// Exit 可能先后触发，stopping 已置位或子进程已离场时直接返回。
 pub fn signal_stop(app: &AppHandle) -> Result<(), String> {
     let runtime = app.state::<SharedRuntime>();
     let mut rt = runtime.lock().unwrap();
