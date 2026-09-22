@@ -97,17 +97,23 @@ export default defineConfig({
           ) {
             return 'react-vendor'
           }
-          // Ant Design 生态
-          if (pkg === 'antd') {
+          // Ant Design 及其图标库必须在同一 chunk：antd 与 @ant-design/icons
+          // 存在循环引用，拆成 ui-vendor / icons-vendor 两个 chunk 后，
+          // WKWebView（tauri:// 协议）的模块求值顺序会命中 ESM TDZ：
+          // "Cannot access '_p' before initialization"，导致入口 import 阶段
+          // 整个崩溃白屏。普通浏览器求值顺序恰好不触发，但这是脆弱的偶然，
+          // 同 chunk 打包才是根治（普通 http 下同样更稳）。
+          if (
+            pkg === 'antd' ||
+            pkg === '@ant-design/icons' ||
+            pkg === '@tabler/icons-react' ||
+            pkg === '@web3icons/react'
+          ) {
             return 'ui-vendor'
           }
-          // Ant Design X（AIChat 弹窗专属组件，独立分块避免混入 antd 主包）
+          // Ant Design X（AIChat 弹窗专属组件，单向依赖 antd，独立分块安全）
           if (pkg === '@ant-design/x') {
             return 'antd-x-vendor'
-          }
-          // 图标库独立分块（被多个页面按需具名引用，拆开避免撑大 ui-vendor）
-          if (pkg === '@ant-design/icons' || pkg === '@tabler/icons-react' || pkg === '@web3icons/react') {
-            return 'icons-vendor'
           }
           // 图表库：klinecharts 用于主行情图（首屏），echarts 仅模型管理页使用，拆开避免首屏携带 echarts
           if (pkg === 'klinecharts') {
@@ -137,8 +143,8 @@ export default defineConfig({
         },
       },
     },
-    // 代码分割大小限制：antd 主包拆分后约 1.2MB 属正常体量，阈值上调到 1300 消除误报
-    chunkSizeWarningLimit: 1300,
+    // antd 与图标库合并后 ui-vendor 约 1.3MB 属正常体量
+    chunkSizeWarningLimit: 1500,
     // ponytail: 生产构建移除所有 console.log/debugger
     esbuild: {
       drop: ['console', 'debugger'],
