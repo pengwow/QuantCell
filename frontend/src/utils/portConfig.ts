@@ -1,6 +1,8 @@
 // 端口配置管理工具
 // 用于从后端获取当前服务的端口配置，并动态更新 API baseURL 和 WebSocket 连接地址
 
+import { getDesktopRuntime, isTauri } from '@/desktop/env';
+
 export interface PortConfig {
   fastapi: number;
   zmq_data: number;
@@ -99,6 +101,12 @@ export function getCachedPortConfig(): PortConfig | null {
 }
 
 export function getApiBaseUrl(portConfig?: PortConfig): string {
+  // 桌面壳：base 由 Tauri 主进程分配的动态端口/用户填的 remote 地址决定，
+  // 优先于 Web 版的端口探测逻辑
+  if (isTauri()) {
+    const desktopBase = getDesktopRuntime().baseUrl;
+    if (desktopBase) return desktopBase;
+  }
   const config = portConfig || cachedPortConfig || DEFAULT_PORTS;
   const port = config.fastapi;
 
@@ -111,6 +119,13 @@ export function getApiBaseUrl(portConfig?: PortConfig): string {
 
 export function getWebSocketUrl(path: string, portConfig?: PortConfig): string {
   const config = portConfig || cachedPortConfig || DEFAULT_PORTS;
+  if (isTauri()) {
+    const desktopBase = getDesktopRuntime().baseUrl;
+    if (desktopBase) {
+      const wsBase = desktopBase.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+      return `${wsBase}${path}`;
+    }
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname;
   const port = config.fastapi;
