@@ -39,6 +39,7 @@ const ModelSettingsPage = lazy(() => import('@/pages/setting/ModelSettingsPage')
 const SystemInfoPage = lazy(() => import('@/pages/setting/SystemInfoPage'));
 const EnvironmentVariablesPage = lazy(() => import('@/pages/setting/EnvironmentVariablesPage'));
 const PluginManagement = lazy(() => import('@/pages/setting/PluginManagement'));
+const DesktopBackendSettings = lazy(() => import('@/desktop/DesktopBackendSettings'));
 
 import { pluginRegistry } from '@/plugins/PluginRegistry';
 import PluginPage from '@/pages/plugin/PluginPage';
@@ -101,6 +102,7 @@ function createBaseRoutes(): RouteObject[] {
             { path: 'model', element: <ModelSettingsPage /> },
             { path: 'info', element: <SystemInfoPage /> },
             { path: 'plugins', element: <PluginManagement /> },
+            { path: 'desktop-backend', element: <DesktopBackendSettings /> },
           ],
         },
         { index: true, element: <Navigate to="/chart" replace /> },

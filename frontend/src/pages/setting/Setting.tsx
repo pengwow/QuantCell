@@ -13,11 +13,13 @@ import {
   IconBuildingBank,
   IconVariable,
   IconPuzzle,
+  IconDeviceDesktop,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
 import { setPageTitle } from "@/utils/pageTitle";
 import PageContainer from "@/components/PageContainer";
+import { isTauri } from "@/desktop/env";
 
 const SettingLayout = () => {
   const location = useLocation();
@@ -33,6 +35,14 @@ const SettingLayout = () => {
     ["model", t("model_settings") || "模型设置", <IconRobot size="1em" />],
     ["info", t("system_info") || "系统信息", <IconInfoCircle size="1em" />],
     ["plugins", t("plugin_management") || "插件管理", <IconPuzzle size="1em" />],
+    // 仅桌面壳显示；Web 版无此入口
+    ...(isTauri()
+      ? ([["desktop-backend", "桌面后端", <IconDeviceDesktop size="1em" />]] satisfies [
+          string,
+          string,
+          React.ReactElement,
+        ][])
+      : []),
   ] satisfies [string, string, React.ReactElement][];
 
   // 当前选中的菜单项由路由 URL 推导，避免 setState-in-effect 与状态不同步问题
