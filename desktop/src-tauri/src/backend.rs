@@ -28,6 +28,8 @@ pub struct RuntimeState {
     pub status: String,
     /// 主动停止标记：区分正常退出与崩溃事件
     pub stopping: bool,
+    /// 启停操作进行中标记：合并并发的 start/restart 请求，防止重复 spawn
+    pub starting: bool,
 }
 
 impl Default for RuntimeState {
@@ -37,6 +39,7 @@ impl Default for RuntimeState {
             port: None,
             status: "stopped".into(),
             stopping: false,
+            starting: false,
         }
     }
 }
@@ -80,14 +83,21 @@ fn dto(runtime: &RuntimeState, persisted: &PersistedConfig) -> BackendConfigDto 
 }
 
 /// spawn sidecar；端口探测与实际绑定间存在竞态，最多换端口重试 PORT_ATTEMPTS 次。
+/// 约定：调用方已在锁内把 starting 置为 true；本函数负责在所有出口复位。
 fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
-    let dir = data_dir(app)?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dir = data_dir(app).inspect_err(|_| {
+        app.state::<SharedRuntime>().lock().unwrap().starting = false;
+    })?;
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        app.state::<SharedRuntime>().lock().unwrap().starting = false;
+        return Err(e.to_string());
+    }
     let dir_str = dir.to_string_lossy().to_string();
 
     let mut last_error = String::new();
     for _ in 0..PORT_ATTEMPTS {
         let Some(port) = pick_free_port() else {
+            app.state::<SharedRuntime>().lock().unwrap().starting = false;
             return Err("无法分配空闲端口".into());
         };
 
@@ -147,11 +157,13 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
                 rt.port = Some(port);
                 rt.status = "starting".into();
                 rt.stopping = false;
+                rt.starting = false;
                 return Ok(());
             }
             Err(e) => last_error = e.to_string(),
         }
     }
+    app.state::<SharedRuntime>().lock().unwrap().starting = false;
     Err(format!(
         "sidecar 启动失败（重试 {PORT_ATTEMPTS} 次）: {last_error}"
     ))
@@ -268,12 +280,14 @@ pub fn backend_start(app: AppHandle) -> Result<BackendConfigDto, String> {
     }
     {
         let runtime = app.state::<SharedRuntime>();
-        let rt = runtime.lock().unwrap();
-        if rt.child.is_some() {
+        let mut rt = runtime.lock().unwrap();
+        // 已有实例，或另一个 start/restart 正在 spawn：直接合并，不重复拉起
+        if rt.child.is_some() || rt.starting {
             let persisted_state = app.state::<PersistedState>();
             let persisted = persisted_state.0.lock().unwrap();
             return Ok(dto(&rt, &persisted));
         }
+        rt.starting = true;
     }
     spawn_sidecar(&app)?;
     let runtime = app.state::<SharedRuntime>();
@@ -290,6 +304,18 @@ pub fn backend_stop(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn backend_restart(app: AppHandle) -> Result<BackendConfigDto, String> {
+    {
+        let runtime = app.state::<SharedRuntime>();
+        let mut rt = runtime.lock().unwrap();
+        // 合并并发重启：stop+spawn 窗口期内到达的请求直接返回当前状态，
+        // 避免两次 restart 交错导致旧 child 句柄被覆盖、进程树失控
+        if rt.starting {
+            let persisted_state = app.state::<PersistedState>();
+            let persisted = persisted_state.0.lock().unwrap();
+            return Ok(dto(&rt, &persisted));
+        }
+        rt.starting = true;
+    }
     let _ = signal_stop(&app);
     // signal_stop 已同步等到进程树退出；300ms 仅给内核端口释放兜底
     std::thread::sleep(std::time::Duration::from_millis(300));
