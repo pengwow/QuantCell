@@ -44,6 +44,28 @@ impl Default for RuntimeState {
     }
 }
 
+impl RuntimeState {
+    /// start 守卫：已有实例或启停进行中则合并调用（返回 false），
+    /// 否则占位开始（返回 true）。spawn 的所有出口必须复位 starting。
+    pub fn try_begin_start(&mut self) -> bool {
+        if self.child.is_some() || self.starting {
+            return false;
+        }
+        self.starting = true;
+        true
+    }
+
+    /// restart 守卫：重启允许在实例运行中发起，但进行中的重启必须被合并，
+    /// 防止 stop+spawn 窗口期交错产生多个 sidecar。
+    pub fn try_begin_restart(&mut self) -> bool {
+        if self.starting {
+            return false;
+        }
+        self.starting = true;
+        true
+    }
+}
+
 pub type SharedRuntime = Mutex<RuntimeState>;
 
 pub struct PersistedState(pub Mutex<PersistedConfig>);
@@ -282,12 +304,11 @@ pub fn backend_start(app: AppHandle) -> Result<BackendConfigDto, String> {
         let runtime = app.state::<SharedRuntime>();
         let mut rt = runtime.lock().unwrap();
         // 已有实例，或另一个 start/restart 正在 spawn：直接合并，不重复拉起
-        if rt.child.is_some() || rt.starting {
+        if !rt.try_begin_start() {
             let persisted_state = app.state::<PersistedState>();
             let persisted = persisted_state.0.lock().unwrap();
             return Ok(dto(&rt, &persisted));
         }
-        rt.starting = true;
     }
     spawn_sidecar(&app)?;
     let runtime = app.state::<SharedRuntime>();
@@ -309,12 +330,11 @@ pub fn backend_restart(app: AppHandle) -> Result<BackendConfigDto, String> {
         let mut rt = runtime.lock().unwrap();
         // 合并并发重启：stop+spawn 窗口期内到达的请求直接返回当前状态，
         // 避免两次 restart 交错导致旧 child 句柄被覆盖、进程树失控
-        if rt.starting {
+        if !rt.try_begin_restart() {
             let persisted_state = app.state::<PersistedState>();
             let persisted = persisted_state.0.lock().unwrap();
             return Ok(dto(&rt, &persisted));
         }
-        rt.starting = true;
     }
     let _ = signal_stop(&app);
     // signal_stop 已同步等到进程树退出；300ms 仅给内核端口释放兜底
@@ -380,4 +400,40 @@ pub fn set_backend_mode(
     let runtime = app.state::<SharedRuntime>();
     let rt = runtime.lock().unwrap();
     Ok(dto(&rt, &new_cfg))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// 100 个线程同时发起 restart，必须恰好 1 个获得执行权，其余全部被合并。
+    #[test]
+    fn restart_guard_coalesces_concurrent_callers() {
+        let state = Arc::new(SharedRuntime::default());
+        let mut handles = Vec::new();
+        for _ in 0..100 {
+            let state = Arc::clone(&state);
+            handles.push(std::thread::spawn(move || {
+                state.lock().unwrap().try_begin_restart()
+            }));
+        }
+        let winners = handles
+            .into_iter()
+            .map(|h| h.join().expect("线程恐慌"))
+            .filter(|won| *won)
+            .count();
+        assert_eq!(winners, 1, "并发 restart 只允许 1 个通过守卫");
+        assert!(state.lock().unwrap().starting);
+    }
+
+    /// start 守卫：进行中合并；复位后允许下一次发起。
+    #[test]
+    fn start_guard_blocks_while_in_progress_and_resets() {
+        let mut state = RuntimeState::default();
+        assert!(state.try_begin_start());
+        assert!(!state.try_begin_start());
+        state.starting = false; // 模拟 spawn 出口复位
+        assert!(state.try_begin_start());
+    }
 }
