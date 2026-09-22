@@ -3,6 +3,8 @@ import type { MessageInstance } from 'antd/es/message/interface';
 import { BrowserRouter } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { DynamicRouter } from './router/DynamicRouter';
+import CrashMask from './desktop/CrashMask';
+import { isTauri } from './desktop/env';
 import { useConfigStore } from './store';
 import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
@@ -125,6 +127,7 @@ function App() {
           <PluginProvider>
             <AppInjector setMessageApi={setMessageApi} />
             <DynamicRouter />
+            {isTauri() && <CrashMask />}
           </PluginProvider>
         </BrowserRouter>
       </AntdApp>
