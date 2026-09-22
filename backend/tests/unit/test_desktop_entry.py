@@ -13,3 +13,15 @@ def test_build_runtime_env_points_into_data_dir(tmp_path):
     assert "tauri://localhost" in env["CORS_ORIGINS"]
     assert "http://tauri.localhost" in env["CORS_ORIGINS"]
     assert "http://localhost:1420" in env["CORS_ORIGINS"]
+
+
+def test_build_runtime_env_enables_desktop_local_bypass_and_dev_cors():
+    from desktop_entry import build_runtime_env
+
+    env = build_runtime_env("/tmp/whatever")
+
+    # local 模式免登录开关，供 utils.auth._auth_disabled 读取
+    assert env["QUANTCELL_DESKTOP_LOCAL"] == "1"
+    # M2 dev 时前端 Vite 跑在 5173，需放行（M1 的 1420 保留）
+    assert "http://localhost:5173" in env["CORS_ORIGINS"]
+    assert "http://127.0.0.1:5173" in env["CORS_ORIGINS"]

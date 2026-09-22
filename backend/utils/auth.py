@@ -46,18 +46,26 @@ def _is_debug_mode() -> bool:
 # 模块级变量，可被测试 patch
 IS_DEBUG_MODE = _is_debug_mode()
 
+# 桌面 sidecar local 模式的免登录开关（desktop_entry 注入）
+_DESKTOP_LOCAL_TRUE = {"1", "true", "yes"}
+
+
+def _is_desktop_local() -> bool:
+    return os.environ.get("QUANTCELL_DESKTOP_LOCAL", "").lower() in _DESKTOP_LOCAL_TRUE
+
 
 def _auth_disabled() -> bool:
-    """debug 跳过判定（生产环境强制关闭）。
+    """鉴权豁免判定（生产环境强制关闭）。
 
-    env(DEBUG/APP_ENV)每次请求实时读取——测试文件常在模块级先被其他测试
-    导入 utils.auth 之后才设置 os.environ["DEBUG"]，若只看导入时固化的
-    IS_DEBUG_MODE 会漏掉后设的 env；同时保留模块级变量供测试直接 patch。
-    生产环境额外拦截：即使测试 patch IS_DEBUG_MODE 也无法绕过。
+    两类豁免：debug 模式，或桌面 sidecar local 模式（QUANTCELL_DESKTOP_LOCAL）。
+    env 每次请求实时读取；APP_ENV=production/prod 一律 fail-closed，
+    即使测试 patch IS_DEBUG_MODE 或误带桌面开关也无法绕过。
     """
     app_env = os.environ.get("APP_ENV", "").lower()
     if app_env in ("production", "prod"):
         return False
+    if _is_desktop_local():
+        return True
     return IS_DEBUG_MODE or _is_debug_mode()
 
 

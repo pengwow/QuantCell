@@ -15,8 +15,12 @@ from pathlib import Path
 import typer
 
 # macOS/Linux WebView origin 为 tauri://localhost，Windows 为 http://tauri.localhost；
-# 1420 是桌面 UI 的 Vite dev 端口
-_DEFAULT_CORS_ORIGINS = "tauri://localhost,http://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420"
+# 1420 是 M1 桌面 UI 的 Vite 端口，5173 是 M2 复用 frontend 的 Vite 端口
+_DEFAULT_CORS_ORIGINS = (
+    "tauri://localhost,http://tauri.localhost,"
+    "http://localhost:1420,http://127.0.0.1:1420,"
+    "http://localhost:5173,http://127.0.0.1:5173"
+)
 
 
 def build_runtime_env(data_dir: str) -> dict[str, str]:
@@ -29,6 +33,9 @@ def build_runtime_env(data_dir: str) -> dict[str, str]:
         # 端口记录文件也放进数据目录，避免多实例/多用户串写
         "PORT_CONFIG_PATH": str(root / "port_config.json"),
         "CORS_ORIGINS": _DEFAULT_CORS_ORIGINS,
+        # 桌面 local 模式免登录标记：仅本 sidecar 进程内生效，
+        # utils.auth 读取；APP_ENV=production 时该豁免被强制忽略
+        "QUANTCELL_DESKTOP_LOCAL": "1",
     }
 
 
