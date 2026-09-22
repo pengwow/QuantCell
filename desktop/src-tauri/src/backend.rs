@@ -13,8 +13,9 @@ use tauri_plugin_shell::ShellExt;
 use crate::config::{self, BackendMode, PersistedConfig};
 use crate::port::pick_free_port;
 
-const CORS_ORIGINS: &str =
-    "tauri://localhost,http://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420";
+// tauri://* 为 release 下 WebView origin；1420 是 M1 桌面 UI 端口（已废弃，保留无害）；
+// 5173 是 M2 复用 frontend 的 Vite dev server 端口，dev 模式跨域必须放行
+const CORS_ORIGINS: &str = "tauri://localhost,http://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420,http://localhost:5173,http://127.0.0.1:5173";
 const PORT_ATTEMPTS: usize = 3;
 /// 关闭时给 sidecar 进程树的 SIGTERM 宽限，超时逐个 SIGKILL
 const SHUTDOWN_SIGTERM_WAIT_MS: u64 = 1500;
