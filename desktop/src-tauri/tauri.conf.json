@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "top.quantcell.desktop",
   "build": {
-    "frontendDist": "../ui/dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bun run dev",
-    "beforeBuildCommand": "bun run build"
+    "frontendDist": "../../frontend/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "bun run --cwd ../../frontend dev",
+    "beforeBuildCommand": "bun install --cwd ../../frontend && bun run --cwd ../../frontend build"
   },
   "app": {
     "windows": [

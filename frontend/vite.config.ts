@@ -45,6 +45,8 @@ export default defineConfig({
   server: {
     host,
     port,
+    // Tauri dev 固定连 5173（devUrl），端口被占时直接失败而非静默漂移
+    strictPort: true,
     allowedHosts: true,
     proxy: {
       '/api': {
