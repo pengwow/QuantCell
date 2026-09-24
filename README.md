@@ -8,6 +8,26 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 
 核心设计理念：**让量化交易变得简单、高效、智能**——自然语言即可描述策略，AI 自动生成代码并完成回测验证。
 
+## 桌面客户端
+
+支持 macOS / Windows / Linux 桌面端。桌面版复用同一套 `frontend/` 代码，通过 Tauri 壳内嵌，
+并在壳内自动拉起本地 `backend`（FastAPI + axon-quant）sidecar 进程，local 模式免登录直达。
+
+按 CPU 架构选择安装包：
+
+| 平台 | 架构 | 安装包 |
+|------|------|--------|
+| macOS（Apple 芯片 M1/M2/M3/M4） | aarch64 | `QuantCell_<ver>_aarch64.dmg` |
+| macOS（Intel） | x86_64 | `QuantCell_<ver>_x64.dmg` |
+| Windows | x86_64 | `QuantCell_<ver>_x64.msi` / `.exe` |
+| Linux | x86_64 | `quantcell_<ver>_amd64.deb` / `.AppImage` |
+
+- 下载位置：GitHub Actions **artifacts**（`quantcell-desktop-*`），tag `v*` 触发时自动生成
+- 未签名：macOS 首次打开需右键 → 打开；Windows 提示未知发布者，点击「仍要运行」
+- CI 打包 workflow：`.github/workflows/desktop-build.yml`，手动 `workflow_dispatch` 或打 `v*` tag 触发
+
+> 详细桌面端开发与打包说明见 [desktop/README.md](desktop/README.md)。
+
 ## 核心特性
 
 ### 🤖 AI 智能
