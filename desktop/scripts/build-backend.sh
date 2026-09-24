@@ -9,6 +9,15 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
 BIN_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
 
+# Tauri externalBin 要求在 Windows 上带 .exe 后缀；PyInstaller 在 Windows 的产物名也带 .exe
+if [[ "$TRIPLE" == *windows* ]]; then
+  PYINSTALLER_OUT="$BACKEND_DIR/dist/quantcell-backend.exe"
+  SIDECAR_OUT="$BIN_DIR/quantcell-backend-$TRIPLE.exe"
+else
+  PYINSTALLER_OUT="$BACKEND_DIR/dist/quantcell-backend"
+  SIDECAR_OUT="$BIN_DIR/quantcell-backend-$TRIPLE"
+fi
+
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
   echo ">> backend/.venv 不存在，先执行 uv sync" >&2
   exit 1
@@ -50,6 +59,9 @@ uv run --with pyinstaller pyinstaller \
 # 注意：--collect-all 每次只接受一个包名，必须逐包重复该 flag
 
 mkdir -p "$BIN_DIR"
-mv -f "$BACKEND_DIR/dist/quantcell-backend" "$BIN_DIR/quantcell-backend-$TRIPLE"
-chmod +x "$BIN_DIR/quantcell-backend-$TRIPLE"
-echo ">> sidecar 已生成: $BIN_DIR/quantcell-backend-$TRIPLE"
+mv -f "$PYINSTALLER_OUT" "$SIDECAR_OUT"
+# Windows 不需要 chmod（git-bash 下 chmod 无效但无害，跳过以避免误解）
+if [[ "$TRIPLE" != *windows* ]]; then
+  chmod +x "$SIDECAR_OUT"
+fi
+echo ">> sidecar 已生成: $SIDECAR_OUT"
