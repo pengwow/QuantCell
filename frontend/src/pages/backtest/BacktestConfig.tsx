@@ -27,7 +27,8 @@ import {
   Modal,
 } from 'antd';
 import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
-import { backtestApi, configApi, strategyApi, dataApi } from '../../api';
+import { backtestApi, configApi, strategyApi } from '../../api';
+import { dataApi } from '../../api/dataApi';
 import BacktestProgressModal from '../../components/BacktestProgressModal';
 import type { StepStatusState, ProgressData } from '../../components/BacktestProgressModal';
 import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/backtest';

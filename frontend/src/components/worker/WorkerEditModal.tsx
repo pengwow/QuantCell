@@ -32,7 +32,8 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
-import { strategyApi, dataApi, configApi, type DataPoolRecord, type CryptoSymbol } from '../../api';
+import { strategyApi, configApi } from '../../api';
+import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
 import { getStrategyParameters } from '../../api/workerApi';
 import type { StrategyInfo, StrategyParameter, Worker as WorkerModel } from '../../types/worker';
 

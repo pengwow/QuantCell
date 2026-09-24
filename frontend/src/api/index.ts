@@ -469,12 +469,9 @@ export const strategyApi = {
   },
 };
 
-/**
- * 数据管理相关 API
- * 已迁移至 ./dataApi 模块统一维护，此处再导出以兼容既有调用方
- */
-export { dataApi } from './dataApi';
-export type { DataPoolRecord, CryptoSymbol } from './dataApi';
+// 注意：dataApi 不要在这里再导出。dataApi 单向依赖本模块的 apiRequest，
+// 若反向 re-export 会形成 dataApi ↔ api/index 循环，Rollup 拆 chunk 后
+// 在 WKWebView 下可能命中 ESM TDZ 导致入口崩溃。需要时直接 from '@/api/dataApi'。
 
 /**
  * 配置相关 API

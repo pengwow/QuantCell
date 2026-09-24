@@ -137,10 +137,9 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
                 &dir_str,
             ])
             .env("CORS_ORIGINS", CORS_ORIGINS)
-            // macOS：PyInstaller onefile bootloader 在多线程 ObjC GUI 父进程下
-            // fork 子进程时会触发 __SharedStringStorage fork-safety 确定性崩溃
-            // （从 shell 直接运行不触发）。此环境变量让 ObjC runtime 跳过该 abort。
-            // 升级 PyInstaller 或改 onedir 后可评估移除。
+            // 此处 env 只在 exec 后对子进程生效，挡不住 fork() 后 exec() 前的那次
+            // ObjC fork-safety abort；权威设置在 lib::run() 最开头（让本进程及 fork
+            // 子进程继承）。这里再写一遍仅为防御 sidecar 自身派生后代进程的场景。
             .env("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
             .spawn();
 

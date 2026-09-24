@@ -6,6 +6,16 @@ use tauri::{Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // macOS 专用：必须在 AppKit/WebKit 初始化【之前】设置。父进程是多线程 ObjC GUI，
+    // tauri-plugin-shell 用 fork()+exec() 拉起 PyInstaller onefile sidecar 时，
+    // fork 出的子进程在 exec 前会命中 ObjC 的 fork-safety abort（SIGABRT/exit 134，
+    // "+[Swift.__SharedStringStorage initialize] may have been in progress..."）。
+    // 关键：abort 发生在 exec 之前，此刻子进程只继承【父进程】环境，所以仅在
+    // Command::env()（exec 后才生效）上设置无效，必须在本进程最早处设置，
+    // 让 fork 出的子进程继承到。Windows/Linux 无此变量，忽略无害。
+    #[cfg(target_os = "macos")]
+    std::env::set_var("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES");
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {

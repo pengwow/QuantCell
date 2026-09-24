@@ -5,34 +5,6 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QuantCell - 量化交易平台</title>
-    <script>
-      // 临时诊断：Tauri 白屏取证，验证后移除
-      (function () {
-        function show(msg) {
-          var d = document.createElement('div');
-          d.style.cssText =
-            'position:fixed;inset:0;z-index:999999;background:#fff;color:#000;font:13px/1.6 monospace;padding:20px;white-space:pre-wrap;word-break:break-all;overflow:auto;';
-          d.textContent = 'BOOT ERROR:\n' + msg;
-          (document.body || document.documentElement).appendChild(d);
-          document.title = 'BOOTERR';
-        }
-        window.addEventListener('error', function (e) {
-          var el = e.target;
-          if (el && (el.tagName === 'SCRIPT' || el.tagName === 'LINK' || el.tagName === 'SOURCE')) {
-            show('RESOURCE FAILED: ' + (el.src || el.href));
-            return;
-          }
-          var t = e.message || '(no message)';
-          if (e.filename) t += '\n@ ' + e.filename + ':' + e.lineno + ':' + e.colno;
-          if (e.error && e.error.stack) t += '\n' + e.error.stack;
-          show(t);
-        }, true);
-        window.addEventListener('unhandledrejection', function (e) {
-          var r = e.reason;
-          show('UNHANDLED REJECTION: ' + ((r && (r.stack || r.message)) || r));
-        });
-      })();
-    </script>
     <script type="importmap">
     {
       "imports": {

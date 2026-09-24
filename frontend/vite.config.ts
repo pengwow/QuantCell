@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import federation from '@originjs/vite-plugin-federation'
 import path from 'path'
 import fs from 'fs'
 
@@ -29,10 +28,14 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    federation({
-      name: 'quantcell-host',
-      shared: ['react', 'react-dom'],
-    }),
+    // 不启用 @originjs/vite-plugin-federation：src 内无 loadRemote/registerRemotes
+    // 调用。它会生成 __federation_shared_react* chunk，与下方 manualChunks 的
+    // react-vendor 争抢 react 模块实例，在 WKWebView 的 tauri:// 协议下形成 chunk
+    // 初始化环（Cannot access 'Kp' before initialization）导致入口白屏。
+    // 注意：index.html 里的 importmap 与 public/@react-*-proxy.js 是【刻意保留】的，
+    // 它们只服务于 PluginRegistry 运行时动态 import 的外部插件 bundle（裸 react
+    // specifier 在浏览器侧解析到 window.React）；主应用的 react 在打包期已被正常
+    // 收进 react-vendor，不经 importmap，故对主 bundle 无影响。
   ],
   define: {
     __APP_VERSION__: JSON.stringify(getAppVersion()),

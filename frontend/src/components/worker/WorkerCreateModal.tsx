@@ -32,13 +32,8 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
-import {
-  strategyApi,
-  dataApi,
-  configApi,
-  type DataPoolRecord,
-  type CryptoSymbol,
-} from '../../api';
+import { strategyApi, configApi } from '../../api';
+import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
 import type { StrategyInfo, StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;

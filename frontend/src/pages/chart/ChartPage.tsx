@@ -14,7 +14,7 @@ import type {
   PaneOptions,
   PeriodType,
 } from 'klinecharts';
-import { dataApi } from '../../api';
+import { dataApi } from '../../api/dataApi';
 import * as realtimeApi from '../../api/realtimeApi';
 import DrawingBar from '../../components/DrawingBar';
 import IndicatorToolbar from '../../components/IndicatorToolbar';
