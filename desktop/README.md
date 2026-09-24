@@ -22,6 +22,33 @@ cd desktop && bunx @tauri-apps/cli dev
 
 也可分两个终端：`cd frontend && bun run dev`，再 `cd desktop && bunx @tauri-apps/cli dev`。
 
+## CI 打包与发布
+
+`.github/workflows/desktop-build.yml` 一键构建 macOS / Windows / Linux 三平台安装包。
+
+**触发**：手动（GitHub → Actions → desktop-build → Run workflow）或打版本 tag：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+**产物**：tag / 手动触发后进入 Actions 运行页 → Artifacts → `quantcell-desktop-*`，含
+macOS `.dmg`、Windows `.msi`+`.exe`（nsis）、Linux `.deb`+`.AppImage`。
+
+**按架构选择**：macOS 分 Apple 芯片（aarch64）与 Intel（x86_64）两个独立 job，各出一份 dmg；
+Windows / Linux 均为 x86_64。CPU 型号（如 Intel/AMD、M1/M2）无需区分——同一指令集下所有型号
+可运行同一安装包；PyInstaller 无法交叉编译，故各架构包在对应架构的 runner 上分别构建。
+
+**未签名说明**（暂未配置代码签名 / 公证）：
+- macOS：首次打开提示「无法验证开发者」→ 右键应用 →「打开」；或 `xattr -dr com.apple.quarantine` 后双击
+- Windows：SmartScreen 提示 →「更多信息」→「仍要运行」
+- 签名 / 公证为后续待办，需 workflow secrets 配置 Apple Developer / Windows 证书
+
+**CI 内构建流程**：checkout → Linux 系统依赖（仅 ubuntu）→ rust/bun/uv 工具链 →
+四层缓存（cargo / uv / pyinstaller / sidecar 产物）→ `bash desktop/scripts/build-backend.sh <triple>`
+→ `bunx @tauri-apps/cli build`（自动执行 beforeBuildCommand `cd ../frontend && bun install && bun run build`）
+→ upload artifact。sidecar 二进制命中缓存（key: backend/uv.lock + pyproject.toml + build 脚本 hash）时跳过 PyInstaller。
+
 ## 打包
 
 ```bash
