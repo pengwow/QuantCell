@@ -94,13 +94,14 @@ const ConsoleLayout = () => {
         className="group/sider z-20 h-full border-r bg-background max-md:static max-md:hidden"
         style={{ borderColor: themeToken.colorBorderSecondary }}
         theme="light"
-        width={siderCollapsed ? 64 : 240}
+        width={siderCollapsed ? 80 : 240}
       >
         <div className="flex size-full flex-col items-center justify-between overflow-hidden select-none">
-          <div className="w-full px-2">
+          {/* 折叠时去掉横向内边距：antd inline-collapsed 菜单固定宽 80px，需与 Sider 等宽才能居中 */}
+          <div className={`w-full ${siderCollapsed ? "px-0" : "px-2"}`}>
             <SiderMenu collapsed={siderCollapsed} />
           </div>
-          <div className="w-full px-2 pb-2">
+          <div className={`w-full pb-2 ${siderCollapsed ? "px-0" : "px-2"}`}>
             <Dropdown
                     menu={{ items: userMenuItems }}
                     placement="bottomLeft"
@@ -108,7 +109,11 @@ const ConsoleLayout = () => {
                     className="w-full"
                     styles={{ root: { marginLeft: '60px' } }}
                   >
-                    <div className={`flex cursor-pointer items-center rounded-md py-[10px] transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${siderCollapsed ? 'justify-center -mx-2' : 'gap-3 pl-[20px]'}`} style={{marginRight: "unset"}}>
+                    <div
+                      title={nickname || username || "admin"}
+                      className={`flex cursor-pointer items-center rounded-md py-[10px] transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${siderCollapsed ? 'justify-center' : 'gap-3 pl-[20px]'}`}
+                      style={{marginRight: "unset"}}
+                    >
                 <span className="anticon" role="img">
                   <IconUser size="1em" />
                 </span>
@@ -127,7 +132,7 @@ const ConsoleLayout = () => {
                       <IconHelp size="1em" />
                     </span>
                   ),
-                  label: siderCollapsed ? undefined : (t('help') || "帮助"),
+                  label: t('help') || "帮助",
                   onClick: handleDocumentClick,
                 },
                 {
@@ -137,11 +142,12 @@ const ConsoleLayout = () => {
                       <IconSettings size="1em" />
                     </span>
                   ),
-                  label: siderCollapsed ? undefined : (t('setting') || "设置"),
+                  label: t('setting') || "设置",
                   onClick: () => navigate("/setting"),
                 },
               ]}
-              mode="vertical"
+              mode="inline"
+              inlineCollapsed={siderCollapsed}
               selectable={false}
             />
           </div>
@@ -287,7 +293,9 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
           {icon}
         </span>
       ),
-      label: collapsed ? undefined : t(label),
+      // 折叠时也保留 label：inlineCollapsed 模式下 antd 自动隐藏文字、只显图标，
+      // 并在 hover 时浮出包含该 label 的 tooltip
+      label: t(label),
       disabled: disabled,
       onClick: () => {
         if (!disabled) {
@@ -305,7 +313,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
         {pm.icon || <IconPlug size="1em" />}
       </span>
     ),
-    label: collapsed ? undefined : pm.label,
+    label: pm.label,
     onClick: () => {
       navigate(pm.key);
       onSelect?.(pm.key);
@@ -367,7 +375,8 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
         <Menu
           style={{ background: "transparent", borderInlineEnd: "none" }}
           items={menuItems}
-          mode="vertical"
+          mode="inline"
+          inlineCollapsed={collapsed}
           selectedKeys={menuSelectedKey ? [menuSelectedKey] : []}
           onSelect={({ key }) => {
             setMenuSelectedKey(key);
