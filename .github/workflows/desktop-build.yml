@@ -1,0 +1,137 @@
+name: desktop-build
+
+on:
+  workflow_dispatch:      # 手动触发，随时出包
+  push:
+    tags: ["v*"]          # 打版本 tag 时自动出三平台包
+
+jobs:
+  # 快检：每个 push 都跑（frontend build + vitest + cargo check）
+  ci-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system deps (Tauri build script needs pkg-config/webkit2gtk)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            build-essential patchelf libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Frontend build
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Frontend tests (vitest)
+        run: |
+          cd frontend
+          bun run test
+
+      - name: Rust check
+        run: |
+          cd desktop/src-tauri
+          cargo check
+
+  # 打包：手动 / tag 触发，矩阵多平台；每个 job 全链路（工具链→缓存→sidecar→tauri）
+  build:
+    needs: ci-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14          # Apple Silicon
+            triple: aarch64-apple-darwin
+            artifact: macos-aarch64
+          - os: macos-13          # Intel
+            triple: x86_64-apple-darwin
+            artifact: macos-x86_64
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            artifact: windows-x86_64
+          - os: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+            artifact: linux-x86_64
+          # arm64 Linux 未来启用（runner: ubuntu-22.04-arm，triple: aarch64-unknown-linux-gnu）
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            build-essential patchelf libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup uv + Python 3.14
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      # ---------- 缓存 ----------
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: cargo-${{ matrix.triple }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.triple }}-
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ matrix.triple }}-${{ hashFiles('backend/uv.lock') }}
+
+      - name: Cache PyInstaller
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyinstaller
+          key: pyinstaller-${{ matrix.triple }}-${{ hashFiles('backend/pyproject.toml') }}
+
+      # sidecar 产物缓存：命中（依赖未变）直接复用，跳过 PyInstaller
+      - name: Cache sidecar binary
+        id: sidecar-cache
+        uses: actions/cache@v4
+        with:
+          path: desktop/src-tauri/binaries/quantcell-backend-*
+          key: sidecar-${{ matrix.triple }}-${{ hashFiles('backend/uv.lock', 'backend/pyproject.toml', 'desktop/scripts/build-backend.sh') }}
+
+      # ---------- 构建 ----------
+      - name: Build backend sidecar
+        if: steps.sidecar-cache.outputs.cache-hit != 'true'
+        run: |
+          cd backend
+          uv sync --frozen --no-dev
+          bash ../desktop/scripts/build-backend.sh "${{ matrix.triple }}"
+
+      - name: Build desktop app (Tauri)
+        run: |
+          cd desktop
+          bunx @tauri-apps/cli build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantcell-desktop-${{ matrix.artifact }}
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
