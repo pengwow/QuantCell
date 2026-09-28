@@ -491,15 +491,17 @@ class StrategyGenerator:
 
             # 流式调用 axon backend（同步 stream_chat 一次性收集全部 delta 后返回，
             # 本方法内部累积完整内容、不逐块推给客户端，与旧行为一致）
-            deltas = self._backend.stream_chat(
-                [
-                    {
-                        "role": "system",
-                        "content": "你是一个专业的量化交易策略生成专家。",
-                    },
-                    {"role": "user", "content": prompt},
-                ]
-            )
+            # 注意: stream_chat 是同步阻塞调用,LLM 生成期间会长时间占用线程（实测可达 15s+）。
+            # 必须放到线程池执行,否则会卡死 uvicorn 事件循环——此时 SIGINT 回调无法被处理,
+            # 表现为第一次 Ctrl+C 无反应、需要按第二次强制退出。
+            messages = [
+                {
+                    "role": "system",
+                    "content": "你是一个专业的量化交易策略生成专家。",
+                },
+                {"role": "user", "content": prompt},
+            ]
+            deltas = await asyncio.to_thread(self._backend.stream_chat, messages)
 
             # 步骤2: 设计策略 - 完成
             yield self._create_thinking_chain_event(1, "completed", "策略设计完成")

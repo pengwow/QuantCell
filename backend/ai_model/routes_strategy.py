@@ -27,6 +27,7 @@
 日期: 2026-03-08
 """
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -361,14 +362,21 @@ async def generate_strategy_stream(
 
         async def event_stream():
             """生成SSE事件流"""
-            async for chunk in generator.generate_strategy_stream(
-                requirement=gen_request.requirement,
-                prompt_category=PromptCategory.STRATEGY_GENERATION,
-                **template_vars,
-            ):
-                # 将数据块格式化为SSE格式
-                data = json.dumps(chunk, ensure_ascii=False)
-                yield f"data: {data}\n\n"
+            try:
+                async for chunk in generator.generate_strategy_stream(
+                    requirement=gen_request.requirement,
+                    prompt_category=PromptCategory.STRATEGY_GENERATION,
+                    **template_vars,
+                ):
+                    # 将数据块格式化为SSE格式
+                    data = json.dumps(chunk, ensure_ascii=False)
+                    yield f"data: {data}\n\n"
+            except asyncio.CancelledError:
+                # 客户端主动断开或服务关闭时,uvicorn 会取消 SSE 生成器,属正常断链。
+                # 安静退出即可;若继续向上抛,uvicorn 会在控制台打印
+                # "Exception in ASGI application / CancelledError" 堆栈。
+                logger.info("SSE 策略生成连接已取消（客户端断开或服务正在关闭）")
+                return
 
         return StreamingResponse(
             event_stream(),
