@@ -105,6 +105,25 @@ fn dto(runtime: &RuntimeState, persisted: &PersistedConfig) -> BackendConfigDto 
     }
 }
 
+/// resource 内 uv 的相对路径（跨平台 exe 后缀差异）。
+fn uv_resource_relative() -> &'static str {
+    if cfg!(windows) {
+        "resources/uv/uv.exe"
+    } else {
+        "resources/uv/uv"
+    }
+}
+
+/// 解析随包 uv 二进制绝对路径；文件缺失（如本机未跑 fetch-uv.sh）返回 None，
+/// 后端安装接口将回 503，不影响 sidecar 主链路启动。
+fn uv_bin_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    let path = app
+        .path()
+        .resolve(uv_resource_relative(), tauri::path::BaseDirectory::Resource)
+        .ok()?;
+    path.is_file().then_some(path)
+}
+
 /// spawn sidecar；端口探测与实际绑定间存在竞态，最多换端口重试 PORT_ATTEMPTS 次。
 /// 约定：调用方已在锁内把 starting 置为 true；本函数负责在所有出口复位。
 fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
@@ -124,7 +143,7 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
             return Err("无法分配空闲端口".into());
         };
 
-        let result = app
+        let mut cmd = app
             .shell()
             .sidecar("quantcell-backend")
             .map_err(|e| e.to_string())?
@@ -140,8 +159,12 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
             // 此处 env 只在 exec 后对子进程生效，挡不住 fork() 后 exec() 前的那次
             // ObjC fork-safety abort；权威设置在 lib::run() 最开头（让本进程及 fork
             // 子进程继承）。这里再写一遍仅为防御 sidecar 自身派生后代进程的场景。
-            .env("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
-            .spawn();
+            .env("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES");
+        // uv 只读随包 resource：存在才开启扩展安装能力，缺失则后端回 503
+        if let Some(uv) = uv_bin_path(app) {
+            cmd = cmd.env("QUANTCELL_UV_BIN", uv.to_string_lossy().to_string());
+        }
+        let result = cmd.spawn();
 
         match result {
             Ok((mut rx, child)) => {
@@ -440,5 +463,15 @@ mod tests {
         assert!(!state.try_begin_start());
         state.starting = false; // 模拟 spawn 出口复位
         assert!(state.try_begin_start());
+    }
+
+    #[test]
+    fn uv_resource_path_is_platform_suffixed() {
+        let p = uv_resource_relative();
+        if cfg!(windows) {
+            assert_eq!(p, "resources/uv/uv.exe");
+        } else {
+            assert_eq!(p, "resources/uv/uv");
+        }
     }
 }

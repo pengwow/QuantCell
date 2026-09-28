@@ -148,10 +148,6 @@ export default defineConfig({
     },
     // antd 与图标库合并后 ui-vendor 约 1.3MB 属正常体量
     chunkSizeWarningLimit: 1500,
-    // ponytail: 生产构建移除所有 console.log/debugger
-    esbuild: {
-      drop: ['console', 'debugger'],
-    },
     // 压缩配置 - 使用 esbuild 减少内存使用
     minify: 'esbuild',
     // CSS 代码分割

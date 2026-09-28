@@ -40,6 +40,7 @@ from backtest import router as backtest_router
 from collector.routes import router as collector_router
 from common.notifications.routes import router as notification_router
 from engine.routes import router as engine_router
+from extensions.api import router as extensions_router
 from factor import router as factor_router
 from indicators.routes import router as indicators_router
 from model.routes import router as model_router
@@ -102,6 +103,7 @@ app.include_router(agent_router)
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
 app.include_router(engine_router)
+app.include_router(extensions_router)  # 桌面端可选扩展（非桌面环境下安装接口 503）
 
 # 模型/集成/风控/RL 服务路由
 app.include_router(models_router)

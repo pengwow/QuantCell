@@ -8,6 +8,7 @@ import {
 } from './bridge';
 import { type BackendMode } from './env';
 import { showSplash } from './splash';
+import ExtensionSettings from './ExtensionSettings';
 
 type Health = 'unknown' | 'ok' | 'down';
 
@@ -80,7 +81,8 @@ export default function DesktopBackendSettings() {
   };
 
   return (
-    <Card title="桌面后端" style={{ maxWidth: 640 }}>
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Card title="桌面后端" style={{ maxWidth: 640 }}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Radio.Group
           value={mode}
@@ -109,6 +111,8 @@ export default function DesktopBackendSettings() {
           切换将重启界面。本机模式数据保存在应用私有数据目录。
         </span>
       </Space>
-    </Card>
+      </Card>
+      <ExtensionSettings />
+    </Space>
   );
 }

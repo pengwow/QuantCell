@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import typer
@@ -47,6 +48,20 @@ def apply_runtime_env(data_dir: str) -> None:
         os.environ[key] = value
 
 
+def apply_extensions_path(data_dir: str) -> None:
+    """把已安装扩展的 site-packages 注入 sys.path 头部。
+
+    PEP 302 fallback：PyInstaller FrozenImporter 在归档内查不到 torch 等模块时，
+    会继续交给 sys.path 上的外部 path finder；必须在导入 main（业务模块）前调用。
+    """
+    base = Path(data_dir) / "extensions"
+    if not base.is_dir():
+        return
+    for sp in sorted(base.glob("*/site-packages")):
+        if sp.is_dir():
+            sys.path.insert(0, str(sp))
+
+
 def main(
     host: str = typer.Option("127.0.0.1", "--host", help="监听地址"),
     port: int = typer.Option(..., "--port", help="Tauri 分配的端口（必填）"),
@@ -54,6 +69,7 @@ def main(
 ) -> None:
     """启动桌面 sidecar：先落 env，再初始化 DB，最后起 uvicorn。"""
     apply_runtime_env(data_dir)
+    apply_extensions_path(data_dir)
 
     import uvicorn
 
