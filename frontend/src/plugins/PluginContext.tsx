@@ -75,7 +75,7 @@ export function PluginProvider({ children }: { children: ReactNode }) {
   const enablePlugin = useCallback(
     async (name: string) => {
       await pluginApi.enablePlugin(name);
-      message.success(`插件 ${name} 已启用`);
+      message.success(`插件 ${name} 已标记启用，重启后端服务后生效`);
       await refresh();
     },
     [message, refresh],

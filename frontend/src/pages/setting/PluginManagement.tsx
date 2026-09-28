@@ -43,6 +43,15 @@ const STATUS_CONFIG: Record<PluginStatus, { color: 'default' | 'success' | 'warn
   error: { color: 'error', text: '错误' },
 };
 
+// 卡片栅格按插件数量自适应：1 个全宽铺满、2 个各占一半、3 个三等分、4 个及以上四等分，
+// 避免插件数量少时卡片挤在一行左侧、右侧大片空白
+function pluginColProps(count: number) {
+  if (count === 1) return { xs: 24, sm: 24, md: 24, lg: 24, xl: 24, xxl: 24 };
+  if (count === 2) return { xs: 24, sm: 24, md: 12, lg: 12, xl: 12, xxl: 12 };
+  if (count === 3) return { xs: 24, sm: 12, md: 8, lg: 8, xl: 8, xxl: 8 };
+  return { xs: 24, sm: 12, md: 12, lg: 8, xl: 8, xxl: 6 };
+}
+
 export default function PluginManagement() {
   const { plugins, loading, refresh, enablePlugin, disablePlugin } = usePlugins();
   const { message } = App.useApp();
@@ -91,7 +100,7 @@ export default function PluginManagement() {
     setUploading(true);
     try {
       await pluginApi.installFromZip(file);
-      message.success('插件安装成功');
+      message.success('插件安装成功，重启后端服务后生效');
       setInstallOpen(false);
       await refresh();
     } catch (err) {
@@ -107,7 +116,7 @@ export default function PluginManagement() {
       const { url, branch } = await gitForm.validateFields();
       setUploading(true);
       await pluginApi.installFromGit(url, branch || undefined);
-      message.success('插件安装成功');
+      message.success('插件安装成功，重启后端服务后生效');
       setInstallOpen(false);
       gitForm.resetFields();
       await refresh();
@@ -139,9 +148,9 @@ export default function PluginManagement() {
 
       {hasPendingRestart && (
         <Alert
-          type="info"
+          type="warning"
           showIcon
-          message="有插件需要重启后才能生效，请重启后端服务。"
+          message="有插件待生效：安装或启用的插件需重启后端服务后才会加载。"
           style={{ marginBottom: 16 }}
           closable
         />
@@ -152,7 +161,7 @@ export default function PluginManagement() {
       ) : (
         <Row gutter={[16, 16]}>
           {plugins.map((plugin) => (
-            <Col key={plugin.name} xs={24} sm={12} md={12} lg={8} xl={8} xxl={6}>
+            <Col key={plugin.name} {...pluginColProps(plugins.length)}>
               <PluginCard
                 plugin={plugin}
                 loading={!!actionLoading[plugin.name]}
@@ -224,12 +233,13 @@ function PluginCard({
       <Card.Meta
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text strong ellipsis style={{ maxWidth: 160 }}>{plugin.name}</Text>
+            <Text strong ellipsis style={{ flex: 1, minWidth: 0, marginInlineEnd: 12 }}>{plugin.name}</Text>
             <Badge status={sc.color} text={<Text type="secondary" style={{ fontSize: 12 }}>{sc.text}</Text>} />
           </div>
         }
         description={
-          <div>
+          // 单插件全宽时限制正文行宽，避免描述被拉成超长行难以阅读（卡片边框仍铺满）
+          <div style={{ maxWidth: 720 }}>
             <Paragraph
               type="secondary"
               ellipsis={{ rows: 2 }}
@@ -238,16 +248,12 @@ function PluginCard({
               {plugin.description || '暂无描述'}
             </Paragraph>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Space size={4}>
-                <Tag>{plugin.version}</Tag>
-                <Tag color={plugin.load_type === 'hot' ? 'green' : 'blue'}>
-                  {plugin.load_type === 'hot' ? '热加载' : '重启加载'}
-                </Tag>
-              </Space>
+              <Tag>{plugin.version}</Tag>
               <Switch
                 size="small"
                 checked={plugin.status === 'enabled'}
-                disabled={plugin.status === 'pending_restart' || plugin.status === 'error'}
+                // error 态禁止操作；待重启态允许关闭开关以撤销启用（重启前不生效）
+                disabled={plugin.status === 'error'}
                 onChange={(checked) => onToggle(plugin, checked)}
               />
             </div>
@@ -366,9 +372,6 @@ function DetailModal({
         <Descriptions.Item label="作者">{plugin.author || '-'}</Descriptions.Item>
         <Descriptions.Item label="状态">
           <Badge status={sc.color} text={sc.text} />
-        </Descriptions.Item>
-        <Descriptions.Item label="加载方式">
-          {plugin.load_type === 'hot' ? '热加载' : '重启加载'}
         </Descriptions.Item>
         <Descriptions.Item label="安装来源">{plugin.install_source}</Descriptions.Item>
         <Descriptions.Item label="描述" span={2}>

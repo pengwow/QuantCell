@@ -61,7 +61,6 @@ const GeneralSettingsPage = () => {
     resetConfig,
     applyTheme,
     hasGeneralSettingsChanged,
-    markPasswordModified,
   } = useSettings();
   const { isGuest, checkPermission } = useGuestRestriction();
 
@@ -252,39 +251,6 @@ const GeneralSettingsPage = () => {
         </div>
 
         <Divider />
-
-        {/* 用户配置 */}
-        <div>
-          <h2 className="text-lg font-medium mb-4">{t('user_settings') || '用户设置'}</h2>
-          <Form layout="vertical">
-            <Form.Item label={t('username') || '用户名'}>
-              <Input
-                value={generalSettings.user?.username || ''}
-                onChange={(e) => setGeneralSettings(prev => ({
-                  ...prev,
-                  user: { ...prev.user, username: e.target.value }
-                }))}
-                placeholder={t('enter_username') || '请输入用户名'}
-                className="w-full max-w-md"
-              />
-            </Form.Item>
-            <Form.Item label={t('password') || '密码'}>
-              <Input.Password
-                value={generalSettings.user?.password || ''}
-                onChange={(e) => {
-                  setGeneralSettings(prev => ({
-                    ...prev,
-                    user: { ...prev.user, password: e.target.value }
-                  }));
-                  // 标记密码已被修改
-                  markPasswordModified();
-                }}
-                placeholder={t('enter_password') || '请输入密码'}
-                className="w-full max-w-md"
-              />
-            </Form.Item>
-          </Form>
-        </div>
 
         {/* 操作按钮 */}
         <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
