@@ -45,9 +45,10 @@ const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
 
 const loadThemeConfig = async () => {
   try {
+    // 首帧预置脚本（index.html）已按 localStorage/系统偏好设置过 html 的 dark class 与 data-theme：
+    // 用户（或上次会话）已显式选择主题时，登录页不重复应用，避免与控制台 useBrowserTheme 的取值来源不一致
     const savedTheme = localStorage.getItem('quantcell-ui-theme');
-    if (savedTheme) {
-      applyTheme(savedTheme as 'light' | 'dark' | 'auto');
+    if (savedTheme === 'light' || savedTheme === 'dark') {
       return;
     }
 
@@ -66,11 +67,13 @@ const loadThemeConfig = async () => {
       });
     }
 
-    const theme = flattenConfig['theme'] || 'light';
-    applyTheme(theme as 'light' | 'dark' | 'auto');
+    // 后端未显式配置主题时缺省 'auto'（跟随系统，与 useBrowserTheme / SettingsContext 的取值语义一致），
+    // 而不是强制亮色：避免暗色系统用户在登录页被强制切亮、登录后又切回暗色导致前后不一致
+    applyTheme((flattenConfig['theme'] as 'light' | 'dark' | 'auto') || 'auto');
   } catch (error) {
-    console.error('加载主题配置失败:', error);
-    applyTheme('light');
+    // 后端不可用时保留首帧预置（index.html 已按 用户选择 > 系统偏好 设置），
+    // 不再强制回退亮色，保证登录页与登录后主题一致
+    console.error('加载主题配置失败，保持当前主题:', error);
   }
 };
 

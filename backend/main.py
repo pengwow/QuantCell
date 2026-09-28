@@ -354,6 +354,10 @@ def main(
         port=fastapi_port,  # 使用动态分配的端口
         reload=False,  # 禁用热重载，避免DuckDB锁冲突
         log_level=log_level.lower(),  # 设置日志级别
+        # 优雅关停最多等待在途连接 6s（浏览器持有的 SSE/WebSocket 不会主动断开，
+        # 默认 None 会无限等待导致一次 Ctrl+C 退不掉）；超时后 uvicorn 强制取消任务，
+        # lifespan 内还有 12s 关停看门狗做最终兜底。
+        timeout_graceful_shutdown=6,
     )
 
 

@@ -192,6 +192,16 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
         },
         // onDone - 生成完成，一次性返回完整结果
         (result: { code?: string; raw_content?: string; metadata?: GenerationStreamMetadata }) => {
+          // 空内容兜底（后端正常会发 error 事件，这里防止漏网）
+          if (!result.raw_content?.trim() && !result.code?.trim()) {
+            const err = new Error('模型未返回有效内容，请重试或更换模型（推理模型可能因思维链过长被截断）');
+            console.error('策略生成错误:', err);
+            setError(err);
+            setIsGenerating(false);
+            message.error(err.message);
+            return;
+          }
+
           updateStepStatus(3, 'completed');
           
           // 提取代码

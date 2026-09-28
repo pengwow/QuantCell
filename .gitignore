@@ -5,6 +5,11 @@
 .DS_Store
 .vscode/
 .idea/
+.codebuddy/*
+.claude/*
+.junie/*
+.lingma/*
+.qoder/*
 *.pyc
 *.log
 *.so
@@ -91,3 +96,5 @@ desktop/ui/dist/
 backend/dist/
 backend/build/
 backend/quantcell-backend.spec
+
+
