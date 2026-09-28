@@ -13,15 +13,13 @@ import {
   IconSettings,
   IconBotId,
   IconRobot,
-  IconLogout,
-  IconUser,
   IconPlug,
   IconBrain,
   IconShield,
   IconStack,
   IconFlask,
 } from "@tabler/icons-react";
-import { Button, Drawer, Layout, Menu, type MenuProps, theme, Dropdown, Avatar } from "antd";
+import { Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
 import { setPageTitle } from "@/utils/pageTitle";
 
 import AppLocale from "@/components/AppLocale";
@@ -42,9 +40,6 @@ const ConsoleLayout = () => {
   useEffect(() => {
     localStorage.setItem('sider_collapsed', String(siderCollapsed));
   }, [siderCollapsed]);
-  const username = localStorage.getItem('username') || '';
-  const nickname = localStorage.getItem('nickname') || username;
-
   const handleSetThemeMode = (mode: ThemeMode) => {
     setThemeMode(mode);
   };
@@ -58,35 +53,6 @@ const ConsoleLayout = () => {
   const handleGitHubClick = () => {
     window.open("https://github.com/pengwow/QuantCell", "_blank");
   };
-
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/v1/auth/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-    } catch {
-      // 即使后端调用失败，也清除本地token
-    }
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('is_guest');
-    localStorage.removeItem('username');
-    localStorage.removeItem('user_id');
-    localStorage.removeItem('nickname');
-    navigate("/login");
-  };
-
-  const userMenuItems = [
-    {
-      key: 'logout',
-      icon: <IconLogout size="1em" />,
-      label: t("logout") || "注销",
-      danger: true,
-      onClick: handleLogout,
-    },
-  ];
 
   return (
     <Layout className="h-screen bg-background text-foreground" hasSider>
@@ -102,26 +68,6 @@ const ConsoleLayout = () => {
             <SiderMenu collapsed={siderCollapsed} />
           </div>
           <div className={`w-full pb-2 ${siderCollapsed ? "px-0" : "px-2"}`}>
-            <Dropdown
-                    menu={{ items: userMenuItems }}
-                    placement="bottomLeft"
-                    trigger={['click']}
-                    className="w-full"
-                    styles={{ root: { marginLeft: '60px' } }}
-                  >
-                    <div
-                      title={nickname || username || "admin"}
-                      className={`flex cursor-pointer items-center rounded-md py-[10px] transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${siderCollapsed ? 'justify-center' : 'gap-3 pl-[20px]'}`}
-                      style={{marginRight: "unset"}}
-                    >
-                <span className="anticon" role="img">
-                  <IconUser size="1em" />
-                </span>
-                {!siderCollapsed && (
-                  <span className="truncate text-sm leading-[40px]">{nickname || username || 'admin'}</span>
-                )}
-              </div>
-            </Dropdown>
             <Menu
               style={{ background: "transparent", borderInlineEnd: "none" }}
               items={[
@@ -195,14 +141,6 @@ const ConsoleLayout = () => {
               <SiderMenuDrawer trigger={<Button icon={<IconMenu2 size="1.25em" stroke="1.25" />} />} />
             </div>
             <div className="flex size-full grow items-center justify-end gap-4 overflow-hidden">
-              <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-                <div className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700">
-                  <Avatar size={28} className="bg-primary/10 text-primary flex items-center justify-center">
-                    <IconUser size="1em" />
-                  </Avatar>
-                  <span className="text-sm font-medium max-w-[100px] truncate">{nickname || username}</span>
-                </div>
-              </Dropdown>
               <AppTheme.LinkButton
                 themeMode={themeMode as ThemeMode}
                 setThemeMode={handleSetThemeMode}

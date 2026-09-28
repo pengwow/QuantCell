@@ -17,7 +17,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from ai_model.performance_monitor import get_performance_monitor
 from ai_model.prompts import PromptCategory, PromptManager
 from ai_model.thinking_chain import ThinkingChainManager
-from axon_bridge.llm import classify_llm_error, create_llm_backend
+from axon_bridge.llm import classify_llm_error, create_llm_backend, normalize_finish_reason
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -80,7 +80,7 @@ class StrategyGenerator:
     DEFAULT_API_HOST = "https://api.openai.com"
     DEFAULT_MODEL = "gpt-4"
     DEFAULT_TEMPERATURE = 0.7
-    DEFAULT_MAX_TOKENS = 4096
+    DEFAULT_MAX_TOKENS = 16384  # 推理模型(reasoning)的思维链token也计入此预算，4096 常被思维链耗尽导致正文为空
     DEFAULT_TIMEOUT = 120.0  # 默认超时时间（秒），流式请求需要更长时间
 
     # 思维链步骤定义
@@ -514,6 +514,41 @@ class StrategyGenerator:
             # 内部累积完整内容，不再流式传输（只拼接 content 类型的增量）
             full_content = "".join(d.get("content", "") for d in deltas if d.get("type") == "content")
             chunk_count = len(deltas)
+            # axon 的 done 事件可能出现多次（Rust 侧桥接），取最后一个的 finish_reason
+            raw_finish = next(
+                (d.get("finish_reason") for d in reversed(deltas) if d.get("type") == "done"),
+                None,
+            )
+            finish_reason = normalize_finish_reason(raw_finish)
+
+            # 推理模型可能把 token 预算全耗在 reasoning 上：正文为空。
+            # 此时不能再走 done（否则前端会误显示"生成成功"），明确报错。
+            if not full_content.strip():
+                if finish_reason == "length":
+                    error_msg = "模型思维链过长导致输出被截断（未生成正文），请增大 max_tokens 或换用非推理模型后重试"
+                else:
+                    error_msg = "模型返回内容为空，请重试或更换模型"
+                logger.warning(
+                    f"[{request_id}] 正文内容为空: finish_reason={finish_reason}, "
+                    f"chunk_count={chunk_count}, reasoning_chunks="
+                    f"{sum(1 for d in deltas if d.get('type') == 'reasoning')}"
+                )
+                self._performance_monitor.record_request(
+                    model_id=self.model_id,
+                    success=False,
+                    generation_time=time.time() - start_time,
+                    tokens_used=None,
+                    error_code="empty_response",
+                )
+                if self._thinking_chain_state:
+                    yield self._create_thinking_chain_event(self._current_step_index, "error", error_msg)
+                yield {
+                    "type": "error",
+                    "error": error_msg,
+                    "error_code": "empty_response",
+                    "request_id": request_id,
+                }
+                return
 
             # 步骤3: 生成代码 - 完成
             yield self._create_thinking_chain_event(2, "completed", "代码生成完成")
@@ -555,6 +590,7 @@ class StrategyGenerator:
                     "model": self.model_id,
                     "elapsed_time": elapsed_time,
                     "chunk_count": chunk_count,
+                    "finish_reason": finish_reason,
                 },
             }
 
