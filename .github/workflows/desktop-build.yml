@@ -123,6 +123,10 @@ jobs:
           uv sync --frozen --no-dev
           bash ../desktop/scripts/build-backend.sh "${{ matrix.triple }}"
 
+      # uv 二进制是 Tauri bundle resource（resources/uv/ 被 gitignore），打包前现现下
+      - name: Fetch uv binary
+        run: bash desktop/scripts/fetch-uv.sh "${{ matrix.triple }}"
+
       - name: Build desktop app (Tauri)
         run: |
           cd desktop

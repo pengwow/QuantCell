@@ -26,9 +26,9 @@ fi
 cd "$BACKEND_DIR"
 
 # pyinstaller 用 uv --with 临时引入，不写入 backend/pyproject.toml
-# 注意：torch 虽在业务代码中懒加载，但经 axon_quant 依赖链被静态打入，
-# 当前 onefile 产物约 430MB、冷启动自解压约 1 分钟；瘦身（--exclude-module
-# torch/stable_baselines3 或改 onedir+resources）作为后续优化任务
+# torch / stable_baselines3 / gymnasium / onnx 链体积巨大（onefile 约 430MB），
+# 业务代码全部懒加载，故排除出最小包，由桌面端「扩展能力」用随包 uv 按需安装：
+# docs/superpowers/specs/2026-09-24-desktop-optional-extensions-design.md
 # backend 以 PEP 660 editable 方式安装（__editable__ finder 绝对路径映射），
 # PyInstaller 的 modulegraph 无法透过该 finder 解析本地包，必须显式把 backend
 # 目录（即当前目录）加入模块搜索路径，否则冻结产物运行时 ModuleNotFoundError
@@ -43,8 +43,13 @@ uv run --with pyinstaller pyinstaller \
   --collect-all zmq \
   --collect-all ccxt \
   --collect-all statsmodels \
-  --collect-all gymnasium \
   --collect-submodules uvicorn \
+  `# 可选扩展依赖：不打入归档；未安装时业务侧保持既有"缺少 RL 训练依赖"降级提示` \
+  --exclude-module torch \
+  --exclude-module stable_baselines3 \
+  --exclude-module gymnasium \
+  --exclude-module onnx \
+  --exclude-module onnxruntime \
   `# 这 5 个模型模块由 collector.db.database._import_all_models 用 importlib.import_module 动态导入，静态分析不可见，需显式收集` \
   --hidden-import strategy.models \
   --hidden-import worker.models \
