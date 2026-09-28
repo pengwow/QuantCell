@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "klinecharts": {
+      "source": "klinecharts/KLineChart",
+      "sourceType": "github",
+      "skillPath": "skills/klinecharts/SKILL.md",
+      "computedHash": "2e6642293484ab0def058b1d0fdd393ed1f47ce51ef48f873e01876884c9ccc6"
+    }
+  }
+}

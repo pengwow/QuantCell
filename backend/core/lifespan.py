@@ -5,7 +5,10 @@
 """
 
 import asyncio
+import logging
 import os
+import signal
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -34,6 +37,109 @@ if TYPE_CHECKING:
 
 # 全局实时引擎实例
 realtime_engine = None
+
+
+class _ShutdownNoiseFilter(logging.Filter):
+    """过滤优雅关停期 uvicorn 的预期噪音日志（仅在关停窗口挂载）
+
+    关停时浏览器持有的 SSE/流式请求不会主动断开，uvicorn 在优雅窗口超时后
+    主动 cancel 这些任务，``CancelledError`` 冒泡到协议层 ``run_asgi``，
+    被其 ``except BaseException`` 无条件记为 ``ERROR: Exception in ASGI application``。
+    这是关停的预期行为（不是业务错误），此处做两件事：
+
+    1. 丢弃 CancelledError 导致的 "Exception in ASGI application" 假错误堆栈；
+    2. 把信息性的 "Cancel N running task(s)..." 从 ERROR 降级为 WARNING。
+
+    正常运行期不挂载，任何真实业务异常照常记录。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "timeout graceful shutdown exceeded" in msg:
+            record.levelno = logging.WARNING
+            record.levelname = "WARNING"
+            return True
+        if msg.startswith("Exception in ASGI application") and record.exc_info:
+            if isinstance(record.exc_info[1], asyncio.CancelledError):
+                return False
+        return True
+
+
+class _ShutdownWatchdog:
+    """有界关停看门狗
+
+    背景: uvicorn 优雅关停时会先排空所有在途连接（SSE/WebSocket/长轮询），
+    且 ``timeout_graceful_shutdown`` 默认为 None（无限等待），随后才触发
+    lifespan 的 shutdown。浏览器持有的 SSE 连接不会主动断开，于是第一次
+    Ctrl+C 会永久卡在 "Waiting for connections to close"，只能再按一次
+    Ctrl+C 强制退出——lifespan 内的兜底定时器因时序问题根本来不及启动。
+
+    本看门狗在收到第一个关停信号时启动，给整个关停流程（含连接排空 + lifespan）
+    一个有界预算，超时仍未退出则 ``os._exit(1)``，保证一次 Ctrl+C 必然退出。
+    """
+
+    def __init__(self, timeout: float = 12.0) -> None:
+        self._timeout = timeout
+        self._done = threading.Event()
+        self._armed = False
+        self._lock = threading.Lock()
+        # 仅关停窗口挂载的日志过滤器（见 _ShutdownNoiseFilter）
+        self._noise_filter = _ShutdownNoiseFilter()
+        self._uvicorn_logger = logging.getLogger("uvicorn.error")
+
+    def arm(self) -> None:
+        """幂等启动看门狗（可在信号处理器与 lifespan shutdown 中重复调用）"""
+        with self._lock:
+            if self._armed:
+                return
+            self._armed = True
+        self._uvicorn_logger.addFilter(self._noise_filter)
+        threading.Thread(target=self._run, daemon=True, name="shutdown-watchdog").start()
+
+    def complete(self) -> None:
+        """优雅关停正常完成，撤销看门狗与日志过滤器"""
+        self._done.set()
+        self._uvicorn_logger.removeFilter(self._noise_filter)
+
+    def _run(self) -> None:
+        if self._done.wait(self._timeout):
+            return
+        logger.error(f"[FORCE EXIT] 优雅关停超时（>{self._timeout:.0f}s），强制退出")
+        os._exit(1)
+
+
+def _install_signal_watchdog(watchdog: _ShutdownWatchdog) -> None:
+    """链式包装 uvicorn 的 SIGINT/SIGTERM 处理器
+
+    只包装不替换：收到信号后先启动看门狗，再调用 uvicorn 原处理器，
+    因此 uvicorn 的完整优雅关停流程（should_exit/force_exit 两级语义）
+    保持不变。仅在真实 uvicorn Server 下安装，TestClient/pytest 场景跳过。
+    """
+    import uvicorn
+
+    # sig -> (uvicorn 原处理器, 所属 Server)
+    handlers: dict[int, tuple[object, uvicorn.Server]] = {}
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        prev = signal.getsignal(sig)
+        server = getattr(prev, "__self__", None)
+        if not isinstance(server, uvicorn.Server):
+            return  # 非 uvicorn 运行环境（如 TestClient），不安装
+        handlers[sig] = (prev, server)
+
+    def _wrapper(sig: int, frame: object) -> None:
+        watchdog.arm()
+        prev, server = handlers[sig]
+        # CLI 启动（uvicorn main:app）时 timeout_graceful_shutdown 默认 None，
+        # uvicorn 会无限等待浏览器持有的 SSE/WebSocket 连接关闭。该配置在
+        # 关停时实时读取，这里收到首个信号时补上 5s 上限：超时后 uvicorn
+        # 自动取消在途任务（SSE 生成器会安静退出），随后正常执行 lifespan 关停。
+        if server.config.timeout_graceful_shutdown is None:
+            server.config.timeout_graceful_shutdown = 5
+        prev(sig, frame)  # 链式调用 uvicorn 原处理器
+
+    for sig in handlers:
+        signal.signal(sig, _wrapper)
+    logger.info("关停看门狗已安装（一次 Ctrl+C 即可有界退出）")
 
 
 @asynccontextmanager
@@ -281,37 +387,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] WorkerOrchestrator 初始化失败 (ZMQ 不可用): {e}")
 
+    # 安装关停看门狗：链式包装 uvicorn 信号处理器，保证一次 Ctrl+C 即可有界退出
+    # （uvicorn 默认会无限等待浏览器持有的 SSE/WebSocket 连接关闭）
+    shutdown_watchdog = _ShutdownWatchdog(timeout=12.0)
+    _install_signal_watchdog(shutdown_watchdog)
+
     yield
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
-    # 独立事件循环设计：每个 TradingNode 使用独立 asyncio 循环（非 uvicorn 主循环）
-    # uvicorn 的 SIGINT 处理器始终有效，shutdown 流程正常触发
-    import os as _os
-    import threading as _th
-    import time as _time
-
-    _shutdown_start = _time.monotonic()
-
-    # 强制退出兜底定时器（仅在优雅关闭被卡死时才触发）。
-    # 修复旧实现的三处缺陷：
-    #   1) 旧 2s 预算小于各步骤 wait_for 超时之和，健康关闭也被腰斩（DB 提交/插件停用中断）；
-    #   2) 定时器从不取消，TestClient 场景下关闭完成后仍会硬杀整个 pytest 进程；
-    #   3) 恒 os._exit(0)，掩盖关闭失败。
-    # 现改为：预算放宽到 15s（远大于各步骤超时之和），关闭正常完成后 set 事件取消
-    # 兜底；真正卡死触发时用非零退出码，让进程管理器能感知异常退出。
-    _shutdown_done = _th.Event()
-
-    def _force_exit_timer():
-        if _shutdown_done.wait(15.0):
-            return  # 优雅关闭正常完成，取消兜底，不退出
-        _elapsed = _time.monotonic() - _shutdown_start
-        import logging as _log
-
-        _log.getLogger(__name__).error(f"[FORCE EXIT] 优雅关闭超时（>15s，已等待 {_elapsed:.2f}s），强制退出")
-        _os._exit(1)
-
-    _force_thread = _th.Thread(target=_force_exit_timer, daemon=True, name="force-exit-timer")
-    _force_thread.start()
+    # 看门狗已在收到 SIGINT/SIGTERM 时启动；此处再 arm 一次以覆盖非信号关停
+    # （如编程式关停/测试场景），幂等，不会重复计时。
+    shutdown_watchdog.arm()
 
     logger.info("========== 应用开始关闭 ==========")
 
@@ -417,7 +503,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] WorkerOrchestrator 清理失败: {e}")
 
-    _shutdown_done.set()  # 优雅关闭完成，取消强制退出兜底定时器
+    shutdown_watchdog.complete()  # 优雅关闭完成，撤销看门狗
     logger.info("========== 应用关闭完成 ==========")
 
 

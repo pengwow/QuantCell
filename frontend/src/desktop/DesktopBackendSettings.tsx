@@ -38,8 +38,9 @@ export default function DesktopBackendSettings() {
   }, []);
 
   useEffect(() => {
+    // endpoint 仅在本 effect 的其余逻辑前被 getBackendConfig 设置一次，不会回退为
+    // null；health 初值即 'unknown'，故无需到此同步重置（react-hooks/set-state-in-effect）
     if (!endpoint) {
-      setHealth('unknown');
       return;
     }
     let alive = true;

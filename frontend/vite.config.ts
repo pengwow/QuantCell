@@ -7,7 +7,7 @@ import fs from 'fs'
 // 读取package.json获取版本号
 const getAppVersion = () => {
   try {
-    const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'))
     return packageJson.version || '0.0.0'
   } catch {
     return '0.0.0'
@@ -42,7 +42,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   server: {

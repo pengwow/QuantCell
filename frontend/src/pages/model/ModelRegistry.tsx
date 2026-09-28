@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Tag, Space, message, Modal, Form, Input, InputNumber } from 'antd';
+import { Table, Button, Tag, Space, Card, message, Modal, Form, Input, InputNumber } from 'antd';
 import { PlusOutlined, RocketOutlined } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
 import { modelApi, type ModelInfo } from '@/api/modelApi';
@@ -88,13 +88,16 @@ export default function ModelRegistry() {
 
   return (
     <PageContainer title="模型注册表">
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2>模型注册表</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
-          注册模型
-        </Button>
-      </div>
-      <Table columns={columns} dataSource={models} loading={loading} rowKey="id" />
+      <Card
+        title="模型注册表"
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+            注册模型
+          </Button>
+        }
+      >
+        <Table columns={columns} dataSource={models} loading={loading} rowKey="id" />
+      </Card>
 
       <Modal
         title="注册新模型"

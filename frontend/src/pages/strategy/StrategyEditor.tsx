@@ -346,6 +346,163 @@ const StrategyEditor = () => {
     navigate('/strategy-management');
   };
 
+  // 规则策略示例模板（on_bar → Action，双均线交叉）
+  const buildRuleTemplate = () => `# -*- coding: utf-8 -*-
+"""
+简单SMA交叉策略
+
+使用统一策略接口的规则策略模板：每个新K线触发 on_bar，
+根据双均线交叉信号决定买入/卖出/持有。
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from strategy.core import (
+    StrategyBase,
+    StrategyConfig,
+    Bar,
+    InstrumentId,
+)
+
+
+class NewStrategyConfig(StrategyConfig):
+    """双均线交叉策略配置"""
+
+    def __init__(
+        self,
+        instrument_ids: List[InstrumentId],
+        bar_types: List[str],
+        trade_size: Decimal = Decimal("0.1"),
+        fast_period: int = 10,
+        slow_period: int = 30,
+        log_level: str = "INFO",
+    ):
+        super().__init__(instrument_ids, bar_types, trade_size, log_level)
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+
+
+class NewStrategy(StrategyBase):
+    """简单SMA交叉策略：快线上穿慢线买入，下穿卖出。"""
+
+    def __init__(self, config: NewStrategyConfig) -> None:
+        super().__init__(config)
+        self._config = config
+        self.prices: Dict[InstrumentId, List[float]] = {}
+        for instrument_id in config.instrument_ids:
+            self.prices[instrument_id] = []
+
+    def on_start(self) -> None:
+        self.log_info(
+            f"SMA交叉策略启动 - 快周期: {self._config.fast_period}, "
+            f"慢周期: {self._config.slow_period}"
+        )
+
+    def on_bar(self, bar: Bar) -> None:
+        instrument_id = bar.instrument_id
+        self.prices[instrument_id].append(bar.close)
+        closes = self.prices[instrument_id]
+
+        fast = self._config.fast_period
+        slow = self._config.slow_period
+        if len(closes) < slow:
+            return
+
+        fast_ma = sum(closes[-fast:]) / fast
+        slow_ma = sum(closes[-slow:]) / slow
+        prev_fast = sum(closes[-fast - 1:-1]) / fast
+        prev_slow = sum(closes[-slow - 1:-1]) / slow
+
+        if prev_fast <= prev_slow and fast_ma > slow_ma:
+            self.log_info(f"[{instrument_id}] 金叉信号，买入")
+            self.buy(instrument_id, self._config.trade_size)
+        elif prev_fast >= prev_slow and fast_ma < slow_ma:
+            self.log_info(f"[{instrument_id}] 死叉信号，卖出")
+            self.sell(instrument_id, self._config.trade_size)
+
+    def on_stop(self) -> None:
+        self.log_info("SMA交叉策略停止")
+`;
+
+  // RL示例模板（TradingEnv + stable-baselines3）
+  const buildRlTemplate = () => `# -*- coding: utf-8 -*-
+"""
+RL策略模板（强化学习）
+
+基于 robot 环境 TradingEnv 训练 PPO 智能体，然后在 on_bar 中
+通过 model.predict 推理输出目标仓位与置信度。
+备注: TradingEnv 与 stable-baselines3 需安装 axon_quant / 扩展依赖。
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+import numpy as np
+from stable_baselines3 import PPO
+
+from axon_quant.rl import TradingEnv
+from strategy.core import StrategyBase, StrategyConfig, Bar, InstrumentId
+
+
+class RlStrategyConfig(StrategyConfig):
+    def __init__(
+        self,
+        instrument_ids: List[InstrumentId],
+        bar_types: List[str],
+        trade_size: float = 0.1,
+        log_level: str = "INFO",
+        model_path: str = "",
+    ):
+        super().__init__(instrument_ids, bar_types, trade_size, log_level)
+        self.model_path = model_path
+
+
+class NewStrategy(StrategyBase):
+    """RL策略模板：加载已训练 PPO 模型，在 on_bar 中推理决策。"""
+
+    def __init__(self, config: RlStrategyConfig) -> None:
+        super().__init__(config)
+        self._config = config
+        self.model = PPO.load(config.model_path) if config.model_path else None
+        self.obs_buffer: Dict[InstrumentId, List[float]] = {}
+
+    def _train(self, market_data: List[Dict[str, Any]]) -> None:
+        """训练入口：构建 TradingEnv 后训练并保存模型。"""
+        env = TradingEnv(config={}, action_space="discrete", market_data=market_data, reward="sharpe")
+        model = PPO("MlpPolicy", env, verbose=1)
+        model.learn(total_timesteps=10_000)
+        model.save("rl_model.zip")
+
+    def on_bar(self, bar: Bar) -> None:
+        if not self.model:
+            self.log_info("未加载 RL 模型，跳过推理")
+            return
+        state = np.array([bar.close, bar.volume], dtype=np.float32)
+        action, _ = self.model.predict(state, deterministic=True)
+        target = float(action) * self._config.trade_size
+        self.log_debug(f"[{bar.instrument_id}] action={action}, 目标仓位={target:.2f}")
+`;
+
+  // 切换策略类型：确认后同步替换编辑器内容为对应类型的示例模板
+  const handleStrategyTypeChange = (type: 'rule' | 'rl') => {
+    if (type === aiStrategyType) return;
+    const typeLabel = type === 'rl' ? 'RL策略' : '规则策略';
+    Modal.confirm({
+      title: '切换策略类型',
+      content: `切换到「${typeLabel}」后，编辑器内容将替换为对应的示例模板。当前未保存的代码会被覆盖，是否继续？`,
+      okText: '切换',
+      cancelText: t('cancel') || '取消',
+      onOk: () => {
+        setAiStrategyType(type);
+        setCode(type === 'rl' ? buildRlTemplate() : buildRuleTemplate());
+      },
+    });
+  };
+
   // 创建新策略
   const handleCreateStrategy = () => {
     const newStrategy: Strategy = {
@@ -873,7 +1030,7 @@ class NewStrategy(StrategyBase):
           </Tooltip>
           <Select
             value={aiStrategyType}
-            onChange={setAiStrategyType}
+            onChange={handleStrategyTypeChange}
             size="small"
             style={{ width: 100 }}
             options={[
@@ -1118,8 +1275,14 @@ class NewStrategy(StrategyBase):
             onThinkingChain,
             // onDone - 生成完成，一次性返回完整结果
             (result) => {
+              // 后端在内容为空（如推理模型思维链耗尽 token 预算被截断）时本应发 error 事件，
+              // 这里再兜一层：没有任何内容时按失败处理，避免误显示"策略生成成功"
+              if (!result.raw_content?.trim() && !result.code?.trim()) {
+                onError(new Error('模型未返回有效内容，请重试或更换模型（推理模型可能因思维链过长被截断）'));
+                return;
+              }
               onComplete({
-                content: result.raw_content || result.code || '策略生成成功',
+                content: result.raw_content || result.code || '',
                 code: result.code,
               });
             },

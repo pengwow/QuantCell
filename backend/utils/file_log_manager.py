@@ -455,6 +455,15 @@ class FileLogManager:
                     try:
                         log_entry = json.loads(line)
 
+                        # 兼容旧格式:extra_data 在写入时被序列化为 JSON 字符串,
+                        # 这里还原为 dict,避免 API 响应模型 (dict 类型) 校验失败
+                        extra_data = log_entry.get("extra_data")
+                        if isinstance(extra_data, str):
+                            try:
+                                log_entry["extra_data"] = json.loads(extra_data)
+                            except json.JSONDecodeError, TypeError:
+                                pass  # 无法解析时保留原字符串,降低 API 损坏风险
+
                         # 应用过滤条件
                         if not self._match_filters(log_entry, filters):
                             continue

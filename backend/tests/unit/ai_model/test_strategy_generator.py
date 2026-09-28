@@ -487,6 +487,42 @@ class TestStrategyGeneratorErrorHandling:
         assert chunks[-1]["error_code"] == "generation_failed"
         assert "策略生成失败" in chunks[-1]["error"]
 
+    @pytest.mark.asyncio
+    async def test_generate_strategy_stream_empty_content_truncated(self, generator):
+        """推理模型思维链耗尽 token 预算：只有 reasoning + done(Length)，正文为空 → error 事件"""
+        generator._backend.stream_deltas = [
+            {"type": "reasoning", "content": "思考中..."},
+            {"type": "done", "finish_reason": "Length"},
+        ]
+
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
+
+        # 不应出现 done 事件（避免前端误显示成功）
+        assert all(c["type"] != "done" for c in chunks)
+        assert chunks[-1]["type"] == "error"
+        assert chunks[-1]["error_code"] == "empty_response"
+        assert "截断" in chunks[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_generate_strategy_stream_success_metadata(self, generator):
+        """正常返回时 done 事件带 code/raw_content 与归一化 finish_reason"""
+        generator._backend.stream_deltas = [
+            {"type": "content", "content": "```python\nclass S:\n    pass\n```"},
+            {"type": "done", "finish_reason": "Stop"},
+        ]
+
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
+
+        done = chunks[-1]
+        assert done["type"] == "done"
+        assert done["code"]
+        assert done["raw_content"]
+        assert done["metadata"]["finish_reason"] == "stop"
+
     def test_generate_strategy_authentication_error(self, generator):
         """测试同步生成时认证错误处理"""
         generator._backend.chat_error = RuntimeError("auth error: invalid key")
@@ -646,7 +682,8 @@ class TestStrategyGeneratorConstants:
         assert StrategyGenerator.DEFAULT_API_HOST == "https://api.openai.com"
         assert StrategyGenerator.DEFAULT_MODEL == "gpt-4"
         assert StrategyGenerator.DEFAULT_TEMPERATURE == 0.7
-        assert StrategyGenerator.DEFAULT_MAX_TOKENS == 4096
+        # 16384: 推理模型的思维链 token 也计入预算，4096 会被思维链耗尽导致正文为空
+        assert StrategyGenerator.DEFAULT_MAX_TOKENS == 16384
 
 
 class TestStrategyGenerationErrorClasses:

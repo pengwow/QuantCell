@@ -23,6 +23,7 @@ import {
   App,
   Divider,
   Select,
+  Space,
 } from 'antd';
 import {
   IconSearch,
@@ -47,7 +48,7 @@ interface LogSettingsUnifiedProps {
 }
 
 function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   // ========== 状态定义 ==========
   const [directoryTree, setDirectoryTree] = useState<LogDirectoryNode | null>(null);
   const [diskUsage, setDiskUsage] = useState<LogDiskUsage | null>(null);
@@ -204,7 +205,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   };
 
   const handleResetConfig = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认重置',
       content: '确定要重置所有配置为默认值吗？此操作不可撤销。',
       okText: '确认重置',
@@ -404,11 +405,11 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   return (
     <div className="log-settings-unified">
       {/* 主体内容区 */}
-      <main className="p-4">
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+      <main className="p-5">
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
           {/* 左侧：文件管理区 */}
-          <div className="xl:col-span-3 space-y-4">
-            
+          <div className="xl:col-span-3">
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
             {/* 筛选工具栏 */}
             <Card size="small" className="shadow-sm">
               <div className="space-y-3">
@@ -617,10 +618,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 </div>
               </Card>
             )}
+            </Space>
           </div>
 
           {/* 右侧：配置控制区 */}
-          <div className="xl:col-span-2 space-y-4">
+          <div className="xl:col-span-2">
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
             
             {/* 存储概览 */}
             {diskUsage && (
@@ -696,39 +699,53 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               className="shadow-sm"
             >
               {config.enabled ? (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <div>
                     <div className="text-sm font-medium text-gray-700 mb-2">保留策略</div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">保留最近</span>
-                      <InputNumber
-                        min={1}
-                        max={365}
-                        size="small"
-                        value={config.retention_days}
-                        onChange={(value) => setConfig(prev => ({ ...prev, retention_days: value || 30 }))}
-                        style={{ width: 80 }}
-                        addonAfter="天"
-                      />
+                      <Space.Compact size="small">
+                        <InputNumber
+                          min={1}
+                          max={365}
+                          size="small"
+                          value={config.retention_days}
+                          onChange={(value) => setConfig(prev => ({ ...prev, retention_days: value || 30 }))}
+                          style={{ width: 80 }}
+                        />
+                        <Input
+                          readOnly
+                          value="天"
+                          className="w-10 text-center"
+                          aria-label="天"
+                        />
+                      </Space.Compact>
                       <span className="text-sm text-gray-400">的日志</span>
                     </div>
                   </div>
 
-                  <Divider style={{ margin: '8px 0' }} />
+                  <Divider style={{ margin: '16px 0' }} />
 
                   <div>
                     <div className="text-sm font-medium text-gray-700 mb-2">空间限制</div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">超过</span>
-                      <InputNumber
-                        min={0}
-                        max={1000}
-                        size="small"
-                        value={config.max_size_gb}
-                        onChange={(value) => setConfig(prev => ({ ...prev, max_size_gb: value || 0 }))}
-                        style={{ width: 80 }}
-                        addonAfter="GB"
-                      />
+                      <Space.Compact size="small">
+                        <InputNumber
+                          min={0}
+                          max={1000}
+                          size="small"
+                          value={config.max_size_gb}
+                          onChange={(value) => setConfig(prev => ({ ...prev, max_size_gb: value || 0 }))}
+                          style={{ width: 80 }}
+                        />
+                        <Input
+                          readOnly
+                          value="GB"
+                          className="w-10 text-center"
+                          aria-label="GB"
+                        />
+                      </Space.Compact>
                       <span className="text-sm text-gray-400">时自动清理</span>
                     </div>
                     {config.max_size_gb > 0 && (
@@ -736,12 +753,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                         percent={Math.min((config.space_used / (config.max_size_gb * 1024)) * 100, 100)}
                         status={config.space_used > config.max_size_gb * 512 ? 'exception' : 'active'}
                         size="small"
-                        className="mt-2"
+                        className="mt-3"
                       />
                     )}
                   </div>
 
-                  <Divider style={{ margin: '8px 0' }} />
+                  <Divider style={{ margin: '16px 0' }} />
 
                   <div>
                     <div className="text-sm font-medium text-gray-700 mb-2">执行计划</div>
@@ -758,14 +775,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     </Radio.Group>
                     
                     {config.last_cleanup_time && (
-                      <div className="text-xs text-gray-500 mt-2">
+                      <div className="text-xs text-gray-500 mt-3">
                         上次执行: {new Date(config.last_cleanup_time).toLocaleString('zh-CN')}
                       </div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-4 text-gray-400">
+                <div className="text-center py-8 text-gray-400">
                   <IconSettings size={32} className="mx-auto mb-2 opacity-30" />
                   <p className="text-xs">自动清理已禁用</p>
                   <p className="text-xs mt-1 text-gray-300">开启上方开关以启用配置选项</p>
@@ -785,7 +802,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 }
                 className="shadow-sm"
               >
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {Object.entries(diskUsage.log_types).map(([type, info]: [string, LogTypeInfo]) => {
                     const totalBytes = info.total_size || 0;
                     const maxBytes = Math.max(...Object.values(diskUsage.log_types).map((i: LogTypeInfo) => i.total_size || 0), 1);
@@ -870,6 +887,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 className="rounded"
               />
             )}
+            </Space>
           </div>
         </div>
       </main>

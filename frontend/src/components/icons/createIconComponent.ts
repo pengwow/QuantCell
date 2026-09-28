@@ -46,7 +46,9 @@ const createIconComponent = (type: "outline" | "filled", iconName: string, iconA
       },
       [
         title && createElement("title", { key: "svg-title" }, title),
-        ...iconNode.map(([tag, attrs]) => createElement(tag, attrs)),
+        // tabler 的 IconNode 中 tag 为 SVG 标签名，React 19 的 createElement
+        // 对 type 参数类型收紧，这里断言为 string 以通过类型检查
+        ...iconNode.map(([tag, attrs]) => createElement(tag as string, attrs)),
         ...(Array.isArray(children) ? children : [children]),
       ]
     )
