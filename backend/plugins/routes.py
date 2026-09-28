@@ -153,10 +153,10 @@ async def install_plugin_upload(
                 "plugin_installed",
                 {
                     "name": msg,
-                    "status": "installed",
+                    "status": "pending_restart",
                 },
             )
-            return ApiResponse(code=0, message="插件安装成功", data={"name": msg})
+            return ApiResponse(code=0, message="插件安装成功，重启后端服务后生效", data={"name": msg})
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
@@ -182,10 +182,10 @@ async def install_plugin_git(
             "plugin_installed",
             {
                 "name": msg,
-                "status": "installed",
+                "status": "pending_restart",
             },
         )
-        return ApiResponse(code=0, message="插件安装成功", data={"name": msg})
+        return ApiResponse(code=0, message="插件安装成功，重启后端服务后生效", data={"name": msg})
     except HTTPException:
         raise
     except Exception as e:
@@ -226,10 +226,10 @@ async def enable_plugin(request: Request, name: str, current_user: dict = Depend
             "plugin_loaded",
             {
                 "name": name,
-                "status": "enabled",
+                "status": "pending_restart",
             },
         )
-        return ApiResponse(code=0, message="插件启用成功", data=result)
+        return ApiResponse(code=0, message="插件已标记启用，重启后端服务后生效", data=result)
     except HTTPException:
         raise
     except Exception as e:

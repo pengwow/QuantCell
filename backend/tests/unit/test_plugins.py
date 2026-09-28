@@ -214,5 +214,103 @@ class TestPluginManager:
         assert "test_plugin" in discovered
 
 
+class TestRestartRequiredPolicy:
+    """所有插件统一"重启后生效"策略的测试"""
+
+    @staticmethod
+    def _make_recording_store(plugin_info=None):
+        """记录 save_plugin / update_status 调用的 store 桩"""
+
+        class RecordingStore:
+            saved_metadata = None
+            status_updates = []
+
+            @classmethod
+            def get_all_plugins(cls):
+                return []
+
+            @classmethod
+            def get_plugin(cls, name):
+                return plugin_info
+
+            @classmethod
+            def save_plugin(cls, metadata):
+                cls.saved_metadata = metadata
+                return True
+
+            @classmethod
+            def update_status(cls, name, status, error_message=None):
+                cls.status_updates.append((name, status))
+                return True
+
+            @classmethod
+            def delete_plugin(cls, name):
+                return True
+
+        return RecordingStore
+
+    def test_install_marks_pending_restart_ignoring_manifest_load_type(self, tmp_path):
+        """安装后统一为 pending_restart + restart，即使 manifest 声明 hot，也不触发运行期加载"""
+        from plugins.plugin_manager import PluginManager
+
+        pm = PluginManager(plugin_dir=str(tmp_path))
+        store = self._make_recording_store()
+        pm._store = store
+        # 间谍：若安装流程触发加载应立即暴露
+        pm.load_plugin = MagicMock(side_effect=AssertionError("安装后不应运行期加载插件"))
+
+        manifest = {
+            "name": "demo_plugin",
+            "version": "1.0.0",
+            "load_type": "hot",  # manifest 即使声明热加载也必须被忽略
+        }
+        assert pm.install_plugin(str(tmp_path / "demo_plugin"), manifest) is True
+
+        meta = store.saved_metadata
+        assert meta["status"] == "pending_restart"
+        assert meta["load_type"] == "restart"
+        assert pm.plugins == {}
+        pm.load_plugin.assert_not_called()
+
+    def test_enable_unloaded_plugin_marks_pending_restart(self, tmp_path):
+        """运行期启用未加载插件：只标记 pending_restart，不动态加载"""
+        from plugins.plugin_manager import PluginManager
+
+        pm = PluginManager(plugin_dir=str(tmp_path))
+        store = self._make_recording_store(plugin_info={"name": "demo_plugin", "status": "disabled"})
+        pm._store = store
+        pm.load_plugin = MagicMock(side_effect=AssertionError("未加载插件不应运行期动态加载"))
+
+        assert pm.enable_plugin("demo_plugin") is True
+
+        assert store.status_updates == [("demo_plugin", "pending_restart")]
+        pm.load_plugin.assert_not_called()
+
+    def test_enable_loaded_plugin_takes_effect_immediately(self, tmp_path):
+        """启动时已加载的插件启用：直接 on_enable 并标记 enabled（无需重启）"""
+        from plugins.plugin_manager import PluginManager
+
+        pm = PluginManager(plugin_dir=str(tmp_path))
+        store = self._make_recording_store(plugin_info={"name": "demo_plugin", "status": "disabled"})
+        pm._store = store
+
+        running_plugin = MagicMock()
+        pm.plugins["demo_plugin"] = running_plugin
+
+        assert pm.enable_plugin("demo_plugin") is True
+
+        running_plugin.on_enable.assert_called_once()
+        assert store.status_updates == [("demo_plugin", "enabled")]
+
+    def test_enable_nonexistent_plugin_returns_false(self, tmp_path):
+        """启用不存在的插件返回 False"""
+        from plugins.plugin_manager import PluginManager
+
+        pm = PluginManager(plugin_dir=str(tmp_path))
+        pm._store = self._make_recording_store(plugin_info=None)
+
+        assert pm.enable_plugin("ghost") is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

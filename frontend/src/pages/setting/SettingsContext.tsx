@@ -42,10 +42,6 @@ const defaultGeneralSettings: GeneralSettings = {
   showTips: true,
   timezone: 'Asia/Shanghai',
   defaultPerPage: 10,
-  user: {
-    username: '',
-    password: '',
-  },
 };
 
 // 默认通知设置
@@ -127,9 +123,6 @@ interface SettingsContextType {
   hasGeneralSettingsChanged: () => boolean;
   hasNotificationSettingsChanged: () => boolean;
   hasApiSettingsChanged: () => boolean;
-
-  // 密码修改标记
-  markPasswordModified: () => void;
 }
 
 // 创建 Context
@@ -155,9 +148,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   const [initialGeneralSettings, setInitialGeneralSettings] = useState<GeneralSettings>(defaultGeneralSettings);
   const [initialNotificationSettings, setInitialNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [initialApiSettings, setInitialApiSettings] = useState<ApiSettings>(defaultApiSettings);
-
-  // 密码是否被修改的标志
-  const [passwordModified, setPasswordModified] = useState<boolean>(false);
 
   // 应用主题
   const applyTheme = useCallback((theme: 'light' | 'dark' | 'auto') => {
@@ -224,10 +214,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         defaultPerPage: toConfigInt(flattenConfig['defaultPerPage']),
         showTips: toConfigBool(flattenConfig['showTips']),
         timezone: toConfigString(flattenConfig['timezone']),
-        user: {
-          username: toConfigString(flattenConfig['user.username']) || '',
-          password: toConfigString(flattenConfig['user.password']) || '',
-        },
       };
 
       // 过滤掉 undefined 值
@@ -320,16 +306,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: '列表页默认显示数量' },
         { key: 'timezone', value: generalSettings.timezone, name: 'general', description: '系统默认时区' },
         { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: '是否显示提示' },
-        // 用户配置
-        { key: 'user.username', value: generalSettings.user?.username || '', name: 'general', description: '系统登录用户名' },
-        // 密码只在被修改时才提交
-        ...(passwordModified ? [{ key: 'user.password', value: generalSettings.user?.password || '', name: 'general', description: '系统登录密码（加密存储）' }] : []),
       ];
 
       await configApi.updateConfig(configList);
 
-      // 保存成功后重置密码修改标志
-      setPasswordModified(false);
       // 更新初始值
       setInitialGeneralSettings(generalSettings);
 
@@ -362,7 +342,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setSaving(false);
     }
-  }, [generalSettings, notificationSettings, apiSettings, passwordModified, message]);
+  }, [generalSettings, notificationSettings, apiSettings, message]);
 
   // 重置配置
   const resetConfig = useCallback(() => {
@@ -370,8 +350,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     setNotificationSettings(defaultNotificationSettings);
     setApiSettings(defaultApiSettings);
     setSystemMetrics(defaultSystemMetrics);
-    // 重置密码修改标志
-    setPasswordModified(false);
     applyTheme(defaultGeneralSettings.theme);
     message.success('设置已重置为默认值');
   }, [applyTheme, message]);
@@ -390,11 +368,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   const hasApiSettingsChanged = useCallback(() => {
     return JSON.stringify(apiSettings) !== JSON.stringify(initialApiSettings);
   }, [apiSettings, initialApiSettings]);
-
-  // 标记密码已被修改
-  const markPasswordModified = useCallback(() => {
-    setPasswordModified(true);
-  }, []);
 
   // 组件挂载时加载配置
   useEffect(() => {
@@ -421,7 +394,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     hasGeneralSettingsChanged,
     hasNotificationSettingsChanged,
     hasApiSettingsChanged,
-    markPasswordModified,
   };
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

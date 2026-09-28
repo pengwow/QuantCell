@@ -12,7 +12,7 @@ from utils.logger import LogType, get_logger
 from .event_bus import EventBus
 from .plugin_base import PluginBase
 from .plugin_installer import PluginInstaller
-from .plugin_loader import HotPluginLoader, RestartPluginLoader, unload_plugin
+from .plugin_loader import RestartPluginLoader, unload_plugin
 from .plugin_store import PluginStore
 
 if TYPE_CHECKING:
@@ -49,7 +49,6 @@ class PluginManager:
         self.plugins: dict[str, PluginBase] = {}
         self.plugin_configs: dict[str, dict] = {}
         self._loaded_modules: dict[str, object] = {}
-        self._hot_loader = HotPluginLoader()
         self._restart_loader = RestartPluginLoader()
         self._event_bus = EventBus()
         self._store = PluginStore
@@ -111,15 +110,11 @@ class PluginManager:
             install_path = plugin_info.get("install_path")
             plugin_dir_path = install_path or os.path.join(self.plugin_dir, plugin_name)
 
-        load_type = "hot"
-        if plugin_info:
-            load_type = plugin_info.get("load_type", "hot")
-
+        # 所有插件统一走"启动期加载"路径，存量数据中的 load_type（hot/restart）不再影响加载行为
         if self._app is not None:
-            loader = self._hot_loader if load_type == "hot" else self._restart_loader
-            plugin = loader.load_plugin(plugin_dir_path, self._app)
+            plugin = self._restart_loader.load_plugin(plugin_dir_path, self._app)
         else:
-            plugin = self._load_plugin_without_app(plugin_dir_path, load_type)
+            plugin = self._load_plugin_without_app(plugin_dir_path, "restart")
 
         if plugin is None:
             logger.error(f"加载插件 {plugin_name} 失败")
@@ -277,8 +272,10 @@ class PluginManager:
             "version": manifest.get("version", "0.0.0"),
             "description": manifest.get("description", ""),
             "author": manifest.get("author", ""),
-            "load_type": manifest.get("load_type", "hot"),
-            "status": "installed",
+            # 不再区分热加载/重启加载：所有插件统一在下次启动时加载，保证运行期稳定。
+            # load_type 字段保留仅为兼容存量数据结构，HotPluginLoader 只供 CLI 开发调试使用。
+            "load_type": "restart",
+            "status": "pending_restart",
             "install_source": source_type,
             "install_path": plugin_dir_path,
             "permissions": permissions,
@@ -293,15 +290,8 @@ class PluginManager:
 
         self._event_bus.publish("plugin.installed", {"name": name})
 
-        load_type = manifest.get("load_type", "hot")
-        if load_type == "hot":
-            plugin = self.load_plugin(name)
-            if plugin is None:
-                self._store.update_status(name, "error", "安装后自动加载失败")
-                logger.warning(f"插件 {name} 安装成功但加载失败，状态已标记为 error")
-                return True
-
-        logger.info(f"插件 {name} 安装成功")
+        # 安装后不做任何运行期加载，等待下次进程启动时由 load_all_plugins 统一加载
+        logger.info(f"插件 {name} 安装成功，重启后端服务后生效")
         return True
 
     def uninstall_plugin(self, plugin_name: str) -> bool:
@@ -332,6 +322,7 @@ class PluginManager:
             logger.error(f"插件 {plugin_name} 不存在")
             return False
 
+        # 插件已在进程启动时加载（运行中）：直接切换启用态
         if plugin_name in self.plugins:
             plugin = self.plugins[plugin_name]
             plugin.on_enable()
@@ -339,13 +330,10 @@ class PluginManager:
             logger.info(f"插件 {plugin_name} 已启用")
             return True
 
-        plugin = self.load_plugin(plugin_name)
-        if plugin is None:
-            return False
-
-        plugin.on_enable()
-        self._store.update_status(plugin_name, "enabled")
-        logger.info(f"插件 {plugin_name} 已启用")
+        # 未加载的插件（新装/曾被卸载出内存）不再运行期动态加载，
+        # 统一标记为待重启，下次进程启动时由 load_all_plugins 加载，保证运行期稳定
+        self._store.update_status(plugin_name, "pending_restart")
+        logger.info(f"插件 {plugin_name} 已标记为启用，重启后端服务后生效")
         return True
 
     def disable_plugin(self, plugin_name: str) -> bool:

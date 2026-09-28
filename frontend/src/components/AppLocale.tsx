@@ -18,6 +18,9 @@ const useAppLocaleMenuItems = () => {
       icon: <IconLanguageZhEn className="size-4" />,
       onClick: () => {
         if (i18n.language !== "zh-CN" && i18n.language !== "zh") {
+          // 必须同步持久化：SettingsContext 加载时会以 localStorage 为准回灌 i18n，
+          // 只调 changeLanguage 不写存储会被配置同步逻辑改回旧语言
+          localStorage.setItem("quantcell-language", "zh-CN");
           i18n.changeLanguage("zh-CN");
         }
       },
@@ -28,6 +31,7 @@ const useAppLocaleMenuItems = () => {
       icon: <IconLanguageEnZh className="size-4" />,
       onClick: () => {
         if (i18n.language !== "en-US" && i18n.language !== "en") {
+          localStorage.setItem("quantcell-language", "en-US");
           i18n.changeLanguage("en-US");
         }
       },
