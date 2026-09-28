@@ -11,7 +11,6 @@ import type {
   OverlayCreateFiguresCallback,
   OverlayCreateFiguresCallbackParams,
   OverlayFigure,
-  PaneOptions,
   PeriodType,
 } from 'klinecharts';
 import { dataApi } from '../../api/dataApi';
@@ -931,12 +930,12 @@ const ChartPage = () => {
       const builtInName = builtInIndicatorMap[indicatorId];
 
       if (builtInName) {
-        // 内置指标
+        // 内置指标（v10：参数并入 createIndicator 的 value 对象，isStack 作为第二参）
         const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName);
+        // calcParams 类型为数组，但原实现按对象传入（如 { length: 20 }），保持运行行为不变
         chartInstanceRef.current.createIndicator(
-          builtInName,
+          { name: builtInName, calcParams: (params || {}) as unknown as unknown[] },
           !isOverlay,
-          { calcParams: params || {} } as unknown as PaneOptions,
         );
         // 同步更新activeIndicators状态
         setActiveIndicators(prev => [...prev, {

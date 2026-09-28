@@ -5,6 +5,22 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QuantCell - 量化交易平台</title>
+    <script>
+      // 首帧主题预置：在样式与 React 加载前锁定 dark class，杜绝「黑底黑字」闪屏。
+      // 优先级：用户显式选择(localStorage) > 系统偏好；与 useBrowserTheme / SettingsContext / LoginPage 保持同一取值语义，
+      // 由 useBrowserTheme 写入的始终是 effective（light/dark），因此这里只需按 light/dark 生效。
+      (function () {
+        try {
+          var theme = localStorage.getItem('quantcell-ui-theme');
+          var dark = theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var html = document.documentElement;
+          if (dark) html.classList.add('dark');
+          html.setAttribute('data-theme', dark ? 'dark' : 'light');
+        } catch (e) {
+          // localStorage 不可用时保持默认浅色，任何异常都不阻塞首帧
+        }
+      })();
+    </script>
     <script type="importmap">
     {
       "imports": {

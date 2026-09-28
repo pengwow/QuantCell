@@ -22,7 +22,8 @@ const Show = ({ children, ...props }: ShowProps) => {
   const cases = ReactChildren.toArray(children);
   for (let i = 0; i < cases.length; i++) {
     const child = cases[i];
-    if (isValidElement(child)) {
+    // React 19 类型收紧：isValidElement 需显式泛型才能访问 props
+    if (isValidElement<{ when?: boolean; children?: React.ReactNode }>(child)) {
       if (child.type === Case && child.props.when) {
         return child.props.children;
       } else if (child.type === Default) {
