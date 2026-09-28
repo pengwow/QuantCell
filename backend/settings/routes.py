@@ -221,6 +221,67 @@ def logout(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@auth_router.post(
+    "/api/v1/auth/change-password",
+    response_model=ApiResponse,
+    summary="修改当前用户密码",
+    description=(
+        "需要登录态；依次校验旧密码正确性、新密码长度(≥6)与新旧不相同，"
+        "校验通过后将新密码 bcrypt 哈希写入 users 表。"
+        "不强制重新登录——当前 JWT 仍有效，用户可自行注销。"
+    ),
+)
+def change_password(
+    body: dict[str, str] = Body(..., description="请求体：old_password、new_password"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    """修改当前用户密码
+
+    只改密码（用户名锁定不可改），必须提供正确的旧密码作为身份验证。
+    """
+    from collector.db.database import SessionLocal, init_database_config
+    from collector.db.models import User
+
+    old_password = (body.get("old_password") or "").strip()
+    new_password = (body.get("new_password") or "").strip()
+
+    if not old_password or not new_password:
+        raise HTTPException(status_code=400, detail="旧密码和新密码均不能为空")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少需要 6 个字符")
+    if new_password == old_password:
+        raise HTTPException(status_code=400, detail="新密码不能与旧密码相同")
+
+    user_id = current_user.get("user_id") or current_user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的登录态，请重新登录")
+
+    init_database_config()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(id=user_id, is_active=True).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="当前用户不存在或已被禁用")
+
+        if not verify_password(old_password, user.password_hash):
+            raise HTTPException(status_code=400, detail="旧密码不正确")
+
+        user.password_hash = hash_password(new_password)
+        db.commit()
+        db.refresh(user)
+        logger.info(f"用户 {user.username} (id={user.id}) 密码修改成功")
+
+        return ApiResponse(code=0, message="密码修改成功", data=None)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"密码修改失败: {e}")
+        raise HTTPException(status_code=500, detail=f"密码修改失败: {e}")
+    finally:
+        db.close()
+
+
 @config_router.get("/", response_model=ApiResponse)
 def get_all_configs(request: Request):
     """获取所有系统配置

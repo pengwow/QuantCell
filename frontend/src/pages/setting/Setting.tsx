@@ -14,6 +14,7 @@ import {
   IconVariable,
   IconPuzzle,
   IconDeviceDesktop,
+  IconUser,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
@@ -28,6 +29,7 @@ const SettingLayout = () => {
 
   // 菜单配置
   const menus = [
+    ["account", t("account_management") || "账户管理", <IconUser size="1em" />],
     ["general", t("general_settings") || "通用设置", <IconPalette size="1em" />],
     ["env", t("env_variables") || "环境变量", <IconVariable size="1em" />],
     ["exchange", t("exchange_settings") || "交易所设置", <IconBuildingBank size="1em" />],
@@ -37,7 +39,7 @@ const SettingLayout = () => {
     ["plugins", t("plugin_management") || "插件管理", <IconPuzzle size="1em" />],
     // 仅桌面壳显示；Web 版无此入口
     ...(isTauri()
-      ? ([["desktop-backend", "桌面后端", <IconDeviceDesktop size="1em" />]] satisfies [
+      ? ([["desktop-backend", t("desktop_backend") || "桌面后端", <IconDeviceDesktop size="1em" />]] satisfies [
           string,
           string,
           React.ReactElement,
