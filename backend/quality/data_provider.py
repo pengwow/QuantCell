@@ -20,6 +20,7 @@ class DataProvider(ABC):
         candle_type: str = "spot",
         start: str | None = None,
         end: str | None = None,
+        columns: list[str] | None = None,
     ) -> pd.DataFrame:
         """获取K线数据
 
@@ -28,7 +29,8 @@ class DataProvider(ABC):
             interval: K线周期（如 15m, 1h, 4h）
             candle_type: 市场类型 ("spot" 或 "future")
             start: 开始时间（ISO格式字符串，如 "2024-01-01T00:00:00Z"）
-            end: 结束时间（ISO格式字符串）
+            end: 结束时间
+            columns: 可选，只读取指定列（pyarrow 投影）；None 表示全量
 
         Returns:
             K线数据 DataFrame，包含 open, high, low, close, volume 等列
