@@ -5,6 +5,7 @@
   "factor_analysis": "因子分析",
   "factor_workbench": "因子分析",
   "factor_library": "因子库",
+  "factor_compare": "因子对比",
   "model_management": "模型管理",
   "backtest": "回测",
   "strategy_backtest": "策略回测",
