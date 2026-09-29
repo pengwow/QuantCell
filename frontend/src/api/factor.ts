@@ -29,6 +29,43 @@ export interface FactorAnalyzeParams {
   forward?: number;
 }
 
+/** 因子生命周期五态 */
+export type LifecycleStatus = 'DISCOVERED' | 'INSPECTED' | 'PAPER_TRADING' | 'LIVE' | 'RETIRED';
+
+/** 因子档案条目：明细 + 生命周期/最近指标/快照统计 */
+export interface FactorCatalogItem extends FactorDetail {
+  lifecycle_status: LifecycleStatus;
+  last_metrics: {
+    snapshot_id: number;
+    bar_count: number;
+    ic_mean: number | null;
+    ic_ir: number | null;
+    ic_positive_rate: number | null;
+    long_short_return: number | null;
+    monotonicity_spearman: number | null;
+    stability_autocorr: number | null;
+    created_at: string;
+  } | null;
+  last_snapshot_at: string | null;
+  snapshot_count: number;
+}
+
+/** 因子分析快照摘要（列表项，不含 IC 大数组） */
+export interface FactorSnapshotSummary {
+  id: number;
+  factor_name: string;
+  params: FactorAnalyzeParams;
+  bar_count: number;
+  created_at: string | null;
+  ic_mean: number | null;
+  ic_ir: number | null;
+  ic_positive_rate: number | null;
+  long_short_return: number | null;
+  monotonicity_spearman: number | null;
+  stability_autocorr: number | null;
+  ic_series_len: number;
+}
+
 export interface FactorAnalyzeResult {
   factor_name: string;
   instruments: string[];
@@ -62,4 +99,11 @@ export const factorApi = {
     apiRequest.post<FactorAnalyzeResult>('/factor/analyze', p),
   instruments: (candle_type = 'spot') =>
     apiRequest.get<{ symbols: InstrumentInfo[] }>('/factor/instruments', { candle_type }),
+  catalog: () => apiRequest.get<{ factors: FactorCatalogItem[] }>('/factor/catalog'),
+  updateLifecycle: (name: string, status: LifecycleStatus) =>
+    apiRequest.post(`/factor/catalog/${encodeURIComponent(name)}/lifecycle`, { status }),
+  saveSnapshot: (p: FactorAnalyzeParams) => apiRequest.post<{ id: number }>('/factor/snapshots', p),
+  listSnapshots: (name: string) =>
+    apiRequest.get<{ snapshots: FactorSnapshotSummary[] }>('/factor/snapshots', { factor_name: name }),
+  deleteSnapshot: (id: number) => apiRequest.delete(`/factor/snapshots/${id}`),
 };

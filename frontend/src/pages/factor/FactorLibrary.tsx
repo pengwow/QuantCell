@@ -7,13 +7,20 @@ import {
   message,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Table,
   Tag,
   type TableColumnsType,
 } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { factorApi, type FactorDetail } from '@/api/factor';
+import { DeleteOutlined, EditOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  factorApi,
+  type FactorCatalogItem,
+  type FactorDetail,
+  type LifecycleStatus,
+} from '@/api/factor';
+import FactorSnapshotsModal from './FactorSnapshotsModal';
 
 const CATEGORY_COLOR: Record<string, string> = {
   price: 'blue',
@@ -25,21 +32,49 @@ const CATEGORY_COLOR: Record<string, string> = {
   custom: 'geekblue',
 };
 
+const STATUS_COLOR: Record<LifecycleStatus, string> = {
+  DISCOVERED: 'default',
+  INSPECTED: 'blue',
+  PAPER_TRADING: 'gold',
+  LIVE: 'green',
+  RETIRED: 'red',
+};
+
+const STATUS_LABEL: Record<LifecycleStatus, string> = {
+  DISCOVERED: '已发现',
+  INSPECTED: '已验证',
+  PAPER_TRADING: '纸面交易',
+  LIVE: '实盘',
+  RETIRED: '已退役',
+};
+
+/** 合法的下一状态（与后端 LIFECYCLE_TRANSITIONS 保持一致） */
+const NEXT_STATUS: Record<LifecycleStatus, LifecycleStatus[]> = {
+  DISCOVERED: ['INSPECTED', 'RETIRED'],
+  INSPECTED: ['DISCOVERED', 'PAPER_TRADING', 'RETIRED'],
+  PAPER_TRADING: ['INSPECTED', 'LIVE', 'RETIRED'],
+  LIVE: ['PAPER_TRADING', 'RETIRED'],
+  RETIRED: [],
+};
+
 /** 拦截器 reject 的错误文案统一取 message */
 const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
+const num = (v: number | null | undefined, digits = 3) =>
+  v === null || v === undefined ? '—' : v.toFixed(digits);
 
 const FactorLibrary: React.FC = () => {
-  const [data, setData] = useState<FactorDetail[]>([]);
+  const [data, setData] = useState<FactorCatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<FactorDetail | null>(null);
+  const [snapshotFactor, setSnapshotFactor] = useState<string | null>(null);
   const [form] = Form.useForm<{ factor_name: string; expression: string }>();
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setData((await factorApi.listDetail()).factors);
+      setData((await factorApi.catalog()).factors);
     } catch (e) {
       message.error(errMsg(e));
     } finally {
@@ -89,7 +124,19 @@ const FactorLibrary: React.FC = () => {
     }
   };
 
-  const columns: TableColumnsType<FactorDetail> = [
+  const changeLifecycle = async (r: FactorCatalogItem, status: LifecycleStatus) => {
+    try {
+      await factorApi.updateLifecycle(r.name, status);
+      message.success('状态已更新');
+      refresh();
+    } catch (e) {
+      // 失败时提示并刷新，Select 受控值随档案数据还原
+      message.error(errMsg(e));
+      refresh();
+    }
+  };
+
+  const columns: TableColumnsType<FactorCatalogItem> = [
     {
       title: '因子',
       dataIndex: 'label',
@@ -108,6 +155,27 @@ const FactorLibrary: React.FC = () => {
       render: (c: string) => <Tag color={CATEGORY_COLOR[c] ?? 'default'}>{c}</Tag>,
     },
     {
+      title: '状态',
+      dataIndex: 'lifecycle_status',
+      width: 110,
+      render: (s: LifecycleStatus) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s]}</Tag>,
+    },
+    {
+      title: '最近 IC/IR',
+      key: 'last_ic_ir',
+      width: 130,
+      render: (_, r) =>
+        r.last_metrics ? (
+          <Space size={4}>
+            <span>{num(r.last_metrics.ic_mean)}</span>
+            <span>/</span>
+            <span>{num(r.last_metrics.ic_ir)}</span>
+          </Space>
+        ) : (
+          '—'
+        ),
+    },
+    {
       title: '表达式',
       dataIndex: 'expression',
       render: (e: string) => <code style={{ fontSize: 12 }}>{e || '—'}</code>,
@@ -115,8 +183,27 @@ const FactorLibrary: React.FC = () => {
     {
       title: '操作',
       key: 'action',
+      width: 380,
       render: (_, r) => (
-        <Space>
+        <Space size="small" wrap>
+          <Button size="small" icon={<HistoryOutlined />} onClick={() => setSnapshotFactor(r.name)}>
+            快照{r.snapshot_count > 0 ? ` (${r.snapshot_count})` : ''}
+          </Button>
+          {!r.builtin && r.lifecycle_status !== 'RETIRED' && (
+            <Select
+              size="small"
+              style={{ width: 130 }}
+              value={r.lifecycle_status}
+              onChange={(v) => changeLifecycle(r, v)}
+              options={[
+                { value: r.lifecycle_status, label: STATUS_LABEL[r.lifecycle_status], disabled: true },
+                ...NEXT_STATUS[r.lifecycle_status].map((s) => ({
+                  value: s,
+                  label: STATUS_LABEL[s],
+                })),
+              ]}
+            />
+          )}
           <Button size="small" icon={<EditOutlined />} disabled={r.builtin} onClick={() => openEdit(r)}>
             编辑
           </Button>
@@ -170,6 +257,11 @@ const FactorLibrary: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      <FactorSnapshotsModal
+        factorName={snapshotFactor ?? ''}
+        open={!!snapshotFactor}
+        onClose={() => setSnapshotFactor(null)}
+      />
     </Card>
   );
 };
