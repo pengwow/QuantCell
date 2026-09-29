@@ -43,7 +43,6 @@ from engine.routes import router as engine_router
 from extensions.api import router as extensions_router
 from factor import router as factor_router
 from indicators.routes import router as indicators_router
-from model.routes import router as model_router
 from plugins.routes import router as plugins_router
 from realtime.routes import realtime_router
 from settings.routes import router as settings_router
@@ -90,7 +89,6 @@ app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
 app.include_router(indicators_router)
-app.include_router(model_router)
 app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(realtime_router)

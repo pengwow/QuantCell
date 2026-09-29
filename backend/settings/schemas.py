@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 class SystemConfigItem(BaseModel):
     """单个系统配置项的详细信息"""
 
-    key: str = Field(..., description="配置项键名", examples=["qlib_data_dir"])
+    key: str = Field(..., description="配置项键名", examples=["data_dir"])
     value: str = Field(..., description="配置项值", examples=["data/crypto_data"])
-    description: str | None = Field(None, description="配置项描述", examples=["QLib数据目录"])
+    description: str | None = Field(None, description="配置项描述", examples=["行情数据目录"])
     plugin: str | None = Field(None, description="插件名称，用于区分是插件配置还是基础配置")
     name: str | None = Field(
         None,
@@ -29,7 +29,7 @@ class SystemConfigItem(BaseModel):
 class SystemConfigSimple(BaseModel):
     """简化的系统配置项，仅包含键值对"""
 
-    key: str = Field(..., description="配置项键名", examples=["qlib_data_dir"])
+    key: str = Field(..., description="配置项键名", examples=["data_dir"])
     value: str = Field(..., description="配置项值", examples=["data/crypto_data"])
 
 
