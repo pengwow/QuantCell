@@ -171,6 +171,9 @@ export default defineConfig({
       '@ant-design/icons',
       'echarts',
       'echarts-for-react',
+      // 深层 CJS 入口必须显式预构建：仅 include 包根不会规整 lib/core 的 __esModule interop，
+      // 懒加载 chunk 中 default import 会拿到 { default: 组件 } 对象导致白屏
+      'echarts-for-react/lib/core',
       'klinecharts',
       'zustand',
       'i18next',

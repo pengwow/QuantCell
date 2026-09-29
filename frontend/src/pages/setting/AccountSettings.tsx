@@ -162,7 +162,7 @@ const AccountSettings = () => {
       </Card>
 
       {/* 修改密码：入口按钮 + Modal 弹窗（账户安全类操作的业内标准交互） */}
-      <Card title="账户安全" extra={<IconLock size={18} />}>
+      <Card title="账户安全">
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <span className="text-sm font-medium">登录密码</span>
