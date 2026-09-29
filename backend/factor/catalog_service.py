@@ -13,10 +13,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from sqlalchemy.orm import Session
 
 from factor.models import FactorCatalog, FactorSnapshot
 from utils.logger import LogType, get_logger
+from utils.parquet_utils import save_to_parquet
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -133,6 +135,157 @@ class FactorCatalogService:
         row.lifecycle_status = new_status
         db.commit()
         return row
+
+    # ---------------- 分析快照 ----------------
+
+    _SUMMARY_KEYS = (
+        "ic_mean",
+        "ic_ir",
+        "ic_positive_rate",
+        "long_short_return",
+        "monotonicity_spearman",
+        "stability_autocorr",
+    )
+
+    def _metrics_summary(self, result: dict[str, Any], snapshot_id: int) -> dict[str, Any]:
+        """从 analyze 结果（或其持久化 JSON）摘取档案卡片用的核心指标。"""
+        return {
+            "snapshot_id": snapshot_id,
+            "bar_count": result.get("bar_count"),
+            "ic_mean": result.get("ic", {}).get("mean"),
+            "ic_ir": result.get("ic", {}).get("ir"),
+            "ic_positive_rate": result.get("ic", {}).get("positive_rate"),
+            "long_short_return": result.get("long_short_return"),
+            "monotonicity_spearman": result.get("monotonicity", {}).get("spearman"),
+            "stability_autocorr": result.get("stability", {}).get("mean_autocorr"),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+
+    def save_snapshot(self, db: Session, params: dict[str, Any], provider=None) -> dict[str, Any]:
+        """按入参服务端重算 analyze，落 parquet 快照并回写档案 last_metrics。"""
+        result, frames = self._factors.analyze(
+            factor_name=params["factor_name"],
+            symbols=params["instruments"],
+            interval=params["interval"],
+            candle_type=params.get("candle_type", "spot"),
+            start=params.get("start_time"),
+            end=params.get("end_time"),
+            method=params.get("method", "spearman"),
+            n_groups=params.get("n_groups", 5),
+            window=params.get("window", 20),
+            forward=params.get("forward", 1),
+            provider=provider,
+            return_frames=True,
+        )
+
+        snap = FactorSnapshot(
+            factor_name=params["factor_name"],
+            params_json=json.dumps(params, ensure_ascii=False),
+            metrics_json=json.dumps(result, ensure_ascii=False, default=str),
+            bar_count=int(result.get("bar_count", 0)),
+        )
+        db.add(snap)
+        db.flush()  # 取自增 id 用于文件名
+
+        snap_dir = self._snapshots_dir / params["factor_name"]
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        file_path = snap_dir / f"snapshot_{snap.id}.parquet"
+        # 列顺序固定：timestamp, symbol, factor, forward_return
+        out = (
+            frames.rename(columns={"f": "factor", "r": "forward_return"})
+            .reset_index()
+            .rename(columns={"datetime": "timestamp"})[["timestamp", "symbol", "factor", "forward_return"]]
+        )
+        if not save_to_parquet(out, file_path):
+            db.rollback()
+            raise CatalogError("快照 parquet 写入失败", "bad_request")
+
+        # 相对 backend 目录的 posix 路径，便于迁移与归档
+        snap.snapshot_file = file_path.relative_to(self._backend_dir).as_posix()
+
+        # 档案行不存在时惰性补建：内置/自定义属性以因子服务明细为准（未同步内置时也能正确标记）
+        cat = db.query(FactorCatalog).filter_by(name=params["factor_name"]).one_or_none()
+        if cat is None:
+            detail = next(
+                (d for d in self._factors.get_factor_details() if d["name"] == params["factor_name"]),
+                None,
+            )
+            cat = FactorCatalog(
+                name=params["factor_name"],
+                label=(detail or {}).get("label", params["factor_name"]),
+                category=(detail or {}).get("category", "custom"),
+                expression=(detail or {}).get("expression") or None,
+                is_builtin=bool(detail and detail.get("builtin")),
+                supported=bool((detail or {}).get("supported", True)),
+                lifecycle_status="DISCOVERED",
+            )
+            db.add(cat)
+        summary = self._metrics_summary(result, snap.id)
+        cat.last_metrics = json.dumps(summary, ensure_ascii=False)
+        cat.last_snapshot_at = datetime.now(UTC)
+        db.commit()
+        return {"id": snap.id, **summary}
+
+    def list_snapshots(self, db: Session, factor_name: str, limit: int = 100) -> list[dict[str, Any]]:
+        """查询某因子的快照历史（新→旧），只摘核心指标，不含 ic.series 大数组。"""
+        rows = (
+            db.query(FactorSnapshot)
+            .filter_by(factor_name=factor_name)
+            .order_by(FactorSnapshot.created_at.desc(), FactorSnapshot.id.desc())
+            .limit(limit)
+            .all()
+        )
+        items = []
+        for r in rows:
+            metrics = json.loads(r.metrics_json)
+            items.append(
+                {
+                    "id": r.id,
+                    "factor_name": r.factor_name,
+                    "params": json.loads(r.params_json),
+                    "bar_count": r.bar_count,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "ic_mean": metrics.get("ic", {}).get("mean"),
+                    "ic_ir": metrics.get("ic", {}).get("ir"),
+                    "ic_positive_rate": metrics.get("ic", {}).get("positive_rate"),
+                    "long_short_return": metrics.get("long_short_return"),
+                    "monotonicity_spearman": metrics.get("monotonicity", {}).get("spearman"),
+                    "stability_autocorr": metrics.get("stability", {}).get("mean_autocorr"),
+                    "ic_series_len": len(metrics.get("ic", {}).get("series", [])),
+                }
+            )
+        return items
+
+    def delete_snapshot(self, db: Session, snapshot_id: int) -> None:
+        """删除快照并归档 parquet；若删的是档案最近快照，回退到剩余最新摘要或清空。"""
+        snap = db.get(FactorSnapshot, snapshot_id)
+        if snap is None:
+            raise CatalogError(f"快照不存在: {snapshot_id}", "not_found")
+        factor_name = snap.factor_name
+        was_latest = False
+        cat = db.query(FactorCatalog).filter_by(name=factor_name).one_or_none()
+        if cat is not None and cat.last_metrics:
+            try:
+                was_latest = json.loads(cat.last_metrics).get("snapshot_id") == snapshot_id
+            except json.JSONDecodeError:
+                was_latest = False
+        self._archive_snapshot_file(snap.snapshot_file)
+        db.delete(snap)
+        if cat is not None and was_latest:
+            remaining = (
+                db.query(FactorSnapshot)
+                .filter_by(factor_name=factor_name)
+                .order_by(FactorSnapshot.created_at.desc(), FactorSnapshot.id.desc())
+                .first()
+            )
+            if remaining is not None:
+                metrics = json.loads(remaining.metrics_json)
+                cat.last_metrics = json.dumps(self._metrics_summary(metrics, remaining.id), ensure_ascii=False)
+                cat.last_snapshot_at = remaining.created_at
+            else:
+                cat.last_metrics = None
+                cat.last_snapshot_at = None
+        db.commit()
 
     # ---------------- 文件归档 ----------------
 

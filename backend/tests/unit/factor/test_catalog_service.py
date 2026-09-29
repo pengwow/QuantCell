@@ -2,6 +2,8 @@
 
 import json
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from factor.catalog_service import (
@@ -11,6 +13,7 @@ from factor.catalog_service import (
 )
 from factor.factor_store import FactorStore
 from factor.models import FactorCatalog, FactorSnapshot
+from factor.service import FactorService
 
 
 class _Detail:
@@ -173,3 +176,117 @@ def test_lifecycle_builtin_forbidden(db_session, dirs):
     with pytest.raises(CatalogError) as e:
         svc.transition(db_session, "close", "INSPECTED")
     assert e.value.kind == "forbidden"
+
+
+class _KlineProvider:
+    """与 factor analyze 单测同款合成 K 线 provider（含 columns 关键字）。"""
+
+    def __init__(self, n=200):
+        self.n = n
+
+    def get_kline_data(self, symbol, interval, candle_type, start, end, columns=None):
+        rng = np.random.default_rng(abs(hash(symbol)) % 1000)
+        close = 100 + np.cumsum(rng.normal(0, 1, self.n))
+        ts = pd.date_range("2026-01-01", periods=self.n, freq="1h")
+        return pd.DataFrame(
+            {
+                "open": close,
+                "high": close + 0.5,
+                "low": close - 0.5,
+                "close": close,
+                "volume": rng.uniform(100, 1000, self.n),
+                "quote_volume": close * rng.uniform(100, 1000, self.n),
+                "timestamp": ts.astype("int64"),
+            }
+        )
+
+
+def _svc_with_analyze(db_session, dirs):
+    return FactorCatalogService(
+        factor_service=FactorService(),
+        snapshots_dir=dirs["snapshots"],
+        trash_dir=dirs["trash"],
+        backend_dir=dirs["backend"],
+    )
+
+
+def test_save_snapshot_recomputes_and_persists(db_session, dirs):
+    svc = _svc_with_analyze(db_session, dirs)
+    params = {
+        "factor_name": "momentum_5d",
+        "instruments": ["BTCUSDT"],
+        "interval": "1h",
+        "candle_type": "spot",
+        "start_time": None,
+        "end_time": None,
+        "method": "spearman",
+        "n_groups": 5,
+        "window": 20,
+        "forward": 1,
+    }
+    summary = svc.save_snapshot(db_session, params, provider=_KlineProvider())
+    snap = db_session.query(FactorSnapshot).filter_by(factor_name="momentum_5d").one()
+    assert snap.id == summary["id"]
+    assert snap.bar_count > 0
+    assert snap.snapshot_file.endswith(".parquet")
+
+    pq = dirs["backend"] / snap.snapshot_file
+    assert pq.exists()
+    out = pd.read_parquet(pq)
+    assert {"timestamp", "factor", "forward_return", "symbol"} <= set(out.columns)
+    assert len(out) == snap.bar_count
+
+    cat = db_session.query(FactorCatalog).filter_by(name="momentum_5d").one()
+    assert cat.is_builtin is True  # 内置因子也可收藏
+    lm = json.loads(cat.last_metrics)
+    assert {"snapshot_id", "ic_mean", "ic_ir", "long_short_return"} <= set(lm)
+    assert lm["snapshot_id"] == snap.id
+
+
+def test_list_and_delete_snapshot(db_session, dirs):
+    svc = _svc_with_analyze(db_session, dirs)
+    params = {
+        "factor_name": "momentum_5d",
+        "instruments": ["BTCUSDT"],
+        "interval": "1h",
+        "candle_type": "spot",
+        "start_time": None,
+        "end_time": None,
+        "method": "spearman",
+        "n_groups": 5,
+        "window": 20,
+        "forward": 1,
+    }
+    s1 = svc.save_snapshot(db_session, params, provider=_KlineProvider())
+    pq1 = dirs["backend"] / db_session.query(FactorSnapshot).get(s1["id"]).snapshot_file
+    assert pq1.exists()
+
+    items = svc.list_snapshots(db_session, "momentum_5d")
+    assert len(items) == 1 and items[0]["id"] == s1["id"]
+    # 列表项只摘核心指标 + ic_series_len，不含 ic.series 大数组
+    assert "ic_series_len" in items[0]
+
+    svc.delete_snapshot(db_session, s1["id"])
+    assert db_session.query(FactorSnapshot).get(s1["id"]) is None
+    assert not pq1.exists()
+    assert list(dirs["trash"].rglob("*.parquet"))
+
+
+def test_delete_latest_snapshot_clears_last_metrics(db_session, dirs):
+    svc = _svc_with_analyze(db_session, dirs)
+    params = {
+        "factor_name": "momentum_5d",
+        "instruments": ["BTCUSDT"],
+        "interval": "1h",
+        "candle_type": "spot",
+        "start_time": None,
+        "end_time": None,
+        "method": "spearman",
+        "n_groups": 5,
+        "window": 20,
+        "forward": 1,
+    }
+    s = svc.save_snapshot(db_session, params, provider=_KlineProvider())
+    svc.delete_snapshot(db_session, s["id"])
+    cat = db_session.query(FactorCatalog).filter_by(name="momentum_5d").one()
+    assert cat.last_metrics is None and cat.last_snapshot_at is None
