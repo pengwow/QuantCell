@@ -113,6 +113,27 @@ class FactorCatalogService:
         db.query(FactorCatalog).filter_by(name=name).delete()
         db.commit()
 
+    # ---------------- 生命周期 ----------------
+
+    def transition(self, db: Session, name: str, new_status: str) -> FactorCatalog:
+        """校验并执行生命周期流转；非法转换/未知因子/内置操作抛 CatalogError。"""
+        if new_status not in LIFECYCLE_STATUSES:
+            raise CatalogError(f"未知生命周期状态: {new_status}", "bad_request")
+        row = db.query(FactorCatalog).filter_by(name=name).one_or_none()
+        if row is None:
+            raise CatalogError(f"因子档案不存在: {name}", "not_found")
+        if row.is_builtin:
+            raise CatalogError(f"内置因子不允许变更生命周期: {name}", "forbidden")
+        allowed = LIFECYCLE_TRANSITIONS.get(row.lifecycle_status, set())
+        if new_status not in allowed:
+            raise CatalogError(
+                f"非法状态流转 {row.lifecycle_status} → {new_status}；合法目标: {sorted(allowed) or '无（终态）'}",
+                "bad_request",
+            )
+        row.lifecycle_status = new_status
+        db.commit()
+        return row
+
     # ---------------- 文件归档 ----------------
 
     def _archive_snapshot_file(self, rel_or_abs: str | None) -> None:

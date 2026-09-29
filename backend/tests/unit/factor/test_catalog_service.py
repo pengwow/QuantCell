@@ -122,3 +122,54 @@ def test_lifecycle_constants():
         "LIVE",
         "RETIRED",
     }
+
+
+def _custom_row(db_session, name="my_mom", status="DISCOVERED"):
+    r = FactorCatalog(name=name, is_builtin=False, supported=True, lifecycle_status=status)
+    db_session.add(r)
+    db_session.commit()
+    return r
+
+
+def test_lifecycle_valid_transitions(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    _custom_row(db_session)
+    assert svc.transition(db_session, "my_mom", "INSPECTED").lifecycle_status == "INSPECTED"
+    assert svc.transition(db_session, "my_mom", "PAPER_TRADING").lifecycle_status == "PAPER_TRADING"
+    assert svc.transition(db_session, "my_mom", "LIVE").lifecycle_status == "LIVE"
+    assert svc.transition(db_session, "my_mom", "PAPER_TRADING").lifecycle_status == "PAPER_TRADING"
+
+
+def test_lifecycle_retire_from_any_state_is_terminal(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    _custom_row(db_session, name="r1", status="INSPECTED")
+    assert svc.transition(db_session, "r1", "RETIRED").lifecycle_status == "RETIRED"
+    with pytest.raises(CatalogError) as ei:
+        svc.transition(db_session, "r1", "DISCOVERED")
+    assert ei.value.kind == "bad_request"
+
+
+def test_lifecycle_rejects_skip(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    _custom_row(db_session)
+    with pytest.raises(CatalogError):
+        svc.transition(db_session, "my_mom", "LIVE")  # DISCOVERED 不能直达 LIVE
+
+
+def test_lifecycle_unknown_factor_and_bad_status(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    with pytest.raises(CatalogError) as e:
+        svc.transition(db_session, "ghost", "INSPECTED")
+    assert e.value.kind == "not_found"
+    _custom_row(db_session, name="x1")
+    with pytest.raises(CatalogError) as e2:
+        svc.transition(db_session, "x1", "NOPE")
+    assert e2.value.kind == "bad_request"
+
+
+def test_lifecycle_builtin_forbidden(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    svc.sync_builtins(db_session)
+    with pytest.raises(CatalogError) as e:
+        svc.transition(db_session, "close", "INSPECTED")
+    assert e.value.kind == "forbidden"
