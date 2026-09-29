@@ -1,8 +1,8 @@
 """因子特征构建 — 因子面板 → 逐品种、按 K 线原始时间戳索引的特征帧，供回测逐 bar 注入。
 
 设计约束见 docs/superpowers/specs/2026-09-29-factor-backtest-integration-design.md：
-- 特征帧索引直接使用 K 线落盘的原始 timestamp 整数（与 BacktestLoop 从 timestamp
-  列读到的值同源），不做单位/时区转换，杜绝错配；
+- 特征帧索引统一归一为 datetime64[ns]（由落盘 timestamp 按量级自适应转换），
+  与回测 K 线 _normalize_dataframe 后的 DatetimeIndex 同源对齐；
 - 不做 merge/asof：因子值与 K 线同源 raw_map，行序天然一致；
 - 截面 rank：1=当期因子值最高，并列同名次（method="min"），仅多品种时产出。
 """
@@ -61,28 +61,26 @@ def build_feature_frames(
 
     raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
 
-    # 逐品种逐因子求值；值顺序与 raw 行序一致（evaluate_factor 不重排）
+    # 逐品种逐因子求值；值顺序与 raw 行序一致（evaluate_factor 不重排）。
+    # 帧索引统一归一为 datetime64[ns]：回测 K 线经 _normalize_dataframe 后也是
+    # DatetimeIndex，BacktestLoop 据此做时间对齐；直接用原始整数在跨单位
+    # （ns/us/ms）数据源间会错配。
     frames: dict[str, pd.DataFrame] = {}
+    dt_by_symbol: dict[str, pd.DatetimeIndex] = {}
     for symbol, raw in raw_map.items():
-        ts_values = raw["timestamp"].values
+        dt_index = _timestamps_to_datetime(raw["timestamp"])
+        dt_by_symbol[symbol] = dt_index
         columns = {name: evaluate_factor(name, raw, custom_expressions).values for name in factor_names}
-        frames[symbol] = pd.DataFrame(columns, index=ts_values)
+        frames[symbol] = pd.DataFrame(columns, index=dt_index)
 
-    # 截面排名：宽表 datetime × symbol 上逐行 rank，再按各品种原始 timestamp 写回
+    # 截面排名：宽表 datetime × symbol 上逐行 rank，再按各品种 datetime 索引写回
     if rank_factor is not None and len(raw_map) >= 2:
         wide = pd.DataFrame(
-            {
-                symbol: pd.Series(
-                    frames[symbol][rank_factor].values,
-                    index=_timestamps_to_datetime(raw_map[symbol]["timestamp"]).values,
-                )
-                for symbol in raw_map
-            }
+            {symbol: pd.Series(frames[symbol][rank_factor].values, index=dt_by_symbol[symbol]) for symbol in raw_map}
         )
         ranks = wide.rank(axis=1, ascending=False, method="min")
-        for symbol, raw in raw_map.items():
-            dt_index = _timestamps_to_datetime(raw["timestamp"])
-            frames[symbol]["cross_sectional_rank"] = ranks[symbol].reindex(dt_index.values).values
+        for symbol in raw_map:
+            frames[symbol]["cross_sectional_rank"] = ranks[symbol].reindex(dt_by_symbol[symbol]).values
 
     logger.info(
         f"因子特征帧构建完成: {len(factor_names)} 个因子 x {len(frames)} 个品种"

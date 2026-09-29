@@ -84,3 +84,29 @@ def test_feature_frame_without_rank_column():
     # 因子正常注入；无 rank 列时 bar 不带真实排名（默认 0）
     assert "momentum_5d" in spy.records[-1][1]
     assert spy.records[-1][2] == 0
+
+
+def test_features_aligned_when_data_is_datetime_index():
+    # 生产主路径：_normalize_dataframe 把 timestamp 列 set_index 为 DatetimeIndex，
+    # 特征帧同样是 DatetimeIndex；两者必须按纳秒时间键精确对齐
+    df = _ohlcv()
+    dt_index = pd.DatetimeIndex(pd.to_datetime(df["timestamp"]))
+    df_dt = df.drop(columns=["timestamp"]).set_index(dt_index)
+    feat = pd.DataFrame(
+        {
+            "momentum_5d": [np.nan] * 10 + [float(i) for i in range(len(df_dt) - 10)],
+            "cross_sectional_rank": [np.nan] * 10 + [1.0] * (len(df_dt) - 10),
+        },
+        index=dt_index,
+    )
+    spy = SpyStrategy()
+    BacktestLoop(initial_cash=100_000.0).run(spy, df_dt, symbol="BTCUSDT", feature_dataframe=feat)
+
+    assert len(spy.records) == len(df_dt)
+    for _ts, features, rank in spy.records[:10]:
+        assert "momentum_5d" not in features
+        assert rank == 0
+    last_ts, last_features, last_rank = spy.records[-1]
+    assert last_features["momentum_5d"] == float(len(df_dt) - 11)
+    assert last_rank == 1
+    assert last_ts == int(pd.Timestamp(dt_index[-1]).timestamp() * 1_000_000_000)

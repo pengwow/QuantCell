@@ -179,5 +179,44 @@ class TestDataSanitizer(unittest.TestCase):
         self.assertEqual(metric_dict["Start"]["value"], "2023-01-01 00:00:00")
 
 
+class TestFindParquetFile(unittest.TestCase):
+    """_find_parquet_file 历史布局优先、crypto 统一布局回退。"""
+
+    def test_legacy_layout_takes_precedence(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from utils.data_utils import _find_parquet_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / "spot" / "1h"
+            legacy.mkdir(parents=True)
+            (legacy / "BTCUSDT.parquet").touch()
+            crypto = root / "crypto" / "spot" / "klines" / "1h"
+            crypto.mkdir(parents=True)
+            (crypto / "BTCUSDT.parquet").touch()
+            with patch("utils.data_utils.get_source_data_dir", return_value=root):
+                result = _find_parquet_file("BTCUSDT", "1h", "spot")
+            self.assertEqual(result, legacy / "BTCUSDT.parquet")
+
+    def test_falls_back_to_crypto_layout(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from utils.data_utils import _find_parquet_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            crypto = root / "crypto" / "future" / "klines" / "15m"
+            crypto.mkdir(parents=True)
+            (crypto / "ETHUSDT.parquet").touch()
+            with patch("utils.data_utils.get_source_data_dir", return_value=root):
+                result = _find_parquet_file("ETHUSDT", "15m", "future")
+            self.assertEqual(result, crypto / "ETHUSDT.parquet")
+
+
 if __name__ == "__main__":
     unittest.main()

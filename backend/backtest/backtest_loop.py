@@ -153,14 +153,18 @@ class BacktestLoop:
         else:
             strategy.on_start()
 
-        # 因子特征查找表：{K线原始 timestamp 整数: 当期因子行}
-        # 仅 BaseStrategy + 带时间戳列的 K 线支持注入；索引与 bar 的 ts 同源，精确匹配
+        # 因子特征查找表：{bar 时间键: 当期因子行}
+        # - 回测主路径 data 为 DatetimeIndex（_normalize_dataframe 处理过），bar ts 是纳秒；
+        # - 直接调用且 data 带 timestamp 整数列时，bar ts 是原始整数。
+        # 特征帧索引为 DatetimeIndex 时按纳秒建键，整数索引时按原值建键，保证精确不错配。
         feature_lookup: dict[int, pd.Series] | None = None
         if is_base_strategy and feature_dataframe is not None and not feature_dataframe.empty:
-            if "timestamp" in data.columns:
-                feature_lookup = {int(ts): row for ts, row in feature_dataframe.iterrows()}
+            if isinstance(feature_dataframe.index, pd.DatetimeIndex):
+                feature_lookup = {
+                    int(pd.Timestamp(i).timestamp() * 1_000_000_000): row for i, row in feature_dataframe.iterrows()
+                }
             else:
-                logger.warning("特征帧需要 timestamp 整数索引，当前 data 无 timestamp 列，跳过特征注入")
+                feature_lookup = {int(i): row for i, row in feature_dataframe.iterrows()}
 
         total_orders = 0
 
