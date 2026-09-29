@@ -153,6 +153,15 @@ class BacktestLoop:
         else:
             strategy.on_start()
 
+        # 因子特征查找表：{K线原始 timestamp 整数: 当期因子行}
+        # 仅 BaseStrategy + 带时间戳列的 K 线支持注入；索引与 bar 的 ts 同源，精确匹配
+        feature_lookup: dict[int, pd.Series] | None = None
+        if is_base_strategy and feature_dataframe is not None and not feature_dataframe.empty:
+            if "timestamp" in data.columns:
+                feature_lookup = {int(ts): row for ts, row in feature_dataframe.iterrows()}
+            else:
+                logger.warning("特征帧需要 timestamp 整数索引，当前 data 无 timestamp 列，跳过特征注入")
+
         total_orders = 0
 
         # ponytail: 循环前一次性标准化列名，避免每行重复 dict.get() + 大小写回退
@@ -194,6 +203,17 @@ class BacktestLoop:
             # 更新 ctx 净值 (ponytail: 简化为固定 initial_cash)
             if is_base_strategy and ctx is not None:
                 ctx.account_equity = self._initial_cash
+
+            # 逐 bar 注入因子特征（当期快照；NaN 热身值不写入，rank 缺失不写 bar）
+            if is_base_strategy and ctx is not None and feature_lookup is not None:
+                feat_row = feature_lookup.get(ts)
+                if feat_row is not None:
+                    ctx.features = {
+                        str(k): float(v) for k, v in feat_row.items() if k != "cross_sectional_rank" and pd.notna(v)
+                    }
+                    rank_v = feat_row.get("cross_sectional_rank")
+                    if rank_v is not None and pd.notna(rank_v):
+                        bar["cross_sectional_rank"] = int(rank_v)
 
             # 策略决策
             action = strategy.on_bar(bar, ctx) if is_base_strategy else strategy.on_bar(bar)
