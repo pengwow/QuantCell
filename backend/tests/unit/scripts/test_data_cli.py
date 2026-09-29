@@ -172,6 +172,20 @@ class TestFilterByDateRange:
         result = filter_by_date_range(df, "2024-01-01", "2024-01-31")
         assert len(result) == 3
 
+    def test_filter_microsecond_timestamps(self):
+        """微秒时间戳（Binance 落盘实测形态）不能被误判为纳秒导致过滤为空。
+
+        时间戳为 UTC 时刻，与 pd.Timestamp(date).timestamp() 的 UTC 口径一致。
+        """
+        from cli.data import filter_by_date_range
+
+        jan1_us = int(pd.Timestamp("2024-01-01").timestamp() * 1_000_000)
+        feb1_us = int(pd.Timestamp("2024-02-01").timestamp() * 1_000_000)
+        df = pd.DataFrame({"timestamp": [jan1_us, feb1_us]})
+        assert len(filter_by_date_range(df, "2024-01-15", None)) == 1
+        assert len(filter_by_date_range(df, None, "2024-01-15")) == 1
+        assert len(filter_by_date_range(df, "2024-01-01", "2024-01-31")) == 1
+
 
 class TestValidateParquetExport:
     """测试 _validate_parquet_export 函数"""

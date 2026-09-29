@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from factor.engine import FactorExpressionError
+from factor.engine import FactorExpressionError, _timestamps_to_datetime
 from factor.features import attach_feature_frames, build_feature_frames
 
 
@@ -52,10 +52,11 @@ def test_single_symbol_frame_columns_and_index():
     assert list(frame.columns) == ["momentum_5d", "rsi_14d"]
     # 单品种不产生截面 rank
     assert "cross_sectional_rank" not in frame.columns
-    # 索引是原始 timestamp 整数，与 K 线等长同序
+    # 索引归一为 DatetimeIndex（与回测 K 线 normalize 后形态一致），与 K 线等长同序
     raw = _raw(seed=abs(hash("BTCUSDT")) % 100)
+    assert isinstance(frame.index, pd.DatetimeIndex)
     assert len(frame) == len(raw)
-    assert frame.index.tolist() == raw["timestamp"].tolist()
+    pd.testing.assert_index_equal(frame.index, pd.DatetimeIndex(_timestamps_to_datetime(raw["timestamp"])))
 
 
 def test_warmup_values_are_nan():

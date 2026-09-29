@@ -166,10 +166,18 @@ def _normalize_symbol(symbol: str) -> str:
 
 
 def _find_parquet_file(symbol: str, interval: str, market_type: str = "spot") -> Path | None:
-    """查找指定交易对和时间框架的parquet文件"""
+    """查找指定交易对和时间框架的parquet文件。
+
+    优先历史布局 {data_dir}/{market_type}/{interval}/；旧路径不存在时回退到采集器
+    统一布局 {data_dir}/crypto/{market_type}/klines/{interval}/（与 ParquetDataProvider
+    及因子特征构建同源），保证回测 K 线与因子读到同一物理文件。
+    """
     data_dir = get_source_data_dir()
     norm_symbol = _normalize_symbol(symbol)
-    return data_dir / market_type / interval / f"{norm_symbol}.parquet"
+    legacy_path = data_dir / market_type / interval / f"{norm_symbol}.parquet"
+    if legacy_path.exists():
+        return legacy_path
+    return data_dir / "crypto" / market_type / "klines" / interval / f"{norm_symbol}.parquet"
 
 
 def _get_default_date_range(end_date=None) -> tuple[str, str]:
@@ -186,6 +194,21 @@ def _get_default_date_range(end_date=None) -> tuple[str, str]:
     return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
 
+def _infer_ts_scale(max_ts: float) -> int:
+    """按量级推断整数时间戳单位，返回「秒 → 该单位」的换算乘数。
+
+    与 factor.engine._timestamps_to_datetime 的阈值保持一致，兼容不同下载源
+    落盘的 ns/us/ms/s 时间戳（Binance K 线实测多为微秒）。
+    """
+    if max_ts >= 1e17:
+        return 1_000_000_000  # ns
+    if max_ts >= 1e14:
+        return 1_000_000  # us
+    if max_ts >= 1e11:
+        return 1_000  # ms
+    return 1  # s
+
+
 def filter_by_date_range(df, start_date=None, end_date=None):
     """按日期范围过滤DataFrame"""
     if df is None or df.empty:
@@ -196,18 +219,12 @@ def filter_by_date_range(df, start_date=None, end_date=None):
     if start_date:
         start_ts = pd.Timestamp(start_date)
         if df["timestamp"].dtype == "int64" or df["timestamp"].dtype == "int32":
-            if df["timestamp"].max() > 1e12:
-                start_ts = int(start_ts.timestamp() * 1_000_000_000)
-            else:
-                start_ts = int(start_ts.timestamp())
+            start_ts = int(start_ts.timestamp() * _infer_ts_scale(float(df["timestamp"].max())))
         mask &= df["timestamp"] >= start_ts
     if end_date:
         end_ts = pd.Timestamp(end_date)
         if df["timestamp"].dtype == "int64" or df["timestamp"].dtype == "int32":
-            if df["timestamp"].max() > 1e12:
-                end_ts = int(end_ts.timestamp() * 1_000_000_000)
-            else:
-                end_ts = int(end_ts.timestamp())
+            end_ts = int(end_ts.timestamp() * _infer_ts_scale(float(df["timestamp"].max())))
         mask &= df["timestamp"] <= end_ts
     return df[mask]
 
