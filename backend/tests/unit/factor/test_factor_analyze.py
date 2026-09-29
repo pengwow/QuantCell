@@ -71,3 +71,60 @@ def test_analyze_reads_each_symbol_only_once():
     provider = CountingProvider()
     FactorService().analyze("momentum_5d", ["BTCUSDT", "ETHUSDT"], "1h", "spot", None, None, provider=provider)
     assert provider.read_count == 2
+
+
+def _make_multi_symbol_panel(n_dates=120, n_symbols=8, seed=7):
+    """构造 datetime×symbol 的 (factor, forward_return) 长表面板。"""
+    rng = np.random.default_rng(seed)
+    dates = pd.date_range("2026-01-01", periods=n_dates, freq="1h")
+    symbols = [f"S{i}" for i in range(n_symbols)]
+    factor, returns = {}, {}
+    for s in symbols:
+        base = rng.normal(0, 1, n_dates)
+        ret = 0.6 * base + rng.normal(0, 0.5, n_dates)  # 因子与未来收益正相关
+        factor[s] = base
+        returns[s] = ret
+    fw = pd.DataFrame(factor, index=dates)
+    rw = pd.DataFrame(returns, index=dates)
+    f = fw.stack()
+    r = rw.stack()
+    f.index.names = ["datetime", "symbol"]
+    r.index.names = ["datetime", "symbol"]
+    return f, r
+
+
+def test_reference_ic_series():
+    f, r = _make_multi_symbol_panel()
+    ic = FactorService._ic_series(f, r, "spearman", 20)
+    assert len(ic) == 120
+    assert ic.mean() > 0.3  # 构造上强正相关
+
+
+def test_vectorized_ic_matches_groupby_reference():
+    f, r = _make_multi_symbol_panel()
+    # 在两侧不同位置注入缺失，考验成对有效掩码（不掩码会导致 rank 池不一致）
+    f_w, r_w = f.unstack(level=1), r.unstack(level=1)
+    f_w.iloc[3, 2] = np.nan
+    r_w.iloc[10, 1] = np.nan
+    f, r = f_w.stack(), r_w.stack()
+
+    # 参考实现：逐日期截面 spearman（改造前的口径）
+    joined = pd.concat([f.rename("f"), r.rename("r")], axis=1).dropna()
+    ref = joined.groupby(level=0).apply(lambda g: g["f"].corr(g["r"], method="spearman")).dropna()
+
+    got = FactorService._ic_series(f, r, "spearman", 20)
+    aligned = pd.concat([ref.rename("ref"), got.rename("got")], axis=1).dropna()
+    assert np.allclose(aligned["ref"], aligned["got"], atol=1e-10, equal_nan=True)
+
+    # pearson 同样一致
+    ref_p = joined.groupby(level=0).apply(lambda g: g["f"].corr(g["r"], method="pearson")).dropna()
+    got_p = FactorService._ic_series(f, r, "pearson", 20)
+    ap = pd.concat([ref_p.rename("ref"), got_p.rename("got")], axis=1).dropna()
+    assert np.allclose(ap["ref"], ap["got"], atol=1e-10, equal_nan=True)
+
+
+def test_ic_series_single_symbol_keeps_rolling_path():
+    # 单品种仍走滚动窗口相关，返回非空序列
+    f, r = _make_multi_symbol_panel(n_symbols=1)
+    ic = FactorService._ic_series(f, r, "spearman", 20)
+    assert len(ic) > 0

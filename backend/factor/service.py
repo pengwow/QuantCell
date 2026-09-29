@@ -214,16 +214,30 @@ class FactorService:
 
     @staticmethod
     def _ic_series(factor: pd.Series, forward_ret: pd.Series, method: str, window: int) -> pd.Series:
-        """IC 时序：多品种走每日截面相关；单品种退化为滚动窗口相关。"""
+        """IC 时序：多品种走每日截面相关（向量化）；单品种退化为滚动窗口相关。"""
         joined = pd.concat([factor.rename("f"), forward_ret.rename("r")], axis=1).dropna()
         if joined.empty:
             return pd.Series(dtype=float)
-        cross_dates = joined.groupby(level=0).size()
-        cross_dates = cross_dates[cross_dates >= 2].index
-        if len(cross_dates) >= 3:
-            return (
-                joined.groupby(level=0, group_keys=False).apply(lambda g: g["f"].corr(g["r"], method=method)).dropna()
-            )
+
+        n_symbols = joined.index.get_level_values(1).nunique()
+        n_dates = joined.index.get_level_values(0).nunique()
+        if n_symbols >= 2 and n_dates >= 3:
+            fw = joined["f"].unstack(level=1)
+            rw = joined["r"].unstack(level=1)
+            # 先统一成对有效掩码：两侧缺失位置不同时，若直接各自 rank，
+            # 两边秩的池子大小不同，rank→pearson 会偏离逐日 spearman
+            # （已在 pandas 3.0.3 实测验证）
+            valid = fw.notna() & rw.notna()
+            pair_counts = valid.sum(axis=1)
+            if method == "spearman":
+                # spearman = 成对掩码后逐行秩变换再做 pearson；rank(axis=1) 为 C 层向量化
+                fw = fw.where(valid).rank(axis=1)
+                rw = rw.where(valid).rank(axis=1)
+            # pearson 分支 corrwith 自带成对 NaN 排除，无需 mask
+            ic = fw.corrwith(rw, axis=1)
+            # 与旧口径一致：当天至少 2 个品种有有效值才计入
+            return ic[pair_counts >= 2].dropna()
+
         # 单品种退化为滚动窗口相关
         w = min(window, max(3, len(joined) // 4))
         idx = joined.index.get_level_values(0)
