@@ -125,6 +125,11 @@ class BacktestConfig(BaseSchema):
         description="是否显示进度",
         json_schema_extra={"example": False},
     )
+    factor_names: list[str] | None = Field(
+        default=None,
+        description="回测使用的因子名列表（来自因子库，仅可计算因子）；null=不使用因子",
+        json_schema_extra={"example": ["momentum_5d"]},
+    )
 
 
 class StrategyConfig(BaseSchema):

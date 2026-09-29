@@ -77,6 +77,7 @@ class EventDrivenBacktestService:
         show_progress: bool = False,
         data_type: str = "kline",
         market: str = "spot",
+        factor_names: list[str] | None = None,
     ) -> dict:
         """
         执行完整的事件驱动回测流程
@@ -149,6 +150,33 @@ class EventDrivenBacktestService:
         if not loaded_data:
             msg = "没有成功加载任何数据，回测无法继续"
             raise ValueError(msg)
+
+        # 因子特征：用因子库预计算逐品种特征帧并回填，BacktestLoop 逐 bar 注入
+        if factor_names and data_type == "kline":
+            from factor.features import attach_feature_frames, build_feature_frames
+
+            f_start = f_end = None
+            if time_range:
+                try:
+                    from utils.validation import parse_time_range
+
+                    f_start_dt, f_end_dt = parse_time_range(time_range)
+                    f_start = f_start_dt.strftime("%Y-%m-%d")
+                    f_end = f_end_dt.strftime("%Y-%m-%d")
+                except Exception as e:
+                    logger.warning(f"因子取数时间范围解析失败，改用全量数据: {e}")
+
+            rank_factor = (strategy_params or {}).get("factor_name") or factor_names[0]
+            frames = build_feature_frames(
+                factor_names=factor_names,
+                symbols=symbols,
+                interval=timeframes[0],
+                candle_type=candle_type,
+                start=f_start,
+                end=f_end,
+                rank_factor=rank_factor if len(symbols) >= 2 else None,
+            )
+            attach_feature_frames(loaded_data, frames)
 
         # 2. 初始化引擎
         engine = self._initialize_engine(

@@ -161,6 +161,7 @@ class BacktestService:
                 timeframes=task["timeframes"],
                 engine_config={**engine_config, "log_level": "WARNING"},
                 show_progress=False,
+                factor_names=engine_config.get("factor_names"),
             )
             # 将引擎原始结果包装为标准响应格式
             result = {
