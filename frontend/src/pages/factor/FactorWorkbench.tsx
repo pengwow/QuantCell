@@ -5,6 +5,7 @@ import {
   Col,
   DatePicker,
   Empty,
+  Flex,
   Form,
   InputNumber,
   message,
@@ -13,12 +14,13 @@ import {
   Space,
   Statistic,
 } from 'antd';
-import { LineChartOutlined } from '@ant-design/icons';
+import { LineChartOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import type { EChartsOption } from 'echarts';
 import EChart from '@/components/EChart';
 import {
   factorApi,
+  type FactorAnalyzeParams,
   type FactorAnalyzeResult,
   type FactorDetail,
   type InstrumentInfo,
@@ -46,6 +48,8 @@ const FactorWorkbench: React.FC = () => {
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [result, setResult] = useState<FactorAnalyzeResult | null>(null);
+  const [lastParams, setLastParams] = useState<FactorAnalyzeParams | null>(null);
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
   const [loading, setLoading] = useState(false);
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
 
@@ -72,22 +76,23 @@ const FactorWorkbench: React.FC = () => {
   const run = useCallback(async () => {
     const v = await form.validateFields();
     const [s, e] = v.range ?? [];
+    const params: FactorAnalyzeParams = {
+      factor_name: v.factor_name,
+      instruments: v.instruments,
+      interval: v.interval,
+      candle_type: 'spot',
+      start_time: s ? dayjs(s).format('YYYY-MM-DD') : null,
+      end_time: e ? dayjs(e).format('YYYY-MM-DD') : null,
+      method: v.method,
+      n_groups: v.n_groups,
+      window: v.window,
+      forward: v.forward,
+    };
     setLoading(true);
     try {
-      setResult(
-        await factorApi.analyze({
-          factor_name: v.factor_name,
-          instruments: v.instruments,
-          interval: v.interval,
-          candle_type: 'spot',
-          start_time: s ? dayjs(s).format('YYYY-MM-DD') : null,
-          end_time: e ? dayjs(e).format('YYYY-MM-DD') : null,
-          method: v.method,
-          n_groups: v.n_groups,
-          window: v.window,
-          forward: v.forward,
-        }),
-      );
+      setResult(await factorApi.analyze(params));
+      // 复用同一次请求对象，保证收藏快照口径与本次分析完全一致
+      setLastParams(params);
     } catch (err) {
       setResult(null);
       message.error(errMsg(err));
@@ -263,6 +268,28 @@ const FactorWorkbench: React.FC = () => {
 
       {!loading && result && (
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+          <Flex align="center" justify="space-between">
+            <span style={{ fontSize: 16, fontWeight: 600 }}>分析结果</span>
+            <Button
+              icon={<StarOutlined />}
+              loading={savingSnapshot}
+              disabled={!lastParams}
+              onClick={async () => {
+                if (!lastParams) return;
+                setSavingSnapshot(true);
+                try {
+                  const r = await factorApi.saveSnapshot(lastParams);
+                  message.success(`已保存到档案（快照 #${r.id}）`);
+                } catch (e) {
+                  message.error((e as Error)?.message || '保存失败');
+                } finally {
+                  setSavingSnapshot(false);
+                }
+              }}
+            >
+              保存到档案
+            </Button>
+          </Flex>
           <Row gutter={[16, 16]}>
             {stats.map((s) => (
               <Col xs={12} md={8} key={s.title}>
