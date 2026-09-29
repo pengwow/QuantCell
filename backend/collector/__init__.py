@@ -28,7 +28,6 @@
         - data.py: 数据相关模型
         - system.py: 系统相关模型
     - scripts/: 工具脚本
-        - convert_to_qlib.py: QLib格式转换
         - export_data.py: 数据导出
         - export_kline.py: K线导出
         - get_data.py: 数据获取

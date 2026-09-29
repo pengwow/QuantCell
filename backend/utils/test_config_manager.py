@@ -88,9 +88,9 @@ config_items = [
         "name": "api_settings",
     },
     {
-        "key": "qlib_data_dir",
+        "key": "data_dir",
         "value": "data/crypto_data",
-        "description": "system.qlib_data_dir",
+        "description": "system.data_dir",
         "name": "system_config",
     },
     {

@@ -532,24 +532,6 @@ class BinanceDownloader(BaseCollector):
             return len(df)
         return 0
 
-    @deprecated("2.1", "3.0", "cli/data.py export csv/parquet")
-    def convert_to_qlib(self, csv_dir, qlib_dir, interval=None):
-        """
-        将下载的CSV数据转换为QLib格式
-
-        .. deprecated:: 2.1
-            此功能已弃用，QLib转换不再支持。
-            如需数据格式转换，请使用 cli/data.py 的导出功能。
-
-        :param csv_dir: CSV数据目录
-        :param qlib_dir: QLib数据保存目录
-        :param interval: 时间间隔，如'1m', '1h', '1d'等，如果为None则使用当前收集器的interval
-        :return: False (功能已禁用)
-        """
-        logger.warning("QLib格式转换功能已移除")
-        logger.info("如需数据导出，请使用: python cli/data.py export csv/parquet ...")
-        return False
-
     def collect_data(self, progress_callback=None):
         """
         执行数据收集

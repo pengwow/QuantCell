@@ -29,7 +29,6 @@ class DataInfoResponse(BaseModel):
     """数据信息响应模型
 
     Attributes:
-        qlib_dir: QLib数据目录
         data_loaded: 数据是否已加载
         calendars: 交易日历信息
         instruments: 成分股信息
@@ -38,7 +37,6 @@ class DataInfoResponse(BaseModel):
         total_features: 总特征数量
     """
 
-    qlib_dir: str | None = Field(None, description="QLib数据目录")
     data_loaded: bool = Field(..., description="数据是否已加载")
     calendars: dict[str, list[str]] = Field(default_factory=dict, description="交易日历信息")
     instruments: dict[str, list[str]] = Field(default_factory=dict, description="成分股信息")
