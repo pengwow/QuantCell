@@ -3,6 +3,7 @@
 from strategy.loader import register
 from strategy.templates.cross_sectional import CrossSectional
 from strategy.templates.dual_ma import DualMA
+from strategy.templates.factor_timing import FactorTiming
 from strategy.templates.funding_arbitrage import FundingArbitrage
 from strategy.templates.grid import Grid
 from strategy.templates.mean_reversion import MeanReversion
@@ -20,3 +21,4 @@ register("funding_arbitrage")(FundingArbitrage)
 register("cross_sectional")(CrossSectional)
 register("mean_reversion_rl")(MeanReversionRL)
 register("sma_crossover")(SMACrossover)
+register("factor_timing")(FactorTiming)
