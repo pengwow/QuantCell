@@ -4,6 +4,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   IconBrandGithub,
   IconChartBar,
+  IconChartHistogram,
   IconCode,
   IconDatabase,
   IconHelp,
@@ -170,6 +171,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_STRATEGY = "/strategy-management";
   const MENU_KEY_STRATEGY_TASK = "/strategy-worker";
   const MENU_KEY_DATA = "/data-management";
+  const MENU_KEY_FACTOR = "/factor-analysis";
   const MENU_KEY_MODEL_REGISTRY = "/model-registry";
   const MENU_KEY_ENSEMBLE = "/ensemble";
   const MENU_KEY_RISK = "/risk-monitor";
@@ -218,6 +220,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />, false],
       [MENU_KEY_STRATEGY_TASK, "strategy_task", <IconBotId size="1em" />, false],
       [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />, false],
+      [MENU_KEY_FACTOR, "factor_analysis", <IconChartHistogram size="1em" />, false],
       [MENU_KEY_RL, "rl_training", <IconBrain size="1em" />, false],
       [MENU_KEY_MODEL_REGISTRY, "model_registry", <IconStack size="1em" />, false],
       [MENU_KEY_ENSEMBLE, "ensemble", <IconFlask size="1em" />, false],
