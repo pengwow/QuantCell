@@ -272,8 +272,13 @@ class FactorService:
         window: int = 20,
         forward: int = 1,
         provider=None,
+        return_frames: bool = False,
     ) -> dict:
-        """一站式分析：取数→因子→前瞻收益→IC/IR/分组/单调性/稳定性/序列。"""
+        """一站式分析：取数→因子→前瞻收益→IC/IR/分组/单调性/稳定性/序列。
+
+        return_frames: 为 True 时额外返回因子值/前瞻收益对齐长表（列 f/r，
+        MultiIndex datetime×symbol），仅供服务端快照收藏，不经过 HTTP。
+        """
         if factor_name in UNSUPPORTED_FACTORS:
             raise FactorError(f"因子 {factor_name} 依赖财务数据，当前数据源不支持")
         if factor_name not in self.factors:
@@ -324,7 +329,7 @@ class FactorService:
         close_by_time = close_pivot.mean(axis=1) if close_pivot.shape[1] > 1 else close_pivot.iloc[:, 0]
         idx = factor_by_time.dropna().index.intersection(close_by_time.dropna().index)
 
-        return {
+        result = {
             "factor_name": factor_name,
             "instruments": symbols,
             "interval": interval,
@@ -356,6 +361,9 @@ class FactorService:
                 "factor": {t.strftime("%Y-%m-%d %H:%M"): float(factor_by_time.loc[t]) for t in idx},
             },
         }
+        if return_frames:
+            return result, df
+        return result
 
     # ---------------- 通用统计方法（与具体行情引擎无关，保留供直接调用） ----------------
 
