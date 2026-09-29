@@ -329,16 +329,8 @@ def load_factor_panel(
     return factor_panel_from_raw(factor_name, raw_map, custom_expressions)
 
 
-def load_close_panel(
-    symbols: list[str],
-    interval: str,
-    candle_type: str,
-    start: str | None,
-    end: str | None,
-    provider: ParquetDataProvider | None = None,
-) -> pd.Series:
-    """读取多品种收盘价面板（与因子面板同索引约定）。"""
-    raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
+def close_panel_from_raw(raw_map: dict[str, pd.DataFrame]) -> pd.Series:
+    """从已读入的多品种 K 线构造收盘价 MultiIndex(datetime, symbol) 面板。"""
     series_list = []
     for symbol, raw in raw_map.items():
         s = raw["close"].copy()
@@ -350,3 +342,16 @@ def load_close_panel(
     panel = pd.concat(series_list).sort_index()
     panel.name = "close"
     return panel
+
+
+def load_close_panel(
+    symbols: list[str],
+    interval: str,
+    candle_type: str,
+    start: str | None,
+    end: str | None,
+    provider: ParquetDataProvider | None = None,
+) -> pd.Series:
+    """读取多品种收盘价面板（与因子面板同索引约定）。"""
+    raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
+    return close_panel_from_raw(raw_map)

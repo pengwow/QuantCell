@@ -10,9 +10,9 @@ from scipy.stats import spearmanr
 from factor.engine import (
     FACTOR_META,
     UNSUPPORTED_FACTORS,
+    close_panel_from_raw,
     evaluate_expression,
     factor_panel_from_raw,
-    load_close_panel,
     load_factor_panel,
     load_raw_ohlcv,
 )
@@ -251,17 +251,10 @@ class FactorService:
         if factor_name not in self.factors:
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
 
-        factor = load_factor_panel(
-            symbols,
-            interval,
-            candle_type,
-            start,
-            end,
-            factor_name,
-            self._custom_store.all(),
-            provider,
-        )
-        close = load_close_panel(symbols, interval, candle_type, start, end, provider)
+        # 因子面板与收盘价面板共用同一份 raw_map，避免每个品种重复读盘
+        raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
+        factor = factor_panel_from_raw(factor_name, raw_map, self._custom_store.all())
+        close = close_panel_from_raw(raw_map)
         aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
         if len(aligned) < max(n_groups * 2, window + 2, 10):
             raise FactorError(f"有效数据不足（{len(aligned)} 根），请扩大时间范围或减小分组/窗口")

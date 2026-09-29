@@ -109,7 +109,7 @@ def test_evaluate_expression_rejects(bad):
 
 
 class _FakeProvider:
-    def get_kline_data(self, symbol, interval, candle_type, start, end):
+    def get_kline_data(self, symbol, interval, candle_type, start, end, columns=None):
         return _synth_df(80, seed=abs(hash(symbol)) % 100)
 
 

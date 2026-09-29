@@ -10,7 +10,7 @@ class FakeProvider:
     def __init__(self, n=200):
         self.n = n
 
-    def get_kline_data(self, symbol, interval, candle_type, start, end):
+    def get_kline_data(self, symbol, interval, candle_type, start, end, columns=None):
         rng = np.random.default_rng(abs(hash(symbol)) % 1000)
         close = 100 + np.cumsum(rng.normal(0, 1, self.n))
         ts = pd.date_range("2026-01-01", periods=self.n, freq="1h")
@@ -54,3 +54,20 @@ def test_calculate_factor_signature_and_frame():
     df = svc.calculate_factor("momentum_5d", ["BTCUSDT"], None, None, interval="1h", provider=FakeProvider())
     assert df.index.names == ["datetime", "symbol"]
     assert list(df.columns) == ["momentum_5d"]
+
+
+class CountingProvider(FakeProvider):
+    def __init__(self, n=200):
+        super().__init__(n)
+        self.read_count = 0
+
+    def get_kline_data(self, symbol, interval, candle_type, start, end, columns=None):
+        self.read_count += 1
+        return super().get_kline_data(symbol, interval, candle_type, start, end)
+
+
+def test_analyze_reads_each_symbol_only_once():
+    # 因子面板与收盘价面板必须复用同一次读盘结果（2 品种 = 2 次而非 4 次）
+    provider = CountingProvider()
+    FactorService().analyze("momentum_5d", ["BTCUSDT", "ETHUSDT"], "1h", "spot", None, None, provider=provider)
+    assert provider.read_count == 2
