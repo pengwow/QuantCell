@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
@@ -245,6 +246,19 @@ class FactorService:
         r = pd.Series(joined["r"].values, index=idx)
         return f.rolling(w).corr(r).dropna()
 
+    @staticmethod
+    def _cross_section_groups(factor: pd.Series, n_groups: int) -> pd.Series:
+        """逐时间点把截面因子值按分位切为 n 组（向量化实现）。
+
+        rank(pct=True) 后 ceil 切桶：最低档进 1、最高档进 n；品种数少于
+        组数时高位桶自然为空，后续 groupby 自动缺失（等价 qcut + duplicates='drop'）。
+        """
+        wide = factor.unstack(level=1)
+        ranks = wide.rank(axis=1, pct=True)
+        buckets = np.ceil(ranks * n_groups).clip(lower=1.0, upper=float(n_groups))
+        # stack 默认丢弃 NaN，reindex 恢复完整索引以保持与因子序列对齐
+        return buckets.stack().reindex(factor.index)
+
     def analyze(
         self,
         factor_name: str,
@@ -282,17 +296,26 @@ class FactorService:
         ic_std = float(ic_series.std()) if len(ic_series) > 1 else None
         ic_ir = (ic_mean / ic_std) if ic_mean is not None and ic_std and not pd.isna(ic_std) else None
 
-        try:
-            grp = pd.qcut(df["f"], n_groups, labels=False, duplicates="drop") + 1
-        except ValueError:
-            grp = pd.qcut(df["f"].rank(method="first"), n_groups, labels=False) + 1
-        group_returns = df["r"].groupby(grp).mean()
+        n_symbols = df.index.get_level_values(1).nunique()
+        if n_symbols >= 2:
+            # 多品种：逐时间点截面分组，避免把不同时期的因子值混在同一分位
+            grp = self._cross_section_groups(df["f"], n_groups)
+        else:
+            # 单品种：全样本时序分位
+            try:
+                grp = pd.qcut(df["f"], n_groups, labels=False, duplicates="drop") + 1
+            except ValueError:
+                grp = pd.qcut(df["f"].rank(method="first"), n_groups, labels=False) + 1
+        group_returns = df["r"].groupby(grp).mean().sort_index()
         long_short = float(group_returns.iloc[-1] - group_returns.iloc[0]) if len(group_returns) >= 2 else None
 
         mono_corr, p_value = spearmanr(group_returns.index.astype(float), group_returns.values)
 
         stab_window = min(window, max(5, len(df) // 4))
-        stab = self.factor_stability_test(df["f"].to_frame("f"), window=stab_window)
+        # 宽表按列滚动：每个品种各自计算 lag-1 自相关，避免跨品种边界滚动
+        f_wide = df["f"].unstack(level=1)
+        stab_series = f_wide.rolling(stab_window).corr(f_wide.shift(1)).stack()
+        stab_autocorr_value = float(stab_series.mean()) if len(stab_series.dropna()) else None
         desc = df["f"].describe()
 
         pivot = df["f"].unstack(level=1)
@@ -326,7 +349,7 @@ class FactorService:
             "groups": [{"group": int(g), "mean_forward_return": float(v)} for g, v in group_returns.items()],
             "long_short_return": long_short,
             "monotonicity": {"spearman": float(mono_corr), "p_value": float(p_value), "score": long_short},
-            "stability": {"window": stab_window, "mean_autocorr": (stab or {}).get("mean_autocorr")},
+            "stability": {"window": stab_window, "mean_autocorr": stab_autocorr_value},
             "series": {
                 "dates": [t.strftime("%Y-%m-%d %H:%M") for t in idx],
                 "close": [float(close_by_time.loc[t]) for t in idx],
@@ -484,10 +507,8 @@ class FactorService:
                 return None
 
             factor_series = factor_data.iloc[:, 0] if factor_data.ndim > 1 else factor_data
-            rolling_autocorr = factor_series.rolling(window=window).apply(
-                lambda x: x.autocorr() if len(x.dropna()) > 1 else float("nan"),
-                raw=False,
-            )
+            # lag-1 滚动自相关：rolling.corr 与 shift(1) 按索引配对，C 层向量化
+            rolling_autocorr = factor_series.rolling(window=window).corr(factor_series.shift(1))
             cross_std = factor_series.rolling(window=window).std()
 
             logger.info(f"稳定性检验完成，窗口: {window}, 平均自相关: {rolling_autocorr.mean():.4f}")
