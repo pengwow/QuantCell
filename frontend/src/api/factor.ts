@@ -29,6 +29,43 @@ export interface FactorAnalyzeParams {
   forward?: number;
 }
 
+/** 多因子对比：2-5 个因子共用一组分析参数（独立 interface，避免 factor_name 单数冲突） */
+export interface FactorCompareParams {
+  factor_names: string[];
+  instruments: string[];
+  interval: string;
+  candle_type?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  method?: 'spearman' | 'pearson';
+  n_groups?: number;
+  window?: number;
+  forward?: number;
+}
+
+/** 多因子对比结果行：单因子 inspection + 分析核心指标 */
+export interface FactorCompareRow {
+  factor_name: string;
+  label: string;
+  coverage: number | null;
+  turnover: number | null;
+  ic_mean: number | null;
+  ic_ir: number | null;
+  annualized_ir: number | null;
+  t_stat: number | null;
+  ic_positive_rate: number | null;
+  long_short_return: number | null;
+  monotonicity_spearman: number | null;
+  stability_autocorr: number | null;
+  n_groups: number;
+  bar_count: number;
+}
+
+export interface FactorCompareResult {
+  factors: FactorCompareRow[];
+  ic_series: { dates: string[]; series: Record<string, (number | null)[]> };
+}
+
 /** 因子生命周期五态 */
 export type LifecycleStatus = 'DISCOVERED' | 'INSPECTED' | 'PAPER_TRADING' | 'LIVE' | 'RETIRED';
 
@@ -111,6 +148,8 @@ export const factorApi = {
     apiRequest.post<{ valid: boolean }>('/factor/validate', { expression }),
   analyze: (p: FactorAnalyzeParams) =>
     apiRequest.post<FactorAnalyzeResult>('/factor/analyze', p),
+  compare: (p: FactorCompareParams) =>
+    apiRequest.post<FactorCompareResult>('/factor/compare', p),
   instruments: (candle_type = 'spot') =>
     apiRequest.get<{ symbols: InstrumentInfo[] }>('/factor/instruments', { candle_type }),
   catalog: () => apiRequest.get<{ factors: FactorCatalogItem[] }>('/factor/catalog'),

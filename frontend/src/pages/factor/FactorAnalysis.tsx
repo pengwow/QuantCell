@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Tabs } from 'antd';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
+import FactorCompare from './FactorCompare';
 import FactorLibrary from './FactorLibrary';
 import FactorWorkbench from './FactorWorkbench';
 
@@ -23,6 +24,7 @@ const FactorAnalysis: React.FC = () => {
         items={[
           { key: 'workbench', label: t('factor_workbench'), children: <FactorWorkbench /> },
           { key: 'library', label: t('factor_library'), children: <FactorLibrary /> },
+          { key: 'compare', label: t('factor_compare') || '因子对比', children: <FactorCompare /> },
         ]}
       />
     </PageContainer>
