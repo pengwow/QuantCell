@@ -241,6 +241,13 @@ def test_save_snapshot_recomputes_and_persists(db_session, dirs):
     lm = json.loads(cat.last_metrics)
     assert {"snapshot_id", "ic_mean", "ic_ir", "long_short_return"} <= set(lm)
     assert lm["snapshot_id"] == snap.id
+    # P1-1 inspection 三字段进摘要（coverage 在 (0,1]、年化 IR 非空）
+    assert 0 < lm["coverage"] <= 1
+    assert lm["turnover"] is not None
+    assert lm["annualized_ir"] is not None
+    listing = svc.list_snapshots(db_session, "momentum_5d")
+    assert listing[0]["coverage"] is not None
+    assert listing[0]["annualized_ir"] is not None
 
 
 def test_list_and_delete_snapshot(db_session, dirs):
