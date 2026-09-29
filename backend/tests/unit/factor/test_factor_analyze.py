@@ -128,3 +128,45 @@ def test_ic_series_single_symbol_keeps_rolling_path():
     f, r = _make_multi_symbol_panel(n_symbols=1)
     ic = FactorService._ic_series(f, r, "spearman", 20)
     assert len(ic) > 0
+
+
+def test_stability_detects_strong_autocorrelation():
+    # 平滑正弦序列 lag-1 自相关理论值约 cos(0.5)≈0.877
+    t = np.arange(200)
+    s = pd.Series(np.sin(t * 0.5))
+    res = FactorService().factor_stability_test(s.to_frame("f"), window=30)
+    assert res is not None
+    assert res["mean_autocorr"] is not None
+    assert res["mean_autocorr"] > 0.7
+
+
+def test_cross_section_groups_are_per_period_buckets():
+    f, _ = _make_multi_symbol_panel(n_dates=50, n_symbols=10)
+    grp = FactorService._cross_section_groups(f, 5)
+    assert grp.index.equals(f.index)
+    valid = grp.dropna()
+    assert set(valid.unique()) <= {1.0, 2.0, 3.0, 4.0, 5.0}
+    # 每个时间点 10 个品种均分 5 组：每组 2 个，且组内同周期
+    per_date = valid.groupby(level=0).value_counts()
+    assert (per_date == 2).all()
+
+
+def test_analyze_multi_symbol_uses_cross_section_groups():
+    res = FactorService().analyze(
+        "momentum_5d",
+        [f"S{i}" for i in range(10)],
+        "1h",
+        "spot",
+        None,
+        None,
+        provider=FakeProvider(n=200),
+        n_groups=5,
+    )
+    assert 1 <= len(res["groups"]) <= 5
+    assert all(1 <= g["group"] <= 5 for g in res["groups"])
+
+
+def test_analyze_single_symbol_still_five_time_series_groups():
+    # 单品种保持时序 qcut：200 根随机数据切 5 组
+    res = FactorService().analyze("momentum_20d", ["BTCUSDT"], "1h", "spot", None, None, provider=FakeProvider())
+    assert len(res["groups"]) == 5
