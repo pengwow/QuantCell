@@ -149,6 +149,7 @@ class FactorCatalogService:
 
     def _metrics_summary(self, result: dict[str, Any], snapshot_id: int) -> dict[str, Any]:
         """从 analyze 结果（或其持久化 JSON）摘取档案卡片用的核心指标。"""
+        inspection = result.get("inspection") or {}
         return {
             "snapshot_id": snapshot_id,
             "bar_count": result.get("bar_count"),
@@ -158,6 +159,9 @@ class FactorCatalogService:
             "long_short_return": result.get("long_short_return"),
             "monotonicity_spearman": result.get("monotonicity", {}).get("spearman"),
             "stability_autocorr": result.get("stability", {}).get("mean_autocorr"),
+            "coverage": inspection.get("coverage"),
+            "turnover": inspection.get("turnover"),
+            "annualized_ir": (inspection.get("ic_stats") or {}).get("annualized_ir"),
             "created_at": datetime.now(UTC).isoformat(),
         }
 
@@ -251,6 +255,9 @@ class FactorCatalogService:
                     "long_short_return": metrics.get("long_short_return"),
                     "monotonicity_spearman": metrics.get("monotonicity", {}).get("spearman"),
                     "stability_autocorr": metrics.get("stability", {}).get("mean_autocorr"),
+                    "coverage": metrics.get("inspection", {}).get("coverage"),
+                    "turnover": metrics.get("inspection", {}).get("turnover"),
+                    "annualized_ir": (metrics.get("inspection", {}).get("ic_stats") or {}).get("annualized_ir"),
                     "ic_series_len": len(metrics.get("ic", {}).get("series", [])),
                 }
             )
