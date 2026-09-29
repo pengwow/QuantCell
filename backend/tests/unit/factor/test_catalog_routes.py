@@ -71,7 +71,7 @@ def test_custom_factor_full_lifecycle_flow():
             == 400
         )
         # 清理：删除自定义因子（档案与快照钩子级联）
-        assert client.delete("/api/v1/factor/zz_lifecycle_demo").status_code == 200
+        assert client.delete("/api/v1/factor/delete/zz_lifecycle_demo").status_code == 200
     finally:
         app.dependency_overrides.clear()
 

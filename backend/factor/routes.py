@@ -217,13 +217,6 @@ def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_curre
     summary="删除自定义因子",
     description="删除指定的自定义因子",
 )
-@router.delete(
-    "/{factor_name}",
-    response_model=ApiResponse,
-    summary="删除自定义因子（短路径别名）",
-    description="删除指定的自定义因子；档案/快照钩子随删除级联",
-    include_in_schema=False,
-)
 def delete_factor(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """删除自定义因子"""
     try:
