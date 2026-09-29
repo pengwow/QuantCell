@@ -462,6 +462,78 @@ class FactorService:
             return result, df
         return result
 
+    def compare_factors(
+        self,
+        factor_names: list[str],
+        symbols: list[str],
+        interval: str,
+        candle_type: str,
+        start: str | None,
+        end: str | None,
+        method: str = "spearman",
+        n_groups: int = 5,
+        window: int = 20,
+        forward: int = 1,
+        provider=None,
+    ) -> dict:
+        """2-5 个因子共用参数横向对比；逐因子 analyze（读盘缓存复用）+ IC 时序时间轴对齐。"""
+        results = {
+            name: self.analyze(
+                name,
+                symbols,
+                interval,
+                candle_type,
+                start,
+                end,
+                method=method,
+                n_groups=n_groups,
+                window=window,
+                forward=forward,
+                provider=provider,
+            )
+            for name in factor_names
+        }
+        details = {d["name"]: d for d in self.get_factor_details()}
+
+        rows = []
+        ic_by_factor: dict[str, pd.Series] = {}
+        for name, res in results.items():
+            insp = res.get("inspection", {})
+            rows.append(
+                {
+                    "factor_name": name,
+                    "label": details.get(name, {}).get("label", name),
+                    "coverage": insp.get("coverage"),
+                    "turnover": insp.get("turnover"),
+                    "ic_mean": res["ic"].get("mean"),
+                    "ic_ir": res["ic"].get("ir"),
+                    "annualized_ir": (insp.get("ic_stats") or {}).get("annualized_ir"),
+                    "t_stat": (insp.get("ic_stats") or {}).get("t_stat"),
+                    "ic_positive_rate": res["ic"].get("positive_rate"),
+                    "long_short_return": res.get("long_short_return"),
+                    "monotonicity_spearman": res.get("monotonicity", {}).get("spearman"),
+                    "stability_autocorr": res.get("stability", {}).get("mean_autocorr"),
+                    "n_groups": len(res.get("groups", [])),
+                    "bar_count": res.get("bar_count"),
+                }
+            )
+            ic_by_factor[name] = pd.Series(
+                {p["t"]: p["ic"] for p in res["ic"]["series"] if p["ic"] is not None},
+                dtype=float,
+            )
+
+        # IC 时序按时间标签 outer 对齐，缺失补 None
+        aligned_ic = pd.DataFrame(ic_by_factor).sort_index()
+        return {
+            "factors": rows,
+            "ic_series": {
+                "dates": aligned_ic.index.tolist(),
+                "series": {
+                    name: [None if pd.isna(v) else float(v) for v in aligned_ic[name]] for name in aligned_ic.columns
+                },
+            },
+        }
+
     # ---------------- 通用统计方法（与具体行情引擎无关，保留供直接调用） ----------------
 
     def get_factor_correlation(self, factor_data: pd.DataFrame) -> pd.DataFrame | None:

@@ -141,6 +141,28 @@ class FactorAnalyzeRequest(FactorCalculateBase):
         return v
 
 
+class FactorCompareRequest(FactorCalculateBase):
+    """多因子对比：2-5 个因子共用一组分析参数。"""
+
+    factor_names: list[str] = Field(
+        ...,
+        min_length=2,
+        max_length=5,
+        description="参与对比的因子名（2-5 个，仅可计算因子）",
+    )
+    method: str = Field(default="spearman", description="相关性方法：spearman/pearson")
+    n_groups: int = Field(default=5, ge=2, le=10, description="分组数量")
+    window: int = Field(default=20, ge=5, le=252, description="滚动窗口（K线根数）")
+    forward: int = Field(default=1, ge=1, le=120, description="前瞻收益的K线根数")
+
+    @validator("method")
+    def validate_compare_method(cls, v: str) -> str:
+        """校验相关性方法"""
+        if v not in {"spearman", "pearson"}:
+            raise ValueError("method 必须为 spearman 或 pearson")
+        return v
+
+
 class FactorDetail(BaseSchema):
     """因子明细（因子库展示）"""
 

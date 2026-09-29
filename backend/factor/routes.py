@@ -26,6 +26,7 @@ from .schemas import (
     FactorCalculateBase,
     FactorCalculateMultiRequest,
     FactorCalculateRequest,
+    FactorCompareRequest,
     FactorCorrelationRequest,
     FactorGroupAnalysisRequest,
     FactorICRequest,
@@ -639,6 +640,32 @@ def analyze_factor(request: FactorAnalyzeRequest, current_user: dict = Depends(g
         raise
     except Exception as e:
         logger.error(f"因子分析失败: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/compare",
+    response_model=ApiResponse,
+    summary="多因子横向对比（2-5 个因子共用参数）",
+)
+def compare_factors(request: FactorCompareRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    """多因子横向对比：逐因子分析 + IC 时序按时间轴 outer 对齐。"""
+    try:
+        data = factor_service.compare_factors(
+            factor_names=request.factor_names,
+            symbols=request.instruments,
+            interval=request.interval,
+            candle_type=request.candle_type,
+            start=request.start_time,
+            end=request.end_time,
+            method=request.method,
+            n_groups=request.n_groups,
+            window=request.window,
+            forward=request.forward,
+        )
+        return ApiResponse(code=0, message="ok", data=_sanitize(data))
+    except Exception as e:
+        logger.error(f"多因子对比失败: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
