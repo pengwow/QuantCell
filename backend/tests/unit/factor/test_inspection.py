@@ -99,3 +99,77 @@ def test_ic_stats_formulas():
 def test_ic_stats_none_for_short_series():
     stats = FactorService._ic_stats(pd.Series(dtype=float), interval="1h")
     assert stats["n"] == 0 and stats["annualized_ir"] is None and stats["t_stat"] is None
+
+
+class _KlineProvider:
+    def __init__(self, n=200):
+        self.n = n
+
+    def get_kline_data(self, symbol, interval, candle_type, start, end, columns=None):
+        rng = np.random.default_rng(abs(hash(symbol)) % 1000)
+        close = 100 + np.cumsum(rng.normal(0, 1, self.n))
+        ts = pd.date_range("2026-01-01", periods=self.n, freq="1h")
+        return pd.DataFrame(
+            {
+                "open": close,
+                "high": close + 0.5,
+                "low": close - 0.5,
+                "close": close,
+                "volume": rng.uniform(100, 1000, self.n),
+                "quote_volume": close * rng.uniform(100, 1000, self.n),
+                "timestamp": ts.astype("int64"),
+            }
+        )
+
+
+def test_analyze_includes_inspection_single_symbol():
+    res = FactorService().analyze("momentum_5d", ["BTCUSDT"], "1h", "spot", None, None, provider=_KlineProvider())
+    insp = res["inspection"]
+    assert 0 < insp["coverage"] <= 1
+    assert insp["turnover"] is not None and insp["turnover"] >= 0
+    assert [d["lag"] for d in insp["decay"]] == [1, 2, 3, 5, 10]
+    st = insp["ic_stats"]
+    assert st["periods_per_year"] == 8760
+    assert set(st) == {"n", "ic_mean", "ic_std", "ic_ir", "periods_per_year", "annualized_ir", "t_stat"}
+
+
+def test_analyze_inspection_coverage_unaffected_by_forward_tail():
+    # forward=3 时 coverage 必须等于 forward=1（尾部是标签缺失，不是因子缺失）
+    kw = dict(
+        factor_name="momentum_5d",
+        symbols=["BTCUSDT"],
+        interval="1h",
+        candle_type="spot",
+        start=None,
+        end=None,
+        provider=_KlineProvider(),
+    )
+    r1 = FactorService().analyze(**kw, forward=1)
+    r3 = FactorService().analyze(**kw, forward=3)
+    assert r3["inspection"]["coverage"] == pytest.approx(r1["inspection"]["coverage"])
+
+
+def test_analyze_legacy_fields_unchanged():
+    res = FactorService().analyze("momentum_5d", ["BTCUSDT"], "1h", "spot", None, None, provider=_KlineProvider())
+    for key in (
+        "factor_name",
+        "instruments",
+        "interval",
+        "bar_count",
+        "stats",
+        "ic",
+        "groups",
+        "long_short_return",
+        "monotonicity",
+        "stability",
+        "series",
+    ):
+        assert key in res
+    assert "inspection" in res
+
+
+def test_analyze_multi_symbol_inspection_decay():
+    res = FactorService().analyze(
+        "momentum_5d", ["BTCUSDT", "ETHUSDT"], "1h", "spot", None, None, provider=_KlineProvider()
+    )
+    assert res["inspection"]["decay"][0]["spearman"] is not None

@@ -370,6 +370,8 @@ class FactorService:
         raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
         factor = factor_panel_from_raw(factor_name, raw_map, self._custom_store.all())
         close = close_panel_from_raw(raw_map)
+        n_total_bars = sum(len(raw) for raw in raw_map.values())
+        # coverage 在 dropna 前统计：收盘同源无缺失，因子 NaN 计入，前瞻 shift 尾部不计入
         aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
         if len(aligned) < max(n_groups * 2, window + 2, 10):
             raise FactorError(f"有效数据不足（{len(aligned)} 根），请扩大时间范围或减小分组/窗口")
@@ -411,6 +413,18 @@ class FactorService:
         close_by_time = close_pivot.mean(axis=1) if close_pivot.shape[1] > 1 else close_pivot.iloc[:, 0]
         idx = factor_by_time.dropna().index.intersection(close_by_time.dropna().index)
 
+        inspection = {
+            "coverage": self._coverage(factor, n_total_bars),
+            "turnover": self._turnover(df["f"].unstack(level=1)),
+            "decay": self._decay(
+                factor,
+                close,
+                n_symbols=df.index.get_level_values(1).nunique(),
+                window=stab_window,
+            ),
+            "ic_stats": self._ic_stats(ic_series, interval),
+        }
+
         result = {
             "factor_name": factor_name,
             "instruments": symbols,
@@ -437,6 +451,7 @@ class FactorService:
             "long_short_return": long_short,
             "monotonicity": {"spearman": float(mono_corr), "p_value": float(p_value), "score": long_short},
             "stability": {"window": stab_window, "mean_autocorr": stab_autocorr_value},
+            "inspection": inspection,
             "series": {
                 "dates": [t.strftime("%Y-%m-%d %H:%M") for t in idx],
                 "close": [float(close_by_time.loc[t]) for t in idx],
