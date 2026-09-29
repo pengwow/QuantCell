@@ -1,4 +1,6 @@
 # 复用 utils 中的工具函数（避免代码重复）
+import threading
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
@@ -12,6 +14,43 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import pandas as pd
+
+
+# 进程内 K 线整文件读盘缓存：{path: (mtime_ns, size, DataFrame)}
+# ponytail: 上限 8 是经验值（单文件多为数十 MB，全驻留约数百 MB）；
+# 品种规模继续增大后的升级路径是 Arrow Dataset / DuckDB 直查，而非加大内存缓存。
+_KLINE_CACHE_MAX_FILES = 8
+_kline_cache: OrderedDict[str, tuple[int, int, pd.DataFrame]] = OrderedDict()
+_kline_cache_lock = threading.Lock()
+
+
+def _clear_kline_cache() -> None:
+    """清空读盘缓存（主要供测试与"强制刷新"场景使用）。"""
+    with _kline_cache_lock:
+        _kline_cache.clear()
+
+
+def _read_kline_cached(parquet_path: Path) -> pd.DataFrame:
+    """读取整文件 K 线并缓存；以 (mtime_ns, size) 为失效指纹，返回副本以防调用方修改。"""
+    key = str(parquet_path)
+    stat = parquet_path.stat()
+    fingerprint = (stat.st_mtime_ns, stat.st_size)
+
+    with _kline_cache_lock:
+        hit = _kline_cache.get(key)
+        if hit is not None and (hit[0], hit[1]) == fingerprint:
+            _kline_cache.move_to_end(key)
+            return hit[2].copy()
+
+    df = load_from_parquet(parquet_path)
+
+    with _kline_cache_lock:
+        _kline_cache[key] = (fingerprint[0], fingerprint[1], df)
+        _kline_cache.move_to_end(key)
+        while len(_kline_cache) > _KLINE_CACHE_MAX_FILES:
+            _kline_cache.popitem(last=False)
+
+    return df.copy()
 
 
 class ParquetDataProvider(DataProvider):
@@ -86,7 +125,10 @@ class ParquetDataProvider(DataProvider):
             if not projected:
                 return pd.DataFrame()
 
-        df = load_from_parquet(parquet_path, columns=projected)
+        # 缓存整文件；有投影时在内存选列（footer schema 已校验过交集）
+        df = _read_kline_cached(parquet_path)
+        if projected is not None:
+            df = df[projected].copy()
 
         # 应用时间范围筛选
         if not df.empty and (start or end):

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
@@ -124,3 +126,50 @@ def test_get_kline_data_default_returns_all_columns(provider):
     # columns=None 时行为不变（全量列）
     df = provider.get_kline_data("BTCUSDT", "1h", "spot")
     assert {"timestamp", "open", "high", "low", "close", "volume"} <= set(df.columns)
+
+
+@pytest.fixture(autouse=True)
+def _reset_kline_cache():
+    """每个用例前后清空模块级读盘缓存，避免跨用例污染。"""
+    from quality.parquet_provider import _clear_kline_cache
+
+    _clear_kline_cache()
+    yield
+    _clear_kline_cache()
+
+
+def test_kline_cache_hits_on_second_read(provider, monkeypatch):
+    import quality.parquet_provider as pp
+
+    calls: list[str] = []
+    real_load = pp.load_from_parquet
+
+    def counting_load(path, columns=None):
+        calls.append(str(path))
+        return real_load(path, columns)
+
+    monkeypatch.setattr(pp, "load_from_parquet", counting_load)
+
+    provider.get_kline_data("BTCUSDT", "1h", "spot")
+    provider.get_kline_data("BTCUSDT", "1h", "spot", columns=["close"])
+    assert len(calls) == 1  # 第二次命中缓存，列投影在内存完成
+
+
+def test_kline_cache_invalidates_on_mtime_change(provider, monkeypatch):
+    import quality.parquet_provider as pp
+
+    calls: list[str] = []
+    real_load = pp.load_from_parquet
+
+    def counting_load(path, columns=None):
+        calls.append(str(path))
+        return real_load(path, columns)
+
+    monkeypatch.setattr(pp, "load_from_parquet", counting_load)
+
+    provider.get_kline_data("BTCUSDT", "1h", "spot")
+    path = provider._klines_dir("spot") / "1h" / "BTCUSDT.parquet"
+    # 模拟文件被采集器更新：mtime 前进 1 秒
+    os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1_000_000_000))
+    provider.get_kline_data("BTCUSDT", "1h", "spot")
+    assert len(calls) == 2
