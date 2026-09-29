@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 
 from common.schemas import ApiResponse
+from factor.catalog_service import CatalogError, FactorCatalogService
+from factor.models import FactorCatalog, FactorSnapshot
 from quality.parquet_provider import ParquetDataProvider
 from utils.auth import get_current_user
+from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 from .schemas import (
@@ -28,8 +34,14 @@ from .schemas import (
     FactorStabilityRequest,
     FactorStatsRequest,
     FactorValidateRequest,
+    LifecycleUpdateRequest,
 )
-from .service import FactorService
+from .service import (
+    FactorError,
+    FactorNotFoundError,
+    FactorService,
+    _EngineExprError,
+)
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -90,6 +102,17 @@ router = APIRouter(
 
 # 创建服务实例
 factor_service = FactorService()
+
+# 因子档案服务：快照落 backend/data/factor/snapshots，删除归档到 backend/.trash
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_SNAPSHOTS_DIR = _BACKEND_DIR / "data" / "factor" / "snapshots"
+_TRASH_DIR = _BACKEND_DIR / ".trash"
+_catalog_service = FactorCatalogService(
+    factor_service=factor_service,
+    snapshots_dir=_SNAPSHOTS_DIR,
+    trash_dir=_TRASH_DIR,
+    backend_dir=_BACKEND_DIR,
+)
 
 
 @router.get(
@@ -159,6 +182,15 @@ def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_curre
         result = factor_service.add_factor(request.factor_name, request.expression)
         if result:
             logger.info(f"成功添加因子 {request.factor_name}")
+            # ---- add 成功后建档（派生数据，失败不阻断表达式新增）----
+            try:
+                with get_db_session() as db:
+                    _catalog_service.sync_builtins(db)  # 确保内置已在，自定义 upsert 不依赖顺序
+                    details = [d for d in factor_service.get_factor_details() if d["name"] == request.factor_name]
+                    if details:
+                        _catalog_service.upsert_custom(db, details[0])
+            except Exception as hook_err:
+                logger.warning(f"因子档案建档失败（不影响表达式保存）: {hook_err}")
             return ApiResponse(
                 code=0,
                 message=f"成功添加因子 {request.factor_name}",
@@ -185,6 +217,13 @@ def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_curre
     summary="删除自定义因子",
     description="删除指定的自定义因子",
 )
+@router.delete(
+    "/{factor_name}",
+    response_model=ApiResponse,
+    summary="删除自定义因子（短路径别名）",
+    description="删除指定的自定义因子；档案/快照钩子随删除级联",
+    include_in_schema=False,
+)
 def delete_factor(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """删除自定义因子"""
     try:
@@ -192,6 +231,11 @@ def delete_factor(factor_name: str, current_user: dict = Depends(get_current_use
         result = factor_service.delete_factor(factor_name)
         if result:
             logger.info(f"成功删除因子 {factor_name}")
+            try:
+                with get_db_session() as db:
+                    _catalog_service.on_factor_deleted(db, factor_name)
+            except Exception as hook_err:
+                logger.warning(f"因子档案删除失败（不影响表达式删除）: {hook_err}")
             return ApiResponse(
                 code=0,
                 message=f"成功删除因子 {factor_name}",
@@ -623,4 +667,118 @@ def list_instruments(
         return ApiResponse(code=0, message="ok", data={"symbols": data})
     except Exception as e:
         logger.error(f"获取品种列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/catalog", response_model=ApiResponse, summary="获取因子档案列表")
+def list_catalog(current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            created = _catalog_service.sync_builtins(db)
+            if created:
+                logger.info(f"因子档案惰性同步新建 {created} 个内置因子")
+            rows = db.query(FactorCatalog).order_by(FactorCatalog.is_builtin.desc(), FactorCatalog.name).all()
+            counts = dict(
+                db.query(FactorSnapshot.factor_name, func.count(FactorSnapshot.id))
+                .group_by(FactorSnapshot.factor_name)
+                .all()
+            )
+            factors = [
+                {
+                    "name": r.name,
+                    "label": r.label,
+                    "category": r.category,
+                    "expression": r.expression,
+                    "builtin": r.is_builtin,
+                    "supported": r.supported,
+                    "lifecycle_status": r.lifecycle_status,
+                    "last_metrics": json.loads(r.last_metrics) if r.last_metrics else None,
+                    "last_snapshot_at": r.last_snapshot_at.isoformat() if r.last_snapshot_at else None,
+                    "snapshot_count": counts.get(r.name, 0),
+                }
+                for r in rows
+            ]
+        return ApiResponse(code=0, message="ok", data={"factors": factors})
+    except Exception as e:
+        logger.error(f"获取因子档案失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _catalog_error(exc: CatalogError) -> HTTPException:
+    return HTTPException(
+        status_code={"not_found": 404, "forbidden": 403}.get(exc.kind, 400),
+        detail=str(exc),
+    )
+
+
+@router.post(
+    "/catalog/{factor_name}/lifecycle",
+    response_model=ApiResponse,
+    summary="因子生命周期流转",
+)
+def update_lifecycle(
+    factor_name: str,
+    request: LifecycleUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            row = _catalog_service.transition(db, factor_name, request.status)
+            return ApiResponse(
+                code=0,
+                message="ok",
+                data={"name": row.name, "lifecycle_status": row.lifecycle_status},
+            )
+    except CatalogError as e:
+        raise _catalog_error(e)
+    except Exception as e:
+        logger.error(f"生命周期流转失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/snapshots", response_model=ApiResponse, summary="收藏因子分析快照（服务端重算）")
+def save_snapshot(
+    request: FactorAnalyzeRequest,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    try:
+        params = request.model_dump()
+        with get_db_session() as db:
+            summary = _catalog_service.save_snapshot(db, params)
+        return ApiResponse(code=0, message="快照已保存", data=_sanitize(summary))
+    except CatalogError as e:
+        raise _catalog_error(e)
+    except (FactorError, FactorNotFoundError, _EngineExprError) as e:
+        logger.error(f"快照收藏失败: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"快照收藏失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/snapshots", response_model=ApiResponse, summary="查询因子快照历史")
+def list_snapshots(
+    factor_name: str,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            items = _catalog_service.list_snapshots(db, factor_name, limit=min(max(limit, 1), 500))
+        return ApiResponse(code=0, message="ok", data={"snapshots": _sanitize(items)})
+    except Exception as e:
+        logger.error(f"快照查询失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/snapshots/{snapshot_id}", response_model=ApiResponse, summary="删除因子快照（parquet 归档）")
+def delete_snapshot(snapshot_id: int, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            _catalog_service.delete_snapshot(db, snapshot_id)
+        return ApiResponse(code=0, message="快照已删除")
+    except CatalogError as e:
+        raise _catalog_error(e)
+    except Exception as e:
+        logger.error(f"快照删除失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -423,3 +423,9 @@ class FactorInfo(BaseSchema):
     factor_name: str = Field(..., description="因子名称", example="my_factor")
     expression: str = Field(..., description="因子表达式", example="close - open")
     description: str | None = Field(None, description="因子描述")
+
+
+class LifecycleUpdateRequest(BaseSchema):
+    """生命周期流转请求。"""
+
+    status: str = Field(..., min_length=1, max_length=20, description="目标生命周期状态")
