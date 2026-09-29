@@ -29,6 +29,8 @@ import {
 import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { backtestApi, configApi, strategyApi } from '../../api';
 import { dataApi } from '../../api/dataApi';
+import { factorApi } from '../../api/factor';
+import type { FactorDetail } from '../../api/factor';
 import BacktestProgressModal from '../../components/BacktestProgressModal';
 import type { StepStatusState, ProgressData } from '../../components/BacktestProgressModal';
 import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/backtest';
@@ -70,6 +72,7 @@ interface BacktestFormValues {
   symbols?: string[];
   timeRange?: [Dayjs, Dayjs];
   interval?: string;
+  factorNames?: string[];
   commission?: number;
   initialCash?: number;
   params?: Record<string, unknown>;
@@ -80,6 +83,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const location = useLocation();
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  const watchedStrategy = Form.useWatch('strategy', form);
 
   // 设置页面标题
   useEffect(() => {
@@ -124,6 +128,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
   const [symbolOptions, setSymbolOptions] = useState<Array<{ value: string; label: string; type: string; symbols?: string[] }>>([]);
   const [symbolOptionsLoading, setSymbolOptionsLoading] = useState(false);
+  const [factorOptions, setFactorOptions] = useState<FactorDetail[]>([]);
 
   const fetchSymbolOptions = async () => {
     try {
@@ -364,6 +369,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
+  }, []);
+
+  // 加载因子库中可计算的因子，供回测因子多选
+  useEffect(() => {
+    factorApi
+      .listDetail()
+      .then((r) => setFactorOptions(r.factors.filter((f) => f.supported)))
+      .catch(() => setFactorOptions([]));
   }, []);
 
   // 处理从策略管理页面传递过来的策略信息
@@ -740,6 +753,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       const strategyParams = values.params || {};
 
+      // factor_timing 使用第一个所选因子作为信号因子
+      if (values.strategy === 'factor_timing' && values.factorNames && values.factorNames.length > 0) {
+        strategyParams.factor_name = values.factorNames[0];
+      }
+
       const backtestData = {
         strategy_config: {
           strategy_name: values.strategy,
@@ -752,6 +770,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           interval: values.interval,
           commission: values.commission,
           initial_cash: values.initialCash,
+          factor_names: values.factorNames && values.factorNames.length > 0 ? values.factorNames : null,
         },
       };
 
@@ -1047,6 +1066,31 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     <Option value="4h">4小时</Option>
                     <Option value="1d">1天</Option>
                   </Select>
+                </Form.Item>
+              </Col>
+
+              <Col span={24}>
+                <Form.Item
+                  name="factorNames"
+                  label={t('backtest_factors') || '回测因子'}
+                  extra={
+                    watchedStrategy === 'factor_timing'
+                      ? t('backtest_factor_timing_hint') ||
+                        'factor_timing 策略将使用第一个所选因子；不选则不注入因子'
+                      : t('backtest_factor_optional_hint') || '不选则按无因子方式回测（行为与旧版一致）'
+                  }
+                >
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder={t('backtest_factors_placeholder') || '选择因子库因子（可空）'}
+                    options={factorOptions.map((f) => ({
+                      value: f.name,
+                      label: `${f.label} (${f.name})`,
+                    }))}
+                  />
                 </Form.Item>
               </Col>
 
