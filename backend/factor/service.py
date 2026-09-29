@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
@@ -245,6 +246,87 @@ class FactorService:
         f = pd.Series(joined["f"].values, index=idx)
         r = pd.Series(joined["r"].values, index=idx)
         return f.rolling(w).corr(r).dropna()
+
+    # 加密 7×24 周期 → 年 bar 数
+    _PERIODS_PER_YEAR = {
+        "1d": 365,
+        "1h": 365 * 24,
+        "4h": 365 * 6,
+        "15m": 365 * 24 * 4,
+        "5m": 365 * 24 * 12,
+        "1m": 365 * 24 * 60,
+    }
+
+    @classmethod
+    def _periods_per_year(cls, interval: str) -> int:
+        if interval in cls._PERIODS_PER_YEAR:
+            return cls._PERIODS_PER_YEAR[interval]
+        m = re.fullmatch(r"(\d+)(m|h|d)", interval.strip())
+        if m:
+            num, unit = int(m.group(1)), m.group(2)
+            minutes = num if unit == "m" else num * 60 if unit == "h" else num * 1440
+            if minutes:
+                return int(365 * 24 * 60 / minutes)
+        return 365 * 24
+
+    @staticmethod
+    def _coverage(factor, total_bars: int) -> float | None:
+        """因子有效值占总 K 线 bar 比例。total_bars 必须是 shift 前的原始总行数。"""
+        if total_bars <= 0:
+            return None
+        # to_numpy 后求和：宽表 DataFrame 直接 .sum() 会得到按列 Series（pandas 3 无法 float()）
+        return float(pd.notna(factor).to_numpy().sum()) / float(total_bars)
+
+    @staticmethod
+    def _turnover(factor_wide: pd.DataFrame) -> float | None:
+        """信号逐 bar 绝对变化（跨品种×时间平均，无量纲）；首日 NaN 自动排除。"""
+        if factor_wide.size == 0:
+            return None
+        return float(factor_wide.diff().abs().mean().mean())
+
+    @classmethod
+    def _decay(cls, factor_long: pd.Series, close_long: pd.Series, n_symbols: int, window: int) -> list[dict]:
+        """lag ∈ {1,2,3,5,10} 的因子-前瞻收益 IC（spearman+pearson）。
+
+        factor_long/close_long: MultiIndex(datetime,symbol) 的 Series。
+        多品种复用 _ic_series 截面口径（逐期 IC 后全期均值）；单品种时序整体相关。
+        样本不足返回 null，不抛错。
+        """
+        out = []
+        for lag in (1, 2, 3, 5, 10):
+            ret = close_long.groupby(level=1).shift(-lag) / close_long - 1
+            joined = pd.concat([factor_long.rename("f"), ret.rename("r")], axis=1).dropna()
+            sp = pp = None
+            if len(joined) >= max(lag + 2, 10):
+                if n_symbols >= 2 and joined.index.get_level_values(0).nunique() >= 3:
+                    ic_series = cls._ic_series(joined["f"], joined["r"], "spearman", window)
+                    sp = float(ic_series.mean()) if len(ic_series) else None
+                    ic_p = cls._ic_series(joined["f"], joined["r"], "pearson", window)
+                    pp = float(ic_p.mean()) if len(ic_p) else None
+                else:
+                    sp = float(joined["f"].corr(joined["r"], method="spearman"))
+                    pp = float(joined["f"].corr(joined["r"], method="pearson"))
+            out.append({"lag": lag, "spearman": sp, "pearson": pp})
+        return out
+
+    @classmethod
+    def _ic_stats(cls, ic_series: pd.Series, interval: str) -> dict:
+        n = len(ic_series)
+        mean = float(ic_series.mean()) if n else None
+        std = float(ic_series.std()) if n > 1 else None
+        ir = (mean / std) if (mean is not None and std) and not pd.isna(std) else None
+        ppy = cls._periods_per_year(interval)
+        annualized = (ir * np.sqrt(ppy)) if ir is not None else None
+        t_stat = (mean / (std / np.sqrt(n))) if (mean is not None and std and n > 1) else None
+        return {
+            "n": n,
+            "ic_mean": mean,
+            "ic_std": std,
+            "ic_ir": ir,
+            "periods_per_year": ppy,
+            "annualized_ir": annualized,
+            "t_stat": t_stat,
+        }
 
     @staticmethod
     def _cross_section_groups(factor: pd.Series, n_groups: int) -> pd.Series:
