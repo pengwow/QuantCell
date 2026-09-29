@@ -38,6 +38,7 @@ def test_loader_get_all_templates():
         "cross_sectional",
         "mean_reversion_rl",
         "sma_crossover",
+        "factor_timing",
     }
     actual = set(StrategyLoader.list_all())
     assert expected.issubset(actual)
