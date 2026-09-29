@@ -3,6 +3,8 @@
   "dashboard": "Dashboard",
   "data_management": "Data Management",
   "factor_analysis": "Factor Analysis",
+  "factor_workbench": "Factor Analysis",
+  "factor_library": "Factor Library",
   "model_management": "Model Management",
   "backtest": "Backtest",
   "setting": "Setting",
