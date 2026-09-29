@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Button,
   Card,
@@ -13,6 +13,7 @@ import {
   Select,
   Space,
   Statistic,
+  Tooltip,
 } from 'antd';
 import { LineChartOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -177,19 +178,96 @@ const FactorWorkbench: React.FC = () => {
     };
   }, [result, qc]);
 
+  const decayOption = useMemo<EChartsOption>(() => {
+    const decay = result?.inspection?.decay ?? [];
+    return {
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['Spearman', 'Pearson'] },
+      grid: { left: '3%', right: '4%', containLabel: true },
+      xAxis: { type: 'category', name: 'lag(K线根数)', data: decay.map((d) => d.lag) },
+      yAxis: { type: 'value', name: 'IC' },
+      dataZoom: [],
+      series: [
+        {
+          name: 'Spearman',
+          type: 'line',
+          smooth: false,
+          data: decay.map((d) => d.spearman),
+          itemStyle: { color: qc.chartLine },
+        },
+        {
+          name: 'Pearson',
+          type: 'line',
+          smooth: false,
+          data: decay.map((d) => d.pearson),
+          itemStyle: { color: qc.info },
+        },
+      ],
+    };
+  }, [result, qc]);
+
   // 比例转百分比字符串
   const pct = (x: number | null) => `${((x ?? 0) * 100).toFixed(1)}%`;
 
-  const stats: { title: string; value: number | string; precision?: number }[] = result
-    ? [
-        { title: 'IC 均值', value: result.ic.mean ?? 0, precision: 4 },
-        { title: 'ICIR', value: result.ic.ir ?? 0, precision: 4 },
-        { title: 'IC 胜率', value: pct(result.ic.positive_rate) },
-        { title: '多空收益', value: result.long_short_return ?? 0, precision: 4 },
-        { title: '单调性 Spearman', value: result.monotonicity.spearman, precision: 4 },
-        { title: '稳定性(自相关)', value: result.stability.mean_autocorr ?? 0, precision: 4 },
-      ]
-    : [];
+  const stats: { key: string; title: ReactNode; value: number | string; precision?: number }[] =
+    result
+      ? [
+          { key: 'ic_mean', title: 'IC 均值', value: result.ic.mean ?? 0, precision: 4 },
+          { key: 'ic_ir', title: 'ICIR', value: result.ic.ir ?? 0, precision: 4 },
+          { key: 'ic_positive_rate', title: 'IC 胜率', value: pct(result.ic.positive_rate) },
+          {
+            key: 'long_short_return',
+            title: '多空收益',
+            value: result.long_short_return ?? 0,
+            precision: 4,
+          },
+          {
+            key: 'monotonicity',
+            title: '单调性 Spearman',
+            value: result.monotonicity.spearman,
+            precision: 4,
+          },
+          {
+            key: 'stability',
+            title: '稳定性(自相关)',
+            value: result.stability.mean_autocorr ?? 0,
+            precision: 4,
+          },
+          {
+            key: 'coverage',
+            title: '覆盖率',
+            value:
+              result.inspection?.coverage != null
+                ? `${(result.inspection.coverage * 100).toFixed(1)}%`
+                : '—',
+          },
+          {
+            key: 'turnover',
+            title: '换手率',
+            value: result.inspection?.turnover != null ? result.inspection.turnover.toFixed(4) : '—',
+          },
+          {
+            key: 'annualized_ir',
+            title: (
+              <Tooltip title="按 K 线周期年化（加密 7×24）；高频 IC 自相关会使年化 IR 偏大，t-stat 不受年化假设影响">
+                <span>年化 IR</span>
+              </Tooltip>
+            ),
+            value:
+              result.inspection?.ic_stats.annualized_ir != null
+                ? result.inspection.ic_stats.annualized_ir.toFixed(2)
+                : '—',
+          },
+          {
+            key: 't_stat',
+            title: 't-stat',
+            value:
+              result.inspection?.ic_stats.t_stat != null
+                ? result.inspection.ic_stats.t_stat.toFixed(2)
+                : '—',
+          },
+        ]
+      : [];
 
   return (
     <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -292,7 +370,7 @@ const FactorWorkbench: React.FC = () => {
           </Flex>
           <Row gutter={[16, 16]}>
             {stats.map((s) => (
-              <Col xs={12} md={8} key={s.title}>
+              <Col xs={12} md={8} key={s.key}>
                 <Card>
                   <Statistic title={s.title} value={s.value} precision={s.precision} />
                 </Card>
@@ -307,6 +385,9 @@ const FactorWorkbench: React.FC = () => {
           </Card>
           <Card title="分组平均前瞻收益">
             <EChart option={groupOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
+          </Card>
+          <Card title="IC 衰减（lag 1–10）">
+            <EChart option={decayOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
           </Card>
         </Space>
       )}

@@ -85,6 +85,20 @@ export interface FactorAnalyzeResult {
   monotonicity: { spearman: number; p_value: number; score: number | null };
   stability: { window: number; mean_autocorr: number | null };
   series: { dates: string[]; close: number[]; factor: Record<string, number> };
+  inspection?: {
+    coverage: number | null;
+    turnover: number | null;
+    decay: { lag: number; spearman: number | null; pearson: number | null }[];
+    ic_stats: {
+      n: number;
+      ic_mean: number | null;
+      ic_std: number | null;
+      ic_ir: number | null;
+      periods_per_year: number;
+      annualized_ir: number | null;
+      t_stat: number | null;
+    };
+  };
 }
 
 export const factorApi = {
