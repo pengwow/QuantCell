@@ -105,3 +105,22 @@ def test_dataprovider_interface_members(provider):
     # DataProvider 抽象接口委托方法
     assert set(provider.list_symbols("spot")) == {"BTCUSDT", "ETHUSDT"}
     assert provider.list_intervals("BTCUSDT", "spot") == ["15m", "1h"]
+
+
+def test_get_kline_data_column_projection(provider):
+    # 只投影需要的列，不返回无关列
+    df = provider.get_kline_data("BTCUSDT", "1h", "spot", columns=["timestamp", "close"])
+    assert set(df.columns) == {"timestamp", "close"}
+    assert df["close"].tolist() == [101.0, 102.0]
+
+
+def test_get_kline_data_projection_ignores_missing_columns(provider):
+    # fixture parquet 没有 quote_volume；投影含缺失列时不报错，只回存在的交集列
+    df = provider.get_kline_data("BTCUSDT", "1h", "spot", columns=["close", "quote_volume", "nonexistent"])
+    assert set(df.columns) == {"close"}
+
+
+def test_get_kline_data_default_returns_all_columns(provider):
+    # columns=None 时行为不变（全量列）
+    df = provider.get_kline_data("BTCUSDT", "1h", "spot")
+    assert {"timestamp", "open", "high", "low", "close", "volume"} <= set(df.columns)

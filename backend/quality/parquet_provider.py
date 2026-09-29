@@ -1,6 +1,8 @@
 # 复用 utils 中的工具函数（避免代码重复）
 from typing import TYPE_CHECKING
 
+import pyarrow.parquet as pq
+
 from utils import _normalize_symbol, filter_by_date_range, get_source_data_dir
 from utils.parquet_utils import load_from_parquet
 
@@ -45,6 +47,7 @@ class ParquetDataProvider(DataProvider):
         candle_type: str = "spot",
         start: str | None = None,
         end: str | None = None,
+        columns: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         从 Parquet 文件获取K线数据
@@ -55,6 +58,7 @@ class ParquetDataProvider(DataProvider):
             candle_type: 市场类型 (spot/future)
             start: 开始时间 (YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS)
             end: 结束时间
+            columns: 可选，只读取指定列；文件中不存在的列自动忽略
 
         Returns:
             pd.DataFrame: 包含 timestamp, open, high, low, close, volume 的DataFrame
@@ -73,7 +77,16 @@ class ParquetDataProvider(DataProvider):
             )
             raise FileNotFoundError(msg)
 
-        df = load_from_parquet(parquet_path)
+        # 读 footer schema 与投影列取交集：不同下载源列不全（如缺 quote_volume），
+        # 直接把缺失列传给 pyarrow 会抛错
+        projected: list[str] | None = None
+        if columns is not None:
+            available = set(pq.ParquetFile(parquet_path).schema_arrow.names)
+            projected = [c for c in columns if c in available]
+            if not projected:
+                return pd.DataFrame()
+
+        df = load_from_parquet(parquet_path, columns=projected)
 
         # 应用时间范围筛选
         if not df.empty and (start or end):

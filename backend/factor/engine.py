@@ -26,6 +26,9 @@ class FactorExpressionError(Exception):
 
 UNSUPPORTED_FACTORS: set[str] = {"pe", "pb", "roe", "roa", "profit_growth"}
 
+# 因子求值实际需要的 K 线列（vwap/amount 由 quote_volume 派生，故必须含 quote_volume）
+_KLINE_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "quote_volume"]
+
 # name -> 分类 / 展示名 / 自有表达式 / 是否可计算
 FACTOR_META: dict[str, dict] = {
     "close": {"category": "price", "label": "收盘价", "expression": "close", "supported": True},
@@ -289,7 +292,7 @@ def load_raw_ohlcv(
     provider = provider or ParquetDataProvider()
     raw_map: dict[str, pd.DataFrame] = {}
     for symbol in symbols:
-        raw = provider.get_kline_data(symbol, interval, candle_type, start, end)
+        raw = provider.get_kline_data(symbol, interval, candle_type, start, end, columns=_KLINE_COLUMNS)
         if not raw.empty:
             raw_map[symbol] = raw
     if not raw_map:
