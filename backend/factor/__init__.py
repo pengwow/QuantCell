@@ -9,15 +9,14 @@
     - 因子分析：IC分析、IR分析、单调性分析等
     - 因子验证：验证因子有效性
 
-依赖模块：
-    - qlib: 量化投资库，用于因子计算
-    - common: 共享数据模型
+数据来源：
+    - 本地 parquet K 线（quality.parquet_provider）+ pandas 自有表达式引擎，无外部量化框架依赖
 
 使用示例：
-    >>> from backend.factor import FactorService
+    >>> from factor import FactorService
     >>> service = FactorService()
     >>> factors = service.get_factor_list()
-    >>> result = service.calculate_factor("momentum_5d", ["BTCUSDT"], "2023-01-01", "2023-12-31")
+    >>> result = service.calculate_factor("momentum_5d", ["BTCUSDT"], None, None, interval="1h")
 
 作者: QuantCell Team
 创建日期: 2024-01-01
@@ -34,9 +33,12 @@ __author__ = "QuantCell Team"
 from .routes import router
 from .schemas import (
     FactorAddRequest,
+    FactorAnalyzeRequest,
+    FactorCalculateBase,
     FactorCalculateMultiRequest,
     FactorCalculateRequest,
     FactorCorrelationRequest,
+    FactorDetail,
     FactorGroupAnalysisRequest,
     FactorICRequest,
     FactorIRRequest,
@@ -50,9 +52,12 @@ from .service import FactorService
 __all__ = [
     # 请求模型
     "FactorAddRequest",
+    "FactorAnalyzeRequest",
+    "FactorCalculateBase",
     "FactorCalculateMultiRequest",
     "FactorCalculateRequest",
     "FactorCorrelationRequest",
+    "FactorDetail",
     "FactorGroupAnalysisRequest",
     "FactorICRequest",
     "FactorIRRequest",

@@ -21,7 +21,8 @@
 
 验证规则：
     - 时间格式：YYYY-MM-DD
-    - 频率：day, week, month
+    - 周期 interval：15m/1h/4h/1d 等 K 线周期；candle_type：spot/future
+    - 窗口单位为 K 线根数
     - 计算方法：spearman, pearson
 
 作者: QuantCell Team
@@ -84,96 +85,71 @@ class FactorAddRequest(BaseSchema):
         return v.strip()
 
 
-class FactorCalculateRequest(BaseSchema):
-    """
-    计算因子请求模型
+class FactorCalculateBase(BaseSchema):
+    """因子计算公共参数：标的 + K线周期 + 时间范围。"""
 
-    Attributes:
-        factor_name: 因子名称
-        instruments: 标的列表，如股票代码、加密货币交易对等
-        start_time: 开始时间，格式：YYYY-MM-DD
-        end_time: 结束时间，格式：YYYY-MM-DD
-        freq: 频率，默认为日线
-    """
-
-    factor_name: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        description="因子名称",
-        example="my_factor",
-    )
     instruments: list[str] = Field(
         ...,
         min_items=1,
-        description="标的列表，如股票代码、加密货币交易对等",
+        description="交易对列表",
         example=["BTCUSDT", "ETHUSDT"],
     )
-    start_time: str = Field(
-        ...,
-        description="开始时间，格式：YYYY-MM-DD",
-        example="2023-01-01",
-    )
-    end_time: str = Field(
-        ...,
-        description="结束时间，格式：YYYY-MM-DD",
-        example="2023-12-31",
-    )
-    freq: str = Field(
-        default="day",
-        description="频率，默认为日线",
-        example="day",
-    )
+    interval: str = Field(default="1h", min_length=1, description="K线周期，如 15m/1h/4h/1d")
+    candle_type: str = Field(default="spot", description="市场类型：spot/future")
+    start_time: str | None = Field(default=None, description="开始日期 YYYY-MM-DD，空=全部")
+    end_time: str | None = Field(default=None, description="结束日期 YYYY-MM-DD，空=至今")
 
-    @validator("freq")
-    def validate_freq(cls, v: str) -> str:
-        """验证频率"""
-        allowed_freqs = ["day", "week", "month", "hour", "minute"]
-        if v not in allowed_freqs:
-            msg = f"频率必须是以下之一: {allowed_freqs}"
-            raise ValueError(msg)
+    @validator("candle_type")
+    def validate_candle_type(cls, v: str) -> str:
+        """校验市场类型"""
+        if v not in {"spot", "future"}:
+            raise ValueError("candle_type 必须为 spot 或 future")
         return v
 
 
-class FactorCalculateMultiRequest(BaseSchema):
-    """
-    计算多个因子请求模型
+class FactorCalculateRequest(FactorCalculateBase):
+    """单因子计算请求"""
 
-    Attributes:
-        factor_names: 因子名称列表，用于批量计算多个因子
-        instruments: 标的列表，如股票代码、加密货币交易对等
-        start_time: 开始时间，格式：YYYY-MM-DD
-        end_time: 结束时间，格式：YYYY-MM-DD
-        freq: 频率，默认为日线
-    """
+    factor_name: str = Field(..., min_length=1, max_length=100, description="因子名称")
+
+
+class FactorCalculateMultiRequest(FactorCalculateBase):
+    """多因子计算请求"""
 
     factor_names: list[str] = Field(
         ...,
         min_items=1,
-        description="因子名称列表，用于批量计算多个因子",
-        example=["my_factor1", "my_factor2"],
+        description="因子名称列表",
+        example=["momentum_5d", "rsi_14d"],
     )
-    instruments: list[str] = Field(
-        ...,
-        min_items=1,
-        description="标的列表，如股票代码、加密货币交易对等",
-        example=["BTCUSDT", "ETHUSDT"],
-    )
-    start_time: str = Field(
-        ...,
-        description="开始时间，格式：YYYY-MM-DD",
-        example="2023-01-01",
-    )
-    end_time: str = Field(
-        ...,
-        description="结束时间，格式：YYYY-MM-DD",
-        example="2023-12-31",
-    )
-    freq: str = Field(
-        default="day",
-        description="频率，默认为日线",
-        example="day",
-    )
+
+
+class FactorAnalyzeRequest(FactorCalculateBase):
+    """一站式因子分析请求（窗口单位为 K 线根数）"""
+
+    factor_name: str = Field(..., min_length=1, max_length=100, description="因子名称")
+    method: str = Field(default="spearman", description="相关性方法：spearman/pearson")
+    n_groups: int = Field(default=5, ge=2, le=10, description="分组数量")
+    window: int = Field(default=20, ge=5, le=252, description="滚动窗口（K线根数）")
+    forward: int = Field(default=1, ge=1, le=120, description="前瞻收益的K线根数")
+
+    @validator("method")
+    def validate_method(cls, v: str) -> str:
+        """校验相关性方法"""
+        if v not in {"spearman", "pearson"}:
+            raise ValueError("method 必须为 spearman 或 pearson")
+        return v
+
+
+class FactorDetail(BaseSchema):
+    """因子明细（因子库展示）"""
+
+    name: str
+    expression: str
+    category: str
+    label: str
+    builtin: bool
+    supported: bool
 
 
 class FactorValidateRequest(BaseSchema):

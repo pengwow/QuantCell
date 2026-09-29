@@ -3,32 +3,33 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 
 from common.schemas import ApiResponse
+from quality.parquet_provider import ParquetDataProvider
 from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 
+from .schemas import (
+    FactorAddRequest,
+    FactorAnalyzeRequest,
+    FactorCalculateBase,
+    FactorCalculateMultiRequest,
+    FactorCalculateRequest,
+    FactorCorrelationRequest,
+    FactorGroupAnalysisRequest,
+    FactorICRequest,
+    FactorIRRequest,
+    FactorMonotonicityRequest,
+    FactorStabilityRequest,
+    FactorStatsRequest,
+    FactorValidateRequest,
+)
 from .service import FactorService
-
-if TYPE_CHECKING:
-    from .schemas import (
-        FactorAddRequest,
-        FactorCalculateMultiRequest,
-        FactorCalculateRequest,
-        FactorCorrelationRequest,
-        FactorGroupAnalysisRequest,
-        FactorICRequest,
-        FactorIRRequest,
-        FactorMonotonicityRequest,
-        FactorStabilityRequest,
-        FactorStatsRequest,
-        FactorValidateRequest,
-    )
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -223,30 +224,25 @@ def calculate_factor(request: FactorCalculateRequest, current_user: dict = Depen
             instruments=request.instruments,
             start_time=request.start_time,
             end_time=request.end_time,
-            freq=request.freq,
+            interval=request.interval,
+            candle_type=request.candle_type,
         )
-        if factor_data is not None:
-            factor_dict = factor_data.reset_index().to_dict(orient="records")
-            logger.info(f"成功计算因子 {request.factor_name}")
-            return ApiResponse(
-                code=0,
-                message=f"成功计算因子 {request.factor_name}",
-                data={
-                    "factor_name": request.factor_name,
-                    "data": factor_dict,
-                    "shape": factor_data.shape,
-                },
-            )
-        else:
-            logger.error(f"计算因子 {request.factor_name} 失败")
-            return ApiResponse(
-                code=1,
-                message=f"计算因子 {request.factor_name} 失败",
-                data={},
-            )
+        factor_dict = _sanitize(factor_data.reset_index().to_dict(orient="records"))
+        logger.info(f"成功计算因子 {request.factor_name}")
+        return ApiResponse(
+            code=0,
+            message=f"成功计算因子 {request.factor_name}",
+            data={
+                "factor_name": request.factor_name,
+                "data": factor_dict,
+                "shape": factor_data.shape,
+            },
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"计算因子失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post(
@@ -266,30 +262,25 @@ def calculate_factors(
             instruments=request.instruments,
             start_time=request.start_time,
             end_time=request.end_time,
-            freq=request.freq,
+            interval=request.interval,
+            candle_type=request.candle_type,
         )
-        if factor_data is not None:
-            factor_dict = factor_data.reset_index().to_dict(orient="records")
-            logger.info(f"成功计算多个因子，共 {len(request.factor_names)} 个因子")
-            return ApiResponse(
-                code=0,
-                message="成功计算多个因子",
-                data={
-                    "factor_names": request.factor_names,
-                    "data": factor_dict,
-                    "shape": factor_data.shape,
-                },
-            )
-        else:
-            logger.error("计算多个因子失败")
-            return ApiResponse(
-                code=1,
-                message="计算多个因子失败",
-                data={},
-            )
+        factor_dict = _sanitize(factor_data.reset_index().to_dict(orient="records"))
+        logger.info(f"成功计算多个因子，共 {len(request.factor_names)} 个因子")
+        return ApiResponse(
+            code=0,
+            message="成功计算多个因子",
+            data={
+                "factor_names": request.factor_names,
+                "data": factor_dict,
+                "shape": factor_data.shape,
+            },
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"计算多个因子失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post(
@@ -298,40 +289,33 @@ def calculate_factors(
     summary="计算所有因子",
     description="计算所有内置因子的值",
 )
-def calculate_all_factors(
-    request: FactorCalculateRequest, current_user: dict = Depends(get_current_user)
-) -> ApiResponse:
-    """计算所有因子的值"""
+def calculate_all_factors(request: FactorCalculateBase, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    """计算所有可计算因子的值"""
     try:
         logger.info("计算所有因子请求")
         factor_data = factor_service.calculate_all_factors(
             instruments=request.instruments,
             start_time=request.start_time,
             end_time=request.end_time,
-            freq=request.freq,
+            interval=request.interval,
+            candle_type=request.candle_type,
         )
-        if factor_data is not None:
-            factor_dict = factor_data.reset_index().to_dict(orient="records")
-            logger.info(f"成功计算所有因子，共 {len(factor_data.columns)} 个因子")
-            return ApiResponse(
-                code=0,
-                message="成功计算所有因子",
-                data={
-                    "factor_names": list(factor_data.columns),
-                    "data": factor_dict,
-                    "shape": factor_data.shape,
-                },
-            )
-        else:
-            logger.error("计算所有因子失败")
-            return ApiResponse(
-                code=1,
-                message="计算所有因子失败",
-                data={},
-            )
+        factor_dict = _sanitize(factor_data.reset_index().to_dict(orient="records"))
+        logger.info(f"成功计算所有因子，共 {len(factor_data.columns)} 个因子")
+        return ApiResponse(
+            code=0,
+            message="成功计算所有因子",
+            data={
+                "factor_names": list(factor_data.columns),
+                "data": factor_dict,
+                "shape": factor_data.shape,
+            },
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"计算所有因子失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post(
@@ -574,4 +558,69 @@ def factor_stability_test(
         raise
     except Exception as e:
         logger.error(f"因子稳定性检验失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/list-detail",
+    response_model=ApiResponse,
+    summary="获取因子明细列表",
+    description="获取内置+自定义因子的分类、表达式、是否可计算等明细",
+)
+def get_factor_detail_list(current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    """获取因子明细列表（因子库）"""
+    try:
+        return ApiResponse(code=0, message="ok", data={"factors": factor_service.get_factor_details()})
+    except Exception as e:
+        logger.error(f"获取因子明细失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/analyze",
+    response_model=ApiResponse,
+    summary="一站式因子分析",
+    description="取数→因子→前瞻收益→IC/IR/分组多空/单调性/稳定性/序列",
+)
+def analyze_factor(request: FactorAnalyzeRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    """一站式因子分析"""
+    try:
+        result = factor_service.analyze(
+            factor_name=request.factor_name,
+            symbols=request.instruments,
+            interval=request.interval,
+            candle_type=request.candle_type,
+            start=request.start_time,
+            end=request.end_time,
+            method=request.method,
+            n_groups=request.n_groups,
+            window=request.window,
+            forward=request.forward,
+        )
+        return ApiResponse(code=0, message="分析完成", data=_sanitize(result))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"因子分析失败: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/instruments",
+    response_model=ApiResponse,
+    summary="获取可分析品种与周期",
+    description="按市场类型扫描本地 parquet，返回品种及其可用 K 线周期",
+)
+def list_instruments(
+    candle_type: str = "spot",
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    """获取可分析品种与周期"""
+    if candle_type not in {"spot", "future"}:
+        raise HTTPException(status_code=400, detail="candle_type 必须为 spot 或 future")
+    try:
+        data = ParquetDataProvider().list_available_symbols(candle_type=candle_type)
+        return ApiResponse(code=0, message="ok", data={"symbols": data})
+    except Exception as e:
+        logger.error(f"获取品种列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
