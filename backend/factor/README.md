@@ -49,7 +49,7 @@
 - `kdj`: KDJ指标
 - `bollinger`: 布林带
 
-### 财务因子
+### 财务因子（当前加密行情数据源不支持，仅占位，`supported=False`）
 - `pe`: 市盈率
 - `pb`: 市净率
 - `roe`: 净资产收益率
@@ -61,42 +61,46 @@
 ```
 factor/
 ├── __init__.py          # 模块导出
-├── README.md           # 模块文档
-├── routes.py           # API路由
-├── schemas.py          # Pydantic模型
-├── service.py          # 业务服务
-└── tests/              # 测试目录
-    ├── __init__.py
-    ├── test_routes.py
-    └── test_service.py
+├── README.md            # 模块文档
+├── engine.py            # pandas 自有表达式引擎（AST 白名单求值）
+├── factor_store.py      # 自定义因子 JSON 持久化
+├── routes.py            # API路由
+├── schemas.py           # Pydantic模型
+└── service.py           # 业务服务
+
+# 单元测试位于 tests/unit/factor/
+#   test_factor_engine.py / test_factor_store.py / test_factor_analyze.py
 ```
 
 ## API端点
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
-| GET | `/api/factor/list` | 获取因子列表 |
-| GET | `/api/factor/expression/{name}` | 获取因子表达式 |
-| POST | `/api/factor/add` | 添加自定义因子 |
-| DELETE | `/api/factor/delete/{name}` | 删除自定义因子 |
-| POST | `/api/factor/calculate` | 计算单因子 |
-| POST | `/api/factor/calculate-multi` | 计算多因子 |
-| POST | `/api/factor/calculate-all` | 计算所有因子 |
-| POST | `/api/factor/validate` | 验证因子表达式 |
-| POST | `/api/factor/correlation` | 计算因子相关性 |
-| POST | `/api/factor/stats` | 获取因子统计 |
-| POST | `/api/factor/ic` | 计算IC |
-| POST | `/api/factor/ir` | 计算IR |
-| POST | `/api/factor/group-analysis` | 分组分析 |
-| POST | `/api/factor/monotonicity` | 单调性检验 |
-| POST | `/api/factor/stability` | 稳定性检验 |
+| GET | `/api/v1/factor/list` | 获取因子名称列表 |
+| GET | `/api/v1/factor/list-detail` | 获取因子明细列表（分类/表达式/可计算） |
+| GET | `/api/v1/factor/expression/{name}` | 获取因子表达式 |
+| GET | `/api/v1/factor/instruments` | 获取可分析品种与可用周期 |
+| POST | `/api/v1/factor/add` | 添加自定义因子 |
+| DELETE | `/api/v1/factor/delete/{name}` | 删除自定义因子 |
+| POST | `/api/v1/factor/calculate` | 计算单因子 |
+| POST | `/api/v1/factor/calculate-multi` | 计算多因子 |
+| POST | `/api/v1/factor/calculate-all` | 计算所有可计算因子 |
+| POST | `/api/v1/factor/analyze` | 一站式因子分析（IC/IR/分组/单调性/稳定性） |
+| POST | `/api/v1/factor/validate` | 验证因子表达式 |
+| POST | `/api/v1/factor/correlation` | 计算因子相关性 |
+| POST | `/api/v1/factor/stats` | 获取因子统计 |
+| POST | `/api/v1/factor/ic` | 计算IC |
+| POST | `/api/v1/factor/ir` | 计算IR |
+| POST | `/api/v1/factor/group-analysis` | 分组分析 |
+| POST | `/api/v1/factor/monotonicity` | 单调性检验 |
+| POST | `/api/v1/factor/stability` | 稳定性检验 |
 
 ## 使用示例
 
 ### 获取因子列表
 
 ```python
-from backend.factor import FactorService
+from factor import FactorService
 
 service = FactorService()
 factors = service.get_factor_list()
@@ -106,15 +110,16 @@ print(factors)
 ### 计算单因子
 
 ```python
-from backend.factor import FactorService
+from factor import FactorService
 
 service = FactorService()
 result = service.calculate_factor(
     factor_name="momentum_5d",
     instruments=["BTCUSDT", "ETHUSDT"],
-    start_time="2023-01-01",
-    end_time="2023-12-31",
-    freq="day"
+    start_time=None,
+    end_time=None,
+    interval="1h",
+    candle_type="spot",
 )
 print(result)
 ```
@@ -122,21 +127,21 @@ print(result)
 ### 添加自定义因子
 
 ```python
-from backend.factor import FactorService
+from factor import FactorService
 
 service = FactorService()
 service.add_factor(
     factor_name="my_factor",
-    factor_expression="$close - $open"
+    factor_expression="close - open",
 )
 ```
 
 ## 依赖
 
-- QLib: 量化投资库
 - pandas: 数据处理
 - numpy: 数值计算
 - scipy: 科学计算
+- 本地 parquet K 线数据（`backend/data/source/crypto/...`，由 quality.parquet_provider 读取）
 
 ## 作者
 

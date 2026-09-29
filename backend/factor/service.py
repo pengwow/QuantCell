@@ -1,24 +1,28 @@
-"""因子计算业务服务 — 因子管理/计算/分析"""
+"""因子计算业务服务 — 因子管理 / 计算 / 分析（基于本地 parquet + pandas 自有引擎）。"""
 
 from __future__ import annotations
 
 from typing import Any
 
 import pandas as pd
+from scipy.stats import spearmanr
 
+from factor.engine import (
+    FACTOR_META,
+    UNSUPPORTED_FACTORS,
+    evaluate_expression,
+    factor_panel_from_raw,
+    load_close_panel,
+    load_factor_panel,
+    load_raw_ohlcv,
+)
+from factor.engine import (
+    FactorExpressionError as _EngineExprError,
+)
+from factor.factor_store import FactorStore
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
-
-# QLib 仅用于因子计算（D.features），分析方法不依赖它
-try:
-    import qlib.data.ops as _qlib_ops
-    from qlib.data import D
-
-    QLIB_AVAILABLE = True
-except ImportError:
-    QLIB_AVAILABLE = False
-    logger.debug("QLib 未安装，因子计算（calculate_factor）将不可用，分析功能不受影响")
 
 
 class FactorError(Exception):
@@ -43,95 +47,29 @@ class FactorService:
     """
     因子计算服务类
 
-    提供因子计算和管理的核心业务逻辑。
+    提供因子计算和管理的核心业务逻辑。内置因子元数据来自 factor.engine，
+    自定义因子通过 FactorStore 持久化到 JSON，二者在初始化时合并。
 
     Attributes:
-        factors: 因子字典，存储所有可用因子
-
-    Example:
-        >>> service = FactorService()
-        >>> factors = service.get_factor_list()
-        >>> result = service.calculate_factor("momentum_5d", ["BTCUSDT"], "2023-01-01", "2023-12-31")
+        factors: 因子名 -> 表达式，内置 + 自定义
     """
 
     def __init__(self) -> None:
-        """
-        初始化因子计算服务
-
-        加载内置因子并初始化服务状态。
-        """
-        self.factors = self._load_builtin_factors()
-        logger.info(f"FactorService初始化完成，共加载 {len(self.factors)} 个因子")
+        self._custom_store = FactorStore()
+        self._builtin = {name: meta["expression"] for name, meta in FACTOR_META.items()}
+        # 内置表达式（含不支持财务因子的空表达式）+ 自定义表达式
+        self.factors: dict[str, str] = {**self._builtin, **self._custom_store.all()}
+        logger.info(f"FactorService初始化完成，内置 {len(self._builtin)} 个，自定义 {len(self._custom_store.all())} 个")
 
     def _load_builtin_factors(self) -> dict[str, str]:
-        """
-        加载内置因子
-
-        Returns:
-            内置因子字典
-        """
-        return {
-            # 价格相关因子
-            "close": "$close",
-            "open": "$open",
-            "high": "$high",
-            "low": "$low",
-            "volume": "$volume",
-            "vwap": "$vwap",
-            "amount": "$volume * $close",
-            # 动量因子
-            "momentum_5d": "$close / $Ref($close, 5) - 1",
-            "momentum_10d": "$close / $Ref($close, 10) - 1",
-            "momentum_20d": "$close / $Ref($close, 20) - 1",
-            "momentum_60d": "$close / $Ref($close, 60) - 1",
-            # 波动率因子
-            "volatility_5d": "$Std($close, 5)",
-            "volatility_10d": "$Std($close, 10)",
-            "volatility_20d": "$Std($close, 20)",
-            "volatility_60d": "$Std($close, 60)",
-            # 量价因子
-            "turnover_rate": "$volume / $Ref($volume, 20)",
-            "volume_change": "$volume / $Ref($volume, 1) - 1",
-            "price_volume": "($close - $open) * $volume",
-            # 技术指标因子
-            "ma_5d": "$MA($close, 5)",
-            "ma_10d": "$MA($close, 10)",
-            "ma_20d": "$MA($close, 20)",
-            "ma_60d": "$MA($close, 60)",
-            "macd": "$MACD($close, 12, 26, 9)",
-            "rsi_14d": "$RSI($close, 14)",
-            "kdj": "$KDJ($high, $low, $close, 9, 3, 3)",
-            "bollinger": "$BBANDS($close, 20, 2)",
-            # 财务因子（需要财务数据支持）
-            "pe": "$close / $Ref($eps, 1)",
-            "pb": "$close / $Ref($bvps, 1)",
-            "roe": "$Ref($net_profit, 1) / $Ref($equity, 1)",
-            "roa": "$Ref($net_profit, 1) / $Ref($assets, 1)",
-            "profit_growth": "$Ref($net_profit, 1) / $Ref($net_profit, 2) - 1",
-        }
+        return dict(self._builtin)
 
     def get_factor_list(self) -> list[str]:
-        """
-        获取所有支持的因子列表
-
-        Returns:
-            因子名称列表
-        """
+        """获取所有支持的因子列表。"""
         return list(self.factors.keys())
 
     def get_factor_expression(self, factor_name: str) -> str | None:
-        """
-        获取因子的表达式
-
-        Args:
-            factor_name: 因子名称
-
-        Returns:
-            因子表达式，不存在返回None
-
-        Raises:
-            FactorNotFoundError: 因子不存在时抛出
-        """
+        """获取因子表达式，不存在抛 FactorNotFoundError。"""
         expression = self.factors.get(factor_name)
         if expression is None:
             msg = f"因子不存在: {factor_name}"
@@ -139,19 +77,7 @@ class FactorService:
         return expression
 
     def add_factor(self, factor_name: str, factor_expression: str) -> bool:
-        """
-        添加自定义因子
-
-        Args:
-            factor_name: 因子名称
-            factor_expression: 因子表达式
-
-        Returns:
-            是否添加成功
-
-        Raises:
-            FactorExpressionError: 表达式无效时抛出
-        """
+        """添加自定义因子：非空校验 + 内置因子保护 + 持久化落盘。"""
         if not factor_name or not factor_name.strip():
             msg = "因子名称不能为空"
             raise FactorExpressionError(msg)
@@ -160,216 +86,251 @@ class FactorService:
             msg = "因子表达式不能为空"
             raise FactorExpressionError(msg)
 
-        if factor_name in self.factors:
-            logger.warning(f"因子 {factor_name} 已存在，将覆盖现有因子")
-
-        self.factors[factor_name] = factor_expression.strip()
-        logger.info(f"成功添加因子: {factor_name}")
+        if factor_name in self._builtin:
+            raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
+        expr = factor_expression.strip()
+        self.factors[factor_name] = expr
+        self._custom_store.upsert(factor_name, expr)
+        logger.info(f"成功添加自定义因子: {factor_name}")
         return True
 
     def delete_factor(self, factor_name: str) -> bool:
-        """
-        删除自定义因子
-
-        Args:
-            factor_name: 因子名称
-
-        Returns:
-            是否删除成功
-
-        Raises:
-            FactorNotFoundError: 因子不存在时抛出
-        """
+        """删除自定义因子：内置因子受保护，不存在抛 FactorNotFoundError。"""
+        if factor_name in self._builtin:
+            raise FactorExpressionError(f"内置因子 {factor_name} 不允许删除")
         if factor_name not in self.factors:
-            msg = f"因子不存在: {factor_name}"
-            raise FactorNotFoundError(msg)
-
+            raise FactorNotFoundError(f"因子不存在: {factor_name}")
         del self.factors[factor_name]
-        logger.info(f"成功删除因子: {factor_name}")
+        self._custom_store.delete(factor_name)
+        logger.info(f"成功删除自定义因子: {factor_name}")
         return True
+
+    def validate_factor_expression(self, factor_expression: str) -> bool:
+        """用 3 行最小合成 K 线对表达式做真实 AST 求值校验（不依赖真实行情）。"""
+        if not factor_expression or not factor_expression.strip():
+            return False
+        probe = pd.DataFrame(
+            {
+                "open": [1.0, 2, 3],
+                "high": [1.5, 2.5, 3.5],
+                "low": [0.5, 1.5, 2.5],
+                "close": [1.0, 2.0, 3.0],
+                "volume": [10.0, 20, 30],
+                "quote_volume": [10.0, 40, 90],
+            }
+        )
+        try:
+            evaluate_expression(factor_expression, probe)
+            return True
+        except _EngineExprError:
+            return False
 
     def calculate_factor(
         self,
         factor_name: str,
         instruments: list[str],
-        start_time: str,
-        end_time: str,
-        freq: str = "day",
-    ) -> pd.DataFrame | None:
-        """
-        计算指定因子的值
-
-        Args:
-            factor_name: 因子名称
-            instruments: 标的列表
-            start_time: 开始时间，格式：YYYY-MM-DD
-            end_time: 结束时间，格式：YYYY-MM-DD
-            freq: 频率，默认为日线
-
-        Returns:
-            因子值DataFrame，失败返回None
-
-        Raises:
-            FactorNotFoundError: 因子不存在时抛出
-            FactorError: 计算失败时抛出
-        """
-        if not QLIB_AVAILABLE:
-            msg = "QLib未安装，无法计算因子"
-            raise FactorError(msg)
-
+        start_time: str | None,
+        end_time: str | None,
+        interval: str = "1h",
+        candle_type: str = "spot",
+        provider=None,
+    ) -> pd.DataFrame:
+        """计算单因子，返回 MultiIndex(datetime, symbol)、单列=因子名 的 DataFrame。"""
+        if factor_name not in self.factors:
+            raise FactorNotFoundError(f"因子不存在: {factor_name}")
         try:
-            factor_expr = self.get_factor_expression(factor_name)
-
-            logger.info(
-                f"开始计算因子 {factor_name}，标的数量: {len(instruments)}, 时间范围: {start_time} 至 {end_time}"
+            panel = load_factor_panel(
+                instruments,
+                interval,
+                candle_type,
+                start_time,
+                end_time,
+                factor_name,
+                self._custom_store.all(),
+                provider,
             )
-
-            factor_data = D.features(
-                instruments=instruments,
-                fields=[factor_expr],
-                start_time=start_time,
-                end_time=end_time,
-                freq=freq,
-            )
-
-            factor_data.columns = [factor_name]
-
-            logger.info(f"因子 {factor_name} 计算完成，数据形状: {factor_data.shape}")
-            return factor_data
-
-        except FactorNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"计算因子 {factor_name} 失败: {e}")
-            msg = f"计算因子失败: {e}"
-            raise FactorError(msg)
+            logger.info(f"因子 {factor_name} 计算完成，点数: {len(panel)}")
+            return panel.to_frame(factor_name)
+        except _EngineExprError as e:
+            raise FactorError(str(e)) from e
 
     def calculate_factors(
         self,
         factor_names: list[str],
         instruments: list[str],
-        start_time: str,
-        end_time: str,
-        freq: str = "day",
-    ) -> pd.DataFrame | None:
-        """
-        计算多个因子的值
-
-        Args:
-            factor_names: 因子名称列表
-            instruments: 标的列表
-            start_time: 开始时间，格式：YYYY-MM-DD
-            end_time: 结束时间，格式：YYYY-MM-DD
-            freq: 频率，默认为日线
-
-        Returns:
-            因子值DataFrame，失败返回None
-
-        Raises:
-            FactorError: 计算失败时抛出
-        """
-        if not QLIB_AVAILABLE:
-            msg = "QLib未安装，无法计算因子"
-            raise FactorError(msg)
-
+        start_time: str | None,
+        end_time: str | None,
+        interval: str = "1h",
+        candle_type: str = "spot",
+        provider=None,
+    ) -> pd.DataFrame:
+        """计算多因子：原始 K 线只读盘一次，逐因子求值后按索引对齐拼接。"""
+        missing = [n for n in factor_names if n not in self.factors]
+        if missing:
+            raise FactorNotFoundError(f"因子不存在: {missing}")
         try:
-            factor_exprs = []
-            valid_factor_names = []
-
-            for factor_name in factor_names:
-                try:
-                    expr = self.get_factor_expression(factor_name)
-                    factor_exprs.append(expr)
-                    valid_factor_names.append(factor_name)
-                except FactorNotFoundError:
-                    logger.warning(f"因子 {factor_name} 不存在，将跳过")
-
-            if not factor_exprs:
-                msg = "没有有效的因子表达式"
-                raise FactorError(msg)
-
-            logger.info(
-                f"开始计算多个因子，"
-                f"因子数量: {len(factor_exprs)}, "
-                f"标的数量: {len(instruments)}, "
-                f"时间范围: {start_time} 至 {end_time}"
-            )
-
-            factor_data = D.features(
-                instruments=instruments,
-                fields=factor_exprs,
-                start_time=start_time,
-                end_time=end_time,
-                freq=freq,
-            )
-
-            factor_data.columns = valid_factor_names
-
-            logger.info(f"多个因子计算完成，数据形状: {factor_data.shape}")
-            return factor_data
-
-        except Exception as e:
-            logger.error(f"计算多个因子失败: {e}")
-            msg = f"计算多个因子失败: {e}"
-            raise FactorError(msg)
+            # ponytail: 多因子复用同一份 raw_map 避免重复读盘；K 线级数据量，外连接对齐足够
+            raw_map = load_raw_ohlcv(instruments, interval, candle_type, start_time, end_time, provider)
+            cols = {
+                name: factor_panel_from_raw(name, raw_map, self._custom_store.all())
+                for name in factor_names
+                if name not in UNSUPPORTED_FACTORS
+            }
+            if not cols:
+                raise FactorError("所选因子均不可计算（财务因子无数据）")
+            return pd.concat(cols, axis=1).sort_index()
+        except _EngineExprError as e:
+            raise FactorError(str(e)) from e
 
     def calculate_all_factors(
         self,
         instruments: list[str],
-        start_time: str,
-        end_time: str,
-        freq: str = "day",
-    ) -> pd.DataFrame | None:
-        """
-        计算所有因子的值
+        start_time: str | None,
+        end_time: str | None,
+        interval: str = "1h",
+        candle_type: str = "spot",
+        provider=None,
+    ) -> pd.DataFrame:
+        """计算所有可计算因子（内置量价/技术 + 自定义），跳过财务因子。"""
+        names = [n for n in self.factors if n not in UNSUPPORTED_FACTORS]
+        return self.calculate_factors(names, instruments, start_time, end_time, interval, candle_type, provider)
 
-        Args:
-            instruments: 标的列表
-            start_time: 开始时间，格式：YYYY-MM-DD
-            end_time: 结束时间，格式：YYYY-MM-DD
-            freq: 频率，默认为日线
+    def get_factor_details(self) -> list[dict]:
+        """内置+自定义因子明细，供因子库展示。"""
+        details = []
+        for name in self.factors:
+            meta = FACTOR_META.get(name)
+            details.append(
+                {
+                    "name": name,
+                    "expression": self.factors[name],
+                    "category": (meta or {}).get("category", "custom"),
+                    "label": (meta or {}).get("label", name),
+                    "builtin": meta is not None,
+                    "supported": name not in UNSUPPORTED_FACTORS,
+                }
+            )
+        return sorted(details, key=lambda d: (not d["builtin"], d["category"], d["name"]))
 
-        Returns:
-            因子值DataFrame，失败返回None
-        """
-        return self.calculate_factors(
-            factor_names=list(self.factors.keys()),
-            instruments=instruments,
-            start_time=start_time,
-            end_time=end_time,
-            freq=freq,
+    @staticmethod
+    def _ic_series(factor: pd.Series, forward_ret: pd.Series, method: str, window: int) -> pd.Series:
+        """IC 时序：多品种走每日截面相关；单品种退化为滚动窗口相关。"""
+        joined = pd.concat([factor.rename("f"), forward_ret.rename("r")], axis=1).dropna()
+        if joined.empty:
+            return pd.Series(dtype=float)
+        cross_dates = joined.groupby(level=0).size()
+        cross_dates = cross_dates[cross_dates >= 2].index
+        if len(cross_dates) >= 3:
+            return (
+                joined.groupby(level=0, group_keys=False).apply(lambda g: g["f"].corr(g["r"], method=method)).dropna()
+            )
+        # 单品种退化为滚动窗口相关
+        w = min(window, max(3, len(joined) // 4))
+        idx = joined.index.get_level_values(0)
+        f = pd.Series(joined["f"].values, index=idx)
+        r = pd.Series(joined["r"].values, index=idx)
+        return f.rolling(w).corr(r).dropna()
+
+    def analyze(
+        self,
+        factor_name: str,
+        symbols: list[str],
+        interval: str,
+        candle_type: str,
+        start: str | None,
+        end: str | None,
+        method: str = "spearman",
+        n_groups: int = 5,
+        window: int = 20,
+        forward: int = 1,
+        provider=None,
+    ) -> dict:
+        """一站式分析：取数→因子→前瞻收益→IC/IR/分组/单调性/稳定性/序列。"""
+        if factor_name in UNSUPPORTED_FACTORS:
+            raise FactorError(f"因子 {factor_name} 依赖财务数据，当前数据源不支持")
+        if factor_name not in self.factors:
+            raise FactorNotFoundError(f"因子不存在: {factor_name}")
+
+        factor = load_factor_panel(
+            symbols,
+            interval,
+            candle_type,
+            start,
+            end,
+            factor_name,
+            self._custom_store.all(),
+            provider,
         )
+        close = load_close_panel(symbols, interval, candle_type, start, end, provider)
+        aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
+        if len(aligned) < max(n_groups * 2, window + 2, 10):
+            raise FactorError(f"有效数据不足（{len(aligned)} 根），请扩大时间范围或减小分组/窗口")
 
-    def validate_factor_expression(self, factor_expression: str) -> bool:
-        """
-        验证因子表达式是否有效
+        # 按品种分组取前瞻，避免跨品种错位
+        forward_ret = (aligned["c"].groupby(level=1).shift(-forward) / aligned["c"] - 1).rename("r")
+        df = pd.concat([aligned["f"], forward_ret], axis=1).dropna()
 
-        Args:
-            factor_expression: 因子表达式
+        ic_series = self._ic_series(df["f"], df["r"], method, window)
+        ic_mean = float(ic_series.mean()) if len(ic_series) else None
+        ic_std = float(ic_series.std()) if len(ic_series) > 1 else None
+        ic_ir = (ic_mean / ic_std) if ic_mean is not None and ic_std and not pd.isna(ic_std) else None
 
-        Returns:
-            是否有效
-        """
         try:
-            if not factor_expression or not factor_expression.strip():
-                return False
+            grp = pd.qcut(df["f"], n_groups, labels=False, duplicates="drop") + 1
+        except ValueError:
+            grp = pd.qcut(df["f"].rank(method="first"), n_groups, labels=False) + 1
+        group_returns = df["r"].groupby(grp).mean()
+        long_short = float(group_returns.iloc[-1] - group_returns.iloc[0]) if len(group_returns) >= 2 else None
 
-            # TODO: 实现更复杂的表达式验证逻辑
-            return True
-        except Exception as e:
-            logger.error(f"因子表达式验证失败: {e}")
-            return False
+        mono_corr, p_value = spearmanr(group_returns.index.astype(float), group_returns.values)
+
+        stab_window = min(window, max(5, len(df) // 4))
+        stab = self.factor_stability_test(df["f"].to_frame("f"), window=stab_window)
+        desc = df["f"].describe()
+
+        pivot = df["f"].unstack(level=1)
+        factor_by_time = pivot.mean(axis=1) if pivot.shape[1] > 1 else pivot.iloc[:, 0]
+        close_pivot = aligned["c"].unstack(level=1)
+        close_by_time = close_pivot.mean(axis=1) if close_pivot.shape[1] > 1 else close_pivot.iloc[:, 0]
+        idx = factor_by_time.dropna().index.intersection(close_by_time.dropna().index)
+
+        return {
+            "factor_name": factor_name,
+            "instruments": symbols,
+            "interval": interval,
+            "bar_count": len(df),
+            "stats": {
+                "mean": float(desc["mean"]),
+                "std": float(desc["std"]),
+                "min": float(desc["min"]),
+                "max": float(desc["max"]),
+            },
+            "ic": {
+                "method": method,
+                "series": [
+                    {"t": t.strftime("%Y-%m-%d %H:%M"), "ic": (None if pd.isna(v) else float(v))}
+                    for t, v in ic_series.items()
+                ],
+                "mean": ic_mean,
+                "std": ic_std,
+                "ir": ic_ir,
+                "positive_rate": float((ic_series > 0).mean()) if len(ic_series) else None,
+            },
+            "groups": [{"group": int(g), "mean_forward_return": float(v)} for g, v in group_returns.items()],
+            "long_short_return": long_short,
+            "monotonicity": {"spearman": float(mono_corr), "p_value": float(p_value), "score": long_short},
+            "stability": {"window": stab_window, "mean_autocorr": (stab or {}).get("mean_autocorr")},
+            "series": {
+                "dates": [t.strftime("%Y-%m-%d %H:%M") for t in idx],
+                "close": [float(close_by_time.loc[t]) for t in idx],
+                "factor": {t.strftime("%Y-%m-%d %H:%M"): float(factor_by_time.loc[t]) for t in idx},
+            },
+        }
+
+    # ---------------- 通用统计方法（与具体行情引擎无关，保留供直接调用） ----------------
 
     def get_factor_correlation(self, factor_data: pd.DataFrame) -> pd.DataFrame | None:
-        """
-        计算因子之间的相关性
-
-        Args:
-            factor_data: 因子值DataFrame
-
-        Returns:
-            因子相关性矩阵，失败返回None
-        """
+        """计算因子之间的相关性矩阵。"""
         try:
             return factor_data.corr()
         except Exception as e:
@@ -377,15 +338,7 @@ class FactorService:
             return None
 
     def get_factor_descriptive_stats(self, factor_data: pd.DataFrame) -> pd.DataFrame | None:
-        """
-        获取因子的描述性统计信息
-
-        Args:
-            factor_data: 因子值DataFrame
-
-        Returns:
-            描述性统计信息，失败返回None
-        """
+        """获取因子的描述性统计信息。"""
         try:
             return factor_data.describe()
         except Exception as e:
@@ -446,7 +399,7 @@ class FactorService:
         """因子分组回测分析。
 
         对因子值按分位数分组，计算每组平均收益，评估因子的区分能力。
-        兼容 MultiIndex（QLib 格式：datetime×instrument）和普通 DataFrame/Series。
+        兼容 MultiIndex（多重索引 datetime×symbol）和普通 DataFrame/Series。
         """
         try:
             factor_series = factor_data.iloc[:, 0] if factor_data.ndim > 1 else factor_data
@@ -493,8 +446,6 @@ class FactorService:
                 return None
 
             group_returns = group_result["group_returns"]
-
-            from scipy.stats import spearmanr
 
             groups = list(range(1, len(group_returns) + 1))
             monotonicity_corr, p_value = spearmanr(groups, group_returns.values)
