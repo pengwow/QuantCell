@@ -1487,24 +1487,36 @@ const DataManagementPage = () => {
     }
   };
 
-  // 当展开 kind 时，加载其下的 3 个 market 子树（仅 metadata）
+  // 确保某 kind 下各 market 的 symbols 列表都已加载（已缓存的跳过）
+  // 衍生数据仅支持 um/cm（spot 无意义），故只拉 2 个；archive 拉全 3 个
+  const ensureKindSymbolsLoaded = (kind: ArchiveKind | DerivKind) => {
+    const markets: MarketType[] = isDerivKind(kind)
+      ? (['um', 'cm'] as MarketType[])
+      : ARCHIVE_MARKETS;
+    markets.forEach((m) => {
+      if (!archiveSymbolsMap[`${kind}__${m}`]) {
+        fetchArchiveSymbols(kind, m);
+      }
+    });
+  };
+
+  // 当展开 kind 时，加载其下的 market 子树 symbols
   const handleArchiveExpandKind = (kind: ArchiveKind | DerivKind, expanded: boolean) => {
     if (expanded) {
       setArchiveExpandedKinds((prev) => (prev.includes(kind) ? prev : [...prev, kind]));
-      // 衍生数据仅支持 um/cm（spot 无意义），故只拉 2 个；archive 拉全 3 个
-      const markets: MarketType[] = isDerivKind(kind)
-        ? (['um', 'cm'] as MarketType[])
-        : ARCHIVE_MARKETS;
-      markets.forEach((m) => {
-        const key = `${kind}__${m}`;
-        if (!archiveSymbolsMap[key]) {
-          fetchArchiveSymbols(kind, m);
-        }
-      });
+      ensureKindSymbolsLoaded(kind);
     } else {
       setArchiveExpandedKinds((prev) => prev.filter((k) => k !== kind));
     }
   };
+
+  // 初始 state 默认展开 aggTrades，但展开 state 本身不会触发加载，
+  // 挂载时主动拉一次，否则其下 SPOT/UM/CM 会一直停留在 "..." 占位
+  useEffect(() => {
+    ensureKindSymbolsLoaded('aggTrades');
+    // 仅在挂载时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ==================== 渲染方法 ====================
 
@@ -1902,6 +1914,8 @@ const DataManagementPage = () => {
             setArchiveKind(firstKind);
             setArchiveSymbol('');
             setArchiveExpandedKinds([firstKind]);
+            // 切换后首个 kind 处于默认展开态，需主动拉取市场列表，否则只显示 "..."
+            ensureKindSymbolsLoaded(firstKind);
           }}
           options={[
             { value: 'archive', label: `行情 (${ARCHIVE_KINDS.length})` },
