@@ -484,6 +484,30 @@ class LifecycleUpdateRequest(BaseSchema):
     status: str = Field(..., min_length=1, max_length=20, description="目标生命周期状态")
 
 
+class CodeFactorValidateRequest(BaseSchema):
+    """代码因子沙箱校验请求。"""
+
+    code: str = Field(..., min_length=1, max_length=20000, description="待校验的因子 Python 代码")
+
+
+class CodeFactorAddRequest(BaseSchema):
+    """代码因子入库请求。"""
+
+    factor_name: str = Field(..., min_length=1, max_length=100, description="代码因子名（字母开头）")
+    code: str = Field(..., min_length=1, max_length=20000, description="因子 Python 代码")
+    description: str | None = Field(default="", max_length=300, description="人类可读说明")
+
+
+class FactorMineLLMRequest(FactorCalculateBase):
+    """LLM 因子挖掘任务请求。"""
+
+    n_candidates: int = Field(default=4, ge=1, le=8, description="每轮 LLM 候选数（1-8）")
+    n_rounds: int = Field(default=2, ge=1, le=4, description="反思迭代轮数（1-4）")
+    top_k: int = Field(default=5, ge=1, le=10, description="返回 Top K 候选")
+    temperature: float = Field(default=0.8, ge=0.0, le=2.0, description="生成温度")
+    model_id: str | None = Field(default=None, description="指定 AI 模型 ID，空=默认模型")
+
+
 class FactorJobAccepted(BaseSchema):
     """异步任务提交成功响应"""
 

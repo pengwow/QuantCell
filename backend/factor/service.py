@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
-import re
+import re as _re
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
+from factor.code_store import CodeFactorStore
 from factor.engine import (
     FACTOR_META,
     UNSUPPORTED_FACTORS,
+    _timestamps_to_datetime,
     close_panel_from_raw,
     evaluate_expression,
     factor_panel_from_raw,
-    load_factor_panel,
     load_raw_ohlcv,
 )
 from factor.engine import (
     FactorExpressionError as _EngineExprError,
 )
 from factor.factor_store import FactorStore
+from factor.sandbox import FactorSandbox
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -56,19 +58,28 @@ class FactorService:
         factors: 因子名 -> 表达式，内置 + 自定义
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        code_store: CodeFactorStore | None = None,
+        sandbox: FactorSandbox | None = None,
+    ) -> None:
         self._custom_store = FactorStore()
+        self._code_store = code_store or CodeFactorStore()
+        self._sandbox = sandbox or FactorSandbox()
         self._builtin = {name: meta["expression"] for name, meta in FACTOR_META.items()}
         # 内置表达式（含不支持财务因子的空表达式）+ 自定义表达式
         self.factors: dict[str, str] = {**self._builtin, **self._custom_store.all()}
-        logger.info(f"FactorService初始化完成，内置 {len(self._builtin)} 个，自定义 {len(self._custom_store.all())} 个")
+        logger.info(
+            f"FactorService初始化完成，内置 {len(self._builtin)} 个，"
+            f"自定义表达式 {len(self._custom_store.all())} 个，代码因子 {len(self._code_store.all())} 个"
+        )
 
     def _load_builtin_factors(self) -> dict[str, str]:
         return dict(self._builtin)
 
     def get_factor_list(self) -> list[str]:
-        """获取所有支持的因子列表。"""
-        return list(self.factors.keys())
+        """获取所有支持的因子列表（表达式因子 + 代码因子）。"""
+        return list(self.factors.keys()) + list(self._code_store.all())
 
     def get_factor_expression(self, factor_name: str) -> str | None:
         """获取因子表达式，不存在抛 FactorNotFoundError。"""
@@ -88,6 +99,9 @@ class FactorService:
             msg = "因子表达式不能为空"
             raise FactorExpressionError(msg)
 
+        if self._code_store.get(factor_name) is not None:
+            raise FactorExpressionError(f"代码因子 {factor_name} 已存在，请改名或在因子库中删除后重建")
+
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
         expr = factor_expression.strip()
@@ -97,15 +111,49 @@ class FactorService:
         return True
 
     def delete_factor(self, factor_name: str) -> bool:
-        """删除自定义因子：内置因子受保护，不存在抛 FactorNotFoundError。"""
+        """删除因子：代码因子走代码库；内置因子受保护，其余按自定义表达式删除。"""
+        if self._code_store.get(factor_name) is not None:
+            return self.delete_code_factor(factor_name)
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许删除")
         if factor_name not in self.factors:
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
         del self.factors[factor_name]
         self._custom_store.delete(factor_name)
-        logger.info(f"成功删除自定义因子: {factor_name}")
+        logger.info(f"成功删除自定义表达式因子: {factor_name}")
         return True
+
+    _CODE_NAME_RE = _re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,99}$")
+
+    def save_code_factor(
+        self,
+        factor_name: str,
+        code: str,
+        description: str = "",
+        provenance: dict[str, Any] | None = None,
+    ) -> bool:
+        """保存 LLM/手写代码因子：名称校验 + 内置/表达式互斥 + 沙箱真实执行 + 去重。"""
+        if not self._CODE_NAME_RE.match(factor_name or ""):
+            raise FactorExpressionError("代码因子名需以字母开头，仅含字母数字下划线，长度 1-100")
+        if factor_name in self._builtin:
+            raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
+        if factor_name in self._custom_store.all():
+            raise FactorExpressionError(f"表达式因子 {factor_name} 已存在，名称不可复用")
+        if not code or not code.strip():
+            raise FactorExpressionError("因子代码不能为空")
+        if len(code) > 20000:
+            raise FactorExpressionError("因子代码过长（上限 20000 字符）")
+        # 静态策略 + 合成数据执行，任何一层失败直接拒绝
+        self._sandbox.validate(code.strip())
+        self._code_store.upsert(factor_name, code.strip(), description.strip(), provenance)
+        logger.info(f"成功保存代码因子: {factor_name}")
+        return True
+
+    def delete_code_factor(self, factor_name: str) -> bool:
+        if self._code_store.delete(factor_name):
+            logger.info(f"成功删除代码因子: {factor_name}")
+            return True
+        raise FactorNotFoundError(f"代码因子不存在: {factor_name}")
 
     def validate_factor_expression(self, factor_expression: str) -> bool:
         """用 3 行最小合成 K 线对表达式做真实 AST 求值校验（不依赖真实行情）。"""
@@ -138,19 +186,11 @@ class FactorService:
         provider=None,
     ) -> pd.DataFrame:
         """计算单因子，返回 MultiIndex(datetime, symbol)、单列=因子名 的 DataFrame。"""
-        if factor_name not in self.factors:
+        if factor_name not in self.factors and self._code_store.get(factor_name) is None:
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
         try:
-            panel = load_factor_panel(
-                instruments,
-                interval,
-                candle_type,
-                start_time,
-                end_time,
-                factor_name,
-                self._custom_store.all(),
-                provider,
-            )
+            raw_map = load_raw_ohlcv(instruments, interval, candle_type, start_time, end_time, provider)
+            panel = self._panel_from_raw(factor_name, raw_map)
             logger.info(f"因子 {factor_name} 计算完成，点数: {len(panel)}")
             return panel.to_frame(factor_name)
         except _EngineExprError as e:
@@ -167,16 +207,14 @@ class FactorService:
         provider=None,
     ) -> pd.DataFrame:
         """计算多因子：原始 K 线只读盘一次，逐因子求值后按索引对齐拼接。"""
-        missing = [n for n in factor_names if n not in self.factors]
+        missing = [n for n in factor_names if n not in self.factors and self._code_store.get(n) is None]
         if missing:
             raise FactorNotFoundError(f"因子不存在: {missing}")
         try:
             # ponytail: 多因子复用同一份 raw_map 避免重复读盘；K 线级数据量，外连接对齐足够
             raw_map = load_raw_ohlcv(instruments, interval, candle_type, start_time, end_time, provider)
             cols = {
-                name: factor_panel_from_raw(name, raw_map, self._custom_store.all())
-                for name in factor_names
-                if name not in UNSUPPORTED_FACTORS
+                name: self._panel_from_raw(name, raw_map) for name in factor_names if name not in UNSUPPORTED_FACTORS
             }
             if not cols:
                 raise FactorError("所选因子均不可计算（财务因子无数据）")
@@ -193,12 +231,39 @@ class FactorService:
         candle_type: str = "spot",
         provider=None,
     ) -> pd.DataFrame:
-        """计算所有可计算因子（内置量价/技术 + 自定义），跳过财务因子。"""
-        names = [n for n in self.factors if n not in UNSUPPORTED_FACTORS]
+        """计算所有可计算因子（内置量价/技术 + 自定义表达式 + 代码因子），跳过财务因子。"""
+        names = [n for n in self.get_factor_list() if n not in UNSUPPORTED_FACTORS]
         return self.calculate_factors(names, instruments, start_time, end_time, interval, candle_type, provider)
 
+    def assemble_code_panel(
+        self,
+        name: str,
+        series_map: dict[str, pd.Series],
+        raw_map: dict[str, pd.DataFrame],
+    ) -> pd.Series:
+        """把沙箱逐品种产出的 Series 拼成 MultiIndex(datetime,symbol) 面板（与表达式面板同约定）。"""
+        pieces = []
+        for symbol, raw in raw_map.items():
+            s = series_map[symbol].copy()
+            s.index = pd.MultiIndex.from_arrays(
+                [_timestamps_to_datetime(raw["timestamp"]).values, [symbol] * len(s)],
+                names=["datetime", "symbol"],
+            )
+            pieces.append(s)
+        panel = pd.concat(pieces).sort_index()
+        panel.name = name
+        return panel
+
+    def _panel_from_raw(self, name: str, raw_map: dict[str, pd.DataFrame]) -> pd.Series:
+        """统一面板入口：代码因子走沙箱，其余（内置/自定义表达式）走 AST 引擎。"""
+        entry = self._code_store.get(name)
+        if entry is not None:
+            series_map = self._sandbox.run(entry["code"], raw_map)
+            return self.assemble_code_panel(name, series_map, raw_map)
+        return factor_panel_from_raw(name, raw_map, self._custom_store.all())
+
     def get_factor_details(self) -> list[dict]:
-        """内置+自定义因子明细，供因子库展示。"""
+        """内置+自定义表达式因子+代码因子明细，供因子库展示。"""
         details = []
         for name in self.factors:
             meta = FACTOR_META.get(name)
@@ -210,6 +275,20 @@ class FactorService:
                     "label": (meta or {}).get("label", name),
                     "builtin": meta is not None,
                     "supported": name not in UNSUPPORTED_FACTORS,
+                    "kind": "expression",
+                }
+            )
+        for name, entry in self._code_store.all().items():
+            details.append(
+                {
+                    "name": name,
+                    "expression": entry["code"],
+                    "category": "llm_code",
+                    "label": entry.get("description") or name,
+                    "builtin": False,
+                    "supported": True,
+                    "kind": "code",
+                    "description": entry.get("description", ""),
                 }
             )
         return sorted(details, key=lambda d: (not d["builtin"], d["category"], d["name"]))
@@ -261,7 +340,7 @@ class FactorService:
     def _periods_per_year(cls, interval: str) -> int:
         if interval in cls._PERIODS_PER_YEAR:
             return cls._PERIODS_PER_YEAR[interval]
-        m = re.fullmatch(r"(\d+)(m|h|d)", interval.strip())
+        m = _re.fullmatch(r"(\d+)(m|h|d)", interval.strip())
         if m:
             num, unit = int(m.group(1)), m.group(2)
             minutes = num if unit == "m" else num * 60 if unit == "h" else num * 1440
@@ -483,16 +562,50 @@ class FactorService:
         """
         if factor_name in UNSUPPORTED_FACTORS:
             raise FactorError(f"因子 {factor_name} 依赖财务数据，当前数据源不支持")
-        if factor_name not in self.factors:
+        if factor_name not in self.factors and self._code_store.get(factor_name) is None:
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
 
         horizons = tuple(horizons) if horizons else self.DEFAULT_HORIZONS
-        fee_rate = float(cost_bps) / 10000.0
 
         # 因子面板与收盘价面板共用同一份 raw_map，避免每个品种重复读盘
         raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
-        factor = factor_panel_from_raw(factor_name, raw_map, self._custom_store.all())
+        factor = self._panel_from_raw(factor_name, raw_map)
         close = close_panel_from_raw(raw_map)
+        return self._analyze_core(
+            factor_name=factor_name,
+            symbols=symbols,
+            interval=interval,
+            raw_map=raw_map,
+            factor=factor,
+            close=close,
+            method=method,
+            n_groups=n_groups,
+            window=window,
+            forward=forward,
+            return_frames=return_frames,
+            horizons=horizons,
+            cost_bps=cost_bps,
+        )
+
+    def _analyze_core(
+        self,
+        *,
+        factor_name: str,
+        symbols: list[str],
+        interval: str,
+        raw_map: dict[str, pd.DataFrame],
+        factor: pd.Series,
+        close: pd.Series,
+        method: str = "spearman",
+        n_groups: int = 5,
+        window: int = 20,
+        forward: int = 1,
+        return_frames: bool = False,
+        horizons: tuple[int, ...] | None = None,
+        cost_bps: float = 0.0,
+    ) -> dict:
+        """analyze 指标主体：HTTP 分析链路与 LLM 挖掘链路共用同一口径，禁止在此处分叉。"""
+        fee_rate = float(cost_bps) / 10000.0
         n_total_bars = sum(len(raw) for raw in raw_map.values())
         # coverage 在 dropna 前统计：收盘同源无缺失，因子 NaN 计入，前瞻 shift 尾部不计入
         aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
@@ -586,6 +699,39 @@ class FactorService:
         if return_frames:
             return result, df
         return result
+
+    def analyze_code_panel(
+        self,
+        code: str,
+        raw_map: dict[str, pd.DataFrame],
+        *,
+        interval: str,
+        method: str = "spearman",
+        n_groups: int = 5,
+        window: int = 20,
+        forward: int = 1,
+        horizons: tuple[int, ...] | None = None,
+        cost_bps: float = 0.0,
+        label: str = "llm_candidate",
+    ) -> dict:
+        """对尚未入库的代码直接走「沙箱执行 → 全指标分析」，供 LLM 挖掘闭环调用。"""
+        series_map = self._sandbox.run(code, raw_map)
+        factor = self.assemble_code_panel(label, series_map, raw_map)
+        close = close_panel_from_raw(raw_map)
+        return self._analyze_core(
+            factor_name=label,
+            symbols=list(raw_map),
+            interval=interval,
+            raw_map=raw_map,
+            factor=factor,
+            close=close,
+            method=method,
+            n_groups=n_groups,
+            window=window,
+            forward=forward,
+            horizons=horizons or self.DEFAULT_HORIZONS,
+            cost_bps=cost_bps,
+        )
 
     def compare_factors(
         self,

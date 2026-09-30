@@ -18,6 +18,7 @@ import {
   type FactorAnalyzeParams,
   type FactorCompareParams,
   type FactorJobStatus,
+  type FactorMineLLMParams,
 } from '@/api/factor';
 import { wsService } from '@/services/websocketService';
 
@@ -25,12 +26,12 @@ const TOPIC = 'factor:job';
 const POLL_MS = 1000;
 const TIMEOUT_MS = 10 * 60 * 1000;
 
-export type FactorJobKind = 'analyze' | 'compare';
+export type FactorJobKind = 'analyze' | 'compare' | 'llm_mine';
 
 export interface UseFactorJob<T> {
   run: (
     kind: FactorJobKind,
-    params: FactorAnalyzeParams | FactorCompareParams,
+    params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
     onResult: (r: T) => void,
     onError: (msg: string) => void,
   ) => Promise<void>;
@@ -126,7 +127,7 @@ export function useFactorJob<T>(): UseFactorJob<T> {
   const run = useCallback(
     async (
       kind: FactorJobKind,
-      params: FactorAnalyzeParams | FactorCompareParams,
+      params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
       onResult: (r: T) => void,
       onError: (msg: string) => void,
     ) => {
@@ -143,6 +144,8 @@ export function useFactorJob<T>(): UseFactorJob<T> {
       try {
         if (kind === 'analyze') {
           accepted = await factorApi.analyzeAsync(params as FactorAnalyzeParams);
+        } else if (kind === 'llm_mine') {
+          accepted = await factorApi.mineLLM(params as FactorMineLLMParams);
         } else {
           accepted = await factorApi.compareAsync(params as FactorCompareParams);
         }
