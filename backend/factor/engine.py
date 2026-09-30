@@ -436,7 +436,16 @@ def factor_panel_from_raw(
         except SyntaxError as e:
             raise FactorExpressionError(f"表达式语法错误: {e}") from e
         if _contains_cs(tree):
-            envs = {symbol: _column_env(raw) for symbol, raw in raw_map.items()}
+            # 面板 env 的列索引统一为真实 DatetimeIndex，保证与 close_panel_from_raw 对齐
+            # （raw 的行索引是 RangeIndex，timestamp 在列中；不转换会导致 concat 后全 NaN）
+            envs: dict[str, dict] = {}
+            for symbol, raw in raw_map.items():
+                env = _column_env(raw)
+                dt_index = pd.DatetimeIndex(_timestamps_to_datetime(raw["timestamp"]))
+                # copy 后重设索引，避免原地修改 LRU 缓存返回的 raw 列
+                envs[symbol] = {k: v.copy() for k, v in env.items()}
+                for col in envs[symbol].values():
+                    col.index = dt_index
             panel = _eval_panel(tree, envs)
             if not isinstance(panel, pd.Series):
                 raise FactorExpressionError("表达式必须返回按时间对齐的序列，而非标量")
