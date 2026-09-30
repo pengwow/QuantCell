@@ -221,74 +221,92 @@ class EventDrivenBacktestService:
             msg = f"无法加载策略: {strategy_name}"
             raise ValueError(msg)
 
-        # 4. 执行回测（axon_quant 适配层）
-        if len(symbols) == 1:
-            # 单品种：直接调用 run_with_strategy
-            first_key = next(iter(loaded_data.keys()))
-            entry = loaded_data[first_key]
-            df = entry["data"]
-            parts = first_key.rsplit("_", 1)
-            symbol = parts[0] if len(parts) > 1 else first_key
+        # 4. 执行回测 —— 按策略基类选执行引擎
+        #    BaseStrategy 模板 → BacktestLoop（支持 ctx 注入 features/funding/account）
+        #    EventDrivenStrategy 旧版 → EventDrivenBacktestEngine（add_strategy + run_backtest）
+        from strategy.base import BaseStrategy
 
-            # 末日单管理:CLI / 脚本传 force_liquidate 控制回测结束 EOD 平仓
-            # True = 强制市价清仓(所有 PnL 转为已实现,适合日报/对账)
-            force_liquidate = (engine_config or {}).get("force_liquidate", False)
+        is_event_driven = not isinstance(strategy, BaseStrategy)
 
-            # 直接调用 BacktestLoop，传递特征数据
-            result = engine.run(
-                strategy=strategy,
-                data=df,
-                symbol=symbol,
-                force_liquidate=force_liquidate,
-                features=entry.get("features"),
-                feature_dataframe=entry.get("feature_dataframe"),
-                data_type=entry.get("data_type", "kline"),
-            )
-            raw_results = self._convert_backtest_result(result)
-        else:
-            # 多品种：每个品种跑一次，结果合并
-            force_liquidate = (engine_config or {}).get("force_liquidate", False)
-            _SUM_KEYS = {
-                "total_pnl",
-                "orders_accepted",
-                "orders_rejected",
-                "fills",
-                "total_orders",
-                "total_fees",
-                "events_processed",
-                "duration_secs",
-                "trade_count",
-                "bar_count",
-            }
-            _MIN_KEYS = {"data_start_ns"}
-            _MAX_KEYS = {"data_end_ns"}
-            aggregated_metrics: dict[str, Any] = {}
+        if is_event_driven:
+            # —— EventDrivenStrategy 路径 ——
+            # 数据和 instrument 已在 _load_data_to_engine 注入 EventDrivenBacktestEngine，
+            # 这里只需 add_strategy + run_backtest() 一次跑完所有品种
+            engine.add_strategy(strategy)
+            result_dict = engine.run_backtest()  # dict: {trades, positions, equity_curve, account, metrics}
+            # 转成统一 dict 格式供 ResultFormatterService.format_axon_results 消费
+            raw_results = self._event_engine_result_to_dict(result_dict, symbols)
+            # run_backtest 汇总所有品种，没法按 symbol 拆分 per_symbol_results，
+            # 多品种场景目前只走 BaseStrategy 模板的 BacktestLoop 路径
+            if len(symbols) > 1:
+                msg = f"EventDrivenStrategy({type(strategy).__name__}) 暂不支持多品种回测，请改用 BaseStrategy 模板"
+                raise ValueError(msg)
             per_symbol_results: dict[str, dict[str, Any]] = {}
-            for key, entry in loaded_data.items():
+        else:
+            # —— BaseStrategy 路径 —— 用 BacktestLoop
+            from backtest.backtest_loop import BacktestLoop
+
+            loop = BacktestLoop(initial_cash=init_cash)
+            force_liquidate = (engine_config or {}).get("force_liquidate", False)
+
+            if len(symbols) == 1:
+                first_key = next(iter(loaded_data.keys()))
+                entry = loaded_data[first_key]
                 df = entry["data"]
-                parts = key.rsplit("_", 1)
-                sym = parts[0] if len(parts) > 1 else key
-                loop_result = engine.run(
+                parts = first_key.rsplit("_", 1)
+                symbol = parts[0] if len(parts) > 1 else first_key
+                result = loop.run(
                     strategy=strategy,
                     data=df,
-                    symbol=sym,
+                    symbol=symbol,
                     force_liquidate=force_liquidate,
                     features=entry.get("features"),
                     feature_dataframe=entry.get("feature_dataframe"),
                     data_type=entry.get("data_type", "kline"),
                 )
-                result = self._convert_backtest_result(loop_result)
-                per_symbol_results[sym] = result
-                for k, v in result.items():
-                    if k in _SUM_KEYS and isinstance(v, (int, float)):
-                        aggregated_metrics[k] = aggregated_metrics.get(k, 0) + v
-                    elif k in _MIN_KEYS and isinstance(v, (int, float)):
-                        cur = aggregated_metrics.get(k, v)
-                        aggregated_metrics[k] = min(cur, v) if cur else v
-                    elif k in _MAX_KEYS and isinstance(v, (int, float)):
-                        cur = aggregated_metrics.get(k, v)
-                        aggregated_metrics[k] = max(cur, v) if cur else v
-            raw_results = aggregated_metrics
+                raw_results = self._convert_backtest_result(result)
+            else:
+                _SUM_KEYS = {
+                    "total_pnl",
+                    "orders_accepted",
+                    "orders_rejected",
+                    "fills",
+                    "total_orders",
+                    "total_fees",
+                    "events_processed",
+                    "duration_secs",
+                    "trade_count",
+                    "bar_count",
+                }
+                _MIN_KEYS = {"data_start_ns"}
+                _MAX_KEYS = {"data_end_ns"}
+                aggregated_metrics: dict[str, Any] = {}
+                per_symbol_results: dict[str, dict[str, Any]] = {}
+                for key, entry in loaded_data.items():
+                    df = entry["data"]
+                    parts = key.rsplit("_", 1)
+                    sym = parts[0] if len(parts) > 1 else key
+                    loop_result = loop.run(
+                        strategy=strategy,
+                        data=df,
+                        symbol=sym,
+                        force_liquidate=force_liquidate,
+                        features=entry.get("features"),
+                        feature_dataframe=entry.get("feature_dataframe"),
+                        data_type=entry.get("data_type", "kline"),
+                    )
+                    result = self._convert_backtest_result(loop_result)
+                    per_symbol_results[sym] = result
+                    for k, v in result.items():
+                        if k in _SUM_KEYS and isinstance(v, (int, float)):
+                            aggregated_metrics[k] = aggregated_metrics.get(k, 0) + v
+                        elif k in _MIN_KEYS and isinstance(v, (int, float)):
+                            cur = aggregated_metrics.get(k, v)
+                            aggregated_metrics[k] = min(cur, v) if cur else v
+                        elif k in _MAX_KEYS and isinstance(v, (int, float)):
+                            cur = aggregated_metrics.get(k, v)
+                            aggregated_metrics[k] = max(cur, v) if cur else v
+                raw_results = aggregated_metrics
 
         # 5. 格式化结果
         if len(symbols) == 1:
@@ -341,6 +359,48 @@ class EventDrivenBacktestService:
             "data_start_ns": result.data_start_ns,
             "data_end_ns": result.data_end_ns,
             "bar_count": result.bar_count,
+        }
+
+    @staticmethod
+    def _event_engine_result_to_dict(result_dict: dict, symbols: list[str]) -> dict[str, Any]:
+        """把 EventDrivenBacktestEngine.run_backtest() 的嵌套结果拍平成 BacktestLoop 风格
+
+        run_backtest 返回 {account, metrics, trades, equity_curve, positions} 嵌套结构；
+        BacktestResult 风格是扁平 {final_nav, total_pnl, max_drawdown, ...}。
+        ResultFormatterService.format_axon_results 吃后者。
+        """
+        account = result_dict.get("account", {}) or {}
+        metrics = result_dict.get("metrics", {}) or {}
+
+        # metrics 里已带 final_nav / total_pnl 等核心字段，优先用它们；
+        # 缺失时回退 account 子字段
+        final_nav = metrics.get("final_nav") or account.get("final_balance") or 0.0
+        nav_peak = metrics.get("nav_peak") or account.get("peak_equity") or 0.0
+        total_pnl = metrics.get("total_pnl", 0.0)
+        total_fees = metrics.get("total_fees", 0.0)
+
+        return {
+            "initial_capital": (nav_peak or final_nav) - total_pnl,
+            "final_nav": final_nav,
+            "total_pnl": total_pnl,
+            "max_drawdown": metrics.get("max_drawdown", 0.0),
+            "max_drawdown_pct": metrics.get("max_drawdown_pct", 0.0),
+            "nav_peak": nav_peak,
+            "orders_accepted": metrics.get("orders_accepted", 0),
+            "orders_rejected": metrics.get("orders_rejected", 0),
+            "fills": metrics.get("fills", 0),
+            "total_orders": metrics.get("total_orders", 0),
+            "events_processed": metrics.get("events_processed", 0),
+            "duration_secs": metrics.get("duration_secs", 0.0),
+            "win_rate": metrics.get("win_rate", 0.0),
+            "sharpe_ratio": metrics.get("sharpe_ratio", 0.0),
+            "total_fees": total_fees,
+            "trade_count": len(result_dict.get("trades", [])),
+            "trades": list(result_dict.get("trades", [])),
+            "equity_curve": list(result_dict.get("equity_curve", [])),
+            "data_start_ns": metrics.get("data_start_ns"),
+            "data_end_ns": metrics.get("data_end_ns"),
+            "bar_count": metrics.get("bar_count", 0),
         }
 
     def _initialize_engine(
