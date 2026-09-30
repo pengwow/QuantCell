@@ -257,7 +257,7 @@ def test_quantile_nav_time_series_groups_cover_all_bars():
     coverages = [g["coverage"] for g in nav["groups"]]
     assert sum(coverages) == pytest.approx(1.0, abs=1e-9)  # 五组轮值覆盖全部 bar
     for g in nav["groups"]:
-        assert set(g) == {"group", "coverage", "nav", "returns"}
+        assert set(g) == {"group", "coverage", "turnover", "returns", "nav", "returns_net", "nav_net"}
         assert len(g["nav"]) == len(nav["dates"]) == len(g["returns"])
         valid = [v for v in g["nav"] if v is not None]
         assert all(np.isfinite(v) and v > 0 for v in valid)
@@ -312,5 +312,115 @@ def test_quantile_nav_empty_groups_are_zero_return_not_nan_pollution():
 def test_analyze_inspection_includes_quantile_nav():
     res = FactorService().analyze("momentum_5d", ["BTCUSDT"], "1h", "spot", None, None, provider=_KlineProvider())
     qn = res["inspection"]["quantile_nav"]
-    assert {"dates", "groups", "long_short_returns", "long_short_nav"} == set(qn)
+    assert {"dates", "groups", "long_short_returns", "long_short_nav"} <= set(qn)
     assert len(qn["groups"]) == 5
+
+
+# ---------------- 自定义 horizon ----------------
+
+
+def test_decay_custom_horizons():
+    svc = FactorService()
+    res = svc.analyze(
+        "momentum_5d",
+        ["BTCUSDT"],
+        "1h",
+        "spot",
+        None,
+        None,
+        horizons=[1, 4, 8],
+        provider=_KlineProvider(),
+    )
+    lags = [d["lag"] for d in res["inspection"]["decay"]]
+    assert lags == [1, 4, 8]
+
+
+def test_decay_default_horizons_unchanged():
+    res = FactorService().analyze("momentum_5d", ["BTCUSDT"], "1h", "spot", None, None, provider=_KlineProvider())
+    assert [d["lag"] for d in res["inspection"]["decay"]] == [1, 2, 3, 5, 10]
+
+
+# ---------------- 双边换手与费后净值 ----------------
+
+
+def test_quantile_nav_zero_cost_net_equals_gross():
+    res = FactorService().analyze(
+        "momentum_5d",
+        ["BTCUSDT"],
+        "1h",
+        "spot",
+        None,
+        None,
+        n_groups=5,
+        cost_bps=0.0,
+        provider=_KlineProvider(),
+    )
+    qn = res["inspection"]["quantile_nav"]
+    assert qn["fee_rate"] == 0.0
+    for g in qn["groups"]:
+        assert g["nav_net"] == pytest.approx(g["nav"], abs=1e-12)
+        assert g["turnover"] >= 0.0
+
+
+def test_quantile_nav_cost_reduces_nav_and_turnover_bounded():
+    res0 = FactorService().analyze(
+        "momentum_5d",
+        ["BTCUSDT", "ETHUSDT"],
+        "1h",
+        "spot",
+        None,
+        None,
+        n_groups=2,
+        cost_bps=0.0,
+        provider=_KlineProvider(),
+    )
+    res10 = FactorService().analyze(
+        "momentum_5d",
+        ["BTCUSDT", "ETHUSDT"],
+        "1h",
+        "spot",
+        None,
+        None,
+        n_groups=2,
+        cost_bps=10.0,
+        provider=_KlineProvider(),
+    )
+    q0, q10 = res0["inspection"]["quantile_nav"], res10["inspection"]["quantile_nav"]
+    assert q0["fee_rate"] == 0.0 and q10["fee_rate"] == pytest.approx(0.001)
+    for g0, g10 in zip(q0["groups"], q10["groups"], strict=True):
+        assert 0.0 <= g10["turnover"] <= 2.0
+        # 有换手时，费后每一期净值 ≤ 费前（成本非负）
+        for net, gross in zip(g10["nav_net"], g0["nav"], strict=True):
+            assert net <= gross + 1e-12
+    # 截面多空换手在 (0,2]，费后多空净值 ≤ 费前
+    assert q0["long_short_turnover"] is not None and 0 < q0["long_short_turnover"] <= 2.0
+    if q0["long_short_nav"] and q10["long_short_nav_net"]:
+        gross_final = [v for v in q0["long_short_nav"] if v is not None][-1]
+        net_final = [v for v in q10["long_short_nav_net"] if v is not None][-1]
+        assert net_final <= gross_final + 1e-12
+
+
+def test_quantile_nav_schema_fields():
+    res = FactorService().analyze(
+        "momentum_5d",
+        ["BTCUSDT", "ETHUSDT"],
+        "1h",
+        "spot",
+        None,
+        None,
+        n_groups=2,
+        cost_bps=5.0,
+        provider=_KlineProvider(),
+    )
+    qn = res["inspection"]["quantile_nav"]
+    g = qn["groups"][0]
+    assert set(g) == {
+        "group",
+        "coverage",
+        "turnover",
+        "returns",
+        "nav",
+        "returns_net",
+        "nav_net",
+    }
+    assert {"fee_rate", "long_short_turnover", "long_short_nav_net"} <= set(qn)

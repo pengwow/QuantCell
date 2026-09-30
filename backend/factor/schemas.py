@@ -132,6 +132,11 @@ class FactorAnalyzeRequest(FactorCalculateBase):
     n_groups: int = Field(default=5, ge=2, le=10, description="分组数量")
     window: int = Field(default=20, ge=5, le=252, description="滚动窗口（K线根数）")
     forward: int = Field(default=1, ge=1, le=120, description="前瞻收益的K线根数")
+    horizons: list[int] | None = Field(
+        default=None,
+        description="自定义衰减滞后（K线根数，1-120、最多20个）；null 用默认 1/2/3/5/10",
+    )
+    cost_bps: float = Field(default=0.0, ge=0.0, le=1000.0, description="单边交易成本（基点），用于分位组合费后净值")
 
     @validator("method")
     def validate_method(cls, v: str) -> str:
@@ -139,6 +144,17 @@ class FactorAnalyzeRequest(FactorCalculateBase):
         if v not in {"spearman", "pearson"}:
             raise ValueError("method 必须为 spearman 或 pearson")
         return v
+
+    @validator("horizons")
+    def validate_horizons(cls, v: list[int] | None) -> list[int] | None:
+        """衰减滞后范围/数量校验；返回去重升序结果。"""
+        if v is None:
+            return None
+        if not v or len(v) > 20:
+            raise ValueError("horizons 至少 1 个、最多 20 个")
+        if any(not isinstance(h, int) or h < 1 or h > 120 for h in v):
+            raise ValueError("horizons 每个值必须是 1-120 的整数")
+        return sorted(set(v))
 
 
 class FactorCompareRequest(FactorCalculateBase):
@@ -154,6 +170,11 @@ class FactorCompareRequest(FactorCalculateBase):
     n_groups: int = Field(default=5, ge=2, le=10, description="分组数量")
     window: int = Field(default=20, ge=5, le=252, description="滚动窗口（K线根数）")
     forward: int = Field(default=1, ge=1, le=120, description="前瞻收益的K线根数")
+    horizons: list[int] | None = Field(
+        default=None,
+        description="自定义衰减滞后（K线根数，1-120、最多20个）；null 用默认 1/2/3/5/10",
+    )
+    cost_bps: float = Field(default=0.0, ge=0.0, le=1000.0, description="单边交易成本（基点），用于分位组合费后净值")
 
     @validator("method")
     def validate_compare_method(cls, v: str) -> str:
@@ -161,6 +182,16 @@ class FactorCompareRequest(FactorCalculateBase):
         if v not in {"spearman", "pearson"}:
             raise ValueError("method 必须为 spearman 或 pearson")
         return v
+
+    @validator("horizons")
+    def validate_compare_horizons(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return None
+        if not v or len(v) > 20:
+            raise ValueError("horizons 至少 1 个、最多 20 个")
+        if any(not isinstance(h, int) or h < 1 or h > 120 for h in v):
+            raise ValueError("horizons 每个值必须是 1-120 的整数")
+        return sorted(set(v))
 
 
 class FactorDetail(BaseSchema):
