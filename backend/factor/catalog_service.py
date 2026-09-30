@@ -162,6 +162,7 @@ class FactorCatalogService:
             "coverage": inspection.get("coverage"),
             "turnover": inspection.get("turnover"),
             "annualized_ir": (inspection.get("ic_stats") or {}).get("annualized_ir"),
+            "nw_t_stat": (inspection.get("ic_stats") or {}).get("nw_t_stat"),
             "created_at": datetime.now(UTC).isoformat(),
         }
 
@@ -258,6 +259,7 @@ class FactorCatalogService:
                     "coverage": metrics.get("inspection", {}).get("coverage"),
                     "turnover": metrics.get("inspection", {}).get("turnover"),
                     "annualized_ir": (metrics.get("inspection", {}).get("ic_stats") or {}).get("annualized_ir"),
+                    "nw_t_stat": (metrics.get("inspection", {}).get("ic_stats") or {}).get("nw_t_stat"),
                     "ic_series_len": len(metrics.get("ic", {}).get("series", [])),
                 }
             )

@@ -309,6 +309,32 @@ class FactorService:
             out.append({"lag": lag, "spearman": sp, "pearson": pp})
         return out
 
+    @staticmethod
+    def _nw_tstat(ic_series: pd.Series) -> tuple[float | None, int]:
+        """Newey-West HAC 调整 t 统计量（Bartlett kernel）。
+
+        对 IC 序列的均值显著性做异方差+自相关一致（HAC）校正：当 IC 存在正自相关
+        （如滚动窗口 IC）时，普通 t-stat 会高估显著性，NW 标准误把该因素扣除。
+        滞后阶数按 Newey-West (1994) 自动选择 L=floor(4·(n/100)^(2/9))。
+        返回 (nw_t_stat, L)；样本不足返回 (None, 0)。
+        """
+        x = ic_series.dropna().to_numpy(dtype=float)
+        n = len(x)
+        if n < 4:
+            return None, 0
+        lag = int(np.floor(4 * (n / 100) ** (2 / 9)))
+        e = x - x.mean()
+        gamma0 = float(np.dot(e, e) / n)
+        nw_var = gamma0
+        for ell in range(1, lag + 1):
+            weight = 1 - ell / (lag + 1)
+            gamma_l = float(np.dot(e[ell:], e[:-ell]) / n)
+            nw_var += 2 * weight * gamma_l
+        if nw_var <= 0:
+            return None, lag
+        se = float(np.sqrt(nw_var / n))
+        return float(x.mean() / se), lag
+
     @classmethod
     def _ic_stats(cls, ic_series: pd.Series, interval: str) -> dict:
         n = len(ic_series)
@@ -318,6 +344,7 @@ class FactorService:
         ppy = cls._periods_per_year(interval)
         annualized = (ir * np.sqrt(ppy)) if ir is not None else None
         t_stat = (mean / (std / np.sqrt(n))) if (mean is not None and std and n > 1) else None
+        nw_t, nw_lag = cls._nw_tstat(ic_series)
         return {
             "n": n,
             "ic_mean": mean,
@@ -326,6 +353,56 @@ class FactorService:
             "periods_per_year": ppy,
             "annualized_ir": annualized,
             "t_stat": t_stat,
+            "nw_t_stat": nw_t,
+            "nw_lag": nw_lag,
+        }
+
+    @staticmethod
+    def _quantile_nav(df: pd.DataFrame, grp: pd.Series, n_groups: int) -> dict:
+        """分位组合净值曲线（与 analyze 分组标签同源）。
+
+        - 每组、每时间点取组内品种等权平均前瞻收益（截面）；
+        - 某组该时点无品种 → 收益 NaN（不可投资），累计时按空仓 0 收益处理，曲线从 1.0 连续；
+        - 多空(Qn-Q1)仅在两端组同时有持仓时计收益，否则 NaN；全期不可得时 long_short_nav 为 null。
+        返回 dates / groups[group,coverage,nav] / long_short 序列与净值。
+        """
+        grp_ret = (
+            df["r"]
+            .groupby([df.index.get_level_values(0), grp])
+            .mean()
+            .unstack()
+            .reindex(columns=range(1, n_groups + 1))
+        )
+        dates = [t.strftime("%Y-%m-%d %H:%M") for t in grp_ret.index]
+        groups = []
+        for g in range(1, n_groups + 1):
+            col = grp_ret[g]
+            groups.append(
+                {
+                    "group": int(g),
+                    "coverage": float(col.notna().mean()) if len(col) else 0.0,
+                    "nav": [None if pd.isna(v) else float(v) for v in (1 + col.fillna(0.0)).cumprod()],
+                    "returns": [None if pd.isna(v) else float(v) for v in col],
+                }
+            )
+
+        ls_returns: list[float | None] = [None] * len(dates)
+        ls_nav: list[float | None] = []
+        if n_groups in grp_ret.columns and 1 in grp_ret.columns:
+            long_ret, short_ret = grp_ret[n_groups], grp_ret[1]
+            both = long_ret.notna() & short_ret.notna()
+            ls = (long_ret - short_ret).where(both)
+            if ls.notna().any():
+                # 只在两端组同时有持仓的 bar 上累计，再 reindex 回完整时间轴（缺失为 None）
+                cum = (1 + ls.dropna()).cumprod().reindex(grp_ret.index)
+                ls_returns = [None if pd.isna(v) else float(v) for v in ls]
+                ls_nav = [None if pd.isna(v) else float(v) for v in cum]
+
+        return {
+            "dates": dates,
+            "groups": groups,
+            "long_short_returns": ls_returns,
+            "long_short_nav": ls_nav or None,
         }
 
     @staticmethod
@@ -423,6 +500,7 @@ class FactorService:
                 window=stab_window,
             ),
             "ic_stats": self._ic_stats(ic_series, interval),
+            "quantile_nav": self._quantile_nav(df, grp, n_groups),
         }
 
         result = {
@@ -518,6 +596,7 @@ class FactorService:
                     "ic_ir": res["ic"].get("ir"),
                     "annualized_ir": (insp.get("ic_stats") or {}).get("annualized_ir"),
                     "t_stat": (insp.get("ic_stats") or {}).get("t_stat"),
+                    "nw_t_stat": (insp.get("ic_stats") or {}).get("nw_t_stat"),
                     "ic_positive_rate": res["ic"].get("positive_rate"),
                     "long_short_return": res.get("long_short_return"),
                     "monotonicity_spearman": res.get("monotonicity", {}).get("spearman"),
