@@ -217,6 +217,48 @@ const FactorWorkbench: React.FC = () => {
     };
   }, [result, qc]);
 
+  // 分位组用 qc 语义色循环取色（Q1 冷/弱 → Qn 暖/强），最多 5 色循环；多空加粗虚线醒目区分
+  const quantileNavOption = useMemo<EChartsOption>(() => {
+    const qn = result?.inspection?.quantile_nav;
+    if (!qn) return {};
+    const palette = [qc.negative, qc.warning, qc.neutral, qc.info, qc.positive];
+    const groupNames = qn.groups.map((g) => `Q${g.group}`);
+    const lsName = `多空 Q${qn.groups.length}-Q1`;
+    const hasLS = qn.long_short_nav != null;
+    return {
+      tooltip: { trigger: 'axis' },
+      legend: { data: hasLS ? [...groupNames, lsName] : groupNames },
+      grid: { left: '3%', right: '4%', containLabel: true },
+      xAxis: { type: 'category', data: qn.dates, axisLabel: { color: qc.chartMark } },
+      yAxis: { type: 'value', axisLabel: { color: qc.chartMark } },
+      dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
+      series: [
+        ...qn.groups.map((g, i) => ({
+          name: `Q${g.group}`,
+          type: 'line' as const,
+          showSymbol: false,
+          connectNulls: true,
+          data: g.nav,
+          itemStyle: { color: palette[i % palette.length] },
+          lineStyle: { color: palette[i % palette.length], width: 1.2 },
+        })),
+        ...(hasLS
+          ? [
+              {
+                name: lsName,
+                type: 'line' as const,
+                showSymbol: false,
+                connectNulls: true,
+                data: qn.long_short_nav as (number | null)[],
+                itemStyle: { color: qc.positive },
+                lineStyle: { color: qc.positive, width: 2.5, type: 'dashed' as const },
+              },
+            ]
+          : []),
+      ],
+    };
+  }, [result, qc]);
+
   // 比例转百分比字符串
   const pct = (x: number | null) => `${((x ?? 0) * 100).toFixed(1)}%`;
 
@@ -275,6 +317,22 @@ const FactorWorkbench: React.FC = () => {
             value:
               result.inspection?.ic_stats.t_stat != null
                 ? result.inspection.ic_stats.t_stat.toFixed(2)
+                : '—',
+          },
+          {
+            key: 'nw_t_stat',
+            title: (
+              <Tooltip
+                title={`Newey-West HAC 调整 t 统计量（Bartlett kernel，自动滞后 ${
+                  result.inspection?.ic_stats.nw_lag ?? 0
+                } 阶），扣除 IC 自相关导致的显著性虚高`}
+              >
+                <span>NW t-stat</span>
+              </Tooltip>
+            ),
+            value:
+              result.inspection?.ic_stats.nw_t_stat != null
+                ? result.inspection.ic_stats.nw_t_stat.toFixed(2)
                 : '—',
           },
         ]
@@ -413,6 +471,15 @@ const FactorWorkbench: React.FC = () => {
           <Card title="IC 衰减（lag 1–10）">
             <EChart option={decayOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
           </Card>
+          {result.inspection?.quantile_nav && (
+            <Card title="分位组合净值">
+              <EChart
+                option={quantileNavOption}
+                style={{ height: 340 }}
+                opts={{ renderer: 'svg' }}
+              />
+            </Card>
+          )}
         </Space>
       )}
     </Space>

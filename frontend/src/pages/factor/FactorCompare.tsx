@@ -170,6 +170,13 @@ const FactorCompare: React.FC = () => {
       render: (v: number | null) => fmt(v, 2),
     },
     {
+      title: 'NW t',
+      dataIndex: 'nw_t_stat',
+      key: 'nw_t_stat',
+      align: 'right',
+      render: (v: number | null) => fmt(v, 2),
+    },
+    {
       title: 'IC胜率',
       dataIndex: 'ic_positive_rate',
       key: 'ic_positive_rate',

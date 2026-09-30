@@ -53,6 +53,7 @@ export interface FactorCompareRow {
   ic_ir: number | null;
   annualized_ir: number | null;
   t_stat: number | null;
+  nw_t_stat: number | null;
   ic_positive_rate: number | null;
   long_short_return: number | null;
   monotonicity_spearman: number | null;
@@ -119,6 +120,23 @@ export interface FactorSnapshotSummary {
   ic_series_len: number;
 }
 
+/** 分位组合净值曲线（inspection.quantile_nav） */
+export interface QuantileNav {
+  /** 时间轴 */
+  dates: string[];
+  /** 每个分位组一条曲线；空仓期净值由后端延续（1.0 平铺），nav 连续非 null */
+  groups: {
+    group: number;
+    coverage: number;
+    nav: (number | null)[];
+    returns: (number | null)[];
+  }[];
+  /** 截面多空逐期收益（时序口径下全 null） */
+  long_short_returns: (number | null)[];
+  /** 截面多空净值（null=该数据口径不可构造） */
+  long_short_nav: (number | null)[] | null;
+}
+
 export interface FactorAnalyzeResult {
   factor_name: string;
   instruments: string[];
@@ -150,7 +168,10 @@ export interface FactorAnalyzeResult {
       periods_per_year: number;
       annualized_ir: number | null;
       t_stat: number | null;
+      nw_t_stat: number | null;
+      nw_lag: number;
     };
+    quantile_nav?: QuantileNav;
   };
 }
 
