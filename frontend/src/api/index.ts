@@ -342,16 +342,21 @@ api.interceptors.response.use(
       return response.data as unknown as AxiosResponse;
     }
 
-    const { code, message, data } = response.data;
-    // 兼容两种成功响应码：code=0（标准业务码）和 code=200（HTTP风格）
-    if (code === 0 || code === 200) {
-      // 拦截器已解包业务 data，类型不符由 apiRequest 的泛型断言兜底
-      return data as unknown as AxiosResponse;
-    } else {
-        const errorMsg = message || (response.data as { detail?: string })?.detail || '未知错误';
-        console.error('API 错误:', errorMsg);
-        return Promise.reject(new ApiError(code, errorMsg));
-      }
+    // collector 的 archive/deriv 模块返回 {success, ...业务字段}，故 success 单独声明
+    const body = (response.data ?? {}) as Partial<ApiResponse> & { success?: boolean };
+    const { code, message, data, success } = body;
+    // 兼容三种成功形态：code=0（标准业务码）、code=200（HTTP风格）、
+    // 无 code 但 success=true（archive/deriv 风格，业务字段直接在 body 顶层）
+    const isStandardOk = code === 0 || code === 200;
+    const isSuccessStyleOk = code === undefined && success === true;
+    if (isStandardOk || isSuccessStyleOk) {
+      // 标准格式解包 data；success 风格没有 data 包裹，需透传整个 body 给业务层
+      // 类型不符由 apiRequest 的泛型断言兜底
+      return (isSuccessStyleOk ? body : data) as unknown as AxiosResponse;
+    }
+    const errorMsg = message || (body as { detail?: string }).detail || '未知错误';
+    console.error('API 错误:', errorMsg);
+    return Promise.reject(new ApiError(code ?? -1, errorMsg));
   },
   (error) => {
     // 处理HTTP 401未授权错误
