@@ -250,7 +250,7 @@ const FactorLibrary: React.FC = () => {
           <Form.Item
             name="expression"
             label="表达式"
-            extra="列：open/high/low/close/volume/quote_volume/vwap/amount；函数：Ref/MA/Std/RSI/MACD/KDJ/BBANDS；支持四则运算"
+            extra="列：open/high/low/close/volume/quote_volume/vwap/amount；时序函数：Ref/MA/Std/RSI/MACD/KDJ/BBANDS；截面函数（需多品种）：cs_rank(表达式)/cs_zscore(表达式)；支持四则运算与嵌套，如 MA(cs_rank(close-open),5)"
             rules={[{ required: true, message: '请输入表达式' }]}
           >
             <Input.TextArea rows={3} placeholder="如 close / Ref(close, 5) - 1" />
