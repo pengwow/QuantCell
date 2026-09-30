@@ -494,7 +494,16 @@ class FactorService:
             for name in factor_names
         }
         details = {d["name"]: d for d in self.get_factor_details()}
+        labels = {name: details.get(name, {}).get("label", name) for name in factor_names}
+        return self._assemble_compare(results, labels)
 
+    @staticmethod
+    def _assemble_compare(results: dict[str, dict], labels: dict[str, str] | None = None) -> dict:
+        """把 {factor_name: analyze 结果} 组装成对比行 + 时间轴对齐的 IC 序列。
+
+        同步 compare_factors 与异步 compare job 共用，保证两条链路口径一致。
+        """
+        labels = labels or {}
         rows = []
         ic_by_factor: dict[str, pd.Series] = {}
         for name, res in results.items():
@@ -502,7 +511,7 @@ class FactorService:
             rows.append(
                 {
                     "factor_name": name,
-                    "label": details.get(name, {}).get("label", name),
+                    "label": labels.get(name, name),
                     "coverage": insp.get("coverage"),
                     "turnover": insp.get("turnover"),
                     "ic_mean": res["ic"].get("mean"),
