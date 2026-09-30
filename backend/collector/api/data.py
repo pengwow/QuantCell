@@ -862,6 +862,35 @@ def get_products(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/tasks/{task_id}", response_model=ApiResponse)
+def delete_task(task_id: str = Path(..., description="任务ID"), db: Session = Depends(get_db)):
+    """删除采集任务记录（仅删除执行历史，不影响已采集的数据）
+
+    Args:
+        task_id: 要删除的任务 ID
+        db: 数据库会话
+
+    Returns:
+        ApiResponse: 删除结果
+    """
+    from ..db import crud
+    from ..db.models import TaskBusiness
+
+    # 运行中/待启动的任务不允许删——需要先停止，否则 WS 回调会撞空任务
+    existing_list = TaskBusiness.get_by_task_id(task_id)
+    existing = existing_list[0] if existing_list else None
+    if existing is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if existing.status in ("running", "pending"):
+        raise HTTPException(status_code=409, detail=f"任务正在 {existing.status}，请先停止再删除")
+
+    ok = crud.delete_task(db, task_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="任务不存在或已删除")
+
+    return ApiResponse(code=0, message="删除任务成功", data={"task_id": task_id})
+
+
 @router.get("/tasks/{task_id}/details", response_model=ApiResponse)
 def get_task_details(task_id: str = Path(..., description="任务ID"), db: Session = Depends(get_db)):
     """获取任务的子任务详情列表
