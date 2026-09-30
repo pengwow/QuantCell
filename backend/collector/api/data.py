@@ -874,15 +874,6 @@ def delete_task(task_id: str = Path(..., description="任务ID"), db: Session = 
         ApiResponse: 删除结果
     """
     from ..db import crud
-    from ..db.models import TaskBusiness
-
-    # 运行中/待启动的任务不允许删——需要先停止，否则 WS 回调会撞空任务
-    existing_list = TaskBusiness.get_by_task_id(task_id)
-    existing = existing_list[0] if existing_list else None
-    if existing is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    if existing.status in ("running", "pending"):
-        raise HTTPException(status_code=409, detail=f"任务正在 {existing.status}，请先停止再删除")
 
     ok = crud.delete_task(db, task_id)
     if not ok:

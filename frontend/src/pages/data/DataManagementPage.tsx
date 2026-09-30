@@ -218,8 +218,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const statusCfg = TASK_STATUS_CONFIG[task.status] || TASK_STATUS_CONFIG.pending;
   const progress = task.progress || { percentage: 0, total: 0, completed: 0, failed: 0, current: '' };
 
-  // 运行中/待启动的任务不允许删（后端 409 也会拦，这里提前禁用）
-  const canDelete = !isCurrent && task.status !== 'running' && task.status !== 'pending';
+  // 仅"当前"卡禁用——那是自己正在盯着跑的那张，别误删
+  // 历史记录里的 running/pending 允许删（采集进程已挂的僵尸任务）
+  const canDelete = !isCurrent;
 
   // 从 params 提取数据类型和市场
   const dataType: string = String(task.params?.data_type ?? task.params?.dataType ?? 'kline');
