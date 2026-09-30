@@ -14,6 +14,7 @@ from sqlalchemy import func
 
 from common.schemas import ApiResponse
 from factor.catalog_service import CatalogError, FactorCatalogService
+from factor.job_manager import JobStatus, job_manager
 from factor.models import FactorCatalog, FactorSnapshot
 from quality.parquet_provider import ParquetDataProvider
 from utils.auth import get_current_user
@@ -802,3 +803,91 @@ def delete_snapshot(snapshot_id: int, current_user: dict = Depends(get_current_u
     except Exception as e:
         logger.error(f"快照删除失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------- 异步任务（analyze/compare） ----------------
+
+
+def _run_analyze_job(params: dict[str, Any]):
+    """构造 analyze 异步任务 runner（工作线程内执行，进度经 WS factor:job 推送）。"""
+
+    def runner(on_progress, _on_stage):
+        on_progress(30, "data", "读取数据…")
+        on_progress(90, "computing", "计算因子指标…")
+        return factor_service.analyze(
+            factor_name=params["factor_name"],
+            symbols=params["instruments"],
+            interval=params["interval"],
+            candle_type=params["candle_type"],
+            start=params["start_time"],
+            end=params["end_time"],
+            method=params["method"],
+            n_groups=params["n_groups"],
+            window=params["window"],
+            forward=params["forward"],
+        )
+
+    return runner
+
+
+def _run_compare_job(params: dict[str, Any]):
+    """构造 compare 异步任务 runner：逐因子推进度，再共用 _assemble_compare 组装。"""
+    names = params["factor_names"]
+
+    def runner(on_progress, _on_stage):
+        on_progress(20, "data", "读取数据…")
+        results = {}
+        for i, name in enumerate(names):
+            on_progress(20 + i / len(names) * 70, "computing", f"{name} ({i + 1}/{len(names)})")
+            results[name] = factor_service.analyze(
+                factor_name=name,
+                symbols=params["instruments"],
+                interval=params["interval"],
+                candle_type=params["candle_type"],
+                start=params["start_time"],
+                end=params["end_time"],
+                method=params["method"],
+                n_groups=params["n_groups"],
+                window=params["window"],
+                forward=params["forward"],
+            )
+        on_progress(95, "assembling", "汇总对比…")
+        details = {d["name"]: d for d in factor_service.get_factor_details()}
+        labels = {n: details.get(n, {}).get("label", n) for n in names}
+        return FactorService._assemble_compare(results, labels)
+
+    return runner
+
+
+@router.post("/analyze-async", response_model=ApiResponse, summary="异步因子分析（返回 job_id，进度走 WS factor:job）")
+def analyze_async(request: FactorAnalyzeRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    params = request.model_dump()
+    job_id = job_manager.submit("analyze", params, _run_analyze_job(params))
+    return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
+
+
+@router.post("/compare-async", response_model=ApiResponse, summary="异步多因子对比")
+def compare_async(request: FactorCompareRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    params = request.model_dump()
+    job_id = job_manager.submit("compare", params, _run_compare_job(params))
+    return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
+
+
+@router.get("/jobs/{job_id}", response_model=ApiResponse, summary="查询因子任务状态")
+def get_factor_job(job_id: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    status = job_manager.get_status(job_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    return ApiResponse(code=0, message="ok", data=_sanitize(status))
+
+
+@router.get("/jobs/{job_id}/result", response_model=ApiResponse, summary="获取因子任务结果")
+def get_factor_job_result(job_id: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    job = job_manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    if job.status in (JobStatus.PENDING, JobStatus.RUNNING):
+        raise HTTPException(status_code=409, detail=f"任务尚未完成（{job.status}）")
+    if job.status == JobStatus.FAILED:
+        raise HTTPException(status_code=410, detail=job.error or "任务失败")
+    return ApiResponse(code=0, message="ok", data=_sanitize(job.result))
