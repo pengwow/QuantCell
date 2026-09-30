@@ -160,10 +160,38 @@ class StrategyLoaderService:
                 msg = f"在模块 {strategy_name} 中找不到策略类"
                 raise StrategyLoadError(msg)
 
-            # 实例化策略
-            # instrument_ids/bar_types 传 None 时 _instantiate_strategy 会用空列表
-            # （axond.StrategyConfig 的这两个字段是必填但允许空列表；
-            #  真实品种信息在 default 引擎走 data_dict，event 引擎走 load_event_strategy_multi）
+            # EventDrivenStrategy 子类走专用路径 —— 它的 Config 需要 instrument_ids/bar_types
+            # 作为显式必填参数，_instantiate_strategy 只构造 BaseStrategy 的 StrategyConfig
+            from backtest.strategies.event_strategy import EventDrivenStrategy
+
+            if issubclass(strategy_class, EventDrivenStrategy):
+                # load_event_strategy_multi 需要 dict 形式：
+                #   instruments: {"symbol": 任意对象}  —— EventDrivenStrategy 里只 str() 它
+                #   bar_types:   {"symbol": bar_type_str}
+                if not instrument_ids or not bar_types:
+                    msg = f"策略 {strategy_class.__name__} 要求 instrument_ids 和 bar_types 非空"
+                    raise StrategyLoadError(msg)
+
+                instruments_dict = {}
+                bar_types_dict = {}
+                for inst, bt in zip(instrument_ids, bar_types, strict=True):
+                    symbol = inst["symbol"] if isinstance(inst, dict) else str(inst)
+                    instruments_dict[symbol] = inst  # 原样塞，EventDrivenStrategy 只 str()
+                    bar_types_dict[symbol] = bt
+
+                instance = StrategyLoaderService.load_event_strategy_multi(
+                    strategy_name=strategy_name,
+                    strategy_params=strategy_params,
+                    bar_types=bar_types_dict,
+                    instruments=instruments_dict,
+                )
+                if instance is None:
+                    msg = f"load_event_strategy_multi 返回 None，无法加载 {strategy_class.__name__}"
+                    raise StrategyLoadError(msg)
+                logger.info(f"成功加载事件驱动策略: {strategy_class.__name__} (from {strategy_file})")
+                return instance
+
+            # BaseStrategy 子类走通用实例化
             instance = StrategyLoaderService._instantiate_strategy(
                 strategy_class,
                 strategy_params,
