@@ -297,7 +297,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
         )}
 
         {/* 第一行：类型/来源徽章 + 状态 */}
-        <Row justify="space-between" align="middle" style={{ marginBottom: 6 }}>
+        {/* paddingRight 预留悬停删除按钮位置，避免 hover 时 badge 被盖住 */}
+        <Row justify="space-between" align="middle" style={{ marginBottom: 6, paddingRight: 32 }}>
           <Space size={4} wrap>
             <Tag color={DATA_TYPE_TAG_COLOR[dataType] || 'default'} style={{ margin: 0 }}>
               {dataTypeLabel}
