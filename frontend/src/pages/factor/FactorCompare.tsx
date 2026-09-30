@@ -4,9 +4,11 @@ import {
   Card,
   DatePicker,
   Empty,
+  Flex,
   Form,
   InputNumber,
   message,
+  Progress,
   Select,
   Space,
   Table,
@@ -24,6 +26,7 @@ import {
   type FactorDetail,
   type InstrumentInfo,
 } from '@/api/factor';
+import { useFactorJob } from '@/hooks/useFactorJob';
 import { useQuantColors } from '@/utils/colors';
 
 const { RangePicker } = DatePicker;
@@ -50,7 +53,8 @@ const FactorCompare: React.FC = () => {
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [result, setResult] = useState<FactorCompareResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { run: runJob, status: jobStatus, loading: jobLoading } =
+    useFactorJob<FactorCompareResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
 
   useEffect(() => {
@@ -88,14 +92,20 @@ const FactorCompare: React.FC = () => {
       window: v.window,
       forward: v.forward,
     };
-    setLoading(true);
     try {
-      setResult(await factorApi.compare(params));
+      await runJob(
+        'compare',
+        params,
+        setResult,
+        (msg) => {
+          message.error(msg);
+          setResult(null);
+        },
+      );
     } catch (err) {
+      // 提交阶段同步 rejection（如 422/网络失败）
       setResult(null);
       message.error(errMsg(err));
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -305,7 +315,7 @@ const FactorCompare: React.FC = () => {
             <InputNumber min={1} max={120} />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" icon={<SwapOutlined />} loading={loading} onClick={run}>
+            <Button type="primary" icon={<SwapOutlined />} loading={jobLoading} onClick={run}>
               开始对比
             </Button>
           </Form.Item>
@@ -315,14 +325,27 @@ const FactorCompare: React.FC = () => {
         </p>
       </Card>
 
-      {loading && <Card loading />}
-      {!loading && !result && (
+      {jobLoading && <Card loading />}
+      {jobLoading && jobStatus && (
+        <Card size="small">
+          <Flex gap="middle" align="center">
+            <Progress
+              type="circle"
+              size={48}
+              percent={Math.round(jobStatus.progress)}
+              status="active"
+            />
+            <span>{jobStatus.message || '排队中…'}</span>
+          </Flex>
+        </Card>
+      )}
+      {!jobLoading && !result && (
         <Card>
           <Empty description="选择 2-5 个因子后点击「开始对比」" />
         </Card>
       )}
 
-      {!loading && result && (
+      {!jobLoading && result && (
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
           <Card title="指标对比">
             <Table<FactorCompareRow>
