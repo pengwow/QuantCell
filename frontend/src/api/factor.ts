@@ -27,6 +27,10 @@ export interface FactorAnalyzeParams {
   n_groups?: number;
   window?: number;
   forward?: number;
+  /** 自定义衰减 lag（K线根数）；null/不传 = 默认 [1,2,3,5,10] */
+  horizons?: number[] | null;
+  /** 单边交易成本基点，默认 0（如 10 = 0.1%） */
+  cost_bps?: number;
 }
 
 /** 多因子对比：2-5 个因子共用一组分析参数（独立 interface，避免 factor_name 单数冲突） */
@@ -41,6 +45,10 @@ export interface FactorCompareParams {
   n_groups?: number;
   window?: number;
   forward?: number;
+  /** 自定义衰减 lag（K线根数）；null/不传 = 默认 [1,2,3,5,10] */
+  horizons?: number[] | null;
+  /** 单边交易成本基点，默认 0（如 10 = 0.1%） */
+  cost_bps?: number;
 }
 
 /** 多因子对比结果行：单因子 inspection + 分析核心指标 */
@@ -124,17 +132,31 @@ export interface FactorSnapshotSummary {
 export interface QuantileNav {
   /** 时间轴 */
   dates: string[];
+  /** 单边费率 = cost_bps/10000 */
+  fee_rate: number;
   /** 每个分位组一条曲线；空仓期净值由后端延续（1.0 平铺），nav 连续非 null */
   groups: {
     group: number;
     coverage: number;
-    nav: (number | null)[];
+    /** 双边换手（每 bar） */
+    turnover: number;
+    /** 毛收益（旧字段，可能含 null） */
     returns: (number | null)[];
+    /** 毛净值（旧字段，可能含 null） */
+    nav: (number | null)[];
+    /** 费后逐期收益（连续无 null） */
+    returns_net: number[];
+    /** 费后净值（连续无 null） */
+    nav_net: number[];
   }[];
   /** 截面多空逐期收益（时序口径下全 null） */
   long_short_returns: (number | null)[];
-  /** 截面多空净值（null=该数据口径不可构造） */
+  /** 截面多空毛净值（null=该数据口径不可构造） */
   long_short_nav: (number | null)[] | null;
+  /** 多空双边换手（每 bar） */
+  long_short_turnover: number | null;
+  /** 费后多空净值（null=该数据口径不可构造） */
+  long_short_nav_net: (number | null)[] | null;
 }
 
 export interface FactorAnalyzeResult {

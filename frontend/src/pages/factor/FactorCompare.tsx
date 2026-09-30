@@ -6,6 +6,7 @@ import {
   Empty,
   Flex,
   Form,
+  Input,
   InputNumber,
   message,
   Progress,
@@ -40,9 +41,36 @@ interface FormValues {
   n_groups: number;
   window: number;
   forward: number;
+  /** 仅表单文本态，不进入 factor 参数对象；提交时解析为 horizons（多因子共用） */
+  horizonsText?: string;
+  costBps: number;
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message || '对比失败';
+
+/**
+ * 解析 horizons 文本：trim 后按中英文逗号分隔，逐项过滤空白。
+ * 空字符串 → null（不传，后端用默认 [1,2,3,5,10]）；
+ * 每项必须是 1-120 的整数、最多 20 个，否则返回错误信息（与后端校验一致）。
+ */
+const parseHorizons = (text: string | undefined): number[] | null | string => {
+  const t = (text ?? '').trim();
+  if (!t) return null;
+  const parts = t
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+  if (parts.length > 20) return '衰减滞后最多 20 个';
+  const hs: number[] = [];
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return `衰减滞后必须是整数：${p}`;
+    const n = Number(p);
+    if (n < 1 || n > 120) return `衰减滞后必须是 1-120 的整数：${p}`;
+    hs.push(n);
+  }
+  return hs;
+};
 
 const fmt = (v: number | null | undefined, digits: number) =>
   v == null ? '—' : v.toFixed(digits);
@@ -79,6 +107,11 @@ const FactorCompare: React.FC = () => {
 
   const run = async () => {
     const v = await form.validateFields();
+    const horizons = parseHorizons(v.horizonsText);
+    if (typeof horizons === 'string') {
+      message.error(horizons);
+      return;
+    }
     const [s, e] = v.range ?? [];
     const params: FactorCompareParams = {
       factor_names: v.factor_names,
@@ -91,6 +124,8 @@ const FactorCompare: React.FC = () => {
       n_groups: v.n_groups,
       window: v.window,
       forward: v.forward,
+      horizons,
+      cost_bps: v.costBps ?? 0,
     };
     try {
       await runJob(
@@ -259,6 +294,7 @@ const FactorCompare: React.FC = () => {
             window: 20,
             forward: 1,
             interval: '1h',
+            costBps: 0,
           }}
         >
           <Form.Item
@@ -321,6 +357,16 @@ const FactorCompare: React.FC = () => {
           <Form.Item name="forward" label="前瞻(根)">
             <InputNumber min={1} max={120} />
           </Form.Item>
+          <Form.Item name="horizonsText" label="衰减滞后">
+            <Input placeholder="1,2,3,5,10（留空用默认）" allowClear style={{ width: 210 }} />
+          </Form.Item>
+          <Form.Item
+            name="costBps"
+            label="单边成本(bp)"
+            extra="单边费率基点，10bp=0.1%；对所有对比因子生效"
+          >
+            <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: 110 }} />
+          </Form.Item>
           <Form.Item>
             <Button type="primary" icon={<SwapOutlined />} loading={jobLoading} onClick={run}>
               开始对比
@@ -328,7 +374,7 @@ const FactorCompare: React.FC = () => {
           </Form.Item>
         </Form>
         <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-          2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻单位均为 K 线根数。
+          2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。
         </p>
       </Card>
 

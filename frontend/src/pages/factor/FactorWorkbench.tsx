@@ -7,6 +7,7 @@ import {
   Empty,
   Flex,
   Form,
+  Input,
   InputNumber,
   message,
   Progress,
@@ -41,9 +42,36 @@ interface FormValues {
   n_groups: number;
   window: number;
   forward: number;
+  /** 仅表单文本态，不进入 factor 参数对象；提交时解析为 horizons */
+  horizonsText?: string;
+  costBps: number;
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message || '分析失败';
+
+/**
+ * 解析 horizons 文本：trim 后按中英文逗号分隔，逐项过滤空白。
+ * 空字符串 → null（不传，后端用默认 [1,2,3,5,10]）；
+ * 每项必须是 1-120 的整数、最多 20 个，否则返回错误信息（与后端校验一致）。
+ */
+const parseHorizons = (text: string | undefined): number[] | null | string => {
+  const t = (text ?? '').trim();
+  if (!t) return null;
+  const parts = t
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+  if (parts.length > 20) return '衰减滞后最多 20 个';
+  const hs: number[] = [];
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return `衰减滞后必须是整数：${p}`;
+    const n = Number(p);
+    if (n < 1 || n > 120) return `衰减滞后必须是 1-120 的整数：${p}`;
+    hs.push(n);
+  }
+  return hs;
+};
 
 const FactorWorkbench: React.FC = () => {
   const qc = useQuantColors();
@@ -79,6 +107,11 @@ const FactorWorkbench: React.FC = () => {
 
   const run = useCallback(async () => {
     const v = await form.validateFields();
+    const horizons = parseHorizons(v.horizonsText);
+    if (typeof horizons === 'string') {
+      message.error(horizons);
+      return;
+    }
     const [s, e] = v.range ?? [];
     const params: FactorAnalyzeParams = {
       factor_name: v.factor_name,
@@ -91,6 +124,8 @@ const FactorWorkbench: React.FC = () => {
       n_groups: v.n_groups,
       window: v.window,
       forward: v.forward,
+      horizons,
+      cost_bps: v.costBps ?? 0,
     };
     try {
       await runJob(
@@ -217,41 +252,88 @@ const FactorWorkbench: React.FC = () => {
     };
   }, [result, qc]);
 
-  // 分位组用 qc 语义色循环取色（Q1 冷/弱 → Qn 暖/强），最多 5 色循环；多空加粗虚线醒目区分
+  // 分位组用 qc 语义色循环取色（Q1 冷/弱 → Qn 暖/强），最多 5 色循环。
+  // 毛净值实线、费后净值同色虚线（仅 fee_rate>0）；多空毛=加粗虚线、多空费后=加粗实线醒目区分。
   const quantileNavOption = useMemo<EChartsOption>(() => {
     const qn = result?.inspection?.quantile_nav;
     if (!qn) return {};
     const palette = [qc.negative, qc.warning, qc.neutral, qc.info, qc.positive];
-    const groupNames = qn.groups.map((g) => `Q${g.group}`);
-    const lsName = `多空 Q${qn.groups.length}-Q1`;
+    const withFee = qn.fee_rate > 0;
+    const groupNames: string[] = [];
+    qn.groups.forEach((g) => {
+      groupNames.push(`Q${g.group}·换手${g.turnover.toFixed(2)}`);
+      if (withFee) groupNames.push(`Q${g.group}费后`);
+    });
     const hasLS = qn.long_short_nav != null;
+    const lsGrossName = `多空毛·换手${
+      qn.long_short_turnover == null ? '—' : qn.long_short_turnover.toFixed(2)
+    }`;
+    const hasLSNet = withFee && qn.long_short_nav_net != null;
+    const lsNetName = '多空费后';
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: hasLS ? [...groupNames, lsName] : groupNames },
+      legend: {
+        data: [
+          ...groupNames,
+          ...(hasLS ? [lsGrossName] : []),
+          ...(hasLSNet ? [lsNetName] : []),
+        ],
+      },
       grid: { left: '3%', right: '4%', containLabel: true },
       xAxis: { type: 'category', data: qn.dates, axisLabel: { color: qc.chartMark } },
       yAxis: { type: 'value', axisLabel: { color: qc.chartMark } },
       dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
       series: [
-        ...qn.groups.map((g, i) => ({
-          name: `Q${g.group}`,
-          type: 'line' as const,
-          showSymbol: false,
-          connectNulls: true,
-          data: g.nav,
-          itemStyle: { color: palette[i % palette.length] },
-          lineStyle: { color: palette[i % palette.length], width: 1.2 },
-        })),
+        ...qn.groups.flatMap((g, i) => {
+          const color = palette[i % palette.length];
+          return [
+            {
+              name: `Q${g.group}·换手${g.turnover.toFixed(2)}`,
+              type: 'line' as const,
+              showSymbol: false,
+              connectNulls: true,
+              data: g.nav,
+              itemStyle: { color },
+              lineStyle: { color, width: 1.2 },
+            },
+            ...(withFee
+              ? [
+                  {
+                    name: `Q${g.group}费后`,
+                    type: 'line' as const,
+                    showSymbol: false,
+                    connectNulls: true,
+                    data: g.nav_net,
+                    itemStyle: { color },
+                    lineStyle: { color, width: 1, type: 'dashed' as const },
+                  },
+                ]
+              : []),
+          ];
+        }),
         ...(hasLS
           ? [
               {
-                name: lsName,
+                name: lsGrossName,
                 type: 'line' as const,
                 showSymbol: false,
                 connectNulls: true,
                 data: qn.long_short_nav as (number | null)[],
                 itemStyle: { color: qc.positive },
                 lineStyle: { color: qc.positive, width: 2.5, type: 'dashed' as const },
+              },
+            ]
+          : []),
+        ...(hasLSNet
+          ? [
+              {
+                name: lsNetName,
+                type: 'line' as const,
+                showSymbol: false,
+                connectNulls: true,
+                data: qn.long_short_nav_net as (number | null)[],
+                itemStyle: { color: qc.positive },
+                lineStyle: { color: qc.positive, width: 2.5 },
               },
             ]
           : []),
@@ -350,6 +432,7 @@ const FactorWorkbench: React.FC = () => {
             window: 20,
             forward: 1,
             interval: '1h',
+            costBps: 0,
           }}
         >
           <Form.Item name="factor_name" label="因子" rules={[{ required: true, message: '选择因子' }]}>
@@ -395,6 +478,16 @@ const FactorWorkbench: React.FC = () => {
           <Form.Item name="forward" label="前瞻(根)">
             <InputNumber min={1} max={120} />
           </Form.Item>
+          <Form.Item name="horizonsText" label="衰减滞后">
+            <Input placeholder="1,2,3,5,10（留空用默认）" allowClear style={{ width: 210 }} />
+          </Form.Item>
+          <Form.Item
+            name="costBps"
+            label="单边成本(bp)"
+            extra="单边费率基点，10bp=0.1%；用于分位组合费后净值"
+          >
+            <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: 110 }} />
+          </Form.Item>
           <Form.Item>
             <Button type="primary" icon={<LineChartOutlined />} loading={jobLoading} onClick={run}>
               开始分析
@@ -402,7 +495,7 @@ const FactorWorkbench: React.FC = () => {
           </Form.Item>
         </Form>
         <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-          滚动窗 / 前瞻单位均为 K 线根数；财务因子无数据来源，不在可选列表。
+          滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数；财务因子无数据来源，不在可选列表。
         </p>
       </Card>
 
@@ -468,7 +561,11 @@ const FactorWorkbench: React.FC = () => {
           <Card title="分组平均前瞻收益">
             <EChart option={groupOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
           </Card>
-          <Card title="IC 衰减（lag 1–10）">
+          <Card
+            title={`IC 衰减（lag ${
+              (result.inspection?.decay ?? []).map((d) => d.lag).join('、') || '1–10'
+            }）`}
+          >
             <EChart option={decayOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
           </Card>
           {result.inspection?.quantile_nav && (
