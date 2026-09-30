@@ -12,16 +12,21 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 
+from axon_bridge.llm import create_llm_backend
 from common.schemas import ApiResponse
 from factor.catalog_service import CatalogError, FactorCatalogService
 from factor.job_manager import JobStatus, job_manager
+from factor.llm_miner import LLMMineParams, run_llm_mining
 from factor.models import FactorCatalog, FactorSnapshot
+from factor.sandbox import SandboxError
 from quality.parquet_provider import ParquetDataProvider
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 from .schemas import (
+    CodeFactorAddRequest,
+    CodeFactorValidateRequest,
     FactorAddRequest,
     FactorAnalyzeRequest,
     FactorCalculateBase,
@@ -32,6 +37,7 @@ from .schemas import (
     FactorGroupAnalysisRequest,
     FactorICRequest,
     FactorIRRequest,
+    FactorMineLLMRequest,
     FactorMonotonicityRequest,
     FactorStabilityRequest,
     FactorStatsRequest,
@@ -865,6 +871,60 @@ def _run_compare_job(params: dict[str, Any]):
     return runner
 
 
+def _resolve_llm_config(model_id: str | None = None) -> dict[str, Any] | None:
+    """解析默认 AI 提供商配置（同步读系统配置，必须在提交 job 前的请求线程完成）。"""
+    try:
+        from ai_model.config_utils import get_default_provider_and_models
+
+        result = get_default_provider_and_models()
+    except Exception as e:
+        logger.warning(f"读取 AI 模型配置失败: {e}")
+        return None
+    if not result:
+        return None
+    provider = result["provider"]
+    api_key = provider.get("api_key")
+    if not api_key:
+        return None
+    enabled = result.get("enabled_models") or []
+    model_name = ""
+    if model_id:
+        model_name = next((m.get("name") for m in enabled if m.get("id") == model_id), model_id)
+    elif enabled:
+        model_name = enabled[0].get("name", "")
+    return {"api_key": api_key, "base_url": provider.get("api_host"), "model": model_name}
+
+
+def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
+    """构造 llm_mine 任务 runner（工作线程内建 backend，进度经 WS factor:job 推送）。"""
+
+    def runner(on_progress, _on_stage):
+        backend = create_llm_backend(
+            api_key=llm_cfg["api_key"],
+            base_url=llm_cfg["base_url"],
+            model=llm_cfg["model"],
+            temperature=float(params.get("temperature", 0.8)),
+            max_tokens=8192,
+            timeout_secs=120,
+        )
+        mine_params = LLMMineParams(
+            symbols=params["instruments"],
+            interval=params["interval"],
+            candle_type=params["candle_type"],
+            start=params["start_time"],
+            end=params["end_time"],
+            n_candidates=params["n_candidates"],
+            n_rounds=params["n_rounds"],
+            top_k=params["top_k"],
+            temperature=params["temperature"],
+            model_id=params.get("model_id"),
+            model_name=llm_cfg["model"],
+        )
+        return run_llm_mining(mine_params, backend=backend, progress=on_progress)
+
+    return runner
+
+
 @router.post("/analyze-async", response_model=ApiResponse, summary="异步因子分析（返回 job_id，进度走 WS factor:job）")
 def analyze_async(request: FactorAnalyzeRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     params = request.model_dump()
@@ -876,6 +936,63 @@ def analyze_async(request: FactorAnalyzeRequest, current_user: dict = Depends(ge
 def compare_async(request: FactorCompareRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     params = request.model_dump()
     job_id = job_manager.submit("compare", params, _run_compare_job(params))
+    return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
+
+
+@router.post("/code/validate", response_model=ApiResponse, summary="校验代码因子（静态策略+合成数据沙箱执行）")
+def validate_code_factor(
+    request: CodeFactorValidateRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
+    try:
+        factor_service._sandbox.validate(request.code)
+        return ApiResponse(code=0, message="代码校验通过", data={"valid": True})
+    except SandboxError as e:
+        return ApiResponse(
+            code=1,
+            message="代码校验失败",
+            data={"valid": False, "error_type": type(e).__name__, "message": str(e)},
+        )
+
+
+@router.post("/code/add", response_model=ApiResponse, summary="新增代码因子（沙箱校验通过后入库）")
+def add_code_factor(request: CodeFactorAddRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        factor_service.save_code_factor(
+            request.factor_name,
+            request.code,
+            request.description or "",
+            provenance={"source": "manual_or_llm"},
+        )
+        return ApiResponse(
+            code=0,
+            message=f"代码因子 {request.factor_name} 已保存",
+            data={"factor_name": request.factor_name},
+        )
+    except (FactorError, FactorNotFoundError, _EngineExprError, SandboxError) as e:
+        logger.info(f"代码因子入库被拒: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/code/{factor_name}", response_model=ApiResponse, summary="删除代码因子")
+def delete_code_factor(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        factor_service.delete_code_factor(factor_name)
+        return ApiResponse(code=0, message=f"代码因子 {factor_name} 已删除")
+    except FactorNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/mine/llm",
+    response_model=ApiResponse,
+    summary="提交 LLM 因子挖掘任务（异步，进度走 WS factor:job）",
+)
+def mine_llm_factors(request: FactorMineLLMRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    llm_cfg = _resolve_llm_config(request.model_id)
+    if llm_cfg is None:
+        raise HTTPException(status_code=400, detail="未配置可用的默认 AI 模型或 API Key，请先在模型管理中配置")
+    params = request.model_dump()
+    job_id = job_manager.submit("llm_mine", params, _run_llm_mine_job(params, llm_cfg))
     return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
 
 

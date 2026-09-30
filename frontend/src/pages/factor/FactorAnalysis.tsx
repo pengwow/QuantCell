@@ -8,6 +8,7 @@ import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import FactorCompare from './FactorCompare';
 import FactorLibrary from './FactorLibrary';
+import FactorMining from './FactorMining';
 import FactorWorkbench from './FactorWorkbench';
 
 const FactorAnalysis: React.FC = () => {
@@ -25,6 +26,7 @@ const FactorAnalysis: React.FC = () => {
           { key: 'workbench', label: t('factor_workbench'), children: <FactorWorkbench /> },
           { key: 'library', label: t('factor_library'), children: <FactorLibrary /> },
           { key: 'compare', label: t('factor_compare') || '因子对比', children: <FactorCompare /> },
+          { key: 'mining', label: 'LLM 挖掘', children: <FactorMining /> },
         ]}
       />
     </PageContainer>

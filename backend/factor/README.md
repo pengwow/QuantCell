@@ -6,10 +6,11 @@
 
 ## 功能特性
 
-- **因子管理**：获取、添加、删除自定义因子
+- **因子管理**：获取、添加、删除自定义因子（表达式因子 + 代码因子双轨）
 - **因子计算**：支持单因子、多因子、所有因子计算
 - **因子分析**：IC分析、IR分析、分组分析、单调性检验、稳定性检验
 - **因子验证**：验证因子表达式有效性
+- **代码因子（LLM 挖掘 + 沙箱）**：LLM 生成 pandas 代码 → 进程级沙箱执行 → 复用同一套 IC/Inspector 指标评估 → 反思迭代 → 优秀代码入库
 
 ## 支持的因子类型
 
@@ -63,10 +64,15 @@ factor/
 ├── __init__.py          # 模块导出
 ├── README.md            # 模块文档
 ├── engine.py            # pandas 自有表达式引擎（AST 白名单求值）
-├── factor_store.py      # 自定义因子 JSON 持久化
+├── factor_store.py      # 表达式因子 JSON 持久化（custom_factors.json）
+├── code_store.py        # 代码因子 JSON 持久化（code_factors.json）
+├── sandbox.py           # LLM 代码沙箱（AST 白名单 + 子进程编排 + 输出契约）
+├── sandbox_runner.py    # 沙箱子进程入口（仅 stdlib+numpy/pandas，禁 import factor 包）
+├── llm_miner.py         # LLM 挖掘闭环（生成→沙箱→评估→反思）
+├── job_manager.py       # 异步任务（analyze/compare/llm_mine）+ WS 进度
 ├── routes.py            # API路由
 ├── schemas.py           # Pydantic模型
-└── service.py           # 业务服务
+└── service.py           # 业务服务（_analyze_core 为分析/挖掘共用指标口径）
 
 # 单元测试位于 tests/unit/factor/
 #   test_factor_engine.py / test_factor_store.py / test_factor_analyze.py
@@ -94,6 +100,20 @@ factor/
 | POST | `/api/v1/factor/group-analysis` | 分组分析 |
 | POST | `/api/v1/factor/monotonicity` | 单调性检验 |
 | POST | `/api/v1/factor/stability` | 稳定性检验 |
+| POST | `/api/v1/factor/code/validate` | 校验代码因子（静态策略 + 合成数据沙箱真实执行） |
+| POST | `/api/v1/factor/code/add` | 新增代码因子（沙箱校验通过后入库） |
+| DELETE | `/api/v1/factor/code/{name}` | 删除代码因子 |
+| POST | `/api/v1/factor/mine/llm` | 提交 LLM 因子挖掘异步任务（job 进度走 WS `factor:job`，结果走 `/jobs/{id}/result`） |
+
+## 代码因子沙箱安全模型
+
+LLM 生成的代码不可信，执行边界为三层防线（研究级防护，非多租户安全边界）：
+
+1. **静态 AST 白名单**（`FactorCodePolicy`，父进程执行）：只允许向量化表达式节点；禁 `import`、dunder、属性/名称白名单之外的访问、`**kwargs`、列表推导/lambda/循环/with/类定义；必须把结果赋给 `factor`。
+2. **独立子进程 + 资源限额**（`sandbox_runner.py`）：按文件路径启动（不经过 factor 包重依赖链），受限 builtins（无 open/exec/eval/__import__）；rlimit 限制 CPU 秒数、虚拟内存、FD 数；wall-clock 超时由父进程强杀；stdin/stdout 长度帧 pickle 通信。macOS 不强制 `RLIMIT_AS`，runner 另以峰值 RSS（`ru_maxrss`）事后兜底。
+3. **输出契约**：`factor` 必须是与 `df` 等长、索引逐行对齐、无重复索引、数值型、至少一个有限值且不含 inf 的 `pandas.Series`。
+
+已知上限与升级路径：无内核级网络/文件系统隔离（网络阻断靠「禁 import + FD 限额」、文件访问靠「无 open」）；升级路径为 macOS `sandbox-exec` / Linux bubblewrap 包装 runner。挖掘当前为单面板 in-sample 选因子，升级路径为 train/test 切分 + walk-forward 复核。
 
 ## 使用示例
 

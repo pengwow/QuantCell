@@ -8,6 +8,9 @@ export interface FactorDetail {
   label: string;
   builtin: boolean;
   supported: boolean;
+  /** 因子形态：表达式因子 / Python 代码因子（LLM 挖掘保存） */
+  kind?: 'expression' | 'code';
+  description?: string;
 }
 
 /** /instruments 返回的品种及其可用周期 */
@@ -75,13 +78,76 @@ export interface FactorCompareResult {
   ic_series: { dates: string[]; series: Record<string, (number | null)[]> };
 }
 
+/** LLM 因子挖掘任务入参 */
+export interface FactorMineLLMParams {
+  instruments: string[];
+  interval: string;
+  candle_type?: 'spot' | 'future';
+  start_time?: string | null;
+  end_time?: string | null;
+  /** 每轮候选数 1-8 */
+  n_candidates: number;
+  /** 反思轮数 1-4 */
+  n_rounds: number;
+  /** 每轮保留进入下一轮反思的候选数 1-10 */
+  top_k: number;
+  temperature?: number;
+  model_id?: string | null;
+}
+
+/** 单个挖掘候选结果 */
+export interface MinedCandidate {
+  round: number;
+  candidate: number;
+  code: string;
+  code_hash: string;
+  status:
+    | 'success'
+    | 'security_error'
+    | 'output_error'
+    | 'timeout'
+    | 'resource_error'
+    | 'runtime_error'
+    | 'empty';
+  error_type: string | null;
+  error: string | null;
+  metrics: {
+    fitness: number | null;
+    ic_mean: number | null;
+    ic_ir: number | null;
+    coverage: number | null;
+    turnover: number | null;
+    long_short_return: number | null;
+    monotonicity_spearman: number | null;
+    nw_t_stat: number | null;
+    bar_count: number | null;
+  } | null;
+}
+
+/** LLM 挖掘任务结果 */
+export interface FactorMineResult {
+  candidates: MinedCandidate[];
+  best: MinedCandidate[];
+  stats: {
+    generated: number;
+    unique: number;
+    succeeded: number;
+    failed: number;
+    rounds: number;
+    symbols: string[];
+    interval: string;
+    model_name: string | null;
+    [key: string]: unknown;
+  };
+}
+
 /** 因子异步任务状态值 */
 export type FactorJobStatusValue = 'pending' | 'running' | 'completed' | 'failed';
 
 /** 因子异步任务状态（WS 推送 / GET /jobs/{id}，不含结果大 payload） */
 export interface FactorJobStatus {
   job_id: string;
-  kind: 'analyze' | 'compare';
+  kind: 'analyze' | 'compare' | 'llm_mine';
   status: FactorJobStatusValue;
   progress: number;
   stage: string | null;
@@ -213,6 +279,15 @@ export const factorApi = {
     apiRequest.post<{ job_id: string; status: string }>('/factor/analyze-async', p),
   compareAsync: (p: FactorCompareParams) =>
     apiRequest.post<{ job_id: string; status: string }>('/factor/compare-async', p),
+  mineLLM: (p: FactorMineLLMParams) =>
+    apiRequest.post<{ job_id: string; status: string }>('/factor/mine/llm', p),
+  validateCodeFactor: (code: string) =>
+    apiRequest.post<{ valid: boolean; error_type?: string; message?: string }>(
+      '/factor/code/validate',
+      { code },
+    ),
+  addCodeFactor: (factor_name: string, code: string, description?: string) =>
+    apiRequest.post('/factor/code/add', { factor_name, code, description }),
   getFactorJob: (id: string) =>
     apiRequest.get<FactorJobStatus>(`/factor/jobs/${id}`),
   getFactorJobResult: <T,>(id: string) =>
