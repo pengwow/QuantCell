@@ -66,6 +66,22 @@ export interface FactorCompareResult {
   ic_series: { dates: string[]; series: Record<string, (number | null)[]> };
 }
 
+/** 因子异步任务状态值 */
+export type FactorJobStatusValue = 'pending' | 'running' | 'completed' | 'failed';
+
+/** 因子异步任务状态（WS 推送 / GET /jobs/{id}，不含结果大 payload） */
+export interface FactorJobStatus {
+  job_id: string;
+  kind: 'analyze' | 'compare';
+  status: FactorJobStatusValue;
+  progress: number;
+  stage: string | null;
+  message: string | null;
+  error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 /** 因子生命周期五态 */
 export type LifecycleStatus = 'DISCOVERED' | 'INSPECTED' | 'PAPER_TRADING' | 'LIVE' | 'RETIRED';
 
@@ -150,6 +166,14 @@ export const factorApi = {
     apiRequest.post<FactorAnalyzeResult>('/factor/analyze', p),
   compare: (p: FactorCompareParams) =>
     apiRequest.post<FactorCompareResult>('/factor/compare', p),
+  analyzeAsync: (p: FactorAnalyzeParams) =>
+    apiRequest.post<{ job_id: string; status: string }>('/factor/analyze-async', p),
+  compareAsync: (p: FactorCompareParams) =>
+    apiRequest.post<{ job_id: string; status: string }>('/factor/compare-async', p),
+  getFactorJob: (id: string) =>
+    apiRequest.get<FactorJobStatus>(`/factor/jobs/${id}`),
+  getFactorJobResult: <T,>(id: string) =>
+    apiRequest.get<T>(`/factor/jobs/${id}/result`),
   instruments: (candle_type = 'spot') =>
     apiRequest.get<{ symbols: InstrumentInfo[] }>('/factor/instruments', { candle_type }),
   catalog: () => apiRequest.get<{ factors: FactorCatalogItem[] }>('/factor/catalog'),
