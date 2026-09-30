@@ -635,6 +635,8 @@ def analyze_factor(request: FactorAnalyzeRequest, current_user: dict = Depends(g
             n_groups=request.n_groups,
             window=request.window,
             forward=request.forward,
+            horizons=request.horizons,
+            cost_bps=request.cost_bps,
         )
         return ApiResponse(code=0, message="分析完成", data=_sanitize(result))
     except HTTPException:
@@ -825,6 +827,8 @@ def _run_analyze_job(params: dict[str, Any]):
             n_groups=params["n_groups"],
             window=params["window"],
             forward=params["forward"],
+            horizons=params.get("horizons"),
+            cost_bps=params.get("cost_bps", 0.0),
         )
 
     return runner
@@ -850,6 +854,8 @@ def _run_compare_job(params: dict[str, Any]):
                 n_groups=params["n_groups"],
                 window=params["window"],
                 forward=params["forward"],
+                horizons=params.get("horizons"),
+                cost_bps=params.get("cost_bps", 0.0),
             )
         on_progress(95, "assembling", "汇总对比…")
         details = {d["name"]: d for d in factor_service.get_factor_details()}

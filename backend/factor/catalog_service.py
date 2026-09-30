@@ -181,6 +181,8 @@ class FactorCatalogService:
             forward=params.get("forward", 1),
             provider=provider,
             return_frames=True,
+            horizons=params.get("horizons"),
+            cost_bps=params.get("cost_bps", 0.0),
         )
 
         snap = FactorSnapshot(

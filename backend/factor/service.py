@@ -284,16 +284,27 @@ class FactorService:
             return None
         return float(factor_wide.diff().abs().mean().mean())
 
+    DEFAULT_HORIZONS: tuple[int, ...] = (1, 2, 3, 5, 10)
+
     @classmethod
-    def _decay(cls, factor_long: pd.Series, close_long: pd.Series, n_symbols: int, window: int) -> list[dict]:
-        """lag ∈ {1,2,3,5,10} 的因子-前瞻收益 IC（spearman+pearson）。
+    def _decay(
+        cls,
+        factor_long: pd.Series,
+        close_long: pd.Series,
+        n_symbols: int,
+        window: int,
+        horizons: tuple[int, ...] | list[int] | None = None,
+    ) -> list[dict]:
+        """各 horizon（前瞻 lag 根数）的因子-前瞻收益 IC（spearman+pearson）。
 
         factor_long/close_long: MultiIndex(datetime,symbol) 的 Series。
+        horizons: 自定义 lag 列表；None 用默认 (1,2,3,5,10)。
         多品种复用 _ic_series 截面口径（逐期 IC 后全期均值）；单品种时序整体相关。
         样本不足返回 null，不抛错。
         """
+        lags = tuple(horizons) if horizons else cls.DEFAULT_HORIZONS
         out = []
-        for lag in (1, 2, 3, 5, 10):
+        for lag in lags:
             ret = close_long.groupby(level=1).shift(-lag) / close_long - 1
             joined = pd.concat([factor_long.rename("f"), ret.rename("r")], axis=1).dropna()
             sp = pp = None
@@ -306,7 +317,7 @@ class FactorService:
                 else:
                     sp = float(joined["f"].corr(joined["r"], method="spearman"))
                     pp = float(joined["f"].corr(joined["r"], method="pearson"))
-            out.append({"lag": lag, "spearman": sp, "pearson": pp})
+            out.append({"lag": int(lag), "spearman": sp, "pearson": pp})
         return out
 
     @staticmethod
@@ -358,14 +369,17 @@ class FactorService:
         }
 
     @staticmethod
-    def _quantile_nav(df: pd.DataFrame, grp: pd.Series, n_groups: int) -> dict:
-        """分位组合净值曲线（与 analyze 分组标签同源）。
+    def _quantile_nav(df: pd.DataFrame, grp: pd.Series, n_groups: int, fee_rate: float = 0.0) -> dict:
+        """分位组合净值曲线（与 analyze 分组标签同源），含双边换手与费后净值。
 
-        - 每组、每时间点取组内品种等权平均前瞻收益（截面）；
-        - 某组该时点无品种 → 收益 NaN（不可投资），累计时按空仓 0 收益处理，曲线从 1.0 连续；
-        - 多空(Qn-Q1)仅在两端组同时有持仓时计收益，否则 NaN；全期不可得时 long_short_nav 为 null。
-        返回 dates / groups[group,coverage,nav] / long_short 序列与净值。
+        口径：
+        - 每组、每时间点取组内品种等权平均前瞻收益（截面）；某组无品种 → NaN，累计时空仓 0 收益；
+        - 组内等权权重 w=1/组内品种数；双边换手 turnover_t = Σ_i|w_t−w_{t−1}|（买+卖合计，
+          整组全换时=2 即 200%/bar）；时间均值剔除首日；
+        - 净收益 = 毛收益 − turnover·单边费率 fee_rate（turnover 已含买卖双边）；
+        - 多空(Qn-Q1)：权重 w_long−w_short，仅两端组同时有持仓时计收益与换手。
         """
+        grp_wide = grp.unstack(level=1)  # datetime × symbol → 组号
         grp_ret = (
             df["r"]
             .groupby([df.index.get_level_values(0), grp])
@@ -374,35 +388,60 @@ class FactorService:
             .reindex(columns=range(1, n_groups + 1))
         )
         dates = [t.strftime("%Y-%m-%d %H:%M") for t in grp_ret.index]
+
+        weights: dict[int, pd.DataFrame] = {}
         groups = []
         for g in range(1, n_groups + 1):
-            col = grp_ret[g]
+            membership = (grp_wide == g).astype(float)
+            w = membership.div(membership.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
+            weights[g] = w
+            turnover = (w - w.shift(1)).abs().sum(axis=1)
+            turnover.iloc[0] = 0.0
+            gross = grp_ret[g]
+            net = gross.fillna(0.0) - turnover * fee_rate  # 空仓 bar：gross=0、无成员→turnover=0
             groups.append(
                 {
                     "group": int(g),
-                    "coverage": float(col.notna().mean()) if len(col) else 0.0,
-                    "nav": [None if pd.isna(v) else float(v) for v in (1 + col.fillna(0.0)).cumprod()],
-                    "returns": [None if pd.isna(v) else float(v) for v in col],
+                    "coverage": float(gross.notna().mean()) if len(gross) else 0.0,
+                    "turnover": float(turnover.iloc[1:].mean()) if len(turnover) > 1 else 0.0,
+                    "returns": [None if pd.isna(v) else float(v) for v in gross],
+                    "nav": [None if pd.isna(v) else float(v) for v in (1 + gross.fillna(0.0)).cumprod()],
+                    "returns_net": [float(v) for v in net],
+                    "nav_net": [float(v) for v in (1 + net).cumprod()],
                 }
             )
 
         ls_returns: list[float | None] = [None] * len(dates)
         ls_nav: list[float | None] = []
-        if n_groups in grp_ret.columns and 1 in grp_ret.columns:
+        ls_turnover = None
+        if n_groups in weights and 1 in weights:
+            w_ls = weights[n_groups] - weights[1]
+            to_ls = (w_ls - w_ls.shift(1)).abs().sum(axis=1)
+            to_ls.iloc[0] = 0.0
+            ls_turnover = float(to_ls.iloc[1:].mean()) if len(to_ls) > 1 else 0.0
             long_ret, short_ret = grp_ret[n_groups], grp_ret[1]
             both = long_ret.notna() & short_ret.notna()
-            ls = (long_ret - short_ret).where(both)
-            if ls.notna().any():
-                # 只在两端组同时有持仓的 bar 上累计，再 reindex 回完整时间轴（缺失为 None）
-                cum = (1 + ls.dropna()).cumprod().reindex(grp_ret.index)
-                ls_returns = [None if pd.isna(v) else float(v) for v in ls]
-                ls_nav = [None if pd.isna(v) else float(v) for v in cum]
+            gross_ls = (long_ret - short_ret).where(both)
+            if gross_ls.notna().any():
+                net_ls = gross_ls - to_ls * fee_rate
+                gross_cum = (1 + gross_ls.dropna()).cumprod().reindex(grp_ret.index)
+                net_cum = (1 + net_ls.fillna(0.0)).cumprod().where(both).reindex(grp_ret.index)
+                ls_returns = [None if pd.isna(v) else float(v) for v in gross_ls]
+                ls_nav = [None if pd.isna(v) else float(v) for v in gross_cum]
+                ls_net_nav = [None if pd.isna(v) else float(v) for v in net_cum]
+            else:
+                ls_net_nav = None
+        else:
+            ls_net_nav = None
 
         return {
             "dates": dates,
+            "fee_rate": fee_rate,
             "groups": groups,
             "long_short_returns": ls_returns,
             "long_short_nav": ls_nav or None,
+            "long_short_turnover": ls_turnover,
+            "long_short_nav_net": ls_net_nav or None,
         }
 
     @staticmethod
@@ -432,16 +471,23 @@ class FactorService:
         forward: int = 1,
         provider=None,
         return_frames: bool = False,
+        horizons: list[int] | tuple[int, ...] | None = None,
+        cost_bps: float = 0.0,
     ) -> dict:
-        """一站式分析：取数→因子→前瞻收益→IC/IR/分组/单调性/稳定性/序列。
+        """一站式分析：取数→因子→IC/IR/分组/单调性/稳定性/深度审查(inspection)。
 
         return_frames: 为 True 时额外返回因子值/前瞻收益对齐长表（列 f/r，
         MultiIndex datetime×symbol），仅供服务端快照收藏，不经过 HTTP。
+        horizons: 自定义衰减 lag 列表（K 线根数），None 用默认 (1,2,3,5,10)。
+        cost_bps: 单边交易成本（基点，1bp=0.0001），用于分位组合费后净值。
         """
         if factor_name in UNSUPPORTED_FACTORS:
             raise FactorError(f"因子 {factor_name} 依赖财务数据，当前数据源不支持")
         if factor_name not in self.factors:
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
+
+        horizons = tuple(horizons) if horizons else self.DEFAULT_HORIZONS
+        fee_rate = float(cost_bps) / 10000.0
 
         # 因子面板与收盘价面板共用同一份 raw_map，避免每个品种重复读盘
         raw_map = load_raw_ohlcv(symbols, interval, candle_type, start, end, provider)
@@ -498,9 +544,10 @@ class FactorService:
                 close,
                 n_symbols=df.index.get_level_values(1).nunique(),
                 window=stab_window,
+                horizons=horizons,
             ),
             "ic_stats": self._ic_stats(ic_series, interval),
-            "quantile_nav": self._quantile_nav(df, grp, n_groups),
+            "quantile_nav": self._quantile_nav(df, grp, n_groups, fee_rate=fee_rate),
         }
 
         result = {
@@ -553,6 +600,8 @@ class FactorService:
         window: int = 20,
         forward: int = 1,
         provider=None,
+        horizons: list[int] | tuple[int, ...] | None = None,
+        cost_bps: float = 0.0,
     ) -> dict:
         """2-5 个因子共用参数横向对比；逐因子 analyze（读盘缓存复用）+ IC 时序时间轴对齐。"""
         results = {
@@ -568,6 +617,8 @@ class FactorService:
                 window=window,
                 forward=forward,
                 provider=provider,
+                horizons=horizons,
+                cost_bps=cost_bps,
             )
             for name in factor_names
         }
