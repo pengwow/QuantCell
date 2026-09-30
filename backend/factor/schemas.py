@@ -451,3 +451,24 @@ class LifecycleUpdateRequest(BaseSchema):
     """生命周期流转请求。"""
 
     status: str = Field(..., min_length=1, max_length=20, description="目标生命周期状态")
+
+
+class FactorJobAccepted(BaseSchema):
+    """异步任务提交成功响应"""
+
+    job_id: str = Field(..., description="任务 ID")
+    status: str = Field(default="pending", description="任务初始状态")
+
+
+class FactorJobStatusOut(BaseSchema):
+    """异步任务状态（不含结果 payload，结果走 /jobs/{id}/result）"""
+
+    job_id: str = Field(..., description="任务 ID")
+    kind: str = Field(..., description="任务类型：analyze/compare")
+    status: str = Field(..., description="状态：pending/running/completed/failed")
+    progress: float = Field(..., description="进度百分比 0-100")
+    stage: str | None = Field(default=None, description="当前阶段标识")
+    message: str | None = Field(default=None, description="人类可读进度信息")
+    error: str | None = Field(default=None, description="失败原因")
+    created_at: str | None = Field(default=None, description="创建时间 ISO8601")
+    updated_at: str | None = Field(default=None, description="最近更新时间 ISO8601")
