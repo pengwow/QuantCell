@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import operator as _op
 
+import numpy as np
 import pandas as pd
 
 from quality.parquet_provider import ParquetDataProvider
@@ -175,6 +176,115 @@ def _const_int(node: ast.AST) -> int:
     raise FactorExpressionError("函数窗口参数必须是整数常量")
 
 
+def _apply_ts(fname: str, series_args: list[pd.Series], int_args: list[int]) -> pd.Series:
+    """时序函数在单个品种（DatetimeIndex）序列上的计算。单品种与面板递归共用。"""
+    if fname == "Ref":
+        return series_args[0].shift(int_args[0])
+    if fname == "MA":
+        return series_args[0].rolling(int_args[0]).mean()
+    if fname == "Std":
+        return series_args[0].rolling(int_args[0]).std()
+    if fname == "RSI":
+        return _rsi(series_args[0], int_args[0])
+    if fname == "MACD":
+        return _macd(series_args[0], int_args[0], int_args[1])
+    if fname == "KDJ":
+        return _kdj(series_args[0], series_args[1], series_args[2], int_args[0])
+    return _boll_pctb(series_args[0], int_args[0], float(int_args[1]))
+
+
+# 截面算子：在每个时间点跨品种变换（参数为 1 个序列表达式，0 个整数窗口参数）
+_CS_FUNCS = {"cs_rank", "cs_zscore"}
+_CS_ARITY = (1, 0)
+
+
+def _cs_rank(wide: pd.DataFrame) -> pd.DataFrame:
+    """逐时间点截面百分位排名（pandas pct rank：n 个品种最低 1/n、最高 1.0；单品种=1.0）。"""
+    return wide.rank(axis=1, pct=True)
+
+
+def _cs_zscore(wide: pd.DataFrame) -> pd.DataFrame:
+    """逐时间点截面 Z-score（ddof=1）；单品种或截面无离散度时为 NaN。
+
+    无离散度按相对极差判定（max-min ≤ 1e-12·max|x|），避免浮点求和误差
+    （三值即使 bit 相同，x-mean 也可能是 ~1e-16）导致常数截面算出随机 z 值。
+    """
+    scale = wide.abs().max(axis=1).clip(lower=np.finfo(float).tiny)
+    flat = (wide.max(axis=1) - wide.min(axis=1)) <= 1e-12 * scale
+    std = wide.std(axis=1).where(~flat).replace(0.0, np.nan)
+    return wide.sub(wide.mean(axis=1), axis=0).div(std, axis=0)
+
+
+def _contains_cs(tree: ast.AST) -> bool:
+    """AST 是否包含任意截面算子调用。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _CS_FUNCS:
+            return True
+    return False
+
+
+def _eval_panel(node: ast.AST, envs: dict[str, dict]) -> pd.Series | float:
+    """面板级递归求值，支持跨品种截面算子，返回 MultiIndex(datetime,symbol) Series 或标量。
+
+    - Name/BinOp/UnaryOp/普通时序 Call：在每个品种的 env 上求值后拼回 MultiIndex；
+      时序函数（MA/RSI…）按品种分组，不跨品种边界；
+    - cs_rank/cs_zscore：参数子树先面板求值 → 宽表 → 逐时间点截面变换 → 回长表。
+    """
+    if isinstance(node, ast.Expression):
+        return _eval_panel(node.body, envs)
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        return float(node.value)
+    if isinstance(node, ast.Name):
+        if node.id not in next(iter(envs.values())):
+            raise FactorExpressionError(f"未知因子/列: {node.id}")
+        pieces = []
+        for symbol, env in envs.items():
+            s = env[node.id]
+            s = s.copy()
+            s.index = pd.MultiIndex.from_arrays([s.index, [symbol] * len(s)], names=["datetime", "symbol"])
+            pieces.append(s)
+        return pd.concat(pieces).sort_index()
+    if isinstance(node, ast.BinOp) and type(node.op) in _BINOPS:
+        return _BINOPS[type(node.op)](_eval_panel(node.left, envs), _eval_panel(node.right, envs))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY:
+        return _UNARY[type(node.op)](_eval_panel(node.operand, envs))
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        fname = node.func.id
+
+        if fname in _CS_FUNCS:
+            if len(node.args) != 1:
+                raise FactorExpressionError(f"{fname} 只接受 1 个序列表达式参数")
+            inner = _eval_panel(node.args[0], envs)
+            if not isinstance(inner, pd.Series):
+                raise FactorExpressionError(f"{fname} 的参数必须是按时间对齐的序列表达式")
+            wide = inner.unstack(level=1)
+            transformed = _cs_rank(wide) if fname == "cs_rank" else _cs_zscore(wide)
+            return transformed.stack().sort_index()
+
+        if fname in _FUNC_ARITY:
+            n_series, n_int = _FUNC_ARITY[fname]
+            if len(node.args) != n_series + n_int:
+                raise FactorExpressionError(f"{fname} 参数个数错误")
+            int_args = [_const_int(a) for a in node.args[n_series:]]
+            # 序列参数面板求值；再按品种分组各自应用时序函数（不跨品种）
+            series_args = [_eval_panel(a, envs) for a in node.args[:n_series]]
+            if not all(isinstance(a, pd.Series) for a in series_args):
+                raise FactorExpressionError(f"{fname} 的序列参数必须是列字段或序列表达式")
+            symbols = list(envs)
+            pieces = []
+            for symbol in symbols:
+                single = [a.xs(symbol, level=1) for a in series_args]
+                out = _apply_ts(fname, single, int_args)
+                out = out.copy()
+                out.index = pd.MultiIndex.from_arrays([out.index, [symbol] * len(out)], names=["datetime", "symbol"])
+                pieces.append(out)
+            return pd.concat(pieces).sort_index()
+
+    raise FactorExpressionError(
+        "表达式含不被允许的语法（仅支持列字段、Ref/MA/Std/RSI/MACD/KDJ/BBANDS、cs_rank/cs_zscore、四则运算）"
+    )
+
+
 def _eval(node: ast.AST, env: dict) -> pd.Series | float:
     if isinstance(node, ast.Expression):
         return _eval(node.body, env)
@@ -186,28 +296,32 @@ def _eval(node: ast.AST, env: dict) -> pd.Series | float:
         return _BINOPS[type(node.op)](_eval(node.left, env), _eval(node.right, env))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY:
         return _UNARY[type(node.op)](_eval(node.operand, env))
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _FUNC_ARITY:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in (_FUNC_ARITY.keys() | _CS_FUNCS)
+    ):
         fname = node.func.id
-        n_series, n_int = _FUNC_ARITY[fname]
+        n_series, n_int = _CS_ARITY if fname in _CS_FUNCS else _FUNC_ARITY[fname]
         if len(node.args) != n_series + n_int:
             raise FactorExpressionError(f"{fname} 参数个数错误")
         series_args = [_eval(a, env) for a in node.args[:n_series]]
+
+        # 单品种下的截面算子：cs_rank 只有一个标的，恒为 1.0；cs_zscore 无法截面标准化，为 NaN
+        if fname in _CS_FUNCS:
+            if not series_args or not isinstance(series_args[0], pd.Series):
+                raise FactorExpressionError(f"{fname} 的参数必须是列字段或序列表达式")
+            base = series_args[0]
+            return (
+                pd.Series(1.0, index=base.index, dtype=float)
+                if fname == "cs_rank"
+                else pd.Series(np.nan, index=base.index, dtype=float)
+            )
+
         if not all(isinstance(a, pd.Series) for a in series_args):
             raise FactorExpressionError(f"{fname} 的序列参数必须是列字段")
         int_args = [_const_int(a) for a in node.args[n_series:]]
-        if fname == "Ref":
-            return series_args[0].shift(int_args[0])
-        if fname == "MA":
-            return series_args[0].rolling(int_args[0]).mean()
-        if fname == "Std":
-            return series_args[0].rolling(int_args[0]).std()
-        if fname == "RSI":
-            return _rsi(series_args[0], int_args[0])
-        if fname == "MACD":
-            return _macd(series_args[0], int_args[0], int_args[1])
-        if fname == "KDJ":
-            return _kdj(series_args[0], series_args[1], series_args[2], int_args[0])
-        return _boll_pctb(series_args[0], int_args[0], float(int_args[1]))
+        return _apply_ts(fname, series_args, int_args)
     raise FactorExpressionError("表达式含不被允许的语法（仅支持列字段、Ref/MA/Std/RSI/MACD/KDJ/BBANDS、四则运算）")
 
 
@@ -303,7 +417,33 @@ def load_raw_ohlcv(
 def factor_panel_from_raw(
     name: str, raw_map: dict[str, pd.DataFrame], custom: dict[str, str] | None = None
 ) -> pd.Series:
-    """从已读入的多品种 K 线计算因子，返回 MultiIndex(datetime, symbol) Series。"""
+    """从已读入的多品种 K 线计算因子，返回 MultiIndex(datetime, symbol) Series。
+
+    自定义表达式含 cs_rank/cs_zscore 截面算子时走面板级递归（跨品种）；
+    其余表达式（内置因子、纯时序/算术）走逐品种路径，行为不变。
+    """
+    expr = None
+    if name not in FACTOR_META:
+        custom = custom or {}
+        if name in custom:
+            expr = custom[name].strip()
+        else:
+            raise FactorExpressionError(f"未知因子: {name}")
+
+    if expr is not None:
+        try:
+            tree = ast.parse(expr, mode="eval")
+        except SyntaxError as e:
+            raise FactorExpressionError(f"表达式语法错误: {e}") from e
+        if _contains_cs(tree):
+            envs = {symbol: _column_env(raw) for symbol, raw in raw_map.items()}
+            panel = _eval_panel(tree, envs)
+            if not isinstance(panel, pd.Series):
+                raise FactorExpressionError("表达式必须返回按时间对齐的序列，而非标量")
+            panel = panel.sort_index()
+            panel.name = name
+            return panel
+
     series_list = []
     for symbol, raw in raw_map.items():
         s = evaluate_factor(name, raw, custom)
