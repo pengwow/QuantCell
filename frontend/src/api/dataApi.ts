@@ -149,16 +149,20 @@ export const dataApi = {
 
   /**
    * 获取数据采集任务列表
-   * @param params 查询参数
-   * @returns 任务列表
+   * 后端返回 {tasks, pagination: {page, page_size, total, pages}}
    */
   getTasks: (params: Record<string, unknown>): Promise<{
-    tasks?: Task[];
-    total?: number;
-    page?: number;
-    page_size?: number;
+    tasks: Task[];
+    pagination: { page: number; page_size: number; total: number; pages: number };
   }> => {
     return apiRequest.get('/data/tasks', params);
+  },
+
+  /**
+   * 删除采集任务记录（仅删执行历史，不删已采集的数据）
+   */
+  deleteTask: (taskId: string): Promise<{ task_id: string }> => {
+    return apiRequest.delete(`/data/tasks/${taskId}`);
   },
 
   /**

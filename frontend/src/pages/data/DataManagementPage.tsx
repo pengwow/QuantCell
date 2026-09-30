@@ -132,6 +132,63 @@ const MARKET_TAG_COLOR: Record<string, string> = {
   cm: 'purple',
 };
 
+// 无限滚动容器 —— 监听子 div 滚动，触底触发 onReachBottom
+// 使用 IntersectionObserver 监听一个 sentinel 元素，避免 onScroll 节流烦恼
+interface TasksListScrollProps {
+  onReachBottom: () => void;
+  children: React.ReactNode;
+}
+
+const TasksListScroll: React.FC<TasksListScrollProps> = ({ onReachBottom, children }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const firedRef = useRef(false);
+  // onReachBottom 会捕获父组件最新闭包，放进 ref 让 observer 只建一次
+  const cbRef = useRef(onReachBottom);
+  cbRef.current = onReachBottom;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const sentinel = sentinelRef.current;
+    if (!container || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.target === sentinel && entry.intersectionRatio > 0.1 && !firedRef.current) {
+            firedRef.current = true;
+            cbRef.current();
+          }
+          // 离开视口（滚回上面）重置，下次到底部再触发
+          if (entry.intersectionRatio <= 0.01) {
+            firedRef.current = false;
+          }
+        });
+      },
+      {
+        root: container,
+        // 离底部还有 100px 就开始加载，体感更顺
+        rootMargin: '100px 0px',
+        threshold: [0, 0.1, 1],
+      },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+    // 空依赖：observer 建一次，cb 通过 ref 拿最新值
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ maxHeight: 560, overflow: 'auto' }}
+    >
+      {children}
+      <div ref={sentinelRef} style={{ height: 1 }} />
+    </div>
+  );
+};
+
 // 任务卡片组件
 interface TaskCardProps {
   task: Task;
@@ -139,6 +196,8 @@ interface TaskCardProps {
   taskProgressList?: TaskDetailItem[];
   isProgressExpanded?: boolean;
   setIsProgressExpanded?: (expanded: boolean) => void;
+  onDelete?: (taskId: string) => void;
+  deleting?: boolean;
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({
@@ -147,14 +206,20 @@ const TaskCard: React.FC<TaskCardProps> = ({
   taskProgressList: externalProgressList = [],
   isProgressExpanded = false,
   setIsProgressExpanded,
+  onDelete,
+  deleting,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState<TaskDetailItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const displayList = externalProgressList.length > 0 ? externalProgressList : details;
   const statusCfg = TASK_STATUS_CONFIG[task.status] || TASK_STATUS_CONFIG.pending;
   const progress = task.progress || { percentage: 0, total: 0, completed: 0, failed: 0, current: '' };
+
+  // 运行中/待启动的任务不允许删（后端 409 也会拦，这里提前禁用）
+  const canDelete = !isCurrent && task.status !== 'running' && task.status !== 'pending';
 
   // 从 params 提取数据类型和市场
   const dataType: string = String(task.params?.data_type ?? task.params?.dataType ?? 'kline');
@@ -187,27 +252,63 @@ const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   return (
-    <Card
-      size="small"
-      style={{
-        marginBottom: 8,
-        borderLeft: `3px solid ${statusCfg.color}`,
-        opacity: task.status === 'completed' ? 0.85 : 1,
-      }}
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ position: 'relative' }}
     >
-      {/* 第一行：类型/来源徽章 + 状态 */}
-      <Row justify="space-between" align="middle" style={{ marginBottom: 6 }}>
-        <Space size={4} wrap>
-          <Tag color={DATA_TYPE_TAG_COLOR[dataType] || 'default'} style={{ margin: 0 }}>
-            {dataTypeLabel}
-          </Tag>
-          <Tag color={MARKET_TAG_COLOR[market] || 'default'} style={{ margin: 0 }}>
-            {market.toUpperCase()}
-          </Tag>
-          {isCurrent && <Tag color="blue" style={{ margin: 0 }}>当前</Tag>}
-        </Space>
-        <Badge status={statusCfg.badge} text={<Text style={{ fontSize: 12, color: statusCfg.color }}>{statusCfg.label}</Text>} />
-      </Row>
+      <Card
+        size="small"
+        style={{
+          marginBottom: 8,
+          borderLeft: `3px solid ${statusCfg.color}`,
+          opacity: task.status === 'completed' ? 0.85 : 1,
+        }}
+      >
+        {/* 悬停显示的删除按钮 —— 运行中/当前任务被禁用 */}
+        {onDelete && (
+          <Popconfirm
+            title="删除该采集任务记录？"
+            description="仅删除这条执行历史，已采集的数据不受影响。"
+            okText="删除"
+            okButtonProps={{ danger: true }}
+            cancelText="取消"
+            disabled={!canDelete}
+            onConfirm={() => onDelete(task.task_id!)}
+          >
+            <Button
+              danger
+              type="text"
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={deleting}
+              disabled={!canDelete}
+              title={canDelete ? '删除任务记录' : '运行中/当前任务无法删除'}
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                opacity: hovered ? 0.8 : 0,
+                transition: 'opacity 0.15s',
+                zIndex: 1,
+              }}
+            />
+          </Popconfirm>
+        )}
+
+        {/* 第一行：类型/来源徽章 + 状态 */}
+        <Row justify="space-between" align="middle" style={{ marginBottom: 6 }}>
+          <Space size={4} wrap>
+            <Tag color={DATA_TYPE_TAG_COLOR[dataType] || 'default'} style={{ margin: 0 }}>
+              {dataTypeLabel}
+            </Tag>
+            <Tag color={MARKET_TAG_COLOR[market] || 'default'} style={{ margin: 0 }}>
+              {market.toUpperCase()}
+            </Tag>
+            {isCurrent && <Tag color="blue" style={{ margin: 0 }}>当前</Tag>}
+          </Space>
+          <Badge status={statusCfg.badge} text={<Text style={{ fontSize: 12, color: statusCfg.color }}>{statusCfg.label}</Text>} />
+        </Row>
 
       {/* 第二行：进度条 + 数量统计 */}
       <Progress
@@ -293,7 +394,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
           )}
         </div>
       )}
-    </Card>
+      </Card>
+    </div>
   );
 };
 
@@ -487,6 +589,13 @@ const DataManagementPage = () => {
   // 监听采集表单中的 dataType 变化，用于动态控制 intervals / market 字段
   const collectionDataType = Form.useWatch('dataType', collectionForm) ?? 'kline';
   const [collectionTasks, setCollectionTasks] = useState<Task[]>([]);
+  // 无限滚动分页状态
+  const [tasksPage, setTasksPage] = useState(1);
+  const [tasksPageSize] = useState(20);
+  const [tasksTotal, setTasksTotal] = useState(0);
+  const [tasksHasMore, setTasksHasMore] = useState(true);
+  const [tasksLoadingMore, setTasksLoadingMore] = useState(false);
+  const [tasksDeletingId, setTasksDeletingId] = useState<string | null>(null);
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('pending');
   const [taskProgress, setTaskProgress] = useState<number>(0);
@@ -1129,13 +1238,28 @@ const DataManagementPage = () => {
 
   // ==================== 其他方法 ====================
 
-  // 获取采集任务列表（自动恢复正在运行的任务）
-  const fetchCollectionTasks = async (silent = false) => {
-    if (!silent) setTaskListLoading(true);
+  // 拉取采集任务列表
+  // mode: 'reset'  —— 从 page1 覆盖全量（筛选变化 / 手动刷新 / 首屏）
+  //       'append' —— 拉取下一页追加（触底自动加载）
+  //       'refresh-page1' —— 仅刷新 page1，与已有列表按 task_id 合并状态（5s 自动刷新用）
+  const fetchCollectionTasks = async (
+    opts: { mode?: 'reset' | 'append' | 'refresh-page1'; page?: number; silent?: boolean } = {},
+  ) => {
+    const { mode = 'reset', page, silent = false } = opts;
+    if (mode === 'append' && (tasksLoadingMore || !tasksHasMore)) return;
+    if (mode === 'refresh-page1') {
+      if (tasksLoadingMore) return;
+      setTasksLoadingMore(true);
+    } else if (mode === 'append') {
+      setTasksLoadingMore(true);
+    } else {
+      if (!silent) setTaskListLoading(true);
+    }
+    const targetPage = page ?? (mode === 'append' ? tasksPage + 1 : 1);
     try {
       const params: Record<string, unknown> = {
-        page: 1,
-        page_size: 20,
+        page: targetPage,
+        page_size: tasksPageSize,
         sort_by: 'created_at',
         sort_order: 'desc',
         task_type: 'download_crypto',
@@ -1144,40 +1268,82 @@ const DataManagementPage = () => {
         params.status = taskStatusFilter;
       }
       const response = await dataApi.getTasks(params);
-      const taskList: Task[] = Array.isArray(response.tasks) ? response.tasks : [];
-      setCollectionTasks(taskList);
+      const newTasks = Array.isArray(response.tasks) ? response.tasks : [];
+      const total = response.pagination?.total ?? 0;
+
+      if (mode === 'refresh-page1') {
+        // 只更新 page1 的状态，不动后面已加载的页
+        setCollectionTasks((prev) => {
+          const page1Ids = new Set(newTasks.map((t) => t.task_id));
+          const rest = prev.filter((t) => !page1Ids.has(t.task_id));
+          // newTasks 在 desc 排序下排在前面
+          return [...newTasks, ...rest];
+        });
+      } else if (mode === 'append') {
+        setCollectionTasks((prev) => [...prev, ...newTasks]);
+        setTasksPage(targetPage);
+      } else {
+        // reset
+        setCollectionTasks(newTasks);
+        setTasksPage(targetPage);
+      }
+
+      setTasksTotal(total);
+      setTasksHasMore(targetPage * tasksPageSize < total);
 
       // 自动检测并恢复正在运行的任务状态
-      const runningTask = taskList.find(task =>
-        task.status === 'running' || task.status === 'pending'
+      const runningTask = newTasks.find(
+        (task) => task.status === 'running' || task.status === 'pending',
       );
-      if (runningTask && runningTask.task_id) {
-        if (!currentTaskIdRef.current) {
-          setCurrentTaskId(runningTask.task_id);
-          setTaskStatus(runningTask.status);
-          setTaskProgress(runningTask.progress?.percentage || 0);
-        }
+      if (runningTask && runningTask.task_id && !currentTaskIdRef.current) {
+        setCurrentTaskId(runningTask.task_id);
+        setTaskStatus(runningTask.status as TaskStatus);
+        setTaskProgress(runningTask.progress?.percentage || 0);
       }
     } catch (error) {
       console.error('获取任务列表失败:', error);
+      if (!silent) message.error('获取任务列表失败');
     } finally {
-      if (!silent) setTaskListLoading(false);
+      if (mode === 'refresh-page1' || mode === 'append') {
+        setTasksLoadingMore(false);
+      } else {
+        if (!silent) setTaskListLoading(false);
+      }
     }
   };
 
-  // 自动刷新：当有运行中任务时，每 5s 静默刷新任务列表
+  // 删除单条任务记录
+  const handleDeleteTask = async (taskId: string) => {
+    setTasksDeletingId(taskId);
+    try {
+      await dataApi.deleteTask(taskId);
+      message.success('任务记录已删除');
+      // 本地列表直接移除，避免重新拉整个列表
+      setCollectionTasks((prev) => prev.filter((t) => t.task_id !== taskId));
+      setTasksTotal((prev) => Math.max(0, prev - 1));
+      // 若删的是最后一页最后一条，hasMore 可能需要翻页校验，但直接保守设 false
+      setTasksHasMore((prev) => prev); // 不变；删完若当前页空了下次触底会自然触发下一页
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      message.error(`删除失败: ${msg}`);
+    } finally {
+      setTasksDeletingId(null);
+    }
+  };
+
+  // 自动刷新：当有运行中任务时，每 5s 仅刷新 page1 状态，不覆盖已追加的历史页
   useEffect(() => {
     const hasRunning = taskStatus === 'running' || taskStatus === 'pending'
-      || collectionTasks.some(t => t.status === 'running' || t.status === 'pending');
+      || collectionTasks.some((t) => t.status === 'running' || t.status === 'pending');
     if (!hasRunning) return;
-    const timer = setInterval(() => fetchCollectionTasks(true), 5000);
+    const timer = setInterval(() => fetchCollectionTasks({ mode: 'refresh-page1' }), 5000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [taskStatus, collectionTasks]);
 
-  // 状态筛选变化时重新拉取
+  // 状态筛选变化时重置分页并重新拉取
   useEffect(() => {
-    fetchCollectionTasks();
+    fetchCollectionTasks({ mode: 'reset' });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [taskStatusFilter]);
 
@@ -3019,7 +3185,13 @@ const DataManagementPage = () => {
           />
 
           <Spin spinning={taskListLoading}>
-            <div style={{ maxHeight: 560, overflow: 'auto' }}>
+            <TasksListScroll
+              onReachBottom={() => {
+                if (tasksHasMore && !tasksLoadingMore) {
+                  fetchCollectionTasks({ mode: 'append' });
+                }
+              }}
+            >
               {collectionTasks.length === 0 && !currentTaskId ? (
                 <Empty
                   description={taskStatusFilter !== 'all' ? '无匹配该状态的任务' : (t('no_collection_tasks') || '暂无采集任务')}
@@ -3049,11 +3221,28 @@ const DataManagementPage = () => {
                   {collectionTasks
                     .filter((task) => task.task_id !== currentTaskId)
                     .map((task) => (
-                      <TaskCard key={task.task_id} task={task} isCurrent={false} />
+                      <TaskCard
+                        key={task.task_id}
+                        task={task}
+                        isCurrent={false}
+                        onDelete={handleDeleteTask}
+                        deleting={tasksDeletingId === task.task_id}
+                      />
                     ))}
+                  {/* 触底加载/结束提示 */}
+                  {tasksLoadingMore && (
+                    <div style={{ textAlign: 'center', padding: '8px 0', color: '#8c8c8c', fontSize: 12 }}>
+                      加载中...
+                    </div>
+                  )}
+                  {!tasksHasMore && collectionTasks.length > 0 && (
+                    <div style={{ textAlign: 'center', padding: '8px 0', color: '#bfbfbf', fontSize: 12 }}>
+                      —— 全部 {tasksTotal} 条已加载 ——
+                    </div>
+                  )}
                 </Space>
               )}
-            </div>
+            </TasksListScroll>
           </Spin>
         </Card>
       </Col>
