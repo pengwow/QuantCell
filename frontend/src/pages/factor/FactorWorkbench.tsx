@@ -9,6 +9,7 @@ import {
   Form,
   InputNumber,
   message,
+  Progress,
   Row,
   Select,
   Space,
@@ -26,6 +27,7 @@ import {
   type FactorDetail,
   type InstrumentInfo,
 } from '@/api/factor';
+import { useFactorJob } from '@/hooks/useFactorJob';
 import { useQuantColors } from '@/utils/colors';
 
 const { RangePicker } = DatePicker;
@@ -51,7 +53,8 @@ const FactorWorkbench: React.FC = () => {
   const [result, setResult] = useState<FactorAnalyzeResult | null>(null);
   const [lastParams, setLastParams] = useState<FactorAnalyzeParams | null>(null);
   const [savingSnapshot, setSavingSnapshot] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { run: runJob, status: jobStatus, loading: jobLoading } =
+    useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
 
   useEffect(() => {
@@ -89,18 +92,26 @@ const FactorWorkbench: React.FC = () => {
       window: v.window,
       forward: v.forward,
     };
-    setLoading(true);
     try {
-      setResult(await factorApi.analyze(params));
-      // 复用同一次请求对象，保证收藏快照口径与本次分析完全一致
-      setLastParams(params);
+      await runJob(
+        'analyze',
+        params,
+        (r) => {
+          setResult(r);
+          // 复用同一次请求对象，保证收藏快照口径与本次分析完全一致
+          setLastParams(params);
+        },
+        (msg) => {
+          message.error(msg);
+          setResult(null);
+        },
+      );
     } catch (err) {
+      // 提交阶段同步 rejection（如 422/网络失败）
       setResult(null);
       message.error(errMsg(err));
-    } finally {
-      setLoading(false);
     }
-  }, [form]);
+  }, [form, runJob]);
 
   const priceFactorOption = useMemo<EChartsOption>(() => {
     if (!result) return {};
@@ -327,7 +338,7 @@ const FactorWorkbench: React.FC = () => {
             <InputNumber min={1} max={120} />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" icon={<LineChartOutlined />} loading={loading} onClick={run}>
+            <Button type="primary" icon={<LineChartOutlined />} loading={jobLoading} onClick={run}>
               开始分析
             </Button>
           </Form.Item>
@@ -337,14 +348,27 @@ const FactorWorkbench: React.FC = () => {
         </p>
       </Card>
 
-      {loading && <Card loading />}
-      {!loading && !result && (
+      {jobLoading && <Card loading />}
+      {jobLoading && jobStatus && (
+        <Card size="small">
+          <Flex gap="middle" align="center">
+            <Progress
+              type="circle"
+              size={48}
+              percent={Math.round(jobStatus.progress)}
+              status="active"
+            />
+            <span>{jobStatus.message || '排队中…'}</span>
+          </Flex>
+        </Card>
+      )}
+      {!jobLoading && !result && (
         <Card>
           <Empty description="选择参数后点击「开始分析」" />
         </Card>
       )}
 
-      {!loading && result && (
+      {!jobLoading && result && (
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
           <Flex align="center" justify="space-between">
             <span style={{ fontSize: 16, fontWeight: 600 }}>分析结果</span>
