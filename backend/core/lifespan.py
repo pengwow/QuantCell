@@ -382,7 +382,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.warning(f"[健康检查循环] 异常: {e}")
 
-        asyncio.create_task(_orchestrator_health_check())
+        app.state.orchestrator_health_check_task = asyncio.create_task(_orchestrator_health_check())
         logger.info("[Lifespan] WorkerOrchestrator 健康检查循环已启动")
     except Exception as e:
         logger.warning(f"[Lifespan] WorkerOrchestrator 初始化失败 (ZMQ 不可用): {e}")
@@ -492,6 +492,37 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"关闭调度器或插件失败: {e}")
 
+    # 步骤 8: 取消 WorkerOrchestrator 健康检查循环
+    try:
+        if hasattr(app.state, "orchestrator_health_check_task") and not app.state.orchestrator_health_check_task.done():
+            app.state.orchestrator_health_check_task.cancel()
+            logger.info("[Lifespan] 已取消 WorkerOrchestrator 健康检查循环")
+    except Exception as e:
+        logger.warning(f"[Lifespan] 取消健康检查循环失败: {e}")
+
+    # 步骤 9: 关闭 worker_system (StrategyManager) — 含自己的 ThreadPoolExecutor
+    try:
+        from worker.strategy_manager import worker_system
+
+        await asyncio.wait_for(
+            asyncio.to_thread(worker_system.shutdown),
+            timeout=2.0,
+        )
+    except TimeoutError:
+        logger.warning("[Lifespan] worker_system.shutdown() 超时（>2s），强制跳过")
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning(f"[Lifespan] worker_system.shutdown() 失败: {e}")
+
+    # 步骤 10: 关闭 FactorJobManager — 含自己的 ThreadPoolExecutor + 扫尾线程
+    try:
+        from factor.job_manager import job_manager
+
+        job_manager.shutdown()
+    except Exception as e:
+        logger.warning(f"[Lifespan] FactorJobManager.shutdown() 失败: {e}")
+
     # 清理 WorkerOrchestrator ZMQ 通道 (不动独立 Worker 进程)
     try:
         from worker.orchestrator import WorkerOrchestrator
@@ -505,6 +536,10 @@ async def lifespan(app: FastAPI):
 
     shutdown_watchdog.complete()  # 优雅关闭完成，撤销看门狗
     logger.info("========== 应用关闭完成 ==========")
+
+    # 兜底：直接退出进程，绕过 atexit 阶段 concurrent.futures 的线程 join
+    # （asyncio 默认线程池等 daemon 线程在 atexit 时可能阻塞导致第二次 Ctrl+C）
+    os._exit(0)
 
 
 def init_database():

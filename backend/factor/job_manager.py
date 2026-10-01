@@ -156,6 +156,14 @@ class FactorJobManager:
         except Exception as e:
             logger.debug(f"factor:job WS 推送跳过: {e}")
 
+    def shutdown(self) -> None:
+        """关闭线程池和扫尾线程（应用退出时调用）"""
+        # 先通知扫尾线程停止
+        self._stop_sweep.set()
+        # 关闭线程池，wait=False 避免阻塞主线程
+        self._executor.shutdown(wait=False)
+        logger.info("FactorJobManager 已关闭（线程池 + 扫尾线程）")
+
     def _sweep_loop(self, interval: float) -> None:
         while not self._stop_sweep.wait(interval):
             try:
