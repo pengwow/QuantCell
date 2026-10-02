@@ -711,21 +711,26 @@ class FactorService:
     def _split_raw_map(
         raw_map: dict[str, pd.DataFrame], test_ratio: float
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-        """逐品种按行序（时间升序，与 load_raw_ohlcv 落盘顺序一致）切 train/test。
+        """按**全局时间切点**切 train/test（不能按各品种行数比例切）。
 
-        不依赖 timestamp 列：raw 原始行序即时间升序。
+        各品种历史长度可能不同（起点不同、终点相近）：逐品种切 70% 行会让
+        短历史品种的 test 窗口整体晚于长历史品种，两段窗口时间不重叠，
+        截面 IC 因找不到同日配对而为空。故取全部品种时间戳池的 (1-r) 分位
+        作为统一 cutoff，逐品种按 timestamp 归入 train(<)/test(>=)，保证
+        各品种 test 窗口时间对齐，且 train/test 时间不交叉（无跨品种泄漏）。
         - test_ratio<=0：不切分，train 复用原对象，test 返回空 dict；
-        - test_ratio>0：cut=int(n*(1-test_ratio))，前段 train / 后段 test（均 copy）；
-          test 段为空（0 行）的品种不放入 test_map。
+        - test_ratio>0：train/test 均 copy；test 段 0 行的品种不放入 test_map。
         """
         if test_ratio <= 0:
             return raw_map, {}
+        pooled = pd.concat([_timestamps_to_datetime(df["timestamp"]) for df in raw_map.values()])
+        cutoff = pooled.quantile(1.0 - test_ratio)
         train_map: dict[str, pd.DataFrame] = {}
         test_map: dict[str, pd.DataFrame] = {}
         for symbol, df in raw_map.items():
-            cut = int(len(df) * (1 - test_ratio))
-            train_map[symbol] = df.iloc[:cut].copy()
-            test_df = df.iloc[cut:].copy()
+            dt_index = _timestamps_to_datetime(df["timestamp"])
+            train_map[symbol] = df[dt_index.to_numpy() < cutoff.to_numpy()].copy()
+            test_df = df[dt_index.to_numpy() >= cutoff.to_numpy()].copy()
             if len(test_df) > 0:
                 test_map[symbol] = test_df
         return train_map, test_map
