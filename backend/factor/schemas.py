@@ -506,6 +506,7 @@ class FactorMineLLMRequest(FactorCalculateBase):
     top_k: int = Field(default=5, ge=1, le=10, description="返回 Top K 候选")
     temperature: float = Field(default=0.8, ge=0.0, le=2.0, description="生成温度")
     model_id: str | None = Field(default=None, description="指定 AI 模型 ID，空=默认模型")
+    test_ratio: float = Field(default=0.3, ge=0.0, le=0.5, description="样本外切分比例（后段时间），0=不切分")
 
 
 class FactorJobAccepted(BaseSchema):

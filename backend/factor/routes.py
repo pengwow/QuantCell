@@ -919,6 +919,7 @@ def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
             temperature=params["temperature"],
             model_id=params.get("model_id"),
             model_name=llm_cfg["model"],
+            test_ratio=float(params.get("test_ratio", 0.3)),
         )
         return run_llm_mining(mine_params, backend=backend, progress=on_progress)
 

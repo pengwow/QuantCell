@@ -40,12 +40,20 @@ interface FormValues {
   n_candidates: number;
   n_rounds: number;
   top_k: number;
+  test_ratio: number;
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message || '挖掘失败';
 
 const fmt = (v: number | null | undefined, digits: number) =>
   v == null ? '—' : v.toFixed(digits);
+
+/** 样本外复核结论 → Tag 颜色与中文文案 */
+const OOS_TAG: Record<NonNullable<MinedCandidate['oos_flag']>, { color: string; text: string }> = {
+  ok: { color: 'green', text: '稳定' },
+  weak: { color: 'orange', text: '衰减' },
+  sign_flip: { color: 'red', text: '符号反转' },
+};
 
 /** 候选状态 → Tag 颜色与中文文案 */
 const STATUS_TAG: Record<MinedCandidate['status'], { color: string; text: string }> = {
@@ -117,6 +125,7 @@ const FactorMining: React.FC = () => {
       n_rounds: v.n_rounds,
       top_k: v.top_k,
       temperature,
+      test_ratio: v.test_ratio,
     };
     setResult(null);
     try {
@@ -187,6 +196,23 @@ const FactorMining: React.FC = () => {
       align: 'right',
       width: 90,
       render: (_, row) => fmt(row.metrics?.ic_mean, 4),
+    },
+    {
+      title: '样本外IC',
+      key: 'oos_ic',
+      align: 'right',
+      width: 100,
+      render: (_, row) => fmt(row.metrics_oos?.ic_mean, 4),
+    },
+    {
+      title: 'OOS',
+      key: 'oos_flag',
+      align: 'center',
+      width: 90,
+      render: (_, row) => {
+        const flag = row.oos_flag;
+        return flag ? <Tag color={OOS_TAG[flag].color}>{OOS_TAG[flag].text}</Tag> : '—';
+      },
     },
     {
       title: 'IR',
@@ -272,6 +298,7 @@ const FactorMining: React.FC = () => {
             n_candidates: 4,
             n_rounds: 2,
             top_k: 5,
+            test_ratio: 0.3,
           }}
         >
           <Form.Item
@@ -327,6 +354,13 @@ const FactorMining: React.FC = () => {
             </Form.Item>
             <Form.Item name="top_k" label="Top K">
               <InputNumber min={1} max={10} style={{ width: 140 }} />
+            </Form.Item>
+            <Form.Item
+              name="test_ratio"
+              label="样本外比例"
+              extra="0=不切分；取后段时间做样本外复核"
+            >
+              <InputNumber min={0} max={0.5} step={0.05} style={{ width: 140 }} />
             </Form.Item>
             <Form.Item label="温度">
               <Flex gap="middle" align="center" style={{ width: 280 }}>
@@ -386,11 +420,17 @@ const FactorMining: React.FC = () => {
             pagination={{ pageSize: 20 }}
             scroll={{ x: 'max-content' }}
             expandable={{
-              rowExpandable: (r) => !!r.error,
-              expandedRowRender: (r) =>
-                r.error ? (
-                  <span style={{ color: '#cf1322', whiteSpace: 'pre-wrap' }}>{r.error}</span>
-                ) : null,
+              rowExpandable: (r) => !!r.error || !!r.oos_note,
+              expandedRowRender: (r) => (
+                <Space direction="vertical" size="small" style={{ display: 'flex' }}>
+                  {r.error && (
+                    <span style={{ color: '#cf1322', whiteSpace: 'pre-wrap' }}>{r.error}</span>
+                  )}
+                  {r.oos_note && (
+                    <span style={{ color: '#d46b08', whiteSpace: 'pre-wrap' }}>{r.oos_note}</span>
+                  )}
+                </Space>
+              ),
             }}
             locale={{ emptyText: '暂无挖掘结果，请先在上方配置并开始挖掘' }}
           />

@@ -93,6 +93,8 @@ export interface FactorMineLLMParams {
   top_k: number;
   temperature?: number;
   model_id?: string | null;
+  /** 样本外切分比例（取后段时间），0=不切分；范围 0-0.5 */
+  test_ratio?: number;
 }
 
 /** 单个挖掘候选结果 */
@@ -122,6 +124,12 @@ export interface MinedCandidate {
     nw_t_stat: number | null;
     bar_count: number | null;
   } | null;
+  /** 样本外（后段时间）指标；未切分或样本不足时为 null */
+  metrics_oos?: MinedCandidate['metrics'] | null;
+  /** 样本外复核结论：稳定/衰减/符号反转；未复核为 null */
+  oos_flag?: 'ok' | 'weak' | 'sign_flip' | null;
+  /** 样本外复核说明（如样本不足提示），可为 null */
+  oos_note?: string | null;
 }
 
 /** LLM 挖掘任务结果 */
