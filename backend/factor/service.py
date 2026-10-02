@@ -735,6 +735,190 @@ class FactorService:
                 test_map[symbol] = test_df
         return train_map, test_map
 
+    @staticmethod
+    def _wf_bounds(
+        raw_map: dict[str, pd.DataFrame], test_ratio: float, wf_folds: int
+    ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+        """滚动 walk-forward 的折边界：把 OOS 总跨度等分为 k 个左闭右开连续窗口。
+
+        OOS 跨度沿用 _split_raw_map 的全局时间戳池（全部品种 timestamp 池的
+        [1-test_ratio, 1] 分位区间），保证品种间窗口对齐；k-1 个内边界取 OOS
+        区间时间戳的 j/k 分位，折为 [b_j, b_{j+1})，最后一折右端含 oos_end。
+        返回 [(start, end), ...]，边界单调、无重叠、连续覆盖整个 OOS 区间。
+        """
+        pooled = pd.concat([_timestamps_to_datetime(df["timestamp"]) for df in raw_map.values()])
+        oos_start = pooled.quantile(1.0 - test_ratio)
+        oos_end = pooled.max()
+        oos = pooled[pooled >= oos_start]
+        edges = [oos_start]
+        for j in range(1, wf_folds):
+            edges.append(oos.quantile(j / wf_folds))
+        edges.append(oos_end)
+        return [(edges[j], edges[j + 1]) for j in range(wf_folds)]
+
+    def _fold_metrics(
+        self,
+        code: str,
+        raw_map: dict[str, pd.DataFrame],
+        fold_start: pd.Timestamp,
+        fold_end: pd.Timestamp,
+        *,
+        interval: str,
+        method: str,
+        forward: int,
+        window: int,
+        label: str,
+        index: int = 0,
+        last: bool = False,
+    ) -> dict[str, Any]:
+        """单个 walk-forward 折的轻量指标（不跑分组/decay/净值，小窗口无意义）。
+
+        - **扩展前缀执行**：因子在「每品种 ts<=fold_end 的全部历史前缀」上独立
+          沙箱执行（copy、独立子进程）——rolling/ewm 的 warmup 来自真实历史前缀，
+          且不使用折结束之后的数据（无前视，禁止全量跑完再切片）；
+        - 前瞻收益按品种 shift(-forward)，折末 forward 根收益为 NaN 被 dropna
+          自然丢弃（属正常）；指标行只保留 fold 窗口内（左闭右开，last 折含右端）；
+        - coverage 口径：折窗口内（所有品种的窗口时间点）factor 非空行数 / 窗口
+          原始总行数，在**前瞻收益 dropna 之前**统计（前瞻尾部不算缺失，因子 NaN
+          与品种无数据计入分母）；
+        - 窗口内有效时间点 <3（多品种截面 IC 的最低要求）或无品种 → ic_* 为 None，
+          bar_count/coverage 如实返回，不抛异常，由 _aggregate_wf 决定是否纳入汇总。
+        """
+        fold: dict[str, Any] = {
+            "index": index,
+            "start": fold_start.isoformat(),
+            "end": fold_end.isoformat(),
+            "ic_mean": None,
+            "ic_std": None,
+            "positive_rate": None,
+            "coverage": None,
+            "bar_count": 0,
+        }
+        prefix_map: dict[str, pd.DataFrame] = {}
+        window_rows = 0
+        for symbol, df in raw_map.items():
+            dt = _timestamps_to_datetime(df["timestamp"])
+            dt_np = dt.to_numpy()
+            prefix = df[dt_np <= fold_end.to_numpy()].copy()
+            in_window = dt_np >= fold_start.to_numpy()
+            in_window &= dt_np <= fold_end.to_numpy() if last else dt_np < fold_end.to_numpy()
+            window_rows += int(in_window.sum())
+            if len(prefix) > 0:
+                prefix_map[symbol] = prefix
+        if not prefix_map or window_rows <= 0:
+            return fold
+
+        series_map = self._sandbox.run(code, prefix_map)
+        factor = self.assemble_code_panel(label, series_map, prefix_map)
+        close = close_panel_from_raw(prefix_map)
+        aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
+
+        dt_aligned = aligned.index.get_level_values(0)
+        win_mask = dt_aligned >= fold_start
+        win_mask &= dt_aligned <= fold_end if last else dt_aligned < fold_end
+        window_df = aligned[win_mask]
+        fold["coverage"] = self._coverage(window_df["f"], window_rows)
+
+        forward_ret = (aligned["c"].groupby(level=1).shift(-forward) / aligned["c"] - 1).rename("r")
+        df = pd.concat([aligned["f"], forward_ret], axis=1).dropna()
+        dt_df = df.index.get_level_values(0)
+        fold_mask = dt_df >= fold_start
+        fold_mask &= dt_df <= fold_end if last else dt_df < fold_end
+        df = df[fold_mask]
+        fold["bar_count"] = len(df)
+
+        # 折窗口有效时间点 <3 → IC 不估计：_ic_series 在多品种但日期不足时会
+        # 退化为时序滚动相关，小窗口下无意义，按计划直接置 None（bar_count 如实保留）
+        n_points = df.index.get_level_values(0).nunique()
+        if n_points < 3:
+            return fold
+        ic_series = self._ic_series(df["f"], df["r"], method, window)
+        if len(ic_series):
+            fold["ic_mean"] = float(ic_series.mean())
+            fold["ic_std"] = float(ic_series.std()) if len(ic_series) > 1 else None
+            fold["positive_rate"] = float((ic_series > 0).mean())
+        return fold
+
+    @staticmethod
+    def _aggregate_wf(
+        folds: list[dict[str, Any]], train_ic: float | None
+    ) -> tuple[dict[str, Any], str | None, str | None]:
+        """多折 walk-forward 汇总（纯函数），返回 (metrics_oos, oos_flag, oos_note)。
+
+        加权口径：
+        - ic_mean：各折 ic_mean 按该折 bar_count 加权；ic_mean 为 None 的折样本
+          不足，跳过加权但仍计入 n_folds；
+        - ic_std：各**非空折 ic_mean 的折间样本标准差**（ddof=1），不是折内 ic_std
+          的平均；仅 1 个有效折时折间离散度不可估计 → None（ic_ir 随之 None）；
+        - coverage：按各折 bar_count 加权（折 coverage 已按折窗口归一，权重取该折
+          有效样本量；coverage 独立于 IC 有效性，IC 空折仍参与）；
+        - sign_consistency：非空折 ic_mean 与加权 ic_mean 同号的比例；无有效折→None。
+        oos_flag 与单次切分同口径（train_ic 与加权 wf ic：反号 sign_flip、
+        |wf|<0.5|train| weak、否则 ok；任一缺失 → None）。
+        """
+        n_folds = len(folds)
+        valid = [f for f in folds if f.get("ic_mean") is not None]
+        n_valid = len(valid)
+        bar_count = int(sum(int(f.get("bar_count") or 0) for f in folds))
+        metrics: dict[str, Any] = {
+            "ic_mean": None,
+            "ic_std": None,
+            "ic_ir": None,
+            "coverage": None,
+            "bar_count": bar_count,
+            "sign_consistency": None,
+            "n_folds": n_folds,
+            "valid_folds": n_valid,
+        }
+
+        # coverage 不依赖 IC 有效性：只要折有 coverage 与正样本量即纳入加权
+        cov_num = sum(
+            (f.get("coverage") or 0.0) * max(int(f.get("bar_count") or 0), 0)
+            for f in folds
+            if f.get("coverage") is not None
+        )
+        cov_den = sum(max(int(f.get("bar_count") or 0), 0) for f in folds if f.get("coverage") is not None)
+        if cov_den > 0:
+            metrics["coverage"] = float(cov_num / cov_den)
+
+        notes: list[str] = []
+        if n_valid < n_folds:
+            notes.append(f"{n_folds - n_valid}/{n_folds} 个窗口样本不足，未纳入汇总")
+
+        flag: str | None = None
+        if valid:
+            ics = np.array([f["ic_mean"] for f in valid], dtype=float)
+            weights = np.array([max(int(f.get("bar_count") or 0), 0) for f in valid], dtype=float)
+            if weights.sum() > 0:
+                w = weights / weights.sum()
+            else:  # 防御：IC 非空通常 bar_count>0；全 0 时退化为等权
+                w = np.full(n_valid, 1.0 / n_valid)
+            ic_mean = float(np.dot(w, ics))
+            metrics["ic_mean"] = ic_mean
+            if n_valid >= 2:
+                ic_std = float(ics.std(ddof=1))
+                metrics["ic_std"] = ic_std
+                metrics["ic_ir"] = (ic_mean / ic_std) if ic_std else None
+            same = int(((ics > 0) & (ic_mean > 0) | (ics < 0) & (ic_mean < 0)).sum())
+            metrics["sign_consistency"] = float(same / n_valid)
+
+            if train_ic is not None:
+                if train_ic * ic_mean < 0:
+                    flag = "sign_flip"
+                    notes.insert(
+                        0,
+                        f"样本外 IC 符号反转（train={train_ic:.4f}，wf={ic_mean:.4f}），疑似过拟合",
+                    )
+                elif abs(ic_mean) < 0.5 * abs(train_ic):
+                    flag = "weak"
+                    notes.insert(
+                        0,
+                        f"样本外 IC 衰减过半（train={train_ic:.4f}，wf={ic_mean:.4f}），样本外减弱",
+                    )
+                else:
+                    flag = "ok"
+        return metrics, flag, ("；".join(notes) if notes else None)
+
     def analyze_code_panel(
         self,
         code: str,
@@ -749,14 +933,19 @@ class FactorService:
         cost_bps: float = 0.0,
         label: str = "llm_candidate",
         test_ratio: float = 0.0,
+        wf_folds: int = 0,
     ) -> dict[str, Any]:
         """对尚未入库的代码走「沙箱执行 → 全指标分析」，供 LLM 挖掘闭环调用。
 
-        test_ratio>0 时按时间行序切 train/test，**两段各自独立沙箱执行**
-        （不能在全量结果上切——rolling 因子的 warmup 会把 train 段信息泄漏进 test）。
-        返回 ``{"train": analysis, "test": analysis | None}``；
-        test 段因有效数据不足（FactorError「有效数据不足」）时 test=None，
-        其余异常（沙箱安全/运行/资源/其他 FactorError）照常抛出。
+        两条样本外复核路径（均**独立沙箱执行**，不能在全量结果上切——rolling
+        因子的 warmup 会把未来信息泄漏进复核段）：
+        - wf_folds>=2 且 test_ratio>0：滚动 walk-forward。train 段仍为首个折起点
+          之前（_split_raw_map 全局切点，fitness/排序口径不变），随后在 k 个递增
+          历史前缀上逐折执行（共 1+k 次沙箱），折内只算截面 IC 轻量指标并加权汇总；
+          返回 ``{"train", "test": None, "wf": {...}}``；
+        - 否则（wf_folds=0/1 或 test_ratio=0）：单次 train/test 切分，返回
+          ``{"train", "test": analysis|None, "wf": None}``；test 段因有效数据不足
+          （FactorError「有效数据不足」）时 test=None，其余异常照常抛出。
         """
         horizons = horizons or self.DEFAULT_HORIZONS
 
@@ -782,7 +971,29 @@ class FactorService:
         train_map, test_map = self._split_raw_map(raw_map, test_ratio)
         train_analysis = _run_segment(train_map, label)
         test_analysis: dict[str, Any] | None = None
-        if test_map:
+        wf: dict[str, Any] | None = None
+
+        if wf_folds >= 2 and test_ratio > 0:
+            bounds = self._wf_bounds(raw_map, test_ratio, wf_folds)
+            folds = [
+                self._fold_metrics(
+                    code,
+                    raw_map,
+                    fold_start,
+                    fold_end,
+                    interval=interval,
+                    method=method,
+                    forward=forward,
+                    window=window,
+                    label=f"{label}__wf{i}",
+                    index=i,
+                    last=(i == wf_folds - 1),
+                )
+                for i, (fold_start, fold_end) in enumerate(bounds)
+            ]
+            wf_metrics, wf_flag, wf_note = self._aggregate_wf(folds, train_analysis["ic"].get("mean"))
+            wf = {"folds": folds, **wf_metrics, "oos_flag": wf_flag, "oos_note": wf_note}
+        elif test_map:
             try:
                 test_analysis = _run_segment(test_map, f"{label}__oos")
             except FactorError as exc:
@@ -790,7 +1001,7 @@ class FactorService:
                 if "有效数据不足" not in str(exc):
                     raise
                 test_analysis = None
-        return {"train": train_analysis, "test": test_analysis}
+        return {"train": train_analysis, "test": test_analysis, "wf": wf}
 
     def compare_factors(
         self,

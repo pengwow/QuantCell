@@ -339,6 +339,51 @@ def test_oos_flag_table(train_ic, test_ic, expected_flag):
         assert note
 
 
+def test_mine_walk_forward_row_structure_and_stats(service, monkeypatch):
+    """wf_folds=3：metrics_oos 为多折汇总（folds/sign_consistency/n_folds），沙箱 1+3 次。"""
+    contents = ['factor = df["close"].pct_change(5)']
+    original_run = service._sandbox.run
+    calls = []
+
+    def spy(code, frames):
+        calls.append(len(next(iter(frames.values()))))
+        return original_run(code, frames)
+
+    monkeypatch.setattr(service._sandbox, "run", spy)
+
+    result = run_llm_mining(
+        _params(n_candidates=1, test_ratio=0.3, wf_folds=3),
+        backend=FakeBackend(contents),
+        provider=Provider(),
+        service=service,
+    )
+    row = result["candidates"][0]
+    assert row["status"] == "success"
+    assert len(calls) == 4  # 1(train) + 3 折，禁止全量结果上切片
+    mo = row["metrics_oos"]
+    assert mo is not None
+    assert len(mo["folds"]) == 3
+    assert mo["n_folds"] == 3
+    assert mo["valid_folds"] == 3
+    assert {"ic_mean", "ic_ir", "coverage", "bar_count", "sign_consistency"} <= set(mo)
+    assert mo["ic_mean"] is not None
+    assert 0 <= mo["sign_consistency"] <= 1
+    assert row["oos_flag"] in {"ok", "weak", "sign_flip"}
+    assert result["stats"]["wf_folds"] == 3
+    assert result["stats"]["test_ratio"] == 0.3
+
+
+def test_mine_wf_folds_defaults_to_zero_in_stats(service):
+    contents = ['factor = df["close"].pct_change(5)']
+    result = run_llm_mining(
+        _params(n_candidates=1),
+        backend=FakeBackend(contents),
+        provider=Provider(),
+        service=service,
+    )
+    assert result["stats"]["wf_folds"] == 0
+
+
 @pytest.mark.parametrize(
     ("train_metrics", "test_metrics"),
     [

@@ -41,12 +41,16 @@ interface FormValues {
   n_rounds: number;
   top_k: number;
   test_ratio: number;
+  wf_folds: number;
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message || '挖掘失败';
 
 const fmt = (v: number | null | undefined, digits: number) =>
   v == null ? '—' : v.toFixed(digits);
+
+/** ISO 时间串 → 'YYYY-MM-DD HH:mm' 紧凑展示 */
+const fmtTime = (iso: string) => iso.replace('T', ' ').slice(0, 16);
 
 /** 样本外复核结论 → Tag 颜色与中文文案 */
 const OOS_TAG: Record<NonNullable<MinedCandidate['oos_flag']>, { color: string; text: string }> = {
@@ -127,6 +131,7 @@ const FactorMining: React.FC = () => {
       top_k: v.top_k,
       temperature,
       test_ratio: v.test_ratio,
+      wf_folds: v.wf_folds,
     };
     setResult(null);
     try {
@@ -216,6 +221,16 @@ const FactorMining: React.FC = () => {
       },
     },
     {
+      title: 'WF一致性',
+      key: 'wf_consistency',
+      align: 'right',
+      width: 100,
+      render: (_, row) => {
+        const v = row.metrics_oos?.sign_consistency;
+        return v == null ? '—' : `${Math.round(v * 100)}%`;
+      },
+    },
+    {
       title: 'IR',
       key: 'ic_ir',
       align: 'right',
@@ -300,6 +315,7 @@ const FactorMining: React.FC = () => {
             n_rounds: 2,
             top_k: 5,
             test_ratio: 0.3,
+            wf_folds: 0,
           }}
         >
           <Form.Item
@@ -363,6 +379,14 @@ const FactorMining: React.FC = () => {
             >
               <InputNumber min={0} max={0.5} step={0.05} style={{ width: 140 }} />
             </Form.Item>
+            <Form.Item
+              name="wf_folds"
+              label="WF折数"
+              extra="0=单次样本外切分；2-6=滚动 walk-forward 多窗口复核"
+              tooltip="在多个连续样本外窗口上分别计算截面 IC，汇总均值/ICIR/符号一致性，比单次切分更能识别过拟合"
+            >
+              <InputNumber min={0} max={6} step={1} precision={0} style={{ width: 140 }} />
+            </Form.Item>
             <Form.Item label="温度">
               <Flex gap="middle" align="center" style={{ width: 280 }}>
                 <Slider
@@ -421,16 +445,31 @@ const FactorMining: React.FC = () => {
             pagination={{ pageSize: 20 }}
             scroll={{ x: 'max-content' }}
             expandable={{
-              rowExpandable: (r) => !!r.error || !!r.oos_note,
+              rowExpandable: (r) =>
+                !!r.error || !!r.oos_note || !!r.metrics_oos?.folds?.length,
               expandedRowRender: (r) => (
-                <Space direction="vertical" size="small" style={{ display: 'flex' }}>
+                <Flex vertical gap="small">
                   {r.error && (
                     <span style={{ color: '#cf1322', whiteSpace: 'pre-wrap' }}>{r.error}</span>
                   )}
                   {r.oos_note && (
                     <span style={{ color: '#d46b08', whiteSpace: 'pre-wrap' }}>{r.oos_note}</span>
                   )}
-                </Space>
+                  {r.metrics_oos?.folds?.map((f) => (
+                    <Flex key={f.index} gap="middle" wrap align="center">
+                      <Tag>窗口 {f.index + 1}</Tag>
+                      <span style={{ color: '#8c8c8c' }}>
+                        {fmtTime(f.start)} ~ {fmtTime(f.end)}
+                      </span>
+                      <span>IC: {fmt(f.ic_mean, 4)}</span>
+                      <span>
+                        覆盖率:{' '}
+                        {f.coverage == null ? '—' : `${(f.coverage * 100).toFixed(1)}%`}
+                      </span>
+                      <span>bars: {f.bar_count}</span>
+                    </Flex>
+                  ))}
+                </Flex>
               ),
             }}
             locale={{ emptyText: '暂无挖掘结果，请先在上方配置并开始挖掘' }}
