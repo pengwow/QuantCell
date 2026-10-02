@@ -110,7 +110,8 @@ export interface MinedCandidate {
     | 'timeout'
     | 'resource_error'
     | 'runtime_error'
-    | 'empty';
+    | 'empty'
+    | 'llm_truncated';
   error_type: string | null;
   error: string | null;
   metrics: {

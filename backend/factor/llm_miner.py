@@ -188,8 +188,14 @@ def _classify_exc(exc: Exception) -> tuple[str, str]:
     return "runtime_error", f"{type(exc).__name__}: {exc}"
 
 
-async def _generate_batch(backend: Any, system_prompt: str, user_prompts: list[str]) -> list[str]:
-    async def one(prompt: str) -> str:
+async def _generate_batch(backend: Any, system_prompt: str, user_prompts: list[str]) -> list[dict[str, Any]]:
+    """并发请求 LLM，返回归一化响应（content + finish_reason）。
+
+    reasoning 模型可能把全部预算花在思考链上：finish_reason='length' 且
+    content 为空，调用方需与真正的空响应区分（提示加轮次而非当成无回复）。
+    """
+
+    async def one(prompt: str) -> dict[str, Any]:
         resp = await chat_to_dict(
             backend,
             [
@@ -197,7 +203,7 @@ async def _generate_batch(backend: Any, system_prompt: str, user_prompts: list[s
                 {"role": "user", "content": prompt},
             ],
         )
-        return resp.get("content") or ""
+        return {"content": resp.get("content") or "", "finish_reason": resp.get("finish_reason")}
 
     return await asyncio.gather(*(one(p) for p in user_prompts))
 
@@ -242,22 +248,33 @@ def run_llm_mining(
             _user_prompt(round_idx, params.n_rounds, i, params.n_candidates, reflection)
             for i in range(params.n_candidates)
         ]
-        contents = asyncio.run(_generate_batch(backend, SYSTEM_PROMPT, prompts))
+        responses = asyncio.run(_generate_batch(backend, SYSTEM_PROMPT, prompts))
         round_rows: list[dict[str, Any]] = []
 
-        for i, text in enumerate(contents):
+        for i, resp in enumerate(responses):
+            text = resp["content"]
+            finish_reason = resp.get("finish_reason")
             code = extract_code(text)
             generated_total += 1
             base = {"round": round_idx + 1, "candidate": i + 1}
             if not code:
-                # 空响应计入 generated，但不作为有效候选执行
+                # reasoning 模型思考链耗尽 token 预算（finish=length）与真空响应区分：
+                # 前者提示用户增加轮次/候选，后者只表明本轮该次调用无产出
+                if finish_reason == "length":
+                    status, error_type, error = (
+                        "llm_truncated",
+                        "llm_truncated",
+                        "LLM 思考链超过 token 预算、未产出代码（finish=length）；请增加反思轮数后重试",
+                    )
+                else:
+                    status, error_type, error = "empty", "empty", "LLM 返回为空"
                 row = {
                     **base,
                     "code": "",
                     "code_hash": "",
-                    "status": "empty",
-                    "error_type": "empty",
-                    "error": "LLM 返回为空",
+                    "status": status,
+                    "error_type": error_type,
+                    "error": error,
                     "metrics": None,
                     "metrics_oos": None,
                     "oos_flag": None,
@@ -273,8 +290,8 @@ def run_llm_mining(
             seen_hashes.add(h)
             unique_total += 1
 
-            pct = 5 + (round_idx + (i + 1) / len(contents)) / params.n_rounds * 80
-            report(pct, "evaluating", f"沙箱执行 + 指标评估（候选 {i + 1}/{len(contents)}）")
+            pct = 5 + (round_idx + (i + 1) / len(responses)) / params.n_rounds * 80
+            report(pct, "evaluating", f"沙箱执行 + 指标评估（候选 {i + 1}/{len(responses)}）")
             try:
                 analysis = service.analyze_code_panel(
                     code,
