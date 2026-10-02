@@ -904,8 +904,10 @@ def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
             base_url=llm_cfg["base_url"],
             model=llm_cfg["model"],
             temperature=float(params.get("temperature", 0.8)),
-            max_tokens=8192,
-            timeout_secs=120,
+            # reasoning 模型思考链较长：8192 会被思考耗尽而 content 为空（实测
+            # DeepSeek-V4-Flash 单次思考可达 9k token），提到 16384 留足正文预算
+            max_tokens=16384,
+            timeout_secs=180,
         )
         mine_params = LLMMineParams(
             symbols=params["instruments"],

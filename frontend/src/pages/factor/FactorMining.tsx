@@ -64,6 +64,7 @@ const STATUS_TAG: Record<MinedCandidate['status'], { color: string; text: string
   resource_error: { color: 'red', text: '超时/资源限制' },
   runtime_error: { color: 'default', text: '运行失败' },
   empty: { color: 'default', text: '空响应' },
+  llm_truncated: { color: 'orange', text: '思考超限' },
 };
 
 const FactorMining: React.FC = () => {

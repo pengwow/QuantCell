@@ -8,7 +8,11 @@ from factor.service import FactorService
 
 
 class FakeBackend:
-    """按调用顺序回放 content；记录消息供断言反思上下文。"""
+    """按调用顺序回放 content；记录消息供断言反思上下文。
+
+    元素可为字符串（finish_reason=Stop）或 (content, finish_reason) 元组，
+    用于模拟 reasoning 模型 finish=length 的空响应。
+    """
 
     def __init__(self, contents):
         self._contents = list(contents)
@@ -16,10 +20,11 @@ class FakeBackend:
 
     async def chat_async(self, messages):
         self.calls.append(messages)
-        content = self._contents[(len(self.calls) - 1) % len(self._contents)]
+        raw = self._contents[(len(self.calls) - 1) % len(self._contents)]
+        content, finish_reason = raw if isinstance(raw, tuple) else (raw, "Stop")
         return {
             "content": content,
-            "finish_reason": "Stop",
+            "finish_reason": finish_reason,
             "prompt_tokens": 1,
             "completion_tokens": 1,
             "total_tokens": 2,
@@ -142,6 +147,20 @@ def test_empty_llm_content_skipped(service):
     )
     assert result["stats"]["generated"] == 2
     assert all(c["status"] == "empty" for c in result["candidates"])
+
+
+def test_length_finish_with_empty_content_marked_truncated(service):
+    """reasoning 模型思考耗尽预算（finish=length, content 空）必须区别于普通空响应。"""
+    result = run_llm_mining(
+        _params(n_candidates=1),
+        backend=FakeBackend([("", "Length")]),
+        provider=Provider(),
+        service=service,
+    )
+    row = result["candidates"][0]
+    assert row["status"] == "llm_truncated"
+    assert "token" in row["error"]
+    assert result["stats"]["succeeded"] == 0
 
 
 def test_progress_callback_called(service):
