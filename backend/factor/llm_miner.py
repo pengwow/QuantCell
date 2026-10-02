@@ -30,7 +30,7 @@ import pandas as pd
 
 from axon_bridge.llm import chat_to_dict
 from factor.code_store import code_hash
-from factor.engine import load_raw_ohlcv
+from factor.engine import _timestamps_to_datetime, load_raw_ohlcv
 from factor.sandbox import (
     SandboxError,
     SandboxOutputError,
@@ -88,9 +88,12 @@ class LLMMineParams:
     test_ratio: float = 0.3
     # 滚动 walk-forward 折数：0=关闭（走单次 test_ratio 切分）；2-6=多窗口滚动复核
     wf_folds: int = 0
-    # 候选 train 段因子相关性去重阈值：|秩相关|>=该值且 fitness 更低者标记冗余；
+    # 候选 train 段因子相关性去重阈值：|秩相关|≥该值且 fitness 更低者标记冗余；
     # <=0 关闭；只用 train 段（去重是选择动作，禁止用 OOS 造成样本外泄漏）
     dedup_corr: float = 0.9
+    # 去重选定 best 后，是否对其中 train IC 非 None 的非冗余候选自动做
+    # IC 加权 zscore 合成（权重/时序统计冻结在 train；失败不阻断挖掘）
+    compose: bool = True
 
 
 def extract_code(text: str) -> str:
@@ -153,6 +156,45 @@ def _metrics_from_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         "nw_t_stat": ((analysis.get("inspection") or {}).get("ic_stats") or {}).get("nw_t_stat"),
         "bar_count": analysis.get("bar_count"),
     }
+
+
+def _oos_metrics(
+    analysis: dict[str, Any], train_metrics: dict[str, Any], test_ratio: float
+) -> tuple[dict[str, Any] | None, str | None, str | None, list[dict[str, Any]] | None]:
+    """从 analyze_code_panel/analyze_composite 的结果组装样本外块。
+
+    返回 (metrics_oos, oos_flag, oos_note, folds)：wf 路径 folds 为各折列表；
+    单次路径 test 不足且 test_ratio>0 时给「未做复核」说明；test_ratio=0 全 None。
+    候选行与合成因子共用同一口径，禁止两处分叉。
+    """
+    wf = analysis.get("wf")
+    if wf is not None:
+        metrics_oos = {
+            # 与单次 metrics_oos 行结构对齐（wf 不产出的全指标填 None）
+            "fitness": None,
+            "turnover": None,
+            "long_short_return": None,
+            "monotonicity_spearman": None,
+            "nw_t_stat": None,
+            "ic_mean": wf["ic_mean"],
+            "ic_std": wf["ic_std"],
+            "ic_ir": wf["ic_ir"],
+            "coverage": wf["coverage"],
+            "bar_count": wf["bar_count"],
+            "sign_consistency": wf["sign_consistency"],
+            "n_folds": wf["n_folds"],
+            "valid_folds": wf["valid_folds"],
+            "folds": wf["folds"],
+        }
+        return metrics_oos, wf["oos_flag"], wf["oos_note"], wf["folds"]
+    if analysis["test"]:
+        metrics_oos = _metrics_from_analysis(analysis["test"])
+        flag, note = oos_flag(train_metrics, metrics_oos)
+        return metrics_oos, flag, note, None
+    if test_ratio > 0:
+        # test 段因样本不足在 service 层被吞：候选仍成功，标注未复核
+        return None, None, "样本外数据不足，未做复核", None
+    return None, None, None, None
 
 
 def oos_flag(
@@ -364,36 +406,7 @@ def run_llm_mining(
                     wf_folds=params.wf_folds,
                 )
                 metrics = _metrics_from_analysis(analysis["train"])
-                wf = analysis.get("wf")
-                if wf is not None:
-                    # walk-forward：oos_flag/note 已在 service 层按多折汇总算好，直接透传
-                    metrics_oos = {
-                        # 与单次 metrics_oos 行结构对齐（wf 不产出的全指标填 None）
-                        "fitness": None,
-                        "turnover": None,
-                        "long_short_return": None,
-                        "monotonicity_spearman": None,
-                        "nw_t_stat": None,
-                        "ic_mean": wf["ic_mean"],
-                        "ic_std": wf["ic_std"],
-                        "ic_ir": wf["ic_ir"],
-                        "coverage": wf["coverage"],
-                        "bar_count": wf["bar_count"],
-                        "sign_consistency": wf["sign_consistency"],
-                        "n_folds": wf["n_folds"],
-                        "valid_folds": wf["valid_folds"],
-                        "folds": wf["folds"],
-                    }
-                    flag, note = wf["oos_flag"], wf["oos_note"]
-                else:
-                    metrics_oos = _metrics_from_analysis(analysis["test"]) if analysis["test"] else None
-                    if metrics_oos is not None:
-                        flag, note = oos_flag(metrics, metrics_oos)
-                    elif params.test_ratio > 0:
-                        # test 段因样本不足在 service 层被吞：候选仍成功，标注未复核
-                        flag, note = None, "样本外数据不足，未做复核"
-                    else:
-                        flag, note = None, None
+                metrics_oos, flag, note, _folds = _oos_metrics(analysis, metrics, params.test_ratio)
                 row = {
                     **base,
                     "code": code,
@@ -453,10 +466,16 @@ def run_llm_mining(
     non_redundant = [r for r in successful if not r["redundant"]]
     redundant_count = len(successful) - len(non_redundant)
     best = sorted(non_redundant, key=lambda r: r["metrics"]["fitness"], reverse=True)[: params.top_k]
+
+    # 自动合成（best 行仍持有 _factor train 面板，必须在剥离之前完成）
+    composite = _build_composite(params, best, raw_map, service) if params.compose else None
+    composed = composite is not None and "error" not in composite
+
     report(
         100.0,
         "completed",
-        f"完成：有效候选 {len(successful)}（重复 {redundant_count}），Top {len(best)}",
+        f"完成：有效候选 {len(successful)}（重复 {redundant_count}），Top {len(best)}"
+        + ("，已合成" if composed else ""),
     )
 
     # 剥离内部键：pd.Series 不能进 JSON，train_factor 也不允许透出到 HTTP 结果
@@ -470,6 +489,7 @@ def run_llm_mining(
     return {
         "candidates": candidates,
         "best": best,
+        "composite": composite,
         "stats": {
             "requested_per_round": params.n_candidates,
             "rounds": params.n_rounds,
@@ -478,6 +498,7 @@ def run_llm_mining(
             "succeeded": len(successful),
             "failed": len(candidates) - len(successful),
             "redundant": redundant_count,
+            "composed": composed,
             "symbols": list(raw_map),
             "interval": params.interval,
             "model_name": params.model_name,
@@ -485,3 +506,79 @@ def run_llm_mining(
             "wf_folds": params.wf_folds,
         },
     }
+
+
+def _build_composite(
+    params: LLMMineParams,
+    best: list[dict[str, Any]],
+    raw_map: dict[str, pd.DataFrame],
+    service: FactorService,
+) -> dict[str, Any] | None:
+    """对去重后 best 中 train IC 非 None 的候选做 IC 加权 zscore 合成。
+
+    - 非 None 成分 <2 或权重拟合失败（分母 0）→ None（不合成）；
+    - 权重在 train 段 IC 拟合冻结，ts_stats 由各 best 行的 train 面板（_factor）
+      拟合冻结；OOS 评估复用 analyze_composite（raw_map 为挖掘已加载的同一份）；
+    - 合成是派生动作：任何异常都不阻断挖掘，返回 {"error": msg}（调用方记统计）；
+    - 返回 dict 全部为 JSON 原生类型（无 Series/numpy，weights/ts_stats 显式转 float）。
+    """
+    comp_rows = [r for r in best if r.get("metrics") and r["metrics"].get("ic_mean") is not None]
+    if len(comp_rows) < 2:
+        return None
+    codes = [r["code"] for r in comp_rows]
+    ics = [r["metrics"]["ic_mean"] for r in comp_rows]
+    weights = FactorService.fit_ic_weights(ics)
+    if weights is None:
+        return None
+    ts_stats_list = [FactorService._fit_ts_stats(r["_factor"]) for r in comp_rows]
+
+    wf_on = params.wf_folds >= 2 and params.test_ratio > 0
+    n_runs = len(codes) * (1 + params.wf_folds) if wf_on else len(codes) * (2 if params.test_ratio > 0 else 1)
+    logger.info(f"[LLM挖掘] 合成因子：{len(codes)} 个成分，预计沙箱执行 {n_runs} 次")
+    try:
+        analysis = service.analyze_composite(
+            codes,
+            weights,
+            ts_stats_list,
+            raw_map,
+            interval=params.interval,
+            method=params.method,
+            n_groups=params.n_groups,
+            window=params.window,
+            forward=params.forward,
+            label="llm_composite",
+            test_ratio=params.test_ratio,
+            wf_folds=params.wf_folds,
+        )
+    except Exception as exc:
+        logger.warning(f"[LLM挖掘] 因子合成失败（不阻断挖掘）: {type(exc).__name__}: {exc}")
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    train_metrics = _metrics_from_analysis(analysis["train"])
+    metrics_oos, flag, note, folds = _oos_metrics(analysis, train_metrics, params.test_ratio)
+
+    # train_window：start=train 段全局最小时间；end=OOS 切点（_wf_bounds 首折起点；
+    # 单次路径也用同一切点，test_ratio=0 时即数据末端时间戳）
+    train_map, _ = FactorService._split_raw_map(raw_map, params.test_ratio)
+    start_ts = min(_timestamps_to_datetime(df["timestamp"]).min() for df in train_map.values())
+    oos_start = FactorService._wf_bounds(raw_map, params.test_ratio, 2)[0][0]
+    composite: dict[str, Any] = {
+        "n": len(codes),
+        "constituents": [
+            {"code_hash": r["code_hash"], "weight": float(w), "ts_stats": ts_stats_list[i]}
+            for i, (r, w) in enumerate(zip(comp_rows, weights, strict=True))
+        ],
+        "train_window": {
+            "start": pd.Timestamp(start_ts).isoformat(),
+            "end": pd.Timestamp(oos_start).isoformat(),
+            "interval": params.interval,
+            "candle_type": params.candle_type,
+        },
+        "metrics": train_metrics,
+        "metrics_oos": metrics_oos,
+        "oos_flag": flag,
+        "oos_note": note,
+    }
+    if folds is not None:
+        composite["folds"] = folds
+    return composite

@@ -29,6 +29,7 @@
 创建日期: 2024-01-01
 """
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, validator
@@ -519,6 +520,62 @@ class FactorMineLLMRequest(FactorCalculateBase):
         le=1.0,
         description="候选 train 段因子相关性去重阈值（|spearman|≥该值且 fitness 更低者标记为重复），0 关闭",
     )
+    compose: bool = Field(
+        default=True,
+        description="去重选定最佳候选后，是否自动做 IC 加权 zscore 合成（权重冻结在 train 段）",
+    )
+
+
+class CompositeTrainWindow(BaseSchema):
+    """合成因子拟合时的 train 段时间窗（仅记录，重算不参与）。"""
+
+    start: str = Field(..., min_length=1, description="train 段起点 ISO8601")
+    end: str = Field(..., min_length=1, description="样本外切点 ISO8601")
+    interval: str = Field(..., min_length=1, description="K线周期，如 1h")
+    candle_type: str = Field(default="spot", description="市场类型：spot/future")
+
+    @validator("candle_type")
+    def validate_composite_candle_type(cls, v: str) -> str:
+        if v not in {"spot", "future"}:
+            raise ValueError("candle_type 必须为 spot 或 future")
+        return v
+
+
+class CompositeConstituent(BaseSchema):
+    """合成因子成分：代码 + train 冻结权重 + train 冻结的逐品种时序统计。"""
+
+    code: str = Field(..., min_length=1, max_length=20000, description="成分因子 Python 代码")
+    weight: float = Field(..., description="IC 加权权重（带符号，允许和不为 1）")
+    ts_stats: dict[str, dict[str, float]] = Field(
+        ...,
+        description="train 段逐品种时序统计 {symbol: {mean, std}}",
+    )
+
+
+class FactorCompositeAddRequest(BaseSchema):
+    """合成因子入库请求（挖掘结果 → 因子库）。"""
+
+    factor_name: str = Field(..., min_length=1, max_length=100, description="合成因子名（字母开头）")
+    description: str | None = Field(default="", max_length=300, description="人类可读说明")
+    constituents: list[CompositeConstituent] = Field(
+        ...,
+        min_length=2,
+        max_length=20,
+        description="成分列表（2-20 个，顺序即权重/ts_stats 对应顺序）",
+    )
+    train_window: CompositeTrainWindow
+
+    @validator("factor_name")
+    def validate_composite_name(cls, v: str) -> str:
+        if not re.match(r"^[A-Za-z][A-Za-z0-9_]{0,99}$", v or ""):
+            raise ValueError("因子名需以字母开头，仅含字母数字下划线，长度 1-100")
+        return v
+
+    @validator("constituents")
+    def validate_weights_not_all_zero(cls, v: list[CompositeConstituent]) -> list[CompositeConstituent]:
+        if not any(c.weight != 0.0 for c in v):
+            raise ValueError("合成权重不能全为 0")
+        return v
 
 
 class FactorJobAccepted(BaseSchema):

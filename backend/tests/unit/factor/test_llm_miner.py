@@ -616,6 +616,103 @@ def test_result_rows_strip_internal_factor_and_are_json_serializable(service):
     json.dumps(result)
 
 
+# ---------------------------------------------------------------------------
+# 合成因子（IC 加权 zscore）：挖掘内自动合成
+# ---------------------------------------------------------------------------
+
+
+def test_mine_composes_two_low_corr_best(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, test_ratio=0.3),
+        backend=FakeBackend([CODE_MOM, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    comp = result["composite"]
+    assert comp is not None
+    assert "error" not in comp
+    assert result["stats"]["composed"] is True
+    assert comp["n"] == 2
+    assert len(comp["constituents"]) == 2
+
+    # 权重：绝对值和≈1（带符号归一），且与各成分 train IC 同号
+    ic_by_hash = {c["code_hash"]: c["metrics"]["ic_mean"] for c in result["candidates"]}
+    weights = [c["weight"] for c in comp["constituents"]]
+    assert sum(abs(w) for w in weights) == pytest.approx(1.0, abs=1e-9)
+    for c in comp["constituents"]:
+        assert c["weight"] * ic_by_hash[c["code_hash"]] > 0
+        assert c["ts_stats"]  # 每成分带冻结的逐品种时序统计
+        json.dumps(c["ts_stats"])
+
+    # train/OOS 指标口径与候选行一致
+    assert comp["metrics"]["ic_mean"] is not None
+    assert comp["metrics_oos"] is not None
+    assert comp["metrics_oos"]["ic_mean"] is not None
+    assert comp["oos_flag"] in {"ok", "weak", "sign_flip"}
+    tw = comp["train_window"]
+    assert tw["start"] < tw["end"]
+    assert tw["interval"] == "1h" and tw["candle_type"] == "spot"
+    assert "folds" not in comp  # 单次切分路径不带 folds
+    # 整体必须是 JSON 原生类型（无 Series/numpy 残留）
+    json.dumps(result)
+
+
+def test_mine_composition_wf_emits_folds(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, test_ratio=0.3, wf_folds=3),
+        backend=FakeBackend([CODE_MOM, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    comp = result["composite"]
+    assert comp is not None and "error" not in comp
+    assert len(comp["folds"]) == 3
+    assert comp["metrics_oos"]["n_folds"] == 3
+    json.dumps(result)
+
+
+def test_mine_compose_disabled_returns_none(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, compose=False),
+        backend=FakeBackend([CODE_MOM, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    assert result["composite"] is None
+    assert result["stats"]["composed"] is False
+
+
+def test_mine_composite_none_when_best_less_than_two(service):
+    result = run_llm_mining(
+        _params(n_candidates=1, test_ratio=0.3),
+        backend=FakeBackend([CODE_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    assert result["composite"] is None
+    assert result["stats"]["composed"] is False
+
+
+def test_mine_composite_failure_does_not_block_mining(service, monkeypatch):
+    # analyze_composite 抛错 → composite={"error":...}，候选结果照常返回
+    def boom(*a, **k):
+        raise RuntimeError("compose boom")
+
+    monkeypatch.setattr(service, "analyze_composite", boom)
+    result = run_llm_mining(
+        _params(n_candidates=2, test_ratio=0.3),
+        backend=FakeBackend([CODE_MOM, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    comp = result["composite"]
+    assert comp is not None
+    assert "error" in comp and "boom" in comp["error"]
+    assert result["stats"]["composed"] is False
+    assert len(result["best"]) == 2
+    json.dumps(result)
+
+
 def test_non_success_rows_have_redundant_defaults(service):
     result = run_llm_mining(
         _params(n_candidates=1),
