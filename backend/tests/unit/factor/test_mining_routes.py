@@ -171,6 +171,100 @@ def test_add_code_factor_rejects_bad_code(client):
     assert resp.status_code == 400
 
 
+_COMPOSITE_BODY = {
+    "factor_name": "zz_comp_demo",
+    "description": "合成演示",
+    "constituents": [
+        {
+            "code": 'factor = df["close"].pct_change(5)',
+            "weight": 0.6,
+            "ts_stats": {"BTCUSDT": {"mean": 0.0, "std": 1.0}},
+        },
+        {
+            "code": 'factor = df["volume"].pct_change(5)',
+            "weight": -0.4,
+            "ts_stats": {"BTCUSDT": {"mean": 0.0, "std": 1.0}},
+        },
+    ],
+    "train_window": {
+        "start": "2026-01-01T00:00:00",
+        "end": "2026-01-07T23:00:00",
+        "interval": "1h",
+        "candle_type": "spot",
+    },
+}
+
+
+def test_add_and_delete_composite_factor(client, tmp_path, monkeypatch, isolated_catalog_db):
+    from factor.composite_store import CompositeFactorStore
+    from factor.routes import factor_service
+
+    monkeypatch.setattr(factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
+    resp = client.post("/api/v1/factor/composite/add", json=_COMPOSITE_BODY)
+    assert resp.status_code == 200, resp.text
+    assert client.delete("/api/v1/factor/composite/zz_comp_demo").status_code == 200
+    # 删除后再删 → 404
+    assert client.delete("/api/v1/factor/composite/zz_comp_demo").status_code == 404
+
+
+def test_add_composite_indexes_catalog_and_delete_cleans(client, tmp_path, monkeypatch, isolated_catalog_db):
+    from sqlalchemy.orm import Session
+
+    from factor import routes as factor_routes
+    from factor.composite_store import CompositeFactorStore
+    from factor.models import FactorCatalog, FactorSnapshot
+
+    monkeypatch.setattr(factor_routes.factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
+    name = _COMPOSITE_BODY["factor_name"]
+    resp = client.post("/api/v1/factor/composite/add", json=_COMPOSITE_BODY)
+    assert resp.status_code == 200, resp.text
+
+    cat = client.get("/api/v1/factor/catalog")
+    rows = [x for x in cat.json()["data"]["factors"] if x["name"] == name]
+    assert len(rows) == 1
+    assert rows[0]["category"] == "llm_composite"
+    assert rows[0]["builtin"] is False
+
+    with Session(isolated_catalog_db) as db:
+        row = db.query(FactorCatalog).filter_by(name=name).one()
+        assert row.category == "llm_composite"
+        db.add(FactorSnapshot(factor_name=name, params_json="{}", metrics_json="{}", bar_count=0))
+        db.commit()
+
+    assert client.delete(f"/api/v1/factor/composite/{name}").status_code == 200
+    with Session(isolated_catalog_db) as db:
+        assert db.query(FactorCatalog).filter_by(name=name).count() == 0
+        assert db.query(FactorSnapshot).filter_by(factor_name=name).count() == 0
+
+
+def test_add_composite_rejects_malicious_constituent(client, tmp_path, monkeypatch):
+    from factor.composite_store import CompositeFactorStore
+    from factor.routes import factor_service
+
+    monkeypatch.setattr(factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
+    body = {
+        **_COMPOSITE_BODY,
+        "factor_name": "zz_comp_evil",
+        "constituents": [
+            {"code": "import os", "weight": 0.5, "ts_stats": {}},
+            _COMPOSITE_BODY["constituents"][1],
+        ],
+    }
+    resp = client.post("/api/v1/factor/composite/add", json=body)
+    assert resp.status_code == 400
+    assert not factor_service._composite_store.exists("zz_comp_evil")
+
+
+def test_add_composite_rejects_single_constituent(client, tmp_path, monkeypatch):
+    from factor.composite_store import CompositeFactorStore
+    from factor.routes import factor_service
+
+    monkeypatch.setattr(factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
+    body = {**_COMPOSITE_BODY, "constituents": [_COMPOSITE_BODY["constituents"][0]]}
+    resp = client.post("/api/v1/factor/composite/add", json=body)
+    assert resp.status_code == 422  # Pydantic 成分数 2-20 校验
+
+
 def test_mine_llm_submits_job(client, monkeypatch):
     submitted = {}
 
@@ -200,6 +294,8 @@ def test_mine_llm_submits_job(client, monkeypatch):
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["job_id"] == "job-123"
     assert submitted["kind"] == "llm_mine"
+    # compose 默认开启并透传到 job 参数
+    assert submitted["params"]["compose"] is True
 
 
 def test_mine_llm_without_model_config_400(client, monkeypatch):

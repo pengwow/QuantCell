@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   DatePicker,
@@ -9,6 +10,7 @@ import {
   Input,
   InputNumber,
   message,
+  Modal,
   Popconfirm,
   Progress,
   Radio,
@@ -16,6 +18,7 @@ import {
   Slider,
   Space,
   Statistic,
+  Switch,
   Table,
   Tag,
   Tooltip,
@@ -24,10 +27,13 @@ import dayjs, { type Dayjs } from 'dayjs';
 import type { TableProps } from 'antd';
 import {
   factorApi,
+  type CompositeConstituent,
+  type CompositeFactorResult,
   type FactorMineLLMParams,
   type FactorMineResult,
   type InstrumentInfo,
   type MinedCandidate,
+  type WFFoldMetrics,
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import { useQuantColors } from '@/utils/colors';
@@ -43,6 +49,7 @@ interface FormValues {
   top_k: number;
   test_ratio: number;
   wf_folds: number;
+  compose: boolean;
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message || '挖掘失败';
@@ -72,6 +79,115 @@ const STATUS_TAG: Record<MinedCandidate['status'], { color: string; text: string
   llm_truncated: { color: 'orange', text: '思考超限' },
 };
 
+/** walk-forward 逐折指标列表：候选展开行与合成因子卡片共用，避免复制粘贴 */
+const FoldList: React.FC<{ folds: WFFoldMetrics[] }> = ({ folds }) => (
+  <Flex vertical gap="small">
+    {folds.map((f) => (
+      <Flex key={f.index} gap="middle" wrap align="center">
+        <Tag style={{ marginInlineEnd: 0 }}>窗口 {f.index + 1}</Tag>
+        <span style={{ color: '#8c8c8c' }}>
+          {fmtTime(f.start)} ~ {fmtTime(f.end)}
+        </span>
+        <span>IC: {fmt(f.ic_mean, 4)}</span>
+        <span>覆盖率: {f.coverage == null ? '—' : `${(f.coverage * 100).toFixed(1)}%`}</span>
+        <span>bars: {f.bar_count}</span>
+      </Flex>
+    ))}
+  </Flex>
+);
+
+/** 合成卡片上的单个指标格：灰色小标签 + 数值 */
+const MetricCell: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <Flex vertical gap={0}>
+    <span style={{ color: '#8c8c8c', fontSize: 12 }}>{label}</span>
+    <span style={{ fontWeight: 600 }}>{value}</span>
+  </Flex>
+);
+
+const covText = (v: number | null | undefined) =>
+  v == null ? '—' : `${(v * 100).toFixed(1)}%`;
+
+/** 合成因子结果卡片：成分权重 / train 与样本外指标 / OOS 结论 / WF 逐折 / 保存入口 */
+const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void }> = ({
+  comp,
+  onSave,
+}) => {
+  if (comp.error) {
+    return (
+      <Card size="small" title="合成因子（IC 加权 zscore）">
+        <Alert type="error" showIcon message="合成失败（不影响本次挖掘结果）" description={comp.error} />
+      </Card>
+    );
+  }
+  const m = comp.metrics;
+  const oos = comp.metrics_oos;
+  const constituentColumns: TableProps<CompositeConstituent>['columns'] = [
+    {
+      title: '#',
+      key: 'idx',
+      width: 48,
+      render: (_, __, index) => index + 1,
+    },
+    {
+      title: '代码 hash',
+      dataIndex: 'code_hash',
+      render: (h: string) => <Tag style={{ marginInlineEnd: 0 }}>{h.slice(0, 8)}</Tag>,
+    },
+    {
+      title: '权重',
+      dataIndex: 'weight',
+      align: 'right',
+      render: (w: number) => (
+        <Tag color={w >= 0 ? 'green' : 'red'} style={{ marginInlineEnd: 0 }}>
+          {w >= 0 ? '+' : ''}
+          {(w * 100).toFixed(1)}%
+        </Tag>
+      ),
+    },
+  ];
+  return (
+    <Card
+      size="small"
+      title={`合成因子（IC 加权 zscore）· ${comp.n ?? 0} 成分`}
+      extra={
+        <Button size="small" type="primary" onClick={onSave}>
+          保存为因子
+        </Button>
+      }
+    >
+      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+        <Table<CompositeConstituent>
+          size="small"
+          pagination={false}
+          rowKey="code_hash"
+          dataSource={comp.constituents ?? []}
+          columns={constituentColumns}
+        />
+        <Flex gap="large" wrap align="center">
+          <MetricCell label="Train IC" value={fmt(m?.ic_mean, 4)} />
+          <MetricCell label="Train 覆盖率" value={covText(m?.coverage)} />
+          <MetricCell label="Train bars" value={String(m?.bar_count ?? '—')} />
+          <MetricCell label="样本外 IC" value={fmt(oos?.ic_mean, 4)} />
+          <MetricCell label="样本外覆盖率" value={covText(oos?.coverage)} />
+          <MetricCell label="样本外 bars" value={String(oos?.bar_count ?? '—')} />
+          {comp.oos_flag && (
+            <Tag color={OOS_TAG[comp.oos_flag].color}>{OOS_TAG[comp.oos_flag].text}</Tag>
+          )}
+        </Flex>
+        {comp.oos_note && (
+          <span style={{ color: '#d46b08', whiteSpace: 'pre-wrap' }}>{comp.oos_note}</span>
+        )}
+        {comp.folds?.length ? (
+          <Space direction="vertical" size="small" style={{ display: 'flex' }}>
+            <span style={{ color: '#8c8c8c' }}>walk-forward 各折复核</span>
+            <FoldList folds={comp.folds} />
+          </Space>
+        ) : null}
+      </Space>
+    </Card>
+  );
+};
+
 const FactorMining: React.FC = () => {
   const qc = useQuantColors();
   const [form] = Form.useForm<FormValues>();
@@ -84,6 +200,10 @@ const FactorMining: React.FC = () => {
   const [saveRow, setSaveRow] = useState<MinedCandidate | null>(null);
   const [saveName, setSaveName] = useState('');
   const [saving, setSaving] = useState(false);
+  // 合成因子「保存为因子」Modal
+  const [compModalOpen, setCompModalOpen] = useState(false);
+  const [compSaving, setCompSaving] = useState(false);
+  const [compForm] = Form.useForm<{ factor_name: string; description?: string }>();
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorMineResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
@@ -133,6 +253,7 @@ const FactorMining: React.FC = () => {
       temperature,
       test_ratio: v.test_ratio,
       wf_folds: v.wf_folds,
+      compose: v.compose,
     };
     setResult(null);
     try {
@@ -162,6 +283,53 @@ const FactorMining: React.FC = () => {
       throw err;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openSaveComposite = () => {
+    const firstHash = result?.composite?.constituents?.[0]?.code_hash.slice(0, 8) ?? '';
+    compForm.resetFields();
+    compForm.setFieldsValue({ factor_name: `llm_comp_${firstHash}`, description: '' });
+    setCompModalOpen(true);
+  };
+
+  // 合成因子保存：constituents 从 candidates 的 code_hash → 完整 code 组装，
+  // weight/ts_stats 取挖掘时冻结在 train 的合成结果
+  const handleSaveComposite = async () => {
+    const v = await compForm.validateFields();
+    const comp = result?.composite;
+    if (!comp || !comp.constituents || !comp.train_window) {
+      message.error('合成因子结果不完整，无法保存');
+      return;
+    }
+    const codeByHash = new Map(
+      result.candidates.filter((c) => c.status === 'success').map((c) => [c.code_hash, c.code]),
+    );
+    let constituents;
+    try {
+      constituents = comp.constituents.map((c) => {
+        const code = codeByHash.get(c.code_hash);
+        if (!code) throw new Error(`缺少成分代码：${c.code_hash}`);
+        return { code, weight: c.weight, ts_stats: c.ts_stats };
+      });
+    } catch (err) {
+      message.error(errMsg(err));
+      return;
+    }
+    setCompSaving(true);
+    try {
+      await factorApi.addCompositeFactor({
+        factor_name: v.factor_name.trim(),
+        description: v.description?.trim() || '',
+        constituents,
+        train_window: comp.train_window,
+      });
+      message.success(`合成因子已保存到因子库：${v.factor_name.trim()}`);
+      setCompModalOpen(false);
+    } catch (err) {
+      message.error(errMsg(err));
+    } finally {
+      setCompSaving(false);
     }
   };
 
@@ -332,6 +500,7 @@ const FactorMining: React.FC = () => {
             top_k: 5,
             test_ratio: 0.3,
             wf_folds: 0,
+            compose: true,
           }}
         >
           <Form.Item
@@ -402,6 +571,15 @@ const FactorMining: React.FC = () => {
               tooltip="在多个连续样本外窗口上分别计算截面 IC，汇总均值/ICIR/符号一致性，比单次切分更能识别过拟合"
             >
               <InputNumber min={0} max={6} step={1} precision={0} style={{ width: 140 }} />
+            </Form.Item>
+            <Form.Item
+              name="compose"
+              label="合成最佳因子"
+              extra="去重后对最佳候选做 IC 加权 zscore 自动合成"
+              tooltip="权重与标准化统计只在 train 段拟合冻结；合成因子可在结果区直接保存到因子库"
+              valuePropName="checked"
+            >
+              <Switch checkedChildren="开" unCheckedChildren="关" />
             </Form.Item>
             <Form.Item label="温度">
               <Flex gap="middle" align="center" style={{ width: 280 }}>
@@ -476,25 +654,15 @@ const FactorMining: React.FC = () => {
                   {r.oos_note && (
                     <span style={{ color: '#d46b08', whiteSpace: 'pre-wrap' }}>{r.oos_note}</span>
                   )}
-                  {r.metrics_oos?.folds?.map((f) => (
-                    <Flex key={f.index} gap="middle" wrap align="center">
-                      <Tag>窗口 {f.index + 1}</Tag>
-                      <span style={{ color: '#8c8c8c' }}>
-                        {fmtTime(f.start)} ~ {fmtTime(f.end)}
-                      </span>
-                      <span>IC: {fmt(f.ic_mean, 4)}</span>
-                      <span>
-                        覆盖率:{' '}
-                        {f.coverage == null ? '—' : `${(f.coverage * 100).toFixed(1)}%`}
-                      </span>
-                      <span>bars: {f.bar_count}</span>
-                    </Flex>
-                  ))}
+                  {r.metrics_oos?.folds && <FoldList folds={r.metrics_oos.folds} />}
                 </Flex>
               ),
             }}
             locale={{ emptyText: '暂无挖掘结果，请先在上方配置并开始挖掘' }}
           />
+          {result?.composite && (
+            <CompositeCard comp={result.composite} onSave={openSaveComposite} />
+          )}
         </Space>
       </Card>
 
@@ -510,6 +678,41 @@ const FactorMining: React.FC = () => {
           '无代码'
         )}
       </Drawer>
+
+      <Modal
+        title="保存合成因子"
+        open={compModalOpen}
+        onOk={handleSaveComposite}
+        confirmLoading={compSaving}
+        onCancel={() => setCompModalOpen(false)}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose
+        maskClosable={false}
+      >
+        <Form form={compForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="factor_name"
+            label="因子名称（英文标识）"
+            extra="字母开头，仅含字母/数字/下划线；保存后可在因子库中按普通因子分析、对比与收藏快照"
+            rules={[
+              { required: true, message: '请输入因子名称' },
+              {
+                pattern: /^[A-Za-z][A-Za-z0-9_]{0,99}$/,
+                message: '需以字母开头，仅含字母数字下划线，长度 1-100',
+              },
+            ]}
+          >
+            <Input placeholder="如 llm_comp_ab12cd34" />
+          </Form.Item>
+          <Form.Item name="description" label="描述（可选）">
+            <Input.TextArea rows={2} maxLength={300} placeholder="该合成因子的含义/成分说明" />
+          </Form.Item>
+          <span style={{ color: '#8c8c8c' }}>
+            将保存 {result?.composite?.n ?? 0} 个成分的冻结权重与 train 时序统计，重新分析时按冻结口径组合。
+          </span>
+        </Form>
+      </Modal>
     </Space>
   );
 };

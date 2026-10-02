@@ -8,9 +8,11 @@ export interface FactorDetail {
   label: string;
   builtin: boolean;
   supported: boolean;
-  /** 因子形态：表达式因子 / Python 代码因子（LLM 挖掘保存） */
-  kind?: 'expression' | 'code';
+  /** 因子形态：表达式因子 / Python 代码因子（LLM 挖掘保存）/ IC 加权合成因子 */
+  kind?: 'expression' | 'code' | 'composite';
   description?: string;
+  /** 合成因子的成分数量（kind=composite 时返回） */
+  constituents_count?: number;
 }
 
 /** /instruments 返回的品种及其可用周期 */
@@ -97,6 +99,8 @@ export interface FactorMineLLMParams {
   test_ratio?: number;
   /** 滚动 walk-forward 折数：0=单次样本外切分；2-6=多窗口滚动复核 */
   wf_folds?: number;
+  /** 去重选定最佳候选后是否自动 IC 加权 zscore 合成，默认 true */
+  compose?: boolean;
 }
 
 /** walk-forward 单折复核指标 */
@@ -174,10 +178,57 @@ export interface MinedCandidate {
   redundant_corr?: number | null;
 }
 
+/** 合成因子拟合的 train 段时间窗（仅记录） */
+export interface CompositeTrainWindow {
+  start: string;
+  end: string;
+  interval: string;
+  candle_type: string;
+}
+
+/** 挖掘结果内的合成因子成分（权重 + 冻结的逐品种时序统计） */
+export interface CompositeConstituent {
+  code_hash: string;
+  weight: number;
+  ts_stats: Record<string, { mean: number; std: number }>;
+}
+
+/** 保存合成因子时上送的成分（code 由 candidates 的 hash→code 组装） */
+export interface CompositeConstituentPayload {
+  code: string;
+  weight: number;
+  ts_stats: Record<string, { mean: number; std: number }>;
+}
+
+/** POST /factor/composite/add 请求体 */
+export interface FactorCompositeAddBody {
+  factor_name: string;
+  description?: string;
+  constituents: CompositeConstituentPayload[];
+  train_window: CompositeTrainWindow;
+}
+
+/** 挖掘内自动合成结果；合成异常时仅返回 error，未触发合成为 null */
+export interface CompositeFactorResult {
+  /** 合成失败说明（不阻断挖掘）；存在时其余字段均无意义 */
+  error?: string;
+  n?: number;
+  constituents?: CompositeConstituent[];
+  train_window?: CompositeTrainWindow;
+  metrics?: NonNullable<MinedCandidate['metrics']>;
+  metrics_oos?: MinedOOSMetrics | null;
+  oos_flag?: 'ok' | 'weak' | 'sign_flip' | null;
+  oos_note?: string | null;
+  /** walk-forward 时的逐折指标（单次切分无此字段） */
+  folds?: WFFoldMetrics[];
+}
+
 /** LLM 挖掘任务结果 */
 export interface FactorMineResult {
   candidates: MinedCandidate[];
   best: MinedCandidate[];
+  /** best 非冗余候选的 IC 加权 zscore 合成结果；未合成时为 null */
+  composite?: CompositeFactorResult | null;
   stats: {
     generated: number;
     unique: number;
@@ -340,6 +391,10 @@ export const factorApi = {
     ),
   addCodeFactor: (factor_name: string, code: string, description?: string) =>
     apiRequest.post('/factor/code/add', { factor_name, code, description }),
+  addCompositeFactor: (body: FactorCompositeAddBody) =>
+    apiRequest.post('/factor/composite/add', body),
+  deleteCompositeFactor: (name: string) =>
+    apiRequest.delete(`/factor/composite/${encodeURIComponent(name)}`),
   getFactorJob: (id: string) =>
     apiRequest.get<FactorJobStatus>(`/factor/jobs/${id}`),
   getFactorJobResult: <T,>(id: string) =>

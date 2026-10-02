@@ -33,6 +33,7 @@ from .schemas import (
     FactorCalculateMultiRequest,
     FactorCalculateRequest,
     FactorCompareRequest,
+    FactorCompositeAddRequest,
     FactorCorrelationRequest,
     FactorGroupAnalysisRequest,
     FactorICRequest,
@@ -924,6 +925,7 @@ def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
             test_ratio=float(params.get("test_ratio", 0.3)),
             wf_folds=int(params.get("wf_folds", 0) or 0),
             dedup_corr=float(params.get("dedup_corr", 0.9)),
+            compose=bool(params.get("compose", True)),
         )
         return run_llm_mining(mine_params, backend=backend, progress=on_progress)
 
@@ -998,6 +1000,59 @@ def delete_code_factor(factor_name: str, current_user: dict = Depends(get_curren
         except Exception as hook_err:
             logger.warning(f"代码因子档案删除失败（代码已从 JSON 删除）: {hook_err}")
         return ApiResponse(code=0, message=f"代码因子 {factor_name} 已删除")
+    except FactorNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post(
+    "/composite/add",
+    response_model=ApiResponse,
+    summary="新增合成因子（IC 加权 zscore，成分代码沙箱校验通过后入库）",
+)
+def add_composite_factor(
+    request: FactorCompositeAddRequest, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
+    """保存挖掘产出的合成因子：名称互斥 + 每成分沙箱校验 + 冻结权重/时序统计落盘。"""
+    try:
+        factor_service.save_composite(
+            request.factor_name,
+            request.description or "",
+            codes=[c.code for c in request.constituents],
+            weights=[c.weight for c in request.constituents],
+            ts_stats_list=[c.ts_stats for c in request.constituents],
+            train_window=request.train_window.model_dump(),
+            provenance={"source": "llm_mining_composite"},
+        )
+        # ---- 保存成功后建档（派生数据，失败不阻断保存；模式同 /code/add）----
+        try:
+            with get_db_session() as db:
+                _catalog_service.sync_builtins(db)
+                details = [d for d in factor_service.get_factor_details() if d["name"] == request.factor_name]
+                if details:
+                    _catalog_service.upsert_custom(db, details[0])
+        except Exception as hook_err:
+            logger.warning(f"合成因子档案建档失败（不影响合成因子保存）: {hook_err}")
+        return ApiResponse(
+            code=0,
+            message=f"合成因子 {request.factor_name} 已保存",
+            data={"factor_name": request.factor_name},
+        )
+    except (FactorError, FactorNotFoundError, _EngineExprError, SandboxError) as e:
+        logger.info(f"合成因子入库被拒: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/composite/{factor_name}", response_model=ApiResponse, summary="删除合成因子")
+def delete_composite_factor(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    """删除合成因子 JSON 条目，并级联清理因子档案行与快照行（钩子失败仅 warning）。"""
+    try:
+        factor_service.delete_composite(factor_name)
+        try:
+            with get_db_session() as db:
+                _catalog_service.on_factor_deleted(db, factor_name)
+        except Exception as hook_err:
+            logger.warning(f"合成因子档案删除失败（因子已从 JSON 删除）: {hook_err}")
+        return ApiResponse(code=0, message=f"合成因子 {factor_name} 已删除")
     except FactorNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

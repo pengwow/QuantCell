@@ -10,6 +10,7 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 from factor.code_store import CodeFactorStore, code_hash
+from factor.composite_store import COMPOSITE_METHOD, CompositeFactorStore
 from factor.engine import (
     FACTOR_META,
     UNSUPPORTED_FACTORS,
@@ -62,24 +63,30 @@ class FactorService:
         self,
         code_store: CodeFactorStore | None = None,
         sandbox: FactorSandbox | None = None,
+        composite_store: CompositeFactorStore | None = None,
     ) -> None:
         self._custom_store = FactorStore()
         self._code_store = code_store or CodeFactorStore()
+        self._composite_store = composite_store or CompositeFactorStore()
         self._sandbox = sandbox or FactorSandbox()
         self._builtin = {name: meta["expression"] for name, meta in FACTOR_META.items()}
         # 内置表达式（含不支持财务因子的空表达式）+ 自定义表达式
         self.factors: dict[str, str] = {**self._builtin, **self._custom_store.all()}
         logger.info(
             f"FactorService初始化完成，内置 {len(self._builtin)} 个，"
-            f"自定义表达式 {len(self._custom_store.all())} 个，代码因子 {len(self._code_store.all())} 个"
+            f"自定义表达式 {len(self._custom_store.all())} 个，代码因子 {len(self._code_store.all())} 个，"
+            f"合成因子 {len(self._composite_store.all())} 个"
         )
 
     def _load_builtin_factors(self) -> dict[str, str]:
         return dict(self._builtin)
 
     def get_factor_list(self) -> list[str]:
-        """获取所有支持的因子列表（表达式因子 + 代码因子）。"""
-        return list(self.factors.keys()) + list(self._code_store.all())
+        """获取所有支持的因子列表（表达式因子 + 代码因子 + 合成因子）。"""
+        return list(self.factors.keys()) + list(self._code_store.all()) + self._composite_store.names()
+
+    def _factor_exists(self, name: str) -> bool:
+        return name in self.factors or bool(self._code_store.get(name)) or self._composite_store.exists(name)
 
     def get_factor_expression(self, factor_name: str) -> str | None:
         """获取因子表达式，不存在抛 FactorNotFoundError。"""
@@ -102,6 +109,9 @@ class FactorService:
         if self._code_store.get(factor_name) is not None:
             raise FactorExpressionError(f"代码因子 {factor_name} 已存在，请改名或在因子库中删除后重建")
 
+        if self._composite_store.exists(factor_name):
+            raise FactorExpressionError(f"合成因子 {factor_name} 已存在，名称不可复用")
+
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
         expr = factor_expression.strip()
@@ -111,9 +121,11 @@ class FactorService:
         return True
 
     def delete_factor(self, factor_name: str) -> bool:
-        """删除因子：代码因子走代码库；内置因子受保护，其余按自定义表达式删除。"""
+        """删除因子：代码因子走代码库、合成因子走合成库；内置受保护，其余按表达式删除。"""
         if self._code_store.get(factor_name) is not None:
             return self.delete_code_factor(factor_name)
+        if self._composite_store.exists(factor_name):
+            return self.delete_composite(factor_name)
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许删除")
         if factor_name not in self.factors:
@@ -139,6 +151,8 @@ class FactorService:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
         if factor_name in self._custom_store.all():
             raise FactorExpressionError(f"表达式因子 {factor_name} 已存在，名称不可复用")
+        if self._composite_store.exists(factor_name):
+            raise FactorExpressionError(f"合成因子 {factor_name} 已存在，名称不可复用")
         if not code or not code.strip():
             raise FactorExpressionError("因子代码不能为空")
         if len(code) > 20000:
@@ -161,6 +175,82 @@ class FactorService:
             logger.info(f"成功删除代码因子: {factor_name}")
             return True
         raise FactorNotFoundError(f"代码因子不存在: {factor_name}")
+
+    # 合成因子成分数量上下限（与 Pydantic schema 同口径，服务层再兜底一次）
+    _COMPOSITE_MIN_CONSTITUENTS = 2
+    _COMPOSITE_MAX_CONSTITUENTS = 20
+
+    def save_composite(
+        self,
+        factor_name: str,
+        description: str,
+        codes: list[str],
+        weights: list[float],
+        ts_stats_list: list[dict[str, Any]],
+        train_window: dict[str, Any],
+        provenance: dict[str, Any] | None = None,
+    ) -> bool:
+        """保存 IC 加权 zscore 合成因子：名称互斥 + 成分约束 + 每成分沙箱校验。
+
+        - 名称规则与 save_code_factor 一致；与内置/表达式/代码/composite 互斥
+          （同名 composite 覆盖允许，幂等）；
+        - 成分 2-20 个；weights/ts_stats 与 codes 一一对应；权重不强制和为 1
+          （按拟合一一下发），但全 0 无意义，拒绝；
+        - 保存前每个成分代码过沙箱静态+合成执行校验，任一失败整单拒绝、不落库。
+        """
+        if not self._CODE_NAME_RE.match(factor_name or ""):
+            raise FactorExpressionError("合成因子名需以字母开头，仅含字母数字下划线，长度 1-100")
+        if factor_name in self._builtin:
+            raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
+        if factor_name in self._custom_store.all():
+            raise FactorExpressionError(f"表达式因子 {factor_name} 已存在，名称不可复用")
+        if self._code_store.get(factor_name) is not None:
+            raise FactorExpressionError(f"代码因子 {factor_name} 已存在，名称不可复用")
+        if not self._COMPOSITE_MIN_CONSTITUENTS <= len(codes) <= self._COMPOSITE_MAX_CONSTITUENTS:
+            raise FactorExpressionError(
+                f"合成因子成分数需在 {self._COMPOSITE_MIN_CONSTITUENTS}-{self._COMPOSITE_MAX_CONSTITUENTS} 个之间"
+            )
+        if len(weights) != len(codes) or len(ts_stats_list) != len(codes):
+            raise FactorExpressionError("weights/ts_stats 必须与成分代码一一对应（数量一致）")
+        if not any(float(w) != 0.0 for w in weights):
+            raise FactorExpressionError("合成权重不能全为 0")
+        if not isinstance(train_window, dict) or not {
+            "start",
+            "end",
+            "interval",
+            "candle_type",
+        } <= set(train_window):
+            raise FactorExpressionError("train_window 需包含 start/end/interval/candle_type")
+
+        clean_codes: list[str] = []
+        for code in codes:
+            if not code or not str(code).strip() or len(str(code)) > 20000:
+                raise FactorExpressionError("成分因子代码为空或过长（上限 20000 字符）")
+            code = str(code).strip()
+            # 静态策略 + 合成数据执行，任何一层失败直接拒绝（不落库）
+            self._sandbox.validate(code)
+            clean_codes.append(code)
+
+        constituents = [
+            {"code": code, "weight": float(weights[i]), "ts_stats": ts_stats_list[i]}
+            for i, code in enumerate(clean_codes)
+        ]
+        self._composite_store.upsert(
+            factor_name,
+            description=(description or "").strip(),
+            train_window=train_window,
+            constituents=constituents,
+            provenance=provenance,
+            method=COMPOSITE_METHOD,
+        )
+        logger.info(f"成功保存合成因子: {factor_name}（{len(constituents)} 个成分）")
+        return True
+
+    def delete_composite(self, factor_name: str) -> bool:
+        if self._composite_store.delete(factor_name):
+            logger.info(f"成功删除合成因子: {factor_name}")
+            return True
+        raise FactorNotFoundError(f"合成因子不存在: {factor_name}")
 
     def validate_factor_expression(self, factor_expression: str) -> bool:
         """用 3 行最小合成 K 线对表达式做真实 AST 求值校验（不依赖真实行情）。"""
@@ -193,7 +283,7 @@ class FactorService:
         provider=None,
     ) -> pd.DataFrame:
         """计算单因子，返回 MultiIndex(datetime, symbol)、单列=因子名 的 DataFrame。"""
-        if factor_name not in self.factors and self._code_store.get(factor_name) is None:
+        if not self._factor_exists(factor_name):
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
         try:
             raw_map = load_raw_ohlcv(instruments, interval, candle_type, start_time, end_time, provider)
@@ -214,7 +304,7 @@ class FactorService:
         provider=None,
     ) -> pd.DataFrame:
         """计算多因子：原始 K 线只读盘一次，逐因子求值后按索引对齐拼接。"""
-        missing = [n for n in factor_names if n not in self.factors and self._code_store.get(n) is None]
+        missing = [n for n in factor_names if not self._factor_exists(n)]
         if missing:
             raise FactorNotFoundError(f"因子不存在: {missing}")
         try:
@@ -261,12 +351,33 @@ class FactorService:
         panel.name = name
         return panel
 
+    def _run_code_panel(self, code: str, name: str, raw_map: dict[str, pd.DataFrame]) -> pd.Series:
+        """单份代码走沙箱并拼装 MultiIndex(datetime,symbol) 面板。"""
+        series_map = self._sandbox.run(code, raw_map)
+        return self.assemble_code_panel(name, series_map, raw_map)
+
+    def _composite_panel_from_spec(
+        self, spec: dict[str, Any], raw_map: dict[str, pd.DataFrame], name: str = "composite"
+    ) -> pd.Series:
+        """按冻结 spec 逐成分沙箱执行 → build_composite（weights/ts_stats 全部冻结）。
+
+        train_window 仅持久化记录，不参与重算；analyze/compare/save_snapshot 等
+        所有经 _panel_from_raw 的链路因此自动支持合成因子。
+        """
+        constituents = spec["constituents"]
+        panels = [self._run_code_panel(c["code"], f"{name}__c{i}", raw_map) for i, c in enumerate(constituents)]
+        weights = [float(c["weight"]) for c in constituents]
+        ts_stats_list = [c.get("ts_stats") or {} for c in constituents]
+        return self.build_composite(panels, weights, ts_stats_list)
+
     def _panel_from_raw(self, name: str, raw_map: dict[str, pd.DataFrame]) -> pd.Series:
-        """统一面板入口：代码因子走沙箱，其余（内置/自定义表达式）走 AST 引擎。"""
+        """统一面板入口：合成因子组合多代码沙箱、代码因子走沙箱，其余走 AST 引擎。"""
+        composite_spec = self._composite_store.get(name)
+        if composite_spec is not None:
+            return self._composite_panel_from_spec(composite_spec, raw_map, name)
         entry = self._code_store.get(name)
         if entry is not None:
-            series_map = self._sandbox.run(entry["code"], raw_map)
-            return self.assemble_code_panel(name, series_map, raw_map)
+            return self._run_code_panel(entry["code"], name, raw_map)
         return factor_panel_from_raw(name, raw_map, self._custom_store.all())
 
     def get_factor_details(self) -> list[dict]:
@@ -298,7 +409,142 @@ class FactorService:
                     "description": entry.get("description", ""),
                 }
             )
+        for name, entry in self._composite_store.all().items():
+            n_constituents = len(entry.get("constituents") or [])
+            details.append(
+                {
+                    "name": name,
+                    # 合成因子无单一表达式：用方法标记占位，因子库表达式列展示该串
+                    "expression": f"{entry.get('method', COMPOSITE_METHOD)}({n_constituents})",
+                    "category": "llm_composite",
+                    "label": entry.get("description") or name,
+                    "builtin": False,
+                    "supported": True,
+                    "kind": "composite",
+                    "description": entry.get("description", ""),
+                    "constituents_count": n_constituents,
+                }
+            )
         return sorted(details, key=lambda d: (not d["builtin"], d["category"], d["name"]))
+
+    # ------------------------------------------------------------------
+    # 合成因子（ic_zscore_v1）纯函数：权重拟合 / 时序统计 / 标准化 / 组合
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def fit_ic_weights(ics: list[float | None]) -> list[float | None] | None:
+        """train 段 IC 加权：w_i = ic_i / Σ|ic_j|（带符号，绝对值和归一为 1）。
+
+        仅取非 None 成分；非 None 成分 <2 或分母为 0（全 0 IC）→ None（不合成）。
+        返回与入参等长、同位置对齐的列表（None 位置保留 None）。
+        """
+        if sum(x is not None for x in ics) < 2:
+            return None
+        denom = sum(abs(x) for x in ics if x is not None)
+        if denom <= 0:
+            return None
+        return [None if x is None else float(x) / denom for x in ics]
+
+    @staticmethod
+    def _fit_ts_stats(panel: pd.Series) -> dict[str, dict[str, float]]:
+        """train 面板按 symbol 拟合时序 mean/std（pandas ddof=1），std=0/不可估 → 1.0 兜底。
+
+        返回 {symbol: {"mean": float, "std": float}} 普通 float，可直接 JSON 持久化。
+        """
+        stats: dict[str, dict[str, float]] = {}
+        for symbol, grp in panel.groupby(level=1):
+            vals = pd.to_numeric(grp, errors="coerce").dropna()
+            if len(vals):
+                mean = float(vals.mean())
+                std = float(vals.std()) if len(vals) > 1 else 0.0
+                if not np.isfinite(mean):
+                    mean = 0.0
+            else:
+                mean, std = 0.0, 0.0
+            if not np.isfinite(std) or std == 0.0:
+                std = 1.0
+            stats[str(symbol)] = {"mean": mean, "std": float(std)}
+        return stats
+
+    @classmethod
+    def _normalize_panel(cls, panel: pd.Series, ts_stats: dict[str, Any]) -> pd.Series:
+        """成分面板标准化（无前视：截面只用同一时刻，时序统计冻结自 train）。
+
+        逐个时间点看截面品种数：
+        - >=3：截面路径。品种数 >=10 时先 clip 到该时刻 1%/99% 分位（winsorize，
+          小截面跳过），再做截面 zscore (x-mean)/std（总体 std ddof=0；std=0→0）；
+        - <3：时序路径。用 train 冻结的该 symbol mean/std 做 (x-mean)/std
+          （std=0→0）；symbol 不在 ts_stats 时（train 未见品种的罕见兜底），
+          退化用该 symbol 在本面板的全历史 mean/std（同 _fit_ts_stats 口径）。
+        输入 NaN 位置输出保持 NaN，由 build_composite 按 0 贡献处理。
+        """
+        wide = panel.unstack(level=1).sort_index()
+        counts = wide.notna().sum(axis=1)
+        xs_rows = counts >= 3
+        fallback = cls._fit_ts_stats(panel)
+
+        def _cross_section(row: pd.Series) -> pd.Series:
+            valid = row.dropna()
+            if len(valid) >= 10:
+                # winsorize：clip 到截面 1%/99% 分位（品种 <10 的小截面不做）
+                row = row.clip(lower=valid.quantile(0.01), upper=valid.quantile(0.99))
+                valid = row.dropna()
+            mean = float(valid.mean())
+            std = float(valid.std(ddof=0))
+            if std <= 0 or not np.isfinite(std):
+                # 常数截面 → 0（乘 0 保留 NaN 位置）
+                return (row - mean) * 0.0
+            return (row - mean) / std
+
+        def _time_series(row: pd.Series) -> pd.Series:
+            out = pd.Series(np.nan, index=row.index, dtype=float)
+            for symbol in row.index:
+                value = row[symbol]
+                if pd.isna(value):
+                    continue
+                st = ts_stats.get(str(symbol)) or fallback.get(str(symbol))
+                if not st:
+                    continue
+                std = float(st.get("std") or 0.0)
+                out[symbol] = 0.0 if std <= 0 else (float(value) - float(st["mean"])) / std
+            return out
+
+        norm = wide.copy()
+        if xs_rows.any():
+            norm.loc[xs_rows] = wide.loc[xs_rows].apply(_cross_section, axis=1)
+        if (~xs_rows).any():
+            norm.loc[~xs_rows] = wide.loc[~xs_rows].apply(_time_series, axis=1)
+        # stack 丢弃 NaN，恢复 MultiIndex(datetime,symbol) Series
+        series = norm.stack()
+        series.name = panel.name
+        return series
+
+    @classmethod
+    def build_composite(
+        cls,
+        panels: list[pd.Series],
+        weights: list[float],
+        ts_stats_list: list[dict[str, Any]],
+    ) -> pd.Series:
+        """多个成分面板各自归一化后加权求和：composite = Σ w_i · z_i。
+
+        - 索引取所有面板并集（outer），逐面板 reindex；某成分缺失的
+          (datetime,symbol) 位置记 0 贡献（fillna(0)），其余成分照常相加；
+        - 每个成分用它自己的冻结 ts_stats 归一化（一一对应，不可串用）。
+        """
+        if not panels or len(panels) != len(weights) or len(panels) != len(ts_stats_list):
+            msg = "composite 成分面板/权重/ts_stats 不能为空且数量必须一致"
+            raise FactorError(msg)
+        union = panels[0].index
+        for panel in panels[1:]:
+            union = union.union(panel.index)
+        total = pd.Series(0.0, index=union, dtype=float)
+        for panel, weight, ts_stats in zip(panels, weights, ts_stats_list, strict=True):
+            z = cls._normalize_panel(panel, ts_stats).reindex(union)
+            total = total + float(weight) * z.fillna(0.0)
+        total = total.sort_index()
+        total.name = "composite"
+        return total
 
     @staticmethod
     def _ic_series(factor: pd.Series, forward_ret: pd.Series, method: str, window: int) -> pd.Series:
@@ -569,7 +815,7 @@ class FactorService:
         """
         if factor_name in UNSUPPORTED_FACTORS:
             raise FactorError(f"因子 {factor_name} 依赖财务数据，当前数据源不支持")
-        if factor_name not in self.factors and self._code_store.get(factor_name) is None:
+        if not self._factor_exists(factor_name):
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
 
         horizons = tuple(horizons) if horizons else self.DEFAULT_HORIZONS
@@ -784,16 +1030,38 @@ class FactorService:
         - 窗口内有效时间点 <3（多品种截面 IC 的最低要求）或无品种 → ic_* 为 None，
           bar_count/coverage 如实返回，不抛异常，由 _aggregate_wf 决定是否纳入汇总。
         """
-        fold: dict[str, Any] = {
-            "index": index,
-            "start": fold_start.isoformat(),
-            "end": fold_end.isoformat(),
-            "ic_mean": None,
-            "ic_std": None,
-            "positive_rate": None,
-            "coverage": None,
-            "bar_count": 0,
-        }
+        prefix_map, window_rows = self._fold_prefix(raw_map, fold_start, fold_end, last)
+        if not prefix_map or window_rows <= 0:
+            return self._empty_fold(index, fold_start, fold_end)
+        series_map = self._sandbox.run(code, prefix_map)
+        factor = self.assemble_code_panel(label, series_map, prefix_map)
+        return self._score_fold_panel(
+            factor,
+            prefix_map,
+            fold_start,
+            fold_end,
+            method=method,
+            forward=forward,
+            window=window,
+            index=index,
+            last=last,
+            window_rows=window_rows,
+        )
+
+    @staticmethod
+    def _fold_prefix(
+        raw_map: dict[str, pd.DataFrame],
+        fold_start: pd.Timestamp,
+        fold_end: pd.Timestamp,
+        last: bool,
+    ) -> tuple[dict[str, pd.DataFrame], int]:
+        """切出折前缀数据（代码因子/合成因子共用）：(prefix_map, window_rows)。
+
+        - prefix_map：每品种 ts<=fold_end 的全部历史前缀（copy），rolling/ewm 的
+          warmup 来自真实历史前缀，不用折结束之后的数据（无前视，禁止全量跑完再切）；
+        - window_rows：折窗口 [fold_start, fold_end)（last 折含右端）内原始总行数，
+          作为 coverage 分母。
+        """
         prefix_map: dict[str, pd.DataFrame] = {}
         window_rows = 0
         for symbol, df in raw_map.items():
@@ -805,11 +1073,49 @@ class FactorService:
             window_rows += int(in_window.sum())
             if len(prefix) > 0:
                 prefix_map[symbol] = prefix
-        if not prefix_map or window_rows <= 0:
-            return fold
+        return prefix_map, window_rows
 
-        series_map = self._sandbox.run(code, prefix_map)
-        factor = self.assemble_code_panel(label, series_map, prefix_map)
+    @staticmethod
+    def _empty_fold(index: int, fold_start: pd.Timestamp, fold_end: pd.Timestamp) -> dict[str, Any]:
+        return {
+            "index": index,
+            "start": fold_start.isoformat(),
+            "end": fold_end.isoformat(),
+            "ic_mean": None,
+            "ic_std": None,
+            "positive_rate": None,
+            "coverage": None,
+            "bar_count": 0,
+        }
+
+    def _score_fold_panel(
+        self,
+        factor: pd.Series,
+        prefix_map: dict[str, pd.DataFrame],
+        fold_start: pd.Timestamp,
+        fold_end: pd.Timestamp,
+        *,
+        method: str,
+        forward: int,
+        window: int,
+        index: int = 0,
+        last: bool = False,
+        window_rows: int | None = None,
+    ) -> dict[str, Any]:
+        """折前缀上已算好的因子面板 → 单折轻量指标（不跑分组/decay/净值，小窗口无意义）。
+
+        与因子如何执行（单代码沙箱 / 多代码合成）无关，_fold_metrics 与
+        analyze_composite 的 wf 路径共用本函数，保证折口径不分叉：
+        - 前瞻收益按品种 shift(-forward)，折末 forward 根 NaN 被 dropna 自然丢弃；
+          指标行只保留 fold 窗口内（左闭右开，last 折含右端）；
+        - coverage 为折窗口内 factor 非空行数 / 窗口原始总行数，在**前瞻收益
+          dropna 之前**统计；window_rows 由 _fold_prefix 统一计算；
+        - 窗口内有效时间点 <3（多品种截面 IC 最低要求）→ ic_* 为 None，
+          bar_count/coverage 如实返回，不抛异常，由 _aggregate_wf 决定是否纳入。
+        """
+        if window_rows is None:
+            _, window_rows = self._fold_prefix(prefix_map, fold_start, fold_end, last)
+        fold = self._empty_fold(index, fold_start, fold_end)
         close = close_panel_from_raw(prefix_map)
         aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
 
@@ -1011,6 +1317,114 @@ class FactorService:
             "wf": wf,
             "train_factor": train_factor,
         }
+
+    def _composite_segment_panels(
+        self,
+        codes: list[str],
+        weights: list[float],
+        ts_stats_list: list[dict[str, Any]],
+        seg_map: dict[str, pd.DataFrame],
+        label: str,
+    ) -> pd.Series:
+        """段内逐成分独立沙箱执行后组合成单一合成面板（每成分 1 次沙箱）。"""
+        panels = [self._run_code_panel(code, f"{label}__c{i}", seg_map) for i, code in enumerate(codes)]
+        return self.build_composite(panels, weights, ts_stats_list)
+
+    def analyze_composite(
+        self,
+        codes: list[str],
+        weights: list[float],
+        ts_stats_list: list[dict[str, Any]],
+        raw_map: dict[str, pd.DataFrame],
+        *,
+        interval: str,
+        method: str = "spearman",
+        n_groups: int = 5,
+        window: int = 20,
+        forward: int = 1,
+        horizons: tuple[int, ...] | None = None,
+        cost_bps: float = 0.0,
+        label: str = "composite",
+        test_ratio: float = 0.0,
+        wf_folds: int = 0,
+    ) -> dict[str, Any]:
+        """对尚未入库的多成分组合走「逐成分沙箱 → build_composite → 全指标分析」。
+
+        返回结构与 analyze_code_panel 的 train/test/wf 完全相同（不含 train_factor）：
+        ``{"train", "test", "wf"}``。weights/ts_stats 在 train 段冻结后由调用方
+        （LLM 挖掘/持久化复算）下发，本方法不再拟合——组合方式对两条链路同一口径。
+
+        沙箱成本（每成分独立子进程，禁止全量跑完再切）：
+        - wf_folds>=2 且 test_ratio>0：每成分 1(train)+k(折前缀) 次，共 n*(1+k)；
+        - 单次切分：train/test 各一次，共 2n（test_ratio=0 时仅 train，n 次）。
+        """
+        horizons = horizons or self.DEFAULT_HORIZONS
+
+        def _core(seg_map: dict[str, pd.DataFrame], composite: pd.Series, seg_label: str) -> dict[str, Any]:
+            close = close_panel_from_raw(seg_map)
+            return self._analyze_core(
+                factor_name=seg_label,
+                symbols=list(seg_map),
+                interval=interval,
+                raw_map=seg_map,
+                factor=composite,
+                close=close,
+                method=method,
+                n_groups=n_groups,
+                window=window,
+                forward=forward,
+                horizons=horizons,
+                cost_bps=cost_bps,
+            )
+
+        train_map, test_map = self._split_raw_map(raw_map, test_ratio)
+        train_composite = self._composite_segment_panels(codes, weights, ts_stats_list, train_map, label)
+        train_analysis = _core(train_map, train_composite, label)
+        test_analysis: dict[str, Any] | None = None
+        wf: dict[str, Any] | None = None
+
+        if wf_folds >= 2 and test_ratio > 0:
+            bounds = self._wf_bounds(raw_map, test_ratio, wf_folds)
+            folds: list[dict[str, Any]] = []
+            for i, (fold_start, fold_end) in enumerate(bounds):
+                last = i == wf_folds - 1
+                prefix_map, window_rows = self._fold_prefix(raw_map, fold_start, fold_end, last)
+                if not prefix_map or window_rows <= 0:
+                    folds.append(self._empty_fold(i, fold_start, fold_end))
+                    continue
+                # 每成分在 ts<=fold_end 的真实历史前缀上独立沙箱执行 → 前缀内组合
+                fold_panels = [
+                    self._run_code_panel(code, f"{label}__c{j}__wf{i}", prefix_map) for j, code in enumerate(codes)
+                ]
+                fold_composite = self.build_composite(fold_panels, weights, ts_stats_list)
+                folds.append(
+                    self._score_fold_panel(
+                        fold_composite,
+                        prefix_map,
+                        fold_start,
+                        fold_end,
+                        method=method,
+                        forward=forward,
+                        window=window,
+                        index=i,
+                        last=last,
+                        window_rows=window_rows,
+                    )
+                )
+            wf_metrics, wf_flag, wf_note = self._aggregate_wf(folds, train_analysis["ic"].get("mean"))
+            wf = {"folds": folds, **wf_metrics, "oos_flag": wf_flag, "oos_note": wf_note}
+        elif test_map:
+            try:
+                test_composite = self._composite_segment_panels(
+                    codes, weights, ts_stats_list, test_map, f"{label}__oos"
+                )
+                test_analysis = _core(test_map, test_composite, f"{label}__oos")
+            except FactorError as exc:
+                # 与 analyze_code_panel 同口径：仅吞 test 段「有效数据不足」
+                if "有效数据不足" not in str(exc):
+                    raise
+                test_analysis = None
+        return {"train": train_analysis, "test": test_analysis, "wf": wf}
 
     def compare_factors(
         self,
