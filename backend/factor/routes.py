@@ -922,6 +922,7 @@ def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
             model_id=params.get("model_id"),
             model_name=llm_cfg["model"],
             test_ratio=float(params.get("test_ratio", 0.3)),
+            wf_folds=int(params.get("wf_folds", 0) or 0),
         )
         return run_llm_mining(mine_params, backend=backend, progress=on_progress)
 

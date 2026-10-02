@@ -10,6 +10,8 @@
 - train/test 时间切分 + 样本外复核：raw_map 按行序（时间升序）切后段做 OOS，
   两段独立沙箱执行（防 rolling warmup 泄漏）；fitness/排序只看 train，
   oos_flag 标记样本外符号反转/衰减，过拟合风险在结果行与反思中可见。
+- wf_folds>=2 时改走滚动 walk-forward：OOS 区间等分 k 个连续窗口，因子在各
+  递增历史前缀上独立执行（1+k 次沙箱），按折 bar_count 加权 IC/符号一致性汇总。
 """
 
 from __future__ import annotations
@@ -78,6 +80,8 @@ class LLMMineParams:
     forward: int = field(default=1)
     # 样本外切分比例（取后段时间）：0=不切分；范围校验在 Pydantic schema 层
     test_ratio: float = 0.3
+    # 滚动 walk-forward 折数：0=关闭（走单次 test_ratio 切分）；2-6=多窗口滚动复核
+    wf_folds: int = 0
 
 
 def extract_code(text: str) -> str:
@@ -303,16 +307,39 @@ def run_llm_mining(
                     forward=params.forward,
                     label=f"llm_r{round_idx + 1}_{h[:8]}",
                     test_ratio=params.test_ratio,
+                    wf_folds=params.wf_folds,
                 )
                 metrics = _metrics_from_analysis(analysis["train"])
-                metrics_oos = _metrics_from_analysis(analysis["test"]) if analysis["test"] else None
-                if metrics_oos is not None:
-                    flag, note = oos_flag(metrics, metrics_oos)
-                elif params.test_ratio > 0:
-                    # test 段因样本不足在 service 层被吞：候选仍成功，标注未复核
-                    flag, note = None, "样本外数据不足，未做复核"
+                wf = analysis.get("wf")
+                if wf is not None:
+                    # walk-forward：oos_flag/note 已在 service 层按多折汇总算好，直接透传
+                    metrics_oos = {
+                        # 与单次 metrics_oos 行结构对齐（wf 不产出的全指标填 None）
+                        "fitness": None,
+                        "turnover": None,
+                        "long_short_return": None,
+                        "monotonicity_spearman": None,
+                        "nw_t_stat": None,
+                        "ic_mean": wf["ic_mean"],
+                        "ic_std": wf["ic_std"],
+                        "ic_ir": wf["ic_ir"],
+                        "coverage": wf["coverage"],
+                        "bar_count": wf["bar_count"],
+                        "sign_consistency": wf["sign_consistency"],
+                        "n_folds": wf["n_folds"],
+                        "valid_folds": wf["valid_folds"],
+                        "folds": wf["folds"],
+                    }
+                    flag, note = wf["oos_flag"], wf["oos_note"]
                 else:
-                    flag, note = None, None
+                    metrics_oos = _metrics_from_analysis(analysis["test"]) if analysis["test"] else None
+                    if metrics_oos is not None:
+                        flag, note = oos_flag(metrics, metrics_oos)
+                    elif params.test_ratio > 0:
+                        # test 段因样本不足在 service 层被吞：候选仍成功，标注未复核
+                        flag, note = None, "样本外数据不足，未做复核"
+                    else:
+                        flag, note = None, None
                 row = {
                     **base,
                     "code": code,
@@ -374,5 +401,6 @@ def run_llm_mining(
             "interval": params.interval,
             "model_name": params.model_name,
             "test_ratio": params.test_ratio,
+            "wf_folds": params.wf_folds,
         },
     }

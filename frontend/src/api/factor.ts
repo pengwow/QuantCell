@@ -95,6 +95,41 @@ export interface FactorMineLLMParams {
   model_id?: string | null;
   /** 样本外切分比例（取后段时间），0=不切分；范围 0-0.5 */
   test_ratio?: number;
+  /** 滚动 walk-forward 折数：0=单次样本外切分；2-6=多窗口滚动复核 */
+  wf_folds?: number;
+}
+
+/** walk-forward 单折复核指标 */
+export interface WFFoldMetrics {
+  index: number;
+  start: string;
+  end: string;
+  ic_mean: number | null;
+  ic_std: number | null;
+  positive_rate: number | null;
+  coverage: number | null;
+  bar_count: number;
+}
+
+/** 样本外指标：单次切分为普通指标；walk-forward 时额外带多折汇总字段 */
+export interface MinedOOSMetrics {
+  fitness: number | null;
+  ic_mean: number | null;
+  /** 折间 IC 标准差（仅 walk-forward） */
+  ic_std?: number | null;
+  ic_ir: number | null;
+  coverage: number | null;
+  turnover: number | null;
+  long_short_return: number | null;
+  monotonicity_spearman: number | null;
+  nw_t_stat: number | null;
+  bar_count: number | null;
+  /** walk-forward 总折数 / 有效折数 */
+  n_folds?: number;
+  valid_folds?: number;
+  /** 各折 IC 与汇总 IC 同号的比例（0-1） */
+  sign_consistency?: number | null;
+  folds?: WFFoldMetrics[];
 }
 
 /** 单个挖掘候选结果 */
@@ -126,7 +161,7 @@ export interface MinedCandidate {
     bar_count: number | null;
   } | null;
   /** 样本外（后段时间）指标；未切分或样本不足时为 null */
-  metrics_oos?: MinedCandidate['metrics'] | null;
+  metrics_oos?: MinedOOSMetrics | null;
   /** 样本外复核结论：稳定/衰减/符号反转；未复核为 null */
   oos_flag?: 'ok' | 'weak' | 'sign_flip' | null;
   /** 样本外复核说明（如样本不足提示），可为 null */
