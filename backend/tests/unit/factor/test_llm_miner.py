@@ -161,14 +161,14 @@ def test_progress_callback_called(service):
 # ---------------------------------------------------------------------------
 
 
-def test_split_raw_map_cuts_by_row_time_order_per_symbol():
+def test_split_raw_map_cuts_by_global_time_cutoff_per_symbol():
     import pandas as pd
 
     n = 240
     raw_map = Provider(n=n).frames
     train_map, test_map = FactorService._split_raw_map(raw_map, 0.3)
 
-    # 逐品种：前段 168 / 后段 72，且边界按原始行序（时间升序）切
+    # 同起点同长度品种：全局时间切点等价于 168/72 行切，且各品种共用同一 cutoff
     for symbol, raw in raw_map.items():
         assert len(train_map[symbol]) == 168
         assert len(test_map[symbol]) == 72
@@ -176,6 +176,52 @@ def test_split_raw_map_cuts_by_row_time_order_per_symbol():
         pd.testing.assert_frame_equal(test_map[symbol], raw.iloc[168:].copy())
         # 后段首行时间严格晚于前段末行
         assert test_map[symbol]["timestamp"].iloc[0] > train_map[symbol]["timestamp"].iloc[-1]
+
+    # 各品种 test 窗口时间范围必须一致（全局切点，而非各自行数比例）
+    test_starts = {s: df["timestamp"].iloc[0] for s, df in test_map.items()}
+    test_ends = {s: df["timestamp"].iloc[-1] for s, df in test_map.items()}
+    assert len(set(test_starts.values())) == 1
+    assert len(set(test_ends.values())) == 1
+
+
+def test_split_raw_map_aligns_test_windows_when_histories_differ():
+    """不同历史长度（起点不同、终点相近）时，test 窗口必须时间对齐。
+
+    回归：逐品种按行数切会让短历史品种 test 窗口整体偏晚、与长历史品种
+    几乎不重叠，导致截面 IC 没有同日配对（真实 BTC/ETH 数据暴露的缺陷）。
+    """
+    import pandas as pd
+
+    end = pd.Timestamp("2026-10-01 00:00:00")
+    long_ts = pd.date_range(end=end, periods=1008, freq="1h")
+    short_ts = pd.date_range(end=end, periods=744, freq="1h")
+
+    def frame(ts):
+        return pd.DataFrame(
+            {
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "volume": 1.0,
+                "quote_volume": 1.0,
+                "timestamp": ts.astype("int64"),
+            }
+        )
+
+    raw_map = {"BTCUSDT": frame(long_ts), "ETHUSDT": frame(short_ts)}
+    train_map, test_map = FactorService._split_raw_map(raw_map, 0.3)
+
+    btc_start = test_map["BTCUSDT"]["timestamp"].iloc[0]
+    eth_start = test_map["ETHUSDT"]["timestamp"].iloc[0]
+    # 两品种 test 起点是同一时间戳（全局切点），而不是各自 70% 行位
+    assert btc_start == eth_start
+    # test 段必须有大量同日配对（>90% 较短 test 段），截面 IC 才有效
+    overlap = len(set(test_map["BTCUSDT"]["timestamp"]) & set(test_map["ETHUSDT"]["timestamp"]))
+    assert overlap >= 0.9 * min(len(test_map["BTCUSDT"]), len(test_map["ETHUSDT"]))
+    # train/test 时间不交叉
+    for symbol in raw_map:
+        assert train_map[symbol]["timestamp"].max() < test_map[symbol]["timestamp"].min()
 
 
 def test_split_raw_map_ratio_zero_returns_original_and_empty_test():
