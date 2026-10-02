@@ -2,7 +2,7 @@
 import pytest
 
 from factor.code_store import CodeFactorStore
-from factor.llm_miner import LLMMineParams, run_llm_mining
+from factor.llm_miner import LLMMineParams, oos_flag, run_llm_mining
 from factor.sandbox import FactorSandbox
 from factor.service import FactorService
 
@@ -69,6 +69,8 @@ def _params(**kw):
         n_candidates=3,
         n_rounds=1,
         top_k=3,
+        # 锁定旧用例的单段评估语义；样本外用例显式传 0.3
+        test_ratio=0,
     )
     base.update(kw)
     return LLMMineParams(**base)
@@ -152,3 +154,135 @@ def test_progress_callback_called(service):
         progress=lambda p, s, m: seen.append((round(p, 1), s)),
     )
     assert seen[0][0] < seen[-1][0]
+
+
+# ---------------------------------------------------------------------------
+# 样本外（train/test 切分）复核
+# ---------------------------------------------------------------------------
+
+
+def test_split_raw_map_cuts_by_row_time_order_per_symbol():
+    import pandas as pd
+
+    n = 240
+    raw_map = Provider(n=n).frames
+    train_map, test_map = FactorService._split_raw_map(raw_map, 0.3)
+
+    # 逐品种：前段 168 / 后段 72，且边界按原始行序（时间升序）切
+    for symbol, raw in raw_map.items():
+        assert len(train_map[symbol]) == 168
+        assert len(test_map[symbol]) == 72
+        pd.testing.assert_frame_equal(train_map[symbol], raw.iloc[:168].copy())
+        pd.testing.assert_frame_equal(test_map[symbol], raw.iloc[168:].copy())
+        # 后段首行时间严格晚于前段末行
+        assert test_map[symbol]["timestamp"].iloc[0] > train_map[symbol]["timestamp"].iloc[-1]
+
+
+def test_split_raw_map_ratio_zero_returns_original_and_empty_test():
+    raw_map = Provider(n=240).frames
+    train_map, test_map = FactorService._split_raw_map(raw_map, 0.0)
+    assert test_map == {}
+    # ratio=0 不复制，train 就是原对象（退化为全量评估）
+    assert train_map is raw_map
+
+
+def test_split_raw_map_does_not_mutate_input_frames():
+    raw_map = Provider(n=240).frames
+    FactorService._split_raw_map(raw_map, 0.3)
+    assert all(len(df) == 240 for df in raw_map.values())
+
+
+def test_mine_test_ratio_zero_has_no_oos_fields(service):
+    contents = ['factor = df["close"].pct_change(5)']
+    result = run_llm_mining(
+        _params(n_candidates=1, test_ratio=0),
+        backend=FakeBackend(contents),
+        provider=Provider(),
+        service=service,
+    )
+    row = result["candidates"][0]
+    assert row["status"] == "success"
+    assert row["metrics_oos"] is None
+    assert row["oos_flag"] is None
+    assert row["oos_note"] is None
+    assert result["stats"]["test_ratio"] == 0
+
+
+def test_mine_test_ratio_runs_sandbox_twice_and_emits_oos_metrics(service, monkeypatch):
+    contents = ['factor = df["close"].pct_change(5)']
+    original_run = service._sandbox.run
+    segment_rows = []
+
+    def spy(code, frames):
+        # 记录每次沙箱执行收到的首品种行数（train=168 / test=72）
+        segment_rows.append(len(next(iter(frames.values()))))
+        return original_run(code, frames)
+
+    monkeypatch.setattr(service._sandbox, "run", spy)
+
+    result = run_llm_mining(
+        _params(n_candidates=1, test_ratio=0.3),
+        backend=FakeBackend(contents),
+        provider=Provider(),
+        service=service,
+    )
+    row = result["candidates"][0]
+    assert row["status"] == "success"
+    # 每候选 train/test 独立沙箱执行各一次，禁止全量结果上切
+    assert segment_rows == [168, 72]
+    assert {"ic_mean", "coverage", "fitness", "bar_count"} <= set(row["metrics"])
+    assert row["metrics_oos"] is not None
+    assert {"ic_mean", "coverage", "fitness", "bar_count"} <= set(row["metrics_oos"])
+    # test 段 bar 数明显少于 train 段
+    assert row["metrics_oos"]["bar_count"] < row["metrics"]["bar_count"]
+    assert row["oos_flag"] in {"ok", "weak", "sign_flip"}
+    assert result["stats"]["test_ratio"] == 0.3
+
+
+def test_mine_insufficient_oos_segment_keeps_success_with_note(service):
+    # n=60、window=30：train=42 行（有效 37 >= 32）可分析；test=18 行（有效 13 < 32）不足
+    contents = ['factor = df["close"].pct_change(5)']
+    result = run_llm_mining(
+        _params(symbols=["BTCUSDT"], n_candidates=1, test_ratio=0.3, window=30),
+        backend=FakeBackend(contents),
+        provider=Provider(n=60),
+        service=service,
+    )
+    row = result["candidates"][0]
+    assert row["status"] == "success"
+    assert row["metrics"] is not None
+    assert row["metrics_oos"] is None
+    assert row["oos_flag"] is None
+    assert row["oos_note"] == "样本外数据不足，未做复核"
+
+
+@pytest.mark.parametrize(
+    ("train_ic", "test_ic", "expected_flag"),
+    [
+        (0.10, -0.08, "sign_flip"),  # 符号反转
+        (0.20, 0.05, "weak"),  # 衰减超半
+        (0.20, 0.15, "ok"),  # 稳定
+        (-0.20, -0.15, "ok"),  # 稳定（双侧同向）
+    ],
+)
+def test_oos_flag_table(train_ic, test_ic, expected_flag):
+    flag, note = oos_flag({"ic_mean": train_ic}, {"ic_mean": test_ic})
+    assert flag == expected_flag
+    if expected_flag == "ok":
+        assert note == ""
+    else:
+        assert note
+
+
+@pytest.mark.parametrize(
+    ("train_metrics", "test_metrics"),
+    [
+        (None, None),
+        ({"ic_mean": 0.1}, None),
+        (None, {"ic_mean": 0.1}),
+        ({"ic_mean": None}, {"ic_mean": 0.1}),
+        ({"ic_mean": 0.1}, {"ic_mean": None}),
+    ],
+)
+def test_oos_flag_returns_none_when_either_side_missing(train_metrics, test_metrics):
+    assert oos_flag(train_metrics, test_metrics) == (None, None)

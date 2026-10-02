@@ -7,10 +7,9 @@
 - 反思：把上一轮失败原因与最佳候选摘要拼进下一轮 prompt。
 - 候选内存去重复用 factor.code_store.code_hash（规范化口径的单一真相源，
   入库 hash 去重共用同一函数；口径必须一致，改动需同步两处并回归去重用例）。
-
-ponytail: 当前在单面板上 in-sample 选因子（无 train/test 切分），已知上限是过拟合
-风险不可见；升级路径：raw_map 按时间切 train/test，fitness 只在 train 计算、
-best 用 test 复核（walk-forward）。
+- train/test 时间切分 + 样本外复核：raw_map 按行序（时间升序）切后段做 OOS，
+  两段独立沙箱执行（防 rolling warmup 泄漏）；fitness/排序只看 train，
+  oos_flag 标记样本外符号反转/衰减，过拟合风险在结果行与反思中可见。
 """
 
 from __future__ import annotations
@@ -77,6 +76,8 @@ class LLMMineParams:
     n_groups: int = field(default=5)
     window: int = field(default=20)
     forward: int = field(default=1)
+    # 样本外切分比例（取后段时间）：0=不切分；范围校验在 Pydantic schema 层
+    test_ratio: float = 0.3
 
 
 def extract_code(text: str) -> str:
@@ -113,6 +114,12 @@ def _reflection_text(rows: list[dict[str, Any]], best_global: dict[str, Any] | N
             f"- 当前最佳因子 fitness={m['fitness']:.2f}, IC={m['ic_mean']}, "
             f"覆盖率={m['coverage']}，代码：{best_global['code'].splitlines()[-1][:100]}"
         )
+        if best_global.get("oos_flag") == "sign_flip" and best_global.get("metrics_oos"):
+            lines.append(
+                "- 警告：当前最佳因子样本外 IC 符号反转"
+                f"（train={m['ic_mean']} → oos={best_global['metrics_oos']['ic_mean']}），"
+                "疑似过拟合，请优先探索方向稳定的结构"
+            )
     return "\n".join(lines)
 
 
@@ -133,6 +140,35 @@ def _metrics_from_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         "nw_t_stat": ((analysis.get("inspection") or {}).get("ic_stats") or {}).get("nw_t_stat"),
         "bar_count": analysis.get("bar_count"),
     }
+
+
+def oos_flag(
+    train_metrics: dict[str, Any] | None, test_metrics: dict[str, Any] | None
+) -> tuple[str | None, str | None]:
+    """样本外复核判定（纯函数）：基于两段 ic_mean。
+
+    - 任一段缺失或任一 ic_mean 为 None → (None, None)；
+    - 符号相反 → ('sign_flip', 提示文案)；
+    - |test_ic| < 0.5*|train_ic| → ('weak', 提示文案)；
+    - 否则 ('ok', '')。
+    """
+    if not train_metrics or not test_metrics:
+        return None, None
+    train_ic = train_metrics.get("ic_mean")
+    test_ic = test_metrics.get("ic_mean")
+    if train_ic is None or test_ic is None:
+        return None, None
+    if train_ic * test_ic < 0:
+        return (
+            "sign_flip",
+            f"样本外 IC 符号反转（train={train_ic:.4f}，oos={test_ic:.4f}），疑似过拟合",
+        )
+    if abs(test_ic) < 0.5 * abs(train_ic):
+        return (
+            "weak",
+            f"样本外 IC 衰减过半（train={train_ic:.4f}，oos={test_ic:.4f}），样本外减弱",
+        )
+    return "ok", ""
 
 
 def _classify_exc(exc: Exception) -> tuple[str, str]:
@@ -223,6 +259,9 @@ def run_llm_mining(
                     "error_type": "empty",
                     "error": "LLM 返回为空",
                     "metrics": None,
+                    "metrics_oos": None,
+                    "oos_flag": None,
+                    "oos_note": None,
                 }
                 candidates.append(row)
                 round_rows.append(row)
@@ -246,7 +285,17 @@ def run_llm_mining(
                     window=params.window,
                     forward=params.forward,
                     label=f"llm_r{round_idx + 1}_{h[:8]}",
+                    test_ratio=params.test_ratio,
                 )
+                metrics = _metrics_from_analysis(analysis["train"])
+                metrics_oos = _metrics_from_analysis(analysis["test"]) if analysis["test"] else None
+                if metrics_oos is not None:
+                    flag, note = oos_flag(metrics, metrics_oos)
+                elif params.test_ratio > 0:
+                    # test 段因样本不足在 service 层被吞：候选仍成功，标注未复核
+                    flag, note = None, "样本外数据不足，未做复核"
+                else:
+                    flag, note = None, None
                 row = {
                     **base,
                     "code": code,
@@ -254,7 +303,10 @@ def run_llm_mining(
                     "status": "success",
                     "error_type": None,
                     "error": None,
-                    "metrics": _metrics_from_analysis(analysis),
+                    "metrics": metrics,
+                    "metrics_oos": metrics_oos,
+                    "oos_flag": flag,
+                    "oos_note": note,
                 }
             except Exception as exc:  # 每个候选独立失败，不影响整轮
                 status, message = _classify_exc(exc)
@@ -267,6 +319,9 @@ def run_llm_mining(
                     "error_type": status,
                     "error": message[:500],
                     "metrics": None,
+                    "metrics_oos": None,
+                    "oos_flag": None,
+                    "oos_note": None,
                 }
             candidates.append(row)
             round_rows.append(row)
@@ -301,5 +356,6 @@ def run_llm_mining(
             "symbols": list(raw_map),
             "interval": params.interval,
             "model_name": params.model_name,
+            "test_ratio": params.test_ratio,
         },
     }

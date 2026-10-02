@@ -707,6 +707,29 @@ class FactorService:
             return result, df
         return result
 
+    @staticmethod
+    def _split_raw_map(
+        raw_map: dict[str, pd.DataFrame], test_ratio: float
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        """逐品种按行序（时间升序，与 load_raw_ohlcv 落盘顺序一致）切 train/test。
+
+        不依赖 timestamp 列：raw 原始行序即时间升序。
+        - test_ratio<=0：不切分，train 复用原对象，test 返回空 dict；
+        - test_ratio>0：cut=int(n*(1-test_ratio))，前段 train / 后段 test（均 copy）；
+          test 段为空（0 行）的品种不放入 test_map。
+        """
+        if test_ratio <= 0:
+            return raw_map, {}
+        train_map: dict[str, pd.DataFrame] = {}
+        test_map: dict[str, pd.DataFrame] = {}
+        for symbol, df in raw_map.items():
+            cut = int(len(df) * (1 - test_ratio))
+            train_map[symbol] = df.iloc[:cut].copy()
+            test_df = df.iloc[cut:].copy()
+            if len(test_df) > 0:
+                test_map[symbol] = test_df
+        return train_map, test_map
+
     def analyze_code_panel(
         self,
         code: str,
@@ -720,25 +743,49 @@ class FactorService:
         horizons: tuple[int, ...] | None = None,
         cost_bps: float = 0.0,
         label: str = "llm_candidate",
-    ) -> dict:
-        """对尚未入库的代码直接走「沙箱执行 → 全指标分析」，供 LLM 挖掘闭环调用。"""
-        series_map = self._sandbox.run(code, raw_map)
-        factor = self.assemble_code_panel(label, series_map, raw_map)
-        close = close_panel_from_raw(raw_map)
-        return self._analyze_core(
-            factor_name=label,
-            symbols=list(raw_map),
-            interval=interval,
-            raw_map=raw_map,
-            factor=factor,
-            close=close,
-            method=method,
-            n_groups=n_groups,
-            window=window,
-            forward=forward,
-            horizons=horizons or self.DEFAULT_HORIZONS,
-            cost_bps=cost_bps,
-        )
+        test_ratio: float = 0.0,
+    ) -> dict[str, Any]:
+        """对尚未入库的代码走「沙箱执行 → 全指标分析」，供 LLM 挖掘闭环调用。
+
+        test_ratio>0 时按时间行序切 train/test，**两段各自独立沙箱执行**
+        （不能在全量结果上切——rolling 因子的 warmup 会把 train 段信息泄漏进 test）。
+        返回 ``{"train": analysis, "test": analysis | None}``；
+        test 段因有效数据不足（FactorError「有效数据不足」）时 test=None，
+        其余异常（沙箱安全/运行/资源/其他 FactorError）照常抛出。
+        """
+        horizons = horizons or self.DEFAULT_HORIZONS
+
+        def _run_segment(seg_map: dict[str, pd.DataFrame], seg_label: str) -> dict[str, Any]:
+            series_map = self._sandbox.run(code, seg_map)
+            factor = self.assemble_code_panel(seg_label, series_map, seg_map)
+            close = close_panel_from_raw(seg_map)
+            return self._analyze_core(
+                factor_name=seg_label,
+                symbols=list(seg_map),
+                interval=interval,
+                raw_map=seg_map,
+                factor=factor,
+                close=close,
+                method=method,
+                n_groups=n_groups,
+                window=window,
+                forward=forward,
+                horizons=horizons,
+                cost_bps=cost_bps,
+            )
+
+        train_map, test_map = self._split_raw_map(raw_map, test_ratio)
+        train_analysis = _run_segment(train_map, label)
+        test_analysis: dict[str, Any] | None = None
+        if test_map:
+            try:
+                test_analysis = _run_segment(test_map, f"{label}__oos")
+            except FactorError as exc:
+                # 仅吞样本外段「有效数据不足」：候选本身有效，只是后段太短无法复核
+                if "有效数据不足" not in str(exc):
+                    raise
+                test_analysis = None
+        return {"train": train_analysis, "test": test_analysis}
 
     def compare_factors(
         self,
