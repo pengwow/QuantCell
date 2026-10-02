@@ -946,14 +946,17 @@ class FactorService:
         - 否则（wf_folds=0/1 或 test_ratio=0）：单次 train/test 切分，返回
           ``{"train", "test": analysis|None, "wf": None}``；test 段因有效数据不足
           （FactorError「有效数据不足」）时 test=None，其余异常照常抛出。
+        - 顶层额外透出 ``"train_factor"``：train_map 上的 MultiIndex(datetime,symbol)
+          因子面板（wf/单次两条路径同一份），供 LLM 挖掘做候选间相关性去重；
+          属内部字段，不允许出现在挖掘 HTTP 结果中（由 llm_miner 剥离）。
         """
         horizons = horizons or self.DEFAULT_HORIZONS
 
-        def _run_segment(seg_map: dict[str, pd.DataFrame], seg_label: str) -> dict[str, Any]:
+        def _run_segment(seg_map: dict[str, pd.DataFrame], seg_label: str) -> tuple[dict[str, Any], pd.Series]:
             series_map = self._sandbox.run(code, seg_map)
             factor = self.assemble_code_panel(seg_label, series_map, seg_map)
             close = close_panel_from_raw(seg_map)
-            return self._analyze_core(
+            analysis = self._analyze_core(
                 factor_name=seg_label,
                 symbols=list(seg_map),
                 interval=interval,
@@ -967,9 +970,10 @@ class FactorService:
                 horizons=horizons,
                 cost_bps=cost_bps,
             )
+            return analysis, factor
 
         train_map, test_map = self._split_raw_map(raw_map, test_ratio)
-        train_analysis = _run_segment(train_map, label)
+        train_analysis, train_factor = _run_segment(train_map, label)
         test_analysis: dict[str, Any] | None = None
         wf: dict[str, Any] | None = None
 
@@ -995,13 +999,18 @@ class FactorService:
             wf = {"folds": folds, **wf_metrics, "oos_flag": wf_flag, "oos_note": wf_note}
         elif test_map:
             try:
-                test_analysis = _run_segment(test_map, f"{label}__oos")
+                test_analysis, _test_factor = _run_segment(test_map, f"{label}__oos")
             except FactorError as exc:
                 # 仅吞样本外段「有效数据不足」：候选本身有效，只是后段太短无法复核
                 if "有效数据不足" not in str(exc):
                     raise
                 test_analysis = None
-        return {"train": train_analysis, "test": test_analysis, "wf": wf}
+        return {
+            "train": train_analysis,
+            "test": test_analysis,
+            "wf": wf,
+            "train_factor": train_factor,
+        }
 
     def compare_factors(
         self,

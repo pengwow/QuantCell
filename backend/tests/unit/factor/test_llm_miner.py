@@ -1,8 +1,14 @@
 # LLM 挖掘闭环测试：用 Fake backend 回放预置代码，覆盖成功/静态失败/运行失败/反思/去重
+import json
+
+import numpy as np
+import pandas as pd
 import pytest
 
+import factor.llm_miner as miner
 from factor.code_store import CodeFactorStore
-from factor.llm_miner import LLMMineParams, oos_flag, run_llm_mining
+from factor.engine import load_raw_ohlcv
+from factor.llm_miner import LLMMineParams, correlation_dedup, oos_flag, run_llm_mining
 from factor.sandbox import FactorSandbox
 from factor.service import FactorService
 
@@ -396,3 +402,229 @@ def test_mine_wf_folds_defaults_to_zero_in_stats(service):
 )
 def test_oos_flag_returns_none_when_either_side_missing(train_metrics, test_metrics):
     assert oos_flag(train_metrics, test_metrics) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# 候选 train 段因子相关性去重（spearman 秩次一致度 + 贪心 fitness 排序）
+# ---------------------------------------------------------------------------
+
+CODE_MOM = 'factor = df["close"].pct_change(5)'
+# 与 CODE_MOM 秩完全相同的单调变换（*、+、浮点常量 BinOp 均在沙箱白名单内）
+CODE_MOM_SCALED = 'factor = df["close"].pct_change(5) * 100.0 + 3.0'
+# Provider 合成数据下与价格动量近乎独立的成交量动量
+CODE_VOL_MOM = 'factor = df["volume"].pct_change(5)'
+
+
+def _mi_panel(mapping: dict[str, list[float]]) -> pd.Series:
+    """{symbol: 值列表} -> MultiIndex(datetime,symbol) 面板（允许 NaN）。"""
+    frames = []
+    for sym, vals in mapping.items():
+        idx = pd.MultiIndex.from_arrays(
+            [pd.date_range("2026-01-01", periods=len(vals), freq="1h"), [sym] * len(vals)],
+            names=["datetime", "symbol"],
+        )
+        frames.append(pd.Series(vals, index=idx, dtype=float))
+    return pd.concat(frames).sort_index()
+
+
+def test_factor_corr_scale_invariant_same_rank_is_one():
+    # 两品种尺度差 1000 倍但组内秩相同 -> 各品种内部秩次一致度 ≈ 1
+    base = np.random.default_rng(0).normal(size=40)
+    s1 = _mi_panel({"BTCUSDT": base, "ETHUSDT": base * 2.0 + 5.0})
+    s2 = _mi_panel({"BTCUSDT": base * 1000.0, "ETHUSDT": base * 0.001})
+    corr = miner._factor_corr(s1, s2)
+    assert corr is not None
+    assert abs(corr) > 0.999
+
+
+def test_factor_corr_anti_correlated_is_minus_one():
+    s = _mi_panel({"BTCUSDT": np.random.default_rng(1).normal(size=40)})
+    corr = miner._factor_corr(s, -s)
+    assert corr is not None
+    assert corr < -0.999
+
+
+def test_factor_corr_returns_none_when_pairs_insufficient():
+    # 短序列：配对 10 < min_pairs=30
+    short_a = _mi_panel({"BTCUSDT": [1.0, 2, 3, 4, 5, 6, 7, 8, 9, 10]})
+    short_b = _mi_panel({"BTCUSDT": [2.0, 4, 6, 8, 10, 12, 14, 16, 18, 20]})
+    assert miner._factor_corr(short_a, short_b) is None
+    # 时间不重叠：交集配对 0
+    idx = pd.date_range("2026-01-01", periods=40, freq="1h")
+    later_idx = pd.date_range("2026-03-01", periods=40, freq="1h")
+    s1 = pd.Series(
+        np.arange(40, dtype=float),
+        index=pd.MultiIndex.from_arrays([idx, ["BTCUSDT"] * 40], names=["datetime", "symbol"]),
+    )
+    s2 = pd.Series(
+        np.arange(40, dtype=float),
+        index=pd.MultiIndex.from_arrays([later_idx, ["BTCUSDT"] * 40], names=["datetime", "symbol"]),
+    )
+    assert miner._factor_corr(s1, s2) is None
+
+
+def test_train_factor_panel_exposed_on_analysis(service):
+    """analyze_code_panel 透出 train 段 MultiIndex 因子面板（内部字段，挖掘结果里剥离）。"""
+    raw_map = Provider().frames
+    result = service.analyze_code_panel(CODE_MOM, raw_map, interval="1h", test_ratio=0)
+    assert set(result) == {"train", "test", "wf", "train_factor"}
+    panel = result["train_factor"]
+    assert isinstance(panel, pd.Series)
+    assert panel.index.names == ["datetime", "symbol"]
+    assert len(panel.dropna()) > 0
+
+
+def test_low_corr_pair_measured_below_threshold(service):
+    # 直接对真实 train 面板实测：Provider 合成数据下二者 = -0.0038（成交量与价格独立生成）
+    raw_map = load_raw_ohlcv(["BTCUSDT", "ETHUSDT", "SOLUSDT"], "1h", "spot", None, None, Provider())
+    a = service.analyze_code_panel(CODE_MOM, raw_map, interval="1h", test_ratio=0)
+    b = service.analyze_code_panel(CODE_VOL_MOM, raw_map, interval="1h", test_ratio=0)
+    corr = miner._factor_corr(a["train_factor"], b["train_factor"])
+    assert corr is not None
+    assert abs(corr) < 0.9
+
+
+def test_dedup_high_corr_pair_marks_lower_one_redundant(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, dedup_corr=0.9),
+        backend=FakeBackend([CODE_MOM, CODE_MOM_SCALED]),
+        provider=Provider(),
+        service=service,
+    )
+    succ = [c for c in result["candidates"] if c["status"] == "success"]
+    assert len(succ) == 2
+    redundant = [r for r in succ if r["redundant"]]
+    kept = [r for r in succ if not r["redundant"]]
+    assert len(redundant) == 1
+    assert len(kept) == 1
+    flag = redundant[0]
+    assert flag["redundant_with"] == kept[0]["code_hash"]
+    assert flag["redundant_corr"] is not None
+    assert abs(flag["redundant_corr"]) > 0.99
+    # best 只留非冗余
+    assert len(result["best"]) == 1
+    assert result["best"][0]["code_hash"] == kept[0]["code_hash"]
+    assert result["stats"]["redundant"] == 1
+
+
+def test_dedup_low_corr_pair_both_kept(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, dedup_corr=0.9),
+        backend=FakeBackend([CODE_MOM, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    succ = [c for c in result["candidates"] if c["status"] == "success"]
+    assert len(succ) == 2
+    assert all(not r["redundant"] for r in succ)
+    assert all(r["redundant_with"] is None and r["redundant_corr"] is None for r in succ)
+    assert len(result["best"]) == 2
+    assert result["stats"]["redundant"] == 0
+
+
+def test_dedup_disabled_when_threshold_zero(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, dedup_corr=0.0),
+        backend=FakeBackend([CODE_MOM, CODE_MOM_SCALED]),
+        provider=Provider(),
+        service=service,
+    )
+    succ = [c for c in result["candidates"] if c["status"] == "success"]
+    assert len(succ) == 2
+    assert all(not r["redundant"] for r in succ)
+    assert len(result["best"]) == 2
+    assert result["stats"]["redundant"] == 0
+
+
+def test_best_excludes_redundant_and_respects_top_k(service):
+    # 三个成功候选：MOM 与其单调变换互为冗余，成交量动量独立 -> 2 个非冗余
+    result = run_llm_mining(
+        _params(n_candidates=3, top_k=1, dedup_corr=0.9),
+        backend=FakeBackend([CODE_MOM, CODE_MOM_SCALED, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    assert len(result["best"]) == 1
+    assert not result["best"][0]["redundant"]
+    assert result["stats"]["redundant"] == 1
+    # 放开 top_k 后两个非冗余都进 best
+    result2 = run_llm_mining(
+        _params(n_candidates=3, top_k=5, dedup_corr=0.9),
+        backend=FakeBackend([CODE_MOM, CODE_MOM_SCALED, CODE_VOL_MOM]),
+        provider=Provider(),
+        service=service,
+    )
+    assert len(result2["best"]) == 2
+    assert all(not r["redundant"] for r in result2["best"])
+
+
+def test_correlation_dedup_keeps_higher_fitness_when_input_shuffled():
+    # 乱序输入（低 fitness 在前）：去重后仍保留高 fitness 行，低者指向高者 hash
+    base = np.random.default_rng(2).normal(size=40)
+    f_high = _mi_panel({"BTCUSDT": base, "ETHUSDT": base * 2.0})
+    f_low = _mi_panel({"BTCUSDT": base * 1000.0 + 3.0, "ETHUSDT": base * 2000.0 + 3.0})
+
+    def row(hash_, fitness, factor):
+        return {
+            "status": "success",
+            "code_hash": hash_,
+            "metrics": {"fitness": fitness},
+            "_factor": factor,
+            "redundant": False,
+            "redundant_with": None,
+            "redundant_corr": None,
+        }
+
+    # 非 success 行不带冗余字段，函数不得触碰
+    failed = {"status": "runtime_error", "code_hash": "", "metrics": None}
+    rows = [row("low", 1.0, f_low), failed, row("high", 10.0, f_high)]
+    correlation_dedup(rows, 0.9)
+    by_hash = {r["code_hash"]: r for r in rows if r["status"] == "success"}
+    assert by_hash["high"]["redundant"] is False
+    assert by_hash["low"]["redundant"] is True
+    assert by_hash["low"]["redundant_with"] == "high"
+    assert abs(by_hash["low"]["redundant_corr"]) > 0.99
+    assert "redundant" not in failed
+
+
+def test_dedup_skipped_when_corr_uncomputable(service, monkeypatch):
+    # _factor_corr 全部返回 None（配对不足）-> 高相关对也不去重
+    monkeypatch.setattr(miner, "_factor_corr", lambda *a, **k: None)
+    result = run_llm_mining(
+        _params(n_candidates=2, dedup_corr=0.9),
+        backend=FakeBackend([CODE_MOM, CODE_MOM_SCALED]),
+        provider=Provider(),
+        service=service,
+    )
+    succ = [c for c in result["candidates"] if c["status"] == "success"]
+    assert all(not r["redundant"] for r in succ)
+    assert len(result["best"]) == 2
+    assert result["stats"]["redundant"] == 0
+
+
+def test_result_rows_strip_internal_factor_and_are_json_serializable(service):
+    result = run_llm_mining(
+        _params(n_candidates=2, dedup_corr=0.9),
+        backend=FakeBackend([CODE_MOM, CODE_MOM_SCALED]),
+        provider=Provider(),
+        service=service,
+    )
+    for r in result["candidates"] + result["best"]:
+        assert "_factor" not in r
+        assert "train_factor" not in r
+    # 无 Series 残留：不用 default=str 也必须能直接 JSON 序列化
+    json.dumps(result)
+
+
+def test_non_success_rows_have_redundant_defaults(service):
+    result = run_llm_mining(
+        _params(n_candidates=1),
+        backend=FakeBackend(["import os\nfactor = 1"]),
+        provider=Provider(),
+        service=service,
+    )
+    row = result["candidates"][0]
+    assert row["status"] == "security_error"
+    assert row["redundant"] is False
+    assert row["redundant_with"] is None
+    assert row["redundant_corr"] is None

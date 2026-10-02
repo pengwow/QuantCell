@@ -166,6 +166,12 @@ export interface MinedCandidate {
   oos_flag?: 'ok' | 'weak' | 'sign_flip' | null;
   /** 样本外复核说明（如样本不足提示），可为 null */
   oos_note?: string | null;
+  /** 与更高 fitness 候选的 train 段因子 |spearman|≥阈值，被标记为重复 */
+  redundant?: boolean;
+  /** 重复对象的 code_hash；非重复为 null */
+  redundant_with?: string | null;
+  /** 与重复对象的因子秩相关系数（保留 4 位小数）；非重复为 null */
+  redundant_corr?: number | null;
 }
 
 /** LLM 挖掘任务结果 */
@@ -177,6 +183,8 @@ export interface FactorMineResult {
     unique: number;
     succeeded: number;
     failed: number;
+    /** 被相关性去重标记为冗余的成功候选数 */
+    redundant?: number;
     rounds: number;
     symbols: string[];
     interval: string;

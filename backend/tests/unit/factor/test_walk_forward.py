@@ -96,8 +96,11 @@ def test_analyze_code_panel_walk_forward_three_folds(service):
         label="wf_candidate",
     )
 
-    assert set(result) == {"train", "test", "wf"}
+    assert set(result) == {"train", "test", "wf", "train_factor"}
     assert result["test"] is None
+    # train_factor：train_map 上的 MultiIndex(datetime,symbol) 因子面板（内部字段）
+    assert isinstance(result["train_factor"], pd.Series)
+    assert result["train_factor"].index.names == ["datetime", "symbol"]
     wf = result["wf"]
     folds = wf["folds"]
     assert len(folds) == 3
@@ -155,6 +158,8 @@ def test_wf_disabled_keeps_legacy_shape(service, wf_folds):
     assert result["wf"] is None
     assert result["test"] is not None
     assert "inspection" in result["test"]
+    # 单次切分路径同样透出 train 段因子面板
+    assert isinstance(result["train_factor"], pd.Series)
 
 
 # ---------------------------------------------------------------------------

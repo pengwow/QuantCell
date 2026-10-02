@@ -12,6 +12,10 @@
   oos_flag 标记样本外符号反转/衰减，过拟合风险在结果行与反思中可见。
 - wf_folds>=2 时改走滚动 walk-forward：OOS 区间等分 k 个连续窗口，因子在各
   递增历史前缀上独立执行（1+k 次沙箱），按折 bar_count 加权 IC/符号一致性汇总。
+- 相关性去重：全部轮次完成后，成功候选按 fitness 降序贪心比较 train 段因子
+  （各品种内部 pct-rank 后求 pearson，即尺度无关的 spearman 秩相关），
+  |corr|>=dedup_corr 的低 fitness 候选标记 redundant 且不进 best；只用
+  train 段，去重是选择动作，禁止用 OOS。
 """
 
 from __future__ import annotations
@@ -21,6 +25,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+import pandas as pd
 
 from axon_bridge.llm import chat_to_dict
 from factor.code_store import code_hash
@@ -82,6 +88,9 @@ class LLMMineParams:
     test_ratio: float = 0.3
     # 滚动 walk-forward 折数：0=关闭（走单次 test_ratio 切分）；2-6=多窗口滚动复核
     wf_folds: int = 0
+    # 候选 train 段因子相关性去重阈值：|秩相关|>=该值且 fitness 更低者标记冗余；
+    # <=0 关闭；只用 train 段（去重是选择动作，禁止用 OOS 造成样本外泄漏）
+    dedup_corr: float = 0.9
 
 
 def extract_code(text: str) -> str:
@@ -173,6 +182,51 @@ def oos_flag(
             f"样本外 IC 衰减过半（train={train_ic:.4f}，oos={test_ic:.4f}），样本外减弱",
         )
     return "ok", ""
+
+
+def _factor_corr(s1: pd.Series, s2: pd.Series, min_pairs: int = 30) -> float | None:
+    """两个 MultiIndex(datetime,symbol) 因子面板的「各品种内部秩次一致度」。
+
+    对齐后双侧 dropna，先在每个 symbol 组内 rank(pct=True)，再对两条百分位秩
+    序列整体求 pearson 相关：组内秩变换消除跨品种量纲/尺度差异（如不同币种
+    价格量级差千倍、或 x 与 100x+3 这种单调仿射变换），因此结果等价于
+    spearman 口径的因子相关性。有效配对 < min_pairs（或常数列导致相关不可
+    估计）时返回 None，调用方按「无法判定重复」处理。
+    """
+    joined = pd.concat([s1.rename("a"), s2.rename("b")], axis=1).dropna()
+    if len(joined) < min_pairs:
+        return None
+    rank_a = joined["a"].groupby(level=1).rank(pct=True)
+    rank_b = joined["b"].groupby(level=1).rank(pct=True)
+    corr = rank_a.corr(rank_b, method="pearson")
+    if corr is None or pd.isna(corr):
+        return None
+    return float(corr)
+
+
+def correlation_dedup(rows: list[dict[str, Any]], threshold: float, min_pairs: int = 30) -> None:
+    """成功候选按 fitness 降序做贪心相关性去重（原地更新）。
+
+    1. 仅处理 status=='success' 行（依赖内部键 ``_factor``：train 段因子面板）；
+    2. 按 metrics.fitness 降序（fitness 高者优先保留，同 fitness 保持原顺序）；
+    3. 每个候选与已保留行逐个算 :func:`_factor_corr`，首次 ``|corr| >= threshold``
+       命中即写 redundant=True/redundant_with=命中行 code_hash/redundant_corr 并
+       停止比较；未命中则保留；配对不足（None）视为不重复；
+    4. 非 success 行不触碰（默认字段由调用方预先补齐）。
+    """
+    success_rows = [r for r in rows if r.get("status") == "success"]
+    success_rows.sort(key=lambda r: r["metrics"]["fitness"], reverse=True)
+    kept: list[dict[str, Any]] = []
+    for row in success_rows:
+        for anchor in kept:
+            corr = _factor_corr(anchor["_factor"], row["_factor"], min_pairs=min_pairs)
+            if corr is not None and abs(corr) >= threshold:
+                row["redundant"] = True
+                row["redundant_with"] = anchor["code_hash"]
+                row["redundant_corr"] = round(corr, 4)
+                break
+        else:
+            kept.append(row)
 
 
 def _classify_exc(exc: Exception) -> tuple[str, str]:
@@ -351,6 +405,8 @@ def run_llm_mining(
                     "metrics_oos": metrics_oos,
                     "oos_flag": flag,
                     "oos_note": note,
+                    # 内部键：train 段因子面板，仅供跨候选相关性去重，返回前必须剥离
+                    "_factor": analysis["train_factor"],
                 }
             except Exception as exc:  # 每个候选独立失败，不影响整轮
                 status, message = _classify_exc(exc)
@@ -383,9 +439,33 @@ def run_llm_mining(
             f"第 {round_idx + 1} 轮完成：成功 {len(successes)}/{len(round_rows)}",
         )
 
+    # 所有行统一补冗余默认字段（非 success 行 correlation_dedup 不会触碰）
+    for row in candidates:
+        row.setdefault("redundant", False)
+        row.setdefault("redundant_with", None)
+        row.setdefault("redundant_corr", None)
+
+    # 跨轮统一贪心相关性去重：只用 train 段因子，fitness 高者优先保留
+    if params.dedup_corr > 0:
+        correlation_dedup(candidates, params.dedup_corr)
+
     successful = [r for r in candidates if r["status"] == "success"]
-    best = sorted(successful, key=lambda r: r["metrics"]["fitness"], reverse=True)[: params.top_k]
-    report(100.0, "completed", f"完成：有效候选 {len(successful)}，Top {len(best)}")
+    non_redundant = [r for r in successful if not r["redundant"]]
+    redundant_count = len(successful) - len(non_redundant)
+    best = sorted(non_redundant, key=lambda r: r["metrics"]["fitness"], reverse=True)[: params.top_k]
+    report(
+        100.0,
+        "completed",
+        f"完成：有效候选 {len(successful)}（重复 {redundant_count}），Top {len(best)}",
+    )
+
+    # 剥离内部键：pd.Series 不能进 JSON，train_factor 也不允许透出到 HTTP 结果
+    for row in candidates:
+        row.pop("_factor", None)
+    for row in best:
+        row.pop("_factor", None)
+    assert all("_factor" not in r and "train_factor" not in r for r in candidates)
+    assert all("_factor" not in r and "train_factor" not in r for r in best)
 
     return {
         "candidates": candidates,
@@ -397,6 +477,7 @@ def run_llm_mining(
             "unique": unique_total,
             "succeeded": len(successful),
             "failed": len(candidates) - len(successful),
+            "redundant": redundant_count,
             "symbols": list(raw_map),
             "interval": params.interval,
             "model_name": params.model_name,
