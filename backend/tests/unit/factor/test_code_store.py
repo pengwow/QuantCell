@@ -47,3 +47,19 @@ def test_atomic_write_no_tmp_left(tmp_path):
     store.upsert("a", "factor = df['close']")
     assert path.exists()
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_find_by_hash(tmp_path):
+    from factor.code_store import code_hash
+
+    store = CodeFactorStore(tmp_path / "code_factors.json")
+    store.upsert("a", "factor = df['close']")
+    h = code_hash("factor = df['close']")
+    # upsert 落盘 code_hash
+    assert store.get("a")["code_hash"] == h
+    # 命中
+    assert store.find_by_hash(h) == "a"
+    # 排除自身（同名覆盖场景）→ 视为未命中
+    assert store.find_by_hash(h, exclude_name="a") is None
+    # 未命中
+    assert store.find_by_hash("0" * 16) is None
