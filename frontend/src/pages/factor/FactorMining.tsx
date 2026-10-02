@@ -18,6 +18,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import type { TableProps } from 'antd';
@@ -176,10 +177,25 @@ const FactorMining: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
-      render: (status: MinedCandidate['status']) => {
+      width: 150,
+      render: (status: MinedCandidate['status'], row) => {
         const t = STATUS_TAG[status];
-        return <Tag color={t.color}>{t.text}</Tag>;
+        return (
+          <Flex gap="small" align="center">
+            <Tag color={t.color} style={{ marginInlineEnd: 0 }}>
+              {t.text}
+            </Tag>
+            {status === 'success' && row.redundant && (
+              <Tooltip
+                title={`与 ${(row.redundant_with || '').slice(0, 8)} 的因子相关系数 ${row.redundant_corr ?? '—'}`}
+              >
+                <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+                  重复
+                </Tag>
+              </Tooltip>
+            )}
+          </Flex>
+        );
       },
     },
     {
@@ -435,6 +451,11 @@ const FactorMining: React.FC = () => {
               <Statistic title="生成" value={result.stats.generated} />
               <Statistic title="去重后" value={result.stats.unique} />
               <Statistic title="成功" value={result.stats.succeeded} valueStyle={{ color: qc.positive }} />
+              <Statistic
+                title="重复"
+                value={result.stats.redundant ?? 0}
+                valueStyle={{ color: '#d46b08' }}
+              />
               <Statistic title="失败" value={result.stats.failed} valueStyle={{ color: qc.negative }} />
             </Flex>
           )}

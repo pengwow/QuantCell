@@ -513,6 +513,12 @@ class FactorMineLLMRequest(FactorCalculateBase):
         le=6,
         description="滚动 walk-forward 折数（0=关闭，使用单次样本外切分；2-6 启用多折复核）",
     )
+    dedup_corr: float = Field(
+        default=0.9,
+        ge=0.0,
+        le=1.0,
+        description="候选 train 段因子相关性去重阈值（|spearman|≥该值且 fitness 更低者标记为重复），0 关闭",
+    )
 
 
 class FactorJobAccepted(BaseSchema):
