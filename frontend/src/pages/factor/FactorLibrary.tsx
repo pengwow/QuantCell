@@ -30,6 +30,12 @@ const CATEGORY_COLOR: Record<string, string> = {
   technical: 'purple',
   fundamental: 'default',
   custom: 'geekblue',
+  llm_code: 'magenta',
+};
+
+/** 分类中文文案；未配置的分类回退展示原始 category 值 */
+const CATEGORY_LABEL: Record<string, string> = {
+  llm_code: 'LLM 代码',
 };
 
 const STATUS_COLOR: Record<LifecycleStatus, string> = {
@@ -144,6 +150,8 @@ const FactorLibrary: React.FC = () => {
         <Space>
           {r.label}
           {r.builtin && <Tag>内置</Tag>}
+          {/* 档案接口未回 kind：kind==='code' 的代码因子持久化 category 恒为 llm_code */}
+          {(r.kind === 'code' || r.category === 'llm_code') && <Tag color="magenta">代码</Tag>}
           {!r.supported && <Tag color="error">无数据</Tag>}
         </Space>
       ),
@@ -152,7 +160,7 @@ const FactorLibrary: React.FC = () => {
     {
       title: '分类',
       dataIndex: 'category',
-      render: (c: string) => <Tag color={CATEGORY_COLOR[c] ?? 'default'}>{c}</Tag>,
+      render: (c: string) => <Tag color={CATEGORY_COLOR[c] ?? 'default'}>{CATEGORY_LABEL[c] ?? c}</Tag>,
     },
     {
       title: '状态',

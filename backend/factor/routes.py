@@ -963,6 +963,15 @@ def add_code_factor(request: CodeFactorAddRequest, current_user: dict = Depends(
             request.description or "",
             provenance={"source": "manual_or_llm"},
         )
+        # ---- 保存成功后建档（派生数据，失败不阻断代码保存；模式同表达式 add_factor）----
+        try:
+            with get_db_session() as db:
+                _catalog_service.sync_builtins(db)  # 确保内置已在，自定义 upsert 不依赖顺序
+                details = [d for d in factor_service.get_factor_details() if d["name"] == request.factor_name]
+                if details:
+                    _catalog_service.upsert_custom(db, details[0])
+        except Exception as hook_err:
+            logger.warning(f"代码因子档案建档失败（不影响代码保存）: {hook_err}")
         return ApiResponse(
             code=0,
             message=f"代码因子 {request.factor_name} 已保存",
@@ -977,6 +986,12 @@ def add_code_factor(request: CodeFactorAddRequest, current_user: dict = Depends(
 def delete_code_factor(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     try:
         factor_service.delete_code_factor(factor_name)
+        # 代码已从 JSON 删除：清理 DB 档案行与快照行；钩子失败不阻断接口（仅 warning 暴露残留）
+        try:
+            with get_db_session() as db:
+                _catalog_service.on_factor_deleted(db, factor_name)
+        except Exception as hook_err:
+            logger.warning(f"代码因子档案删除失败（代码已从 JSON 删除）: {hook_err}")
         return ApiResponse(code=0, message=f"代码因子 {factor_name} 已删除")
     except FactorNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
