@@ -100,3 +100,48 @@ def test_analyze_expression_still_works(service):
     # 回归：表达式因子路径行为不变
     res = service.analyze("momentum_5d", ["BTCUSDT"], "1h", "spot", None, None, provider=FakeProvider())
     assert res["bar_count"] > 0
+
+
+def test_save_rejects_duplicate_code_under_other_name(service):
+    service.save_code_factor("dup_a", MOM_CODE)
+    # 同代码换名保存：命中 hash 去重，消息需包含已存在的因子名
+    with pytest.raises(FactorError) as exc:
+        service.save_code_factor("dup_b", MOM_CODE)
+    assert "dup_a" in str(exc.value)
+
+
+def test_save_same_name_same_code_is_idempotent(service):
+    service.save_code_factor("same_one", MOM_CODE)
+    # 同名同代码覆盖保存允许（幂等，不抛错），沙箱仍重新校验
+    assert service.save_code_factor("same_one", MOM_CODE) is True
+    assert set(service._code_store.all()) == {"same_one"}
+
+
+def test_save_isomorphic_whitespace_deduped(service):
+    # 两行语义相同的代码，仅空行/行尾空白差异 → 规范化后同 hash，拒绝
+    code_a = 'a = 1\nfactor = df["close"].pct_change(5)'
+    code_b = 'a = 1   \n\nfactor = df["close"].pct_change(5)\n\n'
+    service.save_code_factor("iso_a", code_a)
+    with pytest.raises(FactorError) as exc:
+        service.save_code_factor("iso_b", code_b)
+    assert "iso_a" in str(exc.value)
+
+
+def test_legacy_json_without_code_hash_deduped(tmp_path):
+    import json
+
+    # 老格式条目无 code_hash 字段：加载时补算，新名保存同代码仍被去重命中
+    path = tmp_path / "code_factors.json"
+    legacy = {
+        "legacy_mom": {
+            "code": MOM_CODE,
+            "description": "老格式因子",
+            "provenance": {"model": "old-model"},
+            "created_at": "2026-09-30T00:00:00+00:00",
+        }
+    }
+    path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    svc = FactorService(code_store=CodeFactorStore(path), sandbox=FactorSandbox())
+    with pytest.raises(FactorError) as exc:
+        svc.save_code_factor("brand_new", MOM_CODE)
+    assert "legacy_mom" in str(exc.value)

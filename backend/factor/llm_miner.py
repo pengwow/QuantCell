@@ -5,6 +5,8 @@
 - 成功候选的 fitness = |RankIC 均值| * 100 * 覆盖率惩罚（coverage<0.2 时二次惩罚），
   与 FactorMiner 默认口径对齐；
 - 反思：把上一轮失败原因与最佳候选摘要拼进下一轮 prompt。
+- 候选内存去重复用 factor.code_store.code_hash（规范化口径的单一真相源，
+  入库 hash 去重共用同一函数；口径必须一致，改动需同步两处并回归去重用例）。
 
 ponytail: 当前在单面板上 in-sample 选因子（无 train/test 切分），已知上限是过拟合
 风险不可见；升级路径：raw_map 按时间切 train/test，fitness 只在 train 计算、
@@ -14,13 +16,13 @@ best 用 test 复核（walk-forward）。
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from axon_bridge.llm import chat_to_dict
+from factor.code_store import code_hash
 from factor.engine import load_raw_ohlcv
 from factor.sandbox import (
     SandboxError,
@@ -83,11 +85,6 @@ def extract_code(text: str) -> str:
         return ""
     match = _FENCE_RE.search(text)
     return (match.group(1) if match else text).strip()
-
-
-def code_hash(code: str) -> str:
-    normalized = "\n".join(line.rstrip() for line in code.strip().splitlines() if line.strip())
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def _user_prompt(round_idx: int, n_rounds: int, candidate_idx: int, n_candidates: int, reflection: str) -> str:

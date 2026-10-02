@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-from factor.code_store import CodeFactorStore
+from factor.code_store import CodeFactorStore, code_hash
 from factor.engine import (
     FACTOR_META,
     UNSUPPORTED_FACTORS,
@@ -143,9 +143,16 @@ class FactorService:
             raise FactorExpressionError("因子代码不能为空")
         if len(code) > 20000:
             raise FactorExpressionError("因子代码过长（上限 20000 字符）")
+        code = code.strip()
+        # hash 去重是纯内存计算，放在昂贵的沙箱子进程校验之前：
+        # exclude_name=factor_name 跳过自身（同名覆盖允许），命中别的因子名则拒绝
+        h = code_hash(code)
+        existing = self._code_store.find_by_hash(h, exclude_name=factor_name)
+        if existing is not None:
+            raise FactorExpressionError(f"相同代码已存在为因子 '{existing}'，无需重复保存")
         # 静态策略 + 合成数据执行，任何一层失败直接拒绝
-        self._sandbox.validate(code.strip())
-        self._code_store.upsert(factor_name, code.strip(), description.strip(), provenance)
+        self._sandbox.validate(code)
+        self._code_store.upsert(factor_name, code, description.strip(), provenance, code_hash=h)
         logger.info(f"成功保存代码因子: {factor_name}")
         return True
 
