@@ -24,6 +24,7 @@ import {
   Tooltip,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import type { TableProps } from 'antd';
 import {
   factorApi,
@@ -190,6 +191,7 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
 
 const FactorMining: React.FC = () => {
   const qc = useQuantColors();
+  const navigate = useNavigate();
   const [form] = Form.useForm<FormValues>();
   const [candleType, setCandleType] = useState<'spot' | 'future'>('spot');
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -266,6 +268,20 @@ const FactorMining: React.FC = () => {
     }
   };
 
+  // 保存成功后带挖掘口径（品种/周期）跳到工作台并自动分析一次
+  const goWorkbench = (name: string) => {
+    const syms = (form.getFieldValue('instruments') as string[] | undefined) ?? [];
+    const interval = (form.getFieldValue('interval') as string | undefined) ?? '1h';
+    const q = new URLSearchParams({
+      tab: 'workbench',
+      factor: name,
+      syms: syms.join(','),
+      interval,
+      run: '1',
+    });
+    navigate(`/factor-analysis?${q.toString()}`);
+  };
+
   // Popconfirm 确认：reject 时气泡保持打开，便于改名重试
   const handleSave = async () => {
     if (!saveRow) return;
@@ -277,7 +293,9 @@ const FactorMining: React.FC = () => {
     setSaving(true);
     try {
       await factorApi.addCodeFactor(name, saveRow.code);
-      message.success(`已保存到因子库：${name}`);
+      message.success(`已保存到因子库：${name}，正在带入工作台分析…`);
+      setSaveRow(null);
+      goWorkbench(name);
     } catch (err) {
       message.error(errMsg(err));
       throw err;
@@ -324,8 +342,10 @@ const FactorMining: React.FC = () => {
         constituents,
         train_window: comp.train_window,
       });
-      message.success(`合成因子已保存到因子库：${v.factor_name.trim()}`);
+      const savedName = v.factor_name.trim();
+      message.success(`合成因子已保存到因子库：${savedName}，正在带入工作台分析…`);
       setCompModalOpen(false);
+      goWorkbench(savedName);
     } catch (err) {
       message.error(errMsg(err));
     } finally {
