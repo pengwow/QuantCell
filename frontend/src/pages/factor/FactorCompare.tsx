@@ -314,9 +314,11 @@ const FactorCompare: React.FC = () => {
   return (
     <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
       <Card title="对比参数">
+        {/* inline 表单项换行后默认无垂直间距，用 flex rowGap 补到 middle 档 */}
         <Form<FormValues>
           form={form}
           layout="inline"
+          style={{ rowGap: 16 }}
           initialValues={{
             method: 'spearman',
             n_groups: 5,

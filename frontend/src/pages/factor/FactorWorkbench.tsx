@@ -627,9 +627,12 @@ const FactorWorkbench: React.FC<Props> = ({
   return (
     <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
       <Card title="分析参数">
+        {/* inline 表单项换行后默认无垂直间距（紧贴），用 flex rowGap 补到 middle 档；
+            水平间距沿用 antd inline item 默认的 16px，避免与 marginInlineEnd 叠加 */}
         <Form<FormValues>
           form={form}
           layout="inline"
+          style={{ rowGap: 16 }}
           initialValues={{
             method: 'spearman',
             n_groups: 5,
