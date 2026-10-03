@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Button,
   Card,
@@ -15,10 +15,12 @@ import {
   Select,
   Space,
   Statistic,
+  Tabs,
   Tooltip,
 } from 'antd';
 import { LineChartOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
+import { useSearchParams } from 'react-router-dom';
 import type { EChartsOption } from 'echarts';
 import EChart from '@/components/EChart';
 import {
@@ -30,6 +32,7 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import { useQuantColors } from '@/utils/colors';
+import type { AnalyzeHistoryItem } from './FactorAnalysis';
 
 const { RangePicker } = DatePicker;
 
@@ -73,17 +76,117 @@ const parseHorizons = (text: string | undefined): number[] | null | string => {
   return hs;
 };
 
-const FactorWorkbench: React.FC = () => {
+/** 指标语气：good=绿（好）、mid=蓝（中等/可用）、bad=橙（偏弱/注意）、flat=默认色 */
+type MetricTone = 'good' | 'mid' | 'bad' | 'flat';
+
+/**
+ * 统计指标的语义评级（研究经验口径，仅着色提示，不改变数值）：
+ * - IC 强度按绝对值分档（负 IC 可反向使用，符号本身不分好坏）；
+ * - 胜率按「与 IC 方向的一致性」着色（ic<0 时低胜率反而是一致的）；
+ * - 覆盖率/换手率/显著性按常用阈值，阈值写在各分支里便于调整。
+ */
+const rateAbs = (x: number, strong: number, usable: number): MetricTone => {
+  const a = Math.abs(x);
+  if (a >= strong) return 'good';
+  if (a >= usable) return 'mid';
+  return 'bad';
+};
+
+const toneOf = (key: string, value: number): MetricTone => {
+  switch (key) {
+    case 'ic_mean':
+      return rateAbs(value, 0.05, 0.03);
+    case 'ic_ir':
+    case 'annualized_ir':
+      return rateAbs(value, 2, 1);
+    case 'ic_ir_loose':
+      return rateAbs(value, 0.5, 0.3);
+    case 't_stat':
+    case 'nw_t_stat':
+      return rateAbs(value, 2, 1);
+    case 'monotonicity':
+      return rateAbs(value, 0.8, 0.5);
+    case 'stability':
+      if (value >= 0.5) return 'good';
+      if (value >= 0.2) return 'mid';
+      return 'bad';
+    case 'long_short_return':
+      return value > 0 ? 'good' : value < 0 ? 'bad' : 'flat';
+    case 'coverage':
+      // 入参为 0-1
+      if (value >= 0.8) return 'good';
+      if (value >= 0.5) return 'mid';
+      return 'bad';
+    case 'turnover':
+      if (value <= 0.1) return 'good';
+      if (value <= 0.3) return 'mid';
+      return 'bad';
+    default:
+      return 'flat';
+  }
+};
+
+interface Props {
+  history: AnalyzeHistoryItem[];
+  activeHistoryId: string | null;
+  onSelectHistory: (id: string) => void;
+  onPushHistory: (item: AnalyzeHistoryItem) => void;
+  onClearHistory: () => void;
+}
+
+const FactorWorkbench: React.FC<Props> = ({
+  history,
+  activeHistoryId,
+  onSelectHistory,
+  onPushHistory,
+  onClearHistory,
+}) => {
   const qc = useQuantColors();
   const [form] = Form.useForm<FormValues>();
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
-  const [result, setResult] = useState<FactorAnalyzeResult | null>(null);
-  const [lastParams, setLastParams] = useState<FactorAnalyzeParams | null>(null);
   const [savingSnapshot, setSavingSnapshot] = useState(false);
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
+  const [searchParams, setSearchParams] = useSearchParams();
+  // 防止同一组联动参数被 effect 重复触发（StrictMode/切 Tab 回来）
+  const autoKeyRef = useRef<string>('');
+  // IC 时序卡片内部 Tab（逐期/累计），切换结果时复位
+  const [icTab, setIcTab] = useState<'ic' | 'cum'>('ic');
+
+  const activeItem = useMemo(
+    () => history.find((h) => h.id === activeHistoryId) ?? null,
+    [history, activeHistoryId],
+  );
+  const result: FactorAnalyzeResult | null = activeItem?.result ?? null;
+  const lastParams: FactorAnalyzeParams | null = activeItem?.params ?? null;
+
+  // 切换/新增分析结果时复位 IC 卡片内部 Tab
+  useEffect(() => {
+    setIcTab('ic');
+  }, [activeHistoryId]);
+
+  // 浏览历史结果时把该次参数回填表单，便于查看口径或微调后重跑
+  useEffect(() => {
+    if (!activeItem) return;
+    const p = activeItem.params;
+    form.setFieldsValue({
+      factor_name: p.factor_name,
+      instruments: p.instruments,
+      interval: p.interval,
+      method: p.method,
+      n_groups: p.n_groups,
+      window: p.window,
+      forward: p.forward,
+      horizonsText: p.horizons?.join(',') ?? undefined,
+      costBps: p.cost_bps ?? 0,
+      // antd setFieldsValue 的 DeepPartial 不接受 null，无时间范围时直接不传
+      ...(p.start_time && p.end_time
+        ? { range: [dayjs(p.start_time), dayjs(p.end_time)] as [Dayjs, Dayjs] }
+        : {}),
+    });
+  }, [activeItem, form]);
 
   useEffect(() => {
     factorApi
@@ -132,21 +235,55 @@ const FactorWorkbench: React.FC = () => {
         'analyze',
         params,
         (r) => {
-          setResult(r);
           // 复用同一次请求对象，保证收藏快照口径与本次分析完全一致
-          setLastParams(params);
+          onPushHistory({
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            ts: Date.now(),
+            params,
+            result: r,
+          });
         },
         (msg) => {
           message.error(msg);
-          setResult(null);
         },
       );
     } catch (err) {
       // 提交阶段同步 rejection（如 422/网络失败）
-      setResult(null);
       message.error(errMsg(err));
     }
-  }, [form, runJob]);
+  }, [form, runJob, onPushHistory]);
+
+  // 挖掘页「保存并分析」联动：?factor=&syms=&interval=&run=1
+  // 数据列表就绪后预填表单；run=1 时自动分析一次，随后消费掉一次性参数
+  useEffect(() => {
+    if (!factors.length || !instruments.length) return;
+    const factor = searchParams.get('factor');
+    if (!factor) return;
+    const syms = (searchParams.get('syms') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => instruments.some((i) => i.symbol === s));
+    const interval = searchParams.get('interval') ?? '1h';
+    form.setFieldsValue({
+      factor_name: factor,
+      instruments: syms,
+      interval: intervalOptions.some((o) => o.value === interval) ? interval : '1h',
+    });
+    if (searchParams.get('run') === '1') {
+      const key = `${factor}|${syms.join(',')}|${interval}`;
+      if (autoKeyRef.current !== key) {
+        autoKeyRef.current = key;
+        void run();
+      }
+    }
+    const next = new URLSearchParams(searchParams);
+    ['factor', 'syms', 'interval', 'run'].forEach((k) => next.delete(k));
+    next.set('tab', 'workbench');
+    setSearchParams(next, { replace: true });
+    // run/form 稳定；intervalOptions 变化不影响已消费参数的清理
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factors, instruments]);
 
   const priceFactorOption = useMemo<EChartsOption>(() => {
     if (!result) return {};
@@ -167,6 +304,8 @@ const FactorWorkbench: React.FC = () => {
           type: 'line',
           data: result.series.close,
           showSymbol: false,
+          // itemStyle 同步着色，否则 SVG 图例圆点回退 ECharts 默认调色板
+          itemStyle: { color: qc.chartLine },
           lineStyle: { color: qc.chartLine },
         },
         {
@@ -175,7 +314,9 @@ const FactorWorkbench: React.FC = () => {
           data: fv,
           showSymbol: false,
           yAxisIndex: 1,
-          lineStyle: { color: qc.info },
+          // chartLine 与 info 同源（都是蓝），因子线用 warning 金色与价格线区分
+          itemStyle: { color: qc.warning },
+          lineStyle: { color: qc.warning },
         },
       ],
     };
@@ -203,6 +344,40 @@ const FactorWorkbench: React.FC = () => {
     };
   }, [result, qc]);
 
+  // 累计 IC：逐期 IC 的累积和，用于观察因子预测力是否稳定持续（而非靠少数时段）
+  const cumIcOption = useMemo<EChartsOption>(() => {
+    if (!result) return {};
+    const s = result.ic.series.filter((p) => p.ic !== null) as { t: string; ic: number }[];
+    let acc = 0;
+    const cum = s.map((p) => {
+      acc += p.ic;
+      return Number(acc.toFixed(6));
+    });
+    return {
+      tooltip: { trigger: 'axis', valueFormatter: (v) => Number(v).toFixed(4) },
+      grid: { left: '3%', right: '4%', containLabel: true },
+      xAxis: { type: 'category', data: s.map((p) => p.t), axisLabel: { color: qc.chartMark } },
+      yAxis: { type: 'value', axisLabel: { color: qc.chartMark } },
+      dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
+      series: [
+        {
+          type: 'line',
+          name: '累计 IC',
+          data: cum,
+          showSymbol: false,
+          lineStyle: { color: qc.chartLine, width: 2 },
+          areaStyle: { opacity: 0.06 },
+          markLine: {
+            symbol: 'none',
+            silent: true,
+            lineStyle: { color: qc.chartMark, type: 'dashed', opacity: 0.5 },
+            data: [{ yAxis: 0 }],
+          },
+        },
+      ],
+    };
+  }, [result, qc]);
+
   const groupOption = useMemo<EChartsOption>(() => {
     if (!result) return {};
     return {
@@ -217,8 +392,12 @@ const FactorWorkbench: React.FC = () => {
       series: [
         {
           type: 'bar',
-          data: result.groups.map((g) => g.mean_forward_return),
-          itemStyle: { color: qc.chartLine },
+          data: result.groups.map((g) => ({
+            value: g.mean_forward_return,
+            itemStyle: {
+              color: g.mean_forward_return >= 0 ? qc.positive : qc.negative,
+            },
+          })),
         },
       ],
     };
@@ -246,7 +425,7 @@ const FactorWorkbench: React.FC = () => {
           type: 'line',
           smooth: false,
           data: decay.map((d) => d.pearson),
-          itemStyle: { color: qc.info },
+          itemStyle: { color: qc.warning },
         },
       ],
     };
@@ -344,11 +523,23 @@ const FactorWorkbench: React.FC = () => {
   // 比例转百分比字符串
   const pct = (x: number | null) => `${((x ?? 0) * 100).toFixed(1)}%`;
 
+  const toneColor = useCallback(
+    (tone: MetricTone): string | undefined =>
+      tone === 'good'
+        ? qc.positive
+        : tone === 'mid'
+          ? qc.info
+          : tone === 'bad'
+            ? qc.warning
+            : undefined,
+    [qc],
+  );
+
   const stats: { key: string; title: ReactNode; value: number | string; precision?: number }[] =
     result
       ? [
           { key: 'ic_mean', title: 'IC 均值', value: result.ic.mean ?? 0, precision: 4 },
-          { key: 'ic_ir', title: 'ICIR', value: result.ic.ir ?? 0, precision: 4 },
+          { key: 'ic_ir_loose', title: 'ICIR', value: result.ic.ir ?? 0, precision: 4 },
           { key: 'ic_positive_rate', title: 'IC 胜率', value: pct(result.ic.positive_rate) },
           {
             key: 'long_short_return',
@@ -419,6 +610,19 @@ const FactorWorkbench: React.FC = () => {
           },
         ]
       : [];
+
+  // IC 胜率单独评级：与 IC 均值方向一致才算好（ic<0 时低胜率才与因子方向一致）
+  const positiveRateTone = useCallback((): MetricTone => {
+    if (!result?.ic.mean || result.ic.positive_rate == null) return 'flat';
+    const aligned = Math.sign(result.ic.mean) * (result.ic.positive_rate - 0.5);
+    if (aligned >= 0.05) return 'good';
+    if (aligned <= -0.05) return 'bad';
+    return 'mid';
+  }, [result]);
+
+  // 覆盖率/换手率卡片值是字符串（%/小数），评级时需要 0-1 数值
+  const coverageNum = result?.inspection?.coverage ?? null;
+  const turnoverNum = result?.inspection?.turnover ?? null;
 
   return (
     <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -521,42 +725,140 @@ const FactorWorkbench: React.FC = () => {
 
       {!jobLoading && result && (
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-          <Flex align="center" justify="space-between">
-            <span style={{ fontSize: 16, fontWeight: 600 }}>分析结果</span>
-            <Button
-              icon={<StarOutlined />}
-              loading={savingSnapshot}
-              disabled={!lastParams}
-              onClick={async () => {
-                if (!lastParams) return;
-                setSavingSnapshot(true);
-                try {
-                  const r = await factorApi.saveSnapshot(lastParams);
-                  message.success(`已保存到档案（快照 #${r.id}）`);
-                } catch (e) {
-                  message.error((e as Error)?.message || '保存失败');
-                } finally {
-                  setSavingSnapshot(false);
-                }
-              }}
-            >
-              保存到档案
-            </Button>
+          <Flex align="center" justify="space-between" wrap="wrap" gap="small">
+            <Flex gap="small" align="center">
+              <span style={{ fontSize: 16, fontWeight: 600 }}>分析结果</span>
+              {history.length > 1 && (
+                <Select
+                  size="small"
+                  style={{ minWidth: 300 }}
+                  value={activeHistoryId ?? undefined}
+                  onChange={onSelectHistory}
+                  options={history.map((h) => ({
+                    value: h.id,
+                    label: `${h.result.factor_name} · ${h.params.instruments.length} 品种 · ${dayjs(
+                      h.ts,
+                    ).format('MM-DD HH:mm')}`,
+                  }))}
+                />
+              )}
+            </Flex>
+            <Flex gap="small">
+              {history.length > 0 && (
+                <Tooltip title="清空本次会话保留的分析结果（不影响已保存快照）">
+                  <Button onClick={onClearHistory}>清空历史</Button>
+                </Tooltip>
+              )}
+              <Button
+                type="primary"
+                ghost
+                icon={<StarOutlined />}
+                loading={savingSnapshot}
+                disabled={!lastParams}
+                onClick={async () => {
+                  if (!lastParams) return;
+                  setSavingSnapshot(true);
+                  try {
+                    const r = await factorApi.saveSnapshot(lastParams);
+                    message.success(`已保存到档案（快照 #${r.id}）`);
+                  } catch (e) {
+                    message.error((e as Error)?.message || '保存失败');
+                  } finally {
+                    setSavingSnapshot(false);
+                  }
+                }}
+              >
+                保存到档案
+              </Button>
+            </Flex>
           </Flex>
           <Row gutter={[16, 16]}>
-            {stats.map((s) => (
-              <Col xs={12} md={8} key={s.key}>
-                <Card>
-                  <Statistic title={s.title} value={s.value} precision={s.precision} />
-                </Card>
-              </Col>
-            ))}
+            {stats.map((s) => {
+              // 覆盖率/换手率/显著性卡片值是格式化字符串，评级必须取原始数值；
+              // 原始值为 null（显示 —）时保持中性色
+              const icStats = result.inspection?.ic_stats;
+              const rawNum =
+                s.key === 'coverage'
+                  ? coverageNum
+                  : s.key === 'turnover'
+                    ? turnoverNum
+                    : s.key === 'annualized_ir'
+                      ? (icStats?.annualized_ir ?? null)
+                      : s.key === 't_stat'
+                        ? (icStats?.t_stat ?? null)
+                        : s.key === 'nw_t_stat'
+                          ? (icStats?.nw_t_stat ?? null)
+                          : typeof s.value === 'number'
+                            ? s.value
+                            : null;
+              const tone =
+                s.key === 'ic_positive_rate'
+                  ? positiveRateTone()
+                  : rawNum == null
+                    ? 'flat'
+                    : toneOf(s.key, rawNum);
+              return (
+                <Col xs={12} sm={8} lg={6} xl={4} key={s.key}>
+                  <Card size="small">
+                    <Statistic
+                      title={s.title}
+                      value={s.value}
+                      precision={s.precision}
+                      valueStyle={{ color: toneColor(tone), fontSize: 20 }}
+                    />
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
           <Card title={`因子值 vs 价格（样本 ${result.bar_count} 根）`}>
             <EChart option={priceFactorOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
           </Card>
-          <Card title="IC 时序">
-            <EChart option={icOption} style={{ height: 320 }} opts={{ renderer: 'svg' }} />
+          <Card
+            title="IC 时序"
+            extra={
+              <Tooltip
+                title={
+                  icTab === 'cum'
+                    ? '累计 IC 持续沿一个方向走，说明预测力稳定；反复穿越零线说明因子仅在少数时段有效'
+                    : '红绿柱为每期截面 IC；切到「累计 IC」可看预测力是否持续'
+                }
+              >
+                <span style={{ color: qc.chartMark, fontSize: 12 }}>
+                  {icTab === 'cum' ? '累计 IC 持续单向=预测力稳定' : '柱状=逐期 IC'}
+                </span>
+              </Tooltip>
+            }
+          >
+            <Tabs
+              size="small"
+              activeKey={icTab}
+              onChange={(k) => setIcTab(k as 'ic' | 'cum')}
+              items={[
+                {
+                  key: 'ic',
+                  label: '逐期 IC',
+                  children: (
+                    <EChart
+                      option={icOption}
+                      style={{ height: 320 }}
+                      opts={{ renderer: 'svg' }}
+                    />
+                  ),
+                },
+                {
+                  key: 'cum',
+                  label: '累计 IC',
+                  children: (
+                    <EChart
+                      option={cumIcOption}
+                      style={{ height: 320 }}
+                      opts={{ renderer: 'svg' }}
+                    />
+                  ),
+                },
+              ]}
+            />
           </Card>
           <Card title="分组平均前瞻收益">
             <EChart option={groupOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />

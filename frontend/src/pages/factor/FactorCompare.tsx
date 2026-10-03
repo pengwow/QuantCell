@@ -16,6 +16,7 @@ import {
 } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
+import { useSearchParams } from 'react-router-dom';
 import type { EChartsOption } from 'echarts';
 import type { TableProps } from 'antd';
 import EChart from '@/components/EChart';
@@ -84,6 +85,7 @@ const FactorCompare: React.FC = () => {
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorCompareResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     factorApi
@@ -95,6 +97,33 @@ const FactorCompare: React.FC = () => {
       .then((r) => setInstruments(r.symbols))
       .catch(() => undefined);
   }, []);
+
+  // 工作台/其他页联动预选：?factors=A,B&syms=...&interval=...（只预填，不自动执行）
+  useEffect(() => {
+    if (!factors.length || !instruments.length) return;
+    const names = (searchParams.get('factors') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((n) => factors.some((f) => f.name === n));
+    if (!names.length) return;
+    const syms = (searchParams.get('syms') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => instruments.some((i) => i.symbol === s));
+    const interval = searchParams.get('interval') ?? undefined;
+    form.setFieldsValue({
+      factor_names: names,
+      instruments: syms,
+      ...(interval ? { interval } : {}),
+    });
+    const next = new URLSearchParams(searchParams);
+    ['factors', 'syms', 'interval'].forEach((k) => next.delete(k));
+    next.set('tab', 'compare');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factors, instruments]);
 
   // 周期下拉取所选品种共有周期的交集；没有共同周期时退回 1h
   const intervalOptions = useMemo(() => {
