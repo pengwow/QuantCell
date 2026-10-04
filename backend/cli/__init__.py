@@ -27,6 +27,7 @@ def register_commands() -> None:
     """注册所有子命令到主 app。"""
     from cli.account import app as account_app
     from cli.agent import app as agent_app
+    from cli.factor import app as factor_app
     from cli.market import app as market_app
     from cli.migrate import app as migrate_app
     from cli.news import app as news_app
@@ -37,6 +38,7 @@ def register_commands() -> None:
     from cli.worker import app as worker_app
 
     app.add_typer(agent_app, name="agent")
+    app.add_typer(factor_app, name="factor")
     app.add_typer(market_app, name="market")
     app.add_typer(news_app, name="news")
     app.add_typer(plugin_app, name="plugin")
