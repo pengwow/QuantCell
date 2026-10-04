@@ -64,8 +64,9 @@ class FactorService:
         code_store: CodeFactorStore | None = None,
         sandbox: FactorSandbox | None = None,
         composite_store: CompositeFactorStore | None = None,
+        factor_store: FactorStore | None = None,
     ) -> None:
-        self._custom_store = FactorStore()
+        self._custom_store = factor_store or FactorStore()
         self._code_store = code_store or CodeFactorStore()
         self._composite_store = composite_store or CompositeFactorStore()
         self._sandbox = sandbox or FactorSandbox()
