@@ -41,6 +41,8 @@ export interface QuantColors {
   chartGradientEnd: string;
   /** 最大回撤阴影颜色 */
   drawdownArea: string;
+  /** 多系列折线离散调色板（无语义，纯视觉可辨） */
+  chartSeries: string[];
 }
 
 /** QuantCell 扩展 token — 在 antd GlobalToken 基础上加上交易语义色。
@@ -54,6 +56,7 @@ export type TradingToken = Partial<GlobalToken> & {
   colorChartGradientStart?: string;
   colorChartGradientEnd?: string;
   colorDrawdownArea?: string;
+  chartSeries?: string[];
 };
 
 /**
@@ -75,6 +78,8 @@ export function deriveQuantColors(t: TradingToken): QuantColors {
     chartGradientStart: t.colorChartGradientStart ?? 'rgba(9, 105, 218, 0.25)',
     chartGradientEnd: t.colorChartGradientEnd ?? 'rgba(9, 105, 218, 0.02)',
     drawdownArea: t.colorDrawdownArea ?? 'rgba(209, 36, 47, 0.12)',
+    // ponytail: 离散折线调色板固定 8 色，不随主题切换；暗色下依然可辨
+    chartSeries: ['#0969da', '#91cc75', '#ea580c', '#7c3aed', '#14b8a6', '#d4a017', '#dc2626', '#9a60b4'],
   };
 }
 
@@ -107,4 +112,5 @@ export const QUANT_COLORS: QuantColors = deriveQuantColors({
   colorChartGradientEnd: 'rgba(9, 105, 218, 0.02)',
   colorDrawdownArea: 'rgba(209, 36, 47, 0.12)',
   colorBorderSecondary: '#e5e7eb',
+  chartSeries: ['#0969da', '#91cc75', '#ea580c', '#7c3aed', '#14b8a6', '#d4a017', '#dc2626', '#9a60b4'],
 });

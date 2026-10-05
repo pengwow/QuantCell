@@ -282,8 +282,8 @@ const FactorCompare: React.FC = () => {
     },
   ];
 
-  // 最多 5 条线，用语义色循环着色
-  const linePalette = [qc.chartLine, qc.info, qc.positive, qc.warning, qc.negative];
+  // ponytail: 离散折线用统一的 chartSeries 调色板，避免语义色撞色
+  const linePalette = qc.chartSeries;
 
   const icOption = useMemo<EChartsOption>(() => {
     if (!result) return {};
