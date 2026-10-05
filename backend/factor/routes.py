@@ -766,7 +766,7 @@ def update_lifecycle(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/snapshots", response_model=ApiResponse, summary="收藏因子分析快照（服务端重算）")
+@router.post("/snapshots", response_model=ApiResponse, summary="保存因子分析快照（服务端重算）")
 def save_snapshot(
     request: FactorAnalyzeRequest,
     current_user: dict = Depends(get_current_user),
@@ -779,10 +779,10 @@ def save_snapshot(
     except CatalogError as e:
         raise _catalog_error(e)
     except (FactorError, FactorNotFoundError, _EngineExprError) as e:
-        logger.error(f"快照收藏失败: {e}")
+        logger.error(f"快照保存失败: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"快照收藏失败: {e}")
+        logger.error(f"快照保存失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

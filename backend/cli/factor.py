@@ -720,7 +720,7 @@ def snapshot_save(
     horizons: str | None = typer.Option(None, "--horizons"),
     cost_bps: float = typer.Option(0.0, "--cost-bps"),
 ):
-    """收藏一次分析快照（服务端按参数重算并归档 parquet）。"""
+    """保存一次分析快照（服务端按参数重算并归档 parquet）。"""
     from factor.catalog_service import CatalogError, FactorCatalogService
     from utils.db_session import get_db_session
 

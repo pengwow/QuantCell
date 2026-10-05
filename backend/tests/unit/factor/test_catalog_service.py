@@ -237,7 +237,7 @@ def test_save_snapshot_recomputes_and_persists(db_session, dirs):
     assert len(out) == snap.bar_count
 
     cat = db_session.query(FactorCatalog).filter_by(name="momentum_5d").one()
-    assert cat.is_builtin is True  # 内置因子也可收藏
+    assert cat.is_builtin is True  # 内置因子也可保存快照
     lm = json.loads(cat.last_metrics)
     assert {"snapshot_id", "ic_mean", "ic_ir", "long_short_return"} <= set(lm)
     assert lm["snapshot_id"] == snap.id
