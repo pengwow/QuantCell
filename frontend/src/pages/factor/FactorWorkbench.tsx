@@ -763,7 +763,7 @@ const FactorWorkbench: React.FC<Props> = ({
                   setSavingSnapshot(true);
                   try {
                     const r = await factorApi.saveSnapshot(lastParams);
-                    message.success(`已保存到档案（快照 #${r.id}）`);
+                    message.success(`快照已保存（#${r.id}）`);
                   } catch (e) {
                     message.error((e as Error)?.message || '保存失败');
                   } finally {
@@ -771,7 +771,7 @@ const FactorWorkbench: React.FC<Props> = ({
                   }
                 }}
               >
-                保存到档案
+                保存快照
               </Button>
             </Flex>
           </Flex>
