@@ -235,7 +235,7 @@ const FactorWorkbench: React.FC<Props> = ({
         'analyze',
         params,
         (r) => {
-          // 复用同一次请求对象，保证收藏快照口径与本次分析完全一致
+          // 复用同一次请求对象，保证保存快照口径与本次分析完全一致
           onPushHistory({
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             ts: Date.now(),

@@ -714,7 +714,7 @@ const FactorMining: React.FC = () => {
           <Form.Item
             name="factor_name"
             label="因子名称（英文标识）"
-            extra="字母开头，仅含字母/数字/下划线；保存后可在因子库中按普通因子分析、对比与收藏快照"
+            extra="字母开头，仅含字母/数字/下划线；保存后可在因子库中按普通因子分析、对比与保存快照"
             rules={[
               { required: true, message: '请输入因子名称' },
               {

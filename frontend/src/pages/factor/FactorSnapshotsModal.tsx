@@ -39,7 +39,7 @@ const FactorSnapshotsModal: React.FC<{ factorName: string; open: boolean; onClos
 
   const columns: TableColumnsType<FactorSnapshotSummary> = [
     {
-      title: '收藏时间',
+      title: '保存时间',
       dataIndex: 'created_at',
       width: 180,
       render: (v: string | null) => v?.replace('T', ' ').slice(0, 19) ?? '—',

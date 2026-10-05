@@ -1,6 +1,6 @@
 """因子档案/生命周期/快照 HTTP 测试（走真实应用，临时快照目录由服务默认目录承载）。
 
-收藏快照依赖 analyze 全链路，故与 test_factor_routes 一样要求本地有 BTCUSDT 1h。
+保存快照依赖 analyze 全链路，故与 test_factor_routes 一样要求本地有 BTCUSDT 1h。
 """
 
 from __future__ import annotations

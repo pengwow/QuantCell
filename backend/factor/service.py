@@ -810,7 +810,7 @@ class FactorService:
         """一站式分析：取数→因子→IC/IR/分组/单调性/稳定性/深度审查(inspection)。
 
         return_frames: 为 True 时额外返回因子值/前瞻收益对齐长表（列 f/r，
-        MultiIndex datetime×symbol），仅供服务端快照收藏，不经过 HTTP。
+        MultiIndex datetime×symbol），仅供服务端保存快照，不经过 HTTP。
         horizons: 自定义衰减 lag 列表（K 线根数），None 用默认 (1,2,3,5,10)。
         cost_bps: 单边交易成本（基点，1bp=0.0001），用于分位组合费后净值。
         """
