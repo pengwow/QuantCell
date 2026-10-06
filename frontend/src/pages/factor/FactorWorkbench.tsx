@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Card,
@@ -142,6 +143,11 @@ const FactorWorkbench: React.FC<Props> = ({
   onClearHistory,
 }) => {
   const qc = useQuantColors();
+  const { i18n } = useTranslation();
+  // ponytail: 中文环境加中文名前缀，英文环境只显示统计量原名
+  const isZh = i18n.language === 'zh-CN' || i18n.language === 'zh';
+  const spearmanLabel = isZh ? '秩相关 Spearman' : 'Spearman';
+  const pearsonLabel = isZh ? '皮尔逊 Pearson' : 'Pearson';
   const [form] = Form.useForm<FormValues>();
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -407,21 +413,21 @@ const FactorWorkbench: React.FC<Props> = ({
     const decay = result?.inspection?.decay ?? [];
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Spearman', 'Pearson'] },
+      legend: { data: [spearmanLabel, pearsonLabel] },
       grid: { left: '3%', right: '4%', containLabel: true },
       xAxis: { type: 'category', name: 'lag(K线根数)', data: decay.map((d) => d.lag) },
       yAxis: { type: 'value', name: 'IC' },
       dataZoom: [],
       series: [
         {
-          name: 'Spearman',
+          name: spearmanLabel,
           type: 'line',
           smooth: false,
           data: decay.map((d) => d.spearman),
           itemStyle: { color: qc.chartLine },
         },
         {
-          name: 'Pearson',
+          name: pearsonLabel,
           type: 'line',
           smooth: false,
           data: decay.map((d) => d.pearson),
@@ -429,7 +435,7 @@ const FactorWorkbench: React.FC<Props> = ({
         },
       ],
     };
-  }, [result, qc]);
+  }, [result, qc, spearmanLabel, pearsonLabel]);
 
   // 分位组用 qc 语义色循环取色（Q1 冷/弱 → Qn 暖/强），最多 5 色循环。
   // 毛净值实线、费后净值同色虚线（仅 fee_rate>0）；多空毛=加粗虚线、多空费后=加粗实线醒目区分。
@@ -669,10 +675,10 @@ const FactorWorkbench: React.FC<Props> = ({
           </Form.Item>
           <Form.Item name="method" label="IC方法">
             <Select
-              style={{ width: 110 }}
+              style={{ width: 130 }}
               options={[
-                { value: 'spearman', label: 'Spearman' },
-                { value: 'pearson', label: 'Pearson' },
+                { value: 'spearman', label: spearmanLabel },
+                { value: 'pearson', label: pearsonLabel },
               ]}
             />
           </Form.Item>

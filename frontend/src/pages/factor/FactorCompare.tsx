@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Card,
@@ -78,6 +79,18 @@ const fmt = (v: number | null | undefined, digits: number) =>
 
 const FactorCompare: React.FC = () => {
   const qc = useQuantColors();
+  const { i18n } = useTranslation();
+  // ponytail: 中文环境加中文名前缀，英文环境只显示统计量原名
+  const isZh = i18n.language === 'zh-CN' || i18n.language === 'zh';
+  const methodOptions = isZh
+    ? [
+        { value: 'spearman', label: '秩相关 Spearman' },
+        { value: 'pearson', label: '皮尔逊 Pearson' },
+      ]
+    : [
+        { value: 'spearman', label: 'Spearman' },
+        { value: 'pearson', label: 'Pearson' },
+      ];
   const [form] = Form.useForm<FormValues>();
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -371,13 +384,7 @@ const FactorCompare: React.FC = () => {
             <RangePicker showTime format="YYYY-MM-DD HH:mm:ss" />
           </Form.Item>
           <Form.Item name="method" label="IC方法">
-            <Select
-              style={{ width: 110 }}
-              options={[
-                { value: 'spearman', label: 'Spearman' },
-                { value: 'pearson', label: 'Pearson' },
-              ]}
-            />
+            <Select style={{ width: 130 }} options={methodOptions} />
           </Form.Item>
           <Form.Item name="n_groups" label="分组数">
             <InputNumber min={2} max={10} />
