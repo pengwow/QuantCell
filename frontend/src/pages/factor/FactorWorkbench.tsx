@@ -143,11 +143,7 @@ const FactorWorkbench: React.FC<Props> = ({
   onClearHistory,
 }) => {
   const qc = useQuantColors();
-  const { i18n } = useTranslation();
-  // ponytail: 中文环境加中文名前缀，英文环境只显示统计量原名
-  const isZh = i18n.language === 'zh-CN' || i18n.language === 'zh';
-  const spearmanLabel = isZh ? '秩相关 Spearman' : 'Spearman';
-  const pearsonLabel = isZh ? '皮尔逊 Pearson' : 'Pearson';
+  const { t } = useTranslation();
   const [form] = Form.useForm<FormValues>();
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -296,17 +292,17 @@ const FactorWorkbench: React.FC<Props> = ({
     const fv = result.series.dates.map((d) => result.series.factor[d] ?? null);
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['价格', '因子值'] },
+      legend: { data: [t('factor_legend_price') || 'Price', t('factor_legend_factor_value') || 'Factor'] },
       grid: { left: '3%', right: '4%', containLabel: true },
       xAxis: { type: 'category', data: result.series.dates, axisLabel: { color: qc.chartMark } },
       yAxis: [
-        { type: 'value', name: '价格', axisLabel: { color: qc.chartMark } },
-        { type: 'value', name: '因子', axisLabel: { color: qc.chartMark } },
+        { type: 'value', name: t('factor_echarts_price_y') || 'Price', axisLabel: { color: qc.chartMark } },
+        { type: 'value', name: t('factor_echarts_factor_y') || 'Factor', axisLabel: { color: qc.chartMark } },
       ],
       dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
       series: [
         {
-          name: '价格',
+          name: t('factor_legend_price') || 'Price',
           type: 'line',
           data: result.series.close,
           showSymbol: false,
@@ -315,7 +311,7 @@ const FactorWorkbench: React.FC<Props> = ({
           lineStyle: { color: qc.chartLine },
         },
         {
-          name: '因子值',
+          name: t('factor_legend_factor_value') || 'Factor',
           type: 'line',
           data: fv,
           showSymbol: false,
@@ -326,7 +322,7 @@ const FactorWorkbench: React.FC<Props> = ({
         },
       ],
     };
-  }, [result, qc]);
+  }, [result, qc, t]);
 
   const icOption = useMemo<EChartsOption>(() => {
     if (!result) return {};
@@ -340,7 +336,7 @@ const FactorWorkbench: React.FC<Props> = ({
       series: [
         {
           type: 'bar',
-          name: 'IC',
+          name: t('factor_echarts_ic_name') || 'IC',
           data: s.map((p) => ({
             value: p.ic,
             itemStyle: { color: p.ic >= 0 ? qc.positive : qc.negative },
@@ -348,7 +344,7 @@ const FactorWorkbench: React.FC<Props> = ({
         },
       ],
     };
-  }, [result, qc]);
+  }, [result, qc, t]);
 
   // 累计 IC：逐期 IC 的累积和，用于观察因子预测力是否稳定持续（而非靠少数时段）
   const cumIcOption = useMemo<EChartsOption>(() => {
@@ -368,7 +364,7 @@ const FactorWorkbench: React.FC<Props> = ({
       series: [
         {
           type: 'line',
-          name: '累计 IC',
+          name: t('factor_echarts_cum_ic') || 'Cumulative IC',
           data: cum,
           showSymbol: false,
           lineStyle: { color: qc.chartLine, width: 2 },
@@ -391,10 +387,10 @@ const FactorWorkbench: React.FC<Props> = ({
       grid: { left: '3%', right: '4%', containLabel: true },
       xAxis: {
         type: 'category',
-        name: '分组',
+        name: t('factor_echarts_group_x') || 'Group',
         data: result.groups.map((g) => `G${g.group}`),
       },
-      yAxis: { type: 'value', name: '平均前瞻收益' },
+      yAxis: { type: 'value', name: t('factor_echarts_group_y') || 'Avg Forward Return' },
       series: [
         {
           type: 'bar',
@@ -407,27 +403,27 @@ const FactorWorkbench: React.FC<Props> = ({
         },
       ],
     };
-  }, [result, qc]);
+  }, [result, qc, t]);
 
   const decayOption = useMemo<EChartsOption>(() => {
     const decay = result?.inspection?.decay ?? [];
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: [spearmanLabel, pearsonLabel] },
+      legend: { data: [t('factor_wb_method_spearman') || 'Spearman', t('factor_wb_method_pearson') || 'Pearson'] },
       grid: { left: '3%', right: '4%', containLabel: true },
-      xAxis: { type: 'category', name: 'lag(K线根数)', data: decay.map((d) => d.lag) },
-      yAxis: { type: 'value', name: 'IC' },
+      xAxis: { type: 'category', name: 'lag (bars)', data: decay.map((d) => d.lag) },
+      yAxis: { type: 'value', name: t('factor_echarts_decay_y') || 'IC' },
       dataZoom: [],
       series: [
         {
-          name: spearmanLabel,
+          name: t('factor_wb_method_spearman') || 'Spearman',
           type: 'line',
           smooth: false,
           data: decay.map((d) => d.spearman),
           itemStyle: { color: qc.chartLine },
         },
         {
-          name: pearsonLabel,
+          name: t('factor_wb_method_pearson') || 'Pearson',
           type: 'line',
           smooth: false,
           data: decay.map((d) => d.pearson),
@@ -435,7 +431,7 @@ const FactorWorkbench: React.FC<Props> = ({
         },
       ],
     };
-  }, [result, qc, spearmanLabel, pearsonLabel]);
+  }, [result, qc, t]);
 
   // 分位组用 qc 语义色循环取色（Q1 冷/弱 → Qn 暖/强），最多 5 色循环。
   // 毛净值实线、费后净值同色虚线（仅 fee_rate>0）；多空毛=加粗虚线、多空费后=加粗实线醒目区分。
@@ -446,15 +442,15 @@ const FactorWorkbench: React.FC<Props> = ({
     const withFee = qn.fee_rate > 0;
     const groupNames: string[] = [];
     qn.groups.forEach((g) => {
-      groupNames.push(`Q${g.group}·换手${g.turnover.toFixed(2)}`);
-      if (withFee) groupNames.push(`Q${g.group}费后`);
+      groupNames.push(t('factor_wb_group_nav_gross', { group: g.group, turnover: g.turnover.toFixed(2) }) || `Q${g.group}·换手${g.turnover.toFixed(2)}`);
+      if (withFee) groupNames.push(t('factor_wb_group_nav_fee', { group: g.group }) || `Q${g.group}费后`);
     });
     const hasLS = qn.long_short_nav != null;
-    const lsGrossName = `多空毛·换手${
-      qn.long_short_turnover == null ? '—' : qn.long_short_turnover.toFixed(2)
-    }`;
+    const lsGrossName =
+      t('factor_wb_ls_nav_gross', { turnover: qn.long_short_turnover == null ? '—' : qn.long_short_turnover.toFixed(2) }) ||
+      `多空毛·换手${qn.long_short_turnover == null ? '—' : qn.long_short_turnover.toFixed(2)}`;
     const hasLSNet = withFee && qn.long_short_nav_net != null;
-    const lsNetName = '多空费后';
+    const lsNetName = t('factor_wb_ls_nav_fee') || '多空费后';
     return {
       tooltip: { trigger: 'axis' },
       legend: {
@@ -473,7 +469,7 @@ const FactorWorkbench: React.FC<Props> = ({
           const color = palette[i % palette.length];
           return [
             {
-              name: `Q${g.group}·换手${g.turnover.toFixed(2)}`,
+              name: t('factor_wb_group_nav_gross', { group: g.group, turnover: g.turnover.toFixed(2) }) || `Q${g.group}·换手${g.turnover.toFixed(2)}`,
               type: 'line' as const,
               showSymbol: false,
               connectNulls: true,
@@ -484,7 +480,7 @@ const FactorWorkbench: React.FC<Props> = ({
             ...(withFee
               ? [
                   {
-                    name: `Q${g.group}费后`,
+                    name: t('factor_wb_group_nav_fee', { group: g.group }) || `Q${g.group}费后`,
                     type: 'line' as const,
                     showSymbol: false,
                     connectNulls: true,
@@ -544,30 +540,30 @@ const FactorWorkbench: React.FC<Props> = ({
   const stats: { key: string; title: ReactNode; value: number | string; precision?: number }[] =
     result
       ? [
-          { key: 'ic_mean', title: 'IC 均值', value: result.ic.mean ?? 0, precision: 4 },
-          { key: 'ic_ir_loose', title: 'ICIR', value: result.ic.ir ?? 0, precision: 4 },
-          { key: 'ic_positive_rate', title: 'IC 胜率', value: pct(result.ic.positive_rate) },
+          { key: 'ic_mean', title: t('factor_stat_ic_mean') || 'IC 均值', value: result.ic.mean ?? 0, precision: 4 },
+          { key: 'ic_ir_loose', title: t('factor_stat_icir') || 'ICIR', value: result.ic.ir ?? 0, precision: 4 },
+          { key: 'ic_positive_rate', title: t('factor_stat_ic_pos_rate') || 'IC 胜率', value: pct(result.ic.positive_rate) },
           {
             key: 'long_short_return',
-            title: '多空收益',
+            title: t('factor_stat_ls_return') || '多空收益',
             value: result.long_short_return ?? 0,
             precision: 4,
           },
           {
             key: 'monotonicity',
-            title: '单调性 Spearman',
+            title: t('factor_stat_monotonicity') || '单调性 Spearman',
             value: result.monotonicity.spearman,
             precision: 4,
           },
           {
             key: 'stability',
-            title: '稳定性(自相关)',
+            title: t('factor_stat_stability') || '稳定性(自相关)',
             value: result.stability.mean_autocorr ?? 0,
             precision: 4,
           },
           {
             key: 'coverage',
-            title: '覆盖率',
+            title: t('factor_stat_coverage') || '覆盖率',
             value:
               result.inspection?.coverage != null
                 ? `${(result.inspection.coverage * 100).toFixed(1)}%`
@@ -575,14 +571,19 @@ const FactorWorkbench: React.FC<Props> = ({
           },
           {
             key: 'turnover',
-            title: '换手率',
+            title: t('factor_stat_turnover') || '换手率',
             value: result.inspection?.turnover != null ? result.inspection.turnover.toFixed(4) : '—',
           },
           {
             key: 'annualized_ir',
             title: (
-              <Tooltip title="按 K 线周期年化（加密 7×24）；高频 IC 自相关会使年化 IR 偏大，t-stat 不受年化假设影响">
-                <span>年化 IR</span>
+              <Tooltip
+                title={
+                  t('factor_stat_ann_ir_tip') ||
+                  '按 K 线周期年化（加密 7×24）；高频 IC 自相关会使年化 IR 偏大，t-stat 不受年化假设影响'
+                }
+              >
+                <span>{t('factor_stat_ann_ir') || '年化 IR'}</span>
               </Tooltip>
             ),
             value:
@@ -592,7 +593,7 @@ const FactorWorkbench: React.FC<Props> = ({
           },
           {
             key: 't_stat',
-            title: 't-stat',
+            title: t('factor_stat_tstat') || 't-stat',
             value:
               result.inspection?.ic_stats.t_stat != null
                 ? result.inspection.ic_stats.t_stat.toFixed(2)
@@ -602,11 +603,12 @@ const FactorWorkbench: React.FC<Props> = ({
             key: 'nw_t_stat',
             title: (
               <Tooltip
-                title={`Newey-West HAC 调整 t 统计量（Bartlett kernel，自动滞后 ${
-                  result.inspection?.ic_stats.nw_lag ?? 0
-                } 阶），扣除 IC 自相关导致的显著性虚高`}
+                title={
+                  t('factor_stat_nw_tstat_tip', { lag: result.inspection?.ic_stats.nw_lag ?? 0 }) ||
+                  'Newey-West HAC 调整 t 统计量（Bartlett kernel，自动滞后 0 阶），扣除 IC 自相关导致的显著性虚高'
+                }
               >
-                <span>NW t-stat</span>
+                <span>{t('factor_stat_nw_tstat') || 'NW t-stat'}</span>
               </Tooltip>
             ),
             value:
@@ -632,7 +634,7 @@ const FactorWorkbench: React.FC<Props> = ({
 
   return (
     <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title="分析参数">
+      <Card title={t('factor_wb_card_params') || '分析参数'}>
         {/* inline 表单项换行后默认无垂直间距（紧贴），用 flex rowGap 补到 middle 档；
             水平间距沿用 antd inline item 默认的 16px，避免与 marginInlineEnd 叠加 */}
         <Form<FormValues>
@@ -648,67 +650,83 @@ const FactorWorkbench: React.FC<Props> = ({
             costBps: 0,
           }}
         >
-          <Form.Item name="factor_name" label="因子" rules={[{ required: true, message: '选择因子' }]}>
+          <Form.Item
+            name="factor_name"
+            label={t('factor_wb_form_factor') || '因子'}
+            rules={[{ required: true, message: t('factor_wb_form_factor_req') || '请选择因子' }]}
+          >
             <Select
               showSearch
               optionFilterProp="label"
               style={{ width: 200 }}
-              placeholder="选择因子"
+              placeholder={t('factor_wb_form_factor_ph') || '选择因子'}
               options={factors
                 .filter((f) => f.supported)
                 .map((f) => ({ value: f.name, label: `${f.label} (${f.name})` }))}
             />
           </Form.Item>
-          <Form.Item name="instruments" label="品种" rules={[{ required: true, message: '选择品种' }]}>
+          <Form.Item
+            name="instruments"
+            label={t('factor_wb_form_instruments') || '品种'}
+            rules={[{ required: true, message: t('factor_wb_form_instruments_req') || '请选择品种' }]}
+          >
             <Select
               mode="multiple"
               style={{ minWidth: 220 }}
-              placeholder="选择品种"
+              placeholder={t('factor_wb_form_instruments_ph') || '选择品种'}
               options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>
-          <Form.Item name="interval" label="周期">
+          <Form.Item name="interval" label={t('factor_wb_form_interval') || '周期'}>
             <Select style={{ width: 90 }} options={intervalOptions} />
           </Form.Item>
-          <Form.Item name="range" label="时间范围">
+          <Form.Item name="range" label={t('factor_wb_form_range') || '时间范围'}>
             <RangePicker />
           </Form.Item>
-          <Form.Item name="method" label="IC方法">
+          <Form.Item name="method" label={t('factor_wb_form_method') || 'IC方法'}>
             <Select
               style={{ width: 130 }}
               options={[
-                { value: 'spearman', label: spearmanLabel },
-                { value: 'pearson', label: pearsonLabel },
+                { value: 'spearman', label: t('factor_wb_method_spearman') || 'Spearman' },
+                { value: 'pearson', label: t('factor_wb_method_pearson') || 'Pearson' },
               ]}
             />
           </Form.Item>
-          <Form.Item name="n_groups" label="分组数">
+          <Form.Item name="n_groups" label={t('factor_wb_form_groups') || '分组数'}>
             <InputNumber min={2} max={10} />
           </Form.Item>
-          <Form.Item name="window" label="滚动窗">
+          <Form.Item name="window" label={t('factor_wb_form_window') || '滚动窗'}>
             <InputNumber min={5} max={252} />
           </Form.Item>
-          <Form.Item name="forward" label="前瞻(根)">
+          <Form.Item name="forward" label={t('factor_wb_form_forward') || '前瞻(根)'}>
             <InputNumber min={1} max={120} />
           </Form.Item>
-          <Form.Item name="horizonsText" label="衰减滞后">
-            <Input placeholder="1,2,3,5,10（留空用默认）" allowClear style={{ width: 210 }} />
+          <Form.Item name="horizonsText" label={t('factor_wb_form_decay') || '衰减滞后'}>
+            <Input
+              placeholder={t('factor_wb_form_decay_ph') || '1,2,3,5,10（留空用默认）'}
+              allowClear
+              style={{ width: 210 }}
+            />
           </Form.Item>
           <Form.Item
             name="costBps"
-            label="单边成本(bp)"
-            extra="单边费率基点，10bp=0.1%；用于分位组合费后净值"
+            label={t('factor_wb_form_cost') || '单边成本(bp)'}
+            extra={
+              t('factor_wb_form_cost_hint') ||
+              '单边费率基点，10bp=0.1%；用于分位组合费后净值'
+            }
           >
             <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: 110 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" icon={<LineChartOutlined />} loading={jobLoading} onClick={run}>
-              开始分析
+              {t('factor_wb_form_run') || '开始分析'}
             </Button>
           </Form.Item>
         </Form>
         <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-          滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数；财务因子无数据来源，不在可选列表。
+          {t('factor_wb_form_hint') ||
+            '滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数；财务因子无数据来源，不在可选列表'}
         </p>
       </Card>
 
@@ -722,13 +740,13 @@ const FactorWorkbench: React.FC<Props> = ({
               percent={Math.round(jobStatus.progress)}
               status="active"
             />
-            <span>{jobStatus.message || '排队中…'}</span>
+            <span>{jobStatus.message || t('factor_wb_queueing') || 'Queueing…'}</span>
           </Flex>
         </Card>
       )}
       {!jobLoading && !result && (
         <Card>
-          <Empty description="选择参数后点击「开始分析」" />
+          <Empty description={t('factor_wb_empty_hint') || '选择参数后点击「开始分析」'} />
         </Card>
       )}
 
@@ -736,7 +754,9 @@ const FactorWorkbench: React.FC<Props> = ({
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
           <Flex align="center" justify="space-between" wrap="wrap" gap="small">
             <Flex gap="small" align="center">
-              <span style={{ fontSize: 16, fontWeight: 600 }}>分析结果</span>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>
+                {t('factor_wb_result_title') || '分析结果'}
+              </span>
               {history.length > 1 && (
                 <Select
                   size="small"
@@ -754,8 +774,13 @@ const FactorWorkbench: React.FC<Props> = ({
             </Flex>
             <Flex gap="small">
               {history.length > 0 && (
-                <Tooltip title="清空本次会话保留的分析结果（不影响已保存快照）">
-                  <Button onClick={onClearHistory}>清空历史</Button>
+                <Tooltip
+                  title={
+                    t('factor_wb_btn_clear_tip') ||
+                    '清空本次会话保留的分析结果（不影响已保存快照）'
+                  }
+                >
+                  <Button onClick={onClearHistory}>{t('factor_wb_btn_clear') || '清空历史'}</Button>
                 </Tooltip>
               )}
               <Button
@@ -769,15 +794,21 @@ const FactorWorkbench: React.FC<Props> = ({
                   setSavingSnapshot(true);
                   try {
                     const r = await factorApi.saveSnapshot(lastParams);
-                    message.success(`快照已保存（#${r.id}）`);
+                    message.success(
+                      t('factor_wb_toast_saved', { id: r.id }) || `快照已保存（#${r.id}）`,
+                    );
                   } catch (e) {
-                    message.error((e as Error)?.message || '保存失败');
+                    message.error(
+                      (e as Error)?.message ||
+                        t('factor_wb_toast_save_failed') ||
+                        '保存失败',
+                    );
                   } finally {
                     setSavingSnapshot(false);
                   }
                 }}
               >
-                保存快照
+                {t('factor_wb_btn_save') || '保存快照'}
               </Button>
             </Flex>
           </Flex>
@@ -820,21 +851,30 @@ const FactorWorkbench: React.FC<Props> = ({
               );
             })}
           </Row>
-          <Card title={`因子值 vs 价格（样本 ${result.bar_count} 根）`}>
+          <Card
+            title={
+              t('factor_card_price_factor', { count: result.bar_count }) ||
+              `因子值 vs 价格（样本 ${result.bar_count} 根）`
+            }
+          >
             <EChart option={priceFactorOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
           </Card>
           <Card
-            title="IC 时序"
+            title={t('factor_card_ic_ts') || 'IC 时序'}
             extra={
               <Tooltip
                 title={
                   icTab === 'cum'
-                    ? '累计 IC 持续沿一个方向走，说明预测力稳定；反复穿越零线说明因子仅在少数时段有效'
-                    : '红绿柱为每期截面 IC；切到「累计 IC」可看预测力是否持续'
+                    ? t('factor_card_ic_ts_tip_cum') ||
+                      '累计 IC 持续沿一个方向走，说明预测力稳定；反复穿越零线说明因子仅在少数时段有效'
+                    : t('factor_card_ic_ts_tip_period') ||
+                      '红绿柱为每期截面 IC；切到「累计 IC」可看预测力是否持续'
                 }
               >
                 <span style={{ color: qc.chartMark, fontSize: 12 }}>
-                  {icTab === 'cum' ? '累计 IC 持续单向=预测力稳定' : '柱状=逐期 IC'}
+                  {icTab === 'cum'
+                    ? t('factor_card_ic_ts_label_cum') || '累计 IC 持续单向=预测力稳定'
+                    : t('factor_card_ic_ts_label_period') || '柱状=逐期 IC'}
                 </span>
               </Tooltip>
             }
@@ -846,7 +886,7 @@ const FactorWorkbench: React.FC<Props> = ({
               items={[
                 {
                   key: 'ic',
-                  label: '逐期 IC',
+                  label: t('factor_wb_tab_ic') || '逐期 IC',
                   children: (
                     <EChart
                       option={icOption}
@@ -857,7 +897,7 @@ const FactorWorkbench: React.FC<Props> = ({
                 },
                 {
                   key: 'cum',
-                  label: '累计 IC',
+                  label: t('factor_wb_tab_cum') || '累计 IC',
                   children: (
                     <EChart
                       option={cumIcOption}
@@ -869,18 +909,24 @@ const FactorWorkbench: React.FC<Props> = ({
               ]}
             />
           </Card>
-          <Card title="分组平均前瞻收益">
+          <Card title={t('factor_card_group_return') || '分组平均前瞻收益'}>
             <EChart option={groupOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
           </Card>
           <Card
-            title={`IC 衰减（lag ${
-              (result.inspection?.decay ?? []).map((d) => d.lag).join('、') || '1–10'
-            }）`}
+            title={
+              t('factor_card_ic_decay', {
+                lags:
+                  (result.inspection?.decay ?? []).map((d) => d.lag).join(', ') || '1–10',
+              }) ||
+              `IC 衰减（lag ${
+                (result.inspection?.decay ?? []).map((d) => d.lag).join('、') || '1–10'
+              }）`
+            }
           >
             <EChart option={decayOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
           </Card>
           {result.inspection?.quantile_nav && (
-            <Card title="分位组合净值">
+            <Card title={t('factor_card_quantile_nav') || '分位组合净值'}>
               <EChart
                 option={quantileNavOption}
                 style={{ height: 340 }}

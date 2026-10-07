@@ -24,6 +24,7 @@ import {
   Tooltip,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { TableProps } from 'antd';
 import {
@@ -61,41 +62,49 @@ const fmt = (v: number | null | undefined, digits: number) =>
 /** ISO 时间串 → 'YYYY-MM-DD HH:mm' 紧凑展示 */
 const fmtTime = (iso: string) => iso.replace('T', ' ').slice(0, 16);
 
-/** 样本外复核结论 → Tag 颜色与中文文案 */
-const OOS_TAG: Record<NonNullable<MinedCandidate['oos_flag']>, { color: string; text: string }> = {
-  ok: { color: 'green', text: '稳定' },
-  weak: { color: 'orange', text: '衰减' },
-  sign_flip: { color: 'red', text: '符号反转' },
+/** 样本外复核结论 → Tag 颜色（文案由组件内 t() 查表） */
+const OOS_TAG_COLOR: Record<NonNullable<MinedCandidate['oos_flag']>, string> = {
+  ok: 'green',
+  weak: 'orange',
+  sign_flip: 'red',
 };
 
-/** 候选状态 → Tag 颜色与中文文案 */
-const STATUS_TAG: Record<MinedCandidate['status'], { color: string; text: string }> = {
-  success: { color: 'green', text: '有效' },
-  security_error: { color: 'red', text: '安全拦截' },
-  output_error: { color: 'orange', text: '输出不合规' },
-  timeout: { color: 'red', text: '超时/资源限制' },
-  resource_error: { color: 'red', text: '超时/资源限制' },
-  runtime_error: { color: 'default', text: '运行失败' },
-  empty: { color: 'default', text: '空响应' },
-  llm_truncated: { color: 'orange', text: '思考超限' },
+/** 候选状态 → Tag 颜色（文案由组件内 t() 查表） */
+const STATUS_TAG_COLOR: Record<MinedCandidate['status'], string> = {
+  success: 'green',
+  security_error: 'red',
+  output_error: 'orange',
+  timeout: 'red',
+  resource_error: 'red',
+  runtime_error: 'default',
+  empty: 'default',
+  llm_truncated: 'orange',
 };
 
 /** walk-forward 逐折指标列表：候选展开行与合成因子卡片共用，避免复制粘贴 */
-const FoldList: React.FC<{ folds: WFFoldMetrics[] }> = ({ folds }) => (
-  <Flex vertical gap="small">
-    {folds.map((f) => (
-      <Flex key={f.index} gap="middle" wrap align="center">
-        <Tag style={{ marginInlineEnd: 0 }}>窗口 {f.index + 1}</Tag>
-        <span style={{ color: '#8c8c8c' }}>
-          {fmtTime(f.start)} ~ {fmtTime(f.end)}
-        </span>
-        <span>IC: {fmt(f.ic_mean, 4)}</span>
-        <span>覆盖率: {f.coverage == null ? '—' : `${(f.coverage * 100).toFixed(1)}%`}</span>
-        <span>bars: {f.bar_count}</span>
-      </Flex>
-    ))}
-  </Flex>
-);
+const FoldList: React.FC<{ folds: WFFoldMetrics[] }> = ({ folds }) => {
+  const { t } = useTranslation();
+  return (
+    <Flex vertical gap="small">
+      {folds.map((f) => (
+        <Flex key={f.index} gap="middle" wrap align="center">
+          <Tag style={{ marginInlineEnd: 0 }}>
+            {t('factor_mining_fold_window', { n: f.index + 1 }) || `窗口 ${f.index + 1}`}
+          </Tag>
+          <span style={{ color: '#8c8c8c' }}>
+            {fmtTime(f.start)} ~ {fmtTime(f.end)}
+          </span>
+          <span>IC: {fmt(f.ic_mean, 4)}</span>
+          <span>
+            {t('factor_mining_fold_cov') || '覆盖率'}:{' '}
+            {f.coverage == null ? '—' : `${(f.coverage * 100).toFixed(1)}%`}
+          </span>
+          <span>bars: {f.bar_count}</span>
+        </Flex>
+      ))}
+    </Flex>
+  );
+};
 
 /** 合成卡片上的单个指标格：灰色小标签 + 数值 */
 const MetricCell: React.FC<{ label: string; value: string }> = ({ label, value }) => (
@@ -113,10 +122,16 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
   comp,
   onSave,
 }) => {
+  const { t } = useTranslation();
   if (comp.error) {
     return (
-      <Card size="small" title="合成因子（IC 加权 zscore）">
-        <Alert type="error" showIcon message="合成失败（不影响本次挖掘结果）" description={comp.error} />
+      <Card size="small" title={t('factor_mining_comp_err_title') || '合成因子（IC 加权 zscore）'}>
+        <Alert
+          type="error"
+          showIcon
+          message={t('factor_mining_comp_err_msg') || '合成失败（不影响本次挖掘结果）'}
+          description={comp.error}
+        />
       </Card>
     );
   }
@@ -130,12 +145,12 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
       render: (_, __, index) => index + 1,
     },
     {
-      title: '代码 hash',
+      title: t('factor_mining_comp_table_hash') || '代码 hash',
       dataIndex: 'code_hash',
       render: (h: string) => <Tag style={{ marginInlineEnd: 0 }}>{h.slice(0, 8)}</Tag>,
     },
     {
-      title: '权重',
+      title: t('factor_mining_comp_table_weight') || '权重',
       dataIndex: 'weight',
       align: 'right',
       render: (w: number) => (
@@ -146,13 +161,30 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
       ),
     },
   ];
+
+  const oosText = (flag: NonNullable<CompositeFactorResult['oos_flag']>) => {
+    switch (flag) {
+      case 'ok':
+        return t('factor_mining_oos_stable') || '稳定';
+      case 'weak':
+        return t('factor_mining_oos_weak') || '衰减';
+      case 'sign_flip':
+        return t('factor_mining_oos_sign_flip') || '符号反转';
+      default:
+        return flag;
+    }
+  };
+
   return (
     <Card
       size="small"
-      title={`合成因子（IC 加权 zscore）· ${comp.n ?? 0} 成分`}
+      title={
+        t('factor_mining_comp_card_title_with_n', { n: comp.n ?? 0 }) ||
+        `合成因子（IC 加权 zscore）· ${comp.n ?? 0} 成分`
+      }
       extra={
         <Button size="small" type="primary" onClick={onSave}>
-          保存为因子
+          {t('factor_mining_comp_btn_save') || '保存为因子'}
         </Button>
       }
     >
@@ -165,14 +197,29 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
           columns={constituentColumns}
         />
         <Flex gap="large" wrap align="center">
-          <MetricCell label="Train IC" value={fmt(m?.ic_mean, 4)} />
-          <MetricCell label="Train 覆盖率" value={covText(m?.coverage)} />
-          <MetricCell label="Train bars" value={String(m?.bar_count ?? '—')} />
-          <MetricCell label="样本外 IC" value={fmt(oos?.ic_mean, 4)} />
-          <MetricCell label="样本外覆盖率" value={covText(oos?.coverage)} />
-          <MetricCell label="样本外 bars" value={String(oos?.bar_count ?? '—')} />
+          <MetricCell label={t('factor_mining_comp_metric_train_ic') || 'Train IC'} value={fmt(m?.ic_mean, 4)} />
+          <MetricCell
+            label={t('factor_mining_comp_metric_train_cov') || 'Train 覆盖率'}
+            value={covText(m?.coverage)}
+          />
+          <MetricCell
+            label={t('factor_mining_comp_metric_train_bars') || 'Train bars'}
+            value={String(m?.bar_count ?? '—')}
+          />
+          <MetricCell
+            label={t('factor_mining_comp_metric_oos_ic') || '样本外 IC'}
+            value={fmt(oos?.ic_mean, 4)}
+          />
+          <MetricCell
+            label={t('factor_mining_comp_metric_oos_cov') || '样本外覆盖率'}
+            value={covText(oos?.coverage)}
+          />
+          <MetricCell
+            label={t('factor_mining_comp_metric_oos_bars') || '样本外 bars'}
+            value={String(oos?.bar_count ?? '—')}
+          />
           {comp.oos_flag && (
-            <Tag color={OOS_TAG[comp.oos_flag].color}>{OOS_TAG[comp.oos_flag].text}</Tag>
+            <Tag color={OOS_TAG_COLOR[comp.oos_flag]}>{oosText(comp.oos_flag)}</Tag>
           )}
         </Flex>
         {comp.oos_note && (
@@ -180,7 +227,9 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
         )}
         {comp.folds?.length ? (
           <Space direction="vertical" size="small" style={{ display: 'flex' }}>
-            <span style={{ color: '#8c8c8c' }}>walk-forward 各折复核</span>
+            <span style={{ color: '#8c8c8c' }}>
+              {t('factor_mining_comp_wf_label') || 'walk-forward 各折复核'}
+            </span>
             <FoldList folds={comp.folds} />
           </Space>
         ) : null}
@@ -190,6 +239,7 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
 };
 
 const FactorMining: React.FC = () => {
+  const { t } = useTranslation();
   const qc = useQuantColors();
   const navigate = useNavigate();
   const [form] = Form.useForm<FormValues>();
@@ -209,6 +259,41 @@ const FactorMining: React.FC = () => {
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorMineResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
+
+  const oosText = (flag: NonNullable<MinedCandidate['oos_flag']>) => {
+    switch (flag) {
+      case 'ok':
+        return t('factor_mining_oos_stable') || '稳定';
+      case 'weak':
+        return t('factor_mining_oos_weak') || '衰减';
+      case 'sign_flip':
+        return t('factor_mining_oos_sign_flip') || '符号反转';
+      default:
+        return flag;
+    }
+  };
+
+  const statusText = (status: MinedCandidate['status']) => {
+    switch (status) {
+      case 'success':
+        return t('factor_mining_status_success') || '有效';
+      case 'security_error':
+        return t('factor_mining_status_sec') || '安全拦截';
+      case 'output_error':
+        return t('factor_mining_status_output') || '输出不合规';
+      case 'timeout':
+      case 'resource_error':
+        return t('factor_mining_status_timeout') || '超时/资源限制';
+      case 'runtime_error':
+        return t('factor_mining_status_runtime') || '运行失败';
+      case 'empty':
+        return t('factor_mining_status_empty') || '空响应';
+      case 'llm_truncated':
+        return t('factor_mining_status_truncated') || '思考超限';
+      default:
+        return status;
+    }
+  };
 
   // 市场类型切换后重新拉取品种列表（初始挂载 spot 也由此 effect 完成）
   useEffect(() => {
@@ -287,13 +372,15 @@ const FactorMining: React.FC = () => {
     if (!saveRow) return;
     const name = saveName.trim();
     if (!name) {
-      message.warning('请输入因子名称');
+      message.warning(t('factor_mining_toast_name_req') || '请输入因子名称');
       throw new Error('empty name');
     }
     setSaving(true);
     try {
       await factorApi.addCodeFactor(name, saveRow.code);
-      message.success(`已保存到因子库：${name}，正在带入工作台分析…`);
+      message.success(
+        t('factor_mining_toast_saved', { name }) || `已保存到因子库：${name}，正在带入工作台分析…`,
+      );
       setSaveRow(null);
       goWorkbench(name);
     } catch (err) {
@@ -317,7 +404,7 @@ const FactorMining: React.FC = () => {
     const v = await compForm.validateFields();
     const comp = result?.composite;
     if (!comp || !comp.constituents || !comp.train_window) {
-      message.error('合成因子结果不完整，无法保存');
+      message.error(t('factor_mining_toast_comp_incomplete') || '合成因子结果不完整，无法保存');
       return;
     }
     const codeByHash = new Map(
@@ -343,7 +430,10 @@ const FactorMining: React.FC = () => {
         train_window: comp.train_window,
       });
       const savedName = v.factor_name.trim();
-      message.success(`合成因子已保存到因子库：${savedName}，正在带入工作台分析…`);
+      message.success(
+        t('factor_mining_toast_comp_saved', { name: savedName }) ||
+          `合成因子已保存到因子库：${savedName}，正在带入工作台分析…`,
+      );
       setCompModalOpen(false);
       goWorkbench(savedName);
     } catch (err) {
@@ -355,30 +445,35 @@ const FactorMining: React.FC = () => {
 
   const columns: TableProps<MinedCandidate>['columns'] = [
     {
-      title: '轮次',
+      title: t('factor_mining_col_round') || '轮次',
       dataIndex: 'round',
       key: 'round',
       width: 70,
       align: 'center',
     },
     {
-      title: '状态',
+      title: t('factor_mining_col_status') || '状态',
       dataIndex: 'status',
       key: 'status',
       width: 150,
       render: (status: MinedCandidate['status'], row) => {
-        const t = STATUS_TAG[status];
         return (
           <Flex gap="small" align="center">
-            <Tag color={t.color} style={{ marginInlineEnd: 0 }}>
-              {t.text}
+            <Tag color={STATUS_TAG_COLOR[status]} style={{ marginInlineEnd: 0 }}>
+              {statusText(status)}
             </Tag>
             {status === 'success' && row.redundant && (
               <Tooltip
-                title={`与 ${(row.redundant_with || '').slice(0, 8)} 的因子相关系数 ${row.redundant_corr ?? '—'}`}
+                title={
+                  t('factor_mining_col_redundant_tip', {
+                    similar: (row.redundant_with || '').slice(0, 8),
+                    corr: row.redundant_corr ?? '—',
+                  }) ||
+                  `与 ${(row.redundant_with || '').slice(0, 8)} 的因子相关系数 ${row.redundant_corr ?? '—'}`
+                }
               >
                 <Tag color="orange" style={{ marginInlineEnd: 0 }}>
-                  重复
+                  {t('factor_mining_col_redundant') || '重复'}
                 </Tag>
               </Tooltip>
             )}
@@ -387,7 +482,7 @@ const FactorMining: React.FC = () => {
       },
     },
     {
-      title: 'fitness',
+      title: t('factor_mining_col_fitness') || 'fitness',
       key: 'fitness',
       align: 'right',
       width: 90,
@@ -401,31 +496,35 @@ const FactorMining: React.FC = () => {
       },
     },
     {
-      title: 'IC',
+      title: t('factor_mining_col_ic') || 'IC',
       key: 'ic_mean',
       align: 'right',
       width: 90,
       render: (_, row) => fmt(row.metrics?.ic_mean, 4),
     },
     {
-      title: '样本外IC',
+      title: t('factor_mining_col_oos_ic') || '样本外IC',
       key: 'oos_ic',
       align: 'right',
       width: 100,
       render: (_, row) => fmt(row.metrics_oos?.ic_mean, 4),
     },
     {
-      title: 'OOS',
+      title: t('factor_mining_col_oos') || 'OOS',
       key: 'oos_flag',
       align: 'center',
       width: 90,
       render: (_, row) => {
         const flag = row.oos_flag;
-        return flag ? <Tag color={OOS_TAG[flag].color}>{OOS_TAG[flag].text}</Tag> : '—';
+        return flag ? (
+          <Tag color={OOS_TAG_COLOR[flag]}>{oosText(flag)}</Tag>
+        ) : (
+          '—'
+        );
       },
     },
     {
-      title: 'WF一致性',
+      title: t('factor_mining_col_wf') || 'WF一致性',
       key: 'wf_consistency',
       align: 'right',
       width: 100,
@@ -435,14 +534,14 @@ const FactorMining: React.FC = () => {
       },
     },
     {
-      title: 'IR',
+      title: t('factor_mining_col_ir') || 'IR',
       key: 'ic_ir',
       align: 'right',
       width: 90,
       render: (_, row) => fmt(row.metrics?.ic_ir, 3),
     },
     {
-      title: '覆盖率',
+      title: t('factor_stat_coverage') || '覆盖率',
       key: 'coverage',
       align: 'right',
       width: 90,
@@ -452,41 +551,41 @@ const FactorMining: React.FC = () => {
       },
     },
     {
-      title: '换手',
+      title: t('factor_stat_turnover') || '换手',
       key: 'turnover',
       align: 'right',
       width: 100,
       render: (_, row) => fmt(row.metrics?.turnover, 4),
     },
     {
-      title: '多空收益',
+      title: t('factor_stat_ls_return') || '多空收益',
       key: 'long_short_return',
       align: 'right',
       width: 110,
       render: (_, row) => fmt(row.metrics?.long_short_return, 5),
     },
     {
-      title: '操作',
+      title: t('factor_mining_col_action') || '操作',
       key: 'actions',
       fixed: 'right',
       width: 170,
       render: (_, row) => (
         <Flex gap="small">
           <Button size="small" onClick={() => setDrawerRow(row)}>
-            代码
+            {t('factor_mining_btn_code') || '代码'}
           </Button>
           {row.status === 'success' && (
             <Popconfirm
-              title="保存为因子"
+              title={t('factor_mining_popconfirm_title') || '保存为因子'}
               description={
                 <Input
                   value={saveName}
                   onChange={(ev) => setSaveName(ev.target.value)}
-                  placeholder="因子名称"
+                  placeholder={t('factor_mining_popconfirm_placeholder') || '因子名称'}
                 />
               }
-              okText="保存"
-              cancelText="取消"
+              okText={t('factor_lib_save') || '保存'}
+              cancelText={t('factor_lib_cancel') || '取消'}
               okButtonProps={{ loading: saving }}
               onOpenChange={(open) => {
                 if (open) {
@@ -498,7 +597,7 @@ const FactorMining: React.FC = () => {
               onConfirm={handleSave}
             >
               <Button size="small" type="link">
-                保存为因子
+                {t('factor_mining_btn_save_row') || '保存为因子'}
               </Button>
             </Popconfirm>
           )}
@@ -509,7 +608,7 @@ const FactorMining: React.FC = () => {
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-      <Card title="LLM 因子挖掘">
+      <Card title={t('factor_mining_card_main') || 'LLM 因子挖掘'}>
         <Form<FormValues>
           form={form}
           layout="vertical"
@@ -525,14 +624,14 @@ const FactorMining: React.FC = () => {
         >
           <Form.Item
             name="instruments"
-            label="品种"
+            label={t('factor_wb_form_instruments') || '品种'}
             rules={[
               {
                 required: true,
                 validator: (_, value: string[] | undefined) =>
                   value && value.length >= 1
                     ? Promise.resolve()
-                    : Promise.reject(new Error('请至少选择一个品种')),
+                    : Promise.reject(new Error(t('factor_wb_form_instruments_req') || '请至少选择一个品种')),
               },
             ]}
           >
@@ -541,18 +640,18 @@ const FactorMining: React.FC = () => {
               showSearch
               optionFilterProp="label"
               allowClear
-              placeholder="选择品种（可多选）"
+              placeholder={t('factor_wb_form_instruments_ph') || '选择品种（可多选）'}
               options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>
-          <Form.Item label="市场类型">
+          <Form.Item label={t('factor_mining_form_market') || '市场类型'}>
             <Radio.Group
               value={candleType}
               optionType="button"
               buttonStyle="solid"
               options={[
-                { value: 'spot', label: '现货' },
-                { value: 'future', label: '合约' },
+                { value: 'spot', label: t('factor_mining_spot') || '现货' },
+                { value: 'future', label: t('factor_mining_future') || '合约' },
               ]}
               onChange={(ev) => {
                 // 切换市场：重新拉取品种列表并清空已选品种
@@ -561,47 +660,50 @@ const FactorMining: React.FC = () => {
               }}
             />
           </Form.Item>
-          <Form.Item name="interval" label="周期">
+          <Form.Item name="interval" label={t('factor_wb_form_interval') || '周期'}>
             <Select style={{ width: 160 }} options={intervalOptions} />
           </Form.Item>
-          <Form.Item name="range" label="时间范围（可选）">
+          <Form.Item name="range" label={t('factor_mining_form_range_opt') || '时间范围（可选）'}>
             <RangePicker showTime format="YYYY-MM-DD HH:mm:ss" />
           </Form.Item>
           <Flex gap="middle" wrap>
-            <Form.Item name="n_candidates" label="每轮候选数">
+            <Form.Item name="n_candidates" label={t('factor_mining_form_candidates') || '每轮候选数'}>
               <InputNumber min={1} max={8} style={{ width: 140 }} />
             </Form.Item>
-            <Form.Item name="n_rounds" label="反思轮数">
+            <Form.Item name="n_rounds" label={t('factor_mining_form_rounds') || '反思轮数'}>
               <InputNumber min={1} max={4} style={{ width: 140 }} />
             </Form.Item>
-            <Form.Item name="top_k" label="Top K">
+            <Form.Item name="top_k" label={t('factor_mining_form_topk') || 'Top K'}>
               <InputNumber min={1} max={10} style={{ width: 140 }} />
             </Form.Item>
             <Form.Item
               name="test_ratio"
-              label="样本外比例"
-              extra="0=不切分；取后段时间做样本外复核"
+              label={t('factor_mining_form_test_ratio') || '样本外比例'}
+              extra={t('factor_mining_form_test_ratio_hint') || '0=不切分；取后段时间做样本外复核'}
             >
               <InputNumber min={0} max={0.5} step={0.05} style={{ width: 140 }} />
             </Form.Item>
             <Form.Item
               name="wf_folds"
-              label="WF折数"
-              extra="0=单次样本外切分；2-6=滚动 walk-forward 多窗口复核"
-              tooltip="在多个连续样本外窗口上分别计算截面 IC，汇总均值/ICIR/符号一致性，比单次切分更能识别过拟合"
+              label={t('factor_mining_form_wf_folds') || 'WF折数'}
+              extra={t('factor_mining_form_wf_folds_hint') || '0=单次样本外切分；2-6=滚动 walk-forward 多窗口复核'}
+              tooltip={t('factor_mining_form_wf_folds_tip') || '在多个连续样本外窗口上分别计算截面 IC，汇总均值/ICIR/符号一致性，比单次切分更能识别过拟合'}
             >
               <InputNumber min={0} max={6} step={1} precision={0} style={{ width: 140 }} />
             </Form.Item>
             <Form.Item
               name="compose"
-              label="合成最佳因子"
-              extra="去重后对最佳候选做 IC 加权 zscore 自动合成"
-              tooltip="权重与标准化统计只在 train 段拟合冻结；合成因子可在结果区直接保存到因子库"
+              label={t('factor_mining_form_compose') || '合成最佳因子'}
+              extra={t('factor_mining_form_compose_hint') || '去重后对最佳候选做 IC 加权 zscore 自动合成'}
+              tooltip={t('factor_mining_form_compose_tip') || '权重与标准化统计只在 train 段拟合冻结；合成因子可在结果区直接保存到因子库'}
               valuePropName="checked"
             >
-              <Switch checkedChildren="开" unCheckedChildren="关" />
+              <Switch
+                checkedChildren={t('factor_mining_switch_on') || '开'}
+                unCheckedChildren={t('factor_mining_switch_off') || '关'}
+              />
             </Form.Item>
-            <Form.Item label="温度">
+            <Form.Item label={t('factor_mining_form_temperature') || '温度'}>
               <Flex gap="middle" align="center" style={{ width: 280 }}>
                 <Slider
                   style={{ flex: 1, margin: 0 }}
@@ -624,37 +726,45 @@ const FactorMining: React.FC = () => {
           </Flex>
           <Form.Item>
             <Button type="primary" loading={jobLoading} disabled={jobLoading} onClick={run}>
-              开始挖掘
+              {t('factor_mining_run') || '开始挖掘'}
             </Button>
           </Form.Item>
           {jobLoading && (
-            <Form.Item label="挖掘进度">
+            <Form.Item label={t('factor_mining_progress') || '挖掘进度'}>
               <Flex gap="middle" align="center">
                 <Progress
                   style={{ flex: 1, marginBottom: 0 }}
                   percent={Math.round(jobStatus?.progress ?? 0)}
                   status="active"
                 />
-                <span>{jobStatus?.message || '排队中…'}</span>
+                <span>{jobStatus?.message || t('factor_wb_queueing') || '排队中…'}</span>
               </Flex>
             </Form.Item>
           )}
         </Form>
       </Card>
 
-      <Card title="挖掘结果">
+      <Card title={t('factor_mining_card_result') || '挖掘结果'}>
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
           {result && (
             <Flex gap="large" wrap>
-              <Statistic title="生成" value={result.stats.generated} />
-              <Statistic title="去重后" value={result.stats.unique} />
-              <Statistic title="成功" value={result.stats.succeeded} valueStyle={{ color: qc.positive }} />
+              <Statistic title={t('factor_mining_stats_generated') || '生成'} value={result.stats.generated} />
+              <Statistic title={t('factor_mining_stats_unique') || '去重后'} value={result.stats.unique} />
               <Statistic
-                title="重复"
+                title={t('factor_mining_stats_succeeded') || '成功'}
+                value={result.stats.succeeded}
+                valueStyle={{ color: qc.positive }}
+              />
+              <Statistic
+                title={t('factor_mining_stats_redundant') || '重复'}
                 value={result.stats.redundant ?? 0}
                 valueStyle={{ color: '#d46b08' }}
               />
-              <Statistic title="失败" value={result.stats.failed} valueStyle={{ color: qc.negative }} />
+              <Statistic
+                title={t('factor_mining_stats_failed') || '失败'}
+                value={result.stats.failed}
+                valueStyle={{ color: qc.negative }}
+              />
             </Flex>
           )}
           <Table<MinedCandidate>
@@ -678,7 +788,7 @@ const FactorMining: React.FC = () => {
                 </Flex>
               ),
             }}
-            locale={{ emptyText: '暂无挖掘结果，请先在上方配置并开始挖掘' }}
+            locale={{ emptyText: t('factor_mining_empty') || '暂无挖掘结果，请先在上方配置并开始挖掘' }}
           />
           {result?.composite && (
             <CompositeCard comp={result.composite} onSave={openSaveComposite} />
@@ -688,48 +798,58 @@ const FactorMining: React.FC = () => {
 
       <Drawer
         open={!!drawerRow}
-        title={drawerRow ? `轮次${drawerRow.round} 候选${drawerRow.candidate}` : ''}
+        title={
+          drawerRow
+            ? t('factor_mining_drawer_title', { round: drawerRow.round, cand: drawerRow.candidate }) ||
+              `轮次${drawerRow.round} 候选${drawerRow.candidate}`
+            : ''
+        }
         width={640}
         onClose={() => setDrawerRow(null)}
       >
         {drawerRow?.code ? (
           <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 13 }}>{drawerRow.code}</pre>
         ) : (
-          '无代码'
+          t('factor_mining_drawer_no_code') || '无代码'
         )}
       </Drawer>
 
       <Modal
-        title="保存合成因子"
+        title={t('factor_mining_modal_comp_title') || '保存合成因子'}
         open={compModalOpen}
         onOk={handleSaveComposite}
         confirmLoading={compSaving}
         onCancel={() => setCompModalOpen(false)}
-        okText="保存"
-        cancelText="取消"
+        okText={t('factor_lib_save') || '保存'}
+        cancelText={t('factor_lib_cancel') || '取消'}
         destroyOnClose
         maskClosable={false}
       >
         <Form form={compForm} layout="vertical" preserve={false}>
           <Form.Item
             name="factor_name"
-            label="因子名称（英文标识）"
+            label={t('factor_lib_form_name') || '因子名称（英文标识）'}
             extra="字母开头，仅含字母/数字/下划线；保存后可在因子库中按普通因子分析、对比与保存快照"
             rules={[
-              { required: true, message: '请输入因子名称' },
+              { required: true, message: t('factor_lib_form_name_req') || '请输入因子名称' },
               {
                 pattern: /^[A-Za-z][A-Za-z0-9_]{0,99}$/,
                 message: '需以字母开头，仅含字母数字下划线，长度 1-100',
               },
             ]}
           >
-            <Input placeholder="如 llm_comp_ab12cd34" />
+            <Input placeholder={t('factor_lib_form_name_ph') || '如 llm_comp_ab12cd34'} />
           </Form.Item>
-          <Form.Item name="description" label="描述（可选）">
-            <Input.TextArea rows={2} maxLength={300} placeholder="该合成因子的含义/成分说明" />
+          <Form.Item name="description" label={t('factor_mining_modal_desc') || '描述（可选）'}>
+            <Input.TextArea
+              rows={2}
+              maxLength={300}
+              placeholder={t('factor_mining_modal_desc_ph') || '该合成因子的含义/成分说明'}
+            />
           </Form.Item>
           <span style={{ color: '#8c8c8c' }}>
-            将保存 {result?.composite?.n ?? 0} 个成分的冻结权重与 train 时序统计，重新分析时按冻结口径组合。
+            {t('factor_mining_modal_hint', { n: result?.composite?.n ?? 0 }) ||
+              `将保存 ${result?.composite?.n ?? 0} 个成分的冻结权重与 train 时序统计，重新分析时按冻结口径组合。`}
           </span>
         </Form>
       </Modal>

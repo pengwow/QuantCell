@@ -79,18 +79,7 @@ const fmt = (v: number | null | undefined, digits: number) =>
 
 const FactorCompare: React.FC = () => {
   const qc = useQuantColors();
-  const { i18n } = useTranslation();
-  // ponytail: 中文环境加中文名前缀，英文环境只显示统计量原名
-  const isZh = i18n.language === 'zh-CN' || i18n.language === 'zh';
-  const methodOptions = isZh
-    ? [
-        { value: 'spearman', label: '秩相关 Spearman' },
-        { value: 'pearson', label: '皮尔逊 Pearson' },
-      ]
-    : [
-        { value: 'spearman', label: 'Spearman' },
-        { value: 'pearson', label: 'Pearson' },
-      ];
+  const { t } = useTranslation();
   const [form] = Form.useForm<FormValues>();
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -188,7 +177,7 @@ const FactorCompare: React.FC = () => {
 
   const columns: TableProps<FactorCompareRow>['columns'] = [
     {
-      title: '因子',
+      title: t('factor_cmp_col_label') || '因子',
       dataIndex: 'factor_name',
       key: 'factor_name',
       fixed: 'left',
@@ -200,35 +189,35 @@ const FactorCompare: React.FC = () => {
       ),
     },
     {
-      title: '覆盖率%',
+      title: `${t('factor_stat_coverage') || '覆盖率'}%`,
       dataIndex: 'coverage',
       key: 'coverage',
       align: 'right',
       render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`),
     },
     {
-      title: '换手率',
+      title: t('factor_stat_turnover') || '换手率',
       dataIndex: 'turnover',
       key: 'turnover',
       align: 'right',
       render: (v: number | null) => fmt(v, 4),
     },
     {
-      title: 'IC均值',
+      title: t('factor_cmp_col_ic_mean') || 'IC均值',
       dataIndex: 'ic_mean',
       key: 'ic_mean',
       align: 'right',
       render: (v: number | null) => fmt(v, 3),
     },
     {
-      title: 'ICIR',
+      title: t('factor_cmp_col_ic_ir') || 'ICIR',
       dataIndex: 'ic_ir',
       key: 'ic_ir',
       align: 'right',
       render: (v: number | null) => fmt(v, 3),
     },
     {
-      title: '年化IR',
+      title: t('factor_stat_ann_ir') || '年化IR',
       dataIndex: 'annualized_ir',
       key: 'annualized_ir',
       align: 'right',
@@ -240,55 +229,55 @@ const FactorCompare: React.FC = () => {
         ),
     },
     {
-      title: 't-stat',
+      title: t('factor_stat_tstat') || 't-stat',
       dataIndex: 't_stat',
       key: 't_stat',
       align: 'right',
       render: (v: number | null) => fmt(v, 2),
     },
     {
-      title: 'NW t',
+      title: t('factor_stat_nw_tstat') || 'NW t',
       dataIndex: 'nw_t_stat',
       key: 'nw_t_stat',
       align: 'right',
       render: (v: number | null) => fmt(v, 2),
     },
     {
-      title: 'IC胜率',
+      title: t('factor_cmp_col_ic_pos') || 'IC胜率',
       dataIndex: 'ic_positive_rate',
       key: 'ic_positive_rate',
       align: 'right',
       render: (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`),
     },
     {
-      title: '多空收益',
+      title: t('factor_cmp_col_ls_ret') || '多空收益',
       dataIndex: 'long_short_return',
       key: 'long_short_return',
       align: 'right',
       render: (v: number | null) => fmt(v, 4),
     },
     {
-      title: '单调性',
+      title: t('factor_cmp_col_monotonicity') || '单调性',
       dataIndex: 'monotonicity_spearman',
       key: 'monotonicity_spearman',
       align: 'right',
       render: (v: number | null) => fmt(v, 3),
     },
     {
-      title: '稳定性',
+      title: t('factor_cmp_col_stability') || '稳定性',
       dataIndex: 'stability_autocorr',
       key: 'stability_autocorr',
       align: 'right',
       render: (v: number | null) => fmt(v, 3),
     },
     {
-      title: '组数',
+      title: t('factor_wb_form_groups') || '组数',
       dataIndex: 'n_groups',
       key: 'n_groups',
       align: 'right',
     },
     {
-      title: '样本数',
+      title: t('factor_snap_col_samples') || '样本数',
       dataIndex: 'bar_count',
       key: 'bar_count',
       align: 'right',
@@ -326,7 +315,7 @@ const FactorCompare: React.FC = () => {
 
   return (
     <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title="对比参数">
+      <Card title={t('factor_wb_card_params') || '对比参数'}>
         {/* inline 表单项换行后默认无垂直间距，用 flex rowGap 补到 middle 档 */}
         <Form<FormValues>
           form={form}
@@ -343,13 +332,15 @@ const FactorCompare: React.FC = () => {
         >
           <Form.Item
             name="factor_names"
-            label="因子"
+            label={t('factor_wb_form_factor') || '因子'}
             rules={[
               {
                 validator: (_, value: string[] | undefined) =>
                   value && value.length >= 2 && value.length <= 5
                     ? Promise.resolve()
-                    : Promise.reject(new Error('请选择 2-5 个因子')),
+                    : Promise.reject(
+                        new Error(t('factor_cmp_req_range') || '请选择 2-5 个因子'),
+                      ),
               },
             ]}
           >
@@ -358,7 +349,7 @@ const FactorCompare: React.FC = () => {
               showSearch
               optionFilterProp="label"
               style={{ minWidth: 280 }}
-              placeholder="选择 2-5 个因子"
+              placeholder={t('factor_cmp_ph_factors') || '选择 2-5 个因子'}
               options={factors.map((f) => ({
                 value: f.name,
                 label: `${f.label} (${f.name})`,
@@ -367,52 +358,71 @@ const FactorCompare: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="instruments"
-            label="品种"
-            rules={[{ required: true, message: '选择品种' }]}
+            label={t('factor_wb_form_instruments') || '品种'}
+            rules={[
+              {
+                required: true,
+                message: t('factor_wb_form_instruments_req') || '选择品种',
+              },
+            ]}
           >
             <Select
               mode="multiple"
               style={{ minWidth: 220 }}
-              placeholder="选择品种"
+              placeholder={t('factor_wb_form_instruments_ph') || '选择品种'}
               options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>
-          <Form.Item name="interval" label="周期">
+          <Form.Item name="interval" label={t('factor_wb_form_interval') || '周期'}>
             <Select style={{ width: 90 }} options={intervalOptions} />
           </Form.Item>
-          <Form.Item name="range" label="时间范围">
+          <Form.Item name="range" label={t('factor_wb_form_range') || '时间范围'}>
             <RangePicker showTime format="YYYY-MM-DD HH:mm:ss" />
           </Form.Item>
-          <Form.Item name="method" label="IC方法">
-            <Select style={{ width: 130 }} options={methodOptions} />
+          <Form.Item name="method" label={t('factor_wb_form_method') || 'IC方法'}>
+            <Select
+              style={{ width: 130 }}
+              options={[
+                { value: 'spearman', label: t('factor_wb_method_spearman') || 'Spearman' },
+                { value: 'pearson', label: t('factor_wb_method_pearson') || 'Pearson' },
+              ]}
+            />
           </Form.Item>
-          <Form.Item name="n_groups" label="分组数">
+          <Form.Item name="n_groups" label={t('factor_wb_form_groups') || '分组数'}>
             <InputNumber min={2} max={10} />
           </Form.Item>
-          <Form.Item name="window" label="滚动窗">
+          <Form.Item name="window" label={t('factor_wb_form_window') || '滚动窗'}>
             <InputNumber min={5} max={252} />
           </Form.Item>
-          <Form.Item name="forward" label="前瞻(根)">
+          <Form.Item name="forward" label={t('factor_wb_form_forward') || '前瞻(根)'}>
             <InputNumber min={1} max={120} />
           </Form.Item>
-          <Form.Item name="horizonsText" label="衰减滞后">
-            <Input placeholder="1,2,3,5,10（留空用默认）" allowClear style={{ width: 210 }} />
+          <Form.Item name="horizonsText" label={t('factor_wb_form_decay') || '衰减滞后'}>
+            <Input
+              placeholder={t('factor_wb_form_decay_ph') || '1,2,3,5,10（留空用默认）'}
+              allowClear
+              style={{ width: 210 }}
+            />
           </Form.Item>
           <Form.Item
             name="costBps"
-            label="单边成本(bp)"
-            extra="单边费率基点，10bp=0.1%；对所有对比因子生效"
+            label={t('factor_wb_form_cost') || '单边成本(bp)'}
+            extra={
+              t('factor_cmp_form_cost_hint') ||
+              '单边费率基点，10bp=0.1%；对所有对比因子生效'
+            }
           >
             <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: 110 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" icon={<SwapOutlined />} loading={jobLoading} onClick={run}>
-              开始对比
+              {t('factor_cmp_run') || '开始对比'}
             </Button>
           </Form.Item>
         </Form>
         <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-          2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。
+          {t('factor_cmp_form_hint') ||
+            '2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。'}
         </p>
       </Card>
 
@@ -426,19 +436,24 @@ const FactorCompare: React.FC = () => {
               percent={Math.round(jobStatus.progress)}
               status="active"
             />
-            <span>{jobStatus.message || '排队中…'}</span>
+            <span>{jobStatus.message || t('factor_wb_queueing') || 'Queueing…'}</span>
           </Flex>
         </Card>
       )}
       {!jobLoading && !result && (
         <Card>
-          <Empty description="选择 2-5 个因子后点击「开始对比」" />
+          <Empty
+            description={
+              t('factor_cmp_empty_hint') ||
+              '选择 2-5 个因子后点击「开始对比」'
+            }
+          />
         </Card>
       )}
 
       {!jobLoading && result && (
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-          <Card title="指标对比">
+          <Card title={t('factor_cmp_card_metrics') || '指标对比'}>
             <Table<FactorCompareRow>
               rowKey="factor_name"
               columns={columns}
@@ -447,7 +462,7 @@ const FactorCompare: React.FC = () => {
               scroll={{ x: 'max-content' }}
             />
           </Card>
-          <Card title="IC 时序叠加">
+          <Card title={t('factor_cmp_card_ic_ts') || 'IC 时序叠加'}>
             <EChart option={icOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
           </Card>
         </Space>
