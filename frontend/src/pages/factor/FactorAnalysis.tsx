@@ -83,7 +83,7 @@ const FactorAnalysis: React.FC = () => {
             label: t('factor_compare') || '因子对比',
             children: <FactorCompare />,
           },
-          { key: 'mining', label: 'LLM 挖掘', children: <FactorMining /> },
+          { key: 'mining', label: t('factor_mining') || 'LLM Mining', children: <FactorMining /> },
         ]}
       />
     </PageContainer>
