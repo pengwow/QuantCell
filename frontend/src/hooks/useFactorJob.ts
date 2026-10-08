@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError } from '@/api';
 import {
   factorApi,
   type FactorAnalyzeParams,
@@ -34,7 +35,15 @@ export interface UseFactorJob<T> {
     params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
     onResult: (r: T) => void,
     onError: (msg: string) => void,
+    onLost?: () => void,
   ) => Promise<void>;
+  /** 重连一个已提交的任务（跳过提交，直接 WS+轮询跟踪并取结果） */
+  attach: (
+    jobId: string,
+    onResult: (r: T) => void,
+    onError: (msg: string) => void,
+    onLost?: () => void,
+  ) => void;
   status: FactorJobStatus | null;
   loading: boolean;
 }
@@ -108,60 +117,54 @@ export function useFactorJob<T>(): UseFactorJob<T> {
   // 每次渲染同步最新 handleTerminal，onWs 本身保持稳定引用
   handleTerminalRef.current = handleTerminal;
 
-  const pollOnce = useCallback(async () => {
-    const id = currentIdRef.current;
-    if (!id || settledRef.current) return;
-    try {
-      const st = await factorApi.getFactorJob(id);
-      if (settledRef.current) return;
-      if (st.status === 'completed' || st.status === 'failed') {
-        handleTerminal(st);
-      } else {
-        setStatus(st);
+  const pollOnce = useCallback(
+    async (onLost?: () => void) => {
+      const id = currentIdRef.current;
+      if (!id || settledRef.current) return;
+      try {
+        const st = await factorApi.getFactorJob(id);
+        if (settledRef.current) return;
+        if (st.status === 'completed' || st.status === 'failed') {
+          handleTerminal(st);
+        } else {
+          setStatus(st);
+        }
+      } catch (e) {
+        // 404：内存任务已不存在（TTL 清理或后端重启），由后端 running 记录懒修正兜底
+        if (e instanceof ApiError && e.code === 404) {
+          if (!settledRef.current) {
+            settledRef.current = true;
+            setLoading(false);
+            cleanup();
+            onLost?.();
+          }
+          return;
+        }
+        /* 其他单次轮询失败忽略，下一次重试 */
       }
-    } catch {
-      /* 单次轮询失败忽略，下一次重试 */
-    }
-  }, [handleTerminal]);
+    },
+    [cleanup, handleTerminal],
+  );
 
-  const run = useCallback(
-    async (
-      kind: FactorJobKind,
-      params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
+  const _track = useCallback(
+    (
+      jobId: string,
       onResult: (r: T) => void,
       onError: (msg: string) => void,
+      onLost?: () => void,
     ) => {
       cleanup();
       settledRef.current = false;
       onResultRef.current = onResult;
       onErrorRef.current = onError;
-      currentIdRef.current = null;
+      currentIdRef.current = jobId;
       setLoading(true);
-      setStatus(null);
 
-      // 联合参数按 kind 分支调用，各自断言为对应请求类型
-      let accepted: { job_id: string; status: string };
-      try {
-        if (kind === 'analyze') {
-          accepted = await factorApi.analyzeAsync(params as FactorAnalyzeParams);
-        } else if (kind === 'llm_mine') {
-          accepted = await factorApi.mineLLM(params as FactorMineLLMParams);
-        } else {
-          accepted = await factorApi.compareAsync(params as FactorCompareParams);
-        }
-      } catch (err) {
-        // 同步提交阶段失败：复位 loading 后交调用方 catch 提示
-        setLoading(false);
-        throw err;
-      }
-      currentIdRef.current = accepted.job_id;
-
-      // 关键：先订阅 + 注册监听，再立即查一次状态，
-      // 防止任务在订阅生效前就已完成而漏掉终态
+      // 关键：先订阅 + 注册监听，再立即查一次状态，防止任务在订阅生效前完成而漏终态
       wsService.subscribe(TOPIC);
       wsService.on(TOPIC, onWs);
-      void pollOnce();
-      timerRef.current = setInterval(() => void pollOnce(), POLL_MS);
+      void pollOnce(onLost);
+      timerRef.current = setInterval(() => void pollOnce(onLost), POLL_MS);
       timeoutRef.current = setTimeout(() => {
         if (settledRef.current) return;
         settledRef.current = true;
@@ -173,8 +176,48 @@ export function useFactorJob<T>(): UseFactorJob<T> {
     [cleanup, onWs, pollOnce],
   );
 
+  const run = useCallback(
+    async (
+      kind: FactorJobKind,
+      params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
+      onResult: (r: T) => void,
+      onError: (msg: string) => void,
+      onLost?: () => void,
+    ) => {
+      onResultRef.current = onResult;
+      onErrorRef.current = onError;
+      currentIdRef.current = null;
+      setLoading(true);
+      setStatus(null);
+
+      let accepted: { job_id: string; status: string };
+      try {
+        if (kind === 'analyze') {
+          accepted = await factorApi.analyzeAsync(params as FactorAnalyzeParams);
+        } else if (kind === 'llm_mine') {
+          accepted = await factorApi.mineLLM(params as FactorMineLLMParams);
+        } else {
+          accepted = await factorApi.compareAsync(params as FactorCompareParams);
+        }
+      } catch (err) {
+        setLoading(false);
+        throw err;
+      }
+      _track(accepted.job_id, onResult, onError, onLost);
+    },
+    [_track],
+  );
+
+  const attach = useCallback<UseFactorJob<T>['attach']>(
+    (jobId, onResult, onError, onLost) => {
+      setStatus(null);
+      _track(jobId, onResult, onError, onLost);
+    },
+    [_track],
+  );
+
   // 组件卸载清理定时器与 WS 监听
   useEffect(() => cleanup, [cleanup]);
 
-  return { run, status, loading };
+  return { run, attach, status, loading };
 }
