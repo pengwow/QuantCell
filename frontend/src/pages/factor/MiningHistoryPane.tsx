@@ -169,7 +169,7 @@ const MiningHistoryPane: React.FC<{
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Table<MiningRunSummary>
         rowKey="id"
         size="small"
@@ -207,7 +207,7 @@ const MiningHistoryPane: React.FC<{
         }
       >
         {detail && (
-          <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+          <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
             <Flex gap="middle" align="center" wrap>
               <Tag color={STATUS_COLOR[detail.status]} style={{ marginInlineEnd: 0 }}>
                 {statusLabel(detail.status)}
