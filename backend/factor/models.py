@@ -42,3 +42,23 @@ class FactorSnapshot(Base):
     bar_count = Column(Integer, nullable=False, default=0)
     snapshot_file = Column(String(500), nullable=True)  # 相对 backend 的 posix 路径
     created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+class FactorMiningRun(Base):
+    """LLM 挖掘运行记录：提交即建行（running + job_id），终态写完整结果。
+
+    job_id 是前端重连内存 FactorJob 的锚点；后端重启后内存 job 消失，
+    running 行由 service 懒修正为 interrupted。
+    """
+
+    __tablename__ = "factor_mining_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(64), nullable=False, unique=True, index=True)
+    status = Column(String(16), nullable=False, index=True)  # running/completed/failed/interrupted
+    params_json = Column(Text, nullable=False)
+    stats_json = Column(Text, nullable=True)  # FactorMineResult.stats 摘要
+    result_json = Column(Text, nullable=True)  # 完整 FactorMineResult
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    finished_at = Column(DateTime, nullable=True)
