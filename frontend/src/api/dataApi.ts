@@ -371,14 +371,18 @@ export const dataApi = {
   /**
    * 获取市场数据（24小时行情）
    * @param data 请求体，包含symbols数组、exchange、force_refresh
+   * @param signal 可选的 AbortSignal，用于取消过期请求
    * @returns 市场数据列表
    */
-  getMarketData: (data: {
-    symbols: string[];
-    exchange?: string;
-    force_refresh?: boolean;
-  }): Promise<Array<Record<string, unknown>> | { data?: Array<Record<string, unknown>> }> => {
-    return apiRequest.post('/data/crypto/market-data', data);
+  getMarketData: (
+    data: {
+      symbols: string[];
+      exchange?: string;
+      force_refresh?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<Array<Record<string, unknown>> | { data?: Array<Record<string, unknown>> }> => {
+    return apiRequest.post('/data/crypto/market-data', data, { signal });
   },
 
   /**

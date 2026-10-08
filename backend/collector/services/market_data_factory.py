@@ -4,11 +4,17 @@
 支持从系统配置读取代理信息
 """
 
+import asyncio
 import json
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import quote
+
+import aiohttp
+from binance import AsyncClient
 
 from utils.logger import LogType, get_logger
 from utils.timestamp_utils import utc_now_naive
@@ -17,6 +23,11 @@ from utils.timestamp_utils import utc_now_naive
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import get_db
 from collector.db.models import MarketData
+
+# 单次币安请求超时（秒），超时立即失败以便回退数据库缓存
+BINANCE_TIMEOUT_SECONDS = 5
+# 币安 /ticker/24hr 的 symbols 参数单次上限
+BINANCE_MAX_SYMBOLS_PER_REQUEST = 100
 
 
 class MarketDataFetcher(ABC):
@@ -99,57 +110,75 @@ class MarketDataFetcher(ABC):
 
         return proxy_config
 
-    async def _save_market_data_to_db(self, data: dict[str, Any]):
-        """保存市场数据到数据库
+    async def _save_market_data_batch(self, items: list[dict[str, Any]]):
+        """批量保存市场数据到数据库（异步包装）
+
+        同步数据库写入会阻塞事件循环，这里通过 to_thread 卸载到线程池执行。
 
         Args:
-            data: 市场数据字典
+            items: 市场数据字典列表
+        """
+        if not items:
+            return
+        await asyncio.to_thread(self._save_market_data_batch_sync, items)
+
+    def _save_market_data_batch_sync(self, items: list[dict[str, Any]]):
+        """批量保存市场数据的同步实现
+
+        使用单个 session、只提交一次事务，避免逐条 commit 带来的额外开销。
+
+        Args:
+            items: 市场数据字典列表
         """
         db = next(get_db())
         try:
-            record = (
-                db.query(MarketData)
-                .filter(
-                    MarketData.symbol == data["symbol"],
-                    MarketData.exchange == self.exchange_id,
+            for data in items:
+                record = (
+                    db.query(MarketData)
+                    .filter(
+                        MarketData.symbol == data["symbol"],
+                        MarketData.exchange == self.exchange_id,
+                    )
+                    .first()
                 )
-                .first()
-            )
 
-            if record:
-                # 更新
-                record.price = Decimal(str(data["price"])) if data.get("price") else None
-                record.price_change_24h = (
-                    Decimal(str(data["price_change_24h"])) if data.get("price_change_24h") else None
-                )
-                record.price_change_percent_24h = (
-                    Decimal(str(data["price_change_percent_24h"])) if data.get("price_change_percent_24h") else None
-                )
-                record.volume_24h = Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None
-                record.high_24h = Decimal(str(data["high_24h"])) if data.get("high_24h") else None
-                record.low_24h = Decimal(str(data["low_24h"])) if data.get("low_24h") else None
-                record.last_update = utc_now_naive()
-            else:
-                # 新建
-                new_record = MarketData(
-                    symbol=data["symbol"],
-                    exchange=self.exchange_id,
-                    price=Decimal(str(data["price"])) if data.get("price") else None,
-                    price_change_24h=Decimal(str(data["price_change_24h"])) if data.get("price_change_24h") else None,
-                    price_change_percent_24h=Decimal(str(data["price_change_percent_24h"]))
-                    if data.get("price_change_percent_24h")
-                    else None,
-                    volume_24h=Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None,
-                    high_24h=Decimal(str(data["high_24h"])) if data.get("high_24h") else None,
-                    low_24h=Decimal(str(data["low_24h"])) if data.get("low_24h") else None,
-                    last_update=utc_now_naive(),
-                )
-                db.add(new_record)
+                if record:
+                    # 更新
+                    record.price = Decimal(str(data["price"])) if data.get("price") else None
+                    record.price_change_24h = (
+                        Decimal(str(data["price_change_24h"])) if data.get("price_change_24h") else None
+                    )
+                    record.price_change_percent_24h = (
+                        Decimal(str(data["price_change_percent_24h"])) if data.get("price_change_percent_24h") else None
+                    )
+                    record.volume_24h = Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None
+                    record.high_24h = Decimal(str(data["high_24h"])) if data.get("high_24h") else None
+                    record.low_24h = Decimal(str(data["low_24h"])) if data.get("low_24h") else None
+                    record.last_update = utc_now_naive()
+                else:
+                    # 新建
+                    db.add(
+                        MarketData(
+                            symbol=data["symbol"],
+                            exchange=self.exchange_id,
+                            price=Decimal(str(data["price"])) if data.get("price") else None,
+                            price_change_24h=Decimal(str(data["price_change_24h"]))
+                            if data.get("price_change_24h")
+                            else None,
+                            price_change_percent_24h=Decimal(str(data["price_change_percent_24h"]))
+                            if data.get("price_change_percent_24h")
+                            else None,
+                            volume_24h=Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None,
+                            high_24h=Decimal(str(data["high_24h"])) if data.get("high_24h") else None,
+                            low_24h=Decimal(str(data["low_24h"])) if data.get("low_24h") else None,
+                            last_update=utc_now_naive(),
+                        )
+                    )
 
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.error(f"保存市场数据到数据库失败: {e}")
+            logger.error(f"批量保存市场数据到数据库失败: {e}")
         finally:
             db.close()
 
@@ -159,35 +188,38 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
 
     def __init__(self, config: dict[str, Any]):
         super().__init__("binance", config)
-        self._client = None
 
-    def _get_client(self):
-        """获取币安客户端（延迟初始化）"""
-        if self._client is None:
-            import os
+    async def _get_client(self) -> AsyncClient:
+        """创建币安异步客户端
 
-            from binance.client import Client
+        优先使用数据库配置的代理，其次使用环境变量代理。
 
-            # 优先使用数据库配置的代理，其次使用环境变量代理
-            proxies = self._get_proxy_config()
-            if not proxies:
-                env_https = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
-                env_http = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
-                if env_https or env_http:
-                    proxies = {
-                        "http": env_http or env_https,
-                        "https": env_https or env_http,
-                    }
-                    logger.info(f"使用环境变量代理获取市场数据: {proxies}")
+        ponytail: 不缓存 client。AsyncClient 内部持有 aiohttp session 并绑定创建时的
+        事件循环，跨请求复用会引发 "attached to a different loop"；每次请求新建、
+        用后在 finally 中 close_connection，代价可接受。
+        """
+        # 优先使用数据库配置的代理，其次使用环境变量代理
+        proxies = self._get_proxy_config()
+        if not proxies:
+            env_https = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+            env_http = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+            if env_https or env_http:
+                proxies = {
+                    "http": env_http or env_https,
+                    "https": env_https or env_http,
+                }
+                logger.info(f"使用环境变量代理获取市场数据: {proxies}")
 
-            logger.info(f"初始化币安客户端，代理: {proxies is not None}")
+        https_proxy = proxies.get("https") if proxies else None
+        logger.info(f"初始化币安异步客户端，代理: {https_proxy is not None}")
 
-            if proxies:
-                self._client = Client(self.api_key, self.api_secret, {"proxies": proxies})
-            else:
-                self._client = Client(self.api_key, self.api_secret)
-
-        return self._client
+        # AsyncClient.create 内部会 ping 校验连通性，不可达时快速失败
+        return await AsyncClient.create(
+            self.api_key,
+            self.api_secret,
+            session_params={"timeout": aiohttp.ClientTimeout(total=BINANCE_TIMEOUT_SECONDS)},
+            https_proxy=https_proxy,
+        )
 
     def _normalize_symbol(self, symbol: str) -> str:
         """标准化symbol格式
@@ -216,84 +248,92 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
             "USDS",
         ]
 
-        for quote in quote_currencies:
-            if symbol.endswith(quote):
-                base = symbol[: -len(quote)]
-                return f"{base}/{quote}"
+        for quote_currency in quote_currencies:
+            if symbol.endswith(quote_currency):
+                base = symbol[: -len(quote_currency)]
+                return f"{base}/{quote_currency}"
 
         # 如果无法识别，直接返回原值
         return symbol
 
+    def _ticker_to_data(self, ticker: dict[str, Any]) -> dict[str, Any]:
+        """把币安 ticker 映射为内部市场数据字典
+
+        Args:
+            ticker: 币安返回的单条 ticker
+
+        Returns:
+            Dict[str, Any]: 内部市场数据字典
+        """
+        return {
+            "symbol": self._denormalize_symbol(ticker["symbol"]),
+            "price": float(ticker["lastPrice"]),
+            "price_change_24h": float(ticker["priceChange"]),
+            "price_change_percent_24h": float(ticker["priceChangePercent"]),
+            "volume_24h": float(ticker["volume"]),
+            "high_24h": float(ticker["highPrice"]),
+            "low_24h": float(ticker["lowPrice"]),
+            "last_update": utc_now_naive().isoformat(),
+        }
+
     async def fetch_market_data(self, symbols: list[str]) -> list[dict[str, Any]]:
-        """从币安获取市场数据"""
+        """从币安获取市场数据
+
+        使用 /ticker/24hr 的 symbols 参数按块批量请求，替代逐个 symbol 串行请求。
+
+        Args:
+            symbols: 货币对列表
+
+        Returns:
+            List[Dict]: 市场数据列表
+        """
+        if not symbols:
+            return []
+
+        client = await self._get_client()
+        all_data: list[dict[str, Any]] = []
         try:
-            client = self._get_client()
-            all_data = []
-
-            # 币安 API 限制：每次最多请求 100 个 symbol
-            # 但使用 symbols 参数时，需要传递 JSON 数组字符串
-            # 为了避免复杂性，我们逐个获取
-            for symbol in symbols:
-                logger.info(f"从币安获取{symbol}的市场数据")
-
-                # 转换symbol格式：BTC/USDT -> BTCUSDT
-                normalized_symbol = self._normalize_symbol(symbol)
-
+            normalized = [self._normalize_symbol(s) for s in symbols]
+            for i in range(0, len(normalized), BINANCE_MAX_SYMBOLS_PER_REQUEST):
+                chunk = normalized[i : i + BINANCE_MAX_SYMBOLS_PER_REQUEST]
+                logger.info(f"从币安批量获取市场数据，symbol 数量: {len(chunk)}")
                 try:
-                    ticker = client.get_ticker(symbol=normalized_symbol)
-
-                    # 转换symbol格式：BTCUSDT -> BTC/USDT
-                    denormalized_symbol = self._denormalize_symbol(ticker["symbol"])
-                    data = {
-                        "symbol": denormalized_symbol,
-                        "price": float(ticker["lastPrice"]),
-                        "price_change_24h": float(ticker["priceChange"]),
-                        "price_change_percent_24h": float(ticker["priceChangePercent"]),
-                        "volume_24h": float(ticker["volume"]),
-                        "high_24h": float(ticker["highPrice"]),
-                        "low_24h": float(ticker["lowPrice"]),
-                        "last_update": utc_now_naive().isoformat(),
-                    }
-                    all_data.append(data)
-                    await self._save_market_data_to_db(data)
+                    # 币安要求 symbols 传 JSON 数组字符串；python-binance 只对 symbol 的
+                    # 值做 urlencode，其它参数原样拼接，故这里必须自行 quote
+                    params = quote(json.dumps(chunk, separators=(",", ":")))
+                    tickers = await client.get_ticker(symbols=params)
+                    # 单个 symbol 时币安返回对象而非列表，统一成列表
+                    if isinstance(tickers, dict):
+                        tickers = [tickers]
+                    all_data.extend(self._ticker_to_data(t) for t in tickers)
                 except Exception as e:
-                    logger.warning(f"获取{symbol}的市场数据失败: {e}")
+                    # 单块失败不影响其余块
+                    logger.warning(f"批量获取市场数据失败（块 {i // BINANCE_MAX_SYMBOLS_PER_REQUEST}）: {e}")
                     continue
 
+            if all_data:
+                await self._save_market_data_batch(all_data)
             return all_data
-
         except Exception as e:
             logger.error(f"从币安获取市场数据失败: {e}")
             raise
+        finally:
+            await client.close_connection()
 
     async def fetch_all_tickers(self) -> list[dict[str, Any]]:
         """获取所有货币对的市场数据"""
+        client = await self._get_client()
         try:
-            client = self._get_client()
-            tickers = client.get_ticker()
-
-            all_data = []
-            for ticker in tickers:
-                # 转换symbol格式：BTCUSDT -> BTC/USDT
-                normalized_symbol = self._denormalize_symbol(ticker["symbol"])
-                data = {
-                    "symbol": normalized_symbol,
-                    "price": float(ticker["lastPrice"]),
-                    "price_change_24h": float(ticker["priceChange"]),
-                    "price_change_percent_24h": float(ticker["priceChangePercent"]),
-                    "volume_24h": float(ticker["volume"]),
-                    "high_24h": float(ticker["highPrice"]),
-                    "low_24h": float(ticker["lowPrice"]),
-                    "last_update": utc_now_naive().isoformat(),
-                }
-                all_data.append(data)
-                await self._save_market_data_to_db(data)
-
+            tickers = await client.get_ticker()
+            all_data = [self._ticker_to_data(t) for t in tickers]
+            if all_data:
+                await self._save_market_data_batch(all_data)
             return all_data
-
         except Exception as e:
             logger.error(f"从币安获取所有市场数据失败: {e}")
             raise
+        finally:
+            await client.close_connection()
 
 
 class OKXMarketDataFetcher(MarketDataFetcher):
