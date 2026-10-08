@@ -366,7 +366,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.9.0" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "pysocks", specifier = ">=1.7.1" },
-    { name = "python-binance", specifier = ">=1.0.34" },
+    { name = "python-binance", specifier = ">=1.0.37" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "python-socks", specifier = ">=2.8.0" },
     { name = "pytz", specifier = ">=2025.2" },
