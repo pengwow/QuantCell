@@ -260,6 +260,26 @@ export interface FactorJobStatus {
   updated_at: string | null;
 }
 
+/** LLM 挖掘运行记录状态（后端 factor_mining_runs.status） */
+export type MiningRunStatus = 'running' | 'completed' | 'failed' | 'interrupted';
+
+/** 挖掘历史列表项（不含完整 result） */
+export interface MiningRunSummary {
+  id: number;
+  job_id: string;
+  status: MiningRunStatus;
+  params: FactorMineLLMParams;
+  stats: FactorMineResult['stats'] | null;
+  error: string | null;
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+/** 挖掘记录详情（含完整 result） */
+export interface MiningRunDetail extends MiningRunSummary {
+  result: FactorMineResult | null;
+}
+
 /** 因子生命周期五态 */
 export type LifecycleStatus = 'DISCOVERED' | 'INSPECTED' | 'PAPER_TRADING' | 'LIVE' | 'RETIRED';
 
@@ -397,7 +417,10 @@ export const factorApi = {
   compareAsync: (p: FactorCompareParams) =>
     apiRequest.post<{ job_id: string; status: string }>('/factor/compare-async', p),
   mineLLM: (p: FactorMineLLMParams) =>
-    apiRequest.post<{ job_id: string; status: string }>('/factor/mine/llm', p),
+    apiRequest.post<{ job_id: string; status: string; run_id: number | null }>(
+      '/factor/mine/llm',
+      p,
+    ),
   validateCodeFactor: (code: string) =>
     apiRequest.post<{ valid: boolean; error_type?: string; message?: string }>(
       '/factor/code/validate',
@@ -413,6 +436,13 @@ export const factorApi = {
     apiRequest.get<FactorJobStatus>(`/factor/jobs/${id}`),
   getFactorJobResult: <T,>(id: string) =>
     apiRequest.get<T>(`/factor/jobs/${id}/result`),
+  listMineRuns: (limit = 20, offset = 0) =>
+    apiRequest.get<{ total: number; runs: MiningRunSummary[] }>('/factor/mine/runs', {
+      limit,
+      offset,
+    }),
+  getMineRun: (id: number) => apiRequest.get<MiningRunDetail>(`/factor/mine/runs/${id}`),
+  deleteMineRun: (id: number) => apiRequest.delete(`/factor/mine/runs/${id}`),
   instruments: (candle_type = 'spot') =>
     apiRequest.get<{ symbols: InstrumentInfo[] }>('/factor/instruments', { candle_type }),
   catalog: () => apiRequest.get<{ factors: FactorCatalogItem[] }>('/factor/catalog'),
