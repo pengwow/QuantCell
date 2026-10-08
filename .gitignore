@@ -10,6 +10,8 @@
 .junie/*
 .lingma/*
 .qoder/*
+.superpowers/*
+.tmp_i18n_backup/
 *.pyc
 *.log
 *.so
@@ -47,6 +49,7 @@ backend/ai_model/docs/*
 backend/logs/*
 backend/config.toml
 backend/tmp/*
+backend/docs/superpowers/*
 
 
 data/source/*
