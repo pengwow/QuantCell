@@ -64,3 +64,92 @@ class MiningRunService:
         row.error = (error or "")[:10000]
         row.finished_at = datetime.now(UTC)
         db.commit()
+
+    # ---------- 查询与懒修正 ----------
+
+    def _reconcile(self, db: Session, rows: list[FactorMiningRun]) -> None:
+        """running 行对照内存 job 修正：内存无 → interrupted；内存终态 → 补写。
+
+        已终态的 DB 行不查内存（completed 行不依赖内存 TTL，避免竞态）。
+        """
+        now = datetime.now(UTC)
+        changed = False
+        for row in rows:
+            if row.status != RUNNING:
+                continue
+            job = job_manager.get(row.job_id)
+            if job is None:
+                row.status = INTERRUPTED
+                row.finished_at = now
+                changed = True
+            elif job.status == JobStatus.COMPLETED and job.result is not None:
+                row.status = COMPLETED
+                row.stats_json = json.dumps(job.result.get("stats") or {}, ensure_ascii=False)
+                row.result_json = json.dumps(job.result, ensure_ascii=False)
+                row.finished_at = now
+                changed = True
+            elif job.status == JobStatus.FAILED:
+                row.status = FAILED
+                row.error = (job.error or "")[:10000]
+                row.finished_at = now
+                changed = True
+        if changed:
+            db.commit()
+
+    def list_runs(self, db: Session, limit: int = 20, offset: int = 0) -> tuple[int, list[FactorMiningRun]]:
+        running_rows = db.query(FactorMiningRun).filter(FactorMiningRun.status == RUNNING).all()
+        self._reconcile(db, running_rows)
+        total = db.query(FactorMiningRun).count()
+        rows = (
+            db.query(FactorMiningRun)
+            .order_by(FactorMiningRun.created_at.desc(), FactorMiningRun.id.desc())
+            .offset(max(offset, 0))
+            .limit(min(max(limit, 1), 100))
+            .all()
+        )
+        return total, rows
+
+    def get_run(self, db: Session, run_id: int) -> FactorMiningRun:
+        row = db.get(FactorMiningRun, run_id)
+        if row is None:
+            raise MiningRunError(f"挖掘记录不存在: {run_id}", "not_found")
+        if row.status == RUNNING:
+            self._reconcile(db, [row])
+            db.refresh(row)
+        return row
+
+    def delete_run(self, db: Session, run_id: int) -> None:
+        row = db.get(FactorMiningRun, run_id)
+        if row is None:
+            raise MiningRunError(f"挖掘记录不存在: {run_id}", "not_found")
+        if row.status == RUNNING:
+            raise MiningRunError(f"挖掘进行中，不能删除: {run_id}", "conflict")
+        db.delete(row)
+        db.commit()
+
+
+def _dt(v: datetime | None) -> str | None:
+    return v.isoformat() if v is not None else None
+
+
+def _loads(s: str | None) -> Any:
+    return json.loads(s) if s else None
+
+
+def run_summary(row: FactorMiningRun) -> dict[str, Any]:
+    """列表项：含参数与 stats 摘要，不含完整 result。"""
+    return {
+        "id": row.id,
+        "job_id": row.job_id,
+        "status": row.status,
+        "params": _loads(row.params_json) or {},
+        "stats": _loads(row.stats_json),
+        "error": row.error,
+        "created_at": _dt(row.created_at),
+        "finished_at": _dt(row.finished_at),
+    }
+
+
+def run_detail(row: FactorMiningRun) -> dict[str, Any]:
+    """详情：摘要 + 完整 result。"""
+    return {**run_summary(row), "result": _loads(row.result_json)}
