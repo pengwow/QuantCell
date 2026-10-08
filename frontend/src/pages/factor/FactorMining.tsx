@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   App as AntApp,
   Button,
@@ -41,7 +41,12 @@ interface FormValues {
 
 const errMsg = (e: unknown) => (e as Error)?.message || '挖掘失败';
 
-const FactorMining: React.FC<{ onMined?: (name: string) => void }> = ({ onMined }) => {
+const FactorMining: React.FC<{
+  onMined?: (name: string) => void;
+  /** 历史详情「复用参数」：seq 变化即回填表单（seq 由外层自增） */
+  reuseParams?: FactorMineLLMParams | null;
+  reuseSeq?: number;
+}> = ({ onMined, reuseParams = null, reuseSeq = 0 }) => {
   const { t } = useTranslation();
   const { message } = AntApp.useApp();
   const [form] = Form.useForm<FormValues>();
@@ -49,7 +54,7 @@ const FactorMining: React.FC<{ onMined?: (name: string) => void }> = ({ onMined 
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [temperature, setTemperature] = useState(0.8);
   const [result, setResult] = useState<FactorMineResult | null>(null);
-  const { run: runJob, status: jobStatus, loading: jobLoading } =
+  const { run: runJob, attach, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorMineResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
 
@@ -97,6 +102,62 @@ const FactorMining: React.FC<{ onMined?: (name: string) => void }> = ({ onMined 
       message.error(errMsg(err));
     }
   };
+
+  // 挂载时自动接管：最近 running → attach 续跟踪；最近 completed → 恢复结果；
+  // interrupted/failed/无记录 → 空态（failed 静默，避免历史噪音）
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (resumedRef.current) return;
+    resumedRef.current = true;
+    factorApi
+      .listMineRuns(1)
+      .then(async (r) => {
+        const latest = r.runs?.[0];
+        if (!latest) return;
+        if (latest.status === 'running') {
+          attach(
+            latest.job_id,
+            setResult,
+            (msg) => message.error(msg),
+            () =>
+              message.warning(
+                t('factor_mining_run_interrupted_tip') ||
+                  '任务已中断（服务重启），可在挖掘历史中复用参数重挖',
+              ),
+          );
+        } else if (latest.status === 'completed') {
+          const detail = await factorApi.getMineRun(latest.id);
+          if (detail.result) setResult(detail.result);
+        }
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 历史详情「复用参数重挖」：回填表单与温度/市场类型
+  useEffect(() => {
+    if (!reuseParams || reuseSeq === 0) return;
+    const p = reuseParams;
+    setCandleType(p.candle_type ?? 'spot');
+    setTemperature(p.temperature ?? 0.8);
+    form.setFieldsValue({
+      instruments: p.instruments ?? [],
+      interval: p.interval,
+      n_candidates: p.n_candidates,
+      n_rounds: p.n_rounds,
+      top_k: p.top_k,
+      test_ratio: p.test_ratio,
+      wf_folds: p.wf_folds,
+      compose: p.compose,
+    });
+    // RangePicker 的值为日期元组或 null，setFieldsValue 的 RecursivePartial
+    // 不接受 null，这里单独用 setFieldValue 回填/清空
+    form.setFieldValue(
+      'range',
+      p.start_time && p.end_time ? [dayjs(p.start_time), dayjs(p.end_time)] : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reuseSeq]);
 
   return (
     <Space orientation="vertical" size="large" style={{ display: 'flex' }}>
