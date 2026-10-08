@@ -409,7 +409,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
           {/* 左侧：文件管理区 */}
           <div className="xl:col-span-3">
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Space orientation="vertical" size="large" style={{ width: '100%' }}>
             {/* 筛选工具栏 */}
             <Card size="small" className="shadow-sm">
               <div className="space-y-3">
@@ -623,7 +623,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
           {/* 右侧：配置控制区 */}
           <div className="xl:col-span-2">
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Space orientation="vertical" size="large" style={{ width: '100%' }}>
             
             {/* 存储概览 */}
             {diskUsage && (

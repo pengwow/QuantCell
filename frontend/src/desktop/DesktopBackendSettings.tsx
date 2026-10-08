@@ -82,9 +82,9 @@ export default function DesktopBackendSettings() {
   };
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <Card title="桌面后端" style={{ maxWidth: 640 }}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         <Radio.Group
           value={mode}
           onChange={(e) => setMode(e.target.value as BackendMode)}

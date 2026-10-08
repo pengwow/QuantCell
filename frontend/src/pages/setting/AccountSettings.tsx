@@ -140,7 +140,7 @@ const AccountSettings = () => {
   return (
     // 垂直排列 antd Card 必须用 antd Space 而非 Tailwind space-y-*：
     // 后者依赖 margin-top，在 antd v5 CSS-in-JS 场景下会失效导致卡片紧贴
-    <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       {/* 账户信息：用户名/昵称/角色/ID，全部只读 */}
       <Card title="账户信息">
         <div className="flex items-center gap-4">
@@ -190,8 +190,8 @@ const AccountSettings = () => {
         cancelText="取消"
         confirmLoading={changingPwd}
         okButtonProps={{ danger: true }}
-        destroyOnClose
-        maskClosable={false}
+        destroyOnHidden
+        mask={{ closable: false }}
       >
         <Form form={form} layout="vertical" className="mt-4" preserve={false}>
           <Form.Item label="旧密码" name="oldPassword" rules={[{ required: true, message: '请输入旧密码' }]}>
