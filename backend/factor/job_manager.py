@@ -24,6 +24,8 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 ProgressCb = Callable[[float, str, str], None]
 Runner = Callable[[ProgressCb, ProgressCb], dict[str, Any]]
+# (job_id, ok, payload)：ok=True 时 payload 为结果 dict，False 时为错误字符串
+TerminalCb = Callable[[str, bool, "dict[str, Any] | str"], None]
 
 
 class JobStatus(StrEnum):
@@ -59,16 +61,16 @@ class FactorJobManager:
 
     # ---------- 提交/执行 ----------
 
-    def submit(self, kind: str, params: dict[str, Any], runner: Runner) -> str:
+    def submit(self, kind: str, params: dict[str, Any], runner: Runner, on_terminal: TerminalCb | None = None) -> str:
         job_id = str(uuid.uuid4())
         job = FactorJob(job_id=job_id, kind=kind)
         with self._lock:
             self._jobs[job_id] = job
         self._emit(job)
-        self._executor.submit(self._run, job, runner)
+        self._executor.submit(self._run, job, runner, on_terminal)
         return job_id
 
-    def _run(self, job: FactorJob, runner: Runner) -> None:
+    def _run(self, job: FactorJob, runner: Runner, on_terminal: TerminalCb | None = None) -> None:
         def on_progress(progress: float, stage: str = "", message: str = "") -> None:
             self._update(job.job_id, progress=progress, stage=stage, message=message)
 
@@ -84,9 +86,20 @@ class FactorJobManager:
                 stage="completed",
                 message="完成",
             )
+            if on_terminal is not None:
+                try:
+                    on_terminal(job.job_id, True, result)
+                except Exception:
+                    # 落库等终态副作用失败不得影响内存任务状态
+                    logger.exception(f"终态回调执行失败: {job.job_id}")
         except Exception as e:
             logger.exception(f"因子任务失败: {job.job_id}")
             self._update(job.job_id, status=JobStatus.FAILED, error=str(e), message="失败")
+            if on_terminal is not None:
+                try:
+                    on_terminal(job.job_id, False, str(e))
+                except Exception:
+                    logger.exception(f"失败终态回调执行异常: {job.job_id}")
 
     # ---------- 查询 ----------
 
