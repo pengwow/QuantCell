@@ -8,13 +8,16 @@ from sqlalchemy.orm import sessionmaker
 # 必须同时注册 strategy.models，否则实例化映射对象触发全局 mapper 配置时会失败
 import strategy.models
 from collector.db.database import Base
-from factor.models import FactorCatalog, FactorSnapshot
+from factor.models import FactorCatalog, FactorMiningRun, FactorSnapshot
 
 
 @pytest.fixture
 def db_session():
     eng = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(eng, tables=[FactorCatalog.__table__, FactorSnapshot.__table__])
+    Base.metadata.create_all(
+        eng,
+        tables=[FactorCatalog.__table__, FactorSnapshot.__table__, FactorMiningRun.__table__],
+    )
     Session = sessionmaker(bind=eng)
     with Session() as s:
         yield s
