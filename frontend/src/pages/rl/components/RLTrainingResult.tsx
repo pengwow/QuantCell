@@ -29,7 +29,7 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
               title="夏普比率"
               value={num('sharpe_ratio')}
               precision={2}
-              valueStyle={{ color: num('sharpe_ratio') >= 0 ? '#3f8600' : QUANT_COLORS.negative }}
+              styles={{ content: { color: num('sharpe_ratio') >= 0 ? '#3f8600' : QUANT_COLORS.negative } }}
               prefix={<LineChartOutlined />}
             />
           </Col>
@@ -50,7 +50,7 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
               value={num('max_drawdown_pct')}
               precision={2}
               suffix="%"
-              valueStyle={{ color: QUANT_COLORS.negative }}
+              styles={{ content: { color: QUANT_COLORS.negative } }}
             />
           </Col>
           <Col span={8}>

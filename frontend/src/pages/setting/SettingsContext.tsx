@@ -5,7 +5,10 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { App } from 'antd';
-import { useTranslation } from 'react-i18next';
+// 直接使用模块级 i18n 单例：react-i18next v16 的 useTranslation().i18n 会在语言切换时
+// 重新生成对象（引用抖动），若作为 loadConfig 的 useCallback 依赖，会导致每次切换语言都
+// 触发 useEffect 重新拉取后端配置，从而用数据库里的旧语言覆盖用户刚选择的语言。
+import i18n from '../../i18n/config';
 import { configApi, systemApi } from '../../api';
 import type {
   GeneralSettings,
@@ -135,7 +138,6 @@ interface SettingsProviderProps {
 
 export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   const { message } = App.useApp();
-  const { i18n } = useTranslation();
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>(defaultGeneralSettings);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(defaultApiSettings);
@@ -289,7 +291,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setLoading(false);
     }
-  }, [applyTheme, refreshSystemMetrics, i18n, message]);
+  }, [applyTheme, refreshSystemMetrics, message]);
 
   // 保存配置
   const saveConfig = useCallback(async () => {

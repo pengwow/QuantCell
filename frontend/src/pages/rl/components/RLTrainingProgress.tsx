@@ -73,7 +73,7 @@ export default function RLTrainingProgress({ progress, totalTimesteps }: RLTrain
             title="Episode奖励"
             value={progress.episode_reward}
             precision={2}
-            valueStyle={{ color: progress.episode_reward >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}
+            styles={{ content: { color: progress.episode_reward >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
             prefix={<TrophyOutlined />}
           />
         </div>

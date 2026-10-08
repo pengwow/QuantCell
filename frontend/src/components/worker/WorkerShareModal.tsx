@@ -504,7 +504,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       onCancel={onClose}
       footer={null}
       width={820}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form layout="vertical">
         {/* 远端上传失败时给出非阻塞提示 */}

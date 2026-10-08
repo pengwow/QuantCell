@@ -98,7 +98,7 @@ export default function ExtensionSettings() {
 
   return (
     <Card title="扩展能力" style={{ maxWidth: 640 }}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         {items.map((ext) => {
           const active = activeExt === ext.id;
           const sizeMb = ext.live_size_mb ?? ext.approx_size_mb;

@@ -45,7 +45,7 @@ export default function RiskMonitorPage() {
     <PageContainer title="风控监控">
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card><Statistic title="总检查次数" value={metrics?.total_checks ?? '-'} /></Card></Col>
-        <Col span={6}><Card><Statistic title="拒绝订单数" value={metrics?.rejected_orders ?? '-'} valueStyle={{ color: QUANT_COLORS.negative }} /></Card></Col>
+        <Col span={6}><Card><Statistic title="拒绝订单数" value={metrics?.rejected_orders ?? '-'} styles={{ content: { color: QUANT_COLORS.negative } }} /></Card></Col>
         <Col span={6}><Card><Statistic title="拒绝率" value={metrics?.rejection_rate ?? '-'} suffix="%" /></Card></Col>
         <Col span={6}>
           <Card>
