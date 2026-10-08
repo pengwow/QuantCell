@@ -80,6 +80,74 @@ def test_upsert_custom_catalog(db_session, dirs):
     assert row.is_builtin is False and row.lifecycle_status == "DISCOVERED"
 
 
+def test_upsert_custom_refreshes_category_only_when_provided(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    base = {
+        "name": "my_mom",
+        "label": "my_mom",
+        "category": "momentum",
+        "expression": "close-open",
+        "builtin": False,
+        "supported": True,
+    }
+    svc.upsert_custom(db_session, base)
+    assert db_session.query(FactorCatalog).filter_by(name="my_mom").one().category == "momentum"
+
+    # 再次 upsert 未传分类：保留已有分类（不被兜底 custom 冲掉）
+    svc.upsert_custom(db_session, {**base, "category": None, "expression": "close-close"})
+    row = db_session.query(FactorCatalog).filter_by(name="my_mom").one()
+    assert row.category == "momentum" and row.expression == "close-close"
+
+
+def test_sync_builtins_preserves_user_category_on_custom(db_session, dirs):
+    details = [*_details(), _Detail("my_mom", "my_mom", "custom", "close-open", False, True)]
+    svc = _svc(db_session, dirs, details=details)
+    svc.upsert_custom(
+        db_session,
+        {
+            "name": "my_mom",
+            "label": "my_mom",
+            "category": "momentum",
+            "expression": "close-open",
+            "builtin": False,
+            "supported": True,
+        },
+    )
+    # 引擎明细对自定义因子只会返回兜底 custom，同步不得冲掉用户选择的 momentum
+    svc.sync_builtins(db_session)
+    assert db_session.query(FactorCatalog).filter_by(name="my_mom").one().category == "momentum"
+    # 内置因子分类仍随元数据刷新
+    assert db_session.query(FactorCatalog).filter_by(name="close").one().category == "price"
+
+
+def test_set_category_updates_custom(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    _custom_row(db_session)
+    assert svc.set_category(db_session, "my_mom", "momentum").category == "momentum"
+
+
+def test_set_category_builtin_and_code_forbidden(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    svc.sync_builtins(db_session)
+    with pytest.raises(CatalogError) as e:
+        svc.set_category(db_session, "close", "momentum")
+    assert e.value.kind == "forbidden"
+
+    _custom_row(db_session, name="code_f", status="DISCOVERED")
+    db_session.query(FactorCatalog).filter_by(name="code_f").update({"category": "llm_code"})
+    db_session.commit()
+    with pytest.raises(CatalogError) as e2:
+        svc.set_category(db_session, "code_f", "momentum")
+    assert e2.value.kind == "forbidden"
+
+
+def test_set_category_unknown_not_found(db_session, dirs):
+    svc = _svc(db_session, dirs)
+    with pytest.raises(CatalogError) as e:
+        svc.set_category(db_session, "ghost", "momentum")
+    assert e.value.kind == "not_found"
+
+
 def test_delete_factor_removes_catalog_snapshots_and_archives_parquet(db_session, dirs):
     svc = _svc(db_session, dirs)
     svc.upsert_custom(
@@ -297,3 +365,68 @@ def test_delete_latest_snapshot_clears_last_metrics(db_session, dirs):
     svc.delete_snapshot(db_session, s["id"])
     cat = db_session.query(FactorCatalog).filter_by(name="momentum_5d").one()
     assert cat.last_metrics is None and cat.last_snapshot_at is None
+
+
+def test_save_snapshot_from_result_persists_without_recompute(db_session, dirs):
+    # FakeFactorService 没有 analyze 方法：本用例能跑通即证明落库不触发重算
+    svc = _svc(db_session, dirs)
+    assert not hasattr(svc._factors, "analyze")
+
+    params = {
+        "factor_name": "momentum_5d",
+        "instruments": ["BTCUSDT"],
+        "interval": "1h",
+        "candle_type": "spot",
+        "start_time": None,
+        "end_time": None,
+        "method": "spearman",
+        "n_groups": 5,
+        "window": 20,
+        "forward": 1,
+    }
+    result = {
+        "factor_name": "momentum_5d",
+        "bar_count": 3,
+        "ic": {"mean": 0.12, "ir": 0.55, "positive_rate": 0.7},
+        "long_short_return": 0.021,
+        "monotonicity": {"spearman": 0.91, "p_value": 0.01, "score": 1.0},
+        "stability": {"window": 20, "mean_autocorr": 0.33},
+        "inspection": {
+            "coverage": 0.95,
+            "turnover": 0.12,
+            "ic_stats": {"annualized_ir": 2.1, "nw_t_stat": 2.5},
+        },
+    }
+    idx = pd.MultiIndex.from_tuples(
+        [
+            (pd.Timestamp("2026-01-01 00:00"), "BTCUSDT"),
+            (pd.Timestamp("2026-01-01 01:00"), "BTCUSDT"),
+            (pd.Timestamp("2026-01-01 02:00"), "BTCUSDT"),
+        ],
+        names=["datetime", "symbol"],
+    )
+    frames = pd.DataFrame(
+        {"f": [1.0, 2.0, 3.0], "r": [0.01, -0.02, 0.03]},
+        index=idx,
+    )
+
+    summary = svc.save_snapshot_from_result(db_session, params, result, frames)
+
+    snap = db_session.query(FactorSnapshot).filter_by(factor_name="momentum_5d").one()
+    assert snap.id == summary["id"]
+    assert snap.bar_count == 3
+    # metrics_json 就是完整入参 result，不重算、不丢字段
+    assert json.loads(snap.metrics_json) == result
+
+    pq = dirs["backend"] / snap.snapshot_file
+    assert pq.exists()
+    out = pd.read_parquet(pq)
+    assert list(out.columns) == ["timestamp", "symbol", "factor", "forward_return"]
+    assert len(out) == 3
+
+    cat = db_session.query(FactorCatalog).filter_by(name="momentum_5d").one()
+    assert cat.is_builtin is True
+    last = json.loads(cat.last_metrics)
+    assert last["snapshot_id"] == snap.id
+    assert last["ic_mean"] == 0.12
+    assert last["coverage"] == 0.95

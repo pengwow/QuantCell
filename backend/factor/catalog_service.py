@@ -80,16 +80,19 @@ class FactorCatalogService:
                 created += 1
             else:
                 row.label = d.get("label")
-                row.category = d.get("category")
                 row.expression = d.get("expression") or None
                 row.supported = bool(d.get("supported"))
+                # 内置因子分类由引擎元数据维护；自定义因子的分类是用户可编辑字段，
+                # 引擎明细对其只会返回兜底 "custom"，无条件覆盖会冲掉用户选择
+                if row.is_builtin:
+                    row.category = d.get("category")
         db.commit()
         return created
 
     # ---------------- 自定义因子钩子 ----------------
 
     def upsert_custom(self, db: Session, detail: dict[str, Any]) -> FactorCatalog:
-        """自定义因子 add 后建档；已存在则只刷新表达式，不重置生命周期。"""
+        """自定义因子 add 后建档；已存在则刷新表达式与分类，不重置生命周期。"""
         row = db.query(FactorCatalog).filter_by(name=detail["name"]).one_or_none()
         if row is None:
             row = FactorCatalog(
@@ -104,6 +107,25 @@ class FactorCatalogService:
             db.add(row)
         else:
             row.expression = detail.get("expression")
+            # 仅显式传入时刷新分类（内置类目由 sync_builtins 维护，此处不动）
+            if detail.get("category"):
+                row.category = detail["category"]
+        db.commit()
+        return row
+
+    def set_category(self, db: Session, name: str, category: str) -> FactorCatalog:
+        """更新自定义表达式因子的分类。
+
+        内置因子的分类取自引擎元数据，代码/合成因子的分类由来源派生，均不允许人工修改。
+        """
+        row = db.query(FactorCatalog).filter_by(name=name).one_or_none()
+        if row is None:
+            raise CatalogError(f"因子档案不存在: {name}", "not_found")
+        if row.is_builtin:
+            raise CatalogError(f"内置因子分类由系统维护，不允许修改: {name}", "forbidden")
+        if row.category in ("llm_code", "llm_composite"):
+            raise CatalogError(f"代码/合成因子分类由来源决定，不允许修改: {name}", "forbidden")
+        row.category = category
         db.commit()
         return row
 
@@ -167,7 +189,7 @@ class FactorCatalogService:
         }
 
     def save_snapshot(self, db: Session, params: dict[str, Any], provider=None) -> dict[str, Any]:
-        """按入参服务端重算 analyze，落 parquet 快照并回写档案 last_metrics。"""
+        """按入参服务端重算 analyze，再委托 save_snapshot_from_result 落库。"""
         result, frames = self._factors.analyze(
             factor_name=params["factor_name"],
             symbols=params["instruments"],
@@ -184,7 +206,19 @@ class FactorCatalogService:
             horizons=params.get("horizons"),
             cost_bps=params.get("cost_bps", 0.0),
         )
+        return self.save_snapshot_from_result(db, params, result, frames)
 
+    def save_snapshot_from_result(
+        self,
+        db: Session,
+        params: dict[str, Any],
+        result: dict[str, Any],
+        frames: pd.DataFrame,
+    ) -> dict[str, Any]:
+        """用已算好的 analyze 结果与因子/收益长表直接落快照，不再重算。
+
+        供手动保存（save_snapshot 重算后委托）与异步分析自动留痕共用同一落库逻辑。
+        """
         snap = FactorSnapshot(
             factor_name=params["factor_name"],
             params_json=json.dumps(params, ensure_ascii=False),
@@ -297,6 +331,20 @@ class FactorCatalogService:
                 cat.last_metrics = None
                 cat.last_snapshot_at = None
         db.commit()
+
+    def get_snapshot(self, db: Session, snapshot_id: int) -> dict[str, Any]:
+        """取单条快照详情：直接反序列化 metrics_json 返回完整分析结果，零重算。"""
+        snap = db.get(FactorSnapshot, snapshot_id)
+        if snap is None:
+            raise CatalogError(f"快照不存在: {snapshot_id}", "not_found")
+        return {
+            "id": snap.id,
+            "factor_name": snap.factor_name,
+            "params": json.loads(snap.params_json),
+            "bar_count": snap.bar_count,
+            "created_at": snap.created_at.isoformat() if snap.created_at else None,
+            "result": json.loads(snap.metrics_json),
+        }
 
     # ---------------- 文件归档 ----------------
 
