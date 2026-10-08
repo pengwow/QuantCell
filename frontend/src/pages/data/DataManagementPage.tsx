@@ -614,6 +614,9 @@ const DataManagementPage = () => {
     currentTaskIdRef.current = currentTaskId;
   }, [currentTaskId]);
 
+  // 行情请求的 AbortController：发起新请求前取消旧请求，避免旧请求占用连接、拖慢页面加载
+  const marketDataAbortRef = useRef<AbortController | null>(null);
+
   // ==================== 归档浏览 Tab 状态 ====================
   // 左侧树形导航：kind 7 种 → market 3 种 → symbols
   // ==================== 归档 / 衍生 浏览状态 ====================
@@ -729,6 +732,10 @@ const DataManagementPage = () => {
     fetchSymbols();
     fetchFavoriteGroups();
     fetchCollectionTasks();
+    // 组件卸载时取消未完成的行情请求
+    return () => {
+      marketDataAbortRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
@@ -952,6 +959,11 @@ const DataManagementPage = () => {
   const fetchMarketData = async (symbolList: string[]) => {
     if (!symbolList || symbolList.length === 0) return;
 
+    // 取消上一次未完成的行情请求，避免旧请求占用连接、拖慢后续请求
+    marketDataAbortRef.current?.abort();
+    const controller = new AbortController();
+    marketDataAbortRef.current = controller;
+
     // 设置所有symbol为加载中
     const loadingMap: Record<string, boolean> = {};
     symbolList.forEach(symbol => {
@@ -969,7 +981,7 @@ const DataManagementPage = () => {
         const response = await dataApi.getMarketData({
           symbols: batch,
           exchange: SYSTEM_CONFIG.exchange,
-        });
+        }, controller.signal);
 
         // 处理后端返回的 ApiResponse 格式 { code, message, data: [...] }
         const rawData = Array.isArray(response) ? response : response?.data;
@@ -1000,11 +1012,16 @@ const DataManagementPage = () => {
         return symbol;
       }));
     } catch (error) {
+      // 主动取消不算错误，静默处理
+      if (controller.signal.aborted) return;
       message.error('获取市场数据失败');
       console.error('获取市场数据失败:', error);
     } finally {
-      // 清除加载状态
-      setMarketDataLoading({});
+      // 仅当自己仍是最新请求时才清理状态，避免误清后发起请求的加载态
+      if (marketDataAbortRef.current === controller) {
+        marketDataAbortRef.current = null;
+        setMarketDataLoading({});
+      }
     }
   };
 

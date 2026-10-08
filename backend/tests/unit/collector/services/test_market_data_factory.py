@@ -13,6 +13,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from binance import AsyncClient
 
 from collector.services.market_data_factory import (
     BinanceMarketDataFetcher,
@@ -120,7 +121,7 @@ class TestSaveMarketDataToDb:
                 "high_24h": "43000",
                 "low_24h": "41000",
             }
-            await fetcher._save_market_data_to_db(data)
+            await fetcher._save_market_data_batch([data])
         m_get_db.assert_called_once()
         record = db.query.return_value.filter.return_value.first.return_value
         assert str(record.price) == "42000.5"
@@ -143,7 +144,7 @@ class TestSaveMarketDataToDb:
             ),
         ):
             fetcher = _StubFetcher("binance", {})
-            await fetcher._save_market_data_to_db({"symbol": "BTC/USDT", "price": "1.0", "high_24h": "2.0"})
+            await fetcher._save_market_data_batch([{"symbol": "BTC/USDT", "price": "1.0", "high_24h": "2.0"}])
         db.add.assert_called_once()
         db.commit.assert_called_once()
 
@@ -151,7 +152,7 @@ class TestSaveMarketDataToDb:
         db = MagicMock()
         db.query.side_effect = RuntimeError("boom")
         with patch("collector.services.market_data_factory.get_db", return_value=iter([db])):
-            await _StubFetcher("binance", {})._save_market_data_to_db({"symbol": "X"})
+            await _StubFetcher("binance", {})._save_market_data_batch([{"symbol": "X"}])
         db.rollback.assert_called_once()
         db.commit.assert_not_called()
         db.close.assert_called_once()
@@ -161,35 +162,34 @@ class TestSaveMarketDataToDb:
 
 
 class TestBinanceClient:
-    def test_get_client_returns_cached(self):
-        fetcher = BinanceMarketDataFetcher({})
-        fetcher._client = MagicMock()
-        with patch("binance.client.Client") as m:
-            assert fetcher._get_client() is fetcher._client
-        m.assert_not_called()
-
-    def test_get_client_with_config_proxy(self):
+    async def test_get_client_with_config_proxy(self):
         fetcher = BinanceMarketDataFetcher(
             {"api_key": "k", "api_secret": "s", "proxy_enabled": True, "proxy_url": "http://p:8080"}
         )
-        with patch("binance.client.Client") as m:
-            fetcher._get_client()
-        m.assert_called_once_with("k", "s", {"proxies": {"http": "http://p:8080", "https": "http://p:8080"}})
+        with patch.object(AsyncClient, "create", new=AsyncMock(return_value="client")) as m:
+            client = await fetcher._get_client()
+        assert client == "client"
+        kwargs = m.call_args.kwargs
+        assert kwargs["https_proxy"] == "http://p:8080"
+        assert "timeout" in kwargs["session_params"]
 
-    def test_get_client_with_env_proxy(self):
+    async def test_get_client_with_env_proxy(self):
         fetcher = BinanceMarketDataFetcher({"api_key": "k", "api_secret": "s"})
         with (
-            patch.dict("os.environ", {"https_proxy": "http://env:8888"}, clear=False),
-            patch("binance.client.Client") as m,
+            patch.dict("os.environ", {"https_proxy": "http://env:8888"}, clear=True),
+            patch.object(AsyncClient, "create", new=AsyncMock(return_value="client")) as m,
         ):
-            fetcher._get_client()
-        m.assert_called_once_with("k", "s", {"proxies": {"http": "http://env:8888", "https": "http://env:8888"}})
+            await fetcher._get_client()
+        assert m.call_args.kwargs["https_proxy"] == "http://env:8888"
 
-    def test_get_client_without_proxy(self):
+    async def test_get_client_without_proxy(self):
         fetcher = BinanceMarketDataFetcher({"api_key": "k", "api_secret": "s"})
-        with patch("binance.client.Client") as m:
-            fetcher._get_client()
-        m.assert_called_once_with("k", "s")
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(AsyncClient, "create", new=AsyncMock(return_value="client")) as m,
+        ):
+            await fetcher._get_client()
+        assert m.call_args.kwargs["https_proxy"] is None
 
     def test_normalize_symbol(self):
         assert BinanceMarketDataFetcher({})._normalize_symbol("BTC/USDT") == "BTCUSDT"
@@ -207,11 +207,11 @@ class TestBinanceClient:
 class TestBinanceFetch:
     async def test_fetch_market_data_maps_and_saves(self):
         fetcher = BinanceMarketDataFetcher({})
-        client = MagicMock()
-        client.get_ticker.return_value = TICKER
+        client = AsyncMock()
+        client.get_ticker.return_value = [TICKER]
         with (
-            patch.object(fetcher, "_get_client", return_value=client),
-            patch.object(fetcher, "_save_market_data_to_db", new=AsyncMock()) as m_save,
+            patch.object(fetcher, "_get_client", new=AsyncMock(return_value=client)),
+            patch.object(fetcher, "_save_market_data_batch", new=AsyncMock()) as m_save,
         ):
             data = await fetcher.fetch_market_data(["BTC/USDT"])
         assert len(data) == 1
@@ -219,44 +219,54 @@ class TestBinanceFetch:
         assert data[0]["price"] == 42000.5
         assert data[0]["high_24h"] == 43000.0
         m_save.assert_called_once()
+        client.close_connection.assert_awaited_once()
 
-    async def test_fetch_market_data_continues_on_symbol_error(self):
+    async def test_fetch_market_data_continues_on_chunk_error(self):
+        # 分块请求，单块失败不影响其余块
         fetcher = BinanceMarketDataFetcher({})
-        client = MagicMock()
-        client.get_ticker.side_effect = [TICKER, RuntimeError("bad symbol")]
+        client = AsyncMock()
+        client.get_ticker.side_effect = [RuntimeError("chunk1 down"), [TICKER]]
         with (
-            patch.object(fetcher, "_get_client", return_value=client),
-            patch.object(fetcher, "_save_market_data_to_db", new=AsyncMock()),
+            patch.object(fetcher, "_get_client", new=AsyncMock(return_value=client)),
+            patch.object(fetcher, "_save_market_data_batch", new=AsyncMock()),
         ):
-            data = await fetcher.fetch_market_data(["BTC/USDT", "ETH/USDT"])
+            data = await fetcher.fetch_market_data([f"SYM{i}/USDT" for i in range(101)])
         assert len(data) == 1
         assert client.get_ticker.call_count == 2
 
     async def test_fetch_all_tickers(self):
         fetcher = BinanceMarketDataFetcher({})
-        client = MagicMock()
+        client = AsyncMock()
         client.get_ticker.return_value = [TICKER]
         with (
-            patch.object(fetcher, "_get_client", return_value=client),
-            patch.object(fetcher, "_save_market_data_to_db", new=AsyncMock()) as m_save,
+            patch.object(fetcher, "_get_client", new=AsyncMock(return_value=client)),
+            patch.object(fetcher, "_save_market_data_batch", new=AsyncMock()) as m_save,
         ):
             data = await fetcher.fetch_all_tickers()
         assert len(data) == 1
         assert data[0]["symbol"] == "BTC/USDT"
         m_save.assert_called_once()
+        client.close_connection.assert_awaited_once()
+
+    async def test_fetch_market_data_empty_symbols_returns_empty(self):
+        # 空列表直接返回，不创建客户端
+        fetcher = BinanceMarketDataFetcher({})
+        with patch.object(fetcher, "_get_client", new=AsyncMock()) as m:
+            assert await fetcher.fetch_market_data([]) == []
+        m.assert_not_called()
 
     async def test_fetch_market_data_propagates_client_error(self):
         # 客户端初始化失败属于外层错误，直接向上抛出而非静默跳过
         fetcher = BinanceMarketDataFetcher({})
-        with patch.object(fetcher, "_get_client", side_effect=RuntimeError("conn failed")):
+        with patch.object(fetcher, "_get_client", new=AsyncMock(side_effect=RuntimeError("conn failed"))):
             with pytest.raises(RuntimeError):
                 await fetcher.fetch_market_data(["BTC/USDT"])
 
     async def test_fetch_all_tickers_propagates_client_error(self):
         fetcher = BinanceMarketDataFetcher({})
-        client = MagicMock()
+        client = AsyncMock()
         client.get_ticker.side_effect = RuntimeError("api down")
-        with patch.object(fetcher, "_get_client", return_value=client):
+        with patch.object(fetcher, "_get_client", new=AsyncMock(return_value=client)):
             with pytest.raises(RuntimeError):
                 await fetcher.fetch_all_tickers()
 

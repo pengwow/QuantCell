@@ -3,6 +3,7 @@
 基于工厂模式的市场数据获取服务，支持多交易所和代理配置
 """
 
+import asyncio
 from datetime import datetime, timedelta
 
 from utils.logger import LogType, get_logger
@@ -54,7 +55,8 @@ class MarketDataService:
         # 优先从交易所官方接口获取数据
         try:
             # 使用工厂获取对应交易所的获取器
-            fetcher = market_data_fetcher_factory.get_fetcher(exchange)
+            # 工厂内部会同步读取系统配置（数据库），用 to_thread 卸载避免阻塞事件循环
+            fetcher = await asyncio.to_thread(market_data_fetcher_factory.get_fetcher, exchange)
             if not fetcher:
                 msg = f"不支持的交易所或未启用: {exchange}"
                 raise Exception(msg)
@@ -98,36 +100,48 @@ class MarketDataService:
         return result
 
     async def _get_market_data_from_db(self, symbols: list[str], exchange: str) -> dict:
-        """从数据库获取市场数据，返回有效和过期的"""
+        """从数据库获取市场数据，返回有效和过期的
+
+        同步数据库查询卸载到线程池，避免阻塞事件循环。
+        """
+        return await asyncio.to_thread(self._get_market_data_from_db_sync, symbols, exchange)
+
+    def _get_market_data_from_db_sync(self, symbols: list[str], exchange: str) -> dict:
+        """从数据库获取市场数据的同步实现
+
+        使用一次 IN 查询取出全部记录，替代逐条查询。
+        """
         db = next(get_db())
         try:
+            records = db.query(MarketData).filter(MarketData.symbol.in_(symbols), MarketData.exchange == exchange).all()
+            found = {record.symbol: record for record in records}
+
             valid_data = []
             expired_symbols = []
+            now = utc_now_naive()
 
             for symbol in symbols:
-                record = (
-                    db.query(MarketData).filter(MarketData.symbol == symbol, MarketData.exchange == exchange).first()
-                )
+                record = found.get(symbol)
+                if not record:
+                    expired_symbols.append(symbol)
+                    continue
 
-                if record:
-                    # 检查是否过期
-                    if record.last_update and utc_now_naive() - record.last_update < self.cache_ttl:
-                        valid_data.append(
-                            {
-                                "symbol": record.symbol,
-                                "price": float(record.price) if record.price else None,
-                                "price_change_24h": float(record.price_change_24h) if record.price_change_24h else None,
-                                "price_change_percent_24h": float(record.price_change_percent_24h)
-                                if record.price_change_percent_24h
-                                else None,
-                                "volume_24h": float(record.volume_24h) if record.volume_24h else None,
-                                "high_24h": float(record.high_24h) if record.high_24h else None,
-                                "low_24h": float(record.low_24h) if record.low_24h else None,
-                                "last_update": record.last_update.isoformat() if record.last_update else None,
-                            }
-                        )
-                    else:
-                        expired_symbols.append(symbol)
+                # 检查是否过期
+                if record.last_update and now - record.last_update < self.cache_ttl:
+                    valid_data.append(
+                        {
+                            "symbol": record.symbol,
+                            "price": float(record.price) if record.price else None,
+                            "price_change_24h": float(record.price_change_24h) if record.price_change_24h else None,
+                            "price_change_percent_24h": float(record.price_change_percent_24h)
+                            if record.price_change_percent_24h
+                            else None,
+                            "volume_24h": float(record.volume_24h) if record.volume_24h else None,
+                            "high_24h": float(record.high_24h) if record.high_24h else None,
+                            "low_24h": float(record.low_24h) if record.low_24h else None,
+                            "last_update": record.last_update.isoformat() if record.last_update else None,
+                        }
+                    )
                 else:
                     expired_symbols.append(symbol)
 
@@ -146,7 +160,8 @@ class MarketDataService:
         """
         try:
             # 使用工厂获取对应交易所的获取器
-            fetcher = market_data_fetcher_factory.get_fetcher(exchange)
+            # 工厂内部会同步读取系统配置（数据库），用 to_thread 卸载避免阻塞事件循环
+            fetcher = await asyncio.to_thread(market_data_fetcher_factory.get_fetcher, exchange)
             if not fetcher:
                 msg = f"不支持的交易所或未启用: {exchange}"
                 raise Exception(msg)
