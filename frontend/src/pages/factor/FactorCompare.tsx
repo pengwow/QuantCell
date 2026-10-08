@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  App as AntApp,
   Button,
   Card,
   DatePicker,
@@ -9,7 +10,6 @@ import {
   Form,
   Input,
   InputNumber,
-  message,
   Progress,
   Select,
   Space,
@@ -80,6 +80,7 @@ const fmt = (v: number | null | undefined, digits: number) =>
 const FactorCompare: React.FC = () => {
   const qc = useQuantColors();
   const { t } = useTranslation();
+  const { message } = AntApp.useApp();
   const [form] = Form.useForm<FormValues>();
   const [factors, setFactors] = useState<FactorDetail[]>([]);
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -314,7 +315,7 @@ const FactorCompare: React.FC = () => {
   }, [result, qc]);
 
   return (
-    <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Card title={t('factor_wb_card_params') || '对比参数'}>
         {/* inline 表单项换行后默认无垂直间距，用 flex rowGap 补到 middle 档 */}
         <Form<FormValues>
@@ -452,7 +453,7 @@ const FactorCompare: React.FC = () => {
       )}
 
       {!jobLoading && result && (
-        <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+        <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <Card title={t('factor_cmp_card_metrics') || '指标对比'}>
             <Table<FactorCompareRow>
               rowKey="factor_name"

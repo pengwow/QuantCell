@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  App as AntApp,
   Button,
   Card,
   DatePicker,
@@ -9,7 +10,6 @@ import {
   Form,
   Input,
   InputNumber,
-  message,
   Modal,
   Popconfirm,
   Progress,
@@ -25,7 +25,6 @@ import {
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import type { TableProps } from 'antd';
 import {
   factorApi,
@@ -188,7 +187,7 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
         </Button>
       }
     >
-      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+      <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         <Table<CompositeConstituent>
           size="small"
           pagination={false}
@@ -226,7 +225,7 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
           <span style={{ color: '#d46b08', whiteSpace: 'pre-wrap' }}>{comp.oos_note}</span>
         )}
         {comp.folds?.length ? (
-          <Space direction="vertical" size="small" style={{ display: 'flex' }}>
+          <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
             <span style={{ color: '#8c8c8c' }}>
               {t('factor_mining_comp_wf_label') || 'walk-forward 各折复核'}
             </span>
@@ -238,10 +237,10 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
   );
 };
 
-const FactorMining: React.FC = () => {
+const FactorMining: React.FC<{ onMined?: (name: string) => void }> = ({ onMined }) => {
   const { t } = useTranslation();
+  const { message } = AntApp.useApp();
   const qc = useQuantColors();
-  const navigate = useNavigate();
   const [form] = Form.useForm<FormValues>();
   const [candleType, setCandleType] = useState<'spot' | 'future'>('spot');
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
@@ -353,20 +352,6 @@ const FactorMining: React.FC = () => {
     }
   };
 
-  // 保存成功后带挖掘口径（品种/周期）跳到工作台并自动分析一次
-  const goWorkbench = (name: string) => {
-    const syms = (form.getFieldValue('instruments') as string[] | undefined) ?? [];
-    const interval = (form.getFieldValue('interval') as string | undefined) ?? '1h';
-    const q = new URLSearchParams({
-      tab: 'workbench',
-      factor: name,
-      syms: syms.join(','),
-      interval,
-      run: '1',
-    });
-    navigate(`/factor-analysis?${q.toString()}`);
-  };
-
   // Popconfirm 确认：reject 时气泡保持打开，便于改名重试
   const handleSave = async () => {
     if (!saveRow) return;
@@ -382,7 +367,7 @@ const FactorMining: React.FC = () => {
         t('factor_mining_toast_saved', { name }) || `已保存到因子库：${name}，正在带入工作台分析…`,
       );
       setSaveRow(null);
-      goWorkbench(name);
+      onMined?.(name);
     } catch (err) {
       message.error(errMsg(err));
       throw err;
@@ -435,7 +420,7 @@ const FactorMining: React.FC = () => {
           `合成因子已保存到因子库：${savedName}，正在带入工作台分析…`,
       );
       setCompModalOpen(false);
-      goWorkbench(savedName);
+      onMined?.(savedName);
     } catch (err) {
       message.error(errMsg(err));
     } finally {
@@ -607,7 +592,7 @@ const FactorMining: React.FC = () => {
   ];
 
   return (
-    <Space direction="vertical" size="large" style={{ display: 'flex' }}>
+    <Space orientation="vertical" size="large" style={{ display: 'flex' }}>
       <Card title={t('factor_mining_card_main') || 'LLM 因子挖掘'}>
         <Form<FormValues>
           form={form}
@@ -745,7 +730,7 @@ const FactorMining: React.FC = () => {
       </Card>
 
       <Card title={t('factor_mining_card_result') || '挖掘结果'}>
-        <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+        <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           {result && (
             <Flex gap="large" wrap>
               <Statistic title={t('factor_mining_stats_generated') || '生成'} value={result.stats.generated} />
@@ -753,17 +738,17 @@ const FactorMining: React.FC = () => {
               <Statistic
                 title={t('factor_mining_stats_succeeded') || '成功'}
                 value={result.stats.succeeded}
-                valueStyle={{ color: qc.positive }}
+                styles={{ content: { color: qc.positive } }}
               />
               <Statistic
                 title={t('factor_mining_stats_redundant') || '重复'}
                 value={result.stats.redundant ?? 0}
-                valueStyle={{ color: '#d46b08' }}
+                styles={{ content: { color: '#d46b08' } }}
               />
               <Statistic
                 title={t('factor_mining_stats_failed') || '失败'}
                 value={result.stats.failed}
-                valueStyle={{ color: qc.negative }}
+                styles={{ content: { color: qc.negative } }}
               />
             </Flex>
           )}
@@ -804,7 +789,7 @@ const FactorMining: React.FC = () => {
               `轮次${drawerRow.round} 候选${drawerRow.candidate}`
             : ''
         }
-        width={640}
+        size={640}
         onClose={() => setDrawerRow(null)}
       >
         {drawerRow?.code ? (
@@ -822,8 +807,8 @@ const FactorMining: React.FC = () => {
         onCancel={() => setCompModalOpen(false)}
         okText={t('factor_lib_save') || '保存'}
         cancelText={t('factor_lib_cancel') || '取消'}
-        destroyOnClose
-        maskClosable={false}
+        destroyOnHidden
+        mask={{ closable: false }}
       >
         <Form form={compForm} layout="vertical" preserve={false}>
           <Form.Item

@@ -45,6 +45,29 @@ class BaseSchema(BaseModel):
         from_attributes = True
 
 
+# 自定义表达式因子可人工归档的分类：与内置因子元数据的 category 取值对齐，custom 为兜底。
+# 不含 llm_code / llm_composite：二者的分类由因子来源（代码/合成）派生，不允许人工指定。
+EDITABLE_FACTOR_CATEGORIES = (
+    "custom",
+    "price",
+    "momentum",
+    "volatility",
+    "volume_price",
+    "technical",
+    "fundamental",
+)
+
+
+def _check_category(v: str | None) -> str | None:
+    """校验分类取值；None 表示不指定（落库时按 custom 兜底）。"""
+    if v is None:
+        return v
+    if v not in EDITABLE_FACTOR_CATEGORIES:
+        msg = f"未知因子分类: {v}；可选: {list(EDITABLE_FACTOR_CATEGORIES)}"
+        raise ValueError(msg)
+    return v
+
+
 class FactorAddRequest(BaseSchema):
     """
     添加因子请求模型
@@ -52,6 +75,7 @@ class FactorAddRequest(BaseSchema):
     Attributes:
         factor_name: 因子名称
         expression: 因子表达式，用于计算因子值
+        category: 因子分类，缺省则按 custom 归档
     """
 
     factor_name: str = Field(
@@ -67,6 +91,12 @@ class FactorAddRequest(BaseSchema):
         max_length=500,
         description="因子表达式，用于计算因子值",
         example="close - open",
+    )
+    category: str | None = Field(
+        default=None,
+        max_length=50,
+        description="因子分类，缺省为 custom",
+        example="momentum",
     )
 
     @validator("factor_name")
@@ -84,6 +114,11 @@ class FactorAddRequest(BaseSchema):
             msg = "因子表达式不能为空"
             raise ValueError(msg)
         return v.strip()
+
+    @validator("category")
+    def validate_category(cls, v: str | None) -> str | None:
+        """验证因子分类"""
+        return _check_category(v)
 
 
 class FactorCalculateBase(BaseSchema):
@@ -483,6 +518,18 @@ class LifecycleUpdateRequest(BaseSchema):
     """生命周期流转请求。"""
 
     status: str = Field(..., min_length=1, max_length=20, description="目标生命周期状态")
+
+
+class FactorCategoryUpdateRequest(BaseSchema):
+    """因子分类更新请求（仅自定义表达式因子可改）。"""
+
+    category: str = Field(..., min_length=1, max_length=50, description="目标分类", example="momentum")
+
+    @validator("category")
+    def validate_category(cls, v: str) -> str:
+        """验证因子分类"""
+        _check_category(v)
+        return v
 
 
 class CodeFactorValidateRequest(BaseSchema):

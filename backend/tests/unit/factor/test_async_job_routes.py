@@ -16,7 +16,10 @@ from utils.auth import get_current_user
 if not (get_source_data_dir() / "crypto/spot/klines/1h/BTCUSDT.parquet").exists():
     pytest.skip("本地无 BTCUSDT 1h parquet，跳过异步任务 HTTP 检查", allow_module_level=True)
 
+import factor.routes as factor_routes
+from factor.models import FactorSnapshot
 from main import app
+from utils.db_session import get_db_session
 
 
 def _client() -> TestClient:
@@ -52,6 +55,8 @@ ANALYZE_BODY = {
 
 def test_analyze_async_completes_and_result_fetchable():
     client = _client()
+    before = _snapshot_ids()
+    new_ids: set[int] = set()
     try:
         r = client.post("/api/v1/factor/analyze-async", json=ANALYZE_BODY)
         assert r.status_code == 200, r.text
@@ -67,7 +72,13 @@ def test_analyze_async_completes_and_result_fetchable():
         data = rr.json()["data"]
         assert data["factor_name"] == "close"
         assert "inspection" in data
+        # 强制留痕：普通分析（无任何开关入参）也会落一条快照
+        new_ids = _snapshot_ids() - before
+        assert len(new_ids) == 1
     finally:
+        # 清理本用例产生的快照（走 DELETE 接口，parquet 同步归档）
+        for sid in new_ids:
+            client.delete(f"/api/v1/factor/snapshots/{sid}")
         app.dependency_overrides.clear()
 
 
@@ -109,5 +120,34 @@ def test_failed_job_result_is_410_and_unknown_404():
         assert "ghost_factor" in rr.json()["detail"]
 
         assert client.get("/api/v1/factor/jobs/not-exist-id").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _snapshot_ids(factor_name: str = "close") -> set[int]:
+    """直接查快照表当前 id 集合，用于比对自动留痕是否多了一行。"""
+    with get_db_session() as db:
+        return {r.id for r in db.query(FactorSnapshot).filter_by(factor_name=factor_name).all()}
+
+
+def test_analyze_async_snapshot_failure_is_best_effort(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    # 强制留痕无开关：runner 在工作线程内通过模块级 _catalog_service 调落库，
+    # patch 实例方法模拟落库失败，断言分析任务本身仍 completed
+    monkeypatch.setattr(factor_routes._catalog_service, "save_snapshot_from_result", _boom)
+
+    client = _client()
+    try:
+        r = client.post("/api/v1/factor/analyze-async", json=ANALYZE_BODY)
+        assert r.status_code == 200, r.text
+        jid = r.json()["data"]["job_id"]
+
+        st = _wait_job(client, jid)
+        assert st["status"] == "completed"
+        rr = client.get(f"/api/v1/factor/jobs/{jid}/result")
+        assert rr.status_code == 200
+        assert rr.json()["data"]["factor_name"] == "close"
     finally:
         app.dependency_overrides.clear()

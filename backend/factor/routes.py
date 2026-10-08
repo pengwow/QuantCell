@@ -32,6 +32,7 @@ from .schemas import (
     FactorCalculateBase,
     FactorCalculateMultiRequest,
     FactorCalculateRequest,
+    FactorCategoryUpdateRequest,
     FactorCompareRequest,
     FactorCompositeAddRequest,
     FactorCorrelationRequest,
@@ -197,7 +198,13 @@ def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_curre
                     _catalog_service.sync_builtins(db)  # 确保内置已在，自定义 upsert 不依赖顺序
                     details = [d for d in factor_service.get_factor_details() if d["name"] == request.factor_name]
                     if details:
-                        _catalog_service.upsert_custom(db, details[0])
+                        detail = dict(details[0])
+                        # 引擎明细对自定义因子只给兜底 custom：剥离它，仅在用户显式指定时写入，
+                        # 否则由 upsert_custom 保留原分类（编辑表达式场景）或落 custom（首次建档）
+                        detail.pop("category", None)
+                        if request.category:
+                            detail["category"] = request.category
+                        _catalog_service.upsert_custom(db, detail)
             except Exception as hook_err:
                 logger.warning(f"因子档案建档失败（不影响表达式保存）: {hook_err}")
             return ApiResponse(
@@ -766,6 +773,32 @@ def update_lifecycle(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post(
+    "/catalog/{factor_name}/category",
+    response_model=ApiResponse,
+    summary="更新自定义因子分类",
+)
+def update_category(
+    factor_name: str,
+    request: FactorCategoryUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    """更新自定义表达式因子的分类（内置/代码/合成因子不允许修改）。"""
+    try:
+        with get_db_session() as db:
+            row = _catalog_service.set_category(db, factor_name, request.category)
+            return ApiResponse(
+                code=0,
+                message="ok",
+                data={"name": row.name, "category": row.category},
+            )
+    except CatalogError as e:
+        raise _catalog_error(e)
+    except Exception as e:
+        logger.error(f"更新因子分类失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/snapshots", response_model=ApiResponse, summary="保存因子分析快照（服务端重算）")
 def save_snapshot(
     request: FactorAnalyzeRequest,
@@ -814,6 +847,19 @@ def delete_snapshot(snapshot_id: int, current_user: dict = Depends(get_current_u
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/snapshots/{snapshot_id}", response_model=ApiResponse, summary="查询单条快照详情（完整分析结果，零重算）")
+def get_snapshot(snapshot_id: int, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            detail = _catalog_service.get_snapshot(db, snapshot_id)
+        return ApiResponse(code=0, message="ok", data=_sanitize(detail))
+    except CatalogError as e:
+        raise _catalog_error(e)
+    except Exception as e:
+        logger.error(f"快照详情查询失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ---------------- 异步任务（analyze/compare） ----------------
 
 
@@ -823,7 +869,8 @@ def _run_analyze_job(params: dict[str, Any]):
     def runner(on_progress, _on_stage):
         on_progress(30, "data", "读取数据…")
         on_progress(90, "computing", "计算因子指标…")
-        return factor_service.analyze(
+        # return_frames=True 才能在自动留痕时写快照 parquet；frames 不经过 HTTP
+        result, frames = factor_service.analyze(
             factor_name=params["factor_name"],
             symbols=params["instruments"],
             interval=params["interval"],
@@ -834,9 +881,19 @@ def _run_analyze_job(params: dict[str, Any]):
             n_groups=params["n_groups"],
             window=params["window"],
             forward=params["forward"],
+            return_frames=True,
             horizons=params.get("horizons"),
             cost_bps=params.get("cost_bps", 0.0),
         )
+        # 每次分析成功强制留痕（无开关、无感知）：独立 session 落库，
+        # 任何失败只告警，绝不拖垮分析结果
+        # ponytail: 每次分析一条 parquet，不做自动清理；磁盘膨胀时在系统配置增加清理动作
+        try:
+            with get_db_session() as db:
+                _catalog_service.save_snapshot_from_result(db, params, result, frames)
+        except Exception as e:
+            logger.warning(f"自动留存快照失败（不影响分析结果）: {e}")
+        return result
 
     return runner
 

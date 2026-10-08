@@ -275,6 +275,10 @@ export interface FactorCatalogItem extends FactorDetail {
     long_short_return: number | null;
     monotonicity_spearman: number | null;
     stability_autocorr: number | null;
+    coverage: number | null;
+    turnover: number | null;
+    annualized_ir: number | null;
+    nw_t_stat: number | null;
     created_at: string;
   } | null;
   last_snapshot_at: string | null;
@@ -295,6 +299,16 @@ export interface FactorSnapshotSummary {
   monotonicity_spearman: number | null;
   stability_autocorr: number | null;
   ic_series_len: number;
+}
+
+/** 快照详情：入参 + 完整分析结果（metrics_json 反序列化，零重算） */
+export interface FactorSnapshotDetail {
+  id: number;
+  factor_name: string;
+  params: FactorAnalyzeParams;
+  bar_count: number;
+  created_at: string | null;
+  result: FactorAnalyzeResult;
 }
 
 /** 分位组合净值曲线（inspection.quantile_nav） */
@@ -368,8 +382,8 @@ export interface FactorAnalyzeResult {
 
 export const factorApi = {
   listDetail: () => apiRequest.get<{ factors: FactorDetail[] }>('/factor/list-detail'),
-  add: (factor_name: string, expression: string) =>
-    apiRequest.post('/factor/add', { factor_name, expression }),
+  add: (factor_name: string, expression: string, category?: string) =>
+    apiRequest.post('/factor/add', { factor_name, expression, category }),
   remove: (name: string) =>
     apiRequest.delete(`/factor/delete/${encodeURIComponent(name)}`),
   validate: (expression: string) =>
@@ -404,8 +418,15 @@ export const factorApi = {
   catalog: () => apiRequest.get<{ factors: FactorCatalogItem[] }>('/factor/catalog'),
   updateLifecycle: (name: string, status: LifecycleStatus) =>
     apiRequest.post(`/factor/catalog/${encodeURIComponent(name)}/lifecycle`, { status }),
+  updateCategory: (name: string, category: string) =>
+    apiRequest.post<{ name: string; category: string }>(
+      `/factor/catalog/${encodeURIComponent(name)}/category`,
+      { category },
+    ),
   saveSnapshot: (p: FactorAnalyzeParams) => apiRequest.post<{ id: number }>('/factor/snapshots', p),
   listSnapshots: (name: string) =>
     apiRequest.get<{ snapshots: FactorSnapshotSummary[] }>('/factor/snapshots', { factor_name: name }),
   deleteSnapshot: (id: number) => apiRequest.delete(`/factor/snapshots/${id}`),
+  getSnapshot: (id: number) =>
+    apiRequest.get<FactorSnapshotDetail>(`/factor/snapshots/${id}`),
 };
