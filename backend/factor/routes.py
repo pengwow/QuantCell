@@ -17,6 +17,14 @@ from common.schemas import ApiResponse
 from factor.catalog_service import CatalogError, FactorCatalogService
 from factor.job_manager import JobStatus, job_manager
 from factor.llm_miner import LLMMineParams, run_llm_mining
+from factor.mining_run_service import (
+    MiningRunError as MiningRunServiceError,
+)
+from factor.mining_run_service import (
+    MiningRunService,
+    run_detail,
+    run_summary,
+)
 from factor.models import FactorCatalog, FactorSnapshot
 from factor.sandbox import SandboxError
 from quality.parquet_provider import ParquetDataProvider
@@ -123,6 +131,7 @@ _catalog_service = FactorCatalogService(
     trash_dir=_TRASH_DIR,
     backend_dir=_BACKEND_DIR,
 )
+_mining_run_service = MiningRunService()
 
 
 @router.get(
@@ -989,6 +998,18 @@ def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
     return runner
 
 
+def _persist_mining_terminal(job_id: str, ok: bool, payload: Any) -> None:
+    """llm_mine 终态落库（工作线程内调用，独立短 session；失败仅记日志）。"""
+    try:
+        with get_db_session() as db:
+            if ok:
+                _mining_run_service.mark_completed(db, job_id, payload)
+            else:
+                _mining_run_service.mark_failed(db, job_id, str(payload))
+    except Exception:
+        logger.exception(f"挖掘运行记录终态落库失败: {job_id}")
+
+
 @router.post("/analyze-async", response_model=ApiResponse, summary="异步因子分析（返回 job_id，进度走 WS factor:job）")
 def analyze_async(request: FactorAnalyzeRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     params = request.model_dump()
@@ -1124,8 +1145,64 @@ def mine_llm_factors(request: FactorMineLLMRequest, current_user: dict = Depends
     if llm_cfg is None:
         raise HTTPException(status_code=400, detail="未配置可用的默认 AI 模型或 API Key，请先在模型管理中配置")
     params = request.model_dump()
-    job_id = job_manager.submit("llm_mine", params, _run_llm_mine_job(params, llm_cfg))
-    return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
+    job_id = job_manager.submit(
+        "llm_mine",
+        params,
+        _run_llm_mine_job(params, llm_cfg),
+        on_terminal=_persist_mining_terminal,
+    )
+    # running 行是重连锚点；建行失败不阻断挖掘（仅失去本次历史/重连能力）
+    run_id: int | None = None
+    try:
+        with get_db_session() as db:
+            run_id = _mining_run_service.create_running(db, job_id, params).id
+    except Exception:
+        logger.exception("挖掘运行记录创建失败（不影响任务提交）")
+    return ApiResponse(
+        code=0,
+        message="ok",
+        data={"job_id": job_id, "status": "pending", "run_id": run_id},
+    )
+
+
+def _mining_run_error(e: MiningRunServiceError) -> HTTPException:
+    status = {"not_found": 404, "conflict": 409}.get(e.kind, 400)
+    return HTTPException(status_code=status, detail=str(e))
+
+
+@router.get("/mine/runs", response_model=ApiResponse, summary="LLM 挖掘历史列表")
+def list_mine_runs(
+    limit: int = 20,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    with get_db_session() as db:
+        total, rows = _mining_run_service.list_runs(db, limit=limit, offset=offset)
+        return ApiResponse(
+            code=0,
+            message="ok",
+            data={"total": total, "runs": [run_summary(r) for r in rows]},
+        )
+
+
+@router.get("/mine/runs/{run_id}", response_model=ApiResponse, summary="LLM 挖掘记录详情")
+def get_mine_run(run_id: int, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            row = _mining_run_service.get_run(db, run_id)
+            return ApiResponse(code=0, message="ok", data=run_detail(row))
+    except MiningRunServiceError as e:
+        raise _mining_run_error(e)
+
+
+@router.delete("/mine/runs/{run_id}", response_model=ApiResponse, summary="删除 LLM 挖掘记录")
+def delete_mine_run(run_id: int, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    try:
+        with get_db_session() as db:
+            _mining_run_service.delete_run(db, run_id)
+        return ApiResponse(code=0, message="ok")
+    except MiningRunServiceError as e:
+        raise _mining_run_error(e)
 
 
 @router.get("/jobs/{job_id}", response_model=ApiResponse, summary="查询因子任务状态")

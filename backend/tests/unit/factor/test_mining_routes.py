@@ -37,14 +37,17 @@ def isolated_catalog_db(monkeypatch):
 
     from collector.db.database import Base
     from factor import routes as factor_routes
-    from factor.models import FactorCatalog, FactorSnapshot
+    from factor.models import FactorCatalog, FactorMiningRun, FactorSnapshot
 
     eng = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(eng, tables=[FactorCatalog.__table__, FactorSnapshot.__table__])
+    Base.metadata.create_all(
+        eng,
+        tables=[FactorCatalog.__table__, FactorSnapshot.__table__, FactorMiningRun.__table__],
+    )
     session_factory = sessionmaker(bind=eng)
 
     @contextmanager
@@ -265,12 +268,14 @@ def test_add_composite_rejects_single_constituent(client, tmp_path, monkeypatch)
     assert resp.status_code == 422  # Pydantic 成分数 2-20 校验
 
 
-def test_mine_llm_submits_job(client, monkeypatch):
+def test_mine_llm_submits_job_and_creates_run(client, monkeypatch, isolated_catalog_db):
     submitted = {}
+    captured = {}
 
-    def fake_submit(kind, params, runner):
+    def fake_submit(kind, params, runner, on_terminal=None):
         submitted["kind"] = kind
         submitted["params"] = params
+        captured["on_terminal"] = on_terminal
         return "job-123"
 
     monkeypatch.setattr("factor.routes.job_manager.submit", fake_submit)
@@ -292,10 +297,14 @@ def test_mine_llm_submits_job(client, monkeypatch):
         },
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["job_id"] == "job-123"
+    data = resp.json()["data"]
+    assert data["job_id"] == "job-123"
+    assert isinstance(data["run_id"], int)
     assert submitted["kind"] == "llm_mine"
     # compose 默认开启并透传到 job 参数
     assert submitted["params"]["compose"] is True
+    # 终态回调已挂上
+    assert callable(captured["on_terminal"])
 
 
 def test_mine_llm_without_model_config_400(client, monkeypatch):
@@ -305,3 +314,100 @@ def test_mine_llm_without_model_config_400(client, monkeypatch):
         json={"instruments": ["BTCUSDT"], "interval": "1h"},
     )
     assert resp.status_code == 400
+
+
+_MINE_RESULT = {
+    "candidates": [],
+    "best": [],
+    "composite": None,
+    "stats": {
+        "generated": 2,
+        "unique": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "redundant": 0,
+        "rounds": 1,
+        "symbols": ["BTCUSDT"],
+        "interval": "1h",
+        "model_name": "m",
+    },
+}
+
+
+def _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-h1"):
+    from factor.job_manager import JobStatus
+
+    captured = {}
+
+    def fake_submit(kind, params, runner, on_terminal=None):
+        captured["cb"] = on_terminal
+        return job_id
+
+    class _RunningJob:
+        # 模拟真实 submit 的内存副作用：内存中存在 running job，
+        # service 懒修正据此保持 DB running 行（查无内存 job 才会置 interrupted）
+        status = JobStatus.RUNNING
+
+    class _RunningManager:
+        def get(self, jid):
+            return _RunningJob() if jid == job_id else None
+
+    monkeypatch.setattr("factor.routes.job_manager.submit", fake_submit)
+    monkeypatch.setattr("factor.mining_run_service.job_manager", _RunningManager())
+    monkeypatch.setattr(
+        "factor.routes._resolve_llm_config",
+        lambda model_id=None: {"api_key": "k", "base_url": "http://x", "model": "m"},
+    )
+    resp = client.post(
+        "/api/v1/factor/mine/llm",
+        json={"instruments": ["BTCUSDT"], "interval": "1h", "n_candidates": 2, "n_rounds": 1},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["run_id"], captured
+
+
+def test_mine_run_lifecycle_list_detail_delete(client, monkeypatch, isolated_catalog_db):
+    run_id, captured = _submit_mining_with_captured_cb(client, monkeypatch)
+
+    # 初始 running：列表可见、详情可查、删除 409
+    lst = client.get("/api/v1/factor/mine/runs")
+    assert lst.status_code == 200, lst.text
+    body = lst.json()["data"]
+    assert body["total"] == 1
+    assert body["runs"][0]["status"] == "running"
+    assert "result" not in body["runs"][0]
+    assert body["runs"][0]["params"]["instruments"] == ["BTCUSDT"]
+    assert client.delete(f"/api/v1/factor/mine/runs/{run_id}").status_code == 409
+
+    # 驱动完成回调
+    captured["cb"]("job-h1", True, _MINE_RESULT)
+
+    detail = client.get(f"/api/v1/factor/mine/runs/{run_id}").json()["data"]
+    assert detail["status"] == "completed"
+    assert detail["result"]["stats"]["succeeded"] == 2
+    assert detail["stats"]["generated"] == 2
+    assert detail["finished_at"] is not None
+
+    assert client.delete(f"/api/v1/factor/mine/runs/{run_id}").status_code == 200
+    assert client.get(f"/api/v1/factor/mine/runs/{run_id}").status_code == 404
+
+
+def test_mine_run_failed_terminal_persists_error(client, monkeypatch, isolated_catalog_db):
+    run_id, captured = _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-h2")
+    captured["cb"]("job-h2", False, "llm boom")
+    detail = client.get(f"/api/v1/factor/mine/runs/{run_id}").json()["data"]
+    assert detail["status"] == "failed" and detail["error"] == "llm boom"
+    assert client.delete(f"/api/v1/factor/mine/runs/{run_id}").status_code == 200
+
+
+def test_mine_run_interrupted_after_restart(client, monkeypatch, isolated_catalog_db):
+    # DB running 但内存 job 查不到 → 详情懒修正 interrupted（monkeypatch 内存 manager.get 为 None）
+    run_id, _ = _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-h3")
+
+    class _NoJobs:
+        def get(self, job_id):
+            return None
+
+    monkeypatch.setattr("factor.mining_run_service.job_manager", _NoJobs())
+    detail = client.get(f"/api/v1/factor/mine/runs/{run_id}").json()["data"]
+    assert detail["status"] == "interrupted"
