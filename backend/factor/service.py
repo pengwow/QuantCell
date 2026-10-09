@@ -450,7 +450,8 @@ class FactorService:
             details.append(
                 {
                     "name": name,
-                    "expression": entry["code"],
+                    # 完整代码不再进档案/列表 payload，走 /factors/{name}/definition 懒加载
+                    "expression": None,
                     "category": "llm_code",
                     "label": entry.get("description") or name,
                     "builtin": False,
@@ -464,8 +465,8 @@ class FactorService:
             details.append(
                 {
                     "name": name,
-                    # 合成因子无单一表达式：用方法标记占位，因子库表达式列展示该串
-                    "expression": f"{entry.get('method', COMPOSITE_METHOD)}({n_constituents})",
+                    # 合成因子无单一表达式：方法/成分/冻结权重走 definition 端点，档案不存占位串
+                    "expression": None,
                     "category": "llm_composite",
                     "label": entry.get("description") or name,
                     "builtin": False,
