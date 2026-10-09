@@ -189,6 +189,24 @@ def get_factor_expression(factor_name: str, current_user: dict = Depends(get_cur
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get(
+    "/factors/{factor_name}/definition",
+    response_model=ApiResponse,
+    summary="获取因子完整定义",
+    description=(
+        "按因子形态返回定义：expression=单行表达式；code=完整 Python 代码与 code_hash；"
+        "composite=方法、训练窗口及各成分代码与冻结权重。因子不存在返回 404。"
+    ),
+)
+def get_factor_definition(factor_name: str, current_user: dict = Depends(get_current_user)) -> ApiResponse:
+    """获取因子完整定义（三形态），供因子库「代码」Tab 懒加载。"""
+    try:
+        data = factor_service.get_factor_definition(factor_name)
+        return ApiResponse(code=0, message="ok", data=data)
+    except FactorNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post(
     "/add",
     response_model=ApiResponse,
