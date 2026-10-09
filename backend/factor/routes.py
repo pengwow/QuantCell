@@ -1073,9 +1073,11 @@ def validate_code_factor(
         factor_service._sandbox.validate(request.code)
         return ApiResponse(code=0, message="代码校验通过", data={"valid": True})
     except SandboxError as e:
+        # 校验结果作为数据返回（code=0）：校验操作本身成功，结果为「不通过」。
+        # 若用 code=1，前端拦截器会 reject 并丢弃 data，拿不到 error_type/message。
         return ApiResponse(
-            code=1,
-            message="代码校验失败",
+            code=0,
+            message="代码校验完成",
             data={"valid": False, "error_type": type(e).__name__, "message": str(e)},
         )
 
