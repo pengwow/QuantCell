@@ -4,7 +4,7 @@
  * - 编辑：模式由因子来源锁定（表达式因子→表达式；代码因子→代码），名称只读
  * 代码模式走沙箱校验（/code/validate）与入库（/code/add）；表达式模式走 /factor/add。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -124,12 +124,10 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
     }
   }, [editing, form]);
 
-  // 仅在弹窗打开时初始化一次：用 ref 持有最新 init，避免 editing 引用变化重置用户输入
+  // 弹窗内容由 rc-dialog 在打开后才挂载：effect 里同步 setFieldsValue 会早于 Form 挂载而丢失，
+  // 故用 afterOpenChange 在内容挂载完成后初始化。ref 持有最新 init，避免 editing 引用变化重置输入。
   const initRef = useRef(init);
   initRef.current = init;
-  useEffect(() => {
-    if (open) void initRef.current();
-  }, [open]);
 
   const runValidate = async () => {
     const code = (form.getFieldValue('code') as string | undefined)?.trim();
@@ -196,6 +194,9 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
       destroyOnHidden
       mask={{ closable: false }}
       width={640}
+      afterOpenChange={(o) => {
+        if (o) void initRef.current();
+      }}
     >
       {!isEdit && (
         <Segmented
@@ -280,7 +281,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
             <Form.Item name="description" label={t('factor_form_desc') || '描述（可选）'}>
               <Input placeholder={t('factor_form_desc_ph') || '一句话说明这个因子在算什么'} />
             </Form.Item>
-            <Space direction="vertical" size="small" style={{ display: 'flex' }}>
+            <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
               <Button size="small" loading={validating} onClick={() => void runValidate()}>
                 {validating
                   ? t('factor_form_validating') || '校验中…'
