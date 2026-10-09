@@ -101,3 +101,29 @@ def test_details_expression_none_for_code_and_composite(svc):
     assert details["comp_x"]["constituents_count"] == 1
     # 表达式因子不受影响
     assert details["close"]["expression"]
+
+
+def test_definition_endpoint_200_and_404(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from factor import routes
+    from main import app
+    from utils.auth import get_current_user
+
+    patched = FactorService(
+        code_store=CodeFactorStore(tmp_path / "code.json"),
+        composite_store=CompositeFactorStore(tmp_path / "composite.json"),
+        factor_store=FactorStore(tmp_path / "custom.json"),
+    )
+    monkeypatch.setattr(routes, "factor_service", patched)
+    app.dependency_overrides[get_current_user] = lambda: {"username": "t", "id": 1}
+    client = TestClient(app)
+    try:
+        r = client.get("/api/v1/factor/factors/close/definition")
+        assert r.status_code == 200, r.text
+        assert r.json()["data"]["kind"] == "expression"
+
+        r2 = client.get("/api/v1/factor/factors/ghost_x/definition")
+        assert r2.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
