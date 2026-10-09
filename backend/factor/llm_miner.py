@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,6 +45,7 @@ from utils.logger import LogType, get_logger
 logger = get_logger(__name__, LogType.APPLICATION)
 
 ProgressCb = Callable[[float, str, str], None]
+EventCb = Callable[[str, str, "float | None", str], None]  # (level, stage, p, msg)
 
 _FENCE_RE = re.compile(r"```(?:[a-zA-Z]*)?\s*(.*?)```", re.DOTALL)
 
@@ -288,14 +290,23 @@ def _classify_exc(exc: Exception) -> tuple[str, str]:
     return "runtime_error", f"{type(exc).__name__}: {exc}"
 
 
-async def _generate_batch(backend: Any, system_prompt: str, user_prompts: list[str]) -> list[dict[str, Any]]:
+async def _generate_batch(
+    backend: Any,
+    system_prompt: str,
+    user_prompts: list[str],
+    on_one_done: Callable[[int, float, dict[str, Any], str | None], None] | None = None,
+) -> list[dict[str, Any]]:
     """并发请求 LLM，返回归一化响应（content + finish_reason）。
 
     reasoning 模型可能把全部预算花在思考链上：finish_reason='length' 且
     content 为空，调用方需与真正的空响应区分（提示加轮次而非当成无回复）。
+
+    on_one_done(index, elapsed_sec, usage, finish_reason)：某个并发请求一返回
+    就回调（gather 下完成顺序随机），用于消除「整批等待」的进度黑洞。
     """
 
-    async def one(prompt: str) -> dict[str, Any]:
+    async def one(prompt: str, index: int) -> dict[str, Any]:
+        t0 = time.monotonic()
         resp = await chat_to_dict(
             backend,
             [
@@ -303,9 +314,16 @@ async def _generate_batch(backend: Any, system_prompt: str, user_prompts: list[s
                 {"role": "user", "content": prompt},
             ],
         )
+        if on_one_done is not None:
+            on_one_done(
+                index,
+                time.monotonic() - t0,
+                resp.get("usage") or {},
+                resp.get("finish_reason"),
+            )
         return {"content": resp.get("content") or "", "finish_reason": resp.get("finish_reason")}
 
-    return await asyncio.gather(*(one(p) for p in user_prompts))
+    return await asyncio.gather(*(one(p, i) for i, p in enumerate(user_prompts)))
 
 
 def run_llm_mining(
@@ -315,9 +333,26 @@ def run_llm_mining(
     provider: Any = None,
     service: FactorService | None = None,
     progress: ProgressCb | None = None,
+    on_event: EventCb | None = None,
 ) -> dict[str, Any]:
     """同步挖掘入口（运行于 factor job 工作线程；内部 asyncio.run 驱动并发 LLM 调用）。"""
+    t_start = time.monotonic()
     service = service or FactorService()
+
+    def emit(level: str, stage: str, p: float | None, msg: str) -> None:
+        # 后台日志与过程事件共用同一入口，保证两边措辞/百分比一致
+        if level == "warning":
+            logger.warning(f"[LLM挖掘] {msg}")
+        else:
+            logger.info(f"[LLM挖掘] {'' if p is None else f'{p:.0f}% '}{stage} {msg}")
+        # p 非空时同时驱动旧 progress 回调（进度条仍由 progress/status 消息更新）
+        if progress is not None and p is not None:
+            progress(p, stage, msg)
+        if on_event:
+            on_event(level, stage, p, msg)
+
+    emit("info", "data_load", 0.0, "加载行情数据…")
+    t0 = time.monotonic()
     raw_map = load_raw_ohlcv(
         params.symbols,
         params.interval,
@@ -326,29 +361,52 @@ def run_llm_mining(
         params.end,
         provider,
     )
-
-    def report(p: float, stage: str, msg: str) -> None:
-        logger.info(f"[LLM挖掘] {p:.0f}% {stage} {msg}")
-        if progress:
-            progress(p, stage, msg)
+    n_bars = sum(len(df) for df in raw_map.values())
+    emit(
+        "info",
+        "data_load",
+        3.0,
+        f"已加载 {len(raw_map)} 个品种、共 {n_bars} 根K线，耗时 {time.monotonic() - t0:.1f}s",
+    )
 
     candidates: list[dict[str, Any]] = []
     seen_hashes: set[str] = set()
     reflection = ""
     generated_total = unique_total = 0
 
-    # 轮间进度区间 5→95
+    # 进度预算：3→83 为 n 轮挖掘（每轮 80/n）；轮内生成 60%、评估 40%
+    GEN_LO, GEN_HI = 3.0, 83.0
+    round_w = (GEN_HI - GEN_LO) / max(params.n_rounds, 1)
+    n_cand = max(params.n_candidates, 1)
+
     for round_idx in range(params.n_rounds):
-        report(
-            5 + round_idx / params.n_rounds * 80,
+        rbase = GEN_LO + round_idx * round_w
+        emit(
+            "info",
             "generating",
+            rbase,
             f"第 {round_idx + 1}/{params.n_rounds} 轮：请求 LLM 生成 {params.n_candidates} 个候选",
         )
         prompts = [
             _user_prompt(round_idx, params.n_rounds, i, params.n_candidates, reflection)
             for i in range(params.n_candidates)
         ]
-        responses = asyncio.run(_generate_batch(backend, SYSTEM_PROMPT, prompts))
+
+        done_count = 0
+
+        def _on_one_done(index: int, elapsed: float, usage: dict[str, Any], finish: str | None) -> None:
+            nonlocal done_count
+            done_count += 1
+            p = rbase + round_w * 0.6 * (done_count / n_cand)
+            tok = (usage or {}).get("total_tokens", 0)
+            emit(
+                "info",
+                "generating",
+                p,
+                f"候选 {index + 1}/{params.n_candidates} LLM 返回：耗时 {elapsed:.1f}s tokens={tok} finish={finish}",
+            )
+
+        responses = asyncio.run(_generate_batch(backend, SYSTEM_PROMPT, prompts, _on_one_done))
         round_rows: list[dict[str, Any]] = []
 
         for i, resp in enumerate(responses):
@@ -357,9 +415,10 @@ def run_llm_mining(
             code = extract_code(text)
             generated_total += 1
             base = {"round": round_idx + 1, "candidate": i + 1}
+            # 评估段每处理完一个响应就推进（含空/重复/沙箱），保证无论去重多少都能走到段末
+            ep = rbase + round_w * 0.6 + round_w * 0.4 * ((i + 1) / n_cand)
+
             if not code:
-                # reasoning 模型思考链耗尽 token 预算（finish=length）与真空响应区分：
-                # 前者提示用户增加轮次/候选，后者只表明本轮该次调用无产出
                 if finish_reason == "length":
                     status, error_type, error = (
                         "llm_truncated",
@@ -368,6 +427,7 @@ def run_llm_mining(
                     )
                 else:
                     status, error_type, error = "empty", "empty", "LLM 返回为空"
+                emit("info", "evaluating", ep, f"候选 {i + 1}/{n_cand} 未产出代码（{status}）")
                 row = {
                     **base,
                     "code": "",
@@ -386,12 +446,13 @@ def run_llm_mining(
 
             h = code_hash(code)
             if h in seen_hashes:
+                emit("info", "evaluating", ep, f"候选 {i + 1}/{n_cand} 代码重复，跳过沙箱")
                 continue
             seen_hashes.add(h)
             unique_total += 1
 
-            pct = 5 + (round_idx + (i + 1) / len(responses)) / params.n_rounds * 80
-            report(pct, "evaluating", f"沙箱执行 + 指标评估（候选 {i + 1}/{len(responses)}）")
+            emit("info", "evaluating", ep, f"沙箱执行 + 指标评估（候选 {i + 1}/{n_cand}）")
+            t_eval = time.monotonic()
             try:
                 analysis = service.analyze_code_panel(
                     code,
@@ -407,6 +468,13 @@ def run_llm_mining(
                 )
                 metrics = _metrics_from_analysis(analysis["train"])
                 metrics_oos, flag, note, _folds = _oos_metrics(analysis, metrics, params.test_ratio)
+                emit(
+                    "info",
+                    "evaluating",
+                    ep,
+                    f"候选 {i + 1}/{n_cand} 评估完成：fitness={metrics['fitness']} "
+                    f"IC={metrics['ic_mean']} 耗时 {time.monotonic() - t_eval:.1f}s",
+                )
                 row = {
                     **base,
                     "code": code,
@@ -424,6 +492,12 @@ def run_llm_mining(
             except Exception as exc:  # 每个候选独立失败，不影响整轮
                 status, message = _classify_exc(exc)
                 logger.info(f"[LLM挖掘] 候选失败 {status}: {message[:150]}")
+                emit(
+                    "warning",
+                    "evaluating",
+                    ep,
+                    f"候选 {i + 1}/{n_cand} 评估失败（{status}）：{message[:120]}",
+                )
                 row = {
                     **base,
                     "code": code,
@@ -446,9 +520,10 @@ def run_llm_mining(
             default=None,
         )
         reflection = _reflection_text(round_rows, best_global)
-        report(
-            5 + (round_idx + 1) / params.n_rounds * 80,
-            "reflect",
+        emit(
+            "info",
+            "generating",
+            GEN_LO + (round_idx + 1) * round_w,
             f"第 {round_idx + 1} 轮完成：成功 {len(successes)}/{len(round_rows)}",
         )
 
@@ -459,23 +534,44 @@ def run_llm_mining(
         row.setdefault("redundant_corr", None)
 
     # 跨轮统一贪心相关性去重：只用 train 段因子，fitness 高者优先保留
-    if params.dedup_corr > 0:
-        correlation_dedup(candidates, params.dedup_corr)
-
     successful = [r for r in candidates if r["status"] == "success"]
+    redundant_count = 0
+    if params.dedup_corr > 0:
+        emit("info", "dedup", 83.0, f"相关性去重（阈值 |corr|>={params.dedup_corr}）…")
+        t0 = time.monotonic()
+        correlation_dedup(candidates, params.dedup_corr)
+        non_redundant_pre = [r for r in successful if not r["redundant"]]
+        redundant_count = len(successful) - len(non_redundant_pre)
+        emit("info", "dedup", 88.0, f"去重完成：标记冗余 {redundant_count} 个，耗时 {time.monotonic() - t0:.1f}s")
+
     non_redundant = [r for r in successful if not r["redundant"]]
-    redundant_count = len(successful) - len(non_redundant)
     best = sorted(non_redundant, key=lambda r: r["metrics"]["fitness"], reverse=True)[: params.top_k]
 
     # 自动合成（best 行仍持有 _factor train 面板，必须在剥离之前完成）
-    composite = _build_composite(params, best, raw_map, service) if params.compose else None
-    composed = composite is not None and "error" not in composite
+    composite = None
+    composed = False
+    if params.compose:
+        comp_rows_n = len([r for r in best if r.get("metrics") and r["metrics"].get("ic_mean") is not None])
+        if comp_rows_n < 2:
+            # 成分不足时 _build_composite 会短路返回 None，直接如实记录、不发「合成中/完成」
+            emit("info", "composite", 97.0, f"可合成成分仅 {comp_rows_n} 个（需 ≥2），跳过合成")
+        else:
+            emit("info", "composite", 88.0, f"IC 加权合成因子（{comp_rows_n} 个成分）…")
+            t0 = time.monotonic()
+            composite = _build_composite(params, best, raw_map, service)
+            composed = composite is not None and "error" not in composite
+            if composite is not None and "error" in composite:
+                emit("warning", "composite", 97.0, f"因子合成失败（不阻断挖掘）：{composite['error'][:120]}")
+            else:
+                emit("info", "composite", 97.0, f"合成完成，耗时 {time.monotonic() - t0:.1f}s")
 
-    report(
-        100.0,
+    emit(
+        "info",
         "completed",
+        100.0,
         f"完成：有效候选 {len(successful)}（重复 {redundant_count}），Top {len(best)}"
-        + ("，已合成" if composed else ""),
+        + ("，已合成" if composed else "")
+        + f"，总耗时 {time.monotonic() - t_start:.1f}s",
     )
 
     # 剥离内部键：pd.Series 不能进 JSON，train_factor 也不允许透出到 HTTP 结果

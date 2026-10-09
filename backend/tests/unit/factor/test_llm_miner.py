@@ -725,3 +725,46 @@ def test_non_success_rows_have_redundant_defaults(service):
     assert row["redundant"] is False
     assert row["redundant_with"] is None
     assert row["redundant_corr"] is None
+
+
+def test_progress_monotonic_and_emits_candidate_events(service):
+    events = []
+    progress = []
+    run_llm_mining(
+        _params(n_candidates=3, n_rounds=1),
+        backend=FakeBackend(
+            [
+                '```python\nfactor = df["close"].pct_change(5)\n```',
+                "import os\nfactor = 1",  # AST 静态安全拒绝，仍占一个评估段事件
+                'factor = df["volume"] / df["volume"].rolling(20).mean()',
+            ]
+        ),
+        provider=Provider(),
+        service=service,
+        progress=lambda p, s, m: progress.append(p),
+        on_event=lambda level, stage, p, msg: events.append((level, stage, p, msg)),
+    )
+    # progress 回调仍被驱动：首尾递增（回归 test_progress_callback_called 口径）
+    assert progress[0] < progress[-1] == 100.0
+    assert progress == sorted(progress)  # 单调不减
+    stages = [e[1] for e in events]
+    assert stages[0] == "data_load"
+    # 每个并发 LLM 返回一条 generating 事件（轮开始/轮末的 generating 不计入）
+    gen_done = [e for e in events if e[1] == "generating" and "LLM 返回" in e[3]]
+    assert len(gen_done) == 3
+    assert "evaluating" in stages
+    assert "dedup" in stages and "completed" in stages
+    # 带 p 的事件，其 p 单调不减
+    ps = [e[2] for e in events if e[2] is not None]
+    assert ps == sorted(ps)
+
+
+def test_on_event_none_keeps_default_behavior(service):
+    # 不传 on_event 也能正常跑完（回归既有用例的默认路径）
+    result = run_llm_mining(
+        _params(n_candidates=1),
+        backend=FakeBackend(['factor = df["close"].pct_change(3)']),
+        provider=Provider(),
+        service=service,
+    )
+    assert result["stats"]["generated"] == 1
