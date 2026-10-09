@@ -59,6 +59,7 @@ class FactorMiningRun(Base):
     params_json = Column(Text, nullable=False)
     stats_json = Column(Text, nullable=True)  # FactorMineResult.stats 摘要
     result_json = Column(Text, nullable=True)  # 完整 FactorMineResult
+    events_json = Column(Text, nullable=True)  # 过程事件 JSON 数组（最新 500 条，节流追加）
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), index=True)
     finished_at = Column(DateTime, nullable=True)
