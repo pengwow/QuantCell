@@ -22,7 +22,7 @@ def wait_terminal(mgr, job_id, timeout=10.0):
 def test_submit_success_completes_with_result(tmp_path):
     mgr = make_manager()
 
-    def runner(on_progress, on_stage):
+    def runner(on_progress, on_stage, _on_event=None):
         on_progress(30, "data", "读取")
         on_progress(90, "computing", "计算")
         return {"ok": True}
@@ -39,7 +39,7 @@ def test_submit_success_completes_with_result(tmp_path):
 def test_submit_failure_records_error(tmp_path):
     mgr = make_manager()
 
-    def runner(on_progress, on_stage):
+    def runner(on_progress, on_stage, _on_event=None):
         raise ValueError("因子不存在: ghost")
 
     jid = mgr.submit("analyze", {}, runner)
@@ -52,7 +52,7 @@ def test_submit_failure_records_error(tmp_path):
 def test_progress_reaches_completion(tmp_path):
     mgr = make_manager()
 
-    def runner(on_progress, on_stage):
+    def runner(on_progress, on_stage, _on_event=None):
         for i in range(3):
             on_progress(30 + i * 20, "computing", f"f{i} ({i + 1}/3)")
         return {}
@@ -66,7 +66,7 @@ def test_concurrent_jobs_isolated(tmp_path):
     mgr = make_manager()
 
     def make_runner(v):
-        def runner(on_progress, on_stage):
+        def runner(on_progress, on_stage, _on_event=None):
             time.sleep(0.05)
             return {"v": v}
 
@@ -80,7 +80,7 @@ def test_concurrent_jobs_isolated(tmp_path):
 
 def test_ttl_cleans_completed_jobs(tmp_path):
     mgr = make_manager(ttl=0.05, sweep=0.05)
-    jid = mgr.submit("analyze", {}, lambda p, s: {})
+    jid = mgr.submit("analyze", {}, lambda p, s, e=None: {})
     wait_terminal(mgr, jid)
     deadline = time.time() + 3.0
     while time.time() < deadline and mgr.get(jid) is not None:
@@ -105,7 +105,7 @@ def test_ws_emission_without_result_and_failure_isolated(tmp_path, monkeypatch):
 
     mgr = make_manager()
 
-    def ok(p, s):
+    def ok(p, s, _on_event=None):
         return {"big": "payload"}
 
     jid = mgr.submit("analyze", {}, ok)
@@ -135,5 +135,5 @@ def test_ws_failure_does_not_break_job(tmp_path, monkeypatch):
 
     monkeypatch.setattr(jm, "manager", BrokenManager())
     mgr = make_manager()
-    jid = mgr.submit("analyze", {}, lambda p, s: {"x": 1})
+    jid = mgr.submit("analyze", {}, lambda p, s, e=None: {"x": 1})
     assert wait_terminal(mgr, jid).status == JobStatus.COMPLETED
