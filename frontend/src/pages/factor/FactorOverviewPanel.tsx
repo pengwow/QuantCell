@@ -2,7 +2,7 @@
  * 右栏「概览」页签：因子元信息 + 最近一次分析的核心指标（catalog.last_metrics，0 额外请求）。
  */
 import { useTranslation } from 'react-i18next';
-import { Button, Card, Col, Descriptions, Empty, Row, Select, Space, Statistic, Tag } from 'antd';
+import { Button, Card, Col, Descriptions, Empty, Flex, Row, Select, Space, Statistic, Tag } from 'antd';
 import type { FactorCatalogItem } from '@/api/factor';
 import { useQuantColors } from '@/utils/colors';
 import {
@@ -18,13 +18,16 @@ import {
 const FactorOverviewPanel: React.FC<{
   factor: FactorCatalogItem;
   onGoAnalyze?: () => void;
+  /** 「查看代码」跳转：切到详情的代码 Tab */
+  onGoCode?: () => void;
   /** 传入则分类可就地修改；内置/代码/合成因子后端禁止修改，仍只读展示 */
   onCategoryChange?: (category: string) => Promise<void> | void;
   categorySaving?: boolean;
-}> = ({ factor, onGoAnalyze, onCategoryChange, categorySaving }) => {
+}> = ({ factor, onGoAnalyze, onGoCode, onCategoryChange, categorySaving }) => {
   const { t } = useTranslation();
   const qc = useQuantColors();
   const lm = factor.last_metrics;
+  const source = factorSource(factor);
 
   const statusLabel = (s: FactorCatalogItem['lifecycle_status']) =>
     t(`factor_status_${s.toLowerCase()}`) || s;
@@ -143,7 +146,21 @@ const FactorOverviewPanel: React.FC<{
               key: 'expression',
               label: t('factor_detail_meta_expression') || '表达式',
               span: 2,
-              children: <code style={{ fontSize: 12 }}>{factor.expression || '—'}</code>,
+              children:
+                source === 'code' || source === 'composite' ? (
+                  <Flex gap="small" align="center" wrap="wrap">
+                    <Tag color={source === 'code' ? 'magenta' : 'purple'}>
+                      {source === 'code'
+                        ? t('factor_code_summary_code') || 'Python 代码因子'
+                        : t('factor_code_summary_composite') || 'IC 加权合成因子'}
+                    </Tag>
+                    <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onGoCode}>
+                      {t('factor_code_view') || '查看代码'} →
+                    </Button>
+                  </Flex>
+                ) : (
+                  <code style={{ fontSize: 12 }}>{factor.expression || '—'}</code>
+                ),
             },
           ]}
         />
