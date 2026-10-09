@@ -6,13 +6,10 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
-  App as AntApp,
   Button,
   Card,
   Empty,
-  Form,
   Input,
-  Modal,
   Select,
   Space,
   Table,
@@ -21,17 +18,15 @@ import {
   type TableColumnsType,
 } from 'antd';
 import { PlusOutlined, RobotOutlined, SearchOutlined } from '@ant-design/icons';
-import { factorApi, type FactorCatalogItem } from '@/api/factor';
+import type { FactorCatalogItem } from '@/api/factor';
 import {
   CATEGORY_COLOR,
-  EDITABLE_CATEGORIES,
   categoryLabel,
   STATUS_COLOR,
   factorSource,
   type FactorSource,
 } from './factorMeta';
-
-const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
+import FactorFormModal from './FactorFormModal';
 
 interface Props {
   catalog: FactorCatalogItem[];
@@ -53,14 +48,11 @@ const FactorLibraryPane: React.FC<Props> = ({
   onMine,
 }) => {
   const { t } = useTranslation();
-  const { message } = AntApp.useApp();
   const { token } = theme.useToken();
   const [keyword, setKeyword] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | FactorSource>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm<{ factor_name: string; expression: string; category: string }>();
 
   const statusLabel = (s: FactorCatalogItem['lifecycle_status']) =>
     t(`factor_status_${s.toLowerCase()}`) || s;
@@ -82,27 +74,13 @@ const FactorLibraryPane: React.FC<Props> = ({
     });
   }, [catalog, keyword, categoryFilter, sourceFilter]);
 
-  const openCreate = () => {
-    form.resetFields();
-    form.setFieldsValue({ category: 'custom' }); // 默认归档为 custom，可改
-    setCreateOpen(true);
-  };
+  const openCreate = () => setCreateOpen(true);
 
-  const submit = async () => {
-    const v = await form.validateFields();
-    const name = v.factor_name.trim();
-    setSaving(true);
-    try {
-      await factorApi.add(name, v.expression.trim(), v.category);
-      message.success(t('factor_lib_toast_saved') || '因子已保存');
-      setCreateOpen(false);
-      await onRefresh();
-      onSelect(name);
-    } catch (e) {
-      message.error(errMsg(e));
-    } finally {
-      setSaving(false);
-    }
+  // 新建成功后：关弹窗、刷新目录、选中新因子（表单与保存逻辑在 FactorFormModal 内）
+  const handleCreated = async (name: string) => {
+    setCreateOpen(false);
+    await onRefresh();
+    onSelect(name);
   };
 
   const columns: TableColumnsType<FactorCatalogItem> = [
@@ -270,46 +248,11 @@ const FactorLibraryPane: React.FC<Props> = ({
         )}
       </Space>
 
-      <Modal
-        title={t('factor_lib_create_modal') || '新建因子'}
+      <FactorFormModal
         open={createOpen}
-        onOk={submit}
-        confirmLoading={saving}
         onCancel={() => setCreateOpen(false)}
-        okText={t('factor_lib_save') || '保存'}
-        cancelText={t('factor_lib_cancel') || '取消'}
-        destroyOnHidden
-        mask={{ closable: false }}
-      >
-        <Form form={form} layout="vertical" preserve={false} className="mt-4">
-          <Form.Item
-            name="factor_name"
-            label={t('factor_lib_form_name') || '因子名称（英文标识）'}
-            rules={[{ required: true, message: t('factor_lib_form_name_req') || '请输入名称' }]}
-          >
-            <Input placeholder={t('factor_lib_form_name_ph') || '如 my_momentum'} />
-          </Form.Item>
-          <Form.Item name="category" label={t('factor_lib_form_category') || '分类'}>
-            <Select
-              options={EDITABLE_CATEGORIES.map((c) => ({
-                value: c,
-                label: categoryLabel(c, t),
-              }))}
-            />
-          </Form.Item>
-          <Form.Item
-            name="expression"
-            label={t('factor_lib_form_expr') || '表达式'}
-            extra={
-              t('factor_lib_form_expr_hint') ||
-              '列：open/high/low/close/volume/quote_volume/vwap/amount；时序函数：Ref/MA/Std/RSI/MACD/KDJ/BBANDS；截面函数（需多品种）：cs_rank(表达式)/cs_zscore(表达式)'
-            }
-            rules={[{ required: true, message: t('factor_lib_form_expr_req') || '请输入表达式' }]}
-          >
-            <Input.TextArea rows={3} placeholder={t('factor_lib_form_expr_ph') || '如 close / Ref(close, 5) - 1'} />
-          </Form.Item>
-        </Form>
-      </Modal>
+        onSaved={handleCreated}
+      />
     </Card>
   );
 };
