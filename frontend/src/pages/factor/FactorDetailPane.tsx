@@ -10,9 +10,6 @@ import {
   Card,
   Empty,
   Flex,
-  Form,
-  Input,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -31,6 +28,7 @@ import FactorOverviewPanel from './FactorOverviewPanel';
 import FactorAnalyzePanel from './FactorAnalyzePanel';
 import FactorSnapshotsPanel from './FactorSnapshotsPanel';
 import FactorCodePanel from './FactorCodePanel';
+import FactorFormModal from './FactorFormModal';
 
 const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
 
@@ -42,9 +40,9 @@ const FactorDetailPane: React.FC<{
   const { message } = AntApp.useApp();
   const [tab, setTab] = useState<'overview' | 'analyze' | 'snapshots' | 'code'>('overview');
   const [editOpen, setEditOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
+  // 编辑保存后同名覆盖不会触发 FactorCodePanel 的 useEffect，用 key 强制重挂载刷新代码 Tab
+  const [codeVersion, setCodeVersion] = useState(0);
   const [categorySaving, setCategorySaving] = useState(false);
-  const [form] = Form.useForm<{ expression: string }>();
 
   if (!factor) {
     return (
@@ -81,24 +79,13 @@ const FactorDetailPane: React.FC<{
     }
   };
 
-  const openEdit = () => {
-    form.setFieldsValue({ expression: factor!.expression });
-    setEditOpen(true);
-  };
+  const openEdit = () => setEditOpen(true);
 
-  const submitEdit = async () => {
-    const v = await form.validateFields();
-    setSaving(true);
-    try {
-      await factorApi.add(factor!.name, v.expression.trim());
-      message.success(t('factor_lib_toast_saved') || '因子已保存');
-      setEditOpen(false);
-      onRefreshCatalog();
-    } catch (e) {
-      message.error(errMsg(e));
-    } finally {
-      setSaving(false);
-    }
+  // 编辑保存成功：关弹窗、递增 codeVersion 刷新代码 Tab、刷新目录
+  const handleEdited = () => {
+    setEditOpen(false);
+    setCodeVersion((v) => v + 1);
+    onRefreshCatalog();
   };
 
   const remove = async () => {
@@ -112,8 +99,8 @@ const FactorDetailPane: React.FC<{
   };
 
   const locked = factor.builtin || factor.lifecycle_status === 'RETIRED';
-  const source = factorSource(factor);
-  const codeLike = source === 'code' || source === 'composite';
+  // 代码因子可在线编辑（同名覆盖）；合成因子涉及成分/权重，仍禁止在线编辑
+  const isComposite = factorSource(factor) === 'composite';
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
@@ -144,12 +131,12 @@ const FactorDetailPane: React.FC<{
                 ]}
               />
             )}
-            <Tooltip title={codeLike ? t('factor_code_edit_disabled') : undefined}>
+            <Tooltip title={isComposite ? t('factor_code_edit_disabled') : undefined}>
               <span>
                 <Button
                   size="small"
                   icon={<EditOutlined />}
-                  disabled={factor.builtin || codeLike}
+                  disabled={factor.builtin || isComposite}
                   onClick={openEdit}
                 >
                   {t('factor_lib_edit') || '编辑'}
@@ -202,35 +189,19 @@ const FactorDetailPane: React.FC<{
             {
               key: 'code',
               label: t('factor_detail_tab_code') || '代码',
-              children: <FactorCodePanel factor={factor} />,
+              children: <FactorCodePanel key={codeVersion} factor={factor} />,
               destroyOnHidden: true,
             },
           ]}
         />
       </Card>
 
-      <Modal
-        title={t('factor_lib_edit_modal', { name: factor.name }) || `编辑：${factor.name}`}
+      <FactorFormModal
         open={editOpen}
-        onOk={submitEdit}
-        confirmLoading={saving}
+        editing={factor}
         onCancel={() => setEditOpen(false)}
-        okText={t('factor_lib_save') || '保存'}
-        cancelText={t('factor_lib_cancel') || '取消'}
-        destroyOnHidden
-        mask={{ closable: false }}
-      >
-        <Form form={form} layout="vertical" preserve={false} className="mt-4">
-          <Form.Item
-            name="expression"
-            label={t('factor_lib_form_expr') || '表达式'}
-            extra={t('factor_lib_form_expr_hint') || ''}
-            rules={[{ required: true, message: t('factor_lib_form_expr_req') || '请输入表达式' }]}
-          >
-            <Input.TextArea rows={3} />
-          </Form.Item>
-        </Form>
-      </Modal>
+        onSaved={handleEdited}
+      />
     </Space>
   );
 };
