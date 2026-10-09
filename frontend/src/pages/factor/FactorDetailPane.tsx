@@ -18,6 +18,7 @@ import {
   Space,
   Tabs,
   Tag,
+  Tooltip,
 } from 'antd';
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import {
@@ -29,6 +30,7 @@ import { NEXT_STATUS, STATUS_COLOR, factorSource } from './factorMeta';
 import FactorOverviewPanel from './FactorOverviewPanel';
 import FactorAnalyzePanel from './FactorAnalyzePanel';
 import FactorSnapshotsPanel from './FactorSnapshotsPanel';
+import FactorCodePanel from './FactorCodePanel';
 
 const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
 
@@ -38,7 +40,7 @@ const FactorDetailPane: React.FC<{
 }> = ({ factor, onRefreshCatalog }) => {
   const { t } = useTranslation();
   const { message } = AntApp.useApp();
-  const [tab, setTab] = useState<'overview' | 'analyze' | 'snapshots'>('overview');
+  const [tab, setTab] = useState<'overview' | 'analyze' | 'snapshots' | 'code'>('overview');
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [categorySaving, setCategorySaving] = useState(false);
@@ -110,6 +112,8 @@ const FactorDetailPane: React.FC<{
   };
 
   const locked = factor.builtin || factor.lifecycle_status === 'RETIRED';
+  const source = factorSource(factor);
+  const codeLike = source === 'code' || source === 'composite';
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
@@ -140,9 +144,18 @@ const FactorDetailPane: React.FC<{
                 ]}
               />
             )}
-            <Button size="small" icon={<EditOutlined />} disabled={factor.builtin} onClick={openEdit}>
-              {t('factor_lib_edit') || '编辑'}
-            </Button>
+            <Tooltip title={codeLike ? t('factor_code_edit_disabled') : undefined}>
+              <span>
+                <Button
+                  size="small"
+                  icon={<EditOutlined />}
+                  disabled={factor.builtin || codeLike}
+                  onClick={openEdit}
+                >
+                  {t('factor_lib_edit') || '编辑'}
+                </Button>
+              </span>
+            </Tooltip>
             <Popconfirm
               title={t('factor_lib_edit_confirm') || '删除该自定义因子？'}
               disabled={factor.builtin}
@@ -170,6 +183,7 @@ const FactorDetailPane: React.FC<{
                 <FactorOverviewPanel
                   factor={factor}
                   onGoAnalyze={() => setTab('analyze')}
+                  onGoCode={() => setTab('code')}
                   onCategoryChange={changeCategory}
                   categorySaving={categorySaving}
                 />
@@ -184,6 +198,12 @@ const FactorDetailPane: React.FC<{
               key: 'snapshots',
               label: t('factor_detail_tab_snapshots') || '快照',
               children: <FactorSnapshotsPanel factor={factor} onChanged={onRefreshCatalog} />,
+            },
+            {
+              key: 'code',
+              label: t('factor_detail_tab_code') || '代码',
+              children: <FactorCodePanel factor={factor} />,
+              destroyOnHidden: true,
             },
           ]}
         />
