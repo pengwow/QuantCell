@@ -272,10 +272,11 @@ def test_mine_llm_submits_job_and_creates_run(client, monkeypatch, isolated_cata
     submitted = {}
     captured = {}
 
-    def fake_submit(kind, params, runner, on_terminal=None):
+    def fake_submit(kind, params, runner, on_terminal=None, on_event_cb=None):
         submitted["kind"] = kind
         submitted["params"] = params
         captured["on_terminal"] = on_terminal
+        captured["on_event_cb"] = on_event_cb
         return "job-123"
 
     monkeypatch.setattr("factor.routes.job_manager.submit", fake_submit)
@@ -305,6 +306,8 @@ def test_mine_llm_submits_job_and_creates_run(client, monkeypatch, isolated_cata
     assert submitted["params"]["compose"] is True
     # 终态回调已挂上
     assert callable(captured["on_terminal"])
+    # 事件回调已挂上
+    assert callable(captured["on_event_cb"])
 
 
 def test_mine_llm_without_model_config_400(client, monkeypatch):
@@ -339,7 +342,7 @@ def _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-h1"):
 
     captured = {}
 
-    def fake_submit(kind, params, runner, on_terminal=None):
+    def fake_submit(kind, params, runner, on_terminal=None, on_event_cb=None):
         captured["cb"] = on_terminal
         return job_id
 
@@ -411,3 +414,49 @@ def test_mine_run_interrupted_after_restart(client, monkeypatch, isolated_catalo
     monkeypatch.setattr("factor.mining_run_service.job_manager", _NoJobs())
     detail = client.get(f"/api/v1/factor/mine/runs/{run_id}").json()["data"]
     assert detail["status"] == "interrupted"
+
+
+def test_get_job_events_incremental(client, monkeypatch):
+    from factor.job_manager import FactorJobManager
+
+    mgr = FactorJobManager(sweep_interval=9999)
+    monkeypatch.setattr("factor.routes.job_manager", mgr)
+    jid = mgr.submit("llm_mine", {}, lambda p, s, e=None: 1)
+    import time as _t
+
+    deadline = _t.time() + 3
+    while mgr.get(jid).status.value != "completed" and _t.time() < deadline:
+        _t.sleep(0.02)
+    mgr.append_event(jid, "info", "generating", 5.0, "a")
+    mgr.append_event(jid, "info", "evaluating", 9.0, "b")
+
+    r0 = client.get(f"/api/v1/factor/jobs/{jid}/events")
+    assert r0.status_code == 200, r0.text
+    body = r0.json()["data"]
+    assert [e["msg"] for e in body["events"]] == ["a", "b"]
+    assert body["next_idx"] == 2
+    r1 = client.get(f"/api/v1/factor/jobs/{jid}/events?after_idx=1")
+    assert [e["msg"] for e in r1.json()["data"]["events"]] == ["b"]
+    mgr.shutdown()
+
+
+def test_get_job_events_404(client, monkeypatch):
+    from factor.job_manager import FactorJobManager
+
+    mgr = FactorJobManager(sweep_interval=9999)
+    monkeypatch.setattr("factor.routes.job_manager", mgr)
+    assert client.get("/api/v1/factor/jobs/missing/events").status_code == 404
+    mgr.shutdown()
+
+
+def test_events_flush_persists_to_run_detail(client, monkeypatch, isolated_catalog_db):
+    # 走 fake_submit 建 running 行；直接用路由层 sink 刷事件，再查详情
+    from factor.routes import _persist_events
+
+    _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-ev1")
+    _persist_events("job-ev1", [{"idx": 0, "msg": "第一步"}, {"idx": 1, "msg": "第二步"}])
+    # 找到该 run 的 id
+    runs = client.get("/api/v1/factor/mine/runs").json()["data"]["runs"]
+    run_id = runs[0]["id"]
+    detail = client.get(f"/api/v1/factor/mine/runs/{run_id}").json()["data"]
+    assert [e["msg"] for e in detail["events"]] == ["第一步", "第二步"]
