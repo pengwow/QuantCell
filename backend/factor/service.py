@@ -97,6 +97,55 @@ class FactorService:
             raise FactorNotFoundError(msg)
         return expression
 
+    def get_factor_definition(self, factor_name: str) -> dict[str, Any]:
+        """按形态返回因子完整定义，供前端「代码」Tab 懒加载。
+
+        判定顺序与 _panel_from_raw 一致：合成库 → 代码库 → 表达式（内置/自定义）；
+        三库都不存在抛 FactorNotFoundError。表达式列不参与此路径，档案瘦身不影响本方法。
+        """
+        composite = self._composite_store.get(factor_name)
+        if composite is not None:
+            constituents: list[dict[str, Any]] = []
+            for c in composite.get("constituents") or []:
+                raw_code = c.get("code") or ""
+                constituents.append(
+                    {
+                        "code": raw_code,
+                        # 老合成条目的成分可能无 code_hash（嵌套 dict 不经过 store 的补算），现算兜底
+                        "code_hash": c.get("code_hash") or code_hash(raw_code),
+                        "weight": c.get("weight"),
+                    }
+                )
+            return {
+                "kind": "composite",
+                "name": factor_name,
+                "method": composite.get("method", COMPOSITE_METHOD),
+                "description": composite.get("description", ""),
+                "train_window": composite.get("train_window") or {},
+                "constituents": constituents,
+            }
+
+        code_entry = self._code_store.get(factor_name)
+        if code_entry is not None:
+            return {
+                "kind": "code",
+                "name": factor_name,
+                "code": code_entry["code"],
+                "code_hash": code_entry.get("code_hash") or code_hash(code_entry["code"]),
+                "description": code_entry.get("description", ""),
+            }
+
+        expression = self.factors.get(factor_name)
+        if expression is not None:
+            return {
+                "kind": "expression",
+                "name": factor_name,
+                "expression": expression,
+                "builtin": factor_name in self._builtin,
+            }
+
+        raise FactorNotFoundError(f"因子不存在: {factor_name}")
+
     def add_factor(self, factor_name: str, factor_expression: str) -> bool:
         """添加自定义因子：非空校验 + 内置因子保护 + 持久化落盘。"""
         if not factor_name or not factor_name.strip():
