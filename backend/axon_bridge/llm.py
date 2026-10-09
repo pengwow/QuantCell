@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -204,13 +205,31 @@ async def chat_to_dict(
     有 tools 走 chat_with_tools_async,否则 chat_async。
     参数按构造时固定(temperature/max_tokens),不支持逐次覆盖
     (axon backend 无逐次参数,旧代码的逐次 max_tokens 差异被抹平)。
+
+    统一在这里打计时/token/finish_reason 日志：全项目所有 LLM 调用方共享，
+    失败也记录耗时与错误分类后原样抛出（不吞异常）。
     """
     msgs = to_axon_messages(messages)
-    if tools:
-        raw = await backend.chat_with_tools_async(msgs, flatten_tools(tools))
-    else:
-        raw = await backend.chat_async(msgs)
-    return normalize_chat_response(raw)
+    t0 = time.monotonic()
+    logger.info(f"[LLM] 请求开始 tools={bool(tools)} msgs={len(messages)}")
+    try:
+        if tools:
+            raw = await backend.chat_with_tools_async(msgs, flatten_tools(tools))
+        else:
+            raw = await backend.chat_async(msgs)
+    except Exception as e:
+        dt = time.monotonic() - t0
+        logger.warning(f"[LLM] 请求失败 {dt:.1f}s {classify_llm_error(e)}: {str(e)[:200]}")
+        raise
+    result = normalize_chat_response(raw)
+    dt = time.monotonic() - t0
+    u = result["usage"]
+    logger.info(
+        f"[LLM] 请求完成 {dt:.1f}s finish={result['finish_reason']} "
+        f"tokens={u['total_tokens']}(p{u['prompt_tokens']}/c{u['completion_tokens']}) "
+        f"content={len(result['content'] or '')}字"
+    )
+    return result
 
 
 async def accumulate_stream(
