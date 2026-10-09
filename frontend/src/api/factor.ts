@@ -260,6 +260,24 @@ export interface FactorJobStatus {
   updated_at: string | null;
 }
 
+/** 挖掘过程事件（WS type=event 增量 / GET jobs/{id}/events / run detail.events） */
+export type MiningEventLevel = 'info' | 'warning';
+export interface MiningEvent {
+  idx: number;
+  ts: string;
+  level: MiningEventLevel;
+  stage: 'data_load' | 'generating' | 'evaluating' | 'dedup' | 'composite' | 'completed' | string;
+  msg: string;
+  p: number | null;
+}
+
+/** WS factor:job 消息的 data：进度态或事件态 */
+export interface FactorJobEventEnvelope {
+  job_id: string;
+  type: 'event';
+  event: MiningEvent;
+}
+
 /** LLM 挖掘运行记录状态（后端 factor_mining_runs.status） */
 export type MiningRunStatus = 'running' | 'completed' | 'failed' | 'interrupted';
 
@@ -278,6 +296,7 @@ export interface MiningRunSummary {
 /** 挖掘记录详情（含完整 result） */
 export interface MiningRunDetail extends MiningRunSummary {
   result: FactorMineResult | null;
+  events: MiningEvent[];
 }
 
 /** 因子生命周期五态 */
@@ -436,6 +455,11 @@ export const factorApi = {
     apiRequest.get<FactorJobStatus>(`/factor/jobs/${id}`),
   getFactorJobResult: <T,>(id: string) =>
     apiRequest.get<T>(`/factor/jobs/${id}/result`),
+  getFactorJobEvents: (id: string, afterIdx = 0) =>
+    apiRequest.get<{ events: MiningEvent[]; next_idx: number }>(
+      `/factor/jobs/${id}/events`,
+      { after_idx: afterIdx },
+    ),
   listMineRuns: (limit = 20, offset = 0) =>
     apiRequest.get<{ total: number; runs: MiningRunSummary[] }>('/factor/mine/runs', {
       limit,
