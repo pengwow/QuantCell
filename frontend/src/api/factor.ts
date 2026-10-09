@@ -15,6 +15,46 @@ export interface FactorDetail {
   constituents_count?: number;
 }
 
+/** 因子形态（与后端 get_factor_definition 返回的 kind 对齐） */
+export type FactorKind = 'expression' | 'code' | 'composite';
+
+export interface ExpressionDefinition {
+  kind: 'expression';
+  name: string;
+  expression: string;
+  builtin: boolean;
+}
+export interface CodeFactorDefinition {
+  kind: 'code';
+  name: string;
+  code: string;
+  code_hash: string;
+  description?: string;
+}
+export interface CompositeConstituentDef {
+  code: string;
+  code_hash: string;
+  weight: number;
+}
+export interface FactorTrainWindow {
+  start?: string;
+  end?: string;
+  interval?: string;
+  candle_type?: string;
+}
+export interface CompositeFactorDefinition {
+  kind: 'composite';
+  name: string;
+  method: string;
+  description?: string;
+  train_window?: FactorTrainWindow;
+  constituents: CompositeConstituentDef[];
+}
+export type FactorDefinition =
+  | ExpressionDefinition
+  | CodeFactorDefinition
+  | CompositeFactorDefinition;
+
 /** /instruments 返回的品种及其可用周期 */
 export interface InstrumentInfo {
   symbol: string;
@@ -460,6 +500,8 @@ export const factorApi = {
       `/factor/jobs/${id}/events`,
       { after_idx: afterIdx },
     ),
+  getFactorDefinition: (name: string) =>
+    apiRequest.get<FactorDefinition>(`/factor/factors/${encodeURIComponent(name)}/definition`),
   listMineRuns: (limit = 20, offset = 0) =>
     apiRequest.get<{ total: number; runs: MiningRunSummary[] }>('/factor/mine/runs', {
       limit,
