@@ -3,6 +3,7 @@ import {
   App as AntApp,
   Button,
   Card,
+  Collapse,
   DatePicker,
   Flex,
   Form,
@@ -24,6 +25,7 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import MiningResultView from './MiningResultView';
+import MiningEventLog from './MiningEventLog';
 
 const { RangePicker } = DatePicker;
 
@@ -54,8 +56,13 @@ const FactorMining: React.FC<{
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [temperature, setTemperature] = useState(0.8);
   const [result, setResult] = useState<FactorMineResult | null>(null);
-  const { run: runJob, attach, status: jobStatus, loading: jobLoading } =
-    useFactorJob<FactorMineResult>();
+  const {
+    run: runJob,
+    attach,
+    status: jobStatus,
+    loading: jobLoading,
+    events: jobEvents,
+  } = useFactorJob<FactorMineResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
 
   // 市场类型切换后重新拉取品种列表（初始挂载 spot 也由此 effect 完成）
@@ -282,17 +289,30 @@ const FactorMining: React.FC<{
               {t('factor_mining_run') || '开始挖掘'}
             </Button>
           </Form.Item>
-          {jobLoading && (
-            <Form.Item label={t('factor_mining_progress') || '挖掘进度'}>
-              <Flex gap="middle" align="center">
-                <Progress
-                  style={{ flex: 1, marginBottom: 0 }}
-                  percent={Math.round(jobStatus?.progress ?? 0)}
-                  status="active"
+          {(jobLoading || jobEvents.length > 0) && (
+            <>
+              <Form.Item label={t('factor_mining_progress') || '挖掘进度'}>
+                <Flex gap="middle" align="center">
+                  <Progress
+                    style={{ flex: 1, marginBottom: 0 }}
+                    percent={Math.round(jobStatus?.progress ?? 0)}
+                    status="active"
+                  />
+                  <span>{jobStatus?.message || t('factor_wb_queueing') || '排队中…'}</span>
+                </Flex>
+              </Form.Item>
+              <Form.Item label={t('factor_mining_event_log') || '过程日志'}>
+                <Collapse
+                  items={[
+                    {
+                      key: 'events',
+                      label: `${t('factor_mining_event_log') || '过程日志'}（${jobEvents.length}）`,
+                      children: <MiningEventLog events={jobEvents} />,
+                    },
+                  ]}
                 />
-                <span>{jobStatus?.message || t('factor_wb_queueing') || '排队中…'}</span>
-              </Flex>
-            </Form.Item>
+              </Form.Item>
+            </>
           )}
         </Form>
       </Card>
