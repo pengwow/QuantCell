@@ -74,6 +74,9 @@ def test_validate_code_ok(client):
 def test_validate_code_rejects_import(client):
     resp = client.post("/api/v1/factor/code/validate", json={"code": "import os"})
     assert resp.status_code == 200
+    # 校验结果作为数据返回（code=0）：前端拦截器对 code!=0 会 reject 并丢弃 data，
+    # 若这里返回 code=1，前端就拿不到 error_type/message 细节
+    assert resp.json()["code"] == 0
     data = resp.json()["data"]
     assert data["valid"] is False
     assert data["error_type"]
