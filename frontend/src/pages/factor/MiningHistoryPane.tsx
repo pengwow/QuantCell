@@ -7,6 +7,7 @@ import {
   App as AntApp,
   Button,
   Card,
+  Collapse,
   Drawer,
   Flex,
   Popconfirm,
@@ -24,6 +25,7 @@ import {
   type MiningRunSummary,
 } from '@/api/factor';
 import MiningResultView from './MiningResultView';
+import MiningEventLog from './MiningEventLog';
 
 const STATUS_COLOR: Record<MiningRunStatus, string> = {
   running: 'processing',
@@ -226,6 +228,17 @@ const MiningHistoryPane: React.FC<{
                 {t('factor_mining_run_interrupted_tip') ||
                   '任务因服务重启或过期中断，可点击右上角「复用参数重挖」'}
               </Typography.Text>
+            )}
+            {detail.events && detail.events.length > 0 && (
+              <Collapse
+                items={[
+                  {
+                    key: 'events',
+                    label: `${t('factor_mining_event_log') || '过程日志'}（${detail.events.length}）`,
+                    children: <MiningEventLog events={detail.events} />,
+                  },
+                ]}
+              />
             )}
             <Card loading={detailLoading}>
               {detail.result ? (
