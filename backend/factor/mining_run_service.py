@@ -10,6 +10,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import Engine, inspect, text
 from sqlalchemy.orm import Session
 
 from factor.job_manager import JobStatus, job_manager
@@ -63,6 +64,35 @@ class MiningRunService:
         row.status = FAILED
         row.error = (error or "")[:10000]
         row.finished_at = datetime.now(UTC)
+        db.commit()
+
+    MAX_EVENTS = 500
+
+    def ensure_events_column(self, bind: Engine) -> None:
+        """旧 SQLite 开发库补列（create_all 不会 ALTER 已有表）；幂等。
+
+        生产 MySQL 由 alembic 19 迁移负责，这里对已存在列直接返回。
+        """
+        cols = {c["name"] for c in inspect(bind).get_columns("factor_mining_runs")}
+        if "events_json" in cols:
+            return
+        with bind.begin() as conn:
+            conn.execute(text("ALTER TABLE factor_mining_runs ADD COLUMN events_json TEXT"))
+
+    def append_events(self, db: Session, job_id: str, events: list[dict[str, Any]]) -> None:
+        """把一批事件并入 runs.events_json（单任务单线程写，读后追加写回，保留最新 500）。"""
+        if not events:
+            return
+        self.ensure_events_column(db.bind)
+        row = db.query(FactorMiningRun).filter_by(job_id=job_id).one_or_none()
+        if row is None:
+            # running 行可能尚未建好或记录已删：事件无法挂接，忽略
+            return
+        stored: list[dict[str, Any]] = json.loads(row.events_json) if row.events_json else []
+        stored.extend(events)
+        if len(stored) > self.MAX_EVENTS:
+            stored = stored[-self.MAX_EVENTS :]
+        row.events_json = json.dumps(stored, ensure_ascii=False)
         db.commit()
 
     # ---------- 查询与懒修正 ----------
@@ -151,5 +181,9 @@ def run_summary(row: FactorMiningRun) -> dict[str, Any]:
 
 
 def run_detail(row: FactorMiningRun) -> dict[str, Any]:
-    """详情：摘要 + 完整 result。"""
-    return {**run_summary(row), "result": _loads(row.result_json)}
+    """详情：摘要 + 完整 result + 过程事件。"""
+    return {
+        **run_summary(row),
+        "result": _loads(row.result_json),
+        "events": _loads(row.events_json) or [],
+    }

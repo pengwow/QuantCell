@@ -134,3 +134,63 @@ def test_run_summary_and_detail_shapes(db_session, svc):
     d = run_detail(db_session.query(FactorMiningRun).filter_by(job_id="job-1").one())
     assert d["result"]["stats"]["failed"] == 2
     assert d["stats"]["generated"] == 3
+
+
+def test_append_events_accumulates_and_caps(db_session, svc):
+    from factor.mining_run_service import run_detail
+
+    row = svc.create_running(db_session, "job-e1", {"instruments": ["BTCUSDT"]})
+
+    svc.append_events(db_session, "job-e1", [{"idx": 0, "msg": "a"}, {"idx": 1, "msg": "b"}])
+    svc.append_events(db_session, "job-e1", [{"idx": 2, "msg": "c"}])
+    stored = json.loads(svc.get_run(db_session, row.id).events_json)
+    assert [e["msg"] for e in stored] == ["a", "b", "c"]
+    # 详情接口带出过程事件
+    assert [e["msg"] for e in run_detail(svc.get_run(db_session, row.id))["events"]] == [
+        "a",
+        "b",
+        "c",
+    ]
+
+    # 超过 500 截断，保留最新 500 条
+    svc.append_events(db_session, "job-e1", [{"idx": i, "msg": f"x{i}"} for i in range(3, 505)])
+    stored2 = json.loads(svc.get_run(db_session, row.id).events_json)
+    assert len(stored2) == 500
+    assert stored2[0]["msg"] == "x5"
+    assert stored2[-1]["msg"] == "x504"
+
+
+def test_ensure_events_column_idempotent_on_old_sqlite():
+    # 模拟旧库（表无 events_json）→ ensure 补列后可追加；重复调用幂等
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.orm import sessionmaker
+
+    from factor.mining_run_service import MiningRunService
+
+    eng = create_engine("sqlite:///:memory:")
+    with eng.begin() as conn:
+        # 升级前的表结构：与现模型一致，仅缺 events_json 列
+        conn.execute(
+            text(
+                "CREATE TABLE factor_mining_runs (id INTEGER PRIMARY KEY, job_id VARCHAR(64), "
+                "status VARCHAR(16), params_json TEXT, stats_json TEXT, result_json TEXT, "
+                "error TEXT, created_at DATETIME, finished_at DATETIME)"
+            )
+        )
+
+    service = MiningRunService()
+    service.ensure_events_column(eng)
+    cols = inspect(eng).get_columns("factor_mining_runs")
+    assert "events_json" in {c["name"] for c in cols}
+    # 再调一次不报错（幂等）
+    service.ensure_events_column(eng)
+
+    # 补列后旧表可正常追加事件
+    sess = sessionmaker(bind=eng)()
+    sess.execute(
+        text("INSERT INTO factor_mining_runs (id, job_id, status, params_json) VALUES (1, 'job-old', 'running', '{}')")
+    )
+    sess.commit()
+    service.append_events(sess, "job-old", [{"idx": 0, "msg": "旧库首条"}])
+    raw = sess.execute(text("SELECT events_json FROM factor_mining_runs WHERE id = 1")).one()
+    assert json.loads(raw[0]) == [{"idx": 0, "msg": "旧库首条"}]
