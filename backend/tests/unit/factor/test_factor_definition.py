@@ -83,3 +83,21 @@ def test_definition_composite_constituent_without_hash_is_computed(svc):
 def test_definition_not_found(svc):
     with pytest.raises(FactorNotFoundError):
         svc.get_factor_definition("ghost_factor")
+
+
+def test_details_expression_none_for_code_and_composite(svc):
+    # 档案表不再携带完整代码/合成占位串；定义统一走 definition 端点
+    svc._code_store.upsert("llm_x", MOM_CODE)
+    svc._composite_store.upsert(
+        "comp_x",
+        train_window={},
+        constituents=[{"code": MOM_CODE, "weight": 1.0}],
+    )
+    details = {d["name"]: d for d in svc.get_factor_details()}
+    assert details["llm_x"]["expression"] is None
+    assert details["llm_x"]["kind"] == "code"
+    assert details["comp_x"]["expression"] is None
+    assert details["comp_x"]["kind"] == "composite"
+    assert details["comp_x"]["constituents_count"] == 1
+    # 表达式因子不受影响
+    assert details["close"]["expression"]
