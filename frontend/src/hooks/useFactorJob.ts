@@ -1,15 +1,12 @@
 /**
  * 因子异步任务 Hook
  *
- * 封装 analyze/compare 异步任务的提交与跟踪：
- * - POST async 端点拿 job_id；
- * - WS topic `factor:job` 接收进度/终态推送（不含结果）；
- * - 1s 间隔轮询 GET /jobs/{id} 作为 WS 不可用时的降级；
- * - 终态 completed 后 GET /jobs/{id}/result 取结果，failed 回调错误；
- * - 10 分钟无终态按超时处理；组件卸载自动清理。
- *
- * 竞态处理：拿到 job_id 后先 subscribe + on 注册监听，再立即 pollOnce 查一次，
- * 避免任务比 WS 订阅更快完成而漏掉终态。
+ * 封装 analyze/compare/llm_mine 任务的提交与跟踪：
+ * - WS topic `factor:job`：data.type=progress 推进度，data.type=event 追加过程事件；
+ * - WS 一旦收到本任务任意消息即视为存活，停止轮询（事件驱动足够及时）；
+ * - WS 从未证明存活时降级轮询，状态连续不变按 1s→2s→5s 退避，一变化恢复 1s；
+ * - attach/开始时 GET jobs/{id}/events 拉齐历史事件（WS 漏推/重连补齐）；
+ * - 终态取结果、404 判丢失、10 分钟超时、卸载清理，语义同前。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,13 +15,15 @@ import {
   factorApi,
   type FactorAnalyzeParams,
   type FactorCompareParams,
+  type FactorJobEventEnvelope,
   type FactorJobStatus,
   type FactorMineLLMParams,
+  type MiningEvent,
 } from '@/api/factor';
 import { wsService } from '@/services/websocketService';
 
 const TOPIC = 'factor:job';
-const POLL_MS = 1000;
+const POLL_STEPS = [1000, 2000, 5000]; // 降级轮询退避档
 const TIMEOUT_MS = 10 * 60 * 1000;
 
 export type FactorJobKind = 'analyze' | 'compare' | 'llm_mine';
@@ -37,7 +36,6 @@ export interface UseFactorJob<T> {
     onError: (msg: string) => void,
     onLost?: () => void,
   ) => Promise<void>;
-  /** 重连一个已提交的任务（跳过提交，直接 WS+轮询跟踪并取结果） */
   attach: (
     jobId: string,
     onResult: (r: T) => void,
@@ -46,43 +44,77 @@ export interface UseFactorJob<T> {
   ) => void;
   status: FactorJobStatus | null;
   loading: boolean;
+  events: MiningEvent[];
 }
 
 export function useFactorJob<T>(): UseFactorJob<T> {
   const [status, setStatus] = useState<FactorJobStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [events, setEvents] = useState<MiningEvent[]>([]);
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentIdRef = useRef<string | null>(null);
   const settledRef = useRef(false);
+  const wsAliveRef = useRef(false);
+  const unchangedRef = useRef(0);
+  const lastSigRef = useRef<string>('');
+  const eventsIdxRef = useRef(-1);
   const onResultRef = useRef<((r: T) => void) | null>(null);
   const onErrorRef = useRef<((msg: string) => void) | null>(null);
-  // handleTerminal 在 onWs 之后定义，用 ref 桥接以保持 onWs/cleanup 引用稳定
+  const onLostRef = useRef<(() => void) | undefined>(undefined);
   const handleTerminalRef = useRef<(st: FactorJobStatus) => void>(() => {});
 
-  // WS 消息只处理当前任务；非终态更新进度，终态交给统一处理（仅触发一次）
-  const onWs = useCallback((data: unknown) => {
-    const st = data as FactorJobStatus | null;
-    if (!st || st.job_id !== currentIdRef.current) return;
-    if (st.status === 'completed' || st.status === 'failed') {
-      handleTerminalRef.current(st);
-    } else {
-      setStatus(st);
+  const mergeEvents = useCallback((incoming: MiningEvent[]) => {
+    if (incoming.length === 0) return;
+    const fresh = incoming.filter((e) => e.idx > eventsIdxRef.current);
+    if (fresh.length === 0) return;
+    eventsIdxRef.current = Math.max(eventsIdxRef.current, fresh[fresh.length - 1].idx);
+    setEvents((prev) => {
+      const merged = [...prev, ...fresh];
+      // 以 idx 去重排序，兜底防止 WS 推送与补齐重叠
+      const map = new Map<number, MiningEvent>();
+      merged.forEach((e) => map.set(e.idx, e));
+      return [...map.values()].sort((a, b) => a.idx - b.idx).slice(-500);
+    });
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
     }
   }, []);
 
+  // WS 消息按 data.type 分发；收到任意本任务消息即标记 WS 存活并停轮询
+  const onWs = useCallback(
+    (data: unknown) => {
+      const env = data as FactorJobEventEnvelope | (FactorJobStatus & { type?: string });
+      if (!env || env.job_id !== currentIdRef.current) return;
+      wsAliveRef.current = true;
+      stopPolling();
+      if (env.type === 'event') {
+        mergeEvents([(env as FactorJobEventEnvelope).event]);
+        return;
+      }
+      const st = env as FactorJobStatus;
+      if (st.status === 'completed' || st.status === 'failed') {
+        handleTerminalRef.current(st);
+      } else {
+        setStatus(st);
+      }
+    },
+    [mergeEvents, stopPolling],
+  );
+
   const cleanup = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    stopPolling();
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
     wsService.off(TOPIC, onWs);
-  }, [onWs]);
+  }, [onWs, stopPolling]);
 
   const fetchResult = useCallback(
     async (jobId: string) => {
@@ -114,36 +146,54 @@ export function useFactorJob<T>(): UseFactorJob<T> {
     [cleanup, fetchResult],
   );
 
-  // 每次渲染同步最新 handleTerminal，onWs 本身保持稳定引用
   handleTerminalRef.current = handleTerminal;
 
-  const pollOnce = useCallback(
-    async (onLost?: () => void) => {
-      const id = currentIdRef.current;
-      if (!id || settledRef.current) return;
+  const pollOnceRef = useRef<() => Promise<void>>(async () => {});
+  const schedulePoll = useCallback(() => {
+    if (wsAliveRef.current || settledRef.current) return;
+    const delay = POLL_STEPS[Math.min(unchangedRef.current, POLL_STEPS.length - 1)];
+    pollTimerRef.current = setTimeout(() => void pollOnceRef.current(), delay);
+  }, []);
+
+  pollOnceRef.current = async () => {
+    const id = currentIdRef.current;
+    if (!id || settledRef.current) return;
+    try {
+      const st = await factorApi.getFactorJob(id);
+      if (settledRef.current) return;
+      if (st.status === 'completed' || st.status === 'failed') {
+        handleTerminal(st);
+        return;
+      }
+      const sig = `${st.status}|${st.progress}|${st.stage}|${st.message}`;
+      unchangedRef.current = sig === lastSigRef.current ? unchangedRef.current + 1 : 0;
+      lastSigRef.current = sig;
+      setStatus(st);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 404) {
+        if (!settledRef.current) {
+          settledRef.current = true;
+          setLoading(false);
+          cleanup();
+          onLostRef.current?.();
+        }
+        return;
+      }
+      /* 单次失败忽略，按退避继续 */
+    }
+    schedulePoll();
+  };
+
+  const hydrateEvents = useCallback(
+    async (jobId: string) => {
       try {
-        const st = await factorApi.getFactorJob(id);
-        if (settledRef.current) return;
-        if (st.status === 'completed' || st.status === 'failed') {
-          handleTerminal(st);
-        } else {
-          setStatus(st);
-        }
-      } catch (e) {
-        // 404：内存任务已不存在（TTL 清理或后端重启），由后端 running 记录懒修正兜底
-        if (e instanceof ApiError && e.code === 404) {
-          if (!settledRef.current) {
-            settledRef.current = true;
-            setLoading(false);
-            cleanup();
-            onLost?.();
-          }
-          return;
-        }
-        /* 其他单次轮询失败忽略，下一次重试 */
+        const page = await factorApi.getFactorJobEvents(jobId, 0);
+        if (currentIdRef.current === jobId) mergeEvents(page.events);
+      } catch {
+        /* 事件补齐失败不影响主流程，后续靠 WS/轮询 */
       }
     },
-    [cleanup, handleTerminal],
+    [mergeEvents],
   );
 
   const _track = useCallback(
@@ -155,16 +205,21 @@ export function useFactorJob<T>(): UseFactorJob<T> {
     ) => {
       cleanup();
       settledRef.current = false;
+      wsAliveRef.current = false;
+      unchangedRef.current = 0;
+      lastSigRef.current = '';
+      eventsIdxRef.current = -1;
       onResultRef.current = onResult;
       onErrorRef.current = onError;
+      onLostRef.current = onLost;
       currentIdRef.current = jobId;
+      setEvents([]);
       setLoading(true);
 
-      // 关键：先订阅 + 注册监听，再立即查一次状态，防止任务在订阅生效前完成而漏终态
       wsService.subscribe(TOPIC);
       wsService.on(TOPIC, onWs);
-      void pollOnce(onLost);
-      timerRef.current = setInterval(() => void pollOnce(onLost), POLL_MS);
+      void hydrateEvents(jobId); // 拉齐历史事件（新任务为空，attach 可补齐）
+      schedulePoll(); // 首次 1s；WS 在这之前到达则被 onWs 停掉
       timeoutRef.current = setTimeout(() => {
         if (settledRef.current) return;
         settledRef.current = true;
@@ -173,7 +228,7 @@ export function useFactorJob<T>(): UseFactorJob<T> {
         onError('任务超时（10 分钟无结果），请重试');
       }, TIMEOUT_MS);
     },
-    [cleanup, onWs, pollOnce],
+    [cleanup, hydrateEvents, onWs, schedulePoll],
   );
 
   const run = useCallback(
@@ -189,6 +244,7 @@ export function useFactorJob<T>(): UseFactorJob<T> {
       currentIdRef.current = null;
       setLoading(true);
       setStatus(null);
+      setEvents([]);
 
       let accepted: { job_id: string; status: string };
       try {
@@ -216,8 +272,7 @@ export function useFactorJob<T>(): UseFactorJob<T> {
     [_track],
   );
 
-  // 组件卸载清理定时器与 WS 监听
   useEffect(() => cleanup, [cleanup]);
 
-  return { run, attach, status, loading };
+  return { run, attach, status, loading, events };
 }
