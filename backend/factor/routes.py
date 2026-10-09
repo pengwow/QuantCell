@@ -15,6 +15,7 @@ from sqlalchemy import func
 from axon_bridge.llm import create_llm_backend
 from common.schemas import ApiResponse
 from factor.catalog_service import CatalogError, FactorCatalogService
+from factor.event_flusher import EventFlusher
 from factor.job_manager import JobStatus, job_manager
 from factor.llm_miner import LLMMineParams, run_llm_mining
 from factor.mining_run_service import (
@@ -875,7 +876,7 @@ def get_snapshot(snapshot_id: int, current_user: dict = Depends(get_current_user
 def _run_analyze_job(params: dict[str, Any]):
     """构造 analyze 异步任务 runner（工作线程内执行，进度经 WS factor:job 推送）。"""
 
-    def runner(on_progress, _on_stage):
+    def runner(on_progress, _on_stage, _on_event=None):
         on_progress(30, "data", "读取数据…")
         on_progress(90, "computing", "计算因子指标…")
         # return_frames=True 才能在自动留痕时写快照 parquet；frames 不经过 HTTP
@@ -911,7 +912,7 @@ def _run_compare_job(params: dict[str, Any]):
     """构造 compare 异步任务 runner：逐因子推进度，再共用 _assemble_compare 组装。"""
     names = params["factor_names"]
 
-    def runner(on_progress, _on_stage):
+    def runner(on_progress, _on_stage, _on_event=None):
         on_progress(20, "data", "读取数据…")
         results = {}
         for i, name in enumerate(names):
@@ -965,7 +966,7 @@ def _resolve_llm_config(model_id: str | None = None) -> dict[str, Any] | None:
 def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
     """构造 llm_mine 任务 runner（工作线程内建 backend，进度经 WS factor:job 推送）。"""
 
-    def runner(on_progress, _on_stage):
+    def runner(on_progress, _on_stage, on_event=None):
         backend = create_llm_backend(
             api_key=llm_cfg["api_key"],
             base_url=llm_cfg["base_url"],
@@ -993,7 +994,7 @@ def _run_llm_mine_job(params: dict[str, Any], llm_cfg: dict[str, Any]):
             dedup_corr=float(params.get("dedup_corr", 0.9)),
             compose=bool(params.get("compose", True)),
         )
-        return run_llm_mining(mine_params, backend=backend, progress=on_progress)
+        return run_llm_mining(mine_params, backend=backend, progress=on_progress, on_event=on_event)
 
     return runner
 
@@ -1008,6 +1009,28 @@ def _persist_mining_terminal(job_id: str, ok: bool, payload: Any) -> None:
                 _mining_run_service.mark_failed(db, job_id, str(payload))
     except Exception:
         logger.exception(f"挖掘运行记录终态落库失败: {job_id}")
+
+
+def _persist_events(job_id: str, events: list[dict[str, Any]]) -> None:
+    """事件节流落库 sink（独立短 session；行不存在时 service 内部忽略）。"""
+    with get_db_session() as db:
+        _mining_run_service.append_events(db, job_id, events)
+
+
+def _make_mining_callbacks() -> tuple:
+    """构造 llm_mine 的 (on_event_cb, on_terminal)；终态前强制 flush 残留事件。"""
+    flusher = EventFlusher(_persist_events)
+
+    def on_event_cb(job_id: str, level: str, stage: str, p: float | None, msg: str) -> None:
+        evt = job_manager.append_event(job_id, level, stage, p, msg)
+        if evt is not None:
+            flusher.add(job_id, evt)
+
+    def on_terminal(job_id: str, ok: bool, payload: Any) -> None:
+        flusher.flush(job_id)
+        _persist_mining_terminal(job_id, ok, payload)
+
+    return on_event_cb, on_terminal
 
 
 @router.post("/analyze-async", response_model=ApiResponse, summary="异步因子分析（返回 job_id，进度走 WS factor:job）")
@@ -1145,11 +1168,13 @@ def mine_llm_factors(request: FactorMineLLMRequest, current_user: dict = Depends
     if llm_cfg is None:
         raise HTTPException(status_code=400, detail="未配置可用的默认 AI 模型或 API Key，请先在模型管理中配置")
     params = request.model_dump()
+    on_event_cb, on_terminal = _make_mining_callbacks()
     job_id = job_manager.submit(
         "llm_mine",
         params,
         _run_llm_mine_job(params, llm_cfg),
-        on_terminal=_persist_mining_terminal,
+        on_terminal=on_terminal,
+        on_event_cb=on_event_cb,
     )
     # running 行是重连锚点；建行失败不阻断挖掘（仅失去本次历史/重连能力）
     run_id: int | None = None
@@ -1223,3 +1248,13 @@ def get_factor_job_result(job_id: str, current_user: dict = Depends(get_current_
     if job.status == JobStatus.FAILED:
         raise HTTPException(status_code=410, detail=job.error or "任务失败")
     return ApiResponse(code=0, message="ok", data=_sanitize(job.result))
+
+
+@router.get("/jobs/{job_id}/events", response_model=ApiResponse, summary="获取因子任务过程事件（增量）")
+def get_factor_job_events(
+    job_id: str, after_idx: int = 0, current_user: dict = Depends(get_current_user)
+) -> ApiResponse:
+    data = job_manager.get_events(job_id, after_idx=max(after_idx, 0))
+    if data is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    return ApiResponse(code=0, message="ok", data=_sanitize(data))
