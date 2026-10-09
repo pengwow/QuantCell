@@ -1,5 +1,6 @@
 """axon_bridge.llm 桥接层测试"""
 
+import asyncio
 import json
 
 import pytest
@@ -220,3 +221,61 @@ class TestAccumulateStream:
         fake = FakeBackend(stream_chunks=[{"type": "reasoning", "content": "思考中"}])
         chunks = [c async for c in accumulate_stream(fake, [])]
         assert chunks[0] == {"reasoning_content": "思考中"}
+
+
+class _OKBackend:
+    async def chat_async(self, msgs):
+        return {
+            "content": "x",
+            "finish_reason": "Stop",
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        }
+
+
+class _BoomBackend:
+    async def chat_async(self, msgs):
+        raise TimeoutError("read timed out")
+
+
+def _capture_llm_logs():
+    """挂一个只收 axon_bridge.llm 的 loguru sink，返回 (list[str], remove_fn)。"""
+    from loguru import logger as _l
+
+    captured: list[str] = []
+    handle = _l.add(
+        lambda m: captured.append(m.record["message"]),
+        filter=lambda r: r["extra"].get("logger_name") == "axon_bridge.llm",
+        level="INFO",
+    )
+    return captured, lambda: _l.remove(handle)
+
+
+def test_chat_to_dict_logs_timing_and_tokens():
+    from axon_bridge.llm import chat_to_dict
+
+    logs, remove = _capture_llm_logs()
+    try:
+        resp = asyncio.run(chat_to_dict(_OKBackend(), [{"role": "user", "content": "hi"}]))
+    finally:
+        remove()
+    assert resp["finish_reason"] == "stop"
+    assert resp["usage"]["total_tokens"] == 15
+    assert any("请求开始" in s for s in logs)
+    done = next(s for s in logs if "请求完成" in s)
+    assert "finish=stop" in done and "tokens=15(p10/c5)" in done
+
+
+def test_chat_to_dict_logs_failure_and_reraises():
+    import pytest
+
+    from axon_bridge.llm import chat_to_dict
+
+    logs, remove = _capture_llm_logs()
+    try:
+        with pytest.raises(TimeoutError):
+            asyncio.run(chat_to_dict(_BoomBackend(), [{"role": "user", "content": "hi"}]))
+    finally:
+        remove()
+    assert any("请求失败" in s and "timed out" in s for s in logs)
