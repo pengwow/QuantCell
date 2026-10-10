@@ -63,7 +63,8 @@ desktop-kill:
 	sleep 1
 
 desktop-clean: desktop-kill
-	rm -rf $(DESKTOP_DIR)/src-tauri/target/release
+	# 全量清理：release + debug 两套 profile 缓存一起删
+	rm -rf $(DESKTOP_DIR)/src-tauri/target
 	rm -rf frontend/dist frontend/node_modules/.vite
 
 desktop-build:
@@ -135,7 +136,7 @@ help:
 	@echo "  make frontend-dev        vite dev server"
 	@echo "	=== 桌面端 (desktop)==="
 	@echo "  make desktop-kill        停止桌面端残留进程"
-	@echo "  make desktop-clean       kill + 清 Rust target/release + 前端缓存"
+	@echo "  make desktop-clean       kill + 清整个 Rust target + 前端缓存"
 	@echo "  make desktop-build       Tauri release build（含前端自动构建）"
 	@echo "  make desktop-run         open .app"
 	@echo "  make desktop             clean → build → run（最常用）"
