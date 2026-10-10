@@ -7,7 +7,8 @@ const SPLASH_ID = '__qc_desktop_splash__';
  * 动画 logo SVG 标记（内联而非 <img src>，因为 WebKit 不支持通过 <img> 加载的
  * 外部 SVG 中的内部 CSS @keyframes 动画）。动画 CSS 在 STYLE 常量中定义。
  */
-const LOGO_SVG = `<svg class="qc-logo" xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 44 44" width="44" height="44">
+// logo 尺寸设为 132px（应用图标 44px × 3），让启动画面视觉权重足够
+const LOGO_SVG = `<svg class="qc-logo" xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 44 44" width="132" height="132">
   <defs>
     <linearGradient id="qcGreenBlockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#22c55e;stop-opacity:1" />
@@ -42,7 +43,7 @@ const STYLE = `
 #${SPLASH_ID} {
   position: fixed; inset: 0; z-index: 99999;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 18px; background: #0b1220; color: #e5e7eb;
+  gap: 28px; background: #0b1220; color: #e5e7eb;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 #${SPLASH_ID} .qc-logo { display: block; }
