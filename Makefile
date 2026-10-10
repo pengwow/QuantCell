@@ -80,6 +80,24 @@ desktop-run:
 desktop: desktop-clean desktop-build desktop-run
 
 # ============================================================
+# 开发服务（后端 uvicorn + 前端 vite 后台驻留，委托给 scripts/install.sh）
+# ============================================================
+
+.PHONY: dev-start dev-stop dev-status dev-restart
+
+dev-start:
+	./scripts/install.sh --start
+
+dev-stop:
+	./scripts/install.sh --stop
+
+dev-status:
+	./scripts/install.sh --status
+
+dev-restart:
+	./scripts/install.sh --restart
+
+# ============================================================
 # 全链路
 # ============================================================
 
@@ -121,6 +139,11 @@ help:
 	@echo "  make desktop-build       Tauri release build（含前端自动构建）"
 	@echo "  make desktop-run         open .app"
 	@echo "  make desktop             clean → build → run（最常用）"
+	@echo ""
+	@echo "  make dev-start           启动后端 uvicorn + 前端 vite（后台驻留）"
+	@echo "  make dev-stop            停止开发服务"
+	@echo "  make dev-status          查看开发服务状态"
+	@echo "  make dev-restart         重启开发服务"
 	@echo ""
 	@echo "  make all                 backend-install + frontend-install + desktop-build"
 	@echo "  make test                backend-test + frontend-test"
