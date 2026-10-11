@@ -100,4 +100,13 @@ backend/dist/
 backend/build/
 backend/quantcell-backend.spec
 
+# Database files (SQLite / DuckDB)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp*
+
 
