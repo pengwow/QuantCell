@@ -1,9 +1,9 @@
-"""REFLEX 级联决策层：Jev 直出 → 低置信兜底 → 异常兜底。
+"""REFLEX 级联决策层：SDM 直出 → 低置信兜底 → 异常兜底。
 
 硬约束（来自统一出口契约）：
 - 三条路径返回同一个 CascadeDecision 结构，禁止早退裸 dict。
-- 门控只使用 Jev 原始校准 confidence，不组合综合分。
-- 低置信与异常都已耗费一次 Jev 调用（异常时可能未计费），
+- 门控只使用 SDM 原始校准 confidence，不组合综合分。
+- 低置信与异常都已耗费一次 SDM 调用（异常时可能未计费），
   usage 如实透传或置 None，供成本汇总区分。
 """
 
@@ -87,12 +87,12 @@ def _extract_sub_signals(resp: DecisionResponse) -> dict[str, float]:
 
 
 def _ensure_action_keys(probs: dict[str, float]) -> dict[str, float]:
-    """补齐 buy/sell/hold 三键；保持 Jev 原始概率不归一化（校准值不可篡改）。"""
+    """补齐 buy/sell/hold 三键；保持 SDM 原始概率不归一化（校准值不可篡改）。"""
     return {name: float(probs.get(name, 0.0)) for name in ACTIONS}
 
 
-class JevCascadeDecisionLayer:
-    """System 1（Jev）+ 兜底的级联层，返回统一出口 CascadeDecision。"""
+class SdmCascadeDecisionLayer:
+    """SDM（快决策）+ 兜底的级联层，返回统一出口 CascadeDecision。"""
 
     def __init__(
         self,
@@ -118,18 +118,18 @@ class JevCascadeDecisionLayer:
             confidence=confidence,
             probabilities=probs,
             fallback_reason=reason,
-            jev_usage=usage,
+            sdm_usage=usage,
             sub_signals=sub_signals,
         )
 
     def decide(self, state: dict, questions: dict) -> CascadeDecision:
-        # 路径一：Jev 调用异常（含 ReplayMiss、网络、解析等），未拿到有效响应
+        # 路径一：SDM 调用异常（含 ReplayMiss、网络、解析等），未拿到有效响应
         try:
             resp = self._client.decide(state, questions)
         except Exception as e:
-            # ponytail: 兜底面故意收宽到 Exception，任何 Jev 侧失败都不能让交易循环崩掉；
+            # ponytail: 兜底面故意收宽到 Exception，任何 SDM 侧失败都不能让交易循环崩掉；
             # 升级路径是按异常类型细分重试/熔断，当前预研阶段无此需求
-            return self._use_fallback(state, f"jev_error: {type(e).__name__}", None, {})
+            return self._use_fallback(state, f"sdm_error: {type(e).__name__}", None, {})
 
         sub_signals = _extract_sub_signals(resp)
         usage = resp.usage
@@ -137,7 +137,7 @@ class JevCascadeDecisionLayer:
 
         # 路径二：响应结构无法支撑门控（主问题缺失/类型错/胜选项不在动作集）
         if not isinstance(choice, ChoiceAnswer) or choice.choice not in ACTIONS:
-            return self._use_fallback(state, "jev_error: invalid_choice", usage, sub_signals)
+            return self._use_fallback(state, "sdm_error: invalid_choice", usage, sub_signals)
 
         # 路径三：校准置信度未达非对称阈值
         if not gate_allows(choice.choice, choice.confidence, self._config):
@@ -148,13 +148,13 @@ class JevCascadeDecisionLayer:
                 sub_signals,
             )
 
-        # 直出：概率只补缺键不归一化，保留 Jev 原始校准分布
+        # 直出：概率只补缺键不归一化，保留 SDM 原始校准分布
         return CascadeDecision(
             action=choice.choice,
-            source="jev_direct",
+            source="sdm_direct",
             confidence=choice.confidence,
             probabilities=_ensure_action_keys(choice.probabilities),
             fallback_reason=None,
-            jev_usage=usage,
+            sdm_usage=usage,
             sub_signals=sub_signals,
         )

@@ -2,6 +2,10 @@
 
 使用 axon_quant.exchange adapter 获取行情，
 执行策略生成的 Action 订单，强制经过风控检查。
+
+支持因子注入：启动时 fetch_ohlcv 填充 KlineBuffer，逐 tick 更新，
+FactorInjector 计算因子值注入 StrategyContext.features，策略通过
+ctx.get_feature(name) 读取。
 """
 
 from __future__ import annotations
@@ -24,12 +28,15 @@ class StrategyLoop:
 
     Args:
         adapter: 交易所适配器（axon_quant.exchange.*Adapter）
-        strategy: 策略实例（实现 on_bar → Action）
+        strategy: 策略实例（实现 on_bar(bar, ctx) → Action）
         symbol: 交易对符号
         interval: 轮询间隔（秒）
         risk_engine: 风控引擎（需实现 check_order(order, portfolio) -> {"passed": bool, "reason": str}）
         account_equity: 账户净值（用于 target_position → qty 转换）
         event_callback: 事件回调 fn(event_type: str, data: dict)，用于 WebSocket 推送和状态更新
+        factor_names: 需要注入的因子名列表（内置或自定义）；为空则不注入因子
+        timeframe: K 线周期（"1h"/"4h"/"1d" 等），用于 KlineBuffer 和 fetch_ohlcv
+        kline_buffer_len: KlineBuffer 最大长度（默认 1000）
     """
 
     def __init__(
@@ -41,6 +48,9 @@ class StrategyLoop:
         risk_engine: Any = None,
         account_equity: float = 100_000.0,
         event_callback: Callable[[str, dict[str, Any]], None] | None = None,
+        factor_names: list[str] | None = None,
+        timeframe: str = "1h",
+        kline_buffer_len: int = 1000,
     ):
         self._adapter = adapter
         self._strategy = strategy
@@ -49,6 +59,9 @@ class StrategyLoop:
         self._risk_engine = risk_engine
         self._account_equity = account_equity
         self._event_callback = event_callback
+        self._factor_names = list(factor_names) if factor_names else []
+        self._timeframe = timeframe
+        self._kline_buffer_len = kline_buffer_len
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._order_count = 0
@@ -56,6 +69,9 @@ class StrategyLoop:
         self._fill_count = 0
         self._last_price = 0.0
         self._last_action: str | None = None
+        # 因子注入相关（start() 中初始化）
+        self._kline_buffer: Any = None
+        self._factor_injector: Any = None
 
     @property
     def symbol(self) -> str:
@@ -80,11 +96,55 @@ class StrategyLoop:
         if hasattr(self._adapter, "subscribe"):
             self._adapter.subscribe([self._symbol])
 
+        # 初始化 KlineBuffer + FactorInjector（如果配置了因子）
+        if self._factor_names:
+            self._init_factor_injection()
+
         self._strategy.on_start()
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info(f"StrategyLoop 已启动: {self._symbol}")
+
+    def _init_factor_injection(self) -> None:
+        """初始化 KlineBuffer 并加载历史 K 线，创建 FactorInjector。"""
+        if not self._factor_names:
+            return
+        try:
+            from axon_quant.backtest import KlineBuffer
+
+            from strategy.factor_injector import FactorInjector
+
+            self._kline_buffer = KlineBuffer(self._timeframe, self._kline_buffer_len)
+
+            # 尝试通过 adapter.fetch_ohlcv 加载历史 K 线
+            # fetch_ohlcv 返回的 timestamp 是毫秒，KlineBuffer.load_history 期望纳秒
+            if hasattr(self._adapter, "fetch_ohlcv"):
+                try:
+                    history = self._adapter.fetch_ohlcv(self._symbol, self._timeframe, self._kline_buffer_len)
+                    if history:
+                        normalized = [
+                            {
+                                "timestamp": int(b["timestamp"]) * 1_000_000,
+                                "open": float(b["open"]),
+                                "high": float(b["high"]),
+                                "low": float(b["low"]),
+                                "close": float(b["close"]),
+                                "volume": float(b["volume"]),
+                            }
+                            for b in history
+                        ]
+                        self._kline_buffer.load_history(normalized)
+                        logger.info(f"KlineBuffer 已加载 {len(normalized)} 根历史 K 线: {self._symbol}")
+                except Exception as e:
+                    logger.warning(f"fetch_ohlcv 加载历史 K 线失败: {e}")
+
+            self._factor_injector = FactorInjector.from_factor_names(self._factor_names)
+            logger.info(f"FactorInjector 已初始化: {self._symbol}, factors={self._factor_names}")
+        except Exception as e:
+            logger.error(f"因子注入初始化失败，将退化为无因子模式: {e}", exc_info=True)
+            self._kline_buffer = None
+            self._factor_injector = None
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -114,6 +174,8 @@ class StrategyLoop:
                     # 不把 0 价 bar 喂给策略（会污染均线/指标窗口的脏数据）
                     self._stop_event.wait(self._interval)
                     continue
+
+                timestamp_ns = int(time.time() * 1_000_000_000)
                 bar = {
                     "open": float(ticker.get("open", close_price)),
                     "high": float(ticker.get("high", close_price)),
@@ -121,11 +183,15 @@ class StrategyLoop:
                     "close": close_price,
                     "volume": float(ticker.get("volume", 0.0)),
                     "symbol": self._symbol,
-                    "timestamp_ns": int(time.time() * 1_000_000_000),
+                    "timestamp_ns": timestamp_ns,
                 }
                 self._last_price = close_price
 
-                action = self._strategy.on_bar(bar)
+                # 更新 KlineBuffer + 计算因子（如果配置了因子）
+                ctx = self._build_ctx(bar, timestamp_ns, close_price)
+
+                # 策略调用：优先 on_bar(bar, ctx)，回退到 on_bar(bar)
+                action = self._call_strategy_on_bar(bar, ctx)
                 action_type_str = str(action.action_type)
                 self._last_action = action_type_str
                 if action_type_str in ("buy", "sell"):
@@ -137,7 +203,8 @@ class StrategyLoop:
                         "symbol": self._symbol,
                         "price": close_price,
                         "action": action_type_str,
-                        "timestamp": bar["timestamp_ns"],
+                        "timestamp": timestamp_ns,
+                        "features": ctx.features if ctx is not None else {},
                     },
                 )
 
@@ -146,6 +213,46 @@ class StrategyLoop:
 
             # ponytail: wait 替代 sleep，stop() 可即时唤醒
             self._stop_event.wait(self._interval)
+
+    def _build_ctx(self, bar: dict, timestamp_ns: int, close_price: float) -> Any:
+        """构建 StrategyContext：更新 KlineBuffer，计算因子，填充历史序列。"""
+        from strategy.base import StrategyContext
+
+        features: dict[str, float] = {}
+        closes: list[float] = []
+        highs: list[float] = []
+        lows: list[float] = []
+        volumes: list[float] = []
+
+        if self._kline_buffer is not None and self._factor_injector is not None:
+            # 用 tick 更新 KlineBuffer（自动处理跨周期收盘）
+            self._kline_buffer.push_tick(timestamp_ns, close_price)
+            bars = self._kline_buffer.bars()
+            # 计算因子最新值
+            features = self._factor_injector.compute(bars)
+            # 填充历史序列供策略使用（如均线、ATR）
+            closes = [float(b["close"]) for b in bars]
+            highs = [float(b["high"]) for b in bars]
+            lows = [float(b["low"]) for b in bars]
+            volumes = [float(b["volume"]) for b in bars]
+
+        return StrategyContext(
+            symbol=self._symbol,
+            closes=closes,
+            highs=highs,
+            lows=lows,
+            volumes=volumes,
+            features=features,
+            account_equity=self._account_equity,
+        )
+
+    def _call_strategy_on_bar(self, bar: dict, ctx: Any) -> Any:
+        """调用策略 on_bar，兼容 on_bar(bar, ctx) 和 on_bar(bar) 两种签名。"""
+        try:
+            return self._strategy.on_bar(bar, ctx)
+        except TypeError:
+            # 回退到旧签名 on_bar(bar)
+            return self._strategy.on_bar(bar)
 
     def _execute_action(self, action: Action, current_price: float) -> None:
         """执行 Action：置信度过滤 → qty 计算 → 风控检查 → 下单"""

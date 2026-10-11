@@ -472,6 +472,33 @@ export const strategyApi = {
   generateStrategy: <T>(data: T) => {
     return apiRequest.post('/strategy/generate', data);
   },
+
+  // —— 因子独立 CRUD ——
+
+  getFactors: (strategyName: string) => {
+    return apiRequest.get(`/strategy/${strategyName}/factors`);
+  },
+
+  replaceFactors: (strategyName: string, factors: any[]) => {
+    return apiRequest.put(`/strategy/${strategyName}/factors`, factors);
+  },
+
+  addFactor: (strategyName: string, factor: any) => {
+    return apiRequest.post(`/strategy/${strategyName}/factors`, factor);
+  },
+
+  removeFactor: (strategyName: string, factorName: string) => {
+    return apiRequest.delete(`/strategy/${strategyName}/factors/${encodeURIComponent(factorName)}`);
+  },
+
+  updateFactor: (strategyName: string, factorName: string, patch: any) => {
+    return apiRequest.patch(`/strategy/${strategyName}/factors/${encodeURIComponent(factorName)}`, patch);
+  },
+
+  /** 重新 AST 解析策略源码，覆盖 DB 里的 params + factors */
+  reparseStrategy: (strategyName: string) => {
+    return apiRequest.post(`/strategy/${strategyName}/reparse`);
+  },
 };
 
 // 注意：dataApi 不要在这里再导出。dataApi 单向依赖本模块的 apiRequest，

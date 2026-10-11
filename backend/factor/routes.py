@@ -217,7 +217,7 @@ def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_curre
     """添加自定义因子"""
     try:
         logger.info(f"添加因子请求，因子名称: {request.factor_name}, 表达式: {request.expression}")
-        result = factor_service.add_factor(request.factor_name, request.expression)
+        result = factor_service.add_factor(request.factor_name, request.expression, request.description or "")
         if result:
             logger.info(f"成功添加因子 {request.factor_name}")
             # ---- add 成功后建档（派生数据，失败不阻断表达式新增）----
@@ -748,6 +748,9 @@ def list_catalog(current_user: dict = Depends(get_current_user)) -> ApiResponse:
                 .group_by(FactorSnapshot.factor_name)
                 .all()
             )
+            # 档案表不存 kind/description：从因子引擎明细取（前端「来源」列与编辑入口依赖 kind，
+            # 代码因子分类可被用户改写，不能再靠 category == llm_code 反推来源）
+            engine_details = {d["name"]: d for d in factor_service.get_factor_details()}
             factors = [
                 {
                     "name": r.name,
@@ -756,6 +759,8 @@ def list_catalog(current_user: dict = Depends(get_current_user)) -> ApiResponse:
                     "expression": r.expression,
                     "builtin": r.is_builtin,
                     "supported": r.supported,
+                    "kind": (engine_details.get(r.name) or {}).get("kind"),
+                    "description": (engine_details.get(r.name) or {}).get("description"),
                     "lifecycle_status": r.lifecycle_status,
                     "last_metrics": json.loads(r.last_metrics) if r.last_metrics else None,
                     "last_snapshot_at": r.last_snapshot_at.isoformat() if r.last_snapshot_at else None,
@@ -1082,6 +1087,45 @@ def validate_code_factor(
         )
 
 
+@router.post(
+    "/validate",
+    response_model=ApiResponse,
+    summary="校验表达式因子（语法+合成 OHLCV 运行）",
+)
+def validate_expression_factor(
+    request: FactorValidateRequest,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    """表达式与代码共用的校验入口：用合成 OHLCV 数据跑一次 evaluate_expression。
+
+    错误类型统一包装进 data.valid/data.message，code 始终为 0，避免被前端拦截器丢弃。
+    """
+    import numpy as np
+    import pandas as pd
+
+    from factor.engine import evaluate_expression
+
+    # 合成 120 条 OHLCV：close 随机游走 + open/high/low/volume 合理派生
+    rng = np.random.default_rng(42)
+    n = 120
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    open_ = np.concatenate([[close[0]], close[:-1]])
+    high = np.maximum(open_, close) * (1 + np.abs(rng.normal(0, 0.005, n)))
+    low = np.minimum(open_, close) * (1 - np.abs(rng.normal(0, 0.005, n)))
+    volume = rng.integers(1000, 100000, n).astype(float)
+    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": volume})
+
+    try:
+        evaluate_expression(request.expression, df)
+        return ApiResponse(code=0, message="表达式校验通过", data={"valid": True})
+    except Exception as e:
+        return ApiResponse(
+            code=0,
+            message="表达式校验完成",
+            data={"valid": False, "error_type": type(e).__name__, "message": str(e)},
+        )
+
+
 @router.post("/code/add", response_model=ApiResponse, summary="新增代码因子（沙箱校验通过后入库）")
 def add_code_factor(request: CodeFactorAddRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     try:
@@ -1090,6 +1134,7 @@ def add_code_factor(request: CodeFactorAddRequest, current_user: dict = Depends(
             request.code,
             request.description or "",
             provenance={"source": "manual_or_llm"},
+            category=request.category,
         )
         # ---- 保存成功后建档（派生数据，失败不阻断代码保存；模式同表达式 add_factor）----
         try:

@@ -1,7 +1,7 @@
 /**
  * 右栏「分析」页签：锁定左栏选中因子，参数表单 + 异步分析 + 结果展示。
- * - 后端对每次成功分析强制自动留痕（无开关、无感知）；
- * - 分析/手动存快照成功后回调 onAnalyzed，由容器刷新左栏 last_metrics / 快照数。
+ * - 后端对每次成功分析强制自动留痕（无开关、无感知），不再提供手动保存按钮；
+ * - 分析成功后回调 onAnalyzed，由容器刷新左栏 last_metrics / 快照数。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,7 +19,7 @@ import {
   Select,
   Space,
 } from 'antd';
-import { LineChartOutlined, StarOutlined } from '@ant-design/icons';
+import { LineChartOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
   factorApi,
@@ -84,7 +84,6 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [result, setResult] = useState<FactorAnalyzeResult | null>(null);
   const [lastParams, setLastParams] = useState<FactorAnalyzeParams | null>(null);
-  const [savingSnapshot, setSavingSnapshot] = useState(false);
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
@@ -150,20 +149,6 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
       message.error(errMsg(err));
     }
   }, [form, runJob, onAnalyzed]);
-
-  const saveNow = async () => {
-    if (!lastParams) return;
-    setSavingSnapshot(true);
-    try {
-      const r = await factorApi.saveSnapshot(lastParams);
-      message.success(t('factor_wb_toast_saved', { id: r.id }) || `快照已保存（#${r.id}）`);
-      onAnalyzed?.();
-    } catch (e) {
-      message.error((e as Error)?.message || t('factor_wb_toast_save_failed') || '保存失败');
-    } finally {
-      setSavingSnapshot(false);
-    }
-  };
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
@@ -268,18 +253,6 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
 
       {!jobLoading && result && (
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-          <Flex justify="flex-end">
-            <Button
-              type="primary"
-              ghost
-              icon={<StarOutlined />}
-              loading={savingSnapshot}
-              disabled={!lastParams}
-              onClick={saveNow}
-            >
-              {t('factor_wb_btn_save') || '保存快照'}
-            </Button>
-          </Flex>
           <FactorResultView result={result} />
         </Space>
       )}

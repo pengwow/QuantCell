@@ -31,6 +31,7 @@ class Strategy(Base):
     tags = Column(Text, nullable=True)
     code = Column(Text, nullable=True)
     parameters = Column(Text, nullable=True)
+    factors = Column(Text, nullable=True)
     strategy_type = Column(String(20), default="rule")
     status = Column(String(20), default="active")
     created_at = Column(DateTime, default=func.now())
@@ -61,3 +62,12 @@ class Strategy(Base):
 
     def set_parameters_list(self, params: list[dict[str, Any]]):
         self.parameters = json.dumps(params)
+
+    def get_factors_list(self) -> list[dict[str, Any]]:
+        try:
+            return json.loads(self.factors) if self.factors else []
+        except json.JSONDecodeError:
+            return []
+
+    def set_factors_list(self, factors: list[dict[str, Any]]):
+        self.factors = json.dumps(factors)

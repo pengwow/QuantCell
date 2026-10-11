@@ -35,7 +35,7 @@ class DecisionClient(Protocol):
 
 
 class ReplayDecisionClient:
-    """fingerprint → 原始 Jev 响应 JSON 的精确回放。"""
+    """fingerprint → 原始 SDM 响应 JSON 的精确回放。"""
 
     def __init__(self, recordings: dict[str, dict]):
         self._recordings = dict(recordings)
@@ -80,14 +80,14 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 
 class StubDecisionClient:
-    """特征 → 类型化响应的确定性模拟器（model="jev-stub"）。
+    """特征 → 类型化响应的确定性模拟器（model="sdm-stub"）。
 
     ponytail: 用极简线性强度 x（双均线偏离 + 短周期收益，按波动率归一）
-    驱动 softmax，天花板是它不模拟真实 Jev 的判断偏差；用途仅限打通链路
+    驱动 softmax，天花板是它不模拟真实 SDM 的判断偏差；用途仅限打通链路
     与 CI，任何 stub 报告都带 advisory_only=true，升级路径是录制真实响应。
     """
 
-    model = "jev-stub"
+    model = "sdm-stub"
 
     def decide(self, state: dict, questions: dict) -> DecisionResponse:
         f = state["features"]

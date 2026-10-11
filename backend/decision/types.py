@@ -1,6 +1,6 @@
-"""Jev 决策协议类型。
+"""SDM（结构化决策模型）决策协议类型。
 
-字段名严格对齐 Jev 官方 API（type/instructions/criteria；
+字段名严格对齐 SDM 协议（type/instructions/criteria；
 答案 noul/choice/score/confidence/probabilities），录制 JSON 与真实
 响应零转换。统一出口 CascadeDecision 是 cascade 所有分支的唯一返回类型，
 禁止任何分支返回裸 dict 或缺字段对象。
@@ -54,7 +54,7 @@ Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer
 
 @dataclass(frozen=True)
 class DecisionResponse:
-    """Jev /v1/systemone 单次响应的解析结果。"""
+    """SDM 单次响应的解析结果。"""
 
     model: str
     answers: dict[str, Answer]
@@ -71,11 +71,11 @@ class CascadeDecision:
     """
 
     action: Action
-    source: Literal["jev_direct", "fallback"]
+    source: Literal["sdm_direct", "fallback"]
     confidence: float
     probabilities: dict[str, float]
     fallback_reason: str | None
-    jev_usage: DecisionUsage | None
+    sdm_usage: DecisionUsage | None
     sub_signals: dict[str, float]
 
 
@@ -99,9 +99,9 @@ def _parse_answer(raw: dict) -> Answer:
 
 
 def parse_response(raw: dict) -> DecisionResponse:
-    """把 Jev 原始 JSON（或 stub 构造的同构 dict）解析为 DecisionResponse。
+    """把 SDM 原始 JSON（或 stub 构造的同构 dict）解析为 DecisionResponse。
 
-    缺字段直接抛 KeyError/ValueError，由 cascade 统一走 jev_error 分支，
+    缺字段直接抛 KeyError/ValueError，由 cascade 统一走 sdm_error 分支，
     不在此做静默兜底。
     """
     return DecisionResponse(

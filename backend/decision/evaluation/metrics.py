@@ -2,8 +2,8 @@
 
 记录字段口径：
 - final_action/label/confidence/correct：门控后的最终动作与标签
-- source：jev_direct | fallback
-- jev_cost_usd：该样本实际产生的 Jev 费用（低置信兜底也计费，异常兜底为 0）
+- source：sdm_direct | fallback
+- sdm_cost_usd：该样本实际产生的 SDM 费用（低置信兜底也计费，异常兜底为 0）
 - fallback_cost_usd：兜底决策费用（仅 source=fallback 时非 0）
 """
 
@@ -60,18 +60,18 @@ def expected_calibration_error(
 
 
 def cost_summary(records: list[dict]) -> dict:
-    """区分 Jev 与兜底两路花费；jev_calls 按实际计费次数统计。"""
+    """区分 SDM 与兜底两路花费；sdm_calls 按实际计费次数统计。"""
     n = len(records)
-    jev_calls = sum(1 for r in records if r["jev_cost_usd"] > 0)
+    sdm_calls = sum(1 for r in records if r["sdm_cost_usd"] > 0)
     fallback_calls = sum(1 for r in records if r["source"] == "fallback")
-    total_jev = sum(float(r["jev_cost_usd"]) for r in records)
+    total_sdm = sum(float(r["sdm_cost_usd"]) for r in records)
     total_fb = sum(float(r["fallback_cost_usd"]) for r in records)
     return {
         "samples": n,
-        "jev_calls": jev_calls,
+        "sdm_calls": sdm_calls,
         "fallback_calls": fallback_calls,
-        "jev_direct_rate": (n - fallback_calls) / n if n else 0.0,
-        "total_jev_cost_usd": total_jev,
+        "sdm_direct_rate": (n - fallback_calls) / n if n else 0.0,
+        "total_sdm_cost_usd": total_sdm,
         "total_fallback_cost_usd": total_fb,
-        "total_cost_usd": total_jev + total_fb,
+        "total_cost_usd": total_sdm + total_fb,
     }

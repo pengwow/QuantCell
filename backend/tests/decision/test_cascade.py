@@ -6,8 +6,8 @@ import pytest
 
 from decision.cascade import (
     CascadeConfig,
-    JevCascadeDecisionLayer,
     RuleFallback,
+    SdmCascadeDecisionLayer,
     gate_allows,
 )
 from decision.client import DecisionError
@@ -23,7 +23,7 @@ def _resp(choice: str, conf: float, *, cost: float = 0.00003):
     probs[choice] = conf
     return parse_response(
         {
-            "model": "jev-latest",
+            "model": "sdm-latest",
             "answers": {
                 "next_direction": {
                     "type": "choice",
@@ -58,32 +58,32 @@ def test_gate_allows_asymmetric_thresholds():
 
 
 def test_high_confidence_direct_path():
-    layer = JevCascadeDecisionLayer(_ScriptedClient(_resp("buy", 0.9)), RuleFallback(), CascadeConfig())
+    layer = SdmCascadeDecisionLayer(_ScriptedClient(_resp("buy", 0.9)), RuleFallback(), CascadeConfig())
     d = layer.decide(STATE, Q)
-    assert d.source == "jev_direct"
+    assert d.source == "sdm_direct"
     assert d.action == "buy"
     assert d.fallback_reason is None
-    assert d.jev_usage == DecisionUsage(100, 0.00003)
+    assert d.sdm_usage == DecisionUsage(100, 0.00003)
     assert set(d.probabilities) == {"buy", "sell", "hold"}
     assert d.sub_signals["trend_confirms"] == 0.9
 
 
-def test_low_confidence_fallback_keeps_jev_usage():
-    layer = JevCascadeDecisionLayer(_ScriptedClient(_resp("buy", 0.6, cost=0.00003)), RuleFallback(), CascadeConfig())
+def test_low_confidence_fallback_keeps_sdm_usage():
+    layer = SdmCascadeDecisionLayer(_ScriptedClient(_resp("buy", 0.6, cost=0.00003)), RuleFallback(), CascadeConfig())
     d = layer.decide(STATE, Q)
     assert d.source == "fallback"
     assert d.fallback_reason is not None and d.fallback_reason.startswith("low_confidence")
-    # 低置信也已产生一次 Jev 计费，usage 必须保留用于成本核算
-    assert d.jev_usage == DecisionUsage(100, 0.00003)
+    # 低置信也已产生一次 SDM 计费，usage 必须保留用于成本核算
+    assert d.sdm_usage == DecisionUsage(100, 0.00003)
     assert set(d.probabilities) == {"buy", "sell", "hold"}
 
 
 def test_client_error_fallback_has_no_usage():
-    layer = JevCascadeDecisionLayer(_ScriptedClient(exc=DecisionError("boom")), RuleFallback(), CascadeConfig())
+    layer = SdmCascadeDecisionLayer(_ScriptedClient(exc=DecisionError("boom")), RuleFallback(), CascadeConfig())
     d = layer.decide(STATE, Q)
     assert d.source == "fallback"
-    assert d.fallback_reason is not None and "jev_error" in d.fallback_reason
-    assert d.jev_usage is None
+    assert d.fallback_reason is not None and "sdm_error" in d.fallback_reason
+    assert d.sdm_usage is None
 
 
 def test_invalid_choice_value_falls_back():
@@ -101,10 +101,10 @@ def test_invalid_choice_value_falls_back():
             "usage": {"input_tokens": 0, "cost_usd": 0.0},
         }
     )
-    layer = JevCascadeDecisionLayer(_ScriptedClient(bad), RuleFallback(), CascadeConfig())
+    layer = SdmCascadeDecisionLayer(_ScriptedClient(bad), RuleFallback(), CascadeConfig())
     d = layer.decide(STATE, Q)
     assert d.source == "fallback"
-    assert "jev_error" in d.fallback_reason
+    assert "sdm_error" in d.fallback_reason
 
 
 def test_rule_fallback_directions():

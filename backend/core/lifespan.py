@@ -639,6 +639,17 @@ def _init_strategies():
                 if not isinstance(tags, list):
                     tags = []
 
+                factors = strategy_info.get("factors", [])
+                if isinstance(factors, str):
+                    import json
+
+                    try:
+                        factors = json.loads(factors) if factors else []
+                    except json.JSONDecodeError:
+                        factors = []
+                if not isinstance(factors, list):
+                    factors = []
+
                 new_strategy = Strategy(
                     name=strategy_info["name"],
                     file_name=strategy_info["file_name"],
@@ -649,10 +660,11 @@ def _init_strategies():
                 )
                 new_strategy.set_parameters_list(params)
                 new_strategy.set_tags_list(tags)
+                new_strategy.set_factors_list(factors)
                 db.add(new_strategy)
                 added += 1
                 logger.info(
-                    f"策略已初始化: {strategy_info['name']}, params_count={len(params)}, tags_count={len(tags)}"
+                    f"策略已初始化: {strategy_info['name']}, params={len(params)}, factors={len(factors)}, tags={len(tags)}"
                 )
 
             db.commit()

@@ -4,7 +4,6 @@ import {
   Card,
   Button,
   Space,
-  message,
   Spin,
   Tabs,
   Modal,
@@ -13,6 +12,7 @@ import {
   Descriptions,
   Tooltip,
   Tag,
+  App,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -23,6 +23,8 @@ import {
   BackwardOutlined,
   RobotOutlined,
   CloseCircleOutlined,
+  EditOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +51,12 @@ interface Strategy {
     default: unknown;
     description: string;
     required: boolean;
+  }>;
+  factors?: Array<{
+    name: string;
+    type?: string;
+    description?: string;
+    default?: unknown;
   }>;
   created_at: string;
   updated_at: string;
@@ -85,9 +93,9 @@ const StrategyEditor = () => {
   const [isEditingDescription, setIsEditingDescription] = useState<boolean>(false);
   const [tempDescription, setTempDescription] = useState<string>('');
 
-  // 参数描述编辑状态
-  const [editingParamIndex, setEditingParamIndex] = useState<number | null>(null);
-  const [editingParamDesc, setEditingParamDesc] = useState<string>('');
+  // 行级编辑追踪：哪些行处于编辑态（新增行默认进入编辑态）
+  const [editingParamRows, setEditingParamRows] = useState<Set<number>>(new Set());
+  const [editingFactorRows, setEditingFactorRows] = useState<Set<number>>(new Set());
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
@@ -102,6 +110,7 @@ const StrategyEditor = () => {
   const { t } = useTranslation();
   const { isMobile } = useResponsive();
   const { isGuest } = useGuestRestriction();
+  const { message: appMessage, modal } = App.useApp();
 
   // 使用 AI 生成的代码创建策略
   const handleCreateStrategyWithCode = (generatedCode: string, strategyName?: string) => {
@@ -124,7 +133,7 @@ const StrategyEditor = () => {
 
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
-    message.success(t('ai_loaded_to_editor') || 'AI 生成策略已加载到编辑器');
+    appMessage.success(t('ai_loaded_to_editor') || 'AI 生成策略已加载到编辑器');
   };
 
   // 设置页面标题
@@ -165,7 +174,7 @@ const StrategyEditor = () => {
       setCode(response.code);
     } catch (error) {
       console.error(t('load_strategy_error', { message: error }) || '加载策略失败:', error);
-      message.error(t('load_strategy_failed') || '加载策略失败');
+      appMessage.error(t('load_strategy_failed') || '加载策略失败');
     } finally {
       setEditorLoading(false);
     }
@@ -238,11 +247,11 @@ const StrategyEditor = () => {
       parseCache.set(codeHash, response);
       setDataSource('parsed');
       setParseError(null);
-      message.success(t('parse_success') || '策略解析成功');
+      appMessage.success(t('parse_success') || '策略解析成功');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : t('parse_failed') || '解析策略失败';
       setParseError(errorMsg);
-      message.error(t('parse_failed', { message: errorMsg }) || `策略解析失败: ${errorMsg}`);
+      appMessage.error(t('parse_failed', { message: errorMsg }) || `策略解析失败: ${errorMsg}`);
     } finally {
       clearTimeout(timeoutId);
       setIsParsing(false);
@@ -302,29 +311,16 @@ const StrategyEditor = () => {
     }
   };
 
-  // 处理重新解析按钮点击
-  const handleReparse = () => {
-    Modal.confirm({
-      title: t('confirm_reparse') || '确认重新解析',
-      content: t('reparse_warning') || '重新解析将从当前代码中提取策略信息，覆盖当前预览显示。此操作不会保存到数据库，是否继续？',
-      okText: t('reparse') || '重新解析',
-      cancelText: t('cancel') || '取消',
-      onOk: () => {
-        parseStrategy(true); // 强制重新解析
-      },
-    });
-  };
-
   // 切换数据来源
   const handleSwitchDataSource = () => {
     if (dataSource === 'database') {
       // 切换到解析数据
       if (parsedStrategy) {
         setDataSource('parsed');
-        message.info(t('switch_to_parsed') || '已切换到策略解析数据');
+        appMessage.info(t('switch_to_parsed') || '已切换到策略解析数据');
       } else {
         // 如果没有解析数据，提示用户先解析
-        Modal.confirm({
+        modal.confirm({
           title: t('no_parse_data') || '无解析数据',
           content: t('parse_now_confirm') || '当前没有策略解析数据，是否立即解析？',
           okText: t('parse_now') || '立即解析',
@@ -337,7 +333,7 @@ const StrategyEditor = () => {
     } else {
       // 切换到数据库数据
       setDataSource('database');
-      message.info(t('switch_to_db') || '已切换到数据库存储数据');
+      appMessage.info(t('switch_to_db') || '已切换到数据库存储数据');
     }
   };
 
@@ -491,7 +487,7 @@ class NewStrategy(StrategyBase):
   const handleStrategyTypeChange = (type: 'rule' | 'rl') => {
     if (type === aiStrategyType) return;
     const typeLabel = type === 'rl' ? 'RL策略' : '规则策略';
-    Modal.confirm({
+    modal.confirm({
       title: '切换策略类型',
       content: `切换到「${typeLabel}」后，编辑器内容将替换为对应的示例模板。当前未保存的代码会被覆盖，是否继续？`,
       okText: '切换',
@@ -764,11 +760,11 @@ class NewStrategy(StrategyBase):
   // 保存策略
   const handleSaveStrategy = async () => {
     if (!selectedStrategy) {
-      message.error(t('please_select_create_strategy') || '请先选择或创建策略');
+      appMessage.error(t('please_select_create_strategy') || '请先选择或创建策略');
       return;
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: t('confirm_save_strategy') || '确认保存策略',
       content: t('save_strategy_confirm') || '您确定要保存当前策略吗？',
       okText: t('save') || '保存',
@@ -778,22 +774,156 @@ class NewStrategy(StrategyBase):
         try {
           setLoading(true);
 
-          // 调用保存策略的API
+          // 调用保存策略的API（带手动维护的 params + factors）
+          // type coercion：Input 把 default 全转成了 string，保存前按 type 字段转回正确类型
+          const coercedParams = (selectedStrategy.params || []).map((p: any) => {
+            const v = p.default;
+            let coerced: any = v;
+            if (v !== null && v !== undefined && v !== '' && typeof v === 'string') {
+              switch (p.type) {
+                case 'int':
+                  coerced = Number.isInteger(Number(v)) ? Number(v) : v;
+                  break;
+                case 'float':
+                  coerced = Number(v);
+                  break;
+                case 'bool':
+                  coerced = v.toLowerCase() === 'true';
+                  break;
+                case 'str':
+                  coerced = v;
+                  break;
+              }
+            }
+            return { ...p, default: coerced };
+          });
+
           await strategyApi.uploadStrategyFile({
             strategy_name: selectedStrategy.name,
             file_content: code,
             version: selectedStrategy.version,
             description: selectedStrategy.description,
-            params: selectedStrategy.params,
+            params: coercedParams,
+            factors: selectedStrategy.factors || [],
             strategy_type: selectedStrategy.strategy_type || 'rule',
           });
 
-          message.success(t('strategy_saved') || '策略保存成功');
+          appMessage.success(t('strategy_saved') || '策略保存成功');
         } catch (error) {
           console.error(t('save_strategy_failed') || '保存策略失败:', error);
-          message.error(t('save_strategy_failed') || '保存策略失败');
+          appMessage.error(t('save_strategy_failed') || '保存策略失败');
         } finally {
           setLoading(false);
+        }
+      },
+    });
+  };
+
+  // —— 参数增删改 + 行编辑态 ——
+  // ponytail: 同时更新 selectedStrategy 和 parsedStrategy，避免 dataSource 切到 parsed 视图时修改白做
+
+  const handleParamChange = (index: number, field: string, value: any) => {
+    if (!selectedStrategy) return;
+    const params = [...selectedStrategy.params];
+    params[index] = { ...params[index], [field]: value };
+    setSelectedStrategy({ ...selectedStrategy, params });
+    if (parsedStrategy) setParsedStrategy({ ...parsedStrategy, params });
+  };
+
+  const handleAddParam = () => {
+    if (!selectedStrategy) return;
+    const params = [
+      ...(selectedStrategy.params || []),
+      { name: 'new_param', type: 'Any', default: null, description: '', required: false },
+    ];
+    setSelectedStrategy({ ...selectedStrategy, params });
+    if (parsedStrategy) setParsedStrategy({ ...parsedStrategy, params });
+    // 新增行自动进入编辑态
+    setEditingParamRows(new Set([...editingParamRows, params.length - 1]));
+  };
+
+  const handleRemoveParam = (index: number) => {
+    if (!selectedStrategy) return;
+    const params = (selectedStrategy.params || []).filter((_, i) => i !== index);
+    setSelectedStrategy({ ...selectedStrategy, params });
+    if (parsedStrategy) setParsedStrategy({ ...parsedStrategy, params });
+    // 同步编辑态：删掉当前 index，后面的 -1
+    setEditingParamRows(new Set([...editingParamRows].filter(i => i !== index).map(i => (i > index ? i - 1 : i))));
+  };
+
+  const toggleParamEdit = (index: number) => {
+    const next = new Set(editingParamRows);
+    if (next.has(index)) next.delete(index); else next.add(index);
+    setEditingParamRows(next);
+  };
+
+  // —— 因子增删改 + 行编辑态 ——
+
+  const handleFactorChange = (index: number, field: string, value: any) => {
+    if (!selectedStrategy) return;
+    const factors = [...(selectedStrategy.factors || [])];
+    factors[index] = { ...factors[index], [field]: value };
+    setSelectedStrategy({ ...selectedStrategy, factors });
+    if (parsedStrategy) setParsedStrategy({ ...parsedStrategy, factors });
+  };
+
+  const handleAddFactor = () => {
+    if (!selectedStrategy) return;
+    const factors = [
+      ...(selectedStrategy.factors || []),
+      { name: '', type: 'factor', description: '' },
+    ];
+    setSelectedStrategy({ ...selectedStrategy, factors });
+    if (parsedStrategy) setParsedStrategy({ ...parsedStrategy, factors });
+    // 新增行自动进入编辑态
+    setEditingFactorRows(new Set([...editingFactorRows, factors.length - 1]));
+  };
+
+  const handleRemoveFactor = (index: number) => {
+    if (!selectedStrategy) return;
+    const factors = (selectedStrategy.factors || []).filter((_, i) => i !== index);
+    setSelectedStrategy({ ...selectedStrategy, factors });
+    if (parsedStrategy) setParsedStrategy({ ...parsedStrategy, factors });
+    setEditingFactorRows(new Set([...editingFactorRows].filter(i => i !== index).map(i => (i > index ? i - 1 : i))));
+  };
+
+  const toggleFactorEdit = (index: number) => {
+    const next = new Set(editingFactorRows);
+    if (next.has(index)) next.delete(index); else next.add(index);
+    setEditingFactorRows(next);
+  };
+
+  // —— 重新解析（AST 扫源码，覆盖 DB 里的 params + factors，同步更新策略信息）——
+
+  const handleReparseStrategy = async () => {
+    if (!selectedStrategy) return;
+    modal.confirm({
+      title: t('confirm_reparse') || '确认重新解析',
+      content: t('reparse_warning') || '将从策略源码 AST 提取参数、因子和描述信息，覆盖数据库中的当前版本。确定要继续吗？',
+      okText: t('reparse') || '重新解析',
+      okType: 'primary',
+      cancelText: t('cancel') || '取消',
+      onOk: async () => {
+        try {
+          appMessage.loading({ content: t('reparsing') || '重新解析中...', key: 'reparse' });
+          const res = await strategyApi.reparseStrategy(selectedStrategy.name);
+          const info: any = (res as any)?.data ?? res;
+          // 完整同步后端返回的策略信息（含 description / version / params / factors 等）
+          setSelectedStrategy({
+            ...selectedStrategy,
+            description: info?.description ?? selectedStrategy.description,
+            version: info?.version ?? selectedStrategy.version,
+            params: info?.params || [],
+            factors: info?.factors || [],
+          });
+          // 强制切回 database 视图（后端已经写了 DB）
+          setDataSource('database');
+          appMessage.success({
+            content: t('reparse_done') || `重新解析完成：参数 ${info?.params?.length || 0} 个，因子 ${info?.factors?.length || 0} 个`,
+            key: 'reparse',
+          });
+        } catch (e: any) {
+          appMessage.error({ content: `${t('reparse_failed') || '重新解析失败'}: ${e?.message || e}`, key: 'reparse' });
         }
       },
     });
@@ -802,11 +932,11 @@ class NewStrategy(StrategyBase):
   // 重置策略代码
   const handleResetCode = () => {
     if (!selectedStrategy) {
-      message.error(t('please_select_create_strategy') || '请先选择或创建策略');
+      appMessage.error(t('please_select_create_strategy') || '请先选择或创建策略');
       return;
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: t('confirm_reset_code') || '确认重置策略代码',
       content: t('reset_code_confirm') || '您确定要重置当前策略代码吗？所有未保存的更改将丢失。',
       okText: t('reset') || '重置',
@@ -815,7 +945,7 @@ class NewStrategy(StrategyBase):
       onOk: () => {
         if (selectedStrategy) {
           setCode(selectedStrategy.code);
-          message.success(t('code_reset') || '策略代码已重置');
+          appMessage.success(t('code_reset') || '策略代码已重置');
         }
       },
     });
@@ -824,7 +954,7 @@ class NewStrategy(StrategyBase):
   // 回测策略
   const handleBacktestStrategy = () => {
     if (!selectedStrategy) {
-      message.error(t('please_select_create_strategy') || '请先选择或创建策略');
+      appMessage.error(t('please_select_create_strategy') || '请先选择或创建策略');
       return;
     }
 
@@ -915,41 +1045,6 @@ class NewStrategy(StrategyBase):
   // 处理临时描述变化
   const handleTempDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setTempDescription(e.target.value);
-  };
-
-  // 开始编辑参数描述
-  const handleStartEditParamDescription = (index: number, currentDesc: string) => {
-    setEditingParamIndex(index);
-    setEditingParamDesc(currentDesc);
-  };
-
-  // 保存参数描述
-  const handleSaveParamDescription = (index: number) => {
-    const strategy = parsedStrategy || selectedStrategy;
-    if (strategy && strategy.params) {
-      const updatedParams = [...strategy.params];
-      updatedParams[index] = {
-        ...updatedParams[index],
-        description: editingParamDesc
-      };
-      
-      // 更新解析后的策略
-      if (parsedStrategy) {
-        setParsedStrategy({
-          ...parsedStrategy,
-          params: updatedParams
-        });
-      }
-      // 同时更新原始策略
-      if (selectedStrategy) {
-        setSelectedStrategy({
-          ...selectedStrategy,
-          params: updatedParams
-        });
-      }
-    }
-    setEditingParamIndex(null);
-    setEditingParamDesc('');
   };
 
   // 根据编辑/创建模式确定页面标题
@@ -1121,8 +1216,7 @@ class NewStrategy(StrategyBase):
                               {/* 重新解析按钮 */}
                               <Button
                                 icon={<ReloadOutlined />}
-                                onClick={handleReparse}
-                                loading={isParsing}
+                                onClick={handleReparseStrategy}
                                 size="small"
                               >
                                 {t('reparse') || '重新解析'}
@@ -1199,50 +1293,234 @@ class NewStrategy(StrategyBase):
                             </Descriptions.Item>
                           </Descriptions>
 
-                          <h3 className="mt-5 mb-4">{t('parameter_list') || '参数列表'}</h3>
-                          {/* 根据数据来源选择参数列表 */}
+                          {/* —— 参数列表（可增删改） —— */}
+                          <h3 className="mt-5 mb-3 flex items-center justify-between">
+                            <span>{t('parameter_list') || '参数列表'}</span>
+                            <Button
+                              size="small"
+                              type="primary"
+                              onClick={handleAddParam}
+                              disabled={!selectedStrategy}
+                            >
+                                + {t('add_parameter') || '添加参数'}
+                              </Button>
+                          </h3>
                           {(() => {
-                            // 根据数据来源确定要显示的参数列表
                             const params = dataSource === 'database'
                               ? (selectedStrategy?.params || [])
                               : (parsedStrategy?.params || selectedStrategy?.params || []);
 
                             return params.length > 0 ? (
-                              <Descriptions bordered column={1}>
-                                {params.map((param, index) => (
-                                  <Descriptions.Item key={index} label={param.name}>
-                                    <div className="min-h-[80px]">
-                                      {editingParamIndex === index ? (
-                                        <Input.TextArea
-                                          value={editingParamDesc}
-                                          onChange={(e) => setEditingParamDesc(e.target.value)}
-                                          onBlur={() => handleSaveParamDescription(index)}
-                                          onPressEnter={() => handleSaveParamDescription(index)}
-                                          onFocus={(e) => e.target.select()}
-                                          autoFocus
-                                          rows={3}
-                                          className="w-full"
+                              <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+                                {params.map((param: any, index: number) => {
+                                  const editing = editingParamRows.has(index);
+
+                                  if (editing) {
+                                    return (
+                                      <div key={index} className="flex gap-2 items-start flex-wrap">
+                                        <Input
+                                          size="small"
+                                          value={param.name}
+                                          placeholder={t('param_name') || '名称'}
+                                          onChange={(e) => handleParamChange(index, 'name', e.target.value)}
+                                          style={{ width: 140 }}
                                         />
-                                      ) : (
-                                        <p
-                                          className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1 mb-2"
-                                          onClick={() => handleStartEditParamDescription(index, param.description || '')}
-                                          title={t('click_to_edit') || '点击编辑描述'}
-                                        >
-                                          {param.description || t('no_description') || '暂无描述'}
-                                        </p>
+                                        <Select
+                                          size="small"
+                                          value={param.type || 'Any'}
+                                          onChange={(v) => handleParamChange(index, 'type', v)}
+                                          style={{ width: 100 }}
+                                          options={[
+                                            { value: 'int', label: 'int' },
+                                            { value: 'float', label: 'float' },
+                                            { value: 'str', label: 'str' },
+                                            { value: 'bool', label: 'bool' },
+                                            { value: 'Any', label: 'Any' },
+                                          ]}
+                                        />
+                                        <Input
+                                          size="small"
+                                          value={param.default === undefined || param.default === null ? '' : String(param.default)}
+                                          placeholder={t('default_value') || '默认值'}
+                                          onChange={(e) => handleParamChange(index, 'default', e.target.value)}
+                                          style={{ width: 140 }}
+                                        />
+                                        <Input
+                                          size="small"
+                                          value={param.description || ''}
+                                          placeholder={t('description') || '描述'}
+                                          onChange={(e) => handleParamChange(index, 'description', e.target.value)}
+                                          style={{ flex: 1, minWidth: 160 }}
+                                        />
+                                        <Button
+                                          size="small"
+                                          type="primary"
+                                          icon={<CheckOutlined />}
+                                          onClick={() => toggleParamEdit(index)}
+                                          title="完成"
+                                        />
+                                        <Button
+                                          size="small"
+                                          danger
+                                          icon={<CloseCircleOutlined />}
+                                          onClick={() => handleRemoveParam(index)}
+                                          title={t('delete') || '删除'}
+                                        />
+                                      </div>
+                                    );
+                                  }
+
+                                  // 只读态
+                                  return (
+                                    <div
+                                      key={index}
+                                      className="flex gap-2 items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+                                      onClick={() => toggleParamEdit(index)}
+                                      title="点击编辑"
+                                    >
+                                      <Tag color="blue" className="mb-0">{param.name}</Tag>
+                                      <Tag color="purple" className="mb-0">{param.type || 'Any'}</Tag>
+                                      {param.default !== undefined && param.default !== null && param.default !== '' && (
+                                        <Tag color="geekblue" className="mb-0">= {String(param.default)}</Tag>
                                       )}
-                                      <small>{t('type') || '类型'}: {param.type}, {t('default_value') || '默认值'}: {JSON.stringify(param.default)}</small>
+                                      {param.description && (
+                                        <span className="text-gray-500 text-sm flex-1 truncate">{param.description}</span>
+                                      )}
+                                      <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button
+                                          size="small"
+                                          type="text"
+                                          icon={<EditOutlined />}
+                                          onClick={(e) => { e.stopPropagation(); toggleParamEdit(index); }}
+                                          title="编辑"
+                                        />
+                                        <Button
+                                          size="small"
+                                          type="text"
+                                          danger
+                                          icon={<CloseCircleOutlined />}
+                                          onClick={(e) => { e.stopPropagation(); handleRemoveParam(index); }}
+                                          title={t('delete') || '删除'}
+                                        />
+                                      </span>
                                     </div>
-                                  </Descriptions.Item>
-                                ))}
-                              </Descriptions>
+                                  );
+                                })}
+                              </Space>
                             ) : (
-                              <div className="p-5 text-center text-gray-400">
+                              <div className="p-4 text-center text-gray-400 text-sm">
                                 {t('no_parameters') || '暂无参数'}
                               </div>
                             );
                           })()}
+
+                          {/* —— 因子列表（可增删改） —— */}
+                          <h3 className="mt-5 mb-3 flex items-center justify-between">
+                            <span>{t('factor_list') || '因子列表'}</span>
+                            <Button
+                              size="small"
+                              type="primary"
+                              onClick={handleAddFactor}
+                              disabled={!selectedStrategy}
+                            >
+                              + {t('add_factor') || '添加因子'}
+                            </Button>
+                          </h3>
+                          <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+                            {(selectedStrategy?.factors && selectedStrategy.factors.length > 0) ? (
+                              selectedStrategy.factors.map((factor: any, index: number) => {
+                                const editing = editingFactorRows.has(index);
+
+                                if (editing) {
+                                  return (
+                                    <div key={index} className="flex gap-2 items-start flex-wrap">
+                                      <Input
+                                        size="small"
+                                        value={factor.name}
+                                        placeholder={t('factor_name') || '因子名'}
+                                        onChange={(e) => handleFactorChange(index, 'name', e.target.value)}
+                                        style={{ width: 160 }}
+                                      />
+                                      <Select
+                                        size="small"
+                                        value={factor.type || 'factor'}
+                                        onChange={(v) => handleFactorChange(index, 'type', v)}
+                                        style={{ width: 110 }}
+                                        options={[
+                                          { value: 'factor', label: 'factor' },
+                                          { value: 'config_ref', label: 'config_ref' },
+                                          { value: 'factor_param', label: 'factor_param' },
+                                        ]}
+                                      />
+                                      <Input
+                                        size="small"
+                                        value={factor.description || ''}
+                                        placeholder={t('description') || '描述'}
+                                        onChange={(e) => handleFactorChange(index, 'description', e.target.value)}
+                                        style={{ flex: 1, minWidth: 160 }}
+                                      />
+                                      <Button
+                                        size="small"
+                                        type="primary"
+                                        icon={<CheckOutlined />}
+                                        onClick={() => toggleFactorEdit(index)}
+                                        title="完成"
+                                      />
+                                      <Button
+                                        size="small"
+                                        danger
+                                        icon={<CloseCircleOutlined />}
+                                        onClick={() => handleRemoveFactor(index)}
+                                        title={t('delete') || '删除'}
+                                      />
+                                    </div>
+                                  );
+                                }
+
+                                // 只读态
+                                const typeColor: Record<string, string> = {
+                                  factor: 'green',
+                                  config_ref: 'orange',
+                                  factor_param: 'cyan',
+                                };
+                                return (
+                                  <div
+                                    key={index}
+                                    className="flex gap-2 items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+                                    onClick={() => toggleFactorEdit(index)}
+                                    title="点击编辑"
+                                  >
+                                    <Tag color="blue" className="mb-0">{factor.name}</Tag>
+                                    <Tag color={typeColor[factor.type] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
+                                    {factor.description && (
+                                      <span className="text-gray-500 text-sm flex-1 truncate">{factor.description}</span>
+                                    )}
+                                    <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Button
+                                        size="small"
+                                        type="text"
+                                        icon={<EditOutlined />}
+                                        onClick={(e) => { e.stopPropagation(); toggleFactorEdit(index); }}
+                                        title="编辑"
+                                      />
+                                      <Button
+                                        size="small"
+                                        type="text"
+                                        danger
+                                        icon={<CloseCircleOutlined />}
+                                        onClick={(e) => { e.stopPropagation(); handleRemoveFactor(index); }}
+                                        title={t('delete') || '删除'}
+                                      />
+                                    </span>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="p-4 text-center text-gray-400 text-sm">
+                                {t('no_factors') || '暂无因子（重新解析可从策略源码自动提取）'}
+                              </div>
+                            )}
+                          </Space>
                         </>
                       )}
                     </Spin>
@@ -1294,11 +1572,11 @@ class NewStrategy(StrategyBase):
         }}
         onAcceptCode={(code: string) => {
           setCode(code);
-          message.success(t('ai_adopted') || '已采纳并应用到编辑器');
+          appMessage.success(t('ai_adopted') || '已采纳并应用到编辑器');
           setAiModalVisible(false);
         }}
         onRejectCode={() => {
-          message.info(t('ai_rejected') || '已拒绝，可以继续提问');
+          appMessage.info(t('ai_rejected') || '已拒绝，可以继续提问');
         }}
       />
     </PageContainer>

@@ -1,6 +1,6 @@
-"""bar 窗口 → Jev {state, questions} 的确定性构造与请求指纹。
+"""bar 窗口 → SDM {state, questions} 的确定性构造与请求指纹。
 
-- 特征由代码预算（pandas），Jev 只做语义判断，不做数学计算。
+- 特征由代码预算（pandas），SDM 只做语义判断，不做数学计算。
 - v1 特征集冻结为 5 个；修改即改变 state schema，录制指纹自动失效。
 - 所有浮点 round(6)，保证同输入字节级一致（指纹稳定）。
 """

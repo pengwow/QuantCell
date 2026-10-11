@@ -1,8 +1,8 @@
 """离线评测编排器。
 
 关键设计：
-- 每个样本的 Jev 调用只发生一次，结果（含异常）缓存后供主阈值与
-  阈值网格扫描复用，保证所有阈值比较的是同一批 Jev 判断。
+- 每个样本的 SDM 调用只发生一次，结果（含异常）缓存后供主阈值与
+  阈值网格扫描复用，保证所有阈值比较的是同一批 SDM 判断。
 - 60/40 按时间顺序切分：前段扫阈值，后段做不劣化验证。
 - 推荐带 min_samples 硬门槛：样本不足直接不给建议，防止小样本过拟合。
 """
@@ -16,7 +16,7 @@ from typing import Any
 
 import pandas as pd
 
-from decision.cascade import CascadeConfig, FallbackDecider, JevCascadeDecisionLayer
+from decision.cascade import CascadeConfig, FallbackDecider, SdmCascadeDecisionLayer
 from decision.client import DecisionClient, StubDecisionClient
 from decision.evaluation.dataset import build_labeled_samples
 from decision.evaluation.metrics import (
@@ -65,7 +65,7 @@ class _CachedReplay:
 
 
 def _raw_choice(raw: Any) -> tuple[str | None, float | None]:
-    """从缓存结果中提取 Jev 原始胜选项与置信度（异常/非法时为 None）。"""
+    """从缓存结果中提取 SDM 原始胜选项与置信度（异常/非法时为 None）。"""
     if not isinstance(raw, DecisionResponse):
         return None, None
     choice = raw.answers.get("next_direction")
@@ -75,26 +75,26 @@ def _raw_choice(raw: Any) -> tuple[str | None, float | None]:
 
 
 def _run_layer(samples, cache, fallback, open_t, hold_t, fallback_unit) -> list[dict]:
-    """用指定阈值跑一遍级联并产出评测记录（不触发新的 Jev 调用）。"""
-    layer = JevCascadeDecisionLayer(_CachedReplay(cache), fallback, CascadeConfig(open_t, hold_t))
+    """用指定阈值跑一遍级联并产出评测记录（不触发新的 SDM 调用）。"""
+    layer = SdmCascadeDecisionLayer(_CachedReplay(cache), fallback, CascadeConfig(open_t, hold_t))
     records = []
     for sample in samples:
         decision = layer.decide(sample.state, sample.questions)
         raw = cache[sample.fingerprint]
-        jev_action, jev_conf = _raw_choice(raw)
+        sdm_action, sdm_conf = _raw_choice(raw)
         records.append(
             {
                 "index": sample.index,
                 "label": sample.label,
-                "jev_action": jev_action,
-                "jev_confidence": jev_conf,
+                "sdm_action": sdm_action,
+                "sdm_confidence": sdm_conf,
                 "source": decision.source,
                 "fallback_reason": decision.fallback_reason,
                 "final_action": decision.action,
                 "confidence": decision.confidence,
                 "probabilities": decision.probabilities,
                 "correct": decision.action == sample.label,
-                "jev_cost_usd": decision.jev_usage.cost_usd if decision.jev_usage else 0.0,
+                "sdm_cost_usd": decision.sdm_usage.cost_usd if decision.sdm_usage else 0.0,
                 "fallback_cost_usd": fallback_unit if decision.source == "fallback" else 0.0,
                 "sub_signals": decision.sub_signals,
             }
@@ -188,7 +188,7 @@ def run_evaluation(cfg: EvalConfig) -> tuple[dict, list[dict]]:
         bar_type=cfg.bar_type,
     )
 
-    # Jev 调用只发生这一次；异常也缓存，保证扫描时行为一致
+    # SDM 调用只发生这一次；异常也缓存，保证扫描时行为一致
     cache: dict[str, DecisionResponse | Exception] = {}
     for sample in samples:
         try:

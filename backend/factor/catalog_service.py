@@ -114,17 +114,18 @@ class FactorCatalogService:
         return row
 
     def set_category(self, db: Session, name: str, category: str) -> FactorCatalog:
-        """更新自定义表达式因子的分类。
+        """更新自定义因子的分类。
 
-        内置因子的分类取自引擎元数据，代码/合成因子的分类由来源派生，均不允许人工修改。
+        内置因子的分类取自引擎元数据，合成因子的分类由来源派生，均不允许人工修改；
+        代码因子的分类可由用户指定（建因子时选择，或此处修改）。
         """
         row = db.query(FactorCatalog).filter_by(name=name).one_or_none()
         if row is None:
             raise CatalogError(f"因子档案不存在: {name}", "not_found")
         if row.is_builtin:
             raise CatalogError(f"内置因子分类由系统维护，不允许修改: {name}", "forbidden")
-        if row.category in ("llm_code", "llm_composite"):
-            raise CatalogError(f"代码/合成因子分类由来源决定，不允许修改: {name}", "forbidden")
+        if row.category == "llm_composite":
+            raise CatalogError(f"合成因子分类由来源决定，不允许修改: {name}", "forbidden")
         row.category = category
         db.commit()
         return row

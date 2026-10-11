@@ -95,14 +95,15 @@ const FactorOverviewPanel: React.FC<{
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Card size="small">
         <Descriptions
-          column={{ xs: 1, sm: 2 }}
+          column={2}
           size="small"
           items={[
             {
               key: 'category',
               label: t('factor_detail_meta_category') || '分类',
               children:
-                onCategoryChange && factorSource(factor) === 'expression' ? (
+                // 表达式与代码因子的分类均可由用户指定；内置/合成由系统维护，只读展示
+                onCategoryChange && ['expression', 'code'].includes(factorSource(factor)) ? (
                   <Select
                     size="small"
                     value={factor.category}
@@ -142,6 +143,16 @@ const FactorOverviewPanel: React.FC<{
               children: factor.last_snapshot_at?.replace('T', ' ').slice(0, 19) ?? '—',
             },
             { key: 'bars', label: t('factor_snap_col_samples') || '样本数', children: lm?.bar_count ?? '—' },
+            {
+              key: 'description',
+              label: t('factor_detail_meta_description') || '描述',
+              span: 2,
+              children: factor.description ? (
+                <span style={{ fontSize: 12 }}>{factor.description}</span>
+              ) : (
+                <span style={{ color: '#999' }}>—</span>
+              ),
+            },
             {
               key: 'expression',
               label: t('factor_detail_meta_expression') || '表达式',

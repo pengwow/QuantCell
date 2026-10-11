@@ -146,7 +146,7 @@ class FactorService:
 
         raise FactorNotFoundError(f"因子不存在: {factor_name}")
 
-    def add_factor(self, factor_name: str, factor_expression: str) -> bool:
+    def add_factor(self, factor_name: str, factor_expression: str, description: str = "") -> bool:
         """添加自定义因子：非空校验 + 内置因子保护 + 持久化落盘。"""
         if not factor_name or not factor_name.strip():
             msg = "因子名称不能为空"
@@ -166,7 +166,7 @@ class FactorService:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
         expr = factor_expression.strip()
         self.factors[factor_name] = expr
-        self._custom_store.upsert(factor_name, expr)
+        self._custom_store.upsert(factor_name, expr, description.strip())
         logger.info(f"成功添加自定义因子: {factor_name}")
         return True
 
@@ -193,6 +193,7 @@ class FactorService:
         code: str,
         description: str = "",
         provenance: dict[str, Any] | None = None,
+        category: str | None = None,
     ) -> bool:
         """保存 LLM/手写代码因子：名称校验 + 内置/表达式互斥 + 沙箱真实执行 + 去重。"""
         if not self._CODE_NAME_RE.match(factor_name or ""):
@@ -216,7 +217,7 @@ class FactorService:
             raise FactorExpressionError(f"相同代码已存在为因子 '{existing}'，无需重复保存")
         # 静态策略 + 合成数据执行，任何一层失败直接拒绝
         self._sandbox.validate(code)
-        self._code_store.upsert(factor_name, code, description.strip(), provenance, code_hash=h)
+        self._code_store.upsert(factor_name, code, description.strip(), provenance, code_hash=h, category=category)
         logger.info(f"成功保存代码因子: {factor_name}")
         return True
 
@@ -444,6 +445,8 @@ class FactorService:
                     "builtin": meta is not None,
                     "supported": name not in UNSUPPORTED_FACTORS,
                     "kind": "expression",
+                    # 描述仅自定义表达式因子有（内置因子无此字段）
+                    "description": self._custom_store.description_of(name) or None,
                 }
             )
         for name, entry in self._code_store.all().items():
@@ -452,7 +455,8 @@ class FactorService:
                     "name": name,
                     # 完整代码不再进档案/列表 payload，走 /factors/{name}/definition 懒加载
                     "expression": None,
-                    "category": "llm_code",
+                    # 分类由用户在建因子时指定；未指定（如 LLM 挖掘产出）沿用来源派生的 llm_code
+                    "category": entry.get("category") or "llm_code",
                     "label": entry.get("description") or name,
                     "builtin": False,
                     "supported": True,

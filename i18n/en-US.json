@@ -1233,6 +1233,7 @@
   "factor_detail_empty": "Select a factor on the left",
   "factor_detail_lifecycle": "Lifecycle",
   "factor_detail_meta_category": "Category",
+  "factor_detail_meta_description": "Description",
   "factor_detail_meta_expression": "Expression",
   "factor_detail_meta_last_snapshot": "Latest snapshot",
   "factor_detail_meta_snapshots": "Snapshots",

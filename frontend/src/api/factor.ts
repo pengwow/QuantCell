@@ -461,8 +461,8 @@ export interface FactorAnalyzeResult {
 
 export const factorApi = {
   listDetail: () => apiRequest.get<{ factors: FactorDetail[] }>('/factor/list-detail'),
-  add: (factor_name: string, expression: string, category?: string) =>
-    apiRequest.post('/factor/add', { factor_name, expression, category }),
+  add: (factor_name: string, expression: string, category?: string, description?: string) =>
+    apiRequest.post('/factor/add', { factor_name, expression, category, description }),
   remove: (name: string) =>
     apiRequest.delete(`/factor/delete/${encodeURIComponent(name)}`),
   validate: (expression: string) =>
@@ -485,8 +485,13 @@ export const factorApi = {
       '/factor/code/validate',
       { code },
     ),
-  addCodeFactor: (factor_name: string, code: string, description?: string) =>
-    apiRequest.post('/factor/code/add', { factor_name, code, description }),
+  validateExpression: (expression: string) =>
+    apiRequest.post<{ valid: boolean; error_type?: string; message?: string }>(
+      '/factor/validate',
+      { expression },
+    ),
+  addCodeFactor: (factor_name: string, code: string, description?: string, category?: string) =>
+    apiRequest.post('/factor/code/add', { factor_name, code, description, category }),
   addCompositeFactor: (body: FactorCompositeAddBody) =>
     apiRequest.post('/factor/composite/add', body),
   deleteCompositeFactor: (name: string) =>
