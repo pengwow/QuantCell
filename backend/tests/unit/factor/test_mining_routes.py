@@ -146,6 +146,64 @@ def test_add_code_factor_indexes_catalog_and_delete_cleans(client, tmp_path, mon
         assert db.query(FactorSnapshot).filter_by(factor_name=name).count() == 0
 
 
+def test_code_factor_user_category_and_kind_in_catalog(client, tmp_path, monkeypatch, isolated_catalog_db):
+    """代码因子分类可由用户指定；/catalog 必须回传 kind（前端「来源」列不再靠 category 反推）。"""
+    from factor import routes as factor_routes
+    from factor.code_store import CodeFactorStore
+
+    monkeypatch.setattr(factor_routes.factor_service, "_code_store", CodeFactorStore(tmp_path / "c.json"))
+
+    name = "zz_code_cat_demo"
+    resp = client.post(
+        "/api/v1/factor/code/add",
+        json={
+            "factor_name": name,
+            "code": 'factor = df["close"].rolling(10).mean() / df["close"] - 1',
+            "description": "demo",
+            "category": "momentum",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    cat = client.get("/api/v1/factor/catalog")
+    rows = [x for x in cat.json()["data"]["factors"] if x["name"] == name]
+    assert len(rows) == 1
+    assert rows[0]["category"] == "momentum"
+    assert rows[0]["kind"] == "code"
+
+    assert client.delete(f"/api/v1/factor/code/{name}").status_code == 200
+
+
+def test_expression_factor_description_roundtrip(client, tmp_path, monkeypatch, isolated_catalog_db):
+    """表达式因子描述随 /factor/add 落盘，/catalog 回读（与代码因子字段对称）。"""
+    from factor import routes as factor_routes
+    from factor.factor_store import FactorStore
+
+    svc = factor_routes.factor_service
+    monkeypatch.setattr(svc, "_custom_store", FactorStore(tmp_path / "custom.json"))
+    # factors 是启动时从 store 快照的 dict：换成副本，避免用例污染全局单例
+    monkeypatch.setattr(svc, "factors", dict(svc.factors))
+
+    name = "zz_expr_desc_demo"
+    resp = client.post(
+        "/api/v1/factor/add",
+        json={
+            "factor_name": name,
+            "expression": "close - open",
+            "category": "momentum",
+            "description": "5 日动量",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    cat = client.get("/api/v1/factor/catalog")
+    rows = [x for x in cat.json()["data"]["factors"] if x["name"] == name]
+    assert len(rows) == 1
+    assert rows[0]["description"] == "5 日动量"
+    assert rows[0]["kind"] == "expression"
+    assert rows[0]["category"] == "momentum"
+
+
 def test_add_code_factor_catalog_hook_failure_non_blocking(client, tmp_path, monkeypatch, isolated_catalog_db):
     """建档钩子抛异常时 /code/add 仍 200（代码保存不被派生档案拖垮）。"""
     from factor import routes as factor_routes

@@ -4,8 +4,9 @@
 """
 
 import re
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
 
 from common.schemas import ApiResponse
 from utils.auth import get_current_user
@@ -163,3 +164,113 @@ def generate_strategy(
     except Exception as e:
         logger.error(f"AI生成策略失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# —— 因子独立 CRUD ——
+
+
+@router.get("/{strategy_name}/factors", response_model=ApiResponse, summary="获取策略因子列表")
+def api_get_factors(
+    strategy_name: str = Path(..., description="策略名称"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    factors = get_strategy_service().get_factors(strategy_name)
+    return ApiResponse(code=0, message="ok", data=factors)
+
+
+@router.put("/{strategy_name}/factors", response_model=ApiResponse, summary="整体覆盖策略因子列表")
+def api_replace_factors(
+    strategy_name: str = Path(..., description="策略名称"),
+    factors: list[dict[str, Any]] = Body(..., description="新因子列表"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    ok = get_strategy_service().replace_factors(strategy_name, factors)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"策略不存在: {strategy_name}")
+    return ApiResponse(code=0, message="因子列表已更新", data=factors)
+
+
+@router.post("/{strategy_name}/factors", response_model=ApiResponse, summary="给策略添加一个因子")
+def api_add_factor(
+    strategy_name: str = Path(..., description="策略名称"),
+    factor: dict[str, Any] = Body(..., description="因子对象，必须有 name 字段"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    if not factor.get("name"):
+        raise HTTPException(status_code=400, detail="因子必须有 name 字段")
+    ok = get_strategy_service().add_factor(strategy_name, factor)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"策略不存在: {strategy_name}")
+    return ApiResponse(code=0, message="因子已添加", data=factor)
+
+
+@router.delete("/{strategy_name}/factors/{factor_name}", response_model=ApiResponse, summary="删除策略的一个因子")
+def api_remove_factor(
+    strategy_name: str = Path(..., description="策略名称"),
+    factor_name: str = Path(..., description="因子名称"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    ok = get_strategy_service().remove_factor(strategy_name, factor_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"策略或因子不存在: {strategy_name}/{factor_name}")
+    return ApiResponse(code=0, message="因子已删除", data={"removed": factor_name})
+
+
+@router.patch(
+    "/{strategy_name}/factors/{factor_name}", response_model=ApiResponse, summary="更新单个因子字段（不可改 name）"
+)
+def api_update_factor(
+    strategy_name: str = Path(..., description="策略名称"),
+    factor_name: str = Path(..., description="因子名称"),
+    patch: dict[str, Any] = Body(..., description="要更新的字段，name 会被忽略"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    ok = get_strategy_service().update_factor(strategy_name, factor_name, patch)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"策略或因子不存在: {strategy_name}/{factor_name}")
+    return ApiResponse(code=0, message="因子已更新", data={"factor_name": factor_name})
+
+
+# —— 重新解析（AST 扫源码，覆盖 DB 里的 params + factors）——
+
+
+def _clean_parse_info(raw: dict[str, Any]) -> dict[str, Any]:
+    """把 _parse_strategy_file 返回的 dict 里不可 JSON 化的对象转成字符串。
+
+    - StrategyType enum → .value
+    - datetime → .isoformat()
+    - 去掉 code（太长，前端可单独调详情）
+    """
+    import datetime as _dt
+    from enum import Enum
+
+    result: dict[str, Any] = {}
+    for k, v in raw.items():
+        if k == "code":
+            continue
+        if isinstance(v, Enum):
+            result[k] = v.value
+        elif isinstance(v, (_dt.datetime, _dt.date, _dt.time)):
+            result[k] = v.isoformat()
+        else:
+            result[k] = v
+    return result
+
+
+@router.post(
+    "/{strategy_name}/reparse", response_model=ApiResponse, summary="重新解析策略源码（覆盖 DB 里的 params + factors）"
+)
+def api_reparse_strategy(
+    strategy_name: str = Path(..., description="策略名称"),
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    info = get_strategy_service().reparse_strategy(strategy_name)
+    if info is None:
+        raise HTTPException(status_code=404, detail=f"策略不存在: {strategy_name}")
+    return ApiResponse(code=0, message="重新解析完成", data=_clean_parse_info(info))

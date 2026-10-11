@@ -20,7 +20,7 @@ def state(bars_factory):
 def test_stub_returns_valid_typed_response(state):
     resp = StubDecisionClient().decide(state, build_questions(cost_threshold=0.002))
     assert isinstance(resp, DecisionResponse)
-    assert resp.model == "jev-stub"
+    assert resp.model == "sdm-stub"
     choice = resp.answers["next_direction"]
     assert isinstance(choice, ChoiceAnswer)
     assert choice.choice in ("buy", "sell", "hold")
@@ -46,7 +46,7 @@ def test_replay_hits_recorded_response(tmp_path: Path, state):
     q = build_questions(cost_threshold=0.002)
 
     recorded = {
-        "model": "jev-1.13.0",
+        "model": "sdm-1.0",
         "answers": {
             "next_direction": {
                 "type": "choice",
@@ -63,7 +63,7 @@ def test_replay_hits_recorded_response(tmp_path: Path, state):
 
     client = ReplayDecisionClient.from_jsonl(path)
     resp = client.decide(state, q)
-    assert resp.model == "jev-1.13.0"
+    assert resp.model == "sdm-1.0"
     assert resp.answers["next_direction"].choice == "sell"
 
 

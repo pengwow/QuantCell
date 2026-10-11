@@ -686,8 +686,8 @@ start_backend() {
 
     cd "$BACKEND_DIR" || return 1
 
-    # 启动后端服务（后台运行）
-    nohup uvicorn main:app --host 0.0.0.0 --port $BACKEND_PORT > "$BACKEND_LOG" 2>&1 &
+    # 启动后端服务（后台运行）—— 走 uv run，因为 uvicorn 在 .venv/bin 里
+    nohup uv run uvicorn main:app --host 0.0.0.0 --port $BACKEND_PORT > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
     echo $BACKEND_PID > "$BACKEND_PID_FILE"
 

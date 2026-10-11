@@ -126,19 +126,29 @@ def test_set_category_updates_custom(db_session, dirs):
     assert svc.set_category(db_session, "my_mom", "momentum").category == "momentum"
 
 
-def test_set_category_builtin_and_code_forbidden(db_session, dirs):
+def test_set_category_builtin_and_composite_forbidden(db_session, dirs):
     svc = _svc(db_session, dirs)
     svc.sync_builtins(db_session)
     with pytest.raises(CatalogError) as e:
         svc.set_category(db_session, "close", "momentum")
     assert e.value.kind == "forbidden"
 
+    # 合成因子分类由来源派生，不允许修改
+    _custom_row(db_session, name="comp_f", status="DISCOVERED")
+    db_session.query(FactorCatalog).filter_by(name="comp_f").update({"category": "llm_composite"})
+    db_session.commit()
+    with pytest.raises(CatalogError) as e2:
+        svc.set_category(db_session, "comp_f", "momentum")
+    assert e2.value.kind == "forbidden"
+
+
+def test_set_category_code_factor_allowed(db_session, dirs):
+    """代码因子分类可由用户指定（建因子时选择，或事后在此修改）。"""
+    svc = _svc(db_session, dirs)
     _custom_row(db_session, name="code_f", status="DISCOVERED")
     db_session.query(FactorCatalog).filter_by(name="code_f").update({"category": "llm_code"})
     db_session.commit()
-    with pytest.raises(CatalogError) as e2:
-        svc.set_category(db_session, "code_f", "momentum")
-    assert e2.value.kind == "forbidden"
+    assert svc.set_category(db_session, "code_f", "momentum").category == "momentum"
 
 
 def test_set_category_unknown_not_found(db_session, dirs):

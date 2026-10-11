@@ -390,11 +390,21 @@ class StrategyManager:
             )
             raise
 
+        # 解析因子列表：支持 params.factor_names（列表）或 params.factor_name（单个）
+        factor_names = []
+        raw_factor_names = params.get("factor_names")
+        if isinstance(raw_factor_names, list) and raw_factor_names:
+            factor_names = [str(f) for f in raw_factor_names if f]
+        elif isinstance(params.get("factor_name"), str) and params["factor_name"]:
+            factor_names = [params["factor_name"]]
+
         # 创建策略循环
         strategy_loop = StrategyLoop(
             adapter=adapter,
             strategy=strategy_instance,
             symbol=symbol,
+            factor_names=factor_names,
+            timeframe=timeframe,
         )
 
         # 保存策略循环引用

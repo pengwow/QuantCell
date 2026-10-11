@@ -98,6 +98,12 @@ class FactorAddRequest(BaseSchema):
         description="因子分类，缺省为 custom",
         example="momentum",
     )
+    description: str | None = Field(
+        default="",
+        max_length=300,
+        description="人类可读说明（可选）",
+        example="5 日动量",
+    )
 
     @validator("factor_name")
     def validate_factor_name(cls, v: str) -> str:
@@ -544,6 +550,17 @@ class CodeFactorAddRequest(BaseSchema):
     factor_name: str = Field(..., min_length=1, max_length=100, description="代码因子名（字母开头）")
     code: str = Field(..., min_length=1, max_length=20000, description="因子 Python 代码")
     description: str | None = Field(default="", max_length=300, description="人类可读说明")
+    category: str | None = Field(
+        default=None,
+        max_length=50,
+        description="因子分类；缺省不指定（沿用来源派生的 llm_code，供 LLM 挖掘产出使用）",
+        example="momentum",
+    )
+
+    @validator("category")
+    def validate_category(cls, v: str | None) -> str | None:
+        """验证因子分类"""
+        return _check_category(v)
 
 
 class FactorMineLLMRequest(FactorCalculateBase):

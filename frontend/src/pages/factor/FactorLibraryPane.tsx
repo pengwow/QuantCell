@@ -24,8 +24,11 @@ import {
   categoryLabel,
   STATUS_COLOR,
   factorSource,
+  toneColor,
+  toneOf,
   type FactorSource,
 } from './factorMeta';
+import { useQuantColors } from '@/utils/colors';
 import FactorFormModal from './FactorFormModal';
 
 interface Props {
@@ -49,6 +52,7 @@ const FactorLibraryPane: React.FC<Props> = ({
 }) => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const qc = useQuantColors();
   const [keyword, setKeyword] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | FactorSource>('all');
@@ -146,6 +150,36 @@ const FactorLibraryPane: React.FC<Props> = ({
       render: (_, r) => <Tag>{sourceLabel(factorSource(r))}</Tag>,
     },
     {
+      title: t('factor_stat_ic_mean') || 'IC 均值',
+      width: 80,
+      align: 'right',
+      render: (_, r) => {
+        const lm = r.last_metrics;
+        if (!lm) return <span style={{ color: token.colorTextTertiary }}>—</span>;
+        const v = lm.ic_mean ?? 0;
+        return (
+          <span style={{ color: toneColor(toneOf('ic_mean', v), qc), fontWeight: 500 }}>
+            {v.toFixed(4)}
+          </span>
+        );
+      },
+    },
+    {
+      title: t('factor_stat_icir') || 'ICIR',
+      width: 72,
+      align: 'right',
+      render: (_, r) => {
+        const lm = r.last_metrics;
+        if (!lm) return <span style={{ color: token.colorTextTertiary }}>—</span>;
+        const v = lm.ic_ir ?? 0;
+        return (
+          <span style={{ color: toneColor(toneOf('ic_ir', v), qc), fontWeight: 500 }}>
+            {v.toFixed(4)}
+          </span>
+        );
+      },
+    },
+    {
       title: t('factor_lib_col_status') || '状态',
       dataIndex: 'lifecycle_status',
       width: 80,
@@ -156,8 +190,18 @@ const FactorLibraryPane: React.FC<Props> = ({
     {
       title: t('factor_lib_col_snapshots') || '快照数',
       dataIndex: 'snapshot_count',
-      width: 56,
+      width: 64,
       align: 'right',
+    },
+    {
+      title: t('factor_detail_meta_last_snapshot') || '最近快照',
+      width: 130,
+      dataIndex: 'last_snapshot_at',
+      render: (v: string | null) => (
+        v
+          ? v.replace('T', ' ').slice(0, 16)
+          : <span style={{ color: token.colorTextTertiary }}>—</span>
+      ),
     },
   ];
 
@@ -232,8 +276,8 @@ const FactorLibraryPane: React.FC<Props> = ({
             dataSource={filtered}
             columns={columns}
             pagination={false}
-            // 列总宽 460：窄窗口下退化为横向滚动，绝不再把首列压成竖排
-            scroll={{ x: 460, y: 'calc(100vh - 280px)' }}
+            // 8 列总宽 ~750：窄窗口下横向滚动，绝不再把首列压成竖排
+            scroll={{ x: 760, y: 'calc(100vh - 280px)' }}
             locale={{
               emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('factor_lib_empty') || '暂无因子'} />,
             }}

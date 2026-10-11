@@ -19,7 +19,7 @@ from decision.types import (
 
 def test_parse_response_all_three_answer_types():
     raw = {
-        "model": "jev-latest",
+        "model": "sdm-latest",
         "answers": {
             "next_direction": {
                 "type": "choice",
@@ -39,7 +39,7 @@ def test_parse_response_all_three_answer_types():
     }
     resp = parse_response(raw)
     assert isinstance(resp, DecisionResponse)
-    assert resp.model == "jev-latest"
+    assert resp.model == "sdm-latest"
     assert resp.usage == DecisionUsage(input_tokens=420, cost_usd=0.000026)
     choice = resp.answers["next_direction"]
     assert isinstance(choice, ChoiceAnswer)
@@ -80,7 +80,7 @@ def test_cascade_decision_is_frozen():
         confidence=0.5,
         probabilities={"buy": 0.25, "sell": 0.25, "hold": 0.5},
         fallback_reason="low_confidence",
-        jev_usage=None,
+        sdm_usage=None,
         sub_signals={},
     )
     with pytest.raises(FrozenInstanceError):

@@ -19,7 +19,7 @@ import {
   Spin,
   theme,
 } from 'antd';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { factorApi, type FactorCatalogItem } from '@/api/factor';
 import { EDITABLE_CATEGORIES, categoryLabel, factorSource } from './factorMeta';
 
@@ -34,9 +34,21 @@ const CodeEditor: React.FC<{ value?: string; onChange?: (v: string) => void }> =
   onChange,
 }) => {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
+  // Monaco 无原生 placeholder：空内容时叠一层灰色示例文字（与表达式 tab 的 placeholder 对齐）。
+  // 正文左偏移取 getLayoutInfo().contentLeft——行号槽宽度随字号/主题变化，不能硬编码。
+  const [contentLeft, setContentLeft] = useState(0);
+
+  const handleMount: OnMount = (editor) => {
+    const sync = () => setContentLeft(editor.getLayoutInfo().contentLeft);
+    sync();
+    editor.onDidLayoutChange(sync);
+  };
+
   return (
     <div
       style={{
+        position: 'relative',
         border: `1px solid ${token.colorBorder}`,
         borderRadius: token.borderRadius,
         overflow: 'hidden',
@@ -48,6 +60,7 @@ const CodeEditor: React.FC<{ value?: string; onChange?: (v: string) => void }> =
         theme="vs-dark"
         value={value ?? ''}
         onChange={(v) => onChange?.(v ?? '')}
+        onMount={handleMount}
         options={{
           minimap: { enabled: false },
           fontSize: 13,
@@ -58,6 +71,24 @@ const CodeEditor: React.FC<{ value?: string; onChange?: (v: string) => void }> =
           scrollBeyondLastLine: false,
         }}
       />
+      {!value && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: contentLeft,
+            height: 20,
+            lineHeight: '20px',
+            pointerEvents: 'none',
+            color: token.colorTextTertiary,
+            fontSize: 13,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {t('factor_form_code_ph') || '如 factor = df["close"].pct_change(5)'}
+        </div>
+      )}
     </div>
   );
 };
@@ -107,7 +138,10 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
     form.resetFields();
     form.setFieldsValue({ factor_name: editing.name });
     if (k !== 'code') {
-      form.setFieldsValue({ expression: editing.expression ?? '' });
+      form.setFieldsValue({
+        expression: editing.expression ?? '',
+        description: editing.description ?? '',
+      });
       return;
     }
     // 代码因子：完整代码不在 catalog payload 里，走 definition 端点懒加载
@@ -130,15 +164,20 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
   initRef.current = init;
 
   const runValidate = async () => {
-    const code = (form.getFieldValue('code') as string | undefined)?.trim();
-    if (!code) {
-      message.warning(t('factor_form_code_req') || '请输入代码');
+    const isCode = kind === 'code';
+    const raw = (form.getFieldValue(isCode ? 'code' : 'expression') as string | undefined)?.trim();
+    if (!raw) {
+      message.warning(isCode
+        ? t('factor_form_code_req') || '请输入代码'
+        : t('factor_lib_form_expr_req') || '请输入表达式');
       return;
     }
     setValidating(true);
     setValidateResult(null);
     try {
-      const r = await factorApi.validateCodeFactor(code);
+      const r = isCode
+        ? await factorApi.validateCodeFactor(raw)
+        : await factorApi.validateExpression(raw);
       setValidateResult(
         r.valid
           ? { ok: true, text: t('factor_form_validate_ok') || '校验通过' }
@@ -159,14 +198,16 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
   const submit = async () => {
     const v = await form.validateFields();
     const name = v.factor_name.trim();
+    const description = (v.description ?? '').trim();
     setSaving(true);
     try {
       if (kind === 'code') {
-        await factorApi.addCodeFactor(name, (v.code ?? '').trim(), (v.description ?? '').trim());
+        // 编辑代码因子时分类字段不渲染（v.category 为 undefined），后端保留原分类
+        await factorApi.addCodeFactor(name, (v.code ?? '').trim(), description, v.category);
       } else if (isEdit) {
-        await factorApi.add(name, (v.expression ?? '').trim());
+        await factorApi.add(name, (v.expression ?? '').trim(), undefined, description);
       } else {
-        await factorApi.add(name, (v.expression ?? '').trim(), v.category);
+        await factorApi.add(name, (v.expression ?? '').trim(), v.category, description);
       }
       message.success(t('factor_lib_toast_saved') || '因子已保存');
       onSaved(name);
@@ -186,34 +227,39 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
           : t('factor_lib_create_modal') || '新建因子'
       }
       open={open}
-      onOk={submit}
-      confirmLoading={saving}
       onCancel={onCancel}
-      okText={t('factor_lib_save') || '保存'}
-      cancelText={t('factor_lib_cancel') || '取消'}
+      confirmLoading={saving}
       destroyOnHidden
       mask={{ closable: false }}
       width={640}
       afterOpenChange={(o) => {
         if (o) void initRef.current();
       }}
-    >
-      {!isEdit && (
-        <Segmented
-          block
-          value={kind}
-          onChange={(v) => {
-            setKind(v as 'expression' | 'code');
-            setValidateResult(null);
-          }}
-          options={[
-            { value: 'expression', label: t('factor_form_mode_expression') || '表达式' },
-            { value: 'code', label: t('factor_form_mode_code') || 'Python 代码' },
-          ]}
-          style={{ marginBottom: 16 }}
-        />
+      footer={(
+        <Space style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+          {/* 左侧：校验按钮 + 结果 Alert */}
+          <Space size="small">
+            <Button loading={validating} onClick={() => void runValidate()}>
+              {validating
+                ? t('factor_form_validating') || '校验中…'
+                : t('factor_form_validate') || '校验'}
+            </Button>
+            {validateResult && (
+              <span style={{ color: validateResult.ok ? '#52c41a' : '#ff4d4f', fontSize: 13 }}>
+                {validateResult.text}
+              </span>
+            )}
+          </Space>
+          {/* 右侧：取消 + 保存 */}
+          <Space>
+            <Button onClick={onCancel}>{t('factor_lib_cancel') || '取消'}</Button>
+            <Button type="primary" loading={saving} onClick={() => void submit()}>
+              {t('factor_lib_save') || '保存'}
+            </Button>
+          </Space>
+        </Space>
       )}
-
+    >
       {defError && (
         <Alert
           type="error"
@@ -248,12 +294,34 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
           <Input disabled={isEdit} placeholder={t('factor_lib_form_name_ph') || '如 my_momentum'} />
         </Form.Item>
 
-        {!isEdit && kind === 'expression' && (
+        {/* 分类与描述为两种模式共用字段，保证表达式/代码两个 tab 字段对称 */}
+        {!isEdit && (
           <Form.Item name="category" label={t('factor_lib_form_category') || '分类'}>
             <Select
               options={EDITABLE_CATEGORIES.map((c) => ({ value: c, label: categoryLabel(c, t) }))}
             />
           </Form.Item>
+        )}
+
+        <Form.Item name="description" label={t('factor_form_desc') || '描述（可选）'}>
+          <Input placeholder={t('factor_form_desc_ph') || '一句话说明这个因子在算什么'} />
+        </Form.Item>
+
+        {/* 模式切换放到共用字段之后，让用户先填共用信息再决定写法 */}
+        {!isEdit && (
+          <Segmented
+            block
+            value={kind}
+            onChange={(v) => {
+              setKind(v as 'expression' | 'code');
+              setValidateResult(null);
+            }}
+            options={[
+              { value: 'expression', label: t('factor_form_mode_expression') || '表达式' },
+              { value: 'code', label: t('factor_form_mode_code') || 'Python 代码' },
+            ]}
+            style={{ marginBottom: 16 }}
+          />
         )}
 
         {kind === 'expression' ? (
@@ -278,23 +346,6 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
             >
               <CodeEditor />
             </Form.Item>
-            <Form.Item name="description" label={t('factor_form_desc') || '描述（可选）'}>
-              <Input placeholder={t('factor_form_desc_ph') || '一句话说明这个因子在算什么'} />
-            </Form.Item>
-            <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
-              <Button size="small" loading={validating} onClick={() => void runValidate()}>
-                {validating
-                  ? t('factor_form_validating') || '校验中…'
-                  : t('factor_form_validate') || '校验'}
-              </Button>
-              {validateResult && (
-                <Alert
-                  type={validateResult.ok ? 'success' : 'error'}
-                  showIcon
-                  message={validateResult.text}
-                />
-              )}
-            </Space>
           </Spin>
         )}
       </Form>

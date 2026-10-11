@@ -1,4 +1,4 @@
-"""Jev 决策预研 CLI：离线评测入口。
+"""SDM 决策预研 CLI：离线评测入口。
 
 仅做参数解析与编排调用，业务逻辑在 decision.evaluation.evaluator。
 """
@@ -20,7 +20,7 @@ from decision.evaluation.evaluator import EvalConfig, run_evaluation
 
 app = typer.Typer(
     name="decision",
-    help="Jev 决策预研工具（离线评测）",
+    help="SDM 决策预研工具（离线评测）",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
@@ -29,7 +29,7 @@ app = typer.Typer(
 
 @app.callback()
 def _main() -> None:
-    """Jev 决策预研命令组。"""
+    """SDM 决策预研命令组。"""
 
 
 @app.command("eval")

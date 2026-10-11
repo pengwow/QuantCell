@@ -185,6 +185,8 @@ const FactorDetailPane: React.FC<{
               key: 'snapshots',
               label: t('factor_detail_tab_snapshots') || '快照',
               children: <FactorSnapshotsPanel factor={factor} onChanged={onRefreshCatalog} />,
+              // 切进来时重挂载 → 拉最新快照（analyze 刚写完新快照，factor.name 没变，不能靠 useEffect 触发）
+              destroyOnHidden: true,
             },
             {
               key: 'code',

@@ -76,6 +76,8 @@ class EventDrivenLoop:
         voting: str = "weighted_majority",
         enable_trajectory: bool = True,
         trajectory_dir: str = "output/trajectories",
+        factor_names: list[str] | None = None,
+        timeframe: str = "1h",
     ):
         self._adapter = adapter
         self._symbol = symbol
@@ -85,6 +87,10 @@ class EventDrivenLoop:
         self._voting = voting
         self._enable_trajectory = enable_trajectory
         self._trajectory_dir = trajectory_dir
+        self._factor_names = list(factor_names) if factor_names else []
+        self._timeframe = timeframe
+        self._kline_buffer: Any = None
+        self._factor_injector: Any = None
 
         # 核心组件
         self._portfolio = LivePortfolio(initial_cash=initial_cash)
@@ -226,6 +232,10 @@ class EventDrivenLoop:
             except ImportError:
                 logger.warning("TrajectoryRecorder 不可用")
 
+        # 初始化因子注入（如果配置了因子）
+        if self._factor_names:
+            self._init_factor_injection()
+
         # 连接交易所 (connect + subscribe 后 adapter 内部 WebSocket 开始更新 ticker 缓存)
         self._adapter.connect()
         if hasattr(self._adapter, "subscribe"):
@@ -346,11 +356,57 @@ class EventDrivenLoop:
             "timestamp_ns": int(time.time() * 1_000_000_000),
         }
 
+    def _init_factor_injection(self) -> None:
+        """初始化 KlineBuffer + FactorInjector（复用 StrategyLoop 的逻辑）。"""
+        try:
+            from axon_quant.backtest import KlineBuffer
+
+            from strategy.factor_injector import FactorInjector
+
+            self._kline_buffer = KlineBuffer(self._timeframe, 1000)
+            if hasattr(self._adapter, "fetch_ohlcv"):
+                try:
+                    history = self._adapter.fetch_ohlcv(self._symbol, self._timeframe, 1000)
+                    if history:
+                        normalized = [
+                            {
+                                "timestamp": int(b["timestamp"]) * 1_000_000,
+                                "open": float(b["open"]),
+                                "high": float(b["high"]),
+                                "low": float(b["low"]),
+                                "close": float(b["close"]),
+                                "volume": float(b["volume"]),
+                            }
+                            for b in history
+                        ]
+                        self._kline_buffer.load_history(normalized)
+                except Exception as e:
+                    logger.warning(f"fetch_ohlcv 加载历史 K 线失败: {e}")
+            self._factor_injector = FactorInjector.from_factor_names(self._factor_names)
+        except Exception as e:
+            logger.error(f"EventDrivenLoop 因子注入初始化失败: {e}")
+            self._kline_buffer = None
+            self._factor_injector = None
+
+    def _compute_features(self, bar: dict[str, Any]) -> dict[str, float]:
+        """更新 KlineBuffer 并计算因子值。"""
+        if self._kline_buffer is None or self._factor_injector is None:
+            return {}
+        ts_ns = int(bar.get("timestamp_ns", time.time() * 1e9))
+        close = float(bar.get("close", 0.0))
+        self._kline_buffer.push_tick(ts_ns, close)
+        return self._factor_injector.compute(self._kline_buffer.bars())
+
     def _process_bar(self, bar: dict[str, Any]) -> None:
         """处理单根 bar: 策略评估 + 订单执行。"""
         self._bar_count += 1
         current_price = float(bar.get("close", 0.0))
         self._last_price = current_price
+
+        # 计算因子并注入 bar（供 trader.decide 内部构造 ctx）
+        features = self._compute_features(bar)
+        if features:
+            bar["features"] = features
 
         # 1. 先直接从 TraderRegistry 收集原始决策 (保留 target_position 等扩展字段,
         #    因为 SwarmRunner votes 会丢 target_position / 自定义元数据)

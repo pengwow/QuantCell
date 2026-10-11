@@ -38,8 +38,13 @@ class StrategyTrader:
         self._last_action: str = "hold"
         self._last_confidence: float = 0.5
 
-    def decide(self, bar: dict) -> dict:
-        """调用策略 on_bar 并转换为 Swarm 兼容格式。"""
+    def decide(self, bar: dict, ctx: Any = None) -> dict:
+        """调用策略 on_bar 并转换为 Swarm 兼容格式。
+
+        Args:
+            bar: K 线数据 dict
+            ctx: 可选 StrategyContext，含 features 等；为 None 时尝试从 bar["features"] 构造
+        """
         try:
             # 确保 bar 有正确的键
             normalized_bar = {
@@ -52,8 +57,20 @@ class StrategyTrader:
                 "timestamp_ns": bar.get("timestamp_ns", int(time.time() * 1e9)),
             }
 
-            # 调用策略
-            action = self._strategy.on_bar(normalized_bar)
+            # 构造 ctx（传入优先，否则从 bar["features"] 构造）
+            if ctx is None and isinstance(bar.get("features"), dict):
+                from strategy.base import StrategyContext
+
+                ctx = StrategyContext(
+                    symbol=normalized_bar["symbol"],
+                    features=bar["features"],
+                )
+
+            # 调用策略（兼容 on_bar(bar, ctx) 和 on_bar(bar)）
+            try:
+                action = self._strategy.on_bar(normalized_bar, ctx)
+            except TypeError:
+                action = self._strategy.on_bar(normalized_bar)
             action_type = str(action.action_type).lower() if hasattr(action, "action_type") else str(action).lower()
             confidence = float(getattr(action, "confidence", 0.5) or 0.5)
             target_position = float(getattr(action, "target_position", 0.0) or 0.0)
@@ -358,8 +375,8 @@ class TraderRegistry:
             if hasattr(trader, "on_stop"):
                 trader.on_stop()
 
-    def collect_decisions(self, bar: dict[str, Any]) -> list[dict[str, Any]]:
-        """直接调用所有 trader.decide(bar) 并返回原始决策列表。
+    def collect_decisions(self, bar: dict[str, Any], ctx: Any = None) -> list[dict[str, Any]]:
+        """直接调用所有 trader.decide(bar, ctx) 并返回原始决策列表。
 
         说明: axon_quant.agent.SwarmRunner 在聚合 votes 时会丢弃
         `target_position` 等非白名单字段, 因此需要在 SwarmRunner 外
@@ -368,7 +385,7 @@ class TraderRegistry:
         results: list[dict[str, Any]] = []
         for trader in self._traders.values():
             try:
-                d = trader.decide(bar) if hasattr(trader, "decide") else None
+                d = trader.decide(bar, ctx) if hasattr(trader, "decide") else None
                 if isinstance(d, dict):
                     d.setdefault("agent_id", getattr(trader, "id", ""))
                     results.append(d)

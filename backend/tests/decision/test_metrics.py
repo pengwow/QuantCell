@@ -14,15 +14,15 @@ from decision.evaluation.metrics import (
 LABELS = ("buy", "sell", "hold")
 
 
-def _rec(pred: str, label: str, *, confidence: float = 0.8, jev_cost: float = 0.0, fb_cost: float = 0.0):
+def _rec(pred: str, label: str, *, confidence: float = 0.8, sdm_cost: float = 0.0, fb_cost: float = 0.0):
     """构造一条评测记录（source 由是否产生兜底成本推断）。"""
     return {
         "final_action": pred,
         "label": label,
         "confidence": confidence,
         "correct": pred == label,
-        "source": "fallback" if fb_cost > 0 else "jev_direct",
-        "jev_cost_usd": jev_cost,
+        "source": "fallback" if fb_cost > 0 else "sdm_direct",
+        "sdm_cost_usd": sdm_cost,
         "fallback_cost_usd": fb_cost,
     }
 
@@ -63,18 +63,18 @@ def test_ece_none_when_any_populated_bin_too_small():
     assert expected_calibration_error(records) is None
 
 
-def test_cost_summary_separates_jev_and_fallback_spend():
+def test_cost_summary_separates_sdm_and_fallback_spend():
     records = [
-        _rec("buy", "buy", jev_cost=0.00003),  # 直出
-        _rec("sell", "sell", jev_cost=0.00003),  # 直出
-        _rec("hold", "hold", jev_cost=0.00003, fb_cost=0.002),  # 低置信兜底（Jev 已计费）
-        _rec("hold", "buy", jev_cost=0.0, fb_cost=0.002),  # 异常兜底（Jev 未计费）
+        _rec("buy", "buy", sdm_cost=0.00003),  # 直出
+        _rec("sell", "sell", sdm_cost=0.00003),  # 直出
+        _rec("hold", "hold", sdm_cost=0.00003, fb_cost=0.002),  # 低置信兜底（SDM 已计费）
+        _rec("hold", "buy", sdm_cost=0.0, fb_cost=0.002),  # 异常兜底（SDM 未计费）
     ]
     summary = cost_summary(records)
     assert summary["samples"] == 4
-    assert summary["jev_calls"] == 3
+    assert summary["sdm_calls"] == 3
     assert summary["fallback_calls"] == 2
-    assert summary["jev_direct_rate"] == pytest.approx(0.5)
-    assert summary["total_jev_cost_usd"] == pytest.approx(0.00009)
+    assert summary["sdm_direct_rate"] == pytest.approx(0.5)
+    assert summary["total_sdm_cost_usd"] == pytest.approx(0.00009)
     assert summary["total_fallback_cost_usd"] == pytest.approx(0.004)
     assert summary["total_cost_usd"] == pytest.approx(0.00409)

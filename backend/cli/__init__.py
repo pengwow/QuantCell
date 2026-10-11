@@ -64,7 +64,7 @@ def register_commands() -> None:
 
     app.add_typer(data_app, name="data")
 
-    # decision: Jev 决策预研离线评测
+    # decision: SDM 决策预研离线评测
     from cli.decision import app as decision_app
 
     app.add_typer(decision_app, name="decision")

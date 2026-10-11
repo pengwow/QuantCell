@@ -61,7 +61,7 @@ const ConsoleLayout = () => {
         className="group/sider z-20 h-full border-r bg-background max-md:static max-md:hidden"
         style={{ borderColor: themeToken.colorBorderSecondary }}
         theme="light"
-        width={siderCollapsed ? 80 : 240}
+        width={siderCollapsed ? 80 : 192}
       >
         <div className="flex size-full flex-col items-center justify-between overflow-hidden select-none">
           {/* 折叠时去掉横向内边距：antd inline-collapsed 菜单固定宽 80px，需与 Sider 等宽才能居中 */}
@@ -305,10 +305,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
         <div className="flex size-full items-center justify-around gap-2">
           <img src="/logo.svg" className="size-[36px]" />
           {!collapsed && (
-            <>
-              <span className="truncate text-base leading-[64px] font-semibold">QuantCell</span>
-              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">v{__APP_VERSION__}</span>
-            </>
+            <span className="truncate text-base leading-[64px] font-semibold">QuantCell</span>
           )}
         </div>
       </div>

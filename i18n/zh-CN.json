@@ -1234,6 +1234,7 @@
   "factor_detail_empty": "请在左侧选择因子",
   "factor_detail_lifecycle": "生命周期",
   "factor_detail_meta_category": "分类",
+  "factor_detail_meta_description": "描述",
   "factor_detail_meta_expression": "表达式",
   "factor_detail_meta_last_snapshot": "最近快照",
   "factor_detail_meta_snapshots": "快照数",

@@ -1,4 +1,4 @@
-"""离线评测编排：缓存 Jev 响应 → 门控 → 指标 → 60/40 切分 → 阈值推荐。"""
+"""离线评测编排：缓存 SDM 响应 → 门控 → 指标 → 60/40 切分 → 阈值推荐。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from decision.cascade import CascadeConfig, JevCascadeDecisionLayer, RuleFallback
+from decision.cascade import CascadeConfig, RuleFallback, SdmCascadeDecisionLayer
 from decision.client import StubDecisionClient
 from decision.evaluation.evaluator import EvalConfig, run_evaluation
 from decision.types import DecisionResponse
@@ -34,15 +34,15 @@ def test_run_evaluation_returns_report_and_trace(bars_factory):
     required = {
         "index",
         "label",
-        "jev_action",
-        "jev_confidence",
+        "sdm_action",
+        "sdm_confidence",
         "source",
         "fallback_reason",
         "final_action",
         "confidence",
         "probabilities",
         "correct",
-        "jev_cost_usd",
+        "sdm_cost_usd",
         "fallback_cost_usd",
         "sub_signals",
     }
@@ -54,7 +54,7 @@ def test_run_evaluation_returns_report_and_trace(bars_factory):
 
 def test_extreme_thresholds_force_all_fallback(bars_factory):
     report, records = run_evaluation(
-        # 阈值超过置信度上界 1.0，任何 Jev 直出都被门控拦下
+        # 阈值超过置信度上界 1.0，任何 SDM 直出都被门控拦下
         _cfg(bars_factory(80, drift=0.002), open_threshold=1.01, hold_threshold=1.01)
     )
     assert all(r["source"] == "fallback" for r in records)

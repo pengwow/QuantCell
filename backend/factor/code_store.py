@@ -96,12 +96,15 @@ class CodeFactorStore:
         description: str = "",
         provenance: dict[str, Any] | None = None,
         code_hash: str | None = None,
+        category: str | None = None,
     ) -> None:
         existed = self._data.get(name)
         self._data[name] = {
             "code": code,
             "code_hash": code_hash or self._compute_hash(code),
             "description": description,
+            # 分类由用户指定；未指定时保留原值（None 表示沿用来源派生的 llm_code）
+            "category": category if category is not None else (existed or {}).get("category"),
             "provenance": provenance or (existed or {}).get("provenance", {}),
             "created_at": (existed or {}).get("created_at") or datetime.now(UTC).isoformat(),
         }

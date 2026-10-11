@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App as AntApp, Flex, Tabs } from 'antd';
+import { App as AntApp, Drawer, Flex, Tabs } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -34,6 +34,7 @@ const FactorAnalysis: React.FC = () => {
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [mineOpen, setMineOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   // 初始选中只决策一次，避免 StrictMode/刷新重复回退
   const decidedRef = useRef(false);
 
@@ -126,27 +127,35 @@ const FactorAnalysis: React.FC = () => {
             key: 'library',
             label: t('factor_library'),
             children: (
-              <Flex gap="middle" align="flex-start">
-                <div style={{ width: 480, flex: '0 0 auto' }}>
-                  <FactorLibraryPane
-                    catalog={catalog}
-                    loading={loading}
-                    loadError={loadError}
-                    selected={selected}
-                    onSelect={setSelected}
-                    onRefresh={loadCatalog}
-                    onMine={() => setMineOpen(true)}
-                  />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {/* key 保证切因子时右栏三页签与表单/结果整体重置回概览 */}
+              <>
+                <FactorLibraryPane
+                  catalog={catalog}
+                  loading={loading}
+                  loadError={loadError}
+                  selected={selected}
+                  onSelect={(name) => {
+                    setSelected(name);
+                    setDetailOpen(true);
+                  }}
+                  onRefresh={loadCatalog}
+                  onMine={() => setMineOpen(true)}
+                />
+                <Drawer
+                  open={detailOpen}
+                  size="46%"
+                  push
+                  destroyOnClose
+                  closable
+                  placement="right"
+                  onClose={() => setDetailOpen(false)}
+                >
                   <FactorDetailPane
                     key={selectedFactor?.name ?? 'empty'}
                     factor={selectedFactor}
                     onRefreshCatalog={() => void loadCatalog()}
                   />
-                </div>
-              </Flex>
+                </Drawer>
+              </>
             ),
           },
           { key: 'compare', label: t('factor_compare'), children: <FactorCompare /> },
