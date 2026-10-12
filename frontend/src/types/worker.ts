@@ -63,6 +63,7 @@ export interface StrategyInfo {
   file_path?: string;
   source?: string;
   params?: unknown[];
+  factors?: unknown[];
   created_at?: string;
   updated_at?: string;
 }
