@@ -176,8 +176,18 @@ class FactorService:
 
         raise FactorNotFoundError(f"因子不存在: {factor_name}")
 
-    def add_factor(self, factor_name: str, factor_expression: str, description: str = "") -> bool:
-        """添加自定义表达式因子：非空校验 + 名称互斥 + 持久化落 DB。"""
+    def add_factor(
+        self,
+        factor_name: str,
+        factor_expression: str,
+        description: str = "",
+        label: str | None = None,
+    ) -> bool:
+        """添加自定义表达式因子：非空校验 + 名称互斥 + 持久化落 DB。
+
+        label 为中文展示名：None 表示调用方未提供（编辑时保留原值），
+        空串表示显式清空（回退为 factor_name）。
+        """
         if not factor_name or not factor_name.strip():
             raise FactorExpressionError("因子名称不能为空")
         if not factor_expression or not factor_expression.strip():
@@ -189,17 +199,20 @@ class FactorService:
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
         expr = factor_expression.strip()
+        label_clean = (label or "").strip() or None
         with get_db_session() as db:
             existing_row = db.query(FactorCatalog).filter_by(name=factor_name, kind="expression").first()
             if existing_row:
                 existing_row.expression = expr
                 existing_row.description = description.strip() or None
+                if label is not None:
+                    existing_row.label = label_clean or factor_name
             else:
                 db.add(
                     FactorCatalog(
                         name=factor_name,
                         kind="expression",
-                        label=factor_name,
+                        label=label_clean or factor_name,
                         description=description.strip() or None,
                         expression=expr,
                         category="custom",
@@ -239,8 +252,13 @@ class FactorService:
         description: str = "",
         provenance: dict[str, Any] | None = None,
         category: str | None = None,
+        label: str | None = None,
     ) -> bool:
-        """保存 LLM/手写代码因子：名称校验 + 内置/表达式互斥 + 沙箱真实执行 + hash 去重。"""
+        """保存 LLM/手写代码因子：名称校验 + 内置/表达式互斥 + 沙箱真实执行 + hash 去重。
+
+        label/category 为 None 表示调用方未提供（编辑时保留原值），
+        label 空串表示显式清空（回退为 factor_name）。
+        """
         if not self._CODE_NAME_RE.match(factor_name or ""):
             raise FactorExpressionError("代码因子名需以字母开头，仅含字母数字下划线，长度 1-100")
         if factor_name in self._builtin:
@@ -262,31 +280,33 @@ class FactorService:
         )
         if existing is not None:
             raise FactorExpressionError(f"相同代码已存在为因子 '{existing}'，无需重复保存")
-        # 幂等：同名同代码已存在则直接返回成功（沙箱仍需重新校验安全性）
-        if factor_name in self._code_map and self._code_map[factor_name].get("code_hash") == h:
-            self._sandbox.validate(code)
-            return True
         self._sandbox.validate(code)
+        label_clean = (label or "").strip() or None
+        # 编辑时 category 未提供则沿用原分类（避免覆盖用户自定义分类）
+        effective_category = category or self._code_map.get(factor_name, {}).get("category") or "llm_code"
         with get_db_session() as db:
             existing_row = db.query(FactorCatalog).filter_by(name=factor_name, kind="code").first()
             if existing_row:
-                # 同名覆盖：更新代码/描述等字段
+                # 同名覆盖：更新代码/描述等字段；label/category 仅在显式传入时刷新
                 existing_row.code = code
                 existing_row.code_hash = h
                 existing_row.description = description.strip() or None
                 existing_row.provenance = json.dumps(provenance or {}, ensure_ascii=False)
-                existing_row.category = category or "llm_code"
+                if category is not None:
+                    existing_row.category = category
+                if label is not None:
+                    existing_row.label = label_clean or factor_name
             else:
                 db.add(
                     FactorCatalog(
                         name=factor_name,
                         kind="code",
-                        label=factor_name,
+                        label=label_clean or factor_name,
                         description=description.strip() or None,
                         code=code,
                         code_hash=h,
                         provenance=json.dumps(provenance or {}, ensure_ascii=False),
-                        category=category or "llm_code",
+                        category=effective_category,
                         is_builtin=False,
                         supported=True,
                         lifecycle_status="DISCOVERED",
@@ -297,7 +317,7 @@ class FactorService:
             "code": code,
             "code_hash": h,
             "description": description.strip(),
-            "category": category or "llm_code",
+            "category": effective_category,
             "provenance": provenance or {},
         }
         logger.info(f"成功保存代码因子: {factor_name}")
@@ -326,8 +346,12 @@ class FactorService:
         ts_stats_list: list[dict[str, Any]],
         train_window: dict[str, Any],
         provenance: dict[str, Any] | None = None,
+        label: str | None = None,
     ) -> bool:
-        """保存 IC 加权 zscore 合成因子：名称互斥 + 成分约束 + 每成分沙箱校验。"""
+        """保存 IC 加权 zscore 合成因子：名称互斥 + 成分约束 + 每成分沙箱校验。
+
+        label 为 None 表示调用方未提供（编辑时保留原值），空串表示显式清空（回退为 factor_name）。
+        """
         if not self._CODE_NAME_RE.match(factor_name or ""):
             raise FactorExpressionError("合成因子名需以字母开头，仅含字母数字下划线，长度 1-100")
         if factor_name in self._builtin:
@@ -364,6 +388,7 @@ class FactorService:
             {"code": code, "weight": float(weights[i]), "ts_stats": ts_stats_list[i]}
             for i, code in enumerate(clean_codes)
         ]
+        label_clean = (label or "").strip() or None
         with get_db_session() as db:
             existing_row = db.query(FactorCatalog).filter_by(name=factor_name, kind="composite").first()
             if existing_row:
@@ -372,12 +397,14 @@ class FactorService:
                 existing_row.train_window = json.dumps(train_window, ensure_ascii=False)
                 existing_row.constituents = json.dumps(constituents, ensure_ascii=False)
                 existing_row.provenance = json.dumps(provenance or {}, ensure_ascii=False)
+                if label is not None:
+                    existing_row.label = label_clean or factor_name
             else:
                 db.add(
                     FactorCatalog(
                         name=factor_name,
                         kind="composite",
-                        label=factor_name,
+                        label=label_clean or factor_name,
                         description=(description or "").strip() or None,
                         method=COMPOSITE_METHOD,
                         train_window=json.dumps(train_window, ensure_ascii=False),

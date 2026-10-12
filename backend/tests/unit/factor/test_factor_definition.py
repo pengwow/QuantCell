@@ -7,6 +7,55 @@ from factor.service import FactorNotFoundError
 MOM_CODE = 'factor = df["close"].pct_change(5)'
 OTHER_CODE = 'factor = df["close"] / df["open"]'
 
+TRAIN_WINDOW = {
+    "start": "2026-01-01T00:00:00",
+    "end": "2026-01-07T23:00:00",
+    "interval": "1h",
+    "candle_type": "spot",
+}
+
+
+def _labels(svc):
+    return {d["name"]: d["label"] for d in svc.get_factor_details()}
+
+
+def test_label_maintenance_expression(svc):
+    """表达式因子 label：新建可设；编辑可改；None 保留原值；空串清空回退 name。"""
+    svc.add_factor("lbl_expr", "close - open", label="动量因子")
+    assert _labels(svc)["lbl_expr"] == "动量因子"
+    # 编辑改 label
+    svc.add_factor("lbl_expr", "close - open", label="新动量")
+    assert _labels(svc)["lbl_expr"] == "新动量"
+    # 编辑不传 label（None）→ 保留原值
+    svc.add_factor("lbl_expr", "close - open")
+    assert _labels(svc)["lbl_expr"] == "新动量"
+    # 编辑传空串 → 清空回退 name
+    svc.add_factor("lbl_expr", "close - open", label="")
+    assert _labels(svc)["lbl_expr"] == "lbl_expr"
+
+
+def test_label_maintenance_code_and_composite(svc):
+    """代码/合成因子 label：新建可设；编辑不传则保留原值。"""
+    svc.save_code_factor("lbl_code", MOM_CODE, label="代码动量")
+    svc.save_composite(
+        "lbl_comp",
+        "",
+        [MOM_CODE, OTHER_CODE],
+        [0.5, 0.5],
+        [{}, {}],
+        TRAIN_WINDOW,
+        label="合成因子",
+    )
+    labels = _labels(svc)
+    assert labels["lbl_code"] == "代码动量"
+    assert labels["lbl_comp"] == "合成因子"
+    # 编辑代码因子不传 label → 保留
+    svc.save_code_factor("lbl_code", MOM_CODE)
+    assert _labels(svc)["lbl_code"] == "代码动量"
+    # 编辑合成因子不传 label → 保留
+    svc.save_composite("lbl_comp", "", [MOM_CODE, OTHER_CODE], [0.5, 0.5], [{}, {}], TRAIN_WINDOW)
+    assert _labels(svc)["lbl_comp"] == "合成因子"
+
 
 def test_definition_of_builtin_expression(svc):
     d = svc.get_factor_definition("close")
