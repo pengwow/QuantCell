@@ -217,7 +217,9 @@ def add_factor(request: FactorAddRequest, current_user: dict = Depends(get_curre
     """添加自定义因子"""
     try:
         logger.info(f"添加因子请求，因子名称: {request.factor_name}, 表达式: {request.expression}")
-        result = factor_service.add_factor(request.factor_name, request.expression, request.description or "")
+        result = factor_service.add_factor(
+            request.factor_name, request.expression, request.description or "", label=request.label
+        )
         if result:
             logger.info(f"成功添加因子 {request.factor_name}")
             # ---- add 成功后建档（派生数据，失败不阻断表达式新增）----
@@ -1135,6 +1137,7 @@ def add_code_factor(request: CodeFactorAddRequest, current_user: dict = Depends(
             request.description or "",
             provenance={"source": "manual_or_llm"},
             category=request.category,
+            label=request.label,
         )
         # ---- 保存成功后建档（派生数据，失败不阻断代码保存；模式同表达式 add_factor）----
         try:
@@ -1188,6 +1191,7 @@ def add_composite_factor(
             ts_stats_list=[c.ts_stats for c in request.constituents],
             train_window=request.train_window.model_dump(),
             provenance={"source": "llm_mining_composite"},
+            label=request.label,
         )
         # ---- 保存成功后建档（派生数据，失败不阻断保存；模式同 /code/add）----
         try:

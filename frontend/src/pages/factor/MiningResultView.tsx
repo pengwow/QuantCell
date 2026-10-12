@@ -231,7 +231,7 @@ const MiningResultView: React.FC<{
   // 合成因子「保存为因子」Modal
   const [compModalOpen, setCompModalOpen] = useState(false);
   const [compSaving, setCompSaving] = useState(false);
-  const [compForm] = Form.useForm<{ factor_name: string; description?: string }>();
+  const [compForm] = Form.useForm<{ factor_name: string; description?: string; label?: string }>();
 
   const oosText = (flag: NonNullable<MinedCandidate['oos_flag']>) => {
     switch (flag) {
@@ -305,7 +305,7 @@ const MiningResultView: React.FC<{
   const openSaveComposite = () => {
     const firstHash = result.composite?.constituents?.[0]?.code_hash.slice(0, 8) ?? '';
     compForm.resetFields();
-    compForm.setFieldsValue({ factor_name: `llm_comp_${firstHash}`, description: '' });
+    compForm.setFieldsValue({ factor_name: `llm_comp_${firstHash}`, description: '', label: '' });
     setCompModalOpen(true);
   };
 
@@ -337,6 +337,7 @@ const MiningResultView: React.FC<{
       await factorApi.addCompositeFactor({
         factor_name: v.factor_name.trim(),
         description: v.description?.trim() || '',
+        label: v.label?.trim() || '',
         constituents,
         train_window: comp.train_window,
       });
@@ -606,6 +607,13 @@ const MiningResultView: React.FC<{
             ]}
           >
             <Input placeholder={t('factor_lib_form_name_ph') || '如 llm_comp_ab12cd34'} />
+          </Form.Item>
+          <Form.Item
+            name="label"
+            label={t('factor_lib_form_label') || '展示名（可选）'}
+            extra={t('factor_lib_form_label_hint') || '留空则显示英文标识'}
+          >
+            <Input maxLength={200} placeholder={t('factor_lib_form_label_ph') || '如 5 日动量'} />
           </Form.Item>
           <Form.Item name="description" label={t('factor_mining_modal_desc') || '描述（可选）'}>
             <Input.TextArea

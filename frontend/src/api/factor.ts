@@ -244,6 +244,8 @@ export interface CompositeConstituentPayload {
 export interface FactorCompositeAddBody {
   factor_name: string;
   description?: string;
+  /** 中文展示名（可选）；缺省用 factor_name */
+  label?: string;
   constituents: CompositeConstituentPayload[];
   train_window: CompositeTrainWindow;
 }
@@ -461,8 +463,8 @@ export interface FactorAnalyzeResult {
 
 export const factorApi = {
   listDetail: () => apiRequest.get<{ factors: FactorDetail[] }>('/factor/list-detail'),
-  add: (factor_name: string, expression: string, category?: string, description?: string) =>
-    apiRequest.post('/factor/add', { factor_name, expression, category, description }),
+  add: (factor_name: string, expression: string, category?: string, description?: string, label?: string) =>
+    apiRequest.post('/factor/add', { factor_name, expression, category, description, label }),
   remove: (name: string) =>
     apiRequest.delete(`/factor/delete/${encodeURIComponent(name)}`),
   validate: (expression: string) =>
@@ -490,8 +492,13 @@ export const factorApi = {
       '/factor/validate',
       { expression },
     ),
-  addCodeFactor: (factor_name: string, code: string, description?: string, category?: string) =>
-    apiRequest.post('/factor/code/add', { factor_name, code, description, category }),
+  addCodeFactor: (
+    factor_name: string,
+    code: string,
+    description?: string,
+    category?: string,
+    label?: string,
+  ) => apiRequest.post('/factor/code/add', { factor_name, code, description, category, label }),
   addCompositeFactor: (body: FactorCompositeAddBody) =>
     apiRequest.post('/factor/composite/add', body),
   deleteCompositeFactor: (name: string) =>

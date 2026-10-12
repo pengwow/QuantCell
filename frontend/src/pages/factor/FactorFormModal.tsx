@@ -104,6 +104,7 @@ interface Props {
 
 interface FormValues {
   factor_name: string;
+  label?: string;
   category?: string;
   expression?: string;
   code?: string;
@@ -136,7 +137,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
     const k = factorSource(editing) === 'code' ? 'code' : 'expression';
     setKind(k);
     form.resetFields();
-    form.setFieldsValue({ factor_name: editing.name });
+    form.setFieldsValue({ factor_name: editing.name, label: editing.label ?? '' });
     if (k !== 'code') {
       form.setFieldsValue({
         expression: editing.expression ?? '',
@@ -199,15 +200,17 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
     const v = await form.validateFields();
     const name = v.factor_name.trim();
     const description = (v.description ?? '').trim();
+    // label 始终下发（空串=清空回退 name），后端据此区分「未提供」与「显式清空」
+    const label = (v.label ?? '').trim();
     setSaving(true);
     try {
       if (kind === 'code') {
         // 编辑代码因子时分类字段不渲染（v.category 为 undefined），后端保留原分类
-        await factorApi.addCodeFactor(name, (v.code ?? '').trim(), description, v.category);
+        await factorApi.addCodeFactor(name, (v.code ?? '').trim(), description, v.category, label);
       } else if (isEdit) {
-        await factorApi.add(name, (v.expression ?? '').trim(), undefined, description);
+        await factorApi.add(name, (v.expression ?? '').trim(), undefined, description, label);
       } else {
-        await factorApi.add(name, (v.expression ?? '').trim(), v.category, description);
+        await factorApi.add(name, (v.expression ?? '').trim(), v.category, description, label);
       }
       message.success(t('factor_lib_toast_saved') || '因子已保存');
       onSaved(name);
@@ -292,6 +295,18 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
           ]}
         >
           <Input disabled={isEdit} placeholder={t('factor_lib_form_name_ph') || '如 my_momentum'} />
+        </Form.Item>
+
+        {/* 展示名（label）：中文可读名，列表/详情/分析下拉优先展示；留空回退英文标识 */}
+        <Form.Item
+          name="label"
+          label={t('factor_lib_form_label') || '展示名（可选）'}
+          extra={t('factor_lib_form_label_hint') || '留空则显示英文标识'}
+        >
+          <Input
+            maxLength={200}
+            placeholder={t('factor_lib_form_label_ph') || '如 5 日动量'}
+          />
         </Form.Item>
 
         {/* 分类与描述为两种模式共用字段，保证表达式/代码两个 tab 字段对称 */}
