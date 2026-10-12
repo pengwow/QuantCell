@@ -75,6 +75,14 @@ export interface StrategyParam {
   required: boolean;
 }
 
+// 策略因子接口
+export interface StrategyFactor {
+  name: string;
+  type?: string;
+  description?: string;
+  default?: unknown;
+}
+
 // 策略接口
 export interface Strategy {
   name: string;
@@ -84,6 +92,7 @@ export interface Strategy {
   version: string;
   tags?: string[];
   params: StrategyParam[];
+  factors?: StrategyFactor[];
   created_at: string;
   updated_at: string;
 }

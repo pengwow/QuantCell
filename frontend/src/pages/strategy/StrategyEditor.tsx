@@ -31,6 +31,7 @@ import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
+import { factorApi, type FactorDetail } from '../../api/factor';
 import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
 // AI 聊天弹窗组件
@@ -96,6 +97,21 @@ const StrategyEditor = () => {
   // 行级编辑追踪：哪些行处于编辑态（新增行默认进入编辑态）
   const [editingParamRows, setEditingParamRows] = useState<Set<number>>(new Set());
   const [editingFactorRows, setEditingFactorRows] = useState<Set<number>>(new Set());
+
+  // 因子库缓存：name → FactorDetail（用于显示因子的真实 label/描述）
+  const [factorCatalog, setFactorCatalog] = useState<Map<string, FactorDetail>>(new Map());
+  const [factorCatalogLoaded, setFactorCatalogLoaded] = useState(false);
+
+  // 挂载时拉一次因子库（只拉一次，跨策略切换复用）
+  useEffect(() => {
+    if (factorCatalogLoaded) return;
+    factorApi.listDetail().then((r) => {
+      const m = new Map<string, FactorDetail>();
+      for (const f of r.factors) m.set(f.name, f);
+      setFactorCatalog(m);
+      setFactorCatalogLoaded(true);
+    }).catch(() => setFactorCatalogLoaded(true));
+  }, [factorCatalogLoaded]);
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
@@ -1492,9 +1508,17 @@ class NewStrategy(StrategyBase):
                                   >
                                     <Tag color="blue" className="mb-0">{factor.name}</Tag>
                                     <Tag color={typeColor[factor.type] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
-                                    {factor.description && (
-                                      <span className="text-gray-500 text-sm flex-1 truncate">{factor.description}</span>
-                                    )}
+                                    {(() => {
+                                      // 优先用因子库的 label（中文可读名），有则用；否则 fallback 到 AST 提取的 description
+                                      const catalog = factorCatalog.get(factor.name);
+                                      const displayLabel = catalog?.label || factor.description;
+                                      return displayLabel ? (
+                                        <span className="text-gray-500 text-sm flex-1 truncate">
+                                          {displayLabel}
+                                          {catalog ? <span className="text-gray-400 text-xs ml-1">（因子库）</span> : null}
+                                        </span>
+                                      ) : null;
+                                    })()}
                                     <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
                                       <Button
                                         size="small"

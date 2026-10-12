@@ -281,6 +281,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           version: s.version,
           tags: undefined,
           params: (s.params ?? []) as StrategyParam[],
+          factors: (s.factors ?? []) as any,
           created_at: s.created_at ?? '',
           updated_at: s.updated_at ?? '',
         })));

@@ -86,6 +86,7 @@ class StrategyInfo(BaseSchema):
     version: str = Field(default="1.0.0", description="策略版本")
     tags: list[str] = Field(default_factory=list, description="策略标签")
     params: list[StrategyParamInfo] = Field(default_factory=list, description="策略参数列表")
+    factors: list[dict[str, Any]] = Field(default_factory=list, description="策略因子列表")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
     code: str | None = Field(default=None, description="策略代码")
