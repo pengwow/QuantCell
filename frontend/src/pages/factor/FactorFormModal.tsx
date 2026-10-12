@@ -17,9 +17,12 @@ import {
   Select,
   Space,
   Spin,
+  Tooltip,
   theme,
 } from 'antd';
+import { BulbOutlined } from '@ant-design/icons';
 import Editor, { type OnMount } from '@monaco-editor/react';
+import { aiApi } from '@/api/ai';
 import { factorApi, type FactorCatalogItem } from '@/api/factor';
 import { EDITABLE_CATEGORIES, categoryLabel, factorSource } from './factorMeta';
 
@@ -121,6 +124,8 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
   const [validateResult, setValidateResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [loadingDef, setLoadingDef] = useState(false);
   const [defError, setDefError] = useState<string | null>(null);
+  // AI 生成字段级 loading：避免 label/description 两个按钮互相影响
+  const [polishing, setPolishing] = useState<'label' | 'description' | null>(null);
 
   const isEdit = !!editing;
 
@@ -193,6 +198,37 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
       setValidateResult({ ok: false, text: errMsg(e) });
     } finally {
       setValidating(false);
+    }
+  };
+
+  // 调用公共 AI 润色接口生成 label 或 description；字段级 loading，失败用 message.error 展示后端可读文案
+  const handlePolish = async (field: 'label' | 'description') => {
+    const values = form.getFieldsValue();
+    const ctx: Record<string, unknown> = {
+      factor_name: (values.factor_name ?? '').trim(),
+      category: values.category ?? '',
+    };
+    if (kind === 'code') {
+      ctx.code = (values.code ?? '').trim();
+    } else {
+      ctx.expression = (values.expression ?? '').trim();
+    }
+    // 生成 description 时把已有描述传过去，供 LLM 参考改写
+    if (field === 'description' && values.description) {
+      ctx.existing = values.description.trim();
+    }
+    setPolishing(field);
+    try {
+      const r = await aiApi.polish({
+        target: field,
+        context: ctx,
+        max_length: field === 'label' ? 12 : 200,
+      });
+      form.setFieldsValue({ [field]: r.content });
+    } catch (e) {
+      message.error(errMsg(e));
+    } finally {
+      setPolishing(null);
     }
   };
 
@@ -306,6 +342,18 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
           <Input
             maxLength={200}
             placeholder={t('factor_lib_form_label_ph') || '如 5 日动量'}
+            suffix={
+              <Tooltip title={t('factor_ai_polish') || '使用 AI 生成'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<BulbOutlined />}
+                  loading={polishing === 'label'}
+                  onClick={() => void handlePolish('label')}
+                  style={{ color: polishing === 'label' ? undefined : '#1677ff' }}
+                />
+              </Tooltip>
+            }
           />
         </Form.Item>
 
@@ -319,7 +367,21 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
         )}
 
         <Form.Item name="description" label={t('factor_form_desc') || '描述（可选）'}>
-          <Input placeholder={t('factor_form_desc_ph') || '一句话说明这个因子在算什么'} />
+          <Input
+            placeholder={t('factor_form_desc_ph') || '一句话说明这个因子在算什么'}
+            suffix={
+              <Tooltip title={t('factor_ai_polish') || '使用 AI 生成'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<BulbOutlined />}
+                  loading={polishing === 'description'}
+                  onClick={() => void handlePolish('description')}
+                  style={{ color: polishing === 'description' ? undefined : '#1677ff' }}
+                />
+              </Tooltip>
+            }
+          />
         </Form.Item>
 
         {/* 模式切换放到共用字段之后，让用户先填共用信息再决定写法 */}
