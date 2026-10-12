@@ -27,7 +27,7 @@ for _name in _MOCK_MODULES:
         if _name == "collector.db.database":
             _db_was_mocked = True
 
-import ai_model.routes_strategy
+import ai.strategy.routes_strategy
 from main import app
 
 # 恢复被 mock 的模块条目
@@ -42,17 +42,19 @@ _SAVED_DB_MODULES.clear()
 if _db_was_mocked:
     # 清理mock期间被污染的模块，避免影响后续测试文件的收集（模块级立即执行，
     # 因为后续测试文件在收集阶段就要 import，等不到本模块测试跑完的 teardown）
-    # 不清理ai_model和ai_model.routes_strategy（本测试需要它们）
+    # 不清理 ai 和 ai.strategy.*（本测试需要它们）
     _KEEP_MODULES = {
-        "ai_model",
-        "ai_model.routes_strategy",
-        "ai_model.routes",
-        "ai_model.schemas_strategy",
-        "ai_model.config_utils",
-        "ai_model.prompts",
-        "ai_model.strategy_generator",
-        "ai_model.thinking_chain",
-        "ai_model.performance_monitor",
+        "ai",
+        "ai.config",
+        "ai.config.routes",
+        "ai.config.config_utils",
+        "ai.strategy",
+        "ai.strategy.routes_strategy",
+        "ai.strategy.schemas_strategy",
+        "ai.strategy.prompts",
+        "ai.strategy.strategy_generator",
+        "ai.strategy.thinking_chain",
+        "ai.strategy.performance_monitor",
     }
     for _mod_name in list(sys.modules.keys()):
         if _mod_name in _KEEP_MODULES or _mod_name in _MOCK_MODULES:
@@ -342,7 +344,7 @@ class TestAuthentication:
         """测试debug模式跳过认证"""
         with patch("utils.auth.IS_DEBUG_MODE", True):
             # mock 实际被调用的配置获取函数，返回 None 模拟未配置AI模型
-            with patch("ai_model.routes_strategy.get_default_provider_and_models") as mock_get_config:
+            with patch("ai.strategy.routes_strategy.get_default_provider_and_models") as mock_get_config:
                 mock_get_config.return_value = None
 
                 response = client.post(

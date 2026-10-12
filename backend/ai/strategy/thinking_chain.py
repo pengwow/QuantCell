@@ -17,7 +17,7 @@ from utils.logger import LogType, get_logger
 logger = get_logger(__name__, LogType.APPLICATION)
 
 try:
-    from ai_model.thinking_chain_models import Base, ThinkingChain
+    from .thinking_chain_models import Base, ThinkingChain
 except ImportError:
     # 用于直接运行测试时
     from thinking_chain_models import Base, ThinkingChain
@@ -35,7 +35,7 @@ def _get_engine():
         import os
 
         db_type = os.environ.get("DB_TYPE", "sqlite")
-        default_db_path = os.path.join(os.path.dirname(__file__), "..", "data")
+        default_db_path = os.path.join(os.path.dirname(__file__), "..", "..", "data")
         os.makedirs(default_db_path, exist_ok=True)
 
         if db_type == "sqlite":

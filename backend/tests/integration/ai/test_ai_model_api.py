@@ -53,7 +53,7 @@ class TestAIModelAPI:
                 "api_key_masked": "sk-...1234",
             }
         ]
-        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
+        with patch("ai.config.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get("/api/v1/ai-models/", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
@@ -64,7 +64,7 @@ class TestAIModelAPI:
 
     def test_create_ai_model(self, client, mock_auth, mock_should_refresh):
         """测试创建AI模型配置"""
-        with patch("ai_model.routes.save_ai_model_to_config", return_value=True):
+        with patch("ai.config.routes.save_ai_model_to_config", return_value=True):
             response = client.post(
                 "/api/v1/ai-models/",
                 headers={"Authorization": "Bearer test_token"},
@@ -100,7 +100,7 @@ class TestAIModelAPI:
                 "api_key_masked": "sk-...1234",
             }
         ]
-        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
+        with patch("ai.config.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get("/api/v1/ai-models/1", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
@@ -125,8 +125,8 @@ class TestAIModelAPI:
             }
         ]
         with (
-            patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers),
-            patch("ai_model.routes.save_ai_model_to_config", return_value=True),
+            patch("ai.config.routes.get_ai_models_from_config", return_value=mock_providers),
+            patch("ai.config.routes.save_ai_model_to_config", return_value=True),
         ):
             response = client.put(
                 "/api/v1/ai-models/1",
@@ -141,7 +141,7 @@ class TestAIModelAPI:
 
     def test_delete_ai_model(self, client, mock_auth, mock_should_refresh):
         """测试删除AI模型配置"""
-        with patch("ai_model.routes.delete_ai_model_from_config", return_value=True):
+        with patch("ai.config.routes.delete_ai_model_from_config", return_value=True):
             response = client.delete("/api/v1/ai-models/1", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
@@ -150,7 +150,7 @@ class TestAIModelAPI:
 
     def test_get_supported_providers(self, client, mock_auth, mock_should_refresh):
         """测试获取支持的厂商列表"""
-        with patch("ai_model.services.AIModelService.get_supported_providers") as mock_get:
+        with patch("ai.config.services.AIModelService.get_supported_providers") as mock_get:
             mock_get.return_value = [
                 {"id": "openai", "name": "OpenAI", "description": "OpenAI GPT系列模型"},
                 {
@@ -172,7 +172,7 @@ class TestAIModelAPI:
 
     def test_check_ai_model_availability(self, client, mock_auth, mock_should_refresh):
         """测试检查AI模型可用性"""
-        with patch("ai_model.services.AIModelService.check_provider_availability") as mock_check:
+        with patch("ai.config.services.AIModelService.check_provider_availability") as mock_check:
             mock_check.return_value = {
                 "available": True,
                 "message": "OpenAI服务可用",
@@ -204,7 +204,7 @@ class TestAIModelAPI:
 
     def test_check_ai_model_availability_invalid_provider(self, client, mock_auth, mock_should_refresh):
         """测试检查无效厂商的模型可用性"""
-        with patch("ai_model.services.AIModelService.check_provider_availability") as mock_check:
+        with patch("ai.config.services.AIModelService.check_provider_availability") as mock_check:
             mock_check.return_value = {
                 "available": False,
                 "message": "不支持的厂商: invalid_provider",
@@ -255,9 +255,9 @@ class TestAIModelAPI:
             },
         ]
         with (
-            patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers),
+            patch("ai.config.routes.get_ai_models_from_config", return_value=mock_providers),
             patch(
-                "ai_model.services.AIModelService.fetch_available_models",
+                "ai.config.services.AIModelService.fetch_available_models",
                 return_value=mock_models,
             ),
         ):
@@ -275,7 +275,7 @@ class TestAIModelAPI:
 
     def test_get_available_models_config_not_found(self, client, mock_auth, mock_should_refresh):
         """测试获取不存在配置的可用模型列表"""
-        with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
+        with patch("ai.config.routes.get_ai_models_from_config", return_value=[]):
             response = client.get(
                 "/api/v1/ai-models/999/models",
                 headers={"Authorization": "Bearer test_token"},
@@ -297,7 +297,7 @@ class TestAIModelAPI:
                 "is_default": True,
             }
         ]
-        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
+        with patch("ai.config.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get(
                 "/api/v1/ai-models/1/models",
                 headers={"Authorization": "Bearer test_token"},

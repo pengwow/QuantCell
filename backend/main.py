@@ -29,9 +29,9 @@ logger = get_logger(__name__, LogType.SYSTEM)
 
 # 导入业务模块路由（标准化模块化架构）
 from agent.api.routes import router as agent_router
-from ai_model import router as ai_model_router
-from ai_model.routes_strategy import router as ai_model_strategy_router
-from ai_polish import router as ai_polish_router
+from ai.config import router as ai_model_router
+from ai.polish import router as ai_polish_router
+from ai.strategy import router as ai_model_strategy_router
 from api.ensemble_routes import router as ensemble_router
 from api.model_routes import router as models_router
 from api.risk_routes import router as risk_router

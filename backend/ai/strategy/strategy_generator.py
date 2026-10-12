@@ -14,10 +14,11 @@ from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from ai_model.performance_monitor import get_performance_monitor
-from ai_model.prompts import PromptCategory, PromptManager
-from ai_model.thinking_chain import ThinkingChainManager
 from axon_bridge.llm import classify_llm_error, create_llm_backend, normalize_finish_reason
+
+from .performance_monitor import get_performance_monitor
+from .prompts import PromptCategory, PromptManager
+from .thinking_chain import ThinkingChainManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

@@ -242,7 +242,7 @@ class TestGetStrategyDetail:
 class TestGenerateStrategy:
     """测试 generate_strategy 函数"""
 
-    @patch("ai_model.config_utils.get_default_provider_and_models")
+    @patch("ai.config.config_utils.get_default_provider_and_models")
     def test_generate_strategy_no_provider(self, mock_get_provider):
         """测试未配置AI模型的情况"""
         from cli.strategy import generate_strategy
