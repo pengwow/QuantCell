@@ -31,6 +31,7 @@ logger = get_logger(__name__, LogType.SYSTEM)
 from agent.api.routes import router as agent_router
 from ai_model import router as ai_model_router
 from ai_model.routes_strategy import router as ai_model_strategy_router
+from ai_polish import router as ai_polish_router
 from api.ensemble_routes import router as ensemble_router
 from api.model_routes import router as models_router
 from api.risk_routes import router as risk_router
@@ -85,6 +86,7 @@ app.add_middleware(RequestIDMiddleware)
 # 注册业务路由（保持向后兼容）
 app.include_router(ai_model_router)
 app.include_router(ai_model_strategy_router)
+app.include_router(ai_polish_router)
 app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
