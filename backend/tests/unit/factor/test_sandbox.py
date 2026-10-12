@@ -19,7 +19,8 @@ from factor.sandbox import (
 @pytest.fixture(scope="module")
 def sandbox():
     # 子进程启动有固定成本，整个模块复用一个实例
-    return FactorSandbox()
+    # CPU 限额放宽到 10s（macOS arm64 + Python 3.14 环境子进程冷启动较慢）
+    return FactorSandbox(cpu_seconds=10)
 
 
 @pytest.fixture(scope="module")

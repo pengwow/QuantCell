@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import operator as _op
 
 import numpy as np
@@ -119,6 +120,15 @@ FACTOR_META: dict[str, dict] = {
     "roa": {"category": "fundamental", "label": "总资产收益率", "expression": "", "supported": False},
     "profit_growth": {"category": "fundamental", "label": "净利润增速", "expression": "", "supported": False},
 }
+
+
+# ---------------- 代码因子 hash（与原 code_store.code_hash 同口径） ----------------
+
+
+def code_hash(code: str) -> str:
+    """规范化（去空白行+strip）后 sha256 前 16 位。用于代码因子去重。"""
+    normalized = "\n".join(line.strip() for line in code.strip().splitlines() if line.strip())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------- 技术指标（纯 pandas） ----------------

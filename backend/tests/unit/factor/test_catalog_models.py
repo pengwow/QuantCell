@@ -53,12 +53,12 @@ def test_default_lifecycle_status_and_unique_name():
     eng = _engine()
     Session = sessionmaker(bind=eng)
     with Session() as s:
-        s.add(FactorCatalog(name="mom_x", is_builtin=False, supported=True))
+        s.add(FactorCatalog(name="mom_x", kind="expression", is_builtin=False, supported=True))
         s.commit()
         row = s.query(FactorCatalog).filter_by(name="mom_x").one()
         assert row.lifecycle_status == "DISCOVERED"
         assert row.is_builtin is False
-        s.add(FactorCatalog(name="mom_x", is_builtin=False))
+        s.add(FactorCatalog(name="mom_x", kind="expression", is_builtin=False))
         with pytest.raises(IntegrityError):
             s.commit()
 

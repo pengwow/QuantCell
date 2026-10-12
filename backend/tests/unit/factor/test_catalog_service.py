@@ -11,7 +11,7 @@ from factor.catalog_service import (
     CatalogError,
     FactorCatalogService,
 )
-from factor.factor_store import FactorStore
+from factor.engine import FACTOR_META
 from factor.models import FactorCatalog, FactorSnapshot
 from factor.service import FactorService
 
@@ -52,7 +52,7 @@ def _svc(db_session, dirs, details=None):
 def test_sync_builtins_idempotent_and_preserves_lifecycle(db_session, dirs):
     svc = _svc(db_session, dirs)
     created = svc.sync_builtins(db_session)
-    assert created == 3
+    assert created == len(FACTOR_META)
     assert svc.sync_builtins(db_session) == 0
     assert db_session.query(FactorCatalog).filter_by(name="close").one().is_builtin is True
 
@@ -206,7 +206,7 @@ def test_lifecycle_constants():
 
 
 def _custom_row(db_session, name="my_mom", status="DISCOVERED"):
-    r = FactorCatalog(name=name, is_builtin=False, supported=True, lifecycle_status=status)
+    r = FactorCatalog(name=name, kind="expression", is_builtin=False, supported=True, lifecycle_status=status)
     db_session.add(r)
     db_session.commit()
     return r

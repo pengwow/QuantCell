@@ -7,12 +7,8 @@ KlineBuffer.bars() 的历史 OHLCV，输出 {factor_name: value} dict。
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import pandas as pd
-
-if TYPE_CHECKING:
-    from factor.factor_store import FactorStore
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +18,7 @@ class FactorInjector:
 
     Args:
         factor_names: 需要计算的因子名列表（内置或自定义）。
-        custom_factors: 自定义因子表达式映射 {name: expression}（来自 FactorStore）。
+        custom_factors: 自定义因子表达式映射 {name: expression}。
     """
 
     def __init__(
@@ -34,17 +30,14 @@ class FactorInjector:
         self._custom = custom_factors or {}
 
     @classmethod
-    def from_factor_names(
-        cls,
-        factor_names: list[str],
-        store: FactorStore | None = None,
-    ) -> FactorInjector:
-        """从 FactorStore 加载自定义因子表达式，创建 FactorInjector。"""
-        from factor.factor_store import FactorStore
+    def from_factor_names(cls, factor_names: list[str]) -> FactorInjector:
+        """从 FactorService 加载自定义因子表达式，创建 FactorInjector。"""
+        # ponytail: 延迟 import 避免循环依赖；FactorService 从 DB 拿自定义表达式
+        from factor.service import FactorService
 
-        store = store or FactorStore()
+        svc = FactorService()
         # 只加载 factor_names 中存在的自定义因子，避免全量加载
-        custom = {k: v for k, v in store.all().items() if k in factor_names}
+        custom = {k: v for k, v in svc.factors.items() if k in factor_names and k not in svc._builtin}
         return cls(factor_names=factor_names, custom_factors=custom)
 
     def compute(self, bars: list[dict]) -> dict[str, float]:

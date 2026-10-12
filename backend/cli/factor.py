@@ -57,20 +57,10 @@ console = Console()
 
 
 def _service():
-    """惰性构造 FactorService；store 路径支持环境变量覆盖（测试/自定义数据目录）。"""
-    from factor.code_store import CodeFactorStore
-    from factor.composite_store import CompositeFactorStore
-    from factor.factor_store import FactorStore
+    """惰性构造 FactorService（因子真相源已统一到 SQLite factor_catalog 表）。"""
     from factor.service import FactorService
 
-    expr_path = os.environ.get("QC_FACTOR_EXPR_STORE")
-    code_path = os.environ.get("QC_FACTOR_CODE_STORE")
-    comp_path = os.environ.get("QC_FACTOR_COMPOSITE_STORE")
-    return FactorService(
-        factor_store=FactorStore(Path(expr_path)) if expr_path else None,
-        code_store=CodeFactorStore(Path(code_path)) if code_path else None,
-        composite_store=CompositeFactorStore(Path(comp_path)) if comp_path else None,
-    )
+    return FactorService()
 
 
 def _fail(message: str) -> None:

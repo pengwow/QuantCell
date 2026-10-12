@@ -1,8 +1,7 @@
 """因子档案服务：内置同步、自定义钩子、生命周期状态机、分析快照保存。
 
-档案是表达式/分析的派生数据：
-- 表达式真相源在 factor.engine + FactorStore，本服务不参与求值；
-- DB 会话由调用方（routes）管理；快照目录与归档目录可注入，便于测试。
+FactorCatalog 是因子的唯一真相源（内置/表达式/代码/合成全在此表）。
+内置因子由 FACTOR_META 种子灌入（sync_builtins），其他三类由 FactorService CRUD 写入。
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from typing import Any
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from factor.engine import FACTOR_META
 from factor.models import FactorCatalog, FactorSnapshot
 from utils.logger import LogType, get_logger
 from utils.parquet_utils import save_to_parquet
@@ -57,35 +57,37 @@ class FactorCatalogService:
     # ---------------- 内置同步 ----------------
 
     def sync_builtins(self, db: Session) -> int:
-        """按因子引擎明细同步档案：新建缺失内置/自定义条目；只刷新元数据列。
+        """将 FACTOR_META 内置因子种子灌入 factor_catalog（kind=builtin）。
 
-        绝不覆盖 lifecycle_status / last_metrics / last_snapshot_at（用户研究状态）。
+        已存在则只刷新 label/category/expression/supported，绝不覆盖
+        lifecycle_status / last_metrics / last_snapshot_at（用户研究状态）。
         返回新建条目数。
         """
         created = 0
-        existing = {row.name: row for row in db.query(FactorCatalog).all()}
-        for d in self._factors.get_factor_details():
-            row = existing.get(d["name"])
+        existing = {row.name: row for row in db.query(FactorCatalog).filter_by(kind="builtin").all()}
+        for name, meta in FACTOR_META.items():
+            row = existing.get(name)
             if row is None:
                 db.add(
                     FactorCatalog(
-                        name=d["name"],
-                        label=d.get("label"),
-                        category=d.get("category"),
-                        expression=d.get("expression") or None,
-                        is_builtin=bool(d.get("builtin")),
-                        supported=bool(d.get("supported")),
+                        name=name,
+                        kind="builtin",
+                        label=meta["label"],
+                        description=meta.get("expression") or None,
+                        category=meta.get("category"),
+                        expression=meta.get("expression") or None,
+                        is_builtin=True,
+                        supported=bool(meta.get("supported", True)),
+                        lifecycle_status="DISCOVERED",
                     )
                 )
                 created += 1
             else:
-                row.label = d.get("label")
-                row.expression = d.get("expression") or None
-                row.supported = bool(d.get("supported"))
-                # 内置因子分类由引擎元数据维护；自定义因子的分类是用户可编辑字段，
-                # 引擎明细对其只会返回兜底 "custom"，无条件覆盖会冲掉用户选择
-                if row.is_builtin:
-                    row.category = d.get("category")
+                row.label = meta["label"]
+                row.description = meta.get("expression") or None
+                row.category = meta.get("category")
+                row.expression = meta.get("expression") or None
+                row.supported = bool(meta.get("supported", True))
         db.commit()
         return created
 
@@ -97,6 +99,7 @@ class FactorCatalogService:
         if row is None:
             row = FactorCatalog(
                 name=detail["name"],
+                kind="expression",
                 label=detail.get("label", detail["name"]),
                 category=detail.get("category", "custom"),
                 expression=detail.get("expression"),
@@ -254,6 +257,7 @@ class FactorCatalogService:
             )
             cat = FactorCatalog(
                 name=params["factor_name"],
+                kind=(detail or {}).get("kind", "builtin" if (detail and detail.get("builtin")) else "expression"),
                 label=(detail or {}).get("label", params["factor_name"]),
                 category=(detail or {}).get("category", "custom"),
                 expression=(detail or {}).get("expression") or None,

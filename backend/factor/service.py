@@ -1,7 +1,13 @@
-"""因子计算业务服务 — 因子管理 / 计算 / 分析（基于本地 parquet + pandas 自有引擎）。"""
+"""因子计算业务服务 — 因子管理 / 计算 / 分析（基于本地 parquet + pandas 自有引擎）。
+
+因子唯一真相源是 SQLite factor_catalog 表（按 kind 区分 builtin/expression/code/composite）。
+启动时全量加载到内存缓存（self.factors / self._code_map / self._composite_map），
+CRUD 同步写 DB + 更新内存，求值走内存保证性能。
+"""
 
 from __future__ import annotations
 
+import json
 import re as _re
 from typing import Any
 
@@ -9,13 +15,12 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-from factor.code_store import CodeFactorStore, code_hash
-from factor.composite_store import COMPOSITE_METHOD, CompositeFactorStore
 from factor.engine import (
     FACTOR_META,
     UNSUPPORTED_FACTORS,
     _timestamps_to_datetime,
     close_panel_from_raw,
+    code_hash,
     evaluate_expression,
     factor_panel_from_raw,
     load_raw_ohlcv,
@@ -23,11 +28,15 @@ from factor.engine import (
 from factor.engine import (
     FactorExpressionError as _EngineExprError,
 )
-from factor.factor_store import FactorStore
+from factor.models import FactorCatalog
 from factor.sandbox import FactorSandbox
+from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+COMPOSITE_METHOD = "ic_zscore_v1"
+_code_hash = code_hash  # 兼容内部旧调用名
 
 
 class FactorError(Exception):
@@ -52,42 +61,65 @@ class FactorService:
     """
     因子计算服务类
 
-    提供因子计算和管理的核心业务逻辑。内置因子元数据来自 factor.engine，
-    自定义因子通过 FactorStore 持久化到 JSON，二者在初始化时合并。
+    提供因子计算和管理的核心业务逻辑。因子真相源是 SQLite factor_catalog 表，
+    启动时全量加载到内存缓存（self.factors / self._code_map / self._composite_map），
+    CRUD 同步写 DB + 更新内存。
 
     Attributes:
         factors: 因子名 -> 表达式，内置 + 自定义
     """
 
-    def __init__(
-        self,
-        code_store: CodeFactorStore | None = None,
-        sandbox: FactorSandbox | None = None,
-        composite_store: CompositeFactorStore | None = None,
-        factor_store: FactorStore | None = None,
-    ) -> None:
-        self._custom_store = factor_store or FactorStore()
-        self._code_store = code_store or CodeFactorStore()
-        self._composite_store = composite_store or CompositeFactorStore()
+    def __init__(self, sandbox: FactorSandbox | None = None) -> None:
         self._sandbox = sandbox or FactorSandbox()
+        # 从 DB 全量加载到内存缓存
         self._builtin = {name: meta["expression"] for name, meta in FACTOR_META.items()}
-        # 内置表达式（含不支持财务因子的空表达式）+ 自定义表达式
-        self.factors: dict[str, str] = {**self._builtin, **self._custom_store.all()}
+        self.factors: dict[str, str] = {}  # builtin + expression 的 name → expression
+        self._code_map: dict[str, dict[str, Any]] = {}  # code 因子 name → {code, code_hash, ...}
+        self._composite_map: dict[str, dict[str, Any]] = {}  # composite 因子 name → {...}
+        self._reload_from_db()
         logger.info(
             f"FactorService初始化完成，内置 {len(self._builtin)} 个，"
-            f"自定义表达式 {len(self._custom_store.all())} 个，代码因子 {len(self._code_store.all())} 个，"
-            f"合成因子 {len(self._composite_store.all())} 个"
+            f"自定义表达式 {len(self.factors) - len(self._builtin)} 个，"
+            f"代码因子 {len(self._code_map)} 个，合成因子 {len(self._composite_map)} 个"
         )
+
+    def _reload_from_db(self) -> None:
+        """从 factor_catalog 表全量加载到内存缓存。"""
+        self.factors = dict(self._builtin)
+        self._code_map.clear()
+        self._composite_map.clear()
+        with get_db_session() as db:
+            rows = db.query(FactorCatalog).all()
+            for r in rows:
+                if r.kind in ("builtin", "expression"):
+                    if r.expression:
+                        self.factors[r.name] = r.expression
+                elif r.kind == "code":
+                    self._code_map[r.name] = {
+                        "code": r.code or "",
+                        "code_hash": r.code_hash or _code_hash(r.code or ""),
+                        "description": r.description or "",
+                        "category": r.category or "llm_code",
+                        "provenance": json.loads(r.provenance) if r.provenance else {},
+                    }
+                elif r.kind == "composite":
+                    self._composite_map[r.name] = {
+                        "method": r.method or COMPOSITE_METHOD,
+                        "description": r.description or "",
+                        "train_window": json.loads(r.train_window) if r.train_window else {},
+                        "constituents": json.loads(r.constituents) if r.constituents else [],
+                        "provenance": json.loads(r.provenance) if r.provenance else {},
+                    }
 
     def _load_builtin_factors(self) -> dict[str, str]:
         return dict(self._builtin)
 
     def get_factor_list(self) -> list[str]:
         """获取所有支持的因子列表（表达式因子 + 代码因子 + 合成因子）。"""
-        return list(self.factors.keys()) + list(self._code_store.all()) + self._composite_store.names()
+        return list(self.factors.keys()) + list(self._code_map) + list(self._composite_map)
 
     def _factor_exists(self, name: str) -> bool:
-        return name in self.factors or bool(self._code_store.get(name)) or self._composite_store.exists(name)
+        return name in self.factors or name in self._code_map or name in self._composite_map
 
     def get_factor_expression(self, factor_name: str) -> str | None:
         """获取因子表达式，不存在抛 FactorNotFoundError。"""
@@ -100,10 +132,9 @@ class FactorService:
     def get_factor_definition(self, factor_name: str) -> dict[str, Any]:
         """按形态返回因子完整定义，供前端「代码」Tab 懒加载。
 
-        判定顺序与 _panel_from_raw 一致：合成库 → 代码库 → 表达式（内置/自定义）；
-        三库都不存在抛 FactorNotFoundError。表达式列不参与此路径，档案瘦身不影响本方法。
+        判定顺序与 _panel_from_raw 一致：合成库 → 代码库 → 表达式（内置/自定义）。
         """
-        composite = self._composite_store.get(factor_name)
+        composite = self._composite_map.get(factor_name)
         if composite is not None:
             constituents: list[dict[str, Any]] = []
             for c in composite.get("constituents") or []:
@@ -111,8 +142,7 @@ class FactorService:
                 constituents.append(
                     {
                         "code": raw_code,
-                        # 老合成条目的成分可能无 code_hash（嵌套 dict 不经过 store 的补算），现算兜底
-                        "code_hash": c.get("code_hash") or code_hash(raw_code),
+                        "code_hash": c.get("code_hash") or _code_hash(raw_code),
                         "weight": c.get("weight"),
                     }
                 )
@@ -125,13 +155,13 @@ class FactorService:
                 "constituents": constituents,
             }
 
-        code_entry = self._code_store.get(factor_name)
+        code_entry = self._code_map.get(factor_name)
         if code_entry is not None:
             return {
                 "kind": "code",
                 "name": factor_name,
                 "code": code_entry["code"],
-                "code_hash": code_entry.get("code_hash") or code_hash(code_entry["code"]),
+                "code_hash": code_entry.get("code_hash") or _code_hash(code_entry["code"]),
                 "description": code_entry.get("description", ""),
             }
 
@@ -147,41 +177,56 @@ class FactorService:
         raise FactorNotFoundError(f"因子不存在: {factor_name}")
 
     def add_factor(self, factor_name: str, factor_expression: str, description: str = "") -> bool:
-        """添加自定义因子：非空校验 + 内置因子保护 + 持久化落盘。"""
+        """添加自定义表达式因子：非空校验 + 名称互斥 + 持久化落 DB。"""
         if not factor_name or not factor_name.strip():
-            msg = "因子名称不能为空"
-            raise FactorExpressionError(msg)
-
+            raise FactorExpressionError("因子名称不能为空")
         if not factor_expression or not factor_expression.strip():
-            msg = "因子表达式不能为空"
-            raise FactorExpressionError(msg)
-
-        if self._code_store.get(factor_name) is not None:
+            raise FactorExpressionError("因子表达式不能为空")
+        if factor_name in self._code_map:
             raise FactorExpressionError(f"代码因子 {factor_name} 已存在，请改名或在因子库中删除后重建")
-
-        if self._composite_store.exists(factor_name):
+        if factor_name in self._composite_map:
             raise FactorExpressionError(f"合成因子 {factor_name} 已存在，名称不可复用")
-
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
         expr = factor_expression.strip()
+        with get_db_session() as db:
+            existing_row = db.query(FactorCatalog).filter_by(name=factor_name, kind="expression").first()
+            if existing_row:
+                existing_row.expression = expr
+                existing_row.description = description.strip() or None
+            else:
+                db.add(
+                    FactorCatalog(
+                        name=factor_name,
+                        kind="expression",
+                        label=factor_name,
+                        description=description.strip() or None,
+                        expression=expr,
+                        category="custom",
+                        is_builtin=False,
+                        supported=True,
+                        lifecycle_status="DISCOVERED",
+                    )
+                )
+            db.commit()
         self.factors[factor_name] = expr
-        self._custom_store.upsert(factor_name, expr, description.strip())
         logger.info(f"成功添加自定义因子: {factor_name}")
         return True
 
     def delete_factor(self, factor_name: str) -> bool:
-        """删除因子：代码因子走代码库、合成因子走合成库；内置受保护，其余按表达式删除。"""
-        if self._code_store.get(factor_name) is not None:
+        """删除因子：代码/合成/表达式分路径；内置受保护。"""
+        if factor_name in self._code_map:
             return self.delete_code_factor(factor_name)
-        if self._composite_store.exists(factor_name):
+        if factor_name in self._composite_map:
             return self.delete_composite(factor_name)
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许删除")
         if factor_name not in self.factors:
             raise FactorNotFoundError(f"因子不存在: {factor_name}")
+        with get_db_session() as db:
+            db.query(FactorCatalog).filter_by(name=factor_name, kind="expression").delete()
+            db.commit()
         del self.factors[factor_name]
-        self._custom_store.delete(factor_name)
         logger.info(f"成功删除自定义表达式因子: {factor_name}")
         return True
 
@@ -195,37 +240,78 @@ class FactorService:
         provenance: dict[str, Any] | None = None,
         category: str | None = None,
     ) -> bool:
-        """保存 LLM/手写代码因子：名称校验 + 内置/表达式互斥 + 沙箱真实执行 + 去重。"""
+        """保存 LLM/手写代码因子：名称校验 + 内置/表达式互斥 + 沙箱真实执行 + hash 去重。"""
         if not self._CODE_NAME_RE.match(factor_name or ""):
             raise FactorExpressionError("代码因子名需以字母开头，仅含字母数字下划线，长度 1-100")
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
-        if factor_name in self._custom_store.all():
+        if factor_name in self.factors and factor_name not in self._builtin:
             raise FactorExpressionError(f"表达式因子 {factor_name} 已存在，名称不可复用")
-        if self._composite_store.exists(factor_name):
+        if factor_name in self._composite_map:
             raise FactorExpressionError(f"合成因子 {factor_name} 已存在，名称不可复用")
         if not code or not code.strip():
             raise FactorExpressionError("因子代码不能为空")
         if len(code) > 20000:
             raise FactorExpressionError("因子代码过长（上限 20000 字符）")
         code = code.strip()
-        # hash 去重是纯内存计算，放在昂贵的沙箱子进程校验之前：
-        # exclude_name=factor_name 跳过自身（同名覆盖允许），命中别的因子名则拒绝
-        h = code_hash(code)
-        existing = self._code_store.find_by_hash(h, exclude_name=factor_name)
+        # hash 去重：同名覆盖允许，命中别的因子名则拒绝
+        h = _code_hash(code)
+        existing = next(
+            (n for n, e in self._code_map.items() if e.get("code_hash") == h and n != factor_name),
+            None,
+        )
         if existing is not None:
             raise FactorExpressionError(f"相同代码已存在为因子 '{existing}'，无需重复保存")
-        # 静态策略 + 合成数据执行，任何一层失败直接拒绝
+        # 幂等：同名同代码已存在则直接返回成功（沙箱仍需重新校验安全性）
+        if factor_name in self._code_map and self._code_map[factor_name].get("code_hash") == h:
+            self._sandbox.validate(code)
+            return True
         self._sandbox.validate(code)
-        self._code_store.upsert(factor_name, code, description.strip(), provenance, code_hash=h, category=category)
+        with get_db_session() as db:
+            existing_row = db.query(FactorCatalog).filter_by(name=factor_name, kind="code").first()
+            if existing_row:
+                # 同名覆盖：更新代码/描述等字段
+                existing_row.code = code
+                existing_row.code_hash = h
+                existing_row.description = description.strip() or None
+                existing_row.provenance = json.dumps(provenance or {}, ensure_ascii=False)
+                existing_row.category = category or "llm_code"
+            else:
+                db.add(
+                    FactorCatalog(
+                        name=factor_name,
+                        kind="code",
+                        label=factor_name,
+                        description=description.strip() or None,
+                        code=code,
+                        code_hash=h,
+                        provenance=json.dumps(provenance or {}, ensure_ascii=False),
+                        category=category or "llm_code",
+                        is_builtin=False,
+                        supported=True,
+                        lifecycle_status="DISCOVERED",
+                    )
+                )
+            db.commit()
+        self._code_map[factor_name] = {
+            "code": code,
+            "code_hash": h,
+            "description": description.strip(),
+            "category": category or "llm_code",
+            "provenance": provenance or {},
+        }
         logger.info(f"成功保存代码因子: {factor_name}")
         return True
 
     def delete_code_factor(self, factor_name: str) -> bool:
-        if self._code_store.delete(factor_name):
-            logger.info(f"成功删除代码因子: {factor_name}")
-            return True
-        raise FactorNotFoundError(f"代码因子不存在: {factor_name}")
+        if factor_name not in self._code_map:
+            raise FactorNotFoundError(f"代码因子不存在: {factor_name}")
+        with get_db_session() as db:
+            db.query(FactorCatalog).filter_by(name=factor_name, kind="code").delete()
+            db.commit()
+        del self._code_map[factor_name]
+        logger.info(f"成功删除代码因子: {factor_name}")
+        return True
 
     # 合成因子成分数量上下限（与 Pydantic schema 同口径，服务层再兜底一次）
     _COMPOSITE_MIN_CONSTITUENTS = 2
@@ -241,21 +327,14 @@ class FactorService:
         train_window: dict[str, Any],
         provenance: dict[str, Any] | None = None,
     ) -> bool:
-        """保存 IC 加权 zscore 合成因子：名称互斥 + 成分约束 + 每成分沙箱校验。
-
-        - 名称规则与 save_code_factor 一致；与内置/表达式/代码/composite 互斥
-          （同名 composite 覆盖允许，幂等）；
-        - 成分 2-20 个；weights/ts_stats 与 codes 一一对应；权重不强制和为 1
-          （按拟合一一下发），但全 0 无意义，拒绝；
-        - 保存前每个成分代码过沙箱静态+合成执行校验，任一失败整单拒绝、不落库。
-        """
+        """保存 IC 加权 zscore 合成因子：名称互斥 + 成分约束 + 每成分沙箱校验。"""
         if not self._CODE_NAME_RE.match(factor_name or ""):
             raise FactorExpressionError("合成因子名需以字母开头，仅含字母数字下划线，长度 1-100")
         if factor_name in self._builtin:
             raise FactorExpressionError(f"内置因子 {factor_name} 不允许覆盖")
-        if factor_name in self._custom_store.all():
+        if factor_name in self.factors and factor_name not in self._builtin:
             raise FactorExpressionError(f"表达式因子 {factor_name} 已存在，名称不可复用")
-        if self._code_store.get(factor_name) is not None:
+        if factor_name in self._code_map:
             raise FactorExpressionError(f"代码因子 {factor_name} 已存在，名称不可复用")
         if not self._COMPOSITE_MIN_CONSTITUENTS <= len(codes) <= self._COMPOSITE_MAX_CONSTITUENTS:
             raise FactorExpressionError(
@@ -278,7 +357,6 @@ class FactorService:
             if not code or not str(code).strip() or len(str(code)) > 20000:
                 raise FactorExpressionError("成分因子代码为空或过长（上限 20000 字符）")
             code = str(code).strip()
-            # 静态策略 + 合成数据执行，任何一层失败直接拒绝（不落库）
             self._sandbox.validate(code)
             clean_codes.append(code)
 
@@ -286,22 +364,51 @@ class FactorService:
             {"code": code, "weight": float(weights[i]), "ts_stats": ts_stats_list[i]}
             for i, code in enumerate(clean_codes)
         ]
-        self._composite_store.upsert(
-            factor_name,
-            description=(description or "").strip(),
-            train_window=train_window,
-            constituents=constituents,
-            provenance=provenance,
-            method=COMPOSITE_METHOD,
-        )
+        with get_db_session() as db:
+            existing_row = db.query(FactorCatalog).filter_by(name=factor_name, kind="composite").first()
+            if existing_row:
+                existing_row.description = (description or "").strip() or None
+                existing_row.method = COMPOSITE_METHOD
+                existing_row.train_window = json.dumps(train_window, ensure_ascii=False)
+                existing_row.constituents = json.dumps(constituents, ensure_ascii=False)
+                existing_row.provenance = json.dumps(provenance or {}, ensure_ascii=False)
+            else:
+                db.add(
+                    FactorCatalog(
+                        name=factor_name,
+                        kind="composite",
+                        label=factor_name,
+                        description=(description or "").strip() or None,
+                        method=COMPOSITE_METHOD,
+                        train_window=json.dumps(train_window, ensure_ascii=False),
+                        constituents=json.dumps(constituents, ensure_ascii=False),
+                        provenance=json.dumps(provenance or {}, ensure_ascii=False),
+                        category="llm_composite",
+                        is_builtin=False,
+                        supported=True,
+                        lifecycle_status="DISCOVERED",
+                    )
+                )
+            db.commit()
+        self._composite_map[factor_name] = {
+            "method": COMPOSITE_METHOD,
+            "description": (description or "").strip(),
+            "train_window": train_window,
+            "constituents": constituents,
+            "provenance": provenance or {},
+        }
         logger.info(f"成功保存合成因子: {factor_name}（{len(constituents)} 个成分）")
         return True
 
     def delete_composite(self, factor_name: str) -> bool:
-        if self._composite_store.delete(factor_name):
-            logger.info(f"成功删除合成因子: {factor_name}")
-            return True
-        raise FactorNotFoundError(f"合成因子不存在: {factor_name}")
+        if factor_name not in self._composite_map:
+            raise FactorNotFoundError(f"合成因子不存在: {factor_name}")
+        with get_db_session() as db:
+            db.query(FactorCatalog).filter_by(name=factor_name, kind="composite").delete()
+            db.commit()
+        del self._composite_map[factor_name]
+        logger.info(f"成功删除合成因子: {factor_name}")
+        return True
 
     def validate_factor_expression(self, factor_expression: str) -> bool:
         """用 3 行最小合成 K 线对表达式做真实 AST 求值校验（不依赖真实行情）。"""
@@ -423,64 +530,68 @@ class FactorService:
 
     def _panel_from_raw(self, name: str, raw_map: dict[str, pd.DataFrame]) -> pd.Series:
         """统一面板入口：合成因子组合多代码沙箱、代码因子走沙箱，其余走 AST 引擎。"""
-        composite_spec = self._composite_store.get(name)
+        composite_spec = self._composite_map.get(name)
         if composite_spec is not None:
             return self._composite_panel_from_spec(composite_spec, raw_map, name)
-        entry = self._code_store.get(name)
+        entry = self._code_map.get(name)
         if entry is not None:
             return self._run_code_panel(entry["code"], name, raw_map)
-        return factor_panel_from_raw(name, raw_map, self._custom_store.all())
+        # 表达式因子：self.factors 已含内置+自定义，custom_factors 参数传空 dict 即可
+        return factor_panel_from_raw(name, raw_map, {})
 
     def get_factor_details(self) -> list[dict]:
-        """内置+自定义表达式因子+代码因子明细，供因子库展示。"""
+        """所有因子明细，供因子库展示。
+
+        label 永远是中文展示名（内置来自 FACTOR_META.label，其他优先 DB.label 兜底 name）；
+        description 是因子的公式/备注/说明文本，内置因子直接用 expression 作描述。
+        """
         details = []
-        for name in self.factors:
-            meta = FACTOR_META.get(name)
-            details.append(
-                {
-                    "name": name,
-                    "expression": self.factors[name],
-                    "category": (meta or {}).get("category", "custom"),
-                    "label": (meta or {}).get("label", name),
-                    "builtin": meta is not None,
-                    "supported": name not in UNSUPPORTED_FACTORS,
-                    "kind": "expression",
-                    # 描述仅自定义表达式因子有（内置因子无此字段）
-                    "description": self._custom_store.description_of(name) or None,
-                }
-            )
-        for name, entry in self._code_store.all().items():
-            details.append(
-                {
-                    "name": name,
-                    # 完整代码不再进档案/列表 payload，走 /factors/{name}/definition 懒加载
-                    "expression": None,
-                    # 分类由用户在建因子时指定；未指定（如 LLM 挖掘产出）沿用来源派生的 llm_code
-                    "category": entry.get("category") or "llm_code",
-                    "label": entry.get("description") or name,
-                    "builtin": False,
-                    "supported": True,
-                    "kind": "code",
-                    "description": entry.get("description", ""),
-                }
-            )
-        for name, entry in self._composite_store.all().items():
-            n_constituents = len(entry.get("constituents") or [])
-            details.append(
-                {
-                    "name": name,
-                    # 合成因子无单一表达式：方法/成分/冻结权重走 definition 端点，档案不存占位串
-                    "expression": None,
-                    "category": "llm_composite",
-                    "label": entry.get("description") or name,
-                    "builtin": False,
-                    "supported": True,
-                    "kind": "composite",
-                    "description": entry.get("description", ""),
-                    "constituents_count": n_constituents,
-                }
-            )
-        return sorted(details, key=lambda d: (not d["builtin"], d["category"], d["name"]))
+        with get_db_session() as db:
+            rows = db.query(FactorCatalog).order_by(FactorCatalog.is_builtin.desc(), FactorCatalog.name).all()
+            for r in rows:
+                if r.kind in ("builtin", "expression"):
+                    meta = FACTOR_META.get(r.name)
+                    details.append(
+                        {
+                            "name": r.name,
+                            "expression": r.expression,
+                            "category": r.category,
+                            "label": r.label or (meta or {}).get("label") or r.name,
+                            "builtin": bool(r.is_builtin),
+                            "supported": bool(r.supported),
+                            "kind": "expression",
+                            "description": (r.expression if r.is_builtin else r.description) or None,
+                        }
+                    )
+                elif r.kind == "code":
+                    details.append(
+                        {
+                            "name": r.name,
+                            "expression": None,
+                            "category": r.category,
+                            "label": r.label or r.name,
+                            "builtin": False,
+                            "supported": True,
+                            "kind": "code",
+                            "description": r.description or None,
+                        }
+                    )
+                elif r.kind == "composite":
+                    constituents = json.loads(r.constituents) if r.constituents else []
+                    details.append(
+                        {
+                            "name": r.name,
+                            "expression": None,
+                            "category": r.category or "llm_composite",
+                            "label": r.label or r.name,
+                            "builtin": False,
+                            "supported": True,
+                            "kind": "composite",
+                            "description": r.description or None,
+                            "constituents_count": len(constituents),
+                        }
+                    )
+        return details
 
     # ------------------------------------------------------------------
     # 合成因子（ic_zscore_v1）纯函数：权重拟合 / 时序统计 / 标准化 / 组合
