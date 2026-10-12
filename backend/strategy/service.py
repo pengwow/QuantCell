@@ -884,13 +884,13 @@ class StrategyService:
             user_prompt = f"请根据以下需求生成一个量化交易策略：\n\n{prompt}\n\n请生成完整的Python代码，包含：\n1. 策略配置类（继承自 StrategyConfig）\n2. 策略主类（继承自 StrategyBase）\n3. 完整的交易逻辑\n4. 详细的中文注释"
 
             # 导入AI模型服务
-            from ai_model.services import AIModelService
+            from ai.config.services import AIModelService
 
             # 获取AI模型适配器
             adapter = None
             if model_id:
                 # 从数据库获取模型配置
-                from ai_model.models import AIModelBusiness
+                from ai.config.models import AIModelBusiness
 
                 model_config = AIModelBusiness.get_by_id(model_id, include_api_key=True)
                 if model_config:

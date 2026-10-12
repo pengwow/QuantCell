@@ -967,7 +967,7 @@ def _run_compare_job(params: dict[str, Any]):
 def _resolve_llm_config(model_id: str | None = None) -> dict[str, Any] | None:
     """解析默认 AI 提供商配置（同步读系统配置，必须在提交 job 前的请求线程完成）。"""
     try:
-        from ai_model.config_utils import get_default_provider_and_models
+        from ai.config.config_utils import get_default_provider_and_models
 
         result = get_default_provider_and_models()
     except Exception as e:

@@ -15,7 +15,7 @@ from sqlalchemy import and_, create_engine, desc, func
 from sqlalchemy.orm import Session, sessionmaker
 
 try:
-    from ai_model.strategy_history_models import Base, StrategyHistory
+    from .strategy_history_models import Base, StrategyHistory
 except ImportError:
     # 用于直接运行测试时
     from strategy_history_models import Base, StrategyHistory
@@ -33,7 +33,7 @@ def _get_engine():
         import os
 
         db_type = os.environ.get("DB_TYPE", "sqlite")
-        default_db_path = os.path.join(os.path.dirname(__file__), "..", "data")
+        default_db_path = os.path.join(os.path.dirname(__file__), "..", "..", "data")
         os.makedirs(default_db_path, exist_ok=True)
 
         if db_type == "sqlite":

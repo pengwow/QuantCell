@@ -50,7 +50,7 @@ class TestStrategyGenerateAPI:
 
     def test_generate_sync_success(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试同步生成策略成功"""
-        with patch("ai_model.routes_strategy.create_strategy_generator") as mock_create:
+        with patch("ai.strategy.routes_strategy.create_strategy_generator") as mock_create:
             mock_generator = MagicMock()
             mock_generator.model_id = "gpt-4"
             mock_generator.generate_strategy.return_value = {
@@ -86,7 +86,7 @@ class TestStrategyGenerateAPI:
 
     def test_generate_sync_no_config(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试未显式指定模型时的同步生成（自动使用默认模型；mock 掉真实 API 调用）"""
-        with patch("ai_model.routes_strategy.create_strategy_generator") as mock_create:
+        with patch("ai.strategy.routes_strategy.create_strategy_generator") as mock_create:
             mock_generator = MagicMock()
             mock_generator.model_id = "step-3.7-flash"
             mock_generator.generate_strategy.return_value = {
@@ -351,7 +351,7 @@ class TestStrategyValidateAPI:
 
     def test_validate_strategy_code_success(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试策略代码验证成功"""
-        with patch("ai_model.routes_strategy.StrategyGenerator") as mock_gen_class:
+        with patch("ai.strategy.routes_strategy.StrategyGenerator") as mock_gen_class:
             mock_generator = MagicMock()
             mock_generator.validate_code.return_value = {"valid": True, "errors": []}
             mock_gen_class.return_value = mock_generator
@@ -369,7 +369,7 @@ class TestStrategyValidateAPI:
 
     def test_validate_strategy_code_with_warnings(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试策略代码验证返回警告"""
-        with patch("ai_model.routes_strategy.StrategyGenerator") as mock_gen_class:
+        with patch("ai.strategy.routes_strategy.StrategyGenerator") as mock_gen_class:
             mock_generator = MagicMock()
             mock_generator.validate_code.return_value = {
                 "valid": True,

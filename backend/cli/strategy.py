@@ -100,7 +100,7 @@ def generate_strategy(
 ) -> str:
     """AI 生成策略代码"""
     try:
-        from ai_model.config_utils import get_default_provider_and_models
+        from ai.config.config_utils import get_default_provider_and_models
 
         provider = get_default_provider_and_models()
         if provider is None:

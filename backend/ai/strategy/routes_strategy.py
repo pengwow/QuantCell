@@ -40,10 +40,10 @@ from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+from ai.config.config_utils import get_default_provider_and_models
 from common.schemas import ApiResponse
 from utils.auth import authenticate_request, get_current_user
 
-from .config_utils import get_default_provider_and_models
 from .prompts import PromptCategory
 from .schemas_strategy import (
     CodeValidationRequest,

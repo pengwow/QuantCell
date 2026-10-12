@@ -571,7 +571,7 @@ def delete_composite(name: str = typer.Argument(...)):
 
 
 def _resolve_llm_config(model_id: str | None) -> dict[str, Any]:
-    from ai_model.config_utils import get_default_provider_and_models
+    from ai.config.config_utils import get_default_provider_and_models
 
     result = get_default_provider_and_models()
     if not result:

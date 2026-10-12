@@ -3,7 +3,7 @@
 提供统一的提示词模板管理功能，支持模板加载、分类管理和变量替换。
 
 使用示例:
-    >>> from ai_model.prompts import PromptManager, PromptCategory
+    >>> from ai.strategy.prompts import PromptManager, PromptCategory
     >>>
     >>> manager = PromptManager()
     >>> template = manager.get_template(PromptCategory.STRATEGY_GENERATION)

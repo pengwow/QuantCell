@@ -7,8 +7,8 @@ import pytest
 
 @pytest.fixture
 def template_path():
-    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    return os.path.join(backend_dir, "ai_model", "prompts", "templates", "axon_strategy_generation.txt")
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+    return os.path.join(backend_dir, "ai", "strategy", "prompts", "templates", "axon_strategy_generation.txt")
 
 
 class TestAxonStrategyTemplate:

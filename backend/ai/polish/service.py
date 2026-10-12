@@ -104,9 +104,9 @@ def _clean_output(text: str, max_length: int) -> str:
 
 
 def _resolve_llm_config(model_id: str | None = None) -> dict[str, Any] | None:
-    """解析默认 AI 提供商配置（复用 ai_model.config_utils）。"""
+    """解析默认 AI 提供商配置（复用 ai.config.config_utils）。"""
     try:
-        from ai_model.config_utils import get_default_provider_and_models
+        from ai.config.config_utils import get_default_provider_and_models
 
         result = get_default_provider_and_models()
     except Exception as e:

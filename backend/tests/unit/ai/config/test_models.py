@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ai_model.models import AIModelBusiness
+from ai.config.models import AIModelBusiness
 
 
 class TestAIModelBusiness:
@@ -54,8 +54,8 @@ class TestAIModelBusiness:
         assert result["models"] == ["gpt-4", "gpt-3.5-turbo"]
         assert result["is_default"] is True
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
-    @patch("ai_model.models.AIModelBusiness._to_dict")
+    @patch("ai.config.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._to_dict")
     def test_get_by_id(self, mock_to_dict, mock_get_db):
         """测试根据ID获取配置"""
         mock_db = MagicMock()
@@ -91,7 +91,7 @@ class TestAIModelBusiness:
         assert result["id"] == 1
         assert result["provider"] == "openai"
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._get_db")
     def test_get_by_id_not_found(self, mock_get_db):
         """测试获取不存在的配置"""
         mock_db = MagicMock()
@@ -104,8 +104,8 @@ class TestAIModelBusiness:
 
         assert result is None
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
-    @patch("ai_model.models.AIModelBusiness._to_dict")
+    @patch("ai.config.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._to_dict")
     def test_update_ai_model(self, mock_to_dict, mock_get_db):
         """测试更新AI模型配置"""
         mock_db = MagicMock()
@@ -147,7 +147,7 @@ class TestAIModelBusiness:
         assert result["name"] == "New Name"
         assert result["api_host"] == "https://api.openai.com"
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._get_db")
     def test_delete_ai_model(self, mock_get_db):
         """测试删除AI模型配置"""
         mock_db = MagicMock()
@@ -165,7 +165,7 @@ class TestAIModelBusiness:
         mock_db.delete.assert_called_once_with(mock_model)
         mock_db.commit.assert_called_once()
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._get_db")
     def test_delete_ai_model_not_found(self, mock_get_db):
         """测试删除不存在的配置"""
         mock_db = MagicMock()
@@ -178,8 +178,8 @@ class TestAIModelBusiness:
 
         assert result is False
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
-    @patch("ai_model.models.AIModelBusiness._to_dict")
+    @patch("ai.config.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._to_dict")
     def test_list_ai_models(self, mock_to_dict, mock_get_db):
         """测试获取配置列表"""
         mock_db = MagicMock()
@@ -215,7 +215,7 @@ class TestAIModelBusiness:
         assert result["page"] == 1
         assert result["limit"] == 10
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._get_db")
     def test_get_api_key(self, mock_get_db):
         """测试获取API密钥"""
         mock_db = MagicMock()
@@ -231,7 +231,7 @@ class TestAIModelBusiness:
 
         assert result == "sk-secret123"
 
-    @patch("ai_model.models.AIModelBusiness._get_db")
+    @patch("ai.config.models.AIModelBusiness._get_db")
     def test_update_models(self, mock_get_db):
         """测试更新模型列表"""
         mock_db = MagicMock()

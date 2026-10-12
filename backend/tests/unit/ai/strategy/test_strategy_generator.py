@@ -32,48 +32,52 @@ def teardown_module() -> None:
     _SAVED_MODULES.clear()
 
 
-# 直接从文件加载模块，避免触发 ai_model/__init__.py 的完整导入链
+# 直接从文件加载模块，避免触发 ai/strategy/__init__.py 的完整导入链
 # 使用绝对路径
 _test_file = Path(__file__).resolve()
-_backend_dir = _test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
-_ai_model_dir = _backend_dir / "ai_model"
-_prompts_dir = _ai_model_dir / "prompts"
+_backend_dir = (
+    _test_file.parent.parent.parent.parent.parent
+)  # tests/unit/ai/strategy -> tests/unit/ai -> tests/unit -> tests -> backend
+_strategy_dir = _backend_dir / "ai" / "strategy"
+_prompts_dir = _strategy_dir / "prompts"
+
+# 设置 ai 和 ai.strategy 父包（使相对 import .xxx 能解析到 sys.modules）
+ai_pkg = type(sys)("ai")
+ai_strategy_pkg = type(sys)("ai.strategy")
+ai_pkg.strategy = ai_strategy_pkg
+_inject("ai", ai_pkg)
+_inject("ai.strategy", ai_strategy_pkg)
 
 # 加载 prompts.manager 模块
-spec = importlib.util.spec_from_file_location("prompts.manager", _prompts_dir / "manager.py")
+spec = importlib.util.spec_from_file_location("ai.strategy.prompts.manager", _prompts_dir / "manager.py")
 assert spec is not None and spec.loader is not None, "无法加载 prompts.manager 模块"
 manager_module = importlib.util.module_from_spec(spec)
-_inject("prompts.manager", manager_module)
+_inject("ai.strategy.prompts.manager", manager_module)
 spec.loader.exec_module(manager_module)
 
 PromptCategory = manager_module.PromptCategory
 PromptManager = manager_module.PromptManager
 
 # 创建 prompts 包模块
-prompts_module = type(sys)("prompts")
+prompts_module = type(sys)("ai.strategy.prompts")
 prompts_module.PromptCategory = PromptCategory
 prompts_module.PromptManager = PromptManager
-_inject("prompts", prompts_module)
-
-# 设置 ai_model 包
-ai_model_module = type(sys)("ai_model")
-ai_model_module.prompts = prompts_module
-_inject("ai_model", ai_model_module)
-_inject("ai_model.prompts", prompts_module)
+prompts_module.manager = manager_module
+_inject("ai.strategy.prompts", prompts_module)
+ai_strategy_pkg.prompts = prompts_module
 
 # 加载 performance_monitor 模块
-spec_pm = importlib.util.spec_from_file_location("performance_monitor", _ai_model_dir / "performance_monitor.py")
+spec_pm = importlib.util.spec_from_file_location(
+    "ai.strategy.performance_monitor", _strategy_dir / "performance_monitor.py"
+)
 assert spec_pm is not None and spec_pm.loader is not None, "无法加载 performance_monitor 模块"
 pm_module = importlib.util.module_from_spec(spec_pm)
-_inject("performance_monitor", pm_module)
+_inject("ai.strategy.performance_monitor", pm_module)
 spec_pm.loader.exec_module(pm_module)
-
-# 将 performance_monitor 添加到 ai_model 包
-ai_model_module.performance_monitor = pm_module
-_inject("ai_model.performance_monitor", pm_module)
+ai_strategy_pkg.performance_monitor = pm_module
 
 # 模拟 thinking_chain 模块
-thinking_chain_module = type(sys)("thinking_chain")
+thinking_chain_module = type(sys)("ai.strategy.thinking_chain")
 
 
 # 创建模拟的 ThinkingChainManager 类
@@ -109,24 +113,22 @@ class MockThinkingChainManager:
 
 
 thinking_chain_module.ThinkingChainManager = MockThinkingChainManager
-_inject("thinking_chain", thinking_chain_module)
-_inject("ai_model.thinking_chain", thinking_chain_module)
-ai_model_module.thinking_chain = thinking_chain_module
+_inject("ai.strategy.thinking_chain", thinking_chain_module)
+ai_strategy_pkg.thinking_chain = thinking_chain_module
 
-# 加载 strategy_generator 模块
-spec_sg = importlib.util.spec_from_file_location("strategy_generator", _ai_model_dir / "strategy_generator.py")
+# 加载 strategy_generator 模块（用包限定名，使 from .xxx 相对 import 生效）
+spec_sg = importlib.util.spec_from_file_location(
+    "ai.strategy.strategy_generator", _strategy_dir / "strategy_generator.py"
+)
 assert spec_sg is not None and spec_sg.loader is not None, "无法加载 strategy_generator 模块"
 sg_module = importlib.util.module_from_spec(spec_sg)
 
 # 注册 strategy_generator 模块
-_inject("strategy_generator", sg_module)
+_inject("ai.strategy.strategy_generator", sg_module)
 
 # 执行模块
 spec_sg.loader.exec_module(sg_module)
-
-# 将 strategy_generator 添加到 ai_model 包
-ai_model_module.strategy_generator = sg_module
-_inject("ai_model.strategy_generator", sg_module)
+ai_strategy_pkg.strategy_generator = sg_module
 
 # 导出需要的类和函数
 StrategyGenerator = sg_module.StrategyGenerator
@@ -173,7 +175,7 @@ class TestStrategyGeneratorInit:
 
     def test_init_with_required_params(self):
         """测试使用必需参数初始化"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             generator = StrategyGenerator(api_key="test-key")
 
             assert generator.api_key == "test-key"
@@ -183,7 +185,7 @@ class TestStrategyGeneratorInit:
 
     def test_init_with_all_params(self):
         """测试使用所有参数初始化"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             generator = StrategyGenerator(
                 api_key="test-key",
                 api_host="https://custom.api.com",
@@ -198,7 +200,7 @@ class TestStrategyGeneratorInit:
 
     def test_init_api_host_trailing_slash(self):
         """测试 API host 去除尾部斜杠"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             generator = StrategyGenerator(
                 api_key="test-key",
                 api_host="https://api.example.com/",
@@ -209,7 +211,7 @@ class TestStrategyGeneratorInit:
 
     def test_init_creates_llm_backend(self):
         """测试初始化创建 axon LLM backend"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()) as mock_create:
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()) as mock_create:
             StrategyGenerator(api_key="test-key")
 
             mock_create.assert_called_once()
@@ -227,7 +229,7 @@ class TestStrategyGeneratorCodeExtraction:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_extract_code_with_python_markers(self, generator):
@@ -342,7 +344,7 @@ class TestStrategyGeneratorResponseParsing:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_parse_response_success(self, generator):
@@ -401,7 +403,7 @@ class TestStrategyGeneratorErrorHandling:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     @pytest.mark.asyncio
@@ -578,7 +580,7 @@ class TestStrategyGeneratorValidation:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_validate_code_valid(self, generator):
@@ -638,7 +640,7 @@ class TestStrategyGeneratorBuildPrompt:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
+        with patch("ai.strategy.strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_build_prompt_with_default_vars(self, generator):

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ai_model.services import (
+from ai.config.services import (
     AIModelService,
     AnthropicAdapter,
     DeepSeekAdapter,
@@ -22,7 +22,7 @@ class TestOpenAIAdapter:
     @pytest.mark.asyncio
     async def test_check_availability_success(self):
         """测试OpenAI服务可用性检查成功"""
-        from ai_model.services import OpenAIAdapter
+        from ai.config.services import OpenAIAdapter
 
         mock_models_response = MagicMock()
         mock_models_response.data = [
@@ -36,7 +36,7 @@ class TestOpenAIAdapter:
         mock_client = AsyncMock()
         mock_client.models = mock_models
 
-        with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
+        with patch("ai.config.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-test123")
             result = await adapter.check_availability()
 
@@ -48,7 +48,7 @@ class TestOpenAIAdapter:
         """测试OpenAI服务可用性检查-密钥无效"""
         from openai import AuthenticationError
 
-        from ai_model.services import OpenAIAdapter
+        from ai.config.services import OpenAIAdapter
 
         mock_models = AsyncMock()
         mock_models.list.side_effect = AuthenticationError(
@@ -60,7 +60,7 @@ class TestOpenAIAdapter:
         mock_client = AsyncMock()
         mock_client.models = mock_models
 
-        with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
+        with patch("ai.config.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-invalid")
             result = await adapter.check_availability()
 
@@ -72,7 +72,7 @@ class TestOpenAIAdapter:
         """测试OpenAI服务可用性检查-超时"""
         from openai import APITimeoutError
 
-        from ai_model.services import OpenAIAdapter
+        from ai.config.services import OpenAIAdapter
 
         mock_models = AsyncMock()
         mock_models.list.side_effect = APITimeoutError("Timeout")
@@ -80,7 +80,7 @@ class TestOpenAIAdapter:
         mock_client = AsyncMock()
         mock_client.models = mock_models
 
-        with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
+        with patch("ai.config.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-test123")
             result = await adapter.check_availability()
 
@@ -90,7 +90,7 @@ class TestOpenAIAdapter:
     @pytest.mark.asyncio
     async def test_fetch_models(self):
         """测试获取OpenAI模型列表"""
-        from ai_model.services import OpenAIAdapter
+        from ai.config.services import OpenAIAdapter
 
         mock_models = MagicMock()
         mock_models.data = [
@@ -105,7 +105,7 @@ class TestOpenAIAdapter:
         mock_client = AsyncMock()
         mock_client.models = mock_models_list
 
-        with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
+        with patch("ai.config.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-test123")
             result = await adapter.fetch_models()
 
@@ -158,7 +158,7 @@ class TestDeepSeekAdapter:
     @pytest.mark.asyncio
     async def test_check_availability_success(self):
         """测试DeepSeek服务可用性检查成功"""
-        from ai_model.services import DeepSeekAdapter
+        from ai.config.services import DeepSeekAdapter
 
         mock_models_response = MagicMock()
         mock_models_response.data = [
@@ -172,7 +172,7 @@ class TestDeepSeekAdapter:
         mock_client = AsyncMock()
         mock_client.models = mock_models
 
-        with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
+        with patch("ai.config.services.AsyncOpenAI", return_value=mock_client):
             adapter = DeepSeekAdapter("sk-test123")
             result = await adapter.check_availability()
 

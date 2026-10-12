@@ -10,13 +10,15 @@ from pathlib import Path
 
 import pytest
 
-# 直接从文件加载模块，避免触发 ai_model/__init__.py 的完整导入链
+# 直接从文件加载模块，避免触发 ai/strategy/__init__.py 的完整导入链
 _test_file = Path(__file__).resolve()
-_backend_dir = _test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
-_ai_model_dir = _backend_dir / "ai_model"
+_backend_dir = (
+    _test_file.parent.parent.parent.parent.parent
+)  # tests/unit/ai/strategy -> tests/unit/ai -> tests/unit -> tests -> backend
+_strategy_dir = _backend_dir / "ai" / "strategy"
 
 # 加载 template_library 模块
-spec = importlib.util.spec_from_file_location("template_library", _ai_model_dir / "template_library.py")
+spec = importlib.util.spec_from_file_location("template_library", _strategy_dir / "template_library.py")
 assert spec is not None and spec.loader is not None, "无法加载 template_library 模块"
 library_module = importlib.util.module_from_spec(spec)
 sys.modules["template_library"] = library_module

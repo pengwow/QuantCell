@@ -20,7 +20,7 @@ from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
 try:
-    from ai_model.thinking_chain import ThinkingChainManager
+    from ai.strategy.thinking_chain import ThinkingChainManager
 except ImportError:
     ThinkingChainManager = None
 
@@ -668,7 +668,7 @@ async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
     logger.info(f"AI生成指标代码: {prompt[:50]}...")
 
     # 获取AI模型配置
-    from ai_model.config_utils import get_default_provider_and_models
+    from ai.config.config_utils import get_default_provider_and_models
 
     config = get_default_provider_and_models()
 
@@ -810,7 +810,7 @@ output = {{
 async def _repair_indicator_code_via_llm(prompt: str, original_code: str, hints: list) -> str | None:
     """调用LLM自动修复指标代码中的错误"""
     try:
-        from ai_model.config_utils import get_default_provider_and_models
+        from ai.config.config_utils import get_default_provider_and_models
 
         provider_config = get_default_provider_and_models()
         if not provider_config:

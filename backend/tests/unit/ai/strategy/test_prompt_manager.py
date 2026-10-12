@@ -29,12 +29,14 @@ def teardown_module() -> None:
     _SAVED_MODULES.clear()
 
 
-# 直接从文件加载模块，避免触发 ai_model/__init__.py 的完整导入链
+# 直接从文件加载模块，避免触发 ai/strategy/__init__.py 的完整导入链
 # 使用绝对路径
 _test_file = Path(__file__).resolve()
-_backend_dir = _test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
-_ai_model_dir = _backend_dir / "ai_model"
-_prompts_dir = _ai_model_dir / "prompts"
+_backend_dir = (
+    _test_file.parent.parent.parent.parent.parent
+)  # tests/unit/ai/strategy -> tests/unit/ai -> tests/unit -> tests -> backend
+_strategy_dir = _backend_dir / "ai" / "strategy"
+_prompts_dir = _strategy_dir / "prompts"
 
 # 加载 prompts.manager 模块
 spec = importlib.util.spec_from_file_location("prompts.manager", _prompts_dir / "manager.py")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ai_polish.service import _build_messages, _clean_output
+from ai.polish.service import _build_messages, _clean_output
 
 
 class TestCleanOutput:
@@ -74,10 +74,12 @@ class TestPolishTextNoConfig:
     def test_raises_when_no_config(self, monkeypatch):
         import asyncio
 
-        from ai_polish.service import AIPolishError, polish_text
+        import ai.polish.service as polish_service
+        from ai.polish.service import AIPolishError, polish_text
 
-        # 模拟无配置
-        monkeypatch.setattr("ai_polish.service._resolve_llm_config", lambda model_id=None: None)
+        # 模拟无配置：用模块对象直接 setattr，避免 dotted path 在跨测试
+        # sys.modules 被污染时解析失败
+        monkeypatch.setattr(polish_service, "_resolve_llm_config", lambda model_id=None: None)
         with pytest.raises(AIPolishError) as exc:
             asyncio.run(polish_text("label", {"factor_name": "x"}))
         assert "配置" in str(exc.value)

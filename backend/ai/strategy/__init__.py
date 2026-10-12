@@ -1,8 +1,12 @@
-# AI模型配置模块
-# 用于管理AI大模型厂商配置信息
+"""策略生成子模块。
 
+包含策略代码生成（同步 + SSE 流式）、思维链管理、Prompt 模板管理、
+策略生成历史、代码校验、模板库、性能监控。
+"""
+
+from .performance_monitor import PerformanceMonitor
 from .prompts import PromptCategory, PromptManager
-from .routes import router
+from .routes_strategy import router
 from .schemas_strategy import (
     CodeValidationRequest,
     CodeValidationResponse,
@@ -19,15 +23,16 @@ from .schemas_strategy import (
     StrategyValidateResponse,
 )
 from .strategy_generator import StrategyGenerator
+from .thinking_chain import ThinkingChainManager
 
 __all__ = [
     "CodeValidationRequest",
     "CodeValidationResponse",
+    "PerformanceMonitor",
     "PerformanceStatsResponse",
     "PromptCategory",
     "PromptManager",
     "StrategyGenerateFromTemplateRequest",
-    # Schemas
     "StrategyGenerateRequest",
     "StrategyGenerateResponse",
     "StrategyGenerateStreamResponse",
@@ -38,5 +43,6 @@ __all__ = [
     "StrategyTemplateResponse",
     "StrategyValidateRequest",
     "StrategyValidateResponse",
+    "ThinkingChainManager",
     "router",
 ]
