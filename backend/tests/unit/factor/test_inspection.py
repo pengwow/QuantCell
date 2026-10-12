@@ -239,7 +239,7 @@ def _analyze_df_single(provider=_KlineProvider()):
     from factor.engine import close_panel_from_raw, factor_panel_from_raw, load_raw_ohlcv
 
     raw = load_raw_ohlcv(["BTCUSDT"], "1h", "spot", None, None, provider)
-    factor = factor_panel_from_raw("momentum_5d", raw, svc._custom_store.all())
+    factor = factor_panel_from_raw("momentum_5d", raw, svc.factors)
     close = close_panel_from_raw(raw)
     aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
     fr = aligned["c"].groupby(level=1).shift(-1) / aligned["c"] - 1
@@ -292,7 +292,7 @@ def test_quantile_nav_empty_groups_are_zero_return_not_nan_pollution():
 
     svc = FactorService()
     raw = load_raw_ohlcv(["BTCUSDT", "ETHUSDT"], "1h", "spot", None, None, provider)
-    factor = factor_panel_from_raw("momentum_5d", raw, svc._custom_store.all())
+    factor = factor_panel_from_raw("momentum_5d", raw, svc.factors)
     close = close_panel_from_raw(raw)
     aligned = pd.concat([factor.rename("f"), close.rename("c")], axis=1).dropna()
     fr = aligned["c"].groupby(level=1).shift(-1) / aligned["c"] - 1

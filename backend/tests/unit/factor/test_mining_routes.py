@@ -22,12 +22,15 @@ def client():
 
 @pytest.fixture
 def isolated_catalog_db(monkeypatch):
-    """代码因子档案钩子 DB 隔离：内存 SQLite，不碰开发库。
+    """代码因子档案钩子 DB 隔离 + 沙箱 mock：内存 SQLite，不碰开发库。
 
     建表口径照抄 tests/unit/factor/conftest.py 的 db_session（仅 FactorCatalog/FactorSnapshot）；
     TestClient 在独立 portal 线程执行路由，内存库需 StaticPool 单连接 + check_same_thread=False
     才能跨线程共享同一连接。monkeypatch factor.routes.get_db_session 后，路由内所有
     `with get_db_session()` 都落到本内存库；函数级 fixture 每用例一个新库，结束即销毁，无残留。
+
+    同时 mock 全局 factor_service 的沙箱 validate/run（环境 CPU 限额易超时），
+    让 /code/add /composite/add 的入库校验走静态检查 + 固定面板。
     """
     from contextlib import contextmanager
 
@@ -59,10 +62,39 @@ def isolated_catalog_db(monkeypatch):
             db.close()
 
     monkeypatch.setattr(factor_routes, "get_db_session", fake_get_db_session)
+
+    # mock 全局 factor_service 沙箱：避免真实子进程超时
+    from factor.sandbox import FactorSandbox
+
+    _real = FactorSandbox()
+    import hashlib
+    import re
+
+    def _mock_validate(code):
+        _real.check_static(code)
+
+    def _mock_run(code, frames):
+        _real.check_static(code)
+        if "missing_col" in code:
+            from factor.sandbox import SandboxRuntimeError
+
+            raise SandboxRuntimeError("name 'missing_col' is not defined")
+        m = re.search(r'df\["(\w+)"\]\.pct_change\((\d+)\)', code)
+        if m:
+            col, w = m.group(1), int(m.group(2))
+            sample = next(iter(frames.values()), None)
+            if sample is not None and col in sample.columns and w > 0:
+                return {sym: df[col].pct_change(w) for sym, df in frames.items()}
+        h = int(hashlib.md5(code.encode()).hexdigest()[:8], 16)
+        cols = ["close", "volume", "open", "high", "low"]
+        return {sym: df[cols[h % 5]].pct_change(3 + h % 18) for sym, df in frames.items()}
+
+    monkeypatch.setattr(factor_routes.factor_service._sandbox, "validate", _mock_validate)
+    monkeypatch.setattr(factor_routes.factor_service._sandbox, "run", _mock_run)
     return eng
 
 
-def test_validate_code_ok(client):
+def test_validate_code_ok(client, isolated_catalog_db):
     resp = client.post(
         "/api/v1/factor/code/validate",
         json={"code": 'factor = df["close"].pct_change(5)'},
@@ -71,7 +103,7 @@ def test_validate_code_ok(client):
     assert resp.json()["data"]["valid"] is True
 
 
-def test_validate_code_rejects_import(client):
+def test_validate_code_rejects_import(client, isolated_catalog_db):
     resp = client.post("/api/v1/factor/code/validate", json={"code": "import os"})
     assert resp.status_code == 200
     # 校验结果作为数据返回（code=0）：前端拦截器对 code!=0 会 reject 并丢弃 data，
@@ -82,13 +114,10 @@ def test_validate_code_rejects_import(client):
     assert data["error_type"]
 
 
-def test_add_and_delete_code_factor(client, tmp_path, monkeypatch, isolated_catalog_db):
-    # 用临时 code store 隔离全局文件：monkeypatch factor_service._code_store
-    # isolated_catalog_db：档案钩子落到内存 SQLite，不写开发库
-    from factor.code_store import CodeFactorStore
+def test_add_and_delete_code_factor(client, monkeypatch, isolated_catalog_db):
+    # isolated_catalog_db：档案钩子落到内存 SQLite，不写开发库；沙箱已 mock
     from factor.routes import factor_service
 
-    monkeypatch.setattr(factor_service, "_code_store", CodeFactorStore(tmp_path / "c.json"))
     resp = client.post(
         "/api/v1/factor/code/add",
         json={
@@ -101,15 +130,12 @@ def test_add_and_delete_code_factor(client, tmp_path, monkeypatch, isolated_cata
     assert client.delete("/api/v1/factor/code/llm_demo_1").status_code == 200
 
 
-def test_add_code_factor_indexes_catalog_and_delete_cleans(client, tmp_path, monkeypatch, isolated_catalog_db):
+def test_add_code_factor_indexes_catalog_and_delete_cleans(client, monkeypatch, isolated_catalog_db):
     """POST /code/add 显式建档；DELETE /code 级联清理档案行与快照行。"""
     from sqlalchemy.orm import Session
 
     from factor import routes as factor_routes
-    from factor.code_store import CodeFactorStore
     from factor.models import FactorCatalog, FactorSnapshot
-
-    monkeypatch.setattr(factor_routes.factor_service, "_code_store", CodeFactorStore(tmp_path / "c.json"))
 
     name = "zz_code_catalog_demo"
     resp = client.post(
@@ -146,12 +172,9 @@ def test_add_code_factor_indexes_catalog_and_delete_cleans(client, tmp_path, mon
         assert db.query(FactorSnapshot).filter_by(factor_name=name).count() == 0
 
 
-def test_code_factor_user_category_and_kind_in_catalog(client, tmp_path, monkeypatch, isolated_catalog_db):
+def test_code_factor_user_category_and_kind_in_catalog(client, monkeypatch, isolated_catalog_db):
     """代码因子分类可由用户指定；/catalog 必须回传 kind（前端「来源」列不再靠 category 反推）。"""
     from factor import routes as factor_routes
-    from factor.code_store import CodeFactorStore
-
-    monkeypatch.setattr(factor_routes.factor_service, "_code_store", CodeFactorStore(tmp_path / "c.json"))
 
     name = "zz_code_cat_demo"
     resp = client.post(
@@ -174,14 +197,12 @@ def test_code_factor_user_category_and_kind_in_catalog(client, tmp_path, monkeyp
     assert client.delete(f"/api/v1/factor/code/{name}").status_code == 200
 
 
-def test_expression_factor_description_roundtrip(client, tmp_path, monkeypatch, isolated_catalog_db):
+def test_expression_factor_description_roundtrip(client, monkeypatch, isolated_catalog_db):
     """表达式因子描述随 /factor/add 落盘，/catalog 回读（与代码因子字段对称）。"""
     from factor import routes as factor_routes
-    from factor.factor_store import FactorStore
 
     svc = factor_routes.factor_service
-    monkeypatch.setattr(svc, "_custom_store", FactorStore(tmp_path / "custom.json"))
-    # factors 是启动时从 store 快照的 dict：换成副本，避免用例污染全局单例
+    # factors 是内存 dict：换成副本，避免用例污染全局单例
     monkeypatch.setattr(svc, "factors", dict(svc.factors))
 
     name = "zz_expr_desc_demo"
@@ -204,12 +225,9 @@ def test_expression_factor_description_roundtrip(client, tmp_path, monkeypatch, 
     assert rows[0]["category"] == "momentum"
 
 
-def test_add_code_factor_catalog_hook_failure_non_blocking(client, tmp_path, monkeypatch, isolated_catalog_db):
+def test_add_code_factor_catalog_hook_failure_non_blocking(client, monkeypatch, isolated_catalog_db):
     """建档钩子抛异常时 /code/add 仍 200（代码保存不被派生档案拖垮）。"""
     from factor import routes as factor_routes
-    from factor.code_store import CodeFactorStore
-
-    monkeypatch.setattr(factor_routes.factor_service, "_code_store", CodeFactorStore(tmp_path / "c.json"))
 
     def _boom(db, detail):
         raise RuntimeError("catalog down")
@@ -227,7 +245,7 @@ def test_add_code_factor_catalog_hook_failure_non_blocking(client, tmp_path, mon
     assert client.delete(f"/api/v1/factor/code/{name}").status_code == 200
 
 
-def test_add_code_factor_rejects_bad_code(client):
+def test_add_code_factor_rejects_bad_code(client, isolated_catalog_db):
     resp = client.post(
         "/api/v1/factor/code/add",
         json={"factor_name": "x", "code": "import os"},
@@ -259,11 +277,9 @@ _COMPOSITE_BODY = {
 }
 
 
-def test_add_and_delete_composite_factor(client, tmp_path, monkeypatch, isolated_catalog_db):
-    from factor.composite_store import CompositeFactorStore
+def test_add_and_delete_composite_factor(client, monkeypatch, isolated_catalog_db):
     from factor.routes import factor_service
 
-    monkeypatch.setattr(factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
     resp = client.post("/api/v1/factor/composite/add", json=_COMPOSITE_BODY)
     assert resp.status_code == 200, resp.text
     assert client.delete("/api/v1/factor/composite/zz_comp_demo").status_code == 200
@@ -271,14 +287,12 @@ def test_add_and_delete_composite_factor(client, tmp_path, monkeypatch, isolated
     assert client.delete("/api/v1/factor/composite/zz_comp_demo").status_code == 404
 
 
-def test_add_composite_indexes_catalog_and_delete_cleans(client, tmp_path, monkeypatch, isolated_catalog_db):
+def test_add_composite_indexes_catalog_and_delete_cleans(client, monkeypatch, isolated_catalog_db):
     from sqlalchemy.orm import Session
 
     from factor import routes as factor_routes
-    from factor.composite_store import CompositeFactorStore
     from factor.models import FactorCatalog, FactorSnapshot
 
-    monkeypatch.setattr(factor_routes.factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
     name = _COMPOSITE_BODY["factor_name"]
     resp = client.post("/api/v1/factor/composite/add", json=_COMPOSITE_BODY)
     assert resp.status_code == 200, resp.text
@@ -301,11 +315,9 @@ def test_add_composite_indexes_catalog_and_delete_cleans(client, tmp_path, monke
         assert db.query(FactorSnapshot).filter_by(factor_name=name).count() == 0
 
 
-def test_add_composite_rejects_malicious_constituent(client, tmp_path, monkeypatch):
-    from factor.composite_store import CompositeFactorStore
+def test_add_composite_rejects_malicious_constituent(client, monkeypatch, isolated_catalog_db):
     from factor.routes import factor_service
 
-    monkeypatch.setattr(factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
     body = {
         **_COMPOSITE_BODY,
         "factor_name": "zz_comp_evil",
@@ -316,14 +328,10 @@ def test_add_composite_rejects_malicious_constituent(client, tmp_path, monkeypat
     }
     resp = client.post("/api/v1/factor/composite/add", json=body)
     assert resp.status_code == 400
-    assert not factor_service._composite_store.exists("zz_comp_evil")
+    assert "zz_comp_evil" not in factor_service._composite_map
 
 
-def test_add_composite_rejects_single_constituent(client, tmp_path, monkeypatch):
-    from factor.composite_store import CompositeFactorStore
-    from factor.routes import factor_service
-
-    monkeypatch.setattr(factor_service, "_composite_store", CompositeFactorStore(tmp_path / "comp.json"))
+def test_add_composite_rejects_single_constituent(client, monkeypatch, isolated_catalog_db):
     body = {**_COMPOSITE_BODY, "constituents": [_COMPOSITE_BODY["constituents"][0]]}
     resp = client.post("/api/v1/factor/composite/add", json=body)
     assert resp.status_code == 422  # Pydantic 成分数 2-20 校验

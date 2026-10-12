@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from factor.code_store import CodeFactorStore
 from factor.engine import _timestamps_to_datetime
 from factor.sandbox import FactorSandbox
 from factor.service import FactorService
@@ -37,8 +36,9 @@ def make_raw_map(n=240, symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT")):
 
 
 @pytest.fixture
-def service(tmp_path):
-    return FactorService(code_store=CodeFactorStore(tmp_path / "wf.json"), sandbox=FactorSandbox())
+def service(svc):
+    # 复用 conftest 的 svc（已绑定测试 DB + mock 沙箱）
+    return svc
 
 
 # ---------------------------------------------------------------------------

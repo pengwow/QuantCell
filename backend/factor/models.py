@@ -1,7 +1,9 @@
 """因子档案与分析快照的数据库模型。
 
-表达式真相源仍是 factor.engine 内置常量 + data/factor/custom_factors.json；
-本表只存元数据/指标/生命周期等派生档案，按 name 关联，不参与因子求值。
+FactorCatalog 是因子的唯一真相源：内置（FACTOR_META 种子）、自定义表达式、
+代码因子、合成因子全部存此表，按 kind 区分执行路径。
+表按 kind 分化字段：expression/code/method+constituents 分别对应三类，
+其他 kind 对应字段为 NULL。
 """
 
 from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, func
@@ -10,15 +12,27 @@ from collector.db.database import Base
 
 
 class FactorCatalog(Base):
-    """因子档案：一因子一行（内置 + 自定义）。"""
+    """因子档案：一因子一行（内置 + 自定义表达式 + 代码 + 合成）。"""
 
     __tablename__ = "factor_catalog"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, unique=True, index=True)
+    kind = Column(String(20), nullable=False, index=True)  # builtin / expression / code / composite
     label = Column(String(200), nullable=True)
+    description = Column(Text, nullable=True)
     category = Column(String(50), nullable=True)
+    # expression 因子专用
     expression = Column(Text, nullable=True)
+    # code 因子专用
+    code = Column(Text, nullable=True)
+    code_hash = Column(String(64), nullable=True)
+    provenance = Column(Text, nullable=True)  # JSON: {"source": "..."}
+    # composite 因子专用
+    method = Column(String(50), nullable=True)
+    train_window = Column(Text, nullable=True)  # JSON
+    constituents = Column(Text, nullable=True)  # JSON blob
+    # 通用
     is_builtin = Column(Boolean, nullable=False, default=False)
     supported = Column(Boolean, nullable=False, default=True)
     lifecycle_status = Column(String(20), nullable=False, default="DISCOVERED")

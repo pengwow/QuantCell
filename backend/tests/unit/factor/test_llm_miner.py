@@ -6,7 +6,6 @@ import pandas as pd
 import pytest
 
 import factor.llm_miner as miner
-from factor.code_store import CodeFactorStore
 from factor.engine import load_raw_ohlcv
 from factor.llm_miner import LLMMineParams, correlation_dedup, oos_flag, run_llm_mining
 from factor.sandbox import FactorSandbox
@@ -66,8 +65,9 @@ class Provider:
 
 
 @pytest.fixture
-def service(tmp_path):
-    return FactorService(code_store=CodeFactorStore(tmp_path / "c.json"), sandbox=FactorSandbox())
+def service(svc):
+    # 复用 conftest 的 svc（已绑定测试 DB + mock 沙箱 validate）
+    return svc
 
 
 def _params(**kw):
