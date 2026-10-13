@@ -1448,6 +1448,7 @@ class NewStrategy(StrategyBase):
                                 const editing = editingFactorRows.has(index);
 
                                 if (editing) {
+                                  const catalog = factorCatalog.get(factor.name);
                                   return (
                                     <div key={index} className="flex gap-2 items-start flex-wrap">
                                       <Input
@@ -1470,8 +1471,8 @@ class NewStrategy(StrategyBase):
                                       />
                                       <Input
                                         size="small"
-                                        value={factor.description || ''}
-                                        placeholder={t('description') || '描述'}
+                                        value={factor.description || catalog?.description || ''}
+                                        placeholder={catalog?.description || t('description') || '描述'}
                                         onChange={(e) => handleFactorChange(index, 'description', e.target.value)}
                                         style={{ flex: 1, minWidth: 160 }}
                                       />
@@ -1509,13 +1510,14 @@ class NewStrategy(StrategyBase):
                                     <Tag color="blue" className="mb-0">{factor.name}</Tag>
                                     <Tag color={typeColor[factor.type] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
                                     {(() => {
-                                      // 优先用因子库的 label（中文可读名），有则用；否则 fallback 到 AST 提取的 description
+                                      // 只读态同时展示因子库 label（中文名）和 description（表达式/说明），不显示"（因子库）"标记
                                       const catalog = factorCatalog.get(factor.name);
-                                      const displayLabel = catalog?.label || factor.description;
-                                      return displayLabel ? (
+                                      const label = catalog?.label;
+                                      const desc = factor.description || catalog?.description || '';
+                                      const parts = [label, desc].filter(Boolean);
+                                      return parts.length > 0 ? (
                                         <span className="text-gray-500 text-sm flex-1 truncate">
-                                          {displayLabel}
-                                          {catalog ? <span className="text-gray-400 text-xs ml-1">（因子库）</span> : null}
+                                          {parts.join(' — ')}
                                         </span>
                                       ) : null;
                                     })()}

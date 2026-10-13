@@ -116,7 +116,7 @@ class StrategyService:
                 # DB 有 factors → 覆盖 AST 解析结果
                 if row.factors:
                     try:
-                        info["factors"] = json.loads(row.factors)
+                        info["factors"] = self._strip_placeholder_descriptions(json.loads(row.factors))
                     except json.JSONDecodeError:
                         pass
                 # DB 有 description（非空）→ 覆盖 AST docstring
@@ -373,7 +373,7 @@ class StrategyService:
                 factors[arg.value] = {
                     "name": arg.value,
                     "type": "factor",
-                    "description": '来自 ctx.get_feature("...") 调用',
+                    "description": "",
                 }
             elif isinstance(arg, ast.Name):
                 # 变量名：ctx.get_feature(factor_name) —— 记下来，后面去 Config 里找默认值
@@ -381,7 +381,7 @@ class StrategyService:
                 factors[f"__config_var:{var_name}"] = {
                     "name": var_name,
                     "type": "config_ref",
-                    "description": f"引用 self.config.{var_name}，需到 Config 默认值里找实际因子名",
+                    "description": "",
                 }
 
         # —— 路径 2：Config.__init__ 参数里的 factor_* 前缀 ——
@@ -410,7 +410,7 @@ class StrategyService:
                         entry = {
                             "name": arg.arg,
                             "type": "factor_param",
-                            "description": "来自 Config.__init__ 的 factor_* 参数",
+                            "description": "",
                         }
                         if isinstance(default_val, str) and default_val:
                             entry["default"] = default_val
@@ -420,7 +420,7 @@ class StrategyService:
                                 {
                                     "name": default_val,
                                     "type": "factor",
-                                    "description": f"来自 Config.{arg.arg} 默认值",
+                                    "description": "",
                                 },
                             )
                         factors[f"__param:{arg.arg}"] = entry
@@ -438,6 +438,19 @@ class StrategyService:
             clean.append(val)
 
         return clean
+
+    @staticmethod
+    def _strip_placeholder_descriptions(factors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """清除 AST 自动提取时残留的占位符描述（如"来自 Config.factor_name 默认值"）。
+
+        旧版 _extract_factors 会写入这类调试信息，现已不再生成；但 DB 里可能
+        还存着历史数据，返回前端前统一清掉，前端再用因子库真实描述兜底。
+        """
+        for f in factors:
+            desc = f.get("description")
+            if isinstance(desc, str) and desc.startswith("来自 "):
+                f["description"] = ""
+        return factors
 
     @staticmethod
     def _extract_params_from_config_get(tree: ast.AST) -> list[dict[str, Any]]:
@@ -674,7 +687,7 @@ class StrategyService:
                 try:
                     import json
 
-                    return json.loads(row.factors)
+                    return self._strip_placeholder_descriptions(json.loads(row.factors))
                 except Exception:
                     pass
 

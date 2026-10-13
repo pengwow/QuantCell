@@ -251,7 +251,7 @@
   "backtest_factors": "Backtest Factors",
   "backtest_factors_placeholder": "Select factors from the library (optional)",
   "backtest_factor_timing_hint": "factor_timing uses the first selected factor; leave empty to inject no factors",
-  "backtest_factor_optional_hint": "Leave empty to run the legacy backtest without factors",
+  "backtest_factor_optional_hint": "Leave empty to run backtest without factors",
   "factor_status_discovered": "Discovered",
   "factor_status_inspected": "Inspected",
   "factor_status_paper_trading": "Paper Trading",

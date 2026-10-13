@@ -252,7 +252,7 @@
   "backtest_factors": "回测因子",
   "backtest_factors_placeholder": "选择因子库因子（可空）",
   "backtest_factor_timing_hint": "factor_timing 策略将使用第一个所选因子；不选则不注入因子",
-  "backtest_factor_optional_hint": "不选则按无因子方式回测（行为与旧版一致）",
+  "backtest_factor_optional_hint": "不选则按无因子方式回测",
   "factor_status_discovered": "已发现",
   "factor_status_inspected": "已验证",
   "factor_status_paper_trading": "纸面交易",
