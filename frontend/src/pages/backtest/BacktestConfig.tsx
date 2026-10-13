@@ -390,21 +390,23 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
     if (strategy) {
       console.log('[BacktestConfig] 设置策略到表单:', strategy);
-      setSelectedStrategy(strategy);
+      // 从 strategies 列表取完整对象（含 factors），location/prop 传入的可能缺字段
+      const fullStrategy = strategies.find(s => s.name === strategy.name) || strategy;
+      setSelectedStrategy(fullStrategy);
 
       const defaultParams: Record<string, unknown> = {};
-      if (strategy.params) {
-        strategy.params.forEach(p => {
+      if (fullStrategy.params) {
+        fullStrategy.params.forEach(p => {
           defaultParams[p.name] = p.default;
         });
       }
 
       form.setFieldsValue({
-        strategy: strategy.name,
+        strategy: fullStrategy.name,
         params: defaultParams,
       });
 
-      if (strategy.tags && strategy.tags.includes('demo')) {
+      if (fullStrategy.tags && fullStrategy.tags.includes('demo')) {
         form.setFieldsValue({
           symbols: ['BTC/USDT'],
           timeRange: [dayjs('2024-01-01'), dayjs('2024-02-01')],
@@ -415,9 +417,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         message.info('已自动填充演示策略的回测配置');
       }
 
-      message.success(`已加载策略: ${strategy.name}`);
+      message.success(`已加载策略: ${fullStrategy.name}`);
     }
-  }, [strategy, form, location.state, locationStrategy, propStrategy, showConfig, message]);
+  }, [strategy, form, location.state, locationStrategy, propStrategy, showConfig, message, strategies]);
 
   useEffect(() => {
     form.setFieldsValue({
@@ -475,6 +477,23 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     return false;
   };
 
+  // 根据策略 factors 与因子库交集，回填回测因子多选框
+  const autoFillFactorNames = (strategy: Strategy | null) => {
+    const factorNamesInLibrary = new Set(factorOptions.map(f => f.name));
+    const matchedFactors = (strategy?.factors ?? [])
+      .map(f => f.name)
+      .filter(name => factorNamesInLibrary.has(name));
+    form.setFieldValue('factorNames', matchedFactors);
+  };
+
+  // factorOptions 或 selectedStrategy 变化时，回填因子（覆盖预选与加载时序两种场景）
+  useEffect(() => {
+    if (selectedStrategy) {
+      autoFillFactorNames(selectedStrategy);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factorOptions, selectedStrategy]);
+
   const handleStrategyChange = (value: string) => {
     const strategy = strategies.find(s => s.name === value);
     setSelectedStrategy(strategy || null);
@@ -499,6 +518,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     } else {
       form.setFieldValue('params', {});
     }
+
+    autoFillFactorNames(strategy || null);
   };
 
   const renderParamInput = (param: StrategyParam) => {
@@ -1078,7 +1099,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     watchedStrategy === 'factor_timing'
                       ? t('backtest_factor_timing_hint') ||
                         'factor_timing 策略将使用第一个所选因子；不选则不注入因子'
-                      : t('backtest_factor_optional_hint') || '不选则按无因子方式回测（行为与旧版一致）'
+                      : t('backtest_factor_optional_hint') || '不选则按无因子方式回测'
                   }
                 >
                   <Select

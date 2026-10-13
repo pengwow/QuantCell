@@ -650,8 +650,11 @@ def factor_stability_test(
     summary="获取因子明细列表",
     description="获取内置+自定义因子的分类、表达式、是否可计算等明细",
 )
-def get_factor_detail_list(current_user: dict = Depends(get_current_user)) -> ApiResponse:
-    """获取因子明细列表（因子库）"""
+def get_factor_detail_list() -> ApiResponse:
+    """获取因子明细列表（因子库）
+
+    因子库为只读公开数据，无需鉴权，确保回测/策略等页面的因子下拉框始终可用。
+    """
     try:
         return ApiResponse(code=0, message="ok", data={"factors": factor_service.get_factor_details()})
     except Exception as e:
