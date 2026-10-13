@@ -368,6 +368,32 @@ def add_funding_schedule(
 
 
 # ========== 结果提取 ==========
+def _extract_positions(positions: Any) -> list[dict[str, Any]]:
+    """把 RunResult.positions 从 {instrument: 数量} 映射转为标准化 list[dict]
+
+    RunResult.positions 是 dict（instrument 元组 → 当前持仓数量），
+    instrument 键常为 (asset_type, base, quote, margin, multiplier) 元组，
+    取第 2/3 位拼成 "BASE/QUOTE"，便于前端展示与按品种过滤。
+    """
+    if not positions:
+        return []
+
+    items = positions.items() if isinstance(positions, dict) else [(None, p) for p in positions]
+    out: list[dict[str, Any]] = []
+    for key, qty in items:
+        if isinstance(key, tuple) and len(key) >= 3:
+            instrument_id = f"{key[1]}/{key[2]}"
+        elif key is not None:
+            instrument_id = str(key)
+        else:
+            instrument_id = ""
+        try:
+            out.append({"instrument_id": instrument_id, "quantity": float(qty)})
+        except TypeError, ValueError:
+            continue
+    return out
+
+
 def extract_run_result(result: Any) -> dict[str, Any]:
     """从 RunResult 提取回测结果"""
     if result is None:
@@ -381,7 +407,9 @@ def extract_run_result(result: Any) -> dict[str, Any]:
             "total_fees": float(result.total_fees) if hasattr(result, "total_fees") else 0.0,
             "total_funding_pnl": float(result.total_funding_pnl) if hasattr(result, "total_funding_pnl") else 0.0,
             "trades": list(result.trades) if hasattr(result, "trades") and result.trades else [],
-            "positions": list(result.positions) if hasattr(result, "positions") and result.positions else [],
+            "positions": _extract_positions(result.positions)
+            if hasattr(result, "positions") and result.positions
+            else [],
             "equity_curve": list(result.equity_curve)
             if hasattr(result, "equity_curve") and result.equity_curve
             else [],

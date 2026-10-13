@@ -13,6 +13,9 @@ export interface Trade {
   venue_order_id?: string;
   position_id?: string;
   instrument_id?: string;
+  symbol?: string;
+  Symbol?: string;
+  instrument?: string;
   side?: string;
   Side?: string;
   direction?: string;
@@ -125,9 +128,12 @@ const TradeTable = ({ data, loading = false, pagination = true }: TradeTableProp
     },
     {
       title: '交易标的',
-      dataIndex: 'instrument_id',
-      key: 'instrument_id',
-      render: (value: string) => value || '-',
+      key: 'symbol',
+      render: (_: unknown, record: Trade) => {
+        // 后端不同路径写入的标的字段不一致，按优先级回退
+        const symbol = record.instrument_id || record.symbol || record.Symbol || record.instrument || '-';
+        return <span style={{ fontFamily: 'monospace' }}>{symbol}</span>;
+      },
       ellipsis: true,
     },
   ];

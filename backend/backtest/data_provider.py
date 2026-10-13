@@ -7,7 +7,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -249,6 +249,64 @@ class BacktestDataProvider:
         logger.info(f"[BacktestDataProvider] 批量加载完成: 成功{len(data_dict)}/{total_tasks}个")
 
         return data_dict, download_results
+
+    def check_data_availability(
+        self,
+        symbols: list[str],
+        timeframes: list[str],
+        candle_type: str = "spot",
+    ) -> dict[str, Any]:
+        """预检：检查给定品种×周期的 Parquet 文件是否存在，不读取文件内容。
+
+        用于回测启动前判断哪些品种需要下载，避免回测执行到一半才报错。
+
+        Args:
+            symbols: 交易对列表（如 ["ETH/USDT", "LTC/USDT"]）
+            timeframes: 周期列表（如 ["15m", "1h"]）
+            candle_type: 市场类型 (spot/future)
+
+        Returns:
+            {
+                "all_available": bool,
+                "missing": [{"symbol", "timeframe", "expected_path"}, ...],
+                "available": [{"symbol", "timeframe"}, ...],
+            }
+        """
+        from utils import _find_parquet_file
+
+        missing: list[dict[str, str]] = []
+        available: list[dict[str, str]] = []
+
+        for symbol in symbols:
+            for timeframe in timeframes:
+                try:
+                    parquet_path = _find_parquet_file(symbol, timeframe, candle_type)
+                    if parquet_path.exists():
+                        available.append({"symbol": symbol, "timeframe": timeframe})
+                    else:
+                        missing.append(
+                            {
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "expected_path": str(parquet_path),
+                            }
+                        )
+                except Exception as e:
+                    # 路径拼接异常也视为缺失，让前端提示下载
+                    logger.warning(f"检查数据可用性异常 {symbol} {timeframe}: {e}")
+                    missing.append(
+                        {
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "expected_path": str(e),
+                        }
+                    )
+
+        return {
+            "all_available": len(missing) == 0,
+            "missing": missing,
+            "available": available,
+        }
 
     def load_data(
         self,

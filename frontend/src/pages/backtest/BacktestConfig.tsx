@@ -3,9 +3,9 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 回测配置页面组件
  * 功能：配置策略回测参数，包括策略信息和回测信息
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
   Card,
@@ -25,6 +25,8 @@ import {
   Tooltip,
   App,
   Modal,
+  Progress,
+  Tag,
 } from 'antd';
 import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { backtestApi, configApi, strategyApi } from '../../api';
@@ -81,6 +83,7 @@ interface BacktestFormValues {
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const watchedStrategy = Form.useWatch('strategy', form);
@@ -110,6 +113,15 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const [progressVisible, setProgressVisible] = useState<boolean>(false);
+  // 回测前数据预检弹窗状态
+  const [precheckVisible, setPrecheckVisible] = useState(false);
+  const [precheckMissing, setPrecheckMissing] = useState<Array<{ symbol: string; timeframe: string; expected_path: string }>>([]);
+  const [precheckDownloading, setPrecheckDownloading] = useState(false);
+  const [precheckDownloadProgress, setPrecheckDownloadProgress] = useState(0);
+  const [precheckDownloadMsg, setPrecheckDownloadMsg] = useState('');
+  // 预检待执行的回测数据（下载完成后用它启动回测）
+  const pendingBacktestDataRef = useRef<any>(null);
+  const precheckAbortRef = useRef<AbortController | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [stepStatus, setStepStatus] = useState<StepStatusState>({
     dataPrep: 'wait',
@@ -715,6 +727,179 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     }
   };
 
+  /** 执行回测（提交回测任务并轮询进度）。从 handleSubmit 提取，供预检后和下载后复用。 */
+  const executeBacktest = async (backtestData: any) => {
+    setIsBacktestRunning(true);
+    setErrorMessage('');
+
+    abortControllerRef.current = new AbortController();
+
+    const startTimeout = setTimeout(() => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        message.error('回测启动超时，请检查网络连接或代理配置');
+        setErrorMessage('回测启动超时，请检查网络连接或代理配置');
+        setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
+        setIsBacktestRunning(false);
+        setLoading(false);
+      }
+    }, 30000);
+
+    try {
+      const backtestResult = await backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
+      clearTimeout(startTimeout);
+
+      if (backtestResult?.status === 'failed') {
+        const errorMsg = backtestResult.message || '回测启动失败';
+        message.error(errorMsg);
+        setErrorMessage(errorMsg);
+        setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
+        setIsBacktestRunning(false);
+        setLoading(false);
+        return;
+      }
+
+      const serverTaskId = backtestResult?.data?.task_id || backtestResult?.task_id;
+      if (!serverTaskId) {
+        message.error('回测启动失败：未获取到任务ID');
+        setErrorMessage('回测启动失败：未获取到任务ID');
+        setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
+        setIsBacktestRunning(false);
+        setLoading(false);
+        return;
+      }
+
+      setCurrentTaskId(serverTaskId);
+      setProgressVisible(true);
+      setTimeout(() => {
+        startProgressPolling(serverTaskId);
+      }, 500);
+    } catch (error) {
+      clearTimeout(startTimeout);
+      if (error instanceof Error && (error.name === 'AbortError' || error.message?.includes('aborted'))) {
+        setErrorMessage('回测已终止');
+        setStepStatus(prev => ({ ...prev, execution: 'error', analysis: 'error' }));
+        message.info('回测已终止');
+      } else {
+        const errorMsg = error instanceof Error ? error.message : '执行回测失败';
+        setErrorMessage(errorMsg);
+        setStepStatus(prev => {
+          const newStatus = { ...prev };
+          if (currentStep === 0) newStatus.dataPrep = 'error';
+          else if (currentStep === 1) newStatus.execution = 'error';
+          else newStatus.analysis = 'error';
+          return newStatus;
+        });
+        message.error(errorMsg);
+      }
+      setIsBacktestRunning(false);
+      setCurrentTaskId('');
+      abortControllerRef.current = null;
+      stopProgressPolling();
+    }
+  };
+
+  /** 预检弹窗：下载缺失数据，完成后自动回测（跳过下载失败的品种）。 */
+  const handlePrecheckDownload = async () => {
+    const pendingData = pendingBacktestDataRef.current;
+    if (!pendingData) return;
+
+    // 去重缺失品种和周期
+    const missingSymbols = [...new Set(precheckMissing.map(m => m.symbol))];
+    const missingTimeframes = [...new Set(precheckMissing.map(m => m.timeframe))];
+    const cfg = pendingData.backtest_config;
+
+    setPrecheckDownloading(true);
+    setPrecheckDownloadProgress(0);
+    setPrecheckDownloadMsg('正在创建下载任务...');
+    precheckAbortRef.current = new AbortController();
+
+    try {
+      // 1. 创建下载任务
+      const downloadRes: any = await dataApi.downloadCryptoData({
+        symbols: missingSymbols,
+        interval: missingTimeframes,
+        start: cfg.start_time,
+        end: cfg.end_time,
+        candle_type: 'spot',
+      });
+      const taskId = downloadRes?.task_id || downloadRes?.data?.task_id;
+      if (!taskId) {
+        throw new Error('下载任务创建失败，未返回 task_id');
+      }
+
+      // 2. 轮询下载进度（每 2 秒，超时 10 分钟）
+      setPrecheckDownloadMsg('下载中...');
+      const maxWait = 10 * 60 * 1000;
+      const startTime = Date.now();
+      let failedSymbols: string[] = [];
+
+      while (Date.now() - startTime < maxWait) {
+        if (precheckAbortRef.current?.signal.aborted) break;
+        await new Promise(r => setTimeout(r, 2000));
+
+        const status: any = await dataApi.getTaskStatus(taskId);
+        const info = status?.task_info || status;
+        const st = info?.status;
+        const progress = info?.progress || {};
+        setPrecheckDownloadProgress(progress.percentage || 0);
+
+        if (st === 'completed') {
+          // 下载全部成功
+          break;
+        }
+        if (st === 'failed') {
+          // 部分或全部失败，从 params 取出原始 symbols 对比进度
+          const params = info?.params || {};
+          const allSymbols: string[] = params.symbols || missingSymbols;
+          const completed = progress.completed || 0;
+          const total = progress.total || allSymbols.length;
+          // 简单策略：completed < total 时，认为未完成的为失败（后端未提供精确失败清单时）
+          if (completed < total) {
+            failedSymbols = allSymbols.slice(completed);
+          }
+          break;
+        }
+      }
+
+      if (precheckAbortRef.current?.signal.aborted) {
+        setPrecheckDownloadMsg('下载已取消');
+        return;
+      }
+
+      // 3. 剔除下载失败的品种，启动回测
+      const allSymbols: string[] = cfg.symbols || [];
+      const remainingSymbols = failedSymbols.length > 0
+        ? allSymbols.filter(s => !failedSymbols.includes(s))
+        : allSymbols;
+
+      setPrecheckVisible(false);
+      setPrecheckDownloading(false);
+
+      if (remainingSymbols.length === 0) {
+        message.error('所有品种均无可用数据，请前往数据管理页下载');
+        return;
+      }
+
+      if (failedSymbols.length > 0) {
+        message.warning(`${failedSymbols.length} 个品种下载失败已跳过，将用剩余 ${remainingSymbols.length} 个品种回测`);
+      } else {
+        message.success('数据下载完成，开始回测');
+      }
+
+      const modifiedData = {
+        ...pendingData,
+        backtest_config: { ...cfg, symbols: remainingSymbols },
+      };
+      await executeBacktest(modifiedData);
+    } catch (e: any) {
+      setPrecheckDownloadMsg(`下载失败：${e?.message || '未知错误'}`);
+      message.error(`数据下载失败：${e?.message || '未知错误'}`);
+    } finally {
+      setPrecheckDownloading(false);
+    }
+  };
+
   const handleSubmit = async (values: BacktestFormValues) => {
     try {
       setLoading(true);
@@ -796,104 +981,27 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         },
       };
 
-      setIsBacktestRunning(true);
-      setErrorMessage('');
-
-      abortControllerRef.current = new AbortController();
-
-      // 添加启动超时机制（30秒）
-      const startTimeout = setTimeout(() => {
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-          message.error('回测启动超时，请检查网络连接或代理配置');
-          setErrorMessage('回测启动超时，请检查网络连接或代理配置');
-          setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
-          setIsBacktestRunning(false);
-          setLoading(false);
-        }
-      }, 30000);
-
+      // 回测前数据预检：检查哪些品种缺少本地数据
       try {
-        // 先启动回测，获取 task_id
-        const backtestResult = await backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
-
-        // 清除启动超时
-        clearTimeout(startTimeout);
-
-        console.log('[BacktestConfig] 回测结果:', backtestResult);
-
-        // 检查回测是否启动成功
-        if (backtestResult?.status === 'failed') {
-          const errorMsg = backtestResult.message || '回测启动失败';
-          console.error('[BacktestConfig] 回测启动失败:', errorMsg);
-          message.error(errorMsg);
-          setErrorMessage(errorMsg);
-          setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
-          setIsBacktestRunning(false);
+        const precheck = await backtestApi.precheckData({
+          symbols: symbols,
+          timeframes: [values.interval || '15m'],
+          candle_type: 'spot',
+        });
+        if (!precheck.all_available && precheck.missing.length > 0) {
+          // 有缺失品种：弹窗提示，等待用户确认下载
+          pendingBacktestDataRef.current = backtestData;
+          setPrecheckMissing(precheck.missing);
+          setPrecheckVisible(true);
           setLoading(false);
           return;
         }
-
-        // 从后端返回结果中获取 task_id
-        const serverTaskId = backtestResult?.data?.task_id || backtestResult?.task_id;
-
-        if (!serverTaskId) {
-          console.error('[BacktestConfig] 后端未返回 task_id');
-          message.error('回测启动失败：未获取到任务ID');
-          setErrorMessage('回测启动失败：未获取到任务ID');
-          setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
-          setIsBacktestRunning(false);
-          setLoading(false);
-          return;
-        }
-
-        console.log('[BacktestConfig] 使用后端返回的 task_id:', serverTaskId);
-        setCurrentTaskId(serverTaskId);
-
-        // 立即显示进度弹窗
-        setProgressVisible(true);
-
-        // 延迟开始轮询，给后端一些初始化时间
-        setTimeout(() => {
-          startProgressPolling(serverTaskId);
-        }, 500);
-
-        // 注意：不再立即显示成功消息，而是等待轮询完成
-        // message.success('回测任务已创建，正在执行中...');
-      } catch (error) {
-        // 清除启动超时
-        clearTimeout(startTimeout);
-
-        if (error instanceof Error && (error.name === 'AbortError' || error.message?.includes('aborted'))) {
-          console.log('回测已被用户终止');
-          setErrorMessage('回测已终止');
-          setStepStatus(prev => ({
-            ...prev,
-            execution: 'error',
-            analysis: 'error',
-          }));
-          message.info('回测已终止');
-        } else {
-          console.error('执行回测失败:', error);
-          const errorMsg = error instanceof Error ? error.message : '执行回测失败';
-          setErrorMessage(errorMsg);
-
-          setStepStatus(prev => {
-            const newStatus = { ...prev };
-            if (currentStep === 0) newStatus.dataPrep = 'error';
-            else if (currentStep === 1) newStatus.execution = 'error';
-            else newStatus.analysis = 'error';
-            return newStatus;
-          });
-
-          message.error(errorMsg);
-        }
-        setIsBacktestRunning(false);
-        setCurrentTaskId('');
-        abortControllerRef.current = null;
-        // 停止轮询
-        stopProgressPolling();
+      } catch (e) {
+        // 预检失败不阻塞回测，降级走原有流程让引擎自行处理
+        console.warn('[BacktestConfig] 数据预检失败，跳过:', e);
       }
+
+      await executeBacktest(backtestData);
     } catch (error) {
       console.error('执行回测失败:', error);
       setErrorMessage(error instanceof Error ? error.message : '执行回测失败');
@@ -1286,6 +1394,58 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             </Form>
           </TabPane>
         </Tabs>
+      </Modal>
+
+      {/* 回测前数据预检弹窗 */}
+      <Modal
+        title="数据缺失提醒"
+        open={precheckVisible}
+        onCancel={() => {
+          if (precheckDownloading) {
+            precheckAbortRef.current?.abort();
+          }
+          setPrecheckVisible(false);
+          setPrecheckDownloading(false);
+        }}
+        footer={precheckDownloading ? null : [
+          <Button key="cancel" onClick={() => setPrecheckVisible(false)}>取消</Button>,
+          <Button
+            key="download"
+            type="primary"
+            onClick={handlePrecheckDownload}
+          >
+            下载并回测
+          </Button>,
+        ]}
+        width={560}
+      >
+        <Space direction="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
+          <div>
+            以下 <b>{precheckMissing.length}</b> 个品种×周期缺少本地数据，回测前需要下载：
+          </div>
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12 }}>
+            <Space wrap size={[8, 8]}>
+              {precheckMissing.map((m, i) => (
+                <Tag key={`${m.symbol}-${m.timeframe}-${i}`} color="orange" style={{ fontFamily: 'monospace' }}>
+                  {m.symbol} · {m.timeframe}
+                </Tag>
+              ))}
+            </Space>
+          </div>
+          {precheckDownloading && (
+            <>
+              <Progress percent={precheckDownloadProgress} status="active" />
+              <div style={{ color: '#666', fontSize: 13 }}>{precheckDownloadMsg}</div>
+            </>
+          )}
+          <div style={{ color: '#999', fontSize: 12 }}>
+            下载将覆盖回测所选时间范围。如自动下载失败，可
+            <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/data-management')}>
+              前往数据管理页手动处理
+            </Button>
+            。
+          </div>
+        </Space>
       </Modal>
 
       <BacktestProgressModal

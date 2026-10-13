@@ -17,6 +17,8 @@ import {
   Descriptions,
   Space,
   DatePicker,
+  Modal,
+  Tag,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -26,6 +28,8 @@ import { backtestApi } from '../../api';
 import MetricCard from '../../components/MetricCard';
 import TradeTable from '../../components/TradeTable';
 import EquityChart from '../../components/EquityChart';
+import EChart from '@/components/EChart';
+import { useQuantColors } from '@/utils/colors';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
@@ -68,6 +72,31 @@ interface EquityCurvePoint {
   margin?: number;
 }
 
+// 因子分析载荷（后端结果 JSON factors 字段）
+interface FactorTimeSeries {
+  timestamps: number[];
+  formatted_times: string[];
+  // 每因子一列值（NaN 用 null 表示）；列式紧凑编码，前端按因子名取列
+  [factorName: string]: number[] | string[] | null;
+}
+
+interface FactorAttribution {
+  stats: { mean: number; std: number; min: number; max: number; median: number; q25: number; q75: number };
+  ic: number | null;
+  rank_ic: number | null;
+  icir: number | null;
+  group_returns: Record<string, number>;
+  long_short_return: number | null;
+}
+
+interface BacktestFactors {
+  names: string[];
+  thresholds: Record<string, { buy?: number; sell?: number }>;
+  time_series: FactorTimeSeries;
+  trade_factors: Array<Record<string, number | string | null>>;
+  attribution: Record<string, FactorAttribution>;
+}
+
 // 后端实际返回的数据结构
 interface BacktestResponse {
   id: string;
@@ -84,6 +113,7 @@ interface BacktestResponse {
   metrics: BacktestMetrics[];
   trades: BacktestTrade[];
   equity_curve: EquityCurvePoint[];
+  factors?: BacktestFactors;
   status: string;
   created_at: string;
 }
@@ -94,11 +124,13 @@ const BacktestDetail = () => {
   const { t } = useTranslation();
   const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
   const isDark = theme === 'dark';
+  const qc = useQuantColors();
 
   const [loading, setLoading] = useState(true);
   const [backtestData, setBacktestData] = useState<BacktestResponse | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('all');
   const [symbols, setSymbols] = useState<string[]>([]);
+  const [showAllSymbols, setShowAllSymbols] = useState(false);
   const [exporting, setExporting] = useState(false);
   // 高级筛选状态
   const [filterSide, setFilterSide] = useState<string>('all');
@@ -330,7 +362,19 @@ const BacktestDetail = () => {
               {strategyName}
             </Descriptions.Item>
             <Descriptions.Item label="交易标的">
-              {selectedSymbol || symbols.join(', ')}
+              {symbols.length === 0 ? '-' : (
+                <>
+                  {symbols.slice(0, 3).join('、')}
+                  {symbols.length > 3 && (
+                    <>
+                      {' '}等 {symbols.length} 个
+                      <Button type="link" size="small" style={{ padding: 0, marginLeft: 8 }} onClick={() => setShowAllSymbols(true)}>
+                        查看全部
+                      </Button>
+                    </>
+                  )}
+                </>
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="时间周期">
               {backtestConfig.interval || '-'}
@@ -558,6 +602,105 @@ const BacktestDetail = () => {
           )}
         </Card>
 
+        {/* 因子分析（仅当回测配置了 factor_names 时渲染） */}
+        {backtestData.factors && backtestData.factors.names && backtestData.factors.names.length > 0 && (
+          <Card title="因子分析" className="mb-6">
+            <Space direction="vertical" size="large" style={{ display: 'flex', width: '100%' }}>
+              {/* 因子概览：名称 + 阈值 */}
+              <Descriptions bordered column={{ xs: 1, sm: 2, md: 3 }} size="small">
+                <Descriptions.Item label="使用因子">
+                  {backtestData.factors.names.join('、')}
+                </Descriptions.Item>
+                {Object.entries(backtestData.factors.thresholds || {}).map(([fname, th]) => (
+                  <Descriptions.Item key={fname} label={`${fname} 阈值`}>
+                    {th.buy != null && `买入 ≥ ${th.buy}`}
+                    {th.buy != null && th.sell != null && ' / '}
+                    {th.sell != null && `卖出 ≤ ${th.sell}`}
+                  </Descriptions.Item>
+                ))}
+              </Descriptions>
+
+              {/* 因子时序曲线 */}
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>因子时序</div>
+                {(() => {
+                  const ts = backtestData.factors!.time_series;
+                  const xData = ts.formatted_times as string[];
+                  const series = backtestData.factors!.names.map((name) => ({
+                    name,
+                    type: 'line',
+                    data: (ts[name] as (number | null)[]) || [],
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { width: 1.5 },
+                  }));
+                  return (
+                    <EChart
+                      option={{
+                        tooltip: { trigger: 'axis' },
+                        legend: { data: backtestData.factors!.names, top: 0 },
+                        grid: { left: 50, right: 20, top: 40, bottom: 40 },
+                        xAxis: { type: 'category', data: xData, axisLabel: { fontSize: 10 } },
+                        yAxis: { type: 'value', scale: true },
+                        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16 }],
+                        series,
+                        color: qc.chartSeries,
+                      }}
+                      style={{ height: 320, width: '100%' }}
+                    />
+                  );
+                })()}
+              </div>
+
+              {/* 因子归因指标 + 分组收益 */}
+              {Object.entries(backtestData.factors.attribution || {}).map(([fname, attr]) => (
+                <div key={fname}>
+                  <div style={{ fontWeight: 600, marginBottom: 8 }}>{fname} · 绩效归因</div>
+                  <Row gutter={[12, 12]}>
+                    <Col xs={12} sm={8} md={6} lg={4}>
+                      <MetricCard label="IC" value={attr.ic != null ? attr.ic.toFixed(4) : 'N/A'} type={attr.ic && attr.ic >= 0 ? 'positive' : 'negative'} />
+                    </Col>
+                    <Col xs={12} sm={8} md={6} lg={4}>
+                      <MetricCard label="Rank IC" value={attr.rank_ic != null ? attr.rank_ic.toFixed(4) : 'N/A'} type={attr.rank_ic && attr.rank_ic >= 0 ? 'positive' : 'negative'} />
+                    </Col>
+                    <Col xs={12} sm={8} md={6} lg={4}>
+                      <MetricCard label="ICIR" value={attr.icir != null ? attr.icir.toFixed(4) : 'N/A'} />
+                    </Col>
+                    <Col xs={12} sm={8} md={6} lg={4}>
+                      <MetricCard label="多空收益" value={attr.long_short_return != null ? (attr.long_short_return * 100).toFixed(2) + '%' : 'N/A'} type={attr.long_short_return && attr.long_short_return >= 0 ? 'positive' : 'negative'} />
+                    </Col>
+                    <Col xs={12} sm={8} md={6} lg={4}>
+                      <MetricCard label="因子均值" value={attr.stats?.mean != null ? attr.stats.mean.toFixed(4) : 'N/A'} />
+                    </Col>
+                    <Col xs={12} sm={8} md={6} lg={4}>
+                      <MetricCard label="因子标准差" value={attr.stats?.std != null ? attr.stats.std.toFixed(4) : 'N/A'} />
+                    </Col>
+                  </Row>
+                  {/* 分组收益柱状图 */}
+                  {attr.group_returns && Object.keys(attr.group_returns).length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <EChart
+                        option={{
+                          tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => (v as number).toFixed(4) },
+                          grid: { left: 60, right: 20, top: 20, bottom: 40 },
+                          xAxis: { type: 'category', data: Object.keys(attr.group_returns) },
+                          yAxis: { type: 'value', axisLabel: { formatter: (v: number) => (v * 100).toFixed(1) + '%' } },
+                          series: [{
+                            type: 'bar',
+                            data: Object.values(attr.group_returns),
+                            itemStyle: { color: (p: any) => (p.value >= 0 ? qc.positive : qc.negative) },
+                          }],
+                        }}
+                        style={{ height: 220, width: '100%' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Space>
+          </Card>
+        )}
+
         {/* 交易详情 */}
         <Card
           title="交易详情"
@@ -660,6 +803,23 @@ const BacktestDetail = () => {
           )}
         </Card>
       </div>
+
+      {/* 全部交易标的弹窗（标的过多时点开查看） */}
+      <Modal
+        title={`全部交易标的（共 ${symbols.length} 个）`}
+        open={showAllSymbols}
+        onCancel={() => setShowAllSymbols(false)}
+        footer={<Button onClick={() => setShowAllSymbols(false)}>关闭</Button>}
+        width={640}
+      >
+        <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+          <Space wrap size={[8, 8]}>
+            {symbols.map((s) => (
+              <Tag key={s} style={{ fontSize: 13, fontFamily: 'monospace' }}>{s}</Tag>
+            ))}
+          </Space>
+        </div>
+      </Modal>
     </PageContainer>
   );
 };
