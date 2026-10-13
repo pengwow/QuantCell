@@ -11,6 +11,7 @@
     - POST /run: 执行回测
     - POST /stop: 终止回测
     - GET /{backtest_id}: 获取回测详情
+    - GET /{backtest_id}/replay: 获取回测回放数据
     - GET /{backtest_id}/symbols: 获取回测货币对列表
     - POST /analyze: 分析回测结果
     - DELETE /delete/{backtest_id}: 删除回测结果
@@ -22,6 +23,7 @@
 日期: 2026-02-12
 """
 
+import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -32,6 +34,7 @@ from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
+from .data_provider import BacktestDataProvider
 from .progress_tracker import StageStatus, get_progress_tracker
 from .schemas import (
     ApiResponse,
@@ -122,6 +125,51 @@ def get_strategy_list() -> ApiResponse:
         return ApiResponse(code=0, message="获取策略类型列表成功", data={"strategies": strategies})
     except Exception as e:
         logger.error(f"获取策略类型列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/precheck-data",
+    response_model=ApiResponse,
+    summary="回测前数据预检",
+    description="检查给定品种×周期的 Parquet 文件是否存在，返回缺失列表。只读文件系统，不加载数据。",
+)
+def precheck_data(
+    symbols: str,
+    timeframes: str,
+    candle_type: str = "spot",
+) -> ApiResponse:
+    """回测前预检哪些品种缺少本地数据。
+
+    Args:
+        symbols: 逗号分隔的交易对列表，如 "ETH/USDT,LTC/USDT"
+        timeframes: 逗号分隔的周期列表，如 "15m,1h"
+        candle_type: 市场类型 spot/future
+
+    Returns:
+        ApiResponse: data 包含 all_available / missing / available
+    """
+    try:
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        timeframe_list = [t.strip() for t in timeframes.split(",") if t.strip()]
+
+        if not symbol_list or not timeframe_list:
+            return ApiResponse(
+                code=0,
+                message="参数为空，无需检查",
+                data={"all_available": True, "missing": [], "available": []},
+            )
+
+        provider = BacktestDataProvider()
+        result = provider.check_data_availability(
+            symbols=symbol_list,
+            timeframes=timeframe_list,
+            candle_type=candle_type,
+        )
+
+        return ApiResponse(code=0, message="数据预检完成", data=result)
+    except Exception as e:
+        logger.error(f"数据预检失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -517,6 +565,9 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
     """
     获取回测结果详情
 
+    任务信息与策略代码从数据库读取；结果数据仅来自结果 JSON 文件
+    （文件不存在时相关字段返回空列表）。
+
     Args:
         backtest_id: 回测ID
 
@@ -526,15 +577,12 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
     try:
         logger.info(f"获取回测结果详情请求，回测ID: {backtest_id}")
 
-        # 从数据库获取回测任务和结果
-        import json
-
-        from backtest.models import BacktestResult, BacktestTask
+        # models/db_session 在函数内 import：依赖数据库连接初始化时机，保持原有加载模式
+        from backtest.models import BacktestTask
         from strategy.models import Strategy
         from utils.db_session import get_db_session
 
         with get_db_session() as db:
-            # 获取回测任务
             task = db.query(BacktestTask).filter_by(id=backtest_id).first()
 
             if not task:
@@ -549,32 +597,35 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
             except Exception as e:
                 logger.warning(f"解析回测配置失败: {e}")
 
-            # 获取回测结果
-            result_record = db.query(BacktestResult).filter_by(task_id=backtest_id).first()
-
-            metrics = []
-            trades = []
-            equity_curve = []
-
-            if result_record:
-                try:
-                    if result_record.metrics:
-                        metrics = json.loads(result_record.metrics)
-                    if result_record.trades:
-                        trades = json.loads(result_record.trades)
-                    if result_record.equity_curve:
-                        equity_curve = json.loads(result_record.equity_curve)
-                except Exception as e:
-                    logger.warning(f"解析结果数据失败: {e}")
-
-            # 获取策略代码
+            # 获取策略代码（Strategy 模型的代码字段是 code，不是 content）
             strategy_code = None
             try:
                 strategy = db.query(Strategy).filter_by(name=task.strategy_name).first()
                 if strategy:
-                    strategy_code = strategy.content
+                    strategy_code = strategy.code
             except Exception as e:
                 logger.warning(f"获取策略代码失败: {e}")
+
+            status = task.status
+            metrics: list = []
+            trades: list = []
+            equity_curve: list = []
+            positions: list = []
+            factors: dict = {}
+
+            # 结果 JSON 是回测结果的唯一真实来源；无 JSON（未跑完/已清理）时保持空列表
+            json_result = backtest_service.get_result(backtest_id)
+            if isinstance(json_result, dict):
+                status = json_result.get("status") or status
+                results = json_result.get("results") or {}
+                # 多品种回测时详情页默认展示第一个品种（品种切换走 /symbols + 前端过滤）
+                first_result = next(iter(results.values()), None)
+                if isinstance(first_result, dict):
+                    metrics = first_result.get("metrics") or []
+                    trades = first_result.get("trades") or []
+                    equity_curve = first_result.get("equity_curve") or []
+                    positions = first_result.get("positions") or []
+                    factors = first_result.get("factors") or {}
 
             # 构建前端期望的响应格式
             detail_data = {
@@ -584,7 +635,9 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
                 "metrics": metrics,
                 "equity_curve": equity_curve,
                 "trades": trades,
-                "status": task.status,
+                "positions": positions,
+                "factors": factors,
+                "status": status,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "code": strategy_code,
             }
@@ -594,6 +647,93 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
 
     except Exception as e:
         logger.error(f"获取回测结果详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{backtest_id}/replay",
+    response_model=ApiResponse,
+    summary="获取回测回放数据",
+    description="获取回放所需的 K 线、成交记录与权益曲线（取自结果 JSON 文件），支持按品种过滤",
+)
+def get_backtest_replay(backtest_id: str, symbol: str | None = None) -> ApiResponse:
+    """
+    获取回测回放数据（供前端回放页 klinecharts 渲染）
+
+    Args:
+        backtest_id: 回测ID
+        symbol: 品种（如 "ETH/USDT"），缺省取结果中的第一个品种
+
+    Returns:
+        ApiResponse: API响应，包含 kline_data/trades/equity_curve/backtest_config 等
+    """
+    try:
+        logger.info(f"获取回放数据请求，回测ID: {backtest_id}, 品种: {symbol}")
+
+        # 任务信息走数据库（结果 JSON 里只有结果数据）
+        from backtest.models import BacktestTask
+        from utils.db_session import get_db_session
+
+        json_result = backtest_service.get_result(backtest_id)
+        if not isinstance(json_result, dict):
+            return ApiResponse(code=1, message="回测结果文件不存在", data={})
+
+        results = json_result.get("results") or {}
+
+        # 品种键格式为 "ETH/USDT_15m"（SYMBOL_TIMEFRAME），按前缀匹配；缺省取第一个品种
+        entry = None
+        if symbol:
+            entry = next((v for k, v in results.items() if k == symbol or k.startswith(f"{symbol}_")), None)
+            if entry is None:
+                logger.warning(f"结果中未找到品种 {symbol}，回退到第一个品种")
+        if entry is None:
+            entry = next(iter(results.values()), None)
+        entry = entry if isinstance(entry, dict) else {}
+
+        backtest_config = {}
+        created_at = None
+        strategy_name = ""
+        task_status = ""
+        with get_db_session() as db:
+            task = db.query(BacktestTask).filter_by(id=backtest_id).first()
+            if task:
+                strategy_name = task.strategy_name
+                created_at = task.created_at.isoformat() if task.created_at else None
+                task_status = task.status
+                try:
+                    if task.backtest_config:
+                        backtest_config = json.loads(task.backtest_config)
+                except Exception as e:
+                    logger.warning(f"解析回测配置失败: {e}")
+
+        # backtest_config中的 symbol/interval 以结果实际品种为准（回放页据此初始化图表）
+        if entry.get("symbol"):
+            backtest_config["symbol"] = entry["symbol"]
+        if entry.get("timeframe"):
+            backtest_config["interval"] = entry["timeframe"]
+
+        replay_data = {
+            "id": backtest_id,
+            "strategy_name": strategy_name,
+            "backtest_config": backtest_config,
+            "metrics": entry.get("metrics") or [],
+            "kline_data": entry.get("klines") or [],
+            "trades": entry.get("trades") or [],
+            "equity_curve": entry.get("equity_curve") or [],
+            "factors": entry.get("factors") or {},
+            "status": json_result.get("status") or task_status,
+            "created_at": created_at,
+            "metadata": {
+                "successful_currencies": json_result.get("successful_currencies", []),
+                "failed_currencies": json_result.get("failed_currencies", []),
+            },
+        }
+
+        logger.info(f"成功获取回放数据，回测ID: {backtest_id}")
+        return ApiResponse(code=0, message="获取回放数据成功", data=replay_data)
+
+    except Exception as e:
+        logger.error(f"获取回放数据失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

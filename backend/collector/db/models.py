@@ -386,8 +386,9 @@ class ScheduledTask(TimezoneAwareBase):
     )
 
 
-# 注意：BacktestTask 和 BacktestResult 模型已迁移到 backtest.models
-# 请使用 from backtest.models import BacktestTask, BacktestResult
+# 注意：BacktestTask 模型已迁移到 backtest.models
+# 请使用 from backtest.models import BacktestTask
+# （BacktestResult 表因全链路无写入点已删除，回测结果统一存结果 JSON 文件）
 
 
 class AIModel(TimezoneAwareBase):

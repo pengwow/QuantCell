@@ -680,6 +680,10 @@ class ResultFormatterService:
                 "trades": trades,
                 "positions": results.get("positions", []),
                 "equity_curve": results.get("equity_curve", []),
+                # 清洗后的 K 线（回放页 kline_data 数据源，仅存结果 JSON）
+                "klines": results.get("klines", []),
+                # 因子分析载荷（仅当回测配置了 factor_names 时存在）
+                "factors": results.get("factors", {}),
             }
         }
 

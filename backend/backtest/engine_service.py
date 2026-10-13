@@ -151,6 +151,9 @@ class EventDrivenBacktestService:
             msg = "没有成功加载任何数据，回测无法继续"
             raise ValueError(msg)
 
+        # 因子特征帧：回测后用于详情页因子分析（时序、归因、交易时点因子值）
+        feature_frames: dict[str, pd.DataFrame] | None = None
+
         # 因子特征：用因子库预计算逐品种特征帧并回填，BacktestLoop 逐 bar 注入
         if factor_names and data_type == "kline":
             from factor.features import attach_feature_frames, build_feature_frames
@@ -176,6 +179,7 @@ class EventDrivenBacktestService:
                 end=f_end,
                 rank_factor=rank_factor if len(symbols) >= 2 else None,
             )
+            feature_frames = frames
             attach_feature_frames(loaded_data, frames)
 
         # 2. 初始化引擎
@@ -187,7 +191,7 @@ class EventDrivenBacktestService:
         )
 
         # 3. 加载数据到引擎
-        _instruments, bar_types = self._load_data_to_engine(
+        _instruments, bar_types, cleaned_data = self._load_data_to_engine(
             engine=engine,
             data_dict=data_dict,
             symbols=symbols,
@@ -228,6 +232,9 @@ class EventDrivenBacktestService:
 
         is_event_driven = not isinstance(strategy, BaseStrategy)
 
+        # 多品种结果占位（单品种路径不赋值，保持 None）
+        per_symbol_results: dict[str, dict[str, Any]] | None = None
+
         if is_event_driven:
             # —— EventDrivenStrategy 路径 ——
             # 数据和 instrument 已在 _load_data_to_engine 注入 EventDrivenBacktestEngine，
@@ -236,12 +243,40 @@ class EventDrivenBacktestService:
             result_dict = engine.run_backtest()  # dict: {trades, positions, equity_curve, account, metrics}
             # 转成统一 dict 格式供 ResultFormatterService.format_axon_results 消费
             raw_results = self._event_engine_result_to_dict(result_dict, symbols)
+            # 清洗后的 K 线写入结果，供回放页 kline_data 使用（只进结果 JSON，不入 DB）
+            tf0 = timeframes[0] if timeframes else "1h"
+            kline_df = cleaned_data.get(f"{symbols[0]}_{tf0}")
+            if kline_df is not None:
+                # 回测区间：config 可能是 time_range 字符串或 start_time/end_time 风格
+                k_start = k_end = None
+                try:
+                    from utils.validation import parse_time_range
+
+                    if time_range:
+                        k_start, k_end = parse_time_range(time_range)
+                    else:
+                        s, e = (engine_config or {}).get("start_time"), (engine_config or {}).get("end_time")
+                        if s and e:
+                            k_start, k_end = s, e
+                except Exception as e2:
+                    logger.warning(f"回放 K 线区间解析失败，使用全量数据: {e2}")
+
+                if k_start and k_end:
+                    # df.index 是 UTC tz-aware，naive 端点需先 localize，否则比较报 TypeError
+                    k0, k1 = pd.Timestamp(k_start), pd.Timestamp(k_end)
+                    k0 = k0.tz_localize("UTC") if k0.tz is None else k0.tz_convert("UTC")
+                    k1 = k1.tz_localize("UTC") if k1.tz is None else k1.tz_convert("UTC")
+                    clipped = kline_df.loc[(kline_df.index >= k0) & (kline_df.index <= k1)]
+                    # 比较结果为空（时区/格式异常），回退全量
+                    kline_df = clipped if not clipped.empty else kline_df
+
+                raw_results["klines"] = self._klines_to_records(kline_df)
             # run_backtest 汇总所有品种，没法按 symbol 拆分 per_symbol_results，
             # 多品种场景目前只走 BaseStrategy 模板的 BacktestLoop 路径
             if len(symbols) > 1:
                 msg = f"EventDrivenStrategy({type(strategy).__name__}) 暂不支持多品种回测，请改用 BaseStrategy 模板"
                 raise ValueError(msg)
-            per_symbol_results: dict[str, dict[str, Any]] = {}
+            per_symbol_results = {}
         else:
             # —— BaseStrategy 路径 —— 用 BacktestLoop
             from backtest.backtest_loop import BacktestLoop
@@ -281,7 +316,7 @@ class EventDrivenBacktestService:
                 _MIN_KEYS = {"data_start_ns"}
                 _MAX_KEYS = {"data_end_ns"}
                 aggregated_metrics: dict[str, Any] = {}
-                per_symbol_results: dict[str, dict[str, Any]] = {}
+                per_symbol_results = {}
                 for key, entry in loaded_data.items():
                     df = entry["data"]
                     parts = key.rsplit("_", 1)
@@ -308,6 +343,24 @@ class EventDrivenBacktestService:
                             aggregated_metrics[k] = max(cur, v) if cur else v
                 raw_results = aggregated_metrics
 
+        # 4.5 构建因子分析载荷（仅当配置了 factor_names 且特征帧可用时）
+        if factor_names and feature_frames:
+            factors_payload = self._build_factors_payload(
+                feature_frames=feature_frames,
+                loaded_data=loaded_data,
+                raw_results=raw_results,
+                per_symbol_results=per_symbol_results,
+                factor_names=factor_names,
+                strategy_params=strategy_params or {},
+                symbols=symbols,
+            )
+            if len(symbols) == 1:
+                raw_results["factors"] = factors_payload.get(symbols[0], {})
+            elif per_symbol_results:
+                for sym in symbols:
+                    if sym in per_symbol_results and sym in factors_payload:
+                        per_symbol_results[sym]["factors"] = factors_payload[sym]
+
         # 5. 格式化结果
         if len(symbols) == 1:
             # axon 引擎结果格式（final_nav/total_pnl/...）,
@@ -322,18 +375,159 @@ class EventDrivenBacktestService:
                 strategy_name=strategy_name,
             )
         else:
-            # 多品种结果汇总
+            # 多品种结果汇总（多品种路径下 per_symbol_results 必为 dict）
             formatted_results = self._format_results(
                 results=raw_results,
                 symbols=symbols,
                 timeframe=timeframes[0] if timeframes else "15m",
                 strategy_name=strategy_name,
-                per_symbol_results=per_symbol_results,
+                per_symbol_results=per_symbol_results or {},
             )
 
         logger.info("[EventDrivenBacktestService] 回测完成")
 
         return formatted_results
+
+    def _build_factors_payload(
+        self,
+        feature_frames: dict[str, pd.DataFrame],
+        loaded_data: dict[str, Any],
+        raw_results: dict[str, Any],
+        per_symbol_results: dict[str, dict[str, Any]] | None,
+        factor_names: list[str],
+        strategy_params: dict[str, Any],
+        symbols: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """从特征帧构建因子分析载荷（列式时序 + 交易时点因子值 + 归因）。
+
+        返回 {symbol: {names, thresholds, time_series, trade_factors, attribution}}。
+        任一环节失败时该 symbol 条目为 {}，不阻断回测主流程。
+        """
+        from factor.attribution import compute_factor_attribution
+
+        payload: dict[str, dict[str, Any]] = {}
+
+        for key, entry in loaded_data.items():
+            parts = key.rsplit("_", 1)
+            symbol = parts[0] if len(parts) > 1 else key
+            feat_df = entry.get("feature_dataframe")
+            if feat_df is None or feat_df.empty:
+                continue
+
+            try:
+                # ① 列式紧凑时序：共享 timestamps + 每因子一列值
+                idx = feat_df.index
+                ts_ms = (pd.to_datetime(idx, utc=True).tz_convert("UTC").asi8 // 1_000_000).tolist()
+                formatted = pd.to_datetime(idx, utc=True).strftime("%Y-%m-%d %H:%M:%S").tolist()
+
+                time_series: dict[str, Any] = {
+                    "timestamps": ts_ms,
+                    "formatted_times": formatted,
+                }
+                for col in feat_df.columns:
+                    time_series[col] = [None if pd.isna(v) else float(v) for v in feat_df[col]]
+
+                # ② 交易时点因子值：按 trade timestamp 在特征帧中 lookup
+                # 单品种用 raw_results.trades；多品种用 per_symbol_results[symbol].trades
+                if len(symbols) == 1 or not per_symbol_results:
+                    trades = raw_results.get("trades", [])
+                else:
+                    trades = per_symbol_results.get(symbol, {}).get("trades", [])
+                trade_factors = self._trade_factors_lookup(feat_df, trades)
+
+                # ③ 归因：取该品种的收盘价计算 forward returns
+                closes = self._extract_closes(entry.get("data"), idx)
+                attribution = compute_factor_attribution(feat_df, closes) if closes is not None else {}
+
+                payload[symbol] = {
+                    "names": list(feat_df.columns),
+                    "thresholds": self._extract_thresholds(strategy_params),
+                    "time_series": time_series,
+                    "trade_factors": trade_factors,
+                    "attribution": attribution,
+                }
+            except Exception as e:
+                logger.warning(f"品种 {symbol} 因子载荷构建失败: {e}")
+                payload[symbol] = {}
+
+        return payload
+
+    @staticmethod
+    def _trade_factors_lookup(feat_df: pd.DataFrame, trades: list[dict]) -> list[dict[str, Any]]:
+        """按每笔 trade 的 timestamp 在特征帧中查找最接近的 bar 的因子值。"""
+        if not trades:
+            return []
+
+        # 特征帧索引转毫秒，用于快速查找
+        idx_ms = pd.to_datetime(feat_df.index, utc=True).tz_convert("UTC").asi8 // 1_000_000
+        result: list[dict[str, Any]] = []
+        for trade in trades:
+            ts = trade.get("timestamp")
+            if ts is None:
+                result.append({})
+                continue
+            # 后端 trade timestamp 可能是秒级或毫秒级，统一转毫秒
+            ts_ms = int(ts) if int(ts) > 10_000_000_000 else int(ts) * 1000
+            # 找 <= ts_ms 的最大索引位置
+            pos = int(idx_ms.searchsorted(ts_ms, side="right")) - 1
+            if pos < 0 or pos >= len(idx_ms):
+                result.append({})
+                continue
+            row = feat_df.iloc[pos]
+            entry: dict[str, Any] = {
+                "timestamp": int(idx_ms[pos]),
+                "formatted_time": pd.to_datetime(feat_df.index[pos], utc=True).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            for col in feat_df.columns:
+                v = row[col]
+                entry[col] = None if pd.isna(v) else float(v)
+            result.append(entry)
+        return result
+
+    @staticmethod
+    def _extract_closes(data: Any, idx: pd.Index) -> pd.Series | None:
+        """从 loaded_data 的 data（DataFrame）中提取收盘价序列，对齐到 feat_df 索引。
+
+        特征帧索引是 naive datetime64[ns]（factor.engine._timestamps_to_datetime），
+        K 线数据索引是 UTC tz-aware DatetimeIndex，必须统一时区再求交集，
+        否则 intersection 为空导致归因无法计算。
+        """
+        if data is None or not isinstance(data, pd.DataFrame) or "close" not in data.columns:
+            return None
+        try:
+            closes = data["close"].copy()
+            # 统一到 UTC tz-aware
+            if closes.index.tz is None:
+                closes.index = closes.index.tz_localize("UTC")
+            else:
+                closes.index = closes.index.tz_convert("UTC")
+            feat_idx = pd.DatetimeIndex(idx)
+            if feat_idx.tz is None:
+                feat_idx = feat_idx.tz_localize("UTC")
+            else:
+                feat_idx = feat_idx.tz_convert("UTC")
+            common = closes.index.intersection(feat_idx)
+            if len(common) < 2:
+                return None
+            return closes.loc[common]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_thresholds(strategy_params: dict[str, Any]) -> dict[str, dict[str, float]]:
+        """从策略参数提取因子阈值（buy_threshold/sell_threshold）。"""
+        factor_name = strategy_params.get("factor_name")
+        if not factor_name:
+            return {}
+        thresholds: dict[str, dict[str, float]] = {}
+        entry: dict[str, float] = {}
+        if "buy_threshold" in strategy_params:
+            entry["buy"] = float(strategy_params["buy_threshold"])
+        if "sell_threshold" in strategy_params:
+            entry["sell"] = float(strategy_params["sell_threshold"])
+        if entry:
+            thresholds[factor_name] = entry
+        return thresholds
 
     def _convert_backtest_result(self, result) -> dict:
         """将 BacktestResult 对象转换为字典格式（兼容原有 API）"""
@@ -360,6 +554,25 @@ class EventDrivenBacktestService:
             "data_end_ns": result.data_end_ns,
             "bar_count": result.bar_count,
         }
+
+    @staticmethod
+    def _klines_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+        """清洗后的 K 线 DataFrame → JSON 友好的 list[dict]（回放页 kline_data）
+
+        klinecharts 要求毫秒时间戳，同时附 formatted_time 便于排障。
+        """
+        import json as _json
+
+        out = df.reset_index()
+        out.columns = [str(c).lower() for c in out.columns]
+        time_col = "timestamp" if "timestamp" in out.columns else out.columns[0]
+        ts = pd.to_datetime(out[time_col], utc=True)
+        # klinecharts 要求毫秒；先统一到 ms 精度再取整数值，
+        # 避免 astype("int64") 直接取原 dtype(usize/ns/s) 单位漂移
+        out[time_col] = ts.dt.as_unit("ms").astype("int64").tolist()
+        out["formatted_time"] = ts.dt.strftime("%Y-%m-%d %H:%M:%S")
+        # to_dict 后 ndarray 不利于 JSON 序列化，先转 records 再 round-trip 保证纯 JSON 类型
+        return _json.loads(out.to_json(orient="records", date_format="iso"))
 
     @staticmethod
     def _event_engine_result_to_dict(result_dict: dict, symbols: list[str]) -> dict[str, Any]:
@@ -397,6 +610,7 @@ class EventDrivenBacktestService:
             "total_fees": total_fees,
             "trade_count": len(result_dict.get("trades", [])),
             "trades": list(result_dict.get("trades", [])),
+            "positions": list(result_dict.get("positions", [])),
             "equity_curve": list(result_dict.get("equity_curve", [])),
             "data_start_ns": metrics.get("data_start_ns"),
             "data_end_ns": metrics.get("data_end_ns"),
@@ -516,7 +730,7 @@ class EventDrivenBacktestService:
             time_range: 时间范围字符串（用于资金费率筛选）
 
         Returns:
-            tuple: (instruments字典, bar_types字典)
+            tuple: (instruments字典, bar_types字典, 清洗后的K线DataFrame字典)
         """
         from decimal import Decimal
 
@@ -524,6 +738,7 @@ class EventDrivenBacktestService:
 
         instruments = {}
         bar_types = {}
+        cleaned_data: dict[str, pd.DataFrame] = {}
         is_futures = trading_mode == "futures"
 
         # 创建交易所（简单配置）
@@ -621,6 +836,9 @@ class EventDrivenBacktestService:
                 logger.error(f"发现非数值列: {non_numeric_cols}，将删除这些列")
                 df = df.drop(columns=non_numeric_cols)
 
+            # 保存清洗后的 K 线，供结果注入 klines（回放页数据源）
+            cleaned_data[key] = df
+
             bar_type_str = f"{symbol}-{timeframe}"
             bar_types[symbol] = bar_type_str
 
@@ -642,7 +860,7 @@ class EventDrivenBacktestService:
 
         logger.info(f"共加载 {len(instruments)} 个品种")
 
-        return instruments, bar_types
+        return instruments, bar_types, cleaned_data
 
     def _format_results(
         self,

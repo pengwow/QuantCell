@@ -410,6 +410,20 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         self._engine.push_event(event)
 
+    def get_engine_position(self, instrument: dict[str, Any]) -> float:
+        """
+        查询 axon 引擎中某品种的当前净持仓
+
+        Args:
+            instrument: 引擎注册的 instrument dict（如 {'kind':'spot','base':'ETH','quote':'USDT'}）
+
+        Returns:
+            float: 净持仓（base 单位，正=多，负=空），未交易过返回 0.0
+        """
+        if not self._engine:
+            return 0.0
+        return float(self._engine.get_position(instrument))
+
     def run_backtest(self) -> dict[str, Any]:
         """
         运行回测
@@ -523,6 +537,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                         self._total_fills += getattr(stats, "fills", 0)
                         self._total_events += getattr(stats, "events_processed", 0)
 
+                    # 撮合完成后同步策略本地持仓缓存（is_long/is_short/close_position 依赖它）
+                    for strategy in self._strategies:
+                        sync = getattr(strategy, "sync_positions", None)
+                        if sync is not None:
+                            sync()
+
                     processed += 1
                     if processed % 1000 == 0:
                         progress = (processed / total_bars) * 100
@@ -574,9 +594,16 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             # 使用适配层提取结果
             raw_results = extract_run_result(result)
 
+            # trades 记录里无 symbol 字段，用已注册品种补缺省值（"BASE/QUOTE" 格式）
+            default_symbol = ""
+            if self._instruments:
+                ins = next(iter(self._instruments.values()), {})
+                base, quote = ins.get("base", ""), ins.get("quote", "")
+                default_symbol = f"{base}/{quote}" if base and quote else ""
+
             # 构建完整的结果字典
             results = {
-                "trades": self._normalize_trades(raw_results.get("trades", [])),
+                "trades": self._normalize_trades(raw_results.get("trades", []), default_symbol),
                 "positions": self._normalize_positions(raw_results.get("positions", [])),
                 "equity_curve": self._normalize_equity_curve(raw_results.get("equity_curve", [])),
                 "account": self._build_account_info(raw_results),
@@ -594,12 +621,16 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             logger.error(f"错误堆栈:\n{traceback.format_exc()}")
             return {}
 
-    def _normalize_trades(self, raw_trades: list) -> list[dict[str, Any]]:
-        """标准化交易记录格式"""
+    def _normalize_trades(self, raw_trades: list, default_symbol: str = "") -> list[dict[str, Any]]:
+        """标准化交易记录格式
+
+        Rust trade dict 真实键：timestamp_ns / price / quantity / buyer_order_id /
+        seller_order_id / realized_pnl / commission / net_quantity（无 side/symbol）。
+        """
         trades = []
         for i, trade in enumerate(raw_trades):
             if isinstance(trade, dict):
-                ts = trade.get("ts", trade.get("timestamp", 0))
+                ts = trade.get("timestamp_ns", trade.get("ts", trade.get("timestamp", 0)))
                 formatted_time = ""
                 timestamp_val = 0
 
@@ -620,12 +651,20 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 price = _safe_float(trade.get("price", trade.get("avg_px", 0)))
                 quantity = _safe_float(trade.get("quantity", trade.get("qty", 0)))
                 side = str(trade.get("side", "")).upper()
+                if not side:
+                    # Rust trade 无 side 字段：订单 id 小的一方是主动单(taker)，
+                    # 用买卖双方订单 id 比较推断主动方向
+                    buyer_id = trade.get("buyer_order_id")
+                    seller_id = trade.get("seller_order_id")
+                    if buyer_id is not None and seller_id is not None:
+                        side = "BUY" if buyer_id < seller_id else "SELL"
                 direction = "买入" if side in ("BUY", "0") else "卖出" if side in ("SELL", "1") else side
                 status = str(trade.get("status", "filled"))
                 trade_id = str(trade.get("trade_id", trade.get("id", f"trade_{i}")))
                 order_id = str(trade.get("order_id", trade.get("client_order_id", "")))
-                instrument_id = str(trade.get("instrument_id", trade.get("symbol", "")))
+                instrument_id = str(trade.get("instrument_id") or trade.get("symbol") or default_symbol)
                 commission = str(trade.get("commission", trade.get("fees", "0")))
+                realized_pnl = _safe_float(trade.get("realized_pnl", 0))
 
                 trades.append(
                     {
@@ -640,6 +679,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                         "price": price,
                         "volume": quantity * price,
                         "commission": commission,
+                        # formatter 的胜率/盈亏统计读取 PnL/pnl 字段
+                        "PnL": realized_pnl,
                         "timestamp": timestamp_val,
                         "formatted_time": formatted_time,
                         "status": status,
@@ -683,31 +724,55 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         return positions
 
     def _normalize_equity_curve(self, raw_curve: list) -> list[dict[str, Any]]:
-        """标准化权益曲线格式"""
+        """标准化权益曲线格式
+
+        兼容三种输入：Rust RunResult.equity_curve 的 (timestamp_ns, nav) 元组、
+        纯 nav 数字、含 nav/equity 键的 dict。
+        输出与 BacktestLoop 对齐（datetime/Equity/equity/formatted_time/timestamp 毫秒），
+        并保留旧版 balance/margin 键（前端图表与既有测试依赖）。
+        """
         equity_curve = []
         for i, point in enumerate(raw_curve):
+            nav = 0.0
+            ts_ms = 0
+            formatted_time = ""
+
             if isinstance(point, dict):
                 nav = _safe_float(point.get("nav", point.get("equity", 0)))
-                equity_curve.append(
-                    {
-                        "timestamp": i,
-                        "formatted_time": "",
-                        "equity": nav,
-                        "balance": nav,
-                        "margin": 0.0,
-                    }
-                )
+            elif isinstance(point, (tuple, list)) and len(point) >= 2:
+                # (timestamp_ns, nav) 元组
+                nav = _safe_float(point[1])
+                ts = point[0]
+                if isinstance(ts, (int, float)) and ts > 0:
+                    if ts > 1e18:
+                        ts_sec = int(ts / 1e9)
+                    elif ts > 1e12:
+                        ts_sec = int(ts / 1000)
+                    else:
+                        ts_sec = int(ts)
+                    ts_ms = ts_sec * 1000
+                    try:
+                        dt = datetime.fromtimestamp(ts_sec, tz=UTC)
+                        formatted_time = dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                    except ValueError, OSError:
+                        formatted_time = str(ts)
             elif isinstance(point, (int, float)):
                 nav = _safe_float(point)
-                equity_curve.append(
-                    {
-                        "timestamp": i,
-                        "formatted_time": "",
-                        "equity": nav,
-                        "balance": nav,
-                        "margin": 0.0,
-                    }
-                )
+            else:
+                # 无法识别的项跳过（与旧版一致），下标继续占用
+                continue
+
+            equity_curve.append(
+                {
+                    "datetime": formatted_time,
+                    "Equity": nav,
+                    "equity": nav,
+                    "balance": nav,
+                    "margin": 0.0,
+                    "formatted_time": formatted_time,
+                    "timestamp": ts_ms or i,
+                }
+            )
         return equity_curve
 
     def _build_account_info(self, raw_results: dict[str, Any]) -> dict[str, Any]:

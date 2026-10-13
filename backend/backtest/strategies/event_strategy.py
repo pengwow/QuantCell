@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from abc import abstractmethod
 from decimal import Decimal
 from typing import Any
@@ -23,6 +24,12 @@ from typing import Any
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+# 引擎内部品种 key 不带分隔符（如 ETHUSDT），而策略配置/前端常传 "ETH/USDT"、"ETH-USDT"。
+# 所有品种 ID 查找必须先经过这里归一化，否则查不到 instrument 导致订单全部被拒。
+def normalize_instrument_id(instrument_id: Any) -> str:
+    return re.sub(r"[/\-_. ]", "", str(instrument_id))
 
 
 def _get_axon_bridge():
@@ -151,12 +158,16 @@ class EventDrivenStrategy:
             return
 
         engine = self._engine_ref
-        for instrument_id in self.config.instrument_ids:
+        for raw_id in self.config.instrument_ids:
+            instrument_id = normalize_instrument_id(raw_id)
             instrument = engine.get_instrument(instrument_id)
-            if instrument is not None:
-                self._instruments[instrument_id] = instrument
-                self._position_qty[instrument_id] = 0.0
-                self._position_avg_px[instrument_id] = 0.0
+            if instrument is None:
+                # 明确告警而不是静默跳过：加载失败的品种下单时必然全部被拒
+                logger.warning(f"引擎中未找到交易品种: {raw_id} (归一化为 {instrument_id})")
+                continue
+            self._instruments[instrument_id] = instrument
+            self._position_qty[instrument_id] = 0.0
+            self._position_avg_px[instrument_id] = 0.0
 
         logger.info(f"已加载 {len(self._instruments)} 个交易品种")
 
@@ -230,7 +241,7 @@ class EventDrivenStrategy:
         Returns:
             str: 订单 ID，下单失败返回 None
         """
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         qty = float(quantity) if quantity else float(self.config.trade_size)
 
         instrument = self._instruments.get(target_id)
@@ -311,7 +322,7 @@ class EventDrivenStrategy:
         Returns:
             str: 订单 ID，下单失败返回 None
         """
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         qty = float(quantity) if quantity else float(self.config.trade_size)
 
         instrument = self._instruments.get(target_id)
@@ -382,7 +393,7 @@ class EventDrivenStrategy:
         Returns:
             str: 订单 ID
         """
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         qty = abs(self._position_qty.get(target_id, 0))
         if qty <= 0:
             logger.info(f"{target_id} 无持仓可平")
@@ -442,6 +453,18 @@ class EventDrivenStrategy:
                     logger.debug(f"取消订单 {order_id} 失败: {e}")
         self._active_orders.clear()
 
+    def sync_positions(self) -> None:
+        """
+        从引擎同步净持仓到本地缓存
+
+        事件引擎在每根 bar 撮合完成后调用。策略本身不感知成交事件，
+        is_long/is_short/close_position 依赖这里的最新净持仓。
+        """
+        if self._engine_ref is None:
+            return
+        for inst_id, instrument in self._instruments.items():
+            self._position_qty[inst_id] = self._engine_ref.get_engine_position(instrument)
+
     def get_position(self, instrument_id: Any | None = None) -> dict[str, Any]:
         """
         获取持仓信息
@@ -452,7 +475,7 @@ class EventDrivenStrategy:
         Returns:
             Dict: 持仓信息字典
         """
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         return {
             "symbol": target_id,
             "quantity": self._position_qty.get(target_id, 0),
@@ -469,22 +492,22 @@ class EventDrivenStrategy:
         Returns:
             Decimal: 持仓数量，正数表示多头，负数表示空头
         """
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         return Decimal(str(self._position_qty.get(target_id, 0)))
 
     def is_flat(self, instrument_id: Any | None = None) -> bool:
         """检查是否空仓"""
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         return self._position_qty.get(target_id, 0) == 0
 
     def is_long(self, instrument_id: Any | None = None) -> bool:
         """检查是否持有多头"""
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         return self._position_qty.get(target_id, 0) > 0
 
     def is_short(self, instrument_id: Any | None = None) -> bool:
         """检查是否持有空头"""
-        target_id = instrument_id or self.config.instrument_id
+        target_id = normalize_instrument_id(instrument_id or self.config.instrument_id)
         return self._position_qty.get(target_id, 0) < 0
 
     def log_info(self, message: str) -> None:
