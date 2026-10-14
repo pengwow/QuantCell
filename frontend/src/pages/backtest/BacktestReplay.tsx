@@ -39,6 +39,9 @@ import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
 import type { ReplayData, ReplayKline, SymbolInfo } from '../../types/backtest';
 import PortfolioReplayView from './PortfolioReplayView';
+// 显式带 .tsx 扩展名：同目录存在仅大小写不同的 factorSnapshot.ts，
+// macOS 默认大小写不敏感文件系统下省略扩展名会误解析到该文件
+import FactorSnapshot from './FactorSnapshot.tsx';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -706,6 +709,9 @@ const BacktestReplay = () => {
     );
   }
 
+  // 播放当前 K 线时刻（毫秒），交易过滤与因子快照对齐共用
+  const currentMs = Number(replayData?.klines?.[currentIndex]?.timestamp) || 0;
+
   const progressPercent = replayData?.klines?.length 
     ? Math.round((currentIndex / (replayData.klines.length - 1)) * 100) 
     : 0;
@@ -928,6 +934,9 @@ const BacktestReplay = () => {
             className="replay-kline-chart"
           />
         </Card>
+
+        {/* 因子快照：随播放时刻对齐显示当前因子值与信号（无因子数据的回测不渲染） */}
+        <FactorSnapshot factors={replayData?.factors} currentMs={currentMs} />
 
         {/* 交易详情表格 - 使用 TradeTable 组件，根据播放进度动态显示 */}
         {replayData && (
