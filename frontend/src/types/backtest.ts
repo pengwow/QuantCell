@@ -164,6 +164,38 @@ export interface SymbolInfo {
   message: string;
 }
 
+// ---- 全局视角（组合）回放 ----
+// 账户稀疏点：[t(ms), equity, balance, margin, cum_pnl, drawdown, day_pnl]
+export type PortfolioAccountPoint = [number, number, number, number, number, number, number];
+
+// 成交流重建的单笔持仓事件（成交后净持仓状态）
+export interface PortfolioPositionEvent {
+  t: number;          // 归属网格点（ms）
+  ts: number;         // 成交时间（秒）
+  symbol: string;
+  side: string;       // BUY / SELL
+  qty: number;        // 成交后净持仓（正多 / 负空 / 0 平仓）
+  traded_qty: number; // 本次成交数量（带方向）
+  avg_cost: number;   // 成交后持仓均价
+  price: number;      // 成交价
+  pnl: number;        // 平仓/减仓实现盈亏
+}
+
+export interface PortfolioReplayData {
+  symbols: string[];
+  interval: string;
+  init_cash: number;
+  start_ms: number;       // 统一网格起点（ms）
+  end_ms: number;         // 统一网格终点（ms）
+  grid_count: number;     // 网格点数（等距，不回传全量）
+  grid_step_ms: number;   // 网格步长（ms）
+  account: PortfolioAccountPoint[];
+  position_events: PortfolioPositionEvent[];
+  // 持仓期收盘价点（仅净持仓非零网格）：{ symbol: [[t(ms), close], ...] }
+  holding_prices: Record<string, Array<[number, number]>>;
+  trades: ReplayTrade[];
+}
+
 // 回测货币对列表数据类型
 // 后端返回数据结构: { symbols: ["ETH/USDT", "BTC/USDT"], total: 2 }
 export interface BacktestSymbols {

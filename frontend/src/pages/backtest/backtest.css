@@ -1398,3 +1398,8 @@
     right: var(--spacing-sm);
   }
 }
+
+/* 全局回放：跨品种成交流中新成交行高亮 */
+.portfolio-new-trade > td {
+  background-color: rgba(24, 144, 255, 0.12) !important;
+}

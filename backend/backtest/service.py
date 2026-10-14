@@ -16,9 +16,12 @@
 """
 
 import json
+from bisect import bisect_left, bisect_right
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import pandas as pd
 
 from backtest.result_analysis import ResultAnalyzer
 
@@ -154,6 +157,24 @@ class BacktestService:
 
             service = EventDrivenBacktestService(data_provider)
 
+            # 引擎每开始一个品种回调一次，把 0/N → (N-1)/N 的真实进度
+            # 写入 tracker；跑完后的 100% 仍由下方统一更新
+            def _on_symbol_progress(done: int, total: int, symbol: str) -> None:
+                if not progress_tracker or total <= 0:
+                    return
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="execution",
+                    data={
+                        "progress": round(done / total * 100, 2),
+                        "status": "running",
+                        "current_symbol": symbol,
+                        "total_symbols": total,
+                        "completed_symbols": done,
+                        "message": f"正在回测: {symbol}",
+                    },
+                )
+
             raw_result = service.run_backtest(
                 strategy_name=task["strategy_name"],
                 strategy_params=task.get("strategy_params", {}),
@@ -162,6 +183,7 @@ class BacktestService:
                 engine_config={**engine_config, "log_level": "WARNING"},
                 show_progress=False,
                 factor_names=engine_config.get("factor_names"),
+                on_symbol_progress=_on_symbol_progress if progress_tracker else None,
             )
             # 将引擎原始结果包装为标准响应格式
             result = {
@@ -240,6 +262,391 @@ class BacktestService:
         with open(result_file, encoding="utf-8") as f:
             return json.load(f)
 
+    @staticmethod
+    def extract_symbol_entries(results: Any) -> dict[str, dict[str, Any]]:
+        """归一化结果 JSON 的 results 字段，返回 {symbol: 品种条目} 有序映射。
+
+        回测结果有两种结构：
+        - 单品种：{"ETH/USDT_15m": {symbol, timeframe, metrics, trades, ...}}
+        - 多品种：{is_multi_symbol: true, results_by_symbol: {symbol: 条目, ...},
+          portfolio, account, _meta, ...}
+
+        多品种封装里混有 strategy_name/symbols 等辅助键，单品种条目则以
+        "SYMBOL_TIMEFRAME" 为键；统一按 entry.symbol 建索引，过滤非品种键。
+        """
+        if not isinstance(results, dict):
+            return {}
+
+        # 多品种封装结构（results_by_symbol 存在即为多品种，is_multi_symbol 双重确认）
+        by_symbol = results.get("results_by_symbol")
+        if isinstance(by_symbol, dict) and by_symbol:
+            return {sym: entry for sym, entry in by_symbol.items() if isinstance(entry, dict)}
+
+        # 单品种结构：跳过 portfolio/_meta 等无 symbol 字段的辅助条目
+        entries: dict[str, dict[str, Any]] = {}
+        for entry in results.values():
+            if isinstance(entry, dict) and isinstance(entry.get("symbol"), str) and entry["symbol"]:
+                entries[entry["symbol"]] = entry
+        return entries
+
+    @staticmethod
+    def build_portfolio_view(results: dict[str, Any]) -> dict[str, Any]:
+        """组装多品种回测的「全部（组合）」视图。
+
+        引擎对多品种是 N 个独立资金池各自回测，组合视图口径：
+        - metrics：直接用回测落盘时算好的 portfolio.metrics（总收益率等已按
+          独立资金池合计口径二次计算，不能对百分比类指标做简单平均）
+        - trades/positions：各品种拼接（记录自带 symbol 字段），交易按时间升序
+        - equity_curve：各品种时间轴不一致（实测长度/起止均不同），按时间戳
+          并集对齐后逐时点求和；品种首个真实点之前按初始权益填充（尚未开跑），
+          中间缺失时点前向填充
+
+        Args:
+            results: 结果 JSON 的 results 字段（多品种封装结构）
+
+        Returns:
+            dict: {metrics, trades, equity_curve, positions}
+        """
+        entries = BacktestService.extract_symbol_entries(results)
+        portfolio = results.get("portfolio") if isinstance(results, dict) else None
+        metrics = portfolio.get("metrics") if isinstance(portfolio, dict) else None
+        metrics = metrics if isinstance(metrics, list) else []
+
+        # 交易/持仓拼接：交易 timestamp 为秒级，直接按其排序
+        all_trades: list[dict[str, Any]] = []
+        all_positions: list[dict[str, Any]] = []
+        for entry in entries.values():
+            all_trades.extend(t for t in (entry.get("trades") or []) if isinstance(t, dict))
+            all_positions.extend(p for p in (entry.get("positions") or []) if isinstance(p, dict))
+        all_trades.sort(key=lambda t: t.get("timestamp") or 0)
+
+        merged_curve = BacktestService._merge_equity_curves(
+            [entry.get("equity_curve") or [] for entry in entries.values()]
+        )
+
+        return {
+            "metrics": metrics,
+            "trades": all_trades,
+            "equity_curve": merged_curve,
+            "positions": all_positions,
+        }
+
+    @staticmethod
+    def _merge_equity_curves(curves: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+        """把多条独立资金池权益曲线按时间戳并集对齐后求和。
+
+        单条曲线缺失时点的处理：首个真实点之前按该品种首点权益填充（尚未开跑，
+        权益即初始资金）；其后缺失时点前向填充（权益停留在最近一个真实值）。
+        空曲线（无任何点）按零贡献处理。
+        """
+        valid_curves = [c for c in curves if c]
+        if not valid_curves:
+            return []
+
+        # 时间戳并集（curve timestamp 为毫秒级）
+        all_ts_set: set[int] = set()
+        for curve in valid_curves:
+            for point in curve:
+                ts = point.get("timestamp")
+                if ts is not None:
+                    all_ts_set.add(ts)
+        all_ts = sorted(all_ts_set)
+        if not all_ts:
+            return []
+
+        # 每个品种预建 timestamp -> 点 映射与初始/末次权益
+        prepared: list[tuple[dict[int, dict[str, Any]], dict[str, float], dict[str, Any]]] = []
+        for curve in valid_curves:
+            ts_to_point = {p["timestamp"]: p for p in curve if p.get("timestamp") is not None}
+            first_point = curve[0]
+            initial = {
+                "equity": float(first_point.get("equity") or first_point.get("Equity") or 0.0),
+                "balance": float(first_point.get("balance") or 0.0),
+                "margin": float(first_point.get("margin") or 0.0),
+            }
+            prepared.append((ts_to_point, initial, first_point))
+
+        merged: list[dict[str, Any]] = []
+        # 每个品种在并集扫描中的最近真实点（None 表示尚未开跑，用初始值）
+        last_points: list[dict[str, Any] | None] = [None] * len(prepared)
+
+        for ts in all_ts:
+            total = {"equity": 0.0, "balance": 0.0, "margin": 0.0}
+            ref_point: dict[str, Any] | None = None
+            for idx, (ts_to_point, initial, _first) in enumerate(prepared):
+                point = ts_to_point.get(ts)
+                if point is not None:
+                    last_points[idx] = point
+                    ref_point = point
+                current = last_points[idx]
+                if current is None:
+                    # 该品种尚未出现首个真实点：权益按初始资金计
+                    values = initial
+                else:
+                    values = {
+                        "equity": float(current.get("equity") or current.get("Equity") or 0.0),
+                        "balance": float(current.get("balance") or 0.0),
+                        "margin": float(current.get("margin") or 0.0),
+                    }
+                for k in total:
+                    total[k] += values[k]
+
+            # formatted_time/datetime 取该时点任一真实点（ts 必属于某品种）
+            formatted_time = (ref_point or {}).get("formatted_time")
+            merged.append(
+                {
+                    "timestamp": ts,
+                    "datetime": (ref_point or {}).get("datetime") or formatted_time,
+                    "formatted_time": formatted_time,
+                    "equity": round(total["equity"], 8),
+                    "balance": round(total["balance"], 8),
+                    "margin": round(total["margin"], 8),
+                }
+            )
+
+        return merged
+
+    # interval -> pandas 网格频率
+    _GRID_FREQ = {
+        "1m": "1min",
+        "3m": "3min",
+        "5m": "5min",
+        "15m": "15min",
+        "30m": "30min",
+        "1h": "1h",
+        "2h": "2h",
+        "4h": "4h",
+        "6h": "6h",
+        "8h": "8h",
+        "12h": "12h",
+        "1d": "1D",
+        "1w": "1W",
+    }
+
+    def build_portfolio_replay(self, results: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        """构建全局视角回测回放时间轴。
+
+        与单品种回放（逐根 K 线）不同，全局回放以统一时间网格为时钟：
+        - 网格范围取实际数据（各品种 K 线/成交时间）的并集，频率取回测 interval；
+          不能用配置的 start/end——实测回测实际数据范围可能与配置不一致
+        - account：每个网格点的组合权益/余额/保证金（合并权益曲线 ffill 对齐），
+          并派生累计盈亏、滚动回撤、当日盈亏
+        - position_events：逐笔成交重建净持仓后的稀疏事件（带移动加权均价）
+        - holding_prices：仅在各品种净持仓非零的网格区间给出收盘价点，供前端算浮盈
+
+        Args:
+            results: 结果 JSON 的 results 字段
+            config: 回测配置（取 interval / initial_cash）
+
+        Returns:
+            dict: 全局回放时间轴数据
+        """
+        entries = self.extract_symbol_entries(results)
+        interval = str(config.get("interval") or "15m")
+        init_cash = float(config.get("initial_cash") or 0.0)
+
+        # ---- 合并全部成交（秒级时间戳），按时间排序 ----
+        all_trades: list[dict[str, Any]] = []
+        for entry in entries.values():
+            for tr in entry.get("trades") or []:
+                if isinstance(tr, dict) and tr.get("timestamp") is not None:
+                    all_trades.append(tr)
+        all_trades.sort(key=lambda t: t.get("timestamp") or 0)
+
+        # ---- 各品种 K 线 -> 有序毫秒时间戳与收盘价（供网格范围与持仓浮盈取值）----
+        klines_ts: dict[str, list[int]] = {}
+        klines_close: dict[str, list[float]] = {}
+        for sym, entry in entries.items():
+            pairs = [
+                (int(k["timestamp"]), float(k.get("close") or 0.0))
+                for k in (entry.get("klines") or [])
+                if isinstance(k, dict) and k.get("timestamp") is not None
+            ]
+            pairs.sort(key=lambda x: x[0])
+            klines_ts[sym] = [p[0] for p in pairs]
+            klines_close[sym] = [p[1] for p in pairs]
+
+        # ---- 统一时间网格：实际数据时间并集 ----
+        bounds = [ts for seq in klines_ts.values() for ts in (seq[0], seq[-1])]
+        trade_bounds = [int(t["timestamp"]) * 1000 for t in all_trades] if all_trades else []
+        bounds.extend(trade_bounds)
+        if not bounds:
+            return {
+                "symbols": list(entries.keys()),
+                "interval": interval,
+                "init_cash": init_cash,
+                "start_ms": 0,
+                "end_ms": 0,
+                "grid_count": 0,
+                "grid_step_ms": 900_000,
+                "account": [],
+                "position_events": [],
+                "holding_prices": {},
+                "trades": [],
+            }
+        start_ms, end_ms = min(bounds), max(bounds)
+        freq = self._GRID_FREQ.get(interval, "15min")
+        # ponytail: 网格点数无上限保护，15m 频率可覆盖约 3 年；更细周期+超长区间会增大响应体
+        # 不用 DatetimeIndex.asi8：pandas 2.x 起底层单位不再固定纳秒，直接取毫秒
+        grid = [
+            int(ts.timestamp() * 1000)
+            for ts in pd.date_range(
+                pd.to_datetime(start_ms, unit="ms"),
+                pd.to_datetime(end_ms, unit="ms"),
+                freq=freq,
+            )
+        ]
+        # 等距网格只回传起点/步长/点数，播放端按 索引 -> start+step*i 自行换算，避免 5 万点数组
+        grid_step = grid[1] - grid[0] if len(grid) > 1 else 900_000
+
+        # ---- 合并权益曲线：账户序列只保留权益实际变化点（播放端 ffill）----
+        merged = self._merge_equity_curves([entry.get("equity_curve") or [] for entry in entries.values()])
+        total_initial = sum(
+            float((entry.get("equity_curve") or [{}])[0].get("equity", init_cash) or init_cash)
+            for entry in entries.values()
+            if entry.get("equity_curve")
+        )
+
+        # 账户稀疏序列：累计盈亏 / 滚动回撤 / 当日盈亏（UTC 日界）
+        account: list[list[float]] = []
+        peak = total_initial
+        day_first_equity: dict[str, float] = {}
+        for p in merged:
+            t, equity = int(p["timestamp"]), float(p["equity"])
+            peak = max(peak, equity)
+            drawdown = (equity - peak) / peak if peak > 0 else 0.0
+            day_key = datetime.utcfromtimestamp(t / 1000).strftime("%Y-%m-%d")
+            if day_key not in day_first_equity:
+                day_first_equity[day_key] = equity
+            account.append(
+                [
+                    t,
+                    round(equity, 4),
+                    round(float(p["balance"]), 4),
+                    round(float(p["margin"]), 4),
+                    round(equity - total_initial, 4),
+                    round(drawdown, 6),
+                    round(equity - day_first_equity[day_key], 4),
+                ]
+            )
+
+        # ---- 成交流重建净持仓 ----
+        position_events, holdings = self._rebuild_positions(all_trades, grid, klines_ts, klines_close)
+
+        # 成交流白名单（回表只需这些字段，剔除各类 order_id 等冗余字段）
+        trade_keys = (
+            "symbol",
+            "side",
+            "direction",
+            "quantity",
+            "volume",
+            "price",
+            "timestamp",
+            "formatted_time",
+            "commission",
+            "PnL",
+            "status",
+        )
+        slim_trades = [{k: tr.get(k) for k in trade_keys} for tr in all_trades]
+
+        return {
+            "symbols": list(entries.keys()),
+            "interval": interval,
+            "init_cash": round(total_initial or init_cash, 4),
+            "start_ms": grid[0],
+            "end_ms": grid[-1],
+            "grid_count": len(grid),
+            "grid_step_ms": grid_step,
+            # [t, equity, balance, margin, cum_pnl, drawdown, day_pnl]
+            "account": account,
+            "position_events": position_events,
+            # {symbol: [[t, close], ...]} 仅净持仓非零的网格点
+            "holding_prices": holdings,
+            "trades": slim_trades,
+        }
+
+    @staticmethod
+    def _rebuild_positions(
+        trades: list[dict[str, Any]],
+        grid: list[int],
+        klines_ts: dict[str, list[int]],
+        klines_close: dict[str, list[float]],
+    ) -> tuple[list[dict[str, Any]], dict[str, list[list[float]]]]:
+        """从成交流重建净持仓序列，并给出持仓期间的收盘价点。
+
+        现货允许双向：BUY 记 +quantity、SELL 记 -quantity。同方向加仓按
+        移动加权计算均价；反向成交减仓时均价不变；穿越 0 翻仓后剩余部分以
+        成交价为新开仓均价。
+
+        Returns:
+            (position_events, holding_prices)
+            - position_events：每笔成交一条，含成交后净持仓/均价/网格时刻
+            - holding_prices：{symbol: [[t, close], ...]}，仅净持仓非零的网格点
+        """
+        # 每笔成交归入其发生后的第一个网格点（该笔在该格末已成交）
+        events: list[dict[str, Any]] = []
+        events_by_grid: dict[int, list[dict[str, Any]]] = {}
+        # 净持仓状态：symbol -> (qty, avg_cost)
+        holding: dict[str, list[float]] = {}
+
+        for tr in trades:
+            sym = tr.get("symbol") or tr.get("Symbol") or tr.get("instrument_id") or ""
+            price = float(tr.get("price") or 0.0)
+            qty = float(tr.get("quantity") or tr.get("volume") or 0.0)
+            side = str(tr.get("side") or "").upper()
+            signed = qty if side == "BUY" else -qty if side == "SELL" else qty
+            if not sym or qty == 0.0 or price == 0.0:
+                continue
+
+            old_qty, old_avg = holding.get(sym, [0.0, 0.0])
+            new_qty = old_qty + signed
+            if old_qty == 0.0:
+                new_avg = price
+            elif (old_qty > 0) == (signed > 0):
+                # 同方向加仓：移动加权均价
+                new_avg = (abs(old_qty) * old_avg + abs(signed) * price) / abs(new_qty)
+            elif abs(signed) < abs(old_qty):
+                # 反向减仓但未翻仓：均价不变
+                new_avg = old_avg
+            else:
+                # 穿越 0 翻仓：反向剩余部分以成交价为均价
+                new_avg = price
+            holding[sym] = [new_qty, new_avg]
+
+            grid_idx = bisect_left(grid, int(tr["timestamp"]) * 1000)
+            t = grid[min(grid_idx, len(grid) - 1)]
+            event = {
+                "t": t,
+                "ts": int(tr["timestamp"]),
+                "symbol": sym,
+                "side": side or tr.get("direction") or "",
+                "qty": round(new_qty, 10),
+                "traded_qty": round(signed, 10),
+                "avg_cost": round(new_avg, 10),
+                "price": price,
+                "pnl": float(tr.get("PnL") or tr.get("pnl") or 0.0),
+            }
+            events.append(event)
+            events_by_grid.setdefault(t, []).append(event)
+
+        # ---- 扫描网格，维护持仓状态，仅在净持仓非零时记录收盘价点 ----
+        holding_prices: dict[str, list[list[float]]] = {s: [] for s in holding}
+        state: dict[str, list[float]] = {}
+        for t in grid:
+            for ev in events_by_grid.get(t, []):
+                state[ev["symbol"]] = [ev["qty"], ev["avg_cost"]]
+            for sym, qty_avg in state.items():
+                qty = qty_avg[0]
+                if qty == 0.0:
+                    continue
+                ts_seq = klines_ts.get(sym) or []
+                idx = bisect_right(ts_seq, t) - 1
+                if idx < 0:
+                    continue  # 该品种此时尚无 K 线，无法取价
+                holding_prices[sym].append([t, klines_close[sym][idx]])
+
+        return events, holding_prices
+
     def get_latest_result(self) -> dict | None:
         """获取最新的回测结果"""
         results_files = sorted(
@@ -258,77 +665,42 @@ class BacktestService:
 
     def get_backtest_symbols(self, backtest_id: str | None = None) -> dict[str, Any]:
         """
-        获取可用的回测货币对列表
+        获取指定回测涉及的货币对列表
 
-        扫描数据目录，返回所有有数据的货币对及其可用的时间周期
+        从回测结果 JSON 中提取所有有交易数据的品种，返回前端期望的字符串数组结构。
+        （旧实现是扫描本地数据目录、忽略 backtest_id，语义错误已废弃。）
 
         Args:
-            backtest_id: 可选的回测ID（兼容路由参数，实际不使用）
+            backtest_id: 回测ID（用于定位结果文件）
 
         Returns:
             dict: 标准响应格式 {
                 "status": "success",
-                "data": [货币对列表]
+                "data": {"symbols": ["ETH/USDT", "BTC/USDT"]}
             }
         """
-        from pathlib import Path
-
-        symbols = []
+        symbols: list[str] = []
 
         try:
-            # 获取数据源目录
-            source_dir = Path(__file__).parent.parent / "data" / "source" / "crypto" / "spot" / "klines"
+            if not backtest_id:
+                self.logger.warning("get_backtest_symbols 缺少 backtest_id")
+                return {"status": "success", "data": {"symbols": symbols}}
 
-            if not source_dir.exists():
-                self.logger.warning(f"数据目录不存在: {source_dir}")
-                return {"status": "success", "data": symbols}
+            json_result = self.get_result(backtest_id)
+            if not isinstance(json_result, dict):
+                self.logger.warning(f"回测结果文件不存在: {backtest_id}")
+                return {"status": "success", "data": {"symbols": symbols}}
 
-            # 遍历所有时间周期目录
-            for interval_dir in sorted(source_dir.iterdir()):
-                if not interval_dir.is_dir():
-                    continue
+            # 兼容单品种（键 "ETH/USDT_15m"）与多品种（results_by_symbol 封装）两种结构
+            results = json_result.get("results") or {}
+            symbols = list(self.extract_symbol_entries(results).keys())
 
-                interval = interval_dir.name  # 如 "15m", "1h"
-
-                # 遍历该周期下的所有 parquet 文件
-                for data_file in sorted(interval_dir.glob("*.parquet")):
-                    symbol = data_file.stem  # 文件名即货币对（如 ETHUSDT）
-
-                    # 检查是否已在列表中
-                    existing = next((s for s in symbols if s["symbol"] == symbol), None)
-                    if existing:
-                        if interval not in existing["intervals"]:
-                            existing["intervals"].append(interval)
-                        continue
-
-                    # 获取文件信息
-                    stat = data_file.stat()
-                    data_count = 0
-
-                    try:
-                        import pandas as pd
-
-                        df = pd.read_parquet(data_file, columns=[])
-                        data_count = len(df)
-                    except Exception:
-                        pass
-
-                    symbols.append(
-                        {
-                            "symbol": symbol,
-                            "intervals": [interval],
-                            "data_count": data_count,
-                            "last_update": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                            "file_size": stat.st_size,
-                        }
-                    )
-
-            self.logger.info(f"扫描到 {len(symbols)} 个可回测的货币对")
+            self.logger.info(f"回测 {backtest_id} 涉及 {len(symbols)} 个货币对: {symbols}")
 
         except Exception as e:
             self.logger.error(f"获取回测货币对列表失败: {e}")
 
-        return {"status": "success", "data": symbols}
+        return {"status": "success", "data": {"symbols": symbols}}
 
     def get_result_list(self, limit: int = 20, offset: int = 0, status_filter: str | None = None) -> list[dict]:
         """

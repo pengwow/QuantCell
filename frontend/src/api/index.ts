@@ -12,7 +12,7 @@ import type {
   CleanupResult,
 } from '../pages/setting/types';
 import type { StrategyInfo } from '../types/worker';
-import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayRawTrade } from '../types/backtest';
+import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayRawTrade, PortfolioReplayData } from '../types/backtest';
 
 // ============================================
 // 全局401错误处理配置
@@ -571,8 +571,8 @@ export const backtestApi = {
     return apiRequest.post('/backtest/analyze', { backtest_id: backtestId });
   },
 
-  getBacktestDetail: (backtestId: string): Promise<BacktestDetailData> => {
-    return apiRequest.get(`/backtest/${backtestId}`);
+  getBacktestDetail: (backtestId: string, symbol?: string): Promise<BacktestDetailData> => {
+    return apiRequest.get(`/backtest/${backtestId}`, symbol ? { symbol } : undefined);
   },
 
   deleteBacktest: (backtestId: string) => {
@@ -603,6 +603,11 @@ export const backtestApi = {
 
   getBacktestSymbols: (backtestId: string): Promise<{ symbols: string[]; total?: number }> => {
     return apiRequest.get(`/backtest/${backtestId}/symbols`);
+  },
+
+  // 全局视角组合回放（统一网格 + 合并账户 + 成交流重建持仓）
+  getPortfolioReplay: (backtestId: string): Promise<PortfolioReplayData> => {
+    return apiRequest.get(`/backtest/${backtestId}/replay/portfolio`);
   },
 };
 

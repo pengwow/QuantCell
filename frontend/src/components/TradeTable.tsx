@@ -35,6 +35,8 @@ export interface TradeTableProps {
   data: Trade[];
   loading?: boolean;
   pagination?: boolean;
+  // 可选行类名（如组合回放中新成交行高亮）
+  rowClassName?: (record: Trade) => string;
 }
 
 /**
@@ -61,7 +63,7 @@ const formatVolume = (volume: number): string => {
   return volume.toFixed(2);
 };
 
-const TradeTable = ({ data, loading = false, pagination = true }: TradeTableProps) => {
+const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: TradeTableProps) => {
   // 表格列定义
   const columns: ColumnsType<Trade> = [
     {
@@ -158,6 +160,7 @@ const TradeTable = ({ data, loading = false, pagination = true }: TradeTableProp
       }
       size="small"
       scroll={{ x: 'max-content' }}
+      rowClassName={rowClassName}
     />
   );
 };

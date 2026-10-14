@@ -114,6 +114,10 @@ interface BacktestResponse {
   trades: BacktestTrade[];
   equity_curve: EquityCurvePoint[];
   factors?: BacktestFactors;
+  // 多品种结果：实际有数据的品种列表、当前返回品种
+  symbols?: string[];
+  selected_symbol?: string | null;
+  is_multi_symbol?: boolean;
   status: string;
   created_at: string;
 }
@@ -129,6 +133,9 @@ const BacktestDetail = () => {
   const [loading, setLoading] = useState(true);
   const [backtestData, setBacktestData] = useState<BacktestResponse | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('all');
+  // 多品种时实际传给后端的品种（undefined = 后端默认第一个品种）
+  const [querySymbol, setQuerySymbol] = useState<string | undefined>(undefined);
+  const [isMultiSymbol, setIsMultiSymbol] = useState(false);
   const [symbols, setSymbols] = useState<string[]>([]);
   const [showAllSymbols, setShowAllSymbols] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -154,18 +161,24 @@ const BacktestDetail = () => {
     const fetchDetail = async () => {
       try {
         setLoading(true);
-        const response = await backtestApi.getBacktestDetail(backtestId);
+        const response = await backtestApi.getBacktestDetail(backtestId, querySymbol);
 
         // apiRequest 拦截器已经处理了 ApiResponse，直接返回 data 字段
         // api 层类型遵循共享的 BacktestDetailData，而本页以 BacktestResponse（后端实际结构）为准，二者字段存在差异需桥接断言
         if (response && response.id) {
           setBacktestData(response as unknown as BacktestResponse);
 
-          // 从 backtest_config 中获取交易标的列表
-          const symbolKeys = response.backtest_config?.symbols || [];
+          // 品种列表优先用结果 JSON 中实际有数据的品种，回退到回测配置
+          const symbolKeys = (response as unknown as BacktestResponse).symbols?.length
+            ? ((response as unknown as BacktestResponse).symbols as string[])
+            : response.backtest_config?.symbols || [];
           setSymbols(symbolKeys);
-          // 默认选中"全部"
-          setSelectedSymbol('all');
+          const multi = (response as unknown as BacktestResponse).is_multi_symbol ?? symbolKeys.length > 1;
+          setIsMultiSymbol(multi);
+          // 多品种默认选中后端返回的品种；单品种保持“全部”
+          setSelectedSymbol(multi
+            ? ((response as unknown as BacktestResponse).selected_symbol || symbolKeys[0] || 'all')
+            : 'all');
         } else {
           message.error('获取回测数据失败');
         }
@@ -178,7 +191,16 @@ const BacktestDetail = () => {
     };
 
     fetchDetail();
-  }, [backtestId, navigate]);
+  }, [backtestId, navigate, querySymbol]);
+
+  /** 多品种切换：驱动后端重新拉取该品种的指标/曲线/成交；切回「全部」时恢复组合视图请求 */
+  const handleSymbolChange = (value: string) => {
+    setSelectedSymbol(value);
+    setFilterSide('all');
+    setFilterStatus('all');
+    setFilterDateRange(null);
+    setQuerySymbol(isMultiSymbol && value !== 'all' ? value : undefined);
+  };
 
   // 从指标数组中获取指定key的指标值
   const getMetricValue = (key: string): number => {
@@ -193,14 +215,14 @@ const BacktestDetail = () => {
 
     // 根据货币对筛选
     if (selectedSymbol && selectedSymbol !== 'all') {
+      // 统一去掉 / _ . - 等分隔符再比较，兼容 "BTC/USDT"、"BTCUSDT"、"BTCUSDT.BINANCE" 等写法
+      const normalizeSym = (s: string) => s.replace(/[/_.-]/g, '').replace('BINANCE', '').toUpperCase();
+      const normalizedSelected = normalizeSym(selectedSymbol);
       trades = trades.filter((trade: BacktestTrade) => {
         const tradeSymbol = trade.Symbol || trade.symbol || trade.instrument_id || trade.instrument || '';
-        // 处理格式不匹配问题：前端显示 "ETH/USDT"，后端返回 "ETHUSDT.BINANCE"
-        // 将前端的 "ETH/USDT" 转换为 "ETHUSDT" 进行匹配
-        const normalizedSelected = selectedSymbol.replace('/', '').toUpperCase();
-        const normalizedTrade = tradeSymbol.toUpperCase();
-        // 检查后缀匹配（如 ETHUSDT 匹配 ETHUSDT.BINANCE）
-        return normalizedTrade.includes(normalizedSelected) || normalizedSelected.includes(normalizedTrade.replace(/\.BINANCE$/, ''));
+        const normalizedTrade = normalizeSym(tradeSymbol);
+        // 任一方包含另一方即视为同一品种（兼容带交易所后缀等情况）
+        return normalizedTrade.includes(normalizedSelected) || normalizedSelected.includes(normalizedTrade);
       });
     }
 
@@ -243,6 +265,7 @@ const BacktestDetail = () => {
   // 重置筛选条件
   const resetFilters = () => {
     setSelectedSymbol('all');
+    setQuerySymbol(undefined);
     setFilterSide('all');
     setFilterStatus('all');
     setFilterDateRange(null);
@@ -305,7 +328,9 @@ const BacktestDetail = () => {
   // 跳转到回放页面
   const handleReplay = () => {
     if (backtestId) {
-      navigate(`/backtest/replay/${backtestId}`);
+      // 多品种时把当前查看的品种带给回放页
+      const qs = isMultiSymbol && selectedSymbol !== 'all' ? `?symbol=${encodeURIComponent(selectedSymbol)}` : '';
+      navigate(`/backtest/replay/${backtestId}${qs}`);
     }
   };
 
@@ -393,8 +418,22 @@ const BacktestDetail = () => {
           </Descriptions>
         </Card>
 
-        {/* 回测概览指标 */}
-        <Card title="回测概览" className="mb-6">
+        {/* 回测概览指标（多品种时右上角切换品种，指标/曲线/成交均按品种展示） */}
+        <Card
+          title="回测概览"
+          className="mb-6"
+          extra={isMultiSymbol && symbols.length > 0 ? (
+            <Space>
+              <span>品种</span>
+              <Select
+                value={selectedSymbol}
+                onChange={handleSymbolChange}
+                style={{ width: 150 }}
+                options={[{ label: '全部', value: 'all' }, ...symbols.map((s) => ({ label: s, value: s }))]}
+              />
+            </Space>
+          ) : undefined}
+        >
           <Row gutter={[16, 16]}>
             <Col xs={12} sm={8} md={6} lg={4}>
               <MetricCard
@@ -602,10 +641,10 @@ const BacktestDetail = () => {
           )}
         </Card>
 
-        {/* 因子分析（仅当回测配置了 factor_names 时渲染） */}
-        {backtestData.factors && backtestData.factors.names && backtestData.factors.names.length > 0 && (
+        {/* 因子分析（品种维度数据，组合视图「全部」下无口径，仅具体品种且配置了 factor_names 时渲染） */}
+        {selectedSymbol !== 'all' && backtestData.factors && backtestData.factors.names && backtestData.factors.names.length > 0 && (
           <Card title="因子分析" className="mb-6">
-            <Space direction="vertical" size="large" style={{ display: 'flex', width: '100%' }}>
+            <Space orientation="vertical" size="large" style={{ display: 'flex', width: '100%' }}>
               {/* 因子概览：名称 + 阈值 */}
               <Descriptions bordered column={{ xs: 1, sm: 2, md: 3 }} size="small">
                 <Descriptions.Item label="使用因子">
@@ -724,10 +763,11 @@ const BacktestDetail = () => {
                   <div style={{ marginBottom: 8 }}>交易标的</div>
                   <Select
                     value={selectedSymbol}
-                    onChange={setSelectedSymbol}
+                    onChange={handleSymbolChange}
                     style={{ width: '100%' }}
                     placeholder="选择交易标的"
                   >
+                    {/* 「全部」在单/多品种下都可能是当前值，必须始终渲染 */}
                     <Select.Option value="all">全部</Select.Option>
                     {symbols.map((symbol) => (
                       <Select.Option key={symbol} value={symbol}>
