@@ -144,8 +144,8 @@ export interface ReplayTrade {
 export interface FactorTimeSeries {
   timestamps: number[];
   formatted_times: string[];
-  // 每因子一列值（后端 NaN 序列化为 null）
-  [factorName: string]: number[] | string[] | null;
+  // 每因子一列值（后端 NaN 序列化为 null，故数值列元素允许 null）
+  [factorName: string]: Array<number | null> | Array<string | null> | null;
 }
 
 export interface BacktestFactors {
