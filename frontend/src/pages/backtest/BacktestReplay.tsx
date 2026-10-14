@@ -4,7 +4,7 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 功能：回放回测过程，展示K线图表和交易信号
  */
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'ahooks';
 import {
@@ -20,6 +20,7 @@ import {
   App,
   Divider,
   Tooltip,
+  Segmented,
 } from 'antd';
 import TradeTable, { type Trade as TradeTableTrade } from '../../components/TradeTable';
 import {
@@ -30,25 +31,37 @@ import {
   StepForwardOutlined,
   ClockCircleOutlined,
   StockOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import { init, dispose, registerLocale, registerOverlay } from 'klinecharts';
 import type { Chart, DataLoaderGetBarsParams, KLineData, PeriodType } from 'klinecharts';
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
 import type { ReplayData, ReplayKline, SymbolInfo } from '../../types/backtest';
+import PortfolioReplayView from './PortfolioReplayView';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 
 const { Option } = Select;
 
-// 播放速度选项
+// 与全局视角统一的速度枚举：覆盖 1x~128x
 const SPEED_OPTIONS = [
-  { label: '0.5x', value: 0.5 },
   { label: '1x', value: 1 },
   { label: '2x', value: 2 },
   { label: '4x', value: 4 },
   { label: '8x', value: 8 },
+  { label: '16x', value: 16 },
+  { label: '32x', value: 32 },
+  { label: '64x', value: 64 },
+  { label: '128x', value: 128 },
+];
+
+// Segmented 视角切换选项提到模块级常量，避免每次 render 新引用触发 antd 内部 rebuild
+// （rebuild 时 onMouseMove 监听残留会造成 setViewMode 死循环）
+const VIEW_MODE_OPTIONS = [
+  { label: '品种视角', value: 'symbol', icon: <StockOutlined /> },
+  { label: '全局视角', value: 'portfolio', icon: <GlobalOutlined /> },
 ];
 
 /**
@@ -122,6 +135,9 @@ const parseInterval = (interval: string): { span: number; type: PeriodType } => 
 
 const BacktestReplay = () => {
   const { backtestId } = useParams<{ backtestId: string }>();
+  // 详情页跳转可携带 ?symbol= 指定初始品种
+  const [searchParams] = useSearchParams();
+  const initialSymbol = searchParams.get('symbol') || '';
   const { t } = useTranslation();
   const { message } = App.useApp();
 
@@ -149,6 +165,23 @@ const BacktestReplay = () => {
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [playSpeed, setPlaySpeed] = useState<number>(1);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
+
+  // 视角：多品种回测默认进入全局（组合）视角，单品种只有品种视角
+  const [viewMode, setViewMode] = useState<'symbol' | 'portfolio'>('symbol');
+
+  // 视角切换过渡：统一为整页 Spin 动画，避免 portfolio 数据快到时瞬间替换
+  // ponytail: 首次挂载跳过，否则已缓存数据的首屏也会白转 300ms
+  const [viewChanging, setViewChanging] = useState(false);
+  const firstViewChangeRef = useRef(true);
+  useEffect(() => {
+    if (firstViewChangeRef.current) {
+      firstViewChangeRef.current = false;
+      return;
+    }
+    setViewChanging(true);
+    const t = setTimeout(() => setViewChanging(false), 300);
+    return () => clearTimeout(t);
+  }, [viewMode]);
 
   // 图表引用
   const chartRef = useRef<HTMLDivElement>(null);
@@ -202,8 +235,15 @@ const BacktestReplay = () => {
       
       setSymbols(formattedSymbols);
 
+      // 多品种默认全局视角；单品种固定品种视角
+      setViewMode(symbolList.length > 1 ? 'portfolio' : 'symbol');
+
       if (formattedSymbols.length > 0) {
-        setSelectedSymbol(formattedSymbols[0].symbol);
+        // 优先使用详情页携带的品种（需在结果品种列表中），否则取第一个
+        const preferred = initialSymbol && symbolList.includes(initialSymbol)
+          ? initialSymbol
+          : formattedSymbols[0].symbol;
+        setSelectedSymbol(preferred);
       }
     } catch (err) {
       console.error('加载货币对列表失败:', err);
@@ -604,13 +644,14 @@ const BacktestReplay = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, [backtestId]);
 
-  // 货币对列表加载完成后，加载第一个货币对的回放数据
+  // 货币对列表加载完成后（且处于品种视角）加载回放数据；
+  // 从全局视角切回时重新加载，以便重新初始化图表
   useEffect(() => {
-    if (selectedSymbol) {
+    if (viewMode === 'symbol' && selectedSymbol) {
       loadReplayData(selectedSymbol);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [selectedSymbol]);
+  }, [viewMode, selectedSymbol]);
 
   // 数据加载完成后初始化图表
   useEffect(() => {
@@ -628,8 +669,19 @@ const BacktestReplay = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [currentIndex, replayData]);
 
-  // 渲染加载状态
-  if (loading) {
+  // 切到全局视角：暂停品种时钟并释放 K 线图实例（其容器将卸载）
+  useEffect(() => {
+    if (viewMode !== 'portfolio') return;
+    handlePause();
+    if (chartRef.current) {
+      dispose(chartRef.current);
+    }
+    chartInstance.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在视角切换时处理
+  }, [viewMode]);
+
+  // 渲染加载状态：品种列表加载、品种视角下回放数据加载、视角切换过渡统一走整页 Spin
+  if (loadingSymbols || (loading && viewMode === 'symbol') || viewChanging) {
     return (
       <PageContainer title={t('backtest_replay') || '回测回放'}>
         <div className="flex justify-center items-center py-24">
@@ -640,7 +692,7 @@ const BacktestReplay = () => {
   }
 
   // 渲染错误状态
-  if (error) {
+  if (error && viewMode === 'symbol') {
     return (
       <PageContainer title={t('backtest_replay') || '回测回放'}>
         <Alert
@@ -659,6 +711,19 @@ const BacktestReplay = () => {
 
   return (
     <PageContainer title={t('backtest_replay') || '回测回放'}>
+      {symbols.length > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          <Segmented
+            value={viewMode}
+            onChange={(value) => setViewMode(value as 'symbol' | 'portfolio')}
+            options={VIEW_MODE_OPTIONS}
+          />
+        </div>
+      )}
+
+      {viewMode === 'portfolio' && backtestId ? (
+        <PortfolioReplayView backtestId={backtestId} symbols={symbols.map((s) => s.symbol)} />
+      ) : (
       <div className="space-y-6">
         {/* 控制栏 - 重新设计 */}
         <Card size="small" className="replay-control-card">
@@ -896,6 +961,7 @@ const BacktestReplay = () => {
           </Card>
         )}
       </div>
+      )}
     </PageContainer>
   );
 };

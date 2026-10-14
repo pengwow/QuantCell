@@ -559,17 +559,20 @@ def upload_strategy(request: StrategyUploadRequest) -> ApiResponse:
     "/{backtest_id}",
     response_model=ApiResponse,
     summary="获取回测详情",
-    description="获取指定回测ID的详细结果",
+    description="获取指定回测ID的详细结果，多品种回测可通过 symbol 参数切换品种",
 )
-def get_backtest_detail(backtest_id: str) -> ApiResponse:
+def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiResponse:
     """
     获取回测结果详情
 
     任务信息与策略代码从数据库读取；结果数据仅来自结果 JSON 文件
-    （文件不存在时相关字段返回空列表）。
+    （文件不存在时相关字段返回空列表）。多品种回测通过 symbol 指定品种；
+    传 "all" 或缺省时返回组合视图（组合指标 + 各品种交易/持仓拼接 +
+    按时间戳对齐求和的组合权益曲线）。
 
     Args:
         backtest_id: 回测ID
+        symbol: 品种（如 "ETH/USDT"），或 "all" 查看组合视图；缺省同 "all"（多品种）
 
     Returns:
         ApiResponse: API响应，包含回测结果详情
@@ -615,17 +618,37 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
 
             # 结果 JSON 是回测结果的唯一真实来源；无 JSON（未跑完/已清理）时保持空列表
             json_result = backtest_service.get_result(backtest_id)
+            result_symbols: list[str] = []
             if isinstance(json_result, dict):
                 status = json_result.get("status") or status
                 results = json_result.get("results") or {}
-                # 多品种回测时详情页默认展示第一个品种（品种切换走 /symbols + 前端过滤）
-                first_result = next(iter(results.values()), None)
-                if isinstance(first_result, dict):
-                    metrics = first_result.get("metrics") or []
-                    trades = first_result.get("trades") or []
-                    equity_curve = first_result.get("equity_curve") or []
-                    positions = first_result.get("positions") or []
-                    factors = first_result.get("factors") or {}
+                # 归一化单品种 / 多品种(results_by_symbol)两种结构
+                entries = backtest_service.extract_symbol_entries(results)
+                result_symbols = list(entries.keys())
+
+                # 多品种组合视图：symbol=all，或多品种缺省（未指定具体品种）
+                is_multi = len(result_symbols) > 1
+                use_portfolio = is_multi and (symbol == "all" or symbol is None)
+                if use_portfolio:
+                    view = backtest_service.build_portfolio_view(results)
+                    metrics = view["metrics"]
+                    trades = view["trades"]
+                    equity_curve = view["equity_curve"]
+                    positions = view["positions"]
+                    factors = {}
+                else:
+                    # 指定品种优先，缺省（单品种）取第一个品种
+                    entry = entries.get(symbol) if symbol else None
+                    if entry is None and symbol:
+                        logger.warning(f"结果中未找到品种 {symbol}，回退到第一个品种")
+                    if entry is None:
+                        entry = next(iter(entries.values()), {})
+
+                    metrics = entry.get("metrics") or []
+                    trades = entry.get("trades") or []
+                    equity_curve = entry.get("equity_curve") or []
+                    positions = entry.get("positions") or []
+                    factors = entry.get("factors") or {}
 
             # 构建前端期望的响应格式
             detail_data = {
@@ -637,6 +660,14 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
                 "trades": trades,
                 "positions": positions,
                 "factors": factors,
+                # 结果中实际有数据的品种列表（多品种切换用），及当前返回的品种
+                "symbols": result_symbols,
+                "selected_symbol": (
+                    "all"
+                    if isinstance(json_result, dict) and len(result_symbols) > 1 and (symbol == "all" or symbol is None)
+                    else (symbol if symbol in result_symbols else (result_symbols[0] if result_symbols else None))
+                ),
+                "is_multi_symbol": len(result_symbols) > 1,
                 "status": status,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "code": strategy_code,
@@ -680,14 +711,13 @@ def get_backtest_replay(backtest_id: str, symbol: str | None = None) -> ApiRespo
 
         results = json_result.get("results") or {}
 
-        # 品种键格式为 "ETH/USDT_15m"（SYMBOL_TIMEFRAME），按前缀匹配；缺省取第一个品种
-        entry = None
-        if symbol:
-            entry = next((v for k, v in results.items() if k == symbol or k.startswith(f"{symbol}_")), None)
-            if entry is None:
-                logger.warning(f"结果中未找到品种 {symbol}，回退到第一个品种")
+        # 归一化单品种（键 "ETH/USDT_15m"）/ 多品种（results_by_symbol 封装）结构
+        entries = backtest_service.extract_symbol_entries(results)
+        entry = entries.get(symbol) if symbol else None
+        if entry is None and symbol:
+            logger.warning(f"结果中未找到品种 {symbol}，回退到第一个品种")
         if entry is None:
-            entry = next(iter(results.values()), None)
+            entry = next(iter(entries.values()), {})
         entry = entry if isinstance(entry, dict) else {}
 
         backtest_config = {}
@@ -734,6 +764,64 @@ def get_backtest_replay(backtest_id: str, symbol: str | None = None) -> ApiRespo
 
     except Exception as e:
         logger.error(f"获取回放数据失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{backtest_id}/replay/portfolio",
+    response_model=ApiResponse,
+    summary="获取全局视角回测回放时间轴",
+    description="多品种回测的全局回放：统一时间网格 + 组合账户序列 + 成交流重建的持仓事件 + 持仓期收盘价点",
+)
+def get_backtest_replay_portfolio(backtest_id: str) -> ApiResponse:
+    """
+    获取全局视角回测回放数据（组合时间机器）
+
+    与单品种 /replay 接口的区别：时钟是覆盖全部品种的统一时间网格，账户数字
+    为各独立资金池合并口径，持仓由跨品种成交流重建。
+
+    Args:
+        backtest_id: 回测ID
+
+    Returns:
+        ApiResponse: 包含 start_ms/end_ms/grid_count/grid_step_ms/account/
+                     position_events/holding_prices/trades
+    """
+    try:
+        logger.info(f"获取全局回放数据请求，回测ID: {backtest_id}")
+
+        # models/db_session 在函数内 import：依赖数据库连接初始化时机，保持原有加载模式
+        from backtest.models import BacktestTask
+        from utils.db_session import get_db_session
+
+        json_result = backtest_service.get_result(backtest_id)
+        if not isinstance(json_result, dict):
+            return ApiResponse(code=1, message="回测结果文件不存在", data={})
+
+        results = json_result.get("results") or {}
+        entries = backtest_service.extract_symbol_entries(results)
+        if len(entries) <= 1:
+            return ApiResponse(code=1, message="该回测不是多品种回测，无全局视角", data={})
+
+        backtest_config: dict = {}
+        with get_db_session() as db:
+            task = db.query(BacktestTask).filter_by(id=backtest_id).first()
+            if task:
+                try:
+                    if task.backtest_config:
+                        backtest_config = json.loads(task.backtest_config)
+                except Exception as e:
+                    logger.warning(f"解析回测配置失败: {e}")
+
+        data = backtest_service.build_portfolio_replay(results, backtest_config)
+        logger.info(
+            f"全局回放数据构建成功，回测ID: {backtest_id}, "
+            f"网格点数: {data['grid_count']}, 持仓事件: {len(data['position_events'])}"
+        )
+        return ApiResponse(code=0, message="获取全局回放数据成功", data=data)
+
+    except Exception as e:
+        logger.error(f"获取全局回放数据失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
