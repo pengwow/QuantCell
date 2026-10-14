@@ -658,12 +658,16 @@ const BacktestReplay = () => {
   }, [viewMode, selectedSymbol]);
 
   // 数据加载完成后初始化图表
+  // viewChanging 必须进依赖：切视角时数据可能在 300ms 过渡 Spin（图表容器被卸载）期间
+  // 就返回，那次渲染 chartRef 为空会跳过 init；等容器随 viewChanging=false 重新挂载时，
+  // replayData 引用已不会再变——不监听 viewChanging 就永远漏掉这次初始化（图表空白，
+  // 直到切换货币对产生新 replayData 才恢复）
   useEffect(() => {
-    if (replayData && chartRef.current) {
+    if (replayData && chartRef.current && !viewChanging) {
       initChart();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [replayData]);
+  }, [replayData, viewChanging]);
 
   // 当前索引变化时更新图表
   useEffect(() => {
