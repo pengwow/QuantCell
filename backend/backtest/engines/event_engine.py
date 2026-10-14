@@ -495,6 +495,11 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
                     ts_ns = to_ns_timestamp(bar_ts)
 
+                    # step() 步进模式不会像 run() 那样按事件自动推进模拟时钟，
+                    # 必须显式把时钟设为当前 bar 的历史时间，否则本 bar 内成交的
+                    # TradeRecord 时间戳会停留在错误时刻（初始值/墙上时钟）
+                    self._engine.set_clock(ts_ns)
+
                     # 关键步骤 0: 推送时间戳已到达的资金费率事件（合约结算）
                     while cursor < len(funding_list) and funding_list[cursor][0] <= ts_ns:
                         f_ts, f_rate, f_mark = funding_list[cursor]
@@ -652,12 +657,14 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 quantity = _safe_float(trade.get("quantity", trade.get("qty", 0)))
                 side = str(trade.get("side", "")).upper()
                 if not side:
-                    # Rust trade 无 side 字段：订单 id 小的一方是主动单(taker)，
-                    # 用买卖双方订单 id 比较推断主动方向
-                    buyer_id = trade.get("buyer_order_id")
-                    seller_id = trade.get("seller_order_id")
-                    if buyer_id is not None and seller_id is not None:
-                        side = "BUY" if buyer_id < seller_id else "SELL"
+                    # Rust TradeRecord 用带符号净数量标记成交方向：正=买入，负=卖出/平仓。
+                    # 不能用 buyer_order_id/seller_order_id 大小判断——那是撮合时买卖双方
+                    # 订单的 ID（买方为小号、卖方对手盘为十亿级大号），与策略方向无关。
+                    net_qty = _safe_float(trade.get("net_quantity"))
+                    if net_qty > 0:
+                        side = "BUY"
+                    elif net_qty < 0:
+                        side = "SELL"
                 direction = "买入" if side in ("BUY", "0") else "卖出" if side in ("SELL", "1") else side
                 status = str(trade.get("status", "filled"))
                 trade_id = str(trade.get("trade_id", trade.get("id", f"trade_{i}")))

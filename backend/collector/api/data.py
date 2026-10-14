@@ -19,6 +19,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from ..db.database import get_db
 from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline
 from ..schemas import ApiResponse
+from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest
 from ..services import DataService
 from ..services.kline_health_service import KlineHealthChecker
 
@@ -33,11 +34,6 @@ from fastapi import APIRouter
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-
-    from ..schemas.data import (
-        DownloadCryptoRequest,
-        ExportCryptoRequest,
-    )
 
 # 创建数据质量API子路由
 quality_router = APIRouter(prefix="/quality", tags=["data-quality"])

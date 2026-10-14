@@ -131,6 +131,10 @@ class EventDrivenStrategy:
         # 订单 ID 计数器
         self._order_id_counter: int = 0
 
+        # 当前 bar 的纳秒时间戳：下单/撤单事件必须使用回测的模拟时间，
+        # 不能用墙上时钟，否则引擎成交记录会全部记成回测运行的当下时刻
+        self._current_bar_ts_ns: int = 0
+
         # 统计信息
         self.bars_processed: int = 0
         self.start_time: dt.datetime | None = None
@@ -181,8 +185,20 @@ class EventDrivenStrategy:
             bar: K线数据字典，包含 open/high/low/close/volume/timestamp 等
         """
         self.bars_processed += 1
+        # 记录当前 bar 的模拟时间，供本 bar 内下单/撤单事件使用
+        self._current_bar_ts_ns = int(bar.get("timestamp") or bar.get("ts_event") or 0)
         logger.debug(f"处理K线数据: {bar.get('ts_event', 0)}, 收盘价: {bar.get('close', 0)}")
         self._on_bar_impl(bar)
+
+    def _event_ts_ns(self) -> int:
+        """订单/撤单事件使用的纳秒时间戳。
+
+        回测中必须等于当前 bar 的历史时间（引擎据此推进模拟时钟、生成成交时间）；
+        仅当策略在 on_bar 之外（异常路径）被调用时才回退到墙上时钟。
+        """
+        if self._current_bar_ts_ns > 0:
+            return self._current_bar_ts_ns
+        return _get_axon_bridge().get_current_ns_timestamp()
 
     @abstractmethod
     def _on_bar_impl(self, bar: dict[str, Any]) -> None:
@@ -253,7 +269,7 @@ class EventDrivenStrategy:
 
         try:
             bridge = _get_axon_bridge()
-            ts_ns = bridge.get_current_ns_timestamp()
+            ts_ns = self._event_ts_ns()
 
             order_id_int = int(self._order_id_counter)
 
@@ -334,7 +350,7 @@ class EventDrivenStrategy:
 
         try:
             bridge = _get_axon_bridge()
-            ts_ns = bridge.get_current_ns_timestamp()
+            ts_ns = self._event_ts_ns()
 
             order_id_int = int(self._order_id_counter)
 
@@ -404,7 +420,7 @@ class EventDrivenStrategy:
 
         try:
             bridge = _get_axon_bridge()
-            ts_ns = bridge.get_current_ns_timestamp()
+            ts_ns = self._event_ts_ns()
             instrument = self._instruments.get(target_id)
 
             if instrument is None:
@@ -439,7 +455,7 @@ class EventDrivenStrategy:
         """取消所有未成交订单"""
         if self._engine_ref:
             bridge = _get_axon_bridge()
-            ts_ns = bridge.get_current_ns_timestamp()
+            ts_ns = self._event_ts_ns()
 
             for order_id, order_info in list(self._active_orders.items()):
                 try:

@@ -1419,7 +1419,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         ]}
         width={560}
       >
-        <Space direction="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
+        <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
           <div>
             以下 <b>{precheckMissing.length}</b> 个品种×周期缺少本地数据，回测前需要下载：
           </div>
