@@ -41,11 +41,15 @@ class FakeEngine:
         self.funding_events: list[dict] = []
         self.step_calls = 0
         self.run_calls = 0
+        self.clock_set: list[int] = []
         self._finished = False
 
     @property
     def is_finished(self) -> bool:
         return self._finished
+
+    def set_clock(self, timestamp_ns: int):
+        self.clock_set.append(timestamp_ns)
 
     def begin_bar(self, price, instrument):
         self.begin_bars.append((price, instrument))
@@ -196,6 +200,38 @@ def test_normalize_trades_zero_ts_and_fallback_fields():
     assert t["price"] == 10.0
     assert t["quantity"] == 3.0
     assert t["direction"] == "卖出"
+
+
+def test_normalize_trades_direction_from_net_quantity():
+    """Rust TradeRecord 无 side 字段，方向必须由带符号 net_quantity 判定。
+
+    真实数据里买方订单 ID 为小号、卖方对手盘为十亿级大号，
+    绝不能用 buyer_order_id < seller_order_id 推断（会把卖出也判成买入）。
+    """
+    trades = EventDrivenBacktestEngine()._normalize_trades(
+        [
+            {
+                "timestamp_ns": NS_TS,
+                "price": 2500.0,
+                "quantity": 0.1,
+                "buyer_order_id": 2,
+                "seller_order_id": 1000000315,
+                "net_quantity": 0.1,
+            },
+            {
+                "timestamp_ns": NS_TS,
+                "price": 2510.0,
+                "quantity": 0.1,
+                "buyer_order_id": 3,
+                "seller_order_id": 1000000402,
+                "net_quantity": -0.1,
+            },
+        ]
+    )
+    assert trades[0]["side"] == "BUY"
+    assert trades[0]["direction"] == "买入"
+    assert trades[1]["side"] == "SELL"
+    assert trades[1]["direction"] == "卖出"
 
 
 def test_normalize_trades_ignores_non_dict():
@@ -521,6 +557,8 @@ def test_run_backtest_drives_fake_engine(tmp_path, monkeypatch):
     assert strategy.bars[0]["close"] == 102.0
     assert strategy.bars[0]["ts_event"] == NS_TS and strategy.bars[0]["timestamp"] == NS_TS
     assert [price for price, _ in fake.begin_bars] == [102.0, 106.0, 108.0]
+    # 每根 bar 都必须把模拟时钟推进到该 bar 的历史时间，成交时间才不会落到墙上时钟
+    assert fake.clock_set == sorted(fake.clock_set) == [NS_TS, NS_TS + 60_000_000_000, NS_TS + 120_000_000_000]
     assert fake.step_calls == 3
     assert fake.run_calls >= 1
     assert results["_raw"]["final_nav"] == 101000.0

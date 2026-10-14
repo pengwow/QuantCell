@@ -143,7 +143,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
   if (def.kind === 'code') {
     const lines = def.code.split('\n').length;
     return (
-      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+      <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         <Card size="small">
           <Flex justify="space-between" align="center" wrap="wrap" gap="small">
             <Space size="small" wrap>
@@ -166,7 +166,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
   // composite
   const tw = def.train_window ?? {};
   return (
-    <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Card size="small">
         <Descriptions
           column={{ xs: 1, sm: 2 }}
@@ -198,7 +198,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
             </Space>
           ),
           children: (
-            <Space direction="vertical" size="small" style={{ display: 'flex' }}>
+            <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
               <Flex justify="flex-end">
                 <Button size="small" icon={<CopyOutlined />} onClick={() => copy(c.code)}>
                   {t('factor_code_copy') || '复制代码'}
