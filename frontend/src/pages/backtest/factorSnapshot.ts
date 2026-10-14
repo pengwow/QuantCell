@@ -37,7 +37,7 @@ export function buildFactorSnapshotRows(
 
   const thresholds = factors.thresholds ?? {};
   const rows = factors.names.map((name) => {
-    const col = factors.time_series[name] as Array<number | null> | undefined;
+    const col = factors.time_series[name];
     const raw = col ? col[i] : undefined;
     const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
 

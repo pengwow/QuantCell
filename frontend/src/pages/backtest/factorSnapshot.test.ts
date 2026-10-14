@@ -14,12 +14,10 @@ const baseFactors: BacktestFactors = {
   time_series: {
     timestamps: TS,
     formatted_times: ['t1', 't2', 't3', 't4'],
-    // 列内 null 表达后端把 NaN 序列化成 null 的真实运行时形态；FactorTimeSeries
-    // 索引签名未编码列内 null（既有类型，Task 2 不改），用断言在 fixture 侧表达
-    momentum: [0.1, 0.6, 0.8, null] as number[],
+    momentum: [0.1, 0.6, 0.8, null],
     rsi: [50, 75, 65, 80],
     no_threshold: [1, 2, 3, 4],
-    dead_factor: [null, null, null, null] as unknown as number[],
+    dead_factor: [null, null, null, null],
   },
   trade_factors: [],
   attribution: {},
@@ -58,7 +56,7 @@ describe('buildFactorSnapshotRows', () => {
 
   it('值在双阈值之间为中性，低于 sell 为空头', () => {
     const f = structuredClone(baseFactors);
-    (f.time_series.momentum as number[]) = [0.0, 0.3, -0.9, 0.0];
+    f.time_series.momentum = [0.0, 0.3, -0.9, 0.0];
     const { rows } = buildFactorSnapshotRows(f, 2500);
     const mom = rows.find((r) => r.name === 'momentum')!;
     expect(mom.signal).toBe('neutral');   // -0.5 < 0.3 < 0.5
