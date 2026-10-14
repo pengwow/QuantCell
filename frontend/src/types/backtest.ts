@@ -138,6 +138,33 @@ export interface ReplayTrade {
   [key: string]: unknown;
 }
 
+// ---- 回测因子（与后端结果 JSON 的 factors 字段对应）----
+// 列式时序：timestamps（毫秒 epoch）/ formatted_times 为公共轴，每个因子名对应一列值。
+// attribution 回放页用不到，保持 unknown（详情页有自己的完整定义）。
+export interface FactorTimeSeries {
+  timestamps: number[];
+  formatted_times: string[];
+  // 每因子一列值（后端 NaN 序列化为 null）
+  [factorName: string]: number[] | string[] | null;
+}
+
+export interface BacktestFactors {
+  names: string[];
+  thresholds: Record<string, { buy?: number; sell?: number }>;
+  time_series: FactorTimeSeries;
+  trade_factors: Array<Record<string, number | string | null>>;
+  attribution: Record<string, unknown>;
+}
+
+// 因子快照面板单行
+export interface FactorSnapshotRow {
+  name: string;
+  value: number | null;   // null 表示该 bar 无值（NaN）
+  buy?: number;
+  sell?: number;
+  signal: 'long' | 'short' | 'neutral' | 'none';  // none: 无阈值或无值，只显示数值
+}
+
 // 回放数据类型（字段与后端 /replay 接口返回保持宽松兼容）
 export interface ReplayData {
   klines: ReplayKline[];
@@ -155,6 +182,7 @@ export interface ReplayData {
   };
   symbol: string;
   interval: string;
+  factors?: BacktestFactors | null;
 }
 
 // 货币对信息类型

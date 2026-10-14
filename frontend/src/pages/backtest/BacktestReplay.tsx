@@ -320,6 +320,7 @@ const BacktestReplay = () => {
         equity_curve: data.equity_curve || [],
         strategy_name: data.strategy_name || '',
         backtest_config: data.backtest_config || {},
+        factors: data.factors ?? null,
         symbol: data.backtest_config?.symbol || symbol || 'BTCUSDT',
         interval: data.backtest_config?.interval || '15m',
       };
