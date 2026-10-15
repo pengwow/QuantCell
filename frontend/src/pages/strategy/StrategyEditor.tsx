@@ -78,8 +78,7 @@ const DEFAULT_NEW_STRATEGY_CODE = `# -*- coding: utf-8 -*-
 from __future__ import annotations
 from typing import Any
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class NewStrategy(BaseStrategy):
