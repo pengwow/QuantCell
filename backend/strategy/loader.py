@@ -1,24 +1,17 @@
-"""策略加载器 — 按 name → class 全局注册表。（已废弃）
+"""策略加载器 — 按 name → class 全局注册表。
 
 ponytail: @register(name) 装饰器,模板 import 时自动注册
          加载器: StrategyLoader.get(name) -> class
          列出: StrategyLoader.list_all() -> [name, ...]
 
-警告：本模块已废弃，请使用 backtest.strategy_loader_service.StrategyLoaderService 替代。
+状态：存活。strategy/templates 的 @register 注册机制与 backtest/baseline.py 仍依赖本模块。
+TODO(debt-2026-10): 待模板注册机制统一迁移到 StrategyLoaderService 后，本模块可删除。
 """
 
 from __future__ import annotations
 
 import importlib
 import pkgutil
-import warnings
-
-warnings.warn(
-    "strategy.loader is deprecated, use backtest.strategy_loader_service.StrategyLoaderService instead",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
