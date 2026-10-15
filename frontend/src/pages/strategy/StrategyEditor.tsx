@@ -78,7 +78,7 @@ const DEFAULT_NEW_STRATEGY_CODE = `# -*- coding: utf-8 -*-
 from __future__ import annotations
 from typing import Any
 
-from axon_bridge import Action, ActionType
+from axon_bridge import Action
 from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
 
@@ -99,17 +99,17 @@ class NewStrategy(BaseStrategy):
         rsi = ctx.get_feature("rsi", 50.0) if ctx else 50.0
 
         if len(closes) < self.slow_period:
-            return Action(ActionType.Hold, 0.0, 0.0, "new_strategy", 0)
+            return Action("hold", 0.0, 0.0, "new_strategy", 0)
 
         fast_ma = sum(closes[-self.fast_period:]) / self.fast_period
         slow_ma = sum(closes[-self.slow_period:]) / self.slow_period
 
         if fast_ma > slow_ma:
-            return Action(ActionType.Buy, 0.8, self.position_size, "new_strategy", 0)
+            return Action("buy", 0.8, self.position_size, "new_strategy", 0)
         elif fast_ma < slow_ma:
-            return Action(ActionType.ReduceLong, 0.8, 0.0, "new_strategy", 0)
+            return Action("reduce_long", 0.8, 0.0, "new_strategy", 0)
 
-        return Action(ActionType.Hold, 0.0, 0.0, "new_strategy", 0)
+        return Action("hold", 0.0, 0.0, "new_strategy", 0)
 `;
 
 /**
