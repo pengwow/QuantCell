@@ -2,8 +2,7 @@
 
 import pytest
 
-from axon_bridge import Action
-from strategy.base import StrategyConfig, StrategyContext
+from strategy import Action, StrategyConfig, StrategyContext
 from strategy.templates.factor_timing import FactorTiming
 
 

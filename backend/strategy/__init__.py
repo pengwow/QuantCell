@@ -5,13 +5,13 @@
 
 策略开发者一行 import 即可拿到全部核心类型：
 
-    from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
+    from strategy import Action, ActionType, BaseStrategy, StrategyConfig, StrategyContext
 """
 
 __version__ = "3.0.0"
 
 # 统一重导出 —— 策略开发者不需要感知 axon_bridge / axon_quant 底层
-from axon_bridge import Action
+from axon_bridge import Action, ActionType
 
 from .agent_traders import (
     EnsembleTrader,
@@ -37,6 +37,7 @@ from .service import StrategyService
 
 __all__ = [
     "Action",
+    "ActionType",
     "BaseStrategy",
     "EnsembleTrader",
     "EventDrivenLoop",

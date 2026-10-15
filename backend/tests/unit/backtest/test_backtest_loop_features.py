@@ -3,9 +3,8 @@
 import numpy as np
 import pandas as pd
 
-from axon_bridge import Action
 from backtest.backtest_loop import BacktestLoop
-from strategy.base import BaseStrategy, StrategyConfig
+from strategy import Action, BaseStrategy, StrategyConfig
 
 
 class SpyStrategy(BaseStrategy):
