@@ -247,14 +247,15 @@ class TestStrategyTemplateAPI:
         assert data["code"] == 0
 
     def test_get_template_detail_success(self, client, mock_auth, mock_should_refresh, auth_headers):
-        """测试获取模板详情成功"""
-        response = client.get("/api/v1/ai-models/strategy/templates/tpl_001", headers=auth_headers)
+        """测试获取真实模板详情成功"""
+        response = client.get("/api/v1/ai-models/strategy/templates/dual_ma", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
         assert "data" in data
-        assert data["data"]["id"] == "tpl_001"
+        assert data["data"]["id"] == "dual_ma"
+        assert "class DualMA" in data["data"]["code_template"]
 
     def test_get_template_detail_not_found(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取不存在的模板详情"""
