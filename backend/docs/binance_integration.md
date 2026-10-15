@@ -7,8 +7,7 @@
 Binance连接模块提供以下功能：
 
 1. **REST API客户端** - 账户管理、市场行情、订单操作
-2. **WebSocket实时数据** - K线、深度、交易数据实时推送
-3. **模拟盘交易** - 无需真实资金即可测试交易策略
+2. **WebSocket实时数据** - K线、深度、交易数据实时推送（`BinanceWebSocketClient`）
 
 ## 安装依赖
 
@@ -85,80 +84,46 @@ client.disconnect()
 
 ### 3. WebSocket实时数据
 
+存活的 WebSocket 客户端是 `exchange.binance.websocket_client.BinanceWebSocketClient`，
+通过 `subscribe(channels)` 订阅频道、`add_message_callback(callback)` 注册回调：
+
 ```python
 import asyncio
-from exchange.binance import BinanceWebSocketManager, BinanceConfig
+from exchange.binance.websocket_client import BinanceWebSocketClient
+from exchange.binance.config import BinanceConfig
 
 async def main():
     config = BinanceConfig(testnet=True)
-    ws_manager = BinanceWebSocketManager(config)
-    
+    client = BinanceWebSocketClient(config)
+
+    # 注册消息回调，接收所有已订阅频道的推送
+    def on_message(data):
+        print(f"Message: {data.get('channel')} -> {data}")
+
+    client.add_message_callback(on_message)
+
     # 连接
-    await ws_manager.connect()
-    
-    # 定义回调函数
-    def on_kline(data):
-        print(f"Kline: {data['symbol']} O:{data['open']} H:{data['high']} L:{data['low']} C:{data['close']}")
-    
-    def on_trade(data):
-        print(f"Trade: {data['symbol']} Price:{data['price']} Qty:{data['quantity']}")
-    
-    # 注册回调
-    ws_manager.register_callback("kline", on_kline)
-    ws_manager.register_callback("trade", on_trade)
-    
-    # 订阅数据
-    await ws_manager.subscribe_kline("BTCUSDT", "1m")
-    await ws_manager.subscribe_trade("BTCUSDT")
-    
+    await client.connect()
+
+    # 订阅数据（频道格式: "<symbol>@<stream>"）
+    await client.subscribe([
+        "BTCUSDT@kline_1m",
+        "BTCUSDT@trade",
+    ])
+
     # 运行一段时间
     await asyncio.sleep(60)
-    
+
     # 断开连接
-    await ws_manager.disconnect()
+    await client.disconnect()
 
 asyncio.run(main())
 ```
 
 ### 4. 模拟盘交易
 
-```python
-from exchange.binance import PaperTradingAccount
-from exchange.binance.config import OrderSide, OrderType
-
-# 创建模拟账户
-account = PaperTradingAccount(
-    initial_balance={"USDT": 10000.0, "BTC": 0.5},
-    maker_fee=0.001,
-    taker_fee=0.001,
-)
-
-# 更新市场价格
-account.update_market_price("BTCUSDT", 50000.0)
-
-# 创建市价买单
-order = account.create_order(
-    symbol="BTCUSDT",
-    side=OrderSide.BUY,
-    order_type=OrderType.MARKET,
-    quantity=0.01,
-)
-print(f"Order filled: {order.order_id}")
-
-# 创建限价卖单
-limit_order = account.create_order(
-    symbol="BTCUSDT",
-    side=OrderSide.SELL,
-    order_type=OrderType.LIMIT,
-    quantity=0.01,
-    price=55000.0,
-)
-
-# 获取账户摘要
-summary = account.get_account_summary()
-print(f"Total Equity: {summary['total_equity']}")
-print(f"Unrealized PnL: {summary['unrealized_pnl']}")
-```
+> 说明：模拟盘交易模块及其账户实现已归档，当前无存活的模拟盘实现。
+> 需要无真实资金的回测请使用 `backtest/backtest_loop.py` 的 `BacktestLoop`。
 
 ## API参考
 
@@ -184,41 +149,24 @@ print(f"Unrealized PnL: {summary['unrealized_pnl']}")
 - `get_open_orders(symbol=None)` - 获取当前挂单
 - `get_all_orders(symbol, **kwargs)` - 获取所有订单
 
-### BinanceWebSocketManager
+### BinanceWebSocketClient
 
-#### 订阅方法
+#### 连接与订阅
 
-- `subscribe_kline(symbol, interval="1m")` - 订阅K线
-- `subscribe_depth(symbol, depth="20")` - 订阅深度
-- `subscribe_trade(symbol)` - 订阅交易
-- `subscribe_ticker(symbol)` - 订阅ticker
-- `subscribe_user_data()` - 订阅用户数据流
-- `unsubscribe(subscription_id)` - 取消订阅
+- `connect()` - 建立 WebSocket 连接
+- `disconnect()` - 断开连接
+- `subscribe(channels)` - 订阅频道列表，格式如 `["BTCUSDT@kline_1m", "ETHUSDT@depth"]`
+- `unsubscribe(channels)` - 取消订阅
+- `is_connected()` - 检查连接状态
+- `get_connection_status()` - 获取连接状态信息
 
 #### 回调注册
 
-- `register_callback(data_type, callback)` - 注册回调
-- `unregister_callback(data_type, callback)` - 注销回调
+- `add_message_callback(callback)` - 注册消息回调
+- `remove_message_callback(callback)` - 注销消息回调
 
-### PaperTradingAccount
-
-#### 订单操作
-
-- `create_order(**kwargs)` - 创建订单
-- `cancel_order(order_id)` - 取消订单
-- `get_order(order_id)` - 获取订单
-- `get_open_orders(symbol=None)` - 获取未成交订单
-
-#### 账户信息
-
-- `get_balance(asset)` - 获取余额
-- `get_position(symbol)` - 获取持仓
-- `get_all_positions()` - 获取所有持仓
-- `get_account_summary()` - 获取账户摘要
-
-#### 市场数据
-
-- `update_market_price(symbol, price)` - 更新市场价格
+> 注意：`subscribe` 的频道名不区分订阅类型前缀，K线/深度/交易/ticker 由频道名中的
+> stream 类型（`kline_1m`/`depth`/`trade`/`ticker`）决定。
 
 ## 错误处理
 

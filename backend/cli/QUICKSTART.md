@@ -114,8 +114,8 @@ CLI 支持 3 种调用方式,完全等价:
 # 1. 安装后直接用 quantcell(推荐)
 quantcell strategy list
 
-# 2. 不安装,直接调 cli.run
-python -m cli.run strategy list
+# 2. 不安装,直接用模块方式调入口
+python -m cli strategy list
 
 # 3. 6 个月内继续用旧 scripts
 python scripts/strategy_cli.py list
@@ -145,7 +145,7 @@ quantcell agent action generate-strategy -r "双均线" -n my_strat
 
 1. 在 `cli/<name>.py` 定义 `app = typer.Typer(...)` 和命令
 2. 在 `cli/__init__.py` 加 `app.add_typer(<name>_app, name="<name>", help="...")`
-3. 在 `pyproject.toml` 的 `[project.scripts]` 已经有 `quantcell = "cli.run:cli"`,无需改
+3. 在 `pyproject.toml` 的 `[project.scripts]` 已经有 `quantcell = "cli.__main__:main"`,无需改
 4. 共享辅助从 `cli._common` 拿:`get_logger()`,`echo_json()`,`handle_errors`,`backend_path_option()`
 
 不要在每个子命令里重复定义 logger / 异常处理 / JSON 输出格式。
