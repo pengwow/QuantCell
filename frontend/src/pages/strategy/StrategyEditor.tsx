@@ -64,7 +64,53 @@ interface Strategy {
   code: string;
 }
 
+/** 新建策略时的默认代码 — 对齐 QuantCell BaseStrategy 框架。
+ * 展示 ctx.closes / ctx.get_feature / ActionType 枚举的正确用法。
+ * 用户后续可从后端模板列表选择其他真实模板替代。
+ */
+const DEFAULT_NEW_STRATEGY_CODE = `# -*- coding: utf-8 -*-
+"""简单 SMA 交叉策略示例 — 展示 QuantCell BaseStrategy 框架用法。
 
+当短期均线上穿长期均线时买入，下穿时平仓。
+参数通过 StrategyConfig.params 注入。
+"""
+
+from __future__ import annotations
+from typing import Any
+
+from axon_bridge import Action, ActionType
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+
+
+class NewStrategy(BaseStrategy):
+    """SMA 交叉策略 — 展示 BaseStrategy 正确用法。"""
+
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self.fast_period: int = config.params.get("fast_period", 10)
+        self.slow_period: int = config.params.get("slow_period", 20)
+        self.position_size: float = config.params.get("position_size", 0.1)
+
+    def on_bar(self, bar: dict, ctx: StrategyContext | None = None) -> Action:
+        closes = ctx.closes if ctx else []
+        closes.append(bar["close"])
+
+        # 因子调用示例 —— 运行时适配器会注入
+        rsi = ctx.get_feature("rsi", 50.0) if ctx else 50.0
+
+        if len(closes) < self.slow_period:
+            return Action(ActionType.Hold, 0.0, 0.0, "new_strategy", 0)
+
+        fast_ma = sum(closes[-self.fast_period:]) / self.fast_period
+        slow_ma = sum(closes[-self.slow_period:]) / self.slow_period
+
+        if fast_ma > slow_ma:
+            return Action(ActionType.Buy, 0.8, self.position_size, "new_strategy", 0)
+        elif fast_ma < slow_ma:
+            return Action(ActionType.ReduceLong, 0.8, 0.0, "new_strategy", 0)
+
+        return Action(ActionType.Hold, 0.0, 0.0, "new_strategy", 0)
+`;
 
 /**
  * 策略编辑器组件
@@ -521,256 +567,20 @@ class NewStrategy(StrategyBase):
       name: 'new_strategy',
       file_name: 'new_strategy.py',
       file_path: '',
-      description: t('new_strategy_template') || '新策略 - SMA交叉策略模板',
+      description: t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架',
       version: '1.0.0',
       params: [
         { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
         { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
-        { name: 'trade_size', type: 'float', default: 0.1, description: t('quantity_per_trade') || '每笔交易数量', required: false },
+        { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
       ],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      code: `# -*- coding: utf-8 -*-
-"""
-${t('sma_cross_strategy') || '简单SMA交叉策略'}
-
-${t('strategy_desc_sma') || '使用统一策略接口的双均线交叉策略示例。当短期均线上穿长期均线时买入，下穿时卖出。'}
-
-"""
-
-from __future__ import annotations
-
-from decimal import Decimal
-from typing import Any, Dict, List
-
-from strategy.core import (
-    StrategyBase,
-    StrategyConfig,
-    Bar,
-    InstrumentId,
-)
-
-
-class NewStrategyConfig(StrategyConfig):
-    """
-    ${t('sma_cross_config') || '简单SMA交叉策略配置'}
-
-    ${t('sma_cross_config_desc') || '支持单品种和多品种回测，统一使用列表形式传参'}
-
-    Parameters
-    ----------
-    instrument_ids : List[InstrumentId]
-        策略交易的品种ID列表
-    bar_types : List[str]
-        策略订阅的K线类型列表，例如 ["1-HOUR", "1-MINUTE"]
-    trade_size : Decimal
-        每笔交易的数量，默认 0.1
-    fast_period : int
-        短期均线周期，默认 10
-    slow_period : int
-        长期均线周期，默认 30
-
-    """
-
-    def __init__(
-        self,
-        instrument_ids: List[InstrumentId],
-        bar_types: List[str],
-        trade_size: Decimal = Decimal("0.1"),
-        fast_period: int = 10,
-        slow_period: int = 30,
-        log_level: str = "INFO",
-    ):
-        super().__init__(instrument_ids, bar_types, trade_size, log_level)
-        self.fast_period = fast_period
-        self.slow_period = slow_period
-
-
-class NewStrategy(StrategyBase):
-    """
-    ${t('sma_cross_strategy_multi') || '简单SMA交叉策略（支持多品种）'}
-
-    ${t('sma_cross_simplest') || '最简单的双均线交叉策略实现：'}
-    ${t('sma_cross_step1') || '- 计算短期和长期SMA'}
-    ${t('sma_cross_step2') || '- 短期均线上穿长期均线时买入'}
-    ${t('sma_cross_step3') || '- 短期均线下穿长期均线时卖出'}
-
-    ${t('sma_cross_multi_support') || '支持多品种，为每个品种维护独立的价格历史和SMA值。'}
-
-    Parameters
-    ----------
-    config : NewStrategyConfig
-        策略配置对象
-    """
-
-    def __init__(self, config: NewStrategyConfig) -> None:
-        super().__init__(config)
-        # 使用 _config 存储配置，避免与父类的 config property 冲突
-        self._config = config
-
-        # 为每个品种维护独立的数据结构
-        # key: instrument_id, value: 价格历史列表
-        self.prices: Dict[InstrumentId, List[float]] = {}
-
-        # 当前SMA值
-        self.fast_sma: Dict[InstrumentId, float] = {}
-        self.slow_sma: Dict[InstrumentId, float] = {}
-
-        # 上一个SMA值（用于判断交叉）
-        self.prev_fast_sma: Dict[InstrumentId, float] = {}
-        self.prev_slow_sma: Dict[InstrumentId, float] = {}
-
-        # 初始化每个品种的数据结构
-        for instrument_id in config.instrument_ids:
-            self.prices[instrument_id] = []
-            self.fast_sma[instrument_id] = 0.0
-            self.slow_sma[instrument_id] = 0.0
-            self.prev_fast_sma[instrument_id] = 0.0
-            self.prev_slow_sma[instrument_id] = 0.0
-
-    def on_start(self) -> None:
-        """
-        ${t('strategy_on_start') || '策略启动时调用'}
-        """
-        self.log_info(
-            f"SMA交叉策略启动 - 快周期: {self._config.fast_period}, "
-            f"慢周期: {self._config.slow_period}, "
-            f"品种数: {len(self._config.instrument_ids)}"
-        )
-
-    def on_bar(self, bar: Bar) -> None:
-        """
-        ${t('kline_data_process') || 'K线数据处理'}
-
-        Parameters
-        ----------
-        bar : Bar
-            K线数据对象
-        """
-        # 获取当前K线对应的品种ID
-        instrument_id = bar.instrument_id
-
-        # 保存当前SMA值作为上一个值
-        self.prev_fast_sma[instrument_id] = self.fast_sma[instrument_id]
-        self.prev_slow_sma[instrument_id] = self.slow_sma[instrument_id]
-
-        # 添加收盘价到历史
-        close_price = bar.close
-        self.prices[instrument_id].append(close_price)
-
-        # 保持历史数据长度
-        max_period = max(self._config.fast_period, self._config.slow_period)
-        if len(self.prices[instrument_id]) > max_period * 2:
-            self.prices[instrument_id] = self.prices[instrument_id][-max_period * 2:]
-
-        # 计算SMA
-        if len(self.prices[instrument_id]) >= self._config.slow_period:
-            self.fast_sma[instrument_id] = (
-                sum(self.prices[instrument_id][-self._config.fast_period:])
-                / self._config.fast_period
-            )
-            self.slow_sma[instrument_id] = (
-                sum(self.prices[instrument_id][-self._config.slow_period:])
-                / self._config.slow_period
-            )
-
-            # 输出调试信息
-            self.log_debug(
-                f"[{instrument_id}] Close: {close_price:.2f}, "
-                f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f}, "
-                f"Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
-            )
-
-            # 检查是否有足够的上一个值来判断交叉
-            if (
-                self.prev_fast_sma[instrument_id] > 0
-                and self.prev_slow_sma[instrument_id] > 0
-            ):
-                # 判断金叉：短期均线上穿长期均线
-                golden_cross = (
-                    self.prev_fast_sma[instrument_id]
-                    <= self.prev_slow_sma[instrument_id]
-                    and self.fast_sma[instrument_id] > self.slow_sma[instrument_id]
-                )
-
-                # 判断死叉：短期均线下穿长期均线
-                death_cross = (
-                    self.prev_fast_sma[instrument_id]
-                    >= self.prev_slow_sma[instrument_id]
-                    and self.fast_sma[instrument_id] < self.slow_sma[instrument_id]
-                )
-
-                # 执行交易逻辑
-                if golden_cross:
-                    self._on_golden_cross(bar, instrument_id)
-                elif death_cross:
-                    self._on_death_cross(bar, instrument_id)
-
-    def _on_golden_cross(self, bar: Bar, instrument_id: InstrumentId) -> None:
-        """
-        ${t('golden_cross_signal') || '金叉信号处理'}
-
-        Parameters
-        ----------
-        bar : Bar
-            K线数据对象
-        instrument_id : InstrumentId
-            品种ID
-        """
-        self.log_info(
-            f"[{instrument_id}] ${t('golden_cross') || '金叉信号！'}"
-            f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f} "
-            f"上穿 Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
-        )
-
-        # 如果当前空仓，买入该品种
-        if self.is_flat(instrument_id):
-            self.log_info(f"[{instrument_id}] ${t('current_empty_buy') || '当前空仓，执行买入'}")
-            self.buy(instrument_id, self._config.trade_size)
-        # 如果当前空头，先平仓再买入
-        elif self.is_short(instrument_id):
-            self.log_info(f"[{instrument_id}] ${t('current_short_close_buy') || '当前空头，先平仓再买入'}")
-            self.close_position(instrument_id)
-            self.buy(instrument_id, self._config.trade_size)
-        else:
-            self.log_info(f"[{instrument_id}] ${t('current_long_noop') || '当前已持有多头，无需操作'}")
-
-    def _on_death_cross(self, bar: Bar, instrument_id: InstrumentId) -> None:
-        """
-        ${t('death_cross_signal') || '死叉信号处理'}
-
-        Parameters
-        ----------
-        bar : Bar
-            K线数据对象
-        instrument_id : InstrumentId
-            品种ID
-        """
-        self.log_info(
-            f"[{instrument_id}] ${t('death_cross') || '死叉信号！'}"
-            f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f} "
-            f"下穿 Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
-        )
-
-        # 如果当前持有多头，卖出该品种
-        if self.is_long(instrument_id):
-            self.log_info(f"[{instrument_id}] ${t('current_long_sell') || '当前持有多头，执行卖出'}")
-            self.sell(instrument_id, self._config.trade_size)
-        else:
-            self.log_info(f"[{instrument_id}] ${t('current_no_long_noop') || '当前未持有多头，无需操作'}")
-
-    def on_stop(self) -> None:
-        """
-        ${t('strategy_on_stop') || '策略停止时调用'}
-        """
-        self.log_info("SMA交叉策略停止")
-        # 可以在这里添加统计信息输出
-        self.log_info(f"${t('total_processed') || '共处理'} {self.bars_processed} ${t('klines_processed') || '条K线数据'}")
-`,
+      code: DEFAULT_NEW_STRATEGY_CODE,
     };
 
     setSelectedStrategy(newStrategy);
-    setCode(newStrategy.code);
+    setCode(DEFAULT_NEW_STRATEGY_CODE);
   };
 
   // 保存策略
