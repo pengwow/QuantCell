@@ -23,12 +23,12 @@ from utils.logger import LogType, get_logger
 
 from . import crud, models, schemas
 from .exceptions import (
-    LogQueryError,
-    MetricsError,
-    WorkerAlreadyRunningError,
+    LogQueryException,
+    MetricsException,
+    WorkerAlreadyRunningException,
     WorkerException,
-    WorkerNotFoundError,
-    WorkerOperationError,
+    WorkerNotFoundException,
+    WorkerOperationException,
 )
 from .state import strategy_registry
 from .worker_state import worker_state_manager
@@ -41,18 +41,17 @@ if TYPE_CHECKING:
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-# 异常类已统一在 exceptions.py 中定义
-# 这里保留向后兼容的导入，不再重复定义
+# 异常类统一在 exceptions.py 中定义并直接使用，不再保留向后兼容别名
 
 
 __all__ = [
-    "LogQueryError",
-    "MetricsError",
-    "WorkerAlreadyRunningError",
+    "LogQueryException",
+    "MetricsException",
+    "WorkerAlreadyRunningException",
     "WorkerCoreService",
     "WorkerException",
-    "WorkerNotFoundError",
-    "WorkerOperationError",
+    "WorkerNotFoundException",
+    "WorkerOperationException",
     "worker_core_service",
 ]
 
@@ -154,7 +153,7 @@ class WorkerCoreService:
             创建成功的Worker字典
 
         Raises:
-            WorkerOperationError: 创建失败时抛出
+            WorkerOperationException: 创建失败时抛出
         """
         try:
             with self.get_db() as db:
@@ -167,7 +166,7 @@ class WorkerCoreService:
         except Exception as e:
             logger.error(f"[WorkerCoreService] 创建Worker失败: {e}")
             msg = "create"
-            raise WorkerOperationError(msg, message=str(e))
+            raise WorkerOperationException(msg, message=str(e))
 
     def get_worker(self, worker_id: int) -> dict[str, Any]:
         """
@@ -180,12 +179,12 @@ class WorkerCoreService:
             Worker详情字典
 
         Raises:
-            WorkerNotFoundError: Worker不存在时抛出
+            WorkerNotFoundException: Worker不存在时抛出
         """
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
             logger.debug(f"[WorkerCoreService] Worker {worker_id} 获取成功")
             return worker.to_dict()
 
@@ -237,24 +236,24 @@ class WorkerCoreService:
             更新后的Worker字典
 
         Raises:
-            WorkerNotFoundError: Worker不存在时抛出
-            WorkerOperationError: 更新失败时抛出
+            WorkerNotFoundException: Worker不存在时抛出
+            WorkerOperationException: 更新失败时抛出
         """
         try:
             with self.get_db() as db:
                 worker_data = schemas.WorkerUpdate(**data)
                 worker = crud.update_worker(db, worker_id, worker_data)
                 if not worker:
-                    raise WorkerNotFoundError(worker_id)
+                    raise WorkerNotFoundException(worker_id)
                 result = worker.to_dict()
                 logger.info(f"[WorkerCoreService] Worker更新成功: id={worker_id}")
                 return result
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.error(f"[WorkerCoreService] 更新Worker失败: worker_id={worker_id}, error={e}")
             msg = "update"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
 
     def delete_worker(self, worker_id: int) -> bool:
         """
@@ -267,12 +266,12 @@ class WorkerCoreService:
             是否删除成功
 
         Raises:
-            WorkerNotFoundError: Worker不存在时抛出
+            WorkerNotFoundException: Worker不存在时抛出
         """
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
             crud.delete_worker(db, worker_id)
             logger.info(f"[WorkerCoreService] Worker {worker_id} 删除成功")
             return True
@@ -297,8 +296,8 @@ class WorkerCoreService:
             新克隆的Worker字典
 
         Raises:
-            WorkerNotFoundError: 源Worker不存在时抛出
-            WorkerOperationError: 克隆失败时抛出
+            WorkerNotFoundException: 源Worker不存在时抛出
+            WorkerOperationException: 克隆失败时抛出
         """
         try:
             with self.get_db() as db:
@@ -315,13 +314,13 @@ class WorkerCoreService:
                 return result
         except ValueError as e:
             if "不存在" in str(e):
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
             msg = "clone"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
         except Exception as e:
             logger.error(f"[WorkerCoreService] 克隆Worker失败: worker_id={worker_id}, error={e}")
             msg = "clone"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
 
     # ==================== 异步CRUD方法（供API使用） ====================
 
@@ -373,23 +372,23 @@ class WorkerCoreService:
             更新后的Worker字典
 
         Raises:
-            WorkerNotFoundError: Worker不存在时抛出
-            WorkerOperationError: 更新失败时抛出
+            WorkerNotFoundException: Worker不存在时抛出
+            WorkerOperationException: 更新失败时抛出
         """
         try:
             with self.get_db() as db:
                 worker = crud.update_worker_config(db, worker_id, config)
                 if not worker:
-                    raise WorkerNotFoundError(worker_id)
+                    raise WorkerNotFoundException(worker_id)
                 result = worker.to_dict()
                 logger.info(f"[WorkerCoreService] Worker配置更新成功: id={worker_id}")
                 return result
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.error(f"[WorkerCoreService] 更新Worker配置失败: worker_id={worker_id}, error={e}")
             msg = "更新配置"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
 
     async def async_update_worker_config(self, worker_id: int, config: dict[str, Any]) -> dict[str, Any]:
         """更新Worker配置（异步版本，通过线程池执行同步操作）"""
@@ -422,7 +421,7 @@ class WorkerCoreService:
         }
 
         if operation not in valid_operations:
-            raise WorkerOperationError(
+            raise WorkerOperationException(
                 operation,
                 message=f"不支持的操作类型: {operation}，支持的操作: {list(valid_operations.keys())}",
             )
@@ -528,7 +527,7 @@ class WorkerCoreService:
         }
 
         if operation not in valid_operations:
-            raise WorkerOperationError(
+            raise WorkerOperationException(
                 operation,
                 message=f"不支持的操作类型: {operation}，支持的操作: {list(valid_operations.keys())}",
             )
@@ -666,9 +665,9 @@ class WorkerCoreService:
             dict: {"worker_id": int, "status": str, "pid": int 可选}
 
         Raises:
-            WorkerNotFoundError: Worker 不存在
-            WorkerAlreadyRunningError: Worker 已在运行
-            WorkerOperationError: 启动失败
+            WorkerNotFoundException: Worker 不存在
+            WorkerAlreadyRunningException: Worker 已在运行
+            WorkerOperationException: 启动失败
         """
         # 注意: Orchestrator 路径（独立子进程）不依赖 trading_system 初始化，
         # 因此本方法不调用 _ensure_initialized()，CLI 独立进程
@@ -676,9 +675,9 @@ class WorkerCoreService:
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
             if worker.status == "running":
-                raise WorkerAlreadyRunningError(worker_id)
+                raise WorkerAlreadyRunningException(worker_id)
 
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
@@ -688,20 +687,20 @@ class WorkerCoreService:
         # （CLI 退出即死、DB 却 running）。
         try:
             return self._start_worker_via_orchestrator(worker_id)
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
-        except WorkerAlreadyRunningError:
+        except WorkerAlreadyRunningException:
             raise
         except RuntimeError as e:
             # RuntimeError: orchestrator.start_worker_process 内显式抛错
             # (注册超时 / transport 创建失败)，明确指示独立进程路径失败。
             logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationError("启动", worker_id, message=str(e)) from e
+            raise WorkerOperationException("启动", worker_id, message=str(e)) from e
         except Exception as e:
             # 不降级到 trading_system 进程内路径；任何 Orchestrator 异常统一转译，
             # 让 CLI/API 拿到明确失败原因（含 ZMQ 端口被 FastAPI 占用这类共存场景）。
             logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationError("启动", worker_id, message=str(e)) from e
+            raise WorkerOperationException("启动", worker_id, message=str(e)) from e
 
     def _start_worker_via_orchestrator(self, worker_id: int) -> dict:
         """通过 WorkerOrchestrator 启动 Worker 独立进程。"""
@@ -714,9 +713,9 @@ class WorkerCoreService:
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
             if worker.status == "running":
-                raise WorkerAlreadyRunningError(worker_id)
+                raise WorkerAlreadyRunningException(worker_id)
 
         # 检查 Worker 是否已在运行
         if orchestrator.is_connected(worker_id):
@@ -736,7 +735,7 @@ class WorkerCoreService:
             return {"worker_id": worker_id, "status": "running", "pid": pid}
         else:
             orchestrator.kill_worker_process(worker_id)
-            raise WorkerOperationError("启动", worker_id, message="Worker 启动超时")
+            raise WorkerOperationException("启动", worker_id, message="Worker 启动超时")
 
     def _stop_worker_via_orchestrator(self, worker_id: int) -> dict:
         """通过 WorkerOrchestrator 停止 Worker 进程。
@@ -754,7 +753,7 @@ class WorkerCoreService:
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
 
         # 建立 ZMQ 通道（bind 失败说明 FastAPI 或其他管理器占用通道，走 pid 兜底）
         transport_ok = False
@@ -801,7 +800,7 @@ class WorkerCoreService:
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
 
         info = orchestrator.get_worker_info(worker_id)
         if info and info.is_alive:
@@ -915,14 +914,14 @@ class WorkerCoreService:
                         "message": "Worker 正在启动中...",
                     }
                 msg = "启动"
-                raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许启动")
+                raise WorkerOperationException(msg, worker_id, f"当前状态 ({current_status}) 不允许启动")
 
             # 后台异步执行启动逻辑，避免阻塞 API 响应
             async def _runner():
                 try:
                     result = await asyncio.to_thread(self.start_worker, worker_id)
                     logger.info(f"[async_start_worker] Worker {worker_id} 启动完成: {result}")
-                except WorkerNotFoundError:
+                except WorkerNotFoundException:
                     raise
                 except Exception as e:
                     logger.exception(f"[async_start_worker] Worker {worker_id} 启动失败")
@@ -935,14 +934,14 @@ class WorkerCoreService:
                 "status": "starting",
                 "message": "Worker 启动请求已接收，正在异步处理中...",
             }
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
-        except WorkerOperationError:
+        except WorkerOperationException:
             raise
         except Exception as e:
             logger.exception(f"[WorkerCoreService] 异步启动 Worker {worker_id} 失败")
-            # 未包装成 WorkerOperationError 的异常（如 DB 层异常）统一转译
-            raise WorkerOperationError("启动", worker_id, message=str(e)) from e
+            # 未包装成 WorkerOperationException 的异常（如 DB 层异常）统一转译
+            raise WorkerOperationException("启动", worker_id, message=str(e)) from e
 
     def stop_worker(self, worker_id: int) -> dict:
         """
@@ -958,27 +957,27 @@ class WorkerCoreService:
             dict: {"worker_id": int, "status": str}
 
         Raises:
-            WorkerNotFoundError: Worker 不存在
-            WorkerOperationError: 停止失败
+            WorkerNotFoundException: Worker 不存在
+            WorkerOperationException: 停止失败
         """
         # Orchestrator 路径不依赖 trading_system 初始化（同 start_worker 的原因），
         # 本方法不调用 _ensure_initialized()。
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
-                raise WorkerNotFoundError(worker_id)
+                raise WorkerNotFoundException(worker_id)
 
         logger.info(f"[WorkerCoreService] 同步停止 Worker {worker_id}")
 
         try:
             return self._stop_worker_via_orchestrator(worker_id)
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             # 不降级到 trading_system 进程内路径；_stop_worker_via_orchestrator 内部
             # 已含 DB pid SIGTERM 兜底，走到这里说明兜底之外仍有异常，统一转译。
             logger.error(f"[WorkerCoreService] Orchestrator 停止 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationError("停止", worker_id, message=str(e)) from e
+            raise WorkerOperationException("停止", worker_id, message=str(e)) from e
 
     async def async_stop_worker(self, worker_id: int) -> dict:
         """异步停止 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 停止独立子进程）。
@@ -1006,13 +1005,13 @@ class WorkerCoreService:
                         "message": "Worker 正在停止中...",
                     }
                 msg = "停止"
-                raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许停止")
+                raise WorkerOperationException(msg, worker_id, f"当前状态 ({current_status}) 不允许停止")
 
             async def _runner():
                 try:
                     result = await asyncio.to_thread(self.stop_worker, worker_id)
                     logger.info(f"[async_stop_worker] Worker {worker_id} 停止完成: {result}")
-                except WorkerNotFoundError:
+                except WorkerNotFoundException:
                     raise
                 except Exception as e:
                     logger.exception(f"[async_stop_worker] Worker {worker_id} 停止失败")
@@ -1025,13 +1024,13 @@ class WorkerCoreService:
                 "status": "stopping",
                 "message": "Worker 停止请求已接收，正在异步处理中...",
             }
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
-        except WorkerOperationError:
+        except WorkerOperationException:
             raise
         except Exception as e:
             logger.exception(f"[WorkerCoreService] 异步停止 Worker {worker_id} 失败")
-            raise WorkerOperationError("停止", worker_id, message=str(e)) from e
+            raise WorkerOperationException("停止", worker_id, message=str(e)) from e
 
     def restart_worker(self, worker_id: int) -> dict:
         """
@@ -1046,7 +1045,7 @@ class WorkerCoreService:
             dict: {"worker_id": int, "status": str}
 
         Raises:
-            WorkerOperationError: 重启失败
+            WorkerOperationException: 重启失败
         """
         # 不调用 _ensure_initialized()：stop/start 均只走 Orchestrator 独立子进程路径
         # （不依赖 trading_system），CLI 独立进程执行 restart 也不应被无关的
@@ -1148,7 +1147,7 @@ class WorkerCoreService:
                 with self.get_db() as db:
                     worker = crud.get_worker(db, worker_id)
                     if not worker:
-                        raise WorkerNotFoundError(worker_id)
+                        raise WorkerNotFoundException(worker_id)
 
                 return {
                     "worker_id": worker_id,
@@ -1179,7 +1178,7 @@ class WorkerCoreService:
                 "timestamp": datetime.now(UTC).isoformat(),
             }
 
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.error(f"[health_check] Worker {worker_id} 健康检查失败: {e}")
@@ -1211,7 +1210,7 @@ class WorkerCoreService:
         """
         try:
             return self._get_status_via_orchestrator(worker_id)
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.warning(f"[get_worker_status] ZMQ 路径失败，回退 registry/DB: {e}")
@@ -1221,7 +1220,7 @@ class WorkerCoreService:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
                 if not worker:
-                    raise WorkerNotFoundError(worker_id)
+                    raise WorkerNotFoundException(worker_id)
 
             runtime = strategy_registry.get(worker_id)
 
@@ -1244,7 +1243,7 @@ class WorkerCoreService:
                     "message": "Worker 未在 strategy_registry 中注册（可能尚未通过 trading_system 创建）",
                 }
 
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.error(f"[get_worker_status] 获取 Worker {worker_id} 状态失败: {e}")
@@ -1301,7 +1300,7 @@ class WorkerCoreService:
             dict: {"items": List[dict], "total": int, "limit": int, "offset": int}
 
         Raises:
-            LogQueryError: 日志查询失败
+            LogQueryException: 日志查询失败
         """
         try:
             from datetime import datetime as dt
@@ -1343,7 +1342,7 @@ class WorkerCoreService:
             raise
         except Exception as e:
             logger.error(f"[get_worker_logs] Worker {worker_id} 日志查询失败: {e}")
-            raise LogQueryError(worker_id, message=str(e))
+            raise LogQueryException(worker_id, message=str(e))
 
     async def async_get_worker_logs(
         self,
@@ -1371,7 +1370,7 @@ class WorkerCoreService:
 
         Raises:
             ValueError: 危险操作未确认
-            LogQueryError: 日志清理失败
+            LogQueryException: 日志清理失败
         """
         if before_days is None and not confirm:
             error_msg = "危险操作：清理全部日志需要 confirm=True 参数"
@@ -1392,7 +1391,7 @@ class WorkerCoreService:
             return {"deleted_count": deleted_count}
         except Exception as e:
             logger.error(f"[clear_worker_logs] Worker {worker_id} 日志清理失败: {e}")
-            raise LogQueryError(worker_id, message=f"日志清理失败: {e!s}")
+            raise LogQueryException(worker_id, message=f"日志清理失败: {e!s}")
 
     async def async_clear_worker_logs(
         self, worker_id: int, before_days: int | None = None, confirm: bool = False
@@ -1415,7 +1414,7 @@ class WorkerCoreService:
             dict: 性能指标数据
 
         Raises:
-            MetricsError: 获取性能指标失败
+            MetricsException: 获取性能指标失败
         """
         try:
             runtime = strategy_registry.get(worker_id)
@@ -1433,7 +1432,7 @@ class WorkerCoreService:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
                 if not worker:
-                    raise WorkerNotFoundError(worker_id)
+                    raise WorkerNotFoundException(worker_id)
 
                 metrics_data["status"] = worker.status
                 metrics_data["name"] = worker.name
@@ -1441,11 +1440,11 @@ class WorkerCoreService:
             logger.info(f"[get_worker_metrics] 获取 Worker {worker_id} 性能指标成功")
             return metrics_data
 
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.error(f"[get_worker_metrics] Worker {worker_id} 获取性能指标失败: {e}")
-            raise MetricsError(worker_id, message=str(e))
+            raise MetricsException(worker_id, message=str(e))
 
     async def async_get_worker_metrics(self, worker_id: int) -> dict:
         """异步版本获取 Worker 性能指标（通过线程池执行同步操作）"""
@@ -1481,7 +1480,7 @@ class WorkerCoreService:
                 return history
         except Exception as e:
             logger.error(f"[get_metrics_history] Worker {worker_id} 获取历史指标失败: {e}")
-            raise MetricsError(worker_id, message=str(e))
+            raise MetricsException(worker_id, message=str(e))
 
     async def async_get_metrics_history(self, worker_id: int, start_time=None, end_time=None, interval="1m") -> list:
         """异步版本获取历史性能指标（通过线程池执行同步操作）"""
@@ -1519,7 +1518,7 @@ class WorkerCoreService:
             dict: {"items": List[dict], "total": int, "page": int, "page_size": int}
 
         Raises:
-            WorkerOperationError: 查询失败
+            WorkerOperationException: 查询失败
         """
         try:
             page_size = min(page_size, self._config["max_page_size"])
@@ -1547,7 +1546,7 @@ class WorkerCoreService:
         except Exception as e:
             logger.error(f"[get_worker_trades] Worker {worker_id} 获取交易记录失败: {e}")
             msg = "获取交易记录"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
 
     async def async_get_worker_trades(
         self,
@@ -1604,7 +1603,7 @@ class WorkerCoreService:
         except Exception as e:
             logger.error(f"[get_worker_orders] Worker {worker_id} 获取订单列表失败: {e}")
             msg = "获取订单"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
 
     async def async_get_worker_orders(self, worker_id: int, status: str | None = None, limit: int = 50) -> dict:
         """异步版本获取 Worker 订单列表（通过线程池执行同步操作）"""
@@ -1630,7 +1629,7 @@ class WorkerCoreService:
                 if worker_id:
                     worker = crud.get_worker(db, worker_id)
                     if not worker:
-                        raise WorkerNotFoundError(worker_id)
+                        raise WorkerNotFoundException(worker_id)
 
                     trades_count = (
                         db.query(models.WorkerTrade).filter(models.WorkerTrade.worker_id == worker_id).count()
@@ -1676,12 +1675,12 @@ class WorkerCoreService:
                         "registry_running": running_runtimes,
                         "timestamp": datetime.now(UTC).isoformat(),
                     }
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             raise
         except Exception as e:
             logger.error(f"[get_worker_stats] 获取统计信息失败: {e}")
             msg = "统计信息"
-            raise WorkerOperationError(msg, message=str(e))
+            raise WorkerOperationException(msg, message=str(e))
 
     async def async_get_worker_stats(self, worker_id: int | None = None) -> dict:
         """异步版本获取 Worker 统计信息（通过线程池执行同步操作）"""
@@ -1705,7 +1704,7 @@ class WorkerCoreService:
         except Exception as e:
             logger.error(f"[get_worker_performance] Worker {worker_id} 获取绩效统计失败: {e}")
             msg = "绩效统计"
-            raise WorkerOperationError(msg, worker_id, message=str(e))
+            raise WorkerOperationException(msg, worker_id, message=str(e))
 
     async def async_get_worker_performance(self, worker_id: int, days: int = 30) -> list:
         """异步版本获取 Worker 绩效统计（通过线程池执行同步操作）"""
@@ -1788,7 +1787,7 @@ class WorkerCoreService:
                 "runtime_status": runtime.status if runtime else None,
                 "is_running": runtime.is_running if runtime else False,
             }
-        except WorkerNotFoundError:
+        except WorkerNotFoundException:
             return {
                 "exists": False,
                 "worker_id": worker_id,

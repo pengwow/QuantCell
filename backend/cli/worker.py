@@ -18,10 +18,9 @@ if str(backend_path) not in sys.path:
 # 确保 worker 模块完整初始化（trading_system 等单例注册）
 from worker import crud
 from worker.core_service import (
-    WorkerAlreadyRunningError,
+    WorkerAlreadyRunningException,
     WorkerCoreService,
-    WorkerNotFoundError,
-    WorkerOperationError,
+    WorkerNotFoundException,
 )
 from worker.trading_system import trading_system
 
@@ -110,7 +109,7 @@ def worker_delete(
     wid = _to_int(worker_id, "Worker ID")
     try:
         worker = _service.get_worker(wid)
-    except WorkerNotFoundError:
+    except WorkerNotFoundException:
         typer.echo(f"Worker {wid} 不存在")
         raise typer.Exit(1)
 
@@ -142,7 +141,7 @@ def worker_start(worker_id: str = typer.Argument(..., help="Worker ID")):
         result = _service.start_worker(wid)
         pid = result.get("pid", "?")
         typer.echo(f"Worker {wid} 已启动 (PID: {pid}, 状态: {result.get('status')})")
-    except WorkerAlreadyRunningError:
+    except WorkerAlreadyRunningException:
         typer.echo(f"Worker {wid} 已在运行中")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -352,7 +351,7 @@ def worker_positions(
             typer.echo("Worker 运行中，请通过 API 或 WebSocket 查询实时持仓")
         else:
             typer.echo("Worker 未运行，无活跃持仓")
-    except WorkerNotFoundError:
+    except WorkerNotFoundException:
         typer.echo(f"Worker {wid} 不存在")
         raise typer.Exit(1)
     except Exception as e:
@@ -399,7 +398,7 @@ def worker_trading_stats(
         typer.echo(f"  总交易数: {data.get('trades_count', 0)}")
         typer.echo(f"  订单数: {data.get('orders_count', 0)}")
         typer.echo(f"  状态: {data.get('status', 'N/A')}")
-    except WorkerNotFoundError:
+    except WorkerNotFoundException:
         typer.echo(f"Worker {wid} 不存在")
         raise typer.Exit(1)
     except Exception as e:
