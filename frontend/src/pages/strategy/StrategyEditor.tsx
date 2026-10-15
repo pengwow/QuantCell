@@ -571,8 +571,10 @@ class NewStrategy(StrategyBase):
     setTemplatePickerLoading(true);
     try {
       // 拉真实模板列表（后端 strategy/templates/ 扫描结果）
-      const list = await aiModelApi.getTemplates();
-      setTemplates(list as any);
+      // 后端返回 { list: [...], total: N } 分页结构，axios 拦截器已拆外层
+      const res = await aiModelApi.getTemplates();
+      const list = (res as any)?.list ?? (Array.isArray(res) ? res : []);
+      setTemplates(list);
     } catch {
       // 拉取失败也允许用户继续（用默认代码）
       setTemplates([]);
