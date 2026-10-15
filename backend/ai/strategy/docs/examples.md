@@ -41,38 +41,32 @@ headers = {
 
 # 正确的策略代码
 correct_code = '''
-class DualMAStrategy:
+from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+
+
+class DualMAStrategy(BaseStrategy):
     """双均线策略"""
 
-    def __init__(self):
-        self.fast_period = 10
-        self.slow_period = 20
-        self.position = None
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self.fast = int(config.params.get("fast", 10))
+        self.slow = int(config.params.get("slow", 30))
 
-    def on_bar(self, bar):
-        """处理K线数据"""
-        fast_ma = self.calculate_ma(bar.close, self.fast_period)
-        slow_ma = self.calculate_ma(bar.close, self.slow_period)
+    def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
+        """处理K线数据，返回 Action"""
+        ctx.closes.append(bar["close"])
+        if len(ctx.closes) < self.slow:
+            return Action("hold", 0.0, 0.0, self.config.name, 0)
 
-        if fast_ma > slow_ma and not self.position:
-            self.buy()
-        elif fast_ma < slow_ma and self.position:
-            self.sell()
+        fast_ma = sum(ctx.closes[-self.fast:]) / self.fast
+        slow_ma = sum(ctx.closes[-self.slow:]) / self.slow
 
-    def calculate_ma(self, price, period):
-        """计算移动平均线"""
-        # 简化实现
-        return price
-
-    def buy(self):
-        """买入"""
-        self.position = "long"
-        print("买入信号")
-
-    def sell(self):
-        """卖出"""
-        self.position = None
-        print("卖出信号")
+        if fast_ma > slow_ma:
+            return Action("buy", 0.8, self.config.position_limit, self.config.name, 0)
+        elif fast_ma < slow_ma:
+            return Action("sell", 0.8, 0.0, self.config.name, 0)
+        return Action("hold", 0.0, 0.0, self.config.name, 0)
 '''
 
 # 发送验证请求
@@ -246,12 +240,13 @@ codes_to_validate = [
     {
         "name": "完整策略",
         "code": """
-class CompleteStrategy:
-    def __init__(self):
-        self.period = 20
+from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
-    def on_bar(self, bar):
-        pass
+
+class CompleteStrategy(BaseStrategy):
+    def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
+        return Action("hold", 0.0, 0.0, self.config.name, 0)
 """
     },
     {

@@ -300,7 +300,7 @@ async def generate_strategy_stream():
     "code": 0,
     "message": "策略生成成功",
     "data": {
-        "code": "class DualMAStrategy(Strategy):\n    def __init__(self):\n        self.fast_ma = 10\n        self.slow_ma = 20\n    ...",
+        "code": "class DualMAStrategy(BaseStrategy):\n    def __init__(self, config):\n        super().__init__(config)\n    ...",
         "explanation": "这是一个基于双均线的趋势跟踪策略...",
         "model_used": "gpt-4",
         "tokens_used": {
@@ -519,13 +519,19 @@ def validate_strategy_code(code):
 
 # 使用示例
 code = '''
-class DualMAStrategy:
-    def __init__(self):
-        self.fast_period = 10
-        self.slow_period = 20
+from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
-    def on_bar(self, bar):
-        pass
+
+class DualMAStrategy(BaseStrategy):
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self.fast = int(config.params.get("fast", 10))
+        self.slow = int(config.params.get("slow", 20))
+
+    def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
+        ctx.closes.append(bar["close"])
+        return Action("hold", 0.0, 0.0, self.config.name, 0)
 '''
 
 is_valid = validate_strategy_code(code)
@@ -1024,7 +1030,7 @@ def regenerate_from_history(history_id):
                 "name": "双均线策略模板",
                 "description": "基于双均线的趋势跟踪策略模板",
                 "category": "trend_following",
-                "code_template": "class {{strategy_name}}(Strategy):\n    def __init__(self):\n        self.fast_period = {{fast_period}}\n...",
+                "code_template": "class {{strategy_name}}(BaseStrategy):\n    def __init__(self, config):\n        super().__init__(config)\n...",
                 "variables": [
                     {"name": "strategy_name", "type": "string", "required": true},
                     {"name": "fast_period", "type": "int", "default": 10},
@@ -1121,7 +1127,7 @@ def get_templates(category=None, tag=None):
         "name": "双均线策略模板",
         "description": "基于双均线的趋势跟踪策略模板",
         "category": "trend_following",
-        "code_template": "class {{strategy_name}}(Strategy):\n    def __init__(self):\n        self.fast_period = {{fast_period}}\n...",
+        "code_template": "class {{strategy_name}}(BaseStrategy):\n    def __init__(self, config):\n        super().__init__(config)\n...",
         "variables": [
             {"name": "strategy_name", "type": "string", "required": true},
             {"name": "fast_period", "type": "int", "default": 10}
@@ -1174,7 +1180,7 @@ def get_templates(category=None, tag=None):
     "code": 0,
     "message": "基于模板生成成功",
     "data": {
-        "code": "class MyStrategy(Strategy):\n    def __init__(self):\n        self.fast_period = 10\n...",
+        "code": "class MyStrategy(BaseStrategy):\n    def __init__(self, config):\n        super().__init__(config)\n...",
         "explanation": "基于模板 双均线策略模板 生成",
         "model_used": "template",
         "tokens_used": null,
@@ -1381,7 +1387,7 @@ def get_performance_stats(days=30):
 
 ```json
 {
-    "code": "class DualMAStrategy(Strategy):\n    def __init__(self):\n        pass",
+    "code": "class DualMAStrategy(BaseStrategy):\n    def __init__(self, config):\n        super().__init__(config)",
     "explanation": "这是一个基于双均线的趋势跟踪策略...",
     "model_used": "gpt-4",
     "tokens_used": {
@@ -1519,7 +1525,7 @@ def get_performance_stats(days=30):
     "name": "双均线策略模板",
     "description": "基于双均线的趋势跟踪策略模板",
     "category": "trend_following",
-    "code_template": "class {{strategy_name}}(Strategy):\n    pass",
+    "code_template": "class {{strategy_name}}(BaseStrategy):\n    pass",
     "variables": [
         {"name": "strategy_name", "type": "string", "required": true},
         {"name": "fast_period", "type": "int", "default": 10}
@@ -1951,14 +1957,19 @@ def optimize_strategy(existing_code, optimization_requirement, token):
 
 # 使用示例
 existing_code = '''
-class DualMAStrategy:
-    def __init__(self):
-        self.fast_ma = 10
-        self.slow_ma = 20
+from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
-    def on_bar(self, bar):
+
+class DualMAStrategy(BaseStrategy):
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self.fast = int(config.params.get("fast", 10))
+        self.slow = int(config.params.get("slow", 20))
+
+    def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         # 简单实现
-        pass
+        return Action("hold", 0.0, 0.0, self.config.name, 0)
 '''
 
 optimization_requirement = """
