@@ -41,8 +41,7 @@ headers = {
 
 # 正确的策略代码
 correct_code = '''
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class DualMAStrategy(BaseStrategy):
@@ -240,8 +239,7 @@ codes_to_validate = [
     {
         "name": "完整策略",
         "code": """
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class CompleteStrategy(BaseStrategy):
