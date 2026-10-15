@@ -16,7 +16,8 @@ from .config import EngineConfig
 if TYPE_CHECKING:
     import pandas as pd
 
-    from backtest.backtest_loop import BacktestResult, RuleStrategy
+    from backtest.backtest_loop import BacktestResult
+    from strategy.base import BaseStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -456,7 +457,7 @@ class TradingEngine:
 
     def run_backtest(
         self,
-        strategy: RuleStrategy,
+        strategy: BaseStrategy,
         data: pd.DataFrame,
         symbol: str = "BTCUSDT",
         initial_cash: float = 100_000.0,
