@@ -191,34 +191,6 @@ class StrategyManager:
                     f"[StrategyManager] {len(config_errors)} 个策略配置异常，已标记为 error 状态，请修复后重启"
                 )
 
-    async def create_strategy(self, db, worker_config: dict[str, Any]) -> int:
-        """创建策略
-
-        Args:
-            db: 数据库会话
-            worker_config: 策略配置字典
-
-        Returns:
-            worker_id
-        """
-        from .state import StrategyRuntime, strategy_registry
-
-        worker = crud.create_worker(db, worker_config)
-        db.commit()
-
-        runtime = StrategyRuntime(
-            worker_id=worker.id,
-            strategy_id=worker.strategy_id,
-            name=worker.name or f"worker-{worker.id}",
-            status="stopped",
-        )
-        strategy_registry.register(runtime)
-
-        await worker_state_manager.transition(worker.id, "stopped")
-
-        logger.info(f"[StrategyManager] 策略已创建: worker_id={worker.id}, name={worker.name}")
-        return worker.id
-
     async def start_strategy(self, worker_id: int) -> bool:
         """启动策略
 

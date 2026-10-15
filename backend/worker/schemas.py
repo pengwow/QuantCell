@@ -58,8 +58,9 @@ class WorkerCreate(WorkerBase):
         description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）",
     )
 
-    # 交易配置（唯一交易参数入口）
-    trading_config: TradingConfig | None = Field(None, description="交易配置")
+    # 交易配置（唯一交易参数入口）。必填：缺省时请求直接 422，
+    # 而不是静默落库空配置（symbols 为空）直到启动期才暴露问题。
+    trading_config: TradingConfig = Field(..., description="交易配置")
     # 其他配置
     env_vars: dict[str, str] | None = Field(default=None, description="环境变量")
     config: dict[str, Any] | None = Field(default=None, description="Worker配置")

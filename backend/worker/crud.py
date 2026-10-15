@@ -104,7 +104,7 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
         strategy_name=worker_data.strategy_name,  # 策略名称（冗余存储，用于 strategy_id 失效时回退查找）
-        trading_config=json.dumps(worker_data.trading_config.model_dump()) if worker_data.trading_config else "{}",
+        trading_config=json.dumps(worker_data.trading_config.model_dump()),
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else "{}",
         config=json.dumps({**(worker_data.config or {}), "strategy_file_name": worker_data.strategy_file_name})
         if (worker_data.config or worker_data.strategy_file_name)
@@ -157,11 +157,13 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
     # strategy_file_name 不是 ORM 列，与 create_worker 口径一致：合并进 config JSON 落库
     strategy_file_name = update_data.pop("strategy_file_name", None)
 
-    # trading_config / config 是 Text JSON 列，序列化后落库
-    if update_data.get("trading_config") is not None:
-        worker.trading_config = json.dumps(update_data.pop("trading_config"))
-    if update_data.get("config") is not None:
-        worker.config = json.dumps(update_data.pop("config"))
+    # trading_config / config 是 Text JSON 列，序列化后落库。
+    # 显式传 null 视为「不修改」并丢弃该键，避免落入下方 setattr 把列置为 NULL。
+    for json_field in ("trading_config", "config"):
+        if json_field in update_data:
+            value = update_data.pop(json_field)
+            if value is not None:
+                setattr(worker, json_field, json.dumps(value))
 
     if strategy_file_name is not None:
         merged_config = worker.get_config_dict()
