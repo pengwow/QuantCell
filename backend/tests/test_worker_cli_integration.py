@@ -185,10 +185,10 @@ class TestWorkerCRUD:
 
     def test_delete_not_found(self):
         """删除不存在的 Worker"""
-        from worker.core_service import WorkerNotFoundError
+        from worker.core_service import WorkerNotFoundException
 
         svc = _mock_service()
-        svc.get_worker.side_effect = WorkerNotFoundError(999)
+        svc.get_worker.side_effect = WorkerNotFoundException(999)
         with patch("cli.worker._service", svc):
             from cli.worker import app
 

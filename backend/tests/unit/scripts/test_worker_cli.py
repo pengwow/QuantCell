@@ -124,10 +124,10 @@ class TestWorkerCliDelete:
 
     def test_delete_not_found(self):
         """测试删除不存在的Worker"""
-        from worker.core_service import WorkerNotFoundError
+        from worker.core_service import WorkerNotFoundException
 
         svc = _mock_service()
-        svc.get_worker.side_effect = WorkerNotFoundError(1)
+        svc.get_worker.side_effect = WorkerNotFoundException(1)
         with patch("cli.worker._service", svc):
             from cli.worker import app
 
@@ -274,10 +274,10 @@ class TestWorkerCliStatus:
 
     def test_status_not_found(self):
         """测试查看不存在的Worker"""
-        from worker.core_service import WorkerNotFoundError
+        from worker.core_service import WorkerNotFoundException
 
         svc = _mock_service()
-        svc.get_worker.side_effect = WorkerNotFoundError(999)
+        svc.get_worker.side_effect = WorkerNotFoundException(999)
         with patch("cli.worker._service", svc):
             from cli.worker import app
 
@@ -567,10 +567,10 @@ class TestWorkerCliTradingStats:
 
     def test_trading_stats_empty(self):
         """测试无交易统计"""
-        from worker.core_service import WorkerNotFoundError
+        from worker.core_service import WorkerNotFoundException
 
         svc = _mock_service()
-        svc.get_worker_stats.side_effect = WorkerNotFoundError(1)
+        svc.get_worker_stats.side_effect = WorkerNotFoundException(1)
         with patch("cli.worker._service", svc):
             from cli.worker import app
 

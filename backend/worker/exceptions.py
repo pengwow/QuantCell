@@ -130,33 +130,6 @@ class WorkerOperationException(WorkerException):
         )
 
 
-class WorkerOperationError(WorkerOperationException):
-    """向后兼容别名：旧代码使用 WorkerOperationError 的场景"""
-
-    def __init__(self, operation: str, worker_id: int | None = None, message: str | None = None):
-        super().__init__(operation=operation, worker_id=worker_id, message=message)
-
-
-class WorkerNotFoundError(WorkerNotFoundException):
-    """向后兼容别名：旧代码使用 WorkerNotFoundError 的场景"""
-
-    def __init__(self, worker_id: int, message: str | None = None):
-        super().__init__(worker_id=worker_id)
-        if message:
-            self.message = message
-            self.details["custom_message"] = message
-
-
-class WorkerAlreadyRunningError(WorkerAlreadyRunningException):
-    """向后兼容别名：旧代码使用 WorkerAlreadyRunningError 的场景"""
-
-    def __init__(self, worker_id: int, message: str | None = None):
-        super().__init__(worker_id=worker_id)
-        if message:
-            self.message = message
-            self.details["custom_message"] = message
-
-
 class LogQueryException(WorkerOperationException):
     """日志查询失败"""
 
@@ -169,17 +142,3 @@ class MetricsException(WorkerOperationException):
 
     def __init__(self, worker_id: int | None = None, message: str | None = None):
         super().__init__("性能指标", worker_id, message or "获取性能指标失败")
-
-
-class LogQueryError(LogQueryException):
-    """向后兼容别名"""
-
-    def __init__(self, worker_id: int | None = None, message: str | None = None):
-        super().__init__(worker_id=worker_id, message=message)
-
-
-class MetricsError(MetricsException):
-    """向后兼容别名"""
-
-    def __init__(self, worker_id: int | None = None, message: str | None = None):
-        super().__init__(worker_id=worker_id, message=message)

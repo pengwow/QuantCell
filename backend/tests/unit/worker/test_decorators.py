@@ -146,19 +146,6 @@ class TestHandleWorkerExceptions:
             asyncio.run(my_custom_function())
         assert exc_info.value.status_code == 404
 
-    def test_backward_compatibility_old_error_classes(self):
-        """向后兼容：旧异常类名（WorkerNotFoundError）能正确处理"""
-        from worker.exceptions import WorkerNotFoundError
-
-        @handle_worker_exceptions("测试操作")
-        async def async_func():
-            raise WorkerNotFoundError(999)
-
-        with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(async_func())
-        assert exc_info.value.status_code == 404
-        assert "999" in exc_info.value.detail
-
 
 class TestAxonQuantErrorMapping:
     """验证装饰器自动映射 axon_quant 异常为语义化 HTTP 状态码"""
