@@ -80,14 +80,11 @@ class StrategyParseResult:
 class StrategyASTParser:
     """策略代码AST解析器"""
 
-    # 默认的策略基类名称（包含事件驱动策略基类和技术指标策略基类）
+    # 默认的策略基类名称（唯一路径: BaseStrategy 及传统基类别名）
     DEFAULT_STRATEGY_BASES = [
+        "BaseStrategy",
         "Strategy",
         "StrategyBase",
-        "EventDrivenStrategy",
-        "EventDrivenStrategyConfig",
-        "RuleStrategy",
-        "DualMA",
         "MACD",
     ]
     DEFAULT_CONFIG_SUFFIX = "Config"
@@ -97,7 +94,7 @@ class StrategyASTParser:
         初始化AST解析器
 
         Args:
-            strategy_bases: 策略基类名称列表，默认为['Strategy', 'StrategyBase', 'EventDrivenStrategy', 'EventDrivenStrategyConfig']
+            strategy_bases: 策略基类名称列表，默认为['BaseStrategy', 'Strategy', 'StrategyBase']
             config_suffix: 配置类后缀，默认为'Config'
         """
         self.strategy_bases = strategy_bases or self.DEFAULT_STRATEGY_BASES

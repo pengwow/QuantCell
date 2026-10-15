@@ -302,7 +302,6 @@ class StrategyManager:
             raise
 
         # 加载策略
-        strategy_class = None
         try:
             from backtest.strategy_loader_service import StrategyLoaderService
             from strategy.models import Strategy
@@ -337,40 +336,21 @@ class StrategyManager:
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning(f"[StrategyManager] 策略参数 JSON 解析失败: {e}")
 
-            # 通过策略加载器加载策略
-            instruments = {symbol: {"symbol": symbol, "venue": "BINANCE"} for symbol in symbols}
-            bar_types = {symbol: timeframe for symbol in symbols}
-
-            strategy_instance = StrategyLoaderService.load_event_strategy_multi(
+            # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
+            strategy_instance = StrategyLoaderService.load_strategy(
                 strategy_name=strategy.strategy_name or strategy.name,
                 strategy_params=params,
-                bar_types=bar_types,
-                instruments=instruments,
+                instrument_ids=symbols,
+                bar_types=[timeframe],
             )
-
-            if strategy_instance is not None:
-                strategy_class = type(strategy_instance)
-                logger.info(
-                    f"[StrategyManager] 策略已加载: worker_id={worker_id}, strategy_class={strategy_class.__name__}"
-                )
         except Exception as e:
             logger.error(f"[StrategyManager] 策略加载失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
+            # 加载失败直接抛出，由 start_strategy 的异常处理统一上报 worker error 状态
+            raise
 
-        # 创建策略实例
-        if strategy_instance is None:
-            # 加载失败时使用占位空策略，避免阻断启动流程
-            from axon_bridge import Action
-            from backtest.backtest_loop import RuleStrategy
-
-            class _PlaceholderStrategy(RuleStrategy):
-                """占位策略：策略加载失败时使用，不会触发任何交易"""
-
-                def on_bar(self, bar: dict) -> Action:
-                    return Action("hold", 0.0, 0.0, "placeholder", 0)
-
-            strategy_instance = _PlaceholderStrategy()
-            strategy_class = _PlaceholderStrategy
-            logger.warning(f"[StrategyManager] 使用占位策略，worker_id={worker_id}")
+        logger.info(
+            f"[StrategyManager] 策略已加载: worker_id={worker_id}, strategy_class={type(strategy_instance).__name__}"
+        )
 
         # 获取交易对符号
         symbol = getattr(worker, "symbol", "BTCUSDT") or "BTCUSDT"

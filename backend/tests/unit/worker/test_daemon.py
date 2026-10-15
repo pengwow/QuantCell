@@ -101,43 +101,38 @@ class TestDaemonStrategyKernel:
             def stop(self):
                 pass
 
-        # 策略加载器返回 None → 走占位策略降级分支（不依赖真实 strategies 目录）
+        # 策略加载器真实返回实例（唯一路径：load_strategy → BaseStrategy）
+        strategy_instance = object()
         monkeypatch.setattr(
-            "backtest.strategy_loader_service.StrategyLoaderService.load_event_strategy_multi",
-            staticmethod(lambda **kwargs: None),
+            "backtest.strategy_loader_service.StrategyLoaderService.load_strategy",
+            staticmethod(lambda **kwargs: strategy_instance),
         )
         monkeypatch.setattr("strategy.loop.StrategyLoop", _FakeLoop)
 
-        resp = daemon._handle_command(
-            {"cmd": "start", "request_id": "r1", "params": {"strategy_name": "unknown_strategy"}}
-        )
+        resp = daemon._handle_command({"cmd": "start", "request_id": "r1", "params": {"strategy_name": "dual_ma"}})
         assert resp["status"] == "ok"
         assert started.get("started") is True
-        assert daemon._strategy_loop is not None
+        assert daemon._strategy_loop.strategy is strategy_instance
         daemon._stop_strategy()
         assert daemon._strategy_loop is None
 
     def test_start_command_failure_returns_error(self, monkeypatch):
-        """StrategyLoop 构建抛异常时，start 命令应返回 error 而非假 running。
-
-        注：策略加载器失败不会走 error（与 StrategyManager 语义一致，降级占位
-        策略），此测试验证的是运行时构建失败的兜底路径。
-        """
+        """策略加载失败时 start 命令返回 error，不再降级占位策略。"""
         daemon = WorkerDaemon(worker_id=11)
+
+        def _load_boom(**kwargs):
+            raise RuntimeError("strategy load failed")
+
         monkeypatch.setattr(
-            "backtest.strategy_loader_service.StrategyLoaderService.load_event_strategy_multi",
-            staticmethod(lambda **kwargs: None),
+            "backtest.strategy_loader_service.StrategyLoaderService.load_strategy",
+            staticmethod(_load_boom),
         )
 
-        class _BoomLoop:
-            def __init__(self, **kwargs):
-                raise RuntimeError("loop build failed")
-
-        monkeypatch.setattr("strategy.loop.StrategyLoop", _BoomLoop)
         resp = daemon._handle_command({"cmd": "start", "request_id": "r1", "params": {}})
         assert resp["status"] == "error"
         assert "策略启动失败" in resp["data"]["error"]
         assert daemon._running is False
+        assert daemon._strategy_loop is None
         daemon.cleanup()
 
     def test_emit_strategy_event_updates_stats_and_forwards(self):
