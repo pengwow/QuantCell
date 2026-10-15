@@ -519,8 +519,7 @@ def validate_strategy_code(code):
 
 # 使用示例
 code = '''
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class DualMAStrategy(BaseStrategy):
@@ -1957,8 +1956,7 @@ def optimize_strategy(existing_code, optimization_requirement, token):
 
 # 使用示例
 existing_code = '''
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class DualMAStrategy(BaseStrategy):
