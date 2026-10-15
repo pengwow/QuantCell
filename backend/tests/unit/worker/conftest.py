@@ -281,16 +281,18 @@ def mock_current_user():
 
 @pytest.fixture
 def sample_worker_create_request():
-    """示例Worker创建请求"""
+    """示例Worker创建请求（新协议：交易参数统一走 trading_config）"""
     return {
         "name": "BTC Strategy Worker",
         "description": "BTC/USDT 1小时策略",
         "strategy_id": 1,
-        "exchange": "binance",
-        "symbol": "BTCUSDT",
-        "timeframe": "1h",
-        "market_type": "spot",
-        "trading_mode": "paper",
+        "trading_config": {
+            "exchange": "binance",
+            "symbols_config": {"type": "symbols", "symbols": ["BTCUSDT"]},
+            "timeframe": "1h",
+            "market_type": "spot",
+            "trading_mode": "paper",
+        },
         "env_vars": {"API_KEY": "test_key"},
         "config": {"risk_level": "low"},
     }
