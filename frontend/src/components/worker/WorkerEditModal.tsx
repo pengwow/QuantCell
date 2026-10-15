@@ -34,7 +34,7 @@ import { useTranslation } from 'react-i18next';
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
 import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
-import { getStrategyParameters } from '../../api/workerApi';
+import { getStrategyParameters, updateStrategyParameters } from '../../api/workerApi';
 import type { StrategyInfo, StrategyParameter, TradingConfig, UpdateWorkerRequest, Worker as WorkerModel } from '../../types/worker';
 
 const { Option } = Select;
@@ -439,6 +439,16 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         strategy_name: selectedStrategy?.name,
       });
 
+      // 策略参数走独立端点持久化：此前只塞进 worker payload 的 strategy_params，
+      // 后端 schema 从未声明该字段，所填值被静默丢弃。
+      const parameters = strategyParams.reduce<Record<string, unknown>>((acc, param) => {
+        const fieldValue = values[`param_${param.param_name}`];
+        if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
+          acc[param.param_name] = fieldValue;
+        }
+        return acc;
+      }, {});
+
       const requestData: UpdateWorkerRequest = {
         name: values.name,
         description: values.description,
@@ -463,6 +473,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       const result = await updateWorker(worker.id, requestData);
 
       if (result) {
+        if (Object.keys(parameters).length > 0) {
+          await updateStrategyParameters(worker.id, { parameters });
+        }
         message.success('Worker更新成功');
         onSuccess?.();
         onCancel();
