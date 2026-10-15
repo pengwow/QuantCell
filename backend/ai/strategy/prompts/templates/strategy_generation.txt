@@ -14,14 +14,14 @@
 
 ### 框架规范（必须遵守）
 
-所有策略必须继承 QuantCell 的 BaseStrategy 基类。不要使用 AxonStrategy/axond.types/nautilus_trader 或任何其他基类。
+所有策略必须继承 QuantCell 的 BaseStrategy 基类。不要使用 AxonStrategy/axond.types 或任何其他基类。
 
 #### 1. 策略类结构
 
 ```python
 from __future__ import annotations
 from typing import Any
-from axon_bridge import Action, ActionType
+from axon_bridge import Action
 from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
 
@@ -49,17 +49,17 @@ class {{strategy_name}}(BaseStrategy):
         rsi = ctx.get_feature("rsi", 50.0) if ctx else 50.0
 
         if len(closes) < self.slow_period:
-            return Action(ActionType.Hold, 0.0, 0.0, "{{strategy_name}}", 0)
+            return Action("hold", 0.0, 0.0, "{{strategy_name}}", 0)
 
         fast_ma = sum(closes[-self.fast_period:]) / self.fast_period
         slow_ma = sum(closes[-self.slow_period:]) / self.slow_period
 
         if fast_ma > slow_ma:
-            return Action(ActionType.Buy, 0.8, self.position_size, "{{strategy_name}}", 0)
+            return Action("buy", 0.8, self.position_size, "{{strategy_name}}", 0)
         elif fast_ma < slow_ma:
-            return Action(ActionType.ReduceLong, 0.8, 0.0, "{{strategy_name}}", 0)
+            return Action("reduce_long", 0.8, 0.0, "{{strategy_name}}", 0)
 
-        return Action(ActionType.Hold, 0.0, 0.0, "{{strategy_name}}", 0)
+        return Action("hold", 0.0, 0.0, "{{strategy_name}}", 0)
 
     def on_fill(self, fill: dict, ctx: StrategyContext | None = None) -> None:
         """可选：成交回报回调。"""
@@ -74,12 +74,12 @@ class {{strategy_name}}(BaseStrategy):
 
 `Action(action_type, confidence, target_position, model_id, inference_time_us)`
 
-action_type 必须使用 `ActionType` 枚举，不要用字符串字面量：
-- `ActionType.Buy` — 买入做多
-- `ActionType.Sell` — 卖出做空
-- `ActionType.Hold` — 持有/观望
-- `ActionType.ReduceLong` — 平多仓
-- `ActionType.ReduceShort` — 平空仓
+action_type 使用字符串字面量（Rust 引擎的 Action 构造器要求 str）：
+- `"buy"` — 买入做多
+- `"sell"` — 卖出做空
+- `"hold"` — 持有/观望
+- `"reduce_long"` — 平多仓
+- `"reduce_short"` — 平空仓
 
 confidence 0.0-1.0，target_position 0.0-1.0（目标仓位比例），model_id 策略标识字符串，inference_time_us 通常填 0。
 
@@ -102,12 +102,13 @@ ctx 是 StrategyContext：
 - 不要使用 `class X(Strategy)` 里的 `Strategy` 基类
 - 不要使用 `bar.instrument_id` 对象访问（用 `bar["symbol"]`）
 - 不要在 `__init__` 参数里直接展开策略参数（走 `config.params`）
+- 不要使用 `ActionType.Buy` 等枚举传 action_type（Rust Action 构造器要求 str，用 `"buy"` / `"sell"` / `"hold"` / `"reduce_long"` / `"reduce_short"`）
 
 ### 输出要求（严格）
 
 1. **只输出代码**：直接输出 Python 代码，不要解释，不要 markdown 代码块标记。
 2. **完整可运行**：代码必须是完整的、可运行的策略类。
-3. **导入完整**：必须有 `from axon_bridge import Action, ActionType` 和 `from strategy.base import BaseStrategy, StrategyConfig, StrategyContext`。
+3. **导入完整**：必须有 `from axon_bridge import Action` 和 `from strategy.base import BaseStrategy, StrategyConfig, StrategyContext`。
 4. **命名规范**：策略类名使用 PascalCase。
 5. **参数通过 config.params**：不要在 `__init__` 里直接接收策略参数。
 
