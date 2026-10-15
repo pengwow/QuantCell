@@ -769,9 +769,19 @@ class NewStrategy(StrategyBase):
       onOk: async () => {
         try {
           appMessage.loading({ content: t('reparsing') || '重新解析中...', key: 'reparse' });
-          const res = await strategyApi.reparseStrategy(selectedStrategy.name);
-          const info: any = (res as any)?.data ?? res;
-          // 完整同步后端返回的策略信息（含 description / version / params / factors 等）
+
+          const isSaved = !!selectedStrategy.file_path;
+          let info: any;
+
+          if (isSaved) {
+            // 已保存 → 后端 reparse（从磁盘读 + 写 DB）
+            const res = await strategyApi.reparseStrategy(selectedStrategy.name);
+            info = (res as any)?.data ?? res;
+          } else {
+            // 未保存 → 直接解析编辑器当前代码（不查 DB）
+            info = await strategyApi.parseStrategy(selectedStrategy.name, code);
+          }
+
           setSelectedStrategy({
             ...selectedStrategy,
             description: info?.description ?? selectedStrategy.description,
@@ -779,8 +789,6 @@ class NewStrategy(StrategyBase):
             params: info?.params || [],
             factors: info?.factors || [],
           });
-          // 强制切回 database 视图（后端已经写了 DB）
-          setDataSource('database');
           appMessage.success({
             content: t('reparse_done') || `重新解析完成：参数 ${info?.params?.length || 0} 个，因子 ${info?.factors?.length || 0} 个`,
             key: 'reparse',
