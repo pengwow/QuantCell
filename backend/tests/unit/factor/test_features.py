@@ -1,11 +1,22 @@
 """FactorFeatureBuilder 单测：合成 K 线，不读真实 parquet。"""
 
+import zlib
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from factor.engine import FactorExpressionError, _timestamps_to_datetime
 from factor.features import attach_feature_frames, build_feature_frames
+
+
+def _seed(symbol: str) -> int:
+    """按品种生成稳定 seed。
+
+    不能用内置 hash()：字符串 hash 每进程随机化（PYTHONHASHSEED），
+    不同品种偶发取到相同 seed 会生成重复行情，令截面 rank 出现并列而误判测试失败。
+    """
+    return zlib.crc32(symbol.encode()) % 100
 
 
 def _raw(n: int = 60, seed: int = 1, start_ns: int = 1_704_067_200_000_000_000) -> pd.DataFrame:
@@ -34,7 +45,7 @@ class FakeProvider:
 
 
 def _provider(symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT")):
-    return FakeProvider({s: _raw(seed=abs(hash(s)) % 100) for s in symbols})
+    return FakeProvider({s: _raw(seed=_seed(s)) for s in symbols})
 
 
 def test_single_symbol_frame_columns_and_index():
@@ -53,7 +64,7 @@ def test_single_symbol_frame_columns_and_index():
     # 单品种不产生截面 rank
     assert "cross_sectional_rank" not in frame.columns
     # 索引归一为 DatetimeIndex（与回测 K 线 normalize 后形态一致），与 K 线等长同序
-    raw = _raw(seed=abs(hash("BTCUSDT")) % 100)
+    raw = _raw(seed=_seed("BTCUSDT"))
     assert isinstance(frame.index, pd.DatetimeIndex)
     assert len(frame) == len(raw)
     pd.testing.assert_index_equal(frame.index, pd.DatetimeIndex(_timestamps_to_datetime(raw["timestamp"])))
@@ -157,7 +168,7 @@ def test_custom_factor_expression():
         provider=_provider(("BTCUSDT",)),
         custom_expressions={"my_spread": "close - open"},
     )
-    raw = _raw(seed=abs(hash("BTCUSDT")) % 100)
+    raw = _raw(seed=_seed("BTCUSDT"))
     assert np.allclose(frames["BTCUSDT"]["my_spread"].dropna(), (raw["close"] - raw["open"]).dropna())
 
 
