@@ -34,7 +34,7 @@ import { useTranslation } from 'react-i18next';
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
 import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
-import type { StrategyInfo, StrategyParameter } from '../../types/worker';
+import type { CreateWorkerRequest, StrategyInfo, StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -353,30 +353,20 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         strategy_name: selectedStrategy?.name,
       });
 
-      const requestData = {
+      const requestData: CreateWorkerRequest = {
         name: values.name,
         description: values.description,
         strategy_id: strategyId,
         strategy_file_name: strategyFileName,  // 策略文件名
-        strategy_name: selectedStrategy?.name || null,  // 新增：策略名称（冗余存储）
-        exchange: values.exchange,
-        symbol: selectedSymbol.toUpperCase(),
-        timeframe: values.timeframe,
-        market_type: values.market_type,
-        trading_mode: values.trading_mode,
-
-        // 策略参数
-        strategy_params: strategyParams.reduce((acc, param) => {
-          const fieldValue = values[`param_${param.param_name}`];
-          if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
-            acc[param.param_name] = fieldValue;
-          } else if (param.default_value !== undefined && param.default_value !== null) {
-            acc[param.param_name] = param.default_value;
-          }
-          return acc;
-        }, {} as Record<string, unknown>),
-
-  
+        strategy_name: selectedStrategy?.name || null,  // 策略名称（冗余存储）
+        // 交易参数统一走 trading_config（旧扁平字段已被后端 extra="forbid" 拒绝）
+        trading_config: {
+          exchange: values.exchange,
+          symbols_config: { type: 'symbols', symbols: [selectedSymbol.toUpperCase()] },
+          timeframe: values.timeframe,
+          market_type: values.market_type,
+          trading_mode: values.trading_mode,
+        },
         config: {
           initial_capital: values.initial_capital || 10000,
           max_position_size: values.max_position_size || 0.1,

@@ -158,7 +158,9 @@ class WorkerCoreService:
         """
         try:
             with self.get_db() as db:
-                worker = crud.create_worker(db, data)
+                # crud 层按 WorkerCreate schema 落库；这里把 dict 边界数据转成 schema，
+                # 与 update_worker 的 schemas.WorkerUpdate(**data) 保持一致，并让 extra="forbid" 生效
+                worker = crud.create_worker(db, schemas.WorkerCreate(**data))
                 result = worker.to_dict()
                 logger.info(f"[WorkerCoreService] Worker创建成功: id={worker.id}, name={result.get('name')}")
                 return result

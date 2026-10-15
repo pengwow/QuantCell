@@ -6,7 +6,7 @@ Worker API数据模型定义
 
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -45,6 +45,9 @@ class WorkerBase(BaseModel):
 class WorkerCreate(WorkerBase):
     """创建Worker请求模型"""
 
+    # extra="forbid"：拒绝任何未声明的扁平字段，防止旧协议字段被静默忽略
+    model_config = ConfigDict(extra="forbid")
+
     # 策略相关字段
     strategy_file_name: str | None = Field(
         default=None,
@@ -55,27 +58,18 @@ class WorkerCreate(WorkerBase):
         description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）",
     )
 
-    # 交易配置（新格式）
+    # 交易配置（唯一交易参数入口）
     trading_config: TradingConfig | None = Field(None, description="交易配置")
-    # 兼容旧版本的字段
-    exchange: str | None = Field(default="binance", description="交易所")
-    symbols: list[str] | None = Field(default=None, description="交易对列表")
-    symbol: str | None = Field(default=None, description="交易对（单数形式，兼容前端）")  # 前端发送的是单数形式
-    timeframe: str | None = Field(default="1h", description="时间周期")
-    market_type: str | None = Field(default="spot", description="市场类型: spot/future")
-    trading_mode: str | None = Field(default="paper", description="交易模式: paper/live")
     # 其他配置
     env_vars: dict[str, str] | None = Field(default=None, description="环境变量")
     config: dict[str, Any] | None = Field(default=None, description="Worker配置")
 
-    @model_validator(mode="after")
-    def validate_symbols(self):
-        """验证交易对配置 - 兼容旧版扁平字段与新版 trading_config"""
-        return self
-
 
 class WorkerUpdate(BaseModel):
     """更新Worker请求模型"""
+
+    # extra="forbid"：拒绝任何未声明的扁平字段（trading_mode/symbols 等），防止静默失效
+    model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(None, description="Worker名称")
     description: str | None = Field(None, description="Worker描述")
@@ -85,13 +79,9 @@ class WorkerUpdate(BaseModel):
         None,
         description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）",
     )
-    # 交易配置（新格式）
+    # 交易配置（唯一交易参数入口）
     trading_config: TradingConfig | None = Field(None, description="交易配置")
-    # 兼容旧版本的字段
-    exchange: str | None = Field(None, description="交易所")
-    symbols: list[str] | None = Field(None, description="交易对列表")
-    timeframe: str | None = Field(None, description="时间周期")
-    trading_mode: str | None = Field(None, description="交易模式")
+    # 其他配置（config 是真实 ORM 列，前端编辑弹窗仍提交资金/杠杆等配置）
     config: dict[str, Any] | None = Field(None, description="Worker配置")
 
 
@@ -117,14 +107,8 @@ class WorkerResponse(WorkerBase):
     id: int = Field(..., description="Worker ID")
     status: str = Field(..., description="Worker状态")
     pid: int | None = Field(None, description="进程ID")
-    # 交易配置（新格式）
+    # 交易配置
     trading_config: TradingConfig | None = Field(None, description="交易配置")
-    # 兼容旧版本字段
-    exchange: str | None = Field(None, description="交易所")
-    symbols: list[str] | None = Field(None, description="交易对列表")
-    timeframe: str | None = Field(None, description="时间周期")
-    market_type: str | None = Field(None, description="市场类型")
-    trading_mode: str | None = Field(None, description="交易模式")
     config: dict[str, Any] | None = Field(None, description="Worker配置")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")

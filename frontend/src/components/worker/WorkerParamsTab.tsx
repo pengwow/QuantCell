@@ -125,7 +125,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('symbol') || '交易对'}>
-                <Tag color="blue">{worker.symbols?.join(', ') || '-'}</Tag>
+                <Tag color="blue">{worker.trading_config?.symbols_config?.symbols?.join(', ') || '-'}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
@@ -133,7 +133,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('exchange') || '交易所'}>
-                <Tag>{worker.exchange}</Tag>
+                <Tag>{worker.trading_config?.exchange}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
@@ -141,7 +141,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('timeframe') || 'K线周期'}>
-                <Tag color="blue">{worker.timeframe}</Tag>
+                <Tag color="blue">{worker.trading_config?.timeframe}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
