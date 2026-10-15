@@ -89,8 +89,6 @@ omit = [
     "*/test_*",
     "*/venv/*",
     "*/.venv/*",
-    # 测试夹具：故意放置的非法策略样例，非合法 Python 源码
-    "*/strategies/InvalidStrategy.py",
 ]
 
 [tool.coverage.report]

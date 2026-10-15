@@ -93,14 +93,14 @@ class MyStrategy:
         code = """
 import os
 from datetime import datetime
-from strategy.core import StrategyBase
+from strategy.base import BaseStrategy
 """
         tree = self.parser.parse(code)
         imports = self.parser.find_imports(tree)
 
         assert "os" in imports
         assert "datetime" in imports
-        assert "strategy.core" in imports
+        assert "strategy.base" in imports
 
     def test_find_methods(self):
         """测试查找方法"""
@@ -128,7 +128,7 @@ class MyStrategy:
 from external_trader.trading.strategy import Strategy
 """
         code_without_external = """
-from strategy.core import StrategyBase
+from strategy.base import BaseStrategy
 """
 
         tree1 = self.parser.parse(code_with_external)

@@ -167,7 +167,7 @@ class StrategyService:
         params: list[dict[str, Any]] = []
         factors: list[dict[str, Any]] = []
 
-        # 第一次 walk：找 Config 类（类名含 Config，通常是 EventDrivenStrategyConfig 子类）
+        # 第一次 walk：找 Config 类（类名含 Config）
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
@@ -176,9 +176,9 @@ class StrategyService:
 
             for item in node.body:
                 if isinstance(item, ast.FunctionDef) and item.name == "__init__":
-                    # 跳过基类 EventDrivenStrategyConfig 的公共参数
+                    # 跳过基类公共参数
                     raw_params = self._extract_params_from_init(item)
-                    # 过滤掉基类的公共参数（由 EventDrivenStrategyConfig 继承，策略模板里总会有）
+                    # 过滤掉基类的公共参数（策略模板里总会有）
                     _BASE_CONFIG_PARAMS = {"instrument_ids", "bar_types", "trade_size", "log_level"}
                     params = [p for p in raw_params if p["name"] not in _BASE_CONFIG_PARAMS]
                     break
@@ -342,7 +342,7 @@ class StrategyService:
         1. BaseStrategy 路径：扫 Call 节点，找 ctx.get_feature("xxx") /
            ctx.get_feature(变量名)，变量名再去 Config.__init__ 里找
            对应的默认值字符串
-        2. EventDrivenStrategy 路径：扫 Config.__init__ 参数里 factor_*
+        2. Config 路径：扫 Config.__init__ 参数里 factor_*
            前缀（factor_name, factor_threshold ...）
 
         去重后合并返回。

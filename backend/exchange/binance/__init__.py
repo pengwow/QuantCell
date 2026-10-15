@@ -5,8 +5,6 @@ Binance交易所模块
 
 主要组件:
     - BinanceClient: REST API客户端
-    - BinanceWebSocketManager: WebSocket管理器
-    - PaperTradingAccount: 模拟交易账户
     - BinanceDownloader: 数据下载器
     - BinanceExchange: 交易所连接器
     - live_adapter: 实盘交易适配器模块（已废弃）
@@ -24,8 +22,6 @@ from .exceptions import (
     BinanceOrderError,
     BinanceWebSocketError,
 )
-from .paper_trading import PaperTradingAccount
-from .websocket import BinanceWebSocketManager
 
 # 从 live_adapter 导入实盘交易相关组件
 try:
@@ -60,8 +56,6 @@ __all__ = [
     "BinanceConnectionError",
     "BinanceOrderError",
     "BinanceWebSocketError",
-    "BinanceWebSocketManager",
-    "PaperTradingAccount",
 ]
 
 # 如果 live_adapter 可用，添加到导出列表
