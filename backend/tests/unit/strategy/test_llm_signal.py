@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from axon_bridge import ActionType, SignalType
+from axon_bridge import SignalType
+from strategy import ActionType
 from strategy.base import StrategyConfig, StrategyContext
 from strategy.templates.llm_signal import LLMSignalStrategy, _heuristic_signal
 

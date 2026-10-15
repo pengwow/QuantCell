@@ -2,8 +2,7 @@
 
 import pytest
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class StubStrategy(BaseStrategy):
