@@ -77,14 +77,8 @@ export interface Worker {
   strategy_id: number;
   strategy_info?: StrategyInfo;
   strategy_type?: string;  // rule/rl
-  // 交易配置（新格式）
+  // 交易配置（唯一交易参数入口）
   trading_config?: TradingConfig;
-  // 兼容旧版本字段
-  exchange: string;
-  symbols: string[];
-  timeframe: string;
-  market_type: string;
-  trading_mode: string;
   pid?: number;
   config?: Record<string, unknown>;
   created_at: string;
@@ -107,14 +101,10 @@ export interface CreateWorkerRequest {
   name: string;
   description?: string;
   strategy_id: number;
-  // 交易配置（新格式）
+  strategy_file_name?: string | null;
+  strategy_name?: string | null;
+  // 交易配置（唯一交易参数入口）
   trading_config?: TradingConfig;
-  // 兼容旧版本字段
-  exchange?: string;
-  symbols?: string[];
-  timeframe?: string;
-  market_type?: string;
-  trading_mode?: string;
   env_vars?: Record<string, string>;
   config?: Record<string, unknown>;
 }
@@ -123,14 +113,11 @@ export interface CreateWorkerRequest {
 export interface UpdateWorkerRequest {
   name?: string;
   description?: string;
-  // 交易配置（新格式）
+  strategy_id?: number;
+  strategy_file_name?: string | null;
+  strategy_name?: string | null;
+  // 交易配置（唯一交易参数入口）
   trading_config?: TradingConfig;
-  // 兼容旧版本字段
-  exchange?: string;
-  symbols?: string[];
-  timeframe?: string;
-  trading_mode?: string;
-  strategy_params?: Record<string, unknown>;
   config?: Record<string, unknown>;
 }
 

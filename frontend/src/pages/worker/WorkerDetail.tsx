@@ -37,6 +37,8 @@ type TabKey = 'params' | 'overview' | 'positions' | 'orders' | 'logs';
 const VALID_TABS: TabKey[] = ['params', 'overview', 'positions', 'orders', 'logs'];
 
 // 旧 hash -> 新 hash 映射
+// TODO(ux-hash-compat): 这是 URL hash 的 UX 兼容（旧分享链接），并非旧数据协议；
+// 待旧版分享链接自然淘汰（预计 2026-12）后移除。
 const LEGACY_HASH_MAP: Record<string, TabKey> = {
   performance: 'overview',
   stats: 'overview',
@@ -242,8 +244,8 @@ const WorkerDetail = () => {
                 </Space>
 
                 <Space size="middle">
-                  <Tag color="blue">{currentWorker.symbols?.join(', ') || '-'}</Tag>
-                  <Tag>{currentWorker.exchange}</Tag>
+                  <Tag color="blue">{currentWorker.trading_config?.symbols_config?.symbols?.join(', ') || '-'}</Tag>
+                  <Tag>{currentWorker.trading_config?.exchange}</Tag>
                 </Space>
 
                 <Space size="small">
@@ -258,7 +260,7 @@ const WorkerDetail = () => {
             <Col>
               <Descriptions size="small" column={2}>
                 <Descriptions.Item label={t('timeframe') || '周期'}>
-                  <Tag color="blue">{currentWorker.timeframe}</Tag>
+                  <Tag color="blue">{currentWorker.trading_config?.timeframe}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label={t('total_profit') || '总收益'}>
                   <span

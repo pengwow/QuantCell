@@ -117,7 +117,7 @@ class TestWorkerCreate:
             result = runner.invoke(app, ["create", "--name", "worker", "--strategy-id", "1"])
             assert result.exit_code == 0
             call_data = svc.create_worker.call_args[0][0]
-            assert call_data["exchange"] == "binance"
+            assert call_data["trading_config"]["exchange"] == "binance"
 
     def test_create_server_error(self):
         """服务端错误"""

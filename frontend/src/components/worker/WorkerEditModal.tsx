@@ -35,7 +35,7 @@ import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
 import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
 import { getStrategyParameters } from '../../api/workerApi';
-import type { StrategyInfo, StrategyParameter, Worker as WorkerModel } from '../../types/worker';
+import type { StrategyInfo, StrategyParameter, TradingConfig, UpdateWorkerRequest, Worker as WorkerModel } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -112,9 +112,8 @@ const TRADING_MODES = [
   { value: 'paper', label: '本地模拟' },
 ];
 
-// 可编辑的 worker 对象（含历史兼容字段）
+// 可编辑的 worker 对象（含本地表单预填用的扩展字段）
 type EditableWorker = WorkerModel & {
-  symbol?: string;
   strategy_params?: Record<string, unknown>;
 };
 
@@ -183,11 +182,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const setFormValuesFromWorker = () => {
     if (!worker) return;
 
-    // 从 trading_config JSON 中提取配置
-    const tradingConfig: Record<string, unknown> =
+    // 从 trading_config JSON 中提取交易参数（唯一来源）
+    const tradingConfig: Partial<TradingConfig> =
       typeof worker.trading_config === 'string'
         ? JSON.parse(worker.trading_config || '{}')
         : (worker.trading_config || {});
+    const symbolsConfig = tradingConfig.symbols_config;
 
     const config: Record<string, unknown> =
       typeof worker.config === 'string'
@@ -201,10 +201,10 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       name: worker.name,
       description: worker.description,
       strategy_id: currentStrategyId,
-      exchange: worker.exchange || tradingConfig.exchange || 'binance',
-      symbol: worker.symbol || (worker.symbols && worker.symbols[0]) || '',
-      timeframe: worker.timeframe || '1h',
-      market_type: worker.market_type || tradingConfig.market_type || 'futures',
+      exchange: tradingConfig.exchange || 'binance',
+      symbol: symbolsConfig?.symbols?.[0] || '',
+      timeframe: tradingConfig.timeframe || '1h',
+      market_type: tradingConfig.market_type || 'futures',
       trading_mode: tradingConfig.trading_mode || 'paper',
       initial_capital: config.initial_capital || 10000,
       max_position_size: config.max_position_size || 0.1,
@@ -439,29 +439,20 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         strategy_name: selectedStrategy?.name,
       });
 
-      const requestData = {
+      const requestData: UpdateWorkerRequest = {
         name: values.name,
         description: values.description,
         strategy_id: strategyId,
         strategy_file_name: strategyFileName,
-        strategy_name: selectedStrategy?.name || null,  // 新增：策略名称（冗余存储）
-        exchange: values.exchange,
-        symbol: selectedSymbol.toUpperCase(),
-        timeframe: values.timeframe,
-        market_type: values.market_type,
-        trading_mode: values.trading_mode,
-
-        // 策略参数
-        strategy_params: strategyParams.reduce((acc, param) => {
-          const fieldValue = values[`param_${param.param_name}`];
-          if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
-            acc[param.param_name] = fieldValue;
-          } else if (param.default_value !== undefined && param.default_value !== null) {
-            acc[param.param_name] = param.default_value;
-          }
-          return acc;
-        }, {} as Record<string, unknown>),
-
+        strategy_name: selectedStrategy?.name || null,
+        // 交易参数统一走 trading_config（旧扁平字段已被后端 extra="forbid" 拒绝）
+        trading_config: {
+          exchange: values.exchange,
+          symbols_config: { type: 'symbols', symbols: [selectedSymbol.toUpperCase()] },
+          timeframe: values.timeframe,
+          market_type: values.market_type,
+          trading_mode: values.trading_mode,
+        },
         config: {
           initial_capital: values.initial_capital || 10000,
           max_position_size: values.max_position_size || 0.1,

@@ -85,9 +85,15 @@ def worker_create(
 ):
     """创建新 Worker"""
     try:
-        data = {"name": name, "strategy_id": strategy_id, "exchange": exchange}
-        if symbol:
-            data["symbol"] = symbol
+        # 交易参数统一走 trading_config（旧扁平 exchange/symbol 字段已被 WorkerCreate 拒绝）
+        data = {
+            "name": name,
+            "strategy_id": strategy_id,
+            "trading_config": {
+                "exchange": exchange,
+                "symbols_config": {"type": "symbols", "symbols": [symbol or "BTCUSDT"]},
+            },
+        }
         result = _service.create_worker(data)
         typer.echo(f"Worker '{result.get('name', name)}' 已创建 (ID: {result.get('id')})")
     except Exception as e:

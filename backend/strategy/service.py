@@ -51,10 +51,6 @@ def _annotation_to_str(node: ast.AST | None) -> str:
 class StrategyType(Enum):
     """策略类型枚举"""
 
-    LEGACY = "legacy"  # Legacy 策略 (StrategyBase)
-    EVENT_DRIVEN = "event_driven"  # 历史枚举值: 事件驱动路径已删除, 仅为兼容旧数据保留
-    UNKNOWN = "unknown"  # 未知类型
-
     RULE = "rule"
     RL = "rl"
 

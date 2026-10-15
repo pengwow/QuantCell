@@ -144,7 +144,9 @@ const Worker = () => {
     return workers.filter((worker) => {
       const matchesSearch = !searchKeyword ||
         worker.name.toLowerCase().includes(searchKeyword.toLowerCase()) ||
-        worker.symbols?.some((s: string) => s.toLowerCase().includes(searchKeyword.toLowerCase()));
+        worker.trading_config?.symbols_config?.symbols?.some(
+          (s: string) => s.toLowerCase().includes(searchKeyword.toLowerCase())
+        );
       const matchesStatus = !statusFilter || worker.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -826,11 +828,11 @@ const Worker = () => {
                           <div style={{ marginBottom: 12 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                               <span style={{ color: '#666', fontSize: 13 }}>{t('exchange') || '交易所'}</span>
-                              <Tag>{worker.exchange}</Tag>
+                              <Tag>{worker.trading_config?.exchange}</Tag>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                               <span style={{ color: '#666', fontSize: 13 }}>{t('timeframe') || '周期'}</span>
-                              <Tag color="blue">{worker.timeframe}</Tag>
+                              <Tag color="blue">{worker.trading_config?.timeframe}</Tag>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                               <span style={{ color: '#666', fontSize: 13 }}>{t('total_profit') || '总收益'}</span>

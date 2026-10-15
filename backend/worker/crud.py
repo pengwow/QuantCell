@@ -99,41 +99,14 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
     """创建Worker"""
     import json
 
-    # 处理交易标的：优先使用 symbols 列表，如果没有则使用 symbol 单数
-    if worker_data.symbols and len(worker_data.symbols) > 0:
-        symbols = worker_data.symbols
-    elif worker_data.symbol:
-        symbols = [worker_data.symbol]
-    else:
-        symbols = ["BTCUSDT"]
-
-    # 构建交易配置
-    trading_config = {
-        "exchange": worker_data.exchange or "binance",
-        "symbols_config": {
-            "type": "symbols",  # 默认为直接货币对模式
-            "symbols": symbols,
-            "pool_id": None,
-            "pool_name": None,
-        },
-        "timeframe": worker_data.timeframe or "1h",
-        "market_type": worker_data.market_type or "spot",
-        "trading_mode": worker_data.trading_mode or "paper",
-    }
-
     db_worker = Worker(
         name=worker_data.name,
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
-        strategy_name=getattr(worker_data, "strategy_name", None),  # 新增：策略名称（冗余存储）
-        trading_config=json.dumps(trading_config),
+        strategy_name=worker_data.strategy_name,  # 策略名称（冗余存储，用于 strategy_id 失效时回退查找）
+        trading_config=json.dumps(worker_data.trading_config.model_dump()) if worker_data.trading_config else "{}",
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else "{}",
-        config=json.dumps(
-            {
-                **(worker_data.config or {}),
-                "strategy_file_name": worker_data.strategy_file_name,
-            }
-        )
+        config=json.dumps({**(worker_data.config or {}), "strategy_file_name": worker_data.strategy_file_name})
         if (worker_data.config or worker_data.strategy_file_name)
         else "{}",
         status="stopped",
@@ -181,19 +154,23 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
 
     update_data = worker_data.model_dump(exclude_unset=True)
 
-    # 特殊处理 trading_mode：需要合并到 trading_config JSON 中
-    if "trading_mode" in update_data:
-        trading_mode = update_data.pop("trading_mode")
-        current_trading_config = worker.get_trading_config_dict()
-        current_trading_config["trading_mode"] = trading_mode
-        worker.trading_config = json.dumps(current_trading_config)
+    # strategy_file_name 不是 ORM 列，与 create_worker 口径一致：合并进 config JSON 落库
+    strategy_file_name = update_data.pop("strategy_file_name", None)
 
+    # trading_config / config 是 Text JSON 列，序列化后落库
+    if update_data.get("trading_config") is not None:
+        worker.trading_config = json.dumps(update_data.pop("trading_config"))
+    if update_data.get("config") is not None:
+        worker.config = json.dumps(update_data.pop("config"))
+
+    if strategy_file_name is not None:
+        merged_config = worker.get_config_dict()
+        merged_config["strategy_file_name"] = strategy_file_name
+        worker.config = json.dumps(merged_config)
+
+    # 其余字段均为真实 ORM 列，直接 setattr
     for field, value in update_data.items():
-        # 特殊处理 config 和 trading_config 字段（需要 JSON 序列化）
-        if field in ("config", "trading_config") and isinstance(value, dict):
-            setattr(worker, field, json.dumps(value))
-        else:
-            setattr(worker, field, value)
+        setattr(worker, field, value)
 
     worker.updated_at = datetime.now()
     db.commit()
