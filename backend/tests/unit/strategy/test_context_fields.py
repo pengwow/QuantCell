@@ -74,7 +74,7 @@ def test_settle_funding_basic_short_position_receives():
 
 
 def test_settle_funding_skips_duplicate_time():
-    """DEPRECATED: 重复时间防御已下沉到 PushFundingHelper (axon_bridge.backtest)。
+    """DEPRECATED: 重复时间防御已下沉到 axon_quant 引擎。
     no-op 行为: settle_funding 始终返回 0.0, 无累加。
     """
     ctx = StrategyContext(symbol="BTCUSDT")

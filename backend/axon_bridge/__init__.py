@@ -19,8 +19,11 @@ from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# —— 远程版本: credentials ——
-# —— 远程版本: 核心类型重导出 ——
+# —— 核心类型重导出 ——
+# 品种工厂与 axon_quant 顶层同源(is 同一对象),直接从 axon_quant 重导出。
+# 撮合版 limit_order 与品种工厂原由 .backtest 适配层提供,该层已随 debt-2026-10 归档;
+# 顶层同名 limit_order 是 oms 版(签名不同),故撮合版改从 axon_quant.backtest 直接重导出。
+# PushFundingHelper 无消费者,随适配层一并移除。
 from axon_quant import (
     Action,
     ActionType,
@@ -64,6 +67,8 @@ from axon_quant import (
     registry,
     risk,
     rl,
+    spot_instrument,
+    swap_instrument,
     tracker,
     walk_forward,
 )
@@ -77,6 +82,7 @@ from axon_quant.agent import (
     TradingTools,
     TrajectoryRecorder,
 )
+from axon_quant.backtest import limit_order
 
 # —— 合并自 8 个空壳子模块的重导出 ——
 from axon_quant.ensemble import (
@@ -162,16 +168,7 @@ from axon_quant.trading import (
     TradingMetrics,
 )
 
-from ._credentials import credentials
 from ._errors import AxonQuantError, map_error
-
-# —— backtest 子模块重导出 ——
-from .backtest import (
-    PushFundingHelper,
-    limit_order,
-    spot_instrument,
-    swap_instrument,
-)
 from .llm import (
     accumulate_stream,
     chat_to_dict,
@@ -562,7 +559,6 @@ __all__ = [
     "Portfolio",
     "PortfolioDict",
     "Position",
-    "PushFundingHelper",
     "QueryPortfolioTool",
     "RandomTrader",
     "RateLimitConfig",
@@ -608,7 +604,6 @@ __all__ = [
     "create_onnx_engine",
     "create_spot_instrument",
     "create_swap_instrument",
-    "credentials",
     "extract_run_result",
     "extract_run_stats",
     "flatten_tools",
