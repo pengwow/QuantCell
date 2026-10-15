@@ -265,18 +265,11 @@ class TestStrategyTemplateAPI:
         assert "模板不存在" in str(data.get("detail", ""))
 
     def test_generate_from_template_success(self, client, mock_auth, mock_should_refresh, auth_headers):
-        """测试基于模板生成策略成功"""
+        """基于真实模板直接返回完整源码。"""
         response = client.post(
             "/api/v1/ai-models/strategy/generate-from-template",
             headers=auth_headers,
-            json={
-                "template_id": "tpl_001",
-                "variables": {
-                    "strategy_name": "MyDualMAStrategy",
-                    "fast_period": 10,
-                    "slow_period": 20,
-                },
-            },
+            json={"template_id": "dual_ma", "variables": {}},
         )
 
         assert response.status_code == 200
@@ -284,37 +277,22 @@ class TestStrategyTemplateAPI:
         assert data["code"] == 0
         assert "data" in data
         assert "code" in data["data"]
+        # 新行为：直接返回模板源码，不做占位符替换
+        source = data["data"]["code"]
+        assert "class DualMA" in source
+        assert "BaseStrategy" in source
 
     def test_generate_from_template_not_found(self, client, mock_auth, mock_should_refresh, auth_headers):
-        """测试基于不存在的模板生成"""
+        """不存在的模板应返回 404。"""
         response = client.post(
             "/api/v1/ai-models/strategy/generate-from-template",
             headers=auth_headers,
-            json={"template_id": "non_existent_tpl", "variables": {}},
+            json={"template_id": "nonexistent_template_xyz", "variables": {}},
         )
 
         assert response.status_code == 404
         data = response.json()
         assert "模板不存在" in str(data.get("detail", ""))
-
-    def test_generate_from_template_incomplete_variables(self, client, mock_auth, mock_should_refresh, auth_headers):
-        """测试模板变量未完全替换"""
-        response = client.post(
-            "/api/v1/ai-models/strategy/generate-from-template",
-            headers=auth_headers,
-            json={
-                "template_id": "tpl_001",
-                "variables": {
-                    "strategy_name": "TestStrategy"
-                    # 缺少 fast_period 和 slow_period
-                },
-            },
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["code"] == 1
-        assert "模板变量未完全替换" in data["message"]
 
 
 class TestStrategyStatsAPI:
