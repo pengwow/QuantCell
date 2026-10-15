@@ -5,6 +5,7 @@ ponytail:
 - 升级后: 3 状态机 (FLAT / LONG_FUNDING / SHORT_FUNDING) + 持续时间计数器 (抗噪)
 - funding 现金流: 2026-07-19 完全下沉到 axon_quant 引擎 (RunResult.total_funding_pnl),
   策略层不再调 ctx.settle_funding() (已 no-op, 保留以兼容旧代码)
+  TODO(debt-2026-10): ctx.settle_funding 的 no-op 兼容层，待确认无外部策略调用后一并删除
 - 现货腿传递: 策略 set ctx.spot_target_position, baseline 读
 - 现货做空门控: spot_margin_enabled=False 时自动降级为单边
 """
@@ -43,7 +44,7 @@ class FundingArbitrage(BaseStrategy):
         super().__init__(config)
         self._state: FundingState = FundingState.FLAT
         self._hold_counter: int = 0
-        self._current_side: str = "flat"  # 兼容老属性(供外部日志读)
+        self._current_side: str = "flat"  # TODO(debt-2026-10): 兼容老属性(供外部日志读)，待日志消费方迁移后删除
 
     def _param(self, key: str):
         """读 params 字段, 缺省用 _DEFAULTS。"""

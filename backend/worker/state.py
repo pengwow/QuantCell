@@ -88,7 +88,7 @@ class StrategyRuntime:
     name: str
     status: str = "stopped"
 
-    # 从 TradingEngine.StrategyRuntime 补充的字段
+    # 运行时状态字段（供 worker_system 与 WebSocket 状态广播消费）
     strategy: Any = None
     symbols: list[str] = field(default_factory=list)
     params: dict[str, Any] = field(default_factory=dict)
