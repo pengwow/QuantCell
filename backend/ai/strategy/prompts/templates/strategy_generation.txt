@@ -21,8 +21,7 @@
 ```python
 from __future__ import annotations
 from typing import Any
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class {{strategy_name}}(BaseStrategy):
@@ -108,7 +107,7 @@ ctx 是 StrategyContext：
 
 1. **只输出代码**：直接输出 Python 代码，不要解释，不要 markdown 代码块标记。
 2. **完整可运行**：代码必须是完整的、可运行的策略类。
-3. **导入完整**：必须有 `from axon_bridge import Action` 和 `from strategy.base import BaseStrategy, StrategyConfig, StrategyContext`。
+3. **导入完整**：一行 `from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext` 即可。
 4. **命名规范**：策略类名使用 PascalCase。
 5. **参数通过 config.params**：不要在 `__init__` 里直接接收策略参数。
 
