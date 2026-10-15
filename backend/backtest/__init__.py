@@ -7,23 +7,16 @@
     - 策略回测执行
     - 回测结果分析
     - 回测数据管理
-    - 事件驱动引擎支持
 
 使用示例:
     >>> from backtest import BacktestService, router
     >>> service = BacktestService()
     >>> result = service.run_backtest(strategy_config, backtest_config)
 
-    >>> # 使用事件驱动引擎
-    >>> from backtest import EventDrivenBacktestEngine
-    >>> engine = EventDrivenBacktestEngine(config)
-
 模块结构:
     - service.py: 回测服务实现
     - routes.py: API路由定义
     - schemas.py: 数据模型定义
-    - engines/: 回测引擎实现
-    - strategies/: 策略基类
 
 作者: QuantCell Team
 版本: 1.2.0
@@ -44,18 +37,6 @@ def __getattr__(name):
         from .routes import router
 
         return router
-    if name == "EventDrivenBacktestEngine":
-        from .engines.event_engine import EventDrivenBacktestEngine
-
-        return EventDrivenBacktestEngine
-    if name == "EventDrivenStrategy":
-        from .strategies.event_strategy import EventDrivenStrategy
-
-        return EventDrivenStrategy
-    if name == "EventDrivenStrategyConfig":
-        from .strategies.event_strategy import EventDrivenStrategyConfig
-
-        return EventDrivenStrategyConfig
     # schemas 中的类
     if name in [
         "BacktestConfig",
@@ -100,10 +81,6 @@ __all__ = [
     "DataIntegrityCheckRequest",
     "DataIntegrityCheckResponse",
     "EquityPoint",
-    # 事件驱动组件（延迟加载）
-    "EventDrivenBacktestEngine",
-    "EventDrivenStrategy",
-    "EventDrivenStrategyConfig",
     "MultiBacktestResult",
     "StrategyConfig",
     "StrategyConfigRequest",

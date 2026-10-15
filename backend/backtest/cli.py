@@ -6,8 +6,8 @@
 所有回测均使用事件驱动引擎（axon-quant）。
 """
 
+import ast
 import json
-import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -201,62 +201,35 @@ def list_strategies(
     table.add_column("描述", style="white")
     table.add_column("位置", style="dim")
 
-    # 延迟导入基类，避免启动时加载依赖
-    try:
-        from backtest.strategies.event_strategy import EventDrivenStrategy
-    except Exception:
-        EventDrivenStrategy = None
-
     for strategy_file in strategy_files:
         strategy_name = strategy_file.stem
+        location = strategy_file.parent.name
 
-        strategy_type = "未知"
+        # 用 AST 静态解析代替 exec_module：不执行策略代码，也不污染 sys.path。
+        # 此前 exec 循环把各策略目录依次 insert(0)，结束时 path[0] 停在旧版
+        # strategies 目录，导致后续 load_strategy 按名导入到同名旧事件策略。
+        strategy_type = "[yellow]未分类[/yellow]"
         description = ""
 
         try:
-            module_path = str(strategy_file.parent)
-            if module_path not in sys.path:
-                sys.path.insert(0, module_path)
+            tree = ast.parse(strategy_file.read_text(encoding="utf-8"))
+            has_strategy_class = any(
+                isinstance(node, ast.ClassDef)
+                and any(
+                    getattr(base, "id", "") == "BaseStrategy" or getattr(base, "attr", "") == "BaseStrategy"
+                    for base in node.bases
+                )
+                for node in tree.body
+            )
+            if has_strategy_class:
+                strategy_type = "[green]BaseStrategy[/green]"
 
-            import importlib
-
-            location = strategy_file.parent.name
-            spec = importlib.util.spec_from_file_location(strategy_name, str(strategy_file))
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            # 检查是否包含 EventDrivenStrategy 子类（实际策略）
-            has_event_strategy = False
-            has_base_class = False
-
-            for attr_name in dir(module):
-                attr_val = getattr(module, attr_name)
-                if isinstance(attr_val, type):
-                    if EventDrivenStrategy is not None and (
-                        issubclass(attr_val, EventDrivenStrategy) and attr_val is not EventDrivenStrategy
-                    ):
-                        has_event_strategy = True
-                    if attr_name in (
-                        "EventDrivenStrategy",
-                        "EventDrivenStrategyConfig",
-                    ):
-                        has_base_class = True
-
-            if has_event_strategy:
-                strategy_type = "[cyan]事件驱动[/cyan]"
-            elif has_base_class:
-                strategy_type = "[green]策略基类[/green]"
-            else:
-                strategy_type = "[yellow]未分类[/yellow]"
-
-            doc = getattr(module, "__doc__", "")
-            if doc:
-                first_line = doc.strip().split("\n")[0]
+            first_line = (ast.get_docstring(tree) or "").strip().split("\n")[0]
+            if first_line:
                 description = first_line[:60] + ("..." if len(first_line) > 60 else "")
-
         except Exception as e:
             if verbose:
-                description = f"[red]加载错误: {str(e)[:40]}...[/red]"
+                description = f"[red]解析错误: {str(e)[:40]}...[/red]"
 
         table.add_row(strategy_name, strategy_type, description, location)
     console.print(table)

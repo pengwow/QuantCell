@@ -1,10 +1,8 @@
 """
 回测引擎服务模块（基于 axon_quant 体系）
 
-封装事件驱动回测引擎的初始化、数据加载、策略加载和执行流程。
-将原本分散在 cli.py 和 service.py 中的引擎操作逻辑统一到此模块。
-
-所有与 axon-quant 的交互都通过 axon_bridge 适配层进行。
+唯一回测路径：BaseStrategy → BacktestLoop → axon_quant BacktestEngine。
+负责数据加载、因子特征注入与结果格式化，引擎交互统一走 BacktestLoop。
 
 作者: QuantCell Team
 版本: 2.0.0
@@ -15,9 +13,9 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
+from backtest.backtest_loop import BacktestLoop, clean_ohlcv_df
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -26,13 +24,6 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # 逐品种进度回调：参数为 (已完成品种数, 品种总数, 当前开始回测的品种)
 # ponytail: 粒度只到品种级，单品种回测在引擎执行期间没有中间进度（需 Rust 引擎支持 bar 级回调）
 SymbolProgressCallback = Callable[[int, int, str], None]
-
-
-def _get_axon_bridge():
-    """延迟导入 axon_bridge"""
-    import axon_bridge
-
-    return axon_bridge
 
 
 class EventDrivenBacktestService:
@@ -110,8 +101,6 @@ class EventDrivenBacktestService:
 
         # 解析默认配置
         init_cash = (engine_config or {}).get("initial_capital", 10000)
-        base_currency = (engine_config or {}).get("base_currency", "USDT")
-        leverage = (engine_config or {}).get("leverage", 1.0)
         time_range = (engine_config or {}).get("time_range")
         # 交易模式: spot(现货) / futures(永续合约)
         trading_mode = (engine_config or {}).get("trading_mode", "spot")
@@ -208,120 +197,62 @@ class EventDrivenBacktestService:
             msg = f"无法加载策略: {strategy_name}"
             raise ValueError(msg)
 
-        from strategy.base import BaseStrategy
-
-        is_event_driven = not isinstance(strategy, BaseStrategy)
-
         # 多品种结果占位（单品种路径不赋值，保持 None）
         per_symbol_results: dict[str, dict[str, Any]] | None = None
 
-        # Rust RunResult.trades 不携带 instrument 信息，事件驱动策略在单次组合
-        # 回测后无法按品种拆分成交；多品种时改为逐品种独立回测（各自独立账户、
-        # 相同初始资金）再聚合，与 BaseStrategy 多品种路径语义一致
-        if is_event_driven and len(symbols) > 1:
-            raw_results, per_symbol_results = self._run_event_driven_per_symbol(
-                engine_config=engine_config,
-                strategy_name=strategy_name,
-                strategy_params=strategy_params,
-                symbols=symbols,
-                timeframes=timeframes,
-                data_dict=data_dict,
-                init_cash=init_cash,
-                base_currency=base_currency,
-                leverage=leverage,
+        # 3. 执行回测 —— 唯一路径：BaseStrategy → BacktestLoop（ctx 注入 features/funding/account）
+        loop = BacktestLoop(initial_cash=init_cash)
+        force_liquidate = (engine_config or {}).get("force_liquidate", False)
+
+        if len(symbols) == 1:
+            first_key = next(iter(loaded_data.keys()))
+            entry = loaded_data[first_key]
+            df = entry["data"]
+            parts = first_key.rsplit("_", 1)
+            symbol = parts[0] if len(parts) > 1 else first_key
+            if on_symbol_progress:
+                on_symbol_progress(0, 1, symbol)
+            result = loop.run(
+                strategy=strategy,
+                data=df,
+                symbol=symbol,
+                force_liquidate=force_liquidate,
+                features=entry.get("features"),
+                feature_dataframe=entry.get("feature_dataframe"),
+                data_type=entry.get("data_type", "kline"),
                 trading_mode=trading_mode,
-                time_range=time_range,
-                on_symbol_progress=on_symbol_progress,
+                funding_df=self._load_funding(symbol, trading_mode, time_range),
             )
+            raw_results = self._convert_backtest_result(result)
+            # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
+            raw_results["klines"] = self._build_kline_records(clean_ohlcv_df(df), engine_config, time_range)
         else:
-            # 3. 初始化引擎
-            engine = self._initialize_engine(
-                engine_config=engine_config,
-                strategy_name=strategy_name,
-                init_cash=init_cash,
-                data_dict=data_dict,
-            )
-
-            # 3.1 加载数据到引擎
-            _instruments, bar_types, cleaned_data = self._load_data_to_engine(
-                engine=engine,
-                data_dict=data_dict,
-                symbols=symbols,
-                timeframes=timeframes,
-                base_currency=base_currency,
-                leverage=leverage,
-                init_cash=init_cash,
-                trading_mode=trading_mode,
-                time_range=time_range,
-            )
-
-            # 4. 执行回测 —— 按策略基类选执行引擎
-            #    BaseStrategy 模板 → BacktestLoop（支持 ctx 注入 features/funding/account）
-            #    EventDrivenStrategy 旧版 → EventDrivenBacktestEngine（add_strategy + run_backtest）
-            if is_event_driven:
-                # —— EventDrivenStrategy 单品种路径 ——
-                # 数据和 instrument 已在 _load_data_to_engine 注入引擎，
-                # 这里只需 add_strategy + run_backtest()
+            aggregated_metrics: dict[str, Any] = {}
+            per_symbol_results = {}
+            loaded_entries = list(loaded_data.items())
+            for idx, (key, entry) in enumerate(loaded_entries):
+                df = entry["data"]
+                parts = key.rsplit("_", 1)
+                sym = parts[0] if len(parts) > 1 else key
                 if on_symbol_progress:
-                    on_symbol_progress(0, 1, symbols[0])
-                engine.add_strategy(strategy)
-                result_dict = engine.run_backtest()  # dict: {trades, positions, equity_curve, account, metrics}
-                # 转成统一 dict 格式供 ResultFormatterService.format_axon_results 消费
-                raw_results = self._event_engine_result_to_dict(result_dict, symbols)
-                # 清洗后的 K 线写入结果，供回放页 kline_data 使用（只进结果 JSON，不入 DB）
-                tf0 = timeframes[0] if timeframes else "1h"
-                kline_df = cleaned_data.get(f"{symbols[0]}_{tf0}")
-                if kline_df is not None:
-                    raw_results["klines"] = self._build_kline_records(kline_df, engine_config, time_range)
-                per_symbol_results = {}
-            else:
-                # —— BaseStrategy 路径 —— 用 BacktestLoop
-                from backtest.backtest_loop import BacktestLoop
-
-                loop = BacktestLoop(initial_cash=init_cash)
-                force_liquidate = (engine_config or {}).get("force_liquidate", False)
-
-                if len(symbols) == 1:
-                    first_key = next(iter(loaded_data.keys()))
-                    entry = loaded_data[first_key]
-                    df = entry["data"]
-                    parts = first_key.rsplit("_", 1)
-                    symbol = parts[0] if len(parts) > 1 else first_key
-                    if on_symbol_progress:
-                        on_symbol_progress(0, 1, symbol)
-                    result = loop.run(
-                        strategy=strategy,
-                        data=df,
-                        symbol=symbol,
-                        force_liquidate=force_liquidate,
-                        features=entry.get("features"),
-                        feature_dataframe=entry.get("feature_dataframe"),
-                        data_type=entry.get("data_type", "kline"),
-                    )
-                    raw_results = self._convert_backtest_result(result)
-                else:
-                    aggregated_metrics: dict[str, Any] = {}
-                    per_symbol_results = {}
-                    loaded_entries = list(loaded_data.items())
-                    for idx, (key, entry) in enumerate(loaded_entries):
-                        df = entry["data"]
-                        parts = key.rsplit("_", 1)
-                        sym = parts[0] if len(parts) > 1 else key
-                        if on_symbol_progress:
-                            on_symbol_progress(idx, len(loaded_entries), sym)
-                        loop_result = loop.run(
-                            strategy=strategy,
-                            data=df,
-                            symbol=sym,
-                            force_liquidate=force_liquidate,
-                            features=entry.get("features"),
-                            feature_dataframe=entry.get("feature_dataframe"),
-                            data_type=entry.get("data_type", "kline"),
-                        )
-                        result = self._convert_backtest_result(loop_result)
-                        per_symbol_results[sym] = result
-                        self._accumulate_symbol_metrics(result, aggregated_metrics)
-                    raw_results = aggregated_metrics
+                    on_symbol_progress(idx, len(loaded_entries), sym)
+                loop_result = loop.run(
+                    strategy=strategy,
+                    data=df,
+                    symbol=sym,
+                    force_liquidate=force_liquidate,
+                    features=entry.get("features"),
+                    feature_dataframe=entry.get("feature_dataframe"),
+                    data_type=entry.get("data_type", "kline"),
+                    trading_mode=trading_mode,
+                    funding_df=self._load_funding(sym, trading_mode, time_range),
+                )
+                result = self._convert_backtest_result(loop_result)
+                per_symbol_results[sym] = result
+                # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
+                result["klines"] = self._build_kline_records(clean_ohlcv_df(df), engine_config, time_range)
+                self._accumulate_symbol_metrics(result, aggregated_metrics)
+            raw_results = aggregated_metrics
 
         # 4.5 构建因子分析载荷（仅当配置了 factor_names 且特征帧可用时）
         if factor_names and feature_frames:
@@ -367,95 +298,6 @@ class EventDrivenBacktestService:
         logger.info("[EventDrivenBacktestService] 回测完成")
 
         return formatted_results
-
-    def _run_event_driven_per_symbol(
-        self,
-        *,
-        engine_config: dict | None,
-        strategy_name: str,
-        strategy_params: dict[str, Any] | None,
-        symbols: list[str],
-        timeframes: list[str],
-        data_dict: dict[str, pd.DataFrame],
-        init_cash: float,
-        base_currency: str,
-        leverage: float,
-        trading_mode: str,
-        time_range: str | None,
-        on_symbol_progress: SymbolProgressCallback | None = None,
-    ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-        """事件驱动策略多品种：逐品种独立回测后聚合。
-
-        Rust RunResult.trades 不携带 instrument，无法在单次组合回测后按品种
-        拆分成交，因此每个品种用独立引擎/账户和全新策略实例（on_bar 策略有
-        内部 K 线缓存）各跑一遍，初始资金相同，最后聚合，口径与 BaseStrategy
-        多品种路径一致。
-
-        Returns:
-            (aggregated_metrics, per_symbol_results)
-        """
-        from backtest.strategy_loader_service import StrategyLoaderService
-
-        tf = timeframes[0] if timeframes else "1h"
-        per_symbol_results: dict[str, dict[str, Any]] = {}
-
-        for idx, symbol in enumerate(symbols):
-            key = f"{symbol}_{tf}"
-            sym_df = data_dict.get(key)
-            if sym_df is None:
-                logger.warning(f"跳过 {key}，数据未加载")
-                continue
-
-            # 每个品种开跑前通知外部（已完成 idx 个，共 len(symbols) 个）
-            if on_symbol_progress:
-                on_symbol_progress(idx, len(symbols), symbol)
-            # 每个品种一个全新引擎（独立账户）
-            sym_engine = self._initialize_engine(
-                engine_config=engine_config,
-                strategy_name=strategy_name,
-                init_cash=init_cash,
-                data_dict={key: sym_df},
-            )
-            _, _, sym_cleaned = self._load_data_to_engine(
-                engine=sym_engine,
-                data_dict={key: sym_df},
-                symbols=[symbol],
-                timeframes=[tf],
-                base_currency=base_currency,
-                leverage=leverage,
-                init_cash=init_cash,
-                trading_mode=trading_mode,
-                time_range=time_range,
-            )
-
-            # 全新策略实例，避免上个品种的 on_bar 内部状态串到下个品种
-            sym_strategy = StrategyLoaderService.load_strategy(
-                strategy_name=strategy_name,
-                strategy_params=strategy_params or {},
-                instrument_ids=[{"symbol": symbol, "venue": "BINANCE"}],
-                bar_types=[tf],
-            )
-            if sym_strategy is None:
-                msg = f"无法加载策略: {strategy_name}"
-                raise ValueError(msg)
-
-            sym_engine.add_strategy(sym_strategy)
-            sym_result = self._event_engine_result_to_dict(sym_engine.run_backtest(), [symbol])
-
-            kline_df = sym_cleaned.get(key)
-            if kline_df is not None:
-                sym_result["klines"] = self._build_kline_records(kline_df, engine_config, time_range)
-
-            per_symbol_results[symbol] = sym_result
-
-        if not per_symbol_results:
-            msg = "没有任何品种成功完成回测"
-            raise ValueError(msg)
-
-        aggregated: dict[str, Any] = {}
-        for sym_result in per_symbol_results.values():
-            self._accumulate_symbol_metrics(sym_result, aggregated)
-        return aggregated, per_symbol_results
 
     def _build_kline_records(
         self,
@@ -713,111 +555,6 @@ class EventDrivenBacktestService:
         return _json.loads(out.to_json(orient="records", date_format="iso"))
 
     @staticmethod
-    def _event_engine_result_to_dict(result_dict: dict, symbols: list[str]) -> dict[str, Any]:
-        """把 EventDrivenBacktestEngine.run_backtest() 的嵌套结果拍平成 BacktestLoop 风格
-
-        run_backtest 返回 {account, metrics, trades, equity_curve, positions} 嵌套结构；
-        BacktestResult 风格是扁平 {final_nav, total_pnl, max_drawdown, ...}。
-        ResultFormatterService.format_axon_results 吃后者。
-        """
-        account = result_dict.get("account", {}) or {}
-        metrics = result_dict.get("metrics", {}) or {}
-
-        # metrics 里已带 final_nav / total_pnl 等核心字段，优先用它们；
-        # 缺失时回退 account 子字段
-        final_nav = metrics.get("final_nav") or account.get("final_balance") or 0.0
-        nav_peak = metrics.get("nav_peak") or account.get("peak_equity") or 0.0
-        total_pnl = metrics.get("total_pnl", 0.0)
-        total_fees = metrics.get("total_fees", 0.0)
-
-        return {
-            "initial_capital": (nav_peak or final_nav) - total_pnl,
-            "final_nav": final_nav,
-            "total_pnl": total_pnl,
-            "max_drawdown": metrics.get("max_drawdown", 0.0),
-            "max_drawdown_pct": metrics.get("max_drawdown_pct", 0.0),
-            "nav_peak": nav_peak,
-            "orders_accepted": metrics.get("orders_accepted", 0),
-            "orders_rejected": metrics.get("orders_rejected", 0),
-            "fills": metrics.get("fills", 0),
-            "total_orders": metrics.get("total_orders", 0),
-            "events_processed": metrics.get("events_processed", 0),
-            "duration_secs": metrics.get("duration_secs", 0.0),
-            "win_rate": metrics.get("win_rate", 0.0),
-            "sharpe_ratio": metrics.get("sharpe_ratio", 0.0),
-            "total_fees": total_fees,
-            "trade_count": len(result_dict.get("trades", [])),
-            "trades": list(result_dict.get("trades", [])),
-            "positions": list(result_dict.get("positions", [])),
-            "equity_curve": list(result_dict.get("equity_curve", [])),
-            "data_start_ns": metrics.get("data_start_ns"),
-            "data_end_ns": metrics.get("data_end_ns"),
-            "bar_count": metrics.get("bar_count", 0),
-        }
-
-    def _initialize_engine(
-        self,
-        engine_config: dict | None,
-        strategy_name: str,
-        init_cash: float,
-        data_dict: dict[str, pd.DataFrame],
-    ):
-        """
-        初始化回测循环（直接使用 BacktestLoop，不再通过中间包装层）
-
-        Args:
-            engine_config: 引擎配置字典
-            strategy_name: 策略名称
-            init_cash: 初始资金
-            data_dict: 品种 -> K线 DataFrame，用于无 time_range 时推导回测时间范围
-
-        Returns:
-            BacktestLoop: 已初始化的回测循环实例
-        """
-        try:
-            from backtest.engines.event_engine import EventDrivenBacktestEngine
-
-            config = engine_config or {}
-            time_range = config.get("time_range")
-
-            # 解析时间范围
-            if time_range:
-                from utils.validation import parse_time_range
-
-                start_dt, end_dt = parse_time_range(time_range)
-                start_date = start_dt.strftime("%Y-%m-%d") if start_dt else "2023-01-01"
-                end_date = end_dt.strftime("%Y-%m-%d") if end_dt else "2023-12-31"
-            else:
-                first_key = next(iter(data_dict.keys()))
-                first_df = data_dict[first_key]
-                if len(first_df) > 0:
-                    first_idx = first_df.index[0]
-                    last_idx = first_df.index[-1]
-                    start_date = str(first_idx)[:10] if first_idx is not None else "2023-01-01"
-                    end_date = str(last_idx)[:10] if last_idx is not None else "2023-12-31"
-                else:
-                    start_date = "2023-01-01"
-                    end_date = "2023-12-31"
-
-            full_config = {
-                "trader_id": f"BACKTEST-{strategy_name.upper()}",
-                "log_level": config.get("log_level", "INFO"),
-                "initial_capital": init_cash,
-                "start_date": start_date,
-                "end_date": end_date,
-            }
-
-            engine = EventDrivenBacktestEngine(full_config)
-            engine.initialize()
-
-            logger.info("[EventDrivenBacktestService] 引擎初始化完成")
-            return engine
-
-        except Exception as e:
-            logger.error(f"[EventDrivenBacktestService] 引擎初始化失败: {e}")
-            raise
-
-    @staticmethod
     def _parse_symbol(symbol: str) -> tuple[str, str]:
         """
         解析交易对符号，提取基础货币和计价货币
@@ -838,167 +575,29 @@ class EventDrivenBacktestService:
         # 不能返回嵌套 tuple,否则 base, quote = ... 解包时 quote 是 tuple
         return symbol.upper(), "USDT"
 
-    def _load_data_to_engine(
-        self,
-        engine,
-        data_dict: dict[str, pd.DataFrame],
-        symbols: list[str],
-        timeframes: list[str],
-        base_currency: str,
-        leverage: float,
-        init_cash: float,
-        trading_mode: str = "spot",
-        time_range: str | None = None,
-    ):
-        """
-        加载数据到引擎并创建交易品种
-
-        根据 trading_mode 使用 axon_bridge 创建现货或永续合约品种，
-        合约模式下同时加载资金费率数据用于资金费用结算。
-
-        Args:
-            engine: 已初始化的引擎实例
-            data_dict: 数据字典
-            symbols: 品种列表
-            timeframes: 时间周期列表
-            base_currency: 基础货币
-            leverage: 杠杆倍数
-            init_cash: 初始资金
-            trading_mode: 交易模式 ("spot" / "futures")
-            time_range: 时间范围字符串（用于资金费率筛选）
-
-        Returns:
-            tuple: (instruments字典, bar_types字典, 清洗后的K线DataFrame字典)
-        """
-        from decimal import Decimal
-
-        bridge = _get_axon_bridge()
-
-        instruments = {}
-        bar_types = {}
-        cleaned_data: dict[str, pd.DataFrame] = {}
-        is_futures = trading_mode == "futures"
-
-        # 创建交易所（简单配置）
-        engine.add_venue(
-            venue_name="BINANCE",
-            starting_capital=init_cash,
-            base_currency=base_currency,
-            default_leverage=Decimal(str(leverage)),
-        )
-
-        # 解析资金费率筛选的时间范围
-        funding_start = funding_end = None
-        if is_futures and time_range:
+    def _load_funding(self, symbol: str, trading_mode: str, time_range: str | None):
+        """futures 模式加载资金费率 DataFrame 供 BacktestLoop 透传给引擎。"""
+        if trading_mode != "futures":
+            return None
+        start = end = None
+        if time_range:
             try:
                 from utils.validation import parse_time_range
 
-                start_dt, end_dt = parse_time_range(time_range)
-                funding_start = start_dt.strftime("%Y-%m-%d") if start_dt else None
-                funding_end = end_dt.strftime("%Y-%m-%d") if end_dt else None
-            except Exception as e:
-                logger.warning(f"解析资金费率时间范围失败: {e}")
-
-        # 为每个品种创建 instrument 并加载数据
-        for symbol in symbols:
-            timeframe = timeframes[0]
-            key = f"{symbol}_{timeframe}"
-
-            if key not in data_dict:
-                logger.warning(f"跳过 {key}，数据未加载")
-                continue
-
-            df = data_dict[key]
-
-            # 根据交易模式创建品种：现货 / 永续合约
-            base, quote = self._parse_symbol(symbol)
-            if is_futures:
-                # 永续合约：U本位结算，合约乘数默认 1（1张=1个base币）
-                instrument = bridge.create_swap_instrument(base, quote, settle="usd_margin", contract_size=1.0)
-            else:
-                instrument = bridge.create_spot_instrument(base, quote)
-            engine.add_instrument(instrument)
-            instruments[symbol] = instrument
-
-            # 合约模式：加载资金费率数据用于资金费用结算
-            if is_futures:
-                try:
-                    funding_df = self.provider.load_funding_rate(symbol, start=funding_start, end=funding_end)
-                    if not funding_df.empty:
-                        engine.add_funding_data(instrument, funding_df)
-                    else:
-                        logger.warning(f"{symbol} 无资金费率数据，将不进行资金费用结算")
-                except Exception as e:
-                    logger.warning(f"{symbol} 资金费率加载失败，跳过: {e}")
-
-            # 处理 DataFrame
-            df = df.copy()
-            required_cols = ["open", "high", "low", "close", "volume"]
-            df.columns = [col.lower() for col in df.columns]
-
-            cols_to_keep = [c for c in required_cols if c in df.columns]
-            if "timestamp" in df.columns:
-                cols_to_keep.insert(0, "timestamp")
-
-            df = df[cols_to_keep]
-
-            if not isinstance(df.index, pd.DatetimeIndex) and "timestamp" in df.columns:
-                df = df.set_index("timestamp")
-                df.drop(columns=["timestamp"], errors="ignore", inplace=True)
-
-            if len(df) > 0:
-                try:
-                    df.index = pd.to_datetime(df.index, utc=True)
-                except Exception as e:
-                    logger.warning(f"时间戳转换警告: {e}")
-                    df.index = pd.to_datetime(df.index.astype(str), utc=True)
-
-            # 乱序/重复时间戳防御: 事件驱动引擎要求 bar 按时间单调递增,
-            # 统一排序并去重(保留最后一条),避免乱序 bar 导致回测资金曲线失真
-            df = df.sort_index()
-            df = df[~df.index.duplicated(keep="last")]
-
-            for col in required_cols:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
-                    # Inf 转 NaN 后统一清洗,否则 Inf 进入指标计算会产出 NaN 指标
-                    df[col] = df[col].replace([np.inf, -np.inf], np.nan)
-                    df[col] = df[col].astype("float64")
-                    nan_count = df[col].isna().sum()
-                    if nan_count > 0:
-                        logger.warning(f"{symbol} 的 {col} 列有 {nan_count} 个 NaN/Inf 值，将填充为 0.0")
-                        df[col] = df[col].fillna(0.0)
-
-            non_numeric_cols = df.select_dtypes(exclude=["number"]).columns.tolist()
-            if non_numeric_cols:
-                logger.error(f"发现非数值列: {non_numeric_cols}，将删除这些列")
-                df = df.drop(columns=non_numeric_cols)
-
-            # 保存清洗后的 K 线，供结果注入 klines（回放页数据源）
-            cleaned_data[key] = df
-
-            bar_type_str = f"{symbol}-{timeframe}"
-            bar_types[symbol] = bar_type_str
-
-            # 通过引擎的 load_data_from_parquet 方法加载数据
-            # 先保存为临时 parquet 文件再加载
-            import os
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
-                tmp_path = tmp.name
-
-            try:
-                df.to_parquet(tmp_path, index=True)
-                engine.load_data_from_parquet(tmp_path, instrument)
-                logger.info(f"成功加载 {symbol} 的 {len(df)} 条K线数据")
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-
-        logger.info(f"共加载 {len(instruments)} 个品种")
-
-        return instruments, bar_types, cleaned_data
+                s, e = parse_time_range(time_range)
+                start = s.strftime("%Y-%m-%d") if s else None
+                end = e.strftime("%Y-%m-%d") if e else None
+            except Exception as exc:
+                logger.warning(f"解析资金费率时间范围失败: {exc}")
+        try:
+            funding_df = self.provider.load_funding_rate(symbol, start=start, end=end)
+            if funding_df is None or funding_df.empty:
+                logger.warning(f"{symbol} 无资金费率数据，将不进行资金费用结算")
+                return None
+            return funding_df
+        except Exception as exc:
+            logger.warning(f"{symbol} 资金费率加载失败，跳过: {exc}")
+            return None
 
     def _format_results(
         self,
