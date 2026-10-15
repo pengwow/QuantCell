@@ -10,8 +10,7 @@ ponytail: 不真挂单, 仅在 on_bar 触发时按当前价所在档位模拟
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class Grid(BaseStrategy):

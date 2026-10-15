@@ -11,8 +11,7 @@ ponytail: 用 close 历史计算布林带 (20, 2) + RSI (14)
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyContext
+from strategy import Action, BaseStrategy, StrategyContext
 
 
 def _mean(xs: list[float]) -> float:

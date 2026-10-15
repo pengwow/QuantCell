@@ -10,8 +10,7 @@ ponytail: axon_quant 0.4.0 无 stable-baselines3 依赖,简化版:
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyContext
+from strategy import Action, BaseStrategy, StrategyContext
 
 # 简化 PPO 策略查表（生产版: 从 stable-baselines3 加载）
 # state_key = (signal, vol) -> (target_position, confidence)

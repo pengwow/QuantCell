@@ -14,8 +14,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class FundingState(Enum):
