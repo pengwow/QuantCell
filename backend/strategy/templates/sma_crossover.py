@@ -11,8 +11,7 @@ ponytail: ATR 计算用 TR 最大值,移动止损只上移不下移
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class SMACrossover(BaseStrategy):

@@ -7,8 +7,7 @@ ponytail: 单标的动量 = (close - close_n) / close_n
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyContext
+from strategy import Action, BaseStrategy, StrategyContext
 
 
 class Momentum(BaseStrategy):

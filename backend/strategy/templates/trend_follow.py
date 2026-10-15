@@ -10,8 +10,7 @@ ponytail: 用 close 历史计算 Donchian 上轨/下轨 + ATR
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class TrendFollow(BaseStrategy):

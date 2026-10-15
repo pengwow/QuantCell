@@ -6,8 +6,7 @@
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyContext
+from strategy import Action, BaseStrategy, StrategyContext
 
 
 class FactorTiming(BaseStrategy):

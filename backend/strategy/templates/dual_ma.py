@@ -9,8 +9,7 @@ ponytail: 用 ctx.closes 维护价格历史,首次穿越不立即下单（避免
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class DualMA(BaseStrategy):

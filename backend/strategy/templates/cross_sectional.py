@@ -12,8 +12,7 @@ ponytail: axon_quant 0.4.0 单标的 BacktestEngine,简化版：
 
 from __future__ import annotations
 
-from axon_bridge import Action
-from strategy.base import BaseStrategy, StrategyContext
+from strategy import Action, BaseStrategy, StrategyContext
 
 
 class CrossSectional(BaseStrategy):

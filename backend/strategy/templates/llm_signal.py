@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from axon_bridge import Action, MarketSignal, SignalType
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from axon_bridge import MarketSignal, SignalType
+from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 from strategy.loader import register
 
 if TYPE_CHECKING:
