@@ -39,7 +39,7 @@ QuantCell 是一个 AI 原生量化交易系统，使用 axon_quant (Rust) 作�
 └────────────────────────┬────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────┐
-│            TradingEngine (核心单例)                        │
+│        worker_system (StrategyManager 核心单例)           │
 │  - 统一策略生命周期管理                                    │
 │  - 注入 exchange adapter + risk engine                   │
 │  - 桥接 backtest ↔ live                                  │
@@ -115,16 +115,15 @@ action = Action(
 )
 ```
 
-### TradingEngine — 核心引擎
+### StrategyManager — 核心引擎（worker_system 单例）
 
 ```python
-# backend/engine/trading_engine.py
-class TradingEngine:
-    def __init__(self, config: EngineConfig): ...
-    
-    def register_strategy(self, strategy: RuleStrategy, symbols: list[str]) -> str: ...
-    def list_strategies(self) -> list[dict]: ...
-    def run_backtest(self, strategy: RuleStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
+# backend/worker/strategy_manager.py
+# 模块级单例：worker_system = StrategyManager()
+worker_system.engine_status()          # 引擎状态概览（exchange/mode/risk/策略数）
+worker_system.run_backtest(...)        # 回测
+worker_system.register_strategy(...)   # 注册策略
+worker_system.list_strategies()        # 策略列表
 ```
 
 ### BacktestLoop — 回测循环
@@ -210,8 +209,7 @@ print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 | `strategy/service.py` | 策略管理服务 |
 | `strategy/routes.py` | 策略 API 路由 |
 | `strategy/loop.py` | StrategyLoop 实盘 |
-| `engine/trading_engine.py` | TradingEngine 核心 |
-| `engine/config.py` | EngineConfig |
+| `worker/strategy_manager.py` | worker_system 核心单例（StrategyManager） |
 | `backtest/backtest_loop.py` | BacktestLoop + RuleStrategy |
 | `rl/service.py` | RL 训练服务 |
 | `rl/routes.py` | RL API 路由 |
