@@ -758,66 +758,63 @@ async def validate_strategy_code(
 # 内存存储用于演示，实际项目中应使用数据库
 # 策略历史记录存储
 _strategy_history_db: dict[str, dict[str, Any]] = {}
-# 策略模板存储
-_strategy_templates_db: dict[str, dict[str, Any]] = {
-    "tpl_001": {
-        "id": "tpl_001",
-        "name": "双均线策略模板",
-        "description": "基于双均线的趋势跟踪策略模板",
-        "category": "trend_following",
-        "code_template": """class {{strategy_name}}(Strategy):
-    def __init__(self):
-        self.fast_period = {{fast_period}}
-        self.slow_period = {{slow_period}}
 
-    def on_bar(self, bar):
-        fast_ma = self.calculate_ma(bar.close, self.fast_period)
-        slow_ma = self.calculate_ma(bar.close, self.slow_period)
-
-        if fast_ma > slow_ma and not self.position:
-            self.buy()
-        elif fast_ma < slow_ma and self.position:
-            self.sell()
-""",
-        "variables": [
-            {"name": "strategy_name", "type": "string", "required": True},
-            {"name": "fast_period", "type": "int", "default": 10},
-            {"name": "slow_period", "type": "int", "default": 20},
-        ],
-        "tags": ["趋势", "均线", "经典"],
-        "created_at": datetime.now(),
-        "updated_at": None,
-    },
-    "tpl_002": {
-        "id": "tpl_002",
-        "name": "RSI超买超卖策略模板",
-        "description": "基于RSI指标的超买超卖策略模板",
-        "category": "oscillator",
-        "code_template": """class {{strategy_name}}(Strategy):
-    def __init__(self):
-        self.rsi_period = {{rsi_period}}
-        self.overbought = {{overbought}}
-        self.oversold = {{oversold}}
-
-    def on_bar(self, bar):
-        rsi = self.calculate_rsi(bar.close, self.rsi_period)
-
-        if rsi < self.oversold and not self.position:
-            self.buy()
-        elif rsi > self.overbought and self.position:
-            self.sell()
-""",
-        "variables": [
-            {"name": "strategy_name", "type": "string", "required": True},
-            {"name": "rsi_period", "type": "int", "default": 14},
-            {"name": "overbought", "type": "int", "default": 70},
-            {"name": "oversold", "type": "int", "default": 30},
-        ],
-        "tags": ["RSI", "震荡", "反转"],
-        "created_at": datetime.now(),
-        "updated_at": None,
-    },
+# 模板元数据：id → (human_readable_name, category, tags)
+_TEMPLATE_META: dict[str, dict[str, Any]] = {
+    "dual_ma": {"name": "双均线交叉", "category": "trend_following", "tags": ["趋势", "均线", "经典"]},
+    "trend_follow": {"name": "趋势跟踪", "category": "trend_following", "tags": ["趋势", "ATR"]},
+    "grid": {"name": "网格交易", "category": "range", "tags": ["网格", "震荡"]},
+    "mean_reversion": {"name": "均值回归", "category": "oscillator", "tags": ["反转", "RSI", "布林带"]},
+    "momentum": {"name": "动量策略", "category": "momentum", "tags": ["动量", "RSI"]},
+    "funding_arbitrage": {"name": "资金费率套利", "category": "arbitrage", "tags": ["套利", "funding", "现货+合约"]},
+    "cross_sectional": {"name": "横截面因子", "category": "factor", "tags": ["因子", "横截面"]},
+    "mean_reversion_rl": {"name": "RL 均值回归", "category": "rl", "tags": ["强化学习", "均值回归"]},
+    "sma_crossover": {"name": "SMA 交叉", "category": "trend_following", "tags": ["SMA", "金叉死叉"]},
+    "factor_timing": {"name": "因子择时", "category": "factor", "tags": ["因子", "择时"]},
+    "llm_signal": {"name": "LLM 信号策略", "category": "ai", "tags": ["LLM", "AI"]},
 }
+
+
+def _scan_template_list() -> list[dict[str, Any]]:
+    """从 StrategyLoader 扫描 strategy/templates/，构建模板元数据列表。"""
+    import importlib.util
+
+    from strategy.loader import StrategyLoader
+
+    templates: list[dict[str, Any]] = []
+    for name in StrategyLoader.list_all():
+        cls = StrategyLoader.get(name)
+        # 定位源码文件
+        spec = importlib.util.find_spec(cls.__module__)
+        if not spec or not spec.origin:
+            logger.warning(f"无法定位模板源码: {name}")
+            continue
+        with open(spec.origin, encoding="utf-8") as f:
+            source = f.read()
+
+        meta = _TEMPLATE_META.get(name, {"name": name, "category": "custom", "tags": []})
+        templates.append(
+            {
+                "id": name,
+                "name": meta["name"],
+                "description": cls.__doc__ or "",
+                "category": meta["category"],
+                "code_template": source,
+                "variables": [],  # 简化版：后续需要时再从源码推断 config.params.get
+                "tags": meta["tags"],
+                "created_at": datetime.now(),
+                "updated_at": None,
+            }
+        )
+    return templates
+
+
+def _scan_template_detail(template_id: str) -> dict[str, Any] | None:
+    """根据模板 ID 获取单个模板详情。"""
+    for t in _scan_template_list():
+        if t["id"] == template_id:
+            return t
+    return None
 
 
 def _get_user_id_from_request(request: Request) -> str:
@@ -1175,7 +1172,7 @@ async def get_template_list(
     try:
         logger.info(f"获取模板列表，分类: {category}, 标签: {tag}")
 
-        templates = list(_strategy_templates_db.values())
+        templates = _scan_template_list()
 
         if category:
             templates = [t for t in templates if t.get("category") == category]
@@ -1215,7 +1212,7 @@ async def get_template_detail(
     try:
         logger.info(f"获取模板详情，ID: {template_id}")
 
-        template = _strategy_templates_db.get(template_id)
+        template = _scan_template_detail(template_id)
         if not template:
             raise HTTPException(status_code=404, detail="模板不存在")
 
@@ -1240,98 +1237,31 @@ async def generate_from_template(
     gen_request: StrategyGenerateFromTemplateRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """基于模板生成策略
+    """基于模板生成策略 —— 直接返回模板完整源码。
 
-    使用预定义的模板和变量值生成策略代码。
-
-    Args:
-        request: FastAPI请求对象
-        gen_request: 基于模板生成请求
-
-    Returns:
-        ApiResponse: 生成的策略结果
+    真实模板参数通过 config.params.get() 注入，用户改参数直接改代码里的默认值。
     """
     try:
         user_id = _get_user_id_from_request(request)
         logger.info(f"基于模板生成策略，模板ID: {gen_request.template_id}, 用户: {user_id}")
 
-        template = _strategy_templates_db.get(gen_request.template_id)
+        template = _scan_template_detail(gen_request.template_id)
         if not template:
             raise HTTPException(status_code=404, detail="模板不存在")
 
-        # 替换模板变量
-        code_template = template["code_template"]
-        for var_name, var_value in gen_request.variables.items():
-            placeholder = f"{{{{{var_name}}}}}"
-            code_template = code_template.replace(placeholder, str(var_value))
-
-        # 检查是否还有未替换的变量
-        import re
-
-        remaining_vars = re.findall(r"\{\{(\w+)\}\}", code_template)
-        if remaining_vars:
-            return ApiResponse(
-                code=1,
-                message=f"模板变量未完全替换: {', '.join(remaining_vars)}",
-                data=None,
-            )
-
-        # 如果有额外需求，使用AI优化代码
-        final_code = code_template
-        if gen_request.additional_requirement:
-            generator = create_strategy_generator(
-                model_id=gen_request.model_id,
-                model_name=gen_request.model_name,
-                temperature=gen_request.temperature,
-            )
-
-            requirement = f"基于以下代码模板，{gen_request.additional_requirement}\n\n模板代码:\n{code_template}"
-            result = generator.generate_strategy(
-                requirement=requirement,
-                prompt_category=PromptCategory.STRATEGY_GENERATION,
-            )
-
-            if result.get("success"):
-                final_code = result.get("code", code_template)
-            else:
-                logger.warning(f"AI优化失败，使用原始模板: {result.get('error')}")
-
-        # 创建历史记录
-        history_id = f"hist_{uuid.uuid4().hex[:16]}"
-        history = {
-            "id": history_id,
-            "user_id": user_id,
-            "requirement": f"基于模板 {template['name']} 生成策略",
-            "code": final_code,
-            "model_id": gen_request.model_id or "template",
-            "explanation": None,
-            "status": "success",
-            "tokens_used": None,
-            "elapsed_time": None,
-            "created_at": datetime.now(),
-            "updated_at": None,
-        }
-        _strategy_history_db[history_id] = history
-
-        response_data = StrategyGenerateResponse(
-            code=final_code,
-            explanation=f"基于模板 {template['name']} 生成",
-            model_used=gen_request.model_id or "template",
-            tokens_used=None,
-            elapsed_time=None,
-            request_id=history_id,
-        )
-
         return ApiResponse(
             code=0,
-            message="基于模板生成成功",
-            data=response_data.model_dump(),
+            message="生成成功",
+            data={
+                "code": template["code_template"],
+                "name": template["name"],
+                "template_id": template["id"],
+            },
         )
-
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"基于模板生成失败: {e}")
+        logger.error(f"基于模板生成策略失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
