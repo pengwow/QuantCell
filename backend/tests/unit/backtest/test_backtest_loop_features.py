@@ -110,3 +110,63 @@ def test_features_aligned_when_data_is_datetime_index():
     assert last_features["momentum_5d"] == float(len(df_dt) - 11)
     assert last_rank == 1
     assert last_ts == int(pd.Timestamp(dt_index[-1]).timestamp() * 1_000_000_000)
+
+
+def test_futures_mode_uses_swap_instrument_with_funding(monkeypatch):
+    """futures 模式构造 swap 品种并把 funding_df 交给引擎结算（口径同旧事件路径）。"""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import backtest.backtest_loop as bl
+
+    funding_calls: list[tuple[dict, pd.DataFrame]] = []
+
+    fake_engine = MagicMock()
+    fake_engine.pending_events = 0
+    # 链式配置 API 必须把 engine 本体传回去，否则后续方法打在未配置的 mock 上
+    fake_engine.with_seed.return_value = fake_engine
+    fake_engine.with_seed_liquidity.return_value = fake_engine
+    fake_engine.with_auto_rebalance.return_value = fake_engine
+    fake_engine.run.return_value = SimpleNamespace(
+        total_pnl=0.0,
+        fills=0,
+        final_nav=100_000.0,
+        nav_peak=100_000.0,
+        max_drawdown_pct=0.0,
+        win_rate=0.0,
+        orders_accepted=0,
+        orders_rejected=0,
+        events_processed=0,
+        duration_secs=0.0,
+        total_fees=0.0,
+        sharpe_ratio=0.0,
+        bar_nav_curve=[],
+        fills_detail=[],
+        positions={},
+    )
+
+    def _fake_add_funding(instrument, df):
+        funding_calls.append((instrument, df))
+
+    fake_engine.add_funding_data.side_effect = _fake_add_funding
+    monkeypatch.setattr(bl, "_NativeBacktestEngine", MagicMock(return_value=fake_engine))
+
+    funding_df = pd.DataFrame(
+        {"funding_rate": [0.0001, 0.0001]},
+        index=pd.date_range("2025-01-01", periods=2, freq="8h"),
+    )
+
+    bl.BacktestLoop(initial_cash=100_000.0).run(
+        SpyStrategy(),
+        _ohlcv(5),
+        symbol="BTCUSDT",
+        trading_mode="futures",
+        funding_df=funding_df,
+    )
+
+    assert len(funding_calls) == 1
+    instrument, passed_df = funding_calls[0]
+    assert instrument["kind"] == "swap"
+    assert instrument["base"] == "BTC"
+    assert instrument["quote"] == "USDT"
+    assert passed_df is funding_df

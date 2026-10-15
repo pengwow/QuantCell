@@ -1,8 +1,7 @@
 """
-策略加载服务模块（基于 axond 体系）
+策略加载服务模块
 
-从策略文件加载和实例化事件驱动策略类。
-支持 EventDrivenStrategy 类型的策略加载。
+从策略文件加载和实例化 BaseStrategy 子类（唯一策略契约：on_bar → Action）。
 
 作者: QuantCell Team
 版本: 2.0.0
@@ -29,16 +28,15 @@ class StrategyLoaderService:
     """
     策略加载服务
 
-    负责从策略文件中查找、加载和实例化事件驱动策略类。
-    支持单品种和多品种场景。
+    负责从策略文件中查找、加载和实例化 BaseStrategy 子类。
 
     使用示例：
-        # 加载事件驱动策略（多品种）
-        strategy = StrategyLoaderService.load_event_strategy_multi(
-            "sma_crossover",
+        # 加载策略（多品种）
+        strategy = StrategyLoaderService.load_strategy(
+            "dual_ma",
             params={"fast_period": 10, "slow_period": 30},
-            bar_types={"BTCUSDT": "1h"},
-            instruments={"BTCUSDT": InstrumentId("BTCUSDT", "binance")},
+            instrument_ids=[{"symbol": "BTCUSDT", "venue": "BINANCE"}],
+            bar_types=["BTCUSDT-1h"],
         )
     """
 
@@ -160,38 +158,7 @@ class StrategyLoaderService:
                 msg = f"在模块 {strategy_name} 中找不到策略类"
                 raise StrategyLoadError(msg)
 
-            # EventDrivenStrategy 子类走专用路径 —— 它的 Config 需要 instrument_ids/bar_types
-            # 作为显式必填参数，_instantiate_strategy 只构造 BaseStrategy 的 StrategyConfig
-            from backtest.strategies.event_strategy import EventDrivenStrategy
-
-            if issubclass(strategy_class, EventDrivenStrategy):
-                # load_event_strategy_multi 需要 dict 形式：
-                #   instruments: {"symbol": 任意对象}  —— EventDrivenStrategy 里只 str() 它
-                #   bar_types:   {"symbol": bar_type_str}
-                if not instrument_ids or not bar_types:
-                    msg = f"策略 {strategy_class.__name__} 要求 instrument_ids 和 bar_types 非空"
-                    raise StrategyLoadError(msg)
-
-                instruments_dict = {}
-                bar_types_dict = {}
-                for inst, bt in zip(instrument_ids, bar_types, strict=True):
-                    symbol = inst["symbol"] if isinstance(inst, dict) else str(inst)
-                    instruments_dict[symbol] = inst  # 原样塞，EventDrivenStrategy 只 str()
-                    bar_types_dict[symbol] = bt
-
-                instance = StrategyLoaderService.load_event_strategy_multi(
-                    strategy_name=strategy_name,
-                    strategy_params=strategy_params,
-                    bar_types=bar_types_dict,
-                    instruments=instruments_dict,
-                )
-                if instance is None:
-                    msg = f"load_event_strategy_multi 返回 None，无法加载 {strategy_class.__name__}"
-                    raise StrategyLoadError(msg)
-                logger.info(f"成功加载事件驱动策略: {strategy_class.__name__} (from {strategy_file})")
-                return instance
-
-            # BaseStrategy 子类走通用实例化
+            # 唯一路径：实例化 BaseStrategy 子类
             instance = StrategyLoaderService._instantiate_strategy(
                 strategy_class,
                 strategy_params,
@@ -209,153 +176,6 @@ class StrategyLoaderService:
             logger.error(f"加载策略失败: {e}")
             msg = f"加载策略失败: {e}"
             raise StrategyLoadError(msg) from e
-
-    @staticmethod
-    def load_event_strategy(
-        strategy_name: str,
-        strategy_params: dict,
-        bar_type: str,
-        instrument_id,
-    ):
-        """
-        加载事件驱动策略（单品种版本）
-
-        Args:
-            strategy_name: 策略名称
-            strategy_params: 策略参数
-            bar_type: K 线类型字符串
-            instrument_id: InstrumentId 对象
-
-        Returns:
-            策略实例或 None
-        """
-        return StrategyLoaderService.load_event_strategy_multi(
-            strategy_name=strategy_name,
-            strategy_params=strategy_params,
-            bar_types={"_default": bar_type},
-            instruments={"_default": instrument_id},
-        )
-
-    @staticmethod
-    def load_event_strategy_multi(
-        strategy_name: str,
-        strategy_params: dict,
-        bar_types: dict,
-        instruments: dict,
-    ):
-        """
-        加载支持多品种的事件驱动策略
-
-        Args:
-            strategy_name: 策略名称
-            strategy_params: 策略参数
-            bar_types: 品种到BarType的映射字典
-            instruments: 品种到Instrument的映射字典
-
-        Returns:
-            EventDrivenStrategy: 策略实例或None
-        """
-        try:
-            backend_path = Path(__file__).resolve().parent.parent
-            strategies_dir = backend_path / "strategies"
-
-            if str(strategies_dir) not in sys.path:
-                sys.path.insert(0, str(strategies_dir))
-
-            if strategy_name in sys.modules:
-                del sys.modules[strategy_name]
-
-            strategy_file = strategies_dir / f"{strategy_name}.py"
-            if not strategy_file.exists():
-                logger.info(f"策略文件不存在: {strategy_file}")
-                return None
-
-            module = importlib.import_module(strategy_name)
-
-            # 查找策略类和配置类
-            strategy_class = None
-            config_class = None
-
-            try:
-                from backtest.strategies.event_strategy import (
-                    EventDrivenStrategy,
-                    EventDrivenStrategyConfig,
-                )
-            except ImportError as e:
-                logger.error(f"导入 EventDrivenStrategy 失败: {e}")
-                return None
-
-            for name in dir(module):
-                obj = getattr(module, name)
-                if isinstance(obj, type):
-                    if issubclass(obj, EventDrivenStrategy) and obj != EventDrivenStrategy:
-                        strategy_class = obj
-                        logger.info(f"找到策略类: {name}")
-
-                    if issubclass(obj, EventDrivenStrategyConfig) and obj != EventDrivenStrategyConfig:
-                        config_class = obj
-                        logger.info(f"找到配置类: {name}")
-
-            if strategy_class is None:
-                logger.info(f"在模块 {strategy_name} 中找不到事件驱动策略类")
-                return None
-
-            # 准备参数
-            instrument_ids_list = list(instruments.keys())
-            bar_types_list = list(bar_types.values())
-
-            config = None
-            if config_class:
-                config_params = strategy_params.copy()
-
-                config_param_names = StrategyLoaderService._get_class_param_names(config_class)
-
-                if "instrument_ids" in config_param_names:
-                    config_params["instrument_ids"] = instrument_ids_list
-                elif "instrument_id" in config_param_names:
-                    config_params["instrument_id"] = instrument_ids_list[0] if instrument_ids_list else None
-
-                if "bar_types" in config_param_names:
-                    config_params["bar_types"] = bar_types_list
-                elif "bar_type" in config_param_names:
-                    config_params["bar_type"] = bar_types_list[0] if bar_types_list else None
-
-                # 移除不相关的参数
-                config_params = {k: v for k, v in config_params.items() if k in config_param_names}
-
-                config = config_class(**config_params)
-                user_strategy = strategy_class(config)
-            else:
-                strategy_params_copy = strategy_params.copy()
-
-                strategy_param_names = StrategyLoaderService._get_class_param_names(strategy_class)
-
-                if "instrument_ids" in strategy_param_names:
-                    strategy_params_copy["instrument_ids"] = instrument_ids_list
-                elif "instrument_id" in strategy_param_names:
-                    strategy_params_copy["instrument_id"] = instrument_ids_list[0] if instrument_ids_list else None
-
-                if "bar_types" in strategy_param_names:
-                    strategy_params_copy["bar_types"] = bar_types_list
-                elif "bar_type" in strategy_param_names:
-                    strategy_params_copy["bar_type"] = bar_types_list[0] if bar_types_list else None
-
-                # 移除不相关的参数
-                strategy_params_copy = {k: v for k, v in strategy_params_copy.items() if k in strategy_param_names}
-
-                user_strategy = strategy_class(**strategy_params_copy)
-
-            strategy = user_strategy
-            logger.info(f"成功加载事件驱动策略: {strategy_class.__name__}（支持 {len(instruments)} 个品种）")
-
-            return strategy
-
-        except Exception as e:
-            logger.error(f"加载多品种事件驱动策略失败: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return None
 
     @staticmethod
     def _get_class_param_names(cls) -> list:
@@ -389,8 +209,7 @@ class StrategyLoaderService:
     def _find_strategy_class(module):
         """在策略模块中查找策略类，排除基类本身。
 
-        优先级：strategy.base.BaseStrategy 子类 → EventDrivenStrategy 子类。
-        基类（BaseStrategy/EventDrivenStrategy）本身被排除，抽象基类不会命中。
+        只认 strategy.base.BaseStrategy 的子类；基类本身被排除，抽象基类不会命中。
 
         Args:
             module: 已导入的策略模块
@@ -402,14 +221,7 @@ class StrategyLoaderService:
         # 顶部引入 strategy.base 会拉高启动成本，故在函数内按需导入。
         from strategy.base import BaseStrategy
 
-        try:
-            from backtest.strategies.event_strategy import EventDrivenStrategy
-        except ImportError:
-            EventDrivenStrategy = None
-
         bases = [BaseStrategy]
-        if EventDrivenStrategy is not None:
-            bases.append(EventDrivenStrategy)
 
         for name in dir(module):
             if name.startswith("_"):

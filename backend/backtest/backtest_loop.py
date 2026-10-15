@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+import numpy as np
 import pandas as pd
 
 from axon_bridge import (
-    Action,
-    spot_instrument,
-)
-from axon_bridge import (
     BacktestEngine as _NativeBacktestEngine,
 )
+from axon_bridge import (
+    spot_instrument,
+    swap_instrument,
+)
+from strategy.base import BaseStrategy, StrategyContext
+from strategy.target import ratio_to_target_qty
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,43 @@ _DEFAULT_HALF_SPREAD_RATIO = 0.0005
 _DEFAULT_DEPTH_LEVELS = 5
 _DEFAULT_SIZE_PER_LEVEL = 100.0
 _DEFAULT_AUTO_REBALANCE_THRESHOLD = 0.001
+
+
+def clean_ohlcv_df(df: pd.DataFrame) -> pd.DataFrame:
+    """清洗 OHLCV DataFrame，保证回测输入按时间单调、无 NaN/Inf。
+
+    承接统一前事件路径 _load_data_to_engine 的数据质量防御：
+    列名归一为小写、只保留 OHLCV、timestamp 转 UTC DatetimeIndex、
+    排序、重复时间戳保留最后一条、NaN/Inf 填 0。
+    """
+    required_cols = ["open", "high", "low", "close", "volume"]
+    out = df.copy()
+    out.columns = [str(c).lower() for c in out.columns]
+
+    cols_to_keep = [c for c in required_cols if c in out.columns]
+    if "timestamp" in out.columns:
+        cols_to_keep.insert(0, "timestamp")
+    out = out[cols_to_keep]
+
+    if not isinstance(out.index, pd.DatetimeIndex) and "timestamp" in out.columns:
+        out = out.set_index("timestamp")
+        out.drop(columns=["timestamp"], errors="ignore", inplace=True)
+
+    if len(out) > 0:
+        try:
+            out.index = pd.to_datetime(out.index, utc=True)
+        except Exception:
+            out.index = pd.to_datetime(out.index.astype(str), utc=True)
+
+    out = out.sort_index()
+    out = out[~out.index.duplicated(keep="last")]
+
+    for col in required_cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+            out[col] = out[col].replace([np.inf, -np.inf], np.nan).astype("float64")
+            out[col] = out[col].fillna(0.0)
+    return out
 
 
 @dataclass
@@ -51,79 +90,56 @@ class BacktestResult:
     final_positions: dict = field(default_factory=dict)
 
 
-class RuleStrategy(ABC):
-    """规则策略基类 — 子类实现 on_bar() 返回 Action"""
-
-    @abstractmethod
-    def on_bar(self, bar: dict) -> Action:
-        """处理一根K线，返回交易动作
-
-        Args:
-            bar: {"open", "high", "low", "close", "volume", "symbol", "timestamp_ns"}
-
-        Returns:
-            Action 对象
-        """
-        ...
-
-    def on_start(self) -> None:
-        """策略启动回调（可选钩子，默认 no-op）"""
-        return None
-
-    def on_stop(self) -> None:
-        """策略停止回调（可选钩子，默认 no-op）"""
-        return None
-
-
 class BacktestLoop:
-    """使用 axon_quant BacktestEngine 的回测循环
+    """唯一回测路径：BaseStrategy (on_bar → Action) → axon_quant BacktestEngine
 
     Args:
         initial_cash: 初始资金
-        force_liquidate: 回测结束时是否强制平仓
     """
 
-    def __init__(
-        self,
-        initial_cash: float = 100_000.0,
-        force_liquidate: bool = False,
-    ):
+    def __init__(self, initial_cash: float = 100_000.0):
         self._initial_cash = initial_cash
-        self._default_force_liquidate = force_liquidate
 
     def run(
         self,
-        strategy: RuleStrategy,
+        strategy: BaseStrategy,
         data: pd.DataFrame,
         symbol: str = "BTCUSDT",
-        force_liquidate: bool | None = None,
+        force_liquidate: bool = False,
         features: dict | None = None,
         feature_dataframe: pd.DataFrame | None = None,
         data_type: str = "kline",
+        trading_mode: str = "spot",
+        funding_df: pd.DataFrame | None = None,
     ) -> BacktestResult:
         """执行回测
 
         Args:
-            strategy: 策略实例（实现 on_bar → Action）
-            data: OHLCV DataFrame，索引为 DatetimeIndex
+            strategy: BaseStrategy 实例（on_bar(bar, ctx) → Action）
+            data: OHLCV DataFrame，索引为 DatetimeIndex 或含 timestamp 列
             symbol: 交易对符号
-            force_liquidate: 是否强制平仓（None 用构造默认值）
+            force_liquidate: 回测结束时是否强制平仓
             features: 特征字典（键值对，注入 StrategyContext）
             feature_dataframe: 特征 DataFrame（序列特征）
             data_type: 数据类型标识
+            trading_mode: "spot" 现货 / "futures" 永续（构造 swap 品种并结算资金费）
+            funding_df: 资金费率 DataFrame（仅 futures 模式使用）
 
         Returns:
             BacktestResult
         """
-        from strategy.base import BaseStrategy, StrategyContext
+        # 信任边界：清洗归一（单调时间/无 NaN/Inf），后续循环直接依赖
+        data = clean_ohlcv_df(data)
 
-        effective_force_liquidate = self._default_force_liquidate if force_liquidate is None else force_liquidate
-
-        # 解析 instrument: 从 symbol 如 BTCUSDT 提取 base/quote
+        # 从 symbol 如 BTCUSDT 提取 base/quote；futures 用永续品种接资金费结算
         base, quote = self._parse_symbol(symbol)
-        instrument = spot_instrument(base, quote)
+        instrument = (
+            swap_instrument(base, quote, settle="usd_margin", contract_size=1.0)
+            if trading_mode == "futures"
+            else spot_instrument(base, quote)
+        )
 
-        # axon_quant 0.10.0: 链式配置 API
+        # axon_quant: 链式配置 API
         engine = (
             _NativeBacktestEngine(initial_cash=self._initial_cash)
             .with_seed(42)
@@ -135,30 +151,28 @@ class BacktestLoop:
             .with_auto_rebalance(threshold=_DEFAULT_AUTO_REBALANCE_THRESHOLD)
         )
 
-        if effective_force_liquidate:
+        if force_liquidate:
             engine = engine.with_force_liquidate(True)
 
-        # 兼容 BaseStrategy 和 RuleStrategy 两种策略类型
-        is_base_strategy = isinstance(strategy, BaseStrategy)
-        ctx = None
-        if is_base_strategy:
-            ctx = StrategyContext(
-                symbol=symbol,
-                account_equity=self._initial_cash,
-                features=features or {},
-                feature_dataframe=feature_dataframe,
-                data_type=data_type,
-            )
-            strategy.on_start(ctx)
-        else:
-            strategy.on_start()
+        # futures 资金费率交给引擎，回测内按 funding 时间戳自动结算
+        if trading_mode == "futures" and funding_df is not None and not funding_df.empty:
+            engine.add_funding_data(instrument, funding_df)
+
+        ctx = StrategyContext(
+            symbol=symbol,
+            account_equity=self._initial_cash,
+            features=features or {},
+            feature_dataframe=feature_dataframe,
+            data_type=data_type,
+        )
+        strategy.on_start(ctx)
 
         # 因子特征查找表：{bar 时间键: 当期因子行}
         # - 回测主路径 data 为 DatetimeIndex（_normalize_dataframe 处理过），bar ts 是纳秒；
         # - 直接调用且 data 带 timestamp 整数列时，bar ts 是原始整数。
         # 特征帧索引为 DatetimeIndex 时按纳秒建键，整数索引时按原值建键，保证精确不错配。
         feature_lookup: dict[int, pd.Series] | None = None
-        if is_base_strategy and feature_dataframe is not None and not feature_dataframe.empty:
+        if feature_dataframe is not None and not feature_dataframe.empty:
             if isinstance(feature_dataframe.index, pd.DatetimeIndex):
                 feature_lookup = {
                     int(pd.Timestamp(i).timestamp() * 1_000_000_000): row for i, row in feature_dataframe.iterrows()
@@ -168,48 +182,33 @@ class BacktestLoop:
 
         total_orders = 0
 
-        # ponytail: 循环前一次性标准化列名，避免每行重复 dict.get() + 大小写回退
-        _cols = data.columns
-        _col_map = {}
-        for canonical in ("open", "high", "low", "close", "volume", "timestamp"):
-            if canonical in _cols:
-                _col_map[canonical] = canonical
-            elif canonical.capitalize() in _cols:
-                _col_map[canonical] = canonical.capitalize()
-            elif canonical.upper() in _cols:
-                _col_map[canonical] = canonical.upper()
-        _open = _col_map.get("open", "close")
-        _high = _col_map.get("high", "close")
-        _low = _col_map.get("low", "close")
-        _close = _col_map.get("close", "Close")
-        _volume = _col_map.get("volume", "Volume")
-        _ts = _col_map.get("timestamp")
+        # clean_ohlcv_df 已统一小写并只保留 OHLCV(+timestamp)，直接按名取列
+        _ts = "timestamp" if "timestamp" in data.columns else None
 
         for idx, row in data.iterrows():
             # 优先使用 timestamp 列（纳秒时间戳），否则从 DatetimeIndex 转换
             ts = int(row[_ts]) if _ts else int(pd.Timestamp(idx).timestamp() * 1000000000)
-            close_price = float(row[_close])
+            close_price = float(row["close"])
 
-            # 0.10.0 API: begin_bar(price=, instrument=)
+            # axon API: begin_bar(price=, instrument=)
             engine.set_clock(ts)
             engine.begin_bar(price=close_price, instrument=instrument)
 
             bar = {
-                "open": float(row[_open]),
-                "high": float(row[_high]),
-                "low": float(row[_low]),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
                 "close": close_price,
-                "volume": float(row[_volume]),
+                "volume": float(row["volume"]),
                 "symbol": symbol,
                 "timestamp_ns": ts,
             }
 
             # 更新 ctx 净值 (ponytail: 简化为固定 initial_cash)
-            if is_base_strategy and ctx is not None:
-                ctx.account_equity = self._initial_cash
+            ctx.account_equity = self._initial_cash
 
             # 逐 bar 注入因子特征（当期快照；NaN 热身值不写入，rank 缺失不写 bar）
-            if is_base_strategy and ctx is not None and feature_lookup is not None:
+            if feature_lookup is not None:
                 feat_row = feature_lookup.get(ts)
                 if feat_row is not None:
                     ctx.features = {
@@ -219,20 +218,16 @@ class BacktestLoop:
                     if rank_v is not None and pd.notna(rank_v):
                         bar["cross_sectional_rank"] = int(rank_v)
 
-            # 策略决策
-            action = strategy.on_bar(bar, ctx) if is_base_strategy else strategy.on_bar(bar)
+            # 策略决策（唯一协议：on_bar(bar, ctx) → Action）
+            action = strategy.on_bar(bar, ctx)
 
-            # EventDrivenStrategy 可能返回 None（无引擎引用时）
-            if action is None:
-                continue
-
-            # 应用 Action: target_position 是 ratio (占 equity 比例)
-            # 转换为绝对 qty = ratio * equity / price
+            # 应用 Action: target_position 是 ratio (占 equity 比例)，
+            # 换算为绝对数量；零价 bar（清洗残留）跳过换算保持旧口径
             if str(action.action_type) in ("buy", "sell"):
                 ratio = float(getattr(action, "target_position", 0.0) or 0.0)
-                qty = (ratio * self._initial_cash / close_price) if close_price > 0 else 0.0
+                qty = ratio_to_target_qty(ratio, self._initial_cash, close_price) if close_price > 0 else 0.0
                 engine.set_target_position(instrument, qty)
-                # 只统计策略实际发出的买卖决策（剔除 hold/none bar）
+                # 只统计策略实际发出的买卖决策（剔除 hold bar）
                 total_orders += 1
 
             # 触发调仓 + drain 事件
@@ -240,10 +235,7 @@ class BacktestLoop:
             while engine.pending_events > 0:
                 engine.step()
 
-        if is_base_strategy:
-            strategy.on_stop(ctx)
-        else:
-            strategy.on_stop()
+        strategy.on_stop(ctx)
 
         # 最终结算
         result = engine.run()

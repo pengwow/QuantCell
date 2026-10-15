@@ -78,9 +78,8 @@ class TestFindStrategyFile:
 class TestLoadStrategyFallback:
     """load_strategy 应该在所有目录里找文件，找不到才报错
 
-    注意：实际加载策略类需要 backtest.strategies.event_strategy 可正常导入。
-    这里的测试只验证**路径查找**层面的 fallback 行为（找到/找不到文件），
-    避免依赖 backtest/strategies 子模块的健全性（那里有独立的 import bug）。
+    这里的测试只验证**路径查找**层面的 fallback 行为（找到/找不到文件）；
+    加载结果契约见 TestLoaderReturnsBaseStrategy。
     """
 
     def test_find_axon_dual_ma_succeeds(self):
@@ -157,3 +156,34 @@ class TestListStrategiesCoversAllDirs:
         # 至少包含 backend/strategy/templates/ 的 dual_ma
         names = [f.stem for f in all_files]
         assert "dual_ma" in names, f"dual_ma 应在列表中, 实际: {names}"
+
+
+class TestLoaderReturnsBaseStrategy:
+    """加载结果契约：唯一路径只认 BaseStrategy 子类（P1 统一路径）"""
+
+    def test_load_template_dual_ma_returns_base_strategy(self):
+        """加载模板 dual_ma 应返回 BaseStrategy 实例"""
+        from backtest.strategy_loader_service import StrategyLoaderService
+        from strategy.base import BaseStrategy
+
+        strategy = StrategyLoaderService.load_strategy(
+            "dual_ma",
+            {"fast": 5, "slow": 20},
+            instrument_ids=[{"symbol": "BTCUSDT", "venue": "BINANCE"}],
+            bar_types=["BTCUSDT-1h"],
+        )
+        assert isinstance(strategy, BaseStrategy)
+
+    def test_load_module_without_strategy_class_raises(self, tmp_path, monkeypatch):
+        """模块里没有 BaseStrategy 子类时应抛明确错误，而非静默走事件分支"""
+        from backtest.strategy_loader_service import (
+            StrategyLoadError,
+            StrategyLoaderService,
+        )
+
+        (tmp_path / "plain_cls.py").write_text("class PlainClass:\n    pass\n", encoding="utf-8")
+        monkeypatch.setattr(StrategyLoaderService, "_get_strategies_dirs", staticmethod(lambda: [tmp_path]))
+
+        with pytest.raises(StrategyLoadError) as exc_info:
+            StrategyLoaderService.load_strategy("plain_cls", {})
+        assert "找不到策略类" in str(exc_info.value)
