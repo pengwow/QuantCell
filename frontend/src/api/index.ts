@@ -175,13 +175,15 @@ export interface StrategyTemplate {
   name: string;
   category: string;
   description: string;
-  parameters: Array<{
+  parameters?: Array<{
     name: string;
     type: string;
     default: unknown;
     description: string;
   }>;
   tags?: string[];
+  /** 模板源码（GET /templates 列表和 detail 都会返回） */
+  code_template?: string;
 }
 
 /**
