@@ -190,8 +190,8 @@ class StrategyLoop:
                 # 更新 KlineBuffer + 计算因子（如果配置了因子）
                 ctx = self._build_ctx(bar, timestamp_ns, close_price)
 
-                # 策略调用：优先 on_bar(bar, ctx)，回退到 on_bar(bar)
-                action = self._call_strategy_on_bar(bar, ctx)
+                # BaseStrategy 唯一契约：on_bar(bar, ctx) → Action
+                action = self._strategy.on_bar(bar, ctx)
                 action_type_str = str(action.action_type)
                 self._last_action = action_type_str
                 if action_type_str in ("buy", "sell"):
@@ -245,14 +245,6 @@ class StrategyLoop:
             features=features,
             account_equity=self._account_equity,
         )
-
-    def _call_strategy_on_bar(self, bar: dict, ctx: Any) -> Any:
-        """调用策略 on_bar，兼容 on_bar(bar, ctx) 和 on_bar(bar) 两种签名。"""
-        try:
-            return self._strategy.on_bar(bar, ctx)
-        except TypeError:
-            # 回退到旧签名 on_bar(bar)
-            return self._strategy.on_bar(bar)
 
     def _execute_action(self, action: Action, current_price: float) -> None:
         """执行 Action：置信度过滤 → qty 计算 → 风控检查 → 下单"""

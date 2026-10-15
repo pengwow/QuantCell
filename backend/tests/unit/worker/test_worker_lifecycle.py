@@ -6,15 +6,14 @@
 - _evaluate_current 恒为全 0
 - stop / run 循环（patch time.sleep 与迭代方法后单次退出）
 - _rl_iteration / _rule_iteration 的“评估→重训/优化→比较→部署”编排
-- 函数内 import 的重依赖（optuna / RLService / BacktestDataProvider）patch 点
+- 函数内 import 的重依赖（HPORunner / RLService / BacktestDataProvider）patch 点
 
 除被 mock 的对象外，不发起任何真实 IO 或训练。
 """
 
-import sys
 from unittest import mock
 
-import pytest
+import pandas as pd
 
 import worker.lifecycle as lifecycle_mod
 from worker.lifecycle import WorkerLifecycle, WorkerLifecycleConfig
@@ -209,18 +208,33 @@ def test_retrain_delegates_to_patched_rl_service(monkeypatch):
     rl_cls.return_value.train.assert_called_once_with(cfg_cls.return_value)
 
 
-def test_optimize_params_uses_patched_optuna(monkeypatch):
-    study = mock.MagicMock()
-    study.best_params = {"fast": 5, "slow": 20}
-    fake_optuna = mock.MagicMock()
-    fake_optuna.create_study.return_value = study
-    monkeypatch.setitem(sys.modules, "optuna", fake_optuna)
+def test_optimize_params_uses_patched_hpo_runner(monkeypatch):
+    """_optimize_params 委托 HPORunner 优化，trial 数/剪枝配置来自 lifecycle。"""
+    # 占位 DataFrame：BacktestEvaluator 构造不跑回测，evaluate 已随 HPORunner 被 mock
+    tiny_df = pd.DataFrame(
+        {"open": [1.0], "high": [1.0], "low": [1.0], "close": [1.0], "volume": [1.0]},
+        index=pd.DatetimeIndex(["2025-01-01"], tz="UTC"),
+    )
+    monkeypatch.setattr(WorkerLifecycle, "_load_market_data", lambda *a, **k: tiny_df)
+
+    fake_runner_cls = mock.MagicMock()
+    fake_runner_cls.return_value.optimize.return_value = {
+        "best_params": {"fast": 5, "slow": 20},
+        "best_value": 123.4,
+    }
+    # _optimize_params 函数内 `from backtest.hpo_runner import HPORunner`，
+    # 调用时才取模块属性，patch 一定生效
+    monkeypatch.setattr("backtest.hpo_runner.HPORunner", fake_runner_cls)
 
     wl = WorkerLifecycle(WorkerLifecycleConfig(worker_id=1))
     result = wl._optimize_params()
+
     assert result == {"fast": 5, "slow": 20}
-    fake_optuna.create_study.assert_called_once_with(direction="maximize")
-    assert study.optimize.call_args.kwargs["n_trials"] == wl.config.hpo_trials
+    kwargs = fake_runner_cls.return_value.optimize.call_args.kwargs
+    assert kwargs["n_trials"] == wl.config.hpo_trials
+    assert kwargs["pruner_type"] == "median"
+    # objective_fn 是 evaluator.evaluate（双签名，支持 equity_curve 中途上报）
+    assert kwargs["objective_fn"].__name__ == "evaluate"
 
 
 def test_load_market_data_uses_patched_backtest_provider(monkeypatch):

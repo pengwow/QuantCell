@@ -218,8 +218,20 @@ class TestTradingEngineStartSwarm:
         self.engine._ws_clients = set()
         self.engine._exchange_cache = MagicMock()
         self.engine._exchange_cache.place_order.return_value = {"order_id": "tse"}
+        # loop.start() 会启动数据馈送线程; MagicMock 任意属性为 truthy 且
+        # float(MagicMock)==1.0, 会生成 close=1.0 的幽灵 bar 与手动 process_bar
+        # 竞争(目标仓位按 bar 价格换算, 两根 bar 顺序不同=>结果不定)。
+        # 显式让 get_ticker 返回 None, 模拟"无新行情快照", 幽灵 bar 即根除。
+        self.engine._exchange_cache.get_ticker.return_value = None
+        self.engine._exchange_cache.fetch_ohlcv.return_value = []
         # 事件回调需要 _ws_emit, 简化为 no-op
         self.engine._ws_emit = MagicMock()
+        yield
+        # 清理后台线程: 停掉所有 swarm loop, 避免跨测试投递 bar
+        for runtime in self.engine._strategies.values():
+            loop = runtime.get("loop")
+            if loop is not None:
+                loop.stop()
 
     def test_start_swarm_returns_strategy_id(self):
         """start_swarm 应返回可管理的 strategy_id, 并创建 loop。"""

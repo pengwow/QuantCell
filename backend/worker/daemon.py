@@ -155,7 +155,7 @@ class WorkerDaemon:
 
         复用与 FastAPI 进程内 StrategyManager 相同的加载链：
         StrategyLoaderService 加载策略类 → 交易所适配器 → StrategyLoop 线程。
-        加载失败时降级为占位策略（不交易），与 StrategyManager 语义一致。
+        加载失败直接抛出，由 _handle_command 转为 error 响应（不降级占位策略）。
 
         Args:
             params: start 命令携带的策略配置（strategy_name/symbols/timeframe/
@@ -175,39 +175,17 @@ class WorkerDaemon:
             # 与 StrategyManager 的语义一致，非 paper 模式暂回退 paper 运行
             self.logger.warning(f"[Daemon] trading_mode={trading_mode} 暂未接入真实适配器，回退 paper 模式")
 
-        # 延迟导入：保持 daemon 初始启动轻量，策略 import 链只在 start 时加载
-        try:
-            from backtest.strategy_loader_service import StrategyLoaderService
-        except Exception as e:  # 策略加载链不可用（如缺依赖）→ 占位假策略，不与真实交易混淆
-            self.logger.warning(f"[Daemon] 策略加载器不可用，使用占位策略: {e}")
-            StrategyLoaderService = None
+        # 延迟导入：保持 daemon 初始启动轻量，策略 import 链只在 start 时加载。
+        # 唯一路径：load_strategy → BaseStrategy；加载失败直接抛异常，
+        # 由 _handle_command 转为 error 响应（不再降级占位策略）
+        from backtest.strategy_loader_service import StrategyLoaderService
 
-        strategy_instance = None
-        if StrategyLoaderService is not None:
-            try:
-                instruments = {symbol: {"symbol": symbol, "venue": "BINANCE"}}
-                bar_types = {symbol: timeframe}
-                strategy_instance = StrategyLoaderService.load_event_strategy_multi(
-                    strategy_name=strategy_name,
-                    strategy_params=strategy_params,
-                    bar_types=bar_types,
-                    instruments=instruments,
-                )
-            except Exception as e:
-                self.logger.warning(f"[Daemon] 策略加载失败，使用占位策略: {e}")
-
-        if strategy_instance is None:
-            from backtest.backtest_loop import RuleStrategy
-
-            class _PlaceholderStrategy(RuleStrategy):
-                """占位策略：策略加载失败时使用，不会触发任何交易"""
-
-                def on_bar(self, bar: dict) -> Any:
-                    from axon_bridge import Action
-
-                    return Action("hold", 0.0, 0.0, "placeholder", 0)
-
-            strategy_instance = _PlaceholderStrategy()
+        strategy_instance = StrategyLoaderService.load_strategy(
+            strategy_name=strategy_name,
+            strategy_params=strategy_params,
+            instrument_ids=[symbol],
+            bar_types=[timeframe],
+        )
 
         # 交易所适配器：真实 testnet/live adapter 在后续版本接入，
         # 当前使用零配置 PaperAdapter（与 StrategyManager 的 paper 语义一致）
