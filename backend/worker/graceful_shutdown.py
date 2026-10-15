@@ -215,7 +215,7 @@ class GracefulShutdownManager:
             # Phase 1: 排空进行中的操作
             if not self.config.skip_drain:
                 await self._execute_phase_with_timeout(
-                    phase_name="DRAINING",
+                    phase=ShutdownPhase.DRAINING,
                     handler=self._on_drain,
                     timeout=self.config.drain_timeout,
                 )
@@ -231,7 +231,7 @@ class GracefulShutdownManager:
                 service_timeout = min(remaining_after_drain, self.config.service_stop_timeout)
 
                 await self._execute_phase_with_timeout(
-                    phase_name="STOPPING_SERVICES",
+                    phase=ShutdownPhase.STOPPING_SERVICES,
                     handler=self._on_stop_services,
                     timeout=service_timeout,
                 )
@@ -243,7 +243,7 @@ class GracefulShutdownManager:
             cleanup_timeout = max(0, self.config.total_timeout - elapsed_so_far)
 
             await self._execute_phase_with_timeout(
-                phase_name="CLEANUP",
+                phase=ShutdownPhase.CLEANUP,
                 handler=self._on_cleanup,
                 timeout=cleanup_timeout,
             )
@@ -266,7 +266,7 @@ class GracefulShutdownManager:
 
     async def _execute_phase_with_timeout(
         self,
-        phase_name: str,
+        phase: ShutdownPhase,
         handler: Callable[[], Awaitable[None]] | None,
         timeout: float,
     ) -> None:
@@ -274,16 +274,12 @@ class GracefulShutdownManager:
         执行单个停机阶段（带超时控制）
 
         Args:
-            phase_name: 阶段名称
+            phase: 停机阶段枚举成员（强类型，避免字符串与枚举 value 大小写不一致）
             handler: 该阶段的回调函数
             timeout: 该阶段的超时时间（秒）
         """
-        # 安全地设置阶段（兼容字符串和枚举）
-        try:
-            self.status.phase = ShutdownPhase(phase_name)
-        except ValueError:
-            # 如果字符串不匹配枚举值，保持当前阶段
-            logger.warning(f"[GracefulShutdown] 未知阶段: {phase_name}")
+        self.status.phase = phase
+        phase_name = phase.value  # 统一以小写 value 作为日志/序列化格式
 
         phase_start = datetime.now()
 

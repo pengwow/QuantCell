@@ -124,3 +124,37 @@ def test_shutdown_status_to_dict():
     assert "phase" in status_dict
     assert "duration_seconds" in status_dict
     assert "is_successful" in status_dict
+
+
+def test_shutdown_phase_values_are_lowercase():
+    """契约：枚举 value 全小写，防止回归到大写字符串（大小写不一致曾导致阶段设置静默失效）。"""
+    for phase in ShutdownPhase:
+        assert phase.value == phase.value.lower()
+
+
+@pytest.mark.asyncio
+async def test_phase_names_recorded_as_enum_values():
+    """回归：各阶段以枚举 value（小写）记录并推进 status.phase。
+
+    修复前 `_execute_phase_with_timeout` 用大写字符串构造 ShutdownPhase 必抛 ValueError，
+    被 except 吞掉，导致 status.phase 停在 DRAINING、且每阶段打一条假 warning。
+    """
+
+    async def noop():
+        pass
+
+    config = ShutdownConfig(
+        total_timeout=5.0,
+        drain_timeout=1.0,
+        service_stop_timeout=1.0,
+        force_kill_after_timeout=False,
+    )
+    manager = GracefulShutdownManager(config=config, on_drain=noop, on_stop_services=noop, on_cleanup=noop)
+    status = await manager.shutdown()
+
+    assert [pr.phase_name for pr in status.phase_results] == [
+        ShutdownPhase.DRAINING.value,
+        ShutdownPhase.STOPPING_SERVICES.value,
+        ShutdownPhase.CLEANUP.value,
+    ]
+    assert status.phase == ShutdownPhase.COMPLETED
