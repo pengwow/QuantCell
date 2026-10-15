@@ -1,14 +1,11 @@
-"""SwarmOrchestrator + TradingEngine.start_swarm 端到端测试。
+"""SwarmOrchestrator 装配与行为测试。
 
 验证多智能体编排器的完整装配链路:
   规则策略 + LLM Agent → SwarmOrchestrator → EventDrivenLoop → SwarmRunner → Pipeline → Execution
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-
-from strategy.agent_traders import ReActTrader
 from strategy.swarm_orchestrator import (
     LLMAgentSpec,
     OrchestratorConfig,
@@ -198,112 +195,3 @@ class TestSwarmOrchestrator:
         # 或被 50% 仓位限制 (25000) 拦截
         assert stats["order_count"] == 0, f"超大订单应被拒, 实际 order_count={stats['order_count']}"
         assert stats["rejected_count"] >= 1
-
-
-class TestTradingEngineStartSwarm:
-    """TradingEngine.start_swarm() 统一入口测试。
-
-    注意: TradingEngine.exchange 是 property, 由 _exchange_cache 缓存
-    BinanceAdapter 实例。测试时直接写 _exchange_cache 注入 mock adapter。
-    """
-
-    @pytest.fixture(autouse=True)
-    def _make_engine(self):
-        """在每个测试前构建一个干净的 TradingEngine 实例。"""
-        from engine.trading_engine import TradingEngine
-
-        self.engine = TradingEngine.__new__(TradingEngine)
-        self.engine._strategies = {}
-        self.engine._risk_engine = None
-        self.engine._ws_clients = set()
-        self.engine._exchange_cache = MagicMock()
-        self.engine._exchange_cache.place_order.return_value = {"order_id": "tse"}
-        # loop.start() 会启动数据馈送线程; MagicMock 任意属性为 truthy 且
-        # float(MagicMock)==1.0, 会生成 close=1.0 的幽灵 bar 与手动 process_bar
-        # 竞争(目标仓位按 bar 价格换算, 两根 bar 顺序不同=>结果不定)。
-        # 显式让 get_ticker 返回 None, 模拟"无新行情快照", 幽灵 bar 即根除。
-        self.engine._exchange_cache.get_ticker.return_value = None
-        self.engine._exchange_cache.fetch_ohlcv.return_value = []
-        # 事件回调需要 _ws_emit, 简化为 no-op
-        self.engine._ws_emit = MagicMock()
-        yield
-        # 清理后台线程: 停掉所有 swarm loop, 避免跨测试投递 bar
-        for runtime in self.engine._strategies.values():
-            loop = runtime.get("loop")
-            if loop is not None:
-                loop.stop()
-
-    def test_start_swarm_returns_strategy_id(self):
-        """start_swarm 应返回可管理的 strategy_id, 并创建 loop。"""
-
-        class Trend:
-            def on_bar(self, bar):
-                from types import SimpleNamespace
-
-                return SimpleNamespace(action_type="buy", confidence=0.7, target_position=0.1)
-
-        sid = self.engine.start_swarm(
-            symbols=["BTCUSDT"],
-            strategies=[Trend()],
-            account_equity=100_000,
-        )
-        # sid 是 uuid[:8] 格式 (非空字符串即可)
-        assert isinstance(sid, str) and len(sid) > 0
-
-        runtime = self.engine._strategies[sid]
-        assert runtime["status"] == "running"
-        assert runtime["is_swarm"] is True
-        assert runtime["num_strategies"] == 1
-        assert runtime["num_llm_agents"] == 0
-        assert runtime["loop"] is not None
-
-        # 手动触发 bar, 验证 loop 可工作
-        runtime["loop"].process_bar(
-            {
-                "open": 50000,
-                "high": 51000,
-                "low": 49000,
-                "close": 50500,
-                "volume": 100,
-                "symbol": "BTCUSDT",
-            }
-        )
-        assert runtime["loop"].stats["order_count"] == 1
-
-    def test_start_swarm_with_llm_agent(self):
-        """带 LLM Agent 的 start_swarm 应正确装配 ReActTrader。"""
-        mock_llm = MagicMock()
-        mock_llm.run_step.return_value = {
-            "thought": "向上",
-            "action": {"tool": "buy", "args": {"target_position": 0.2}},
-        }
-
-        sid = self.engine.start_swarm(
-            symbols=["ETHUSDT"],
-            strategies=[],
-            llm_agents=[(mock_llm, "ollama-qwen")],
-            account_equity=50_000,
-        )
-        runtime = self.engine._strategies[sid]
-        assert runtime["num_llm_agents"] == 1
-        assert runtime["loop"] is not None
-
-        # 手动触发
-        runtime["loop"].process_bar(
-            {
-                "open": 3000,
-                "high": 3100,
-                "low": 2900,
-                "close": 3050,
-                "volume": 50,
-                "symbol": "ETHUSDT",
-            }
-        )
-        stats = runtime["loop"].stats
-        assert stats["order_count"] == 1
-        assert mock_llm.run_step.called
-
-    def test_start_swarm_requires_symbols(self):
-        """symbols 为空时应抛 ValueError。"""
-        with pytest.raises(ValueError, match="symbols"):
-            self.engine.start_swarm(symbols=[])

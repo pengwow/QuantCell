@@ -40,7 +40,6 @@ from api.system_ports import router as system_ports_router
 from backtest import router as backtest_router
 from collector.routes import router as collector_router
 from common.notifications.routes import router as notification_router
-from engine.routes import router as engine_router
 from extensions.api import router as extensions_router
 from factor import router as factor_router
 from indicators.routes import router as indicators_router
@@ -102,7 +101,6 @@ app.include_router(notification_router)
 app.include_router(agent_router)
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
-app.include_router(engine_router)
 app.include_router(extensions_router)  # 桌面端可选扩展（非桌面环境下安装接口 503）
 
 # 模型/集成/风控/RL 服务路由
@@ -248,10 +246,11 @@ async def health_check():
         dict: 服务状态信息（含引擎状态）
     """
     try:
-        from engine.trading_engine import get_trading_engine
+        # 延迟 import：worker.strategy_manager 在模块加载时会初始化线程池等资源，
+        # 放在函数内可避免拖慢 main 模块导入（与原有 engine 懒加载同一考量）。
+        from worker.strategy_manager import worker_system
 
-        engine = get_trading_engine()
-        engine_status = engine.engine_status()
+        engine_status = worker_system.engine_status()
     except Exception:
         engine_status = {"status": "not_initialized"}
     return {
