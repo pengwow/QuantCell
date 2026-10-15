@@ -12,6 +12,9 @@ EventDrivenStrategy/nautilus 体系、带空格文件名等），需要甄别并
 
 判定不出的（能加载但基类合法、无源码、源码无法 AST 解析等）**一律不删**。
 
+⚠️ 安全提示：为复用加载契约，本脚本会把 DB 的 ``code`` 字段当源码 ``exec()``，
+因此**只应对可信的本地数据库运行**，不要对来源不明的库执行。
+
 行为：默认 dry-run，仅打印拟删清单；``--apply`` 时不物理删表数据，而是把整行内容
 落到 JSON 备份文件并打印汇总。重复执行分类结果一致（判定只读 DB，不改 DB）。
 
@@ -68,8 +71,22 @@ def _load_strategy_source(code: str, name: str):
     return cls, None
 
 
+def _base_name(base: ast.expr) -> str | None:
+    """取基类名：Name→id；Attribute→末段 attr（strategy.base.BaseStrategy → BaseStrategy）。"""
+    if isinstance(base, ast.Name):
+        return base.id
+    if isinstance(base, ast.Attribute):
+        return base.attr
+    return None
+
+
 def _has_illegal_base(code: str) -> bool | None:
-    """AST 扫描：是否存在直接基类不在合法集合内的类定义。
+    """AST 扫描：模块是否「不含任何合法策略基类」且存在非法基类的类定义。
+
+    判定收窄，避免误伤含 helper/dataclass/Enum 的合法策略文件：
+      - 只要模块内存在任一 ``class X(BaseStrategy)``（含 ``strategy.base.BaseStrategy``
+        这类属性访问写法），即认为基类合法，返回 False；
+      - 否则，若存在「无显式基类的裸类」或「基类名不在白名单」的类，返回 True。
 
     Returns:
         True/False 为判定结果；None 表示无法解析（交由调用方按"判定不出不删"处理）。
@@ -79,18 +96,12 @@ def _has_illegal_base(code: str) -> bool | None:
     except SyntaxError:
         return None
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        # 无显式基类的裸 class（含 class X: pass）等价于继承 object，视为非法基类
-        if not node.bases:
-            return True
-        for base in node.bases:
-            # Name 形如 BaseStrategy / Foo；Attribute 形如 nautilus.EventDrivenStrategy
-            base_name = base.id if isinstance(base, ast.Name) else None
-            if base_name not in LEGAL_BASE_CLASSES:
-                return True
-    return False
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    if any(_base_name(base) in LEGAL_BASE_CLASSES for node in classes for base in node.bases):
+        return False
+    return any(
+        (not node.bases) or any(_base_name(base) not in LEGAL_BASE_CLASSES for base in node.bases) for node in classes
+    )
 
 
 def _classify(code: str | None, name: str) -> tuple[bool, str | None]:
