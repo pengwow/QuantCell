@@ -132,6 +132,11 @@ const StrategyEditor = () => {
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [tempName, setTempName] = useState<string>('');
 
+  // 模板选择器状态
+  const [templatePickerVisible, setTemplatePickerVisible] = useState(false);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; category: string; description?: string; tags?: string[]; code_template?: string }>>([]);
+  const [templatePickerLoading, setTemplatePickerLoading] = useState(false);
+
   // 策略版本编辑状态
   const [isEditingVersion, setIsEditingVersion] = useState<boolean>(false);
   const [tempVersion, setTempVersion] = useState<string>('');
@@ -561,26 +566,56 @@ class NewStrategy(StrategyBase):
     });
   };
 
-  // 创建新策略
-  const handleCreateStrategy = () => {
+  // 创建新策略 —— 弹出模板选择器
+  const handleCreateStrategy = async () => {
+    setTemplatePickerLoading(true);
+    try {
+      // 拉真实模板列表（后端 strategy/templates/ 扫描结果）
+      const list = await aiModelApi.getTemplates();
+      setTemplates(list as any);
+    } catch {
+      // 拉取失败也允许用户继续（用默认代码）
+      setTemplates([]);
+    } finally {
+      setTemplatePickerLoading(false);
+      setTemplatePickerVisible(true);
+    }
+  };
+
+  // 用户在模板选择器里点选模板或跳过
+  const handlePickTemplate = (templateId: string | null) => {
+    let code = DEFAULT_NEW_STRATEGY_CODE;
+    let description = t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架';
+    let params = [
+      { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
+      { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
+      { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
+    ];
+
+    if (templateId) {
+      const tpl = templates.find((t) => t.id === templateId);
+      if (tpl?.code_template) {
+        code = tpl.code_template;
+        description = `${tpl.name} — ${tpl.description || ''}`.trim();
+        // 模板自带的参数解析后续迭代（variables 字段暂未自动推断）
+      }
+    }
+
     const newStrategy: Strategy = {
-      name: 'new_strategy',
-      file_name: 'new_strategy.py',
+      name: templateId ? templateId : 'new_strategy',
+      file_name: `${templateId || 'new_strategy'}.py`,
       file_path: '',
-      description: t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架',
+      description,
       version: '1.0.0',
-      params: [
-        { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
-        { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
-        { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
-      ],
+      params,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      code: DEFAULT_NEW_STRATEGY_CODE,
+      code,
     };
 
     setSelectedStrategy(newStrategy);
-    setCode(DEFAULT_NEW_STRATEGY_CODE);
+    setCode(code);
+    setTemplatePickerVisible(false);
   };
 
   // 保存策略
@@ -1415,6 +1450,54 @@ class NewStrategy(StrategyBase):
           appMessage.info(t('ai_rejected') || '已拒绝，可以继续提问');
         }}
       />
+
+      {/* 模板选择器 —— 新建策略时弹出，列出后端 strategy/templates/ 扫描到的真实模板 */}
+      <Modal
+        title="选择策略模板"
+        open={templatePickerVisible}
+        onCancel={() => handlePickTemplate(null)}
+        footer={null}
+        width={560}
+      >
+        <div style={{ marginBottom: 12, color: '#666' }}>
+          选择一个起始模板，或跳过使用空白 BaseStrategy 骨架：
+        </div>
+        <Select
+          style={{ width: '100%' }}
+          placeholder={templatePickerLoading ? '加载中...' : '选择模板（可跳过）'}
+          loading={templatePickerLoading}
+          disabled={templatePickerLoading}
+          options={templates.map((t) => ({
+            value: t.id,
+            label: (
+              <span>
+                <strong>{t.name}</strong>
+                <span style={{ color: '#888', marginLeft: 8 }}>
+                  [{t.category}]
+                </span>
+                {t.tags?.length ? (
+                  <span style={{ color: '#aaa', marginLeft: 8 }}>· {t.tags.join('/')}</span>
+                ) : null}
+              </span>
+            ),
+          }))}
+          onChange={(id) => id && handlePickTemplate(id)}
+        />
+        <div style={{ marginTop: 16, textAlign: 'right' }}>
+          <button
+            onClick={() => handlePickTemplate(null)}
+            style={{
+              background: 'transparent',
+              border: '1px solid #d9d9d9',
+              borderRadius: 6,
+              padding: '4px 12px',
+              cursor: 'pointer',
+            }}
+          >
+            跳过，使用空白模板
+          </button>
+        </div>
+      </Modal>
     </PageContainer>
   );
 };
