@@ -411,6 +411,7 @@ class ResultFormatterService:
         final_nav = results.get("final_nav", 0.0)
         total_pnl = results.get("total_pnl", 0.0)
         trade_count = results.get("trade_count", 0)
+        fills_count = results.get("fills", 0)
         max_dd_pct = results.get("max_drawdown_pct", 0.0)
         win_rate = results.get("win_rate", 0.0)
         sharpe_ratio = results.get("sharpe_ratio", 0.0)
@@ -481,8 +482,8 @@ class ResultFormatterService:
             {
                 "name": "交易次数",
                 "key": "total_trades",
-                "value": trade_count,
-                "description": "交易次数",
+                "value": fills_count,
+                "description": "总成交笔数(开仓+平仓)",
                 "type": "number",
             },
             {
