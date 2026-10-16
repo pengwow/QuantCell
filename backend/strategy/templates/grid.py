@@ -24,10 +24,10 @@ class Grid(BaseStrategy):
         self._position_grid_idx = 0
 
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
-        lower = float(self.config.params.get("lower", 60000.0))
-        upper = float(self.config.params.get("upper", 70000.0))
-        levels = int(self.config.params.get("levels", 20))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        lower = float(self.get_param("lower", 60000.0))
+        upper = float(self.get_param("upper", 70000.0))
+        levels = int(self.get_param("levels", 20))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
         close = bar["close"]
 
