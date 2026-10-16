@@ -212,10 +212,6 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: Equity
     },
     // 数据系列
     series,
-    // 工具栏已禁用（删除保存图片、区域缩放、缩放还原按钮）
-    toolbox: {
-      show: false,
-    },
     // 数据缩放（仅保留内置缩放，删除下方拖拽条）
     dataZoom: [
       {
