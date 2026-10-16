@@ -283,43 +283,10 @@ const BacktestReplay = () => {
         interval: data.backtest_config?.interval,
       });
 
-      // 调试第一条交易的原始字段
-      if (data.trades && data.trades.length > 0) {
-        console.log('[BacktestReplay] 第一条交易原始数据:', data.trades[0]);
-        console.log('[BacktestReplay] 第一条交易所有字段:', Object.keys(data.trades[0]));
-      }
-
+      // round-trip 契约后端已带 trade_id/symbol entry/exit 全字段，直接透传
       const mappedData = {
         klines: data.kline_data || [],
-        trades: (data.trades || []).map((trade, index) => {
-          // 回测引擎返回的字段名: trade_id, side, direction, quantity, price, timestamp, formatted_time
-          // 需要映射到前端期望的字段名: EntryTime, ExitTime, EntryPrice, ExitPrice, PnL, Direction
-
-          // 时间字段 - 回测引擎使用 timestamp (秒级) 或 formatted_time
-          // 交易ID
-          const tradeId = trade.trade_id || `trade-${index}`;
-
-          return {
-            // TradeTable 组件需要的字段
-            trade_id: tradeId,
-            timestamp: trade.timestamp,
-            formatted_time: trade.formatted_time,
-            side: trade.side,
-            direction: trade.direction,
-            price: trade.price,
-            quantity: trade.quantity,
-            volume: trade.volume,
-            commission: trade.commission,
-            status: trade.status,
-            instrument_id: trade.instrument_id,
-            // 保留原始字段供后续处理
-            _side: trade.side,
-            _direction: trade.direction,
-            _quantity: trade.quantity,
-            _volume: trade.volume,
-            _timestamp: trade.timestamp,
-          };
-        }),
+        trades: data.trades || [],
         equity_curve: data.equity_curve || [],
         strategy_name: data.strategy_name || '',
         backtest_config: data.backtest_config || {},
@@ -327,11 +294,6 @@ const BacktestReplay = () => {
         symbol: data.backtest_config?.symbol || symbol || 'BTCUSDT',
         interval: data.backtest_config?.interval || '15m',
       };
-
-      console.log('[BacktestReplay] 映射后的数据:', {
-        klines_length: mappedData.klines.length,
-        trades_length: mappedData.trades.length,
-      });
 
       setReplayData(mappedData);
     } catch (err) {
@@ -461,13 +423,6 @@ const BacktestReplay = () => {
     const currentTime = formattedKline.timestamp;
     if (!currentTime || !replayData.trades) return;
 
-    console.log('[addTradeMarkers] 开始添加交易标记:', {
-      currentTime,
-      visibleStartTime,
-      visibleEndTime,
-      totalTrades: replayData.trades.length,
-    });
-
     if (typeof chart.removeOverlay === 'function') {
       const tradeOverlays = chart.getOverlays({ name: 'jsonAnnotation' }) || [];
       tradeOverlays.forEach((overlay) => {
@@ -475,56 +430,33 @@ const BacktestReplay = () => {
       });
     }
 
-    // 调试第一条交易和K线的时间格式
-    if (replayData.trades.length > 0) {
-      const firstTrade = replayData.trades[0];
-      const firstKline = replayData.klines[0];
-      console.log('[addTradeMarkers] 时间格式调试:', {
-        firstTrade_timestamp: firstTrade.timestamp,
-        firstTrade_timestamp_parsed: firstTrade.timestamp ? firstTrade.timestamp * 1000 : 0,
-        firstKline_timestamp: firstKline?.timestamp,
-        visibleStartTime,
-        visibleEndTime,
-      });
-    }
-
+    // round-trip 契约：秒级 timestamp，标记画在开仓价位置，side 为开仓方向
     const visibleTrades = replayData.trades.filter((trade) => {
-      // 回测数据使用秒级 timestamp，需要转换为毫秒
-      const entryTime = trade.timestamp ? trade.timestamp * 1000 : 0;
-      const isVisible = entryTime >= visibleStartTime && entryTime <= visibleEndTime;
-      return isVisible;
+      const entryTime = trade.timestamp * 1000;
+      return entryTime >= visibleStartTime && entryTime <= visibleEndTime;
     });
 
-    console.log('[addTradeMarkers] 可见范围内的交易:', visibleTrades.length);
-
     visibleTrades.forEach((trade) => {
-      // 回测数据使用秒级 timestamp，需要转换为毫秒
-      const entryTime = trade.timestamp ? trade.timestamp * 1000 : 0;
+      const entryTime = trade.timestamp * 1000;
 
       if (typeof chart.createOverlay === 'function') {
         try {
           if (entryTime >= visibleStartTime && entryTime <= visibleEndTime) {
-            // 判断方向
-            const isBuy = trade.side?.toUpperCase() === 'BUY' || trade.direction?.includes('买入');
+            const isBuy = trade.side === 'buy';
             const directionText = isBuy ? '买入' : '卖出';
             const color = isBuy ? '#26a69a' : '#ef5350';
-
-            // 格式化数量和金额
-            const quantity = trade.quantity ? trade.quantity.toFixed(4) : '0';
-            const volume = trade.volume ? trade.volume.toFixed(2) : '0';
-
             // 根据主题设置标签颜色
             const labelColor = isDark ? '#ffffff' : '#333333';
 
             chart.createOverlay({
               name: 'jsonAnnotation',
               extendData: JSON.stringify({
-                lines: [`${directionText}`, `数量: ${quantity}`, `金额: ${volume}`],
+                lines: [directionText, `数量: ${trade.size.toFixed(4)}`, `金额: ${(trade.entry_price * trade.size).toFixed(2)}`],
                 colors: [color, labelColor, labelColor],
                 fontSize: 12,
                 align: 'left',
               }),
-              points: [{ timestamp: entryTime, value: trade.price }],
+              points: [{ timestamp: entryTime, value: trade.entry_price }],
             });
           }
         } catch (err) {

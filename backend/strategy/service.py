@@ -48,6 +48,30 @@ def _annotation_to_str(node: ast.AST | None) -> str:
     return "Any"
 
 
+# AST 提取参数时用的补充描述：前端参数表单会展示这个说明文字
+_PARAM_DESC_MAP: dict[str, str] = {
+    "factor_name": "因子名称，需与回测 factor_names 里的名字一致",
+    "buy_threshold": "因子买入阈值",
+    "sell_threshold": "因子卖出阈值",
+    "position_limit": "目标仓位上限",
+}
+
+
+def _guess_param_type(default_val: Any) -> str:
+    """默认值的 Python 类型 → 前端 type hint。"""
+    if default_val is None:
+        return "Any"
+    if isinstance(default_val, bool):
+        return "bool"
+    if isinstance(default_val, int):
+        return "int"
+    if isinstance(default_val, float):
+        return "float"
+    if isinstance(default_val, str):
+        return "str"
+    return "Any"
+
+
 class StrategyType(Enum):
     """策略类型枚举"""
 
@@ -201,6 +225,9 @@ class StrategyService:
                 # BaseStrategy 模板：没 Config 类，参数在 self.config.params.get(...) 里
                 if not params:
                     params = self._extract_params_from_config_get(tree)
+                # 模板风格的便捷封装 self.get_param("k", v) / self._param("k")
+                if not params:
+                    params = self._extract_params_from_get_param(tree)
 
                 # 主类也检查一下 DEMO_FACTORS（主类也可能写）
                 if not factors:
@@ -453,20 +480,6 @@ class StrategyService:
         """扫 self.config.params.get("name", default) 调用，提取 BaseStrategy 模板的参数。"""
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
-        _BASE_CONFIG_KEYS = {
-            "factor_name",
-            "buy_threshold",
-            "sell_threshold",
-            "position_limit",
-            "fast",
-            "slow",
-            "fast_period",
-            "slow_period",
-            "mode",
-            "signal_interval",
-            "lookback",
-            "threshold",
-        }
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -501,34 +514,98 @@ class StrategyService:
                 except ValueError, TypeError, SyntaxError:
                     default_val = None
 
-            # 猜类型：默认值的 Python 类型 → 前端 type hint
-            if default_val is None:
-                guessed_type = "Any"
-            elif isinstance(default_val, bool):
-                guessed_type = "bool"
-            elif isinstance(default_val, int):
-                guessed_type = "int"
-            elif isinstance(default_val, float):
-                guessed_type = "float"
-            elif isinstance(default_val, str):
-                guessed_type = "str"
-            else:
-                guessed_type = "Any"
+            guessed_type = _guess_param_type(default_val)
 
-            desc = ""
-            if name in _BASE_CONFIG_KEYS:
-                desc_map = {
-                    "factor_name": "因子名称，需与回测 factor_names 里的名字一致",
-                    "buy_threshold": "因子买入阈值",
-                    "sell_threshold": "因子卖出阈值",
-                    "position_limit": "目标仓位上限",
-                }
-                desc = desc_map.get(name, "")
+            desc = _PARAM_DESC_MAP.get(name, "")
 
             result.append(
                 {
                     "name": name,
                     "type": guessed_type,
+                    "default": default_val,
+                    "description": desc,
+                    "required": False,
+                }
+            )
+
+        return result
+
+    @staticmethod
+    def _extract_class_defaults(tree: ast.AST, attr: str) -> dict[str, Any]:
+        """提取类属性 `<attr> = {..}` 字面量字典（用于 funding_arbitrage 的 _DEFAULTS）。
+
+        因子策略习惯把缺省参数收在类属性字典里，AST 直接 literal_eval，
+        非字面量或解析失败返回空 dict。
+        """
+        try:
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                for stmt in node.body:
+                    if (
+                        isinstance(stmt, ast.Assign)
+                        and len(stmt.targets) == 1
+                        and isinstance(stmt.targets[0], ast.Name)
+                        and stmt.targets[0].id == attr
+                        and isinstance(stmt.value, ast.Dict)
+                    ):
+                        return ast.literal_eval(stmt.value)
+        except ValueError:
+            return {}
+        return {}
+
+    @staticmethod
+    def _extract_params_from_get_param(tree: ast.AST) -> list[dict[str, Any]]:
+        """扫 self.get_param("name", default) / self._param("name") 调用提取参数。
+
+        BaseStrategy.get_param 是 config.params.get 的便捷封装（strategy/base.py），
+        11 个内置模板全用这种写法；funding_arbitrage 又封了一层 _param(key)，
+        默认值收在类属性 _DEFAULTS 字典里，需一并提取，否则前端参数表单拿到空列表。
+        """
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        defaults = StrategyService._extract_class_defaults(tree, "_DEFAULTS")
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute):
+                continue
+            # 接收者必须是裸 self，排除 obj.get_param(...) 之类误伤
+            receiver = node.func.value
+            if not (isinstance(receiver, ast.Name) and receiver.id == "self"):
+                continue
+            method = node.func.attr
+            if method not in ("get_param", "_param"):
+                continue
+
+            if not node.args:
+                continue
+            # 第一个参数是常量字符串 → 参数名
+            first = node.args[0]
+            if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+                continue
+            name = first.value
+            if name in seen:
+                continue
+            seen.add(name)
+
+            # 默认值：get_param 直接给第二实参；_param 从 _DEFAULTS 字典取
+            default_val: Any = None
+            if method == "get_param" and len(node.args) >= 2:
+                try:
+                    default_val = ast.literal_eval(node.args[1])
+                except ValueError, TypeError, SyntaxError:
+                    default_val = None
+            elif method == "_param":
+                default_val = defaults.get(name)
+
+            desc = _PARAM_DESC_MAP.get(name, "")
+
+            result.append(
+                {
+                    "name": name,
+                    "type": _guess_param_type(default_val),
                     "default": default_val,
                     "description": desc,
                     "required": False,

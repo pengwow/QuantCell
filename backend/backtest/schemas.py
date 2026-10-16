@@ -130,6 +130,11 @@ class BacktestConfig(BaseSchema):
         description="回测使用的因子名列表（来自因子库，仅可计算因子）；null=不使用因子",
         json_schema_extra={"example": ["momentum_5d"]},
     )
+    trading_mode: str = Field(
+        default="spot",
+        description="交易模式: spot 现货 / futures 永续合约（永续模式会构造 swap 品种并结算资金费）",
+        json_schema_extra={"example": "spot"},
+    )
 
 
 class StrategyConfig(BaseSchema):

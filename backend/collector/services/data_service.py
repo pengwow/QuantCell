@@ -122,6 +122,10 @@ class GetData:
 
         exchange_lower = self.exchange.lower()
 
+        # 存储目录用单数 future（与 parquet 目录/DB 表约定一致），
+        # 但交易所下载器只认复数 futures，在此做归一化，避免 "无效的蜡烛图类型" 报错
+        downloader_candle_type = "futures" if self.candle_type == "future" else self.candle_type
+
         try:
             if exchange_lower in ["binance", "binance_spot", "binance_futures"]:
                 collector = BinanceCollector(
@@ -134,7 +138,7 @@ class GetData:
                     delay=self.delay,
                     check_data_length=self.check_data_length,
                     limit_nums=self.limit_nums,
-                    candle_type=self.candle_type,
+                    candle_type=downloader_candle_type,
                     symbols=symbols_str.split(",") if symbols_str else None,
                     mode=self.mode,
                 )
@@ -151,7 +155,7 @@ class GetData:
                     delay=self.delay,
                     check_data_length=self.check_data_length,
                     limit_nums=self.limit_nums,
-                    candle_type=self.candle_type,
+                    candle_type=downloader_candle_type,
                     symbols=symbols_str.split(",") if symbols_str else None,
                     mode=self.mode,
                 )

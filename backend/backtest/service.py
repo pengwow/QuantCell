@@ -290,13 +290,28 @@ class BacktestService:
         return entries
 
     @staticmethod
+    def filter_contract_trades(trades: Any) -> list[dict[str, Any]]:
+        """仅保留完整 round-trip 契约记录（timestamp + entry_price 必有）。
+
+        entry_price 排除旧 fill 双写格式，timestamp 排除无 trade_id/symbol 的
+        中间版；旧结果文件不迁移，过滤后上层按空成交处理（前端空态提示）。
+        """
+        if not isinstance(trades, list):
+            return []
+        return [
+            tr
+            for tr in trades
+            if isinstance(tr, dict) and tr.get("entry_price") is not None and tr.get("timestamp") is not None
+        ]
+
+    @staticmethod
     def build_portfolio_view(results: dict[str, Any]) -> dict[str, Any]:
         """组装多品种回测的「全部（组合）」视图。
 
         引擎对多品种是 N 个独立资金池各自回测，组合视图口径：
         - metrics：直接用回测落盘时算好的 portfolio.metrics（总收益率等已按
           独立资金池合计口径二次计算，不能对百分比类指标做简单平均）
-        - trades/positions：各品种拼接（记录自带 symbol 字段），交易按时间升序
+        - trades/positions：各品种拼接（round-trip 记录自带 symbol），交易按时间升序
         - equity_curve：各品种时间轴不一致（实测长度/起止均不同），按时间戳
           并集对齐后逐时点求和；品种首个真实点之前按初始权益填充（尚未开跑），
           中间缺失时点前向填充
@@ -316,7 +331,8 @@ class BacktestService:
         all_trades: list[dict[str, Any]] = []
         all_positions: list[dict[str, Any]] = []
         for entry in entries.values():
-            all_trades.extend(t for t in (entry.get("trades") or []) if isinstance(t, dict))
+            # 旧格式记录不迁移（被 filter 剔除），由前端空态提示
+            all_trades.extend(BacktestService.filter_contract_trades(entry.get("trades")))
             all_positions.extend(p for p in (entry.get("positions") or []) if isinstance(p, dict))
         all_trades.sort(key=lambda t: t.get("timestamp") or 0)
 
@@ -445,12 +461,11 @@ class BacktestService:
         interval = str(config.get("interval") or "15m")
         init_cash = float(config.get("initial_cash") or 0.0)
 
-        # ---- 合并全部成交（秒级时间戳），按时间排序 ----
+        # ---- 合并 round-trip 成交（秒级 timestamp 开仓时间），按时间排序 ----
+        # 旧格式/中间版记录不迁移（被 filter 剔除），回放按空成交处理
         all_trades: list[dict[str, Any]] = []
         for entry in entries.values():
-            for tr in entry.get("trades") or []:
-                if isinstance(tr, dict) and tr.get("timestamp") is not None:
-                    all_trades.append(tr)
+            all_trades.extend(BacktestService.filter_contract_trades(entry.get("trades")))
         all_trades.sort(key=lambda t: t.get("timestamp") or 0)
 
         # ---- 各品种 K 线 -> 有序毫秒时间戳与收盘价（供网格范围与持仓浮盈取值）----
@@ -530,24 +545,40 @@ class BacktestService:
                 ]
             )
 
-        # ---- 成交流重建净持仓 ----
-        position_events, holdings = self._rebuild_positions(all_trades, grid, klines_ts, klines_close)
+        # ---- 持仓重建：round-trip 展开为逐笔 fill 事件（时间轴/持仓需要逐笔粒度）----
+        # 开仓 buy + 平仓 sell 各一条，pnl 归平仓事件；exit_timestamp 缺失时退化为开仓时刻
+        fill_events: list[dict[str, Any]] = []
+        for tr in all_trades:
+            size = float(tr.get("size") or 0.0)
+            if not tr.get("symbol") or size == 0.0:
+                continue
+            entry_ts = int(tr.get("timestamp") or 0)
+            fill_events.append(
+                {
+                    "symbol": tr["symbol"],
+                    "side": "BUY",
+                    "quantity": size,
+                    "price": float(tr.get("entry_price") or 0.0),
+                    "timestamp": entry_ts,
+                    "pnl": 0.0,
+                }
+            )
+            fill_events.append(
+                {
+                    "symbol": tr["symbol"],
+                    "side": "SELL",
+                    "quantity": size,
+                    "price": float(tr.get("exit_price") or 0.0),
+                    "timestamp": int(tr.get("exit_timestamp") or 0) or entry_ts,
+                    "pnl": float(tr.get("pnl") or 0.0),
+                }
+            )
+        fill_events.sort(key=lambda e: e["timestamp"])
 
-        # 成交流白名单（回表只需这些字段，剔除各类 order_id 等冗余字段）
-        trade_keys = (
-            "symbol",
-            "side",
-            "direction",
-            "quantity",
-            "volume",
-            "price",
-            "timestamp",
-            "formatted_time",
-            "commission",
-            "PnL",
-            "status",
-        )
-        slim_trades = [{k: tr.get(k) for k in trade_keys} for tr in all_trades]
+        position_events, holdings = self._rebuild_positions(fill_events, grid, klines_ts, klines_close)
+
+        # 新契约记录本身即展示所需全集，直接透传（无需再裁剪白名单）
+        slim_trades = all_trades
 
         return {
             "symbols": list(entries.keys()),
@@ -590,9 +621,10 @@ class BacktestService:
         holding: dict[str, list[float]] = {}
 
         for tr in trades:
-            sym = tr.get("symbol") or tr.get("Symbol") or tr.get("instrument_id") or ""
+            # 输入恒为 service 层展开的 fill 事件（symbol/side/quantity/price/timestamp/pnl）
+            sym = tr.get("symbol") or ""
             price = float(tr.get("price") or 0.0)
-            qty = float(tr.get("quantity") or tr.get("volume") or 0.0)
+            qty = float(tr.get("quantity") or 0.0)
             side = str(tr.get("side") or "").upper()
             signed = qty if side == "BUY" else -qty if side == "SELL" else qty
             if not sym or qty == 0.0 or price == 0.0:
@@ -624,7 +656,7 @@ class BacktestService:
                 "traded_qty": round(signed, 10),
                 "avg_cost": round(new_avg, 10),
                 "price": price,
-                "pnl": float(tr.get("PnL") or tr.get("pnl") or 0.0),
+                "pnl": float(tr.get("pnl") or 0.0),
             }
             events.append(event)
             events_by_grid.setdefault(t, []).append(event)

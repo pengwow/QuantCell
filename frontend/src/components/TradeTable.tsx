@@ -1,34 +1,13 @@
 /**
- * 交易详情表格组件
- * 功能：展示交易记录的详细信息，支持分页和收益颜色标识
- * 适配后端返回格式：{ trade_id, side, direction, quantity, price, volume, commission, timestamp, formatted_time, status }
+ * 交易详情表格组件（round-trip 开平配对契约）
+ * 契约与后端 backtest_loop._build_round_trip_trades 输出一一对应，
+ * 2026-07-25 起引擎只产出该格式，旧格式数据由详情页空态提示
  */
 import { Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { Trade } from '../types/backtest';
 
-// 后端返回的交易数据接口
-export interface Trade {
-  trade_id: string;
-  client_order_id?: string;
-  venue_order_id?: string;
-  position_id?: string;
-  instrument_id?: string;
-  symbol?: string;
-  Symbol?: string;
-  instrument?: string;
-  side?: string;
-  Side?: string;
-  direction?: string;
-  Direction?: string;
-  quantity: number;
-  price: number;
-  volume: number;
-  commission: string;
-  timestamp: number;
-  formatted_time: string;
-  status?: string;
-  Status?: string;
-}
+export type { Trade };
 
 // 组件属性接口
 export interface TradeTableProps {
@@ -39,79 +18,68 @@ export interface TradeTableProps {
   rowClassName?: (record: Trade) => string;
 }
 
-/**
- * 格式化价格，保留4位小数
- */
-const formatPrice = (price: number): string => {
-  if (typeof price !== 'number') return '-';
-  return price.toFixed(4);
-};
+const formatPrice = (price: number): string => price.toFixed(4);
 
-/**
- * 格式化数量，保留4位小数
- */
-const formatQuantity = (quantity: number): string => {
-  if (typeof quantity !== 'number') return '-';
-  return quantity.toFixed(4);
-};
+const formatQuantity = (quantity: number): string => quantity.toFixed(4);
 
-/**
- * 格式化金额，保留2位小数
- */
-const formatVolume = (volume: number): string => {
-  if (typeof volume !== 'number') return '-';
-  return volume.toFixed(2);
-};
+const formatVolume = (volume: number): string => volume.toFixed(2);
 
 const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: TradeTableProps) => {
-  // 表格列定义
   const columns: ColumnsType<Trade> = [
     {
       title: '时间',
       dataIndex: 'formatted_time',
       key: 'formatted_time',
-      render: (value: string) => value || '-',
-      sorter: (a, b) => (a.timestamp || 0) - (b.timestamp || 0),
+      sorter: (a, b) => a.timestamp - b.timestamp,
     },
     {
       title: '方向',
       dataIndex: 'side',
       key: 'side',
-      render: (value: string, record: Trade) => {
-        const isBuy = value?.toUpperCase() === 'BUY' || record.direction?.includes('买入');
-        return (
-          <Tag color={isBuy ? 'green' : 'red'}>
-            {record.direction || value || '-'}
-          </Tag>
-        );
+      // side 是开仓方向（buy/sell），非平仓方向
+      render: (value: string) => {
+        const isBuy = (value || '').toLowerCase() === 'buy';
+        return <Tag color={isBuy ? 'green' : 'red'}>{isBuy ? '买入' : '卖出'}</Tag>;
       },
     },
     {
-      title: '价格',
-      dataIndex: 'price',
-      key: 'price',
+      title: '开仓价',
+      dataIndex: 'entry_price',
+      key: 'entry_price',
+      render: (value: number) => formatPrice(value),
+      align: 'right',
+    },
+    {
+      title: '平仓价',
+      dataIndex: 'exit_price',
+      key: 'exit_price',
       render: (value: number) => formatPrice(value),
       align: 'right',
     },
     {
       title: '数量',
-      dataIndex: 'quantity',
-      key: 'quantity',
+      dataIndex: 'size',
+      key: 'size',
       render: (value: number) => formatQuantity(value),
       align: 'right',
     },
     {
       title: '金额',
-      dataIndex: 'volume',
-      key: 'volume',
-      render: (value: number) => formatVolume(value),
+      key: 'notional',
+      // 契约无金额字段，按开仓价 × 数量计算
+      render: (_: unknown, record: Trade) => formatVolume(record.entry_price * record.size),
       align: 'right',
     },
     {
-      title: '手续费',
-      dataIndex: 'commission',
-      key: 'commission',
-      render: (value: string) => value || '-',
+      title: '收益',
+      dataIndex: 'pnl',
+      key: 'pnl',
+      // 已实现盈亏，正绿负红，附收益率
+      render: (value: number, record: Trade) => (
+        <span style={{ color: value >= 0 ? '#3f8600' : '#cf1322', fontWeight: 500 }}>
+          {value.toFixed(4)} ({record.return_pct.toFixed(2)}%)
+        </span>
+      ),
       align: 'right',
     },
     {
@@ -120,9 +88,9 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
       key: 'status',
       render: (value: string) => {
         const statusMap: Record<string, { color: string; text: string }> = {
-          'FILLED': { color: 'green', text: '已成交' },
-          'PENDING': { color: 'orange', text: '待成交' },
-          'CANCELLED': { color: 'red', text: '已取消' },
+          FILLED: { color: 'green', text: '已成交' },
+          PENDING: { color: 'orange', text: '待成交' },
+          CANCELLED: { color: 'red', text: '已取消' },
         };
         const status = statusMap[value?.toUpperCase()] || { color: 'default', text: value || '-' };
         return <Tag color={status.color}>{status.text}</Tag>;
@@ -130,12 +98,9 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
     },
     {
       title: '交易标的',
+      dataIndex: 'symbol',
       key: 'symbol',
-      render: (_: unknown, record: Trade) => {
-        // 后端不同路径写入的标的字段不一致，按优先级回退
-        const symbol = record.instrument_id || record.symbol || record.Symbol || record.instrument || '-';
-        return <span style={{ fontFamily: 'monospace' }}>{symbol}</span>;
-      },
+      render: (value: string) => <span style={{ fontFamily: 'monospace' }}>{value || '-'}</span>,
       ellipsis: true,
     },
   ];
@@ -144,7 +109,7 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
     <Table
       columns={columns}
       dataSource={data}
-      rowKey={(record) => record.trade_id || `${record.timestamp}-${Math.random()}`}
+      rowKey="trade_id"
       loading={loading}
       pagination={
         pagination
