@@ -33,8 +33,8 @@ class MeanReversionRL(BaseStrategy):
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
 
-        bb_period = int(self.config.params.get("bb_period", 20))
-        std_mult = float(self.config.params.get("std_mult", 2.0))
+        bb_period = int(self.get_param("bb_period", 20))
+        std_mult = float(self.get_param("std_mult", 2.0))
         model_id = self.config.name
 
         if len(ctx.closes) < bb_period:

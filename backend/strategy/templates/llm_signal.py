@@ -100,7 +100,7 @@ class LLMSignalStrategy(BaseStrategy):
 
     def _call_llm(self, bar: dict, ctx: StrategyContext) -> MarketSignal:
         """调用 LLM provider 并解析为 MarketSignal;失败降级为 Hold。"""
-        provider: Callable[[str], str] | None = self.config.params.get("llm_provider")
+        provider: Callable[[str], str] | None = self.get_param("llm_provider")
         if not provider:
             return MarketSignal(
                 signal_type=SignalType.Hold,
@@ -108,7 +108,7 @@ class LLMSignalStrategy(BaseStrategy):
                 confidence=0.0,
                 reasoning="no_llm_provider",
             )
-        lookback = int(self.config.params.get("lookback", 30))
+        lookback = int(self.get_param("lookback", 30))
         recent = ctx.closes[-lookback:] if len(ctx.closes) >= lookback else ctx.closes
         o, h, low, c = (
             bar.get("open", 0),
@@ -150,11 +150,11 @@ class LLMSignalStrategy(BaseStrategy):
 
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         model_id = self.config.name
-        position_pct = float(self.config.params.get("position_pct", self.config.position_limit))
-        mode = self.config.params.get("mode", "heuristic")
-        signal_interval = int(self.config.params.get("signal_interval", 1))
-        fast = int(self.config.params.get("fast", 10))
-        slow = int(self.config.params.get("slow", 30))
+        position_pct = float(self.get_param("position_pct", self.config.position_limit))
+        mode = self.get_param("mode", "heuristic")
+        signal_interval = int(self.get_param("signal_interval", 1))
+        fast = int(self.get_param("fast", 10))
+        slow = int(self.get_param("slow", 30))
 
         # 维护价格历史(与其他模板一致)
         ctx.closes.append(bar["close"])

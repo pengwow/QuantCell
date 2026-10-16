@@ -15,8 +15,8 @@ class FactorTiming(BaseStrategy):
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
         model_id = self.config.name
-        factor_name = str(self.config.params.get("factor_name", ""))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        factor_name = str(self.get_param("factor_name", ""))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
 
         def _hold() -> Action:
             return Action(
@@ -33,8 +33,8 @@ class FactorTiming(BaseStrategy):
             return _hold()
 
         value = ctx.get_feature(factor_name)
-        buy_threshold = float(self.config.params.get("buy_threshold", 0.0))
-        sell_threshold = float(self.config.params.get("sell_threshold", 0.0))
+        buy_threshold = float(self.get_param("buy_threshold", 0.0))
+        sell_threshold = float(self.get_param("sell_threshold", 0.0))
 
         if value >= buy_threshold:
             return Action(

@@ -108,6 +108,16 @@ class BaseStrategy(ABC):
         self.config = config
         self._ctx: StrategyContext | None = None
 
+    def get_param(self, key: str, default: Any = None) -> Any:
+        """健壮的参数读取。
+
+        dict.get(key, default) 在 key 存在但值为 None 时会返回 None，
+        不触发 default —— 前端新建策略时未填写的字段会传 None 进来，
+        导致 float(None)/int(None) 崩溃。此方法统一兜底。
+        """
+        val = self.config.params.get(key)
+        return default if val is None else val
+
     def on_start(self, ctx: StrategyContext | None = None) -> None:
         """可选：启动钩子（重置内部状态）。"""
         if ctx is not None:

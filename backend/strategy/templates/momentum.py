@@ -16,9 +16,9 @@ class Momentum(BaseStrategy):
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
 
-        lookback = int(self.config.params.get("lookback", 20))
-        threshold = float(self.config.params.get("threshold", 0.05))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        lookback = int(self.get_param("lookback", 20))
+        threshold = float(self.get_param("threshold", 0.05))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
 
         if len(ctx.closes) < lookback + 1:

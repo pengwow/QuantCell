@@ -27,9 +27,9 @@ class DualMA(BaseStrategy):
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
 
-        fast = int(self.config.params.get("fast", 10))
-        slow = int(self.config.params.get("slow", 30))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        fast = int(self.get_param("fast", 10))
+        slow = int(self.get_param("slow", 30))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
 
         if len(ctx.closes) < slow:

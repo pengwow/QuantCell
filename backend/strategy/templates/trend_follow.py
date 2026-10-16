@@ -40,10 +40,10 @@ class TrendFollow(BaseStrategy):
         highs.append(bar.get("high", bar["close"]))
         lows.append(bar.get("low", bar["close"]))
 
-        lookback = int(self.config.params.get("lookback", 20))
-        atr_period = int(self.config.params.get("atr_period", 14))
-        atr_mult = float(self.config.params.get("atr_mult", 3.0))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        lookback = int(self.get_param("lookback", 20))
+        atr_period = int(self.get_param("atr_period", 14))
+        atr_mult = float(self.get_param("atr_mult", 3.0))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
 
         if len(ctx.closes) < max(lookback, atr_period + 1):

@@ -33,7 +33,7 @@ class SMACrossover(BaseStrategy):
         self._pending_action = ""
 
     def _calc_atr(self, ctx: StrategyContext) -> float:
-        atr_period = int(self.config.params.get("atr_period", 14))
+        atr_period = int(self.get_param("atr_period", 14))
         if len(ctx.highs) < atr_period + 1:
             return 0.0
         trs = []
@@ -46,14 +46,14 @@ class SMACrossover(BaseStrategy):
         return sum(trs) / len(trs)
 
     def _trend_up(self, ctx: StrategyContext) -> bool:
-        trend_ma = int(self.config.params.get("trend_ma", 200))
+        trend_ma = int(self.get_param("trend_ma", 200))
         if len(ctx.closes) < trend_ma:
             return True
         ma = sum(ctx.closes[-trend_ma:]) / trend_ma
         return ctx.closes[-1] > ma
 
     def _trend_down(self, ctx: StrategyContext) -> bool:
-        trend_ma = int(self.config.params.get("trend_ma", 200))
+        trend_ma = int(self.get_param("trend_ma", 200))
         if len(ctx.closes) < trend_ma:
             return True
         ma = sum(ctx.closes[-trend_ma:]) / trend_ma
@@ -68,11 +68,11 @@ class SMACrossover(BaseStrategy):
         ctx.highs.append(high)
         ctx.lows.append(low)
 
-        fast = int(self.config.params.get("fast", 10))
-        slow = int(self.config.params.get("slow", 30))
-        atr_sl_mult = float(self.config.params.get("atr_sl_mult", 2.0))
-        atr_tp_mult = float(self.config.params.get("atr_tp_mult", 3.0))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        fast = int(self.get_param("fast", 10))
+        slow = int(self.get_param("slow", 30))
+        atr_sl_mult = float(self.get_param("atr_sl_mult", 2.0))
+        atr_tp_mult = float(self.get_param("atr_tp_mult", 3.0))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
 
         if len(ctx.closes) < slow:

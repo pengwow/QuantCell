@@ -51,12 +51,12 @@ class MeanReversion(BaseStrategy):
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
 
-        bb_period = int(self.config.params.get("bb_period", 20))
-        rsi_period = int(self.config.params.get("rsi_period", 14))
-        rsi_oversold = float(self.config.params.get("rsi_oversold", 30))
-        rsi_overbought = float(self.config.params.get("rsi_overbought", 70))
-        std_mult = float(self.config.params.get("std_mult", 2.0))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        bb_period = int(self.get_param("bb_period", 20))
+        rsi_period = int(self.get_param("rsi_period", 14))
+        rsi_oversold = float(self.get_param("rsi_oversold", 30))
+        rsi_overbought = float(self.get_param("rsi_overbought", 70))
+        std_mult = float(self.get_param("std_mult", 2.0))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
 
         if len(ctx.closes) < max(bb_period, rsi_period + 1):

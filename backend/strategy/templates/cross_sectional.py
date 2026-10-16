@@ -21,9 +21,9 @@ class CrossSectional(BaseStrategy):
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
 
-        lookback = int(self.config.params.get("lookback", 20))
-        top_k = int(self.config.params.get("top_k", 1))
-        limit = float(self.config.params.get("position_limit", self.config.position_limit))
+        lookback = int(self.get_param("lookback", 20))
+        top_k = int(self.get_param("top_k", 1))
+        limit = float(self.get_param("position_limit", self.config.position_limit))
         model_id = self.config.name
 
         if len(ctx.closes) < lookback + 1:
@@ -54,7 +54,7 @@ class CrossSectional(BaseStrategy):
         # 排名: cross_sectional 字段是 BacktestLoop 注入的排名（1=top, 0=其他）
         # 简化:score > 阈值 + 排名 top_k 视为可买
         rank = int(bar.get("cross_sectional_rank", 0))
-        threshold = float(self.config.params.get("threshold", 0.05))
+        threshold = float(self.get_param("threshold", 0.05))
 
         if rank > 0 and rank <= top_k and score > threshold:
             return Action(
