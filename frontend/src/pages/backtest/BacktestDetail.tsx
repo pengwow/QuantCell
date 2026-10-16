@@ -816,6 +816,14 @@ const BacktestDetail = () => {
             <TradeTable data={getTrades()} />
           ) : isLegacyOnly ? (
             <Empty description="该回测由旧版本引擎生成，无成交明细" />
+          ) : rawTrades.length === 0 ? (
+            <Empty
+              description={
+                getMetricValue('total_trades') > 0
+                  ? `该回测有 ${getMetricValue('total_trades')} 笔成交但尚未平仓，无完整交易记录`
+                  : '该回测未产生任何成交，请检查策略参数（如价格区间）是否与市场行情匹配'
+              }
+            />
           ) : (
             <Empty description="暂无交易记录" />
           )}
