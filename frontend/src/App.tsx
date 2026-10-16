@@ -1,7 +1,7 @@
 import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
 import type { MessageInstance } from 'antd/es/message/interface';
 import { BrowserRouter } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DynamicRouter } from './router/DynamicRouter';
 import CrashMask from './desktop/CrashMask';
 import { isTauri } from './desktop/env';
@@ -70,7 +70,7 @@ function App() {
   // ponytail: 量化交易语义色，集中在 ConfigProvider token 里作为单一真相源。
   // 各组件（QUANT_COLORS、ECharts、MetricCard）通过 theme.useToken() 取色，
   // 禁止在子组件里硬编码 QUANT_COLORS.positive / QUANT_COLORS.negative / QUANT_COLORS.info 等 antd v5 风格颜色。
-  const tradingToken = isDarkMode
+  const tradingToken = useMemo(() => (isDarkMode
     ? {
         // 暗色模式
         colorPrimary: '#f97316',
@@ -106,7 +106,26 @@ function App() {
         colorChartGradientStart: 'rgba(9, 105, 218, 0.25)',
         colorChartGradientEnd: 'rgba(9, 105, 218, 0.02)',
         colorDrawdownArea: 'rgba(209, 36, 47, 0.12)',
-      };
+      }), [isDarkMode]);
+
+  // 静态方法主题桥接：message/notification/Modal 的静态调用通过独立 render 创建弹窗 DOM，
+  // 不消费 React 树内 ConfigProvider 的动态主题（dev 下会报
+  // "Static function can not consume context like dynamic theme" 警告）。
+  // 用官方 holderRender 把静态 holder 包进带当前主题的 ConfigProvider，主题切换后立即生效。
+  useEffect(() => {
+    ConfigProvider.config({
+      holderRender: (node) => (
+        <ConfigProvider
+          theme={{
+            algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+            token: tradingToken,
+          }}
+        >
+          {node}
+        </ConfigProvider>
+      ),
+    });
+  }, [isDarkMode, tradingToken]);
 
   return (
     <ConfigProvider
