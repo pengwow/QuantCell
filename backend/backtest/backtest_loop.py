@@ -154,9 +154,17 @@ class BacktestLoop:
         if force_liquidate:
             engine = engine.with_force_liquidate(True)
 
-        # futures 资金费率交给引擎，回测内按 funding 时间戳自动结算
+        # futures 资金费率: 预先构建 {bar 纳秒时间戳: (funding_rate, mark_price)} 查找表,
+        # 在 bar 循环内匹配到 funding 时刻时调用 engine.push_funding 入队(引擎按事件时间结算)。
+        # 引擎无 add_funding_data 方法,只能逐事件 push。
+        funding_lookup: dict[int, tuple[float, float]] | None = None
         if trading_mode == "futures" and funding_df is not None and not funding_df.empty:
-            engine.add_funding_data(instrument, funding_df)
+            funding_lookup = {}
+            for ts_idx, row in funding_df.iterrows():
+                funding_ns = int(pd.Timestamp(ts_idx).timestamp() * 1_000_000_000)
+                rate = float(row.get("funding_rate", 0.0) or 0.0)
+                mark = float(row.get("mark_price", 0.0) or 0.0)
+                funding_lookup[funding_ns] = (rate, mark)
 
         ctx = StrategyContext(
             symbol=symbol,
@@ -235,6 +243,20 @@ class BacktestLoop:
             while engine.pending_events > 0:
                 engine.step()
 
+            # futures 资金费结算: 当前 bar 时刻命中 funding 事件时入队 push_funding,
+            # 再 drain 一次让 funding 在本 bar 内结算(同 ts 时 fill 先于 funding 执行)。
+            if funding_lookup is not None and ts in funding_lookup:
+                rate, mark = funding_lookup[ts]
+                # mark_price 缺数据时用 close 兜底,保证 funding 有价格基准
+                engine.push_funding(
+                    instrument=instrument,
+                    funding_rate=rate,
+                    mark_price=mark if mark > 0 else close_price,
+                    timestamp_ns=ts,
+                )
+                while engine.pending_events > 0:
+                    engine.step()
+
         strategy.on_stop(ctx)
 
         # 最终结算
@@ -268,8 +290,8 @@ class BacktestLoop:
                 }
             )
 
-        # 构建 round-trip trades: 从 fills_detail 配对开平仓
-        trade_records = self._build_round_trip_trades(list(getattr(result, "fills_detail", [])))
+        # 构建 round-trip trades: 引擎已配对好开+平(result.trades),直接映射为前端契约
+        trade_records = self._format_round_trip_trades(list(getattr(result, "trades", [])), symbol)
 
         # 获取数据时间范围：优先使用 timestamp 列
         if "timestamp" in data.columns and len(data) > 0:
@@ -306,77 +328,58 @@ class BacktestLoop:
         )
 
     @staticmethod
-    def _build_round_trip_trades(fills_detail: list[dict]) -> list[dict]:
-        """从 fills_detail 配对构建 round-trip trades，兼容大写字段和前端格式。
+    def _format_round_trip_trades(engine_trades: list[dict], symbol: str) -> list[dict]:
+        """把引擎已配对好的 round-trip(result.trades)映射为前端契约。
 
-        ponytail: 简单 FIFO 配对，只处理 Buy→Sell 多头平仓，不支持 short
+        引擎 apply_fill 6 状态机在平仓/反手时 push TradeRecord,已含开仓均价/时间:
+        - entry_price / entry_time_ns: 开仓信息(取 PositionState.avg_cost / entry_time_ns)
+        - price / timestamp_ns: 平仓信息
+        - realized_pnl: 引擎权威已实现盈亏(与 total_pnl 口径一致)
+        - net_quantity: 负=平多(long),正=平空(short)
+
+        QuantCell 不再自行 FIFO 配对,避免与引擎撮合语义(部分成交/反手/净额)分歧。
         """
-        if not fills_detail:
+        if not engine_trades:
             return []
 
         trades: list[dict] = []
-        open_positions: list[dict] = []  # FIFO queue of open buys
+        for tr in engine_trades:
+            entry_price = float(tr.get("entry_price", 0.0) or 0.0)
+            exit_price = float(tr.get("price", 0.0) or 0.0)
+            size = float(tr.get("quantity", 0.0) or 0.0)
+            pnl = float(tr.get("realized_pnl", 0.0) or 0.0)
+            entry_time_ns = int(tr.get("entry_time_ns", 0) or 0)
+            exit_time_ns = int(tr.get("timestamp_ns", 0) or 0)
+            net_qty = float(tr.get("net_quantity", 0.0) or 0.0)
 
-        for fill in fills_detail:
-            side = fill.get("taker_side", "")
-            qty = float(fill.get("quantity", 0.0))
-            price = float(fill.get("price", 0.0))
-            ts_ns = int(fill.get("timestamp_ns", 0))
+            # 方向: net_quantity 负=平多,正=平空
+            direction = "long" if net_qty < 0 else "short"
+            side = "buy" if direction == "long" else "sell"
 
-            if side == "Buy":
-                open_positions.append(
-                    {
-                        "entry_time_ns": ts_ns,
-                        "entry_price": price,
-                        "quantity": qty,
-                        "remaining": qty,
-                    }
-                )
-            elif side == "Sell" and open_positions:
-                # FIFO 配对平仓
-                remaining_to_close = qty
-                while remaining_to_close > 1e-12 and open_positions:
-                    open_pos = open_positions[0]
-                    matched_qty = min(open_pos["remaining"], remaining_to_close)
+            entry_dt = datetime.fromtimestamp(entry_time_ns / 1e9, tz=UTC)
+            exit_dt = datetime.fromtimestamp(exit_time_ns / 1e9, tz=UTC)
+            entry_value = entry_price * size
+            return_pct = (pnl / entry_value * 100.0) if entry_value > 0 else 0.0
 
-                    entry_dt = datetime.fromtimestamp(open_pos["entry_time_ns"] / 1e9, tz=UTC)
-                    exit_dt = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC)
-                    pnl = matched_qty * (price - open_pos["entry_price"])
-                    entry_value = matched_qty * open_pos["entry_price"]
-                    return_pct = (pnl / entry_value * 100.0) if entry_value > 0 else 0.0
-
-                    # 同时提供大写字段（回测表格）和小写字段兼容（其他组件）
-                    entry_time_str = entry_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    exit_time_str = exit_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    trades.append(
-                        {
-                            # 大写字段（前端 types/backtest.ts 中 Trade 接口）
-                            "EntryTime": entry_time_str,
-                            "ExitTime": exit_time_str,
-                            "EntryPrice": open_pos["entry_price"],
-                            "ExitPrice": price,
-                            "Size": matched_qty,
-                            "PnL": pnl,
-                            "ReturnPct": return_pct,
-                            "Direction": "long",
-                            # 小写兼容字段（部分组件可能使用）
-                            "entry_time": entry_time_str,
-                            "exit_time": exit_time_str,
-                            "entry_price": open_pos["entry_price"],
-                            "exit_price": price,
-                            "size": matched_qty,
-                            "pnl": pnl,
-                            "return_pct": return_pct,
-                            "direction": "long",
-                            "side": "sell",
-                            "status": "FILLED",
-                        }
-                    )
-
-                    open_pos["remaining"] -= matched_qty
-                    remaining_to_close -= matched_qty
-                    if open_pos["remaining"] < 1e-12:
-                        open_positions.pop(0)
+            trades.append(
+                {
+                    "trade_id": f"rt-{len(trades) + 1}",
+                    "symbol": symbol,
+                    "timestamp": entry_time_ns // 1_000_000_000,  # 开仓秒级
+                    "formatted_time": entry_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "entry_time": entry_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "exit_time": exit_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "exit_timestamp": exit_time_ns // 1_000_000_000,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "size": size,
+                    "pnl": pnl,
+                    "return_pct": return_pct,
+                    "direction": direction,
+                    "side": side,  # 开仓方向
+                    "status": "FILLED",
+                }
+            )
 
         return trades
 

@@ -742,13 +742,16 @@ def get_backtest_replay(backtest_id: str, symbol: str | None = None) -> ApiRespo
         if entry.get("timeframe"):
             backtest_config["interval"] = entry["timeframe"]
 
+        # 仅输出完整 round-trip 契约记录；旧格式/中间版不迁移，回放页表现为无成交
+        entry_trades = backtest_service.filter_contract_trades(entry.get("trades"))
+
         replay_data = {
             "id": backtest_id,
             "strategy_name": strategy_name,
             "backtest_config": backtest_config,
             "metrics": entry.get("metrics") or [],
             "kline_data": entry.get("klines") or [],
-            "trades": entry.get("trades") or [],
+            "trades": entry_trades,
             "equity_curve": entry.get("equity_curve") or [],
             "factors": entry.get("factors") or {},
             "status": json_result.get("status") or task_status,

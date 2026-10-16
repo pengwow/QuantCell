@@ -780,7 +780,9 @@ def _scan_template_list() -> list[dict[str, Any]]:
     import importlib.util
 
     from strategy.loader import StrategyLoader
+    from strategy.service import StrategyService
 
+    service = StrategyService()
     templates: list[dict[str, Any]] = []
     for name in StrategyLoader.list_all():
         cls = StrategyLoader.get(name)
@@ -792,6 +794,10 @@ def _scan_template_list() -> list[dict[str, Any]]:
         with open(spec.origin, encoding="utf-8") as f:
             source = f.read()
 
+        # 模板参数从源码 AST 提取（self.get_param / self._param / config.params.get），
+        # 前端参数表单依据 variables 渲染，硬编码 [] 会让所有模板显示"无可配置参数"
+        parsed = service._parse_strategy_file(name, source)
+
         meta = _TEMPLATE_META.get(name, {"name": name, "category": "custom", "tags": []})
         templates.append(
             {
@@ -800,7 +806,7 @@ def _scan_template_list() -> list[dict[str, Any]]:
                 "description": cls.__doc__ or "",
                 "category": meta["category"],
                 "code_template": source,
-                "variables": [],  # 简化版：后续需要时再从源码推断 config.params.get
+                "variables": (parsed or {}).get("params", []),
                 "tags": meta["tags"],
                 "created_at": datetime.now(),
                 "updated_at": None,

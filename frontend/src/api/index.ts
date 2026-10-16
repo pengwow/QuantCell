@@ -12,7 +12,7 @@ import type {
   CleanupResult,
 } from '../pages/setting/types';
 import type { StrategyInfo } from '../types/worker';
-import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayRawTrade, PortfolioReplayData, BacktestFactors } from '../types/backtest';
+import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors } from '../types/backtest';
 
 // ============================================
 // 全局401错误处理配置
@@ -596,7 +596,7 @@ export const backtestApi = {
     status?: string;
     created_at?: string;
     kline_data?: ReplayKline[];
-    trades?: ReplayRawTrade[];
+    trades?: ReplayTrade[];
     equity_curve?: Array<{ date?: string; datetime?: string; equity?: number; [key: string]: unknown }>;
     metadata?: Record<string, unknown>;
     factors?: BacktestFactors | null;

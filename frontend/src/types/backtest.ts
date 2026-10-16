@@ -15,32 +15,24 @@ export interface ReplayKline {
   [key: string]: unknown;
 }
 
-// 回放数据中的交易原始字段
-export interface ReplayRawTrade {
-  trade_id?: string;
-  timestamp?: number;
-  formatted_time?: string;
-  side?: string;
-  direction?: string;
-  price?: number;
-  quantity?: number;
-  volume?: number;
-  commission?: string | number;
-  status?: string;
-  instrument_id?: string;
-  [key: string]: unknown;
-}
-
-// 交易数据接口
+// 交易数据接口（round-trip 成交契约，与后端 _build_round_trip_trades 输出一一对应）
+// 注意：2026-07-25 起引擎只产出该格式；旧结果无成交明细，由详情页空态提示
 export interface Trade {
-  EntryTime: string;
-  ExitTime: string;
-  Direction: string;
-  EntryPrice: number;
-  ExitPrice: number;
-  Size: number;
-  PnL: number;
-  ReturnPct: number;
+  trade_id: string;
+  symbol: string;
+  timestamp: number;        // 开仓时间（秒级）
+  formatted_time: string;   // 开仓展示时间
+  entry_time: string;       // 开仓 ISO UTC
+  exit_time: string;        // 平仓 ISO UTC
+  exit_timestamp: number;   // 平仓时间（秒级）
+  entry_price: number;
+  exit_price: number;
+  size: number;
+  pnl: number;
+  return_pct: number;
+  direction: string;        // "long"
+  side: string;             // 开仓方向 "buy"（非平仓方向）
+  status: string;           // "FILLED"
 }
 
 // 权益数据接口
@@ -122,21 +114,8 @@ export interface BacktestDetailData {
   created_at: string;
 }
 
-// 回放交易数据（后端回测引擎字段）
-export interface ReplayTrade {
-  trade_id: string;
-  timestamp?: number;
-  formatted_time?: string;
-  side?: string;
-  direction?: string;
-  price?: number;
-  quantity?: number;
-  volume?: number;
-  commission?: string | number;
-  status?: string;
-  instrument_id?: string;
-  [key: string]: unknown;
-}
+// 回放交易数据：契约同 Trade，保留 index signature 兜底后端附加字段
+export type ReplayTrade = Trade & { [key: string]: unknown };
 
 // ---- 回测因子（与后端结果 JSON 的 factors 字段对应）----
 // 列式时序：timestamps（毫秒 epoch）/ formatted_times 为公共轴，每个因子名对应一列值。

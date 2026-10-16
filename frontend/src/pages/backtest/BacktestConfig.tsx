@@ -43,7 +43,6 @@ import type { Dayjs } from 'dayjs';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
-const { TabPane } = Tabs;
 const { Dragger } = Upload;
 
 interface BacktestConfigProps {
@@ -78,6 +77,7 @@ interface BacktestFormValues {
   commission?: number;
   initialCash?: number;
   params?: Record<string, unknown>;
+  tradingMode?: string;
 }
 
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
@@ -119,6 +119,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [precheckDownloading, setPrecheckDownloading] = useState(false);
   const [precheckDownloadProgress, setPrecheckDownloadProgress] = useState(0);
   const [precheckDownloadMsg, setPrecheckDownloadMsg] = useState('');
+  // 逐品种下载进度: { symbol, interval, percentage, status }
+  const [precheckSymbolsProgress, setPrecheckSymbolsProgress] = useState<
+    { symbol: string; interval: string; percentage: number; status: string }[]
+  >([]);
   // 预检待执行的回测数据（下载完成后用它启动回测）
   const pendingBacktestDataRef = useRef<any>(null);
   const precheckAbortRef = useRef<AbortController | null>(null);
@@ -338,6 +342,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         if (config.initialCash !== undefined) {
           form.setFieldsValue({ initialCash: config.initialCash });
         }
+        if (config.tradingMode) {
+          form.setFieldsValue({ tradingMode: config.tradingMode });
+        }
         if (config.startTime && config.endTime) {
           form.setFieldsValue({
             timeRange: [dayjs(config.startTime), dayjs(config.endTime)],
@@ -357,6 +364,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         interval: values.interval,
         commission: values.commission,
         initialCash: values.initialCash,
+        tradingMode: values.tradingMode || 'spot',
         startTime: values.timeRange?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
         endTime: values.timeRange?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
         savedAt: new Date().toISOString(),
@@ -812,6 +820,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     setPrecheckDownloading(true);
     setPrecheckDownloadProgress(0);
     setPrecheckDownloadMsg('正在创建下载任务...');
+    setPrecheckSymbolsProgress([]);
     precheckAbortRef.current = new AbortController();
 
     try {
@@ -821,7 +830,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         interval: missingTimeframes,
         start: cfg.start_time,
         end: cfg.end_time,
-        candle_type: 'spot',
+        candle_type: cfg.trading_mode === 'futures' ? 'future' : 'spot',
       });
       const taskId = downloadRes?.task_id || downloadRes?.data?.task_id;
       if (!taskId) {
@@ -842,7 +851,22 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         const info = status?.task_info || status;
         const st = info?.status;
         const progress = info?.progress || {};
-        setPrecheckDownloadProgress(progress.percentage || 0);
+
+        // 逐品种进度: 后端 symbols_progress 是 { task_key: {symbol, interval, percentage, status} }
+        const symbolsProgressRaw = info?.symbols_progress || {};
+        const symList = Object.values(symbolsProgressRaw).map((p: any) => ({
+          symbol: p.symbol,
+          interval: p.interval,
+          percentage: Number(p.percentage || 0),
+          status: p.status || 'running',
+        }));
+        setPrecheckSymbolsProgress(symList);
+
+        // 总体进度 = 已完成品种数 / 总品种数,避免单品种 percentage 反复 0→100 造成进度条跳变
+        const totalSyms = symList.length || missingSymbols.length;
+        const doneSyms = symList.filter(p => p.status === 'completed').length;
+        const overallPct = totalSyms > 0 ? Math.round((doneSyms / totalSyms) * 100) : (progress.percentage || 0);
+        setPrecheckDownloadProgress(overallPct);
 
         if (st === 'completed') {
           // 下载全部成功
@@ -875,9 +899,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       setPrecheckVisible(false);
       setPrecheckDownloading(false);
+      // 预检阶段已关闭进度弹窗，这里重新打开以展示回测进度
+      setProgressVisible(true);
 
       if (remainingSymbols.length === 0) {
         message.error('所有品种均无可用数据，请前往数据管理页下载');
+        setProgressVisible(false);
         return;
       }
 
@@ -904,6 +931,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     try {
       setLoading(true);
       setErrorMessage('');
+      // 重置上次预检残留状态，避免弹窗被盖住或脏数据干扰
+      setPrecheckVisible(false);
+      setPrecheckDownloading(false);
+      setPrecheckMissing([]);
+      pendingBacktestDataRef.current = null;
 
       if (!values.timeRange || values.timeRange.length !== 2) {
         message.error('请选择有效的回测时间范围');
@@ -978,17 +1010,22 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           commission: values.commission,
           initial_cash: values.initialCash,
           factor_names: values.factorNames && values.factorNames.length > 0 ? values.factorNames : null,
+          trading_mode: values.tradingMode || 'spot',
         },
       };
 
       // 回测前数据预检：检查哪些品种缺少本地数据
+      // candle_type 跟随交易模式: 现货 spot / 永续合约 future
+      const candleType = values.tradingMode === 'futures' ? 'future' : 'spot';
       try {
         const precheck = await backtestApi.precheckData({
           symbols: symbols,
           timeframes: [values.interval || '15m'],
-          candle_type: 'spot',
+          candle_type: candleType,
         });
         if (!precheck.all_available && precheck.missing.length > 0) {
+          // 回测尚未启动，关闭进度弹窗，避免盖住下方的"数据缺失提醒"弹窗
+          setProgressVisible(false);
           // 有缺失品种：弹窗提示，等待用户确认下载
           pendingBacktestDataRef.current = backtestData;
           setPrecheckMissing(precheck.missing);
@@ -1056,6 +1093,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             commission: 0.001,
             initialCash: 1000000,
             timeRange: [dayjs().subtract(30, 'day'), dayjs()],
+            tradingMode: 'spot',
           }}
         >
           <Card title="策略信息" className="mb-6">
@@ -1201,6 +1239,20 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
               <Col span={24}>
                 <Form.Item
+                  name="tradingMode"
+                  label="交易模式"
+                  rules={[{ required: true, message: '请选择交易模式' }]}
+                  extra="现货只能做多；永续合约支持双向交易并结算资金费率，需对应合约 K 线数据"
+                >
+                  <Select placeholder="请选择交易模式">
+                    <Option value="spot">现货</Option>
+                    <Option value="futures">永续合约</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+
+              <Col span={24}>
+                <Form.Item
                   name="factorNames"
                   label={t('backtest_factors') || '回测因子'}
                   extra={
@@ -1286,120 +1338,132 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         footer={null}
         width={800}
       >
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          <TabPane tab="新建策略" key="new">
-            <Form
-              form={createForm}
-              layout="vertical"
-              onFinish={handleCreateSubmit}
-              initialValues={{
-                params: "{}",
-              }}
-            >
-              <Form.Item
-                name="strategyName"
-                label="策略名称"
-                rules={[{ required: true, message: '请输入策略名称' }]}
-              >
-                <Input placeholder="请输入策略名称" />
-              </Form.Item>
-
-              <Form.Item
-                name="description"
-                label="策略描述"
-              >
-                <Input.TextArea placeholder="请输入策略描述" rows={3} />
-              </Form.Item>
-
-              <Form.Item
-                name="params"
-                label="策略参数"
-                rules={[
-                  {
-                    validator: (_, value) => {
-                      try {
-                        if (value) {
-                          JSON.parse(value);
-                        }
-                        return Promise.resolve();
-                      } catch {
-                        return Promise.reject(new Error('策略参数必须是有效的JSON格式'));
-                      }
-                    },
-                  },
-                ]}
-              >
-                <Input.TextArea
-                  placeholder="请输入策略参数，格式为JSON字符串"
-                  rows={4}
-                />
-              </Form.Item>
-
-              <Form.Item style={{ textAlign: 'right' }}>
-                <Space>
-                  <Button onClick={handleCreateModalClose}>取消</Button>
-                  <Button type="primary" htmlType="submit" loading={loading}>
-                    创建设置
-                  </Button>
-                </Space>
-              </Form.Item>
-            </Form>
-          </TabPane>
-
-          <TabPane tab="上传策略文件" key="upload">
-            <Form
-              form={createForm}
-              layout="vertical"
-              onFinish={handleCreateSubmit}
-            >
-              <Form.Item
-                name="strategyName"
-                label="策略名称"
-                rules={[{ required: true, message: '请输入策略名称' }]}
-              >
-                <Input placeholder="请输入策略名称（留空则使用文件名）" />
-              </Form.Item>
-
-              <Form.Item label="上传策略文件">
-                <Dragger
-                  name="file"
-                  multiple={false}
-                  beforeUpload={handleFileUpload}
-                  showUploadList={false}
-                  accept=".py"
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'new',
+              label: '新建策略',
+              children: (
+                <Form
+                  form={createForm}
+                  layout="vertical"
+                  onFinish={handleCreateSubmit}
+                  initialValues={{
+                    params: "{}",
+                  }}
                 >
-                  <p className="ant-upload-drag-icon">
-                    <UploadOutlined />
-                  </p>
-                  <p className="ant-upload-text">点击或拖拽Python文件到此处上传</p>
-                  <p className="ant-upload-hint">
-                    支持单个Python文件上传，文件大小不超过2MB
-                  </p>
-                </Dragger>
-                {uploadFile && (
-                  <div style={{ marginTop: 16 }}>
-                    <p>已选择文件: {uploadFile.name}</p>
-                  </div>
-                )}
-              </Form.Item>
+                  <Form.Item
+                    name="strategyName"
+                    label="策略名称"
+                    rules={[{ required: true, message: '请输入策略名称' }]}
+                  >
+                    <Input placeholder="请输入策略名称" />
+                  </Form.Item>
 
-              <Form.Item style={{ textAlign: 'right' }}>
-                <Space>
-                  <Button onClick={handleCreateModalClose}>取消</Button>
-                  <Button type="primary" htmlType="submit" loading={loading}>
-                    上传策略
-                  </Button>
-                </Space>
-              </Form.Item>
-            </Form>
-          </TabPane>
-        </Tabs>
+                  <Form.Item
+                    name="description"
+                    label="策略描述"
+                  >
+                    <Input.TextArea placeholder="请输入策略描述" rows={3} />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="params"
+                    label="策略参数"
+                    rules={[
+                      {
+                        validator: (_, value) => {
+                          try {
+                            if (value) {
+                              JSON.parse(value);
+                            }
+                            return Promise.resolve();
+                          } catch {
+                            return Promise.reject(new Error('策略参数必须是有效的JSON格式'));
+                          }
+                        },
+                      },
+                    ]}
+                  >
+                    <Input.TextArea
+                      placeholder="请输入策略参数，格式为JSON字符串"
+                      rows={4}
+                    />
+                  </Form.Item>
+
+                  <Form.Item style={{ textAlign: 'right' }}>
+                    <Space>
+                      <Button onClick={handleCreateModalClose}>取消</Button>
+                      <Button type="primary" htmlType="submit" loading={loading}>
+                        创建设置
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+            {
+              key: 'upload',
+              label: '上传策略文件',
+              children: (
+                <Form
+                  form={createForm}
+                  layout="vertical"
+                  onFinish={handleCreateSubmit}
+                >
+                  <Form.Item
+                    name="strategyName"
+                    label="策略名称"
+                    rules={[{ required: true, message: '请输入策略名称' }]}
+                  >
+                    <Input placeholder="请输入策略名称（留空则使用文件名）" />
+                  </Form.Item>
+
+                  <Form.Item label="上传策略文件">
+                    <Dragger
+                      name="file"
+                      multiple={false}
+                      beforeUpload={handleFileUpload}
+                      showUploadList={false}
+                      accept=".py"
+                    >
+                      <p className="ant-upload-drag-icon">
+                        <UploadOutlined />
+                      </p>
+                      <p className="ant-upload-text">点击或拖拽Python文件到此处上传</p>
+                      <p className="ant-upload-hint">
+                        支持单个Python文件上传，文件大小不超过2MB
+                      </p>
+                    </Dragger>
+                    {uploadFile && (
+                      <div style={{ marginTop: 16 }}>
+                        <p>已选择文件: {uploadFile.name}</p>
+                      </div>
+                    )}
+                  </Form.Item>
+
+                  <Form.Item style={{ textAlign: 'right' }}>
+                    <Space>
+                      <Button onClick={handleCreateModalClose}>取消</Button>
+                      <Button type="primary" htmlType="submit" loading={loading}>
+                        上传策略
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+          ]}
+        />
       </Modal>
 
-      {/* 回测前数据预检弹窗 */}
+      {/* 回测前数据预检弹窗。zIndex 高于进度弹窗，避免被盖住导致用户无法操作 */}
       <Modal
         title="数据缺失提醒"
         open={precheckVisible}
+        zIndex={1100}
         onCancel={() => {
           if (precheckDownloading) {
             precheckAbortRef.current?.abort();
@@ -1436,6 +1500,34 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             <>
               <Progress percent={precheckDownloadProgress} status="active" />
               <div style={{ color: '#666', fontSize: 13 }}>{precheckDownloadMsg}</div>
+              {/* 逐品种下载进度: 已完成品种绿色背景 */}
+              {precheckSymbolsProgress.length > 0 && (
+                <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+                  {precheckSymbolsProgress.map((p) => {
+                    const done = p.status === 'completed';
+                    return (
+                      <div
+                        key={`${p.symbol}-${p.interval}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 12px',
+                          borderBottom: '1px solid #f5f5f5',
+                          background: done ? '#f6ffed' : undefined,
+                        }}
+                      >
+                        <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                          {p.symbol} · {p.interval}
+                        </span>
+                        <span style={{ fontSize: 12, color: done ? '#52c41a' : '#8c8c8c' }}>
+                          {done ? '已完成' : `${p.percentage}%`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
           <div style={{ color: '#999', fontSize: 12 }}>

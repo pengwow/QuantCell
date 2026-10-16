@@ -44,7 +44,7 @@ import type {
   PortfolioPositionEvent,
   PortfolioReplayData,
   ReplayKline,
-  ReplayRawTrade,
+  ReplayTrade,
 } from '../../types/backtest';
 
 // 与品种视角统一的速度枚举：覆盖 1x~128x，合并两套档位
@@ -118,7 +118,7 @@ interface KlineBackgroundProps {
   symbol: string;
   interval: string;
   klines: ReplayKline[];
-  trades: ReplayRawTrade[];
+  trades: ReplayTrade[];
   currentMs: number;
 }
 
@@ -164,19 +164,26 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
 
       const winStart = klineTimes[startIndex];
       const winEnd = klineTimes[kIdx];
-      trades.forEach((trade) => {
-        const tradeMs = (trade.timestamp ?? 0) * 1000;
-        if (tradeMs < winStart || tradeMs > winEnd) return;
-        const isBuy = trade.side?.toUpperCase() === 'BUY' || trade.direction?.includes('买入');
-        chart.createOverlay({
-          name: 'jsonAnnotation',
-          extendData: JSON.stringify({
-            lines: [isBuy ? '买入' : '卖出', `数量: ${(trade.quantity ?? 0).toFixed(4)}`],
-            colors: [isBuy ? colors.positive : colors.negative, '#ffffff'],
-            fontSize: 12,
-            align: 'left',
-          }),
-          points: [{ timestamp: tradeMs, value: trade.price ?? 0 }],
+      // round-trip 契约：每条记录展开为开仓/平仓两个标记（side 即开仓方向 buy）
+      trades.forEach((tr) => {
+        const marks: Array<{ ms: number; price: number; label: string }> = [
+          { ms: tr.timestamp * 1000, price: tr.entry_price, label: '买入' },
+        ];
+        if (tr.exit_timestamp) {
+          marks.push({ ms: tr.exit_timestamp * 1000, price: tr.exit_price, label: '卖出' });
+        }
+        marks.forEach((mk) => {
+          if (mk.ms < winStart || mk.ms > winEnd) return;
+          chart.createOverlay({
+            name: 'jsonAnnotation',
+            extendData: JSON.stringify({
+              lines: [mk.label, `数量: ${tr.size.toFixed(4)}`],
+              colors: [mk.label === '买入' ? colors.positive : colors.negative, '#ffffff'],
+              fontSize: 12,
+              align: 'left',
+            }),
+            points: [{ timestamp: mk.ms, value: mk.price }],
+          });
         });
       });
     },
@@ -252,7 +259,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
   const [error, setError] = useState<string | null>(null);
   const [bgSymbol, setBgSymbol] = useState(symbols[0] ?? '');
   const [bgKlines, setBgKlines] = useState<ReplayKline[]>([]);
-  const [bgTrades, setBgTrades] = useState<ReplayRawTrade[]>([]);
+  const [bgTrades, setBgTrades] = useState<ReplayTrade[]>([]);
   // 首个品种挂载即加载，初始按加载中渲染占位
   const [bgLoading, setBgLoading] = useState(true);
 
@@ -410,24 +417,12 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     return rows;
   }, [data, currentMs]);
 
-  // ---- 截至当前的跨品种成交流（trades 时间戳为秒级）----
-  const tradeTimes = useMemo(() => (data?.trades ?? []).map((tr) => tr.timestamp ?? 0), [data]);
+  // ---- 截至当前的跨品种成交流（round-trip 契约 timestamp 为秒级必填）----
+  const tradeTimes = useMemo(() => (data?.trades ?? []).map((tr) => tr.timestamp), [data]);
   const filledCount = data ? bisectRight<number>(tradeTimes, currentMs / 1000, (v) => v) : 0;
 
-  const allTableTrades = useMemo<TradeTableTrade[]>(
-    () =>
-      (data?.trades ?? []).map((tr, i) => ({
-        ...tr,
-        trade_id: `pt-${i}`,
-        timestamp: tr.timestamp ?? 0,
-        formatted_time: tr.formatted_time ?? '',
-        quantity: tr.quantity ?? 0,
-        price: tr.price ?? 0,
-        volume: tr.volume ?? 0,
-        commission: String(tr.commission ?? ''),
-      })),
-    [data],
-  );
+  // 新契约记录直接透传（后端已带 trade_id/symbol）
+  const allTableTrades = useMemo<TradeTableTrade[]>(() => data?.trades ?? [], [data]);
 
   // 新成交出现时记录最新一笔的时间戳（用于行高亮）
   const filledCountRef = useRef(0);

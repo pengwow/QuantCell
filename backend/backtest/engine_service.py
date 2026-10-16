@@ -100,10 +100,19 @@ class EventDrivenBacktestService:
         )
 
         # 解析默认配置
-        init_cash = (engine_config or {}).get("initial_capital", 10000)
-        time_range = (engine_config or {}).get("time_range")
+        engine_cfg = engine_config or {}
+        # 键名归一化：CLI 传 initial_capital/time_range，REST API 契约（BacktestConfig schema）
+        # 是 initial_cash/start_time + end_time。只认一种会导致另一侧配置静默失效：
+        # 资金跌回默认值、时间范围退化为全量历史数据。
+        init_cash = engine_cfg.get("initial_capital", engine_cfg.get("initial_cash", 10000))
+        time_range = engine_cfg.get("time_range")
+        if not time_range:
+            start_time, end_time = engine_cfg.get("start_time"), engine_cfg.get("end_time")
+            if start_time and end_time:
+                # parse_time_range 支持的 "start-end" 拼接格式（ISO datetime 含空格可正确分割）
+                time_range = f"{start_time}-{end_time}"
         # 交易模式: spot(现货) / futures(永续合约)
-        trading_mode = (engine_config or {}).get("trading_mode", "spot")
+        trading_mode = engine_cfg.get("trading_mode", "spot")
         candle_type = "future" if trading_mode == "futures" else "spot"
 
         # 1. 加载数据
@@ -120,6 +129,11 @@ class EventDrivenBacktestService:
             # 转换为统一格式
             loaded_data: dict[str, Any] = {}
             for key, df in data_dict.items():
+                # 时间范围内无数据的品种剔除：空 df 进回测会产出全 fallback 的假
+                # 结果（初始权益 100000 / 最终权益 0），污染详情页按品种视图
+                if df is None or df.empty:
+                    logger.warning(f"{key} 在配置时间范围内无数据，已跳过该品种")
+                    continue
                 loaded_data[key] = {
                     "data": df,
                     "features": None,
@@ -138,6 +152,10 @@ class EventDrivenBacktestService:
             )
             loaded_data: dict[str, Any] = {}
             for key, result in adapter_dict.items():
+                # 同 kline 分支：无数据品种剔除，避免空结果条目污染详情页
+                if result.data is None or result.data.empty:
+                    logger.warning(f"{key} 在配置时间范围内无数据，已跳过该品种")
+                    continue
                 loaded_data[key] = {
                     "data": result.data,
                     "features": result.metadata.get("features_dict"),
@@ -629,9 +647,9 @@ class EventDrivenBacktestService:
         total_fills = results.get("fills", 0)
 
         # initial_equity / final_equity:每品种独立资金池(每 run 都 initial_cash 起步)
-        # 假设所有品种用同一 initial_cash,从第一个结果读
-        first_sym = symbols[0] if symbols else None
-        first_result = per_symbol_results.get(first_sym, {}) if first_sym else {}
+        # 从实际参与回测的首个品种读初始资金：按请求 symbols[0] 取会在该品种
+        # 无数据被剔除时拿到空 dict，fallback 成 100000 污染组合初始权益
+        first_result = next(iter(per_symbol_results.values()), {})
         initial_cash_per_symbol = first_result.get("initial_capital", 100000.0)
         initial_equity = initial_cash_per_symbol * n  # N 个独立资金池
         final_equity = initial_equity + total_pnl
@@ -694,17 +712,30 @@ class EventDrivenBacktestService:
             "timeframe": timeframe,
             "is_multi_symbol": True,
             "results_by_symbol": {
+                # 只遍历实际参与回测的品种：无数据品种不在 per_symbol_results 里，
+                # 按请求 symbols 全集遍历会让缺失品种以空 dict 走 fallback，
+                # 产出初始权益 100000 / 最终权益 0 的假条目污染详情页
                 symbol: ResultFormatterService.format_axon_results(
-                    results=per_symbol_results.get(symbol, {}),
+                    results=per_symbol_results[symbol],
                     symbol=symbol,
                     timeframe=timeframe,
                     strategy_name=strategy_name,
                 ).get(f"{symbol}_{timeframe}", {})
-                for symbol in symbols
+                for symbol in per_symbol_results
             },
             # portfolio 级别的 metrics 使用聚合数据格式化
+            # format_axon_results 按 initial_capital/final_nav/max_drawdown_pct 取数，
+            # 聚合 dict 里的对应键是 initial_equity/final_equity/max_drawdown，
+            # 必须改名注入，否则 fallback 到 100000/0.0，组合指标与权益曲线互相矛盾
             "portfolio": ResultFormatterService.format_axon_results(
-                results={**results, "trades": [], "equity_curve": []},
+                results={
+                    **results,
+                    "initial_capital": initial_equity,
+                    "final_nav": final_equity,
+                    "max_drawdown_pct": max_dd_pct,
+                    "trades": [],
+                    "equity_curve": [],
+                },
                 symbol=symbols[0] if symbols else "PORTFOLIO",
                 timeframe=timeframe,
                 strategy_name=strategy_name,

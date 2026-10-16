@@ -26,7 +26,7 @@ import {
 } from '@ant-design/icons';
 import { backtestApi } from '../../api';
 import MetricCard from '../../components/MetricCard';
-import TradeTable from '../../components/TradeTable';
+import TradeTable, { type Trade } from '../../components/TradeTable';
 import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
 import { useQuantColors } from '@/utils/colors';
@@ -42,26 +42,6 @@ interface BacktestMetrics {
   value: number;
   description: string;
   type: string;
-}
-
-interface BacktestTrade {
-  trade_id: string;
-  side?: string;
-  Side?: string;
-  direction?: string;
-  Direction?: string;
-  quantity: number;
-  price: number;
-  volume: number;
-  commission: string;
-  timestamp: number;
-  formatted_time: string;
-  status?: string;
-  Status?: string;
-  symbol?: string;
-  Symbol?: string;
-  instrument_id?: string;
-  instrument?: string;
 }
 
 interface EquityCurvePoint {
@@ -111,7 +91,7 @@ interface BacktestResponse {
   };
   strategy_config: Record<string, unknown>;
   metrics: BacktestMetrics[];
-  trades: BacktestTrade[];
+  trades: Trade[];
   equity_curve: EquityCurvePoint[];
   factors?: BacktestFactors;
   // 多品种结果：实际有数据的品种列表、当前返回品种
@@ -209,52 +189,45 @@ const BacktestDetail = () => {
     return metric?.value || 0;
   };
 
+  // 完整新契约识别：timestamp + entry_price 同时存在（排除旧 fill 与无 timestamp 的中间版）
+  const isContractTrade = (t: Trade) => t.timestamp != null && t.entry_price != null;
+  // 是否整个为旧版本引擎产出的结果（无契约字段，无成交明细可展示）
+  const rawTrades = backtestData?.trades ?? [];
+  const isLegacyOnly = rawTrades.length > 0 && rawTrades.every((t) => !isContractTrade(t));
+
   // 获取交易列表，根据高级筛选条件进行筛选
-  const getTrades = (): BacktestTrade[] => {
-    let trades = backtestData?.trades || [];
+  const getTrades = (): Trade[] => {
+    // 非契约记录（旧格式/中间版）不适配新表格，直接滤掉
+    let trades = rawTrades.filter(isContractTrade);
 
     // 根据货币对筛选
     if (selectedSymbol && selectedSymbol !== 'all') {
       // 统一去掉 / _ . - 等分隔符再比较，兼容 "BTC/USDT"、"BTCUSDT"、"BTCUSDT.BINANCE" 等写法
       const normalizeSym = (s: string) => s.replace(/[/_.-]/g, '').replace('BINANCE', '').toUpperCase();
       const normalizedSelected = normalizeSym(selectedSymbol);
-      trades = trades.filter((trade: BacktestTrade) => {
-        const tradeSymbol = trade.Symbol || trade.symbol || trade.instrument_id || trade.instrument || '';
-        const normalizedTrade = normalizeSym(tradeSymbol);
+      trades = trades.filter((trade) => {
+        const normalizedTrade = normalizeSym(trade.symbol);
         // 任一方包含另一方即视为同一品种（兼容带交易所后缀等情况）
         return normalizedTrade.includes(normalizedSelected) || normalizedSelected.includes(normalizedTrade);
       });
     }
 
-    // 根据方向筛选
+    // 根据方向筛选（契约 side 为开仓方向 buy/sell）
     if (filterSide && filterSide !== 'all') {
-      trades = trades.filter((trade: BacktestTrade) => {
-        const side = trade.side || trade.Side || trade.direction || trade.Direction || '';
-        return side.toLowerCase() === filterSide.toLowerCase();
-      });
+      trades = trades.filter((trade) => trade.side === filterSide);
     }
 
     // 根据状态筛选
     if (filterStatus && filterStatus !== 'all') {
-      trades = trades.filter((trade: BacktestTrade) => {
-        const status = trade.status || trade.Status || '';
-        return status.toLowerCase() === filterStatus.toLowerCase();
-      });
+      trades = trades.filter((trade) => trade.status.toLowerCase() === filterStatus.toLowerCase());
     }
 
-    // 根据日期范围筛选
+    // 根据日期范围筛选（契约 timestamp 为秒级）
     if (filterDateRange && filterDateRange[0] && filterDateRange[1]) {
       const startDate = new Date(filterDateRange[0]).getTime();
       const endDate = new Date(filterDateRange[1]).getTime();
-      trades = trades.filter((trade: BacktestTrade) => {
-        // 后端返回的 timestamp 是秒级（10位），需要转换为毫秒级（13位）
-        let tradeTime = trade.timestamp;
-        if (tradeTime && tradeTime.toString().length <= 10) {
-          tradeTime = tradeTime * 1000; // 秒转毫秒
-        }
-        if (!tradeTime && trade.formatted_time) {
-          tradeTime = new Date(trade.formatted_time).getTime();
-        }
+      trades = trades.filter((trade) => {
+        const tradeTime = trade.timestamp * 1000;
         return tradeTime >= startDate && tradeTime <= endDate;
       });
     }
@@ -403,6 +376,9 @@ const BacktestDetail = () => {
             </Descriptions.Item>
             <Descriptions.Item label="时间周期">
               {backtestConfig.interval || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="交易模式">
+              {backtestConfig.trading_mode === 'futures' ? '永续合约' : '现货'}
             </Descriptions.Item>
             <Descriptions.Item label="回测时间">
               {backtestConfig.start_time && backtestConfig.end_time
@@ -838,6 +814,8 @@ const BacktestDetail = () => {
 
           {getTrades().length > 0 ? (
             <TradeTable data={getTrades()} />
+          ) : isLegacyOnly ? (
+            <Empty description="该回测由旧版本引擎生成，无成交明细" />
           ) : (
             <Empty description="暂无交易记录" />
           )}

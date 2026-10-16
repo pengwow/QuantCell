@@ -112,13 +112,16 @@ def test_features_aligned_when_data_is_datetime_index():
 
 
 def test_futures_mode_uses_swap_instrument_with_funding(monkeypatch):
-    """futures 模式构造 swap 品种并把 funding_df 交给引擎结算（口径同旧事件路径）。"""
+    """futures 模式构造 swap 品种并按 bar 时间戳匹配后调用 push_funding 结算。
+
+    引擎无 add_funding_data 方法，改为在 bar 循环内命中 funding 时刻时逐事件 push。
+    """
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     import backtest.backtest_loop as bl
 
-    funding_calls: list[tuple[dict, pd.DataFrame]] = []
+    push_calls: list[tuple] = []
 
     fake_engine = MagicMock()
     fake_engine.pending_events = 0
@@ -144,28 +147,35 @@ def test_futures_mode_uses_swap_instrument_with_funding(monkeypatch):
         positions={},
     )
 
-    def _fake_add_funding(instrument, df):
-        funding_calls.append((instrument, df))
+    def _fake_push(instrument, funding_rate, mark_price, timestamp_ns):
+        push_calls.append((instrument, funding_rate, mark_price, timestamp_ns))
 
-    fake_engine.add_funding_data.side_effect = _fake_add_funding
+    fake_engine.push_funding.side_effect = _fake_push
     monkeypatch.setattr(bl, "_NativeBacktestEngine", MagicMock(return_value=fake_engine))
 
+    ohlcv = _ohlcv(5)
+    # funding 事件对齐第 1、3 根 bar 的时间戳，确保 push_funding 被精确匹配调用
+    funding_ts = ohlcv["timestamp"].iloc[[0, 2]].tolist()
     funding_df = pd.DataFrame(
-        {"funding_rate": [0.0001, 0.0001]},
-        index=pd.date_range("2025-01-01", periods=2, freq="8h"),
+        {"funding_rate": [0.0001, 0.0002], "mark_price": [100.5, 101.5]},
+        index=pd.to_datetime(funding_ts),
     )
 
     bl.BacktestLoop(initial_cash=100_000.0).run(
         SpyStrategy(),
-        _ohlcv(5),
+        ohlcv,
         symbol="BTCUSDT",
         trading_mode="futures",
         funding_df=funding_df,
     )
 
-    assert len(funding_calls) == 1
-    instrument, passed_df = funding_calls[0]
-    assert instrument["kind"] == "swap"
-    assert instrument["base"] == "BTC"
-    assert instrument["quote"] == "USDT"
-    assert passed_df is funding_df
+    # 旧 add_funding_data 已废弃(引擎无此方法),不应被调用
+    fake_engine.add_funding_data.assert_not_called()
+    # 命中 2 个 funding 时刻
+    assert len(push_calls) == 2
+    for instrument, _rate, _mark, _ts in push_calls:
+        assert instrument["kind"] == "swap"
+        assert instrument["base"] == "BTC"
+        assert instrument["quote"] == "USDT"
+    # 校验按 bar 时间戳精确匹配
+    assert [ts for _, _, _, ts in push_calls] == funding_ts
