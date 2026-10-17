@@ -222,15 +222,21 @@ class EventDrivenBacktestService:
         loop = BacktestLoop(initial_cash=init_cash)
         force_liquidate = (engine_config or {}).get("force_liquidate", False)
 
-        # Rust 原生回测路径（axon_quant.worker.BacktestRunner）可选开关。
-        # 首版只放行 现货 + 无因子 + 单品种 + kline 的组合，避免期货资金费/因子注入
-        # 尚未在 Rust 侧实现的场景回归（见 P2 迁移计划）。
+        # 回测编排路径选择：默认 Rust 原生（axon_quant.worker.BacktestRunner），
+        # 可显式设 engine_config['runner']='python' 回退到 Python BacktestLoop。
+        #
+        # 仅放行 Rust 侧已对齐的场景：现货 + 无因子 + 单品种 + kline + 非强制平仓。
+        # - 期货资金费、因子注入尚未在 Rust 侧实现
+        # - force_liquidate 未暴露到 PyBacktestRunner（避免静默降级）
+        # 不满足条件时自动回退 Python 路径，保证行为不回退。
+        runner_mode = (engine_config or {}).get("runner", "rust")
         use_rust_runner = (
-            (engine_config or {}).get("runner") == "rust"
+            runner_mode == "rust"
             and len(symbols) == 1
             and not factor_names
             and trading_mode == "spot"
             and data_type == "kline"
+            and not force_liquidate
         )
 
         if len(symbols) == 1:
