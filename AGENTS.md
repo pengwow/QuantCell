@@ -143,6 +143,26 @@ class BacktestLoop:
     def run(self, strategy: RuleStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
 ```
 
+### BacktestRunner — Rust 原生回测编排（默认路径）
+
+`backtest/engine_service.py` 默认走 axon_quant 原生 `BacktestRunner`；`engine_config['runner']='python'` 可回退 `BacktestLoop`。
+仅放行 **现货 + 无因子 + 单品种 + kline + 非 force_liquidate**（期货资金费/因子注入/强制平仓 Rust 侧未实现），其余场景自动回退，无静默降级。
+
+```python
+# backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → Rust decide(bar) 桥接
+from axon_quant import worker
+
+runner = worker.BacktestRunner(initial_cash=100_000.0)
+runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
+result = runner.run(
+    bars=[{"timestamp": ns, "open": .., "high": .., "low": .., "close": .., "volume": ..}],
+    state_by_symbol={},
+)
+```
+
+`RustStrategyAdapter` 对齐 `BacktestLoop` 语义：symbol 归一化为 `BASE/QUOTE`；`target_position` 由权益占比按 `ratio * equity / price` 换算为绝对数量；hold 保持上次目标。
+两条路径结果 **bit-parity**，回归测试见 `tests/unit/backtest/test_rust_runner_parity.py`。
+
 ### StrategyLoop — 实盘循环
 
 ```python
