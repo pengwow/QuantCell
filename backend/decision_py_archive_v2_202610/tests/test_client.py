@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from decision.client import ReplayDecisionClient, ReplayMissError, StubDecisionClient
 from decision.questions import build_questions, build_state, request_fingerprint
 from decision.types import ChoiceAnswer, DecisionResponse, NoulAnswer, ScoreAnswer

@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from cli.decision import app
+from typer.testing import CliRunner
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sample_bars.csv"
 

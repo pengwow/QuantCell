@@ -64,12 +64,9 @@ def register_commands() -> None:
 
     app.add_typer(data_app, name="data")
 
-    # decision: SDM 决策预研离线评测
-    from cli.decision import app as decision_app
 
-    app.add_typer(decision_app, name="decision")
-
-
-# 注意：子命令注册统一放在 cli/__main__.py 的 main() 中，避免 import cli 包时
+# 注意：decision CLI 已归档（Python SDM 原型已被 Rust axon-llm decision 模块同构替代），
+# 如需离线评测请使用 axon_quant._native.llm.decision。
+# 子命令注册统一放在 cli/__main__.py 的 main() 中，避免 import cli 包时
 # 加载全部子模块产生副作用（如 worker 模块导入时会向 stdout 打日志，
 # 会污染 cli.* 子命令的纯文本/JSON 输出）。
