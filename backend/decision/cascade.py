@@ -71,9 +71,14 @@ class RuleFallback:
 
 
 def _extract_sub_signals(resp: DecisionResponse) -> dict[str, float]:
-    """提取 3 个并行子问题信号；仅用于离线归因，禁止参与门控。"""
+    """提取子问题信号（v1 全部 3 个 + v2 新增 2 个可数值化的）。
+
+    仅用于离线归因，禁止参与门控。position_size 和 execution_urgency 是 Choice 类型，
+    走 harness 层路由，不在这里做数值化提取。
+    """
     sub: dict[str, float] = {}
     answers = resp.answers
+    # v1 既有
     trend = answers.get("trend_confirms")
     if isinstance(trend, NoulAnswer):
         sub["trend_confirms"] = trend.noul
@@ -83,6 +88,13 @@ def _extract_sub_signals(resp: DecisionResponse) -> dict[str, float]:
     clarity = answers.get("signal_clarity")
     if isinstance(clarity, ScoreAnswer):
         sub["signal_clarity"] = clarity.score
+    # v2 新增可数值化的
+    vol = answers.get("volatility_regime")
+    if isinstance(vol, ScoreAnswer):
+        sub["volatility_regime"] = vol.score
+    dd = answers.get("drawdown_risk")
+    if isinstance(dd, NoulAnswer):
+        sub["drawdown_risk"] = dd.noul
     return sub
 
 
