@@ -10,12 +10,12 @@
 """
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
 
-from backtest.backtest_loop import BacktestLoop, clean_ohlcv_df
+from backtest.backtest_loop import BacktestLoop, BacktestResult, clean_ohlcv_df
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -222,6 +222,17 @@ class EventDrivenBacktestService:
         loop = BacktestLoop(initial_cash=init_cash)
         force_liquidate = (engine_config or {}).get("force_liquidate", False)
 
+        # Rust 原生回测路径（axon_quant.worker.BacktestRunner）可选开关。
+        # 首版只放行 现货 + 无因子 + 单品种 + kline 的组合，避免期货资金费/因子注入
+        # 尚未在 Rust 侧实现的场景回归（见 P2 迁移计划）。
+        use_rust_runner = (
+            (engine_config or {}).get("runner") == "rust"
+            and len(symbols) == 1
+            and not factor_names
+            and trading_mode == "spot"
+            and data_type == "kline"
+        )
+
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))
             entry = loaded_data[first_key]
@@ -230,17 +241,27 @@ class EventDrivenBacktestService:
             symbol = parts[0] if len(parts) > 1 else first_key
             if on_symbol_progress:
                 on_symbol_progress(0, 1, symbol)
-            result = loop.run(
-                strategy=strategy,
-                data=df,
-                symbol=symbol,
-                force_liquidate=force_liquidate,
-                features=entry.get("features"),
-                feature_dataframe=entry.get("feature_dataframe"),
-                data_type=entry.get("data_type", "kline"),
-                trading_mode=trading_mode,
-                funding_df=self._load_funding(symbol, trading_mode, time_range),
-            )
+            if use_rust_runner:
+                # Rust 原生编排：BacktestRunner 逐 bar 调策略，结果映射回同一契约
+                result = self._run_rust_single(
+                    strategy=strategy,
+                    df=df,
+                    symbol=symbol,
+                    init_cash=init_cash,
+                    force_liquidate=force_liquidate,
+                )
+            else:
+                result = loop.run(
+                    strategy=strategy,
+                    data=df,
+                    symbol=symbol,
+                    force_liquidate=force_liquidate,
+                    features=entry.get("features"),
+                    feature_dataframe=entry.get("feature_dataframe"),
+                    data_type=entry.get("data_type", "kline"),
+                    trading_mode=trading_mode,
+                    funding_df=self._load_funding(symbol, trading_mode, time_range),
+                )
             raw_results = self._convert_backtest_result(result)
             # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
             raw_results["klines"] = self._build_kline_records(clean_ohlcv_df(df), engine_config, time_range)
@@ -552,6 +573,120 @@ class EventDrivenBacktestService:
             "data_end_ns": result.data_end_ns,
             "bar_count": result.bar_count,
         }
+
+    # ─── Rust 原生回测路径（axon_quant.worker.BacktestRunner） ───
+
+    def _run_rust_single(
+        self,
+        strategy,
+        df: pd.DataFrame,
+        symbol: str,
+        init_cash: float,
+        force_liquidate: bool = False,
+    ) -> BacktestResult:
+        """Rust 原生回测：BacktestRunner 逐 bar 编排策略，结果映射回 QuantCell 契约。
+
+        与 BacktestLoop 路径的差异仅在编排层（循环在 Rust 侧而非 Python 逐 bar），
+        两者共用同一个 axon BacktestEngine，撮合语义一致。
+        """
+        from axon_quant import worker
+
+        from strategy.rust_adapter import RustStrategyAdapter
+
+        if force_liquidate:
+            # PyBacktestRunner 暂未暴露 force_liquidate（simple() 固定 False）
+            logger.warning("[Rust runner] force_liquidate 暂未支持，本次忽略该配置")
+
+        # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
+        df = clean_ohlcv_df(df)
+        runner = worker.BacktestRunner(initial_cash=init_cash)
+        runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
+        rust_result = runner.run(bars=self._df_to_rust_bars(df), state_by_symbol={})
+        return self._map_rust_result(rust_result, df, symbol)
+
+    @staticmethod
+    def _df_to_rust_bars(df: pd.DataFrame) -> list[dict[str, Any]]:
+        """OHLCV DataFrame → Rust BacktestRunner 期望的 bar dict 列表（纳秒时间戳）。
+
+        列名统一小写；时间列优先 "timestamp"，否则取首列。
+        """
+        out = df.reset_index()
+        out.columns = [str(c).lower() for c in out.columns]
+        time_col = "timestamp" if "timestamp" in out.columns else out.columns[0]
+        # DatetimeIndex → int64 纳秒（as_unit 显式定标，避免原 dtype 单位漂移）
+        ts_ns = pd.to_datetime(out[time_col], utc=True).dt.as_unit("ns").astype("int64").tolist()
+        volume = out["volume"] if "volume" in out.columns else pd.Series(0.0, index=out.index)
+        return [
+            {
+                "timestamp": int(ts_ns[i]),
+                "open": float(out["open"].iloc[i]),
+                "high": float(out["high"].iloc[i]),
+                "low": float(out["low"].iloc[i]),
+                "close": float(out["close"].iloc[i]),
+                "volume": float(volume.iloc[i]),
+            }
+            for i in range(len(out))
+        ]
+
+    @staticmethod
+    def _map_rust_result(rust_result, df: pd.DataFrame, symbol: str) -> BacktestResult:
+        """Rust BacktestResult → QuantCell BacktestResult（口径与 BacktestLoop 完全一致）。
+
+        关键换算：max_drawdown_pct / win_rate 由引擎的小数形式 ×100 转显示口径。
+        """
+        raw_max_dd_pct = float(rust_result.max_drawdown_pct)
+        max_drawdown_usd = float(rust_result.nav_peak) * raw_max_dd_pct
+
+        # equity_curve：逐 bar NAV 曲线（bar_nav_curve），格式适配前端 EquityChart
+        equity_curve = []
+        for ts_ns, nav in rust_result.bar_nav_curve:
+            dt_str = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            nav_float = float(nav)
+            equity_curve.append(
+                {
+                    "datetime": dt_str,
+                    "Equity": nav_float,
+                    "equity": nav_float,
+                    "formatted_time": dt_str,
+                    "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
+                }
+            )
+
+        trade_records = BacktestLoop._format_round_trip_trades(list(rust_result.trades), symbol)
+
+        # 数据时间范围：优先 timestamp 列（与 BacktestLoop.run 口径一致）
+        if "timestamp" in df.columns and len(df) > 0:
+            data_start_ns = int(df["timestamp"].iloc[0])
+            data_end_ns = int(df["timestamp"].iloc[-1])
+        elif len(df) > 0:
+            data_start_ns = int(pd.Timestamp(df.index[0]).timestamp() * 1e9)
+            data_end_ns = int(pd.Timestamp(df.index[-1]).timestamp() * 1e9)
+        else:
+            data_start_ns = 0
+            data_end_ns = 0
+
+        return BacktestResult(
+            total_pnl=float(rust_result.total_pnl),
+            total_orders=int(rust_result.orders_accepted) + int(rust_result.orders_rejected),
+            fills=int(rust_result.fills),
+            final_nav=float(rust_result.final_nav),
+            max_drawdown=max_drawdown_usd,
+            orders_accepted=int(rust_result.orders_accepted),
+            orders_rejected=int(rust_result.orders_rejected),
+            events_processed=int(rust_result.events_processed),
+            duration_secs=float(rust_result.duration_secs),
+            total_fees=float(rust_result.total_fees),
+            win_rate=float(rust_result.win_rate) * 100.0,
+            sharpe_ratio=float(rust_result.sharpe_ratio),
+            nav_peak=float(rust_result.nav_peak),
+            max_drawdown_pct=raw_max_dd_pct * 100.0,
+            trade_records=trade_records,
+            equity_curve=equity_curve,
+            data_start_ns=data_start_ns,
+            data_end_ns=data_end_ns,
+            bar_count=len(df),
+            final_positions=dict(rust_result.final_positions),
+        )
 
     @staticmethod
     def _klines_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:
