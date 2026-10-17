@@ -225,13 +225,11 @@ class EventDrivenBacktestService:
         # 回测编排路径选择：默认 Rust 原生（axon_quant.worker.BacktestRunner），
         # 可显式设 engine_config['runner']='python' 回退到 Python BacktestLoop。
         #
-        # 放行条件：单品种 + kline + 非 force_liquidate。
-        # - 期货资金费、逐 bar 因子注入已由 Rust 侧支持（见 _build_rust_funding/_build_rust_states）
-        # - force_liquidate 未暴露到 PyBacktestRunner（避免静默降级）
-        # - 多品种聚合仍在 Python 侧，未迁移
-        # 不满足条件时自动回退 Python 路径，保证行为不回退。
+        # 放行条件：kline 数据类型。期货资金费、逐 bar 因子注入、force_liquidate
+        # 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」执行（与 BacktestLoop
+        # 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
         runner_mode = (engine_config or {}).get("runner", "rust")
-        use_rust_runner = runner_mode == "rust" and len(symbols) == 1 and data_type == "kline" and not force_liquidate
+        use_rust_runner = runner_mode == "rust" and data_type == "kline"
 
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))
@@ -278,17 +276,30 @@ class EventDrivenBacktestService:
                 sym = parts[0] if len(parts) > 1 else key
                 if on_symbol_progress:
                     on_symbol_progress(idx, len(loaded_entries), sym)
-                loop_result = loop.run(
-                    strategy=strategy,
-                    data=df,
-                    symbol=sym,
-                    force_liquidate=force_liquidate,
-                    features=entry.get("features"),
-                    feature_dataframe=entry.get("feature_dataframe"),
-                    data_type=entry.get("data_type", "kline"),
-                    trading_mode=trading_mode,
-                    funding_df=self._load_funding(sym, trading_mode, time_range),
-                )
+                if use_rust_runner:
+                    # 每品种独立跑一个 Rust runner（与 BacktestLoop 每品种独立资金池口径一致）
+                    loop_result = self._run_rust_single(
+                        strategy=strategy,
+                        df=df,
+                        symbol=sym,
+                        init_cash=init_cash,
+                        force_liquidate=force_liquidate,
+                        feature_dataframe=entry.get("feature_dataframe"),
+                        funding_df=self._load_funding(sym, trading_mode, time_range),
+                        futures=(trading_mode == "futures"),
+                    )
+                else:
+                    loop_result = loop.run(
+                        strategy=strategy,
+                        data=df,
+                        symbol=sym,
+                        force_liquidate=force_liquidate,
+                        features=entry.get("features"),
+                        feature_dataframe=entry.get("feature_dataframe"),
+                        data_type=entry.get("data_type", "kline"),
+                        trading_mode=trading_mode,
+                        funding_df=self._load_funding(sym, trading_mode, time_range),
+                    )
                 result = self._convert_backtest_result(loop_result)
                 per_symbol_results[sym] = result
                 # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
@@ -603,10 +614,6 @@ class EventDrivenBacktestService:
 
         from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
 
-        if force_liquidate:
-            # PyBacktestRunner 暂未暴露 force_liquidate（simple() 固定 False）
-            logger.warning("[Rust runner] force_liquidate 暂未支持，本次忽略该配置")
-
         # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
         df = clean_ohlcv_df(df)
         bars = self._df_to_rust_bars(df)
@@ -616,7 +623,11 @@ class EventDrivenBacktestService:
         states_by_symbol = self._build_rust_states(feature_dataframe, bar_ts_list, rust_symbol)
         funding_by_symbol = self._build_rust_funding(funding_df, rust_symbol, futures)
 
-        runner = worker.BacktestRunner(initial_cash=init_cash, futures=futures)
+        runner = worker.BacktestRunner(
+            initial_cash=init_cash,
+            futures=futures,
+            force_liquidate=force_liquidate,
+        )
         runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
         rust_result = runner.run(
             bars=bars,
