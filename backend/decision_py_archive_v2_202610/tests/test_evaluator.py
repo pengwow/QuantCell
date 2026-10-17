@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
 from decision.cascade import CascadeConfig, RuleFallback, SdmCascadeDecisionLayer
 from decision.client import StubDecisionClient
 from decision.evaluation.evaluator import EvalConfig, run_evaluation

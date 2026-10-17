@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from decision.evaluation.metrics import (
     accuracy,
     confusion_and_recall,

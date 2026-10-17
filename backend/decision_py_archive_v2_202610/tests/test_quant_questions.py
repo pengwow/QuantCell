@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-
 from decision.cascade import CascadeConfig, _extract_sub_signals, gate_allows
 from decision.client import StubDecisionClient
 from decision.quant_questions import (
