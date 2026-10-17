@@ -11,13 +11,15 @@ import math
 
 import pandas as pd
 import pytest
+from axon_quant import Action
 
 from backtest.backtest_loop import BacktestLoop
 from backtest.engine_service import EventDrivenBacktestService
 from backtest.strategy_loader_service import StrategyLoaderService
+from strategy.base import BaseStrategy, StrategyConfig
 
-# 覆盖有实际成交的策略模板（grid/cross_sectional/factor_timing/funding_arbitrage
-# 依赖参数或因子/资金费，不在 Rust 放行子集内，不纳入本 parity 断言）
+# 覆盖有实际成交的模板（grid/cross_sectional 依赖具体参数/横截面 rank，
+# 默认参数下不成交，不纳入本断言；因子/期货场景见下方专用用例）
 TEMPLATES = [
     "dual_ma",
     "momentum",
@@ -67,6 +69,11 @@ def test_rust_runner_matches_python_loop(template: str, zigzag_kline: pd.DataFra
     svc = EventDrivenBacktestService(data_provider=None)  # _run_rust_single 不使用 provider
     rust_res = svc._run_rust_single(rust_strategy, zigzag_kline, "BTCUSDT", 100_000.0)
 
+    _assert_parity(py_res, rust_res)
+
+
+def _assert_parity(py_res, rust_res) -> None:
+    """两条路径关键指标必须完全一致。"""
     assert rust_res.fills == py_res.fills
     assert rust_res.orders_accepted == py_res.orders_accepted
     assert rust_res.orders_rejected == py_res.orders_rejected
@@ -76,6 +83,84 @@ def test_rust_runner_matches_python_loop(template: str, zigzag_kline: pd.DataFra
     assert rust_res.max_drawdown == pytest.approx(py_res.max_drawdown, abs=1e-6)
     # 逐 bar NAV 曲线点数一致
     assert len(rust_res.equity_curve) == len(py_res.equity_curve)
+
+
+def _hold() -> Action:
+    return Action(action_type="hold", confidence=0.0, target_position=0.0, model_id="x", inference_time_us=0)
+
+
+class _BuyThenHold(BaseStrategy):
+    """第 5 根 bar 起满仓买入（纯 OHLCV 驱动，不依赖因子）。"""
+
+    def __init__(self) -> None:
+        super().__init__(StrategyConfig(name="buy_hold", symbol="BTCUSDT", position_limit=1.0))
+        self._n = 0
+
+    def on_bar(self, bar, ctx=None):
+        self._n += 1
+        if self._n < 5:
+            return _hold()
+        return Action(action_type="buy", confidence=0.9, target_position=1.0, model_id="bh", inference_time_us=0)
+
+
+class _FactorTiming(BaseStrategy):
+    """因子阈值择时：v >= 0 买入，v < 0 清仓（读 ctx.features）。"""
+
+    def __init__(self, factor_name: str = "mom") -> None:
+        super().__init__(StrategyConfig(name="factor_timing", symbol="BTCUSDT", position_limit=1.0))
+        self._factor_name = factor_name
+
+    def on_bar(self, bar, ctx=None):
+        ctx.closes.append(bar["close"])
+        if not ctx.has_feature(self._factor_name):
+            return _hold()
+        if ctx.get_feature(self._factor_name) >= 0.0:
+            return Action(action_type="buy", confidence=0.9, target_position=1.0, model_id="ft", inference_time_us=0)
+        return Action(action_type="sell", confidence=0.9, target_position=0.0, model_id="ft", inference_time_us=0)
+
+
+def _funding_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """逐 bar 资金费率（正负交替，mark 用 close）。"""
+    rates = [0.0001 if i % 2 == 0 else -0.0002 for i in range(len(df))]
+    return pd.DataFrame({"funding_rate": rates, "mark_price": df["close"].values}, index=df.index)
+
+
+def _factor_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """逐 bar 因子值（正弦，正负交替触发买卖）。"""
+    return pd.DataFrame({"mom": [math.sin(i / 7.0) for i in range(len(df))]}, index=df.index)
+
+
+@pytest.mark.parametrize(
+    "trading_mode,funding,factor",
+    [("spot", False, False), ("futures", True, False), ("spot", False, True), ("futures", True, True)],
+)
+def test_rust_runner_futures_and_factor_parity(
+    trading_mode: str, funding: bool, factor: bool, zigzag_kline: pd.DataFrame
+) -> None:
+    """期货资金费结算 + 逐 bar 因子注入，两条路径结果一致。"""
+    funding_df = _funding_frame(zigzag_kline) if funding else None
+    feature_df = _factor_frame(zigzag_kline) if factor else None
+    factory = (lambda: _FactorTiming("mom")) if factor else _BuyThenHold
+
+    py_res = BacktestLoop(initial_cash=100_000.0).run(
+        factory(),
+        zigzag_kline,
+        symbol="BTCUSDT",
+        trading_mode=trading_mode,
+        funding_df=funding_df,
+        feature_dataframe=feature_df,
+    )
+    svc = EventDrivenBacktestService(data_provider=None)
+    rust_res = svc._run_rust_single(
+        factory(),
+        zigzag_kline,
+        "BTCUSDT",
+        100_000.0,
+        funding_df=funding_df,
+        feature_dataframe=feature_df,
+        futures=(trading_mode == "futures"),
+    )
+    _assert_parity(py_res, rust_res)
 
 
 def test_default_runner_uses_rust(zigzag_kline: pd.DataFrame, monkeypatch) -> None:
