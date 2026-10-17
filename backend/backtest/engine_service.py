@@ -225,19 +225,13 @@ class EventDrivenBacktestService:
         # 回测编排路径选择：默认 Rust 原生（axon_quant.worker.BacktestRunner），
         # 可显式设 engine_config['runner']='python' 回退到 Python BacktestLoop。
         #
-        # 仅放行 Rust 侧已对齐的场景：现货 + 无因子 + 单品种 + kline + 非强制平仓。
-        # - 期货资金费、因子注入尚未在 Rust 侧实现
+        # 放行条件：单品种 + kline + 非 force_liquidate。
+        # - 期货资金费、逐 bar 因子注入已由 Rust 侧支持（见 _build_rust_funding/_build_rust_states）
         # - force_liquidate 未暴露到 PyBacktestRunner（避免静默降级）
+        # - 多品种聚合仍在 Python 侧，未迁移
         # 不满足条件时自动回退 Python 路径，保证行为不回退。
         runner_mode = (engine_config or {}).get("runner", "rust")
-        use_rust_runner = (
-            runner_mode == "rust"
-            and len(symbols) == 1
-            and not factor_names
-            and trading_mode == "spot"
-            and data_type == "kline"
-            and not force_liquidate
-        )
+        use_rust_runner = runner_mode == "rust" and len(symbols) == 1 and data_type == "kline" and not force_liquidate
 
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))
@@ -255,6 +249,9 @@ class EventDrivenBacktestService:
                     symbol=symbol,
                     init_cash=init_cash,
                     force_liquidate=force_liquidate,
+                    feature_dataframe=entry.get("feature_dataframe"),
+                    funding_df=self._load_funding(symbol, trading_mode, time_range),
+                    futures=(trading_mode == "futures"),
                 )
             else:
                 result = loop.run(
@@ -589,15 +586,22 @@ class EventDrivenBacktestService:
         symbol: str,
         init_cash: float,
         force_liquidate: bool = False,
+        feature_dataframe: pd.DataFrame | None = None,
+        funding_df: pd.DataFrame | None = None,
+        futures: bool = False,
     ) -> BacktestResult:
         """Rust 原生回测：BacktestRunner 逐 bar 编排策略，结果映射回 QuantCell 契约。
 
         与 BacktestLoop 路径的差异仅在编排层（循环在 Rust 侧而非 Python 逐 bar），
         两者共用同一个 axon BacktestEngine，撮合语义一致。
+
+        - `feature_dataframe`：逐 bar 因子帧 → 转成 per-bar state（`state["features"]` +
+          `cross_sectional_rank`），Rust 侧透传给 Python 策略；
+        - `funding_df` + `futures`：期货资金费查找表（键为 bar 纳秒时间戳）→ Rust 逐 bar 结算。
         """
         from axon_quant import worker
 
-        from strategy.rust_adapter import RustStrategyAdapter
+        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
 
         if force_liquidate:
             # PyBacktestRunner 暂未暴露 force_liquidate（simple() 固定 False）
@@ -605,10 +609,76 @@ class EventDrivenBacktestService:
 
         # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
         df = clean_ohlcv_df(df)
-        runner = worker.BacktestRunner(initial_cash=init_cash)
+        bars = self._df_to_rust_bars(df)
+        bar_ts_list = [b["timestamp"] for b in bars]
+        rust_symbol = _normalize_symbol(symbol)
+
+        states_by_symbol = self._build_rust_states(feature_dataframe, bar_ts_list, rust_symbol)
+        funding_by_symbol = self._build_rust_funding(funding_df, rust_symbol, futures)
+
+        runner = worker.BacktestRunner(initial_cash=init_cash, futures=futures)
         runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
-        rust_result = runner.run(bars=self._df_to_rust_bars(df), state_by_symbol={})
+        rust_result = runner.run(
+            bars=bars,
+            states_by_symbol=states_by_symbol,
+            funding_by_symbol=funding_by_symbol,
+        )
         return self._map_rust_result(rust_result, df, symbol)
+
+    @staticmethod
+    def _build_rust_states(
+        feature_dataframe: pd.DataFrame | None,
+        bar_ts_list: list[int],
+        rust_symbol: str,
+    ) -> dict[str, list]:
+        """因子帧 → Rust per-bar state 列表（`{symbol: [state或None, ...]}`）。
+
+        口径对齐 BacktestLoop 的 feature_lookup：DatetimeIndex 按纳秒建键，
+        整数索引按原值建键；无匹配 bar 的 state 置 None（不注入，保持 ctx 上次值）。
+        """
+        if feature_dataframe is None or feature_dataframe.empty:
+            return {}
+
+        if isinstance(feature_dataframe.index, pd.DatetimeIndex):
+            lookup = {int(pd.Timestamp(i).timestamp() * 1_000_000_000): row for i, row in feature_dataframe.iterrows()}
+        else:
+            lookup = {int(i): row for i, row in feature_dataframe.iterrows()}
+
+        per_bar: list[dict | None] = []
+        for ts in bar_ts_list:
+            row = lookup.get(ts)
+            if row is None:
+                per_bar.append(None)
+                continue
+            # cross_sectional_rank 不进 features，改由 bar 承载（对齐 BacktestLoop）
+            feats = {str(k): float(v) for k, v in row.items() if k != "cross_sectional_rank" and pd.notna(v)}
+            state: dict = {"features": feats}
+            rank_v = row.get("cross_sectional_rank")
+            if rank_v is not None and pd.notna(rank_v):
+                state["cross_sectional_rank"] = int(rank_v)
+            per_bar.append(state)
+
+        return {rust_symbol: per_bar}
+
+    @staticmethod
+    def _build_rust_funding(
+        funding_df: pd.DataFrame | None,
+        rust_symbol: str,
+        futures: bool,
+    ) -> dict[str, dict[int, tuple[float, float]]]:
+        """资金费率 DataFrame → Rust 查找表 `{symbol: {bar_纳秒: (rate, mark_price)}}`。
+
+        仅期货模式构建；键为 bar 纳秒时间戳，Rust 侧命中即入队结算。
+        """
+        if not futures or funding_df is None or funding_df.empty:
+            return {}
+        sched: dict[int, tuple[float, float]] = {}
+        for ts_idx, row in funding_df.iterrows():
+            ts_ns = int(pd.Timestamp(ts_idx).timestamp() * 1_000_000_000)
+            rate = float(row.get("funding_rate", 0.0) or 0.0)
+            mark = float(row.get("mark_price", 0.0) or 0.0)
+            sched[ts_ns] = (rate, mark)
+        return {rust_symbol: sched}
 
     @staticmethod
     def _df_to_rust_bars(df: pd.DataFrame) -> list[dict[str, Any]]:
