@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from typer import Option
-
-from cli._common import echo_error, echo_json, handle_errors
 from decision.cascade import RuleFallback
 from decision.client import ReplayDecisionClient, StubDecisionClient
 from decision.evaluation.dataset import load_bars_csv
 from decision.evaluation.evaluator import EvalConfig, run_evaluation
+from typer import Option
+
+from cli._common import echo_error, echo_json, handle_errors
 
 app = typer.Typer(
     name="decision",

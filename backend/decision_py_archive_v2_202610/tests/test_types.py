@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 
 import pytest
-
 from decision.types import (
     CascadeDecision,
     ChoiceAnswer,
