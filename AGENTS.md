@@ -146,7 +146,7 @@ class BacktestLoop:
 ### BacktestRunner — Rust 原生回测编排（默认路径）
 
 `backtest/engine_service.py` 默认走 axon_quant 原生 `BacktestRunner`；`engine_config['runner']='python'` 可回退 `BacktestLoop`。
-放行条件：**单品种 + kline + 非 force_liquidate**。期货资金费结算与逐 bar 因子注入已由 Rust 侧支持（`funding_by_symbol` / `states_by_symbol`）；`force_liquidate` 与多品种聚合仍在 Python 侧，不满足条件即自动回退，无静默降级。
+放行条件：**kline 数据类型**。期货资金费、逐 bar 因子注入、`force_liquidate` 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」执行（与 `BacktestLoop` 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
 
 ```python
 # backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → Rust decide(bar) 桥接
