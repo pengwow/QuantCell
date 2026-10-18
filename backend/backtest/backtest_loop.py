@@ -111,6 +111,8 @@ class BacktestLoop:
         data_type: str = "kline",
         trading_mode: str = "spot",
         funding_df: pd.DataFrame | None = None,
+        settle: str = "usd_margin",
+        contract_size: float = 1.0,
     ) -> BacktestResult:
         """执行回测
 
@@ -134,7 +136,7 @@ class BacktestLoop:
         # 从 symbol 如 BTCUSDT 提取 base/quote；futures 用永续品种接资金费结算
         base, quote = self._parse_symbol(symbol)
         instrument = (
-            swap_instrument(base, quote, settle="usd_margin", contract_size=1.0)
+            swap_instrument(base, quote, settle=settle, contract_size=contract_size)
             if trading_mode == "futures"
             else spot_instrument(base, quote)
         )

@@ -431,3 +431,60 @@ def test_adapter_feature_injection_parity(zigzag_kline: pd.DataFrame) -> None:
     # 特征缺失时该策略全程 hold（0 成交），有成交即证明两条路径都真的消费到了特征
     assert py_res.fills > 0
     assert rust_res.fills > 0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 永续保证金结算方式（market → settle）
+# ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("settle", ["usd_margin", "coin_margin"])
+def test_swap_settle_tag_parity(settle: str, zigzag_kline: pd.DataFrame) -> None:
+    """settle 如实落到品种元组，两条路径一致（币本位不再被写成 usd_margin）。"""
+    py_res = BacktestLoop(initial_cash=100_000.0).run(
+        _BuyThenHold(), zigzag_kline, symbol="BTCUSDT", trading_mode="futures", settle=settle
+    )
+    rust_res = EventDrivenBacktestService(data_provider=None)._run_rust_single(
+        _BuyThenHold(), zigzag_kline, "BTCUSDT", 100_000.0, futures=True, settle=settle
+    )
+
+    _assert_parity(py_res, rust_res)
+    assert py_res.final_positions, "末态应有持仓，否则 settle 断言无意义"
+    assert all(settle in str(k) for k in py_res.final_positions)
+
+
+@pytest.mark.parametrize("market,expected_settle", [("um", "usd_margin"), ("cm", "coin_margin")])
+def test_market_drives_settle(market: str, expected_settle: str, zigzag_kline: pd.DataFrame, monkeypatch) -> None:
+    """run_backtest 里 market → settle 的推导：cm 走 coin_margin，um 走 usd_margin。"""
+    captured: dict = {}
+    orig = EventDrivenBacktestService._run_rust_single
+
+    def spy(self, *args, **kwargs):
+        captured.update(kwargs)
+        return orig(self, *args, **kwargs)
+
+    monkeypatch.setattr(EventDrivenBacktestService, "_run_rust_single", spy)
+    svc = EventDrivenBacktestService(data_provider=_StubProvider({"BTCUSDT_1h": zigzag_kline}))
+    svc.run_backtest(
+        strategy_name="dual_ma",
+        strategy_params={},
+        symbols=["BTCUSDT"],
+        timeframes=["1h"],
+        market=market,
+        engine_config={"trading_mode": "futures"},
+    )
+
+    assert captured["futures"] is True
+    assert captured["settle"] == expected_settle
+
+
+def test_unknown_settle_rejected(zigzag_kline: pd.DataFrame) -> None:
+    """信任边界：未知 settle 两条路径都必须拒绝，不得静默按默认值跑。"""
+    with pytest.raises(ValueError):
+        BacktestLoop(initial_cash=100_000.0).run(
+            _BuyThenHold(), zigzag_kline, symbol="BTCUSDT", trading_mode="futures", settle="bogus"
+        )
+
+    svc = EventDrivenBacktestService(data_provider=None)
+    with pytest.raises(ValueError):
+        svc._run_rust_single(_BuyThenHold(), zigzag_kline, "BTCUSDT", 100_000.0, futures=True, settle="bogus")

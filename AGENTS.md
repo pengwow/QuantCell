@@ -145,7 +145,11 @@ class BacktestLoop:
 ### BacktestRunner — Rust 原生回测编排（默认路径）
 
 `backtest/engine_service.py` 默认走 axon_quant 原生 `BacktestRunner`；`engine_config['runner']='python'` 可回退 `BacktestLoop`。
-放行条件：**kline 数据类型**。期货资金费、逐 bar 因子注入、`force_liquidate` 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」执行（与 `BacktestLoop` 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
+放行条件：`data_type ∈ RUST_RUNNER_DATA_TYPES`（见 `engine_service.py` 模块常量，共 10 类 —— kline / markPriceKlines / indexPriceKlines / premiumIndexKlines / aggTrades / trades / bookDepth / bookTicker / fundingRate / openInterest，均由数据适配器聚合成 bar 形状）。期货资金费、逐 bar 特征注入、`force_liquidate` 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」执行（与 `BacktestLoop` 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
+
+两个语义边界（改动这块前先读 `engine_service.py` 顶部注释）：`fundingRate` 作为 data_type 是 DerivAdapter 产出的特征列，**不是** `funding_by_symbol` 的资金费结算通道，混用会双重计费；`bookDepth` / `bookTicker` 聚合出的是 mid-price 合成价，不是可撮合盘口。原生 tick / 逐档 book 驱动的撮合不在放行范围（需 Rust L2/L3 + 非 bar 步进编排）。
+
+永续结算口径：`settle` 由 `market` 推导（`cm` → `coin_margin`，其余 → `usd_margin`），`contract_size` 走 `engine_config['contract_size']`（默认 1.0）。注意引擎尚未把乘数计入名义价值/盈亏，币本位账务仍是近似（详见 `engine_service.py` 里的 ponytail 注释）。
 
 ```python
 # backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → Rust decide(bar) 桥接
