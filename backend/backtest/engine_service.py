@@ -7,6 +7,7 @@ BaseStrategy → BacktestLoop → axon_quant backtest.BacktestEngine。
 
 本模块负责数据加载、因子特征注入与结果格式化，两条引擎路径的编排差异
 必须在 Rust 侧复刻（parity 由 tests/unit/backtest/test_rust_runner_parity.py 守护）。
+放行的 data_type 见下方 `RUST_RUNNER_DATA_TYPES`（含两个语义边界说明）。
 
 作者: QuantCell Team
 版本: 2.0.0
@@ -54,6 +55,9 @@ RUST_RUNNER_DATA_TYPES = frozenset(
         "openInterest",
     }
 )
+
+# market → 永续保证金结算方式（spot 无 settle 概念，缺省按 U 本位）
+_SWAP_SETTLE_BY_MARKET = {"um": "usd_margin", "cm": "coin_margin"}
 
 
 def adapter_feature_frame(df: pd.DataFrame) -> pd.DataFrame | None:
@@ -170,6 +174,17 @@ class EventDrivenBacktestService:
         # 交易模式: spot(现货) / futures(永续合约)
         trading_mode = engine_cfg.get("trading_mode", "spot")
         candle_type = "future" if trading_mode == "futures" else "spot"
+
+        # 永续合约口径：保证金结算方式由 market 推导（"cm" 币本位 → coin_margin，
+        # 其余含 "um" → usd_margin）；合约乘数由调用方经 engine_config 显式提供。
+        #
+        # ponytail: 乘数默认 1.0 —— 仓库内没有离线可用的合约面值来源（collector 落地的
+        # exchangeInfo 不含 contractSize），且 axon 引擎目前只把乘数当品种元数据、
+        # 未计入名义价值/盈亏（axon-backtest engine.rs 挂着 0.8.0 待办），所以币本位
+        # 只有结算方式被如实标注，账务仍是近似。要真做对需要「面值表 + 引擎侧乘数入账」
+        # + 「ratio → 合约张数」的换算，属独立立项。
+        swap_settle = _SWAP_SETTLE_BY_MARKET.get(market, "usd_margin")
+        contract_size = float(engine_cfg.get("contract_size", 1.0))
 
         # 1. 加载数据
         if data_type == "kline":
@@ -311,6 +326,8 @@ class EventDrivenBacktestService:
                     feature_dataframe=entry.get("feature_dataframe"),
                     funding_df=self._load_funding(symbol, trading_mode, time_range),
                     futures=(trading_mode == "futures"),
+                    settle=swap_settle,
+                    contract_size=contract_size,
                 )
             else:
                 result = loop.run(
@@ -323,6 +340,8 @@ class EventDrivenBacktestService:
                     data_type=entry.get("data_type", "kline"),
                     trading_mode=trading_mode,
                     funding_df=self._load_funding(symbol, trading_mode, time_range),
+                    settle=swap_settle,
+                    contract_size=contract_size,
                 )
             raw_results = self._convert_backtest_result(result)
             # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
@@ -348,6 +367,8 @@ class EventDrivenBacktestService:
                         feature_dataframe=entry.get("feature_dataframe"),
                         funding_df=self._load_funding(sym, trading_mode, time_range),
                         futures=(trading_mode == "futures"),
+                        settle=swap_settle,
+                        contract_size=contract_size,
                     )
                 else:
                     loop_result = loop.run(
@@ -360,6 +381,8 @@ class EventDrivenBacktestService:
                         data_type=entry.get("data_type", "kline"),
                         trading_mode=trading_mode,
                         funding_df=self._load_funding(sym, trading_mode, time_range),
+                        settle=swap_settle,
+                        contract_size=contract_size,
                     )
                 result = self._convert_backtest_result(loop_result)
                 per_symbol_results[sym] = result
@@ -661,6 +684,8 @@ class EventDrivenBacktestService:
         feature_dataframe: pd.DataFrame | None = None,
         funding_df: pd.DataFrame | None = None,
         futures: bool = False,
+        settle: str = "usd_margin",
+        contract_size: float = 1.0,
     ) -> BacktestResult:
         """Rust 原生回测：BacktestRunner 逐 bar 编排策略，结果映射回 QuantCell 契约。
 
@@ -669,7 +694,9 @@ class EventDrivenBacktestService:
 
         - `feature_dataframe`：逐 bar 因子帧 → 转成 per-bar state（`state["features"]` +
           `cross_sectional_rank`），Rust 侧透传给 Python 策略；
-        - `funding_df` + `futures`：期货资金费查找表（键为 bar 纳秒时间戳）→ Rust 逐 bar 结算。
+        - `funding_df` + `futures`：期货资金费查找表（键为 bar 纳秒时间戳）→ Rust 逐 bar 结算；
+        - `settle` + `contract_size`：永续品种的保证金结算方式与合约乘数（仅 futures 生效，
+          口径由调用方给出，见 run_backtest 里的 market 推导与 ponytail 说明）。
         """
         from axon_quant import worker
 
@@ -688,6 +715,8 @@ class EventDrivenBacktestService:
             initial_cash=init_cash,
             futures=futures,
             force_liquidate=force_liquidate,
+            settle=settle,
+            contract_size=contract_size,
         )
         runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
         rust_result = runner.run(
