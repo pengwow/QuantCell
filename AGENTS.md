@@ -121,7 +121,6 @@ action = Action(
 # backend/worker/strategy_manager.py
 # 模块级单例：worker_system = StrategyManager()
 worker_system.engine_status()          # 引擎状态概览（exchange/mode/risk/策略数）
-worker_system.run_backtest(...)        # 回测
 worker_system.register_strategy(...)   # 注册策略
 worker_system.list_strategies()        # 策略列表
 ```
@@ -156,7 +155,7 @@ runner = worker.BacktestRunner(initial_cash=100_000.0)
 runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
 result = runner.run(
     bars=[{"timestamp": ns, "open": .., "high": .., "low": .., "close": .., "volume": ..}],
-    state_by_symbol={},
+    states_by_symbol={},
 )
 ```
 

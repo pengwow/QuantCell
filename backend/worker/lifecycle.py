@@ -8,8 +8,13 @@
 
 使用：python -m worker.lifecycle --worker-id 1 --mode auto
 
-规则路径：BaseStrategy → BacktestLoop 唯一回测路径(内存 DataFrame 直接跑),
+规则路径：BaseStrategy → BacktestLoop(内存 DataFrame 直接跑),
 HPO 与部署前后评估共用同一引擎,MedianPruner 经 equity_curve 上报真实生效。
+
+ponytail:HPO 是有意保留在 Python BacktestLoop 上的轻量路径——它是参数搜索,
+不是部署决策内核(部署回测已走 Rust BacktestRunner)。这样每个 trial 免去
+DataFrame→Rust bars 的序列化开销;两条引擎的撮合口径 parity 由
+tests/unit/backtest/test_rust_runner_parity.py 守护。
 """
 
 from __future__ import annotations

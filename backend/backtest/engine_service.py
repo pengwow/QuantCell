@@ -1,8 +1,12 @@
 """
 回测引擎服务模块（基于 axon_quant 体系）
 
-唯一回测路径：BaseStrategy → BacktestLoop → axon_quant BacktestEngine。
-负责数据加载、因子特征注入与结果格式化，引擎交互统一走 BacktestLoop。
+默认回测路径：BaseStrategy → RustStrategyAdapter → axon_quant worker.BacktestRunner
+（Rust 原生撮合编排）；engine_config['runner']='python' 可回退到
+BaseStrategy → BacktestLoop → axon_quant backtest.BacktestEngine。
+
+本模块负责数据加载、因子特征注入与结果格式化，两条引擎路径的编排差异
+必须在 Rust 侧复刻（parity 由 tests/unit/backtest/test_rust_runner_parity.py 守护）。
 
 作者: QuantCell Team
 版本: 2.0.0

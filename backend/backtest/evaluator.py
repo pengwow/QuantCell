@@ -2,6 +2,10 @@
 
 统一路径：每个 trial 用注入的 build_strategy 构造 BaseStrategy，
 在传入的 DataFrame 上跑唯一 BacktestLoop，从 BacktestResult 取优化目标。
+
+ponytail:HPO 有意保留 Python BacktestLoop（同 worker/lifecycle 的说明）——
+参数搜索不需要 Rust 原生撮合，省去每 trial 的 DataFrame→bars 序列化；
+部署回测仍走 Rust BacktestRunner，两者 parity 由 test_rust_runner_parity.py 守护。
 """
 
 from __future__ import annotations
