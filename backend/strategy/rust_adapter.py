@@ -13,7 +13,7 @@ Rust 侧 axon_quant.worker.BacktestRunner 期望策略实现 `decide(bar_dict) -
     adapter = RustStrategyAdapter(base_strategy)
     runner = worker.BacktestRunner(initial_cash=100000.0)
     runner.add_strategy(adapter)
-    result = runner.run(bars=[...], state_by_symbol={})
+    result = runner.run(bars=[...], states_by_symbol={})
 """
 
 from __future__ import annotations

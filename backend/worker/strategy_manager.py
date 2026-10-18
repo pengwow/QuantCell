@@ -515,19 +515,6 @@ class StrategyManager:
             },
         }
 
-    def run_backtest(
-        self,
-        strategy: Any,
-        data: Any,
-        symbol: str = "BTCUSDT",
-        initial_cash: float = 100_000.0,
-    ) -> Any:
-        """运行回测"""
-        from backtest.backtest_loop import BacktestLoop
-
-        loop = BacktestLoop(initial_cash=initial_cash)
-        return loop.run(strategy, data, symbol)
-
     def engine_status(self) -> dict[str, Any]:
         """获取引擎状态概览（兼容 TradingEngine API）"""
         from .state import strategy_registry
