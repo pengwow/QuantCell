@@ -1,0 +1,67 @@
+name: Backend Tests
+
+# 后端 pytest（回测引擎 parity / 上游契约 / 集成 API）。
+#
+# 为什么需要 sibling checkout：QuantCell 通过本地 path 依赖拿引擎
+# （backend/pyproject.toml 的 [tool.uv.sources] axon-quant = { path = "../../axon_quant" }），
+# CI runner 上没有那个目录，所以这里把 axon_quant checkout 到 `<workspace>/axon_quant`，
+# 与 `<workspace>/QuantCell/backend` 正好构成 ../../axon_quant 的相对关系。
+#
+# 两仓库按版本同步推进：0.18.0 合并进 main 后，把默认 ref 改成 main。
+
+on:
+  workflow_dispatch:
+    inputs:
+      axon_quant_ref:
+        description: "axon_quant 仓库的 ref（默认 0.18.0）"
+        required: false
+        default: "0.18.0"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+  push:
+    branches: [main, develop, "0.18.0"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  backend-tests:
+    name: pytest (backtest / conformance / integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout QuantCell
+        uses: actions/checkout@v4
+        with:
+          path: QuantCell
+
+      - name: Checkout axon_quant（sibling，供 path 依赖构建）
+        uses: actions/checkout@v4
+        with:
+          repository: pengwow/axon_quant
+          ref: ${{ inputs.axon_quant_ref || '0.18.0' }}
+          path: axon_quant
+
+      # uv 会就地构建 axon-quant 扩展（其 pyproject 用 maturin），故需要 Rust 工具链
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: axon_quant
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14" # backend/.python-version 与 requires-python(>=3.14)
+
+      - name: uv sync
+        working-directory: QuantCell/backend
+        run: uv sync
+
+      - name: pytest
+        working-directory: QuantCell/backend
+        run: uv run pytest tests/unit/backtest tests/conformance tests/integration -q
