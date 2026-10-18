@@ -63,10 +63,11 @@ jobs:
         run: uv sync
 
       # 全新 checkout 上没有 SQLite 库文件，涉及 DB 的用例（如 FactorService 读
-      # factor_catalog）会报 "no such table"；init_db() 会 create_all + 跑迁移。
+      # factor_catalog、思维链接口读 thinking_chains）会报 "no such table"。
+      # init_db.py 会 create_all + 跑迁移 + 补齐独立 Base 的两张表（见脚本注释）。
       - name: Init DB
         working-directory: QuantCell/backend
-        run: uv run python -c "from collector.db import init_db; init_db()"
+        run: uv run python init_db.py
 
       - name: pytest
         working-directory: QuantCell/backend
