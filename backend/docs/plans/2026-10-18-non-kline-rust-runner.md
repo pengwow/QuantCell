@@ -1,7 +1,7 @@
 # 非 K 线数据类型放行 Rust BacktestRunner —— 方案
 
 日期：2026-10-18
-状态：待评审
+状态：已实施（批 1）+ 已实施（批 2 特征通道）+ 已实施（结算口径有界版）；批 3 与「乘数入账」未做
 相关代码：[engine_service.py](../backtest/engine_service.py)、[data_adapters/](../backtest/data_adapters/)、[rust_adapter.py](../../strategy/rust_adapter.py)
 
 ## 1. 目标与范围
@@ -131,15 +131,39 @@ fundingRate / openInterest                                        （DerivAdapte
   （`aggTrades` 默认 5m、`bookTicker`/`bookDepth` 取 `interval or "1m"`）。放行后这类"隐式降采样"
   会从 Python 路径原样带到 Rust 路径——两条路径一致，因此不破坏 parity，但值得在 UI/CLI 上提示。
   现状不改。
-- **R2（中，需决策）**：2.4 的特征断点。若不修，非 K 线回测等于纯价格回测；
-  若修，需两条路径同步改（批 2）。
-- **R3（低，需决策）**：`market="cm"`（币本位）两条路径都硬编码 `usd_margin` / 乘数 1.0，
-  非 K 线放行后这个既有近似仍成立。维持现状并在文档标注为已知限制。
+- **R2（已修，批 2）**：2.4 的特征断点已在本轮修掉：`adapter_feature_frame()` 把
+  `feature_*` 列抽成特征帧（去前缀、纳秒对齐），喂进两条路径共用的 `feature_dataframe`，
+  并有「策略真读到 mid_price、两侧 fills > 0」的 parity 用例兜底。
+- **R3（已部分修，有界版）**：`market="cm"` 的结算方式已如实标注为 `coin_margin`
+  （`market → settle` 推导，两条路径同改），但 `contract_size` 仍只是品种元数据、
+  默认 1.0，且引擎未把乘数计入名义价值/盈亏 —— 账面口径仍是近似，属上文的待立项。
+
+## 8. 实施记录（2026-10-18）
+
+| 项 | 落地内容 | 提交 |
+|----|---------|------|
+| P1 放行 | `RUST_RUNNER_DATA_TYPES`（10 类白名单）替换 `== "kline"` gate；注释写死两个语义边界 | QuantCell `bdb07c1` |
+| 批 2 特征通道 | 新增 `adapter_feature_frame()`：`feature_*` 列 → 去前缀特征帧（纳秒对齐）；Python 与 Rust 两条路径共用同一 `feature_dataframe` 入口 | QuantCell `bdb07c1` |
+| P2 契约测试 | 适配器帧 → `clean_ohlcv_df` → `_df_to_rust_bars` 的纳秒逐位保留断言；feature 帧派生的三个分支 | QuantCell `bdb07c1` |
+| P3 parity 测试 | 9 类非 K 线 `_assert_deep_parity`、非 K 线默认走 Rust、未放行类型回退 Python、策略读到 `mid_price` 的两路径 fills>0 | QuantCell `bdb07c1` |
+| 结算口径 | `market` → `settle` 推导（cm → coin_margin）两条路径同改；`axon_quant.worker.BacktestRunner` 新增 `settle` / `contract_size` | QuantCell `4adfe83`、axon_quant `387061f` |
+| P4 文档 | AGENTS.md 放行条件与边界；本文件状态收敛 | 同上 |
+
+**实施中发现、需另立项的**：
+
+1. `contract_size` 只是品种元数据（`axon-backtest` engine.rs 挂着 0.8.0 待办），
+   币本位账务仍是近似 —— 要做对需「离线面值表 + 引擎侧乘数入账 + `ratio → 合约张数`换算」。
+2. 本地 `maturin build --release` 产出的 wheel 解压进 venv 后 `import` 会被 SIGKILL
+   （macOS 校验/签名问题），`maturin develop` 则正常 —— 本地装扩展请用 `make python-develop`
+   （axon_quant 仓库的 `make python-develop` / `python-test`）。axon_quant 新增的 CI
+   `python-test` job 用的正是 `maturin develop`。
 
 ## 7. 分步任务
 
-- **P1**：`engine_service.py` 加放行集合 + gate 改写 + 注释/docstring 对齐（含两条语义边界）。
-- **P2**：`_StubProvider` 支持 `load_multiple_data`，补适配器帧契约测试。
-- **P3**：补 10 个 data_type 的无关 parity 参数化测试 + 默认路径断言扩展。
-- **P4**：`AGENTS.md` 放行条件更新；`pytest tests/unit/backtest tests/integration` 回归。
-- **P5（可选，需先决策）**：批 2 特征通道接入；批 3 原生 tick/book 撮合立项。
+- **P1**：`engine_service.py` 加放行集合 + gate 改写 + 注释/docstring 对齐（含两条语义边界）。✅
+- **P2**：`_StubProvider` 支持 `load_multiple_data`，补适配器帧契约测试。✅
+- **P3**：补 10 个 data_type 的无关 parity 参数化测试 + 默认路径断言扩展。✅
+- **P4**：`AGENTS.md` 放行条件更新；`pytest tests/unit/backtest tests/integration` 回归。✅
+- **批 2**：适配器 `feature_*` 列接入特征通道（两条路径同改）。✅
+- **结算口径**：`market → settle` 推导 + `contract_size` 显式配置。✅（有界版，见上）
+- **待立项**：批 3 原生 tick / 逐档 book 撮合；合约面值表 + 引擎侧乘数入账。
