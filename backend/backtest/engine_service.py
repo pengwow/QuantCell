@@ -29,6 +29,58 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # ponytail: 粒度只到品种级，单品种回测在引擎执行期间没有中间进度（需 Rust 引擎支持 bar 级回调）
 SymbolProgressCallback = Callable[[int, int, str], None]
 
+# 放行 Rust BacktestRunner 的 data_type：四类适配器（KlineAdapter / TickAdapter /
+# OrderBookAdapter / DerivAdapter）已把它们聚合成 bar 形状（大写 OHLCV + int64 纳秒
+# timestamp），`clean_ohlcv_df` → `_df_to_rust_bars` 可直接消费。
+#
+# 两个必须守住的语义边界：
+# - `fundingRate` 作为 data_type 是 DerivAdapter 产出的特征列（feature_funding_rate），
+#   与 `_build_rust_funding` 的资金费结算通道（仅 futures 且 provider 有费率时生效）
+#   不是一回事，二者不得混用，否则双重计费；
+# - `bookDepth` / `bookTicker` 聚合出的是 mid-price 合成价，不是可撮合盘口深度。
+#
+# 不在放行范围：原生 tick / 逐档 book 驱动的撮合（需 Rust L2/L3 + 非 bar 步进编排）。
+RUST_RUNNER_DATA_TYPES = frozenset(
+    {
+        "kline",
+        "markPriceKlines",
+        "indexPriceKlines",
+        "premiumIndexKlines",
+        "aggTrades",
+        "trades",
+        "bookDepth",
+        "bookTicker",
+        "fundingRate",
+        "openInterest",
+    }
+)
+
+
+def adapter_feature_frame(df: pd.DataFrame) -> pd.DataFrame | None:
+    """从适配器输出的 `feature_*` 列派生逐 bar 特征帧（供策略 ctx.features 消费）。
+
+    适配器把特征作为列挂在 data 上（feature_mid_price / feature_spread /
+    feature_funding_rate / feature_open_interest* 等），而 `clean_ohlcv_df`
+    只保留 timestamp + OHLCV，这些列会被丢弃 —— 因此在清洗前抽出来单独成帧。
+
+    - 列名去掉 `feature_` 前缀（与因子库的命名口径一致，策略里直接读 `mid_price` 等）；
+    - 索引对齐 bar 时间戳（data 的 `timestamp` 列，纳秒）。
+    拿不到时间列且索引不是 DatetimeIndex 时返回 None：宁可不注入特征，
+    也不能把特征错位到别的 bar 上。
+    """
+    cols = [c for c in df.columns if str(c).lower().startswith("feature_")]
+    if not cols:
+        return None
+
+    # 用 dict 构帧（列名就地去掉 feature_ 前缀），避免 df[cols] 的分支推断歧义
+    out = pd.DataFrame({str(c)[len("feature_") :]: df[c] for c in cols}, index=df.index)
+
+    if "timestamp" in df.columns:
+        out.index = pd.to_datetime(df["timestamp"], utc=True)
+    elif not isinstance(df.index, pd.DatetimeIndex):
+        return None  # 拿不到时间列且索引不是时间索引
+    return out
+
 
 class EventDrivenBacktestService:
     """
@@ -163,7 +215,11 @@ class EventDrivenBacktestService:
                 loaded_data[key] = {
                     "data": result.data,
                     "features": result.metadata.get("features_dict"),
-                    "feature_dataframe": result.features,
+                    # 适配器一般把特征作为 feature_* 列挂在 data 上（AdapterResult.features
+                    # 常为 None），这里回退成从列派生，否则非 K 线回测拿不到任何特征
+                    "feature_dataframe": result.features
+                    if result.features is not None and not result.features.empty
+                    else adapter_feature_frame(result.data),
                     "data_type": data_type,
                 }
 
@@ -229,11 +285,12 @@ class EventDrivenBacktestService:
         # 回测编排路径选择：默认 Rust 原生（axon_quant.worker.BacktestRunner），
         # 可显式设 engine_config['runner']='python' 回退到 Python BacktestLoop。
         #
-        # 放行条件：kline 数据类型。期货资金费、逐 bar 因子注入、force_liquidate
-        # 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」执行（与 BacktestLoop
-        # 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
+        # 放行条件：data_type ∈ RUST_RUNNER_DATA_TYPES（见模块常量，kline 家族 / tick /
+        # orderbook / deriv 共 10 类，均由适配器聚合为 bar 形状）。期货资金费、逐 bar
+        # 特征注入、force_liquidate 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」
+        # 执行（与 BacktestLoop 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
         runner_mode = (engine_config or {}).get("runner", "rust")
-        use_rust_runner = runner_mode == "rust" and data_type == "kline"
+        use_rust_runner = runner_mode == "rust" and data_type in RUST_RUNNER_DATA_TYPES
 
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))

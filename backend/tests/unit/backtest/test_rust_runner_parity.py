@@ -13,8 +13,13 @@ import pandas as pd
 import pytest
 from axon_quant import Action
 
-from backtest.backtest_loop import BacktestLoop
-from backtest.engine_service import EventDrivenBacktestService
+from backtest.backtest_loop import BacktestLoop, clean_ohlcv_df
+from backtest.data_adapters.base_adapter import AdapterResult
+from backtest.engine_service import (
+    RUST_RUNNER_DATA_TYPES,
+    EventDrivenBacktestService,
+    adapter_feature_frame,
+)
 from backtest.strategy_loader_service import StrategyLoaderService
 from strategy.base import BaseStrategy, StrategyConfig
 
@@ -274,3 +279,155 @@ def _spy_rust_calls(monkeypatch) -> dict:
 
     monkeypatch.setattr(EventDrivenBacktestService, "_run_rust_single", spy)
     return calls
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 非 K 线 data_type 放行（含适配器 feature_* 列接入特征通道）
+# ──────────────────────────────────────────────────────────────────────
+
+# 各适配器实际会产出的 feature_* 列（kline 家族 / tick 家族不产特征列）
+_FEATURE_COLS_BY_TYPE = {
+    "bookDepth": ["feature_mid_price"],
+    "bookTicker": ["feature_mid_price", "feature_spread"],
+    "fundingRate": ["feature_funding_rate"],
+    "openInterest": ["feature_open_interest", "feature_open_interest_value"],
+}
+
+_NON_KLINE_TYPES = sorted(RUST_RUNNER_DATA_TYPES - {"kline"})
+
+
+def _adapter_frame(df: pd.DataFrame, data_type: str) -> pd.DataFrame:
+    """复刻适配器输出契约：大写 OHLCV + int64 纳秒 timestamp 列 + feature_* 列 + RangeIndex。"""
+    frame = pd.DataFrame(
+        {
+            "Open": df["open"].values,
+            "High": df["high"].values,
+            "Low": df["low"].values,
+            "Close": df["close"].values,
+            "Volume": df["volume"].values,
+        }
+    )
+    for col in _FEATURE_COLS_BY_TYPE.get(data_type, []):
+        # 用 close 派生一个确定性特征序列（非 NaN，索引对齐 bar）
+        frame[col] = df["close"].values if col == "feature_mid_price" else [float(i) for i in range(len(df))]
+    frame["timestamp"] = [int(pd.Timestamp(i).timestamp() * 1_000_000_000) for i in df.index]
+    return frame
+
+
+class _StubAdapterProvider:
+    """最小 provider：非 K 线走 `load_multiple_data` 适配器入口，直接返回给定 AdapterResult。"""
+
+    def __init__(self, results: dict[str, AdapterResult]) -> None:
+        self._results = results
+
+    def load_multiple_data(self, **_kwargs):
+        return dict(self._results), None
+
+    def load_funding_rate(self, symbol, start=None, end=None):
+        return None
+
+
+def test_adapter_frame_contract_roundtrip(zigzag_kline: pd.DataFrame) -> None:
+    """适配器帧能被 Rust 路径入口无损消费：列归一 + 纳秒时间戳逐位保留。"""
+    frame = _adapter_frame(zigzag_kline, "bookTicker")
+    expected_ns = [int(pd.Timestamp(i).timestamp() * 1_000_000_000) for i in zigzag_kline.index]
+
+    bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(frame))
+
+    assert len(bars) == len(zigzag_kline)
+    assert [b["timestamp"] for b in bars] == expected_ns
+    assert bars[0]["close"] == pytest.approx(float(zigzag_kline["close"].iloc[0]))
+    assert bars[0]["volume"] == pytest.approx(float(zigzag_kline["volume"].iloc[0]))
+
+
+def test_adapter_feature_frame_strips_prefix_and_aligns(zigzag_kline: pd.DataFrame) -> None:
+    """批2：feature_* 列 → 去掉前缀的特征帧，索引对齐 bar 时间戳。"""
+    feat = adapter_feature_frame(_adapter_frame(zigzag_kline, "bookTicker"))
+
+    assert feat is not None
+    assert list(feat.columns) == ["mid_price", "spread"]
+    assert isinstance(feat.index, pd.DatetimeIndex)
+    # 对齐口径看纳秒值本身（索引是 tz-aware，bar 索引 naive，直接比较 Timestamp 会因 tz 不等）
+    assert int(feat.index[0].value) == int(zigzag_kline.index[0].value)
+
+
+def test_adapter_feature_frame_none_without_feature_cols(zigzag_kline: pd.DataFrame) -> None:
+    """无 feature_* 列（kline / tick 家族）→ 不注入特征。"""
+    assert adapter_feature_frame(_adapter_frame(zigzag_kline, "aggTrades")) is None
+
+
+def test_adapter_feature_frame_none_without_time_source() -> None:
+    """有 feature_* 列但拿不到时间来源 → 返回 None，避免特征错位到别的 bar。"""
+    assert adapter_feature_frame(pd.DataFrame({"feature_x": [1.0, 2.0]})) is None
+
+
+@pytest.mark.parametrize("data_type", _NON_KLINE_TYPES)
+def test_non_kline_parity(data_type: str, zigzag_kline: pd.DataFrame) -> None:
+    """9 类非 K 线 data_type 放行后，两条编排路径的格式化结果完全一致。"""
+    result = AdapterResult(data=_adapter_frame(zigzag_kline, data_type), metadata={"data_type": data_type})
+
+    def run(mode: str):
+        svc = EventDrivenBacktestService(data_provider=_StubAdapterProvider({"BTCUSDT_1h": result}))
+        return svc.run_backtest(
+            strategy_name="dual_ma",
+            strategy_params={},
+            symbols=["BTCUSDT"],
+            timeframes=["1h"],
+            data_type=data_type,
+            market="um",
+            engine_config={"runner": mode},
+        )
+
+    _assert_deep_parity(run("python"), run("rust"))
+
+
+@pytest.mark.parametrize("data_type", _NON_KLINE_TYPES)
+def test_non_kline_uses_rust_by_default(data_type: str, zigzag_kline: pd.DataFrame, monkeypatch) -> None:
+    """非 K 线默认也走 Rust 路径（gate 是白名单，不是 == \"kline\"）。"""
+    calls = _spy_rust_calls(monkeypatch)
+    result = AdapterResult(data=_adapter_frame(zigzag_kline, data_type), metadata={"data_type": data_type})
+    svc = EventDrivenBacktestService(data_provider=_StubAdapterProvider({"BTCUSDT_1h": result}))
+    svc.run_backtest(
+        strategy_name="dual_ma",
+        strategy_params={},
+        symbols=["BTCUSDT"],
+        timeframes=["1h"],
+        data_type=data_type,
+        market="um",
+        engine_config={},
+    )
+    assert calls["n"] == 1
+
+
+def test_unknown_data_type_still_falls_back_to_python(zigzag_kline: pd.DataFrame, monkeypatch) -> None:
+    """不在放行集合内的 data_type 必须回退 Python 路径（gate 不得静默全放行）。"""
+    calls = _spy_rust_calls(monkeypatch)
+    result = AdapterResult(data=_adapter_frame(zigzag_kline, "bookTicker"), metadata={"data_type": "someNewType"})
+    svc = EventDrivenBacktestService(data_provider=_StubAdapterProvider({"BTCUSDT_1h": result}))
+    svc.run_backtest(
+        strategy_name="dual_ma",
+        strategy_params={},
+        symbols=["BTCUSDT"],
+        timeframes=["1h"],
+        data_type="someNewType",
+        market="um",
+        engine_config={},
+    )
+    assert calls["n"] == 0
+
+
+def test_adapter_feature_injection_parity(zigzag_kline: pd.DataFrame) -> None:
+    """批2 行为验证：策略真的读到了适配器派生的特征（mid_price），两条路径一致。"""
+    feat = adapter_feature_frame(_adapter_frame(zigzag_kline, "bookTicker"))
+
+    py_res = BacktestLoop(initial_cash=100_000.0).run(
+        _FactorTiming("mid_price"), zigzag_kline, symbol="BTCUSDT", feature_dataframe=feat
+    )
+    rust_res = EventDrivenBacktestService(data_provider=None)._run_rust_single(
+        _FactorTiming("mid_price"), zigzag_kline, "BTCUSDT", 100_000.0, feature_dataframe=feat
+    )
+
+    _assert_parity(py_res, rust_res)
+    # 特征缺失时该策略全程 hold（0 成交），有成交即证明两条路径都真的消费到了特征
+    assert py_res.fills > 0
+    assert rust_res.fills > 0
