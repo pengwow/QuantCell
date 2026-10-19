@@ -165,6 +165,10 @@ class EventDrivenBacktestService:
         # 是 initial_cash/start_time + end_time。只认一种会导致另一侧配置静默失效：
         # 资金跌回默认值、时间范围退化为全量历史数据。
         init_cash = engine_cfg.get("initial_capital", engine_cfg.get("initial_cash", 10000))
+        # 资金使用方式：per_symbol=各品种独立资金池（现状，N×init_cash）；
+        # shared=组合共享资金池（单账户，总名义敞口 ≤ init_cash × leverage）
+        capital_mode = engine_cfg.get("capital_mode", "per_symbol")
+        leverage = float(engine_cfg.get("leverage", 1.0) or 1.0)
         time_range = engine_cfg.get("time_range")
         if not time_range:
             start_time, end_time = engine_cfg.get("start_time"), engine_cfg.get("end_time")
@@ -346,6 +350,60 @@ class EventDrivenBacktestService:
             raw_results = self._convert_backtest_result(result)
             # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
             raw_results["klines"] = self._build_kline_records(clean_ohlcv_df(df), engine_config, time_range)
+        elif capital_mode == "shared":
+            # 组合共享资金池：所有品种的**策略实例**注册到**同一个** runner（单 engine、
+            # 一笔 init_cash），总名义敞口受 init_cash × leverage 约束。与下面 else 的
+            # 「各品种独立资金池」循环是两条互斥路径，后者逐字保持原样。
+            if on_symbol_progress:
+                # 共享模式是单次阻塞调用，无法逐品种上报（见设计文档「7. 进度上报」）
+                on_symbol_progress(0, 1, "组合共享资金池")
+            strategies_by_symbol: dict[str, Any] = {}
+            entries_for_multi: dict[str, dict[str, Any]] = {}
+            for key, entry in loaded_data.items():
+                parts = key.rsplit("_", 1)
+                sym = parts[0] if len(parts) > 1 else key
+                # 每个品种一个独立策略实例：共享账户下策略内部的滚动状态必须按品种隔离，
+                # 否则两品种会互相污染彼此的指标窗口
+                sym_strategy = StrategyLoaderService.load_strategy(
+                    strategy_name=strategy_name,
+                    strategy_params=strategy_params,
+                    instrument_ids=[{"symbol": sym, "venue": "BINANCE"}],
+                    bar_types=[timeframes[0]] if timeframes else ["15m"],
+                )
+                if sym_strategy is None:
+                    msg = f"无法加载策略: {strategy_name} ({sym})"
+                    raise ValueError(msg)
+                strategies_by_symbol[sym] = sym_strategy
+                entries_for_multi[sym] = entry
+            multi_result, per_symbol_trades = self._run_rust_multi(
+                strategies_by_symbol=strategies_by_symbol,
+                entries=entries_for_multi,
+                init_cash=init_cash,
+                capital_budget=init_cash * leverage,
+                force_liquidate=force_liquidate,
+                futures=(trading_mode == "futures"),
+                settle=swap_settle,
+                contract_size=contract_size,
+                trading_mode=trading_mode,
+                time_range=time_range,
+            )
+            raw_results = multi_result
+            per_symbol_results = {}
+            for sym, entry in entries_for_multi.items():
+                # 各品种条目是同一共享账户的**拆分视图**（agg 标量指标保持不变，
+                # 只把成交与权益曲线按品种切出来）
+                sym_result = dict(multi_result)
+                sym_result["trades"] = per_symbol_trades.get(sym, [])
+                sym_result["trade_count"] = len(sym_result["trades"])
+                # 分品种最大回撤在共享账户下无定义 → 0（前端不展示该指标）
+                sym_result["max_drawdown_pct"] = 0.0
+                sym_result["max_drawdown"] = 0.0
+                # 品种视角权益曲线按用户确认口径取共享账户合并曲线（见设计「5. 回放口径」）
+                sym_result["equity_curve"] = list(multi_result["equity_curve"])
+                sym_result["klines"] = self._build_kline_records(
+                    clean_ohlcv_df(entry["data"]), engine_config, time_range
+                )
+                per_symbol_results[sym] = sym_result
         else:
             aggregated_metrics: dict[str, Any] = {}
             per_symbol_results = {}
@@ -422,6 +480,8 @@ class EventDrivenBacktestService:
                 timeframe=timeframes[0] if timeframes else "1h",
                 strategy_name=strategy_name,
             )
+            # 单品种路径也带上资金使用方式：详情页/回放页据此显示口径
+            formatted_results["capital_mode"] = capital_mode
         else:
             # 多品种结果汇总（多品种路径下 per_symbol_results 必为 dict）
             formatted_results = self._format_results(
@@ -430,6 +490,7 @@ class EventDrivenBacktestService:
                 timeframe=timeframes[0] if timeframes else "15m",
                 strategy_name=strategy_name,
                 per_symbol_results=per_symbol_results or {},
+                capital_mode=capital_mode,
             )
 
         logger.info("[EventDrivenBacktestService] 回测完成")
@@ -726,6 +787,108 @@ class EventDrivenBacktestService:
         )
         return self._map_rust_result(rust_result, df, symbol)
 
+    def _run_rust_multi(
+        self,
+        strategies_by_symbol: dict[str, Any],
+        entries: dict[str, dict[str, Any]],
+        init_cash: float,
+        capital_budget: float | None,
+        force_liquidate: bool = False,
+        futures: bool = False,
+        settle: str = "usd_margin",
+        contract_size: float = 1.0,
+        trading_mode: str = "spot",
+        time_range: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, list[dict]]]:
+        """共享资金池：单 BacktestRunner + N 品种共享账户编排。
+
+        与 ``_run_rust_single`` 的差异：
+        - 只跑**一次** ``run_multi``（单 engine、一笔 ``init_cash``），而不是每品种一个 runner
+        - 各品种 bar 对齐到统一时间网格（``shared_capital_grid``），缺口以 ``None`` 占位
+          （Rust 侧前向填充价格参与盯市，但不触发策略决策）
+        - 每个品种一个策略实例（共享模式的必要条件：策略内部滚动状态必须按品种隔离）
+        - 成交按 ``TradeRecord.instrument`` 拆分回各品种
+
+        Returns:
+            (聚合结果 dict, {品种: round-trip 成交列表})
+        """
+        from axon_quant import worker
+
+        from backtest.shared_capital_grid import align_bars_to_grid, build_shared_grid
+        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+
+        # 1) 各品种清洗 → Rust bars → 网格并集（Rust 侧要求所有品种等长，故按并集对齐）
+        bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
+        rust_to_qc: dict[str, str] = {}
+        for sym, entry in entries.items():
+            df = clean_ohlcv_df(entry["data"])
+            bars_by_symbol[sym] = self._df_to_rust_bars(df)
+            # Rust 侧 instrument 用 BASE/QUOTE 归一化名，回拆成交时需还原成 QuantCell 品种名
+            rust_to_qc[_normalize_symbol(sym)] = sym
+        grid = build_shared_grid(bars_by_symbol)
+        grid_len = len(grid)
+
+        # 2) 按网格对齐 bar（缺口 None，由 Rust 前向填充价格）
+        aligned_bars = {_normalize_symbol(sym): align_bars_to_grid(bars, grid) for sym, bars in bars_by_symbol.items()}
+
+        # 3) 逐 bar state 按同一网格对齐（复用 _build_rust_states 的键口径）；
+        #    funding 查找表语义同 _run_rust_single（仅 futures 时非空）
+        states_by_symbol: dict[str, list] = {}
+        funding_by_symbol: dict[str, dict[int, tuple[float, float]]] = {}
+        for sym, entry in entries.items():
+            rust_symbol = _normalize_symbol(sym)
+            states_by_symbol.update(self._build_rust_states(entry.get("feature_dataframe"), grid, rust_symbol))
+            funding_by_symbol.update(
+                self._build_rust_funding(
+                    self._load_funding(sym, trading_mode, time_range),
+                    rust_symbol,
+                    futures,
+                )
+            )
+
+        # 4) 单 runner 注册全部品种的策略适配器（共享同一笔 init_cash）
+        runner = worker.BacktestRunner(
+            initial_cash=init_cash,
+            futures=futures,
+            force_liquidate=force_liquidate,
+            settle=settle,
+            contract_size=contract_size,
+        )
+        for strategy in strategies_by_symbol.values():
+            runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
+
+        rust_result = runner.run_multi(
+            bars_by_symbol=aligned_bars,
+            states_by_symbol=states_by_symbol or None,
+            funding_by_symbol=funding_by_symbol or None,
+            capital_budget=capital_budget,
+        )
+
+        # 5) 结果映射：共享账户没有单一 df，数据时间范围显式取网格端点
+        agg = self._convert_backtest_result(
+            self._map_rust_result(
+                rust_result,
+                None,
+                "PORTFOLIO",
+                data_range=(grid[0], grid[-1]) if grid_len else (0, 0),
+            )
+        )
+
+        # 6) 成交按 instrument 拆分回各品种（rust_result.trades 每个 fill 带 instrument 元组）
+        per_symbol_raw: dict[str, list[dict]] = {sym: [] for sym in entries}
+        for tr in list(rust_result.trades):
+            inst = tr.get("instrument")
+            if not inst:
+                continue
+            qc_sym = rust_to_qc.get(f"{inst[1]}/{inst[2]}")
+            if qc_sym is not None:
+                per_symbol_raw[qc_sym].append(tr)
+
+        per_symbol_trades = {
+            sym: BacktestLoop._format_round_trip_trades(raw, sym) for sym, raw in per_symbol_raw.items()
+        }
+        return agg, per_symbol_trades
+
     @staticmethod
     def _build_rust_states(
         feature_dataframe: pd.DataFrame | None,
@@ -806,10 +969,17 @@ class EventDrivenBacktestService:
         ]
 
     @staticmethod
-    def _map_rust_result(rust_result, df: pd.DataFrame, symbol: str) -> BacktestResult:
+    def _map_rust_result(
+        rust_result,
+        df: pd.DataFrame | None,
+        symbol: str,
+        data_range: tuple[int, int] | None = None,
+    ) -> BacktestResult:
         """Rust BacktestResult → QuantCell BacktestResult（口径与 BacktestLoop 完全一致）。
 
         关键换算：max_drawdown_pct / win_rate 由引擎的小数形式 ×100 转显示口径。
+        `data_range`：共享模式没有单一 df（`df=None`），由调用方显式给出数据时间范围
+        （网格端点纳秒）；独立模式不传，保持既有 df 推导口径不变。
         """
         raw_max_dd_pct = float(rust_result.max_drawdown_pct)
         max_drawdown_usd = float(rust_result.nav_peak) * raw_max_dd_pct
@@ -831,16 +1001,19 @@ class EventDrivenBacktestService:
 
         trade_records = BacktestLoop._format_round_trip_trades(list(rust_result.trades), symbol)
 
-        # 数据时间范围：优先 timestamp 列（与 BacktestLoop.run 口径一致）
-        if "timestamp" in df.columns and len(df) > 0:
-            data_start_ns = int(df["timestamp"].iloc[0])
-            data_end_ns = int(df["timestamp"].iloc[-1])
-        elif len(df) > 0:
-            data_start_ns = int(pd.Timestamp(df.index[0]).timestamp() * 1e9)
-            data_end_ns = int(pd.Timestamp(df.index[-1]).timestamp() * 1e9)
-        else:
+        # 数据时间范围：显式 data_range（共享模式取网格端点）优先，其次 timestamp 列，
+        # 最后从 DatetimeIndex 推导（与 BacktestLoop.run 口径一致）
+        if data_range is not None:
+            data_start_ns, data_end_ns = int(data_range[0]), int(data_range[1])
+        elif df is None or len(df) == 0:
             data_start_ns = 0
             data_end_ns = 0
+        elif "timestamp" in df.columns:
+            data_start_ns = int(df["timestamp"].iloc[0])
+            data_end_ns = int(df["timestamp"].iloc[-1])
+        else:
+            data_start_ns = int(pd.Timestamp(df.index[0]).timestamp() * 1e9)
+            data_end_ns = int(pd.Timestamp(df.index[-1]).timestamp() * 1e9)
 
         return BacktestResult(
             total_pnl=float(rust_result.total_pnl),
@@ -861,7 +1034,7 @@ class EventDrivenBacktestService:
             equity_curve=equity_curve,
             data_start_ns=data_start_ns,
             data_end_ns=data_end_ns,
-            bar_count=len(df),
+            bar_count=len(df) if df is not None else 0,
             final_positions=dict(rust_result.final_positions),
         )
 
@@ -936,6 +1109,7 @@ class EventDrivenBacktestService:
         timeframe: str,
         strategy_name: str,
         per_symbol_results: dict,
+        capital_mode: str = "per_symbol",
     ) -> dict:
         """汇总多品种回测结果
 
@@ -946,6 +1120,8 @@ class EventDrivenBacktestService:
             symbols: 品种列表
             timeframe: 时间周期
             strategy_name: 策略名称
+            capital_mode: 资金使用方式。per_symbol=N 个独立资金池（现状口径）；
+                shared=组合共享资金池（单账户，各品种条目是同一账户的拆分视图）
 
         Returns:
             多品种汇总 dict
@@ -955,16 +1131,29 @@ class EventDrivenBacktestService:
         # 计算 portfolio-level 指标(从 per_symbol_results 重算,不能简单 sum 百分比类)
         n = len(per_symbol_results)
         total_pnl = results.get("total_pnl", 0.0)
-        total_trades = results.get("trade_count", 0)
+        shares_equity = capital_mode == "shared"
+        # 共享模式：成交数取各品种拆分后之和（引擎聚合值含全部 instrument，口径会偏）
+        total_trades = (
+            sum(len(r.get("trades", [])) for r in per_symbol_results.values())
+            if shares_equity
+            else results.get("trade_count", 0)
+        )
         total_fills = results.get("fills", 0)
 
-        # initial_equity / final_equity:每品种独立资金池(每 run 都 initial_cash 起步)
-        # 从实际参与回测的首个品种读初始资金：按请求 symbols[0] 取会在该品种
-        # 无数据被剔除时拿到空 dict，fallback 成 100000 污染组合初始权益
-        first_result = next(iter(per_symbol_results.values()), {})
-        initial_cash_per_symbol = first_result.get("initial_capital", 100000.0)
-        initial_equity = initial_cash_per_symbol * n  # N 个独立资金池
-        final_equity = initial_equity + total_pnl
+        if shares_equity:
+            # 单账户：初始权益即**一笔** init_cash（引擎结果 initial_capital = final_nav - total_pnl），
+            # 绝不是 per_symbol × n；initial_capital 缺失/为 0 时由 final_nav - total_pnl 反推，
+            # 不 fallback 成 100000 污染组合指标
+            final_equity = float(results.get("final_nav") or 0.0)
+            initial_equity = float(results.get("initial_capital") or 0.0) or (final_equity - total_pnl)
+        else:
+            # initial_equity / final_equity:每品种独立资金池(每 run 都 initial_cash 起步)
+            # 从实际参与回测的首个品种读初始资金：按请求 symbols[0] 取会在该品种
+            # 无数据被剔除时拿到空 dict，fallback 成 100000 污染组合初始权益
+            first_result = next(iter(per_symbol_results.values()), {})
+            initial_cash_per_symbol = first_result.get("initial_capital", 100000.0)
+            initial_equity = initial_cash_per_symbol * n  # N 个独立资金池
+            final_equity = initial_equity + total_pnl
         # total_return:百分比
         total_return = (total_pnl / initial_equity * 100.0) if initial_equity > 0 else 0.0
 
@@ -989,16 +1178,22 @@ class EventDrivenBacktestService:
                 winning_trades += int(sym_wr * sym_fills)
         win_rate = winning_trades / total_trades * 100.0 if total_trades > 0 else 0.0
 
-        # max_drawdown:取最大回撤品种的 pct(独立资金池不该 sum)
-        max_dd_pct = 0.0
-        for r in per_symbol_results.values():
-            sym_dd = r.get("max_drawdown_pct", 0.0)
-            if sym_dd > max_dd_pct:
-                max_dd_pct = sym_dd
+        # max_drawdown:独立资金池取最大回撤品种的 pct(不该 sum)；共享模式分品种无定义，
+        # 直接用引擎给出的单账户聚合值
+        if shares_equity:
+            max_dd_pct = float(results.get("max_drawdown_pct", 0.0))
+        else:
+            max_dd_pct = 0.0
+            for r in per_symbol_results.values():
+                sym_dd = r.get("max_drawdown_pct", 0.0)
+                if sym_dd > max_dd_pct:
+                    max_dd_pct = sym_dd
 
-        # sharpe_ratio:per-symbol 加权平均(按交易笔数加权,更接近 portfolio 真实夏普)
-        # 简单实现:n=1 时直接用,否则用 fills 加权
-        if n == 1:
+        # sharpe_ratio:共享模式单账户夏普由引擎聚合给出（分品种加权在此无意义）；
+        # 独立模式仍按 fills 加权平均
+        if shares_equity:
+            sharpe_ratio = float(results.get("sharpe_ratio", 0.0))
+        elif n == 1:
             sharpe_ratio = first_result.get("sharpe_ratio", 0.0)
         else:
             if total_fills > 0:
@@ -1018,11 +1213,35 @@ class EventDrivenBacktestService:
         results["max_drawdown"] = max_dd_pct  # 用 pct 字段(百分比,单位一致)
         results["sharpe_ratio"] = sharpe_ratio
 
+        # portfolio 级别的 metrics 使用聚合数据格式化
+        # format_axon_results 按 initial_capital/final_nav/max_drawdown_pct 取数，
+        # 聚合 dict 里的对应键是 initial_equity/final_equity/max_drawdown，
+        # 必须改名注入，否则 fallback 到 100000/0.0，组合指标与权益曲线互相矛盾
+        portfolio_payload = ResultFormatterService.format_axon_results(
+            results={
+                **results,
+                "initial_capital": initial_equity,
+                "final_nav": final_equity,
+                "max_drawdown_pct": max_dd_pct,
+                "trades": [],
+                "equity_curve": [],
+            },
+            symbol=symbols[0] if symbols else "PORTFOLIO",
+            timeframe=timeframe,
+            strategy_name=strategy_name,
+        ).get("portfolio", {})
+        # 共享模式：组合权益曲线即单账户合并曲线（品种视角也复用它，见设计「5. 回放口径」；
+        # 上面显式传了空 equity_curve，故这里回填共享账户曲线）
+        if shares_equity:
+            portfolio_payload["equity_curve"] = list(results.get("equity_curve") or [])
+
         return {
             "strategy_name": strategy_name,
             "symbols": symbols,
             "timeframe": timeframe,
             "is_multi_symbol": True,
+            # 资金使用方式：组合视图/回放按模式切换聚合口径（Task 7 消费）
+            "capital_mode": capital_mode,
             "results_by_symbol": {
                 # 只遍历实际参与回测的品种：无数据品种不在 per_symbol_results 里，
                 # 按请求 symbols 全集遍历会让缺失品种以空 dict 走 fallback，
@@ -1035,23 +1254,7 @@ class EventDrivenBacktestService:
                 ).get(f"{symbol}_{timeframe}", {})
                 for symbol in per_symbol_results
             },
-            # portfolio 级别的 metrics 使用聚合数据格式化
-            # format_axon_results 按 initial_capital/final_nav/max_drawdown_pct 取数，
-            # 聚合 dict 里的对应键是 initial_equity/final_equity/max_drawdown，
-            # 必须改名注入，否则 fallback 到 100000/0.0，组合指标与权益曲线互相矛盾
-            "portfolio": ResultFormatterService.format_axon_results(
-                results={
-                    **results,
-                    "initial_capital": initial_equity,
-                    "final_nav": final_equity,
-                    "max_drawdown_pct": max_dd_pct,
-                    "trades": [],
-                    "equity_curve": [],
-                },
-                symbol=symbols[0] if symbols else "PORTFOLIO",
-                timeframe=timeframe,
-                strategy_name=strategy_name,
-            ).get("portfolio", {}),
+            "portfolio": portfolio_payload,
             # 保留 _meta 和 account 信息
             "_meta": {
                 "engine": "axon",
