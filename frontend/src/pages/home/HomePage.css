@@ -1,0 +1,207 @@
+/* 首页工作台样式：只放 Tailwind 不便表达的部分（网格背景、行 hover、状态点） */
+
+.home-hero {
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.home-hero__inner {
+  position: relative;
+  overflow: hidden;
+}
+
+/* 低透明度网格，给品牌区一点“终端”质感，不抢内容 */
+.home-hero__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--home-grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--home-grid-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse at 15% 0%, black 0%, transparent 72%);
+  pointer-events: none;
+}
+
+.home-hero__glow {
+  position: absolute;
+  top: -160px;
+  right: -80px;
+  width: 320px;
+  height: 320px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--home-accent-soft) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 次要文字：跟随 antd 主题 token，避免硬编码灰阶 */
+.home-muted {
+  color: var(--home-text-secondary);
+}
+
+/* 系统在线状态胶囊 */
+.home-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--home-border);
+  border-radius: 9999px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.home-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.home-status.is-online {
+  color: var(--home-positive);
+}
+
+.home-status.is-offline {
+  color: var(--home-negative);
+}
+
+/* KPI 数值：等宽数字，轮询刷新时不抖动 */
+.home-kpi__value {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-kpi__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--home-accent);
+  background: var(--home-accent-soft);
+}
+
+/* 列表行：整行可点，hover 只做背景反馈 */
+.home-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease-out;
+}
+
+.home-row + .home-row {
+  border-top: 1px solid var(--home-border);
+}
+
+.home-row:hover {
+  background: var(--home-hover);
+}
+
+.home-row:focus-visible {
+  outline: 2px solid var(--home-accent);
+  outline-offset: 1px;
+}
+
+.home-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 任务状态点 */
+.home-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--home-muted);
+}
+
+.home-dot[data-status='running'] {
+  background: var(--home-positive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--home-positive) 18%, transparent);
+}
+
+.home-dot[data-status='error'] {
+  background: var(--home-negative);
+}
+
+.home-dot[data-status='starting'],
+.home-dot[data-status='stopping'] {
+  background: var(--home-warning);
+}
+
+/* 快捷入口 */
+.home-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-quick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--home-border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease-out,
+    background-color 160ms ease-out;
+}
+
+.home-quick:hover {
+  border-color: var(--home-accent);
+  background: var(--home-hover);
+}
+
+.home-quick:focus-visible {
+  outline: 2px solid var(--home-accent);
+  outline-offset: 1px;
+}
+
+.home-quick__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--home-accent);
+  background: var(--home-accent-soft);
+}
+
+@media (max-width: 480px) {
+  .home-quick-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-row,
+  .home-quick {
+    transition: none;
+  }
+}

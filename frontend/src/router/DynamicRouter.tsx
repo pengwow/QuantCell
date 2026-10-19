@@ -7,6 +7,7 @@ import AuthGuard from '@/components/AuthGuard';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 // 首屏关键页面保持同步加载，避免登录后白屏等待
 import LoginPage from '@/pages/login/LoginPage';
+import HomePage from '@/pages/home/HomePage';
 import ChartPage from '@/pages/chart/ChartPage';
 
 // 非首屏页面按需加载：把 echarts 等大依赖拆成独立 chunk，访问对应路由时才请求，
@@ -66,6 +67,7 @@ function createBaseRoutes(): RouteObject[] {
         </AuthGuard>
       ),
       children: [
+        { path: '/home', element: <HomePage /> },
         { path: '/chart', element: <ChartPage /> },
         { path: '/strategy-worker', element: <Worker /> },
         { path: '/strategy-worker/:workerId', element: <WorkerDetail /> },
@@ -107,7 +109,7 @@ function createBaseRoutes(): RouteObject[] {
             { path: 'desktop-backend', element: <DesktopBackendSettings /> },
           ],
         },
-        { index: true, element: <Navigate to="/chart" replace /> },
+        { index: true, element: <Navigate to="/home" replace /> },
       ],
     },
   ];

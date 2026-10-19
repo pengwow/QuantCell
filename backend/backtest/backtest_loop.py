@@ -365,7 +365,8 @@ class BacktestLoop:
 
             trades.append(
                 {
-                    "trade_id": f"rt-{len(trades) + 1}",
+                    # 编入 symbol 保证多品种聚合后全局唯一（每品种独立编号 rt-N 会撞号，前端 rowKey 报 duplicate key）
+                    "trade_id": f"rt-{symbol}-{len(trades) + 1}",
                     "symbol": symbol,
                     "timestamp": entry_time_ns // 1_000_000_000,  # 开仓秒级
                     "formatted_time": entry_dt.strftime("%Y-%m-%d %H:%M:%S"),
