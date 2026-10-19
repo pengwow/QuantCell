@@ -146,6 +146,7 @@ class StrategyUploadRequest(BaseSchema):
         tags: 策略标签（可选）
         description: 策略描述（可选）
         params: 策略参数列表（可选）
+        factors: 策略因子列表（可选）
         strategy_type: 策略类型 rule/rl（可选）
     """
 
@@ -156,6 +157,7 @@ class StrategyUploadRequest(BaseSchema):
     tags: list[str] | None = Field(default=None, description="策略标签（可选）")
     description: str | None = Field(default=None, description="策略描述（可选）")
     params: list[StrategyParam] | None = Field(default=None, description="策略参数列表（可选）")
+    factors: list[dict[str, Any]] | None = Field(default=None, description="策略因子列表（可选）")
     strategy_type: str | None = Field(default="rule", description="策略类型 rule/rl（可选）")
 
 

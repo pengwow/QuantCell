@@ -198,6 +198,48 @@ class TestStrategyUploadAPI:
         response = client.post("/api/v1/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
 
+    def test_upload_strategy_params_persisted(self, client: TestClient, valid_auth_headers: dict[str, str]):
+        """回归测试：上传时传的 params / description / version 必须持久化，detail 能反显。
+
+        背景：upload 路由曾只调 save_strategy（仅写文件不写库），策略详情页
+        编辑参数后保存，刷新页面全部丢失（detail 以 DB 数据优先）。
+        """
+        name = "test_strategy_params_persist"
+        try:
+            resp = client.post(
+                "/api/v1/strategy/upload",
+                json={
+                    "strategy_name": name,
+                    "file_content": "class PersistStrategy(Strategy):\n    pass\n",
+                    "version": "1.2.3",
+                    "description": "回归测试描述",
+                    "params": [
+                        {
+                            "name": "lookback",
+                            "type": "int",
+                            "default": 20,
+                            "description": "回看窗口",
+                            "required": False,
+                        },
+                    ],
+                },
+                headers=valid_auth_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["code"] == 0
+
+            detail = client.post("/api/v1/strategy/detail", json={"strategy_name": name})
+            assert detail.status_code == 200
+            info = detail.json()["data"]
+            assert [p["name"] for p in info["params"]] == ["lookback"]
+            assert info["params"][0]["default"] == 20
+            assert info["description"] == "回归测试描述"
+            assert info["version"] == "1.2.3"
+        finally:
+            # 清理文件 + DB 记录，避免污染真实库（上面的 fixture 只清 .py 文件）
+            with contextlib.suppress(Exception):
+                client.delete(f"/api/v1/strategy/{name}", headers=valid_auth_headers)
+
     # ========== 请求体验证测试 ==========
 
     @pytest.mark.parametrize("missing_field", ["strategy_name", "file_content"])

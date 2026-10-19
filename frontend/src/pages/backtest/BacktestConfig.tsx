@@ -1,4 +1,3 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 回测配置页面组件
  * 功能：配置策略回测参数，包括策略信息和回测信息
@@ -28,6 +27,7 @@ import {
   Modal,
   Progress,
   Tag,
+  theme,
 } from 'antd';
 import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { backtestApi, configApi, strategyApi } from '../../api';
@@ -89,6 +89,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const watchedStrategy = Form.useWatch('strategy', form);
+  // 主题 token：策略下拉的描述文字取 token 颜色，保证亮暗主题下都协调
+  const { token } = theme.useToken();
   // symbols 可在表单中动态增删，这里按实时值判断是否多品种回测，决定「资金使用方式」是否可用
   const watchedSymbols = Form.useWatch('symbols', form);
   const isMultiSymbol = (watchedSymbols?.length ?? 0) > 1;
@@ -1118,26 +1120,36 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     placeholder="请选择策略"
                     style={{ width: '100%' }}
                     onChange={handleStrategyChange}
-                  >
-                    {strategies.map((strategy) => (
-                      <Option key={strategy.name} value={strategy.name}>
-                        {strategy.name}
-                        {strategy.tags && strategy.tags.includes('demo') && (
-                          <span style={{
-                            marginLeft: 8,
-                            fontSize: 12,
-                            color: QUANT_COLORS.info,
-                            background: '#e6f7ff',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            border: '1px solid #91d5ff'
-                          }}>
-                            demo
-                          </span>
-                        )}
-                      </Option>
-                    ))}
-                  </Select>
+                    // options + optionRender：选中回显只用 label（纯策略名），下拉项额外渲染描述
+                    options={strategies.map((s) => ({ value: s.name, label: s.name, strategy: s }))}
+                    optionRender={(option) => {
+                      const s = option.data.strategy as Strategy;
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          <span style={{ flexShrink: 0 }}>{option.label}</span>
+                          {s.tags?.includes('demo') && (
+                            <Tag color="processing" style={{ marginRight: 0 }}>demo</Tag>
+                          )}
+                          {s.description && (
+                            <span
+                              title={s.description}
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                fontSize: 12,
+                                color: token.colorTextTertiary,
+                              }}
+                            >
+                              {s.description}
+                            </span>
+                          )}
+                        </span>
+                      );
+                    }}
+                  />
                 </Form.Item>
                 <div style={{ marginBottom: 16, textAlign: 'right' }}>
                   <Button
