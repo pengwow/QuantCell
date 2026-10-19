@@ -20,24 +20,21 @@ export interface PageContainerProps {
 
 /**
  * 页面容器组件
- * 提供统一的页面布局：外层 px-6 py-4 内边距 + container 内容区域
+ * 提供统一的页面布局：外层 px-6 py-4 内边距，内容全宽铺满（不做限宽居中，
+ * 否则宽屏下内容区与侧边栏之间会出现大片空白）。新页面请统一使用本容器。
  */
 const PageContainer = ({ children, title, className = '' }: PageContainerProps) => {
   return (
-    <div className={`px-6 py-4 ${className}`}>
+    <div className={`flex flex-col px-6 py-4 ${className}`}>
       {/* 页面标题区域 */}
       {title && (
-        <div className="container mx-auto mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-            {title}
-          </h1>
-        </div>
+        <h1 className="mb-6 shrink-0 text-2xl font-semibold text-gray-900 dark:text-gray-100">
+          {title}
+        </h1>
       )}
 
-      {/* 页面内容区域 */}
-      <div className="container mx-auto">
-        {children}
-      </div>
+      {/* 页面内容区域（全宽） */}
+      {children}
     </div>
   );
 };
