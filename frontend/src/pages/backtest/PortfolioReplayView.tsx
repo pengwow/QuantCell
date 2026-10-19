@@ -527,7 +527,11 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
         type="info"
         showIcon
         title="组合口径说明"
-        description="本次回测各品种使用独立资金池，账户数字为各品种权益的汇总；持仓由跨品种成交流重建（现货双向口径），与单品种视角的持仓记录可能存在口径差异。"
+        description={
+          data.capital_mode === 'shared'
+            ? '本次回测所有品种共用一笔初始资金（组合共享资金池），账户数字即该共享账户；持仓由跨品种成交流重建（现货双向口径），与单品种视角的持仓记录可能存在口径差异。'
+            : '本次回测各品种使用独立资金池，账户数字为各品种权益的汇总；持仓由跨品种成交流重建（现货双向口径），与单品种视角的持仓记录可能存在口径差异。'
+        }
       />
 
       {/* 时钟控制栏 */}
