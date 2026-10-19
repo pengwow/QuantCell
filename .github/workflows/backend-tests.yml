@@ -7,22 +7,23 @@ name: Backend Tests
 # CI runner 上没有那个目录，所以这里把 axon_quant checkout 到 `<workspace>/axon_quant`，
 # 与 `<workspace>/QuantCell/backend` 正好构成 ../../axon_quant 的相对关系。
 #
-# 两仓库按版本同步推进：0.18.0 合并进 main 后，把默认 ref 改成 main。
+# axon_quant 0.18.0 已合并进其 main，故默认 ref 指向 main（版本分支已无必要）。
+# workflow_dispatch 仍可手动指定 ref，用于验证未合并的引擎改动。
 
 on:
   workflow_dispatch:
     inputs:
       axon_quant_ref:
-        description: "axon_quant 仓库的 ref（默认 0.18.0）"
+        description: "axon_quant 仓库的 ref（默认 main）"
         required: false
-        default: "0.18.0"
+        default: "main"
   pull_request:
     branches: [main, develop]
     paths:
       - "backend/**"
       - ".github/workflows/backend-tests.yml"
   push:
-    branches: [main, develop, "0.18.0"]
+    branches: [main, develop]
     paths:
       - "backend/**"
       - ".github/workflows/backend-tests.yml"
