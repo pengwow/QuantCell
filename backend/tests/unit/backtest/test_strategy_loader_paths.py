@@ -18,12 +18,17 @@ import pytest
 class TestGetStrategiesDirs:
     """单一真相源：返回所有可能目录，按优先级排序"""
 
-    def test_returns_backend_strategies_dir(self):
+    def test_returns_repo_template_dir(self):
+        """候选目录至少包含仓库自带的 backend/strategy/templates
+
+        注意：backend/strategies 是本地策略目录，已被 .gitignore 忽略
+        （backend/strategies/*），全新 checkout 上并不存在，因此不能断言
+        "候选目录里一定有名字含 strategies 的目录"。
+        """
         from backtest.strategy_loader_service import StrategyLoaderService
 
         dirs = StrategyLoaderService._get_strategies_dirs()
-        # 至少有 backend/strategies/
-        assert any("strategies" in str(d) for d in dirs)
+        assert any(d.name == "templates" for d in dirs), f"候选目录: {dirs}"
 
     def test_returns_example_strategies_dir(self):
         from backtest.strategy_loader_service import StrategyLoaderService

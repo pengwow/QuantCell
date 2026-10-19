@@ -29,25 +29,44 @@
 __version__ = "1.0.0"
 __author__ = "QuantCell Team"
 
-# 导出主要组件
-from .routes import router
-from .schemas import (
-    FactorAddRequest,
-    FactorAnalyzeRequest,
-    FactorCalculateBase,
-    FactorCalculateMultiRequest,
-    FactorCalculateRequest,
-    FactorCorrelationRequest,
-    FactorDetail,
-    FactorGroupAnalysisRequest,
-    FactorICRequest,
-    FactorIRRequest,
-    FactorMonotonicityRequest,
-    FactorStabilityRequest,
-    FactorStatsRequest,
-    FactorValidateRequest,
-)
-from .service import FactorService
+# 惰性导出：factor.routes 在模块级构造 FactorService() 并立刻查询 factor_catalog 表，
+# 若在 init_db() 建表（Base.metadata.create_all）之前触发导入，新库上必报
+# "no such table: factor_catalog"，导致全新环境无法完成首次初始化。
+# 改为首次访问属性时才导入，保证 `import factor.models` 只注册模型、不碰数据库。
+# 与 backtest/__init__.py 的写法保持一致。
+_LAZY_EXPORTS: dict[str, str] = {
+    "router": ".routes",
+    "FactorService": ".service",
+    # 请求/响应模型
+    "FactorAddRequest": ".schemas",
+    "FactorAnalyzeRequest": ".schemas",
+    "FactorCalculateBase": ".schemas",
+    "FactorCalculateMultiRequest": ".schemas",
+    "FactorCalculateRequest": ".schemas",
+    "FactorCorrelationRequest": ".schemas",
+    "FactorDetail": ".schemas",
+    "FactorGroupAnalysisRequest": ".schemas",
+    "FactorICRequest": ".schemas",
+    "FactorIRRequest": ".schemas",
+    "FactorMonotonicityRequest": ".schemas",
+    "FactorStabilityRequest": ".schemas",
+    "FactorStatsRequest": ".schemas",
+    "FactorValidateRequest": ".schemas",
+}
+
+
+def __getattr__(name: str):
+    """按需导入导出项（PEP 562）。"""
+    module_path = _LAZY_EXPORTS.get(name)
+    if module_path is None:
+        msg = f"module '{__name__}' has no attribute '{name}'"
+        raise AttributeError(msg)
+    from importlib import import_module
+
+    value = getattr(import_module(module_path, __name__), name)
+    globals()[name] = value  # 缓存，后续访问走模块 __dict__
+    return value
+
 
 __all__ = [
     # 请求模型

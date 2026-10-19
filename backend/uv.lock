@@ -243,7 +243,7 @@ wheels = [
 
 [[package]]
 name = "axon-quant"
-version = "0.17.2"
+version = "0.18.0"
 source = { directory = "../../axon_quant" }
 dependencies = [
     { name = "numpy" },
@@ -254,6 +254,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "gymnasium", marker = "extra == 'rl'", specifier = ">=0.29.0" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.21.0" },
@@ -279,7 +280,7 @@ wheels = [
 
 [[package]]
 name = "backend"
-version = "0.1.0"
+version = "0.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

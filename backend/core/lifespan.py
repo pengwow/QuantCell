@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -539,7 +540,13 @@ async def lifespan(app: FastAPI):
 
     # 兜底：直接退出进程，绕过 atexit 阶段 concurrent.futures 的线程 join
     # （asyncio 默认线程池等 daemon 线程在 atexit 时可能阻塞导致第二次 Ctrl+C）
-    os._exit(0)
+    #
+    # pytest/TestClient 场景必须跳过：集成测试用 `with TestClient(app)` 会走完整
+    # lifespan，进程里直接 os._exit(0) 会把整个 pytest 会话静默杀掉 —— 没有
+    # summary、退出码恒为 0，CI 会把失败用例当成功。只有真实 uvicorn 进程才需要
+    # 这层兜底（Ctrl+C 后彻底退出）。
+    if "pytest" not in sys.modules:
+        os._exit(0)
 
 
 def init_database():

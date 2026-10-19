@@ -13,7 +13,7 @@ Rust 侧 axon_quant.worker.BacktestRunner 期望策略实现 `decide(bar_dict) -
     adapter = RustStrategyAdapter(base_strategy)
     runner = worker.BacktestRunner(initial_cash=100000.0)
     runner.add_strategy(adapter)
-    result = runner.run(bars=[...], state_by_symbol={})
+    result = runner.run(bars=[...], states_by_symbol={})
 """
 
 from __future__ import annotations
@@ -54,7 +54,21 @@ class RustStrategyAdapter:
         return self._symbol
 
     def decide(self, bar: dict) -> dict:
-        """Rust 调用入口：bar dict → 决策 dict（target_position 为绝对目标数量）。"""
+        """Rust 调用入口：bar dict → 决策 dict（target_position 为绝对目标数量）。
+
+        Rust 侧把逐 bar state 放在 `bar["state"]`（非空时），此处映射回
+        `BacktestLoop` 的注入口径：`features` → `ctx.features`，
+        `cross_sectional_rank` → `bar["cross_sectional_rank"]`。
+        """
+        state = bar.pop("state", None)
+        if isinstance(state, dict):
+            feats = state.get("features")
+            if isinstance(feats, dict):
+                self._ctx.features = {str(k): float(v) for k, v in feats.items()}
+            rank = state.get("cross_sectional_rank")
+            if rank is not None:
+                bar["cross_sectional_rank"] = int(rank)
+
         action = self._strategy.on_bar(bar, self._ctx)
         action_type = str(action.action_type)
 
