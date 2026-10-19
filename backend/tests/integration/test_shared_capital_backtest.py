@@ -123,6 +123,88 @@ def test_shared_capital_pool_end_to_end(monkeypatch) -> None:
         assert trades, f"{sym} 应有 round-trip 成交（正弦震荡 + force_liquidate），为空说明成交归属有误"
         assert all(t["symbol"] == sym for t in trades), f"{sym} 的成交列表里混入了其他品种（instrument 拆分错误）"
 
+    # ── invariant 5：成交派生指标必须按品种归因 ──
+    # 回归背景：共享分支曾整体复制聚合结果（sym_result = dict(multi_result)），
+    # 只切分成交，导致详情页「切换品种」时总收益率/总盈亏/交易次数各品种完全相同。
+    def _metrics(sym: str) -> dict:
+        return {m["key"]: m["value"] for m in by_symbol[sym]["metrics"]}
+
+    for sym in SYMBOLS:
+        entry = by_symbol[sym]
+        metrics = _metrics(sym)
+        # 总盈亏 == 该品种自身成交盈亏之和（引擎 realized_pnl 可加）；
+        # metrics 里的 total_pnl 已四舍五入到 2 位小数，比较容差取 0.01
+        expected_pnl = sum(float(t.get("pnl") or 0.0) for t in entry["trades"])
+        assert metrics["total_pnl"] == pytest.approx(expected_pnl, abs=0.01), (
+            f"{sym} 的总盈亏应为自身成交盈亏之和（归因口径），实际 {metrics['total_pnl']} vs {expected_pnl}"
+        )
+        assert metrics["total_trades"] > 0, f"{sym} 应有成交笔数"
+        # 收益率基数 = 共享账户的一笔 init_cash（贡献可加口径，不按品种摊资金）
+        assert metrics["total_return"] == pytest.approx(metrics["total_pnl"] / INIT_CASH * 100, abs=0.01), (
+            f"{sym} 的收益率应按共享账户初始资金计算，实际 {metrics['total_return']}"
+        )
+
+    # 成交拆分无遗漏：各品种成交笔数之和 == 账户总成交笔数
+    assert sum(_metrics(s)["total_trades"] for s in SYMBOLS) == portfolio_metrics["total_trades"], (
+        "各品种成交笔数之和应等于账户总成交笔数"
+    )
+
+    pnls = {sym: _metrics(sym)["total_pnl"] for sym in SYMBOLS}
+    returns = {sym: _metrics(sym)["total_return"] for sym in SYMBOLS}
+    assert len({round(v, 6) for v in pnls.values()}) > 1, f"各品种总盈亏不应完全相同，实际 {pnls}"
+    assert len({round(v, 6) for v in returns.values()}) > 1, f"各品种总收益率不应完全相同，实际 {returns}"
+
+    # ── invariant 6：账户级字段（夏普/回撤）在品种条目里保留账户真值 ──
+    # 回归背景：曾把这两项置 0 以避免"各品种看起来一样"；口径改为前端隐藏品种视角
+    # 的账户级卡片后，数据层必须保留账户真值（导出/回放消费的是真数）
+    for sym in SYMBOLS:
+        metrics = _metrics(sym)
+        assert metrics["sharpe_ratio"] == pytest.approx(portfolio_metrics["sharpe_ratio"]), (
+            f"{sym} 的夏普应为共享账户真值，实际 {metrics['sharpe_ratio']}"
+        )
+        assert metrics["max_drawdown"] == pytest.approx(portfolio_metrics["max_drawdown"]), (
+            f"{sym} 的最大回撤应为共享账户真值，实际 {metrics['max_drawdown']}"
+        )
+
+
+def test_shared_portfolio_trade_stats_match_concatenated_trades(monkeypatch) -> None:
+    """组合（portfolio）视图的盈利/亏损/盈亏比，必须与「各品种成交拼接」重算一致。
+
+    回归背景：``engine_service._format_results`` 组装 portfolio payload 时曾显式传 ``trades=[]``，而
+    formatter 的 winning/losing/profit_factor 都是从 ``trades`` 现算的 → 组合恒出
+    「盈利交易 0 / 亏损交易 = trade_count / 盈亏比 0.0」的假值。改为传入各品种
+    round-trip 拼接后，组合统计与「全部」视图成交明细同源。
+    """
+    results, _ = _run_shared(monkeypatch, engine_config={})
+
+    # 各品种 round-trip 拼接 = 组合视图的成交明细（与实现同源）
+    concat_trades = [t for r in results["results_by_symbol"].values() for t in (r.get("trades") or [])]
+    assert concat_trades, "夹具应产生非空 round-trip 成交"
+
+    wins = [t for t in concat_trades if float(t.get("pnl") or 0.0) > 0]
+    losses = [t for t in concat_trades if float(t.get("pnl") or 0.0) <= 0]
+    assert wins and losses, "夹具应同时产生盈利与亏损 round-trip，供盈亏比重算"
+    expected_pf = sum(float(t["pnl"]) for t in wins) / abs(sum(float(t["pnl"]) for t in losses))
+
+    portfolio_metrics = {m["key"]: m["value"] for m in results["portfolio"]["metrics"]}
+
+    # ── 组合统计 == 拼接后重算（formatter 会把盈亏比四舍五入到 4 位） ──
+    assert portfolio_metrics["winning_trades"] == len(wins), (
+        f"组合盈利交易应等于拼接后 pnl>0 条数，实际 {portfolio_metrics['winning_trades']} vs {len(wins)}"
+    )
+    assert portfolio_metrics["losing_trades"] == len(losses), (
+        f"组合亏损交易应等于拼接后 pnl<=0 条数，实际 {portfolio_metrics['losing_trades']} vs {len(losses)}"
+    )
+    assert portfolio_metrics["profit_factor"] == pytest.approx(expected_pf, abs=1e-3), (
+        f"组合盈亏比应等于拼接后 Σ盈/│Σ亏│，实际 {portfolio_metrics['profit_factor']} vs {expected_pf}"
+    )
+
+    # ── 不是旧假值形态：盈利交易恒 0、亏损交易退化成 fills（交易次数） ──
+    assert portfolio_metrics["winning_trades"] > 0, "组合盈利交易不应退化成 0（空 trades 假值）"
+    assert portfolio_metrics["losing_trades"] != portfolio_metrics["total_trades"], (
+        "组合亏损交易不应退化成 fills 口径（旧假值 = trade_count - 0）"
+    )
+
 
 def test_shared_mode_capital_budget_scales_with_leverage(monkeypatch) -> None:
     """资金约束预算随 leverage 线性放大：capital_budget == init_cash × leverage。"""
