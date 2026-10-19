@@ -14,7 +14,7 @@
 日期: 2026-02-12
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,7 @@ class BacktestConfig(BaseSchema):
         start_time: 开始时间
         end_time: 结束时间
         initial_cash: 初始资金
+        capital_mode: 资金使用方式（per_symbol 各品种独立资金池 / shared 组合共享资金池）
         commission: 手续费率
         exclusive_orders: 是否取消未完成订单
         engine_type: 回测引擎类型 (default/event)
@@ -76,6 +77,11 @@ class BacktestConfig(BaseSchema):
         ge=0,
         description="初始资金",
         json_schema_extra={"example": 10000.0},
+    )
+    capital_mode: Literal["per_symbol", "shared"] = Field(
+        default="per_symbol",
+        description="资金使用方式：per_symbol=各品种独立资金池（每品种各拿一份 initial_cash）；shared=组合共享资金池（单账户，总名义敞口受 initial_cash×leverage 约束）",
+        json_schema_extra={"example": "per_symbol"},
     )
     commission: float = Field(
         default=0.001,

@@ -308,13 +308,15 @@ class BacktestService:
     def build_portfolio_view(results: dict[str, Any]) -> dict[str, Any]:
         """组装多品种回测的「全部（组合）」视图。
 
-        引擎对多品种是 N 个独立资金池各自回测，组合视图口径：
+        引擎对多品种默认是 N 个独立资金池各自回测（共享资金池模式下为单账户），
+        组合视图口径：
         - metrics：直接用回测落盘时算好的 portfolio.metrics（总收益率等已按
           独立资金池合计口径二次计算，不能对百分比类指标做简单平均）
         - trades/positions：各品种拼接（round-trip 记录自带 symbol），交易按时间升序
-        - equity_curve：各品种时间轴不一致（实测长度/起止均不同），按时间戳
-          并集对齐后逐时点求和；品种首个真实点之前按初始权益填充（尚未开跑），
-          中间缺失时点前向填充
+        - equity_curve：独立资金池模式下各品种时间轴不一致（实测长度/起止均不同），
+          按时间戳并集对齐后逐时点求和；品种首个真实点之前按初始权益填充（尚未开跑），
+          中间缺失时点前向填充。共享资金池模式（capital_mode == "shared"）下各品种
+          携带的是同一条单账户曲线，直接取 portfolio.equity_curve（求和会得到 N 倍假值）
 
         Args:
             results: 结果 JSON 的 results 字段（多品种封装结构）
@@ -336,8 +338,15 @@ class BacktestService:
             all_positions.extend(p for p in (entry.get("positions") or []) if isinstance(p, dict))
         all_trades.sort(key=lambda t: t.get("timestamp") or 0)
 
-        merged_curve = BacktestService._merge_equity_curves(
-            [entry.get("equity_curve") or [] for entry in entries.values()]
+        # 共享资金池模式：各品种条目携带的是同一条单账户曲线，组合曲线直接取
+        # portfolio.equity_curve；否则（独立资金池）按时间戳并集对齐后逐时点求和
+        merged_curve = (
+            list(portfolio.get("equity_curve") or [])
+            if isinstance(results, dict)
+            and results.get("capital_mode") == "shared"
+            and isinstance(portfolio, dict)
+            and portfolio.get("equity_curve")
+            else BacktestService._merge_equity_curves([entry.get("equity_curve") or [] for entry in entries.values()])
         )
 
         return {
@@ -460,6 +469,14 @@ class BacktestService:
         entries = self.extract_symbol_entries(results)
         interval = str(config.get("interval") or "15m")
         init_cash = float(config.get("initial_cash") or 0.0)
+        # 资金使用方式：shared=组合共享资金池。共享模式下各品种条目携带的是
+        # 同一条单账户合并曲线，组合曲线直接取 portfolio.equity_curve，不能再对各品种求和
+        capital_mode = str(config.get("capital_mode") or "per_symbol")
+        shared_curve: list[dict[str, Any]] | None = None
+        if capital_mode == "shared":
+            portfolio = results.get("portfolio") if isinstance(results, dict) else None
+            if isinstance(portfolio, dict) and portfolio.get("equity_curve"):
+                shared_curve = list(portfolio["equity_curve"])
 
         # ---- 合并 round-trip 成交（秒级 timestamp 开仓时间），按时间排序 ----
         # 旧格式/中间版记录不迁移（被 filter 剔除），回放按空成交处理
@@ -490,6 +507,7 @@ class BacktestService:
                 "symbols": list(entries.keys()),
                 "interval": interval,
                 "init_cash": init_cash,
+                "capital_mode": capital_mode,
                 "start_ms": 0,
                 "end_ms": 0,
                 "grid_count": 0,
@@ -515,12 +533,18 @@ class BacktestService:
         grid_step = grid[1] - grid[0] if len(grid) > 1 else 900_000
 
         # ---- 合并权益曲线：账户序列只保留权益实际变化点（播放端 ffill）----
-        merged = self._merge_equity_curves([entry.get("equity_curve") or [] for entry in entries.values()])
-        total_initial = sum(
-            float((entry.get("equity_curve") or [{}])[0].get("equity", init_cash) or init_cash)
-            for entry in entries.values()
-            if entry.get("equity_curve")
-        )
+        if shared_curve:
+            # 共享模式：单账户曲线即组合曲线；各品种条目携带的是同一条曲线，
+            # 若按并集求和会得到 N 倍假值
+            merged = shared_curve
+            total_initial = init_cash if init_cash > 0 else float(shared_curve[0].get("equity") or 0.0)
+        else:
+            merged = self._merge_equity_curves([entry.get("equity_curve") or [] for entry in entries.values()])
+            total_initial = sum(
+                float((entry.get("equity_curve") or [{}])[0].get("equity", init_cash) or init_cash)
+                for entry in entries.values()
+                if entry.get("equity_curve")
+            )
 
         # 账户稀疏序列：累计盈亏 / 滚动回撤 / 当日盈亏（UTC 日界）
         account: list[list[float]] = []
@@ -537,8 +561,11 @@ class BacktestService:
                 [
                     t,
                     round(equity, 4),
-                    round(float(p["balance"]), 4),
-                    round(float(p["margin"]), 4),
+                    # balance / margin 用 get 兜底：共享模式下 merged 直接来自引擎的
+                    # bar_nav_curve（只有 equity/timestamp），没有这两个键；非共享模式
+                    # 经 _merge_equity_curves 会补上且恒为 0，两者取值一致
+                    round(float(p.get("balance") or 0.0), 4),
+                    round(float(p.get("margin") or 0.0), 4),
                     round(equity - total_initial, 4),
                     round(drawdown, 6),
                     round(equity - day_first_equity[day_key], 4),
@@ -584,6 +611,7 @@ class BacktestService:
             "symbols": list(entries.keys()),
             "interval": interval,
             "init_cash": round(total_initial or init_cash, 4),
+            "capital_mode": capital_mode,
             "start_ms": grid[0],
             "end_ms": grid[-1],
             "grid_count": len(grid),

@@ -871,6 +871,20 @@ const BacktestReplay = () => {
           />
         </Card>
 
+        {/* 共享资金池提示：品种视角的权益/成交取自共享账户口径，需明确标注（仅共享模式出现） */}
+        {replayData?.backtest_config?.capital_mode === 'shared' && (
+          // 用原生 div 包一层由容器 space-y-6 提供间距：antd 组件直接相邻时其 margin-top
+          // 会被 CSS-in-JS 覆盖（项目反复踩坑），故不把 Alert 直接作为 space-y 容器的子元素
+          <div>
+            <Alert
+              type="info"
+              showIcon
+              title="共享账户权益"
+              description="本回测为组合共享资金池，本页品种视角的权益与成交均取自共享账户口径，不是该品种的独立权益。"
+            />
+          </div>
+        )}
+
         {/* 因子快照：随播放时刻对齐显示当前因子值与信号（无因子数据的回测不渲染） */}
         <FactorSnapshot factors={replayData?.factors} currentMs={currentMs} />
 

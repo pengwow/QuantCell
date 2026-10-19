@@ -109,7 +109,8 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
     <Table
       columns={columns}
       dataSource={data}
-      rowKey="trade_id"
+      // 旧版多品种结果各品种独立编号 rt-N 会重复，叠加 symbol 保证 rowKey 唯一
+      rowKey={(record) => `${record.symbol}-${record.trade_id}`}
       loading={loading}
       pagination={
         pagination

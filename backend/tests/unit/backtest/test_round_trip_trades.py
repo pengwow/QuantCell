@@ -84,7 +84,7 @@ def test_contract_fields_exact():
 def test_identity_and_side_semantics():
     trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
     for i, tr in enumerate(trades):
-        assert tr["trade_id"] == f"rt-{i + 1}"
+        assert tr["trade_id"] == f"rt-BTCUSDT-{i + 1}"
         assert tr["symbol"] == "BTCUSDT"
         assert tr["status"] == "FILLED"
     # 前两笔 net_quantity<0 → 做多, side=buy(开仓方向)
@@ -127,3 +127,12 @@ def test_timestamps():
 
 def test_empty_input():
     assert BacktestLoop._format_round_trip_trades([], "BTCUSDT") == []
+
+
+def test_trade_id_unique_across_symbols():
+    # 多品种结果会在 Python 侧聚合 trades,各品种独立编号,trade_id 必须全局唯一
+    # (曾因每品种各自 rt-N 撞号导致前端 React duplicate key 报错)
+    btc = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
+    ltc = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "LTCUSDT")
+    ids = [tr["trade_id"] for tr in btc + ltc]
+    assert len(ids) == len(set(ids))

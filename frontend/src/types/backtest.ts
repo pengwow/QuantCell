@@ -56,6 +56,7 @@ export interface BacktestConfig {
   interval: string;
   initial_cash: number;
   commission: number;
+  capital_mode?: 'per_symbol' | 'shared';   // 资金使用方式：各品种独立资金池 / 组合共享资金池
 }
 
 // 策略参数接口
@@ -201,6 +202,7 @@ export interface PortfolioReplayData {
   // 持仓期收盘价点（仅净持仓非零网格）：{ symbol: [[t(ms), close], ...] }
   holding_prices: Record<string, Array<[number, number]>>;
   trades: ReplayTrade[];
+  capital_mode?: 'per_symbol' | 'shared';   // 本次回测的资金使用方式，供口径说明按模式渲染
 }
 
 // 回测货币对列表数据类型
