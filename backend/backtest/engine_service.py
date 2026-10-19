@@ -1,8 +1,13 @@
 """
 回测引擎服务模块（基于 axon_quant 体系）
 
-唯一回测路径：BaseStrategy → BacktestLoop → axon_quant BacktestEngine。
-负责数据加载、因子特征注入与结果格式化，引擎交互统一走 BacktestLoop。
+默认回测路径：BaseStrategy → RustStrategyAdapter → axon_quant worker.BacktestRunner
+（Rust 原生撮合编排）；engine_config['runner']='python' 可回退到
+BaseStrategy → BacktestLoop → axon_quant backtest.BacktestEngine。
+
+本模块负责数据加载、因子特征注入与结果格式化，两条引擎路径的编排差异
+必须在 Rust 侧复刻（parity 由 tests/unit/backtest/test_rust_runner_parity.py 守护）。
+放行的 data_type 见下方 `RUST_RUNNER_DATA_TYPES`（含两个语义边界说明）。
 
 作者: QuantCell Team
 版本: 2.0.0
@@ -24,6 +29,61 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # 逐品种进度回调：参数为 (已完成品种数, 品种总数, 当前开始回测的品种)
 # ponytail: 粒度只到品种级，单品种回测在引擎执行期间没有中间进度（需 Rust 引擎支持 bar 级回调）
 SymbolProgressCallback = Callable[[int, int, str], None]
+
+# 放行 Rust BacktestRunner 的 data_type：四类适配器（KlineAdapter / TickAdapter /
+# OrderBookAdapter / DerivAdapter）已把它们聚合成 bar 形状（大写 OHLCV + int64 纳秒
+# timestamp），`clean_ohlcv_df` → `_df_to_rust_bars` 可直接消费。
+#
+# 两个必须守住的语义边界：
+# - `fundingRate` 作为 data_type 是 DerivAdapter 产出的特征列（feature_funding_rate），
+#   与 `_build_rust_funding` 的资金费结算通道（仅 futures 且 provider 有费率时生效）
+#   不是一回事，二者不得混用，否则双重计费；
+# - `bookDepth` / `bookTicker` 聚合出的是 mid-price 合成价，不是可撮合盘口深度。
+#
+# 不在放行范围：原生 tick / 逐档 book 驱动的撮合（需 Rust L2/L3 + 非 bar 步进编排）。
+RUST_RUNNER_DATA_TYPES = frozenset(
+    {
+        "kline",
+        "markPriceKlines",
+        "indexPriceKlines",
+        "premiumIndexKlines",
+        "aggTrades",
+        "trades",
+        "bookDepth",
+        "bookTicker",
+        "fundingRate",
+        "openInterest",
+    }
+)
+
+# market → 永续保证金结算方式（spot 无 settle 概念，缺省按 U 本位）
+_SWAP_SETTLE_BY_MARKET = {"um": "usd_margin", "cm": "coin_margin"}
+
+
+def adapter_feature_frame(df: pd.DataFrame) -> pd.DataFrame | None:
+    """从适配器输出的 `feature_*` 列派生逐 bar 特征帧（供策略 ctx.features 消费）。
+
+    适配器把特征作为列挂在 data 上（feature_mid_price / feature_spread /
+    feature_funding_rate / feature_open_interest* 等），而 `clean_ohlcv_df`
+    只保留 timestamp + OHLCV，这些列会被丢弃 —— 因此在清洗前抽出来单独成帧。
+
+    - 列名去掉 `feature_` 前缀（与因子库的命名口径一致，策略里直接读 `mid_price` 等）；
+    - 索引对齐 bar 时间戳（data 的 `timestamp` 列，纳秒）。
+    拿不到时间列且索引不是 DatetimeIndex 时返回 None：宁可不注入特征，
+    也不能把特征错位到别的 bar 上。
+    """
+    cols = [c for c in df.columns if str(c).lower().startswith("feature_")]
+    if not cols:
+        return None
+
+    # 用 dict 构帧（列名就地去掉 feature_ 前缀），避免 df[cols] 的分支推断歧义
+    out = pd.DataFrame({str(c)[len("feature_") :]: df[c] for c in cols}, index=df.index)
+
+    if "timestamp" in df.columns:
+        out.index = pd.to_datetime(df["timestamp"], utc=True)
+    elif not isinstance(df.index, pd.DatetimeIndex):
+        return None  # 拿不到时间列且索引不是时间索引
+    return out
 
 
 class EventDrivenBacktestService:
@@ -115,6 +175,17 @@ class EventDrivenBacktestService:
         trading_mode = engine_cfg.get("trading_mode", "spot")
         candle_type = "future" if trading_mode == "futures" else "spot"
 
+        # 永续合约口径：保证金结算方式由 market 推导（"cm" 币本位 → coin_margin，
+        # 其余含 "um" → usd_margin）；合约乘数由调用方经 engine_config 显式提供。
+        #
+        # ponytail: 乘数默认 1.0 —— 仓库内没有离线可用的合约面值来源（collector 落地的
+        # exchangeInfo 不含 contractSize），且 axon 引擎目前只把乘数当品种元数据、
+        # 未计入名义价值/盈亏（axon-backtest engine.rs 挂着 0.8.0 待办），所以币本位
+        # 只有结算方式被如实标注，账务仍是近似。要真做对需要「面值表 + 引擎侧乘数入账」
+        # + 「ratio → 合约张数」的换算，属独立立项。
+        swap_settle = _SWAP_SETTLE_BY_MARKET.get(market, "usd_margin")
+        contract_size = float(engine_cfg.get("contract_size", 1.0))
+
         # 1. 加载数据
         if data_type == "kline":
             # K线数据：使用原有加载逻辑
@@ -159,7 +230,11 @@ class EventDrivenBacktestService:
                 loaded_data[key] = {
                     "data": result.data,
                     "features": result.metadata.get("features_dict"),
-                    "feature_dataframe": result.features,
+                    # 适配器一般把特征作为 feature_* 列挂在 data 上（AdapterResult.features
+                    # 常为 None），这里回退成从列派生，否则非 K 线回测拿不到任何特征
+                    "feature_dataframe": result.features
+                    if result.features is not None and not result.features.empty
+                    else adapter_feature_frame(result.data),
                     "data_type": data_type,
                 }
 
@@ -225,19 +300,12 @@ class EventDrivenBacktestService:
         # 回测编排路径选择：默认 Rust 原生（axon_quant.worker.BacktestRunner），
         # 可显式设 engine_config['runner']='python' 回退到 Python BacktestLoop。
         #
-        # 仅放行 Rust 侧已对齐的场景：现货 + 无因子 + 单品种 + kline + 非强制平仓。
-        # - 期货资金费、因子注入尚未在 Rust 侧实现
-        # - force_liquidate 未暴露到 PyBacktestRunner（避免静默降级）
-        # 不满足条件时自动回退 Python 路径，保证行为不回退。
+        # 放行条件：data_type ∈ RUST_RUNNER_DATA_TYPES（见模块常量，kline 家族 / tick /
+        # orderbook / deriv 共 10 类，均由适配器聚合为 bar 形状）。期货资金费、逐 bar
+        # 特征注入、force_liquidate 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」
+        # 执行（与 BacktestLoop 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
         runner_mode = (engine_config or {}).get("runner", "rust")
-        use_rust_runner = (
-            runner_mode == "rust"
-            and len(symbols) == 1
-            and not factor_names
-            and trading_mode == "spot"
-            and data_type == "kline"
-            and not force_liquidate
-        )
+        use_rust_runner = runner_mode == "rust" and data_type in RUST_RUNNER_DATA_TYPES
 
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))
@@ -255,6 +323,11 @@ class EventDrivenBacktestService:
                     symbol=symbol,
                     init_cash=init_cash,
                     force_liquidate=force_liquidate,
+                    feature_dataframe=entry.get("feature_dataframe"),
+                    funding_df=self._load_funding(symbol, trading_mode, time_range),
+                    futures=(trading_mode == "futures"),
+                    settle=swap_settle,
+                    contract_size=contract_size,
                 )
             else:
                 result = loop.run(
@@ -267,6 +340,8 @@ class EventDrivenBacktestService:
                     data_type=entry.get("data_type", "kline"),
                     trading_mode=trading_mode,
                     funding_df=self._load_funding(symbol, trading_mode, time_range),
+                    settle=swap_settle,
+                    contract_size=contract_size,
                 )
             raw_results = self._convert_backtest_result(result)
             # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
@@ -281,17 +356,34 @@ class EventDrivenBacktestService:
                 sym = parts[0] if len(parts) > 1 else key
                 if on_symbol_progress:
                     on_symbol_progress(idx, len(loaded_entries), sym)
-                loop_result = loop.run(
-                    strategy=strategy,
-                    data=df,
-                    symbol=sym,
-                    force_liquidate=force_liquidate,
-                    features=entry.get("features"),
-                    feature_dataframe=entry.get("feature_dataframe"),
-                    data_type=entry.get("data_type", "kline"),
-                    trading_mode=trading_mode,
-                    funding_df=self._load_funding(sym, trading_mode, time_range),
-                )
+                if use_rust_runner:
+                    # 每品种独立跑一个 Rust runner（与 BacktestLoop 每品种独立资金池口径一致）
+                    loop_result = self._run_rust_single(
+                        strategy=strategy,
+                        df=df,
+                        symbol=sym,
+                        init_cash=init_cash,
+                        force_liquidate=force_liquidate,
+                        feature_dataframe=entry.get("feature_dataframe"),
+                        funding_df=self._load_funding(sym, trading_mode, time_range),
+                        futures=(trading_mode == "futures"),
+                        settle=swap_settle,
+                        contract_size=contract_size,
+                    )
+                else:
+                    loop_result = loop.run(
+                        strategy=strategy,
+                        data=df,
+                        symbol=sym,
+                        force_liquidate=force_liquidate,
+                        features=entry.get("features"),
+                        feature_dataframe=entry.get("feature_dataframe"),
+                        data_type=entry.get("data_type", "kline"),
+                        trading_mode=trading_mode,
+                        funding_df=self._load_funding(sym, trading_mode, time_range),
+                        settle=swap_settle,
+                        contract_size=contract_size,
+                    )
                 result = self._convert_backtest_result(loop_result)
                 per_symbol_results[sym] = result
                 # 清洗后 K 线写入结果，供回放页 kline_data（只进结果 JSON，不入 DB）
@@ -589,26 +681,105 @@ class EventDrivenBacktestService:
         symbol: str,
         init_cash: float,
         force_liquidate: bool = False,
+        feature_dataframe: pd.DataFrame | None = None,
+        funding_df: pd.DataFrame | None = None,
+        futures: bool = False,
+        settle: str = "usd_margin",
+        contract_size: float = 1.0,
     ) -> BacktestResult:
         """Rust 原生回测：BacktestRunner 逐 bar 编排策略，结果映射回 QuantCell 契约。
 
         与 BacktestLoop 路径的差异仅在编排层（循环在 Rust 侧而非 Python 逐 bar），
         两者共用同一个 axon BacktestEngine，撮合语义一致。
+
+        - `feature_dataframe`：逐 bar 因子帧 → 转成 per-bar state（`state["features"]` +
+          `cross_sectional_rank`），Rust 侧透传给 Python 策略；
+        - `funding_df` + `futures`：期货资金费查找表（键为 bar 纳秒时间戳）→ Rust 逐 bar 结算；
+        - `settle` + `contract_size`：永续品种的保证金结算方式与合约乘数（仅 futures 生效，
+          口径由调用方给出，见 run_backtest 里的 market 推导与 ponytail 说明）。
         """
         from axon_quant import worker
 
-        from strategy.rust_adapter import RustStrategyAdapter
-
-        if force_liquidate:
-            # PyBacktestRunner 暂未暴露 force_liquidate（simple() 固定 False）
-            logger.warning("[Rust runner] force_liquidate 暂未支持，本次忽略该配置")
+        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
 
         # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
         df = clean_ohlcv_df(df)
-        runner = worker.BacktestRunner(initial_cash=init_cash)
+        bars = self._df_to_rust_bars(df)
+        bar_ts_list = [b["timestamp"] for b in bars]
+        rust_symbol = _normalize_symbol(symbol)
+
+        states_by_symbol = self._build_rust_states(feature_dataframe, bar_ts_list, rust_symbol)
+        funding_by_symbol = self._build_rust_funding(funding_df, rust_symbol, futures)
+
+        runner = worker.BacktestRunner(
+            initial_cash=init_cash,
+            futures=futures,
+            force_liquidate=force_liquidate,
+            settle=settle,
+            contract_size=contract_size,
+        )
         runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
-        rust_result = runner.run(bars=self._df_to_rust_bars(df), state_by_symbol={})
+        rust_result = runner.run(
+            bars=bars,
+            states_by_symbol=states_by_symbol,
+            funding_by_symbol=funding_by_symbol,
+        )
         return self._map_rust_result(rust_result, df, symbol)
+
+    @staticmethod
+    def _build_rust_states(
+        feature_dataframe: pd.DataFrame | None,
+        bar_ts_list: list[int],
+        rust_symbol: str,
+    ) -> dict[str, list]:
+        """因子帧 → Rust per-bar state 列表（`{symbol: [state或None, ...]}`）。
+
+        口径对齐 BacktestLoop 的 feature_lookup：DatetimeIndex 按纳秒建键，
+        整数索引按原值建键；无匹配 bar 的 state 置 None（不注入，保持 ctx 上次值）。
+        """
+        if feature_dataframe is None or feature_dataframe.empty:
+            return {}
+
+        if isinstance(feature_dataframe.index, pd.DatetimeIndex):
+            lookup = {int(pd.Timestamp(i).timestamp() * 1_000_000_000): row for i, row in feature_dataframe.iterrows()}
+        else:
+            lookup = {int(i): row for i, row in feature_dataframe.iterrows()}
+
+        per_bar: list[dict | None] = []
+        for ts in bar_ts_list:
+            row = lookup.get(ts)
+            if row is None:
+                per_bar.append(None)
+                continue
+            # cross_sectional_rank 不进 features，改由 bar 承载（对齐 BacktestLoop）
+            feats = {str(k): float(v) for k, v in row.items() if k != "cross_sectional_rank" and pd.notna(v)}
+            state: dict = {"features": feats}
+            rank_v = row.get("cross_sectional_rank")
+            if rank_v is not None and pd.notna(rank_v):
+                state["cross_sectional_rank"] = int(rank_v)
+            per_bar.append(state)
+
+        return {rust_symbol: per_bar}
+
+    @staticmethod
+    def _build_rust_funding(
+        funding_df: pd.DataFrame | None,
+        rust_symbol: str,
+        futures: bool,
+    ) -> dict[str, dict[int, tuple[float, float]]]:
+        """资金费率 DataFrame → Rust 查找表 `{symbol: {bar_纳秒: (rate, mark_price)}}`。
+
+        仅期货模式构建；键为 bar 纳秒时间戳，Rust 侧命中即入队结算。
+        """
+        if not futures or funding_df is None or funding_df.empty:
+            return {}
+        sched: dict[int, tuple[float, float]] = {}
+        for ts_idx, row in funding_df.iterrows():
+            ts_ns = int(pd.Timestamp(ts_idx).timestamp() * 1_000_000_000)
+            rate = float(row.get("funding_rate", 0.0) or 0.0)
+            mark = float(row.get("mark_price", 0.0) or 0.0)
+            sched[ts_ns] = (rate, mark)
+        return {rust_symbol: sched}
 
     @staticmethod
     def _df_to_rust_bars(df: pd.DataFrame) -> list[dict[str, Any]]:
