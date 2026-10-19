@@ -88,7 +88,27 @@ class StrategyService:
         self.strategy_instances: dict[str, Any] = {}
 
     def list_strategies(self) -> list[dict[str, Any]]:
-        """列出所有策略文件"""
+        """列出所有策略文件。
+
+        与 get_strategy 同语义：DB 里手动维护过的 params / factors / description /
+        version / tags 优先返回，否则用 AST 解析结果兜底。回测配置页等列表场景
+        依赖这里，缺了 DB 融合会导致手动编辑的参数描述"只在详情页生效"。
+        """
+        import json
+
+        from strategy.models import Strategy
+        from utils.db_session import get_db_session
+
+        # ponytail: 全量 DB 行一次性拉入内存（策略文件一般几十个），避免逐文件 N+1 查询
+        db_rows: dict[str, Any] = {}
+        try:
+            # 只读不 commit，session 关闭后已加载的列属性仍可访问（与 get_strategy 一致）
+            with get_db_session() as db:
+                for row in db.query(Strategy).all():
+                    db_rows[row.name] = row
+        except Exception as e:
+            logger.debug(f"list_strategies 读取 DB 失败，仅返回 AST 解析结果: {e}")
+
         strategies = []
         for file_path in self.strategy_dir.glob("*.py"):
             if file_path.name.startswith("_"):
@@ -97,6 +117,29 @@ class StrategyService:
                 content = file_path.read_text(encoding="utf-8")
                 info = self._parse_strategy_file(file_path.stem, content)
                 if info:
+                    row = db_rows.get(file_path.stem)
+                    if row:
+                        # DB 有 params → 覆盖 AST 解析结果（含手动维护的参数描述）
+                        if row.parameters:
+                            try:
+                                info["params"] = json.loads(row.parameters)
+                            except json.JSONDecodeError:
+                                pass
+                        # DB 有 factors → 覆盖 AST 解析结果
+                        if row.factors:
+                            try:
+                                info["factors"] = self._strip_placeholder_descriptions(json.loads(row.factors))
+                            except json.JSONDecodeError:
+                                pass
+                        # DB 有 description（非空）→ 覆盖 AST docstring
+                        if row.description:
+                            info["description"] = row.description
+                        # 版本/标签同样以 DB 手动维护值优先
+                        if row.version:
+                            info["version"] = row.version
+                        row_tags = row.get_tags_list()
+                        if row_tags:
+                            info["tags"] = row_tags
                     strategies.append(info)
             except Exception as e:
                 logger.warning(f"解析策略文件失败 {file_path.name}: {e}")
