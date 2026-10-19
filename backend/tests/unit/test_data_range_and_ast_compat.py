@@ -443,10 +443,12 @@ class TestMultiSymbolPerSymbolMetrics:
     def test_total_trade_count_is_sum(self):
         """总交易次数 = 各 symbol trade_count 之和(白名单 sum)"""
         # 已经在 TestMultiSymbolAggregationWhitelist 覆盖,这里再确认透传
-        raw_results = {"trade_count": 30}  # 20 + 10
+        # 注：format_axon_results 的「总交易次数」走引擎 fills 口径（开+平各计一笔），
+        # 故 fixture 必须给出 fills；各品种 fills 之和 == 账户 fills 与生产口径一致
+        raw_results = {"trade_count": 30, "fills": 30}  # 20 + 10
         per_symbol = {
-            "ETHUSDT": {"trade_count": 20},
-            "BTCUSDT": {"trade_count": 10},
+            "ETHUSDT": {"trade_count": 20, "fills": 20},
+            "BTCUSDT": {"trade_count": 10, "fills": 10},
         }
         from unittest.mock import MagicMock
 

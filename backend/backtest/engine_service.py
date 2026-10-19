@@ -375,7 +375,7 @@ class EventDrivenBacktestService:
                     raise ValueError(msg)
                 strategies_by_symbol[sym] = sym_strategy
                 entries_for_multi[sym] = entry
-            multi_result, per_symbol_trades = self._run_rust_multi(
+            multi_result, per_symbol_trades, per_symbol_fills = self._run_rust_multi(
                 strategies_by_symbol=strategies_by_symbol,
                 entries=entries_for_multi,
                 init_cash=init_cash,
@@ -390,14 +390,26 @@ class EventDrivenBacktestService:
             raw_results = multi_result
             per_symbol_results = {}
             for sym, entry in entries_for_multi.items():
-                # 各品种条目是同一共享账户的**拆分视图**（agg 标量指标保持不变，
-                # 只把成交与权益曲线按品种切出来）
+                # 各品种条目是同一共享账户的**拆分视图**：
+                # - 成交派生指标（盈亏、收益率、成交笔数、胜率…）按品种归因，
+                #   否则切换品种时详情页看到的是同一组聚合数字（各品种完全一样）；
+                # - 账户级口径（初始/最终权益、权益峰值、夏普、回撤、手续费）属于整个
+                #   共享账户，无法按品种拆分 → 保持 agg 真值（前端在品种视角隐藏它们）
                 sym_result = dict(multi_result)
-                sym_result["trades"] = per_symbol_trades.get(sym, [])
-                sym_result["trade_count"] = len(sym_result["trades"])
-                # 分品种最大回撤在共享账户下无定义 → 0（前端不展示该指标）
-                sym_result["max_drawdown_pct"] = 0.0
-                sym_result["max_drawdown"] = 0.0
+                sym_trades = per_symbol_trades.get(sym, [])
+                sym_result["trades"] = sym_trades
+                sym_result["trade_count"] = len(sym_trades)
+                sym_result["fills"] = per_symbol_fills.get(sym, 0)
+                # 引擎 realized_pnl 可加：按品种汇总即该品种对账户盈亏的贡献。
+                # 账户级费用（未平仓腿的手续费/盯市/资金费）无法归属到品种，故各品种
+                # 已实现盈亏之和允许与账户 total_pnl 有小差异（差额留在组合视图）
+                sym_pnl = sum(float(t.get("pnl") or 0.0) for t in sym_trades)
+                sym_result["total_pnl"] = sym_pnl
+                # 胜率按本品种成交重算（引擎 win_rate 是全账户口径，沿用会让所有品种一样）
+                sym_wins = sum(1 for t in sym_trades if float(t.get("pnl") or 0.0) > 0)
+                sym_result["win_rate"] = (sym_wins / len(sym_trades) * 100.0) if sym_trades else 0.0
+                # total_return 由 format_axon_results 用 total_pnl / initial_capital 算：
+                # initial_capital 是共享账户的一笔 init_cash（各品种统一基数 → 贡献可加）
                 # 品种视角权益曲线按用户确认口径取共享账户合并曲线（见设计「5. 回放口径」）
                 sym_result["equity_curve"] = list(multi_result["equity_curve"])
                 sym_result["klines"] = self._build_kline_records(
@@ -810,7 +822,9 @@ class EventDrivenBacktestService:
         - 成交按 ``TradeRecord.instrument`` 拆分回各品种
 
         Returns:
-            (聚合结果 dict, {品种: round-trip 成交列表})
+            (聚合结果 dict, {品种: round-trip 成交列表}, {品种: fills 笔数})
+            fills 与 round-trip 条数不同口径（逐笔开/平均计 vs 开平配对），
+            详情页「交易次数」沿用引擎 fills 口径，故单独回传
         """
         from axon_quant import worker
 
@@ -887,7 +901,18 @@ class EventDrivenBacktestService:
         per_symbol_trades = {
             sym: BacktestLoop._format_round_trip_trades(raw, sym) for sym, raw in per_symbol_raw.items()
         }
-        return agg, per_symbol_trades
+        # 6b. 成交笔数按 fills_detail 的 instrument 拆分：`trade_records` 是开平配对后的
+        #     round-trip（条数≠fill 数），而详情页「交易次数」沿用引擎 fills 口径（开+平各计一笔），
+        #     只有逐笔 fill 明细能精确归属到品种，且各品种之和 == 账户总 fills。
+        per_symbol_fills: dict[str, int] = dict.fromkeys(entries, 0)
+        for fr in list(rust_result.fills_detail):
+            inst = fr.get("instrument")
+            if not inst:
+                continue
+            qc_sym = rust_to_qc.get(f"{inst[1]}/{inst[2]}")
+            if qc_sym is not None:
+                per_symbol_fills[qc_sym] += 1
+        return agg, per_symbol_trades, per_symbol_fills
 
     @staticmethod
     def _build_rust_states(
@@ -1121,7 +1146,8 @@ class EventDrivenBacktestService:
             timeframe: 时间周期
             strategy_name: 策略名称
             capital_mode: 资金使用方式。per_symbol=N 个独立资金池（现状口径）；
-                shared=组合共享资金池（单账户，各品种条目是同一账户的拆分视图）
+                shared=组合共享资金池（单账户，各品种条目是同一账户的拆分视图：
+                成交派生指标按品种归因，账户级指标保持账户口径）
 
         Returns:
             多品种汇总 dict
@@ -1217,13 +1243,22 @@ class EventDrivenBacktestService:
         # format_axon_results 按 initial_capital/final_nav/max_drawdown_pct 取数，
         # 聚合 dict 里的对应键是 initial_equity/final_equity/max_drawdown，
         # 必须改名注入，否则 fallback 到 100000/0.0，组合指标与权益曲线互相矛盾
+        #
+        # 传入各品种 round-trip 明细拼接而非空数组：formatter 的
+        # 盈利/亏损交易、盈亏比、最佳/最差交易全部从 trades 现算，空数组会让组合视图
+        # 退化成「盈利 0 / 亏损=trade_count / 盈亏比 0.0 / 最佳最差 0.0」的假值。
+        # 拼接后与「全部」视图的成交明细同源。
+        # ponytail: 代价是结果 JSON 里 portfolio.trades 与各品种 trades 内容重复（体积翻倍量级）；
+        # 如需去重，升级路径是给 formatter 传显式统计值（winning/losing/profit_factor/best/worst），
+        # 让 formatter 优先取显式值、缺省再回退到从 trades 现算。
+        portfolio_trades = [t for r in per_symbol_results.values() for t in (r.get("trades") or [])]
         portfolio_payload = ResultFormatterService.format_axon_results(
             results={
                 **results,
                 "initial_capital": initial_equity,
                 "final_nav": final_equity,
                 "max_drawdown_pct": max_dd_pct,
-                "trades": [],
+                "trades": portfolio_trades,
                 "equity_curve": [],
             },
             symbol=symbols[0] if symbols else "PORTFOLIO",
