@@ -73,3 +73,63 @@ def test_shared_mode_portfolio_replay_uses_single_curve():
     data = svc.build_portfolio_replay(results, config)
 
     assert data["init_cash"] == 10000.0, "共享模式初始权益应为一笔 init_cash，而非 N×"
+
+
+def test_shared_mode_portfolio_replay_tolerates_engine_curve_without_balance():
+    """共享模式的 merged 曲线直接取自引擎 bar_nav_curve（只有 equity/timestamp），
+    没有 balance/margin 键；账户序列构建必须容错，否则 /replay/portfolio 报
+    KeyError('balance') 直接 500。
+
+    回归背景：上一个用例的 fixture 给共享曲线补了 balance/margin，恰好把该
+    KeyError 掩盖了（实测 HTTP 接口才暴露）。
+    """
+    from backtest.service import BacktestService
+
+    # 与 _map_rust_result 产出的真实形状一致：无 balance / margin
+    engine_curve = [
+        {
+            "datetime": "2025-01-01T00:00:00.000Z",
+            "Equity": 10000.0,
+            "equity": 10000.0,
+            "formatted_time": "2025-01-01T00:00:00.000Z",
+            "timestamp": 1000,
+        },
+        {
+            "datetime": "2025-01-01T00:15:00.000Z",
+            "Equity": 10050.0,
+            "equity": 10050.0,
+            "formatted_time": "2025-01-01T00:15:00.000Z",
+            "timestamp": 2000,
+        },
+    ]
+    klines = [
+        {"timestamp": 1000, "close": 100.0},
+        {"timestamp": 2000, "close": 101.0},
+    ]
+    results = {
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "timeframe": "15m",
+        "capital_mode": "shared",
+        "results_by_symbol": {
+            sym: {
+                "symbol": sym,
+                "timeframe": "15m",
+                "klines": list(klines),
+                "trades": [],
+                "equity_curve": list(engine_curve),
+            }
+            for sym in ("BTCUSDT", "ETHUSDT")
+        },
+        "portfolio": {"metrics": [], "equity_curve": list(engine_curve)},
+    }
+    config = {"interval": "15m", "initial_cash": 10000.0, "capital_mode": "shared"}
+
+    svc = BacktestService.__new__(BacktestService)
+    data = svc.build_portfolio_replay(results, config)
+
+    assert data["init_cash"] == 10000.0
+    assert len(data["account"]) == 2
+    # account 元组 = [t, equity, balance, margin, cum_pnl, drawdown, day_pnl]
+    # balance/margin 缺失 → 兜底 0（与非共享模式下 _merge_equity_curves 补的 0 一致）
+    assert data["account"][0][2] == 0.0
+    assert data["account"][0][3] == 0.0

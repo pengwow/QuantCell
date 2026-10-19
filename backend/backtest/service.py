@@ -561,8 +561,11 @@ class BacktestService:
                 [
                     t,
                     round(equity, 4),
-                    round(float(p["balance"]), 4),
-                    round(float(p["margin"]), 4),
+                    # balance / margin 用 get 兜底：共享模式下 merged 直接来自引擎的
+                    # bar_nav_curve（只有 equity/timestamp），没有这两个键；非共享模式
+                    # 经 _merge_equity_curves 会补上且恒为 0，两者取值一致
+                    round(float(p.get("balance") or 0.0), 4),
+                    round(float(p.get("margin") or 0.0), 4),
                     round(equity - total_initial, 4),
                     round(drawdown, 6),
                     round(equity - day_first_equity[day_key], 4),
