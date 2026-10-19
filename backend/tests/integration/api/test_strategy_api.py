@@ -240,6 +240,46 @@ class TestStrategyUploadAPI:
             with contextlib.suppress(Exception):
                 client.delete(f"/api/v1/strategy/{name}", headers=valid_auth_headers)
 
+    def test_strategy_list_params_description_persisted(self, client: TestClient, valid_auth_headers: dict[str, str]):
+        """回归测试：手动编辑的参数描述要同步到列表接口（回测配置页数据源）。
+
+        背景：list_strategies 曾只做 AST 解析（参数 description 固定为静态映射
+        _PARAM_DESC_MAP 的值或空串），回测页"策略参数配置"的感叹号提示只对
+        静态映射里命中的参数显示。修复后列表与详情同语义：DB 手动维护值优先。
+        """
+        name = "test_list_params_desc_persist"
+        try:
+            resp = client.post(
+                "/api/v1/strategy/upload",
+                json={
+                    "strategy_name": name,
+                    "file_content": "class ListPersistStrategy(Strategy):\n    pass\n",
+                    "params": [
+                        {
+                            "name": "atr_mult",
+                            "type": "float",
+                            "default": 3.0,
+                            "description": "ATR 倍数",
+                            "required": False,
+                        },
+                    ],
+                },
+                headers=valid_auth_headers,
+            )
+            assert resp.status_code == 200
+
+            listing = client.get("/api/v1/strategy/list")
+            assert listing.status_code == 200
+            strategies = listing.json()["data"]["strategies"]
+            target = next((s for s in strategies if s["name"] == name), None)
+            assert target is not None, "上传的策略应出现在列表中"
+            params = {p["name"]: p for p in target["params"]}
+            assert params["atr_mult"]["description"] == "ATR 倍数"
+            assert params["atr_mult"]["default"] == 3.0
+        finally:
+            with contextlib.suppress(Exception):
+                client.delete(f"/api/v1/strategy/{name}", headers=valid_auth_headers)
+
     # ========== 请求体验证测试 ==========
 
     @pytest.mark.parametrize("missing_field", ["strategy_name", "file_content"])

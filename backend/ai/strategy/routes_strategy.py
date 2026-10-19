@@ -776,7 +776,11 @@ _TEMPLATE_META: dict[str, dict[str, Any]] = {
 
 
 def _scan_template_list() -> list[dict[str, Any]]:
-    """从 StrategyLoader 扫描 strategy/templates/，构建模板元数据列表。"""
+    """从 StrategyLoader 扫描 strategy/templates/，构建模板元数据列表。
+
+    末尾按 id 去重：StrategyLoader._REGISTRY 是 dict 本不应重复，但 uvicorn --reload
+    或模块 import 重入时可能在运行时产生重复，dedup 做最后一道保险。
+    """
     import importlib.util
 
     from strategy.loader import StrategyLoader
@@ -812,7 +816,16 @@ def _scan_template_list() -> list[dict[str, Any]]:
                 "updated_at": None,
             }
         )
-    return templates
+    # 按 id 去重（保留首次出现），防止热重载场景下 StrategyLoader.list_all() 返回重复
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for t in templates:
+        if t["id"] in seen:
+            logger.warning(f"模板 id 重复，跳过冗余条目: {t['id']}")
+            continue
+        seen.add(t["id"])
+        deduped.append(t)
+    return deduped
 
 
 def _scan_template_detail(template_id: str) -> dict[str, Any] | None:
