@@ -3,7 +3,8 @@
  * 功能：显示指标的标签和数值，根据类型显示不同颜色
  * 适用场景：回测结果、仪表盘、数据展示等
  */
-import { Card, Typography } from 'antd';
+import { Card, Tooltip, Typography } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import { QUANT_COLORS } from '@/utils/colors';
 
 const { Text } = Typography;
@@ -12,6 +13,8 @@ export interface MetricCardProps {
   label: string;
   value: string | number;
   type?: 'positive' | 'negative' | 'neutral';
+  /** 可选口径说明：有值时在 label 后渲染 Tooltip 提示图标 */
+  hint?: string;
 }
 
 // ponytail: 所有颜色统一从 colors.ts 取 QUANT_COLORS，禁止硬编码 antd v5 风格颜色
@@ -24,7 +27,7 @@ const getColorByType = (type: MetricCardProps['type']): string => {
   }
 };
 
-const MetricCard = ({ label, value, type = 'neutral' }: MetricCardProps) => {
+const MetricCard = ({ label, value, type = 'neutral', hint }: MetricCardProps) => {
   const color = getColorByType(type);
 
   return (
@@ -49,6 +52,11 @@ const MetricCard = ({ label, value, type = 'neutral' }: MetricCardProps) => {
         }}
       >
         {label}
+        {hint && (
+          <Tooltip title={hint}>
+            <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+          </Tooltip>
+        )}
       </Text>
       <Text
         strong
