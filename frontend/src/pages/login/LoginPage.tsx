@@ -108,7 +108,7 @@ const LoginPage = () => {
       sessionStorage.removeItem('redirect_after_login');
       return savedPath;
     }
-    return '/chart';
+    return '/home';
   };
 
   const saveUserInfo = (data: LoginResponseData) => {

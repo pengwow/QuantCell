@@ -75,12 +75,6 @@
   }
 }
 
-@layer components {
-  .container {
-    @apply mx-auto max-w-7xl;
-  }
-}
-
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;

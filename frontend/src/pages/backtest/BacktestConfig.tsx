@@ -14,6 +14,7 @@ import {
   Select,
   DatePicker,
   InputNumber,
+  Radio,
   Button,
   Space,
   Row,
@@ -78,6 +79,7 @@ interface BacktestFormValues {
   initialCash?: number;
   params?: Record<string, unknown>;
   tradingMode?: string;
+  capitalMode?: 'per_symbol' | 'shared';
 }
 
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
@@ -87,6 +89,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const watchedStrategy = Form.useWatch('strategy', form);
+  // symbols 可在表单中动态增删，这里按实时值判断是否多品种回测，决定「资金使用方式」是否可用
+  const watchedSymbols = Form.useWatch('symbols', form);
+  const isMultiSymbol = (watchedSymbols?.length ?? 0) > 1;
 
   // 设置页面标题
   useEffect(() => {
@@ -345,6 +350,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         if (config.tradingMode) {
           form.setFieldsValue({ tradingMode: config.tradingMode });
         }
+        if (config.capitalMode !== undefined) {
+          form.setFieldsValue({ capitalMode: config.capitalMode });
+        }
         if (config.startTime && config.endTime) {
           form.setFieldsValue({
             timeRange: [dayjs(config.startTime), dayjs(config.endTime)],
@@ -365,6 +373,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         commission: values.commission,
         initialCash: values.initialCash,
         tradingMode: values.tradingMode || 'spot',
+        capitalMode: values.capitalMode,
         startTime: values.timeRange?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
         endTime: values.timeRange?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
         savedAt: new Date().toISOString(),
@@ -1011,6 +1020,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           initial_cash: values.initialCash,
           factor_names: values.factorNames && values.factorNames.length > 0 ? values.factorNames : null,
           trading_mode: values.tradingMode || 'spot',
+          capital_mode: values.capitalMode || 'per_symbol',
         },
       };
 
@@ -1305,6 +1315,24 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     step={1000}
                     style={{ width: '100%' }}
                   />
+                </Form.Item>
+              </Col>
+
+              <Col span={12}>
+                <Form.Item
+                  name="capitalMode"
+                  label="资金使用方式"
+                  initialValue="per_symbol"
+                  extra={
+                    isMultiSymbol
+                      ? '各品种独立资金池：每个货币对各拿一份初始资金；组合共享资金池：所有货币对共用一笔初始资金，总名义敞口受初始资金约束'
+                      : '当前为单品种回测，该选项无影响'
+                  }
+                >
+                  <Radio.Group disabled={!isMultiSymbol}>
+                    <Radio value="per_symbol">各品种独立资金池</Radio>
+                    <Radio value="shared">组合共享资金池</Radio>
+                  </Radio.Group>
                 </Form.Item>
               </Col>
             </Row>

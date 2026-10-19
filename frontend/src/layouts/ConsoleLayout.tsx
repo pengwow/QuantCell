@@ -8,6 +8,7 @@ import {
   IconCode,
   IconDatabase,
   IconHelp,
+  IconHome,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarRightCollapse,
   IconMenu2,
@@ -166,6 +167,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const navigate = useNavigate();
   const { t } = useTranslation();
 
+  const MENU_KEY_HOME = "/home";
   const MENU_KEY_CHART = "/chart";
   const MENU_KEY_AGENT = "/agent";
   const MENU_KEY_STRATEGY = "/strategy-management";
@@ -180,6 +182,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   // ponytail: 路由路径 → 翻译键的映射表，用于自动设置浏览器 tab 标题。
   // 匹配策略：先精确匹配路径前缀，再 fallback 到通用的路径段
   const ROUTE_TITLE_KEYS: Array<[string, string]> = [
+    [MENU_KEY_HOME, "home"],
     [MENU_KEY_CHART, "chart"],
     [MENU_KEY_AGENT, "strategy_agent"],
     [MENU_KEY_STRATEGY, "strategy_management"],
@@ -215,6 +218,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
 
   const baseMenuItems: Required<MenuProps>["items"] = (
     [
+      [MENU_KEY_HOME, "home", <IconHome size="1em" />, false],
       [MENU_KEY_CHART, "chart", <IconChartBar size="1em" />, false],
       [MENU_KEY_AGENT, "strategy_agent", <IconRobot size="1em" />, false],
       [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />, false],

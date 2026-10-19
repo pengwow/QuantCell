@@ -87,6 +87,7 @@ interface BacktestResponse {
     start_time: string;
     end_time: string;
     initial_cash?: number;
+    capital_mode?: string;
     [key: string]: unknown;
   };
   strategy_config: Record<string, unknown>;
@@ -387,6 +388,9 @@ const BacktestDetail = () => {
             </Descriptions.Item>
             <Descriptions.Item label="初始资金">
               {formatNumber(backtestConfig.initial_cash || 0)}
+            </Descriptions.Item>
+            <Descriptions.Item label="资金使用方式">
+              {backtestConfig.capital_mode === 'shared' ? '组合共享资金池' : '各品种独立资金池'}
             </Descriptions.Item>
             <Descriptions.Item label="状态">
               {backtestData.status}
