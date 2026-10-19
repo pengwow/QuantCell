@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import { backtestApi } from '../../api';
 import MetricCard from '../../components/MetricCard';
+import { formatMetricValue, visibleMetricCards } from './metricCards';
 import TradeTable, { type Trade } from '../../components/TradeTable';
 import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
@@ -256,14 +257,6 @@ const BacktestDetail = () => {
     }));
   };
 
-  // 格式化百分比 - 后端返回的已经是百分比格式，直接添加%符号
-  const formatPercent = (value: number): string => {
-    if (typeof value === 'number') {
-      return `${value.toFixed(2)}%`;
-    }
-    return String(value);
-  };
-
   // 格式化数字
   const formatNumber = (value: number, decimals = 2): string => {
     if (typeof value === 'number') {
@@ -414,201 +407,21 @@ const BacktestDetail = () => {
             </Space>
           ) : undefined}
         >
+          {/* 卡片由 metricCards 清单驱动；共享资金池 + 品种视角只渲染按品种归因的指标 */}
           <Row gutter={[16, 16]}>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="总收益率"
-                value={formatPercent(getMetricValue('total_return'))}
-                type={getMetricValue('total_return') >= 0 ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="年化收益率"
-                value={formatPercent(getMetricValue('cagr'))}
-                type={getMetricValue('cagr') >= 0 ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="夏普比率"
-                value={formatNumber(getMetricValue('sharpe_ratio'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="最大回撤"
-                value={formatPercent(getMetricValue('max_drawdown'))}
-                type="negative"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="胜率"
-                value={formatPercent(getMetricValue('win_rate'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="盈亏比"
-                value={formatNumber(getMetricValue('profit_factor'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="交易次数"
-                value={formatNumber(getMetricValue('total_trades'), 0)}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="盈利交易"
-                value={formatNumber(getMetricValue('winning_trades'), 0)}
-                type="positive"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="亏损交易"
-                value={formatNumber(getMetricValue('losing_trades'), 0)}
-                type="negative"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="总盈亏"
-                value={formatNumber(getMetricValue('total_pnl'))}
-                type={getMetricValue('total_pnl') >= 0 ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="初始权益"
-                value={formatNumber(getMetricValue('initial_equity'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="最终权益"
-                value={formatNumber(getMetricValue('final_equity'))}
-                type={getMetricValue('final_equity') >= getMetricValue('initial_equity') ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="权益峰值"
-                value={formatNumber(getMetricValue('equity_peak'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="索提诺比率"
-                value={formatNumber(getMetricValue('sortino_ratio'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="卡尔马比率"
-                value={formatNumber(getMetricValue('calmar_ratio'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="平均回撤"
-                value={formatPercent(getMetricValue('avg_drawdown'))}
-                type="negative"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="年化波动率"
-                value={formatPercent(getMetricValue('volatility'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="期望收益"
-                value={formatPercent(getMetricValue('expectancy'))}
-                type={getMetricValue('expectancy') >= 0 ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="平均交易"
-                value={formatPercent(getMetricValue('avg_trade'))}
-                type={getMetricValue('avg_trade') >= 0 ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="最佳交易"
-                value={formatPercent(getMetricValue('best_trade'))}
-                type="positive"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="最差交易"
-                value={formatPercent(getMetricValue('worst_trade'))}
-                type="negative"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="总手续费"
-                value={formatNumber(getMetricValue('total_commission'))}
-                type="negative"
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="阿尔法"
-                value={formatPercent(getMetricValue('alpha'))}
-                type={getMetricValue('alpha') >= 0 ? 'positive' : 'negative'}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="贝塔"
-                value={formatNumber(getMetricValue('beta'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="SQN"
-                value={formatNumber(getMetricValue('sqn'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="凯利准则"
-                value={formatNumber(getMetricValue('kelly_criterion'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="暴露时间"
-                value={formatPercent(getMetricValue('exposure_time'))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="回测天数"
-                value={formatNumber(getMetricValue('duration_days'), 0)}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="平均持仓时间"
-                value={`${formatNumber(getMetricValue('avg_trade_duration_hours'))}h`}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={6} lg={4}>
-              <MetricCard
-                label="最长持仓时间"
-                value={`${formatNumber(getMetricValue('max_trade_duration_hours'))}h`}
-              />
-            </Col>
+            {visibleMetricCards(backtestConfig.capital_mode, selectedSymbol).map((spec) => {
+              const value = getMetricValue(spec.key);
+              return (
+                <Col key={spec.key} xs={12} sm={8} md={6} lg={4}>
+                  <MetricCard
+                    label={spec.label}
+                    value={formatMetricValue(spec, value)}
+                    type={spec.color(value, getMetricValue)}
+                    hint={spec.hint}
+                  />
+                </Col>
+              );
+            })}
           </Row>
         </Card>
 
