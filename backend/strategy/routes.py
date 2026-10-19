@@ -85,11 +85,25 @@ def upload_strategy(
     strategy_request: StrategyUploadRequest,
     current_user: dict = Depends(get_current_user),
 ) -> StrategyUploadResponse:
+    """上传/更新策略文件，并把版本、描述、参数、因子等元信息持久化到数据库。
+
+    注意：必须走 upload_strategy_file（写文件 + 写 DB）。此前这里调用的 save_strategy
+    只写文件，导致前端在策略详情页编辑的 params/description 保存后刷新即丢失
+    （详情接口 get_strategy 以 DB 数据优先）。params/factors 传 None 表示未提供，
+    service 层会回退用 AST 解析结果。
+    """
     _validate_strategy_name(strategy_request.strategy_name)
     try:
-        get_strategy_service().save_strategy(
-            strategy_request.strategy_name,
-            strategy_request.file_content,
+        get_strategy_service().upload_strategy_file(
+            strategy_name=strategy_request.strategy_name,
+            file_content=strategy_request.file_content,
+            version=strategy_request.version,
+            description=strategy_request.description,
+            tags=strategy_request.tags,
+            id=strategy_request.id,
+            # StrategyParam 模型转 dict，None 表示未传（保持 service 的"回退解析"语义）
+            params=[p.model_dump() for p in strategy_request.params] if strategy_request.params is not None else None,
+            factors=strategy_request.factors,
         )
         return StrategyUploadResponse(
             code=0,

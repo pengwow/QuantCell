@@ -142,6 +142,12 @@ class StrategyService:
                 # DB 有 description（非空）→ 覆盖 AST docstring
                 if row.description:
                     info["description"] = row.description
+                # 同理：版本/标签在详情页可手动编辑并入库，DB 有值时优先返回
+                if row.version:
+                    info["version"] = row.version
+                row_tags = row.get_tags_list()
+                if row_tags:
+                    info["tags"] = row_tags
         except Exception as e:
             logger.debug(f"get_strategy DB 融合失败，跳过: {e}")
 
