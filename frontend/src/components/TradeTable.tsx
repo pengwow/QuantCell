@@ -3,9 +3,9 @@
  * 契约与后端 backtest_loop._build_round_trip_trades 输出一一对应，
  * 2026-07-25 起引擎只产出该格式，旧格式数据由详情页空态提示
  */
-import { Table, Tag } from 'antd';
+import { Table, Tag, theme } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { Trade } from '../types/backtest';
+import type { Trade, TradeFill } from '../types/backtest';
 
 export type { Trade };
 
@@ -25,6 +25,8 @@ const formatQuantity = (quantity: number): string => quantity.toFixed(4);
 const formatVolume = (volume: number): string => volume.toFixed(2);
 
 const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: TradeTableProps) => {
+  const { token } = theme.useToken();
+
   const columns: ColumnsType<Trade> = [
     {
       title: '时间',
@@ -34,13 +36,11 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
     },
     {
       title: '方向',
-      dataIndex: 'side',
-      key: 'side',
-      // side 是开仓方向（buy/sell），非平仓方向
-      render: (value: string) => {
-        const isBuy = (value || '').toLowerCase() === 'buy';
-        return <Tag color={isBuy ? 'green' : 'red'}>{isBuy ? '买入' : '卖出'}</Tag>;
-      },
+      dataIndex: 'direction',
+      key: 'direction',
+      // direction 是持仓方向（long/short）
+      render: (value: string) =>
+        value === 'long' ? <Tag color="green">多</Tag> : <Tag color="red">空</Tag>,
     },
     {
       title: '开仓价',
@@ -86,15 +86,10 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (value: string) => {
-        const statusMap: Record<string, { color: string; text: string }> = {
-          FILLED: { color: 'green', text: '已成交' },
-          PENDING: { color: 'orange', text: '待成交' },
-          CANCELLED: { color: 'red', text: '已取消' },
-        };
-        const status = statusMap[value?.toUpperCase()] || { color: 'default', text: value || '-' };
-        return <Tag color={status.color}>{status.text}</Tag>;
-      },
+      // 契约只有 round-trip 已平仓交易，状态弱化展示
+      render: () => (
+        <span style={{ color: token.colorTextTertiary, fontSize: 12 }}>已平仓</span>
+      ),
     },
     {
       title: '交易标的',
@@ -105,10 +100,50 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
     },
   ];
 
+  // 行内展开：逐笔成交明细（开仓 + 平仓 fill）
+  const renderFills = (record: Trade) => {
+    const fills = record.fills ?? [];
+    const cols: ColumnsType<TradeFill> = [
+      { title: '成交时间', dataIndex: 'formatted_time', key: 't' },
+      {
+        title: '方向',
+        dataIndex: 'side',
+        key: 'side',
+        render: (v: string) => (
+          <Tag color={v === 'buy' ? 'green' : 'red'}>{v === 'buy' ? '买入' : '卖出'}</Tag>
+        ),
+      },
+      {
+        title: '开/平',
+        dataIndex: 'offset',
+        key: 'off',
+        render: (v: string) => <Tag>{v === 'open' ? '开仓' : '平仓'}</Tag>,
+      },
+      { title: '成交价', dataIndex: 'price', key: 'p', render: (v: number) => v.toFixed(4), align: 'right' },
+      { title: '数量', dataIndex: 'quantity', key: 'q', render: (v: number) => v.toFixed(4), align: 'right' },
+      { title: '盈亏', dataIndex: 'pnl', key: 'pnl', render: (v: number) => v.toFixed(2), align: 'right' },
+    ];
+    return (
+      <div style={{ padding: '8px 0' }}>
+        {fills.length === 0 ? (
+          <span style={{ color: '#999' }}>无逐笔明细</span>
+        ) : (
+          <>
+            <Table size="small" rowKey="fill_id" columns={cols} dataSource={fills} pagination={false} />
+            <div style={{ color: '#aaa', fontSize: 12, marginTop: 4 }}>
+              提示：同向加仓持仓共享开仓成交，部分平仓可能复现同一开仓记录（引擎口径）。
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Table
       columns={columns}
       dataSource={data}
+      expandable={{ expandedRowRender: renderFills }}
       // 旧版多品种结果各品种独立编号 rt-N 会重复，叠加 symbol 保证 rowKey 唯一
       rowKey={(record) => `${record.symbol}-${record.trade_id}`}
       loading={loading}

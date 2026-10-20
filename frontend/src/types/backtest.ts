@@ -15,8 +15,22 @@ export interface ReplayKline {
   [key: string]: unknown;
 }
 
-// 交易数据接口（round-trip 成交契约，与后端 _build_round_trip_trades 输出一一对应）
+// 逐笔成交（引擎 fill_detail 关联后的展示契约）
+export interface TradeFill {
+  fill_id: number;
+  side: 'buy' | 'sell';
+  offset: 'open' | 'close';
+  price: number;
+  quantity: number;
+  timestamp: number;
+  formatted_time: string;
+  pnl: number;
+  status: 'filled';
+}
+
+// 交易数据接口（round-trip 成交契约，与后端 _format_round_trip_trades 输出一一对应）
 // 注意：2026-07-25 起引擎只产出该格式；旧结果无成交明细，由详情页空态提示
+// 2026-10-20 契约调整：side → entry_side，新增 exit_side / direction 语义（多空）/ fills
 export interface Trade {
   trade_id: string;
   symbol: string;
@@ -30,9 +44,13 @@ export interface Trade {
   size: number;
   pnl: number;
   return_pct: number;
-  direction: string;        // "long"
-  side: string;             // 开仓方向 "buy"（非平仓方向）
-  status: string;           // "FILLED"
+  direction: 'long' | 'short';   // 持仓方向
+  entry_side: 'buy' | 'sell';    // 开仓方向
+  exit_side: 'buy' | 'sell';     // 平仓方向
+  status: 'closed';              // 已平仓
+  entry_fill_ids: number[];      // 构成该持仓的开仓 fill id
+  exit_fill_id: number;          // 平仓 fill id（0 表示未知）
+  fills: TradeFill[];            // 逐笔成交明细
 }
 
 // 权益数据接口

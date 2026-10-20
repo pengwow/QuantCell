@@ -430,7 +430,7 @@ const BacktestReplay = () => {
       });
     }
 
-    // round-trip 契约：秒级 timestamp，标记画在开仓价位置，side 为开仓方向
+    // round-trip 契约：秒级 timestamp，标记画在开仓价位置，entry_side 为开仓方向
     const visibleTrades = replayData.trades.filter((trade) => {
       const entryTime = trade.timestamp * 1000;
       return entryTime >= visibleStartTime && entryTime <= visibleEndTime;
@@ -442,7 +442,7 @@ const BacktestReplay = () => {
       if (typeof chart.createOverlay === 'function') {
         try {
           if (entryTime >= visibleStartTime && entryTime <= visibleEndTime) {
-            const isBuy = trade.side === 'buy';
+            const isBuy = trade.entry_side === 'buy';
             const directionText = isBuy ? '买入' : '卖出';
             const color = isBuy ? '#26a69a' : '#ef5350';
             // 根据主题设置标签颜色
