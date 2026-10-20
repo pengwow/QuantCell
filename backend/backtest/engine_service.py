@@ -1037,7 +1037,6 @@ class EventDrivenBacktestService:
             equity_curve.append(
                 {
                     "datetime": dt_str,
-                    "Equity": nav_float,
                     "equity": nav_float,
                     "balance": balance_float,
                     "formatted_time": dt_str,

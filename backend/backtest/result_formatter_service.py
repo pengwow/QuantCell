@@ -351,9 +351,9 @@ class ResultFormatterService:
             # 计算最大回撤
             max_drawdown = 0.0
             if equity_curve and len(equity_curve) > 1:
-                peak = equity_curve[0].get("Equity", equity_curve[0].get("equity", initial_balance))
+                peak = equity_curve[0].get("equity", initial_balance)
                 for eq in equity_curve[1:]:
-                    eq_val = eq.get("Equity", eq.get("equity", 0))
+                    eq_val = eq.get("equity", 0)
                     if eq_val > peak:
                         peak = eq_val
                     drawdown = (peak - eq_val) / peak * 100 if peak > 0 else 0

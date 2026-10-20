@@ -38,12 +38,12 @@ def periods_per_year(timeframe: str) -> int:
 
 
 def _nav_points(equity_curve: list[dict]) -> list[float]:
-    """权益曲线 → 净值序列（兼容 equity/Equity 两种键，跳过非有限数值点）。"""
+    """权益曲线 → 净值序列（跳过非有限数值点）。"""
     navs: list[float] = []
     for point in equity_curve or []:
         if not isinstance(point, dict):
             continue
-        raw = point.get("equity", point.get("Equity"))
+        raw = point.get("equity")
         if isinstance(raw, (int, float)) and math.isfinite(float(raw)):
             navs.append(float(raw))
     return navs
