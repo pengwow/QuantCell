@@ -1259,12 +1259,13 @@ const ChartPage = () => {
         <div className="chart-main-with-toolbar">
           {/* 左侧常驻绘图工具栏 */}
           <div className="drawing-toolbar-vertical">
+            {/* DrawingBar 新 Props（onSelect/onDeselect/onClearAll）的临时空实现，
+                Task 5 正式接线时替换为 handleToolSelect/handleToolDeselect/handleClearTools，
+                并删除上方遗留的旧 handler（handleDrawingItemClick 等） */}
             <DrawingBar
-              onDrawingItemClick={handleDrawingItemClick}
-              onModeChange={handleModeChange}
-              onLockChange={handleLockChange}
-              onVisibleChange={handleVisibleChange}
-              onRemoveClick={handleRemoveClick}
+              onSelect={() => {}}
+              onDeselect={() => {}}
+              onClearAll={() => {}}
             />
           </div>
 
