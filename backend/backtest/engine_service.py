@@ -1026,15 +1026,20 @@ class EventDrivenBacktestService:
         max_drawdown_usd = float(rust_result.nav_peak) * raw_max_dd_pct
 
         # equity_curve：逐 bar NAV 曲线（bar_nav_curve），格式适配前端 EquityChart
+        # 0.21.0 起同时携带 balance（存款）曲线：引擎 bar_balance_curve 与 bar_nav_curve
+        # 逐帧对齐，equity - balance 即该帧浮盈；旧 wheel 无该属性时退化为 0（不画存款曲线）
+        raw_balance_curve = getattr(rust_result, "bar_balance_curve", None) or []
         equity_curve = []
-        for ts_ns, nav in rust_result.bar_nav_curve:
+        for idx, (ts_ns, nav) in enumerate(rust_result.bar_nav_curve):
             dt_str = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
             nav_float = float(nav)
+            balance_float = float(raw_balance_curve[idx][1]) if idx < len(raw_balance_curve) else 0.0
             equity_curve.append(
                 {
                     "datetime": dt_str,
                     "Equity": nav_float,
                     "equity": nav_float,
+                    "balance": balance_float,
                     "formatted_time": dt_str,
                     "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
                 }
