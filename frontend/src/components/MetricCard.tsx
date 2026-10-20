@@ -53,8 +53,12 @@ const MetricCard = ({ label, value, type = 'neutral', hint }: MetricCardProps) =
       >
         {label}
         {hint && (
-          <Tooltip title={hint}>
-            <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+          // 悬浮与点击都能触发：移动端/触屏没有 hover，点击是唯一入口
+          <Tooltip title={hint} trigger={['hover', 'click']}>
+            <InfoCircleOutlined
+              style={{ marginLeft: 4, color: '#999', cursor: 'pointer' }}
+              aria-label={`${label}指标说明`}
+            />
           </Tooltip>
         )}
       </Text>

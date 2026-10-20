@@ -144,7 +144,15 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: Equity
       axisPointer: {
         type: 'cross',
         label: {
-          backgroundColor: token.colorBgElevated,
+          // 十字标签会贴在横轴/竖轴上跟随鼠标移动。用 antd Tooltip 同款配色
+          // （深色底 + 浅色字）。旧写法把底色设为 colorBgElevated（亮色主题下是白色），
+          // 而 ECharts 标签文字默认也是白色 → 白字白底变成"空白块"盖住坐标轴。
+          backgroundColor: token.colorBgSpotlight,
+          color: token.colorTextLightSolid,
+          padding: [4, 8],
+        },
+        crossStyle: {
+          color: qc.chartAxis,
         },
       },
       formatter: (params: TooltipComponentFormatterCallbackParams) => {

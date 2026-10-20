@@ -12,6 +12,7 @@
 
 from datetime import datetime
 
+from backtest import derived_metrics
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -421,6 +422,21 @@ class ResultFormatterService:
 
         # 计算额外指标
         trades = results.get("trades", [])
+
+        # 派生指标：此前 8 项写死 0，改用落盘数据就地计算（口径/归属见 spec §7）
+        equity_curve_input = results.get("equity_curve", [])
+        data_start_ns = int(results.get("data_start_ns", 0) or 0)
+        data_end_ns = int(results.get("data_end_ns", 0) or 0)
+        periods = derived_metrics.periods_per_year(timeframe)
+        avg_drawdown_value = derived_metrics.avg_drawdown_pct(equity_curve_input)
+        volatility_value = derived_metrics.annualized_volatility_pct(equity_curve_input, periods)
+        sqn_value = derived_metrics.sqn(trades)
+        kelly_value = derived_metrics.kelly_fraction(trades)
+        exposure_value = derived_metrics.exposure_time_pct(trades, data_start_ns, data_end_ns)
+        duration_days_value = derived_metrics.duration_days(data_start_ns, data_end_ns)
+        avg_trade_hours, max_trade_hours = derived_metrics.trade_duration_hours(trades)
+        cagr_value = derived_metrics.annualized_return_pct(total_return_pct, data_start_ns, data_end_ns)
+
         winning_trades = len([t for t in trades if isinstance(t, dict) and t.get("PnL", t.get("pnl", 0)) > 0])
         losing_trades = trade_count - winning_trades if trade_count > 0 else 0
         total_wins = sum(
@@ -447,8 +463,8 @@ class ResultFormatterService:
             {
                 "name": "年化收益率",
                 "key": "cagr",
-                "value": total_return_pct,
-                "description": "年化收益率（简化）",
+                "value": cagr_value,
+                "description": "年化收益率（按数据时间范围复利年化）",
                 "type": "percentage",
             },
             {
@@ -545,15 +561,15 @@ class ResultFormatterService:
             {
                 "name": "平均回撤",
                 "key": "avg_drawdown",
-                "value": 0.0,
-                "description": "平均回撤（待计算）",
+                "value": avg_drawdown_value,
+                "description": "平均回撤",
                 "type": "percentage",
             },
             {
                 "name": "年化波动率",
                 "key": "volatility",
-                "value": 0.0,
-                "description": "年化波动率（待计算）",
+                "value": volatility_value,
+                "description": "年化波动率（逐 bar log 收益年化）",
                 "type": "percentage",
             },
             {
@@ -632,42 +648,42 @@ class ResultFormatterService:
             {
                 "name": "SQN",
                 "key": "sqn",
-                "value": 0.0,
-                "description": "系统质量数（待计算）",
+                "value": sqn_value,
+                "description": "系统质量数",
                 "type": "number",
             },
             {
                 "name": "凯利准则",
                 "key": "kelly_criterion",
-                "value": 0.0,
-                "description": "凯利准则（待计算）",
+                "value": kelly_value,
+                "description": "凯利准则",
                 "type": "number",
             },
             {
                 "name": "暴露时间",
                 "key": "exposure_time",
-                "value": 0.0,
-                "description": "暴露时间（待计算）",
+                "value": exposure_value,
+                "description": "暴露时间",
                 "type": "percentage",
             },
             {
                 "name": "回测天数",
                 "key": "duration_days",
-                "value": 0,
+                "value": duration_days_value,
                 "description": "回测天数",
                 "type": "number",
             },
             {
                 "name": "平均持仓时间",
                 "key": "avg_trade_duration_hours",
-                "value": 0.0,
+                "value": avg_trade_hours,
                 "description": "平均持仓时间（小时）",
                 "type": "number",
             },
             {
                 "name": "最长持仓时间",
                 "key": "max_trade_duration_hours",
-                "value": 0.0,
+                "value": max_trade_hours,
                 "description": "最长持仓时间（小时）",
                 "type": "number",
             },
