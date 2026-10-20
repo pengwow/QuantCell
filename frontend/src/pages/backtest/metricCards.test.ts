@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { METRIC_CARDS, formatMetricValue, visibleMetricCards } from './metricCards';
 
-/** 12 张按品种归因的贡献类指标（顺序即展示顺序） */
+/** 17 张按品种归因的贡献类指标（顺序即展示顺序） */
 const SYMBOL_KEYS = [
   'total_return',
   'cagr',
@@ -15,12 +15,17 @@ const SYMBOL_KEYS = [
   'avg_trade',
   'best_trade',
   'worst_trade',
+  'sqn',
+  'kelly_criterion',
+  'exposure_time',
+  'avg_trade_duration_hours',
+  'max_trade_duration_hours',
 ];
 
 const keys = (mode: string | undefined, sym: string) =>
   visibleMetricCards(mode, sym).map((m) => m.key);
 
-/** 改造前「回测概览」的 30 张卡片顺序（「全部」视图必须保持这个顺序） */
+/** 改造后「回测概览」的 27 张卡片顺序（「全部」视图必须保持这个顺序） */
 const FULL_KEYS = [
   'total_return',
   'cagr',
@@ -35,7 +40,6 @@ const FULL_KEYS = [
   'initial_equity',
   'final_equity',
   'equity_peak',
-  'sortino_ratio',
   'calmar_ratio',
   'avg_drawdown',
   'volatility',
@@ -44,8 +48,6 @@ const FULL_KEYS = [
   'best_trade',
   'worst_trade',
   'total_commission',
-  'alpha',
-  'beta',
   'sqn',
   'kelly_criterion',
   'exposure_time',
@@ -70,9 +72,9 @@ describe('口径标注', () => {
 
   it('两种视图下可见的卡片都带 hint（切换品种后提示不丢失）', () => {
     const views = [
-      visibleMetricCards('shared', 'ETH/USDT'), // 共享资金池品种视角（12 张）
-      visibleMetricCards('shared', 'all'), // 组合视图（30 张）
-      visibleMetricCards('per_symbol', 'ETH/USDT'), // 独立资金池（30 张）
+      visibleMetricCards('shared', 'ETH/USDT'), // 共享资金池品种视角（17 张）
+      visibleMetricCards('shared', 'all'), // 组合视图（27 张）
+      visibleMetricCards('per_symbol', 'ETH/USDT'), // 独立资金池（27 张）
     ];
     for (const view of views) {
       expect(view.length).toBeGreaterThan(0);
@@ -91,26 +93,26 @@ describe('口径标注', () => {
 });
 
 describe('visibleMetricCards', () => {
-  it('共享资金池 + 单品种视角：只保留 12 张贡献类指标', () => {
+  it('共享资金池 + 单品种视角：只保留 17 张贡献类指标', () => {
     expect(keys('shared', 'ETH/USDT')).toEqual(SYMBOL_KEYS);
   });
 
-  it('共享资金池 + 单品种视角：不含账户级与恒 0 占位指标', () => {
+  it('共享资金池 + 单品种视角：不含账户级指标', () => {
     const shown = keys('shared', 'ETH/USDT');
     for (const hidden of ['sharpe_ratio', 'max_drawdown', 'initial_equity', 'final_equity',
-      'equity_peak', 'total_commission', 'sortino_ratio', 'calmar_ratio']) {
+      'equity_peak', 'total_commission', 'calmar_ratio', 'avg_drawdown', 'volatility', 'duration_days']) {
       expect(shown).not.toContain(hidden);
     }
   });
 
-  it('共享资金池 + 全部视图：展示全部 30 张', () => {
-    expect(METRIC_CARDS).toHaveLength(30);
-    expect(keys('shared', 'all')).toHaveLength(30);
+  it('共享资金池 + 全部视图：展示全部 27 张', () => {
+    expect(METRIC_CARDS).toHaveLength(27);
+    expect(keys('shared', 'all')).toHaveLength(27);
   });
 
-  it('独立资金池（或缺省）模式单品种视角：展示全部 30 张', () => {
-    expect(keys('per_symbol', 'ETH/USDT')).toHaveLength(30);
-    expect(keys(undefined, 'ETH/USDT')).toHaveLength(30);
+  it('独立资金池（或缺省）模式单品种视角：展示全部 27 张', () => {
+    expect(keys('per_symbol', 'ETH/USDT')).toHaveLength(27);
+    expect(keys(undefined, 'ETH/USDT')).toHaveLength(27);
   });
 });
 
