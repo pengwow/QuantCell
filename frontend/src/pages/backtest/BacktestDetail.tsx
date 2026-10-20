@@ -452,7 +452,7 @@ const BacktestDetail = () => {
         {/* 绩效分析图表 */}
         <Card title="权益曲线" className="mb-6">
           {getEquityCurve().length > 0 ? (
-            <EquityChart data={getEquityCurve()} isDark={isDark} />
+            <EquityChart data={getEquityCurve()} isDark={isDark} initialCash={backtestData?.backtest_config?.initial_cash} />
           ) : (
             <Empty description="暂无权益曲线数据" />
           )}
