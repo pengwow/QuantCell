@@ -198,10 +198,11 @@ def _equity_chart_base64(equity_curve: list) -> str | None:
     )
     ax_eq.plot(labels, equities, color="#2563eb", linewidth=1.2, label="Net Value")
     # 存款（balance）：存在则同图叠加基准线，净值高于它即浮盈（图内文字用英文）
+    # 用橙红 (#ea580c) 加粗虚线区分蓝色净值，MT4 语义：balance = 本金 + 已实现盈亏 − 费用
     balances = [p.get("balance") for p in points]
     if any(b is not None for b in balances):
-        ax_eq.plot(labels, _forward_fill(balances), color="#6b7280", linewidth=1.0, linestyle="--", label="Deposit")
-        ax_eq.legend(loc="upper left", fontsize=8)
+        ax_eq.plot(labels, _forward_fill(balances), color="#ea580c", linewidth=1.4, linestyle="--", label="Deposit")
+        ax_eq.legend(loc="upper right", fontsize=9)
     ax_eq.set_ylabel("Net Value")
     ax_eq.grid(True, alpha=0.3)
     ax_eq.margins(x=0)
