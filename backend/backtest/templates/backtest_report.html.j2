@@ -154,9 +154,9 @@
             {% if is_portfolio %}<td>{{ t.symbol }}</td>{% endif %}
             <td>{{ t.formatted_time or "—" }}</td>
             <td>
-              {% if t.side == "buy" %}<span class="tag long">买入开多</span>
-              {% elif t.side == "sell" %}<span class="tag short">卖出开空</span>
-              {% else %}{{ t.side or "—" }}{% endif %}
+              {% if t.entry_side == "buy" %}<span class="tag long">买入开多</span>
+              {% elif t.entry_side == "sell" %}<span class="tag short">卖出开空</span>
+              {% else %}{{ t.entry_side or "—" }}{% endif %}
             </td>
             <td>{{ t.entry_price | round(6) if t.entry_price is not none else "—" }}</td>
             <td>{{ t.exit_price | round(6) if t.exit_price is not none else "—" }}</td>

@@ -21,6 +21,7 @@ def _rust_result(**overrides) -> SimpleNamespace:
         bar_nav_curve=[(_TS_A, 10_000.0), (_TS_B, 10_050.0)],
         bar_balance_curve=[(_TS_A, 10_000.0), (_TS_B, 10_000.0)],
         trades=[],
+        fills_detail=[],
         total_pnl=50.0,
         orders_accepted=0,
         orders_rejected=0,

@@ -48,8 +48,12 @@ def _fake_trade(symbol: str, i: int) -> dict:
         "pnl": -0.47,
         "return_pct": -0.06,
         "direction": "long",
-        "side": "buy",
-        "status": "FILLED",
+        "entry_side": "buy",
+        "exit_side": "sell",
+        "status": "closed",
+        "entry_fill_ids": [i],
+        "exit_fill_id": i + 1,
+        "fills": [],
     }
 
 

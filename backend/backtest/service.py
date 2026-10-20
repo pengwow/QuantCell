@@ -578,17 +578,21 @@ class BacktestService:
             )
 
         # ---- 持仓重建：round-trip 展开为逐笔 fill 事件（时间轴/持仓需要逐笔粒度）----
-        # 开仓 buy + 平仓 sell 各一条，pnl 归平仓事件；exit_timestamp 缺失时退化为开仓时刻
+        # 按 direction 定开平方向：long 开多平空，short 开空平多（写死 BUY/SELL 会让做空反号）。
+        # pnl 归平仓事件；exit_timestamp 缺失时退化为开仓时刻
         fill_events: list[dict[str, Any]] = []
         for tr in all_trades:
             size = float(tr.get("size") or 0.0)
             if not tr.get("symbol") or size == 0.0:
                 continue
+            is_long = tr.get("direction") == "long"
+            entry_side = "BUY" if is_long else "SELL"
+            exit_side = "SELL" if is_long else "BUY"
             entry_ts = int(tr.get("timestamp") or 0)
             fill_events.append(
                 {
                     "symbol": tr["symbol"],
-                    "side": "BUY",
+                    "side": entry_side,
                     "quantity": size,
                     "price": float(tr.get("entry_price") or 0.0),
                     "timestamp": entry_ts,
@@ -598,7 +602,7 @@ class BacktestService:
             fill_events.append(
                 {
                     "symbol": tr["symbol"],
-                    "side": "SELL",
+                    "side": exit_side,
                     "quantity": size,
                     "price": float(tr.get("exit_price") or 0.0),
                     "timestamp": int(tr.get("exit_timestamp") or 0) or entry_ts,
