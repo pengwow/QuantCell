@@ -8,7 +8,7 @@
 
 数据来源为**仓库内合成 fixture + 最小 provider**，与
 ``tests/unit/backtest/test_rust_runner_parity.py`` 的 ``_StubProvider`` 同一模式，
-不依赖 ``data/source`` 本地下载数据，也不 mock 引擎，故会真实驱动 Rust ``run_multi``。
+不依赖 ``data/source`` 本地下载数据，也不 mock 引擎，故会真实驱动 Rust ``run``。
 """
 
 from __future__ import annotations

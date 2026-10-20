@@ -13,7 +13,7 @@ Rust 侧 axon_quant.worker.BacktestRunner 期望策略实现 `decide(bar_dict) -
     adapter = RustStrategyAdapter(base_strategy)
     runner = worker.BacktestRunner(initial_cash=100000.0)
     runner.add_strategy(adapter)
-    result = runner.run(bars=[...], states_by_symbol={})
+    result = runner.run(bars_by_symbol={"BTC/USDT": [bar_dict, ...]})
 """
 
 from __future__ import annotations
@@ -33,12 +33,17 @@ class RustStrategyAdapter:
     - hold 决策**不改目标位**（与 BacktestLoop "仅 buy/sell 调 set_target_position" 一致），
       否则 Rust 侧会把 hold 当 target=0 平掉仓位。
     - Rust `Instrument::from_symbol` 需要 `BASE/QUOTE` 分隔格式，故 symbol 归一化。
+
+    `symbol` 可显式覆盖 `strategy.config.symbol`：多品种「独立资金池」分支复用同一个
+    策略实例，其 `config.symbol` 固定为首品种，而本次回测的品种由调用方给出。若不覆盖，
+    引擎会按策略 symbol 建 instrument，把入参品种的数据跑到**首品种**的 instrument 上。
     """
 
-    def __init__(self, strategy: BaseStrategy, initial_cash: float = 100_000.0):
+    def __init__(self, strategy: BaseStrategy, initial_cash: float = 100_000.0, symbol: str | None = None):
         self._strategy = strategy
         self._initial_cash = initial_cash
-        raw_symbol = getattr(strategy.config, "symbol", "BTCUSDT")
+        # 上下文与归一化 symbol 必须同源，否则 ctx.symbol 与引擎 instrument 会不一致
+        raw_symbol = symbol or getattr(strategy.config, "symbol", "BTCUSDT")
         self._symbol = _normalize_symbol(raw_symbol)
         self._ctx = StrategyContext(symbol=raw_symbol)
         self._strategy.on_start(self._ctx)
