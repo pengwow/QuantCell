@@ -129,7 +129,6 @@ const BacktestDetail = () => {
   const [exporting, setExporting] = useState(false);
   // 高级筛选状态
   const [filterSide, setFilterSide] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterDateRange, setFilterDateRange] = useState<[string, string] | null>(null);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
 
@@ -188,7 +187,6 @@ const BacktestDetail = () => {
   const handleSymbolChange = (value: string) => {
     setSelectedSymbol(value);
     setFilterSide('all');
-    setFilterStatus('all');
     setFilterDateRange(null);
     setQuerySymbol(isMultiSymbol && value !== 'all' ? value : undefined);
   };
@@ -228,11 +226,6 @@ const BacktestDetail = () => {
       trades = trades.filter((trade) => trade.direction === filterSide);
     }
 
-    // 根据状态筛选
-    if (filterStatus && filterStatus !== 'all') {
-      trades = trades.filter((trade) => trade.status.toLowerCase() === filterStatus.toLowerCase());
-    }
-
     // 根据日期范围筛选（契约 timestamp 为秒级）
     if (filterDateRange && filterDateRange[0] && filterDateRange[1]) {
       const startDate = new Date(filterDateRange[0]).getTime();
@@ -251,7 +244,6 @@ const BacktestDetail = () => {
     setSelectedSymbol('all');
     setQuerySymbol(undefined);
     setFilterSide('all');
-    setFilterStatus('all');
     setFilterDateRange(null);
   };
 
@@ -607,20 +599,6 @@ const BacktestDetail = () => {
                   </Select>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
-                  <div style={{ marginBottom: 8 }}>交易状态</div>
-                  <Select
-                    value={filterStatus}
-                    onChange={setFilterStatus}
-                    style={{ width: '100%' }}
-                    placeholder="选择状态"
-                  >
-                    <Select.Option value="all">全部</Select.Option>
-                    <Select.Option value="filled">已成交</Select.Option>
-                    <Select.Option value="partial">部分成交</Select.Option>
-                    <Select.Option value="canceled">已取消</Select.Option>
-                  </Select>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
                   <div style={{ marginBottom: 8 }}>日期范围</div>
                   <DatePicker.RangePicker
                     style={{ width: '100%' }}
@@ -647,8 +625,7 @@ const BacktestDetail = () => {
             <span style={{ color: '#8c8c8c' }}>
               共 {getTrades().length} 条记录
               {selectedSymbol !== 'all' && ` | 标的: ${selectedSymbol}`}
-              {filterSide !== 'all' && ` | 方向: ${filterSide === 'buy' ? '买入' : '卖出'}`}
-              {filterStatus !== 'all' && ` | 状态: ${filterStatus}`}
+              {filterSide !== 'all' && ` | 方向: ${filterSide === 'long' ? '做多' : '做空'}`}
               {filterDateRange && ` | 日期: ${filterDateRange[0]} 至 ${filterDateRange[1]}`}
             </span>
           </div>
