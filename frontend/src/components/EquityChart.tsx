@@ -1,6 +1,6 @@
 /**
  * 收益率曲线图表组件
- * 功能：使用ECharts展示权益曲线，支持结余(balance)和权益(equity)两根线
+ * 功能：使用ECharts展示权益曲线，支持存款(balance)和净值(equity)两根线
  * 适用场景：回测结果、投资组合收益展示等
  */
 import EChart from '@/components/EChart';
@@ -27,7 +27,7 @@ export interface EquityChartProps {
   height?: string | number;
   title?: string;
   isDark?: boolean; // 是否为暗色主题
-  initialCash?: number; // 存款（初始资金）水平线，体现净值相对本金浮盈/浮亏；缺省退化为首点权益
+  initialCash?: number; // 旧回测结果（无 balance 字段）的存款兜底水平线；有 balance 曲线时不使用
 }
 
 const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialCash }: EquityChartProps) => {
@@ -80,8 +80,24 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
   // 构建数据系列 - 只要字段存在就显示，不管值是否相同
   const series: LineSeriesOption[] = [];
 
-  if (deposit > 0) {
-    // 存款线（初始资金水平基准）：净值高于它即浮盈、低于即浮亏
+  if (hasBalanceField) {
+    // 存款曲线（引擎 balance：本金 + 已实现盈亏 − 费用；持仓期间不随行情波动）
+    // 净值高于它即浮盈、低于即浮亏
+    series.push({
+      name: '存款',
+      type: 'line',
+      data: balanceValues,
+      smooth: true,
+      symbol: 'none',
+      lineStyle: {
+        width: 1.5,
+        color: qc.chartMark,
+      },
+      animationDuration: 1000,
+      animationEasing: 'cubicOut',
+    });
+  } else if (deposit > 0) {
+    // 旧回测结果（存储 JSON 无 balance）兜底：用初始资金画水平基准线
     series.push({
       name: '存款',
       type: 'line',
@@ -94,38 +110,6 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
         type: 'dashed',
       },
       animationDuration: 0,
-    });
-  }
-
-  if (hasBalanceField) {
-    // 结余线（可用余额，蓝色面积图）
-    series.push({
-      name: '结余',
-      type: 'line',
-      data: balanceValues,
-      smooth: true,
-      symbol: 'none',
-      lineStyle: {
-        width: 2,
-        color: qc.info,
-      },
-      areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0,
-          y: 0,
-          x2: 0,
-          y2: 1,
-          colorStops: [
-            // ponytail: EquityChart 独立面积曲线，用比 chartGradientStart (0.25) 更高的 0.4 透明度
-            // 突出结余主体；回撤阴影 layer 用 0.25 低于它，视觉上不抢主线。根据背景色判断暗/亮模式。
-            { offset: 0, color: token.colorBgBase === '#17191c' ? 'rgba(71, 139, 230, 0.40)' : 'rgba(9, 105, 218, 0.40)' },
-            { offset: 1, color: qc.chartGradientEnd },
-          ],
-        },
-      },
-      animationDuration: 1000,
-      animationEasing: 'cubicOut',
     });
   }
 
@@ -166,10 +150,9 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
     });
   }
 
-  // 构建图例数据
+  // 构建图例数据（顺序与 series 一致：存款 → 净值 → 回撤%）
   const legendData: string[] = [];
-  if (deposit > 0) legendData.push('存款');
-  if (hasBalanceField) legendData.push('结余');
+  if (hasBalanceField || deposit > 0) legendData.push('存款');
   if (hasEquityField) legendData.push('净值', '回撤%');
 
   const option: EChartsOption = {
@@ -205,11 +188,18 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
         },
       },
       formatter: (params: TooltipComponentFormatterCallbackParams) => {
-        const list = (Array.isArray(params) ? params : [params]);
+        const list = Array.isArray(params) ? params : [params];
         let result = `${list[0].name}<br/>`;
         list.forEach((param) => {
           result += `${param.marker || ''} ${param.seriesName}: ${Number(param.value).toFixed(2)}<br/>`;
         });
+        // 净值与存款同时存在时补充浮盈（MT4 口径：净值 − 存款）
+        const equityItem = list.find((param) => param.seriesName === '净值');
+        const depositItem = list.find((param) => param.seriesName === '存款');
+        if (equityItem && depositItem) {
+          const floating = Number(equityItem.value) - Number(depositItem.value);
+          result += `浮盈: ${floating.toFixed(2)}<br/>`;
+        }
         return result;
       },
     },
