@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Input, Modal, Spin, Alert, App, theme } from 'antd';
+import { Input, Modal, Spin, Alert, App, theme } from 'antd';
 import { init, dispose, type Nullable, registerIndicator, registerOverlay, registerLocale } from 'klinecharts';
 import type {
   Chart,
@@ -16,7 +16,9 @@ import type {
 import { dataApi } from '../../api/dataApi';
 import * as realtimeApi from '../../api/realtimeApi';
 import DrawingBar from '../../components/DrawingBar';
-import IndicatorToolbar from '../../components/IndicatorToolbar';
+import ChartPeriodBar, { type ChartPeriodItem } from '../../components/chart/ChartPeriodBar';
+import { CHART_SETTING_DEFS } from '../../components/chart/ChartSettingModal';
+import { setStyleValue } from '../../components/chart/chartStyles';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
@@ -53,6 +55,12 @@ const MORE_PERIODS: PeriodItem[] = [
   { label: '1M', value: '1M', span: 1, type: 'month' },
   { label: '1Y', value: '1y', span: 1, type: 'year' },
 ];
+
+// 上方工具栏平铺展示的全部周期（原「更多」里的 2H/1M/1Y 一并铺开）
+const PERIOD_BAR_ITEMS: ChartPeriodItem[] = [...PERIODS, ...MORE_PERIODS].map(p => ({
+  label: p.label,
+  value: p.value,
+}));
 
 // 内置指标映射
 const builtInIndicatorMap: Record<string, string> = {
@@ -285,6 +293,8 @@ const ChartPage = () => {
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<Nullable<Chart>>(null);
+  // 全屏目标：包含上方工具栏与图表的主体容器
+  const fullscreenTargetRef = useRef<HTMLDivElement>(null);
 
   // 品种和周期状态
   const [currentSymbol, setCurrentSymbol] = useState<Symbol>({
@@ -293,7 +303,12 @@ const ChartPage = () => {
     base: 'BTC'
   });
   const [currentPeriod, setCurrentPeriod] = useState('1h');
-  const [isPeriodsExpanded, setIsPeriodsExpanded] = useState(false);
+
+  // 上方工具栏状态：左侧绘图栏是否展开、图表时区、Y 轴是否反转
+  const [spread, setSpread] = useState(true);
+  const [timezone, setTimezone] = useState('Asia/Shanghai');
+  // ponytail: v10 没有公开读取轴 reverse 的接口，这里自己记一份，供设置弹窗回显
+  const [yAxisReverse, setYAxisReverse] = useState(false);
 
   // 加载状态
   const [loading, setLoading] = useState(false);
@@ -999,30 +1014,87 @@ const ChartPage = () => {
     }
   }, [activeIndicators, currentSymbol.code, currentPeriod, message, registerCustomIndicator, t]);
 
-  // 绘图工具栏：记录进行中 overlay 的 id，供二次点击取消（QuantDinger 交互）
-  const pendingOverlayIdRef = useRef<string | null>(null);
+  // 处理绘图工具点击
+  const handleDrawingItemClick = useCallback((overlay: { name: string; lock: boolean; mode: string }) => {
+    if (!chartInstanceRef.current) return;
+    chartInstanceRef.current.createOverlay({
+      name: overlay.name,
+      groupId: 'drawing_tools',
+      lock: overlay.lock,
+      mode: overlay.mode as 'normal' | 'weak_magnet' | 'strong_magnet',
+      visible: true
+    });
+  }, []);
 
-  // 选中工具 → 进入绘制状态
-  // 注：klinecharts 的 createOverlay 单对象入参返回 overlay id（Nullable<string>），
-  // 返回类型上还带有数组分支，用 typeof 窄化取 id
-  const handleToolSelect = useCallback((tool: string) => {
+  // 处理模式变化
+  const handleModeChange = useCallback((mode: string) => {
+    console.log('Mode changed:', mode);
+  }, []);
+
+  // 处理锁定变化
+  const handleLockChange = useCallback((lock: boolean) => {
+    if (!chartInstanceRef.current) return;
+    const overlays = chartInstanceRef.current.getOverlays({ groupId: 'drawing_tools' });
+    overlays.forEach((overlay) => {
+      chartInstanceRef.current?.overrideOverlay({ id: overlay.id, lock });
+    });
+  }, []);
+
+  // 处理可见性变化
+  const handleVisibleChange = useCallback((visible: boolean) => {
+    if (!chartInstanceRef.current) return;
+    const overlays = chartInstanceRef.current.getOverlays({ groupId: 'drawing_tools' });
+    overlays.forEach((overlay) => {
+      chartInstanceRef.current?.overrideOverlay({ id: overlay.id, visible });
+    });
+  }, []);
+
+  // 处理删除
+  const handleRemoveClick = useCallback((groupId: string) => {
+    if (!chartInstanceRef.current) return;
+    chartInstanceRef.current.removeOverlay({ groupId });
+  }, []);
+
+  // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis
+  const applyChartSetting = useCallback((path: string, value: unknown) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
-    const overlayId = chart.createOverlay({ name: tool, groupId: 'drawing_tools' });
-    pendingOverlayIdRef.current = typeof overlayId === 'string' ? overlayId : null;
+    if (path === 'yAxis.reverse') {
+      chart.overrideYAxis({ reverse: Boolean(value) });
+      setYAxisReverse(Boolean(value));
+      return;
+    }
+    // klinecharts setStyles 是深合并，局部路径更新即可
+    const styles: Record<string, unknown> = {};
+    setStyleValue(styles, path, value);
+    chart.setStyles(styles as Parameters<Chart['setStyles']>[0]);
   }, []);
 
-  // 二次点击同一工具 → 取消进行中的绘制（removeOverlay 对不存在 id 无副作用）
-  const handleToolDeselect = useCallback(() => {
+  // 读取当前样式，并把轴上的 reverse 补进去（设置弹窗回显用）
+  const getChartSettings = useCallback(() => {
     const chart = chartInstanceRef.current;
-    const id = pendingOverlayIdRef.current;
-    pendingOverlayIdRef.current = null;
-    if (chart && id) chart.removeOverlay({ id });
+    if (!chart) return {} as Record<string, unknown>;
+    const styles = chart.getStyles() as unknown as Record<string, unknown>;
+    return { ...styles, yAxis: { ...(styles.yAxis as object), reverse: yAxisReverse } };
+  }, [yAxisReverse]);
+
+  // 恢复默认：逐项还原为 klinecharts 默认值
+  const handleRestoreDefaultSettings = useCallback(() => {
+    CHART_SETTING_DEFS.forEach(({ path, defaultValue }) => applyChartSetting(path, defaultValue));
+  }, [applyChartSetting]);
+
+  // 切换时区
+  const handleTimezoneSelect = useCallback((nextTimezone: string) => {
+    chartInstanceRef.current?.setTimezone(nextTimezone);
+    setTimezone(nextTimezone);
   }, []);
 
-  // 清除全部图形
-  const handleClearTools = useCallback(() => {
-    chartInstanceRef.current?.removeOverlay({ groupId: 'drawing_tools' });
+  // 截图：导出含 overlay 的 jpeg，底色跟随当前主题
+  const getScreenshotUrl = useCallback(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return '';
+    const backgroundColor = document.documentElement.classList.contains('dark') ? '#151517' : '#ffffff';
+    return chart.getConvertPictureUrl(true, 'jpeg', backgroundColor);
   }, []);
 
   // 批量处理实时数据更新
@@ -1169,67 +1241,18 @@ const ChartPage = () => {
 
   return (
     <div className="chart-page-fullscreen page-fullscreen">
-      <div className="chart-page">
-        {/* 顶部工具栏 */}
-        <div className="chart-toolbar">
-          <div className="toolbar-left">
-            {/* 品种选择按钮 - 显示图标和名称 */}
-            <Button
-              className="symbol-select-btn"
-              onClick={() => setSearchVisible(true)}
-            >
-              <TokenDisplay symbol={currentSymbol.base || 'BTC'} size={20} />
-              <span className="symbol-code">{currentSymbol.code}</span>
-            </Button>
-
-            {/* 周期选择 */}
-            <div className="period-buttons-container" style={{ position: 'relative' }}>
-              {PERIODS.map(period => (
-                <Button
-                  key={period.value}
-                  type={currentPeriod === period.value ? 'primary' : 'default'}
-                  size="small"
-                  onClick={() => setCurrentPeriod(period.value)}
-                >
-                  {period.label}
-                </Button>
-              ))}
-              <Button
-                size="small"
-                onClick={() => setIsPeriodsExpanded(!isPeriodsExpanded)}
-              >
-                {isPeriodsExpanded ? '收起' : '更多'}
-              </Button>
-
-              {/* 更多周期下拉 - 放在容器内部以便正确定位 */}
-              {isPeriodsExpanded && (
-                <div className="more-periods-dropdown">
-                  {MORE_PERIODS.map(period => (
-                    <Button
-                      key={period.value}
-                      type={currentPeriod === period.value ? 'primary' : 'default'}
-                      size="small"
-                      onClick={() => {
-                        setCurrentPeriod(period.value);
-                        setIsPeriodsExpanded(false);
-                      }}
-                    >
-                      {period.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 指标按钮 - 放在周期选择后面 */}
-            <IndicatorToolbar
-              activeIndicators={activeIndicators}
-              onToggleIndicator={handleToggleIndicator}
-            />
-          </div>
-
-          <div className="toolbar-right">
-            {/* 实时数据按钮 */}
+      <div className="chart-page" ref={fullscreenTargetRef}>
+        {/* 上方工具栏：复刻 klinecharts-pro 的 period-bar，最右接实时行情开关 */}
+        <ChartPeriodBar
+          spread={spread}
+          onToggleSpread={() => setSpread(prev => !prev)}
+          symbol={currentSymbol}
+          periods={PERIOD_BAR_ITEMS}
+          currentPeriod={currentPeriod}
+          onChangePeriod={setCurrentPeriod}
+          activeIndicators={activeIndicators}
+          onToggleIndicator={handleToggleIndicator}
+          realtimeSlot={
             <RealtimeToggleButton
               symbol={currentSymbol.code}
               period={currentPeriod.toLowerCase()}
@@ -1237,19 +1260,31 @@ const ChartPage = () => {
               onRealtimeData={handleRealtimeData}
               onStatusChange={handleRealtimeStatusChange}
             />
-          </div>
-        </div>
+          }
+          onOpenSymbolSearch={() => setSearchVisible(true)}
+          currentTimezone={timezone}
+          onTimezoneSelect={handleTimezoneSelect}
+          getSettings={getChartSettings}
+          onSettingChange={applyChartSetting}
+          onRestoreDefaultSettings={handleRestoreDefaultSettings}
+          getScreenshotUrl={getScreenshotUrl}
+          fullscreenTarget={fullscreenTargetRef}
+        />
 
         {/* 主图表区域 - 包含常驻的左侧绘图工具栏 */}
         <div className="chart-main-with-toolbar">
-          {/* 左侧常驻绘图工具栏 */}
-          <div className="drawing-toolbar-vertical">
-            <DrawingBar
-              onSelect={handleToolSelect}
-              onDeselect={handleToolDeselect}
-              onClearAll={handleClearTools}
-            />
-          </div>
+          {/* 左侧常驻绘图工具栏（菜单收起时隐藏） */}
+          {spread && (
+            <div className="drawing-toolbar-vertical">
+              <DrawingBar
+                onDrawingItemClick={handleDrawingItemClick}
+                onModeChange={handleModeChange}
+                onLockChange={handleLockChange}
+                onVisibleChange={handleVisibleChange}
+                onRemoveClick={handleRemoveClick}
+              />
+            </div>
+          )}
 
           {/* 图表区域 */}
           <div className="chart-area">

@@ -1,0 +1,355 @@
+/* ==========================================================================
+   图表工具栏样式（复刻 klinecharts-pro 的 period-bar + drawing-bar）
+   规格来源：pro 源码 base.less 及两组件 less；图标统一由
+   public/chart-icons/*.svg 经 CSS mask 渲染，颜色受 background-color 控制。
+   ========================================================================== */
+
+/* 主题变量：亮色为默认，暗色由 html.dark 覆盖（项目既有主题机制） */
+.chart-page {
+  --k-bg: #ffffff;
+  --k-popover: #ffffff;
+  --k-text: #051441;
+  --k-text-second: #76808f;
+  --k-border: #ebedf1;
+  --k-primary: #1677ff;
+  --k-hover: rgba(22, 119, 255, 0.15);
+  --k-selected: rgba(22, 119, 255, 0.15);
+}
+
+html.dark .chart-page {
+  --k-bg: #151517;
+  --k-popover: #1c1c1f;
+  --k-text: #f8f8f8;
+  --k-text-second: #929aa5;
+  --k-border: #292929;
+}
+
+/* mask 图标基类：形状来自 svg，颜色来自 background-color */
+.k-ico {
+  display: block;
+  flex: none;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+
+/* ======================= 上方工具栏 ======================= */
+.chart-period-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: none;
+  width: 100%;
+  height: 38px;
+  border-bottom: 1px solid var(--k-border);
+  background-color: var(--k-bg);
+  color: var(--k-text);
+  font-size: 14px;
+}
+
+/* 折叠按钮区：宽度与左侧绘图栏一致（52px），自带右边框 */
+.chart-period-bar .menu-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  height: 100%;
+  border-right: 1px solid var(--k-border);
+}
+
+.chart-period-bar .menu-icon {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  background-color: var(--k-text);
+  transition: transform 0.2s;
+}
+
+.chart-period-bar .menu-icon.rotate {
+  transform: rotate(180deg);
+}
+
+/* 品种：点击打开搜索弹窗 */
+.chart-period-bar .symbol {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: none;
+  height: 100%;
+  padding: 0 12px;
+  font-size: 18px;
+  font-weight: bold;
+  border-right: 1px solid var(--k-border);
+  cursor: pointer;
+}
+
+/* period 与 tools 共用的基础项 */
+.chart-period-bar .item {
+  color: var(--k-text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chart-period-bar .item.selected {
+  background-color: var(--k-selected) !important;
+  color: var(--k-primary);
+}
+
+.chart-period-bar .period {
+  padding: 2px 6px;
+  margin: 0 4px;
+  border-radius: 2px;
+  font-size: 14px;
+}
+
+.chart-period-bar .period:hover {
+  background-color: var(--k-hover);
+}
+
+.chart-period-bar .period:first-of-type {
+  margin-left: 8px;
+}
+
+/* 紧邻品种的周期多留一点空隙（后声明，覆盖上面的 :first-of-type） */
+.chart-period-bar .symbol + .period {
+  margin-left: 12px;
+}
+
+.chart-period-bar .tools {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 100%;
+  padding: 0 12px;
+  border-right: 1px solid var(--k-border);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.chart-period-bar .tools:hover {
+  color: var(--k-primary);
+}
+
+/* 首个 tools 加左边框，与周期区隔开 */
+.chart-period-bar .tools.first {
+  border-left: 1px solid var(--k-border);
+  margin-left: 8px;
+}
+
+/* 图标继承文字色，hover 时随文字一起变主色 */
+.chart-period-bar .tool-ico {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  background-color: currentColor;
+}
+
+/* QuantCell 特有：实时行情开关，靠右 */
+.chart-period-bar .live-area {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 12px;
+}
+
+/* ======================= 左侧绘图栏 ======================= */
+/* 撑满 52px 左栏：否则宽度收缩到 32px，右侧绝对定位的展开箭头会压在图标上 */
+.drawing-bar {
+  width: 100%;
+}
+
+.drawing-bar .item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+/* 主图标命中区 */
+.drawing-bar .d-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 2px;
+  transition: all 0.2s;
+}
+
+.drawing-bar .d-hit:hover {
+  background-color: var(--k-hover);
+}
+
+.drawing-bar .d-hit.selected {
+  background-color: var(--k-selected) !important;
+}
+
+/* 图标填满命中区，mask 之外的部分透明，故 hover 底色可见 */
+.drawing-bar .d-ico {
+  width: 32px;
+  height: 32px;
+  background-color: var(--k-text-second);
+}
+
+.drawing-bar .d-hit.selected .d-ico {
+  background-color: var(--k-primary);
+}
+
+/* 展开箭头：默认隐藏，item hover 时浮现 */
+.drawing-bar .icon-arrow {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 32px;
+  opacity: 0;
+  transition: all 0.2s;
+  z-index: 10;
+  border-top-left-radius: 2px;
+  border-bottom-left-radius: 2px;
+}
+
+.drawing-bar .item:hover .icon-arrow {
+  opacity: 1;
+}
+
+.drawing-bar .icon-arrow:hover {
+  background-color: var(--k-hover);
+}
+
+.drawing-bar .icon-arrow svg {
+  display: block;
+  width: 4px;
+  height: 6px;
+  transition: all 0.2s;
+}
+
+.drawing-bar .icon-arrow svg path {
+  fill: var(--k-text-second);
+}
+
+.drawing-bar .icon-arrow:hover svg path {
+  fill: var(--k-text);
+}
+
+.drawing-bar .icon-arrow svg.rotate {
+  transform: rotate(180deg);
+}
+
+/* 绘图工具浮层列表 */
+.drawing-bar .k-list {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 1px);
+  z-index: 99;
+  min-width: max-content;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  white-space: nowrap;
+  background-color: var(--k-popover);
+  box-shadow: 0 6px 12px 0 rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  color: var(--k-text);
+  transform: translateY(-8px);
+}
+
+.drawing-bar .k-list li {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 40px;
+  padding: 0 20px 0 16px;
+  cursor: pointer;
+}
+
+.drawing-bar .k-list li:hover {
+  background-color: var(--k-hover);
+}
+
+/* 列表项里的图标只是示意，不单独响应 hover */
+.drawing-bar .k-list li .d-hit:hover {
+  background-color: transparent;
+}
+
+.drawing-bar .k-list li .lbl {
+  padding-left: 8px;
+}
+
+.drawing-bar .k-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.drawing-bar .k-list::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background-color: var(--k-border);
+}
+
+/* 分组分隔线 */
+.drawing-bar .split-line {
+  display: block;
+  width: 100%;
+  height: 1px;
+  margin-top: 8px;
+  background-color: var(--k-border);
+}
+
+/* ======================= 时区弹窗列表 ======================= */
+.chart-tz-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 14px;
+  color: var(--k-text);
+}
+
+.chart-tz-list li {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 12px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.chart-tz-list li:hover {
+  background-color: var(--k-hover);
+}
+
+.chart-tz-list li.selected {
+  color: var(--k-primary);
+  background-color: var(--k-selected);
+}
+
+.chart-tz-list li .chart-tz-offset {
+  color: var(--k-text-second);
+}
+
+.chart-tz-list li.selected .chart-tz-offset {
+  color: var(--k-primary);
+}
+
+/* ======================= 截图弹窗 ======================= */
+.chart-screenshot-img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--k-border);
+}

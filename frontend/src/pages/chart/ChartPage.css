@@ -16,112 +16,8 @@
   overflow: hidden;
 }
 
-/* 工具栏样式 */
-.chart-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 8px 0px;
-  background-color: var(--ant-color-bg-elevated);
-  border-bottom: 1px solid var(--ant-color-border);
-  position: relative;
-  min-height: 48px;
-}
-
-.toolbar-left {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding-left: 0;
-}
-
-.toolbar-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding-right: 10px;
-}
-
-/* 伸缩按钮 */
-.toolbar-toggle {
-  cursor: pointer;
-  padding: 5px;
-  background-color: transparent;
-  border: none;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  color: var(--ant-color-text-secondary);
-  width: 36px;
-  height: 36px;
-}
-
-.toolbar-toggle:hover {
-  background-color: rgba(100, 108, 255, 0.1);
-  color: var(--ant-color-primary);
-}
-
-.toolbar-toggle.expanded {
-  background-color: rgba(100, 108, 255, 0.1);
-  color: var(--ant-color-primary);
-}
-
-/* 图标样式 - 添加旋转动画 */
-.toolbar-toggle svg {
-  width: 20px;
-  height: 20px;
-  transition: transform 0.5s ease;
-  transform: rotate(0deg);
-}
-
-/* 展开状态下图标向左旋转180度 */
-.toolbar-toggle.expanded svg {
-  transform: rotate(-180deg);
-}
-
-/* 品种选择按钮样式 */
-.symbol-select-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  height: 32px;
-  border: 1px solid var(--ant-color-border);
-  background-color: var(--ant-color-bg-container);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.symbol-select-btn:hover {
-  background-color: rgba(100, 108, 255, 0.1);
-  border-color: var(--ant-color-primary);
-}
-
-.symbol-select-btn .symbol-code {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--ant-color-text);
-}
-
-/* 周期按钮容器 */
-.period-buttons-container {
-  display: flex;
-  gap: 1px;
-  align-items: center;
-  background-color: var(--ant-color-bg-elevated);
-  border: 1px solid var(--ant-color-border);
-  border-radius: 4px;
-  overflow: visible;
-  height: 32px;
-}
-
-.period-buttons-container .ant-btn {
-  height: 30px;
-  line-height: 30px;
-  padding: 0 12px;
-}
+/* 上方工具栏已迁移到 components/chart/ChartPeriodBar（复刻 klinecharts-pro），
+   相关样式见 components/chart/chart-toolbars.css */
 
 /* 指标工具栏按钮样式 */
 .indicator-toolbar .ant-btn {
@@ -136,28 +32,6 @@
   gap: 4px;
 }
 
-/* 更多周期下拉 */
-.more-periods-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  background-color: var(--ant-color-bg-elevated);
-  border: 1px solid var(--ant-color-border);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  z-index: 1000;
-  min-width: 60px;
-}
-
-.more-periods-dropdown .ant-btn {
-  width: 100%;
-  text-align: center;
-}
-
 /* 主图表区域 - 包含左侧工具栏 */
 .chart-main-with-toolbar {
   display: flex;
@@ -166,16 +40,16 @@
   position: relative;
 }
 
-/* 左侧竖状绘图工具栏 */
+/* 左侧竖状绘图工具栏：宽度与上方工具栏的 menu-container 对齐（52px） */
 .drawing-toolbar-vertical {
-  width: 48px;
-  min-width: 48px;
-  background-color: var(--ant-color-bg-elevated);
-  border-right: 1px solid var(--ant-color-border);
+  width: 52px;
+  min-width: 52px;
+  background-color: var(--k-bg);
+  border-right: 1px solid var(--k-border);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 0;
+  padding: 0;
   overflow: visible;
   z-index: 1000;
   position: relative;
@@ -683,74 +557,9 @@
 
 /* 响应式布局 */
 @media (max-width: 768px) {
-  .chart-toolbar {
-    flex-wrap: wrap;
-    gap: 4px;
-    height: auto;
-    min-height: 48px;
-    padding: 4px 8px;
-  }
-
-  .toolbar-left {
-    flex-wrap: wrap;
-    gap: 4px;
-    width: 100%;
-  }
-
-  .toolbar-right {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  /* 品种按钮 - 小屏幕下缩小 */
-  .symbol-select-btn {
-    height: 28px;
-    padding: 2px 8px;
-    font-size: 12px;
-  }
-
-  .symbol-select-btn .symbol-code {
-    font-size: 12px;
-  }
-
-  /* 周期按钮容器 - 小屏幕下允许滚动 */
-  .period-buttons-container {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    height: 28px;
-    gap: 0;
-  }
-
-  .period-buttons-container .ant-btn {
-    height: 26px;
-    line-height: 26px;
-    padding: 0 8px;
-    font-size: 12px;
-    flex-shrink: 0;
-  }
-
-  /* 指标按钮 - 小屏幕下缩小 */
-  .indicator-toolbar .ant-btn {
-    height: 28px;
-    line-height: 28px;
-    padding: 0 8px;
-    font-size: 12px;
-  }
-
-  /* 更多周期下拉 */
-  .more-periods-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    width: auto;
-    margin-top: 4px;
-    z-index: 1001;
-  }
-
-  /* 左侧绘图工具栏 - 小屏幕下调整 */
+  /* 左侧绘图工具栏 - 小屏幕下收窄 */
   .drawing-toolbar-vertical {
     width: 40px;
     min-width: 40px;
   }
-
 }

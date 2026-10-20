@@ -1,5 +1,4 @@
 import arrow from './arrow'
-import measure from './measure'
 
 import circle from './circle'
 import rect from './rect'
@@ -19,7 +18,7 @@ import abcd from './abcd'
 import xabcd from './xabcd'
 
 const overlays = [
-  arrow, measure,
+  arrow,
   circle, rect, triangle, parallelogram,
   fibonacciCircle, fibonacciSegment, fibonacciSpiral,
   fibonacciSpeedResistanceFan, fibonacciExtension, gannBox,

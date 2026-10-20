@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+from utils import secret_key_manager
+
 
 class TestSecretKeyManager:
     """测试 JWT 密钥管理功能"""
@@ -20,12 +22,21 @@ secret_key = ""
         config_file = tmp_path / "config.toml"
         config_file.write_text(config_content)
 
+        # 快照全局密钥缓存：test_get_secret_key_cache 会清缓存后在 patch 路径下
+        # 重新生成临时密钥。若不恢复，泄漏的临时密钥会让后续测试里
+        # MockJWTToken 造出的 token 与应用解码密钥（jwt_utils 导入时固化的真实密钥）
+        # 不一致，跨目录合跑时表现为整批 401（隔离测试自身全局状态，非兼容补丁）。
+        saved_cache = secret_key_manager._cached_secret_key
+
         # 覆盖模块中的 CONFIG_FILE 路径
         with (
             patch("utils.secret_key_manager.CONFIG_FILE", config_file),
             patch("utils.secret_key_manager.BACKUP_FILE", tmp_path / "config.toml.bak"),
         ):
             yield config_file
+
+        # 无论测试结果如何，fixture teardown 都恢复缓存原值
+        secret_key_manager._cached_secret_key = saved_cache
 
     def test_generate_secure_key(self):
         """测试生成安全密钥"""

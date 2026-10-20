@@ -615,6 +615,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             equity_curve: list = []
             positions: list = []
             factors: dict = {}
+            skipped_symbols: dict = {}
 
             # 结果 JSON 是回测结果的唯一真实来源；无 JSON（未跑完/已清理）时保持空列表
             json_result = backtest_service.get_result(backtest_id)
@@ -622,6 +623,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             if isinstance(json_result, dict):
                 status = json_result.get("status") or status
                 results = json_result.get("results") or {}
+                # 无数据被跳过的品种（前端据此提示「XX 在所选时间范围内无数据」）
+                skipped_symbols = results.get("skipped_symbols") or {}
                 # 归一化单品种 / 多品种(results_by_symbol)两种结构
                 entries = backtest_service.extract_symbol_entries(results)
                 result_symbols = list(entries.keys())
@@ -668,6 +671,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     else (symbol if symbol in result_symbols else (result_symbols[0] if result_symbols else None))
                 ),
                 "is_multi_symbol": len(result_symbols) > 1,
+                # 无数据被跳过的品种：{品种: 原因}，前端据此提示
+                "skipped_symbols": skipped_symbols,
                 "status": status,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "code": strategy_code,
