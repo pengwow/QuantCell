@@ -274,25 +274,26 @@ const BacktestDetail = () => {
     return String(value);
   };
 
-  // 导出报告
+  // 导出报告：后端生成自包含 HTML（配置/指标/权益曲线/成交明细，口径与详情页一致）
   const handleExport = async () => {
-    if (!backtestData) return;
+    if (!backtestId) return;
 
     try {
       setExporting(true);
-      // 简单的导出实现，可以后续完善
-      const dataStr = JSON.stringify(backtestData, null, 2);
-      const blob = new Blob([dataStr], { type: 'application/json' });
+      // 多品种且选了具体品种 → 导出该品种视角；否则由后端导出组合视角
+      const symbol = isMultiSymbol && selectedSymbol !== 'all' ? selectedSymbol : undefined;
+      const blob = await backtestApi.getBacktestReport(backtestId, symbol);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `回测结果_${backtestId}_${new Date().toISOString().slice(0, 10)}.json`;
+      // 与后端 report_filename 保持一致（blob 下载取 download 属性名）
+      link.download = `回测报告_${backtestId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.html`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      message.success('报告导出成功');
+      message.success('报告已导出');
     } catch (error) {
       message.error('导出报告失败');
       console.error(error);
