@@ -577,6 +577,13 @@ export const backtestApi = {
     return apiRequest.get(`/backtest/${backtestId}`, symbol ? { symbol } : undefined);
   },
 
+  // 导出报告：后端生成自包含 HTML（口径与详情页一致），blob 拦截器直接返回文件数据
+  getBacktestReport: (backtestId: string, symbol?: string): Promise<Blob> => {
+    return apiRequest.get(`/backtest/${backtestId}/report`, symbol ? { symbol } : undefined, {
+      responseType: 'blob',
+    });
+  },
+
   deleteBacktest: (backtestId: string) => {
     return apiRequest.delete(`/backtest/delete/${backtestId}`);
   },
