@@ -166,6 +166,26 @@ def test_shared_capital_pool_end_to_end(monkeypatch) -> None:
             f"{sym} 的最大回撤应为共享账户真值，实际 {metrics['max_drawdown']}"
         )
 
+    # ── invariant 7：派生指标不得恒为 0（此前 formatter 写死 0） ──
+    # 覆盖 8 项中在真实数据上必然非 0 的：平均回撤/波动率（来自账户曲线）、
+    # SQN/凯利/暴露时间/平均与最长持仓（来自逐笔成交）、回测天数（来自数据时间范围）
+    portfolio_metrics_nonzero = {m["key"]: m["value"] for m in results["portfolio"]["metrics"]}
+    for key in (
+        "avg_drawdown",
+        "volatility",
+        "sqn",
+        "exposure_time",
+        "duration_days",
+        "avg_trade_duration_hours",
+        "max_trade_duration_hours",
+    ):
+        assert portfolio_metrics_nonzero[key] != 0, f"组合视图 {key} 不应为 0"
+    per_symbol_metrics = _metrics(SYMBOLS[0])
+    for key in ("sqn", "exposure_time", "avg_trade_duration_hours"):
+        assert per_symbol_metrics[key] != 0, f"{SYMBOLS[0]} 的 {key} 不应为 0"
+    # cagr 不再是 total_return 的副本（回测跨度 200 小时 ≠ 1 年，年化必然不同）
+    assert per_symbol_metrics["cagr"] != pytest.approx(per_symbol_metrics["total_return"], abs=1e-6)
+
 
 def test_shared_portfolio_trade_stats_match_concatenated_trades(monkeypatch) -> None:
     """组合（portfolio）视图的盈利/亏损/盈亏比，必须与「各品种成交拼接」重算一致。

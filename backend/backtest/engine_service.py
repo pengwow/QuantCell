@@ -1243,32 +1243,40 @@ class EventDrivenBacktestService:
         # format_axon_results 按 initial_capital/final_nav/max_drawdown_pct 取数，
         # 聚合 dict 里的对应键是 initial_equity/final_equity/max_drawdown，
         # 必须改名注入，否则 fallback 到 100000/0.0，组合指标与权益曲线互相矛盾
-        #
-        # 传入各品种 round-trip 明细拼接而非空数组：formatter 的
-        # 盈利/亏损交易、盈亏比、最佳/最差交易全部从 trades 现算，空数组会让组合视图
-        # 退化成「盈利 0 / 亏损=trade_count / 盈亏比 0.0 / 最佳最差 0.0」的假值。
-        # 拼接后与「全部」视图的成交明细同源。
-        # ponytail: 代价是结果 JSON 里 portfolio.trades 与各品种 trades 内容重复（体积翻倍量级）；
-        # 如需去重，升级路径是给 formatter 传显式统计值（winning/losing/profit_factor/best/worst），
-        # 让 formatter 优先取显式值、缺省再回退到从 trades 现算。
-        portfolio_trades = [t for r in per_symbol_results.values() for t in (r.get("trades") or [])]
+        # 组合（「全部」）视图也需要真实输入，否则 SQN/凯利/暴露时间/波动率/平均回撤
+        # 等派生指标在组合视图恒为 0。成交取各品种拼接；曲线：共享模式即单账户曲线，
+        # 独立资金池模式按时间戳并集对齐后逐点求和（复用读取侧同一函数）
+        merged_trades = [t for r in per_symbol_results.values() for t in (r.get("trades") or [])]
+        if shares_equity:
+            merged_curve = list(results.get("equity_curve") or [])
+        else:
+            # 函数内 import：backtest.service 在模块级 import engine_service，避免循环导入
+            from backtest.service import BacktestService
+
+            # 只喂 dict 点：_merge_equity_curves 的契约是 list[dict]，历史/合成
+            # 结果里残缺的非 dict 点（如旧写法 [(ts, equity)]）直接跳过，避免其 .get 崩
+            merged_curve = BacktestService._merge_equity_curves(
+                [[p for p in (r.get("equity_curve") or []) if isinstance(p, dict)] for r in per_symbol_results.values()]
+            )
         portfolio_payload = ResultFormatterService.format_axon_results(
             results={
                 **results,
                 "initial_capital": initial_equity,
                 "final_nav": final_equity,
                 "max_drawdown_pct": max_dd_pct,
-                "trades": portfolio_trades,
-                "equity_curve": [],
+                "trades": merged_trades,
+                "equity_curve": merged_curve,
             },
             symbol=symbols[0] if symbols else "PORTFOLIO",
             timeframe=timeframe,
             strategy_name=strategy_name,
         ).get("portfolio", {})
-        # 共享模式：组合权益曲线即单账户合并曲线（品种视角也复用它，见设计「5. 回放口径」；
-        # 上面显式传了空 equity_curve，故这里回填共享账户曲线）
-        if shares_equity:
-            portfolio_payload["equity_curve"] = list(results.get("equity_curve") or [])
+        # 组合条目：trades 保留各品种拼接（formatter 的盈利/亏损、盈亏比、最佳/最差交易
+        # 全部从 trades 现算，置空会退化成「盈利 0 / 亏损=trade_count / 盈亏比 0」的假值）；
+        # 上面传入的合并曲线只用于计算派生指标（平均回撤/年化波动率），组合条目的曲线
+        # 维持既有形状——共享模式回填单账户曲线，独立模式留空（读取侧 build_portfolio_view
+        # 自行按时间戳并集合并，避免结果 JSON 额外膨胀）
+        portfolio_payload["equity_curve"] = list(results.get("equity_curve") or []) if shares_equity else []
 
         return {
             "strategy_name": strategy_name,
