@@ -5,6 +5,7 @@ monkeypatch 数据源（_load_backtest_meta / BacktestService.get_result），
 """
 
 import base64
+import math
 
 import pytest
 
@@ -194,3 +195,11 @@ def test_ts_to_seconds_normalizes_units():
     assert rs._ts_to_seconds(1776755700000000) == 1776755700.0
     assert rs._ts_to_seconds(1776755700000000000) == 1776755700.0
     assert rs._ts_to_seconds(None) is None
+
+
+def test_forward_fill_carries_last_known_value():
+    """存款线缺失点沿用上一个真实值，首点缺失记 NaN（绘图断线）。"""
+    out = rs._forward_fill([None, 1.0, None, 2.0])
+
+    assert math.isnan(out[0]), "首点缺失应为 NaN"
+    assert out[1:] == [1.0, 1.0, 2.0], f"got {out[1:]}"
