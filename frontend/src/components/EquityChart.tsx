@@ -8,14 +8,12 @@ import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallback
 import { theme } from 'antd';
 import { useQuantColors } from '@/utils/colors';
 
-// 权益数据接口（净值统一用小写 equity；balance/margin 保留大小写兼容）
+// 权益数据接口（统一用小写字段：equity / balance / margin）
 export interface EquityData {
   datetime?: string;
   formatted_time?: string;
   equity?: number;
-  Balance?: number;
   balance?: number;
-  Margin?: number;
   margin?: number;
   timestamp?: number;
 }
@@ -46,14 +44,14 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
     return item.equity !== undefined ? item.equity : 0;
   };
 
-  // 提取结余值（支持大小写字段名）
+  // 提取存款值
   const getBalanceValue = (item: EquityData): number => {
-    return item.balance !== undefined ? item.balance : (item.Balance !== undefined ? item.Balance : 0);
+    return item.balance !== undefined ? item.balance : 0;
   };
 
   // 检查数据是否包含字段（不仅检查第一个点，而是检查所有点）
   const hasEquityField = data.some(item => item.equity !== undefined);
-  const hasBalanceField = data.some(item => item.balance !== undefined || item.Balance !== undefined);
+  const hasBalanceField = data.some(item => item.balance !== undefined);
 
   // 提取数据
   const equityValues = data.map(getEquityValue);
