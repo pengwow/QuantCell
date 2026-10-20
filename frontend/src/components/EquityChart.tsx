@@ -27,9 +27,10 @@ export interface EquityChartProps {
   height?: string | number;
   title?: string;
   isDark?: boolean; // 是否为暗色主题
+  initialCash?: number; // 存款（初始资金）水平线，体现净值相对本金浮盈/浮亏；缺省退化为首点权益
 }
 
-const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: EquityChartProps) => {
+const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialCash }: EquityChartProps) => {
   const { token } = theme.useToken();
   const qc = useQuantColors();
   if (!data || data.length === 0) {
@@ -59,14 +60,42 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: Equity
   const equityValues = data.map(getEquityValue);
   const balanceValues = data.map(getBalanceValue);
 
-  // 计算最小值和最大值用于Y轴范围
-  const allValues = [...equityValues, ...balanceValues].filter(v => v > 0);
+  // 水下回撤序列：相对历史峰值的百分比（口径与后端报告图一致），单点为 0
+  const drawdowns: number[] = [];
+  let peak = equityValues.length > 0 ? equityValues[0] : 0;
+  for (const v of equityValues) {
+    peak = Math.max(peak, v);
+    drawdowns.push(peak > 0 ? (v / peak - 1) * 100 : 0);
+  }
+
+  // 存款基准：约定传入初始资金；未传时退化为曲线首点权益（与后端指标汇总的兜底口径一致）
+  const deposit = initialCash && initialCash > 0 ? initialCash : equityValues[0];
+
+  // 计算最小值和最大值用于Y轴范围（存款线也纳入，保证基准线全程可见）
+  const allValues = [...equityValues, ...balanceValues, ...(deposit > 0 ? [deposit] : [])].filter(v => v > 0);
   const minValue = allValues.length > 0 ? Math.min(...allValues) : 0;
   const maxValue = allValues.length > 0 ? Math.max(...allValues) : 100;
   const padding = (maxValue - minValue) * 0.1;
 
   // 构建数据系列 - 只要字段存在就显示，不管值是否相同
   const series: LineSeriesOption[] = [];
+
+  if (deposit > 0) {
+    // 存款线（初始资金水平基准）：净值高于它即浮盈、低于即浮亏
+    series.push({
+      name: '存款',
+      type: 'line',
+      data: data.map(() => deposit),
+      smooth: false,
+      symbol: 'none',
+      lineStyle: {
+        width: 1,
+        color: qc.chartMark,
+        type: 'dashed',
+      },
+      animationDuration: 0,
+    });
+  }
 
   if (hasBalanceField) {
     // 结余线（可用余额，蓝色面积图）
@@ -88,8 +117,8 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: Equity
           x2: 0,
           y2: 1,
           colorStops: [
-            // ponytail: EquityChart 是独立面积曲线，用比 chartGradientStart (0.25) 更高的 0.4 透明度，
-            // 因为底下没有回撤阴影层，需要更明显的视觉填充。根据背景色判断暗/亮模式。
+            // ponytail: EquityChart 独立面积曲线，用比 chartGradientStart (0.25) 更高的 0.4 透明度
+            // 突出结余主体；回撤阴影 layer 用 0.25 低于它，视觉上不抢主线。根据背景色判断暗/亮模式。
             { offset: 0, color: token.colorBgBase === '#17191c' ? 'rgba(71, 139, 230, 0.40)' : 'rgba(9, 105, 218, 0.40)' },
             { offset: 1, color: qc.chartGradientEnd },
           ],
@@ -116,12 +145,32 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: Equity
       animationDuration: 1000,
       animationEasing: 'cubicOut',
     });
+    // 回撤线（水下曲线，红色面积，挂在右侧百分比轴上）
+    series.push({
+      name: '回撤%',
+      type: 'line',
+      yAxisIndex: 1,
+      data: drawdowns,
+      smooth: true,
+      symbol: 'none',
+      lineStyle: {
+        width: 1,
+        color: qc.negative,
+      },
+      areaStyle: {
+        color: qc.negative,
+        opacity: 0.25,
+      },
+      animationDuration: 1000,
+      animationEasing: 'cubicOut',
+    });
   }
 
   // 构建图例数据
   const legendData: string[] = [];
+  if (deposit > 0) legendData.push('存款');
   if (hasBalanceField) legendData.push('结余');
-  if (hasEquityField) legendData.push('净值');
+  if (hasEquityField) legendData.push('净值', '回撤%');
 
   const option: EChartsOption = {
     // 不显示图表内部标题（使用卡片标题）
@@ -196,28 +245,45 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false }: Equity
         },
       },
     },
-    // Y轴配置
-    yAxis: {
-      type: 'value',
-      scale: true,
-      min: Math.max(0, minValue - padding),
-      max: maxValue + padding,
-      axisLine: {
-        lineStyle: {
-          color: qc.chartAxis,
+    // Y轴配置：左轴为资金绝对值，右轴为回撤百分比（max 0 保证 0 在顶端，回撤恒 ≤ 0）
+    yAxis: [
+      {
+        type: 'value',
+        scale: true,
+        min: Math.max(0, minValue - padding),
+        max: maxValue + padding,
+        axisLine: {
+          lineStyle: {
+            color: qc.chartAxis,
+          },
+        },
+        axisLabel: {
+          color: qc.neutral,
+          formatter: (value: number) => value.toFixed(0),
+        },
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: qc.chartSplit,
+          },
         },
       },
-      axisLabel: {
-        color: qc.neutral,
-        formatter: (value: number) => value.toFixed(0),
-      },
-      splitLine: {
-        show: true,
-        lineStyle: {
-          color: qc.chartSplit,
+      {
+        type: 'value',
+        scale: true,
+        max: 0,
+        axisLine: {
+          show: false,
+        },
+        axisLabel: {
+          color: qc.neutral,
+          formatter: (value: number) => `${value.toFixed(0)}%`,
+        },
+        splitLine: {
+          show: false,
         },
       },
-    },
+    ],
     // 数据系列
     series,
     // 数据缩放（仅保留内置缩放，删除下方拖拽条）
