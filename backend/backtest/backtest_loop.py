@@ -274,12 +274,16 @@ class BacktestLoop:
         final_positions = dict(result.positions) if hasattr(result, "positions") else {}
 
         # 构建 equity_curve: 使用 bar_nav_curve（每根K线一个点），格式适配前端
+        # 0.21.0 起同时携带 balance（存款）曲线，口径与 engine_service._map_rust_result 一致：
+        # 引擎 bar_balance_curve 与 bar_nav_curve 逐帧对齐，equity - balance 即浮盈
         equity_curve = []
         bar_nav = list(getattr(result, "bar_nav_curve", []))
-        for ts_ns, nav in bar_nav:
+        bar_balance = list(getattr(result, "bar_balance_curve", []))
+        for idx, (ts_ns, nav) in enumerate(bar_nav):
             dt = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC)
             dt_str = dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             nav_float = float(nav)
+            balance_float = float(bar_balance[idx][1]) if idx < len(bar_balance) else 0.0
             equity_curve.append(
                 {
                     # 大写字段（EquityChart 组件支持）
@@ -287,6 +291,7 @@ class BacktestLoop:
                     "Equity": nav_float,
                     # 小写兼容字段
                     "equity": nav_float,
+                    "balance": balance_float,
                     "formatted_time": dt_str,
                     "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
                 }

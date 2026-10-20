@@ -143,6 +143,7 @@ def test_futures_mode_uses_swap_instrument_with_funding(monkeypatch):
         total_fees=0.0,
         sharpe_ratio=0.0,
         bar_nav_curve=[],
+        bar_balance_curve=[],
         fills_detail=[],
         positions={},
     )
