@@ -191,6 +191,9 @@ class EventDrivenBacktestService:
         contract_size = float(engine_cfg.get("contract_size", 1.0))
 
         # 1. 加载数据
+        # 无数据被剔除的品种：{品种名: 原因}。剔除本身是正确行为（空数据跑回测产出假结果），
+        # 但必须随结果透出，否则「选 2 个标的跑完只剩 1 个」用户无从知道原因
+        skipped_symbols: dict[str, str] = {}
         if data_type == "kline":
             # K线数据：使用原有加载逻辑
             data_dict, _ = self.provider.load_multiple(
@@ -208,6 +211,7 @@ class EventDrivenBacktestService:
                 # 结果（初始权益 100000 / 最终权益 0），污染详情页按品种视图
                 if df is None or df.empty:
                     logger.warning(f"{key} 在配置时间范围内无数据，已跳过该品种")
+                    skipped_symbols[key.rsplit("_", 1)[0]] = "配置时间范围内无数据"
                     continue
                 loaded_data[key] = {
                     "data": df,
@@ -230,6 +234,7 @@ class EventDrivenBacktestService:
                 # 同 kline 分支：无数据品种剔除，避免空结果条目污染详情页
                 if result.data is None or result.data.empty:
                     logger.warning(f"{key} 在配置时间范围内无数据，已跳过该品种")
+                    skipped_symbols[key.rsplit("_", 1)[0]] = "配置时间范围内无数据"
                     continue
                 loaded_data[key] = {
                     "data": result.data,
@@ -504,6 +509,11 @@ class EventDrivenBacktestService:
                 per_symbol_results=per_symbol_results or {},
                 capital_mode=capital_mode,
             )
+
+        # 无数据品种剔除信息写入最终结果：service 层据此修正成功/失败口径，
+        # 详情接口透传给前端提示「XX 在所选时间范围内无数据」
+        if skipped_symbols:
+            formatted_results["skipped_symbols"] = skipped_symbols
 
         logger.info("[EventDrivenBacktestService] 回测完成")
 

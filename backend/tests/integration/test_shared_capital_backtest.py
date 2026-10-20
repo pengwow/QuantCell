@@ -233,3 +233,51 @@ def test_shared_mode_capital_budget_scales_with_leverage(monkeypatch) -> None:
 
     assert captured["capital_budget"] == pytest.approx(INIT_CASH * leverage), "预算 = init_cash × leverage"
     assert captured["capital_budget"] != pytest.approx(INIT_CASH), "leverage>1 时预算不得退化为 init_cash"
+
+
+def test_shared_mode_skips_symbol_without_data(monkeypatch) -> None:
+    """某品种在时间范围内无数据（空 df）时应被剔除，且剔除信息随结果透出 skipped_symbols。
+
+    回归背景：BTC 本地 15m 数据只到 2026-01-03，选 ETH+BTC 跑 2026-01-26 起的
+    回测时 BTC 被静默剔除（只有 warning 日志），详情页只剩 ETH，且「成功 2 个」
+    提示与实际不符。修复后：引擎依旧剔除（空数据产出假结果），但剔除原因必须
+    出现在结果的 skipped_symbols 里，供 service 修正口径、前端提示用户。
+    """
+    captured: dict = {}
+    orig = EventDrivenBacktestService._run_rust_multi
+
+    def spy(self, **kwargs):
+        captured.update(kwargs)
+        return orig(self, **kwargs)
+
+    monkeypatch.setattr(EventDrivenBacktestService, "_run_rust_multi", spy)
+
+    svc = EventDrivenBacktestService(
+        data_provider=_StubProvider(
+            {
+                # BTC 空 df：模拟「parquet 文件存在但所选时间范围内一根 K 线都没有」
+                "BTCUSDT_1h": _zigzag(0.0).iloc[:0],
+                "ETHUSDT_1h": _zigzag(5.0),
+            }
+        )
+    )
+    results = svc.run_backtest(
+        strategy_name="dual_ma",
+        strategy_params={},
+        symbols=SYMBOLS,
+        timeframes=[TIMEFRAME],
+        engine_config={"capital_mode": "shared", "initial_cash": INIT_CASH, "force_liquidate": True},
+    )
+
+    # ── 剔除信息透出：品种名从 {sym}_{timeframe} 键归一化回 sym ──
+    assert results["skipped_symbols"] == {"BTCUSDT": "配置时间范围内无数据"}
+
+    # 引擎只收到有数据的品种（剔除发生在进入引擎之前）
+    assert set(captured["strategies_by_symbol"]) == {"ETHUSDT"}
+
+    # 结果里只有实际参与的品种：复现原 bug 的数据形状（选 2 个只剩 1 个），锁住透出字段
+    by_symbol = results["results_by_symbol"]
+    assert set(by_symbol) == {"ETHUSDT"}
+
+    # 有数据的品种不受剔除影响，照常产出成交
+    assert by_symbol["ETHUSDT"]["trades"], "有数据品种应正常产出 round-trip 成交"

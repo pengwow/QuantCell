@@ -19,6 +19,8 @@ import {
   DatePicker,
   Modal,
   Tag,
+  Alert,
+  Flex,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -100,6 +102,8 @@ interface BacktestResponse {
   symbols?: string[];
   selected_symbol?: string | null;
   is_multi_symbol?: boolean;
+  // 因无数据被跳过的品种：{品种: 原因}，据此提示用户「选了 N 个标的只剩 M 个」的原因
+  skipped_symbols?: Record<string, string>;
   status: string;
   created_at: string;
 }
@@ -119,6 +123,8 @@ const BacktestDetail = () => {
   const [querySymbol, setQuerySymbol] = useState<string | undefined>(undefined);
   const [isMultiSymbol, setIsMultiSymbol] = useState(false);
   const [symbols, setSymbols] = useState<string[]>([]);
+  // 因无数据被跳过的品种（详情接口 skipped_symbols 字段）
+  const [skippedSymbols, setSkippedSymbols] = useState<Record<string, string>>({});
   const [showAllSymbols, setShowAllSymbols] = useState(false);
   const [exporting, setExporting] = useState(false);
   // 高级筛选状态
@@ -149,6 +155,9 @@ const BacktestDetail = () => {
         // api 层类型遵循共享的 BacktestDetailData，而本页以 BacktestResponse（后端实际结构）为准，二者字段存在差异需桥接断言
         if (response && response.id) {
           setBacktestData(response as unknown as BacktestResponse);
+          // 无数据被跳过的品种（旧结果 JSON 无此字段，回退空对象）
+          const skipped = (response as unknown as BacktestResponse).skipped_symbols || {};
+          setSkippedSymbols(skipped);
 
           // 品种列表优先用结果 JSON 中实际有数据的品种，回退到回测配置
           const symbolKeys = (response as unknown as BacktestResponse).symbols?.length
@@ -408,21 +417,35 @@ const BacktestDetail = () => {
           ) : undefined}
         >
           {/* 卡片由 metricCards 清单驱动；共享资金池 + 品种视角只渲染按品种归因的指标 */}
-          <Row gutter={[16, 16]}>
-            {visibleMetricCards(backtestConfig.capital_mode, selectedSymbol).map((spec) => {
-              const value = getMetricValue(spec.key);
-              return (
-                <Col key={spec.key} xs={12} sm={8} md={6} lg={4}>
-                  <MetricCard
-                    label={spec.label}
-                    value={formatMetricValue(spec, value)}
-                    type={spec.color(value, getMetricValue)}
-                    hint={spec.hint}
-                  />
-                </Col>
-              );
-            })}
-          </Row>
+          <Flex vertical gap={16}>
+            {/* 无数据被跳过的品种提示：解释「选了 N 个标的跑完只剩 M 个」的原因 */}
+            {Object.keys(skippedSymbols).length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={
+                  Object.keys(skippedSymbols).length === 1
+                    ? `${Object.keys(skippedSymbols)[0]} 在所选时间范围内无本地数据，已跳过本次回测，请补齐数据或调整时间范围`
+                    : `以下品种在所选时间范围内无本地数据，已跳过：${Object.keys(skippedSymbols).join('、')}`
+                }
+              />
+            )}
+            <Row gutter={[16, 16]}>
+              {visibleMetricCards(backtestConfig.capital_mode, selectedSymbol).map((spec) => {
+                const value = getMetricValue(spec.key);
+                return (
+                  <Col key={spec.key} xs={12} sm={8} md={6} lg={4}>
+                    <MetricCard
+                      label={spec.label}
+                      value={formatMetricValue(spec, value)}
+                      type={spec.color(value, getMetricValue)}
+                      hint={spec.hint}
+                    />
+                  </Col>
+                );
+              })}
+            </Row>
+          </Flex>
         </Card>
 
         {/* 绩效分析图表 */}

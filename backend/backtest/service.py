@@ -185,12 +185,15 @@ class BacktestService:
                 factor_names=engine_config.get("factor_names"),
                 on_symbol_progress=_on_symbol_progress if progress_tracker else None,
             )
-            # 将引擎原始结果包装为标准响应格式
+            # 成功/失败口径取实际结果：无数据品种在 engine 层被剔除（skipped_symbols），
+            # 不能把请求清单硬编码成"全部成功"，否则提示数量与详情页实际品种数不一致
+            skipped = raw_result.get("skipped_symbols") or {}
             result = {
                 "status": "completed",
                 "message": "回测执行成功",
-                "successful_currencies": task["symbols"],
-                "failed_currencies": [],
+                "successful_currencies": [s for s in task["symbols"] if s not in skipped],
+                "failed_currencies": list(skipped.keys()),
+                "skipped_symbols": skipped,
                 "results": raw_result,
             }
 
