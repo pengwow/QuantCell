@@ -68,6 +68,10 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
   // 存款基准：约定传入初始资金；未传时退化为曲线首点权益（与后端指标汇总的兜底口径一致）
   const deposit = initialCash && initialCash > 0 ? initialCash : equityValues[0];
 
+  // 回撤子图仅在净值序列存在时渲染（回撤由净值派生）
+  const hasDrawdown = hasEquityField;
+  const minDrawdown = drawdowns.length > 0 ? Math.min(...drawdowns) : 0;
+
   // 计算最小值和最大值用于Y轴范围（存款线也纳入，保证基准线全程可见）
   const allValues = [...equityValues, ...balanceValues, ...(deposit > 0 ? [deposit] : [])].filter(v => v > 0);
   const minValue = allValues.length > 0 ? Math.min(...allValues) : 0;
@@ -126,10 +130,11 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
       animationDuration: 1000,
       animationEasing: 'cubicOut',
     });
-    // 回撤线（水下曲线，红色面积，挂在右侧百分比轴上）
+    // 回撤线（独立子图，红面积，横轴与上图共用同一时间序列）
     series.push({
       name: '回撤%',
       type: 'line',
+      xAxisIndex: 1,
       yAxisIndex: 1,
       data: drawdowns,
       smooth: true,
@@ -200,85 +205,168 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
         return result;
       },
     },
-    // 网格配置
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      top: '15%',
-      containLabel: true,
+    // 两个子图的十字光标联动：在一个子图内移动鼠标，另一个子图的竖线同步移动
+    axisPointer: {
+      link: [{ xAxisIndex: 'all' }],
     },
-    // X轴配置
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: dates,
-      axisLine: {
-        lineStyle: {
-          color: qc.chartAxis,
+    // 网格配置：净值/存款在上图，回撤在下方独立子图；无净值数据时退化为单图
+    grid: hasDrawdown
+      ? [
+          { left: '3%', right: '4%', top: '14%', height: '46%', containLabel: true },
+          { left: '3%', right: '4%', top: '68%', height: '20%', containLabel: true },
+        ]
+      : {
+          left: '3%',
+          right: '4%',
+          bottom: '3%',
+          top: '15%',
+          containLabel: true,
         },
-      },
-      axisLabel: {
-        color: qc.neutral,
-        formatter: (value: string) => {
-          return value.slice(0, 10);
-        },
-        rotate: 30,
-      },
-      splitLine: {
-        show: true,
-        lineStyle: {
-          color: qc.chartSplit,
-        },
-      },
-    },
-    // Y轴配置：左轴为资金绝对值，右轴为回撤百分比（max 0 保证 0 在顶端，回撤恒 ≤ 0）
-    yAxis: [
-      {
-        type: 'value',
-        scale: true,
-        min: Math.max(0, minValue - padding),
-        max: maxValue + padding,
-        axisLine: {
-          lineStyle: {
-            color: qc.chartAxis,
+    // X轴：上下两个子图各一条，共用同一时间序列；上图隐藏刻度标签避免重复
+    xAxis: hasDrawdown
+      ? [
+          {
+            type: 'category',
+            gridIndex: 0,
+            boundaryGap: false,
+            data: dates,
+            axisLine: {
+              lineStyle: {
+                color: qc.chartAxis,
+              },
+            },
+            axisLabel: {
+              show: false,
+            },
+            splitLine: {
+              show: true,
+              lineStyle: {
+                color: qc.chartSplit,
+              },
+            },
+          },
+          {
+            type: 'category',
+            gridIndex: 1,
+            boundaryGap: false,
+            data: dates,
+            axisLine: {
+              lineStyle: {
+                color: qc.chartAxis,
+              },
+            },
+            axisLabel: {
+              color: qc.neutral,
+              formatter: (value: string) => {
+                return value.slice(0, 10);
+              },
+              rotate: 30,
+            },
+            splitLine: {
+              show: true,
+              lineStyle: {
+                color: qc.chartSplit,
+              },
+            },
+          },
+        ]
+      : {
+          type: 'category',
+          boundaryGap: false,
+          data: dates,
+          axisLine: {
+            lineStyle: {
+              color: qc.chartAxis,
+            },
+          },
+          axisLabel: {
+            color: qc.neutral,
+            formatter: (value: string) => {
+              return value.slice(0, 10);
+            },
+            rotate: 30,
+          },
+          splitLine: {
+            show: true,
+            lineStyle: {
+              color: qc.chartSplit,
+            },
           },
         },
-        axisLabel: {
-          color: qc.neutral,
-          formatter: (value: number) => value.toFixed(0),
-        },
-        splitLine: {
-          show: true,
-          lineStyle: {
-            color: qc.chartSplit,
+    // Y轴：上图资金绝对值；下图回撤百分比（max 0 让 0 贴顶，回撤恒 ≤ 0）
+    yAxis: hasDrawdown
+      ? [
+          {
+            type: 'value',
+            gridIndex: 0,
+            scale: true,
+            min: Math.max(0, minValue - padding),
+            max: maxValue + padding,
+            axisLine: {
+              lineStyle: {
+                color: qc.chartAxis,
+              },
+            },
+            axisLabel: {
+              color: qc.neutral,
+              formatter: (value: number) => value.toFixed(0),
+            },
+            splitLine: {
+              show: true,
+              lineStyle: {
+                color: qc.chartSplit,
+              },
+            },
+          },
+          {
+            type: 'value',
+            gridIndex: 1,
+            scale: true,
+            max: 0,
+            // 留 15% 余量，最深处不贴下边框；无回撤时给一个 -1 的可见刻度
+            min: minDrawdown < 0 ? minDrawdown * 1.15 : -1,
+            axisLine: {
+              show: false,
+            },
+            axisLabel: {
+              color: qc.neutral,
+              formatter: (value: number) => `${value.toFixed(0)}%`,
+            },
+            splitLine: {
+              show: false,
+            },
+          },
+        ]
+      : {
+          type: 'value',
+          scale: true,
+          min: Math.max(0, minValue - padding),
+          max: maxValue + padding,
+          axisLine: {
+            lineStyle: {
+              color: qc.chartAxis,
+            },
+          },
+          axisLabel: {
+            color: qc.neutral,
+            formatter: (value: number) => value.toFixed(0),
+          },
+          splitLine: {
+            show: true,
+            lineStyle: {
+              color: qc.chartSplit,
+            },
           },
         },
-      },
-      {
-        type: 'value',
-        scale: true,
-        max: 0,
-        axisLine: {
-          show: false,
-        },
-        axisLabel: {
-          color: qc.neutral,
-          formatter: (value: number) => `${value.toFixed(0)}%`,
-        },
-        splitLine: {
-          show: false,
-        },
-      },
-    ],
     // 数据系列
     series,
-    // 数据缩放（仅保留内置缩放，删除下方拖拽条）
+    // 数据缩放（仅保留内置缩放，删除下方拖拽条）；两个子图同步缩放
     dataZoom: [
       {
         type: 'inside',
         start: 0,
         end: 100,
+        xAxisIndex: hasDrawdown ? [0, 1] : [0],
       },
     ],
   };
