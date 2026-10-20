@@ -32,7 +32,7 @@ const bySign = (value: number): MetricColor => (value >= 0 ? 'positive' : 'negat
 const fixed = (color: MetricColor) => (): MetricColor => color;
 
 /**
- * 30 张卡片。**数组顺序 = 页面展示顺序，必须与改造前逐项一致**（保证「全部」视图与
+ * 27 张卡片。**数组顺序 = 页面展示顺序，必须与改造前逐项一致**（保证「全部」视图与
  * 独立资金池模式行为不变）；`scope` 只决定可见性（共享模式品种视角只看 `symbol`），
  * 不参与排序，所以这里是原顺序而非按 scope 分组。
  */
@@ -142,14 +142,6 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     hint: '回测期间账户净值达到过的最高点，最大回撤即以它为基准计算',
   },
   {
-    key: 'sortino_ratio',
-    label: '索提诺比率',
-    format: 'number',
-    color: fixed('neutral'),
-    scope: 'placeholder',
-    hint: '只惩罚下行波动的风险调整收益（夏普比率同时惩罚上涨与下跌波动）。引擎已实现该指标但尚未导出，当前显示 0',
-  },
-  {
     // 卡尔马 = 收益率 ÷ 最大回撤：共享模式下分子是「品种贡献收益率」、分母是「账户回撤」，
     // 口径混合无意义 → 归账户级并在品种视角隐藏（不是恒 0，实盘会出数，见 spec §7）
     key: 'calmar_ratio',
@@ -164,16 +156,18 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     label: '平均回撤',
     format: 'percent',
     color: fixed('negative'),
-    scope: 'placeholder',
-    hint: '沿净值曲线逐点计算相对历史峰值的回撤，再取平均值，反映常态回撤水平（最大回撤只看最深一次）',
+    // 依赖账户级 equity_curve（共享分支 per-symbol 是深拷贝），物理上无法按品种拆分 → 归 account
+    scope: 'account',
+    hint: '沿净值曲线逐点计算相对历史峰值的回撤，再取平均值，反映常态回撤水平（最大回撤只看最深一次）。账户级口径，共享资金池无法按品种拆分',
   },
   {
     key: 'volatility',
     label: '年化波动率',
     format: 'percent',
     color: fixed('neutral'),
-    scope: 'placeholder',
-    hint: '逐 bar 对数收益的标准差 × √年 bar 数，衡量净值波动剧烈程度，数值越大风险越高',
+    // 依赖账户级 equity_curve 算对数收益序列 → 归 account
+    scope: 'account',
+    hint: '逐 bar 对数收益的标准差 × √年 bar 数，衡量净值波动剧烈程度，数值越大风险越高。账户级口径，共享资金池无法按品种拆分',
   },
   {
     key: 'expectancy',
@@ -216,27 +210,12 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     hint: '回测期间累计产生的交易手续费，已从盈亏中扣除',
   },
   {
-    key: 'alpha',
-    label: '阿尔法',
-    format: 'percent',
-    color: bySign,
-    scope: 'placeholder',
-    hint: '相对基准的超额收益（剔除市场整体涨跌后的选股/择时能力）。需要基准行情序列，当前尚未计算',
-  },
-  {
-    key: 'beta',
-    label: '贝塔',
-    format: 'number',
-    color: fixed('neutral'),
-    scope: 'placeholder',
-    hint: '策略收益对基准收益的敏感度，1 表示与基准同步波动，大于 1 表示波动放大。需要基准行情序列，当前尚未计算',
-  },
-  {
     key: 'sqn',
     label: 'SQN',
     format: 'number',
     color: fixed('neutral'),
-    scope: 'placeholder',
+    // 纯 trades 驱动（逐笔收益率），共享分支 per-symbol 条目已注入各自 trades → 品种独立可算
+    scope: 'symbol',
     hint: '系统质量数 = √交易笔数 × 逐笔收益均值 ÷ 逐笔收益标准差，综合衡量策略的稳定性与可重复性',
   },
   {
@@ -244,7 +223,8 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     label: '凯利准则',
     format: 'number',
     color: fixed('neutral'),
-    scope: 'placeholder',
+    // 纯 trades 驱动（胜率、平均盈利/亏损），共享分支 per-symbol 条目已注入各自 trades → 品种独立可算
+    scope: 'symbol',
     hint: '建议仓位比例 f = 胜率 − (1 − 胜率) ÷ 盈亏比，负值按 0 处理（表示不建议下注）',
   },
   {
@@ -252,7 +232,9 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     label: '暴露时间',
     format: 'percent',
     color: fixed('neutral'),
-    scope: 'placeholder',
+    // 分子是品种持仓并集时长（trades 驱动），分母是账户级常量（data_start_ns/end_ns）——
+    // 品种视角独立有意义（"该品种持仓时长占回测总时长的百分比"）
+    scope: 'symbol',
     hint: '持仓区间并集时长 ÷ 回测总时长，反映资金在场内的时间占比（重叠持仓不重复计时）',
   },
   {
@@ -260,15 +242,17 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     label: '回测天数',
     format: 'int',
     color: fixed('neutral'),
-    scope: 'placeholder',
-    hint: '回测数据覆盖的自然日数，用于年化类指标的换算基准',
+    // 纯账户级常量 data_start_ns/end_ns，物理上无法按品种拆分 → 归 account
+    scope: 'account',
+    hint: '回测数据覆盖的自然日数，用于年化类指标的换算基准。账户级常量，所有品种共享同值',
   },
   {
     key: 'avg_trade_duration_hours',
     label: '平均持仓时间',
     format: 'hours',
     color: fixed('neutral'),
-    scope: 'placeholder',
+    // 纯 trades 驱动（逐笔 entry→exit 时长），共享分支 per-symbol 条目已注入各自 trades → 品种独立可算
+    scope: 'symbol',
     hint: '每笔交易从开仓到平仓的平均时长（小时），反映策略的持仓周期',
   },
   {
@@ -276,14 +260,15 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     label: '最长持仓时间',
     format: 'hours',
     color: fixed('neutral'),
-    scope: 'placeholder',
+    // 纯 trades 驱动，共享分支 per-symbol 条目已注入各自 trades → 品种独立可算
+    scope: 'symbol',
     hint: '单笔交易从开仓到平仓的最长时长（小时），可用于识别长期未平仓的异常持仓',
   },
 ];
 
 /**
  * 可见性：共享资金池 + 单品种视角 → 只保留按品种归因的贡献类指标；
- * 其余情形（「全部」视图 / 独立资金池模式）保持全部 30 张。
+ * 其余情形（「全部」视图 / 独立资金池模式）保持全部 27 张。
  */
 export function visibleMetricCards(capitalMode: string | undefined, selectedSymbol: string): MetricCardSpec[] {
   const isSharedSymbolView = capitalMode === 'shared' && selectedSymbol !== 'all';
