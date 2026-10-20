@@ -223,9 +223,9 @@ const BacktestDetail = () => {
       });
     }
 
-    // 根据方向筛选（契约 side 为开仓方向 buy/sell）
+    // 根据方向筛选（契约 direction 为持仓方向 long/short）
     if (filterSide && filterSide !== 'all') {
-      trades = trades.filter((trade) => trade.side === filterSide);
+      trades = trades.filter((trade) => trade.direction === filterSide);
     }
 
     // 根据状态筛选
@@ -602,8 +602,8 @@ const BacktestDetail = () => {
                     placeholder="选择方向"
                   >
                     <Select.Option value="all">全部</Select.Option>
-                    <Select.Option value="buy">买入</Select.Option>
-                    <Select.Option value="sell">卖出</Select.Option>
+                    <Select.Option value="long">做多</Select.Option>
+                    <Select.Option value="short">做空</Select.Option>
                   </Select>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
