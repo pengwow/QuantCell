@@ -92,6 +92,18 @@ def _assert_parity(py_res, rust_res) -> None:
     assert rust_res.final_positions == py_res.final_positions
     # 逐 bar NAV 曲线点数一致
     assert len(rust_res.equity_curve) == len(py_res.equity_curve)
+    # fill 关联字段：两条路径共用同一引擎，方向/状态/fill 归属必须逐条一致
+    for a, b in zip(rust_res.trade_records, py_res.trade_records, strict=True):
+        assert a["direction"] == b["direction"]
+        assert a["entry_side"] == b["entry_side"]
+        assert a["exit_side"] == b["exit_side"]
+        assert a["status"] == b["status"] == "closed"
+        assert a["entry_fill_ids"] == b["entry_fill_ids"]
+        assert a["exit_fill_id"] == b["exit_fill_id"]
+        assert len(a["fills"]) == len(b["fills"])
+        assert [(f["side"], f["offset"], f["fill_id"]) for f in a["fills"]] == [
+            (f["side"], f["offset"], f["fill_id"]) for f in b["fills"]
+        ]
 
 
 def _hold() -> Action:
