@@ -89,12 +89,16 @@
   </section>
 
   <section>
-    <h2>权益 / 回撤曲线</h2>
+    <h2>净值 / 存款 / 回撤曲线</h2>
     {% if equity_img %}
-    <img class="chart" src="{{ equity_img }}" alt="Equity &amp; Drawdown">
+    <img class="chart" src="{{ equity_img }}" alt="Net Value / Deposit / Drawdown">
     {% else %}
     <p class="empty">权益数据点不足 2 个，无法绘图</p>
     {% endif %}
+    <p style="font-size:12px;color:#64748b;margin-top:6px;">
+      蓝色实线：账户净值（含未实现浮盈浮亏）；橙红虚线：存款基准（本金 + 已实现盈亏 − 费用）；
+      红色面积：相对历史峰值的回撤百分比。净值高于存款即持仓浮盈，低于则浮亏。
+    </p>
   </section>
 
   {% if symbols_summary %}
