@@ -40,7 +40,7 @@ dependencies = [
     "uvicorn>=0.38.0",
     "yfinance>=1.1.0",
     "python-binance>=1.0.37",
-    "axon-quant>=0.17.2",
+    "axon-quant>=0.20.0",
     "openai>=2.26.0",
     "toml>=0.10.2",
     "psutil>=7.1.3",
@@ -175,8 +175,9 @@ quantcell = "cli.__main__:main"
 [tool.uv]
 package = true
 
-# 开发阶段使用本地 axon_quant 源码（0.16.1：回测成交审计时间戳统一用模拟时钟；
-# 0.16.0 的 KlineBuffer / fetch_ohlcv / on_bar+features 已被 QuantCell 使用）
+# 开发阶段使用本地 axon_quant 源码（0.20.0：BacktestRunner 的 run/run_multi 合并为
+# 单一 run(bars_by_symbol=...) 入口；0.16.0 的 KlineBuffer / fetch_ohlcv / on_bar+features
+# 已被 QuantCell 使用）
 # 发布 PyPI 后可移除此节，回退到 registry 解析
 [tool.uv.sources]
 axon-quant = { path = "../../axon_quant" }

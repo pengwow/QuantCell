@@ -251,6 +251,27 @@ def test_multi_symbol_parity(zigzag_kline: pd.DataFrame) -> None:
     _assert_deep_parity(run("python"), run("rust"))
 
 
+def test_run_rust_single_uses_requested_symbol(zigzag_kline: pd.DataFrame) -> None:
+    """多品种「独立资金池」分支复用同一策略实例时，引擎 instrument 必须取**入参** symbol。
+
+    回归守卫：统一 run 入口后，引擎按 `strategy.symbol()` 建 instrument，而 else 分支
+    复用的策略实例其 config.symbol 固定为首品种。若适配器不显式覆盖 symbol，入参品种的
+    数据会被跑到首品种的 instrument 上——旧 API 传扁平 `bars` 时查不出来，因为
+    `final_positions` 从不进入导出载荷。
+    """
+    svc = EventDrivenBacktestService(data_provider=None)
+    # _BuyThenHold 的 config.symbol 固定为 BTCUSDT，正模拟 else 分支复用的首品种策略实例
+    assert _BuyThenHold().config.symbol == "BTCUSDT"
+
+    res = svc._run_rust_single(_BuyThenHold(), zigzag_kline, "ETHUSDT", 100_000.0)
+
+    assert res.final_positions, "应有持仓（未开启 force_liquidate）"
+    # final_positions 的键是 instrument 元组，spot 形如 ("spot", base, quote)
+    assert all(k[1] == "ETH" and k[2] == "USDT" for k in res.final_positions), (
+        f"instrument 应取入参 symbol ETH/USDT，实际 {list(res.final_positions)}"
+    )
+
+
 def test_force_liquidate_parity(zigzag_kline: pd.DataFrame) -> None:
     """force_liquidate：两条路径一致，且开关确实生效（与不开启相比末态持仓被平）。"""
     svc = EventDrivenBacktestService(data_provider=None)

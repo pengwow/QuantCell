@@ -791,9 +791,15 @@ class EventDrivenBacktestService:
             settle=settle,
             contract_size=contract_size,
         )
-        runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
+        # symbol 显式传给适配器：多品种「独立资金池」分支（run_backtest 的 else 分支）
+        # 复用同一个策略实例（config.symbol 固定为首品种），而本次回测品种是入参 symbol。
+        # 不覆盖会让引擎按策略 symbol 建 instrument，把入参品种的数据跑到首品种上，
+        # 同时让 states/funding 的键与引擎查找键错位。
+        adapter = RustStrategyAdapter(strategy, initial_cash=init_cash, symbol=symbol)
+        runner.add_strategy(adapter)
+        # 统一入口：单品种包装成「单 symbol 网格」（无 None 缺口），与共享资金池同一路径
         rust_result = runner.run(
-            bars=bars,
+            bars_by_symbol={rust_symbol: list(bars)},
             states_by_symbol=states_by_symbol,
             funding_by_symbol=funding_by_symbol,
         )
@@ -815,7 +821,7 @@ class EventDrivenBacktestService:
         """共享资金池：单 BacktestRunner + N 品种共享账户编排。
 
         与 ``_run_rust_single`` 的差异：
-        - 只跑**一次** ``run_multi``（单 engine、一笔 ``init_cash``），而不是每品种一个 runner
+        - 只跑**一次** ``run``（单 engine、一笔 ``init_cash``），而不是每品种一个 runner
         - 各品种 bar 对齐到统一时间网格（``shared_capital_grid``），缺口以 ``None`` 占位
           （Rust 侧前向填充价格参与盯市，但不触发策略决策）
         - 每个品种一个策略实例（共享模式的必要条件：策略内部滚动状态必须按品种隔离）
@@ -871,7 +877,7 @@ class EventDrivenBacktestService:
         for strategy in strategies_by_symbol.values():
             runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
 
-        rust_result = runner.run_multi(
+        rust_result = runner.run(
             bars_by_symbol=aligned_bars,
             states_by_symbol=states_by_symbol or None,
             funding_by_symbol=funding_by_symbol or None,

@@ -2,7 +2,7 @@
 
 共享资金池模式要求所有品种在**同一时钟**上推进：单个 BacktestEngine、逐网格点
 `begin_bar_multi`。各品种数据起止与缺口不同，故需要把各自的 bar 序列对齐到同一
-时间网格；缺失点用 `None` 占位，由 Rust 侧（`BacktestRunner::run_multi`）前向填充
+时间网格；缺失点用 `None` 占位，由 Rust 侧（`BacktestRunner::run`）前向填充
 价格参与盯市，但不触发策略决策。
 
 纯函数、无 IO、无状态，便于独立单测。
