@@ -319,16 +319,6 @@ class BacktestListResponse(ApiResponse):
     data: dict[str, Any] | None = Field(default=None, description="回测列表数据")
 
 
-class BacktestListRequest(PaginationRequest):
-    """
-    回测列表请求模型
-
-    继承自PaginationRequest，支持分页查询
-    """
-
-    pass
-
-
 class BacktestDeleteRequest(BaseSchema):
     """
     删除回测请求模型

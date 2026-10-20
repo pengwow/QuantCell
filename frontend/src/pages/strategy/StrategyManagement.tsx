@@ -37,7 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
-import type { TableProps } from 'antd';
+import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useConfigStore } from '@/store';
 import { QUANT_COLORS } from '@/utils/colors';
@@ -121,8 +121,8 @@ const StrategyManagement = () => {
     showTotal: (total) => `${t('total') || '共'}: ${total}`,
   });
 
-  // 分页配置 - 回测列表（使用系统配置）
-  const [backtestPagination, setBacktestPagination] = useState<TableProps<BacktestTask>['pagination']>({
+  // 分页配置 - 回测列表（使用系统配置）；state 恒为对象，false/undefined 只在 Table 的 props 上有意义
+  const [backtestPagination, setBacktestPagination] = useState<TablePaginationConfig>({
     current: 1,
     pageSize: 10,
     showSizeChanger: true,
@@ -175,7 +175,6 @@ const StrategyManagement = () => {
   // 组件挂载时加载策略列表
   useEffect(() => {
     loadStrategies();
-    loadBacktests();
 
     // 从 URL 参数恢复状态
     const taskIdFromUrl = searchParams.get('taskId');
@@ -250,16 +249,51 @@ const StrategyManagement = () => {
         setSearchParams({});
       }
     }
+
+    // 首次加载：上面的 setXxx 不立即生效，必须把 URL 恢复值显式传给请求
+    loadBacktests({
+      keyword: taskIdFromUrl || searchFromUrl || '',
+      strategy: strategyFromUrl || '',
+      status: statusFromUrl || 'all',
+      sortBy: sortFieldFromUrl || 'created_at',
+      sortOrder: sortOrderFromUrl || 'desc',
+      page: 1,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 路由参数初始化时一次性执行
   }, []);
 
-  // 加载回测列表
-  const loadBacktests = async () => {
+  // 加载回测列表（服务端分页/筛选/排序）
+  // overrides：setState 异步生效前需要用新值发起请求时的显式传值入口
+  const loadBacktests = async (overrides?: {
+    page?: number;
+    pageSize?: number;
+    status?: string;
+    keyword?: string;
+    strategy?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }) => {
     try {
       setBacktestLoading(true);
-      const response = await backtestApi.getBacktestList();
+      const status = overrides?.status ?? backtestStatusFilter;
+      const response = await backtestApi.getBacktestList({
+        page: overrides?.page ?? ((backtestPagination.current as number) || 1),
+        page_size: overrides?.pageSize ?? ((backtestPagination.pageSize as number) || 10),
+        // 'all' 表示不筛选状态，不传给后端
+        status: status === 'all' ? undefined : status,
+        keyword: (overrides?.keyword ?? backtestSearchText) || undefined,
+        strategy: (overrides?.strategy ?? selectedStrategy) || undefined,
+        sort_by: overrides?.sortBy ?? backtestSortField,
+        sort_order: overrides?.sortOrder ?? backtestSortOrder,
+      });
       if (response.backtests && Array.isArray(response.backtests)) {
         setBacktests(response.backtests);
+        setBacktestPagination((prev) => ({
+          ...prev,
+          current: overrides?.page ?? (prev.current as number),
+          pageSize: overrides?.pageSize ?? (prev.pageSize as number),
+          total: response.total ?? 0,
+        }));
       }
     } catch (error) {
       console.error('加载回测列表失败:', error);
@@ -273,6 +307,8 @@ const StrategyManagement = () => {
   const handleViewBacktests = (strategyName: string) => {
     setSelectedStrategy(strategyName);
     setActiveTab('backtests');
+    // 切换时按策略过滤重新拉取（setState 不立即生效，显式传值）
+    loadBacktests({ strategy: strategyName, page: 1 });
   };
 
   // 构建返回 URL，保留当前的搜索和筛选状态
@@ -864,80 +900,19 @@ const StrategyManagement = () => {
     }
   };
 
-  // 过滤后的回测列表
-  const filteredBacktests = useMemo(() => {
-    let result = [...backtests];
-
-    // 按策略筛选
-    if (selectedStrategy) {
-      result = result.filter((bt) => bt.strategy_name === selectedStrategy);
-    }
-
-    // 搜索过滤
-    if (backtestSearchText) {
-      const lowerSearch = backtestSearchText.toLowerCase();
-      result = result.filter(
-        (task) =>
-          task.strategy_name?.toLowerCase().includes(lowerSearch) ||
-          String(task.id ?? '').toLowerCase().includes(lowerSearch)
-      );
-    }
-
-    // 状态过滤
-    if (backtestStatusFilter !== 'all') {
-      result = result.filter((task) => {
-        if (backtestStatusFilter === 'running') {
-          return task.status === 'running' || task.status === 'in_progress';
-        }
-        return task.status === backtestStatusFilter;
-      });
-    }
-
-    // 排序
-    result.sort((a, b) => {
-      let aVal: number | string = '';
-      let bVal: number | string = '';
-
-      switch (backtestSortField) {
-        case 'strategy_name':
-          aVal = a.strategy_name || '';
-          bVal = b.strategy_name || '';
-          break;
-        case 'total_return':
-          aVal = a.total_return ?? -Infinity;
-          bVal = b.total_return ?? -Infinity;
-          break;
-        case 'max_drawdown':
-          aVal = a.max_drawdown ?? Infinity;
-          bVal = b.max_drawdown ?? Infinity;
-          break;
-        case 'created_at':
-        default:
-          aVal = a.created_at || '';
-          bVal = b.created_at || '';
-          break;
-      }
-
-      if (typeof aVal === 'string') {
-        return backtestSortOrder === 'asc'
-          ? aVal.localeCompare(bVal as string)
-          : (bVal as string).localeCompare(aVal);
-      }
-      return backtestSortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
-    });
-
-    return result;
-  }, [backtests, selectedStrategy, backtestSearchText, backtestStatusFilter, backtestSortField, backtestSortOrder]);
-
-  // 重置回测筛选
+  // 重置回测筛选（筛选/排序已下沉服务端，重置后用默认参数重拉）
   const handleResetBacktestFilters = () => {
     setBacktestSearchText('');
     setBacktestStatusFilter('all');
     setBacktestSortField('created_at');
     setBacktestSortOrder('desc');
-    setBacktestPagination({
-      ...backtestPagination,
-      current: 1,
+    loadBacktests({
+      page: 1,
+      status: 'all',
+      keyword: '',
+      strategy: '',
+      sortBy: 'created_at',
+      sortOrder: 'desc',
     });
   };
 
@@ -1036,13 +1011,18 @@ const StrategyManagement = () => {
   const renderBacktestListView = () => (
     <Table
       columns={backtestColumns}
-      dataSource={filteredBacktests}
+      dataSource={backtests}
       loading={backtestLoading}
       scroll={{ x: 'max-content' }}
       rowKey="id"
       pagination={backtestPagination}
       onChange={(newPagination) => {
-        setBacktestPagination(newPagination);
+        // 分页事件下沉服务端重新拉取
+        setBacktestPagination((prev) => ({ ...prev, ...newPagination }));
+        loadBacktests({
+          page: newPagination.current ?? 1,
+          pageSize: newPagination.pageSize ?? 10,
+        });
       }}
       rowSelection={{
         selectedRowKeys: backtestSelectedRowKeys,
@@ -1066,16 +1046,15 @@ const StrategyManagement = () => {
 
   // 渲染回测卡片视图
   const renderBacktestCardView = () => {
-    const currentPage = typeof backtestPagination === 'object' && backtestPagination ? (backtestPagination.current as number) || 1 : 1;
-    const pageSize = typeof backtestPagination === 'object' && backtestPagination ? (backtestPagination.pageSize as number) || 10 : 10;
-    const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-    const currentPageData = filteredBacktests.slice(startIndex, endIndex);
+    const currentPage = (backtestPagination.current as number) || 1;
+    const pageSize = (backtestPagination.pageSize as number) || 10;
+    // backtests 即服务端返回的当前页数据，无需再本地切片
+    const currentPageData = backtests;
 
     return (
       <>
         <Row gutter={[16, 16]}>
-          {currentPageData.map((task) => (
+          {currentPageData.map((task: BacktestTask) => (
             <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
               <Card
                 size="small"
@@ -1171,16 +1150,13 @@ const StrategyManagement = () => {
           <Pagination
             current={currentPage}
             pageSize={pageSize}
-            total={filteredBacktests.length}
+            total={(backtestPagination.total as number) || 0}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
             showTotal={(total) => `${t('total') || '共'}: ${total}`}
             onChange={(page, size) => {
-              setBacktestPagination({
-                ...backtestPagination,
-                current: page,
-                pageSize: size,
-              });
+              // 分页事件下沉服务端重新拉取
+              loadBacktests({ page, pageSize: size });
             }}
           />
         </Row>
@@ -1198,6 +1174,7 @@ const StrategyManagement = () => {
             placeholder={t('search_backtest') || '搜索策略名称或ID'}
             value={backtestSearchText}
             onChange={(e) => setBacktestSearchText(e.target.value)}
+            onSearch={(value) => loadBacktests({ keyword: value, page: 1 })}
             allowClear
             style={{ width: '100%' }}
           />
@@ -1223,7 +1200,10 @@ const StrategyManagement = () => {
               <Select
                 placeholder={t('select_strategy') || '选择策略'}
                 value={selectedStrategy || undefined}
-                onChange={(value) => setSelectedStrategy(value)}
+                onChange={(value) => {
+                  setSelectedStrategy(value ?? '');
+                  loadBacktests({ strategy: value ?? '', page: 1 });
+                }}
                 style={{ width: '100%' }}
                 allowClear
                 options={strategies.map((s) => ({ value: s.name, label: s.name }))}
@@ -1233,7 +1213,10 @@ const StrategyManagement = () => {
               <Select
                 placeholder={t('status') || '状态'}
                 value={backtestStatusFilter}
-                onChange={setBacktestStatusFilter}
+                onChange={(value) => {
+                  setBacktestStatusFilter(value);
+                  loadBacktests({ status: value, page: 1 });
+                }}
                 style={{ width: '100%' }}
                 options={[
                   { value: 'all', label: t('all_status_backtest') || '全部状态' },
@@ -1252,6 +1235,7 @@ const StrategyManagement = () => {
                   const [field, order] = value.split('-');
                   setBacktestSortField(field);
                   setBacktestSortOrder(order);
+                  loadBacktests({ sortBy: field, sortOrder: order, page: 1 });
                 }}
                 style={{ width: '100%' }}
                 options={[
@@ -1284,7 +1268,7 @@ const StrategyManagement = () => {
               <Button
                 type="primary"
                 icon={<ReloadOutlined />}
-                onClick={loadBacktests}
+                onClick={() => loadBacktests()}
                 loading={backtestLoading}
                 style={{ width: '100%' }}
               >

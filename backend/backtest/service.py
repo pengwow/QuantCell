@@ -225,6 +225,8 @@ class BacktestService:
 
             # 更新状态为完成
             self._update_task_status(task_id, "completed")
+            # 列表页摘要指标随任务落盘：列表接口读任务文件即可，不必逐个打开几十 MB 的结果 JSON
+            self._write_metrics_summary(task_id, self._metrics_summary_from_result(result))
 
             if progress_tracker:
                 # 更新分析阶段完成（10% 权重）- 总体 100%
@@ -765,54 +767,109 @@ class BacktestService:
 
         return {"status": "success", "data": {"symbols": symbols}}
 
-    def get_result_list(self, limit: int = 20, offset: int = 0, status_filter: str | None = None) -> list[dict]:
+    def get_result_list(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        status_filter: str | None = None,
+        keyword: str | None = None,
+        strategy: str | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[dict], int]:
         """
-        获取回测结果列表
+        获取回测结果列表（服务端筛选 + 排序 + 分页）
 
         Args:
-            limit: 返回数量限制
+            limit: 每页数量
             offset: 偏移量
-            status_filter: 状态过滤 (pending/running/completed/failed)
+            status_filter: 状态过滤 (pending/running/completed/failed)，'running' 同时匹配 in_progress
+            keyword: 关键字，模糊匹配策略名称或任务ID（不区分大小写）
+            strategy: 精确匹配策略名称
+            sort_by: 排序字段 (created_at/total_return/max_drawdown/strategy_name)，非法值回落 created_at
+            sort_order: 排序方向 (asc/desc)
 
         Returns:
-            list: 任务列表
+            (分页后的任务列表, 过滤后的总数)
         """
         tasks_dir = self.results_dir.parent / "backtest_tasks"
         if not tasks_dir.exists():
-            return []
+            return [], 0
 
-        task_files = sorted(
-            list(tasks_dir.glob("task_*.json")),
-            key=lambda x: x.stat().st_mtime,
-            reverse=True,
-        )
+        rows: list[dict] = []
 
-        results = []
-
-        for task_file in task_files[offset:]:
-            if len(results) >= limit:
-                break
-
-            with open(task_file, encoding="utf-8") as f:
-                task = json.load(f)
-
-            if status_filter and task.get("status") != status_filter:
+        # ponytail: 真分页需要 total + 任意字段排序，只能全量扫描 task JSON（当前 <5000 个
+        # 小文件，单次请求约百毫秒级别）；量大时的升级路径是落库或维护内存索引
+        for task_file in tasks_dir.glob("task_*.json"):
+            try:
+                with open(task_file, encoding="utf-8") as f:
+                    task = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                self.logger.warning(f"读取回测任务文件失败 {task_file.name}: {e}")
                 continue
 
-            results.append(
+            status = task.get("status")
+            # 'running' 在展示上包含 in_progress（与前端运行中标记口径一致）
+            if (
+                status_filter
+                and status != status_filter
+                and not (status_filter == "running" and status == "in_progress")
+            ):
+                continue
+
+            if keyword:
+                kw = keyword.lower()
+                if (
+                    kw not in str(task.get("strategy_name") or "").lower()
+                    and kw not in str(task.get("id") or "").lower()
+                ):
+                    continue
+
+            if strategy and task.get("strategy_name") != strategy:
+                continue
+
+            summary = task.get("metrics_summary")
+            if status == "completed" and "metrics_summary" not in task:
+                # 旧任务文件没有摘要指标：从结果 JSON 提取并回写，之后列表零大文件 IO
+                # ponytail: 首次刷新会对每个无摘要的旧任务完整读一次结果 JSON（最大可达几十 MB），
+                # 仅发生一次（回写含空摘要的哨兵值）；不做后台批量回填
+                task["metrics_summary"] = self._extract_summary_from_result_file(task.get("id"))
+                self._save_task_file(task_file, task)
+                summary = task["metrics_summary"]
+
+            rows.append(
                 {
                     "id": task.get("id"),
                     "strategy_name": task.get("strategy_name"),
                     "symbols": ", ".join(task.get("symbols", [])),
                     "timeframes": ", ".join(task.get("timeframes", [])),
                     "engine_type": task.get("engine_type"),
-                    "status": task.get("status"),
+                    "status": status,
                     "created_at": task.get("created_at"),
                     "updated_at": task.get("updated_at"),
+                    "total_return": (summary or {}).get("total_return"),
+                    "max_drawdown": (summary or {}).get("max_drawdown"),
                 }
             )
 
-        return results
+        total = len(rows)
+
+        if sort_by == "total_return":
+            value_of = lambda r: r["total_return"]  # noqa: E731
+        elif sort_by == "max_drawdown":
+            value_of = lambda r: r["max_drawdown"]  # noqa: E731
+        elif sort_by == "strategy_name":
+            value_of = lambda r: str(r["strategy_name"] or "")  # noqa: E731
+        else:
+            value_of = lambda r: str(r["created_at"] or "")  # noqa: E731
+
+        # 无指标值的记录（旧任务/失败任务）始终垫底，不参与升降序
+        with_value = [r for r in rows if value_of(r) is not None]
+        no_value = [r for r in rows if value_of(r) is None]
+        with_value.sort(key=value_of, reverse=sort_order != "asc")
+        ordered = with_value + no_value
+
+        return ordered[offset : offset + limit], total
 
     def delete_task(self, task_id: Any) -> bool:
         """
@@ -956,6 +1013,45 @@ class BacktestService:
             task_file = self._get_task_file(task_id)
             with open(task_file, "w", encoding="utf-8") as f:
                 json.dump(task, f, indent=2, ensure_ascii=False, default=str)
+
+    def _metrics_summary_from_result(self, result: dict) -> dict:
+        """提取列表页摘要指标（total_return / max_drawdown）。
+
+        所有回测模式（单品种/独立多品种/共享资金池）的账户级统一口径都放在
+        results.portfolio.metrics（[{key, value}] 数组），列表页取这里即可。
+        """
+        portfolio = (result.get("results") or {}).get("portfolio") or {}
+        metrics = portfolio.get("metrics") or []
+        values = {m.get("key"): m.get("value") for m in metrics if isinstance(m, dict)}
+        return {
+            "total_return": values.get("total_return"),
+            "max_drawdown": values.get("max_drawdown"),
+        }
+
+    def _write_metrics_summary(self, task_id: Any, summary: dict) -> None:
+        """把列表页摘要指标写入任务文件，get_result_list 直接读任务级摘要"""
+        task = self._load_task(task_id)
+        if not task:
+            return
+        task["metrics_summary"] = summary
+        self._save_task_file(self._get_task_file(task_id), task)
+
+    def _extract_summary_from_result_file(self, task_id: Any) -> dict:
+        """旧任务文件没有摘要：从结果 JSON 提取（结果文件可能高达几十 MB，仅供回退）"""
+        result_file = self._get_result_file(task_id)
+        if not result_file.exists():
+            return {}
+        try:
+            with open(result_file, encoding="utf-8") as f:
+                result = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self.logger.warning(f"读取回测结果提取摘要指标失败 task={task_id}: {e}")
+            return {}
+        return self._metrics_summary_from_result(result)
+
+    def _save_task_file(self, task_file: Path, task: dict) -> None:
+        with open(task_file, "w", encoding="utf-8") as f:
+            json.dump(task, f, indent=2, ensure_ascii=False, default=str)
 
     def _save_result(self, task_id: Any, result: dict):
         """保存回测结果"""
