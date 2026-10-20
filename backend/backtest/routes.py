@@ -27,7 +27,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import get_current_user
@@ -36,6 +36,7 @@ from utils.rbac import is_guest_user
 
 from .data_provider import BacktestDataProvider
 from .progress_tracker import StageStatus, get_progress_tracker
+from .report_service import render_backtest_report, report_filename
 from .schemas import (
     ApiResponse,
     BacktestAnalyzeRequest,

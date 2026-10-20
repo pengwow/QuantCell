@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>量化回测报告 {{ backtest_id[:8] }}</title>
+<style>
+  /* 自包含浅色纸感样式，无任何外链资源；打印友好 */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #f1f5f9; color: #0f172a;
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .page { max-width: 1000px; margin: 24px auto; background: #fff; padding: 32px 40px; border-radius: 8px; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08); }
+  header { border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
+  h1 { margin: 0 0 10px; font-size: 22px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 24px; font-size: 12px; color: #64748b; }
+  h2 { font-size: 16px; margin: 0 0 12px; padding-left: 10px; border-left: 4px solid #2563eb; }
+  section { margin-bottom: 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+  thead th { background: #f8fafc; color: #475569; font-weight: 600; white-space: nowrap; }
+  table.kv th { width: 140px; color: #475569; font-weight: 600; }
+  .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+  .metric { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 14px; }
+  .metric-name { font-size: 12px; color: #64748b; }
+  .metric-value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric-desc { font-size: 11px; color: #94a3b8; }
+  .chart { width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .pos { color: #16a34a; }
+  .neg { color: #dc2626; }
+  .empty { color: #94a3b8; font-size: 13px; padding: 12px 0; }
+  .note { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 6px 10px; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .tag.long { background: #dcfce7; color: #15803d; }
+  .tag.short { background: #fee2e2; color: #b91c1c; }
+  footer { margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; }
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; padding: 0; box-shadow: none; border-radius: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>量化回测报告</h1>
+    <div class="meta">
+      <span>任务 ID：{{ backtest_id }}</span>
+      <span>策略：{{ strategy_name or "—" }}</span>
+      <span>任务状态：{{ status or "—" }}</span>
+      <span>数据视角：{{ "组合（全部品种）" if is_portfolio else (view_symbol or "—") }}</span>
+      <span>任务创建：{{ created_at or "—" }}</span>
+      <span>报告生成：{{ generated_at }} UTC</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>回测配置</h2>
+    <table class="kv">
+      {% for label, value in config_rows %}
+      <tr><th>{{ label }}</th><td>{{ value }}</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+
+  <section>
+    <h2>核心指标</h2>
+    {% if metrics %}
+    <div class="metric-grid">
+      {% for m in metrics %}
+      <div class="metric">
+        <div class="metric-name">{{ m.name or m.key or "—" }}</div>
+        <div class="metric-value">
+          {# percentage 类型值为数值型百分比（12.35 = 12.35%），直接补 %；非数值兜底显示原值/— #}
+          {% if m.value is number %}
+            {% if m.type == "percentage" %}{{ m.value | round(2) }}%{% else %}{{ m.value | round(4) }}{% endif %}
+          {% else %}
+            {{ m.value if m.value is not none else "—" }}
+          {% endif %}
+        </div>
+        {% if m.description and m.description != m.name %}<div class="metric-desc">{{ m.description }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">暂无指标数据</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>权益 / 回撤曲线</h2>
+    {% if equity_img %}
+    <img class="chart" src="{{ equity_img }}" alt="Equity &amp; Drawdown">
+    {% else %}
+    <p class="empty">权益数据点不足 2 个，无法绘图</p>
+    {% endif %}
+  </section>
+
+  {% if symbols_summary %}
+  <section>
+    <h2>多品种摘要</h2>
+    <table>
+      <thead><tr><th>品种</th><th>总收益率</th><th>总盈亏</th><th>成交笔数</th></tr></thead>
+      <tbody>
+      {% for s in symbols_summary %}
+        <tr>
+          <td>{{ s.symbol }}</td>
+          <td>{% if s.total_return is not none %}{{ s.total_return | round(2) }}%{% else %}—{% endif %}</td>
+          <td class="{{ 'pos' if s.total_pnl and s.total_pnl > 0 else ('neg' if s.total_pnl and s.total_pnl < 0 else '') }}">
+            {{ s.total_pnl | round(2) if s.total_pnl is not none else "—" }}
+          </td>
+          <td>{{ s.total_trades if s.total_trades is not none else "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>成交明细</h2>
+    {# 旧版引擎结果无开平仓契约字段，只有汇总指标可展示 #}
+    {% if legacy_trades %}
+    <p class="empty">该回测由旧版引擎产出，无开平仓明细可展示（详见核心指标）</p>
+    {% elif not trades_shown %}
+    <p class="empty">本视角下无成交记录</p>
+    {% else %}
+      {% if trades_truncated %}
+      <p class="note">共 {{ trades_total }} 笔成交，报告仅展示前 {{ trades_shown | length }} 笔；完整明细请在详情页查看或导出结果 JSON</p>
+      {% endif %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            {% if is_portfolio %}<th>品种</th>{% endif %}
+            <th>开仓时间</th>
+            <th>方向</th>
+            <th>开仓价</th>
+            <th>平仓价</th>
+            <th>数量</th>
+            <th>盈亏</th>
+            <th>收益率</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for t in trades_shown %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            {% if is_portfolio %}<td>{{ t.symbol }}</td>{% endif %}
+            <td>{{ t.formatted_time or "—" }}</td>
+            <td>
+              {% if t.side == "buy" %}<span class="tag long">买入开多</span>
+              {% elif t.side == "sell" %}<span class="tag short">卖出开空</span>
+              {% else %}{{ t.side or "—" }}{% endif %}
+            </td>
+            <td>{{ t.entry_price | round(6) if t.entry_price is not none else "—" }}</td>
+            <td>{{ t.exit_price | round(6) if t.exit_price is not none else "—" }}</td>
+            <td>{{ t.size | round(6) if t.size is not none else "—" }}</td>
+            <td class="{{ 'pos' if t.pnl and t.pnl > 0 else ('neg' if t.pnl and t.pnl < 0 else '') }}">
+              {{ t.pnl | round(2) if t.pnl is not none else "—" }}
+            </td>
+            <td>{{ (t.return_pct | round(2)) ~ "%" if t.return_pct is not none else "—" }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </section>
+
+  {% set attribution = factors.get("attribution") if factors is mapping else none %}
+  {% if attribution %}
+  <section>
+    <h2>因子归因</h2>
+    <table>
+      <thead><tr><th>因子</th><th>IC</th><th>Rank IC</th><th>ICIR</th><th>多空收益</th></tr></thead>
+      <tbody>
+      {% for name, st in attribution.items() %}
+        <tr>
+          <td>{{ name }}</td>
+          <td>{{ st.ic | round(4) if st.ic is not none else "—" }}</td>
+          <td>{{ st.rank_ic | round(4) if st.rank_ic is not none else "—" }}</td>
+          <td>{{ st.icir | round(4) if st.icir is not none else "—" }}</td>
+          <td>{{ st.long_short_return | round(4) if st.long_short_return is not none else "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if skipped_symbols %}
+  <section>
+    <h2>跳过品种</h2>
+    <table>
+      <thead><tr><th>品种</th><th>原因</th></tr></thead>
+      <tbody>
+      {% for sym, reason in skipped_symbols.items() %}
+        <tr><td>{{ sym }}</td><td>{{ reason }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  <footer>本报告由 QuantCell 自动生成 · 数据口径与回测详情页一致 · 可通过浏览器打印为 PDF</footer>
+</div>
+</body>
+</html>
