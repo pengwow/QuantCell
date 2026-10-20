@@ -162,8 +162,22 @@ def _ts_to_seconds(ts: float | None) -> float | None:
     return float(ts)
 
 
+def _forward_fill(values: list) -> list[float]:
+    """缺失值沿用上一个真实值（首点缺失记 NaN），保证绘图线连续。
+
+    合并后的组合曲线已做前向填充，但单品种视角/旧结果可能缺 balance 键。
+    """
+    out: list[float] = []
+    last: float | None = None
+    for v in values:
+        if v is not None:
+            last = float(v)
+        out.append(float("nan") if last is None else last)
+    return out
+
+
 def _equity_chart_base64(equity_curve: list) -> str | None:
-    """权益 + 回撤双面板 PNG（base64 data URI）。数据点不足 2 时返回 None。"""
+    """权益 + 存款 + 回撤双面板 PNG（base64 data URI）。数据点不足 2 时返回 None。"""
     points = [p for p in equity_curve if isinstance(p, dict) and p.get("equity") is not None]
     if len(points) < 2:
         return None
@@ -182,8 +196,13 @@ def _equity_chart_base64(equity_curve: list) -> str | None:
     fig, (ax_eq, ax_dd) = plt.subplots(
         2, 1, figsize=(10, 4.2), dpi=110, sharex=True, gridspec_kw={"height_ratios": [3, 1]}
     )
-    ax_eq.plot(labels, equities, color="#2563eb", linewidth=1.2)
-    ax_eq.set_ylabel("Equity")
+    ax_eq.plot(labels, equities, color="#2563eb", linewidth=1.2, label="Net Value")
+    # 存款（balance）：存在则同图叠加基准线，净值高于它即浮盈（图内文字用英文）
+    balances = [p.get("balance") for p in points]
+    if any(b is not None for b in balances):
+        ax_eq.plot(labels, _forward_fill(balances), color="#6b7280", linewidth=1.0, linestyle="--", label="Deposit")
+        ax_eq.legend(loc="upper left", fontsize=8)
+    ax_eq.set_ylabel("Net Value")
     ax_eq.grid(True, alpha=0.3)
     ax_eq.margins(x=0)
 
