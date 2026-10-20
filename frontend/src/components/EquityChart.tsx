@@ -3,6 +3,7 @@
  * 功能：使用ECharts展示权益曲线，支持存款(balance)和净值(equity)两根线
  * 适用场景：回测结果、投资组合收益展示等
  */
+import { useRef, useState, useEffect } from 'react';
 import EChart from '@/components/EChart';
 import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallbackParams } from 'echarts';
 import { theme } from 'antd';
@@ -30,11 +31,40 @@ export interface EquityChartProps {
 const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialCash }: EquityChartProps) => {
   const { token } = theme.useToken();
   const qc = useQuantColors();
+  const chartWrapperRef = useRef<HTMLDivElement>(null);
+  const [chartHeight, setChartHeight] = useState(0);
+
+  // ResizeObserver 监听图表容器实际像素高度，用来自适应回撤子图刻度密度
+  // （回撤子图只有总高的 ~22%，矮容器下 splitNumber 过大 → 刻度纵向堆叠重叠）
+  useEffect(() => {
+    const el = chartWrapperRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      setChartHeight(entries[0].contentRect.height);
+    });
+    ro.observe(el);
+    // 首次 layout 后立即取一次，避免初始 0 导致 splitNumber 退回默认值
+    setChartHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
   if (!data || data.length === 0) {
     return <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>暂无数据</div>;
   }
 
   // ponytail: 所有颜色统一从 quantColors 派生
+
+  // 自适应回撤子图 splitNumber：回撤子图高度 ≈ 总高 × 22%
+  // 每个刻度标签 ~16px 字体 + ~10px 间距 = 26px 期望垂直空间；
+  // splitNumber 是"期望段数"，实际刻度数 = splitNumber + 1
+  // 夹在 2-6 之间：最少 3 个刻度（只留 0 / -50% / -100%），最多 7 个
+  const hasDrawdown = data.some((item) => item.equity !== undefined);
+  const drawdownSplitNumber = (() => {
+    if (!hasDrawdown || chartHeight <= 0) return 5;
+    const subplotHeight = chartHeight * 0.22;
+    const maxTicks = Math.floor(subplotHeight / 26);
+    return Math.max(2, Math.min(6, maxTicks - 1));
+  })();
 
   // 提取时间（优先使用 formatted_time，其次是 datetime）
   const dates = data.map((item) => item.formatted_time || item.datetime || '');
@@ -68,8 +98,6 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
   // 存款基准：约定传入初始资金；未传时退化为曲线首点权益（与后端指标汇总的兜底口径一致）
   const deposit = initialCash && initialCash > 0 ? initialCash : equityValues[0];
 
-  // 回撤子图仅在净值序列存在时渲染（回撤由净值派生）
-  const hasDrawdown = hasEquityField;
   const minDrawdown = drawdowns.length > 0 ? Math.min(...drawdowns) : 0;
 
   // 计算最小值和最大值用于Y轴范围（存款线也纳入，保证基准线全程可见）
@@ -210,10 +238,12 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
       link: [{ xAxisIndex: 'all' }],
     },
     // 网格配置：净值/存款在上图，回撤在下方独立子图；无净值数据时退化为单图
+    // containLabel: true 让 ECharts 先算 Y 轴标签实际宽度再留白，自适应回撤子图 % 标签
+    // 的宽度（比资金绝对值标签更宽）。用 left: '3%' 做下限，containLabel 在此基础上追加
     grid: hasDrawdown
       ? [
           { left: '3%', right: '4%', top: '14%', height: '46%', containLabel: true },
-          { left: '3%', right: '4%', top: '68%', height: '20%', containLabel: true },
+          { left: '3%', right: '4%', top: '68%', height: '22%', containLabel: true },
         ]
       : {
           left: '3%',
@@ -325,6 +355,8 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
             max: 0,
             // 留 15% 余量，最深处不贴下边框；无回撤时给一个 -1 的可见刻度
             min: minDrawdown < 0 ? minDrawdown * 1.15 : -1,
+            // splitNumber 自适应：由 ResizeObserver 测容器高度后动态计算，保证每个刻度至少 26px 垂直空间
+            splitNumber: drawdownSplitNumber,
             axisLine: {
               show: false,
             },
@@ -372,11 +404,13 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
   };
 
   return (
-    <EChart
-      option={option}
-      style={{ height, width: '100%' }}
-      opts={{ renderer: 'canvas' }}
-    />
+    <div ref={chartWrapperRef} style={{ height, width: '100%' }}>
+      <EChart
+        option={option}
+        style={{ height: '100%', width: '100%' }}
+        opts={{ renderer: 'canvas' }}
+      />
+    </div>
   );
 };
 
