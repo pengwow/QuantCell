@@ -4,15 +4,16 @@
 字段集一旦漂移（如再混入大写兼容字段）此处立即失败。
 
 配对逻辑已下沉到 axon_quant 引擎(apply_fill 6 状态机),本方法只做字段映射:
-引擎 result.trades(含 entry_price/entry_time_ns/realized_pnl/net_quantity)
-→ 前端 15 字段契约。
+引擎 result.trades(含 entry_price/entry_time_ns/realized_pnl/net_quantity/
+entry_fill_ids/exit_fill_id) + fills_detail
+→ 前端 19 字段契约(含逐笔 fills)。
 """
 
 from __future__ import annotations
 
 from backtest.backtest_loop import BacktestLoop
 
-# 契约定稿字段全集（15 个，小写）
+# 契约定稿字段全集（19 个，小写）
 CONTRACT_FIELDS = {
     "trade_id",
     "symbol",
@@ -27,8 +28,12 @@ CONTRACT_FIELDS = {
     "pnl",
     "return_pct",
     "direction",
-    "side",
+    "entry_side",
+    "exit_side",
     "status",
+    "entry_fill_ids",
+    "exit_fill_id",
+    "fills",
 }
 
 S = 1_000_000_000  # 秒 -> 纳秒
@@ -39,8 +44,9 @@ S = 1_000_000_000  # 秒 -> 纳秒
 # - realized_pnl: 引擎权威已实现盈亏
 # - net_quantity: 负=平多(long), 正=平空(short)
 # - quantity: 平仓数量
+# - entry_fill_ids/exit_fill_id: 构成该持仓的开仓 fill / 触发平仓的 fill
 ENGINE_TRADES = [
-    # 做多: 开仓 100 @ t0, 平仓 110 @ t1, pnl=10
+    # 做多: 开仓 100 @ t0, 平仓 110 @ t1, pnl=10, fill 0 -> 1
     {
         "entry_price": 100.0,
         "entry_time_ns": 1_700_000_000 * S,
@@ -49,8 +55,10 @@ ENGINE_TRADES = [
         "quantity": 1.0,
         "realized_pnl": 10.0,
         "net_quantity": -1.0,
+        "entry_fill_ids": [0],
+        "exit_fill_id": 1,
     },
-    # 做多(加仓后 avg_cost): 开仓均价 105.6 @ t2, 平仓 120 @ t3, pnl=36
+    # 做多(两次加仓后 avg_cost): 开仓均价 105.6 @ t2, 平仓 120 @ t3, pnl=36, fill 2,3 -> 4
     {
         "entry_price": 105.6,
         "entry_time_ns": 1_700_000_120 * S,
@@ -59,8 +67,10 @@ ENGINE_TRADES = [
         "quantity": 2.5,
         "realized_pnl": 36.0,
         "net_quantity": -2.5,
+        "entry_fill_ids": [2, 3],
+        "exit_fill_id": 4,
     },
-    # 做空: 开仓 100 @ t4, 平仓 99 @ t5, pnl=1
+    # 做空: 开仓 100 @ t4, 平仓 99 @ t5, pnl=1, fill 5 -> 6
     {
         "entry_price": 100.0,
         "entry_time_ns": 1_700_000_300 * S,
@@ -69,12 +79,25 @@ ENGINE_TRADES = [
         "quantity": 1.0,
         "realized_pnl": 1.0,
         "net_quantity": 1.0,
+        "entry_fill_ids": [5],
+        "exit_fill_id": 6,
     },
+]
+
+# 引擎 fills_detail 形状: 覆盖上面所有引用的 fill_id
+ENGINE_FILLS = [
+    {"fill_id": 0, "timestamp_ns": 1_700_000_000 * S, "taker_side": "Buy", "price": 100.0, "quantity": 1.0},
+    {"fill_id": 1, "timestamp_ns": 1_700_000_060 * S, "taker_side": "Sell", "price": 110.0, "quantity": 1.0},
+    {"fill_id": 2, "timestamp_ns": 1_700_000_120 * S, "taker_side": "Buy", "price": 100.0, "quantity": 1.5},
+    {"fill_id": 3, "timestamp_ns": 1_700_000_180 * S, "taker_side": "Buy", "price": 114.0, "quantity": 1.0},
+    {"fill_id": 4, "timestamp_ns": 1_700_000_240 * S, "taker_side": "Sell", "price": 120.0, "quantity": 2.5},
+    {"fill_id": 5, "timestamp_ns": 1_700_000_300 * S, "taker_side": "Sell", "price": 100.0, "quantity": 1.0},
+    {"fill_id": 6, "timestamp_ns": 1_700_000_360 * S, "taker_side": "Buy", "price": 99.0, "quantity": 1.0},
 ]
 
 
 def test_contract_fields_exact():
-    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
     assert len(trades) == 3
     # 字段集必须与契约完全一致：不允许缺字段，也不允许回流大写兼容字段
     for tr in trades:
@@ -82,23 +105,66 @@ def test_contract_fields_exact():
 
 
 def test_identity_and_side_semantics():
-    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
     for i, tr in enumerate(trades):
         assert tr["trade_id"] == f"rt-BTCUSDT-{i + 1}"
         assert tr["symbol"] == "BTCUSDT"
-        assert tr["status"] == "FILLED"
-    # 前两笔 net_quantity<0 → 做多, side=buy(开仓方向)
+        assert tr["status"] == "closed"
+    # 前两笔 net_quantity<0 → 做多: 开仓 buy / 平仓 sell
     assert trades[0]["direction"] == "long"
-    assert trades[0]["side"] == "buy"
+    assert trades[0]["entry_side"] == "buy"
+    assert trades[0]["exit_side"] == "sell"
     assert trades[1]["direction"] == "long"
-    assert trades[1]["side"] == "buy"
-    # 第三笔 net_quantity>0 → 做空, side=sell
+    assert trades[1]["entry_side"] == "buy"
+    assert trades[1]["exit_side"] == "sell"
+    # 第三笔 net_quantity>0 → 做空: 开仓 sell / 平仓 buy
     assert trades[2]["direction"] == "short"
-    assert trades[2]["side"] == "sell"
+    assert trades[2]["entry_side"] == "sell"
+    assert trades[2]["exit_side"] == "buy"
+
+
+def test_fill_association_from_engine():
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
+    assert trades[0]["entry_fill_ids"] == [0]
+    assert trades[0]["exit_fill_id"] == 1
+    # 加仓场景: 两笔开仓 fill 都归属同一条 trade
+    assert trades[1]["entry_fill_ids"] == [2, 3]
+    assert trades[1]["exit_fill_id"] == 4
+    assert trades[2]["entry_fill_ids"] == [5]
+    assert trades[2]["exit_fill_id"] == 6
+
+
+def test_fills_assembly():
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
+    for tr in trades:
+        fills = tr["fills"]
+        # 开仓 fill 条数 + 1 条平仓 fill
+        assert len(fills) == len(tr["entry_fill_ids"]) + 1
+        assert all(f["offset"] == "open" for f in fills[:-1])
+        assert fills[-1]["offset"] == "close"
+        # 逐笔明细的 id/方向/价格与 fills_detail 对齐
+        assert [f["fill_id"] for f in fills] == tr["entry_fill_ids"] + [tr["exit_fill_id"]]
+        assert all(f["side"] == tr["entry_side"] for f in fills[:-1])
+        assert fills[-1]["side"] == tr["exit_side"]
+        # 盈亏只归平仓侧
+        assert all(f["pnl"] == 0.0 for f in fills[:-1])
+        assert fills[-1]["pnl"] == tr["pnl"]
+        assert all(f["status"] == "filled" for f in fills)
+
+    # 加仓那笔: 开仓 2 条(100/1.5, 114/1.0), 平仓 1 条(120/2.5)
+    assert [(f["price"], f["quantity"]) for f in trades[1]["fills"]] == [(100.0, 1.5), (114.0, 1.0), (120.0, 2.5)]
+
+
+def test_fills_skipped_when_detail_missing():
+    # fills_detail 缺失对应 id 时降级：关联字段仍在，fills 只保留查得到的
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES[:1], "BTCUSDT", [])
+    assert trades[0]["entry_fill_ids"] == [0]
+    assert trades[0]["exit_fill_id"] == 1
+    assert trades[0]["fills"] == []
 
 
 def test_pnl_and_prices_from_engine():
-    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
     # pnl 直接取引擎 realized_pnl, 不再手算
     assert trades[0]["pnl"] == 10.0
     assert trades[0]["entry_price"] == 100.0
@@ -113,7 +179,7 @@ def test_pnl_and_prices_from_engine():
 
 
 def test_timestamps():
-    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
+    trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
     t0, t2 = trades[0], trades[2]
     # timestamp 是开仓秒级；exit_timestamp 是平仓秒级
     assert t0["timestamp"] == 1_700_000_000
@@ -126,13 +192,13 @@ def test_timestamps():
 
 
 def test_empty_input():
-    assert BacktestLoop._format_round_trip_trades([], "BTCUSDT") == []
+    assert BacktestLoop._format_round_trip_trades([], "BTCUSDT", []) == []
 
 
 def test_trade_id_unique_across_symbols():
     # 多品种结果会在 Python 侧聚合 trades,各品种独立编号,trade_id 必须全局唯一
     # (曾因每品种各自 rt-N 撞号导致前端 React duplicate key 报错)
-    btc = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT")
-    ltc = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "LTCUSDT")
+    btc = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
+    ltc = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "LTCUSDT", ENGINE_FILLS)
     ids = [tr["trade_id"] for tr in btc + ltc]
     assert len(ids) == len(set(ids))

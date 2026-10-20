@@ -915,7 +915,8 @@ class EventDrivenBacktestService:
                 per_symbol_raw[qc_sym].append(tr)
 
         per_symbol_trades = {
-            sym: BacktestLoop._format_round_trip_trades(raw, sym) for sym, raw in per_symbol_raw.items()
+            sym: BacktestLoop._format_round_trip_trades(raw, sym, list(rust_result.fills_detail))
+            for sym, raw in per_symbol_raw.items()
         }
         # 6b. 成交笔数按 fills_detail 的 instrument 拆分：`trade_records` 是开平配对后的
         #     round-trip（条数≠fill 数），而详情页「交易次数」沿用引擎 fills 口径（开+平各计一笔），
@@ -1044,7 +1045,9 @@ class EventDrivenBacktestService:
                 }
             )
 
-        trade_records = BacktestLoop._format_round_trip_trades(list(rust_result.trades), symbol)
+        trade_records = BacktestLoop._format_round_trip_trades(
+            list(rust_result.trades), symbol, list(rust_result.fills_detail)
+        )
 
         # 数据时间范围：显式 data_range（共享模式取网格端点）优先，其次 timestamp 列，
         # 最后从 DatetimeIndex 推导（与 BacktestLoop.run 口径一致）

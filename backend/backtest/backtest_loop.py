@@ -295,7 +295,11 @@ class BacktestLoop:
             )
 
         # 构建 round-trip trades: 引擎已配对好开+平(result.trades),直接映射为前端契约
-        trade_records = self._format_round_trip_trades(list(getattr(result, "trades", [])), symbol)
+        trade_records = self._format_round_trip_trades(
+            list(getattr(result, "trades", [])),
+            symbol,
+            list(getattr(result, "fills_detail", [])),
+        )
 
         # 获取数据时间范围：优先使用 timestamp 列
         if "timestamp" in data.columns and len(data) > 0:
@@ -332,7 +336,7 @@ class BacktestLoop:
         )
 
     @staticmethod
-    def _format_round_trip_trades(engine_trades: list[dict], symbol: str) -> list[dict]:
+    def _format_round_trip_trades(engine_trades: list[dict], symbol: str, fills_detail: list[dict]) -> list[dict]:
         """把引擎已配对好的 round-trip(result.trades)映射为前端契约。
 
         引擎 apply_fill 6 状态机在平仓/反手时 push TradeRecord,已含开仓均价/时间:
@@ -340,11 +344,17 @@ class BacktestLoop:
         - price / timestamp_ns: 平仓信息
         - realized_pnl: 引擎权威已实现盈亏(与 total_pnl 口径一致)
         - net_quantity: 负=平多(long),正=平空(short)
+        - entry_fill_ids / exit_fill_id: 构成该持仓的开仓 fill id 与平仓 fill id
+
+        fills_detail 用于把 fill id 还原成逐笔成交明细(价格/数量),组装成 `fills` 供前端展开。
 
         QuantCell 不再自行 FIFO 配对,避免与引擎撮合语义(部分成交/反手/净额)分歧。
         """
         if not engine_trades:
             return []
+
+        # fill_id -> fills_detail 记录;引擎 id 即 fills_detail 下标,但按 id 建索引更稳
+        by_id = {f.get("fill_id"): f for f in (fills_detail or [])}
 
         trades: list[dict] = []
         for tr in engine_trades:
@@ -356,9 +366,38 @@ class BacktestLoop:
             exit_time_ns = int(tr.get("timestamp_ns", 0) or 0)
             net_qty = float(tr.get("net_quantity", 0.0) or 0.0)
 
-            # 方向: net_quantity 负=平多,正=平空
+            # 方向: net_quantity 负=平多,正=平空;开/平方向由方向反推
             direction = "long" if net_qty < 0 else "short"
-            side = "buy" if direction == "long" else "sell"
+            entry_side = "buy" if direction == "long" else "sell"
+            exit_side = "sell" if entry_side == "buy" else "buy"
+
+            # 引擎的 fill 关联: 开仓可能由多笔 fill 构成(同向加仓),平仓恒为一笔
+            entry_fill_ids = [int(x) for x in (tr.get("entry_fill_ids") or [])]
+            exit_fill_id = int(tr.get("exit_fill_id") or 0)
+
+            entry_ts_sec = entry_time_ns // 1_000_000_000
+            exit_ts_sec = exit_time_ns // 1_000_000_000
+
+            def _fill_json(fid: int, side: str, offset: str, ts_sec: int) -> dict:
+                """单笔 fill 的展示契约：价格/数量取自 fills_detail，pnl 仅平仓侧非零。"""
+                src = by_id[fid]
+                dt_s = datetime.fromtimestamp(ts_sec, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
+                return {
+                    "fill_id": fid,
+                    "side": side,
+                    "offset": offset,
+                    "price": float(src.get("price") or 0.0),
+                    "quantity": float(src.get("quantity") or 0.0),
+                    "timestamp": ts_sec,
+                    "formatted_time": dt_s,
+                    "pnl": 0.0 if offset == "open" else pnl,
+                    "status": "filled",
+                }
+
+            open_fills = [_fill_json(fid, entry_side, "open", entry_ts_sec) for fid in entry_fill_ids if fid in by_id]
+            # 必须分两步写: `[...] + [...] if cond else []` 会解析成 `(a+b) if cond else []`,
+            # cond 为假时连开仓明细一起丢
+            close_fills = [_fill_json(exit_fill_id, exit_side, "close", exit_ts_sec)] if exit_fill_id in by_id else []
 
             entry_dt = datetime.fromtimestamp(entry_time_ns / 1e9, tz=UTC)
             exit_dt = datetime.fromtimestamp(exit_time_ns / 1e9, tz=UTC)
@@ -370,19 +409,23 @@ class BacktestLoop:
                     # 编入 symbol 保证多品种聚合后全局唯一（每品种独立编号 rt-N 会撞号，前端 rowKey 报 duplicate key）
                     "trade_id": f"rt-{symbol}-{len(trades) + 1}",
                     "symbol": symbol,
-                    "timestamp": entry_time_ns // 1_000_000_000,  # 开仓秒级
+                    "timestamp": entry_ts_sec,  # 开仓秒级
                     "formatted_time": entry_dt.strftime("%Y-%m-%d %H:%M:%S"),
                     "entry_time": entry_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                     "exit_time": exit_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "exit_timestamp": exit_time_ns // 1_000_000_000,
+                    "exit_timestamp": exit_ts_sec,
                     "entry_price": entry_price,
                     "exit_price": exit_price,
                     "size": size,
                     "pnl": pnl,
                     "return_pct": return_pct,
                     "direction": direction,
-                    "side": side,  # 开仓方向
-                    "status": "FILLED",
+                    "entry_side": entry_side,
+                    "exit_side": exit_side,
+                    "status": "closed",
+                    "entry_fill_ids": entry_fill_ids,
+                    "exit_fill_id": exit_fill_id,
+                    "fills": open_fills + close_fills,
                 }
             )
 
