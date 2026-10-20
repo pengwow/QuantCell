@@ -89,14 +89,12 @@ def test_shared_mode_portfolio_replay_tolerates_engine_curve_without_balance():
     engine_curve = [
         {
             "datetime": "2025-01-01T00:00:00.000Z",
-            "Equity": 10000.0,
             "equity": 10000.0,
             "formatted_time": "2025-01-01T00:00:00.000Z",
             "timestamp": 1000,
         },
         {
             "datetime": "2025-01-01T00:15:00.000Z",
-            "Equity": 10050.0,
             "equity": 10050.0,
             "formatted_time": "2025-01-01T00:15:00.000Z",
             "timestamp": 2000,

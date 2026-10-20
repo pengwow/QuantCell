@@ -390,7 +390,7 @@ class BacktestService:
             ts_to_point = {p["timestamp"]: p for p in curve if p.get("timestamp") is not None}
             first_point = curve[0]
             initial = {
-                "equity": float(first_point.get("equity") or first_point.get("Equity") or 0.0),
+                "equity": float(first_point.get("equity") or 0.0),
                 "balance": float(first_point.get("balance") or 0.0),
                 "margin": float(first_point.get("margin") or 0.0),
             }
@@ -414,7 +414,7 @@ class BacktestService:
                     values = initial
                 else:
                     values = {
-                        "equity": float(current.get("equity") or current.get("Equity") or 0.0),
+                        "equity": float(current.get("equity") or 0.0),
                         "balance": float(current.get("balance") or 0.0),
                         "margin": float(current.get("margin") or 0.0),
                     }

@@ -286,10 +286,7 @@ class BacktestLoop:
             balance_float = float(bar_balance[idx][1]) if idx < len(bar_balance) else 0.0
             equity_curve.append(
                 {
-                    # 大写字段（EquityChart 组件支持）
                     "datetime": dt_str,
-                    "Equity": nav_float,
-                    # 小写兼容字段
                     "equity": nav_float,
                     "balance": balance_float,
                     "formatted_time": dt_str,

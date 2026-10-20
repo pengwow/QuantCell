@@ -513,7 +513,7 @@ class ResultSerializer:
         """序列化权益曲线
 
         兼容两种点格式：
-        - dict（事件驱动引擎）：{"timestamp": ..., "Equity": ...} — 走原逻辑
+        - dict（事件驱动引擎）：{"timestamp": ..., "equity": ...} — 走原逻辑
         - list/tuple（axon 适配层）：(time_ns, equity) — 转为 {"timestamp": t, "equity": e}
         """
         if not equity_curve:
