@@ -49,7 +49,6 @@
     <div class="meta">
       <span>任务 ID：{{ backtest_id }}</span>
       <span>策略：{{ strategy_name or "—" }}</span>
-      <span>任务状态：{{ status or "—" }}</span>
       <span>数据视角：{{ "组合（全部品种）" if is_portfolio else (view_symbol or "—") }}</span>
       <span>任务创建：{{ created_at or "—" }}</span>
       <span>报告生成：{{ generated_at }} UTC</span>

@@ -232,7 +232,7 @@ def build_config_rows(backtest_config: dict, view_symbol: str, capital_mode: str
         ("初始资金", cfg.get("initial_cash", "—")),
         ("资金使用方式", mode_label),
     ]
-    for extra in ("engine_type", "candle_type", "market_type"):
+    for extra in ("candle_type", "market_type"):
         if cfg.get(extra):
             rows.append((extra, cfg[extra]))
     return rows
