@@ -999,45 +999,30 @@ const ChartPage = () => {
     }
   }, [activeIndicators, currentSymbol.code, currentPeriod, message, registerCustomIndicator, t]);
 
-  // 处理绘图工具点击
-  const handleDrawingItemClick = useCallback((overlay: { name: string; lock: boolean; mode: string }) => {
-    if (!chartInstanceRef.current) return;
-    chartInstanceRef.current.createOverlay({
-      name: overlay.name,
-      groupId: 'drawing_tools',
-      lock: overlay.lock,
-      mode: overlay.mode as 'normal' | 'weak_magnet' | 'strong_magnet',
-      visible: true
-    });
+  // 绘图工具栏：记录进行中 overlay 的 id，供二次点击取消（QuantDinger 交互）
+  const pendingOverlayIdRef = useRef<string | null>(null);
+
+  // 选中工具 → 进入绘制状态
+  // 注：klinecharts 的 createOverlay 单对象入参返回 overlay id（Nullable<string>），
+  // 返回类型上还带有数组分支，用 typeof 窄化取 id
+  const handleToolSelect = useCallback((tool: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const overlayId = chart.createOverlay({ name: tool, groupId: 'drawing_tools' });
+    pendingOverlayIdRef.current = typeof overlayId === 'string' ? overlayId : null;
   }, []);
 
-  // 处理模式变化
-  const handleModeChange = useCallback((mode: string) => {
-    console.log('Mode changed:', mode);
+  // 二次点击同一工具 → 取消进行中的绘制（removeOverlay 对不存在 id 无副作用）
+  const handleToolDeselect = useCallback(() => {
+    const chart = chartInstanceRef.current;
+    const id = pendingOverlayIdRef.current;
+    pendingOverlayIdRef.current = null;
+    if (chart && id) chart.removeOverlay({ id });
   }, []);
 
-  // 处理锁定变化
-  const handleLockChange = useCallback((lock: boolean) => {
-    if (!chartInstanceRef.current) return;
-    const overlays = chartInstanceRef.current.getOverlays({ groupId: 'drawing_tools' });
-    overlays.forEach((overlay) => {
-      chartInstanceRef.current?.overrideOverlay({ id: overlay.id, lock });
-    });
-  }, []);
-
-  // 处理可见性变化
-  const handleVisibleChange = useCallback((visible: boolean) => {
-    if (!chartInstanceRef.current) return;
-    const overlays = chartInstanceRef.current.getOverlays({ groupId: 'drawing_tools' });
-    overlays.forEach((overlay) => {
-      chartInstanceRef.current?.overrideOverlay({ id: overlay.id, visible });
-    });
-  }, []);
-
-  // 处理删除
-  const handleRemoveClick = useCallback((groupId: string) => {
-    if (!chartInstanceRef.current) return;
-    chartInstanceRef.current.removeOverlay({ groupId });
+  // 清除全部图形
+  const handleClearTools = useCallback(() => {
+    chartInstanceRef.current?.removeOverlay({ groupId: 'drawing_tools' });
   }, []);
 
   // 批量处理实时数据更新
@@ -1259,13 +1244,10 @@ const ChartPage = () => {
         <div className="chart-main-with-toolbar">
           {/* 左侧常驻绘图工具栏 */}
           <div className="drawing-toolbar-vertical">
-            {/* DrawingBar 新 Props（onSelect/onDeselect/onClearAll）的临时空实现，
-                Task 5 正式接线时替换为 handleToolSelect/handleToolDeselect/handleClearTools，
-                并删除上方遗留的旧 handler（handleDrawingItemClick 等） */}
             <DrawingBar
-              onSelect={() => {}}
-              onDeselect={() => {}}
-              onClearAll={() => {}}
+              onSelect={handleToolSelect}
+              onDeselect={handleToolDeselect}
+              onClearAll={handleClearTools}
             />
           </div>
 
