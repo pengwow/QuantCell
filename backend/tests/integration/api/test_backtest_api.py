@@ -29,7 +29,8 @@ class TestBacktestListAPI:
 
     def test_get_backtest_list_empty(self, client: TestClient, mocker, assert_api_response):
         """测试获取空回测列表"""
-        mocker.patch("backtest.routes.backtest_service.get_result_list", return_value=[])
+        # get_result_list 返回 (rows, total) 二元组
+        mocker.patch("backtest.routes.backtest_service.get_result_list", return_value=([], 0))
         response = client.get("/api/v1/backtest/list")
         assert_api_response(response)
         data = response.json()

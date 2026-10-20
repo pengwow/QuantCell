@@ -409,12 +409,16 @@ class TestRecoveryFromErrors:
 
     def test_partial_failure_handling(self, client: TestClient, mocker):
         """测试部分失败处理"""
+        # get_result_list 返回 (rows, total) 二元组
         mocker.patch(
             "backtest.routes.backtest_service.get_result_list",
-            return_value=[
-                {"id": "bt1", "status": "completed"},
-                {"id": "bt2", "status": "failed"},
-            ],
+            return_value=(
+                [
+                    {"id": "bt1", "status": "completed"},
+                    {"id": "bt2", "status": "failed"},
+                ],
+                2,
+            ),
         )
         response = client.get("/api/v1/backtest/list")
         assert response.status_code == 200

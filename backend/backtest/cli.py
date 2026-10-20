@@ -256,7 +256,7 @@ def show(
         elif latest:
             result = service.get_latest_result()
         else:
-            results = service.get_result_list(limit=10)
+            results, _total = service.get_result_list(limit=10)
 
             table = Table(title="最近10次回测结果")
             table.add_column("ID", style="cyan")
@@ -306,7 +306,7 @@ def compare(
         if result_ids:
             ids = [int(id.strip()) for id in result_ids.split(",")]
         else:
-            all_results = service.get_result_list(limit=latest_n)
+            all_results, _total = service.get_result_list(limit=latest_n)
             ids = [r["id"] for r in all_results]
 
         if len(ids) < 2:

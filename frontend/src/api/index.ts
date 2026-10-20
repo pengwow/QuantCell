@@ -536,8 +536,17 @@ export const configApi = {
  * 回测相关 API
  */
 export const backtestApi = {
-  getBacktestList: (): Promise<{ backtests: BacktestTask[] }> => {
-    return apiRequest.get('/backtest/list');
+  /** 回测列表：服务端分页/筛选/排序，返回当前页数据 + 过滤后总数 */
+  getBacktestList: (params?: {
+    page?: number;
+    page_size?: number;
+    status?: string;
+    keyword?: string;
+    strategy?: string;
+    sort_by?: string;
+    sort_order?: string;
+  }): Promise<{ backtests: BacktestTask[]; total: number }> => {
+    return apiRequest.get('/backtest/list', params);
   },
 
   getStrategies: (): Promise<{ strategies: StrategyInfo[] }> => {

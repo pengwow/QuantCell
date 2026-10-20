@@ -26,7 +26,7 @@
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from strategy.schemas import StrategyUploadRequest
@@ -40,7 +40,6 @@ from .report_service import render_backtest_report, report_filename
 from .schemas import (
     ApiResponse,
     BacktestAnalyzeRequest,
-    BacktestListRequest,
     BacktestProgressResponse,
     BacktestRunRequest,
     BacktestStopRequest,
@@ -72,31 +71,65 @@ router = APIRouter(
     "/list",
     response_model=ApiResponse,
     summary="获取回测列表",
-    description="获取所有回测任务的列表，支持分页查询",
+    description="获取回测任务列表，支持服务端分页、状态/关键字/策略筛选与排序",
     responses={
         200: {"description": "获取回测列表成功"},
         500: {"description": "获取回测列表失败"},
     },
 )
-def get_backtest_list(request: BacktestListRequest | None = None) -> ApiResponse:
+def get_backtest_list(
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    status: str | None = Query(
+        None, description="状态过滤：completed/running/failed/pending，'running' 同时匹配 in_progress"
+    ),
+    keyword: str | None = Query(None, description="关键字，模糊匹配策略名称或任务ID"),
+    strategy: str | None = Query(None, description="精确匹配策略名称"),
+    sort_by: str = Query("created_at", description="排序字段：created_at/total_return/max_drawdown/strategy_name"),
+    sort_order: str = Query("desc", description="排序方向：asc/desc"),
+) -> ApiResponse:
     """
-    获取所有回测结果列表
+    获取回测结果列表
+
+    历史教训：该接口曾用 Pydantic body 模型收参（BacktestListRequest），而 FastAPI 的
+    GET 请求不解析 body，参数恒为 None，导致前端本地假分页。必须用显式 Query 参数。
 
     Args:
-        request: 回测列表请求参数，包含分页信息，可选
+        page: 页码（从 1 开始）
+        page_size: 每页数量
+        status: 状态过滤，'all' 视为不过滤
+        keyword: 模糊匹配策略名称/任务ID
+        strategy: 精确匹配策略名称
+        sort_by: 排序字段
+        sort_order: 排序方向
 
     Returns:
-        ApiResponse: API响应，包含回测结果列表
+        ApiResponse: data 含 backtests / total / page / page_size
     """
     try:
-        logger.info("获取回测结果列表请求")
+        logger.info(
+            f"获取回测结果列表请求 page={page} page_size={page_size} "
+            f"status={status} keyword={keyword} strategy={strategy} "
+            f"sort_by={sort_by} sort_order={sort_order}"
+        )
 
-        # 获取回测结果列表（使用正确的 API 方法名）
-        backtests = backtest_service.get_result_list()
+        backtests, total = backtest_service.get_result_list(
+            limit=page_size,
+            offset=(page - 1) * page_size,
+            status_filter=status if status and status != "all" else None,
+            keyword=keyword,
+            strategy=strategy,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
 
-        logger.info(f"成功获取回测结果列表，共 {len(backtests)} 个回测结果")
+        logger.info(f"成功获取回测结果列表，共 {total} 条，返回 {len(backtests)} 条")
 
-        return ApiResponse(code=0, message="获取回测结果列表成功", data={"backtests": backtests})
+        return ApiResponse(
+            code=0,
+            message="获取回测结果列表成功",
+            data={"backtests": backtests, "total": total, "page": page, "page_size": page_size},
+        )
     except Exception as e:
         logger.error(f"获取回测结果列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -774,6 +807,41 @@ def get_backtest_replay(backtest_id: str, symbol: str | None = None) -> ApiRespo
     except Exception as e:
         logger.error(f"获取回放数据失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{backtest_id}/report",
+    summary="导出回测报告",
+    description=(
+        "生成自包含 HTML 回测报告（配置概览/核心指标/权益回撤曲线/成交明细/因子归因），"
+        "以附件形式下载，可直接离线打开或打印为 PDF。"
+        "symbol 缺省时多品种回测导出组合视角，传入具体品种则导出该品种视角"
+    ),
+)
+def download_backtest_report(backtest_id: str, symbol: str | None = None) -> HTMLResponse:
+    """下载回测 HTML 报告文件
+
+    Args:
+        backtest_id: 回测ID
+        symbol: 品种视角（如 "ETH/USDT"），缺省或 "all" 为组合视角（仅多品种）
+
+    Returns:
+        HTMLResponse: Content-Disposition 为 attachment 的报告文件
+    """
+    try:
+        html = render_backtest_report(backtest_id, symbol)
+    except ValueError as e:
+        # 任务/结果不存在属于资源缺失语义，转 404
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"生成回测报告失败，回测ID: {backtest_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 中文文件名走 RFC 5987 扩展头，浏览器直接按该名保存
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{report_filename(backtest_id)}"},
+    )
 
 
 @router.get(
