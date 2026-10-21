@@ -92,7 +92,11 @@ class BacktestResult:
     liquidation_events: list = field(default_factory=list)
     insurance_fund_loss: float = 0.0
     price_basis: str = "close"
-    capital_budget_disabled: bool = False
+    # 生效保证金回显（Rust 引擎回填；Python 路径保持默认值）
+    margin_applied: bool = False
+    margin_specs_effective: list = field(default_factory=list)
+    liquidation_count: int = 0
+    margin_shortfall_count: int = 0
 
 
 class BacktestLoop:

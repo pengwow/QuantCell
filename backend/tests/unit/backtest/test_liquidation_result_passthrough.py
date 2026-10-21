@@ -34,6 +34,12 @@ EVENT_ETH = {
     "reason": "depleted",
     "price_basis": "close",
 }
+EFFECTIVE_SPEC = {
+    "symbol": "BTC/USDT",
+    "leverage": 20.0,
+    "margin_mode": "cross",
+    "bracket_source": "default",
+}
 
 
 def _raw_results(events: list[dict], *, insurance_fund_loss: float = 12.5, **extra) -> dict:
@@ -47,13 +53,16 @@ def _raw_results(events: list[dict], *, insurance_fund_loss: float = 12.5, **ext
         "liquidation_events": events,
         "insurance_fund_loss": insurance_fund_loss,
         "price_basis": "close",
-        "capital_budget_disabled": True,
+        "margin_applied": True,
+        "margin_specs_effective": [EFFECTIVE_SPEC],
+        "liquidation_count": len(events),
+        "margin_shortfall_count": 2,
         **extra,
     }
 
 
 def test_format_axon_results_passes_liquidation_fields():
-    """单品种格式化：品种条目 / account / portfolio 都带四个保证金字段。"""
+    """单品种格式化：品种条目 / account / portfolio 都带保证金字段。"""
     formatted = ResultFormatterService.format_axon_results(
         results=_raw_results([EVENT_BTC]),
         symbol="BTCUSDT",
@@ -65,13 +74,19 @@ def test_format_axon_results_passes_liquidation_fields():
     assert entry["liquidation_events"] == [EVENT_BTC]
     assert entry["insurance_fund_loss"] == 12.5
     assert entry["price_basis"] == "close"
-    assert entry["capital_budget_disabled"] is True
+    assert entry["margin_applied"] is True
+    assert entry["margin_specs_effective"] == [EFFECTIVE_SPEC]
+    assert entry["liquidation_count"] == 1
+    assert entry["margin_shortfall_count"] == 2
 
     for section in ("account", "portfolio"):
         assert formatted[section]["liquidation_events"] == [EVENT_BTC]
         assert formatted[section]["insurance_fund_loss"] == 12.5
         assert formatted[section]["price_basis"] == "close"
-        assert formatted[section]["capital_budget_disabled"] is True
+        assert formatted[section]["margin_applied"] is True
+        assert formatted[section]["margin_specs_effective"] == [EFFECTIVE_SPEC]
+        assert formatted[section]["liquidation_count"] == 1
+        assert formatted[section]["margin_shortfall_count"] == 2
 
     # 结果 JSON 要落盘，时间戳必须是 int 且整体可序列化
     dumped = json.loads(json.dumps(formatted))
@@ -79,7 +94,7 @@ def test_format_axon_results_passes_liquidation_fields():
 
 
 def test_format_axon_results_defaults_for_legacy_results():
-    """旧结果没有这些字段：兜底 [] / 0.0 / "close" / False，且不抛异常。"""
+    """旧结果没有这些字段：兜底 [] / 0.0 / "close" / False / 0，且不抛异常。"""
     formatted = ResultFormatterService.format_axon_results(
         results={"initial_capital": 10_000.0, "final_nav": 10_000.0, "trades": [], "equity_curve": []},
         symbol="BTCUSDT",
@@ -91,7 +106,10 @@ def test_format_axon_results_defaults_for_legacy_results():
     assert entry["liquidation_events"] == []
     assert entry["insurance_fund_loss"] == 0.0
     assert entry["price_basis"] == "close"
-    assert entry["capital_budget_disabled"] is False
+    assert entry["margin_applied"] is False
+    assert entry["margin_specs_effective"] == []
+    assert entry["liquidation_count"] == 0
+    assert entry["margin_shortfall_count"] == 0
     assert formatted["portfolio"]["liquidation_events"] == []
     json.dumps(formatted)
 
@@ -129,10 +147,16 @@ def test_format_results_filters_events_per_symbol_in_shared_mode():
 
     assert formatted["results_by_symbol"]["BTCUSDT"]["liquidation_events"] == [EVENT_BTC]
     assert formatted["results_by_symbol"]["ETHUSDT"]["liquidation_events"] == [EVENT_ETH]
+    # 品种条目的强平计数按过滤后的本品种事件重算，不是账户总数
+    assert formatted["results_by_symbol"]["BTCUSDT"]["liquidation_count"] == 1
+    assert formatted["results_by_symbol"]["ETHUSDT"]["liquidation_count"] == 1
     assert formatted["portfolio"]["liquidation_events"] == events
     assert formatted["portfolio"]["insurance_fund_loss"] == 12.5
     assert formatted["portfolio"]["price_basis"] == "close"
-    assert formatted["portfolio"]["capital_budget_disabled"] is True
+    assert formatted["portfolio"]["margin_applied"] is True
+    assert formatted["portfolio"]["margin_specs_effective"] == [EFFECTIVE_SPEC]
+    assert formatted["portfolio"]["liquidation_count"] == 2
+    assert formatted["portfolio"]["margin_shortfall_count"] == 2
     assert formatted["account"]["liquidation_events"] == events
 
 
@@ -187,4 +211,7 @@ def test_format_results_legacy_input_uses_defaults():
     assert formatted["portfolio"]["liquidation_events"] == []
     assert formatted["portfolio"]["insurance_fund_loss"] == 0.0
     assert formatted["portfolio"]["price_basis"] == "close"
-    assert formatted["portfolio"]["capital_budget_disabled"] is False
+    assert formatted["portfolio"]["margin_applied"] is False
+    assert formatted["portfolio"]["margin_specs_effective"] == []
+    assert formatted["portfolio"]["liquidation_count"] == 0
+    assert formatted["portfolio"]["margin_shortfall_count"] == 0

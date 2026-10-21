@@ -115,7 +115,11 @@ def normalize_symbol(symbol: str) -> str:
 
 
 def build_margin_specs(settings: Iterable[tuple[str, float, str]]) -> dict[str, dict]:
-    """[("BTCUSDT", 20.0, "cross")] → {"BTC/USDT": {"leverage": …, "mode": …, "brackets": […]}}。
+    """[("BTCUSDT", 20.0, "cross")] → {"BTC/USDT": {"leverage": …, "mode": …, "brackets": …}}。
+
+    ``bracket_source`` 记录档位实际来源（db / snapshot / default）：引擎会把它原样
+    回显到结果里，前端据此区分「交易所档位」与「默认档位」，用户才能判断回测的
+    强平判定到底用了哪套档位。
 
     杠杆上限按该品种档位表首档（币安 ``initialLeverage``）校验，超限抛 ValueError，
     消息带品种名与上限，方便直接回给前端。
@@ -123,8 +127,13 @@ def build_margin_specs(settings: Iterable[tuple[str, float, str]]) -> dict[str, 
     specs: dict[str, dict] = {}
     for symbol, leverage, mode in settings:
         lev = float(leverage)
-        brackets = _load_from_db(symbol) or _load_from_snapshot(symbol)
-        if brackets is None:
+        brackets = _load_from_db(symbol)
+        if brackets:
+            bracket_source = "db"
+        else:
+            brackets = _load_from_snapshot(symbol)
+            bracket_source = "snapshot" if brackets else "default"
+        if not brackets:
             logger.warning(
                 "杠杆档位缺失，使用默认档位",
                 extra={"symbol": symbol, "leverage": lev, "source": "default"},
@@ -139,5 +148,6 @@ def build_margin_specs(settings: Iterable[tuple[str, float, str]]) -> dict[str, 
             "leverage": lev,
             "mode": mode,
             "brackets": brackets,
+            "bracket_source": bracket_source,
         }
     return specs

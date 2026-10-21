@@ -656,7 +656,11 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             liquidation_events: list = []
             insurance_fund_loss: float = 0.0
             price_basis: str = "close"
-            capital_budget_disabled: bool = False
+            # 生效保证金回显：引擎回填的实际杠杆/档位来源 + 强平/缩量统计
+            margin_applied: bool = False
+            margin_specs_effective: list = []
+            liquidation_count: int = 0
+            margin_shortfall_count: int = 0
 
             # 结果 JSON 是回测结果的唯一真实来源；无 JSON（未跑完/已清理）时保持空列表
             json_result = backtest_service.get_result(backtest_id)
@@ -683,7 +687,10 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     liquidation_events = view.get("liquidation_events") or []
                     insurance_fund_loss = view.get("insurance_fund_loss") or 0.0
                     price_basis = view.get("price_basis") or "close"
-                    capital_budget_disabled = bool(view.get("capital_budget_disabled"))
+                    margin_applied = bool(view.get("margin_applied"))
+                    margin_specs_effective = view.get("margin_specs_effective") or []
+                    liquidation_count = int(view.get("liquidation_count") or 0)
+                    margin_shortfall_count = int(view.get("margin_shortfall_count") or 0)
                 else:
                     # 指定品种优先，缺省（单品种）取第一个品种
                     entry = entries.get(symbol) if symbol else None
@@ -701,7 +708,10 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     liquidation_events = entry.get("liquidation_events") or []
                     insurance_fund_loss = entry.get("insurance_fund_loss") or 0.0
                     price_basis = entry.get("price_basis") or "close"
-                    capital_budget_disabled = bool(entry.get("capital_budget_disabled"))
+                    margin_applied = bool(entry.get("margin_applied"))
+                    margin_specs_effective = entry.get("margin_specs_effective") or []
+                    liquidation_count = int(entry.get("liquidation_count") or 0)
+                    margin_shortfall_count = int(entry.get("margin_shortfall_count") or 0)
 
             # 构建前端期望的响应格式
             detail_data = {
@@ -717,7 +727,11 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "liquidation_events": liquidation_events,
                 "insurance_fund_loss": insurance_fund_loss,
                 "price_basis": price_basis,
-                "capital_budget_disabled": capital_budget_disabled,
+                # 生效保证金回显：前端展示实际杠杆、档位来源与强平/缩量次数
+                "margin_applied": margin_applied,
+                "margin_specs_effective": margin_specs_effective,
+                "liquidation_count": liquidation_count,
+                "margin_shortfall_count": margin_shortfall_count,
                 # 结果中实际有数据的品种列表（多品种切换用），及当前返回的品种
                 "symbols": result_symbols,
                 "selected_symbol": (

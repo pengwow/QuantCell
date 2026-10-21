@@ -328,7 +328,8 @@ class BacktestService:
 
         Returns:
             dict: {metrics, trades, equity_curve, positions, liquidation_events,
-                insurance_fund_loss, price_basis, capital_budget_disabled}
+                insurance_fund_loss, price_basis, margin_applied,
+                margin_specs_effective, liquidation_count, margin_shortfall_count}
         """
         entries = BacktestService.extract_symbol_entries(results)
         portfolio = results.get("portfolio") if isinstance(results, dict) else None
@@ -360,9 +361,17 @@ class BacktestService:
         liquidation_events = liquidation_events if isinstance(liquidation_events, list) else []
         insurance_fund_loss = float(portfolio.get("insurance_fund_loss") or 0.0) if isinstance(portfolio, dict) else 0.0
         price_basis = str(portfolio.get("price_basis") or "close") if isinstance(portfolio, dict) else "close"
-        capital_budget_disabled = (
-            bool(portfolio.get("capital_budget_disabled")) if isinstance(portfolio, dict) else False
+        # 生效保证金回显：组合视图直接读落盘的 portfolio 字段，旧结果按默认值降级
+        margin_applied = bool(portfolio.get("margin_applied")) if isinstance(portfolio, dict) else False
+        raw_specs = portfolio.get("margin_specs_effective") if isinstance(portfolio, dict) else None
+        margin_specs_effective = (
+            [dict(item) for item in raw_specs if isinstance(item, dict)] if isinstance(raw_specs, list) else []
         )
+        liquidation_count = int(portfolio.get("liquidation_count") or 0) if isinstance(portfolio, dict) else 0
+        # 旧结果没有计数键：用事件条数兜底，保持与详情页「强平记录」一致
+        if liquidation_count == 0 and liquidation_events:
+            liquidation_count = len(liquidation_events)
+        margin_shortfall_count = int(portfolio.get("margin_shortfall_count") or 0) if isinstance(portfolio, dict) else 0
 
         return {
             "metrics": metrics,
@@ -372,7 +381,10 @@ class BacktestService:
             "liquidation_events": liquidation_events,
             "insurance_fund_loss": insurance_fund_loss,
             "price_basis": price_basis,
-            "capital_budget_disabled": capital_budget_disabled,
+            "margin_applied": margin_applied,
+            "margin_specs_effective": margin_specs_effective,
+            "liquidation_count": liquidation_count,
+            "margin_shortfall_count": margin_shortfall_count,
         }
 
     @staticmethod
