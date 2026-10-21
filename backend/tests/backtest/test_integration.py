@@ -32,7 +32,6 @@ except ImportError:
     )
 
 from backtest.config import load_engine_config
-
 from backtest.engines import BacktestEngineBase, EngineType, LegacyEngine
 
 if TYPE_CHECKING:

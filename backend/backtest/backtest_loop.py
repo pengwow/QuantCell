@@ -387,9 +387,20 @@ class BacktestLoop:
             entry_ts_sec = entry_time_ns // 1_000_000_000
             exit_ts_sec = exit_time_ns // 1_000_000_000
 
-            def _fill_json(fid: int, side: str, offset: str, ts_sec: int) -> dict:
-                """单笔 fill 的展示契约：价格/数量取自 fills_detail，pnl 仅平仓侧非零。"""
+            def _fill_json(fid: int, side: str, offset: str, fallback_ts_sec: int) -> dict:
+                """单笔 fill 的展示契约：时间戳优先取 MatchFill 自带的真实撮合时间，
+                没有再 fallback 到调用方的 entry/exit time。
+
+                关键修复：之前所有 open fill 都统一用 entry_time（首次开仓时间），
+                忽略了同向加仓 fill 的实际撮合时间——导致 7 笔跨 4 小时的加仓 fill
+                全部显示在同一秒，用户误以为引擎 bug。
+                """
                 src = by_id[fid]
+                ts_ns = int(src.get("timestamp_ns") or 0)
+                if ts_ns > 0:
+                    ts_sec = ts_ns // 1_000_000_000
+                else:
+                    ts_sec = fallback_ts_sec
                 dt_s = datetime.fromtimestamp(ts_sec, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
                 return {
                     "fill_id": fid,

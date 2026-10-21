@@ -7,18 +7,19 @@ name: Backend Tests
 # CI runner 上没有那个目录，所以这里把 axon_quant checkout 到 `<workspace>/axon_quant`，
 # 与 `<workspace>/QuantCell/backend` 正好构成 ../../axon_quant 的相对关系。
 #
-# QuantCell 0.18.0 的共享资金池集成测试依赖 axon-quant 0.19.0 的 run_multi，
-# 该特性尚未合入其 main（PR pengwow/axon_quant#65），故默认 ref 指向 0.19.0 分支。
-# PR#65 合并后可切回 main。workflow_dispatch 仍可手动指定 ref。
+# axon_quant ref 与 backend/pyproject.toml 的下限（>=0.20.0）保持一致。
+# 0.19.0 的 BacktestRunner 没有 with_margin 方法，会导致 engine_service.py
+# 在调用处抛 AttributeError，保证金账务相关的 4 个测试全部失败。
+# 如遇 axon_quant 有紧急修复需临时指定，可通过 workflow_dispatch 覆盖 ref。
 # 注：inputs.axon_quant_ref 仅在 workflow_dispatch 事件下有值，push/PR 触发时走 fallback。
 
 on:
   workflow_dispatch:
     inputs:
       axon_quant_ref:
-        description: "axon_quant 仓库的 ref（默认 0.19.0）"
+        description: "axon_quant 仓库的 ref（默认 0.21.0）"
         required: false
-        default: "0.19.0"
+        default: "0.21.0"
   pull_request:
     branches: [main, develop]
     paths:
@@ -48,7 +49,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pengwow/axon_quant
-          ref: ${{ inputs.axon_quant_ref || '0.19.0' }}
+          ref: ${{ inputs.axon_quant_ref || '0.21.0' }}
           path: axon_quant
 
       # uv 会就地构建 axon-quant 扩展（其 pyproject 用 maturin），故需要 Rust 工具链

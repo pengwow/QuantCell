@@ -17,6 +17,10 @@ backend-install:
 backend-test:
 	cd backend && uv run pytest tests/ -v
 
+# CI 同款（只跑 CI 覆盖的三个目录，比全量快）
+backend-ci-test:
+	cd backend && uv run pytest tests/unit/backtest tests/conformance tests/integration -q
+
 backend-lint:
 	cd backend && uv run ruff check .
 
@@ -124,7 +128,8 @@ help:
 	@echo "QuantCell Makefile 可用 target:"
 	@echo "	=== 后端 (backend)==="
 	@echo "  make backend-install     uv sync"
-	@echo "  make backend-test        pytest"
+	@echo "  make backend-test        pytest（全量 tests/）"
+	@echo "  make backend-ci-test     pytest（CI 同款：backtest + conformance + integration）"
 	@echo "  make backend-lint        ruff check"
 	@echo "  make backend-fmt         ruff format"
 	@echo "  make backend-typecheck   ruff check --fix + format"

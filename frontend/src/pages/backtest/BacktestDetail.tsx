@@ -369,6 +369,10 @@ const BacktestDetail = () => {
       ? backtestData.margin_specs_effective
       : backtestConfig.margin_settings ?? [];
   const marginApplied = backtestData.margin_applied ?? false;
+  // 交易表「保证金占用≈」列的口径来源：仅启用保证金时传杠杆，否则表格不渲染该列
+  const leverageBySymbol: Record<string, number> | undefined = marginApplied
+    ? Object.fromEntries(effectiveSpecs.map((item) => [item.symbol, item.leverage]))
+    : undefined;
   const liquidationCount = backtestData.liquidation_count ?? 0;
   const shortfallCount = backtestData.margin_shortfall_count ?? 0;
   // 旧任务没有保证金结果字段，一律按“无强平”处理
@@ -781,7 +785,7 @@ const BacktestDetail = () => {
           </div>
 
           {getTrades().length > 0 ? (
-            <TradeTable data={getTrades()} />
+            <TradeTable data={getTrades()} leverageBySymbol={leverageBySymbol} />
           ) : isLegacyOnly ? (
             <Empty description="该回测由旧版本引擎生成，无成交明细" />
           ) : rawTrades.length === 0 ? (

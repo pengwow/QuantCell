@@ -3,7 +3,7 @@
  * 契约与后端 backtest_loop._build_round_trip_trades 输出一一对应，
  * 2026-07-25 起引擎只产出该格式，旧格式数据由详情页空态提示
  */
-import { Table, Tag, theme } from 'antd';
+import { Table, Tag, Tooltip, theme } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Trade, TradeFill } from '../types/backtest';
 
@@ -16,6 +16,8 @@ export interface TradeTableProps {
   pagination?: boolean;
   // 可选行类名（如组合回放中新成交行高亮）
   rowClassName?: (record: Trade) => string;
+  // 可选：品种 → 杠杆。传了才显示「保证金占用≈」列（未启用保证金时不传，避免误导）
+  leverageBySymbol?: Record<string, number>;
 }
 
 const formatPrice = (price: number): string => price.toFixed(4);
@@ -24,8 +26,27 @@ const formatQuantity = (quantity: number): string => quantity.toFixed(4);
 
 const formatVolume = (volume: number): string => volume.toFixed(2);
 
-const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: TradeTableProps) => {
+// 引擎回显的 symbol 可能是 ETH//USDT（Rust instrument key），交易契约是 ETH/USDT，统一后再查表
+const normalizeSymbolKey = (symbol: string): string =>
+  (symbol || '').toUpperCase().replace(/\/+/g, '/').trim();
+
+const TradeTable = ({
+  data,
+  loading = false,
+  pagination = true,
+  rowClassName,
+  leverageBySymbol,
+}: TradeTableProps) => {
   const { token } = theme.useToken();
+
+  // 归一化杠杆表，避免调用方还要关心 symbol 分隔符差异
+  const leverageMap: Record<string, number> = Object.fromEntries(
+    Object.entries(leverageBySymbol ?? {}).map(([symbol, leverage]) => [
+      normalizeSymbolKey(symbol),
+      leverage,
+    ])
+  );
+  const showMarginColumn = Object.keys(leverageMap).length > 0;
 
   const columns: ColumnsType<Trade> = [
     {
@@ -70,6 +91,25 @@ const TradeTable = ({ data, loading = false, pagination = true, rowClassName }: 
       render: (_: unknown, record: Trade) => formatVolume(record.entry_price * record.size),
       align: 'right',
     },
+    // 保证金占用：只有调用方传入杠杆时出现（未启用保证金/现货回测不传）
+    ...(showMarginColumn
+      ? ([
+          {
+            title: (
+              <Tooltip title="按「开仓名义价值 ÷ 杠杆」估算的初始保证金占用；全仓模式引擎不逐笔记账单笔占用，跨档位时实际费率可能不同">
+                <span>保证金占用≈</span>
+              </Tooltip>
+            ),
+            key: 'margin_occupancy',
+            render: (_: unknown, record: Trade) => {
+              const leverage = leverageMap[normalizeSymbolKey(record.symbol)];
+              if (!leverage || leverage <= 0) return '-';
+              return formatVolume((record.entry_price * record.size) / leverage);
+            },
+            align: 'right',
+          },
+        ] as ColumnsType<Trade>)
+      : []),
     {
       title: '收益',
       dataIndex: 'pnl',

@@ -105,8 +105,16 @@ def _load_from_snapshot(symbol: str) -> list[dict] | None:
 
 
 def normalize_symbol(symbol: str) -> str:
-    """BTCUSDT → BTC/USDT（与 Rust 引擎 instrument key 对齐）。"""
-    s = symbol.upper().replace("-", "").replace("_", "")
+    """BTCUSDT → BTC/USDT（与 Rust 引擎 instrument key 对齐）。
+
+    关键约束：已带 `/` 的 symbol 直接透传，避免 ETH/USDT → ETH//USDT 这种
+    双斜杠污染（会导致 engine_service.py 按 _normalize_symbol 查 leverage 键
+    时永远 miss，回退到 1x）。
+    """
+    s = symbol.upper()
+    if "/" in s:
+        return s
+    s = s.replace("-", "").replace("_", "")
     # 计价货币按长度从长到短匹配，避免 USDC 被 USD 抢先截断
     for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
         if s.endswith(quote) and len(s) > len(quote):
