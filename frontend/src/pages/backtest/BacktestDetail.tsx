@@ -353,6 +353,7 @@ const BacktestDetail = () => {
 
         {/* 配置信息 */}
         <Card title="配置信息" className="mb-6">
+          <Flex vertical gap={12}>
           <Descriptions bordered column={{ xs: 1, sm: 2, md: 3, lg: 4 }}>
             <Descriptions.Item label="策略名称">
               {strategyName}
@@ -389,23 +390,26 @@ const BacktestDetail = () => {
             <Descriptions.Item label="资金使用方式">
               {backtestConfig.capital_mode === 'shared' ? '组合共享资金池' : '各品种独立资金池'}
             </Descriptions.Item>
-            <Descriptions.Item label="策略参数">
-              {Object.keys(backtestConfig.strategy_params || {}).length === 0 ? (
-                '-'
-              ) : (
-                <Space size={4} wrap>
-                  {Object.entries(backtestConfig.strategy_params!).map(([k, v]) => (
-                    <Tag key={k} className="mb-0">
-                      {k}: {String(v)}
-                    </Tag>
-                  ))}
-                </Space>
-              )}
-            </Descriptions.Item>
             <Descriptions.Item label="状态">
               {backtestData.status}
             </Descriptions.Item>
           </Descriptions>
+          {/* 策略参数独占一块：参数条目数量不定，塞进 Descriptions 格子会显示不全 */}
+          <div>
+            <div className="mb-2 text-sm font-medium">策略参数</div>
+            {Object.keys(backtestConfig.strategy_params || {}).length === 0 ? (
+              '-'
+            ) : (
+              <Space size={4} wrap>
+                {Object.entries(backtestConfig.strategy_params!).map(([k, v]) => (
+                  <Tag key={k} className="mb-0">
+                    {k}: {String(v)}
+                  </Tag>
+                ))}
+              </Space>
+            )}
+          </div>
+          </Flex>
         </Card>
 
         {/* 回测概览指标（多品种时右上角切换品种，指标/曲线/成交均按品种展示） */}
