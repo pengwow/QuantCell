@@ -51,6 +51,7 @@ class StrategyParamInfo(BaseSchema):
     min: float | None = Field(default=None, description="最小值")
     max: float | None = Field(default=None, description="最大值")
     required: bool = Field(default=False, description="是否必填")
+    options: list[str] | None = Field(default=None, description="下拉选项（type=select 时使用）")
 
 
 class StrategyInfo(BaseSchema):
@@ -125,6 +126,7 @@ class StrategyParam(BaseSchema):
         default: 默认值
         description: 参数描述
         required: 是否必填
+        options: 下拉选项（type=select 时使用）
     """
 
     name: str = Field(..., description="参数名称")
@@ -132,6 +134,7 @@ class StrategyParam(BaseSchema):
     default: Any = Field(default=None, description="默认值")
     description: str = Field(default="", description="参数描述")
     required: bool = Field(default=False, description="是否必填")
+    options: list[str] | None = Field(default=None, description="下拉选项（type=select 时使用）")
 
 
 class StrategyUploadRequest(BaseSchema):
