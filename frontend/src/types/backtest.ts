@@ -84,6 +84,7 @@ export interface StrategyParam {
   default: unknown;
   description: string;
   required: boolean;
+  options?: string[]; // 下拉选项（type=select 时使用）
 }
 
 // 策略因子接口

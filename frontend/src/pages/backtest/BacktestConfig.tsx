@@ -556,6 +556,18 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const renderParamInput = (param: StrategyParam) => {
     const type = param.type ? param.type.toLowerCase() : 'string';
 
+    // 后端覆写的 select 类型（direction 等）优先渲染下拉
+    if (type === 'select' || (param.options && param.options.length > 0)) {
+      return (
+        <Select style={{ width: '100%' }}>
+          {(param.options || []).map((opt) => (
+            <Select.Option key={opt} value={opt}>
+              {opt}
+            </Select.Option>
+          ))}
+        </Select>
+      );
+    }
     if (type === 'int' || type === 'integer') {
       return <InputNumber style={{ width: '100%' }} precision={0} />;
     }
