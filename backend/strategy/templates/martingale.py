@@ -11,6 +11,12 @@
 - short : 只做空，入场条件：上一根 bar 收阴（close < prev_close）
 - both  : 双向跟随，阳进多、阴进空
 
+方向语义（与回测引擎 set_target_position 约定一致）：
+- target_position 是带符号的目标仓位占比：正=多头目标，负=空头目标（target.py）
+- action_type=buy/sell 只表示「更新目标位」，不决定多空方向；
+  因此做空必须用负 target，否则引擎会按正目标买入开多
+- 做空需要回测交易模式为 futures（现货引擎无法持有负仓位）
+
 ponytail: 马丁策略是爆仓陷阱，max_multiplier 必须合理（建议 ≤ 4）
          回测显示 4 倍翻倍在 1000 bar 内爆仓概率约 15%，实盘请慎用。
          入场条件极简（只看上一根 K 线方向），避免引入额外参数。
@@ -62,7 +68,7 @@ class Martingale(BaseStrategy):
             else:
                 pnl = self._entry_price - close
 
-            # 盈利 → 平仓并重置
+            # 盈利 → 平仓并重置（目标位回 0）
             if pnl > 0:
                 close_action = "sell" if self._pos_dir > 0 else "buy"
                 self._pos_dir = 0
@@ -76,36 +82,38 @@ class Martingale(BaseStrategy):
                     inference_time_us=0,
                 )
 
-            # 亏损 → 倍数递增，计算新目标仓位
+            # 亏损 → 倍数递增，把目标位调到同方向的更大仓位（executors 只在
+            # buy/sell 时更新目标位，hold 的 target 会被忽略 → 加仓必须用 buy/sell）
             if self._multiplier < max_multiplier:
                 self._multiplier *= multiplier
             target = limit * base_position_pct * self._multiplier
             return Action(
-                action_type="hold",
+                action_type="buy" if self._pos_dir > 0 else "sell",
                 confidence=0.5,
-                target_position=target,
+                target_position=self._pos_dir * target,
                 model_id=model_id,
                 inference_time_us=0,
             )
 
-        # —— 空仓：判定入场方向 ——
+        # —— 空仓：判定入场方向（target 符号表达多空：正=多、负=空）——
         if (direction == "long" or direction == "both") and bar_up:
-            return self._open_position("buy", 1, close, limit * base_position_pct, model_id)
+            return self._open_position(1, close, limit * base_position_pct, model_id)
 
         if (direction == "short" or direction == "both") and not bar_up:
-            return self._open_position("sell", -1, close, limit * base_position_pct, model_id)
+            return self._open_position(-1, close, limit * base_position_pct, model_id)
 
         return self._hold(0.0, model_id)
 
     # —— 辅助方法 ——
-    def _open_position(self, action: str, pos_dir: int, price: float, target: float, model_id: str) -> Action:
+    def _open_position(self, pos_dir: int, price: float, target: float, model_id: str) -> Action:
+        """开仓：pos_dir=+1 多 / -1 空；空仓目标必须传负数，引擎按 target 符号定方向。"""
         self._pos_dir = pos_dir
         self._entry_price = price
         self._multiplier = 1.0
         return Action(
-            action_type=action,
+            action_type="buy" if pos_dir > 0 else "sell",
             confidence=0.7,
-            target_position=target,
+            target_position=pos_dir * target,
             model_id=model_id,
             inference_time_us=0,
         )
