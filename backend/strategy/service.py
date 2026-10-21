@@ -56,6 +56,28 @@ _PARAM_DESC_MAP: dict[str, str] = {
     "position_limit": "目标仓位上限",
 }
 
+# 参数可选值覆写：特定参数在前端渲染为下拉选择而不是文本输入
+# key = 参数名, value = 选项列表。type 会被自动覆写为 "select"
+_PARAM_OPTIONS_MAP: dict[str, list[str]] = {
+    "direction": ["long", "short", "both"],
+}
+
+
+def _apply_param_overrides(params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """对解析/存储的参数列表做后处理：覆写 type + 注入 options。
+
+    前端参数表单依赖 type 选择输入控件；默认 AST 只能推 int/float/str/bool，
+    对 direction 等枚举参数会给 str → 前端渲染成纯文本。
+    此函数统一修复：命中 _PARAM_OPTIONS_MAP 的参数 → type 改为 "select" 并注入 options。
+    DB 融合路径和 AST 直接返回路径都需要过这一层，避免手动编辑过的参数丢失下拉选项。
+    """
+    for p in params:
+        name = p.get("name", "")
+        if name in _PARAM_OPTIONS_MAP:
+            p["type"] = "select"
+            p["options"] = _PARAM_OPTIONS_MAP[name]
+    return params
+
 
 def _guess_param_type(default_val: Any) -> str:
     """默认值的 Python 类型 → 前端 type hint。"""
@@ -70,6 +92,30 @@ def _guess_param_type(default_val: Any) -> str:
     if isinstance(default_val, str):
         return "str"
     return "Any"
+
+
+def _literal_options_from_annotation(ann: ast.expr) -> list[str] | None:
+    """注解是 Literal[...] 且选项全为字符串常量时返回选项列表，否则 None。
+
+    兼容两种写法：Literal["a", "b"]（裸 Name）与 typing.Literal["a", "b"]（Attribute）。
+    选项含非字符串常量（int Literal 等）返回 None —— 参数下拉只支持字符串枚举。
+    """
+    if not isinstance(ann, ast.Subscript):
+        return None
+    base = ann.value
+    is_literal = (isinstance(base, ast.Name) and base.id == "Literal") or (
+        isinstance(base, ast.Attribute) and base.attr == "Literal"
+    )
+    if not is_literal:
+        return None
+    # Python 3.9+ 单元素下标 slice 是单个 expr，多元素是 ast.Tuple
+    elts = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+    options: list[str] = []
+    for elt in elts:
+        if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+            return None
+        options.append(elt.value)
+    return options
 
 
 class StrategyType(Enum):
@@ -123,6 +169,7 @@ class StrategyService:
                         if row.parameters:
                             try:
                                 info["params"] = json.loads(row.parameters)
+                                _apply_param_overrides(info["params"])
                             except json.JSONDecodeError:
                                 pass
                         # DB 有 factors → 覆盖 AST 解析结果
@@ -174,6 +221,7 @@ class StrategyService:
                 if row.parameters:
                     try:
                         info["params"] = json.loads(row.parameters)
+                        _apply_param_overrides(info["params"])
                     except json.JSONDecodeError:
                         pass
                 # DB 有 factors → 覆盖 AST 解析结果
@@ -293,6 +341,9 @@ class StrategyService:
             factors = self._extract_factors(tree, content)
 
         strategy_type = self.detect_strategy_type(content)
+
+        # AST 直接提取的 params 也要过 overrides（direction → select + options）
+        _apply_param_overrides(params)
 
         return {
             "name": name,
@@ -604,6 +655,50 @@ class StrategyService:
         return {}
 
     @staticmethod
+    def _param_entry_from_literal_binding(
+        node: ast.AnnAssign, options: list[str], defaults: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Literal 注解 + self.get_param 赋值的严格绑定 → select 参数条目。
+
+        三条件（任一不过返回 None，该 AnnAssign 不产生条目，内层 Call 稍后走普通逻辑
+        降级为文本输入）：赋值 value 是接收者为裸 self 的 get_param 调用；
+        get_param 首参字符串 == 注解目标名（防干扰自定义策略里的重名变量）。
+        """
+        value = node.value
+        if value is None or not isinstance(value, ast.Call):
+            return None
+        if not (isinstance(value.func, ast.Attribute) and value.func.attr == "get_param"):
+            return None
+        receiver = value.func.value
+        if not (isinstance(receiver, ast.Name) and receiver.id == "self"):
+            return None
+        if not value.args:
+            return None
+        first = value.args[0]
+        if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+            return None
+        target = node.target
+        if not (isinstance(target, ast.Name) and first.value == target.id):
+            return None
+
+        name = first.value
+        default_val: Any = None
+        if len(value.args) >= 2:
+            try:
+                default_val = ast.literal_eval(value.args[1])
+            except ValueError, TypeError, SyntaxError:
+                default_val = None
+
+        return {
+            "name": name,
+            "type": "select",
+            "default": default_val,
+            "description": _PARAM_DESC_MAP.get(name, ""),
+            "required": False,
+            "options": options,
+        }
+
+    @staticmethod
     def _extract_params_from_get_param(tree: ast.AST) -> list[dict[str, Any]]:
         """扫 self.get_param("name", default) / self._param("name") 调用提取参数。
 
@@ -616,6 +711,18 @@ class StrategyService:
         defaults = StrategyService._extract_class_defaults(tree, "_DEFAULTS")
 
         for node in ast.walk(tree):
+            # Literal 注解绑定优先：direction: Literal["long","short"] = self.get_param("direction", ...)
+            # ast.walk 是 BFS，AnnAssign 必先于其内部的 get_param Call 被访问：
+            # 绑定成功 → 名字加入 seen，后到的内层 Call 自动去重跳过；
+            # 绑定失败 → 不产生条目，由后面的 Call 普通逻辑降级为文本输入
+            if isinstance(node, ast.AnnAssign):
+                options = _literal_options_from_annotation(node.annotation)
+                if options:
+                    entry = StrategyService._param_entry_from_literal_binding(node, options, defaults)
+                    if entry:
+                        seen.add(entry["name"])
+                        result.append(entry)
+                continue
             if not isinstance(node, ast.Call):
                 continue
             if not isinstance(node.func, ast.Attribute):
