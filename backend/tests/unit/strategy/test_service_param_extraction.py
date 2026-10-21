@@ -126,3 +126,33 @@ def test_martingale_template_direction_is_select():
     direction = next(p for p in info["params"] if p["name"] == "direction")
     assert direction["type"] == "select"
     assert direction["options"] == ["long", "short", "both"]
+
+
+def test_merge_db_params_backfills_select_options():
+    """DB 旧记录缺 options → 按 name 用 AST 同名 select 参数补 type+options。"""
+    db_params = [
+        {"name": "direction", "type": "str", "default": "long", "description": "方向", "required": False},
+        {"name": "base_position", "type": "float", "default": 0.1, "description": "", "required": False},
+    ]
+    ast_params = [
+        {
+            "name": "direction",
+            "type": "select",
+            "default": "long",
+            "description": "",
+            "required": False,
+            "options": ["long", "short", "both"],
+        },
+    ]
+    merged = StrategyService._merge_db_params_with_ast(db_params, ast_params)
+    # DB 值全保留，仅渲染能力（type/options）由 AST 补
+    assert merged[0] == {
+        "name": "direction",
+        "type": "select",
+        "default": "long",
+        "description": "方向",
+        "required": False,
+        "options": ["long", "short", "both"],
+    }
+    # AST 不认识的参数原样保留
+    assert merged[1] == db_params[1]
