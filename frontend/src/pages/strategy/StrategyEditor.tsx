@@ -52,6 +52,7 @@ interface Strategy {
     default: unknown;
     description: string;
     required: boolean;
+    options?: string[];
   }>;
   factors?: Array<{
     name: string;
@@ -133,7 +134,16 @@ const StrategyEditor = () => {
 
   // 模板选择器状态
   const [templatePickerVisible, setTemplatePickerVisible] = useState(false);
-  const [templates, setTemplates] = useState<Array<{ id: string; name: string; category: string; description?: string; tags?: string[]; code_template?: string }>>([]);
+  const [templates, setTemplates] = useState<Array<{
+    id: string;
+    name: string;
+    category: string;
+    description?: string;
+    tags?: string[];
+    code_template?: string;
+    /** 模板参数元数据（后端 AST 解析，select 类型带 options） */
+    variables?: Array<{ name: string; type?: string; default?: unknown; description?: string; required?: boolean; options?: string[] }>;
+  }>>([]);
   const [templatePickerLoading, setTemplatePickerLoading] = useState(false);
 
   // 策略版本编辑状态
@@ -534,7 +544,7 @@ class NewStrategy(BaseStrategy):
   const handlePickTemplate = (templateId: string | null) => {
     let code = DEFAULT_NEW_STRATEGY_CODE;
     let description = t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架';
-    let params = [
+    let params: Strategy['params'] = [
       { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
       { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
       { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
@@ -545,7 +555,18 @@ class NewStrategy(BaseStrategy):
       if (tpl?.code_template) {
         code = tpl.code_template;
         description = `${tpl.name} — ${tpl.description || ''}`.trim();
-        // 模板自带的参数解析后续迭代（variables 字段暂未自动推断）
+        // 用模板自带的参数元数据（后端 AST 解析的 variables，select 类型带 options），
+        // 替代早先写死的双均线三参数 —— direction 丢失的根因就在这里
+        if (tpl.variables?.length) {
+          params = tpl.variables.map((v) => ({
+            name: v.name,
+            type: v.type || 'Any',
+            default: v.default,
+            description: v.description || '',
+            required: !!v.required,
+            ...(v.options ? { options: v.options } : {}),
+          }));
+        }
       }
     }
 
