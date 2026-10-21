@@ -254,6 +254,8 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
         # 处理时间范围格式（支持YYYYMMDD-YYYYMMDD格式）
         backtest_config_dict = request.backtest_config.model_dump()
         strategy_config_dict = request.strategy_config.model_dump()
+        # 策略参数一并入库：任务结束后详情页需要还原「创建回测时用的策略参数」
+        backtest_config_dict["strategy_params"] = strategy_config_dict.get("params", {})
 
         # 检查并转换时间范围格式
         start_time = backtest_config_dict.get("start_time")
