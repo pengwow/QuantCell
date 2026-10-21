@@ -16,6 +16,7 @@ import {
   Radio,
   Button,
   Space,
+  Flex,
   Row,
   Col,
   Spin,
@@ -68,6 +69,13 @@ interface CreateStrategyFormValues {
   params?: string;
 }
 
+// 每品种杠杆与保证金模式（仅永续合约）
+interface MarginSettingFormValue {
+  symbol: string;
+  leverage: number;
+  margin_mode: 'isolated' | 'cross';
+}
+
 // 回测主表单值
 interface BacktestFormValues {
   strategy?: string;
@@ -80,7 +88,13 @@ interface BacktestFormValues {
   params?: Record<string, unknown>;
   tradingMode?: string;
   capitalMode?: 'per_symbol' | 'shared';
+  margin_settings?: MarginSettingFormValue[];
 }
+
+// 数据池（pool_*）要到提交时才展开成真实品种，配置页无法为其中的品种预置杠杆，
+// 因此这里只取直接选择的品种；数据池品种由后端按 1x / 全仓默认参与。
+const pickDirectSymbols = (selected?: string[]): string[] =>
+  (selected ?? []).filter((value) => !value.startsWith('pool_'));
 
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
   const { t } = useTranslation();
@@ -94,6 +108,26 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   // symbols 可在表单中动态增删，这里按实时值判断是否多品种回测，决定「资金使用方式」是否可用
   const watchedSymbols = Form.useWatch('symbols', form);
   const isMultiSymbol = (watchedSymbols?.length ?? 0) > 1;
+  // 保证金区块只在永续合约下出现（币本位由后端拦截，前端没有 market 选择器）
+  const watchedTradingMode = Form.useWatch('tradingMode', form);
+  const watchedMarginSettings = Form.useWatch('margin_settings', form) as
+    | MarginSettingFormValue[]
+    | undefined;
+  const marginSymbols = pickDirectSymbols(watchedSymbols);
+
+  // 杠杆行与所选品种严格一一对应：品种增删时同步补齐/清理。
+  // 残留的旧品种行会撞上后端「symbol 不在回测列表内」的 422 校验，必须主动收口。
+  useEffect(() => {
+    const directSymbols = pickDirectSymbols(watchedSymbols);
+    const current = (form.getFieldValue('margin_settings') ?? []) as MarginSettingFormValue[];
+    const kept = current.filter((item) => item?.symbol && directSymbols.includes(item.symbol));
+    const added = directSymbols
+      .filter((symbol) => !kept.some((item) => item.symbol === symbol))
+      .map((symbol) => ({ symbol, leverage: 1, margin_mode: 'cross' as const }));
+    // 无差异时不回写：setFieldsValue 会触发 useWatch 重渲染，无条件写回会形成死循环
+    if (kept.length === current.length && added.length === 0) return;
+    form.setFieldsValue({ margin_settings: [...kept, ...added] });
+  }, [watchedSymbols, form]);
 
   // 设置页面标题
   useEffect(() => {
@@ -1035,6 +1069,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           factor_names: values.factorNames && values.factorNames.length > 0 ? values.factorNames : null,
           trading_mode: values.tradingMode || 'spot',
           capital_mode: values.capitalMode || 'per_symbol',
+          // 只有永续合约允许杠杆配置；再按本次实际提交的品种过滤一次，
+          // 避免品种切换/数据池展开留下的旧条目触发后端 422
+          margin_settings:
+            values.tradingMode === 'futures'
+              ? (values.margin_settings ?? []).filter(
+                  (item) => item?.symbol && symbols.includes(item.symbol),
+                )
+              : [],
         },
       };
 
@@ -1284,6 +1326,59 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                   </Select>
                 </Form.Item>
               </Col>
+
+              {watchedTradingMode === 'futures' && (
+                <Col span={24}>
+                  <Form.Item
+                    label="杠杆与保证金"
+                    extra="杠杆放大名义敞口并引入强平风险；做空需永续模式。未配置的品种按 1x 全仓参与，数据池展开的品种同样走默认值"
+                  >
+                    {/* antd v6 下 space-y-* 会被 CSS-in-JS 覆盖失效，行间距必须用 Space 自己产生 */}
+                    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
+                      {marginSymbols.length === 0 ? (
+                        <span style={{ color: '#999' }}>请先在上方选择交易标的</span>
+                      ) : (
+                        marginSymbols.map((symbol) => {
+                          const index = (watchedMarginSettings ?? []).findIndex(
+                            (item) => item?.symbol === symbol,
+                          );
+                          // 新增品种会由上面的 effect 补齐，补齐前这一帧先不渲染，
+                          // 避免用错位的 index 写到别的品种的杠杆行上
+                          if (index < 0) return null;
+                          return (
+                            <Flex key={symbol} gap="small" align="center">
+                              {/* symbol 不展示但必须注册成表单项：onFinish 只回传已注册字段，
+                                  不注册会让提交体里的 symbol 丢失 */}
+                              <Form.Item name={['margin_settings', index, 'symbol']} hidden>
+                                <Input />
+                              </Form.Item>
+                              <span style={{ minWidth: 100 }}>{symbol}</span>
+                              <Form.Item name={['margin_settings', index, 'leverage']} noStyle>
+                                <InputNumber
+                                  min={1}
+                                  max={125}
+                                  step={1}
+                                  addonAfter="x"
+                                  style={{ width: 130 }}
+                                />
+                              </Form.Item>
+                              <Form.Item name={['margin_settings', index, 'margin_mode']} noStyle>
+                                <Select
+                                  style={{ width: 110 }}
+                                  options={[
+                                    { value: 'cross', label: '全仓' },
+                                    { value: 'isolated', label: '逐仓' },
+                                  ]}
+                                />
+                              </Form.Item>
+                            </Flex>
+                          );
+                        })
+                      )}
+                    </Space>
+                  </Form.Item>
+                </Col>
+              )}
 
               <Col span={24}>
                 <Form.Item
