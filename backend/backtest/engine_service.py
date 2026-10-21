@@ -21,6 +21,7 @@ from typing import Any
 import pandas as pd
 
 from backtest.backtest_loop import BacktestLoop, BacktestResult, clean_ohlcv_df
+from backtest.margin_specs import build_margin_specs
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -190,6 +191,35 @@ class EventDrivenBacktestService:
         swap_settle = _SWAP_SETTLE_BY_MARKET.get(market, "usd_margin")
         contract_size = float(engine_cfg.get("contract_size", 1.0))
 
+        # 保证金模拟：只支持 U 本位永续。币本位乘数尚未入账（见上方 ponytail 说明），
+        # 强平与保证金都会算错，所以硬拒绝而不是给出一份看起来正常的结果。
+        margin_settings = list(engine_cfg.get("margin_settings") or [])
+        if margin_settings and market == "cm":
+            msg = "币本位合约暂不支持杠杆与保证金模拟，请改用 U 本位合约"
+            raise ValueError(msg)
+
+        # 每品种保证金规格（空 dict = 不启用）。启用即**全品种参与**：未配置的品种
+        # 按 1x / cross 默认注入，否则全仓的 ΣMMR 会漏算品种，强平判定失真。
+        margin_specs: dict[str, dict] = {}
+        if margin_settings:
+            configured = {item["symbol"]: item for item in margin_settings}
+            settings = [
+                (
+                    configured[sym]["symbol"],
+                    float(configured[sym]["leverage"]),
+                    configured[sym].get("margin_mode", "cross"),
+                )
+                if sym in configured
+                else (sym, 1.0, "cross")
+                for sym in symbols
+            ]
+            margin_specs = build_margin_specs(settings)
+            if leverage != 1.0:
+                logger.warning(
+                    "保证金已启用，全局 leverage 被每品种杠杆接管",
+                    extra={"leverage": leverage},
+                )
+
         # 1. 加载数据
         # 无数据被剔除的品种：{品种名: 原因}。剔除本身是正确行为（空数据跑回测产出假结果），
         # 但必须随结果透出，否则「选 2 个标的跑完只剩 1 个」用户无从知道原因
@@ -337,6 +367,7 @@ class EventDrivenBacktestService:
                     futures=(trading_mode == "futures"),
                     settle=swap_settle,
                     contract_size=contract_size,
+                    margin_specs=margin_specs,
                 )
             else:
                 result = loop.run(
@@ -384,13 +415,16 @@ class EventDrivenBacktestService:
                 strategies_by_symbol=strategies_by_symbol,
                 entries=entries_for_multi,
                 init_cash=init_cash,
-                capital_budget=init_cash * leverage,
+                # 保证金启用后由引擎按每品种档位做资金约束，shared 的敞口预算
+                # 会把杠杆放大后的目标等比砍回原样（互斥，见设计 §3.3）
+                capital_budget=None if margin_specs else init_cash * leverage,
                 force_liquidate=force_liquidate,
                 futures=(trading_mode == "futures"),
                 settle=swap_settle,
                 contract_size=contract_size,
                 trading_mode=trading_mode,
                 time_range=time_range,
+                margin_specs=margin_specs,
             )
             raw_results = multi_result
             per_symbol_results = {}
@@ -444,6 +478,7 @@ class EventDrivenBacktestService:
                         futures=(trading_mode == "futures"),
                         settle=swap_settle,
                         contract_size=contract_size,
+                        margin_specs=margin_specs,
                     )
                 else:
                     loop_result = loop.run(
@@ -753,6 +788,10 @@ class EventDrivenBacktestService:
             "data_start_ns": result.data_start_ns,
             "data_end_ns": result.data_end_ns,
             "bar_count": result.bar_count,
+            "liquidation_events": list(result.liquidation_events),
+            "insurance_fund_loss": result.insurance_fund_loss,
+            "price_basis": result.price_basis,
+            "capital_budget_disabled": result.capital_budget_disabled,
         }
 
     # ─── Rust 原生回测路径（axon_quant.worker.BacktestRunner） ───
@@ -769,6 +808,7 @@ class EventDrivenBacktestService:
         futures: bool = False,
         settle: str = "usd_margin",
         contract_size: float = 1.0,
+        margin_specs: dict | None = None,
     ) -> BacktestResult:
         """Rust 原生回测：BacktestRunner 逐 bar 编排策略，结果映射回 QuantCell 契约。
 
@@ -779,7 +819,8 @@ class EventDrivenBacktestService:
           `cross_sectional_rank`），Rust 侧透传给 Python 策略；
         - `funding_df` + `futures`：期货资金费查找表（键为 bar 纳秒时间戳）→ Rust 逐 bar 结算；
         - `settle` + `contract_size`：永续品种的保证金结算方式与合约乘数（仅 futures 生效，
-          口径由调用方给出，见 run_backtest 里的 market 推导与 ponytail 说明）。
+          口径由调用方给出，见 run_backtest 里的 market 推导与 ponytail 说明）；
+        - `margin_specs`：每品种保证金规格（key 为 BASE/QUOTE），None/空 = 不启用保证金模拟。
         """
         from axon_quant import worker
 
@@ -805,8 +846,18 @@ class EventDrivenBacktestService:
         # 复用同一个策略实例（config.symbol 固定为首品种），而本次回测品种是入参 symbol。
         # 不覆盖会让引擎按策略 symbol 建 instrument，把入参品种的数据跑到首品种上，
         # 同时让 states/funding 的键与引擎查找键错位。
-        adapter = RustStrategyAdapter(strategy, initial_cash=init_cash, symbol=symbol)
+        adapter = RustStrategyAdapter(
+            strategy,
+            initial_cash=init_cash,
+            symbol=symbol,
+            # 杠杆只在适配器乘一次；Rust 侧收到的已是绝对数量
+            leverage=(margin_specs or {}).get(rust_symbol, {}).get("leverage", 1.0),
+        )
         runner.add_strategy(adapter)
+        if margin_specs:
+            # 单品种 runner 只挂本品种那一条规格，避免把其他品种的档位带进引擎
+            symbol_spec = margin_specs.get(rust_symbol)
+            runner.with_margin({rust_symbol: symbol_spec} if symbol_spec else margin_specs)
         # 统一入口：单品种包装成「单 symbol 网格」（无 None 缺口），与共享资金池同一路径
         rust_result = runner.run(
             bars_by_symbol={rust_symbol: list(bars)},
@@ -827,7 +878,8 @@ class EventDrivenBacktestService:
         contract_size: float = 1.0,
         trading_mode: str = "spot",
         time_range: str | None = None,
-    ) -> tuple[dict[str, Any], dict[str, list[dict]]]:
+        margin_specs: dict | None = None,
+    ) -> tuple[dict[str, Any], dict[str, list[dict]], dict[str, int]]:
         """共享资金池：单 BacktestRunner + N 品种共享账户编排。
 
         与 ``_run_rust_single`` 的差异：
@@ -836,6 +888,7 @@ class EventDrivenBacktestService:
           （Rust 侧前向填充价格参与盯市，但不触发策略决策）
         - 每个品种一个策略实例（共享模式的必要条件：策略内部滚动状态必须按品种隔离）
         - 成交按 ``TradeRecord.instrument`` 拆分回各品种
+        - ``margin_specs``：每品种保证金规格（全品种参与，None/空 = 不启用）
 
         Returns:
             (聚合结果 dict, {品种: round-trip 成交列表}, {品种: fills 笔数})
@@ -884,8 +937,13 @@ class EventDrivenBacktestService:
             settle=settle,
             contract_size=contract_size,
         )
-        for strategy in strategies_by_symbol.values():
-            runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash))
+        for sym, strategy in strategies_by_symbol.items():
+            # 每品种独立杠杆：共享账户下各品种的放大倍数可以不同
+            leverage = (margin_specs or {}).get(_normalize_symbol(sym), {}).get("leverage", 1.0)
+            runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash, leverage=leverage))
+        if margin_specs:
+            # 全品种参与：未列入配置的品种也带着默认 1x / cross 规格进来
+            runner.with_margin(margin_specs)
 
         rust_result = runner.run(
             bars_by_symbol=aligned_bars,
@@ -1063,6 +1121,9 @@ class EventDrivenBacktestService:
             data_start_ns = int(pd.Timestamp(df.index[0]).timestamp() * 1e9)
             data_end_ns = int(pd.Timestamp(df.index[-1]).timestamp() * 1e9)
 
+        # 保证金相关字段：旧 wheel 没有这些属性，getattr 兜底保证向后兼容
+        liquidation_events = [dict(e) for e in getattr(rust_result, "liquidation_events", []) or []]
+
         return BacktestResult(
             total_pnl=float(rust_result.total_pnl),
             total_orders=int(rust_result.orders_accepted) + int(rust_result.orders_rejected),
@@ -1084,6 +1145,10 @@ class EventDrivenBacktestService:
             data_end_ns=data_end_ns,
             bar_count=len(df) if df is not None else 0,
             final_positions=dict(rust_result.final_positions),
+            liquidation_events=liquidation_events,
+            insurance_fund_loss=float(getattr(rust_result, "insurance_fund_loss", 0.0) or 0.0),
+            price_basis=getattr(rust_result, "price_basis", "close") or "close",
+            capital_budget_disabled=bool(getattr(rust_result, "capital_budget_disabled", False)),
         )
 
     @staticmethod

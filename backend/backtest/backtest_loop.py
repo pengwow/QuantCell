@@ -88,6 +88,11 @@ class BacktestResult:
     data_end_ns: int = 0
     bar_count: int = 0
     final_positions: dict = field(default_factory=dict)
+    # 保证金/强平相关（未启用保证金模拟时保持空值，Python 路径不填充）
+    liquidation_events: list = field(default_factory=list)
+    insurance_fund_loss: float = 0.0
+    price_basis: str = "close"
+    capital_budget_disabled: bool = False
 
 
 class BacktestLoop:
