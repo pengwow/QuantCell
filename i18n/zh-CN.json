@@ -378,6 +378,7 @@
   "type": "类型",
   "default_value": "默认值",
   "no_parameters": "暂无参数",
+  "param_options": "选项 (逗号分隔)",
   "ai_generate_strategy": "AI生成策略",
   "ai_input_placeholder": "请输入您的策略需求...",
   "input_empty": "请输入内容",

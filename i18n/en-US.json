@@ -377,6 +377,7 @@
   "type": "Type",
   "default_value": "Default Value",
   "no_parameters": "No parameters",
+  "param_options": "Options (comma separated)",
   "ai_generate_strategy": "AI Generate Strategy",
   "ai_input_placeholder": "Please enter your strategy requirements...",
   "input_empty": "Please enter content",
