@@ -29,7 +29,12 @@ class RustStrategyAdapter:
 
     语义对齐（与 `BacktestLoop` 逐 bar 循环保持一致，保证结果 parity）：
     - Rust `set_target_position` 收**绝对数量**；而策略的 `target_position` 是**权益占比**，
-      故在 buy/sell 决策时按 `ratio * equity / price` 换算（复用 `ratio_to_target_qty` 口径）。
+      故在 buy/sell 决策时按 `ratio × sizing_base × leverage / price` 换算（复用
+      `ratio_to_target_qty` 口径）。
+    - **杠杆乘法只发生在本适配器的 `decide`**：Rust 侧收到的已是绝对数量，不再乘杠杆，
+      否则会变成 leverage²。`leverage=1.0` 时公式退化为现状，parity 逐位一致。
+    - `sizing_base` 固定为**静态 `initial_cash`**（不是动态权益）：这是 parity 依赖的既有口径，
+      动态权益只用于强平判定（`margin_equity`），不能挪来做仓位换算。
     - hold 决策**不改目标位**（与 BacktestLoop "仅 buy/sell 调 set_target_position" 一致），
       否则 Rust 侧会把 hold 当 target=0 平掉仓位。
     - Rust `Instrument::from_symbol` 需要 `BASE/QUOTE` 分隔格式，故 symbol 归一化。
@@ -39,9 +44,17 @@ class RustStrategyAdapter:
     引擎会按策略 symbol 建 instrument，把入参品种的数据跑到**首品种**的 instrument 上。
     """
 
-    def __init__(self, strategy: BaseStrategy, initial_cash: float = 100_000.0, symbol: str | None = None):
+    def __init__(
+        self,
+        strategy: BaseStrategy,
+        initial_cash: float = 100_000.0,
+        symbol: str | None = None,
+        leverage: float = 1.0,
+    ):
         self._strategy = strategy
         self._initial_cash = initial_cash
+        # 每品种杠杆，仅用于 decide 里的仓位换算（Rust 侧不再乘）
+        self._leverage = float(leverage)
         # 上下文与归一化 symbol 必须同源，否则 ctx.symbol 与引擎 instrument 会不一致
         raw_symbol = symbol or getattr(strategy.config, "symbol", "BTCUSDT")
         self._symbol = _normalize_symbol(raw_symbol)
@@ -81,7 +94,11 @@ class RustStrategyAdapter:
         if action_type in ("buy", "sell"):
             ratio = float(getattr(action, "target_position", 0.0) or 0.0)
             price = float(bar["close"])
-            self._last_target_qty = ratio_to_target_qty(ratio, self._initial_cash, price) if price > 0 else 0.0
+            # 杠杆只在这里乘一次：Rust 侧收到的已是绝对数量，再乘会变成 leverage²。
+            # sizing_base 是静态 initial_cash（parity 依赖的既有口径），不要换成动态权益。
+            self._last_target_qty = (
+                ratio_to_target_qty(ratio * self._leverage, self._initial_cash, price) if price > 0 else 0.0
+            )
 
         return {
             "action_type": action_type,
