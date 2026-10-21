@@ -425,7 +425,14 @@ class ResultFormatterService:
         liquidation_events = ResultFormatterService._normalize_liquidation_events(results.get("liquidation_events"))
         insurance_fund_loss = float(results.get("insurance_fund_loss") or 0.0)
         price_basis = str(results.get("price_basis") or "close")
-        capital_budget_disabled = bool(results.get("capital_budget_disabled"))
+        # 生效保证金回显：引擎回填的实际规格 + 强平/缩量统计；旧结果缺键时按契约兜底
+        margin_applied = bool(results.get("margin_applied"))
+        margin_specs_effective = ResultFormatterService._normalize_margin_specs(results.get("margin_specs_effective"))
+        liquidation_count = int(results.get("liquidation_count") or 0)
+        # 旧结果只有事件列表、没有计数键：用事件条数兜底，避免「有强平记录却显示 0 次」
+        if liquidation_count == 0 and liquidation_events:
+            liquidation_count = len(liquidation_events)
+        margin_shortfall_count = int(results.get("margin_shortfall_count") or 0)
 
         # 计算额外指标
         trades = results.get("trades", [])
@@ -712,7 +719,10 @@ class ResultFormatterService:
                 "liquidation_events": liquidation_events,
                 "insurance_fund_loss": insurance_fund_loss,
                 "price_basis": price_basis,
-                "capital_budget_disabled": capital_budget_disabled,
+                "margin_applied": margin_applied,
+                "margin_specs_effective": margin_specs_effective,
+                "liquidation_count": liquidation_count,
+                "margin_shortfall_count": margin_shortfall_count,
             }
         }
 
@@ -724,7 +734,10 @@ class ResultFormatterService:
             "liquidation_events": liquidation_events,
             "insurance_fund_loss": insurance_fund_loss,
             "price_basis": price_basis,
-            "capital_budget_disabled": capital_budget_disabled,
+            "margin_applied": margin_applied,
+            "margin_specs_effective": margin_specs_effective,
+            "liquidation_count": liquidation_count,
+            "margin_shortfall_count": margin_shortfall_count,
         }
 
         # 投资组合汇总
@@ -735,7 +748,10 @@ class ResultFormatterService:
             "liquidation_events": liquidation_events,
             "insurance_fund_loss": insurance_fund_loss,
             "price_basis": price_basis,
-            "capital_budget_disabled": capital_budget_disabled,
+            "margin_applied": margin_applied,
+            "margin_specs_effective": margin_specs_effective,
+            "liquidation_count": liquidation_count,
+            "margin_shortfall_count": margin_shortfall_count,
         }
 
         # 元数据
@@ -766,6 +782,16 @@ class ResultFormatterService:
             item.setdefault("timestamp_ns", 0)
             normalized.append(item)
         return normalized
+
+    @staticmethod
+    def _normalize_margin_specs(specs) -> list[dict]:
+        """生效保证金规格规范化：旧结果无该字段返回空列表，非 dict 项直接丢弃。
+
+        引擎经 pyo3 返回 list[dict]；结果 JSON 要落盘，转成纯 dict 才能安全序列化。
+        """
+        if not isinstance(specs, list):
+            return []
+        return [dict(item) for item in specs if isinstance(item, dict)]
 
     @staticmethod
     def _calc_return_from_pnl(total_pnl: float, initial_capital: float) -> float:

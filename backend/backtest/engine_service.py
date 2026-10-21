@@ -814,7 +814,11 @@ class EventDrivenBacktestService:
             "liquidation_events": list(result.liquidation_events),
             "insurance_fund_loss": result.insurance_fund_loss,
             "price_basis": result.price_basis,
-            "capital_budget_disabled": result.capital_budget_disabled,
+            # 生效保证金回显：详情页据此核对「杠杆/档位是否真的生效」
+            "margin_applied": result.margin_applied,
+            "margin_specs_effective": list(result.margin_specs_effective),
+            "liquidation_count": result.liquidation_count,
+            "margin_shortfall_count": result.margin_shortfall_count,
         }
 
     # ─── Rust 原生回测路径（axon_quant.worker.BacktestRunner） ───
@@ -1146,6 +1150,9 @@ class EventDrivenBacktestService:
 
         # 保证金相关字段：旧 wheel 没有这些属性，getattr 兜底保证向后兼容
         liquidation_events = [dict(e) for e in getattr(rust_result, "liquidation_events", []) or []]
+        # 生效回显：margin_specs_effective 是 list[dict]，统一转成纯 dict 便于 JSON 落盘
+        raw_specs = getattr(rust_result, "margin_specs_effective", None) or []
+        margin_specs_effective = [dict(item) for item in raw_specs if isinstance(item, dict)]
 
         return BacktestResult(
             total_pnl=float(rust_result.total_pnl),
@@ -1171,7 +1178,11 @@ class EventDrivenBacktestService:
             liquidation_events=liquidation_events,
             insurance_fund_loss=float(getattr(rust_result, "insurance_fund_loss", 0.0) or 0.0),
             price_basis=getattr(rust_result, "price_basis", "close") or "close",
-            capital_budget_disabled=bool(getattr(rust_result, "capital_budget_disabled", False)),
+            margin_applied=bool(getattr(rust_result, "margin_applied", False)),
+            margin_specs_effective=margin_specs_effective,
+            # 旧 wheel 无计数时按事件条数兜底，避免详情页出现「有强平记录但 0 次」
+            liquidation_count=int(getattr(rust_result, "liquidation_count", 0) or 0),
+            margin_shortfall_count=int(getattr(rust_result, "margin_shortfall_count", 0) or 0),
         )
 
     @staticmethod
@@ -1389,7 +1400,27 @@ class EventDrivenBacktestService:
                 float(r.get("insurance_fund_loss") or 0.0) for r in per_symbol_results.values()
             )
         portfolio_price_basis = str(results.get("price_basis") or "close")
-        portfolio_budget_disabled = bool(results.get("capital_budget_disabled"))
+        # 生效保证金回显：共享账户直接取聚合结果；独立资金池模式下聚合 dict 只有标量，
+        # 需从各品种结果合并（各品种是同一批配置，按品种拼接即可覆盖全部生效规格）
+        if shares_equity:
+            portfolio_margin_applied = bool(results.get("margin_applied"))
+            portfolio_margin_specs = [
+                dict(spec) for spec in (results.get("margin_specs_effective") or []) if isinstance(spec, dict)
+            ]
+            portfolio_liquidation_count = int(results.get("liquidation_count") or 0)
+            portfolio_shortfall_count = int(results.get("margin_shortfall_count") or 0)
+        else:
+            portfolio_margin_applied = any(bool(r.get("margin_applied")) for r in per_symbol_results.values())
+            portfolio_margin_specs = [
+                dict(spec)
+                for r in per_symbol_results.values()
+                for spec in (r.get("margin_specs_effective") or [])
+                if isinstance(spec, dict)
+            ]
+            portfolio_liquidation_count = len(portfolio_events)
+            portfolio_shortfall_count = sum(
+                int(r.get("margin_shortfall_count") or 0) for r in per_symbol_results.values()
+            )
         portfolio_payload = ResultFormatterService.format_axon_results(
             results={
                 **results,
@@ -1401,7 +1432,10 @@ class EventDrivenBacktestService:
                 "liquidation_events": portfolio_events,
                 "insurance_fund_loss": portfolio_insurance_loss,
                 "price_basis": portfolio_price_basis,
-                "capital_budget_disabled": portfolio_budget_disabled,
+                "margin_applied": portfolio_margin_applied,
+                "margin_specs_effective": portfolio_margin_specs,
+                "liquidation_count": portfolio_liquidation_count,
+                "margin_shortfall_count": portfolio_shortfall_count,
             },
             symbol=symbols[0] if symbols else "PORTFOLIO",
             timeframe=timeframe,
@@ -1421,9 +1455,13 @@ class EventDrivenBacktestService:
         # 全集遍历会让缺失品种以空 dict 走 fallback，产出初始权益 100000 的假条目
         results_by_symbol: dict[str, dict[str, Any]] = {}
         for symbol, raw in per_symbol_results.items():
+            entry_events = self._filter_liquidation_events(raw.get("liquidation_events"), symbol)
             entry_results = {
                 **raw,
-                "liquidation_events": self._filter_liquidation_events(raw.get("liquidation_events"), symbol),
+                "liquidation_events": entry_events,
+                # 计数按过滤后的本品种事件重算：共享账户的 raw 是全账户计数，
+                # 直接沿用会让每个品种都显示账户总强平次数
+                "liquidation_count": len(entry_events),
             }
             results_by_symbol[symbol] = ResultFormatterService.format_axon_results(
                 results=entry_results,
@@ -1455,6 +1493,9 @@ class EventDrivenBacktestService:
                 "liquidation_events": portfolio_events,
                 "insurance_fund_loss": portfolio_insurance_loss,
                 "price_basis": portfolio_price_basis,
-                "capital_budget_disabled": portfolio_budget_disabled,
+                "margin_applied": portfolio_margin_applied,
+                "margin_specs_effective": portfolio_margin_specs,
+                "liquidation_count": portfolio_liquidation_count,
+                "margin_shortfall_count": portfolio_shortfall_count,
             },
         }

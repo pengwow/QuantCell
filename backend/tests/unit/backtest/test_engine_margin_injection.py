@@ -92,7 +92,7 @@ def test_unlisted_symbols_get_default_spec(monkeypatch):
     assert eth_spec["mode"] == "cross"
 
 
-def test_capital_budget_disabled_when_margin_enabled(monkeypatch):
+def test_shared_budget_disabled_when_margin_enabled(monkeypatch):
     """保证金启用时不能再传 shared 敞口预算，否则杠杆放大后的目标会被等比砍回"""
     captured: dict = {}
 
@@ -175,11 +175,50 @@ def test_map_rust_result_passes_margin_fields():
         ]
         insurance_fund_loss = 12.5
         price_basis = "close"
-        capital_budget_disabled = True
+        margin_applied = True
+        margin_specs_effective = [
+            {"symbol": "BTC/USDT", "leverage": 20.0, "margin_mode": "cross", "bracket_source": "default"}
+        ]
+        liquidation_count = 1
+        margin_shortfall_count = 2
 
     mapped = EventDrivenBacktestService._map_rust_result(_FakeRustResult(), None, "BTCUSDT")
 
     assert mapped.liquidation_events[0]["symbol"] == "BTC/USDT"
     assert mapped.insurance_fund_loss == 12.5
     assert mapped.price_basis == "close"
-    assert mapped.capital_budget_disabled is True
+    assert mapped.margin_applied is True
+    assert mapped.margin_specs_effective == [
+        {"symbol": "BTC/USDT", "leverage": 20.0, "margin_mode": "cross", "bracket_source": "default"}
+    ]
+    assert mapped.liquidation_count == 1
+    assert mapped.margin_shortfall_count == 2
+
+
+def test_map_rust_result_defaults_when_margin_fields_absent():
+    """旧 wheel 结果没有生效回显字段：按 False / [] / 0 / 0 兜底，不抛异常"""
+
+    class _LegacyRustResult:
+        total_pnl = 0.0
+        orders_accepted = 0
+        orders_rejected = 0
+        fills = 0
+        final_nav = 10_000.0
+        max_drawdown_pct = 0.0
+        nav_peak = 10_000.0
+        bar_nav_curve = []
+        trades = []
+        fills_detail = []
+        events_processed = 0
+        duration_secs = 0.0
+        total_fees = 0.0
+        win_rate = 0.0
+        sharpe_ratio = 0.0
+        final_positions = {}
+
+    mapped = EventDrivenBacktestService._map_rust_result(_LegacyRustResult(), None, "BTCUSDT")
+
+    assert mapped.margin_applied is False
+    assert mapped.margin_specs_effective == []
+    assert mapped.liquidation_count == 0
+    assert mapped.margin_shortfall_count == 0

@@ -56,11 +56,12 @@ interface EquityCurvePoint {
   margin?: number;
 }
 
-// 每品种杠杆与保证金模式（配置页提交、结果回显）
-interface MarginSettingEcho {
+// 生效保证金规格：引擎回显实际生效值（含档位来源）；旧任务回退配置时没有 bracket_source
+interface EffectiveMarginSpec {
   symbol: string;
   leverage: number;
   margin_mode?: 'isolated' | 'cross';
+  bracket_source?: 'db' | 'snapshot' | 'default';
 }
 
 // 逐档部分强平事件（引擎产出；字段按可选处理，旧任务结果 JSON 无此项）
@@ -114,7 +115,7 @@ interface BacktestResponse {
     initial_cash?: number;
     capital_mode?: string;
     // 创建回测时的杠杆配置（提交体落在 backtest_config 里，旧任务缺失）
-    margin_settings?: MarginSettingEcho[];
+    margin_settings?: EffectiveMarginSpec[];
     // 创建回测时的策略参数（后端入库时随 backtest_config 保存；旧任务可能缺失）
     strategy_params?: Record<string, unknown>;
     [key: string]: unknown;
@@ -130,9 +131,12 @@ interface BacktestResponse {
   is_multi_symbol?: boolean;
   // 因无数据被跳过的品种：{品种: 原因}，据此提示用户「选了 N 个标的只剩 M 个」的原因
   skipped_symbols?: Record<string, string>;
-  // 保证金模拟结果：杠杆回显、逐档强平事件、保险基金承担的穿仓损失
+  // 保证金模拟结果：生效规格、档位来源、强平/缩量统计
   // 旧任务的结果 JSON 没有这些字段，读取侧统一按空值降级
-  margin_settings?: MarginSettingEcho[];
+  margin_applied?: boolean;
+  margin_specs_effective?: EffectiveMarginSpec[];
+  liquidation_count?: number;
+  margin_shortfall_count?: number;
   liquidation_events?: LiquidationEventRecord[];
   insurance_fund_loss?: number;
   status: string;
@@ -358,12 +362,27 @@ const BacktestDetail = () => {
 
   const strategyName = backtestData.strategy_name || 'Unknown';
   const backtestConfig = backtestData.backtest_config || {};
-  // 杠杆回显：优先结果字段，回退到任务配置（提交时 margin_settings 就存在 backtest_config 里）
-  const marginSettings: MarginSettingEcho[] =
-    backtestData.margin_settings ?? backtestConfig.margin_settings ?? [];
+  // 生效规格优先（引擎回填的实际值）；旧任务没有结果字段，回退到任务配置，
+  // 后者没有 bracket_source，前端标注为「配置回显」
+  const effectiveSpecs: EffectiveMarginSpec[] =
+    backtestData.margin_specs_effective?.length
+      ? backtestData.margin_specs_effective
+      : backtestConfig.margin_settings ?? [];
+  const marginApplied = backtestData.margin_applied ?? false;
+  const liquidationCount = backtestData.liquidation_count ?? 0;
+  const shortfallCount = backtestData.margin_shortfall_count ?? 0;
   // 旧任务没有保证金结果字段，一律按“无强平”处理
   const liquidationEvents: LiquidationEventRecord[] = backtestData.liquidation_events ?? [];
   const insuranceFundLoss = backtestData.insurance_fund_loss ?? 0;
+  // 档位来源：db=交易所档位、snapshot=内置快照、default=默认档位；无来源即旧任务配置回显
+  const bracketSourceLabel = (item: EffectiveMarginSpec): string =>
+    item.bracket_source === 'db'
+      ? '交易所档位'
+      : item.bracket_source === 'snapshot'
+        ? '内置快照'
+        : item.bracket_source === 'default'
+          ? '默认档位'
+          : '配置回显';
 
   return (
     <PageContainer title={`${strategyName} - 回测详情`}>
@@ -429,19 +448,30 @@ const BacktestDetail = () => {
               {backtestData.status}
             </Descriptions.Item>
           </Descriptions>
-          {/* 杠杆汇总：只展示配置过的品种，条目数量不定，与策略参数一样独占一块 */}
-          {marginSettings.length > 0 && (
-            <div>
-              <div className="mb-2 text-sm font-medium">杠杆与保证金</div>
-              <Space size={4} wrap>
-                {marginSettings.map((item) => (
-                  <Tag key={item.symbol} className="mb-0">
-                    {`${item.symbol} ${item.leverage}x ${item.margin_mode === 'isolated' ? '逐仓' : '全仓'}`}
-                  </Tag>
-                ))}
-              </Space>
-            </div>
-          )}
+          {/* 杠杆与保证金：整块常显，未启用时明确告诉用户「没算保证金」，而不是悄悄消失 */}
+          <div>
+            <div className="mb-2 text-sm font-medium">杠杆与保证金</div>
+            <Space size={4} wrap>
+              {effectiveSpecs.map((item) => (
+                <Tag key={item.symbol} className="mb-0">
+                  {`${item.symbol} ${item.leverage}x ${item.margin_mode === 'isolated' ? '逐仓' : '全仓'} · ${bracketSourceLabel(item)}`}
+                </Tag>
+              ))}
+              {marginApplied && (
+                <>
+                  <Tag color="blue" className="mb-0">{`强平 ${liquidationCount} 次`}</Tag>
+                  {shortfallCount > 0 && (
+                    <Tag color="orange" className="mb-0">{`保证金受限缩量 ${shortfallCount} 次`}</Tag>
+                  )}
+                </>
+              )}
+            </Space>
+            {!marginApplied && (
+              <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+                未启用保证金模拟（1x，无强平判定）
+              </div>
+            )}
+          </div>
           {/* 策略参数独占一块：参数条目数量不定，塞进 Descriptions 格子会显示不全 */}
           <div>
             <div className="mb-2 text-sm font-medium">策略参数</div>
