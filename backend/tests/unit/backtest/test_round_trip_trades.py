@@ -5,7 +5,7 @@
 
 配对逻辑已下沉到 axon_quant 引擎(apply_fill 6 状态机),本方法只做字段映射:
 引擎 result.trades(含 entry_price/entry_time_ns/realized_pnl/net_quantity/
-entry_fill_ids/exit_fill_id) + fills_detail
+entry_fill_ids/exit_fill_ids) + fills_detail
 → 前端 19 字段契约(含逐笔 fills)。
 """
 
@@ -32,7 +32,7 @@ CONTRACT_FIELDS = {
     "exit_side",
     "status",
     "entry_fill_ids",
-    "exit_fill_id",
+    "exit_fill_ids",
     "fills",
 }
 
@@ -44,7 +44,7 @@ S = 1_000_000_000  # 秒 -> 纳秒
 # - realized_pnl: 引擎权威已实现盈亏
 # - net_quantity: 负=平多(long), 正=平空(short)
 # - quantity: 平仓数量
-# - entry_fill_ids/exit_fill_id: 构成该持仓的开仓 fill / 触发平仓的 fill
+# - entry_fill_ids/exit_fill_ids: 构成该持仓的开仓 fill / 触发平仓的 fill 列表
 ENGINE_TRADES = [
     # 做多: 开仓 100 @ t0, 平仓 110 @ t1, pnl=10, fill 0 -> 1
     {
@@ -56,7 +56,7 @@ ENGINE_TRADES = [
         "realized_pnl": 10.0,
         "net_quantity": -1.0,
         "entry_fill_ids": [0],
-        "exit_fill_id": 1,
+        "exit_fill_ids": [1],
     },
     # 做多(两次加仓后 avg_cost): 开仓均价 105.6 @ t2, 平仓 120 @ t3, pnl=36, fill 2,3 -> 4
     {
@@ -68,7 +68,7 @@ ENGINE_TRADES = [
         "realized_pnl": 36.0,
         "net_quantity": -2.5,
         "entry_fill_ids": [2, 3],
-        "exit_fill_id": 4,
+        "exit_fill_ids": [4],
     },
     # 做空: 开仓 100 @ t4, 平仓 99 @ t5, pnl=1, fill 5 -> 6
     {
@@ -80,7 +80,7 @@ ENGINE_TRADES = [
         "realized_pnl": 1.0,
         "net_quantity": 1.0,
         "entry_fill_ids": [5],
-        "exit_fill_id": 6,
+        "exit_fill_ids": [6],
     },
 ]
 
@@ -126,29 +126,30 @@ def test_identity_and_side_semantics():
 def test_fill_association_from_engine():
     trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
     assert trades[0]["entry_fill_ids"] == [0]
-    assert trades[0]["exit_fill_id"] == 1
+    assert trades[0]["exit_fill_ids"] == [1]
     # 加仓场景: 两笔开仓 fill 都归属同一条 trade
     assert trades[1]["entry_fill_ids"] == [2, 3]
-    assert trades[1]["exit_fill_id"] == 4
+    assert trades[1]["exit_fill_ids"] == [4]
     assert trades[2]["entry_fill_ids"] == [5]
-    assert trades[2]["exit_fill_id"] == 6
+    assert trades[2]["exit_fill_ids"] == [6]
 
 
 def test_fills_assembly():
     trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES, "BTCUSDT", ENGINE_FILLS)
     for tr in trades:
         fills = tr["fills"]
-        # 开仓 fill 条数 + 1 条平仓 fill
-        assert len(fills) == len(tr["entry_fill_ids"]) + 1
-        assert all(f["offset"] == "open" for f in fills[:-1])
-        assert fills[-1]["offset"] == "close"
+        # fill 条数 = 开仓 fill + 平仓 fill（FLAT_TO_FLAT 下平仓也可能多条）
+        assert len(fills) == len(tr["entry_fill_ids"]) + len(tr["exit_fill_ids"])
+        open_f = [f for f in fills if f["offset"] == "open"]
+        close_f = [f for f in fills if f["offset"] == "close"]
+        assert len(open_f) == len(tr["entry_fill_ids"])
+        assert len(close_f) == len(tr["exit_fill_ids"])
         # 逐笔明细的 id/方向/价格与 fills_detail 对齐
-        assert [f["fill_id"] for f in fills] == tr["entry_fill_ids"] + [tr["exit_fill_id"]]
-        assert all(f["side"] == tr["entry_side"] for f in fills[:-1])
-        assert fills[-1]["side"] == tr["exit_side"]
-        # 盈亏只归平仓侧
-        assert all(f["pnl"] == 0.0 for f in fills[:-1])
-        assert fills[-1]["pnl"] == tr["pnl"]
+        assert [f["fill_id"] for f in fills] == tr["entry_fill_ids"] + tr["exit_fill_ids"]
+        assert all(f["side"] == tr["entry_side"] for f in open_f)
+        assert all(f["side"] == tr["exit_side"] for f in close_f)
+        # 盈亏只在主行 trade.pnl，所有 fill 的 pnl 统一为 0.0
+        assert all(f["pnl"] == 0.0 for f in fills)
         assert all(f["status"] == "filled" for f in fills)
 
     # 加仓那笔: 开仓 2 条(100/1.5, 114/1.0), 平仓 1 条(120/2.5)
@@ -159,7 +160,7 @@ def test_fills_skipped_when_detail_missing():
     # fills_detail 缺失对应 id 时降级：关联字段仍在，fills 只保留查得到的
     trades = BacktestLoop._format_round_trip_trades(ENGINE_TRADES[:1], "BTCUSDT", [])
     assert trades[0]["entry_fill_ids"] == [0]
-    assert trades[0]["exit_fill_id"] == 1
+    assert trades[0]["exit_fill_ids"] == [1]
     assert trades[0]["fills"] == []
 
 

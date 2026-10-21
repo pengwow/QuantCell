@@ -353,7 +353,7 @@ class BacktestLoop:
         - price / timestamp_ns: 平仓信息
         - realized_pnl: 引擎权威已实现盈亏(与 total_pnl 口径一致)
         - net_quantity: 负=平多(long),正=平空(short)
-        - entry_fill_ids / exit_fill_id: 构成该持仓的开仓 fill id 与平仓 fill id
+        - entry_fill_ids / exit_fill_ids: 构成该持仓的开仓 fill id 与平仓 fill id 列表
 
         fills_detail 用于把 fill id 还原成逐笔成交明细(价格/数量),组装成 `fills` 供前端展开。
 
@@ -369,20 +369,21 @@ class BacktestLoop:
         for tr in engine_trades:
             entry_price = float(tr.get("entry_price", 0.0) or 0.0)
             exit_price = float(tr.get("price", 0.0) or 0.0)
-            size = float(tr.get("quantity", 0.0) or 0.0)
             pnl = float(tr.get("realized_pnl", 0.0) or 0.0)
             entry_time_ns = int(tr.get("entry_time_ns", 0) or 0)
             exit_time_ns = int(tr.get("timestamp_ns", 0) or 0)
             net_qty = float(tr.get("net_quantity", 0.0) or 0.0)
+            # FLAT_TO_FLAT 下 Trade.quantity 是最后一笔平仓 fill 的量，累计平仓量在 net_quantity 里（带方向符号）
+            size = abs(net_qty)
 
             # 方向: net_quantity 负=平多,正=平空;开/平方向由方向反推
             direction = "long" if net_qty < 0 else "short"
             entry_side = "buy" if direction == "long" else "sell"
             exit_side = "sell" if entry_side == "buy" else "buy"
 
-            # 引擎的 fill 关联: 开仓可能由多笔 fill 构成(同向加仓),平仓恒为一笔
+            # 引擎的 fill 关联: 开仓可能由多笔 fill 构成(同向加仓); FLAT_TO_FLAT 下平仓也可能由多笔 fill 构成
             entry_fill_ids = [int(x) for x in (tr.get("entry_fill_ids") or [])]
-            exit_fill_id = int(tr.get("exit_fill_id") or 0)
+            exit_fill_ids = [int(x) for x in (tr.get("exit_fill_ids") or [])]
 
             entry_ts_sec = entry_time_ns // 1_000_000_000
             exit_ts_sec = exit_time_ns // 1_000_000_000
@@ -410,14 +411,12 @@ class BacktestLoop:
                     "quantity": float(src.get("quantity") or 0.0),
                     "timestamp": ts_sec,
                     "formatted_time": dt_s,
-                    "pnl": 0.0 if offset == "open" else pnl,
+                    "pnl": 0.0,  # 累计 pnl 已在主行 trade.pnl，多条 close fill 每条显示相同累计值会误导用户
                     "status": "filled",
                 }
 
             open_fills = [_fill_json(fid, entry_side, "open", entry_ts_sec) for fid in entry_fill_ids if fid in by_id]
-            # 必须分两步写: `[...] + [...] if cond else []` 会解析成 `(a+b) if cond else []`,
-            # cond 为假时连开仓明细一起丢
-            close_fills = [_fill_json(exit_fill_id, exit_side, "close", exit_ts_sec)] if exit_fill_id in by_id else []
+            close_fills = [_fill_json(fid, exit_side, "close", exit_ts_sec) for fid in exit_fill_ids if fid in by_id]
 
             entry_dt = datetime.fromtimestamp(entry_time_ns / 1e9, tz=UTC)
             exit_dt = datetime.fromtimestamp(exit_time_ns / 1e9, tz=UTC)
@@ -444,7 +443,7 @@ class BacktestLoop:
                     "exit_side": exit_side,
                     "status": "closed",
                     "entry_fill_ids": entry_fill_ids,
-                    "exit_fill_id": exit_fill_id,
+                    "exit_fill_ids": exit_fill_ids,
                     "fills": open_fills + close_fills,
                 }
             )

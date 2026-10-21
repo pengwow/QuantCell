@@ -52,7 +52,7 @@ def _fake_trade(symbol: str, i: int) -> dict:
         "exit_side": "sell",
         "status": "closed",
         "entry_fill_ids": [i],
-        "exit_fill_id": i + 1,
+        "exit_fill_ids": [i + 1],
         "fills": [],
     }
 

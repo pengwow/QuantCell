@@ -99,7 +99,7 @@ def _assert_parity(py_res, rust_res) -> None:
         assert a["exit_side"] == b["exit_side"]
         assert a["status"] == b["status"] == "closed"
         assert a["entry_fill_ids"] == b["entry_fill_ids"]
-        assert a["exit_fill_id"] == b["exit_fill_id"]
+        assert a["exit_fill_ids"] == b["exit_fill_ids"]
         assert len(a["fills"]) == len(b["fills"])
         assert [(f["side"], f["offset"], f["fill_id"]) for f in a["fills"]] == [
             (f["side"], f["offset"], f["fill_id"]) for f in b["fills"]
