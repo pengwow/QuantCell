@@ -460,6 +460,22 @@ class ExchangeConfig(TimezoneAwareBase):
     )
 
 
+class LeverageBracket(TimezoneAwareBase):
+    """币安杠杆档位快照SQLAlchemy模型
+
+    对应leverage_brackets表的SQLAlchemy模型定义，每个品种一行（整张档位表存 JSON）
+    回测构建保证金规格时按 symbol 读取，缺失则回退到内置快照/默认档位。
+    """
+
+    __tablename__ = "leverage_brackets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    symbol = Column(String(32), nullable=False, unique=True, index=True)
+    market = Column(String(8), nullable=False, default="um")  # um = USDT-M 永续
+    brackets_json = Column(Text, nullable=False)  # [{"notional_floor":…, "mmr":…, …}]
+    collected_at = Column(DateTime(timezone=True), nullable=False)
+
+
 # 业务逻辑类
 
 

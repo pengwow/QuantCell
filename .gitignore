@@ -28,7 +28,9 @@ frontend/test_data/*
 frontend/tsconfig.tsbuildinfo
 
 crypto_data/
-backend/data/
+backend/data/*
+# 内置杠杆档位快照需要随代码分发；backend/data 下其余运行产物仍忽略
+!backend/data/binance_um_leverage_brackets.json
 backend/test_data/
 backend/collector/README.md
 backend/data/system.db

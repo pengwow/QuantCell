@@ -4,8 +4,9 @@
 数据通过 Binance REST API 获取，存储为 Parquet 格式。
 """
 
+import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiohttp
@@ -125,6 +126,80 @@ class OpenInterestFetcher:
         # 添加当前时间戳
         data["timestamp"] = int(datetime.now().timestamp() * 1_000_000_000)
         return pd.DataFrame([data])
+
+
+class LeverageBracketCollector:
+    """币安杠杆档位采集器（仅 USDT-M 永续）
+
+    Binance API:
+      USDT-M: GET /fapi/v1/leverageBracket?symbol=BTCUSDT（无需鉴权）
+
+    ``brackets[]`` 字段名与引擎 Bracket 的映射：
+      notionalFloor → notional_floor、notionalCap → notional_cap、
+      maintMarginRatio → mmr、cum → cum、initialLeverage → max_leverage，
+      强平费固定取 taker 费率 0.001（币安接口不返回该字段）。
+    """
+
+    # 强平手续费：币安档位接口不返回，统一按 taker 费率近似
+    LIQUIDATION_FEE_RATE = 0.001
+
+    def __init__(self, market: str = "um"):
+        self.market = market
+        self.api_base = _API_BASE[market]
+
+    async def fetch(
+        self,
+        session: aiohttp.ClientSession,
+        symbol: str,
+        proxy: str | None = None,
+    ) -> list[dict]:
+        """异步获取单个 symbol 的完整档位表（按 notional_floor 升序）"""
+        url = f"{self.api_base}/fapi/v1/leverageBracket"
+        async with session.get(url, params={"symbol": symbol}, proxy=proxy) as resp:
+            resp.raise_for_status()
+            payload = await resp.json()
+
+        # 成功响应是 [{symbol, brackets: [...]}]；出错时是 {"code": ..., "msg": ...}
+        item = payload[0] if isinstance(payload, list) and payload else {}
+        brackets = [
+            {
+                "notional_floor": float(b.get("notionalFloor", 0.0)),
+                "notional_cap": float(b["notionalCap"]) if b.get("notionalCap") is not None else None,
+                "mmr": float(b.get("maintMarginRatio", 0.0)),
+                "cum": float(b.get("cum", 0.0)),
+                "liquidation_fee_rate": self.LIQUIDATION_FEE_RATE,
+                "max_leverage": float(b.get("initialLeverage", 1.0)),
+            }
+            for b in item.get("brackets", [])
+        ]
+        brackets.sort(key=lambda b: b["notional_floor"])
+        return brackets
+
+    def save(self, symbol: str, brackets: list[dict]) -> bool:
+        """档位落库（按 symbol + market 幂等覆盖），供回测三级回退的 DB 层使用"""
+        if not brackets:
+            logger.warning(f"{symbol} 档位为空，跳过落库")
+            return False
+
+        # 函数内导入：DB 依赖是可选链路，采集器在无 DB 的纯脚本场景也应可导入
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import LeverageBracket
+
+        init_database_config()
+        try:
+            with SessionLocal() as session:
+                row = session.query(LeverageBracket).filter_by(symbol=symbol.upper(), market=self.market).first()
+                if row is None:
+                    row = LeverageBracket(symbol=symbol.upper(), market=self.market)
+                    session.add(row)
+                row.brackets_json = json.dumps(brackets, ensure_ascii=False)
+                row.collected_at = datetime.now(UTC)
+                session.commit()
+            logger.info(f"{symbol} 杠杆档位已落库（{len(brackets)} 档）")
+            return True
+        except Exception as e:
+            logger.error(f"{symbol} 杠杆档位落库失败: {e}")
+            return False
 
 
 class DerivCollector:
