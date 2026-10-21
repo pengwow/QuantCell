@@ -1181,13 +1181,24 @@ class NewStrategy(BaseStrategy):
                                             { value: 'Any', label: 'Any' },
                                           ]}
                                         />
-                                        <Input
-                                          size="small"
-                                          value={param.default === undefined || param.default === null ? '' : String(param.default)}
-                                          placeholder={t('default_value') || '默认值'}
-                                          onChange={(e) => handleParamChange(index, 'default', e.target.value)}
-                                          style={{ width: 140 }}
-                                        />
+                                        {param.type === 'select' && !!param.options?.length ? (
+                                          <Select
+                                            size="small"
+                                            value={param.default === undefined || param.default === null ? undefined : String(param.default)}
+                                            placeholder={t('default_value') || '默认值'}
+                                            onChange={(v) => handleParamChange(index, 'default', v)}
+                                            style={{ width: 140 }}
+                                            options={(param.options || []).map((opt: string) => ({ value: opt, label: opt }))}
+                                          />
+                                        ) : (
+                                          <Input
+                                            size="small"
+                                            value={param.default === undefined || param.default === null ? '' : String(param.default)}
+                                            placeholder={t('default_value') || '默认值'}
+                                            onChange={(e) => handleParamChange(index, 'default', e.target.value)}
+                                            style={{ width: 140 }}
+                                          />
+                                        )}
                                         {param.type === 'select' && (
                                           <Input
                                             size="small"
