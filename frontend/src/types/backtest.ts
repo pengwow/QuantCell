@@ -49,7 +49,7 @@ export interface Trade {
   exit_side: 'buy' | 'sell';     // 平仓方向
   status: 'closed';              // 已平仓
   entry_fill_ids: number[];      // 构成该持仓的开仓 fill id
-  exit_fill_id: number;          // 平仓 fill id（0 表示未知）
+  exit_fill_ids: number[];       // 平仓 fill id 列表（FLAT_TO_FLAT 下可能多条）
   fills: TradeFill[];            // 逐笔成交明细
 }
 
