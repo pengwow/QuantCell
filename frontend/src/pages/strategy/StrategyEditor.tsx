@@ -620,6 +620,10 @@ class NewStrategy(BaseStrategy):
                 case 'bool':
                   coerced = v.toLowerCase() === 'true';
                   break;
+                case 'select':
+                  // select 的值本身就是选项字符串，无需转换；显式列出防止日后加 default 分支时误伤
+                  coerced = v;
+                  break;
                 case 'str':
                   coerced = v;
                   break;
@@ -1173,6 +1177,7 @@ class NewStrategy(BaseStrategy):
                                             { value: 'float', label: 'float' },
                                             { value: 'str', label: 'str' },
                                             { value: 'bool', label: 'bool' },
+                                            { value: 'select', label: 'select' },
                                             { value: 'Any', label: 'Any' },
                                           ]}
                                         />
@@ -1183,6 +1188,21 @@ class NewStrategy(BaseStrategy):
                                           onChange={(e) => handleParamChange(index, 'default', e.target.value)}
                                           style={{ width: 140 }}
                                         />
+                                        {param.type === 'select' && (
+                                          <Input
+                                            size="small"
+                                            value={(param.options || []).join(',')}
+                                            placeholder={t('param_options') || '选项(逗号分隔)'}
+                                            onChange={(e) =>
+                                              handleParamChange(
+                                                index,
+                                                'options',
+                                                e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean),
+                                              )
+                                            }
+                                            style={{ width: 180 }}
+                                          />
+                                        )}
                                         <Input
                                           size="small"
                                           value={param.description || ''}
@@ -1220,6 +1240,9 @@ class NewStrategy(BaseStrategy):
                                       <Tag color="purple" className="mb-0">{param.type || 'Any'}</Tag>
                                       {param.default !== undefined && param.default !== null && param.default !== '' && (
                                         <Tag color="geekblue" className="mb-0">= {String(param.default)}</Tag>
+                                      )}
+                                      {param.type === 'select' && !!param.options?.length && (
+                                        <Tag color="gold" className="mb-0">∈ {param.options.join(' / ')}</Tag>
                                       )}
                                       {param.description && (
                                         <span className="text-gray-500 text-sm flex-1 truncate">{param.description}</span>
