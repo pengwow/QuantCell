@@ -420,6 +420,13 @@ class ResultFormatterService:
         nav_peak = results.get("nav_peak", initial_capital)
         total_return_pct = ResultFormatterService._calc_return_from_pnl(total_pnl, initial_capital)
 
+        # 保证金模拟字段必须跟着结果走：详情接口只做字段挑选、不重建数据，
+        # 这里不带上，强平事件与穿仓损失就永远到不了详情页（旧结果缺字段按契约兜底）
+        liquidation_events = ResultFormatterService._normalize_liquidation_events(results.get("liquidation_events"))
+        insurance_fund_loss = float(results.get("insurance_fund_loss") or 0.0)
+        price_basis = str(results.get("price_basis") or "close")
+        capital_budget_disabled = bool(results.get("capital_budget_disabled"))
+
         # 计算额外指标
         trades = results.get("trades", [])
 
@@ -701,6 +708,11 @@ class ResultFormatterService:
                 "klines": results.get("klines", []),
                 # 因子分析载荷（仅当回测配置了 factor_names 时存在）
                 "factors": results.get("factors", {}),
+                # 保证金模拟结果（逐档强平审计视图）
+                "liquidation_events": liquidation_events,
+                "insurance_fund_loss": insurance_fund_loss,
+                "price_basis": price_basis,
+                "capital_budget_disabled": capital_budget_disabled,
             }
         }
 
@@ -709,6 +721,10 @@ class ResultFormatterService:
             "starting_balance": initial_capital,
             "final_nav": final_nav,
             "total_pnl": total_pnl,
+            "liquidation_events": liquidation_events,
+            "insurance_fund_loss": insurance_fund_loss,
+            "price_basis": price_basis,
+            "capital_budget_disabled": capital_budget_disabled,
         }
 
         # 投资组合汇总
@@ -716,6 +732,10 @@ class ResultFormatterService:
             "metrics": metrics_list,
             "trades": trades,
             "equity_curve": results.get("equity_curve", []),
+            "liquidation_events": liquidation_events,
+            "insurance_fund_loss": insurance_fund_loss,
+            "price_basis": price_basis,
+            "capital_budget_disabled": capital_budget_disabled,
         }
 
         # 元数据
@@ -728,6 +748,24 @@ class ResultFormatterService:
         }
 
         return formatted
+
+    @staticmethod
+    def _normalize_liquidation_events(events) -> list[dict]:
+        """强平事件规范化：旧结果无该字段返回空列表，时间戳统一成 int。
+
+        引擎产出的 timestamp_ns 是纳秒整数；旧/手工结果可能缺键或带 numpy 标量，
+        统一转换后才能安全写入结果 JSON（JSON 序列化不接受 numpy 类型）。
+        """
+        if not isinstance(events, list):
+            return []
+        normalized: list[dict] = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            item = {k: (int(v) if k == "timestamp_ns" and v is not None else v) for k, v in event.items()}
+            item.setdefault("timestamp_ns", 0)
+            normalized.append(item)
+        return normalized
 
     @staticmethod
     def _calc_return_from_pnl(total_pnl: float, initial_capital: float) -> float:

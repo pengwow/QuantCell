@@ -591,6 +591,29 @@ class EventDrivenBacktestService:
         return self._klines_to_records(kline_df)
 
     @staticmethod
+    def _filter_liquidation_events(events, symbol: str) -> list[dict]:
+        """按品种过滤强平事件（共享账户的事件是全账户全量，必须拆分到品种视图）。
+
+        Rust 事件里的 symbol 是 `BASE/QUOTE` 归一化名，而品种条目键是 QuantCell
+        原始名（如 BTCUSDT），比较前统一归一化；缺 symbol 的事件无法归属到任何
+        品种，只保留在组合视图。
+        """
+        if not isinstance(events, list):
+            return []
+        # 函数内 import：strategy 包 __init__ 会连带载入 routes/service，
+        # 提到模块顶层会让 engine_service 的导入链变重并可能成环
+        from strategy.rust_adapter import _normalize_symbol
+
+        target = _normalize_symbol(symbol)
+        return [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and isinstance(event.get("symbol"), str)
+            and _normalize_symbol(event["symbol"]) == target
+        ]
+
+    @staticmethod
     def _accumulate_symbol_metrics(result: dict[str, Any], aggregated: dict[str, Any]) -> None:
         """把单品种结果的标量指标累加进聚合 dict（原地修改）。
 
@@ -1346,6 +1369,27 @@ class EventDrivenBacktestService:
             merged_curve = BacktestService._merge_equity_curves(
                 [[p for p in (r.get("equity_curve") or []) if isinstance(p, dict)] for r in per_symbol_results.values()]
             )
+
+        # 保证金字段：组合视图必须带全量强平事件。共享模式的聚合 dict 直接含全账户事件；
+        # 独立资金池模式下聚合 dict 只有标量（_accumulate_symbol_metrics 跳过列表），
+        # 需从各品种结果拼接，否则「全部」视图看不到任何强平记录。
+        if shares_equity:
+            portfolio_events = results.get("liquidation_events")
+            portfolio_events = portfolio_events if isinstance(portfolio_events, list) else []
+            portfolio_insurance_loss = float(results.get("insurance_fund_loss") or 0.0)
+        else:
+            portfolio_events = [
+                e
+                for r in per_symbol_results.values()
+                for e in (r.get("liquidation_events") or [])
+                if isinstance(e, dict)
+            ]
+            # 各品种是独立资金池，穿仓损失按品种相加即总损失
+            portfolio_insurance_loss = sum(
+                float(r.get("insurance_fund_loss") or 0.0) for r in per_symbol_results.values()
+            )
+        portfolio_price_basis = str(results.get("price_basis") or "close")
+        portfolio_budget_disabled = bool(results.get("capital_budget_disabled"))
         portfolio_payload = ResultFormatterService.format_axon_results(
             results={
                 **results,
@@ -1354,6 +1398,10 @@ class EventDrivenBacktestService:
                 "max_drawdown_pct": max_dd_pct,
                 "trades": merged_trades,
                 "equity_curve": merged_curve,
+                "liquidation_events": portfolio_events,
+                "insurance_fund_loss": portfolio_insurance_loss,
+                "price_basis": portfolio_price_basis,
+                "capital_budget_disabled": portfolio_budget_disabled,
             },
             symbol=symbols[0] if symbols else "PORTFOLIO",
             timeframe=timeframe,
@@ -1366,6 +1414,24 @@ class EventDrivenBacktestService:
         # 自行按时间戳并集合并，避免结果 JSON 额外膨胀）
         portfolio_payload["equity_curve"] = list(results.get("equity_curve") or []) if shares_equity else []
 
+        # 品种条目：共享账户下每个条目都复制了全账户事件，必须按品种拆分，
+        # 否则切换品种时看到的是所有品种的强平记录（独立资金池模式的条目自带本品种事件，
+        # 过滤后不变，顺手统一两条路径的口径）。
+        # 只遍历实际参与回测的品种：无数据品种不在 per_symbol_results 里，按请求 symbols
+        # 全集遍历会让缺失品种以空 dict 走 fallback，产出初始权益 100000 的假条目
+        results_by_symbol: dict[str, dict[str, Any]] = {}
+        for symbol, raw in per_symbol_results.items():
+            entry_results = {
+                **raw,
+                "liquidation_events": self._filter_liquidation_events(raw.get("liquidation_events"), symbol),
+            }
+            results_by_symbol[symbol] = ResultFormatterService.format_axon_results(
+                results=entry_results,
+                symbol=symbol,
+                timeframe=timeframe,
+                strategy_name=strategy_name,
+            ).get(f"{symbol}_{timeframe}", {})
+
         return {
             "strategy_name": strategy_name,
             "symbols": symbols,
@@ -1373,18 +1439,7 @@ class EventDrivenBacktestService:
             "is_multi_symbol": True,
             # 资金使用方式：组合视图/回放按模式切换聚合口径（Task 7 消费）
             "capital_mode": capital_mode,
-            "results_by_symbol": {
-                # 只遍历实际参与回测的品种：无数据品种不在 per_symbol_results 里，
-                # 按请求 symbols 全集遍历会让缺失品种以空 dict 走 fallback，
-                # 产出初始权益 100000 / 最终权益 0 的假条目污染详情页
-                symbol: ResultFormatterService.format_axon_results(
-                    results=per_symbol_results[symbol],
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    strategy_name=strategy_name,
-                ).get(f"{symbol}_{timeframe}", {})
-                for symbol in per_symbol_results
-            },
+            "results_by_symbol": results_by_symbol,
             "portfolio": portfolio_payload,
             # 保留 _meta 和 account 信息
             "_meta": {
@@ -1397,5 +1452,9 @@ class EventDrivenBacktestService:
                 "starting_balance": initial_equity,
                 "final_nav": final_equity,
                 "total_pnl": total_pnl,
+                "liquidation_events": portfolio_events,
+                "insurance_fund_loss": portfolio_insurance_loss,
+                "price_basis": portfolio_price_basis,
+                "capital_budget_disabled": portfolio_budget_disabled,
             },
         }
