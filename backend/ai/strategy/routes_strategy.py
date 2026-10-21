@@ -771,6 +771,7 @@ _TEMPLATE_META: dict[str, dict[str, Any]] = {
     "mean_reversion_rl": {"name": "RL 均值回归", "category": "rl", "tags": ["强化学习", "均值回归"]},
     "sma_crossover": {"name": "SMA 交叉", "category": "trend_following", "tags": ["SMA", "金叉死叉"]},
     "factor_timing": {"name": "因子择时", "category": "factor", "tags": ["因子", "择时"]},
+    "martingale": {"name": "马丁格尔", "category": "martingale", "tags": ["马丁", "加仓", "做多做空"]},
     "llm_signal": {"name": "LLM 信号策略", "category": "ai", "tags": ["LLM", "AI"]},
 }
 

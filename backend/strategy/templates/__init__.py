@@ -6,6 +6,7 @@ from strategy.templates.dual_ma import DualMA
 from strategy.templates.factor_timing import FactorTiming
 from strategy.templates.funding_arbitrage import FundingArbitrage
 from strategy.templates.grid import Grid
+from strategy.templates.martingale import Martingale
 from strategy.templates.mean_reversion import MeanReversion
 from strategy.templates.mean_reversion_rl import MeanReversionRL
 from strategy.templates.momentum import Momentum
@@ -22,3 +23,4 @@ register("cross_sectional")(CrossSectional)
 register("mean_reversion_rl")(MeanReversionRL)
 register("sma_crossover")(SMACrossover)
 register("factor_timing")(FactorTiming)
+register("martingale")(Martingale)
