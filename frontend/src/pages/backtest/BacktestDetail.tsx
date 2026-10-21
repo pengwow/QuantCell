@@ -91,6 +91,8 @@ interface BacktestResponse {
     end_time: string;
     initial_cash?: number;
     capital_mode?: string;
+    // 创建回测时的策略参数（后端入库时随 backtest_config 保存；旧任务可能缺失）
+    strategy_params?: Record<string, unknown>;
     [key: string]: unknown;
   };
   strategy_config: Record<string, unknown>;
@@ -386,6 +388,19 @@ const BacktestDetail = () => {
             </Descriptions.Item>
             <Descriptions.Item label="资金使用方式">
               {backtestConfig.capital_mode === 'shared' ? '组合共享资金池' : '各品种独立资金池'}
+            </Descriptions.Item>
+            <Descriptions.Item label="策略参数">
+              {Object.keys(backtestConfig.strategy_params || {}).length === 0 ? (
+                '-'
+              ) : (
+                <Space size={4} wrap>
+                  {Object.entries(backtestConfig.strategy_params!).map(([k, v]) => (
+                    <Tag key={k} className="mb-0">
+                      {k}: {String(v)}
+                    </Tag>
+                  ))}
+                </Space>
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="状态">
               {backtestData.status}
