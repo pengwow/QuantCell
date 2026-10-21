@@ -795,6 +795,49 @@ def update_system_config_add_user_id(session: Session, db_type: str) -> None:
         logger.error(f"更新system_config表失败: {e}")
 
 
+def create_leverage_brackets_table(session: Session, db_type: str) -> None:
+    """创建杠杆档位表（如果不存在）
+
+    表结构由 collector.db.models.LeverageBracket 定义；正常启动时 create_all 已建好，
+    这里兜底老库升级（无 create_all 的场景）。
+
+    Args:
+        session: SQLAlchemy会话对象
+        db_type: 数据库类型（sqlite或duckdb）
+    """
+    logger.info("检查leverage_brackets表是否存在...")
+
+    try:
+        if db_type == "sqlite":
+            session.execute(
+                text("""
+                CREATE TABLE IF NOT EXISTS leverage_brackets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol VARCHAR(32) NOT NULL UNIQUE,
+                    market VARCHAR(8) NOT NULL DEFAULT 'um',
+                    brackets_json TEXT NOT NULL,
+                    collected_at DATETIME NOT NULL
+                )
+            """)
+            )
+            session.execute(text("CREATE INDEX IF NOT EXISTS ix_leverage_brackets_symbol ON leverage_brackets(symbol)"))
+        elif db_type == "duckdb":
+            session.execute(
+                text("""
+                CREATE TABLE IF NOT EXISTS leverage_brackets (
+                    id INTEGER PRIMARY KEY,
+                    symbol VARCHAR(32) NOT NULL UNIQUE,
+                    market VARCHAR(8) NOT NULL DEFAULT 'um',
+                    brackets_json TEXT NOT NULL,
+                    collected_at TIMESTAMP NOT NULL
+                )
+            """)
+            )
+        logger.info("leverage_brackets表创建成功（或已存在）")
+    except Exception as e:
+        logger.error(f"创建leverage_brackets表失败: {e}")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
 
@@ -840,6 +883,9 @@ def run_migrations() -> None:
 
             # 更新 share_tokens 表结构，补齐远端分发相关列
             update_share_tokens_table(session, db_type)
+
+            # 创建杠杆档位表（保证金回测的档位数据源）
+            create_leverage_brackets_table(session, db_type)
 
             # 提交所有更改
             session.commit()
