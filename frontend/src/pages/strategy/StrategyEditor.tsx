@@ -1199,21 +1199,6 @@ class NewStrategy(BaseStrategy):
                                             style={{ width: 140 }}
                                           />
                                         )}
-                                        {param.type === 'select' && (
-                                          <Input
-                                            size="small"
-                                            value={(param.options || []).join(',')}
-                                            placeholder={t('param_options') || '选项(逗号分隔)'}
-                                            onChange={(e) =>
-                                              handleParamChange(
-                                                index,
-                                                'options',
-                                                e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean),
-                                              )
-                                            }
-                                            style={{ width: 180 }}
-                                          />
-                                        )}
                                         <Input
                                           size="small"
                                           value={param.description || ''}
