@@ -327,7 +327,8 @@ class BacktestService:
             results: 结果 JSON 的 results 字段（多品种封装结构）
 
         Returns:
-            dict: {metrics, trades, equity_curve, positions}
+            dict: {metrics, trades, equity_curve, positions, liquidation_events,
+                insurance_fund_loss, price_basis, capital_budget_disabled}
         """
         entries = BacktestService.extract_symbol_entries(results)
         portfolio = results.get("portfolio") if isinstance(results, dict) else None
@@ -354,11 +355,24 @@ class BacktestService:
             else BacktestService._merge_equity_curves([entry.get("equity_curve") or [] for entry in entries.values()])
         )
 
+        # 保证金模拟结果：旧结果 JSON 没有这些键，统一按契约兜底
+        liquidation_events = portfolio.get("liquidation_events") if isinstance(portfolio, dict) else None
+        liquidation_events = liquidation_events if isinstance(liquidation_events, list) else []
+        insurance_fund_loss = float(portfolio.get("insurance_fund_loss") or 0.0) if isinstance(portfolio, dict) else 0.0
+        price_basis = str(portfolio.get("price_basis") or "close") if isinstance(portfolio, dict) else "close"
+        capital_budget_disabled = (
+            bool(portfolio.get("capital_budget_disabled")) if isinstance(portfolio, dict) else False
+        )
+
         return {
             "metrics": metrics,
             "trades": all_trades,
             "equity_curve": merged_curve,
             "positions": all_positions,
+            "liquidation_events": liquidation_events,
+            "insurance_fund_loss": insurance_fund_loss,
+            "price_basis": price_basis,
+            "capital_budget_disabled": capital_budget_disabled,
         }
 
     @staticmethod

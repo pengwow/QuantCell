@@ -652,6 +652,11 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             positions: list = []
             factors: dict = {}
             skipped_symbols: dict = {}
+            # 保证金模拟结果：旧结果 JSON 无这些键时保持空值，前端按「无强平」降级
+            liquidation_events: list = []
+            insurance_fund_loss: float = 0.0
+            price_basis: str = "close"
+            capital_budget_disabled: bool = False
 
             # 结果 JSON 是回测结果的唯一真实来源；无 JSON（未跑完/已清理）时保持空列表
             json_result = backtest_service.get_result(backtest_id)
@@ -675,6 +680,10 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     equity_curve = view["equity_curve"]
                     positions = view["positions"]
                     factors = {}
+                    liquidation_events = view.get("liquidation_events") or []
+                    insurance_fund_loss = view.get("insurance_fund_loss") or 0.0
+                    price_basis = view.get("price_basis") or "close"
+                    capital_budget_disabled = bool(view.get("capital_budget_disabled"))
                 else:
                     # 指定品种优先，缺省（单品种）取第一个品种
                     entry = entries.get(symbol) if symbol else None
@@ -688,6 +697,11 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     equity_curve = entry.get("equity_curve") or []
                     positions = entry.get("positions") or []
                     factors = entry.get("factors") or {}
+                    # 强平事件随品种条目走；旧结果无该键时保持空列表
+                    liquidation_events = entry.get("liquidation_events") or []
+                    insurance_fund_loss = entry.get("insurance_fund_loss") or 0.0
+                    price_basis = entry.get("price_basis") or "close"
+                    capital_budget_disabled = bool(entry.get("capital_budget_disabled"))
 
             # 构建前端期望的响应格式
             detail_data = {
@@ -699,6 +713,11 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "trades": trades,
                 "positions": positions,
                 "factors": factors,
+                # 保证金模拟结果（逐档强平审计视图 + 穿仓损失），前端据此渲染强平卡片
+                "liquidation_events": liquidation_events,
+                "insurance_fund_loss": insurance_fund_loss,
+                "price_basis": price_basis,
+                "capital_budget_disabled": capital_budget_disabled,
                 # 结果中实际有数据的品种列表（多品种切换用），及当前返回的品种
                 "symbols": result_symbols,
                 "selected_symbol": (
