@@ -9,3 +9,15 @@ repos:
       - id: ruff-format
         files: ^backend/
         exclude: ^backend/decision_py_archive_v2_202610/
+
+  # pytest 门禁：提交前跑 CI 同款测试（backtest / conformance / integration）
+  # 避免本地 .so 缓存过期导致跑了假绿灯、推上去 CI 才炸
+  - repo: local
+    hooks:
+      - id: pytest-backend
+        name: pytest (backtest / conformance / integration)
+        entry: bash -c 'cd backend && uv run pytest tests/unit/backtest tests/conformance tests/integration -q'
+        language: system
+        pass_filenames: false
+        always_run: true
+        exclude: ^(\.trae_deleted/|backend/decision_py_archive_v2_202610/|\.github/)
