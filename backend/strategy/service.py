@@ -56,28 +56,6 @@ _PARAM_DESC_MAP: dict[str, str] = {
     "position_limit": "目标仓位上限",
 }
 
-# 参数可选值覆写：特定参数在前端渲染为下拉选择而不是文本输入
-# key = 参数名, value = 选项列表。type 会被自动覆写为 "select"
-_PARAM_OPTIONS_MAP: dict[str, list[str]] = {
-    "direction": ["long", "short", "both"],
-}
-
-
-def _apply_param_overrides(params: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """对解析/存储的参数列表做后处理：覆写 type + 注入 options。
-
-    前端参数表单依赖 type 选择输入控件；默认 AST 只能推 int/float/str/bool，
-    对 direction 等枚举参数会给 str → 前端渲染成纯文本。
-    此函数统一修复：命中 _PARAM_OPTIONS_MAP 的参数 → type 改为 "select" 并注入 options。
-    DB 融合路径和 AST 直接返回路径都需要过这一层，避免手动编辑过的参数丢失下拉选项。
-    """
-    for p in params:
-        name = p.get("name", "")
-        if name in _PARAM_OPTIONS_MAP:
-            p["type"] = "select"
-            p["options"] = _PARAM_OPTIONS_MAP[name]
-    return params
-
 
 def _guess_param_type(default_val: Any) -> str:
     """默认值的 Python 类型 → 前端 type hint。"""
@@ -133,6 +111,26 @@ class StrategyService:
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
         self.strategy_instances: dict[str, Any] = {}
 
+    @staticmethod
+    def _merge_db_params_with_ast(
+        db_params: list[dict[str, Any]], ast_params: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """DB 参数优先（业务值），AST 侧识别出的 select 参数为其补渲染能力。
+
+        旧策略的 DB parameters 是写死方案/无 options 时代落库的，缺 type=select 与
+        options 字段；按 name 用 AST 同名参数补全，避免下拉退化为文本输入。
+        """
+        ast_by_name = {p["name"]: p for p in ast_params}
+        merged: list[dict[str, Any]] = []
+        for p in db_params:
+            row = dict(p)
+            ast_p = ast_by_name.get(row.get("name", ""))
+            if ast_p and ast_p.get("type") == "select" and not row.get("options"):
+                row["type"] = "select"
+                row["options"] = ast_p.get("options", [])
+            merged.append(row)
+        return merged
+
     def list_strategies(self) -> list[dict[str, Any]]:
         """列出所有策略文件。
 
@@ -165,11 +163,13 @@ class StrategyService:
                 if info:
                     row = db_rows.get(file_path.stem)
                     if row:
-                        # DB 有 params → 覆盖 AST 解析结果（含手动维护的参数描述）
+                        # DB 有 params → 覆盖 AST 解析结果（含手动维护的参数描述）；
+                        # AST 识别出的 select 参数为旧 DB 记录补 options 渲染能力
                         if row.parameters:
                             try:
-                                info["params"] = json.loads(row.parameters)
-                                _apply_param_overrides(info["params"])
+                                info["params"] = self._merge_db_params_with_ast(
+                                    json.loads(row.parameters), info["params"]
+                                )
                             except json.JSONDecodeError:
                                 pass
                         # DB 有 factors → 覆盖 AST 解析结果
@@ -217,11 +217,10 @@ class StrategyService:
             with get_db_session() as db:
                 row = db.query(Strategy).filter_by(name=name).first()
             if row:
-                # DB 有 params → 覆盖 AST 解析结果
+                # DB 有 params → 覆盖 AST 解析结果；select 渲染能力由 AST 补缺
                 if row.parameters:
                     try:
-                        info["params"] = json.loads(row.parameters)
-                        _apply_param_overrides(info["params"])
+                        info["params"] = self._merge_db_params_with_ast(json.loads(row.parameters), info["params"])
                     except json.JSONDecodeError:
                         pass
                 # DB 有 factors → 覆盖 AST 解析结果
@@ -341,9 +340,6 @@ class StrategyService:
             factors = self._extract_factors(tree, content)
 
         strategy_type = self.detect_strategy_type(content)
-
-        # AST 直接提取的 params 也要过 overrides（direction → select + options）
-        _apply_param_overrides(params)
 
         return {
             "name": name,
