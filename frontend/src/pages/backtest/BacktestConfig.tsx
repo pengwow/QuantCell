@@ -310,11 +310,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       } else {
         setStrategies([]);
         console.error('策略列表数据格式错误:', response);
-        message.warning('策略列表数据格式错误，显示空列表');
+        message.warning(t('backtest_strategy_list_invalid'));
       }
     } catch (error) {
       console.error('加载策略列表失败:', error);
-      message.error('加载策略列表失败');
+      message.error(t('backtest_strategy_list_load_failed'));
       setStrategies([]);
     } finally {
       setLoading(false);
@@ -443,10 +443,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           initialCash: 100000,
           commission: 0.001
         });
-        message.info('已自动填充演示策略的回测配置');
+        message.info(t('backtest_demo_config_filled'));
       }
 
-      message.success(`已加载策略: ${fullStrategy.name}`);
+      message.success(t('backtest_strategy_loaded', { name: fullStrategy.name }));
     }
   }, [strategy, form, location.state, locationStrategy, propStrategy, showConfig, message, strategies]);
 
@@ -500,7 +500,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           initialCash: 100000,
           commission: 0.001
         });
-        message.info('已自动填充演示策略的回测配置');
+        message.info(t('backtest_demo_config_filled'));
       }
     } else {
       form.setFieldValue('params', {});
@@ -584,11 +584,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         current: data.execution?.completed_symbols || 0,
         total: data.execution?.total_symbols || 1,
         currentSymbol: data.execution?.current_symbol || '',
-        message: data.execution?.message || '准备执行回测...',
+        message: data.execution?.message || t('backtest_preparing_execution'),
       },
       analysis: {
         percent: data.analysis?.progress || 0,
-        message: data.analysis?.message || '等待结果统计...',
+        message: data.analysis?.message || t('backtest_waiting_stats'),
       },
     };
 
@@ -608,7 +608,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       stopProgressPolling();
       setIsBacktestRunning(false);
       setLoading(false);
-      message.success('回测执行成功！');
+      message.success(t('backtest_success_complete'));
       return;
     }
 
@@ -621,7 +621,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         setErrorMessage(data.error.message);
         message.error(data.error.message);
       } else {
-        message.error('回测执行失败');
+        message.error(t('backtest_execute_failed'));
       }
       return;
     }
@@ -650,16 +650,16 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     if (stage === 'data_prep') {
       switch (step) {
         case 'checking':
-          return '正在检查数据完整性...';
+          return t('backtest_step_checking_data');
         case 'downloading':
-          return '正在下载数据...';
+          return t('backtest_step_downloading_data');
         case 'loading':
-          return '正在加载数据...';
+          return t('backtest_step_loading_data');
         default:
-          return '准备数据...';
+          return t('backtest_step_preparing_data');
       }
     }
-    return '处理中...';
+    return t('backtest_step_processing');
   };
 
   /**
@@ -680,18 +680,18 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         percent: 0,
         downloading: false,
         downloadProgress: 0,
-        message: '准备开始...',
+        message: t('backtest_step_ready_to_start'),
       },
       execution: {
         percent: 0,
         current: 0,
         total: 1,
         currentSymbol: '',
-        message: '等待数据准备...',
+        message: t('backtest_step_waiting_data'),
       },
       analysis: {
         percent: 0,
-        message: '等待执行完成...',
+        message: t('backtest_step_waiting_execution'),
       },
     });
 
@@ -724,8 +724,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     const startTimeout = setTimeout(() => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
-        message.error('回测启动超时，请检查网络连接或代理配置');
-        setErrorMessage('回测启动超时，请检查网络连接或代理配置');
+        message.error(t('backtest_start_timeout'));
+        setErrorMessage(t('backtest_start_timeout'));
         setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
         setIsBacktestRunning(false);
         setLoading(false);
@@ -737,7 +737,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       clearTimeout(startTimeout);
 
       if (backtestResult?.status === 'failed') {
-        const errorMsg = backtestResult.message || '回测启动失败';
+        const errorMsg = backtestResult.message || t('backtest_start_failed_generic');
         message.error(errorMsg);
         setErrorMessage(errorMsg);
         setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
@@ -748,8 +748,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       const serverTaskId = backtestResult?.data?.task_id || backtestResult?.task_id;
       if (!serverTaskId) {
-        message.error('回测启动失败：未获取到任务ID');
-        setErrorMessage('回测启动失败：未获取到任务ID');
+        message.error(t('backtest_no_task_id'));
+        setErrorMessage(t('backtest_no_task_id'));
         setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
         setIsBacktestRunning(false);
         setLoading(false);
@@ -764,11 +764,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     } catch (error) {
       clearTimeout(startTimeout);
       if (error instanceof Error && (error.name === 'AbortError' || error.message?.includes('aborted'))) {
-        setErrorMessage('回测已终止');
+        setErrorMessage(t('backtest_terminated'));
         setStepStatus(prev => ({ ...prev, execution: 'error', analysis: 'error' }));
-        message.info('回测已终止');
+        message.info(t('backtest_terminated'));
       } else {
-        const errorMsg = error instanceof Error ? error.message : '执行回测失败';
+        const errorMsg = error instanceof Error ? error.message : t('backtest_exec_failed_generic');
         setErrorMessage(errorMsg);
         setStepStatus(prev => {
           const newStatus = { ...prev };
@@ -798,7 +798,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
     setPrecheckDownloading(true);
     setPrecheckDownloadProgress(0);
-    setPrecheckDownloadMsg('正在创建下载任务...');
+    setPrecheckDownloadMsg(t('backtest_download_creating_task'));
     setPrecheckSymbolsProgress([]);
     precheckAbortRef.current = new AbortController();
 
@@ -813,11 +813,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       });
       const taskId = downloadRes?.task_id || downloadRes?.data?.task_id;
       if (!taskId) {
-        throw new Error('下载任务创建失败，未返回 task_id');
+        throw new Error(t('backtest_download_task_no_id'));
       }
 
       // 2. 轮询下载进度（每 2 秒，超时 10 分钟）
-      setPrecheckDownloadMsg('下载中...');
+      setPrecheckDownloadMsg(t('backtest_downloading'));
       const maxWait = 10 * 60 * 1000;
       const startTime = Date.now();
       let failedSymbols: string[] = [];
@@ -866,7 +866,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       }
 
       if (precheckAbortRef.current?.signal.aborted) {
-        setPrecheckDownloadMsg('下载已取消');
+        setPrecheckDownloadMsg(t('backtest_download_cancelled'));
         return;
       }
 
@@ -882,15 +882,15 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       setProgressVisible(true);
 
       if (remainingSymbols.length === 0) {
-        message.error('所有品种均无可用数据，请前往数据管理页下载');
+        message.error(t('backtest_no_data_at_all'));
         setProgressVisible(false);
         return;
       }
 
       if (failedSymbols.length > 0) {
-        message.warning(`${failedSymbols.length} 个品种下载失败已跳过，将用剩余 ${remainingSymbols.length} 个品种回测`);
+        message.warning(t('backtest_download_skipped_some', { failed: failedSymbols.length, remaining: remainingSymbols.length }));
       } else {
-        message.success('数据下载完成，开始回测');
+        message.success(t('backtest_download_done_start'));
       }
 
       const modifiedData = {
@@ -899,8 +899,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       };
       await executeBacktest(modifiedData);
     } catch (e: any) {
-      setPrecheckDownloadMsg(`下载失败：${e?.message || '未知错误'}`);
-      message.error(`数据下载失败：${e?.message || '未知错误'}`);
+      setPrecheckDownloadMsg(t('backtest_download_failed_detail', { message: e?.message || t('backtest_unknown_error') }));
+      message.error(t('backtest_download_failed_msg', { message: e?.message || t('backtest_unknown_error') }));
     } finally {
       setPrecheckDownloading(false);
     }
@@ -917,7 +917,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       pendingBacktestDataRef.current = null;
 
       if (!values.timeRange || values.timeRange.length !== 2) {
-        message.error('请选择有效的回测时间范围');
+        message.error(t('backtest_invalid_time_range'));
         return;
       }
 
@@ -935,7 +935,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       }
 
       if (poolIds.length > 0) {
-        message.loading('正在加载数据池中的货币对...', 0);
+        message.loading(t('backtest_loading_pool_symbols'), 0);
         for (const poolId of poolIds) {
           const poolAssets = await loadPoolSymbols(poolId);
           symbols = [...symbols, ...poolAssets];
@@ -945,16 +945,16 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         symbols = [...new Set(symbols)];
 
         if (symbols.length === 0) {
-          message.error('所选数据池中没有货币对，请选择其他数据池或货币对');
+          message.error(t('backtest_pool_no_symbols'));
           setLoading(false);
           return;
         }
 
-        message.success(`已加载 ${symbols.length} 个交易标的`);
+        message.success(t('backtest_symbols_loaded', { num: symbols.length }));
       }
 
       if (symbols.length === 0) {
-        message.error('请至少选择一个交易标的或数据池');
+        message.error(t('backtest_symbols_required_msg'));
         setLoading(false);
         return;
       }
@@ -1026,11 +1026,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       await executeBacktest(backtestData);
     } catch (error) {
       console.error('执行回测失败:', error);
-      setErrorMessage(error instanceof Error ? error.message : '执行回测失败');
+      setErrorMessage(error instanceof Error ? error.message : t('backtest_exec_failed_generic'));
       setIsBacktestRunning(false);
       setCurrentTaskId('');
       abortControllerRef.current = null;
-      message.error(error instanceof Error ? error.message : '执行回测失败');
+      message.error(error instanceof Error ? error.message : t('backtest_exec_failed_generic'));
     } finally {
       setLoading(false);
     }
@@ -1043,21 +1043,21 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
-        message.info('正在终止回测...');
+        message.info(t('backtest_stopping'));
       } else {
         setIsBacktestRunning(false);
         setCurrentTaskId('');
-        setErrorMessage('回测已终止');
+        setErrorMessage(t('backtest_terminated'));
         setStepStatus(prev => ({
           ...prev,
           execution: 'error',
           analysis: 'error',
         }));
-        message.info('回测已终止');
+        message.info(t('backtest_terminated'));
       }
     } catch (error) {
       console.error('终止回测失败:', error);
-      message.error(error instanceof Error ? error.message : '终止回测失败');
+      message.error(error instanceof Error ? error.message : t('backtest_stop_failed'));
     }
   };
 
@@ -1081,16 +1081,16 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             tradingMode: 'spot',
           }}
         >
-          <Card title="策略信息" className="mb-6">
+          <Card title={t('backtest_strategy_info')} className="mb-6">
             <Row gutter={16}>
               <Col span={24}>
                 <Form.Item
                   name="strategy"
-                  label="策略名称"
-                  rules={[{ required: true, message: '请选择策略名称' }]}
+                  label={t('backtest_strategy_name')}
+                  rules={[{ required: true, message: t('backtest_strategy_name_required') }]}
                 >
                   <Select
-                    placeholder="请选择策略"
+                    placeholder={t('backtest_strategy_placeholder')}
                     style={{ width: '100%' }}
                     onChange={handleStrategyChange}
                     // options + optionRender：选中回显只用 label（纯策略名），下拉项额外渲染描述
@@ -1108,7 +1108,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={handleCreateStrategy}
                           >
-                            创建新策略
+                            {t('backtest_create_strategy')}
                           </Button>
                         </div>
                       </>
@@ -1145,7 +1145,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               </Col>
 
               <Col span={24}>
-                <div style={{ marginBottom: 8 }}>策略参数配置</div>
+                <div style={{ marginBottom: 8 }}>{t('backtest_params_config')}</div>
                 {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
                   <div style={{ background: 'transparent', padding: '16px', borderRadius: '4px', border: '1px solid var(--ant-color-border)' }}>
                     <Row gutter={24}>
@@ -1176,31 +1176,31 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                   </div>
                 ) : (
                   <div style={{ color: '#999', textAlign: 'center', padding: '20px 0', border: '1px dashed #d9d9d9', borderRadius: '4px' }}>
-                    {selectedStrategy ? '该策略没有可配置参数' : '请先选择策略以配置参数'}
+                    {selectedStrategy ? t('backtest_no_configurable_params') : t('backtest_select_strategy_for_params')}
                   </div>
                 )}
               </Col>
             </Row>
           </Card>
 
-          <Card title="回测信息" className="mb-6">
+          <Card title={t('backtest_info')} className="mb-6">
             <Row gutter={16}>
               <Col span={24}>
                 <Form.Item
                   name="symbols"
-                  label="交易标的"
-                  rules={[{ required: true, message: '请选择交易标的' }]}
+                  label={t('backtest_symbols')}
+                  rules={[{ required: true, message: t('backtest_symbols_required') }]}
                 >
                   <Select
                     mode="multiple"
-                    placeholder="请选择或搜索品种"
+                    placeholder={t('backtest_symbols_placeholder')}
                     style={{ width: '100%' }}
                     options={symbolOptions}
                     loading={symbolOptionsLoading}
                     showSearch
                     allowClear
                     maxTagCount={3}
-                    maxTagPlaceholder={(omittedValues) => `+${omittedValues.length} 更多`}
+                    maxTagPlaceholder={(omittedValues) => t('backtest_max_tags_more', { num: omittedValues.length })}
                     filterOption={(input, option) => {
                       if (!input) return true;
                       const label = option?.label || '';
@@ -1213,12 +1213,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={12}>
                 <Form.Item
                   name="timeRange"
-                  label="时间范围"
-                  rules={[{ required: true, message: '请选择回测时间范围' }]}
+                  label={t('backtest_time_range')}
+                  rules={[{ required: true, message: t('backtest_time_range_required') }]}
                 >
                   <RangePicker
                     format="YYYY-MM-DD"
-                    placeholder={['开始日期', '结束日期']}
+                    placeholder={[t('backtest_start_date'), t('backtest_end_date')]}
                   />
                 </Form.Item>
               </Col>
@@ -1226,17 +1226,17 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={12}>
                 <Form.Item
                   name="interval"
-                  label="周期"
-                  rules={[{ required: true, message: '请选择回测周期' }]}
+                  label={t('backtest_interval')}
+                  rules={[{ required: true, message: t('backtest_interval_required') }]}
                 >
-                  <Select placeholder="请选择回测周期">
-                    <Option value="1m">1分钟</Option>
-                    <Option value="5m">5分钟</Option>
-                    <Option value="15m">15分钟</Option>
-                    <Option value="30m">30分钟</Option>
-                    <Option value="1h">1小时</Option>
-                    <Option value="4h">4小时</Option>
-                    <Option value="1d">1天</Option>
+                  <Select placeholder={t('backtest_interval_required')}>
+                    <Option value="1m">{t('interval_1m')}</Option>
+                    <Option value="5m">{t('interval_5m')}</Option>
+                    <Option value="15m">{t('interval_15m')}</Option>
+                    <Option value="30m">{t('interval_30m')}</Option>
+                    <Option value="1h">{t('interval_1h')}</Option>
+                    <Option value="4h">{t('interval_4h')}</Option>
+                    <Option value="1d">{t('interval_1d')}</Option>
                   </Select>
                 </Form.Item>
               </Col>
@@ -1244,13 +1244,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={24}>
                 <Form.Item
                   name="tradingMode"
-                  label="交易模式"
-                  rules={[{ required: true, message: '请选择交易模式' }]}
-                  extra="现货只能做多；永续合约支持双向交易并结算资金费率，需对应合约 K 线数据"
+                  label={t('backtest_trading_mode')}
+                  rules={[{ required: true, message: t('backtest_trading_mode_required') }]}
+                  extra={t('backtest_trading_mode_extra')}
                 >
-                  <Select placeholder="请选择交易模式">
-                    <Option value="spot">现货</Option>
-                    <Option value="futures">永续合约</Option>
+                  <Select placeholder={t('backtest_trading_mode_required')}>
+                    <Option value="spot">{t('trading_mode_spot')}</Option>
+                    <Option value="futures">{t('backtest_futures')}</Option>
                   </Select>
                 </Form.Item>
               </Col>
@@ -1258,13 +1258,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               {watchedTradingMode === 'futures' && (
                 <Col span={24}>
                   <Form.Item
-                    label="杠杆与保证金"
-                    extra="杠杆放大名义敞口并引入强平风险；做空需永续模式。未配置的品种按 1x 全仓参与，数据池展开的品种同样走默认值"
+                    label={t('backtest_margin_settings')}
+                    extra={t('backtest_margin_settings_extra')}
                   >
                     {/* antd v6 下 space-y-* 会被 CSS-in-JS 覆盖失效，行间距必须用 Space 自己产生 */}
                     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
                       {marginSymbols.length === 0 ? (
-                        <span style={{ color: '#999' }}>请先在上方选择交易标的</span>
+                        <span style={{ color: '#999' }}>{t('backtest_select_symbols_first')}</span>
                       ) : (
                         // 行按品种键绑定：字段名里带 symbol，不再用下标对齐，
                         // 品种增删时自然对应，也就不会被 watch 与条件渲染互锁
@@ -1292,8 +1292,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                               <Select
                                 style={{ width: 110 }}
                                 options={[
-                                  { value: 'cross', label: '全仓' },
-                                  { value: 'isolated', label: '逐仓' },
+                                  { value: 'cross', label: t('backtest_margin_cross') },
+                                  { value: 'isolated', label: t('backtest_margin_isolated') },
                                 ]}
                               />
                             </Form.Item>
@@ -1333,11 +1333,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={12}>
                 <Form.Item
                   name="commission"
-                  label="手续费"
-                  rules={[{ required: true, message: '请输入手续费率' }]}
+                  label={t('backtest_commission')}
+                  rules={[{ required: true, message: t('backtest_commission_placeholder') }]}
                 >
                   <InputNumber
-                    placeholder="请输入手续费率"
+                    placeholder={t('backtest_commission_placeholder')}
                     min={0}
                     max={1}
                     step={0.0001}
@@ -1349,11 +1349,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={12}>
                 <Form.Item
                   name="initialCash"
-                  label="初始资金"
-                  rules={[{ required: true, message: '请输入初始资金' }]}
+                  label={t('backtest_initial_cash')}
+                  rules={[{ required: true, message: t('backtest_initial_cash_placeholder') }]}
                 >
                   <InputNumber
-                    placeholder="请输入初始资金"
+                    placeholder={t('backtest_initial_cash_placeholder')}
                     min={1000}
                     max={100000000}
                     step={1000}
@@ -1365,17 +1365,17 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={12}>
                 <Form.Item
                   name="capitalMode"
-                  label="资金使用方式"
+                  label={t('backtest_capital_mode')}
                   initialValue="per_symbol"
                   extra={
                     isMultiSymbol
-                      ? '各品种独立资金池：每个货币对各拿一份初始资金；组合共享资金池：所有货币对共用一笔初始资金，总名义敞口受初始资金约束'
-                      : '当前为单品种回测，该选项无影响'
+                      ? t('backtest_capital_mode_multi_hint')
+                      : t('backtest_capital_mode_single_hint')
                   }
                 >
                   <Radio.Group disabled={!isMultiSymbol}>
-                    <Radio value="per_symbol">各品种独立资金池</Radio>
-                    <Radio value="shared">组合共享资金池</Radio>
+                    <Radio value="per_symbol">{t('backtest_capital_per_symbol')}</Radio>
+                    <Radio value="shared">{t('backtest_capital_shared')}</Radio>
                   </Radio.Group>
                 </Form.Item>
               </Col>
@@ -1385,16 +1385,16 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit" loading={loading}>
-                运行回测
+                {t('backtest_run')}
               </Button>
               {isBacktestRunning && !progressVisible && (
-                <Tooltip title="查看进行中的回测进度">
+                <Tooltip title={t('backtest_view_progress_tooltip')}>
                   <Button
                     type="default"
                     icon={<EyeOutlined />}
                     onClick={handleViewProgress}
                   >
-                    查看回测进度
+                    {t('backtest_view_progress')}
                   </Button>
                 </Tooltip>
               )}
@@ -1405,7 +1405,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       {/* 回测前数据预检弹窗。zIndex 高于进度弹窗，避免被盖住导致用户无法操作 */}
       <Modal
-        title="数据缺失提醒"
+        title={t('backtest_precheck_title')}
         open={precheckVisible}
         zIndex={1100}
         onCancel={() => {
@@ -1416,20 +1416,20 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           setPrecheckDownloading(false);
         }}
         footer={precheckDownloading ? null : [
-          <Button key="cancel" onClick={() => setPrecheckVisible(false)}>取消</Button>,
+          <Button key="cancel" onClick={() => setPrecheckVisible(false)}>{t('cancel')}</Button>,
           <Button
             key="download"
             type="primary"
             onClick={handlePrecheckDownload}
           >
-            下载并回测
+            {t('backtest_download_and_run')}
           </Button>,
         ]}
         width={560}
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
           <div>
-            以下 <b>{precheckMissing.length}</b> 个品种×周期缺少本地数据，回测前需要下载：
+            {t('backtest_precheck_missing_before')} <b>{precheckMissing.length}</b>{t('backtest_precheck_missing_after')}
           </div>
           <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12 }}>
             <Space wrap size={[8, 8]}>
@@ -1465,7 +1465,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                           {p.symbol} · {p.interval}
                         </span>
                         <span style={{ fontSize: 12, color: done ? '#52c41a' : '#8c8c8c' }}>
-                          {done ? '已完成' : `${p.percentage}%`}
+                          {done ? t('backtest_download_completed') : `${p.percentage}%`}
                         </span>
                       </div>
                     );
@@ -1475,11 +1475,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             </>
           )}
           <div style={{ color: '#999', fontSize: 12 }}>
-            下载将覆盖回测所选时间范围。如自动下载失败，可
+            {t('backtest_precheck_hint_before')}
             <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/data-management')}>
-              前往数据管理页手动处理
+              {t('backtest_goto_data_management')}
             </Button>
-            。
+            {t('backtest_precheck_hint_after')}
           </div>
         </Space>
       </Modal>
