@@ -16,7 +16,7 @@ export interface TradeTableProps {
   pagination?: boolean;
   // 可选行类名（如组合回放中新成交行高亮）
   rowClassName?: (record: Trade) => string;
-  // 可选：品种 → 杠杆。传了才显示「保证金占用≈」列（未启用保证金时不传，避免误导）
+  // 可选：品种 → 杠杆。传了才显示「保证金占用」列（未启用保证金时不传，避免误导）
   leverageBySymbol?: Record<string, number>;
 }
 
@@ -97,7 +97,7 @@ const TradeTable = ({
           {
             title: (
               <Tooltip title="按「开仓名义价值 ÷ 杠杆」估算的初始保证金占用；全仓模式引擎不逐笔记账单笔占用，跨档位时实际费率可能不同">
-                <span>保证金占用≈</span>
+                <span>保证金占用</span>
               </Tooltip>
             ),
             key: 'margin_occupancy',
