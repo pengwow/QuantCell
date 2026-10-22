@@ -20,8 +20,6 @@ import {
   Row,
   Col,
   Spin,
-  Upload,
-  Tabs,
   Switch,
   Tooltip,
   App,
@@ -30,8 +28,8 @@ import {
   Tag,
   theme,
 } from 'antd';
-import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
-import { backtestApi, configApi, strategyApi } from '../../api';
+import { PlusOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
+import { backtestApi, configApi } from '../../api';
 import { dataApi } from '../../api/dataApi';
 import { factorApi } from '../../api/factor';
 import type { FactorDetail } from '../../api/factor';
@@ -50,7 +48,6 @@ import type { Dayjs } from 'dayjs';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
-const { Dragger } = Upload;
 
 interface BacktestConfigProps {
   onRunBacktest?: () => void;
@@ -66,13 +63,6 @@ const extractConfigScalar = (item: unknown): string | number | undefined => {
   }
   return undefined;
 };
-
-// 创建策略弹窗表单值
-interface CreateStrategyFormValues {
-  strategyName: string;
-  description?: string;
-  params?: string;
-}
 
 // 回测主表单值
 interface BacktestFormValues {
@@ -126,11 +116,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [defaultInterval, setDefaultInterval] = useState<string>('15m');
   const [defaultCommission, setDefaultCommission] = useState<number>(0.001);
   const [defaultInitialCash, setDefaultInitialCash] = useState<number>(1000);
-
-  const [createModalVisible, setCreateModalVisible] = useState<boolean>(false);
-  const [createForm] = Form.useForm();
-  const [activeTab, setActiveTab] = useState<string>('new');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const [progressVisible, setProgressVisible] = useState<boolean>(false);
   // 回测前数据预检弹窗状态
@@ -473,52 +458,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     });
   }, [defaultInterval, defaultCommission, defaultInitialCash, form]);
 
+  // 创建/上传策略统一走策略编辑器页面：无路由参数进入时会自动打开创建流程（模板+类型选择），
+  // 编辑器带完整代码窗口与 AI 助手，比本页旧的表单弹窗能力更全
   const handleCreateStrategy = () => {
-    setCreateModalVisible(true);
-    createForm.resetFields();
-    setActiveTab('new');
-    setUploadFile(null);
-  };
-
-  const handleCreateModalClose = () => {
-    setCreateModalVisible(false);
-  };
-
-  const handleCreateSubmit = async (values: CreateStrategyFormValues) => {
-    try {
-      setLoading(true);
-
-      if (activeTab === 'new') {
-        const strategyData = {
-          name: values.strategyName,
-          description: values.description,
-          params: values.params ? JSON.parse(values.params) : {},
-        };
-
-        await strategyApi.createStrategy(strategyData);
-        message.success('策略创建成功');
-      } else if (activeTab === 'upload' && uploadFile) {
-        const formData = new FormData();
-        formData.append('file', uploadFile);
-        formData.append('name', values.strategyName || uploadFile.name.replace('.py', ''));
-
-        await backtestApi.uploadStrategy(formData);
-        message.success('策略上传成功');
-      }
-
-      loadStrategies();
-      setCreateModalVisible(false);
-    } catch (error) {
-      console.error('创建策略失败:', error);
-      message.error('创建策略失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFileUpload = (file: File) => {
-    setUploadFile(file);
-    return false;
+    navigate('/strategy-editor');
   };
 
   // 根据策略 factors 与因子库交集，回填回测因子多选框
@@ -1152,6 +1095,24 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     onChange={handleStrategyChange}
                     // options + optionRender：选中回显只用 label（纯策略名），下拉项额外渲染描述
                     options={strategies.map((s) => ({ value: s.name, label: s.name, strategy: s }))}
+                    // 下拉底部常驻创建入口：找不到目标策略时就地创建，无需在页面上独占一行
+                    popupRender={(menu) => (
+                      <>
+                        {menu}
+                        <div style={{ padding: 4, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
+                          <Button
+                            type="text"
+                            block
+                            icon={<PlusOutlined />}
+                            // mousedown 不 preventDefault 会让 Select 收起、click 丢失（antd 官方要求）
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={handleCreateStrategy}
+                          >
+                            创建新策略
+                          </Button>
+                        </div>
+                      </>
+                    )}
                     optionRender={(option) => {
                       const s = option.data.strategy as Strategy;
                       return (
@@ -1181,15 +1142,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     }}
                   />
                 </Form.Item>
-                <div style={{ marginBottom: 16, textAlign: 'right' }}>
-                  <Button
-                    type="dashed"
-                    icon={<PlusOutlined />}
-                    onClick={handleCreateStrategy}
-                  >
-                    创建新策略
-                  </Button>
-                </div>
               </Col>
 
               <Col span={24}>
@@ -1324,13 +1276,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                               initialValue={1}
                               noStyle
                             >
-                              <InputNumber
-                                min={1}
-                                max={125}
-                                step={1}
-                                addonAfter="x"
-                                style={{ width: 130 }}
-                              />
+                              {/* addonAfter 在 antd v6 已废弃，官方迁移方式是 Space.Compact + 禁用按钮作后缀 */}
+                              <Space.Compact>
+                                <InputNumber min={1} max={125} step={1} style={{ width: 96 }} />
+                                <Button disabled style={{ width: 36, paddingInline: 0 }}>
+                                  x
+                                </Button>
+                              </Space.Compact>
                             </Form.Item>
                             <Form.Item
                               name={['margin_settings', symbol, 'margin_mode']}
@@ -1450,134 +1402,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           </Form.Item>
         </Form>
       </Spin>
-
-      <Modal
-        title="创建策略"
-        open={createModalVisible}
-        onCancel={handleCreateModalClose}
-        footer={null}
-        width={800}
-      >
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={[
-            {
-              key: 'new',
-              label: '新建策略',
-              children: (
-                <Form
-                  form={createForm}
-                  layout="vertical"
-                  onFinish={handleCreateSubmit}
-                  initialValues={{
-                    params: "{}",
-                  }}
-                >
-                  <Form.Item
-                    name="strategyName"
-                    label="策略名称"
-                    rules={[{ required: true, message: '请输入策略名称' }]}
-                  >
-                    <Input placeholder="请输入策略名称" />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="description"
-                    label="策略描述"
-                  >
-                    <Input.TextArea placeholder="请输入策略描述" rows={3} />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="params"
-                    label="策略参数"
-                    rules={[
-                      {
-                        validator: (_, value) => {
-                          try {
-                            if (value) {
-                              JSON.parse(value);
-                            }
-                            return Promise.resolve();
-                          } catch {
-                            return Promise.reject(new Error('策略参数必须是有效的JSON格式'));
-                          }
-                        },
-                      },
-                    ]}
-                  >
-                    <Input.TextArea
-                      placeholder="请输入策略参数，格式为JSON字符串"
-                      rows={4}
-                    />
-                  </Form.Item>
-
-                  <Form.Item style={{ textAlign: 'right' }}>
-                    <Space>
-                      <Button onClick={handleCreateModalClose}>取消</Button>
-                      <Button type="primary" htmlType="submit" loading={loading}>
-                        创建设置
-                      </Button>
-                    </Space>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-            {
-              key: 'upload',
-              label: '上传策略文件',
-              children: (
-                <Form
-                  form={createForm}
-                  layout="vertical"
-                  onFinish={handleCreateSubmit}
-                >
-                  <Form.Item
-                    name="strategyName"
-                    label="策略名称"
-                    rules={[{ required: true, message: '请输入策略名称' }]}
-                  >
-                    <Input placeholder="请输入策略名称（留空则使用文件名）" />
-                  </Form.Item>
-
-                  <Form.Item label="上传策略文件">
-                    <Dragger
-                      name="file"
-                      multiple={false}
-                      beforeUpload={handleFileUpload}
-                      showUploadList={false}
-                      accept=".py"
-                    >
-                      <p className="ant-upload-drag-icon">
-                        <UploadOutlined />
-                      </p>
-                      <p className="ant-upload-text">点击或拖拽Python文件到此处上传</p>
-                      <p className="ant-upload-hint">
-                        支持单个Python文件上传，文件大小不超过2MB
-                      </p>
-                    </Dragger>
-                    {uploadFile && (
-                      <div style={{ marginTop: 16 }}>
-                        <p>已选择文件: {uploadFile.name}</p>
-                      </div>
-                    )}
-                  </Form.Item>
-
-                  <Form.Item style={{ textAlign: 'right' }}>
-                    <Space>
-                      <Button onClick={handleCreateModalClose}>取消</Button>
-                      <Button type="primary" htmlType="submit" loading={loading}>
-                        上传策略
-                      </Button>
-                    </Space>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-          ]}
-        />
-      </Modal>
 
       {/* 回测前数据预检弹窗。zIndex 高于进度弹窗，避免被盖住导致用户无法操作 */}
       <Modal

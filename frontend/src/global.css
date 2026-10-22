@@ -75,6 +75,15 @@
   }
 }
 
+/* 策略模板下拉底部的上传项：Upload 的 trigger/rc-upload 中间层默认 inline 收缩，
+   点击范围只有文字宽；撑满后整行可点击。三级选择器确保压过 antd cssinjs 注入样式，
+   且必须放在 @layer 外 —— layered 规则永远输给 unlayered 的 cssinjs 样式 */
+.ant-select-dropdown .strategy-template-upload-row .ant-upload-select,
+.ant-select-dropdown .strategy-template-upload-row .ant-upload-select > span {
+  display: block;
+  width: 100%;
+}
+
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;

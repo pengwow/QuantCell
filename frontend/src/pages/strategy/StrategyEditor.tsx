@@ -9,6 +9,7 @@ import {
   Modal,
   Input,
   Select,
+  Upload,
   Descriptions,
   Segmented,
   Tooltip,
@@ -26,6 +27,7 @@ import {
   CloseCircleOutlined,
   EditOutlined,
   CheckOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
@@ -64,6 +66,14 @@ interface Strategy {
   created_at: string;
   updated_at: string;
   code: string;
+}
+
+/** 按代码特征推断策略类型：RL 框架与 on_bar 框架不兼容，必须归类。
+ * AI 采纳代码与上传本地文件两条路径共用，保证判定口径一致。 */
+function inferStrategyType(code: string): 'rule' | 'rl' {
+  return code.includes('TradingEnv') || code.includes('stable_baselines3') || code.includes('model.predict')
+    ? 'rl'
+    : 'rule';
 }
 
 /** 新建策略时的默认代码 — 对齐 QuantCell BaseStrategy 框架。
@@ -193,7 +203,6 @@ const StrategyEditor = () => {
   // 使用 AI 生成的代码创建策略
   const handleCreateStrategyWithCode = (generatedCode: string, strategyName?: string) => {
     const name = strategyName || 'ai_generated_strategy';
-    const isRL = generatedCode.includes('TradingEnv') || generatedCode.includes('stable_baselines3') || generatedCode.includes('model.predict');
     const newStrategy: Strategy = {
       name: name,
       file_name: `${name}.py`,
@@ -206,8 +215,8 @@ const StrategyEditor = () => {
       code: generatedCode,
     };
 
-    // 设置策略类型（根据代码特征判断 RL 策略或规则策略）
-    newStrategy.strategy_type = isRL ? 'rl' : 'rule';
+    // 设置策略类型（按代码特征推断，与上传文件路径共用同一判定）
+    newStrategy.strategy_type = inferStrategyType(generatedCode);
 
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
@@ -589,6 +598,58 @@ class NewStrategy(BaseStrategy):
     setSelectedStrategy(newStrategy);
     setCode(code);
     setTemplatePickerVisible(false);
+  };
+
+  // 上传本地 .py 创建策略：与模板 Select「选中即创建」对齐，选完文件直接进编辑器（未保存）。
+  // 类型按代码特征推断回填 Segmented；params 留空走 AI 采纳先例，编辑器里可补。
+  const handleCreateFromFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.py')) {
+      appMessage.error('仅支持 .py 策略文件');
+      return;
+    }
+    // ponytail: 1MB 上限只防误传大文件；超限说明选错对象，策略脚本远小于此
+    if (file.size > 1024 * 1024) {
+      appMessage.error('文件超过 1MB，请确认选择的是策略脚本');
+      return;
+    }
+    let content = '';
+    try {
+      content = await file.text();
+    } catch {
+      appMessage.error('文件读取失败，请重试');
+      return;
+    }
+    const inferredType = inferStrategyType(content);
+    setCreateStrategyType(inferredType);
+    const name = file.name.replace(/\.py$/i, '');
+    const newStrategy: Strategy = {
+      name,
+      file_name: file.name,
+      file_path: '',
+      description: `从本地文件创建 - ${file.name}`,
+      version: '1.0.0',
+      params: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      code: content,
+      strategy_type: inferredType,
+    };
+    setSelectedStrategy(newStrategy);
+    setCode(content);
+    setTemplatePickerVisible(false);
+    appMessage.success(`已从文件创建「${name}」（${inferredType === 'rl' ? 'RL 策略' : '规则策略'}）`);
+  };
+
+  // 创建弹窗两处上传入口（模板下拉底部规则策略、RL 说明区链接）共用一套上传行为
+  const uploadProps = {
+    accept: '.py',
+    maxCount: 1,
+    showUploadList: false,
+    // fire-and-forget：校验与读取在 handleCreateFromFile 内完成，antd 侧不发起上传
+    beforeUpload: (file: File) => {
+      handleCreateFromFile(file);
+      return false;
+    },
   };
 
   // 保存策略
@@ -1448,7 +1509,7 @@ class NewStrategy(BaseStrategy):
           {createStrategyType === 'rule' ? (
             <>
               <div style={{ color: '#666' }}>
-                选择一个起始模板，或跳过使用空白 BaseStrategy 骨架：
+                选择一个起始模板，或跳过使用空白 BaseStrategy 骨架（下拉底部可上传本地 .py 文件）：
               </div>
               <Select
                 style={{ width: '100%' }}
@@ -1470,11 +1531,34 @@ class NewStrategy(BaseStrategy):
                   ),
                 }))}
                 onChange={(id) => id && handlePickTemplate(id)}
+                // 下拉底部常驻本地上传入口：与 BacktestConfig「下拉底部创建策略」同一交互语言，
+                // 避免弹窗里上传大块与 Select 并列造成双主路径误导
+                popupRender={(menu) => (
+                  <>
+                    {menu}
+                    {/* strategy-template-upload-row：global.css 里把 Upload 中间层撑满整行，保证整行可点击 */}
+                    <div className="strategy-template-upload-row" style={{ padding: 4, borderTop: '1px solid #f0f0f0' }}>
+                      <Upload {...uploadProps}>
+                        {/* mousedown 不 preventDefault 会让 Select 收起、click 丢失（antd 官方要求） */}
+                        <Button
+                          type="text"
+                          block
+                          size="small"
+                          icon={<UploadOutlined />}
+                          onMouseDown={(e) => e.preventDefault()}
+                        >
+                          上传本地 .py 文件…
+                        </Button>
+                      </Upload>
+                    </div>
+                  </>
+                )}
               />
             </>
           ) : (
             <div style={{ color: '#666' }}>
               RL 策略将使用内置骨架模板（加载已训练 PPO 模型 + on_bar 推理），点击下方按钮创建。
+              或 <Upload {...uploadProps}><a>上传本地 .py 策略文件</a></Upload>（自动识别类型）。
             </div>
           )}
           <div style={{ textAlign: 'right' }}>
