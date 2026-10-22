@@ -153,6 +153,20 @@ export class StrategyChatProvider extends AbstractChatProvider<
     // done：后端一次性返回完整结果（raw_content 为说明文案，code 为策略代码）
     const content = event.raw_content || '';
     const code = event.code || '';
+
+    // [DEBUG] 临时调试：打印 done 事件实际字段，用户反馈"还有两个代码框"
+    // 必须拿到前端实际收到的 content/code 才能确定畸形来源
+    if (event.type === 'done') {
+      const doneMeta = (event as unknown as { metadata?: Record<string, unknown> }).metadata;
+      console.log('[AI策略 DEBUG done]', {
+        raw_content_length: content.length,
+        code_length: code.length,
+        content,
+        code,
+        metadata: doneMeta,
+      });
+    }
+
     if (!content && !code) {
       // 空结果按失败处理，避免误显示"生成成功"
       return { role: 'ai', content: '模型未返回有效内容，请重试或更换模型', code: '', failed: true };

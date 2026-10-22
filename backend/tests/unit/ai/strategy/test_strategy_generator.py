@@ -137,6 +137,7 @@ APIAuthenticationError = sg_module.APIAuthenticationError
 APIConnectionError = sg_module.APIConnectionError
 APIRateLimitError = sg_module.APIRateLimitError
 ResponseParseError = sg_module.ResponseParseError
+strip_code_from_content = sg_module.strip_code_from_content
 
 
 class FakeBackend:
@@ -359,7 +360,8 @@ class MyStrategy:
 
         assert result["success"] is True
         assert "class MyStrategy:" in result["code"]
-        assert result["raw_content"] == content
+        # 全代码输入清洗后无说明文字，下发默认文案
+        assert result["raw_content"] == "策略代码已生成，请查看下方代码。"
         assert result["error"] is None
 
     def test_parse_response_empty_content(self, generator):
@@ -379,22 +381,171 @@ class MyStrategy:
         assert "为空" in result["error"]
 
     def test_parse_response_no_code_extracted(self, generator):
-        """测试无法提取代码时返回原内容作为代码"""
+        """无法提取代码时兜底返回整个 content 当 code，content 和 code 相同 → 默认文案"""
         content = "Just plain text without any code blocks"
 
         result = generator._parse_response(content)
 
-        # 纯文本内容会被当作代码返回
         assert result["success"] is True
         assert result["code"] == content
+        assert result["raw_content"] == "策略代码已生成，请查看下方代码。"
 
-    def test_parse_response_preserves_raw_content(self, generator):
-        """测试解析保留原始内容"""
-        content = "Original response content"
+    def test_parse_response_strips_code_and_keeps_explanation(self, generator):
+        """说明文字 + 代码围栏：正文只保留说明文字"""
+        content = (
+            "该策略使用 RSI 超买超卖信号进行均值回归交易。\n"
+            "核心参数为 overbought 和 oversold。\n\n"
+            "```python\n"
+            "class RsiStrategy(BaseStrategy):\n"
+            "    def __init__(self):\n"
+            "        pass\n"
+            "```\n"
+        )
 
         result = generator._parse_response(content)
 
-        assert result["raw_content"] == content
+        assert result["success"] is True
+        assert "class RsiStrategy" in result["code"]
+        assert "RSI 超买超卖" in result["raw_content"]
+        assert "核心参数" in result["raw_content"]
+        assert "```" not in result["raw_content"]  # 围栏标记已清除
+        assert "class RsiStrategy" not in result["raw_content"]
+
+    def test_parse_response_with_malformed_fences(self, generator):
+        """围栏错乱下：_extract_code 抓第一个围栏 body，strip 据此剔除所有重复代码残留"""
+        # _extract_code 会优先匹配 pattern2 的第一个 ``` ``` 围栏 body 作为 code；
+        # strip 函数拿到这个 code 后，content 中裸行 + 围栏内所有匹配行都应被剔除
+        content = (
+            "策略逻辑概述...\n"
+            "\n"
+            # 裸代码（2 行匹配 → 裸段落阈值 2 触发剔除）
+            "class RsiOverboughtOversoldStrategy(BaseStrategy):\n"
+            "    def __init__(self):\n"
+            "\n"
+            # 第一个无语言围栏 —— _extract_code 抓这个 body 作为 code
+            "```\n"
+            "class RsiOverboughtOversoldStrategy(BaseStrategy):\n"
+            "    def __init__(self):\n"
+            "        pass\n"
+            "```\n"
+            "\n"
+            # 第二个 python 围栏（多行匹配 → 剔除）
+            "```python\n"
+            "class RsiOverboughtOversoldStrategy(BaseStrategy):\n"
+            "    def __init__(self):\n"
+            "        pass\n"
+            "```\n"
+        )
+
+        result = generator._parse_response(content)
+
+        assert result["success"] is True
+        # 正文只剩概述
+        assert result["raw_content"].strip() == "策略逻辑概述..."
+
+
+class TestStripCodeFromContent:
+    """直接测试 strip_code_from_content 的剔除逻辑。
+
+    新策略：无围栏 → 纯代码场景 → 默认文案；有围栏 → 删所有围栏块留说明。
+    这个分叉比 python_indicators 判定更干净——纯代码场景下不可能有说明文字，
+    有说明文字就一定有 Markdown 标记（围栏/标题/列表）。
+    """
+
+    def test_empty_content_passthrough(self):
+        assert strip_code_from_content("", "class S: pass") == ""
+
+    def test_pure_code_no_fence_returns_default(self):
+        """真实样本场景：模型输出纯 Python，无围栏，content 全是代码"""
+        code = (
+            "from __future__ import annotations\nclass RsiStrategy(BaseStrategy):\n    def on_bar(self):\n        pass"
+        )
+        # content 和 code 完全一样——无围栏，纯代码
+        assert strip_code_from_content(code, code) == "策略代码已生成，请查看下方代码。"
+
+    def test_normal_fence_removed_explanation_kept(self):
+        content = (
+            "这是一个 RSI 策略。\n\n"
+            "```python\n"
+            "class RsiStrategy(BaseStrategy):\n"
+            "    def __init__(self):\n"
+            "        pass\n"
+            "```\n"
+        )
+        code = "class RsiStrategy(BaseStrategy):\n    def __init__(self):\n        pass"
+
+        result = strip_code_from_content(content, code)
+
+        assert "RSI 策略" in result
+        assert "```" not in result
+        assert "class RsiStrategy" not in result
+
+    def test_noise_bare_code_with_fence_present(self):
+        """围栏外还有裸代码——但模型既然输出了围栏说明，就保留围栏清洗，
+        裸代码可能是说明里的示例代码片段，保守保留"""
+        content = "策略说明。\n\n```python\nclass RsiStrategy:\n    pass\n```\n"
+        code = "class RsiStrategy:\n    pass"
+        result = strip_code_from_content(content, code)
+        assert "策略说明" in result
+        assert "```" not in result
+
+    def test_docstring_fragment_fence_removed(self):
+        """docstring 被切成无语言围栏碎片——有围栏就删"""
+        content = "策略概述。\n\n```\n    交易逻辑：RSI <= oversold 开多。\n```\n"
+        code = 'class RsiStrategy(BaseStrategy):\n    """策略。\n\n    交易逻辑：RSI <= oversold 开多。\n    """'
+
+        result = strip_code_from_content(content, code)
+
+        assert "策略概述" in result
+        assert "```" not in result
+        assert "交易逻辑" not in result
+
+    def test_single_line_code_reference_preserved(self):
+        """说明里的行内 ```code``` 也会被删（围栏删除覆盖所有 fence 变体），
+        但说明文字本身保留"""
+        content = (
+            "使用 rsi 模块做计算。\n\n"
+            "```python\n"
+            "class RsiStrategy:\n"
+            "    def __init__(self):\n"
+            "        self.rsi = 14\n"
+            "```\n"
+        )
+        code = "class RsiStrategy:\n    def __init__(self):\n        self.rsi = 14"
+
+        result = strip_code_from_content(content, code)
+
+        assert "rsi 模块" in result
+        assert "```" not in result
+
+    def test_repeated_complete_code_block_stripped(self):
+        """完整代码重复出现两遍（两个围栏）"""
+        content = (
+            "策略概述。\n\n"
+            "```python\n"
+            "class RsiStrategy:\n"
+            "    def run(self):\n"
+            "        pass\n"
+            "```\n"
+            "\n"
+            "```python\n"
+            "class RsiStrategy:\n"
+            "    def run(self):\n"
+            "        pass\n"
+            "```\n"
+        )
+        code = "class RsiStrategy:\n    def run(self):\n        pass"
+
+        result = strip_code_from_content(content, code)
+
+        assert "策略概述" in result
+        assert result.count("```") == 0
+
+    def test_fence_deletion_leaves_default_when_nothing_left(self):
+        """模型输出被围栏包裹的代码 + 围栏前只有空白 → 清洗后为空 → 默认文案"""
+        content = "```python\nclass Foo:\n    pass\n```"
+        result = strip_code_from_content(content, "class Foo:\n    pass")
+        assert result == "策略代码已生成，请查看下方代码。"
 
 
 class TestStrategyGeneratorErrorHandling:
@@ -506,6 +657,28 @@ class TestStrategyGeneratorErrorHandling:
         assert chunks[-1]["type"] == "error"
         assert chunks[-1]["error_code"] == "empty_response"
         assert "截断" in chunks[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_generate_strategy_stream_salvage_code_from_reasoning(self, generator):
+        """正文为空但 reasoning 里有完整代码块：兜底提取并正常返回 done"""
+        generator._backend.stream_deltas = [
+            {"type": "reasoning", "content": "先写一版草稿：\n```python\nclass Draft:\n    pass\n```\n"},
+            {
+                "type": "reasoning",
+                "content": "最终版：\n```python\nclass Final(BaseStrategy):\n    pass\n```\n",
+            },
+            {"type": "done", "finish_reason": "Stop"},
+        ]
+
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
+
+        done = chunks[-1]
+        assert done["type"] == "done"
+        # 取最后一个含 BaseStrategy 的代码块（草稿版被跳过）
+        assert "class Final(BaseStrategy)" in done["code"]
+        assert done["metadata"]["from_reasoning"] is True
 
     @pytest.mark.asyncio
     async def test_generate_strategy_stream_success_metadata(self, generator):

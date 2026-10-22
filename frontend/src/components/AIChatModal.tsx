@@ -2,7 +2,7 @@
 // 流式链路：StrategyChatProvider（XRequest→SSE）→ useXChat 消息流 → Bubble.List 渲染
 // 生成结果通过 x-card（A2UI v0.9 命令协议）渲染为交互卡片，支持「采纳代码 / 拒绝」操作
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Modal, message, Progress, Segmented, Space, Spin } from 'antd';
+import { Button, Modal, message, Popconfirm, Progress, Segmented, Space, Spin } from 'antd';
 import {
   DeleteOutlined,
   ThunderboltOutlined,
@@ -12,7 +12,7 @@ import {
   CopyOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { Bubble, Sender, ThoughtChain } from '@ant-design/x';
+import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
 import type { BubbleItemType } from '@ant-design/x';
 import { XCard, registerCatalog } from '@ant-design/x-card';
 import type { ActionPayload, Catalog, XAgentCommand_v0_9 } from '@ant-design/x-card';
@@ -20,6 +20,7 @@ import { useXChat } from '@ant-design/x-sdk';
 import type { SSEOutput } from '@ant-design/x-sdk';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { isBlockCode, stripDuplicatedCodeBlock } from './markdownCode';
 import { aiModelApi } from '../api';
 import type { ThinkingChainEventData } from '../api';
 import {
@@ -93,7 +94,19 @@ const Markdown = ({ text }: { text: string }) => (
   <ReactMarkdown
     remarkPlugins={[remarkGfm]}
     components={{
-      code: CodeBlock,
+      // 块级 fence 的外层 <pre> 剥掉，由 CodeBlock 自带 pre 渲染，避免 pre 套 pre
+      pre: ({ children }) => <>{children}</>,
+      code: ({ className, children }) => {
+        if (!isBlockCode(className, children)) {
+          // 行内代码用紧凑样式，不再渲染成带头部的黑框块级代码块
+          return (
+            <code className="rounded bg-gray-200/70 px-1.5 py-0.5 text-[0.85em] text-pink-600 dark:bg-gray-700/60 dark:text-pink-400">
+              {children}
+            </code>
+          );
+        }
+        return <CodeBlock className={className}>{children}</CodeBlock>;
+      },
       table: TableWrapper,
     }}
   >
@@ -199,6 +212,8 @@ export interface AIChatModalProps {
   welcomeIcon?: React.ReactNode;
   welcomeTitle?: string;
   welcomeDescription?: string;
+  /** 空状态展示的快捷建议，点击直接作为需求发送（语义固定为"创建新策略"，与优化模式互斥） */
+  promptSuggestions?: string[];
   inputPlaceholder?: string;
   submitType?: 'enter' | 'shiftEnter';
   /** 编辑器当前代码快照；非空时输入区显示「优化当前代码」模式，发送时自动注入这段代码作为优化上下文 */
@@ -220,6 +235,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
   welcomeIcon,
   welcomeTitle,
   welcomeDescription,
+  promptSuggestions,
   inputPlaceholder,
   submitType = 'enter',
   currentCode,
@@ -370,7 +386,8 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     [chatMode, currentCode, requirementSuffix],
   );
 
-  const handleSend = (value?: string) => {
+  // asGenerate=true 用于快捷建议点击：语义固定为"创建新策略"，即使处于优化模式（携带编辑器代码）也按生成组装
+  const handleSend = (value?: string, asGenerate = false) => {
     const content = (value ?? inputValue).trim();
     // 优化模式允许空输入直接发送（默认要求：保持逻辑不变做质量优化）；生成模式必须有内容
     if (!content && chatMode !== 'optimize') {
@@ -380,7 +397,12 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     // 同一时刻只保留一条生成流：新请求主动顶掉旧流（被顶掉的气泡以 abort 状态过滤）
     stopStream();
     resetThinking();
-    onRequest(buildRequestParams(content));
+    if (asGenerate) {
+      setChatMode('generate');
+      onRequest({ requirement: content + (requirementSuffix || ''), displayContent: content });
+    } else {
+      onRequest(buildRequestParams(content));
+    }
     setInputValue('');
   };
 
@@ -443,7 +465,12 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
           updateDataModel: {
             surfaceId,
             path: '/result',
-            value: { content: msg.content || '', code: msg.code },
+            // content 剔除与提取 code 重复的 fence 块：卡片下方已有 CodeView 展示代码，
+            // 不剔除会在说明文案里再渲染一个内容相同的代码框
+            value: {
+              content: stripDuplicatedCodeBlock(msg.content || '', msg.code || ''),
+              code: msg.code,
+            },
           },
         },
         {
@@ -520,14 +547,103 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     id: string | number;
     status: string;
     message: StrategyChatMessage;
-  }>).map((info) => ({
+  }>)
+    .filter((info) => {
+      // 思维链进行中隐藏"还没收到任何文字"的 AI 占位气泡：等待视觉已由思维链气泡承载，
+      // 否则思维链下方再挂一个跳点气泡，出现两个等待；正文一到（content 非空）气泡即出现
+      if (
+        info.message.role === 'ai' &&
+        !info.message.content &&
+        isRequesting &&
+        thinkingSteps.length > 0
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((info) => ({
     key: String(info.id),
     role: info.message.role,
     content: info.message.content,
-    loading: info.message.role === 'ai' && (info.status === 'loading' || info.status === 'updating'),
+    // Bubble 的 loading=true 会用 Loading 组件短路替换整个内容区（Bubble.js 直接 return Loading），
+    // 所以只在"还没收到任何文字"时显示跳点；流式 updating 且已有文字时必须渲染部分内容，
+    // 否则上百秒的生成过程里气泡始终为空，用户只能干等思维链结束。
+    loading:
+      info.message.role === 'ai' &&
+      (info.status === 'loading' || (info.status === 'updating' && !info.message.content)),
     status: info.status as BubbleItemType['status'],
     extraInfo: { code: info.message.code, failed: info.message.failed },
   }));
+
+  // 思维链进度面板的气泡内容：不自带卡片容器，由 AI 气泡自身的填充背景承载
+  const thinkingPanelContent = (
+    <div className="w-full">
+      <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+        {thinkingSteps.length > 1 ? (
+          <ThoughtChain items={getThinkingItems()} className="w-full" />
+        ) : (
+          thinkingSteps[0]?.description && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {thinkingSteps[0].description}
+            </span>
+          )
+        )}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 shrink-0">
+            {isRequesting ? (
+              <>
+                <Spin size="small" />
+                {t('thinking_progress') || '思考进度'}
+              </>
+            ) : (
+              <>
+                <CheckCircleOutlined className="text-green-500" />
+                {t('thinking_complete') || '思考完成'}
+              </>
+            )}
+          </span>
+          <Progress
+            percent={Math.round(thinkingProgress)}
+            size="small"
+            showInfo={false}
+            status={isRequesting ? 'active' : 'success'}
+            className="flex-1 !m-0"
+          />
+          <span
+            className={`text-xs font-medium shrink-0 w-9 text-right ${
+              isRequesting
+                ? 'text-blue-600 dark:text-blue-400'
+                : 'text-green-600 dark:text-green-400'
+            }`}
+          >
+            {Math.round(thinkingProgress)}%
+          </span>
+        </div>
+      </Space>
+    </div>
+  );
+
+  // 思维链插在最后一条用户提问之后、AI 回复之前，对话顺序即「提问 → 思考过程 → 回答」；
+  // 不渲染在列表顶部（旧实现会跑到提问上面），thinkingSteps 为空（预加载失败）时不插入
+  const bubbleListItems = (() => {
+    let lastUserIdx = -1;
+    for (let i = bubbleItems.length - 1; i >= 0; i--) {
+      if (bubbleItems[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx < 0 || thinkingSteps.length === 0) return bubbleItems;
+    const items: BubbleItemType[] = [...bubbleItems];
+    items.splice(lastUserIdx + 1, 0, {
+      key: '__thinking_chain__',
+      role: 'ai',
+      content: '',
+      // item 级 contentRender 覆盖 ai 角色默认渲染；footer 因无 status 自然为空
+      contentRender: () => thinkingPanelContent,
+    });
+    return items;
+  })();
 
   // AI 气泡内容：失败态 / 策略结果卡片 / 普通 Markdown
   const renderAiBubble = (data: BubbleItemType) => {
@@ -603,14 +719,18 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
         <div className="flex items-center justify-between w-full pr-8">
           <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
           {chatMessages.length > 0 && (
-            <Button
-              type="text"
-              size="small"
-              icon={<DeleteOutlined />}
-              onClick={handleClearMessages}
+            <Popconfirm
+              title="清空历史"
+              description="将删除当前全部对话，确定清空？"
+              okText="清空"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={handleClearMessages}
             >
-              {t('clear_history') || '清空历史'}
-            </Button>
+              <Button type="text" size="small" icon={<DeleteOutlined />}>
+                {t('clear_history') || '清空历史'}
+              </Button>
+            </Popconfirm>
           )}
         </div>
       }
@@ -628,63 +748,24 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
         {/* 消息区 */}
         <div className="flex-1 min-h-0 overflow-y-auto bg-[#f5f5f5] dark:bg-[#141414] w-full">
           {chatMessages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500">
+            <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500 px-6">
               {welcomeIcon || <ThunderboltOutlined style={{ fontSize: 48 }} className="mb-4" />}
               <p className="text-lg font-medium text-gray-600 dark:text-gray-300">
                 {welcomeTitle || t('ai_welcome') || '我是AI助手，有什么可以帮您的？'}
               </p>
               {welcomeDescription && <p className="text-sm mt-2">{welcomeDescription}</p>}
+              {promptSuggestions && promptSuggestions.length > 0 && (
+                // 快捷建议：点击直接发送（唤醒阶段交互，替代纯文本示例）
+                <Prompts
+                  className="mt-6"
+                  wrap
+                  items={promptSuggestions.map((s) => ({ key: s, label: s }))}
+                  onItemClick={(info) => handleSend(String(info.data.label), true)}
+                />
+              )}
             </div>
           ) : (
             <div className="w-full py-2">
-              {thinkingSteps.length > 0 && (
-                // 思维链进度面板
-                <div className="px-4 py-3 bg-white dark:bg-gray-800 mx-4 mb-2 rounded-xl shadow-sm">
-                  <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
-                    {thinkingSteps.length > 1 ? (
-                      <ThoughtChain items={getThinkingItems()} className="w-full" />
-                    ) : (
-                      thinkingSteps[0]?.description && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {thinkingSteps[0].description}
-                        </span>
-                      )
-                    )}
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 shrink-0">
-                        {isRequesting ? (
-                          <>
-                            <Spin size="small" />
-                            {t('thinking_progress') || '思考进度'}
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircleOutlined className="text-green-500" />
-                            {t('thinking_complete') || '思考完成'}
-                          </>
-                        )}
-                      </span>
-                      <Progress
-                        percent={Math.round(thinkingProgress)}
-                        size="small"
-                        showInfo={false}
-                        status={isRequesting ? 'active' : 'success'}
-                        className="flex-1 !m-0"
-                      />
-                      <span
-                        className={`text-xs font-medium shrink-0 w-9 text-right ${
-                          isRequesting
-                            ? 'text-blue-600 dark:text-blue-400'
-                            : 'text-green-600 dark:text-green-400'
-                        }`}
-                      >
-                        {Math.round(thinkingProgress)}%
-                      </span>
-                    </div>
-                  </Space>
-                </div>
-              )}
-
               {/* 消息列表；Card 元素渲染在 Box 上下文内才能消费命令队列 */}
               <XCard.Box
                 commands={commands}
@@ -693,7 +774,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
               >
                 <Bubble.List
                   className="w-full px-4"
-                  items={bubbleItems}
+                  items={bubbleListItems}
                   role={bubbleRoles}
                   autoScroll
                 />
@@ -730,6 +811,17 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
                   : inputPlaceholder || t('input_placeholder') || '请输入...'
               }
               submitType={submitType}
+              // Sender 内部硬编码「空值禁用发送」（onSendDisabled: !value），与优化模式
+              // 「可留空直接优化」的占位文案矛盾。这里用 suffix 覆盖默认按钮区：
+              // 优化模式强制解禁空值发送（回车与按钮共用 triggerSend 闸门，一并生效），
+              // 其余模式透传 undefined 维持默认禁用逻辑。
+              suffix={(_node, { components: { SendButton, LoadingButton } }) =>
+                isRequesting ? (
+                  <LoadingButton />
+                ) : (
+                  <SendButton disabled={chatMode === 'optimize' ? false : undefined} />
+                )
+              }
               className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1f1f1f]"
             />
           </Space>

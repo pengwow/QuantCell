@@ -1465,7 +1465,13 @@ class NewStrategy(BaseStrategy):
         onClose={() => setAiModalVisible(false)}
         title={t('ai_generate_strategy') || 'AI生成策略'}
         welcomeTitle={t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}
-        welcomeDescription={t('ai_example') || '例如：创建一个双均线交叉策略'}
+        // 快捷建议取代原 welcomeDescription（"例如：……"纯文本），点击直接发送
+        promptSuggestions={[
+          '创建一个双均线交叉策略',
+          '创建一个RSI超买超卖策略',
+          '创建一个布林带均值回归策略',
+          '创建一个ATR通道突破策略',
+        ]}
         inputPlaceholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
         // 传入编辑器当前代码，对话框内部据此显示「优化当前代码」模式
         currentCode={code}

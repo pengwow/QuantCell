@@ -61,6 +61,71 @@ class ResponseParseError(StrategyGenerationError):
         super().__init__(message, "response_parse_error")
 
 
+def strip_code_from_content(content: str, code: str) -> str:
+    """清理展示用正文，剔除其中混入的策略代码，只保留说明文字。
+
+    模型输出有两种形态：
+    1. 说明 + 代码混合：Markdown 格式，代码用 ```python 围栏包裹
+    2. 纯代码：无任何围栏标记，直接输出完整 Python 策略类
+
+    第二种形态下 content 和 code 一模一样，任何行级关键字判定（class/def/import）
+    都只会删零散的连续关键字堆（import/from/class），def 方法体里的 self.xxx/return/
+    super() 等非关键字开头的行会被当作"说明文字"保留下来——形成一个碎片化 Python。
+
+    解法：先比 content 和 code 是否完全相同——相同就是纯代码，直接给默认文案；
+    不同就先删所有围栏块，再把剩余文本里和 code 行相同的行也剔除（围栏外裸代码
+    片段会自然命中 code 的行集合），最后只剩真正的说明文字。
+
+    ponytail: 之前试过"是否存在围栏"的干净分叉，遇到模型输出"说明 + 围栏 + 裸代码"
+    混合形态时裸代码还是漏了。直接比 content==code 最准——完全相同就是纯代码；
+    有差异就走"删围栏 → 删与 code 重复行"的流水线。
+    """
+    _ = code
+
+    if not content:
+        return content
+
+    content_stripped = content.strip()
+    code_stripped = code.strip()
+
+    # 判定 1：content 和 code 完全相同 → 纯代码场景 → 直接返回默认文案
+    if content_stripped == code_stripped:
+        return "策略代码已生成，请查看下方代码。"
+
+    # 判定 2：content 里删除所有围栏块后再和 code 比 → 还是几乎一样 → 说明围栏里
+    # 就是完整代码 + 前面/后面可能还有裸代码，也是纯代码场景
+    no_fence = re.sub(r"^[ \t]*`{3,}[^\n]*\n[\s\S]*?^[ \t]*`{3,}[ \t]*$", "", content, flags=re.MULTILINE).strip()
+    if no_fence == code_stripped:
+        return "策略代码已生成，请查看下方代码。"
+
+    # 正常清洗：先删所有围栏块（碎片围栏 + 完整围栏），
+    # 再删掉围栏外裸代码行（与 code 行集合重叠的连续段）
+    code_lines = {ln.strip() for ln in code_stripped.splitlines() if ln.strip()}
+
+    result_lines: list[str] = []
+    i = 0
+    text_lines = no_fence.splitlines()
+    while i < len(text_lines):
+        stripped = text_lines[i].strip()
+        # 连续扫描：如果当前行命中 code_lines，找最长的连续命中段
+        if stripped and stripped in code_lines:
+            # 跳过这段代码（整段剔除，说明里不会有大段连续代码）
+            while i < len(text_lines) and text_lines[i].strip() in code_lines:
+                i += 1
+            # 段之间可能有空白行，也一并跳过
+            while i < len(text_lines) and text_lines[i].strip() == "":
+                i += 1
+            if result_lines and result_lines[-1] != "":
+                result_lines.append("")
+        else:
+            result_lines.append(text_lines[i])
+            i += 1
+
+    result = "\n".join(result_lines)
+    result = re.sub(r"\n{3,}", "\n\n", result).strip()
+    return result or "策略代码已生成，请查看下方代码。"
+
+
 class StrategyGenerator:
     """策略生成器
 
@@ -516,6 +581,7 @@ class StrategyGenerator:
 
             # 内部累积完整内容，不再流式传输（只拼接 content 类型的增量）
             full_content = "".join(d.get("content", "") for d in deltas if d.get("type") == "content")
+            reasoning_content = "".join(d.get("content", "") for d in deltas if d.get("type") == "reasoning")
             chunk_count = len(deltas)
             # axon 的 done 事件可能出现多次（Rust 侧桥接），取最后一个的 finish_reason
             raw_finish = next(
@@ -524,8 +590,23 @@ class StrategyGenerator:
             )
             finish_reason = normalize_finish_reason(raw_finish)
 
-            # 推理模型可能把 token 预算全耗在 reasoning 上：正文为空。
-            # 此时不能再走 done（否则前端会误显示"生成成功"），明确报错。
+            # 推理模型偶发把完整代码写在 reasoning_content 里、正文为空（GLM-5.3-Flash 实测：
+            # 优化模式下思考 5000+ chunk 后直接 stop，正文 0 字符，代码全在思考里）。
+            # 这里严格从 reasoning 的代码块兜底提取，避免白跑一次长生成。
+            salvaged_from_reasoning = False
+            if not full_content.strip():
+                salvaged = self._extract_code_from_reasoning(reasoning_content)
+                if salvaged:
+                    logger.warning(
+                        f"[{request_id}] 正文为空，已从 reasoning 兜底提取代码: "
+                        f"finish_reason={finish_reason}, reasoning_chunks="
+                        f"{sum(1 for d in deltas if d.get('type') == 'reasoning')}, "
+                        f"代码{len(salvaged)}字符"
+                    )
+                    full_content = salvaged
+                    salvaged_from_reasoning = True
+
+            # 兜底也拿不到代码：不能再走 done（否则前端会误显示"生成成功"），明确报错。
             if not full_content.strip():
                 if finish_reason == "length":
                     error_msg = "模型思维链过长导致输出被截断（未生成正文），请增大 max_tokens 或换用非推理模型后重试"
@@ -584,16 +665,29 @@ class StrategyGenerator:
                 error_code=None,
             )
 
+            # [DEBUG] 临时调试：完整打印三段内容，用户反馈"还有两个代码框"，
+            # 必须拿到真实 raw_content 样本才能确定畸形形态。
+            logger.warning(f"[{request_id}] === DONE DEBUG ===")
+            logger.warning(f"[{request_id}] full_content (原始模型输出) ===\n{full_content}")
+            logger.warning(
+                f"[{request_id}] result[code] (提取代码, {len(result.get('code') or '')} chars) ===\n{result.get('code') or ''}"
+            )
+            logger.warning(f"[{request_id}] result[raw_content] (清洗后正文) ===\n{result.get('raw_content') or ''}")
+
             yield {
                 "type": "done",
                 "code": result.get("code"),
-                "raw_content": full_content,
+                # 用 _parse_response 清洗后的正文（剔除了围栏/裸代码残留）；
+                # 之前直接用 full_content 导致后端清洗完全没生效，是"问题还是存在"的直接根因
+                "raw_content": result.get("raw_content") or "策略代码已生成，请查看下方代码。",
                 "metadata": {
                     "request_id": request_id,
                     "model": self.model_id,
                     "elapsed_time": elapsed_time,
                     "chunk_count": chunk_count,
                     "finish_reason": finish_reason,
+                    # 代码来自 reasoning 兜底提取（正文为空），前端可据此提示用户复核
+                    "from_reasoning": salvaged_from_reasoning,
                 },
             }
 
@@ -696,7 +790,7 @@ class StrategyGenerator:
             Dict包含:
                 - success: 解析是否成功
                 - code: 提取的代码
-                - raw_content: 原始内容
+                - raw_content: 展示用正文（已剔除混入的代码残留，仅保留说明文字）
                 - error: 错误信息(如果失败)
         """
         if not content or not content.strip():
@@ -718,10 +812,19 @@ class StrategyGenerator:
                     "error": "未能从响应中提取到代码块",
                 }
 
+            # raw_content 下游全部用作"展示说明"（SSE 正文、接口 explanation、历史记录），
+            # 围栏错乱时代码会以裸文本/碎片形式混在其中，先剔除再下发；
+            # 原始模型输出不落库不透传，无其他消费方
+            display_content = strip_code_from_content(content, code).strip()
+            if not display_content:
+                # 剔除后为空说明模型只输出了代码没有说明文字；
+                # 不能给空串，否则前端找不到正文会拿 code 当正文重复渲染
+                display_content = "策略代码已生成，请查看下方代码。"
+
             return {
                 "success": True,
                 "code": code,
-                "raw_content": content,
+                "raw_content": display_content,
                 "error": None,
             }
 
@@ -781,6 +884,27 @@ class StrategyGenerator:
 
         # 如果都不匹配，返回整个内容(可能是纯代码)
         return content.strip() or None
+
+    def _extract_code_from_reasoning(self, reasoning: str) -> str | None:
+        """从 reasoning_content 兜底提取策略代码
+
+        推理模型（GLM-5.3-Flash 实测）偶发把完整代码写在思考过程里、正文为空。
+        只接受含 BaseStrategy 类定义的代码块，取最后一个（思考中可能有多版草稿，
+        最后一版最完整），避免把思考文本误当代码。
+
+        Args:
+            reasoning: 拼接后的 reasoning_content
+
+        Returns:
+            提取的代码字符串；没有合格代码块时返回 None
+        """
+        if not reasoning:
+            return None
+        blocks = re.findall(r"```(?:python)?\s*\n(.*?)\n```", reasoning, re.DOTALL | re.IGNORECASE)
+        for block in reversed(blocks):
+            if "BaseStrategy" in block and re.search(r"^\s*class\s+\w+", block, re.MULTILINE):
+                return block.strip()
+        return None
 
     def validate_code(self, code: str) -> dict[str, Any]:
         """验证生成的代码
