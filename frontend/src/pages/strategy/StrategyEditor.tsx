@@ -10,6 +10,7 @@ import {
   Input,
   Select,
   Descriptions,
+  Segmented,
   Tooltip,
   Tag,
   App,
@@ -175,7 +176,8 @@ const StrategyEditor = () => {
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
-  const [aiStrategyType, setAiStrategyType] = useState<'rule' | 'rl'>('rule');
+  // 策略类型只在创建时选择（模板选择器内选择），编辑器里不再切换；已有策略类型随 strategy_type 字段走
+  const [createStrategyType, setCreateStrategyType] = useState<'rule' | 'rl'>('rule');
 
   // 数据来源状态：'database' 表示来自数据库，'parsed' 表示来自策略解析
   const [dataSource, setDataSource] = useState<'database' | 'parsed'>('database');
@@ -506,24 +508,13 @@ class NewStrategy(BaseStrategy):
         return Action("hold", 0.8, 0.0, "new_strategy", 0)
 `;
 
-  // 切换策略类型：确认后同步替换编辑器内容为对应类型的示例模板
-  const handleStrategyTypeChange = (type: 'rule' | 'rl') => {
-    if (type === aiStrategyType) return;
-    const typeLabel = type === 'rl' ? 'RL策略' : '规则策略';
-    modal.confirm({
-      title: '切换策略类型',
-      content: `切换到「${typeLabel}」后，编辑器内容将替换为对应的示例模板。当前未保存的代码会被覆盖，是否继续？`,
-      okText: '切换',
-      cancelText: t('cancel') || '取消',
-      onOk: () => {
-        setAiStrategyType(type);
-        setCode(type === 'rl' ? buildRlTemplate() : buildRuleTemplate());
-      },
-    });
-  };
+  // 当前策略类型：已有策略跟 strategy_type 字段走，未选中时默认规则策略；仅用于 AI 生成的提示后缀
+  const strategyType: 'rule' | 'rl' = selectedStrategy?.strategy_type === 'rl' ? 'rl' : 'rule';
 
   // 创建新策略 —— 弹出模板选择器
   const handleCreateStrategy = async () => {
+    // 每次新建都回到默认的规则策略类型，避免上次的 RL 选择串到新会话
+    setCreateStrategyType('rule');
     setTemplatePickerLoading(true);
     try {
       // 拉真实模板列表（后端 strategy/templates/ 扫描结果）
@@ -540,17 +531,28 @@ class NewStrategy(BaseStrategy):
     }
   };
 
-  // 用户在模板选择器里点选模板或跳过
+  // 用户在模板选择器里点选模板或直接确认创建（templateId=null）
+  // RL 类型不走规则模板列表（两者框架不兼容），直接使用内置 RL 骨架
   const handlePickTemplate = (templateId: string | null) => {
-    let code = DEFAULT_NEW_STRATEGY_CODE;
-    let description = t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架';
-    let params: Strategy['params'] = [
-      { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
-      { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
-      { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
-    ];
+    const isRl = createStrategyType === 'rl';
 
-    if (templateId) {
+    let code = isRl ? buildRlTemplate() : DEFAULT_NEW_STRATEGY_CODE;
+    let description = isRl
+      ? 'RL 策略 - TradingEnv + stable-baselines3'
+      : t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架';
+    // RL 骨架依赖两个参数（与模板代码里 config.params.get 的 key 一一对应）
+    let params: Strategy['params'] = isRl
+      ? [
+          { name: 'model_path', type: 'str', default: '', description: '已训练 PPO 模型路径', required: true },
+          { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
+        ]
+      : [
+          { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
+          { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
+          { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
+        ];
+
+    if (!isRl && templateId) {
       const tpl = templates.find((t) => t.id === templateId);
       if (tpl?.code_template) {
         code = tpl.code_template;
@@ -580,6 +582,8 @@ class NewStrategy(BaseStrategy):
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       code,
+      // 类型在创建时确定并随策略保存（handleSaveStrategy 的 uploadStrategyFile 会带上它）
+      strategy_type: createStrategyType,
     };
 
     setSelectedStrategy(newStrategy);
@@ -938,50 +942,45 @@ class NewStrategy(BaseStrategy):
           wrap
           className={isMobile ? 'w-full justify-start' : ''}
         >
-          <Button
-            type="default"
-            icon={<ReloadOutlined />}
-            onClick={handleResetCode}
-            loading={loading}
-          >
-            {t('reset') || '重置'}
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            onClick={handleBacktestStrategy}
-            loading={loading}
-          >
-            {t('backtest') || '回测'}
-          </Button>
-          <Tooltip title={isGuest ? (t('guest_save_restricted') || '访客用户无法保存策略，请使用普通用户账号登录') : ''}>
+          {/* 操作按钮统一图标化，文字经 Tooltip 悬浮显示，保持工具栏简洁 */}
+          <Tooltip title={t('reset') || '重置'}>
+            <Button
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={handleResetCode}
+              loading={loading}
+              aria-label={t('reset') || '重置'}
+            />
+          </Tooltip>
+          <Tooltip title={t('backtest') || '回测'}>
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleBacktestStrategy}
+              loading={loading}
+              aria-label={t('backtest') || '回测'}
+            />
+          </Tooltip>
+          {/* 访客时 Tooltip 显示保存限制提示，正常显示按钮名 */}
+          <Tooltip title={isGuest ? (t('guest_save_restricted') || '访客用户无法保存策略，请使用普通用户账号登录') : (t('save') || '保存')}>
             <Button
               type="primary"
               icon={<SaveOutlined />}
               onClick={handleSaveStrategy}
               loading={loading}
               disabled={isGuest}
-            >
-              {t('save') || '保存'}
-            </Button>
+              aria-label={t('save') || '保存'}
+            />
           </Tooltip>
-          <Select
-            value={aiStrategyType}
-            onChange={handleStrategyTypeChange}
-            size="small"
-            style={{ width: 100 }}
-            options={[
-              { value: 'rule', label: '规则策略' },
-              { value: 'rl', label: 'RL 策略' },
-            ]}
-          />
-          <Button
-            type="default"
-            icon={<RobotOutlined />}
-            onClick={() => setAiModalVisible(true)}
-          >
-            {t('ai_generate') || 'AI生成'}
-          </Button>
+          {/* AI 助手入口：单击直接打开对话框，模式选择（生成/优化）移到对话框内部 */}
+          <Tooltip title={t('ai_generate_strategy') || 'AI 生成 / 优化策略'}>
+            <Button
+              type="default"
+              icon={<RobotOutlined />}
+              onClick={() => setAiModalVisible(true)}
+              aria-label={t('ai_generate_strategy') || 'AI 生成 / 优化策略'}
+            />
+          </Tooltip>
         </Space>
       </div>
 
@@ -1407,36 +1406,14 @@ class NewStrategy(BaseStrategy):
         welcomeTitle={t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}
         welcomeDescription={t('ai_example') || '例如：创建一个双均线交叉策略'}
         inputPlaceholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
-        onStreamGenerate={(content, modelId, modelName, onComplete, onError, onThinkingChain) => {
-          // 使用优化后的流式策略生成 API
-          // 思维链进度实时传输，代码内容一次性返回
-          const cancelStream = aiModelApi.generateStrategyStream(
-            {
-              requirement: content + (aiStrategyType === 'rl' ? '\n[策略类型: RL策略，使用TradingEnv+stable-baselines3]' : '\n[策略类型: 规则策略，使用on_bar→Action]'),
-              model_id: modelId || undefined,
-              model_name: modelName || undefined,
-            },
-            // onThinkingChain - 思维链进度实时更新
-            onThinkingChain,
-            // onDone - 生成完成，一次性返回完整结果
-            (result) => {
-              // 后端在内容为空（如推理模型思维链耗尽 token 预算被截断）时本应发 error 事件，
-              // 这里再兜一层：没有任何内容时按失败处理，避免误显示"策略生成成功"
-              if (!result.raw_content?.trim() && !result.code?.trim()) {
-                onError(new Error('模型未返回有效内容，请重试或更换模型（推理模型可能因思维链过长被截断）'));
-                return;
-              }
-              onComplete({
-                content: result.raw_content || result.code || '',
-                code: result.code,
-              });
-            },
-            // onError - 错误处理
-            onError
-          );
-
-          return cancelStream;
-        }}
+        // 传入编辑器当前代码，对话框内部据此显示「优化当前代码」模式
+        currentCode={code}
+        // 策略类型后缀拼接进请求发后端，不在气泡里显示；流式链路收敛到 AIChatModal 内部
+        requirementSuffix={
+          strategyType === 'rl'
+            ? '\n[策略类型: RL策略，使用TradingEnv+stable-baselines3]'
+            : '\n[策略类型: 规则策略，使用on_bar→Action]'
+        }
         onAcceptCode={(code: string) => {
           setCode(code);
           appMessage.success(t('ai_adopted') || '已采纳并应用到编辑器');
@@ -1447,52 +1424,74 @@ class NewStrategy(BaseStrategy):
         }}
       />
 
-      {/* 模板选择器 —— 新建策略时弹出，列出后端 strategy/templates/ 扫描到的真实模板 */}
+      {/* 模板选择器 —— 新建策略时弹出：先选类型（创建后不再切换）；规则策略可选真实模板，RL 用内置骨架 */}
       <Modal
-        title="选择策略模板"
+        title="创建策略"
         open={templatePickerVisible}
         onCancel={() => handlePickTemplate(null)}
         footer={null}
         width={560}
       >
-        <div style={{ marginBottom: 12, color: '#666' }}>
-          选择一个起始模板，或跳过使用空白 BaseStrategy 骨架：
-        </div>
-        <Select
-          style={{ width: '100%' }}
-          placeholder={templatePickerLoading ? '加载中...' : '选择模板（可跳过）'}
-          loading={templatePickerLoading}
-          disabled={templatePickerLoading}
-          options={templates.map((t) => ({
-            value: t.id,
-            label: (
-              <span>
-                <strong>{t.name}</strong>
-                <span style={{ color: '#888', marginLeft: 8 }}>
-                  [{t.category}]
-                </span>
-                {t.tags?.length ? (
-                  <span style={{ color: '#aaa', marginLeft: 8 }}>· {t.tags.join('/')}</span>
-                ) : null}
-              </span>
-            ),
-          }))}
-          onChange={(id) => id && handlePickTemplate(id)}
-        />
-        <div style={{ marginTop: 16, textAlign: 'right' }}>
-          <button
-            onClick={() => handlePickTemplate(null)}
-            style={{
-              background: 'transparent',
-              border: '1px solid #d9d9d9',
-              borderRadius: 6,
-              padding: '4px 12px',
-              cursor: 'pointer',
-            }}
-          >
-            跳过，使用空白模板
-          </button>
-        </div>
+        <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
+          <div>
+            <div style={{ marginBottom: 8, color: '#666' }}>策略类型（创建后不可在编辑器内切换）：</div>
+            <Segmented
+              block
+              value={createStrategyType}
+              onChange={(value) => setCreateStrategyType(value as 'rule' | 'rl')}
+              options={[
+                { value: 'rule', label: '规则策略 (on_bar→Action)' },
+                { value: 'rl', label: 'RL 策略 (PPO)' },
+              ]}
+            />
+          </div>
+          {createStrategyType === 'rule' ? (
+            <>
+              <div style={{ color: '#666' }}>
+                选择一个起始模板，或跳过使用空白 BaseStrategy 骨架：
+              </div>
+              <Select
+                style={{ width: '100%' }}
+                placeholder={templatePickerLoading ? '加载中...' : '选择模板（可跳过）'}
+                loading={templatePickerLoading}
+                disabled={templatePickerLoading}
+                options={templates.map((t) => ({
+                  value: t.id,
+                  label: (
+                    <span>
+                      <strong>{t.name}</strong>
+                      <span style={{ color: '#888', marginLeft: 8 }}>
+                        [{t.category}]
+                      </span>
+                      {t.tags?.length ? (
+                        <span style={{ color: '#aaa', marginLeft: 8 }}>· {t.tags.join('/')}</span>
+                      ) : null}
+                    </span>
+                  ),
+                }))}
+                onChange={(id) => id && handlePickTemplate(id)}
+              />
+            </>
+          ) : (
+            <div style={{ color: '#666' }}>
+              RL 策略将使用内置骨架模板（加载已训练 PPO 模型 + on_bar 推理），点击下方按钮创建。
+            </div>
+          )}
+          <div style={{ textAlign: 'right' }}>
+            <button
+              onClick={() => handlePickTemplate(null)}
+              style={{
+                background: 'transparent',
+                border: '1px solid #d9d9d9',
+                borderRadius: 6,
+                padding: '4px 12px',
+                cursor: 'pointer',
+              }}
+            >
+              {createStrategyType === 'rl' ? '创建 RL 策略' : '跳过，使用空白模板'}
+            </button>
+          </div>
+        </Space>
       </Modal>
     </PageContainer>
   );
