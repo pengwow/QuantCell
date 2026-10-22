@@ -38,6 +38,7 @@ import type { Chart, DataLoaderGetBarsParams, KLineData, PeriodType } from 'klin
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
 import type { ReplayData, ReplayKline, SymbolInfo } from '../../types/backtest';
+import { buildLeverageMap } from '../../types/backtest';
 import PortfolioReplayView from './PortfolioReplayView';
 // 显式带 .tsx 扩展名：同目录存在仅大小写不同的 factorSnapshot.ts，
 // macOS 默认大小写不敏感文件系统下省略扩展名会误解析到该文件
@@ -291,6 +292,9 @@ const BacktestReplay = () => {
         strategy_name: data.strategy_name || '',
         backtest_config: data.backtest_config || {},
         factors: data.factors ?? null,
+        // 生效保证金回显：仅启用保证金时回放交易表显示「保证金占用」列
+        margin_applied: data.margin_applied ?? false,
+        margin_specs_effective: data.margin_specs_effective ?? [],
         symbol: data.backtest_config?.symbol || symbol || 'BTCUSDT',
         interval: data.backtest_config?.interval || '15m',
       };
@@ -914,6 +918,10 @@ const BacktestReplay = () => {
                     data={visibleTrades}
                     loading={loading}
                     pagination={true}
+                    leverageBySymbol={buildLeverageMap(
+                      replayData.margin_applied,
+                      replayData.margin_specs_effective
+                    )}
                   />
                 </>
               );

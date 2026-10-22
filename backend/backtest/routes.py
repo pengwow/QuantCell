@@ -828,6 +828,11 @@ def get_backtest_replay(backtest_id: str, symbol: str | None = None) -> ApiRespo
             "trades": entry_trades,
             "equity_curve": entry.get("equity_curve") or [],
             "factors": entry.get("factors") or {},
+            # 生效保证金回显：与 /detail 同源（entry），回放页交易表据此渲染「保证金占用」列
+            "margin_applied": bool(entry.get("margin_applied")),
+            "margin_specs_effective": [
+                dict(spec) for spec in entry.get("margin_specs_effective") or [] if isinstance(spec, dict)
+            ],
             "status": json_result.get("status") or task_status,
             "created_at": created_at,
             "metadata": {
@@ -926,6 +931,15 @@ def get_backtest_replay_portfolio(backtest_id: str) -> ApiResponse:
                     logger.warning(f"解析回测配置失败: {e}")
 
         data = backtest_service.build_portfolio_replay(results, backtest_config)
+        # 生效保证金回显：直接读落盘的 portfolio 字段（与 build_portfolio_view 口径一致），
+        # 组合回放交易表据此渲染「保证金占用」列；旧结果无键时按默认值降级
+        portfolio = results.get("portfolio") if isinstance(results, dict) else None
+        portfolio = portfolio if isinstance(portfolio, dict) else {}
+        data["margin_applied"] = bool(portfolio.get("margin_applied"))
+        raw_specs = portfolio.get("margin_specs_effective")
+        data["margin_specs_effective"] = (
+            [dict(spec) for spec in raw_specs if isinstance(spec, dict)] if isinstance(raw_specs, list) else []
+        )
         logger.info(
             f"全局回放数据构建成功，回测ID: {backtest_id}, "
             f"网格点数: {data['grid_count']}, 持仓事件: {len(data['position_events'])}"

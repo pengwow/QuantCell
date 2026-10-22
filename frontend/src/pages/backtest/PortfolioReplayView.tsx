@@ -36,6 +36,7 @@ import type { Chart, DataLoaderGetBarsParams, KLineData, PeriodType } from 'klin
 import EChart from '@/components/EChart';
 import type { EChartsOption } from 'echarts';
 import TradeTable, { type Trade as TradeTableTrade } from '@/components/TradeTable';
+import { buildLeverageMap } from '@/types/backtest';
 import { useQuantColors } from '@/utils/colors';
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
@@ -424,6 +425,9 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
   // 新契约记录直接透传（后端已带 trade_id/symbol）
   const allTableTrades = useMemo<TradeTableTrade[]>(() => data?.trades ?? [], [data]);
 
+  // 「保证金占用」列杠杆表：仅启用保证金时渲染（与详情页/单品种回放口径一致）
+  const leverageBySymbol = buildLeverageMap(data?.margin_applied, data?.margin_specs_effective);
+
   // 新成交出现时记录最新一笔的时间戳（用于行高亮）
   const filledCountRef = useRef(0);
   useEffect(() => {
@@ -732,6 +736,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
         <TradeTable
           data={allTableTrades.slice(0, filledCount)}
           pagination
+          leverageBySymbol={leverageBySymbol}
           rowClassName={(record) => (record.timestamp === lastFilledTs ? 'portfolio-new-trade' : '')}
         />
       </Card>

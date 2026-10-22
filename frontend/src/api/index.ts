@@ -12,7 +12,7 @@ import type {
   CleanupResult,
 } from '../pages/setting/types';
 import type { StrategyInfo } from '../types/worker';
-import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors } from '../types/backtest';
+import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
 
 // ============================================
 // 全局401错误处理配置
@@ -616,6 +616,9 @@ export const backtestApi = {
     equity_curve?: Array<{ date?: string; datetime?: string; equity?: number; [key: string]: unknown }>;
     metadata?: Record<string, unknown>;
     factors?: BacktestFactors | null;
+    // 生效保证金回显：仅启用保证金时回放交易表显示「保证金占用」列（与 /detail 同源）
+    margin_applied?: boolean;
+    margin_specs_effective?: EffectiveMarginSpec[];
   }> => {
     return apiRequest.get(`/backtest/${backtestId}/replay`, { symbol });
   },

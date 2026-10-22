@@ -163,6 +163,25 @@ export interface FactorSnapshotRow {
   signal: 'long' | 'short' | 'neutral' | 'none';  // none: 无阈值或无值，只显示数值
 }
 
+// 生效保证金规格：引擎回显实际生效值（含档位来源）；旧任务回退配置时没有 bracket_source。
+// 详情页与回放页（单品种/组合）共用，交易表「保证金占用」列的杠杆来源
+export interface EffectiveMarginSpec {
+  symbol: string;
+  leverage: number;
+  margin_mode?: 'isolated' | 'cross';
+  bracket_source?: 'db' | 'snapshot' | 'default';
+}
+
+// 详情/回放三处共用的「保证金占用」列杠杆表构造：
+// 仅启用保证金（margin_applied=true）时返回 symbol -> leverage 映射，否则 undefined（表格不渲染该列）
+export const buildLeverageMap = (
+  marginApplied: boolean | undefined,
+  specs: EffectiveMarginSpec[] | undefined
+): Record<string, number> | undefined =>
+  marginApplied && specs?.length
+    ? Object.fromEntries(specs.map((item) => [item.symbol, item.leverage]))
+    : undefined;
+
 // 回放数据类型（字段与后端 /replay 接口返回保持宽松兼容）
 export interface ReplayData {
   klines: ReplayKline[];
@@ -181,6 +200,9 @@ export interface ReplayData {
   symbol: string;
   interval: string;
   factors?: BacktestFactors | null;
+  // 生效保证金回显：与 /detail 同源；仅启用保证金时回放交易表显示「保证金占用」列
+  margin_applied?: boolean;
+  margin_specs_effective?: EffectiveMarginSpec[];
 }
 
 // 货币对信息类型
@@ -221,6 +243,9 @@ export interface PortfolioReplayData {
   holding_prices: Record<string, Array<[number, number]>>;
   trades: ReplayTrade[];
   capital_mode?: 'per_symbol' | 'shared';   // 本次回测的资金使用方式，供口径说明按模式渲染
+  // 生效保证金回显：与单品种 /replay 口径一致；仅启用保证金时显示「保证金占用」列
+  margin_applied?: boolean;
+  margin_specs_effective?: EffectiveMarginSpec[];
 }
 
 // 回测货币对列表数据类型
