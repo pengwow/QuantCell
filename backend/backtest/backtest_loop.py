@@ -411,7 +411,6 @@ class BacktestLoop:
                     "quantity": float(src.get("quantity") or 0.0),
                     "timestamp": ts_sec,
                     "formatted_time": dt_s,
-                    "pnl": 0.0,  # 累计 pnl 已在主行 trade.pnl，多条 close fill 每条显示相同累计值会误导用户
                     "status": "filled",
                 }
 

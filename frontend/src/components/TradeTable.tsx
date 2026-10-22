@@ -161,19 +161,13 @@ const TradeTable = ({
       },
       { title: '成交价', dataIndex: 'price', key: 'p', render: (v: number) => v.toFixed(4), align: 'right' },
       { title: '数量', dataIndex: 'quantity', key: 'q', render: (v: number) => v.toFixed(4), align: 'right' },
-      { title: '盈亏', dataIndex: 'pnl', key: 'pnl', render: (v: number) => v.toFixed(2), align: 'right' },
     ];
     return (
       <div style={{ padding: '8px 0' }}>
         {fills.length === 0 ? (
           <span style={{ color: '#999' }}>无逐笔明细</span>
         ) : (
-          <>
-            <Table size="small" rowKey="fill_id" columns={cols} dataSource={fills} pagination={false} />
-            <div style={{ color: '#aaa', fontSize: 12, marginTop: 4 }}>
-              提示：同向加仓持仓共享开仓成交，部分平仓可能复现同一开仓记录（引擎口径）。
-            </div>
-          </>
+          <Table size="small" rowKey="fill_id" columns={cols} dataSource={fills} pagination={false} />
         )}
       </div>
     );
