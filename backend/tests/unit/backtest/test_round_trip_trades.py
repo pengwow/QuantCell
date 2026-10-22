@@ -148,8 +148,8 @@ def test_fills_assembly():
         assert [f["fill_id"] for f in fills] == tr["entry_fill_ids"] + tr["exit_fill_ids"]
         assert all(f["side"] == tr["entry_side"] for f in open_f)
         assert all(f["side"] == tr["exit_side"] for f in close_f)
-        # 盈亏只在主行 trade.pnl，所有 fill 的 pnl 统一为 0.0
-        assert all(f["pnl"] == 0.0 for f in fills)
+        # fill 级不携带盈亏(引擎只在 round-trip 级给 realized_pnl,业内成交明细也不显示逐笔盈亏)
+        assert all("pnl" not in f for f in fills)
         assert all(f["status"] == "filled" for f in fills)
 
     # 加仓那笔: 开仓 2 条(100/1.5, 114/1.0), 平仓 1 条(120/2.5)

@@ -24,7 +24,6 @@ export interface TradeFill {
   quantity: number;
   timestamp: number;
   formatted_time: string;
-  pnl: number;
   status: 'filled';
 }
 
