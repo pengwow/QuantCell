@@ -31,6 +31,7 @@ import { backtestApi } from '../../api';
 import MetricCard from '../../components/MetricCard';
 import { formatMetricValue, visibleMetricCards } from './metricCards';
 import TradeTable, { type Trade } from '../../components/TradeTable';
+import { buildLeverageMap, type EffectiveMarginSpec } from '../../types/backtest';
 import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
 import { useQuantColors } from '@/utils/colors';
@@ -54,14 +55,6 @@ interface EquityCurvePoint {
   equity: number;
   balance: number;
   margin?: number;
-}
-
-// 生效保证金规格：引擎回显实际生效值（含档位来源）；旧任务回退配置时没有 bracket_source
-interface EffectiveMarginSpec {
-  symbol: string;
-  leverage: number;
-  margin_mode?: 'isolated' | 'cross';
-  bracket_source?: 'db' | 'snapshot' | 'default';
 }
 
 // 逐档部分强平事件（引擎产出；字段按可选处理，旧任务结果 JSON 无此项）
@@ -369,10 +362,8 @@ const BacktestDetail = () => {
       ? backtestData.margin_specs_effective
       : backtestConfig.margin_settings ?? [];
   const marginApplied = backtestData.margin_applied ?? false;
-  // 交易表「保证金占用≈」列的口径来源：仅启用保证金时传杠杆，否则表格不渲染该列
-  const leverageBySymbol: Record<string, number> | undefined = marginApplied
-    ? Object.fromEntries(effectiveSpecs.map((item) => [item.symbol, item.leverage]))
-    : undefined;
+  // 交易表「保证金占用」列的口径来源：仅启用保证金时传杠杆，否则表格不渲染该列
+  const leverageBySymbol: Record<string, number> | undefined = buildLeverageMap(marginApplied, effectiveSpecs);
   const liquidationCount = backtestData.liquidation_count ?? 0;
   const shortfallCount = backtestData.margin_shortfall_count ?? 0;
   // 旧任务没有保证金结果字段，一律按“无强平”处理
