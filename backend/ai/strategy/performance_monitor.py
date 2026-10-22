@@ -76,10 +76,10 @@ class PerformanceMonitor:
         if data_dir:
             self._data_file = Path(data_dir) / self.DEFAULT_DATA_FILE
         else:
-            # 默认存储在backend目录下的data文件夹
-            backend_dir = Path(__file__).parent.parent
-            data_dir_path = backend_dir / "data"
-            data_dir_path.mkdir(exist_ok=True)
+            # 默认存储在 backend/data/ai/ 下（backend 根唯一 data 目录 + 模块子目录）；
+            # 旧实现 parent.parent 少走一级，数据落到了 backend/ai/data，属路径 bug
+            data_dir_path = Path(__file__).resolve().parent.parent.parent / "data" / "ai"
+            data_dir_path.mkdir(parents=True, exist_ok=True)
             self._data_file = data_dir_path / self.DEFAULT_DATA_FILE
 
         # 加载已有数据

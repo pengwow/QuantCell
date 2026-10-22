@@ -43,7 +43,8 @@ const clearAuthData = (): void => {
  */
 let isRedirecting = false;
 
-const handleUnauthorized = (): void => {
+// 导出供非 axios 通道（如 XRequest 中间件）复用同一套 401 跳转逻辑
+export const handleUnauthorized = (): void => {
   if (isRedirecting) return;
   isRedirecting = true;
 

@@ -16,6 +16,8 @@
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
     "@ant-design/x": "^2.3.0",
+    "@ant-design/x-card": "^2.9.0",
+    "@ant-design/x-sdk": "^2.9.0",
     "@monaco-editor/react": "^4.7.0",
     "@tabler/icons-react": "^3.40.0",
     "@tauri-apps/api": "^2",
