@@ -23,6 +23,8 @@ from typing import Any
 from services.risk_service import RiskService
 
 from .agent_traders import ReActTrader, StrategyTrader, TraderRegistry
+from .base import StrategyConfig
+from .composite_strategy import CompositeStrategy
 from .event_loop import EventDrivenLoop
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,9 @@ class OrchestratorConfig:
         voting: SwarmRunner 投票策略, 默认 weighted_majority
         enable_trajectory: 是否写轨迹文件到磁盘
         event_callback: 全局事件回调 fn(event_type, data)
+        assembly: 装配模式。"loop"(默认) = 现有 EventDrivenLoop + SwarmRunner 逐策略投票;
+            "composite" = M5 收编路径, 规则策略先合成一个 CompositeStrategy 再注册。
+            默认关闭; M6 删除旧循环前需实盘等价验证。
     """
 
     adapter: Any = None
@@ -83,6 +88,7 @@ class OrchestratorConfig:
     enable_trajectory: bool = True
     trajectory_dir: str = "output/trajectories"
     event_callback: Any = None
+    assembly: str = "loop"
 
 
 # ===================================================================
@@ -104,6 +110,10 @@ class SwarmOrchestrator:
     用法 2 — 从配置一次性构建:
         orch = SwarmOrchestrator.from_config(cfg)
         orch.start()
+
+    `assembly="composite"` 是 M5 收编路径: 规则策略先合成一个 CompositeStrategy,
+    再通过既有 add_strategy 通路注册到循环里; 默认仍是 "loop" 逐策略注册。
+    M6 删除 EventDrivenLoop 前需要实盘等价验证, 因此该模式默认关闭。
     """
 
     def __init__(
@@ -115,7 +125,10 @@ class SwarmOrchestrator:
         enable_trajectory: bool = True,
         trajectory_dir: str = "output/trajectories",
         event_callback: Any = None,
+        assembly: str = "loop",
     ):
+        if assembly not in ("loop", "composite"):
+            raise ValueError(f"不支持的装配模式: {assembly!r}, 可选 loop/composite")
         self._adapter = adapter
         self._symbol = symbol
         self._initial_cash = initial_cash
@@ -123,6 +136,7 @@ class SwarmOrchestrator:
         self._enable_trajectory = enable_trajectory
         self._trajectory_dir = trajectory_dir
         self._event_callback = event_callback
+        self._assembly = assembly
 
         self._strategy_specs: list[StrategySpec] = []
         self._llm_specs: list[LLMAgentSpec] = []
@@ -180,6 +194,7 @@ class SwarmOrchestrator:
             enable_trajectory=cfg.enable_trajectory,
             trajectory_dir=cfg.trajectory_dir,
             event_callback=cfg.event_callback,
+            assembly=cfg.assembly,
         )
         for s in cfg.strategies:
             orch.add_strategy(s.strategy, position_scale=s.position_scale, weight=s.weight)
@@ -210,8 +225,16 @@ class SwarmOrchestrator:
         )
 
         # 装载规则策略
-        for spec in self._strategy_specs:
-            loop.add_strategy(spec.strategy, position_scale=spec.position_scale)
+        if self._assembly == "composite" and self._strategy_specs:
+            # M5 收编路径: 规则策略收编成一个复合投票者注册(LLM agent 仍单独投票)。
+            # 默认关闭; M6 删除 EventDrivenLoop 前需实盘等价验证。
+            loop.add_strategy(
+                self._build_composite_strategy(),
+                position_scale=self._strategy_specs[0].position_scale,
+            )
+        else:
+            for spec in self._strategy_specs:
+                loop.add_strategy(spec.strategy, position_scale=spec.position_scale)
 
         # 装载 LLM Agent 为 ReActTrader
         for spec in self._llm_specs:
@@ -224,6 +247,21 @@ class SwarmOrchestrator:
         if traders:
             loop._swarm = SwarmRunner(traders=traders)
         return loop
+
+    def _build_composite_strategy(self) -> CompositeStrategy:
+        """把已注册的规则策略收编为一个复合策略(M5 收编路径)。"""
+        voting = {"weighted_majority": "weighted", "weighted": "weighted", "majority": "majority"}.get(self._voting)
+        if voting is None:
+            raise ValueError(f"composite 装配模式不支持 voting={self._voting!r}, 可选 weighted_majority/weighted/majority")
+        return CompositeStrategy(
+            config=StrategyConfig(name="swarm_composite", symbol=self._symbol),
+            children=[spec.strategy for spec in self._strategy_specs],
+            weights=[spec.weight for spec in self._strategy_specs],
+            voting=voting,
+            # ponytail: 复合策略只有一个 position_scale, 逐 StrategySpec 的 scale 差异不保留;
+            # 仅在子策略返回 target_position=0 时影响回退仓位, 实盘验证时再按需扩展。
+            position_scale=self._strategy_specs[0].position_scale,
+        )
 
     @property
     def loop(self) -> EventDrivenLoop | None:
