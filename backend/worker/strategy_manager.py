@@ -443,6 +443,7 @@ class StrategyManager:
             KERNEL_WINDOW_SIZE,
             RLService,
             make_predict_fn,
+            observation_stats_from_meta,
             rl_meta_path,
         )
         from strategy.rust_adapter import _normalize_symbol
@@ -487,6 +488,8 @@ class StrategyManager:
             meta.get("features") or KERNEL_FEATURES,
             KERNEL_ACTION_SPACE,
             _normalize_symbol(symbol),
+            # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，与训练分布不一致
+            stats=observation_stats_from_meta(meta, model_path=model_path),
         )
         self._rl_kernels[worker_id] = kernel
 

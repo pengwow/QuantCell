@@ -28,11 +28,10 @@ MODELS_DIR = Path(__file__).parent.parent / "data" / "models"
 # 内核 RL 口径：与训练环境 `PyTradingEnv` 的默认观测空间一致
 # （close Z-Score + volume 不归一化，window=1），保证模型输入维度对齐。
 #
-# ponytail: 归一化运行时统计量（RunningStats）尚未随模型落盘 —— 内核侧
-# `ObservationSpec` 的统计量为空时 Z-Score 恒为 0，特征分布与训练时不一致。
-# 升级路径：训练结束时把观测空间的 RunningStats 导出到模型元数据，内核路径构造
-# `ObservationSpec` 时灌回去；在那之前内核路径只用于验证接线，不能当作与训练
-# 等价的评估口径。
+# 训练期观测归一化统计量（RunningStats）随模型落盘：训练结束时写进
+# `<model>.meta.json` 的 `observation_stats`，内核路径用 `stats=` 灌回，
+# 让内核侧 Z-Score 与训练分布一致。meta 缺该字段时内核统计量全空（Z-Score
+# 恒为 0），加载处会告警 —— 那种情况下内核结果不能当作与训练等价的评估口径。
 KERNEL_SPEC_VERSION = "v1"
 KERNEL_WINDOW_SIZE = 1
 KERNEL_FEATURES = [
@@ -47,6 +46,114 @@ KERNEL_ACTION_SPACE = {"type": "continuous", "min": -1.0, "max": 1.0}
 def rl_meta_path(model_path: str) -> Path:
     """模型观测规格元数据旁车文件路径（训练时写入，启动时校验口径）。"""
     return Path(f"{model_path}.meta.json")
+
+
+def export_observation_stats(env: Any) -> list[dict[str, Any]] | None:
+    """从训练环境导出观测归一化统计量（写进模型旁车用）。
+
+    `TradingEnv.observation_stats()` 返回 JSON 字符串（`"null"` 表示没有归一化
+    状态）。这里直接落成 JSON 数组，读侧不用再 parse 一遍字符串。
+
+    取不到统计量时返回 `None` 并告警，交给 meta 写成 `null`：埋一个假的空统计量
+    比明说「没有」更危险。
+    """
+    getter = getattr(env, "observation_stats", None)
+    if getter is None:
+        logger.warning("[RLService] 训练环境没有 observation_stats()，模型元数据将不含归一化统计量")
+        return None
+    raw = getter()
+    stats = json.loads(raw) if isinstance(raw, str) else raw
+    if not stats:
+        logger.warning("[RLService] 训练环境未产生归一化统计量，模型元数据 observation_stats 记为 null")
+        return None
+    # 条目全为 count=0 说明训练期从未预热（统计量信息量等于空），
+    # 落成 null 比存一串假的 0 更有辨识度
+    if all(not entry.get("count") for entry in stats):
+        logger.warning("[RLService] 观测统计量全未预热（count=0），模型元数据 observation_stats 记为 null")
+        return None
+    return stats
+
+
+def observation_stats_from_meta(meta: dict[str, Any], *, model_path: str) -> list[dict[str, Any]] | None:
+    """从模型旁车元数据取观测归一化统计量。
+
+    缺字段返回 `None` 并告警：内核侧统计量全空会让 Z-Score 恒为 0，特征分布与
+    训练时不一致，不能静默当成「等价口径」。
+    """
+    stats = meta.get("observation_stats")
+    if not stats:
+        logger.warning(
+            f"[RLService] {rl_meta_path(model_path)} 缺少 observation_stats，"
+            "内核侧 Z-Score 恒为 0，与训练分布不一致"
+        )
+        return None
+    return stats
+
+
+def load_observation_stats(model_path: str) -> list[dict[str, Any]] | None:
+    """读模型旁车里的观测归一化统计量（回测 / 推理侧灌回内核用）。"""
+    meta_file = rl_meta_path(model_path)
+    if not meta_file.is_file():
+        logger.warning(f"[RLService] RL 模型缺少观测规格元数据，内核统计量全空: {meta_file}")
+        return None
+    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    return observation_stats_from_meta(meta, model_path=model_path)
+
+
+def attribute_engine_diff(*, trading_env: dict[str, Any], kernel: dict[str, Any]) -> dict[str, Any]:
+    """把两口径的收益差异拆成 成本 / 资金费 / 动作 / 撮合 四类。
+
+    前提：两次运行使用同一动作序列（确定性策略）。成本项必须为零，否则说明
+    两边的成本模型不一致（这是 bug，不是预期的口径差异）。
+
+    输入是两次运行的汇总，两边同形、缺省为 0：
+
+    - `total_pnl`：净收益，已扣成本、已加资金费；
+    - `fees`：累计交易成本（正数 = 支出）；
+    - `funding`：累计资金费净额（正数 = 收入）；`TradingEnv` 不建模资金费，恒为 0；
+    - `action_diff`：可选，由调用方单独测得的「目标仓位语义」收益贡献。
+
+    口径：`net = gross - fees + funding`，因此
+
+        total_diff = -cost_diff + funding + action_diff + 残差
+
+    残差（`matching.residual`）来自撮合层：成交价、部分成交、保证金约束、重平衡
+    阈值等。**不假装能把残差再拆细** —— 要细分就得逐笔成交对齐，那不在本函数的
+    口径内；宁可把「说不清的部分」整体挂在 `matching` 上。
+
+    Args:
+        trading_env: `TradingEnv` 口径的汇总。
+        kernel: 统一内核口径的汇总。
+
+    Returns:
+        `cost` / `funding` / `action` / `matching` / `total_pnl` 五类归因；
+        成本模型不一致时额外带 `error`。
+    """
+    env_pnl = float(trading_env.get("total_pnl", 0.0))
+    kernel_pnl = float(kernel.get("total_pnl", 0.0))
+    env_fees = float(trading_env.get("fees", 0.0))
+    kernel_fees = float(kernel.get("fees", 0.0))
+
+    cost_diff = kernel_fees - env_fees
+    # 手续费是浮点累加，绝对相等不现实；以金额量级做基准的相对容差
+    cost_ok = abs(cost_diff) <= 1e-9 * max(1.0, abs(env_fees), abs(kernel_fees))
+
+    funding = float(kernel.get("funding", 0.0))
+    action_diff = float(kernel.get("action_diff", 0.0)) - float(trading_env.get("action_diff", 0.0))
+    total_diff = kernel_pnl - env_pnl
+    # net = gross - fees + funding ⇒ 残差 = 总差 + 成本差 - 资金费 - 动作差
+    residual = total_diff + cost_diff - funding - action_diff
+
+    report: dict[str, Any] = {
+        "cost": {"trading_env": env_fees, "kernel": kernel_fees, "diff": cost_diff, "ok": cost_ok},
+        "funding": {"kernel": funding},
+        "action": {"diff": action_diff},
+        "matching": {"residual": residual},
+        "total_pnl": {"trading_env": env_pnl, "kernel": kernel_pnl, "diff": total_diff},
+    }
+    if not cost_ok:
+        report["error"] = "成本模型不一致"
+    return report
 
 
 def make_predict_fn(model: Any):
@@ -346,6 +453,9 @@ class RLService:
         model = algo_cls("MlpPolicy", wrapped_env, verbose=0)
         model.learn(total_timesteps=config.total_timesteps)
 
+        # 统计量必须在训练循环跑完后再取：每次 step 都会在线更新 RunningStats
+        observation_stats = export_observation_stats(env)
+
         model_id = f"{config.model_name}_{config.algorithm}_{int(time.time())}"
         model_path = str(MODELS_DIR / f"{model_id}.zip")
         model.save(model_path)
@@ -358,6 +468,9 @@ class RLService:
                     "spec_version": KERNEL_SPEC_VERSION,
                     "window_size": KERNEL_WINDOW_SIZE,
                     "features": KERNEL_FEATURES,
+                    # 训练期归一化统计量：内核路径据此还原 Z-Score 分布，
+                    # 取不到时写 null（不伪造空统计量）
+                    "observation_stats": observation_stats,
                 },
                 ensure_ascii=False,
             ),
@@ -535,6 +648,8 @@ class RLService:
             KERNEL_FEATURES,
             KERNEL_ACTION_SPACE,
             rust_symbol,
+            # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，不是训练等价口径
+            stats=load_observation_stats(model_path),
         )
         result = kernel.run(bars_by_symbol={rust_symbol: bars})
 
@@ -553,5 +668,8 @@ class RLService:
             "num_trades": int(result.fills),
             # 内核结果不提供 round-trip 盈亏比，显式置 None 而不是编一个 0
             "profit_factor": None,
+            # 成本 / 资金费明细：`attribute_engine_diff` 用它和 TradingEnv 口径对账
+            "total_fees": float(result.total_fees),
+            "total_funding": float(result.total_funding_pnl),
             "engine": "kernel",
         }
