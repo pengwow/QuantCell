@@ -118,6 +118,7 @@ class StrategyLoaderService:
         strategy_params: dict,
         instrument_ids: list | None = None,
         bar_types: list | None = None,
+        run_mode: str | None = None,
     ):
         """
         加载策略（通用入口）
@@ -128,6 +129,9 @@ class StrategyLoaderService:
             instrument_ids: 可选品种 ID 列表（axond.StrategyConfig 必填；
                            不传时使用空列表，CLI 单品种场景会后续传入）
             bar_types: 可选 bar_type 列表（同上）
+            run_mode: 运行模式 backtest / paper / live，用于包装 LLM 策略的
+                     ``llm_provider``（回测走 replay，实盘走 record）。None 表示
+                     不做包装（CLI/测试等未声明模式的调用保持原语义）。
 
         Returns:
             策略实例
@@ -157,6 +161,13 @@ class StrategyLoaderService:
             if strategy_class is None:
                 msg = f"在模块 {strategy_name} 中找不到策略类"
                 raise StrategyLoadError(msg)
+
+            if run_mode is not None:
+                # 函数内 import：strategy 包 __init__ 会连带载入路由/服务，
+                # 顶部引入会拉高 CLI 启动成本并放大循环导入风险
+                from strategy.llm_replay import wrap_llm_provider
+
+                strategy_params = wrap_llm_provider(strategy_name, dict(strategy_params or {}), run_mode)
 
             # 唯一路径：实例化 BaseStrategy 子类
             instance = StrategyLoaderService._instantiate_strategy(
