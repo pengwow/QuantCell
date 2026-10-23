@@ -20,6 +20,7 @@ from .agent_traders import (
     TraderRegistry,
 )
 from .base import BaseStrategy, StrategyConfig, StrategyContext
+from .composite_strategy import CompositeStrategy
 from .event_loop import EventDrivenLoop
 from .execution_pipeline import ExecutionPipeline, ExecutionResult
 from .live_portfolio import LivePortfolio, Position
@@ -39,6 +40,7 @@ __all__ = [
     "Action",
     "ActionType",
     "BaseStrategy",
+    "CompositeStrategy",
     "EnsembleTrader",
     "EventDrivenLoop",
     "ExecutionPipeline",
