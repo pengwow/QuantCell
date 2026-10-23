@@ -142,6 +142,34 @@ class WorkerCoreService:
 
     # ==================== 同步CRUD方法（供CLI使用） ====================
 
+    def _validate_and_fill_strategy(self, db: Session, worker_data: Any, op_name: str) -> None:
+        """落库前校验 Worker 关联的策略有效性，并回填冗余的 id/name。
+
+        daemon 按 strategy_name 加载策略，strategy_id 失效且 strategy_name
+        为空的 Worker 会拖到启动阶段才失败。统一在创建/更新入口拦截：
+        显式传入的策略引用（id 或名称）查不到时直接拒绝；查到则回填
+        真实 id/name，防止后续按失效引用加载。
+        部分更新（WorkerUpdate）仅在本次显式涉及策略字段时才校验。
+        """
+        fields_set = getattr(worker_data, "model_fields_set", None)
+        if fields_set is not None and not ({"strategy_id", "strategy_name"} & fields_set):
+            return
+        if worker_data.strategy_id is None and not worker_data.strategy_name:
+            return  # 未关联策略的 Worker 允许存在（用户可稍后编辑补选）
+        strategy = crud.find_strategy_by_name_or_id(
+            db, strategy_id=worker_data.strategy_id, strategy_name=worker_data.strategy_name
+        )
+        if strategy is None:
+            raise WorkerOperationException(
+                op_name,
+                message=(
+                    f"关联策略不存在（strategy_id={worker_data.strategy_id}, "
+                    f"strategy_name={worker_data.strategy_name}），请先在策略库选择有效策略"
+                ),
+            )
+        worker_data.strategy_id = strategy["id"]
+        worker_data.strategy_name = strategy["name"]
+
     def create_worker(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         创建Worker（同步版本）
@@ -159,7 +187,9 @@ class WorkerCoreService:
             with self.get_db() as db:
                 # crud 层按 WorkerCreate schema 落库；这里把 dict 边界数据转成 schema，
                 # 与 update_worker 的 schemas.WorkerUpdate(**data) 保持一致，并让 extra="forbid" 生效
-                worker = crud.create_worker(db, schemas.WorkerCreate(**data))
+                create_data = schemas.WorkerCreate(**data)
+                self._validate_and_fill_strategy(db, create_data, "创建")
+                worker = crud.create_worker(db, create_data)
                 result = worker.to_dict()
                 logger.info(f"[WorkerCoreService] Worker创建成功: id={worker.id}, name={result.get('name')}")
                 return result
@@ -242,6 +272,7 @@ class WorkerCoreService:
         try:
             with self.get_db() as db:
                 worker_data = schemas.WorkerUpdate(**data)
+                self._validate_and_fill_strategy(db, worker_data, "更新")
                 worker = crud.update_worker(db, worker_id, worker_data)
                 if not worker:
                     raise WorkerNotFoundException(worker_id)
@@ -721,11 +752,21 @@ class WorkerCoreService:
         if orchestrator.is_connected(worker_id):
             return {"worker_id": worker_id, "status": "running", "already_running": True}
 
+        # 提前构建配置并校验策略有效性：daemon 按名称加载策略，strategy_id
+        # 失效且 strategy_name 为空时必然启动失败。在拉起子进程前拦截，
+        # 避免产生孤儿 daemon 进程，并给出可操作的错误提示
+        config = self._build_worker_config(worker_id)
+        if not config.get("strategy_name"):
+            raise WorkerOperationException(
+                "启动",
+                worker_id,
+                message="Worker 未关联有效策略（strategy_id 无效且 strategy_name 为空），请编辑 Worker 重新选择策略",
+            )
+
         # 启动 Worker 进程
         pid = orchestrator.start_worker_process(worker_id)
 
         # 发送 start 命令（携带策略配置）
-        config = self._build_worker_config(worker_id)
         response = orchestrator.send_command_and_wait(worker_id, "start", config)
 
         if response and response.get("status") == "ok":
@@ -735,7 +776,13 @@ class WorkerCoreService:
             return {"worker_id": worker_id, "status": "running", "pid": pid}
         else:
             orchestrator.kill_worker_process(worker_id)
-            raise WorkerOperationException("启动", worker_id, message="Worker 启动超时")
+            # daemon 对 start 失败会返回 error 响应（如「策略启动失败: ...」），
+            # 能收到响应说明命令链路是通的，把真实错误透传给调用方；
+            # 完全无响应才算超时/注册失败。此前一律报「启动超时」掩盖了根因
+            err_msg = (response or {}).get("data", {}).get("error")
+            if not err_msg:
+                err_msg = "Worker 未响应启动命令（进程可能崩溃或 ZMQ 路由未就绪）"
+            raise WorkerOperationException("启动", worker_id, message=str(err_msg))
 
     def _stop_worker_via_orchestrator(self, worker_id: int) -> dict:
         """通过 WorkerOrchestrator 停止 Worker 进程。
@@ -920,6 +967,11 @@ class WorkerCoreService:
             async def _runner():
                 try:
                     result = await asyncio.to_thread(self.start_worker, worker_id)
+                    # start_worker 内部成功后只直写 DB running，必须补一次状态机
+                    # 转换同步内存缓存，否则缓存停在 starting（starting→stopping
+                    # 非法），后续停止操作会被永久拒绝
+                    trans_kwargs = {"pid": result["pid"]} if result.get("pid") else {}
+                    await worker_state_manager.transition(worker_id, "running", **trans_kwargs)
                     logger.info(f"[async_start_worker] Worker {worker_id} 启动完成: {result}")
                 except WorkerNotFoundException:
                     raise
@@ -1010,6 +1062,10 @@ class WorkerCoreService:
             async def _runner():
                 try:
                     result = await asyncio.to_thread(self.stop_worker, worker_id)
+                    # stop_worker 内部成功后只直写 DB stopped，必须补一次状态机
+                    # 转换同步内存缓存；否则缓存停在 stopping，DB 却是 stopped，
+                    # 缓存命中后不再水合 → Worker 永久卡死在 stopping
+                    await worker_state_manager.transition(worker_id, "stopped")
                     logger.info(f"[async_stop_worker] Worker {worker_id} 停止完成: {result}")
                 except WorkerNotFoundException:
                     raise
@@ -1059,6 +1115,23 @@ class WorkerCoreService:
             logger.error(f"[WorkerCoreService] 同步重启 Worker {worker_id} 失败: {e}")
             raise
 
+    async def _wait_for_terminal_state(self, worker_id: int, timeout: float) -> None:
+        """等待 Worker 状态收敛到终态（stopped/error）。
+
+        stop 是后台任务（ZMQ 优雅停止最长约 10s + SIGTERM 兜底），
+        必须等它真正收尾后才能执行后续 start，否则 start 撞上
+        stopping 过渡态必然被状态机拒绝。
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            state = await worker_state_manager.get_state(worker_id)
+            if state is None or state.status in ("stopped", "error"):
+                return
+            await asyncio.sleep(0.2)
+        # 超时未收敛：不吞掉，让后续 start 按当前状态给出明确错误
+        logger.warning(f"[WorkerCoreService] 等待 Worker {worker_id} 停止收敛超时（{timeout}s）")
+
     async def async_restart_worker(self, worker_id: int) -> dict:
         """
         异步版本重启 Worker - 原子化状态驱动模式
@@ -1074,9 +1147,10 @@ class WorkerCoreService:
         try:
             stop_result = await self.async_stop_worker(worker_id)
 
-            stop_status = stop_result.get("status", "")
-            if stop_status == "stopping":
-                await asyncio.sleep(1)
+            if stop_result.get("status", "") == "stopping":
+                # stop 是后台任务，先等它收敛到 stopped/error 再启动；
+                # 超时余量 = _stop_worker_via_orchestrator 的 ZMQ 10s + 兜底
+                await self._wait_for_terminal_state(worker_id, timeout=15.0)
 
             return await self.async_start_worker(worker_id)
         except Exception as e:

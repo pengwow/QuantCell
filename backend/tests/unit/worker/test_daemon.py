@@ -102,19 +102,79 @@ class TestDaemonStrategyKernel:
                 pass
 
         # 策略加载器真实返回实例（唯一路径：load_strategy → BaseStrategy）
-        strategy_instance = object()
+        # 每 symbol 独立调 load_strategy，保证策略实例不跨 symbol 共享
+        load_calls = []
+
+        def _fake_load(**kwargs):
+            load_calls.append(kwargs["instrument_ids"])
+            return object()
+
         monkeypatch.setattr(
             "backtest.strategy_loader_service.StrategyLoaderService.load_strategy",
-            staticmethod(lambda **kwargs: strategy_instance),
+            staticmethod(_fake_load),
         )
         monkeypatch.setattr("strategy.loop.StrategyLoop", _FakeLoop)
 
         resp = daemon._handle_command({"cmd": "start", "request_id": "r1", "params": {"strategy_name": "dual_ma"}})
         assert resp["status"] == "ok"
         assert started.get("started") is True
-        assert daemon._strategy_loop.strategy is strategy_instance
+        assert len(daemon._strategy_loops) == 1
         daemon._stop_strategy()
-        assert daemon._strategy_loop is None
+        assert daemon._strategy_loops == []
+        assert load_calls == [["BTCUSDT"]]  # 未传 symbols 时回退默认标的
+
+    def test_start_command_multi_symbol_creates_one_loop_each(self, monkeypatch):
+        """多标的 start 应为每个 symbol 创建独立 strategy 实例 + StrategyLoop。"""
+        daemon = WorkerDaemon(worker_id=11)
+
+        class _FakeLoop:
+            def __init__(self, adapter, strategy, symbol, event_callback=None):
+                self.adapter = adapter
+                self.strategy = strategy
+                self.symbol = symbol
+                self.event_callback = event_callback
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+        # 记录每次加载的策略实例，断言多 symbol 不共享同一实例
+        strategy_instances = []
+
+        def _fake_load(**kwargs):
+            instance = object()
+            strategy_instances.append((kwargs["instrument_ids"][0], instance))
+            return instance
+
+        monkeypatch.setattr(
+            "backtest.strategy_loader_service.StrategyLoaderService.load_strategy",
+            staticmethod(_fake_load),
+        )
+        monkeypatch.setattr("strategy.loop.StrategyLoop", _FakeLoop)
+
+        symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        resp = daemon._handle_command(
+            {"cmd": "start", "request_id": "r1", "params": {"strategy_name": "dual_ma", "symbols": symbols}}
+        )
+        assert resp["status"] == "ok"
+        # 每 symbol 一个 loop，且 loop 的 symbol 与顺序一致
+        assert [loop.symbol for loop in daemon._strategy_loops] == symbols
+        # 策略实例互不共享（内部状态不串线）：3 个 symbol 对应 3 个不同实例
+        assert len(strategy_instances) == 3
+        ids = {id(instance) for _, instance in strategy_instances}
+        assert len(ids) == 3
+
+        # 幂等：已运行时再次 start 不重复创建
+        resp2 = daemon._handle_command({"cmd": "start", "request_id": "r2", "params": {}})
+        assert resp2["status"] == "ok"
+        assert resp2["data"]["already_running"] is True
+        assert len(daemon._strategy_loops) == 3
+
+        # stop 全部停止并清空
+        daemon._stop_strategy()
+        assert daemon._strategy_loops == []
 
     def test_start_command_failure_returns_error(self, monkeypatch):
         """策略加载失败时 start 命令返回 error，不再降级占位策略。"""
@@ -132,7 +192,7 @@ class TestDaemonStrategyKernel:
         assert resp["status"] == "error"
         assert "策略启动失败" in resp["data"]["error"]
         assert daemon._running is False
-        assert daemon._strategy_loop is None
+        assert daemon._strategy_loops == []
         daemon.cleanup()
 
     def test_emit_strategy_event_updates_stats_and_forwards(self):

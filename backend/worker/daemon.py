@@ -56,7 +56,9 @@ class WorkerDaemon:
         self._last_action = None
         self._last_error = None
         self._last_price = 0.0
-        self._strategy_loop = None  # strategy.loop.StrategyLoop 实例（start 命令后非空）
+        # 每 symbol 一个 StrategyLoop 实例（start 命令后非空）；策略有内部状态
+        # （如均线历史窗口），多标的共享同一实例会互相污染，必须逐 symbol 独立加载
+        self._strategy_loops: list = []
         self.logger = get_logger(f"worker.daemon.{worker_id}", LogType.APPLICATION)
         # 信号只能在主线程注册；本进程作为独立 daemon 由 main() 在主线程构造，
         # 因此在此注册即可（测试同样在主线程构造，与 conftest 的 SIGALRM 不冲突）
@@ -103,7 +105,7 @@ class WorkerDaemon:
         elif cmd == "start":
             # 幂等：策略已在运行（如编排层重试）时直接返回 ok，不重复
             # 创建 StrategyLoop（否则旧线程泄漏且双 loop 并发回调）
-            if self._strategy_loop is not None:
+            if self._strategy_loops:
                 return make_response(
                     self.worker_id,
                     request_id,
@@ -166,7 +168,7 @@ class WorkerDaemon:
                   若策略加载未来变慢需改为后台任务 + 两段式响应。
         """
         strategy_name = params.get("strategy_name") or ""
-        symbol = (params.get("symbols") or ["BTCUSDT"])[0]
+        symbols = params.get("symbols") or ["BTCUSDT"]
         strategy_params = params.get("strategy_params") or {}
         timeframe = params.get("timeframe") or "1h"
         trading_mode = params.get("trading_mode") or "paper"
@@ -179,36 +181,46 @@ class WorkerDaemon:
         # 唯一路径：load_strategy → BaseStrategy；加载失败直接抛异常，
         # 由 _handle_command 转为 error 响应（不再降级占位策略）
         from backtest.strategy_loader_service import StrategyLoaderService
-
-        strategy_instance = StrategyLoaderService.load_strategy(
-            strategy_name=strategy_name,
-            strategy_params=strategy_params,
-            instrument_ids=[symbol],
-            bar_types=[timeframe],
-        )
-
-        # 交易所适配器：真实 testnet/live adapter 在后续版本接入，
-        # 当前使用零配置 PaperAdapter（与 StrategyManager 的 paper 语义一致）
-        adapter = _PaperAdapter(symbol=symbol)
         from strategy.loop import StrategyLoop
 
-        self._strategy_loop = StrategyLoop(
-            adapter=adapter,
-            strategy=strategy_instance,
-            symbol=symbol,
-            event_callback=self._emit_strategy_event,
+        # 每 symbol 一套独立的 strategy 实例 + adapter + StrategyLoop：
+        # 策略实例持有行情历史等可变状态，跨 symbol 共享会造成数据串线；
+        # 任一 symbol 加载失败即整体失败（幂等由 _strategy_loops 保证，无需回滚已启动的 loop）
+        for symbol in symbols:
+            strategy_instance = StrategyLoaderService.load_strategy(
+                strategy_name=strategy_name,
+                strategy_params=strategy_params,
+                instrument_ids=[symbol],
+                bar_types=[timeframe],
+                # daemon 进程运行 paper/live：LLM 策略在此录制响应
+                run_mode="live" if trading_mode == "live" else "paper",
+            )
+            # 交易所适配器：真实 testnet/live adapter 在后续版本接入，
+            # 当前使用零配置 PaperAdapter（与 StrategyManager 的 paper 语义一致）
+            adapter = _PaperAdapter(symbol=symbol)
+            loop = StrategyLoop(
+                adapter=adapter,
+                strategy=strategy_instance,
+                symbol=symbol,
+                event_callback=self._emit_strategy_event,
+            )
+            loop.start()
+            self._strategy_loops.append(loop)
+        self.logger.info(
+            f"[Daemon] 策略已启动: worker_id={self.worker_id}, strategy={strategy_name}, "
+            f"symbols={symbols}, loops={len(self._strategy_loops)}"
         )
-        self._strategy_loop.start()
-        self.logger.info(f"[Daemon] 策略已启动: worker_id={self.worker_id}, strategy={strategy_name}, symbol={symbol}")
 
     def _stop_strategy(self) -> None:
-        """停止策略运行时（幂等，进程退出时也会调用）。"""
-        if self._strategy_loop is not None:
+        """停止全部策略运行时（幂等，进程退出时也会调用）。"""
+        if not self._strategy_loops:
+            return
+        for loop in self._strategy_loops:
             try:
-                self._strategy_loop.stop()
+                loop.stop()
             except Exception as e:
-                self.logger.error(f"[Daemon] 停止策略循环失败: {e}")
-            self._strategy_loop = None
+                self.logger.error(f"[Daemon] 停止策略循环失败 ({loop.symbol}): {e}")
+        self._strategy_loops = []
 
     def _emit_strategy_event(self, event_type: str, data: dict[str, Any]) -> None:
         """StrategyLoop 事件回调 → 更新统计 + 转发到 ZMQ 事件通道。

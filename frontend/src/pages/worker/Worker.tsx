@@ -15,7 +15,6 @@ import {
   Empty,
   Space,
   Badge,
-  Skeleton,
   Alert,
   Input,
   Select,
@@ -23,6 +22,13 @@ import {
   App,
   Dropdown,
   Checkbox,
+  Flex,
+  Grid,
+  Segmented,
+  Pagination,
+  theme,
+  type MenuProps,
+  type TablePaginationConfig,
 } from 'antd';
 import {
   PlusOutlined,
@@ -43,10 +49,9 @@ import {
   CheckSquareOutlined,
   BorderOutlined,
   ThunderboltOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
-import EChart from '@/components/EChart';
 import type { TooltipComponentFormatterCallbackParams } from 'echarts';
-import type { MenuProps } from 'antd';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
 import { triggerOptimize } from '../../api/workerApi';
@@ -55,34 +60,31 @@ import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import { QUANT_COLORS } from '@/utils/colors';
+import { useConfigStore } from '@/store';
 
 // 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
 type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
+type ViewType = 'card' | 'list';
 
-const { Option } = Select;
-const { Search } = Input;
+// 分页选项（与策略管理等页面一致）
+const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
 
 const Worker = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { message: apiMessage, modal } = App.useApp();
+  const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const getDefaultPageSize = useConfigStore((s) => s.getDefaultPageSize);
 
   // Store state and actions
+  // 注意：详情展示已移交 /strategy-worker/:id 独立页（WorkerDetail），
+  // 本页不再维护 selectedWorker / performance / trades 等右侧面板数据
   const {
     workers,
-    selectedWorker,
-    performance,
-    trades,
-    returnRateData,
     loading,
-    loadingPerformance,
-    loadingTrades,
     error,
     fetchWorkers,
-    setSelectedWorker,
-    fetchPerformance,
-    fetchTrades,
-    fetchReturnRateData,
     deleteWorker,
     startWorker,
     stopWorker,
@@ -99,18 +101,24 @@ const Worker = () => {
   const [workerToEdit, setWorkerToEdit] = useState<WorkerType | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [tradePagination, setTradePagination] = useState({ current: 1, pageSize: 10 });
+  // 视图类型状态 - 列表/卡片（与策略管理一致，默认卡片）
+  const [viewType, setViewType] = useState<ViewType>('card');
+  // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 取系统配置默认值
+  const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
+    current: 1,
+    pageSize: getDefaultPageSize(),
+    showSizeChanger: true,
+    pageSizeOptions: PAGE_SIZE_OPTIONS,
+    showTotal: (total) => t('total_items', { total }),
+  }));
 
   // 批量操作状态
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchOperationLoading, setBatchOperationLoading] = useState(false);
-  
-  // 视图类型状态 - 卡片/列表
-  const [viewType, setViewType] = useState<'card' | 'list'>('card');
 
   // 单个 Worker 操作提交状态（防重复点击 + loading 反馈）
   const [submittingWorkerIds, setSubmittingWorkerIds] = useState<Set<number>>(new Set());
-  
+
   // 日志面板状态
   const [logsPanelVisible, setLogsPanelVisible] = useState(false);
   const [logsWorkerId, setLogsWorkerId] = useState<number | null>(null);
@@ -129,15 +137,6 @@ const Worker = () => {
     }, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, [fetchWorkers]);
-
-  // Fetch detail data when worker is selected
-  useEffect(() => {
-    if (selectedWorker) {
-      fetchPerformance(selectedWorker.id);
-      fetchTrades(selectedWorker.id);
-      fetchReturnRateData(selectedWorker.id);
-    }
-  }, [selectedWorker, fetchPerformance, fetchTrades, fetchReturnRateData]);
 
   // Filter workers based on search and status
   const filteredWorkers = useMemo(() => {
@@ -164,132 +163,11 @@ const Worker = () => {
     };
   }, [workers]);
 
-  // Chart option for return rate
-  const chartOption = useMemo(() => {
-    if (!returnRateData?.length) {
-      return {
-        title: { text: t('no_data'), left: 'center', top: 'center', textStyle: { color: '#999' } },
-        xAxis: { type: 'category', data: [] },
-        yAxis: { type: 'value' },
-        series: [],
-      };
-    }
-
-    const values = returnRateData.map(d => d.value);
-    const minValue = Math.min(...values, 0);
-    const maxValue = Math.max(...values, 0);
-
-    return {
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: returnRateData.map(d => d.timestamp),
-        axisLine: { lineStyle: { color: '#ccc' } },
-        axisLabel: { color: '#666', formatter: (value: string) => value.slice(0, 10) },
-      },
-      yAxis: {
-        type: 'value',
-        min: Math.floor(minValue - 5),
-        max: Math.ceil(maxValue + 5),
-        axisLine: { lineStyle: { color: '#ccc' } },
-        axisLabel: { color: '#666', formatter: '{value}%' },
-        splitLine: { lineStyle: { color: '#eee' } },
-      },
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: TooltipComponentFormatterCallbackParams) => {
-          const items = Array.isArray(params) ? params : [params];
-          const param = items[0];
-          return `${param?.name || ''}<br/>${t('return_rate')}: ${Number(param?.value ?? 0).toFixed(2)}%`;
-        },
-      },
-      series: [
-        {
-          name: t('return_rate'),
-          type: 'line',
-          data: values,
-          smooth: true,
-          symbol: 'none',
-          lineStyle: {
-            color: QUANT_COLORS.info,
-            width: 2,
-          },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [
-                { offset: 0, color: 'rgba(24, 144, 255, 0.3)' },
-                { offset: 1, color: 'rgba(24, 144, 255, 0.05)' },
-              ],
-            },
-          },
-        },
-      ],
-    };
-  }, [returnRateData, t]);
-
-  // Trade columns
-  const tradeColumns = useMemo(() => [
-    {
-      title: t('trade_time'),
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 160,
-      render: (text: string) => new Date(text).toLocaleString(),
-    },
-    {
-      title: t('symbol'),
-      dataIndex: 'symbol',
-      key: 'symbol',
-    },
-    {
-      title: t('action'),
-      dataIndex: 'side',
-      key: 'side',
-      render: (side: 'buy' | 'sell') => (
-        <Tag color={side === 'buy' ? 'red' : 'green'}>
-          {side === 'buy' ? t('buy') : t('sell')}
-        </Tag>
-      ),
-    },
-    {
-      title: t('price'),
-      dataIndex: 'price',
-      key: 'price',
-      render: (price: number) => `$${price.toFixed(2)}`,
-    },
-    {
-      title: t('quantity'),
-      dataIndex: 'quantity',
-      key: 'quantity',
-    },
-    {
-      title: t('amount'),
-      dataIndex: 'amount',
-      key: 'amount',
-      render: (amount: number) => `$${amount.toFixed(2)}`,
-    },
-    {
-      title: t('status'),
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => {
-        const statusMap: Record<string, { text: string; color: string }> = {
-          filled: { text: t('filled'), color: 'success' },
-          pending: { text: t('pending'), color: 'warning' },
-          cancelled: { text: t('cancelled'), color: 'default' },
-        };
-        const { text, color } = statusMap[status] || { text: status, color: 'default' };
-        return <Tag color={color}>{text}</Tag>;
-      },
-    },
-  ], [t]);
+  // 筛选条件变化时回到第一页（避免过滤后停留在超出范围的页码）
+  const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
 
   // Event handlers
-  const handleStart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
-
+  const handleStart = useCallback(async (worker: WorkerType) => {
     // 防重复点击
     if (submittingWorkerIds.has(worker.id)) return;
     setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
@@ -330,9 +208,7 @@ const Worker = () => {
     }
   }, [startWorker, t, apiMessage, submittingWorkerIds]);
 
-  const handleStop = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
-
+  const handleStop = useCallback(async (worker: WorkerType) => {
     if (submittingWorkerIds.has(worker.id)) return;
     setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
 
@@ -372,8 +248,7 @@ const Worker = () => {
     }
   }, [stopWorker, t, apiMessage, submittingWorkerIds]);
 
-  const handleRestart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRestart = useCallback(async (worker: WorkerType) => {
     const success = await restartWorker(worker.id);
     if (success) {
       apiMessage.success(t('worker_restart_success'));
@@ -469,19 +344,14 @@ const Worker = () => {
     }
   }, [selectedRowKeys, batchRestartWorkers, apiMessage]);
 
-  const handleDelete = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = useCallback(async (worker: WorkerType) => {
     const success = await deleteWorker(worker.id);
     if (success) {
       apiMessage.success(t('worker_delete_success'));
-      if (selectedWorker?.id === worker.id) {
-        setSelectedWorker(null);
-      }
     }
-  }, [deleteWorker, selectedWorker, setSelectedWorker, t, apiMessage]);
+  }, [deleteWorker, t, apiMessage]);
 
-  const handleEdit = useCallback((worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleEdit = useCallback((worker: WorkerType) => {
     setWorkerToEdit(worker);
     setEditModalVisible(true);
   }, []);
@@ -500,14 +370,10 @@ const Worker = () => {
     setEditModalVisible(false);
     setWorkerToEdit(null);
     fetchWorkers();
-    if (selectedWorker && workerToEdit?.id === selectedWorker.id) {
-      fetchPerformance(selectedWorker.id);
-    }
-  }, [fetchWorkers, fetchPerformance, selectedWorker, workerToEdit]);
+  }, [fetchWorkers]);
 
   // 查看日志
-  const handleViewLogs = useCallback((worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleViewLogs = useCallback((worker: WorkerType) => {
     setLogsWorkerId(worker.id);
     setLogsPanelVisible(true);
   }, []);
@@ -517,6 +383,13 @@ const Worker = () => {
     setLogsPanelVisible(false);
     setLogsWorkerId(null);
   }, []);
+
+  // 卡片批量勾选
+  const toggleSelectRow = (id: number, checked: boolean) => {
+    setSelectedRowKeys((prev) =>
+      checked ? [...prev, id] : prev.filter((key) => key !== id),
+    );
+  };
 
   // Render statistics cards
   const renderStatistics = () => (
@@ -564,51 +437,468 @@ const Worker = () => {
     </Row>
   );
 
-  // Render performance metrics
-  const renderPerformanceMetrics = () => {
-    if (loadingPerformance) {
+  // 工具栏：与策略管理/因子库一致的「搜索+视图切换 / 筛选+操作」两行布局
+  const renderToolbar = () => (
+    <Space orientation="vertical" size="middle" style={{ display: 'flex', marginBottom: 8 }}>
+      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          style={{ width: 260, maxWidth: '100%' }}
+          placeholder={t('search_worker')}
+          value={searchKeyword}
+          onChange={(e) => {
+            setSearchKeyword(e.target.value);
+            gotoPage1();
+          }}
+        />
+        <Segmented
+          value={viewType}
+          onChange={(v) => setViewType(v as ViewType)}
+          options={[
+            { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
+            { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
+          ]}
+        />
+      </Flex>
+      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
+        <Select
+          style={{ width: 120 }}
+          placeholder={t('filter_by_status')}
+          allowClear
+          value={statusFilter || undefined}
+          onChange={(v) => {
+            setStatusFilter(v || '');
+            gotoPage1();
+          }}
+          options={[
+            { value: 'running', label: t('running') },
+            { value: 'stopped', label: t('stopped') },
+            { value: 'error', label: t('error') },
+          ]}
+        />
+        <Space size="small" wrap>
+          <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
+            {t('refresh')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+            {t('create_worker')}
+          </Button>
+        </Space>
+      </Flex>
+    </Space>
+  );
+
+  // 批量操作工具栏 - 仅在选中 Worker 时显示
+  const renderBatchBar = () => (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: '12px 16px',
+        background: 'linear-gradient(135deg, #e6f7ff 0%, #bae0ff 100%)',
+        borderRadius: 8,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}
+    >
+      <span style={{ fontSize: 14, color: QUANT_COLORS.info }}>
+        <CheckSquareOutlined style={{ marginRight: 8 }} />
+        已选择 <strong>{selectedRowKeys.length}</strong> 个 Worker
+      </span>
+      <Space>
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlayCircleOutlined />}
+          loading={batchOperationLoading}
+          onClick={handleBatchStart}
+        >
+          批量启动
+        </Button>
+        <Button
+          danger
+          size="small"
+          icon={<StopOutlined />}
+          loading={batchOperationLoading}
+          onClick={handleBatchStop}
+        >
+          批量停止
+        </Button>
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          loading={batchOperationLoading}
+          onClick={handleBatchRestart}
+        >
+          批量重启
+        </Button>
+        <Button
+          size="small"
+          icon={<BorderOutlined />}
+          onClick={() => setSelectedRowKeys([])}
+        >
+          取消选择
+        </Button>
+      </Space>
+    </div>
+  );
+
+  // 卡片右上角操作：勾选 + 编辑 + 删除（所有视图通用）
+  const renderCardExtra = (worker: WorkerType) => (
+    <Space size={4}>
+      <Checkbox
+        checked={selectedRowKeys.includes(worker.id)}
+        onChange={(e) => toggleSelectRow(worker.id, e.target.checked)}
+      />
+      <Tooltip title={t('edit')}>
+        <Button
+          type="text"
+          size="small"
+          icon={<EditOutlined />}
+          onClick={() => handleEdit(worker)}
+        />
+      </Tooltip>
+      <Popconfirm
+        title={t('confirm_delete_worker')}
+        onConfirm={() => handleDelete(worker)}
+        okText={t('yes')}
+        cancelText={t('no')}
+      >
+        <Tooltip title={t('delete')}>
+          <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+        </Tooltip>
+      </Popconfirm>
+    </Space>
+  );
+
+  // 卡片操作按钮：启停/详情/优化/重启/日志
+  const renderCardActions = (worker: WorkerType) => (
+    <Row gutter={[8, 8]}>
+      <Col span={12}>
+        {worker.status === 'stopped' ? (
+          <Button
+            type="primary"
+            size="small"
+            icon={<CaretRightOutlined />}
+            loading={submittingWorkerIds.has(worker.id)}
+            disabled={submittingWorkerIds.has(worker.id)}
+            onClick={() => handleStart(worker)}
+            style={{ width: '100%' }}
+          >
+            {t('start')}
+          </Button>
+        ) : (
+          <Popconfirm
+            title={t('confirm_stop_worker') || '确定停止此 Worker？'}
+            onConfirm={() => handleStop(worker)}
+            okText={t('yes')}
+            cancelText={t('no')}
+            disabled={submittingWorkerIds.has(worker.id)}
+          >
+            <Button
+              type="primary"
+              danger
+              size="small"
+              icon={<StopOutlined />}
+              loading={submittingWorkerIds.has(worker.id)}
+              style={{ width: '100%' }}
+            >
+              {t('stop')}
+            </Button>
+          </Popconfirm>
+        )}
+      </Col>
+      <Col span={12}>
+        <Button
+          size="small"
+          icon={<EyeOutlined />}
+          onClick={() => navigate(`/strategy-worker/${worker.id}`)}
+          style={{ width: '100%' }}
+        >
+          {t('detail') || '详情'}
+        </Button>
+      </Col>
+      {worker.status === 'running' && (
+        <Col span={24}>
+          <Button
+            size="small"
+            type="dashed"
+            icon={<ThunderboltOutlined />}
+            onClick={() => handleOptimize(worker)}
+            style={{ width: '100%' }}
+          >
+            {t('auto_optimize') || '自动优化'}
+          </Button>
+        </Col>
+      )}
+      {worker.status === 'running' ? (
+        <>
+          <Col span={12}>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => handleRestart(worker)}
+              style={{ width: '100%' }}
+            >
+              {t('restart')}
+            </Button>
+          </Col>
+          <Col span={12}>
+            <Button
+              size="small"
+              icon={<FileTextOutlined />}
+              onClick={() => handleViewLogs(worker)}
+              style={{ width: '100%' }}
+            >
+              {t('logs') || '日志'}
+            </Button>
+          </Col>
+        </>
+      ) : (
+        <Col span={24}>
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => handleRestart(worker)}
+            style={{ width: '100%' }}
+          >
+            {t('restart')}
+          </Button>
+        </Col>
+      )}
+    </Row>
+  );
+
+  // 信息行：左标签右内容（卡片指标区，与因子库卡片同风格）
+  const infoRow = (label: string, node: React.ReactNode) => (
+    <Flex justify="space-between" align="center">
+      <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>{label}</span>
+      {node}
+    </Flex>
+  );
+
+  const renderCardView = () => {
+    const current = (pagination.current as number) || 1;
+    const pageSize = (pagination.pageSize as number) || 10;
+    const pageData = filteredWorkers.slice((current - 1) * pageSize, current * pageSize);
+
+    if (!pageData.length) {
       return (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={t('no_workers')}
+          style={{ padding: '48px 0' }}
+        />
+      );
+    }
+
+    return (
+      <>
         <Row gutter={[16, 16]}>
-          {[...Array(4)].map((_, i) => (
-            <Col span={12} key={i}>
-              <Skeleton active paragraph={false} />
+          {pageData.map((worker) => (
+            <Col xs={24} sm={12} md={8} lg={6} key={worker.id}>
+              <Card
+                size="small"
+                title={
+                  <span
+                    title={worker.name}
+                    style={{
+                      display: 'inline-block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                      verticalAlign: 'bottom',
+                    }}
+                  >
+                    {worker.name}
+                  </span>
+                }
+                extra={renderCardExtra(worker)}
+              >
+                <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
+                  <Space size={4} wrap style={{ rowGap: 4 }}>
+                    {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
+                    {worker.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
+                    <Tag color={WorkerStatusColor[worker.status]}>
+                      {WorkerStatusText[worker.status]}
+                    </Tag>
+                  </Space>
+                  {infoRow(t('exchange') || '交易所', <Tag>{worker.trading_config?.exchange}</Tag>)}
+                  {infoRow(t('timeframe') || '周期', <Tag color="blue">{worker.trading_config?.timeframe}</Tag>)}
+                  {infoRow(
+                    t('total_profit') || '总收益',
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: (worker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
+                      }}
+                    >
+                      {(worker.total_profit || 0) >= 0 ? '+' : ''}
+                      ${(worker.total_profit || 0).toFixed(2)}
+                    </span>,
+                  )}
+                  <div style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }} />
+                  {renderCardActions(worker)}
+                </Space>
+              </Card>
             </Col>
           ))}
         </Row>
-      );
-    }
-
-    if (!performance) {
-      return (
-        <Empty description={t('no_performance_data')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-      );
-    }
-
-    // 计算盈亏比
-    const profitLossRatio = performance.total_loss !== 0
-      ? Math.abs(performance.total_profit / performance.total_loss)
-      : 0;
-
-    const metrics = [
-      { label: t('win_rate'), value: `${performance.win_rate?.toFixed(2) || 0}%`, color: performance.win_rate >= 50 ? QUANT_COLORS.positive : QUANT_COLORS.negative },
-      { label: t('profit_loss_ratio'), value: profitLossRatio.toFixed(2), color: profitLossRatio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.negative },
-      { label: t('max_drawdown'), value: `${performance.max_drawdown?.toFixed(2) || 0}%`, color: QUANT_COLORS.negative },
-      { label: t('sharpe_ratio'), value: performance.sharpe_ratio?.toFixed(2) || '0.00', color: performance.sharpe_ratio >= 1 ? QUANT_COLORS.positive : QUANT_COLORS.warning },
-    ];
-
-    return (
-      <Row gutter={[16, 16]}>
-        {metrics.map((metric) => (
-          <Col span={12} key={metric.label}>
-            <Card size="small" variant="borderless" style={{ background: '#f5f5f5' }}>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{metric.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 'bold', color: metric.color }}>{metric.value}</div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
+        <Row justify="center" style={{ marginTop: 16 }}>
+          <Pagination
+            current={current}
+            pageSize={pageSize}
+            total={filteredWorkers.length}
+            showSizeChanger
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            showTotal={(total) => t('total_items', { total })}
+            onChange={(page, size) => setPagination((p) => ({ ...p, current: page, pageSize: size }))}
+          />
+        </Row>
+      </>
     );
   };
+
+  // 列表操作列：详情跳转 + 更多下拉（启停/重启/编辑/删除）
+  const renderListActions = (worker: WorkerType) => (
+    <Space size="small">
+      <Tooltip title={t('detail') || '详情'}>
+        <Button
+          type="text"
+          size="small"
+          icon={<EyeOutlined style={{ color: QUANT_COLORS.info }} />}
+          onClick={() => navigate(`/strategy-worker/${worker.id}`)}
+        />
+      </Tooltip>
+      <Dropdown
+        menu={{
+          items: [
+            ...(worker.status === 'stopped' ? [{
+              key: 'start',
+              label: t('start'),
+              icon: <CaretRightOutlined />,
+              disabled: submittingWorkerIds.has(worker.id),
+            }] : []),
+            ...(worker.status === 'running' ? [{
+              key: 'stop',
+              label: t('stop'),
+              icon: <StopOutlined />,
+              disabled: submittingWorkerIds.has(worker.id),
+            }] : []),
+            {
+              key: 'restart',
+              label: t('restart'),
+              icon: <ReloadOutlined />,
+            },
+            {
+              key: 'edit',
+              label: t('edit'),
+              icon: <EditOutlined />,
+            },
+            {
+              key: 'delete',
+              label: t('delete'),
+              icon: <DeleteOutlined />,
+              danger: true,
+            },
+          ],
+          onClick: ({ key, domEvent }) => {
+            // 菜单挂在表格行内，阻止事件冒泡污染表格行为
+            domEvent.stopPropagation();
+            if (key === 'start') handleStart(worker);
+            else if (key === 'stop') handleStop(worker);
+            else if (key === 'restart') handleRestart(worker);
+            else if (key === 'edit') handleEdit(worker);
+            else if (key === 'delete') {
+              modal.confirm({
+                title: t('confirm_delete_worker'),
+                okText: t('yes'),
+                cancelText: t('no'),
+                okType: 'danger',
+                onOk: () => handleDelete(worker),
+              });
+            }
+          },
+        }}
+        trigger={['click']}
+      >
+        <Button type="text" size="small" icon={<MoreOutlined />} />
+      </Dropdown>
+    </Space>
+  );
+
+  const renderListView = () => (
+    <Table
+      dataSource={filteredWorkers}
+      rowKey="id"
+      size="small"
+      // 分页由共享 pagination 状态控制，卡片视图复用同一份页码
+      pagination={pagination}
+      scroll={{ x: 800 }}
+      rowSelection={{
+        selectedRowKeys,
+        onChange: (keys) => setSelectedRowKeys(keys),
+      }}
+      locale={{
+        emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('no_workers')} />,
+      }}
+      onChange={setPagination}
+      columns={[
+        {
+          title: t('worker_name') || '任务名称',
+          dataIndex: 'name',
+          key: 'name',
+          width: 180,
+          ellipsis: true,
+          render: (text: string, worker: WorkerType) => (
+            <Space size={4}>
+              <span>{text}</span>
+              <Tag color={WorkerStatusColor[worker.status]}>
+                {WorkerStatusText[worker.status]}
+              </Tag>
+            </Space>
+          ),
+        },
+        {
+          title: t('exchange') || '交易所',
+          dataIndex: 'exchange',
+          key: 'exchange',
+          width: 90,
+        },
+        {
+          title: t('timeframe') || '周期',
+          dataIndex: 'timeframe',
+          key: 'timeframe',
+          width: 70,
+        },
+        {
+          title: t('total_profit') || '总收益',
+          dataIndex: 'total_profit',
+          key: 'total_profit',
+          width: 100,
+          render: (profit: number) => (
+            <span style={{
+              fontWeight: 500,
+              color: (profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
+            }}>
+              {(profit || 0) >= 0 ? '+' : ''}
+              ${(profit || 0).toFixed(2)}
+            </span>
+          ),
+        },
+        {
+          title: t('action') || '操作',
+          key: 'action',
+          width: 100,
+          fixed: 'right',
+          render: (_: unknown, worker: WorkerType) => renderListActions(worker),
+        },
+      ]}
+    />
+  );
 
   return (
     <PageContainer title={t('strategy_task')}>
@@ -625,539 +915,17 @@ const Worker = () => {
           />
         )}
 
-        <div style={{ position: 'relative' }}>
-          {/* Statistics */}
-          {renderStatistics()}
+        {/* Statistics */}
+        {renderStatistics()}
 
-          {/* Toolbar */}
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col flex="auto">
-              <Space>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => setCreateModalVisible(true)}
-                >
-                  {t('create_worker')}
-                </Button>
-                <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
-                  {t('refresh')}
-                </Button>
-              </Space>
-            </Col>
-            <Col>
-              <Space>
-                <Search
-                  placeholder={t('search_worker')}
-                  allowClear
-                  onSearch={setSearchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  style={{ width: 200 }}
-                />
-                <Select
-                  placeholder={t('filter_by_status')}
-                  allowClear
-                  style={{ width: 120 }}
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                >
-                  <Option value="running">{t('running')}</Option>
-                  <Option value="stopped">{t('stopped')}</Option>
-                  <Option value="error">{t('error')}</Option>
-                </Select>
-                {/* 视图切换 */}
-                <Space.Compact>
-                  <Button
-                    type={viewType === 'card' ? 'primary' : 'default'}
-                    icon={<AppstoreOutlined />}
-                    onClick={() => setViewType('card')}
-                  >
-                    {t('card_view') || '卡片'}
-                  </Button>
-                  <Button
-                    type={viewType === 'list' ? 'primary' : 'default'}
-                    icon={<UnorderedListOutlined />}
-                    onClick={() => setViewType('list')}
-                  >
-                    {t('list_view') || '列表'}
-                  </Button>
-                </Space.Compact>
-              </Space>
-            </Col>
-          </Row>
+        {/* Toolbar */}
+        {renderToolbar()}
 
-          {/* 批量操作工具栏 - 仅在选中 Worker 时显示 */}
-          {selectedRowKeys.length > 0 && (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: '12px 16px',
-                background: 'linear-gradient(135deg, #e6f7ff 0%, #bae0ff 100%)',
-                borderRadius: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span style={{ fontSize: 14, color: QUANT_COLORS.info }}>
-                <CheckSquareOutlined style={{ marginRight: 8 }} />
-                已选择 <strong>{selectedRowKeys.length}</strong> 个 Worker
-              </span>
-              <Space>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<PlayCircleOutlined />}
-                  loading={batchOperationLoading}
-                  onClick={handleBatchStart}
-                >
-                  批量启动
-                </Button>
-                <Button
-                  danger
-                  size="small"
-                  icon={<StopOutlined />}
-                  loading={batchOperationLoading}
-                  onClick={handleBatchStop}
-                >
-                  批量停止
-                </Button>
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  loading={batchOperationLoading}
-                  onClick={handleBatchRestart}
-                >
-                  批量重启
-                </Button>
-                <Button
-                  size="small"
-                  icon={<BorderOutlined />}
-                  onClick={() => setSelectedRowKeys([])}
-                >
-                  取消选择
-                </Button>
-              </Space>
-            </div>
-          )}
+        {/* 批量操作工具栏 - 仅在选中 Worker 时显示 */}
+        {selectedRowKeys.length > 0 && renderBatchBar()}
 
-          {/* Main Content */}
-          <Row gutter={[16, 16]}>
-            {/* Worker List */}
-            <Col xs={24} lg={8}>
-              <Card
-                title={
-                  <Space>
-                    <FileTextOutlined />
-                    {t('worker_list')}
-                    <Badge count={filteredWorkers.length} style={{ backgroundColor: QUANT_COLORS.info }} />
-                  </Space>
-                }
-                styles={{ body: { padding: 0 } }}
-              >
-                {filteredWorkers.length === 0 ? (
-                  <Empty description={t('no_workers')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                ) : viewType === 'card' ? (
-                  // 卡片视图 - 参考策略管理页面样式
-                  // 响应式布局：大屏幕(lg以上)一行一个，中等屏幕一行两个，小屏幕一行一个
-                  <Row gutter={[16, 16]} style={{ margin: 0, padding: 16 }}>
-                    {filteredWorkers.map((worker) => (
-                      <Col xs={24} sm={12} md={12} lg={24} xl={24} key={worker.id}>
-                        <Card
-                          size="small"
-                          hoverable
-                          onClick={() => setSelectedWorker(worker)}
-                          style={{
-                            boxShadow: selectedWorker?.id === worker.id ? '0 0 0 2px #1890ff' : '0 2px 8px rgba(0, 0, 0, 0.1)',
-                            borderColor: selectedWorker?.id === worker.id ? QUANT_COLORS.info : undefined,
-                          }}
-                          extra={
-                            <Space size={4}>
-                              <Checkbox
-                                checked={selectedRowKeys.includes(worker.id)}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  if (e.target.checked) {
-                                    setSelectedRowKeys([...selectedRowKeys, worker.id]);
-                                  } else {
-                                    setSelectedRowKeys(selectedRowKeys.filter(key => key !== worker.id));
-                                  }
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Tooltip title={t('edit')}>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<EditOutlined />}
-                                  onClick={(e) => { e.stopPropagation(); handleEdit(worker, e); }}
-                                />
-                              </Tooltip>
-                              <Popconfirm
-                                title={t('confirm_delete_worker')}
-                                onConfirm={(e) => handleDelete(worker, e as React.MouseEvent)}
-                                okText={t('yes')}
-                                cancelText={t('no')}
-                              >
-                                <Tooltip title={t('delete')}>
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    danger
-                                    icon={<DeleteOutlined />}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                </Tooltip>
-                              </Popconfirm>
-                            </Space>
-                          }
-                        >
-                          {/* 头部：名称和状态 */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <span style={{ fontWeight: 500, fontSize: 16 }}>{worker.name}</span>
-                            <Space size={4}>
-                              {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-                              {worker.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
-                              <Tag color={WorkerStatusColor[worker.status]}>
-                                {WorkerStatusText[worker.status]}
-                              </Tag>
-                            </Space>
-                          </div>
-
-                          {/* 信息区域 */}
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                              <span style={{ color: '#666', fontSize: 13 }}>{t('exchange') || '交易所'}</span>
-                              <Tag>{worker.trading_config?.exchange}</Tag>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                              <span style={{ color: '#666', fontSize: 13 }}>{t('timeframe') || '周期'}</span>
-                              <Tag color="blue">{worker.trading_config?.timeframe}</Tag>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: '#666', fontSize: 13 }}>{t('total_profit') || '总收益'}</span>
-                              <span style={{
-                                fontSize: 13,
-                                fontWeight: 500,
-                                color: (worker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
-                              }}>
-                                {(worker.total_profit || 0) >= 0 ? '+' : ''}
-                                ${(worker.total_profit || 0).toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* 分割线 */}
-                          <div style={{ borderTop: '1px solid #f0f0f0', margin: '12px 0' }} />
-
-                          {/* 操作按钮区域 */}
-                          <Row gutter={[8, 8]}>
-                            <Col span={12}>
-                              {worker.status === 'stopped' ? (
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  icon={<CaretRightOutlined />}
-                                  loading={submittingWorkerIds.has(worker.id)}
-                                  disabled={submittingWorkerIds.has(worker.id)}
-                                  onClick={(e) => { e.stopPropagation(); handleStart(worker, e); }}
-                                  style={{ width: '100%' }}
-                                >
-                                  {t('start')}
-                                </Button>
-                              ) : (
-                                <Popconfirm
-                                  title={t('confirm_stop_worker') || '确定停止此 Worker？'}
-                                  onConfirm={(e) => handleStop(worker, e as React.MouseEvent)}
-                                  okText={t('yes')}
-                                  cancelText={t('no')}
-                                  disabled={submittingWorkerIds.has(worker.id)}
-                                >
-                                  <Button
-                                    type="primary"
-                                    danger
-                                    size="small"
-                                    icon={<StopOutlined />}
-                                    loading={submittingWorkerIds.has(worker.id)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    style={{ width: '100%' }}
-                                  >
-                                    {t('stop')}
-                                  </Button>
-                                </Popconfirm>
-                              )}
-                            </Col>
-                            <Col span={12}>
-                              <Button
-                                size="small"
-                                icon={<EyeOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/strategy-worker/${worker.id}`);
-                                }}
-                                style={{ width: '100%' }}
-                              >
-                                {t('detail') || '详情'}
-                              </Button>
-                            </Col>
-                            <Col span={24}>
-                              {worker.status === 'running' && (
-                                <Button
-                                  size="small"
-                                  type="dashed"
-                                  icon={<ThunderboltOutlined />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOptimize(worker);
-                                  }}
-                                  style={{ width: '100%' }}
-                                >
-                                  {t('auto_optimize') || '自动优化'}
-                                </Button>
-                              )}
-                            </Col>
-                            {worker.status !== 'stopped' && (
-                              <>
-                                <Col span={12}>
-                                  <Tooltip title={t('restart')}>
-                                    <Button
-                                      size="small"
-                                      icon={<ReloadOutlined />}
-                                      onClick={(e) => { e.stopPropagation(); handleRestart(worker, e); }}
-                                      style={{ width: '100%' }}
-                                    >
-                                      {t('restart')}
-                                    </Button>
-                                  </Tooltip>
-                                </Col>
-                                <Col span={12}>
-                                  <Tooltip title={t('logs') || '日志'}>
-                                    <Button
-                                      size="small"
-                                      icon={<FileTextOutlined />}
-                                      onClick={(e) => { e.stopPropagation(); handleViewLogs(worker, e); }}
-                                      style={{ width: '100%' }}
-                                    >
-                                      {t('logs') || '日志'}
-                                    </Button>
-                                  </Tooltip>
-                                </Col>
-                              </>
-                            )}
-                            {worker.status === 'stopped' && (
-                              <Col span={24}>
-                                <Tooltip title={t('restart')}>
-                                  <Button
-                                    size="small"
-                                    icon={<ReloadOutlined />}
-                                    onClick={(e) => { e.stopPropagation(); handleRestart(worker, e); }}
-                                    style={{ width: '100%' }}
-                                  >
-                                    {t('restart')}
-                                  </Button>
-                                </Tooltip>
-                              </Col>
-                            )}
-                          </Row>
-                        </Card>
-                      </Col>
-                    ))}
-                  </Row>
-                ) : (
-                  // 列表视图 - 使用 Table 组件
-                  <Table
-                    dataSource={filteredWorkers}
-                    rowKey="id"
-                    size="small"
-                    pagination={false}
-                    scroll={{ x: 800 }}
-                    rowSelection={{
-                      selectedRowKeys,
-                      onChange: (keys) => setSelectedRowKeys(keys),
-                    }}
-                    onRow={(worker) => ({
-                      onClick: () => setSelectedWorker(worker),
-                      style: { cursor: 'pointer', backgroundColor: selectedWorker?.id === worker.id ? '#e6f7ff' : undefined }
-                    })}
-                    columns={[
-                      {
-                        title: t('worker_name') || '任务名称',
-                        dataIndex: 'name',
-                        key: 'name',
-                        width: 180,
-                        ellipsis: true,
-                        render: (text: string, worker: WorkerType) => (
-                          <Space>
-                            <span>{text}</span>
-                            <Tag color={WorkerStatusColor[worker.status]}>
-                              {WorkerStatusText[worker.status]}
-                            </Tag>
-                          </Space>
-                        ),
-                      },
-                      {
-                        title: t('exchange') || '交易所',
-                        dataIndex: 'exchange',
-                        key: 'exchange',
-                        width: 90,
-                      },
-                      {
-                        title: t('timeframe') || '周期',
-                        dataIndex: 'timeframe',
-                        key: 'timeframe',
-                        width: 70,
-                      },
-                      {
-                        title: t('total_profit') || '总收益',
-                        dataIndex: 'total_profit',
-                        key: 'total_profit',
-                        width: 100,
-                        render: (profit: number) => (
-                          <span style={{
-                            fontWeight: 500,
-                            color: (profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
-                          }}>
-                            {(profit || 0) >= 0 ? '+' : ''}
-                            ${(profit || 0).toFixed(2)}
-                          </span>
-                        ),
-                      },
-                      {
-                        title: t('action') || '操作',
-                        key: 'action',
-                        width: 100,
-                        fixed: 'right',
-                        render: (_: unknown, worker: WorkerType) => (
-                          <Space size="small">
-                            <Tooltip title={t('detail') || '详情'}>
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<EyeOutlined style={{ color: QUANT_COLORS.info }} />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/strategy-worker/${worker.id}`);
-                                }}
-                              />
-                            </Tooltip>
-                            <Dropdown
-                              menu={{
-                                items: [
-                  ...(worker.status === 'stopped' ? [{
-                    key: 'start',
-                    label: t('start'),
-                    icon: <CaretRightOutlined />,
-                    disabled: submittingWorkerIds.has(worker.id),
-                    onClick: (e: MenuItemClickEvent) => { e.domEvent.stopPropagation(); handleStart(worker, e.domEvent as React.MouseEvent); },
-                  }] : []),
-                  ...(worker.status === 'running' ? [{
-                    key: 'stop',
-                    label: t('stop'),
-                    icon: <StopOutlined />,
-                    disabled: submittingWorkerIds.has(worker.id),
-                    onClick: (e: MenuItemClickEvent) => { e.domEvent.stopPropagation(); handleStop(worker, e.domEvent as React.MouseEvent); },
-                  }] : []),
-                  {
-                    key: 'restart',
-                    label: t('restart'),
-                    icon: <ReloadOutlined />,
-                    onClick: (e) => { e.domEvent.stopPropagation(); handleRestart(worker, e.domEvent as React.MouseEvent); },
-                  },
-                  {
-                    key: 'edit',
-                    label: t('edit'),
-                    icon: <EditOutlined />,
-                    onClick: (e) => { e.domEvent.stopPropagation(); handleEdit(worker, e.domEvent as React.MouseEvent); },
-                  },
-                                  {
-                                    key: 'delete',
-                                    label: t('delete'),
-                                    icon: <DeleteOutlined />,
-                                    danger: true,
-                                  },
-                                ],
-                                onClick: ({ key }) => {
-                                  if (key === 'delete') {
-                                    modal.confirm({
-                                      title: t('confirm_delete_worker'),
-                                      okText: t('yes'),
-                                      cancelText: t('no'),
-                                      okType: 'danger',
-                                      onOk: () => handleDelete(worker, {} as React.MouseEvent),
-                                    });
-                                  }
-                                },
-                              }}
-                              trigger={['click']}
-                            >
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<MoreOutlined />}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </Dropdown>
-                          </Space>
-                        ),
-                      },
-                    ]}
-                  />
-                )}
-              </Card>
-            </Col>
-
-            {/* Worker Detail */}
-            <Col xs={24} lg={16}>
-              {selectedWorker ? (
-                <>
-                  {/* Performance Metrics */}
-                  <Card title={t('performance_metrics')} style={{ marginBottom: 16 }}>
-                    {renderPerformanceMetrics()}
-                  </Card>
-
-                  {/* Return Rate Chart */}
-                  <Card title={t('return_rate_chart')} style={{ marginBottom: 16 }}>
-                    <EChart
-                      option={chartOption}
-                      style={{ height: 250 }}
-                      opts={{ renderer: 'svg' }}
-                    />
-                  </Card>
-
-                  {/* Trade Records */}
-                  <Card
-                    title={
-                      <Space>
-                        <span>{t('trade_records')}</span>
-                        {loadingTrades && <Spin size="small" />}
-                      </Space>
-                    }
-                  >
-                    <Table
-                      columns={tradeColumns}
-                      dataSource={trades}
-                      rowKey="id"
-                      pagination={{
-                        ...tradePagination,
-                        total: trades.length,
-                        showSizeChanger: true,
-                        showTotal: (total) => t('total_items', { total }),
-                      }}
-                      onChange={(pagination) => setTradePagination({
-                        current: pagination.current || 1,
-                        pageSize: pagination.pageSize || 10,
-                      })}
-                      size="small"
-                      scroll={{ x: 'max-content' }}
-                    />
-                  </Card>
-                </>
-              ) : (
-                <Empty description={t('select_worker_to_view')} style={{ marginTop: 100 }} />
-              )}
-            </Col>
-          </Row>
-        </div>
+        {/* Main Content：全宽列表/卡片（详情入口跳转独立页） */}
+        {viewType === 'list' ? renderListView() : renderCardView()}
       </Spin>
 
       {/* Create Modal */}
