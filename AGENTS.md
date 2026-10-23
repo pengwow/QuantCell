@@ -56,8 +56,17 @@ QuantCell 是一个 AI 原生量化交易系统，使用 axon_quant (Rust) 作�
 │              axon_quant (Rust 核心引擎)                    │
 │  exchange.adapter  backtest.engine  risk.engine           │
 │  llm.agent         inference.engine  rl.env              │
+│  axon-kernel(Kernel/BarLifecycle)  axon-worker(PyKernel) │
 └──────────────────────────────────────────────────────────┘
 ```
+
+## 统一主回路（回测 / paper / live）
+
+三种模式跑**同一条主回路**：`axon-kernel` 的 `Kernel`（`kernel_loop.rs`）驱动九步 per-bar 编排
+（`axon-kernel/src/lifecycle.rs::BarLifecycle::on_bar_closed`）。模式差异只在装配：数据泵
+（历史 `build_frames` vs 实时 `KernelPump`）与 `ExecutionSink`（`BacktestSink` 回测撮合 /
+`PaperSink` 模拟盘 / 实盘 sink）。主回路本身没有 mode 分支。Python 侧由
+`axon-worker::PyKernel` 薄包装，暴露为 `axon_quant.worker.Kernel`。
 
 ## 核心接口
 
@@ -127,6 +136,8 @@ worker_system.list_strategies()        # 策略列表
 
 ### BacktestLoop — 回测循环
 
+M6 起仅作 Python 回退路径（`engine_config['runner']='python'`）；默认走统一内核，见下节。
+
 ```python
 # backend/backtest/backtest_loop.py
 @dataclass
@@ -142,29 +153,41 @@ class BacktestLoop:
     def run(self, strategy: RuleStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
 ```
 
-### BacktestRunner — Rust 原生回测编排（默认路径）
+### 回测编排 — 统一内核（默认） / 两条回退口
 
-`backtest/engine_service.py` 默认走 axon_quant 原生 `BacktestRunner`；`engine_config['runner']='python'` 可回退 `BacktestLoop`。
-放行条件：`data_type ∈ RUST_RUNNER_DATA_TYPES`（见 `engine_service.py` 模块常量，共 10 类 —— kline / markPriceKlines / indexPriceKlines / premiumIndexKlines / aggTrades / trades / bookDepth / bookTicker / fundingRate / openInterest，均由数据适配器聚合成 bar 形状）。期货资金费、逐 bar 特征注入、`force_liquidate` 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」执行（与 `BacktestLoop` 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
+`backtest/engine_service.py` 默认构造 `axon_quant.worker.Kernel`（Rust 侧 `PyKernel`，内部调
+`axon-kernel` 的 `Kernel::run_history`）。三条执行路径由 `engine_config['runner']` 选择：
+
+| `runner` | 走哪条路 | 说明 |
+|----------|----------|------|
+| 缺省（`kernel`） | `worker.Kernel` | 默认路径，统一内核 `run_history` |
+| `legacy`（旧名 `rust`） | `worker.BacktestRunner` | legacy 编排，M6 只冻结不删 |
+| `python` | `BacktestLoop` | 纯 Python 回退 |
+
+`data_type` 不在 `RUST_RUNNER_DATA_TYPES` 时无论 runner 配置都会退回 `BacktestLoop`。
+放行条件：`data_type ∈ RUST_RUNNER_DATA_TYPES`（见 `engine_service.py` 模块常量，共 10 类 —— kline / markPriceKlines / indexPriceKlines / premiumIndexKlines / aggTrades / trades / bookDepth / bookTicker / fundingRate / openInterest，均由数据适配器聚合成 bar 形状）。期货资金费、逐 bar 特征注入、`force_liquidate` 均已由 Rust 侧支持；多品种按「每品种独立跑一个内核」执行（与 `BacktestLoop` 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
 
 两个语义边界（改动这块前先读 `engine_service.py` 顶部注释）：`fundingRate` 作为 data_type 是 DerivAdapter 产出的特征列，**不是** `funding_by_symbol` 的资金费结算通道，混用会双重计费；`bookDepth` / `bookTicker` 聚合出的是 mid-price 合成价，不是可撮合盘口。原生 tick / 逐档 book 驱动的撮合不在放行范围（需 Rust L2/L3 + 非 bar 步进编排）。
 
 永续结算口径：`settle` 由 `market` 推导（`cm` → `coin_margin`，其余 → `usd_margin`），`contract_size` 走 `engine_config['contract_size']`（默认 1.0）。注意引擎尚未把乘数计入名义价值/盈亏，币本位账务仍是近似（详见 `engine_service.py` 里的 ponytail 注释）。
 
 ```python
-# backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → Rust decide(bar) 桥接
+# backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → Rust StrategyHost 桥接
 from axon_quant import worker
 
-runner = worker.BacktestRunner(initial_cash=100_000.0)
-runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
-result = runner.run(
-    bars=[{"timestamp": ns, "open": .., "high": .., "low": .., "close": .., "volume": ..}],
+kernel = worker.Kernel(initial_cash=100_000.0, interval="1h")
+kernel.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
+result = kernel.run(
+    bars_by_symbol={"BTC/USDT": [{"timestamp": ns, "open": .., "high": .., "low": .., "close": .., "volume": ..}]},
     states_by_symbol={},
 )
+# legacy 回退：worker.BacktestRunner(...)，run 签名与上面一致
 ```
 
 `RustStrategyAdapter` 对齐 `BacktestLoop` 语义：symbol 归一化为 `BASE/QUOTE`；`target_position` 由权益占比按 `ratio * equity / price` 换算为绝对数量；hold 保持上次目标。
-两条路径结果 **bit-parity**，回归测试见 `tests/unit/backtest/test_rust_runner_parity.py`。
+三条路径输出同一 `BacktestResult` 契约。`tests/unit/backtest/test_rust_runner_parity.py` 守护
+Python ↔ legacy（`runner='rust'`）逐字段一致；Kernel 与 legacy 的逐 bar 语义一致性由
+axon-quant 的 kernel 单测与 M3 shadow oracle（`axon-worker::shadow`）守护。
 
 ### StrategyLoop — 实盘循环
 
@@ -217,12 +240,21 @@ model.learn(total_timesteps=10_000)
 ### 回测
 
 ```python
+# Python 回退路径（engine_config['runner']='python'）；默认走 worker.Kernel，见上文
 from backtest.backtest_loop import BacktestLoop, RuleStrategy
 
 loop = BacktestLoop(initial_cash=100_000)
 result = loop.run(strategy, data, symbol="BTCUSDT")
 print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 ```
+
+### LLM 策略回测必须提供 replay 记录
+
+`mode='llm'` 的策略在回测中禁止真实请求 LLM：`run_mode="backtest"` 时
+`strategy/llm_replay.py::wrap_llm_provider` 会把 `llm_provider` 换成 `ReplayProvider`，
+只从录制 JSONL 查表，未命中直接抛 `ReplayMissError`，不降级为 heuristic / Hold。
+录制由 paper / live 的 `RecordingProvider` 完成，默认目录 `backend/data/llm_replay`
+（`QUANTCELL_LLM_REPLAY_DIR` 可重定向），也可用策略参数 `llm_replay_path` 指定。
 
 ## 关键文件
 
@@ -233,9 +265,14 @@ print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 | `strategy/routes.py` | 策略 API 路由 |
 | `strategy/loop.py` | StrategyLoop 实盘 |
 | `worker/strategy_manager.py` | worker_system 核心单例（StrategyManager） |
-| `backtest/backtest_loop.py` | BacktestLoop + RuleStrategy |
+| `backtest/engine_service.py` | 回测编排入口：`runner` 开关（kernel / legacy / python） |
+| `backtest/backtest_loop.py` | BacktestLoop + RuleStrategy（Python 回退） |
+| `strategy/rust_adapter.py` | BaseStrategy → 内核 `StrategyHost` 桥接 |
+| `strategy/llm_replay.py` | LLM 决策录制 / 回放 provider |
 | `rl/service.py` | RL 训练服务 |
 | `rl/routes.py` | RL API 路由 |
+| `axon_quant/crates/axon-kernel/src/lifecycle.rs` | 九步 per-bar 编排（回测 / paper / live 共用） |
+| `axon_quant/crates/axon-worker/src/python.rs` | `PyKernel` → `worker.Kernel` Python 绑定 |
 
 ## 测试
 
