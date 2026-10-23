@@ -8,10 +8,11 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from utils.logger import LogType, get_logger
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 # axon_quant 导入（可选）
 try:
@@ -315,6 +316,32 @@ class ExchangeAdapter:
             raise RuntimeError(msg)
         return self._adapter.get_leverage_brackets(symbol)
 
+    def fetch_ohlcv(self, symbol: str, interval: str, limit: int = 500) -> list[dict[str, Any]]:
+        """获取历史 K 线（用于因子预热 / KlineBuffer 加载历史）
+
+        Args:
+            symbol: 交易对符号（如 "BTCUSDT"）
+            interval: K 线周期（"1m"/"5m"/"15m"/"1h"/"4h"/"1d"）
+            limit: 返回根数（交易所上限通常 1000）
+
+        Returns:
+            list[dict]: 每根含 ``timestamp``（毫秒）/``open``/``high``/``low``/
+            ``close``/``volume``。与 ``strategy.loop`` 预热 KlineBuffer 的口径一致
+            （那边把 timestamp 乘以 1e6 转纳秒）。
+
+        Raises:
+            RuntimeError: 适配器未创建
+            Exception: 底层 REST 请求失败；记录日志后原样抛出，由调用方决定降级
+        """
+        if not self._adapter:
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
+        try:
+            return self._adapter.fetch_ohlcv(symbol, interval, limit)
+        except Exception as e:
+            logger.error(f"获取历史 K 线失败: {symbol} {interval} limit={limit}: {e}")
+            raise
+
 
 class ExchangeAdapterProxy:
     """交易所适配器代理
@@ -394,3 +421,9 @@ class ExchangeAdapterProxy:
         if not self._available or not self._adapter:
             return {}
         return self._adapter.get_depth(symbol)
+
+    def fetch_ohlcv(self, symbol: str, interval: str, limit: int = 500) -> list[dict[str, Any]]:
+        """获取历史 K 线（axon 不可用时返回空列表）"""
+        if not self._available or not self._adapter:
+            return []
+        return self._adapter.fetch_ohlcv(symbol, interval, limit)
