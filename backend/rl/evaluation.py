@@ -17,14 +17,28 @@ class EvaluationMetrics:
     win_rate: float = 0.0
     num_trades: int = 0
     profit_factor: float = 0.0
+    # 成交名义总额（Σ|price×qty|），与内核口径对账时把手续费折算成费率用
+    turnover: float = 0.0
 
 
-def evaluate_model(model, env) -> EvaluationMetrics:
-    """Run a trained SB3 model on env, collect NAV trajectory, compute metrics."""
+def evaluate_model(model, env, transaction_cost: float | None = None) -> EvaluationMetrics:
+    """Run a trained SB3 model on env, collect NAV trajectory, compute metrics.
+
+    Args:
+        transaction_cost: 环境实际使用的费率（`TradingEnv` 的 `transaction_cost`）。
+            传入时用 `transaction_costs / transaction_cost` 反推成交名义总额；
+            `None` 表示调用方不关心费率口径，`turnover` 记 0。
+
+            这里**不用逐笔成交累加**，因为 `TradingEnv` 的 `info` 只暴露累计
+            `transaction_costs`，没有逐笔明细；而该环境的成本定义就是
+            `notional × fee_rate`（见 axon-rl `executor` 的 `cost_model.fee`），
+            所以反推是恒等式，不是估算。
+    """
     obs, reset_info = env.reset()
     initial_nav = reset_info.get("portfolio_value", 100_000.0)
     nav_history = [initial_nav]
     num_trades = 0
+    info: dict = {}
     done = False
 
     while not done:
@@ -40,10 +54,13 @@ def evaluate_model(model, env) -> EvaluationMetrics:
     if len(nav_history) < 2:
         return EvaluationMetrics()
 
-    return _compute_metrics(nav_history, num_trades)
+    transaction_costs = float(info.get("transaction_costs", 0.0))
+    turnover = transaction_costs / transaction_cost if transaction_cost else 0.0
+
+    return _compute_metrics(nav_history, num_trades, turnover=turnover)
 
 
-def _compute_metrics(nav_history: list[float], num_trades: int) -> EvaluationMetrics:
+def _compute_metrics(nav_history: list[float], num_trades: int, turnover: float = 0.0) -> EvaluationMetrics:
     nav = np.array(nav_history, dtype=np.float64)
     returns = np.diff(nav) / nav[:-1]
     returns = np.nan_to_num(returns, nan=0.0, posinf=0.0, neginf=0.0)
@@ -80,4 +97,5 @@ def _compute_metrics(nav_history: list[float], num_trades: int) -> EvaluationMet
         win_rate=round(win_rate, 4),
         num_trades=num_trades,
         profit_factor=round(profit_factor, 4),
+        turnover=turnover,
     )

@@ -441,6 +441,7 @@ class StrategyManager:
             KERNEL_FEATURES,
             KERNEL_SPEC_VERSION,
             KERNEL_WINDOW_SIZE,
+            RL_TRANSACTION_COST,
             RLService,
             make_predict_fn,
             observation_stats_from_meta,
@@ -479,6 +480,9 @@ class StrategyManager:
         kernel = axon_worker.Kernel(
             initial_cash=float(params.get("initial_capital", 100_000.0)),
             interval=timeframe,
+            # 费率与 RL 训练环境同源：常量只在 `services.rl_service` 定义一次，
+            # 这里 import 复用，避免两处各写一个数字后悄悄漂移
+            fee_rate=RL_TRANSACTION_COST,
         )
         kernel.add_rl_strategy(
             make_predict_fn(model),
