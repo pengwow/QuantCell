@@ -93,6 +93,8 @@ def test_run_backtest_kernel_engine_registers_rl_host(monkeypatch, ohlcv_df):
                 win_rate=0.5,
                 fills=3,
                 final_nav=100_250.0,
+                total_fees=0.6,
+                total_funding_pnl=0.0,
             )
 
     monkeypatch.setattr(axon_quant.worker, "Kernel", FakeKernel)
@@ -152,14 +154,18 @@ def test_kernel_backtest_runs_real_kernel(monkeypatch, ohlcv_df):
 # =============================================================================
 
 
-def _write_model_with_meta(tmp_path: Path, spec_version: str = "v1") -> Path:
+def _write_model_with_meta(
+    tmp_path: Path,
+    spec_version: str = "v1",
+    observation_stats: list[dict] | None = None,
+) -> Path:
     """伪造 SB3 产物：模型文件 + 观测规格元数据旁车。"""
     model_path = tmp_path / "demo_ppo.zip"
     model_path.write_bytes(b"fake-sb3-model")
-    Path(f"{model_path}.meta.json").write_text(
-        json.dumps({"model_id": "demo_ppo", "spec_version": spec_version, "window_size": 1}),
-        encoding="utf-8",
-    )
+    meta = {"model_id": "demo_ppo", "spec_version": spec_version, "window_size": 1}
+    if observation_stats is not None:
+        meta["observation_stats"] = observation_stats
+    Path(f"{model_path}.meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return model_path
 
 
@@ -193,8 +199,9 @@ def test_build_rl_kernel_registers_rl_host(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             registered["init"] = kwargs
 
-        def add_rl_strategy(self, *args):
+        def add_rl_strategy(self, *args, **kwargs):
             registered["register"] = args
+            registered["stats"] = kwargs.get("stats")
 
     monkeypatch.setattr(axon_quant.worker, "Kernel", FakeKernel)
     monkeypatch.setattr("services.rl_service.RLService.load_model", lambda self, path: object())
@@ -210,3 +217,115 @@ def test_build_rl_kernel_registers_rl_host(monkeypatch, tmp_path):
     assert args[1] == "demo_ppo"
     assert args[2] == "v1", "spec_version 取自元数据校验结果"
     assert args[6] == "BTC/USDT"
+    # 伪造的 meta 没有 observation_stats → 传 None，不伪造空统计量
+    assert registered["stats"] is None
+
+
+# =============================================================================
+# 观测归一化统计量的落盘 / 灌回
+# =============================================================================
+
+DEMO_STATS = [
+    {"mean": 100.0, "m2": 50.0, "min": 90.0, "max": 110.0, "count": 20, "median_buffer": []},
+    {"mean": 10.0, "m2": 0.0, "min": 10.0, "max": 10.0, "count": 20, "median_buffer": []},
+]
+
+
+def test_export_observation_stats_parses_json_string():
+    """训练环境返回 JSON 字符串 → 落盘前解析成 list，`"null"` 归一成 None。"""
+    from services.rl_service import export_observation_stats
+
+    class StringEnv:
+        def observation_stats(self):
+            return json.dumps(DEMO_STATS)
+
+    class NullEnv:
+        def observation_stats(self):
+            return "null"
+
+    class ColdEnv:
+        """统计条目存在但 count 全 0：训练期从未预热，等价于没有统计量。"""
+
+        def observation_stats(self):
+            return json.dumps(
+                [
+                    {"mean": 0.0, "m2": 0.0, "min": 0.0, "max": 0.0, "count": 0, "median_buffer": []},
+                    {"mean": 0.0, "m2": 0.0, "min": 0.0, "max": 0.0, "count": 0, "median_buffer": []},
+                ]
+            )
+
+    assert export_observation_stats(StringEnv()) == DEMO_STATS
+    assert export_observation_stats(NullEnv()) is None
+    assert export_observation_stats(ColdEnv()) is None
+    assert export_observation_stats(object()) is None, "环境没有该方法时不能崩"
+
+
+def test_kernel_backtest_passes_observation_stats(monkeypatch, tmp_path, ohlcv_df):
+    """meta 里有 observation_stats 时必须通过 `stats=` 灌回内核。"""
+    axon_quant = pytest.importorskip("axon_quant")
+    if not hasattr(axon_quant, "worker"):
+        pytest.skip("axon_quant.worker 不可用")
+
+    model_path = _write_model_with_meta(tmp_path, observation_stats=DEMO_STATS)
+    svc = RLService()
+    monkeypatch.setattr(
+        "backtest.data_provider.BacktestDataProvider.load_klines",
+        lambda self, *args, **kwargs: ohlcv_df.copy(),
+    )
+    monkeypatch.setattr(svc, "load_model", lambda path: object())
+
+    calls: dict[str, object] = {}
+
+    class FakeKernel:
+        def __init__(self, **kwargs):
+            pass
+
+        def add_rl_strategy(self, *args, **kwargs):
+            calls["stats"] = kwargs.get("stats")
+
+        def run(self, bars_by_symbol, **kwargs):
+            return SimpleNamespace(
+                total_pnl=0.0,
+                sharpe_ratio=0.0,
+                max_drawdown_pct=0.0,
+                win_rate=0.0,
+                fills=0,
+                final_nav=100_000.0,
+                total_fees=0.0,
+                total_funding_pnl=0.0,
+            )
+
+    monkeypatch.setattr(axon_quant.worker, "Kernel", FakeKernel)
+
+    svc.run_backtest(str(model_path), "BTCUSDT", engine="kernel")
+
+    assert calls["stats"] == DEMO_STATS
+
+
+def test_build_rl_kernel_passes_observation_stats(monkeypatch, tmp_path):
+    axon_quant = pytest.importorskip("axon_quant")
+    if not hasattr(axon_quant, "worker"):
+        pytest.skip("axon_quant.worker 不可用")
+
+    from worker.strategy_manager import StrategyManager
+
+    model_path = _write_model_with_meta(tmp_path, observation_stats=DEMO_STATS)
+    registered: dict[str, object] = {}
+
+    class FakeKernel:
+        def __init__(self, **kwargs):
+            pass
+
+        def add_rl_strategy(self, *args, **kwargs):
+            registered["stats"] = kwargs.get("stats")
+
+    monkeypatch.setattr(axon_quant.worker, "Kernel", FakeKernel)
+    monkeypatch.setattr("services.rl_service.RLService.load_model", lambda self, path: object())
+
+    mgr = StrategyManager(max_workers=1)
+    try:
+        mgr.build_rl_kernel(1, {"model_path": str(model_path)}, "1h", ["BTCUSDT"])
+    finally:
+        mgr.shutdown()
+
+    assert registered["stats"] == DEMO_STATS
