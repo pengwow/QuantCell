@@ -18,6 +18,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from utils.db_session import get_db_session
@@ -84,6 +85,8 @@ class StrategyManager:
             thread_name_prefix="axon-backtest",
         )
         self._strategy_loops: dict[int, StrategyLoop] = {}
+        # RL 策略已装配但尚未被数据泵驱动的内核（worker_id → worker.Kernel）
+        self._rl_kernels: dict[int, Any] = {}
         logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
@@ -308,12 +311,27 @@ class StrategyManager:
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning(f"[StrategyManager] 策略参数 JSON 解析失败: {e}")
 
+            # RL 策略不走 StrategyLoaderService（那里只加载规则 / LLM 策略源码）：
+            # 模型与观测规格直接注册到内核 RL host
+            if (getattr(strategy, "strategy_type", None) or "rule") == "rl":
+                self.build_rl_kernel(worker_id, params, timeframe, symbols)
+                # host 已就绪，但实盘实时数据泵（KernelPump）尚未接入：
+                # 显式失败，绝不静默回退到规则策略
+                msg = (
+                    f"worker {worker_id} 的 RL host 已构造并注册到内核，"
+                    "但实盘实时数据泵（KernelPump）尚未接入，无法启动 RL 实盘循环"
+                )
+                raise ValueError(msg)
+
             # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
+            # paper/live 的 LLM 策略在这里被包成 RecordingProvider（回测则由
+            # engine_service 传 run_mode="backtest" 走 replay）
             strategy_instance = StrategyLoaderService.load_strategy(
                 strategy_name=strategy.strategy_name or strategy.name,
                 strategy_params=params,
                 instrument_ids=symbols,
                 bar_types=[timeframe],
+                run_mode="live" if trading_mode == "live" else "paper",
             )
         except Exception as e:
             logger.error(f"[StrategyManager] 策略加载失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
@@ -389,6 +407,95 @@ class StrategyManager:
         logger.info(f"[StrategyManager] 策略已启动: worker_id={worker_id}")
         return True
 
+    def build_rl_kernel(
+        self,
+        worker_id: int,
+        params: dict[str, Any],
+        timeframe: str,
+        symbols: list[str],
+    ):
+        """校验 RL 模型并把推理回调注册到统一内核的 RL host。
+
+        只做「构造 + 注册」：内核需要逐 bar 数据驱动力才能跑，实盘 / paper 的
+        `KernelPump` 尚未接入（M4.6），本方法返回的 kernel 目前供回测 / 后续
+        pump 接入复用。
+
+        Args:
+            worker_id: Worker ID（用于缓存 kernel 与日志）
+            params: 策略参数，需含 `model_path`；可选 `spec_version` / `initial_capital`
+            timeframe: K 线周期（内核据此推导收市时刻）
+            symbols: 交易品种列表，RL host 只挂第一个
+
+        Returns:
+            已装配 RL host 的 `worker.Kernel`
+
+        Raises:
+            ValueError: 模型文件缺失、缺少观测规格元数据、`spec_version` 不匹配，
+                或原生扩展 / SB3 不可用。调用方必须按启动失败处理，不能回退到规则策略。
+        """
+        # 延迟导入：原生扩展与 RL 服务都是可选重依赖
+        from axon_quant import worker as axon_worker
+
+        from services.rl_service import (
+            KERNEL_ACTION_SPACE,
+            KERNEL_FEATURES,
+            KERNEL_SPEC_VERSION,
+            KERNEL_WINDOW_SIZE,
+            RLService,
+            make_predict_fn,
+            rl_meta_path,
+        )
+        from strategy.rust_adapter import _normalize_symbol
+
+        model_path = str(params.get("model_path") or "").strip()
+        if not model_path:
+            msg = f"worker {worker_id} 的 RL 策略缺少 model_path 参数"
+            raise ValueError(msg)
+        if not os.path.isfile(model_path):
+            msg = f"RL 模型文件不存在: {model_path}"
+            raise ValueError(msg)
+
+        meta_file = rl_meta_path(model_path)
+        if not meta_file.is_file():
+            msg = f"RL 模型缺少观测规格元数据，无法校验口径: {meta_file}"
+            raise ValueError(msg)
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+
+        requested_spec = str(params.get("spec_version") or KERNEL_SPEC_VERSION)
+        if meta.get("spec_version") != requested_spec:
+            msg = (
+                f"RL 模型 spec_version 不匹配: 模型={meta.get('spec_version')} "
+                f"期望={requested_spec}"
+            )
+            raise ValueError(msg)
+
+        model = RLService().load_model(model_path)
+        if model is None:
+            msg = f"无法加载 RL 模型: {model_path}"
+            raise ValueError(msg)
+
+        symbol = symbols[0]
+        kernel = axon_worker.Kernel(
+            initial_cash=float(params.get("initial_capital", 100_000.0)),
+            interval=timeframe,
+        )
+        kernel.add_rl_strategy(
+            make_predict_fn(model),
+            str(meta.get("model_id") or Path(model_path).stem),
+            requested_spec,
+            int(meta.get("window_size") or KERNEL_WINDOW_SIZE),
+            meta.get("features") or KERNEL_FEATURES,
+            KERNEL_ACTION_SPACE,
+            _normalize_symbol(symbol),
+        )
+        self._rl_kernels[worker_id] = kernel
+
+        logger.info(
+            f"[StrategyManager] RL host 已注册: worker_id={worker_id}, "
+            f"model={model_path}, spec_version={requested_spec}, symbol={symbol}"
+        )
+        return kernel
+
     async def stop_strategy(self, worker_id: int) -> bool:
         """停止策略
 
@@ -418,6 +525,9 @@ class StrategyManager:
             except Exception as e:
                 logger.error(f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, error={e}")
             del self._strategy_loops[worker_id]
+
+        # RL kernel 不持有线程，丢掉引用即可（后续接入数据泵时在这里显式停机）
+        self._rl_kernels.pop(worker_id, None)
 
         runtime.stopped_at = datetime.now(UTC).isoformat()
         strategy_registry.update_status(worker_id, "stopped")
@@ -598,6 +708,7 @@ class StrategyManager:
                 logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止策略循环失败: {e}")
 
         self._strategy_loops.clear()
+        self._rl_kernels.clear()
 
         # 关闭线程池
         logger.info("[StrategyManager] shutdown: 开始关闭 ThreadPoolExecutor...")

@@ -6,6 +6,7 @@ Unified entry point for RL training, HPO, Walk-Forward, and model registry.
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,43 @@ if TYPE_CHECKING:
 logger = get_logger(__name__, LogType.APPLICATION)
 
 MODELS_DIR = Path(__file__).parent.parent / "data" / "models"
+
+# 内核 RL 口径：与训练环境 `PyTradingEnv` 的默认观测空间一致
+# （close Z-Score + volume 不归一化，window=1），保证模型输入维度对齐。
+#
+# ponytail: 归一化运行时统计量（RunningStats）尚未随模型落盘 —— 内核侧
+# `ObservationSpec` 的统计量为空时 Z-Score 恒为 0，特征分布与训练时不一致。
+# 升级路径：训练结束时把观测空间的 RunningStats 导出到模型元数据，内核路径构造
+# `ObservationSpec` 时灌回去；在那之前内核路径只用于验证接线，不能当作与训练
+# 等价的评估口径。
+KERNEL_SPEC_VERSION = "v1"
+KERNEL_WINDOW_SIZE = 1
+KERNEL_FEATURES = [
+    {"name": "close", "source": {"PriceField": "close"}, "normalizer": "ZScore", "clip_range": None},
+    {"name": "volume", "source": {"VolumeField": "volume"}, "normalizer": "None", "clip_range": None},
+]
+# 内核 RL host 的动作空间必须是覆盖 [-1, 1] 的连续空间，
+# 这样 `ratio -> Action -> decode_target_ratio` 才是恒等映射
+KERNEL_ACTION_SPACE = {"type": "continuous", "min": -1.0, "max": 1.0}
+
+
+def rl_meta_path(model_path: str) -> Path:
+    """模型观测规格元数据旁车文件路径（训练时写入，启动时校验口径）。"""
+    return Path(f"{model_path}.meta.json")
+
+
+def make_predict_fn(model: Any):
+    """把 SB3 模型包装成内核 RL host 需要的 `obs -> target_ratio` 回调。
+
+    训练时用的是 `GymnasiumWrapper` 的 `Box(0, 1)` 动作空间（只做多），
+    因此这里把模型输出裁剪到 `[0, 1]`；内核侧动作空间仍是 `[-1, 1]`，正值直接透传。
+    """
+
+    def predict(obs: list[float]) -> float:
+        action, _ = model.predict(np.asarray(obs, dtype=np.float32), deterministic=True)
+        return float(np.clip(np.asarray(action, dtype=np.float64).reshape(-1)[0], 0.0, 1.0))
+
+    return predict
 
 
 @dataclass
@@ -311,6 +349,20 @@ class RLService:
         model_id = f"{config.model_name}_{config.algorithm}_{int(time.time())}"
         model_path = str(MODELS_DIR / f"{model_id}.zip")
         model.save(model_path)
+        # 观测规格元数据：RL 策略启动时据此校验 spec_version / 窗口 / 特征是否
+        # 与本机内核口径一致，避免拿旧口径模型去跑新内核
+        rl_meta_path(model_path).write_text(
+            json.dumps(
+                {
+                    "model_id": model_id,
+                    "spec_version": KERNEL_SPEC_VERSION,
+                    "window_size": KERNEL_WINDOW_SIZE,
+                    "features": KERNEL_FEATURES,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         logger.info(f"[RLService] 模型已保存: {model_path}")
 
         wrapped_env.close()
@@ -388,20 +440,36 @@ class RLService:
         candle_type: str = "spot",
         initial_capital: float = 100_000.0,
         reward_type: str = "pnl",
+        engine: str = "trading_env",
     ) -> dict[str, Any]:
-        """Run a trained RL model through axon_quant TradingEnv for backtesting.
+        """用已训练模型回测，返回评估指标。
+
+        Args:
+            engine: 评估口径。
+                - `"trading_env"`（默认）：SB3 + `axon_quant TradingEnv` 逐 step 评估；
+                - `"kernel"`：统一内核 `worker.Kernel` + RL host，撮合与实盘同一主回路。
+            响应体固定带 `engine` 字段，调用方据此区分两条口径。
 
         Uses TradingEnv as the simulation engine and the SB3 model for inference.
         Returns evaluation metrics (PnL, Sharpe, drawdown, etc.).
         """
+        # 延迟导入：原生扩展 / 回测数据链路是可选重依赖，模块导入期不应强依赖
         from backtest.data_provider import BacktestDataProvider
-        from rl.evaluation import evaluate_model
+
+        if engine not in ("trading_env", "kernel"):
+            msg = f"未知 engine: {engine}（可选 'trading_env' / 'kernel'）"
+            raise ValueError(msg)
 
         provider = BacktestDataProvider()
         data = provider.load_klines(symbol, interval, candle_type)
         if data.empty:
             msg = f"无法加载 {symbol} {interval} 数据"
             raise ValueError(msg)
+
+        if engine == "kernel":
+            return self._run_kernel_backtest(model_path, data, symbol, interval, initial_capital)
+
+        from rl.evaluation import evaluate_model
 
         env = self.create_env(data, reward_type=reward_type, initial_capital=initial_capital)
         wrapped_env = GymnasiumWrapper(env)
@@ -426,4 +494,64 @@ class RLService:
             "win_rate": metrics.win_rate,
             "num_trades": metrics.num_trades,
             "profit_factor": metrics.profit_factor,
+            "engine": "trading_env",
+        }
+
+    def _run_kernel_backtest(
+        self,
+        model_path: str,
+        data: pd.DataFrame,
+        symbol: str,
+        interval: str,
+        initial_capital: float,
+    ) -> dict[str, Any]:
+        """统一内核路径：SB3 推理 → `worker.Kernel.add_rl_strategy`。
+
+        与 `trading_env` 口径的差别只在编排层：成交、资金费、保证金与统计全部
+        由 Rust 内核完成（与实盘同一条主回路）。
+        """
+        # 延迟导入：原生扩展 / 回测编排均为可选重依赖
+        from axon_quant import worker
+
+        from backtest.backtest_loop import clean_ohlcv_df
+        from backtest.engine_service import EventDrivenBacktestService
+        from strategy.rust_adapter import _normalize_symbol
+
+        model = self.load_model(model_path)
+        if model is None:
+            msg = f"无法加载模型: {model_path}"
+            raise RuntimeError(msg)
+
+        # 内核按 BASE/QUOTE 建 instrument；直接用交易所原始 symbol 会退化成默认品种
+        rust_symbol = _normalize_symbol(symbol)
+        bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(data))
+
+        kernel = worker.Kernel(initial_cash=initial_capital, interval=interval)
+        kernel.add_rl_strategy(
+            make_predict_fn(model),
+            Path(model_path).stem,
+            KERNEL_SPEC_VERSION,
+            KERNEL_WINDOW_SIZE,
+            KERNEL_FEATURES,
+            KERNEL_ACTION_SPACE,
+            rust_symbol,
+        )
+        result = kernel.run(bars_by_symbol={rust_symbol: bars})
+
+        total_pnl = float(result.total_pnl)
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "data_bars": len(data),
+            "initial_capital": initial_capital,
+            "total_pnl": total_pnl,
+            "total_return_pct": (round(total_pnl / initial_capital * 100, 4) if initial_capital else 0.0),
+            "sharpe_ratio": float(result.sharpe_ratio),
+            # 与 trading_env 口径对齐：回撤是百分比，win_rate 是 0-1 小数
+            "max_drawdown_pct": float(result.max_drawdown_pct) * 100.0,
+            "win_rate": float(result.win_rate),
+            "num_trades": int(result.fills),
+            # 内核结果不提供 round-trip 盈亏比，显式置 None 而不是编一个 0
+            "profit_factor": None,
+            "engine": "kernel",
         }
