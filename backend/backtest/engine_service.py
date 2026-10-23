@@ -1,9 +1,11 @@
 """
 回测引擎服务模块（基于 axon_quant 体系）
 
-默认回测路径：BaseStrategy → RustStrategyAdapter → axon_quant worker.BacktestRunner
-（Rust 原生撮合编排）；engine_config['runner']='python' 可回退到
-BaseStrategy → BacktestLoop → axon_quant backtest.BacktestEngine。
+默认回测路径：BaseStrategy → RustStrategyAdapter → axon_quant worker.Kernel
+（统一内核，Rust 侧完成撮合编排）；两个回退口：
+- engine_config['runner']='legacy'（或旧名 'rust'）→ worker.BacktestRunner（M6 删除）
+- engine_config['runner']='python' → BaseStrategy → BacktestLoop →
+  axon_quant backtest.BacktestEngine
 
 本模块负责数据加载、因子特征注入与结果格式化，两条引擎路径的编排差异
 必须在 Rust 侧复刻（parity 由 tests/unit/backtest/test_rust_runner_parity.py 守护）。
@@ -59,6 +61,45 @@ RUST_RUNNER_DATA_TYPES = frozenset(
 
 # market → 永续保证金结算方式（spot 无 settle 概念，缺省按 U 本位）
 _SWAP_SETTLE_BY_MARKET = {"um": "usd_margin", "cm": "coin_margin"}
+
+
+def _make_rust_runner(
+    *,
+    initial_cash: float,
+    futures: bool,
+    force_liquidate: bool,
+    settle: str,
+    contract_size: float,
+    interval: str | None,
+    engine_config: dict | None,
+):
+    """按 engine_config['runner'] 构造 Rust 编排器（单/多品种两条路径共用）。
+
+    - `runner ∈ ("legacy", "rust")` → `worker.BacktestRunner`（旧路径，M6 删除）
+    - 其余（默认 `"kernel"`）→ `worker.Kernel`（统一内核）
+
+    `interval` 是真实 K 线周期，内核据此推导 bar 收市时刻（bar.timestamp + interval，
+    引擎时钟再回退到 bar 起点，故不影响撮合数值）。为 None 时不传，交给内核默认周期。
+    """
+    from axon_quant import worker
+
+    if (engine_config or {}).get("runner") in ("legacy", "rust"):
+        return worker.BacktestRunner(
+            initial_cash=initial_cash,
+            futures=futures,
+            force_liquidate=force_liquidate,
+            settle=settle,
+            contract_size=contract_size,
+        )
+    interval_kwargs = {} if interval is None else {"interval": interval}
+    return worker.Kernel(
+        initial_cash=initial_cash,
+        futures=futures,
+        force_liquidate=force_liquidate,
+        settle=settle,
+        contract_size=contract_size,
+        **interval_kwargs,
+    )
 
 
 def adapter_feature_frame(df: pd.DataFrame) -> pd.DataFrame | None:
@@ -323,6 +364,8 @@ class EventDrivenBacktestService:
             strategy_params=strategy_params,
             instrument_ids=instrument_ids,
             bar_types=bar_types,
+            # 回测不允许真实请求 LLM：mode='llm' 的策略在此被强制包成 ReplayProvider
+            run_mode="backtest",
         )
 
         if strategy is None:
@@ -336,15 +379,18 @@ class EventDrivenBacktestService:
         loop = BacktestLoop(initial_cash=init_cash)
         force_liquidate = (engine_config or {}).get("force_liquidate", False)
 
-        # 回测编排路径选择：默认 Rust 原生（axon_quant.worker.BacktestRunner），
-        # 可显式设 engine_config['runner']='python' 回退到 Python BacktestLoop。
+        # 回测编排路径选择：默认走 axon_quant 统一内核（worker.Kernel），
+        # engine_config['runner']='python' 回退 Python BacktestLoop；
+        # 'legacy' / 旧名 'rust' 回退 worker.BacktestRunner（M6 删除）。
         #
         # 放行条件：data_type ∈ RUST_RUNNER_DATA_TYPES（见模块常量，kline 家族 / tick /
         # orderbook / deriv 共 10 类，均由适配器聚合为 bar 形状）。期货资金费、逐 bar
-        # 特征注入、force_liquidate 均已由 Rust 侧支持；多品种按「每品种独立跑一个 runner」
+        # 特征注入、force_liquidate 均已由 Rust 侧支持；多品种按「每品种独立跑一个内核」
         # 执行（与 BacktestLoop 每品种独立资金池口径一致），跨品种聚合仍在 Python 侧。
-        runner_mode = (engine_config or {}).get("runner", "rust")
-        use_rust_runner = runner_mode == "rust" and data_type in RUST_RUNNER_DATA_TYPES
+        # 真实 K 线周期：内核用它推导 bar 收市时刻（缺省 "1h" 与下方格式化口径一致）
+        bar_interval = timeframes[0] if timeframes else "1h"
+        runner_mode = (engine_config or {}).get("runner", "kernel")
+        use_rust_runner = runner_mode != "python" and data_type in RUST_RUNNER_DATA_TYPES
 
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))
@@ -355,7 +401,7 @@ class EventDrivenBacktestService:
             if on_symbol_progress:
                 on_symbol_progress(0, 1, symbol)
             if use_rust_runner:
-                # Rust 原生编排：BacktestRunner 逐 bar 调策略，结果映射回同一契约
+                # Rust 原生编排：内核逐 bar 调策略，结果映射回同一契约
                 result = self._run_rust_single(
                     strategy=strategy,
                     df=df,
@@ -368,6 +414,8 @@ class EventDrivenBacktestService:
                     settle=swap_settle,
                     contract_size=contract_size,
                     margin_specs=margin_specs,
+                    interval=bar_interval,
+                    engine_config=engine_config,
                 )
             else:
                 result = loop.run(
@@ -405,6 +453,8 @@ class EventDrivenBacktestService:
                     strategy_params=strategy_params,
                     instrument_ids=[{"symbol": sym, "venue": "BINANCE"}],
                     bar_types=[timeframes[0]] if timeframes else ["15m"],
+                    # 与单品种路径一致：LLM 策略在回测中只读 replay
+                    run_mode="backtest",
                 )
                 if sym_strategy is None:
                     msg = f"无法加载策略: {strategy_name} ({sym})"
@@ -425,6 +475,8 @@ class EventDrivenBacktestService:
                 trading_mode=trading_mode,
                 time_range=time_range,
                 margin_specs=margin_specs,
+                interval=bar_interval,
+                engine_config=engine_config,
             )
             raw_results = multi_result
             per_symbol_results = {}
@@ -466,7 +518,7 @@ class EventDrivenBacktestService:
                 if on_symbol_progress:
                     on_symbol_progress(idx, len(loaded_entries), sym)
                 if use_rust_runner:
-                    # 每品种独立跑一个 Rust runner（与 BacktestLoop 每品种独立资金池口径一致）
+                    # 每品种独立跑一个 Rust 内核（与 BacktestLoop 每品种独立资金池口径一致）
                     loop_result = self._run_rust_single(
                         strategy=strategy,
                         df=df,
@@ -479,6 +531,8 @@ class EventDrivenBacktestService:
                         settle=swap_settle,
                         contract_size=contract_size,
                         margin_specs=margin_specs,
+                        interval=bar_interval,
+                        engine_config=engine_config,
                     )
                 else:
                     loop_result = loop.run(
@@ -821,7 +875,7 @@ class EventDrivenBacktestService:
             "margin_shortfall_count": result.margin_shortfall_count,
         }
 
-    # ─── Rust 原生回测路径（axon_quant.worker.BacktestRunner） ───
+    # ─── Rust 原生回测路径（axon_quant.worker.Kernel / legacy BacktestRunner） ───
 
     def _run_rust_single(
         self,
@@ -836,9 +890,12 @@ class EventDrivenBacktestService:
         settle: str = "usd_margin",
         contract_size: float = 1.0,
         margin_specs: dict | None = None,
+        interval: str | None = None,
+        engine_config: dict | None = None,
     ) -> BacktestResult:
-        """Rust 原生回测：BacktestRunner 逐 bar 编排策略，结果映射回 QuantCell 契约。
+        """Rust 原生回测：内核逐 bar 编排策略，结果映射回 QuantCell 契约。
 
+        编排器由 `_make_rust_runner` 按 `engine_config['runner']` 选择（默认内核）。
         与 BacktestLoop 路径的差异仅在编排层（循环在 Rust 侧而非 Python 逐 bar），
         两者共用同一个 axon BacktestEngine，撮合语义一致。
 
@@ -847,10 +904,9 @@ class EventDrivenBacktestService:
         - `funding_df` + `futures`：期货资金费查找表（键为 bar 纳秒时间戳）→ Rust 逐 bar 结算；
         - `settle` + `contract_size`：永续品种的保证金结算方式与合约乘数（仅 futures 生效，
           口径由调用方给出，见 run_backtest 里的 market 推导与 ponytail 说明）；
-        - `margin_specs`：每品种保证金规格（key 为 BASE/QUOTE），None/空 = 不启用保证金模拟。
+        - `margin_specs`：每品种保证金规格（key 为 BASE/QUOTE），None/空 = 不启用保证金模拟；
+        - `interval`：真实 K 线周期（内核派生收市时刻用），None = 内核默认。
         """
-        from axon_quant import worker
-
         from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
 
         # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
@@ -862,12 +918,14 @@ class EventDrivenBacktestService:
         states_by_symbol = self._build_rust_states(feature_dataframe, bar_ts_list, rust_symbol)
         funding_by_symbol = self._build_rust_funding(funding_df, rust_symbol, futures)
 
-        runner = worker.BacktestRunner(
+        runner = _make_rust_runner(
             initial_cash=init_cash,
             futures=futures,
             force_liquidate=force_liquidate,
             settle=settle,
             contract_size=contract_size,
+            interval=interval,
+            engine_config=engine_config,
         )
         # symbol 显式传给适配器：多品种「独立资金池」分支（run_backtest 的 else 分支）
         # 复用同一个策略实例（config.symbol 固定为首品种），而本次回测品种是入参 symbol。
@@ -906,24 +964,25 @@ class EventDrivenBacktestService:
         trading_mode: str = "spot",
         time_range: str | None = None,
         margin_specs: dict | None = None,
+        interval: str | None = None,
+        engine_config: dict | None = None,
     ) -> tuple[dict[str, Any], dict[str, list[dict]], dict[str, int]]:
-        """共享资金池：单 BacktestRunner + N 品种共享账户编排。
+        """共享资金池：单内核 + N 品种共享账户编排。
 
         与 ``_run_rust_single`` 的差异：
-        - 只跑**一次** ``run``（单 engine、一笔 ``init_cash``），而不是每品种一个 runner
+        - 只跑**一次** ``run``（单 engine、一笔 ``init_cash``），而不是每品种一个内核
         - 各品种 bar 对齐到统一时间网格（``shared_capital_grid``），缺口以 ``None`` 占位
           （Rust 侧前向填充价格参与盯市，但不触发策略决策）
         - 每个品种一个策略实例（共享模式的必要条件：策略内部滚动状态必须按品种隔离）
         - 成交按 ``TradeRecord.instrument`` 拆分回各品种
         - ``margin_specs``：每品种保证金规格（全品种参与，None/空 = 不启用）
+        - ``interval``：真实 K 线周期；``engine_config``：决定内核 / legacy 编排器
 
         Returns:
             (聚合结果 dict, {品种: round-trip 成交列表}, {品种: fills 笔数})
             fills 与 round-trip 条数不同口径（逐笔开/平均计 vs 开平配对），
             详情页「交易次数」沿用引擎 fills 口径，故单独回传
         """
-        from axon_quant import worker
-
         from backtest.shared_capital_grid import align_bars_to_grid, build_shared_grid
         from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
 
@@ -956,13 +1015,15 @@ class EventDrivenBacktestService:
                 )
             )
 
-        # 4) 单 runner 注册全部品种的策略适配器（共享同一笔 init_cash）
-        runner = worker.BacktestRunner(
+        # 4) 单编排器注册全部品种的策略适配器（共享同一笔 init_cash）
+        runner = _make_rust_runner(
             initial_cash=init_cash,
             futures=futures,
             force_liquidate=force_liquidate,
             settle=settle,
             contract_size=contract_size,
+            interval=interval,
+            engine_config=engine_config,
         )
         for sym, strategy in strategies_by_symbol.items():
             # 每品种独立杠杆：共享账户下各品种的放大倍数可以不同
