@@ -44,7 +44,7 @@ def test_run_backtest_default_engine_is_trading_env(monkeypatch, ohlcv_df):
     monkeypatch.setattr(svc, "load_model", lambda path: object())
     monkeypatch.setattr(
         "rl.evaluation.evaluate_model",
-        lambda model, env: SimpleNamespace(
+        lambda model, env, transaction_cost=None: SimpleNamespace(
             total_pnl=12.0,
             total_return_pct=0.12,
             sharpe_ratio=0.8,
@@ -52,6 +52,7 @@ def test_run_backtest_default_engine_is_trading_env(monkeypatch, ohlcv_df):
             win_rate=0.5,
             num_trades=2,
             profit_factor=1.5,
+            turnover=12_000.0,
         ),
     )
 
@@ -59,6 +60,8 @@ def test_run_backtest_default_engine_is_trading_env(monkeypatch, ohlcv_df):
 
     assert result["engine"] == "trading_env"
     assert result["total_pnl"] == 12.0
+    # 成交名义总额透传到响应，供 `attribute_engine_diff` 折算费率
+    assert result["turnover"] == 12_000.0
 
 
 def test_run_backtest_kernel_engine_registers_rl_host(monkeypatch, ohlcv_df):
@@ -213,6 +216,10 @@ def test_build_rl_kernel_registers_rl_host(monkeypatch, tmp_path):
         mgr.shutdown()
 
     assert registered["init"]["interval"] == "1h"
+    # 费率必须与 RL 训练环境同源，而不是吃内核默认 0.001
+    from services.rl_service import RL_TRANSACTION_COST
+
+    assert registered["init"]["fee_rate"] == RL_TRANSACTION_COST
     args = registered["register"]
     assert args[1] == "demo_ppo"
     assert args[2] == "v1", "spec_version 取自元数据校验结果"

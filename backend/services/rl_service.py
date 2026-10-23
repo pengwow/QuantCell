@@ -42,6 +42,12 @@ KERNEL_FEATURES = [
 # 这样 `ratio -> Action -> decode_target_ratio` 才是恒等映射
 KERNEL_ACTION_SPACE = {"type": "continuous", "min": -1.0, "max": 1.0}
 
+# RL 成本口径的唯一来源：训练环境（`TradingEnv`）与内核评估（`worker.Kernel`）
+# 都从这里取，改这一处即两边同步。任何一边自己写数字都会让
+# `attribute_engine_diff` 报「成本模型不一致」。
+RL_TRANSACTION_COST = 0.0001
+RL_SLIPPAGE = 0.00001
+
 
 def rl_meta_path(model_path: str) -> Path:
     """模型观测规格元数据旁车文件路径（训练时写入，启动时校验口径）。"""
@@ -103,19 +109,23 @@ def load_observation_stats(model_path: str) -> list[dict[str, Any]] | None:
 def attribute_engine_diff(*, trading_env: dict[str, Any], kernel: dict[str, Any]) -> dict[str, Any]:
     """把两口径的收益差异拆成 成本 / 资金费 / 动作 / 撮合 四类。
 
-    前提：两次运行使用同一动作序列（确定性策略）。成本项必须为零，否则说明
-    两边的成本模型不一致（这是 bug，不是预期的口径差异）。
+    前提：两次运行使用同一动作序列（确定性策略）。**成本类比较的是费率口径
+    （`fees / turnover`），不是绝对手续费**：两边成交笔数不同（内核逐 bar 重平衡、
+    `TradingEnv` 有最小成交阈值）时绝对手续费必然不同，那属于「撮合」差异，
+    不是成本模型不一致。费率不同才是 bug。
 
     输入是两次运行的汇总，两边同形、缺省为 0：
 
     - `total_pnl`：净收益，已扣成本、已加资金费；
     - `fees`：累计交易成本（正数 = 支出）；
+    - `turnover`：成交名义总额（Σ|price×qty|），`cost` 用它把手续费折算成费率；
+      缺失或为 0 时该侧费率记 0；
     - `funding`：累计资金费净额（正数 = 收入）；`TradingEnv` 不建模资金费，恒为 0；
     - `action_diff`：可选，由调用方单独测得的「目标仓位语义」收益贡献。
 
     口径：`net = gross - fees + funding`，因此
 
-        total_diff = -cost_diff + funding + action_diff + 残差
+        total_diff = -fees_diff + funding + action_diff + 残差
 
     残差（`matching.residual`）来自撮合层：成交价、部分成交、保证金约束、重平衡
     阈值等。**不假装能把残差再拆细** —— 要细分就得逐笔成交对齐，那不在本函数的
@@ -127,31 +137,43 @@ def attribute_engine_diff(*, trading_env: dict[str, Any], kernel: dict[str, Any]
 
     Returns:
         `cost` / `funding` / `action` / `matching` / `total_pnl` 五类归因；
-        成本模型不一致时额外带 `error`。
+        两侧费率不一致时额外带 `error`。
     """
     env_pnl = float(trading_env.get("total_pnl", 0.0))
     kernel_pnl = float(kernel.get("total_pnl", 0.0))
     env_fees = float(trading_env.get("fees", 0.0))
     kernel_fees = float(kernel.get("fees", 0.0))
 
-    cost_diff = kernel_fees - env_fees
-    # 手续费是浮点累加，绝对相等不现实；以金额量级做基准的相对容差
-    cost_ok = abs(cost_diff) <= 1e-9 * max(1.0, abs(env_fees), abs(kernel_fees))
+    # 费率 = 手续费 / 成交名义。turnover 缺失或为 0 时没有可比较的费率，记 0
+    env_turnover = float(trading_env.get("turnover") or 0.0)
+    kernel_turnover = float(kernel.get("turnover") or 0.0)
+    env_rate = env_fees / env_turnover if env_turnover > 0.0 else 0.0
+    kernel_rate = kernel_fees / kernel_turnover if kernel_turnover > 0.0 else 0.0
+    rate_diff = kernel_rate - env_rate
+    # 费率是浮点除法，按 1e-12 绝对容差判等（0.0001 量级的相对误差 ~1e-8 以内）
+    rate_ok = abs(rate_diff) <= 1e-12
 
+    # 残差口径不变：仍用绝对手续费把两边 net 拉回 gross
+    fees_diff = kernel_fees - env_fees
     funding = float(kernel.get("funding", 0.0))
     action_diff = float(kernel.get("action_diff", 0.0)) - float(trading_env.get("action_diff", 0.0))
     total_diff = kernel_pnl - env_pnl
-    # net = gross - fees + funding ⇒ 残差 = 总差 + 成本差 - 资金费 - 动作差
-    residual = total_diff + cost_diff - funding - action_diff
+    # net = gross - fees + funding ⇒ 残差 = 总差 + 手续费差 - 资金费 - 动作差
+    residual = total_diff + fees_diff - funding - action_diff
 
     report: dict[str, Any] = {
-        "cost": {"trading_env": env_fees, "kernel": kernel_fees, "diff": cost_diff, "ok": cost_ok},
+        "cost": {
+            "trading_env_rate": env_rate,
+            "kernel_rate": kernel_rate,
+            "diff": rate_diff,
+            "ok": rate_ok,
+        },
         "funding": {"kernel": funding},
         "action": {"diff": action_diff},
         "matching": {"residual": residual},
         "total_pnl": {"trading_env": env_pnl, "kernel": kernel_pnl, "diff": total_diff},
     }
-    if not cost_ok:
+    if not rate_ok:
         report["error"] = "成本模型不一致"
     return report
 
@@ -208,8 +230,8 @@ def _make_env_config(
     """Create default environment config."""
     return {
         "initial_capital": initial_capital,
-        "transaction_cost": 0.0001,
-        "slippage": 0.00001,
+        "transaction_cost": RL_TRANSACTION_COST,
+        "slippage": RL_SLIPPAGE,
         "max_steps": max_steps,
         "seed": seed,
         "symbol": symbol,
@@ -592,7 +614,7 @@ class RLService:
             msg = f"无法加载模型: {model_path}"
             raise RuntimeError(msg)
 
-        metrics = evaluate_model(model, wrapped_env)
+        metrics = evaluate_model(model, wrapped_env, transaction_cost=RL_TRANSACTION_COST)
         wrapped_env.close()
 
         return {
@@ -607,6 +629,8 @@ class RLService:
             "win_rate": metrics.win_rate,
             "num_trades": metrics.num_trades,
             "profit_factor": metrics.profit_factor,
+            # 成交名义总额：`attribute_engine_diff` 用它把手续费折算成费率口径
+            "turnover": metrics.turnover,
             "engine": "trading_env",
         }
 
@@ -639,7 +663,8 @@ class RLService:
         rust_symbol = _normalize_symbol(symbol)
         bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(data))
 
-        kernel = worker.Kernel(initial_cash=initial_capital, interval=interval)
+        # 费率与训练环境同源：两边都是 `RL_TRANSACTION_COST`，否则归因会报成本模型不一致
+        kernel = worker.Kernel(initial_cash=initial_capital, interval=interval, fee_rate=RL_TRANSACTION_COST)
         kernel.add_rl_strategy(
             make_predict_fn(model),
             Path(model_path).stem,
@@ -654,6 +679,14 @@ class RLService:
         result = kernel.run(bars_by_symbol={rust_symbol: bars})
 
         total_pnl = float(result.total_pnl)
+        # 成交名义总额 = Σ|price×qty|，与 `fees / turnover` 的费率口径配对；
+        # 旧版内核结果没有该字段时置 None，而不是编一个 0 冒充「零成交」
+        fills_detail = getattr(result, "fills_detail", None)
+        turnover = (
+            sum(abs(float(f["price"]) * float(f["quantity"])) for f in fills_detail)
+            if fills_detail is not None
+            else None
+        )
         return {
             "symbol": symbol,
             "interval": interval,
@@ -668,8 +701,9 @@ class RLService:
             "num_trades": int(result.fills),
             # 内核结果不提供 round-trip 盈亏比，显式置 None 而不是编一个 0
             "profit_factor": None,
-            # 成本 / 资金费明细：`attribute_engine_diff` 用它和 TradingEnv 口径对账
+            # 成本 / 资金费 / 成交量明细：`attribute_engine_diff` 用它和 TradingEnv 口径对账
             "total_fees": float(result.total_fees),
             "total_funding": float(result.total_funding_pnl),
+            "turnover": turnover,
             "engine": "kernel",
         }
