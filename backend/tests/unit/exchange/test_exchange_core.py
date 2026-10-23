@@ -245,6 +245,37 @@ class TestExchangeAdapter:
         mock_adapter_cls.assert_called_once_with(mock_cfg.return_value)
         assert adapter._adapter is mock_adapter_cls.return_value
 
+    def test_fetch_ohlcv_delegates_with_limit(self):
+        """fetch_ohlcv 转发到底层 axon 适配器，返回 list[dict] 并保留 limit"""
+        adapter = object.__new__(adapter_mod.ExchangeAdapter)
+        adapter._adapter = mock.MagicMock()
+        adapter._exchange_id = "binance"
+
+        bars = [
+            {
+                "timestamp": 1_700_000_000_000,
+                "open": 1.0,
+                "high": 2.0,
+                "low": 0.5,
+                "close": 1.5,
+                "volume": 10.0,
+            }
+        ]
+        adapter._adapter.fetch_ohlcv.return_value = bars
+
+        assert adapter.fetch_ohlcv("BTCUSDT", "1m", 10) == bars
+        adapter._adapter.fetch_ohlcv.assert_called_once_with("BTCUSDT", "1m", 10)
+
+    def test_fetch_ohlcv_failure_is_logged_and_reraised(self):
+        """底层请求失败：记录日志后原样抛出，不静默返回空"""
+        adapter = object.__new__(adapter_mod.ExchangeAdapter)
+        adapter._adapter = mock.MagicMock()
+        adapter._exchange_id = "binance"
+        adapter._adapter.fetch_ohlcv.side_effect = RuntimeError("network down")
+
+        with pytest.raises(RuntimeError, match="network down"):
+            adapter.fetch_ohlcv("BTCUSDT", "1m", 10)
+
     def test_binance_mainnet_wiring(self):
         """binance 非 testnet 时使用 ExchangeConfig(exchange_id=BINANCE, testnet=False)"""
         with (
@@ -284,6 +315,7 @@ class TestExchangeAdapterProxy:
         assert proxy.get_balance() == {}
         assert proxy.get_positions() == []
         assert proxy.get_depth("BTCUSDT") == {}
+        assert proxy.fetch_ohlcv("BTCUSDT", "1m", 10) == []
         proxy.connect()
         proxy.disconnect()
         proxy.subscribe(["BTCUSDT"])
@@ -298,6 +330,8 @@ class TestExchangeAdapterProxy:
         proxy._adapter.get_ticker.assert_called_once_with("BTCUSDT")
         proxy.place_order({"side": "Buy"})
         proxy._adapter.place_order.assert_called_once_with({"side": "Buy"})
+        assert proxy.fetch_ohlcv("BTCUSDT", "1m", 20) is proxy._adapter.fetch_ohlcv.return_value
+        proxy._adapter.fetch_ohlcv.assert_called_once_with("BTCUSDT", "1m", 20)
 
 
 class TestConnectionFactory:
