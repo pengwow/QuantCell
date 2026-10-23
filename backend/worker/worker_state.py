@@ -27,6 +27,14 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+# 中间状态集合（程序异常退出后残留的风险状态）
+# 从 DB 恢复/水合状态时统一修正为 stopped，防止状态永久冻住
+RECOVERABLE_STATUSES = {"starting", "stopping", "restarting", "paused"}
+
+# 中间态超过该时长仍未收敛即视为残留（正常的同步 stop 最长约 10s ZMQ 超时 + 兜底，
+# 预留三倍余量），transition 拒绝时以 DB 复核自愈，避免分叉状态永久冻住
+STALE_INTERMEDIATE_AFTER_SECONDS = 30.0
+
 
 # =============================================================================
 # Worker 状态枚举
@@ -464,6 +472,9 @@ class WorkerStateManager:
         """
         获取 Worker 状态
 
+        缓存未命中时从数据库惰性水合（新建 Worker / API 重启后首次查询），
+        避免同请求先 transition 后 get_state 时拿到 None。
+
         Args:
             worker_id: Worker ID
 
@@ -472,9 +483,44 @@ class WorkerStateManager:
         """
         async with self._lock:
             state = self._state_cache.get(worker_id)
+            if state is None:
+                state = self._hydrate_locked(worker_id)
             if state:
                 logger.debug(f"获取 Worker {worker_id} 状态: {state.status}")
             return state
+
+    def _hydrate_locked(self, worker_id: int) -> WorkerStateRecord | None:
+        """从数据库惰性水合 Worker 状态到缓存（须在持有 self._lock 时调用）。
+
+        DB 是状态的最终事实来源：DB 中不存在才算真的"不存在"。
+        残留中间状态按 initialize() 相同语义修正为 stopped。
+        持锁期间做同步 DB 查询，与 _persist_state 的既有模式一致（毫秒级）。
+        """
+        try:
+            with get_db_session() as db:
+                worker = crud.get_worker(db, worker_id)
+        except Exception as e:
+            logger.error(f"从数据库水合 Worker {worker_id} 状态失败: {e}")
+            return None
+        if worker is None:
+            return None
+
+        status = worker.status or "stopped"
+        if status in RECOVERABLE_STATUSES:
+            # 不立即回写 DB：下次 transition 成功时随 _persist_state 落库
+            logger.warning(f"[状态水合] Worker {worker_id} 发现残留中间状态 '{status}'，按 'stopped' 处理")
+            status = "stopped"
+        state = WorkerStateRecord(
+            worker_id=worker_id,
+            status=status,
+            pid=None if status == "stopped" else worker.pid,
+            started_at=worker.started_at,
+            stopped_at=worker.stopped_at,
+            updated_at=worker.updated_at or datetime.now(),
+        )
+        self._state_cache[worker_id] = state
+        logger.debug(f"[状态水合] Worker {worker_id} 从数据库恢复状态: {status}")
+        return state
 
     async def transition(self, worker_id: int, target_status: str, **kwargs) -> bool:
         """
@@ -493,18 +539,34 @@ class WorkerStateManager:
         async with self._lock:
             current_state = self._state_cache.get(worker_id)
 
-            # 如果状态不存在，只允许从 stopped 开始
+            # 缓存未命中时从数据库惰性水合（新建 Worker / API 重启后首次触达），
+            # DB 中不存在才算真的不存在（DB 是状态最终事实来源）
             if current_state is None:
-                if target_status != "stopped":
-                    logger.warning(f"Worker {worker_id} 不存在，无法转换到 {target_status}")
-                    return False
-                current_state = WorkerStateRecord(worker_id=worker_id, status="stopped")
-                self._state_cache[worker_id] = current_state
+                current_state = self._hydrate_locked(worker_id)
+            if current_state is None:
+                logger.warning(f"Worker {worker_id} 不存在，无法转换到 {target_status}")
+                return False
 
             # 验证状态转换合法性
             if not is_valid_transition(current_state.status, target_status):
-                logger.warning(f"非法状态转换: Worker {worker_id} 从 {current_state.status} 到 {target_status}")
-                return False
+                cached_status = current_state.status
+                # 拒绝前先做一次「陈旧中间态自愈」：缓存可能落后于 DB——
+                # 同步收尾路径（stop/start 内部）会直写 DB 而不动内存缓存，
+                # 若中间态停留超过阈值，说明是分叉残留而非进行中的过渡
+                if cached_status in RECOVERABLE_STATUSES and (
+                    (datetime.now() - current_state.updated_at).total_seconds() > STALE_INTERMEDIATE_AFTER_SECONDS
+                ):
+                    fresh_state = self._hydrate_locked(worker_id)
+                    if fresh_state and fresh_state.status != cached_status:
+                        logger.warning(
+                            f"[状态自愈] Worker {worker_id} 缓存中间态 '{cached_status}' "
+                            f"超龄未收敛，以 DB 为准重载为 '{fresh_state.status}'"
+                        )
+                        current_state = fresh_state
+                # 重验（自愈成功则按修正后的状态判定，否则维持拒绝）
+                if not is_valid_transition(current_state.status, target_status):
+                    logger.warning(f"非法状态转换: Worker {worker_id} 从 {current_state.status} 到 {target_status}")
+                    return False
 
             # 保存旧状态
             old_status = current_state.status
@@ -587,6 +649,9 @@ class WorkerStateManager:
         async with self._lock:
             current_state = self._state_cache.get(worker_id)
 
+            if current_state is None:
+                # 缓存未命中时先从 DB 水合，重启后紧急恢复同样可用
+                current_state = self._hydrate_locked(worker_id)
             if current_state is None:
                 logger.warning(f"Worker {worker_id} 不存在，无法强制重置")
                 return False
@@ -683,20 +748,13 @@ class WorkerStateManager:
 
                     workers, _total = get_workers(db, skip=0, limit=1000)
 
-                    # 中间状态集合（程序异常退出后残留的风险状态）
-                    RECOVERABLE_STATES = {
-                        "starting",
-                        "stopping",
-                        "restarting",
-                        "paused",
-                    }
                     recovered_count = 0
 
                     for worker in workers:
                         status = worker.status or "stopped"
 
                         # 自动修复中间状态为 stopped，防止程序异常退出后状态永久冻住
-                        if status in RECOVERABLE_STATES:
+                        if status in RECOVERABLE_STATUSES:
                             logger.warning(
                                 f"[状态恢复] Worker {worker.id} 发现残留中间状态 '{status}'，"
                                 f"自动修正为 'stopped'（上次程序可能异常退出）"

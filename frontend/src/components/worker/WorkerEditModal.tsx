@@ -202,7 +202,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       description: worker.description,
       strategy_id: currentStrategyId,
       exchange: tradingConfig.exchange || 'binance',
-      symbol: symbolsConfig?.symbols?.[0] || '',
+      symbol: symbolsConfig?.symbols ?? [],
       timeframe: tradingConfig.timeframe || '1h',
       market_type: tradingConfig.market_type || 'futures',
       trading_mode: tradingConfig.trading_mode || 'paper',
@@ -413,13 +413,25 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      // 处理交易标的：后端期望单个 symbol 字符串
-      let selectedSymbol = values.symbol || '';
-      if (selectedSymbol.startsWith('pool_')) {
-        const pool = symbolOptions.find((opt) => opt.value === selectedSymbol);
-        if (pool && pool.symbols && pool.symbols.length > 0) {
-          selectedSymbol = pool.symbols[0];
+      // 处理交易标的：多选值可能是直接货币对或 pool_ 前缀的自选组，统一展开为大写货币对数组
+      const selectedValues: string[] = values.symbol || [];
+      const expandedSymbols: string[] = [];
+      for (const item of selectedValues) {
+        if (item.startsWith('pool_')) {
+          // 自选组展开为组内全部货币对
+          const pool = symbolOptions.find((opt) => opt.value === item);
+          if (pool?.symbols?.length) {
+            expandedSymbols.push(...pool.symbols);
+          }
+        } else {
+          expandedSymbols.push(item);
         }
+      }
+      // 去重 + 统一大写（后端按扩写后的符号列表启动独立策略实例）
+      const symbols = Array.from(new Set(expandedSymbols.map((s) => s.toUpperCase())));
+      if (symbols.length === 0) {
+        message.error('请至少选择一个有效的交易标的');
+        return;
       }
 
       // 确保 strategy_id 是数字类型
@@ -458,7 +470,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         // 交易参数统一走 trading_config（旧扁平字段已被后端 extra="forbid" 拒绝）
         trading_config: {
           exchange: values.exchange,
-          symbols_config: { type: 'symbols', symbols: [selectedSymbol.toUpperCase()] },
+          symbols_config: { type: 'symbols', symbols },
           timeframe: values.timeframe,
           market_type: values.market_type,
           trading_mode: values.trading_mode,
@@ -670,6 +682,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               rules={[{ required: true, message: t('please_select_trading_target') }]}
             >
               <Select
+                mode="multiple"
                 placeholder={t('select_trading_target')}
                 loading={loadingSymbols}
                 showSearch

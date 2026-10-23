@@ -1,5 +1,23 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from worker.core_service import WorkerCoreService
 from worker.state_guard import BatchOperationResult, OperationResult, StateMachineGuard
 from worker.worker_state import WorkerState
+
+
+@pytest.fixture(autouse=True)
+def _stub_worker_db():
+    """隔离真实 sqlite：get_machine 缓存 miss 会读 DB 初始化状态机，
+    统一假定 Worker 存在且 status=stopped，测试不依赖库中真实数据"""
+    with (
+        patch.object(WorkerCoreService, "get_db") as mock_get_db,
+        patch("worker.crud.get_worker", return_value=SimpleNamespace(status="stopped")),
+    ):
+        mock_get_db.return_value.__enter__.return_value = MagicMock()
+        yield
 
 
 def test_state_machine_guard_initialization():
