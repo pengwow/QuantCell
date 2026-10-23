@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from axon_bridge import MarketSignal, SignalType
 from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
+from strategy.llm_replay import ReplayMissError
 from strategy.loader import register
 
 if TYPE_CHECKING:
@@ -139,6 +140,9 @@ class LLMSignalStrategy(BaseStrategy):
                     confidence=max(0.0, min(1.0, float(data.get("confidence", 0.5)))),
                     reasoning=str(data.get("reasoning", ""))[:200],
                 )
+        except ReplayMissError:
+            # 回放未命中必须冒泡：静默 Hold 会让「不可复现的回测」看起来正常
+            raise
         except Exception:
             pass
         return MarketSignal(

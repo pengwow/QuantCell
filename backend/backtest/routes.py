@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
@@ -238,6 +239,21 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     from backtest.models import BacktestTask
     from utils.db_session import get_db_session
     from utils.validation import parse_time_range, validate_time_range
+
+    # LLM 策略回测必须能回放历史响应：缺录制文件直接 400 拒绝，
+    # 不允许回测里真调 LLM 或静默降级成 heuristic（结果会不可复现）。
+    # 必须放在下面的 try 之前，否则会被兜底的 except Exception 改写成 500。
+    strategy_params = request.strategy_config.params or {}
+    if strategy_params.get("mode") == "llm" and resolve_replay_path(
+        request.strategy_config.strategy_name, strategy_params
+    ) is None:
+        logger.warning(
+            f"拒绝 LLM 策略回测：缺少 replay 记录 strategy={request.strategy_config.strategy_name}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="LLM 策略回测必须提供 replay 记录（策略参数 llm_replay_path），禁止静默降级为 heuristic",
+        )
 
     try:
         logger.info("=" * 80)
