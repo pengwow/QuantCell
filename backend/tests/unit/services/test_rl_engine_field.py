@@ -11,6 +11,7 @@
 import asyncio
 import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -455,3 +456,133 @@ def test_start_rl_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_path
             driver.shutdown = lambda: None
             driver.shutdown()
         strategy_registry.unregister(7)
+
+
+# =============================================================================
+# StrategyManager: RL paper 接线（PaperDriver + REST 行情轮询，无凭证无 journal）
+# =============================================================================
+
+
+def test_start_rl_paper_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_path):
+    """RL paper 接线全链路自检：边界拒绝 → 装配 → 线程首轮空转 → stop 停机。
+
+    PaperDriver 与行情拉取整体替换为进程内假实现，不联网、不落库；
+    paper 没有凭证与 journal，注册表条目只有 driver/stop_event/thread 三件套。
+    """
+    axon_quant = pytest.importorskip("axon_quant")
+    if not hasattr(axon_quant, "worker"):
+        pytest.skip("axon_quant.worker 不可用")
+
+    from worker.state import StrategyRuntime, strategy_registry
+    from worker.strategy_manager import StrategyManager
+
+    model_path = _write_model_with_meta(tmp_path)
+
+    calls: dict[str, object] = {}
+    first_round_done = threading.Event()
+
+    class FakePaperDriver:
+        def __init__(self, symbols, **kwargs):
+            calls["symbols"] = symbols
+            calls["init"] = kwargs
+
+        def add_rl_strategy(self, *args, **kwargs):
+            calls["register"] = args
+            calls["register_stats"] = kwargs.get("stats")
+
+        def start(self):
+            calls["start"] = True
+
+        def feed_bar(self, *args):
+            calls["feed"] = args
+
+        def tick(self):
+            calls["ticks"] = int(calls.get("ticks", 0)) + 1
+            first_round_done.set()
+
+        def shutdown(self):
+            calls["shutdown"] = True
+
+    monkeypatch.setattr(axon_quant.worker, "PaperDriver", FakePaperDriver)
+    monkeypatch.setattr("services.rl_service.RLService.load_model", lambda self, path: object())
+    # 行情假拉取：返回空列表，线程空转不喂 bar
+    monkeypatch.setattr(StrategyManager, "_rl_paper_fetch_klines", lambda self, *args, **kwargs: [])
+
+    # 配置边界：交易所 / 市场类型 / 时间周期必须入口即拒，不静默装配
+    mgr = StrategyManager(max_workers=1)
+    good = {"model_path": str(model_path)}
+    with pytest.raises(ValueError, match="仅支持永续合约"):
+        mgr.start_rl_paper(9, dict(good), "1h", ["BTCUSDT"], "binance", "spot")
+    with pytest.raises(ValueError, match="暂只支持 binance"):
+        mgr.start_rl_paper(9, dict(good), "1h", ["BTCUSDT"], "okx", "swap")
+    with pytest.raises(ValueError, match="不支持时间周期"):
+        mgr.start_rl_paper(9, dict(good), "2h", ["BTCUSDT"], "binance", "swap")
+
+    runtime = StrategyRuntime(worker_id=9, strategy_id=0, name="rl-paper-test", status="starting")
+    strategy_registry.register(runtime)
+    try:
+        paper = mgr.start_rl_paper(9, dict(good), "1h", ["BTCUSDT"], "binance", "swap")
+
+        assert calls["symbols"] == ["BTC/USDT"]
+        from services.rl_service import RL_TRANSACTION_COST
+
+        # 费率必须与 RL 训练环境同源，周期原样透传给驱动与 REST
+        assert calls["init"]["fee_rate"] == RL_TRANSACTION_COST
+        assert calls["init"]["interval"] == "1h"
+        assert calls["register"][6] == "BTC/USDT"
+        assert calls["register_stats"] is None
+        # paper 无 journal：注册表条目与停机路径复用的 _rl_live 一致
+        assert set(paper.keys()) == {"driver", "stop_event", "thread"}
+        assert mgr._rl_live[9] is paper
+        assert first_round_done.wait(timeout=10), "驱动线程应在超时前完成首轮空转"
+
+        # 停机：事件唤醒等待 → join → driver.shutdown → 运行态清理
+        asyncio.run(mgr.stop_strategy(9))
+        assert calls["shutdown"] is True
+        assert 9 not in mgr._rl_live
+    finally:
+        # stop 没跑到也要兜底收线，避免测试进程悬挂驱动线程
+        live = mgr._rl_live.pop(9, None)
+        if live is not None:
+            live["stop_event"].set()
+            live["thread"].join(timeout=5)
+        strategy_registry.unregister(9)
+
+
+def test_rl_paper_pump_round_feeds_closed_bars_once(monkeypatch):
+    """pump 核心逻辑：只喂已收市 bar、重叠窗口不重复喂、每轮 tick 一次。
+
+    行情行直接假造（binance 返回字符串数值），拉取替换为进程内假实现，不联网。
+    """
+    from worker.strategy_manager import StrategyManager
+
+    base_ms = 1_700_000_000_000  # 远早于 now，必然已收市
+    current_min_ms = int(time.time() * 1000) // 60_000 * 60_000  # 当前分钟未收市
+    rows = [
+        [str(base_ms), "100.0", "101.0", "99.0", "100.5", "10.0"],
+        [str(base_ms + 60_000), "100.5", "102.0", "100.0", "101.5", "11.0"],
+        [str(current_min_ms), "101.5", "103.0", "101.0", "102.5", "12.0"],
+    ]
+    monkeypatch.setattr(StrategyManager, "_rl_paper_fetch_klines", lambda self, *args, **kwargs: rows)
+
+    fed: list[tuple] = []
+    ticks: list[int] = []
+    driver = SimpleNamespace(feed_bar=lambda *args: fed.append(args), tick=lambda: ticks.append(1))
+
+    mgr = StrategyManager(max_workers=1)
+    try:
+        seen: dict[str, int] = {}
+        mgr._rl_paper_pump_round(1, driver, ["BTC/USDT"], "1m", seen, limit=10)
+
+        assert len(fed) == 2, "未收市的最新 K 线不喂"
+        assert fed[0][0] == "BTC/USDT"
+        assert fed[0][1] == base_ms * 1_000_000, "timestamp 必须是开市时刻的纳秒"
+        assert fed[0][2:] == (100.0, 101.0, 99.0, 100.5, 10.0), "OHLCV 从字符串转 float"
+        assert ticks == [1], "每轮 tick 一次"
+
+        # 重叠窗口重拉：同三根 bar 只剩去重后的不重复喂（两个开市都已 seen）
+        mgr._rl_paper_pump_round(1, driver, ["BTC/USDT"], "1m", seen, limit=10)
+        assert len(fed) == 2, "重叠窗口不允许重复喂同一根 bar"
+        assert ticks == [1, 1]
+    finally:
+        mgr.shutdown()
