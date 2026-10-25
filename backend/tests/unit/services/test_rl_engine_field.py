@@ -8,7 +8,9 @@
 不训练真模型：SB3 模型、数据源、内核全部用假对象替换。
 """
 
+import asyncio
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -336,3 +338,120 @@ def test_build_rl_kernel_passes_observation_stats(monkeypatch, tmp_path):
         mgr.shutdown()
 
     assert registered["stats"] == DEMO_STATS
+
+
+# =============================================================================
+# StrategyManager: RL 实盘 LiveDriver 接线（testnet）
+# =============================================================================
+
+
+def test_start_rl_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_path):
+    """RL live 接线全链路自检：配置边界拒绝 → 装配 → 线程 connect/start/tick → stop 停机。
+
+    LiveDriver / 凭证 / DB 全部替换为进程内假实现，不联网、不落真库；
+    journal 通过 QUANTCELL_DATA_DIR 重定向到 tmp_path。
+    """
+    axon_quant = pytest.importorskip("axon_quant")
+    if not hasattr(axon_quant, "worker"):
+        pytest.skip("axon_quant.worker 不可用")
+
+    from worker.state import StrategyRuntime, strategy_registry
+    from worker.strategy_manager import StrategyManager
+
+    model_path = _write_model_with_meta(tmp_path)
+
+    calls: dict[str, object] = {}
+    first_tick_done = threading.Event()
+
+    class FakeLiveDriver:
+        def __init__(self, config, symbols, **kwargs):
+            calls["config"] = config
+            calls["symbols"] = symbols
+            calls["init"] = kwargs
+
+        def add_rl_strategy(self, *args, **kwargs):
+            calls["register"] = args
+            calls["register_stats"] = kwargs.get("stats")
+
+        def connect(self):
+            calls["connect"] = True
+
+        def start(self, journal):
+            calls["start"] = journal
+
+        def tick(self):
+            calls["ticks"] = int(calls.get("ticks", 0)) + 1
+            first_tick_done.set()
+
+        def shutdown(self):
+            calls["shutdown"] = True
+
+    class FakeCredentials:
+        def get_credential(self, name):
+            calls["credential"] = name
+            return "key-1", "secret-1"
+
+    monkeypatch.setattr(axon_quant.worker, "LiveDriver", FakeLiveDriver)
+    monkeypatch.setattr("credentials.service.CredentialsService", FakeCredentials)
+    monkeypatch.setattr("services.rl_service.RLService.load_model", lambda self, path: object())
+    monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))
+
+    class _FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr("worker.strategy_manager.get_db_session", lambda: _FakeSession())
+    monkeypatch.setattr("worker.crud.update_worker_status", lambda *args, **kwargs: None)
+
+    # 配置边界：market_type / 交易所 / 凭证缺省必须入口即拒，不静默装配
+    mgr = StrategyManager(max_workers=1)
+    good = {"model_path": str(model_path), "credentials_account": "acct-1"}
+    with pytest.raises(ValueError, match="仅支持永续合约"):
+        mgr.start_rl_live(7, dict(good), "1h", ["BTCUSDT"], "binance", "spot")
+    with pytest.raises(ValueError, match="暂只支持 binance"):
+        mgr.start_rl_live(7, dict(good), "1h", ["BTCUSDT"], "okx", "swap")
+    with pytest.raises(ValueError, match="credentials_account"):
+        mgr.start_rl_live(7, {"model_path": str(model_path)}, "1h", ["BTCUSDT"], "binance", "swap")
+
+    runtime = StrategyRuntime(worker_id=7, strategy_id=0, name="rl-live-test", status="starting")
+    strategy_registry.register(runtime)
+    try:
+        journal = mgr._rl_live_journal_path(7)
+        assert journal.startswith(str(tmp_path)), "journal 必须落在重定向的数据目录里"
+
+        mgr.start_rl_live(7, dict(good), "1h", ["BTCUSDT"], "binance", "swap")
+
+        assert first_tick_done.wait(timeout=10), "驱动线程应在超时前完成首次 tick"
+        cfg = calls["config"]
+        # 合约 testnet URL（binance_testnet_config 是现货 URL，不能用）
+        assert "testnet.binancefuture.com" in cfg.rest_base_url
+        assert "binancefuture" in cfg.ws_url
+        assert cfg.api_key == "key-1"
+        assert calls["credential"] == "acct-1"
+        assert calls["symbols"] == ["BTC/USDT"]
+        assert calls["start"] == journal, "journal 不存在时走全新 start"
+        from services.rl_service import RL_TRANSACTION_COST
+
+        assert calls["init"]["fee_rate"] == RL_TRANSACTION_COST
+        assert calls["register"][6] == "BTC/USDT"
+
+        # 停机：事件唤醒 tick 循环 → join → driver.shutdown → 运行态清理
+        asyncio.run(mgr.stop_strategy(7))
+        assert calls["shutdown"] is True
+        assert 7 not in mgr._rl_live
+    finally:
+        # stop 没跑到也要兜底收线，避免测试进程悬挂驱动线程
+        live = mgr._rl_live.pop(7, None)
+        if live is not None:
+            live["stop_event"].set()
+            live["thread"].join(timeout=5)
+            driver = live["driver"]
+            driver.shutdown = lambda: None
+            driver.shutdown()
+        strategy_registry.unregister(7)

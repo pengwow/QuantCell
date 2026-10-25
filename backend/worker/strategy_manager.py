@@ -14,6 +14,7 @@ StrategyManager — 统一策略执行引擎
 import asyncio
 import json
 import os
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -87,6 +88,8 @@ class StrategyManager:
         self._strategy_loops: dict[int, StrategyLoop] = {}
         # RL 策略已装配但尚未被数据泵驱动的内核（worker_id → worker.Kernel）
         self._rl_kernels: dict[int, Any] = {}
+        # RL 实盘运行态（worker_id → {driver, stop_event, thread}），M4.6 接线
+        self._rl_live: dict[int, dict[str, Any]] = {}
         logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
@@ -269,13 +272,6 @@ class StrategyManager:
         log_directory = os.path.join(backend_dir, "logs", "worker")
         os.makedirs(log_directory, exist_ok=True)
 
-        # 构建交易所配置
-        try:
-            build_exchange_config(exchange, trading_mode)
-        except Exception as e:
-            logger.error(f"[StrategyManager] 构建交易所配置失败: worker_id={worker_id}, error={e}")
-            raise
-
         # 加载策略
         try:
             from backtest.strategy_loader_service import StrategyLoaderService
@@ -312,16 +308,25 @@ class StrategyManager:
                     logger.warning(f"[StrategyManager] 策略参数 JSON 解析失败: {e}")
 
             # RL 策略不走 StrategyLoaderService（那里只加载规则 / LLM 策略源码）：
-            # 模型与观测规格直接注册到内核 RL host
+            # 模型与观测规格直接注册到统一内核 / LiveDriver 的 RL host
             if (getattr(strategy, "strategy_type", None) or "rule") == "rl":
-                self.build_rl_kernel(worker_id, params, timeframe, symbols)
-                # host 已就绪，但实盘实时数据泵（KernelPump）尚未接入：
-                # 显式失败，绝不静默回退到规则策略
-                msg = (
-                    f"worker {worker_id} 的 RL host 已构造并注册到内核，"
-                    "但实盘实时数据泵（KernelPump）尚未接入，无法启动 RL 实盘循环"
-                )
-                raise ValueError(msg)
+                rl_mode = trading_config.get("trading_mode", trading_mode)
+                if rl_mode == "live":
+                    # 实盘闸门（设计文档 9.4）：testnet 对账通过前不放行主网
+                    msg = f"worker {worker_id} 配置了 RL 主网实盘（live），主网闸门尚未开放，请先使用 testnet 模式"
+                    raise ValueError(msg)
+                if rl_mode != "testnet":
+                    # RL 逐 tick 实时 paper 循环由后续任务接入（Task 11.4）
+                    msg = (
+                        f"worker {worker_id} 的 RL 策略 trading_mode={rl_mode}："
+                        "RL 实时 paper 循环尚未接入，实盘演练请配置 testnet"
+                    )
+                    raise ValueError(msg)
+                market_type = trading_config.get("market_type", "spot")
+                self.start_rl_live(worker_id, params, timeframe, symbols, exchange, market_type)
+                await self._finalize_start(worker_id, runtime, db)
+                logger.info(f"[StrategyManager] RL 实盘已启动: worker_id={worker_id}")
+                return True
 
             # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
             # paper/live 的 LLM 策略在这里被包成 RecordingProvider（回测则由
@@ -389,7 +394,19 @@ class StrategyManager:
             )
             raise
 
-        # 更新注册表
+        # 统一收尾：注册表 / DB / worker_state 三处状态流转
+        await self._finalize_start(worker_id, runtime, db)
+
+        logger.info(f"[StrategyManager] 策略已启动: worker_id={worker_id}")
+        return True
+
+    async def _finalize_start(self, worker_id: int, runtime, db=None) -> None:
+        """启动成功后的统一收尾：注册表 / DB / worker_state 三处状态流转。
+
+        规则策略与 RL 实盘两条启动路径共用，避免各写一份后漂移。
+        """
+        from .state import strategy_registry
+
         strategy_registry.update_status(worker_id, "running")
 
         runtime.set_pid(os.getpid())
@@ -397,57 +414,35 @@ class StrategyManager:
         if runtime.started_at is None:
             runtime.started_at = datetime.now(UTC).isoformat()
 
-        # 更新数据库状态
         if db is not None:
             crud.update_worker_status(db, worker_id, "running", pid=os.getpid())
             db.commit()
 
         await worker_state_manager.transition(worker_id, "running")
 
-        logger.info(f"[StrategyManager] 策略已启动: worker_id={worker_id}")
-        return True
+    def _load_rl_spec(self, worker_id: int, params: dict[str, Any]) -> dict[str, Any]:
+        """加载 RL 模型并整理推理回调 + 观测规格（回测内核 / LiveDriver 共用）。
 
-    def build_rl_kernel(
-        self,
-        worker_id: int,
-        params: dict[str, Any],
-        timeframe: str,
-        symbols: list[str],
-    ):
-        """校验 RL 模型并把推理回调注册到统一内核的 RL host。
-
-        只做「构造 + 注册」：内核需要逐 bar 数据驱动力才能跑，实盘 / paper 的
-        `KernelPump` 尚未接入（M4.6），本方法返回的 kernel 目前供回测 / 后续
-        pump 接入复用。
-
-        Args:
-            worker_id: Worker ID（用于缓存 kernel 与日志）
-            params: 策略参数，需含 `model_path`；可选 `spec_version` / `initial_capital`
-            timeframe: K 线周期（内核据此推导收市时刻）
-            symbols: 交易品种列表，RL host 只挂第一个
+        校验链：model_path 存在 → 观测规格元数据存在 → spec_version 匹配 → 模型可加载。
 
         Returns:
-            已装配 RL host 的 `worker.Kernel`
+            dict：predict / model_id / spec_version / window_size / features /
+            action_space / stats，调用方按序传入 add_rl_strategy 即可。
 
         Raises:
             ValueError: 模型文件缺失、缺少观测规格元数据、`spec_version` 不匹配，
                 或原生扩展 / SB3 不可用。调用方必须按启动失败处理，不能回退到规则策略。
         """
-        # 延迟导入：原生扩展与 RL 服务都是可选重依赖
-        from axon_quant import worker as axon_worker
-
         from services.rl_service import (
             KERNEL_ACTION_SPACE,
             KERNEL_FEATURES,
             KERNEL_SPEC_VERSION,
             KERNEL_WINDOW_SIZE,
-            RL_TRANSACTION_COST,
             RLService,
             make_predict_fn,
             observation_stats_from_meta,
             rl_meta_path,
         )
-        from strategy.rust_adapter import _normalize_symbol
 
         model_path = str(params.get("model_path") or "").strip()
         if not model_path:
@@ -465,16 +460,53 @@ class StrategyManager:
 
         requested_spec = str(params.get("spec_version") or KERNEL_SPEC_VERSION)
         if meta.get("spec_version") != requested_spec:
-            msg = (
-                f"RL 模型 spec_version 不匹配: 模型={meta.get('spec_version')} "
-                f"期望={requested_spec}"
-            )
+            msg = f"RL 模型 spec_version 不匹配: 模型={meta.get('spec_version')} 期望={requested_spec}"
             raise ValueError(msg)
 
         model = RLService().load_model(model_path)
         if model is None:
             msg = f"无法加载 RL 模型: {model_path}"
             raise ValueError(msg)
+
+        return {
+            "predict": make_predict_fn(model),
+            "model_id": str(meta.get("model_id") or Path(model_path).stem),
+            "spec_version": requested_spec,
+            "window_size": int(meta.get("window_size") or KERNEL_WINDOW_SIZE),
+            "features": meta.get("features") or KERNEL_FEATURES,
+            "action_space": KERNEL_ACTION_SPACE,
+            # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，与训练分布不一致
+            "stats": observation_stats_from_meta(meta, model_path=model_path),
+        }
+
+    def build_rl_kernel(
+        self,
+        worker_id: int,
+        params: dict[str, Any],
+        timeframe: str,
+        symbols: list[str],
+    ):
+        """校验 RL 模型并把推理回调注册到统一内核的 RL host（回测用）。
+
+        只做「构造 + 注册」：内核需要逐 bar 数据驱动才能跑。实时驱动已改走
+        `start_rl_live`（LiveDriver），本方法保留给回测 / 后续 pump 接入复用。
+
+        Args:
+            worker_id: Worker ID（用于缓存 kernel 与日志）
+            params: 策略参数，需含 `model_path`；可选 `spec_version` / `initial_capital`
+            timeframe: K 线周期（内核据此推导收市时刻）
+            symbols: 交易品种列表，RL host 只挂第一个
+
+        Returns:
+            已装配 RL host 的 `worker.Kernel`
+        """
+        # 延迟导入：原生扩展与 RL 服务都是可选重依赖
+        from axon_quant import worker as axon_worker
+
+        from services.rl_service import RL_TRANSACTION_COST
+        from strategy.rust_adapter import _normalize_symbol
+
+        spec = self._load_rl_spec(worker_id, params)
 
         symbol = symbols[0]
         kernel = axon_worker.Kernel(
@@ -485,23 +517,199 @@ class StrategyManager:
             fee_rate=RL_TRANSACTION_COST,
         )
         kernel.add_rl_strategy(
-            make_predict_fn(model),
-            str(meta.get("model_id") or Path(model_path).stem),
-            requested_spec,
-            int(meta.get("window_size") or KERNEL_WINDOW_SIZE),
-            meta.get("features") or KERNEL_FEATURES,
-            KERNEL_ACTION_SPACE,
+            spec["predict"],
+            spec["model_id"],
+            spec["spec_version"],
+            spec["window_size"],
+            spec["features"],
+            spec["action_space"],
             _normalize_symbol(symbol),
-            # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，与训练分布不一致
-            stats=observation_stats_from_meta(meta, model_path=model_path),
+            stats=spec["stats"],
         )
         self._rl_kernels[worker_id] = kernel
 
         logger.info(
             f"[StrategyManager] RL host 已注册: worker_id={worker_id}, "
-            f"model={model_path}, spec_version={requested_spec}, symbol={symbol}"
+            f"model_id={spec['model_id']}, spec_version={spec['spec_version']}, symbol={symbol}"
         )
         return kernel
+
+    def start_rl_live(
+        self,
+        worker_id: int,
+        params: dict[str, Any],
+        timeframe: str,
+        symbols: list[str],
+        exchange: str,
+        market_type: str,
+    ) -> dict[str, Any]:
+        """装配 RL 实盘 LiveDriver 并启动逐 tick 驱动线程（testnet）。
+
+        构造过程不联网（connect 在驱动线程里做），配置 / 凭证 / 模型问题
+        直接抛 ValueError，由调用方按启动失败上报。
+
+        v1 边界：仅 Binance USDT-M 永续 testnet（spot 不支持、主网闸门未开，
+        见设计文档 9.4）。
+
+        Args:
+            worker_id: Worker ID（用于运行态缓存与 journal 定位）
+            params: 策略参数，需含 `model_path` / `credentials_account`；
+                可选 `spec_version` / `initial_capital`
+            timeframe: K 线周期（驱动 bar 闭合节奏）
+            symbols: 交易品种列表，RL host 只挂第一个
+            exchange: 交易所标识（v1 仅 binance）
+            market_type: 市场类型（v1 仅 swap/futures）
+
+        Returns:
+            运行态 dict：{driver, stop_event, thread, journal_path}
+        """
+        from axon_quant import worker as axon_worker
+        from axon_quant.exchange import ExchangeConfig, ExchangeId
+
+        from credentials.service import CredentialsService
+        from services.rl_service import RL_TRANSACTION_COST
+        from strategy.rust_adapter import _normalize_symbol
+
+        if exchange.lower() != "binance":
+            msg = f"worker {worker_id} RL 实盘暂只支持 binance，当前配置: {exchange}"
+            raise ValueError(msg)
+        if market_type not in ("swap", "futures"):
+            msg = (
+                f"worker {worker_id} RL 实盘 v1 仅支持永续合约（swap/futures），"
+                f"当前 market_type={market_type}，spot 暂不支持"
+            )
+            raise ValueError(msg)
+
+        account_name = str(params.get("credentials_account") or "").strip()
+        if not account_name:
+            msg = (
+                f"worker {worker_id} RL 实盘需要在策略参数中配置 "
+                "credentials_account（凭证管理中的账户名），不支持从环境变量隐式取 key"
+            )
+            raise ValueError(msg)
+
+        api_key, api_secret = CredentialsService().get_credential(account_name)
+
+        # binance_testnet_config() 硬编码的是现货测试网 URL，而 LiveDriver v1
+        # 只支持合约 → 这里手工构造 USDT-M 合约测试网配置
+        # （URL 与 exchange/binance/exchange.py 的既有 testnet 路径一致）
+        config = ExchangeConfig(
+            exchange_id=ExchangeId.Binance,
+            api_key=api_key,
+            api_secret=api_secret,
+            rest_base_url="https://testnet.binancefuture.com",
+            ws_url="wss://stream.binancefuture.com/ws",
+            testnet=True,
+        )
+
+        driver = axon_worker.LiveDriver(
+            config,
+            [_normalize_symbol(s) for s in symbols],
+            initial_cash=float(params.get("initial_capital", 100_000.0)),
+            interval=timeframe,
+            # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
+            fee_rate=RL_TRANSACTION_COST,
+        )
+
+        spec = self._load_rl_spec(worker_id, params)
+        driver.add_rl_strategy(
+            spec["predict"],
+            spec["model_id"],
+            spec["spec_version"],
+            spec["window_size"],
+            spec["features"],
+            spec["action_space"],
+            _normalize_symbol(symbols[0]),
+            stats=spec["stats"],
+        )
+
+        journal_path = self._rl_live_journal_path(worker_id)
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._rl_live_thread_main,
+            args=(worker_id, driver, journal_path, stop_event),
+            daemon=True,
+            name=f"rl-live-{worker_id}",
+        )
+        thread.start()
+        live = {
+            "driver": driver,
+            "stop_event": stop_event,
+            "thread": thread,
+            "journal_path": journal_path,
+        }
+        self._rl_live[worker_id] = live
+
+        logger.info(
+            f"[StrategyManager] RL LiveDriver 已装配: worker_id={worker_id}, "
+            f"symbols={symbols}, interval={timeframe}, journal={journal_path}"
+        )
+        return live
+
+    def _rl_live_thread_main(
+        self,
+        worker_id: int,
+        driver: Any,
+        journal_path: str,
+        stop_event: threading.Event,
+    ) -> None:
+        """RL 实盘驱动线程：connect → resume/start → 1s 轮询 tick。
+
+        线程内没有调用方可接异常，连接失败统一降级为 worker error 状态
+        （registry + DB），线程自身退出；单次 tick 异常只记日志继续。
+        """
+        journal = Path(journal_path)
+        try:
+            driver.connect()
+            if journal.is_file() and journal.stat().st_size > 0:
+                # 崩溃恢复：重演 journal + 对账，报告仅记日志
+                report = driver.resume(str(journal))
+                logger.info(f"[StrategyManager] RL 实盘恢复完成: worker_id={worker_id}, report={report}")
+            else:
+                driver.start(str(journal))
+        except Exception as e:
+            logger.error(
+                f"[StrategyManager] RL 实盘连接/恢复失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+            )
+            self._mark_rl_live_error(worker_id, f"RL 实盘连接/恢复失败: {e}")
+            return
+
+        logger.info(f"[StrategyManager] RL 实盘 tick 循环启动: worker_id={worker_id}")
+        while not stop_event.is_set():
+            try:
+                driver.tick()
+            except Exception as e:
+                logger.error(f"[StrategyManager] RL 实盘 tick 异常: worker_id={worker_id}, error={e}")
+            # wait 而非 sleep：stop 可即时唤醒（与 StrategyLoop 同风格）
+            stop_event.wait(1.0)
+
+        logger.info(f"[StrategyManager] RL 实盘 tick 循环退出: worker_id={worker_id}")
+
+    def _mark_rl_live_error(self, worker_id: int, message: str) -> None:
+        """把 RL 实盘运行失败落到 registry + DB 的 error 状态。
+
+        线程内的失败没有启动调用方兜底，必须自带上报；DB 写失败不影响降级结果。
+        """
+        from .state import strategy_registry
+
+        strategy_registry.update_status(worker_id, "error", error_message=message)
+        try:
+            with get_db_session() as db:
+                crud.update_worker_status(db, worker_id, "error")
+                db.commit()
+        except Exception as e:
+            logger.error(f"[StrategyManager] RL 实盘错误状态落库失败: worker_id={worker_id}, error={e}")
+
+    def _rl_live_journal_path(self, worker_id: int) -> str:
+        """RL 实盘 journal 文件路径：backend/data/rl_live/worker_{id}.jsonl。
+
+        journal 驱动 resume 对账，进程重启后据此恢复持仓与资金状态。
+        """
+        data_dir = os.environ.get("QUANTCELL_DATA_DIR")
+        base = Path(data_dir) if data_dir else Path(__file__).resolve().parent.parent / "data"
+        rl_live_dir = base / "rl_live"
+        rl_live_dir.mkdir(parents=True, exist_ok=True)
+        return str(rl_live_dir / f"worker_{worker_id}.jsonl")
 
     async def stop_strategy(self, worker_id: int) -> bool:
         """停止策略
@@ -533,7 +741,20 @@ class StrategyManager:
                 logger.error(f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, error={e}")
             del self._strategy_loops[worker_id]
 
-        # RL kernel 不持有线程，丢掉引用即可（后续接入数据泵时在这里显式停机）
+        # RL live：先通知停 tick 线程并等待退出，再收口 driver
+        # （线程退出前 driver 仍被 tick 使用，必须先 join 才能安全 shutdown）
+        live = self._rl_live.pop(worker_id, None)
+        if live is not None:
+            live["stop_event"].set()
+            live["thread"].join(timeout=5)
+            if live["thread"].is_alive():
+                logger.error(f"[StrategyManager] RL 实盘线程未能在 5s 内停止: worker_id={worker_id}")
+            try:
+                live["driver"].shutdown()
+            except Exception as e:
+                logger.error(f"[StrategyManager] RL LiveDriver 关闭失败: worker_id={worker_id}, error={e}")
+
+        # RL 回测 kernel 不持有线程，丢掉引用即可
         self._rl_kernels.pop(worker_id, None)
 
         runtime.stopped_at = datetime.now(UTC).isoformat()
@@ -715,6 +936,20 @@ class StrategyManager:
                 logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止策略循环失败: {e}")
 
         self._strategy_loops.clear()
+
+        # 停掉 RL 实盘驱动线程并收口 driver
+        for worker_id, live in self._rl_live.items():
+            try:
+                live["stop_event"].set()
+                live["thread"].join(timeout=5)
+                if live["thread"].is_alive():
+                    logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} RL 实盘线程未在 5s 内停止")
+                live["driver"].shutdown()
+                logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} RL 实盘已停止")
+            except Exception as e:
+                logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止 RL 实盘失败: {e}")
+        self._rl_live.clear()
+
         self._rl_kernels.clear()
 
         # 关闭线程池
