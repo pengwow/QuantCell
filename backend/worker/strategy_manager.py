@@ -50,6 +50,11 @@ _RL_PAPER_INTERVAL_SECONDS = {
 # RL paper 行情轮询端点：testnet 公共 K 线，不签名、无需凭证
 _RL_PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
 
+# 轮询强制直连：urllib 默认读 macOS/GUI 代理工具注册的系统代理（如 127.0.0.1:7897），
+# 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
+# 环境变量故直连可达，这里显式清掉代理保持同一语义
+_RL_PAPER_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 # axon_quant 导入
 try:
     from strategy.loop import StrategyLoop
@@ -887,7 +892,7 @@ class StrategyManager:
             binance 原始行：[openTime, open, high, low, close, volume, ...]（数值是字符串）
         """
         url = f"{_RL_PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
-        with urllib.request.urlopen(url, timeout=10) as resp:
+        with _RL_PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
     def _mark_rl_live_error(self, worker_id: int, message: str) -> None:
