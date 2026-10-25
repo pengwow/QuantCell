@@ -17,6 +17,7 @@ import os
 import threading
 import time
 import traceback
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,21 @@ from .exceptions import (
 from .worker_state import worker_state_manager
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+# RL paper 循环支持的 K 线周期 → 周期秒数（与 exchange/base.py 的 interval 映射同口径；
+# 键同时作为 binance REST 的 interval 参数，周期外直接在装配期拒绝）
+_RL_PAPER_INTERVAL_SECONDS = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "4h": 14400,
+    "1d": 86400,
+}
+
+# RL paper 行情轮询端点：testnet 公共 K 线，不签名、无需凭证
+_RL_PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
 
 # axon_quant 导入
 try:
@@ -88,7 +104,8 @@ class StrategyManager:
         self._strategy_loops: dict[int, StrategyLoop] = {}
         # RL 策略已装配但尚未被数据泵驱动的内核（worker_id → worker.Kernel）
         self._rl_kernels: dict[int, Any] = {}
-        # RL 实盘运行态（worker_id → {driver, stop_event, thread}），M4.6 接线
+        # RL 循环运行态（worker_id → {driver, stop_event, thread}），live/paper 共用：
+        # live 额外带 journal_path，paper 无持久化；停机统一走 stop_strategy 的 RL 块
         self._rl_live: dict[int, dict[str, Any]] = {}
         logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
@@ -315,17 +332,19 @@ class StrategyManager:
                     # 实盘闸门（设计文档 9.4）：testnet 对账通过前不放行主网
                     msg = f"worker {worker_id} 配置了 RL 主网实盘（live），主网闸门尚未开放，请先使用 testnet 模式"
                     raise ValueError(msg)
-                if rl_mode != "testnet":
-                    # RL 逐 tick 实时 paper 循环由后续任务接入（Task 11.4）
+                market_type = trading_config.get("market_type", "spot")
+                if rl_mode == "testnet":
+                    self.start_rl_live(worker_id, params, timeframe, symbols, exchange, market_type)
+                elif rl_mode == "paper":
+                    self.start_rl_paper(worker_id, params, timeframe, symbols, exchange, market_type)
+                else:
                     msg = (
-                        f"worker {worker_id} 的 RL 策略 trading_mode={rl_mode}："
-                        "RL 实时 paper 循环尚未接入，实盘演练请配置 testnet"
+                        f"worker {worker_id} 的 RL 策略 trading_mode={rl_mode} 不支持，"
+                        "可选: paper（模拟盘）/ testnet（合约测试网实盘）"
                     )
                     raise ValueError(msg)
-                market_type = trading_config.get("market_type", "spot")
-                self.start_rl_live(worker_id, params, timeframe, symbols, exchange, market_type)
                 await self._finalize_start(worker_id, runtime, db)
-                logger.info(f"[StrategyManager] RL 实盘已启动: worker_id={worker_id}")
+                logger.info(f"[StrategyManager] RL 循环已启动: worker_id={worker_id}, mode={rl_mode}")
                 return True
 
             # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
@@ -685,8 +704,194 @@ class StrategyManager:
 
         logger.info(f"[StrategyManager] RL 实盘 tick 循环退出: worker_id={worker_id}")
 
+    def start_rl_paper(
+        self,
+        worker_id: int,
+        params: dict[str, Any],
+        timeframe: str,
+        symbols: list[str],
+        exchange: str,
+        market_type: str,
+    ) -> dict[str, Any]:
+        """装配 RL paper 模拟盘 PaperDriver 并启动逐 bar 驱动线程。
+
+        与 start_rl_live 同闸门（仅 binance 永续），差异：
+        - 无需凭证：撮合走 PaperSink 内置盘口种子，不连真实账户
+        - 行情走 testnet 公共 REST 轮询（收市 K 线），而非 WS 实时推送
+
+        Args:
+            worker_id: Worker ID（用于运行态缓存与日志）
+            params: 策略参数，需含 `model_path`；可选 `spec_version` / `initial_capital`
+            timeframe: K 线周期（决定轮询节拍与 REST interval 参数）
+            symbols: 交易品种列表，RL host 只挂第一个
+            exchange: 交易所标识（v1 仅 binance）
+            market_type: 市场类型（v1 仅 swap/futures）
+
+        Returns:
+            运行态 dict：{driver, stop_event, thread}（paper 无 journal，不做崩溃恢复）
+        """
+        from axon_quant import worker as axon_worker
+
+        from services.rl_service import RL_TRANSACTION_COST
+        from strategy.rust_adapter import _normalize_symbol
+
+        if exchange.lower() != "binance":
+            msg = f"worker {worker_id} RL paper 暂只支持 binance，当前配置: {exchange}"
+            raise ValueError(msg)
+        if market_type not in ("swap", "futures"):
+            msg = (
+                f"worker {worker_id} RL paper v1 仅支持永续合约（swap/futures），"
+                f"当前 market_type={market_type}，spot 暂不支持"
+            )
+            raise ValueError(msg)
+        if timeframe not in _RL_PAPER_INTERVAL_SECONDS:
+            msg = (
+                f"worker {worker_id} RL paper 不支持时间周期 {timeframe}，"
+                f"支持: {sorted(_RL_PAPER_INTERVAL_SECONDS)}"
+            )
+            raise ValueError(msg)
+
+        spec = self._load_rl_spec(worker_id, params)
+
+        driver = axon_worker.PaperDriver(
+            [_normalize_symbol(s) for s in symbols],
+            initial_cash=float(params.get("initial_capital", 100_000.0)),
+            # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
+            fee_rate=RL_TRANSACTION_COST,
+            interval=timeframe,
+        )
+        driver.add_rl_strategy(
+            spec["predict"],
+            spec["model_id"],
+            spec["spec_version"],
+            spec["window_size"],
+            spec["features"],
+            spec["action_space"],
+            _normalize_symbol(symbols[0]),
+            stats=spec["stats"],
+        )
+
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._rl_paper_thread_main,
+            args=(
+                worker_id,
+                driver,
+                timeframe,
+                [_normalize_symbol(s) for s in symbols],
+                spec["window_size"],
+                stop_event,
+            ),
+            daemon=True,
+            name=f"rl-paper-{worker_id}",
+        )
+        thread.start()
+        paper = {"driver": driver, "stop_event": stop_event, "thread": thread}
+        self._rl_live[worker_id] = paper
+
+        logger.info(
+            f"[StrategyManager] RL PaperDriver 已装配: worker_id={worker_id}, "
+            f"symbols={symbols}, interval={timeframe}"
+        )
+        return paper
+
+    def _rl_paper_thread_main(
+        self,
+        worker_id: int,
+        driver: Any,
+        timeframe: str,
+        symbols: list[str],
+        window_size: int,
+        stop_event: threading.Event,
+    ) -> None:
+        """RL paper 驱动线程：start → 睡到收市点 → 拉收市 K 线喂 driver。
+
+        与 _rl_live_thread_main 一样线程内自兜底：启动失败降级 worker error，
+        单轮拉取/喂单异常只记日志继续。停机的 driver.shutdown 由 stop_strategy
+        统一做（线程退出后才能安全 shutdown）。
+        """
+        step_s = _RL_PAPER_INTERVAL_SECONDS.get(timeframe, 60)
+        try:
+            driver.start()
+        except Exception as e:
+            logger.error(
+                f"[StrategyManager] RL paper 启动失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+            )
+            self._mark_rl_live_error(worker_id, f"RL paper 启动失败: {e}")
+            return
+
+        logger.info(f"[StrategyManager] RL paper 循环启动: worker_id={worker_id}, interval={timeframe}")
+        # 首轮多拉几根把 RL 观测窗口补满；之后只拉最近 2 根防窗口重叠
+        limit = window_size + 2
+        seen_open_ms: dict[str, int] = {}
+        while not stop_event.is_set():
+            try:
+                self._rl_paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit)
+                limit = 2
+            except Exception as e:
+                logger.error(f"[StrategyManager] RL paper 拉取/喂单异常: worker_id={worker_id}, error={e}")
+                # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
+                # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
+            # wait 而非 sleep：stop 可即时唤醒；+0.5s 缓冲等交易所端收市 K 线就绪
+            stop_event.wait(step_s - (time.time() % step_s) + 0.5)
+
+        logger.info(f"[StrategyManager] RL paper 循环退出: worker_id={worker_id}")
+
+    def _rl_paper_pump_round(
+        self,
+        worker_id: int,
+        driver: Any,
+        symbols: list[str],
+        timeframe: str,
+        seen_open_ms: dict[str, int],
+        limit: int,
+    ) -> None:
+        """拉一轮收市 K 线并注入 driver，全部喂完后 tick 一次。
+
+        已收市判定用 open_ms + step_ms <= now（不信任交易所 closeTime 的 -1ms
+        惯例）；按开市时间去重，REST 窗口重叠时不会重复喂同一根 bar。
+        抽成独立方法：线程循环只负责节拍，这份核心逻辑可在测试中同步直调。
+        """
+        step_ms = _RL_PAPER_INTERVAL_SECONDS[timeframe] * 1000
+        now_ms = int(time.time() * 1000)
+        for symbol in symbols:
+            api_symbol = symbol.replace("/", "")  # BTC/USDT → BTCUSDT
+            for row in self._rl_paper_fetch_klines(api_symbol, timeframe, limit):
+                open_ms = int(row[0])
+                if open_ms + step_ms > now_ms:
+                    continue  # 未收市的最新 K 线不喂（决策只用收盘确认价）
+                if open_ms <= seen_open_ms.get(api_symbol, 0):
+                    continue
+                seen_open_ms[api_symbol] = open_ms
+                # feed_bar 吃开市时刻纳秒，事件时间戳由引擎按 interval 推成收市时刻
+                driver.feed_bar(
+                    symbol,
+                    open_ms * 1_000_000,
+                    float(row[1]),
+                    float(row[2]),
+                    float(row[3]),
+                    float(row[4]),
+                    float(row[5]),
+                )
+        driver.tick()
+
+    def _rl_paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[list]:
+        """拉 binance USDT-M testnet 公共收市 K 线（不签名）。
+
+        ponytail: 标准库 urlopen 就够（一次 GET + timeout）；requests 未在
+        pyproject 声明为直接依赖（只是 python-binance 的传递依赖），不为一次
+        调用把它升级成直接依赖。symbol/timeframe 均来自白名单受限字符集，
+        URL 无需额外编码。
+
+        Returns:
+            binance 原始行：[openTime, open, high, low, close, volume, ...]（数值是字符串）
+        """
+        url = f"{_RL_PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
     def _mark_rl_live_error(self, worker_id: int, message: str) -> None:
-        """把 RL 实盘运行失败落到 registry + DB 的 error 状态。
+        """把 RL 循环（live/paper）运行失败落到 registry + DB 的 error 状态。
 
         线程内的失败没有启动调用方兜底，必须自带上报；DB 写失败不影响降级结果。
         """
@@ -698,7 +903,7 @@ class StrategyManager:
                 crud.update_worker_status(db, worker_id, "error")
                 db.commit()
         except Exception as e:
-            logger.error(f"[StrategyManager] RL 实盘错误状态落库失败: worker_id={worker_id}, error={e}")
+            logger.error(f"[StrategyManager] RL 循环错误状态落库失败: worker_id={worker_id}, error={e}")
 
     def _rl_live_journal_path(self, worker_id: int) -> str:
         """RL 实盘 journal 文件路径：backend/data/rl_live/worker_{id}.jsonl。
@@ -741,18 +946,18 @@ class StrategyManager:
                 logger.error(f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, error={e}")
             del self._strategy_loops[worker_id]
 
-        # RL live：先通知停 tick 线程并等待退出，再收口 driver
-        # （线程退出前 driver 仍被 tick 使用，必须先 join 才能安全 shutdown）
+        # RL live/paper：先通知停驱动线程并等待退出，再收口 driver
+        # （线程退出前 driver 仍被循环使用，必须先 join 才能安全 shutdown）
         live = self._rl_live.pop(worker_id, None)
         if live is not None:
             live["stop_event"].set()
             live["thread"].join(timeout=5)
             if live["thread"].is_alive():
-                logger.error(f"[StrategyManager] RL 实盘线程未能在 5s 内停止: worker_id={worker_id}")
+                logger.error(f"[StrategyManager] RL 循环线程未能在 5s 内停止: worker_id={worker_id}")
             try:
                 live["driver"].shutdown()
             except Exception as e:
-                logger.error(f"[StrategyManager] RL LiveDriver 关闭失败: worker_id={worker_id}, error={e}")
+                logger.error(f"[StrategyManager] RL driver 关闭失败: worker_id={worker_id}, error={e}")
 
         # RL 回测 kernel 不持有线程，丢掉引用即可
         self._rl_kernels.pop(worker_id, None)
