@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from axon_quant import worker as axon_worker
+
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -102,6 +104,16 @@ class StrategyManager:
             self._initialized = True
 
         logger.info("[StrategyManager] 正在初始化...")
+
+        # Rust 引擎 WARN+ 日志桥接到 Python logging：live 链路 Rust 侧风险告警
+        # （订单被拒、断线重连等）在 Python 日志面可见。幂等安装，失败仅降级
+        # （Rust 告警不可见），不阻断初始化——桥自身静默失败返回 bool，不抛异常
+        if axon_worker.install_rust_logging():
+            logger.info("[StrategyManager] Rust 日志桥已安装（WARN+ 转发至 axon_quant.rust logger）")
+        else:
+            logger.warning(
+                "[StrategyManager] Rust 日志桥安装未生效（可能已被其他 subscriber 抢占），Rust 侧告警将不可见"
+            )
 
         await worker_state_manager.initialize()
 
