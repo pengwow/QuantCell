@@ -10,7 +10,6 @@ import argparse
 import os
 import signal
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -49,16 +48,7 @@ class WorkerDaemon:
         self.pid = os.getpid()
         self._running = False
         self._transport = None
-        self._start_time = time.time()
         self._status = "initialized"
-        self._trades_count = 0
-        self._orders_count = 0
-        self._last_action = None
-        self._last_error = None
-        self._last_price = 0.0
-        # 每 symbol 一个 StrategyLoop 实例（start 命令后非空）；策略有内部状态
-        # （如均线历史窗口），多标的共享同一实例会互相污染，必须逐 symbol 独立加载
-        self._strategy_loops: list = []
         self.logger = get_logger(f"worker.daemon.{worker_id}", LogType.APPLICATION)
         # 信号只能在主线程注册；本进程作为独立 daemon 由 main() 在主线程构造，
         # 因此在此注册即可（测试同样在主线程构造，与 conftest 的 SIGALRM 不冲突）
@@ -70,19 +60,13 @@ class WorkerDaemon:
         self._running = False
 
     def _build_heartbeat(self) -> dict[str, Any]:
+        # payload 只带 orchestrator 实际消费的字段（pid/status，见
+        # orchestrator._drain_and_process_events）；交易统计走 core_service
+        # 独立统计链路，不属于心跳
         return make_event(
             self.worker_id,
             "heartbeat",
-            {
-                "pid": self.pid,
-                "status": self._status,
-                "uptime": time.time() - self._start_time,
-                "trades_count": self._trades_count,
-                "orders_count": self._orders_count,
-                "last_action": self._last_action,
-                "last_price": self._last_price,
-                "last_error": self._last_error,
-            },
+            {"pid": self.pid, "status": self._status},
         )
 
     def _handle_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -103,35 +87,15 @@ class WorkerDaemon:
                 },
             )
         elif cmd == "start":
-            # 幂等：策略已在运行（如编排层重试）时直接返回 ok，不重复
-            # 创建 StrategyLoop（否则旧线程泄漏且双 loop 并发回调）
-            if self._strategy_loops:
-                return make_response(
-                    self.worker_id,
-                    request_id,
-                    STATUS_OK,
-                    # status 固定 "running"：loop 存在即运行时在跑，用 self._status
-                    # 可能出现 "stopped 但 already_running" 的自相矛盾返回体
-                    {"worker_id": self.worker_id, "status": "running", "pid": self.pid, "already_running": True},
-                )
-            # 真实启动策略运行时（策略加载 + StrategyLoop 线程），失败返回 error
-            try:
-                self._start_strategy(command.get("params") or {})
-            except Exception as e:
-                self._last_error = str(e)
-                self.logger.exception(f"Worker {self.worker_id} 策略启动失败")
-                return make_response(self.worker_id, request_id, STATUS_ERROR, {"error": f"策略启动失败: {e}"})
-            self._status = "running"
-            self._running = True
-            self._last_error = None
+            # 规则/LLM/RL 统一由进程内 Driver 路径运行（strategy_manager），
+            # daemon 不再承载策略执行；stop/status 保留供编排清理与查询
             return make_response(
                 self.worker_id,
                 request_id,
-                STATUS_OK,
-                {"worker_id": self.worker_id, "status": "running", "pid": self.pid},
+                STATUS_ERROR,
+                {"error": "规则/LLM/RL 统一由进程内 Driver 路径运行，daemon 不再承载策略执行"},
             )
         elif cmd == "stop":
-            self._stop_strategy()
             self._running = False
             self._status = "stopped"
             return make_response(self.worker_id, request_id, STATUS_OK, {"stopped": True})
@@ -145,102 +109,9 @@ class WorkerDaemon:
             return make_response(self.worker_id, request_id, STATUS_ERROR, {"error": f"Unknown command: {cmd}"})
 
     def cleanup(self) -> None:
-        self._stop_strategy()
         if self._transport:
             self._transport.close()
             self._transport = None
-
-    # ==================== 策略执行内核（独立进程内运行） ====================
-
-    def _start_strategy(self, params: dict[str, Any]) -> None:
-        """在 daemon 进程内真实启动策略运行时。
-
-        复用与 FastAPI 进程内 StrategyManager 相同的加载链：
-        StrategyLoaderService 加载策略类 → 交易所适配器 → StrategyLoop 线程。
-        加载失败直接抛出，由 _handle_command 转为 error 响应（不降级占位策略）。
-
-        Args:
-            params: start 命令携带的策略配置（strategy_name/symbols/timeframe/
-                    strategy_params/trading_mode，由 core_service._build_worker_config 提供）
-
-        ponytail: 命令处理是同步的，策略 import 链约 1-3s 会短暂阻塞事件循环
-                  （心跳最多延迟一次）；orchestrator 侧 start 超时 5s，
-                  若策略加载未来变慢需改为后台任务 + 两段式响应。
-        """
-        strategy_name = params.get("strategy_name") or ""
-        symbols = params.get("symbols") or ["BTCUSDT"]
-        strategy_params = params.get("strategy_params") or {}
-        timeframe = params.get("timeframe") or "1h"
-        trading_mode = params.get("trading_mode") or "paper"
-        if trading_mode != "paper":
-            # trading_mode 已消费并留档：真实 testnet/live adapter 尚未接入，
-            # 与 StrategyManager 的语义一致，非 paper 模式暂回退 paper 运行
-            self.logger.warning(f"[Daemon] trading_mode={trading_mode} 暂未接入真实适配器，回退 paper 模式")
-
-        # 延迟导入：保持 daemon 初始启动轻量，策略 import 链只在 start 时加载。
-        # 唯一路径：load_strategy → BaseStrategy；加载失败直接抛异常，
-        # 由 _handle_command 转为 error 响应（不再降级占位策略）
-        from backtest.strategy_loader_service import StrategyLoaderService
-        from strategy.loop import StrategyLoop
-
-        # 每 symbol 一套独立的 strategy 实例 + adapter + StrategyLoop：
-        # 策略实例持有行情历史等可变状态，跨 symbol 共享会造成数据串线；
-        # 任一 symbol 加载失败即整体失败（幂等由 _strategy_loops 保证，无需回滚已启动的 loop）
-        for symbol in symbols:
-            strategy_instance = StrategyLoaderService.load_strategy(
-                strategy_name=strategy_name,
-                strategy_params=strategy_params,
-                instrument_ids=[symbol],
-                bar_types=[timeframe],
-                # daemon 进程运行 paper/live：LLM 策略在此录制响应
-                run_mode="live" if trading_mode == "live" else "paper",
-            )
-            # 交易所适配器：真实 testnet/live adapter 在后续版本接入，
-            # 当前使用零配置 PaperAdapter（与 StrategyManager 的 paper 语义一致）
-            adapter = _PaperAdapter(symbol=symbol)
-            loop = StrategyLoop(
-                adapter=adapter,
-                strategy=strategy_instance,
-                symbol=symbol,
-                event_callback=self._emit_strategy_event,
-            )
-            loop.start()
-            self._strategy_loops.append(loop)
-        self.logger.info(
-            f"[Daemon] 策略已启动: worker_id={self.worker_id}, strategy={strategy_name}, "
-            f"symbols={symbols}, loops={len(self._strategy_loops)}"
-        )
-
-    def _stop_strategy(self) -> None:
-        """停止全部策略运行时（幂等，进程退出时也会调用）。"""
-        if not self._strategy_loops:
-            return
-        for loop in self._strategy_loops:
-            try:
-                loop.stop()
-            except Exception as e:
-                self.logger.error(f"[Daemon] 停止策略循环失败 ({loop.symbol}): {e}")
-        self._strategy_loops = []
-
-    def _emit_strategy_event(self, event_type: str, data: dict[str, Any]) -> None:
-        """StrategyLoop 事件回调 → 更新统计 + 转发到 ZMQ 事件通道。
-
-        - order.placed/rejected: 转发给 Orchestrator（前端实时可见）
-        - bar.processed: 高频事件不转发，仅更新心跳统计字段（last_price/last_action）
-        """
-        if event_type == "bar.processed":
-            self._last_price = float(data.get("price", 0.0) or 0.0)
-            self._last_action = data.get("action")
-            return
-
-        z_type = "order" if event_type == "order.placed" else "log"
-        if event_type == "order.placed":
-            self._orders_count += 1
-        if self._transport is not None:
-            try:
-                self._transport.send_event(make_event(self.worker_id, z_type, {"event": event_type, **data}))
-            except Exception as e:
-                self.logger.error(f"[Daemon] 事件转发失败 ({event_type}): {e}")
 
     async def run(self) -> None:
         """主循环: 启动 ZMQ → 心跳 + 命令处理 → 优雅退出。"""
@@ -270,7 +141,6 @@ class WorkerDaemon:
                 await asyncio.sleep(0.1)
         finally:
             self._status = "stopped"
-            self._stop_strategy()  # 先停策略线程再关 ZMQ，避免线程再向已关闭的 socket 发事件
             cmd_task.cancel()
             hb_task.cancel()
             reg_task.cancel()
@@ -344,38 +214,6 @@ class WorkerDaemon:
                 break
             except Exception:
                 await asyncio.sleep(1.0)
-
-
-class _PaperAdapter:
-    """零配置纸面交易适配器。
-
-    实现 StrategyLoop 约定的接口 connect/disconnect/subscribe/get_ticker/place_order。
-    与 StrategyManager._build_exchange_adapter 的 paper 语义一致：
-    ponytail: 无真实行情接入，get_ticker 恒返回种子价（策略 on_bar 正常空转、
-    决策链可运行但不会产生虚假成交），真实 testnet/live adapter 后续替换本类。
-    """
-
-    def __init__(self, symbol: str, seed_price: float = 0.0):
-        self._symbol = symbol
-        self._seed_price = seed_price
-        self._connected = False
-
-    def connect(self) -> None:
-        self._connected = True
-
-    def disconnect(self) -> None:
-        self._connected = False
-
-    def subscribe(self, symbols: list[str]) -> None:
-        pass
-
-    def get_ticker(self, symbol: str) -> dict[str, Any]:
-        # 无行情源：返回种子价。StrategyLoop 对 price<=0 有防御（跳过下单）
-        return {"symbol": symbol, "last": self._seed_price}
-
-    def place_order(self, order_dict: dict[str, Any]) -> dict[str, Any]:
-        # 纸面模式不下真实单，仅返回记录型回执（event 由 StrategyLoop 回调负责上报）
-        return {"paper": True, "symbol": order_dict.get("symbol"), "order_id": ""}
 
 
 def main() -> None:
