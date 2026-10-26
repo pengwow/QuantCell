@@ -33,7 +33,7 @@ CLI_MODULES = [
     "agent",
     "rl",
     "market",
-    "run",
+    # "run" 模块已随死代码归档（commit 113b3652）移除，不再列入 CLI 模块清单
 ]
 
 
@@ -395,29 +395,6 @@ class TestCLIAgent:
         """测试显示工具列表（params 命令组）"""
         result = run_cli("agent", ["params", "tools"])
         assert result.returncode == 0
-
-
-class TestCLIRun:
-    """测试 run CLI 模块"""
-
-    def test_run_help(self):
-        """测试 run --help"""
-        result = run_cli("run", ["--help"])
-        assert result.returncode == 0
-        assert "--unit" in result.stdout
-        assert "--integration" in result.stdout
-        assert "--api" in result.stdout
-        assert "--coverage" in result.stdout
-
-    def test_run_unit_tests(self):
-        """测试运行单元测试（排除有导入错误的模块）"""
-        result = run_cli(
-            "run",
-            ["--verbose", "tests/unit/scripts/test_data_cli.py"],
-            timeout=60,
-        )
-        # 单个测试文件应能成功执行
-        assert result.returncode == 0, f"CLI run 命令失败: {result.stderr}"
 
 
 class TestErrorHandling:

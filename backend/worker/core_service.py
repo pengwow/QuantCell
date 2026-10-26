@@ -687,22 +687,22 @@ class WorkerCoreService:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
-        优先通过 WorkerOrchestrator 启动独立子进程，失败即失败、不降级。
+        进程内直调 worker_system.start_strategy（规则/LLM/RL 统一由进程内
+        Driver 路径运行），在工作线程中以 asyncio.run 驱动 async 入口。
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": str, "pid": int 可选}
+            dict: {"worker_id": int, "status": str, "pid": int}
 
         Raises:
             WorkerNotFoundException: Worker 不存在
             WorkerAlreadyRunningException: Worker 已在运行
             WorkerOperationException: 启动失败
         """
-        # 注意: Orchestrator 路径（独立子进程）不依赖 trading_system 初始化，
-        # 因此本方法不调用 _ensure_initialized()，CLI 独立进程
-        # （从未执行 trading_system.initialize()）也能正常启动 Worker。
+        # 进程内路径不依赖 trading_system 初始化，因此本方法不调用
+        # _ensure_initialized()，CLI 独立进程也能正常启动 Worker。
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
@@ -712,134 +712,66 @@ class WorkerCoreService:
 
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
-        # 仅走 Orchestrator 路径（独立子进程），失败即失败、不降级到 trading_system。
-        # 降级会掩盖 "Worker 进程已拉起但注册失败" 的状态不一致，且 ZMQ 地址被
-        # FastAPI 占用（CLI/API 共存）时会错误地在 CLI 进程内拉起瞬时策略
-        # （CLI 退出即死、DB 却 running）。
         try:
-            return self._start_worker_via_orchestrator(worker_id)
-        except WorkerNotFoundException:
+            return self._start_worker_in_process(worker_id)
+        except WorkerOperationException:
             raise
-        except WorkerAlreadyRunningException:
-            raise
-        except RuntimeError as e:
-            # RuntimeError: orchestrator.start_worker_process 内显式抛错
-            # (注册超时 / transport 创建失败)，明确指示独立进程路径失败。
-            logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationException("启动", worker_id, message=str(e)) from e
         except Exception as e:
-            # 不降级到 trading_system 进程内路径；任何 Orchestrator 异常统一转译，
-            # 让 CLI/API 拿到明确失败原因（含 ZMQ 端口被 FastAPI 占用这类共存场景）。
-            logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
+            logger.error(f"[WorkerCoreService] 进程内启动 Worker {worker_id} 失败: {e}")
             raise WorkerOperationException("启动", worker_id, message=str(e)) from e
 
-    def _start_worker_via_orchestrator(self, worker_id: int) -> dict:
-        """通过 WorkerOrchestrator 启动 Worker 独立进程。"""
-        # 延迟导入：避免 core_service 模块加载时引入 orchestrator 对 ZMQ
-        # 传输层的传递依赖，保持 core_service 可独立导入
-        from .orchestrator import WorkerOrchestrator
+    def _start_worker_in_process(self, worker_id: int) -> dict:
+        """进程内直调 worker_system 启动策略（同步上下文入口）。
 
-        orchestrator = WorkerOrchestrator.get_instance()
-
-        with self.get_db() as db:
-            worker = crud.get_worker(db, worker_id)
-            if not worker:
-                raise WorkerNotFoundException(worker_id)
-            if worker.status == "running":
-                raise WorkerAlreadyRunningException(worker_id)
-
-        # 检查 Worker 是否已在运行
-        if orchestrator.is_connected(worker_id):
-            return {"worker_id": worker_id, "status": "running", "already_running": True}
-
-        # 提前构建配置并校验策略有效性：daemon 按名称加载策略，strategy_id
-        # 失效且 strategy_name 为空时必然启动失败。在拉起子进程前拦截，
-        # 避免产生孤儿 daemon 进程，并给出可操作的错误提示
-        config = self._build_worker_config(worker_id)
-        if not config.get("strategy_name"):
-            raise WorkerOperationException(
-                "启动",
-                worker_id,
-                message="Worker 未关联有效策略（strategy_id 无效且 strategy_name 为空），请编辑 Worker 重新选择策略",
-            )
-
-        # 启动 Worker 进程
-        pid = orchestrator.start_worker_process(worker_id)
-
-        # 发送 start 命令（携带策略配置）
-        response = orchestrator.send_command_and_wait(worker_id, "start", config)
-
-        if response and response.get("status") == "ok":
-            with self.get_db() as db:
-                # Worker 模型有 pid 字段，启动成功应一并持久化
-                crud.update_worker_status(db, worker_id, "running", pid=pid)
-            return {"worker_id": worker_id, "status": "running", "pid": pid}
-        else:
-            orchestrator.kill_worker_process(worker_id)
-            # daemon 对 start 失败会返回 error 响应（如「策略启动失败: ...」），
-            # 能收到响应说明命令链路是通的，把真实错误透传给调用方；
-            # 完全无响应才算超时/注册失败。此前一律报「启动超时」掩盖了根因
-            err_msg = (response or {}).get("data", {}).get("error")
-            if not err_msg:
-                err_msg = "Worker 未响应启动命令（进程可能崩溃或 ZMQ 路由未就绪）"
-            raise WorkerOperationException("启动", worker_id, message=str(err_msg))
-
-    def _stop_worker_via_orchestrator(self, worker_id: int) -> dict:
-        """通过 WorkerOrchestrator 停止 Worker 进程。
-
-        处理两种场景：
-        1. 进程内注册表已有连接 → 直接发 stop 命令
-        2. CLI 独立进程（注册表为空）→ 建立 ZMQ 通道发 stop 命令主动探测；
-           daemon 无响应时回退读 DB pid 发 SIGTERM，保证 daemon 一定被停掉
+        本方法运行在工作线程（asyncio.to_thread / CLI 主线程），必须用
+        asyncio.run 起新 loop 驱动 async 的 start_strategy；state 管理器的
+        锁已是 threading.Lock（worker_state.py），跨 loop 调用安全。
         """
-        # 延迟导入的原因同 _start_worker_via_orchestrator
-        from .orchestrator import WorkerOrchestrator
+        import asyncio
 
-        orchestrator = WorkerOrchestrator.get_instance()
+        from .strategy_manager import worker_system
 
-        with self.get_db() as db:
-            worker = crud.get_worker(db, worker_id)
-            if not worker:
-                raise WorkerNotFoundException(worker_id)
+        ok = asyncio.run(worker_system.start_strategy(worker_id))
+        if not ok:
+            # start_strategy 吞掉内部异常后返回 False，真实原因落在
+            # registry 的 error_message（其内部 update_status(error) 已写入）
+            registry = strategy_registry.get(worker_id)
+            err_msg = (registry.error_message if registry else None) or "策略启动失败（未知原因，详见服务端日志）"
+            raise WorkerOperationException("启动", worker_id, message=str(err_msg))
+        # start_strategy 成功路径（_finalize_start）已完成 DB running +
+        # pid=os.getpid() 落库（Worker 与主进程同进程，pid 记主进程）
+        return {"worker_id": worker_id, "status": "running", "pid": os.getpid()}
 
-        # 建立 ZMQ 通道（bind 失败说明 FastAPI 或其他管理器占用通道，走 pid 兜底）
-        transport_ok = False
+    def _stop_worker_in_process(self, worker_id: int) -> dict:
+        """进程内直调 worker_system 停止策略（同步上下文入口，asyncio.run 驱动）。
+
+        stop 直调无需位置权限/传输探测，不存在 orchestrator 时代的
+        pid SIGTERM 兜底场景——失败直接抛错转译。
+        """
+        import asyncio
+
+        from .strategy_manager import worker_system
+
         try:
-            orchestrator.ensure_transport()
-            transport_ok = True
-        except Exception as e:
-            logger.warning(f"[WorkerCoreService] ZMQ 通道不可用（{e}），改用 pid 兜底停止 Worker {worker_id}")
-
-        if transport_ok:
-            response = orchestrator.send_command_and_wait(worker_id, "stop", {}, timeout=10.0)
-            if response and response.get("status") == "ok":
-                logger.info(f"[WorkerCoreService] Worker {worker_id} 已通过 ZMQ 优雅停止")
-                with self.get_db() as db:
-                    crud.update_worker_status(db, worker_id, "stopped")
-                return {"worker_id": worker_id, "status": "stopped", "via": "zmq"}
-
-        # daemon 无响应或通道不可用 → 读 DB pid 发 SIGTERM 兜底
-        db_pid = worker.pid
-        if db_pid:
-            try:
-                os.kill(db_pid, 15)  # SIGTERM，daemon 有优雅退出 handler
-                logger.info(f"[WorkerCoreService] 已向 Worker {worker_id} (PID={db_pid}) 发送 SIGTERM")
-            except ProcessLookupError:
-                logger.info(f"[WorkerCoreService] Worker {worker_id} (PID={db_pid}) 进程已不存在")
-            except PermissionError as e:
-                logger.warning(f"[WorkerCoreService] 无权限终止 Worker {worker_id} (PID={db_pid}): {e}")
-
-        with self.get_db() as db:
-            crud.update_worker_status(db, worker_id, "stopped")
-        return {"worker_id": worker_id, "status": "stopped", "via": "pid_fallback"}
+            asyncio.run(worker_system.stop_strategy(worker_id))
+        except WorkerNotFoundException:
+            # DB 有记录但 strategy_manager 无运行时（如 API 重启后从未启动过
+            # 的 worker）：对齐 orchestrator 时代对无响应 daemon 的幂等语义，
+            # 视为已停止而非报错
+            logger.info(f"[WorkerCoreService] Worker {worker_id} 无运行时记录，视为已停止")
+        return {"worker_id": worker_id, "status": "stopped"}
 
     def _get_status_via_orchestrator(self, worker_id: int) -> dict:
         """通过 WorkerOrchestrator 获取实时状态。
 
+        启动/停止已切进程内直调后，orchestrator 仅保留 status 查询职责
+        （Task 5 摘除启动引用；daemon 侧策略运行时废码已清理）。
+
         CLI 独立进程场景：注册表为空时主动建立 ZMQ 通道探测 daemon；
         通道不可用（如 FastAPI 占用）则回退返回 DB 状态。
         """
-        # 延迟导入的原因同 _start_worker_via_orchestrator
+        # 延迟导入：避免 core_service 模块加载时引入 orchestrator 对 ZMQ
+        # 传输层的传递依赖，保持 core_service 可独立导入
         from .orchestrator import WorkerOrchestrator
 
         orchestrator = WorkerOrchestrator.get_instance()
@@ -895,54 +827,14 @@ class WorkerCoreService:
             "message": "Worker 进程未连接",
         }
 
-    def _build_worker_config(self, worker_id: int) -> dict:
-        """构建 Worker 启动配置（start 命令 params，daemon 在独立进程中消费）。
-
-        注意：ORM Worker 模型没有 exchange 字段，exchange 保存在
-        trading_config JSON 中；策略名称用冗余的 strategy_name 字段，
-        而非整型的 strategy_id。symbols/timeframe/strategy_params 从
-        关联的 Strategy 模型解析，供 daemon 加载策略实例与品种配置。
-        """
-        with self.get_db() as db:
-            from strategy.models import Strategy
-
-            worker = crud.get_worker(db, worker_id)
-            if not worker:
-                return {}
-            trading_config = worker.get_trading_config_dict()
-            symbols = worker.get_symbols() if hasattr(worker, "get_symbols") else []
-            strategy_params = {}
-            if worker.strategy_id is not None:
-                strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
-                if strategy is not None and strategy.parameters:
-                    try:
-                        raw_params = (
-                            json.loads(strategy.parameters)
-                            if isinstance(strategy.parameters, str)
-                            else strategy.parameters
-                        )
-                        if isinstance(raw_params, dict):
-                            strategy_params = raw_params
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(f"[WorkerCoreService] 策略参数 JSON 解析失败: worker_id={worker_id}, error={e}")
-            return {
-                "strategy_name": worker.strategy_name,
-                "exchange": trading_config.get("exchange", "binance"),
-                "trading_mode": trading_config.get("trading_mode", "paper"),
-                "name": worker.name,
-                "symbols": symbols,
-                "timeframe": trading_config.get("timeframe", "1h"),
-                "strategy_params": strategy_params,
-            }
-
     async def async_start_worker(self, worker_id: int) -> dict:
-        """异步启动 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 启动独立子进程）。
+        """异步启动 Worker（与 CLI 同步版本调用链一致，进程内直调 worker_system）。
 
         统一走 self.start_worker() 的同步实现，通过线程池执行，保证 FastAPI
-        与 CLI 行为完全一致：仅经 Orchestrator 启动独立子进程，失败不降级。
+        与 CLI 行为完全一致：进程内 Driver 路径启动，失败直接抛错不降级。
         """
         logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
-        # 不调用 _ensure_initialized()：Orchestrator 路径不依赖 trading_system，CLI/API 必须同语义
+        # 不调用 _ensure_initialized()：进程内路径不依赖 trading_system，CLI/API 必须同语义
         try:
             success = await worker_state_manager.transition(worker_id, "starting")
             if not success:
@@ -967,9 +859,9 @@ class WorkerCoreService:
             async def _runner():
                 try:
                     result = await asyncio.to_thread(self.start_worker, worker_id)
-                    # start_worker 内部成功后只直写 DB running，必须补一次状态机
-                    # 转换同步内存缓存，否则缓存停在 starting（starting→stopping
-                    # 非法），后续停止操作会被永久拒绝
+                    # start_strategy 成功路径（_finalize_start）内部已 transition(running)，
+                    # 此处补转会被 running→running 拒绝并返回 False；保留它作为
+                    # 启动实现变化时的幂等兜底（拒绝不抛错、调用方不检查返回值）
                     trans_kwargs = {"pid": result["pid"]} if result.get("pid") else {}
                     await worker_state_manager.transition(worker_id, "running", **trans_kwargs)
                     logger.info(f"[async_start_worker] Worker {worker_id} 启动完成: {result}")
@@ -999,8 +891,8 @@ class WorkerCoreService:
         """
         停止 Worker（同步版本，供 CLI 使用）
 
-        通过 WorkerOrchestrator 停止独立子进程（ZMQ 优雅停止 → DB pid SIGTERM 兜底），
-        失败即失败、不降级。
+        进程内直调 worker_system.stop_strategy（停驱动线程 → 收口 driver →
+        DB/状态机置 stopped），在工作线程中以 asyncio.run 驱动 async 入口。
 
         Args:
             worker_id: Worker ID
@@ -1012,7 +904,7 @@ class WorkerCoreService:
             WorkerNotFoundException: Worker 不存在
             WorkerOperationException: 停止失败
         """
-        # Orchestrator 路径不依赖 trading_system 初始化（同 start_worker 的原因），
+        # 进程内路径不依赖 trading_system 初始化（同 start_worker 的原因），
         # 本方法不调用 _ensure_initialized()。
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
@@ -1022,20 +914,18 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步停止 Worker {worker_id}")
 
         try:
-            return self._stop_worker_via_orchestrator(worker_id)
+            return self._stop_worker_in_process(worker_id)
         except WorkerNotFoundException:
             raise
         except Exception as e:
-            # 不降级到 trading_system 进程内路径；_stop_worker_via_orchestrator 内部
-            # 已含 DB pid SIGTERM 兜底，走到这里说明兜底之外仍有异常，统一转译。
-            logger.error(f"[WorkerCoreService] Orchestrator 停止 Worker {worker_id} 失败: {e}")
+            logger.error(f"[WorkerCoreService] 进程内停止 Worker {worker_id} 失败: {e}")
             raise WorkerOperationException("停止", worker_id, message=str(e)) from e
 
     async def async_stop_worker(self, worker_id: int) -> dict:
-        """异步停止 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 停止独立子进程）。
+        """异步停止 Worker（与 CLI 同步版本调用链一致，进程内直调 worker_system）。
 
         统一走 self.stop_worker() 的同步实现，通过线程池执行，保证 FastAPI
-        与 CLI 行为完全一致：ZMQ 优雅停止 → DB pid SIGTERM 兜底，失败不降级。
+        与 CLI 行为完全一致：停驱动线程 → 收口 driver → DB/状态机置 stopped。
         """
         logger.info(f"[WorkerCoreService] 异步停止 Worker {worker_id}")
         # 不调用 _ensure_initialized()，原因同 async_start_worker
@@ -1103,7 +993,7 @@ class WorkerCoreService:
         Raises:
             WorkerOperationException: 重启失败
         """
-        # 不调用 _ensure_initialized()：stop/start 均只走 Orchestrator 独立子进程路径
+        # 不调用 _ensure_initialized()：stop/start 均为进程内直调 worker_system
         # （不依赖 trading_system），CLI 独立进程执行 restart 也不应被无关的
         # RuntimeError 阻断。
         logger.info(f"[WorkerCoreService] 同步重启 Worker {worker_id}")
@@ -1149,7 +1039,7 @@ class WorkerCoreService:
 
             if stop_result.get("status", "") == "stopping":
                 # stop 是后台任务，先等它收敛到 stopped/error 再启动；
-                # 超时余量 = _stop_worker_via_orchestrator 的 ZMQ 10s + 兜底
+                # 超时余量 = stop 链路（asyncio.to_thread + 策略收尾 join）的经验值
                 await self._wait_for_terminal_state(worker_id, timeout=15.0)
 
             return await self.async_start_worker(worker_id)

@@ -42,6 +42,8 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
+        # 主事件循环引用：lifespan 启动时赋值，供后台驱动线程跨线程广播
+        self.main_loop: asyncio.AbstractEventLoop | None = None
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -67,6 +69,17 @@ class ConnectionManager:
     @property
     def connection_count(self) -> int:
         return len(self.active_connections)
+
+    def broadcast_threadsafe(self, message: dict) -> None:
+        """后台线程广播入口：把 asyncio 广播投递到主事件循环执行。
+
+        主 loop 未就绪（进程启动早期 / 测试进程）或已关闭时静默丢弃——
+        snapshot 类观测推送允许丢失，不值得为此排队或报错。
+        """
+        loop = self.main_loop
+        if loop is None or loop.is_closed():
+            return
+        asyncio.run_coroutine_threadsafe(self.broadcast(message), loop)
 
 
 # =============================================================================

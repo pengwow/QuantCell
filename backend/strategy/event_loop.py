@@ -1,6 +1,6 @@
 """EventDrivenLoop — 完整事件驱动实盘交易循环
 
-替换 StrategyLoop 的 Python 轮询模式，使用:
+事件驱动模式，使用:
   1. 事件驱动数据馈送 (adapter WebSocket 更新内部缓存 → 馈送线程读取 → 队列 → 主循环)
   2. axon_quant.agent.SwarmRunner 多 Agent 投票共识
   3. ExecutionPipeline 订单执行管道 (风控→OMS→交易所)
@@ -357,7 +357,7 @@ class EventDrivenLoop:
         }
 
     def _init_factor_injection(self) -> None:
-        """初始化 KlineBuffer + FactorInjector（复用 StrategyLoop 的逻辑）。"""
+        """初始化 KlineBuffer + FactorInjector。"""
         try:
             from axon_quant.backtest import KlineBuffer
 

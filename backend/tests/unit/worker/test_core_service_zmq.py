@@ -1,6 +1,11 @@
-"""WorkerCoreService 与 WorkerOrchestrator 集成测试。"""
+"""WorkerCoreService 启停与 WorkerOrchestrator status 查询测试。
+
+Task 5 后 start/stop 走进程内直调（worker_system），orchestrator 仅保留
+status 查询职责——start/stop 经 ZMQ daemon 转发的用例随路径一起移除。
+"""
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,11 +13,11 @@ import pytest
 import worker.crud as crud
 import worker.schemas as schemas
 from worker.core_service import WorkerCoreService
-from worker.exceptions import WorkerOperationException
+from worker.exceptions import WorkerNotFoundException, WorkerOperationException
 from worker.orchestrator import WorkerOrchestrator
 
 
-class TestCoreServiceZmqIntegration:
+class TestCoreServiceInProcessIntegration:
     def setup_method(self):
         # WorkerCoreService 和 WorkerOrchestrator 都是 __new__ 单例，必须一起重置
         WorkerCoreService.reset_instance()
@@ -34,57 +39,38 @@ class TestCoreServiceZmqIntegration:
         mock_db.__exit__.return_value = False
         return mock_db
 
-    def test_start_worker_via_orchestrator(self):
+    def test_start_worker_in_process_success(self):
+        """进程内直调：start_strategy 成功后返回 running，pid 记主进程。"""
         service = WorkerCoreService()
-        mock_orch = MagicMock()
-        mock_orch.is_connected.return_value = False
-        mock_orch.start_worker_process.return_value = 12345
-        mock_orch.send_command_and_wait.return_value = {"status": "ok", "data": {"status": "running", "pid": 12345}}
-        with (
-            patch.object(WorkerOrchestrator, "get_instance", return_value=mock_orch),
-            patch.object(service, "get_db", return_value=self._mock_db()),
-            patch("worker.core_service.crud.update_worker_status") as mock_update,
-        ):
-            result = service._start_worker_via_orchestrator(11)
-            mock_orch.start_worker_process.assert_called_once_with(11)
-            mock_update.assert_called_once()  # DB 状态已写 running
-            assert result["worker_id"] == 11
-            assert result["status"] == "running"
+        mock_worker_system = MagicMock()
+        mock_worker_system.start_strategy = AsyncMock(return_value=True)
+        with patch("worker.strategy_manager.worker_system", mock_worker_system):
+            result = service._start_worker_in_process(11)
+        mock_worker_system.start_strategy.assert_awaited_once_with(11)
+        assert result["worker_id"] == 11
+        assert result["status"] == "running"
+        assert result["pid"] == os.getpid()
 
-    def test_stop_worker_via_orchestrator_zmq(self):
-        """ZMQ 通道可用时，通过 stop 命令优雅停止。"""
+    def test_stop_worker_in_process_success(self):
+        """进程内直调：stop_strategy 正常完成即返回 stopped（无 pid SIGTERM 兜底场景）。"""
         service = WorkerCoreService()
-        mock_orch = MagicMock()
-        mock_orch.ensure_transport.return_value = None
-        mock_orch.send_command_and_wait.return_value = {"status": "ok", "data": {"stopped": True}}
-        with (
-            patch.object(WorkerOrchestrator, "get_instance", return_value=mock_orch),
-            patch.object(service, "get_db", return_value=self._mock_db()),
-            patch("worker.core_service.crud.update_worker_status") as mock_update,
-        ):
-            result = service._stop_worker_via_orchestrator(11)
-            mock_orch.send_command_and_wait.assert_called_once()
-            mock_update.assert_called_once()
-            assert result["worker_id"] == 11
-            assert result["status"] == "stopped"
-            assert result["via"] == "zmq"
+        mock_worker_system = MagicMock()
+        mock_worker_system.stop_strategy = AsyncMock(return_value=True)
+        with patch("worker.strategy_manager.worker_system", mock_worker_system):
+            result = service._stop_worker_in_process(11)
+        mock_worker_system.stop_strategy.assert_awaited_once_with(11)
+        assert result["worker_id"] == 11
+        assert result["status"] == "stopped"
 
-    def test_stop_worker_via_orchestrator_pid_fallback(self):
-        """daemon 无响应时回退读 DB pid 发 SIGTERM。"""
+    def test_stop_worker_idempotent_when_no_runtime(self):
+        """DB 有记录但 strategy_manager 无运行时（如重启后从未启动）时幂等返回 stopped。"""
         service = WorkerCoreService()
-        mock_orch = MagicMock()
-        mock_orch.ensure_transport.return_value = None
-        mock_orch.send_command_and_wait.return_value = None  # daemon 无响应
-        mock_db = self._mock_db()
-        mock_db.__enter__.return_value.pid = 99999  # 不存在的 pid，os.kill 抛 ProcessLookupError
-        with (
-            patch.object(WorkerOrchestrator, "get_instance", return_value=mock_orch),
-            patch.object(service, "get_db", return_value=mock_db),
-            patch("worker.core_service.crud.update_worker_status"),
-        ):
-            result = service._stop_worker_via_orchestrator(11)
-            assert result["status"] == "stopped"
-            assert result["via"] == "pid_fallback"
+        mock_worker_system = MagicMock()
+        mock_worker_system.stop_strategy = AsyncMock(side_effect=WorkerNotFoundException(11))
+        with patch("worker.strategy_manager.worker_system", mock_worker_system):
+            result = service._stop_worker_in_process(11)
+        assert result["worker_id"] == 11
+        assert result["status"] == "stopped"
 
     def test_get_status_via_orchestrator(self):
         service = WorkerCoreService()
@@ -102,50 +88,23 @@ class TestCoreServiceZmqIntegration:
             assert result["worker_id"] == 11
             assert result["is_running"] is True
 
-    def test_start_worker_propagates_daemon_error(self):
-        """daemon 返回 error 响应时应透传真实错误，而非一律报「启动超时」。"""
+    def test_start_worker_failure_surfaces_registry_error(self):
+        """start_strategy 返回 False 时应透传 registry.error_message 真实原因。"""
         service = WorkerCoreService()
-        mock_orch = MagicMock()
-        mock_orch.is_connected.return_value = False
-        mock_orch.start_worker_process.return_value = 12345
-        mock_orch.send_command_and_wait.return_value = {
-            "status": "error",
-            "data": {"error": "策略启动失败: 未找到策略 'sma_cross'"},
-        }
+        mock_worker_system = MagicMock()
+        mock_worker_system.start_strategy = AsyncMock(return_value=False)
+        mock_runtime = MagicMock()
+        mock_runtime.error_message = "策略启动失败: 未找到策略 'sma_cross'"
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
         with (
-            patch.object(WorkerOrchestrator, "get_instance", return_value=mock_orch),
-            patch.object(service, "get_db", return_value=self._mock_db()),
-            patch("worker.core_service.crud.update_worker_status"),
+            patch("worker.strategy_manager.worker_system", mock_worker_system),
+            patch("worker.core_service.strategy_registry", mock_registry),
         ):
             with pytest.raises(WorkerOperationException) as exc_info:
-                service._start_worker_via_orchestrator(11)
-            assert "策略启动失败" in exc_info.value.message
-            assert "启动超时" not in exc_info.value.message
-            mock_orch.kill_worker_process.assert_called_once_with(11)
-
-    def test_start_worker_rejects_missing_strategy_before_spawn(self):
-        """strategy_name 为空且 strategy_id 失效时，启动应在拉起子进程前被拦截。"""
-        service = WorkerCoreService()
-        mock_orch = MagicMock()
-        mock_orch.is_connected.return_value = False
-        mock_db = self._mock_db()
-        fake_worker = mock_db.__enter__.return_value
-        # 模拟线上 Worker 1 的脏数据：strategy_name=None 且 strategy_id 在 DB 查不到
-        fake_worker.strategy_name = None
-        fake_worker.strategy_id = 831237435
-        # 让所有 DB 查询路径都返回受控对象：crud.get_worker → fake_worker，
-        # Strategy 查询 → None（策略不存在）
-        fake_worker.query.return_value.filter.return_value.first.return_value = None
-        with (
-            patch.object(WorkerOrchestrator, "get_instance", return_value=mock_orch),
-            patch.object(service, "get_db", return_value=mock_db),
-            patch("worker.core_service.crud.get_worker", return_value=fake_worker),
-        ):
-            with pytest.raises(WorkerOperationException) as exc_info:
-                service._start_worker_via_orchestrator(11)
-            assert "重新选择策略" in exc_info.value.message
-            # 子进程未被拉起即拦截，避免留下孤儿 daemon
-            mock_orch.start_worker_process.assert_not_called()
+                service._start_worker_in_process(11)
+        assert "策略启动失败" in exc_info.value.message
+        assert "未知原因" not in exc_info.value.message
 
 
 class TestValidateAndFillStrategy:
@@ -195,7 +154,7 @@ class TestCoreServicePublicMethods:
     """公开方法 start/stop/get_status 的接入回归测试。
 
     核心保护: CLI 独立进程从不执行 trading_system.initialize()，
-    公开方法走 Orchestrator 路径时绝不能调用 _ensure_initialized()
+    公开方法走进程内直调路径时绝不能调用 _ensure_initialized()
     （否则抛 RuntimeError，Worker CLI 完全不可用）。
     """
 
@@ -225,7 +184,7 @@ class TestCoreServicePublicMethods:
             patch.object(service, "get_db", return_value=self._mock_db()),
             patch.object(
                 service,
-                "_start_worker_via_orchestrator",
+                "_start_worker_in_process",
                 return_value={"worker_id": 11, "status": "running", "pid": 1},
             ) as mock_start,
         ):
@@ -239,7 +198,7 @@ class TestCoreServicePublicMethods:
             patch.object(service, "get_db", return_value=self._mock_db()),
             patch.object(
                 service,
-                "_stop_worker_via_orchestrator",
+                "_stop_worker_in_process",
                 return_value={"worker_id": 11, "status": "stopped"},
             ) as mock_stop,
         ):

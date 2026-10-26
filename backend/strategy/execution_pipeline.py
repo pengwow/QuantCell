@@ -2,8 +2,7 @@
 
 决策(dict) → 风控 → 订单管理 → 交易所执行 → 持仓更新
 
-替代 StrategyLoop._execute_action() 中的手动逻辑，
-统一走: RiskEngine → OMSService → ExchangeAdapter → LivePortfolio
+订单执行不散落在策略主循环里手写，统一走: RiskEngine → OMSService → ExchangeAdapter → LivePortfolio
 """
 
 from __future__ import annotations

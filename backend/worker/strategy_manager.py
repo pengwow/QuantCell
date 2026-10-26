@@ -35,9 +35,9 @@ from .worker_state import worker_state_manager
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# RL paper 循环支持的 K 线周期 → 周期秒数（与 exchange/base.py 的 interval 映射同口径；
+# paper 行情泵支持的 K 线周期 → 周期秒数（与 exchange/base.py 的 interval 映射同口径；
 # 键同时作为 binance REST 的 interval 参数，周期外直接在装配期拒绝）
-_RL_PAPER_INTERVAL_SECONDS = {
+_PAPER_INTERVAL_SECONDS = {
     "1m": 60,
     "5m": 300,
     "15m": 900,
@@ -47,37 +47,17 @@ _RL_PAPER_INTERVAL_SECONDS = {
     "1d": 86400,
 }
 
-# RL paper 行情轮询端点：testnet 公共 K 线，不签名、无需凭证
-_RL_PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
+# paper 行情泵轮询端点：testnet 公共 K 线，不签名、无需凭证
+_PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
+
+# live tick 线程节拍与 snapshot 轮询推送窗口（Driver 无逐笔查询口，轮询是唯一观测口）
+_LIVE_TICK_INTERVAL_S = 1.0
+_LIVE_SNAPSHOT_INTERVAL_S = 15.0
 
 # 轮询强制直连：urllib 默认读 macOS/GUI 代理工具注册的系统代理（如 127.0.0.1:7897），
 # 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
 # 环境变量故直连可达，这里显式清掉代理保持同一语义
-_RL_PAPER_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-# axon_quant 导入
-try:
-    from strategy.loop import StrategyLoop
-
-    AXON_AVAILABLE = True
-except ImportError as e:
-    AXON_AVAILABLE = False
-    logger.warning(f"[StrategyManager] strategy.loop 不可用: {e}")
-
-
-def _build_exchange_adapter(exchange: str, trading_mode: str):
-    """根据交易模式选择 exchange adapter。
-
-    paper 模式：使用内存 PaperExchangeAdapter（无外部依赖）
-    live/testnet：当前回退到 PaperExchangeAdapter（后续可替换为真实 adapter）
-
-    返回的 adapter 必须实现 StrategyLoop 约定的接口：
-    connect / disconnect / subscribe / get_ticker / place_order
-    """
-    if trading_mode == "paper" or not AXON_AVAILABLE:
-        return build_paper_adapter(exchange=exchange, trading_mode=trading_mode)
-    # live / testnet 占位：暂用 paper adapter，后续替换为真实交易所 adapter
-    return build_paper_adapter(exchange=exchange, trading_mode="paper")
+_PAPER_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 class StrategyManager:
@@ -106,12 +86,12 @@ class StrategyManager:
             max_workers=max_workers,
             thread_name_prefix="axon-backtest",
         )
-        self._strategy_loops: dict[int, StrategyLoop] = {}
         # RL 策略已装配但尚未被数据泵驱动的内核（worker_id → worker.Kernel）
         self._rl_kernels: dict[int, Any] = {}
-        # RL 循环运行态（worker_id → {driver, stop_event, thread}），live/paper 共用：
-        # live 额外带 journal_path，paper 无持久化；停机统一走 stop_strategy 的 RL 块
-        self._rl_live: dict[int, dict[str, Any]] = {}
+        # driver 运行态缓存（worker_id → {driver, stop_event, thread, journal_path?}）：
+        # 规则/LLM paper、RL paper、RL live 三类运行共用，停机统一走 stop_strategy；
+        # live 额外带 journal_path，paper 无持久化
+        self._kernel_runs: dict[int, dict[str, Any]] = {}
         logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
@@ -124,10 +104,6 @@ class StrategyManager:
         logger.info("[StrategyManager] 正在初始化...")
 
         await worker_state_manager.initialize()
-
-        if not AXON_AVAILABLE:
-            logger.warning("[StrategyManager] axond 模块不可用，策略管理功能受限")
-            return
 
         await self._load_workers_from_db()
 
@@ -263,7 +239,7 @@ class StrategyManager:
         Returns:
             是否启动成功
         """
-        from .state import strategy_registry
+        from .state import StrategyRuntime, strategy_registry
 
         logger.info(
             f"[StrategyManager] ===== _do_start_strategy 开始 ====="
@@ -274,8 +250,17 @@ class StrategyManager:
 
         runtime = strategy_registry.get(worker_id)
         if runtime is None:
-            logger.warning(f"[StrategyManager] Worker {worker_id} 不在注册表中")
-            return False
+            # 直调路径（core_service 进程内启动）在 lifespan 全量注册之后创建的
+            # worker 不在注册表中（create_worker 只落 DB），此处兜底注册，
+            # 口径与 _load_workers_from_db 一致
+            runtime = StrategyRuntime(
+                worker_id=worker.id,
+                strategy_id=worker.strategy_id,
+                name=worker.name or f"worker-{worker.id}",
+                status="stopped",
+            )
+            strategy_registry.register(runtime)
+            logger.info(f"[StrategyManager] Worker {worker.id} 未在注册表中，已兜底注册后继续启动")
 
         if runtime.is_running:
             raise WorkerAlreadyRunningException(worker_id)
@@ -298,6 +283,7 @@ class StrategyManager:
         try:
             from backtest.strategy_loader_service import StrategyLoaderService
             from strategy.models import Strategy
+            from strategy.rust_adapter import _normalize_symbol
 
             # 关联的策略对象
             strategy = getattr(worker, "strategy", None)
@@ -352,15 +338,23 @@ class StrategyManager:
                 logger.info(f"[StrategyManager] RL 循环已启动: worker_id={worker_id}, mode={rl_mode}")
                 return True
 
+            # 规则/LLM 路由模式与 RL 同构：trading_config 可覆盖 worker 属性；
+            # 主网闸门未开放前 live 拒绝启动（上方 RL 分支同款语义）
+            rule_mode = trading_config.get("trading_mode", trading_mode)
+            if rule_mode == "live":
+                msg = f"worker {worker_id} 配置了主网实盘（live），主网闸门尚未开放，请先使用 testnet 模式"
+                raise ValueError(msg)
+
             # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
             # paper/live 的 LLM 策略在这里被包成 RecordingProvider（回测则由
-            # engine_service 传 run_mode="backtest" 走 replay）
+            # engine_service 传 run_mode="backtest" 走 replay）；testnet 实质是
+            # 真实连接的实盘（合约测试网），run_mode 标 live
             strategy_instance = StrategyLoaderService.load_strategy(
                 strategy_name=strategy.strategy_name or strategy.name,
                 strategy_params=params,
                 instrument_ids=symbols,
                 bar_types=[timeframe],
-                run_mode="live" if trading_mode == "live" else "paper",
+                run_mode="live" if rule_mode == "testnet" else "paper",
             )
         except Exception as e:
             logger.error(f"[StrategyManager] 策略加载失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
@@ -371,58 +365,81 @@ class StrategyManager:
             f"[StrategyManager] 策略已加载: worker_id={worker_id}, strategy_class={type(strategy_instance).__name__}"
         )
 
-        # 获取交易对符号
-        symbol = getattr(worker, "symbol", "BTCUSDT") or "BTCUSDT"
-
-        # 构建 exchange adapter（按 trading_mode 选择真实/paper 实现）
-        try:
-            adapter = _build_exchange_adapter(exchange, trading_mode)
-            logger.info(
-                f"[StrategyManager] Exchange adapter 已构建: "
-                f"worker_id={worker_id}, exchange={exchange}, "
-                f"trading_mode={trading_mode}, adapter_type={type(adapter).__name__}"
+        # 规则/LLM 路由：testnet → LiveDriver 接合约测试网真实账户，其余按 paper 演练
+        if rule_mode == "testnet":
+            self.start_crypto_live(
+                worker_id,
+                params,
+                strategy_instance,
+                timeframe,
+                symbols,
+                exchange,
+                trading_config.get("market_type", "spot"),
             )
-        except Exception as e:
-            logger.error(
-                f"[StrategyManager] 构建 exchange adapter 失败: "
-                f"worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
-            )
-            raise
+            await self._finalize_start(worker_id, runtime, db)
+            logger.info(f"[StrategyManager] 规则/LLM 实盘循环已启动: worker_id={worker_id}")
+            return True
 
-        # 解析因子列表：支持 params.factor_names（列表）或 params.factor_name（单个）
-        factor_names = []
-        raw_factor_names = params.get("factor_names")
-        if isinstance(raw_factor_names, list) and raw_factor_names:
-            factor_names = [str(f) for f in raw_factor_names if f]
-        elif isinstance(params.get("factor_name"), str) and params["factor_name"]:
-            factor_names = [params["factor_name"]]
+        # 规则/LLM paper 演练统一挂 PaperDriver（testnet 公共行情 + 内置撮合，
+        # 与回测 Kernel 同一份 Rust 引擎口径）
+        driver = self._assemble_rule_paper_driver(worker_id, strategy_instance, params, timeframe, symbols)
 
-        # 创建策略循环
-        strategy_loop = StrategyLoop(
-            adapter=adapter,
-            strategy=strategy_instance,
-            symbol=symbol,
-            factor_names=factor_names,
-            timeframe=timeframe,
+        symbols_norm = [_normalize_symbol(s) for s in symbols]
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._paper_thread_main,
+            # 首轮拉 2 根：规则/LLM 无观测窗口预热需求（RL 传 window+2）
+            args=(worker_id, driver, timeframe, symbols_norm, 2, stop_event),
+            daemon=True,
+            name=f"paper-driver-{worker_id}",
         )
+        thread.start()
+        self._kernel_runs[worker_id] = {"driver": driver, "stop_event": stop_event, "thread": thread}
 
-        # 保存策略循环引用
-        self._strategy_loops[worker_id] = strategy_loop
-
-        # 启动策略循环（在独立线程中）
-        try:
-            strategy_loop.start()
-        except Exception as e:
-            logger.error(
-                f"[StrategyManager] 启动策略循环失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
-            )
-            raise
+        logger.info(
+            f"[StrategyManager] paper driver 已装配: worker_id={worker_id}, "
+            f"symbols={symbols_norm}, interval={timeframe}"
+        )
 
         # 统一收尾：注册表 / DB / worker_state 三处状态流转
         await self._finalize_start(worker_id, runtime, db)
 
         logger.info(f"[StrategyManager] 策略已启动: worker_id={worker_id}")
         return True
+
+    def _assemble_rule_paper_driver(
+        self,
+        worker_id: int,
+        strategy_instance: Any,
+        params: dict[str, Any],
+        timeframe: str,
+        symbols: list[str],
+    ) -> Any:
+        """装配规则/LLM 策略的 PaperDriver（不启动泵线程，可独立测试）。
+
+        fee_rate 用引擎默认（None → 0.001），与回测 Kernel 同口径；RL 路径
+        才传训练环境费率（RL_TRANSACTION_COST）。策略必须经 RustStrategyAdapter
+        适配后挂载：target_position 占比换算 / hold 保持目标位 / ctx.features
+        注入三处语义都由它对齐回测行为，直接挂 BaseStrategy 会全部偏差。
+        """
+        from axon_quant import worker as axon_worker
+
+        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+
+        if timeframe not in _PAPER_INTERVAL_SECONDS:
+            msg = f"worker {worker_id} paper 模式不支持时间周期 {timeframe}，支持: {sorted(_PAPER_INTERVAL_SECONDS)}"
+            raise ValueError(msg)
+
+        initial_cash = float(params.get("initial_capital", 100_000.0))
+        symbols_norm = [_normalize_symbol(s) for s in symbols]
+        driver = axon_worker.PaperDriver(symbols_norm, initial_cash=initial_cash, interval=timeframe)
+        driver.add_strategy(
+            # ponytail: 多品种沿用 RL 语义只挂首个品种；升级路径是每品种独立内核
+            # 共享同一份决策，与回测一致
+            RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
+            symbol=symbols_norm[0],
+        )
+        return driver
 
     async def _finalize_start(self, worker_id: int, runtime, db=None) -> None:
         """启动成功后的统一收尾：注册表 / DB / worker_state 三处状态流转。
@@ -650,7 +667,7 @@ class StrategyManager:
         journal_path = self._rl_live_journal_path(worker_id)
         stop_event = threading.Event()
         thread = threading.Thread(
-            target=self._rl_live_thread_main,
+            target=self._driver_live_thread_main,
             args=(worker_id, driver, journal_path, stop_event),
             daemon=True,
             name=f"rl-live-{worker_id}",
@@ -662,7 +679,7 @@ class StrategyManager:
             "thread": thread,
             "journal_path": journal_path,
         }
-        self._rl_live[worker_id] = live
+        self._kernel_runs[worker_id] = live
 
         logger.info(
             f"[StrategyManager] RL LiveDriver 已装配: worker_id={worker_id}, "
@@ -670,14 +687,116 @@ class StrategyManager:
         )
         return live
 
-    def _rl_live_thread_main(
+    def start_crypto_live(
+        self,
+        worker_id: int,
+        params: dict[str, Any],
+        strategy_instance: Any,
+        timeframe: str,
+        symbols: list[str],
+        exchange: str,
+        market_type: str,
+    ) -> dict[str, Any]:
+        """装配规则/LLM 策略的实盘 LiveDriver 并启动逐 tick 驱动线程（testnet）。
+
+        闸门 / 凭证 / ExchangeConfig / journal resume 语义与 start_rl_live 同构；
+        差异仅在策略挂载（RustStrategyAdapter 包装 + add_strategy）与费率口径
+        （引擎默认 0.001，与 paper/回测一致，不传训练环境费率）。构造过程不
+        联网（connect 在驱动线程里做），配置 / 凭证问题直接抛 ValueError，
+        由调用方按启动失败上报。
+
+        v1 边界：仅 Binance USDT-M 永续 testnet（spot 不支持、主网闸门未开，
+        见设计文档 9.4）。
+
+        Args:
+            worker_id: Worker ID（用于运行态缓存与 journal 定位）
+            params: 策略参数，需含 `credentials_account`；可选 `initial_capital`
+            strategy_instance: 已加载的 BaseStrategy，经 RustStrategyAdapter 包装挂载
+            timeframe: K 线周期（驱动 bar 闭合节奏）
+            symbols: 交易品种列表，只挂第一个
+            exchange: 交易所标识（v1 仅 binance）
+            market_type: 市场类型（v1 仅 swap/futures）
+
+        Returns:
+            运行态 dict：{driver, stop_event, thread, journal_path}
+        """
+        from axon_quant import worker as axon_worker
+        from axon_quant.exchange import ExchangeConfig, ExchangeId
+
+        from credentials.service import CredentialsService
+        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+
+        if exchange.lower() != "binance":
+            msg = f"worker {worker_id} 实盘暂只支持 binance，当前配置: {exchange}"
+            raise ValueError(msg)
+        if market_type not in ("swap", "futures"):
+            msg = (
+                f"worker {worker_id} 实盘 v1 仅支持永续合约（swap/futures），"
+                f"当前 market_type={market_type}，spot 暂不支持"
+            )
+            raise ValueError(msg)
+
+        account_name = str(params.get("credentials_account") or "").strip()
+        if not account_name:
+            msg = (
+                f"worker {worker_id} 实盘需要在策略参数中配置 "
+                "credentials_account（凭证管理中的账户名），不支持从环境变量隐式取 key"
+            )
+            raise ValueError(msg)
+
+        api_key, api_secret = CredentialsService().get_credential(account_name)
+
+        # 与 start_rl_live 相同：binance_testnet_config() 是现货 URL，这里手工
+        # 构造 USDT-M 合约测试网配置（URL 与 exchange/binance/exchange.py 一致）
+        config = ExchangeConfig(
+            exchange_id=ExchangeId.Binance,
+            api_key=api_key,
+            api_secret=api_secret,
+            rest_base_url="https://testnet.binancefuture.com",
+            ws_url="wss://stream.binancefuture.com/ws",
+            testnet=True,
+        )
+
+        initial_cash = float(params.get("initial_capital", 100_000.0))
+        driver = axon_worker.LiveDriver(
+            config,
+            [_normalize_symbol(s) for s in symbols],
+            initial_cash=initial_cash,
+            interval=timeframe,
+        )
+        driver.add_strategy(
+            # ponytail: 多品种沿用 RL/paper 语义只挂首个品种；升级路径是每品种
+            # 独立内核共享同一份决策，与回测一致
+            RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
+            symbol=_normalize_symbol(symbols[0]),
+        )
+
+        journal_path = self._live_journal_path(worker_id)
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._driver_live_thread_main,
+            args=(worker_id, driver, journal_path, stop_event),
+            daemon=True,
+            name=f"live-{worker_id}",
+        )
+        thread.start()
+        live = {"driver": driver, "stop_event": stop_event, "thread": thread, "journal_path": journal_path}
+        self._kernel_runs[worker_id] = live
+
+        logger.info(
+            f"[StrategyManager] LiveDriver 已装配（规则/LLM）: worker_id={worker_id}, "
+            f"symbols={symbols}, interval={timeframe}, journal={journal_path}"
+        )
+        return live
+
+    def _driver_live_thread_main(
         self,
         worker_id: int,
         driver: Any,
         journal_path: str,
         stop_event: threading.Event,
     ) -> None:
-        """RL 实盘驱动线程：connect → resume/start → 1s 轮询 tick。
+        """实盘驱动线程（RL / 规则 / LLM LiveDriver 共用）：connect → resume/start → 1s 轮询 tick。
 
         线程内没有调用方可接异常，连接失败统一降级为 worker error 状态
         （registry + DB），线程自身退出；单次 tick 异常只记日志继续。
@@ -688,26 +807,37 @@ class StrategyManager:
             if journal.is_file() and journal.stat().st_size > 0:
                 # 崩溃恢复：重演 journal + 对账，报告仅记日志
                 report = driver.resume(str(journal))
-                logger.info(f"[StrategyManager] RL 实盘恢复完成: worker_id={worker_id}, report={report}")
+                logger.info(f"[StrategyManager] 实盘恢复完成: worker_id={worker_id}, report={report}")
             else:
                 driver.start(str(journal))
         except Exception as e:
             logger.error(
-                f"[StrategyManager] RL 实盘连接/恢复失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+                f"[StrategyManager] 实盘连接/恢复失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
             )
-            self._mark_rl_live_error(worker_id, f"RL 实盘连接/恢复失败: {e}")
+            self._mark_rl_live_error(worker_id, f"实盘连接/恢复失败: {e}")
+            # 线程已死，原地清掉运行态，避免残留条目让后续 stop/restart 摸到僵尸驱动
+            self._kernel_runs.pop(worker_id, None)
             return
 
-        logger.info(f"[StrategyManager] RL 实盘 tick 循环启动: worker_id={worker_id}")
+        logger.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
+        last_snapshot = float("-inf")
         while not stop_event.is_set():
             try:
                 driver.tick()
             except Exception as e:
-                logger.error(f"[StrategyManager] RL 实盘 tick 异常: worker_id={worker_id}, error={e}")
-            # wait 而非 sleep：stop 可即时唤醒（与 StrategyLoop 同风格）
-            stop_event.wait(1.0)
+                logger.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
+            # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
+            now_s = time.monotonic()
+            if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
+                last_snapshot = now_s
+                try:
+                    self._push_kernel_snapshot(worker_id, driver.snapshot())
+                except Exception as e:
+                    logger.debug(f"[StrategyManager] live snapshot 推送失败: worker_id={worker_id}, error={e}")
+            # wait 而非 sleep：stop 可即时唤醒
+            stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
-        logger.info(f"[StrategyManager] RL 实盘 tick 循环退出: worker_id={worker_id}")
+        logger.info(f"[StrategyManager] 实盘 tick 循环退出: worker_id={worker_id}")
 
     def start_rl_paper(
         self,
@@ -749,11 +879,8 @@ class StrategyManager:
                 f"当前 market_type={market_type}，spot 暂不支持"
             )
             raise ValueError(msg)
-        if timeframe not in _RL_PAPER_INTERVAL_SECONDS:
-            msg = (
-                f"worker {worker_id} RL paper 不支持时间周期 {timeframe}，"
-                f"支持: {sorted(_RL_PAPER_INTERVAL_SECONDS)}"
-            )
+        if timeframe not in _PAPER_INTERVAL_SECONDS:
+            msg = f"worker {worker_id} RL paper 不支持时间周期 {timeframe}，支持: {sorted(_PAPER_INTERVAL_SECONDS)}"
             raise ValueError(msg)
 
         spec = self._load_rl_spec(worker_id, params)
@@ -778,13 +905,14 @@ class StrategyManager:
 
         stop_event = threading.Event()
         thread = threading.Thread(
-            target=self._rl_paper_thread_main,
+            target=self._paper_thread_main,
             args=(
                 worker_id,
                 driver,
                 timeframe,
                 [_normalize_symbol(s) for s in symbols],
-                spec["window_size"],
+                # 首轮拉取条数：补满 RL 观测窗口再留 2 根余量，由通用泵原样使用
+                spec["window_size"] + 2,
                 stop_event,
             ),
             daemon=True,
@@ -792,57 +920,59 @@ class StrategyManager:
         )
         thread.start()
         paper = {"driver": driver, "stop_event": stop_event, "thread": thread}
-        self._rl_live[worker_id] = paper
+        self._kernel_runs[worker_id] = paper
 
         logger.info(
-            f"[StrategyManager] RL PaperDriver 已装配: worker_id={worker_id}, "
-            f"symbols={symbols}, interval={timeframe}"
+            f"[StrategyManager] RL PaperDriver 已装配: worker_id={worker_id}, symbols={symbols}, interval={timeframe}"
         )
         return paper
 
-    def _rl_paper_thread_main(
+    def _paper_thread_main(
         self,
         worker_id: int,
         driver: Any,
         timeframe: str,
         symbols: list[str],
-        window_size: int,
+        first_limit: int,
         stop_event: threading.Event,
     ) -> None:
-        """RL paper 驱动线程：start → 睡到收市点 → 拉收市 K 线喂 driver。
+        """paper 行情泵驱动线程（RL/规则/LLM driver 共用）：start → 睡到收市点 → 拉收市 K 线喂 driver。
 
-        与 _rl_live_thread_main 一样线程内自兜底：启动失败降级 worker error，
+        与 live 驱动线程一样线程内自兜底：启动失败降级 worker error，
         单轮拉取/喂单异常只记日志继续。停机的 driver.shutdown 由 stop_strategy
         统一做（线程退出后才能安全 shutdown）。
+
+        Args:
+            first_limit: 首轮拉取的 K 线条数（调用方按需决定，如 RL 传观测窗口+2）；
+                之后固定拉最近 2 根防窗口重叠
         """
-        step_s = _RL_PAPER_INTERVAL_SECONDS.get(timeframe, 60)
+        step_s = _PAPER_INTERVAL_SECONDS.get(timeframe, 60)
         try:
             driver.start()
         except Exception as e:
             logger.error(
-                f"[StrategyManager] RL paper 启动失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+                f"[StrategyManager] paper 泵启动失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
             )
-            self._mark_rl_live_error(worker_id, f"RL paper 启动失败: {e}")
+            self._mark_rl_live_error(worker_id, f"paper 泵启动失败: {e}")
             return
 
-        logger.info(f"[StrategyManager] RL paper 循环启动: worker_id={worker_id}, interval={timeframe}")
-        # 首轮多拉几根把 RL 观测窗口补满；之后只拉最近 2 根防窗口重叠
-        limit = window_size + 2
+        logger.info(f"[StrategyManager] paper 泵循环启动: worker_id={worker_id}, interval={timeframe}")
+        limit = first_limit
         seen_open_ms: dict[str, int] = {}
         while not stop_event.is_set():
             try:
-                self._rl_paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit)
+                self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit)
                 limit = 2
             except Exception as e:
-                logger.error(f"[StrategyManager] RL paper 拉取/喂单异常: worker_id={worker_id}, error={e}")
+                logger.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
                 # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
                 # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
             # wait 而非 sleep：stop 可即时唤醒；+0.5s 缓冲等交易所端收市 K 线就绪
             stop_event.wait(step_s - (time.time() % step_s) + 0.5)
 
-        logger.info(f"[StrategyManager] RL paper 循环退出: worker_id={worker_id}")
+        logger.info(f"[StrategyManager] paper 泵循环退出: worker_id={worker_id}")
 
-    def _rl_paper_pump_round(
+    def _paper_pump_round(
         self,
         worker_id: int,
         driver: Any,
@@ -857,11 +987,11 @@ class StrategyManager:
         惯例）；按开市时间去重，REST 窗口重叠时不会重复喂同一根 bar。
         抽成独立方法：线程循环只负责节拍，这份核心逻辑可在测试中同步直调。
         """
-        step_ms = _RL_PAPER_INTERVAL_SECONDS[timeframe] * 1000
+        step_ms = _PAPER_INTERVAL_SECONDS[timeframe] * 1000
         now_ms = int(time.time() * 1000)
         for symbol in symbols:
             api_symbol = symbol.replace("/", "")  # BTC/USDT → BTCUSDT
-            for row in self._rl_paper_fetch_klines(api_symbol, timeframe, limit):
+            for row in self._paper_fetch_klines(api_symbol, timeframe, limit):
                 open_ms = int(row[0])
                 if open_ms + step_ms > now_ms:
                     continue  # 未收市的最新 K 线不喂（决策只用收盘确认价）
@@ -879,8 +1009,14 @@ class StrategyManager:
                     float(row[5]),
                 )
         driver.tick()
+        # 泵轮末尾推送统一内核快照：RL paper 与规则/LLM paper 共用此方法，自动惠及；
+        # 观测性推送，失败不打断行情泵
+        try:
+            self._push_kernel_snapshot(worker_id, driver.snapshot())
+        except Exception as e:
+            logger.debug(f"[StrategyManager] paper snapshot 推送失败: worker_id={worker_id}, error={e}")
 
-    def _rl_paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[list]:
+    def _paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[list]:
         """拉 binance USDT-M testnet 公共收市 K 线（不签名）。
 
         ponytail: 标准库 urlopen 就够（一次 GET + timeout）；requests 未在
@@ -891,12 +1027,32 @@ class StrategyManager:
         Returns:
             binance 原始行：[openTime, open, high, low, close, volume, ...]（数值是字符串）
         """
-        url = f"{_RL_PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
-        with _RL_PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
+        url = f"{_PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
+        with _PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
+    @staticmethod
+    def _push_kernel_snapshot(worker_id: int, snap: Any) -> None:
+        """把 driver.snapshot() 转成 kernel.snapshot 事件推到前端 WS 通道。
+
+        形状 {"event": "kernel.snapshot", worker_id, equity, positions}；主 loop
+        未就绪时 broadcast_threadsafe 静默丢弃，这里只做形状转换。
+        """
+        if not isinstance(snap, dict):
+            return
+        from .state import connection_manager
+
+        connection_manager.broadcast_threadsafe(
+            {
+                "event": "kernel.snapshot",
+                "worker_id": worker_id,
+                "equity": snap.get("equity"),
+                "positions": snap.get("positions"),
+            }
+        )
+
     def _mark_rl_live_error(self, worker_id: int, message: str) -> None:
-        """把 RL 循环（live/paper）运行失败落到 registry + DB 的 error 状态。
+        """把驱动循环（RL live/paper、规则/LLM live、paper 泵）运行失败落到 registry + DB 的 error 状态。
 
         线程内的失败没有启动调用方兜底，必须自带上报；DB 写失败不影响降级结果。
         """
@@ -921,6 +1077,17 @@ class StrategyManager:
         rl_live_dir.mkdir(parents=True, exist_ok=True)
         return str(rl_live_dir / f"worker_{worker_id}.jsonl")
 
+    def _live_journal_path(self, worker_id: int) -> str:
+        """规则/LLM 实盘 journal 文件路径：backend/data/live/worker_{id}.jsonl。
+
+        与 RL 的 data/rl_live/ 分目录：存量 RL journal 的 resume 指纹不因本路径引入变化。
+        """
+        data_dir = os.environ.get("QUANTCELL_DATA_DIR")
+        base = Path(data_dir) if data_dir else Path(__file__).resolve().parent.parent / "data"
+        live_dir = base / "live"
+        live_dir.mkdir(parents=True, exist_ok=True)
+        return str(live_dir / f"worker_{worker_id}.jsonl")
+
     async def stop_strategy(self, worker_id: int) -> bool:
         """停止策略
 
@@ -942,27 +1109,18 @@ class StrategyManager:
 
         await worker_state_manager.transition(worker_id, "stopping")
 
-        # 停止策略循环
-        strategy_loop = self._strategy_loops.get(worker_id)
-        if strategy_loop is not None:
+        # driver 运行态（规则/LLM paper、RL paper、RL live 共用）：先通知停驱动线程
+        # 并等待退出，再收口 driver（线程退出前 driver 仍被循环使用，必须先 join）
+        run = self._kernel_runs.pop(worker_id, None)
+        if run is not None:
+            run["stop_event"].set()
+            run["thread"].join(timeout=5)
+            if run["thread"].is_alive():
+                logger.error(f"[StrategyManager] driver 线程未能在 5s 内停止: worker_id={worker_id}")
             try:
-                strategy_loop.stop()
+                run["driver"].shutdown()
             except Exception as e:
-                logger.error(f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, error={e}")
-            del self._strategy_loops[worker_id]
-
-        # RL live/paper：先通知停驱动线程并等待退出，再收口 driver
-        # （线程退出前 driver 仍被循环使用，必须先 join 才能安全 shutdown）
-        live = self._rl_live.pop(worker_id, None)
-        if live is not None:
-            live["stop_event"].set()
-            live["thread"].join(timeout=5)
-            if live["thread"].is_alive():
-                logger.error(f"[StrategyManager] RL 循环线程未能在 5s 内停止: worker_id={worker_id}")
-            try:
-                live["driver"].shutdown()
-            except Exception as e:
-                logger.error(f"[StrategyManager] RL driver 关闭失败: worker_id={worker_id}, error={e}")
+                logger.error(f"[StrategyManager] driver 关闭失败: worker_id={worker_id}, error={e}")
 
         # RL 回测 kernel 不持有线程，丢掉引用即可
         self._rl_kernels.pop(worker_id, None)
@@ -1041,7 +1199,6 @@ class StrategyManager:
             "total_strategies": len(strategies),
             "running_strategies": running_count,
             "error_strategies": error_count,
-            "axon_available": AXON_AVAILABLE,
         }
 
     def get_summary(self) -> dict[str, Any]:
@@ -1137,28 +1294,18 @@ class StrategyManager:
             f"其中运行中 {sum(1 for s in strategies if s.is_running)} 个"
         )
 
-        # 停止所有策略循环
-        for worker_id, strategy_loop in self._strategy_loops.items():
+        # 停掉 driver 驱动线程并收口（规则/LLM paper、RL paper、RL live 共用）
+        for worker_id, run in self._kernel_runs.items():
             try:
-                strategy_loop.stop()
-                logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} 策略循环已停止")
+                run["stop_event"].set()
+                run["thread"].join(timeout=5)
+                if run["thread"].is_alive():
+                    logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} driver线程未在 5s 内停止")
+                run["driver"].shutdown()
+                logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} driver 已停止")
             except Exception as e:
-                logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止策略循环失败: {e}")
-
-        self._strategy_loops.clear()
-
-        # 停掉 RL 实盘驱动线程并收口 driver
-        for worker_id, live in self._rl_live.items():
-            try:
-                live["stop_event"].set()
-                live["thread"].join(timeout=5)
-                if live["thread"].is_alive():
-                    logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} RL 实盘线程未在 5s 内停止")
-                live["driver"].shutdown()
-                logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} RL 实盘已停止")
-            except Exception as e:
-                logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止 RL 实盘失败: {e}")
-        self._rl_live.clear()
+                logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止 driver 失败: {e}")
+        self._kernel_runs.clear()
 
         self._rl_kernels.clear()
 
