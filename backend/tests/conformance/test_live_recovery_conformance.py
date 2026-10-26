@@ -5,10 +5,11 @@
 1. `Kernel.run(journal_path=...)` —— 首跑录制:外部输入(含逐 bar state)落
    journal,是崩溃恢复的材料来源;
 2. `LiveRecovery(initial_cash, interval, ...).resume(path)` —— 重演恢复,返回
-   `{positions, cash, fill_ids, manifest}` 快照;构造参数必须与首跑内核一致,
-   否则 `resume_replay` 的 manifest 逐字段校验拦截;
+   `{positions, cash, fill_ids, open_order_ids, manifest}` 快照;构造参数必须与
+   首跑内核一致,否则 `resume_replay` 的 manifest 逐字段校验拦截;
 3. `reconcile(local, venue)` —— 三路对账,serde 契约字段
-   {position_breaks, missing_fills, extra_fills, cash_break, frozen_instruments};
+   {position_breaks, missing_fills, extra_fills, cash_break, frozen_instruments,
+   ghost_orders, orphan_local_orders};
 4. `resume_guard(report)` —— 恢复门禁:持仓/现金 break → ValueError 禁止
    自动续跑,仅成交差异 → 放行(告警人工核对由调用方负责)。
 
@@ -94,7 +95,13 @@ def test_resume_replay_snapshot_contract(tmp_path) -> None:
     recovery.add_strategy(AlwaysBuy(), symbol=_SYMBOL)
     snap = recovery.resume(journal)
 
-    assert set(snap) == {"positions", "cash", "fill_ids", "manifest"}, "快照键集合漂移"
+    assert set(snap) == {
+        "positions",
+        "cash",
+        "fill_ids",
+        "manifest",
+        "open_order_ids",
+    }, "快照键集合漂移"
     assert snap["positions"] == {}
     assert snap["cash"] == _INITIAL_CASH
     assert snap["fill_ids"] == []
@@ -119,6 +126,9 @@ def test_reconcile_report_contract(tmp_path) -> None:
         "extra_fills",
         "cash_break",
         "frozen_instruments",
+        # 交易所在外订单（venue 有 local 无）与本地幽灵挂单（local 有 venue 无）
+        "ghost_orders",
+        "orphan_local_orders",
     }, "ReconcileReport serde 字段漂移"
     assert report["position_breaks"], "有持仓差异时 position_breaks 不得为空"
     brk = report["position_breaks"][0]
