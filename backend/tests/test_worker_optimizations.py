@@ -11,6 +11,7 @@ Worker 优化功能单元测试
 """
 
 import asyncio
+from unittest import mock
 
 import pytest
 
@@ -42,6 +43,15 @@ class TestStateMachineGuard:
     def setup_method(self):
         """每个测试方法前重置"""
         self.guard = StateMachineGuard()
+        # get_machine 懒加载会查真实 worker 表，本地开发库 id=1 可能停留
+        # 在 error 等任意状态，导致「默认初始状态 STOPPED」断言失败。
+        # 单测不依赖真实库：patch 掉 DB 查询，走「worker 不存在 → STOPPED」默认路径。
+        self._guard_patcher = mock.patch("worker.crud.get_worker", return_value=None)
+        self._guard_patcher.start()
+
+    def teardown_method(self):
+        """释放 setup_method 里启动的 DB patch"""
+        self._guard_patcher.stop()
 
     def test_single_valid_transition(self):
         """单个有效状态转换"""

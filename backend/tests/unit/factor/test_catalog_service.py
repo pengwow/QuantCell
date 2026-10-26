@@ -343,7 +343,7 @@ def test_list_and_delete_snapshot(db_session, dirs):
         "forward": 1,
     }
     s1 = svc.save_snapshot(db_session, params, provider=_KlineProvider())
-    pq1 = dirs["backend"] / db_session.query(FactorSnapshot).get(s1["id"]).snapshot_file
+    pq1 = dirs["backend"] / db_session.get(FactorSnapshot, s1["id"]).snapshot_file
     assert pq1.exists()
 
     items = svc.list_snapshots(db_session, "momentum_5d")
@@ -352,7 +352,7 @@ def test_list_and_delete_snapshot(db_session, dirs):
     assert "ic_series_len" in items[0]
 
     svc.delete_snapshot(db_session, s1["id"])
-    assert db_session.query(FactorSnapshot).get(s1["id"]) is None
+    assert db_session.get(FactorSnapshot, s1["id"]) is None
     assert not pq1.exists()
     assert list(dirs["trash"].rglob("*.parquet"))
 

@@ -69,8 +69,6 @@ class TestThinkingChainAPI:
         assert data["data"]["chain_type"] == payload["chain_type"]
         assert len(data["data"]["steps"]) == 3
 
-        return data["data"]["id"]
-
     def test_get_thinking_chain_detail(self, client, auth_headers):
         """测试获取单个思维链详情"""
         # 先创建

@@ -17,7 +17,7 @@
 
 import json
 from bisect import bisect_left, bisect_right
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -585,7 +585,8 @@ class BacktestService:
             t, equity = int(p["timestamp"]), float(p["equity"])
             peak = max(peak, equity)
             drawdown = (equity - peak) / peak if peak > 0 else 0.0
-            day_key = datetime.utcfromtimestamp(t / 1000).strftime("%Y-%m-%d")
+            # utcfromtimestamp 已弃用（移除于未来版本），统一用 timezone-aware 构造
+            day_key = datetime.fromtimestamp(t / 1000, UTC).strftime("%Y-%m-%d")
             if day_key not in day_first_equity:
                 day_first_equity[day_key] = equity
             account.append(

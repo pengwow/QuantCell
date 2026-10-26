@@ -15,8 +15,8 @@ Worker 异常处理装饰器
         return result
 """
 
-import asyncio
 import functools
+import inspect
 import traceback
 from typing import TYPE_CHECKING
 
@@ -109,7 +109,8 @@ def handle_worker_exceptions(operation_name: str | None = None) -> Callable:
     def decorator(func: Callable) -> Callable:
         op_name = operation_name or func.__name__
 
-        if asyncio.iscoroutinefunction(func):
+        # asyncio.iscoroutinefunction 已弃用（移除于 3.16），统一走 inspect 版本
+        if inspect.iscoroutinefunction(func):
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):

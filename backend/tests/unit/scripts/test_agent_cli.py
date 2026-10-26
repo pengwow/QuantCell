@@ -1,7 +1,7 @@
 """Agent管理CLI单元测试"""
 
 import json
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -236,7 +236,8 @@ class TestAgentCliChat:
     """测试对话交互命令"""
 
     @patch("cli.agent.asyncio.run")
-    def test_chat_send_success(self, mock_asyncio_run):
+    @patch("cli.agent._run_chat", new_callable=MagicMock)
+    def test_chat_send_success(self, mock_run_chat, mock_asyncio_run):
         """测试发送消息成功"""
         from cli.agent import app
 
@@ -246,7 +247,8 @@ class TestAgentCliChat:
         assert result.exit_code == 0
 
     @patch("cli.agent.asyncio.run")
-    def test_chat_send_init_failed(self, mock_asyncio_run):
+    @patch("cli.agent._run_chat", new_callable=MagicMock)
+    def test_chat_send_init_failed(self, mock_run_chat, mock_asyncio_run):
         """测试Agent初始化失败"""
         from cli.agent import app
 
@@ -296,45 +298,39 @@ class TestAgentCliChat:
 class TestAgentCliWorkspace:
     """测试工作空间管理命令"""
 
-    @patch("cli.agent.asyncio.get_event_loop")
-    def test_workspace_list(self, mock_get_loop):
+    @patch("cli.agent._workspace_list", new_callable=AsyncMock)
+    def test_workspace_list(self, mock_list):
         """测试列出工作空间文件"""
         from cli.agent import app
 
-        mock_loop = MagicMock()
-        mock_loop.run_until_complete.return_value = json.dumps(
+        mock_list.return_value = json.dumps(
             {
                 "files": [{"name": "file1.py", "size": 100}],
                 "directories": [{"name": "dir1"}],
             }
         )
-        mock_get_loop.return_value = mock_loop
 
         result = runner.invoke(app, ["workspace", "list"])
         assert result.exit_code == 0
         assert "file1.py" in result.output
 
-    @patch("cli.agent.asyncio.get_event_loop")
-    def test_workspace_list_empty(self, mock_get_loop):
+    @patch("cli.agent._workspace_list", new_callable=AsyncMock)
+    def test_workspace_list_empty(self, mock_list):
         """测试空工作空间"""
         from cli.agent import app
 
-        mock_loop = MagicMock()
-        mock_loop.run_until_complete.return_value = json.dumps({"files": [], "directories": []})
-        mock_get_loop.return_value = mock_loop
+        mock_list.return_value = json.dumps({"files": [], "directories": []})
 
         result = runner.invoke(app, ["workspace", "list"])
         assert result.exit_code == 0
         assert "空目录" in result.output
 
-    @patch("cli.agent.asyncio.get_event_loop")
-    def test_workspace_cat(self, mock_get_loop):
+    @patch("cli.agent._workspace_cat", new_callable=AsyncMock)
+    def test_workspace_cat(self, mock_cat):
         """测试查看文件"""
         from cli.agent import app
 
-        mock_loop = MagicMock()
-        mock_loop.run_until_complete.return_value = "文件内容"
-        mock_get_loop.return_value = mock_loop
+        mock_cat.return_value = "文件内容"
 
         with patch("cli.agent.WORKSPACE") as mock_workspace:
             mock_file = MagicMock()

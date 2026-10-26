@@ -88,8 +88,9 @@ class MockJWTToken:
             "exp": datetime.now(UTC) + timedelta(hours=1),
         }
 
-        # 使用错误的密钥签名
-        return jwt.encode(payload, "wrong_secret_key", algorithm=cls.ALGORITHM)
+        # 使用错误的密钥签名；key 需 >=32 字节以符合 HMAC-SHA256 建议（RFC 7518），
+        # 避免 PyJWT InsecureKeyLengthWarning，测试只关心"与真实 key 不同"
+        return jwt.encode(payload, "wrong_secret_key_for_tests_0123456789abcd", algorithm=cls.ALGORITHM)
 
     @classmethod
     def create_malformed_token(cls) -> str:

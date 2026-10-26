@@ -28,7 +28,9 @@ class FakeResp:
     def __init__(self, payload):
         self._payload = payload
 
-    async def raise_for_status(self):
+    # aiohttp 的 ClientResponse.raise_for_status 是同步方法，与业务侧
+    # 调用约定一致（用 async 定义会产生 never-awaited 协程告警）
+    def raise_for_status(self):
         return None
 
     async def json(self):

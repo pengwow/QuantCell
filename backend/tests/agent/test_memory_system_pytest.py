@@ -364,6 +364,8 @@ class TestAutoCompact:
         auto_compact.check_expired(schedule_task)
 
         assert len(tasks) == 1
+        # 被调度的协程不会执行：显式 close 避免 "coroutine never awaited" 告警
+        tasks[0].close()
 
     def test_check_expired_active_session(self, auto_compact, sessions):
         """测试检查活跃会话（不应被调度）"""

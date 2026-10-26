@@ -2,10 +2,10 @@ from typing import Any
 
 import ccxt
 
-from exchange import Exchange
+from exchange import BaseExchange
 
 
-class OkxExchange(Exchange):
+class OkxExchange(BaseExchange):
     """Okx交易所连接器实现"""
 
     def __init__(

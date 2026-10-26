@@ -215,7 +215,11 @@ def db_session(db_engine):
         yield session
     finally:
         session.close()
-        transaction.rollback()
+        # StaticPool 单连接下，用例内部（如 TestClient 走 get_db）可能在同一
+        # 连接上开新事务，导致外层事务被解除关联；此时 rollback 会触发
+        # "transaction already deassociated" SAWarning，仅按需回滚
+        if connection.in_transaction():
+            transaction.rollback()
         connection.close()
 
 
