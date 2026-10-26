@@ -326,8 +326,8 @@ class ExchangeAdapter:
 
         Returns:
             list[dict]: 每根含 ``timestamp``（毫秒）/``open``/``high``/``low``/
-            ``close``/``volume``。与 ``strategy.loop`` 预热 KlineBuffer 的口径一致
-            （那边把 timestamp 乘以 1e6 转纳秒）。
+            ``close``/``volume``。与 axon_quant KlineBuffer 预热的口径一致
+            （KlineBuffer 把 timestamp 乘以 1e6 转纳秒）。
 
         Raises:
             RuntimeError: 适配器未创建

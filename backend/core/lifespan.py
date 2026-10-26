@@ -32,6 +32,7 @@ from services.symbol_sync import symbol_sync_manager
 from utils.config_manager import load_system_configs
 from utils.secret_key_manager import initialize_secret_key
 from websocket.manager import manager
+from worker.state import connection_manager
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -160,6 +161,10 @@ async def lifespan(app: FastAPI):
     jwt_secret_key = await asyncio.to_thread(initialize_secret_key)
     app.state.jwt_secret_key = jwt_secret_key
     logger.info("JWT安全密钥初始化完成")
+
+    # 记录主事件循环：后台驱动线程（策略泵/live tick）经 run_coroutine_threadsafe
+    # 把 kernel.snapshot 推到前端 WS；必须在 lifespan 内取 running loop
+    connection_manager.main_loop = asyncio.get_running_loop()
 
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)

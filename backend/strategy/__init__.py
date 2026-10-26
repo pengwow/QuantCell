@@ -24,7 +24,6 @@ from .composite_strategy import CompositeStrategy
 from .event_loop import EventDrivenLoop
 from .execution_pipeline import ExecutionPipeline, ExecutionResult
 from .live_portfolio import LivePortfolio, Position
-from .loop import StrategyLoop
 from .routes import router
 from .schemas import (
     StrategyDetailRequest,
@@ -53,7 +52,6 @@ __all__ = [
     "StrategyDetailRequest",
     "StrategyInfo",
     "StrategyListResponse",
-    "StrategyLoop",
     "StrategyParamInfo",
     "StrategyService",
     "StrategyTrader",

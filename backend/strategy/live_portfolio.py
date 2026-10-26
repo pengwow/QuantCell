@@ -4,7 +4,7 @@ axon_quant 没有提供 Python 级别的实时 Portfolio 类（仅 backtest 引�
 因此 QuantCell 自建轻量持仓追踪器，提供:
   - 实时资金/持仓/盈亏计算
   - 订单 → 成交 → 持仓的状态机
-  - 线程安全（StrategyLoop 单线程运行，无需复杂锁）
+  - 线程安全（策略循环单线程运行，无需复杂锁）
 
 设计上对齐 axon_quant.backtest 的 BacktestResult 字段名，方便回测/实盘统一分析。
 """

@@ -11,6 +11,7 @@ Worker 状态管理器
 
 import asyncio
 import inspect
+import threading
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -463,7 +464,12 @@ class WorkerStateManager:
 
         self._initialized = True
         self._state_cache: dict[int, WorkerStateRecord] = {}
-        self._lock = asyncio.Lock()
+        # threading.Lock 而非 asyncio.Lock：同步入口（core_service 的工作线程在
+        # asyncio.run 新 loop 中调 strategy_manager）会与 FastAPI 主 loop 共享本单例，
+        # asyncio.Lock 绑定首个使用它的 loop，跨 loop await 直接报错。
+        # 换锁的代价是临界区内禁止 await，transition / force_reset_to_stopped
+        # 已把持久化与事件派发改到锁外（见各方法内注释）。
+        self._lock = threading.Lock()
         self._event_handlers: dict[str, list[Callable]] = {}
 
         logger.info("WorkerStateManager 初始化完成")
@@ -481,7 +487,7 @@ class WorkerStateManager:
         Returns:
             WorkerStateRecord 对象，如果不存在返回 None
         """
-        async with self._lock:
+        with self._lock:
             state = self._state_cache.get(worker_id)
             if state is None:
                 state = self._hydrate_locked(worker_id)
@@ -536,7 +542,10 @@ class WorkerStateManager:
         Returns:
             是否转换成功
         """
-        async with self._lock:
+        # 锁内只做同步内存操作（校验 + 更新缓存）；await 持久化与事件派发
+        # 必须在锁外：threading.Lock 下持锁 await 会挂起当前协程并让其他
+        # 等锁协程同步阻塞事件循环线程，直接死锁。
+        with self._lock:
             current_state = self._state_cache.get(worker_id)
 
             # 缓存未命中时从数据库惰性水合（新建 Worker / API 重启后首次触达），
@@ -588,34 +597,36 @@ class WorkerStateManager:
             elif target_status == "stopped":
                 current_state.stopped_at = datetime.now()
 
-            # 持久化到数据库
-            try:
-                await self._persist_state(current_state)
-            except Exception as e:
-                logger.error(f"持久化 Worker {worker_id} 状态失败: {e}")
+        # 锁外：持久化到数据库，失败不回滚内存状态（DB 以内存为准下次 transition 修正）
+        try:
+            await self._persist_state(current_state)
+        except Exception as e:
+            logger.error(f"持久化 Worker {worker_id} 状态失败: {e}")
 
-            # 触发状态转换事件（fire-and-forget，避免阻塞调用方）
-            # 事件处理器（如 manager._handle_start_event）可能耗时较长，
-            # 使用 create_task 确保 transition 快速返回，不阻塞 HTTP 响应
-            try:
-                asyncio.create_task(
-                    self._emit_event(
-                        "state_changed",
-                        {
-                            "worker_id": worker_id,
-                            "old_status": old_status,
-                            "new_status": target_status,
-                            "timestamp": datetime.now().isoformat(),
-                            "error_message": kwargs.get("error_message", ""),
-                        },
-                    )
+        # 触发状态转换事件（fire-and-forget，避免阻塞调用方）
+        # 事件处理器（如 manager._handle_start_event）可能耗时较长，
+        # 使用 create_task 确保 transition 快速返回，不阻塞 HTTP 响应。
+        # 同步工作线程路径（asyncio.run 短暂 loop）中该 task 可能随 loop
+        # 关闭被丢弃——事件本就是 best-effort 通知，不影响状态一致性
+        try:
+            asyncio.create_task(
+                self._emit_event(
+                    "state_changed",
+                    {
+                        "worker_id": worker_id,
+                        "old_status": old_status,
+                        "new_status": target_status,
+                        "timestamp": datetime.now().isoformat(),
+                        "error_message": kwargs.get("error_message", ""),
+                    },
                 )
-            except Exception as e:
-                logger.error(f"触发状态转换事件失败: {e}")
+            )
+        except Exception as e:
+            logger.error(f"触发状态转换事件失败: {e}")
 
-            logger.info(f"Worker {worker_id} 状态转换: {old_status} -> {target_status}")
+        logger.info(f"Worker {worker_id} 状态转换: {old_status} -> {target_status}")
 
-            return True
+        return True
 
     async def get_all_states(self) -> dict[int, WorkerStateRecord]:
         """
@@ -624,7 +635,7 @@ class WorkerStateManager:
         Returns:
             Worker ID 到 WorkerStateRecord 的映射字典
         """
-        async with self._lock:
+        with self._lock:
             return self._state_cache.copy()
 
     async def force_reset_to_stopped(self, worker_id: int, reason: str = "紧急重置") -> bool:
@@ -646,7 +657,8 @@ class WorkerStateManager:
         Returns:
             是否重置成功
         """
-        async with self._lock:
+        # 锁内只做同步内存操作（await 持久化 / 事件派发移出锁外，理由同 transition）
+        with self._lock:
             current_state = self._state_cache.get(worker_id)
 
             if current_state is None:
@@ -666,33 +678,33 @@ class WorkerStateManager:
             current_state.stopped_at = datetime.now()
             current_state.pid = None
 
-            # 持久化到数据库
-            try:
-                await self._persist_state(current_state)
-            except Exception as e:
-                logger.error(f"持久化强制重置失败: {e}")
+        # 锁外：持久化到数据库
+        try:
+            await self._persist_state(current_state)
+        except Exception as e:
+            logger.error(f"持久化强制重置失败: {e}")
 
-            # 触发事件通知（fire-and-forget）
-            try:
-                asyncio.create_task(
-                    self._emit_event(
-                        "state_changed",
-                        {
-                            "worker_id": worker_id,
-                            "old_status": old_status,
-                            "new_status": "stopped",
-                            "timestamp": datetime.now().isoformat(),
-                            "force_reset": True,
-                            "reason": reason,
-                        },
-                    )
+        # 触发事件通知（fire-and-forget）
+        try:
+            asyncio.create_task(
+                self._emit_event(
+                    "state_changed",
+                    {
+                        "worker_id": worker_id,
+                        "old_status": old_status,
+                        "new_status": "stopped",
+                        "timestamp": datetime.now().isoformat(),
+                        "force_reset": True,
+                        "reason": reason,
+                    },
                 )
-            except Exception as e:
-                logger.error(f"触发强制重置事件失败: {e}")
+            )
+        except Exception as e:
+            logger.error(f"触发强制重置事件失败: {e}")
 
-            logger.warning(f"[紧急恢复] Worker {worker_id} 强制重置: {old_status} -> stopped (原因: {reason})")
+        logger.warning(f"[紧急恢复] Worker {worker_id} 强制重置: {old_status} -> stopped (原因: {reason})")
 
-            return True
+        return True
 
     async def _persist_state(self, state: WorkerStateRecord) -> None:
         """
@@ -739,7 +751,7 @@ class WorkerStateManager:
 
         在应用启动时调用，将数据库中的 Worker 状态加载到内存缓存
         """
-        async with self._lock:
+        with self._lock:
             logger.info("正在从数据库恢复 Worker 状态...")
 
             try:
@@ -854,7 +866,7 @@ class WorkerStateManager:
         Returns:
             是否移除成功
         """
-        async with self._lock:
+        with self._lock:
             if worker_id in self._state_cache:
                 del self._state_cache[worker_id]
                 logger.info(f"已移除 Worker {worker_id} 状态")
@@ -871,7 +883,7 @@ class WorkerStateManager:
         Returns:
             清理的缓存条目数量
         """
-        async with self._lock:
+        with self._lock:
             if not self._state_cache:
                 return 0
 
