@@ -89,7 +89,9 @@ class TestJWTAuthentication:
             "name": "Test User",
             "exp": datetime.now(UTC) + timedelta(hours=1),
         }
-        return jwt.encode(payload, "wrong-secret-key", algorithm="HS384")
+        # 错误 key + 错误算法（HS384）都只是为了让验签失败；key >=48 字节
+        # 符合 SHA384 建议（RFC 7518 §3.2），避免 InsecureKeyLengthWarning
+        return jwt.encode(payload, "wrong-secret-key-for-hs384-tests-0123456789abcdef0123", algorithm="HS384")
 
 
 class TestJWTTokenValidation:

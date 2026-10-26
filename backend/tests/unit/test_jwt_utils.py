@@ -310,15 +310,16 @@ class TestTokenSecurity:
         original_key = jwt_module.JWT_SECRET_KEY
 
         try:
-            jwt_module.JWT_SECRET_KEY = "secret-key-1"
+            # key 需 >=32 字节：PyJWT 对更短的 HMAC key 发 InsecureKeyLengthWarning
+            jwt_module.JWT_SECRET_KEY = "secret-key-1-0123456789-0123456789-01"
             token1 = create_jwt_token({"sub": "user123"})
 
-            jwt_module.JWT_SECRET_KEY = "secret-key-2"
+            jwt_module.JWT_SECRET_KEY = "secret-key-2-0123456789-0123456789-02"
             token2 = create_jwt_token({"sub": "user123"})
 
             assert token1 != token2
 
-            jwt_module.JWT_SECRET_KEY = "secret-key-1"
+            jwt_module.JWT_SECRET_KEY = "secret-key-1-0123456789-0123456789-01"
             assert verify_jwt_token(token1) is True
             assert verify_jwt_token(token2) is False
         finally:

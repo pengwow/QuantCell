@@ -283,7 +283,9 @@ def chat_history(
 def workspace_list():
     """列出工作空间文件"""
     try:
-        result = asyncio.get_event_loop().run_until_complete(_workspace_list())
+        # asyncio.run 每次新建事件循环，不依赖全局 loop 状态
+        # （get_event_loop().run_until_complete 在 Python 3.14 下已不可靠）
+        result = asyncio.run(_workspace_list())
         data = json.loads(result)
         files = data.get("files", [])
         directories = data.get("directories", [])
@@ -322,7 +324,7 @@ def workspace_cat(
         raise typer.Exit(1)
 
     try:
-        content = asyncio.get_event_loop().run_until_complete(_workspace_cat(file_path))
+        content = asyncio.run(_workspace_cat(file_path))
         typer.echo(content)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)

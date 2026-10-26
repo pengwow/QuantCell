@@ -2,15 +2,15 @@ from typing import Any
 
 import ccxt
 
-from exchange import ConnectionStatus, ConnectionTestResult, Exchange
+from exchange import BaseExchange, ConnectionStatus, ConnectionTestResult
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-class BinanceExchange(Exchange):
+class BinanceExchange(BaseExchange):
     """
-    定义 BinanceExchange 类，继承自 Exchange 类，用于与 Binance 交易所进行交互
+    定义 BinanceExchange 类，继承自 BaseExchange 类，用于与 Binance 交易所进行交互
 
     支持 testnet 模式
     """
