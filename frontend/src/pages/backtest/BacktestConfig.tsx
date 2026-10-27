@@ -1271,19 +1271,21 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                         marginSymbols.map((symbol) => (
                           <Flex key={symbol} gap="small" align="center">
                             <span style={{ minWidth: 100 }}>{symbol}</span>
-                            <Form.Item
-                              name={['margin_settings', symbol, 'leverage']}
-                              initialValue={1}
-                              noStyle
-                            >
-                              {/* addonAfter 在 antd v6 已废弃，官方迁移方式是 Space.Compact + 禁用按钮作后缀 */}
-                              <Space.Compact>
+                            {/* addonAfter 在 antd v6 已废弃，官方迁移方式是 Space.Compact + 禁用按钮作后缀。
+                                注意 Space.Compact 必须在 Form.Item 外面：noStyle Form.Item 通过 cloneElement
+                                把 value/onChange 注入直接子元素，若直接子元素是 Compact div 容器则 InputNumber 拿不到值 */}
+                            <Space.Compact>
+                              <Form.Item
+                                name={['margin_settings', symbol, 'leverage']}
+                                initialValue={1}
+                                noStyle
+                              >
                                 <InputNumber min={1} max={125} step={1} style={{ width: 96 }} />
-                                <Button disabled style={{ width: 36, paddingInline: 0 }}>
-                                  x
-                                </Button>
-                              </Space.Compact>
-                            </Form.Item>
+                              </Form.Item>
+                              <Button disabled style={{ width: 36, paddingInline: 0 }}>
+                                x
+                              </Button>
+                            </Space.Compact>
                             <Form.Item
                               name={['margin_settings', symbol, 'margin_mode']}
                               initialValue="cross"
