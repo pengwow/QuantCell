@@ -30,6 +30,7 @@ from utils.logger import LogType, get_logger
 
 from . import crud
 from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
+from .paper_trade_sync import PaperTradeSync
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
@@ -1046,6 +1047,8 @@ class StrategyManager:
         logger.info(f"[StrategyManager] paper 泵循环启动: worker_id={worker_id}, interval={timeframe}")
         limit = first_limit
         seen_open_ms: dict[str, int] = {}
+        # 成交落库：内核 fill 只存 Rust 内存，泵轮后增量拉取落库（失败只记日志）
+        trade_sync = PaperTradeSync(worker_id)
         while not stop_event.is_set():
             try:
                 self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit)
@@ -1054,6 +1057,10 @@ class StrategyManager:
                 logger.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
                 # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
                 # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
+            try:
+                trade_sync.sync_once(driver)
+            except Exception as e:
+                logger.warning(f"[StrategyManager] paper 成交落库失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒；+0.5s 缓冲等交易所端收市 K 线就绪
             stop_event.wait(step_s - (time.time() % step_s) + 0.5)
 
