@@ -29,6 +29,7 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 from . import crud
+from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
@@ -282,7 +283,9 @@ class StrategyManager:
         if hasattr(exchange, "value"):
             exchange = exchange.value
 
-        trading_mode = getattr(worker, "trading_mode", "testnet") or "testnet"
+        # 兜底取 paper：与 schemas.TradingConfig.trading_mode 默认值一致（此前兜底 testnet
+        # 会让未显式配置的 worker 假装走 testnet，实际 monetize 路径并没有 testnet 语义）
+        trading_mode = getattr(worker, "trading_mode", "paper") or "paper"
         if hasattr(trading_mode, "value"):
             trading_mode = trading_mode.value
 
@@ -327,6 +330,9 @@ class StrategyManager:
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning(f"[StrategyManager] 策略参数 JSON 解析失败: {e}")
 
+            # R2 防护：特征类策略在 paper/live 无数据源，启动即拒绝（覆盖下方全部路由分支）
+            self._reject_feature_strategy_if_configured(worker_id, params)
+
             # RL 策略不走 StrategyLoaderService（那里只加载规则 / LLM 策略源码）：
             # 模型与观测规格直接注册到统一内核 / LiveDriver 的 RL host
             if (getattr(strategy, "strategy_type", None) or "rule") == "rl":
@@ -362,7 +368,8 @@ class StrategyManager:
             # engine_service 传 run_mode="backtest" 走 replay）；testnet 实质是
             # 真实连接的实盘（合约测试网），run_mode 标 live
             strategy_instance = StrategyLoaderService.load_strategy(
-                strategy_name=strategy.strategy_name or strategy.name,
+                # Strategy 模型的策略名字段是 name（无 strategy_name 属性）
+                strategy_name=strategy.name,
                 strategy_params=params,
                 instrument_ids=symbols,
                 bar_types=[timeframe],
@@ -680,7 +687,14 @@ class StrategyManager:
         stop_event = threading.Event()
         thread = threading.Thread(
             target=self._driver_live_thread_main,
-            args=(worker_id, driver, journal_path, stop_event),
+            args=(
+                worker_id,
+                driver,
+                journal_path,
+                stop_event,
+                # live 成交落库：构造失败返回 None，线程内跳过轮询，不阻断启动
+                self._build_live_trade_sync(worker_id, api_key, api_secret, symbols),
+            ),
             daemon=True,
             name=f"rl-live-{worker_id}",
         )
@@ -787,7 +801,14 @@ class StrategyManager:
         stop_event = threading.Event()
         thread = threading.Thread(
             target=self._driver_live_thread_main,
-            args=(worker_id, driver, journal_path, stop_event),
+            args=(
+                worker_id,
+                driver,
+                journal_path,
+                stop_event,
+                # live 成交落库：构造失败返回 None，线程内跳过轮询，不阻断启动
+                self._build_live_trade_sync(worker_id, api_key, api_secret, symbols),
+            ),
             daemon=True,
             name=f"live-{worker_id}",
         )
@@ -801,17 +822,63 @@ class StrategyManager:
         )
         return live
 
+    @staticmethod
+    def _reject_feature_strategy_if_configured(worker_id: int, params: dict[str, Any]) -> None:
+        """R2 防护：配置了因子特征的策略拒绝 paper/testnet（live）启动。
+
+        回测由 engine_service 按 factor_name/factor_names attach_feature_frames
+        逐 bar 注入 ctx.features；paper/live 只喂 OHLCV bar（PaperDriver/LiveDriver
+        无特征帧通道），ctx.has_feature 恒 False —— 引擎按 hold 静默空转而非报错，
+        与回测行为不一致。在装备期显式拒绝，避免用户拿着空转的 paper 当验证结论。
+        """
+        factor_name = str(params.get("factor_name") or "").strip()
+        factor_names = params.get("factor_names")
+        if factor_name or factor_names:
+            msg = (
+                f"worker {worker_id} 配置了因子特征参数（factor_name/factor_names）。"
+                "paper/testnet 实练不注入逐 bar 因子特征，策略将全程 hold 空转；"
+                "特征类策略仅支持回测验证，请去掉该参数或改用回测"
+            )
+            raise ValueError(msg)
+
+    @staticmethod
+    def _build_live_trade_sync(worker_id: int, api_key: str, api_secret: str, symbols: list[str]) -> Any | None:
+        """构造 live 成交落库同步器（B2：live 成交不落 DB 的修复）。
+
+        复用 start_*_live 已取得的凭证；symbol 归一化与 LiveDriver 同源。
+        构造失败只记日志并返回 None（观测性组件，不阻断实盘启动）。
+        """
+        # 与 start_*_live 一致的函数内 import：rust_adapter 依赖 axon_quant，
+        # 延迟到调用时加载，避免加重模块链
+        from strategy.rust_adapter import _normalize_symbol
+
+        try:
+            return LiveTradeSync(
+                worker_id=worker_id,
+                api_key=api_key,
+                api_secret=api_secret,
+                symbol=_normalize_symbol(symbols[0]),
+            )
+        except Exception as e:
+            logger.warning(
+                f"[StrategyManager] LiveTradeSync 构造失败，live 成交将不落库: "
+                f"worker_id={worker_id}, error={e}"
+            )
+            return None
+
     def _driver_live_thread_main(
         self,
         worker_id: int,
         driver: Any,
         journal_path: str,
         stop_event: threading.Event,
+        trade_sync: Any | None = None,
     ) -> None:
         """实盘驱动线程（RL / 规则 / LLM LiveDriver 共用）：connect → resume/start → 1s 轮询 tick。
 
         线程内没有调用方可接异常，连接失败统一降级为 worker error 状态
         （registry + DB），线程自身退出；单次 tick 异常只记日志继续。
+        trade_sync 非空时按窗口节流轮询交易所成交并落库，失败只记日志。
         """
         journal = Path(journal_path)
         try:
@@ -833,6 +900,7 @@ class StrategyManager:
 
         logger.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
         last_snapshot = float("-inf")
+        last_trade_sync = 0.0
         while not stop_event.is_set():
             try:
                 driver.tick()
@@ -846,6 +914,13 @@ class StrategyManager:
                     self._push_kernel_snapshot(worker_id, driver.snapshot())
                 except Exception as e:
                     logger.debug(f"[StrategyManager] live snapshot 推送失败: worker_id={worker_id}, error={e}")
+            # live 成交落库轮询按窗口节流，失败只记日志（同 snapshot：观测性不反噬交易循环）
+            if trade_sync is not None and now_s - last_trade_sync >= LIVE_TRADE_SYNC_INTERVAL_S:
+                last_trade_sync = now_s
+                try:
+                    trade_sync.sync_once()
+                except Exception as e:
+                    logger.warning(f"[StrategyManager] live 成交落库轮询失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
@@ -1237,14 +1312,23 @@ class StrategyManager:
         from .state import strategy_registry
 
         strategies = strategy_registry.list_all()
-        running_count = sum(1 for s in strategies if s.status == "running")
+        running = [s for s in strategies if s.status == "running"]
+        # mode 按运行中策略的实际 trading_mode 推导（此前恒报 paper 是假数据）；
+        # 无运行中策略时为 None，多种 mode 并存时报 mixed
+        modes = {s.mode for s in running}
+        if not modes:
+            mode: str | None = None
+        elif len(modes) == 1:
+            mode = modes.pop()
+        else:
+            mode = "mixed"
         return {
             "exchange": "binance",
-            "mode": "paper",
-            "exchange_connected": True,
-            "risk_available": True,
+            "mode": mode,
+            # 风控引擎尚未接线（RiskService 为死代码），如实上报，不显示假 True
+            "risk_available": False,
             "total_strategies": len(strategies),
-            "running_strategies": running_count,
+            "running_strategies": len(running),
         }
 
     def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:

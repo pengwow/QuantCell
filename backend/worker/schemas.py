@@ -31,7 +31,7 @@ class TradingConfig(BaseModel):
     )
     timeframe: str = Field(default="1h", description="时间周期")
     market_type: str = Field(default="spot", description="市场类型: spot/future")
-    trading_mode: str = Field(default="paper", description="交易模式: paper/live")
+    trading_mode: str = Field(default="paper", description="交易模式: paper/testnet/live")
 
 
 class WorkerBase(BaseModel):
