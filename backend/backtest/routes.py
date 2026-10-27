@@ -342,6 +342,9 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                         failed_currencies = result.get("failed_currencies", [])
                         if failed_currencies:
                             logger.warning(f"[任务 {task_id}] 部分货币对回测失败: {failed_currencies}")
+                    elif result.get("status") == "stopped":
+                        # 用户主动终止：不是失败，收尾日志用 info
+                        logger.info(f"[任务 {task_id}] 回测已被用户终止: {result.get('message')}")
                     else:
                         # 增强失败日志，显示更多详细信息
                         failed_currencies = result.get("failed_currencies", [])
