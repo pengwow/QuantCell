@@ -56,7 +56,7 @@ def test_paper_pump_round_pushes_snapshot(monkeypatch):
             def on_bar(self, bar, ctx=None):
                 return Action(ActionType.Hold, 0.0, 0.0, "hold_snap", 0)
 
-        driver = mgr._assemble_rule_paper_driver(1, _HoldStrategy(), {}, "1h", ["BTCUSDT"])
+        driver, _risk_enabled = mgr._assemble_rule_paper_driver(1, _HoldStrategy(), {}, "1h", ["BTCUSDT"])
         try:
             driver.start()
             mgr._paper_pump_round(1, driver, ["BTC/USDT"], "1h", {}, limit=2)
