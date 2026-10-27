@@ -220,7 +220,9 @@ class BacktestLoop:
                 "close": close_price,
                 "volume": float(row["volume"]),
                 "symbol": symbol,
-                "timestamp_ns": ts,
+                # 键名统一为 timestamp（纳秒）：与 worker.Kernel 的 bar 契约一致（R5），
+                # 此前这里用 timestamp_ns，两条回测路径的 bar 形状不一致
+                "timestamp": ts,
             }
 
             # 更新 ctx 净值 (ponytail: 简化为固定 initial_cash)

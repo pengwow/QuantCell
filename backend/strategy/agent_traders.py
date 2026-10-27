@@ -54,7 +54,7 @@ class StrategyTrader:
                 "close": float(bar.get("close", 0)),
                 "volume": float(bar.get("volume", 0)),
                 "symbol": bar.get("symbol", "BTCUSDT"),
-                "timestamp_ns": bar.get("timestamp_ns", int(time.time() * 1e9)),
+                "timestamp_ns": bar.get("timestamp", int(time.time() * 1e9)),
             }
 
             # 构造 ctx（传入优先，否则从 bar["features"] 构造）

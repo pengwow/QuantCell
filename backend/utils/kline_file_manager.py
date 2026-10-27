@@ -272,7 +272,7 @@ class KlineFileManager:
                     if isinstance(start_time, str) and ("T" in start_time or "-" in start_time):
                         try:
                             start_ts = int(datetime.fromisoformat(start_time).timestamp() * 1000)
-                        except ValueError, AttributeError:
+                        except (ValueError, AttributeError):
                             start_ts = int(float(start_time))
                     else:
                         start_ts = int(float(start_time))
@@ -282,7 +282,7 @@ class KlineFileManager:
                     if isinstance(end_time, str) and ("T" in end_time or "-" in end_time):
                         try:
                             end_ts = int(datetime.fromisoformat(end_time).timestamp() * 1000)
-                        except ValueError, AttributeError:
+                        except (ValueError, AttributeError):
                             end_ts = int(float(end_time))
                     else:
                         end_ts = int(float(end_time))

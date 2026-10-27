@@ -523,7 +523,7 @@ class FileLogManager:
                             return False
                         if filters.end_time and log_time > filters.end_time:
                             return False
-                    except ValueError, AttributeError:
+                    except (ValueError, AttributeError):
                         pass
 
             # 关键词搜索（在message中搜索）

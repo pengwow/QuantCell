@@ -353,7 +353,7 @@ class EventDrivenLoop:
             "close": close,
             "volume": float(ticker.get("volume", 0.0)),
             "symbol": self._symbol,
-            "timestamp_ns": int(time.time() * 1_000_000_000),
+            "timestamp": int(time.time() * 1_000_000_000),
         }
 
     def _init_factor_injection(self) -> None:
@@ -392,7 +392,7 @@ class EventDrivenLoop:
         """更新 KlineBuffer 并计算因子值。"""
         if self._kline_buffer is None or self._factor_injector is None:
             return {}
-        ts_ns = int(bar.get("timestamp_ns", time.time() * 1e9))
+        ts_ns = int(bar.get("timestamp", time.time() * 1e9))
         close = float(bar.get("close", 0.0))
         self._kline_buffer.push_tick(ts_ns, close)
         return self._factor_injector.compute(self._kline_buffer.bars())

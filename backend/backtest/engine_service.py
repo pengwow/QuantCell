@@ -206,7 +206,8 @@ class EventDrivenBacktestService:
         # 键名归一化：CLI 传 initial_capital/time_range，REST API 契约（BacktestConfig schema）
         # 是 initial_cash/start_time + end_time。只认一种会导致另一侧配置静默失效：
         # 资金跌回默认值、时间范围退化为全量历史数据。
-        init_cash = engine_cfg.get("initial_capital", engine_cfg.get("initial_cash", 10000))
+        # 默认 100_000 与 BacktestLoop / LiveDriver 的 initial_cash 默认口径一致（B7 统一）
+        init_cash = engine_cfg.get("initial_capital", engine_cfg.get("initial_cash", 100_000))
         # 资金使用方式：per_symbol=各品种独立资金池（现状，N×init_cash）；
         # shared=组合共享资金池（单账户，总名义敞口 ≤ init_cash × leverage）
         capital_mode = engine_cfg.get("capital_mode", "per_symbol")

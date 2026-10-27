@@ -34,7 +34,7 @@ class TestEventDrivenLoop:
             "close": close,
             "volume": 1000.0,
             "symbol": "BTCUSDT",
-            "timestamp_ns": 1_000_000_000,
+            "timestamp": 1_000_000_000,
         }
 
     def test_init_creates_components(self):

@@ -14,7 +14,7 @@ class SpyStrategy(BaseStrategy):
 
     def on_bar(self, bar: dict, ctx) -> Action:
         rank = int(bar.get("cross_sectional_rank", 0))
-        self.records.append((bar["timestamp_ns"], dict(ctx.features), rank))
+        self.records.append((bar["timestamp"], dict(ctx.features), rank))
         return Action(
             action_type="hold",
             confidence=0.0,
