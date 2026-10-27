@@ -19,6 +19,8 @@ ponytail: 游标不做持久化，起点=同步器构造时刻。天花板：进
 import json
 from datetime import datetime
 
+from sqlalchemy import func
+
 from exchange.binance.exchange import BinanceExchange
 from utils.logger import LogType, get_logger
 from utils.db_session import get_db_session
@@ -106,6 +108,30 @@ class LiveTradeSync:
                 f"新落库 {inserted} 笔成交（本轮共 {len(trades)} 笔回报）"
             )
         return inserted
+
+    def daily_realized_pnl(self) -> float:
+        """DB 当日已实现盈亏汇总（B3 风控当日亏损额度的数据源）。
+
+        读 DB 而不是进程内累计：进程重启后当日更早的成交亏损仍计入，
+        风控额度不会因重启被重置。`realized_pnl` 为空（现货 / 无盈亏字段）
+        的行按 0 计。
+
+        ponytail: 按服务端本地日期切日（与 risk_config._local_today 同口径）；
+        交易所时区与服务端差异大时需要按品种传入时区。
+        """
+        from . import crud  # 同包 crud 依赖 models，无环
+
+        day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        with get_db_session() as db:
+            total = (
+                db.query(func.coalesce(func.sum(crud.WorkerTrade.realized_pnl), 0.0))
+                .filter(
+                    crud.WorkerTrade.worker_id == self.worker_id,
+                    crud.WorkerTrade.entry_time >= day_start,
+                )
+                .scalar()
+            )
+        return float(total or 0.0)
 
     def _to_trade_data(self, trade: dict) -> dict:
         """ccxt trade → WorkerTrade 字段映射（键名与 worker_trades 严格一致）。"""

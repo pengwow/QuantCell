@@ -29,12 +29,13 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 from . import crud
-from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
-from .paper_trade_sync import PaperTradeSync
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
 )
+from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
+from .paper_trade_sync import PaperTradeSync
+from .risk_config import RiskPnlFeeder, apply_risk_config
 from .worker_state import worker_state_manager
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -402,14 +403,16 @@ class StrategyManager:
 
         # 规则/LLM paper 演练统一挂 PaperDriver（testnet 公共行情 + 内置撮合，
         # 与回测 Kernel 同一份 Rust 引擎口径）
-        driver = self._assemble_rule_paper_driver(worker_id, strategy_instance, params, timeframe, symbols)
+        driver, risk_enabled = self._assemble_rule_paper_driver(
+            worker_id, strategy_instance, params, timeframe, symbols
+        )
 
         symbols_norm = [_normalize_symbol(s) for s in symbols]
         stop_event = threading.Event()
         thread = threading.Thread(
             target=self._paper_thread_main,
             # 首轮拉 2 根：规则/LLM 无观测窗口预热需求（RL 传 window+2）
-            args=(worker_id, driver, timeframe, symbols_norm, 2, stop_event),
+            args=(worker_id, driver, timeframe, symbols_norm, 2, stop_event, risk_enabled),
             daemon=True,
             name=f"paper-driver-{worker_id}",
         )
@@ -434,13 +437,16 @@ class StrategyManager:
         params: dict[str, Any],
         timeframe: str,
         symbols: list[str],
-    ) -> Any:
+    ) -> tuple[Any, bool]:
         """装配规则/LLM 策略的 PaperDriver（不启动泵线程，可独立测试）。
 
         fee_rate 用引擎默认（None → 0.001），与回测 Kernel 同口径；RL 路径
         才传训练环境费率（RL_TRANSACTION_COST）。策略必须经 RustStrategyAdapter
         适配后挂载：target_position 占比换算 / hold 保持目标位 / ctx.features
         注入三处语义都由它对齐回测行为，直接挂 BaseStrategy 会全部偏差。
+
+        Returns:
+            (driver, 是否已装配 pre-trade 风控)
         """
         from axon_quant import worker as axon_worker
 
@@ -459,7 +465,9 @@ class StrategyManager:
             RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
             symbol=symbols_norm[0],
         )
-        return driver
+        # B3：pre-trade 风控装配（opt-in，未配置行为不变）
+        risk_enabled = apply_risk_config(driver, params, worker_id, initial_cash)
+        return driver, risk_enabled
 
     async def _finalize_start(self, worker_id: int, runtime, db=None) -> None:
         """启动成功后的统一收尾：注册表 / DB / worker_state 三处状态流转。
@@ -683,6 +691,10 @@ class StrategyManager:
             _normalize_symbol(symbols[0]),
             stats=spec["stats"],
         )
+        # B3：pre-trade 风控装配（opt-in，未配置行为不变）
+        risk_enabled = apply_risk_config(
+            driver, params, worker_id, float(params.get("initial_capital", 100_000.0))
+        )
 
         journal_path = self._rl_live_journal_path(worker_id)
         stop_event = threading.Event()
@@ -695,6 +707,7 @@ class StrategyManager:
                 stop_event,
                 # live 成交落库：构造失败返回 None，线程内跳过轮询，不阻断启动
                 self._build_live_trade_sync(worker_id, api_key, api_secret, symbols),
+                risk_enabled,
             ),
             daemon=True,
             name=f"rl-live-{worker_id}",
@@ -797,6 +810,8 @@ class StrategyManager:
             RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
             symbol=_normalize_symbol(symbols[0]),
         )
+        # B3：pre-trade 风控装配（opt-in，未配置行为不变）
+        risk_enabled = apply_risk_config(driver, params, worker_id, initial_cash)
 
         journal_path = self._live_journal_path(worker_id)
         stop_event = threading.Event()
@@ -809,6 +824,7 @@ class StrategyManager:
                 stop_event,
                 # live 成交落库：构造失败返回 None，线程内跳过轮询，不阻断启动
                 self._build_live_trade_sync(worker_id, api_key, api_secret, symbols),
+                risk_enabled,
             ),
             daemon=True,
             name=f"live-{worker_id}",
@@ -874,12 +890,14 @@ class StrategyManager:
         journal_path: str,
         stop_event: threading.Event,
         trade_sync: Any | None = None,
+        risk_enabled: bool = False,
     ) -> None:
         """实盘驱动线程（RL / 规则 / LLM LiveDriver 共用）：connect → resume/start → 1s 轮询 tick。
 
         线程内没有调用方可接异常，连接失败统一降级为 worker error 状态
         （registry + DB），线程自身退出；单次 tick 异常只记日志继续。
         trade_sync 非空时按窗口节流轮询交易所成交并落库，失败只记日志。
+        risk_enabled 时按 DB 当日已实现盈亏回灌风控（每轮检查跨日清零）。
         """
         journal = Path(journal_path)
         try:
@@ -902,11 +920,43 @@ class StrategyManager:
         logger.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
         last_snapshot = float("-inf")
         last_trade_sync = 0.0
+        # 当日盈亏回灌：live 以 DB 当日已实现盈亏为准（重启不重置当日亏损额度）。
+        # 注意 resume 恢复路径不装配风控（Rust 侧契约），此时绑定层方法 no-op
+        pnl_feeder = RiskPnlFeeder(driver, daily_scoped=True) if risk_enabled else None
+        if pnl_feeder is not None and trade_sync is not None:
+            try:
+                pnl_feeder.feed(trade_sync.daily_realized_pnl())
+            except Exception as e:
+                logger.warning(
+                    f"[StrategyManager] live 当日盈亏首次回灌失败: worker_id={worker_id}, error={e}"
+                )
+        # 风控拒单（Rust 侧 "risk rejected: {reason}"）是设计内行为（拒开仓放减仓），
+        # live 1s/tick 会持续命中同一原因，按原因去重防刷屏；tick 恢复后清空再触发才重记
+        last_risk_reject: str | None = None
         while not stop_event.is_set():
+            # 跨日清零必须每轮做：昨日熔断若只在成交时解除，空仓账户会永远等不到
+            if pnl_feeder is not None:
+                try:
+                    pnl_feeder.reset_if_new_day()
+                except Exception as e:
+                    logger.warning(
+                        f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}"
+                    )
             try:
                 driver.tick()
+                last_risk_reject = None
             except Exception as e:
-                logger.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
+                msg = str(e)
+                if msg.startswith("risk rejected: "):
+                    reason = msg.removeprefix("risk rejected: ")
+                    if reason != last_risk_reject:
+                        last_risk_reject = reason
+                        logger.warning(
+                            f"[StrategyManager] 风控拒单(拒开仓放减仓): worker_id={worker_id}, reason={reason}"
+                        )
+                else:
+                    last_risk_reject = None
+                    logger.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
             # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
             now_s = time.monotonic()
             if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
@@ -919,9 +969,18 @@ class StrategyManager:
             if trade_sync is not None and now_s - last_trade_sync >= LIVE_TRADE_SYNC_INTERVAL_S:
                 last_trade_sync = now_s
                 try:
-                    trade_sync.sync_once()
+                    inserted = trade_sync.sync_once()
                 except Exception as e:
+                    inserted = 0
                     logger.warning(f"[StrategyManager] live 成交落库轮询失败: worker_id={worker_id}, error={e}")
+                # 有新成交才查当日汇总：回灌是风控额度更新，不能靠旧值漂移
+                if inserted and pnl_feeder is not None:
+                    try:
+                        pnl_feeder.feed(trade_sync.daily_realized_pnl())
+                    except Exception as e:
+                        logger.warning(
+                            f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}"
+                        )
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
@@ -990,6 +1049,10 @@ class StrategyManager:
             _normalize_symbol(symbols[0]),
             stats=spec["stats"],
         )
+        # B3：pre-trade 风控装配（opt-in，未配置行为不变）
+        risk_enabled = apply_risk_config(
+            driver, params, worker_id, float(params.get("initial_capital", 100_000.0))
+        )
 
         stop_event = threading.Event()
         thread = threading.Thread(
@@ -1002,6 +1065,7 @@ class StrategyManager:
                 # 首轮拉取条数：补满 RL 观测窗口再留 2 根余量，由通用泵原样使用
                 spec["window_size"] + 2,
                 stop_event,
+                risk_enabled,
             ),
             daemon=True,
             name=f"rl-paper-{worker_id}",
@@ -1023,6 +1087,7 @@ class StrategyManager:
         symbols: list[str],
         first_limit: int,
         stop_event: threading.Event,
+        risk_enabled: bool = False,
     ) -> None:
         """paper 行情泵驱动线程（RL/规则/LLM driver 共用）：start → 睡到收市点 → 拉收市 K 线喂 driver。
 
@@ -1033,6 +1098,7 @@ class StrategyManager:
         Args:
             first_limit: 首轮拉取的 K 线条数（调用方按需决定，如 RL 传观测窗口+2）；
                 之后固定拉最近 2 根防窗口重叠
+            risk_enabled: 是否已装配 pre-trade 风控（决定是否启用当日盈亏回灌）
         """
         step_s = _PAPER_INTERVAL_SECONDS.get(timeframe, 60)
         try:
@@ -1047,14 +1113,32 @@ class StrategyManager:
         logger.info(f"[StrategyManager] paper 泵循环启动: worker_id={worker_id}, interval={timeframe}")
         limit = first_limit
         seen_open_ms: dict[str, int] = {}
+        # 当日盈亏回灌：paper 账纯内存，用权益差值（含盯市）换算当日盈亏
+        pnl_feeder = RiskPnlFeeder(driver, daily_scoped=False) if risk_enabled else None
+        # 风控拒单（Rust 侧 "risk rejected: {reason}"）是设计内行为（拒开仓放减仓），
+        # 按原因去重防逐 bar 刷屏；泵轮恢复后清空再触发才重记（同 live 泵）
+        last_risk_reject: str | None = None
         # 成交落库：内核 fill 只存 Rust 内存，泵轮后增量拉取落库（失败只记日志）
         trade_sync = PaperTradeSync(worker_id)
         while not stop_event.is_set():
             try:
-                self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit)
+                self._paper_pump_round(
+                    worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder
+                )
                 limit = 2
+                last_risk_reject = None
             except Exception as e:
-                logger.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
+                msg = str(e)
+                if msg.startswith("risk rejected: "):
+                    reason = msg.removeprefix("risk rejected: ")
+                    if reason != last_risk_reject:
+                        last_risk_reject = reason
+                        logger.warning(
+                            f"[StrategyManager] 风控拒单(拒开仓放减仓): worker_id={worker_id}, reason={reason}"
+                        )
+                else:
+                    last_risk_reject = None
+                    logger.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
                 # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
                 # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
             try:
@@ -1074,12 +1158,16 @@ class StrategyManager:
         timeframe: str,
         seen_open_ms: dict[str, int],
         limit: int,
+        pnl_feeder: RiskPnlFeeder | None = None,
     ) -> None:
         """拉一轮收市 K 线并注入 driver，全部喂完后 tick 一次。
 
         已收市判定用 open_ms + step_ms <= now（不信任交易所 closeTime 的 -1ms
         惯例）；按开市时间去重，REST 窗口重叠时不会重复喂同一根 bar。
         抽成独立方法：线程循环只负责节拍，这份核心逻辑可在测试中同步直调。
+
+        Args:
+            pnl_feeder: 非空时用权益快照回灌当日盈亏（B3 风控，跨日清零由其内部处理）
         """
         step_ms = _PAPER_INTERVAL_SECONDS[timeframe] * 1000
         now_ms = int(time.time() * 1000)
@@ -1103,10 +1191,23 @@ class StrategyManager:
                     float(row[5]),
                 )
         driver.tick()
-        # 泵轮末尾推送统一内核快照：RL paper 与规则/LLM paper 共用此方法，自动惠及；
+        # 泵轮末尾只取一次快照：当日盈亏回灌与前端推送共用
+        try:
+            snap = driver.snapshot()
+        except Exception as e:
+            logger.debug(f"[StrategyManager] paper snapshot 获取失败: worker_id={worker_id}, error={e}")
+            return
+        if pnl_feeder is not None:
+            try:
+                pnl_feeder.feed(float(snap.get("equity") or 0.0))
+            except Exception as e:
+                # 回灌失败只降级告警：风控额度暂时失真，但不能停掉行情泵
+                logger.warning(
+                    f"[StrategyManager] paper 当日盈亏回灌失败: worker_id={worker_id}, error={e}"
+                )
         # 观测性推送，失败不打断行情泵
         try:
-            self._push_kernel_snapshot(worker_id, driver.snapshot())
+            self._push_kernel_snapshot(worker_id, snap)
         except Exception as e:
             logger.debug(f"[StrategyManager] paper snapshot 推送失败: worker_id={worker_id}, error={e}")
 
@@ -1332,8 +1433,9 @@ class StrategyManager:
         return {
             "exchange": "binance",
             "mode": mode,
-            # 风控引擎尚未接线（RiskService 为死代码），如实上报，不显示假 True
-            "risk_available": False,
+            # B3 起 pre-trade 风控已接线到 paper/live 驱动（axon-risk 引擎），
+            # 是否对某个 worker 生效由 params.risk / worker_risk_control 决定（opt-in）
+            "risk_available": True,
             "total_strategies": len(strategies),
             "running_strategies": len(running),
         }
