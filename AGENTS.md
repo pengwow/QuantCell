@@ -47,8 +47,8 @@ QuantCell 是一个 AI 原生量化交易系统，使用 axon_quant (Rust) 作�
         │                │                │
         ▼                ▼                ▼
 ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ StrategyLoop │ │ BacktestLoop │ │ RL Inference │
-│ (实盘循环)    │ │ (回测循环)    │ │ (RL推理)     │
+│ Live/Paper   │ │ BacktestLoop │ │ RL Inference │
+│ (paper/live) │ │ (回测循环)    │ │ (RL推理)     │
 └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
        │                │                │
        ▼                ▼                ▼
@@ -189,15 +189,12 @@ result = kernel.run(
 Python ↔ legacy（`runner='rust'`）逐字段一致；Kernel 与 legacy 的逐 bar 语义一致性由
 axon-quant 的 kernel 单测与 M3 shadow oracle（`axon-worker::shadow`）守护。
 
-### StrategyLoop — 实盘循环
+### 实盘 / paper 循环
 
-```python
-# backend/strategy/loop.py
-class StrategyLoop:
-    def __init__(self, adapter, strategy: RuleStrategy, symbol: str, interval: float = 1.0): ...
-    def start(self): ...
-    def stop(self): ...
-```
+`strategy/loop.py`（旧 StrategyLoop）已退役。paper / live 由 StrategyManager 的泵线程驱动
+统一内核（`worker/strategy_manager.py`），差异只在 ExecutionSink（`PaperSink` / `LiveSink`），
+事件回调推送 snapshot 到前端。旧事件驱动链路 `strategy/event_loop.py`（EventDrivenLoop +
+SwarmOrchestrator）处于 M6 冻结状态，无生产调用方，仅测试引用。
 
 ## 策略编写示例
 
@@ -263,8 +260,7 @@ print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 | `strategy/core/__init__.py` | 导出 axon_quant 类型 |
 | `strategy/service.py` | 策略管理服务 |
 | `strategy/routes.py` | 策略 API 路由 |
-| `strategy/loop.py` | StrategyLoop 实盘 |
-| `worker/strategy_manager.py` | worker_system 核心单例（StrategyManager） |
+| `worker/strategy_manager.py` | worker_system 核心单例（StrategyManager）+ paper/live 泵线程 |
 | `backtest/engine_service.py` | 回测编排入口：`runner` 开关（kernel / legacy / python） |
 | `backtest/backtest_loop.py` | BacktestLoop + RuleStrategy（Python 回退） |
 | `strategy/rust_adapter.py` | BaseStrategy → 内核 `StrategyHost` 桥接 |

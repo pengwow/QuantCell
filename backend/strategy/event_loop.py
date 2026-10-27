@@ -1,5 +1,8 @@
 """EventDrivenLoop — 完整事件驱动实盘交易循环
 
+M6 冻结状态: 无生产调用方（paper/live 实际走 StrategyManager 泵线程 + 统一内核），
+仅测试引用，保留前勿新增依赖；删除前需完成实盘等价验证（见 swarm_orchestrator.py）。
+
 事件驱动模式，使用:
   1. 事件驱动数据馈送 (adapter WebSocket 更新内部缓存 → 馈送线程读取 → 队列 → 主循环)
   2. axon_quant.agent.SwarmRunner 多 Agent 投票共识
