@@ -23,6 +23,7 @@ from typing import Any
 
 import pandas as pd
 
+from backtest import stop_control
 from backtest.result_analysis import ResultAnalyzer
 
 
@@ -119,6 +120,9 @@ class BacktestService:
             msg = f"任务不存在: {task_id}"
             raise ValueError(msg)
 
+        # 协作式取消令牌：stop 端点经注册表把停止指令投递到本执行线程（品种边界生效）
+        stop_event = stop_control.register(task_id)
+
         try:
             # 更新状态为运行中
             self._update_task_status(task_id, "running")
@@ -184,6 +188,7 @@ class BacktestService:
                 show_progress=False,
                 factor_names=engine_config.get("factor_names"),
                 on_symbol_progress=_on_symbol_progress if progress_tracker else None,
+                stop_event=stop_event,
             )
             # 成功/失败口径取实际结果：无数据品种在 engine 层被剔除（skipped_symbols），
             # 不能把请求清单硬编码成"全部成功"，否则提示数量与详情页实际品种数不一致
@@ -223,10 +228,12 @@ class BacktestService:
             # 保存结果
             self._save_result(task_id, result)
 
-            # 更新状态为完成
-            self._update_task_status(task_id, "completed")
-            # 列表页摘要指标随任务落盘：列表接口读任务文件即可，不必逐个打开几十 MB 的结果 JSON
-            self._write_metrics_summary(task_id, self._metrics_summary_from_result(result))
+            # 更新状态为完成。竞态防护：跑到终点前一刻用户点了 stop，则保持
+            # stopped（stop 端点已写入），completed 无条件覆盖会让「已终止」假变「已完成」
+            if not stop_event.is_set():
+                self._update_task_status(task_id, "completed")
+                # 列表页摘要指标随任务落盘：列表接口读任务文件即可，不必逐个打开几十 MB 的结果 JSON
+                self._write_metrics_summary(task_id, self._metrics_summary_from_result(result))
 
             if progress_tracker:
                 # 更新分析阶段完成（10% 权重）- 总体 100%
@@ -244,10 +251,28 @@ class BacktestService:
 
             return result
 
+        except stop_control.BacktestCancelled:
+            self.logger.info(f"回测任务 {task_id} 已被用户终止")
+            # 收尾兜底：正常链路 stopped 已由 stop 端点写入，这里幂等再写一次，
+            # 防御取消信号经其他路径触发时状态无人落盘
+            self._update_task_status(task_id, "stopped")
+            if progress_tracker:
+                progress_tracker.complete_progress(task_id)
+            return {
+                "status": "stopped",
+                "message": "回测已终止",
+                "successful_currencies": [],
+                "failed_currencies": [],
+                "results": {},
+            }
+
         except Exception as e:
             self.logger.error(f"回测执行失败: {e}")
             self._update_task_status(task_id, "failed")
             raise
+
+        finally:
+            stop_control.pop(task_id)
 
     def get_result(self, result_id: Any) -> dict | None:
         """
@@ -969,6 +994,8 @@ class BacktestService:
             return {"status": "error", "message": "回测任务不在运行中"}
 
         self._update_task_status(numeric_id, "stopped")
+        # 向执行线程投递协作式取消令牌：下一品种边界生效（线程内注册表随执行线程消亡）
+        stop_control.cancel(numeric_id)
         return {"status": "success", "message": "回测已终止"}
 
     def analyze_backtest(self, backtest_id: str) -> dict[str, Any]:

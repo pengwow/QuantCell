@@ -16,6 +16,7 @@
 日期: 2026-08-14
 """
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -24,6 +25,7 @@ import pandas as pd
 
 from backtest.backtest_loop import BacktestLoop, BacktestResult, clean_ohlcv_df
 from backtest.margin_specs import build_margin_specs
+from backtest.stop_control import BacktestCancelled
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -177,6 +179,7 @@ class EventDrivenBacktestService:
         market: str = "spot",
         factor_names: list[str] | None = None,
         on_symbol_progress: SymbolProgressCallback | None = None,
+        stop_event: threading.Event | None = None,
     ) -> dict:
         """
         执行完整的事件驱动回测流程
@@ -193,6 +196,8 @@ class EventDrivenBacktestService:
             factor_names: 参与回测的因子名称列表（可选）
             on_symbol_progress: 逐品种进度回调，每个品种开跑前以
                 (已完成品种数, 品种总数, 当前品种) 触发（可选）
+            stop_event: 协作式取消令牌（可选）。置位后在每个品种边界抛
+                BacktestCancelled 提前结束；单品种的单次阻塞循环无法中途取消
 
         Returns:
             dict: 格式化的回测结果
@@ -393,6 +398,13 @@ class EventDrivenBacktestService:
         runner_mode = (engine_config or {}).get("runner", "kernel")
         use_rust_runner = runner_mode != "python" and data_type in RUST_RUNNER_DATA_TYPES
 
+        # 协作式取消：stop 令牌置位后，每个品种开跑前（及结果汇总前）提前退出
+        def _check_cancelled() -> None:
+            if stop_event is not None and stop_event.is_set():
+                raise BacktestCancelled("停止令牌已置位")
+
+        _check_cancelled()
+
         if len(symbols) == 1:
             first_key = next(iter(loaded_data.keys()))
             entry = loaded_data[first_key]
@@ -442,6 +454,7 @@ class EventDrivenBacktestService:
             if on_symbol_progress:
                 # 共享模式是单次阻塞调用，无法逐品种上报（见设计文档「7. 进度上报」）
                 on_symbol_progress(0, 1, "组合共享资金池")
+            _check_cancelled()
             strategies_by_symbol: dict[str, Any] = {}
             entries_for_multi: dict[str, dict[str, Any]] = {}
             for key, entry in loaded_data.items():
@@ -513,6 +526,7 @@ class EventDrivenBacktestService:
             per_symbol_results = {}
             loaded_entries = list(loaded_data.items())
             for idx, (key, entry) in enumerate(loaded_entries):
+                _check_cancelled()
                 df = entry["data"]
                 parts = key.rsplit("_", 1)
                 sym = parts[0] if len(parts) > 1 else key
