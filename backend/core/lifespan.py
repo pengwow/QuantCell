@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from collector.db import init_db
 from utils.logger import LogType, get_logger
@@ -168,6 +169,9 @@ async def lifespan(app: FastAPI):
 
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)
+
+    # 恢复扫描：上一进程残留的 running worker 线程已不存在，如实标记 interrupted
+    await asyncio.to_thread(_mark_interrupted_workers)
 
     # 自动扫描并初始化策略到数据库
     await asyncio.to_thread(_init_strategies)
@@ -567,6 +571,45 @@ def init_database():
 
     # 初始化定时任务管理器，确保数据库表已创建
     logger.info("初始化定时任务管理器")
+
+
+def _mark_interrupted_workers():
+    """启动恢复扫描：把 DB 中残留的 running worker 标记为 interrupted
+
+    上一进程会话的驱动线程已随进程消亡，running 状态是假象；如实标记，
+    避免 live 策略实际已停摆但状态面板仍显示运行中。interrupted 命名与
+    factor 模块的 run 状态语义一致（重启后 running 行的统一修正约定）。
+    """
+    # 延迟 import：与 init_database/_init_strategies 同理，避免模块加载期建立 DB 连接
+    try:
+        from collector.db.database import SessionLocal, init_database_config
+        from worker.models import Worker
+    except ImportError as e:
+        logger.warning(f"worker 恢复扫描模块导入失败，跳过 running→interrupted 修正: {e}")
+        return
+
+    try:
+        init_database_config()
+        db = SessionLocal()
+        try:
+            stale_ids = [
+                wid for (wid,) in db.query(Worker.id).filter(Worker.status == "running").all()
+            ]
+            if stale_ids:
+                db.query(Worker).filter(Worker.id.in_(stale_ids)).update(
+                    {"status": "interrupted", "updated_at": datetime.now()},
+                    synchronize_session=False,
+                )
+                db.commit()
+                logger.warning(
+                    f"检测到 {len(stale_ids)} 个上次进程残留的 running worker，"
+                    f"已标记为 interrupted: {stale_ids}"
+                )
+        finally:
+            db.close()
+    except Exception:
+        # 恢复扫描失败不阻断启动，状态修正等下次重启再补
+        logger.exception("running→interrupted 恢复扫描失败（不阻断启动）")
 
 
 def _init_strategies():

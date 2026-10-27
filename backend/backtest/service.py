@@ -942,7 +942,7 @@ class BacktestService:
         """
         try:
             task_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
-        except ValueError, AttributeError:
+        except (ValueError, AttributeError):
             task_id = backtest_id
         return self.delete_task(task_id)
 
@@ -958,7 +958,7 @@ class BacktestService:
         """
         try:
             numeric_id = int(task_id) if task_id.isdigit() else task_id
-        except ValueError, AttributeError:
+        except (ValueError, AttributeError):
             numeric_id = task_id
 
         task = self._load_task(numeric_id)

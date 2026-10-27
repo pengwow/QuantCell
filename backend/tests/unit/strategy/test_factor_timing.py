@@ -11,7 +11,7 @@ def _ctx() -> StrategyContext:
 
 
 def _bar(close: float = 100.0) -> dict:
-    return {"close": close, "timestamp_ns": 0}
+    return {"close": close, "timestamp": 0}
 
 
 def test_hold_when_factor_missing():
