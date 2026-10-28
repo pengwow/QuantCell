@@ -300,7 +300,7 @@ class TestPushRiskControl:
         ]
 
     def test_assembled_hot_updates_in_order(self):
-        """已装配启用 → 先 set_enabled(True) 清 bypass 再 update_risk_config，hot"""
+        """已装配启用 → 先 update_risk_config 换档再 set_enabled(True) 清 bypass，hot"""
         driver = _FakeDriver()
         with self._row_patch(_row(max_position_pct=0.1)):
             applied = push_risk_control(1, driver, {}, 10_000.0)
@@ -308,8 +308,8 @@ class TestPushRiskControl:
         names = [c[0] for c in driver.calls]
         enabled_idx = names.index("set_risk_enabled")
         update_idx = names.index("update_risk_config")
-        # 顺序关键：bypass 先清掉再换档，否则旧 bypass 残留到新配置上
-        assert enabled_idx < update_idx
+        # 顺序关键：先换档再清 bypass——update 失败时引擎完全未动，降级 on_start 语义准确
+        assert update_idx < enabled_idx
         assert driver.calls[enabled_idx] == ("set_risk_enabled", True)
         assert driver.calls[update_idx] == ("update_risk_config", {"max_order_value": 1000.0}, 1000.0)
 
@@ -319,3 +319,13 @@ class TestPushRiskControl:
         with self._row_patch(_row(max_position_pct=0.1)):
             applied = push_risk_control(1, driver, {}, 10_000.0)
         assert applied == "on_start"
+        # update 失败发生在 set_enabled 之前：引擎完全未动，不留下「已启用但旧档」半态
+        assert driver.calls == []
+
+    def test_enabled_false_not_assembled_degrades_to_on_start(self):
+        """enabled=False 且引擎未装配：set_risk_enabled 为 no-op，不碰引擎直接 on_start"""
+        driver = _FakeDriver(assembled=False)
+        with self._row_patch(_row(enabled=False)):
+            applied = push_risk_control(1, driver, {}, 10_000.0)
+        assert applied == "on_start"
+        assert driver.calls == []

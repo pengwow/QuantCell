@@ -18,6 +18,8 @@ from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy.exc import IntegrityError
+
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -1935,6 +1937,19 @@ class WorkerCoreService:
             worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
             if worker is None:
                 raise WorkerNotFoundException(worker_id)
+
+            def _apply(row: models.WorkerRiskControl) -> None:
+                # updated_at 交由模型列 onupdate=func.now() 维护，不手动赋 aware 时间
+                # （naive 列上写 aware datetime 会让时间偏 8 小时）
+                row.enabled = payload.enabled
+                row.max_position_pct = payload.max_position_pct
+                row.max_position_size = payload.max_position_size
+                row.daily_loss_amount = payload.daily_loss_amount
+                row.daily_loss_limit = payload.daily_loss_limit
+                row.max_drawdown = payload.max_drawdown
+                row.max_leverage = payload.max_leverage
+                row.circuit_breaker_cooldown_secs = payload.circuit_breaker_cooldown_secs
+
             row = db.query(models.WorkerRiskControl).filter(models.WorkerRiskControl.worker_id == worker_id).first()
             if row is None:
                 row = models.WorkerRiskControl(worker_id=worker_id)
@@ -1943,16 +1958,17 @@ class WorkerCoreService:
                 # INSERT 会错误落历史 default（实测带出 0.1）。先 flush 让 default 只作用于本条
                 # INSERT，对象转入 persistent 后再赋 None 走 UPDATE，写出的才是真实 NULL。
                 db.flush()
-            row.enabled = payload.enabled
-            row.max_position_pct = payload.max_position_pct
-            row.max_position_size = payload.max_position_size
-            row.daily_loss_amount = payload.daily_loss_amount
-            row.daily_loss_limit = payload.daily_loss_limit
-            row.max_drawdown = payload.max_drawdown
-            row.max_leverage = payload.max_leverage
-            row.circuit_breaker_cooldown_secs = payload.circuit_breaker_cooldown_secs
-            row.updated_at = datetime.now(UTC)
-            db.commit()
+            _apply(row)
+            try:
+                db.commit()
+            except IntegrityError as exc:
+                # 并发兜底：两个请求同时见「无行」各自 INSERT，后提交者撞 worker_id 唯一约束。
+                # 回滚后重读对方已落的行，把字段应用上去再提交，保证并发 upsert 最终一致。
+                db.rollback()
+                logger.warning(f"[core_service] 风控 upsert 撞并发唯一约束，转更新 worker_id={worker_id}: {exc}")
+                row = db.query(models.WorkerRiskControl).filter(models.WorkerRiskControl.worker_id == worker_id).one()
+                _apply(row)
+                db.commit()
 
     def _push_risk_control_sync(self, worker_id: int) -> str:
         """查运行中 driver + 策略参数，调 risk_config.push_risk_control 实时推送。异常一律降级 on_start。"""
@@ -1970,9 +1986,11 @@ class WorkerCoreService:
             strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
             if strategy is None:
                 return "on_start"
-        params = json.loads(strategy.parameters or "{}")
-        initial_cash = float(params.get("initial_capital", 100_000.0))
         try:
+            # strategy.parameters 是自由 JSON 文本：脏数据（非法 JSON / initial_capital 非数字）
+            # 解析失败时不让已成功落库的 upsert 接口 500，降级 on_start 走启动前装配语义
+            params = json.loads(strategy.parameters or "{}")
+            initial_cash = float(params.get("initial_capital", 100_000.0))
             return push_risk_control(worker_id, driver, params, initial_cash)
         except Exception as exc:
             logger.error(f"[core_service] 风控推送异常 worker_id={worker_id}: {exc}")
@@ -1985,7 +2003,10 @@ class WorkerCoreService:
         await asyncio.to_thread(self._upsert_risk_control_sync, worker_id, payload)
         applied = await asyncio.to_thread(self._push_risk_control_sync, worker_id)
         out = await self.async_get_risk_control(worker_id)
-        assert out is not None  # 刚 upsert 必有行
+        if out is None:
+            # 刚 upsert 必有行；查询为 None 说明 stores 层异常，显式报错便于定位。
+            # 不用 assert：python -O 下 assert 被跳过，异常会被静默吞掉
+            raise RuntimeError(f"upsert 后查询 worker_risk_control 为空: worker_id={worker_id}")
         out.applied = applied
         return out
 
