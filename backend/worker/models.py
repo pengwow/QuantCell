@@ -347,6 +347,14 @@ class WorkerRiskControl(Base):
     max_slippage_pct = Column(Float, default=0.001)  # 最大滑点
     max_spread_pct = Column(Float, default=0.005)  # 最大点差
 
+    # ── 运行时人工风控组（2026-10：前端开关 + 引擎热更链路）──
+    # 注意：不得依赖历史 ORM default（max_position_size=1.0 等非零默认仅服务老代码兜底读取），
+    # upsert 必须把全部字段显式写值（含 None），否则空表单会把历史默认值错误落库。
+    enabled = Column(Boolean, nullable=False, default=False, comment="人工风控总开关")
+    max_drawdown = Column(Float, nullable=True, comment="最大回撤比例 (0,1]")
+    max_leverage = Column(Float, nullable=True, comment="最大杠杆 [1,200]")
+    circuit_breaker_cooldown_secs = Column(Integer, nullable=True, comment="熔断冷却秒数 [0,604800]")
+
     # 时间戳
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -368,6 +376,10 @@ class WorkerRiskControl(Base):
             "daily_trade_limit": self.daily_trade_limit,
             "max_slippage_pct": self.max_slippage_pct,
             "max_spread_pct": self.max_spread_pct,
+            "enabled": self.enabled,
+            "max_drawdown": self.max_drawdown,
+            "max_leverage": self.max_leverage,
+            "circuit_breaker_cooldown_secs": self.circuit_breaker_cooldown_secs,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
