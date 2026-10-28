@@ -257,7 +257,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       if (prev.risk_enabled && next.risk_enabled === false) {
         // 启用 → 停用 单独置顶提示
         switchingOff = true;
-        rows.push({ key: 'enabled', label: '人工风控', before: '启用', after: '停用', loosen: null });
+        rows.push({ key: 'enabled', label: '风控防护', before: '启用', after: '停用', loosen: null });
       } else {
         for (const { f, label, suffix, invert } of FIELDS) {
           // TS 联合索引带出 boolean（risk_enabled），运行时这里只会取到数值字段，断言收窄
