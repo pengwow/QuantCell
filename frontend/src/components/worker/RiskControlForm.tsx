@@ -151,7 +151,7 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
 
   return (
     <>
-      <Divider>人工风控</Divider>
+      <Divider>风控防护</Divider>
       <Form.Item
         name="risk_enabled"
         label="启用风控防护"

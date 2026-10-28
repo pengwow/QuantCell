@@ -327,7 +327,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           <Space>
             <span>🛡️</span>
             <span>{t('risk_params') || '风控参数'}</span>
-            {risk?.enabled && <Tag color="green">人工风控启用中</Tag>}
+            {risk?.enabled && <Tag color="green">风控防护启用中</Tag>}
           </Space>
         }
         extra={onEdit && <Button size="small" onClick={onEdit}>编辑</Button>}
@@ -342,7 +342,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           </div>
         ) : !risk.enabled ? (
           <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
-            人工风控已停用
+            风控防护已停用
           </div>
         ) : (
           <Row gutter={[24, 16]}>
