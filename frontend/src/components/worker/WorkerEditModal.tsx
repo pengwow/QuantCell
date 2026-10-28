@@ -160,7 +160,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   // 策略相关
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
-  const [, setSelectedStrategyId] = useState<number | null>(null);
 
   // 交易所相关
   const [exchanges, setExchanges] = useState<{ value: string; label: string }[]>([]);
@@ -354,7 +353,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 
     // 设置当前选中的策略
     if (currentStrategyId) {
-      setSelectedStrategyId(currentStrategyId);
       if (worker.id) {
         fetchStrategyParams(worker.id);
       }
@@ -575,21 +573,37 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         return;
       }
 
-      // 确保 strategy_id 是数字类型
-      const strategyId = typeof values.strategy_id === 'string'
-        ? parseInt(values.strategy_id, 10)
-        : values.strategy_id;
+      // 策略值可能是数值 id（列表策略有 DB 行）或名称字符串（缺 DB 行时的兜底 value）。
+      // 未匹配到选项说明 worker 上的旧 id 已失效（如策略库重建后 id 变化），
+      // 保留原 id 并用 worker 冗余的 strategy_info.name 兜底，交给后端按 id→名称双路解析；
+      // 连名称都没有时后端无法定位策略，前置拦截给出明确提示，而不是等保存报错。
+      const rawStrategyValue = values.strategy_id;
+      const selectedStrategy = strategies.find(
+        (s) => (s.id != null && s.id === rawStrategyValue) || s.name === rawStrategyValue,
+      );
+
+      let strategyId: number | null = null;
+      let strategyName: string | null = null;
+      if (selectedStrategy) {
+        // id 缺失时必须显式传 null：后端 id 查询优先，带旧 id 可能命中错误策略
+        strategyId = selectedStrategy.id ?? null;
+        strategyName = selectedStrategy.name;
+      } else {
+        strategyId = typeof rawStrategyValue === 'number' ? rawStrategyValue : worker.strategy_id;
+        strategyName = worker.strategy_info?.name ?? null;
+        if (!strategyName) {
+          message.error('当前关联的策略已失效，请在下拉中重新选择策略');
+          return;
+        }
+      }
 
       // 获取策略文件名
-      const selectedStrategy = strategies.find(
-        (s) => s.id === strategyId || s.name === values.strategy_id
-      );
       const strategyFileName = selectedStrategy?.file_name || null;
 
       console.log('[EditWorker] 提交数据:', {
         strategy_id: strategyId,
         strategy_file_name: strategyFileName,
-        strategy_name: selectedStrategy?.name,
+        strategy_name: strategyName,
       });
 
       // 策略参数走独立端点持久化：此前只塞进 worker payload 的 strategy_params，
@@ -607,7 +621,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         description: values.description,
         strategy_id: strategyId,
         strategy_file_name: strategyFileName,
-        strategy_name: selectedStrategy?.name || null,
+        strategy_name: strategyName,
         // 交易参数统一走 trading_config（旧扁平字段已被后端 extra="forbid" 拒绝）
         trading_config: {
           exchange: values.exchange,
@@ -664,7 +678,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const handleCancel = () => {
     form.resetFields();
     setStrategyParams([]);
-    setSelectedStrategyId(null);
     onCancel();
   };
 
@@ -737,17 +750,19 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 showSearch
                 optionFilterProp="children"
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
-                onChange={(value: number) => {
-                  setSelectedStrategyId(value);
+                onChange={() => {
                   if (worker.id) {
                     fetchStrategyParams(worker.id);
                   }
                 }}
               >
                 {strategies
-                  .filter((strategy) => strategy?.id && strategy?.name)
+                  // 只要求 name：/strategy/list 的 id 可能为 null（策略缺 DB 行），
+                  // 按 id 过滤会把有效策略全部丢弃、下拉变空
+                  .filter((strategy) => strategy?.name)
                   .map((strategy) => (
-                    <Option key={strategy.id} value={strategy.id}>
+                    // 缺 id 的策略用 name 作为 value，保存时让后端按名称解析回真实 id
+                    <Option key={strategy.id ?? strategy.name} value={strategy.id ?? strategy.name}>
                       {strategy.name}
                     </Option>
                   ))}
