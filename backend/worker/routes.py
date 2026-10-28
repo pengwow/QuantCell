@@ -707,6 +707,46 @@ async def update_strategy_parameters(
     return schemas.ApiResponse(code=0, message="参数更新成功")
 
 
+# ==================== 人工风控管控 ====================
+
+
+@router.get("/{worker_id}/risk-control", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("查询人工风控配置")
+async def get_worker_risk_control(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """查询 Worker 人工风控配置 - 未配置时 data 为 null（前端回落继承策略参数展示）"""
+    data = await worker_core_service.async_get_risk_control(worker_id)
+    return schemas.ApiResponse(code=0, message="success", data=data)
+
+
+@router.put("/{worker_id}/risk-control", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("保存人工风控配置")
+async def update_worker_risk_control(
+    worker_id: int,
+    payload: schemas.RiskControlUpsert,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """保存人工风控配置 - upsert 全 8 字段（未填显式 None），并实时推送运行中 driver（applied=hot|on_start）"""
+    data = await worker_core_service.async_upsert_risk_control(worker_id, payload)
+    return schemas.ApiResponse(code=0, message="风控配置已保存", data=data)
+
+
+@router.delete("/{worker_id}/risk-control", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("取消人工风控管控")
+async def delete_worker_risk_control(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """取消人工风控管控 - 删除管控行并实时推送，语义回落策略参数 risk 直通；删除幂等"""
+    data = await worker_core_service.async_delete_risk_control(worker_id)
+    return schemas.ApiResponse(code=0, message="人工风控管控已取消", data=data)
+
+
 @router.get("/{worker_id}/strategy/positions", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("获取Worker持仓信息")
 async def get_positions(
