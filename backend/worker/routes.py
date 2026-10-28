@@ -764,6 +764,7 @@ async def get_positions(
 @handle_worker_exceptions("获取Worker订单信息")
 async def get_orders(
     worker_id: int,
+    status: str | None = Query(None, description="订单状态筛选: OPEN/FILLED/CANCELED 等"),
     symbol: str | None = Query(None, description="交易对"),
     side: str | None = Query(None, description="方向: BUY/SELL"),
     order_type: str | None = Query(None, description="订单类型"),
@@ -780,7 +781,7 @@ async def get_orders(
     orders, total = crud.get_worker_orders_paginated(
         db,
         worker_id,
-        status=None,
+        status=status,
         symbol=symbol,
         side=side,
         order_type=order_type,
