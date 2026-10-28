@@ -10,11 +10,11 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Card, Col, Empty, Row, Spin, Statistic, Table, Tag } from 'antd';
+import { Badge, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
-import type { PositionInfo } from '@/types/worker';
+import type { PositionInfo, WorkerTrade } from '@/types/worker';
 import {
   QUANT_COLORS,
   calcROE,
@@ -39,6 +39,10 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [closedTrades, setClosedTrades] = useState<WorkerTrade[]>([]);
+  const [closedTotal, setClosedTotal] = useState(0);
+  const [closedPage, setClosedPage] = useState(1);
+  const [closedLoading, setClosedLoading] = useState(false);
 
   // 拉取持仓数据：兼容多种返回结构
   const fetchPositionData = useCallback(async () => {
@@ -57,6 +61,28 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
 
   // 5s 轮询：仅在 tab 激活时启用
   usePolling(fetchPositionData, { interval: 5000, enabled: active });
+
+  // 历史平仓记录：筛选 realized_pnl 已回填的配对平仓行（append-only，15s 轮询足够感知新平仓）
+  const fetchClosedTrades = useCallback(async (page: number) => {
+    setClosedLoading(true);
+    try {
+      const res = await workerApi.getWorkerTrades(workerId, {
+        pnl_status: 'closed',
+        page,
+        page_size: 10,
+      });
+      setClosedTrades(res.items);
+      setClosedTotal(res.total);
+      setClosedPage(page);
+    } catch (error) {
+      console.error('获取历史平仓记录失败:', error);
+      setClosedTrades([]);
+    } finally {
+      setClosedLoading(false);
+    }
+  }, [workerId]);
+
+  usePolling(() => fetchClosedTrades(closedPage), { interval: 15000, enabled: active });
 
   // 汇总指标
   const summary = useMemo(() => {
@@ -194,6 +220,77 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
     return pnlPct > 5 ? 'position-row-highlight' : '';
   };
 
+  // 历史平仓记录表格列：基于 realized_pnl 已回填的配对平仓行
+  const closedColumns: TableColumnsType<WorkerTrade> = [
+    {
+      title: '平仓时间',
+      dataIndex: 'exit_time',
+      key: 'exit_time',
+      width: 170,
+      render: (time: string | undefined, record: WorkerTrade) => {
+        const t0 = time || record.created_at;
+        return t0 ? formatTimestamp(t0) : '-';
+      },
+    },
+    {
+      title: t('symbol') || '交易对',
+      dataIndex: 'symbol',
+      key: 'symbol',
+      width: 120,
+      render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
+    },
+    {
+      title: t('direction') || '方向',
+      dataIndex: 'side',
+      key: 'side',
+      width: 80,
+      render: (side: 'buy' | 'sell') => (
+        <Tag color={side === 'buy' ? 'green' : 'red'}>{side === 'buy' ? '买入' : '卖出'}</Tag>
+      ),
+    },
+    {
+      title: t('quantity') || '数量',
+      dataIndex: 'quantity',
+      key: 'quantity',
+      align: 'right',
+      render: (qty: number) => formatQuantity(qty),
+    },
+    {
+      title: '平仓价',
+      dataIndex: 'price',
+      key: 'price',
+      align: 'right',
+      render: (price: number) => formatUSD(price),
+    },
+    {
+      title: t('realized_pnl') || '已实现盈亏',
+      dataIndex: 'realized_pnl',
+      key: 'realized_pnl',
+      align: 'right',
+      width: 140,
+      render: (pnl?: number) => (
+        <span style={{ fontWeight: 600, color: (pnl ?? 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+          {formatUSD(pnl ?? 0, { showSign: true })}
+        </span>
+      ),
+    },
+    {
+      title: '收益率',
+      dataIndex: 'realized_pnl_pct',
+      key: 'realized_pnl_pct',
+      align: 'right',
+      width: 100,
+      render: (pct?: number) =>
+        pct === undefined || pct === null ? (
+          '-'
+        ) : (
+          <span style={{ fontWeight: 600, color: pct >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+            {formatPercent(pct, { showSign: true })}
+          </span>
+        ),
+    },
+  ];
+
   if (loading && positions.length === 0) {
     return <Spin style={{ display: 'block', margin: '100px auto' }} />;
   }
@@ -256,7 +353,8 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         </Col>
       </Row>
 
-      {/* 持仓列表 */}
+      {/* 持仓列表 + 历史平仓记录（Card 间距由 Space 统一管理） */}
+      <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Card
         title={
           <span>
@@ -288,6 +386,30 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
           />
         )}
       </Card>
+
+      {/* 历史平仓记录：服务端分页（数据 append-only，翻页/15s 轮询按当前页刷新） */}
+      <Card title={t('closed_trades') || '历史平仓记录'}>
+        <Table
+          columns={closedColumns}
+          dataSource={closedTrades}
+          rowKey="trade_id"
+          loading={closedLoading}
+          locale={{
+            emptyText: <Empty description="暂无平仓记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+          }}
+          pagination={{
+            current: closedPage,
+            pageSize: 10,
+            total: closedTotal,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 笔`,
+            onChange: (page) => fetchClosedTrades(page),
+          }}
+          size="middle"
+          scroll={{ x: 'max-content' }}
+        />
+      </Card>
+      </Space>
 
       {/* 高亮行样式：盈亏绝对值 > 5% */}
       <style>{`

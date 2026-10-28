@@ -902,6 +902,9 @@ def get_worker_trades_paginated(
             query = query.filter(WorkerTrade.realized_pnl < 0)
         elif pnl_status == "flat":
             query = query.filter(WorkerTrade.realized_pnl == 0)
+        elif pnl_status == "closed":
+            # 已平仓 = 配对盈亏已回填的行（entry fill 行 realized_pnl 为 None，不算平仓记录）
+            query = query.filter(WorkerTrade.realized_pnl.isnot(None))
     if start_time:
         query = query.filter(WorkerTrade.created_at >= start_time)
     if end_time:
