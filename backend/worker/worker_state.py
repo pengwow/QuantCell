@@ -30,7 +30,12 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 中间状态集合（程序异常退出后残留的风险状态）
 # 从 DB 恢复/水合状态时统一修正为 stopped，防止状态永久冻住
-RECOVERABLE_STATUSES = {"starting", "stopping", "restarting", "paused"}
+# interrupted：lifespan._mark_interrupted_workers 在进程重启时把残留 running 直写 DB
+# 的标记，不在 WorkerState 枚举内。它语义上等同于停摆——驱动线程已随旧进程消亡；
+# 若不纳入，水合后缓存里的裸字符串会让 is_valid_transition 恒拒绝
+# （WorkerState("interrupted") 抛 ValueError），停止/重启/启动全部被状态机冻住。
+# 按 stopped 处理后：停止命中 stopped 幂等特例，重启/启动走 stopped→starting 合法转换。
+RECOVERABLE_STATUSES = {"starting", "stopping", "restarting", "paused", "interrupted"}
 
 # 中间态超过该时长仍未收敛即视为残留（正常的同步 stop 最长约 10s ZMQ 超时 + 兜底，
 # 预留三倍余量），transition 拒绝时以 DB 复核自愈，避免分叉状态永久冻住
