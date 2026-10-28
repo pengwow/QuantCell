@@ -196,6 +196,10 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   // 人工风控：拉取当前配置回填表单并记快照；GET 失败不阻断编辑（快照保持全空，用户未改动就不会误提交）
   const fetchRiskControl = () => {
     if (!worker) return;
+    // 先复位快照与表单：换 worker 打开弹窗时，上一 worker 的风控残留若不清掉，
+    // 会在 GET 失败/竞态时被当作「当前 worker 的改动」提交出去
+    riskSnapshotRef.current = EMPTY_RISK_VALUES;
+    form.setFieldsValue(EMPTY_RISK_VALUES);
     getRiskControl(worker.id)
       .then((out) => {
         const formValue = payloadToFormValue(out);
@@ -207,8 +211,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       });
   };
 
-  // 提交风控配置：按 applied 分文案（hot=运行中已实时生效 / on_start=下次启动生效），成功后刷新快照
-  const pushRiskControl = async (workerId: number, values: Partial<RiskFormValues>) => {
+  // 提交风控配置：按 applied 分文案（hot=运行中已实时生效 / on_start=下次启动生效），成功后刷新快照。
+  // 返回是否保存成功，供确认弹窗决定去留（失败保持弹窗打开可重试）
+  const pushRiskControl = async (workerId: number, values: Partial<RiskFormValues>): Promise<boolean> => {
     try {
       const out = await upsertRiskControl(workerId, formValueToPayload(values));
       if (out?.applied === 'hot') {
@@ -219,85 +224,100 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       if (out) {
         riskSnapshotRef.current = payloadToFormValue(out);
       }
+      return true;
     } catch (error) {
-      // 不再向上抛：确认弹窗已有 OK 按钮 loading，这里给提示即可
+      // 不向上抛：确认弹窗已有 OK 按钮 loading，这里给提示并返回失败
       console.error('保存风控配置失败:', error);
       message.error('风控配置保存失败，请稍后重试');
+      return false;
     }
   };
 
-  // live 运行中改风控的二次确认：旧值 → 新值逐行对照，放宽标橙▲、收紧标绿▼
-  const confirmRiskUpdate = (workerId: number, next: Partial<RiskFormValues>) => {
-    const prev = riskSnapshotRef.current;
-    // 数值型风控项；cooldown 特殊：值越大限制越严（锁仓更久），方向与其余上限项相反
-    const FIELDS: { f: keyof RiskFormValues; label: string; suffix: string; invert?: boolean }[] = [
-      { f: 'risk_max_position_pct', label: '单币种最大仓位占比', suffix: '%' },
-      { f: 'risk_max_position_size', label: '单币种最大名义价值', suffix: 'USDT' },
-      { f: 'risk_daily_loss_limit', label: '当日亏损上限占比', suffix: '%' },
-      { f: 'risk_daily_loss_amount', label: '当日亏损上限金额', suffix: 'USDT' },
-      { f: 'risk_max_drawdown', label: '最大回撤上限', suffix: '%' },
-      { f: 'risk_max_leverage', label: '最大杠杆', suffix: 'x' },
-      { f: 'risk_circuit_breaker_cooldown_secs', label: '熔断冷却时长', suffix: '分钟', invert: true },
-    ];
-    const fmtVal = (v: number | null | undefined, suffix: string) =>
-      v === null || v === undefined ? '—' : `${v}${suffix ? ' ' : ''}${suffix}`;
+  // live 运行中改风控的二次确认：旧值 → 新值逐行对照，放宽标橙▲、收紧标绿▼。
+  // 返回 'saved'=已保存成功 / 'cancelled'=取消（含失败后放弃），调用方据此决定主弹窗去留
+  const confirmRiskUpdate = (workerId: number, next: Partial<RiskFormValues>): Promise<'saved' | 'cancelled'> =>
+    new Promise((resolve) => {
+      const prev = riskSnapshotRef.current;
+      // 数值型风控项；cooldown 特殊：值越大限制越严（锁仓更久），方向与其余上限项相反
+      const FIELDS: { f: keyof RiskFormValues; label: string; suffix: string; invert?: boolean }[] = [
+        { f: 'risk_max_position_pct', label: '单币种最大仓位占比', suffix: '%' },
+        { f: 'risk_max_position_size', label: '单币种最大名义价值', suffix: 'USDT' },
+        { f: 'risk_daily_loss_limit', label: '当日亏损上限占比', suffix: '%' },
+        { f: 'risk_daily_loss_amount', label: '当日亏损上限金额', suffix: 'USDT' },
+        { f: 'risk_max_drawdown', label: '最大回撤上限', suffix: '%' },
+        { f: 'risk_max_leverage', label: '最大杠杆', suffix: 'x' },
+        { f: 'risk_circuit_breaker_cooldown_secs', label: '熔断冷却时长', suffix: '分钟', invert: true },
+      ];
+      const fmtVal = (v: number | null | undefined, suffix: string) =>
+        v === null || v === undefined ? '—' : `${v}${suffix ? ' ' : ''}${suffix}`;
 
-    const rows: { key: string; label: string; before: string; after: string; loosen: boolean | null }[] = [];
-    let switchingOff = false;
+      const rows: { key: string; label: string; before: string; after: string; loosen: boolean | null }[] = [];
+      let switchingOff = false;
 
-    if (prev.risk_enabled && next.risk_enabled === false) {
-      // 启用 → 停用 单独置顶提示
-      switchingOff = true;
-      rows.push({ key: 'enabled', label: '人工风控', before: '启用', after: '停用', loosen: null });
-    } else {
-      for (const { f, label, suffix, invert } of FIELDS) {
-        // TS 联合索引带出 boolean（risk_enabled），运行时这里只会取到数值字段，断言收窄
-        const b = (prev[f] as number | null | undefined) ?? null;
-        const a = (next[f] as number | null | undefined) ?? null;
-        if (b === a) continue;
-        // 一侧为 null（引擎默认，具体值未知）时不标注方向
-        const loosen: boolean | null =
-          b === null || a === null ? null : invert ? a < b : a > b;
-        rows.push({
-          key: f as string,
-          label,
-          before: fmtVal(b, suffix),
-          after: fmtVal(a, suffix),
-          loosen,
-        });
+      if (prev.risk_enabled && next.risk_enabled === false) {
+        // 启用 → 停用 单独置顶提示
+        switchingOff = true;
+        rows.push({ key: 'enabled', label: '人工风控', before: '启用', after: '停用', loosen: null });
+      } else {
+        for (const { f, label, suffix, invert } of FIELDS) {
+          // TS 联合索引带出 boolean（risk_enabled），运行时这里只会取到数值字段，断言收窄
+          const b = (prev[f] as number | null | undefined) ?? null;
+          const a = (next[f] as number | null | undefined) ?? null;
+          if (b === a) continue;
+          // 一侧为 null（引擎默认，具体值未知）时不标注方向
+          const loosen: boolean | null =
+            b === null || a === null ? null : invert ? a < b : a > b;
+          rows.push({
+            key: f as string,
+            label,
+            before: fmtVal(b, suffix),
+            after: fmtVal(a, suffix),
+            loosen,
+          });
+        }
       }
-    }
-    if (rows.length === 0) return; // sameRiskValues 已挡住，兜底防御
+      if (rows.length === 0) {
+        // sameRiskValues 已挡住，兜底防御
+        resolve('cancelled');
+        return;
+      }
 
-    modal.confirm({
-      title: '确认更新风控配置？',
-      width: 560,
-      content: (
-        <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
-          {/* spec §5.3 要求的顶部提示：live 运行中热推即刻生效，未运行则下次启动生效 */}
-          <Text strong>修改立即作用于运行中的 worker，未运行的 worker 将在启动时生效</Text>
-          {rows.map((r) => (
-            <Row key={r.key} gutter={8}>
-              <Col span={9}>{r.label}</Col>
-              <Col span={15}>
-                <Space size={6}>
-                  <Text type="secondary">{r.before}</Text>
-                  <span>→</span>
-                  <Text>{r.after}</Text>
-                  {r.loosen === true && <Tag color="orange">▲ 放宽</Tag>}
-                  {r.loosen === false && <Tag color="green">▼ 收紧</Tag>}
-                </Space>
-              </Col>
-            </Row>
-          ))}
-          {switchingOff && (
-            <Text strong type="warning">注意：关闭后风控不再拦截任何交易</Text>
-          )}
-        </Space>
-      ),
-      onOk: () => pushRiskControl(workerId, next),
+      modal.confirm({
+        title: '确认更新风控配置？',
+        width: 560,
+        content: (
+          <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+            {/* spec §5.3 要求的顶部提示：live 运行中热推即刻生效，未运行则下次启动生效 */}
+            <Text strong>修改立即作用于运行中的 worker，未运行的 worker 将在启动时生效</Text>
+            {rows.map((r) => (
+              <Row key={r.key} gutter={8}>
+                <Col span={9}>{r.label}</Col>
+                <Col span={15}>
+                  <Space size={6}>
+                    <Text type="secondary">{r.before}</Text>
+                    <span>→</span>
+                    <Text>{r.after}</Text>
+                    {r.loosen === true && <Tag color="orange">▲ 放宽</Tag>}
+                    {r.loosen === false && <Tag color="green">▼ 收紧</Tag>}
+                  </Space>
+                </Col>
+              </Row>
+            ))}
+            {switchingOff && (
+              <Text strong type="warning">注意：关闭后风控不再拦截任何交易</Text>
+            )}
+          </Space>
+        ),
+        onOk: async () => {
+          // 保存失败返回 false：antd 确认框保持打开，用户可直接重试（失败提示已弹）
+          const ok = await pushRiskControl(workerId, next);
+          if (!ok) return false;
+          resolve('saved');
+          return true;
+        },
+        onCancel: () => resolve('cancelled'),
+      });
     });
-  };
 
   // 设置表单值（从 worker 对象）
   const setFormValuesFromWorker = () => {
@@ -618,14 +638,19 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               : worker.trading_config || {};
           const isLiveRunning = tc.trading_mode === 'live' && worker.status === 'running';
           if (isLiveRunning) {
-            confirmRiskUpdate(worker.id, riskValues);
+            // 等待二次确认结果：用户取消时不关闭主弹窗（Worker 其余修改已保存，可继续编辑）
+            const outcome = await confirmRiskUpdate(worker.id, riskValues);
+            if (outcome === 'cancelled') {
+              message.info('已取消风控更新，Worker 其他修改已保存');
+              return;
+            }
           } else {
             await pushRiskControl(worker.id, riskValues);
           }
         }
         message.success('Worker更新成功');
         onSuccess?.();
-        onCancel();
+        handleCancel();
       }
     } catch (error) {
       console.error('更新Worker失败:', error);

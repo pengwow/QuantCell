@@ -27,6 +27,7 @@ import WorkerPositionTab from '../../components/worker/WorkerPositionTab';
 import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
 import WorkerShareModal from '../../components/worker/WorkerShareModal';
+import WorkerEditModal from '../../components/worker/WorkerEditModal';
 
 dayjs.extend(relativeTime);
 
@@ -59,6 +60,10 @@ const WorkerDetail = () => {
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(() => Date.now());
   // 分享 modal 的 open 状态
   const [shareOpen, setShareOpen] = useState<boolean>(false);
+  // 编辑 modal 的 open 状态
+  const [editOpen, setEditOpen] = useState<boolean>(false);
+  // 参数 tab 重拉信号量：编辑保存成功后递增，触发 WorkerParamsTab 重拉风控配置
+  const [paramsReloadKey, setParamsReloadKey] = useState<number>(0);
 
   const {
     workers,
@@ -182,7 +187,13 @@ const WorkerDetail = () => {
     {
       key: 'params',
       label: t('parameters') || '参数',
-      children: <WorkerParamsTab worker={currentWorker} />,
+      children: (
+        <WorkerParamsTab
+          worker={currentWorker}
+          reloadKey={paramsReloadKey}
+          onEdit={() => setEditOpen(true)}
+        />
+      ),
     },
     {
       key: 'logs',
@@ -296,6 +307,17 @@ const WorkerDetail = () => {
           workerId={currentWorker.id}
           workerName={currentWorker.name}
           onClose={() => setShareOpen(false)}
+        />
+
+        {/* 编辑 Worker Modal（受控）：保存成功后刷新列表并递增参数 tab 重拉信号量 */}
+        <WorkerEditModal
+          visible={editOpen}
+          worker={currentWorker}
+          onCancel={() => setEditOpen(false)}
+          onSuccess={() => {
+            fetchWorkers();
+            setParamsReloadKey((k) => k + 1);
+          }}
         />
       </Spin>
     </PageContainer>
