@@ -163,6 +163,10 @@ class StrategyService:
                 if info:
                     row = db_rows.get(file_path.stem)
                     if row:
+                        # id 是 worker.strategy_id 的真实引用源（DB strategies 表主键）。
+                        # AST 解析 dict 不含 id，此前列表输出恒为 null，导致前端编辑
+                        # Worker 时下拉选中值与保存校验用的 id 对不上。
+                        info["id"] = row.id
                         # DB 有 params → 覆盖 AST 解析结果（含手动维护的参数描述）；
                         # AST 识别出的 select 参数为旧 DB 记录补 options 渲染能力
                         if row.parameters:
