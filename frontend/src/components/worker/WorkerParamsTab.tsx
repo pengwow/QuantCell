@@ -14,8 +14,18 @@ import { getRiskControl, getStrategyParameters } from '../../api/workerApi';
 import { QUANT_COLORS } from '@/utils/colors';
 import { useState, useEffect } from 'react';
 
-/** 人工风控展示行（启用明细态）：key 为 RiskControlOut 字段，未配置显示「引擎默认」 */
-const RISK_DISPLAY_ROWS: { key: string; label: string; unit: 'pct' | 'usdt' | 'x' | 'min' }[] = [
+/** 人工风控展示行的 7 个数值字段（key 收窄为字面量联合，risk[key] 无需断言） */
+type RiskDisplayKey =
+  | 'max_position_pct'
+  | 'max_position_size'
+  | 'daily_loss_limit'
+  | 'daily_loss_amount'
+  | 'max_drawdown'
+  | 'max_leverage'
+  | 'circuit_breaker_cooldown_secs';
+
+/** 人工风控展示行（启用明细态）：key 为 RiskControlOut 数值字段，未配置显示「引擎默认」 */
+const RISK_DISPLAY_ROWS: { key: RiskDisplayKey; label: string; unit: 'pct' | 'usdt' | 'x' | 'min' }[] = [
   { key: 'max_position_pct', label: '单币种最大仓位占比', unit: 'pct' },
   { key: 'max_position_size', label: '单币种最大名义价值', unit: 'usdt' },
   { key: 'daily_loss_limit', label: '当日亏损上限占比', unit: 'pct' },
@@ -32,7 +42,7 @@ const fmtRiskValue = (v: number | null | undefined, unit: 'pct' | 'usdt' | 'x' |
     case 'pct':
       return `${+(v * 100).toFixed(4)}%`;
     case 'usdt':
-      return `${v} USDT`;
+      return `${v.toLocaleString('en-US')} USDT`;
     case 'x':
       return `${v}x`;
     case 'min':
@@ -42,11 +52,13 @@ const fmtRiskValue = (v: number | null | undefined, unit: 'pct' | 'usdt' | 'x' |
 
 interface WorkerParamsTabProps {
   worker: WorkerType;
-  /** 风控卡片「编辑」按钮回调（父页面决定是否联动 EditModal，本次可不接） */
+  /** 风控卡片「编辑」按钮回调（父页面联动 EditModal） */
   onEdit?: () => void;
+  /** 递增触发风控配置重拉：编辑弹窗保存成功后由父页面更新，避免展示旧值 */
+  reloadKey?: number;
 }
 
-const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit }) => {
+const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloadKey = 0 }) => {
   const { t } = useTranslation();
 
   // 从 config 中提取策略参数（如果存在）
@@ -104,7 +116,9 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit }) => 
     return () => {
       cancelled = true;
     };
-  }, [worker.id]);
+    // reloadKey 仅作为重拉信号（编辑保存成功后由父页面递增），不参与 effect 内部逻辑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worker.id, reloadKey]);
 
   return (
     <div>
@@ -314,7 +328,6 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit }) => 
             <span>🛡️</span>
             <span>{t('risk_params') || '风控参数'}</span>
             {risk?.enabled && <Tag color="green">人工风控启用中</Tag>}
-            {risk?.enabled && risk?.applied === 'on_start' && <Tag color="orange">下次启动生效</Tag>}
           </Space>
         }
         extra={onEdit && <Button size="small" onClick={onEdit}>编辑</Button>}
@@ -343,7 +356,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit }) => 
                         color: unit === 'pct' || unit === 'usdt' ? QUANT_COLORS.negative : undefined,
                       }}
                     >
-                      {fmtRiskValue(risk[key as keyof RiskControlOut] as number | null | undefined, unit)}
+                      {fmtRiskValue(risk[key], unit)}
                     </span>
                   </Descriptions.Item>
                 </Descriptions>
