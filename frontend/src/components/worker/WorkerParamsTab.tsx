@@ -245,7 +245,10 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('order_type') || '下单方式'}>
-                <Tag color="cyan">{String(config.order_type) || t('market_order') || '市价单'}</Tag>
+                {/* config.order_type 是死字段（worker 配置从未支持过下单方式，读了必是 undefined）。
+                    实际执行：paper/live 主回路按目标仓位差额固定下市价单，与 paper_trade_sync「paper 撮合只产市价单」同口径，
+                    故此处如实显示市价单；limit 仅存在于订单/成交记录的筛选条件 */}
+                <Tag color="cyan">{t('market_order') || '市价单'}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
