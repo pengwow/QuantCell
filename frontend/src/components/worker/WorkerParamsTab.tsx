@@ -156,10 +156,13 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
             <Col xs={24} sm={12} md={8}>
               <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
                 <Descriptions.Item label={t('strategy_type') || '策略类型'}>
-                  <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'default' ? 'green' : 'purple'}>
-                    {worker.strategy_info.strategy_type === 'default'
-                      ? (t('default_strategy') || '默认策略')
-                      : (t('legacy_strategy') || '旧版策略')}
+                  {/* 值域对齐策略库 models（rule/rl）；'default' 为无关联策略时的兜底档，未知值归默认 */}
+                  <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'rl' ? 'purple' : 'green'}>
+                    {worker.strategy_info.strategy_type === 'rl'
+                      ? t('rl_strategy')
+                      : worker.strategy_info.strategy_type === 'rule'
+                        ? t('rule_strategy')
+                        : t('default_strategy')}
                   </Tag>
                 </Descriptions.Item>
               </Descriptions>
