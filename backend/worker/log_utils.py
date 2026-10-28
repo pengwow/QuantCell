@@ -36,6 +36,8 @@ from typing import (
     Any,
 )
 
+from loguru import logger as _loguru_logger
+
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -458,6 +460,95 @@ def reset_global_buffer():
     global _global_buffer
     with _buffer_lock:
         _global_buffer = None
+
+
+# =============================================================================
+# Worker 运行期日志双写（loguru 动态 sink）
+# =============================================================================
+# 读侧依赖两处数据源：SSE 实时流读 logs/worker/worker_{id}.log（LogFileReader），
+# /logs/recent 读内存 LogRingBuffer。worker 从子进程架构重构为主进程泵线程后，
+# 原先负责写侧的 UnifiedFileLogger 随 worker_process 退役，读侧因此恒空。
+# 这里补回写侧：泵线程启动时挂 loguru sink，按 bind 形成的 extra["worker_id"]
+# 过滤（多 worker 并发互不串写），同一条日志同时进文件 + 内存环。
+
+# loguru 级别名 → 读侧/前端枚举名（LOG_PATTERN 与 WorkerLogsPanel 按 DEBUG/INFO/WARN/ERROR 呈现）
+_LOGURU_LEVEL_ALIAS = {"WARNING": "WARN", "CRITICAL": "ERROR"}
+
+_worker_log_sinks: dict[int, int] = {}
+_worker_log_sinks_lock = threading.Lock()
+
+
+def _format_worker_log_time(record_time) -> str:
+    """record 时间 → UTC ISO 8601 毫秒精度 + Z 后缀（对齐读侧 LOG_PATTERN 的 UTC 约定）"""
+    utc_time = record_time.astimezone(UTC)
+    return f"{utc_time.strftime('%Y-%m-%dT%H:%M:%S.')}{utc_time.microsecond // 1000:03d}Z"
+
+
+def start_worker_log_sink(worker_id: int) -> None:
+    """为运行中的 worker 挂日志双写 sink（幂等，可重复调用）。
+
+    sink 职责：
+    1. 追加写 logs/worker/worker_{id}.log（LogFileReader / SSE 数据源），
+       行格式对齐 LOG_PATTERN：`ISO时间Z [LEVEL] worker_{id}: message`；
+    2. 写入 LogRingBuffer（/logs/recent 数据源）。
+
+    只有显式 bind(worker_id=...) 的日志进 per-worker 通道；
+    模块级 logger（无 worker_id extra）仍只走全局日志文件。
+
+    ponytail: 文件逐条 open-append，worker 日志是泵/tick 事件级频率量小；
+    出现高频日志场景再升级为批量缓冲 + 轮转。
+    """
+    with _worker_log_sinks_lock:
+        if worker_id in _worker_log_sinks:
+            return
+        log_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "logs",
+            "worker",
+        )
+        os.makedirs(log_dir, exist_ok=True)
+        file_path = os.path.join(log_dir, f"worker_{worker_id}.log")
+        buffer = get_global_buffer()
+
+        def _sink(message) -> None:
+            record = message.record
+            level = _LOGURU_LEVEL_ALIAS.get(record["level"].name, record["level"].name)
+            timestamp = _format_worker_log_time(record["time"])
+            source = f"worker_{worker_id}"
+            raw_message = record["message"]
+            try:
+                with open(file_path, "a", encoding="utf-8") as f:
+                    f.write(f"{timestamp} [{level}] {source}: {raw_message}\n")
+            except OSError:
+                pass  # 文件写失败不反噬交易循环；内存环仍保留该条
+            buffer.append(
+                LogEntry(
+                    timestamp=timestamp,
+                    level=level,
+                    logger=source,
+                    message=raw_message,
+                    worker_id=str(worker_id),
+                )
+            )
+
+        sink_id = _loguru_logger.add(
+            _sink,
+            # 每条日志先按 extra["worker_id"] 过滤再进 sink，多 worker 互不串写
+            # （filter 里用函数内唯一 sink_id 对应的 worker_id，由池管理何时装卸）
+            filter=lambda record, wid=worker_id: record["extra"].get("worker_id") == wid,
+            level="DEBUG",
+        )
+        # 私有变量约定：这里持有的是本函数创建的 sink 的 loguru 句柄，仅供 stop 卸载
+        _worker_log_sinks[worker_id] = sink_id
+
+
+def stop_worker_log_sink(worker_id: int) -> None:
+    """卸载 worker 的日志双写 sink（幂等，未挂载时静默）。"""
+    with _worker_log_sinks_lock:
+        sink_id = _worker_log_sinks.pop(worker_id, None)
+    if sink_id is not None:
+        with contextlib.suppress(Exception):
+            _loguru_logger.remove(sink_id)
 
 
 # =============================================================================
