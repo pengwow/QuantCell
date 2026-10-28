@@ -1902,6 +1902,103 @@ class WorkerCoreService:
 
         diagnosis["recommendations"] = recommendations
 
+    # ==================== 人工风控管控 ====================
+
+    def _get_risk_control_sync(self, worker_id: int) -> schemas.RiskControlOut | None:
+        with get_db_session() as db:
+            worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+            if worker is None:
+                raise WorkerNotFoundException(worker_id)
+            row = db.query(models.WorkerRiskControl).filter(models.WorkerRiskControl.worker_id == worker_id).first()
+            if row is None:
+                return None
+            return schemas.RiskControlOut(worker_id=worker_id, enabled=row.enabled, updated_at=row.updated_at)
+
+    async def async_get_risk_control(self, worker_id: int) -> schemas.RiskControlOut | None:
+        """查询人工风控管控行；未配置返回 None（前端回落继承策略参数展示）。"""
+        return await asyncio.to_thread(self._get_risk_control_sync, worker_id)
+
+    def _upsert_risk_control_sync(self, worker_id: int, payload: schemas.RiskControlUpsert) -> None:
+        # 显式写全部 8 字段（含 None）：表内历史 ORM default 非零，靠缺省无法区分「用户清空」
+        with get_db_session() as db:
+            worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+            if worker is None:
+                raise WorkerNotFoundException(worker_id)
+            row = db.query(models.WorkerRiskControl).filter(models.WorkerRiskControl.worker_id == worker_id).first()
+            if row is None:
+                row = models.WorkerRiskControl(worker_id=worker_id)
+                db.add(row)
+                # SQLAlchemy 坑：带 Column default 的列在「构造后赋 None」时与未赋值不可区分，
+                # INSERT 会错误落历史 default（实测带出 0.1）。先 flush 让 default 只作用于本条
+                # INSERT，对象转入 persistent 后再赋 None 走 UPDATE，写出的才是真实 NULL。
+                db.flush()
+            row.enabled = payload.enabled
+            row.max_position_pct = payload.max_position_pct
+            row.max_position_size = payload.max_position_size
+            row.daily_loss_amount = payload.daily_loss_amount
+            row.daily_loss_limit = payload.daily_loss_limit
+            row.max_drawdown = payload.max_drawdown
+            row.max_leverage = payload.max_leverage
+            row.circuit_breaker_cooldown_secs = payload.circuit_breaker_cooldown_secs
+            row.updated_at = datetime.now(UTC)
+            db.commit()
+
+    def _push_risk_control_sync(self, worker_id: int) -> str:
+        """查运行中 driver + 策略参数，调 risk_config.push_risk_control 实时推送。异常一律降级 on_start。"""
+        # 函数内 import：worker_system 构造重（交易所配置扫描），避免 core_service 导入期副作用
+        from worker.risk_config import push_risk_control
+        from worker.strategy_manager import worker_system
+
+        driver = worker_system.get_running_driver(worker_id)
+        with get_db_session() as db:
+            worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+            if worker is None or worker.strategy_id is None:
+                return "on_start"
+            from strategy.models import Strategy  # 跨模块模型，函数内 import 防循环依赖
+
+            strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+            if strategy is None:
+                return "on_start"
+        params = json.loads(strategy.parameters or "{}")
+        initial_cash = float(params.get("initial_capital", 100_000.0))
+        try:
+            return push_risk_control(worker_id, driver, params, initial_cash)
+        except Exception as exc:
+            logger.error(f"[core_service] 风控推送异常 worker_id={worker_id}: {exc}")
+            return "on_start"
+
+    async def async_upsert_risk_control(
+        self, worker_id: int, payload: schemas.RiskControlUpsert
+    ) -> schemas.RiskControlOut:
+        """落库 + 实时推送，返回 applied（hot=运行中已热更 / on_start=启动时生效）供前端分文案。"""
+        await asyncio.to_thread(self._upsert_risk_control_sync, worker_id, payload)
+        applied = await asyncio.to_thread(self._push_risk_control_sync, worker_id)
+        out = await self.async_get_risk_control(worker_id)
+        assert out is not None  # 刚 upsert 必有行
+        out.applied = applied
+        return out
+
+    def _worker_exists_sync(self, worker_id: int) -> bool:
+        with get_db_session() as db:
+            return db.query(models.Worker).filter(models.Worker.id == worker_id).first() is not None
+
+    def _delete_risk_control_sync(self, worker_id: int) -> None:
+        with get_db_session() as db:
+            row = db.query(models.WorkerRiskControl).filter(models.WorkerRiskControl.worker_id == worker_id).first()
+            if row is None:
+                return  # 幂等
+            db.delete(row)
+            db.commit()
+
+    async def async_delete_risk_control(self, worker_id: int) -> schemas.RiskControlOut:
+        """删除人工管控行（语义回落 params.risk 直通），并把停用/直通语义实时推给运行中引擎；幂等。"""
+        exists = await asyncio.to_thread(self._worker_exists_sync, worker_id)
+        if not exists:
+            raise WorkerNotFoundException(worker_id)
+        await asyncio.to_thread(self._delete_risk_control_sync, worker_id)
+        applied = await asyncio.to_thread(self._push_risk_control_sync, worker_id)
+        return schemas.RiskControlOut(worker_id=worker_id, enabled=False, updated_at=None, applied=applied)
+
 
 # 全局单例实例
 worker_core_service = WorkerCoreService()

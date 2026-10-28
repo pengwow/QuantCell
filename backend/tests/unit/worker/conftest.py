@@ -255,8 +255,8 @@ def client(db_session):
             # 设置依赖覆盖
             app.dependency_overrides[get_db] = override_get_db
 
-            # 模拟JWT验证
-            with patch("worker.dependencies.decode_jwt_token") as mock_decode:
+            # 模拟JWT验证（decode_jwt_token 定义在 utils/jwt_utils.py，由 utils/auth.py 模块级导入并调用）
+            with patch("utils.auth.decode_jwt_token") as mock_decode:
                 mock_decode.return_value = {
                     "user_id": "test-user-001",
                     "user_name": "Test User",
