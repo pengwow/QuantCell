@@ -679,6 +679,9 @@ class StrategyManager:
             interval=timeframe,
             # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
             fee_rate=RL_TRANSACTION_COST,
+            # adopt 持仓接管（与引擎默认一致）：fresh start 遇交易所残留持仓时
+            # 抄进影子账本带仓起跑；前端本期无此表单，需要 reject 时手改 worker params
+            existing_positions=params.get("existing_positions", "adopt"),
         )
 
         spec = self._load_rl_spec(worker_id, params)
@@ -802,6 +805,9 @@ class StrategyManager:
             [_normalize_symbol(s) for s in symbols],
             initial_cash=initial_cash,
             interval=timeframe,
+            # adopt 持仓接管（与引擎默认一致）：fresh start 遇交易所残留持仓时
+            # 抄进影子账本带仓起跑；前端本期无此表单，需要 reject 时手改 worker params
+            existing_positions=params.get("existing_positions", "adopt"),
         )
         driver.add_strategy(
             # ponytail: 多品种沿用 RL/paper 语义只挂首个品种；升级路径是每品种
