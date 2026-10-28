@@ -648,7 +648,9 @@ async def get_worker_trades(
     symbol: str | None = Query(None, description="交易对筛选"),
     side: str | None = Query(None, description="买卖方向: buy/sell"),
     order_type: str | None = Query(None, description="订单类型: market/limit/stop"),
-    pnl_status: str | None = Query(None, description="盈亏状态: profit/loss/flat/closed(已平仓=realized_pnl非空)"),
+    pnl_status: str | None = Query(
+        None, description="盈亏状态: profit/loss/flat/closed(已平仓=realized_pnl非空)/open(持仓中=realized_pnl为空)"
+    ),
     start_time: datetime | None = Query(None, description="开始时间"),
     end_time: datetime | None = Query(None, description="结束时间"),
     page: int = Query(1, ge=1, description="页码"),

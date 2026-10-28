@@ -484,6 +484,17 @@ def _format_worker_log_time(record_time) -> str:
     return f"{utc_time.strftime('%Y-%m-%dT%H:%M:%S.')}{utc_time.microsecond // 1000:03d}Z"
 
 
+def _worker_log_file_path(worker_id: int) -> str:
+    """per-worker 日志文件路径：backend/logs/worker/worker_{id}.log"""
+    log_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "logs",
+        "worker",
+    )
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, f"worker_{worker_id}.log")
+
+
 def start_worker_log_sink(worker_id: int) -> None:
     """为运行中的 worker 挂日志双写 sink（幂等，可重复调用）。
 
@@ -501,13 +512,7 @@ def start_worker_log_sink(worker_id: int) -> None:
     with _worker_log_sinks_lock:
         if worker_id in _worker_log_sinks:
             return
-        log_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "logs",
-            "worker",
-        )
-        os.makedirs(log_dir, exist_ok=True)
-        file_path = os.path.join(log_dir, f"worker_{worker_id}.log")
+        file_path = _worker_log_file_path(worker_id)
         buffer = get_global_buffer()
 
         def _sink(message) -> None:
@@ -549,6 +554,32 @@ def stop_worker_log_sink(worker_id: int) -> None:
     if sink_id is not None:
         with contextlib.suppress(Exception):
             _loguru_logger.remove(sink_id)
+
+
+def append_worker_error_log(worker_id: int, message: str) -> None:
+    """手动把一条 ERROR 写入 per-worker 日志通道（文件 + 内存环双写）。
+
+    背景：双写 sink 只在泵线程启动成功后挂载（start_worker_log_sink），启动失败的
+    异常发生在挂载之前，module 级 logger 的输出只落全局日志文件，前端详情页的
+    日志 tab（SSE 流 + /logs/recent 内存环）两条读侧通道都拿不到错误原因。
+    本函数手动走一遍 sink 的双写路径，行格式与 LOG_PATTERN 对齐，弥补该时序缺口。
+    """
+    timestamp = _format_worker_log_time(datetime.now(UTC))
+    source = f"worker_{worker_id}"
+    try:
+        with open(_worker_log_file_path(worker_id), "a", encoding="utf-8") as f:
+            f.write(f"{timestamp} [ERROR] {source}: {message}\n")
+    except OSError:
+        pass  # 文件写失败不反噬调用方；内存环仍保留该条
+    get_global_buffer().append(
+        LogEntry(
+            timestamp=timestamp,
+            level="ERROR",
+            logger=source,
+            message=message,
+            worker_id=str(worker_id),
+        )
+    )
 
 
 # =============================================================================

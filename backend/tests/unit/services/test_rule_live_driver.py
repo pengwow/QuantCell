@@ -89,7 +89,10 @@ def test_start_crypto_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_
     monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))
     _patch_db(monkeypatch)
 
-    # 配置边界：market_type / 交易所 / 凭证缺省必须入口即拒，不静默装配
+    # 配置边界：market_type / 交易所 / 凭证缺省必须入口即拒，不静默装配。
+    # 凭证解析支持「credentials_account 缺省 → 回退系统配置测试网 Key」，
+    # 这里清空系统配置，让「两处都没配」的报错边界不依赖开发库里的真实配置
+    monkeypatch.setattr("settings.models.SystemConfigBusiness.get_all", staticmethod(lambda: {}))
     mgr = StrategyManager(max_workers=1)
     good = {"credentials_account": "acct-1"}
     with pytest.raises(ValueError, match="仅支持永续合约"):
@@ -326,3 +329,26 @@ def test_do_start_strategy_routes_rule_modes(monkeypatch, tmp_path):
             run["stop_event"].set()
             run["thread"].join(timeout=5)
         strategy_registry.unregister(11)
+
+
+def test_resolve_live_credentials_falls_back_to_system_config(monkeypatch):
+    """credentials_account 缺省时回退系统配置的测试网 Key（GUI 用户免 CLI 配凭证）。
+
+    口径与 market_data_factory 一致：按 exchange.{id}. 前缀过滤，
+    只取 testnet_api_key / testnet_api_secret 两个字段。
+    """
+    from worker.strategy_manager import _resolve_live_credentials
+
+    monkeypatch.setattr(
+        "settings.models.SystemConfigBusiness.get_all",
+        staticmethod(
+            lambda: {
+                "exchange.binance.testnet_api_key": "cfg-key",
+                "exchange.binance.testnet_api_secret": "cfg-secret",
+                "exchange.binance.paper_initial_balance": "10000",
+                "exchange.okx.testnet_api_key": "not-binance",
+            }
+        ),
+    )
+    # 前缀过滤只认 binance 的 testnet key/secret，其余配置项被忽略
+    assert _resolve_live_credentials(1, "binance", {}) == ("cfg-key", "cfg-secret")

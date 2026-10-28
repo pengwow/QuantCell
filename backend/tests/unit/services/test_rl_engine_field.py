@@ -410,7 +410,10 @@ def test_start_rl_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_path
     monkeypatch.setattr("worker.strategy_manager.get_db_session", lambda: _FakeSession())
     monkeypatch.setattr("worker.crud.update_worker_status", lambda *args, **kwargs: None)
 
-    # 配置边界：market_type / 交易所 / 凭证缺省必须入口即拒，不静默装配
+    # 配置边界：market_type / 交易所 / 凭证缺省必须入口即拒，不静默装配。
+    # 凭证解析支持「credentials_account 缺省 → 回退系统配置测试网 Key」，
+    # 这里清空系统配置，让「两处都没配」的报错边界不依赖开发库里的真实配置
+    monkeypatch.setattr("settings.models.SystemConfigBusiness.get_all", staticmethod(lambda: {}))
     mgr = StrategyManager(max_workers=1)
     good = {"model_path": str(model_path), "credentials_account": "acct-1"}
     with pytest.raises(ValueError, match="仅支持永续合约"):

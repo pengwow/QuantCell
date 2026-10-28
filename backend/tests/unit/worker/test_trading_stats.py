@@ -188,6 +188,20 @@ class TestEnhancedTradeQuery:
                 realized_pnl=0.0,
             )
         )
+        # t4 模拟开仓 fill：引擎尚未配对出 round-trip，realized_pnl 未回填
+        db_session.add(
+            WorkerTrade(
+                worker_id=worker_id,
+                trade_id="t4",
+                symbol="BTCUSDT",
+                side="sell",
+                order_type="market",
+                quantity=1,
+                price=51000,
+                amount=51000,
+                realized_pnl=None,
+            )
+        )
         db_session.commit()
 
         profit_trades, _ = crud.get_worker_trades_paginated(db_session, worker_id, pnl_status="profit")
@@ -201,6 +215,16 @@ class TestEnhancedTradeQuery:
         flat_trades, _ = crud.get_worker_trades_paginated(db_session, worker_id, pnl_status="flat")
         assert len(flat_trades) == 1
         assert flat_trades[0].realized_pnl == 0
+
+        # open = entry fill 行（realized_pnl 为 None）；closed = 已回填配对盈亏的行
+        open_trades, open_total = crud.get_worker_trades_paginated(db_session, worker_id, pnl_status="open")
+        assert open_total == 1
+        assert open_trades[0].realized_pnl is None
+
+        closed_trades, closed_total = crud.get_worker_trades_paginated(db_session, worker_id, pnl_status="closed")
+        assert closed_total == 3
+        assert len(closed_trades) == 3
+        assert all(t.realized_pnl is not None for t in closed_trades)
 
     def test_get_worker_trades_paginated_time_range(self, db_session):
         """按时间范围筛选"""
@@ -1040,3 +1064,103 @@ class TestDataIntegrity:
 
         with pytest.raises(IntegrityError):
             db_session.commit()
+
+
+class TestDerivePositionsFromTrades:
+    """从未配对 fill 推导当前持仓（paper 账 worker_positions 表恒空的回退口径）"""
+
+    @staticmethod
+    def _add_fill(db_session, worker_id, trade_id, symbol, side, qty, price, pnl=None, ts=None):
+        db_session.add(
+            WorkerTrade(
+                worker_id=worker_id,
+                trade_id=trade_id,
+                symbol=symbol,
+                side=side,
+                order_type="market",
+                quantity=qty,
+                price=price,
+                amount=qty * price,
+                realized_pnl=pnl,
+                entry_time=ts,
+            )
+        )
+
+    def test_net_long_entry_avg_and_unrealized(self, db_session):
+        """buy 1@100 + buy 2@110 + sell 1@105（部分平仓未配对）→ 净 2 多头，均价同向加权"""
+        worker_id = 1
+        base = datetime(2026, 10, 28, 10, 0, 0)
+        self._add_fill(db_session, worker_id, "f1", "BTC/USDT", "buy", 1.0, 100.0, ts=base)
+        self._add_fill(db_session, worker_id, "f2", "BTC/USDT", "buy", 2.0, 110.0, ts=base + timedelta(minutes=5))
+        self._add_fill(db_session, worker_id, "f3", "BTC/USDT", "sell", 1.0, 105.0, ts=base + timedelta(minutes=10))
+        db_session.commit()
+
+        items = crud.derive_positions_from_trades(db_session, worker_id)
+        assert len(items) == 1
+        pos = items[0]
+        assert pos["symbol"] == "BTC/USDT"
+        assert pos["side"] == "long"
+        assert pos["quantity"] == 2.0
+        # 开仓均价只取与净仓同向（buy）的 fill：(1*100 + 2*110) / 3
+        assert pos["entry_price"] == pytest.approx(106.6666667, rel=1e-6)
+        # 近似市价 = 最后一笔未配对 fill 的成交价（部分平仓的 105）
+        assert pos["current_price"] == 105.0
+        assert pos["unrealized_pnl"] == pytest.approx((105.0 - 320.0 / 3) * 2.0, rel=1e-6)
+        assert pos["status"] == "OPEN"
+
+    def test_net_short(self, db_session):
+        """纯 sell fill → 空头持仓，side 短格式与 to_dict 契约一致"""
+        worker_id = 1
+        base = datetime(2026, 10, 28, 10, 0, 0)
+        self._add_fill(db_session, worker_id, "s1", "ETH/USDT", "sell", 1.0, 200.0, ts=base)
+        db_session.commit()
+
+        items = crud.derive_positions_from_trades(db_session, worker_id)
+        assert len(items) == 1
+        assert items[0]["side"] == "short"
+        assert items[0]["quantity"] == 1.0
+        assert items[0]["entry_price"] == 200.0
+        assert items[0]["position_id"] == "derived:1:ETH/USDT"
+
+    def test_excludes_paired_rows(self, db_session):
+        """已配对行（realized_pnl 非空）是历史 round-trip，不计入当前持仓"""
+        worker_id = 1
+        self._add_fill(db_session, worker_id, "old1", "BTC/USDT", "buy", 1.0, 100.0, pnl=5.0)
+        self._add_fill(db_session, worker_id, "old2", "BTC/USDT", "sell", 1.0, 105.0, pnl=5.0)
+        db_session.commit()
+
+        assert crud.derive_positions_from_trades(db_session, worker_id) == []
+
+    def test_net_zero_symbol_skipped(self, db_session):
+        """未配对但净额归零（对冲抵消）的 symbol 不出持仓行"""
+        worker_id = 1
+        self._add_fill(db_session, worker_id, "a1", "BTC/USDT", "buy", 1.0, 100.0)
+        self._add_fill(db_session, worker_id, "a2", "BTC/USDT", "sell", 1.0, 100.0)
+        self._add_fill(db_session, worker_id, "b1", "ETH/USDT", "buy", 3.0, 50.0)
+        db_session.commit()
+
+        items = crud.derive_positions_from_trades(db_session, worker_id)
+        assert len(items) == 1
+        assert items[0]["symbol"] == "ETH/USDT"
+        assert items[0]["quantity"] == 3.0
+
+    def test_fields_match_worker_position_to_dict(self, db_session):
+        """推导行字段形状与 WorkerPosition.to_dict() 完全对齐"""
+        worker_id = 1
+        self._add_fill(db_session, worker_id, "x1", "BTC/USDT", "buy", 1.0, 100.0)
+        db_session.commit()
+
+        derived = crud.derive_positions_from_trades(db_session, worker_id)[0]
+
+        expected = WorkerPosition(
+            worker_id=worker_id,
+            position_id="p",
+            symbol="BTC/USDT",
+            side="LONG",
+            quantity=1.0,
+            entry_price=100.0,
+            # 列 default=0.0 只在 flush 时填充；内存对象必须显式给值才能调 to_dict
+            unrealized_pnl=0.0,
+            status="OPEN",
+        ).to_dict()
+        assert set(derived.keys()) == set(expected.keys())

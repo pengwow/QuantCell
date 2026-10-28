@@ -563,6 +563,71 @@ def update_position(db: Session, position_id: str, position_data: dict) -> Worke
     return position
 
 
+def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
+    """从 worker_trades 未配对 fill（realized_pnl IS NULL）推导当前持仓。
+
+    worker_positions 表只有 live 事件链路（LiveTradeRecorder）写入；paper 模式
+    的内核持仓仅存引擎内存、不产生持仓事件，导致 paper 账「当前持仓」恒空，
+    与成交明细「持仓中」行（同一份数据的未配对 fill 视图）自相矛盾。这里按
+    FLAT_TO_FLAT 配对语义回推：未配对 fill 的净持仓量按 symbol 聚合，非零即
+    当前持仓，返回字段形状与 WorkerPosition.to_dict() 完全对齐。
+
+    ponytail: 反手场景下反手 fill 已被配对（realized_pnl 非空）而排除在推导
+    之外，其作为反手后新仓 entry 的部分会丢失——天花板是引擎不回传 per-fill
+    净仓轨迹；升级路径是 paper 泵线程直接同步内核 snapshot 落 worker_positions。
+    """
+    fills = (
+        db.query(WorkerTrade)
+        .filter(WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.is_(None))
+        .order_by(WorkerTrade.entry_time.asc())
+        .all()
+    )
+    if not fills:
+        return []
+
+    # 按 symbol 聚合净持仓：buy 为多头增量、sell 为空头增量
+    rows_by_symbol: dict[str, list[WorkerTrade]] = {}
+    for fill in fills:
+        rows_by_symbol.setdefault(fill.symbol, []).append(fill)
+
+    derived: list[dict] = []
+    for symbol, rows in rows_by_symbol.items():
+        net = sum(r.quantity if r.side == "buy" else -r.quantity for r in rows)
+        if net == 0:
+            continue  # 净额归零 = 该 symbol 已无持仓（部分平仓后的残余互相抵消）
+
+        # 开仓均价 = 与净仓同向的未配对 fill 的成交量加权价
+        # （部分平仓 fill 虽也是未配对行，但方向相反，不参与均价）
+        same_dir = [r for r in rows if (net > 0) == (r.side == "buy")]
+        same_qty = sum(r.quantity for r in same_dir)
+        entry_price = sum(r.quantity * r.price for r in same_dir) / same_qty if same_qty else 0.0
+
+        quantity = abs(net)
+        # 近似市价：该 symbol 最后一笔未配对 fill 的成交价（加仓/部分平仓均按市价撮合）
+        current_price = rows[-1].price
+        unrealized = (current_price - entry_price) * quantity if net > 0 else (entry_price - current_price) * quantity
+        derived.append(
+            {
+                "id": None,
+                "worker_id": worker_id,
+                "position_id": f"derived:{worker_id}:{symbol}",
+                "symbol": symbol,
+                "side": "long" if net > 0 else "short",
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "current_price": current_price,
+                "unrealized_pnl": unrealized,
+                "unrealized_pnl_pct": (unrealized / (quantity * entry_price) * 100 if quantity and entry_price else 0),
+                "realized_pnl": 0.0,
+                "margin_used": 0.0,
+                "status": "OPEN",
+                "opened_at": rows[0].entry_time.isoformat() if rows[0].entry_time else None,
+                "updated_at": datetime.now().isoformat(),
+            }
+        )
+    return derived
+
+
 def get_all_worker_trades(
     db: Session,
     worker_id: int,
@@ -905,6 +970,9 @@ def get_worker_trades_paginated(
         elif pnl_status == "closed":
             # 已平仓 = 配对盈亏已回填的行（entry fill 行 realized_pnl 为 None，不算平仓记录）
             query = query.filter(WorkerTrade.realized_pnl.isnot(None))
+        elif pnl_status == "open":
+            # 持仓中 = 尚未配对出 round-trip 的 fill 行（开仓成交，realized_pnl 未回填）
+            query = query.filter(WorkerTrade.realized_pnl.is_(None))
     if start_time:
         query = query.filter(WorkerTrade.created_at >= start_time)
     if end_time:
