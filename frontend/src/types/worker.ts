@@ -113,7 +113,9 @@ export interface CreateWorkerRequest {
 export interface UpdateWorkerRequest {
   name?: string;
   description?: string;
-  strategy_id?: number;
+  // 显式传 null 表示「按 strategy_name 解析」：下拉选项缺 DB id 时
+  // 后端需跳过 id 查询、按名称回填真实 id
+  strategy_id?: number | null;
   strategy_file_name?: string | null;
   strategy_name?: string | null;
   // 交易配置（唯一交易参数入口）
