@@ -47,7 +47,11 @@ def find_strategy_by_name_or_id(
         dict: 策略信息，如果找不到返回 None
     """
     try:
-        from ..strategy.models import Strategy
+        # 跨模块模型用绝对导入且保持函数内 import（防循环依赖，同 strategy_manager）：
+        # uvicorn main:app 下 worker 是顶层包，相对导入 ..strategy 会抛
+        # "attempted relative import beyond top-level package"，被下方 except
+        # 吞成 None 后任何策略都会被误判为「关联策略不存在」
+        from strategy.models import Strategy
 
         # 优先通过 ID 查找
         if strategy_id:
