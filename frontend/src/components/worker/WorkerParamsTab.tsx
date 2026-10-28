@@ -7,9 +7,10 @@ import {
   Descriptions,
   Tag,
   Space,
+  Tooltip,
 } from 'antd';
 import type { Worker as WorkerType, StrategyParameter, RiskControlOut } from '../../types/worker';
-import { CodeOutlined, TagOutlined } from '@ant-design/icons';
+import { CodeOutlined, ExclamationCircleOutlined, TagOutlined } from '@ant-design/icons';
 import { getRiskControl, getStrategyParameters } from '../../api/workerApi';
 import { QUANT_COLORS } from '@/utils/colors';
 import { useState, useEffect } from 'react';
@@ -364,9 +365,19 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
                   <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
                     <Descriptions.Item label={label}>
                       {v === null || v === undefined ? (
-                        // 未配置 → 引擎默认档：灰字弱化（与告警红字区分），并写明具体值
-                        <span style={{ fontWeight: 500, color: '#999' }}>
-                          引擎默认：{engineDefault}
+                        // 未配置 → 引擎默认档：保持原染色警示，感叹号悬浮展示具体默认值
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            color: unit === 'pct' || unit === 'usdt' ? QUANT_COLORS.negative : undefined,
+                          }}
+                        >
+                          引擎默认
+                          <Tooltip title={`未配置该项，当前按引擎内置默认生效：${engineDefault}`}>
+                            <ExclamationCircleOutlined
+                              style={{ marginLeft: 4, fontSize: 12, color: '#faad14', cursor: 'help' }}
+                            />
+                          </Tooltip>
                         </span>
                       ) : (
                         <span
