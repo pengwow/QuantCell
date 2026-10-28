@@ -179,6 +179,22 @@ async def test_get_state_hydrates_residue_as_stopped(state_manager, fake_db, mon
     assert await state_manager.transition(999, "starting") is True
 
 
+@pytest.mark.asyncio
+async def test_get_state_hydrates_interrupted_as_stopped(state_manager, fake_db, monkeypatch):
+    """回归：进程重启恢复扫描把残留 running 直写为 interrupted（不在枚举内），
+    水合时必须按 stopped 处理，否则停止/重启/启动报
+    "当前状态 (interrupted) 不允许停止" """
+    monkeypatch.setattr(fake_db.crud, "get_worker", lambda db, wid: _FakeWorker("interrupted"))
+
+    state = await state_manager.get_state(999)
+    assert state is not None
+    assert state.status == "stopped"
+
+    # 重启第一步 start 走 stopped→starting 合法转换；停止则命中
+    # core_service 的 stopped 幂等特例（stopped→stopping 被状态机正常拒绝）
+    assert await state_manager.transition(999, "starting") is True
+
+
 # ==================== 陈旧中间态自愈回归测试 ====================
 # 场景：同步收尾路径（stop/start 内部）直写 DB 不动内存缓存，缓存停在
 # stopping 而 DB 已是 stopped；缓存命中后不再水合 → Worker 永久卡死。
