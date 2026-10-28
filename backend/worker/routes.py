@@ -714,7 +714,6 @@ async def update_strategy_parameters(
 @handle_worker_exceptions("查询人工风控配置")
 async def get_worker_risk_control(
     worker_id: int,
-    db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
     """查询 Worker 人工风控配置 - 未配置时 data 为 null（前端回落继承策略参数展示）"""
@@ -727,7 +726,6 @@ async def get_worker_risk_control(
 async def update_worker_risk_control(
     worker_id: int,
     payload: schemas.RiskControlUpsert,
-    db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
     """保存人工风控配置 - upsert 全 8 字段（未填显式 None），并实时推送运行中 driver（applied=hot|on_start）"""
@@ -739,7 +737,6 @@ async def update_worker_risk_control(
 @handle_worker_exceptions("取消人工风控管控")
 async def delete_worker_risk_control(
     worker_id: int,
-    db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
     """取消人工风控管控 - 删除管控行并实时推送，语义回落策略参数 risk 直通；删除幂等"""

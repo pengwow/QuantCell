@@ -221,18 +221,22 @@ def push_risk_control(worker_id: int, driver: Any | None, params: dict, initial_
             return "on_start"
         resolved = resolve_risk_settings(params, worker_id, initial_cash)
         if resolved is None:
-            # 人工取消/停用：bypass 全放行（引擎保留，不再检查）
-            driver.set_risk_enabled(False)
-            return "hot"
+            # 人工取消/停用：已装配则关掉风控检查全放行；未装配时 set_risk_enabled 是
+            # no-op，且下次启动装配时 resolve 同样返回 None（本来就不会装），走暂存语义
+            if driver.risk_assembled():
+                driver.set_risk_enabled(False)
+                return "hot"
+            return "on_start"
         config, max_position_value = resolved
         if not driver.risk_assembled():
             # 引擎未装配：走启动前暂存，等价 apply_risk_config 的旧路径
             driver.set_risk_config(config, max_position_value=max_position_value)
             return "on_start"
-        # 顺序关键：先 set_enabled(True) 清 bypass，再换配置；
-        # 顺序颠倒会把旧 bypass 残留到新配置上（换档后仍全放行）
-        driver.set_risk_enabled(True)
+        # 顺序关键：先换配置再清 bypass。update 失败时引擎完全未动，except 降级 on_start
+        # 语义准确；若先 set_enabled 后 update，update 失败会留下「旧阈值+已启用」错配态。
+        # set_enabled 写 AtomicBool 几乎不会失败，放最后兜底。
         driver.update_risk_config(config, max_position_value)
+        driver.set_risk_enabled(True)
         return "hot"
     except Exception as exc:
         logger.error(f"[risk_config] 风控配置推送失败 worker_id={worker_id}: {exc}")
