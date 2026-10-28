@@ -113,9 +113,10 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         params.start_time = appliedFilters.time_range[0].toISOString();
         params.end_time = appliedFilters.time_range[1].toISOString();
       }
-      // apiRequest.get() 已解包 ApiResponse.data，getOrders 直接返回 OrderInfo[]
-      const items = await workerApi.getOrders(workerId, params);
-      setOrders(items);
+      // apiRequest.get() 已解包 ApiResponse.data；orders 接口契约是分页对象
+      // {items,total,...}，不是数组——直接当数组用会 orders.forEach 崩溃白屏
+      const data = await workerApi.getOrders(workerId, params);
+      setOrders(data?.items ?? []);
     } catch (error) {
       console.error('获取委托数据失败:', error);
       setOrders([]);

@@ -660,6 +660,7 @@ export const getPositions = (
  * 获取订单信息
  * @param workerId Worker ID
  * @param params 筛选参数：status/symbol/side/order_type/start_time/end_time
+ * @returns 分页对象（后端契约为 {items,total,page,page_size}，非数组）
  */
 export const getOrders = (
   workerId: number,
@@ -671,7 +672,7 @@ export const getOrders = (
     start_time?: string;
     end_time?: string;
   }
-): Promise<OrderInfo[]> => {
+): Promise<{ items: OrderInfo[]; total: number; page: number; page_size: number }> => {
   return apiRequest.get(`/workers/${workerId}/strategy/orders`, { params });
 };
 
