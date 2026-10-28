@@ -390,9 +390,20 @@ class RiskControlUpsert(BaseModel):
 
 
 class RiskControlOut(BaseModel):
-    """风控配置查询/推送结果"""
+    """风控配置查询/推送结果
+
+    除状态元数据外必须携带全部 7 个数值字段：编辑弹窗打开时要按保存值回填表单，
+    enabled=False 停用后「字段值保留、重开原值回填」的语义依赖这些列可读回。
+    """
 
     worker_id: int
     enabled: bool
+    max_position_pct: float | None = None
+    max_position_size: float | None = None
+    daily_loss_amount: float | None = None
+    daily_loss_limit: float | None = None
+    max_drawdown: float | None = None
+    max_leverage: float | None = None
+    circuit_breaker_cooldown_secs: int | None = None
     updated_at: datetime | None = None
     applied: Literal["hot", "on_start"] | None = None  # hot=运行中已热更；on_start=重启/启动时生效
