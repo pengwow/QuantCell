@@ -235,8 +235,9 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('total_investment') || '总投入金额'}>
+                {/* config 里没有 total_investment；创建/编辑弹窗提交与启动参数读的都是 initial_capital（worker 初始资金） */}
                 <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-                  ${typeof config.total_investment === 'number' ? config.total_investment.toFixed(2) : '-'}
+                  ${typeof config.initial_capital === 'number' ? config.initial_capital.toFixed(2) : '-'}
                 </span>
               </Descriptions.Item>
             </Descriptions>
