@@ -87,16 +87,16 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
   const currentStrategyParams: Record<string, unknown> =
     rawParams && typeof rawParams === 'object' ? (rawParams as Record<string, unknown>) : {};
 
-  // 加载策略参数定义
+  // 加载策略参数定义（后端合并策略库 schema + worker 覆盖值，按 worker 维度查询）
   useEffect(() => {
     const loadParams = async () => {
-      if (!worker.strategy_info?.id) {
+      if (!worker.id) {
         setStrategyParams([]);
         return;
       }
       setLoadingParams(true);
       try {
-        const params = await getStrategyParameters(worker.strategy_info.id);
+        const params = await getStrategyParameters(worker.id);
         setStrategyParams(params);
       } catch (error) {
         console.error('加载策略参数失败:', error);
@@ -106,7 +106,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
       }
     };
     loadParams();
-  }, [worker.strategy_info?.id]);
+  }, [worker.id]);
 
   // 人工风控配置（GET null = 从未配置过 → 继承策略参数）
   const [risk, setRisk] = useState<RiskControlOut | null>(null);
@@ -266,7 +266,8 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           <Row gutter={[24, 16]}>
             {strategyParams.map((param) => {
               const currentValue = currentStrategyParams[param.param_name];
-              const displayValue = currentValue ?? param.default_value ?? param.param_value ?? '-';
+              // 生效值优先级：运行配置覆盖 > 后端合并的 param_value（快照覆盖 ?? schema 默认）> schema 默认
+              const displayValue = currentValue ?? param.param_value ?? param.default_value ?? '-';
               let valueDisplay: React.ReactNode;
               const valueStyle: React.CSSProperties = { fontWeight: 500 };
 

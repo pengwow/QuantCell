@@ -681,11 +681,11 @@ async def get_strategy_parameters(
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取策略参数 - 委托给 crud 层"""
+    """获取策略参数 - 策略库 schema 为主干 + worker 级覆盖值合并（见 crud.get_worker_strategy_parameters）"""
     from . import crud
 
-    params = crud.get_worker_parameters(db, worker_id)
-    return schemas.ApiResponse(code=0, message="success", data=[p.to_dict() for p in params])
+    params = crud.get_worker_strategy_parameters(db, worker_id)
+    return schemas.ApiResponse(code=0, message="success", data=params)
 
 
 @router.put("/{worker_id}/strategy/parameters", response_model=schemas.ApiResponse)
