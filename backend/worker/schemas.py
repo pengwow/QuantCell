@@ -4,12 +4,10 @@ Worker API数据模型定义
 定义Pydantic请求和响应模型
 """
 
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 class SymbolsConfig(BaseModel):
@@ -372,3 +370,29 @@ class OverviewResponse(BaseModel):
     cumulative_pnl_series: TradeHistoryChart
     pnl_distribution: PnLDistribution
     window: str = "30d"
+
+
+class RiskControlUpsert(BaseModel):
+    """Worker 人工风控配置 upsert。
+
+    全部数值字段 Optional；调用方必须把用户「未填」以 None 显式传入——
+    表内历史 ORM default 非零，靠缺省无法区分「用户清空」。
+    """
+
+    enabled: bool
+    max_position_pct: float | None = Field(default=None, gt=0, le=1, description="仓位名义额占权益比例上限")
+    max_position_size: float | None = Field(default=None, gt=0, description="仓位名义额绝对值上限")
+    daily_loss_amount: float | None = Field(default=None, gt=0, description="日亏绝对额上限")
+    daily_loss_limit: float | None = Field(default=None, gt=0, le=1, description="日亏比例上限（占初始权益）")
+    max_drawdown: float | None = Field(default=None, gt=0, le=1, description="最大回撤比例上限")
+    max_leverage: float | None = Field(default=None, ge=1, le=200, description="最大杠杆")
+    circuit_breaker_cooldown_secs: int | None = Field(default=None, ge=0, le=604800, description="熔断冷却秒数")
+
+
+class RiskControlOut(BaseModel):
+    """风控配置查询/推送结果"""
+
+    worker_id: int
+    enabled: bool
+    updated_at: datetime | None = None
+    applied: Literal["hot", "on_start"] | None = None  # hot=运行中已热更；on_start=重启/启动时生效
