@@ -10,6 +10,7 @@ from typing import Any
 
 import psutil
 
+from config.settings import get_settings
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -169,7 +170,7 @@ class SystemService:
 
             # 获取版本信息
             version_info = {
-                "system_version": "1.0.0",  # 系统版本，可从配置文件或环境变量获取
+                "system_version": get_settings().app_version,
                 "python_version": platform.python_version(),
                 "build_date": "2025-11-30",  # 构建日期，可从环境变量或配置文件获取
             }

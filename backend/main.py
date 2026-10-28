@@ -20,6 +20,7 @@ import backtest.models
 import strategy.models
 
 # 导入核心模块
+from config.settings import get_settings
 from core import lifespan
 from core.port_manager import PortAllocationError, port_manager
 from utils.logger import LogType, get_logger
@@ -56,11 +57,11 @@ from websocket.routes import router as websocket_router
 from worker import router as worker_router
 from worker.routes import websocket_endpoint
 
-# 创建FastAPI应用实例
+# 创建FastAPI应用实例（version 走 settings 单源，OpenAPI 与桌面端展示一致）
 app = FastAPI(
     title="QuantCell API",
     description="量化交易系统API",
-    version="1.0.0",
+    version=get_settings().app_version,
     lifespan=lifespan,
 )
 

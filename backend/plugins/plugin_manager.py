@@ -7,6 +7,7 @@ import shutil
 import sys
 from typing import TYPE_CHECKING
 
+from config.settings import get_settings
 from utils.logger import LogType, get_logger
 
 from .event_bus import EventBus
@@ -27,8 +28,6 @@ except ImportError:
 
 
 logger = get_logger(__name__, LogType.APPLICATION)
-
-SYSTEM_VERSION = "1.0.0"
 
 
 def _parse_version(version_str: str) -> tuple:
@@ -243,9 +242,15 @@ class PluginManager:
         min_version = manifest.get("min_system_version")
         if not min_version:
             return True
+        system_version = get_settings().app_version
+        if system_version == "dev":
+            # 开发版没有语义化版本可比，视为满足任意插件的最低版本要求
+            return True
         try:
-            return _parse_version(SYSTEM_VERSION) >= _parse_version(min_version)
+            return _parse_version(system_version) >= _parse_version(min_version)
         except ValueError, TypeError:
+            # 原写法 `except ValueError, TypeError:` 是 Python 2 语法（3.14 解析为元组捕获，
+            # 属历史遗留），这里规范化为标准元组形式，捕获语义不变
             logger.warning(f"版本号解析失败: min_system_version={min_version}")
             return False
 
@@ -257,7 +262,7 @@ class PluginManager:
 
         if not self._check_version_compatibility(manifest):
             min_ver = manifest.get("min_system_version")
-            logger.error(f"插件要求系统最低版本 {min_ver}，当前系统版本 {SYSTEM_VERSION}")
+            logger.error(f"插件要求系统最低版本 {min_ver}，当前系统版本 {get_settings().app_version}")
             return False
 
         permissions = manifest.get("permissions", [])

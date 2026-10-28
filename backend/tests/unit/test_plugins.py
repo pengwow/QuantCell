@@ -9,6 +9,16 @@ from unittest.mock import MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_settings_cache():
+    """版本兼容用例会 monkeypatch QUANTCELL_VERSION，前后清掉 settings 缓存"""
+    from config.settings import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 # Mock plugin_store completely to avoid pytz and sqlalchemy
 class MockPluginStore:
     @staticmethod
@@ -167,8 +177,10 @@ class TestPluginManager:
         assert valid is False
         assert "缺少 version 字段" in msg
 
-    def test_check_version_compatibility(self):
-        """测试 _check_version_compatibility 方法"""
+    def test_check_version_compatibility(self, monkeypatch):
+        """测试 _check_version_compatibility 方法（固定语义版本，避免 dev 兜底短路比较）"""
+        monkeypatch.setenv("QUANTCELL_VERSION", "1.0.0")
+
         from plugins.plugin_manager import PluginManager
 
         pm = PluginManager()
