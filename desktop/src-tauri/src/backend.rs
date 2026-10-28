@@ -415,6 +415,9 @@ pub fn set_backend_mode(
             PersistedConfig {
                 mode: BackendMode::Remote,
                 remote_url: Some(url),
+                // 与 Local 分支的 default() 一致：切模式即整份覆盖（含镜像基址归零，
+                // 镜像由 update_set_mirror 独立设置）
+                mirror_base_url: None,
             }
         }
         BackendMode::Local => PersistedConfig::default(),

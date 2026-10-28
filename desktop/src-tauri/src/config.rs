@@ -26,6 +26,9 @@ pub struct PersistedConfig {
     pub mode: BackendMode,
     #[serde(default, rename = "remoteUrl")]
     pub remote_url: Option<String>,
+    /// 自定义更新镜像基址（如 https://mirror.example.com/quantcell）；None 表示只用官方源
+    #[serde(default, rename = "mirrorBaseUrl")]
+    pub mirror_base_url: Option<String>,
 }
 
 impl Default for PersistedConfig {
@@ -33,6 +36,7 @@ impl Default for PersistedConfig {
         Self {
             mode: BackendMode::Local,
             remote_url: None,
+            mirror_base_url: None,
         }
     }
 }
@@ -94,9 +98,32 @@ mod tests {
         let cfg = PersistedConfig {
             mode: BackendMode::Remote,
             remote_url: Some("https://api.example.com".into()),
+            mirror_base_url: None,
         };
         save(&dir, &cfg).unwrap();
         assert_eq!(load(&dir), cfg);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mirror_base_url_round_trip() {
+        let dir = unique_tmp_dir();
+        let cfg = PersistedConfig {
+            mode: BackendMode::Local,
+            remote_url: None,
+            mirror_base_url: Some("https://mirror.example.com/quantcell".into()),
+        };
+        save(&dir, &cfg).unwrap();
+        assert_eq!(load(&dir), cfg);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_config_without_mirror_loads() {
+        // 老版本 desktop-config.json 没有 mirrorBaseUrl 字段，必须回退 None
+        let dir = unique_tmp_dir();
+        fs::write(config_path(&dir), r#"{"mode":"local","remoteUrl":null}"#).unwrap();
+        assert_eq!(load(&dir).mirror_base_url, None);
         let _ = fs::remove_dir_all(&dir);
     }
 }
