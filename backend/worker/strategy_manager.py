@@ -34,7 +34,7 @@ from .exceptions import (
     WorkerNotFoundException,
 )
 from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
-from .log_utils import start_worker_log_sink, stop_worker_log_sink
+from .log_utils import append_worker_error_log, start_worker_log_sink, stop_worker_log_sink
 from .paper_trade_sync import PaperTradeSync
 from .risk_config import RiskPnlFeeder, apply_risk_config
 from .worker_state import worker_state_manager
@@ -64,6 +64,65 @@ _LIVE_SNAPSHOT_INTERVAL_S = 15.0
 # 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
 # 环境变量故直连可达，这里显式清掉代理保持同一语义
 _PAPER_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _resolve_live_credentials(worker_id: int, exchange: str, params: dict[str, Any]) -> tuple[str, str]:
+    """解析 live/testnet 装配所需凭证，返回 (api_key, api_secret)。
+
+    系统里有两套互不相通的凭证体系：
+    1. 「凭证管理」CredentialsService —— CLI `quantcell account add` 创建，
+       机器指纹加密存储（credentials.db）。显式路径：策略参数 credentials_account。
+    2. 「系统配置」SystemConfig 表 —— 前端设置页保存的
+       `exchange.{exchange}.testnet_api_key / testnet_api_secret`
+       （与「测试连接」按钮、行情采集同源）。
+
+    显式账户优先；缺 credentials_account 时回退读系统配置的测试网 Key，
+    让只在 GUI 里配过 Key 的用户也能启动 testnet worker。两者皆无才报错，
+    报错信息同时指引两个配置来源。
+    """
+    # credentials 模块带机器指纹加密与独立 SQLite，属可选组件；worker 会被
+    # 回测 / CLI / 迁移脚本等多种入口导入，函数内导入避免把该依赖强加给所有调用方
+    from credentials.exceptions import AccountNotFoundError
+    from credentials.service import CredentialsService
+
+    account_name = str(params.get("credentials_account") or "").strip()
+    if account_name:
+        try:
+            return CredentialsService().get_credential(account_name)
+        except AccountNotFoundError as e:
+            # 显式指定的账户不存在：报错里带出两个可用配置来源，方便用户纠偏
+            raise ValueError(
+                f"worker {worker_id} 凭证管理中不存在账户 {account_name!r}；"
+                "可在策略参数中改配已存在的 credentials_account，"
+                f"或使用系统配置中 {exchange} 的测试网 API Key"
+            ) from e
+
+    # 回退路径：读系统配置里该交易所的测试网 Key（与 market_data_factory 同口径）。
+    # settings.models 顶层导入会拉起 DB 元数据并与 worker 存在环形导入风险，保持函数内导入；
+    # 无 DB / 未配置等任何异常都视为「系统配置无可用凭证」，走末尾报错分支
+    config_map: dict[str, Any] = {}
+    try:
+        from settings.models import SystemConfigBusiness
+
+        prefix = f"exchange.{exchange}."
+        config_map = {
+            key[len(prefix) :]: value for key, value in SystemConfigBusiness.get_all().items() if key.startswith(prefix)
+        }
+    except Exception:  # ponytail: 配置读取失败统一按未配置处理，报错走统一出口
+        config_map = {}
+
+    api_key = str(config_map.get("testnet_api_key") or "").strip()
+    api_secret = str(config_map.get("testnet_api_secret") or "").strip()
+    if api_key and api_secret:
+        return api_key, api_secret
+
+    raise ValueError(
+        f"worker {worker_id} 实盘未找到可用凭证："
+        "① 在策略参数中配置 credentials_account（凭证管理中的账户名，"
+        "CLI: quantcell account add），"
+        f"或 ② 在系统配置页面保存 {exchange} 的测试网 API Key/Secret"
+        "（exchange.{exchange}.testnet_api_key / testnet_api_secret）"
+    )
 
 
 class StrategyManager:
@@ -220,6 +279,8 @@ class StrategyManager:
                             await worker_state_manager.transition(worker.id, "error", error_message=str(e))
                         except Exception as te:
                             logger.error(f"[StrategyManager] 恢复失败状态同步异常: worker_id={worker.id}, error={te}")
+                        # 恢复失败同样发生在 sink 挂载前，手动双写让前端日志 tab 可见
+                        append_worker_error_log(worker.id, f"恢复启动失败: {e}")
 
             if config_errors:
                 logger.warning(
@@ -255,6 +316,9 @@ class StrategyManager:
         except Exception as e:
             logger.error(f"[StrategyManager] 启动策略失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
             await worker_state_manager.transition(worker_id, "error", error_message=str(e))
+            # 启动失败的异常发生在 per-worker 日志 sink 挂载之前，全局日志前端看不到；
+            # 手动写入 per-worker 通道（文件 + 内存环），详情页日志 tab / 头部才能看到原因
+            append_worker_error_log(worker_id, f"启动失败: {e}")
             return False
 
     async def _do_start_strategy(self, worker_id: int, worker, db=None) -> bool:
@@ -638,8 +702,8 @@ class StrategyManager:
 
         Args:
             worker_id: Worker ID（用于运行态缓存与 journal 定位）
-            params: 策略参数，需含 `model_path` / `credentials_account`；
-                可选 `spec_version` / `initial_capital`
+            params: 策略参数，需含 `model_path`；可选 `credentials_account`
+                （缺省回退系统配置的测试网 Key）/ `spec_version` / `initial_capital`
             timeframe: K 线周期（驱动 bar 闭合节奏）
             symbols: 交易品种列表，RL host 只挂第一个
             exchange: 交易所标识（v1 仅 binance）
@@ -651,7 +715,6 @@ class StrategyManager:
         from axon_quant import worker as axon_worker
         from axon_quant.exchange import ExchangeConfig, ExchangeId
 
-        from credentials.service import CredentialsService
         from services.rl_service import RL_TRANSACTION_COST
         from strategy.rust_adapter import _normalize_symbol
 
@@ -665,15 +728,8 @@ class StrategyManager:
             )
             raise ValueError(msg)
 
-        account_name = str(params.get("credentials_account") or "").strip()
-        if not account_name:
-            msg = (
-                f"worker {worker_id} RL 实盘需要在策略参数中配置 "
-                "credentials_account（凭证管理中的账户名），不支持从环境变量隐式取 key"
-            )
-            raise ValueError(msg)
-
-        api_key, api_secret = CredentialsService().get_credential(account_name)
+        # 凭证解析：策略参数 credentials_account 优先，缺省回退系统配置的测试网 Key
+        api_key, api_secret = _resolve_live_credentials(worker_id, exchange, params)
 
         # binance_testnet_config() 硬编码的是现货测试网 URL，而 LiveDriver v1
         # 只支持合约 → 这里手工构造 USDT-M 合约测试网配置
@@ -767,7 +823,8 @@ class StrategyManager:
 
         Args:
             worker_id: Worker ID（用于运行态缓存与 journal 定位）
-            params: 策略参数，需含 `credentials_account`；可选 `initial_capital`
+            params: 策略参数；可选 `credentials_account`（缺省回退系统配置的测试网 Key）
+                与 `initial_capital`
             strategy_instance: 已加载的 BaseStrategy，经 RustStrategyAdapter 包装挂载
             timeframe: K 线周期（驱动 bar 闭合节奏）
             symbols: 交易品种列表，只挂第一个
@@ -780,7 +837,6 @@ class StrategyManager:
         from axon_quant import worker as axon_worker
         from axon_quant.exchange import ExchangeConfig, ExchangeId
 
-        from credentials.service import CredentialsService
         from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
 
         if exchange.lower() != "binance":
@@ -793,15 +849,8 @@ class StrategyManager:
             )
             raise ValueError(msg)
 
-        account_name = str(params.get("credentials_account") or "").strip()
-        if not account_name:
-            msg = (
-                f"worker {worker_id} 实盘需要在策略参数中配置 "
-                "credentials_account（凭证管理中的账户名），不支持从环境变量隐式取 key"
-            )
-            raise ValueError(msg)
-
-        api_key, api_secret = CredentialsService().get_credential(account_name)
+        # 凭证解析：策略参数 credentials_account 优先，缺省回退系统配置的测试网 Key
+        api_key, api_secret = _resolve_live_credentials(worker_id, exchange, params)
 
         # 与 start_rl_live 相同：binance_testnet_config() 是现货 URL，这里手工
         # 构造 USDT-M 合约测试网配置（URL 与 exchange/binance/exchange.py 一致）
@@ -1274,6 +1323,8 @@ class StrategyManager:
         from .state import strategy_registry
 
         strategy_registry.update_status(worker_id, "error", error_message=message)
+        # 驱动循环的失败可能发生在 sink 挂载之外（如 RL 推理循环），同样手动双写
+        append_worker_error_log(worker_id, f"运行失败: {message}")
         # 第三层：worker_state_manager 缓存 + WS 广播 + DB 持久化（transition 是 async，
         # 泵线程没有运行中的事件循环，用 asyncio.run 短暂桥接；transition 返回 bool、
         # 失败不抛异常。此层失败仅记日志，不影响上面两层落账）

@@ -1474,7 +1474,7 @@ class WorkerCoreService:
             symbol: 交易对筛选
             side: 买卖方向 buy/sell
             order_type: 订单类型 market/limit/stop
-            pnl_status: 盈亏状态 profit/loss/flat
+            pnl_status: 盈亏状态 profit/loss/flat/closed/open
             start_time: 开始时间
             end_time: 结束时间
             page: 页码（从1开始）

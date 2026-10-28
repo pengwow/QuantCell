@@ -161,6 +161,13 @@ class BinanceExchange(BaseExchange):
                     else:
                         self.exchange.urls["api"][key] = old_val.replace("api.binance.com", "testnet.binance.vision")
 
+        # 两个测试网域名（合约 testnet.binancefuture.com / 现货 testnet.binance.vision）均不提供
+        # sapi 服务，且 sapi 路径（/sapi/v1/...）无法映射到 fapi——上面按域名替换后只会打出
+        # 404（如 capital/config/getall，live 成交落库轮询持续 WARN 的来源）。ccxt 的
+        # load_markets 会因 fetchCurrencies 选项默认开启而调用 sapi 拉取币种链信息，
+        # 而市场列表本身不依赖该数据，测试网下显式关闭让 load_markets 跳过这步必败调用
+        self.exchange.options["fetchCurrencies"] = False
+
     def connect(self) -> bool:
         try:
             self.exchange.load_markets()

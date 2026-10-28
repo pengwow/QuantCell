@@ -5,6 +5,9 @@
 - 内存环：get_recent(worker_id=...) 能查到，且未 bind 的日志不串入
 - 级别映射：loguru WARNING → WARN（前端/读侧枚举）
 - 幂等：重复 start 不重复写入；stop 后不再接收、重复 stop 静默
+
+append_worker_error_log 契约：启动失败发生在 sink 挂载之前，手动双写
+（文件 + 内存环）保证前端日志 tab 可见失败原因。
 """
 
 import re
@@ -15,6 +18,7 @@ from pathlib import Path
 from utils.logger import LogType, get_logger
 from worker.log_utils import (
     LOG_PATTERN,
+    append_worker_error_log,
     get_global_buffer,
     start_worker_log_sink,
     stop_worker_log_sink,
@@ -69,3 +73,26 @@ def test_worker_log_sink_double_write():
         if WORKER_LOG.exists():
             shutil.move(str(WORKER_LOG), tempfile.mkdtemp())
         stop_worker_log_sink(TEST_WORKER)
+
+
+def test_append_worker_error_log_without_sink():
+    """启动失败场景：sink 未挂载时手动双写，文件与内存环均可见（读侧契约）"""
+    try:
+        append_worker_error_log(TEST_WORKER, "启动失败: 缺 credentials_account")
+
+        # 进程级 buffer 与 sink 测试共享，用独特 keyword 隔离本测试写入的条目
+        entries = _fetch(limit=10, keyword="credentials_account")
+        assert [e["level"] for e in entries] == ["ERROR"], entries
+        assert len(entries) == 1
+        assert entries[-1]["message"] == "启动失败: 缺 credentials_account"
+
+        # 文件行格式同样可被 LOG_PATTERN 解析（SSE 数据源）
+        lines = WORKER_LOG.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 1, lines
+        m = LOG_PATTERN.match(lines[0])
+        assert m, f"行不匹配 LOG_PATTERN: {lines[0]!r}"
+        assert m.group(2) == "ERROR" and m.group(3) == f"worker_{TEST_WORKER}"
+    finally:
+        if WORKER_LOG.exists():
+            shutil.move(str(WORKER_LOG), tempfile.mkdtemp())
+        stop_worker_log_sink(TEST_WORKER)  # 未挂载时幂等静默
