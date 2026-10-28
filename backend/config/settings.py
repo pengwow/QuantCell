@@ -13,6 +13,7 @@ main.py 及生命周期模块统一从这里读取配置，避免散落 os.envir
 
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,7 +32,14 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "QuantCell API"
-    app_version: str = "1.0.0"
+    # 版本单源：桌面端由 tauri 壳 spawn sidecar 时注入 QUANTCELL_VERSION（值 = git tag），
+    # 其余场景（本地源码、CI 单测）兜底 dev。
+    # 字段名与注入的变量名不一致，需显式 validation_alias 才能读到 QUANTCELL_VERSION；
+    # 保留 APP_VERSION 使「环境变量名 = 字段名」的通用约定仍然成立
+    app_version: str = Field(
+        default="dev",
+        validation_alias=AliasChoices("QUANTCELL_VERSION", "APP_VERSION"),
+    )
 
     # 日志级别（uvicorn 与业务日志共用）；None 表示未显式配置，回退 config.toml
     log_level: str | None = None

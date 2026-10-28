@@ -12,6 +12,15 @@ import pytest
 class TestPluginManager:
     """测试 PluginManager 类"""
 
+    @pytest.fixture(autouse=True)
+    def _clear_settings_cache(self):
+        """版本兼容用例会 monkeypatch QUANTCELL_VERSION，前后清掉 settings 缓存"""
+        from config.settings import get_settings
+
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
     @pytest.fixture
     def temp_dir(self, tmp_path):
         """创建临时目录"""
@@ -124,8 +133,9 @@ class TestPluginManager:
         assert _parse_version("1.0.0") == (1, 0, 0)
         assert _parse_version("2.1.3") == (2, 1, 3)
 
-    def test_check_version_compatibility(self, plugin_manager):
-        """测试检查版本兼容性"""
+    def test_check_version_compatibility(self, plugin_manager, monkeypatch):
+        """测试检查版本兼容性（固定语义版本，避免 dev 兜底短路比较）"""
+        monkeypatch.setenv("QUANTCELL_VERSION", "1.0.0")
 
         # 没有要求最低版本
         manifest = {"name": "test", "version": "1.0.0", "main": "main.py"}
