@@ -72,25 +72,20 @@ class TradingStatsService:
         self.db = db
 
     def _worker_initial_capital(self, worker_id: int) -> float:
-        """worker 初始资金 = 策略参数里的 initial_capital。
+        """worker 初始资金 = Worker.config JSON 里的 initial_capital。
 
-        与启动装配同源（strategy_manager 用 params["initial_capital"] 起引擎、
-        前端总投入金额也读它）；参数缺失/脏数据处理为 0，由调用方保守降级。
+        与前端创建/编辑弹窗、参数页「总投入金额」同源（都读写 Worker.config）；
+        注意不是 Strategy.parameters——那里存的是参数 schema 列表（name/type/default），
+        无初始资金。字段缺失/脏数据（含 config 非对象）处理为 0，由调用方保守降级。
         """
-        from strategy.models import Strategy  # 跨模块模型，函数内 import 防循环依赖（同 core_service 做法）
-
         from .models import Worker
 
-        row = (
-            self.db.query(Strategy.parameters)
-            .join(Worker, Worker.strategy_id == Strategy.id)
-            .filter(Worker.id == worker_id)
-            .first()
-        )
+        row = self.db.query(Worker.config).filter(Worker.id == worker_id).first()
         if row is None or not row[0]:
             return 0.0
         try:
-            return float(json.loads(row[0]).get("initial_capital", 0.0))
+            config = json.loads(row[0])
+            return float(config.get("initial_capital", 0.0)) if isinstance(config, dict) else 0.0
         except ValueError, TypeError:
             return 0.0
 
