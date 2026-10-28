@@ -198,3 +198,42 @@ def _load_risk_control_row(worker_id: int) -> dict[str, Any] | None:
     except Exception as e:
         logger.warning(f"[risk_config] worker_risk_control 查询失败（视为未配置）: worker_id={worker_id}, error={e}")
         return None
+
+
+def push_risk_control(worker_id: int, driver: Any | None, params: dict, initial_cash: float) -> str:
+    """把人工风控配置实时推送到运行中的 driver（不重启），返回 applied。
+
+    - "hot": 已推送到运行中引擎（或人工停用已生效）
+    - "on_start": 走启动前暂存/降级（driver 未启动、引擎未装配、旧 .so、推送异常）
+
+    签名说明：params / initial_cash 由调用方（core_service）查询后传入，
+    本模块不 import strategy 模型——避免 worker→strategy 循环依赖。
+    """
+    if driver is None:
+        return "on_start"
+    try:
+        # 旧 .so（<0.22.5）无这三个方法：hasattr 探测，缺一个都降级回旧装配语义
+        if not (
+            hasattr(driver, "set_risk_enabled")
+            and hasattr(driver, "update_risk_config")
+            and hasattr(driver, "risk_assembled")
+        ):
+            return "on_start"
+        resolved = resolve_risk_settings(params, worker_id, initial_cash)
+        if resolved is None:
+            # 人工取消/停用：bypass 全放行（引擎保留，不再检查）
+            driver.set_risk_enabled(False)
+            return "hot"
+        config, max_position_value = resolved
+        if not driver.risk_assembled():
+            # 引擎未装配：走启动前暂存，等价 apply_risk_config 的旧路径
+            driver.set_risk_config(config, max_position_value=max_position_value)
+            return "on_start"
+        # 顺序关键：先 set_enabled(True) 清 bypass，再换配置；
+        # 顺序颠倒会把旧 bypass 残留到新配置上（换档后仍全放行）
+        driver.set_risk_enabled(True)
+        driver.update_risk_config(config, max_position_value)
+        return "hot"
+    except Exception as exc:
+        logger.error(f"[risk_config] 风控配置推送失败 worker_id={worker_id}: {exc}")
+        return "on_start"

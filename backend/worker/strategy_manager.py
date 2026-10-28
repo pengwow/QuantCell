@@ -692,9 +692,7 @@ class StrategyManager:
             stats=spec["stats"],
         )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
-        risk_enabled = apply_risk_config(
-            driver, params, worker_id, float(params.get("initial_capital", 100_000.0))
-        )
+        risk_enabled = apply_risk_config(driver, params, worker_id, float(params.get("initial_capital", 100_000.0)))
 
         journal_path = self._rl_live_journal_path(worker_id)
         stop_event = threading.Event()
@@ -878,8 +876,7 @@ class StrategyManager:
             )
         except Exception as e:
             logger.warning(
-                f"[StrategyManager] LiveTradeSync 构造失败，live 成交将不落库: "
-                f"worker_id={worker_id}, error={e}"
+                f"[StrategyManager] LiveTradeSync 构造失败，live 成交将不落库: worker_id={worker_id}, error={e}"
             )
             return None
 
@@ -927,9 +924,7 @@ class StrategyManager:
             try:
                 pnl_feeder.feed(trade_sync.daily_realized_pnl())
             except Exception as e:
-                logger.warning(
-                    f"[StrategyManager] live 当日盈亏首次回灌失败: worker_id={worker_id}, error={e}"
-                )
+                logger.warning(f"[StrategyManager] live 当日盈亏首次回灌失败: worker_id={worker_id}, error={e}")
         # 风控拒单（Rust 侧 "risk rejected: {reason}"）是设计内行为（拒开仓放减仓），
         # live 1s/tick 会持续命中同一原因，按原因去重防刷屏；tick 恢复后清空再触发才重记
         last_risk_reject: str | None = None
@@ -939,9 +934,7 @@ class StrategyManager:
                 try:
                     pnl_feeder.reset_if_new_day()
                 except Exception as e:
-                    logger.warning(
-                        f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}"
-                    )
+                    logger.warning(f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}")
             try:
                 driver.tick()
                 last_risk_reject = None
@@ -978,9 +971,7 @@ class StrategyManager:
                     try:
                         pnl_feeder.feed(trade_sync.daily_realized_pnl())
                     except Exception as e:
-                        logger.warning(
-                            f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}"
-                        )
+                        logger.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
@@ -1050,9 +1041,7 @@ class StrategyManager:
             stats=spec["stats"],
         )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
-        risk_enabled = apply_risk_config(
-            driver, params, worker_id, float(params.get("initial_capital", 100_000.0))
-        )
+        risk_enabled = apply_risk_config(driver, params, worker_id, float(params.get("initial_capital", 100_000.0)))
 
         stop_event = threading.Event()
         thread = threading.Thread(
@@ -1122,9 +1111,7 @@ class StrategyManager:
         trade_sync = PaperTradeSync(worker_id)
         while not stop_event.is_set():
             try:
-                self._paper_pump_round(
-                    worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder
-                )
+                self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder)
                 limit = 2
                 last_risk_reject = None
             except Exception as e:
@@ -1202,9 +1189,7 @@ class StrategyManager:
                 pnl_feeder.feed(float(snap.get("equity") or 0.0))
             except Exception as e:
                 # 回灌失败只降级告警：风控额度暂时失真，但不能停掉行情泵
-                logger.warning(
-                    f"[StrategyManager] paper 当日盈亏回灌失败: worker_id={worker_id}, error={e}"
-                )
+                logger.warning(f"[StrategyManager] paper 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
         # 观测性推送，失败不打断行情泵
         try:
             self._push_kernel_snapshot(worker_id, snap)
@@ -1439,6 +1424,14 @@ class StrategyManager:
             "total_strategies": len(strategies),
             "running_strategies": len(running),
         }
+
+    def get_running_driver(self, worker_id: int) -> Any | None:
+        """返回 worker 当前运行的 driver（paper/live 泵）——人工风控实时推送目标；未运行返回 None。
+
+        stop 各路径已 pop _kernel_runs 并对 driver shutdown，无需在此额外处理。
+        """
+        run = self._kernel_runs.get(worker_id)
+        return run.get("driver") if run else None
 
     def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
         """获取策略状态（兼容 TradingEngine API，支持 string ID）"""

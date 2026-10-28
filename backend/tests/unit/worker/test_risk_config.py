@@ -12,6 +12,7 @@ from worker.risk_config import (
     RiskPnlFeeder,
     _load_risk_control_row,
     apply_risk_config,
+    push_risk_control,
     resolve_risk_settings,
 )
 
@@ -232,3 +233,89 @@ class TestRiskPnlFeeder:
         # 若按昨日基线算，会回灌 -10-(-5000)=+4990 的错误盈利
         assert [c.args[0] for c in driver.update_risk_pnl.call_args_list] == [-5_000.0, -10.0]
         driver.reset_risk_daily.assert_called_once()
+
+
+class _FakeDriver:
+    """伪造带三热更方法的 driver（0.22.5+ .so 语义）：记录调用序列供断言。"""
+
+    def __init__(self, assembled: bool = True, fail_update: bool = False) -> None:
+        self.calls: list[tuple] = []
+        self._assembled = assembled
+        self._fail_update = fail_update
+
+    def set_risk_config(self, config, max_position_value=None):
+        self.calls.append(("set_risk_config", config, max_position_value))
+
+    def risk_assembled(self) -> bool:
+        return self._assembled
+
+    def set_risk_enabled(self, enabled: bool) -> None:
+        self.calls.append(("set_risk_enabled", enabled))
+
+    def update_risk_config(self, config, max_position_value) -> None:
+        if self._fail_update:
+            raise RuntimeError("engine down")
+        self.calls.append(("update_risk_config", config, max_position_value))
+
+
+class TestPushRiskControl:
+    """实时推送链六场景矩阵（spec §4.5）：hot / on_start 降级判定。"""
+
+    @staticmethod
+    def _row_patch(row: dict | None):
+        return patch("worker.risk_config._load_risk_control_row", return_value=row)
+
+    def test_no_driver_returns_on_start(self):
+        """driver=None（worker 未运行）→ on_start，不查表不碰引擎"""
+        with patch("worker.risk_config.resolve_risk_settings") as m:
+            applied = push_risk_control(1, None, {}, 10_000.0)
+        assert applied == "on_start"
+        m.assert_not_called()
+
+    def test_legacy_driver_returns_on_start(self):
+        """旧 .so（无三热更方法）→ on_start，降级回旧装配语义"""
+        legacy = MagicMock(spec=["set_risk_config", "update_risk_pnl", "reset_risk_daily"])
+        with patch("worker.risk_config.resolve_risk_settings") as m:
+            applied = push_risk_control(1, legacy, {}, 10_000.0)
+        assert applied == "on_start"
+        m.assert_not_called()
+        legacy.set_risk_config.assert_not_called()
+
+    def test_enabled_false_hot_disables_engine(self):
+        """enabled=False 行 → set_risk_enabled(False)（bypass 全放行），返回 hot"""
+        driver = _FakeDriver()
+        with self._row_patch(_row(enabled=False)):
+            applied = push_risk_control(1, driver, {}, 10_000.0)
+        assert applied == "hot"
+        assert driver.calls == [("set_risk_enabled", False)]
+
+    def test_not_assembled_stashes_for_start(self):
+        """引擎未装配（risk_assembled=False）→ set_risk_config 启动前暂存，on_start"""
+        driver = _FakeDriver(assembled=False)
+        with self._row_patch(_row(max_position_pct=0.1)):
+            applied = push_risk_control(1, driver, {}, 10_000.0)
+        assert applied == "on_start"
+        assert driver.calls == [
+            ("set_risk_config", {"max_order_value": 1000.0}, 1000.0),
+        ]
+
+    def test_assembled_hot_updates_in_order(self):
+        """已装配启用 → 先 set_enabled(True) 清 bypass 再 update_risk_config，hot"""
+        driver = _FakeDriver()
+        with self._row_patch(_row(max_position_pct=0.1)):
+            applied = push_risk_control(1, driver, {}, 10_000.0)
+        assert applied == "hot"
+        names = [c[0] for c in driver.calls]
+        enabled_idx = names.index("set_risk_enabled")
+        update_idx = names.index("update_risk_config")
+        # 顺序关键：bypass 先清掉再换档，否则旧 bypass 残留到新配置上
+        assert enabled_idx < update_idx
+        assert driver.calls[enabled_idx] == ("set_risk_enabled", True)
+        assert driver.calls[update_idx] == ("update_risk_config", {"max_order_value": 1000.0}, 1000.0)
+
+    def test_update_failure_degrades_to_on_start(self):
+        """update_risk_config 抛异常 → 降级 on_start，不上抛"""
+        driver = _FakeDriver(fail_update=True)
+        with self._row_patch(_row(max_position_pct=0.1)):
+            applied = push_risk_control(1, driver, {}, 10_000.0)
+        assert applied == "on_start"
