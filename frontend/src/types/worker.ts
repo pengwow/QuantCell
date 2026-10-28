@@ -684,6 +684,13 @@ export interface RiskControlUpsert {
 export interface RiskControlOut {
   worker_id: number
   enabled: boolean
+  max_position_pct: number | null
+  max_position_size: number | null
+  daily_loss_amount: number | null
+  daily_loss_limit: number | null
+  max_drawdown: number | null
+  max_leverage: number | null
+  circuit_breaker_cooldown_secs: number | null
   updated_at: string | null
   applied: 'hot' | 'on_start' | null
 }
