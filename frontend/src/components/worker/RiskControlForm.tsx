@@ -8,6 +8,12 @@
  * 注意：Switch 关闭时字段区整体卸载（值经 antd Form preserve 保留在 store 中），
  * 父级提交时必须用 form.getFieldsValue([risk_ 字段名数组]) 取值，
  * validateFields 只返回挂载中的字段，拿不到隐藏字段的值。
+ *
+ * 引擎默认档（placeholder 文案的数据源，勿凭直觉改）：
+ * axon-risk config.rs `RiskConfig::default()` → 当日亏损 10,000 USDT / 回撤 15% /
+ * 杠杆 5x / 冷却 60 分钟 / 单笔名义额 50,000 USDT；仓位两行走 axon-worker risk_check.rs
+ * 桥接口径，「未配置 = 不做仓位检查（不限制）」。亏损占比引擎无占比默认档，
+ * 生效的是固定金额默认，故占比行的默认与金额行同文。
  */
 import React from 'react';
 import {
@@ -209,7 +215,7 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
                 name="risk_max_position_pct"
                 label="单币种最大仓位占比"
                 tooltip="持仓市值占账户权益的比例上限"
-                placeholder="引擎默认：无"
+                placeholder="引擎默认：不限制"
               />
             </Col>
             <Col span={12}>
@@ -217,7 +223,7 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
                 name="risk_daily_loss_limit"
                 label="当日亏损占比上限"
                 tooltip="当日累计亏损占账户权益的比例上限，超出后拦截新开仓"
-                placeholder="引擎默认：无"
+                placeholder="引擎默认：10,000 USDT"
               />
             </Col>
           </Row>
@@ -228,7 +234,7 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
                 label="当日亏损金额上限"
                 tooltip="当日累计亏损金额（USDT）上限，超出后拦截新开仓"
                 suffix="USDT"
-                placeholder="引擎默认：无"
+                placeholder="引擎默认：10,000 USDT"
                 min={0}
               />
             </Col>
@@ -258,7 +264,7 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
                         label="单币种最大持仓名义价值"
                         tooltip="持仓市值绝对值（USDT）上限"
                         suffix="USDT"
-                        placeholder="引擎默认：无"
+                        placeholder="引擎默认：不限制"
                         min={0}
                       />
                     </Col>
