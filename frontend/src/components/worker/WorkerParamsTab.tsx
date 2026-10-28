@@ -24,20 +24,30 @@ type RiskDisplayKey =
   | 'max_leverage'
   | 'circuit_breaker_cooldown_secs';
 
-/** 人工风控展示行（启用明细态）：key 为 RiskControlOut 数值字段，未配置显示「引擎默认」 */
-const RISK_DISPLAY_ROWS: { key: RiskDisplayKey; label: string; unit: 'pct' | 'usdt' | 'x' | 'min' }[] = [
-  { key: 'max_position_pct', label: '单币种最大仓位占比', unit: 'pct' },
-  { key: 'max_position_size', label: '单币种最大名义价值', unit: 'usdt' },
-  { key: 'daily_loss_limit', label: '当日亏损上限占比', unit: 'pct' },
-  { key: 'daily_loss_amount', label: '当日亏损上限金额', unit: 'usdt' },
-  { key: 'max_drawdown', label: '最大回撤上限', unit: 'pct' },
-  { key: 'max_leverage', label: '最大杠杆', unit: 'x' },
-  { key: 'circuit_breaker_cooldown_secs', label: '熔断冷却时长', unit: 'min' },
+/**
+ * 人工风控展示行（启用明细态）：key 为 RiskControlOut 数值字段。
+ * engineDefault = 该字段未配置（null）时引擎实际生效的默认档，硬编码出处：
+ * - 亏损/回撤/杠杆/冷却：axon-risk config.rs `RiskConfig::default()`
+ * - 仓位两行：axon-worker risk_check.rs 桥接口径 max_position_value=None = 不做仓位检查
+ *   （引擎默认的数量口径仓位限额已在桥层禁用，未配置就是真不限制）
+ * - 「亏损上限占比」引擎无占比默认档，生效的是固定金额 10,000 USDT，故与金额行同文
+ * ponytail: 前端内嵌默认值有与引擎漂移的风险，升级路径是后端接口回带默认值字段
+ */
+const RISK_DISPLAY_ROWS: { key: RiskDisplayKey; label: string; unit: 'pct' | 'usdt' | 'x' | 'min'; engineDefault: string }[] = [
+  { key: 'max_position_pct', label: '单币种最大仓位占比', unit: 'pct', engineDefault: '不限制' },
+  { key: 'max_position_size', label: '单币种最大名义价值', unit: 'usdt', engineDefault: '不限制' },
+  { key: 'daily_loss_limit', label: '当日亏损上限占比', unit: 'pct', engineDefault: '10,000 USDT' },
+  { key: 'daily_loss_amount', label: '当日亏损上限金额', unit: 'usdt', engineDefault: '10,000 USDT' },
+  { key: 'max_drawdown', label: '最大回撤上限', unit: 'pct', engineDefault: '15%' },
+  { key: 'max_leverage', label: '最大杠杆', unit: 'x', engineDefault: '5x' },
+  { key: 'circuit_breaker_cooldown_secs', label: '熔断冷却时长', unit: 'min', engineDefault: '60 分钟' },
 ];
 
-/** 后端口径 → 展示文本：% 字段 0-1 → xx%，冷却秒 → 分钟；加零位小数避免 15.0% */
-const fmtRiskValue = (v: number | null | undefined, unit: 'pct' | 'usdt' | 'x' | 'min'): string => {
-  if (v === null || v === undefined) return '引擎默认';
+/**
+ * 后端口径 → 展示文本：% 字段 0-1 → xx%，冷却秒 → 分钟；加零位小数避免 15.0%。
+ * 只负责已配置值的格式化，未配置（null）的「引擎默认」分支在渲染处处理。
+ */
+const fmtRiskValue = (v: number, unit: 'pct' | 'usdt' | 'x' | 'min'): string => {
   switch (unit) {
     case 'pct':
       return `${+(v * 100).toFixed(4)}%`;
@@ -346,22 +356,33 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           </div>
         ) : (
           <Row gutter={[24, 16]}>
-            {RISK_DISPLAY_ROWS.map(({ key, label, unit }) => (
-              <Col key={key} xs={24} sm={12} md={8}>
-                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                  <Descriptions.Item label={label}>
-                    <span
-                      style={{
-                        fontWeight: 500,
-                        color: unit === 'pct' || unit === 'usdt' ? QUANT_COLORS.negative : undefined,
-                      }}
-                    >
-                      {fmtRiskValue(risk[key], unit)}
-                    </span>
-                  </Descriptions.Item>
-                </Descriptions>
-              </Col>
-            ))}
+            {RISK_DISPLAY_ROWS.map(({ key, label, unit, engineDefault }) => {
+              // 联合键索引直接比较 narrowing 不可靠，先提取局部变量
+              const v = risk[key];
+              return (
+                <Col key={key} xs={24} sm={12} md={8}>
+                  <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                    <Descriptions.Item label={label}>
+                      {v === null || v === undefined ? (
+                        // 未配置 → 引擎默认档：灰字弱化（与告警红字区分），并写明具体值
+                        <span style={{ fontWeight: 500, color: '#999' }}>
+                          引擎默认：{engineDefault}
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            color: unit === 'pct' || unit === 'usdt' ? QUANT_COLORS.negative : undefined,
+                          }}
+                        >
+                          {fmtRiskValue(v, unit)}
+                        </span>
+                      )}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </Col>
+              );
+            })}
             <Col span={24}>
               <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
                 <Descriptions.Item label="更新时间">
