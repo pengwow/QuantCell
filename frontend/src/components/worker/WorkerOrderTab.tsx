@@ -96,6 +96,9 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
   const { t } = useTranslation();
   const [form] = Form.useForm<FilterValues>();
   const [loading, setLoading] = useState(false);
+  // initialized：首帧数据是否已返回。轮询刷新只做局部 setState 更新，
+  // 不再把整个面板替换成 Spin——DOM 被替换会丢失浏览器滚动位置（页面跳回顶部）
+  const [initialized, setInitialized] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [filters, setFilters] = useState<FilterValues>({});
   const [filterCollapsed, setFilterCollapsed] = useState(false);
@@ -122,6 +125,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       setOrders([]);
     } finally {
       setLoading(false);
+      setInitialized(true);
     }
   }, [workerId, filters]);
 
@@ -289,7 +293,8 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
     return map;
   }, [orders]);
 
-  if (loading && orders.length === 0) {
+  // 仅首帧未返回数据时用 Spin 占位；之后轮询不触发此分支，DOM 结构保持稳定
+  if (!initialized) {
     return <Spin style={{ display: 'block', margin: '100px auto' }} />;
   }
 
@@ -307,7 +312,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
             </Tag>
           </Col>
         ))}
-        {orders.length === 0 && !loading && (
+        {orders.length === 0 && initialized && (
           <Col>
             <span style={{ color: '#999' }}>暂无委托</span>
           </Col>

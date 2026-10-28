@@ -38,6 +38,8 @@ export function PluginProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { message } = App.useApp();
   const mountedRef = useRef(true);
+  // 插件事件流的停止函数（建连被延后，cleanup 时可能还没建立）
+  const stopEventsRef = useRef<(() => void) | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -65,10 +67,16 @@ export function PluginProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     refresh();
-    const stop = listenPluginEvents(handlePluginEvent);
+    // 延后一拍再建连：StrictMode 会 mount → cleanup → mount，同步建连会让第一个
+    // EventSource 在建连途中被 close，浏览器控制台报 net::ERR_ABORTED
+    const timer = setTimeout(() => {
+      stopEventsRef.current = listenPluginEvents(handlePluginEvent);
+    }, 0);
     return () => {
+      clearTimeout(timer);
       mountedRef.current = false;
-      stop();
+      stopEventsRef.current?.();
+      stopEventsRef.current = null;
     };
   }, [refresh, handlePluginEvent]);
 

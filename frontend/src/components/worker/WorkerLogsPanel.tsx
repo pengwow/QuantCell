@@ -74,16 +74,24 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
   // 用于判断用户是否手动滚动了（距离底部超过阈值）
   const SCROLL_THRESHOLD = 100; // 距离底部 100px 以内视为"在底部"
 
-  // 连接WebSocket - 仅在未暂停时自动连接
+  // 连接日志流 - 仅在未暂停时自动连接
+  //
+  // 延后一拍再建连：开发环境的 React StrictMode 会 mount → cleanup → mount，
+  // 同步建连会让第一次的 EventSource 在建连途中被 close，浏览器控制台报
+  // net::ERR_ABORTED。延后后 cleanup 能取消掉这次尚未发生的建连。
   useEffect(() => {
-    if (!isPaused && workerId) {
-      console.log(`🔗 [WorkerLogs] 自动连接 Worker ${workerId} 日志流`);
-      connectLogStreamRef.current(workerId);
-    } else if (isPaused) {
+    if (isPaused || !workerId) {
       console.log(`⏸️ [WorkerLogs] 已暂停，不自动连接`);
+      return;
     }
 
+    const connectTimer = setTimeout(() => {
+      console.log(`🔗 [WorkerLogs] 自动连接 Worker ${workerId} 日志流`);
+      connectLogStreamRef.current(workerId);
+    }, 0);
+
     return () => {
+      clearTimeout(connectTimer);
       console.log(`🔌 [WorkerLogs] 清理: 断开 Worker ${workerId} 日志流`);
       disconnectLogStreamRef.current();
     };
@@ -145,20 +153,13 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
     clearLogs();
   }, [clearLogs]);
 
-  // 处理暂停/恢复 - 使用函数式更新避免竞态条件
+  // 处理暂停/恢复 - 连接/断开由上面的 effect 统一负责，
+  // 这里只切状态，避免手动建连与 effect 的 cleanup 抢同一条流
   const handleTogglePause = useCallback(() => {
     const newPausedState = !isPaused;
-
     setIsPaused(newPausedState);
-
-    if (newPausedState) {
-      console.log('⏸️ [WorkerLogs] 暂停日志流');
-      disconnectLogStreamRef.current();
-    } else {
-      console.log('▶️ [WorkerLogs] 恢复日志流');
-      connectLogStreamRef.current(workerId);
-    }
-  }, [isPaused, workerId]);
+    console.log(newPausedState ? '⏸️ [WorkerLogs] 暂停日志流' : '▶️ [WorkerLogs] 恢复日志流');
+  }, [isPaused]);
 
   // 格式化时间戳（UTC → 本地时区）
   const formatTimestamp = (timestamp: string) => {

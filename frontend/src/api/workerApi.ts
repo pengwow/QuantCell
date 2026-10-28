@@ -244,7 +244,8 @@ export const getWorkerTrades = (
  */
 export class WorkerLogStreamSSE {
   private eventSource: EventSource | null = null;
-  private workerId: number;
+  /** 连接的 worker，store 靠它判断能否复用已有连接 */
+  readonly workerId: number;
   private onMessageCallback: ((log: WorkerLog) => void) | null = null;
   private onErrorCallback: ((error: Event) => void) | null = null;
   private onCloseCallback: (() => void) | null = null;
@@ -301,6 +302,8 @@ export class WorkerLogStreamSSE {
 
     this.eventSource.onopen = () => {
       console.log(`✅ [SSE] Worker ${this.workerId} 日志流连接成功！`);
+      // 浏览器自动重连成功：重置计数，否则累计到上限后连接会被永久关闭
+      this._reconnectCount = 0;
       this.onOpenCallback?.();
     };
 
@@ -403,7 +406,8 @@ export class WorkerLogStreamSSE {
  */
 export class WorkerLogStream {
   private websocket: WebSocket | null = null;
-  private workerId: number;
+  /** 连接的 worker，store 靠它判断能否复用已有连接 */
+  readonly workerId: number;
   private onMessageCallback: ((log: WorkerLog) => void) | null = null;
   private onErrorCallback: ((error: Event) => void) | null = null;
   private onCloseCallback: (() => void) | null = null;
