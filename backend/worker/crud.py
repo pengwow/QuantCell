@@ -4,11 +4,14 @@ Worker模块CRUD操作
 数据库增删改查操作
 """
 
+import json
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from sqlalchemy import and_, case, desc, func
+
+from strategy.models import Strategy
 
 from .models import (
     Worker,
@@ -404,6 +407,58 @@ def get_worker_performance(db: Session, worker_id: int, days: int = 30) -> list[
 def get_worker_parameters(db: Session, worker_id: int) -> list[WorkerParameter]:
     """获取Worker参数"""
     return db.query(WorkerParameter).filter(WorkerParameter.worker_id == worker_id).all()
+
+
+def get_worker_strategy_parameters(db: Session, worker_id: int) -> list[dict[str, Any]]:
+    """获取 worker 的策略参数视图：策略库 schema 为主干，worker_parameters 快照为覆盖值。
+
+    此前 GET /workers/{id}/strategy/parameters 只读快照表——快照仅在用户保存过
+    参数编辑后才有数据，导致从未编辑过参数的 worker 前端一直显示「无可编辑参数」。
+    合并规则：每行生效值 = 快照覆盖值优先，回退策略库 schema 默认值
+    （strategies.parameters 是 JSON 数组，元素含 name/type/default/description/required，
+    由策略 reparse/注册时 AST 解析写入；运行时 strategy_manager start 也读同一列）。
+    """
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    schema_items: list[dict[str, Any]] = []
+    if worker is not None and worker.strategy_id:
+        strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+        if strategy is not None and strategy.parameters:
+            try:
+                raw = json.loads(strategy.parameters)
+            except json.JSONDecodeError, TypeError:
+                raw = None
+            if isinstance(raw, list):
+                schema_items = [item for item in raw if isinstance(item, dict) and item.get("name")]
+
+    overrides = {p.param_name: p for p in get_worker_parameters(db, worker_id)}
+
+    result: list[dict[str, Any]] = []
+    for item in schema_items:
+        name = item["name"]
+        override = overrides.pop(name, None)
+        schema_default = item.get("default")
+        row: dict[str, Any] = {
+            "worker_id": worker_id,
+            "param_name": name,
+            # 生效值：worker 覆盖值优先，回退 schema 默认值（None 表示策略内部默认为空）
+            "param_value": override.get_value() if override is not None else schema_default,
+            "param_type": str(item.get("type") or "string").lower(),
+            "default_value": schema_default,
+            "description": item.get("description") or "",
+            "required": bool(item.get("required")),
+            "editable": True,
+        }
+        if override is not None:
+            row["id"] = override.id
+            if override.description:
+                row["description"] = override.description
+        result.append(row)
+
+    # schema 之外的残留覆盖值（策略更新改名后快照还在）：原样保留，避免用户已保存的值静默失去展示
+    for orphan in overrides.values():
+        result.append(orphan.to_dict())
+
+    return result
 
 
 def update_worker_parameters(db: Session, worker_id: int, parameters: dict[str, Any]) -> None:
