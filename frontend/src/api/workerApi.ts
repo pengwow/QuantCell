@@ -40,6 +40,8 @@ import type {
   ApiResponse,
   ShareTokenResponse,
   ShareTokenListItem,
+  RiskControlUpsert,
+  RiskControlOut,
 } from '../types/worker';
 
 // ============================================
@@ -615,6 +617,34 @@ export const updateStrategyParameters = (
 };
 
 /**
+ * 获取 Worker 人工风控配置（未配置时后端返回 null）
+ * @param workerId Worker ID
+ */
+export const getRiskControl = (workerId: number): Promise<RiskControlOut | null> => {
+  return apiRequest.get(`/workers/${workerId}/risk-control`);
+};
+
+/**
+ * 保存 Worker 人工风控配置（未填字段必须显式传 null）；worker 运行中会即时热更
+ * @param workerId Worker ID
+ * @param data 风控配置
+ */
+export const upsertRiskControl = (
+  workerId: number,
+  data: RiskControlUpsert
+): Promise<RiskControlOut> => {
+  return apiRequest.put(`/workers/${workerId}/risk-control`, data);
+};
+
+/**
+ * 删除 Worker 人工风控配置（恢复继承策略参数）
+ * @param workerId Worker ID
+ */
+export const deleteRiskControl = (workerId: number): Promise<RiskControlOut | null> => {
+  return apiRequest.delete(`/workers/${workerId}/risk-control`);
+};
+
+/**
  * 获取持仓信息
  * @param workerId Worker ID
  * @param params 筛选参数：status/symbol/side
@@ -860,6 +890,9 @@ export const workerApi = {
   undeployStrategy,
   getStrategyParameters,
   updateStrategyParameters,
+  getRiskControl,
+  upsertRiskControl,
+  deleteRiskControl,
   getPositions,
   getOrders,
   sendTradingSignal,
