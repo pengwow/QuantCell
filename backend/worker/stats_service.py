@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING
 
 from utils.logger import LogType, get_logger
@@ -70,6 +71,29 @@ class TradingStatsService:
     def __init__(self, db: Session):
         self.db = db
 
+    def _worker_initial_capital(self, worker_id: int) -> float:
+        """worker 初始资金 = 策略参数里的 initial_capital。
+
+        与启动装配同源（strategy_manager 用 params["initial_capital"] 起引擎、
+        前端总投入金额也读它）；参数缺失/脏数据处理为 0，由调用方保守降级。
+        """
+        from strategy.models import Strategy  # 跨模块模型，函数内 import 防循环依赖（同 core_service 做法）
+
+        from .models import Worker
+
+        row = (
+            self.db.query(Strategy.parameters)
+            .join(Worker, Worker.strategy_id == Strategy.id)
+            .filter(Worker.id == worker_id)
+            .first()
+        )
+        if row is None or not row[0]:
+            return 0.0
+        try:
+            return float(json.loads(row[0]).get("initial_capital", 0.0))
+        except ValueError, TypeError:
+            return 0.0
+
     def get_trading_summary(self, worker_id: int, window: str | None = "30d") -> dict:
         """获取交易汇总，支持时间窗口过滤"""
         from .routes import _resolve_window
@@ -99,8 +123,9 @@ class TradingStatsService:
         max_drawdown = _compute_max_drawdown(history.get("cumulative_pnl", []))
         sharpe_ratio = _compute_sharpe_ratio(history.get("daily_pnl", []))
 
-        # 收益率近似 = total_pnl / max(abs(initial_cash), 1)，保留 0.0 占位
-        return_rate = 0.0
+        # 收益率 = 已实现盈亏 / 策略初始资金（同源口径）；资金缺失或 0 时保守保持 0
+        initial_capital = self._worker_initial_capital(worker_id)
+        return_rate = round(net_profit / initial_capital * 100, 2) if initial_capital > 0 else 0.0
 
         metrics = OverviewMetrics(
             total_pnl=summary.get("total_pnl", 0.0),
