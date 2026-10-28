@@ -274,6 +274,8 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       width: 560,
       content: (
         <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+          {/* spec §5.3 要求的顶部提示：live 运行中热推即刻生效，未运行则下次启动生效 */}
+          <Text strong>修改立即作用于运行中的 worker，未运行的 worker 将在启动时生效</Text>
           {rows.map((r) => (
             <Row key={r.key} gutter={8}>
               <Col span={9}>{r.label}</Col>
