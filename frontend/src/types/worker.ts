@@ -315,6 +315,8 @@ export interface LogQueryParams extends PaginationParams {
 // 交易记录查询参数
 export interface TradeQueryParams extends PaginationParams {
   symbol?: string;
+  /** 盈亏状态筛选：profit/loss/flat/closed（closed = 已平仓，realized_pnl 非空） */
+  pnl_status?: 'profit' | 'loss' | 'flat' | 'closed';
   start_time?: string;
   end_time?: string;
 }
