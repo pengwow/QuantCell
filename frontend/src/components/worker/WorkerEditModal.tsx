@@ -6,7 +6,7 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 允许修改配置、参数等 - 与创建页面保持一致的字段和布局
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   Form,
@@ -22,6 +22,8 @@ import {
   App,
   Card,
   Spin,
+  Tag,
+  Typography,
 } from 'antd';
 import {
   EditOutlined,
@@ -34,11 +36,20 @@ import { useTranslation } from 'react-i18next';
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
 import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
-import { getStrategyParameters, updateStrategyParameters } from '../../api/workerApi';
+import { getRiskControl, getStrategyParameters, updateStrategyParameters, upsertRiskControl } from '../../api/workerApi';
+import RiskControlForm, {
+  EMPTY_RISK_VALUES,
+  RISK_FORM_FIELDS,
+  formValueToPayload,
+  payloadToFormValue,
+  sameRiskValues,
+  type RiskFormValues,
+} from './RiskControlForm';
 import type { StrategyInfo, StrategyParameter, TradingConfig, UpdateWorkerRequest, Worker as WorkerModel } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
+const { Text } = Typography;
 
 // 根据参数类型渲染不同的输入控件
 const renderParamInput = (param: StrategyParameter) => {
@@ -140,7 +151,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   onSuccess,
 }) => {
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const { updateWorker } = useWorkerStore();
 
@@ -163,13 +174,17 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
   const [loadingParams, setLoadingParams] = useState(false);
 
+  // 人工风控：弹窗打开时 GET 回填，这份快照用于判断用户是否改过风控字段（改过才走确认/PUT）
+  const riskSnapshotRef = useRef<RiskFormValues>(EMPTY_RISK_VALUES);
+
   // 获取所有数据
   useEffect(() => {
     if (visible && worker) {
       fetchStrategies();
       fetchExchanges();
       fetchSymbolsAndGroups();
-      
+      fetchRiskControl();
+
       // 设置表单初始值
       setTimeout(() => {
         setFormValuesFromWorker();
@@ -177,6 +192,110 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [visible, worker]);
+
+  // 人工风控：拉取当前配置回填表单并记快照；GET 失败不阻断编辑（快照保持全空，用户未改动就不会误提交）
+  const fetchRiskControl = () => {
+    if (!worker) return;
+    getRiskControl(worker.id)
+      .then((out) => {
+        const formValue = payloadToFormValue(out);
+        riskSnapshotRef.current = formValue;
+        form.setFieldsValue(formValue);
+      })
+      .catch((error) => {
+        console.error('获取风控配置失败:', error);
+      });
+  };
+
+  // 提交风控配置：按 applied 分文案（hot=运行中已实时生效 / on_start=下次启动生效），成功后刷新快照
+  const pushRiskControl = async (workerId: number, values: Partial<RiskFormValues>) => {
+    try {
+      const out = await upsertRiskControl(workerId, formValueToPayload(values));
+      if (out?.applied === 'hot') {
+        message.success('风控配置已实时生效');
+      } else {
+        message.info('风控配置将在下次启动时生效');
+      }
+      if (out) {
+        riskSnapshotRef.current = payloadToFormValue(out);
+      }
+    } catch (error) {
+      // 不再向上抛：确认弹窗已有 OK 按钮 loading，这里给提示即可
+      console.error('保存风控配置失败:', error);
+      message.error('风控配置保存失败，请稍后重试');
+    }
+  };
+
+  // live 运行中改风控的二次确认：旧值 → 新值逐行对照，放宽标橙▲、收紧标绿▼
+  const confirmRiskUpdate = (workerId: number, next: Partial<RiskFormValues>) => {
+    const prev = riskSnapshotRef.current;
+    // 数值型风控项；cooldown 特殊：值越大限制越严（锁仓更久），方向与其余上限项相反
+    const FIELDS: { f: keyof RiskFormValues; label: string; suffix: string; invert?: boolean }[] = [
+      { f: 'risk_max_position_pct', label: '单币种最大仓位占比', suffix: '%' },
+      { f: 'risk_max_position_size', label: '单币种最大名义价值', suffix: 'USDT' },
+      { f: 'risk_daily_loss_limit', label: '当日亏损上限占比', suffix: '%' },
+      { f: 'risk_daily_loss_amount', label: '当日亏损上限金额', suffix: 'USDT' },
+      { f: 'risk_max_drawdown', label: '最大回撤上限', suffix: '%' },
+      { f: 'risk_max_leverage', label: '最大杠杆', suffix: 'x' },
+      { f: 'risk_circuit_breaker_cooldown_secs', label: '熔断冷却时长', suffix: '分钟', invert: true },
+    ];
+    const fmtVal = (v: number | null | undefined, suffix: string) =>
+      v === null || v === undefined ? '—' : `${v}${suffix ? ' ' : ''}${suffix}`;
+
+    const rows: { key: string; label: string; before: string; after: string; loosen: boolean | null }[] = [];
+    let switchingOff = false;
+
+    if (prev.risk_enabled && next.risk_enabled === false) {
+      // 启用 → 停用 单独置顶提示
+      switchingOff = true;
+      rows.push({ key: 'enabled', label: '人工风控', before: '启用', after: '停用', loosen: null });
+    } else {
+      for (const { f, label, suffix, invert } of FIELDS) {
+        // TS 联合索引带出 boolean（risk_enabled），运行时这里只会取到数值字段，断言收窄
+        const b = (prev[f] as number | null | undefined) ?? null;
+        const a = (next[f] as number | null | undefined) ?? null;
+        if (b === a) continue;
+        // 一侧为 null（引擎默认，具体值未知）时不标注方向
+        const loosen: boolean | null =
+          b === null || a === null ? null : invert ? a < b : a > b;
+        rows.push({
+          key: f as string,
+          label,
+          before: fmtVal(b, suffix),
+          after: fmtVal(a, suffix),
+          loosen,
+        });
+      }
+    }
+    if (rows.length === 0) return; // sameRiskValues 已挡住，兜底防御
+
+    modal.confirm({
+      title: '确认更新风控配置？',
+      width: 560,
+      content: (
+        <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+          {rows.map((r) => (
+            <Row key={r.key} gutter={8}>
+              <Col span={9}>{r.label}</Col>
+              <Col span={15}>
+                <Space size={6}>
+                  <Text type="secondary">{r.before}</Text>
+                  <span>→</span>
+                  <Text>{r.after}</Text>
+                  {r.loosen === true && <Tag color="orange">▲ 放宽</Tag>}
+                  {r.loosen === false && <Tag color="green">▼ 收紧</Tag>}
+                </Space>
+              </Col>
+            </Row>
+          ))}
+          {switchingOff && (
+            <Text strong type="warning">注意：关闭后风控不再拦截任何交易</Text>
+          )}
+        </Space>
+      ),
+      onOk: () => pushRiskControl(workerId, next),
+    });
+  };
 
   // 设置表单值（从 worker 对象）
   const setFormValuesFromWorker = () => {
@@ -487,6 +606,20 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       if (result) {
         if (Object.keys(parameters).length > 0) {
           await updateStrategyParameters(worker.id, { parameters });
+        }
+        // 人工风控：仅在用户改动过风控字段时提交；live 运行中需逐项确认后再应用（PUT 不阻断主流程）
+        const riskValues = form.getFieldsValue([...RISK_FORM_FIELDS]) as Partial<RiskFormValues>;
+        if (!sameRiskValues(riskValues, riskSnapshotRef.current)) {
+          const tc: Record<string, unknown> =
+            typeof worker.trading_config === 'string'
+              ? JSON.parse(worker.trading_config || '{}')
+              : worker.trading_config || {};
+          const isLiveRunning = tc.trading_mode === 'live' && worker.status === 'running';
+          if (isLiveRunning) {
+            confirmRiskUpdate(worker.id, riskValues);
+          } else {
+            await pushRiskControl(worker.id, riskValues);
+          }
         }
         message.success('Worker更新成功');
         onSuccess?.();
@@ -820,6 +953,8 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
           </Col>
         </Row>
 
+        {/* 人工风控（运行中 PUT 实时生效，live 变更需逐项确认） */}
+        <RiskControlForm form={form} />
       </Form>
     </Modal>
   );

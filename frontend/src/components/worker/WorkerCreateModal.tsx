@@ -34,6 +34,14 @@ import { useTranslation } from 'react-i18next';
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
 import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
+import { upsertRiskControl } from '../../api/workerApi';
+import RiskControlForm, {
+  EMPTY_RISK_VALUES,
+  RISK_FORM_FIELDS,
+  formValueToPayload,
+  sameRiskValues,
+  type RiskFormValues,
+} from './RiskControlForm';
 import type { CreateWorkerRequest, StrategyInfo, StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;
@@ -388,6 +396,17 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       const result = await createWorker(requestData);
 
       if (result) {
+        // 人工风控：字段被用户改过才提交（empty-is-null，全空=不启用）；失败不阻断主流程，可稍后在编辑中补配。
+        // 新建的 worker 必然不在运行，无需 hot 生效确认弹窗。
+        const riskValues = form.getFieldsValue([...RISK_FORM_FIELDS]) as Partial<RiskFormValues>;
+        if (!sameRiskValues(riskValues, EMPTY_RISK_VALUES)) {
+          try {
+            await upsertRiskControl(result.id, formValueToPayload(riskValues));
+          } catch (riskError) {
+            console.error('保存风控配置失败:', riskError);
+            message.warning('风控配置保存失败，可稍后在编辑中重试');
+          }
+        }
         message.success('Worker创建成功');
         form.resetFields();
         setStrategyParams([]);
@@ -445,6 +464,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           timeframe: '1h',
           initial_capital: 10000,
           leverage: 1,
+          risk_enabled: false,
         }}
       >
         {/* 基本信息 */}
@@ -741,7 +761,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           </Col>
         </Row>
 
-
+        {/* 人工风控（可选：默认关闭，全空字段不提交） */}
+        <RiskControlForm form={form} />
       </Form>
     </Modal>
   );
