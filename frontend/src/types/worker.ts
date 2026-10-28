@@ -662,3 +662,29 @@ export interface ShareTokenListItem {
   remote_error: string | null
 }
 
+/**
+ * Worker 级人工风控配置（PUT 请求体；用户「未填」的数值字段必须显式传 null，
+ * 后端靠 None 区分「继承策略参数」与表内 ORM default）
+ */
+export interface RiskControlUpsert {
+  enabled: boolean
+  max_position_pct?: number | null
+  max_position_size?: number | null
+  daily_loss_amount?: number | null
+  daily_loss_limit?: number | null
+  max_drawdown?: number | null
+  max_leverage?: number | null
+  circuit_breaker_cooldown_secs?: number | null
+}
+
+/**
+ * 风控配置查询/删除响应
+ * applied: hot=运行中已热更；on_start=重启/启动时生效；null=未推送（worker 未运行）
+ */
+export interface RiskControlOut {
+  worker_id: number
+  enabled: boolean
+  updated_at: string | null
+  applied: 'hot' | 'on_start' | null
+}
+
