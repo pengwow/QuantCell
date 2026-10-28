@@ -34,6 +34,7 @@ from .exceptions import (
     WorkerNotFoundException,
 )
 from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
+from .log_utils import start_worker_log_sink, stop_worker_log_sink
 from .paper_trade_sync import PaperTradeSync
 from .risk_config import RiskPnlFeeder, apply_risk_config
 from .worker_state import worker_state_manager
@@ -896,17 +897,22 @@ class StrategyManager:
         trade_sync 非空时按窗口节流轮询交易所成交并落库，失败只记日志。
         risk_enabled 时按 DB 当日已实现盈亏回灌风控（每轮检查跨日清零）。
         """
+        # per-worker 日志通道：sink 挂载失败/线程早退时不卸载，错误日志仍能被前端看到
+        start_worker_log_sink(worker_id)
+        # 线程内日志统一 bind worker_id，经 log_utils 的 per-worker sink 分流到
+        # logs/worker/worker_{id}.log + 内存环，供前端日志面板读取
+        wlog = logger.bind(worker_id=worker_id)
         journal = Path(journal_path)
         try:
             driver.connect()
             if journal.is_file() and journal.stat().st_size > 0:
                 # 崩溃恢复：重演 journal + 对账，报告仅记日志
                 report = driver.resume(str(journal))
-                logger.info(f"[StrategyManager] 实盘恢复完成: worker_id={worker_id}, report={report}")
+                wlog.info(f"[StrategyManager] 实盘恢复完成: worker_id={worker_id}, report={report}")
             else:
                 driver.start(str(journal))
         except Exception as e:
-            logger.error(
+            wlog.error(
                 f"[StrategyManager] 实盘连接/恢复失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
             )
             self._mark_rl_live_error(worker_id, f"实盘连接/恢复失败: {e}")
@@ -914,7 +920,7 @@ class StrategyManager:
             self._kernel_runs.pop(worker_id, None)
             return
 
-        logger.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
+        wlog.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
         last_snapshot = float("-inf")
         last_trade_sync = 0.0
         # 当日盈亏回灌：live 以 DB 当日已实现盈亏为准（重启不重置当日亏损额度）。
@@ -924,7 +930,7 @@ class StrategyManager:
             try:
                 pnl_feeder.feed(trade_sync.daily_realized_pnl())
             except Exception as e:
-                logger.warning(f"[StrategyManager] live 当日盈亏首次回灌失败: worker_id={worker_id}, error={e}")
+                wlog.warning(f"[StrategyManager] live 当日盈亏首次回灌失败: worker_id={worker_id}, error={e}")
         # 风控拒单（Rust 侧 "risk rejected: {reason}"）是设计内行为（拒开仓放减仓），
         # live 1s/tick 会持续命中同一原因，按原因去重防刷屏；tick 恢复后清空再触发才重记
         last_risk_reject: str | None = None
@@ -934,7 +940,7 @@ class StrategyManager:
                 try:
                     pnl_feeder.reset_if_new_day()
                 except Exception as e:
-                    logger.warning(f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}")
+                    wlog.warning(f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}")
             try:
                 driver.tick()
                 last_risk_reject = None
@@ -944,12 +950,12 @@ class StrategyManager:
                     reason = msg.removeprefix("risk rejected: ")
                     if reason != last_risk_reject:
                         last_risk_reject = reason
-                        logger.warning(
+                        wlog.warning(
                             f"[StrategyManager] 风控拒单(拒开仓放减仓): worker_id={worker_id}, reason={reason}"
                         )
                 else:
                     last_risk_reject = None
-                    logger.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
+                    wlog.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
             # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
             now_s = time.monotonic()
             if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
@@ -957,7 +963,7 @@ class StrategyManager:
                 try:
                     self._push_kernel_snapshot(worker_id, driver.snapshot())
                 except Exception as e:
-                    logger.debug(f"[StrategyManager] live snapshot 推送失败: worker_id={worker_id}, error={e}")
+                    wlog.debug(f"[StrategyManager] live snapshot 推送失败: worker_id={worker_id}, error={e}")
             # live 成交落库轮询按窗口节流，失败只记日志（同 snapshot：观测性不反噬交易循环）
             if trade_sync is not None and now_s - last_trade_sync >= LIVE_TRADE_SYNC_INTERVAL_S:
                 last_trade_sync = now_s
@@ -965,17 +971,17 @@ class StrategyManager:
                     inserted = trade_sync.sync_once()
                 except Exception as e:
                     inserted = 0
-                    logger.warning(f"[StrategyManager] live 成交落库轮询失败: worker_id={worker_id}, error={e}")
+                    wlog.warning(f"[StrategyManager] live 成交落库轮询失败: worker_id={worker_id}, error={e}")
                 # 有新成交才查当日汇总：回灌是风控额度更新，不能靠旧值漂移
                 if inserted and pnl_feeder is not None:
                     try:
                         pnl_feeder.feed(trade_sync.daily_realized_pnl())
                     except Exception as e:
-                        logger.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
+                        wlog.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
-        logger.info(f"[StrategyManager] 实盘 tick 循环退出: worker_id={worker_id}")
+        wlog.info(f"[StrategyManager] 实盘 tick 循环退出: worker_id={worker_id}")
 
     def start_rl_paper(
         self,
@@ -1089,17 +1095,22 @@ class StrategyManager:
                 之后固定拉最近 2 根防窗口重叠
             risk_enabled: 是否已装配 pre-trade 风控（决定是否启用当日盈亏回灌）
         """
+        # per-worker 日志通道：sink 挂载失败/线程早退时不卸载，错误日志仍能被前端看到
+        start_worker_log_sink(worker_id)
+        # 线程内日志统一 bind worker_id，经 log_utils 的 per-worker sink 分流到
+        # logs/worker/worker_{id}.log + 内存环，供前端日志面板读取
+        wlog = logger.bind(worker_id=worker_id)
         step_s = _PAPER_INTERVAL_SECONDS.get(timeframe, 60)
         try:
             driver.start()
         except Exception as e:
-            logger.error(
+            wlog.error(
                 f"[StrategyManager] paper 泵启动失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
             )
             self._mark_rl_live_error(worker_id, f"paper 泵启动失败: {e}")
             return
 
-        logger.info(f"[StrategyManager] paper 泵循环启动: worker_id={worker_id}, interval={timeframe}")
+        wlog.info(f"[StrategyManager] paper 泵循环启动: worker_id={worker_id}, interval={timeframe}")
         limit = first_limit
         seen_open_ms: dict[str, int] = {}
         # 当日盈亏回灌：paper 账纯内存，用权益差值（含盯市）换算当日盈亏
@@ -1111,7 +1122,7 @@ class StrategyManager:
         trade_sync = PaperTradeSync(worker_id)
         while not stop_event.is_set():
             try:
-                self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder)
+                self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder, wlog)
                 limit = 2
                 last_risk_reject = None
             except Exception as e:
@@ -1120,22 +1131,22 @@ class StrategyManager:
                     reason = msg.removeprefix("risk rejected: ")
                     if reason != last_risk_reject:
                         last_risk_reject = reason
-                        logger.warning(
+                        wlog.warning(
                             f"[StrategyManager] 风控拒单(拒开仓放减仓): worker_id={worker_id}, reason={reason}"
                         )
                 else:
                     last_risk_reject = None
-                    logger.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
+                    wlog.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
                 # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
                 # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
             try:
                 trade_sync.sync_once(driver)
             except Exception as e:
-                logger.warning(f"[StrategyManager] paper 成交落库失败: worker_id={worker_id}, error={e}")
+                wlog.warning(f"[StrategyManager] paper 成交落库失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒；+0.5s 缓冲等交易所端收市 K 线就绪
             stop_event.wait(step_s - (time.time() % step_s) + 0.5)
 
-        logger.info(f"[StrategyManager] paper 泵循环退出: worker_id={worker_id}")
+        wlog.info(f"[StrategyManager] paper 泵循环退出: worker_id={worker_id}")
 
     def _paper_pump_round(
         self,
@@ -1146,6 +1157,7 @@ class StrategyManager:
         seen_open_ms: dict[str, int],
         limit: int,
         pnl_feeder: RiskPnlFeeder | None = None,
+        wlog: Any | None = None,
     ) -> None:
         """拉一轮收市 K 线并注入 driver，全部喂完后 tick 一次。
 
@@ -1155,7 +1167,9 @@ class StrategyManager:
 
         Args:
             pnl_feeder: 非空时用权益快照回灌当日盈亏（B3 风控，跨日清零由其内部处理）
+            wlog: 泵线程绑定的 worker 日志句柄；测试同步直调时可缺省，回退全局 logger
         """
+        log = wlog or logger
         step_ms = _PAPER_INTERVAL_SECONDS[timeframe] * 1000
         now_ms = int(time.time() * 1000)
         for symbol in symbols:
@@ -1182,19 +1196,19 @@ class StrategyManager:
         try:
             snap = driver.snapshot()
         except Exception as e:
-            logger.debug(f"[StrategyManager] paper snapshot 获取失败: worker_id={worker_id}, error={e}")
+            log.debug(f"[StrategyManager] paper snapshot 获取失败: worker_id={worker_id}, error={e}")
             return
         if pnl_feeder is not None:
             try:
                 pnl_feeder.feed(float(snap.get("equity") or 0.0))
             except Exception as e:
                 # 回灌失败只降级告警：风控额度暂时失真，但不能停掉行情泵
-                logger.warning(f"[StrategyManager] paper 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
+                log.warning(f"[StrategyManager] paper 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
         # 观测性推送，失败不打断行情泵
         try:
             self._push_kernel_snapshot(worker_id, snap)
         except Exception as e:
-            logger.debug(f"[StrategyManager] paper snapshot 推送失败: worker_id={worker_id}, error={e}")
+            log.debug(f"[StrategyManager] paper snapshot 推送失败: worker_id={worker_id}, error={e}")
 
     def _paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[list]:
         """拉 binance USDT-M testnet 公共收市 K 线（不签名）。
@@ -1317,7 +1331,9 @@ class StrategyManager:
 
         await worker_state_manager.transition(worker_id, "stopped")
 
-        logger.info(f"[StrategyManager] 策略已停止: worker_id={worker_id}")
+        # 先经 per-worker 通道通告停止（前端日志面板），再卸 sink；此后不再有该 worker 的运行期日志
+        logger.bind(worker_id=worker_id).info(f"[StrategyManager] 策略已停止: worker_id={worker_id}")
+        stop_worker_log_sink(worker_id)
         return True
 
     async def delete_strategy(self, worker_id: int) -> bool:
@@ -1339,6 +1355,8 @@ class StrategyManager:
             await self.stop_strategy(worker_id)
 
         strategy_registry.unregister(worker_id)
+        # stop 路径已卸则幂等静默；stopped 状态直达删除（不经 stop）时兜底清理
+        stop_worker_log_sink(worker_id)
         await worker_state_manager.remove_worker(worker_id)
 
         try:
