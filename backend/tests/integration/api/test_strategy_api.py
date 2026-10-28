@@ -273,6 +273,9 @@ class TestStrategyUploadAPI:
             strategies = listing.json()["data"]["strategies"]
             target = next((s for s in strategies if s["name"] == name), None)
             assert target is not None, "上传的策略应出现在列表中"
+            # id 来自 DB strategies 表主键，是 worker.strategy_id 的引用源；
+            # 缺失会导致编辑 Worker 时下拉与保存校验对不上
+            assert isinstance(target["id"], int) and target["id"] > 0
             params = {p["name"]: p for p in target["params"]}
             assert params["atr_mult"]["description"] == "ATR 倍数"
             assert params["atr_mult"]["default"] == 3.0
