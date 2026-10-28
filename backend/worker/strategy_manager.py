@@ -190,6 +190,15 @@ class StrategyManager:
                             f"worker_id={worker.id}, name={worker.name}, error={e}"
                         )
                         strategy_registry.update_status(worker.id, "error", error_message=error_msg)
+                        # 补第三层（缓存 + WS 广播 + DB 持久化一并完成）：本方法在
+                        # async 上下文，可直接 await；失败仅记日志不中断本轮恢复。
+                        # 变量用 te：内层 except 结束后 Python 会 del e，不能覆盖外层的 e
+                        try:
+                            await worker_state_manager.transition(worker.id, "error", error_message=error_msg)
+                        except Exception as te:
+                            logger.error(
+                                f"[StrategyManager] 恢复校验失败状态同步异常: worker_id={worker.id}, error={te}"
+                            )
                         config_errors.append(
                             {
                                 "worker_id": worker.id,
@@ -205,6 +214,12 @@ class StrategyManager:
                     except Exception as e:
                         logger.error(f"[StrategyManager] 恢复启动策略失败: worker_id={worker.id}, error={e}")
                         strategy_registry.update_status(worker.id, "error", error_message=str(e))
+                        # 补第三层（缓存 + WS 广播 + DB 持久化）：重启恢复失败也要让
+                        # 缓存与 WS 立即变 error，否则前端仍显示「运行中」
+                        try:
+                            await worker_state_manager.transition(worker.id, "error", error_message=str(e))
+                        except Exception as te:
+                            logger.error(f"[StrategyManager] 恢复失败状态同步异常: worker_id={worker.id}, error={te}")
 
             if config_errors:
                 logger.warning(
@@ -1259,6 +1274,18 @@ class StrategyManager:
         from .state import strategy_registry
 
         strategy_registry.update_status(worker_id, "error", error_message=message)
+        # 第三层：worker_state_manager 缓存 + WS 广播 + DB 持久化（transition 是 async，
+        # 泵线程没有运行中的事件循环，用 asyncio.run 短暂桥接；transition 返回 bool、
+        # 失败不抛异常。此层失败仅记日志，不影响上面两层落账）
+        try:
+            transitioned = asyncio.run(worker_state_manager.transition(worker_id, "error", error_message=message))
+            if not transitioned:
+                logger.warning(
+                    f"[StrategyManager] 第三层状态转换未生效（非法转换或 worker 不存在）: "
+                    f"worker_id={worker_id}, error={message}"
+                )
+        except Exception as e:
+            logger.error(f"[StrategyManager] 第三层状态同步失败: worker_id={worker_id}, error={e}")
         try:
             with get_db_session() as db:
                 crud.update_worker_status(db, worker_id, "error")
