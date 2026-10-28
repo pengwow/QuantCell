@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import {
+  Button,
   Card,
   Row,
   Col,
@@ -7,17 +8,45 @@ import {
   Tag,
   Space,
 } from 'antd';
-import type { Worker as WorkerType, StrategyParameter } from '../../types/worker';
+import type { Worker as WorkerType, StrategyParameter, RiskControlOut } from '../../types/worker';
 import { CodeOutlined, TagOutlined } from '@ant-design/icons';
-import { getStrategyParameters } from '../../api/workerApi';
+import { getRiskControl, getStrategyParameters } from '../../api/workerApi';
 import { QUANT_COLORS } from '@/utils/colors';
 import { useState, useEffect } from 'react';
 
+/** 人工风控展示行（启用明细态）：key 为 RiskControlOut 字段，未配置显示「引擎默认」 */
+const RISK_DISPLAY_ROWS: { key: string; label: string; unit: 'pct' | 'usdt' | 'x' | 'min' }[] = [
+  { key: 'max_position_pct', label: '单币种最大仓位占比', unit: 'pct' },
+  { key: 'max_position_size', label: '单币种最大名义价值', unit: 'usdt' },
+  { key: 'daily_loss_limit', label: '当日亏损上限占比', unit: 'pct' },
+  { key: 'daily_loss_amount', label: '当日亏损上限金额', unit: 'usdt' },
+  { key: 'max_drawdown', label: '最大回撤上限', unit: 'pct' },
+  { key: 'max_leverage', label: '最大杠杆', unit: 'x' },
+  { key: 'circuit_breaker_cooldown_secs', label: '熔断冷却时长', unit: 'min' },
+];
+
+/** 后端口径 → 展示文本：% 字段 0-1 → xx%，冷却秒 → 分钟；加零位小数避免 15.0% */
+const fmtRiskValue = (v: number | null | undefined, unit: 'pct' | 'usdt' | 'x' | 'min'): string => {
+  if (v === null || v === undefined) return '引擎默认';
+  switch (unit) {
+    case 'pct':
+      return `${+(v * 100).toFixed(4)}%`;
+    case 'usdt':
+      return `${v} USDT`;
+    case 'x':
+      return `${v}x`;
+    case 'min':
+      return `${+(v / 60).toFixed(2)} 分钟`;
+  }
+};
+
 interface WorkerParamsTabProps {
   worker: WorkerType;
+  /** 风控卡片「编辑」按钮回调（父页面决定是否联动 EditModal，本次可不接） */
+  onEdit?: () => void;
 }
 
-const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
+const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit }) => {
   const { t } = useTranslation();
 
   // 从 config 中提取策略参数（如果存在）
@@ -55,6 +84,27 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
     };
     loadParams();
   }, [worker.strategy_info?.id]);
+
+  // 人工风控配置（GET null = 从未配置过 → 继承策略参数）
+  const [risk, setRisk] = useState<RiskControlOut | null>(null);
+  const [riskLoaded, setRiskLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRiskControl(worker.id)
+      .then((out) => {
+        if (!cancelled) setRisk(out);
+      })
+      .catch((error) => {
+        console.error('加载风控配置失败:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setRiskLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [worker.id]);
 
   return (
     <div>
@@ -257,46 +307,59 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
         )}
       </Card>
 
-      {/* 风控参数 */}
+      {/* 人工风控（三态：启用明细 / 已停用 / 继承策略参数） */}
       <Card
         title={
           <Space>
             <span>🛡️</span>
             <span>{t('risk_params') || '风控参数'}</span>
+            {risk?.enabled && <Tag color="green">人工风控启用中</Tag>}
+            {risk?.enabled && risk?.applied === 'on_start' && <Tag color="orange">下次启动生效</Tag>}
           </Space>
         }
+        extra={onEdit && <Button size="small" onClick={onEdit}>编辑</Button>}
       >
-        <Row gutter={[24, 16]}>
-          <Col xs={24} sm={12} md={8}>
-            <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('max_drawdown') || '最大回撤限制'}>
-                <span style={{ fontWeight: 500, color: QUANT_COLORS.negative }}>
-                  {String(config.max_drawdown_limit) || '-'}%
-                </span>
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-
-          <Col xs={24} sm={12} md={8}>
-            <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('max_position_size') || '最大仓位占比'}>
-                <span style={{ fontWeight: 500 }}>
-                  {String(config.max_position_size) || '-'}%
-                </span>
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-
-          <Col xs={24} sm={12} md={8}>
-            <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('trailing_stop') || '移动止损'}>
-                <span style={{ fontWeight: 500 }}>
-                  {String(config.trailing_stop) || '-'}%
-                </span>
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-        </Row>
+        {!riskLoaded ? (
+          <div style={{ textAlign: 'center', padding: 30 }}>
+            <Tag icon={<CodeOutlined />} color="processing">加载中...</Tag>
+          </div>
+        ) : risk === null ? (
+          <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
+            继承策略参数配置
+          </div>
+        ) : !risk.enabled ? (
+          <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
+            人工风控已停用
+          </div>
+        ) : (
+          <Row gutter={[24, 16]}>
+            {RISK_DISPLAY_ROWS.map(({ key, label, unit }) => (
+              <Col key={key} xs={24} sm={12} md={8}>
+                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                  <Descriptions.Item label={label}>
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        color: unit === 'pct' || unit === 'usdt' ? QUANT_COLORS.negative : undefined,
+                      }}
+                    >
+                      {fmtRiskValue(risk[key as keyof RiskControlOut] as number | null | undefined, unit)}
+                    </span>
+                  </Descriptions.Item>
+                </Descriptions>
+              </Col>
+            ))}
+            <Col span={24}>
+              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                <Descriptions.Item label="更新时间">
+                  <span style={{ color: '#999' }}>
+                    {risk.updated_at ? new Date(risk.updated_at).toLocaleString() : '-'}
+                  </span>
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+          </Row>
+        )}
       </Card>
     </div>
   );
