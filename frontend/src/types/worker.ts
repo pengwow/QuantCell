@@ -86,6 +86,12 @@ export interface Worker {
   started_at?: string;
   stopped_at?: string;
   total_profit?: number;
+  /** 详情接口注入的内核状态信息（GET /workers/{id} 独有；列表接口不含） */
+  _state_info?: {
+    status?: string;
+    pid?: number | null;
+    error_message?: string | null;
+  };
 }
 
 // Worker列表响应

@@ -218,6 +218,21 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions.Item label={t('trading_mode') || '交易模式'}>
+                {/* live 红色提醒真实资金，testnet 橙色表示测试网，paper 蓝色本地模拟；文案与创建/编辑弹窗的 TRADING_MODES 保持一致 */}
+                <Tag color={worker.trading_config?.trading_mode === 'live' ? 'red' : worker.trading_config?.trading_mode === 'testnet' ? 'orange' : 'blue'}>
+                  {worker.trading_config?.trading_mode === 'live'
+                    ? '实盘交易'
+                    : worker.trading_config?.trading_mode === 'testnet'
+                      ? '测试网'
+                      : '本地模拟'}
+                </Tag>
+              </Descriptions.Item>
+            </Descriptions>
+          </Col>
+
+          <Col xs={24} sm={12} md={8}>
+            <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
               <Descriptions.Item label={t('timeframe') || 'K线周期'}>
                 <Tag color="blue">{worker.trading_config?.timeframe}</Tag>
               </Descriptions.Item>

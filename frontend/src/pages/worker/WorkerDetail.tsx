@@ -12,7 +12,7 @@ import { QUANT_COLORS } from '@/utils/colors';
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions } from 'antd';
+import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions, Alert } from 'antd';
 import { ArrowLeftOutlined, ClockCircleOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -72,6 +72,7 @@ const WorkerDetail = () => {
     loading,
     error,
     fetchWorkers,
+    fetchWorkerDetail,
     setSelectedWorker,
     clearErrors,
   } = useWorkerStore();
@@ -125,6 +126,14 @@ const WorkerDetail = () => {
     }
   }, [workerId, fetchWorkers]);
 
+  // 拉取详情接口数据：_state_info.error_message 仅 GET /workers/{id} 返回（列表接口不含），
+  // 头部「失败原因」提示依赖它
+  useEffect(() => {
+    if (workerId) {
+      fetchWorkerDetail(parseInt(workerId));
+    }
+  }, [workerId, fetchWorkerDetail]);
+
   // 找到当前查看的 worker
   const currentWorker = workers.find((w) => w.id === parseInt(workerId || '0')) || null;
 
@@ -143,7 +152,10 @@ const WorkerDetail = () => {
     return () => clearInterval(timer);
   }, []);
 
-  if (loading || !currentWorker) {
+  // 只在 worker 确实不存在时整页替换 Spin。不能加 loading 条件：fetchWorkers 会
+  // 置 store.loading=true，若此处整页 return 会卸载所有 tab（滚动位置丢失、轮询重启）；
+  // 下方 <Spin spinning={loading}> 已提供非破坏性加载遮罩
+  if (!currentWorker) {
     return (
       <PageContainer>
         <div
@@ -290,6 +302,17 @@ const WorkerDetail = () => {
             </Col>
           </Row>
         </Card>
+
+        {/* 启动/运行失败原因：仅 error 状态且有记录时展示（error_message 来自详情接口） */}
+        {currentWorker.status === 'error' && selectedWorker?._state_info?.error_message && (
+          <Alert
+            type="error"
+            showIcon
+            message={t('error_reason') || '失败原因'}
+            description={selectedWorker._state_info.error_message}
+            style={{ marginBottom: 16 }}
+          />
+        )}
 
         {/* 标签页内容区 */}
         <Card>

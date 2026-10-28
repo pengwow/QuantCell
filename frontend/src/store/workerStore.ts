@@ -506,6 +506,13 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       // ============================================
 
       connectLogStream: (workerId) => {
+        const { logStream } = get();
+        // 同一 worker 已有连接时直接复用：重复建连会把在途的 EventSource close 掉，
+        // 浏览器控制台会报 net::ERR_ABORTED
+        if (logStream && logStream.workerId === workerId) {
+          return;
+        }
+
         get().disconnectLogStream();
 
         // 优先使用 SSE，如果浏览器不支持则降级到 WebSocket
@@ -582,13 +589,10 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       // ============================================
 
       setSelectedWorker: (worker) => {
+        // 只维护选中态：日志流的连接生命周期由 WorkerLogsPanel 独占。
+        // 这里若顺带建连，会和面板自己的 connect 抢同一条流，
+        // 把在途请求 close 掉（浏览器报 net::ERR_ABORTED）。
         set({ selectedWorker: worker });
-        // 如果选中了worker，连接日志流
-        if (worker) {
-          get().connectLogStream(worker.id);
-        } else {
-          get().disconnectLogStream();
-        }
       },
 
       updateWorkerStatus: (workerId, status) => {

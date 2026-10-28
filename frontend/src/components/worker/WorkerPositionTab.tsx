@@ -37,16 +37,17 @@ interface WorkerPositionTabProps {
 
 const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active = true }) => {
   const { t } = useTranslation();
-  const [loading, setLoading] = useState(false);
+  // initialized：首帧数据是否已返回。轮询刷新只做局部 setState 更新，
+  // 不再用 loading 把整个面板替换成 Spin——DOM 被替换会丢失浏览器滚动位置（页面跳回顶部）
+  const [initialized, setInitialized] = useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [closedTrades, setClosedTrades] = useState<WorkerTrade[]>([]);
-  const [closedTotal, setClosedTotal] = useState(0);
-  const [closedPage, setClosedPage] = useState(1);
-  const [closedLoading, setClosedLoading] = useState(false);
+  const [trades, setTrades] = useState<WorkerTrade[]>([]);
+  const [tradeTotal, setTradeTotal] = useState(0);
+  const [tradePage, setTradePage] = useState(1);
+  const [tradeLoading, setTradeLoading] = useState(false);
 
   // 拉取持仓数据：兼容多种返回结构
   const fetchPositionData = useCallback(async () => {
-    setLoading(true);
     try {
       // apiRequest.get() 已解包 ApiResponse.data，getPositions 直接返回 PositionInfo[]
       const items = await workerApi.getPositions(workerId);
@@ -55,34 +56,35 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       console.error('获取持仓数据失败:', error);
       setPositions([]);
     } finally {
-      setLoading(false);
+      setInitialized(true);
     }
   }, [workerId]);
 
   // 5s 轮询：仅在 tab 激活时启用
   usePolling(fetchPositionData, { interval: 5000, enabled: active });
 
-  // 历史平仓记录：筛选 realized_pnl 已回填的配对平仓行（append-only，15s 轮询足够感知新平仓）
-  const fetchClosedTrades = useCallback(async (page: number) => {
-    setClosedLoading(true);
+  // 成交明细：展示全部 fill 行，与总览「总交易次数」口径一致（count 所有 fill）。
+  // realized_pnl 为 null = 开仓 fill 尚未配对出 round-trip（即当前持仓），标记「持仓中」；
+  // 之前按 pnl_status='closed' 过滤导致未平仓的 entry fill 在所有 tab 都不可见
+  const fetchTrades = useCallback(async (page: number) => {
+    setTradeLoading(true);
     try {
       const res = await workerApi.getWorkerTrades(workerId, {
-        pnl_status: 'closed',
         page,
         page_size: 10,
       });
-      setClosedTrades(res.items);
-      setClosedTotal(res.total);
-      setClosedPage(page);
+      setTrades(res.items);
+      setTradeTotal(res.total);
+      setTradePage(page);
     } catch (error) {
-      console.error('获取历史平仓记录失败:', error);
-      setClosedTrades([]);
+      console.error('获取成交记录失败:', error);
+      setTrades([]);
     } finally {
-      setClosedLoading(false);
+      setTradeLoading(false);
     }
   }, [workerId]);
 
-  usePolling(() => fetchClosedTrades(closedPage), { interval: 15000, enabled: active });
+  usePolling(() => fetchTrades(tradePage), { interval: 15000, enabled: active });
 
   // 汇总指标
   const summary = useMemo(() => {
@@ -220,10 +222,10 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
     return pnlPct > 5 ? 'position-row-highlight' : '';
   };
 
-  // 历史平仓记录表格列：基于 realized_pnl 已回填的配对平仓行
-  const closedColumns: TableColumnsType<WorkerTrade> = [
+  // 成交明细表格列：时间优先取平仓时间，未平仓行回退为成交时间
+  const tradeColumns: TableColumnsType<WorkerTrade> = [
     {
-      title: '平仓时间',
+      title: '时间',
       dataIndex: 'exit_time',
       key: 'exit_time',
       width: 170,
@@ -249,6 +251,14 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       ),
     },
     {
+      title: '状态',
+      dataIndex: 'realized_pnl',
+      key: 'trade_status',
+      width: 90,
+      render: (pnl?: number | null) =>
+        pnl === undefined || pnl === null ? <Tag color="gold">持仓中</Tag> : <Tag>已平仓</Tag>,
+    },
+    {
       title: t('quantity') || '数量',
       dataIndex: 'quantity',
       key: 'quantity',
@@ -256,7 +266,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       render: (qty: number) => formatQuantity(qty),
     },
     {
-      title: '平仓价',
+      title: '成交价',
       dataIndex: 'price',
       key: 'price',
       align: 'right',
@@ -268,11 +278,14 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       key: 'realized_pnl',
       align: 'right',
       width: 140,
-      render: (pnl?: number) => (
-        <span style={{ fontWeight: 600, color: (pnl ?? 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
-          {formatUSD(pnl ?? 0, { showSign: true })}
-        </span>
-      ),
+      render: (pnl?: number | null) =>
+        pnl === undefined || pnl === null ? (
+          <span style={{ color: '#999' }}>—</span>
+        ) : (
+          <span style={{ fontWeight: 600, color: pnl >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+            {formatUSD(pnl, { showSign: true })}
+          </span>
+        ),
     },
     {
       title: '收益率',
@@ -291,7 +304,8 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
     },
   ];
 
-  if (loading && positions.length === 0) {
+  // 仅首帧未返回数据时用 Spin 占位；之后轮询不触发此分支，DOM 结构保持稳定
+  if (!initialized) {
     return <Spin style={{ display: 'block', margin: '100px auto' }} />;
   }
 
@@ -387,23 +401,23 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         )}
       </Card>
 
-      {/* 历史平仓记录：服务端分页（数据 append-only，翻页/15s 轮询按当前页刷新） */}
-      <Card title={t('closed_trades') || '历史平仓记录'}>
+      {/* 成交明细：全部 fill 行（含持仓中/未平仓），服务端分页（数据 append-only，翻页/15s 轮询按当前页刷新） */}
+      <Card title="成交明细">
         <Table
-          columns={closedColumns}
-          dataSource={closedTrades}
+          columns={tradeColumns}
+          dataSource={trades}
           rowKey="trade_id"
-          loading={closedLoading}
+          loading={tradeLoading}
           locale={{
-            emptyText: <Empty description="暂无平仓记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+            emptyText: <Empty description="暂无成交记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
           }}
           pagination={{
-            current: closedPage,
+            current: tradePage,
             pageSize: 10,
-            total: closedTotal,
+            total: tradeTotal,
             showSizeChanger: false,
             showTotal: (total) => `共 ${total} 笔`,
-            onChange: (page) => fetchClosedTrades(page),
+            onChange: (page) => fetchTrades(page),
           }}
           size="middle"
           scroll={{ x: 'max-content' }}
