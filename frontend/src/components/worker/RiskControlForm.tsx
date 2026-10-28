@@ -11,6 +11,7 @@
  */
 import React from 'react';
 import {
+  Button,
   Col,
   Collapse,
   Divider,
@@ -128,16 +129,52 @@ export function sameRiskValues(a: Partial<RiskFormValues>, b: Partial<RiskFormVa
   );
 }
 
-/** 通用数字输入：百分比口径（0-100） */
-const pctInput = (placeholder: string) => (
-  <InputNumber
-    style={{ width: '100%' }}
-    min={0}
-    max={100}
-    step={0.5}
-    addonAfter="%"
-    placeholder={placeholder}
-  />
+/**
+ * addonAfter 在 antd v6 已废弃（antd 警告：请改用 Space.Compact），统一替换为
+ * 禁用 Button 作后缀。注意 Space.Compact 必须在 Form.Item 外面：noStyle Form.Item
+ * 通过 cloneElement 把 value/onChange 注入直接子元素，若直接子元素是 Compact 容器
+ * 则 InputNumber 拿不到值（结论同 BacktestConfig 的杠杆输入）。
+ */
+interface SuffixFieldProps {
+  name: string;
+  label: React.ReactNode;
+  tooltip: React.ReactNode;
+  suffix: string;
+  placeholder: string;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+const SuffixField: React.FC<SuffixFieldProps> = ({
+  name,
+  label,
+  tooltip,
+  suffix,
+  placeholder,
+  min,
+  max,
+  step,
+}) => (
+  <Form.Item label={label} tooltip={tooltip}>
+    <Space.Compact style={{ width: '100%' }}>
+      <Form.Item name={name} noStyle>
+        <InputNumber
+          style={{ width: '100%' }}
+          min={min}
+          max={max}
+          step={step}
+          placeholder={placeholder}
+        />
+      </Form.Item>
+      <Button disabled>{suffix}</Button>
+    </Space.Compact>
+  </Form.Item>
+);
+
+/** 百分比口径（0-100），固定档位收敛在此 */
+const PctField: React.FC<Omit<SuffixFieldProps, 'suffix' | 'min' | 'max' | 'step'>> = (props) => (
+  <SuffixField {...props} suffix="%" min={0} max={100} step={0.5} />
 );
 
 interface RiskControlFormProps {
@@ -168,47 +205,40 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
         <Space orientation="vertical" size="middle" style={{ display: 'flex', marginTop: 16 }}>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
+              <PctField
                 name="risk_max_position_pct"
                 label="单币种最大仓位占比"
                 tooltip="持仓市值占账户权益的比例上限"
-              >
-                {pctInput('引擎默认：无')}
-              </Form.Item>
+                placeholder="引擎默认：无"
+              />
             </Col>
             <Col span={12}>
-              <Form.Item
+              <PctField
                 name="risk_daily_loss_limit"
                 label="当日亏损占比上限"
                 tooltip="当日累计亏损占账户权益的比例上限，超出后拦截新开仓"
-              >
-                {pctInput('引擎默认：无')}
-              </Form.Item>
+                placeholder="引擎默认：无"
+              />
             </Col>
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
+              <SuffixField
                 name="risk_daily_loss_amount"
                 label="当日亏损金额上限"
                 tooltip="当日累计亏损金额（USDT）上限，超出后拦截新开仓"
-              >
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  addonAfter="USDT"
-                  placeholder="引擎默认：无"
-                />
-              </Form.Item>
+                suffix="USDT"
+                placeholder="引擎默认：无"
+                min={0}
+              />
             </Col>
             <Col span={12}>
-              <Form.Item
+              <PctField
                 name="risk_max_drawdown"
                 label="最大回撤上限"
                 tooltip="账户净值自高点的最大回撤比例上限"
-              >
-                {pctInput('引擎默认：15%')}
-              </Form.Item>
+                placeholder="引擎默认：15%"
+              />
             </Col>
           </Row>
           <Text type="secondary">
@@ -223,48 +253,36 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
                 children: (
                   <Row gutter={16}>
                     <Col span={12}>
-                      <Form.Item
+                      <SuffixField
                         name="risk_max_position_size"
                         label="单币种最大持仓名义价值"
                         tooltip="持仓市值绝对值（USDT）上限"
-                      >
-                        <InputNumber
-                          style={{ width: '100%' }}
-                          min={0}
-                          addonAfter="USDT"
-                          placeholder="引擎默认：无"
-                        />
-                      </Form.Item>
+                        suffix="USDT"
+                        placeholder="引擎默认：无"
+                        min={0}
+                      />
                     </Col>
                     <Col span={12}>
-                      <Form.Item
+                      <SuffixField
                         name="risk_max_leverage"
                         label="最大杠杆倍数"
                         tooltip="允许使用的最大杠杆"
-                      >
-                        <InputNumber
-                          style={{ width: '100%' }}
-                          min={1}
-                          max={200}
-                          addonAfter="x"
-                          placeholder="引擎默认：5x"
-                        />
-                      </Form.Item>
+                        suffix="x"
+                        placeholder="引擎默认：5x"
+                        min={1}
+                        max={200}
+                      />
                     </Col>
                     <Col span={12}>
-                      <Form.Item
+                      <SuffixField
                         name="risk_circuit_breaker_cooldown_secs"
                         label="熔断冷却时长"
                         tooltip="触发熔断后的交易暂停时长，冷却期内不下新单"
-                      >
-                        <InputNumber
-                          style={{ width: '100%' }}
-                          min={0}
-                          max={10080}
-                          addonAfter="分钟"
-                          placeholder="引擎默认：60 分钟"
-                        />
-                      </Form.Item>
+                        suffix="分钟"
+                        placeholder="引擎默认：60 分钟"
+                        min={0}
+                        max={10080}
+                      />
                     </Col>
                   </Row>
                 ),
