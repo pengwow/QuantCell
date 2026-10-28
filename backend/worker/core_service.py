@@ -1912,7 +1912,18 @@ class WorkerCoreService:
             row = db.query(models.WorkerRiskControl).filter(models.WorkerRiskControl.worker_id == worker_id).first()
             if row is None:
                 return None
-            return schemas.RiskControlOut(worker_id=worker_id, enabled=row.enabled, updated_at=row.updated_at)
+            return schemas.RiskControlOut(
+                worker_id=worker_id,
+                enabled=row.enabled,
+                max_position_pct=row.max_position_pct,
+                max_position_size=row.max_position_size,
+                daily_loss_amount=row.daily_loss_amount,
+                daily_loss_limit=row.daily_loss_limit,
+                max_drawdown=row.max_drawdown,
+                max_leverage=row.max_leverage,
+                circuit_breaker_cooldown_secs=row.circuit_breaker_cooldown_secs,
+                updated_at=row.updated_at,
+            )
 
     async def async_get_risk_control(self, worker_id: int) -> schemas.RiskControlOut | None:
         """查询人工风控管控行；未配置返回 None（前端回落继承策略参数展示）。"""
