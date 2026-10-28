@@ -1,8 +1,11 @@
-"""B3 pre-trade 风控装配：params.risk 直通优先，fallback worker_risk_control 表。
+"""B3 pre-trade 风控装配：worker_risk_control 人工开关三态优先，params.risk 直通兜底。
 
 QuantCell 的金额/比例口径 → axon-risk 引擎 RiskConfig 的映射在这里收口，
 四处驱动装配点（RL/规则 × paper/live）共用。
-语义是 opt-in：两者都没配置时返回 None，驱动保持默认无风控行为（B3 之前行为不变）。
+三态语义（spec §4.6，人工开关优先）：
+- 表行 enabled=True → 人工配置赢过 params.risk（字段全空 → 装配引擎默认档）
+- 表行 enabled=False → 强制停用（返回 None，人工取消优先）
+- 无表行 → params.risk 直通（零行为变化；都未配置仍返回 None，opt-in 不变）
 
 另含当日盈亏回灌器 `RiskPnlFeeder`：axon-risk 的 `update_daily_pnl` 是累加语义、
 无内部日切，增量换算与跨日清零由 Python 侧驱动。
@@ -30,24 +33,34 @@ def resolve_risk_settings(
     worker_id: int,
     initial_cash: float,
 ) -> tuple[dict[str, Any], float | None] | None:
-    """解析风控配置 → (config, max_position_value)，未配置返回 None。
+    """三态装配（spec §4.6）：
 
-    - params["risk"] 优先（直通口）：键原样传给 Rust set_risk_config，
+    - 有表行且 enabled=True → 人工配置赢过 params.risk；
+      字段全空返回 ({}, None)，装配引擎默认档（推翻旧「空行视为未配置」）
+    - 有表行且 enabled=False → 强制停用（返回 None），人工取消优先
+    - 无表行 → params.risk 直通（零行为变化）：键原样传给 Rust set_risk_config，
       未知键由 Rust 侧报错（统一单点校验，防拼错键名静默走默认值）；
       额外支持 "max_position_value"（目标净仓名义额上限，独立参数）。
-    - fallback 查 worker_risk_control 表：无行视为未配置；行存在时按
-      「金额 = 比例 × 资金」转换，绝对金额字段优先于比例字段。
     """
+    row = _load_risk_control_row(worker_id)
+    if row is not None:
+        if not row["enabled"]:
+            return None
+        return _map_row_to_settings(row, initial_cash)
+
     risk = params.get("risk")
     if isinstance(risk, dict) and risk:
         config = dict(risk)
         max_position_value = config.pop("max_position_value", None)
         return config, max_position_value
+    return None
 
-    row = _load_risk_control_row(worker_id)
-    if row is None:
-        return None
 
+def _map_row_to_settings(row: dict[str, Any], initial_cash: float) -> tuple[dict[str, Any], float | None]:
+    """表行 → (引擎 config, max_position_value)。enabled=True 的行才会走到这里。
+
+    「金额 = 比例 × 资金」转换，绝对金额字段优先于比例字段。
+    """
     config: dict[str, Any] = {}
     max_position_value: float | None = None
     if row["max_position_pct"] and row["max_position_pct"] > 0:
@@ -55,19 +68,23 @@ def resolve_risk_settings(
     if row["max_position_size"] and row["max_position_size"] > 0:
         # 绝对金额与比例换算值并存时取更严（更小）者
         size_value = float(row["max_position_size"])
-        max_position_value = (
-            size_value if max_position_value is None else min(max_position_value, size_value)
-        )
+        max_position_value = size_value if max_position_value is None else min(max_position_value, size_value)
     if row["daily_loss_amount"] and row["daily_loss_amount"] > 0:
         config["max_daily_loss"] = float(row["daily_loss_amount"])
     elif row["daily_loss_limit"] and row["daily_loss_limit"] > 0:
         config["max_daily_loss"] = float(row["daily_loss_limit"]) * initial_cash
+    # 引擎白名单新键（risk_config_from_dict 五键之内）
+    if row["max_drawdown"] and row["max_drawdown"] > 0:
+        config["max_drawdown"] = float(row["max_drawdown"])
+    if row["max_leverage"] and row["max_leverage"] > 0:
+        config["max_leverage"] = float(row["max_leverage"])
+    if row["circuit_breaker_cooldown_secs"] is not None:
+        # 0 是合法值（禁用冷却等待），必须用 is not None 而非 truthy 判断
+        config["circuit_breaker_cooldown_secs"] = int(row["circuit_breaker_cooldown_secs"])
     if max_position_value:
         # 单笔订单名义额上限对齐仓位上限：超出仓位上限的单笔必然被仓位检查拒，
         # 不需要更严的独立单笔限额（引擎默认 5 万元对大账户会误拒正常开仓）
         config["max_order_value"] = max_position_value
-    if not config and max_position_value is None:
-        return None
     return config, max_position_value
 
 
@@ -91,8 +108,7 @@ def apply_risk_config(
     config, max_position_value = settings
     driver.set_risk_config(config, max_position_value=max_position_value)
     logger.info(
-        f"[risk_config] 风控已装配: worker_id={worker_id}, config={config}, "
-        f"max_position_value={max_position_value}"
+        f"[risk_config] 风控已装配: worker_id={worker_id}, config={config}, max_position_value={max_position_value}"
     )
     return True
 
@@ -166,22 +182,19 @@ def _load_risk_control_row(worker_id: int) -> dict[str, Any] | None:
         from .models import WorkerRiskControl
 
         with get_db_session() as db:
-            row = (
-                db.query(WorkerRiskControl)
-                .filter(WorkerRiskControl.worker_id == worker_id)
-                .first()
-            )
+            row = db.query(WorkerRiskControl).filter(WorkerRiskControl.worker_id == worker_id).first()
             if row is None:
                 return None
             return {
+                "enabled": bool(row.enabled),
                 "max_position_pct": row.max_position_pct,
                 "max_position_size": row.max_position_size,
                 "daily_loss_amount": row.daily_loss_amount,
                 "daily_loss_limit": row.daily_loss_limit,
+                "max_drawdown": row.max_drawdown,
+                "max_leverage": row.max_leverage,
+                "circuit_breaker_cooldown_secs": row.circuit_breaker_cooldown_secs,
             }
     except Exception as e:
-        logger.warning(
-            f"[risk_config] worker_risk_control 查询失败（视为未配置）: "
-            f"worker_id={worker_id}, error={e}"
-        )
+        logger.warning(f"[risk_config] worker_risk_control 查询失败（视为未配置）: worker_id={worker_id}, error={e}")
         return None

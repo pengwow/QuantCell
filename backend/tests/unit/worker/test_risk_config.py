@@ -1,4 +1,4 @@
-"""risk_config 单测：params.risk 直通优先 + worker_risk_control fallback 转换逻辑。
+"""risk_config 单测：人工开关三态（enabled=True 人工配置赢 / False 强制停用 / 无行直通 params.risk）。
 
 fallback 的 DB 访问（_load_risk_control_row）通过 mock 注入 row dict，
 不连真实数据库；DB 异常吞并用 patch utils.db_session.get_db_session 钉住。
@@ -16,14 +16,34 @@ from worker.risk_config import (
 )
 
 
+def _row(**overrides) -> dict:
+    """造 worker_risk_control 行 dict：默认 enabled=True 全字段空，overrides 覆盖。
+
+    resolve/_map_row_to_settings 按键硬访问，缺键会 KeyError，统一走这里造全键行。
+    """
+    row = {
+        "enabled": True,
+        "max_position_pct": 0.0,
+        "max_position_size": 0.0,
+        "daily_loss_amount": None,
+        "daily_loss_limit": 0.0,
+        "max_drawdown": None,
+        "max_leverage": None,
+        "circuit_breaker_cooldown_secs": None,
+    }
+    row.update(overrides)
+    return row
+
+
 class TestResolveRiskSettings:
     def test_params_risk_passthrough(self):
-        """params.risk 直通：键原样透传，max_position_value 剥离为独立参数"""
-        settings = resolve_risk_settings(
-            {"risk": {"max_daily_loss": 100.0, "max_position_value": 5000.0}},
-            worker_id=1,
-            initial_cash=10_000.0,
-        )
+        """无表行时 params.risk 直通：键原样透传，max_position_value 剥离为独立参数"""
+        with patch("worker.risk_config._load_risk_control_row", return_value=None):
+            settings = resolve_risk_settings(
+                {"risk": {"max_daily_loss": 100.0, "max_position_value": 5000.0}},
+                worker_id=1,
+                initial_cash=10_000.0,
+            )
         assert settings == ({"max_daily_loss": 100.0}, 5000.0)
 
     def test_unset_returns_none(self):
@@ -32,8 +52,8 @@ class TestResolveRiskSettings:
             assert resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0) is None
 
     def test_risk_not_dict_falls_back(self):
-        """risk 非 dict（如误配成字符串）→ 忽略直通口走 fallback，不报错"""
-        row = {"max_position_pct": 0.0, "max_position_size": 3000.0, "daily_loss_amount": None, "daily_loss_limit": 0.0}
+        """risk 非 dict（如误配成字符串）→ 忽略直通口走表行，不报错"""
+        row = _row(max_position_size=3000.0)
         with patch("worker.risk_config._load_risk_control_row", return_value=row):
             settings = resolve_risk_settings({"risk": "oops"}, worker_id=1, initial_cash=10_000.0)
         assert settings is not None
@@ -41,9 +61,26 @@ class TestResolveRiskSettings:
         assert max_position_value == 3000.0
         assert config["max_order_value"] == 3000.0
 
+    def test_enabled_false_beats_params_risk(self):
+        """三态·强制停用：表行 enabled=False → 返回 None，人工取消赢过 params.risk"""
+        row = _row(enabled=False)
+        with patch("worker.risk_config._load_risk_control_row", return_value=row):
+            settings = resolve_risk_settings({"risk": {"max_daily_loss": 100.0}}, worker_id=1, initial_cash=10_000.0)
+        assert settings is None
+
+    def test_enabled_true_beats_params_risk(self):
+        """三态·人工配置赢：表行 enabled=True → 用表行的值而非 params.risk"""
+        row = _row(max_position_pct=0.2)
+        with patch("worker.risk_config._load_risk_control_row", return_value=row):
+            settings = resolve_risk_settings({"risk": {"max_daily_loss": 100.0}}, worker_id=1, initial_cash=10_000.0)
+        assert settings is not None
+        config, max_position_value = settings
+        assert max_position_value == 2000.0
+        assert "max_daily_loss" not in config  # params.risk 里的键不透传
+
     def test_fallback_position_pct_to_value(self):
-        """fallback：max_position_pct（比例）× initial_cash 换算金额"""
-        row = {"max_position_pct": 0.1, "max_position_size": 0.0, "daily_loss_amount": None, "daily_loss_limit": 0.0}
+        """表行：max_position_pct（比例）× initial_cash 换算金额"""
+        row = _row(max_position_pct=0.1)
         with patch("worker.risk_config._load_risk_control_row", return_value=row):
             config, max_position_value = resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0)
         assert max_position_value == 1000.0
@@ -52,14 +89,14 @@ class TestResolveRiskSettings:
 
     def test_fallback_pct_and_size_take_stricter(self):
         """仓位绝对金额与比例换算值并存时取更严（更小）者"""
-        row = {"max_position_pct": 0.5, "max_position_size": 2000.0, "daily_loss_amount": None, "daily_loss_limit": 0.0}
+        row = _row(max_position_pct=0.5, max_position_size=2000.0)
         with patch("worker.risk_config._load_risk_control_row", return_value=row):
             _, max_position_value = resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0)
         assert max_position_value == 2000.0  # 0.5×10_000=5000 vs 2000 → 取 2000
 
     def test_fallback_daily_loss_amount_over_ratio(self):
         """亏损限额：绝对金额优先于比例字段"""
-        row = {"max_position_pct": 0.0, "max_position_size": 0.0, "daily_loss_amount": 800.0, "daily_loss_limit": 0.05}
+        row = _row(daily_loss_amount=800.0, daily_loss_limit=0.05)
         with patch("worker.risk_config._load_risk_control_row", return_value=row):
             config, max_position_value = resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0)
         assert config["max_daily_loss"] == 800.0
@@ -67,16 +104,25 @@ class TestResolveRiskSettings:
 
     def test_fallback_daily_loss_ratio_to_value(self):
         """亏损限额仅有比例字段时按 initial_cash 换算为金额"""
-        row = {"max_position_pct": 0.0, "max_position_size": 0.0, "daily_loss_amount": None, "daily_loss_limit": 0.05}
+        row = _row(daily_loss_limit=0.05)
         with patch("worker.risk_config._load_risk_control_row", return_value=row):
             config, _ = resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0)
         assert config["max_daily_loss"] == 500.0
 
-    def test_fallback_empty_row_returns_none(self):
-        """表行存在但字段全空/全零 → 视为未配置"""
-        row = {"max_position_pct": 0.0, "max_position_size": 0.0, "daily_loss_amount": None, "daily_loss_limit": 0.0}
+    def test_fallback_empty_row_uses_engine_defaults(self):
+        """语义变更：enabled 行字段全空 → 返回 ({}, None) 装配引擎默认档（不再视为未配置）"""
+        row = _row()
         with patch("worker.risk_config._load_risk_control_row", return_value=row):
-            assert resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0) is None
+            assert resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0) == ({}, None)
+
+    def test_fallback_engine_hotfill_keys(self):
+        """引擎热更新增三键映射：drawdown/leverage 原样，cooldown=0（合法值）保留"""
+        row = _row(max_drawdown=0.3, max_leverage=10.0, circuit_breaker_cooldown_secs=0)
+        with patch("worker.risk_config._load_risk_control_row", return_value=row):
+            config, _ = resolve_risk_settings({}, worker_id=1, initial_cash=10_000.0)
+        assert config["max_drawdown"] == 0.3
+        assert config["max_leverage"] == 10.0
+        assert config["circuit_breaker_cooldown_secs"] == 0
 
 
 class TestApplyRiskConfig:
