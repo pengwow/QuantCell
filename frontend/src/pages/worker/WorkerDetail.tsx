@@ -9,16 +9,17 @@ import { QUANT_COLORS } from '@/utils/colors';
  * - 所有 tab 标签使用 i18n 翻译
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions, Alert } from 'antd';
-import { ArrowLeftOutlined, ClockCircleOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ClockCircleOutlined, FolderAddOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
+import { archiveWorkerJournal } from '../../api/workerApi';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
@@ -53,7 +54,7 @@ const WorkerDetail = () => {
   const { t } = useTranslation();
   const { workerId } = useParams<{ workerId: string }>();
   const navigate = useNavigate();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [activeTab, setActiveTab] = useState<TabKey>(DEFAULT_TAB);
   // 初始时间戳使用懒初始化，避免每次渲染重新计算
@@ -152,6 +153,36 @@ const WorkerDetail = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // 归档 journal：二次确认后调用归档 API，成功后刷新详情（journal 移走 → 下次启动 fresh start）
+  const handleArchive = useCallback(() => {
+    if (!currentWorker) return;
+    // String() 解耦 status 字面量类型：后端允许 error 态归档，前端类型未必含该字面量
+    const status = String(currentWorker.status ?? '');
+    // 运行时门槛兜底：按钮 disabled 只是 UI 层拦截，弹窗打开间隙状态可能已变化
+    if (!['stopped', 'error'].includes(status)) {
+      message.warning('仅已停止或异常状态的 Worker 可归档');
+      return;
+    }
+    modal.confirm({
+      title: '归档 journal 并 fresh start？',
+      content: `journal 将移动到 archive/ 目录，下次启动以 ${currentWorker.name || '该 Worker'} 的当前权益为基准重新锚定，不再对账历史记录。实盘账户请先人工核对交易所实际持仓与本地记录一致。`,
+      okText: '归档',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await archiveWorkerJournal(currentWorker.id);
+          message.success(`已归档 ${result.archived.length} 个文件，下次启动 fresh start`);
+          await fetchWorkerDetail(currentWorker.id);
+        } catch (e) {
+          // ApiError extends Error，e.message 已由响应拦截器填好后端错误信息
+          const errorMsg = e instanceof Error ? e.message : String(e);
+          message.error(`归档失败: ${errorMsg}`);
+        }
+      },
+    });
+  }, [currentWorker, fetchWorkerDetail, message, modal]);
+
   // 只在 worker 确实不存在时整页替换 Spin。不能加 loading 条件：fetchWorkers 会
   // 置 store.loading=true，若此处整页 return 会卸载所有 tab（滚动位置丢失、轮询重启）；
   // 下方 <Spin spinning={loading}> 已提供非破坏性加载遮罩
@@ -234,6 +265,14 @@ const WorkerDetail = () => {
               disabled={!currentWorker}
             >
               {t('share.button') || '分享'}
+            </Button>
+            <Button
+              danger
+              icon={<FolderAddOutlined />}
+              disabled={!currentWorker || !['stopped', 'error'].includes(String(currentWorker.status ?? ''))}
+              onClick={handleArchive}
+            >
+              归档重锚
             </Button>
           </Space>
         </div>

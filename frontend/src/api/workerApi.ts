@@ -143,6 +143,21 @@ export const restartWorker = (workerId: number): Promise<{ task_id: string; stat
   return apiRequest.post(`/workers/${workerId}/lifecycle/restart`);
 };
 
+/** 归档返回结构：archived 为每条被移动文件的 from/to 路径对 */
+export interface ArchiveJournalResult {
+  worker_id: number;
+  archived: { from: string; to: string }[];
+  hint: string;
+}
+
+/**
+ * 归档 Worker journal（移动到 archive/ 子目录，下次启动 fresh start 重锚）
+ * 仅 stopped / error 状态可归档；running 等状态后端返回 409
+ */
+export const archiveWorkerJournal = (workerId: number): Promise<ArchiveJournalResult> => {
+  return apiRequest.post(`/workers/${workerId}/lifecycle/archive`);
+};
+
 /**
  * 获取 Worker 实时状态
  * @param workerId Worker ID
@@ -879,6 +894,7 @@ export const workerApi = {
   startWorker,
   stopWorker,
   restartWorker,
+  archiveWorkerJournal,
   getWorkerStatus,
   healthCheck,
 
