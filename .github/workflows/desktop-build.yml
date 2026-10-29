@@ -128,9 +128,22 @@ jobs:
         run: bash desktop/scripts/fetch-uv.sh "${{ matrix.triple }}"
 
       - name: Build desktop app (Tauri)
+        shell: bash
+        env:
+          # 私钥与密码来自仓库 Secrets；未配置时 tauri 会因缺少签名密钥直接失败
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           cd desktop
-          bunx @tauri-apps/cli build
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "打包版本 $VERSION（来自 tag ${GITHUB_REF_NAME}）"
+            # --config 内联 JSON 覆盖 tauri.conf.json 的 version，保证 tag 是版本唯一事实源
+            bunx @tauri-apps/cli build --config "{\"version\":\"$VERSION\"}"
+          else
+            # 手动触发：沿用仓库里的 version（用于冒烟，不走发布）
+            bunx @tauri-apps/cli build
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -139,3 +152,52 @@ jobs:
           path: |
             desktop/src-tauri/target/release/bundle/**/*
           if-no-files-found: error
+
+  # 发布：仅 tag 触发；四个平台产物 + updater manifest 一起发到 GitHub Release
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 不 merge：保留下载目录名（= artifact name），聚合脚本按平台目录定位产物
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: quantcell-desktop-*
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Aggregate updater manifest
+        env:
+          MIRROR_BASE_URL: ${{ vars.UPDATE_MIRROR_BASE_URL }}
+        run: |
+          uv run --no-project --with typer python desktop/scripts/aggregate_updater_manifest.py \
+            --version "${GITHUB_REF_NAME#v}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --input dist \
+            --output dist/manifest \
+            --notes "QuantCell ${GITHUB_REF_NAME}" \
+            --mirror-base "$MIRROR_BASE_URL"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/**/*.dmg
+            dist/**/*.app.tar.gz
+            dist/**/*.app.tar.gz.sig
+            dist/**/*-setup.exe
+            dist/**/*-setup.exe.sig
+            dist/**/*.msi
+            dist/**/*.msi.sig
+            dist/**/*.deb
+            dist/**/*.AppImage
+            dist/**/*.AppImage.tar.gz
+            dist/**/*.AppImage.tar.gz.sig
+            dist/manifest/latest.json
+            dist/manifest/latest-mirror.json
