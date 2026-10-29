@@ -22,6 +22,11 @@
 
 ## Step 1：修复 cli/worker.py 语法错误（前置阻塞）
 
+> **执行结果（2026-10-29）：本步骤证伪取消，未执行。**
+> 侦查阶段误判：项目 venv 是 Python 3.14.0，PEP 758 已合法化 `except A, B:` 无括号写法，且
+> `pyproject.toml` L133 `target-version = "py314"`、ruff format 反而会主动去除冗余括号。
+> 实测 `import cli.worker` 通过，文件无需改动。
+
 **文件**: `backend/cli/worker.py`
 **原因**: L37 `except ValueError, TypeError:` 是 Python 2 语法，`SyntaxError: multiple exception types must be parenthesized`。`qc worker archive` 命令依赖该文件 import，必须先修。
 
@@ -176,7 +181,9 @@ cd backend && uv run pytest tests/unit/worker/test_journal_archive.py -q
         # reconcile 报告当前无自动写盘方（Rust worker.reconcile 只返回 dict 不落盘），
         # 这里"存在即收"是防御性收集，未来落盘方出现后无需改动本方法
         candidates: list[Path] = []
-        for base in (self._live_journal_path(worker_id), self._rl_live_journal_path(worker_id)):
+        # 两个路径 helper 的既有契约返回 str（多处调用方按字符串使用），
+        # 这里需要 Path 语义（stem/with_name），故就地包装——不动 helper 签名
+        for base in (Path(self._live_journal_path(worker_id)), Path(self._rl_live_journal_path(worker_id))):
             candidates.append(base)
             candidates.append(base.with_name(f"{base.stem}.reconcile.json"))
         existing = [p for p in candidates if p.is_file()]
@@ -500,6 +507,12 @@ git commit -m "feat(cli): qc worker archive 命令（confirm 确认 + 逐文件�
 ---
 
 ## Step 7：前端——workerApi 方法 + 详情页归档按钮
+
+> **执行偏离记录（2026-10-29，commit ecde8100）**：
+> ① `ArchiveOutlined` 在 `@ant-design/icons` 6.1.0 中不存在（`es/icons/` 实测无该文件），
+> 换用 `FolderAddOutlined`；② `workerId` 来自 `useParams` 是 string，而 API 需要 number，
+> `handleArchive` 内改用 `currentWorker.id`（并补运行时状态守卫兜底）；③ 计划代码遗漏
+> `archiveWorkerJournal` 与 `useCallback` 的 import，已补。
 
 **文件 1**: `frontend/src/api/workerApi.ts`
 **插入位置 1**: Lifecycle API 区块 `restartWorker` 之后（约 L131）；导出对象 Lifecycle 组同步加入 `archiveWorkerJournal,`。
