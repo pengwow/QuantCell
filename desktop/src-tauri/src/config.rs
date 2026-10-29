@@ -61,16 +61,22 @@ pub fn save(app_data_dir: &Path, cfg: &PersistedConfig) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    /// 不用 tempfile 第三方 crate，用 pid+纳秒构造唯一临时目录
+    /// 进程内单调计数：并行测试可能落在同一纳秒上
+    static TMP_DIR_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    /// 不用 tempfile 第三方 crate，用 pid+纳秒+进程内计数构造唯一临时目录
     fn unique_tmp_dir() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        // 计数器保证同进程内即使两次调用落在同一纳秒也不会撞名（否则并行测试会互删/覆盖对方目录）
+        let seq = TMP_DIR_SEQ.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "qc-desktop-cfg-test-{}-{nanos}",
+            "qc-desktop-cfg-test-{}-{nanos}-{seq}",
             std::process::id()
         ));
         fs::create_dir_all(&dir).unwrap();
