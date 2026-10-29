@@ -156,6 +156,9 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
                 &dir_str,
             ])
             .env("CORS_ORIGINS", CORS_ORIGINS)
+            // 版本单源：tauri.conf.json 的 version（CI 由 tag patch）→ 子进程 env →
+            // 后端 pydantic-settings 的 app_version，避免后端再维护一份版本号
+            .env("QUANTCELL_VERSION", app.package_info().version.to_string())
             // 此处 env 只在 exec 后对子进程生效，挡不住 fork() 后 exec() 前的那次
             // ObjC fork-safety abort；权威设置在 lib::run() 最开头（让本进程及 fork
             // 子进程继承）。这里再写一遍仅为防御 sidecar 自身派生后代进程的场景。

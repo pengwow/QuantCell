@@ -1,6 +1,7 @@
 mod backend;
 mod config;
 mod port;
+mod update;
 
 use tauri::{Manager, RunEvent};
 
