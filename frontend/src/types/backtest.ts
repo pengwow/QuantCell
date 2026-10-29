@@ -36,17 +36,17 @@ export interface Trade {
   timestamp: number;        // 开仓时间（秒级）
   formatted_time: string;   // 开仓展示时间
   entry_time: string;       // 开仓 ISO UTC
-  exit_time: string;        // 平仓 ISO UTC
-  exit_timestamp: number;   // 平仓时间（秒级）
+  exit_time: string | null;       // 平仓 ISO UTC（未配对行无平仓 → null）
+  exit_timestamp: number | null;  // 平仓时间（秒级）
   entry_price: number;
   exit_price: number;
   size: number;
   pnl: number;
   return_pct: number;
-  direction: 'long' | 'short';   // 持仓方向
+  direction: 'long' | 'short' | null;   // 持仓方向；null = 未配对（Worker 分组视图）
   entry_side: 'buy' | 'sell';    // 开仓方向
   exit_side: 'buy' | 'sell';     // 平仓方向
-  status: 'closed';              // 已平仓
+  status: 'closed' | 'unpaired';        // 回测恒为 closed
   entry_fill_ids: number[];      // 构成该持仓的开仓 fill id
   exit_fill_ids: number[];       // 平仓 fill id 列表（FLAT_TO_FLAT 下可能多条）
   fills: TradeFill[];            // 逐笔成交明细

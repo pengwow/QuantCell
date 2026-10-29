@@ -30,6 +30,8 @@ import type {
   WorkerFilterParams,
   LogQueryParams,
   TradeQueryParams,
+  GroupedTradeQueryParams,
+  GroupedTradeResponse,
   MetricsHistoryParams,
   TradingSummary,
   PositionSummary,
@@ -242,6 +244,18 @@ export const getWorkerTrades = (
   params?: TradeQueryParams
 ): Promise<{ items: WorkerTrade[]; total: number; page: number; page_size: number }> => {
   return apiRequest.get(`/workers/${workerId}/monitoring/trades`, params);
+};
+
+/**
+ * 获取 Worker 成交分组（round-trip 契约，与回测详情页 TradeTable 一致）
+ * @param workerId Worker ID
+ * @param params 筛选 + 组分页参数
+ */
+export const getWorkerTradesGrouped = (
+  workerId: number,
+  params?: GroupedTradeQueryParams
+): Promise<GroupedTradeResponse> => {
+  return apiRequest.get(`/workers/${workerId}/monitoring/trades/grouped`, params);
 };
 
 // ============================================
@@ -905,6 +919,7 @@ export const workerApi = {
   clearWorkerLogs,
   getWorkerPerformance,
   getWorkerTrades,
+  getWorkerTradesGrouped,
 
   // Strategy
   deployStrategy,
