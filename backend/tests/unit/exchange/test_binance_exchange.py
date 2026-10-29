@@ -157,6 +157,18 @@ class TestConfigureTestnet:
         assert urls["public"] == base + "/fapi/v1/ticker/price"
         assert urls["private"] == base + "/fapi/v1"
 
+    def test_configure_testnet_disables_sapi_dependent_options(self):
+        """testnet 无 sapi 服务，须关闭依赖 sapi 的 load_markets 选项（fetchCurrencies/fetchMargins）"""
+        for trading_mode in ("spot", "future"):
+            exchange = mock.MagicMock()
+            exchange.urls = _base_urls()
+            # MagicMock 的 __setitem__ 不落值，换真实 dict 才能断言 options 写入
+            exchange.options = {}
+            _make_client(exchange, testnet=True, trading_mode=trading_mode)
+
+            assert exchange.options["fetchCurrencies"] is False
+            assert exchange.options["fetchMargins"] is False
+
     def test_configure_testnet_futures_alias_works(self):
         exchange = mock.MagicMock()
         exchange.urls = _base_urls()
