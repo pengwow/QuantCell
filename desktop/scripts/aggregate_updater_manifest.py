@@ -39,6 +39,15 @@ ARTIFACT_SUFFIXES = {
 }
 
 
+# target -> 裸安装包 glob 模式（官网下载页直链；顺序即前端展示优先级，首个为主推格式）
+BARE_FILE_PATTERNS = {
+    "darwin-aarch64": ["*.dmg"],
+    "darwin-x86_64": ["*.dmg"],
+    "windows-x86_64": ["*-setup.exe", "*.msi"],
+    "linux-x86_64": ["*.AppImage", "*.deb"],
+}
+
+
 def _find_signed_artifact(platform_dir: Path, suffixes: list[str]) -> tuple[Path, Path] | None:
     """按后缀优先级找「产物 + 同名 .sig」，找不到返回 None"""
     for suffix in suffixes:
@@ -47,6 +56,16 @@ def _find_signed_artifact(platform_dir: Path, suffixes: list[str]) -> tuple[Path
             if artifact.is_file():
                 return artifact, sig
     return None
+
+
+def _find_bare_artifacts(platform_dir: Path, patterns: list[str]) -> list[Path]:
+    """按 glob 优先级收集裸安装包；升级包（*.app.tar.gz / *.AppImage.tar.gz）不会被这些模式命中"""
+    found: list[Path] = []
+    for pattern in patterns:
+        for path in sorted(platform_dir.rglob(pattern)):
+            if path.is_file() and path not in found:
+                found.append(path)
+    return found
 
 
 app = typer.Typer(add_completion=False)
@@ -85,6 +104,39 @@ def main(
         typer.echo(f"[error] 缺少平台产物: {', '.join(missing)}", err=True)
         raise typer.Exit(code=1)
 
+    # 裸安装包（官网下载页直链）：cargo bundle 与升级包同源产出，主推格式缺失按异常处理
+    def _bare_url(name: str) -> str:
+        if mirror_base.strip():
+            return f"{mirror_base.strip().rstrip('/')}/{tag}/{name}"
+        return f"https://github.com/{REPO_SLUG}/releases/download/{tag}/{name}"
+
+    download_files: dict[str, list[dict]] = {}
+    missing_bare: list[str] = []
+    for target, dir_name in DEFAULT_PLATFORMS.items():
+        platform_dir = input_dir / dir_name
+        bare = (
+            _find_bare_artifacts(platform_dir, BARE_FILE_PATTERNS[target])
+            if platform_dir.is_dir()
+            else []
+        )
+        if not bare:
+            missing_bare.append(target)
+            continue
+        download_files[target] = [
+            {
+                "kind": path.suffix.lower().lstrip("."),
+                "file": path.name,
+                "size": path.stat().st_size,
+                "url": _bare_url(path.name),
+            }
+            for path in bare
+        ]
+        typer.echo(f"[ok] bare {target}: {[p.name for p in bare]}")
+
+    if missing_bare:
+        typer.echo(f"[error] 缺少裸安装包: {', '.join(missing_bare)}", err=True)
+        raise typer.Exit(code=1)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     base_manifest = {
         "version": version,
@@ -98,6 +150,9 @@ def main(
     )
     typer.echo(f"[ok] 写出 {official_path}")
 
+    # latest-mirror.json 始终写出：release job 的 rsync 同步与首次 bootstrap 都直接
+    # 从 Release 下载它，文件缺位会让发版流程依赖"配没配 Variables"这一隐式条件。
+    # 未配置镜像基址时与官方版相同（URL 仍指 GitHub），客户端行为不受影响。
     if mirror_base.strip():
         mirror_root = f"{mirror_base.strip().rstrip('/')}/{tag}"
         mirror_manifest = json.loads(json.dumps(base_manifest))
@@ -106,11 +161,27 @@ def main(
                 f"https://github.com/{REPO_SLUG}/releases/download/{tag}/",
                 f"{mirror_root}/",
             )
-        mirror_path = output_dir / "latest-mirror.json"
-        mirror_path.write_text(
-            json.dumps(mirror_manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        typer.echo(f"[ok] 写出 {mirror_path}")
+    else:
+        mirror_manifest = base_manifest
+    mirror_path = output_dir / "latest-mirror.json"
+    mirror_path.write_text(
+        json.dumps(mirror_manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    typer.echo(f"[ok] 写出 {mirror_path}")
+
+    # 官网下载页数据源：镜像基址已配置时 URL 直接指向自有域名（与 rsync 到镜像站的
+    # 布局对齐），未配置时指 GitHub Release。网页 fetch 失败时自行兜底到 GitHub。
+    downloads_manifest = {
+        "version": version,
+        "tag": tag,
+        "pub_date": base_manifest["pub_date"],
+        "downloads": download_files,
+    }
+    downloads_path = output_dir / "latest-downloads.json"
+    downloads_path.write_text(
+        json.dumps(downloads_manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    typer.echo(f"[ok] 写出 {downloads_path}")
 
 
 if __name__ == "__main__":
