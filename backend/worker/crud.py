@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from sqlalchemy import and_, case, desc, func
 
-from strategy.models import Strategy
-
 from .models import (
     Worker,
     WorkerLog,
@@ -24,8 +22,14 @@ from .models import (
     WorkerTrade,
 )
 
+# strategy.models 仅类型检查期导入：worker.crud ← worker.__init__ ← collector
+# （collector.api.archive → worker.decorators）存在模块级循环链，运行时顶层
+# import 会在测试/首包加载时命中 partially initialized module；真正使用处
+# 一律走函数内 import（见 find_strategy_by_name_or_id / get_worker_strategy_parameters）
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+    from strategy.models import Strategy
 
     from . import schemas
 
@@ -421,6 +425,9 @@ def get_worker_strategy_parameters(db: Session, worker_id: int) -> list[dict[str
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     schema_items: list[dict[str, Any]] = []
     if worker is not None and worker.strategy_id:
+        # 运行时 Strategy 走函数内 import（见文件顶部 TYPE_CHECKING 注释的循环链说明）
+        from strategy.models import Strategy
+
         strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
         if strategy is not None and strategy.parameters:
             try:
