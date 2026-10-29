@@ -134,6 +134,27 @@ class PaperTradeSync:
                     row.exit_time = datetime.fromtimestamp(tr["timestamp_ns"] / 1_000_000_000)
                     notional = float(tr["entry_price"]) * abs(float(tr["net_quantity"]))
                     row.realized_pnl_pct = float(tr["realized_pnl"]) / notional * 100 if notional else None
+                    # 组键回填：finalize fill id 唯一定位一个 round-trip，
+                    # paper 重启重放产出同一批 fill_id → 组键跨重启稳定、可幂等判重
+                    round_trip_id = f"rt:{self.worker_id}:{finalize_id}"
+                    row.round_trip_id = round_trip_id
+                    # 组员 = entry_fill_ids + exit_fill_ids 去掉 finalize 自己；
+                    # 索引只覆盖 ≤ 当前 fills 游标的 fill，理论全命中，缺失的跳过不猜
+                    group_fill_ids = [int(x) for x in tr.get("entry_fill_ids") or []] + [
+                        int(x) for x in tr.get("exit_fill_ids") or []
+                    ]
+                    other_trade_ids = [
+                        self._fill_index[fid]
+                        for fid in group_fill_ids
+                        if fid != finalize_id and self._fill_index.get(fid)
+                    ]
+                    if other_trade_ids:
+                        # 只补空组键（is_(None)），不覆盖既有值；与 realized_pnl
+                        # 同一 commit，任何异常一起回滚
+                        db.query(crud.WorkerTrade).filter(
+                            crud.WorkerTrade.trade_id.in_(other_trade_ids),
+                            crud.WorkerTrade.round_trip_id.is_(None),
+                        ).update({"round_trip_id": round_trip_id}, synchronize_session=False)
                     updated += 1
                 except Exception as e:
                     logger.warning(f"PaperTradeSync: 配对盈亏回填失败 (worker_id={self.worker_id}): {e}")
