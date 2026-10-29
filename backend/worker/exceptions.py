@@ -55,6 +55,17 @@ class WorkerNotRunningException(WorkerException):
         )
 
 
+class WorkerStateConflictException(WorkerException):
+    """Worker 当前状态不允许该操作（HTTP 409），如归档要求已停止"""
+
+    def __init__(self, worker_id: int, status: str):
+        super().__init__(
+            message=f"Worker {worker_id} 当前状态为 {status}，请先停止再归档",
+            code=409,
+            details={"worker_id": worker_id, "status": status},
+        )
+
+
 class WorkerStartFailedException(WorkerException):
     """Worker启动失败异常"""
 
