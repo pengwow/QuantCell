@@ -53,6 +53,7 @@ backend/config.toml
 backend/tmp/*
 backend/docs/superpowers/*
 backend/.env.testnet
+backend/dump.rdb
 
 data/source/*
 results/*
@@ -113,6 +114,7 @@ backend/quantcell-backend.spec
 *.duckdb
 *.duckdb.wal
 *.duckdb.tmp*
+
 
 
 
