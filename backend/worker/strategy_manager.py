@@ -1366,6 +1366,50 @@ class StrategyManager:
         live_dir.mkdir(parents=True, exist_ok=True)
         return str(live_dir / f"worker_{worker_id}.jsonl")
 
+    def archive_journal_files(self, worker_id: int) -> list[dict]:
+        """把已停止 worker 的 journal（及对账报告）归档到来源目录的 archive/ 子目录。
+
+        归档 = 移走 journal，下次启动即 fresh start 重新锚定基准权益（resume 守卫
+        不再对旧 journal 对账）。命名 worker_{id}.{ts}.jsonl / worker_{id}.reconcile.{ts}.json，
+        同名冲突追加 _1 递增，永不覆盖历史归档。
+        部分移动失败时直接抛 RuntimeError：已成功的文件保留在 archive/ 不回滚
+        （文件级操作无事务，回滚反而制造半旧不新的中间态）。
+        """
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        # reconcile 报告当前无自动写盘方（Rust worker.reconcile 只返回 dict 不落盘），
+        # 这里"存在即收"是防御性收集，未来落盘方出现后无需改动本方法
+        candidates: list[Path] = []
+        # 两个路径 helper 的既有契约返回 str（多处调用方按字符串使用），
+        # 这里需要 Path 语义（stem/with_name），故就地包装
+        for base in (Path(self._live_journal_path(worker_id)), Path(self._rl_live_journal_path(worker_id))):
+            candidates.append(base)
+            candidates.append(base.with_name(f"{base.stem}.reconcile.json"))
+        existing = [p for p in candidates if p.is_file()]
+        if not existing:
+            raise ValueError(f"worker {worker_id} 无可归档的 journal 文件")
+
+        moved: list[dict] = []
+        for src in existing:
+            archive_dir = src.parent / "archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            dest = self._unique_archive_path(archive_dir, src.name, timestamp)
+            os.replace(src, dest)
+            logger.info(f"归档 journal: {src} -> {dest}")
+            moved.append({"from": str(src), "to": str(dest)})
+        return moved
+
+    @staticmethod
+    def _unique_archive_path(archive_dir: Path, filename: str, timestamp: str) -> Path:
+        """归档目标重名时追加 _1/_2 递增，保证不覆盖任何历史归档文件。"""
+        stem = Path(filename).stem  # worker_7 / worker_7.reconcile
+        suffix = Path(filename).suffix  # .jsonl / .json
+        candidate = archive_dir / f"{stem}.{timestamp}{suffix}"
+        index = 1
+        while candidate.exists():
+            candidate = archive_dir / f"{stem}.{timestamp}_{index}{suffix}"
+            index += 1
+        return candidate
+
     async def stop_strategy(self, worker_id: int) -> bool:
         """停止策略
 
