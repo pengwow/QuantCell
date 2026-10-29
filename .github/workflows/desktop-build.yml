@@ -201,3 +201,39 @@ jobs:
             dist/**/*.AppImage.tar.gz.sig
             dist/manifest/latest.json
             dist/manifest/latest-mirror.json
+            dist/manifest/latest-downloads.json
+
+      # ---------- 同步到自有网站（官网下载页 + 桌面端更新镜像共用）----------
+      # 目录布局（与 aggregate_updater_manifest.py 的 URL 契约对齐）：
+      #   <MIRROR_DEPLOY_PATH>/latest-mirror.json     ← 客户端镜像检查入口
+      #   <MIRROR_DEPLOY_PATH>/latest.json
+      #   <MIRROR_DEPLOY_PATH>/<tag>/                 ← 升级包 + 裸安装包平铺
+      # tag 目录只增不删（历史版本可回滚下载）；manifest 每次发版覆盖。
+      - name: Stage flat release layout
+        if: vars.MIRROR_HOST != ''
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p "staging/${TAG}"
+          cp dist/manifest/*.json staging/
+          # manifest 之外的全部产物（升级包 + 裸安装包 + 签名）平铺进 <tag>/
+          find dist -path dist/manifest -prune -o -type f \
+            \( -name '*.dmg' -o -name '*-setup.exe' -o -name '*.msi' -o -name '*.deb' \
+               -o -name '*.AppImage' -o -name '*.app.tar.gz' -o -name '*.AppImage.tar.gz' \
+               -o -name '*.sig' \) \
+            -exec cp {} "staging/${TAG}/" \;
+          ls -R staging
+
+      - name: Mirror to own server (rsync)
+        if: vars.MIRROR_HOST != ''
+        env:
+          MIRROR_HOST: ${{ vars.MIRROR_HOST }}
+          MIRROR_USER: ${{ vars.MIRROR_USER }}
+          MIRROR_DEPLOY_PATH: ${{ vars.MIRROR_DEPLOY_PATH }}
+          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$MIRROR_SSH_KEY" > ~/.ssh/mirror_key
+          chmod 600 ~/.ssh/mirror_key
+          rsync -rc --chmod=Du=rwx,go=rx,Fu=rw,go=r \
+            -e "ssh -i ~/.ssh/mirror_key -o StrictHostKeyChecking=accept-new" \
+            staging/ "${MIRROR_USER}@${MIRROR_HOST}:${MIRROR_DEPLOY_PATH}/"
