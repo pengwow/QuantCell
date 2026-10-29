@@ -9,7 +9,7 @@
    首跑内核一致,否则 `resume_replay` 的 manifest 逐字段校验拦截;
 3. `reconcile(local, venue)` —— 三路对账,serde 契约字段
    {position_breaks, missing_fills, extra_fills, cash_break, frozen_instruments,
-   ghost_orders, orphan_local_orders};
+   ghost_orders, orphan_local_orders, open_orders_unverified};
 4. `resume_guard(report)` —— 恢复门禁:持仓/现金 break → ValueError 禁止
    自动续跑,仅成交差异 → 放行(告警人工核对由调用方负责)。
 
@@ -129,6 +129,9 @@ def test_reconcile_report_contract(tmp_path) -> None:
         # 交易所在外订单（venue 有 local 无）与本地幽灵挂单（local 有 venue 无）
         "ghost_orders",
         "orphan_local_orders",
+        # venue 挂单集合不可验证（网关无 fetch_open_orders）时为 true：
+        # 此时上面两个挂单差异列表恒为空只说明「没比对」，不能说明「无差异」
+        "open_orders_unverified",
     }, "ReconcileReport serde 字段漂移"
     assert report["position_breaks"], "有持仓差异时 position_breaks 不得为空"
     brk = report["position_breaks"][0]
