@@ -167,6 +167,10 @@ class BinanceExchange(BaseExchange):
         # load_markets 会因 fetchCurrencies 选项默认开启而调用 sapi 拉取币种链信息，
         # 而市场列表本身不依赖该数据，测试网下显式关闭让 load_markets 跳过这步必败调用
         self.exchange.options["fetchCurrencies"] = False
+        # 同一 sapix 测试网问题的第二次暴露：ccxt 默认开启 fetchMargins，load_markets 对 spot
+        # 类型且带 apiKey（check_required_credentials 通过）又会请求公开端点 sapi/v1/margin/allPairs
+        # （跨币杠杆市场表），测试网无 sapi 必 404。项目不使用 ccxt 的 margin 市场，一并关闭
+        self.exchange.options["fetchMargins"] = False
 
     def connect(self) -> bool:
         try:
