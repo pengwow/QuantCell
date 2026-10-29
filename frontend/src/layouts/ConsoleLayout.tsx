@@ -21,7 +21,7 @@ import {
   IconStack,
   IconFlask,
 } from "@tabler/icons-react";
-import { Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
+import { Badge, Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
 import { setPageTitle } from "@/utils/pageTitle";
 
 import AppLocale from "@/components/AppLocale";
@@ -29,6 +29,8 @@ import AppTheme from "@/components/AppTheme";
 import useBrowserTheme from "@/hooks/useBrowserTheme";
 import type { ThemeMode } from "@/components/AppTheme";
 import { pluginRegistry } from "@/plugins/PluginRegistry";
+import { useUpdateStore } from "@/desktop/updateStore";
+import { useUpdater } from "@/desktop/useUpdater";
 
 const ConsoleLayout = () => {
   const { t } = useTranslation();
@@ -47,6 +49,10 @@ const ConsoleLayout = () => {
   };
 
   const navigate = useNavigate();
+
+  // 有可用更新时设置菜单显示红点；useUpdater 顺带触发启动后静默检查（全局只调度一次）
+  const updateAvailable = useUpdateStore((s) => s.status) === 'available';
+  useUpdater();
 
   const handleDocumentClick = () => {
     window.open("https://github.com/pengwow/QuantCell", "_blank");
@@ -90,7 +96,12 @@ const ConsoleLayout = () => {
                       <IconSettings size="1em" />
                     </span>
                   ),
-                  label: t('setting') || "设置",
+                  label: (
+                    <span className="flex items-center gap-2">
+                      {t('setting') || "设置"}
+                      {updateAvailable && <Badge status="error" />}
+                    </span>
+                  ),
                   onClick: () => navigate("/setting"),
                 },
               ]}
