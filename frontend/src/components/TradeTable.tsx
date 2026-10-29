@@ -59,9 +59,11 @@ const TradeTable = ({
       title: '方向',
       dataIndex: 'direction',
       key: 'direction',
-      // direction 是持仓方向（long/short）
-      render: (value: string) =>
-        value === 'long' ? <Tag color="green">多</Tag> : <Tag color="red">空</Tag>,
+      // direction 是持仓方向（long/short）；null = 未配对（Worker 分组视图）
+      render: (value: string | null) => {
+        if (value === null) return <Tag>未配对</Tag>;
+        return value === 'long' ? <Tag color="green">多</Tag> : <Tag color="red">空</Tag>;
+      },
     },
     {
       title: '开仓价',
@@ -126,9 +128,10 @@ const TradeTable = ({
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      // 契约只有 round-trip 已平仓交易，状态弱化展示
-      render: () => (
-        <span style={{ color: token.colorTextTertiary, fontSize: 12 }}>已平仓</span>
+      render: (value: string) => (
+        <span style={{ color: token.colorTextTertiary, fontSize: 12 }}>
+          {value === 'unpaired' ? '未配对' : '已平仓'}
+        </span>
       ),
     },
     {

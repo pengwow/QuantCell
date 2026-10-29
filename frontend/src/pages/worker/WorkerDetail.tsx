@@ -2,7 +2,7 @@ import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker 详情页
  *
- * 5 个 tab 布局（顺序：总览、持仓、委托、参数、日志）
+ * 6 个 tab 布局（顺序：总览、持仓、成交分组、委托、参数、日志）
  * - URL hash 同步：切换 tab 时更新 hash，刷新页面时根据 hash 恢复
  * - 旧 hash (#performance/#stats) 兼容：自动重定向到 #overview 并 toast 提示
  * - 页面头部 Card 增加「最后更新时间」字段，每 60s 刷新
@@ -25,6 +25,7 @@ import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
 import WorkerOverviewTab from '../../components/worker/WorkerOverviewTab';
 import WorkerPositionTab from '../../components/worker/WorkerPositionTab';
+import WorkerTradesGroupedTab from '../../components/worker/WorkerTradesGroupedTab';
 import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
 import WorkerShareModal from '../../components/worker/WorkerShareModal';
@@ -33,10 +34,10 @@ import WorkerEditModal from '../../components/worker/WorkerEditModal';
 dayjs.extend(relativeTime);
 
 // Tab key 类型
-type TabKey = 'params' | 'overview' | 'positions' | 'orders' | 'logs';
+type TabKey = 'params' | 'overview' | 'positions' | 'tradesGrouped' | 'orders' | 'logs';
 
 // 合法 tab key
-const VALID_TABS: TabKey[] = ['params', 'overview', 'positions', 'orders', 'logs'];
+const VALID_TABS: TabKey[] = ['params', 'overview', 'positions', 'tradesGrouped', 'orders', 'logs'];
 
 // 旧 hash -> 新 hash 映射
 // TODO(ux-hash-compat): 这是 URL hash 的 UX 兼容（旧分享链接），并非旧数据协议；
@@ -203,7 +204,7 @@ const WorkerDetail = () => {
     );
   }
 
-  // 5 个 tab 顺序：总览 → 持仓 → 委托 → 参数 → 日志
+  // 6 个 tab 顺序：总览 → 持仓 → 成交分组 → 委托 → 参数 → 日志
   // 所有标签使用 i18n；key 兜底保证 key 缺失时显示正确中文
   const tabItems = [
     {
@@ -221,6 +222,12 @@ const WorkerDetail = () => {
       key: 'positions',
       label: t('position') || '持仓',
       children: <WorkerPositionTab workerId={currentWorker.id} active={activeTab === 'positions'} />,
+    },
+    {
+      key: 'tradesGrouped',
+      // trades_grouped 尚未入库 i18n 资源，defaultValue 兜底避免直接显示 key
+      label: t('trades_grouped', '成交分组'),
+      children: <WorkerTradesGroupedTab workerId={currentWorker.id} active={activeTab === 'tradesGrouped'} />,
     },
     {
       key: 'orders',

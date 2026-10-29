@@ -12,6 +12,7 @@ export { default as WorkerEditModal } from './WorkerEditModal';
 export { default as WorkerLogsPanel } from './WorkerLogsPanel';
 export { default as WorkerParamsTab } from './WorkerParamsTab';
 export { default as WorkerPositionTab } from './WorkerPositionTab';
+export { default as WorkerTradesGroupedTab } from './WorkerTradesGroupedTab';
 export { default as WorkerOrderTab } from './WorkerOrderTab';
 export { default as WorkerOverviewTab } from './WorkerOverviewTab';
 export { default as WorkerLogsTab } from './WorkerLogsTab';

@@ -4,6 +4,8 @@
  * 与后端Worker模块API规范保持一致
  */
 
+import type { Trade } from './backtest';
+
 // Worker状态常量
 export const WorkerStatus = {
   STOPPED: 'stopped',
@@ -325,6 +327,22 @@ export interface TradeQueryParams extends PaginationParams {
   pnl_status?: 'profit' | 'loss' | 'flat' | 'closed';
   start_time?: string;
   end_time?: string;
+}
+
+// 成交分组查询参数（direction 只接受 long/short；unpaired 组会被排除）
+export interface GroupedTradeQueryParams extends PaginationParams {
+  symbol?: string;
+  direction?: 'long' | 'short';
+  start_time?: string;
+  end_time?: string;
+}
+
+// 成交分组响应：按组分页，total_groups 为组总数
+export interface GroupedTradeResponse {
+  items: Trade[];
+  total_groups: number;
+  page: number;
+  page_size: number;
 }
 
 // 指标历史查询参数
