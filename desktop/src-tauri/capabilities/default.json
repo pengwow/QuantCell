@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "QuantCell 桌面端默认权限：核心能力 + 事件监听；sidecar 从 Rust 侧 spawn，不需要 shell 前端权限",
+  "description": "QuantCell 桌面端默认权限：核心能力 + 事件监听 + 更新器/重启；sidecar 从 Rust 侧 spawn，不需要 shell 前端权限",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default", "core:event:allow-listen"]
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "updater:default",
+    "process:allow-restart"
+  ]
 }
