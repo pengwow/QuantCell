@@ -8,6 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip, Input } from 'antd';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
+import { isTauri } from '../../desktop/env';
+import SoftwareUpdateCard from './SoftwareUpdateCard';
 
 // 主题图片路径
 const THEME_IMAGES: Record<string, string> = {
@@ -251,6 +253,14 @@ const GeneralSettingsPage = () => {
         </div>
 
         <Divider />
+
+        {/* 软件更新：仅桌面端渲染，Web 模式没有升级能力 */}
+        {isTauri() && (
+          <>
+            <SoftwareUpdateCard />
+            <Divider />
+          </>
+        )}
 
         {/* 操作按钮 */}
         <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
