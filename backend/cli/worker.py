@@ -127,6 +127,39 @@ def worker_delete(
         raise typer.Exit(1)
 
 
+@app.command("archive")
+def worker_archive(
+    worker_id: str = typer.Argument(..., help="Worker ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+):
+    """归档 Worker journal（移动到 archive/，下次启动 fresh start）"""
+    wid = _to_int(worker_id, "Worker ID")
+    try:
+        _service.get_worker(wid)
+    except WorkerNotFoundException:
+        typer.echo(f"Worker {wid} 不存在")
+        raise typer.Exit(1)
+
+    if not yes:
+        confirm = typer.confirm(f"确认归档 Worker {wid} 的 journal? 归档后下次启动将为 fresh start")
+        if not confirm:
+            typer.echo("已取消")
+            return
+
+    try:
+        result = _service.archive_worker_journal(wid)
+    except WorkerNotFoundException:
+        typer.echo(f"Worker {wid} 不存在")
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
+
+    for item in result.get("archived", []):
+        typer.echo(f"moved: {item['from']} -> {item['to']}")
+    typer.echo(f"Worker {wid} journal 已归档（{len(result.get('archived', []))} 个文件），下次启动 fresh start")
+
+
 @app.command("start")
 def worker_start(worker_id: str = typer.Argument(..., help="Worker ID")):
     """启动 Worker (独立进程)"""
