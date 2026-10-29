@@ -427,6 +427,18 @@ async def restart_worker(
     return schemas.ApiResponse(code=0, message="Worker重启中", data=result)
 
 
+@router.post("/{worker_id}/lifecycle/archive", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("归档Worker journal")
+async def archive_worker_journal(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """归档Worker journal - 移动到 archive/ 子目录，下次启动 fresh start 重锚"""
+    result = await worker_core_service.async_archive_worker_journal(worker_id)
+    return schemas.ApiResponse(code=0, message="归档完成", data=result)
+
+
 @router.get("/{worker_id}/lifecycle/status", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("获取Worker实时状态")
 async def get_worker_status(
