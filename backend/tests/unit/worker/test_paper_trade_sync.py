@@ -188,3 +188,54 @@ def test_backfill_idempotent_across_run_replay(db_session_factory):
         rows = db.scalars(select(WorkerTrade).order_by(WorkerTrade.trade_id)).all()
     assert len(rows) == 2
     assert {r.realized_pnl for r in rows} == {None, 148.5}
+
+
+def test_backfill_writes_round_trip_id_to_all_rows(db_session_factory):
+    """FLAT_TO_FLAT 分批平仓：entry 行 + 部分平仓行 + finalize 行写入同一组键。
+
+    组键以 finalize fill id（exit_fill_ids 最大者）定位：rt:{worker_id}:{finalize_id}。
+    """
+    sync = PaperTradeSync(7)
+    exit_ts = NS + 180_000_000_000
+    driver = FakeDriver(
+        batches=[
+            [_fill(0, NS)],  # 开仓
+            [_fill(1, NS + 60_000_000_000, "Sell")],  # 部分平仓
+            [_fill(2, NS + 120_000_000_000, "Sell")],  # 最终平仓（finalize）
+        ],
+        trade_batches=[[], [], [_trade([1, 2], exit_ts)]],
+    )
+    for _ in range(3):
+        driver.advance()
+        sync.sync_once(driver)
+
+    with db_session_factory() as db:
+        rows = {r.trade_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
+    assert set(rows) == {"0", "1", "2"}
+    # finalize_id = max([1, 2]) = 2 → 组键 rt:7:2
+    assert {r.round_trip_id for r in rows.values()} == {"rt:7:2"}
+    # 盈亏仍只回填 finalize 行；部分平仓行 realized_pnl 保持 None
+    assert rows["1"].realized_pnl is None
+    assert rows["2"].realized_pnl == pytest.approx(148.5)
+
+
+def test_round_trip_id_idempotent_across_replay(db_session_factory):
+    """paper 重启重演出同一配对：realized_pnl 已非空即跳过，组键不被重写。"""
+    exit_ts = NS + 120_000_000_000
+    driver = FakeDriver(
+        batches=[[_fill(0, NS)], [_fill(1, NS + 60_000_000_000, "Sell")]],
+        trade_batches=[[], [_trade([1], exit_ts)]],
+    )
+    sync = PaperTradeSync(7)
+    driver.advance()
+    sync.sync_once(driver)
+    driver.advance()
+    sync.sync_once(driver)
+
+    replay = PaperTradeSync(7)
+    assert replay.sync_once(driver) == 0
+
+    with db_session_factory() as db:
+        rows = {r.trade_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
+    assert {r.round_trip_id for r in rows.values()} == {"rt:7:1"}
+    assert len(rows) == 2
