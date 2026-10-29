@@ -1578,6 +1578,70 @@ class WorkerCoreService:
             page_size,
         )
 
+    def get_worker_trades_grouped(
+        self,
+        worker_id: int,
+        symbol: str | None = None,
+        direction: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict:
+        """按 round-trip 分组获取 Worker 成交（契约对齐回测页 TradeTable）。
+
+        Returns:
+            dict: {"items": List[dict], "total_groups": int, "page": int, "page_size": int}
+
+        Raises:
+            WorkerOperationException: 查询失败
+        """
+        try:
+            page_size = min(page_size, self._config["max_page_size"])
+            with self.get_db() as db:
+                items, total_groups = crud.get_worker_trades_grouped(
+                    db,
+                    worker_id,
+                    symbol=symbol,
+                    direction=direction,
+                    start_time=start_time,
+                    end_time=end_time,
+                    skip=(page - 1) * page_size,
+                    limit=page_size,
+                )
+                return {
+                    "items": items,
+                    "total_groups": total_groups,
+                    "page": page,
+                    "page_size": page_size,
+                }
+        except Exception as e:
+            logger.error(f"[get_worker_trades_grouped] Worker {worker_id} 获取成交分组失败: {e}")
+            msg = "获取成交分组"
+            raise WorkerOperationException(msg, worker_id, message=str(e))
+
+    async def async_get_worker_trades_grouped(
+        self,
+        worker_id: int,
+        symbol: str | None = None,
+        direction: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict:
+        """异步版本（线程池执行同步 DB 查询）"""
+        return await asyncio.to_thread(
+            self.get_worker_trades_grouped,
+            worker_id,
+            symbol,
+            direction,
+            start_time,
+            end_time,
+            page,
+            page_size,
+        )
+
     def get_worker_orders(self, worker_id: int, status: str | None = None, limit: int = 50) -> dict:
         """
         获取 Worker 订单列表

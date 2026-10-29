@@ -988,3 +988,136 @@ def get_worker_trades_paginated(
     total = query.count()
     trades = query.order_by(desc(WorkerTrade.created_at)).offset(skip).limit(limit).all()
     return trades, total
+
+
+def _build_group_item(group_key: str, group_rows: list[WorkerTrade]) -> dict:
+    """把一个 round-trip 组的 fill 行组装成回测 TradeTable 契约的一行。
+
+    契约模板：backtest/backtest_loop.py::_format_round_trip_trades。
+    """
+    rows = sorted(group_rows, key=lambda r: (r.entry_time or r.created_at or datetime.min, r.id))
+    # 组键以 "rt:" 开头 = 引擎配对过；"row:" 前缀 = 无配对行（历史 / live 成交）
+    unpaired = not group_key.startswith("rt:")
+
+    def _vwap(rows_: list[WorkerTrade]) -> float:
+        qty = sum(r.quantity for r in rows_)
+        return sum(r.amount for r in rows_) / qty if qty else 0.0
+
+    def _ts(dt: datetime | None) -> int:
+        return int(dt.timestamp()) if dt else 0
+
+    def _iso(dt: datetime | None) -> str | None:
+        return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z") if dt else None
+
+    # 组内首笔 fill 的 side 定开仓方向：buy → long。
+    # ponytail: 反手型 round-trip（同组含双向成交）可能把 offset 标错，
+    # 天花板是引擎未来把 entry/exit fill 归属随配对一起带出，届时可精确标注
+    entry_side = rows[0].side
+    direction = None if unpaired else ("long" if entry_side == "buy" else "short")
+    open_rows = [r for r in rows if r.side == entry_side]
+    close_rows = [r for r in rows if r.side != entry_side]
+
+    entry_price = _vwap(open_rows) if open_rows else rows[0].price
+    exit_price = _vwap(close_rows) if close_rows else entry_price
+    size = sum(r.quantity for r in close_rows) or sum(r.quantity for r in open_rows)
+    # unpaired 行 realized_pnl 可能为 None：记 0，避免前端数值格式化拿 null 崩
+    pnl = sum(r.realized_pnl or 0.0 for r in rows)
+
+    first = rows[0]
+    first_dt = first.entry_time or first.created_at
+    exit_dt = max((r.exit_time for r in rows if r.exit_time), default=None)
+
+    def _fill_json(r: WorkerTrade) -> dict:
+        dt = r.entry_time or r.created_at
+        return {
+            # 分组视图的 fill_id 用行主键（DB 自增），与回测的引擎 fill id 语义不同
+            "fill_id": r.id,
+            "side": r.side,
+            "offset": "open" if r.side == entry_side else "close",
+            "price": r.price,
+            "quantity": r.quantity,
+            "timestamp": _ts(dt),
+            "formatted_time": dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
+            "status": "filled",
+        }
+
+    return {
+        "trade_id": group_key,
+        "symbol": first.symbol,
+        "timestamp": _ts(first_dt),
+        "formatted_time": first_dt.strftime("%Y-%m-%d %H:%M:%S") if first_dt else "",
+        "entry_time": _iso(first_dt),
+        "exit_time": _iso(exit_dt),
+        "exit_timestamp": _ts(exit_dt) if exit_dt else None,
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "size": size,
+        "pnl": pnl,
+        "return_pct": (pnl / (entry_price * size) * 100.0) if entry_price * size > 0 else 0.0,
+        "direction": direction,
+        "entry_side": entry_side,
+        "exit_side": "sell" if entry_side == "buy" else "buy",
+        "status": "unpaired" if unpaired else "closed",
+        "entry_fill_ids": [r.id for r in open_rows],
+        "exit_fill_ids": [r.id for r in close_rows],
+        "fills": [_fill_json(r) for r in rows],
+    }
+
+
+def get_worker_trades_grouped(
+    db: Session,
+    worker_id: int,
+    symbol: str | None = None,
+    direction: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    skip: int = 0,
+    limit: int = 10,
+) -> tuple[list[dict], int]:
+    """按 round-trip 组键聚合成交，返回 (当前页 items, 组总数)。
+
+    过滤层级：symbol 行级 → 组聚合 → 日期组级（组内 MAX(created_at)）
+    → 组间倒序 → direction 组级（items 构建后）→ 内存分页。
+    ponytail: 全量取该 worker 的行在内存分组/分页，单 worker 百~万行可承受；
+    天花板是单 worker 数十万行时需改 SQL group-by 分页，升级路径明确。
+    """
+    query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
+    if symbol:
+        query = query.filter(WorkerTrade.symbol == symbol)
+    rows = query.all()
+    if not rows:
+        return [], 0
+
+    groups: dict[str, list[WorkerTrade]] = {}
+    for r in rows:
+        # 行组键：有配对的多行归一组，无配对行用 trade_id 自成一组
+        groups.setdefault(r.round_trip_id or f"row:{r.trade_id}", []).append(r)
+
+    end_bound = end_time
+    if end_bound is not None and (end_bound.hour, end_bound.minute, end_bound.second, end_bound.microsecond) == (
+        0,
+        0,
+        0,
+        0,
+    ):
+        # 日期选择器只给到「日」：补到当日最后一刻，避免漏掉当天全部成交
+        end_bound = end_bound + timedelta(days=1) - timedelta(microseconds=1)
+
+    kept: list[tuple[datetime, str, list[WorkerTrade]]] = []
+    for key, group_rows in groups.items():
+        last = max((r.created_at for r in group_rows if r.created_at), default=None)
+        if start_time and last is not None and last < start_time:
+            continue
+        if end_bound and last is not None and last > end_bound:
+            continue
+        kept.append((last or datetime.min, key, group_rows))
+
+    # 组间按最后活动时间倒序，与平铺表「最新在前」观感一致
+    kept.sort(key=lambda x: x[0], reverse=True)
+
+    items = [_build_group_item(key, group_rows) for _, key, group_rows in kept]
+    if direction:
+        # direction 过滤放在 items 构建后：unpaired 组 direction=None 自动排除
+        items = [it for it in items if it["direction"] == direction]
+
+    return items[skip : skip + limit], len(items)

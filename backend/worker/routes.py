@@ -685,6 +685,37 @@ async def get_worker_trades(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
+@router.get(
+    "/{worker_id}/monitoring/trades/grouped",
+    response_model=schemas.ApiResponse,
+    summary="获取Worker成交分组（round-trip）",
+    description="按引擎配对（round_trip_id）聚合的成交列表，响应契约与回测结果详情页一致；无配对行自成一组并标记 unpaired。",
+)
+@handle_worker_exceptions("获取Worker成交分组")
+async def get_worker_trades_grouped(
+    worker_id: int,
+    symbol: str | None = Query(None, description="交易对筛选"),
+    direction: str | None = Query(None, description="持仓方向: long/short（unpaired 组无方向，会被排除）"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间（只给日期时自动补到当日末）"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页组数"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """按 round-trip 分组获取成交 - 委托给 WorkerCoreService"""
+    result = await worker_core_service.async_get_worker_trades_grouped(
+        worker_id,
+        symbol,
+        direction,
+        start_time,
+        end_time,
+        page,
+        page_size,
+    )
+    return schemas.ApiResponse(code=0, message="success", data=result)
+
+
 # ==================== 策略代理模块 ====================
 
 
