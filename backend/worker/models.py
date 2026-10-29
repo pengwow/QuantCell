@@ -615,12 +615,17 @@ class WorkerTrade(Base):
     # 原始数据（存储完整的策略执行事件数据）
     raw_data = Column(Text, nullable=True)
 
+    # round-trip 组键：paper 落库时随配对盈亏回填（"rt:{worker_id}:{finalize_fill_id}"）；
+    # 无配对的历史/live 成交保持 NULL，分组视图按行自成一组展示为「未配对」
+    round_trip_id = Column(String(100), nullable=True)
+
     __table_args__ = (
         Index("idx_worker_trades_worker_id", "worker_id"),
         Index("idx_worker_trades_trade_id", "trade_id"),
         Index("idx_worker_trades_symbol", "symbol"),
         Index("idx_worker_trades_created_at", "created_at"),
         Index("idx_worker_trades_worker_symbol", "worker_id", "symbol"),
+        Index("idx_worker_trades_round_trip", "round_trip_id"),
     )
 
     def to_dict(self) -> dict[str, Any]:
