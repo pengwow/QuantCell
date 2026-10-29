@@ -31,6 +31,7 @@ from .exceptions import (
     WorkerException,
     WorkerNotFoundException,
     WorkerOperationException,
+    WorkerStateConflictException,
 )
 from .state import strategy_registry
 from .worker_state import worker_state_manager
@@ -979,6 +980,43 @@ class WorkerCoreService:
         except Exception as e:
             logger.exception(f"[WorkerCoreService] 异步停止 Worker {worker_id} 失败")
             raise WorkerOperationException("停止", worker_id, message=str(e)) from e
+
+    def archive_worker_journal(self, worker_id: int) -> dict:
+        """归档 Worker journal（同步版本，供 CLI 使用）。
+
+        仅 stopped/error 状态可归档（fresh start 重锚语义）。文件由
+        StrategyManager.archive_journal_files 移动到 live/rl_live 下的 archive/ 子目录。
+        """
+        with self.get_db() as db:
+            worker = crud.get_worker(db, worker_id)
+            if not worker:
+                raise WorkerNotFoundException(worker_id)
+            # running/starting/stopping 会出现 journal 边写边移，必须先停
+            if worker.status in ("running", "starting", "stopping"):
+                raise WorkerStateConflictException(worker_id, worker.status)
+
+        try:
+            # 函数内 import：worker_system 构造重（交易所配置扫描），避免
+            # core_service 导入期副作用——与 _stop_worker_in_process 同一约定
+            from .strategy_manager import worker_system
+
+            moved = worker_system.archive_journal_files(worker_id)
+        except ValueError as e:
+            raise WorkerOperationException("归档", worker_id, message=str(e)) from e
+        except RuntimeError as e:
+            logger.error(f"[WorkerCoreService] 归档 Worker {worker_id} journal 失败: {e}")
+            raise WorkerException(message=str(e), code=500) from e
+
+        return {
+            "worker_id": worker_id,
+            "archived": moved,
+            "hint": "journal 已归档，下次启动将 fresh start 重新锚定基准权益",
+        }
+
+    async def async_archive_worker_journal(self, worker_id: int) -> dict:
+        """异步归档 Worker journal（HTTP 路由入口，与 CLI 同步版调用链一致）。"""
+        logger.info(f"[WorkerCoreService] 异步归档 Worker {worker_id} journal")
+        return await asyncio.to_thread(self.archive_worker_journal, worker_id)
 
     def restart_worker(self, worker_id: int) -> dict:
         """

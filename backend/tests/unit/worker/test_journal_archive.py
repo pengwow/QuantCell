@@ -87,3 +87,103 @@ def test_archive_name_conflict_appends_index(manager, data_dir, fixed_now):
 
     assert Path(moved[0]["to"]) == live / "archive" / f"worker_3.{TS}_1.jsonl"
     assert (live / "archive" / f"worker_3.{TS}.jsonl").read_text(encoding="utf-8") == "old\n"
+
+
+# ---------- WorkerCoreService.archive_worker_journal ----------
+from contextlib import contextmanager
+from types import SimpleNamespace
+
+import worker.core_service as cs
+from worker.core_service import WorkerCoreService
+from worker.exceptions import (
+    WorkerException,
+    WorkerNotFoundException,
+    WorkerOperationException,
+    WorkerStateConflictException,
+)
+
+
+class _FakeWorkerSystem:
+    def __init__(self, result=None, error: Exception | None = None):
+        self.result = result if result is not None else [{"from": "a", "to": "b"}]
+        self.error = error
+        self.calls: list[int] = []
+
+    def archive_journal_files(self, worker_id: int) -> list[dict]:
+        self.calls.append(worker_id)
+        if self.error:
+            raise self.error
+        return self.result
+
+
+@pytest.fixture
+def fake_worker_system(monkeypatch: pytest.MonkeyPatch) -> _FakeWorkerSystem:
+    # core_service.archive_worker_journal 内部 from .strategy_manager import worker_system
+    # 为运行时查模块属性，monkeypatch sm.worker_system 即可拦住调用而不触发重装配
+    fake = _FakeWorkerSystem()
+    monkeypatch.setattr(sm, "worker_system", fake)
+    return fake
+
+
+def _db_with_worker(monkeypatch: pytest.MonkeyPatch, worker_status: str | None) -> None:
+    """替换 get_db 与 crud.get_worker，绕开真实 DB（单例 service 便于直测）。"""
+
+    @contextmanager
+    def _fake_session():
+        yield None
+
+    def _fake_get_worker(db, worker_id):
+        if worker_status is None:
+            return None
+        return SimpleNamespace(id=worker_id, status=worker_status, name=f"worker-{worker_id}")
+
+    monkeypatch.setattr(WorkerCoreService, "get_db", lambda self: _fake_session())
+    monkeypatch.setattr(cs.crud, "get_worker", _fake_get_worker)
+
+
+def test_service_archive_requires_stopped_or_error(monkeypatch, fake_worker_system):
+    service = WorkerCoreService()
+    _db_with_worker(monkeypatch, "running")
+    with pytest.raises(WorkerStateConflictException) as exc_info:
+        service.archive_worker_journal(1)
+    assert exc_info.value.code == 409
+    assert not fake_worker_system.calls
+
+
+def test_service_archive_worker_not_found(monkeypatch, fake_worker_system):
+    service = WorkerCoreService()
+    _db_with_worker(monkeypatch, None)
+    with pytest.raises(WorkerNotFoundException):
+        service.archive_worker_journal(999)
+    assert not fake_worker_system.calls
+
+
+def test_service_archive_success_returns_contract(monkeypatch, fake_worker_system):
+    service = WorkerCoreService()
+    _db_with_worker(monkeypatch, "stopped")
+    # WorkerCoreService 是模块级轻量单例，archive_journal_files 无真实文件依赖
+    # （QUANTCELL_DATA_DIR 未注入时 live 下无 worker_1 文件，fake 拦截不触盘）
+    result = service.archive_worker_journal(1)
+    assert result["worker_id"] == 1
+    assert result["archived"] == [{"from": "a", "to": "b"}]
+    assert "fresh start" in result["hint"]
+    assert fake_worker_system.calls == [1]
+
+
+def test_service_archive_no_candidates_maps_to_operation_error(monkeypatch):
+    fake = _FakeWorkerSystem(error=ValueError("worker 5 无可归档的 journal 文件"))
+    monkeypatch.setattr(sm, "worker_system", fake)
+    service = WorkerCoreService()
+    _db_with_worker(monkeypatch, "stopped")
+    with pytest.raises(WorkerOperationException):
+        service.archive_worker_journal(5)
+
+
+def test_service_archive_move_failure_maps_to_500(monkeypatch):
+    fake = _FakeWorkerSystem(error=RuntimeError("移动失败"))
+    monkeypatch.setattr(sm, "worker_system", fake)
+    service = WorkerCoreService()
+    _db_with_worker(monkeypatch, "error")
+    with pytest.raises(WorkerException) as exc_info:
+        service.archive_worker_journal(6)
+    assert exc_info.value.code == 500
