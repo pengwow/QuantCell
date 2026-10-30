@@ -244,30 +244,18 @@ wheels = [
 [[package]]
 name = "axon-quant"
 version = "0.23.0"
-source = { directory = "../../axon_quant" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "gymnasium", marker = "extra == 'rl'", specifier = ">=0.29.0" },
-    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "numpy", specifier = ">=1.24.0" },
-    { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.21.0" },
-    { name = "optuna", marker = "extra == 'hpo'", specifier = ">=3.0.0" },
-    { name = "pandas", specifier = ">=2.0.0" },
-    { name = "pyarrow", specifier = ">=14.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "stable-baselines3", marker = "extra == 'rl'", specifier = ">=2.0.0" },
-    { name = "torch", marker = "extra == 'rl'", specifier = ">=2.0.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/2f/63/5e6fabf4f2789bef8ffb2ccaa3e5971395b52c4f7e68312720f685cb74c3/axon_quant-0.23.0.tar.gz", hash = "sha256:7bba1213fa18c88afe785f6a40ca11cf9bb9de43e82cf85f56dd886dc5681af0", size = 1691574, upload-time = "2026-10-30T03:18:40.78Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/d5/f664053fec48b94cd65199e6038eba658d0a70a42f1a6b126109739552f1/axon_quant-0.23.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:929aa645f18c8f532b36a271eb79cf4ca8220fbea0a548e9aebe0ab6861adba2", size = 9631250, upload-time = "2026-10-30T03:18:33.274Z" },
+    { url = "https://files.pythonhosted.org/packages/de/54/85d58b95256f5e67b3f5932c27dff9f06be9b121d8844b081872c5770d77/axon_quant-0.23.0-cp314-cp314-manylinux_2_38_x86_64.whl", hash = "sha256:0608a31214b2c57a3b0d6f085c4958a044a79aed7c6bc4e654e370ed103e73c3", size = 10695171, upload-time = "2026-10-30T03:18:35.893Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/36/185bad6f566ff7edd5450638bde82ecfc4c0f76fb068e827dafdd115dcd2/axon_quant-0.23.0-cp314-cp314-win_amd64.whl", hash = "sha256:aacae98f9df1853006f854e82b79a98a2c67bf78085a0198fce3aa4205acfc69", size = 10059719, upload-time = "2026-10-30T03:18:38.684Z" },
 ]
-provides-extras = ["hpo", "onnx", "rl", "dev"]
 
 [[package]]
 name = "babel"
@@ -357,7 +345,7 @@ requires-dist = [
     { name = "aiosmtplib", specifier = ">=4.0.0" },
     { name = "alembic", specifier = ">=1.17.2" },
     { name = "apscheduler", specifier = ">=3.11.1" },
-    { name = "axon-quant", directory = "../../axon_quant" },
+    { name = "axon-quant", specifier = ">=0.20.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "ccxt", specifier = ">=4.5.24" },
     { name = "certifi", specifier = ">=2025.11.12" },
