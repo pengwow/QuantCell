@@ -12,10 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ubuntu-latest 已是 24.04：libappindicator3 与 libayatana-appindicator3 互斥，
+      # 只装 ayatana（Tauri v2 在 24.04 的官方依赖），旧包安装必挂 exit 100
       - name: Install Linux system deps (Tauri build script needs pkg-config/webkit2gtk)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev \
             build-essential patchelf libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Setup bun
@@ -79,7 +81,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev \
             build-essential patchelf libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Setup bun
