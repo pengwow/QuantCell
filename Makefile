@@ -120,6 +120,14 @@ clean:
 	rm -rf $(DESKTOP_DIR)/src-tauri/target
 
 # ============================================================
+# 版本（VERSION 单源 + 一键体检 / 落位）
+# ============================================================
+
+.PHONY: version
+version:
+	uv run --no-project --with typer python scripts/sync_version.py $(if $(v),--set $(v))
+
+# ============================================================
 # 帮助
 # ============================================================
 
@@ -150,6 +158,9 @@ help:
 	@echo "  make dev-stop            停止开发服务"
 	@echo "  make dev-status          查看开发服务状态"
 	@echo "  make dev-restart         重启开发服务"
+	@echo "	=== 版本 (version)==="
+	@echo "  make version             体检：VERSION 与各处版本声明是否一致（不一致 exit 1）"
+	@echo "  make version v=0.0.1     落位：写 VERSION + 4 处声明 + 刷新 uv.lock / Cargo.lock"
 	@echo "	=== 全链路 (all)==="
 	@echo "  make all                 backend-install + frontend-install + desktop-build"
 	@echo "  make test                backend-test + frontend-test"
