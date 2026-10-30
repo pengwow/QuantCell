@@ -37,13 +37,21 @@ jobs:
           cd frontend
           bun run test
 
-      # tauri-build 在编译期校验 externalBin 资源存在（binaries/quantcell-backend-<triple>），
-      # 真实 sidecar 只在 build job 由 PyInstaller 构建。快检不放占位文件就过不了 cargo check，
-      # 此前两次 CI 均在更早步骤失败未暴露，2026-10-30 实测撞上。
-      - name: Stub sidecar binary for cargo check
+      # tauri-build 在编译期校验 externalBin 资源存在（binaries/quantcell-backend-<triple>）。
+      # 快检同样构建真实 sidecar（2026-10-30 用户确认不用占位文件——假资源可能掩盖问题）：
+      # 与 build job 用同一构建脚本，平台固定为 ubuntu runner 原生的 x86_64 triple。
+      # ponytail: uv 依赖与 PyInstaller 每次全量构建（无缓存），快检变重约几分钟；
+      # 升级路径：把 build job 的 uv/pyinstaller 缓存段复制到此 job。
+      - name: Setup uv + Python 3.14
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Build backend sidecar (real)
         run: |
-          mkdir -p desktop/src-tauri/binaries
-          touch "desktop/src-tauri/binaries/quantcell-backend-x86_64-unknown-linux-gnu"
+          cd backend
+          uv sync --frozen --no-dev
+          bash ../desktop/scripts/build-backend.sh x86_64-unknown-linux-gnu
 
       - name: Rust check
         run: |
