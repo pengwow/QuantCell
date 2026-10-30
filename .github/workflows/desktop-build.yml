@@ -70,12 +70,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Intel Mac（macos-13）已移除：GitHub 免费 Intel runner 供给最少、长期排队
+          # 拖死 release（needs: build）；Intel Mac 2020 年起已停产，需要时把
+          # { os: macos-13, triple: x86_64-apple-darwin, artifact: macos-x86_64 } 加回
           - os: macos-14          # Apple Silicon
             triple: aarch64-apple-darwin
             artifact: macos-aarch64
-          - os: macos-13          # Intel
-            triple: x86_64-apple-darwin
-            artifact: macos-x86_64
           - os: windows-latest
             triple: x86_64-pc-windows-msvc
             artifact: windows-x86_64
