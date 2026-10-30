@@ -1,6 +1,6 @@
 [package]
 name = "quantcell-desktop"
-version = "0.1.0"
+version = "0.0.1"
 description = "QuantCell desktop client"
 edition = "2021"
 

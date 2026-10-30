@@ -29,7 +29,7 @@ cd desktop && bunx @tauri-apps/cli dev
 **触发**：手动（GitHub → Actions → desktop-build → Run workflow）或打版本 tag：
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.0.1 && git push origin v0.0.1
 ```
 
 **产物**：tag / 手动触发后进入 Actions 运行页 → Artifacts → `quantcell-desktop-*`，含
