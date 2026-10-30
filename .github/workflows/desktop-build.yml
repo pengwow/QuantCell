@@ -90,8 +90,10 @@ jobs:
 
       # tag 是发布触发入口，但 VERSION 才是仓库内版本单源；二者不一致直接中止打包，
       # 避免打出「tag v0.1.0 里面装的却是 0.0.1」的错位包
+      # shell: bash 必须声明——windows runner 默认 pwsh，bash 语法直接 ParserError
       - name: 校验 tag 与 VERSION 一致（tag 触发时）
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: |
           if [ "${GITHUB_REF_NAME#v}" != "$(cat VERSION)" ]; then
             echo "tag ${GITHUB_REF_NAME} 与 VERSION $(cat VERSION) 不一致，中止"
@@ -151,6 +153,7 @@ jobs:
       # ---------- 构建 ----------
       - name: Build backend sidecar
         if: steps.sidecar-cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           cd backend
           uv sync --frozen --no-dev
