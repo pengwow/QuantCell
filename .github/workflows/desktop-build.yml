@@ -53,6 +53,11 @@ jobs:
           uv sync --frozen --no-dev
           bash ../desktop/scripts/build-backend.sh x86_64-unknown-linux-gnu
 
+      # bundle 资源 resources/uv/ 不入库（.gitignore），tauri-build 在 cargo check 的
+      # build script 里校验 glob 有文件，故与 build job 同脚本现下真实 uv 二进制
+      - name: Fetch uv binary
+        run: bash desktop/scripts/fetch-uv.sh x86_64-unknown-linux-gnu
+
       - name: Rust check
         run: |
           cd desktop/src-tauri
