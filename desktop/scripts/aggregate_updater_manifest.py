@@ -23,26 +23,26 @@ import typer
 REPO_SLUG = "pengwow/QuantCell"
 
 # target -> CI upload-artifact 的 name（download-artifact 不加 merge 时就是目录名）
+# 不含 darwin-x86_64：Intel Mac 矩阵项已移除（见 desktop-build.yml 矩阵注释）
 DEFAULT_PLATFORMS = {
     "darwin-aarch64": "quantcell-desktop-macos-aarch64",
-    "darwin-x86_64": "quantcell-desktop-macos-x86_64",
     "windows-x86_64": "quantcell-desktop-windows-x86_64",
     "linux-x86_64": "quantcell-desktop-linux-x86_64",
 }
 
 # target -> 候选产物后缀（按优先级）；签名文件固定为「产物同名 + .sig」
+# 注意 Tauri v2 的 Linux 升级包是裸 .AppImage 本体（v1 才包 .tar.gz），签名亦直挂其上
 ARTIFACT_SUFFIXES = {
     "darwin-aarch64": [".app.tar.gz"],
-    "darwin-x86_64": [".app.tar.gz"],
     "windows-x86_64": ["-setup.exe", ".msi"],
-    "linux-x86_64": [".AppImage.tar.gz"],
+    "linux-x86_64": [".AppImage"],
 }
 
 
 # target -> 裸安装包 glob 模式（官网下载页直链；顺序即前端展示优先级，首个为主推格式）
+# linux 的升级包与裸安装包同为 AppImage 本体，*.AppImage 会同时命中两处，属预期
 BARE_FILE_PATTERNS = {
     "darwin-aarch64": ["*.dmg"],
-    "darwin-x86_64": ["*.dmg"],
     "windows-x86_64": ["*-setup.exe", "*.msi"],
     "linux-x86_64": ["*.AppImage", "*.deb"],
 }
@@ -59,7 +59,7 @@ def _find_signed_artifact(platform_dir: Path, suffixes: list[str]) -> tuple[Path
 
 
 def _find_bare_artifacts(platform_dir: Path, patterns: list[str]) -> list[Path]:
-    """按 glob 优先级收集裸安装包；升级包（*.app.tar.gz / *.AppImage.tar.gz）不会被这些模式命中"""
+    """按 glob 优先级收集裸安装包；darwin 升级包（*.app.tar.gz）不会被这些模式命中"""
     found: list[Path] = []
     for pattern in patterns:
         for path in sorted(platform_dir.rglob(pattern)):

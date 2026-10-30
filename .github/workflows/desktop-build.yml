@@ -233,8 +233,7 @@ jobs:
             dist/**/*.msi.sig
             dist/**/*.deb
             dist/**/*.AppImage
-            dist/**/*.AppImage.tar.gz
-            dist/**/*.AppImage.tar.gz.sig
+            dist/**/*.AppImage.sig
             dist/manifest/latest.json
             dist/manifest/latest-mirror.json
             dist/manifest/latest-downloads.json
@@ -254,7 +253,7 @@ jobs:
           # manifest 之外的全部产物（升级包 + 裸安装包 + 签名）平铺进 <tag>/
           find dist -path dist/manifest -prune -o -type f \
             \( -name '*.dmg' -o -name '*-setup.exe' -o -name '*.msi' -o -name '*.deb' \
-               -o -name '*.AppImage' -o -name '*.app.tar.gz' -o -name '*.AppImage.tar.gz' \
+               -o -name '*.AppImage' -o -name '*.app.tar.gz' \
                -o -name '*.sig' \) \
             -exec cp {} "staging/${TAG}/" \;
           ls -R staging
