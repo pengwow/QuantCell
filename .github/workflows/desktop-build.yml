@@ -189,11 +189,15 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*
           if-no-files-found: error
 
-  # 发布：仅 tag 触发；四个平台产物 + updater manifest 一起发到 GitHub Release
+  # 发布：仅 tag 触发；三平台产物 + updater manifest 一起发到 GitHub Release
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # gh-release 创建 Release + 生成 release notes 需要 contents 写权限；
+    # 仓库默认 token 受限时这里不声明，会 403 "Resource not accessible by integration"
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
