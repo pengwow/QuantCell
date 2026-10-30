@@ -37,6 +37,14 @@ jobs:
           cd frontend
           bun run test
 
+      # tauri-build 在编译期校验 externalBin 资源存在（binaries/quantcell-backend-<triple>），
+      # 真实 sidecar 只在 build job 由 PyInstaller 构建。快检不放占位文件就过不了 cargo check，
+      # 此前两次 CI 均在更早步骤失败未暴露，2026-10-30 实测撞上。
+      - name: Stub sidecar binary for cargo check
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          touch "desktop/src-tauri/binaries/quantcell-backend-x86_64-unknown-linux-gnu"
+
       - name: Rust check
         run: |
           cd desktop/src-tauri
