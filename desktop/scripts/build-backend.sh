@@ -36,7 +36,6 @@ uv run --with pyinstaller pyinstaller \
   --noconfirm --clean --onefile --name quantcell-backend \
   --paths . \
   --add-data "alembic:alembic" \
-  --add-data "ai_model:ai_model" \
   --collect-all axon_quant \
   --collect-all duckdb \
   --collect-all pyarrow \
