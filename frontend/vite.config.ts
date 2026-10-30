@@ -4,8 +4,17 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import fs from 'fs'
 
-// 读取package.json获取版本号
+// 读取版本号：根目录 VERSION 是全仓版本唯一事实源（scripts/sync_version.py 维护），
+// 优先读取；VERSION 缺失/异常时回退 package.json 里的旧值自保，不让前端构建直接挂
+// ponytail: 回退天花板——VERSION 被误删后前端会静默展示 package.json 的历史版本；
+// 升级路径：改为构建期 fail-fast。当前选择静默回退以保证 vite 独立可用。
 const getAppVersion = () => {
+  try {
+    const versionFile = fs.readFileSync(path.resolve(import.meta.dirname, '../VERSION'), 'utf-8').trim()
+    if (versionFile) return versionFile
+  } catch {
+    // 根目录 VERSION 不存在或不可读，走下方 package.json 回退
+  }
   try {
     const packageJson = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'))
     return packageJson.version || '0.0.0'

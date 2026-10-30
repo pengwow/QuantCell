@@ -67,10 +67,11 @@ const defaultApiSettings: ApiSettings = {
   ],
 };
 
-// 默认系统信息
+// 版本展示：__APP_VERSION__ 由 vite define 注入（源 = 根目录 VERSION，见 vite.config.ts），
+// 不再手写魔法字符串，避免前端兜底版本与真实版本漂移
 const defaultSystemInfo: SystemInfo = {
   version: {
-    system_version: '1.0.0',
+    system_version: __APP_VERSION__,
     python_version: '3.10.0',
     build_date: '2025-01-01',
   },

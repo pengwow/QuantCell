@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "QuantCell API"
-    # 版本单源：桌面端由 tauri 壳 spawn sidecar 时注入 QUANTCELL_VERSION（值 = git tag），
-    # 其余场景（本地源码、CI 单测）兜底 dev。
+    # 版本说明：根目录 VERSION 是全仓版本唯一事实源（scripts/sync_version.py 同步
+    # package.json / tauri.conf.json / Cargo.toml / pyproject.toml，`make version` 一键操作）。
+    # 这里的 default="dev" 是开发运行时兜底（插件兼容校验对 dev 跳过版本比较），不随
+    # VERSION 文件同步；桌面端由 tauri 壳 spawn sidecar 时经 QUANTCELL_VERSION 注入真实版本。
     # 字段名与注入的变量名不一致，需显式 validation_alias 才能读到 QUANTCELL_VERSION；
     # 保留 APP_VERSION 使「环境变量名 = 字段名」的通用约定仍然成立
     app_version: str = Field(
