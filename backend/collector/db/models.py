@@ -408,6 +408,7 @@ class AIModel(TimezoneAwareBase):
     models = Column(Text, nullable=True)  # 可用模型列表，JSON格式存储
     is_default = Column(Boolean, default=False, index=True)  # 是否为默认配置
     is_enabled = Column(Boolean, default=True, index=True)  # 是否启用
+    category = Column(String(16), default="system_two", index=True)  # system_one(决策) | system_two(生成式)
     # 代理设置字段
     proxy_enabled = Column(Boolean, default=False)  # 是否启用代理
     proxy_url = Column(String, nullable=True)  # 代理地址
@@ -420,6 +421,8 @@ class AIModel(TimezoneAwareBase):
     __table_args__ = (
         sqlalchemy.Index("idx_ai_models_provider_enabled", "provider", "is_enabled"),
         sqlalchemy.Index("idx_ai_models_default", "is_default"),
+        # 按类型取默认行的主查询路径（保留旧索引，避免老库索引删除风险）
+        sqlalchemy.Index("idx_ai_models_category_default", "category", "is_default"),
     )
 
 
