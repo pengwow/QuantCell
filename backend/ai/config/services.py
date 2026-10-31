@@ -247,6 +247,39 @@ class OllamaAdapter(OpenAICompatibleAdapter):
         return f"Ollama本地模型: {model_id}"
 
 
+class LayaAdapter(OpenAICompatibleAdapter):
+    """Laya AI 决策模型（自托管服务，OpenAI 兼容 /v1 接口）。
+
+    与生成式模型不同：laya 是单次前向的 System 1 决策模型，
+    api_host 必填且填裸地址（不含 /v1），api_key 自托管无鉴权时可空。
+    """
+
+    DEFAULT_API_HOST = "http://127.0.0.1:8787"
+    DEFAULT_MODEL = "laya"
+    PROVIDER_NAME = "Laya AI"
+
+    def __init__(
+        self,
+        api_key: str,
+        api_host: str | None = None,
+        proxy_enabled: bool | None = None,
+        proxy_url: str | None = None,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
+    ):
+        # OpenAI SDK 不接受空 api_key，自托管无鉴权场景用占位符
+        super().__init__(api_key or "laya", api_host, proxy_enabled, proxy_url, proxy_username, proxy_password)
+
+    def _get_model_description(self, model_id: str) -> str:
+        """Laya 的三个 checkpoint 说明"""
+        descriptions = {
+            "laya": "Laya 英文决策模型（421M）",
+            "laya-multilingual": "Laya 多语言决策模型（100+ 语言）",
+            "laya-typed-decisions": "Laya 结构化决策模型",
+        }
+        return descriptions.get(model_id, f"Laya 决策模型: {model_id}")
+
+
 class XiaomiAdapter(OpenAICompatibleAdapter):
     """小米(MiMo)厂商适配器"""
 
@@ -412,6 +445,7 @@ class AIModelService:
         "openrouter": OpenRouterAdapter,
         "dashscope": DashScopeAdapter,
         "ollama": OllamaAdapter,
+        "laya": LayaAdapter,
         "xiaomi": XiaomiAdapter,
         "openai-compatible": OpenAICompatibleAdapter,
     }
