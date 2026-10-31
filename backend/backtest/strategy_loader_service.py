@@ -174,10 +174,12 @@ class StrategyLoaderService:
                     # 顶部引入会放大 CLI 启动成本并增加循环导入风险
                     from strategy.decision_service import build_cascade_layer
 
-                    layer = build_cascade_layer(dict(strategy_params or {}), run_mode)
+                    # 复制 dict 后写回，避免原地污染调用方传入的参数字典
+                    strategy_params = dict(strategy_params or {})
+                    # 每个策略独立录制文件，避免同一 run_mode 下多个 cascade 策略串写同一 JSONL
+                    strategy_params.setdefault("replay_file", f"{strategy_name}_{run_mode}.jsonl")
+                    layer = build_cascade_layer(strategy_params, run_mode)
                     if layer is not None:
-                        # 复制 dict 后写回，避免原地污染调用方传入的参数字典
-                        strategy_params = dict(strategy_params or {})
                         strategy_params["_cascade_layer"] = layer
 
             # 唯一路径：实例化 BaseStrategy 子类

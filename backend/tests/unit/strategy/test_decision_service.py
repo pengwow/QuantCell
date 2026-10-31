@@ -105,6 +105,16 @@ def test_force_rule_bypasses_cache(monkeypatch, tmp_path):
     assert normal is not forced
 
 
+def test_cache_key_includes_replay_path(monkeypatch, tmp_path):
+    """不同录制文件不能复用同一 layer 实例，否则会串写文件"""
+    _patch_providers(monkeypatch, [LAYA, GEN])
+    base = {"s1_mode": "stub", "s2_mode": "replay"}
+    a = svc.build_cascade_layer({**base, "replay_file": "a.jsonl"}, run_mode="backtest", replay_dir=tmp_path)
+    b = svc.build_cascade_layer({**base, "replay_file": "b.jsonl"}, run_mode="backtest", replay_dir=tmp_path)
+    assert a is not b
+    assert a.path != b.path
+
+
 def test_decision_replay_skips_assembly(monkeypatch, tmp_path):
     replay_file = tmp_path / "d.jsonl"
     replay_file.write_text("", encoding="utf-8")

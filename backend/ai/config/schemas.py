@@ -32,7 +32,11 @@ class AIModelCreate(AIModelBase):
     api_key: str = Field(
         ..., description="API密钥（laya 自托管无鉴权时传空串）", examples=["sk-xxxxxxxxxxxxxxxxxxxxxxxx"]
     )
-    models: list[str] | None = Field(None, description="可用模型列表", examples=[["gpt-4", "gpt-3.5-turbo"]])
+    models: list[dict] | list[str] | None = Field(
+        None,
+        description="可用模型列表（支持 dict 列表 [{id,name,model_name}] 或纯 ID 字符串列表）",
+        examples=[[{"id": "gpt-4", "name": "gpt-4"}]],
+    )
 
     @model_validator(mode="after")
     def _check_category_provider(self):
@@ -50,7 +54,7 @@ class AIModelUpdate(BaseModel):
     category: Literal["system_one", "system_two"] | None = Field(None, description="模型类型")
     api_key: str | None = Field(None, description="API密钥")
     api_host: str | None = Field(None, description="API主机地址")
-    models: list[str] | None = Field(None, description="可用模型列表")
+    models: list[dict] | list[str] | None = Field(None, description="可用模型列表")
     is_default: bool | None = Field(None, description="是否为同一类型内的默认配置")
     is_enabled: str | None = Field(None, description="启用的模型ID，为None表示未启用")
     # 代理设置字段
@@ -73,7 +77,7 @@ class AIModelResponse(AIModelBase):
 
     id: int = Field(..., description="配置ID")
     api_key_masked: str = Field(..., description="脱敏显示的API密钥", examples=["sk-xxxxxxxxxxxxxxxxxxxxxxxx"])
-    models: list[str] | None = Field(None, description="可用模型列表")
+    models: list[dict] | list[str] | None = Field(None, description="可用模型列表")
     created_at: str = Field(..., description="创建时间")
     updated_at: str = Field(..., description="更新时间")
 

@@ -13,8 +13,8 @@ config.params 可配：
   - s2_max_calls: S2 真调上限（超限切规则层）
   - decision_replay: 录制文件路径（整层离线复跑，不装配 layer）
 
-注意：strategy.decision_service 依赖 ai.config（DB），在本模块内按需在函数内
-import，避免 strategy 包初始化阶段连带拉起 DB 依赖。
+注意：strategy.decision_service 依赖 ai.config（DB），在 _decide 内按需 import，
+避免 strategy 包初始化阶段连带拉起 DB 依赖。
 """
 
 from __future__ import annotations
@@ -38,15 +38,22 @@ _QUESTIONS = {
     }
 }
 
-_HOLD_DECISION = {
-    "action": "hold",
-    "source": "fallback",
-    "confidence": 0.0,
-    "probabilities": {"hold": 1.0, "buy": 0.0, "sell": 0.0},
-    "fallback_reason": "no_decision",
-    "sdm_usage": None,
-    "sub_signals": {},
-}
+
+def _hold_decision() -> dict:
+    """本 bar 无法决策时的保守输出。
+
+    每次返回新对象：嵌套的 probabilities 若复用同一 dict，
+    下游修改会污染后续所有 Hold。
+    """
+    return {
+        "action": "hold",
+        "source": "fallback",
+        "confidence": 0.0,
+        "probabilities": {"hold": 1.0, "buy": 0.0, "sell": 0.0},
+        "fallback_reason": "no_decision",
+        "sdm_usage": None,
+        "sub_signals": {},
+    }
 
 
 @register("cascade_signal")
@@ -63,15 +70,19 @@ class CascadeSignalStrategy(BaseStrategy):
             logger.info(f"[cascade] 进入整层离线复跑: {replay_path}")
         self._s2_calls = 0
         self._force_rule = False
+        self._rule_switched = False
 
     def on_start(self, ctx: StrategyContext) -> None:
         self._s2_calls = 0
+        self._force_rule = False
+        self._rule_switched = False
 
     def _build_request(self, bar: dict, ctx: StrategyContext) -> tuple[dict, dict]:
         """组装 state/questions；features 两键是 RuleFallback 的硬依赖。"""
         closes = ctx.closes
-        fast = int(self.get_param("fast", 5))
-        slow = int(self.get_param("slow", 20))
+        # 参数来自前端，做下限钳制：fast<2 会除零/窗口失效，slow 必须大于 fast
+        fast = max(2, int(self.get_param("fast", 5)))
+        slow = max(fast + 1, int(self.get_param("slow", 20)))
 
         if len(closes) >= slow + 1:
             fast_ma = sum(closes[-fast:]) / fast
@@ -84,6 +95,8 @@ class CascadeSignalStrategy(BaseStrategy):
         if len(closes) >= 2 and closes[-2]:
             ret_1 = (closes[-1] - closes[-2]) / closes[-2]
 
+        # 键名 sma5_vs_sma20 是 Rust RuleFallback 的硬契约（C2），
+        # 实际窗口由 fast/slow 决定，这里只是契约占位键
         state = {
             "features": {"sma5_vs_sma20": float(sma_ratio), "ret_1": float(ret_1)},
             "price": float(bar.get("close", 0.0)),
@@ -99,12 +112,13 @@ class CascadeSignalStrategy(BaseStrategy):
             if recorded:
                 return dict(recorded)
             logger.warning(f"[cascade] decision_replay 未命中 fingerprint={fp}，保守 Hold")
-            return dict(_HOLD_DECISION)
+            return _hold_decision()
 
         if self._layer is None:
-            return dict(_HOLD_DECISION)
+            return _hold_decision()
 
-        if self._force_rule:
+        if self._force_rule and not self._rule_switched:
+            # 超限只重建一次：若每 bar 都调，会重复触发 DB 全量配置读取
             # 函数内 import：strategy.decision_service 会拉起 ai.config（DB 依赖），
             # 顶部引入会放大 strategy 包初始化成本
             from strategy.decision_service import build_cascade_layer
@@ -113,15 +127,16 @@ class CascadeSignalStrategy(BaseStrategy):
                 {**self.config.params, "force_rule": True},
                 run_mode=None,
             )
+            self._rule_switched = True
 
         try:
             decision = self._layer.decide(state, questions)
         except Exception as e:
             # 单 bar 决策失败只降级为 Hold，不能炸掉泵线程
             logger.error(f"[cascade] decide 失败，本 bar 保守 Hold: {e}")
-            return dict(_HOLD_DECISION)
+            return _hold_decision()
 
-        if decision.get("source") == "fallback":
+        if self._counts_as_s2_call(decision):
             self._s2_calls += 1
             cap = int(self.get_param("s2_max_calls", 0))
             if cap > 0 and self._s2_calls > cap and not self._force_rule:
@@ -130,6 +145,16 @@ class CascadeSignalStrategy(BaseStrategy):
                     f"[cascade] S2 调用超限({self._s2_calls}>{cap})，后续 bar 切规则兜底: strategy={self.config.name}"
                 )
         return decision
+
+    def _counts_as_s2_call(self, decision: dict) -> bool:
+        """只统计「S1 低置信触发的真实 S2 升级」。
+
+        S1 网络错误兜底不耗 S2 token；replay 模式根本不调 S2，都不计入上限。
+        """
+        if str(self.get_param("s2_mode", "live")) != "live":
+            return False
+        reason = str(decision.get("fallback_reason") or "")
+        return decision.get("source") == "fallback" and reason.startswith("low_confidence")
 
     @staticmethod
     def _to_action(decision: dict, target_ratio: float, model_id: str) -> Action:
