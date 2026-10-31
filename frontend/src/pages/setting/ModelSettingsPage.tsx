@@ -6,6 +6,7 @@ import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import type { ReactNode } from "react";
 import {
   Card,
   Input,
@@ -18,6 +19,7 @@ import {
   App,
   Popconfirm,
   Divider,
+  Select,
 } from "antd";
 import {
   IconPlus,
@@ -29,16 +31,37 @@ import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 
 const { Text } = Typography;
 
+// 模型类型：system_one 为 Laya 单次前向决策模型，system_two 为生成式大模型
+type ModelCategory = "system_one" | "system_two";
+
+const CATEGORY_LABELS: Record<ModelCategory, string> = {
+  system_one: "System 1 · 决策模型（Laya）",
+  system_two: "System 2 · 生成式大模型",
+};
+
+// Laya 自托管决策模型的三个官方 checkpoint 与默认服务地址（裸地址，不含 /v1）
+const LAYA_CHECKPOINTS = ["laya", "laya-multilingual", "laya-typed-decisions"];
+const LAYA_API_HOST = "http://127.0.0.1:8787";
+
+// 表单里的「标签 + 控件」统一用 Space 控制间距，避免 Tailwind margin 在 antd v6 下失效
+const FieldGroup = ({ label, children }: { label: ReactNode; children: ReactNode }) => (
+  <Space orientation="vertical" size="small" style={{ display: "flex" }}>
+    <Text strong>{label}</Text>
+    {children}
+  </Space>
+);
+
 // 模型厂商配置接口
 interface ModelProvider {
   id: string;
   name: string;
   icon: string;
+  category: ModelCategory; // 模型类型，组内单独维护默认项
   api_key: string;
   api_host: string;
   models: Model[];
   is_default: boolean;
-  is_enabled: string | null; // 存储启用的模型ID，null表示未启用
+  is_enabled: string | null; // 当前选中的模型ID（null 表示未选择）
   proxy_enabled: boolean; // 是否启用代理
   proxy_url?: string; // 代理地址
   proxy_username?: string; // 代理用户名
@@ -124,6 +147,11 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
     name: t('provider_xiaomi') || '小米',
     icon: PROVIDER_ICONS.xiaomi,
   },
+  {
+    id: "laya",
+    name: "Laya AI",
+    icon: "", // 决策模型无 logo，列表用图标兜底
+  },
 ];
 
 // 预设模型列表
@@ -138,6 +166,7 @@ const PRESET_MODELS: Record<string, string[]> = {
   google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"],
   azure: ["gpt-4", "gpt-4o", "gpt-35-turbo"],
   xiaomi: ["mimo-v2.5-pro", "mimo-v2.5", "mimo-v2.5-tts", "mimo-v2.5-tts-voicedesign", "mimo-v2.5-tts-voiceclone", "mimo-v2-pro", "mimo-v2-omni", "mimo-v2-tts", "mimo-v2-flash"],
+  laya: LAYA_CHECKPOINTS,
 };
 
 const ModelSettingsPage = () => {
@@ -208,6 +237,7 @@ const ModelSettingsPage = () => {
               id: preset.id,
               name: existing.name || preset.name,
               icon: preset.icon,
+              category: resolveCategory(preset.id, existing.category),
               api_key: existing.api_key || "",
               api_host: existing.api_host || getDefaultApiHost(preset.id),
               models: models.map(m => ({ id: m.id, name: m.name })), // 删除模型中的 is_enabled
@@ -224,6 +254,7 @@ const ModelSettingsPage = () => {
             id: preset.id,
             name: preset.name,
             icon: preset.icon,
+            category: resolveCategory(preset.id),
             api_key: "",
             api_host: getDefaultApiHost(preset.id),
             models: PRESET_MODELS[preset.id]?.map((name) => ({
@@ -255,6 +286,7 @@ const ModelSettingsPage = () => {
   const initDefaultProviders = () => {
     const initialProviders = PRESET_PROVIDERS.map((preset) => ({
       ...preset,
+      category: resolveCategory(preset.id),
       api_key: "",
       api_host: getDefaultApiHost(preset.id),
       models: PRESET_MODELS[preset.id]?.map((name) => ({
@@ -287,12 +319,24 @@ const ModelSettingsPage = () => {
       google: "https://generativelanguage.googleapis.com/v1",
       azure: "",
       xiaomi: "https://token-plan-cn.xiaomimimo.com/v1",
+      laya: LAYA_API_HOST,
     };
     return hosts[providerId] || "";
   }
 
   // 获取当前选中的厂商
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
+
+  // 模型类型只允许 laya 归入 System 1，其余厂商一律 System 2
+  function resolveCategory(providerId: string, saved?: string): ModelCategory {
+    if (saved === "system_one") {
+      return providerId === "laya" ? "system_one" : "system_two";
+    }
+    if (saved === "system_two") {
+      return "system_two";
+    }
+    return providerId === "laya" ? "system_one" : "system_two";
+  }
 
   // 更新厂商配置
   const updateProvider = (providerId: string, updates: Partial<ModelProvider>) => {
@@ -301,15 +345,48 @@ const ModelSettingsPage = () => {
     );
   };
 
-  // 设置默认厂商
+  // 设置默认厂商：仅在同类分组内唯一，避免 System 1 / System 2 互相覆盖
   const setDefaultProvider = (providerId: string) => {
+    const target = providers.find((p) => p.id === providerId);
+    if (!target) return;
     setProviders((prev) =>
-      prev.map((p) => ({
-        ...p,
-        is_default: p.id === providerId,
-      }))
+      prev.map((p) =>
+        p.category === target.category
+          ? { ...p, is_default: p.id === providerId }
+          : p
+      )
     );
     message.success(t("default_provider_set") || "默认厂商已设置");
+  };
+
+  // 切换模型类型：System 1 只支持 laya，切换时自动选中并预填 Laya 配置
+  const handleCategoryChange = (category: ModelCategory) => {
+    if (!selectedProvider) return;
+    if (category === "system_two") {
+      updateProvider(selectedProvider.id, { category });
+      return;
+    }
+
+    // provider 锁定 laya：补齐自托管地址与 checkpoint 预设
+    setProviders((prev) =>
+      prev.map((p) =>
+        p.id === "laya"
+          ? {
+              ...p,
+              category: "system_one" as ModelCategory,
+              api_host: p.api_host || LAYA_API_HOST,
+              models: p.models.length
+                ? p.models
+                : LAYA_CHECKPOINTS.map((id) => ({ id, name: id })),
+            }
+          : p
+      )
+    );
+    if (selectedProvider.id !== "laya") {
+      setSelectedProviderId("laya");
+      setFetchedModels([]);
+      message.info("System 1 仅支持 Laya 决策模型，已切换至 Laya 配置");
+    }
   };
 
   // 从其他厂商获取代理配置
@@ -355,7 +432,11 @@ const ModelSettingsPage = () => {
   // 检查可用性并获取模型列表
   const checkAvailability = async (providerId: string) => {
     const provider = providers.find((p) => p.id === providerId);
-    if (!provider?.api_key) {
+    if (!provider) return;
+
+    // Laya 自托管决策服务通常无鉴权，API Key 非必填
+    const isLaya = provider.category === "system_one";
+    if (!isLaya && !provider.api_key) {
       message.warning(t("please_enter_api_key") || "请输入API密钥");
       return;
     }
@@ -365,8 +446,9 @@ const ModelSettingsPage = () => {
     try {
       const result = await aiModelApi.checkAvailability({
         provider: provider.id,
-        api_key: provider.api_key,
-        api_host: provider.api_host,
+        api_key: provider.api_key || "",
+        // Laya 的 api_host 必须是裸地址（不含 /v1），适配器会自行拼接
+        api_host: isLaya ? provider.api_host.replace(/\/v1\/?$/, "") : provider.api_host,
         proxy_enabled: provider.proxy_enabled,
         proxy_url: provider.proxy_url,
         proxy_username: provider.proxy_username,
@@ -469,6 +551,7 @@ const ModelSettingsPage = () => {
 
         batchConfigs.push(
           { key: `${prefix}.name`, value: provider.name, name: 'ai_model', description: `${providerName}厂商名称` },
+          { key: `${prefix}.category`, value: provider.category, name: 'ai_model', description: `${providerName}模型类型` },
           { key: `${prefix}.api_key`, value: provider.api_key || '', name: 'ai_model', description: `${providerName}API Key` },
           { key: `${prefix}.api_host`, value: provider.api_host || '', name: 'ai_model', description: `${providerName}API Host` },
           { key: `${prefix}.models`, value: JSON.stringify(provider.models), name: 'ai_model', description: `${providerName}模型列表` },
@@ -504,6 +587,7 @@ const ModelSettingsPage = () => {
       })) || [];
       return {
         ...preset,
+        category: resolveCategory(preset.id),
         api_key: "",
         api_host: getDefaultApiHost(preset.id),
         models: models,
@@ -536,51 +620,85 @@ const ModelSettingsPage = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <Space orientation="vertical" size="large" style={{ display: "flex" }}>
       {/* 主内容区域 - 响应式布局 */}
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* 左侧厂商列表 */}
+        {/* 左侧厂商列表：按模型类型分组，每组独立维护默认项 */}
         <div className="w-full lg:w-64 flex-shrink-0">
           <div className="text-base font-medium mb-4 leading-8 h-8">{t("model_provider") || "模型提供商"}</div>
-          <Card className="shadow-sm" styles={{ body: { padding: 8 } }}>
-            {/* 小屏幕：水平排列自动换行；大屏幕：垂直列表 */}
-            <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
-              {providers.map((provider) => (
-                <div
-                  key={provider.id}
-                  className={`cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full ${
-                    selectedProviderId === provider.id
-                      ? "bg-gray-100 dark:bg-gray-800"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-900"
-                  }`}
-                  onClick={() => {
-                    setSelectedProviderId(provider.id);
-                    setFetchedModels([]);
-                  }}
+          <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
+            {(["system_one", "system_two"] as ModelCategory[]).map((category) => {
+              const groupProviders = providers.filter((p) => p.category === category);
+              return (
+                <Card
+                  key={category}
+                  className="shadow-sm"
+                  size="small"
+                  title={<span className="text-sm font-medium">{CATEGORY_LABELS[category]}</span>}
+                  styles={{ body: { padding: 8 } }}
                 >
-                  <span className="w-8 h-8 flex items-center justify-center shrink-0 overflow-hidden">
-                    <img src={provider.icon} alt={provider.name} className="w-6 h-6 object-contain" />
-                  </span>
-                  <div className="flex-1 min-w-0 hidden lg:block">
-                    <div className="font-medium text-sm truncate">{provider.name}</div>
-                    <div className="text-xs text-gray-400 truncate">{provider.id}</div>
+                  <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
+                    {groupProviders.map((provider) => (
+                      <div
+                        key={provider.id}
+                        className={`cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full ${
+                          selectedProviderId === provider.id
+                            ? "bg-gray-100 dark:bg-gray-800"
+                            : "hover:bg-gray-50 dark:hover:bg-gray-900"
+                        }`}
+                        onClick={() => {
+                          setSelectedProviderId(provider.id);
+                          setFetchedModels([]);
+                        }}
+                      >
+                        <span className="w-8 h-8 flex items-center justify-center shrink-0 overflow-hidden">
+                          {provider.icon ? (
+                            <img src={provider.icon} alt={provider.name} className="w-6 h-6 object-contain" />
+                          ) : (
+                            <IconRobot size={20} className="text-gray-500" />
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm truncate">{provider.name}</div>
+                          {/* 列表同时展示 provider 与 models，便于快速区分 */}
+                          <div className="text-xs text-gray-400 truncate">
+                            {provider.id} · {provider.models.length ? provider.models.map((m) => m.name).join(", ") : "未配置模型"}
+                          </div>
+                        </div>
+                        <Button
+                          size="small"
+                          type={provider.is_default ? "default" : "link"}
+                          disabled={provider.is_default}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDefaultProvider(provider.id);
+                          }}
+                        >
+                          {provider.is_default ? "默认" : "设为默认"}
+                        </Button>
+                      </div>
+                    ))}
+                    {groupProviders.length === 0 && (
+                      <div className="text-center py-4 text-gray-400 text-sm">
+                        {category === "system_one" ? "尚未配置决策模型（Laya）" : "尚未配置生成式大模型"}
+                      </div>
+                    )}
                   </div>
-                  <span className="lg:hidden font-medium text-sm">{provider.name}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
+                </Card>
+              );
+            })}
+          </Space>
         </div>
 
         {/* 右侧配置区域 */}
         <div className="flex-1">
           {selectedProvider ? (
-            <div className="space-y-4">
+            <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
               {/* 厂商标题和默认设置 - 与左侧标题对齐 */}
               <div className="flex items-center justify-between h-8">
                 <div className="text-base font-medium">{selectedProvider.name}</div>
                 <Space>
-                  <Text type="secondary" className="text-sm">{t("default_provider") || "默认提供商"}</Text>
+                  <Text type="secondary" className="text-sm">{t("default_provider") || "组内默认"}</Text>
                   <Switch
                     checked={selectedProvider.is_default}
                     onChange={(checked) => {
@@ -591,159 +709,177 @@ const ModelSettingsPage = () => {
               </div>
 
               <Card className="shadow-sm">
-                {/* API Key */}
-                <div className="mb-6">
-                  <Text strong className="block mb-2 text-base">{t("api_key") || "API密钥"}</Text>
-                  <Space.Compact className="w-full">
-                    <Input.Password
-                      value={selectedProvider.api_key}
-                      onChange={(e) =>
-                        updateProvider(selectedProvider.id, { api_key: e.target.value })
-                      }
-                      placeholder={t("enter_api_key") || "输入API密钥"}
-                      className="flex-1"
+                <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
+                  {/* 模型类型：System 1 锁定 Laya，选择后自动预填自托管配置 */}
+                  <FieldGroup label={t("model_category") || "模型类型"}>
+                    <Select
+                      value={selectedProvider.category}
+                      onChange={handleCategoryChange}
+                      options={[
+                        { value: "system_two", label: CATEGORY_LABELS.system_two },
+                        { value: "system_one", label: CATEGORY_LABELS.system_one },
+                      ]}
                     />
-                    <Button
-                      type="default"
-                      loading={checkingProvider === selectedProvider.id}
-                      onClick={() => checkAvailability(selectedProvider.id)}
-                    >
-                      {t("check_availability") || "检查可用性"}
-                    </Button>
-                  </Space.Compact>
-                  {getApiKeyUrl(selectedProvider.id) && (
-                    <a
-                      href={getApiKeyUrl(selectedProvider.id)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-gray-600 hover:text-gray-800 underline mt-2 inline-block"
-                    >
-                      {t("click_to_get_api_key") || "点击此处获取API密钥"}
-                    </a>
-                  )}
-                </div>
+                    {selectedProvider.category === "system_one" && (
+                      <Text type="secondary" className="text-xs">
+                        决策模型固定使用 provider=laya，地址填自托管裸地址（不含 /v1），无鉴权时 API Key 可留空
+                      </Text>
+                    )}
+                  </FieldGroup>
 
-                {/* API Host */}
-                <div className="mb-6">
-                  <Text strong className="block mb-2 text-base">{t("api_host") || "API主机"}</Text>
-                  <Input
-                    value={selectedProvider.api_host}
-                    onChange={(e) =>
-                      updateProvider(selectedProvider.id, { api_host: e.target.value })
-                    }
-                    placeholder={t("enter_api_host") || "请输入 API Host"}
-                  />
-                </div>
-
-                <Divider className="my-4" />
-
-                {/* 代理设置 */}
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <Text strong className="text-base">{t("proxy_settings") || "代理设置"}</Text>
-                    <Space>
-                      <Text type="secondary" className="text-sm">{t("proxy_enabled") || "启用代理"}</Text>
-                      <Switch
-                        checked={selectedProvider.proxy_enabled}
-                        onChange={handleProxyToggle}
+                  {/* API Key */}
+                  <FieldGroup label={t("api_key") || "API密钥"}>
+                    <Space.Compact className="w-full">
+                      <Input.Password
+                        value={selectedProvider.api_key}
+                        onChange={(e) =>
+                          updateProvider(selectedProvider.id, { api_key: e.target.value })
+                        }
+                        placeholder={
+                          selectedProvider.category === "system_one"
+                            ? "自托管无鉴权可留空"
+                            : t("enter_api_key") || "输入API密钥"
+                        }
+                        className="flex-1"
                       />
-                    </Space>
-                  </div>
-
-                  {selectedProvider.proxy_enabled && (
-                    <div className="space-y-4">
-                      <div>
-                        <Text strong className="block mb-2 text-sm">{t("proxy_url") || "代理地址"}</Text>
-                        <Input
-                          value={selectedProvider.proxy_url}
-                          onChange={(e) =>
-                            updateProvider(selectedProvider.id, { proxy_url: e.target.value })
-                          }
-                          placeholder="http://proxy.example.com:8080"
-                        />
-                      </div>
-
-                      <div>
-                        <Text strong className="block mb-2 text-sm">{t("proxy_username") || "代理用户名"}</Text>
-                        <Input
-                          value={selectedProvider.proxy_username}
-                          onChange={(e) =>
-                            updateProvider(selectedProvider.id, { proxy_username: e.target.value })
-                          }
-                          placeholder={t("optional") || "可选"}
-                        />
-                      </div>
-
-                      <div>
-                        <Text strong className="block mb-2 text-sm">{t("proxy_password") || "代理密码"}</Text>
-                        <Input.Password
-                          value={selectedProvider.proxy_password}
-                          onChange={(e) =>
-                            updateProvider(selectedProvider.id, { proxy_password: e.target.value })
-                          }
-                          placeholder={t("optional") || "可选"}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <Divider className="my-4" />
-
-                {/* 模型列表 */}
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <Text strong className="text-base">{t("models") || "模型"}</Text>
-                    <Button
-                      type="default"
-                      icon={<IconPlus size="1em" />}
-                      onClick={() => setIsAddModelModalOpen(true)}
-                    >
-                      {t("add") || "添加"}
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    {selectedProvider.models.map((model) => (
-                      <div
-                        key={model.id}
-                        className="flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
+                      <Button
+                        type="default"
+                        loading={checkingProvider === selectedProvider.id}
+                        onClick={() => checkAvailability(selectedProvider.id)}
                       >
-                        <Text className="text-sm">{model.name}</Text>
-                        <Space>
-                          <Switch
-                            checked={selectedProvider.is_enabled === model.id}
-                            onChange={(checked) =>
-                              toggleModel(selectedProvider.id, model.id, checked)
+                        {t("check_availability") || "检查可用性"}
+                      </Button>
+                    </Space.Compact>
+                    {getApiKeyUrl(selectedProvider.id) && (
+                      <a
+                        href={getApiKeyUrl(selectedProvider.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-gray-600 hover:text-gray-800 underline"
+                      >
+                        {t("click_to_get_api_key") || "点击此处获取API密钥"}
+                      </a>
+                    )}
+                  </FieldGroup>
+
+                  {/* API Host */}
+                  <FieldGroup label={t("api_host") || "API主机"}>
+                    <Input
+                      value={selectedProvider.api_host}
+                      onChange={(e) =>
+                        updateProvider(selectedProvider.id, { api_host: e.target.value })
+                      }
+                      placeholder={t("enter_api_host") || "请输入 API Host"}
+                    />
+                  </FieldGroup>
+
+                  <Divider className="my-0" />
+
+                  {/* 代理设置 */}
+                  <Space orientation="vertical" size="small" style={{ display: "flex" }}>
+                    <div className="flex items-center justify-between">
+                      <Text strong>{t("proxy_settings") || "代理设置"}</Text>
+                      <Space>
+                        <Text type="secondary" className="text-sm">{t("proxy_enabled") || "启用代理"}</Text>
+                        <Switch
+                          checked={selectedProvider.proxy_enabled}
+                          onChange={handleProxyToggle}
+                        />
+                      </Space>
+                    </div>
+
+                    {selectedProvider.proxy_enabled && (
+                      <Space orientation="vertical" size="small" style={{ display: "flex" }}>
+                        <FieldGroup label={t("proxy_url") || "代理地址"}>
+                          <Input
+                            value={selectedProvider.proxy_url}
+                            onChange={(e) =>
+                              updateProvider(selectedProvider.id, { proxy_url: e.target.value })
                             }
-                            size="small"
+                            placeholder="http://proxy.example.com:8080"
                           />
-                          <Popconfirm
-                            title={t("confirm_delete") || "确认删除"}
-                            description={t("delete_model_confirm") || "确定要删除这个模型吗？"}
-                            onConfirm={() => deleteModel(selectedProvider.id, model.id)}
-                            okText={t("yes") || "是"}
-                            cancelText={t("no") || "否"}
-                          >
-                            <Button
-                              type="text"
-                              danger
-                              icon={<IconTrash size="1em" />}
+                        </FieldGroup>
+
+                        <FieldGroup label={t("proxy_username") || "代理用户名"}>
+                          <Input
+                            value={selectedProvider.proxy_username}
+                            onChange={(e) =>
+                              updateProvider(selectedProvider.id, { proxy_username: e.target.value })
+                            }
+                            placeholder={t("optional") || "可选"}
+                          />
+                        </FieldGroup>
+
+                        <FieldGroup label={t("proxy_password") || "代理密码"}>
+                          <Input.Password
+                            value={selectedProvider.proxy_password}
+                            onChange={(e) =>
+                              updateProvider(selectedProvider.id, { proxy_password: e.target.value })
+                            }
+                            placeholder={t("optional") || "可选"}
+                          />
+                        </FieldGroup>
+                      </Space>
+                    )}
+                  </Space>
+
+                  <Divider className="my-0" />
+
+                  {/* 模型列表 */}
+                  <Space orientation="vertical" size="small" style={{ display: "flex" }}>
+                    <div className="flex items-center justify-between">
+                      <Text strong>{t("models") || "模型"}</Text>
+                      <Button
+                        type="default"
+                        icon={<IconPlus size="1em" />}
+                        onClick={() => setIsAddModelModalOpen(true)}
+                      >
+                        {t("add") || "添加"}
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      {selectedProvider.models.map((model) => (
+                        <div
+                          key={model.id}
+                          className="flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
+                        >
+                          <Text className="text-sm">{model.name}</Text>
+                          <Space>
+                            <Switch
+                              checked={selectedProvider.is_enabled === model.id}
+                              onChange={(checked) =>
+                                toggleModel(selectedProvider.id, model.id, checked)
+                              }
                               size="small"
                             />
-                          </Popconfirm>
-                        </Space>
-                      </div>
-                    ))}
-                    {selectedProvider.models.length === 0 && (
-                      <div className="text-center py-8 text-gray-400">
-                        {t("no_models") || "暂无模型"}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                            <Popconfirm
+                              title={t("confirm_delete") || "确认删除"}
+                              description={t("delete_model_confirm") || "确定要删除这个模型吗？"}
+                              onConfirm={() => deleteModel(selectedProvider.id, model.id)}
+                              okText={t("yes") || "是"}
+                              cancelText={t("no") || "否"}
+                            >
+                              <Button
+                                type="text"
+                                danger
+                                icon={<IconTrash size="1em" />}
+                                size="small"
+                              />
+                            </Popconfirm>
+                          </Space>
+                        </div>
+                      ))}
+                      {selectedProvider.models.length === 0 && (
+                        <div className="text-center py-8 text-gray-400">
+                          {t("no_models") || "暂无模型"}
+                        </div>
+                      )}
+                    </div>
+                  </Space>
+                </Space>
               </Card>
-            </div>
+            </Space>
           ) : (
             <Card className="shadow-sm">
               <div className="text-center py-12 text-gray-500">
@@ -865,7 +1001,7 @@ const ModelSettingsPage = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </Space>
   );
 };
 
