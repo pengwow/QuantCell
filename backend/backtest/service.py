@@ -910,6 +910,10 @@ class BacktestService:
 
         total = len(rows)
 
+        # 基线次序：创建时间倒序。glob 枚举顺序随文件系统变化（本地 APFS ≠ CI ext4），
+        # 先固定基线再做业务排序：指标相同的记录 share tie-break、无值垫底的组内顺序都完全确定
+        rows.sort(key=lambda r: str(r["created_at"] or ""), reverse=True)
+
         if sort_by == "total_return":
             value_of = lambda r: r["total_return"]  # noqa: E731
         elif sort_by == "max_drawdown":
@@ -967,7 +971,7 @@ class BacktestService:
         """
         try:
             task_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             task_id = backtest_id
         return self.delete_task(task_id)
 
@@ -983,7 +987,7 @@ class BacktestService:
         """
         try:
             numeric_id = int(task_id) if task_id.isdigit() else task_id
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             numeric_id = task_id
 
         task = self._load_task(numeric_id)
