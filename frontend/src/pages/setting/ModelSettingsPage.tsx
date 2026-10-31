@@ -72,7 +72,7 @@ interface ModelProvider {
 interface Model {
   id: string;
   name: string;
-  // 删除 is_enabled 字段，改为在 provider 级别管理
+  // is_enabled 在 provider 级别维护，存当前选中的模型 ID（system_config 语义）
 }
 
 // 预设的模型厂商

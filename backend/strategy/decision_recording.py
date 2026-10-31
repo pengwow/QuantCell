@@ -11,13 +11,17 @@ import hashlib
 import json
 import os
 import time
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+# ponytail: 运行期去重集合的上限。超长回测（>20 万 bar）下放弃运行期去重，
+# 以「不再增长内存」优先；已存在条目的去重仍由启动时加载的集合保证。
+_MAX_DEDUPE_FINGERPRINTS = 200_000
 
 
 def request_fingerprint(state: dict, questions: dict) -> str:
@@ -84,6 +88,10 @@ class DecisionReplayTable:
     def lookup(self, fingerprint: str) -> dict | None:
         return self._records.get(fingerprint)
 
+    def fingerprints(self) -> set[str]:
+        """已加载的全部指纹（供录制侧复用，避免二次读同一文件）"""
+        return set(self._records)
+
     def __len__(self) -> int:
         return len(self._records)
 
@@ -103,13 +111,19 @@ class RecordingCascadeLayer:
         self.s2_mode = s2_mode
         self._replay = replay_table
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # 进程重启后继续写同一文件时，已存在的 fingerprint 不再重复落行
-        self._seen: set[str] = set()
-        if self.path.is_file():
-            for line in self.path.read_text(encoding="utf-8").splitlines():
-                record = _parse_line(line)
-                if record:
-                    self._seen.add(record["fingerprint"])
+        # 进程重启后继续写同一文件时，已存在的 fingerprint 不再重复落行；
+        # 若调用方已加载 replay_table（同一文件），直接复用其指纹集合，避免二次读盘
+        if replay_table is not None:
+            self._seen: set[str] = replay_table.fingerprints()
+        else:
+            self._seen = set()
+            if self.path.is_file():
+                for line in self.path.read_text(encoding="utf-8").splitlines():
+                    record = _parse_line(line)
+                    if record:
+                        self._seen.add(record["fingerprint"])
+        # 长生命周期句柄：回测逐 bar 写盘，避免每 bar open/close 的 syscall 开销
+        self._writer: Any = None
 
     def decide(self, state: dict, questions: dict) -> dict:
         fp = request_fingerprint(state, questions)
@@ -129,7 +143,8 @@ class RecordingCascadeLayer:
     def _append(self, fp: str, state: dict, questions: dict, decision: dict) -> None:
         if fp in self._seen:
             return
-        self._seen.add(fp)
+        if len(self._seen) < _MAX_DEDUPE_FINGERPRINTS:
+            self._seen.add(fp)
         record = {
             "fingerprint": fp,
             "decision": decision,
@@ -137,5 +152,19 @@ class RecordingCascadeLayer:
             "questions": questions,
             "ts": _iso8601_ns(),
         }
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        if self._writer is None:
+            self._writer = self.path.open("a", encoding="utf-8")
+        self._writer.write(json.dumps(record, ensure_ascii=False) + "\n")
+        # 每行 flush：审计/复跑依赖落盘，崩溃最多丢当前这一行
+        self._writer.flush()
+
+    def close(self) -> None:
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
+
+    def __del__(self) -> None:
+        # __init__ 中途抛错时 _writer 可能未建立，用 getattr 防御
+        writer = getattr(self, "_writer", None)
+        if writer is not None:
+            writer.close()

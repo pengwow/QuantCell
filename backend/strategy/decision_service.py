@@ -171,8 +171,12 @@ def build_cascade_layer(
     hold_threshold = float(params.get("hold_threshold", 0.70))
     s1_timeout = int(params.get("s1_timeout_secs", 5))
 
-    # 缓存键必须带 force_rule：超限切规则层后要拿到不含 S2 的新实例，
-    # 否则会命中旧缓存把 LLM 版 layer 还回去。
+    replay_root = Path(replay_dir) if replay_dir else default_replay_dir()
+    filename = str(params.get("replay_file") or f"{run_mode or 'run'}.jsonl")
+    path = replay_root / filename
+
+    # 缓存键必须带 force_rule（超限切规则层要拿到不含 S2 的新实例）与录制路径
+    # （不同策略的 replay_file 不同，否则会复用上一层实例把录制写进错误文件）
     key = (
         one.get("id"),
         two.get("id"),
@@ -182,6 +186,7 @@ def build_cascade_layer(
         s1_timeout,
         s2_mode,
         force_rule,
+        str(path),
     )
     cached = _CACHE.get(key)
     if cached is not None:
@@ -194,9 +199,6 @@ def build_cascade_layer(
     else:
         layer = SdmCascadeDecisionLayer.with_llm_fallback(s1, _s2_backend(two), cfg)
 
-    replay_root = Path(replay_dir) if replay_dir else default_replay_dir()
-    filename = str(params.get("replay_file") or f"{run_mode or 'run'}.jsonl")
-    path = replay_root / filename
     table = DecisionReplayTable(path) if (s2_mode == "replay" and path.is_file()) else None
     wrapped = RecordingCascadeLayer(layer, path, s2_mode=s2_mode, replay_table=table)
     _CACHE[key] = wrapped

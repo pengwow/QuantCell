@@ -5,6 +5,17 @@ import pytest
 from strategy import StrategyConfig
 from strategy.templates import cascade_signal
 
+# S1 低置信触发的兜底（会真调 S2，应计入上限）
+_FALLBACK_DECISION = {
+    "action": "hold",
+    "source": "fallback",
+    "confidence": 0.5,
+    "probabilities": {"hold": 0.5, "buy": 0.25, "sell": 0.25},
+    "fallback_reason": "low_confidence: hold=0.5",
+    "sdm_usage": None,
+    "sub_signals": {},
+}
+
 
 class FakeLayer:
     def __init__(self, result=None, boom=False):
@@ -131,13 +142,45 @@ def test_s2_cap_switches_to_force_rule(monkeypatch):
 
     def fake_build(params, run_mode=None, replay_dir=None):
         calls.append(params.get("force_rule", False))
-        return FakeLayer({"action": "hold", "source": "fallback", "confidence": 0.5})
+        return FakeLayer(_FALLBACK_DECISION)
 
     monkeypatch.setattr(svc, "build_cascade_layer", fake_build)
-    s = _strategy({"s2_max_calls": 1}, layer=FakeLayer({"action": "hold", "source": "fallback", "confidence": 0.5}))
+    s = _strategy({"s2_max_calls": 1}, layer=FakeLayer(_FALLBACK_DECISION))
     ctx = _ctx()
     _feed(s, ctx, [1])
     assert s._s2_calls == 1
     assert s._force_rule is False
+
     _feed(s, ctx, [2])
+    # 第二个 fallback 触发超限；本 bar 仍用旧层完成决策，下一 bar 才切规则层
     assert s._force_rule is True
+    assert s._rule_switched is False
+    assert calls == []
+
+    _feed(s, ctx, [3])
+    assert s._rule_switched is True
+    assert calls == [True]
+
+    # 后续 bar 不再重复装配（否则每 bar 都会做一次 DB 全量配置读取）
+    _feed(s, ctx, [4])
+    _feed(s, ctx, [5])
+    assert calls == [True]
+
+
+def test_s2_count_ignores_sdm_error(monkeypatch):
+    """S1 网络错误兜底不消耗 S2，不应计入上限"""
+    s = _strategy({"s2_max_calls": 1}, layer=FakeLayer({**_FALLBACK_DECISION, "fallback_reason": "sdm_error: Network"}))
+    ctx = _ctx()
+    for price in [1, 2, 3]:
+        _feed(s, ctx, [price])
+    assert s._s2_calls == 0
+    assert s._force_rule is False
+
+
+def test_s2_count_ignores_replay_mode(monkeypatch):
+    """replay 模式根本不调 S2，不计入上限"""
+    s = _strategy({"s2_max_calls": 1, "s2_mode": "replay"}, layer=FakeLayer(_FALLBACK_DECISION))
+    ctx = _ctx()
+    for price in [1, 2, 3]:
+        _feed(s, ctx, [price])
+    assert s._s2_calls == 0

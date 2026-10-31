@@ -99,6 +99,7 @@ def save_ai_model_to_config(model_id: str, model_data: dict[str, Any]) -> bool:
         fields_to_save = [
             "name",
             "provider",
+            "category",
             "api_key",
             "api_host",
             "models",
@@ -279,6 +280,7 @@ def create_ai_model(config: AIModelCreate, current_user: dict = Depends(get_curr
         model_data = {
             "id": model_id,
             "provider": config.provider,
+            "category": config.category,
             "name": config.name,
             "api_key": config.api_key,
             "api_host": config.api_host,
@@ -479,6 +481,7 @@ def update_ai_model(
         updated_data = {
             "id": model_id,
             "provider": config.provider or existing_model.get("provider"),
+            "category": config.category or existing_model.get("category") or "system_two",
             "name": config.name or existing_model.get("name"),
             "api_key": config.api_key or existing_model.get("api_key"),
             "api_host": config.api_host or existing_model.get("api_host"),
@@ -493,6 +496,10 @@ def update_ai_model(
             "proxy_password": config.proxy_password or existing_model.get("proxy_password"),
             "created_at": existing_model.get("created_at"),
         }
+
+        # 合并后校验类型与厂商一致性：部分更新可能绕过 schema 的交叉校验
+        if updated_data["category"] == "system_one" and str(updated_data["provider"] or "").lower() != "laya":
+            raise HTTPException(status_code=400, detail="system_one 类型的 provider 必须为 laya（决策模型）")
 
         # 保存到系统配置表
         success = save_ai_model_to_config(model_id, updated_data)

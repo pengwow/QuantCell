@@ -142,7 +142,10 @@ class AIModelBusiness:
 
     @staticmethod
     def get_default_model(category: str, include_api_key: bool = False) -> dict[str, Any] | None:
-        """按类型取默认模型配置。
+        """按类型取默认模型配置（ai_models 表链路）。
+
+        注意：设置页与 decision_service 走的是 system_config 的 ai_model.* 配置，
+        本方法服务 ai_models 表这条历史链路，不要混用。
 
         Args:
             category: system_one（决策模型）或 system_two（生成式模型）
