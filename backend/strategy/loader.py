@@ -22,12 +22,14 @@ _AUTO_REGISTERED = False
 
 
 def register(name: str):
-    """装饰器：注册策略到全局表。"""
+    """装饰器：注册策略到全局表。
+
+    同名重复注册以最后一次为准（覆盖而非报错）：策略名由文件名唯一决定，
+    同一文件可能被包路径与裸模块名导入两次（两次 @register 指向同一实现），
+    若直接抛错会导致「列过策略后无法启动」以及 __init__ 预注册项被摘除后丢失。
+    """
 
     def deco(cls: type[BaseStrategy]) -> type[BaseStrategy]:
-        if name in _REGISTRY:
-            msg = f"策略名重复: {name}"
-            raise ValueError(msg)
         _REGISTRY[name] = cls
         cls._registered_name = name  # type: ignore[attr-defined]
         return cls
