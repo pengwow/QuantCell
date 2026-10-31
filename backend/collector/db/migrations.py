@@ -838,6 +838,54 @@ def create_leverage_brackets_table(session: Session, db_type: str) -> None:
         logger.error(f"创建leverage_brackets表失败: {e}")
 
 
+def update_ai_models_table(session: Session, db_type: str) -> None:
+    """为 ai_models 增加 category 列（system_one / system_two 分型）。
+
+    存量行由 DEFAULT 归入 system_two（生成式语义不变），幂等可重跑。
+    """
+    logger.info("开始更新 ai_models 表结构（category 列）...")
+
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_models'")
+            ).fetchone()
+        else:
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='ai_models'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查 ai_models 表是否存在失败: {e}")
+        return
+
+    if not table_exists:
+        logger.info("ai_models 表不存在（首次建库由 create_all 负责），跳过 category 迁移")
+        return
+
+    try:
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('ai_models') WHERE name='category'")
+            ).fetchone()
+        else:
+            column_exists = session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name='ai_models' AND column_name='category'"
+                )
+            ).fetchone()
+
+        if column_exists:
+            logger.info("ai_models.category 列已存在，跳过")
+            return
+
+        session.execute(text("ALTER TABLE ai_models ADD COLUMN category VARCHAR(16) DEFAULT 'system_two'"))
+        session.commit()
+        logger.info("ai_models.category 列添加成功（存量行默认 system_two）")
+    except Exception as e:
+        logger.error(f"添加 ai_models.category 列失败: {e}")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
 
@@ -886,6 +934,9 @@ def run_migrations() -> None:
 
             # 创建杠杆档位表（保证金回测的档位数据源）
             create_leverage_brackets_table(session, db_type)
+
+            # 更新 ai_models 表结构，添加 category 列（system_one/system_two 分型）
+            update_ai_models_table(session, db_type)
 
             # 提交所有更改
             session.commit()
