@@ -147,11 +147,12 @@ def test_get_result_list_pagination_filter_sort(tmp_path) -> None:
     rows2, total2 = svc.get_result_list(limit=2, offset=2)
     assert total2 == 4 and [r["id"] for r in rows2] == ["b", "c"]
 
-    # 排序：total_return 有值参与升降序，无值（failed）始终垫底
+    # 排序：total_return 有值参与升降序，无值（failed）始终垫底；
+    # 垫底组内次序固定为 created_at 倒序（d 比 c 新），不依赖文件枚举顺序
     rows_desc, _ = svc.get_result_list(sort_by="total_return", sort_order="desc")
-    assert [r["id"] for r in rows_desc] == ["a", "b", "c", "d"]
+    assert [r["id"] for r in rows_desc] == ["a", "b", "d", "c"]
     rows_asc, _ = svc.get_result_list(sort_by="total_return", sort_order="asc")
-    assert [r["id"] for r in rows_asc] == ["b", "a", "c", "d"]
+    assert [r["id"] for r in rows_asc] == ["b", "a", "d", "c"]
 
     # 状态过滤：'running' 语义上匹配 running/in_progress
     rows_status, total_status = svc.get_result_list(status_filter="running")
