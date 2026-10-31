@@ -51,6 +51,7 @@ class AIModelBusiness:
         provider: str,
         name: str,
         api_key: str,
+        category: str = "system_two",
         api_host: str | None = None,
         models: builtins.list[str] | None = None,
         is_default: bool = False,
@@ -66,6 +67,7 @@ class AIModelBusiness:
             provider: 厂商名称
             name: 配置名称
             api_key: API密钥
+            category: 模型类型（system_one=决策模型，system_two=生成式模型）
             api_host: API主机地址
             models: 可用模型列表
             is_default: 是否为默认配置
@@ -80,9 +82,9 @@ class AIModelBusiness:
         """
         db = AIModelBusiness._get_db()
         try:
-            # 如果设置为默认配置，先将其他默认配置取消
+            # 同类型内唯一默认：只清同 category 的旧默认，避免跨类型互相踩踏
             if is_default:
-                db.query(AIModel).filter(AIModel.is_default).update({"is_default": False})
+                db.query(AIModel).filter(AIModel.is_default, AIModel.category == category).update({"is_default": False})
 
             # 序列化模型列表
             models_json = json.dumps(models) if models else None
@@ -91,6 +93,7 @@ class AIModelBusiness:
             ai_model = AIModel(
                 provider=provider,
                 name=name,
+                category=category,
                 api_key=api_key,  # 明文存储，如需加密可在此处理
                 api_host=api_host,
                 models=models_json,
@@ -138,20 +141,32 @@ class AIModelBusiness:
             db.close()
 
     @staticmethod
-    def get_default() -> dict[str, Any] | None:
-        """获取默认的AI模型配置
+    def get_default_model(category: str, include_api_key: bool = False) -> dict[str, Any] | None:
+        """按类型取默认模型配置。
+
+        Args:
+            category: system_one（决策模型）或 system_two（生成式模型）
+            include_api_key: True 时返回明文 api_key（仅供后端装配模型使用）
 
         Returns:
-            Optional[Dict]: 默认配置信息，不存在返回None
+            Optional[Dict]: 该类型下已启用且为默认的配置，不存在返回None
         """
         db = AIModelBusiness._get_db()
         try:
-            model = db.query(AIModel).filter(AIModel.is_default, AIModel.is_enabled).first()
+            model = (
+                db.query(AIModel)
+                .filter(
+                    AIModel.category == category,
+                    AIModel.is_default,
+                    AIModel.is_enabled,
+                )
+                .first()
+            )
             if model:
-                return AIModelBusiness._to_dict(model)
+                return AIModelBusiness._to_dict(model, include_api_key)
             return None
         except Exception as e:
-            logger.error(f"获取默认AI模型配置失败: error={e}")
+            logger.error(f"获取默认AI模型配置失败: category={category}, error={e}")
             return None
         finally:
             db.close()
@@ -161,6 +176,7 @@ class AIModelBusiness:
         model_id: int,
         provider: str | None = None,
         name: str | None = None,
+        category: str | None = None,
         api_key: str | None = None,
         api_host: str | None = None,
         models: builtins.list[str] | None = None,
@@ -177,6 +193,7 @@ class AIModelBusiness:
             model_id: 配置ID
             provider: 厂商名称
             name: 配置名称
+            category: 模型类型（system_one / system_two）
             api_key: API密钥
             api_host: API主机地址
             models: 可用模型列表
@@ -197,13 +214,21 @@ class AIModelBusiness:
                 logger.warning(f"AI模型配置不存在: id={model_id}")
                 return None
 
-            # 如果设置为默认配置，先将其他默认配置取消
+            # 同类型内唯一默认：按目标 category 清空旧默认，未显式改类型时沿用原类型
+            target_category = category or model.category
+
             if is_default is True:
-                db.query(AIModel).filter(AIModel.is_default, AIModel.id != model_id).update({"is_default": False})
+                db.query(AIModel).filter(
+                    AIModel.is_default,
+                    AIModel.category == target_category,
+                    AIModel.id != model_id,
+                ).update({"is_default": False})
 
             # 更新字段
             if provider is not None:
                 model.provider = provider
+            if category is not None:
+                model.category = category
             if name is not None:
                 model.name = name
             if api_key is not None:
@@ -270,6 +295,7 @@ class AIModelBusiness:
         page: int = 1,
         limit: int = 10,
         provider: str | None = None,
+        category: str | None = None,
         is_enabled: bool | None = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
@@ -280,6 +306,7 @@ class AIModelBusiness:
             page: 页码，从1开始
             limit: 每页记录数
             provider: 按厂商筛选
+            category: 按模型类型筛选（system_one / system_two）
             is_enabled: 按启用状态筛选
             sort_by: 排序字段
             sort_order: 排序顺序，asc或desc
@@ -294,6 +321,8 @@ class AIModelBusiness:
             # 应用筛选条件
             if provider:
                 query = query.filter(AIModel.provider == provider)
+            if category:
+                query = query.filter(AIModel.category == category)
             if is_enabled is not None:
                 query = query.filter(AIModel.is_enabled == is_enabled)
 
@@ -394,6 +423,7 @@ class AIModelBusiness:
         result = {
             "id": model.id,
             "provider": model.provider,
+            "category": model.category,
             "name": model.name,
             "api_host": model.api_host,
             "models": json.loads(model.models) if model.models else None,
