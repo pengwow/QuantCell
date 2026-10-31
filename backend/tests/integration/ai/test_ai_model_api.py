@@ -75,7 +75,7 @@ class TestAIModelAPI:
                     "api_host": "https://api.openai.com",
                     "models": ["gpt-4"],
                     "is_default": False,
-                    "is_enabled": "gpt-4",
+                    "is_enabled": True,
                 },
             )
 
