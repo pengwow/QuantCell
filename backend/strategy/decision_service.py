@@ -19,7 +19,7 @@ from axon_quant.decision import (
 )
 from axon_quant.llm import make_backend
 
-from ai.config.models import AIModelBusiness
+from ai.config.config_utils import get_all_providers
 from strategy.decision_recording import (
     DecisionReplayTable,
     RecordingCascadeLayer,
@@ -38,17 +38,19 @@ def reset_cache() -> None:
 
 
 def _config_fingerprint(one: dict, two: dict) -> str:
-    """两类默认行内容的规范指纹：内容变更即失配重建（id 不变也能感知）"""
+    """两类默认配置的规范指纹：内容变更即失配重建"""
     payload = json.dumps(
         [
+            one.get("id"),
             one.get("provider"),
             one.get("api_host"),
             one.get("api_key"),
-            one.get("models"),
+            one.get("model"),
+            two.get("id"),
             two.get("provider"),
             two.get("api_host"),
             two.get("api_key"),
-            two.get("models"),
+            two.get("model"),
         ],
         ensure_ascii=False,
         sort_keys=True,
@@ -57,17 +59,48 @@ def _config_fingerprint(one: dict, two: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def _require_default(category: str) -> dict:
-    """取默认配置；缺失时抛带指引的错误（调用方按上下文转 HTTPException）"""
-    row = AIModelBusiness.get_default_model(category, include_api_key=True)
-    if not row:
-        label = "System 1（决策模型）" if category == "system_one" else "System 2（生成式大模型）"
-        msg = f"未配置 {label} 默认模型，请到「设置 → AI 模型」配置并设为默认"
+def _default_ai_model(category: str) -> dict:
+    """从 system_config 的 ai_model.* 配置读取指定类型的默认模型。
+
+    设置页把配置写入 system_config（键 ``ai_model.{id}.{field}``），
+    与 ai_models 表是两条独立链路；本期以 system_config 为唯一配置源。
+    """
+    providers = [p for p in get_all_providers() if (p.get("category") or "system_two") == category]
+    label = "System 1（决策模型）" if category == "system_one" else "System 2（生成式大模型）"
+    if not providers:
+        msg = f"未配置 {label}，请到「设置 → AI 模型」配置并设为默认"
         raise ValueError(msg)
-    if not row.get("models"):
-        msg = f"{category} 默认模型未填写模型列表，请在设置页补充"
+
+    defaults = [p for p in providers if p.get("is_default")]
+    chosen = defaults[0] if defaults else providers[0]
+
+    models = chosen.get("models") or []
+    if not models:
+        msg = f"{label} 未填写模型列表，请在设置页补充"
         raise ValueError(msg)
-    return row
+
+    # is_enabled 存的是设置页选中的模型 ID；未选中时取列表首个
+    enabled_id = chosen.get("is_enabled")
+    selected = None
+    for item in models:
+        if isinstance(item, dict) and item.get("id") == enabled_id:
+            selected = item
+            break
+    if selected is None and isinstance(models[0], dict):
+        selected = models[0]
+
+    model_name = (selected or {}).get("model_name") or (selected or {}).get("id")
+    if not model_name:
+        msg = f"{label} 未选择可用模型，请在设置页启用一个模型"
+        raise ValueError(msg)
+
+    return {
+        "id": chosen.get("id"),
+        "provider": chosen.get("provider"),
+        "api_host": chosen.get("api_host"),
+        "api_key": chosen.get("api_key") or "",
+        "model": model_name,
+    }
 
 
 def _s1_backend(one: dict, params: dict):
@@ -82,7 +115,7 @@ def _s1_backend(one: dict, params: dict):
         "mode": "http",
         "base_url": one["api_host"].rstrip("/"),
         "api_key": one.get("api_key") or "",
-        "model": one["models"][0],
+        "model": one["model"],
         "timeout_secs": int(params.get("s1_timeout_secs", 5)),
         "max_retries": 1,
     }
@@ -103,7 +136,7 @@ def _s2_backend(two: dict):
                 {
                     "base_url": base_url,
                     "api_key": two.get("api_key") or "",
-                    "model": two["models"][0],
+                    "model": two["model"],
                 }
             ]
         }
@@ -129,8 +162,8 @@ def build_cascade_layer(
     if params.get("decision_replay"):
         return None
 
-    one = _require_default("system_one")
-    two = _require_default("system_two")
+    one = _default_ai_model("system_one")
+    two = _default_ai_model("system_two")
 
     s2_mode = params.get("s2_mode", "live")
     force_rule = bool(params.get("force_rule", False))
@@ -169,6 +202,6 @@ def build_cascade_layer(
     _CACHE[key] = wrapped
     logger.info(
         f"[cascade] layer 装配完成: s2_mode={s2_mode}, force_rule={force_rule}, "
-        f"s1_model={one['models'][0]}, s2_model={two['models'][0]}"
+        f"s1_model={one['model']}, s2_model={two['model']}"
     )
     return wrapped
