@@ -1,29 +1,34 @@
-"""cascade layer 装配：配置缺失报错、s2_mode/force_rule 分支、缓存命中"""
+"""cascade layer 装配：配置缺失报错、s2_mode/force_rule 分支、缓存命中。
+
+配置源是 system_config 的 ai_model.* （设置页写入），与 ai_models 表是两条链路。
+"""
 
 import pytest
 
 import strategy.decision_service as svc
-from ai.config.models import AIModelBusiness
 
-ONE = {
-    "id": 1,
+LAYA = {
+    "id": "laya",
     "provider": "laya",
     "category": "system_one",
+    "is_default": True,
+    "is_enabled": "laya",
     "api_host": "http://127.0.0.1:8787",
     "api_key": "secret",
-    "models": ["laya"],
-    "is_default": True,
-    "is_enabled": True,
+    "models": [
+        {"id": "laya", "model_name": "laya"},
+        {"id": "laya-multilingual", "model_name": "laya-multilingual"},
+    ],
 }
-TWO = {
-    "id": 2,
+GEN = {
+    "id": "openai",
     "provider": "openai",
     "category": "system_two",
+    "is_default": True,
+    "is_enabled": "gpt-4o-mini",
     "api_host": "https://api.openai.com",
     "api_key": "sk-x",
-    "models": ["gpt-4o-mini"],
-    "is_default": True,
-    "is_enabled": True,
+    "models": [{"id": "gpt-4o-mini", "model_name": "gpt-4o-mini"}],
 }
 
 
@@ -34,27 +39,35 @@ def _reset_cache():
     svc.reset_cache()
 
 
-def _patch_defaults(monkeypatch, one=ONE, two=TWO):
-    def fake(category, include_api_key=False):
-        return one if category == "system_one" else two
-
-    monkeypatch.setattr(AIModelBusiness, "get_default_model", staticmethod(fake))
+def _patch_providers(monkeypatch, providers):
+    monkeypatch.setattr(svc, "get_all_providers", lambda: providers)
 
 
 def test_missing_system_one_raises(monkeypatch, tmp_path):
-    _patch_defaults(monkeypatch, one=None)
+    _patch_providers(monkeypatch, [GEN])
     with pytest.raises(ValueError, match="System 1"):
         svc.build_cascade_layer({"s1_mode": "stub"}, run_mode="backtest", replay_dir=tmp_path)
 
 
 def test_missing_models_raises(monkeypatch, tmp_path):
-    _patch_defaults(monkeypatch, one={**ONE, "models": None})
+    _patch_providers(monkeypatch, [{**LAYA, "models": []}, GEN])
     with pytest.raises(ValueError, match="模型列表"):
         svc.build_cascade_layer({"s1_mode": "stub"}, run_mode="backtest", replay_dir=tmp_path)
 
 
+def test_enabled_model_is_selected(monkeypatch):
+    _patch_providers(monkeypatch, [{**LAYA, "is_enabled": "laya-multilingual"}, GEN])
+    assert svc._default_ai_model("system_one")["model"] == "laya-multilingual"
+
+
+def test_category_default_falls_back_to_first(monkeypatch):
+    # 同类型内没有 is_default 时用第一个
+    _patch_providers(monkeypatch, [{**LAYA, "is_default": False}, GEN])
+    assert svc._default_ai_model("system_one")["id"] == "laya"
+
+
 def test_replay_mode_uses_rule_fallback(monkeypatch, tmp_path):
-    _patch_defaults(monkeypatch)
+    _patch_providers(monkeypatch, [LAYA, GEN])
     layer = svc.build_cascade_layer(
         {"s1_mode": "stub", "s2_mode": "replay", "open_threshold": 0.8, "hold_threshold": 0.7},
         run_mode="backtest",
@@ -75,7 +88,7 @@ def test_replay_mode_uses_rule_fallback(monkeypatch, tmp_path):
 
 
 def test_cache_hit_and_key_differs_by_threshold(monkeypatch, tmp_path):
-    _patch_defaults(monkeypatch)
+    _patch_providers(monkeypatch, [LAYA, GEN])
     base = {"s1_mode": "stub", "s2_mode": "replay", "open_threshold": 0.8, "hold_threshold": 0.7}
     a1 = svc.build_cascade_layer(base, run_mode="backtest", replay_dir=tmp_path)
     a2 = svc.build_cascade_layer(dict(base), run_mode="backtest", replay_dir=tmp_path)
@@ -85,7 +98,7 @@ def test_cache_hit_and_key_differs_by_threshold(monkeypatch, tmp_path):
 
 
 def test_force_rule_bypasses_cache(monkeypatch, tmp_path):
-    _patch_defaults(monkeypatch)
+    _patch_providers(monkeypatch, [LAYA, GEN])
     base = {"s1_mode": "stub", "s2_mode": "replay"}
     normal = svc.build_cascade_layer(base, run_mode="backtest", replay_dir=tmp_path)
     forced = svc.build_cascade_layer({**base, "force_rule": True}, run_mode="backtest", replay_dir=tmp_path)

@@ -109,7 +109,11 @@ def get_default_provider_and_models() -> dict[str, Any] | None:
             return None
 
         # 解析新的配置格式
-        providers = parse_ai_model_configs(all_configs)
+        # 默认生成式 provider 只从 system_two 选，避免 system_one（laya）抢占默认，
+        # 否则 AI 策略生成等既有链路会把决策模型误当生成式模型使用
+        providers = [
+            p for p in parse_ai_model_configs(all_configs) if (p.get("category") or "system_two") == "system_two"
+        ]
 
         if not providers:
             logger.warning("未找到任何 AI 模型提供商配置")

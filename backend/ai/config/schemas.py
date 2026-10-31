@@ -18,7 +18,7 @@ class AIModelBase(BaseModel):
         None, description="API主机地址（laya 填裸地址，不含 /v1）", examples=["https://api.openai.com"]
     )
     is_default: bool = Field(default=False, description="是否为同一类型内的默认配置")
-    is_enabled: bool = Field(default=True, description="是否启用")
+    is_enabled: str | None = Field(default=None, description="启用的模型ID，为None表示未启用")
     # 代理设置字段
     proxy_enabled: bool = Field(default=False, description="是否启用代理")
     proxy_url: str | None = Field(None, description="代理地址", examples=["http://proxy.example.com:8080"])
@@ -52,7 +52,7 @@ class AIModelUpdate(BaseModel):
     api_host: str | None = Field(None, description="API主机地址")
     models: list[str] | None = Field(None, description="可用模型列表")
     is_default: bool | None = Field(None, description="是否为同一类型内的默认配置")
-    is_enabled: bool | None = Field(None, description="是否启用")
+    is_enabled: str | None = Field(None, description="启用的模型ID，为None表示未启用")
     # 代理设置字段
     proxy_enabled: bool | None = Field(None, description="是否启用代理")
     proxy_url: str | None = Field(None, description="代理地址")
@@ -98,7 +98,7 @@ class AIModelQueryParams(BaseModel):
     limit: int = Field(default=10, description="每页记录数", ge=1, le=100)
     provider: str | None = Field(None, description="按厂商筛选")
     category: Literal["system_one", "system_two"] | None = Field(None, description="按模型类型筛选")
-    is_enabled: bool | None = Field(None, description="按启用状态筛选")
+    is_enabled: str | None = Field(None, description="按启用的模型ID筛选")
     sort_by: str = Field(default="created_at", description="排序字段")
     sort_order: str = Field(default="desc", description="排序顺序，asc或desc")
 
