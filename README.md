@@ -17,7 +17,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 
 | 平台 | 架构 | 安装包 |
 |------|------|--------|
-| macOS（Apple 芯片 M1/M2/M3/M4） | aarch64 | `QuantCell_<ver>_aarch64.dmg` |
+| macOS（Apple 芯片 M 系列） | aarch64 | `QuantCell_<ver>_aarch64.dmg` |
 | macOS（Intel） | x86_64 | `QuantCell_<ver>_x64.dmg` |
 | Windows | x86_64 | `QuantCell_<ver>_x64.msi` / `.exe` |
 | Linux | x86_64 | `quantcell_<ver>_amd64.deb` / `.AppImage` |
