@@ -275,6 +275,8 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$MIRROR_SSH_KEY" > ~/.ssh/mirror_key
           chmod 600 ~/.ssh/mirror_key
-          rsync -rc --chmod=Du=rwx,go=rx,Fu=rw,go=r \
+          # --chmod 无前缀条目（如 go=rx）不会作用于目录，曾产出了 744 的 tag 目录
+          # （other 无 x 位）导致 nginx 403；D/F 前缀逐条目显式声明：目录 755、文件 644
+          rsync -rc --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
             -e "ssh -i ~/.ssh/mirror_key -p ${MIRROR_PORT:-22} -o StrictHostKeyChecking=accept-new" \
             staging/ "${MIRROR_USER}@${MIRROR_HOST}:${MIRROR_DEPLOY_PATH}/"
