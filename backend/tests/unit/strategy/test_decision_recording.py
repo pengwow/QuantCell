@@ -1,0 +1,185 @@
+"""decision 录制与查表：指纹自洽、同指纹首条为准、s2_mode 覆盖"""
+
+import json
+
+import pytest
+
+from strategy.decision_recording import (
+    DecisionReplayTable,
+    RecordingCascadeLayer,
+    default_replay_dir,
+    request_fingerprint,
+)
+
+STATE = {"features": {"sma5_vs_sma20": 0.02, "ret_1": 0.01}, "price": 100.0}
+QUESTIONS = {
+    "next_direction": {
+        "type": "choice",
+        "instructions": {"question": "方向?", "focus": "仅依据给定特征"},
+        "criteria": {"buy": {"what": "涨"}, "sell": {"what": "跌"}, "hold": {"what": "震荡"}},
+    }
+}
+
+
+class FakeLayer:
+    def __init__(self, result):
+        self.result = result
+        self.calls = 0
+
+    def decide(self, state, questions):
+        self.calls += 1
+        return dict(self.result)
+
+
+def test_fingerprint_is_order_insensitive_and_utf8():
+    a = request_fingerprint({"b": 2, "a": "中文"}, {"q": {"type": "noul"}})
+    b = request_fingerprint({"a": "中文", "b": 2}, {"q": {"type": "noul"}})
+    assert a == b and len(a) == 64
+
+
+def test_record_writes_one_line_and_dedupes(tmp_path):
+    path = tmp_path / "d.jsonl"
+    result = {
+        "action": "buy",
+        "source": "sdm_direct",
+        "confidence": 0.9,
+        "probabilities": {"buy": 0.9, "sell": 0.05, "hold": 0.05},
+        "fallback_reason": None,
+        "sdm_usage": None,
+        "sub_signals": {},
+    }
+    layer = RecordingCascadeLayer(FakeLayer(result), path)
+    d1 = layer.decide(STATE, QUESTIONS)
+    d2 = layer.decide(STATE, QUESTIONS)
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["fingerprint"] == request_fingerprint(STATE, QUESTIONS)
+    assert record["decision"]["action"] == "buy"
+    assert record["ts"].endswith("Z") and len(record["ts"].split(".")[-1]) == 10  # 9位纳秒+Z
+    assert d1 == d2
+
+
+def test_replay_table_hit_and_miss(tmp_path):
+    path = tmp_path / "d.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": request_fingerprint(STATE, QUESTIONS),
+                "decision": {
+                    "action": "hold",
+                    "source": "fallback",
+                    "confidence": 0.5,
+                    "probabilities": {"hold": 0.5, "buy": 0.25, "sell": 0.25},
+                    "fallback_reason": "low_confidence: buy=0.5",
+                    "sdm_usage": None,
+                    "sub_signals": {},
+                },
+                "state": STATE,
+                "questions": QUESTIONS,
+                "ts": "2026-01-01T00:00:00.000000000Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    table = DecisionReplayTable(path)
+    hit = table.lookup(request_fingerprint(STATE, QUESTIONS))
+    assert hit["action"] == "hold"
+    assert table.lookup("0" * 64) is None
+    assert len(table) == 1
+
+
+def test_replay_table_first_entry_wins(tmp_path):
+    """同指纹重复录制时读侧以首条为准（与写侧 _seen 去重语义一致）"""
+    path = tmp_path / "dup.jsonl"
+    fp = request_fingerprint(STATE, QUESTIONS)
+    first = {"action": "buy", "source": "sdm_direct", "confidence": 0.9}
+    second = {"action": "sell", "source": "sdm_direct", "confidence": 0.9}
+    lines = [
+        {
+            "fingerprint": fp,
+            "decision": first,
+            "state": STATE,
+            "questions": QUESTIONS,
+            "ts": "2026-01-01T00:00:00.000000000Z",
+        },
+        {
+            "fingerprint": fp,
+            "decision": second,
+            "state": STATE,
+            "questions": QUESTIONS,
+            "ts": "2026-01-01T00:00:01.000000000Z",
+        },
+    ]
+    path.write_text("".join(json.dumps(item) + "\n" for item in lines), encoding="utf-8")
+
+    table = DecisionReplayTable(path)
+    assert len(table) == 1
+    assert table.lookup(fp)["action"] == "buy"
+
+
+def test_s2_replay_overrides_fallback(tmp_path):
+    path = tmp_path / "d.jsonl"
+    recorded = {
+        "action": "hold",
+        "source": "fallback",
+        "confidence": 0.6,
+        "probabilities": {"hold": 0.6, "buy": 0.2, "sell": 0.2},
+        "fallback_reason": "low_confidence: buy=0.3",
+        "sdm_usage": None,
+        "sub_signals": {},
+    }
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": request_fingerprint(STATE, QUESTIONS),
+                "decision": recorded,
+                "state": STATE,
+                "questions": QUESTIONS,
+                "ts": "2026-01-01T00:00:00.000000000Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rule_result = {
+        "action": "buy",
+        "source": "fallback",
+        "confidence": 0.7,
+        "probabilities": {},
+        "fallback_reason": "low_confidence: hold=0.5",
+        "sdm_usage": None,
+        "sub_signals": {},
+    }
+    table = DecisionReplayTable(path)
+    layer = RecordingCascadeLayer(FakeLayer(rule_result), tmp_path / "out.jsonl", s2_mode="replay", replay_table=table)
+    d = layer.decide(STATE, QUESTIONS)
+    assert d["action"] == "hold"  # 用录制结果覆盖规则结果
+    assert "s2_replay" in d["fallback_reason"]
+
+
+def test_s2_replay_miss_keeps_rule_result(tmp_path):
+    path = tmp_path / "empty.jsonl"
+    path.write_text("", encoding="utf-8")
+    rule_result = {
+        "action": "buy",
+        "source": "fallback",
+        "confidence": 0.7,
+        "probabilities": {},
+        "fallback_reason": "low_confidence: hold=0.5",
+        "sdm_usage": None,
+        "sub_signals": {},
+    }
+    layer = RecordingCascadeLayer(
+        FakeLayer(rule_result), tmp_path / "out2.jsonl", s2_mode="replay", replay_table=DecisionReplayTable(path)
+    )
+    assert layer.decide(STATE, QUESTIONS)["action"] == "buy"
+
+
+def test_default_replay_dir_honours_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("QUANTCELL_DECISION_REPLAY_DIR", str(tmp_path / "x"))
+    assert default_replay_dir() == tmp_path / "x"
