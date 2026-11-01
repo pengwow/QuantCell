@@ -1708,5 +1708,12 @@
   "update_running_confirm_title": "升级会中断运行中的策略",
   "update_running_confirm_content": "当前有 {{count}} 个策略正在运行，升级并重启后将全部中断。确定继续？",
   "update_confirm_ok": "继续升级",
-  "update_confirm_cancel": "取消"
+  "update_confirm_cancel": "取消",
+  "model_category": "模型类型",
+  "system_one_label": "System 1 · 决策模型",
+  "system_two_label": "System 2 · 生成式大模型",
+  "no_system_one_provider": "尚未配置决策模型",
+  "no_system_two_provider": "尚未配置生成式大模型",
+  "system_one_jev_hint": "决策模型走 Jev 协议 POST /v1/systemone（Laya / Kev / Von / Decider 等），地址填自托管裸地址（不含 /v1），无鉴权时 API Key 可留空",
+  "system_one_apikey_optional": "自托管无鉴权可留空"
 }

@@ -19,7 +19,7 @@ import {
   App,
   Popconfirm,
   Divider,
-  Select,
+  Tag,
 } from "antd";
 import {
   IconPlus,
@@ -33,11 +33,6 @@ const { Text } = Typography;
 
 // 模型类型：system_one 为 Laya 单次前向决策模型，system_two 为生成式大模型
 type ModelCategory = "system_one" | "system_two";
-
-const CATEGORY_LABELS: Record<ModelCategory, string> = {
-  system_one: "System 1 · 决策模型（Laya）",
-  system_two: "System 2 · 生成式大模型",
-};
 
 // Laya 自托管决策模型的三个官方 checkpoint 与默认服务地址（裸地址，不含 /v1）
 const LAYA_CHECKPOINTS = ["laya", "laya-multilingual", "laya-typed-decisions"];
@@ -381,33 +376,6 @@ const ModelSettingsPage = () => {
     message.success(t("default_provider_set") || "默认厂商已设置");
   };
 
-  // 切换模型类型：非决策模型厂商不能归入 System 1，此时自动落到 Laya 并预填自托管配置
-  const handleCategoryChange = (category: ModelCategory) => {
-    if (!selectedProvider) return;
-
-    if (category === "system_one" && !SYSTEM_ONE_PROVIDERS.has(selectedProvider.id)) {
-      setProviders((prev) =>
-        prev.map((p) =>
-          p.id === "laya"
-            ? {
-                ...p,
-                category: "system_one" as ModelCategory,
-                api_host: p.api_host || LAYA_API_HOST,
-                models: p.models.length
-                  ? p.models
-                  : LAYA_CHECKPOINTS.map((id) => ({ id, name: id })),
-              }
-            : p
-        )
-      );
-      setSelectedProviderId("laya");
-      setFetchedModels([]);
-      message.info("System 1 仅支持决策模型，已切换至 Laya 配置");
-      return;
-    }
-
-    updateProvider(selectedProvider.id, { category });
-  };
 
   // 从其他厂商获取代理配置
   const getProxyFromOtherProviders = (): Partial<ModelProvider> | null => {
@@ -654,7 +622,7 @@ const ModelSettingsPage = () => {
                   key={category}
                   className="shadow-sm"
                   size="small"
-                  title={<span className="text-sm font-medium">{CATEGORY_LABELS[category]}</span>}
+                  title={<span className="text-sm font-medium">{category === "system_one" ? t("system_one_label") : t("system_two_label")}</span>}
                   styles={{ body: { padding: 8 } }}
                 >
                   <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
@@ -680,10 +648,8 @@ const ModelSettingsPage = () => {
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm truncate">{provider.name}</div>
-                          {/* 列表同时展示 provider 与 models，便于快速区分 */}
-                          <div className="text-xs text-gray-400 truncate">
-                            {provider.id} · {provider.models.length ? provider.models.map((m) => m.name).join(", ") : "未配置模型"}
-                          </div>
+                          {/* 只展示厂商标识：模型名多时会撑爆这一行灰字，详情在右侧表单里看 */}
+                          <div className="text-xs text-gray-400 truncate">{provider.id}</div>
                         </div>
                         <Button
                           size="small"
@@ -700,7 +666,7 @@ const ModelSettingsPage = () => {
                     ))}
                     {groupProviders.length === 0 && (
                       <div className="text-center py-4 text-gray-400 text-sm">
-                        {category === "system_one" ? "尚未配置决策模型（Laya）" : "尚未配置生成式大模型"}
+                        {category === "system_one" ? t("no_system_one_provider") : t("no_system_two_provider")}
                       </div>
                     )}
                   </div>
@@ -730,20 +696,14 @@ const ModelSettingsPage = () => {
 
               <Card className="shadow-sm">
                 <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
-                  {/* 模型类型：System 1 锁定 Laya，选择后自动预填自托管配置 */}
+                  {/* 模型类型：厂商固有属性，只读展示 */}
                   <FieldGroup label={t("model_category") || "模型类型"}>
-                    <Select
-                      value={selectedProvider.category}
-                      onChange={handleCategoryChange}
-                      options={[
-                        { value: "system_two", label: CATEGORY_LABELS.system_two },
-                        { value: "system_one", label: CATEGORY_LABELS.system_one },
-                      ]}
-                    />
+                    <Tag color={selectedProvider.category === "system_one" ? "blue" : "purple"}>
+                      {selectedProvider.category === "system_one" ? t("system_one_label") : t("system_two_label")}
+                    </Tag>
                     {selectedProvider.category === "system_one" && (
                       <Text type="secondary" className="text-xs">
-                        决策模型走 Jev 协议的 POST /v1/systemone（Laya / Kev / Von / Decider 等），
-                        地址填自托管裸地址（不含 /v1），无鉴权时 API Key 可留空
+                        {t("system_one_jev_hint")}
                       </Text>
                     )}
                   </FieldGroup>
@@ -758,7 +718,7 @@ const ModelSettingsPage = () => {
                         }
                         placeholder={
                           selectedProvider.category === "system_one"
-                            ? "自托管无鉴权可留空"
+                            ? t("system_one_apikey_optional")
                             : t("enter_api_key") || "输入API密钥"
                         }
                         className="flex-1"
