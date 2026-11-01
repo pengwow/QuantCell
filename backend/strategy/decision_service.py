@@ -203,7 +203,15 @@ def build_cascade_layer(
         layer = SdmCascadeDecisionLayer.with_llm_fallback(s1, _s2_backend(two), cfg)
 
     table = DecisionReplayTable(path) if (s2_mode == "replay" and path.is_file()) else None
-    wrapped = RecordingCascadeLayer(layer, path, s2_mode=s2_mode, replay_table=table)
+    # 录制落来源标注：本地适配层与官方 laya-serve 的 confidence 语义不同，
+    # 标注后新旧录制可分辨，避免跨来源比较门限分布
+    wrapped = RecordingCascadeLayer(
+        layer,
+        path,
+        s2_mode=s2_mode,
+        replay_table=table,
+        meta={"s1_api_host": one.get("api_host"), "s1_model": one.get("model")},
+    )
     _CACHE[key] = wrapped
     logger.info(
         f"[cascade] layer 装配完成: s2_mode={s2_mode}, force_rule={force_rule}, "

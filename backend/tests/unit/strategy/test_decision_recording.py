@@ -61,6 +61,20 @@ def test_record_writes_one_line_and_dedupes(tmp_path):
     assert d1 == d2
 
 
+def test_record_carries_s1_source_meta(tmp_path):
+    """录制需标注 S1 端点：本地适配层与官方 laya-serve 的 confidence 语义不同"""
+    path = tmp_path / "meta.jsonl"
+    layer = RecordingCascadeLayer(
+        FakeLayer({"action": "hold", "source": "fallback", "confidence": 0.0}),
+        path,
+        meta={"s1_api_host": "http://127.0.0.1:8010", "s1_model": "laya"},
+    )
+    layer.decide(STATE, QUESTIONS)
+    record = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert record["meta"]["s1_api_host"] == "http://127.0.0.1:8010"
+    assert record["meta"]["s1_model"] == "laya"
+
+
 def test_replay_table_hit_and_miss(tmp_path):
     path = tmp_path / "d.jsonl"
     path.write_text(
