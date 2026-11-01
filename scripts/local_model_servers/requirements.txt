@@ -1,0 +1,6 @@
+# 本地模型服务依赖（独立 venv，勿混入 backend 环境）
+# 安装：python -m venv .venv && .venv/bin/pip install -r requirements.txt
+laya-mlx==0.6.0
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.14.2
