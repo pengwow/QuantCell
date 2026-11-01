@@ -101,7 +101,24 @@ const PROVIDER_ICONS: Record<string, string> = {
   google: "/imgs/model_providers/google.png",
   azure: "/imgs/model_providers/azure.png",
   xiaomi: "/imgs/model_providers/xiaomi.png",
+  laya: "/imgs/model_providers/laya.svg",
 };
+
+// 首字母圆圈调色板：无 logo 的厂商按 id hash 取色
+const FALLBACK_COLORS = [
+  "#3B82F6", "#8B5CF6", "#EC4899", "#EF4444",
+  "#F97316", "#EAB308", "#10B981", "#14B8A6",
+];
+const colorForId = (id: string) =>
+  FALLBACK_COLORS[id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % FALLBACK_COLORS.length];
+const InitialAvatar = ({ id, name }: { id: string; name: string }) => (
+  <span
+    className="w-8 h-8 flex items-center justify-center shrink-0 rounded-md text-white text-sm font-semibold"
+    style={{ backgroundColor: colorForId(id) }}
+  >
+    {name.charAt(0).toUpperCase()}
+  </span>
+);
 
 const getPresetProviders = (t: TFunction): PresetProvider[] => [
   {
@@ -157,7 +174,7 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
   {
     id: "laya",
     name: "Laya AI",
-    icon: "", // 决策模型无 logo，列表用图标兜底
+    icon: PROVIDER_ICONS.laya,
   },
   // Jev 兼容的 System One 决策模型（自托管替代品 + 托管 API）
   { id: "jev", name: "Jev (TypeSafe)", icon: "" },
@@ -643,7 +660,7 @@ const ModelSettingsPage = () => {
                           {provider.icon ? (
                             <img src={provider.icon} alt={provider.name} className="w-6 h-6 object-contain" />
                           ) : (
-                            <IconRobot size={20} className="text-gray-500" />
+                            <InitialAvatar id={provider.id} name={provider.name} />
                           )}
                         </span>
                         <div className="flex-1 min-w-0">
