@@ -41,6 +41,18 @@ const CATEGORY_LABELS: Record<ModelCategory, string> = {
 
 // Laya 自托管决策模型的三个官方 checkpoint 与默认服务地址（裸地址，不含 /v1）
 const LAYA_CHECKPOINTS = ["laya", "laya-multilingual", "laya-typed-decisions"];
+
+// Jev 协议的 System One 决策模型（原生契约 POST {api_host}/v1/systemone）。
+// 与 Laya 同属决策模型，归入 System 1 分组；数据来自 laya-ai.com/zh/jev-alternatives。
+const SYSTEM_ONE_PROVIDERS = new Set([
+  "laya",
+  "jev",
+  "kev",
+  "von",
+  "decider",
+  "rizzo-flow",
+  "openthai-systemone",
+]);
 const LAYA_API_HOST = "http://127.0.0.1:8787";
 
 // 表单里的「标签 + 控件」统一用 Space 控制间距，避免 Tailwind margin 在 antd v6 下失效
@@ -152,6 +164,13 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
     name: "Laya AI",
     icon: "", // 决策模型无 logo，列表用图标兜底
   },
+  // Jev 兼容的 System One 决策模型（自托管替代品 + 托管 API）
+  { id: "jev", name: "Jev (TypeSafe)", icon: "" },
+  { id: "kev", name: "Kev", icon: "" },
+  { id: "von", name: "Von", icon: "" },
+  { id: "decider", name: "Decider", icon: "" },
+  { id: "rizzo-flow", name: "Rizzo Flow", icon: "" },
+  { id: "openthai-systemone", name: "OpenThai-SystemOne", icon: "" },
 ];
 
 // 预设模型列表
@@ -167,6 +186,13 @@ const PRESET_MODELS: Record<string, string[]> = {
   azure: ["gpt-4", "gpt-4o", "gpt-35-turbo"],
   xiaomi: ["mimo-v2.5-pro", "mimo-v2.5", "mimo-v2.5-tts", "mimo-v2.5-tts-voicedesign", "mimo-v2.5-tts-voiceclone", "mimo-v2-pro", "mimo-v2-omni", "mimo-v2-tts", "mimo-v2-flash"],
   laya: LAYA_CHECKPOINTS,
+  jev: ["jev-1"],
+  // 其余 System One 模型的部署名随 HF repo / 量化文件 / 起服务参数而变，不预设、由用户填写
+  kev: [],
+  von: [],
+  decider: [],
+  "rizzo-flow": [],
+  "openthai-systemone": [],
 };
 
 const ModelSettingsPage = () => {
@@ -327,15 +353,11 @@ const ModelSettingsPage = () => {
   // 获取当前选中的厂商
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
 
-  // 模型类型只允许 laya 归入 System 1，其余厂商一律 System 2
+  // 归属判定：Jev 协议的决策模型归 System 1，其余厂商一律 System 2
+  // （用户在表单里显式选了 system_two 时尊重其选择，例如用决策模型做生成式任务的场景）
   function resolveCategory(providerId: string, saved?: string): ModelCategory {
-    if (saved === "system_one") {
-      return providerId === "laya" ? "system_one" : "system_two";
-    }
-    if (saved === "system_two") {
-      return "system_two";
-    }
-    return providerId === "laya" ? "system_one" : "system_two";
+    if (saved === "system_two") return "system_two";
+    return SYSTEM_ONE_PROVIDERS.has(providerId) ? "system_one" : "system_two";
   }
 
   // 更新厂商配置
@@ -359,34 +381,32 @@ const ModelSettingsPage = () => {
     message.success(t("default_provider_set") || "默认厂商已设置");
   };
 
-  // 切换模型类型：System 1 只支持 laya，切换时自动选中并预填 Laya 配置
+  // 切换模型类型：非决策模型厂商不能归入 System 1，此时自动落到 Laya 并预填自托管配置
   const handleCategoryChange = (category: ModelCategory) => {
     if (!selectedProvider) return;
-    if (category === "system_two") {
-      updateProvider(selectedProvider.id, { category });
+
+    if (category === "system_one" && !SYSTEM_ONE_PROVIDERS.has(selectedProvider.id)) {
+      setProviders((prev) =>
+        prev.map((p) =>
+          p.id === "laya"
+            ? {
+                ...p,
+                category: "system_one" as ModelCategory,
+                api_host: p.api_host || LAYA_API_HOST,
+                models: p.models.length
+                  ? p.models
+                  : LAYA_CHECKPOINTS.map((id) => ({ id, name: id })),
+              }
+            : p
+        )
+      );
+      setSelectedProviderId("laya");
+      setFetchedModels([]);
+      message.info("System 1 仅支持决策模型，已切换至 Laya 配置");
       return;
     }
 
-    // provider 锁定 laya：补齐自托管地址与 checkpoint 预设
-    setProviders((prev) =>
-      prev.map((p) =>
-        p.id === "laya"
-          ? {
-              ...p,
-              category: "system_one" as ModelCategory,
-              api_host: p.api_host || LAYA_API_HOST,
-              models: p.models.length
-                ? p.models
-                : LAYA_CHECKPOINTS.map((id) => ({ id, name: id })),
-            }
-          : p
-      )
-    );
-    if (selectedProvider.id !== "laya") {
-      setSelectedProviderId("laya");
-      setFetchedModels([]);
-      message.info("System 1 仅支持 Laya 决策模型，已切换至 Laya 配置");
-    }
+    updateProvider(selectedProvider.id, { category });
   };
 
   // 从其他厂商获取代理配置
@@ -434,9 +454,9 @@ const ModelSettingsPage = () => {
     const provider = providers.find((p) => p.id === providerId);
     if (!provider) return;
 
-    // Laya 自托管决策服务通常无鉴权，API Key 非必填
-    const isLaya = provider.category === "system_one";
-    if (!isLaya && !provider.api_key) {
+    // System One 决策服务多为自托管、通常无鉴权，API Key 非必填
+    const isSystemOne = provider.category === "system_one";
+    if (!isSystemOne && !provider.api_key) {
       message.warning(t("please_enter_api_key") || "请输入API密钥");
       return;
     }
@@ -447,8 +467,8 @@ const ModelSettingsPage = () => {
       const result = await aiModelApi.checkAvailability({
         provider: provider.id,
         api_key: provider.api_key || "",
-        // Laya 的 api_host 必须是裸地址（不含 /v1），适配器会自行拼接
-        api_host: isLaya ? provider.api_host.replace(/\/v1\/?$/, "") : provider.api_host,
+        // 决策模型的 api_host 必须是裸地址（不含 /v1），适配器会自行拼接
+        api_host: isSystemOne ? provider.api_host.replace(/\/v1\/?$/, "") : provider.api_host,
         proxy_enabled: provider.proxy_enabled,
         proxy_url: provider.proxy_url,
         proxy_username: provider.proxy_username,
@@ -457,8 +477,8 @@ const ModelSettingsPage = () => {
 
       if (result?.available) {
         message.success(result.message || t("api_key_valid") || "API密钥有效");
-        // 将获取到的模型列表直接填入当前厂商的模型列表
-        if (result.models && Array.isArray(result.models)) {
+        // 只有探测到真实模型才覆盖，空列表说明服务不提供 /v1/models，保留用户预设
+        if (Array.isArray(result.models) && result.models.length > 0) {
           const newModels: Model[] = result.models.map((m) => ({
             id: m.id,
             name: m.name || m.id,
@@ -722,7 +742,8 @@ const ModelSettingsPage = () => {
                     />
                     {selectedProvider.category === "system_one" && (
                       <Text type="secondary" className="text-xs">
-                        决策模型固定使用 provider=laya，地址填自托管裸地址（不含 /v1），无鉴权时 API Key 可留空
+                        决策模型走 Jev 协议的 POST /v1/systemone（Laya / Kev / Von / Decider 等），
+                        地址填自托管裸地址（不含 /v1），无鉴权时 API Key 可留空
                       </Text>
                     )}
                   </FieldGroup>

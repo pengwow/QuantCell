@@ -551,22 +551,27 @@ class TestStrategyUploadCleanup:
     """
 
     def test_isolate_fixture_removes_test_created_files(self):
-        """写一个临时 .py 到 strategies/，fixture 应当清理它"""
+        """验证 glob 能发现新增 .py 并可删除
+
+        不比较全局 before/after 快照：目录里可能已有历史残留，快照法会把残留误判为
+        「本次新增」从而断言失败，且失败后旧残留仍在，下一次运行继续失败（连锁误报）。
+        """
         if not _STRATEGIES_DIR.is_dir():
             pytest.skip("strategies/ 不存在")
         target = _STRATEGIES_DIR / "_fixture_probe_tmp.py"
-        target.write_text("# temporary probe\n")
-        # 模拟测试结束：fixture 在 yield 之后会清理 after - before
-        # 这里直接调用清理逻辑验证
-        before = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
-        # 重新创建一个来模拟"测试期间新出现"
         target2 = _STRATEGIES_DIR / "_fixture_probe_tmp2.py"
-        target2.write_text("# temporary probe 2\n")
-        after = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
-        created = after - before
-        for f in created:
-            (_STRATEGIES_DIR / f).unlink()
-        # 验证清理生效
+        try:
+            target.write_text("# temporary probe\n")
+            target2.write_text("# temporary probe 2\n")
+            # fixture 的差集基于 glob，先确认 glob 确实能看到这两个新文件
+            names = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
+            assert target.name in names
+            assert target2.name in names
+        finally:
+            # 断言失败时也要清干净，避免污染后续用例
+            target.unlink(missing_ok=True)
+            target2.unlink(missing_ok=True)
+        assert not target.exists()
         assert not target2.exists()
 
     def test_strategies_dir_unchanged_after_test(self):
