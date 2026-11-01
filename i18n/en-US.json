@@ -1708,5 +1708,12 @@
   "update_running_confirm_title": "Upgrading will interrupt running strategies",
   "update_running_confirm_content": "{{count}} strategies are running and will be interrupted by the restart. Continue?",
   "update_confirm_ok": "Continue",
-  "update_confirm_cancel": "Cancel"
+  "update_confirm_cancel": "Cancel",
+  "model_category": "Model Category",
+  "system_one_label": "System 1 · Decision Model",
+  "system_two_label": "System 2 · Generative LLM",
+  "no_system_one_provider": "No decision model configured yet",
+  "no_system_two_provider": "No generative model configured yet",
+  "system_one_jev_hint": "Decision models use the Jev protocol POST /v1/systemone (Laya / Kev / Von / Decider, etc.). Enter the self-hosted bare address (no /v1 path). API Key can be left empty if no auth.",
+  "system_one_apikey_optional": "Optional for self-hosted without auth"
 }
