@@ -103,6 +103,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   xiaomi: "/imgs/model_providers/xiaomi.png",
   laya: "/imgs/model_providers/laya.svg",
   jev: "/imgs/model_providers/jev.png",
+  "rizzo-flow": "/imgs/model_providers/rizzo-flow.webp",
 };
 
 // 首字母圆圈调色板：无 logo 的厂商按 id hash 取色
@@ -182,7 +183,7 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
   { id: "kev", name: "Kev", icon: "" },
   { id: "von", name: "Von", icon: "" },
   { id: "decider", name: "Decider", icon: "" },
-  { id: "rizzo-flow", name: "Rizzo Flow", icon: "" },
+  { id: "rizzo-flow", name: "Rizzo Flow", icon: PROVIDER_ICONS["rizzo-flow"] },
   { id: "openthai-systemone", name: "OpenThai-SystemOne", icon: "" },
 ];
 
