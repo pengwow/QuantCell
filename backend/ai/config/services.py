@@ -280,6 +280,105 @@ class LayaAdapter(OpenAICompatibleAdapter):
         return descriptions.get(model_id, f"Laya 决策模型: {model_id}")
 
 
+class SystemOneAdapter(AIProviderAdapter):
+    """Jev 兼容的 System One 决策模型（原生契约 `POST {api_host}/v1/systemone`）。
+
+    覆盖 Jev 托管的官方 API 以及 Kev / Von / Decider / Rizzo Flow / OpenThai-SystemOne
+    这些自托管替代品。它们不保证提供 `/v1/models`，故探活直接打一次最小 systemone 请求。
+
+    注意：QuantCell 的 axon-llm 固定走 `/v1/decide`，原生 systemone 服务需经
+    `scripts/local_model_servers/systemone_proxy.py` 转发后再接入。
+    """
+
+    DEFAULT_API_HOST = "http://127.0.0.1:8080"
+    DEFAULT_MODEL = "jev-1"
+    PROVIDER_NAME = "System One 决策模型"
+
+    def _systemone_url(self) -> str:
+        base = (self.api_host or self.DEFAULT_API_HOST).rstrip("/")
+        return f"{base}/systemone" if base.endswith("/v1") else f"{base}/v1/systemone"
+
+    async def check_availability(self) -> dict[str, Any]:
+        """探活：发一个最小 noul 决策请求，比 /v1/models 更贴近真实契约。"""
+        payload = {
+            "state": {"body": "ping"},
+            "questions": {"ping": {"type": "noul", "instructions": "is this a ping?"}},
+        }
+        headers = {"content-type": "application/json"}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(self._systemone_url(), json=payload, headers=headers)
+            if resp.status_code != 200:
+                return {
+                    "available": False,
+                    "message": f"服务返回状态 {resp.status_code}",
+                    "error": resp.text[:300],
+                }
+            body = resp.json()
+            if not isinstance(body.get("answers"), dict):
+                return {
+                    "available": False,
+                    "message": "响应缺少 answers 字段，可能不是 Jev 兼容服务",
+                    "error": str(body)[:300],
+                }
+            return {"available": True, "message": f"{self.PROVIDER_NAME}服务可用"}
+        except httpx.TimeoutException:
+            return {"available": False, "message": "请求超时，请检查服务地址", "error": "timeout"}
+        except httpx.ConnectError:
+            return {"available": False, "message": "无法连接，请检查服务地址", "error": "connect"}
+        except Exception as e:
+            logger.error(f"检查{self.PROVIDER_NAME}服务可用性失败: {e}")
+            return {"available": False, "message": f"检查失败: {e!s}", "error": str(e)}
+
+    async def fetch_models(self) -> list[dict[str, Any]]:
+        """尽力读 /v1/models；拿不到就返回空，由前端保留自己配置的预设。"""
+        base = (self.api_host or self.DEFAULT_API_HOST).rstrip("/")
+        url = f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+            if resp.status_code != 200:
+                return []
+            data = resp.json().get("data")
+            if not isinstance(data, list):
+                return []
+            return [
+                {"id": m.get("id"), "name": m.get("id"), "description": "System One 决策模型"}
+                for m in data
+                if isinstance(m, dict) and m.get("id")
+            ]
+        except Exception:
+            return []
+
+
+# Jev 兼容的 System One 模型各自一个子类：仅用于探活报错信息可读，协议实现完全共用。
+# api_host 不预设厂商域名（各家部署地址由用户填写），统一回退到本地占位。
+class JevAdapter(SystemOneAdapter):
+    PROVIDER_NAME = "Jev（TypeSafe 托管）"
+
+
+class KevAdapter(SystemOneAdapter):
+    PROVIDER_NAME = "Kev"
+
+
+class VonAdapter(SystemOneAdapter):
+    PROVIDER_NAME = "Von"
+
+
+class DeciderAdapter(SystemOneAdapter):
+    PROVIDER_NAME = "Decider"
+
+
+class RizzoFlowAdapter(SystemOneAdapter):
+    PROVIDER_NAME = "Rizzo Flow"
+
+
+class OpenThaiSystemOneAdapter(SystemOneAdapter):
+    PROVIDER_NAME = "OpenThai-SystemOne"
+
+
 class XiaomiAdapter(OpenAICompatibleAdapter):
     """小米(MiMo)厂商适配器"""
 
@@ -446,6 +545,13 @@ class AIModelService:
         "dashscope": DashScopeAdapter,
         "ollama": OllamaAdapter,
         "laya": LayaAdapter,
+        # Jev 协议的 System One 决策模型（自托管替代品 / 托管 API）
+        "jev": JevAdapter,
+        "kev": KevAdapter,
+        "von": VonAdapter,
+        "decider": DeciderAdapter,
+        "rizzo-flow": RizzoFlowAdapter,
+        "openthai-systemone": OpenThaiSystemOneAdapter,
         "xiaomi": XiaomiAdapter,
         "openai-compatible": OpenAICompatibleAdapter,
     }
