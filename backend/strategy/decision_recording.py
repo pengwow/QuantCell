@@ -105,11 +105,16 @@ class RecordingCascadeLayer:
         path: str | Path,
         s2_mode: str = "live",
         replay_table: DecisionReplayTable | None = None,
+        meta: dict | None = None,
     ):
         self._inner = inner
         self.path = Path(path)
         self.s2_mode = s2_mode
         self._replay = replay_table
+        # 录制来源标注（如 s1_api_host / s1_model）：不同 S1 服务对 confidence 的语义可能不同
+        # （本地适配层用 answer_confidence，官方 laya-serve 用 1-归一化熵），
+        # 落盘后可分辨新旧数据来源，避免跨来源比较门限分布
+        self._meta = dict(meta or {})
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # 进程重启后继续写同一文件时，已存在的 fingerprint 不再重复落行；
         # 若调用方已加载 replay_table（同一文件），直接复用其指纹集合，避免二次读盘
@@ -152,6 +157,8 @@ class RecordingCascadeLayer:
             "questions": questions,
             "ts": _iso8601_ns(),
         }
+        if self._meta:
+            record["meta"] = self._meta
         if self._writer is None:
             self._writer = self.path.open("a", encoding="utf-8")
         self._writer.write(json.dumps(record, ensure_ascii=False) + "\n")
