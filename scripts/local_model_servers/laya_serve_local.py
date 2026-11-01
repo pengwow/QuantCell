@@ -71,6 +71,20 @@ def health():
     return {"status": "ok", "model": MODEL, "loaded": _agent is not None}
 
 
+@app.get("/v1/models")
+def models():
+    """OpenAI 兼容模型列表。
+
+    QuantCell 设置页的「测试连接」走 LayaAdapter → OpenAI SDK 的 models.list()，
+    即 `GET {api_host}/v1/models`；缺这个端点前端会判定服务不可用（404）。
+    本适配层固定使用 LAYA_MODEL，故只返回实际加载的 checkpoint。
+    """
+    return {
+        "object": "list",
+        "data": [{"id": MODEL, "object": "model", "created": 0, "owned_by": "laya"}],
+    }
+
+
 @app.post("/v1/decide")
 def decide(req: DecideRequest, authorization: str | None = Header(default=None)):
     # 常量时间比较：避免 LAYA_HOST=0.0.0.0 时被逐字节探测 key
