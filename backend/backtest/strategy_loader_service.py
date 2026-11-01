@@ -169,6 +169,13 @@ class StrategyLoaderService:
 
                 strategy_params = wrap_llm_provider(strategy_name, dict(strategy_params or {}), run_mode)
 
+                # cascade_signal 等级联策略：mode 是 loader 注入 layer 的判定信号，
+                # 但策略代码里没有 self.get_param("mode")，AST 扫不到，前端也就传不过来，
+                # 这里按策略名兜底补入，避免创建后永远 Hold 零交易
+                _CASCADE_STRATEGIES = {"cascade_signal"}
+                if strategy_name in _CASCADE_STRATEGIES and not strategy_params.get("mode"):
+                    strategy_params["mode"] = "cascade"
+
                 if dict(strategy_params or {}).get("mode") == "cascade":
                     # 函数内 import：strategy.decision_service 会拉起 ai.config（DB 依赖），
                     # 顶部引入会放大 CLI 启动成本并增加循环导入风险
