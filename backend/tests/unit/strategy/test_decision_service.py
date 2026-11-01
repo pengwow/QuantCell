@@ -87,6 +87,21 @@ def test_replay_mode_uses_rule_fallback(monkeypatch, tmp_path):
     assert d["source"] in ("sdm_direct", "fallback")
 
 
+def test_s2_empty_api_key_uses_local_placeholder(monkeypatch):
+    """本地 ollama/llama-server 无鉴权：空 api_key 必须换成占位值，否则 axon-llm 拒装配"""
+    calls = {}
+    real_make_backend = svc.make_backend
+
+    def spy(cfg):
+        calls.update(cfg["backends"][0])
+        return real_make_backend(cfg)
+
+    monkeypatch.setattr(svc, "make_backend", spy)
+    svc._s2_backend({**GEN, "model": "gpt-4o-mini", "api_key": "", "api_host": "http://127.0.0.1:8020"})
+    assert calls["api_key"] == "local"
+    assert calls["base_url"] == "http://127.0.0.1:8020/v1"
+
+
 def test_cache_hit_and_key_differs_by_threshold(monkeypatch, tmp_path):
     _patch_providers(monkeypatch, [LAYA, GEN])
     base = {"s1_mode": "stub", "s2_mode": "replay", "open_threshold": 0.8, "hold_threshold": 0.7}

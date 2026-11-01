@@ -130,12 +130,15 @@ def _s2_backend(two: dict):
     base_url = (two.get("api_host") or "").rstrip("/")
     if not base_url.endswith("/v1"):
         base_url = f"{base_url}/v1"
+    # axon-llm 拒绝空 api_key（"api_key is empty or unset placeholder"），
+    # 而本地 ollama / llama-server 无需鉴权，故用占位值占位（不会被实际校验）
+    api_key = (two.get("api_key") or "").strip() or "local"
     return make_backend(
         {
             "backends": [
                 {
                     "base_url": base_url,
-                    "api_key": two.get("api_key") or "",
+                    "api_key": api_key,
                     "model": two["model"],
                 }
             ]
