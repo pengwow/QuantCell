@@ -102,6 +102,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   azure: "/imgs/model_providers/azure.png",
   xiaomi: "/imgs/model_providers/xiaomi.png",
   laya: "/imgs/model_providers/laya.svg",
+  jev: "/imgs/model_providers/jev.png",
 };
 
 // 首字母圆圈调色板：无 logo 的厂商按 id hash 取色
@@ -177,7 +178,7 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
     icon: PROVIDER_ICONS.laya,
   },
   // Jev 兼容的 System One 决策模型（自托管替代品 + 托管 API）
-  { id: "jev", name: "Jev (TypeSafe)", icon: "" },
+  { id: "jev", name: "Jev (TypeSafe)", icon: PROVIDER_ICONS.jev },
   { id: "kev", name: "Kev", icon: "" },
   { id: "von", name: "Von", icon: "" },
   { id: "decider", name: "Decider", icon: "" },
