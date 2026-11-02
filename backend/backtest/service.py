@@ -100,6 +100,67 @@ class BacktestService:
 
         return task_id
 
+    def _ensure_kline_data(self, task_id: Any, task: dict, progress_tracker=None) -> None:
+        """kline 回测启动前自动补齐缺失数据（恢复 d3d0e575 重构移除的旧行为）。
+
+        只处理 data_type=kline 且带明确 start_time/end_time 的任务；全量历史请求
+        跳过（全量下载不现实）。下载失败/仍不完整不在这里终止，交由引擎既有的
+        「无数据品种剔除、全无数据报错」口径收尾，失败语义保持单一。
+        """
+        config = task.get("config", {}) or {}
+        if config.get("data_type", "kline") != "kline":
+            return
+        start_raw, end_raw = config.get("start_time"), config.get("end_time")
+        if not start_raw or not end_raw:
+            return
+
+        def _parse(value) -> datetime:
+            # checker/下载器沿用 naive 口径（与 download_missing_data 接口一致）
+            return datetime.fromisoformat(str(value)).replace(tzinfo=None)
+
+        try:
+            start_time, end_time = _parse(start_raw), _parse(end_raw)
+        except ValueError:
+            self.logger.warning(f"回测时间范围解析失败，跳过自动下载: {start_raw} ~ {end_raw}")
+            return
+
+        from backtest.data_downloader import BacktestDataDownloader, DownloadProgress
+
+        crypto_type = config.get("market", "spot")
+
+        def _on_download(p: DownloadProgress) -> None:
+            if progress_tracker:
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="data_prep",
+                    data={
+                        "progress": round(p.progress, 2),
+                        "status": "running",
+                        "message": f"检测到数据缺失，正在自动下载: {p.symbol} {p.interval}",
+                    },
+                )
+
+        for symbol in task.get("symbols", []):
+            for interval in task.get("timeframes") or ["1h"]:
+                try:
+                    # 每品种新实例：ensure_data_complete 的回调是累积注册，
+                    # 复用会让后续品种的进度被重复上报
+                    downloader = BacktestDataDownloader()
+                    success, result = downloader.ensure_data_complete(
+                        symbol=symbol,
+                        interval=interval,
+                        start_time=start_time,
+                        end_time=end_time,
+                        crypto_type=crypto_type,
+                        progress_callback=_on_download,
+                    )
+                    if not success:
+                        self.logger.warning(
+                            f"[{symbol}] 自动下载后数据仍不完整（覆盖率 {result.coverage_percent:.2f}%），按现有数据继续"
+                        )
+                except Exception as e:
+                    self.logger.warning(f"[{symbol}] 自动下载异常，按现有数据继续回测: {e}")
+
     def run_backtest(self, task_id: Any, progress_tracker=None) -> dict[str, Any]:
         """
         执行回测任务
@@ -128,15 +189,11 @@ class BacktestService:
             self._update_task_status(task_id, "running")
 
             if progress_tracker:
-                # 更新数据准备阶段进度（30% 权重）
+                # 数据准备阶段（30% 权重）：先完整性检查/自动下载，完成后才置 100%
                 progress_tracker.update_progress(
                     task_id=str(task_id),
                     stage="data_prep",
-                    data={
-                        "progress": 100.0,
-                        "status": "completed",
-                        "message": "数据准备完成",
-                    },
+                    data={"progress": 0.0, "status": "running", "message": "正在检查数据完整性..."},
                 )
                 # 更新执行阶段进度（60% 权重）
                 progress_tracker.update_progress(
@@ -150,6 +207,16 @@ class BacktestService:
                         "completed_symbols": 0,
                         "message": "开始执行回测...",
                     },
+                )
+
+            # kline 数据缺失自动补齐（恢复 d3d0e575 重构移除的旧行为）
+            self._ensure_kline_data(task_id, task, progress_tracker)
+
+            if progress_tracker:
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="data_prep",
+                    data={"progress": 100.0, "status": "completed", "message": "数据准备完成"},
                 )
 
             # 调用事件驱动引擎服务执行回测
