@@ -151,8 +151,13 @@ def init_database_config():
     # 根据数据库类型动态设置connect_args
     connect_args = {}
     if db_type == "sqlite":
-        # SQLite特定配置，允许同一连接在不同线程中使用
+        # SQLite 并发关键配置：
+        # check_same_thread=False — 跨线程共享连接（uvicorn 多 worker + 回测后台线程）
+        # timeout=30 — 拿不到锁时最多等 30s（默认 5s，回测写期间可能不够）
+        # 真正避免"一回测 API 全挂"的是下面的 WAL PRAGMA（非独占锁 + 读写并行），
+        # 光加 timeout 只是推迟超时点，根因仍是 DELETE 模式下的独占写锁。
         connect_args["check_same_thread"] = False
+        connect_args["timeout"] = 30
     elif db_type == "duckdb":
         # DuckDB特定配置，只使用最基本的配置
         connect_args = {
@@ -164,7 +169,29 @@ def init_database_config():
         }
 
     # 创建SQLAlchemy引擎，添加时区支持
-    engine = create_engine(db_url, connect_args=connect_args)
+    engine = create_engine(
+        db_url,
+        connect_args=connect_args,
+        # SQLite 是文件锁而非连接池锁，pool 设 StaticPool 让多线程共享同一底层连接
+        # 但 StaticPool 会让连接不被回收，session.close() 不关闭底层 conn，
+        # 多线程并发下 SQLite 自身 WAL 已能处理，所以用默认 QueuePool 即可
+        pool_pre_ping=True,
+    )
+
+    # SQLite PRAGMA 必须在每个新连接建立时设置（每个 engine.connect() 触发），
+    # 否则 WAL 模式只在当前进程的首个连接生效，后续连接还是 DELETE
+    if db_type == "sqlite":
+        from sqlalchemy import event
+
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            # busy_timeout=5000ms 让 SQLite 自己在锁冲突时重试，
+            # 比 SQLAlchemy 层抛 OperationalError 友好得多
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
 
     # 配置SessionLocal的bind参数
     SessionLocal.configure(bind=engine)
