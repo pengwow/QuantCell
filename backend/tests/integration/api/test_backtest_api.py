@@ -368,6 +368,52 @@ class TestBacktestDetailAPI:
         response = client.get("/api/v1/backtest/")
         assert response.status_code in [404, 307]
 
+    def test_get_backtest_detail_decisions_passthrough(self, client: TestClient, mocker, assert_api_response):
+        """测试详情接口透传 cascade 决策记录
+
+        decisions 位于结果 JSON 的 results 顶层（任务级），detail 接口必须原样
+        透传给前端决策详情卡片；非 cascade 策略（results 无该键）返回空列表。
+        """
+        from backtest.models import BacktestTask
+        from utils.db_session import get_db_session
+
+        # 快照副本库中插入临时任务行，随临时库文件一起丢弃，不污染真实库
+        with get_db_session() as db:
+            db.add(
+                BacktestTask(
+                    id="bt_decisions_passthrough",
+                    strategy_name="cascade_signal888",
+                    backtest_config='{"symbols": ["BTCUSDT"], "interval": "1h"}',
+                    status="completed",
+                )
+            )
+            db.commit()
+
+        mock_json_result = {
+            "status": "completed",
+            "results": {
+                "decisions": [
+                    {
+                        "action": "buy",
+                        "confidence": 0.8,
+                        "source": "sdm_direct",
+                        "probabilities": {"buy": 0.8, "hold": 0.1, "sell": 0.1},
+                        "_ts": "2026-11-02T00:00:00Z",
+                        "_s1_model": "laya-multilingual-mlx",
+                    },
+                ],
+            },
+        }
+        mocker.patch(
+            "backtest.routes.backtest_service.get_result",
+            return_value=mock_json_result,
+        )
+
+        response = client.get("/api/v1/backtest/bt_decisions_passthrough")
+        assert_api_response(response)
+        data = response.json()
+        assert data["data"]["decisions"] == mock_json_result["results"]["decisions"]
+
 
 class TestBacktestSymbolsAPI:
     """回测货币对列表API测试类"""

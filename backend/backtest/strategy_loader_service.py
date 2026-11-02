@@ -171,9 +171,14 @@ class StrategyLoaderService:
 
                 # cascade_signal 等级联策略：mode 是 loader 注入 layer 的判定信号，
                 # 但策略代码里没有 self.get_param("mode")，AST 扫不到，前端也就传不过来，
-                # 这里按策略名兜底补入，避免创建后永远 Hold 零交易
-                _CASCADE_STRATEGIES = {"cascade_signal"}
-                if strategy_name in _CASCADE_STRATEGIES and not strategy_params.get("mode"):
+                # 这里按 register 名字兜底补入，避免创建后永远 Hold 零交易。
+                # 注意：匹配 register 名而不是文件名 —— 允许 cascade_signal888.py、
+                # my_cascade_v2.py 等任意文件名，只要 @register("cascade_signal") 就生效。
+                from strategy.loader import _REGISTRY as _STRATEGY_REGISTRY
+
+                register_name = next((n for n, c in _STRATEGY_REGISTRY.items() if c is strategy_class), None)
+                _CASCADE_REGISTER_NAMES = {"cascade_signal"}
+                if register_name in _CASCADE_REGISTER_NAMES and not strategy_params.get("mode"):
                     strategy_params["mode"] = "cascade"
 
                 if dict(strategy_params or {}).get("mode") == "cascade":
@@ -183,8 +188,18 @@ class StrategyLoaderService:
 
                     # 复制 dict 后写回，避免原地污染调用方传入的参数字典
                     strategy_params = dict(strategy_params or {})
-                    # 每个策略独立录制文件，避免同一 run_mode 下多个 cascade 策略串写同一 JSONL
-                    strategy_params.setdefault("replay_file", f"{strategy_name}_{run_mode}.jsonl")
+
+                    # 每次回测用唯一录制文件，避免跨回测累积污染
+                    # （同一策略跑两次，第二次的 JSONL 不会混入第一次的决策）
+                    import time as _time
+
+                    ts = _time.strftime("%Y%m%d_%H%M%S", _time.localtime())
+                    unique_replay = f"{strategy_name}_{run_mode}_{ts}.jsonl"
+                    # 用户显式指定了 replay_file（如 s2_mode=replay 要查表、或
+                    # engine_service 按回测任务注入 task_id 文件名）则尊重用户，
+                    # 只在用户没指定时生成唯一文件名
+                    if "replay_file" not in strategy_params:
+                        strategy_params["replay_file"] = unique_replay
                     layer = build_cascade_layer(strategy_params, run_mode)
                     if layer is not None:
                         strategy_params["_cascade_layer"] = layer
