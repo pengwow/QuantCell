@@ -198,8 +198,8 @@ class EventDrivenBacktestService:
             factor_names: 参与回测的因子名称列表（可选）
             on_symbol_progress: 逐品种进度回调，每个品种开跑前以
                 (已完成品种数, 品种总数, 当前品种) 触发（可选）
-            on_bar_progress: 逐 bar 进度回调，每处理完 5% 触发一次
-                (已处理帧数, 总帧数)，由 axon_quant kernel 内调用；
+            on_bar_progress: 逐 bar 进度回调，load_frames 先报 (0, total)，之后每帧
+                以 (已处理帧数, 总帧数) 触发一次，由 axon_quant kernel 内调用；
                 仅 runner=kernel 默认路径生效，legacy / python runner 无回调（可选）
             stop_event: 协作式取消令牌（可选）。置位后在每个品种边界抛
                 BacktestCancelled 提前结束；单品种的单次阻塞循环无法中途取消

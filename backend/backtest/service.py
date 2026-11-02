@@ -179,8 +179,8 @@ class BacktestService:
                     },
                 )
 
-            # axon_quant kernel 每处理完 5% 帧数触发一次（current, total）。
-            # 单品种回测总进度 = bar 百分比；多品种时每品种独立 run，各自 0→100%，
+            # axon_quant kernel 在 load_frames 先报 (0, total)，之后每帧回调一次
+            # (current, total)。单品种回测总进度 = bar 百分比；多品种时每品种独立 run，各自 0→100%，
             # 所以 _on_symbol_progress 和 _on_bar_progress 是两个维度，后者更细。
             # 这里直接把 bar 百分比当 execution 阶段进度写入；如果多品种各自清零，
             # 前端看到的是「当前品种内的 bar 进度」，够直观。
