@@ -113,11 +113,38 @@ def test_cache_hit_and_key_differs_by_threshold(monkeypatch, tmp_path):
 
 
 def test_force_rule_bypasses_cache(monkeypatch, tmp_path):
+    # force_rule 影响缓存键（装配时 S2 是否并入不同）
     _patch_providers(monkeypatch, [LAYA, GEN])
     base = {"s1_mode": "stub", "s2_mode": "replay"}
-    normal = svc.build_cascade_layer(base, run_mode="backtest", replay_dir=tmp_path)
-    forced = svc.build_cascade_layer({**base, "force_rule": True}, run_mode="backtest", replay_dir=tmp_path)
+    normal = svc.build_cascade_layer(base, run_mode="paper", replay_dir=tmp_path)
+    forced = svc.build_cascade_layer({**base, "force_rule": True}, run_mode="paper", replay_dir=tmp_path)
     assert normal is not forced
+
+
+def test_backtest_respects_explicit_s1_mode(monkeypatch, tmp_path):
+    """回测不再强制离线：装配语义与 paper/live 一致。
+
+    - 显式 s1_mode 被尊重（如 stub 离线复跑）；
+    - 未显式指定时缺省走 http（live Laya），让回测产出真实 S1 决策数据。
+    """
+    _patch_providers(monkeypatch, [LAYA, GEN])
+    seen_modes: list[str] = []
+    real_make_backend = svc.make_decision_backend
+
+    def spy(cfg):
+        seen_modes.append(str(cfg.get("mode")))
+        return real_make_backend(cfg)
+
+    monkeypatch.setattr(svc, "make_decision_backend", spy)
+
+    # 显式 stub：尊重用户，装配离线后端
+    svc.build_cascade_layer({"s1_mode": "stub"}, run_mode="backtest", replay_dir=tmp_path)
+    assert seen_modes == ["stub"]
+
+    # 未显式指定：缺省 http(live)，s2 缺省 live 需要 GEN 配置在位
+    layer = svc.build_cascade_layer({}, run_mode="backtest", replay_dir=tmp_path)
+    assert seen_modes == ["stub", "http"]
+    assert layer is not None
 
 
 def test_cache_key_includes_replay_path(monkeypatch, tmp_path):

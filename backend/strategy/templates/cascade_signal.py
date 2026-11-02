@@ -9,8 +9,10 @@ config.params 可配：
   - target_ratio: 开仓占权益比例（默认取 config.position_limit）
   - open_threshold / hold_threshold: 门限（默认 0.80 / 0.70）
   - s1_timeout_secs: S1 超时（默认 5）
+  - s1_mode: "stub" | "http" | "live"（默认 live；stub=假后端纯验证，http=调本地 Laya）
   - s2_mode: "live"(默认) | "replay"
-  - s2_max_calls: S2 真调上限（超限切规则层）
+  - force_rule: true → 跳过 S2 层，低置信直接走 MA 规则兜底（回测自动降级为 True）
+  - s2_max_calls: S2 真调上限（=0 立即关闭 S2，>0 超限切规则层）
   - decision_replay: 录制文件路径（整层离线复跑，不装配 layer）
 
 注意：strategy.decision_service 依赖 ai.config（DB），在 _decide 内按需 import，
@@ -69,13 +71,17 @@ class CascadeSignalStrategy(BaseStrategy):
             self._replay = DecisionReplayTable(replay_path)
             logger.info(f"[cascade] 进入整层离线复跑: {replay_path}")
         self._s2_calls = 0
-        self._force_rule = False
-        self._rule_switched = False
+        # 尊重用户显式传入的 force_rule（回测降级 / s2_max_calls=0 都会置 True）
+        self._force_rule = bool(self.get_param("force_rule", False))
+        # 初始即 force_rule 说明语义已在装配 layer 时消化（不含 S2），不再重建：
+        # 重建路径 run_mode=None，回测里会把 live S1 重新装回触网；重建只保留给
+        # 「运行中 s2_max_calls 超限切规则」场景
+        self._rule_switched = self._force_rule and self._layer is not None
 
     def on_start(self, ctx: StrategyContext) -> None:
         self._s2_calls = 0
-        self._force_rule = False
-        self._rule_switched = False
+        self._force_rule = bool(self.get_param("force_rule", False))
+        self._rule_switched = self._force_rule and self._layer is not None
 
     def _build_request(self, bar: dict, ctx: StrategyContext) -> tuple[dict, dict]:
         """组装 state/questions；features 两键是 RuleFallback 的硬依赖。"""
@@ -138,8 +144,9 @@ class CascadeSignalStrategy(BaseStrategy):
 
         if self._counts_as_s2_call(decision):
             self._s2_calls += 1
-            cap = int(self.get_param("s2_max_calls", 0))
-            if cap > 0 and self._s2_calls > cap and not self._force_rule:
+            cap = int(self.get_param("s2_max_calls", -1))
+            # cap=-1 不限制（默认），cap=0 立即关 S2，cap>0 超限切
+            if cap >= 0 and self._s2_calls > cap and not self._force_rule:
                 self._force_rule = True
                 logger.warning(
                     f"[cascade] S2 调用超限({self._s2_calls}>{cap})，后续 bar 切规则兜底: strategy={self.config.name}"

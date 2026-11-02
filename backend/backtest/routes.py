@@ -244,12 +244,11 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     # 不允许回测里真调 LLM 或静默降级成 heuristic（结果会不可复现）。
     # 必须放在下面的 try 之前，否则会被兜底的 except Exception 改写成 500。
     strategy_params = request.strategy_config.params or {}
-    if strategy_params.get("mode") == "llm" and resolve_replay_path(
-        request.strategy_config.strategy_name, strategy_params
-    ) is None:
-        logger.warning(
-            f"拒绝 LLM 策略回测：缺少 replay 记录 strategy={request.strategy_config.strategy_name}"
-        )
+    if (
+        strategy_params.get("mode") == "llm"
+        and resolve_replay_path(request.strategy_config.strategy_name, strategy_params) is None
+    ):
+        logger.warning(f"拒绝 LLM 策略回测：缺少 replay 记录 strategy={request.strategy_config.strategy_name}")
         raise HTTPException(
             status_code=400,
             detail="LLM 策略回测必须提供 replay 记录（策略参数 llm_replay_path），禁止静默降级为 heuristic",
@@ -680,6 +679,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             margin_specs_effective: list = []
             liquidation_count: int = 0
             margin_shortfall_count: int = 0
+            # cascade 决策记录（任务级，引擎结束时从录制 JSONL 采集；非 cascade 无此字段）
+            decisions: list = []
 
             # 结果 JSON 是回测结果的唯一真实来源；无 JSON（未跑完/已清理）时保持空列表
             json_result = backtest_service.get_result(backtest_id)
@@ -687,6 +688,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             if isinstance(json_result, dict):
                 status = json_result.get("status") or status
                 results = json_result.get("results") or {}
+                # 决策记录在 results 顶层（任务级），不随品种视图切换
+                decisions = results.get("decisions") or []
                 # 无数据被跳过的品种（前端据此提示「XX 在所选时间范围内无数据」）
                 skipped_symbols = results.get("skipped_symbols") or {}
                 # 归一化单品种 / 多品种(results_by_symbol)两种结构
@@ -761,6 +764,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "is_multi_symbol": len(result_symbols) > 1,
                 # 无数据被跳过的品种：{品种: 原因}，前端据此提示
                 "skipped_symbols": skipped_symbols,
+                # cascade 决策详情卡片数据源（非 cascade 策略回测为空列表，前端不渲染）
+                "decisions": decisions,
                 "status": status,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "code": strategy_code,
