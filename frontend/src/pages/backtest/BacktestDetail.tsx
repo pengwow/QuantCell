@@ -96,6 +96,20 @@ interface BacktestFactors {
   attribution: Record<string, FactorAttribution>;
 }
 
+// cascade 策略决策记录（后端 decisions 字段）
+interface CascadeDecisionRecord {
+  action: string;         // buy / sell / hold
+  confidence: number;     // 0.0 ~ 1.0
+  probabilities?: Record<string, number>;
+  source: string;         // sdm_direct / fallback
+  fallback_reason?: string;
+  sdm_usage?: unknown;
+  sub_signals?: Record<string, unknown>;
+  _ts?: string;           // ISO 8601 录制时间
+  _s1_model?: string;
+  _decider?: string; // 录制侧标注的实际决策者（S1:xxx / S2:xxx / 规则 / 回放）；旧录制缺失
+}
+
 // 后端实际返回的数据结构
 interface BacktestResponse {
   id: string;
@@ -132,6 +146,8 @@ interface BacktestResponse {
   margin_shortfall_count?: number;
   liquidation_events?: LiquidationEventRecord[];
   insurance_fund_loss?: number;
+  // cascade 策略决策记录（回测结束后从录制 JSONL 采集；非 cascade 策略无此字段）
+  decisions?: CascadeDecisionRecord[];
   status: string;
   created_at: string;
 }
@@ -791,6 +807,148 @@ const BacktestDetail = () => {
             <Empty description="暂无交易记录" />
           )}
         </Card>
+
+        {/* cascade 决策详情：只在策略产出 decisions 时展示 */}
+        {(() => {
+          const decisions = backtestData?.decisions;
+          if (!decisions || decisions.length === 0) return null;
+
+          const actionCounts: Record<string, number> = {};
+          const reasonCounts: Record<string, number> = {};
+          const deciderCounts: Record<string, number> = {};
+          // 旧录制无 _decider：按 source+_s1_model 保守推断，无从知晓 S2/规则，统一「降级兜底」
+          const deciderOf = (d: CascadeDecisionRecord): string => {
+            if (d._decider) return d._decider;
+            if (d.source === 'sdm_direct') return d._s1_model ? `S1:${d._s1_model}` : 'S1';
+            if (d.source === 'fallback') return '降级兜底';
+            return '其他';
+          };
+          // 降级原因聚合键：新格式「类别: 细分: 详情」收敛到「类别: 细分」避免按详情炸开；
+          // 旧格式两段以内（含 low_confidence: buy=0.63 旧写法）取原串
+          const reasonBucket = (reason: string): string => {
+            const parts = reason.split(':');
+            return parts.length >= 3 ? `${parts[0].trim()}: ${parts[1].trim()}` : reason.trim();
+          };
+          decisions.forEach((d) => {
+            actionCounts[d.action] = (actionCounts[d.action] || 0) + 1;
+            if (d.fallback_reason) {
+              const bucket = reasonBucket(d.fallback_reason);
+              reasonCounts[bucket] = (reasonCounts[bucket] || 0) + 1;
+            }
+            const dv = deciderOf(d);
+            deciderCounts[dv] = (deciderCounts[dv] || 0) + 1;
+          });
+
+          const deciderColor = (v: string): string | undefined => {
+            if (v.startsWith('S1')) return 'blue';
+            if (v.startsWith('S2')) return 'purple';
+            if (v === '规则') return 'cyan';
+            return undefined; // 回放 / 降级兜底 / 其他 → antd 默认灰
+          };
+          const actionColor: Record<string, string> = {
+            buy: 'green',
+            sell: 'red',
+            hold: 'default',
+          };
+
+          // 只展示前 100 条 + 分页，3 万条全渲染卡浏览器
+          const PAGE_SIZE = 200;
+
+          return (
+            <Card title="决策详情" className="mb-6">
+              <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
+                {/* 统计摘要 */}
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ color: '#8c8c8c' }}>
+                    共 <strong>{decisions.length.toLocaleString()}</strong> 条决策
+                  </span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: '#8c8c8c' }}>决策者：</span>
+                    {Object.entries(deciderCounts).map(([dv, cnt]) => (
+                      <Tag key={dv} color={deciderColor(dv)}>
+                        {dv}: {cnt.toLocaleString()}
+                      </Tag>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: '#8c8c8c' }}>动作：</span>
+                    {Object.entries(actionCounts).map(([act, cnt]) => (
+                      <Tag key={act} color={actionColor[act] || 'default'}>
+                        {act === 'buy' ? '买入' : act === 'sell' ? '卖出' : '持有'}: {cnt.toLocaleString()}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+                {Object.keys(reasonCounts).length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ color: '#8c8c8c' }}>降级原因 Top：</span>
+                    {Object.entries(reasonCounts)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 5)
+                      .map(([reason, cnt]) => (
+                        <Tag key={reason}>{reason}: {cnt.toLocaleString()}</Tag>
+                      ))}
+                  </div>
+                )}
+
+                {/* 决策表格 */}
+                <Table
+                  size="small"
+                  scroll={{ x: 'max-content' }}
+                  dataSource={decisions}
+                  rowKey={(_, idx) => String(idx)}
+                  pagination={{
+                    pageSize: PAGE_SIZE,
+                    showSizeChanger: false,
+                    showQuickJumper: true,
+                    showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total.toLocaleString()} 条`,
+                  }}
+                  columns={[
+                    {
+                      title: '时间',
+                      dataIndex: '_ts',
+                      width: 200,
+                      render: (v: string) => v?.replace('T', ' ').replace(/Z$/, '') || '-',
+                    },
+                    {
+                      title: '动作',
+                      dataIndex: 'action',
+                      width: 80,
+                      render: (v: string) => {
+                        const label = v === 'buy' ? '买入' : v === 'sell' ? '卖出' : '持有';
+                        const color = actionColor[v] || 'default';
+                        return <Tag color={color}>{label}</Tag>;
+                      },
+                    },
+                    {
+                      title: '置信度',
+                      dataIndex: 'confidence',
+                      width: 100,
+                      align: 'right',
+                      render: (v: number) => (v != null ? (v * 100).toFixed(1) + '%' : '-'),
+                    },
+                    {
+                      title: '决策者',
+                      dataIndex: '_decider',
+                      width: 200,
+                      ellipsis: true,
+                      render: (_v: unknown, record: CascadeDecisionRecord) => {
+                        const dv = deciderOf(record);
+                        return <Tag color={deciderColor(dv)}>{dv}</Tag>;
+                      },
+                    },
+                    {
+                      title: '降级原因',
+                      dataIndex: 'fallback_reason',
+                      ellipsis: true,
+                      render: (v: string) => v || '-',
+                    },
+                  ]}
+                />
+              </Space>
+            </Card>
+          );
+        })()}
       </div>
 
       {/* 全部交易标的弹窗（标的过多时点开查看） */}
