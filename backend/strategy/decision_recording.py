@@ -117,8 +117,11 @@ class RecordingCascadeLayer:
         self._meta = dict(meta or {})
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # 进程重启后继续写同一文件时，已存在的 fingerprint 不再重复落行；
-        # 若调用方已加载 replay_table（同一文件），直接复用其指纹集合，避免二次读盘
-        if replay_table is not None:
+        # 若调用方已加载 replay_table（同一文件），直接复用其指纹集合，避免二次读盘。
+        # 仅在表与输出同文件时才能把表指纹视作「已落盘」：跨文件回放（旧录制源 →
+        # 新输出）时，命中行对输出文件是新内容，若沿用表指纹会导致整行被静默丢弃，
+        # _decider=回放 也无从标注
+        if replay_table is not None and replay_table.path == self.path:
             self._seen: set[str] = replay_table.fingerprints()
         else:
             self._seen = set()
@@ -145,6 +148,23 @@ class RecordingCascadeLayer:
         self._append(fp, state, questions, decision)
         return decision
 
+    def _decider_of(self, decision: dict) -> str:
+        """本次决策的实际决策者，写在 record 顶层（不进 decision 契约，
+        不污染 Rust CascadeDecision 序列化与 ReplayTable 回放查表）。
+
+        回放行只认 reason 的 |s2_replay 后缀：replay 装配时 S2 恒为 None、
+        meta 恒无 s2_model，当年由谁决策无从知晓，标「回放」而不猜。
+        """
+        if decision.get("source") == "sdm_direct":
+            s1 = self._meta.get("s1_model")
+            return f"S1:{s1}" if s1 else "S1"
+        if decision.get("source") == "fallback":
+            if (decision.get("fallback_reason") or "").endswith("|s2_replay"):
+                return "回放"
+            s2 = self._meta.get("s2_model")
+            return f"S2:{s2}" if s2 else "规则"
+        return "—"
+
     def _append(self, fp: str, state: dict, questions: dict, decision: dict) -> None:
         if fp in self._seen:
             return
@@ -156,6 +176,7 @@ class RecordingCascadeLayer:
             "state": state,
             "questions": questions,
             "ts": _iso8601_ns(),
+            "_decider": self._decider_of(decision),
         }
         if self._meta:
             record["meta"] = self._meta
