@@ -141,20 +141,23 @@ export function pollBacktestProgress(
     initialInterval = 500,
     maxInterval = 5000,
     maxRetries = 60, // 最多重试60次
-    timeout = 300000 // 5分钟超时
+    // 距上次成功获取进度的最大间隔（成功响应即续期）。
+    // 回测耗时随 bar 数/Live LLM 差异极大（几分钟到几十分钟），
+    // 不能按总时长设固定超时，否则长任务被轮询层误报 failed
+    timeout = 180000 // 3分钟无任何成功响应才超时
   } = options;
 
   let isRunning = true;
   let timeoutId: NodeJS.Timeout | null = null;
   let retryCount = 0;
   let currentInterval = initialInterval;
-  const startTime = Date.now();
+  let lastActivityAt = Date.now();
 
   const poll = async () => {
     if (!isRunning) return;
 
-    // 检查是否超时
-    if (Date.now() - startTime > timeout) {
+    // 检查是否超时：以「最后一次成功响应」为计时起点，长任务不误杀
+    if (Date.now() - lastActivityAt > timeout) {
       console.warn('轮询超时');
       onProgress({
         task_id: taskId,
@@ -198,6 +201,7 @@ export function pollBacktestProgress(
 
       retryCount = 0; // 重置重试计数
       currentInterval = initialInterval; // 重置间隔
+      lastActivityAt = Date.now(); // 成功响应即续期超时窗口
 
       if (data) {
         console.log(`[pollBacktestProgress] 调用 onProgress，状态: ${data.status}`);

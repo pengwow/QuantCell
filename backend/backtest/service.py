@@ -179,6 +179,25 @@ class BacktestService:
                     },
                 )
 
+            # axon_quant kernel 每处理完 5% 帧数触发一次（current, total）。
+            # 单品种回测总进度 = bar 百分比；多品种时每品种独立 run，各自 0→100%，
+            # 所以 _on_symbol_progress 和 _on_bar_progress 是两个维度，后者更细。
+            # 这里直接把 bar 百分比当 execution 阶段进度写入；如果多品种各自清零，
+            # 前端看到的是「当前品种内的 bar 进度」，够直观。
+            def _on_bar_progress(current: int, total: int) -> None:
+                if not progress_tracker or total <= 0:
+                    return
+                bar_pct = round(current / total * 100, 2)
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="execution",
+                    data={
+                        "progress": bar_pct,
+                        "status": "running",
+                        "message": f"执行中: {current}/{total} bars ({bar_pct}%)",
+                    },
+                )
+
             raw_result = service.run_backtest(
                 strategy_name=task["strategy_name"],
                 strategy_params=task.get("strategy_params", {}),
@@ -188,7 +207,10 @@ class BacktestService:
                 show_progress=False,
                 factor_names=engine_config.get("factor_names"),
                 on_symbol_progress=_on_symbol_progress if progress_tracker else None,
+                on_bar_progress=_on_bar_progress if progress_tracker else None,
                 stop_event=stop_event,
+                # cascade 决策录制文件按 task_id 命名，详情页决策分析据此关联
+                task_id=str(task_id),
             )
             # 成功/失败口径取实际结果：无数据品种在 engine 层被剔除（skipped_symbols），
             # 不能把请求清单硬编码成"全部成功"，否则提示数量与详情页实际品种数不一致
