@@ -1204,6 +1204,14 @@ def get_backtest_progress(task_id: str) -> BacktestProgressResponse:
             "updated_at": progress.updated_at,
         }
 
+        # 前端轮询顺带落一条进度日志，后台不看页面也能跟上进度
+        logger.info(
+            f"[回测进度] task={task_id} 阶段={response_data['current_stage']} "
+            f"总体={response_data['overall_progress']}% "
+            f"执行={response_data['execution']['progress']}% "
+            f"{response_data['execution']['message']}"
+        )
+
         return BacktestProgressResponse(code=0, message="获取进度成功", data=response_data)
 
     except Exception as e:
