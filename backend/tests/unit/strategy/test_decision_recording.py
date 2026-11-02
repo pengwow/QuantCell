@@ -194,6 +194,86 @@ def test_s2_replay_miss_keeps_rule_result(tmp_path):
     assert layer.decide(STATE, QUESTIONS)["action"] == "buy"
 
 
+def test_decider_is_tagged_on_record(tmp_path):
+    """record 顶层 _decider 四态：S1 直判 / S2 兜底 / 规则 / 回放。
+
+    replay 装配时 S2 恒为 None（decision_service 的 need_s2 为 False），
+    命中查表的行无法知晓当年决策者，只能靠 reason 的 |s2_replay 后缀识别，
+    标「回放」而不猜 S2/规则。
+    """
+    # S1 直判：source=sdm_direct
+    path = tmp_path / "s1.jsonl"
+    RecordingCascadeLayer(
+        FakeLayer({"action": "hold", "source": "sdm_direct", "confidence": 0.9}),
+        path,
+        meta={"s1_model": "laya", "s2_model": "qwen"},
+    ).decide(STATE, QUESTIONS)
+    rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["_decider"] == "S1:laya"
+
+    # S2 兜底：source=fallback 且 meta 带 s2_model（live 装配了生成式兜底）
+    path = tmp_path / "s2.jsonl"
+    RecordingCascadeLayer(
+        FakeLayer(
+            {"action": "hold", "source": "fallback", "confidence": 0.6, "fallback_reason": "low_confidence: buy: 0.5"}
+        ),
+        path,
+        meta={"s1_model": "laya", "s2_model": "qwen"},
+    ).decide(STATE, QUESTIONS)
+    rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["_decider"] == "S2:qwen"
+
+    # 规则：source=fallback 且 meta 无 s2_model（force_rule / stub 装配）
+    path = tmp_path / "rule.jsonl"
+    RecordingCascadeLayer(
+        FakeLayer(
+            {"action": "buy", "source": "fallback", "confidence": 0.7, "fallback_reason": "low_confidence: hold: 0.5"}
+        ),
+        path,
+        meta={"s1_model": "laya"},
+    ).decide(STATE, QUESTIONS)
+    rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["_decider"] == "规则"
+
+    # 回放：s2_mode=replay 查表命中 → reason 带 |s2_replay 后缀，且 meta 无 s2_model
+    src = tmp_path / "src.jsonl"
+    src.write_text(
+        json.dumps(
+            {
+                "fingerprint": request_fingerprint(STATE, QUESTIONS),
+                "decision": {
+                    "action": "hold",
+                    "source": "fallback",
+                    "confidence": 0.6,
+                    "probabilities": {},
+                    "fallback_reason": "low_confidence: buy: 0.3",
+                    "sdm_usage": None,
+                    "sub_signals": {},
+                },
+                "state": STATE,
+                "questions": QUESTIONS,
+                "ts": "2026-01-01T00:00:00.000000000Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "out.jsonl"
+    RecordingCascadeLayer(
+        FakeLayer(
+            {"action": "buy", "source": "fallback", "confidence": 0.7, "fallback_reason": "low_confidence: hold: 0.5"}
+        ),
+        path,
+        s2_mode="replay",
+        replay_table=DecisionReplayTable(src),
+        meta={"s1_model": "laya"},
+    ).decide(STATE, QUESTIONS)
+    rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["_decider"] == "回放"
+    # replay 覆盖后的 reason 带后缀（既有行为，顺带钉住）
+    assert rec["decision"]["fallback_reason"].endswith("|s2_replay")
+
+
 def test_default_replay_dir_honours_env(monkeypatch, tmp_path):
     monkeypatch.setenv("QUANTCELL_DECISION_REPLAY_DIR", str(tmp_path / "x"))
     assert default_replay_dir() == tmp_path / "x"

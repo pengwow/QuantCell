@@ -37,8 +37,22 @@ def reset_cache() -> None:
     _CACHE.clear()
 
 
-def _config_fingerprint(one: dict, two: dict) -> str:
-    """两类默认配置的规范指纹：内容变更即失配重建"""
+def _config_fingerprint(one: dict, two: dict | None) -> str:
+    """两类默认配置的规范指纹：内容变更即失配重建。
+
+    two=None 时表示不需要 S2（force_rule 或 replay 模式），指纹只含 S1 字段。
+    """
+    two_fields = (
+        [None, None, None, None, None]
+        if two is None
+        else [
+            two.get("id"),
+            two.get("provider"),
+            two.get("api_host"),
+            two.get("api_key"),
+            two.get("model"),
+        ]
+    )
     payload = json.dumps(
         [
             one.get("id"),
@@ -46,11 +60,7 @@ def _config_fingerprint(one: dict, two: dict) -> str:
             one.get("api_host"),
             one.get("api_key"),
             one.get("model"),
-            two.get("id"),
-            two.get("provider"),
-            two.get("api_host"),
-            two.get("api_key"),
-            two.get("model"),
+            *two_fields,
         ],
         ensure_ascii=False,
         sort_keys=True,
@@ -156,7 +166,10 @@ def build_cascade_layer(
     Args:
         params: 策略参数（读 open_threshold / hold_threshold / s1_timeout_secs /
                 s2_mode / s2_max_calls / force_rule / decision_replay / s1_mode）
-        run_mode: backtest / paper / live（保留位，当前装配不区分，录制三模式统一）
+        run_mode: 仅参与默认录制文件名（未显式给 replay_file 时）；三种模式统一
+                  装配 live cascade 链路与录制，回测不再强制离线（用户要看真实的
+                  S1 决策数据）。注意：mode='llm' 类策略的回测禁网由
+                  strategy.llm_replay 的 ReplayProvider 承担，与本链无关
         replay_dir: 录制目录覆盖（默认 backend/data/decision_replay）
 
     Returns:
@@ -165,11 +178,14 @@ def build_cascade_layer(
     if params.get("decision_replay"):
         return None
 
-    one = _default_ai_model("system_one")
-    two = _default_ai_model("system_two")
-
     s2_mode = params.get("s2_mode", "live")
     force_rule = bool(params.get("force_rule", False))
+    # 按需装配 S2：只有 live 模式且非 force_rule 时才需要生成式兜底
+    need_s2 = s2_mode not in ("replay", "stub") and not force_rule
+
+    one = _default_ai_model("system_one")
+    two = _default_ai_model("system_two") if need_s2 else None
+
     open_threshold = float(params.get("open_threshold", 0.80))
     hold_threshold = float(params.get("hold_threshold", 0.70))
     s1_timeout = int(params.get("s1_timeout_secs", 5))
@@ -178,15 +194,17 @@ def build_cascade_layer(
     filename = str(params.get("replay_file") or f"{run_mode or 'run'}.jsonl")
     path = replay_root / filename
 
-    # 缓存键必须带 force_rule（超限切规则层要拿到不含 S2 的新实例）与录制路径
-    # （不同策略的 replay_file 不同，否则会复用上一层实例把录制写进错误文件）
+    # 缓存键必须带 force_rule（超限切规则层要拿到不含 S2 的新实例）、s1_mode
+    # （显式 stub 与缺省 http 的缓存不得互串）与录制路径
+    # （不同策略/任务的 replay_file 不同，否则会复用上一层实例把录制写进错误文件）
     key = (
         one.get("id"),
-        two.get("id"),
+        two.get("id") if two else None,
         _config_fingerprint(one, two),
         open_threshold,
         hold_threshold,
         s1_timeout,
+        params.get("s1_mode", "http"),
         s2_mode,
         force_rule,
         str(path),
@@ -197,24 +215,35 @@ def build_cascade_layer(
 
     s1 = _s1_backend(one, params)
     cfg = CascadeConfig(open_threshold, hold_threshold)
-    if s2_mode == "replay" or force_rule:
+    if two is None:
         layer = SdmCascadeDecisionLayer(s1, RuleFallback(), cfg)
     else:
         layer = SdmCascadeDecisionLayer.with_llm_fallback(s1, _s2_backend(two), cfg)
 
     table = DecisionReplayTable(path) if (s2_mode == "replay" and path.is_file()) else None
     # 录制落来源标注：本地适配层与官方 laya-serve 的 confidence 语义不同，
-    # 标注后新旧录制可分辨，避免跨来源比较门限分布
+    # 标注后新旧录制可分辨，避免跨来源比较门限分布。
+    # s2_model 仅在装配了生成式兜底时写入——录制侧据此区分「S2 兜底」与「规则兜底」
+    meta = {"s1_api_host": one.get("api_host"), "s1_model": one.get("model")}
+    if two is not None:
+        meta["s2_model"] = two.get("model")
     wrapped = RecordingCascadeLayer(
         layer,
         path,
         s2_mode=s2_mode,
         replay_table=table,
-        meta={"s1_api_host": one.get("api_host"), "s1_model": one.get("model")},
+        meta=meta,
     )
     _CACHE[key] = wrapped
-    logger.info(
-        f"[cascade] layer 装配完成: s2_mode={s2_mode}, force_rule={force_rule}, "
-        f"s1_model={one['model']}, s2_model={two['model']}"
-    )
+    s1_mode = params.get("s1_mode", "http")
+    if two is None:
+        logger.info(
+            f"[cascade] layer 装配完成: s1_mode={s1_mode}, s2_mode={s2_mode}, "
+            f"force_rule={force_rule}, s1_model={one['model']}, s2=skipped"
+        )
+    else:
+        logger.info(
+            f"[cascade] layer 装配完成: s1_mode={s1_mode}, s2_mode={s2_mode}, "
+            f"force_rule={force_rule}, s1_model={one['model']}, s2_model={two['model']}"
+        )
     return wrapped
