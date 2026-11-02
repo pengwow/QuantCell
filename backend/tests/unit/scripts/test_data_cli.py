@@ -186,6 +186,33 @@ class TestFilterByDateRange:
         assert len(filter_by_date_range(df, None, "2024-01-15")) == 1
         assert len(filter_by_date_range(df, "2024-01-01", "2024-01-31")) == 1
 
+    def test_filter_datetimeindex_outside_range(self):
+        """时间在 DatetimeIndex（future 落盘格式）时过滤必须生效。
+
+        回归守护：过去「无 timestamp 列直接放行」的分支曾让 2024 年旧数据
+        在 2026 年请求范围下全量混入回测。
+        """
+        from cli.data import filter_by_date_range
+
+        df = pd.DataFrame(
+            {"close": [1.0, 2.0]},
+            index=pd.DatetimeIndex(["2024-07-01", "2024-07-02"]),
+        )
+        assert len(filter_by_date_range(df, "2026-04-30", "2026-09-30")) == 0
+
+    def test_filter_datetimeindex_inside_range(self):
+        """DatetimeIndex 数据与范围相交时按索引正确裁剪；tz-aware 索引不抛 TypeError。"""
+        from cli.data import filter_by_date_range
+
+        df = pd.DataFrame(
+            {"close": [1.0, 2.0, 3.0, 4.0]},
+            index=pd.DatetimeIndex(["2026-06-01", "2026-07-01", "2026-08-01", "2027-01-01"]),
+        )
+        assert len(filter_by_date_range(df, "2026-04-30", "2026-09-30")) == 3
+
+        aware = df.tz_localize("UTC")
+        assert len(filter_by_date_range(aware, "2026-04-30", "2026-09-30")) == 3
+
 
 class TestValidateParquetExport:
     """测试 _validate_parquet_export 函数"""

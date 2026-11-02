@@ -214,6 +214,19 @@ def filter_by_date_range(df, start_date=None, end_date=None):
     if df is None or df.empty:
         return df
     if "timestamp" not in df.columns:
+        # 时间在 DatetimeIndex 上的落盘格式（如 future 市场 K 线）过去会被整表放行，
+        # 时间范围过滤静默失效——曾导致回测把 2024 年旧数据当成 2026 年请求范围全量加载。
+        # 仅当索引是 DatetimeIndex 时按索引过滤；其他形态（无时间信息）保持放行。
+        if isinstance(df.index, pd.DatetimeIndex):
+            # 挂钟时间口径与下方 naive 字符串边界一致；aware 索引摘掉 tz 标签再比较，
+            # 避免 naive/aware 比较直接抛 TypeError
+            idx = df.index.tz_localize(None) if df.index.tz is not None else df.index
+            mask = pd.Series(True, index=df.index)
+            if start_date:
+                mask &= idx >= pd.Timestamp(start_date)
+            if end_date:
+                mask &= idx <= pd.Timestamp(end_date)
+            return df[mask]
         return df
     mask = pd.Series(True, index=df.index)
     if start_date:
