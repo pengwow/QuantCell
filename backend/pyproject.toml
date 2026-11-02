@@ -177,6 +177,12 @@ quantcell = "cli.__main__:main"
 [tool.uv]
 package = true
 
+# 引擎走本地 path 依赖：PyPI 0.23.0 不含嵌套 runtime 修复（048bd83/9687a8f）
+# 与 on_progress 绑定（f81efc2），registry 依赖会让 uv sync 永远装回旧 .so，
+# 回测 cascade 决策层在嵌套 tokio runtime 下 panic。
+[tool.uv.sources]
+axon-quant = { path = "../../axon_quant" }
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["*"]
