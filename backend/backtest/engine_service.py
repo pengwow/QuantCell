@@ -179,7 +179,9 @@ class EventDrivenBacktestService:
         market: str = "spot",
         factor_names: list[str] | None = None,
         on_symbol_progress: SymbolProgressCallback | None = None,
+        on_bar_progress: callable | None = None,
         stop_event: threading.Event | None = None,
+        task_id: Any = None,
     ) -> dict:
         """
         执行完整的事件驱动回测流程
@@ -196,8 +198,15 @@ class EventDrivenBacktestService:
             factor_names: 参与回测的因子名称列表（可选）
             on_symbol_progress: 逐品种进度回调，每个品种开跑前以
                 (已完成品种数, 品种总数, 当前品种) 触发（可选）
+            on_bar_progress: 逐 bar 进度回调，每处理完 5% 触发一次
+                (已处理帧数, 总帧数)，由 axon_quant kernel 内调用；
+                仅 runner=kernel 默认路径生效，legacy / python runner 无回调（可选）
             stop_event: 协作式取消令牌（可选）。置位后在每个品种边界抛
                 BacktestCancelled 提前结束；单品种的单次阻塞循环无法中途取消
+            task_id: 回测任务 ID（可选）。有值时 cascade 策略的决策录制文件
+                按 task_id 命名（data/decision_replay/{task_id}.jsonl），
+                与详情页 decisions 字段一一对应；无值（CLI 等）退回
+                loader 生成的时间戳文件名
 
         Returns:
             dict: 格式化的回测结果
@@ -362,6 +371,12 @@ class EventDrivenBacktestService:
         # 2. 加载策略（先判断策略基类，决定走共享引擎还是逐品种独立回测）
         from backtest.strategy_loader_service import StrategyLoaderService
 
+        # cascade 决策录制按任务命名：loader 对显式 replay_file 是尊重的，
+        # 这里注入 {task_id}.jsonl，让「决策分析」能通过 task_id 关联回测；
+        # 重新绑定避免污染调用方的 task dict（task 会被持久化）
+        if task_id is not None:
+            strategy_params = {**strategy_params, "replay_file": f"{task_id}.jsonl"}
+
         instrument_ids = [{"symbol": s, "venue": "BINANCE"} for s in symbols for _ in timeframes]
         bar_types = list(timeframes) * len(symbols)
 
@@ -429,6 +444,7 @@ class EventDrivenBacktestService:
                     margin_specs=margin_specs,
                     interval=bar_interval,
                     engine_config=engine_config,
+                    on_bar_progress=on_bar_progress,
                 )
             else:
                 result = loop.run(
@@ -491,6 +507,7 @@ class EventDrivenBacktestService:
                 margin_specs=margin_specs,
                 interval=bar_interval,
                 engine_config=engine_config,
+                on_bar_progress=on_bar_progress,
             )
             raw_results = multi_result
             per_symbol_results = {}
@@ -548,8 +565,10 @@ class EventDrivenBacktestService:
                         margin_specs=margin_specs,
                         interval=bar_interval,
                         engine_config=engine_config,
+                        on_bar_progress=on_bar_progress,
                     )
                 else:
+                    # BacktestLoop Python 回退路径：无 bar 级进度回调
                     loop_result = loop.run(
                         strategy=strategy,
                         data=df,
@@ -619,9 +638,109 @@ class EventDrivenBacktestService:
         if skipped_symbols:
             formatted_results["skipped_symbols"] = skipped_symbols
 
+        # 4. 采集 cascade 决策记录（如果策略装配了 RecordingCascadeLayer）
+        #    决策录制已经在 layer.decide() 里每行 flush 落盘，这里回测结束时
+        #    读 JSONL 塞进结果 JSON，前端直接展示。
+        try:
+            formatted_results["decisions"] = self._collect_cascade_decisions(
+                strategy=strategy,
+                strategies_by_symbol=locals().get("strategies_by_symbol"),
+                per_symbol_strategies=locals().get("_per_symbol_strategies"),
+            )
+        except Exception as e:
+            logger.warning(f"[cascade] 决策记录采集失败: {e}")
+            formatted_results["decisions"] = []
+
         logger.info("[EventDrivenBacktestService] 回测完成")
 
         return formatted_results
+
+    def _collect_cascade_decisions(
+        self,
+        strategy: Any = None,
+        strategies_by_symbol: dict[str, Any] | None = None,
+        per_symbol_strategies: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """从所有策略实例收集 cascade 决策记录。
+
+        数据源优先级：
+        1. RecordingCascadeLayer.path（JSONL 录制文件，已每行 flush）
+        2. 无 layer / 文件不存在 → 返回 []（非 cascade 策略）
+
+        返回结构：每条决策记录含 bar_timestamp（如果能关联）、action、confidence、
+        probabilities、source、fallback_reason、meta（S1/S2 模型信息）。
+        """
+        from pathlib import Path
+
+        # 收集所有 strategy 实例
+        all_strategies: list[Any] = []
+        if strategy is not None:
+            all_strategies.append(strategy)
+        if strategies_by_symbol:
+            all_strategies.extend(strategies_by_symbol.values())
+        if per_symbol_strategies:
+            all_strategies.extend(per_symbol_strategies.values())
+
+        # 去重（同一实例可能被多处引用）
+        seen_ids: set[int] = set()
+        unique: list[Any] = []
+        for s in all_strategies:
+            sid = id(s)
+            if sid not in seen_ids:
+                seen_ids.add(sid)
+                unique.append(s)
+
+        all_decisions: list[dict[str, Any]] = []
+        for strat in unique:
+            # cascade_signal 把 RecordingCascadeLayer 存在 config.params['_cascade_layer'] 里
+            try:
+                layer = strat.get_param("_cascade_layer") if hasattr(strat, "get_param") else None
+            except Exception:
+                layer = None
+            if layer is None:
+                continue
+
+            # flush + close writer，确保最后一行也落盘
+            try:
+                layer.close()
+            except Exception:
+                pass
+
+            path = getattr(layer, "path", None)
+            if not path:
+                continue
+
+            p = Path(path)
+            if not p.is_file():
+                continue
+
+            # 逐行读 JSONL，解析后加入 decisions 列表
+            for line in p.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    import json as _json
+
+                    record = _json.loads(line)
+                    decision = record.get("decision")
+                    if not isinstance(decision, dict):
+                        continue
+                    # 扁平化：decision 本体 + 录制元数据
+                    flat = dict(decision)
+                    flat["_ts"] = record.get("ts")
+                    flat["_decider"] = record.get("_decider")
+                    meta = record.get("meta")
+                    if isinstance(meta, dict):
+                        flat["_s1_model"] = meta.get("s1_model")
+                    all_decisions.append(flat)
+                except Exception:
+                    # 单行脏数据跳过，不中断整个回测
+                    continue
+
+        # 时间排序（录制文件是追加写，但不同 symbol 的写入顺序可能交错）
+        all_decisions.sort(key=lambda r: r.get("_ts") or "")
+        return all_decisions
 
     def _build_kline_records(
         self,
@@ -907,6 +1026,7 @@ class EventDrivenBacktestService:
         margin_specs: dict | None = None,
         interval: str | None = None,
         engine_config: dict | None = None,
+        on_bar_progress: callable | None = None,
     ) -> BacktestResult:
         """Rust 原生回测：内核逐 bar 编排策略，结果映射回 QuantCell 契约。
 
@@ -959,11 +1079,23 @@ class EventDrivenBacktestService:
             symbol_spec = margin_specs.get(rust_symbol)
             runner.with_margin({rust_symbol: symbol_spec} if symbol_spec else margin_specs)
         # 统一入口：单品种包装成「单 symbol 网格」（无 None 缺口），与共享资金池同一路径
-        rust_result = runner.run(
-            bars_by_symbol={rust_symbol: list(bars)},
-            states_by_symbol=states_by_symbol,
-            funding_by_symbol=funding_by_symbol,
-        )
+        # runner.run 会阻塞直到全部 bar 处理完；on_progress 回调在内核 drain_queue 里
+        # 每 5% 触发一次，传 (已处理帧数, 总帧数)。legacy BacktestRunner 无 on_progress 参数，
+        # 用 getattr 做软降级。
+        try:
+            rust_result = runner.run(
+                bars_by_symbol={rust_symbol: list(bars)},
+                states_by_symbol=states_by_symbol,
+                funding_by_symbol=funding_by_symbol,
+                on_progress=on_bar_progress,
+            )
+        except TypeError:
+            # legacy BacktestRunner.run 不接受 on_progress 参数
+            rust_result = runner.run(
+                bars_by_symbol={rust_symbol: list(bars)},
+                states_by_symbol=states_by_symbol,
+                funding_by_symbol=funding_by_symbol,
+            )
         return self._map_rust_result(rust_result, df, symbol)
 
     def _run_rust_multi(
@@ -981,6 +1113,7 @@ class EventDrivenBacktestService:
         margin_specs: dict | None = None,
         interval: str | None = None,
         engine_config: dict | None = None,
+        on_bar_progress: callable | None = None,
     ) -> tuple[dict[str, Any], dict[str, list[dict]], dict[str, int]]:
         """共享资金池：单内核 + N 品种共享账户编排。
 
@@ -1048,12 +1181,22 @@ class EventDrivenBacktestService:
             # 全品种参与：未列入配置的品种也带着默认 1x / cross 规格进来
             runner.with_margin(margin_specs)
 
-        rust_result = runner.run(
-            bars_by_symbol=aligned_bars,
-            states_by_symbol=states_by_symbol or None,
-            funding_by_symbol=funding_by_symbol or None,
-            capital_budget=capital_budget,
-        )
+        try:
+            rust_result = runner.run(
+                bars_by_symbol=aligned_bars,
+                states_by_symbol=states_by_symbol or None,
+                funding_by_symbol=funding_by_symbol or None,
+                capital_budget=capital_budget,
+                on_progress=on_bar_progress,
+            )
+        except TypeError:
+            # legacy BacktestRunner.run 不接受 on_progress 参数
+            rust_result = runner.run(
+                bars_by_symbol=aligned_bars,
+                states_by_symbol=states_by_symbol or None,
+                funding_by_symbol=funding_by_symbol or None,
+                capital_budget=capital_budget,
+            )
 
         # 5) 结果映射：共享账户没有单一 df，数据时间范围显式取网格端点
         agg = self._convert_backtest_result(
