@@ -327,3 +327,33 @@ def test_load_record_by_seq_fingerprint_mismatch(tmp_path):
 def test_load_record_by_seq_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_record_by_seq(tmp_path / "nope.jsonl", 0, "a" * 64)
+
+
+def test_raw_outputs_hoisted_to_top_level(tmp_path):
+    """S1/S2 原始输出提升到录制行顶层：decision 本体不携带，回放查表不放大体积"""
+
+    class _Inner:
+        def decide(self, state, questions):
+            return {
+                "action": "sell",
+                "source": "fallback",
+                "confidence": 0.7,
+                "fallback_reason": "low_confidence: sell: 0.7",
+                "s1_raw": '{"model":"laya"}',
+                "s2_raw": '思考中…{"action":"sell"}',
+                "s2_thinking": "let me think",
+            }
+
+    layer = RecordingCascadeLayer(_Inner(), tmp_path / "r.jsonl", meta={"s1_model": "laya", "s2_model": "qwen"})
+    layer.decide({}, {})
+
+    record = json.loads((tmp_path / "r.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert record["s1_raw"] == '{"model":"laya"}'
+    assert record["s2_raw"].startswith("思考")
+    assert record["s2_thinking"] == "let me think"
+    assert "s1_raw" not in record["decision"]
+
+    # 回放查表拿到的 decision 无原文键
+    table = DecisionReplayTable(tmp_path / "r.jsonl")
+    found = table.lookup(record["fingerprint"])
+    assert found is not None and "s1_raw" not in found
