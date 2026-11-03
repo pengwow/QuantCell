@@ -44,6 +44,7 @@ class StageStatus(StrEnum):
     RUNNING = "running"  # 进行中
     COMPLETED = "completed"  # 已完成
     FAILED = "failed"  # 失败
+    STOPPED = "stopped"  # 已终止（用户主动停止，终态）
 
 
 class DataPrepStep(StrEnum):
@@ -201,7 +202,11 @@ class BacktestProgressTracker:
                     time_diff = (current_time - updated_at).total_seconds()
 
                     # 如果任务已完成/失败/停止超过1小时，标记为可删除
-                    if progress.status in [StageStatus.COMPLETED, StageStatus.FAILED] and time_diff > 3600:
+                    # STOPPED 也在终态清单里：被终止任务的进度记录若不过期会永久驻留内存
+                    if (
+                        progress.status in [StageStatus.COMPLETED, StageStatus.FAILED, StageStatus.STOPPED]
+                        and time_diff > 3600
+                    ):
                         tasks_to_remove.append(task_id)
                 except Exception as e:
                     logger.warning(f"解析任务 {task_id} 更新时间失败: {e}")
@@ -336,6 +341,10 @@ class BacktestProgressTracker:
         """计算总体进度
 
         数据准备阶段占 30%，执行阶段占 60%，结果统计阶段占 10%
+
+        总体进度单调不减护栏：多品种场景下各阶段子进度会在品种边界被重置
+        （每个品种的下载/回测子进度都从 0 重新走），直接拿加权值覆盖会让
+        进度条回退到历史值。这里以历史峰值为下界，保证总体进度只前进不倒退。
         """
         data_prep_weight = 0.3
         execution_weight = 0.6
@@ -347,7 +356,7 @@ class BacktestProgressTracker:
             + progress.analysis.progress * analysis_weight
         )
 
-        progress.overall_progress = round(overall, 2)
+        progress.overall_progress = round(max(progress.overall_progress, overall), 2)
 
     def complete_progress(self, task_id: str) -> BacktestProgress | None:
         """

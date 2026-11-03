@@ -207,8 +207,8 @@ export function pollBacktestProgress(
         console.log(`[pollBacktestProgress] 调用 onProgress，状态: ${data.status}`);
         onProgress(data);
 
-        // 如果任务已完成或失败，停止轮询
-        if (data.status === 'completed' || data.status === 'failed') {
+        // 任务到达终态即停止轮询：completed/failed 自然结束，stopped 为用户终止
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'stopped') {
           console.log(`[pollBacktestProgress] 任务${data.status}，停止轮询`);
           isRunning = false;
           return;

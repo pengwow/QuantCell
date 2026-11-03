@@ -24,6 +24,7 @@ from typing import Any
 import pandas as pd
 
 from backtest import stop_control
+from backtest.progress_tracker import get_progress_tracker
 from backtest.result_analysis import ResultAnalyzer
 
 
@@ -128,38 +129,51 @@ class BacktestService:
 
         crypto_type = config.get("market", "spot")
 
-        def _on_download(p: DownloadProgress) -> None:
-            if progress_tracker:
-                progress_tracker.update_progress(
-                    task_id=str(task_id),
-                    stage="data_prep",
-                    data={
-                        "progress": round(p.progress, 2),
-                        "status": "running",
-                        "message": f"检测到数据缺失，正在自动下载: {p.symbol} {p.interval}",
-                    },
-                )
+        download_pairs = [
+            (symbol, interval) for symbol in task.get("symbols", []) for interval in task.get("timeframes") or ["1h"]
+        ]
+        total_downloads = len(download_pairs)
+        # 进度游标：回调要把「当前品种段内 0→100」折进全局区间
+        # [idx/N, (idx+1)/N]。若直接透传 p.progress，下一个品种开跑时会把
+        # 数据准备进度条打回 0%，总体进度随之回退到历史值。
+        download_cursor = {"idx": 0}
 
-        for symbol in task.get("symbols", []):
-            for interval in task.get("timeframes") or ["1h"]:
-                try:
-                    # 每品种新实例：ensure_data_complete 的回调是累积注册，
-                    # 复用会让后续品种的进度被重复上报
-                    downloader = BacktestDataDownloader()
-                    success, result = downloader.ensure_data_complete(
-                        symbol=symbol,
-                        interval=interval,
-                        start_time=start_time,
-                        end_time=end_time,
-                        crypto_type=crypto_type,
-                        progress_callback=_on_download,
+        def _on_download(p: DownloadProgress) -> None:
+            if not progress_tracker:
+                return
+            idx = download_cursor["idx"]
+            download_pct = (idx + p.progress / 100) / total_downloads * 100 if total_downloads else p.progress
+            progress_tracker.update_progress(
+                task_id=str(task_id),
+                stage="data_prep",
+                data={
+                    "progress": round(download_pct, 2),
+                    "status": "running",
+                    "message": f"检测到数据缺失，正在自动下载: {p.symbol} {p.interval}",
+                },
+            )
+
+        for idx in range(total_downloads):
+            symbol, interval = download_pairs[idx]
+            download_cursor["idx"] = idx
+            try:
+                # 每品种新实例：ensure_data_complete 的回调是累积注册，
+                # 复用会让后续品种的进度被重复上报
+                downloader = BacktestDataDownloader()
+                success, result = downloader.ensure_data_complete(
+                    symbol=symbol,
+                    interval=interval,
+                    start_time=start_time,
+                    end_time=end_time,
+                    crypto_type=crypto_type,
+                    progress_callback=_on_download,
+                )
+                if not success:
+                    self.logger.warning(
+                        f"[{symbol}] 自动下载后数据仍不完整（覆盖率 {result.coverage_percent:.2f}%），按现有数据继续"
                     )
-                    if not success:
-                        self.logger.warning(
-                            f"[{symbol}] 自动下载后数据仍不完整（覆盖率 {result.coverage_percent:.2f}%），按现有数据继续"
-                        )
-                except Exception as e:
-                    self.logger.warning(f"[{symbol}] 自动下载异常，按现有数据继续回测: {e}")
+            except Exception as e:
+                self.logger.warning(f"[{symbol}] 自动下载异常，按现有数据继续回测: {e}")
 
     def run_backtest(self, task_id: Any, progress_tracker=None) -> dict[str, Any]:
         """
@@ -228,9 +242,16 @@ class BacktestService:
 
             service = EventDrivenBacktestService(data_provider)
 
-            # 引擎每开始一个品种回调一次，把 0/N → (N-1)/N 的真实进度
-            # 写入 tracker；跑完后的 100% 仍由下方统一更新
+            # 引擎每开始一个品种回调一次（已完成品种数, 品种总数, 当前品种）。
+            # 除写入 tracker 外还要更新游标，供 _on_bar_progress 把当前品种的
+            # bar 段内进度折叠到 [done, done+1)/品种总数 的全局执行进度区间，
+            # 避免下一个品种开跑时执行进度从上一品种的 100% 被打回 0%。
+            symbol_cursor = {"done": 0, "total": 0, "symbol": ""}
+
             def _on_symbol_progress(done: int, total: int, symbol: str) -> None:
+                symbol_cursor["done"] = done
+                symbol_cursor["total"] = total
+                symbol_cursor["symbol"] = symbol
                 if not progress_tracker or total <= 0:
                     return
                 progress_tracker.update_progress(
@@ -247,21 +268,23 @@ class BacktestService:
                 )
 
             # axon_quant kernel 在 load_frames 先报 (0, total)，之后每帧回调一次
-            # (current, total)。单品种回测总进度 = bar 百分比；多品种时每品种独立 run，各自 0→100%，
-            # 所以 _on_symbol_progress 和 _on_bar_progress 是两个维度，后者更细。
-            # 这里直接把 bar 百分比当 execution 阶段进度写入；如果多品种各自清零，
-            # 前端看到的是「当前品种内的 bar 进度」，够直观。
+            # (current, total)。单品种回测：品种总数=1，执行进度 = bar 百分比，
+            # 与原口径一致；多品种轮流跑独立内核、各品种 bar 数各自 0→100%，
+            # 这里按品种区间累加成全局执行进度，逐 bar 推进且品种切换不回退。
             def _on_bar_progress(current: int, total: int) -> None:
                 if not progress_tracker or total <= 0:
                     return
-                bar_pct = round(current / total * 100, 2)
+                done_syms = symbol_cursor["done"]
+                total_syms = symbol_cursor["total"]
+                bar_frac = current / total
+                exec_pct = (done_syms + bar_frac) / total_syms * 100 if total_syms > 0 else bar_frac * 100
                 progress_tracker.update_progress(
                     task_id=str(task_id),
                     stage="execution",
                     data={
-                        "progress": bar_pct,
+                        "progress": round(exec_pct, 2),
                         "status": "running",
-                        "message": f"执行中: {current}/{total} bars ({bar_pct}%)",
+                        "message": f"执行中: {symbol_cursor['symbol']} {current}/{total} bars",
                     },
                 )
 
@@ -361,6 +384,9 @@ class BacktestService:
             raise
 
         finally:
+            # 先唤醒可能正在等待终止确认的 stop 端点，再清理令牌注册表，
+            # 顺序保证 cancel_and_wait 不会漏掉退出事件
+            stop_control.notify_exit(task_id)
             stop_control.pop(task_id)
 
     def get_result(self, result_id: Any) -> dict | None:
@@ -1064,15 +1090,23 @@ class BacktestService:
             task_id = backtest_id
         return self.delete_task(task_id)
 
-    def stop_backtest(self, task_id: str) -> dict[str, Any]:
+    def stop_backtest(self, task_id: str, confirm_timeout: float = 8.0) -> dict[str, Any]:
         """
         终止回测任务
 
+        置停后同步等待执行线程退出确认（限时 confirm_timeout），给前端明确的
+        「终止成功 / 超时强制终止」反馈。daemon 线程无法被安全强杀（见
+        stop_control 模块注释）：超时的强制终止 = 任务记录已置 stopped + 取消
+        令牌已置位，引擎在下一品种边界/收尾点自动退出，后续结果写入被竞态
+        防护挡住。
+
         Args:
             task_id: 任务ID
+            confirm_timeout: 等待执行线程退出确认的秒数（须小于前端 axios 30s 超时）
 
         Returns:
-            dict: 终止结果
+            dict: 终止结果，status ∈ success（线程确认退出）/ forced（超时，
+            已强制标记终止）/ error
         """
         try:
             numeric_id = int(task_id) if task_id.isdigit() else task_id
@@ -1086,10 +1120,22 @@ class BacktestService:
         if task.get("status") not in ("running", "pending"):
             return {"status": "error", "message": "回测任务不在运行中"}
 
+        # 立即落盘 stopped，让列表/详情马上呈现终止态；completed 竞态防护由执行侧处理
         self._update_task_status(numeric_id, "stopped")
-        # 向执行线程投递协作式取消令牌：下一品种边界生效（线程内注册表随执行线程消亡）
-        stop_control.cancel(numeric_id)
-        return {"status": "success", "message": "回测已终止"}
+        # 进度记录必须与任务表同步置为 stopped 终态：/progress 是前端轮询的
+        # 数据源，只置任务表时进度记录仍为 running，前端轮询收不到任何终止
+        # 信号，会一直保持运行态并持续刷新进度（终止后进度条仍在更新的根因）。
+        # update_progress 的 key 是创建进度时的原始 task_id 字符串
+        get_progress_tracker().update_progress(task_id, "overall", {"status": "stopped"})
+        # 投递协作式取消令牌并等待执行线程退出确认：下一品种边界生效，
+        # 线程退出（无论取消收尾还是跑完）即唤醒等待器
+        confirmed = stop_control.cancel_and_wait(numeric_id, timeout=confirm_timeout)
+        if confirmed:
+            return {"status": "success", "message": "回测已终止"}
+        return {
+            "status": "forced",
+            "message": "终止超时：当前品种无法立即中断，已强制标记终止，引擎将在品种边界自动退出",
+        }
 
     def analyze_backtest(self, backtest_id: str) -> dict[str, Any]:
         """

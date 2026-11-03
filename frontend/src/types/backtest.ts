@@ -258,8 +258,8 @@ export interface BacktestSymbols {
 // 进度状态类型
 export type StepStatus = 'wait' | 'process' | 'finish' | 'error';
 
-// 阶段状态类型
-export type StageStatus = 'pending' | 'running' | 'completed' | 'failed';
+// 阶段状态类型（stopped = 用户终止后的终态，与后端 StageStatus.STOPPED 对齐）
+export type StageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
 
 // 当前阶段类型
 export type CurrentStage = 'data_prep' | 'execution' | 'analysis' | 'completed';
