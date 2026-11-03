@@ -58,7 +58,10 @@ class SandboxRuntimeError(SandboxError):
 @dataclass(frozen=True)
 class SandboxLimits:
     timeout_seconds: float = 10.0
-    cpu_seconds: int = 3
+    # 实测校准：RLIMIT_CPU 从进程启动起累计，外置盘 + 安装侧安全扫描下
+    # 子进程导入 numpy/pandas 本身就吃 ~3.1s CPU（M4 上稳定复现），
+    # 3s 配额在合法因子运行前就被 SIGXCPU 清零，与 test_sandbox.py 的放宽口径（10s）已一致。
+    cpu_seconds: int = 10
     # Task1（macOS arm64 + Python 3.14）实测校准，定稿 400MB：
     # - 正常因子子进程峰值物理内存约 170MiB（含 numpy/pandas 导入与计算），
     #   400MB 下 test_valid_code_returns_series_per_symbol 等全部正常用例通过，余量约 230MB；
