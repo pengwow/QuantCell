@@ -660,10 +660,18 @@ async def log_stream_sse(
             async for new_log in reader.watch_logs(
                 worker_id=str(worker_id),
                 poll_interval=0.2,
+                idle_heartbeat_s=20.0,
             ):
                 if await request.is_disconnected():
                     logger.info(f"SSE 日志流: 客户端已断开 (log #{event_id})")
                     break
+
+                # 空窗心跳哨兵：worker 停止打日志时仍周期性下发事件，前端据此
+                # 区分「流活着但没日志」与「流已死」，也能刷新中间层空闲超时。
+                # 前端未监听 heartbeat 具名事件时自动忽略，无兼容影响。
+                if new_log is None:
+                    yield format_sse_event(event="heartbeat", data_str='{"status": "alive"}')
+                    continue
 
                 event_id += 1
                 yield format_sse_event(

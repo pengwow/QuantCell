@@ -29,6 +29,7 @@ import json
 import os
 import re
 import threading
+import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import (
@@ -753,12 +754,25 @@ class LogFileReader:
         worker_id: str,
         callback: Callable[[dict], None] | None = None,
         poll_interval: float = 0.1,
-    ) -> AsyncIterator[dict]:
+        idle_heartbeat_s: float | None = None,
+    ) -> AsyncIterator[dict | None]:
+        """增量监控 worker 日志文件（只读新增行，历史回放走 tail_logs）。
+
+        Args:
+            idle_heartbeat_s: 空窗心跳间隔（秒）。None（默认）保持旧行为：
+                空窗时纯挂起不产出；设为正数时空窗超过该间隔产出一次 None
+                哨兵，消费方（SSE 流）据此发心跳事件，让面板能区分
+                「流活着但没日志」与「流已死」，同时刷新中间层空闲超时。
+                哨兵为 None 而非 dict：与真实日志条目天然可区分，且不会
+                被误当条目透传给回调。
+        """
         main_log_file = os.path.join(self.log_directory, f"worker_{worker_id}.log")
         self._detect_timezone(worker_id)
         file_position = os.path.getsize(main_log_file) if os.path.exists(main_log_file) else 0
+        idle_since = time.monotonic()
         while True:
             try:
+                yielded = False
                 if os.path.exists(main_log_file):
                     current_size = os.path.getsize(main_log_file)
                     if current_size < file_position:
@@ -779,8 +793,14 @@ class LogFileReader:
                                     except Exception as e:
                                         logger.error(f"日志回调错误: {e}")
                                 yield entry
+                                yielded = True
             except Exception as e:
                 logger.error(f"监控日志文件错误: {e}")
+            if yielded:
+                idle_since = time.monotonic()
+            elif idle_heartbeat_s is not None and time.monotonic() - idle_since >= idle_heartbeat_s:
+                yield None
+                idle_since = time.monotonic()
             await asyncio.sleep(poll_interval)
 
     def clear_logs(self, worker_id: str, before_days: int | None = None) -> int:
