@@ -1,6 +1,6 @@
 /**
  * 决策详情抽屉：按 (_seq, fingerprint) 定位单条决策录制行，展示完整录制内容。
- * 数据源：GET /backtest/{id}/decisions/detail（按 JSONL 行号读行，fp 校验防错位）。
+ * 数据源由 fetchDetail 注入（回测 / Worker 决策详情端点，按 JSONL 行号读行，fp 校验防错位）。
  * 区块与 spec 4.4 对应：
  *   ① 最终决策 = decision 本体；② 市场快照 / ③ Prompt 输入 = 录制 state/questions；
  *   ④ 模型输出 = s1_raw / s2_raw / s2_thinking（旧任务无这些字段，显式「未录制」占位）。
@@ -20,7 +20,6 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { backtestApi } from '../../api';
 import type { DecisionDetailRecord } from '../../types/backtest';
 
 /** 轻列表行中参与定位的子集（由详情页表格传入） */
@@ -138,12 +137,13 @@ const ProbBar = ({ probs }: { probs: Record<string, unknown> }) => {
 };
 
 interface DecisionDetailDrawerProps {
-  backtestId: string;
+  /** 按 (seq, fingerprint) 取单条录制详情：回测/Worker 两处注入各自 API */
+  fetchDetail: (seq: number, fingerprint: string) => Promise<DecisionDetailRecord>;
   record: DrawerRecord | null; // null = 关闭
   onClose: () => void;
 }
 
-export default function DecisionDetailDrawer({ backtestId, record, onClose }: DecisionDetailDrawerProps) {
+export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: DecisionDetailDrawerProps) {
   const [detail, setDetail] = useState<DecisionDetailRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -151,6 +151,10 @@ export default function DecisionDetailDrawer({ backtestId, record, onClose }: De
   const [qSearch, setQSearch] = useState('');
   // per (seq,fingerprint) 缓存：同一弹窗反复打开不重复请求
   const cache = useRef(new Map<string, DecisionDetailRecord>());
+  // fetchDetail 每次渲染都是新闭包，不能进 effect 依赖（否则重复请求）；
+  // 用 ref 保存最新实现，effect 只跟随 record 变化
+  const fetchRef = useRef(fetchDetail);
+  fetchRef.current = fetchDetail;
 
   useEffect(() => {
     if (!record || record._seq == null) return;
@@ -165,15 +169,14 @@ export default function DecisionDetailDrawer({ backtestId, record, onClose }: De
     setLoading(true);
     setError('');
     setDetail(null);
-    backtestApi
-      .getDecisionDetail(backtestId, record._seq, fp)
+    fetchRef.current(record._seq, fp)
       .then((d) => {
         cache.current.set(key, d);
         setDetail(d);
       })
       .catch((e) => setError(e?.message || String(e)))
       .finally(() => setLoading(false));
-  }, [record, backtestId]);
+  }, [record]);
 
   const decision = (detail?.decision || {}) as Record<string, unknown>;
   const probs = (decision.probabilities || {}) as Record<string, unknown>;

@@ -133,6 +133,23 @@ export interface BacktestDetailData {
   created_at: string;
 }
 
+/** cascade 决策轻列表行（回测 / Worker 决策报告共用；后端 decisions 字段契约） */
+export interface CascadeDecisionRecord {
+  _seq?: number;          // 录制 JSONL 原始行号，详情弹窗定位键；旧任务无此字段不显示详情按钮
+  fingerprint?: string;
+  action: string;         // buy / sell / hold
+  confidence: number;     // 0.0 ~ 1.0
+  probabilities?: Record<string, number>;
+  source: string;         // sdm_direct / fallback
+  fallback_reason?: string;
+  sdm_usage?: unknown;
+  sub_signals?: Record<string, unknown>;
+  _ts?: string;           // ISO 8601 录制时间
+  _s1_model?: string;
+  _s2_model?: string;
+  _decider?: string;      // 录制侧标注的实际决策者（S1:xxx / S2:xxx / 规则 / 回放）
+}
+
 /** 决策录制行完整结构（与 backend/strategy/decision_recording.py 的 JSONL 契约对应） */
 export interface DecisionDetailRecord {
   fingerprint: string;
