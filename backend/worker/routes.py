@@ -16,12 +16,14 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     HTTPException,
+    Path,
     Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
 )
 
+from strategy.decision_recording import list_decisions_from_file, load_record_by_seq, worker_replay_path
 from utils.auth import authenticate_request, get_current_user
 from utils.logger import LogType, get_logger
 from worker.state import connection_manager, strategy_registry
@@ -239,6 +241,65 @@ async def get_worker_state(
     logger.debug(f"获取Worker {worker_id} 状态: {state.status}")
 
     return schemas.ApiResponse(code=0, message="success", data=result)
+
+
+@router.get("/{worker_id}/decisions", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("获取Worker决策列表")
+async def get_worker_decisions(
+    worker_id: int,
+    limit: int = Query(500, ge=1, le=2000, description="最多返回条数（按时间倒序取最近 N 条）"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取该 Worker 的 cascade 决策轻列表（录制文件 worker_{id}.jsonl）。
+
+    - 数据源为 paper/testnet 运行期录制，按时间倒序返回最近 limit 条
+    - 非 cascade 策略、或该 Worker 从未启动过 → decisions 为空列表
+    - P2 之前启动的旧录制文件（{strategy}_{mode}_{ts}.jsonl）不读取（不迁移）
+    """
+    if crud.get_worker(db, worker_id) is None:
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} 不存在")
+
+    # 录制为 append-only，尾部 max_rows=limit 行即最新；list_decisions_from_file 内部
+    # 用 deque(maxlen=limit) 只留尾部，内存 O(limit)，单次遍历同时统计 total（无需全量排序）
+    rows, total = list_decisions_from_file(worker_replay_path(worker_id), max_rows=limit, return_total=True)
+    rows.reverse()  # 最新在前（deque 保留的是文件升序尾段，倒序即时间倒序）
+    return schemas.ApiResponse(
+        code=0,
+        message="ok",
+        data={"worker_id": worker_id, "total": total, "decisions": rows},
+    )
+
+
+@router.get("/{worker_id}/decisions/detail", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("获取Worker单条决策详情")
+async def get_worker_decision_detail(
+    worker_id: int,
+    seq: int = Query(..., ge=0, description="录制 JSONL 的原始行号（0-based）"),
+    fingerprint: str = Query(..., min_length=64, max_length=64, description="录制行指纹，防行号错位"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """按 (_seq, fingerprint) 返回完整录制行（含 state/questions/meta/s1_raw 等）。"""
+    if crud.get_worker(db, worker_id) is None:
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} 不存在")
+
+    path = worker_replay_path(worker_id)
+    if not path.is_file():
+        return schemas.ApiResponse(
+            code=1,
+            message=f"决策录制文件不存在（Worker {worker_id} 未运行过 cascade 策略）",
+            data={},
+        )
+
+    record = load_record_by_seq(path, seq, fingerprint)
+    if record is None:
+        return schemas.ApiResponse(
+            code=1,
+            message=f"决策详情未命中：seq={seq} 与 fingerprint 不匹配或行超出范围",
+            data={},
+        )
+    return schemas.ApiResponse(code=0, message="ok", data=record)
 
 
 @router.put("/{worker_id}", response_model=schemas.ApiResponse)
