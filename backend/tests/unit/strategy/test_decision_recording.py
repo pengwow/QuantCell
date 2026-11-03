@@ -10,6 +10,7 @@ from strategy.decision_recording import (
     default_replay_dir,
     load_record_by_seq,
     request_fingerprint,
+    worker_replay_path,
 )
 
 STATE = {"features": {"sma5_vs_sma20": 0.02, "ret_1": 0.01}, "price": 100.0}
@@ -278,6 +279,14 @@ def test_decider_is_tagged_on_record(tmp_path):
 def test_default_replay_dir_honours_env(monkeypatch, tmp_path):
     monkeypatch.setenv("QUANTCELL_DECISION_REPLAY_DIR", str(tmp_path / "x"))
     assert default_replay_dir() == tmp_path / "x"
+
+
+def test_worker_replay_path_names_by_worker(tmp_path, monkeypatch):
+    """paper/live 录制文件名以 worker 为键：写入侧与端点读取侧的唯一契约"""
+    monkeypatch.setenv("QUANTCELL_DECISION_REPLAY_DIR", str(tmp_path))
+    assert worker_replay_path(7) == tmp_path / "worker" / "worker_7.jsonl"
+    # int 字符串也归一：worker_id 从 query/路由来可能是 str
+    assert worker_replay_path("12") == tmp_path / "worker" / "worker_12.jsonl"
 
 
 def _write_record_file(path, fp="a" * 64):
