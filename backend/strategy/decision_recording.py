@@ -47,6 +47,17 @@ def default_replay_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "data" / "decision_replay"
 
 
+def worker_replay_path(worker_id: int | str) -> Path:
+    """paper/testnet 决策录制文件路径（按 worker 命名，放在 worker/ 子目录）。
+
+    单一真相源：strategy_manager 启动策略时写入、worker 决策端点读取，
+    两侧都走本函数，避免文件名口径漂移。回测录制放在目录根（{task_id}.jsonl，
+    uuid），与 worker/ 子目录物理隔离，目录膨胀后排查更清晰。同一 worker
+    重启后继续追加同一文件（RecordingCascadeLayer 按 fingerprint 去重）。
+    """
+    return default_replay_dir() / "worker" / f"worker_{int(worker_id)}.jsonl"
+
+
 def _iso8601_ns() -> str:
     """ISO 8601 纳秒精度时间戳（9 位小数，UTC）"""
     ns = time.time_ns()

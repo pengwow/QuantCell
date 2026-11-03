@@ -25,6 +25,7 @@ from typing import Any
 
 from axon_quant import worker as axon_worker
 
+from strategy.decision_recording import default_replay_dir, worker_replay_path
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -444,6 +445,18 @@ class StrategyManager:
             if rule_mode == "live":
                 msg = f"worker {worker_id} 配置了主网实盘（live），主网闸门尚未开放，请先使用 testnet 模式"
                 raise ValueError(msg)
+
+            # paper/live 录制文件按 worker 命名、放在 worker/ 子目录：loader 缺省
+            # {strategy}_{mode}_{ts}.jsonl 每次启动换名，Worker 决策页无法定位。
+            # 仅 cascade 策略需要录制（rule/RL 不读该键），条件注入避免污染非
+            # cascade 的策略参数。replay_file 取相对 replay_root 的路径
+            # （worker/worker_{id}.jsonl），与 worker_replay_path 单源一致；
+            # 用户显式 replay_file 优先，setdefault 不覆盖。
+            if strategy.name == "cascade_signal":
+                params.setdefault(
+                    "replay_file",
+                    worker_replay_path(worker_id).relative_to(default_replay_dir()).as_posix(),
+                )
 
             # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
             # paper/live 的 LLM 策略在这里被包成 RecordingProvider（回测则由
