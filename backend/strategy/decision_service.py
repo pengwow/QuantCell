@@ -224,7 +224,14 @@ def build_cascade_layer(
     # 录制落来源标注：本地适配层与官方 laya-serve 的 confidence 语义不同，
     # 标注后新旧录制可分辨，避免跨来源比较门限分布。
     # s2_model 仅在装配了生成式兜底时写入——录制侧据此区分「S2 兜底」与「规则兜底」
-    meta = {"s1_api_host": one.get("api_host"), "s1_model": one.get("model")}
+    # 阈值随 meta 落盘：决策详情页据此画概率条参考线、显示置信度差值；
+    # 用户后续改策略参数不影响已录制决策的阈值展示（历史口径以录制为准）
+    meta = {
+        "s1_api_host": one.get("api_host"),
+        "s1_model": one.get("model"),
+        "open_threshold": open_threshold,
+        "hold_threshold": hold_threshold,
+    }
     if two is not None:
         meta["s2_model"] = two.get("model")
     wrapped = RecordingCascadeLayer(

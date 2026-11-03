@@ -161,3 +161,15 @@ def test_decision_replay_skips_assembly(monkeypatch, tmp_path):
     replay_file = tmp_path / "d.jsonl"
     replay_file.write_text("", encoding="utf-8")
     assert svc.build_cascade_layer({"decision_replay": str(replay_file)}, run_mode="backtest") is None
+
+
+def test_meta_carries_thresholds(monkeypatch, tmp_path):
+    """录制 meta 落 open/hold 阈值：前端概率条参考线与置信度差值的数据源"""
+    _patch_providers(monkeypatch, [LAYA, GEN])
+    layer = svc.build_cascade_layer(
+        {"s1_mode": "stub", "open_threshold": 0.75, "hold_threshold": 0.60},
+        run_mode="backtest",
+        replay_dir=tmp_path,
+    )
+    assert layer._meta["open_threshold"] == 0.75
+    assert layer._meta["hold_threshold"] == 0.60
