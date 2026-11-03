@@ -69,6 +69,27 @@ def _parse_line(line: str) -> dict | None:
     return record
 
 
+def load_record_by_seq(path: str | Path, seq: int, fingerprint: str) -> dict | None:
+    """按行号取录制行并校验 fingerprint；未命中（越界/fingerprint 不匹配/脏行）返回 None。
+
+    ponytail: 逐行流式扫描、命中即停（内存 O(单行)，万行毫秒级），不建索引文件；
+    列表条目到详情靠 (_seq, fingerprint) 双保险，行内容错位会被 fingerprint 拦住。
+    注意保持流式：P1 后原始输出让单文件膨胀至几十 MB，全文件 read_text 会放大单次请求内存。
+    """
+    if seq < 0:
+        return None
+    with Path(path).open(encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            if i > seq:
+                return None
+            if i == seq:
+                record = _parse_line(line)
+                if record is None or record.get("fingerprint") != fingerprint:
+                    return None
+                return record
+    return None
+
+
 class DecisionReplayTable:
     """fingerprint → 录制 decision 的只读查表（同指纹首条为准）。"""
 

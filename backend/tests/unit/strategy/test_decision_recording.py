@@ -8,6 +8,7 @@ from strategy.decision_recording import (
     DecisionReplayTable,
     RecordingCascadeLayer,
     default_replay_dir,
+    load_record_by_seq,
     request_fingerprint,
 )
 
@@ -277,3 +278,52 @@ def test_decider_is_tagged_on_record(tmp_path):
 def test_default_replay_dir_honours_env(monkeypatch, tmp_path):
     monkeypatch.setenv("QUANTCELL_DECISION_REPLAY_DIR", str(tmp_path / "x"))
     assert default_replay_dir() == tmp_path / "x"
+
+
+def _write_record_file(path, fp="a" * 64):
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": fp,
+                "decision": {
+                    "action": "hold",
+                    "source": "fallback",
+                    "confidence": 0.5,
+                    "fallback_reason": "low_confidence: buy: 0.5",
+                },
+                "state": {"price": 1.0},
+                "questions": {"q1": "x"},
+                "ts": "2026-01-01T00:00:00.000000000Z",
+                "_decider": "规则",
+            }
+        )
+        + "\n"
+        + "broken line\n",
+        encoding="utf-8",
+    )
+
+
+def test_load_record_by_seq_hit(tmp_path):
+    path = tmp_path / "r.jsonl"
+    _write_record_file(path)
+    rec = load_record_by_seq(path, 0, "a" * 64)
+    assert rec is not None
+    assert rec["decision"]["action"] == "hold"
+    assert rec["state"] == {"price": 1.0}
+
+
+def test_load_record_by_seq_out_of_range(tmp_path):
+    path = tmp_path / "r.jsonl"
+    _write_record_file(path)
+    assert load_record_by_seq(path, 7, "a" * 64) is None
+
+
+def test_load_record_by_seq_fingerprint_mismatch(tmp_path):
+    path = tmp_path / "r.jsonl"
+    _write_record_file(path)
+    assert load_record_by_seq(path, 0, "e" * 64) is None
+
+
+def test_load_record_by_seq_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_record_by_seq(tmp_path / "nope.jsonl", 0, "a" * 64)
