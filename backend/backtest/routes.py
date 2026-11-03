@@ -26,9 +26,10 @@
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import get_current_user
@@ -783,6 +784,40 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
     except Exception as e:
         logger.error(f"获取回测结果详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{backtest_id}/decisions/detail",
+    response_model=ApiResponse,
+    summary="获取单条决策录制详情",
+    description="按录制 JSONL 的原始行号 seq + 行内 fingerprint 双重校验定位录制行，"
+    "返回完整内容（decision/state/questions/meta 与 S1/S2 原始输出）。\n"
+    "_seq 是排序前的文件行号，与轻列表 decisions[] 的 _seq 一一对应；"
+    "录制文件按 task_id 命名，与详情页任务一一对应。逐行流式扫描命中即停"
+    "（内存 O(单行)，万行级毫秒），不建索引文件。",
+)
+def get_decision_detail(
+    backtest_id: str = Path(..., pattern=r"^[A-Za-z0-9_-]+$"),  # 白名单拒绝路径分隔符，防目录穿越
+    seq: int = Query(..., ge=0, description="录制 JSONL 的原始行号（0-based，排序前）"),
+    fingerprint: str = Query(..., min_length=64, max_length=64, description="决策指纹，与行内录制值一致才返回"),
+) -> ApiResponse:
+    # 文件即事实来源：任务不存在/旧版本任务没有按 task_id 命名的录制文件，
+    # 统一以「文件不存在」回复，不引入对任务库的额外查询
+    path = default_replay_dir() / f"{backtest_id}.jsonl"
+    if not path.is_file():
+        return ApiResponse(
+            code=1,
+            message=f"决策录制文件不存在（任务 {backtest_id} 可能由旧版本引擎生成或已被清理）",
+            data={},
+        )
+    record = load_record_by_seq(path, seq, fingerprint)
+    if record is None:
+        return ApiResponse(
+            code=1,
+            message=f"决策详情未命中：seq={seq} 与 fingerprint 不匹配或行超出范围",
+            data={},
+        )
+    return ApiResponse(code=0, message="ok", data=record)
 
 
 @router.get(
