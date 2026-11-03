@@ -33,7 +33,7 @@ import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from './D
 import MetricCard from '../../components/MetricCard';
 import { formatMetricValue, visibleMetricCards } from './metricCards';
 import TradeTable, { type Trade } from '../../components/TradeTable';
-import { buildLeverageMap, type EffectiveMarginSpec } from '../../types/backtest';
+import { buildLeverageMap, type CascadeDecisionRecord, type EffectiveMarginSpec } from '../../types/backtest';
 import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
 import { useQuantColors } from '@/utils/colors';
@@ -96,23 +96,6 @@ interface BacktestFactors {
   time_series: FactorTimeSeries;
   trade_factors: Array<Record<string, number | string | null>>;
   attribution: Record<string, FactorAttribution>;
-}
-
-// cascade 策略决策记录（后端 decisions 字段）
-interface CascadeDecisionRecord {
-  _seq?: number;          // 录制 JSONL 原始行号，详情弹窗定位键；旧任务无此字段不显示详情按钮
-  fingerprint?: string;
-  action: string;         // buy / sell / hold
-  confidence: number;     // 0.0 ~ 1.0
-  probabilities?: Record<string, number>;
-  source: string;         // sdm_direct / fallback
-  fallback_reason?: string;
-  sdm_usage?: unknown;
-  sub_signals?: Record<string, unknown>;
-  _ts?: string;           // ISO 8601 录制时间
-  _s1_model?: string;
-  _s2_model?: string;
-  _decider?: string; // 录制侧标注的实际决策者（S1:xxx / S2:xxx / 规则 / 回放）；旧录制缺失
 }
 
 // 后端实际返回的数据结构
@@ -972,7 +955,7 @@ const BacktestDetail = () => {
           );
         })()}
         <DecisionDetailDrawer
-          backtestId={backtestId!}
+          fetchDetail={(seq, fp) => backtestApi.getDecisionDetail(backtestId!, seq, fp)}
           record={detailRecord}
           onClose={() => setDetailRecord(null)}
         />

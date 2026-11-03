@@ -45,6 +45,7 @@ import type {
   RiskControlUpsert,
   RiskControlOut,
 } from '../types/worker';
+import type { CascadeDecisionRecord, DecisionDetailRecord } from '../types/backtest';
 
 // ============================================
 // Worker CRUD API
@@ -256,6 +257,30 @@ export const getWorkerTradesGrouped = (
   params?: GroupedTradeQueryParams
 ): Promise<GroupedTradeResponse> => {
   return apiRequest.get(`/workers/${workerId}/monitoring/trades/grouped`, params);
+};
+
+// ============================================
+// Worker 决策（paper/testnet 运行录制）
+// ============================================
+
+/**
+ * 获取 Worker 决策轻列表（按时间倒序，最近 limit 条）。
+ * 注意：apiRequest 拦截器已解包 ApiResponse.data，返回值即内部数据对象（与 getWorkerTrades 同惯例）。
+ */
+export const getWorkerDecisions = (
+  workerId: number,
+  limit = 500
+): Promise<{ worker_id: number; total: number; decisions: CascadeDecisionRecord[] }> => {
+  return apiRequest.get(`/workers/${workerId}/decisions`, { limit });
+};
+
+/** 获取单条决策详情（按录制行号 + 指纹定位） */
+export const getWorkerDecisionDetail = (
+  workerId: number,
+  seq: number,
+  fingerprint: string
+): Promise<DecisionDetailRecord> => {
+  return apiRequest.get(`/workers/${workerId}/decisions/detail`, { seq, fingerprint });
 };
 
 // ============================================
