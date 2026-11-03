@@ -715,7 +715,7 @@ class EventDrivenBacktestService:
                 continue
 
             # 逐行读 JSONL，解析后加入 decisions 列表
-            for line in p.read_text(encoding="utf-8").splitlines():
+            for line_no, line in enumerate(p.read_text(encoding="utf-8").splitlines()):
                 line = line.strip()
                 if not line:
                     continue
@@ -728,11 +728,14 @@ class EventDrivenBacktestService:
                         continue
                     # 扁平化：decision 本体 + 录制元数据
                     flat = dict(decision)
+                    flat["_seq"] = line_no
+                    flat["fingerprint"] = record.get("fingerprint")
                     flat["_ts"] = record.get("ts")
                     flat["_decider"] = record.get("_decider")
                     meta = record.get("meta")
                     if isinstance(meta, dict):
                         flat["_s1_model"] = meta.get("s1_model")
+                        flat["_s2_model"] = meta.get("s2_model")
                     all_decisions.append(flat)
                 except Exception:
                     # 单行脏数据跳过，不中断整个回测
