@@ -105,21 +105,29 @@ const KVTable = ({ data, search }: { data: Record<string, unknown>; search: stri
   );
 };
 
-/** 三键概率分布横条（buy 绿 / sell 红 / hold 灰） */
-const ProbBar = ({ probs }: { probs: Record<string, unknown> }) => {
+/** 三键概率分布横条（buy 绿 / sell 红 / hold 灰）+ 阈值参考线 */
+const ProbBar = ({
+  probs,
+  thresholds,
+}: {
+  probs: Record<string, unknown>;
+  thresholds?: { open?: number; hold?: number };
+}) => {
   const colors: Record<string, string> = { buy: '#52c41a', sell: '#ff4d4f', hold: '#8c8c8c' };
   const labels: Record<string, string> = { buy: '买入', sell: '卖出', hold: '持有' };
   return (
     <div style={{ display: 'flex', gap: 16 }}>
       {['buy', 'sell', 'hold'].map((k) => {
         const p = typeof probs[k] === 'number' ? (probs[k] as number) : 0;
+        // Rust 侧门控口径：buy/sell 用 open_threshold，hold 用 hold_threshold
+        const th = k === 'hold' ? thresholds?.hold : thresholds?.open;
         return (
           <div key={k} style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
               <span>{labels[k]}</span>
               <span style={{ color: colors[k] }}>{(p * 100).toFixed(1)}%</span>
             </div>
-            <div style={{ height: 6, background: 'rgba(128,128,128,0.15)', borderRadius: 3, marginTop: 4 }}>
+            <div style={{ position: 'relative', height: 6, background: 'rgba(128,128,128,0.15)', borderRadius: 3, marginTop: 4 }}>
               <div
                 style={{
                   width: `${Math.max(0, Math.min(100, p * 100))}%`,
@@ -128,6 +136,22 @@ const ProbBar = ({ probs }: { probs: Record<string, unknown> }) => {
                   borderRadius: 3,
                 }}
               />
+              {typeof th === 'number' && (
+                <Tooltip title={`${labels[k]}阈值 ${(th * 100).toFixed(1)}%（meta.open_threshold/hold_threshold）`}>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: `${Math.min(100, Math.max(0, th * 100))}%`,
+                      top: -2,
+                      bottom: -2,
+                      width: 2,
+                      background: '#faad14',
+                      transform: 'translateX(-1px)',
+                      cursor: 'help',
+                    }}
+                  />
+                </Tooltip>
+              )}
             </div>
           </div>
         );
@@ -182,6 +206,15 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
   const probs = (decision.probabilities || {}) as Record<string, unknown>;
   const subs = decision.sub_signals as Record<string, unknown> | undefined;
   const isFallback = decision.source === 'fallback';
+  const confidence = decision.confidence;
+  // 生效阈值与 Rust cascade 门控同口径；旧录制无阈值键时不画线、不显示差值
+  const thCfg = detail?.meta
+    ? {
+        open: typeof detail.meta.open_threshold === 'number' ? detail.meta.open_threshold : undefined,
+        hold: typeof detail.meta.hold_threshold === 'number' ? detail.meta.hold_threshold : undefined,
+      }
+    : undefined;
+  const effThreshold = decision.action === 'hold' ? thCfg?.hold : thCfg?.open;
 
   return (
     <Drawer
@@ -218,11 +251,17 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
                   </Space>
                   <div style={{ marginBottom: 8 }}>
                     <Typography.Text type="secondary">置信度 </Typography.Text>
-                    <Typography.Text strong>{fmtNum(decision.confidence)}</Typography.Text>
+                    <Typography.Text strong>{fmtNum(confidence)}</Typography.Text>
+                    {typeof confidence === 'number' && typeof effThreshold === 'number' && (
+                      <Typography.Text type={confidence >= effThreshold ? 'secondary' : 'warning'}>
+                        {' '}｜ 阈值 {fmtNum(effThreshold, 2)}
+                        （{confidence >= effThreshold ? '达标' : `低 ${fmtNum(effThreshold - confidence)}`}）
+                      </Typography.Text>
+                    )}
                   </div>
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>概率分布（decision.probabilities）</div>
-                    <ProbBar probs={probs} />
+                    <ProbBar probs={probs} thresholds={thCfg} />
                   </div>
                   {decision.sdm_usage ? (
                     <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 8 }}>
