@@ -199,6 +199,12 @@ class RecordingCascadeLayer:
             "ts": _iso8601_ns(),
             "_decider": self._decider_of(decision),
         }
+        # 模型原始输出由 Rust CascadeDecision 经 decision dict 带入；提到顶层游离存储，
+        # 不留在 decision —— ReplayTable 回放查表时避免把大段原文一起回灌
+        for key in ("s1_raw", "s2_raw", "s2_thinking"):
+            value = decision.pop(key, None)
+            if value:
+                record[key] = value
         if self._meta:
             record["meta"] = self._meta
         if self._writer is None:
