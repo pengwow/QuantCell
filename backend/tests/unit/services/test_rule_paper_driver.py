@@ -38,6 +38,12 @@ def test_rule_paper_driver_assembly_and_fill(monkeypatch):
     """装配期校验 → 真实引擎驱动两根已收市 K 线 → buy 决策产生成交。"""
     mgr = StrategyManager(max_workers=1)
 
+    # 测试封闭化：_load_risk_control_row 查的是共享开发库，若本机恰好有
+    # worker_id=1 的 enabled=True 行（历史手工测试遗留），三态语义会装配
+    # 引擎默认档 → risk_enabled=True，与「未配置 → 不装配」的被测分支冲突。
+    # 本测试要锁的是 params.risk 直通分支（无表行 → None），固定掉 DB 开关。
+    monkeypatch.setattr("worker.risk_config._load_risk_control_row", lambda worker_id: None)
+
     # 周期白名单：装配期直接拒绝
     with pytest.raises(ValueError, match="不支持时间周期"):
         mgr._assemble_rule_paper_driver(1, _BuyOnceStrategy(), {}, "2h", ["BTCUSDT"])
