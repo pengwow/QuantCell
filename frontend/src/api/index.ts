@@ -13,6 +13,7 @@ import type {
 } from '../pages/setting/types';
 import type { StrategyInfo } from '../types/worker';
 import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
+import type { DecisionDetailRecord } from '../types/backtest';
 
 // ============================================
 // 全局401错误处理配置
@@ -590,6 +591,15 @@ export const backtestApi = {
 
   getBacktestDetail: (backtestId: string, symbol?: string): Promise<BacktestDetailData> => {
     return apiRequest.get(`/backtest/${backtestId}`, symbol ? { symbol } : undefined);
+  },
+
+  // 决策详情：按 (_seq, fingerprint) 定位单条录制行，返回完整录制内容（决策/快照/Prompt/模型原始输出）
+  getDecisionDetail: (
+    backtestId: string,
+    seq: number,
+    fingerprint: string
+  ): Promise<DecisionDetailRecord> => {
+    return apiRequest.get(`/backtest/${backtestId}/decisions/detail`, { seq, fingerprint });
   },
 
   // 导出报告：后端生成自包含 HTML（口径与详情页一致），blob 拦截器直接返回文件数据
