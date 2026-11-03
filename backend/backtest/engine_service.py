@@ -26,6 +26,7 @@ import pandas as pd
 from backtest.backtest_loop import BacktestLoop, BacktestResult, clean_ohlcv_df
 from backtest.margin_specs import build_margin_specs
 from backtest.stop_control import BacktestCancelled
+from strategy.decision_recording import list_decisions_from_file
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -714,32 +715,7 @@ class EventDrivenBacktestService:
             if not p.is_file():
                 continue
 
-            # 逐行读 JSONL，解析后加入 decisions 列表
-            for line_no, line in enumerate(p.read_text(encoding="utf-8").splitlines()):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    import json as _json
-
-                    record = _json.loads(line)
-                    decision = record.get("decision")
-                    if not isinstance(decision, dict):
-                        continue
-                    # 扁平化：decision 本体 + 录制元数据
-                    flat = dict(decision)
-                    flat["_seq"] = line_no
-                    flat["fingerprint"] = record.get("fingerprint")
-                    flat["_ts"] = record.get("ts")
-                    flat["_decider"] = record.get("_decider")
-                    meta = record.get("meta")
-                    if isinstance(meta, dict):
-                        flat["_s1_model"] = meta.get("s1_model")
-                        flat["_s2_model"] = meta.get("s2_model")
-                    all_decisions.append(flat)
-                except Exception:
-                    # 单行脏数据跳过，不中断整个回测
-                    continue
+            all_decisions.extend(list_decisions_from_file(p))
 
         # 时间排序（录制文件是追加写，但不同 symbol 的写入顺序可能交错）
         all_decisions.sort(key=lambda r: r.get("_ts") or "")

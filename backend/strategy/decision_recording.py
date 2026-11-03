@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import time
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,55 @@ def load_record_by_seq(path: str | Path, seq: int, fingerprint: str) -> dict | N
                     return None
                 return record
     return None
+
+
+def list_decisions_from_file(
+    path: str | Path,
+    max_rows: int | None = None,
+    return_total: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
+    """读录制 JSONL 为轻列表（decision 本体 + 定位键），保持文件顺序、不排序。
+
+    max_rows 非 None 时只保留尾部最近 N 条有效决策；return_total 为 True 时
+    同次遍历返回 (rows, 有效决策总数)。_seq 始终是原始文件行号，供详情定位。
+    """
+    p = Path(path)
+    if not p.is_file():
+        return ([], 0) if return_total else []
+
+    buf: deque[dict] | None = deque(maxlen=max_rows) if max_rows is not None else None
+    rows: list[dict] = []
+    total = 0
+    with p.open(encoding="utf-8") as f:
+        for line_no, line in enumerate(f):
+            try:
+                record = _parse_line(line)
+                if record is None:
+                    continue
+                decision = record.get("decision")
+                if not isinstance(decision, dict):
+                    continue
+                flat = dict(decision)
+                flat["_seq"] = line_no
+                flat["fingerprint"] = record.get("fingerprint")
+                flat["_ts"] = record.get("ts")
+                flat["_decider"] = record.get("_decider")
+                meta = record.get("meta")
+                if isinstance(meta, dict):
+                    flat["_s1_model"] = meta.get("s1_model")
+                    flat["_s2_model"] = meta.get("s2_model")
+                if buf is None:
+                    rows.append(flat)
+                else:
+                    buf.append(flat)
+                total += 1
+            except Exception:
+                # 单行脏数据跳过，不中断整个列表读取
+                continue
+
+    if buf is not None:
+        rows = list(buf)
+    return (rows, total) if return_total else rows
 
 
 class DecisionReplayTable:
