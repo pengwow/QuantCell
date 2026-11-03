@@ -8,6 +8,7 @@ from strategy.decision_recording import (
     DecisionReplayTable,
     RecordingCascadeLayer,
     default_replay_dir,
+    list_decisions_from_file,
     load_record_by_seq,
     request_fingerprint,
     worker_replay_path,
@@ -366,3 +367,47 @@ def test_raw_outputs_hoisted_to_top_level(tmp_path):
     table = DecisionReplayTable(tmp_path / "r.jsonl")
     found = table.lookup(record["fingerprint"])
     assert found is not None and "s1_raw" not in found
+
+
+def test_list_decisions_from_file_flattens_and_skips_dirty(tmp_path):
+    """扁平化轻列表：_seq 是原始行号（脏行占位），脏行/缺 decision 行跳过"""
+    path = tmp_path / "r.jsonl"
+    lines = [
+        json.dumps(
+            {
+                "fingerprint": "a" * 64,
+                "decision": {"action": "hold", "confidence": 0.1},
+                "state": {},
+                "questions": {},
+                "ts": "t1",
+                "_decider": "规则",
+            }
+        ),
+        "not json",
+        json.dumps({"fingerprint": "b" * 64, "state": {}}),  # 无 decision → 跳过
+        json.dumps(
+            {
+                "fingerprint": "c" * 64,
+                "decision": {"action": "buy", "confidence": 0.9},
+                "state": {},
+                "questions": {},
+                "ts": "t2",
+                "_decider": "S1:laya",
+                "meta": {"s1_model": "laya", "s2_model": "qwen"},
+            }
+        ),
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    rows = list_decisions_from_file(path)
+
+    assert [r["action"] for r in rows] == ["hold", "buy"]  # 保持文件顺序，不排序
+    assert rows[0]["_seq"] == 0 and rows[1]["_seq"] == 3
+    assert rows[0]["fingerprint"] == "a" * 64
+    assert rows[1]["_s1_model"] == "laya" and rows[1]["_s2_model"] == "qwen"
+    assert list_decisions_from_file(tmp_path / "missing.jsonl") == []
+
+    tail, total = list_decisions_from_file(path, max_rows=1, return_total=True)
+    assert total == 2
+    assert [r["_seq"] for r in tail] == [3]
+    assert list_decisions_from_file(path, return_total=True) == (rows, 2)
