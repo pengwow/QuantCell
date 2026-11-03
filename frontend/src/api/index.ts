@@ -575,7 +575,12 @@ export const backtestApi = {
     return apiRequest.post('/backtest/run', data, { timeout: 0, signal });
   },
 
-  stopBacktest: (taskId: string) => {
+  // 终止回测：后端会限时等待执行线程退出确认，data.status ∈ success/forced/error
+  stopBacktest: (taskId: string): Promise<{
+    code: number;
+    message?: string;
+    data?: { status: string; message?: string } | null;
+  }> => {
     return apiRequest.post('/backtest/stop', { task_id: taskId });
   },
 

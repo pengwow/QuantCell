@@ -555,6 +555,19 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       return;
     }
 
+    // 处理终止状态：后端已把任务/进度置为 stopped（用户终止后的终态信号），
+    // 必须在任何 running 态写入之前收尾，否则运行态会覆盖已设的终止界面
+    if (data.status === 'stopped') {
+      // 收到后端终止终态：停轮询、关闭弹窗即可（终止成功/强制终止的反馈
+      // 已由 stop 请求的 toast 展示），不在步骤条里摆终止态
+      stopProgressPolling();
+      setProgressVisible(false);
+      setIsBacktestRunning(false);
+      setLoading(false);
+      setCurrentTaskId('');
+      return;
+    }
+
     // 根据后端状态计算前端状态
     const newStepStatus: StepStatusState = {
       dataPrep: mapStatus(data.data_prep?.status),
@@ -764,8 +777,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     } catch (error) {
       clearTimeout(startTimeout);
       if (error instanceof Error && (error.name === 'AbortError' || error.message?.includes('aborted'))) {
-        setErrorMessage(t('backtest_terminated'));
-        setStepStatus(prev => ({ ...prev, execution: 'error', analysis: 'error' }));
+        // 前端本地中止（后端任务若已创建会自然跑完结束）：关弹窗复位即可，不摆终止态
+        setProgressVisible(false);
+        setIsBacktestRunning(false);
         message.info(t('backtest_terminated'));
       } else {
         const errorMsg = error instanceof Error ? error.message : t('backtest_exec_failed_generic');
@@ -1037,28 +1051,52 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   };
 
   const handleStopBacktest = async () => {
-    try {
-      // 停止轮询
-      stopProgressPolling();
+    // 停止轮询
+    stopProgressPolling();
 
+    // 已拿到后端任务 ID：真正调用终止接口，等待后端反馈（后端限时等待执行线程退出确认）
+    if (currentTaskId) {
+      // 复用同一 message key，让 loading → 结果提示原地替换，无残影
+      const stopKey = 'backtest-stop';
+      message.loading({ content: t('backtest_stopping'), key: stopKey, duration: 0 });
+      try {
+        const res = await backtestApi.stopBacktest(currentTaskId);
+        const data = res?.data;
+        if (res?.code !== 0) {
+          // 后端拒绝终止（任务不存在/已不在运行）：恢复轮询让进度走到终态
+          message.error({ content: res?.message || t('backtest_stop_failed'), key: stopKey, duration: 3 });
+          startProgressPolling(currentTaskId);
+          return;
+        }
+        // 后端反馈直接展示给用户；forced = 确认超时已强制标记终止，用警告级提示
+        if (data?.status === 'forced') {
+          message.warning({ content: data?.message || t('backtest_terminated'), key: stopKey, duration: 5 });
+        } else {
+          message.success({ content: data?.message || t('backtest_terminated'), key: stopKey, duration: 3 });
+        }
+      } catch (error) {
+        console.error('终止回测失败:', error);
+        message.error({
+          content: error instanceof Error ? error.message : t('backtest_stop_failed'),
+          key: stopKey,
+          duration: 3,
+        });
+        startProgressPolling(currentTaskId);
+        return;
+      }
+    } else {
+      // /run 请求尚未返回任务 ID（有的话先中断前端请求）：后端任务完成后自然落库结束
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
-        message.info(t('backtest_stopping'));
-      } else {
-        setIsBacktestRunning(false);
-        setCurrentTaskId('');
-        setErrorMessage(t('backtest_terminated'));
-        setStepStatus(prev => ({
-          ...prev,
-          execution: 'error',
-          analysis: 'error',
-        }));
-        message.info(t('backtest_terminated'));
       }
-    } catch (error) {
-      console.error('终止回测失败:', error);
-      message.error(error instanceof Error ? error.message : t('backtest_stop_failed'));
+      message.info(t('backtest_terminated'));
     }
+
+    // 终止已受理：成功/强制终止的反馈已 toast，直接关闭进度弹窗并复位运行态
+    abortControllerRef.current = null;
+    setProgressVisible(false);
+    setIsBacktestRunning(false);
+    setCurrentTaskId('');
   };
 
   const handleViewProgress = () => {

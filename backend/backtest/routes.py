@@ -389,7 +389,11 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     "/stop",
     response_model=ApiResponse,
     summary="终止回测",
-    description="终止正在进行的回测任务",
+    description=(
+        "终止正在进行的回测任务。投递取消令牌后限时等待执行线程退出确认："
+        "status=success 为终止成功；status=forced 为等待超时已强制标记终止"
+        "（引擎将在品种边界自动退出）；两者均返回 code=0"
+    ),
     responses={
         200: {"description": "回测终止成功"},
         404: {"description": "回测任务不存在"},
@@ -404,18 +408,20 @@ def stop_backtest(request: BacktestStopRequest) -> ApiResponse:
         request: 终止回测请求参数，包含任务ID
 
     Returns:
-        ApiResponse: API响应，包含终止结果
+        ApiResponse: API响应，包含终止结果（data.status: success/forced/error）
     """
     try:
         logger.info(f"终止回测请求，任务ID: {request.task_id}")
 
-        # 调用服务层终止回测
+        # 调用服务层终止回测（同步等待执行线程退出确认，最多 8s，低于前端超时）
         result = backtest_service.stop_backtest(request.task_id)
 
         logger.info(f"回测终止完成，结果: {result}")
 
-        if result.get("status") == "success":
-            return ApiResponse(code=0, message="回测已终止", data=result)
+        # forced（超时强制终止）不是错误：任务已被强制标记 stopped，code=0 让
+        # 前端按后端 message 展示警告级反馈
+        if result.get("status") in ("success", "forced"):
+            return ApiResponse(code=0, message=result.get("message", "回测已终止"), data=result)
         else:
             return ApiResponse(code=1, message=result.get("message", "终止回测失败"), data=result)
     except Exception as e:
