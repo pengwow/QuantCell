@@ -22,12 +22,14 @@ import {
   Tag,
   Alert,
   Flex,
+  Tooltip,
 } from 'antd';
 import {
   PlayCircleOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
 import { backtestApi } from '../../api';
+import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from './DecisionDetailDrawer';
 import MetricCard from '../../components/MetricCard';
 import { formatMetricValue, visibleMetricCards } from './metricCards';
 import TradeTable, { type Trade } from '../../components/TradeTable';
@@ -98,6 +100,8 @@ interface BacktestFactors {
 
 // cascade 策略决策记录（后端 decisions 字段）
 interface CascadeDecisionRecord {
+  _seq?: number;          // 录制 JSONL 原始行号，详情弹窗定位键；旧任务无此字段不显示详情按钮
+  fingerprint?: string;
   action: string;         // buy / sell / hold
   confidence: number;     // 0.0 ~ 1.0
   probabilities?: Record<string, number>;
@@ -107,6 +111,7 @@ interface CascadeDecisionRecord {
   sub_signals?: Record<string, unknown>;
   _ts?: string;           // ISO 8601 录制时间
   _s1_model?: string;
+  _s2_model?: string;
   _decider?: string; // 录制侧标注的实际决策者（S1:xxx / S2:xxx / 规则 / 回放）；旧录制缺失
 }
 
@@ -175,6 +180,7 @@ const BacktestDetail = () => {
   const [filterSide, setFilterSide] = useState<string>('all');
   const [filterDateRange, setFilterDateRange] = useState<[string, string] | null>(null);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<CascadeDecisionRecord | null>(null);
 
   // 设置页面标题
   useEffect(() => {
@@ -886,7 +892,7 @@ const BacktestDetail = () => {
                       .sort((a, b) => b[1] - a[1])
                       .slice(0, 5)
                       .map(([reason, cnt]) => (
-                        <Tag key={reason}>{reason}: {cnt.toLocaleString()}</Tag>
+                        <Tag key={reason}>{humanizeFallbackReason(reason)}: {cnt.toLocaleString()}</Tag>
                       ))}
                   </div>
                 )}
@@ -908,7 +914,9 @@ const BacktestDetail = () => {
                       title: '时间',
                       dataIndex: '_ts',
                       width: 200,
-                      render: (v: string) => v?.replace('T', ' ').replace(/Z$/, '') || '-',
+                      render: (_v: unknown, record: CascadeDecisionRecord) => (
+                        <Tooltip title={record._ts}>{fmtDecisionTs(record._ts)}</Tooltip>
+                      ),
                     },
                     {
                       title: '动作',
@@ -941,7 +949,21 @@ const BacktestDetail = () => {
                       title: '降级原因',
                       dataIndex: 'fallback_reason',
                       ellipsis: true,
-                      render: (v: string) => v || '-',
+                      render: (v: string) => humanizeFallbackReason(v),
+                    },
+                    {
+                      title: '操作',
+                      key: 'detail',
+                      width: 80,
+                      fixed: 'right' as const,
+                      render: (_v: unknown, record: CascadeDecisionRecord) =>
+                        record._seq == null ? (
+                          <Tooltip title="旧任务无行号定位键，无法查看录制详情">-</Tooltip>
+                        ) : (
+                          <Button size="small" onClick={() => setDetailRecord(record)}>
+                            详情
+                          </Button>
+                        ),
                     },
                   ]}
                 />
@@ -949,6 +971,11 @@ const BacktestDetail = () => {
             </Card>
           );
         })()}
+        <DecisionDetailDrawer
+          backtestId={backtestId!}
+          record={detailRecord}
+          onClose={() => setDetailRecord(null)}
+        />
       </div>
 
       {/* 全部交易标的弹窗（标的过多时点开查看） */}

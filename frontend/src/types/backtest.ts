@@ -133,6 +133,20 @@ export interface BacktestDetailData {
   created_at: string;
 }
 
+/** 决策录制行完整结构（与 backend/strategy/decision_recording.py 的 JSONL 契约对应） */
+export interface DecisionDetailRecord {
+  fingerprint: string;
+  decision: Record<string, unknown>;
+  state: Record<string, unknown>;
+  questions: Record<string, unknown>;
+  ts: string;
+  _decider?: string;
+  meta?: Record<string, unknown>;
+  s1_raw?: string;
+  s2_raw?: string;
+  s2_thinking?: string;
+}
+
 // 回放交易数据：契约同 Trade，保留 index signature 兜底后端附加字段
 export type ReplayTrade = Trade & { [key: string]: unknown };
 
