@@ -250,8 +250,10 @@ class ResearchLoop:
                 tokens_used=int(row.token_used or 0),
             )
         try:
-            self._event("session.start", f"mode={mode}")
-            if mode == "quick":
+            # quick 会话 extend 后：保留原 mode（列表/筛选口径不变），追加轮次改走 deep 编排
+            run_mode = "deep" if cfg.get("extend_deep") else mode
+            self._event("session.start", f"mode={mode} run_mode={run_mode}")
+            if run_mode == "quick":
                 self._run_quick(cfg, budget, control)
             else:
                 self._run_deep(cfg, budget, control)

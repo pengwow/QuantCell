@@ -37,7 +37,8 @@ def create_backend(llm_cfg: dict[str, Any], cfg: dict[str, Any]):
 
 def build_deps(*, backend: Any, mode: str, cfg: dict[str, Any], model_name: str) -> LoopDeps:
     scenario = get_scenario(str(cfg.get("scenario") or "factor"))
-    if mode == "quick":
+    if mode == "quick" and not cfg.get("extend_deep"):
+        # quick 会话 extend 后追加的轮次走 deep 编排，需要 llm_call 而不是 mining_fn
         return LoopDeps(
             mining_fn=default_mining_fn(backend, model_name),
             scenario=scenario,
