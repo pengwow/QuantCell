@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from factor.llm_miner import (
     LLMMineParams,
+    _classify_exc,
     _metrics_from_analysis,
     _oos_metrics,
     run_llm_mining,
@@ -37,6 +38,7 @@ from research.agents import (
     generate_hypothesis,
     prompt_fingerprint,
     render_context,
+    repair_code,
 )
 from research.judge import evaluate_gates
 from research.quick import map_candidates_to_trials, session_cost_from_stats
@@ -447,6 +449,12 @@ class ResearchLoop:
 
         try:
             code = "" if resume is None else (resume.get("code") or "")
+            # 自修复内环的每轮摘要，随 trial 落库（截断错误，不塞原文）
+            repair_rounds = min(
+                int(_cfg_number(cfg, "repair_rounds", consts.DEFAULT_REPAIR_ROUNDS)),
+                consts.MAX_REPAIR_ROUNDS,
+            )
+            repairs: list[dict[str, Any]] = list((resume or {}).get("repair") or [])
 
             # step 3 code（coding 状态说明上次在生成代码时中断，重生成即可）
             if start_status in {"planned", "coding"} or not code:
@@ -458,8 +466,21 @@ class ResearchLoop:
                 code, usage = generate_code(self.deps.llm_call, task)
                 self._charge_usage(budget, usage)
                 self._persist_cost(budget)
+                # 空输出按失败处理，回灌"未返回可用代码"让 LLM 重写
+                while not code and len(repairs) < repair_rounds:
+                    repairs.append({"round": len(repairs) + 1, "kind": "empty_output", "error": "LLM 未返回可用代码"})
+                    with self._db() as db:
+                        service.update_trial(db, trial_id, repair_json=repairs)
+                    budget.spend_call()
+                    code, usage = repair_code(self.deps.llm_call, task, "", "empty_output", "LLM 未返回可用代码")
+                    self._charge_usage(budget, usage)
+                    self._persist_cost(budget)
+                    self._event(
+                        "trial.repaired",
+                        f"loop={loop_idx} trial={trial_id} round={len(repairs)} kind=empty_output",
+                    )
                 if not code:
-                    raise RuntimeError("LLM 未返回可用代码")
+                    raise RuntimeError("LLM 修复后仍未返回可用代码")
                 with self._db() as db:
                     service.update_trial(
                         db,
@@ -477,7 +498,33 @@ class ResearchLoop:
                 self._set_step(4)
                 with self._db() as db:
                     service.update_trial(db, trial_id, status="running")
-                analysis = self.deps.evaluate(code, raw_map, cfg)
+                while True:
+                    try:
+                        analysis = self.deps.evaluate(code, raw_map, cfg)
+                        break
+                    except BudgetExhausted, PauseSignal, CancelSignal:
+                        raise
+                    except Exception as exc:
+                        # 评估失败：分类后回灌重写代码，最多 repair_rounds 轮
+                        kind, err = _classify_exc(exc)
+                        repairs.append({"round": len(repairs) + 1, "kind": kind, "error": err[:200]})
+                        with self._db() as db:
+                            service.update_trial(db, trial_id, repair_json=repairs)
+                        self._event(
+                            "trial.repair",
+                            f"loop={loop_idx} trial={trial_id} round={len(repairs)} kind={kind}",
+                        )
+                        if len(repairs) > repair_rounds:
+                            raise
+                        budget.spend_call()
+                        code, usage = repair_code(self.deps.llm_call, task, code, kind, err)
+                        self._charge_usage(budget, usage)
+                        self._persist_cost(budget)
+                        if not code:
+                            raise
+                        with self._db() as db:
+                            # 仍在 step 4，状态保持 running；只替换代码后重试评估
+                            service.update_trial(db, trial_id, code=code, code_hash=_hash_code(code))
                 train = analysis.get("train")
                 if not train:
                     raise RuntimeError("评估结果缺少 train 段")

@@ -77,6 +77,8 @@ class ResearchTrial(Base):
     oos_flag: Mapped[str | None] = mapped_column(String(16), nullable=True)
     oos_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     feedback_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 自修复内环的每轮摘要（{round, kind, error} 列表），只存截断后的错误摘要
+    repair_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     judge_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     decision: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # 硬门 3 的实测相关性（评估完成即落库，续跑 judge 直接复用，不依赖重算）
