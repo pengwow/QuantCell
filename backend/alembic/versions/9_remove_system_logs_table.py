@@ -11,6 +11,8 @@ Create Date: 2026-04-29 15:00:00.000000
 
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
+
 from alembic import op
 
 if TYPE_CHECKING:
@@ -23,6 +25,20 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 本库历史上有两种建表路径：alembic 增量、或应用启动时 create_all + 版本直标 head
+# （后者导致祖先链里的 8 号"已应用"实则从未建表）。drop 做存在性守卫，
+# 保证两条路径下 21→head 补跑本迁移都不会因表/索引缺失而失败。
+def _tables() -> set[str]:
+    return set(sa.inspect(op.get_bind()).get_table_names())
+
+
+def _log_indexes() -> set[str]:
+    inspector = sa.inspect(op.get_bind())
+    if "system_logs" not in inspector.get_table_names():
+        return set()
+    return {ix["name"] for ix in inspector.get_indexes("system_logs")}
+
+
 def upgrade() -> None:
     """
     升级数据库：删除system_logs表
@@ -30,22 +46,27 @@ def upgrade() -> None:
     日志功能已迁移到基于文件的日志系统，不再需要此表。
     """
     # 删除复合索引
-    op.drop_index("idx_system_logs_module_timestamp", table_name="system_logs")
-    op.drop_index("idx_system_logs_type_timestamp", table_name="system_logs")
-    op.drop_index("idx_system_logs_level_timestamp", table_name="system_logs")
-
-    # 删除单列索引
-    op.drop_index("ix_system_logs_created_at", table_name="system_logs")
-    op.drop_index("ix_system_logs_module", table_name="system_logs")
-    op.drop_index("ix_system_logs_trace_id", table_name="system_logs")
-    op.drop_index("ix_system_logs_logger_name", table_name="system_logs")
-    op.drop_index("ix_system_logs_log_type", table_name="system_logs")
-    op.drop_index("ix_system_logs_level", table_name="system_logs")
-    op.drop_index("ix_system_logs_timestamp", table_name="system_logs")
-    op.drop_index("ix_system_logs_id", table_name="system_logs")
+    present = _log_indexes()
+    for index_name in (
+        "idx_system_logs_module_timestamp",
+        "idx_system_logs_type_timestamp",
+        "idx_system_logs_level_timestamp",
+        # 删除单列索引
+        "ix_system_logs_created_at",
+        "ix_system_logs_module",
+        "ix_system_logs_trace_id",
+        "ix_system_logs_logger_name",
+        "ix_system_logs_log_type",
+        "ix_system_logs_level",
+        "ix_system_logs_timestamp",
+        "ix_system_logs_id",
+    ):
+        if index_name in present:
+            op.drop_index(index_name, table_name="system_logs")
 
     # 删除表
-    op.drop_table("system_logs")
+    if "system_logs" in _tables():
+        op.drop_table("system_logs")
 
 
 def downgrade() -> None:
