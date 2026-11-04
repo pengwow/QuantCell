@@ -26,6 +26,8 @@ const ModelRegistry = lazy(() => import('@/pages/model/ModelRegistry'));
 const EnsemblePage = lazy(() => import('@/pages/ensemble/EnsemblePage'));
 const RiskMonitorPage = lazy(() => import('@/pages/risk/RiskMonitorPage'));
 const RLTrainingPage = lazy(() => import('@/pages/rl/RLTrainingPage'));
+const ResearchList = lazy(() => import('@/pages/research/ResearchList'));
+const ResearchDetail = lazy(() => import('@/pages/research/ResearchDetail'));
 
 const BacktestLayout = lazy(() => import('@/pages/backtest/BacktestLayout'));
 const BacktestList = lazy(() => import('@/pages/backtest/BacktestList'));
@@ -90,6 +92,8 @@ function createBaseRoutes(): RouteObject[] {
         { path: '/ensemble', element: <EnsemblePage /> },
         { path: '/risk-monitor', element: <RiskMonitorPage /> },
         { path: '/factor-analysis', element: <FactorAnalysis /> },
+        { path: '/research', element: <ResearchList /> },
+        { path: '/research/:id', element: <ResearchDetail /> },
         { path: '/model-management', element: <ModelManagement /> },
         { path: '/data-management', element: <DataManagementPage /> },
         { path: '/data-management/replay', element: <KlineReplayPage /> },

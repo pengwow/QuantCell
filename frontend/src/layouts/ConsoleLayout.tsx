@@ -20,6 +20,7 @@ import {
   IconShield,
   IconStack,
   IconFlask,
+  IconMicroscope,
 } from "@tabler/icons-react";
 import { Badge, Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
 import { setPageTitle } from "@/utils/pageTitle";
@@ -189,6 +190,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_ENSEMBLE = "/ensemble";
   const MENU_KEY_RISK = "/risk-monitor";
   const MENU_KEY_RL = "/rl-training";
+  const MENU_KEY_RESEARCH = "/research";
 
   // ponytail: 路由路径 → 翻译键的映射表，用于自动设置浏览器 tab 标题。
   // 匹配策略：先精确匹配路径前缀，再 fallback 到通用的路径段
@@ -215,6 +217,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     ["/setting", "setting"],
     ["/strategy-editor", "strategy_editor"],
     ["/factor-analysis", "factor_analysis"],
+    ["/research", "research"],
     ["/model-management", "model_management"],
   ];
 
@@ -236,6 +239,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_STRATEGY_TASK, "strategy_task", <IconBotId size="1em" />, false],
       [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />, false],
       [MENU_KEY_FACTOR, "factor_analysis", <IconChartHistogram size="1em" />, false],
+      [MENU_KEY_RESEARCH, "research", <IconMicroscope size="1em" />, false],
       [MENU_KEY_RL, "rl_training", <IconBrain size="1em" />, false],
       [MENU_KEY_MODEL_REGISTRY, "model_registry", <IconStack size="1em" />, false],
       [MENU_KEY_ENSEMBLE, "ensemble", <IconFlask size="1em" />, false],
