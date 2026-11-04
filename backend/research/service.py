@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from typing import Any
 
@@ -15,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from research.consts import MAX_ACTIVE_SESSIONS
-from research.models import ResearchSession, ResearchTrial
+from research.models import ResearchKnowledge, ResearchSession, ResearchTrial
 from research.state import InvalidTransition, ensure_session_transition, ensure_trial_transition
 from utils.logger import LogType, get_logger
 
@@ -330,6 +331,98 @@ def find_trial(db: Session, session_id: int, loop_idx: int, candidate_idx: int =
         )
         .one_or_none()
     )
+
+
+# ---------- 失败签名知识库 ----------
+
+# 这些片段在错误信息里只是“这一次的取值”，不能参与签名，否则同一种失败会被拆成多条
+_VOLATILE_PATTERNS = (
+    re.compile(r"0x[0-9a-fA-F]+"),  # 内存地址
+    re.compile(r"[0-9a-fA-F]{8,}"),  # 哈希/长十六进制
+    re.compile(r"\d+"),  # 行号、bar 下标、耗时等数字
+)
+
+
+def failure_signature(kind: str, error: str) -> str:
+    """失败签名 = 错误类型 + 归一化关键特征（抹掉地址/哈希/数字后截断）。
+
+    这是启发式口径，不追求语义聚类：同类型 + 同段错误文本（忽略取值差异）
+    视为同一种坑，够用来做“别重复踩同一个坑”的提示。
+    """
+    feature = error or ""
+    for pattern in _VOLATILE_PATTERNS:
+        feature = pattern.sub("#", feature)
+    feature = re.sub(r"\s+", " ", feature).strip().lower()[:80]
+    return f"{kind}|{feature}"
+
+
+def record_failure(
+    db: Session,
+    *,
+    owner_id: str | None,
+    session_id: int | None,
+    trial_id: int | None,
+    kind: str,
+    error: str,
+    hint: str = "",
+) -> ResearchKnowledge:
+    """落一条失败签名；同 owner 下同签名累加 hit_count，避免重复堆行。"""
+    signature = failure_signature(kind, error)
+    payload = {"kind": kind, "error": (error or "")[:200], "hint": (hint or "")[:200]}
+    row = (
+        db.query(ResearchKnowledge)
+        .filter(
+            ResearchKnowledge.owner_id == owner_id,
+            ResearchKnowledge.kind == "failure",
+            ResearchKnowledge.signature == signature,
+        )
+        .order_by(ResearchKnowledge.id)
+        .first()
+    )
+    if row is None:
+        row = ResearchKnowledge(
+            owner_id=owner_id,
+            session_id=session_id,
+            trial_id=trial_id,
+            kind="failure",
+            signature=signature,
+            payload_json=_dumps(payload),
+            hit_count=1,
+        )
+        db.add(row)
+    else:
+        row.hit_count += 1
+        row.payload_json = _dumps(payload)
+        row.trial_id = trial_id or row.trial_id
+        row.session_id = session_id or row.session_id
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def list_failure_knowledge(db: Session, owner_id: str | None, limit: int = 5) -> list[dict[str, Any]]:
+    """按命中次数取最近的失败签名，供 propose/plan 上下文注入。"""
+    rows = (
+        db.query(ResearchKnowledge)
+        .filter(ResearchKnowledge.owner_id == owner_id, ResearchKnowledge.kind == "failure")
+        .order_by(ResearchKnowledge.hit_count.desc(), ResearchKnowledge.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        payload = _loads(row.payload_json, {})
+        if not isinstance(payload, dict):
+            payload = {}
+        items.append(
+            {
+                "signature": row.signature,
+                "hit_count": row.hit_count,
+                "hint": payload.get("hint") or "",
+                "error": payload.get("error") or "",
+            }
+        )
+    return items
 
 
 # ---------- 序列化 ----------
