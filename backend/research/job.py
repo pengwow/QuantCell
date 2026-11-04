@@ -13,6 +13,7 @@ from factor.job_manager import FactorJobManager
 from research import consts, service
 from research.loop import LoopDeps, ResearchLoop, default_llm_call, default_mining_fn
 from research.scenario import get_scenario
+from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -67,10 +68,19 @@ def make_runner(
             cfg=cfg,
             model_name=str(llm_cfg.get("model") or ""),
         )
-        if on_event is not None:
-            # 过程事件走 job_manager 的有界内存缓冲（GET /events 增量拉取）
-            deps.event_fn = lambda stage, msg: on_event("info", stage, None, msg)
+        # 过程事件持久化到 research_events：多 worker 部署下只有持有 job 的进程能看到
+        # 进程内缓冲，写库后任一进程都能按 seq 增量读到（局限见 models.ResearchEvent）
+        deps.event_fn = lambda stage, msg: _persist_event(session_id, stage, msg)
         ResearchLoop(session_id, deps).run(control)
         return {"session_id": session_id}
 
     return runner
+
+
+def _persist_event(session_id: int, stage: str, msg: str) -> None:
+    """事件落库；写失败只记日志，不影响研究主回路。"""
+    try:
+        with get_db_session() as db:
+            service.append_event(db, session_id, "info", stage, msg)
+    except Exception:
+        logger.exception(f"[研究] 事件落库失败 session={session_id}")

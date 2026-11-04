@@ -31,6 +31,11 @@ QUICK_CALLS_PER_CANDIDATE = 1
 QUICK_EXTRA_CALLS = 1
 EST_TOKENS_PER_CALL = 3_000
 
+# ---------- 过程事件 ----------
+# 单会话事件保留条数（内存方案的上限；持久化后同样按此裁剪）
+EVENTS_DEFAULT_LIMIT = 200
+EVENTS_RETENTION = 500
+
 # ---------- 决策硬门（PRD §12 #6）----------
 DEFAULT_ICIR_FLOOR = 0.15
 DEFAULT_CORR_THRESHOLD = 0.7

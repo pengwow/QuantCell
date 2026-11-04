@@ -292,20 +292,12 @@ def get_events(
 ) -> ApiResponse:
     with get_db_session() as db:
         try:
-            row = service.get_session_row(db, session_id, _owner(current_user))
+            service.get_session_row(db, session_id, _owner(current_user))
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
-        data: dict[str, Any] = {"events": [], "next_seq": 0}
-        if row.backend_job_id:
-            # manager 的 idx 从 0 开始，对外统一成 1 起（seq = idx + 1）：
-            # after_seq 表示“已消费到的最大 seq”，manager 的 idx >= after 正好严格增量
-            found = _manager_for(row.mode).get_events(row.backend_job_id, after_seq)
-            if found:
-                # 事件缓冲是进程内实现的；多 worker 部署时只有持有该 job 的进程能查到
-                data = {
-                    "events": [{**evt, "seq": evt["idx"] + 1} for evt in found["events"]],
-                    "next_seq": found["next_idx"],
-                }
+        # 事件从 research_events 持久化表增量读取：不再依赖持有 job 的进程内存缓冲，
+        # 多 worker 部署下任一进程都能看到进度；局限见 models.ResearchEvent 注释
+        data = service.list_events(db, session_id, after_seq)
     return ApiResponse(code=0, message="ok", data=data)
 
 

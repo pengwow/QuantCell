@@ -133,3 +133,26 @@ class ResearchKnowledge(Base):
         Index("ix_research_knowledge_signature", "signature"),
         Index("ix_research_knowledge_owner_kind", "owner_id", "kind"),
     )
+
+
+class ResearchEvent(Base):
+    """会话过程事件（持久化，多 worker 下同样可见）。
+
+    局限：这是最小可用方案——事件与业务写库共享同一 SQLite/DB，
+    顺序以自增 id（= seq）为准，多 worker 并发写时可能与真实发生顺序有毫秒级偏差；
+    每个会话只保留最近 EVENTS_RETENTION 条（append 时裁剪），不做全量归档。
+    若未来迁移到消息队列/流式存储，应以本表为迁移起点而非进程内缓冲。
+    """
+
+    __tablename__ = "research_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("research_sessions.id"), nullable=False)
+    level: Mapped[str] = mapped_column(String(8), nullable=False, default="info")
+    stage: Mapped[str] = mapped_column(String(48), nullable=False, default="")
+    msg: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 事件时间用 epoch 秒，避免 DB server_default=now() 的时区歧义
+    ts: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (Index("ix_research_events_session_id", "session_id", "id"),)
