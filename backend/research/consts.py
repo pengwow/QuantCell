@@ -24,6 +24,12 @@ QUICK_MAX_LLM_CALLS = 6
 QUICK_MAX_TOKENS = 40_000
 DEEP_MAX_LLM_CALLS = 30
 DEEP_MAX_TOKENS = 200_000
+# 创建时预算估算口径：deep 每轮固定 4 次调用（假设/规划/代码/反馈），
+# quick 每个候选 1 次生成 + 1 次收尾；token 按每次调用粗估，只用于创建时拦明显不够的预算
+DEEP_CALLS_PER_LOOP = 4
+QUICK_CALLS_PER_CANDIDATE = 1
+QUICK_EXTRA_CALLS = 1
+EST_TOKENS_PER_CALL = 3_000
 
 # ---------- 决策硬门（PRD §12 #6）----------
 DEFAULT_ICIR_FLOOR = 0.15

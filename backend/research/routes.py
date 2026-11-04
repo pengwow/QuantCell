@@ -41,7 +41,7 @@ def _resolve_llm(model_id: str | None) -> dict[str, Any] | None:
 
 
 def _http_error(exc: service.ResearchError) -> HTTPException:
-    status = {"not_found": 404, "bad_state": 409, "too_many": 429}.get(exc.kind, 400)
+    status = {"not_found": 404, "bad_state": 409, "too_many": 429, "over_budget": 422}.get(exc.kind, 400)
     return HTTPException(status_code=status, detail=exc.message)
 
 
@@ -266,7 +266,8 @@ def promote_trial(
         if trial.session_id != session_id:
             raise HTTPException(status_code=404, detail="trial 不属于该会话")
         payload = service.trial_to_dict(trial)
-        scenario_name = str((row.config or {}).get("scenario") or "factor")
+        # 会话归属/场景从 config_json 读：ResearchSession 没有 config 属性
+        scenario_name = str(service.session_config(row).get("scenario") or "factor")
 
     try:
         scenario = get_scenario(scenario_name)
