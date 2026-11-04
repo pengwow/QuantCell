@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 from typing import Any
 
 from sqlalchemy import func, update
@@ -16,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from research import consts
-from research.models import ResearchKnowledge, ResearchSession, ResearchTrial
+from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from research.state import InvalidTransition, ensure_session_transition, ensure_trial_transition
 from utils.logger import LogType, get_logger
 
@@ -453,6 +454,43 @@ def list_failure_knowledge(db: Session, owner_id: str | None, limit: int = 5) ->
             }
         )
     return items
+
+
+# ---------- 过程事件 ----------
+
+# 多 worker 兜底：事件写库而不是留在进程内缓冲，任一进程都能增量读到同一会话的进度。
+# 局限见 models.ResearchEvent 的注释（顺序偏差 + 有界保留，非流式存储）。
+
+
+def append_event(db: Session, session_id: int, level: str, stage: str, msg: str) -> ResearchEvent:
+    """落一条过程事件；超出保留上限时裁剪最旧的，避免事件表无限增长。"""
+    row = ResearchEvent(session_id=session_id, level=level, stage=stage, msg=msg[:2000], ts=time.time())
+    db.add(row)
+    db.flush()
+    db.query(ResearchEvent).filter(
+        ResearchEvent.session_id == session_id,
+        ResearchEvent.id <= row.id - consts.EVENTS_RETENTION,
+    ).delete(synchronize_session=False)
+    db.commit()
+    return row
+
+
+def list_events(
+    db: Session, session_id: int, after_seq: int = 0, limit: int = consts.EVENTS_DEFAULT_LIMIT
+) -> dict[str, Any]:
+    """按 seq 增量拉取事件，返回 (events, next_seq)，供前端轮询续读。"""
+    rows = (
+        db.query(ResearchEvent)
+        .filter(ResearchEvent.session_id == session_id, ResearchEvent.id > after_seq)
+        .order_by(ResearchEvent.id)
+        .limit(limit)
+        .all()
+    )
+    events = [
+        {"seq": row.id, "level": row.level, "stage": row.stage, "msg": row.msg, "ts": int(row.ts or 0)} for row in rows
+    ]
+    next_seq = rows[-1].id if rows else after_seq
+    return {"session_id": session_id, "events": events, "next_seq": next_seq}
 
 
 # ---------- 序列化 ----------

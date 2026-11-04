@@ -15,7 +15,7 @@ import strategy.models  # 注册 Strategy，保证 Worker 关系的 mapper 可�
 from collector.db.database import Base
 from research import routes as research_routes
 from research import service
-from research.models import ResearchKnowledge, ResearchSession, ResearchTrial
+from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from utils.auth import get_current_user
 
 
@@ -33,6 +33,7 @@ def client(monkeypatch):
             ResearchSession.__table__,
             ResearchTrial.__table__,
             ResearchKnowledge.__table__,
+            ResearchEvent.__table__,
         ],
     )
     Session = sessionmaker(bind=eng)
@@ -169,50 +170,29 @@ def test_quick_pause_is_rejected(client):
     assert db.get(ResearchSession, sid).status == "running"
 
 
-class _StubEventManager:
-    """模拟 job_manager 的 idx >= after 语义，记录路由实际传入的游标。"""
-
-    def __init__(self) -> None:
-        self.count = 2
-        self.calls: list[tuple[str, int]] = []
-
-    def get_events(self, job_id: str, after_idx: int = 0):
-        self.calls.append((job_id, after_idx))
-        events = [
-            {"idx": i, "ts": "t", "level": "info", "stage": f"step{i}", "msg": "m", "p": None}
-            for i in range(self.count)
-        ]
-        return {
-            "events": [e for e in events if e["idx"] >= after_idx],
-            "next_idx": self.count,
-        }
-
-
-def test_events_supports_after_seq_incremental(client, monkeypatch):
-    """PRD §8 用 after_seq；路由必须转成严格增量，返回 seq/next_seq。"""
-    tc, _ = client
+def test_events_supports_after_seq_incremental(client):
+    """事件持久化后按 seq 严格增量返回，跨进程（多 worker）也能读到。"""
+    tc, db = client
     sid = _create(tc)
-    stub = _StubEventManager()
-    monkeypatch.setattr(research_routes, "_manager_for", lambda mode: stub)
+    service.append_event(db, sid, "info", "loop", "第 1 轮开始")
+    service.append_event(db, sid, "info", "trial", "候选生成完成")
 
     first = tc.get(f"/api/v1/research/sessions/{sid}/events", params={"after_seq": 0}).json()["data"]
-    assert [e["seq"] for e in first["events"]] == [1, 2]  # idx 0→seq 1，首条不能丢
+    assert [e["seq"] for e in first["events"]] == [1, 2]
     assert first["next_seq"] == 2
-    assert stub.calls == [("job-test", 0)]
 
-    stub.count = 4  # 运行中新增两条事件
+    service.append_event(db, sid, "info", "judge", "硬门判定完成")
     second = tc.get(f"/api/v1/research/sessions/{sid}/events", params={"after_seq": first["next_seq"]}).json()["data"]
-    # next_seq=2 表示 seq<=2 已消费，严格增量返回新增的 3、4
-    assert [e["seq"] for e in second["events"]] == [3, 4]
-    assert second["next_seq"] == 4
-    assert stub.calls[-1] == ("job-test", 2)
+    # next_seq=2 表示 seq<=2 已消费，严格增量只返回新增的 3
+    assert [e["seq"] for e in second["events"]] == [3]
+    assert second["next_seq"] == 3
 
 
 def test_events_unknown_job_returns_empty(client):
     tc, _ = client
     sid = _create(tc)
     data = tc.get(f"/api/v1/research/sessions/{sid}/events").json()["data"]
-    assert data == {"events": [], "next_seq": 0}
+    assert data == {"session_id": sid, "events": [], "next_seq": 0}
 
 
 def test_create_rejects_over_budget_returns_422(client):

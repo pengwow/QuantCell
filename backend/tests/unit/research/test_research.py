@@ -12,10 +12,10 @@ from sqlalchemy.orm import sessionmaker
 
 import strategy.models  # 注册 Strategy，保证 Worker 关系的 mapper 可初始化
 from collector.db.database import Base
-from research import agents, service
+from research import agents, consts, service
 from research.judge import evaluate_gates
 from research.loop import Budget, BudgetExhausted, LoopDeps, ResearchLoop, _cfg_number
-from research.models import ResearchKnowledge, ResearchSession, ResearchTrial
+from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from research.quick import map_candidates_to_trials, session_cost_from_stats
 from research.state import (
     InvalidTransition,
@@ -33,6 +33,7 @@ def research_db():
             ResearchSession.__table__,
             ResearchTrial.__table__,
             ResearchKnowledge.__table__,
+            ResearchEvent.__table__,
         ],
     )
     Session = sessionmaker(bind=eng)
@@ -891,3 +892,17 @@ def test_create_rejects_budget_below_estimate(research_db):
         )
     assert exc2.value.kind == "over_budget"  # token 估算 5*3000 超过 5000
     assert db.query(ResearchSession).count() == 0
+
+
+# ---------- 过程事件持久化 ----------
+
+
+def test_event_retention_prunes_oldest(research_db, monkeypatch):
+    """事件表按会话裁剪，只保留最近 EVENTS_RETENTION 条。"""
+    db, _ = research_db
+    monkeypatch.setattr(consts, "EVENTS_RETENTION", 3)
+    sid = _create_session(db)
+    for i in range(5):
+        service.append_event(db, sid, "info", "loop", f"e{i}")
+    rows = db.query(ResearchEvent).order_by(ResearchEvent.id).all()
+    assert [row.msg for row in rows] == ["e2", "e3", "e4"]
