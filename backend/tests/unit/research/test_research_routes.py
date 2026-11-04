@@ -213,3 +213,18 @@ def test_events_unknown_job_returns_empty(client):
     sid = _create(tc)
     data = tc.get(f"/api/v1/research/sessions/{sid}/events").json()["data"]
     assert data == {"events": [], "next_seq": 0}
+
+
+def test_create_without_llm_returns_409_and_creates_nothing(client, monkeypatch):
+    """未配置可用模型时必须在创建阶段明确拒绝，不能建完再在后台静默失败。"""
+    tc, db = client
+    monkeypatch.setattr(research_routes, "_resolve_llm", lambda model_id=None: None)
+
+    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "mode": "quick", "loop_n": 1})
+
+    assert res.status_code == 409, res.text
+    detail = res.json()["detail"]
+    assert detail["code"] == "llm_unavailable"
+    assert "模型" in detail["message"]
+    # 关键：不留下 pending/running 的孤儿会话，也没有启动后台作业
+    assert db.query(ResearchSession).count() == 0
