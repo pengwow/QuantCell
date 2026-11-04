@@ -416,8 +416,10 @@ def test_deep_trial_failure_does_not_kill_session(research_db):
 
 def test_deep_budget_short_circuit(research_db):
     db, factory = research_db
-    cfg = {**DEEP_CFG, "loop_n": 3, "max_llm_calls": 1}
-    sid = _create_session(db, mode="deep", cfg=cfg)
+    # 创建阶段会拦截明显不够的预算，这里先按合法预算建会话，再手动压到 1 次，
+    # 验证运行期 Budget 的短路行为
+    sid = _create_session(db, mode="deep", cfg=DEEP_CFG)
+    service.update_session_fields(db, sid, config_json=json.dumps({**DEEP_CFG, "max_llm_calls": 1}))
     ResearchLoop(
         sid,
         LoopDeps(
@@ -846,3 +848,46 @@ def test_failed_loop_knowledge_appears_in_next_loop_context(research_db):
     # 第一轮在评估失败时退出，只发了 propose/plan/code 三次调用
     second_loop_prompts = user_prompts[3:]
     assert any("已知失败模式" in p for p in second_loop_prompts)
+
+
+# ---------- 创建时预算前置校验 ----------
+
+
+def test_estimate_budget_by_candidates_and_loops():
+    calls, tokens = service.estimate_budget("deep", {"loop_n": 3, "repair_rounds": 0}, 1)
+    assert calls == 3 * 4
+    assert tokens == calls * 3000
+    calls, _ = service.estimate_budget("quick", {"loop_n": 1}, 4)
+    assert calls == 5  # 4 个候选各 1 次 + 1 次收尾
+    calls, _ = service.estimate_budget("deep", {"loop_n": 2, "repair_rounds": 2}, 1)
+    assert calls == 2 * (4 + 2)
+
+
+def test_create_rejects_budget_below_estimate(research_db):
+    """预算明显不够时在创建阶段直接拒绝，不落 pending 会话。"""
+    db, _ = research_db
+    with pytest.raises(service.ResearchError) as exc:
+        service.create_session(
+            db,
+            owner_id="u1",
+            name="deep-budget",
+            mode="deep",
+            scenario="factor",
+            config={**DEEP_CFG, "loop_n": 3, "max_llm_calls": 5},
+            n_candidates=1,
+        )
+    assert exc.value.kind == "over_budget"
+    assert db.query(ResearchSession).count() == 0
+
+    with pytest.raises(service.ResearchError) as exc2:
+        service.create_session(
+            db,
+            owner_id="u1",
+            name="quick-budget",
+            mode="quick",
+            scenario="factor",
+            config={**DEEP_CFG, "loop_n": 1, "max_llm_calls": 6, "max_tokens": 5_000},
+            n_candidates=4,
+        )
+    assert exc2.value.kind == "over_budget"  # token 估算 5*3000 超过 5000
+    assert db.query(ResearchSession).count() == 0

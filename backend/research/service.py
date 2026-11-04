@@ -15,7 +15,7 @@ from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from research.consts import MAX_ACTIVE_SESSIONS
+from research import consts
 from research.models import ResearchKnowledge, ResearchSession, ResearchTrial
 from research.state import InvalidTransition, ensure_session_transition, ensure_trial_transition
 from utils.logger import LogType, get_logger
@@ -99,6 +99,19 @@ def clear_control(session_id: int, job_id: str | None) -> None:
 # ---------- 会话 ----------
 
 
+def estimate_budget(mode: str, config: dict[str, Any], n_candidates: int) -> tuple[int, int]:
+    """按候选数/轮次粗估会话最低消耗 (calls, tokens)，用于创建时拒绝明显不够的预算。
+
+    这是下限口径：真实消耗可能更高（修复轮、重试），运行期仍由 Budget 兜底。
+    """
+    loops = max(int(config.get("loop_n") or 1), 1)
+    if mode == "quick":
+        calls = max(int(n_candidates), 1) * consts.QUICK_CALLS_PER_CANDIDATE + consts.QUICK_EXTRA_CALLS
+    else:
+        calls = loops * (consts.DEEP_CALLS_PER_LOOP + int(config.get("repair_rounds") or 0))
+    return calls, calls * consts.EST_TOKENS_PER_CALL
+
+
 def create_session(
     db: Session,
     *,
@@ -119,8 +132,25 @@ def create_session(
         .scalar()
         or 0
     )
-    if active >= MAX_ACTIVE_SESSIONS:
-        raise ResearchError("too_many", f"同时运行的研究会话不能超过 {MAX_ACTIVE_SESSIONS} 个，请先等待或取消")
+    if active >= consts.MAX_ACTIVE_SESSIONS:
+        raise ResearchError("too_many", f"同时运行的研究会话不能超过 {consts.MAX_ACTIVE_SESSIONS} 个，请先等待或取消")
+
+    # 创建时就校验预算：不要等跑起来才发现额度不够，中途爆预算会留下半成品 trial
+    est_calls, est_tokens = estimate_budget(mode, config, n_candidates)
+    max_calls = int(config.get("max_llm_calls") or 0)
+    max_tokens = int(config.get("max_tokens") or 0)
+    if max_calls and est_calls > max_calls:
+        raise ResearchError(
+            "over_budget",
+            f"按 {n_candidates} 个候选 / {config.get('loop_n')} 轮估算至少需要 {est_calls} 次 LLM 调用，"
+            f"超过上限 {max_calls}，请提高调用上限或减少轮次/候选",
+        )
+    if max_tokens and est_tokens > max_tokens:
+        raise ResearchError(
+            "over_budget",
+            f"按估算至少需要约 {est_tokens} tokens，超过上限 {max_tokens}，请提高 token 上限",
+        )
+
     row = ResearchSession(
         owner_id=owner_id,
         name=name,

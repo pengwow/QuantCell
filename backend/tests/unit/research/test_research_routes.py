@@ -215,6 +215,15 @@ def test_events_unknown_job_returns_empty(client):
     assert data == {"events": [], "next_seq": 0}
 
 
+def test_create_rejects_over_budget_returns_422(client):
+    """创建时按候选数/轮次预扣估算，超预算直接 422，不落会话、不提交作业。"""
+    tc, db = client
+    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "max_llm_calls": 5})
+    assert res.status_code == 422, res.text
+    assert "LLM 调用" in res.json()["detail"]
+    assert db.query(ResearchSession).count() == 0
+
+
 def test_create_without_llm_returns_409_and_creates_nothing(client, monkeypatch):
     """未配置可用模型时必须在创建阶段明确拒绝，不能建完再在后台静默失败。"""
     tc, db = client
