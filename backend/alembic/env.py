@@ -6,6 +6,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from logging.config import fileConfig
 
+from alembic.script import ScriptDirectory
+from sqlalchemy import inspect, text
+
 from alembic import context
 
 # this is the Alembic Config object, which provides
@@ -62,6 +65,34 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _bootstrap_empty_database(connection) -> bool:
+    """空库初始化：本仓库初始迁移（1a960941d752）是 NOOP，历史 schema 由
+    `Base.metadata.create_all()` 建立，因此空库直接 `alembic upgrade head` 会在
+    2 号迁移处因缺表失败。这里对“除 alembic_version 外无任何表”的空库做一次
+    create_all 并把版本直接标到当前 head，之后 upgrade 为幂等无操作。
+
+    说明：这是项目历史约定（create_all 是 schema 真相源，alembic 只负责增量补丁），
+    不适用于已经存在业务表的库；离线模式（--sql）跳过。
+    """
+    if not inspect(connection).get_table_names():
+        Base.metadata.create_all(bind=connection)
+        head = ScriptDirectory.from_config(config).get_current_head()
+        if head is None:
+            raise RuntimeError("alembic 没有可用的 head，无法初始化空库")
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version "
+                "(version_num VARCHAR(32) NOT NULL, "
+                "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+            )
+        )
+        connection.execute(text("INSERT INTO alembic_version (version_num) VALUES (:v)"), {"v": head})
+        connection.commit()
+        print(f"[alembic] 空库已按当前模型建表，版本标记为 head={head}")
+        return True
+    return False
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
@@ -73,10 +104,15 @@ def run_migrations_online() -> None:
     connectable = engine
 
     with connectable.connect() as connection:
+        _bootstrap_empty_database(connection)
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()
+        # SQLite 的 DDL 是非事务性的（transactional_ddl=False），版本表的 UPDATE
+        # 会被 pysqlite 包进隐式事务，连接关闭即回滚：表现为“表已建好，版本还停在旧值”。
+        # 这里显式提交兜住版本写入；对其它 dialect 是幂等空操作。
+        connection.commit()
 
 
 if context.is_offline_mode():
