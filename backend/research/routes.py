@@ -380,14 +380,28 @@ def extend_session(
         try:
             row = service.get_session_row(db, session_id, _owner(current_user))
             _ensure_status(row, {"completed"}, "继续研究")
-            if row.mode != "deep":
-                raise service.ResearchError("bad_state", "quick 会话不支持继续研究")
             _ensure_no_active_job(row)
             mode = row.mode
             cfg = service.session_config(row)
-            cfg["loop_n"] = int(cfg.get("loop_n") or 0) + payload.extra_loops
+            base_loops = int(cfg.get("loop_n") or 1)
+            new_loops = base_loops + payload.extra_loops
+            if new_loops > consts.MAX_LOOP_N:
+                raise service.ResearchError(
+                    "bad_state",
+                    f"累计轮次不能超过 {consts.MAX_LOOP_N}（当前 {base_loops}，追加后 {new_loops}）",
+                )
+            cfg["loop_n"] = new_loops
+            # 预算按剩余额度续算：旧上限 + 新增额度，运行期从已用值继续扣
             cfg["max_llm_calls"] = int(cfg.get("max_llm_calls") or 0) + payload.extra_max_llm_calls
             cfg["max_tokens"] = int(cfg.get("max_tokens") or 0) + payload.extra_max_tokens
+            if mode == "quick":
+                # quick 会话 extend：保留原 mode（不改写，列表/筛选口径不变），
+                # 仅记 extended_at；追加轮次改走 deep 编排，并从 quick 轮最佳候选作为 SOTA 继续
+                cfg["extend_deep"] = True
+                if row.best_trial_id is None:
+                    best = service.best_evaluated_trial(db, session_id)
+                    if best is not None:
+                        service.update_session_fields(db, session_id, best_trial_id=best.id)
             llm_cfg = _resolve_llm(cfg.get("model_id"))
             if llm_cfg is None:
                 raise service.ResearchError("invalid", "未配置可用的默认 AI 模型或 API Key，请先在模型管理中配置")

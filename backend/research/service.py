@@ -364,6 +364,31 @@ def find_trial(db: Session, session_id: int, loop_idx: int, candidate_idx: int =
     )
 
 
+def best_evaluated_trial(db: Session, session_id: int, metric: str = "ic_ir") -> ResearchTrial | None:
+    """quick 轮的最佳候选（按指标取最大），供 extend 后作为 SOTA 继续。"""
+    rows = (
+        db.query(ResearchTrial)
+        .filter(
+            ResearchTrial.session_id == session_id,
+            ResearchTrial.status.in_(["evaluated", "judged"]),
+        )
+        .all()
+    )
+    best: ResearchTrial | None = None
+    best_score = float("-inf")
+    for row in rows:
+        metrics = _loads(row.metrics_json, {})
+        if not isinstance(metrics, dict) or metrics.get(metric) is None:
+            continue
+        try:
+            score = float(metrics[metric])
+        except TypeError, ValueError:
+            continue
+        if score > best_score:
+            best, best_score = row, score
+    return best
+
+
 # ---------- 失败签名知识库 ----------
 
 # 这些片段在错误信息里只是“这一次的取值”，不能参与签名，否则同一种失败会被拆成多条

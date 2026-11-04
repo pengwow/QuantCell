@@ -906,3 +906,48 @@ def test_event_retention_prunes_oldest(research_db, monkeypatch):
         service.append_event(db, sid, "info", "loop", f"e{i}")
     rows = db.query(ResearchEvent).order_by(ResearchEvent.id).all()
     assert [row.msg for row in rows] == ["e2", "e3", "e4"]
+
+
+# ---------- quick → extend：追加轮次走 deep 并从已有 SOTA 继续 ----------
+
+
+def test_extended_quick_runs_deep_from_sota_and_judges_redundant(research_db):
+    db, factory = research_db
+    sid = _create_session(db, mode="quick", cfg={**DEEP_CFG, "loop_n": 1})
+    # 模拟 quick 轮跑完留下的最佳候选
+    best = ResearchTrial(
+        session_id=sid,
+        loop_idx=1,
+        candidate_idx=1,
+        status="evaluated",
+        code="def calc(df):\n    return df['close']",
+        metrics_json=json.dumps({"ic_ir": 0.4}),
+    )
+    db.add(best)
+    db.commit()
+    service.update_session_fields(
+        db,
+        sid,
+        loop_done=1,
+        best_trial_id=best.id,
+        config_json=json.dumps({**DEEP_CFG, "loop_n": 2, "extend_deep": True}),
+    )
+
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=_fake_llm_call([]),
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 0.95,  # 与 SOTA 高度相关 → 必然判冗余
+            scenario=_StubScenario(0.4),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    # quick 的候选不重跑，追加轮次落在 loop 2；mode 保持 quick
+    assert [row.loop_idx for row in service.list_trials(db, sid)] == [1, 2]
+    trial = service.find_trial(db, sid, 2, 1)
+    assert trial.status == "judged"
+    assert trial.decision is False  # 仍能判冗余
+    assert db.get(ResearchSession, sid).mode == "quick"

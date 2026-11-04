@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 
 import pytest
@@ -120,22 +121,46 @@ def test_pause_resume_cancel(client):
     assert tc.post(f"/api/v1/research/sessions/{sid}/pause").status_code == 409
 
 
-def test_extend_only_deep_and_only_completed(client):
+def test_extend_keeps_mode_and_caps_loops(client):
     tc, db = client
     sid = _create(tc, mode="deep")
-    row = db.get(ResearchSession, sid)
-    service.set_session_status(db, row, "completed")
+    service.set_session_status(db, service.get_session_row(db, sid), "completed")
 
     res = tc.post(f"/api/v1/research/sessions/{sid}/extend", json={"extra_loops": 2})
     assert res.status_code == 200
-    cfg = service.session_config(db.get(ResearchSession, sid))
+    row = service.get_session_row(db, sid)
+    cfg = service.session_config(row)
     assert cfg["loop_n"] == 5  # 默认 3 轮 + 追加 2
-    assert db.get(ResearchSession, sid).status == "running"
+    assert row.mode == "deep"  # extend 不改写 mode
 
+    # 累计轮次不能超过 MAX_LOOP_N
+    service.set_session_status(db, service.get_session_row(db, sid), "completed")
+    over = tc.post(f"/api/v1/research/sessions/{sid}/extend", json={"extra_loops": 6})
+    assert over.status_code == 409
+    assert "累计轮次" in over.json()["detail"]
+
+    # quick 会话也能继续研究：保留原 mode，追加轮次走 deep，并从最佳候选接 SOTA
     quick_id = _create(tc, mode="quick")
-    qrow = db.get(ResearchSession, quick_id)
-    service.set_session_status(db, qrow, "completed")
-    assert tc.post(f"/api/v1/research/sessions/{quick_id}/extend", json={}).status_code == 409
+    service.set_session_status(db, service.get_session_row(db, quick_id), "completed")
+    best = ResearchTrial(
+        session_id=quick_id,
+        loop_idx=1,
+        candidate_idx=1,
+        status="evaluated",
+        code="def calc(df):\n    return df['close']",
+        metrics_json=json.dumps({"ic_ir": 0.4}),
+    )
+    db.add(best)
+    db.commit()
+    qres = tc.post(f"/api/v1/research/sessions/{quick_id}/extend", json={"extra_loops": 2})
+    assert qres.status_code == 200
+    qrow = service.get_session_row(db, quick_id)
+    assert qrow.mode == "quick"
+    assert qrow.extended_at is not None
+    assert qrow.best_trial_id == best.id
+    qcfg = service.session_config(qrow)
+    assert qcfg["loop_n"] == 3  # quick 已跑 1 轮 + 追加 2
+    assert qcfg["extend_deep"] is True
 
 
 def test_active_session_limit(client):
