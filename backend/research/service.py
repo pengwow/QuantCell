@@ -257,6 +257,33 @@ def add_trial(db: Session, session_id: int, fields: dict[str, Any]) -> ResearchT
     return row
 
 
+def get_or_add_trial(db: Session, session_id: int, fields: dict[str, Any]) -> tuple[ResearchTrial, bool]:
+    """按唯一键取或建 trial，返回 (行, 是否新建)。
+
+    并发/重试场景下同 (session, loop_idx, candidate_idx) 可能被建两次，
+    唯一索引会拦第二条；这里把 IntegrityError 转成"复用已有行"，
+    避免整个研究循环因为一次撞键直接失败。
+    """
+    try:
+        return add_trial(db, session_id, fields), True
+    except ResearchError as exc:
+        if exc.kind != "duplicate_trial":
+            raise
+        rows = db.query(ResearchTrial).filter(ResearchTrial.session_id == session_id).all()
+        row = next(
+            (
+                r
+                for r in rows
+                if r.loop_idx == int(fields.get("loop_idx", 1))
+                and r.candidate_idx == int(fields.get("candidate_idx", 1))
+            ),
+            None,
+        )
+        if row is None:
+            raise
+        return row, False
+
+
 def get_trial_row(db: Session, trial_id: int) -> ResearchTrial:
     row = db.get(ResearchTrial, trial_id)
     if row is None:
@@ -316,6 +343,7 @@ def trial_to_dict(row: ResearchTrial, *, include_code: bool = True) -> dict[str,
         "loop_idx": row.loop_idx,
         "candidate_idx": row.candidate_idx,
         "status": row.status,
+        "resume_status": row.resume_status,
         "hypothesis": row.hypothesis,
         "hypothesis_reason": row.hypothesis_reason,
         "hypothesis_prediction": row.hypothesis_prediction,
