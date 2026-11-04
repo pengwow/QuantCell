@@ -1,0 +1,215 @@
+"""研究路由契约测试：创建/列表/详情/暂停/继续/取消/继续研究/并发上限。"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+import strategy.models  # 注册 Strategy，保证 Worker 关系的 mapper 可初始化
+from collector.db.database import Base
+from research import routes as research_routes
+from research import service
+from research.models import ResearchKnowledge, ResearchSession, ResearchTrial
+from utils.auth import get_current_user
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    # TestClient 在独立线程执行请求，内存库需要允许多线程共享连接
+    eng = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(
+        eng,
+        tables=[
+            ResearchSession.__table__,
+            ResearchTrial.__table__,
+            ResearchKnowledge.__table__,
+        ],
+    )
+    Session = sessionmaker(bind=eng)
+    db = Session()
+
+    @contextmanager
+    def fake_db():
+        yield db
+
+    monkeypatch.setattr(research_routes, "get_db_session", fake_db)
+    monkeypatch.setattr(
+        research_routes,
+        "_resolve_llm",
+        lambda model_id=None: {"api_key": "k", "base_url": "u", "model": "m"},
+    )
+    monkeypatch.setattr(research_routes, "_start_job", lambda **kwargs: "job-test")
+
+    app = FastAPI()
+    app.include_router(research_routes.router, prefix="/api/v1")
+    # 过渡期旧前缀 alias（与 factor.routes 的挂载方式一致）
+    app.include_router(research_routes.router, prefix="/api/v1/factor")
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1"}
+    try:
+        yield TestClient(app), db
+    finally:
+        db.close()
+
+
+PAYLOAD = {
+    "mode": "deep",
+    "symbols": ["BTCUSDT"],
+    "interval": "1h",
+    "candle_type": "spot",
+    "start": "2026-01-01",
+    "end": "2026-06-01",
+}
+
+
+def _create(client, **extra) -> int:
+    res = client.post("/api/v1/research/sessions", json={**PAYLOAD, **extra})
+    assert res.status_code == 200, res.text
+    return res.json()["data"]["session_id"]
+
+
+def test_create_list_detail(client):
+    tc, db = client
+    sid = _create(tc, mode="quick", loop_n=1)
+    row = db.get(ResearchSession, sid)
+    assert row.status == "running"
+    assert row.backend_job_id == "job-test"
+
+    res = tc.get("/api/v1/research/sessions")
+    assert res.status_code == 200
+    body = res.json()["data"]
+    assert body["total"] == 1
+    assert body["sessions"][0]["mode"] == "quick"
+
+    detail = tc.get(f"/api/v1/research/sessions/{sid}").json()["data"]
+    assert detail["status"] == "running"
+    assert detail["trials"] == []
+    assert detail["config"]["loop_n"] == 1
+
+
+def test_window_and_quick_loop_validation(client):
+    tc, _ = client
+    bad_window = {**PAYLOAD, "start": "2026-01-01", "end": "2026-01-20"}
+    assert tc.post("/api/v1/research/sessions", json=bad_window).status_code == 422
+    assert tc.post("/api/v1/research/sessions", json={**PAYLOAD, "mode": "quick", "loop_n": 2}).status_code == 422
+
+
+def test_pause_resume_cancel(client):
+    tc, db = client
+    sid = _create(tc)
+
+    assert tc.post(f"/api/v1/research/sessions/{sid}/pause").status_code == 200
+    assert db.get(ResearchSession, sid).status == "paused"
+
+    assert tc.post(f"/api/v1/research/sessions/{sid}/resume").status_code == 200
+    assert db.get(ResearchSession, sid).status == "running"
+
+    assert tc.post(f"/api/v1/research/sessions/{sid}/cancel").status_code == 200
+    assert db.get(ResearchSession, sid).status == "cancelled"
+    # 终态不可再暂停
+    assert tc.post(f"/api/v1/research/sessions/{sid}/pause").status_code == 409
+
+
+def test_extend_only_deep_and_only_completed(client):
+    tc, db = client
+    sid = _create(tc, mode="deep")
+    row = db.get(ResearchSession, sid)
+    service.set_session_status(db, row, "completed")
+
+    res = tc.post(f"/api/v1/research/sessions/{sid}/extend", json={"extra_loops": 2})
+    assert res.status_code == 200
+    cfg = service.session_config(db.get(ResearchSession, sid))
+    assert cfg["loop_n"] == 5  # 默认 3 轮 + 追加 2
+    assert db.get(ResearchSession, sid).status == "running"
+
+    quick_id = _create(tc, mode="quick")
+    qrow = db.get(ResearchSession, quick_id)
+    service.set_session_status(db, qrow, "completed")
+    assert tc.post(f"/api/v1/research/sessions/{quick_id}/extend", json={}).status_code == 409
+
+
+def test_active_session_limit(client):
+    tc, _ = client
+    first = _create(tc)
+    second = _create(tc)
+    assert first != second
+    third = tc.post("/api/v1/research/sessions", json=PAYLOAD)
+    assert third.status_code == 429
+
+
+def test_old_prefix_alias_still_works(client):
+    """P0.5 验收①：旧前缀过渡期仍可用。"""
+    tc, _ = client
+    sid = _create(tc)
+    assert tc.get(f"/api/v1/factor/research/sessions/{sid}").status_code == 200
+
+
+def test_unsupported_scenario_returns_400(client):
+    tc, _ = client
+    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "scenario": "model"})
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "scenario_not_supported"
+
+
+def test_quick_pause_is_rejected(client):
+    tc, db = client
+    sid = _create(tc, mode="quick", loop_n=1)
+    res = tc.post(f"/api/v1/research/sessions/{sid}/pause")
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "pause_unsupported"
+    assert db.get(ResearchSession, sid).status == "running"
+
+
+class _StubEventManager:
+    """模拟 job_manager 的 idx >= after 语义，记录路由实际传入的游标。"""
+
+    def __init__(self) -> None:
+        self.count = 2
+        self.calls: list[tuple[str, int]] = []
+
+    def get_events(self, job_id: str, after_idx: int = 0):
+        self.calls.append((job_id, after_idx))
+        events = [
+            {"idx": i, "ts": "t", "level": "info", "stage": f"step{i}", "msg": "m", "p": None}
+            for i in range(self.count)
+        ]
+        return {
+            "events": [e for e in events if e["idx"] >= after_idx],
+            "next_idx": self.count,
+        }
+
+
+def test_events_supports_after_seq_incremental(client, monkeypatch):
+    """PRD §8 用 after_seq；路由必须转成严格增量，返回 seq/next_seq。"""
+    tc, _ = client
+    sid = _create(tc)
+    stub = _StubEventManager()
+    monkeypatch.setattr(research_routes, "_manager_for", lambda mode: stub)
+
+    first = tc.get(f"/api/v1/research/sessions/{sid}/events", params={"after_seq": 0}).json()["data"]
+    assert [e["seq"] for e in first["events"]] == [1, 2]  # idx 0→seq 1，首条不能丢
+    assert first["next_seq"] == 2
+    assert stub.calls == [("job-test", 0)]
+
+    stub.count = 4  # 运行中新增两条事件
+    second = tc.get(f"/api/v1/research/sessions/{sid}/events", params={"after_seq": first["next_seq"]}).json()["data"]
+    # next_seq=2 表示 seq<=2 已消费，严格增量返回新增的 3、4
+    assert [e["seq"] for e in second["events"]] == [3, 4]
+    assert second["next_seq"] == 4
+    assert stub.calls[-1] == ("job-test", 2)
+
+
+def test_events_unknown_job_returns_empty(client):
+    tc, _ = client
+    sid = _create(tc)
+    data = tc.get(f"/api/v1/research/sessions/{sid}/events").json()["data"]
+    assert data == {"events": [], "next_seq": 0}

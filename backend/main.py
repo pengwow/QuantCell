@@ -46,6 +46,7 @@ from factor import router as factor_router
 from indicators.routes import router as indicators_router
 from plugins.routes import router as plugins_router
 from realtime.routes import realtime_router
+from research.routes import router as research_router
 from settings.routes import router as settings_router
 from share import (
     models as share_models,  # 触发 share 模型注册到 Base.metadata
@@ -109,6 +110,8 @@ app.include_router(models_router)
 app.include_router(ensemble_router)
 app.include_router(risk_router)
 app.include_router(rl_router)
+# 研究模块（AI 研究闭环；router 自带 /research 前缀，这里统一补 /api/v1）
+app.include_router(research_router, prefix="/api/v1")
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)
