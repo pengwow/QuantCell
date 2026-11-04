@@ -29,6 +29,9 @@ init_database_config()
 
 # 初始化后再导入engine，确保engine已被正确创建
 # 导入所有模型，确保它们被注册到Base.metadata中
+# research 模块的模型（research_sessions/trials/knowledge）在此一并注册，
+# 否则空库 bootstrap 的 create_all 会漏建这三张表
+import research.models  # 副作用导入：把 research 模型注册进 Base.metadata
 from collector.db.database import engine
 
 # 设置target_metadata
