@@ -129,7 +129,15 @@ def create_session(
         )
     llm_cfg = _resolve_llm(payload.model_id)
     if llm_cfg is None:
-        raise HTTPException(status_code=400, detail="未配置可用的默认 AI 模型或 API Key，请先在模型管理中配置")
+        # 409 而非 400：请求参数本身合法，缺的是"可用模型"这一系统前置条件，
+        # 前端据此引导去设置页配置，而不是当成用户填错参数
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "llm_unavailable",
+                "message": "未配置可用的 AI 模型或 API Key，无法启动研究。请先在模型管理中配置默认模型。",
+            },
+        )
     cfg = payload.to_config()
     cfg["model_name"] = llm_cfg.get("model") or ""
     try:
