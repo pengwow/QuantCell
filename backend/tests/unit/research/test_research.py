@@ -766,3 +766,83 @@ def test_deep_repair_loop_rewrites_code_and_records_summary(research_db):
     assert "沙箱超时" in repair[0]["error"]
     # 修复轮也要计一次调用：propose+plan+code+repair+feedback = 5
     assert row.llm_calls == 5
+
+
+# ---------- 失败签名知识复用 ----------
+
+
+def test_failure_signature_ignores_volatile_values():
+    """同种错误只是行号/取值不同，必须归一到同一签名。"""
+    a = service.failure_signature("runtime_error", "沙箱超时：calc 未返回 Series at bar 123")
+    b = service.failure_signature("runtime_error", "沙箱超时：calc 未返回 Series at bar 987654")
+    assert a == b
+    assert a.startswith("runtime_error|")
+    assert service.failure_signature("timeout", "超时 30s") != a
+
+
+def test_record_failure_hits_existing_knowledge(research_db):
+    """同签名第二次出现时命中已存知识（hit_count 累加，不堆新行）。"""
+    db, _ = research_db
+    first = service.record_failure(
+        db, owner_id="u1", session_id=None, trial_id=None, kind="runtime_error", error="calc 返回 None at bar 12"
+    )
+    second = service.record_failure(
+        db, owner_id="u1", session_id=None, trial_id=None, kind="runtime_error", error="calc 返回 None at bar 345"
+    )
+    assert second.id == first.id
+    assert second.hit_count == 2
+    assert db.query(ResearchKnowledge).count() == 1
+    rows = service.list_failure_knowledge(db, "u1")
+    assert rows[0]["hit_count"] == 2
+    # 其他 owner 的知识不串用
+    assert service.list_failure_knowledge(db, "u2") == []
+
+
+def test_render_context_injects_knowledge():
+    ctx = agents.render_context(
+        [],
+        None,
+        knowledge=[{"signature": "runtime_error|calc 返回 #", "hit_count": 3, "hint": "价量背离"}],
+    )
+    assert "已知失败模式" in ctx
+    assert "runtime_error|calc 返回 #" in ctx
+    assert "命中 3 次" in ctx
+
+
+def test_failed_loop_knowledge_appears_in_next_loop_context(research_db):
+    """第一轮失败沉淀签名，第二轮 propose/plan 的上下文里必须能看到它。"""
+    db, factory = research_db
+    cfg = {**DEEP_CFG, "loop_n": 2, "repair_rounds": 0}
+    sid = _create_session(db, mode="deep", cfg=cfg)
+    user_prompts: list[str] = []
+    calls = {"n": 0}
+
+    def llm_call(system: str, user: str) -> tuple[str, dict]:
+        user_prompts.append(user)
+        return _fake_llm_call([])(system, user)
+
+    def flaky_evaluator(code, raw_map, cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("沙箱超时：calc 未返回 Series at bar 123")
+        return _fake_evaluator(code, raw_map, cfg)
+
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=llm_call,
+            evaluator=flaky_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 0.2,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    assert [t.status for t in service.list_trials(db, sid)] == ["failed", "judged"]
+    knowledge = service.list_failure_knowledge(db, "u1")
+    assert knowledge and knowledge[0]["hit_count"] == 1
+    # 第二轮（假设/规划）的 prompt 里带上了第一轮的失败签名
+    # 第一轮在评估失败时退出，只发了 propose/plan/code 三次调用
+    second_loop_prompts = user_prompts[3:]
+    assert any("已知失败模式" in p for p in second_loop_prompts)

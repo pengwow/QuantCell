@@ -178,8 +178,9 @@ def render_context(
     trials: list[dict[str, Any]],
     sota_trial: dict[str, Any] | None,
     max_history: int = 20,
+    knowledge: list[dict[str, Any]] | None = None,
 ) -> str:
-    """三段式上下文：全量历史压缩 → 上一轮明细 → SOTA 代码。"""
+    """三段式上下文：全量历史压缩 → 上一轮明细 → SOTA 代码（+ 已知失败模式）。"""
 
     def metric(trial: dict[str, Any], key: str) -> Any:
         return (trial.get("metrics") or {}).get(key)
@@ -210,5 +211,15 @@ def render_context(
         lines.append(f"- 代码：\n```python\n{(sota_trial.get('code') or '')[:1200]}\n```")
     else:
         lines.append("- （暂无，尚未有 trial 通过三道硬门）")
+
+    if knowledge:
+        # 失败签名来自 research_knowledge：让 LLM 在提假设/拆任务时避开已知的坑
+        lines.append("\n## 已知失败模式（历史知识库，命中越多越要避开）")
+        for item in knowledge[:5]:
+            lines.append(
+                f"- {item.get('signature')}（命中 {item.get('hit_count')} 次）"
+                f"{'：' + item['hint'] if item.get('hint') else ''}"
+            )
+
     lines.append("\n要求：新假设必须与上述历史尝试有明确差异，禁止重复已失败的实现。")
     return "\n".join(lines)

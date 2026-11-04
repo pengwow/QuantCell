@@ -164,6 +164,8 @@ class ResearchLoop:
         self._sota_factor: Any = None
         self._sota_trial: dict[str, Any] | None = None
         self._scenario_obj: ResearchScenario | None = None
+        # 会话归属，用于失败签名知识库按 owner 隔离
+        self._owner_id: str = ""
 
     # ---------- DB 小工具 ----------
 
@@ -201,6 +203,27 @@ class ResearchLoop:
         except Exception:
             logger.exception("[研究] 过程事件上报失败，已忽略")
 
+    def _knowledge_rows(self) -> list[dict[str, Any]]:
+        """取该 owner 最近的高频失败签名，注入 propose/plan 上下文。"""
+        with self._db() as db:
+            return service.list_failure_knowledge(db, self._owner_id)
+
+    def _record_knowledge(self, kind: str, error: str, *, hint: str = "", trial_id: int | None = None) -> None:
+        """沉淀失败签名；知识库写失败不能干扰主流程。"""
+        try:
+            with self._db() as db:
+                service.record_failure(
+                    db,
+                    owner_id=self._owner_id,
+                    session_id=self.session_id,
+                    trial_id=trial_id,
+                    kind=kind,
+                    error=error,
+                    hint=hint,
+                )
+        except Exception:
+            logger.exception("[研究] 记录失败签名失败，已忽略")
+
     def _finish(self, status: str, *, error: str | None = None) -> None:
         with self._db() as db:
             row = self._session_row(db)
@@ -219,6 +242,7 @@ class ResearchLoop:
             row = self._session_row(db)
             cfg = service.session_config(row)
             mode = row.mode
+            self._owner_id = row.owner_id
             budget = Budget(
                 max_calls=int(cfg.get("max_llm_calls") or 0),
                 max_tokens=int(cfg.get("max_tokens") or 0),
@@ -353,9 +377,11 @@ class ResearchLoop:
     ) -> None:
         trials = self._load_trials()
         sota = next((t for t in trials if t["id"] == self._best_trial_id()), None)
-        context = render_context(trials, sota or self._sota_trial)
+        context = render_context(trials, sota or self._sota_trial, knowledge=self._knowledge_rows())
 
         trial_id: int | None = None
+        # 失败可能发生在 plan 之前，task 允许为空（只影响知识库 hint）
+        task: FactorTask | None = None
         start_status = "planned"
         metrics: dict[str, Any] = {}
         flag: str | None = None
@@ -364,6 +390,17 @@ class ResearchLoop:
         corr_library: float | None = None
         feedback_done = False
         started_at = time.monotonic()
+
+        # 同一次 trial 里同一签名只记一次：评估失败会先记、再在收尾分支重抛，
+        # 不去重会把一次故障算成两次命中
+        recorded_signatures: set[str] = set()
+
+        def note_failure(kind: str, error: str, hint: str = "") -> None:
+            signature = service.failure_signature(kind, error)
+            if signature in recorded_signatures:
+                return
+            recorded_signatures.add(signature)
+            self._record_knowledge(kind, error, hint=hint, trial_id=trial_id)
 
         if resume is None:
             # step 1 propose
@@ -471,6 +508,7 @@ class ResearchLoop:
                     repairs.append({"round": len(repairs) + 1, "kind": "empty_output", "error": "LLM 未返回可用代码"})
                     with self._db() as db:
                         service.update_trial(db, trial_id, repair_json=repairs)
+                    note_failure("empty_output", "LLM 未返回可用代码", task.description)
                     budget.spend_call()
                     code, usage = repair_code(self.deps.llm_call, task, "", "empty_output", "LLM 未返回可用代码")
                     self._charge_usage(budget, usage)
@@ -508,6 +546,7 @@ class ResearchLoop:
                         # 评估失败：分类后回灌重写代码，最多 repair_rounds 轮
                         kind, err = _classify_exc(exc)
                         repairs.append({"round": len(repairs) + 1, "kind": kind, "error": err[:200]})
+                        note_failure(kind, err, task.description)
                         with self._db() as db:
                             service.update_trial(db, trial_id, repair_json=repairs)
                         self._event(
@@ -605,6 +644,10 @@ class ResearchLoop:
         except Exception as exc:
             logger.info(f"[研究] trial {trial_id} 失败：{exc}")
             self._event("trial.failed", f"loop={loop_idx} trial={trial_id} {exc}")
+            # 失败签名沉淀，供后续会话的 propose/plan 避坑
+            kind, err = _classify_exc(exc)
+            # 失败可能发生在 plan 之前（此时还没有 task），hint 允许为空
+            note_failure(kind, err, task.description if task else "")
             if trial_id is not None:
                 try:
                     with self._db() as db:
