@@ -22,8 +22,8 @@ from datetime import datetime
 from sqlalchemy import func
 
 from exchange.binance.exchange import BinanceExchange
-from utils.logger import LogType, get_logger
 from utils.db_session import get_db_session
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -64,7 +64,7 @@ class LiveTradeSync:
         )
 
         # ccxt swap 市场统一符号带结算后缀："BTC/USDT" → "BTC/USDT:USDT"
-        base, _, quote = symbol.partition("/")
+        _base, _, quote = symbol.partition("/")
         self._ccxt_symbol = f"{symbol}:{quote}" if ":" not in symbol and quote else symbol
 
         # 起点取构造时刻（毫秒）：驱动尚未启动，不会有更早的新成交
@@ -91,10 +91,7 @@ class LiveTradeSync:
                     crud.create_trade_if_not_exists(db, self._to_trade_data(t))
                 except Exception as e:
                     # 保留游标，下轮从该笔重试
-                    logger.warning(
-                        f"LiveTradeSync: trade {t.get('id')} 落库失败 "
-                        f"(worker_id={self.worker_id}): {e}"
-                    )
+                    logger.warning(f"LiveTradeSync: trade {t.get('id')} 落库失败 (worker_id={self.worker_id}): {e}")
                     break
                 inserted += 1
                 # 游标推进用已见最大时间戳（不 +1）：同毫秒多笔成交不漏，
@@ -144,7 +141,7 @@ class LiveTradeSync:
         if raw_pnl:
             try:
                 realized = float(raw_pnl)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 realized = None
 
         entry_time = None
