@@ -74,12 +74,11 @@ const ResearchDetail: React.FC = () => {
     try {
       const data = await researchApi.get(sessionId);
       setDetail(data);
-      if (data.backend_job_id) {
-        const page = await researchApi.events(sessionId, nextSeqRef.current);
-        if (page.events.length > 0) {
-          nextSeqRef.current = page.next_seq;
-          setEvents((prev) => [...prev, ...page.events].slice(-200));
-        }
+      // 事件已持久化到 research_events：不再依赖 backend_job_id（多 worker/重启后依然可增量读）
+      const page = await researchApi.events(sessionId, nextSeqRef.current);
+      if (page.events.length > 0) {
+        nextSeqRef.current = page.next_seq;
+        setEvents((prev) => [...prev, ...page.events].slice(-200));
       }
     } catch (err) {
       message.error(err instanceof Error ? err.message : '会话加载失败');
@@ -207,6 +206,9 @@ const ResearchDetail: React.FC = () => {
             </Typography.Title>
             {detail && <Tag color={statusMeta?.color}>{statusMeta?.label}</Tag>}
             {detail && <Tag>{detail.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>}
+            {detail?.extended_at && (
+              <Tag color="blue">已追加 {new Date(detail.extended_at).toLocaleString()}</Tag>
+            )}
           </Space>
           <Space wrap>
             <Button loading={loading} onClick={refresh}>
@@ -242,12 +244,15 @@ const ResearchDetail: React.FC = () => {
                 取消
               </Button>
             )}
-            {detail?.status === 'completed' && isDeep && (
+            {detail?.status === 'completed' && (
               <Button
                 onClick={() =>
                   modal.confirm({
                     title: '继续研究',
-                    content: '追加 2 轮研究与 10 次 LLM 调用预算。',
+                    content:
+                      detail.mode === 'quick'
+                        ? 'quick 会话追加的轮次会按深度研究编排，并从当前最佳候选接续。追加 2 轮与 10 次调用预算。'
+                        : '追加 2 轮研究与 10 次 LLM 调用预算。',
                     okText: '追加',
                     cancelText: '取消',
                     onOk: () =>
@@ -271,14 +276,14 @@ const ResearchDetail: React.FC = () => {
                 {isDeep && detail?.step_idx ? `　当前步骤：${STEP_LABELS[detail.step_idx] || '—'}` : ''}
               </span>
               <span>
-                LLM 调用：{detail?.llm_calls ?? 0}/{detail?.max_llm_calls ?? '—'}
+                LLM 调用（已用 / 上限）：{detail?.llm_calls ?? 0} / {detail?.max_llm_calls ?? '—'}
               </span>
               <span>最优 IC_IR：{fmt(detail?.best_ic_ir)}</span>
             </Space>
             <Progress
               percent={tokenPercent}
               status={detail?.status === 'running' ? 'active' : undefined}
-              format={() => `Token ${detail?.token_used ?? 0}/${detail?.max_tokens ?? '—'}`}
+              format={() => `Token 已用 / 上限：${detail?.token_used ?? 0} / ${detail?.max_tokens ?? '—'}`}
             />
             {detail && (
               <Descriptions size="small" column={3}>
@@ -309,7 +314,7 @@ const ResearchDetail: React.FC = () => {
           size="small"
           loading={loading}
           columns={columns}
-          dataSource={detail?.trials ?? []}
+          dataSource={[...(detail?.trials ?? [])].sort((a, b) => b.id - a.id)}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           locale={{ emptyText: '暂无试验记录' }}
         />
@@ -319,12 +324,12 @@ const ResearchDetail: React.FC = () => {
           title="运行事件"
           extra={
             <Typography.Text type="secondary">
-              seq ≤ {nextSeqRef.current}　进程内缓冲，重启后清空
+              seq ≤ {nextSeqRef.current}　事件已持久化，多 worker/重启后仍可增量读取
             </Typography.Text>
           }
         >
           {events.length === 0 ? (
-            <Typography.Text type="secondary">暂无事件（作业结束后缓冲保留约 30 分钟）</Typography.Text>
+            <Typography.Text type="secondary">暂无事件（研究开始后会逐步写入）</Typography.Text>
           ) : (
             <div style={{ maxHeight: 220, overflow: 'auto', fontSize: 12, lineHeight: 1.8 }}>
               {events.map((evt) => (

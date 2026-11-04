@@ -52,6 +52,8 @@ const ResearchList: React.FC = () => {
   const [status, setStatus] = useState<'all' | ResearchStatus>('all');
   const [newOpen, setNewOpen] = useState(false);
   const [initialMode, setInitialMode] = useState<ResearchMode>('deep');
+  // 复制配置：把来源会话带进新建抽屉，按它的 config 预填
+  const [copyFrom, setCopyFrom] = useState<ResearchSession | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -126,9 +128,9 @@ const ResearchList: React.FC = () => {
     },
     {
       title: '操作',
-      width: 170,
+      width: 260,
       render: (_, row) => (
-        <Space size={4} onClick={(e) => e.stopPropagation()}>
+        <Space size={4} onClick={(e) => e.stopPropagation()} wrap>
           <Button size="small" onClick={() => navigate(`/research/${row.id}`)}>
             查看
           </Button>
@@ -142,6 +144,30 @@ const ResearchList: React.FC = () => {
               继续
             </Button>
           )}
+          {row.status === 'completed' && (
+            <Button
+              size="small"
+              onClick={() =>
+                void act(() => researchApi.extend(row.id, { extra_loops: 2 }), '已追加 2 轮研究')
+              }
+            >
+              继续研究
+            </Button>
+          )}
+          {['pending', 'running', 'paused'].includes(row.status) && (
+            <Button size="small" danger onClick={() => void act(() => researchApi.cancel(row.id), '已取消')}>
+              取消
+            </Button>
+          )}
+          <Button
+            size="small"
+            onClick={() => {
+              setCopyFrom(row);
+              setNewOpen(true);
+            }}
+          >
+            复制配置
+          </Button>
         </Space>
       ),
     },
@@ -250,7 +276,11 @@ const ResearchList: React.FC = () => {
         <ResearchNewDrawer
           open={newOpen}
           initialMode={initialMode}
-          onClose={() => setNewOpen(false)}
+          copyFrom={copyFrom}
+          onClose={() => {
+            setNewOpen(false);
+            setCopyFrom(null);
+          }}
           onCreated={(id) => navigate(`/research/${id}`)}
         />
 

@@ -2,7 +2,7 @@
  * 新建研究会话抽屉（PRD §6.4）：模式 Radio + 数据窗口 + 成本/硬门高级参数。
  * 表单默认值来自后端 consts 的同一套口径，前端仅做展示与轻量校验。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -16,11 +16,13 @@ import {
   Space,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { researchApi, type ResearchCreateParams, type ResearchMode } from '@/api/research';
+import { researchApi, type ResearchCreateParams, type ResearchMode, type ResearchSession } from '@/api/research';
 
 interface Props {
   open: boolean;
   initialMode?: ResearchMode;
+  /** 复制配置的来源会话：按它的 config 预填表单 */
+  copyFrom?: ResearchSession | null;
   onClose: () => void;
   onCreated: (sessionId: number) => void;
 }
@@ -51,11 +53,13 @@ interface FormValues {
   corr_threshold?: number;
 }
 
-const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, onClose, onCreated }) => {
+const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClose, onCreated }) => {
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mode = Form.useWatch('mode', form) ?? 'deep';
+  // 复制配置预填会触发模式变化；这一次不要用默认值把复制来的参数冲掉
+  const skipModeResetFor = useRef<ResearchMode | null>(null);
   const watchedCandidates = Form.useWatch('n_candidates', form);
   const watchedLoops = Form.useWatch('loop_n', form);
   const watchedMaxCalls = Form.useWatch('max_llm_calls', form);
@@ -64,13 +68,39 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, onClose, onCrea
   const estTokens = estCalls * EST_TOKENS_PER_CALL;
   const overBudget = Boolean(watchedMaxCalls && estCalls > watchedMaxCalls);
 
-  // 打开抽屉时按入口按钮预置模式（空状态的两个快捷按钮）
+  // 打开抽屉：有复制来源就按它的 config 预填，否则只预置入口模式
   useEffect(() => {
-    if (open) form.setFieldsValue({ mode: initialMode ?? 'deep' });
-  }, [open, initialMode, form]);
+    if (!open) return;
+    if (copyFrom) {
+      const cfg = copyFrom.config;
+      const start = cfg.start ? dayjs(String(cfg.start)) : dayjs().subtract(180, 'day');
+      const end = cfg.end ? dayjs(String(cfg.end)) : dayjs();
+      skipModeResetFor.current = copyFrom.mode;
+      form.setFieldsValue({
+        mode: copyFrom.mode,
+        name: `复制-${copyFrom.name}`.slice(0, 64),
+        symbols: (cfg.symbols as string[] | undefined) ?? DEFAULT_SYMBOLS,
+        interval: String(cfg.interval ?? '1h'),
+        candle_type: (cfg.candle_type as 'spot' | 'future' | undefined) ?? 'spot',
+        window: [start, end],
+        n_candidates: copyFrom.n_candidates,
+        loop_n: copyFrom.loop_n,
+        max_llm_calls: Number(cfg.max_llm_calls) || undefined,
+        max_tokens: Number(cfg.max_tokens) || undefined,
+        icir_floor: Number(cfg.icir_floor) || undefined,
+        corr_threshold: Number(cfg.corr_threshold) || undefined,
+      });
+      return;
+    }
+    skipModeResetFor.current = initialMode ?? 'deep';
+    form.setFieldsValue({ mode: initialMode ?? 'deep' });
+  }, [open, copyFrom, initialMode, form]);
 
   // 切换模式时把候选数与预算重置为对应默认值，避免 quick 带上 deep 的 30 次预算
   useEffect(() => {
+    const skip = skipModeResetFor.current === mode;
+    skipModeResetFor.current = null;
+    if (skip) return;
     const isQuick = mode === 'quick';
     form.setFieldsValue({
       n_candidates: isQuick ? 4 : 2,
@@ -230,14 +260,17 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, onClose, onCrea
             />
           )}
 
-          <Space size="middle" style={{ display: 'flex' }}>
-            <Form.Item name="icir_floor" label="IC_IR 硬门" style={{ flex: 1 }}>
-              <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="corr_threshold" label="相关性上限" style={{ flex: 1 }}>
-              <InputNumber min={0.1} max={1} step={0.05} style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
+          {/* quick 只走冗余门，IC_IR/相关性属于 deep 专属硬门，不展示 */}
+          {mode === 'deep' && (
+            <Space size="middle" style={{ display: 'flex' }}>
+              <Form.Item name="icir_floor" label="IC_IR 硬门" style={{ flex: 1 }}>
+                <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="corr_threshold" label="相关性上限" style={{ flex: 1 }}>
+                <InputNumber min={0.1} max={1} step={0.05} style={{ width: '100%' }} />
+              </Form.Item>
+            </Space>
+          )}
 
           <Space>
             <Button type="primary" loading={submitting} onClick={() => void submit()}>
