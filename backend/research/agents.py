@@ -145,6 +145,24 @@ def generate_code(llm_call: LLMCall, task: FactorTask) -> tuple[str, dict[str, A
     return extract_code(content), usage
 
 
+def repair_prompt(task: FactorTask, code: str, kind: str, error: str) -> tuple[str, str]:
+    """自修复提示：把分类后的错误摘要回灌，要求重写完整代码。"""
+    user = (
+        f"任务名称：{task.name}\n任务描述：{task.description}\n公式：{task.formulation}\n\n"
+        f"上一版代码执行失败（{kind}）：{error[:300]}\n\n"
+        f"上一版代码：\n```python\n{code[:4000]}\n```\n"
+        "请修复上述问题并只输出完整的 Python 代码块。"
+    )
+    return CODE_SYSTEM_PROMPT, user
+
+
+def repair_code(llm_call: LLMCall, task: FactorTask, code: str, kind: str, error: str) -> tuple[str, dict[str, Any]]:
+    """按错误摘要重写代码；提取失败返回空串。"""
+    system, user = repair_prompt(task, code, kind, error)
+    content, usage = llm_call(system, user)
+    return extract_code(content), usage
+
+
 def build_feedback(
     llm_call: LLMCall, context: str, metrics: dict[str, Any], sota_metrics: dict[str, Any] | None
 ) -> tuple[FeedbackOut, dict[str, Any]]:

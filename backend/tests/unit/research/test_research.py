@@ -385,7 +385,7 @@ def test_deep_loop_three_rounds(research_db):
 
 def test_deep_trial_failure_does_not_kill_session(research_db):
     db, factory = research_db
-    cfg = {**DEEP_CFG, "loop_n": 2}
+    cfg = {**DEEP_CFG, "loop_n": 2, "repair_rounds": 0}
     sid = _create_session(db, mode="deep", cfg=cfg)
     calls = {"n": 0}
 
@@ -729,3 +729,40 @@ def test_interrupted_trial_can_resume_from_recorded_step():
     ensure_trial_transition("interrupted", "judged")
     with pytest.raises(InvalidTransition):
         ensure_trial_transition("judged", "interrupted")
+
+
+def test_deep_repair_loop_rewrites_code_and_records_summary(research_db):
+    """评估失败时回灌错误摘要重写代码，修复轮次与摘要落库。"""
+    db, factory = research_db
+    cfg = {**DEEP_CFG, "loop_n": 1, "repair_rounds": 2}
+    sid = _create_session(db, mode="deep", cfg=cfg)
+    calls = {"n": 0}
+
+    def flaky_evaluator(code, raw_map, cfg):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("沙箱超时：calc 未返回 Series")
+        return _fake_evaluator(code, raw_map, cfg)
+
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=_fake_llm_call([]),
+            evaluator=flaky_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 0.2,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    row = db.get(ResearchSession, sid)
+    assert row.status == "completed"
+    trial = service.list_trials(db, sid)[0]
+    assert trial.status == "judged", trial.exception
+    repair = json.loads(trial.repair_json)
+    assert len(repair) == 1
+    assert repair[0]["kind"] == "runtime_error"
+    assert "沙箱超时" in repair[0]["error"]
+    # 修复轮也要计一次调用：propose+plan+code+repair+feedback = 5
+    assert row.llm_calls == 5

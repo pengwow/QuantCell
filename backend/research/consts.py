@@ -16,7 +16,8 @@ DEFAULT_QUICK_CANDIDATES = 4  # quick 单轮候选数，沿用现有挖掘默认
 DEFAULT_DEEP_CANDIDATES = 2  # deep 每轮候选数（P0 每次只落 1 条 trial）
 DEFAULT_DEEP_LOOPS = 3
 DEFAULT_TASKS_PER_LOOP = 2
-DEFAULT_REPAIR_ROUNDS = 1  # P0 未启用自修复，仅作为配置透传（P1 生效）
+DEFAULT_REPAIR_ROUNDS = 2  # 代码生成/评估失败后的自动重写轮数（P1 自修复内环）
+MAX_REPAIR_ROUNDS = 5  # 单 trial 最多修复轮数，防止无限烧钱
 
 # ---------- 成本上限（PRD §12 #3）----------
 QUICK_MAX_LLM_CALLS = 6
