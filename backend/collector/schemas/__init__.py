@@ -1,5 +1,6 @@
 # Pydantic模型定义，用于数据处理API的请求和响应
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 from common.schemas import ApiResponse
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from collections.abc import Sequence
 
 
 class DataDownloadRequest(BaseModel):
