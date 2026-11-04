@@ -407,7 +407,9 @@ class ResearchLoop:
 
             task = tasks[0]
             with self._db() as db:
-                trial = service.add_trial(
+                # 唯一索引保证 (session, loop, candidate) 只有一条；
+                # 并发/重试撞键时复用已有行，而不是中断整个循环
+                trial, created = service.get_or_add_trial(
                     db,
                     self.session_id,
                     {
@@ -423,11 +425,17 @@ class ResearchLoop:
                     },
                 )
                 trial_id = trial.id
-                self._event("trial.start", f"loop={loop_idx} trial={trial_id}")
+                if not created:
+                    # 复用了已存在的行：按它的实际进度接续，避免重复跑已完成的 step
+                    start_status = str(trial.resume_status or trial.status)
+                    self._event("trial.reused", f"loop={loop_idx} trial={trial_id}")
+                else:
+                    self._event("trial.start", f"loop={loop_idx} trial={trial_id}")
         else:
             # 续跑：沿用已落库的假设/任务/中间结果，不重复创建 trial
             trial_id = int(resume["id"])
-            start_status = str(resume["status"])
+            # interrupted 是终态标记，真正停在哪一步在 resume_status 里
+            start_status = str(resume.get("resume_status") or resume["status"])
             task = FactorTask.model_validate(resume.get("task") or {})
             metrics = dict(resume.get("metrics") or {})
             flag = resume.get("oos_flag")
@@ -541,8 +549,11 @@ class ResearchLoop:
                 self._sota_factor = analysis.get("train_factor")
                 with self._db() as db:
                     service.update_session_fields(db, self.session_id, best_trial_id=trial_id)
-        except BudgetExhausted, CancelSignal, PauseSignal:
-            # 进度类信号保留非终态，恢复时可从当前 trial 续跑
+        except (BudgetExhausted, CancelSignal, PauseSignal) as exc:
+            # 进度类信号：先把在飞的 trial 落成 interrupted 终态并记住停在哪一步，
+            # 避免留下永久 running/coded；恢复时按 resume_status 继续
+            if trial_id is not None:
+                self._interrupt_trial(trial_id, exc, started_at)
             raise
         except Exception as exc:
             logger.info(f"[研究] trial {trial_id} 失败：{exc}")
@@ -561,6 +572,29 @@ class ResearchLoop:
                     logger.exception("[研究] 标记 trial 失败时再次出错")
         finally:
             self._persist_cost(budget)
+
+    def _interrupt_trial(self, trial_id: int, exc: BaseException, started_at: float) -> None:
+        """把在飞 trial 标成 interrupted，并记录中断前所处 step（resume_status）。"""
+        label = {
+            "PauseSignal": "用户暂停",
+            "CancelSignal": "用户取消",
+            "BudgetExhausted": "预算耗尽",
+        }.get(type(exc).__name__, type(exc).__name__)
+        try:
+            with self._db() as db:
+                row = service.get_trial_row(db, trial_id)
+                if row.status in service.TERMINAL_TRIAL_STATUSES or row.status == "interrupted":
+                    return
+                service.update_trial(
+                    db,
+                    trial_id,
+                    status="interrupted",
+                    resume_status=row.status,
+                    exception=f"{label}：{str(exc)[:200]}",
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                )
+        except Exception:
+            logger.exception("[研究] 标记 trial 中断状态失败")
 
     def _corr_values(
         self, analysis: dict[str, Any], raw_map: dict[str, Any], cfg: dict[str, Any]

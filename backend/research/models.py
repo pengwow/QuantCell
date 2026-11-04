@@ -62,6 +62,8 @@ class ResearchTrial(Base):
     loop_idx: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     candidate_idx: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="planned")
+    # interrupted 时记录中断前所处的 step 状态，恢复时据此接续
+    resume_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     hypothesis: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 假设的理由/预测（PRD §7.2 hypothesis_json 的拆列存法）
     hypothesis_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

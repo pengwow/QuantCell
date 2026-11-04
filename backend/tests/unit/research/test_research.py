@@ -519,10 +519,13 @@ def test_resume_continues_open_trial_without_duplicate(research_db):
 
     first = service.list_trials(db, sid)
     assert len(first) == 1
-    assert first[0].status == "evaluated"
+    # 暂停发生在评估完成之后：trial 落 interrupted 终态，并记住停在 evaluated
+    assert first[0].status == "interrupted"
+    assert first[0].resume_status == "evaluated"
     first_trial_id = first[0].id
 
     row = db.get(ResearchSession, sid)
+    spent_calls, spent_tokens = row.llm_calls, row.token_used
     service.set_session_status(db, row, "paused")
     service.set_session_status(db, row, "running")
 
@@ -545,6 +548,10 @@ def test_resume_continues_open_trial_without_duplicate(research_db):
     assert len(trials) == 3  # 没有重复 trial
     assert trials[0].id == first_trial_id
     assert all(t.status == "judged" for t in trials)
+    # 续跑复用已有反馈，不重复计费
+    assert trials[0].llm_calls == first[0].llm_calls
+    assert row.llm_calls > spent_calls  # 后续两轮正常产生新成本
+    assert row.token_used > spent_tokens
 
 
 def test_cas_blocks_stale_status_overwrite(research_db):
@@ -629,7 +636,8 @@ def test_resume_redundant_factor_still_rejected(research_db):
     ).run(ctrl)
 
     trial = service.list_trials(db, sid)[0]
-    assert trial.status == "evaluated"
+    assert trial.status == "interrupted"
+    assert trial.resume_status == "evaluated"
     assert trial.corr_library == 0.95
 
     row = db.get(ResearchSession, sid)
@@ -699,3 +707,25 @@ def test_resume_missing_corr_is_unknown_not_pass(research_db):
     gossip = json.loads(judged.judge_json)
     assert gossip["gates"]["corr"]["status"] == "unknown"
     assert gossip["gates"]["corr"]["unknown"] == ["因子库"]
+
+
+def test_get_or_add_trial_reuses_existing_row(research_db):
+    """唯一键撞车时复用已有行，不让研究循环整轮失败。"""
+    db, _ = research_db
+    sid = _create_session(db, mode="deep", cfg=DEEP_CFG)
+    first = service.add_trial(db, sid, {"loop_idx": 1, "candidate_idx": 1, "status": "planned"})
+
+    row, created = service.get_or_add_trial(db, sid, {"loop_idx": 1, "candidate_idx": 1, "status": "planned"})
+
+    assert created is False
+    assert row.id == first.id
+    assert len(service.list_trials(db, sid)) == 1
+
+
+def test_interrupted_trial_can_resume_from_recorded_step():
+    """interrupted 是终态，但允许从 resume_status 记录的步骤重新打开。"""
+    ensure_trial_transition("running", "interrupted")
+    ensure_trial_transition("interrupted", "evaluated")
+    ensure_trial_transition("interrupted", "judged")
+    with pytest.raises(InvalidTransition):
+        ensure_trial_transition("judged", "interrupted")
