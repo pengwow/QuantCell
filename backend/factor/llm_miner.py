@@ -289,6 +289,16 @@ def _classify_exc(exc: Exception) -> tuple[str, str]:
     return "runtime_error", f"{type(exc).__name__}: {exc}"
 
 
+def _usage_tokens(usage: dict[str, Any] | None) -> int:
+    """token 统计：优先 total_tokens，缺失时用 prompt + completion 兜底。"""
+    if not usage:
+        return 0
+    total = usage.get("total_tokens")
+    if total is not None:
+        return int(total)
+    return int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
+
+
 async def _generate_batch(
     backend: Any,
     system_prompt: str,
@@ -320,7 +330,11 @@ async def _generate_batch(
                 resp.get("usage") or {},
                 resp.get("finish_reason"),
             )
-        return {"content": resp.get("content") or "", "finish_reason": resp.get("finish_reason")}
+        return {
+            "content": resp.get("content") or "",
+            "finish_reason": resp.get("finish_reason"),
+            "usage": resp.get("usage") or {},
+        }
 
     return await asyncio.gather(*(one(p, i) for i, p in enumerate(user_prompts)))
 
@@ -372,6 +386,11 @@ def run_llm_mining(
     seen_hashes: set[str] = set()
     reflection = ""
     generated_total = unique_total = 0
+    # 成本累计：每次 LLM 返回都算一次调用（含重复代码被跳过的那次），
+    # token 用 usage 的 total，缺失时 prompt+completion 兜底
+    llm_calls_total = 0
+    total_tokens = 0
+    usage_agg = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     # 进度预算：3→83 为 n 轮挖掘（每轮 80/n）；轮内生成 60%、评估 40%
     GEN_LO, GEN_HI = 3.0, 83.0
@@ -411,6 +430,11 @@ def run_llm_mining(
         for i, resp in enumerate(responses):
             text = resp["content"]
             finish_reason = resp.get("finish_reason")
+            resp_usage = resp.get("usage") or {}
+            llm_calls_total += 1
+            total_tokens += _usage_tokens(resp_usage)
+            for key in usage_agg:
+                usage_agg[key] += int(resp_usage.get(key) or 0)
             code = extract_code(text)
             generated_total += 1
             base = {"round": round_idx + 1, "candidate": i + 1}
@@ -438,6 +462,8 @@ def run_llm_mining(
                     "metrics_oos": None,
                     "oos_flag": None,
                     "oos_note": None,
+                    # 单候选的 usage 供研究模块按 trial 归属成本
+                    "usage": resp.get("usage") or {},
                 }
                 candidates.append(row)
                 round_rows.append(row)
@@ -485,6 +511,7 @@ def run_llm_mining(
                     "metrics_oos": metrics_oos,
                     "oos_flag": flag,
                     "oos_note": note,
+                    "usage": resp.get("usage") or {},
                     # 内部键：train 段因子面板，仅供跨候选相关性去重，返回前必须剥离
                     "_factor": analysis["train_factor"],
                 }
@@ -599,6 +626,10 @@ def run_llm_mining(
             "model_name": params.model_name,
             "test_ratio": params.test_ratio,
             "wf_folds": params.wf_folds,
+            # 研究模块据 llm_calls/total_tokens 做会话与 trial 级成本归属
+            "llm_calls": llm_calls_total,
+            "total_tokens": total_tokens,
+            "usage": usage_agg,
         },
     }
 
