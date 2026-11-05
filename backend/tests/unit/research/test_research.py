@@ -314,6 +314,50 @@ def test_quick_cost_stats():
     )
 
 
+def test_quick_candidate_usage_maps_to_trial_cost():
+    """quick 的每个候选要带调用次数与 token，否则 trial 级成本永远为 0。"""
+    trials = map_candidates_to_trials(
+        [
+            {
+                "candidate": 1,
+                "status": "success",
+                "code": "c1",
+                "usage": {"total_tokens": 3974},
+            }
+        ]
+    )
+    assert trials[0]["llm_calls"] == 1
+    assert trials[0]["token_used"] == 3974
+
+
+def test_trial_to_dict_sanitizes_control_chars(research_db):
+    """LLM 文本带控制字符时，写库与序列化都不能把接口打挂。"""
+    db, _ = research_db
+    sid = _create_session(db)
+    row = service.add_trial(
+        db,
+        sid,
+        {
+            "loop_idx": 1,
+            "candidate_idx": 1,
+            "status": "evaluated",
+            "hypothesis": "a\x00b\x01c",
+            "exception": "boom\x07",
+            "metrics_json": {"ic_ir": 0.2, "note": "x\x00y"},
+        },
+    )
+    data = service.trial_to_dict(row)
+    assert "\x00" not in data["hypothesis"]
+    assert "\x07" not in data["exception"]
+    assert data["metrics"]["note"] == "xy"
+    json.dumps(data, ensure_ascii=False)  # 序列化不得抛异常
+
+    # 历史行绕过 _dumps 直接落了原始控制字符：读侧 _loads 也必须清洗后解析
+    row.metrics_json = '{"ic_ir": 0.2, "note": "x\x01y"}'
+    db.commit()
+    assert service.trial_to_dict(row)["metrics"]["ic_ir"] == 0.2
+
+
 # ---------- 预算 ----------
 
 
@@ -322,8 +366,33 @@ def test_budget_short_circuit():
     budget.spend_call()
     with pytest.raises(BudgetExhausted):
         budget.spend_call()
+    # 预留失败才拒绝；实际用量超出上限只结算、不抛异常（避免丢弃已拿到的产物）
     with pytest.raises(BudgetExhausted):
-        budget.add_tokens(101)
+        budget.reserve_tokens(101)
+    budget.reserve_tokens(50)
+    budget.settle_tokens(120, 50)
+    assert budget.tokens_used == 120
+    assert budget.reserved_tokens == 0
+
+
+def test_budget_actual_overage_is_settled_not_rejected():
+    """实测 32804 超 30000 时不能丢弃合法代码：按实际结算，不再抛异常。"""
+    budget = Budget(max_calls=10, max_tokens=30_000)
+    reserved = budget.reserve_tokens(consts.EST_TOKENS_PER_CALL)
+    budget.settle_tokens(32_804, reserved)
+    assert budget.tokens_used == 32_804
+    assert budget.reserved_tokens == 0
+
+
+def test_empty_code_reason_mentions_truncation_without_repair():
+    """repair_rounds=0 时不能写“修复后仍失败”，要指向未启用修复/输出截断。"""
+    from research.loop import _empty_code_reason
+
+    reason = _empty_code_reason({"finish_reason": "length"}, 0)
+    assert "截断" in reason and "未启用" in reason
+    assert "修复后仍未" not in reason
+    assert "修复后仍" in _empty_code_reason({"finish_reason": "length"}, 2)
+    assert "未启用" in _empty_code_reason({"finish_reason": "stop"}, 0)
 
 
 # ---------- quick 闭环 ----------
@@ -382,6 +451,8 @@ def test_deep_loop_three_rounds(research_db):
     assert len(trials) == 3
     assert all(t.status == "judged" and t.decision is True for t in trials)
     assert row.best_trial_id == trials[-1].id
+    # trial 级成本：每轮 4 次调用、每次 10 tokens 都归属到该条 trial
+    assert all(t.llm_calls == 4 and t.token_used == 40 for t in trials)
 
 
 def test_deep_trial_failure_does_not_kill_session(research_db):
@@ -857,7 +928,7 @@ def test_failed_loop_knowledge_appears_in_next_loop_context(research_db):
 def test_estimate_budget_by_candidates_and_loops():
     calls, tokens = service.estimate_budget("deep", {"loop_n": 3, "repair_rounds": 0}, 1)
     assert calls == 3 * 4
-    assert tokens == calls * 3000
+    assert tokens == calls * consts.EST_TOKENS_PER_CALL
     calls, _ = service.estimate_budget("quick", {"loop_n": 1}, 4)
     assert calls == 5  # 4 个候选各 1 次 + 1 次收尾
     calls, _ = service.estimate_budget("deep", {"loop_n": 2, "repair_rounds": 2}, 1)

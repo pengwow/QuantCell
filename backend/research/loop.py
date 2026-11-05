@@ -64,10 +64,19 @@ class CancelSignal(Exception):
 
 @dataclass
 class Budget:
+    """调用次数预扣 + token 预留/结算。
+
+    token 口径：调用前按 EST_TOKENS_PER_CALL 预留（预留失败才拒绝发起请求），
+    返回后按实际用量结算。实际超过上限只记录、不再丢弃已经拿到的合法产物
+    （旧实现事后扣费抛异常，曾把 1278 字合法代码整条丢弃）。
+    单线程串行调用，同一时刻最多一笔在飞预留。
+    """
+
     max_calls: int
     max_tokens: int
     calls_used: int = 0
     tokens_used: int = 0
+    reserved_tokens: int = 0
 
     def spend_call(self) -> None:
         """调用前预扣一次，避免预算耗尽后仍发起 LLM 请求。"""
@@ -75,21 +84,31 @@ class Budget:
 
     def spend_calls(self, count: int) -> None:
         extra = max(int(count or 0), 0)
-        if self.calls_used + extra > self.max_calls:
+        if self.max_calls and self.calls_used + extra > self.max_calls:
             raise BudgetExhausted(f"LLM 调用次数将超过上限 {self.max_calls}")
         self.calls_used += extra
 
-    def add_tokens(self, tokens: int) -> None:
-        self.tokens_used += max(int(tokens or 0), 0)
-        if self.tokens_used > self.max_tokens:
-            raise BudgetExhausted(f"token 用量已达上限 {self.max_tokens}")
+    def reserve_tokens(self, estimate: int) -> int:
+        """调用前预留，返回预留额度；额度不足时直接拒绝本次调用。"""
+        estimate = max(int(estimate or 0), 0)
+        if self.max_tokens and self.tokens_used + self.reserved_tokens + estimate > self.max_tokens:
+            raise BudgetExhausted(f"token 预算不足以容纳下一次调用（已用 {self.tokens_used}，上限 {self.max_tokens}）")
+        self.reserved_tokens += estimate
+        return estimate
 
-    def record(self, calls: int, tokens: int) -> None:
-        """quick 模式用挖掘 stats 一次性记账。"""
-        self.calls_used += max(int(calls), 0)
-        self.tokens_used += max(int(tokens), 0)
-        if self.calls_used > self.max_calls or self.tokens_used > self.max_tokens:
-            raise BudgetExhausted("quick 轮用量已超预算")
+    def settle_tokens(self, actual: int, reserved: int = 0) -> None:
+        """按实际用量结算；超出上限不再抛异常，只记日志由调用方观测。"""
+        self.reserved_tokens = max(self.reserved_tokens - max(int(reserved or 0), 0), 0)
+        self.tokens_used += max(int(actual or 0), 0)
+
+    def note_calls(self, count: int) -> None:
+        """事后补记调用次数：请求已经发生（如内部重试），不能反过来丢弃产物。"""
+        self.calls_used += max(int(count or 0), 0)
+
+    def record(self, calls: int, tokens: int, reserved: int = 0) -> None:
+        """quick 模式用挖掘 stats 一次性记账（同样按实际结算）。"""
+        self.note_calls(calls)
+        self.settle_tokens(tokens, reserved)
 
 
 def _default_corr(a: Any, b: Any) -> float | None:
@@ -144,6 +163,23 @@ class LoopDeps:
 
 def _hash_code(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def _empty_code_reason(usage: dict[str, Any] | None, repair_rounds: int) -> str:
+    """空代码失败原因：区分“未启用修复”和“多轮修复后仍失败”，并标明截断。
+
+    reasoning 消耗不算 content 为空：若 finish=length 且正文为空，说明思考链
+    吃满了输出预算，文案必须指向“输出被截断”，而不是笼统的“未返回代码”。
+    """
+    finish = (usage or {}).get("finish_reason")
+    truncated = finish == "length"
+    if repair_rounds <= 0:
+        if truncated:
+            return "LLM 输出被截断（finish=length，思考链占满 token 预算），且未启用代码修复（repair_rounds=0）"
+        return "LLM 未返回可用代码，且未启用代码修复（repair_rounds=0）"
+    if truncated:
+        return f"LLM 输出在 {repair_rounds} 轮修复后仍被截断（finish=length），请提高单次输出上限"
+    return f"LLM 在 {repair_rounds} 轮修复后仍未返回可用代码"
 
 
 def _checkpoint(control: service.Control | None) -> None:
@@ -281,8 +317,11 @@ class ResearchLoop:
         if self.deps.mining_fn is None:
             raise RuntimeError("quick 模式缺少 mining_fn 依赖")
         # quick 是一次性批量调用，先确认还有额度，避免花掉最后一次调用
-        if budget.calls_used + 1 > budget.max_calls:
+        if budget.max_calls and budget.calls_used + 1 > budget.max_calls:
             raise BudgetExhausted(f"LLM 调用次数已达上限 {budget.max_calls}")
+        # 调用前按候选数预留 token，返回后按挖掘 stats 的实际用量结算
+        candidates = max(int(cfg.get("n_candidates") or 1), 1)
+        reserved = budget.reserve_tokens(consts.EST_TOKENS_PER_CALL * candidates)
 
         result = self.deps.mining_fn(cfg)
         self._event("quick.mined", f"candidates={len(result.get('candidates') or [])}")
@@ -291,7 +330,8 @@ class ResearchLoop:
             result.get("candidates") or [],
             quick_run_id=result.get("run_id"),
         )
-        # I2：先落库候选与成本，再判预算；否则“钱花了但 trials=0”
+        # I2：先落库候选与成本；实际超预算只记录，不丢弃已经拿到的候选
+        budget.record(calls, tokens, reserved)
         with self._db() as db:
             for fields in trials:
                 service.add_trial(db, self.session_id, fields)
@@ -300,10 +340,9 @@ class ResearchLoop:
                 self.session_id,
                 loop_done=1,
                 step_idx=0,
-                token_used=budget.tokens_used + tokens,
-                llm_calls=budget.calls_used + calls,
+                token_used=budget.tokens_used,
+                llm_calls=budget.calls_used,
             )
-        budget.record(calls, tokens)
 
     # ---------- deep ----------
 
@@ -361,12 +400,25 @@ class ResearchLoop:
         except Exception:
             logger.exception("[研究] 重建 SOTA 因子失败，硬门 3 仅对比因子库")
 
-    def _charge_usage(self, budget: Budget, usage: dict[str, Any]) -> None:
-        """按真实调用次数补扣（重试次数已在 agents 里累计），token 走兜底口径。"""
-        calls = int(usage.get("llm_calls") or 0)
+    def _charge_usage(self, budget: Budget, usage: dict[str, Any], reserved: int) -> tuple[int, int]:
+        """返回后按实际结算（重试已在 agents 累计），token 超出上限不再抛异常。"""
+        calls = max(int(usage.get("llm_calls") or 1), 1)
+        # 重试发生在本次调用内部，已经拿到结果；事后只补记，不再因次数上限拒绝
         if calls > 1:
-            budget.spend_calls(calls - 1)
-        budget.add_tokens(agents.usage_tokens(usage))
+            budget.note_calls(calls - 1)
+        tokens = agents.usage_tokens(usage)
+        budget.settle_tokens(tokens, reserved)
+        return calls, tokens
+
+    def _budgeted_call(
+        self, budget: Budget, fn: Callable[..., tuple[Any, dict[str, Any]]], *args: Any
+    ) -> tuple[Any, dict[str, Any], int, int]:
+        """调用前预留（不足才拒绝），返回后按实际用量结算。"""
+        budget.spend_call()
+        reserved = budget.reserve_tokens(consts.EST_TOKENS_PER_CALL)
+        result, usage = fn(*args)
+        calls, tokens = self._charge_usage(budget, usage, reserved)
+        return result, usage, calls, tokens
 
     def _execute_loop(
         self,
@@ -392,6 +444,19 @@ class ResearchLoop:
         corr_library: float | None = None
         feedback_done = False
         started_at = time.monotonic()
+        # trial 级成本累加（续跑时从已落库值继续）；trial 未创建前先记在内存，
+        # 创建时一次性写回，保证 propose/plan 的花费也归属到本条 trial
+        cost = {
+            "calls": int((resume or {}).get("llm_calls") or 0),
+            "tokens": int((resume or {}).get("token_used") or 0),
+        }
+
+        def track(calls: int, tokens: int) -> None:
+            cost["calls"] += calls
+            cost["tokens"] += tokens
+            if trial_id is not None:
+                with self._db() as db:
+                    service.update_trial(db, trial_id, llm_calls=cost["calls"], token_used=cost["tokens"])
 
         # 同一次 trial 里同一签名只记一次：评估失败会先记、再在收尾分支重抛，
         # 不去重会把一次故障算成两次命中
@@ -407,23 +472,26 @@ class ResearchLoop:
         if resume is None:
             # step 1 propose
             self._set_step(1)
-            budget.spend_call()
-            hypothesis, usage = generate_hypothesis(self.deps.llm_call, context, cfg.get("seed_factor"))
-            self._charge_usage(budget, usage)
+            hypothesis, _usage, calls, tokens = self._budgeted_call(
+                budget, generate_hypothesis, self.deps.llm_call, context, cfg.get("seed_factor")
+            )
+            track(calls, tokens)
             self._persist_cost(budget)
             self._event("trial.proposed", f"loop={loop_idx} {hypothesis.hypothesis}")
             _checkpoint(control)
 
             # step 2 plan
             self._set_step(2)
-            budget.spend_call()
-            tasks, usage = self._scenario_obj.build_tasks(
-                llm_call=self.deps.llm_call,
-                hypothesis=hypothesis.hypothesis,
-                context=context,
-                n=int(cfg.get("tasks_per_loop") or consts.DEFAULT_TASKS_PER_LOOP),
+            tasks, _usage, calls, tokens = self._budgeted_call(
+                budget,
+                lambda: self._scenario_obj.build_tasks(
+                    llm_call=self.deps.llm_call,
+                    hypothesis=hypothesis.hypothesis,
+                    context=context,
+                    n=int(cfg.get("tasks_per_loop") or consts.DEFAULT_TASKS_PER_LOOP),
+                ),
             )
-            self._charge_usage(budget, usage)
+            track(calls, tokens)
             self._persist_cost(budget)
             self._event("trial.planned", f"loop={loop_idx} tasks={len(tasks)}")
             _checkpoint(control)
@@ -441,6 +509,8 @@ class ResearchLoop:
                             "hypothesis_reason": hypothesis.reason,
                             "hypothesis_prediction": hypothesis.prediction,
                             "exception": "实验计划为空",
+                            "llm_calls": cost["calls"],
+                            "token_used": cost["tokens"],
                             "duration_ms": int((time.monotonic() - started_at) * 1000),
                         },
                     )
@@ -463,6 +533,9 @@ class ResearchLoop:
                         "task_json": task.model_dump(),
                         "model": self.deps.model_name,
                         "temperature": _cfg_number(cfg, "temperature", consts.DEEP_TEMPERATURE),
+                        # propose/plan 的花费在 trial 创建时一次性归属
+                        "llm_calls": cost["calls"],
+                        "token_used": cost["tokens"],
                     },
                 )
                 trial_id = trial.id
@@ -501,9 +574,8 @@ class ResearchLoop:
                 if start_status == "planned":
                     with self._db() as db:
                         service.update_trial(db, trial_id, status="coding")
-                budget.spend_call()
-                code, usage = generate_code(self.deps.llm_call, task)
-                self._charge_usage(budget, usage)
+                code, usage, calls, tokens = self._budgeted_call(budget, generate_code, self.deps.llm_call, task)
+                track(calls, tokens)
                 self._persist_cost(budget)
                 # 空输出按失败处理，回灌"未返回可用代码"让 LLM 重写
                 while not code and len(repairs) < repair_rounds:
@@ -511,16 +583,17 @@ class ResearchLoop:
                     with self._db() as db:
                         service.update_trial(db, trial_id, repair_json=repairs)
                     note_failure("empty_output", "LLM 未返回可用代码", task.description)
-                    budget.spend_call()
-                    code, usage = repair_code(self.deps.llm_call, task, "", "empty_output", "LLM 未返回可用代码")
-                    self._charge_usage(budget, usage)
+                    code, usage, calls, tokens = self._budgeted_call(
+                        budget, repair_code, self.deps.llm_call, task, "", "empty_output", "LLM 未返回可用代码"
+                    )
+                    track(calls, tokens)
                     self._persist_cost(budget)
                     self._event(
                         "trial.repaired",
                         f"loop={loop_idx} trial={trial_id} round={len(repairs)} kind=empty_output",
                     )
                 if not code:
-                    raise RuntimeError("LLM 修复后仍未返回可用代码")
+                    raise RuntimeError(_empty_code_reason(usage, repair_rounds))
                 with self._db() as db:
                     service.update_trial(
                         db,
@@ -557,9 +630,10 @@ class ResearchLoop:
                         )
                         if len(repairs) > repair_rounds:
                             raise
-                        budget.spend_call()
-                        code, usage = repair_code(self.deps.llm_call, task, code, kind, err)
-                        self._charge_usage(budget, usage)
+                        code, usage, calls, tokens = self._budgeted_call(
+                            budget, repair_code, self.deps.llm_call, task, code, kind, err
+                        )
+                        track(calls, tokens)
                         self._persist_cost(budget)
                         if not code:
                             raise
@@ -599,9 +673,10 @@ class ResearchLoop:
             # step 5 feedback（续跑时已有反馈则跳过，避免重复计费）
             if not feedback_done:
                 self._set_step(5)
-                budget.spend_call()
-                feedback, usage = build_feedback(self.deps.llm_call, context, metrics, (sota or {}).get("metrics"))
-                self._charge_usage(budget, usage)
+                feedback, _usage, calls, tokens = self._budgeted_call(
+                    budget, build_feedback, self.deps.llm_call, context, metrics, (sota or {}).get("metrics")
+                )
+                track(calls, tokens)
                 self._persist_cost(budget)
                 with self._db() as db:
                     service.update_trial(db, trial_id, feedback_json=feedback.model_dump())
@@ -752,6 +827,11 @@ def default_llm_call(backend: Any) -> LLMCall:
                 [{"role": "system", "content": system}, {"role": "user", "content": user}],
             )
         )
-        return (resp.get("content") or ""), (resp.get("usage") or {})
+        usage = dict(resp.get("usage") or {})
+        # 成本与失败诊断需要区分正文/思考链：reasoning 只记长度，
+        # 判断“content 是否为空”只看 content，truncated 由 finish_reason 标记
+        usage["finish_reason"] = resp.get("finish_reason")
+        usage["reasoning_chars"] = len(resp.get("reasoning_content") or "")
+        return (resp.get("content") or ""), usage
 
     return _call

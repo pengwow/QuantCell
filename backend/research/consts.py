@@ -21,15 +21,23 @@ MAX_REPAIR_ROUNDS = 5  # 单 trial 最多修复轮数，防止无限烧钱
 
 # ---------- 成本上限（PRD §12 #3）----------
 QUICK_MAX_LLM_CALLS = 6
-QUICK_MAX_TOKENS = 40_000
+QUICK_MAX_TOKENS = 75_000
 DEEP_MAX_LLM_CALLS = 30
-DEEP_MAX_TOKENS = 200_000
+DEEP_MAX_TOKENS = 240_000
 # 创建时预算估算口径：deep 每轮固定 4 次调用（假设/规划/代码/反馈），
 # quick 每个候选 1 次生成 + 1 次收尾；token 按每次调用粗估，只用于创建时拦明显不够的预算
 DEEP_CALLS_PER_LOOP = 4
 QUICK_CALLS_PER_CANDIDATE = 1
 QUICK_EXTRA_CALLS = 1
-EST_TOKENS_PER_CALL = 3_000
+# 单次调用 token 估算（实测 9k~17k，思考链长的模型更容易顶到上限）。
+# 这是保守下限，用来在创建期展示量级、并在每次调用前预留额度；
+# 真实超出的部分按实际结算，不会丢弃已经拿到的产物。
+EST_TOKENS_PER_CALL = 12_000
+
+# ---------- LLM 输出上限 ----------
+# 输出 token 上限按模型能力配置（会话 cfg 的 llm_max_tokens 优先）。
+# 旧值 16384 会被 GLM 的思考链吃满导致 content 为空，默认提到 32768。
+DEFAULT_LLM_MAX_TOKENS = 32_768
 
 # ---------- 过程事件 ----------
 # 单会话事件保留条数（内存方案的上限；持久化后同样按此裁剪）
