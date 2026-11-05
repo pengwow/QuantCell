@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from axon_bridge.llm import classify_llm_error, create_llm_backend
+from axon_bridge.llm import chat_to_dict, classify_llm_error, create_llm_backend, normalize_finish_reason
 from common.schemas import ApiResponse
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
@@ -696,27 +696,35 @@ async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
             base_url=api_host,
             model=model,
             temperature=0.7,
-            max_tokens=4096,
+            # 推理模型(GLM-5.3-Flash 实测)的思维链 token 计入此预算,4096 常被
+            # 思考耗尽导致正文 0 字符(strategy_generator.DEFAULT_MAX_TOKENS 同源问题),
+            # 对齐其 16384
+            max_tokens=16384,
             timeout_secs=120,
         )
-        raw = await backend.chat_async(
+        # 走 chat_to_dict 统一归一化(含 [LLM] 计时日志),raw 里才有标准 reasoning_content/finish_reason
+        raw = await chat_to_dict(
+            backend,
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
         )
+        finish_reason = raw.get("finish_reason")
         generated_code = raw.get("content") or ""
 
         if not generated_code:
-            # 推理模型（GLM-5.3-Flash 实测）偶发思考完直接 stop、正文 0 字符、
-            # 代码全写在 reasoning_content 里（与 strategy_generator 的同源问题），
-            # 这里做同样的兜底提取，避免白跑一次长生成
+            # 推理模型偶发把完整代码写在 reasoning_content、正文为空,
+            # 与 strategy_generator 的同源问题,这里做同样的兜底提取,避免白跑一次长生成
             generated_code = _extract_indicator_code_from_reasoning(raw.get("reasoning_content") or "")
             if generated_code:
                 logger.warning(f"正文为空，已从 reasoning_content 兜底提取指标代码 {len(generated_code)} 字符")
 
         if not generated_code:
-            msg = f"LLM模型 [{model}] 返回了空内容，请尝试更换其他模型"
+            if normalize_finish_reason(finish_reason) == "length":
+                msg = "模型思维链过长导致输出被截断（未生成正文），请增大 max_tokens 或换用非推理模型后重试"
+            else:
+                msg = f"LLM模型 [{model}] 返回了空内容，请尝试更换其他模型"
             raise Exception(msg)
 
         # 清理代码：移除markdown代码块标记
