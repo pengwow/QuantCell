@@ -140,9 +140,17 @@ class ResearchKnowledge(Base):
 class ResearchEvent(Base):
     """会话过程事件（持久化，多 worker 下同样可见）。
 
-    局限：这是最小可用方案——事件与业务写库共享同一 SQLite/DB，
-    顺序以自增 id（= seq）为准，多 worker 并发写时可能与真实发生顺序有毫秒级偏差；
-    每个会话只保留最近 EVENTS_RETENTION 条（append 时裁剪），不做全量归档。
+    顺序语义（P2 决策：明确降级为“最终一致”，不做会话级锁/独立 seq 分配）：
+    - seq 直接复用自增主键，代表“写库顺序”，不是“事件发生顺序”；
+    - 正常情况下同一会话只有一个 runner 线程在写（resume 前的 _ensure_no_active_job
+      + 进程内 Control 约束），单会话内 seq 与发生顺序一致；
+    - 多 backend 进程同时操作同一会话属于异常场景（job_manager 是进程内的，跨进程
+      看不到对方的 job），此时 seq 仍是全序，但可能与 wall-clock ts 出现毫秒级倒挂；
+      前端按 seq 增量拉取/排序即可得到稳定的最终一致视图，ts 只作参考；
+    - 不用“DB 侧 max(seq)+1”或“会话级锁”：两者都只能保证写入时刻有序，
+      SQLite 下还会把同一会话的所有写串行化，收益不足以抵消复杂度。
+
+    其余局限：每个会话只保留最近 EVENTS_RETENTION 条（append 时裁剪），不做全量归档；
     若未来迁移到消息队列/流式存储，应以本表为迁移起点而非进程内缓冲。
     """
 

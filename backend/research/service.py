@@ -496,7 +496,8 @@ def list_failure_knowledge(db: Session, owner_id: str | None, limit: int = 5) ->
 # ---------- 过程事件 ----------
 
 # 多 worker 兜底：事件写库而不是留在进程内缓冲，任一进程都能增量读到同一会话的进度。
-# 局限见 models.ResearchEvent 的注释（顺序偏差 + 有界保留，非流式存储）。
+# seq = 自增主键（写库顺序），不做会话级锁/独立 seq 分配，明确接受“最终一致”；
+# 决策与局限见 models.ResearchEvent 的注释（单会话单写者时 seq 与发生顺序一致）。
 
 
 def append_event(db: Session, session_id: int, level: str, stage: str, msg: str) -> ResearchEvent:
