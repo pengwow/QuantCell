@@ -179,19 +179,28 @@ class TestGetUserRoleFromToken:
 
 
 class TestIsGuestUser:
-    """测试 is_guest_user 函数"""
+    """测试 is_guest_user 函数
 
-    def test_no_auth_header(self):
-        """测试没有认证头"""
+    语义约定：token 有效且 role=guest 时返回 True（调用方返回 403）；
+    未携带 token / 格式错误 / token 无效或过期属于"未认证"，抛
+    HTTPException(401) 让前端自动跳转登录页，而不是伪装成访客。
+    """
+
+    def test_no_auth_header_raises_401(self):
+        """测试没有认证头抛 401"""
         request = Mock()
         request.headers = {}
-        assert is_guest_user(request) is True
+        with pytest.raises(HTTPException) as exc_info:
+            is_guest_user(request)
+        assert exc_info.value.status_code == 401
 
-    def test_empty_auth_header(self):
-        """测试空认证头"""
+    def test_empty_auth_header_raises_401(self):
+        """测试空认证头抛 401"""
         request = Mock()
         request.headers = {"Authorization": ""}
-        assert is_guest_user(request) is True
+        with pytest.raises(HTTPException) as exc_info:
+            is_guest_user(request)
+        assert exc_info.value.status_code == 401
 
     def test_guest_token(self):
         """测试访客令牌"""
@@ -211,8 +220,8 @@ class TestIsGuestUser:
             mock_decode.return_value = {"role": "user"}
             assert is_guest_user(request) is False
 
-    def test_invalid_token_returns_guest(self):
-        """测试无效令牌返回True"""
+    def test_invalid_token_raises_401(self):
+        """测试无效令牌抛 401（不再伪装成访客）"""
         from utils.jwt_utils import JWTError
 
         request = Mock()
@@ -220,13 +229,31 @@ class TestIsGuestUser:
 
         with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.side_effect = JWTError("Invalid")
-            assert is_guest_user(request) is True
+            with pytest.raises(HTTPException) as exc_info:
+                is_guest_user(request)
+            assert exc_info.value.status_code == 401
 
-    def test_malformed_auth_header(self):
-        """测试格式错误的认证头"""
+    def test_expired_token_raises_401_with_expiry_message(self):
+        """测试过期令牌抛 401 且提示登录过期"""
+        from utils.jwt_utils import TokenExpiredError
+
+        request = Mock()
+        request.headers = {"Authorization": "Bearer expired_token"}
+
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
+            mock_decode.side_effect = TokenExpiredError()
+            with pytest.raises(HTTPException) as exc_info:
+                is_guest_user(request)
+            assert exc_info.value.status_code == 401
+            assert "过期" in str(exc_info.value.detail)
+
+    def test_malformed_auth_header_raises_401(self):
+        """测试格式错误的认证头抛 401"""
         request = Mock()
         request.headers = {"Authorization": "InvalidFormat"}
-        assert is_guest_user(request) is True
+        with pytest.raises(HTTPException) as exc_info:
+            is_guest_user(request)
+        assert exc_info.value.status_code == 401
 
 
 class TestGetCurrentUserId:
