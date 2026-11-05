@@ -9,6 +9,7 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine, update
@@ -1291,3 +1292,29 @@ def test_code_stage_retry_on_empty_output(research_db):
     assert trials[0].status == "judged"
     assert trials[0].llm_calls == 5
     assert trials[0].token_used == 50  # 空输出那次也计 token
+
+
+# ---------- 多品种聚合口径 ----------
+
+
+def test_library_corr_takes_max_abs_across_reference_panels():
+    """多参考因子下 library_corr 取最大 |池化秩相关|（含方向翻转），不是平均。"""
+    from research.scenarios.factor import FactorScenario, rank_corr
+
+    idx = pd.MultiIndex.from_product(
+        [pd.date_range("2026-01-01", periods=40, freq="1h"), ["BTCUSDT", "ETHUSDT"]],
+        names=["datetime", "symbol"],
+    )
+    rng = np.random.default_rng(11)
+    target = pd.Series(rng.normal(size=len(idx)), index=idx)
+    unrelated = pd.Series(rng.normal(size=len(idx)), index=idx)
+    flipped = -target
+
+    # 只验证聚合口径：绕过 FactorService，直接给定期望的参考面板
+    scenario = FactorScenario.__new__(FactorScenario)
+    scenario._library_panels = [unrelated, flipped]
+
+    assert scenario.library_corr(target, {}) == pytest.approx(1.0)
+    assert abs(rank_corr(target, unrelated)) < 0.5
+    # 池化样本量按 (datetime, symbol) 全部行计：40×2 ≥ min_samples(50)
+    assert rank_corr(target, target) == pytest.approx(1.0)

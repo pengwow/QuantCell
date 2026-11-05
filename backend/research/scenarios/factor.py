@@ -19,7 +19,11 @@ from utils.db_session import get_db_session
 
 
 def rank_corr(a: Any, b: Any, *, min_samples: int = 50) -> float | None:
-    """两个面板/序列的 Spearman 秩相关；样本不足或缺失返回 None。"""
+    """两个面板/序列的 Spearman 秩相关；样本不足或缺失返回 None。
+
+    口径是“池化”：把 (datetime, symbol) 对齐后所有行一起算秩相关，
+    不是逐品种算完再平均——多品种下避免少数品种样本量差异主导结果。
+    """
     if a is None or b is None:
         return None
     left, right = pd.Series(a), pd.Series(b)
@@ -115,7 +119,11 @@ class FactorScenario:
         return target
 
     def library_corr(self, series: Any, raw_map: dict[str, Any]) -> float | None:
-        """与因子库参考因子的最大 |秩相关|（无参考因子时返回 None）。"""
+        """与因子库参考因子的最大 |秩相关|（无参考因子时返回 None）。
+
+        取“最坏情况”而不是平均：只要有一个参考因子与候选高度相关，
+        就应当判冗余。每个参考因子内部同样是池化秩相关（见 rank_corr）。
+        """
         if series is None:
             return None
         panels = self._ensure_library_panels(raw_map)
