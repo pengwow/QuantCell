@@ -128,3 +128,16 @@ class ResearchExtendReq(BaseModel):
     extra_loops: int = Field(default=2, ge=1, le=consts.MAX_LOOP_N)
     extra_max_llm_calls: int = Field(default=10, ge=1, le=200)
     extra_max_tokens: int = Field(default=50_000, ge=1000, le=1_000_000)
+
+
+class ResearchTrialBatchReq(BaseModel):
+    """对比用批量取 trial：一次 2–5 条，且必须同属一个会话。"""
+
+    trial_ids: list[int] = Field(..., min_length=2, max_length=5)
+
+    @field_validator("trial_ids")
+    @classmethod
+    def _unique(cls, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value):
+            raise ValueError("trial_ids 不能重复")
+        return value

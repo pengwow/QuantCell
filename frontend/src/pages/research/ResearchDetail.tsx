@@ -11,6 +11,7 @@ import {
   Card,
   Descriptions,
   Flex,
+  Modal,
   Progress,
   Space,
   Table,
@@ -58,6 +59,127 @@ const GateTag: React.FC<{ label: string; gate?: ResearchGate }> = ({ label, gate
   );
 };
 
+type DiffLine = { type: 'same' | 'add' | 'del'; text: string };
+
+/** 行级 LCS diff：对比视图只展示差异片段；代码通常 <200 行，O(n*m) 足够 */
+const diffLines = (left: string[], right: string[]): DiffLine[] => {
+  const n = left.length;
+  const m = right.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      dp[i][j] =
+        left[i] === right[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (left[i] === right[j]) {
+      out.push({ type: 'same', text: left[i] });
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push({ type: 'del', text: left[i] });
+      i += 1;
+    } else {
+      out.push({ type: 'add', text: right[j] });
+      j += 1;
+    }
+  }
+  while (i < n) {
+    out.push({ type: 'del', text: left[i] });
+    i += 1;
+  }
+  while (j < m) {
+    out.push({ type: 'add', text: right[j] });
+    j += 1;
+  }
+  return out;
+};
+
+/** 对比面板：指标 / 三道硬门 / 成本并排，代码只渲染差异片段（基准为第一条） */
+const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
+  const base = trials[0];
+  const metricRows = [
+    { key: 'ic_mean', label: 'IC', get: (t: ResearchTrial) => fmt(t.metrics?.ic_mean) },
+    { key: 'ic_ir', label: 'IC_IR', get: (t: ResearchTrial) => fmt(t.metrics?.ic_ir) },
+    { key: 'oos', label: '样本外', get: (t: ResearchTrial) => t.oos_flag || '—' },
+    { key: 'corr_sota', label: 'corr(SOTA)', get: (t: ResearchTrial) => fmt(t.corr_sota) },
+    { key: 'corr_library', label: 'corr(因子库)', get: (t: ResearchTrial) => fmt(t.corr_library) },
+    { key: 'token', label: 'Token', get: (t: ResearchTrial) => String(t.token_used) },
+    { key: 'llm_calls', label: 'LLM 调用', get: (t: ResearchTrial) => String(t.llm_calls) },
+    { key: 'duration', label: '耗时(ms)', get: (t: ResearchTrial) => String(t.duration_ms ?? 0) },
+    { key: 'model', label: '模型', get: (t: ResearchTrial) => t.model || '—' },
+  ];
+  const gateRows = [
+    { key: 'icir', label: 'IC_IR 门', get: (t: ResearchTrial) => t.judge?.gates?.icir },
+    { key: 'oos', label: '样本外门', get: (t: ResearchTrial) => t.judge?.gates?.oos },
+    { key: 'corr', label: '相关性门', get: (t: ResearchTrial) => t.judge?.gates?.corr },
+  ];
+  type Row = { label: string; get: (t: ResearchTrial) => unknown };
+  const trialColumns = trials.map((t, idx) => ({
+    title: `#${t.id}${idx === 0 ? '（基准）' : ''}`,
+    key: `trial-${t.id}`,
+    render: (_: unknown, row: Row) => {
+      const value = row.get(t);
+      // 硬门行返回 gate 对象：unknown 状态由 GateTag 显示为“无法判定”
+      if (value && typeof value === 'object' && 'pass' in value) {
+        return <GateTag label={row.label.replace(' 门', '')} gate={value as ResearchGate} />;
+      }
+      return String(value ?? '—');
+    },
+  }));
+
+  return (
+    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
+      <Table
+        size="small"
+        pagination={false}
+        rowKey="key"
+        dataSource={metricRows}
+        columns={[{ title: '指标', dataIndex: 'label', width: 120 }, ...trialColumns]}
+      />
+      <Table
+        size="small"
+        pagination={false}
+        rowKey="key"
+        dataSource={gateRows}
+        columns={[{ title: '硬门', dataIndex: 'label', width: 120 }, ...trialColumns]}
+      />
+      {trials.slice(1).map((t) => {
+        const changes = diffLines(
+          (base.code || '').split('\n'),
+          (t.code || '').split('\n'),
+        ).filter((line) => line.type !== 'same');
+        return (
+          <Card size="small" key={t.id} title={`代码差异：#${base.id} → #${t.id}`}>
+            {changes.length === 0 ? (
+              <Tag color="success">代码一致</Tag>
+            ) : (
+              <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12, lineHeight: 1.6 }}>
+                {changes.map((line, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      color: line.type === 'add' ? '#237804' : '#a8071a',
+                      background: line.type === 'add' ? '#f6ffed' : '#fff1f0',
+                    }}
+                  >
+                    {line.type === 'add' ? '+ ' : '- '}
+                    {line.text}
+                  </div>
+                ))}
+              </pre>
+            )}
+          </Card>
+        );
+      })}
+    </Space>
+  );
+};
+
 const ResearchDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const sessionId = Number(id);
@@ -70,6 +192,11 @@ const ResearchDetail: React.FC = () => {
   // 回放结果：与原 trial 并排展示差异，不覆盖原记录（后端落 replay_of_id 新行）
   const [replayResult, setReplayResult] = useState<ResearchReplayResult | null>(null);
   const [replaying, setReplaying] = useState(false);
+  // 对比：勾选 2–5 条，批量拉含代码的 trial 后弹窗并排展示
+  const [selectedKeys, setSelectedKeys] = useState<number[]>([]);
+  const [compareTrials, setCompareTrials] = useState<ResearchTrial[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [comparing, setComparing] = useState(false);
   const [events, setEvents] = useState<ResearchEvent[]>([]);
   // 事件按 seq 增量拉取；用 ref 避免把 seq 放进 useCallback 依赖导致轮询重挂载
   const nextSeqRef = useRef(0);
@@ -147,6 +274,20 @@ const ResearchDetail: React.FC = () => {
       message.error(err instanceof Error ? err.message : '回放失败');
     } finally {
       setReplaying(false);
+    }
+  };
+
+  const openCompare = async () => {
+    setComparing(true);
+    try {
+      // 列表接口不保证带 code，对比需要 diff，统一从批量接口取
+      const res = await researchApi.batchTrials(sessionId, selectedKeys);
+      setCompareTrials(res.trials);
+      setCompareOpen(true);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '批量加载试验失败');
+    } finally {
+      setComparing(false);
     }
   };
 
@@ -386,6 +527,19 @@ const ResearchDetail: React.FC = () => {
           </Space>
         </Card>
 
+        <Flex justify="space-between" align="center" wrap gap={8}>
+          <Typography.Text type="secondary">勾选 2–5 条试验进行对比</Typography.Text>
+          <Button
+            type="primary"
+            ghost
+            loading={comparing}
+            disabled={selectedKeys.length < 2 || selectedKeys.length > 5}
+            onClick={() => void openCompare()}
+          >
+            对比（已选 {selectedKeys.length}）
+          </Button>
+        </Flex>
+
         <Table<ResearchTrial>
           rowKey="id"
           size="small"
@@ -394,6 +548,14 @@ const ResearchDetail: React.FC = () => {
           dataSource={[...(detail?.trials ?? [])].sort((a, b) => b.id - a.id)}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           locale={{ emptyText: '暂无试验记录' }}
+          rowSelection={{
+            selectedRowKeys: selectedKeys,
+            onChange: (keys) => setSelectedKeys(keys as number[]),
+            // 最多 5 条：达到上限后未选中的行禁用，避免提交后才被后端 422
+            getCheckboxProps: (row) => ({
+              disabled: selectedKeys.length >= 5 && !selectedKeys.includes(row.id),
+            }),
+          }}
         />
 
         <Card
@@ -577,6 +739,16 @@ const ResearchDetail: React.FC = () => {
             </Space>
           </Card>
         )}
+
+        <Modal
+          open={compareOpen}
+          title={`试验对比（${compareTrials.length} 条，基准为第一条）`}
+          footer={null}
+          width={980}
+          onCancel={() => setCompareOpen(false)}
+        >
+          {compareTrials.length > 0 && <ComparePanel trials={compareTrials} />}
+        </Modal>
       </Space>
     </PageContainer>
   );

@@ -349,6 +349,17 @@ def list_trials(db: Session, session_id: int, limit: int = 500, offset: int = 0)
     )
 
 
+def get_trials_for_session(db: Session, session_id: int, trial_ids: list[int]) -> list[ResearchTrial]:
+    """批量取 trial（对比用），保持请求顺序；有不属于本会话的 id 直接 404。"""
+    rows = db.query(ResearchTrial).filter(ResearchTrial.session_id == session_id, ResearchTrial.id.in_(trial_ids)).all()
+    found = {row.id: row for row in rows}
+    missing = [tid for tid in trial_ids if tid not in found]
+    if missing:
+        # 跨会话混选同样视为“不存在”，避免泄露其他会话的 trial
+        raise ResearchError("not_found", f"试验 {missing} 不属于会话 {session_id}")
+    return [found[tid] for tid in trial_ids]
+
+
 # trial 的终态：这些状态不再参与续跑
 TERMINAL_TRIAL_STATUSES = frozenset({"judged", "failed"})
 
@@ -607,3 +618,12 @@ def best_trial_for(db: Session, row: ResearchSession) -> ResearchTrial | None:
     if row.best_trial_id is None:
         return None
     return db.get(ResearchTrial, row.best_trial_id)
+
+
+def best_trials_for(db: Session, rows: list[ResearchSession]) -> dict[int, ResearchTrial]:
+    """列表页一次取齐所有 best trial，避免逐行查询的 N+1。"""
+    ids = [row.best_trial_id for row in rows if row.best_trial_id is not None]
+    if not ids:
+        return {}
+    trials = db.query(ResearchTrial).filter(ResearchTrial.id.in_(ids)).all()
+    return {trial.id: trial for trial in trials}
