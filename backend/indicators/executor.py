@@ -448,6 +448,10 @@ class IndicatorExecutor:
             "pd": pd,
             "np": np,
             "math": math,
+            # params 字典注入：指标代码约定通过 params.get("name", default) 读参数
+            # （code_quality 的参数声明校验、AI 生成提示词均按该约定），
+            # 此前只注入 _get_param 辅助函数，按约定写的代码会 NameError
+            "params": params or {},
             "_get_param": self._build_param_getter(params),
             "output": None,
         }
