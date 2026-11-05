@@ -77,6 +77,8 @@ def map_candidates_to_trials(
                 "decision": None,
                 "quick_run_id": quick_run_id,
                 "exception": cand.get("error") or None,
+                # 每个候选都由 1 次 LLM 请求生成（usage 缺失时 token 只能记 0）
+                "llm_calls": 1,
                 "token_used": _usage_tokens(cand.get("usage")),
             }
         )
