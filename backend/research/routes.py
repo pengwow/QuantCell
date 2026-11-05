@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from common.schemas import ApiResponse
 from factor.engine import FactorExpressionError
 from factor.job_manager import job_manager
-from research import consts, service
+from research import consts, replay, service
 from research.job import make_runner, research_job_manager
 from research.scenario import get_scenario
 from research.schemas import ResearchCreateReq, ResearchExtendReq
@@ -41,7 +41,13 @@ def _resolve_llm(model_id: str | None) -> dict[str, Any] | None:
 
 
 def _http_error(exc: service.ResearchError) -> HTTPException:
-    status = {"not_found": 404, "bad_state": 409, "too_many": 429, "over_budget": 422}.get(exc.kind, 400)
+    status = {
+        "not_found": 404,
+        "bad_state": 409,
+        "too_many": 429,
+        "over_budget": 422,
+        "replay_failed": 422,
+    }.get(exc.kind, 400)
     return HTTPException(status_code=status, detail=exc.message)
 
 
@@ -282,6 +288,35 @@ def promote_trial(
         # 幂等/校验失败都按 400 返回，前端提示即可，不重试
         raise HTTPException(status_code=400, detail={"code": "promote_rejected", "message": str(exc)}) from exc
     return ApiResponse(code=0, message="ok", data={"factor_name": factor_name})
+
+
+@router.post(
+    "/sessions/{session_id}/trials/{trial_id}/replay",
+    response_model=ApiResponse,
+    summary="回放历史 trial",
+    description=(
+        "用原 trial 的代码 + 会话配置里的数据窗口/评估参数重跑评估，"
+        "结果落成一条 replay_of_id 关联的新 trial，不覆盖原记录。"
+        "缺 start/end/test_ratio 等非阻断字段时返回 partial=true（部分复现）；"
+        "symbols/interval 缺失或原 trial 无代码时返回 409。"
+    ),
+)
+def replay_trial(
+    session_id: int,
+    trial_id: int,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    with get_db_session() as db:
+        try:
+            data = replay.replay_trial(
+                db,
+                session_id=session_id,
+                trial_id=trial_id,
+                owner_id=_owner(current_user),
+            )
+        except service.ResearchError as exc:
+            raise _http_error(exc) from exc
+    return ApiResponse(code=0, message="ok", data=data)
 
 
 @router.get("/sessions/{session_id}/events", response_model=ApiResponse, summary="会话事件流")

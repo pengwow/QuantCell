@@ -24,6 +24,7 @@ import {
   researchApi,
   type ResearchEvent,
   type ResearchGate,
+  type ResearchReplayResult,
   type ResearchSession,
   type ResearchStatus,
   type ResearchTrial,
@@ -66,6 +67,9 @@ const ResearchDetail: React.FC = () => {
   const [detail, setDetail] = useState<ResearchSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [trial, setTrial] = useState<ResearchTrial | null>(null);
+  // 回放结果：与原 trial 并排展示差异，不覆盖原记录（后端落 replay_of_id 新行）
+  const [replayResult, setReplayResult] = useState<ResearchReplayResult | null>(null);
+  const [replaying, setReplaying] = useState(false);
   const [events, setEvents] = useState<ResearchEvent[]>([]);
   // 事件按 seq 增量拉取；用 ref 避免把 seq 放进 useCallback 依赖导致轮询重挂载
   const nextSeqRef = useRef(0);
@@ -132,12 +136,31 @@ const ResearchDetail: React.FC = () => {
     }
   };
 
+  const replay = async (row: ResearchTrial) => {
+    setReplaying(true);
+    try {
+      const res = await researchApi.replay(sessionId, row.id);
+      setReplayResult(res);
+      message.success(res.replay_meta.partial ? '回放完成（部分复现）' : '回放完成');
+      void load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '回放失败');
+    } finally {
+      setReplaying(false);
+    }
+  };
+
   const columns: ColumnsType<ResearchTrial> = [
     {
       title: '轮次/候选',
       width: 110,
       render: (_, row) =>
-        detail?.mode === 'quick' ? `第 1 轮 #${row.candidate_idx}` : `第 ${row.loop_idx} 轮`,
+        // 回放行固定 loop_idx=0，不占用正常轮次编号，这里直接标“回放”
+        row.replay_of_id
+          ? `回放 #${row.id}`
+          : detail?.mode === 'quick'
+            ? `第 1 轮 #${row.candidate_idx}`
+            : `第 ${row.loop_idx} 轮`,
     },
     {
       title: '状态',
@@ -194,6 +217,60 @@ const ResearchDetail: React.FC = () => {
     detail?.max_tokens && detail.max_tokens > 0
       ? Math.min(100, Math.round((detail.token_used / detail.max_tokens) * 100))
       : 0;
+
+  // 回放对比行：原 trial / 回放 trial / 差异并排，corr(SOTA) 标记为不可重算
+  const replayRows = (() => {
+    if (!replayResult) return [];
+    const o = replayResult.original;
+    const n = replayResult.trial;
+    const meta = replayResult.replay_meta;
+    const diffText = (value: number | null | undefined) =>
+      value == null ? '—' : value.toExponential(2);
+    return [
+      {
+        key: 'ic_ir',
+        label: 'IC_IR',
+        original: fmt(o.metrics?.ic_ir),
+        replay: fmt(n.metrics?.ic_ir),
+        diff: diffText(meta.diff.ic_ir),
+      },
+      {
+        key: 'ic_mean',
+        label: 'IC',
+        original: fmt(o.metrics?.ic_mean),
+        replay: fmt(n.metrics?.ic_mean),
+        diff: '—',
+      },
+      {
+        key: 'oos',
+        label: '样本外',
+        original: o.oos_flag || '—',
+        replay: n.oos_flag || '—',
+        diff: meta.diff.oos_changed ? '变化' : '一致',
+      },
+      {
+        key: 'corr_library',
+        label: 'corr(因子库)',
+        original: fmt(o.corr_library),
+        replay: fmt(n.corr_library),
+        diff: diffText(meta.diff.corr_library),
+      },
+      {
+        key: 'corr_sota',
+        label: 'corr(SOTA)',
+        original: fmt(o.corr_sota),
+        replay: meta.unreproducible.includes('corr_sota') ? '不可重算' : fmt(n.corr_sota),
+        diff: '—',
+      },
+      {
+        key: 'cost',
+        label: 'Token / 调用',
+        original: `${o.token_used} / ${o.llm_calls}`,
+        replay: `${n.token_used} / ${n.llm_calls}`,
+        diff: '—',
+      },
+    ];
+  })();
 
   return (
     <PageContainer title={detail?.name || `研究会话 #${sessionId}`}>
@@ -351,6 +428,11 @@ const ResearchDetail: React.FC = () => {
             title={`试验 #${trial.id} 详情`}
             extra={
               <Space>
+                {trial.code && !trial.replay_of_id && (
+                  <Button loading={replaying} onClick={() => void replay(trial)}>
+                    回放
+                  </Button>
+                )}
                 {trial.promoted_factor_name ? (
                   <Tag color="success">已采纳：{trial.promoted_factor_name}</Tag>
                 ) : (
@@ -430,6 +512,68 @@ const ResearchDetail: React.FC = () => {
               <pre style={{ margin: 0, maxHeight: 320, overflow: 'auto', fontSize: 12 }}>
                 {trial.code || '（无代码）'}
               </pre>
+            </Space>
+          </Card>
+        )}
+
+        {replayResult && (
+          <Card
+            size="small"
+            title={`回放对比：试验 #${replayResult.original.id} ↔ 回放 #${replayResult.trial.id}`}
+            extra={
+              <Tag
+                color={
+                  replayResult.replay_meta.partial
+                    ? 'warning'
+                    : replayResult.replay_meta.consistent
+                      ? 'success'
+                      : 'error'
+                }
+              >
+                {replayResult.replay_meta.partial
+                  ? '部分复现'
+                  : replayResult.replay_meta.consistent
+                    ? '指标一致'
+                    : '指标有差异'}
+              </Tag>
+            }
+          >
+            <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
+              {replayResult.replay_meta.partial && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`部分复现：缺少 ${replayResult.replay_meta.missing.join(', ')}，回放按引擎默认值执行`}
+                />
+              )}
+              <Table
+                size="small"
+                pagination={false}
+                rowKey="key"
+                dataSource={replayRows}
+                columns={[
+                  { title: '指标', dataIndex: 'label', width: 140 },
+                  { title: `原 trial #${replayResult.original.id}`, dataIndex: 'original' },
+                  { title: `回放 #${replayResult.trial.id}`, dataIndex: 'replay' },
+                  { title: '差异', dataIndex: 'diff' },
+                ]}
+              />
+              <Typography.Text type="secondary">
+                判定口径：IC_IR 差异 ≤ {replayResult.replay_meta.tolerance.ic_ir} 且样本外未变化视为一致；
+                {replayResult.replay_meta.unreproducible.includes('corr_sota')
+                  ? ' corr(SOTA) 依赖当时的 SOTA 因子序列，无法重算，仅展示原值。'
+                  : ''}
+              </Typography.Text>
+              {replayResult.original.judge && (
+                <Typography.Text type="secondary">
+                  原判定原因：{replayResult.original.judge.reason || '—'}
+                </Typography.Text>
+              )}
+              {replayResult.replay_meta.notes.length > 0 && (
+                <Typography.Text type="secondary">
+                  回放说明：{replayResult.replay_meta.notes.join('；')}
+                </Typography.Text>
+              )}
             </Space>
           </Card>
         )}
