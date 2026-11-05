@@ -184,6 +184,11 @@ _SAFE_ATTRIBUTES = {
     "nan",
     "NaN",
     "inf",
+    # 纯数值判定：返回布尔数组/标量，无 IO、无反射、无副作用；
+    # LLM 生成因子常用它们剔除 inf/nan，缺失会直接判定失败
+    "isfinite",
+    "isnan",
+    "isinf",
     "ones",
     "zeros",
     "arange",

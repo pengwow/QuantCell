@@ -41,6 +41,27 @@ class TestStaticPolicy:
         )
         sandbox.check_static(code)
 
+    def test_numpy_numeric_predicates_pass(self, sandbox):
+        """isfinite/isnan/isinf 是纯数值判定，LLM 因子高频使用，白名单必须放行。"""
+        code = (
+            'valid = np.isfinite(df["close"]) & ~np.isnan(df["close"])\n'
+            'factor = df["close"].where(valid).pct_change(5).replace([np.inf, -np.inf], np.nan)'
+        )
+        sandbox.check_static(code)
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "factor = np.__dict__",
+            "factor = np.load('/tmp/x.npy')",
+            "factor = np.fromfile('/etc/passwd')",
+            "factor = np.save",
+        ],
+    )
+    def test_dangerous_numpy_attributes_still_blocked(self, sandbox, code):
+        with pytest.raises(SandboxSecurityError):
+            sandbox.check_static(code)
+
     @pytest.mark.parametrize(
         "code",
         [
