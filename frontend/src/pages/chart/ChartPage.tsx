@@ -947,9 +947,15 @@ const ChartPage = () => {
       if (builtInName) {
         // 内置指标（v10：参数并入 createIndicator 的 value 对象，isStack 作为第二参）
         const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName);
-        // calcParams 类型为数组，但原实现按对象传入（如 { length: 20 }），保持运行行为不变
+        // v10 的 calcParams 必须是数值数组（内置指标 calc 内部会调用 params.map），
+        // 而 modal 传来的是对象（如 { fast:12, slow:26, signal:9, _builtInId:'macd' }）；
+        // defaultParams 的键声明顺序与 klinecharts 内置指标默认 calcParams 顺序一致，
+        // 按声明顺序展开并剔除 _builtInId 标记字段与非数值即可。
+        const calcParamArray = Object.values(params || {}).filter(
+          (v): v is number => typeof v === 'number',
+        );
         chartInstanceRef.current.createIndicator(
-          { name: builtInName, calcParams: (params || {}) as unknown as unknown[] },
+          { name: builtInName, calcParams: calcParamArray },
           !isOverlay,
         );
         // 同步更新activeIndicators状态
