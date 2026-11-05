@@ -52,6 +52,19 @@ os.environ.setdefault("DB_FILE", _TEST_DB_FILE)
 
 
 @pytest.fixture(autouse=True)
+def _auth_check_enabled_by_default(monkeypatch):
+    """隔离 config.toml 的 security.auth_enabled 运行值。
+
+    既有测试按「校验开启」语义编写（401/403 断言），而开发环境可能在
+    config.toml 关闭校验——不隔离会让鉴权测试随本地配置漂移。
+    默认 patch 为校验开启；开关本身的行为在 test_auth.py / test_rbac.py
+    有专项用例显式覆盖。
+    """
+    monkeypatch.setattr("utils.auth.is_auth_check_disabled", lambda: False)
+    monkeypatch.setattr("utils.rbac.is_auth_check_disabled", lambda: False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_backtest_task_storage(monkeypatch, tmp_path):
     """隔离回测任务的文件落盘到 pytest 临时目录。
 

@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+# config 不依赖本模块，顶部导入无循环（config 仅依赖 utils.logger）
+from config import is_auth_check_disabled
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -57,14 +59,17 @@ def _is_desktop_local() -> bool:
 def _auth_disabled() -> bool:
     """鉴权豁免判定（生产环境强制关闭）。
 
-    两类豁免：debug 模式，或桌面 sidecar local 模式（QUANTCELL_DESKTOP_LOCAL）。
+    三类豁免：config.toml 的 security.auth_enabled 开关、debug 模式、
+    桌面 sidecar local 模式（QUANTCELL_DESKTOP_LOCAL）。
     env 每次请求实时读取；APP_ENV=production/prod 一律 fail-closed，
-    即使测试 patch IS_DEBUG_MODE 或误带桌面开关也无法绕过。
+    即使测试 patch 开关函数或误带桌面开关也无法绕过。
     """
     app_env = os.environ.get("APP_ENV", "").lower()
     if app_env in ("production", "prod"):
         return False
     if _is_desktop_local():
+        return True
+    if is_auth_check_disabled():
         return True
     return IS_DEBUG_MODE or _is_debug_mode()
 

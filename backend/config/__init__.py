@@ -116,3 +116,15 @@ def get_all_configs() -> dict[str, Any]:
 def reload_config() -> None:
     """重新加载配置的便捷函数"""
     config_manager.reload()
+
+
+def is_auth_check_disabled() -> bool:
+    """读取 [security].auth_enabled 判断是否跳过认证/权限校验
+
+    供 utils/auth.py（JWT 链路）与 utils/rbac.py（访客拦截）统一调用。
+    生产环境恒返回 False（fail-closed），防止配置误开导致接口裸奔；
+    每次调用实时读取 config_manager，配合 reload_config 可热更新。
+    """
+    if os.environ.get("APP_ENV", "").lower() in ("production", "prod"):
+        return False
+    return not config_manager.get("security.auth_enabled", True)

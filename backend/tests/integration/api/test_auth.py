@@ -70,6 +70,13 @@ class TestJWTAuthentication:
         response = client.delete("/api/v1/strategy/sma_cross", headers=headers)
         assert response.status_code == 401
 
+    def test_auth_disabled_config_allows_anonymous(self, client: TestClient, monkeypatch):
+        """config.toml 关闭校验（security.auth_enabled=false）时无 token 也放行（开发调试用）"""
+        monkeypatch.setattr("utils.auth.is_auth_check_disabled", lambda: True)
+        response = client.delete("/api/v1/strategy/sma_cross")
+        # 只断言"未被 401 拦截"（路由已执行），不依赖业务结果
+        assert response.status_code != 401
+
     def _create_test_token(self, expires_in_hours: int = 1) -> str:
         """创建测试用JWT令牌"""
         from utils.jwt_utils import JWT_ALGORITHM, JWT_SECRET_KEY
