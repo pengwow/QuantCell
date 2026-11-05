@@ -18,7 +18,7 @@ from factor.job_manager import job_manager
 from research import consts, replay, service
 from research.job import make_runner, research_job_manager
 from research.scenario import get_scenario
-from research.schemas import ResearchCreateReq, ResearchExtendReq
+from research.schemas import ResearchCreateReq, ResearchExtendReq, ResearchTrialBatchReq
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -188,9 +188,10 @@ def list_sessions(
             offset=offset,
         )
         sessions = []
+        # 批量取 best trial，替代逐行 best_trial_for 的 N+1
+        best_map = service.best_trials_for(db, rows)
         for row in rows:
-            best = service.best_trial_for(db, row)
-            sessions.append(service.session_to_dict(row, best_trial=best))
+            sessions.append(service.session_to_dict(row, best_trial=best_map.get(row.best_trial_id)))
     return ApiResponse(code=0, message="ok", data={"total": total, "sessions": sessions})
 
 
@@ -229,6 +230,27 @@ def list_trials(
             message="ok",
             data={"trials": [service.trial_to_dict(r, include_code=include_code) for r in rows]},
         )
+
+
+@router.post(
+    "/sessions/{session_id}/trials/batch",
+    response_model=ApiResponse,
+    summary="批量取 trial（对比视图用）",
+    description="一次取 2–5 条同一会话的 trial（含代码）供并排对比；跨会话 id 返回 404。",
+)
+def batch_trials(
+    session_id: int,
+    payload: ResearchTrialBatchReq,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    with get_db_session() as db:
+        try:
+            service.get_session_row(db, session_id, _owner(current_user))
+            rows = service.get_trials_for_session(db, session_id, payload.trial_ids)
+        except service.ResearchError as exc:
+            raise _http_error(exc) from exc
+        trials = [service.trial_to_dict(row, include_code=True) for row in rows]
+    return ApiResponse(code=0, message="ok", data={"trials": trials})
 
 
 @router.get(

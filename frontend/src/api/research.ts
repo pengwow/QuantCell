@@ -197,6 +197,11 @@ export const researchApi = {
     ),
   replay: (id: number, trialId: number) =>
     apiRequest.post<ResearchReplayResult>(`/research/sessions/${id}/trials/${trialId}/replay`),
+  // 对比用：一次 2–5 条，返回含 code 的完整 trial
+  batchTrials: (id: number, trialIds: number[]) =>
+    apiRequest.post<{ trials: ResearchTrial[] }>(`/research/sessions/${id}/trials/batch`, {
+      trial_ids: trialIds,
+    }),
   pause: (id: number) => apiRequest.post<ResearchSession>(`/research/sessions/${id}/pause`),
   resume: (id: number) =>
     apiRequest.post<{ session_id: number; job_id: string }>(`/research/sessions/${id}/resume`),

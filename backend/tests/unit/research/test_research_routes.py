@@ -394,3 +394,65 @@ def test_replay_is_owner_isolated(client, monkeypatch):
         assert tc.get(f"/api/v1/research/sessions/{sid}").status_code == 404
     finally:
         tc.app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1"}
+
+
+# ---------- 批量对比（P2 阶段 2） ----------
+
+
+def test_batch_trials_enforces_count_bounds(client):
+    """对比接口只接受 2–5 条，且不允许重复 id。"""
+    tc, db = client
+    sid = _create(tc)
+    trials = [
+        _add_trial(db, sid, loop_idx=idx, status="judged", code=f"def calc(df):\n    return {idx}")
+        for idx in range(1, 7)
+    ]
+    url = f"/api/v1/research/sessions/{sid}/trials/batch"
+
+    assert tc.post(url, json={"trial_ids": [trials[0].id]}).status_code == 422
+    assert tc.post(url, json={"trial_ids": [trials[0].id] * 2}).status_code == 422
+    assert tc.post(url, json={"trial_ids": [t.id for t in trials]}).status_code == 422
+
+    res = tc.post(url, json={"trial_ids": [trials[0].id, trials[1].id]})
+    assert res.status_code == 200, res.text
+    assert [row["id"] for row in res.json()["data"]["trials"]] == [trials[0].id, trials[1].id]
+    # 对比需要代码 diff，批量接口必须带 code
+    assert res.json()["data"]["trials"][0]["code"]
+
+
+def test_batch_trials_rejects_cross_session(client):
+    """跨会话混选按 404 处理，不泄露其他会话的 trial。"""
+    tc, db = client
+    sid = _create(tc)
+    other_sid = _create(tc)
+    mine = _add_trial(db, sid, status="judged", code="a")
+    theirs = _add_trial(db, other_sid, status="judged", code="b")
+
+    res = tc.post(
+        f"/api/v1/research/sessions/{sid}/trials/batch",
+        json={"trial_ids": [mine.id, theirs.id]},
+    )
+    assert res.status_code == 404
+
+
+def test_batch_trials_preserves_unknown_gate(client):
+    """硬门未知状态原样透传，后端不得把它归一化成 pass/fail。"""
+    tc, db = client
+    sid = _create(tc)
+    judge = {
+        "decision": False,
+        "reason": "未通过：corr(无法判定：缺少 SOTA)",
+        "gates": {
+            "icir": {"pass": True, "value": 0.5, "floor": 0.3},
+            "oos": {"pass": False, "value": "insufficient"},
+            "corr": {"pass": False, "status": "unknown", "unknown": ["SOTA"]},
+        },
+    }
+    t1 = _add_trial(db, sid, loop_idx=1, status="judged", code="a", judge_json=json.dumps(judge))
+    t2 = _add_trial(db, sid, loop_idx=2, status="judged", code="b", judge_json=json.dumps(judge))
+
+    res = tc.post(f"/api/v1/research/sessions/{sid}/trials/batch", json={"trial_ids": [t1.id, t2.id]})
+    assert res.status_code == 200
+    for row in res.json()["data"]["trials"]:
+        assert row["judge"]["gates"]["corr"]["status"] == "unknown"
+        assert row["judge"]["decision"] is False
