@@ -33,6 +33,8 @@ class ResearchCreateReq(BaseModel):
 
     max_llm_calls: int | None = Field(default=None, ge=1, le=500)
     max_tokens: int | None = Field(default=None, ge=1000, le=2_000_000)
+    # 单次 LLM 输出上限（reasoning 模型需要留足正文预算）；空则用 consts 默认值
+    llm_max_tokens: int | None = Field(default=None, ge=1024, le=200_000, description="单次 LLM 输出 token 上限")
     icir_floor: float = Field(default=consts.DEFAULT_ICIR_FLOOR, ge=0.0, le=1.0)
     corr_threshold: float = Field(default=consts.DEFAULT_CORR_THRESHOLD, gt=0.0, le=1.0)
 
@@ -111,6 +113,7 @@ class ResearchCreateReq(BaseModel):
             "repair_rounds": self.repair_rounds,
             "max_llm_calls": self.max_llm_calls,
             "max_tokens": self.max_tokens,
+            "llm_max_tokens": self.llm_max_tokens,
             "icir_floor": self.icir_floor,
             "corr_threshold": self.corr_threshold,
             "seed_factor": self.seed_factor,
