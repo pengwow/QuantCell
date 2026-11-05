@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+import time
 from contextlib import contextmanager
 
 import pandas as pd
@@ -14,7 +17,15 @@ import strategy.models  # 注册 Strategy，保证 Worker 关系的 mapper 可�
 from collector.db.database import Base
 from research import agents, consts, service
 from research.judge import evaluate_gates
-from research.loop import Budget, BudgetExhausted, LoopDeps, ResearchLoop, _cfg_number
+from research.loop import (
+    Budget,
+    BudgetExhausted,
+    CancelSignal,
+    LoopDeps,
+    ResearchLoop,
+    _cfg_number,
+    default_llm_call,
+)
 from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from research.quick import map_candidates_to_trials, session_cost_from_stats
 from research.state import (
@@ -1074,3 +1085,115 @@ def test_extended_quick_runs_deep_from_sota_and_judges_redundant(research_db):
     assert trial.status == "judged"
     assert trial.decision is False  # 仍能判冗余
     assert db.get(ResearchSession, sid).mode == "quick"
+
+
+class _BlockingBackend:
+    """模拟在飞 LLM：正常前两次调用返回合法 JSON，代码生成调用永不返回。"""
+
+    def __init__(self, *, stall_from: int = 3):
+        self.calls = 0
+        self.stall_from = stall_from
+
+    async def chat_async(self, messages: list[dict]) -> dict:
+        self.calls += 1
+        system = messages[0]["content"]
+        if self.calls >= self.stall_from:
+            await asyncio.Event().wait()  # 永不返回，靠外部取消/超时退出
+        if "量化因子研究员" in system:
+            content = '{"hypothesis": "量价背离", "reason": "价涨量缩"}'
+        elif "量化实验规划员" in system:
+            content = (
+                '{"tasks": [{"name": "px_vol", "description": "价量背离",'
+                ' "formulation": "close/pct_change - volume/pct_change"}]}'
+            )
+        else:
+            content = '{"observations": "ok", "evaluation": "稳定", "reason": ""}'
+        return {"content": content, "finish_reason": "Stop", "total_tokens": 10}
+
+
+def test_default_llm_call_hard_timeout_aborts_inflight():
+    """非流式请求也必须有硬超时：超时后只发生过一次请求。"""
+    backend = _BlockingBackend(stall_from=1)
+    control = service.Control()
+    llm = default_llm_call(backend, control=control, timeout_secs=0.3)
+
+    t0 = time.monotonic()
+    with pytest.raises(TimeoutError):
+        llm("system", "user")
+    assert time.monotonic() - t0 < 3
+    assert backend.calls == 1  # 超时后没有再次发起调用
+
+
+def test_default_llm_call_cancel_aborts_inflight():
+    """cancel Event 生效后立即中止在飞请求，而不是等它自然返回。"""
+    backend = _BlockingBackend(stall_from=1)
+    control = service.Control()
+    llm = default_llm_call(backend, control=control, timeout_secs=10)
+    threading.Timer(0.3, control.cancel.set).start()
+
+    t0 = time.monotonic()
+    with pytest.raises(CancelSignal):
+        llm("system", "user")
+    assert time.monotonic() - t0 < 2
+
+
+def test_llm_timeout_marks_trial_failed_and_books_cost(research_db):
+    """单次调用超时：trial 落 failed 终态，已完成的调用成本仍记账。"""
+    db, factory = research_db
+    sid = _create_session(db, mode="deep", cfg={**DEEP_CFG, "loop_n": 1})
+    control = service.Control()
+
+    t0 = time.monotonic()
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=default_llm_call(_BlockingBackend(stall_from=3), control=control, timeout_secs=0.3),
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 0.2,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run(control)
+    assert time.monotonic() - t0 < 3
+
+    row = db.get(ResearchSession, sid)
+    trials = service.list_trials(db, sid)
+    assert len(trials) == 1
+    assert trials[0].status == "failed"
+    assert "超时" in (trials[0].exception or "")
+    # propose/plan 两次调用已完成 → 次数与 token 都要记账；超时那次 0 token
+    assert row.llm_calls == 3
+    assert row.token_used == 20
+
+
+def test_cancel_during_code_marks_trial_interrupted(research_db):
+    """代码生成阶段取消：在飞调用被中断，trial 落 interrupted 而非 key 泄漏运行态。"""
+    db, factory = research_db
+    sid = _create_session(db, mode="deep", cfg={**DEEP_CFG, "loop_n": 1})
+    control = service.Control()
+
+    t0 = time.monotonic()
+    timer = threading.Timer(0.4, control.cancel.set)
+    timer.start()
+    try:
+        ResearchLoop(
+            sid,
+            LoopDeps(
+                # 超时刻意放宽到 10s：验证真正生效的是取消而不是超时
+                llm_call=default_llm_call(_BlockingBackend(stall_from=3), control=control, timeout_secs=10),
+                evaluator=_fake_evaluator,
+                data_loader=lambda cfg: {"BTCUSDT": object()},
+                corr_fn=lambda a, b: 0.2,
+                scenario=_StubScenario(0.2),
+                db_session_factory=factory,
+            ),
+        ).run(control)
+    finally:
+        timer.cancel()
+    assert time.monotonic() - t0 < 2
+
+    trials = service.list_trials(db, sid)
+    assert len(trials) == 1
+    assert trials[0].status == "interrupted"
+    assert trials[0].resume_status == "coding"

@@ -40,7 +40,14 @@ def create_backend(llm_cfg: dict[str, Any], cfg: dict[str, Any]):
     )
 
 
-def build_deps(*, backend: Any, mode: str, cfg: dict[str, Any], model_name: str) -> LoopDeps:
+def build_deps(
+    *,
+    backend: Any,
+    mode: str,
+    cfg: dict[str, Any],
+    model_name: str,
+    control: service.Control | None = None,
+) -> LoopDeps:
     scenario = get_scenario(str(cfg.get("scenario") or "factor"))
     if mode == "quick" and not cfg.get("extend_deep"):
         # quick 会话 extend 后追加的轮次走 deep 编排，需要 llm_call 而不是 mining_fn
@@ -49,8 +56,13 @@ def build_deps(*, backend: Any, mode: str, cfg: dict[str, Any], model_name: str)
             scenario=scenario,
             model_name=model_name,
         )
+    timeout = cfg.get("llm_call_timeout_secs")
     return LoopDeps(
-        llm_call=default_llm_call(backend),
+        llm_call=default_llm_call(
+            backend,
+            control=control,
+            timeout_secs=float(consts.DEFAULT_LLM_CALL_TIMEOUT_SECS if timeout is None else timeout),
+        ),
         scenario=scenario,
         model_name=model_name,
     )
@@ -73,6 +85,7 @@ def make_runner(
             mode=mode,
             cfg=cfg,
             model_name=str(llm_cfg.get("model") or ""),
+            control=control,
         )
         # 过程事件持久化到 research_events：多 worker 部署下只有持有 job 的进程能看到
         # 进程内缓冲，写库后任一进程都能按 seq 增量读到（局限见 models.ResearchEvent）
