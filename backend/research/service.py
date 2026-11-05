@@ -382,8 +382,8 @@ def get_trials_for_session(db: Session, session_id: int, trial_ids: list[int]) -
     return [found[tid] for tid in trial_ids]
 
 
-# trial 的终态：这些状态不再参与续跑
-TERMINAL_TRIAL_STATUSES = frozenset({"judged", "failed"})
+# trial 的终态：这些状态不再参与续跑（duplicate 表示该轮已被判重消耗）
+TERMINAL_TRIAL_STATUSES = frozenset({"judged", "failed", "duplicate"})
 
 
 def find_trial(db: Session, session_id: int, loop_idx: int, candidate_idx: int = 1) -> ResearchTrial | None:

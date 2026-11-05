@@ -455,6 +455,58 @@ def test_deep_loop_three_rounds(research_db):
     assert all(t.llm_calls == 4 and t.token_used == 40 for t in trials)
 
 
+def test_duplicate_factor_is_marked_and_consumes_loop(research_db):
+    """两轮产出同一个因子：第 2 轮判 duplicate，不再反馈/judge，但该轮照常消耗。"""
+    db, factory = research_db
+    sid = _create_session(db, mode="deep", cfg={**DEEP_CFG, "loop_n": 2})
+    prompts: list[str] = []
+
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=_fake_llm_call(prompts),
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 1.0,  # 与历史因子完全等价（含方向翻转）
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    row = db.get(ResearchSession, sid)
+    assert row.status == "completed"
+    assert row.loop_done == 2  # 判重轮也计入进度，不会卡在同一轮重试
+    trials = service.list_trials(db, sid)
+    assert [t.status for t in trials] == ["judged", "duplicate"]
+    assert trials[1].decision is False
+    assert "高度相关" in trials[1].exception
+    assert trials[1].judge_json is None  # 未进入 judge
+    # 判重轮只花 propose/plan/code 三次调用，没有反馈这次调用
+    assert prompts.count(agents.FEEDBACK_SYSTEM) == 1
+    assert row.llm_calls == 7
+
+
+def test_duplicate_threshold_is_configurable(research_db):
+    """阈值走 cfg duplicate_corr_threshold，默认值集中在 consts。"""
+    db, factory = research_db
+    cfg = {**DEEP_CFG, "loop_n": 2, "duplicate_corr_threshold": 0.5}
+    sid = _create_session(db, mode="deep", cfg=cfg)
+
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=_fake_llm_call([]),
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 0.6,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    assert [t.status for t in service.list_trials(db, sid)] == ["judged", "duplicate"]
+
+
 def test_deep_trial_failure_does_not_kill_session(research_db):
     db, factory = research_db
     cfg = {**DEEP_CFG, "loop_n": 2, "repair_rounds": 0}
@@ -1010,7 +1062,7 @@ def test_extended_quick_runs_deep_from_sota_and_judges_redundant(research_db):
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
             data_loader=lambda cfg: {"BTCUSDT": object()},
-            corr_fn=lambda a, b: 0.95,  # 与 SOTA 高度相关 → 必然判冗余
+            corr_fn=lambda a, b: 0.8,  # 高于 judge 阈值 0.7、低于判重阈值 0.9 → 仍走 judge 判冗余
             scenario=_StubScenario(0.4),
             db_session_factory=factory,
         ),

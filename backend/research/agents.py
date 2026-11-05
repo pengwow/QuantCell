@@ -47,11 +47,13 @@ class FeedbackOut(BaseModel):
 
 HYPOTHESIS_SYSTEM = """你是量化因子研究员。基于给定的研究历史与当前 SOTA，
 提出一个新的、可验证的因子假设。要求：
-- 与历史尝试不重复，优先做增量改进而不是从零发明；
+- 必须先读「已试因子」一节的代码摘要与相关性，提出与之不同思路的假设；
+- 仅改参数、翻转符号、加平滑/标准化等与已有因子等价的变形会被系统判重并直接消耗本轮；
 - 只输出 JSON：{"hypothesis": "...", "reason": "...", "prediction": "..."}，不要其它文字。"""
 
 PLAN_SYSTEM = """你是量化实验规划员。把因子假设拆解为 1~3 个可独立编码的因子任务。
 要求：
+- 按创新程度排序：把本轮假设对应的新因子放第一位，不要把“复算历史因子”之类的基准放第一位；
 - 每个任务给出 name、description（含公式/逻辑）、formulation（可执行表达式）；
 - 只输出 JSON：{"tasks": [{"name": "...", "description": "...", "formulation": "..."}]}。"""
 
@@ -174,6 +176,13 @@ def build_feedback(
     return _call_json(llm_call, FEEDBACK_SYSTEM, user, FeedbackOut, FeedbackOut())
 
 
+def _code_summary(code: str, limit: int = 160) -> str:
+    """代码摘要：去掉纯注释与空行，压成一行并截断，供上下文展示。"""
+    body = [line.strip() for line in (code or "").splitlines() if line.strip() and not line.strip().startswith("#")]
+    summary = " ".join(body)
+    return summary[:limit]
+
+
 def render_context(
     trials: list[dict[str, Any]],
     sota_trial: dict[str, Any] | None,
@@ -195,6 +204,23 @@ def render_context(
         )
     if not trials:
         lines.append("- （暂无历史试验）")
+
+    # 已试因子的实际实现与相关性是判断“是否等价重提”的唯一依据：
+    # 只给假设文本时 LLM 会换措辞重写同一个因子（实测两轮指标完全一致）
+    lines.append("\n## 已试因子（实际代码摘要 + 关键指标 + 与已有候选的相关性）")
+    tried = [t for t in trials[-max_history:] if t.get("code") or t.get("metrics")]
+    if not tried:
+        lines.append("- （暂无已试因子）")
+    for t in tried:
+        lines.append(
+            f"- L{t.get('loop_idx')}C{t.get('candidate_idx')} status={t.get('status')} "
+            f"decision={t.get('decision')} corr(SOTA)={t.get('corr_sota')} "
+            f"corr(库)={t.get('corr_library')} "
+            f"IC_IR={metric(t, 'ic_ir')} IC={metric(t, 'ic_mean')} fitness={metric(t, 'fitness')}"
+        )
+        summary = _code_summary(t.get("code") or "")
+        if summary:
+            lines.append(f"  代码：{summary}")
 
     lines.append("\n## 上一轮明细")
     if trials:
@@ -221,5 +247,8 @@ def render_context(
                 f"{'：' + item['hint'] if item.get('hint') else ''}"
             )
 
-    lines.append("\n要求：新假设必须与上述历史尝试有明确差异，禁止重复已失败的实现。")
+    lines.append(
+        "\n要求：必须提出与上述已试因子不同思路的新假设。仅改参数、翻转符号、"
+        "加平滑/标准化等与既有因子等价的变形会被系统按相关性判重并直接消耗本轮，禁止重复。"
+    )
     return "\n".join(lines)

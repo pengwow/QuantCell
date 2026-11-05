@@ -200,6 +200,8 @@ class ResearchLoop:
         self._sota_factor: Any = None
         self._sota_trial: dict[str, Any] | None = None
         self._scenario_obj: ResearchScenario | None = None
+        # 已终态 trial 的因子缓存（判重对比用）：进程内有效，resume 后按需重建
+        self._factor_cache: dict[int, Any] = {}
         # 会话归属，用于失败签名知识库按 owner 隔离
         self._owner_id: str = ""
 
@@ -397,6 +399,8 @@ class ResearchLoop:
         try:
             analysis = self.deps.evaluate(code, raw_map, cfg)
             self._sota_factor = analysis.get("train_factor")
+            if self._sota_factor is not None:
+                self._factor_cache[best.id] = self._sota_factor
         except Exception:
             logger.exception("[研究] 重建 SOTA 因子失败，硬门 3 仅对比因子库")
 
@@ -643,6 +647,26 @@ class ResearchLoop:
                 train = analysis.get("train")
                 if not train:
                     raise RuntimeError("评估结果缺少 train 段")
+                # 候选去重：与已终态 trial 因子等价时直接消耗本轮，不再花钱做反馈/judge
+                duplicate = self._find_duplicate(analysis.get("train_factor"), raw_map, cfg, exclude_id=trial_id)
+                if duplicate is not None:
+                    dup_trial_id, dup_corr = duplicate
+                    with self._db() as db:
+                        service.update_trial(
+                            db,
+                            trial_id,
+                            status="duplicate",
+                            decision=False,
+                            exception=(
+                                f"与 trial {dup_trial_id} 的因子高度相关（|corr|={abs(dup_corr):.3f} ≥ 阈值），本轮判重"
+                            ),
+                            duration_ms=int((time.monotonic() - started_at) * 1000),
+                        )
+                    self._event(
+                        "trial.duplicate",
+                        f"loop={loop_idx} trial={trial_id} duplicate_of={dup_trial_id} corr={dup_corr}",
+                    )
+                    return
                 metrics = _metrics_from_analysis(train)
                 metrics_oos, flag, note, _folds = _oos_metrics(
                     analysis, metrics, _cfg_number(cfg, "test_ratio", consts.DEFAULT_TEST_RATIO)
@@ -762,6 +786,51 @@ class ResearchLoop:
                 )
         except Exception:
             logger.exception("[研究] 标记 trial 中断状态失败")
+
+    def _trial_factor(self, trial_id: int, code: str, raw_map: dict[str, Any], cfg: dict[str, Any]) -> Any:
+        """重建已终态 trial 的训练段因子（判重对比用），进程内缓存。
+
+        失败不阻断判重主流程：跳过错过的这条即可。
+        """
+        if trial_id in self._factor_cache:
+            return self._factor_cache[trial_id]
+        factor = None
+        try:
+            factor = self.deps.evaluate(code, raw_map, cfg).get("train_factor")
+        except Exception:
+            logger.exception(f"[研究] 重建 trial {trial_id} 因子失败，判重跳过该条")
+        self._factor_cache[trial_id] = factor
+        return factor
+
+    def _find_duplicate(
+        self, factor: Any, raw_map: dict[str, Any], cfg: dict[str, Any], *, exclude_id: int | None
+    ) -> tuple[int, float] | None:
+        """候选去重：与任一已终态 trial 的因子 |>corr|>=阈值 时返回 (trial_id, corr)。
+
+        口径与 judge 一致（Spearman 秩相关，取绝对值，方向翻转同样算等价）。
+        必须拿到候选因子才能比对，因此放在评估之后：命中则不再进入反馈/judge。
+        ponytail: 每轮为对比重算历史因子（进程内缓存），复杂度随历史 trial 线性增长；
+        若 loop_n 长大，应把 train_factor 持久化，而不是每轮重算。
+        """
+        if factor is None:
+            return None
+        threshold = _cfg_number(cfg, "duplicate_corr_threshold", consts.DUPLICATE_CORR_THRESHOLD)
+        for trial in self._load_trials():
+            if trial["id"] == exclude_id:
+                continue
+            if trial["status"] not in {"judged", "evaluated"} or not trial.get("code"):
+                continue
+            other = self._trial_factor(trial["id"], trial["code"], raw_map, cfg)
+            if other is None:
+                continue
+            try:
+                corr = self.deps.corr_fn(factor, other)
+            except Exception:
+                logger.exception(f"[研究] trial {trial['id']} 相关性计算失败，判重跳过该条")
+                continue
+            if corr is not None and abs(corr) >= threshold:
+                return int(trial["id"]), float(corr)
+        return None
 
     def _corr_values(
         self, analysis: dict[str, Any], raw_map: dict[str, Any], cfg: dict[str, Any]
