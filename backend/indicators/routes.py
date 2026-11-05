@@ -708,6 +708,14 @@ async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
         generated_code = raw.get("content") or ""
 
         if not generated_code:
+            # 推理模型（GLM-5.3-Flash 实测）偶发思考完直接 stop、正文 0 字符、
+            # 代码全写在 reasoning_content 里（与 strategy_generator 的同源问题），
+            # 这里做同样的兜底提取，避免白跑一次长生成
+            generated_code = _extract_indicator_code_from_reasoning(raw.get("reasoning_content") or "")
+            if generated_code:
+                logger.warning(f"正文为空，已从 reasoning_content 兜底提取指标代码 {len(generated_code)} 字符")
+
+        if not generated_code:
             msg = f"LLM模型 [{model}] 返回了空内容，请尝试更换其他模型"
             raise Exception(msg)
 
@@ -730,6 +738,25 @@ async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
             raise Exception(msg) from e
         msg = f"AI模型调用失败: {e}"
         raise Exception(msg) from e
+
+
+def _extract_indicator_code_from_reasoning(reasoning: str) -> str:
+    """从 reasoning_content 兜底提取指标代码
+
+    推理模型（GLM-5.3-Flash 实测）偶发把完整代码写在思考过程里、正文为空。
+    只接受"看起来像指标代码"的 markdown 代码块，取最后一个（思考中可能有多版
+    草稿，最后一版最完整），避免把普通思考文本误当代码。
+
+    指标代码是脚本式 pandas 代码（非策略的 BaseStrategy 类），
+    判据：含 df 的 DataFrame 操作且有赋值/逻辑语句。
+    """
+    if not reasoning:
+        return ""
+    blocks = re.findall(r"```(?:python)?\s*\n(.*?)\n```", reasoning, re.DOTALL | re.IGNORECASE)
+    for block in reversed(blocks):
+        if re.search(r"\bdf\b", block) and re.search(r"df\[|df\.", block) and re.search(r"[=]", block):
+            return block.strip()
+    return ""
 
 
 def _clean_generated_code(code: str) -> str:
