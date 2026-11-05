@@ -30,10 +30,10 @@ interface Props {
 const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT'];
 const INTERVALS = ['15m', '30m', '1h', '4h', '1d'];
 
-/** 与后端 research/consts 同一口径的创建前预算估算（下限，仅拦明显不够的上限）。 */
+/** 与后端 research/consts 同口径的预算估算（仅提示，不拦截提交）。 */
 const DEEP_CALLS_PER_LOOP = 4;
 const QUICK_EXTRA_CALLS = 1;
-const EST_TOKENS_PER_CALL = 3000;
+const EST_TOKENS_PER_CALL = 12000;  // 与后端 consts.EST_TOKENS_PER_CALL 同口径（仅用于提示）
 
 const estimateCalls = (mode: ResearchMode, candidates: number, loops: number): number =>
   mode === 'quick' ? candidates + QUICK_EXTRA_CALLS : loops * DEEP_CALLS_PER_LOOP;
@@ -63,10 +63,14 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
   const watchedCandidates = Form.useWatch('n_candidates', form);
   const watchedLoops = Form.useWatch('loop_n', form);
   const watchedMaxCalls = Form.useWatch('max_llm_calls', form);
+  const watchedMaxTokens = Form.useWatch('max_tokens', form);
 
   const estCalls = estimateCalls(mode, watchedCandidates ?? 4, watchedLoops ?? 3);
   const estTokens = estCalls * EST_TOKENS_PER_CALL;
-  const overBudget = Boolean(watchedMaxCalls && estCalls > watchedMaxCalls);
+  // 估算只作为提示：低于估算时不拦截提交，由后端运行期 Budget 预留/结算兜底
+  const overBudget = Boolean(
+    (watchedMaxCalls && estCalls > watchedMaxCalls) || (watchedMaxTokens && estTokens > watchedMaxTokens),
+  );
 
   // 打开抽屉：有复制来源就按它的 config 预填，否则只预置入口模式
   useEffect(() => {
@@ -116,21 +120,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
     setError(null);
     try {
       const values = await form.validateFields();
-      // 与后端同一口径的前置校验：明显不够的预算不提交，避免建完才在后台爆掉
-      const needCalls = estimateCalls(
-        values.mode,
-        values.n_candidates ?? 4,
-        values.mode === 'deep' ? (values.loop_n ?? 3) : 1,
-      );
-      const needTokens = needCalls * EST_TOKENS_PER_CALL;
-      if (values.max_llm_calls && needCalls > values.max_llm_calls) {
-        setError(`按候选数/轮次估算至少需要 ${needCalls} 次 LLM 调用，超过上限 ${values.max_llm_calls}，请提高上限或减少轮次`);
-        return;
-      }
-      if (values.max_tokens && needTokens > values.max_tokens) {
-        setError(`按估算至少需要约 ${needTokens} tokens，超过上限 ${values.max_tokens}`);
-        return;
-      }
+      // 预算估算仅提示（见上方 Alert），不再拦截提交：真实单次消耗常低于估算
       const [start, end] = values.window;
       const payload: ResearchCreateParams = {
         mode: values.mode,
@@ -248,7 +238,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
               <InputNumber min={1} max={500} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="max_tokens" label="Token 上限" style={{ flex: 1 }}>
-              <InputNumber min={1000} step={1000} style={{ width: '100%' }} />
+              <InputNumber min={12000} step={1000} style={{ width: '100%' }} />
             </Form.Item>
           </Space>
 
@@ -256,7 +246,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
             <Alert
               type="warning"
               showIcon
-              message={`按候选数/轮次估算至少需要 ${estCalls} 次调用（约 ${estTokens} tokens），当前上限不够，请提高上限或减少轮次`}
+              message={`按候选数/轮次估算约需 ${estCalls} 次调用（约 ${estTokens} tokens），当前上限可能提前耗尽；此项仅提示，不会拦截提交`}
             />
           )}
 

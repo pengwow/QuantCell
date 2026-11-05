@@ -220,12 +220,26 @@ def test_events_unknown_job_returns_empty(client):
     assert data == {"session_id": sid, "events": [], "next_seq": 0}
 
 
-def test_create_rejects_over_budget_returns_422(client):
-    """创建时按候选数/轮次预扣估算，超预算直接 422，不落会话、不提交作业。"""
+def test_create_with_low_budget_succeeds(client):
+    """60k + loop_n=2 低于估算但足够实跑，必须创建成功并返回提示字段。"""
+    tc, _ = client
+    res = tc.post(
+        "/api/v1/research/sessions",
+        json={**PAYLOAD, "loop_n": 2, "repair_rounds": 1, "max_llm_calls": 10, "max_tokens": 60_000},
+    )
+    assert res.status_code == 200, res.text
+    sid = res.json()["data"]["session_id"]
+    detail = tc.get(f"/api/v1/research/sessions/{sid}").json()["data"]
+    assert detail["estimated_tokens"] == 2 * (4 + 1) * 12_000
+    assert detail["budget_hint"]
+
+
+@pytest.mark.parametrize("max_tokens", [0, -1])
+def test_create_with_invalid_tokens_returns_422(client, max_tokens):
+    """额度硬校验：0/负数在 schema 边界直接 422，不落会话。"""
     tc, db = client
-    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "max_llm_calls": 5})
+    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "max_tokens": max_tokens})
     assert res.status_code == 422, res.text
-    assert "LLM 调用" in res.json()["detail"]
     assert db.query(ResearchSession).count() == 0
 
 
