@@ -11,7 +11,7 @@ from typing import Any
 from axon_bridge.llm import create_llm_backend
 from factor.job_manager import FactorJobManager
 from research import consts, service
-from research.loop import LoopDeps, ResearchLoop, default_llm_call, default_mining_fn
+from research.loop import LoopDeps, ResearchLoop, default_llm_call, default_mining_fn, resolve_stage_timeouts
 from research.scenario import get_scenario
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -26,9 +26,12 @@ def create_backend(llm_cfg: dict[str, Any], cfg: dict[str, Any]):
 
     输出上限按会话配置（llm_max_tokens）读取，缺省用 consts.DEFAULT_LLM_MAX_TOKENS；
     reasoning 模型的思考链不计入正文，上限过低会得到 finish=length 且 content 为空。
+    client 自身超时取“最宽的阶段超时”：否则 code 阶段放宽到 300s 也会先被 client
+    在 180s 掐断，阶段级配置就形同虚设。
     """
     temperature = cfg.get("temperature")
     max_tokens = cfg.get("llm_max_tokens")
+    stage_timeouts = resolve_stage_timeouts(cfg)
     return create_llm_backend(
         api_key=llm_cfg["api_key"],
         base_url=llm_cfg["base_url"],
@@ -36,7 +39,7 @@ def create_backend(llm_cfg: dict[str, Any], cfg: dict[str, Any]):
         # 显式 0.0 是合法温度，不能用 `or` 覆盖成默认值
         temperature=float(consts.DEEP_TEMPERATURE if temperature is None else temperature),
         max_tokens=int(consts.DEFAULT_LLM_MAX_TOKENS if max_tokens is None else max_tokens),
-        timeout_secs=180,
+        timeout_secs=max(stage_timeouts.values()),
     )
 
 
@@ -56,12 +59,14 @@ def build_deps(
             scenario=scenario,
             model_name=model_name,
         )
+    stage_timeouts = resolve_stage_timeouts(cfg)
     timeout = cfg.get("llm_call_timeout_secs")
     return LoopDeps(
         llm_call=default_llm_call(
             backend,
             control=control,
             timeout_secs=float(consts.DEFAULT_LLM_CALL_TIMEOUT_SECS if timeout is None else timeout),
+            stage_timeouts=stage_timeouts,
         ),
         scenario=scenario,
         model_name=model_name,

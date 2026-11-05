@@ -122,6 +122,32 @@ def _cfg_number(cfg: dict[str, Any], key: str, default: float) -> float:
     return default if value is None else float(value)
 
 
+_STAGE_TIMEOUT_KEYS = {
+    "propose": "llm_propose_timeout_secs",
+    "plan": "llm_plan_timeout_secs",
+    "code": "llm_code_timeout_secs",
+    "feedback": "llm_feedback_timeout_secs",
+}
+
+
+def resolve_stage_timeouts(cfg: dict[str, Any]) -> dict[str, float]:
+    """阶段级单次调用超时：显式阶段配置 > 全局 llm_call_timeout_secs > 阶段默认。
+
+    None 一律表示“没配”，用 is None 判断而不是 `or`，避免把显式值静默改写。
+    """
+    global_secs = cfg.get("llm_call_timeout_secs")
+    resolved: dict[str, float] = {}
+    for stage, key in _STAGE_TIMEOUT_KEYS.items():
+        value = cfg.get(key)
+        if value is not None:
+            resolved[stage] = float(value)
+        elif global_secs is not None:
+            resolved[stage] = float(global_secs)
+        else:
+            resolved[stage] = float(consts.DEFAULT_STAGE_TIMEOUT_SECS[stage])
+    return resolved
+
+
 @dataclass
 class LoopDeps:
     """可注入依赖，单测用假实现替换真实 LLM/数据/评估。"""
@@ -430,6 +456,51 @@ class ResearchLoop:
         calls, tokens = self._charge_usage(budget, usage, reserved)
         return result, usage, calls, tokens
 
+    def _code_with_retry(
+        self,
+        budget: Budget,
+        task: FactorTask,
+        *,
+        loop_idx: int,
+        trial_id: int,
+        track: Callable[[int, int], None],
+    ) -> tuple[str, dict[str, Any]]:
+        """code 阶段最多生成两次：超时或空内容各触发一次重试。
+
+        每次生成都是独立的预算调用（预扣次数 + 按实际结算 token），所以重试会
+        真实体现在 trial / 会话成本里；仍失败时：
+        - 两次都异常 → 抛 RuntimeError，异常串带类别（timeout / security / error）；
+        - 两次都空 → 返回空串，交给下游修复内环或 _empty_code_reason 处理。
+        """
+        usage: dict[str, Any] = {}
+        for attempt in (1, 2):
+            try:
+                code, usage, calls, tokens = self._budgeted_call(budget, generate_code, self.deps.llm_call, task)
+            except BudgetExhausted, CancelSignal, PauseSignal:
+                raise
+            except Exception as exc:
+                kind = "timeout" if isinstance(exc, TimeoutError) else _classify_exc(exc)[0]
+                kind = {"security_error": "security"}.get(kind, kind)
+                # 失败的这次请求也真实发生过：调用次数记到 trial，token 按 0 结算
+                track(1, 0)
+                if attempt == 1:
+                    self._event(
+                        "trial.code_retry",
+                        f"loop={loop_idx} trial={trial_id} attempt=1 kind={kind} err={str(exc)[:120]}",
+                    )
+                    continue
+                raise RuntimeError(f"code 阶段重试 1 次后仍失败（{kind}）：{str(exc)[:300]}") from exc
+            track(calls, tokens)
+            self._persist_cost(budget)
+            if code:
+                return code, usage
+            if attempt == 1:
+                self._event(
+                    "trial.code_retry",
+                    f"loop={loop_idx} trial={trial_id} attempt=1 kind=empty",
+                )
+        return "", usage
+
     def _execute_loop(
         self,
         loop_idx: int,
@@ -584,9 +655,7 @@ class ResearchLoop:
                 if start_status == "planned":
                     with self._db() as db:
                         service.update_trial(db, trial_id, status="coding")
-                code, usage, calls, tokens = self._budgeted_call(budget, generate_code, self.deps.llm_call, task)
-                track(calls, tokens)
-                self._persist_cost(budget)
+                code, usage = self._code_with_retry(budget, task, loop_idx=loop_idx, trial_id=trial_id, track=track)
                 # 空输出按失败处理，回灌"未返回可用代码"让 LLM 重写
                 while not code and len(repairs) < repair_rounds:
                     repairs.append({"round": len(repairs) + 1, "kind": "empty_output", "error": "LLM 未返回可用代码"})
@@ -894,20 +963,27 @@ def default_llm_call(
     *,
     control: service.Control | None = None,
     timeout_secs: float = consts.DEFAULT_LLM_CALL_TIMEOUT_SECS,
+    stage_timeouts: dict[str, float] | None = None,
 ) -> LLMCall:
-    """axon backend → 同步 (system,user) 调用（线程内 asyncio.run）。
+    """axon backend → 同步 (system,user,stage) 调用（线程内 asyncio.run）。
 
-    control 与 timeout_secs 让在飞请求可被中断：每 LLM_CANCEL_POLL_SECS 检查
+    control 与超时让在飞请求可被中断：每 LLM_CANCEL_POLL_SECS 检查
     cancel/pause，命中即取消底层协程（非流式请求随之中止），超时同样取消并发起
     失败落库。取消后主回路不会再发起新的 LLM 调用。
+    stage_timeouts 按阶段覆盖单次超时（code 默认更宽），未列出的阶段用 timeout_secs。
     """
     import asyncio
 
     from axon_bridge.llm import chat_to_dict
 
-    async def _await_cancellable(coro: Any) -> Any:
+    def _stage_timeout(stage: str | None) -> float:
+        if stage_timeouts and stage in stage_timeouts:
+            return float(stage_timeouts[stage])
+        return float(timeout_secs)
+
+    async def _await_cancellable(coro: Any, limit: float, stage: str | None) -> Any:
         task = asyncio.ensure_future(coro)
-        deadline = time.monotonic() + max(float(timeout_secs or 0), 0.0)
+        deadline = time.monotonic() + max(float(limit or 0), 0.0)
         try:
             while True:
                 if control is not None and control.cancel.is_set():
@@ -916,26 +992,29 @@ def default_llm_call(
                     raise PauseSignal()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError(f"LLM 单次调用超时（>{timeout_secs:.0f}s）")
+                    raise TimeoutError(f"LLM 单次调用超时（>{limit:.0f}s，stage={stage or 'unknown'}）")
                 try:
                     # shield 保证轮询超时不会取消真正的请求；取消只由下面 finally 触发
                     return await asyncio.wait_for(asyncio.shield(task), min(remaining, consts.LLM_CANCEL_POLL_SECS))
                 except TimeoutError:
                     if task.done():
-                        # 分别是轮询超时与请求自身超时：后者必须原样抛出，避免空转 180s
+                        # 分别是轮询超时与请求自身超时：后者必须原样抛出，避免空转
                         return task.result()
                     continue
         finally:
             if not task.done():
                 task.cancel()
 
-    def _call(system: str, user: str) -> tuple[str, dict[str, Any]]:
+    def _call(system: str, user: str, stage: str | None = None) -> tuple[str, dict[str, Any]]:
+        limit = _stage_timeout(stage)
         resp = asyncio.run(
             _await_cancellable(
                 chat_to_dict(
                     backend,
                     [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                )
+                ),
+                limit,
+                stage,
             )
         )
         usage = dict(resp.get("usage") or {})
@@ -943,6 +1022,7 @@ def default_llm_call(
         # 判断“content 是否为空”只看 content，truncated 由 finish_reason 标记
         usage["finish_reason"] = resp.get("finish_reason")
         usage["reasoning_chars"] = len(resp.get("reasoning_content") or "")
+        usage["stage"] = stage
         return (resp.get("content") or ""), usage
 
     return _call
