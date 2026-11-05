@@ -14,8 +14,8 @@ from sqlalchemy.pool import StaticPool
 
 import strategy.models  # 注册 Strategy，保证 Worker 关系的 mapper 可初始化
 from collector.db.database import Base
+from research import replay, service
 from research import routes as research_routes
-from research import service
 from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from utils.auth import get_current_user
 
@@ -242,3 +242,155 @@ def test_create_without_llm_returns_409_and_creates_nothing(client, monkeypatch)
     assert "模型" in detail["message"]
     # 关键：不留下 pending/running 的孤儿会话，也没有启动后台作业
     assert db.query(ResearchSession).count() == 0
+
+
+# ---------- 回放（P2 阶段 1） ----------
+
+# 评估结果的最小结构：_metrics_from_analysis / _oos_metrics 需要的字段
+_ANALYSIS = {
+    "train": {
+        "ic": {"mean": 0.05, "ir": 0.42},
+        "inspection": {"coverage": 0.8, "turnover": 0.1},
+        "long_short_return": 0.3,
+    },
+    "test": None,
+    "wf": None,
+    "train_factor": None,
+}
+
+
+class _StubScenario:
+    """因子场景替身：只验证回放编排，不跑真实沙箱。"""
+
+    def evaluate(self, code, raw_map, cfg):
+        return _ANALYSIS
+
+    def library_corr(self, series, raw_map):
+        return 0.11
+
+
+def _stub_replay(monkeypatch, analysis=None):
+    monkeypatch.setattr(replay, "load_raw_ohlcv", lambda *args, **kwargs: {"BTCUSDT": object()})
+    monkeypatch.setattr(replay, "get_scenario", lambda name: _StubScenario())
+
+
+def _add_trial(db, session_id: int, *, loop_idx: int = 1, candidate_idx: int = 1, **fields) -> ResearchTrial:
+    row = ResearchTrial(session_id=session_id, loop_idx=loop_idx, candidate_idx=candidate_idx, **fields)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def test_replay_creates_linked_trial_within_tolerance(client, monkeypatch):
+    """同参数回放的 IC_IR 差异在阈值内，且落新行、不覆盖原记录。"""
+    tc, db = client
+    sid = _create(tc)
+    original = _add_trial(
+        db,
+        sid,
+        status="judged",
+        code="def calc(df):\n    return df['close']",
+        metrics_json=json.dumps({"ic_ir": 0.42, "ic_mean": 0.05}),
+        corr_library=0.11,
+        corr_sota=0.2,
+    )
+    _stub_replay(monkeypatch)
+
+    res = tc.post(f"/api/v1/research/sessions/{sid}/trials/{original.id}/replay")
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    meta = data["replay_meta"]
+    assert meta["partial"] is False
+    assert meta["consistent"] is True
+    assert meta["diff"]["ic_ir"] == 0
+    assert meta["diff"]["ic_ir"] <= replay.IC_IR_TOLERANCE
+
+    replayed = db.get(ResearchTrial, data["trial"]["id"])
+    assert replayed.replay_of_id == original.id
+    assert replayed.loop_idx == replay.REPLAY_LOOP_IDX
+    # 回放不调用 LLM，成本必须为 0（不能沿用原 trial 的消耗）
+    assert replayed.token_used == 0 and replayed.llm_calls == 0
+    # 原记录保持原样
+    db.refresh(original)
+    assert original.status == "judged"
+    assert json.loads(original.metrics_json)["ic_ir"] == 0.42
+    # corr(SOTA) 不可重算，明确标记
+    assert meta["unreproducible"] == ["corr_sota"]
+
+    # 第二次回放换一个 candidate_idx，不撞 (loop,candidate) 唯一索引
+    again = tc.post(f"/api/v1/research/sessions/{sid}/trials/{original.id}/replay")
+    assert again.status_code == 200, again.text
+
+
+def test_replay_flags_metric_drift_beyond_tolerance(client, monkeypatch):
+    """原指标与回放不一致时 consistent=false，差异值仍如实返回。"""
+    tc, db = client
+    sid = _create(tc)
+    original = _add_trial(
+        db,
+        sid,
+        status="judged",
+        code="def calc(df):\n    return df['close']",
+        metrics_json=json.dumps({"ic_ir": 0.9}),
+    )
+    _stub_replay(monkeypatch)
+
+    data = tc.post(f"/api/v1/research/sessions/{sid}/trials/{original.id}/replay").json()["data"]
+    assert data["replay_meta"]["consistent"] is False
+    assert abs(data["replay_meta"]["diff"]["ic_ir"] - (0.9 - 0.42)) < 1e-9
+
+
+def test_replay_partial_and_blocking_missing_fields(client, monkeypatch):
+    """缺非必需字段 → 部分复现；缺 symbols/interval 或没有代码 → 409。"""
+    tc, db = client
+    sid = _create(tc)
+    original = _add_trial(db, sid, status="judged", code="def calc(df):\n    return df['close']")
+    _stub_replay(monkeypatch)
+
+    row = db.get(ResearchSession, sid)
+    cfg = json.loads(row.config_json)
+    for key in ("start", "end", "test_ratio", "wf_folds"):
+        cfg.pop(key, None)
+    row.config_json = json.dumps(cfg)
+    db.commit()
+
+    res = tc.post(f"/api/v1/research/sessions/{sid}/trials/{original.id}/replay")
+    assert res.status_code == 200, res.text
+    meta = res.json()["data"]["replay_meta"]
+    assert meta["partial"] is True
+    assert set(meta["missing"]) == {"start", "end", "test_ratio", "wf_folds"}
+    assert any("部分复现" in note for note in meta["notes"])
+
+    # 阻断字段：symbols 缺失直接 409，不落回放行
+    cfg.pop("symbols", None)
+    row.config_json = json.dumps(cfg)
+    db.commit()
+    before = db.query(ResearchTrial).count()
+    blocked = tc.post(f"/api/v1/research/sessions/{sid}/trials/{original.id}/replay")
+    assert blocked.status_code == 409
+    assert "symbols" in blocked.json()["detail"]
+    assert db.query(ResearchTrial).count() == before
+
+    # 原 trial 没有代码 → 409（重新生成属于另一次 LLM 采样，不叫回放）
+    cfg["symbols"] = ["BTCUSDT"]
+    row.config_json = json.dumps(cfg)
+    db.commit()
+    naked = _add_trial(db, sid, loop_idx=2, status="planned", code=None)
+    no_code = tc.post(f"/api/v1/research/sessions/{sid}/trials/{naked.id}/replay")
+    assert no_code.status_code == 409
+
+
+def test_replay_is_owner_isolated(client, monkeypatch):
+    """非 owner 访问会话/回放一律 404，不泄露是否存在。"""
+    tc, db = client
+    sid = _create(tc)
+    original = _add_trial(db, sid, status="judged", code="def calc(df):\n    return df['close']")
+    _stub_replay(monkeypatch)
+
+    tc.app.dependency_overrides[get_current_user] = lambda: {"user_id": "u2"}
+    try:
+        assert tc.post(f"/api/v1/research/sessions/{sid}/trials/{original.id}/replay").status_code == 404
+        assert tc.get(f"/api/v1/research/sessions/{sid}").status_code == 404
+    finally:
+        tc.app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1"}

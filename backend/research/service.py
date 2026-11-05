@@ -245,6 +245,7 @@ def add_trial(db: Session, session_id: int, fields: dict[str, Any]) -> ResearchT
         "feedback_json",
         "judge_json",
         "task_json",
+        "replay_meta_json",
     ):
         value = fields.get(key)
         payload[key] = _dumps(value) if isinstance(value, (dict, list)) else value
@@ -549,6 +550,7 @@ def trial_to_dict(row: ResearchTrial, *, include_code: bool = True) -> dict[str,
         "quick_run_id": row.quick_run_id,
         "parent_trial_id": row.parent_trial_id,
         "replay_of_id": row.replay_of_id,
+        "replay_meta": _loads(row.replay_meta_json, None),
         "token_used": row.token_used,
         "llm_calls": row.llm_calls,
         "model": row.model,

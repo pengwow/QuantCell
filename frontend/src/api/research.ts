@@ -84,6 +84,7 @@ export interface ResearchTrial {
   quick_run_id: number | null;
   parent_trial_id: number | null;
   replay_of_id: number | null;
+  replay_meta?: ResearchReplayMeta | null;
   token_used: number;
   llm_calls: number;
   model?: string | null;
@@ -92,6 +93,28 @@ export interface ResearchTrial {
   duration_ms?: number;
   exception: string | null;
   created_at: string | null;
+}
+
+/** 回放元数据：缺字段/差异阈值/不可复现项，刷新后仍可展示 */
+export interface ResearchReplayMeta {
+  original_trial_id: number;
+  partial: boolean;
+  missing: string[];
+  notes: string[];
+  tolerance: { ic_ir: number };
+  diff: {
+    ic_ir: number | null;
+    oos_changed: boolean;
+    corr_library: number | null;
+  };
+  consistent: boolean;
+  unreproducible: string[];
+}
+
+export interface ResearchReplayResult {
+  trial: ResearchTrial;
+  original: ResearchTrial;
+  replay_meta: ResearchReplayMeta;
 }
 
 export interface ResearchSession {
@@ -172,6 +195,8 @@ export const researchApi = {
     apiRequest.post<{ factor_name: string }>(
       `/research/sessions/${id}/trials/${trialId}/promote`,
     ),
+  replay: (id: number, trialId: number) =>
+    apiRequest.post<ResearchReplayResult>(`/research/sessions/${id}/trials/${trialId}/replay`),
   pause: (id: number) => apiRequest.post<ResearchSession>(`/research/sessions/${id}/pause`),
   resume: (id: number) =>
     apiRequest.post<{ session_id: number; job_id: string }>(`/research/sessions/${id}/resume`),

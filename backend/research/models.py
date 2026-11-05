@@ -89,6 +89,8 @@ class ResearchTrial(Base):
     quick_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     parent_trial_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     replay_of_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 回放元数据：{partial, missing, notes, tolerance, diff, consistent, unreproducible}
+    replay_meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 复现所需：模型名 / prompt 指纹 / 温度 / 执行耗时
     model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
