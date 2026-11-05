@@ -189,6 +189,21 @@ _SAFE_ATTRIBUTES = {
     "isfinite",
     "isnan",
     "isinf",
+    # numpy dtype 构造器：LLM 常写 np.float64(x) / np.int64(x) 做类型转换。
+    # 它们是标量类型对象，本身无 IO/反射能力；__class__/__dict__/__mro__ 等
+    # dunder 访问仍被 visit_Attribute 的下划线拦截，getattr 也不在 _SAFE_BUILTINS
+    "float64",
+    "float32",
+    "float16",
+    "int64",
+    "int32",
+    "int16",
+    "int8",
+    "uint64",
+    "uint32",
+    "uint16",
+    "uint8",
+    "bool_",
     "ones",
     "zeros",
     "arange",
@@ -222,6 +237,12 @@ _ALLOWED_NODES = (
     ast.BoolOp,
     ast.Compare,
     ast.IfExp,
+    # 语句级分支（2026-11-05 实测 GLM 因子代码高频使用 if/else 做分母判零）。
+    # 放行风险评估：分支本身不能产生循环/递归——While/For/FunctionDef/Lambda/
+    # 列表推导仍不在白名单，条件只能用已放行的 Compare/BoolOp/Not 之外的算子，
+    # 调用目标只能是 _SAFE_BUILTINS 或 _SAFE_ATTRIBUTES，因此 if 只能改变
+    # 已白名单表达式的求值顺序，无法逃逸出当前作用域。子进程 CPU/内存限额不变。
+    ast.If,
     ast.Add,
     ast.Sub,
     ast.Mult,

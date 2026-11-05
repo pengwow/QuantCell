@@ -49,6 +49,18 @@ class TestStaticPolicy:
         )
         sandbox.check_static(code)
 
+    def test_dtype_and_if_statement_pass(self, sandbox):
+        """dtype 构造器 + 语句级 if/else 是实测被拦的高频合法写法，窄口径放行。"""
+        code = (
+            'vol = df["volume"].rolling(20).mean()\n'
+            'ext = df["volume"] / vol.where(vol > 0)\n'
+            "if np.isfinite(ext).sum() > 0:\n"
+            "    factor = np.float64(ext.mean())\n"
+            "else:\n"
+            '    factor = df["close"] * np.int64(0)'
+        )
+        sandbox.check_static(code)
+
     @pytest.mark.parametrize(
         "code",
         [
@@ -56,6 +68,9 @@ class TestStaticPolicy:
             "factor = np.load('/tmp/x.npy')",
             "factor = np.fromfile('/etc/passwd')",
             "factor = np.save",
+            # 放行 dtype 后仍不能借类型对象反射：dunder 与 getattr 均在拒绝清单
+            "factor = np.float64.__mro__",
+            'factor = getattr(np, "load")',
         ],
     )
     def test_dangerous_numpy_attributes_still_blocked(self, sandbox, code):
