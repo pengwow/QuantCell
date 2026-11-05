@@ -512,7 +512,20 @@ class ResearchLoop:
     ) -> None:
         trials = self._load_trials()
         sota = next((t for t in trials if t["id"] == self._best_trial_id()), None)
-        context = render_context(trials, sota or self._sota_trial, knowledge=self._knowledge_rows())
+        # 训练段样本量：按 test_ratio 先从全量估算，避免模型设计超出历史的窗口
+        test_ratio = _cfg_number(cfg, "test_ratio", consts.DEFAULT_TEST_RATIO)
+        train_bars = int(max((len(df) for df in raw_map.values()), default=0) * (1 - test_ratio))
+        data_note = (
+            f"- 品种数：{len(raw_map)}；周期：{cfg.get('interval') or '1h'}；训练段约 {train_bars} 根 K 线\n"
+            "- 代码按单品种执行（系统逐品种跑一遍再拼成截面面板），df 没有 code/date 列；"
+            "不要用 np.concatenate / DataFrame.get / 跨品种拼接"
+        )
+        context = render_context(
+            trials,
+            sota or self._sota_trial,
+            knowledge=self._knowledge_rows(),
+            data_note=data_note,
+        )
 
         trial_id: int | None = None
         # 失败可能发生在 plan 之前，task 允许为空（只影响知识库 hint）
