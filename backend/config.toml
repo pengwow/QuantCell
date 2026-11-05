@@ -1,6 +1,12 @@
 [app]
 secret_key = "ITd5IqVgajks4KqVwdxtoFkI1IjNFBQTW72B1B3uwso"
 
+[security]
+# 认证/权限校验总开关：false 时跳过 JWT 校验与访客拦截（开发调试用）。
+# 仅在非生产环境生效，APP_ENV=production/prod 时无论此处取值一律强制校验。
+# 修改后需重启后端（或调用 reload_config）生效。
+auth_enabled = false
+
 [share_remote]
 enabled = true
 base_url = "https://share.quantcell.top"

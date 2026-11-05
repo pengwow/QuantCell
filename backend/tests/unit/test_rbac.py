@@ -255,6 +255,13 @@ class TestIsGuestUser:
             is_guest_user(request)
         assert exc_info.value.status_code == 401
 
+    def test_config_auth_disabled_returns_false(self):
+        """config.toml 关闭校验（security.auth_enabled=false）时直接按非访客放行，不抛 401"""
+        request = Mock()
+        request.headers = {}
+        with patch("utils.rbac.is_auth_check_disabled", return_value=True):
+            assert is_guest_user(request) is False
+
 
 class TestGetCurrentUserId:
     """测试 get_current_user_id 函数"""

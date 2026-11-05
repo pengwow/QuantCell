@@ -8,6 +8,7 @@ from functools import wraps
 
 from fastapi import HTTPException, Request
 
+from config import is_auth_check_disabled
 from utils.jwt_utils import JWTError, TokenExpiredError, decode_jwt_token
 from utils.logger import LogType, get_logger
 
@@ -145,7 +146,14 @@ def is_guest_user(request: Request) -> bool:
     而非"访客"，若伪装成访客返回 403，前端不会触发重新登录，用户只能看到
     无法自愈的"权限不足"（登录过期后 AI 生成指标保存被拦即此场景）。
     HTTP 401 会被前端拦截器捕获并自动跳转登录页。
+
+    config.toml 的 [security].auth_enabled = false 时跳过全部校验
+    （开发调试用），直接按非访客放行；生产环境由 is_auth_check_disabled
+    强制回收该开关。
     """
+    if is_auth_check_disabled():
+        return False
+
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header:
