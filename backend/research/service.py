@@ -123,9 +123,11 @@ def clear_control(session_id: int, job_id: str | None) -> None:
 
 
 def estimate_budget(mode: str, config: dict[str, Any], n_candidates: int) -> tuple[int, int]:
-    """按候选数/轮次粗估会话最低消耗 (calls, tokens)，用于创建时拒绝明显不够的预算。
+    """按候选数/轮次粗估会话消耗 (calls, tokens)。
 
-    这是下限口径：真实消耗可能更高（修复轮、重试），运行期仍由 Budget 兜底。
+    该值只用于创建/详情的**提示**（session_to_dict 的 budget_hint），不作为创建拦截
+    条件：真实单次消耗常远低于 EST_TOKENS_PER_CALL，按估算硬拒会逼用户抬高上限、
+    再靠运行期监控去取消，反而多花钱。运行期仍由 Budget 的预留/结算兜底。
     """
     loops = max(int(config.get("loop_n") or 1), 1)
     if mode == "quick":
@@ -158,21 +160,14 @@ def create_session(
     if active >= consts.MAX_ACTIVE_SESSIONS:
         raise ResearchError("too_many", f"同时运行的研究会话不能超过 {consts.MAX_ACTIVE_SESSIONS} 个，请先等待或取消")
 
-    # 创建时就校验预算：不要等跑起来才发现额度不够，中途爆预算会留下半成品 trial
+    # 预算估算只用于提示，不拦截创建：额度是否够由运行期 Budget 预留/结算决定。
+    # 硬校验留在 schema 边界（max_tokens >= 单次预留下限、max_llm_calls >= 1），
+    # 这样 60k + loop_n=2 这类“低于估算但实际够用”的配置可以正常创建。
     est_calls, est_tokens = estimate_budget(mode, config, n_candidates)
-    max_calls = int(config.get("max_llm_calls") or 0)
-    max_tokens = int(config.get("max_tokens") or 0)
-    if max_calls and est_calls > max_calls:
-        raise ResearchError(
-            "over_budget",
-            f"按 {n_candidates} 个候选 / {config.get('loop_n')} 轮估算至少需要 {est_calls} 次 LLM 调用，"
-            f"超过上限 {max_calls}，请提高调用上限或减少轮次/候选",
-        )
-    if max_tokens and est_tokens > max_tokens:
-        raise ResearchError(
-            "over_budget",
-            f"按估算至少需要约 {est_tokens} tokens，超过上限 {max_tokens}，请提高 token 上限",
-        )
+    logger.info(
+        f"[研究] 创建预算提示 calls≈{est_calls} tokens≈{est_tokens} "
+        f"上限 calls={config.get('max_llm_calls')} tokens={config.get('max_tokens')}"
+    )
 
     row = ResearchSession(
         owner_id=owner_id,
@@ -624,6 +619,15 @@ def session_to_dict(
     config = session_config(row)
     loop_n = int(config.get("loop_n") or 1)
     best_metrics = _loads(best_trial.metrics_json, {}) if best_trial else {}
+    est_calls, est_tokens = estimate_budget(row.mode, config, row.n_candidates)
+    max_tokens = config.get("max_tokens")
+    budget_hint = None
+    if max_tokens and est_tokens > int(max_tokens):
+        # 只是提示：低于估算不拦截创建，运行中由 Budget 预留/结算决定是否提前收尾
+        budget_hint = (
+            f"按 {row.n_candidates} 个候选 / {loop_n} 轮估算约需 {est_calls} 次调用、{est_tokens} tokens，"
+            f"当前上限 {max_tokens} 可能提前耗尽（仅提示，不拦截运行）"
+        )
     data = {
         "id": row.id,
         "name": row.name,
@@ -636,8 +640,11 @@ def session_to_dict(
         "step_idx": row.step_idx,
         "token_used": row.token_used,
         "llm_calls": row.llm_calls,
-        "max_tokens": config.get("max_tokens"),
+        "max_tokens": max_tokens,
         "max_llm_calls": config.get("max_llm_calls"),
+        "estimated_calls": est_calls,
+        "estimated_tokens": est_tokens,
+        "budget_hint": budget_hint,
         "best_trial_id": row.best_trial_id,
         "best_ic_ir": best_metrics.get("ic_ir"),
         "error": row.error,

@@ -998,34 +998,24 @@ def test_estimate_budget_by_candidates_and_loops():
     assert calls == 2 * (4 + 2)
 
 
-def test_create_rejects_budget_below_estimate(research_db):
-    """预算明显不够时在创建阶段直接拒绝，不落 pending 会话。"""
+def test_create_allows_budget_below_estimate(research_db):
+    """估算低于上限只提示不拦截：60k + loop_n=2 必须能创建并返回 budget_hint。"""
     db, _ = research_db
-    with pytest.raises(service.ResearchError) as exc:
-        service.create_session(
-            db,
-            owner_id="u1",
-            name="deep-budget",
-            mode="deep",
-            scenario="factor",
-            config={**DEEP_CFG, "loop_n": 3, "max_llm_calls": 5},
-            n_candidates=1,
-        )
-    assert exc.value.kind == "over_budget"
-    assert db.query(ResearchSession).count() == 0
-
-    with pytest.raises(service.ResearchError) as exc2:
-        service.create_session(
-            db,
-            owner_id="u1",
-            name="quick-budget",
-            mode="quick",
-            scenario="factor",
-            config={**DEEP_CFG, "loop_n": 1, "max_llm_calls": 6, "max_tokens": 5_000},
-            n_candidates=4,
-        )
-    assert exc2.value.kind == "over_budget"  # token 估算 5*3000 超过 5000
-    assert db.query(ResearchSession).count() == 0
+    row = service.create_session(
+        db,
+        owner_id="u1",
+        name="deep-low-budget",
+        mode="deep",
+        scenario="factor",
+        config={**DEEP_CFG, "loop_n": 2, "repair_rounds": 1, "max_llm_calls": 10, "max_tokens": 60_000},
+        n_candidates=1,
+    )
+    assert row.status == "pending"
+    data = service.session_to_dict(row, best_trial=None)
+    assert data["estimated_calls"] == 2 * (consts.DEEP_CALLS_PER_LOOP + 1)
+    assert data["estimated_tokens"] == data["estimated_calls"] * consts.EST_TOKENS_PER_CALL
+    assert data["estimated_tokens"] > data["max_tokens"]
+    assert "仅提示" in (data["budget_hint"] or "")
 
 
 # ---------- 过程事件持久化 ----------

@@ -32,7 +32,9 @@ class ResearchCreateReq(BaseModel):
     repair_rounds: int = Field(default=consts.DEFAULT_REPAIR_ROUNDS, ge=0, le=3)
 
     max_llm_calls: int | None = Field(default=None, ge=1, le=500)
-    max_tokens: int | None = Field(default=None, ge=1000, le=2_000_000)
+    # 硬下限 = 单次调用预留额度：低于它连一次调用都发不出（不是创建期估算拦截，
+    # 估算只作为 budget_hint 提示，见 service.session_to_dict）
+    max_tokens: int | None = Field(default=None, ge=consts.EST_TOKENS_PER_CALL, le=2_000_000)
     # 单次 LLM 输出上限（reasoning 模型需要留足正文预算）；空则用 consts 默认值
     llm_max_tokens: int | None = Field(default=None, ge=1024, le=200_000, description="单次 LLM 输出 token 上限")
     icir_floor: float = Field(default=consts.DEFAULT_ICIR_FLOOR, ge=0.0, le=1.0)
