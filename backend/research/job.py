@@ -39,7 +39,8 @@ def create_backend(llm_cfg: dict[str, Any], cfg: dict[str, Any]):
         # 显式 0.0 是合法温度，不能用 `or` 覆盖成默认值
         temperature=float(consts.DEEP_TEMPERATURE if temperature is None else temperature),
         max_tokens=int(consts.DEFAULT_LLM_MAX_TOKENS if max_tokens is None else max_tokens),
-        timeout_secs=max(stage_timeouts.values()),
+        # 配置是 Rust 侧 u64 字段：必须传整数，float 会被后端直接拒绝
+        timeout_secs=int(max(stage_timeouts.values())),
     )
 
 
