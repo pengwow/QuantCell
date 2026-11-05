@@ -33,6 +33,8 @@ class TrialStatus(StrEnum):
     # 暂停/取消/预算耗尽时把在飞的 trial 标成 interrupted（终态），
     # 具体停在哪一步记在 resume_status，恢复时据此接续，不留永久 running/coded
     INTERRUPTED = "interrupted"
+    # 候选与已终态 trial 的因子高度相关：不进入反馈/judge，消耗该轮（终态）
+    DUPLICATE = "duplicate"
 
 
 SESSION_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -56,8 +58,13 @@ SESSION_TRANSITIONS: dict[str, frozenset[str]] = {
 TRIAL_TRANSITIONS: dict[str, frozenset[str]] = {
     TrialStatus.PLANNED: frozenset({TrialStatus.CODING, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
     TrialStatus.CODING: frozenset({TrialStatus.CODED, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
-    TrialStatus.CODED: frozenset({TrialStatus.RUNNING, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
-    TrialStatus.RUNNING: frozenset({TrialStatus.EVALUATED, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
+    TrialStatus.CODED: frozenset(
+        {TrialStatus.RUNNING, TrialStatus.FAILED, TrialStatus.INTERRUPTED, TrialStatus.DUPLICATE}
+    ),
+    # 续跑时状态停在 running 也会重新评估，同样允许判重
+    TrialStatus.RUNNING: frozenset(
+        {TrialStatus.EVALUATED, TrialStatus.FAILED, TrialStatus.INTERRUPTED, TrialStatus.DUPLICATE}
+    ),
     TrialStatus.EVALUATED: frozenset({TrialStatus.JUDGED, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
     # interrupted 是终态，但恢复运行时允许直接从停下的那一步继续
     TrialStatus.INTERRUPTED: frozenset(
@@ -73,6 +80,8 @@ TRIAL_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     TrialStatus.JUDGED: frozenset(),
     TrialStatus.FAILED: frozenset(),
+    # duplicate 是终态：本轮已判重消耗，不再重跑
+    TrialStatus.DUPLICATE: frozenset(),
 }
 
 

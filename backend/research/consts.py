@@ -52,6 +52,13 @@ LIBRARY_CORR_MAX_FACTORS = 8
 # quick 的相关性去重沿用现有 llm_miner 默认，避免改变既有挖掘语义
 QUICK_DEDUP_CORR = 0.9
 
+# ---------- 轮次去重（deep）----------
+# 新候选与任一已终态 trial 因子的最大 |秩相关| 达到该值即判 duplicate：
+# 口径与 judge 一致（Spearman，取绝对值，方向翻转也算等价）。
+# 0.9 只拦“等价实现”（复制历史因子、只翻转符号/缩放），不误杀同族弱相关变体；
+# 会话可用 cfg 的 duplicate_corr_threshold 覆盖。
+DUPLICATE_CORR_THRESHOLD = 0.9
+
 # ---------- 采样与评估 ----------
 QUICK_TEMPERATURE = 0.8  # §6.5：quick 沿用现有挖掘温度
 DEEP_TEMPERATURE = 0.2  # §9：deep 固定低温便于复现
