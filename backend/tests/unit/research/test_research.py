@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from contextlib import contextmanager
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -94,7 +95,7 @@ DEEP_CFG = {
 
 
 def _fake_llm_call(prompts: list[str]):
-    def _call(system: str, user: str) -> tuple[str, dict]:
+    def _call(system: str, user: str, stage: str | None = None) -> tuple[str, dict]:
         prompts.append(system)
         if "顶级加密" in system:
             return ("```python\ndef calc(df):\n    return df['close'].pct_change(5)\n```", {"total_tokens": 10})
@@ -954,9 +955,9 @@ def test_failed_loop_knowledge_appears_in_next_loop_context(research_db):
     user_prompts: list[str] = []
     calls = {"n": 0}
 
-    def llm_call(system: str, user: str) -> tuple[str, dict]:
+    def llm_call(system: str, user: str, stage: str | None = None) -> tuple[str, dict]:
         user_prompts.append(user)
-        return _fake_llm_call([])(system, user)
+        return _fake_llm_call([])(system, user, stage)
 
     def flaky_evaluator(code, raw_map, cfg):
         calls["n"] += 1
@@ -1152,8 +1153,8 @@ def test_llm_timeout_marks_trial_failed_and_books_cost(research_db):
     assert len(trials) == 1
     assert trials[0].status == "failed"
     assert "超时" in (trials[0].exception or "")
-    # propose/plan 两次调用已完成 → 次数与 token 都要记账；超时那次 0 token
-    assert row.llm_calls == 3
+    # propose/plan 两次调用已完成 → 次数与 token 都要记账；code 阶段超时 + 重试两次都失败
+    assert row.llm_calls == 4
     assert row.token_used == 20
 
 
@@ -1187,3 +1188,106 @@ def test_cancel_during_code_marks_trial_interrupted(research_db):
     assert len(trials) == 1
     assert trials[0].status == "interrupted"
     assert trials[0].resume_status == "coding"
+
+
+# ---------- 阶段级超时 + code 阶段一次重试 ----------
+
+
+def _code_retry_llm(code_behaviors: list[Any]):
+    """code 阶段按顺序消费 behaviors（Exception 抛错、tuple 原样返回），其余阶段走默认真实现。"""
+    base = _fake_llm_call([])
+    state = {"code": 0}
+
+    def _call(system: str, user: str, stage: str | None = None) -> tuple[str, dict]:
+        if stage != "code":
+            return base(system, user, stage)
+        idx = state["code"]
+        state["code"] += 1
+        behavior = code_behaviors[min(idx, len(code_behaviors) - 1)]
+        if isinstance(behavior, Exception):
+            raise behavior
+        return behavior
+
+    return _call
+
+
+def _run_deep_once(db, factory, *, llm_call, cfg=None):
+    sid = _create_session(db, mode="deep", cfg=cfg or {**DEEP_CFG, "loop_n": 1})
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=llm_call,
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": object()},
+            corr_fn=lambda a, b: 0.2,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+    return sid
+
+
+def test_resolve_stage_timeouts_prefers_explicit_then_global(research_db):
+    """阶段超时：显式阶段值 > 全局 llm_call_timeout_secs > consts 阶段默认；None 不算显式。"""
+    from research.loop import resolve_stage_timeouts
+
+    defaults = resolve_stage_timeouts({})
+    assert defaults["code"] == consts.DEFAULT_STAGE_TIMEOUT_SECS["code"] == 300
+    assert defaults["propose"] == 180
+
+    global_only = resolve_stage_timeouts({"llm_call_timeout_secs": 240})
+    assert set(global_only.values()) == {240.0}
+
+    mixed = resolve_stage_timeouts({"llm_call_timeout_secs": 240, "llm_code_timeout_secs": 360})
+    assert mixed["code"] == 360
+    assert mixed["propose"] == 240
+    # 显式 None 仍然沿用全局，而不是被误当成 0
+    assert resolve_stage_timeouts({"llm_call_timeout_secs": 240, "llm_code_timeout_secs": None})["code"] == 240
+
+
+def test_code_stage_retry_succeeds_after_timeout(research_db):
+    """code 第一次超时、重试成功：trial 正常 judged，重试调用计入成本。"""
+    db, factory = research_db
+    code = ("```python\ndef calc(df):\n    return df['close'].pct_change(5)\n```", {"total_tokens": 10})
+    sid = _run_deep_once(
+        db,
+        factory,
+        llm_call=_code_retry_llm([TimeoutError("LLM 单次调用超时（>300s，stage=code）"), code]),
+    )
+    trials = service.list_trials(db, sid)
+    assert trials[0].status == "judged"
+    # propose/plan + code 两次 + feedback
+    assert trials[0].llm_calls == 5
+    # 超时那次 token=0，其余四次各 10
+    assert trials[0].token_used == 40
+    assert db.get(ResearchSession, sid).llm_calls == 5
+
+
+def test_code_stage_retry_still_timeout_marks_failed(research_db):
+    """两次都超时：trial 落 failed，exception 明确标注 timeout，且只重试一次。"""
+    db, factory = research_db
+    sid = _run_deep_once(
+        db,
+        factory,
+        llm_call=_code_retry_llm([TimeoutError("LLM 单次调用超时（>300s，stage=code）")] * 5),
+    )
+    trials = service.list_trials(db, sid)
+    assert trials[0].status == "failed"
+    assert "timeout" in (trials[0].exception or "")
+    assert trials[0].llm_calls == 4  # propose + plan + 两次 code
+    assert db.get(ResearchSession, sid).llm_calls == 4
+
+
+def test_code_stage_retry_on_empty_output(research_db):
+    """空内容同样算一次失败并重试；重试拿到代码后正常继续。"""
+    db, factory = research_db
+    code = ("```python\ndef calc(df):\n    return df['close'].pct_change(5)\n```", {"total_tokens": 10})
+    sid = _run_deep_once(
+        db,
+        factory,
+        llm_call=_code_retry_llm([("", {"total_tokens": 10, "finish_reason": "length"}), code]),
+    )
+    trials = service.list_trials(db, sid)
+    assert trials[0].status == "judged"
+    assert trials[0].llm_calls == 5
+    assert trials[0].token_used == 50  # 空输出那次也计 token

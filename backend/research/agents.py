@@ -18,8 +18,10 @@ from pydantic import BaseModel, Field
 from factor.llm_miner import SYSTEM_PROMPT as CODE_SYSTEM_PROMPT
 from factor.llm_miner import extract_code
 
-# (system, user) -> (content, usage)
-LLMCall = Callable[[str, str], tuple[str, dict[str, Any]]]
+# (system, user, *, stage) -> (content, usage)
+# stage 让底层调用按阶段选择硬超时（code 与 propose/plan/feedback 不同），
+# 假实现可以不关心，但签名必须带该关键字参数。
+LLMCall = Callable[..., tuple[str, dict[str, Any]]]
 
 
 class HypothesisOut(BaseModel):
@@ -93,6 +95,8 @@ def _call_json(
     user: str,
     model_cls: type[BaseModel],
     fallback: BaseModel,
+    *,
+    stage: str,
 ) -> tuple[BaseModel, dict[str, Any]]:
     """带一次重试的结构化调用；两次都失败返回兜底对象。
 
@@ -103,7 +107,7 @@ def _call_json(
     last_content = ""
     for attempt in range(2):
         prompt = user if attempt == 0 else f"{user}\n\n上次输出无法解析，请严格只输出 JSON。"
-        content, usage = llm_call(system, prompt)
+        content, usage = llm_call(system, prompt, stage=stage)
         usage_total["llm_calls"] += 1
         usage_total["total_tokens"] += usage_tokens(usage)
         last_content = content
@@ -124,13 +128,13 @@ def generate_hypothesis(
         hypothesis=f"在 {seed_factor} 基础上做条件化改进" if seed_factor else "探索新的量价组合因子",
         reason="LLM 输出不可解析，使用兜底假设",
     )
-    return _call_json(llm_call, HYPOTHESIS_SYSTEM, context + extra, HypothesisOut, fallback)
+    return _call_json(llm_call, HYPOTHESIS_SYSTEM, context + extra, HypothesisOut, fallback, stage="propose")
 
 
 def plan_tasks(llm_call: LLMCall, hypothesis: str, context: str) -> tuple[list[FactorTask], dict[str, Any]]:
     """规划任务；空列表/解析失败返回 []，由 loop 记 failed。"""
     user = f"{context}\n\n本轮假设：{hypothesis}\n请拆分因子任务。"
-    out, usage = _call_json(llm_call, PLAN_SYSTEM, user, PlanOut, PlanOut())
+    out, usage = _call_json(llm_call, PLAN_SYSTEM, user, PlanOut, PlanOut(), stage="plan")
     return out.tasks[:3], usage
 
 
@@ -143,7 +147,7 @@ def code_prompt(task: FactorTask) -> tuple[str, str]:
 def generate_code(llm_call: LLMCall, task: FactorTask) -> tuple[str, dict[str, Any]]:
     """按任务生成因子代码；提取失败返回空串。"""
     system, user = code_prompt(task)
-    content, usage = llm_call(system, user)
+    content, usage = llm_call(system, user, stage="code")
     return extract_code(content), usage
 
 
@@ -161,7 +165,7 @@ def repair_prompt(task: FactorTask, code: str, kind: str, error: str) -> tuple[s
 def repair_code(llm_call: LLMCall, task: FactorTask, code: str, kind: str, error: str) -> tuple[str, dict[str, Any]]:
     """按错误摘要重写代码；提取失败返回空串。"""
     system, user = repair_prompt(task, code, kind, error)
-    content, usage = llm_call(system, user)
+    content, usage = llm_call(system, user, stage="code")
     return extract_code(content), usage
 
 
@@ -173,7 +177,7 @@ def build_feedback(
         f"{context}\n\n本轮指标：{json.dumps(metrics, ensure_ascii=False, default=str)}\n"
         f"当前 SOTA：{json.dumps(sota_metrics or {}, ensure_ascii=False, default=str)}"
     )
-    return _call_json(llm_call, FEEDBACK_SYSTEM, user, FeedbackOut, FeedbackOut())
+    return _call_json(llm_call, FEEDBACK_SYSTEM, user, FeedbackOut, FeedbackOut(), stage="feedback")
 
 
 def _code_summary(code: str, limit: int = 160) -> str:

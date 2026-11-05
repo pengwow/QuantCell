@@ -60,8 +60,17 @@ QUICK_DEDUP_CORR = 0.9
 DUPLICATE_CORR_THRESHOLD = 0.9
 
 # ---------- LLM 调用控制 ----------
-# 单次调用硬超时（秒）：与 backend client 的超时同量级，超时后取消请求并判该 trial 失败
+# 单次调用硬超时（秒）：与 backend client 的超时同量级，超时后取消请求
 DEFAULT_LLM_CALL_TIMEOUT_SECS = 180
+# 阶段级硬超时（秒）：code 需要长输出，180s 实测会撞线并吃掉整轮，故单独放宽；
+# 其余阶段沿用 180s。会话 cfg 用 llm_<stage>_timeout_secs 覆盖，
+# 未配置（None）时沿用全局 llm_call_timeout_secs，全局也未配置则用这里的阶段默认值。
+DEFAULT_STAGE_TIMEOUT_SECS: dict[str, float] = {
+    "propose": 180.0,
+    "plan": 180.0,
+    "code": 300.0,
+    "feedback": 180.0,
+}
 # 在飞请求的取消轮询间隔：流式不可用时靠它把 cancel/pause 转成协程取消
 LLM_CANCEL_POLL_SECS = 0.25
 

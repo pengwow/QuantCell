@@ -37,6 +37,11 @@ class ResearchCreateReq(BaseModel):
     max_tokens: int | None = Field(default=None, ge=consts.EST_TOKENS_PER_CALL, le=2_000_000)
     # 单次 LLM 输出上限（reasoning 模型需要留足正文预算）；空则用 consts 默认值
     llm_max_tokens: int | None = Field(default=None, ge=1024, le=200_000, description="单次 LLM 输出 token 上限")
+    # 阶段级单次调用超时（秒）：None 表示沿用全局/阶段默认；下限 30s 防止误配成“几乎必超时”
+    llm_propose_timeout_secs: int | None = Field(default=None, ge=30, le=900, description="propose 阶段超时")
+    llm_plan_timeout_secs: int | None = Field(default=None, ge=30, le=900, description="plan 阶段超时")
+    llm_code_timeout_secs: int | None = Field(default=None, ge=30, le=900, description="code 阶段超时")
+    llm_feedback_timeout_secs: int | None = Field(default=None, ge=30, le=900, description="feedback 阶段超时")
     icir_floor: float = Field(default=consts.DEFAULT_ICIR_FLOOR, ge=0.0, le=1.0)
     corr_threshold: float = Field(default=consts.DEFAULT_CORR_THRESHOLD, gt=0.0, le=1.0)
 
@@ -116,6 +121,10 @@ class ResearchCreateReq(BaseModel):
             "max_llm_calls": self.max_llm_calls,
             "max_tokens": self.max_tokens,
             "llm_max_tokens": self.llm_max_tokens,
+            "llm_propose_timeout_secs": self.llm_propose_timeout_secs,
+            "llm_plan_timeout_secs": self.llm_plan_timeout_secs,
+            "llm_code_timeout_secs": self.llm_code_timeout_secs,
+            "llm_feedback_timeout_secs": self.llm_feedback_timeout_secs,
             "icir_floor": self.icir_floor,
             "corr_threshold": self.corr_threshold,
             "seed_factor": self.seed_factor,
