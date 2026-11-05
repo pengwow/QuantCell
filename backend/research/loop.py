@@ -420,7 +420,13 @@ class ResearchLoop:
         """调用前预留（不足才拒绝），返回后按实际用量结算。"""
         budget.spend_call()
         reserved = budget.reserve_tokens(consts.EST_TOKENS_PER_CALL)
-        result, usage = fn(*args)
+        try:
+            result, usage = fn(*args)
+        except BaseException:
+            # 调用失败/取消/超时：预留额度必须释放，否则后续调用会被误判预算不足。
+            # 调用次数已经发生，保留计数（成本按 0 token 结算）。
+            budget.settle_tokens(0, reserved)
+            raise
         calls, tokens = self._charge_usage(budget, usage, reserved)
         return result, usage, calls, tokens
 
@@ -883,17 +889,53 @@ def default_mining_fn(backend: Any, model_name: str) -> Callable[[dict[str, Any]
     return _run
 
 
-def default_llm_call(backend: Any) -> LLMCall:
-    """axon backend → 同步 (system,user) 调用（线程内 asyncio.run）。"""
+def default_llm_call(
+    backend: Any,
+    *,
+    control: service.Control | None = None,
+    timeout_secs: float = consts.DEFAULT_LLM_CALL_TIMEOUT_SECS,
+) -> LLMCall:
+    """axon backend → 同步 (system,user) 调用（线程内 asyncio.run）。
+
+    control 与 timeout_secs 让在飞请求可被中断：每 LLM_CANCEL_POLL_SECS 检查
+    cancel/pause，命中即取消底层协程（非流式请求随之中止），超时同样取消并发起
+    失败落库。取消后主回路不会再发起新的 LLM 调用。
+    """
     import asyncio
 
     from axon_bridge.llm import chat_to_dict
 
+    async def _await_cancellable(coro: Any) -> Any:
+        task = asyncio.ensure_future(coro)
+        deadline = time.monotonic() + max(float(timeout_secs or 0), 0.0)
+        try:
+            while True:
+                if control is not None and control.cancel.is_set():
+                    raise CancelSignal()
+                if control is not None and control.pause.is_set():
+                    raise PauseSignal()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"LLM 单次调用超时（>{timeout_secs:.0f}s）")
+                try:
+                    # shield 保证轮询超时不会取消真正的请求；取消只由下面 finally 触发
+                    return await asyncio.wait_for(asyncio.shield(task), min(remaining, consts.LLM_CANCEL_POLL_SECS))
+                except TimeoutError:
+                    if task.done():
+                        # 分别是轮询超时与请求自身超时：后者必须原样抛出，避免空转 180s
+                        return task.result()
+                    continue
+        finally:
+            if not task.done():
+                task.cancel()
+
     def _call(system: str, user: str) -> tuple[str, dict[str, Any]]:
         resp = asyncio.run(
-            chat_to_dict(
-                backend,
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            _await_cancellable(
+                chat_to_dict(
+                    backend,
+                    [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                )
             )
         )
         usage = dict(resp.get("usage") or {})
