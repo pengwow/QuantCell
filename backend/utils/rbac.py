@@ -8,7 +8,7 @@ from functools import wraps
 
 from fastapi import HTTPException, Request
 
-from utils.jwt_utils import JWTError, decode_jwt_token
+from utils.jwt_utils import JWTError, TokenExpiredError, decode_jwt_token
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -138,26 +138,33 @@ def check_permission(user_role: UserRole, required_permission: Permission) -> bo
 
 
 def is_guest_user(request: Request) -> bool:
-    """检查当前用户是否为未认证用户（无有效token）
+    """检查当前用户是否为访客角色
 
-    Args:
-        request: FastAPI请求对象
-
-    Returns:
-        bool: 是否未认证
+    仅在 token 有效且 role=guest 时返回 True（由调用方返回 403）。
+    未携带 token / 格式错误 / token 无效或过期时抛 401：这些是"未认证"
+    而非"访客"，若伪装成访客返回 403，前端不会触发重新登录，用户只能看到
+    无法自愈的"权限不足"（登录过期后 AI 生成指标保存被拦即此场景）。
+    HTTP 401 会被前端拦截器捕获并自动跳转登录页。
     """
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header:
-        return True
+        raise HTTPException(status_code=401, detail={"code": 401, "message": "未登录，请先登录", "data": None})
 
     try:
         token = auth_header.split(" ")[1]
         payload = decode_jwt_token(token)
-        role_str = payload.get("role", "guest")
-        return role_str == "guest"
-    except IndexError, JWTError:
-        return True
+    except IndexError:
+        raise HTTPException(
+            status_code=401, detail={"code": 401, "message": "无效的认证令牌格式，请重新登录", "data": None}
+        )
+    except JWTError as e:
+        msg = "登录已过期，请重新登录" if isinstance(e, TokenExpiredError) else "无效的认证令牌，请重新登录"
+        logger.warning(f"权限检查拦截: {msg} ({e})")
+        raise HTTPException(status_code=401, detail={"code": 401, "message": msg, "data": None})
+
+    # 有效 token 缺少 role 字段时按访客处理（与 get_user_role_from_token 的默认一致）
+    return payload.get("role", "guest") == "guest"
 
 
 def get_current_user_id(request: Request) -> int | None:
