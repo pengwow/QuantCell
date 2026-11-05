@@ -58,6 +58,9 @@
 /* 图表区域 */
 .chart-area {
   flex: 1;
+  /* 关键：flex item 默认 min-width:auto，klinecharts 生成的固定宽 canvas 会把
+     item 撑住导致容器变宽后图表宽度僵持（右侧留白）。归零后严格服从 flex 分配 */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

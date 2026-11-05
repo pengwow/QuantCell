@@ -419,6 +419,10 @@ const ChartPage = () => {
 
       chartInstanceRef.current = chart;
 
+      // 兜底：init 时若容器处于布局过渡态（如侧边栏宽度恢复/首帧 flex 计算），
+      // 量到的是过期宽度并会一直僵持；隔两帧按最终布局宽度强制重绘一次
+      requestAnimationFrame(() => requestAnimationFrame(() => chart.resize()));
+
       // ponytail: 网格线和 K 线配色从 antd theme token 派生，主题切换时自动适配
       chart.setStyles({
         grid: {
