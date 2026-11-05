@@ -456,3 +456,27 @@ def test_batch_trials_preserves_unknown_gate(client):
     for row in res.json()["data"]["trials"]:
         assert row["judge"]["gates"]["corr"]["status"] == "unknown"
         assert row["judge"]["decision"] is False
+
+
+def test_detail_and_events_survive_control_chars(client):
+    """LLM 文本含控制字符时（历史行可能直接落库），详情/事件接口不得 500。"""
+    tc, db = client
+    sid = _create(tc)
+    _add_trial(
+        db,
+        sid,
+        status="judged",
+        code="pass",
+        hypothesis="a\x00b",
+        exception="boom\x01",
+        metrics_json='{"ic_ir": 0.3, "note": "n\x02m"}',
+        judge_json='{"decision": true, "reason": "ok\x03"}',
+    )
+    service.append_event(db, sid, "info", "loop", "progress\x04")
+    db.commit()
+
+    detail = tc.get(f"/api/v1/research/sessions/{sid}")
+    assert detail.status_code == 200, detail.text
+    events = tc.get(f"/api/v1/research/sessions/{sid}/events")
+    assert events.status_code == 200, events.text
+    assert "\x04" not in events.json()["data"]["events"][0]["msg"]
