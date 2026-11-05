@@ -33,17 +33,39 @@ class ResearchError(Exception):
         self.message = message
 
 
+# 控制字符（C0 除 \n\t\r、DEL、C1）会破坏 JSON 序列化/响应：
+# LLM 输出偶尔带 \x00-\x1f 原始字节，写库前与读库/序列化时都清洗一次。
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def sanitize_text(value: str) -> str:
+    """去掉会破坏 JSON 的控制字符，保留换行/制表符。"""
+    return _CONTROL_CHARS.sub("", value)
+
+
+def sanitize_value(value: Any) -> Any:
+    """递归清洗 dict/list 中的字符串（JSON 字段落库前使用）。"""
+    if isinstance(value, str):
+        return sanitize_text(value)
+    if isinstance(value, dict):
+        return {sanitize_text(str(k)): sanitize_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_value(v) for v in value]
+    return value
+
+
 def _loads(raw: str | None, default: Any) -> Any:
     if not raw:
         return default
     try:
-        return json.loads(raw)
+        # 历史行可能已落库了原始控制字符，先清洗再解析，避免整个接口 500
+        return json.loads(_CONTROL_CHARS.sub("", raw))
     except TypeError, ValueError:
         return default
 
 
 def _dumps(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, default=str)
+    return json.dumps(sanitize_value(value), ensure_ascii=False, default=str)
 
 
 # ---------- 控制面（暂停/取消）----------
@@ -502,7 +524,13 @@ def list_failure_knowledge(db: Session, owner_id: str | None, limit: int = 5) ->
 
 def append_event(db: Session, session_id: int, level: str, stage: str, msg: str) -> ResearchEvent:
     """落一条过程事件；超出保留上限时裁剪最旧的，避免事件表无限增长。"""
-    row = ResearchEvent(session_id=session_id, level=level, stage=stage, msg=msg[:2000], ts=time.time())
+    row = ResearchEvent(
+        session_id=session_id,
+        level=level,
+        stage=sanitize_text(stage),
+        msg=sanitize_text(msg)[:2000],
+        ts=time.time(),
+    )
     db.add(row)
     db.flush()
     db.query(ResearchEvent).filter(
@@ -525,7 +553,14 @@ def list_events(
         .all()
     )
     events = [
-        {"seq": row.id, "level": row.level, "stage": row.stage, "msg": row.msg, "ts": int(row.ts or 0)} for row in rows
+        {
+            "seq": row.id,
+            "level": row.level,
+            "stage": sanitize_text(row.stage),
+            "msg": sanitize_text(row.msg),
+            "ts": int(row.ts or 0),
+        }
+        for row in rows
     ]
     next_seq = rows[-1].id if rows else after_seq
     return {"session_id": session_id, "events": events, "next_seq": next_seq}
@@ -574,7 +609,9 @@ def trial_to_dict(row: ResearchTrial, *, include_code: bool = True) -> dict[str,
     }
     if include_code:
         data["code"] = row.code
-    return data
+    # 兜底清洗：历史行/LLM 原文可能带控制字符，序列化前统一去掉，
+    # 避免响应组装阶段再抛 Invalid control character
+    return {key: sanitize_text(value) if isinstance(value, str) else value for key, value in data.items()}
 
 
 def session_to_dict(
@@ -612,7 +649,7 @@ def session_to_dict(
     }
     if include_trials:
         data["trials"] = [trial_to_dict(t, include_code=False) for t in (trials or [])]
-    return data
+    return {key: sanitize_text(value) if isinstance(value, str) else value for key, value in data.items()}
 
 
 def best_trial_for(db: Session, row: ResearchSession) -> ResearchTrial | None:
