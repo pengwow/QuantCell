@@ -56,6 +56,9 @@ HYPOTHESIS_SYSTEM = """你是量化因子研究员。基于给定的研究历史
 PLAN_SYSTEM = """你是量化实验规划员。把因子假设拆解为 1~3 个可独立编码的因子任务。
 要求：
 - 按创新程度排序：把本轮假设对应的新因子放第一位，不要把“复算历史因子”之类的基准放第一位；
+- 任务必须能写成**单品种**、逐行的向量化代码：数据只有 OHLCV 等列，没有 code/date，
+  禁止设计跨品种 concatenate / DataFrame.get / groupby 拼接；
+- 滚动窗口长度必须小于训练段 K 线数，否则会整列 NaN 被判失败；
 - 每个任务给出 name、description（含公式/逻辑）、formulation（可执行表达式）；
 - 只输出 JSON：{"tasks": [{"name": "...", "description": "...", "formulation": "..."}]}。"""
 
@@ -192,8 +195,9 @@ def render_context(
     sota_trial: dict[str, Any] | None,
     max_history: int = 20,
     knowledge: list[dict[str, Any]] | None = None,
+    data_note: str | None = None,
 ) -> str:
-    """三段式上下文：全量历史压缩 → 上一轮明细 → SOTA 代码（+ 已知失败模式）。"""
+    """三段式上下文：全量历史压缩 → 上一轮明细 → SOTA 代码（+ 数据事实/失败模式）。"""
 
     def metric(trial: dict[str, Any], key: str) -> Any:
         return (trial.get("metrics") or {}).get(key)
@@ -250,6 +254,12 @@ def render_context(
                 f"- {item.get('signature')}（命中 {item.get('hit_count')} 次）"
                 f"{'：' + item['hint'] if item.get('hint') else ''}"
             )
+
+    if data_note:
+        # 数据事实（品种数/周期/训练段根数）决定“多长的滚动窗口还可行”，
+        # 不注入时模型会提出 250 日新高这类必然整列 NaN 的假设
+        lines.append("\n## 数据事实")
+        lines.append(data_note)
 
     lines.append(
         "\n要求：必须提出与上述已试因子不同思路的新假设。仅改参数、翻转符号、"

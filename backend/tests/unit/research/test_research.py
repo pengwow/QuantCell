@@ -77,6 +77,9 @@ def _create_session(db, *, mode="deep", cfg=None, n_candidates=1):
     return row.id
 
 
+# 假数据：loop 只按 len() 估算训练段根数，桩评估器不读内容
+_ONE_BAR = pd.DataFrame({"close": [1.0]})
+
 DEEP_CFG = {
     "symbols": ["BTCUSDT"],
     "interval": "1h",
@@ -447,7 +450,7 @@ def test_deep_loop_three_rounds(research_db):
     deps = LoopDeps(
         llm_call=_fake_llm_call(prompts),
         evaluator=_fake_evaluator,
-        data_loader=lambda cfg: {"BTCUSDT": object()},
+        data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
         corr_fn=lambda a, b: 0.2,  # 与 SOTA 低相关，冗余门通过
         scenario=_StubScenario(0.2),
         db_session_factory=factory,
@@ -479,7 +482,7 @@ def test_duplicate_factor_is_marked_and_consumes_loop(research_db):
         LoopDeps(
             llm_call=_fake_llm_call(prompts),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 1.0,  # 与历史因子完全等价（含方向翻转）
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -510,7 +513,7 @@ def test_duplicate_threshold_is_configurable(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.6,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -537,7 +540,7 @@ def test_deep_trial_failure_does_not_kill_session(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=flaky_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -562,7 +565,7 @@ def test_deep_budget_short_circuit(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             db_session_factory=factory,
         ),
     ).run()
@@ -649,7 +652,7 @@ def test_resume_continues_open_trial_without_duplicate(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=pausing_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -673,7 +676,7 @@ def test_resume_continues_open_trial_without_duplicate(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -737,7 +740,7 @@ def test_evaluate_persists_corr_columns(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.5),
             db_session_factory=factory,
@@ -767,7 +770,7 @@ def test_resume_redundant_factor_still_rejected(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=pausing_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.95),
             db_session_factory=factory,
@@ -789,7 +792,7 @@ def test_resume_redundant_factor_still_rejected(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -833,7 +836,7 @@ def test_resume_missing_corr_is_unknown_not_pass(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -888,7 +891,7 @@ def test_deep_repair_loop_rewrites_code_and_records_summary(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=flaky_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -971,7 +974,7 @@ def test_failed_loop_knowledge_appears_in_next_loop_context(research_db):
         LoopDeps(
             llm_call=llm_call,
             evaluator=flaky_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -1064,7 +1067,7 @@ def test_extended_quick_runs_deep_from_sota_and_judges_redundant(research_db):
         LoopDeps(
             llm_call=_fake_llm_call([]),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.8,  # 高于 judge 阈值 0.7、低于判重阈值 0.9 → 仍走 judge 判冗余
             scenario=_StubScenario(0.4),
             db_session_factory=factory,
@@ -1141,7 +1144,7 @@ def test_llm_timeout_marks_trial_failed_and_books_cost(research_db):
         LoopDeps(
             llm_call=default_llm_call(_BlockingBackend(stall_from=3), control=control, timeout_secs=0.3),
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -1175,7 +1178,7 @@ def test_cancel_during_code_marks_trial_interrupted(research_db):
                 # 超时刻意放宽到 10s：验证真正生效的是取消而不是超时
                 llm_call=default_llm_call(_BlockingBackend(stall_from=3), control=control, timeout_secs=10),
                 evaluator=_fake_evaluator,
-                data_loader=lambda cfg: {"BTCUSDT": object()},
+                data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
                 corr_fn=lambda a, b: 0.2,
                 scenario=_StubScenario(0.2),
                 db_session_factory=factory,
@@ -1219,7 +1222,7 @@ def _run_deep_once(db, factory, *, llm_call, cfg=None):
         LoopDeps(
             llm_call=llm_call,
             evaluator=_fake_evaluator,
-            data_loader=lambda cfg: {"BTCUSDT": object()},
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
             corr_fn=lambda a, b: 0.2,
             scenario=_StubScenario(0.2),
             db_session_factory=factory,
@@ -1295,6 +1298,24 @@ def test_code_stage_retry_on_empty_output(research_db):
 
 
 # ---------- 多品种聚合口径 ----------
+
+
+def test_render_context_injects_data_facts():
+    """数据事实段必须出现在上下文里：单品种契约 + 训练段根数，防止超长窗口假设。"""
+    from research.agents import render_context
+
+    text = render_context(
+        [],
+        None,
+        data_note=(
+            "- 品种数：2；训练段约 488 根 K 线\n"
+            "- 代码按单品种执行（系统逐品种跑一遍再拼成截面面板），df 没有 code/date 列；"
+            "不要用 np.concatenate / DataFrame.get / 跨品种拼接"
+        ),
+    )
+    assert "## 数据事实" in text
+    assert "488" in text
+    assert "df 没有 code/date 列" in text
 
 
 def test_library_corr_takes_max_abs_across_reference_panels():

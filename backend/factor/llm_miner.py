@@ -57,6 +57,8 @@ SYSTEM_PROMPT = """你是顶级加密量化研究员，任务是发明有预测�
 输出契约：
 - 只输出 Python 代码，不要任何解释文字；最终结果必须赋值给 factor（与 df 等长、逐行对齐的 pandas.Series）
 - 环境只注入了 pandas as pd、numpy as np；禁止 import、文件、网络、递归、列表推导、逐行循环，全部用向量化写法
+- 输入是**单品种**：系统按品种分别执行你的代码、再拼成截面面板。df 没有 code/date 列，
+  禁止 np.concatenate / DataFrame.get / 跨品种 groupby 拼接；滚动窗口别超过样本长度
 - 前若干行允许产生 NaN（warmup），但不允许整列 NaN 或 inf
 
 优秀示例：
