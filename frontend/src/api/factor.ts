@@ -191,6 +191,8 @@ export type LifecycleStatus = 'DISCOVERED' | 'INSPECTED' | 'PAPER_TRADING' | 'LI
 
 /** 因子档案条目：明细 + 生命周期/最近指标/快照统计 */
 export interface FactorCatalogItem extends FactorDetail {
+  /** 入库溯源 JSON：source + research 采纳追加的 session_id/trial_id */
+  provenance?: Record<string, unknown> | null;
   lifecycle_status: LifecycleStatus;
   last_metrics: {
     snapshot_id: number;

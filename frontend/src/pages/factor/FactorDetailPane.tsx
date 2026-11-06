@@ -24,7 +24,7 @@ import {
   type FactorCatalogItem,
   type LifecycleStatus,
 } from '@/api/factor';
-import { NEXT_STATUS, STATUS_COLOR, factorSource } from './factorMeta';
+import { NEXT_STATUS, STATUS_COLOR, factorSource, isAiProduced } from './factorMeta';
 import FactorOverviewPanel from './FactorOverviewPanel';
 import FactorAnalyzePanel from './FactorAnalyzePanel';
 import FactorSnapshotsPanel from './FactorSnapshotsPanel';
@@ -114,6 +114,7 @@ const FactorDetailPane: React.FC<{
             {factor.builtin && <Tag>{t('factor_lib_builtin') || '内置'}</Tag>}
             {factorSource(factor) === 'code' && <Tag color="magenta">{t('factor_lib_code') || '代码'}</Tag>}
             {factorSource(factor) === 'composite' && <Tag color="purple">{t('factor_lib_composite') || '合成'}</Tag>}
+            {isAiProduced(factor) && <Tag color="geekblue">AI</Tag>}
             {!factor.supported && <Tag color="error">{t('factor_lib_no_data') || '无数据'}</Tag>}
           </Flex>
           <Flex gap="small" align="center">

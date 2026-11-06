@@ -41,6 +41,7 @@ import {
   categoryLabel,
   STATUS_COLOR,
   factorSource,
+  isAiProduced,
   toneColor,
   toneOf,
   type FactorSource,
@@ -182,8 +183,17 @@ const FactorLibraryPane: React.FC<Props> = ({
     },
     {
       title: t('factor_detail_meta_source') || '来源',
-      width: 72,
-      render: (_, r) => <Tag>{sourceLabel(factorSource(r))}</Tag>,
+      width: 100,
+      render: (_, r) => (
+        <>
+          <Tag>{sourceLabel(factorSource(r))}</Tag>
+          {isAiProduced(r) && (
+            <Tag color="geekblue" style={{ marginInlineStart: 4 }}>
+              AI
+            </Tag>
+          )}
+        </>
+      ),
     },
     {
       title: t('factor_stat_ic_mean') || 'IC 均值',
@@ -410,6 +420,11 @@ const FactorLibraryPane: React.FC<Props> = ({
                         {categoryLabel(f.category, t)}
                       </Tag>
                       <Tag style={{ marginInlineEnd: 0 }}>{sourceLabel(factorSource(f))}</Tag>
+                      {isAiProduced(f) && (
+                        <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
+                          AI
+                        </Tag>
+                      )}
                       <Tag color={STATUS_COLOR[f.lifecycle_status]} style={{ marginInlineEnd: 0 }}>
                         {statusLabel(f.lifecycle_status)}
                       </Tag>

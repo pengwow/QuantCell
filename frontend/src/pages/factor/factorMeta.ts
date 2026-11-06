@@ -119,6 +119,18 @@ export const factorSource = (f: {
   return f.builtin ? 'builtin' : 'expression';
 };
 
+/**
+ * AI 产出判定（PRD §5.3 P1 可选项）：仅在来源标签旁加「AI」徽标，不新增来源筛选枚举。
+ * provenance 是唯一可信来源——research 采纳时会追加 session_id/trial_id；
+ * 含糊的 manual_or_llm（人工与挖掘两可）不标，宁可漏标不误标。
+ */
+export const isAiProduced = (f: { provenance?: Record<string, unknown> | null }): boolean => {
+  const p = f.provenance;
+  if (!p) return false;
+  if (p.session_id != null || p.trial_id != null) return true;
+  return p.source === 'research' || p.source === 'llm_mine' || p.source === 'llm_mining_composite';
+};
+
 /** 数字统一格式化：null/undefined → — */
 export const num = (v: number | null | undefined, digits = 3): string =>
   v === null || v === undefined ? '—' : v.toFixed(digits);

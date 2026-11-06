@@ -11,6 +11,7 @@ import {
   STATUS_COLOR,
   categoryLabel,
   factorSource,
+  isAiProduced,
   toneColor,
   toneOf,
 } from './factorMeta';
@@ -125,7 +126,12 @@ const FactorOverviewPanel: React.FC<{
             {
               key: 'source',
               label: t('factor_detail_meta_source') || '来源',
-              children: <Tag>{sourceLabel(factorSource(factor))}</Tag>,
+              children: (
+                <>
+                  <Tag>{sourceLabel(factorSource(factor))}</Tag>
+                  {isAiProduced(factor) && <Tag color="geekblue">AI</Tag>}
+                </>
+              ),
             },
             {
               key: 'status',
