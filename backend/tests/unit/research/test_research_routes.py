@@ -172,9 +172,17 @@ def test_active_session_limit(client):
 
 def test_unsupported_scenario_returns_400(client):
     tc, _ = client
-    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "scenario": "model"})
+    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "scenario": "nonexistent"})
     assert res.status_code == 400
     assert res.json()["detail"]["code"] == "scenario_not_supported"
+
+
+def test_model_scenario_quick_mode_rejected(client):
+    """model 场景只有 deep 闭环，quick 显式 400（与 strategy 同口径）。"""
+    tc, _ = client
+    res = tc.post("/api/v1/research/sessions", json={**PAYLOAD, "scenario": "model", "mode": "quick"})
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "mode_not_supported"
 
 
 def test_quick_pause_is_rejected(client):

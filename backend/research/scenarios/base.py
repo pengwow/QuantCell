@@ -10,9 +10,30 @@ PRD §5.4 原本只抽 describe/build_tasks/evaluate/promote 四个点，实测�
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 from research import agents, consts
+
+
+def _extract_json(content: str) -> Any:
+    """从 LLM 输出抽取 JSON（容忍 ```json 包裹与前后缀文字），失败抛 ValueError。
+
+    factor 的规划/假设输出在 agents.py 走各自提取；strategy/model 场景共用这里。
+    """
+    text = content.strip()
+    fence = re.search(r"```(?:json)?\s*(.+?)```", text, flags=re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    # 起始符决定结束符：数组取最后一个 ]、对象取最后一个 }，否则数组会被截成缺右括号的残片
+    if text.find("[") >= 0 and (text.find("{") < 0 or text.find("[") < text.find("{")):
+        start = text.find("[")
+        return json.loads(text[start : text.rfind("]") + 1])
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("LLM 输出中没有 JSON")
+    return json.loads(text[start : text.rfind("}") + 1])
 
 
 class ScenarioDefaults:

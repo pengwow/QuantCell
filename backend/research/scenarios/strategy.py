@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -19,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from research import agents, consts, service
 from research.scenarios.base import ScenarioDefaults
+from research.scenarios.base import _extract_json as base_extract_json
 from strategy.base import BaseStrategy
 from strategy.service import StrategyService
 from utils.db_session import get_db_session
@@ -69,19 +69,8 @@ class StrategyTask(BaseModel):
 
 
 def _extract_json(content: str) -> Any:
-    """从 LLM 输出抽取 JSON（容忍 ```json 包裹与前后缀文字），失败抛 ValueError。"""
-    text = content.strip()
-    fence = re.search(r"```(?:json)?\s*(.+?)```", text, flags=re.DOTALL)
-    if fence:
-        text = fence.group(1).strip()
-    # 起始符决定结束符：数组取最后一个 ]、对象取最后一个 }，否则数组会被截成缺右括号的残片
-    if text.find("[") >= 0 and (text.find("{") < 0 or text.find("[") < text.find("{")):
-        start = text.find("[")
-        return json.loads(text[start : text.rfind("]") + 1])
-    start = text.find("{")
-    if start < 0:
-        raise ValueError("LLM 输出中没有 JSON")
-    return json.loads(text[start : text.rfind("}") + 1])
+    """兼容转发：实现在 base（strategy/model 场景共用），历史测试从这里引用。"""
+    return base_extract_json(content)
 
 
 class StrategyScenario(ScenarioDefaults):

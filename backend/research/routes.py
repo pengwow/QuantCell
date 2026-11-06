@@ -137,21 +137,21 @@ def create_session(
 ) -> ApiResponse:
     owner = _owner(current_user)
     # 场景白名单：未实现的显式 400，禁止静默降级成 factor
-    if payload.scenario not in ("factor", "strategy"):
+    if payload.scenario not in ("factor", "strategy", "model"):
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "scenario_not_supported",
-                "message": f"场景 {payload.scenario} 尚未实现（当前支持 factor / strategy）",
+                "message": f"场景 {payload.scenario} 尚未实现（当前支持 factor / strategy / model）",
             },
         )
-    # quick 是 factor 批量挖掘链路，strategy 只有 deep 闭环
-    if payload.scenario == "strategy" and payload.mode == "quick":
+    # quick 是 factor 批量挖掘链路，strategy / model 只有 deep 闭环
+    if payload.scenario in ("strategy", "model") and payload.mode == "quick":
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "mode_not_supported",
-                "message": "strategy 场景暂不支持 quick 模式，请使用 deep 模式",
+                "message": f"{payload.scenario} 场景暂不支持 quick 模式，请使用 deep 模式",
             },
         )
     llm_cfg = _resolve_llm(payload.model_id)
