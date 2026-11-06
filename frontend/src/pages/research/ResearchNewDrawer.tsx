@@ -185,7 +185,8 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
       title="新建 AI 研究"
       open={open}
       onClose={onClose}
-      size="40%"
+      // 表单字段多（场景/模式/硬门分组），用 large 抽屉宽度；窄屏收缩避免溢出
+      width="min(736px, 92vw)"
       destroyOnClose
     >
       <Form
