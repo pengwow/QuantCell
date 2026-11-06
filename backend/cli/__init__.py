@@ -32,6 +32,7 @@ def register_commands() -> None:
     from cli.migrate import app as migrate_app
     from cli.news import app as news_app
     from cli.plugin import app as plugin_app
+    from cli.research import app as research_app
     from cli.rl import app as rl_app
     from cli.tests_cmd import app as tests_app
     from cli.web import app as web_app
@@ -42,6 +43,7 @@ def register_commands() -> None:
     app.add_typer(market_app, name="market")
     app.add_typer(news_app, name="news")
     app.add_typer(plugin_app, name="plugin")
+    app.add_typer(research_app, name="research")
     app.add_typer(rl_app, name="rl")
     app.add_typer(web_app, name="web")
     app.add_typer(worker_app, name="worker")
