@@ -1,7 +1,7 @@
 /**
  * 因子异步任务 Hook
  *
- * 封装 analyze/compare/llm_mine 任务的提交与跟踪：
+ * 封装 analyze/compare 任务的提交与跟踪：
  * - WS topic `factor:job`：data.type=progress 推进度，data.type=event 追加过程事件；
  * - WS 一旦收到本任务任意消息即视为存活，停止轮询（事件驱动足够及时）；
  * - WS 从未证明存活时降级轮询，状态连续不变按 1s→2s→5s 退避，一变化恢复 1s；
@@ -17,7 +17,6 @@ import {
   type FactorCompareParams,
   type FactorJobEventEnvelope,
   type FactorJobStatus,
-  type FactorMineLLMParams,
   type MiningEvent,
 } from '@/api/factor';
 import { wsService } from '@/services/websocketService';
@@ -26,12 +25,12 @@ const TOPIC = 'factor:job';
 const POLL_STEPS = [1000, 2000, 5000]; // 降级轮询退避档
 const TIMEOUT_MS = 10 * 60 * 1000;
 
-export type FactorJobKind = 'analyze' | 'compare' | 'llm_mine';
+export type FactorJobKind = 'analyze' | 'compare';
 
 export interface UseFactorJob<T> {
   run: (
     kind: FactorJobKind,
-    params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
+    params: FactorAnalyzeParams | FactorCompareParams,
     onResult: (r: T) => void,
     onError: (msg: string) => void,
     onLost?: () => void,
@@ -234,7 +233,7 @@ export function useFactorJob<T>(): UseFactorJob<T> {
   const run = useCallback(
     async (
       kind: FactorJobKind,
-      params: FactorAnalyzeParams | FactorCompareParams | FactorMineLLMParams,
+      params: FactorAnalyzeParams | FactorCompareParams,
       onResult: (r: T) => void,
       onError: (msg: string) => void,
       onLost?: () => void,
@@ -250,8 +249,6 @@ export function useFactorJob<T>(): UseFactorJob<T> {
       try {
         if (kind === 'analyze') {
           accepted = await factorApi.analyzeAsync(params as FactorAnalyzeParams);
-        } else if (kind === 'llm_mine') {
-          accepted = await factorApi.mineLLM(params as FactorMineLLMParams);
         } else {
           accepted = await factorApi.compareAsync(params as FactorCompareParams);
         }

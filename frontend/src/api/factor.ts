@@ -120,104 +120,6 @@ export interface FactorCompareResult {
   ic_series: { dates: string[]; series: Record<string, (number | null)[]> };
 }
 
-/** LLM 因子挖掘任务入参 */
-export interface FactorMineLLMParams {
-  instruments: string[];
-  interval: string;
-  candle_type?: 'spot' | 'future';
-  start_time?: string | null;
-  end_time?: string | null;
-  /** 每轮候选数 1-8 */
-  n_candidates: number;
-  /** 反思轮数 1-4 */
-  n_rounds: number;
-  /** 每轮保留进入下一轮反思的候选数 1-10 */
-  top_k: number;
-  temperature?: number;
-  model_id?: string | null;
-  /** 样本外切分比例（取后段时间），0=不切分；范围 0-0.5 */
-  test_ratio?: number;
-  /** 滚动 walk-forward 折数：0=单次样本外切分；2-6=多窗口滚动复核 */
-  wf_folds?: number;
-  /** 去重选定最佳候选后是否自动 IC 加权 zscore 合成，默认 true */
-  compose?: boolean;
-}
-
-/** walk-forward 单折复核指标 */
-export interface WFFoldMetrics {
-  index: number;
-  start: string;
-  end: string;
-  ic_mean: number | null;
-  ic_std: number | null;
-  positive_rate: number | null;
-  coverage: number | null;
-  bar_count: number;
-}
-
-/** 样本外指标：单次切分为普通指标；walk-forward 时额外带多折汇总字段 */
-export interface MinedOOSMetrics {
-  fitness: number | null;
-  ic_mean: number | null;
-  /** 折间 IC 标准差（仅 walk-forward） */
-  ic_std?: number | null;
-  ic_ir: number | null;
-  coverage: number | null;
-  turnover: number | null;
-  long_short_return: number | null;
-  monotonicity_spearman: number | null;
-  nw_t_stat: number | null;
-  bar_count: number | null;
-  /** walk-forward 总折数 / 有效折数 */
-  n_folds?: number;
-  valid_folds?: number;
-  /** 各折 IC 与汇总 IC 同号的比例（0-1） */
-  sign_consistency?: number | null;
-  folds?: WFFoldMetrics[];
-}
-
-/** 单个挖掘候选结果 */
-export interface MinedCandidate {
-  round: number;
-  candidate: number;
-  code: string;
-  code_hash: string;
-  status:
-    | 'success'
-    | 'security_error'
-    | 'output_error'
-    | 'timeout'
-    | 'resource_error'
-    | 'runtime_error'
-    | 'empty'
-    | 'llm_truncated';
-  error_type: string | null;
-  error: string | null;
-  metrics: {
-    fitness: number | null;
-    ic_mean: number | null;
-    ic_ir: number | null;
-    coverage: number | null;
-    turnover: number | null;
-    long_short_return: number | null;
-    monotonicity_spearman: number | null;
-    nw_t_stat: number | null;
-    bar_count: number | null;
-  } | null;
-  /** 样本外（后段时间）指标；未切分或样本不足时为 null */
-  metrics_oos?: MinedOOSMetrics | null;
-  /** 样本外复核结论：稳定/衰减/符号反转；未复核为 null */
-  oos_flag?: 'ok' | 'weak' | 'sign_flip' | null;
-  /** 样本外复核说明（如样本不足提示），可为 null */
-  oos_note?: string | null;
-  /** 与更高 fitness 候选的 train 段因子 |spearman|≥阈值，被标记为重复 */
-  redundant?: boolean;
-  /** 重复对象的 code_hash；非重复为 null */
-  redundant_with?: string | null;
-  /** 与重复对象的因子秩相关系数（保留 4 位小数）；非重复为 null */
-  redundant_corr?: number | null;
-}
-
 /** 合成因子拟合的 train 段时间窗（仅记录） */
 export interface CompositeTrainWindow {
   start: string;
@@ -250,49 +152,13 @@ export interface FactorCompositeAddBody {
   train_window: CompositeTrainWindow;
 }
 
-/** 挖掘内自动合成结果；合成异常时仅返回 error，未触发合成为 null */
-export interface CompositeFactorResult {
-  /** 合成失败说明（不阻断挖掘）；存在时其余字段均无意义 */
-  error?: string;
-  n?: number;
-  constituents?: CompositeConstituent[];
-  train_window?: CompositeTrainWindow;
-  metrics?: NonNullable<MinedCandidate['metrics']>;
-  metrics_oos?: MinedOOSMetrics | null;
-  oos_flag?: 'ok' | 'weak' | 'sign_flip' | null;
-  oos_note?: string | null;
-  /** walk-forward 时的逐折指标（单次切分无此字段） */
-  folds?: WFFoldMetrics[];
-}
-
-/** LLM 挖掘任务结果 */
-export interface FactorMineResult {
-  candidates: MinedCandidate[];
-  best: MinedCandidate[];
-  /** best 非冗余候选的 IC 加权 zscore 合成结果；未合成时为 null */
-  composite?: CompositeFactorResult | null;
-  stats: {
-    generated: number;
-    unique: number;
-    succeeded: number;
-    failed: number;
-    /** 被相关性去重标记为冗余的成功候选数 */
-    redundant?: number;
-    rounds: number;
-    symbols: string[];
-    interval: string;
-    model_name: string | null;
-    [key: string]: unknown;
-  };
-}
-
 /** 因子异步任务状态值 */
 export type FactorJobStatusValue = 'pending' | 'running' | 'completed' | 'failed';
 
 /** 因子异步任务状态（WS 推送 / GET /jobs/{id}，不含结果大 payload） */
 export interface FactorJobStatus {
   job_id: string;
-  kind: 'analyze' | 'compare' | 'llm_mine';
+  kind: 'analyze' | 'compare';
   status: FactorJobStatusValue;
   progress: number;
   stage: string | null;
@@ -318,27 +184,6 @@ export interface FactorJobEventEnvelope {
   job_id: string;
   type: 'event';
   event: MiningEvent;
-}
-
-/** LLM 挖掘运行记录状态（后端 factor_mining_runs.status） */
-export type MiningRunStatus = 'running' | 'completed' | 'failed' | 'interrupted';
-
-/** 挖掘历史列表项（不含完整 result） */
-export interface MiningRunSummary {
-  id: number;
-  job_id: string;
-  status: MiningRunStatus;
-  params: FactorMineLLMParams;
-  stats: FactorMineResult['stats'] | null;
-  error: string | null;
-  created_at: string | null;
-  finished_at: string | null;
-}
-
-/** 挖掘记录详情（含完整 result） */
-export interface MiningRunDetail extends MiningRunSummary {
-  result: FactorMineResult | null;
-  events: MiningEvent[];
 }
 
 /** 因子生命周期五态 */
@@ -477,11 +322,6 @@ export const factorApi = {
     apiRequest.post<{ job_id: string; status: string }>('/factor/analyze-async', p),
   compareAsync: (p: FactorCompareParams) =>
     apiRequest.post<{ job_id: string; status: string }>('/factor/compare-async', p),
-  mineLLM: (p: FactorMineLLMParams) =>
-    apiRequest.post<{ job_id: string; status: string; run_id: number | null }>(
-      '/factor/mine/llm',
-      p,
-    ),
   validateCodeFactor: (code: string) =>
     apiRequest.post<{ valid: boolean; error_type?: string; message?: string }>(
       '/factor/code/validate',
@@ -514,13 +354,6 @@ export const factorApi = {
     ),
   getFactorDefinition: (name: string) =>
     apiRequest.get<FactorDefinition>(`/factor/factors/${encodeURIComponent(name)}/definition`),
-  listMineRuns: (limit = 20, offset = 0) =>
-    apiRequest.get<{ total: number; runs: MiningRunSummary[] }>('/factor/mine/runs', {
-      limit,
-      offset,
-    }),
-  getMineRun: (id: number) => apiRequest.get<MiningRunDetail>(`/factor/mine/runs/${id}`),
-  deleteMineRun: (id: number) => apiRequest.delete(`/factor/mine/runs/${id}`),
   instruments: (candle_type = 'spot') =>
     apiRequest.get<{ symbols: InstrumentInfo[] }>('/factor/instruments', { candle_type }),
   catalog: () => apiRequest.get<{ factors: FactorCatalogItem[] }>('/factor/catalog'),

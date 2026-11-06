@@ -16,7 +16,6 @@ import { factorApi, type FactorCatalogItem } from '@/api/factor';
 import FactorCompare from './FactorCompare';
 import FactorLibraryPane from './FactorLibraryPane';
 import FactorDetailPane from './FactorDetailPane';
-import MineLLMDrawer from './MineLLMDrawer';
 
 const TAB_KEYS = ['library', 'compare'] as const;
 const LAST_VIEWED_KEY = 'factor.lastViewed';
@@ -33,7 +32,6 @@ const FactorAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const [mineOpen, setMineOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   // 初始选中只决策一次，避免 StrictMode/刷新重复回退
   const decidedRef = useRef(false);
@@ -99,22 +97,6 @@ const FactorAnalysis: React.FC = () => {
     [searchParams, setSearchParams],
   );
 
-  // LLM 挖掘保存成功：关抽屉 → 刷新目录 → 选中新因子（落概览，不自动分析）
-  const handleMined = useCallback(
-    async (name: string) => {
-      setMineOpen(false);
-      try {
-        await loadCatalog();
-      } catch {
-        // 刷新失败仍选中（名字本地已知），左栏待下次刷新可见
-        message.warning(t('factor_lib_load_failed') || '因子库刷新失败，新因子稍后可见');
-      }
-      decidedRef.current = true;
-      setSelected(name);
-    },
-    [loadCatalog, t],
-  );
-
   const selectedFactor = catalog.find((f) => f.name === selected) ?? null;
 
   return (
@@ -138,7 +120,6 @@ const FactorAnalysis: React.FC = () => {
                     setDetailOpen(true);
                   }}
                   onRefresh={loadCatalog}
-                  onMine={() => setMineOpen(true)}
                 />
                 <Drawer
                   open={detailOpen}
@@ -161,7 +142,6 @@ const FactorAnalysis: React.FC = () => {
           { key: 'compare', label: t('factor_compare'), children: <FactorCompare /> },
         ]}
       />
-      <MineLLMDrawer open={mineOpen} onClose={() => setMineOpen(false)} onMined={(n) => void handleMined(n)} />
     </PageContainer>
   );
 };

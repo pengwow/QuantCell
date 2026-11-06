@@ -6,6 +6,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -60,7 +61,6 @@ interface Props {
   selected: string | null;
   onSelect: (name: string) => void;
   onRefresh: () => Promise<void> | void;
-  onMine: () => void;
 }
 
 const FactorLibraryPane: React.FC<Props> = ({
@@ -70,9 +70,9 @@ const FactorLibraryPane: React.FC<Props> = ({
   selected,
   onSelect,
   onRefresh,
-  onMine,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { token } = theme.useToken();
   const qc = useQuantColors();
   const screens = Grid.useBreakpoint();
@@ -314,8 +314,9 @@ const FactorLibraryPane: React.FC<Props> = ({
           </Button>
         </Space>
         <Space size="small" wrap>
-          <Button icon={<RobotOutlined />} onClick={onMine}>
-            {t('factor_lib_mine_btn') || 'LLM 挖掘'}
+          {/* 旧 LLM 挖掘已退役：AI 因子挖掘统一走研究模块 */}
+          <Button icon={<RobotOutlined />} onClick={() => navigate('/research')}>
+            {'AI 研究'}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             {t('factor_lib_create_btn') || '新建因子'}
