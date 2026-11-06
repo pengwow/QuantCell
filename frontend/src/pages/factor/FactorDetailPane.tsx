@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   App as AntApp,
   Button,
@@ -17,7 +18,7 @@ import {
   Tag,
   Tooltip,
 } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, ExperimentOutlined } from '@ant-design/icons';
 import {
   factorApi,
   type FactorCatalogItem,
@@ -38,6 +39,7 @@ const FactorDetailPane: React.FC<{
 }> = ({ factor, onRefreshCatalog }) => {
   const { t } = useTranslation();
   const { message } = AntApp.useApp();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<'overview' | 'analyze' | 'snapshots' | 'code'>('overview');
   const [editOpen, setEditOpen] = useState(false);
   // 编辑保存后同名覆盖不会触发 FactorCodePanel 的 useEffect，用 key 强制重挂载刷新代码 Tab
@@ -143,6 +145,16 @@ const FactorDetailPane: React.FC<{
                 </Button>
               </span>
             </Tooltip>
+            {/* PRD §6.2「基于此因子研究」：跳 /research?seed=<name>（因子代码因子不可编辑但可作种子） */}
+            <span>
+              <Button
+                size="small"
+                icon={<ExperimentOutlined />}
+                onClick={() => navigate(`/research?seed=${encodeURIComponent(factor.name)}`)}
+              >
+                基于此因子研究
+              </Button>
+            </span>
             <Popconfirm
               title={t('factor_lib_edit_confirm') || '删除该自定义因子？'}
               disabled={factor.builtin}

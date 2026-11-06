@@ -25,6 +25,7 @@ export const EDITABLE_CATEGORIES = [
   'volume_price',
   'technical',
   'fundamental',
+  'llm_code',
 ] as const;
 
 /** 分类 i18n 标签；缺失翻译时回退原始分类名（左栏/概览/表单共用） */
