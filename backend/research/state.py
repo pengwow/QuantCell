@@ -35,6 +35,8 @@ class TrialStatus(StrEnum):
     INTERRUPTED = "interrupted"
     # 候选与已终态 trial 的因子高度相关：不进入反馈/judge，消耗该轮（终态）
     DUPLICATE = "duplicate"
+    # 任务命中知识库失败签名阈值：直接跳过该任务，不再调用 LLM（终态，PRD 验收②）
+    SKIPPED = "skipped"
 
 
 SESSION_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -56,7 +58,9 @@ SESSION_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 TRIAL_TRANSITIONS: dict[str, frozenset[str]] = {
-    TrialStatus.PLANNED: frozenset({TrialStatus.CODING, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
+    TrialStatus.PLANNED: frozenset(
+        {TrialStatus.CODING, TrialStatus.FAILED, TrialStatus.INTERRUPTED, TrialStatus.SKIPPED}
+    ),
     TrialStatus.CODING: frozenset({TrialStatus.CODED, TrialStatus.FAILED, TrialStatus.INTERRUPTED}),
     TrialStatus.CODED: frozenset(
         {TrialStatus.RUNNING, TrialStatus.FAILED, TrialStatus.INTERRUPTED, TrialStatus.DUPLICATE}
@@ -82,6 +86,8 @@ TRIAL_TRANSITIONS: dict[str, frozenset[str]] = {
     TrialStatus.FAILED: frozenset(),
     # duplicate 是终态：本轮已判重消耗，不再重跑
     TrialStatus.DUPLICATE: frozenset(),
+    # skipped 是终态：知识短路拦下的重复失败任务，本轮已消耗，不再重跑
+    TrialStatus.SKIPPED: frozenset(),
 }
 
 

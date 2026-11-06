@@ -13,6 +13,7 @@ quick 只做一次「调用现有挖掘 → 映射 trial」。
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -182,6 +183,11 @@ def _hash_code(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
+def _norm_task_text(text: str) -> str:
+    """任务描述归一化（压空白+lower），与 record_failure 沉淀的 hint 匹配口径一致。"""
+    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
 def _empty_code_reason(usage: dict[str, Any] | None, repair_rounds: int) -> str:
     """空代码失败原因：区分“未启用修复”和“多轮修复后仍失败”，并标明截断。
 
@@ -264,6 +270,15 @@ class ResearchLoop:
         """取该 owner 最近的高频失败签名，注入 propose/plan 上下文。"""
         with self._db() as db:
             return service.list_failure_knowledge(db, self._owner_id)
+
+    def _blocked_task_hints(self) -> list[str]:
+        """命中阈值的失败签名任务文本（归一化），供执行前短路；查询失败按无短路处理。"""
+        try:
+            with self._db() as db:
+                return service.blocked_task_hints(db, self._owner_id, consts.KNOWLEDGE_BLOCK_THRESHOLD)
+        except Exception:
+            logger.exception("[研究] 短路签名查询失败，本轮按无短路处理")
+            return []
 
     def _record_knowledge(self, kind: str, error: str, *, hint: str = "", trial_id: int | None = None) -> None:
         """沉淀失败签名；知识库写失败不能干扰主流程。"""
@@ -672,6 +687,29 @@ class ResearchLoop:
 
         try:
             code = "" if resume is None else (resume.get("code") or "")
+            # 知识短路（PRD 验收②）：同一任务的同种失败签名积累到阈值后，再出现
+            # 相同任务描述直接标 skipped，不发起任何 LLM 调用（仅拦新执行，不拦续跑）
+            if resume is None and _norm_task_text(task.description) in self._blocked_task_hints():
+                with self._db() as db:
+                    service.update_trial(
+                        db,
+                        trial_id,
+                        status="skipped",
+                        decision=False,
+                        exception=(
+                            f"任务描述命中知识库失败签名（同签名已失败 {consts.KNOWLEDGE_BLOCK_THRESHOLD} 次），"
+                            "按知识短路直接跳过，不再调用 LLM"
+                        ),
+                        duration_ms=int((time.monotonic() - started_at) * 1000),
+                    )
+                self._event(
+                    "trial.skipped",
+                    f"loop={loop_idx} trial={trial_id} threshold={consts.KNOWLEDGE_BLOCK_THRESHOLD}",
+                )
+                logger.warning(
+                    f"[研究] 会话 {self.session_id} trial {trial_id} 命中知识短路，任务已跳过：{task.description[:80]}"
+                )
+                return
             # 自修复内环的每轮摘要，随 trial 落库（截断错误，不塞原文）
             repair_rounds = min(
                 int(_cfg_number(cfg, "repair_rounds", consts.DEFAULT_REPAIR_ROUNDS)),
