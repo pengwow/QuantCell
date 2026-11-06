@@ -123,6 +123,8 @@ export interface ResearchSession {
   mode: ResearchMode;
   scenario?: string;
   status: ResearchStatus;
+  /** pending 时的排队位次（同用户第 N 个提交），其余状态/不传为 null */
+  queue_position?: number | null;
   n_candidates: number;
   loop_n: number;
   loop_done: number;
