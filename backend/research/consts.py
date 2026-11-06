@@ -88,6 +88,18 @@ DEFAULT_STRATEGY_MIN_TRADES = 3
 # 单品种独立资金池的默认初始资金，与 BacktestLoop/engine 默认口径一致
 DEFAULT_STRATEGY_INITIAL_CASH = 100_000.0
 
+# ---------- model 场景（P2）----------
+# RL 模型 trial 的采纳硬门：WF 折均夏普下限 + OOS 折均成交数下限（不复用 IC 门禁，PRD 笔记 §4.1）。
+DEFAULT_MODEL_SHARPE_FLOOR = 0.8
+DEFAULT_MODEL_MIN_TRADES = 5
+# 训练算力硬限额：evaluate 是同步回调（loop.py），每候选 (wf_splits+1)*timesteps 步
+# 必须分钟级跑完。超限候选 clamp 而非报错——限额是场景保护，不是 LLM 错误。
+MODEL_MAX_TIMESTEPS = 20_000
+MODEL_MIN_TIMESTEPS = 1_000
+MODEL_MAX_WF_SPLITS = 3
+MODEL_MIN_WF_SPLITS = 2
+MODEL_ALGORITHMS = ("ppo", "sac", "dqn")
+
 # ---------- 控制面 ----------
 MAX_ACTIVE_SESSIONS = 2  # 同一用户同时 running 会话上限，超出 429
 DEEP_JOB_WORKERS = 2  # deep 独立线程池（PRD §9）

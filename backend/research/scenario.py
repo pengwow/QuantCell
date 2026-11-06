@@ -59,4 +59,8 @@ def get_scenario(name: str) -> ResearchScenario:
         from research.scenarios.strategy import StrategyScenario
 
         return StrategyScenario()
+    if name == "model":
+        from research.scenarios.model import ModelScenario
+
+        return ModelScenario()
     raise LookupError(f"场景 {name} 暂未实现")
