@@ -20,7 +20,8 @@ export interface WebSocketMessage {
 
 // WebSocket客户端配置
 export interface WebSocketConfig {
-  url: string;
+  /** 连接地址；可为函数（每次重连时求值，用于携带可能续期的 token） */
+  url: string | (() => string);
   clientId?: string;
   topics?: string[];
   reconnectInterval?: number;
@@ -76,7 +77,7 @@ export class WebSocketService {
     }
 
     try {
-      let wsUrl = this.config.url;
+      let wsUrl = typeof this.config.url === 'function' ? this.config.url() : this.config.url;
       console.log('[WebSocket] 基础URL:', wsUrl);
       
       if (wsUrl.includes('?')) {

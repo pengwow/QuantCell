@@ -1,13 +1,14 @@
 import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
 import type { MessageInstance } from 'antd/es/message/interface';
 import { BrowserRouter } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DynamicRouter } from './router/DynamicRouter';
 import CrashMask from './desktop/CrashMask';
 import { isTauri } from './desktop/env';
 import { useConfigStore } from './store';
 import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
+import { RESEARCH_BUDGET_EXHAUSTED_STAGE, researchWsService } from './services/researchWs';
 import { PluginProvider } from './plugins';
 import './i18n/config';
 import './global.css';
@@ -145,6 +146,7 @@ function App() {
         <BrowserRouter>
           <PluginProvider>
             <AppInjector setMessageApi={setMessageApi} />
+            <ResearchEventBridge />
             <DynamicRouter />
             {isTauri() && <CrashMask />}
           </PluginProvider>
@@ -164,6 +166,42 @@ function AppInjector({ setMessageApi }: { setMessageApi: (api: MessageInstance) 
       console.log('[App] Message API 已注入到 WorkerStore');
     }
   }, [setMessageApi, apiMessage]);
+
+  return null;
+}
+
+// 研究事件全局桥（PRD §6.10 #3）：预算耗尽等关键事件用全站级 notification 提醒，
+// 不依赖用户停留在研究详情页。事件流展示仍在详情页内轮询，二者互不替代。
+function ResearchEventBridge() {
+  const { notification } = AntdApp.useApp();
+  // 同一会话只提醒一次；WS 断线期间的事件由详情页轮询补齐（不在此重放）
+  const notifiedRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    const handler = (data: unknown) => {
+      const payload = data as
+        | { session_id?: number; event?: { stage?: string; msg?: string } }
+        | undefined;
+      if (payload?.event?.stage !== RESEARCH_BUDGET_EXHAUSTED_STAGE) return;
+      const sessionId = payload.session_id;
+      if (typeof sessionId !== 'number' || notifiedRef.current.has(sessionId)) return;
+      notifiedRef.current.add(sessionId);
+      notification.warning({
+        key: `research-budget-${sessionId}`,
+        message: '研究预算已耗尽，会话按完成收尾',
+        description: payload.event?.msg,
+        duration: 0,
+      });
+    };
+
+    researchWsService.on('research.event', handler);
+    if (!researchWsService.connected) {
+      researchWsService.connect();
+    }
+    return () => {
+      researchWsService.off('research.event', handler);
+    };
+  }, [notification]);
 
   return null;
 }
