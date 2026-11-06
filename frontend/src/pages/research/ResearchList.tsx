@@ -20,6 +20,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, RobotOutlined } from '@ant-design/icons';
+import { formatTokens } from '@/utils/format';
 import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
 import {
@@ -118,7 +119,7 @@ const ResearchList: React.FC = () => {
     {
       title: '成本',
       width: 150,
-      render: (_, row) => `${row.llm_calls} 次 / ${row.token_used} tokens`,
+      render: (_, row) => `${row.llm_calls} 次 / ${formatTokens(row.token_used, '0')} tokens`,
     },
     {
       title: '创建时间',

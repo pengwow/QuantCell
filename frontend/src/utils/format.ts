@@ -105,3 +105,14 @@ export const truncateId = (id: string | null | undefined, head = 8, tail = 4): s
   if (id.length <= head + tail + 3) return id
   return `${id.slice(0, head)}...${id.slice(-tail)}`
 }
+
+/**
+ * 格式化 token 数：按业内惯例缩写（1.2K / 60.6K / 3.4M），避免大数一长串 0
+ * @example formatTokens(60622) => "60.6K"
+ */
+export const formatTokens = (value: number | null | undefined, fallback = '-'): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) return fallback
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`
+  return String(value)
+}
