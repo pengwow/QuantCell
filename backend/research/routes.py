@@ -6,22 +6,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket
 
 from common.schemas import ApiResponse
 from factor import job_lease
 from factor.engine import FactorExpressionError
 from factor.job_manager import job_manager
 from research import consts, replay, service
+from research import ws as research_ws
 from research.job import make_runner, research_job_manager
 from research.scenario import get_scenario
 from research.scenarios.factor import load_seed_factor
 from research.schemas import ResearchCreateReq, ResearchExtendReq, ResearchTrialBatchReq
-from utils.auth import get_current_user
+from utils.auth import authenticate_request, get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -520,3 +522,55 @@ def extend_session(
     job_id = _start_job(session_id=session_id, mode=mode, cfg=cfg, llm_cfg=llm_cfg)
     _bind_job(session_id, job_id)
     return ApiResponse(code=0, message="ok", data={"session_id": session_id, "job_id": job_id})
+
+
+async def research_ws_endpoint(websocket: WebSocket, token: str | None = Query(None)) -> None:
+    """研究事件实时推送（main.py 挂载到 /ws/research）。
+
+    认证与 SSE 一致：query 带 ?token=<jwt>（浏览器 WS 无法自定义请求头）。
+    服务端心跳约定：收到客户端任意消息统一回 pong（前端 30s 发 ping，
+    60s 未收到 pong 会断开重连）。事件不补发——事件已持久化，断线重连后
+    前端走 /events 增量轮询续读。
+    """
+    try:
+        current_user = await authenticate_request(websocket, token=token)
+    except HTTPException:
+        # WS 握手无法返回 HTTP 状态码，accept 后按 4401 关闭区分认证失败
+        await websocket.accept()
+        await websocket.close(code=4401)
+        return
+
+    owner = _owner(current_user)
+    # 发布桥绑定主事件循环：worker 线程 append_event 后经此 loop 投递到下面的队列
+    research_ws.set_event_loop(asyncio.get_running_loop())
+    queue = research_ws.subscribe(owner)
+    await websocket.accept()
+    recv_task: asyncio.Task | None = None
+    queue_task: asyncio.Task | None = None
+    try:
+        await websocket.send_json({"type": "connected", "data": {"owner": owner}})
+        recv_task = asyncio.create_task(websocket.receive_text())
+        queue_task = asyncio.create_task(queue.get())
+        while True:
+            # 双源等待：客户端消息（心跳）与推送事件谁先到处理谁
+            done, _ = await asyncio.wait({recv_task, queue_task}, return_when=asyncio.FIRST_COMPLETED)
+            if recv_task in done:
+                try:
+                    await websocket.send_json({"type": "pong"})
+                except Exception:
+                    break
+                recv_task = asyncio.create_task(websocket.receive_text())
+            if queue_task in done:
+                await websocket.send_json({"type": "research.event", "data": queue_task.result()})
+                queue_task = asyncio.create_task(queue.get())
+    except Exception:
+        pass  # 客户端断开/发送失败统一走 finally 清理
+    finally:
+        for task in (recv_task, queue_task):
+            if task:
+                task.cancel()
+        research_ws.unsubscribe(owner, queue)
+        try:
+            await websocket.close()
+        except Exception:
+            pass

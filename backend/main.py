@@ -46,6 +46,7 @@ from factor import router as factor_router
 from indicators.routes import router as indicators_router
 from plugins.routes import router as plugins_router
 from realtime.routes import realtime_router
+from research.routes import research_ws_endpoint
 from research.routes import router as research_router
 from settings.routes import router as settings_router
 from share import (
@@ -115,6 +116,9 @@ app.include_router(research_router, prefix="/api/v1")
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)
+
+# 注册研究事件 WebSocket 端点（认证走 query token，见 research/routes.py）
+app.websocket("/ws/research")(research_ws_endpoint)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册

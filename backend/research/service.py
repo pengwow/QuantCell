@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from research import consts
+from research import ws as research_ws
 from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from research.state import InvalidTransition, ensure_session_transition, ensure_trial_transition
 from utils.logger import LogType, get_logger
@@ -562,7 +563,29 @@ def append_event(db: Session, session_id: int, level: str, stage: str, msg: str)
         ResearchEvent.id <= row.id - consts.EVENTS_RETENTION,
     ).delete(synchronize_session=False)
     db.commit()
+    _push_event(db, session_id, row, level, stage)
     return row
+
+
+def _push_event(db: Session, session_id: int, row: ResearchEvent, level: str, stage: str) -> None:
+    """(PRD §8 #12) 事件落库后经 WS 发布桥实时推给会话 owner。
+
+    推送失败/队列满只影响实时性，前端轮询 /events 兜底，故吞掉一切异常；
+    事件已 commit，这里不能再影响主流程。
+    """
+    try:
+        owner_id = db.query(ResearchSession.owner_id).filter(ResearchSession.id == session_id).scalar()
+        if not owner_id:
+            return
+        research_ws.publish_event(
+            owner_id,
+            {
+                "session_id": session_id,
+                "event": {"seq": row.id, "level": level, "stage": stage, "msg": row.msg, "ts": int(row.ts or 0)},
+            },
+        )
+    except Exception:
+        logger.debug(f"[研究] WS 推送事件失败（轮询兜底）session={session_id} seq={row.id}", exc_info=True)
 
 
 def list_events(

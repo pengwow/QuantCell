@@ -209,7 +209,7 @@ const ResearchDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const sessionId = Number(id);
   const navigate = useNavigate();
-  const { message, modal, notification } = AntApp.useApp();
+  const { message, modal } = AntApp.useApp();
 
   const [detail, setDetail] = useState<ResearchSession | null>(null);
   const [loading, setLoading] = useState(false);
@@ -249,20 +249,8 @@ const ResearchDetail: React.FC = () => {
       // 事件已持久化到 research_events：不再依赖 backend_job_id（多 worker/重启后依然可增量读）
       const page = await researchApi.events(sessionId, nextSeqRef.current);
       if (page.events.length > 0) {
-        // PRD §6.10 #3：预算耗尽提醒。预算耗尽按 completed 良性收尾（loop.py），唯一信号是
-        // session.budget_exhausted 事件，只能在事件流里捕获；nextSeqRef 已推进（非首次同步）
-        // 才弹，避免打开详情页时重放历史事件误报。全站级提醒依赖 WS 推送（P2 后续项）。
-        if (nextSeqRef.current > 0) {
-          for (const ev of page.events) {
-            if (ev.stage === 'session.budget_exhausted') {
-              notification.warning({
-                message: '研究预算已耗尽，会话按完成收尾',
-                description: ev.msg,
-                duration: 0,
-              });
-            }
-          }
-        }
+        // 预算耗尽的全站级提醒已由 App 级研究 WS 桥（App.tsx ResearchEventBridge）弹出，
+        // 这里只负责事件流展示，避免双弹
         nextSeqRef.current = page.next_seq;
         setEvents((prev) => [...prev, ...page.events].slice(-200));
       }
