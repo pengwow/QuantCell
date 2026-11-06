@@ -1065,14 +1065,14 @@ def _make_mining_callbacks() -> tuple:
 @router.post("/analyze-async", response_model=ApiResponse, summary="异步因子分析（返回 job_id，进度走 WS factor:job）")
 def analyze_async(request: FactorAnalyzeRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     params = request.model_dump()
-    job_id = job_manager.submit("analyze", params, _run_analyze_job(params))
+    job_id = job_manager.submit("analyze", params, _run_analyze_job(params), lease="mining")
     return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
 
 
 @router.post("/compare-async", response_model=ApiResponse, summary="异步多因子对比")
 def compare_async(request: FactorCompareRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     params = request.model_dump()
-    job_id = job_manager.submit("compare", params, _run_compare_job(params))
+    job_id = job_manager.submit("compare", params, _run_compare_job(params), lease="mining")
     return ApiResponse(code=0, message="ok", data={"job_id": job_id, "status": "pending"})
 
 
@@ -1248,6 +1248,7 @@ def mine_llm_factors(request: FactorMineLLMRequest, current_user: dict = Depends
         _run_llm_mine_job(params, llm_cfg),
         on_terminal=on_terminal,
         on_event_cb=on_event_cb,
+        lease="mining",
     )
     # running 行是重连锚点；建行失败不阻断挖掘（仅失去本次历史/重连能力）
     run_id: int | None = None

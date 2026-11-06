@@ -77,7 +77,10 @@ class _StubJobManager:
 
 
 def test_reconcile_marks_interrupted_when_memory_gone(db_session, svc, monkeypatch):
-    svc.create_running(db_session, "job-lost", PARAMS)
+    # 内存无此 job 且租约心跳已死（时间倒推 999s 模拟进程崩溃残留）→ interrupted
+    row = svc.create_running(db_session, "job-lost", PARAMS)
+    row.heartbeat_at = 0.0  # 旧库/崩溃残留：心跳为空或过期都视为不活跃
+    db_session.commit()
     monkeypatch.setattr("factor.mining_run_service.job_manager", _StubJobManager({}))
     _, runs = svc.list_runs(db_session)
     assert runs[0].status == INTERRUPTED and runs[0].finished_at is not None
@@ -185,6 +188,11 @@ def test_ensure_events_column_idempotent_on_old_sqlite():
     # 再调一次不报错（幂等）
     service.ensure_events_column(eng)
 
+    # 模型声明了 heartbeat_at 等 ORM 列：读旧表会报 no such column，需与真实启动
+    # 迁移顺序一致（run_migrations 除 ensure_events_column 外也调 ensure_lease_columns）
+    from factor import job_lease
+
+    job_lease.ensure_lease_columns(sessionmaker(bind=eng)(), "sqlite")
     # 补列后旧表可正常追加事件
     sess = sessionmaker(bind=eng)()
     sess.execute(

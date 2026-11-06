@@ -6,7 +6,7 @@ FactorCatalog 是因子的唯一真相源：内置（FACTOR_META 种子）、自
 其他 kind 对应字段为 NULL。
 """
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, Text, func
 
 from collector.db.database import Base
 
@@ -77,3 +77,5 @@ class FactorMiningRun(Base):
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), index=True)
     finished_at = Column(DateTime, nullable=True)
+    # 多 worker 租约心跳（epoch 秒）：持有进程守护线程刷新，其它进程据此判活（factor/job_lease.py）
+    heartbeat_at = Column(Float, nullable=True)

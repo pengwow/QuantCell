@@ -341,11 +341,13 @@ def test_mine_llm_submits_job_and_creates_run(client, monkeypatch, isolated_cata
     submitted = {}
     captured = {}
 
-    def fake_submit(kind, params, runner, on_terminal=None, on_event_cb=None):
+    def fake_submit(kind, params, runner, on_terminal=None, on_event_cb=None, lease=None, on_stop_signal=None):
         submitted["kind"] = kind
         submitted["params"] = params
         captured["on_terminal"] = on_terminal
         captured["on_event_cb"] = on_event_cb
+        # 挖掘作业必须声明租约（多 worker 心跳判活依赖 DB 行）
+        submitted["lease"] = lease
         return "job-123"
 
     monkeypatch.setattr("factor.routes.job_manager.submit", fake_submit)
@@ -371,6 +373,7 @@ def test_mine_llm_submits_job_and_creates_run(client, monkeypatch, isolated_cata
     assert data["job_id"] == "job-123"
     assert isinstance(data["run_id"], int)
     assert submitted["kind"] == "llm_mine"
+    assert submitted["lease"] == "mining"
     # compose 默认开启并透传到 job 参数
     assert submitted["params"]["compose"] is True
     # 终态回调已挂上
@@ -411,7 +414,7 @@ def _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-h1"):
 
     captured = {}
 
-    def fake_submit(kind, params, runner, on_terminal=None, on_event_cb=None):
+    def fake_submit(kind, params, runner, on_terminal=None, on_event_cb=None, lease=None, on_stop_signal=None):
         captured["cb"] = on_terminal
         return job_id
 
@@ -475,6 +478,15 @@ def test_mine_run_failed_terminal_persists_error(client, monkeypatch, isolated_c
 def test_mine_run_interrupted_after_restart(client, monkeypatch, isolated_catalog_db):
     # DB running 但内存 job 查不到 → 详情懒修正 interrupted（monkeypatch 内存 manager.get 为 None）
     run_id, _ = _submit_mining_with_captured_cb(client, monkeypatch, job_id="job-h3")
+    # 模拟持有进程崩溃超过判死窗口：心跳停更（心跳新鲜 = 其它进程在跑，懒修正不得动它）
+    from sqlalchemy import text
+
+    from factor import routes as factor_routes
+
+    with factor_routes.get_db_session() as db:
+        db.execute(text("UPDATE factor_mining_runs SET heartbeat_at = 0 WHERE job_id = 'job-h3'"))
+        # fake session 退出即 close（未提交改动会被回滚），必须显式提交
+        db.commit()
 
     class _NoJobs:
         def get(self, job_id):
