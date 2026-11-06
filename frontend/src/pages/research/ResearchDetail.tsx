@@ -433,8 +433,8 @@ const ResearchDetail: React.FC = () => {
             </Typography.Title>
             {detail && <Tag color={statusMeta?.color}>{statusMeta?.label}</Tag>}
             {detail && (
-              <Tag color={detail.scenario === 'strategy' ? 'geekblue' : 'cyan'}>
-                {detail.scenario === 'strategy' ? '策略挖掘' : '因子挖掘'}
+              <Tag color={detail.scenario === 'strategy' ? 'geekblue' : detail.scenario === 'model' ? 'purple' : 'cyan'}>
+                {detail.scenario === 'strategy' ? '策略挖掘' : detail.scenario === 'model' ? '模型挖掘' : '因子挖掘'}
               </Tag>
             )}
             {detail && <Tag>{detail.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>}
