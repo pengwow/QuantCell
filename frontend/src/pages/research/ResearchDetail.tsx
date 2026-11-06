@@ -105,17 +105,38 @@ const diffLines = (left: string[], right: string[]): DiffLine[] => {
 /** 对比面板：指标 / 三道硬门 / 成本并排，代码只渲染差异片段（基准为第一条） */
 const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
   const base = trials[0];
+  // PRD §6.7：quick 与 deep 同表，行按场景自适应——factor 有换手/覆盖率/多空收益，
+  // strategy/model 有 Sharpe/回撤/胜率；某行所有 trial 都无值时不渲染（缺省口径见 PRD「—」）
   const metricRows = [
-    { key: 'ic_mean', label: 'IC', get: (t: ResearchTrial) => fmt(t.metrics?.ic_mean) },
-    { key: 'ic_ir', label: 'IC_IR', get: (t: ResearchTrial) => fmt(t.metrics?.ic_ir) },
-    { key: 'oos', label: '样本外', get: (t: ResearchTrial) => t.oos_flag || '—' },
-    { key: 'corr_sota', label: 'corr(SOTA)', get: (t: ResearchTrial) => fmt(t.corr_sota) },
-    { key: 'corr_library', label: 'corr(因子库)', get: (t: ResearchTrial) => fmt(t.corr_library) },
+    {
+      key: 'decision',
+      label: '决策',
+      get: (t: ResearchTrial) =>
+        t.decision == null ? '待人工' : t.decision ? '通过' : '未通过',
+    },
+    { key: 'ic_mean', label: 'IC（RankIC）', get: (t: ResearchTrial) => t.metrics?.ic_mean },
+    { key: 'ic_ir', label: 'IC_IR', get: (t: ResearchTrial) => t.metrics?.ic_ir },
+    { key: 'oos', label: '样本外', get: (t: ResearchTrial) => t.oos_flag },
+    { key: 'sharpe', label: 'Sharpe', get: (t: ResearchTrial) => t.metrics?.sharpe_ratio },
+    {
+      key: 'mdd',
+      label: '最大回撤',
+      get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.max_drawdown_pct,
+    },
+    { key: 'win_rate', label: '胜率', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.win_rate },
+    { key: 'turnover', label: '换手', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.turnover },
+    { key: 'coverage', label: '覆盖率', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.coverage },
+    { key: 'ls_return', label: '多空收益', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.long_short_return },
+    { key: 'corr_sota', label: 'corr(SOTA)', get: (t: ResearchTrial) => t.corr_sota },
+    { key: 'corr_library', label: 'corr(因子库)', get: (t: ResearchTrial) => t.corr_library },
     { key: 'token', label: 'Token', get: (t: ResearchTrial) => String(t.token_used) },
     { key: 'llm_calls', label: 'LLM 调用', get: (t: ResearchTrial) => String(t.llm_calls) },
     { key: 'duration', label: '耗时(ms)', get: (t: ResearchTrial) => String(t.duration_ms ?? 0) },
     { key: 'model', label: '模型', get: (t: ResearchTrial) => t.model || '—' },
-  ];
+  ].filter((row) =>
+    // 全行无数据的指标不占位（如纯 strategy 会话没有 IC/换手）；get 返回原始值，null 才代表缺省
+    trials.some((t) => row.get(t) != null),
+  );
   const gateRows = [
     { key: 'icir', label: 'IC_IR 门', get: (t: ResearchTrial) => t.judge?.gates?.icir },
     { key: 'oos', label: '样本外门', get: (t: ResearchTrial) => t.judge?.gates?.oos },
@@ -131,6 +152,7 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
       if (value && typeof value === 'object' && 'pass' in value) {
         return <GateTag label={row.label.replace(' 门', '')} gate={value as ResearchGate} />;
       }
+      if (typeof value === 'number' && Number.isFinite(value)) return fmt(value);
       return String(value ?? '—');
     },
   }));
@@ -206,6 +228,8 @@ const ResearchDetail: React.FC = () => {
   // 防并发重入：StrictMode 双 mount / tab 切回立即轮询 / 手动刷新都可能让两个 load 并发，
   // 它们带着同一个旧 nextSeqRef 各拉一批事件，导致同一 seq 被 append 两次（React key 重复警告）
   const loadBusyRef = useRef(false);
+  // PRD §6.7：默认勾选（SOTA + 最新一轮）只初始化一次，不覆盖用户后续手动勾选
+  const defaultPickRef = useRef(false);
 
   const load = useCallback(async () => {
     if (loadBusyRef.current) return;
@@ -213,6 +237,15 @@ const ResearchDetail: React.FC = () => {
     try {
       const data = await researchApi.get(sessionId);
       setDetail(data);
+      if (!defaultPickRef.current && data.trials?.length) {
+        defaultPickRef.current = true;
+        const ids = data.trials.map((t) => t.id);
+        const latest = Math.max(...ids);
+        const best = data.best_trial_id;
+        setSelectedKeys(
+          best != null && ids.includes(best) && best !== latest ? [best, latest] : [latest],
+        );
+      }
       // 事件已持久化到 research_events：不再依赖 backend_job_id（多 worker/重启后依然可增量读）
       const page = await researchApi.events(sessionId, nextSeqRef.current);
       if (page.events.length > 0) {
