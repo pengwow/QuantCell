@@ -21,6 +21,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
+import { formatTokens } from '@/utils/format';
 import {
   researchApi,
   type ResearchEvent,
@@ -501,7 +502,7 @@ const ResearchDetail: React.FC = () => {
             <Progress
               percent={tokenPercent}
               status={detail?.status === 'running' ? 'active' : undefined}
-              format={() => `Token 已用 / 上限：${detail?.token_used ?? 0} / ${detail?.max_tokens ?? '—'}`}
+              format={() => `Token 已用 / 上限：${formatTokens(detail?.token_used, '0')} / ${formatTokens(detail?.max_tokens, '—')}`}
             />
             {detail && (
               <Descriptions size="small" column={3}>
