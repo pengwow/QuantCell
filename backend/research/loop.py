@@ -24,26 +24,17 @@ from sqlalchemy.orm import Session
 from factor.llm_miner import (
     LLMMineParams,
     _classify_exc,
-    _metrics_from_analysis,
-    _oos_metrics,
     run_llm_mining,
 )
 from research import agents, consts, service
 from research.agents import (
     FactorTask,
     LLMCall,
-    build_feedback,
-    code_prompt,
-    generate_code,
-    generate_hypothesis,
     prompt_fingerprint,
-    render_context,
-    repair_code,
 )
-from research.judge import evaluate_gates
 from research.quick import map_candidates_to_trials, session_cost_from_stats
 from research.scenario import ResearchScenario, get_scenario
-from research.scenarios.factor import rank_corr
+from research.scenarios.factor import load_seed_factor, rank_corr, seed_context
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -230,6 +221,8 @@ class ResearchLoop:
         self._factor_cache: dict[int, Any] = {}
         # 会话归属，用于失败签名知识库按 owner 隔离
         self._owner_id: str = ""
+        # 种子因子上下文缓存：None = 未查询过（因子查过但为空时缓存 ""）
+        self._seed_text_cache: str | None = None
 
     # ---------- DB 小工具 ----------
 
@@ -287,6 +280,29 @@ class ResearchLoop:
                 )
         except Exception:
             logger.exception("[研究] 记录失败签名失败，已忽略")
+
+    def _seed_text(self, cfg: dict[str, Any]) -> str:
+        """种子因子上下文（「基于已有因子研究」入口），每会话只查一次库。
+
+        运行期因子被删的防御：记事件后忽略种子，不拖垮会话（创建时已校验存在）。
+        """
+        if self._seed_text_cache is not None:
+            return self._seed_text_cache
+        name = str(cfg.get("seed_factor") or "").strip()
+        if not name:
+            self._seed_text_cache = ""
+            return ""
+        try:
+            seed = load_seed_factor(name)
+        except Exception:
+            logger.exception(f"[研究] 读取种子因子 {name} 失败，已忽略")
+            seed = None
+        if seed is None:
+            self._seed_text_cache = ""
+            self._event("session.seed_missing", f"种子因子 {name} 未找到，已忽略")
+            return ""
+        self._seed_text_cache = seed_context(seed)
+        return self._seed_text_cache
 
     def _finish(self, status: str, *, error: str | None = None) -> None:
         with self._db() as db:
@@ -475,7 +491,9 @@ class ResearchLoop:
         usage: dict[str, Any] = {}
         for attempt in (1, 2):
             try:
-                code, usage, calls, tokens = self._budgeted_call(budget, generate_code, self.deps.llm_call, task)
+                code, usage, calls, tokens = self._budgeted_call(
+                    budget, self._scenario_obj.generate_code, self.deps.llm_call, task
+                )
             except BudgetExhausted, CancelSignal, PauseSignal:
                 raise
             except Exception as exc:
@@ -515,17 +533,16 @@ class ResearchLoop:
         # 训练段样本量：按 test_ratio 先从全量估算，避免模型设计超出历史的窗口
         test_ratio = _cfg_number(cfg, "test_ratio", consts.DEFAULT_TEST_RATIO)
         train_bars = int(max((len(df) for df in raw_map.values()), default=0) * (1 - test_ratio))
-        data_note = (
-            f"- 品种数：{len(raw_map)}；周期：{cfg.get('interval') or '1h'}；训练段约 {train_bars} 根 K 线\n"
-            "- 代码按单品种执行（系统逐品种跑一遍再拼成截面面板），df 没有 code/date 列；"
-            "不要用 np.concatenate / DataFrame.get / 跨品种拼接"
-        )
-        context = render_context(
+        # 数据附页与上下文渲染均可被场景覆写（strategy 场景描述回测口径而非截面面板）
+        data_note = self._scenario_obj.data_note(raw_map, cfg, train_bars)
+        context = self._scenario_obj.render_context(
             trials,
             sota or self._sota_trial,
             knowledge=self._knowledge_rows(),
             data_note=data_note,
         )
+        # 「基于已有因子研究」：种子因子的说明/指标/代码附加到每轮 propose 上下文
+        context += self._seed_text(cfg)
 
         trial_id: int | None = None
         # 失败可能发生在 plan 之前，task 允许为空（只影响知识库 hint）
@@ -567,7 +584,7 @@ class ResearchLoop:
             # step 1 propose
             self._set_step(1)
             hypothesis, _usage, calls, tokens = self._budgeted_call(
-                budget, generate_hypothesis, self.deps.llm_call, context, cfg.get("seed_factor")
+                budget, self._scenario_obj.generate_hypothesis, self.deps.llm_call, context, cfg.get("seed_factor")
             )
             track(calls, tokens)
             self._persist_cost(budget)
@@ -676,7 +693,13 @@ class ResearchLoop:
                         service.update_trial(db, trial_id, repair_json=repairs)
                     note_failure("empty_output", "LLM 未返回可用代码", task.description)
                     code, usage, calls, tokens = self._budgeted_call(
-                        budget, repair_code, self.deps.llm_call, task, "", "empty_output", "LLM 未返回可用代码"
+                        budget,
+                        self._scenario_obj.repair_code,
+                        self.deps.llm_call,
+                        task,
+                        "",
+                        "empty_output",
+                        "LLM 未返回可用代码",
                     )
                     track(calls, tokens)
                     self._persist_cost(budget)
@@ -693,7 +716,7 @@ class ResearchLoop:
                         status="coded",
                         code=code,
                         code_hash=_hash_code(code),
-                        prompt_hash=prompt_fingerprint(*code_prompt(task)),
+                        prompt_hash=prompt_fingerprint(*self._scenario_obj.code_prompt(task)),
                     )
                 self._event("trial.coded", f"loop={loop_idx} trial={trial_id} code_len={len(code)}")
                 _checkpoint(control)
@@ -723,7 +746,7 @@ class ResearchLoop:
                         if len(repairs) > repair_rounds:
                             raise
                         code, usage, calls, tokens = self._budgeted_call(
-                            budget, repair_code, self.deps.llm_call, task, code, kind, err
+                            budget, self._scenario_obj.repair_code, self.deps.llm_call, task, code, kind, err
                         )
                         track(calls, tokens)
                         self._persist_cost(budget)
@@ -755,10 +778,8 @@ class ResearchLoop:
                         f"loop={loop_idx} trial={trial_id} duplicate_of={dup_trial_id} corr={dup_corr}",
                     )
                     return
-                metrics = _metrics_from_analysis(train)
-                metrics_oos, flag, note, _folds = _oos_metrics(
-                    analysis, metrics, _cfg_number(cfg, "test_ratio", consts.DEFAULT_TEST_RATIO)
-                )
+                metrics = self._scenario_obj.metrics_from_analysis(analysis, cfg)
+                metrics_oos, flag, note = self._scenario_obj.oos_metrics(analysis, metrics, cfg)
                 metrics["oos"] = metrics_oos
                 # 硬门 3 的相关性在评估完成时一并落库，续跑 judge 不再重算
                 corr_sota, corr_library = self._corr_values(analysis, raw_map, cfg)
@@ -774,10 +795,17 @@ class ResearchLoop:
                         corr_sota=corr_sota,
                         corr_library=corr_library,
                     )
+                # 指标展示随场景：factor 展示 ic/icir，strategy 展示夏普/盈亏
+                if metrics.get("ic_mean") is not None or metrics.get("ic_ir") is not None:
+                    primary = f"ic={metrics.get('ic_mean')} icir={metrics.get('ic_ir')}"
+                else:
+                    primary = (
+                        f"sharpe={metrics.get('sharpe_ratio')} pnl={metrics.get('total_pnl')} "
+                        f"trades={metrics.get('trades')}"
+                    )
                 self._event(
                     "trial.evaluated",
-                    f"loop={loop_idx} trial={trial_id} ic={metrics.get('ic_mean')} "
-                    f"icir={metrics.get('ic_ir')} oos={flag} "
+                    f"loop={loop_idx} trial={trial_id} {primary} oos={flag} "
                     f"corr_sota={corr_sota} corr_library={corr_library}",
                 )
                 _checkpoint(control)
@@ -786,7 +814,12 @@ class ResearchLoop:
             if not feedback_done:
                 self._set_step(5)
                 feedback, _usage, calls, tokens = self._budgeted_call(
-                    budget, build_feedback, self.deps.llm_call, context, metrics, (sota or {}).get("metrics")
+                    budget,
+                    self._scenario_obj.build_feedback,
+                    self.deps.llm_call,
+                    context,
+                    metrics,
+                    (sota or {}).get("metrics"),
                 )
                 track(calls, tokens)
                 self._persist_cost(budget)
@@ -797,13 +830,12 @@ class ResearchLoop:
 
             # step 6 record / judge
             self._set_step(6)
-            judge = evaluate_gates(
-                ic_ir=metrics.get("ic_ir"),
+            judge = self._scenario_obj.judge(
+                metrics=metrics,
                 oos_flag=flag,
-                corr_vs_sota=corr_sota,
-                corr_vs_library=corr_library,
-                icir_floor=_cfg_number(cfg, "icir_floor", consts.DEFAULT_ICIR_FLOOR),
-                corr_threshold=_cfg_number(cfg, "corr_threshold", consts.DEFAULT_CORR_THRESHOLD),
+                corr_sota=corr_sota,
+                corr_library=corr_library,
+                cfg=cfg,
                 # 有 SOTA 时必须给出 SOTA 相关性；缺失记为 unknown，不放行
                 sota_expected=self._sota_trial is not None,
             )

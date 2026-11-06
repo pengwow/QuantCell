@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   Descriptions,
+  Drawer,
   Flex,
   Modal,
   Progress,
@@ -202,8 +203,13 @@ const ResearchDetail: React.FC = () => {
   const [events, setEvents] = useState<ResearchEvent[]>([]);
   // 事件按 seq 增量拉取；用 ref 避免把 seq 放进 useCallback 依赖导致轮询重挂载
   const nextSeqRef = useRef(0);
+  // 防并发重入：StrictMode 双 mount / tab 切回立即轮询 / 手动刷新都可能让两个 load 并发，
+  // 它们带着同一个旧 nextSeqRef 各拉一批事件，导致同一 seq 被 append 两次（React key 重复警告）
+  const loadBusyRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (loadBusyRef.current) return;
+    loadBusyRef.current = true;
     try {
       const data = await researchApi.get(sessionId);
       setDetail(data);
@@ -216,6 +222,7 @@ const ResearchDetail: React.FC = () => {
     } catch (err) {
       message.error(err instanceof Error ? err.message : '会话加载失败');
     } finally {
+      loadBusyRef.current = false;
       setLoading(false);
     }
   }, [sessionId, message]);
@@ -425,6 +432,11 @@ const ResearchDetail: React.FC = () => {
               {detail?.name || `会话 #${sessionId}`}
             </Typography.Title>
             {detail && <Tag color={statusMeta?.color}>{statusMeta?.label}</Tag>}
+            {detail && (
+              <Tag color={detail.scenario === 'strategy' ? 'geekblue' : 'cyan'}>
+                {detail.scenario === 'strategy' ? '策略挖掘' : '因子挖掘'}
+              </Tag>
+            )}
             {detail && <Tag>{detail.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>}
             {detail?.extended_at && (
               <Tag color="blue">已追加 {new Date(detail.extended_at).toLocaleString()}</Tag>
@@ -499,15 +511,24 @@ const ResearchDetail: React.FC = () => {
                 LLM 调用（已用 / 上限）：{detail?.llm_calls ?? 0} / {detail?.max_llm_calls ?? '—'}
               </span>
               <span>最优 IC_IR：{fmt(detail?.best_ic_ir)}</span>
+              {/* token 进度圆圈与统计文字同行内嵌：数值不占版面，悬停圆圈看详细用量 */}
+              <Flex gap="small" align="center">
+                <span>Token：</span>
+                <Tooltip
+                  title={`Token 已用 / 上限：${formatTokens(detail?.token_used, '0')} / ${formatTokens(detail?.max_tokens, '—')}（原始值：${detail?.token_used ?? 0} / ${detail?.max_tokens ?? '—'} tokens）`}
+                >
+                  <Progress
+                    type="circle"
+                    size={32}
+                    percent={tokenPercent}
+                    status={detail?.status === 'running' ? 'active' : undefined}
+                    // 用量分档变色：<60% 默认蓝，60-84% 橙色预警，>=85% 红色告警
+                    strokeColor={tokenPercent >= 85 ? '#ff4d4f' : tokenPercent >= 60 ? '#faad14' : undefined}
+                    format={() => ''}
+                  />
+                </Tooltip>
+              </Flex>
             </Space>
-            {/* 缩写显示原始 token 数，悬停可看完整数值 */}
-            <Tooltip title={`原始值：${detail?.token_used ?? 0} / ${detail?.max_tokens ?? '—'} tokens`}>
-              <Progress
-                percent={tokenPercent}
-                status={detail?.status === 'running' ? 'active' : undefined}
-                format={() => `Token 已用 / 上限：${formatTokens(detail?.token_used, '0')} / ${formatTokens(detail?.max_tokens, '—')}`}
-              />
-            </Tooltip>
             {detail && (
               <Descriptions size="small" column={3}>
                 <Descriptions.Item label="品种">
@@ -589,11 +610,15 @@ const ResearchDetail: React.FC = () => {
           )}
         </Card>
 
-        {trial && (
-          <Card
-            size="small"
-            title={`试验 #${trial.id} 详情`}
-            extra={
+        {/* 试验详情从页面内嵌 Card 改为右侧抽屉，宽度与因子库详情抽屉一致（68%） */}
+        <Drawer
+          open={!!trial}
+          width="68%"
+          title={trial ? `试验 #${trial.id} 详情` : ''}
+          onClose={() => setTrial(null)}
+          destroyOnClose
+          extra={
+            trial && (
               <Space>
                 {trial.code && !trial.replay_of_id && (
                   <Button loading={replaying} onClick={() => void replay(trial)}>
@@ -620,10 +645,11 @@ const ResearchDetail: React.FC = () => {
                     </Button>
                   )
                 )}
-                <Button onClick={() => setTrial(null)}>关闭</Button>
               </Space>
-            }
-          >
+            )
+          }
+        >
+          {trial && (
             <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
               <Typography.Paragraph style={{ margin: 0 }}>
                 假设：{trial.hypothesis || '—'}
@@ -680,8 +706,8 @@ const ResearchDetail: React.FC = () => {
                 {trial.code || '（无代码）'}
               </pre>
             </Space>
-          </Card>
-        )}
+          )}
+        </Drawer>
 
         {replayResult && (
           <Card

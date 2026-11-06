@@ -21,6 +21,8 @@ import { researchApi, type ResearchCreateParams, type ResearchMode, type Researc
 interface Props {
   open: boolean;
   initialMode?: ResearchMode;
+  /** 种子因子（「基于已有因子研究」入口带入）：展示为可清除标签，提交时随 payload 下发 */
+  seedFactor?: string | null;
   /** 复制配置的来源会话：按它的 config 预填表单 */
   copyFrom?: ResearchSession | null;
   onClose: () => void;
@@ -40,6 +42,7 @@ const estimateCalls = (mode: ResearchMode, candidates: number, loops: number): n
 
 interface FormValues {
   mode: ResearchMode;
+  scenario: 'factor' | 'strategy';
   name?: string;
   symbols: string[];
   interval: string;
@@ -51,13 +54,19 @@ interface FormValues {
   max_tokens?: number;
   icir_floor?: number;
   corr_threshold?: number;
+  sharpe_floor?: number;
+  min_trades?: number;
+  initial_cash?: number;
 }
 
-const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClose, onCreated }) => {
+const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, copyFrom, onClose, onCreated }) => {
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 种子因子可清除：用本地 state 而不是直接绑 prop，用户能移除后再提交
+  const [seed, setSeed] = useState<string | null>(null);
   const mode = Form.useWatch('mode', form) ?? 'deep';
+  const scenario = Form.useWatch('scenario', form) ?? 'factor';
   // 复制配置预填会触发模式变化；这一次不要用默认值把复制来的参数冲掉
   const skipModeResetFor = useRef<ResearchMode | null>(null);
   const watchedCandidates = Form.useWatch('n_candidates', form);
@@ -72,9 +81,10 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
     (watchedMaxCalls && estCalls > watchedMaxCalls) || (watchedMaxTokens && estTokens > watchedMaxTokens),
   );
 
-  // 打开抽屉：有复制来源就按它的 config 预填，否则只预置入口模式
+  // 打开抽屉：有复制来源就按它的 config 预填，否则只预置入口模式；种子因子同步重置（复制来源优先）
   useEffect(() => {
     if (!open) return;
+    setSeed(seedFactor ?? null);
     if (copyFrom) {
       const cfg = copyFrom.config;
       const start = cfg.start ? dayjs(String(cfg.start)) : dayjs().subtract(180, 'day');
@@ -82,6 +92,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
       skipModeResetFor.current = copyFrom.mode;
       form.setFieldsValue({
         mode: copyFrom.mode,
+        scenario: (cfg.scenario as 'factor' | 'strategy' | undefined) ?? 'factor',
         name: `复制-${copyFrom.name}`.slice(0, 64),
         symbols: (cfg.symbols as string[] | undefined) ?? DEFAULT_SYMBOLS,
         interval: String(cfg.interval ?? '1h'),
@@ -93,12 +104,15 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
         max_tokens: Number(cfg.max_tokens) || undefined,
         icir_floor: Number(cfg.icir_floor) || undefined,
         corr_threshold: Number(cfg.corr_threshold) || undefined,
+        sharpe_floor: Number(cfg.sharpe_floor) || undefined,
+        min_trades: Number(cfg.min_trades) || undefined,
+        initial_cash: Number(cfg.initial_cash) || undefined,
       });
       return;
     }
     skipModeResetFor.current = initialMode ?? 'deep';
     form.setFieldsValue({ mode: initialMode ?? 'deep' });
-  }, [open, copyFrom, initialMode, form]);
+  }, [open, copyFrom, initialMode, seedFactor, form]);
 
   // 切换模式时把候选数与预算重置为对应默认值，避免 quick 带上 deep 的 30 次预算
   useEffect(() => {
@@ -116,14 +130,23 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
     });
   }, [mode, form]);
 
+  // strategy 只有 deep 链路（quick 复用的是因子挖掘）：切场景时把 quick 修正为 deep
+  useEffect(() => {
+    if (scenario === 'strategy' && mode === 'quick') {
+      form.setFieldsValue({ mode: 'deep' });
+    }
+  }, [scenario, mode, form]);
+
   const submit = async () => {
     setError(null);
     try {
       const values = await form.validateFields();
       // 预算估算仅提示（见上方 Alert），不再拦截提交：真实单次消耗常低于估算
       const [start, end] = values.window;
+      const isStrategy = values.scenario === 'strategy';
       const payload: ResearchCreateParams = {
         mode: values.mode,
+        scenario: values.scenario || 'factor',
         name: values.name?.trim() || undefined,
         symbols: values.symbols,
         interval: values.interval,
@@ -134,8 +157,12 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
         loop_n: values.mode === 'deep' ? values.loop_n : 1,
         max_llm_calls: values.max_llm_calls,
         max_tokens: values.max_tokens,
-        icir_floor: values.icir_floor,
-        corr_threshold: values.corr_threshold,
+        icir_floor: isStrategy ? undefined : values.icir_floor,
+        corr_threshold: isStrategy ? undefined : values.corr_threshold,
+        sharpe_floor: isStrategy ? values.sharpe_floor : undefined,
+        min_trades: isStrategy ? values.min_trades : undefined,
+        initial_cash: isStrategy ? values.initial_cash : undefined,
+        seed_factor: seed || undefined,
       };
       setSubmitting(true);
       const res = await researchApi.create(payload);
@@ -164,6 +191,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
         layout="vertical"
         initialValues={{
           mode: 'deep',
+          scenario: 'factor',
           symbols: DEFAULT_SYMBOLS,
           interval: '1h',
           candle_type: 'spot',
@@ -173,10 +201,30 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           {error && <Alert type="error" title={error} showIcon />}
 
+          {seed && (
+            <Alert
+              type="info"
+              showIcon
+              closable
+              onClose={() => setSeed(null)}
+              title={`基于已有因子：${seed}`}
+              description="假设与代码将参考该因子的说明、最近指标与代码生成；清除后将独立探索。"
+            />
+          )}
+
+          <Form.Item name="scenario" label="研究场景">
+            <Radio.Group optionType="button" buttonStyle="solid">
+              <Radio.Button value="factor">因子挖掘（IC/ICIR 硬门）</Radio.Button>
+              <Radio.Button value="strategy">策略挖掘（回测硬门）</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+
           <Form.Item name="mode" label="研究模式">
             <Radio.Group optionType="button" buttonStyle="solid">
               <Radio.Button value="deep">深度研究（假设→编码→评估→反馈）</Radio.Button>
-              <Radio.Button value="quick">快速验证（复用现有挖掘）</Radio.Button>
+              <Radio.Button value="quick" disabled={scenario === 'strategy'}>
+                快速验证（复用现有挖掘）
+              </Radio.Button>
             </Radio.Group>
           </Form.Item>
 
@@ -250,16 +298,30 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
             />
           )}
 
-          {/* quick 只走冗余门，IC_IR/相关性属于 deep 专属硬门，不展示 */}
-          {mode === 'deep' && (
+          {/* factor 才有 IC_IR/相关性硬门；strategy 场景换成回测口径的夏普/成交/资金 */}
+          {scenario === 'strategy' ? (
             <Space size="middle" style={{ display: 'flex' }}>
-              <Form.Item name="icir_floor" label="IC_IR 硬门" style={{ flex: 1 }}>
-                <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+              <Form.Item name="sharpe_floor" label="夏普下限" style={{ flex: 1 }}>
+                <InputNumber min={-5} max={10} step={0.1} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="corr_threshold" label="相关性上限" style={{ flex: 1 }}>
-                <InputNumber min={0.1} max={1} step={0.05} style={{ width: '100%' }} />
+              <Form.Item name="min_trades" label="最少成交数" style={{ flex: 1 }}>
+                <InputNumber min={1} max={10000} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="initial_cash" label="单品种初始资金" style={{ flex: 1 }}>
+                <InputNumber min={1000} step={10000} style={{ width: '100%' }} />
               </Form.Item>
             </Space>
+          ) : (
+            mode === 'deep' && (
+              <Space size="middle" style={{ display: 'flex' }}>
+                <Form.Item name="icir_floor" label="IC_IR 硬门" style={{ flex: 1 }}>
+                  <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="corr_threshold" label="相关性上限" style={{ flex: 1 }}>
+                  <InputNumber min={0.1} max={1} step={0.05} style={{ width: '100%' }} />
+                </Form.Item>
+              </Space>
+            )
           )}
 
           <Space>

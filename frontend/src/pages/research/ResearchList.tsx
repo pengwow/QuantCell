@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   App as AntApp,
@@ -54,6 +54,8 @@ const ResearchList: React.FC = () => {
   const [status, setStatus] = useState<'all' | ResearchStatus>('all');
   const [newOpen, setNewOpen] = useState(false);
   const [initialMode, setInitialMode] = useState<ResearchMode>('deep');
+  // 种子因子：因子详情「基于此因子研究」经 /research?seed=<name> 跳入
+  const [seedFactor, setSeedFactor] = useState<string | null>(null);
   // 复制配置：把来源会话带进新建抽屉，按它的 config 预填
   const [copyFrom, setCopyFrom] = useState<ResearchSession | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -79,6 +81,18 @@ const ResearchList: React.FC = () => {
     void load();
   }, [load]);
 
+  // 因子详情「基于此因子研究」入口：?seed=<name> 自动打开新建抽屉并带上种子，
+  // 读到即清理 query，避免刷新页面重复弹抽屉
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const seed = searchParams.get('seed');
+    if (!seed) return;
+    setSeedFactor(seed);
+    setInitialMode('deep');
+    setNewOpen(true);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   usePolling(load, { interval: 5000 });
 
   const act = async (action: () => Promise<unknown>, text: string) => {
@@ -99,6 +113,9 @@ const ResearchList: React.FC = () => {
       render: (name: string, row) => (
         <Space size={6}>
           <span>{name || `会话 #${row.id}`}</span>
+          <Tag color={row.scenario === 'strategy' ? 'geekblue' : 'cyan'}>
+            {row.scenario === 'strategy' ? '策略' : '因子'}
+          </Tag>
           <Tag>{row.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>
         </Space>
       ),
@@ -283,10 +300,12 @@ const ResearchList: React.FC = () => {
         <ResearchNewDrawer
           open={newOpen}
           initialMode={initialMode}
+          seedFactor={seedFactor}
           copyFrom={copyFrom}
           onClose={() => {
             setNewOpen(false);
             setCopyFrom(null);
+            setSeedFactor(null);
           }}
           onCreated={(id) => navigate(`/research/${id}`)}
         />

@@ -1,7 +1,9 @@
 """研究场景抽象（PRD §5.4）。
 
-只抽 4 个真实会变化的点：describe / build_tasks / evaluate / promote。
-P0 只实现 factor；model / strategy 保持 Protocol 可容纳，不做实现。
+P0 只抽 4 个真实会变化的点：describe / build_tasks / evaluate / promote。
+P2 接 strategy 场景时实测发现，生成/修复 prompt、指标提取、OOS 口径、采纳
+硬门同样是场景特定的——这批环节以「可选钩子默认实现」的形式收进
+scenarios/base.ScenarioDefaults（factor 继承即行为不变），loop 通过场景对象调用。
 """
 
 from __future__ import annotations
@@ -12,7 +14,13 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class ResearchScenario(Protocol):
-    """场景协议：决定候选是什么、怎么评估、产物落到哪。"""
+    """场景协议：决定候选是什么、怎么评估、产物落到哪。
+
+    四个必选方法之外，场景还可选择性覆写 ScenarioDefaults 中的钩子：
+    generate_hypothesis / render_context / data_note / code_prompt /
+    generate_code / repair_code / build_feedback / metrics_from_analysis /
+    oos_metrics / judge。
+    """
 
     key: str
 
@@ -47,4 +55,8 @@ def get_scenario(name: str) -> ResearchScenario:
         from research.scenarios.factor import FactorScenario
 
         return FactorScenario()
+    if name == "strategy":
+        from research.scenarios.strategy import StrategyScenario
+
+        return StrategyScenario()
     raise LookupError(f"场景 {name} 暂未实现")

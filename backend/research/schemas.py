@@ -45,6 +45,11 @@ class ResearchCreateReq(BaseModel):
     icir_floor: float = Field(default=consts.DEFAULT_ICIR_FLOOR, ge=0.0, le=1.0)
     corr_threshold: float = Field(default=consts.DEFAULT_CORR_THRESHOLD, gt=0.0, le=1.0)
 
+    # strategy 场景专属（factor 会话忽略）：夏普下限 / 最小成交数 / 单品种初始资金
+    sharpe_floor: float | None = Field(default=None, ge=-5.0, le=10.0)
+    min_trades: int | None = Field(default=None, ge=1, le=10000)
+    initial_cash: float | None = Field(default=None, gt=0, le=100_000_000)
+
     seed_factor: str | None = Field(default=None, max_length=200)
     model_id: str | None = Field(default=None, description="AI 模型 ID，空则用默认模型")
     temperature: float | None = Field(default=None, ge=0.0, le=1.5)
@@ -127,6 +132,9 @@ class ResearchCreateReq(BaseModel):
             "llm_feedback_timeout_secs": self.llm_feedback_timeout_secs,
             "icir_floor": self.icir_floor,
             "corr_threshold": self.corr_threshold,
+            "sharpe_floor": self.sharpe_floor,
+            "min_trades": self.min_trades,
+            "initial_cash": self.initial_cash,
             "seed_factor": self.seed_factor,
             "model_id": self.model_id,
             "temperature": self.temperature,

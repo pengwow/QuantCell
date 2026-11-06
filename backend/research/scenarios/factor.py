@@ -15,6 +15,7 @@ from factor.engine import UNSUPPORTED_FACTORS, code_hash
 from factor.models import FactorCatalog
 from factor.service import FactorService, get_factor_service
 from research import agents, consts, service
+from research.scenarios.base import ScenarioDefaults
 from utils.db_session import get_db_session
 
 
@@ -33,8 +34,48 @@ def rank_corr(a: Any, b: Any, *, min_samples: int = 50) -> float | None:
     return float(joined.iloc[:, 0].corr(joined.iloc[:, 1], method="spearman"))
 
 
-class FactorScenario:
-    """factor 场景：把研究候选当作待入库的因子代码。"""
+def load_seed_factor(name: str) -> dict[str, Any] | None:
+    """按名称查种子因子（PRD §6.2「基于此因子研究」入口），不存在返回 None。
+
+    只读取展示用的最小字段：描述、代码（code/expression 通用兜底）、最近指标摘要。
+    """
+    with get_db_session() as db:
+        row = db.query(FactorCatalog).filter(FactorCatalog.name == name).first()
+        if row is None:
+            return None
+        metrics: Any = None
+        if row.last_metrics:
+            try:
+                metrics = json.loads(row.last_metrics)
+            except ValueError:
+                metrics = None
+        return {
+            "name": row.name,
+            "description": row.description or "",
+            "code": (row.code or row.expression or "").strip(),
+            "metrics": metrics if isinstance(metrics, dict) else None,
+        }
+
+
+def seed_context(seed: dict[str, Any]) -> str:
+    """把种子因子渲染成 propose 上下文附页：说明 + 指标 + 代码给到 LLM。"""
+    lines = [f"\n\n种子因子：{seed['name']}", f"- 说明：{seed['description'] or '（无描述）'}"]
+    metrics = seed.get("metrics") or {}
+    # 只取数值型指标前 8 项，避免 snapshot 的非数值字段把 prompt 撑爆
+    summary = ", ".join(f"{k}={v}" for k, v in list(metrics.items())[:8] if isinstance(v, (int, float)))
+    if summary:
+        lines.append(f"- 最近指标：{summary}")
+    if seed.get("code"):
+        lines.append(f"- 代码（以此为基础做条件化改进，不要原样照抄）：\n```python\n{seed['code']}\n```")
+    return "\n".join(lines)
+
+
+class FactorScenario(ScenarioDefaults):
+    """factor 场景：把研究候选当作待入库的因子代码。
+
+    生成/指标/硬门的 factor 默认行为继承 ScenarioDefaults（P2 起 loop 改为
+    调用场景对象上的钩子，本类无需自己定义）。
+    """
 
     key = "factor"
 

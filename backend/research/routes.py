@@ -13,11 +13,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from common.schemas import ApiResponse
+from factor import job_lease
 from factor.engine import FactorExpressionError
 from factor.job_manager import job_manager
 from research import consts, replay, service
 from research.job import make_runner, research_job_manager
 from research.scenario import get_scenario
+from research.scenarios.factor import load_seed_factor
 from research.schemas import ResearchCreateReq, ResearchExtendReq, ResearchTrialBatchReq
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
@@ -66,13 +68,20 @@ def _ensure_status(row, allowed: set[str], action: str) -> None:
         raise service.ResearchError("bad_state", f"会话当前状态为 {row.status}，不能执行{action}")
 
 
-def _ensure_no_active_job(row: Any) -> None:
-    """resume/extend 前确认旧作业线程已真正退出，避免两个线程写同一会话。"""
+def _ensure_no_active_job(row: Any, db=None) -> None:
+    """resume/extend 前确认旧作业线程已真正退出，避免两个线程写同一会话。
+
+    多 worker：本进程内存查不到 ≠ 作业已死 —— 可能跑在其它进程。DB 租约心跳
+    （factor/job_lease.py）仍新鲜的会话行按"活跃"拦截；心跳 NULL/过期视为
+    崩溃残留，放行 resume。db 传调用方会话，与请求同事务读一致。
+    """
     if not row.backend_job_id:
         return
     status = _manager_for(row.mode).get_status(row.backend_job_id)
     if status and status.get("status") in {"pending", "running"}:
         raise service.ResearchError("bad_state", "上一个作业仍在退出中，请稍后重试继续/延期操作")
+    if job_lease.has_fresh_session_lease(row.backend_job_id, db=db):
+        raise service.ResearchError("bad_state", "上一个作业仍在其它进程执行中，请稍后重试继续/延期操作")
 
 
 def _start_job(*, session_id: int, mode: str, cfg: dict[str, Any], llm_cfg: dict[str, Any]):
@@ -106,6 +115,9 @@ def _start_job(*, session_id: int, mode: str, cfg: dict[str, Any], llm_cfg: dict
             on_terminal=on_terminal,
             # 过程事件写进 job_manager 的有界内存缓冲，供 GET /events 增量拉取
             on_event_cb=manager.append_event,
+            # 会话行的 DB 租约心跳 + 跨进程 cancel/pause 消费（factor/job_lease.py）
+            lease="session",
+            on_stop_signal=lambda sig: getattr(control, sig).set(),
         )
         service.bind_control(session_id, job_id)
     except Exception:
@@ -124,13 +136,22 @@ def create_session(
     current_user: dict = Depends(get_current_user),
 ) -> ApiResponse:
     owner = _owner(current_user)
-    # P0.5 只有 factor 场景实现；其余显式 400，禁止静默降级成 factor
-    if payload.scenario != "factor":
+    # 场景白名单：未实现的显式 400，禁止静默降级成 factor
+    if payload.scenario not in ("factor", "strategy"):
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "scenario_not_supported",
-                "message": f"场景 {payload.scenario} 尚未实现（当前仅支持 factor）",
+                "message": f"场景 {payload.scenario} 尚未实现（当前支持 factor / strategy）",
+            },
+        )
+    # quick 是 factor 批量挖掘链路，strategy 只有 deep 闭环
+    if payload.scenario == "strategy" and payload.mode == "quick":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "mode_not_supported",
+                "message": "strategy 场景暂不支持 quick 模式，请使用 deep 模式",
             },
         )
     llm_cfg = _resolve_llm(payload.model_id)
@@ -146,6 +167,12 @@ def create_session(
         )
     cfg = payload.to_config()
     cfg["model_name"] = llm_cfg.get("model") or ""
+    # 种子因子必须真实存在：不校验会把不存在的名字直接写进 propose 提示词
+    if payload.seed_factor and load_seed_factor(payload.seed_factor) is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "unknown_factor", "message": f"种子因子 {payload.seed_factor} 不存在于因子库"},
+        )
     try:
         with get_db_session() as db:
             row = service.create_session(
@@ -164,8 +191,7 @@ def create_session(
         raise _http_error(exc) from exc
 
     job_id = _start_job(session_id=session_id, mode=payload.mode, cfg=cfg, llm_cfg=llm_cfg)
-    with get_db_session() as db:
-        service.update_session_fields(db, session_id, backend_job_id=job_id)
+    _bind_job(session_id, job_id)
     logger.info(f"[研究] 创建会话 {session_id} mode={payload.mode} job={job_id}")
     return ApiResponse(code=0, message="ok", data={"session_id": session_id, "job_id": job_id})
 
@@ -374,6 +400,10 @@ def pause_session(
                     detail={"code": "pause_unsupported", "message": "quick 会话不支持暂停，请取消后重跑"},
                 )
             service.set_session_status(db, row, "paused")
+            # 跨进程投递：若作业跑在其它进程，持有进程的心跳线程会消费 pause 标志
+            # （标志保留在行上（本地 ctrl 未消费时）不引起问题，心跳线程清零）
+            if row.backend_job_id:
+                job_lease.request_session_stop(row.backend_job_id, "pause", db=db)
             data = _detail(db, row)
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
@@ -392,7 +422,7 @@ def resume_session(
         try:
             row = service.get_session_row(db, session_id, _owner(current_user))
             _ensure_status(row, {"paused"}, "继续")
-            _ensure_no_active_job(row)
+            _ensure_no_active_job(row, db=db)
             # 在会话关闭前取出 cfg/mode，避免 ORM 属性过期后访问报 DetachedInstanceError
             cfg = service.session_config(row)
             mode = row.mode
@@ -403,9 +433,21 @@ def resume_session(
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
     job_id = _start_job(session_id=session_id, mode=mode, cfg=cfg, llm_cfg=llm_cfg)
+    _bind_job(session_id, job_id)
+    return ApiResponse(code=0, message="ok", data={"session_id": session_id, "job_id": job_id})
+
+
+def _bind_job(session_id: int, job_id: str) -> None:
+    """把新 job 绑定到会话行，并初始化租约影子状态（factor/job_lease.py）。
+
+    清残留 stop 标志（上一个作业终态后心跳线程不再 poll，标志可能未被清零，
+    不清会让新作业一启动就被误取消/暂停）+ 写首跳心跳（消除跨进程判活窗口）。
+    """
     with get_db_session() as db:
         service.update_session_fields(db, session_id, backend_job_id=job_id)
-    return ApiResponse(code=0, message="ok", data={"session_id": session_id, "job_id": job_id})
+        job_lease.clear_session_stop(session_id, db=db)
+        job_lease.mark_session_heartbeat(job_id, db=db)
+        db.commit()
 
 
 @router.post("/sessions/{session_id}/cancel", response_model=ApiResponse, summary="取消会话")
@@ -418,6 +460,9 @@ def cancel_session(
             row = service.get_session_row(db, session_id, _owner(current_user))
             _ensure_status(row, {"pending", "running", "paused"}, "取消")
             service.set_session_status(db, row, "cancelled")
+            # 跨进程投递：作业跑在其它进程时，本地 ctrl 为 None，靠 DB 标志传递取消
+            if row.backend_job_id:
+                job_lease.request_session_stop(row.backend_job_id, "cancel", db=db)
             data = _detail(db, row)
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
@@ -437,7 +482,7 @@ def extend_session(
         try:
             row = service.get_session_row(db, session_id, _owner(current_user))
             _ensure_status(row, {"completed"}, "继续研究")
-            _ensure_no_active_job(row)
+            _ensure_no_active_job(row, db=db)
             mode = row.mode
             cfg = service.session_config(row)
             base_loops = int(cfg.get("loop_n") or 1)
@@ -473,6 +518,5 @@ def extend_session(
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
     job_id = _start_job(session_id=session_id, mode=mode, cfg=cfg, llm_cfg=llm_cfg)
-    with get_db_session() as db:
-        service.update_session_fields(db, session_id, backend_job_id=job_id)
+    _bind_job(session_id, job_id)
     return ApiResponse(code=0, message="ok", data={"session_id": session_id, "job_id": job_id})
