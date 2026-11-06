@@ -46,7 +46,8 @@ class BaseSchema(BaseModel):
 
 
 # 自定义表达式因子可人工归档的分类：与内置因子元数据的 category 取值对齐，custom 为兜底。
-# 不含 llm_code / llm_composite：二者的分类由因子来源（代码/合成）派生，不允许人工指定。
+# llm_composite 不入白名单：合成因子分类由来源派生，详情页只读不可改。
+# llm_code 是代码因子（LLM 挖掘/研究采纳）的默认分类，必须可人工选回，否则改错后下拉无原值可恢复。
 EDITABLE_FACTOR_CATEGORIES = (
     "custom",
     "price",
@@ -55,6 +56,8 @@ EDITABLE_FACTOR_CATEGORIES = (
     "volume_price",
     "technical",
     "fundamental",
+    # LLM 挖掘/研究采纳的代码因子默认归此类；不加入则详情页下拉无法选回原值
+    "llm_code",
 )
 
 
