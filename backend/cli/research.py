@@ -4,9 +4,12 @@
 当前只承载 P2-④：把旧 LLM 挖掘历史（factor_mining_runs 表）包成 mode=quick
 的研究会话，供研究工作台统一查看（幂等，可重复执行）。
 
-使用方式:
-    uv run python -m cli.research migrate-mining-runs --owner <你的用户ID>
-    uv run python -m cli.research migrate-mining-runs --owner u1 --dry-run
+使用方式（typer 单命令应用，不带子命令名）:
+    uv run python -m cli.research --owner <你的用户ID>
+    uv run python -m cli.research --owner u1 --dry-run
+
+owner 必须与你的登录 user_id 一致（如 debug 模式登录为 anonymous），
+否则迁出的会话在研究工作台不可见；传错时直接改库 owner_id 亦可。
 """
 
 from __future__ import annotations
