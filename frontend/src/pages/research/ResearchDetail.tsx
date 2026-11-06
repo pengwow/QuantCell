@@ -16,6 +16,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -499,11 +500,14 @@ const ResearchDetail: React.FC = () => {
               </span>
               <span>最优 IC_IR：{fmt(detail?.best_ic_ir)}</span>
             </Space>
-            <Progress
-              percent={tokenPercent}
-              status={detail?.status === 'running' ? 'active' : undefined}
-              format={() => `Token 已用 / 上限：${formatTokens(detail?.token_used, '0')} / ${formatTokens(detail?.max_tokens, '—')}`}
-            />
+            {/* 缩写显示原始 token 数，悬停可看完整数值 */}
+            <Tooltip title={`原始值：${detail?.token_used ?? 0} / ${detail?.max_tokens ?? '—'} tokens`}>
+              <Progress
+                percent={tokenPercent}
+                status={detail?.status === 'running' ? 'active' : undefined}
+                format={() => `Token 已用 / 上限：${formatTokens(detail?.token_used, '0')} / ${formatTokens(detail?.max_tokens, '—')}`}
+              />
+            </Tooltip>
             {detail && (
               <Descriptions size="small" column={3}>
                 <Descriptions.Item label="品种">
