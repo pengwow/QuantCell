@@ -60,6 +60,7 @@ from .service import (
     FactorNotFoundError,
     FactorService,
     _EngineExprError,
+    get_factor_service,
 )
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -119,8 +120,8 @@ router = APIRouter(
     },
 )
 
-# 创建服务实例
-factor_service = FactorService()
+# 进程级共享单例：研究采纳 / quick 挖掘写入后路由内存立即可见
+factor_service = get_factor_service()
 
 # 因子档案服务：快照落 backend/data/factor/snapshots，删除归档到 backend/.trash
 _BACKEND_DIR = Path(__file__).resolve().parent.parent

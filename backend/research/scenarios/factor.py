@@ -13,7 +13,7 @@ import pandas as pd
 
 from factor.engine import UNSUPPORTED_FACTORS, code_hash
 from factor.models import FactorCatalog
-from factor.service import FactorService
+from factor.service import FactorService, get_factor_service
 from research import agents, consts, service
 from utils.db_session import get_db_session
 
@@ -39,7 +39,9 @@ class FactorScenario:
     key = "factor"
 
     def __init__(self, service: FactorService | None = None):
-        self.service = service or FactorService()
+        # 单例而非 new：采纳写库后 factor 路由的内存缓存必须立即可见，否则
+        # 因子库列表（查 DB）有、代码 Tab/计算（走内存）404
+        self.service = service or get_factor_service()
         # 因子库参考面板按原始行情缓存一次，供所有 trial 复用
         self._library_panels: list[pd.Series] | None = None
 

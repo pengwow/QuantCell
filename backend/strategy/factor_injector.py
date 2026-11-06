@@ -33,9 +33,9 @@ class FactorInjector:
     def from_factor_names(cls, factor_names: list[str]) -> FactorInjector:
         """从 FactorService 加载自定义因子表达式，创建 FactorInjector。"""
         # ponytail: 延迟 import 避免循环依赖；FactorService 从 DB 拿自定义表达式
-        from factor.service import FactorService
+        from factor.service import get_factor_service
 
-        svc = FactorService()
+        svc = get_factor_service()
         # 只加载 factor_names 中存在的自定义因子，避免全量加载
         custom = {k: v for k, v in svc.factors.items() if k in factor_names and k not in svc._builtin}
         return cls(factor_names=factor_names, custom_factors=custom)
