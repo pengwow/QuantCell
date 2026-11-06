@@ -38,7 +38,7 @@ from factor.sandbox import (
     SandboxSecurityError,
     SandboxTimeoutError,
 )
-from factor.service import FactorError, FactorService
+from factor.service import FactorError, FactorService, get_factor_service
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -352,7 +352,8 @@ def run_llm_mining(
 ) -> dict[str, Any]:
     """同步挖掘入口（运行于 factor job 工作线程；内部 asyncio.run 驱动并发 LLM 调用）。"""
     t_start = time.monotonic()
-    service = service or FactorService()
+    # 单例而非 new：挖掘产出入库后 factor 路由的内存缓存必须立即可见
+    service = service or get_factor_service()
 
     def emit(level: str, stage: str, p: float | None, msg: str) -> None:
         # 后台日志与过程事件共用同一入口，保证两边措辞/百分比一致

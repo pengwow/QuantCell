@@ -1868,3 +1868,18 @@ class FactorService:
         except Exception as e:
             logger.error(f"因子稳定性检验失败: {e}")
             return None
+
+
+# 进程级单例：FactorService 的因子目录（内置/表达式/代码）在构造时从 DB 全量加载到内存，
+# 之后只靠实例自身的增删改同步。此前研究采纳（research）、quick 挖掘（llm_miner）、
+# 策略因子注入（factor_injector）各自 new 实例，与 factor 路由的实例互不知晓——
+# 出现「因子库列表（查 DB）能看到新采纳因子，代码 Tab/计算（走内存）却 404」的割裂。
+# 统一走 get_factor_service()，一个进程一份缓存；需要隔离的测试仍可显式构造实例。
+_FACTOR_SERVICE: FactorService | None = None
+
+
+def get_factor_service() -> FactorService:
+    global _FACTOR_SERVICE
+    if _FACTOR_SERVICE is None:
+        _FACTOR_SERVICE = FactorService()
+    return _FACTOR_SERVICE
