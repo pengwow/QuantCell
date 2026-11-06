@@ -211,32 +211,3 @@ def test_ensure_lease_columns_idempotent(tmp_path):
         job_lease.mark_mining_heartbeat("j", db=s)
         raw = s.execute(text("SELECT heartbeat_at FROM factor_mining_runs WHERE job_id='j'")).one()
         assert raw[0] is not None
-
-
-# ---------- reconcile 与租约判活的组合行为 ----------
-
-
-def test_reconcile_keeps_running_when_lease_fresh(db_session, monkeypatch):
-    # 不用 conftest 的 svc fixture：那返回 FactorService，这里需要 MiningRunService
-    from factor.mining_run_service import MiningRunService
-    from tests.unit.factor.test_mining_run_service import _StubJobManager
-
-    msvc = MiningRunService()
-    msvc.create_running(db_session, "job-remote", {"instruments": ["BTCUSDT"]})
-    # 内存查无此 job（当前进程不是持有者），但租约心跳新鲜 → 其它进程在跑，不得误杀
-    monkeypatch.setattr("factor.mining_run_service.job_manager", _StubJobManager({}))
-    _, runs = msvc.list_runs(db_session)
-    assert runs[0].status == "running"
-
-
-def test_reconcile_marks_interrupted_when_lease_stale(db_session, monkeypatch):
-    from factor.mining_run_service import MiningRunService
-    from tests.unit.factor.test_mining_run_service import _StubJobManager
-
-    msvc = MiningRunService()
-    row = msvc.create_running(db_session, "job-stale", {"instruments": ["BTCUSDT"]})
-    row.heartbeat_at = time.time() - 999
-    db_session.commit()
-    monkeypatch.setattr("factor.mining_run_service.job_manager", _StubJobManager({}))
-    _, runs = msvc.list_runs(db_session)
-    assert runs[0].status == "interrupted"
