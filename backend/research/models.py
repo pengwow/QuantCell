@@ -31,6 +31,12 @@ class ResearchSession(Base):
     n_candidates: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # 后端统一任务管理器中的 job_id，便于恢复进度与事件流
     backend_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 多 worker 租约影子状态（factor/job_lease.py）：heartbeat_at 由持有作业的进程
+    # 守护线程刷新，其它进程据此判活（防双跑/防懒修正误杀）；cancel/pause 标志由
+    # 任意进程的 cancel/pause 路由写入，持有进程消费后转为本地 control 信号
+    heartbeat_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cancel_requested: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pause_requested: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # 会话配置快照：数据窗口、轮次、预算、硬门阈值等
     config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     best_trial_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

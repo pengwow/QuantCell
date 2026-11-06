@@ -938,6 +938,11 @@ def run_migrations() -> None:
             # 更新 ai_models 表结构，添加 category 列（system_one/system_two 分型）
             update_ai_models_table(session, db_type)
 
+            # 作业租约影子列（多 worker 部署判活/跨进程 cancel+pause，factor/job_lease.py）
+            from factor.job_lease import ensure_lease_columns
+
+            ensure_lease_columns(session, db_type)
+
             # 提交所有更改
             session.commit()
             logger.info("所有迁移脚本执行成功")

@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.orm import Session
 
+from factor import job_lease
 from factor.job_manager import JobStatus, job_manager
 from factor.models import FactorMiningRun
 from utils.logger import LogType, get_logger
@@ -39,6 +41,8 @@ class MiningRunService:
             job_id=job_id,
             status=RUNNING,
             params_json=json.dumps(params, ensure_ascii=False),
+            # 行建好即写首跳：消除"行已建、心跳线程还没跑到"窗口内的懒修正误判
+            heartbeat_at=time.time(),
         )
         db.add(row)
         db.commit()
@@ -98,9 +102,12 @@ class MiningRunService:
     # ---------- 查询与懒修正 ----------
 
     def _reconcile(self, db: Session, rows: list[FactorMiningRun]) -> None:
-        """running 行对照内存 job 修正：内存无 → interrupted；内存终态 → 补写。
+        """running 行对照内存 job 修正：内存无且租约已死 → interrupted；内存终态 → 补写。
 
         已终态的 DB 行不查内存（completed 行不依赖内存 TTL，避免竞态）。
+        多 worker：内存 dict 只在持有进程可见 —— 租约心跳仍新鲜的 running 行
+        说明作业在别的进程正常跑，不能懒修正成 interrupted（否则其它进程的
+        前端轮询会误杀），交给 factor/job_lease.py 的判活口径。
         """
         now = datetime.now(UTC)
         changed = False
@@ -109,6 +116,8 @@ class MiningRunService:
                 continue
             job = job_manager.get(row.job_id)
             if job is None:
+                if job_lease.has_fresh_mining_lease(row.job_id, db=db):
+                    continue
                 row.status = INTERRUPTED
                 row.finished_at = now
                 changed = True

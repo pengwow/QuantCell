@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from factor.job_lease import LEASE_HOOKS, LEASE_TICK_SECONDS
 from utils.logger import LogType, get_logger
 from websocket.manager import manager
 
@@ -31,6 +32,8 @@ EventTerminalCb = Callable[[str, str, str, "float | None", str], None]
 Runner = Callable[[ProgressCb, ProgressCb, "EventCb | None"], dict[str, Any]]
 # (job_id, ok, payload)：ok=True 时 payload 为结果 dict，False 时为错误字符串
 TerminalCb = Callable[[str, bool, "dict[str, Any] | str"], None]
+# 跨进程租约：心跳线程消费到 cancel/pause 标志后回调 ("cancel" | "pause")
+StopSignalCb = Callable[[str], None]
 
 
 class JobStatus(StrEnum):
@@ -53,10 +56,20 @@ class FactorJob:
     events: list[dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # DB 影子租约类型（job_lease.LEASE_HOOKS 的 key）；None = 不写心跳（无 DB 行的作业）
+    lease: str | None = None
+    # 心跳线程消费到跨进程 cancel/pause 标志后回调 ("cancel" | "pause")，拉起本地 control
+    on_stop_signal: StopSignalCb | None = None
 
 
 class FactorJobManager:
-    def __init__(self, ttl_seconds: float = 1800.0, sweep_interval: float = 300.0, max_workers: int = 4):
+    def __init__(
+        self,
+        ttl_seconds: float = 1800.0,
+        sweep_interval: float = 300.0,
+        max_workers: int = 4,
+        heartbeat_interval: float | None = None,
+    ):
         self._jobs: dict[str, FactorJob] = {}
         self._lock = threading.Lock()
         self._ttl = ttl_seconds
@@ -64,6 +77,10 @@ class FactorJobManager:
         self._stop_sweep = threading.Event()
         self._sweeper = threading.Thread(target=self._sweep_loop, args=(sweep_interval,), daemon=True)
         self._sweeper.start()
+        self._stop_hb = threading.Event()
+        self._hb_interval = LEASE_TICK_SECONDS if heartbeat_interval is None else heartbeat_interval
+        self._hb = threading.Thread(target=self._lease_loop, daemon=True, name="factor-job-lease")
+        self._hb.start()
 
     # ---------- 提交/执行 ----------
 
@@ -74,9 +91,11 @@ class FactorJobManager:
         runner: Runner,
         on_terminal: TerminalCb | None = None,
         on_event_cb: EventTerminalCb | None = None,
+        lease: str | None = None,
+        on_stop_signal: StopSignalCb | None = None,
     ) -> str:
         job_id = str(uuid.uuid4())
-        job = FactorJob(job_id=job_id, kind=kind)
+        job = FactorJob(job_id=job_id, kind=kind, lease=lease, on_stop_signal=on_stop_signal)
         with self._lock:
             self._jobs[job_id] = job
         self._emit(job)
@@ -262,9 +281,43 @@ class FactorJobManager:
         """关闭线程池和扫尾线程（应用退出时调用）"""
         # 先通知扫尾线程停止
         self._stop_sweep.set()
+        self._stop_hb.set()
         # 关闭线程池，wait=False 避免阻塞主线程
         self._executor.shutdown(wait=False)
-        logger.info("FactorJobManager 已关闭（线程池 + 扫尾线程）")
+        logger.info("FactorJobManager 已关闭（线程池 + 扫尾线程 + 租约心跳线程）")
+
+    def _lease_loop(self) -> None:
+        """跨进程租约心跳（多 worker 部署，factor/job_lease.py）。
+
+        周期性对本进程进行中的作业：1) 刷新 DB 心跳，让其它进程能正确判活；
+        2) 消费 research_sessions 的跨进程 cancel/pause 标志并拉起本地 control 信号
+        （loop 在最近的 step 边界停下）。
+        """
+        while not self._stop_hb.wait(self._hb_interval):
+            with self._lock:
+                active = [
+                    (j.job_id, j.lease, j.on_stop_signal)
+                    for j in self._jobs.values()
+                    if j.status in (JobStatus.PENDING, JobStatus.RUNNING) and j.lease
+                ]
+            for job_id, lease, stop_cb in active:
+                hooks = LEASE_HOOKS.get(lease)
+                if hooks is None:
+                    continue
+                try:
+                    hooks["heartbeat"](job_id)
+                except Exception as e:
+                    # 心跳写失败不致命：判活阈值是 tick 的数倍，下轮重试即可
+                    logger.debug(f"租约心跳写入失败（下轮重试）: {job_id}: {e}")
+                if stop_cb is None:
+                    continue
+                for sig in ("cancel", "pause"):
+                    try:
+                        if hooks["poll_signal"](job_id, sig):
+                            logger.info(f"消费跨进程 {sig} 信号并停止本地作业: {job_id}")
+                            stop_cb(sig)
+                    except Exception as e:
+                        logger.debug(f"跨进程信号消费失败: {job_id} {sig}: {e}")
 
     def _sweep_loop(self, interval: float) -> None:
         while not self._stop_sweep.wait(interval):
