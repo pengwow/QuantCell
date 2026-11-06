@@ -555,6 +555,11 @@ async def research_ws_endpoint(websocket: WebSocket, token: str | None = Query(N
             # 双源等待：客户端消息（心跳）与推送事件谁先到处理谁
             done, _ = await asyncio.wait({recv_task, queue_task}, return_when=asyncio.FIRST_COMPLETED)
             if recv_task in done:
+                # 客户端断开时 recv_task 以异常完成，必须显式检索并退出：
+                # 已 done 的 task 会让 asyncio.wait 立即返回，若只依赖
+                # "send 必 raise" 判定断开（send 未必 raise），会形成快循环忙等
+                if recv_task.exception() is not None:
+                    break
                 try:
                     await websocket.send_json({"type": "pong"})
                 except Exception:

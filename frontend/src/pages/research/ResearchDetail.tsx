@@ -129,8 +129,9 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
     { key: 'ls_return', label: '多空收益', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.long_short_return },
     { key: 'corr_sota', label: 'corr(SOTA)', get: (t: ResearchTrial) => t.corr_sota },
     { key: 'corr_library', label: 'corr(因子库)', get: (t: ResearchTrial) => t.corr_library },
-    { key: 'token', label: 'Token', get: (t: ResearchTrial) => String(t.token_used) },
-    { key: 'llm_calls', label: 'LLM 调用', get: (t: ResearchTrial) => String(t.llm_calls) },
+    // 成本三行统一 ?? 0 兜底：candidates/planned 等未产生消费时显示 0 而非字面 "null"
+    { key: 'token', label: 'Token', get: (t: ResearchTrial) => String(t.token_used ?? 0) },
+    { key: 'llm_calls', label: 'LLM 调用', get: (t: ResearchTrial) => String(t.llm_calls ?? 0) },
     { key: 'duration', label: '耗时(ms)', get: (t: ResearchTrial) => String(t.duration_ms ?? 0) },
     { key: 'model', label: '模型', get: (t: ResearchTrial) => t.model || '—' },
   ].filter((row) =>
