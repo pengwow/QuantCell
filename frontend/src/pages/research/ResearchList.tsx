@@ -113,8 +113,8 @@ const ResearchList: React.FC = () => {
       render: (name: string, row) => (
         <Space size={6}>
           <span>{name || `会话 #${row.id}`}</span>
-          <Tag color={row.scenario === 'strategy' ? 'geekblue' : 'cyan'}>
-            {row.scenario === 'strategy' ? '策略' : '因子'}
+          <Tag color={row.scenario === 'strategy' ? 'geekblue' : row.scenario === 'model' ? 'purple' : 'cyan'}>
+            {row.scenario === 'strategy' ? '策略' : row.scenario === 'model' ? '模型' : '因子'}
           </Tag>
           <Tag>{row.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>
         </Space>

@@ -42,7 +42,7 @@ const estimateCalls = (mode: ResearchMode, candidates: number, loops: number): n
 
 interface FormValues {
   mode: ResearchMode;
-  scenario: 'factor' | 'strategy';
+  scenario: 'factor' | 'strategy' | 'model';
   name?: string;
   symbols: string[];
   interval: string;
@@ -92,7 +92,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
       skipModeResetFor.current = copyFrom.mode;
       form.setFieldsValue({
         mode: copyFrom.mode,
-        scenario: (cfg.scenario as 'factor' | 'strategy' | undefined) ?? 'factor',
+        scenario: (cfg.scenario as 'factor' | 'strategy' | 'model' | undefined) ?? 'factor',
         name: `复制-${copyFrom.name}`.slice(0, 64),
         symbols: (cfg.symbols as string[] | undefined) ?? DEFAULT_SYMBOLS,
         interval: String(cfg.interval ?? '1h'),
@@ -130,9 +130,9 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
     });
   }, [mode, form]);
 
-  // strategy 只有 deep 链路（quick 复用的是因子挖掘）：切场景时把 quick 修正为 deep
+  // strategy / model 只有 deep 链路（quick 复用的是因子挖掘）：切场景时把 quick 修正为 deep
   useEffect(() => {
-    if (scenario === 'strategy' && mode === 'quick') {
+    if (scenario !== 'factor' && mode === 'quick') {
       form.setFieldsValue({ mode: 'deep' });
     }
   }, [scenario, mode, form]);
@@ -144,6 +144,8 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
       // 预算估算仅提示（见上方 Alert），不再拦截提交：真实单次消耗常低于估算
       const [start, end] = values.window;
       const isStrategy = values.scenario === 'strategy';
+      // 夏普/成交硬门是 strategy 与 model 共用的回测口径（wf 折均值）；单品种资金仅回测链路需要
+      const needsBacktestGates = isStrategy || values.scenario === 'model';
       const payload: ResearchCreateParams = {
         mode: values.mode,
         scenario: values.scenario || 'factor',
@@ -157,10 +159,10 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
         loop_n: values.mode === 'deep' ? values.loop_n : 1,
         max_llm_calls: values.max_llm_calls,
         max_tokens: values.max_tokens,
-        icir_floor: isStrategy ? undefined : values.icir_floor,
-        corr_threshold: isStrategy ? undefined : values.corr_threshold,
-        sharpe_floor: isStrategy ? values.sharpe_floor : undefined,
-        min_trades: isStrategy ? values.min_trades : undefined,
+        icir_floor: needsBacktestGates ? undefined : values.icir_floor,
+        corr_threshold: needsBacktestGates ? undefined : values.corr_threshold,
+        sharpe_floor: needsBacktestGates ? values.sharpe_floor : undefined,
+        min_trades: needsBacktestGates ? values.min_trades : undefined,
         initial_cash: isStrategy ? values.initial_cash : undefined,
         seed_factor: seed || undefined,
       };
@@ -216,13 +218,14 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
             <Radio.Group optionType="button" buttonStyle="solid">
               <Radio.Button value="factor">因子挖掘（IC/ICIR 硬门）</Radio.Button>
               <Radio.Button value="strategy">策略挖掘（回测硬门）</Radio.Button>
+              <Radio.Button value="model">模型挖掘（WF 训练硬门）</Radio.Button>
             </Radio.Group>
           </Form.Item>
 
           <Form.Item name="mode" label="研究模式">
             <Radio.Group optionType="button" buttonStyle="solid">
               <Radio.Button value="deep">深度研究（假设→编码→评估→反馈）</Radio.Button>
-              <Radio.Button value="quick" disabled={scenario === 'strategy'}>
+              <Radio.Button value="quick" disabled={scenario !== 'factor'}>
                 快速验证（复用现有挖掘）
               </Radio.Button>
             </Radio.Group>
@@ -298,18 +301,20 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
             />
           )}
 
-          {/* factor 才有 IC_IR/相关性硬门；strategy 场景换成回测口径的夏普/成交/资金 */}
-          {scenario === 'strategy' ? (
+          {/* factor 才有 IC_IR/相关性硬门；strategy/model 场景是回测口径的夏普/成交，单品种资金仅回测需要 */}
+          {scenario !== 'factor' ? (
             <Space size="middle" style={{ display: 'flex' }}>
-              <Form.Item name="sharpe_floor" label="夏普下限" style={{ flex: 1 }}>
+              <Form.Item name="sharpe_floor" label="夏普下限" style={{ flex: 1 }} tooltip="strategy 取回测夏普，model 取 WF 折均 OOS 夏普">
                 <InputNumber min={-5} max={10} step={0.1} style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="min_trades" label="最少成交数" style={{ flex: 1 }}>
                 <InputNumber min={1} max={10000} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="initial_cash" label="单品种初始资金" style={{ flex: 1 }}>
-                <InputNumber min={1000} step={10000} style={{ width: '100%' }} />
-              </Form.Item>
+              {scenario === 'strategy' && (
+                <Form.Item name="initial_cash" label="单品种初始资金" style={{ flex: 1 }}>
+                  <InputNumber min={1000} step={10000} style={{ width: '100%' }} />
+                </Form.Item>
+              )}
             </Space>
           ) : (
             mode === 'deep' && (
