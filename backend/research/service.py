@@ -641,6 +641,7 @@ def trial_to_dict(row: ResearchTrial, *, include_code: bool = True) -> dict[str,
 def session_to_dict(
     row: ResearchSession,
     *,
+    db: Session | None = None,
     best_trial: ResearchTrial | None = None,
     trials: list[ResearchTrial] | None = None,
     include_trials: bool = False,
@@ -657,12 +658,31 @@ def session_to_dict(
             f"按 {row.n_candidates} 个候选 / {loop_n} 轮估算约需 {est_calls} 次调用、{est_tokens} tokens，"
             f"当前上限 {max_tokens} 可能提前耗尽（仅提示，不拦截运行）"
         )
+    # 排队位次（PRD §9）：pending 时按「同 owner 更早提交的 pending 会话数 + 1」动态计算。
+    # 先后用自增 id 判：created_at 是 SQLite CURRENT_TIMESTAMP 默认（秒级），
+    # 查询绑定时又渲染成带 .000000 的格式，两者的字符串比较会把会话匹配到自己，位次虚高。
+    # ponytail：不落库自增序号——跨进程无法保证全局顺序（PRD 已声明 Assumption），
+    # 动态计算比维护序号字段少一份状态；running/终态没有排队概念，返回 None。
+    queue_position = None
+    if row.status == "pending" and db is not None:
+        ahead = (
+            db.query(func.count(ResearchSession.id))
+            .filter(
+                ResearchSession.owner_id == row.owner_id,
+                ResearchSession.status == "pending",
+                ResearchSession.id < row.id,
+            )
+            .scalar()
+            or 0
+        )
+        queue_position = ahead + 1
     data = {
         "id": row.id,
         "name": row.name,
         "mode": row.mode,
         "scenario": row.scenario,
         "status": row.status,
+        "queue_position": queue_position,
         "n_candidates": row.n_candidates,
         "loop_n": loop_n,
         "loop_done": row.loop_done,

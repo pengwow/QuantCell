@@ -121,9 +121,12 @@ const ResearchList: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       width: 100,
-      render: (value: ResearchStatus) => (
-        <Tag color={STATUS_META[value]?.color}>{STATUS_META[value]?.label ?? value}</Tag>
-      ),
+      render: (value: ResearchStatus, row) => {
+        const label = [STATUS_META[value]?.label ?? value];
+        // 排队位次：pending 且后端返回序号时展示「第 N 位」
+        if (value === 'pending' && row.queue_position) label.push(`第 ${row.queue_position} 位`);
+        return <Tag color={STATUS_META[value]?.color}>{label.join(' · ')}</Tag>;
+      },
     },
     { title: '进度', width: 100, render: (_, row) => `${row.loop_done}/${row.loop_n}` },
     {

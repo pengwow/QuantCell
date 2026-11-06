@@ -1099,6 +1099,40 @@ def test_create_allows_budget_below_estimate(research_db):
     assert "仅提示" in (data["budget_hint"] or "")
 
 
+# ---------- 排队位次（PRD §9）----------
+
+
+def test_queue_position_pending_and_running(research_db):
+    """pending 会话显示同 owner 队列位次；运行后位次重新计算、running 本身无位次。"""
+    db, _ = research_db
+    s1 = service.create_session(
+        db, owner_id="u1", name="q-1", mode="deep", scenario="factor", config={}, n_candidates=1
+    )
+    s2 = service.create_session(
+        db, owner_id="u1", name="q-2", mode="deep", scenario="factor", config={}, n_candidates=1
+    )
+    s3 = service.create_session(
+        db, owner_id="u2", name="q-3", mode="quick", scenario="factor", config={}, n_candidates=1
+    )
+
+    assert service.session_to_dict(s1, db=db)["queue_position"] == 1
+    assert service.session_to_dict(s2, db=db)["queue_position"] == 2
+    # 位次按 owner 隔离：u2 只看自己的队列
+    assert service.session_to_dict(s3, db=db)["queue_position"] == 1
+
+    # 先提交的转 running 后：自己脱离队列，后者顶上
+    service.set_session_status(db, s1, "running")
+    data = service.session_to_dict(s1, db=db)
+    assert data["queue_position"] is None
+    assert service.session_to_dict(s2, db=db)["queue_position"] == 1
+
+
+def test_queue_position_none_without_db():
+    """不传 db（序列化复用场景）时位次为 None，不能 Query 出错。"""
+    row = service.ResearchSession(owner_id="u1", name="q", status="pending", mode="deep", scenario="factor")
+    assert service.session_to_dict(row)["queue_position"] is None
+
+
 # ---------- 过程事件持久化 ----------
 
 

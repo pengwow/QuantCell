@@ -431,7 +431,19 @@ const ResearchDetail: React.FC = () => {
             <Typography.Title level={5} style={{ margin: 0 }}>
               {detail?.name || `会话 #${sessionId}`}
             </Typography.Title>
-            {detail && <Tag color={statusMeta?.color}>{statusMeta?.label}</Tag>}
+            {detail && (
+              <Tag color={statusMeta?.color}>
+                {[
+                  statusMeta?.label,
+                  // 排队位次：仅 pending 且后端返回序号时展示
+                  detail.status === 'pending' && detail.queue_position
+                    ? `第 ${detail.queue_position} 位`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Tag>
+            )}
             {detail && (
               <Tag color={detail.scenario === 'strategy' ? 'geekblue' : detail.scenario === 'model' ? 'purple' : 'cyan'}>
                 {detail.scenario === 'strategy' ? '策略挖掘' : detail.scenario === 'model' ? '模型挖掘' : '因子挖掘'}

@@ -60,7 +60,7 @@ def _manager_for(mode: str):
 
 def _detail(db, row) -> dict[str, Any]:
     best = service.best_trial_for(db, row)
-    return service.session_to_dict(row, best_trial=best)
+    return service.session_to_dict(row, db=db, best_trial=best)
 
 
 def _ensure_status(row, allowed: set[str], action: str) -> None:
@@ -217,7 +217,7 @@ def list_sessions(
         # 批量取 best trial，替代逐行 best_trial_for 的 N+1
         best_map = service.best_trials_for(db, rows)
         for row in rows:
-            sessions.append(service.session_to_dict(row, best_trial=best_map.get(row.best_trial_id)))
+            sessions.append(service.session_to_dict(row, db=db, best_trial=best_map.get(row.best_trial_id)))
     return ApiResponse(code=0, message="ok", data={"total": total, "sessions": sessions})
 
 
@@ -233,7 +233,7 @@ def get_session(
             raise _http_error(exc) from exc
         trials = service.list_trials(db, session_id)
         best = service.best_trial_for(db, row)
-        data = service.session_to_dict(row, best_trial=best, trials=trials, include_trials=True)
+        data = service.session_to_dict(row, db=db, best_trial=best, trials=trials, include_trials=True)
     return ApiResponse(code=0, message="ok", data=data)
 
 
