@@ -30,6 +30,7 @@ from research.loop import (
 )
 from research.models import ResearchEvent, ResearchKnowledge, ResearchSession, ResearchTrial
 from research.quick import map_candidates_to_trials, session_cost_from_stats
+from research.scenarios.base import ScenarioDefaults
 from research.state import (
     InvalidTransition,
     ensure_session_transition,
@@ -123,8 +124,9 @@ def _fake_evaluator(code, raw_map, cfg):
     }
 
 
-class _StubScenario:
-    """只实现闭环用到的两个点：build_tasks / library_corr（避免测试依赖真实因子库）。"""
+class _StubScenario(ScenarioDefaults):
+    """闭环协议测试桩：默认钩子继承 ScenarioDefaults（agents 的 factor 实现），
+    只替掉依赖真实因子库/编码器的两点（build_tasks、library_corr）。"""
 
     key = "factor"
 
@@ -1339,3 +1341,37 @@ def test_library_corr_takes_max_abs_across_reference_panels():
     assert abs(rank_corr(target, unrelated)) < 0.5
     # 池化样本量按 (datetime, symbol) 全部行计：40×2 ≥ min_samples(50)
     assert rank_corr(target, target) == pytest.approx(1.0)
+
+
+def test_seed_text_built_once_and_reports_missing(monkeypatch, caplog):
+    """「基于已有因子研究」：种子上下文首查后缓存；因子缺失时上报事件并忽略。"""
+    import research.loop as loop_mod
+
+    events: list[tuple[str, str]] = []
+    calls = {"n": 0}
+
+    def fake_load(name: str):
+        calls["n"] += 1
+        if name == "seed_a":
+            return {
+                "name": "seed_a",
+                "description": "动量类",
+                "code": "f = close.pct_change(5)",
+                "metrics": {"ic_ir": 0.4, "label": "文本值不该进上下文"},
+            }
+        return None
+
+    monkeypatch.setattr(loop_mod, "load_seed_factor", fake_load)
+    loop = ResearchLoop(1, LoopDeps(event_fn=lambda stage, msg: events.append((stage, msg))))
+
+    text = loop._seed_text({"seed_factor": "seed_a"})
+    assert "seed_a" in text and "close.pct_change(5)" in text
+    assert "ic_ir=0.4" in text and "文本值" not in text  # 非数值指标被过滤
+    assert loop._seed_text({"seed_factor": "seed_a"}) == text
+    assert calls["n"] == 1  # 每会话只查一次库
+
+    fresh = ResearchLoop(2, LoopDeps(event_fn=lambda stage, msg: events.append((stage, msg))))
+    assert fresh._seed_text({"seed_factor": "nope"}) == ""
+    assert fresh._seed_text({}) == ""  # 未带种子：直接空，不查库
+    stage, msg = events[-1]
+    assert stage == "session.seed_missing" and "nope" in msg

@@ -159,6 +159,10 @@ export interface ResearchCreateParams {
   max_tokens?: number;
   icir_floor?: number;
   corr_threshold?: number;
+  /** strategy 场景专属硬门（factor 会话忽略） */
+  sharpe_floor?: number;
+  min_trades?: number;
+  initial_cash?: number;
   seed_factor?: string | null;
   model_id?: string | null;
   temperature?: number;

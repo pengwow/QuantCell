@@ -80,6 +80,14 @@ DEEP_TEMPERATURE = 0.2  # §9：deep 固定低温便于复现
 DEFAULT_TEST_RATIO = 0.3
 DEFAULT_WF_FOLDS = 0
 
+# ---------- strategy 场景（P2）----------
+# 夏普下限 与 最小成交次数：策略 trial 的采纳硬门（对应 factor 的 icir_floor/corr）。
+# 最小成交次数防"整段全 hold 的空策略"白拿好评分。
+DEFAULT_STRATEGY_SHARPE_FLOOR = 0.5
+DEFAULT_STRATEGY_MIN_TRADES = 3
+# 单品种独立资金池的默认初始资金，与 BacktestLoop/engine 默认口径一致
+DEFAULT_STRATEGY_INITIAL_CASH = 100_000.0
+
 # ---------- 控制面 ----------
 MAX_ACTIVE_SESSIONS = 2  # 同一用户同时 running 会话上限，超出 429
 DEEP_JOB_WORKERS = 2  # deep 独立线程池（PRD §9）
