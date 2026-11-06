@@ -10,7 +10,6 @@ import {
   App as AntApp,
   Button,
   Card,
-  Drawer,
   Empty,
   Flex,
   Select,
@@ -30,7 +29,6 @@ import {
   type ResearchSession,
   type ResearchStatus,
 } from '@/api/research';
-import MiningHistoryPane from '@/pages/factor/MiningHistoryPane';
 import ResearchNewDrawer from './ResearchNewDrawer';
 
 const STATUS_META: Record<ResearchStatus, { color: string; label: string }> = {
@@ -58,7 +56,6 @@ const ResearchList: React.FC = () => {
   const [seedFactor, setSeedFactor] = useState<string | null>(null);
   // 复制配置：把来源会话带进新建抽屉，按它的 config 预填
   const [copyFrom, setCopyFrom] = useState<ResearchSession | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -229,7 +226,6 @@ const ResearchList: React.FC = () => {
             <Button onClick={() => void load()}>刷新</Button>
           </Space>
           <Space>
-            <Button onClick={() => setHistoryOpen(true)}>历史挖掘（只读）</Button>
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -309,23 +305,6 @@ const ResearchList: React.FC = () => {
           }}
           onCreated={(id) => navigate(`/research/${id}`)}
         />
-
-        <Drawer
-          title="历史 LLM 挖掘（只读）"
-          open={historyOpen}
-          size="50%"
-          onClose={() => setHistoryOpen(false)}
-          destroyOnClose
-        >
-          <MiningHistoryPane
-            onReuse={() => {
-              message.info('请用「新建研究 → 快速验证」复用挖掘参数');
-              setHistoryOpen(false);
-              setInitialMode('quick');
-              setNewOpen(true);
-            }}
-          />
-        </Drawer>
       </Space>
     </PageContainer>
   );
