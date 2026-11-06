@@ -224,7 +224,7 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
       width={680}
     >
       {loading && <Spin />}
-      {error && <Alert type="warning" showIcon message={`详情加载失败：${error}`} style={{ marginBottom: 12 }} />}
+      {error && <Alert type="warning" showIcon title={`详情加载失败：${error}`} style={{ marginBottom: 12 }} />}
       {detail && (
         <Tabs
           items={[
@@ -238,7 +238,7 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
                       type="warning"
                       showIcon
                       style={{ marginBottom: 12 }}
-                      message={`规则接管：${humanizeFallbackReason(String(detail.decision.fallback_reason))}`}
+                      title={`规则接管：${humanizeFallbackReason(String(detail.decision.fallback_reason))}`}
                     />
                   ) : null}
                   <Space size="small" wrap style={{ marginBottom: 12 }}>

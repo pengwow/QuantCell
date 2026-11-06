@@ -498,7 +498,7 @@ const BacktestDetail = () => {
                 <Alert
                   type="warning"
                   showIcon
-                  message={`穿仓损失 ${formatNumber(insuranceFundLoss)} 由保险基金承担`}
+                  title={`穿仓损失 ${formatNumber(insuranceFundLoss)} 由保险基金承担`}
                 />
               )}
               <Table
@@ -566,7 +566,7 @@ const BacktestDetail = () => {
               <Alert
                 type="warning"
                 showIcon
-                message={
+                title={
                   Object.keys(skippedSymbols).length === 1
                     ? `${Object.keys(skippedSymbols)[0]} 在所选时间范围内无本地数据，已跳过本次回测，请补齐数据或调整时间范围`
                     : `以下品种在所选时间范围内无本地数据，已跳过：${Object.keys(skippedSymbols).join('、')}`

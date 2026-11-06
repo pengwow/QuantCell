@@ -107,7 +107,7 @@ const CompositeCard: React.FC<{ comp: CompositeFactorResult; onSave: () => void 
         <Alert
           type="error"
           showIcon
-          message={t('factor_mining_comp_err_msg') || '合成失败（不影响本次挖掘结果）'}
+          title={t('factor_mining_comp_err_msg') || '合成失败（不影响本次挖掘结果）'}
           description={comp.error}
         />
       </Card>

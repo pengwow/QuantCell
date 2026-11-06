@@ -163,7 +163,7 @@ export default function RLTrainingPage() {
           {error && (
             <Alert
               type="error"
-              message="训练失败"
+              title="训练失败"
               description={error}
               style={{ marginBottom: 16 }}
               closable

@@ -150,7 +150,7 @@ export default function PluginManagement() {
         <Alert
           type="warning"
           showIcon
-          message="有插件待生效：安装或启用的插件需重启后端服务后才会加载。"
+          title="有插件待生效：安装或启用的插件需重启后端服务后才会加载。"
           style={{ marginBottom: 16 }}
           closable
         />
@@ -396,7 +396,7 @@ function DetailModal({
         <Alert
           type="error"
           showIcon
-          message="错误信息"
+          title="错误信息"
           description={plugin.error_message}
           style={{ marginTop: 16 }}
         />

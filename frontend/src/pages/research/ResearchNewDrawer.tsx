@@ -171,7 +171,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
         }}
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-          {error && <Alert type="error" message={error} showIcon />}
+          {error && <Alert type="error" title={error} showIcon />}
 
           <Form.Item name="mode" label="研究模式">
             <Radio.Group optionType="button" buttonStyle="solid">
@@ -246,7 +246,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, copyFrom, onClo
             <Alert
               type="warning"
               showIcon
-              message={`按候选数/轮次估算约需 ${estCalls} 次调用（约 ${estTokens} tokens），当前上限可能提前耗尽；此项仅提示，不会拦截提交`}
+              title={`按候选数/轮次估算约需 ${estCalls} 次调用（约 ${estTokens} tokens），当前上限可能提前耗尽；此项仅提示，不会拦截提交`}
             />
           )}
 

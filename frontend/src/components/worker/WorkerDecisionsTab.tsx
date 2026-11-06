@@ -42,7 +42,7 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
   return (
     <Spin spinning={loading}>
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-        {error && <Alert type="warning" showIcon message={`决策列表加载失败：${error}`} />}
+        {error && <Alert type="warning" showIcon title={`决策列表加载失败：${error}`} />}
         <Card
           title={
             <Space wrap>

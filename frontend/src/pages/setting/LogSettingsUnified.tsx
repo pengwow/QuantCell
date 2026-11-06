@@ -878,7 +878,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 showIcon
                 closable
                 onClose={() => setLastResult(null)}
-                message={
+                title={
                   lastResult.errors.length === 0 ?
                     `✅ 成功删除 ${lastResult.deleted_count} 个文件` :
                     `⚠️ 完成：${lastResult.deleted_count} 成功，${lastResult.errors.length} 失败`
