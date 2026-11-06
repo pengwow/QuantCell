@@ -17,6 +17,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, RobotOutlined } from '@ant-design/icons';
@@ -119,7 +120,12 @@ const ResearchList: React.FC = () => {
     {
       title: '成本',
       width: 150,
-      render: (_, row) => `${row.llm_calls} 次 / ${formatTokens(row.token_used, '0')} tokens`,
+      // 悬停显示原始 token 数，避免缩写后丢失精度信息
+      render: (_, row) => (
+        <Tooltip title={`${row.token_used} tokens`}>
+          <span>{`${row.llm_calls} 次 / ${formatTokens(row.token_used, '0')} tokens`}</span>
+        </Tooltip>
+      ),
     },
     {
       title: '创建时间',
