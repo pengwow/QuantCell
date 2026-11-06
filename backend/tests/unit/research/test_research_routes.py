@@ -54,8 +54,6 @@ def client(monkeypatch):
 
     app = FastAPI()
     app.include_router(research_routes.router, prefix="/api/v1")
-    # 过渡期旧前缀 alias（与 factor.routes 的挂载方式一致）
-    app.include_router(research_routes.router, prefix="/api/v1/factor")
     app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1"}
     try:
         yield TestClient(app), db
@@ -170,13 +168,6 @@ def test_active_session_limit(client):
     assert first != second
     third = tc.post("/api/v1/research/sessions", json=PAYLOAD)
     assert third.status_code == 429
-
-
-def test_old_prefix_alias_still_works(client):
-    """P0.5 验收①：旧前缀过渡期仍可用。"""
-    tc, _ = client
-    sid = _create(tc)
-    assert tc.get(f"/api/v1/factor/research/sessions/{sid}").status_code == 200
 
 
 def test_unsupported_scenario_returns_400(client):
