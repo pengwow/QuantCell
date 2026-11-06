@@ -484,7 +484,7 @@ const ResearchDetail: React.FC = () => {
           </Space>
         </Flex>
 
-        {detail?.error && <Alert type="error" showIcon message={detail.error} />}
+        {detail?.error && <Alert type="error" showIcon title={detail.error} />}
 
         <Card size="small" title="运行状态">
           <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
@@ -648,8 +648,8 @@ const ResearchDetail: React.FC = () => {
                   <Typography.Text type="secondary">{trial.judge.reason}</Typography.Text>
                 </Space>
               )}
-              {trial.oos_note && <Alert type="info" showIcon message={trial.oos_note} />}
-              {trial.exception && <Alert type="error" showIcon message={trial.exception} />}
+              {trial.oos_note && <Alert type="info" showIcon title={trial.oos_note} />}
+              {trial.exception && <Alert type="error" showIcon title={trial.exception} />}
               <Typography.Text type="secondary">
                 指标
                 {trial.model ? `　模型：${trial.model}` : ''}
@@ -705,7 +705,7 @@ const ResearchDetail: React.FC = () => {
                 <Alert
                   type="warning"
                   showIcon
-                  message={`部分复现：缺少 ${replayResult.replay_meta.missing.join(', ')}，回放按引擎默认值执行`}
+                  title={`部分复现：缺少 ${replayResult.replay_meta.missing.join(', ')}，回放按引擎默认值执行`}
                 />
               )}
               <Table

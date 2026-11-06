@@ -513,7 +513,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
             type="warning"
             showIcon
             style={{ marginBottom: 12 }}
-            message={t('share.remote_failed_hint') || '部分链接推送失败，可在列表中点击「重试」再次发布到 quantcell.top'}
+            title={t('share.remote_failed_hint') || '部分链接推送失败，可在列表中点击「重试」再次发布到 quantcell.top'}
           />
         )}
 

@@ -473,7 +473,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
       <PageContainer title="K线回放">
         <Card>
           <Alert
-            message="加载失败"
+            title="加载失败"
             description={error}
             type="error"
             showIcon

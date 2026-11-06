@@ -303,7 +303,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
         <Alert
           type="error"
           showIcon
-          message={t('factor_code_load_failed') || '因子定义加载失败'}
+          title={t('factor_code_load_failed') || '因子定义加载失败'}
           description={defError}
           action={
             <Button size="small" onClick={() => void init()}>

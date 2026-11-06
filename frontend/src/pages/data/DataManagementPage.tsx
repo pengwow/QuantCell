@@ -341,7 +341,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <Alert
           type="error"
           showIcon
-          message={task.error_message}
+          title={task.error_message}
           style={{ marginTop: 6, padding: '4px 8px', fontSize: 12 }}
           banner
         />
@@ -1983,7 +1983,7 @@ const DataManagementPage = () => {
       okButtonProps={{ danger: true }}
     >
       <Alert
-        message="警告"
+        title="警告"
         description="数据清理操作不可恢复，请谨慎操作！"
         type="warning"
         showIcon
@@ -2057,7 +2057,7 @@ const DataManagementPage = () => {
         <>
           <Divider style={{ margin: '24px 0' }} />
           <Alert
-            message="清理结果"
+            title="清理结果"
             description={
               <Space orientation="vertical">
                 <Text>货币对: {cleanResult.symbol}</Text>
@@ -2341,7 +2341,7 @@ const DataManagementPage = () => {
                 <Alert
                   type="warning"
                   showIcon
-                  message={`损坏日期: ${archiveMeta.corrupt_dates.length} 个`}
+                  title={`损坏日期: ${archiveMeta.corrupt_dates.length} 个`}
                   description={archiveMeta.corrupt_dates.slice(0, 10).join(', ')}
                   style={{ fontSize: 12 }}
                 />
@@ -2352,7 +2352,7 @@ const DataManagementPage = () => {
                 <Alert
                   type="warning"
                   showIcon
-                  message="bookDepth 数据量较大"
+                  title="bookDepth 数据量较大"
                   description="单天可展平为千万行，请缩小时间范围（建议 ≤ 1 天）"
                 />
               )}
@@ -3767,7 +3767,7 @@ const DataManagementPage = () => {
                             <>
                               <Divider style={{ margin: '12px 0' }} />
                               <Alert
-                                message="缺少历史数据"
+                                title="缺少历史数据"
                                 description={`缺少 ${qualityDetail.details.coverage?.historical_gap_days || 0} 天的历史数据`}
                                 type="warning"
                                 showIcon
@@ -3778,7 +3778,7 @@ const DataManagementPage = () => {
                             <>
                               <Divider style={{ margin: '12px 0' }} />
                               <Alert
-                                message="缺少最新数据"
+                                title="缺少最新数据"
                                 description={`缺少 ${qualityDetail.details.coverage?.future_gap_days || 0} 天的最新数据`}
                                 type="warning"
                                 showIcon

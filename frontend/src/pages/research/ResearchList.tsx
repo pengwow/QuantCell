@@ -249,7 +249,7 @@ const ResearchList: React.FC = () => {
                 <Alert
                   type="info"
                   showIcon
-                  message="深度研究会多轮提出假设并自动编码/评估；快速验证复用现有挖掘，成本更低。所有会话都受 LLM 调用与 Token 预算约束。"
+                  title="深度研究会多轮提出假设并自动编码/评估；快速验证复用现有挖掘，成本更低。所有会话都受 LLM 调用与 Token 预算约束。"
                 />
               </Space>
             </Empty>

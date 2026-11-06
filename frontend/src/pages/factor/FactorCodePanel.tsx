@@ -114,7 +114,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
       <Alert
         type="error"
         showIcon
-        message={t('factor_code_load_failed') || '因子定义加载失败'}
+        title={t('factor_code_load_failed') || '因子定义加载失败'}
         description={error}
         action={
           <Button size="small" onClick={() => void load()}>

@@ -492,7 +492,7 @@ const FactorLibraryPane: React.FC<Props> = ({
         <Alert
           type="error"
           showIcon
-          message={t('factor_lib_load_failed') || '因子库加载失败'}
+          title={t('factor_lib_load_failed') || '因子库加载失败'}
           action={
             <Button size="small" onClick={() => void onRefresh()}>
               {t('factor_lib_retry') || '重试'}

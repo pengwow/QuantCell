@@ -360,7 +360,7 @@ const WorkerDetail = () => {
           <Alert
             type="error"
             showIcon
-            message={t('error_reason') || '失败原因'}
+            title={t('error_reason') || '失败原因'}
             description={selectedWorker._state_info.error_message}
             style={{ marginBottom: 16 }}
           />

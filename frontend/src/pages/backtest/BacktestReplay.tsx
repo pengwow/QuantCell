@@ -640,7 +640,7 @@ const BacktestReplay = () => {
     return (
       <PageContainer title={t('backtest_replay') || '回测回放'}>
         <Alert
-          message="错误"
+          title="错误"
           description={error}
           type="error"
           showIcon

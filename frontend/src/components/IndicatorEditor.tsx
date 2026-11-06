@@ -399,7 +399,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               type={verifyResult.valid ? 'success' : 'error'}
               showIcon
               style={{ marginBottom: 16 }}
-              message={
+              title={
                 <Space>
                   <span>{verifyResult.valid ? t('indicator.verifySuccess', '验证通过') : t('indicator.verifyFailed', '验证失败')}</span>
                   {verifyResult.quality && (
@@ -503,7 +503,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               type={verifyResult.valid ? 'success' : 'error'}
               showIcon
               style={{ marginBottom: 16 }}
-              message={
+              title={
                 <Space>
                   <span>{verifyResult.valid ? t('indicator.verifySuccess', '验证通过') : t('indicator.verifyFailed', '验证失败')}</span>
                   <Tooltip

@@ -1300,7 +1300,7 @@ const ChartPage = () => {
           <div className="chart-area">
           {error && (
             <Alert
-              message="错误"
+              title="错误"
               description={error}
               type="error"
               showIcon
