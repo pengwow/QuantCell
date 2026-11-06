@@ -755,6 +755,8 @@ def list_catalog(current_user: dict = Depends(get_current_user)) -> ApiResponse:
                     "kind": (engine_details.get(r.name) or {}).get("kind"),
                     "description": (engine_details.get(r.name) or {}).get("description"),
                     "lifecycle_status": r.lifecycle_status,
+                    # 入库溯源透传给前端：research 采纳追加的 session_id/trial_id 用于「AI」来源徽标
+                    "provenance": json.loads(r.provenance) if r.provenance else None,
                     "last_metrics": json.loads(r.last_metrics) if r.last_metrics else None,
                     "last_snapshot_at": r.last_snapshot_at.isoformat() if r.last_snapshot_at else None,
                     "snapshot_count": counts.get(r.name, 0),
