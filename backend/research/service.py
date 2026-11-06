@@ -377,8 +377,8 @@ def get_trials_for_session(db: Session, session_id: int, trial_ids: list[int]) -
     return [found[tid] for tid in trial_ids]
 
 
-# trial 的终态：这些状态不再参与续跑（duplicate 表示该轮已被判重消耗）
-TERMINAL_TRIAL_STATUSES = frozenset({"judged", "failed", "duplicate"})
+# trial 的终态：这些状态不再参与续跑（duplicate 判重消耗、skipped 知识短路消耗）
+TERMINAL_TRIAL_STATUSES = frozenset({"judged", "failed", "duplicate", "skipped"})
 
 
 def find_trial(db: Session, session_id: int, loop_idx: int, candidate_idx: int = 1) -> ResearchTrial | None:
@@ -508,6 +508,35 @@ def list_failure_knowledge(db: Session, owner_id: str | None, limit: int = 5) ->
             }
         )
     return items
+
+
+def blocked_task_hints(db: Session, owner_id: str | None, threshold: int) -> list[str]:
+    """命中次数达阈值的失败签名所对应的任务文本（hint，归一化去重），供执行前短路。
+
+    短路口径：同一失败签名（错误类型 + 归一化错误文本）累计失败 threshold 次，
+    视为该任务在重复踩同一坑；执行前再遇到相同任务描述（归一化相等）直接跳过，
+    不再为它调用 LLM。hint 为空的历史失败（无任务上下文）不参与短路。
+    """
+    rows = (
+        db.query(ResearchKnowledge)
+        .filter(
+            ResearchKnowledge.owner_id == owner_id,
+            ResearchKnowledge.kind == "failure",
+            ResearchKnowledge.hit_count >= threshold,
+        )
+        .all()
+    )
+    hints: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        payload = _loads(row.payload_json, {})
+        if not isinstance(payload, dict):
+            continue
+        hint = re.sub(r"\s+", " ", str(payload.get("hint") or "")).strip().lower()
+        if hint and hint not in seen:
+            seen.add(hint)
+            hints.append(hint)
+    return hints
 
 
 # ---------- 过程事件 ----------

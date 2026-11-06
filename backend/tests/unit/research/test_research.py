@@ -992,6 +992,80 @@ def test_failed_loop_knowledge_appears_in_next_loop_context(research_db):
     assert any("已知失败模式" in p for p in second_loop_prompts)
 
 
+def test_knowledge_short_circuit_skips_repeated_failed_task(research_db):
+    """失败签名命中阈值后，相同任务直接标 skipped，不再发起 code LLM 调用。"""
+    db, factory = research_db
+    sid = _create_session(db, mode="deep", cfg={**DEEP_CFG, "loop_n": 1})
+    task_desc = "价量背离"
+    # 同一失败签名累计命中阈值（record_failure 同签名去重累加 hit_count 到一行）
+    for _ in range(consts.KNOWLEDGE_BLOCK_THRESHOLD):
+        service.record_failure(
+            db,
+            owner_id="u1",
+            session_id=None,
+            trial_id=None,
+            kind="eval_error",
+            error="因子窗口超出数据长度",
+            hint=task_desc,
+        )
+    db.commit()
+
+    prompts: list[str] = []
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=_fake_llm_call(prompts),
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
+            corr_fn=lambda a, b: 0.2,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    trial = service.list_trials(db, sid)[0]
+    assert trial.status == "skipped"
+    assert not trial.decision
+    assert not trial.code
+    # 短路发生在 code 之前：code 调用（系统提示含"顶级加密"）从未发出
+    assert "顶级加密" not in "".join(prompts)
+
+
+def test_knowledge_short_circuit_not_triggered_below_threshold(research_db):
+    """同任务提示词但签名未达阈值（或 hint 不同）时不拦，code 照常执行。"""
+    db, factory = research_db
+    sid = _create_session(db, mode="deep", cfg={**DEEP_CFG, "loop_n": 1})
+    # 同 hint 但不同签名（另一种 kind），hit_count=1 未达阈值
+    service.record_failure(
+        db,
+        owner_id="u1",
+        session_id=None,
+        trial_id=None,
+        kind="shape_error",
+        error="窗口不足",
+        hint="价量背离",
+    )
+    db.commit()
+
+    prompts: list[str] = []
+    ResearchLoop(
+        sid,
+        LoopDeps(
+            llm_call=_fake_llm_call(prompts),
+            evaluator=_fake_evaluator,
+            data_loader=lambda cfg: {"BTCUSDT": _ONE_BAR},
+            corr_fn=lambda a, b: 0.2,
+            scenario=_StubScenario(0.2),
+            db_session_factory=factory,
+        ),
+    ).run()
+
+    trial = service.list_trials(db, sid)[0]
+    assert trial.status != "skipped"
+    assert trial.code
+    assert "顶级加密" in "".join(prompts)
+
+
 # ---------- 创建时预算前置校验 ----------
 
 
