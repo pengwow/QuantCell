@@ -577,33 +577,6 @@ class CodeFactorAddRequest(BaseSchema):
         return _check_category(v)
 
 
-class FactorMineLLMRequest(FactorCalculateBase):
-    """LLM 因子挖掘任务请求。"""
-
-    n_candidates: int = Field(default=4, ge=1, le=8, description="每轮 LLM 候选数（1-8）")
-    n_rounds: int = Field(default=2, ge=1, le=4, description="反思迭代轮数（1-4）")
-    top_k: int = Field(default=5, ge=1, le=10, description="返回 Top K 候选")
-    temperature: float = Field(default=0.8, ge=0.0, le=2.0, description="生成温度")
-    model_id: str | None = Field(default=None, description="指定 AI 模型 ID，空=默认模型")
-    test_ratio: float = Field(default=0.3, ge=0.0, le=0.5, description="样本外切分比例（后段时间），0=不切分")
-    wf_folds: int = Field(
-        default=0,
-        ge=0,
-        le=6,
-        description="滚动 walk-forward 折数（0=关闭，使用单次样本外切分；2-6 启用多折复核）",
-    )
-    dedup_corr: float = Field(
-        default=0.9,
-        ge=0.0,
-        le=1.0,
-        description="候选 train 段因子相关性去重阈值（|spearman|≥该值且 fitness 更低者标记为重复），0 关闭",
-    )
-    compose: bool = Field(
-        default=True,
-        description="去重选定最佳候选后，是否自动做 IC 加权 zscore 合成（权重冻结在 train 段）",
-    )
-
-
 class CompositeTrainWindow(BaseSchema):
     """合成因子拟合时的 train 段时间窗（仅记录，重算不参与）。"""
 
