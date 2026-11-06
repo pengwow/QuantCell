@@ -141,6 +141,12 @@ export class WebSocketService {
         this.socket = null; // 清除socket引用
         this.notifyConnectionListeners(false);
         this.stopPing();
+        // 4401 = 认证失败：token 无效时反复握手没有意义，停止自动重连；
+        // 用户重新登录后由页面显式调用 connect() 恢复（函数式 url 会取新 token）
+        if (event.code === 4401) {
+          console.warn('[WebSocket] 认证失败 (4401)，停止自动重连');
+          return;
+        }
         this.attemptReconnect();
       };
 

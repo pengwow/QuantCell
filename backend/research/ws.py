@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import asyncio
 
-# 同一 owner 允许多个页面各开一条连接，各自独立队列
+# 同一 owner 允许多个页面各开一条连接，各自独立队列。
+# 线程模型：写操作（subscribe/unsubscribe）只允许发生在主事件循环线程；
+# worker 线程调 publish_event 时仅做 loop 判空 + list() 快照读（GIL 下引用
+# 获取原子，安全），入队动作经 call_soon_threadsafe 交回 loop 执行——
+# 整个结构因此无需加锁，但禁止在 worker 线程直接调 subscribe/unsubscribe。
 _subscribers: dict[str, list[asyncio.Queue]] = {}
 _loop: asyncio.AbstractEventLoop | None = None
 
