@@ -3,6 +3,7 @@
  * 表单默认值来自后端 consts 的同一套口径，前端仅做展示与轻量校验。
  */
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   Button,
@@ -60,6 +61,7 @@ interface FormValues {
 }
 
 const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, copyFrom, onClose, onCreated }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +95,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
       form.setFieldsValue({
         mode: copyFrom.mode,
         scenario: (cfg.scenario as 'factor' | 'strategy' | 'model' | undefined) ?? 'factor',
-        name: `复制-${copyFrom.name}`.slice(0, 64),
+        name: t('research_copy_name_prefix', { name: copyFrom.name }).slice(0, 64),
         symbols: (cfg.symbols as string[] | undefined) ?? DEFAULT_SYMBOLS,
         interval: String(cfg.interval ?? '1h'),
         candle_type: (cfg.candle_type as 'spot' | 'future' | undefined) ?? 'spot',
@@ -112,7 +114,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
     }
     skipModeResetFor.current = initialMode ?? 'deep';
     form.setFieldsValue({ mode: initialMode ?? 'deep' });
-  }, [open, copyFrom, initialMode, seedFactor, form]);
+  }, [open, copyFrom, initialMode, seedFactor, form, t]);
 
   // 切换模式时把候选数与预算重置为对应默认值，避免 quick 带上 deep 的 30 次预算
   useEffect(() => {
@@ -174,7 +176,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
     } catch (err) {
       // 表单校验错误已在字段下展示；接口错误单独提示
       if (err && typeof err === 'object' && 'errorFields' in err) return;
-      setError(err instanceof Error ? err.message : '创建失败');
+      setError(err instanceof Error ? err.message : t('research_msg_create_failed'));
     } finally {
       setSubmitting(false);
     }
@@ -182,12 +184,13 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
 
   return (
     <Drawer
-      title="新建 AI 研究"
+      title={t('research_new_title')}
       open={open}
       onClose={onClose}
       // 表单字段多（场景/模式/硬门分组），用 large 抽屉宽度；窄屏收缩避免溢出
       width="min(736px, 92vw)"
-      destroyOnClose
+      // antd v6：「destroyOnClose」已废弃，更名 destroyOnHidden
+      destroyOnHidden
     >
       <Form
         form={form}
@@ -210,49 +213,49 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
               showIcon
               closable
               onClose={() => setSeed(null)}
-              title={`基于已有因子：${seed}`}
-              description="假设与代码将参考该因子的说明、最近指标与代码生成；清除后将独立探索。"
+              title={t('research_seed_alert_title', { name: seed })}
+              description={t('research_seed_alert_desc')}
             />
           )}
 
-          <Form.Item name="scenario" label="研究场景">
+          <Form.Item name="scenario" label={t('research_field_scenario')}>
             <Radio.Group optionType="button" buttonStyle="solid">
-              <Radio.Button value="factor">因子挖掘（IC/ICIR 硬门）</Radio.Button>
-              <Radio.Button value="strategy">策略挖掘（回测硬门）</Radio.Button>
-              <Radio.Button value="model">模型挖掘（WF 训练硬门）</Radio.Button>
+              <Radio.Button value="factor">{t('research_scenario_factor_option')}</Radio.Button>
+              <Radio.Button value="strategy">{t('research_scenario_strategy_option')}</Radio.Button>
+              <Radio.Button value="model">{t('research_scenario_model_option')}</Radio.Button>
             </Radio.Group>
           </Form.Item>
 
-          <Form.Item name="mode" label="研究模式">
+          <Form.Item name="mode" label={t('research_field_mode')}>
             <Radio.Group optionType="button" buttonStyle="solid">
-              <Radio.Button value="deep">深度研究（假设→编码→评估→反馈）</Radio.Button>
+              <Radio.Button value="deep">{t('research_mode_deep_option')}</Radio.Button>
               <Radio.Button value="quick" disabled={scenario !== 'factor'}>
-                快速验证（复用现有挖掘）
+                {t('research_mode_quick_option')}
               </Radio.Button>
             </Radio.Group>
           </Form.Item>
 
-          <Form.Item name="name" label="会话名称（可选）">
-            <Input placeholder="留空自动生成" maxLength={64} />
+          <Form.Item name="name" label={t('research_field_name')}>
+            <Input placeholder={t('research_name_placeholder')} maxLength={64} />
           </Form.Item>
 
           <Form.Item
             name="symbols"
-            label="品种"
-            rules={[{ required: true, message: '请至少选择一个品种' }]}
+            label={t('research_field_symbols')}
+            rules={[{ required: true, message: t('research_symbols_required') }]}
           >
             <Select mode="tags" tokenSeparators={[',', ' ']} options={DEFAULT_SYMBOLS.map((s) => ({ value: s, label: s }))} />
           </Form.Item>
 
           <Space size="middle" style={{ display: 'flex' }}>
-            <Form.Item name="interval" label="周期" style={{ flex: 1 }}>
+            <Form.Item name="interval" label={t('research_field_interval')} style={{ flex: 1 }}>
               <Select options={INTERVALS.map((i) => ({ value: i, label: i }))} />
             </Form.Item>
-            <Form.Item name="candle_type" label="市场" style={{ flex: 1 }}>
+            <Form.Item name="candle_type" label={t('research_field_market')} style={{ flex: 1 }}>
               <Select
                 options={[
-                  { value: 'spot', label: '现货' },
-                  { value: 'future', label: '合约' },
+                  { value: 'spot', label: t('research_market_spot') },
+                  { value: 'future', label: t('research_market_future') },
                 ]}
               />
             </Form.Item>
@@ -260,14 +263,14 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
 
           <Form.Item
             name="window"
-            label="数据窗口"
+            label={t('research_field_window')}
             rules={[
-              { required: true, message: '请选择数据窗口' },
+              { required: true, message: t('research_window_required') },
               {
                 validator: (_, value: [Dayjs, Dayjs] | undefined) =>
                   !value || value[1].diff(value[0], 'day') >= 30
                     ? Promise.resolve()
-                    : Promise.reject(new Error('数据窗口至少 30 天')),
+                    : Promise.reject(new Error(t('research_window_min_days'))),
               },
             ]}
           >
@@ -275,21 +278,21 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
           </Form.Item>
 
           <Space size="middle" style={{ display: 'flex' }}>
-            <Form.Item name="n_candidates" label="候选数" style={{ flex: 1 }}>
+            <Form.Item name="n_candidates" label={t('research_field_candidates')} style={{ flex: 1 }}>
               <InputNumber min={1} max={10} style={{ width: '100%' }} />
             </Form.Item>
             {mode === 'deep' && (
-              <Form.Item name="loop_n" label="研究轮次" style={{ flex: 1 }}>
+              <Form.Item name="loop_n" label={t('research_field_loops')} style={{ flex: 1 }}>
                 <InputNumber min={1} max={10} style={{ width: '100%' }} />
               </Form.Item>
             )}
           </Space>
 
           <Space size="middle" style={{ display: 'flex' }}>
-            <Form.Item name="max_llm_calls" label="LLM 调用上限" style={{ flex: 1 }}>
+            <Form.Item name="max_llm_calls" label={t('research_field_max_calls')} style={{ flex: 1 }}>
               <InputNumber min={1} max={500} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="max_tokens" label="Token 上限" style={{ flex: 1 }}>
+            <Form.Item name="max_tokens" label={t('research_field_max_tokens')} style={{ flex: 1 }}>
               <InputNumber min={12000} step={1000} style={{ width: '100%' }} />
             </Form.Item>
           </Space>
@@ -298,21 +301,26 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
             <Alert
               type="warning"
               showIcon
-              title={`按候选数/轮次估算约需 ${estCalls} 次调用（约 ${estTokens} tokens），当前上限可能提前耗尽；此项仅提示，不会拦截提交`}
+              title={t('research_budget_warning', { calls: estCalls, tokens: estTokens })}
             />
           )}
 
           {/* factor 才有 IC_IR/相关性硬门；strategy/model 场景是回测口径的夏普/成交，单品种资金仅回测需要 */}
           {scenario !== 'factor' ? (
             <Space size="middle" style={{ display: 'flex' }}>
-              <Form.Item name="sharpe_floor" label="夏普下限" style={{ flex: 1 }} tooltip="strategy 取回测夏普，model 取 WF 折均 OOS 夏普">
+              <Form.Item
+                name="sharpe_floor"
+                label={t('research_field_sharpe_floor')}
+                style={{ flex: 1 }}
+                tooltip={t('research_sharpe_floor_tooltip')}
+              >
                 <InputNumber min={-5} max={10} step={0.1} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="min_trades" label="最少成交数" style={{ flex: 1 }}>
+              <Form.Item name="min_trades" label={t('research_field_min_trades')} style={{ flex: 1 }}>
                 <InputNumber min={1} max={10000} style={{ width: '100%' }} />
               </Form.Item>
               {scenario === 'strategy' && (
-                <Form.Item name="initial_cash" label="单品种初始资金" style={{ flex: 1 }}>
+                <Form.Item name="initial_cash" label={t('research_field_initial_cash')} style={{ flex: 1 }}>
                   <InputNumber min={1000} step={10000} style={{ width: '100%' }} />
                 </Form.Item>
               )}
@@ -320,10 +328,10 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
           ) : (
             mode === 'deep' && (
               <Space size="middle" style={{ display: 'flex' }}>
-                <Form.Item name="icir_floor" label="IC_IR 硬门" style={{ flex: 1 }}>
+                <Form.Item name="icir_floor" label={t('research_field_icir_floor')} style={{ flex: 1 }}>
                   <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name="corr_threshold" label="相关性上限" style={{ flex: 1 }}>
+                <Form.Item name="corr_threshold" label={t('research_field_corr_threshold')} style={{ flex: 1 }}>
                   <InputNumber min={0.1} max={1} step={0.05} style={{ width: '100%' }} />
                 </Form.Item>
               </Space>
@@ -332,9 +340,9 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
 
           <Space>
             <Button type="primary" loading={submitting} onClick={() => void submit()}>
-              开始研究
+              {t('research_start_btn')}
             </Button>
-            <Button onClick={onClose}>取消</Button>
+            <Button onClick={onClose}>{t('cancel')}</Button>
           </Space>
         </Space>
       </Form>

@@ -248,6 +248,26 @@ def update_session_fields(db: Session, session_id: int, **fields: Any) -> None:
     db.commit()
 
 
+# 只允许删除终态会话：pending/running/paused 可能仍有作业在跑（本进程或跨进程租约），
+# 直接删会留孤儿作业与半程数据，统一要求先取消（落到 cancelled 才可删）
+DELETABLE_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+def delete_session(db: Session, session_id: int, owner_id: str | None = None) -> None:
+    """删除终态会话，并级联清理其 trials 与 events。
+
+    ResearchKnowledge 是按 owner 跨会话共享的失败签名经验库（session_id 无外键），
+    删会话不清理，避免误伤其它会话的短路经验。
+    """
+    row = get_session_row(db, session_id, owner_id)
+    if row.status not in DELETABLE_STATUSES:
+        raise ResearchError("bad_state", f"会话当前状态为 {row.status}，请先取消再删除")
+    db.query(ResearchTrial).filter(ResearchTrial.session_id == session_id).delete(synchronize_session=False)
+    db.query(ResearchEvent).filter(ResearchEvent.session_id == session_id).delete(synchronize_session=False)
+    db.delete(row)
+    db.commit()
+
+
 def session_config(row: ResearchSession) -> dict[str, Any]:
     return _loads(row.config_json, {})
 

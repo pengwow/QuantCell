@@ -3,6 +3,7 @@
  * 只读 trial 流 + 运行事件面板 + 暂停/继续/取消/继续研究 + 采纳为因子；
  */
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
@@ -34,27 +35,42 @@ import {
   type ResearchTrial,
 } from '@/api/research';
 
-const STATUS_META: Record<ResearchStatus, { color: string; label: string }> = {
-  pending: { color: 'default', label: '排队中' },
-  running: { color: 'processing', label: '运行中' },
-  paused: { color: 'warning', label: '已暂停' },
-  completed: { color: 'success', label: '已完成' },
-  failed: { color: 'error', label: '失败' },
-  cancelled: { color: 'default', label: '已取消' },
+// 状态样式与文案：常量只存 i18n key，渲染时用 t() 取当前语言文案
+const STATUS_META: Record<ResearchStatus, { color: string; i18nKey: string }> = {
+  pending: { color: 'default', i18nKey: 'research_status_pending' },
+  running: { color: 'processing', i18nKey: 'research_status_running' },
+  paused: { color: 'warning', i18nKey: 'research_status_paused' },
+  completed: { color: 'success', i18nKey: 'research_status_completed' },
+  failed: { color: 'error', i18nKey: 'research_status_failed' },
+  cancelled: { color: 'default', i18nKey: 'research_status_cancelled' },
 };
 
 const TERMINAL: ResearchStatus[] = ['completed', 'failed', 'cancelled'];
-const STEP_LABELS = ['', '提出假设', '规划实验', '生成代码', '评估', '结构化反馈', '记录决策'];
+// 编排步骤同样只存 key，避免模块级常量把某种语言固化下来
+const STEP_LABEL_KEYS = [
+  '',
+  'research_detail_step_hypothesis',
+  'research_detail_step_experiment',
+  'research_detail_step_code',
+  'research_detail_step_evaluate',
+  'research_detail_step_feedback',
+  'research_detail_step_decision',
+];
 
 const fmt = (value: unknown, digits = 4): string =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
 
 const GateTag: React.FC<{ label: string; gate?: ResearchGate }> = ({ label, gate }) => {
+  const { t } = useTranslation();
   if (!gate) return null;
   // unknown = 缺少对比数据（如续跑时没有持久化 corr），按未通过提示，不能显示成通过
   const unknown = gate.status === 'unknown';
   const color = unknown ? 'warning' : gate.pass ? 'success' : 'error';
-  const text = unknown ? '无法判定' : gate.pass ? '通过' : '未过';
+  const text = unknown
+    ? t('research_detail_gate_unknown')
+    : gate.pass
+      ? t('research_detail_gate_pass')
+      : t('research_detail_gate_fail');
   return (
     <Tag color={color}>
       {label} {text}
@@ -104,54 +120,71 @@ const diffLines = (left: string[], right: string[]): DiffLine[] => {
 
 /** 对比面板：指标 / 三道硬门 / 成本并排，代码只渲染差异片段（基准为第一条） */
 const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
+  const { t } = useTranslation();
   const base = trials[0];
   // PRD §6.7：quick 与 deep 同表，行按场景自适应——factor 有换手/覆盖率/多空收益，
   // strategy/model 有 Sharpe/回撤/胜率；某行所有 trial 都无值时不渲染（缺省口径见 PRD「—」）
+  // label 存 i18n key，渲染时翻译；decision 行同样返回 key，交给列渲染统一翻译
   const metricRows = [
     {
       key: 'decision',
-      label: '决策',
-      get: (t: ResearchTrial) =>
-        t.decision == null ? '待人工' : t.decision ? '通过' : '未通过',
+      label: 'research_detail_metric_decision',
+      get: (tr: ResearchTrial) =>
+        tr.decision == null
+          ? 'research_detail_decision_pending'
+          : tr.decision
+            ? 'research_detail_decision_pass'
+            : 'research_detail_decision_fail',
+      i18nValue: true,
     },
-    { key: 'ic_mean', label: 'IC（RankIC）', get: (t: ResearchTrial) => t.metrics?.ic_mean },
-    { key: 'ic_ir', label: 'IC_IR', get: (t: ResearchTrial) => t.metrics?.ic_ir },
-    { key: 'oos', label: '样本外', get: (t: ResearchTrial) => t.oos_flag },
-    { key: 'sharpe', label: 'Sharpe', get: (t: ResearchTrial) => t.metrics?.sharpe_ratio },
+    { key: 'ic_mean', label: 'research_detail_metric_ic_rankic', get: (tr: ResearchTrial) => tr.metrics?.ic_mean },
+    { key: 'ic_ir', label: 'research_detail_metric_ic_ir', get: (tr: ResearchTrial) => tr.metrics?.ic_ir },
+    { key: 'oos', label: 'research_detail_metric_oos', get: (tr: ResearchTrial) => tr.oos_flag },
+    { key: 'sharpe', label: 'research_detail_metric_sharpe', get: (tr: ResearchTrial) => tr.metrics?.sharpe_ratio },
     {
       key: 'mdd',
-      label: '最大回撤',
-      get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.max_drawdown_pct,
+      label: 'research_detail_metric_max_drawdown',
+      get: (tr: ResearchTrial) => (tr.metrics as Record<string, unknown> | undefined)?.max_drawdown_pct,
     },
-    { key: 'win_rate', label: '胜率', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.win_rate },
-    { key: 'turnover', label: '换手', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.turnover },
-    { key: 'coverage', label: '覆盖率', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.coverage },
-    { key: 'ls_return', label: '多空收益', get: (t: ResearchTrial) => (t.metrics as Record<string, unknown> | undefined)?.long_short_return },
-    { key: 'corr_sota', label: 'corr(SOTA)', get: (t: ResearchTrial) => t.corr_sota },
-    { key: 'corr_library', label: 'corr(因子库)', get: (t: ResearchTrial) => t.corr_library },
+    { key: 'win_rate', label: 'research_detail_metric_win_rate', get: (tr: ResearchTrial) => (tr.metrics as Record<string, unknown> | undefined)?.win_rate },
+    { key: 'turnover', label: 'research_detail_metric_turnover', get: (tr: ResearchTrial) => (tr.metrics as Record<string, unknown> | undefined)?.turnover },
+    { key: 'coverage', label: 'research_detail_metric_coverage', get: (tr: ResearchTrial) => (tr.metrics as Record<string, unknown> | undefined)?.coverage },
+    { key: 'ls_return', label: 'research_detail_metric_long_short', get: (tr: ResearchTrial) => (tr.metrics as Record<string, unknown> | undefined)?.long_short_return },
+    { key: 'corr_sota', label: 'research_detail_metric_corr_sota', get: (tr: ResearchTrial) => tr.corr_sota },
+    { key: 'corr_library', label: 'research_detail_metric_corr_library', get: (tr: ResearchTrial) => tr.corr_library },
     // 成本三行统一 ?? 0 兜底：candidates/planned 等未产生消费时显示 0 而非字面 "null"
-    { key: 'token', label: 'Token', get: (t: ResearchTrial) => String(t.token_used ?? 0) },
-    { key: 'llm_calls', label: 'LLM 调用', get: (t: ResearchTrial) => String(t.llm_calls ?? 0) },
-    { key: 'duration', label: '耗时(ms)', get: (t: ResearchTrial) => String(t.duration_ms ?? 0) },
-    { key: 'model', label: '模型', get: (t: ResearchTrial) => t.model || '—' },
+    { key: 'token', label: 'research_detail_metric_token', get: (tr: ResearchTrial) => String(tr.token_used ?? 0) },
+    { key: 'llm_calls', label: 'research_detail_metric_llm_calls', get: (tr: ResearchTrial) => String(tr.llm_calls ?? 0) },
+    { key: 'duration', label: 'research_detail_metric_duration', get: (tr: ResearchTrial) => String(tr.duration_ms ?? 0) },
+    { key: 'model', label: 'research_detail_metric_model', get: (tr: ResearchTrial) => tr.model || '—' },
   ].filter((row) =>
     // 全行无数据的指标不占位（如纯 strategy 会话没有 IC/换手）；get 返回原始值，null 才代表缺省
-    trials.some((t) => row.get(t) != null),
+    trials.some((tr) => row.get(tr) != null),
   );
+  // tag 为硬门短名（表格列头带「门」，GateTag 内只显示指标名）
   const gateRows = [
-    { key: 'icir', label: 'IC_IR 门', get: (t: ResearchTrial) => t.judge?.gates?.icir },
-    { key: 'oos', label: '样本外门', get: (t: ResearchTrial) => t.judge?.gates?.oos },
-    { key: 'corr', label: '相关性门', get: (t: ResearchTrial) => t.judge?.gates?.corr },
+    { key: 'icir', label: 'research_detail_gate_icir_label', tag: 'research_detail_gate_icir_short', get: (tr: ResearchTrial) => tr.judge?.gates?.icir },
+    { key: 'oos', label: 'research_detail_gate_oos_label', tag: 'research_detail_gate_oos_short', get: (tr: ResearchTrial) => tr.judge?.gates?.oos },
+    { key: 'corr', label: 'research_detail_gate_corr_label', tag: 'research_detail_gate_corr_short', get: (tr: ResearchTrial) => tr.judge?.gates?.corr },
   ];
-  type Row = { label: string; get: (t: ResearchTrial) => unknown };
-  const trialColumns = trials.map((t, idx) => ({
-    title: `#${t.id}${idx === 0 ? '（基准）' : ''}`,
-    key: `trial-${t.id}`,
+  type Row = {
+    label: string;
+    tag?: string;
+    get: (tr: ResearchTrial) => unknown;
+    i18nValue?: boolean;
+  };
+  const trialColumns = trials.map((tr, idx) => ({
+    title: `#${tr.id}${idx === 0 ? t('research_detail_compare_baseline') : ''}`,
+    key: `trial-${tr.id}`,
     render: (_: unknown, row: Row) => {
-      const value = row.get(t);
+      const value = row.get(tr);
       // 硬门行返回 gate 对象：unknown 状态由 GateTag 显示为“无法判定”
       if (value && typeof value === 'object' && 'pass' in value) {
-        return <GateTag label={row.label.replace(' 门', '')} gate={value as ResearchGate} />;
+        return <GateTag label={t(row.tag ?? row.label)} gate={value as ResearchGate} />;
+      }
+      // decision 行返回的是 i18n key，其余行返回原始值
+      if (row.i18nValue && typeof value === 'string') {
+        return <Tag>{t(value)}</Tag>;
       }
       if (typeof value === 'number' && Number.isFinite(value)) return fmt(value);
       return String(value ?? '—');
@@ -165,24 +198,34 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
         pagination={false}
         rowKey="key"
         dataSource={metricRows}
-        columns={[{ title: '指标', dataIndex: 'label', width: 120 }, ...trialColumns]}
+        columns={[
+          { title: t('research_detail_col_metric'), dataIndex: 'label', width: 120, render: (key: string) => t(key) },
+          ...trialColumns,
+        ]}
       />
       <Table
         size="small"
         pagination={false}
         rowKey="key"
         dataSource={gateRows}
-        columns={[{ title: '硬门', dataIndex: 'label', width: 120 }, ...trialColumns]}
+        columns={[
+          { title: t('research_detail_col_gate'), dataIndex: 'label', width: 120, render: (key: string) => t(key) },
+          ...trialColumns,
+        ]}
       />
-      {trials.slice(1).map((t) => {
+      {trials.slice(1).map((tr) => {
         const changes = diffLines(
           (base.code || '').split('\n'),
-          (t.code || '').split('\n'),
+          (tr.code || '').split('\n'),
         ).filter((line) => line.type !== 'same');
         return (
-          <Card size="small" key={t.id} title={`代码差异：#${base.id} → #${t.id}`}>
+          <Card
+            size="small"
+            key={tr.id}
+            title={t('research_detail_code_diff_title', { from: base.id, to: tr.id })}
+          >
             {changes.length === 0 ? (
-              <Tag color="success">代码一致</Tag>
+              <Tag color="success">{t('research_detail_code_identical')}</Tag>
             ) : (
               <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12, lineHeight: 1.6 }}>
                 {changes.map((line, idx) => (
@@ -207,6 +250,7 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
 };
 
 const ResearchDetail: React.FC = () => {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const sessionId = Number(id);
   const navigate = useNavigate();
@@ -256,12 +300,12 @@ const ResearchDetail: React.FC = () => {
         setEvents((prev) => [...prev, ...page.events].slice(-200));
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '会话加载失败');
+      message.error(err instanceof Error ? err.message : t('research_detail_msg_load_failed'));
     } finally {
       loadBusyRef.current = false;
       setLoading(false);
     }
-  }, [sessionId, message]);
+  }, [sessionId, message, t]);
 
   usePolling(load, {
     interval: 3000,
@@ -279,7 +323,7 @@ const ResearchDetail: React.FC = () => {
       message.success(okText);
       refresh();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败');
+      message.error(err instanceof Error ? err.message : t('research_detail_msg_action_failed'));
     }
   };
 
@@ -291,20 +335,20 @@ const ResearchDetail: React.FC = () => {
     try {
       setTrial(await researchApi.getTrial(sessionId, row.id));
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '试验详情加载失败');
+      message.error(err instanceof Error ? err.message : t('research_detail_msg_trial_load_failed'));
     }
   };
 
   const promote = async (row: ResearchTrial) => {
     try {
       const res = await researchApi.promote(sessionId, row.id);
-      message.success(`已采纳为因子 ${res.factor_name}`);
+      message.success(t('research_detail_msg_promoted', { name: res.factor_name }));
       setTrial((prev) =>
         prev && prev.id === row.id ? { ...prev, promoted_factor_name: res.factor_name } : prev,
       );
       void load();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '采纳失败');
+      message.error(err instanceof Error ? err.message : t('research_detail_msg_promote_failed'));
     }
   };
 
@@ -313,10 +357,14 @@ const ResearchDetail: React.FC = () => {
     try {
       const res = await researchApi.replay(sessionId, row.id);
       setReplayResult(res);
-      message.success(res.replay_meta.partial ? '回放完成（部分复现）' : '回放完成');
+      message.success(
+        res.replay_meta.partial
+          ? t('research_detail_msg_replay_partial')
+          : t('research_detail_msg_replay_done'),
+      );
       void load();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '回放失败');
+      message.error(err instanceof Error ? err.message : t('research_detail_msg_replay_failed'));
     } finally {
       setReplaying(false);
     }
@@ -330,7 +378,7 @@ const ResearchDetail: React.FC = () => {
       setCompareTrials(res.trials);
       setCompareOpen(true);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '批量加载试验失败');
+      message.error(err instanceof Error ? err.message : t('research_detail_msg_batch_failed'));
     } finally {
       setComparing(false);
     }
@@ -338,24 +386,24 @@ const ResearchDetail: React.FC = () => {
 
   const columns: ColumnsType<ResearchTrial> = [
     {
-      title: '轮次/候选',
+      title: t('research_detail_col_round'),
       width: 110,
       render: (_, row) =>
         // 回放行固定 loop_idx=0，不占用正常轮次编号，这里直接标“回放”
         row.replay_of_id
-          ? `回放 #${row.id}`
+          ? t('research_detail_row_replay', { id: row.id })
           : detail?.mode === 'quick'
-            ? `第 1 轮 #${row.candidate_idx}`
-            : `第 ${row.loop_idx} 轮`,
+            ? t('research_detail_row_quick_round', { idx: row.candidate_idx })
+            : t('research_detail_row_loop_round', { idx: row.loop_idx }),
     },
     {
-      title: '状态',
+      title: t('status'),
       dataIndex: 'status',
       width: 100,
       render: (status: string) => <Tag>{status}</Tag>,
     },
     {
-      title: '假设',
+      title: t('research_detail_col_hypothesis'),
       dataIndex: 'hypothesis',
       ellipsis: true,
       render: (text: string | null) => text || '—',
@@ -369,29 +417,29 @@ const ResearchDetail: React.FC = () => {
       render: (flag: string | null) => flag || '—',
     },
     {
-      title: '决策',
+      title: t('research_detail_col_decision'),
       width: 100,
       render: (_, row) =>
         row.decision == null ? (
-          <Tag>待人工</Tag>
+          <Tag>{t('research_detail_decision_pending')}</Tag>
         ) : row.decision ? (
-          <Tag color="success">通过</Tag>
+          <Tag color="success">{t('research_detail_decision_pass')}</Tag>
         ) : (
-          <Tag color="error">未通过</Tag>
+          <Tag color="error">{t('research_detail_decision_fail')}</Tag>
         ),
     },
     {
-      title: '异常',
+      title: t('research_detail_col_exception'),
       dataIndex: 'exception',
       ellipsis: true,
       render: (text: string | null) => text || '—',
     },
     {
-      title: '操作',
+      title: t('action'),
       width: 90,
       render: (_, row) => (
         <Button size="small" onClick={() => void openTrial(row)}>
-          详情
+          {t('research_detail_btn_detail')}
         </Button>
       ),
     },
@@ -415,42 +463,46 @@ const ResearchDetail: React.FC = () => {
     return [
       {
         key: 'ic_ir',
-        label: 'IC_IR',
+        label: t('research_detail_metric_ic_ir'),
         original: fmt(o.metrics?.ic_ir),
         replay: fmt(n.metrics?.ic_ir),
         diff: diffText(meta.diff.ic_ir),
       },
       {
         key: 'ic_mean',
-        label: 'IC',
+        label: t('research_detail_metric_ic'),
         original: fmt(o.metrics?.ic_mean),
         replay: fmt(n.metrics?.ic_mean),
         diff: '—',
       },
       {
         key: 'oos',
-        label: '样本外',
+        label: t('research_detail_metric_oos'),
         original: o.oos_flag || '—',
         replay: n.oos_flag || '—',
-        diff: meta.diff.oos_changed ? '变化' : '一致',
+        diff: meta.diff.oos_changed
+          ? t('research_detail_diff_changed')
+          : t('research_detail_diff_same'),
       },
       {
         key: 'corr_library',
-        label: 'corr(因子库)',
+        label: t('research_detail_metric_corr_library'),
         original: fmt(o.corr_library),
         replay: fmt(n.corr_library),
         diff: diffText(meta.diff.corr_library),
       },
       {
         key: 'corr_sota',
-        label: 'corr(SOTA)',
+        label: t('research_detail_metric_corr_sota'),
         original: fmt(o.corr_sota),
-        replay: meta.unreproducible.includes('corr_sota') ? '不可重算' : fmt(n.corr_sota),
+        replay: meta.unreproducible.includes('corr_sota')
+          ? t('research_detail_diff_unreproducible')
+          : fmt(n.corr_sota),
         diff: '—',
       },
       {
         key: 'cost',
-        label: 'Token / 调用',
+        label: t('research_detail_metric_token_calls'),
         original: `${o.token_used} / ${o.llm_calls}`,
         replay: `${n.token_used} / ${n.llm_calls}`,
         diff: '—',
@@ -459,21 +511,25 @@ const ResearchDetail: React.FC = () => {
   })();
 
   return (
-    <PageContainer title={detail?.name || `研究会话 #${sessionId}`}>
+    <PageContainer
+      title={detail?.name || t('research_detail_page_title', { id: sessionId })}
+    >
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         <Flex align="center" justify="space-between" wrap gap={8}>
           <Space size="small" wrap>
-            <Button onClick={() => navigate('/research')}>返回列表</Button>
+            <Button onClick={() => navigate('/research')}>
+              {t('research_detail_back_to_list')}
+            </Button>
             <Typography.Title level={5} style={{ margin: 0 }}>
-              {detail?.name || `会话 #${sessionId}`}
+              {detail?.name || t('research_detail_session_title', { id: sessionId })}
             </Typography.Title>
             {detail && (
               <Tag color={statusMeta?.color}>
                 {[
-                  statusMeta?.label,
+                  statusMeta ? t(statusMeta.i18nKey) : null,
                   // 排队位次：仅 pending 且后端返回序号时展示
                   detail.status === 'pending' && detail.queue_position
-                    ? `第 ${detail.queue_position} 位`
+                    ? t('research_queue_position', { pos: detail.queue_position })
                     : null,
                 ]
                   .filter(Boolean)
@@ -482,30 +538,50 @@ const ResearchDetail: React.FC = () => {
             )}
             {detail && (
               <Tag color={detail.scenario === 'strategy' ? 'geekblue' : detail.scenario === 'model' ? 'purple' : 'cyan'}>
-                {detail.scenario === 'strategy' ? '策略挖掘' : detail.scenario === 'model' ? '模型挖掘' : '因子挖掘'}
+                {detail.scenario === 'strategy'
+                  ? t('research_detail_scenario_strategy')
+                  : detail.scenario === 'model'
+                    ? t('research_detail_scenario_model')
+                    : t('research_detail_scenario_factor')}
               </Tag>
             )}
-            {detail && <Tag>{detail.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>}
+            {detail && (
+              <Tag>
+                {detail.mode === 'quick'
+                  ? t('research_mode_quick')
+                  : t('research_mode_deep')}
+              </Tag>
+            )}
             {detail?.extended_at && (
-              <Tag color="blue">已追加 {new Date(detail.extended_at).toLocaleString()}</Tag>
+              <Tag color="blue">
+                {t('research_detail_tag_extended', {
+                  time: new Date(detail.extended_at).toLocaleString(),
+                })}
+              </Tag>
             )}
           </Space>
           <Space wrap>
             <Button loading={loading} onClick={refresh}>
-              刷新
+              {t('refresh')}
             </Button>
             {/* quick 是一次性批量调用，后端明确拒绝 pause（409），前端不展示入口 */}
             {isDeep && detail?.status === 'running' && (
-              <Button onClick={() => void act(() => researchApi.pause(sessionId), '已请求暂停')}>
-                暂停
+              <Button
+                onClick={() =>
+                  void act(() => researchApi.pause(sessionId), t('research_msg_pause_requested'))
+                }
+              >
+                {t('research_action_pause')}
               </Button>
             )}
             {detail?.status === 'paused' && (
               <Button
                 type="primary"
-                onClick={() => void act(() => researchApi.resume(sessionId), '已继续研究')}
+                onClick={() =>
+                  void act(() => researchApi.resume(sessionId), t('research_msg_resumed'))
+                }
               >
-                继续
+                {t('research_action_resume')}
               </Button>
             )}
             {detail && ['pending', 'running', 'paused'].includes(detail.status) && (
@@ -513,34 +589,37 @@ const ResearchDetail: React.FC = () => {
                 danger
                 onClick={() =>
                   modal.confirm({
-                    title: '取消研究会话',
-                    content: '取消后当前进度保留，但不会继续执行。',
-                    okText: '确认取消',
-                    cancelText: '再想想',
-                    onOk: () => act(() => researchApi.cancel(sessionId), '已取消'),
+                    title: t('research_detail_cancel_title'),
+                    content: t('research_detail_cancel_content'),
+                    okText: t('research_detail_cancel_ok'),
+                    cancelText: t('research_detail_cancel_abort'),
+                    onOk: () => act(() => researchApi.cancel(sessionId), t('research_msg_cancelled')),
                   })
                 }
               >
-                取消
+                {t('cancel')}
               </Button>
             )}
             {detail?.status === 'completed' && (
               <Button
                 onClick={() =>
                   modal.confirm({
-                    title: '继续研究',
+                    title: t('research_action_extend'),
                     content:
                       detail.mode === 'quick'
-                        ? 'quick 会话追加的轮次会按深度研究编排，并从当前最佳候选接续。追加 2 轮与 10 次调用预算。'
-                        : '追加 2 轮研究与 10 次 LLM 调用预算。',
-                    okText: '追加',
-                    cancelText: '取消',
+                        ? t('research_detail_extend_content_quick')
+                        : t('research_detail_extend_content_deep'),
+                    okText: t('research_detail_extend_ok'),
+                    cancelText: t('cancel'),
                     onOk: () =>
-                      act(() => researchApi.extend(sessionId, { extra_loops: 2 }), '已追加轮次'),
+                      act(
+                        () => researchApi.extend(sessionId, { extra_loops: 2 }),
+                        t('research_msg_extended', { n: 2 }),
+                      ),
                   })
                 }
               >
-                继续研究
+                {t('research_action_extend')}
               </Button>
             )}
           </Space>
@@ -548,22 +627,39 @@ const ResearchDetail: React.FC = () => {
 
         {detail?.error && <Alert type="error" showIcon title={detail.error} />}
 
-        <Card size="small" title="运行状态">
+        <Card size="small" title={t('research_detail_card_status')}>
           <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
             <Space size="large" wrap>
               <span>
-                进度：{detail?.loop_done ?? 0}/{detail?.loop_n ?? '—'} 轮
-                {isDeep && detail?.step_idx ? `　当前步骤：${STEP_LABELS[detail.step_idx] || '—'}` : ''}
+                {t('research_detail_loop_progress', {
+                  done: detail?.loop_done ?? 0,
+                  total: detail?.loop_n ?? '—',
+                })}
+                {isDeep && detail?.step_idx
+                  ? `　${t('research_detail_current_step', {
+                      step: STEP_LABEL_KEYS[detail.step_idx]
+                        ? t(STEP_LABEL_KEYS[detail.step_idx])
+                        : '—',
+                    })}`
+                  : ''}
               </span>
               <span>
-                LLM 调用（已用 / 上限）：{detail?.llm_calls ?? 0} / {detail?.max_llm_calls ?? '—'}
+                {t('research_detail_llm_usage', {
+                  used: detail?.llm_calls ?? 0,
+                  max: detail?.max_llm_calls ?? '—',
+                })}
               </span>
-              <span>最优 IC_IR：{fmt(detail?.best_ic_ir)}</span>
+              <span>{t('research_detail_best_icir', { value: fmt(detail?.best_ic_ir) })}</span>
               {/* token 进度圆圈与统计文字同行内嵌：数值不占版面，悬停圆圈看详细用量 */}
               <Flex gap="small" align="center">
-                <span>Token：</span>
+                <span>{t('research_detail_token_label')}</span>
                 <Tooltip
-                  title={`Token 已用 / 上限：${formatTokens(detail?.token_used, '0')} / ${formatTokens(detail?.max_tokens, '—')}（原始值：${detail?.token_used ?? 0} / ${detail?.max_tokens ?? '—'} tokens）`}
+                  title={t('research_detail_token_tooltip', {
+                    used: formatTokens(detail?.token_used, '0'),
+                    max: formatTokens(detail?.max_tokens, '—'),
+                    rawUsed: detail?.token_used ?? 0,
+                    rawMax: detail?.max_tokens ?? '—',
+                  })}
                 >
                   <Progress
                     type="circle"
@@ -579,22 +675,26 @@ const ResearchDetail: React.FC = () => {
             </Space>
             {detail && (
               <Descriptions size="small" column={3}>
-                <Descriptions.Item label="品种">
+                <Descriptions.Item label={t('research_detail_field_symbol')}>
                   {(detail.config.symbols as string[] | undefined)?.join(', ') || '—'}
                 </Descriptions.Item>
-                <Descriptions.Item label="周期">
+                <Descriptions.Item label={t('research_detail_field_interval')}>
                   {String(detail.config.interval ?? '—')}
                 </Descriptions.Item>
-                <Descriptions.Item label="市场">
+                <Descriptions.Item label={t('research_detail_field_market')}>
                   {String(detail.config.candle_type ?? '—')}
                 </Descriptions.Item>
-                <Descriptions.Item label="窗口">
+                <Descriptions.Item label={t('research_detail_field_window')}>
                   {String(detail.config.start ?? '')} ~ {String(detail.config.end ?? '')}
                 </Descriptions.Item>
-                <Descriptions.Item label="候选数">{detail.n_candidates}</Descriptions.Item>
-                <Descriptions.Item label="硬门">
-                  IC_IR ≥ {String(detail.config.icir_floor ?? '—')}，|corr| &lt;{' '}
-                  {String(detail.config.corr_threshold ?? '—')}
+                <Descriptions.Item label={t('research_detail_field_candidates')}>
+                  {detail.n_candidates}
+                </Descriptions.Item>
+                <Descriptions.Item label={t('research_detail_field_gate')}>
+                  {t('research_detail_gate_rule', {
+                    icir: String(detail.config.icir_floor ?? '—'),
+                    corr: String(detail.config.corr_threshold ?? '—'),
+                  })}
                 </Descriptions.Item>
               </Descriptions>
             )}
@@ -602,7 +702,7 @@ const ResearchDetail: React.FC = () => {
         </Card>
 
         <Flex justify="space-between" align="center" wrap gap={8}>
-          <Typography.Text type="secondary">勾选 2–5 条试验进行对比</Typography.Text>
+          <Typography.Text type="secondary">{t('research_detail_compare_hint')}</Typography.Text>
           <Button
             type="primary"
             ghost
@@ -610,7 +710,7 @@ const ResearchDetail: React.FC = () => {
             disabled={selectedKeys.length < 2 || selectedKeys.length > 5}
             onClick={() => void openCompare()}
           >
-            对比（已选 {selectedKeys.length}）
+            {t('research_detail_compare_btn', { n: selectedKeys.length })}
           </Button>
         </Flex>
 
@@ -621,7 +721,7 @@ const ResearchDetail: React.FC = () => {
           columns={columns}
           dataSource={[...(detail?.trials ?? [])].sort((a, b) => b.id - a.id)}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
-          locale={{ emptyText: '暂无试验记录' }}
+          locale={{ emptyText: t('research_detail_empty_trials') }}
           rowSelection={{
             selectedRowKeys: selectedKeys,
             onChange: (keys) => setSelectedKeys(keys as number[]),
@@ -634,15 +734,15 @@ const ResearchDetail: React.FC = () => {
 
         <Card
           size="small"
-          title="运行事件"
+          title={t('research_detail_card_events')}
           extra={
             <Typography.Text type="secondary">
-              seq ≤ {nextSeqRef.current}　事件已持久化，多 worker/重启后仍可增量读取
+              {t('research_detail_events_meta', { seq: nextSeqRef.current })}
             </Typography.Text>
           }
         >
           {events.length === 0 ? (
-            <Typography.Text type="secondary">暂无事件（研究开始后会逐步写入）</Typography.Text>
+            <Typography.Text type="secondary">{t('research_detail_events_empty')}</Typography.Text>
           ) : (
             <div style={{ maxHeight: 220, overflow: 'auto', fontSize: 12, lineHeight: 1.8 }}>
               {events.map((evt) => (
@@ -662,34 +762,36 @@ const ResearchDetail: React.FC = () => {
         <Drawer
           open={!!trial}
           width="68%"
-          title={trial ? `试验 #${trial.id} 详情` : ''}
+          title={trial ? t('research_detail_trial_title', { id: trial.id }) : ''}
           onClose={() => setTrial(null)}
-          destroyOnClose
+          destroyOnHidden // antd v6：「destroyOnClose」已废弃
           extra={
             trial && (
               <Space>
                 {trial.code && !trial.replay_of_id && (
                   <Button loading={replaying} onClick={() => void replay(trial)}>
-                    回放
+                    {t('research_detail_btn_replay')}
                   </Button>
                 )}
                 {trial.promoted_factor_name ? (
-                  <Tag color="success">已采纳：{trial.promoted_factor_name}</Tag>
+                  <Tag color="success">
+                    {t('research_detail_tag_promoted', { name: trial.promoted_factor_name })}
+                  </Tag>
                 ) : (
                   trial.code && (
                     <Button
                       type="primary"
                       onClick={() =>
                         modal.confirm({
-                          title: '采纳为因子',
-                          content: `把试验 #${trial.id} 的代码写入因子库（重复采纳幂等）。`,
-                          okText: '采纳',
-                          cancelText: '取消',
+                          title: t('research_detail_promote'),
+                          content: t('research_detail_promote_content', { id: trial.id }),
+                          okText: t('research_detail_promote_ok'),
+                          cancelText: t('cancel'),
                           onOk: () => promote(trial),
                         })
                       }
                     >
-                      采纳为因子
+                      {t('research_detail_promote')}
                     </Button>
                   )
                 )}
@@ -700,58 +802,87 @@ const ResearchDetail: React.FC = () => {
           {trial && (
             <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
               <Typography.Paragraph style={{ margin: 0 }}>
-                假设：{trial.hypothesis || '—'}
+                {t('research_detail_hypothesis_line', { text: trial.hypothesis || '—' })}
               </Typography.Paragraph>
               {trial.hypothesis_reason && (
                 <Typography.Paragraph style={{ margin: 0 }}>
-                  理由：{trial.hypothesis_reason}
+                  {t('research_detail_reason_line', { text: trial.hypothesis_reason })}
                 </Typography.Paragraph>
               )}
               {trial.hypothesis_prediction && (
                 <Typography.Paragraph style={{ margin: 0 }}>
-                  预测：{trial.hypothesis_prediction}
+                  {t('research_detail_prediction_line', { text: trial.hypothesis_prediction })}
                 </Typography.Paragraph>
               )}
               {trial.task && (
                 <Typography.Paragraph style={{ margin: 0 }}>
-                  任务：{trial.task.name || ''} {trial.task.description || ''}
+                  {t('research_detail_task_line', {
+                    name: trial.task.name || '',
+                    description: trial.task.description || '',
+                  })}
                 </Typography.Paragraph>
               )}
               {trial.judge && (
                 <Space wrap>
                   {/* gates 按模式不同：deep 有三门，quick 只有冗余门，全部可选读取 */}
-                  <GateTag label="IC_IR" gate={trial.judge.gates?.icir} />
-                  <GateTag label="样本外" gate={trial.judge.gates?.oos} />
-                  <GateTag label="相关性" gate={trial.judge.gates?.corr} />
-                  <GateTag label="冗余" gate={trial.judge.gates?.redundant} />
+                  <GateTag
+                    label={t('research_detail_gate_icir_short')}
+                    gate={trial.judge.gates?.icir}
+                  />
+                  <GateTag
+                    label={t('research_detail_gate_oos_short')}
+                    gate={trial.judge.gates?.oos}
+                  />
+                  <GateTag
+                    label={t('research_detail_gate_corr_short')}
+                    gate={trial.judge.gates?.corr}
+                  />
+                  <GateTag
+                    label={t('research_detail_gate_redundant')}
+                    gate={trial.judge.gates?.redundant}
+                  />
                   <Typography.Text type="secondary">{trial.judge.reason}</Typography.Text>
                 </Space>
               )}
               {trial.oos_note && <Alert type="info" showIcon title={trial.oos_note} />}
               {trial.exception && <Alert type="error" showIcon title={trial.exception} />}
               <Typography.Text type="secondary">
-                指标
-                {trial.model ? `　模型：${trial.model}` : ''}
-                {trial.temperature != null ? `　温度：${trial.temperature}` : ''}
-                {trial.duration_ms ? `　耗时：${trial.duration_ms} ms` : ''}
-                {trial.prompt_hash ? `　prompt：${trial.prompt_hash}` : ''}
-                {trial.corr_sota != null ? `　corr(SOTA)：${fmt(trial.corr_sota)}` : ''}
-                {trial.corr_library != null ? `　corr(库)：${fmt(trial.corr_library)}` : ''}
+                {t('research_detail_metrics_label')}
+                {trial.model
+                  ? `　${t('research_detail_meta_model', { model: trial.model })}`
+                  : ''}
+                {trial.temperature != null
+                  ? `　${t('research_detail_meta_temperature', { value: trial.temperature })}`
+                  : ''}
+                {trial.duration_ms
+                  ? `　${t('research_detail_meta_duration', { ms: trial.duration_ms })}`
+                  : ''}
+                {trial.prompt_hash
+                  ? `　${t('research_detail_meta_prompt', { hash: trial.prompt_hash })}`
+                  : ''}
+                {trial.corr_sota != null
+                  ? `　${t('research_detail_meta_corr_sota', { value: fmt(trial.corr_sota) })}`
+                  : ''}
+                {trial.corr_library != null
+                  ? `　${t('research_detail_meta_corr_library', { value: fmt(trial.corr_library) })}`
+                  : ''}
               </Typography.Text>
               <pre style={{ margin: 0, maxHeight: 240, overflow: 'auto', fontSize: 12 }}>
                 {JSON.stringify(trial.metrics ?? {}, null, 2)}
               </pre>
               {trial.metrics_oos && Object.keys(trial.metrics_oos).length > 0 && (
                 <>
-                  <Typography.Text type="secondary">样本外指标</Typography.Text>
+                  <Typography.Text type="secondary">
+                    {t('research_detail_metrics_oos')}
+                  </Typography.Text>
                   <pre style={{ margin: 0, maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
                     {JSON.stringify(trial.metrics_oos, null, 2)}
                   </pre>
                 </>
               )}
-              <Typography.Text type="secondary">代码</Typography.Text>
+              <Typography.Text type="secondary">{t('research_detail_code')}</Typography.Text>
               <pre style={{ margin: 0, maxHeight: 320, overflow: 'auto', fontSize: 12 }}>
-                {trial.code || '（无代码）'}
+                {trial.code || t('research_detail_code_empty')}
               </pre>
             </Space>
           )}
@@ -760,7 +891,10 @@ const ResearchDetail: React.FC = () => {
         {replayResult && (
           <Card
             size="small"
-            title={`回放对比：试验 #${replayResult.original.id} ↔ 回放 #${replayResult.trial.id}`}
+            title={t('research_detail_replay_title', {
+              orig: replayResult.original.id,
+              replay: replayResult.trial.id,
+            })}
             extra={
               <Tag
                 color={
@@ -772,10 +906,10 @@ const ResearchDetail: React.FC = () => {
                 }
               >
                 {replayResult.replay_meta.partial
-                  ? '部分复现'
+                  ? t('research_detail_replay_partial')
                   : replayResult.replay_meta.consistent
-                    ? '指标一致'
-                    : '指标有差异'}
+                    ? t('research_detail_replay_consistent')
+                    : t('research_detail_replay_diff')}
               </Tag>
             }
           >
@@ -784,7 +918,9 @@ const ResearchDetail: React.FC = () => {
                 <Alert
                   type="warning"
                   showIcon
-                  title={`部分复现：缺少 ${replayResult.replay_meta.missing.join(', ')}，回放按引擎默认值执行`}
+                  title={t('research_detail_replay_missing', {
+                    missing: replayResult.replay_meta.missing.join(', '),
+                  })}
                 />
               )}
               <Table
@@ -793,26 +929,40 @@ const ResearchDetail: React.FC = () => {
                 rowKey="key"
                 dataSource={replayRows}
                 columns={[
-                  { title: '指标', dataIndex: 'label', width: 140 },
-                  { title: `原 trial #${replayResult.original.id}`, dataIndex: 'original' },
-                  { title: `回放 #${replayResult.trial.id}`, dataIndex: 'replay' },
-                  { title: '差异', dataIndex: 'diff' },
+                  { title: t('research_detail_col_metric'), dataIndex: 'label', width: 140 },
+                  {
+                    title: t('research_detail_col_original_trial', {
+                      id: replayResult.original.id,
+                    }),
+                    dataIndex: 'original',
+                  },
+                  {
+                    title: t('research_detail_row_replay', { id: replayResult.trial.id }),
+                    dataIndex: 'replay',
+                  },
+                  { title: t('research_detail_col_diff'), dataIndex: 'diff' },
                 ]}
               />
               <Typography.Text type="secondary">
-                判定口径：IC_IR 差异 ≤ {replayResult.replay_meta.tolerance.ic_ir} 且样本外未变化视为一致；
+                {t('research_detail_replay_criteria', {
+                  tol: replayResult.replay_meta.tolerance.ic_ir,
+                })}
                 {replayResult.replay_meta.unreproducible.includes('corr_sota')
-                  ? ' corr(SOTA) 依赖当时的 SOTA 因子序列，无法重算，仅展示原值。'
+                  ? ` ${t('research_detail_replay_criteria_corr_note')}`
                   : ''}
               </Typography.Text>
               {replayResult.original.judge && (
                 <Typography.Text type="secondary">
-                  原判定原因：{replayResult.original.judge.reason || '—'}
+                  {t('research_detail_original_judge_reason', {
+                    reason: replayResult.original.judge.reason || '—',
+                  })}
                 </Typography.Text>
               )}
               {replayResult.replay_meta.notes.length > 0 && (
                 <Typography.Text type="secondary">
-                  回放说明：{replayResult.replay_meta.notes.join('；')}
+                  {t('research_detail_replay_notes', {
+                    notes: replayResult.replay_meta.notes.join('；'),
+                  })}
                 </Typography.Text>
               )}
             </Space>
@@ -821,7 +971,7 @@ const ResearchDetail: React.FC = () => {
 
         <Modal
           open={compareOpen}
-          title={`试验对比（${compareTrials.length} 条，基准为第一条）`}
+          title={t('research_detail_compare_title', { n: compareTrials.length })}
           footer={null}
           width={980}
           onCancel={() => setCompareOpen(false)}

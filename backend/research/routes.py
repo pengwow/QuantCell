@@ -474,6 +474,23 @@ def cancel_session(
     return ApiResponse(code=0, message="ok", data=data)
 
 
+@router.delete("/sessions/{session_id}", response_model=ApiResponse, summary="删除会话")
+def delete_session(
+    session_id: int,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    """仅终态（completed/failed/cancelled）会话可删，级联清理 trials/events。"""
+    with get_db_session() as db:
+        try:
+            row = service.get_session_row(db, session_id, _owner(current_user))
+            # 刚取消的会话作业可能仍在收尾（租约心跳未停），此时删行会让收尾线程扑空
+            _ensure_no_active_job(row, db=db)
+            service.delete_session(db, session_id, _owner(current_user))
+        except service.ResearchError as exc:
+            raise _http_error(exc) from exc
+    return ApiResponse(code=0, message="ok", data={"session_id": session_id})
+
+
 @router.post("/sessions/{session_id}/extend", response_model=ApiResponse, summary="继续研究")
 def extend_session(
     session_id: int,
