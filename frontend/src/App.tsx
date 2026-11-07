@@ -1,4 +1,10 @@
 import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
+// locale 必须走 antd/es 深路径：antd v6 根路径 antd/locale/* 是 CJS 转发文件，
+// vite 依赖预打包做 CJS interop 时会产生双层 default 包装（实际传入 { default: {...} }），
+// 导致 ConfigProvider 下所有内置文案（分页"条/页"、日期选择器等）回退英文
+import zhCN from 'antd/es/locale/zh_CN';
+import enUS from 'antd/es/locale/en_US';
+import { useTranslation } from 'react-i18next';
 import type { MessageInstance } from 'antd/es/message/interface';
 import { BrowserRouter } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +21,10 @@ import './global.css';
 import './index.css';
 
 function App() {
+  const { i18n } = useTranslation();
   const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
+  // antd 组件内置文案（分页"12 条/页"、日期选择器等）跟随应用语言，缺失时 ConfigProvider 默认英文
+  const antdLocale = i18n.language?.startsWith('zh') ? zhCN : enUS;
   const loadConfig = useConfigStore((state) => state.loadConfig);
   const setMessageApi = useWorkerStore((state) => state.setMessageApi);
 
@@ -117,6 +126,7 @@ function App() {
     ConfigProvider.config({
       holderRender: (node) => (
         <ConfigProvider
+          locale={antdLocale}
           theme={{
             algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
             token: tradingToken,
@@ -126,10 +136,11 @@ function App() {
         </ConfigProvider>
       ),
     });
-  }, [isDarkMode, tradingToken]);
+  }, [isDarkMode, tradingToken, antdLocale]);
 
   return (
     <ConfigProvider
+      locale={antdLocale}
       theme={{
         algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: tradingToken,
@@ -174,6 +185,7 @@ function AppInjector({ setMessageApi }: { setMessageApi: (api: MessageInstance) 
 // 不依赖用户停留在研究详情页。事件流展示仍在详情页内轮询，二者互不替代。
 function ResearchEventBridge() {
   const { notification } = AntdApp.useApp();
+  const { t } = useTranslation();
   // 同一会话只提醒一次；WS 断线期间的事件由详情页轮询补齐（不在此重放）
   const notifiedRef = useRef<Set<number>>(new Set());
 
@@ -188,7 +200,7 @@ function ResearchEventBridge() {
       notifiedRef.current.add(sessionId);
       notification.warning({
         key: `research-budget-${sessionId}`,
-        message: '研究预算已耗尽，会话按完成收尾',
+        message: t('research_budget_exhausted_notice'),
         description: payload.event?.msg,
         duration: 0,
       });
@@ -201,7 +213,7 @@ function ResearchEventBridge() {
     return () => {
       researchWsService.off('research.event', handler);
     };
-  }, [notification]);
+  }, [notification, t]);
 
   return null;
 }

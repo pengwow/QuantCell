@@ -60,14 +60,13 @@ import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import { QUANT_COLORS } from '@/utils/colors';
-import { useConfigStore } from '@/store';
+import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
+import { useViewType } from '../../hooks/useViewType';
+import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 
 // 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
 type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
 type ViewType = 'card' | 'list';
-
-// 分页选项（与策略管理等页面一致）
-const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
 
 const Worker = () => {
   const { t } = useTranslation();
@@ -75,7 +74,6 @@ const Worker = () => {
   const { message: apiMessage, modal } = App.useApp();
   const { token } = theme.useToken();
   const screens = Grid.useBreakpoint();
-  const getDefaultPageSize = useConfigStore((s) => s.getDefaultPageSize);
 
   // Store state and actions
   // 注意：详情展示已移交 /strategy-worker/:id 独立页（WorkerDetail），
@@ -101,16 +99,22 @@ const Worker = () => {
   const [workerToEdit, setWorkerToEdit] = useState<WorkerType | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  // 视图类型状态 - 列表/卡片（与策略管理一致，默认卡片）
-  const [viewType, setViewType] = useState<ViewType>('card');
-  // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 取系统配置默认值
+  // 视图类型状态 - 列表/卡片（与策略管理一致，默认跟随全局配置）
+  const [viewType, setViewType] = useViewType();
+  // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 来自全局配置（条数切换器即全站开关）
+  const [pageSize, setPageSize] = useGlobalPageSize();
   const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
     current: 1,
-    pageSize: getDefaultPageSize(),
+    pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
     showTotal: (total) => t('total_items', { total }),
   }));
+
+  // 全局条数变化（设置页/其他页面改动）实时同步到本页分页状态
+  useEffect(() => {
+    setPagination((p) => ({ ...p, pageSize }));
+  }, [pageSize]);
 
   // 批量操作状态
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -165,6 +169,14 @@ const Worker = () => {
 
   // 筛选条件变化时回到第一页（避免过滤后停留在超出范围的页码）
   const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
+
+  // 表格条数变化写回全局配置，全站生效
+  const handleWorkerTableChange = (nextPagination: TablePaginationConfig) => {
+    if (nextPagination.pageSize && nextPagination.pageSize !== pageSize) {
+      setPageSize(nextPagination.pageSize);
+    }
+    setPagination(nextPagination);
+  };
 
   // Event handlers
   const handleStart = useCallback(async (worker: WorkerType) => {
@@ -755,7 +767,11 @@ const Worker = () => {
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
             showTotal={(total) => t('total_items', { total })}
-            onChange={(page, size) => setPagination((p) => ({ ...p, current: page, pageSize: size }))}
+            onChange={(page, size) => {
+              // 条数变化写回全局配置，全站生效
+              setPageSize(size);
+              setPagination((p) => ({ ...p, current: page, pageSize: size }));
+            }}
           />
         </Row>
       </>
@@ -845,7 +861,7 @@ const Worker = () => {
       locale={{
         emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('no_workers')} />,
       }}
-      onChange={setPagination}
+      onChange={handleWorkerTableChange}
       columns={[
         {
           title: t('worker_name') || '任务名称',

@@ -6,11 +6,13 @@
  * - 无配对的历史 / live 成交：每行自成一组，标记「未配对」
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Card, Col, DatePicker, Empty, Pagination, Row, Select, Space } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import TradeTable from '@/components/TradeTable';
 import { usePolling } from '@/hooks/usePolling';
+import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
+import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import type { Trade } from '@/types/backtest';
 
 interface WorkerTradesGroupedTabProps {
@@ -25,7 +27,8 @@ const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerI
   const [items, setItems] = useState<Trade[]>([]);
   const [totalGroups, setTotalGroups] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  // 分页大小跟随全局配置（条数切换器即全站开关）
+  const [pageSize, setPageSize] = useGlobalPageSize();
   const [loading, setLoading] = useState(false);
   // 标的筛选项：累积已出现过的 symbol，避免翻页/筛选后候选列表缩水
   const [symbols, setSymbols] = useState<string[]>([]);
@@ -143,10 +146,11 @@ const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerI
             pageSize={pageSize}
             total={totalGroups}
             showSizeChanger
-            pageSizeOptions={['10', '20', '50', '100']}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
             showTotal={(total) => `共 ${total} 组`}
             onChange={(nextPage, nextSize) => {
-              setPage(nextPage);
+              // 条数变化写回全局配置并回到第一页，避免服务端分页越界
+              setPage(nextSize !== pageSize ? 1 : nextPage);
               setPageSize(nextSize);
             }}
           />

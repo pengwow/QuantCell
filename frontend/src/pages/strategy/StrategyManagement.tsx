@@ -40,6 +40,9 @@ import PageContainer from '@/components/PageContainer';
 import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useConfigStore } from '@/store';
+import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
+import { useViewType } from '../../hooks/useViewType';
+import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 import { QUANT_COLORS } from '@/utils/colors';
 
 const { confirm } = Modal;
@@ -55,9 +58,6 @@ type SortOrder = 'asc' | 'desc';
 
 // Tab 类型
 type TabType = 'strategies' | 'backtests';
-
-// 分页选项（与系统配置一致）
-const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
 
 // 策略后端返回的 snake_case 扩展字段，仅用于类型读取时的最小收窄
 type StrategyBackendFields = {
@@ -79,15 +79,14 @@ const StrategyManagement = () => {
   const { isGuest } = useGuestRestriction();
   const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
-  const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
   const { message } = App.useApp();
 
   // 从 URL 参数读取 Tab 状态
   const tabFromUrl = searchParams.get('tab') as TabType;
   const validTab = tabFromUrl === 'strategies' || tabFromUrl === 'backtests' ? tabFromUrl : 'strategies';
 
-  // 视图类型状态 - 策略列表
-  const [viewType, setViewType] = useState<ViewType>('card');
+  // 视图类型状态 - 策略列表（全局默认 + 会话内临时覆盖）
+  const [viewType, setViewType] = useViewType();
 
   // Tab 状态 - 从 URL 参数初始化
   const [activeTab, setActiveTab] = useState<TabType>(validTab);
@@ -102,8 +101,8 @@ const StrategyManagement = () => {
   const [backtestLoading, setBacktestLoading] = useState<boolean>(false);
   const [selectedStrategy, setSelectedStrategy] = useState<string>('');
 
-  // 回测列表视图类型
-  const [backtestViewType, setBacktestViewType] = useState<ViewType>('list');
+  // 回测列表视图类型（全局默认 + 会话内临时覆盖）
+  const [backtestViewType, setBacktestViewType] = useViewType();
   const [backtestSelectedRowKeys, setBacktestSelectedRowKeys] = useState<React.Key[]>([]);
 
   // 回测筛选状态
@@ -112,38 +111,32 @@ const StrategyManagement = () => {
   const [backtestSortField, setBacktestSortField] = useState<string>('created_at');
   const [backtestSortOrder, setBacktestSortOrder] = useState<string>('desc');
 
-  // 分页配置 - 策略列表（使用系统配置）
-  const [pagination, setPagination] = useState<TableProps<Strategy>['pagination']>({
+  // 全局分页大小（条数切换器即全站开关，切换后跨页面实时同步并持久化）
+  const [pageSize, setPageSize] = useGlobalPageSize();
+
+  // 分页配置 - 策略列表（pageSize 跟随全局配置）
+  const [pagination, setPagination] = useState<TableProps<Strategy>['pagination']>(() => ({
     current: 1,
-    pageSize: 10,
+    pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total') || '共'}: ${total}`,
-  });
+    showTotal: (total) => `${t('total_items', { total })}`,
+  }));
 
-  // 分页配置 - 回测列表（使用系统配置）；state 恒为对象，false/undefined 只在 Table 的 props 上有意义
-  const [backtestPagination, setBacktestPagination] = useState<TablePaginationConfig>({
+  // 分页配置 - 回测列表；state 恒为对象，false/undefined 只在 Table 的 props 上有意义
+  const [backtestPagination, setBacktestPagination] = useState<TablePaginationConfig>(() => ({
     current: 1,
-    pageSize: 10,
+    pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total') || '共'}: ${total}`,
-  });
+    showTotal: (total) => `${t('total_items', { total })}`,
+  }));
 
-  // 从全局配置加载分页大小
+  // 全局条数变化（设置页/其他页面改动）实时同步到两个列表的分页状态
   useEffect(() => {
-    console.log('[StrategyManagement] 从全局配置加载分页大小');
-    const defaultPageSize = getDefaultPageSize();
-    console.log('[StrategyManagement] 获取到的默认分页大小:', defaultPageSize);
-    setPagination(prev => ({
-      ...prev,
-      pageSize: defaultPageSize,
-    }));
-    setBacktestPagination(prev => ({
-      ...prev,
-      pageSize: defaultPageSize,
-    }));
-  }, [getDefaultPageSize]);
+    setPagination(prev => ({ ...prev, pageSize }));
+    setBacktestPagination(prev => ({ ...prev, pageSize }));
+  }, [pageSize]);
 
   // 页面加载时输出全局配置（用于调试）
   useEffect(() => {
@@ -713,6 +706,10 @@ const StrategyManagement = () => {
       scroll={{ x: 'max-content' }}
       rowKey="name"
       onChange={(newPagination) => {
+        // 条数变化写回全局配置，全站生效
+        if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
+          setPageSize(newPagination.pageSize);
+        }
         setPagination(newPagination);
       }}
     />
@@ -854,7 +851,7 @@ const StrategyManagement = () => {
             total={filteredStrategies.length}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total') || '共'}: ${total}`}
+            showTotal={(total) => `${t('total_items', { total })}`}
             onChange={(page, size) => {
               setPagination({
                 ...pagination,
@@ -1153,9 +1150,10 @@ const StrategyManagement = () => {
             total={(backtestPagination.total as number) || 0}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total') || '共'}: ${total}`}
+            showTotal={(total) => `${t('total_items', { total })}`}
             onChange={(page, size) => {
-              // 分页事件下沉服务端重新拉取
+              // 分页事件下沉服务端重新拉取；条数变化写回全局配置
+              setPageSize(size);
               loadBacktests({ page, pageSize: size });
             }}
           />

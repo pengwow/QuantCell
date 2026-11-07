@@ -9,6 +9,7 @@ export interface GeneralSettings {
   showTips: boolean;
   timezone: string; // 时区配置
   defaultPerPage?: number; // 默认分页大小
+  defaultViewType?: 'card' | 'list'; // 默认展示类型（卡片/列表），全站统一配置
 }
 
 // 保持向后兼容的别名

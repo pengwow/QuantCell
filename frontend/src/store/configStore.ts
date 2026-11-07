@@ -8,10 +8,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { configApi } from '../api';
+import { snapPageSize } from '../constants/pagination';
 
 // 系统配置接口
 export interface SystemConfig {
   defaultPerPage: number;
+  defaultViewType?: 'card' | 'list'; // 全站默认展示类型（卡片/列表）
   // 其他系统配置项可以在这里添加
   [key: string]: unknown;
 }
@@ -33,6 +35,7 @@ export interface ConfigState {
 // 默认配置
 const DEFAULT_CONFIG: SystemConfig = {
   defaultPerPage: 10,
+  defaultViewType: 'card',
 };
 
 // 从 window.APP_CONFIG 获取配置（如果存在）
@@ -115,10 +118,18 @@ export const useConfigStore = create<ConfigState>()(
               console.log('[ConfigStore] 从 API 获取 defaultPerPage:', defaultPerPage);
             }
 
+            // 提取 defaultViewType（白名单校验，非法值回退默认）
+            const rawViewType = flattenConfig.defaultViewType;
+            const defaultViewType =
+              rawViewType === 'card' || rawViewType === 'list'
+                ? rawViewType
+                : DEFAULT_CONFIG.defaultViewType;
+
             const apiConfig = {
               ...DEFAULT_CONFIG,
               ...flattenConfig,
               defaultPerPage,
+              defaultViewType,
             };
             console.log('[ConfigStore] API 配置合并后:', apiConfig);
             console.log('[ConfigStore] API 配置字段列表:', Object.keys(apiConfig));
@@ -176,7 +187,9 @@ export const useConfigStore = create<ConfigState>()(
       // 获取默认分页大小
       getDefaultPageSize: () => {
         const config = get().config;
-        const pageSize = config?.defaultPerPage || DEFAULT_CONFIG.defaultPerPage;
+        const raw = config?.defaultPerPage || DEFAULT_CONFIG.defaultPerPage;
+        // 历史存量档位（10/15/20/30/50/100）不在新 12 倍数档位序列里，出口统一吸附
+        const pageSize = snapPageSize(raw);
         console.log('[ConfigStore] getDefaultPageSize:', pageSize);
         return pageSize;
       },
