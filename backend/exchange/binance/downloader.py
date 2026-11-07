@@ -8,7 +8,7 @@ import asyncio
 import ssl
 import warnings
 import zipfile
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 
