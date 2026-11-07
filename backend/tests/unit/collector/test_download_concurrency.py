@@ -188,3 +188,82 @@ class TestCollectDataThreading:
         errors = c.collect_data()
 
         assert sorted(errors) == ["S0", "S2"]  # 失败符号完整回收
+
+
+def test_kline_intervals_parallel_and_param_passthrough(monkeypatch):
+    """多 interval 并行 + max_workers 穿透到 GetData（此前写死 1 被无视）"""
+    import collector.services.data_service as ds
+    from collector.schemas.data import DownloadCryptoRequest
+
+    class FakeTaskManager:
+        def __init__(self):
+            self.updates = []
+
+        def update_progress(self, **kw):
+            self.updates.append(kw)
+            return True
+
+    class FakeGetData:
+        instances = []
+        in_flight = {"n": 0}
+        peak = 0
+
+        def __init__(self, **kw):
+            self.kw = kw
+            FakeGetData.instances.append(self)
+            assert kw["max_workers"] == 4  # 参数穿透断言
+
+        def run(self, progress_callback=None, **_):
+            FakeGetData.in_flight["n"] += 1
+            FakeGetData.peak = max(FakeGetData.peak, FakeGetData.in_flight["n"])
+            time.sleep(0.15)
+            FakeGetData.in_flight["n"] -= 1
+
+    fake_tm = FakeTaskManager()
+    monkeypatch.setattr(ds, "GetData", FakeGetData)
+    monkeypatch.setattr(ds, "task_manager", fake_tm)
+
+    FakeGetData.instances = []
+    FakeGetData.in_flight = {"n": 0}
+    FakeGetData.peak = 0
+
+    req = DownloadCryptoRequest(
+        symbols=["BTCUSDT", "ETHUSDT"],
+        interval=["1h", "4h"],
+        start="2024-01-01",
+        end="2024-01-02",
+        max_workers=4,
+    )
+    ds.DataService()._async_download_kline("t1", req)
+
+    assert len(FakeGetData.instances) == 2
+    assert FakeGetData.peak >= 2  # 两个 interval 并行
+    assert fake_tm.updates  # 进度有推送
+
+
+def test_kline_single_interval_still_works(monkeypatch):
+    """单 interval 回归：不并发但也正常完成"""
+    import collector.services.data_service as ds
+    from collector.schemas.data import DownloadCryptoRequest
+
+    class FakeTaskManager:
+        def update_progress(self, **kw):
+            return True
+
+    class FakeGetData:
+        def __init__(self, **kw):
+            self.kw = kw
+
+        def run(self, progress_callback=None, **_):
+            progress_callback("BTCUSDT", 10, 10, 0, status="completed") if progress_callback else None
+
+    monkeypatch.setattr(ds, "GetData", FakeGetData)
+    monkeypatch.setattr(ds, "task_manager", FakeTaskManager())
+
+    req = DownloadCryptoRequest(
+        symbols=["BTCUSDT"],
+        interval=["1h"],
+        start="2024-01-01",
+        end="2024-01-02",
+    )
+    ds.DataService()._async_download_kline("t2", req)  # 不抛异常即过

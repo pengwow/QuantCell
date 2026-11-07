@@ -2,8 +2,10 @@
 # 整合数据下载、导出、加密货币对同步、K线数据管理等功能。
 # 支持 Parquet 格式本地存储，提供更高的压缩率和查询性能。
 
+import asyncio
 import json
 import os
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -108,6 +110,15 @@ class GetData:
 
     def run(self, start_date=None, progress_callback=None):
         actual_start = start_date or self.start
+        # 代理兜底与 DerivCollector/ArchiveCollector 同口径:
+        # system_config → 环境变量 → 直连。注入环境变量后, 下载器里的
+        # aiohttp(trust_env=True) 与 requests(默认 trust_env) 都会读取
+        from collector.config import get_binance_proxy
+
+        proxy = get_binance_proxy() or os.environ.get("https_proxy") or os.environ.get("http_proxy")
+        if proxy:
+            os.environ.setdefault("https_proxy", proxy)
+            os.environ.setdefault("http_proxy", proxy)
         # 构建完整保存路径: {save_dir}/crypto/{spot|future}/klines/{interval}
         market_type = "spot" if self.candle_type == "spot" else "future"
         full_save_dir = self.save_dir / "crypto" / market_type / "klines" / self.interval
@@ -1089,29 +1100,28 @@ class DataService:
             task_manager.fail_task(task_id, error_message=str(e))
 
     def _async_download_kline(self, task_id: str, request: DownloadCryptoRequest):
-        """K线类异步下载（原有逻辑）"""
-        # 计算总任务数（时间周期数 × 货币对数）
+        """K线类异步下载：interval 之间并行，每个 interval 内 symbol 由 threading 并行"""
         total_intervals = len(request.interval)
         total_symbols = len(request.symbols)
         total_tasks = total_intervals * total_symbols
-        completed_tasks = 0
 
-        # 遍历所有时间周期
-        for interval_idx, interval in enumerate(request.interval):
-            logger.info(f"开始处理时间周期: {interval} ({interval_idx + 1}/{total_intervals})")
+        # 启动哨兵（所有周期共用一行；并发后无法再按周期轮换哨兵行）
+        task_manager.update_progress(
+            task_id=task_id,
+            current="启动",
+            completed=0,
+            total=total_tasks,
+            status=f"正在下载 {', '.join(request.interval)} × {', '.join(request.symbols)}...",
+            interval="all",
+            detail=False,
+        )
 
-            # 更新进度：开始处理当前时间周期（哨兵状态，不写子任务明细）
-            task_manager.update_progress(
-                task_id=task_id,
-                current=f"{interval}",
-                completed=completed_tasks,
-                total=total_tasks,
-                status=f"正在下载 {interval} 数据 ({', '.join(request.symbols)})...",
-                interval=interval,
-                detail=False,
-            )
+        # 参数穿透修复：此前写死 1，前端 max_workers 被静默忽略；
+        # schema 已限 1-8，此处兜底夹紧，防直接构造 request 的路径越界
+        max_workers = max(1, min(int(request.max_workers or 1), 8))
+        logger.info(f"任务 {task_id} 开始: {total_intervals} 个周期 × {total_symbols} 个货币对，并发度 {max_workers}")
 
-            # 实例化GetData类并传入所有参数
+        async def run_interval(interval: str):
             get_data = GetData(
                 symbols=",".join(request.symbols),
                 exchange=request.exchange,
@@ -1119,12 +1129,13 @@ class DataService:
                 start=request.start,
                 end=request.end,
                 interval=interval,
-                max_workers=1,
+                max_workers=max_workers,
                 mode=request.mode,
             )
 
-            # 创建实时进度回调
+            # 每周期独立计数器：同一周期内多 symbol 线程并发回调，递增必须持锁
             symbol_completed = 0
+            counter_lock = threading.Lock()
 
             def download_progress_callback(symbol, current, total_count, failed_count, status="downloading"):
                 nonlocal symbol_completed
@@ -1132,44 +1143,48 @@ class DataService:
                     symbol_progress_pct = (current / total_count * 100) if total_count > 0 else 0
 
                     if status in ["completed", "failed"] and symbol_progress_pct >= 99.9:
-                        symbol_completed += 1
+                        with counter_lock:
+                            symbol_completed += 1
 
                     task_manager.update_progress(
                         task_id=task_id,
                         current=symbol,
                         completed=symbol_progress_pct,
                         total=100,
-                        status=f"[{symbol_completed + 1}/{total_symbols}] {symbol} {interval}: {status}",
+                        # min 封顶防越界: 终态回调晚于计数递增时, +1 可能超出 total_symbols, 出现 "[3/2]" 之类
+                        status=f"[{min(symbol_completed + 1, total_symbols)}/{total_symbols}] {symbol} {interval}: {status}",
                         symbol_progress=round(symbol_progress_pct, 1),
                         interval=interval,
                     )
                 except Exception as e:
                     logger.warning(f"推送下载进度失败: {e}")
 
-            get_data.run(progress_callback=download_progress_callback)
-
-            completed_tasks += total_symbols
+            # run() 同步阻塞(内部自建事件循环)，丢线程池；每周期互不共享可变状态
+            await asyncio.to_thread(get_data.run, progress_callback=download_progress_callback)
 
             task_manager.update_progress(
                 task_id=task_id,
                 current=f"{interval}",
                 completed=100,
                 total=100,
-                status=f"[{completed_tasks}/{total_symbols * total_intervals}] {interval} 数据下载完成",
+                status=f"{interval} 数据下载完成",
                 symbol_progress=100.0,
                 interval=interval,
                 detail=False,
             )
-            logger.info(f"时间周期 {interval} 所有数据下载成功")
+            logger.info(f"时间周期 {interval} 数据下载完成")
+
+        async def _run_all():
+            await asyncio.gather(*(run_interval(i) for i in request.interval))
+
+        asyncio.run(_run_all())
 
         logger.info(f"所有时间周期数据下载成功，任务ID: {task_id}")
-
-        total_task_count = total_symbols * total_intervals
         task_manager.update_progress(
             task_id=task_id,
             current="完成",
-            completed=completed_tasks,
-            total=total_task_count,
+            completed=total_tasks,
+            total=total_tasks,
             status="全部下载完成",
             symbol_progress=100.0,
             interval="all",
@@ -1184,17 +1199,20 @@ class DataService:
 
         total_symbols = len(request.symbols)
         completed = 0
+        failed_symbols: list[tuple[str, str]] = []
 
         for symbol in request.symbols:
             task_manager.update_progress(
                 task_id=task_id,
                 current=symbol,
-                completed=int(completed / max(total_symbols, 1) * 100),
-                total=100,
+                completed=completed,
+                total=total_symbols,
+                failed=len(failed_symbols),
                 status=f"正在下载 {request.data_type} ({request.market}) {symbol}...",
                 interval="",
             )
 
+            ok = False
             try:
                 collector = DataCollector()
                 collector.collect(
@@ -1205,18 +1223,44 @@ class DataService:
                     start=request.start,
                     end=request.end,
                 )
+                ok = True
                 logger.info(f"{symbol} {request.data_type} 下载成功")
             except Exception as e:
+                # 逐 symbol 吞掉异常继续下一个, 但失败必须计入统计向前端透出
                 logger.error(f"{symbol} {request.data_type} 下载失败: {e}")
+                failed_symbols.append((symbol, str(e)))
 
             completed += 1
+            task_manager.update_progress(
+                task_id=task_id,
+                current=symbol,
+                completed=completed,
+                total=total_symbols,
+                failed=len(failed_symbols),
+                status=f"{symbol} 下载完成" if ok else f"{symbol} 下载失败",
+                interval="",
+            )
+
+        if failed_symbols and len(failed_symbols) == total_symbols:
+            # 全部失败: 让外层统一走 fail_task, 前端显示失败态而非假完成
+            first_symbol, first_error = failed_symbols[0]
+            raise RuntimeError(
+                f"全部 {total_symbols} 个货币对 {request.data_type} 下载失败, 首个错误 {first_symbol}: {first_error}"
+            )
+
+        summary = f"{request.data_type} 数据下载完成"
+        if failed_symbols:
+            # 部分失败: 完成态但文案明确区分
+            failed_names = ", ".join(f[0] for f in failed_symbols)
+            summary += f"（成功 {total_symbols - len(failed_symbols)}/{total_symbols}，失败: {failed_names}）"
 
         task_manager.update_progress(
             task_id=task_id,
             current="完成",
-            completed=100,
-            total=100,
-            status=f"{request.data_type} 数据下载完成（{completed}/{total_symbols}）",
+            completed=completed,
+            total=total_symbols,
+            failed=len(failed_symbols),
+            status=summary,
             interval="",
             detail=False,
         )
