@@ -761,7 +761,7 @@ const ResearchDetail: React.FC = () => {
         {/* 试验详情从页面内嵌 Card 改为右侧抽屉，宽度与因子库详情抽屉一致（68%） */}
         <Drawer
           open={!!trial}
-          width="68%"
+          size="68%"
           title={trial ? t('research_detail_trial_title', { id: trial.id }) : ''}
           onClose={() => setTrial(null)}
           destroyOnHidden // antd v6：「destroyOnClose」已废弃
