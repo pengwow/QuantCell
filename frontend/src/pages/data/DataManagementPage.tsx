@@ -96,6 +96,7 @@ import {
   DERIV_KINDS,
   DATA_KIND_LABEL,
   INTERVAL_REQUIRED_KINDS,
+  FUTURES_ONLY_KINDS,
 } from '@/types/data';
 import { setPageTitle } from '@/utils/pageTitle';
 
@@ -494,12 +495,11 @@ const DataManagementPage = () => {
 
   // 从 URL 参数读取 Tab 状态，优先从恢复的状态读取
   const tabFromUrl = searchParams.get('tab');
-  const validTab =
-    tabFromUrl === 'symbols' ||
-    tabFromUrl === 'tasks' ||
-    tabFromUrl === 'archive'
-      ? tabFromUrl
-      : 'symbols';
+  // 白名单须与下方 Tabs items 的 key 对齐；'tasks' 是旧键名，归档前保留会
+  // 让 ?tab=collection 这类直达链接被误判非法而回落到货币对 tab
+  const validTab = ['symbols', 'collection', 'quality', 'archive'].includes(tabFromUrl ?? '')
+    ? (tabFromUrl as string)
+    : 'symbols';
   const [activeTab, setActiveTab] = useState(restoredState?.pageState?.activeTab || validTab);
 
   // ==================== 自选组管理状态 ====================
@@ -595,6 +595,8 @@ const DataManagementPage = () => {
   const [tasksLoadingMore, setTasksLoadingMore] = useState(false);
   const [tasksDeletingId, setTasksDeletingId] = useState<string | null>(null);
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
+  // 当前任务的请求参数（数据类型/市场等），当前任务卡用它在任务列表刷新前就显示正确标签
+  const [currentTaskParams, setCurrentTaskParams] = useState<Record<string, unknown>>({});
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('pending');
   const [taskProgress, setTaskProgress] = useState<number>(0);
   // 任务进度列表 - 支持多时间周期多货币对
@@ -1362,26 +1364,48 @@ const DataManagementPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [taskStatusFilter]);
 
+  // 按后端 task_key 约定预生成全部子任务占位行（货币对×周期）：
+  // 任务开始前就展示完整清单（占比 0%），WS 进度按 task_key 就地更新，
+  // 避免"下载到哪个货币对才冒出哪一行"
+  const buildProgressPlaceholders = (symbols: string[], intervals: string[]): TaskDetailItem[] =>
+    (intervals.length > 0 ? intervals : ['']).flatMap((iv) =>
+      symbols.map((symbol) => ({
+        task_key: iv ? `${iv}:${symbol}` : symbol,
+        symbol,
+        interval: iv,
+        percentage: 0,
+      })),
+    );
+
   // 开始数据采集
   const startCollection = async (symbol: string) => {
     try {
       const endDate = dayjs();
       const startDate = dayjs().subtract(1, 'month');
 
-      const response = await dataApi.downloadCryptoData({
+      const requestPayload = {
         symbols: [symbol],
         interval: ['15m', '1h', '1d'],
         start: startDate.format('YYYY-MM-DD'),
         end: endDate.format('YYYY-MM-DD'),
         exchange: SYSTEM_CONFIG.exchange,
         max_workers: 1,
+        data_type: 'kline',
+        market: SYSTEM_CONFIG.crypto_trading_mode,
         candle_type: SYSTEM_CONFIG.crypto_trading_mode,
-      });
+      };
+
+      const response = await dataApi.downloadCryptoData(requestPayload);
 
       if (response.task_id) {
         setCurrentTaskId(response.task_id);
+        // 当前任务卡在列表刷新前就能显示正确的类型/市场标签
+        setCurrentTaskParams(requestPayload);
         setTaskStatus('running');
         setTaskProgress(0);
+        // 重置并预填充子任务明细行：开始前就展示全部 货币对×周期（0%），
+        // 下载过程中 WS 按 task_key 就地更新对应行
+        setTaskProgressList(buildProgressPlaceholders([symbol], ['15m', '1h', '1d']));
         // 订阅已移至全局，此处不再需要
         fetchCollectionTasks();
         message.success(`已开始采集 ${symbol} 数据`);
@@ -1413,14 +1437,13 @@ const DataManagementPage = () => {
         ? (values.intervals || ['15m'])
         : [];
 
-      // 衍生数据（fundingRate/openInterest）仅支持 um/cm（Binance 约定）
-      const DERIV_TYPES = new Set(['fundingRate', 'openInterest']);
-      if (DERIV_TYPES.has(dataType) && market === 'spot') {
-        message.warning(`数据类型 ${dataType} 仅支持合约市场（UM/CM）`);
+      // 期货专属数据（标记/指数/溢价 K线 + fundingRate/openInterest）仅支持 um/cm（Binance 约定）
+      if (FUTURES_ONLY_KINDS.includes(dataType as DataKind) && market === 'spot') {
+        message.warning(`数据类型 ${DATA_KIND_LABEL[dataType as DataKind] ?? dataType} 仅支持合约市场（UM/CM）`);
         return;
       }
 
-      const response = await dataApi.downloadCryptoData({
+      const requestPayload = {
         symbols: selectedSymbols,
         // data_type + market: 新统一入口的两个核心参数
         data_type: dataType,
@@ -1432,12 +1455,19 @@ const DataManagementPage = () => {
         max_workers: 2,
         // 兼容旧字段：K 线时保留 candle_type 以便原有逻辑继续工作
         candle_type: KLINE_TYPES.has(dataType) ? market : undefined,
-      });
+      };
+
+      const response = await dataApi.downloadCryptoData(requestPayload);
 
       if (response.task_id) {
         setCurrentTaskId(response.task_id);
+        // 当前任务卡在列表刷新前就能显示正确的类型/市场标签
+        setCurrentTaskParams(requestPayload);
         setTaskStatus('running');
         setTaskProgress(0);
+        // 重置并预填充子任务明细行：开始前就展示全部 货币对×周期（0%），
+        // 下载过程中 WS 按 task_key 就地更新对应行
+        setTaskProgressList(buildProgressPlaceholders(selectedSymbols, interval));
         fetchCollectionTasks();
         message.success(`采集任务已启动：${dataType} (${market})`);
       }
@@ -1597,16 +1627,29 @@ const DataManagementPage = () => {
     setArchiveTotal(0);
     setArchiveTruncated(false);
 
+    let meta: ArchiveMeta | null = null;
     try {
       const resp = isDerivKind(kind)
         ? await derivApi.getMeta(kind, market, symbol)
         : await archiveApi.getMeta(kind as ArchiveKind, market, symbol);
-      setArchiveMeta(resp?.meta ?? null);
+      meta = resp?.meta ?? null;
+      setArchiveMeta(meta);
     } catch (error) {
       console.error('读取元数据失败:', error);
     }
 
-    await doArchiveQuery(kind, market, symbol, archiveTimeRange, 1, archivePageSize);
+    // 用 meta 里的数据实际区间对齐查询窗口：默认"近7天"等范围大概率与历史归档数据不重叠，
+    // 直接查会得到 0 行（数据如 2025-07 的归档 vs 当前时间去查）。end 取当天末尾避免漏掉最后一天。
+    let queryRange = archiveTimeRange;
+    if (meta?.earliest_date && meta?.latest_date) {
+      queryRange = [
+        new Date(`${meta.earliest_date}T00:00:00`).getTime(),
+        new Date(`${meta.latest_date}T23:59:59.999`).getTime(),
+      ];
+      setArchiveTimeRange(queryRange);
+    }
+
+    await doArchiveQuery(kind, market, symbol, queryRange, 1, archivePageSize);
   };
 
   // 实际拉取数据
@@ -3001,9 +3044,8 @@ const DataManagementPage = () => {
   const renderCollection = () => {
     // 判断当前 data_type 是否需要 interval
     const needInterval = INTERVAL_REQUIRED_KINDS.includes(collectionDataType as DataKind);
-    // 衍生数据仅支持 um/cm，market 里 spot 要禁用
-    const FUTURES_ONLY = new Set(['fundingRate', 'openInterest']);
-    const spotDisabled = FUTURES_ONLY.has(collectionDataType);
+    // 期货专属数据（标记/指数/溢价 K线 + fundingRate/openInterest）现货市场没有该数据，spot 选项禁用
+    const spotDisabled = FUTURES_ONLY_KINDS.includes(collectionDataType as DataKind);
     // 当前默认 kline + spot，保持与旧行为一致
     return (
     <Row gutter={[16, 16]}>
@@ -3012,6 +3054,18 @@ const DataManagementPage = () => {
           <Form
             form={collectionForm}
             layout="vertical"
+            onValuesChange={(changed) => {
+              // 切到期货专属数据类型时现货市场承载不了，自动纠正为 U本位，
+              // 避免用户先选好 spot 再切类型后旧值残留导致提交非法组合
+              if (
+                changed.dataType &&
+                FUTURES_ONLY_KINDS.includes(changed.dataType) &&
+                collectionForm.getFieldValue('market') === 'spot'
+              ) {
+                collectionForm.setFieldsValue({ market: 'um' });
+                message.info('该数据类型仅支持合约市场，已自动切换为 U本位（UM）');
+              }
+            }}
             initialValues={{
               dateRange: [dayjs().subtract(1, 'month'), dayjs()],
               intervals: ['15m'],
@@ -3233,7 +3287,8 @@ const DataManagementPage = () => {
                         task_id: currentTaskId,
                         status: taskStatus,
                         task_type: 'download',
-                        params: {},
+                        // 使用创建任务时保存的真实请求参数，保证类型/市场标签正确
+                        params: currentTaskParams,
                         progress: { percentage: taskProgress, total: taskProgressList.length, completed: taskProgressList.filter(t => (t.percentage || 0) >= 100).length, failed: 0, current: '' },
                         created_at: new Date().toISOString(),
                       }}
