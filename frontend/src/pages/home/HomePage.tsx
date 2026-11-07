@@ -24,8 +24,8 @@ import {
   IconArrowRight,
   IconChartCandle,
   IconChartHistogram,
-  IconCpu,
   IconDatabase,
+  IconFlask,
   IconPlayerPlay,
   IconRefresh,
   IconRobot,
@@ -39,8 +39,10 @@ import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
 import { backtestApi, systemApi } from '@/api';
 import workerApi from '@/api/workerApi';
+import { researchApi } from '@/api/research';
 import type { BacktestTask } from '@/types/backtest';
 import type { Worker } from '@/types/worker';
+import type { ResearchSession, ResearchStatus } from '@/api/research';
 import type { SystemMetrics } from '@/pages/setting/types';
 import { useQuantColors } from '@/utils/colors';
 import { formatPercent, formatUSD } from '@/utils/format';
@@ -55,6 +57,16 @@ const BACKTEST_STATUS_COLOR: Record<string, string> = {
   pending: 'default',
 };
 
+/** 研究状态 → Tag 颜色 + 文案 key，与 ResearchList 的 STATUS_META 保持一致 */
+const RESEARCH_STATUS_META: Record<ResearchStatus, { color: string; i18nKey: string }> = {
+  pending: { color: 'default', i18nKey: 'research_status_pending' },
+  running: { color: 'processing', i18nKey: 'research_status_running' },
+  paused: { color: 'warning', i18nKey: 'research_status_paused' },
+  completed: { color: 'success', i18nKey: 'research_status_completed' },
+  failed: { color: 'error', i18nKey: 'research_status_failed' },
+  cancelled: { color: 'default', i18nKey: 'research_status_cancelled' },
+};
+
 const HomePage = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -63,20 +75,27 @@ const HomePage = () => {
 
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [backtests, setBacktests] = useState<BacktestTask[]>([]);
+  const [research, setResearch] = useState<ResearchSession[]>([]);
+  const [researchTotal, setResearchTotal] = useState(0);
   const [system, setSystem] = useState<SystemMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  // 三个接口互不依赖，用 allSettled 保证单个失败不影响其他区块
+  // 四个接口互不依赖，用 allSettled 保证单个失败不影响其他区块
   const load = useCallback(async () => {
-    const [workerRes, backtestRes, systemRes] = await Promise.allSettled([
+    const [workerRes, backtestRes, researchRes, systemRes] = await Promise.allSettled([
       workerApi.getWorkers({ page: 1, page_size: 50 }),
       backtestApi.getBacktestList(),
+      researchApi.list({ limit: 50, offset: 0 }),
       systemApi.getSystemMetrics(),
     ]);
 
     if (workerRes.status === 'fulfilled') setWorkers(workerRes.value.items ?? []);
     if (backtestRes.status === 'fulfilled') setBacktests(backtestRes.value.backtests ?? []);
+    if (researchRes.status === 'fulfilled') {
+      setResearch(researchRes.value.sessions ?? []);
+      setResearchTotal(researchRes.value.total ?? 0);
+    }
     if (systemRes.status === 'fulfilled') setSystem(systemRes.value);
 
     setUpdatedAt(new Date());
@@ -113,6 +132,21 @@ const HomePage = () => {
     [backtests]
   );
 
+  // 最近研究会话（后端已按更新时间倒序的话直接可用，稳一点本地再排一次）
+  const recentResearch = useMemo(
+    () =>
+      [...research]
+        .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+        .slice(0, 5),
+    [research]
+  );
+
+  // ponytail: running 数从 limit=50 的首页样本统计，非全量精确值；upgrade path 后端加 status 聚合字段
+  const runningResearch = useMemo(
+    () => research.filter((s) => s.status === 'running' || s.status === 'pending' || s.status === 'paused').length,
+    [research]
+  );
+
   const online = system?.connectionStatus === 'connected';
   const cpu = Math.round(system?.cpuUsage ?? 0);
   const username = localStorage.getItem('nickname') || localStorage.getItem('username') || '';
@@ -141,6 +175,12 @@ const HomePage = () => {
       icon: <IconChartHistogram size="1.15em" />,
       label: t('factor_analysis'),
       desc: t('home_quick_factor_desc'),
+    },
+    {
+      path: '/research',
+      icon: <IconFlask size="1.15em" />,
+      label: t('ai_research'),
+      desc: t('home_quick_research_desc'),
     },
     {
       path: '/data-management',
@@ -212,6 +252,12 @@ const HomePage = () => {
                       {t('home_start_backtest')}
                     </Button>
                     <Button
+                      icon={<IconFlask size="1.1em" />}
+                      onClick={() => navigate('/research')}
+                    >
+                      {t('ai_research')}
+                    </Button>
+                    <Button
                       icon={<IconSparkles size="1.1em" />}
                       onClick={() => navigate('/agent')}
                     >
@@ -265,10 +311,10 @@ const HomePage = () => {
             </Col>
             <Col xs={24} sm={12} xl={6}>
               <KpiCard
-                icon={<IconCpu size="1.15em" />}
-                label={t('home_kpi_cpu')}
-                value={system ? `${cpu}%` : '-'}
-                hint={t('home_kpi_cpu_hint')}
+                icon={<IconFlask size="1.15em" />}
+                label={t('home_kpi_research')}
+                value={String(researchTotal)}
+                hint={t('home_kpi_research_hint', { running: runningResearch })}
               />
             </Col>
           </Row>
@@ -341,6 +387,88 @@ const HomePage = () => {
                                 {t(worker.status)}
                               </span>
                             </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+
+                {/* 最近 AI 研究 */}
+                <Card
+                  title={t('home_recent_research')}
+                  extra={
+                    <Button type="link" size="small" onClick={() => navigate('/research')}>
+                      {t('home_view_all')}
+                      <IconArrowRight size="1em" />
+                    </Button>
+                  }
+                >
+                  {loading && recentResearch.length === 0 ? (
+                    <Skeleton active paragraph={{ rows: 4 }} title={false} />
+                  ) : recentResearch.length === 0 ? (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={t('home_no_research')}
+                    >
+                      <Button type="primary" size="small" onClick={() => navigate('/research')}>
+                        {t('home_create_research')}
+                      </Button>
+                    </Empty>
+                  ) : (
+                    <div className="home-list">
+                      {recentResearch.map((row) => {
+                        // 与 ResearchList 的模式徽标一致：quick 被 extend 后显示「快速→深入」
+                        const modeText =
+                          row.mode === 'quick'
+                            ? row.extended_at
+                              ? t('research_mode_quick_extended')
+                              : t('research_mode_quick')
+                            : t('research_mode_deep');
+                        const runningLike =
+                          row.status === 'running' ||
+                          row.status === 'pending' ||
+                          row.status === 'paused';
+
+                        return (
+                          <button
+                            key={row.id}
+                            type="button"
+                            className="home-row"
+                            onClick={() => navigate(`/research/${row.id}`)}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">
+                                {row.name || t('research_session_fallback', { id: row.id })}
+                              </span>
+                              <span className="block truncate text-xs home-muted">
+                                {t(`research_scenario_${row.scenario ?? 'factor'}`)} · {modeText}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-right">
+                              <span className="home-num block text-sm font-medium">
+                                {runningLike
+                                  ? t('home_research_loop', {
+                                      done: row.loop_done,
+                                      n: row.loop_n,
+                                    })
+                                  : row.best_ic_ir != null
+                                    ? `IC_IR ${row.best_ic_ir.toFixed(3)}`
+                                    : '-'}
+                              </span>
+                              <span className="block text-xs home-muted">
+                                {t('research_cost_format', {
+                                  calls: row.llm_calls,
+                                  tokens: row.token_used,
+                                })}
+                              </span>
+                            </span>
+                            <Tag
+                              className="m-0 shrink-0"
+                              color={RESEARCH_STATUS_META[row.status]?.color ?? 'default'}
+                            >
+                              {t(RESEARCH_STATUS_META[row.status]?.i18nKey ?? row.status)}
+                            </Tag>
                           </button>
                         );
                       })}
