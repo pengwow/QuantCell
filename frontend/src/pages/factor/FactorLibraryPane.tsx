@@ -4,7 +4,7 @@
  * 列表=带分页表格，卡片=Card 网格 + Pagination。数据来自容器单次 catalog() 请求，
  * 「查看详情」按钮（列表操作列/卡片底部）是打开抽屉的唯一入口，无异步竞态。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -24,11 +24,13 @@ import {
   Table,
   Tag,
   theme,
+  Tooltip,
   type TableColumnsType,
   type TablePaginationConfig,
 } from 'antd';
 import {
   AppstoreOutlined,
+  EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -47,13 +49,12 @@ import {
   type FactorSource,
 } from './factorMeta';
 import { useQuantColors } from '@/utils/colors';
-import { useConfigStore } from '@/store';
+import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
+import { useViewType } from '@/hooks/useViewType';
+import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import FactorFormModal from './FactorFormModal';
 
 type ViewType = 'list' | 'card';
-
-// 分页选项（与策略管理等页面一致）
-const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
 
 interface Props {
   catalog: FactorCatalogItem[];
@@ -77,20 +78,27 @@ const FactorLibraryPane: React.FC<Props> = ({
   const { token } = theme.useToken();
   const qc = useQuantColors();
   const screens = Grid.useBreakpoint();
-  const getDefaultPageSize = useConfigStore((s) => s.getDefaultPageSize);
-  const [viewType, setViewType] = useState<ViewType>('card');
+  // 视图类型：全局默认 + 会话内临时覆盖（不写回全局配置）
+  const [viewType, setViewType] = useViewType();
+  // 分页大小来自全局配置（条数切换器即全站开关）
+  const [pageSize, setPageSize] = useGlobalPageSize();
   const [keyword, setKeyword] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | FactorSource>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 取系统配置默认值
+  // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 来自全局配置（条数切换器即全站开关）
   const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
     current: 1,
-    pageSize: getDefaultPageSize(),
+    pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total') || '共'}: ${total}`,
+    showTotal: (total) => `${t('total_items', { total })}`,
   }));
+
+  // 全局条数变化（设置页/其他页面改动）实时同步到本页分页状态
+  useEffect(() => {
+    setPagination((p) => ({ ...p, pageSize }));
+  }, [pageSize]);
 
   const statusLabel = (s: FactorCatalogItem['lifecycle_status']) =>
     t(`factor_status_${s.toLowerCase()}`) || s;
@@ -251,17 +259,19 @@ const FactorLibraryPane: React.FC<Props> = ({
     },
     {
       title: t('factor_lib_col_action') || '操作',
-      width: 88,
+      width: 80,
+      // 与策略管理等页面操作列统一：图标按钮 + Tooltip 悬浮文案，固定在表格右侧
+      fixed: 'right',
       render: (_, r) => (
         // 与卡片视图的「查看详情」同语义：唯一的打开抽屉入口
-        <Button
-          type="link"
-          size="small"
-          style={{ padding: 0 }}
-          onClick={() => onSelect(r.name)}
-        >
-          {t('view_details') || '查看详情'}
-        </Button>
+        <Tooltip title={t('view_details') || '查看详情'}>
+          <Button
+            type="text"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => onSelect(r.name)}
+          />
+        </Tooltip>
       ),
     },
   ];
@@ -351,8 +361,8 @@ const FactorLibraryPane: React.FC<Props> = ({
   );
 
   const renderCardView = () => {
+    // pageSize 直接用外层全局 hook 值（与列表视图同源），不再声明同名局部变量遮蔽
     const current = (pagination.current as number) || 1;
-    const pageSize = (pagination.pageSize as number) || 12;
     const pageData = filtered.slice((current - 1) * pageSize, current * pageSize);
 
     if (!pageData.length) {
@@ -469,8 +479,12 @@ const FactorLibraryPane: React.FC<Props> = ({
             total={filtered.length}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total') || '共'}: ${total}`}
-            onChange={(page, size) => setPagination((p) => ({ ...p, current: page, pageSize: size }))}
+            showTotal={(total) => `${t('total_items', { total })}`}
+            onChange={(page, size) => {
+              // 条数变化写回全局配置，全站生效
+              setPageSize(size);
+              setPagination((p) => ({ ...p, current: page, pageSize: size }));
+            }}
           />
         </Row>
       </>
@@ -497,7 +511,11 @@ const FactorLibraryPane: React.FC<Props> = ({
           background: r.name === selected ? token.colorPrimaryBg : undefined,
         },
       })}
-      onChange={(next) => setPagination(next)}
+      onChange={(next) => {
+        // 条数变化写回全局配置，全站生效
+        if (next.pageSize && next.pageSize !== pageSize) setPageSize(next.pageSize);
+        setPagination(next);
+      }}
     />
   );
 

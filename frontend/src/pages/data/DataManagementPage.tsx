@@ -65,7 +65,7 @@ import {
   FileSearchOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import type { MenuProps } from 'antd';
+import type { MenuProps, TableProps } from 'antd';
 
 import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
@@ -75,6 +75,9 @@ import { archiveApi } from '@/api/archiveApi';
 import { derivApi } from '@/api/derivApi';
 import { wsService } from '@/services/websocketService';
 import { useConfigStore } from '@/store';
+import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
+import { useViewType } from '@/hooks/useViewType';
+import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import type {
   Task,
   TaskStatus,
@@ -408,9 +411,6 @@ const SYSTEM_CONFIG = {
   crypto_trading_mode: 'spot',
 };
 
-// 分页选项（与系统配置一致）
-const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
-
 // 自选组接口
 interface FavoriteGroup {
   id: number;
@@ -474,9 +474,9 @@ const DataManagementPage = () => {
   const { message } = App.useApp();
 
   const location = useLocation();
-  const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
 
   // 从路由状态恢复分页/筛选/视图等页面状态
+  // note: viewType / pageSize 不在此恢复——二者已全局化，跟随系统配置（展示类型/每页条数）
   const restoredState = location.state as
     | {
         pageState?: {
@@ -484,12 +484,10 @@ const DataManagementPage = () => {
           activeGroupId?: number;
           searchText?: string;
           quoteFilter?: string;
-          viewType?: ViewType;
           sortField?: SortField;
           sortOrder?: SortOrder;
           selectedSymbols?: string[];
           currentPage?: number;
-          pageSize?: number;
         };
       }
     | null;
@@ -523,7 +521,8 @@ const DataManagementPage = () => {
   const [symbolLoading, setSymbolLoading] = useState(false);
   const [searchText, setSearchText] = useState(restoredState?.pageState?.searchText || '');
   const [quoteFilter, setQuoteFilter] = useState<string>(restoredState?.pageState?.quoteFilter || 'all');
-  const [viewType, setViewType] = useState<ViewType>(restoredState?.pageState?.viewType || 'list');
+  // 视图类型：全局默认 + 会话内临时覆盖（不再从路由状态恢复，跟随系统配置）
+  const [viewType, setViewType] = useViewType();
   const [sortField, setSortField] = useState<SortField>(restoredState?.pageState?.sortField || 'rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>(restoredState?.pageState?.sortOrder || 'asc');
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(restoredState?.pageState?.selectedSymbols || []);
@@ -531,17 +530,14 @@ const DataManagementPage = () => {
   // 市场数据加载状态
   const [marketDataLoading, setMarketDataLoading] = useState<Record<string, boolean>>({});
 
-  // 分页状态
+  // 分页状态：currentPage 仍从路由状态恢复；pageSize 跟随全局配置（条数切换器即全站开关）
   const [currentPage, setCurrentPage] = useState(restoredState?.pageState?.currentPage || 1);
-  const [pageSize, setPageSize] = useState(restoredState?.pageState?.pageSize || 10);
+  const [pageSize, setPageSize] = useGlobalPageSize();
 
-  // 从全局配置加载分页大小
+  // 全局条数变化（设置页/其他页面改动）实时同步并回到第一页，避免越界
   useEffect(() => {
-    console.log('[DataManagement] 从全局配置加载分页大小');
-    const defaultPageSize = getDefaultPageSize();
-    console.log('[DataManagement] 获取到的默认分页大小:', defaultPageSize);
-    setPageSize(defaultPageSize);
-  }, [getDefaultPageSize]);
+    setCurrentPage(1);
+  }, [pageSize]);
 
   // 设置页面标题
   useEffect(() => {
@@ -1038,7 +1034,7 @@ const DataManagementPage = () => {
     await fetchMarketData(currentPageSymbols.map(s => s.symbol));
   };
 
-  // 处理分页变化
+  // 处理分页变化（条数变化经 hook 写回全局配置，全站生效）
   const handlePageChange = (page: number, size?: number) => {
     setCurrentPage(page);
     if (size) setPageSize(size);
@@ -2427,6 +2423,8 @@ const DataManagementPage = () => {
                   total: archiveTotal,
                   showSizeChanger: true,
                   size: 'small',
+                  // 归档明细查询一次返回整段数据，单页行数即取数上限，
+                  // 与全局每页条数配置语义不同，独立档位不参与全局分页体系
                   pageSizeOptions: [100, 200, 500, 1000],
                   showTotal: (t) => `共 ${t.toLocaleString()} 行`,
                   onChange: (p, s) => {
@@ -2674,7 +2672,7 @@ const DataManagementPage = () => {
   };
 
   // 列表视图列定义
-  const symbolColumns = [
+  const symbolColumns: TableProps<SymbolData>['columns'] = [
     {
       title: '',
       key: 'inGroup',
@@ -2799,34 +2797,38 @@ const DataManagementPage = () => {
     {
       title: t('action') || '操作',
       key: 'action',
-      width: 280,
+      width: 90,
+      // 与策略管理等页面操作列统一：图标按钮 + Tooltip 悬浮文案，固定在表格右侧
+      fixed: 'right',
       render: (_: unknown, record: SymbolData) => (
-        <Space>
+        <Space size={4}>
           {!record.hasData ? (
-            <Button
-              type="primary"
-              size="small"
-              icon={<CloudDownloadOutlined />}
-              onClick={() => startCollection(record.symbol)}
-            >
-              {t('collect') || '采集'}
-            </Button>
+            <Tooltip title={t('collect') || '采集'}>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloudDownloadOutlined />}
+                onClick={() => startCollection(record.symbol)}
+              />
+            </Tooltip>
           ) : (
             <>
-              <Button
-                size="small"
-                icon={<BarChartOutlined />}
-                onClick={() => checkQuality(record.symbol, '1h')}
-              >
-                {t('quality') || '质量'}
-              </Button>
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                onClick={() => startCollection(record.symbol)}
-              >
-                {t('update') || '更新'}
-              </Button>
+              <Tooltip title={t('quality') || '质量'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<BarChartOutlined />}
+                  onClick={() => checkQuality(record.symbol, '1h')}
+                />
+              </Tooltip>
+              <Tooltip title={t('update') || '更新'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => startCollection(record.symbol)}
+                />
+              </Tooltip>
             </>
           )}
         </Space>
