@@ -12,8 +12,9 @@ from collector.schemas.data import VALID_DATA_TYPES, DownloadCryptoRequest
 
 # 期货专属类型：仅 um/cm 市场有该数据
 FUTURES_ONLY = ["markPriceKlines", "indexPriceKlines", "premiumIndexKlines", "fundingRate", "openInterest"]
-# K 线类（interval 必填）
-KLINE_TYPES = ["kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"]
+# K 线类（interval 必填）：仅 kline；mark/index/premium 已归入归档路径，
+# 走 BinanceArchiveFactory（interval 可选，缺省用 kinds.py 的支持列表校验）
+KLINE_TYPES = ["kline"]
 
 
 def make_req(**overrides):
@@ -76,7 +77,7 @@ class TestInvalidEnums:
             DownloadCryptoRequest(**make_req(data_type="kline", market="futures"))
 
     def test_valid_data_types_cover_all_10(self):
-        # 10 种数据类型：1 个 K线 + 4 个归档 + 2 个衍生 + 3 个特殊 K线
+        # 10 种数据类型：1 个 interval 必填 K线 + 7 个归档类 + 2 个衍生
         assert len(VALID_DATA_TYPES) == 10
 
 

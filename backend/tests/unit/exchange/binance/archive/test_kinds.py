@@ -78,8 +78,7 @@ def test_build_zip_url_um_mark_klines_with_interval():
         interval="1h",
     )
     assert (
-        url
-        == "https://data.binance.vision/data/futures/um/daily/markPriceKlines/BTCUSDT/1h/BTCUSDT-markPriceKlines-1h-2024-12-01.zip"
+        url == "https://data.binance.vision/data/futures/um/daily/markPriceKlines/BTCUSDT/1h/BTCUSDT-1h-2024-12-01.zip"
     )
 
 

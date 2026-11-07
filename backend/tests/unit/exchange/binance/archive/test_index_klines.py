@@ -99,7 +99,7 @@ def test_kind_intervals_contains_index_klines_supported():
 
 
 def test_url_contains_interval_segment(tmp_path: Path):
-    """URL 必须含 '/1h/' 段 + 文件名带 'indexPriceKlines-1h-'."""
+    """URL 必须含 '/1h/' 段 + 文件名带 '1h-'(zip 命名不含 kind 段, 实测币安规则)."""
     f = IndexPriceKlinesFetcher(
         market=MarketType.FUTURES_UM,
         base_dir=tmp_path,
@@ -108,7 +108,7 @@ def test_url_contains_interval_segment(tmp_path: Path):
     )
     url = f.get_zip_url("BTCUSDT", "2024-12-01")
     assert "/1h/" in url, f"URL must contain /1h/ segment: {url}"
-    assert "indexPriceKlines-1h-2024-12-01.zip" in url, f"filename wrong: {url}"
+    assert "1h-2024-12-01.zip" in url, f"filename wrong: {url}"
 
 
 def test_save_filename_includes_interval(tmp_path: Path):

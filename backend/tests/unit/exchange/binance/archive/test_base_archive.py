@@ -3,6 +3,8 @@
 from datetime import date
 from typing import TYPE_CHECKING
 
+import pytest
+
 from exchange.binance.archive.base import BaseBinanceArchiveDownloader
 from exchange.binance.archive.kinds import ArchiveKind, MarketType
 
@@ -73,3 +75,35 @@ def test_collect_data_no_symbols_returns_empty(tmp_path):
     fetcher = _StubFetcher(market=MarketType.SPOT, base_dir=tmp_path, symbol="BTCUSDT", interval=None)
     result = fetcher.collect_data(symbols=[], start="2024-12-01", end="2024-12-02", mode="inc")
     assert result == {"files_added": 0, "symbols_processed": 0}
+
+
+def test_collect_data_all_fail_raises(tmp_path, monkeypatch):
+    """全败必须诚实上抛，禁止零落盘假成功（历史上任务曾显示 100% 而磁盘无文件）。"""
+
+    def _boom(self, coro_func, *args):
+        raise ConnectionError("network down")
+
+    monkeypatch.setattr(BaseBinanceArchiveDownloader, "_run_async", _boom)
+    fetcher = _StubFetcher(market=MarketType.SPOT, base_dir=tmp_path, symbol="BTCUSDT", interval=None)
+    with pytest.raises(RuntimeError, match="全部失败"):
+        fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
+
+
+def test_collect_data_partial_fail_no_raise(tmp_path, monkeypatch):
+    """部分失败不炸：增量语义下成功日期已落盘，未落盘日期下次运行补。"""
+    real_run = BaseBinanceArchiveDownloader._run_async
+    calls = {"n": 0}
+
+    def _flaky(self, coro_func, *args):
+        calls["n"] += 1
+        if calls["n"] == 1:  # 第一天失败
+            raise ConnectionError("network down")
+        import pandas as pd
+
+        return pd.DataFrame({"a": [1.0], "b": [1.0]})
+
+    monkeypatch.setattr(BaseBinanceArchiveDownloader, "_run_async", _flaky)
+    fetcher = _StubFetcher(market=MarketType.SPOT, base_dir=tmp_path, symbol="BTCUSDT", interval=None)
+    result = fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
+    assert result["files_added"] == 1
+    assert real_run is not None

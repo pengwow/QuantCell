@@ -9,8 +9,21 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 # —— 数据类型分类 ——
-_KLINE_TYPES = {"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
-_ARCHIVE_TYPES = {"aggTrades", "trades", "bookDepth", "bookTicker"}
+# mark/index/premium 三类 K 线必须走归档路径(_ARCHIVE_TYPES): 币安数据仓库的
+# 日归档 URL 与普通 K 线不同(daily/markPriceKlines 而非 daily/klines),
+# 且落盘布局需与归档浏览页的 {market}/{kind}/{symbol} 三层约定一致——
+# 若走 BinanceDownloader 会 ① 下载普通成交K线冒充标记价 ② 落盘到
+# {kind}/{market}/{symbol}/{interval}, 归档浏览永远扫不到(显示 0)
+_KLINE_TYPES = {"kline"}
+_ARCHIVE_TYPES = {
+    "aggTrades",
+    "trades",
+    "bookDepth",
+    "bookTicker",
+    "markPriceKlines",
+    "indexPriceKlines",
+    "premiumIndexKlines",
+}
 _DERIV_TYPES = {"fundingRate", "openInterest"}
 
 _FUTURES_ONLY_TYPES = {
