@@ -107,3 +107,20 @@ def test_collect_data_partial_fail_no_raise(tmp_path, monkeypatch):
     result = fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
     assert result["files_added"] == 1
     assert real_run is not None
+
+
+def test_collect_data_empty_day_creates_no_shell_dir(tmp_path, monkeypatch):
+    """404/空数据日不许写 meta、不许建目录：write_meta 会 mkdir，若空数据日也写 meta
+    会留下"归档树显示 symbol 但点开 0 行"的空壳目录（线上曾出现 12 个这样的空壳）。
+    """
+    import pandas as pd
+
+    def _empty(self, coro_func, *args):
+        # 模拟 404：get_daily_archive 返回空 DataFrame
+        return pd.DataFrame()
+
+    monkeypatch.setattr(BaseBinanceArchiveDownloader, "_run_async", _empty)
+    fetcher = _StubFetcher(market=MarketType.SPOT, base_dir=tmp_path, symbol="BTCUSDT", interval=None)
+    result = fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
+    assert result["files_added"] == 0
+    assert not fetcher.save_dir.exists(), "空数据日不应创建任何目录（meta 空壳）"

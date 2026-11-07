@@ -185,4 +185,7 @@ class ArchiveService:
         base = self.base_dir / market.value / kind.value
         if not base.exists():
             return []
-        return sorted([p.name for p in base.iterdir() if p.is_dir()])
+        # 过滤无 parquet 的空壳目录（只写 _meta.json 的残留）：树上不显示点开为空的 symbol。
+        # ponytail: 每 symbol 一次单层 glob，几百个 symbol 可接受；symbol 量级再涨时改成
+        # 建 SQLite 索引或目录标记
+        return sorted(p.name for p in base.iterdir() if p.is_dir() and any(p.glob("*.parquet")))
