@@ -1065,6 +1065,22 @@ const StrategyManagement = () => {
                     </Tag>
                   </div>
                 }
+                extra={
+                  // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
+                  <Tooltip title={isGuest ? t('guest_delete_restricted') || '访客用户无法删除回测记录' : (t('delete') || '删除')}>
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      disabled={isGuest}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteBacktest(task.id);
+                      }}
+                    />
+                  </Tooltip>
+                }
                 className={backtestSelectedRowKeys.includes(task.id) ? 'ring-2 ring-blue-500' : ''}
                 onClick={() => setBacktestSelectedRowKeys([task.id])}
                 onDoubleClick={() => handleViewDetail(task.id)}
@@ -1123,19 +1139,6 @@ const StrategyManagement = () => {
                       }}
                     >
                       {t('replay') || '回放'}
-                    </Button>
-                    <Button
-                      type="link"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      disabled={isGuest}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteBacktest(task.id);
-                      }}
-                    >
-                      {t('delete') || '删除'}
                     </Button>
                   </div>
                 </div>

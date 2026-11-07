@@ -213,21 +213,23 @@ function PluginCard({
     <Card
       hoverable
       loading={loading}
-      actions={[
-        <Tooltip title="详情" key="info">
-          <InfoCircleOutlined onClick={() => onDetail(plugin)} />
-        </Tooltip>,
+      // 卸载（删除）统一放卡片右上角，与其他卡片页面一致；详情留在底栏 actions
+      extra={
         <Popconfirm
-          key="uninstall"
           title={`确定卸载插件「${plugin.name}」？`}
           onConfirm={() => onUninstall(plugin.name)}
           okText="卸载"
           cancelText="取消"
         >
           <Tooltip title="卸载">
-            <DeleteOutlined />
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
           </Tooltip>
-        </Popconfirm>,
+        </Popconfirm>
+      }
+      actions={[
+        <Tooltip title="详情" key="info">
+          <InfoCircleOutlined onClick={() => onDetail(plugin)} />
+        </Tooltip>,
       ]}
     >
       <Card.Meta
