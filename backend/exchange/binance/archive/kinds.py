@@ -44,6 +44,13 @@ KIND_INTERVALS: dict[ArchiveKind, list[str] | None] = {
 }
 
 
+# archive zip 文件名不含 kind 段的种类：币安 Vision 上 mark/index/premium
+# K 线的日归档命名为 {symbol}-{interval}-{date}.zip（实测 2026-11-07，
+# 例如 .../markPriceKlines/BTCUSDT/1h/BTCUSDT-1h-2024-12-01.zip），
+# 与 aggTrades 等的 {symbol}-{kind}-{date}.zip 规则不同
+_ZIP_NAME_WITHOUT_KIND = {ArchiveKind.MARK_KLINES, ArchiveKind.INDEX_KLINES, ArchiveKind.PREMIUM_KLINES}
+
+
 def build_zip_url(
     market: MarketType,
     kind: ArchiveKind,
@@ -57,11 +64,14 @@ def build_zip_url(
         >>> build_zip_url(MarketType.SPOT, ArchiveKind.AGG_TRADES, 'BTCUSDT', '2024-12-01')
         'https://data.binance.vision/data/spot/daily/aggTrades/BTCUSDT/BTCUSDT-aggTrades-2024-12-01.zip'
         >>> build_zip_url(MarketType.FUTURES_UM, ArchiveKind.MARK_KLINES, 'BTCUSDT', '2024-12-01', '1h')
-        'https://data.binance.vision/data/futures/um/daily/markPriceKlines/BTCUSDT/1h/BTCUSDT-markPriceKlines-1h-2024-12-01.zip'
+        'https://data.binance.vision/data/futures/um/daily/markPriceKlines/BTCUSDT/1h/BTCUSDT-1h-2024-12-01.zip'
     """
     prefix = _MARKET_URL_PREFIX[market]
     interval_segment = f"{interval}/" if interval else ""
-    file_stem = f"{symbol}-{kind.value}-{interval + '-' if interval else ''}{date_str}.zip"
+    if kind in _ZIP_NAME_WITHOUT_KIND:
+        file_stem = f"{symbol}-{interval}-{date_str}.zip"
+    else:
+        file_stem = f"{symbol}-{kind.value}-{interval + '-' if interval else ''}{date_str}.zip"
     return f"https://data.binance.vision/{prefix}/daily/{kind.value}/{symbol}/{interval_segment}{file_stem}"
 
 

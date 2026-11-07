@@ -104,7 +104,7 @@ def test_url_contains_interval_segment(tmp_path: Path):
     )
     url = f.get_zip_url("BTCUSDT", "2024-12-01")
     assert "/1h/" in url, f"URL must contain /1h/ segment: {url}"
-    assert "markPriceKlines-1h-2024-12-01.zip" in url, f"filename wrong: {url}"
+    assert "1h-2024-12-01.zip" in url, f"filename wrong: {url}"
 
 
 def test_url_for_different_intervals(tmp_path: Path):
@@ -118,7 +118,8 @@ def test_url_for_different_intervals(tmp_path: Path):
         )
         url = f.get_zip_url("BTCUSDT", "2024-12-01")
         assert f"/{interval}/" in url, f"missing /{interval}/: {url}"
-        assert f"markPriceKlines-{interval}-2024-12-01.zip" in url, f"filename wrong: {url}"
+        # 币安 Vision 的 markPriceKlines zip 命名不含 kind 段（实测规则）
+        assert f"{interval}-2024-12-01.zip" in url, f"filename wrong: {url}"
 
 
 def test_save_filename_includes_interval(tmp_path: Path):

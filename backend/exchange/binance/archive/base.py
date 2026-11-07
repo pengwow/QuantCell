@@ -176,6 +176,7 @@ class BaseBinanceArchiveDownloader:
         end_d = date.fromisoformat(end)
         files_added = 0
         symbols_processed = 0
+        failures: list[str] = []  # (symbol, day) 下载失败原因，用于全败时诚实上抛
 
         for sym in symbols:
             self._symbol = sym
@@ -191,11 +192,19 @@ class BaseBinanceArchiveDownloader:
                             files_added += 1
                         write_meta(self.save_dir, sym, self.archive_kind, self.market, day)
                     except Exception as exc:
+                        # 单日失败先记账继续跑（增量语义：成功的日期下次不再补），
+                        # 但绝不能静默吞掉——全败时任务会虚假显示"下载完成"
                         logger.exception("Failed %s %s: %s", sym, day, exc)
+                        failures.append(f"{sym} {day}: {exc}")
                     if progress_cb:
                         progress_cb(symbols_processed, files_added)
                     day += timedelta(days=1)
             symbols_processed += 1
+
+        if failures and files_added == 0:
+            # ponytail: 部分失败不炸（增量下次会补缺失日期），只拦"一个文件都没落盘
+            # 却报成功"的最坏情况；要让前端逐日看到失败明细需引入 per-date 进度上报
+            raise RuntimeError(f"{len(failures)} 天归档下载全部失败, 无数据落盘: {failures[0]}")
         return {"files_added": files_added, "symbols_processed": symbols_processed}
 
     # —— 读区间（前端查询入口，spec §5.2） ——
@@ -237,13 +246,14 @@ class BaseBinanceArchiveDownloader:
         """同步入口里驱动单次异步调用（asyncio.run）。
 
         自动创建 aiohttp ClientSession 并作为第一个参数注入 coro_func。
-        代理通过 trust_env（默认 True）从环境变量读取；若 self.proxy 已设置则临时注入环境变量。
+        aiohttp 默认 trust_env=False（不读环境变量代理），必须显式开启，
+        否则注入的环境变量代理完全无效（直连在受限网络下会失败）。
         """
         import asyncio
         import os
 
         async def _wrap():
-            # 若通过参数传入了 proxy，临时写入环境变量供 trust_env 读取
+            # 若通过参数传入了 proxy，写入环境变量供 trust_env 读取
             saved = {}
             if self.proxy:
                 for key in ("https_proxy", "http_proxy", "all_proxy"):
@@ -252,7 +262,7 @@ class BaseBinanceArchiveDownloader:
                 os.environ["http_proxy"] = self.proxy
             try:
                 timeout = aiohttp.ClientTimeout(total=300)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
                     return await coro_func(session, *args)
             finally:
                 for key, val in saved.items():
