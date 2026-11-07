@@ -1483,3 +1483,33 @@ def test_seed_text_built_once_and_reports_missing(monkeypatch, caplog):
     assert fresh._seed_text({}) == ""  # 未带种子：直接空，不查库
     stage, msg = events[-1]
     assert stage == "session.seed_missing" and "nope" in msg
+
+
+def test_delete_session(research_db):
+    """删除会话：非终态拦截 / 终态级联清 trials+events / owner 隔离。"""
+    db, _ = research_db
+    sid = _create_session(db, mode="deep", cfg=DEEP_CFG)
+    db.add(ResearchTrial(session_id=sid, loop_idx=1, candidate_idx=1))
+    db.add(ResearchEvent(session_id=sid, msg="stage log", ts=1.0))
+    db.commit()
+
+    # running 非终态：拒绝删除
+    with pytest.raises(service.ResearchError) as ei:
+        service.delete_session(db, sid, owner_id="u1")
+    assert ei.value.kind == "bad_state"
+
+    # 取消落到终态后可删，trials/events 一并清理
+    row = service.get_session_row(db, sid, owner_id="u1")
+    service.set_session_status(db, row, "cancelled")
+    service.delete_session(db, sid, owner_id="u1")
+    assert db.get(ResearchSession, sid) is None
+    assert db.query(ResearchTrial).filter(ResearchTrial.session_id == sid).count() == 0
+    assert db.query(ResearchEvent).filter(ResearchEvent.session_id == sid).count() == 0
+
+    # owner 隔离：不能删别人的会话（视为不存在）
+    other = service.create_session(
+        db, owner_id="u2", name="u2", mode="quick", scenario="factor", config={}, n_candidates=1
+    )
+    with pytest.raises(service.ResearchError) as ei2:
+        service.delete_session(db, other.id, owner_id="u1")
+    assert ei2.value.kind == "not_found"

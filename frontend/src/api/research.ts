@@ -212,6 +212,8 @@ export const researchApi = {
   resume: (id: number) =>
     apiRequest.post<{ session_id: number; job_id: string }>(`/research/sessions/${id}/resume`),
   cancel: (id: number) => apiRequest.post<ResearchSession>(`/research/sessions/${id}/cancel`),
+  /** 删除会话：仅终态（completed/failed/cancelled）可删，非终态后端返回 409 */
+  remove: (id: number) => apiRequest.delete<{ session_id: number }>(`/research/sessions/${id}`),
   extend: (
     id: number,
     p: { extra_loops?: number; extra_max_llm_calls?: number; extra_max_tokens?: number },
