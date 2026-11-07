@@ -1,4 +1,11 @@
-"""策略工具 - 薄封装，调用CLI层"""
+"""策略工具（已下线，留档）。
+
+文件名以 `_` 开头，create_registry 的自动发现会跳过，不再注入 /agent 工具集。
+下线原因（PRD §14.6 /agent 现状核查）：本组工具大多与 CLI 层签名不匹配——
+generate_strategy/optimize_strategy_params 位置参数个数不符必然 TypeError，
+run_backtest 把同步的 BacktestService.run_backtest(task_id) 当协程 await；
+策略研究会话（/research）已提供更完整的替代入口。恢复使用前需逐个对齐
+cli.strategy 的真实签名。"""
 
 from typing import Any
 
