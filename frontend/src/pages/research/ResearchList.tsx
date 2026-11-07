@@ -145,6 +145,18 @@ const ResearchList: React.FC = () => {
   };
 
   // 行内动作集合：动作随会话状态变化，表格（图标模式）与卡片（文字模式）共用
+  // 删除确认弹窗：表格操作列与卡片右上角 extra 共用
+  const confirmDeleteSession = (row: ResearchSession) => {
+    modal.confirm({
+      title: t('research_delete_confirm_title') || '删除研究会话',
+      content: `${t('research_delete_confirm_text') || '将删除该会话及其全部试验与事件记录'}：${row.name}`,
+      okText: t('delete') || '删除',
+      okButtonProps: { danger: true },
+      cancelText: t('cancel'),
+      onOk: () => act(() => researchApi.remove(row.id), t('research_msg_deleted') || '已删除'),
+    });
+  };
+
   const actionsFor = (row: ResearchSession) => {
     const actions: {
       key: string;
@@ -197,16 +209,7 @@ const ResearchList: React.FC = () => {
       hint: t('research_delete_only_terminal') || '仅已结束的会话可删除',
       danger: true,
       disabled: !deletable,
-      onClick: () => {
-        modal.confirm({
-          title: t('research_delete_confirm_title') || '删除研究会话',
-          content: `${t('research_delete_confirm_text') || '将删除该会话及其全部试验与事件记录'}：${row.name}`,
-          okText: t('delete') || '删除',
-          okButtonProps: { danger: true },
-          cancelText: t('cancel'),
-          onOk: () => act(() => researchApi.remove(row.id), t('research_msg_deleted') || '已删除'),
-        });
-      },
+      onClick: () => confirmDeleteSession(row),
     });
     return actions;
   };
@@ -228,11 +231,14 @@ const ResearchList: React.FC = () => {
     }
     return (
       <Space size={4} onClick={(e) => e.stopPropagation()} wrap>
-        {acts.map((a) => (
-          <Button key={a.key} size="small" danger={a.danger} disabled={a.disabled} onClick={a.onClick}>
-            {a.label}
-          </Button>
-        ))}
+        {/* 删除已上移卡片右上角 extra，文字按钮组不再重复展示 */}
+        {acts
+          .filter((a) => a.key !== 'delete')
+          .map((a) => (
+            <Button key={a.key} size="small" danger={a.danger} disabled={a.disabled} onClick={a.onClick}>
+              {a.label}
+            </Button>
+          ))}
       </Space>
     );
   };
@@ -242,9 +248,15 @@ const ResearchList: React.FC = () => {
       title: t('research_col_session'),
       dataIndex: 'name',
       ellipsis: true,
-      render: (name: string, row) => (
-        <Space size={6}>
-          <span>{name || t('research_session_fallback', { id: row.id })}</span>
+      width: 300,
+      render: (name: string, row) => name || t('research_session_fallback', { id: row.id }),
+    },
+    {
+      // 场景/模式标签从「会话」列拆出独立展示，避免名称与标签挤在一列相互截断
+      title: t('tags'),
+      width: 140,
+      render: (_, row) => (
+        <Space size={6} wrap>
           <Tag color={row.scenario === 'strategy' ? 'geekblue' : row.scenario === 'model' ? 'purple' : 'cyan'}>
             {t(`research_scenario_${row.scenario}`)}
           </Tag>
@@ -260,18 +272,20 @@ const ResearchList: React.FC = () => {
     {
       title: t('status'),
       dataIndex: 'status',
-      width: 100,
+      width: 90,
       render: (_, row) => statusTag(row),
     },
-    { title: t('research_col_progress'), width: 100, render: (_, row) => `${row.loop_done}/${row.loop_n}` },
+    { title: t('research_col_progress'), width: 70, render: (_, row) => `${row.loop_done}/${row.loop_n}` },
     {
       title: t('research_col_best_icir'),
-      width: 110,
+      width: 100,
       render: (_, row) => (typeof row.best_ic_ir === 'number' ? row.best_ic_ir.toFixed(4) : '—'),
     },
     {
       title: t('research_col_cost'),
-      width: 150,
+      width: 170,
+      // nowrap：「13 次 / 139.5K tokens」整体阅读，禁止中间折行
+      className: 'whitespace-nowrap',
       // 悬停显示原始 token 数，避免缩写后丢失精度信息
       render: (_, row) => (
         <Tooltip title={`${row.token_used} tokens`}>
@@ -282,7 +296,9 @@ const ResearchList: React.FC = () => {
     {
       title: t('created_at'),
       dataIndex: 'created_at',
-      width: 170,
+      width: 160,
+      // nowrap：完整时间戳一行展示，避免「2026/11/7 0…」被截
+      className: 'whitespace-nowrap',
       render: (value: string | null) => (value ? new Date(value).toLocaleString() : '—'),
     },
     {
@@ -326,58 +342,77 @@ const ResearchList: React.FC = () => {
         </Card>
       ) : (
         <Row gutter={[16, 16]}>
-        {sessions.map((row) => (
-          <Col xs={24} sm={12} md={8} lg={6} key={row.id}>
-            <Card
-              size="small"
-              hoverable
-              style={{ cursor: 'pointer', height: '100%' }}
-              onClick={() => navigate(`/research/${row.id}`)}
-              title={
-                <Flex justify="space-between" align="center" gap={8}>
-                  <span className="truncate" style={{ maxWidth: '70%' }}>
+        {sessions.map((row) => {
+          // 与 actionsFor 同口径：仅终态会话可删除（非终态后端同样拦截 409）
+          const deletable = ['completed', 'failed', 'cancelled'].includes(row.status);
+          return (
+            <Col xs={24} sm={12} md={8} lg={6} key={row.id}>
+              <Card
+                size="small"
+                hoverable
+                style={{ cursor: 'pointer', height: '100%' }}
+                onClick={() => navigate(`/research/${row.id}`)}
+                title={
+                  <span className="truncate" style={{ maxWidth: '100%' }}>
                     {row.name || t('research_session_fallback', { id: row.id })}
                   </span>
-                  {statusTag(row)}
-                </Flex>
-              }
-            >
-              <Flex vertical gap={8}>
-                <Space size={6} wrap>
-                  <Tag color={row.scenario === 'strategy' ? 'geekblue' : row.scenario === 'model' ? 'purple' : 'cyan'}>
-                    {t(`research_scenario_${row.scenario}`)}
-                  </Tag>
-                  <Tag color={row.mode === 'quick' && row.extended_at ? 'geekblue' : undefined}>
-                    {row.mode === 'quick'
-                      ? (row.extended_at ? t('research_mode_quick_extended') : t('research_mode_quick'))
-                      : t('research_mode_deep')}
-                  </Tag>
-                </Space>
-                <Flex justify="space-between" align="center">
-                  <span className="text-gray-500">{t('research_col_progress')}</span>
-                  <span>{`${row.loop_done}/${row.loop_n}`}</span>
-                </Flex>
-                <Flex justify="space-between" align="center">
-                  <span className="text-gray-500">{t('research_col_best_icir')}</span>
-                  <span>{typeof row.best_ic_ir === 'number' ? row.best_ic_ir.toFixed(4) : '—'}</span>
-                </Flex>
-                <Flex justify="space-between" align="center">
-                  <span className="text-gray-500">{t('research_col_cost')}</span>
-                  <Tooltip title={`${row.token_used} tokens`}>
-                    <span>{t('research_cost_format', { calls: row.llm_calls, tokens: formatTokens(row.token_used, '0') })}</span>
+                }
+                extra={
+                  // 删除统一放卡片右上角；点击不可穿透到卡片跳转
+                  <Tooltip title={!deletable ? (t('research_delete_only_terminal') || '仅已结束的会话可删除') : (t('delete') || '删除')}>
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      disabled={!deletable}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        confirmDeleteSession(row);
+                      }}
+                    />
                   </Tooltip>
+                }
+              >
+                <Flex vertical gap={8}>
+                  <Space size={6} wrap>
+                    <Tag color={row.scenario === 'strategy' ? 'geekblue' : row.scenario === 'model' ? 'purple' : 'cyan'}>
+                      {t(`research_scenario_${row.scenario}`)}
+                    </Tag>
+                    <Tag color={row.mode === 'quick' && row.extended_at ? 'geekblue' : undefined}>
+                      {row.mode === 'quick'
+                        ? (row.extended_at ? t('research_mode_quick_extended') : t('research_mode_quick'))
+                        : t('research_mode_deep')}
+                    </Tag>
+                    {/* 状态从标题右上角移到此处（卡片中部标签行），右上角让位给删除按钮 */}
+                    {statusTag(row)}
+                  </Space>
+                  <Flex justify="space-between" align="center">
+                    <span className="text-gray-500">{t('research_col_progress')}</span>
+                    <span>{`${row.loop_done}/${row.loop_n}`}</span>
+                  </Flex>
+                  <Flex justify="space-between" align="center">
+                    <span className="text-gray-500">{t('research_col_best_icir')}</span>
+                    <span>{typeof row.best_ic_ir === 'number' ? row.best_ic_ir.toFixed(4) : '—'}</span>
+                  </Flex>
+                  <Flex justify="space-between" align="center">
+                    <span className="text-gray-500">{t('research_col_cost')}</span>
+                    <Tooltip title={`${row.token_used} tokens`}>
+                      <span>{t('research_cost_format', { calls: row.llm_calls, tokens: formatTokens(row.token_used, '0') })}</span>
+                    </Tooltip>
+                  </Flex>
+                  <Flex justify="space-between" align="center">
+                    <span className="text-gray-500">{t('created_at')}</span>
+                    <span className="text-sm">
+                      {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                    </span>
+                  </Flex>
+                  <div className="pt-2 border-t border-gray-100">{renderActions(row)}</div>
                 </Flex>
-                <Flex justify="space-between" align="center">
-                  <span className="text-gray-500">{t('created_at')}</span>
-                  <span className="text-sm">
-                    {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
-                  </span>
-                </Flex>
-                <div className="pt-2 border-t border-gray-100">{renderActions(row)}</div>
-              </Flex>
-            </Card>
-          </Col>
-        ))}
+              </Card>
+            </Col>
+          );
+        })}
         </Row>
       )}
       <Row justify="center" style={{ marginTop: 16 }}>
@@ -481,9 +516,9 @@ const ResearchList: React.FC = () => {
             loading={loading}
             columns={columns}
             dataSource={sessions}
-            /* 固定列总宽 760px（状态~操作，操作列 fixed:'right'），名称列是唯一弹性列：
-               容器不足时剩余空间 ≤ 0 会把它压成 0 宽整列消失，声明 scroll.x 让表格改为内部横滚 */
-            scroll={{ x: 960 }}
+            /* 固定列总宽 860px（标签~操作，会话列 300px），所有列都有显式宽：
+               容器不足时若无 scroll.x，无宽列会被压成 0 宽整列消失，声明后表格改为内部横滚 */
+            scroll={{ x: 1160 }}
             pagination={sharedPagination}
             onChange={(pg) => handlePageChange(pg.current ?? 1, pg.pageSize ?? pageSize)}
             onRow={(row) => ({
