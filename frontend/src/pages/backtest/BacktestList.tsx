@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Button, Tag, Space, Popconfirm, App, Segmented, Row, Col, Pagination, Input, Select, DatePicker, Grid } from 'antd';
+import { Card, Table, Button, Tag, Space, Popconfirm, App, Segmented, Row, Col, Pagination, Input, Select, DatePicker, Grid, Tooltip } from 'antd';
 import type { TableProps } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, FilterOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, FilterOutlined, DeleteOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
 import { useTranslation } from 'react-i18next';
-import { IconPlayerPlay, IconEye, IconTrash } from '@tabler/icons-react';
+import { IconPlayerPlay, IconEye } from '@tabler/icons-react';
 import { setPageTitle } from '@/utils/pageTitle';
 import type { BacktestTask } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
@@ -239,7 +239,7 @@ const BacktestList = () => {
               type="link"
               size="small"
               danger
-              icon={<IconTrash size={16} />}
+              icon={<DeleteOutlined />}
             >
               删除
             </Button>
@@ -403,6 +403,30 @@ const BacktestList = () => {
                     </Tag>
                   </div>
                 }
+                extra={
+                  // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
+                  <Popconfirm
+                    title="确认删除"
+                    description="确定要删除这个回测任务吗？此操作不可恢复。"
+                    onConfirm={(e) => {
+                      e?.stopPropagation();
+                      handleDelete(task.id);
+                    }}
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Tooltip title="删除">
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Tooltip>
+                  </Popconfirm>
+                }
                 className={selectedRowKeys.includes(task.id) ? 'ring-2 ring-blue-500' : ''}
                 onClick={() => setSelectedRowKeys([task.id])}
                 onDoubleClick={() => handleViewDetail(task.id)}
@@ -451,27 +475,6 @@ const BacktestList = () => {
                     >
                       查看
                     </Button>
-                    <Popconfirm
-                      title="确认删除"
-                      description="确定要删除这个回测任务吗？此操作不可恢复。"
-                      onConfirm={(e) => {
-                        e?.stopPropagation();
-                        handleDelete(task.id);
-                      }}
-                      okText="删除"
-                      cancelText="取消"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button
-                        type="link"
-                        size="small"
-                        danger
-                        icon={<IconTrash size={14} />}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        删除
-                      </Button>
-                    </Popconfirm>
                   </div>
                 </div>
               </Card>

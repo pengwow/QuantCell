@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
+  App as AntdApp,
   Button,
   Card,
   Col,
@@ -30,6 +31,7 @@ import {
 } from 'antd';
 import {
   AppstoreOutlined,
+  DeleteOutlined,
   EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -37,7 +39,7 @@ import {
   SearchOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import type { FactorCatalogItem } from '@/api/factor';
+import { factorApi, type FactorCatalogItem } from '@/api/factor';
 import {
   CATEGORY_COLOR,
   categoryLabel,
@@ -74,6 +76,7 @@ const FactorLibraryPane: React.FC<Props> = ({
   onRefresh,
 }) => {
   const { t } = useTranslation();
+  const { message, modal } = AntdApp.useApp();
   const navigate = useNavigate();
   const { token } = theme.useToken();
   const qc = useQuantColors();
@@ -259,19 +262,38 @@ const FactorLibraryPane: React.FC<Props> = ({
     },
     {
       title: t('factor_lib_col_action') || '操作',
-      width: 80,
+      width: 104,
       // 与策略管理等页面操作列统一：图标按钮 + Tooltip 悬浮文案，固定在表格右侧
       fixed: 'right',
       render: (_, r) => (
-        // 与卡片视图的「查看详情」同语义：唯一的打开抽屉入口
-        <Tooltip title={t('view_details') || '查看详情'}>
-          <Button
-            type="text"
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => onSelect(r.name)}
-          />
-        </Tooltip>
+        <Space size={0}>
+          {/* 与卡片视图的「查看详情」同语义：唯一的打开抽屉入口 */}
+          <Tooltip title={t('view_details') || '查看详情'}>
+            <Button
+              type="text"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => onSelect(r.name)}
+            />
+          </Tooltip>
+          {/* 内置因子受后端保护不可删；删除会同步清理因子档案，本地实现一并移除 */}
+          <Tooltip
+            title={
+              r.builtin
+                ? t('factor_lib_delete_builtin_disabled') || '内置因子不可删除'
+                : t('delete') || '删除'
+            }
+          >
+            <Button
+              type="text"
+              size="small"
+              danger
+              disabled={r.builtin}
+              icon={<DeleteOutlined />}
+              onClick={() => confirmDeleteFactor(r)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
   ];
@@ -360,6 +382,27 @@ const FactorLibraryPane: React.FC<Props> = ({
     </Flex>
   );
 
+  // 删除确认弹窗：表格操作列与卡片右上角 extra 共用
+  const confirmDeleteFactor = (r: FactorCatalogItem) => {
+    modal.confirm({
+      title: t('factor_lib_delete_confirm_title') || '删除因子',
+      content: `${t('factor_lib_delete_confirm_text') || '将删除该因子及其本地实现，因子档案同步清理'}：${r.label}（${r.name}）`,
+      okText: t('delete') || '删除',
+      okButtonProps: { danger: true },
+      cancelText: t('cancel'),
+      onOk: async () => {
+        try {
+          await factorApi.remove(r.name);
+          message.success(t('factor_lib_msg_deleted') || `已删除因子 ${r.name}`);
+          // 目录刷新后父容器会自动纠正 selected（选中的因子被删时回退）
+          await onRefresh();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+        }
+      },
+    });
+  };
+
   const renderCardView = () => {
     // pageSize 直接用外层全局 hook 值（与列表视图同源），不再声明同名局部变量遮蔽
     const current = (pagination.current as number) || 1;
@@ -410,6 +453,25 @@ const FactorLibraryPane: React.FC<Props> = ({
                         </Tag>
                       )}
                     </span>
+                  }
+                  extra={
+                    // 删除统一放卡片右上角（与列表视图操作列同口径）：内置因子受保护置灰
+                    <Tooltip
+                      title={
+                        f.builtin
+                          ? t('factor_lib_delete_builtin_disabled') || '内置因子不可删除'
+                          : t('delete') || '删除'
+                      }
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        disabled={f.builtin}
+                        icon={<DeleteOutlined />}
+                        onClick={() => confirmDeleteFactor(f)}
+                      />
+                    </Tooltip>
                   }
                 >
                   <Space orientation="vertical" size={8} style={{ display: 'flex' }}>

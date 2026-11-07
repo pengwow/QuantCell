@@ -1794,6 +1794,25 @@ const DataManagementPage = () => {
             key={group.id}
             size="small"
             style={{ borderLeft: `4px solid ${group.color}` }}
+            // 删除统一放卡片右上角，与其他卡片页面一致；默认组不可删除
+            extra={
+              <Popconfirm
+                title={t('confirm_delete') || '确定删除此自选组？'}
+                description={t('delete_description') || '组内的货币对不会被删除'}
+                onConfirm={(e) => handleDeleteGroup(group.id, e)}
+                disabled={group.isDefault}
+              >
+                <Tooltip title={group.isDefault ? t('default_group_undeletable') || '默认组不可删除' : (t('delete') || '删除')}>
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    disabled={group.isDefault}
+                  />
+                </Tooltip>
+              </Popconfirm>
+            }
             actions={[
               <Tooltip key="batch-add" title={t('batch_add_favorite') || '批量添加自选'}>
                 <Button
@@ -1809,20 +1828,6 @@ const DataManagementPage = () => {
                   onClick={(e) => handleEditGroup(group, e)}
                 />
               </Tooltip>,
-              <Popconfirm
-                key="delete"
-                title={t('confirm_delete') || '确定删除此自选组？'}
-                description={t('delete_description') || '组内的货币对不会被删除'}
-                onConfirm={(e) => handleDeleteGroup(group.id, e)}
-                disabled={group.isDefault}
-              >
-                <Button
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  disabled={group.isDefault}
-                />
-              </Popconfirm>,
             ]}
           >
             <Card.Meta
