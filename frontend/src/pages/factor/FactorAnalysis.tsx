@@ -125,7 +125,7 @@ const FactorAnalysis: React.FC = () => {
                   open={detailOpen}
                   width="68%"
                   push
-                  destroyOnClose
+                  destroyOnHidden
                   closable
                   placement="right"
                   onClose={() => setDetailOpen(false)}
