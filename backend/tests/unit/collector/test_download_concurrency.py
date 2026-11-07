@@ -318,6 +318,11 @@ def test_archive_symbols_parallel_and_failures_isolated(monkeypatch):
     assert final and "失败: FAILSYM" in final[-1]["status"]
     assert any(u["current"] == "OK1" and "下载完成" in u["status"] for u in fake_tm.updates)
 
+    # 子任务行必须是 per-symbol 坐标(1/1)，不能把任务级累计值写进 symbol 明细行，
+    # 否则前端聚合出"状态已完成但总进度 66.7%"的假象（历史上真实踩坑）
+    ok1_row = next(u for u in fake_tm.updates if u["current"] == "OK1" and "下载完成" in u["status"])
+    assert (ok1_row["completed"], ok1_row["total"]) == (1, 1)
+
     # 全部失败：抛 RuntimeError 交给外层 fail_task
     req_all_fail = DownloadCryptoRequest(
         symbols=["FAILSYM", "FAILSYM2"],
