@@ -357,6 +357,8 @@ class TestDataService:
             candle_type="spot",
             symbols=["BTCUSDT"],
             save_dir=None,
+            data_type=req.data_type,
+            market=req.market,
         )
 
     def test_get_task_status_found(self):

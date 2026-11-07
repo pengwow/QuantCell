@@ -166,6 +166,7 @@ class TaskManager:
         symbol_progress: float | None = None,
         is_per_symbol: bool = False,
         interval: str = "",
+        detail: bool = True,
     ) -> bool:
         """更新任务进度 - 只推送单个任务进度，不计算总体进度
 
@@ -179,6 +180,9 @@ class TaskManager:
             symbol_progress: 该货币对的独立进度百分比（0-100）
             is_per_symbol: 是否为按货币对进度
             interval: 时间周期（如 "15m", "1h"）
+            detail: 是否写入子任务明细。阶段性哨兵状态（如"正在下载 15m"、"完成"）
+                不是真实的货币对子任务，传 False 只更新任务表和任务级状态，
+                避免在明细里出现 "15m/完成" 这类伪子任务行
 
         Returns:
             bool: 成功返回True，失败返回False
@@ -196,7 +200,9 @@ class TaskManager:
                 percentage = min(100.0, float((completed + failed) / total * 100))
 
         symbol = current
-        task_key = f"{interval}:{symbol}" if interval else symbol
+        # detail=False 的哨兵更新不产生子任务键：前端按 task_key 累计明细行，
+        # 空键的推送只会更新任务级状态行，不会变成一条伪子任务
+        task_key = f"{interval}:{symbol}" if (detail and interval) else (symbol if detail else "")
 
         # 保留完整的进度信息（包含统计字段）
         progress_info = {
@@ -218,17 +224,18 @@ class TaskManager:
             from ..db.models import TaskBusiness, TaskDetailBusiness
 
             TaskBusiness.update_progress(task_id, current, completed, total, failed, status)
-            # 更新任务明细表
-            TaskDetailBusiness.upsert(
-                task_id=task_id,
-                symbol=symbol,
-                interval=interval,
-                percentage=percentage,
-                completed=completed,
-                total=total,
-                failed=failed,
-                status_text=status,
-            )
+            # 更新任务明细表（哨兵状态不写入明细）
+            if detail:
+                TaskDetailBusiness.upsert(
+                    task_id=task_id,
+                    symbol=symbol,
+                    interval=interval,
+                    percentage=percentage,
+                    completed=completed,
+                    total=total,
+                    failed=failed,
+                    status_text=status,
+                )
         except Exception as e:
             logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
 

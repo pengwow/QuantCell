@@ -151,6 +151,9 @@ class DownloadCryptoRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_data_type_market(self):
+        if not self.symbols:
+            # 空品种列表会创建一个没有任何下载内容的空任务，必须在入口拒绝
+            raise ValueError("symbols 不能为空，至少指定一个品种")
         if self.data_type not in VALID_DATA_TYPES:
             msg = f"无效的 data_type: {self.data_type}，可选值：{', '.join(sorted(VALID_DATA_TYPES))}"
             raise ValueError(msg)

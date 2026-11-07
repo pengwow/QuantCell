@@ -123,8 +123,13 @@ class GetData:
         exchange_lower = self.exchange.lower()
 
         # 存储目录用单数 future（与 parquet 目录/DB 表约定一致），
-        # 但交易所下载器只认复数 futures，在此做归一化，避免 "无效的蜡烛图类型" 报错
-        downloader_candle_type = "futures" if self.candle_type == "future" else self.candle_type
+        # 但交易所下载器只认 futures / futures/um / futures/cm，在此做归一化，
+        # 避免 "无效的蜡烛图类型" 报错
+        downloader_candle_type = {
+            "future": "futures",
+            "um": "futures/um",
+            "cm": "futures/cm",
+        }.get(self.candle_type, self.candle_type)
 
         try:
             if exchange_lower in ["binance", "binance_spot", "binance_futures"]:
@@ -575,6 +580,8 @@ class DataService:
         logger.info(f"收到加密货币数据下载请求，参数: {request.model_dump()}")
 
         # 创建下载任务（使用固定下载目录，忽略 request.save_dir）
+        # data_type/market 是新统一入口的核心参数，必须落库：
+        # 任务列表/详情卡的类型与市场标签都从 params 读取
         task_id = task_manager.create_task(
             task_type="download_crypto",
             exchange=request.exchange,
@@ -585,6 +592,8 @@ class DataService:
             candle_type=request.candle_type,
             symbols=request.symbols,
             save_dir=request.save_dir,
+            data_type=request.data_type,
+            market=request.market,
         )
 
         logger.info(f"创建下载任务成功，任务ID: {task_id}")
@@ -1091,7 +1100,7 @@ class DataService:
         for interval_idx, interval in enumerate(request.interval):
             logger.info(f"开始处理时间周期: {interval} ({interval_idx + 1}/{total_intervals})")
 
-            # 更新进度：开始处理当前时间周期
+            # 更新进度：开始处理当前时间周期（哨兵状态，不写子任务明细）
             task_manager.update_progress(
                 task_id=task_id,
                 current=f"{interval}",
@@ -1099,6 +1108,7 @@ class DataService:
                 total=total_tasks,
                 status=f"正在下载 {interval} 数据 ({', '.join(request.symbols)})...",
                 interval=interval,
+                detail=False,
             )
 
             # 实例化GetData类并传入所有参数
@@ -1148,6 +1158,7 @@ class DataService:
                 status=f"[{completed_tasks}/{total_symbols * total_intervals}] {interval} 数据下载完成",
                 symbol_progress=100.0,
                 interval=interval,
+                detail=False,
             )
             logger.info(f"时间周期 {interval} 所有数据下载成功")
 
@@ -1162,6 +1173,7 @@ class DataService:
             status="全部下载完成",
             symbol_progress=100.0,
             interval="all",
+            detail=False,
         )
 
     def _async_download_other(self, task_id: str, request: DownloadCryptoRequest):
@@ -1206,6 +1218,7 @@ class DataService:
             total=100,
             status=f"{request.data_type} 数据下载完成（{completed}/{total_symbols}）",
             interval="",
+            detail=False,
         )
 
     def export_crypto_data(self, request: ExportCryptoRequest) -> dict[str, Any]:
