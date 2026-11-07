@@ -367,24 +367,33 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
           {displayList.length > 0 ? (
             <>
-              {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => (
-                <div key={String(subTask.task_key ?? subTask.symbol ?? '')} style={{ marginBottom: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                    <Space size={4}>
-                      <Text style={{ fontSize: 12, fontWeight: 500 }}>{String(subTask.symbol ?? '')}</Text>
-                      {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{String(subTask.interval)}</Tag>}
-                    </Space>
-                    <Text style={{ fontSize: 11, color: '#8c8c8c' }}>{subTask.percentage?.toFixed(1)}%</Text>
+              {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => {
+                // failed>0 表示该品种下载失败: 必须显式标红, 0% 空条无法区分"失败"与"未执行"
+                const failed = Number(subTask.failed ?? 0) > 0;
+                const statusText = typeof subTask.status === 'string' ? subTask.status : '';
+                return (
+                  <div key={String(subTask.task_key ?? subTask.symbol ?? '')} style={{ marginBottom: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                      <Space size={4}>
+                        <Text style={{ fontSize: 12, fontWeight: 500 }}>{String(subTask.symbol ?? '')}</Text>
+                        {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{String(subTask.interval)}</Tag>}
+                        {failed && <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>失败</Tag>}
+                      </Space>
+                      <Text style={{ fontSize: 11, color: failed ? '#cf1322' : '#8c8c8c' }}>{subTask.percentage?.toFixed(1)}%</Text>
+                    </div>
+                    <Progress
+                      percent={subTask.percentage || 0}
+                      size="small"
+                      showInfo={false}
+                      status={failed ? 'exception' : task.status === 'running' && (subTask.percentage ?? 0) < 100 ? 'active' : undefined}
+                      strokeColor={!failed && (subTask.percentage ?? 0) >= 100 ? QUANT_COLORS.positive : undefined}
+                    />
+                    {failed && statusText && (
+                      <div style={{ fontSize: 11, color: '#cf1322' }}>{statusText}</div>
+                    )}
                   </div>
-                  <Progress
-                    percent={subTask.percentage || 0}
-                    size="small"
-                    showInfo={false}
-                    status={task.status === 'running' && (subTask.percentage ?? 0) < 100 ? 'active' : undefined}
-                    strokeColor={(subTask.percentage ?? 0) >= 100 ? QUANT_COLORS.positive : undefined}
-                  />
-                </div>
-              ))}
+                );
+              })}
               {displayList.length > 5 && setIsProgressExpanded && (
                 <Button
                   type="link"
