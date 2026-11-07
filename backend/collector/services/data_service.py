@@ -1260,7 +1260,7 @@ class DataService:
                     completed=0,
                     total=1,
                     failed=1,
-                    status=f"{symbol} 下载失败",
+                    status=f"{symbol} 下载失败: {error}",
                     interval="",
                     symbol_progress=0.0,
                 )
