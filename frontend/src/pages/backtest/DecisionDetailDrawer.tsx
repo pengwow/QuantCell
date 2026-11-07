@@ -77,7 +77,7 @@ const preStyle: React.CSSProperties = {
   wordBreak: 'break-all',
 };
 
-/** 键值表：嵌套值 JSON.stringify 折叠单行；支持字段名搜索 */
+/** 键值表：短值单行内联；长 JSON 格式化进可滚动 pre 完整展示；支持字段名搜索 */
 const KVTable = ({ data, search }: { data: Record<string, unknown>; search: string }) => {
   const rows = Object.entries(data || {})
     .filter(([k]) => !search || k.toLowerCase().includes(search.toLowerCase()))
@@ -95,10 +95,12 @@ const KVTable = ({ data, search }: { data: Record<string, unknown>; search: stri
         {
           title: '值',
           dataIndex: 'v',
-          ellipsis: true,
-          render: (v: string) => (
-            <div style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{v}</div>
-          ),
+          render: (v: string) =>
+            v.length <= 80 ? (
+              <div style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{v}</div>
+            ) : (
+              <pre style={{ ...preStyle, maxHeight: 240 }}>{prettyJson(v)}</pre>
+            ),
         },
       ]}
     />

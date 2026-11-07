@@ -10,6 +10,8 @@ import { App } from 'antd';
 // 触发 useEffect 重新拉取后端配置，从而用数据库里的旧语言覆盖用户刚选择的语言。
 import i18n from '../../i18n/config';
 import { configApi, systemApi } from '../../api';
+import { useConfigStore } from '../../store/configStore';
+import { snapPageSize } from '../../constants/pagination';
 import type {
   GeneralSettings,
   NotificationSettings,
@@ -45,6 +47,7 @@ const defaultGeneralSettings: GeneralSettings = {
   showTips: true,
   timezone: 'Asia/Shanghai',
   defaultPerPage: 10,
+  defaultViewType: 'card',
 };
 
 // 默认通知设置
@@ -211,10 +214,13 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         }
 
       // 从扁平配置中提取通用设置
+      // defaultViewType 经白名单校验，非法值置 undefined 走默认
+      const rawViewType = toConfigString(flattenConfig['defaultViewType']);
       const loadedGeneralSettings: Partial<GeneralSettings> = {
         theme: toConfigString(flattenConfig['theme']) as 'light' | 'dark' | 'auto',
         language: toConfigString(flattenConfig['language']) as 'zh-CN' | 'en-US',
         defaultPerPage: toConfigInt(flattenConfig['defaultPerPage']),
+        defaultViewType: rawViewType === 'card' || rawViewType === 'list' ? rawViewType : undefined,
         showTips: toConfigBool(flattenConfig['showTips']),
         timezone: toConfigString(flattenConfig['timezone']),
       };
@@ -307,6 +313,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         { key: 'theme', value: generalSettings.theme, name: 'general', description: '系统主题设置' },
         { key: 'language', value: generalSettings.language, name: 'general', description: '系统语言设置' },
         { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: '列表页默认显示数量' },
+        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'card', name: 'general', description: '默认展示类型（卡片/列表）' },
         { key: 'timezone', value: generalSettings.timezone, name: 'general', description: '系统默认时区' },
         { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: '是否显示提示' },
       ];
@@ -315,6 +322,15 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 更新初始值
       setInitialGeneralSettings(generalSettings);
+
+      // 同步 configStore：业务页的 useGlobalPageSize/useViewType 订阅该 store，
+      // 只更新 window.APP_CONFIG 的话业务页感知不到配置变化
+      const existingConfig = useConfigStore.getState().config;
+      useConfigStore.getState().setConfig({
+        ...existingConfig,
+        defaultPerPage: snapPageSize(generalSettings.defaultPerPage || 10),
+        defaultViewType: generalSettings.defaultViewType || 'card',
+      });
 
       // 持久化语言设置到 localStorage（确保刷新后立即生效）
       if (generalSettings.language) {

@@ -11,6 +11,9 @@ import type { BacktestTask } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
 import dayjs from 'dayjs';
 import { QUANT_COLORS } from '@/utils/colors';
+import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
+import { useViewType } from '@/hooks/useViewType';
+import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 
 const { useBreakpoint } = Grid;
 
@@ -39,12 +42,8 @@ const BacktestList = () => {
   // 选中的行keys
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  // 视图类型状态
-  const [viewType, setViewType] = useState<ViewType>(() => {
-    // 从 localStorage 读取保存的视图偏好
-    const savedView = localStorage.getItem('backtestListViewType');
-    return (savedView as ViewType) || 'list';
-  });
+  // 视图类型状态：全局默认 + 会话内临时覆盖（不写回全局配置，刷新后回归全局）
+  const [viewType, setViewType] = useViewType();
 
   // 筛选状态
   const [searchText, setSearchText] = useState<string>('');
@@ -56,14 +55,20 @@ const BacktestList = () => {
   // 响应式断点
   const screens = useBreakpoint();
 
-  // 分页配置
-  const [pagination, setPagination] = useState<TableProps<BacktestTask>['pagination']>({
+  // 分页配置：pageSize 来自全局配置（条数切换器即全站开关）
+  const [pageSize, setPageSize] = useGlobalPageSize();
+  const [pagination, setPagination] = useState<TableProps<BacktestTask>['pagination']>(() => ({
     current: 1,
-    pageSize: 10,
+    pageSize,
     showSizeChanger: true,
-    pageSizeOptions: ['10', '20', '50', '100'],
-    showTotal: (total) => `${t('total') || '共'}: ${total}`,
-  });
+    pageSizeOptions: PAGE_SIZE_OPTIONS,
+    showTotal: (total) => `${t('total_items', { total })}`,
+  }));
+
+  // 全局条数变化（设置页/其他页面改动）实时同步到本页分页状态
+  useEffect(() => {
+    setPagination((p) => ({ ...p, pageSize }));
+  }, [pageSize]);
 
   // 设置页面标题
   useEffect(() => {
@@ -148,10 +153,9 @@ const BacktestList = () => {
     navigate('/backtest/config');
   };
 
-  // 处理视图切换
+  // 处理视图切换（会话级临时覆盖，不再持久化到 localStorage）
   const handleViewTypeChange = (value: ViewType) => {
     setViewType(value);
-    localStorage.setItem('backtestListViewType', value);
   };
 
   // 表格列定义
@@ -353,6 +357,10 @@ const BacktestList = () => {
       loading={loading}
       scroll={{ x: 'max-content' }}
       onChange={(newPagination) => {
+        // 条数变化写回全局配置，全站生效
+        if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
+          setPageSize(newPagination.pageSize);
+        }
         setPagination(newPagination);
       }}
       onRow={(record) => ({
@@ -476,9 +484,11 @@ const BacktestList = () => {
             pageSize={pageSize}
             total={filteredDataSource.length}
             showSizeChanger
-            pageSizeOptions={['10', '20', '50', '100']}
-            showTotal={(total) => `${t('total') || '共'}: ${total}`}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            showTotal={(total) => `${t('total_items', { total })}`}
             onChange={(page, size) => {
+              // 条数变化写回全局配置，全站生效
+              setPageSize(size);
               setPagination({
                 ...pagination,
                 current: page,

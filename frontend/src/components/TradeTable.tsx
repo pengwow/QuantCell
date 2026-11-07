@@ -6,6 +6,7 @@
 import { Table, Tag, Tooltip, theme } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Trade, TradeFill } from '../types/backtest';
+import { useGlobalPageSize } from '../hooks/useGlobalPageSize';
 
 export type { Trade };
 
@@ -38,6 +39,8 @@ const TradeTable = ({
   leverageBySymbol,
 }: TradeTableProps) => {
   const { token } = theme.useToken();
+  // 分页大小跟随全局配置（条数切换器即全站开关），未指定 current 时页码仍由表格内部管理
+  const [pageSize, setPageSize] = useGlobalPageSize();
 
   // 归一化杠杆表，避免调用方还要关心 symbol 分隔符差异
   const leverageMap: Record<string, number> = Object.fromEntries(
@@ -191,8 +194,8 @@ const TradeTable = ({
               showQuickJumper: true,
               showTotal: (total, range) =>
                 `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-              defaultPageSize: 10,
-              pageSizeOptions: ['10', '20', '50', '100'],
+              pageSize,
+              onChange: (_page, size) => setPageSize(size),
             }
           : false
       }

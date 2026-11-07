@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip, Input } from 'antd';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
+import { PER_PAGE_OPTIONS, snapPageSize } from '../../constants/pagination';
 import { isTauri } from '../../desktop/env';
 import SoftwareUpdateCard from './SoftwareUpdateCard';
 
@@ -34,8 +35,11 @@ const getLanguageOptions = (t: TranslateFn) => [
   { value: 'en-US', label: 'English' },
 ];
 
-// 分页选项
-const PER_PAGE_OPTIONS = [10, 15, 20, 30, 50, 100];
+// 展示类型选项
+const VIEW_TYPE_OPTIONS = [
+  { value: 'card', label: '卡片视图' },
+  { value: 'list', label: '列表视图' },
+];
 
 // 时区选项
 const getTimezoneOptions = (t: TranslateFn) => [
@@ -107,6 +111,11 @@ const GeneralSettingsPage = () => {
   // 处理分页变更
   const handlePerPageChange = (value: number) => {
     setGeneralSettings(prev => ({ ...prev, defaultPerPage: value }));
+  };
+
+  // 处理默认展示类型变更（卡片/列表，全站统一）
+  const handleViewTypeChange = (value: 'card' | 'list') => {
+    setGeneralSettings(prev => ({ ...prev, defaultViewType: value }));
   };
 
   // 处理时区变更
@@ -219,12 +228,20 @@ const GeneralSettingsPage = () => {
           <Form layout="vertical">
             <Form.Item label={t('default_per_page') || '列表页默认显示数量'}>
               <Select
-                value={generalSettings.defaultPerPage || 10}
+                value={snapPageSize(generalSettings.defaultPerPage || 12)}
                 onChange={handlePerPageChange}
                 options={PER_PAGE_OPTIONS.map((value) => ({
                   value,
                   label: `${value} ${t('per_page') || '条每页'}`,
                 }))}
+                className="w-full max-w-md"
+              />
+            </Form.Item>
+            <Form.Item label="默认展示类型" extra="控制所有支持卡片/列表切换页面的默认展示方式，页内可临时切换">
+              <Select
+                value={generalSettings.defaultViewType || 'card'}
+                onChange={handleViewTypeChange}
+                options={VIEW_TYPE_OPTIONS}
                 className="w-full max-w-md"
               />
             </Form.Item>
