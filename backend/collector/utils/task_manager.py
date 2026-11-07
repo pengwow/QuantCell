@@ -1,6 +1,7 @@
 # 任务管理器，用于管理下载任务和进度追踪
 
 import asyncio
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -32,6 +33,8 @@ class TaskManager:
     """
 
     _instance = None
+    # update_progress 内含 DB 写与 WS 广播；下载链路并发化后会出现多线程调用
+    _progress_lock = threading.Lock()
 
     def __new__(cls):
         """创建单例实例
@@ -187,87 +190,90 @@ class TaskManager:
         Returns:
             bool: 成功返回True，失败返回False
         """
-        if task_id not in self._tasks:
-            logger.error(f"任务不存在: {task_id}")
-            return False
+        # 整体串行：进度计算、内存更新、DB 写、WS 广播不是原子操作，
+        # 并发交错会导致进度回退/明细行错乱
+        with self._progress_lock:
+            if task_id not in self._tasks:
+                logger.error(f"任务不存在: {task_id}")
+                return False
 
-        # 计算进度百分比，确保不超过100%
-        if symbol_progress is not None:
-            percentage = min(100, max(0, float(symbol_progress)))
-        else:
-            percentage = 0.0
-            if total > 0:
-                percentage = min(100.0, float((completed + failed) / total * 100))
+            # 计算进度百分比，确保不超过100%
+            if symbol_progress is not None:
+                percentage = min(100, max(0, float(symbol_progress)))
+            else:
+                percentage = 0.0
+                if total > 0:
+                    percentage = min(100.0, float((completed + failed) / total * 100))
 
-        symbol = current
-        # detail=False 的哨兵更新不产生子任务键：前端按 task_key 累计明细行，
-        # 空键的推送只会更新任务级状态行，不会变成一条伪子任务
-        task_key = f"{interval}:{symbol}" if (detail and interval) else (symbol if detail else "")
+            symbol = current
+            # detail=False 的哨兵更新不产生子任务键：前端按 task_key 累计明细行，
+            # 空键的推送只会更新任务级状态行，不会变成一条伪子任务
+            task_key = f"{interval}:{symbol}" if (detail and interval) else (symbol if detail else "")
 
-        # 保留完整的进度信息（包含统计字段）
-        progress_info = {
-            "symbol": symbol,
-            "interval": interval,
-            "task_key": task_key,
-            "percentage": percentage,
-            "status": status,
-            # 新增：统计字段，用于显示任务完成情况
-            "completed": completed,
-            "total": total,
-            "failed": failed,
-        }
-
-        self._tasks[task_id]["progress"] = progress_info
-
-        # 更新数据库中的进度信息
-        try:
-            from ..db.models import TaskBusiness, TaskDetailBusiness
-
-            TaskBusiness.update_progress(task_id, current, completed, total, failed, status)
-            # 更新任务明细表（哨兵状态不写入明细）
-            if detail:
-                TaskDetailBusiness.upsert(
-                    task_id=task_id,
-                    symbol=symbol,
-                    interval=interval,
-                    percentage=percentage,
-                    completed=completed,
-                    total=total,
-                    failed=failed,
-                    status_text=status,
-                )
-        except Exception as e:
-            logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
-
-        # 通过WebSocket推送进度更新 - 使用与 complete_task 相同的方式
-        try:
-            # 检查消息队列是否已初始化（命令行模式下可能未初始化）
-            if not manager.message_queue:
-                logger.debug(f"WebSocket未连接，跳过进度推送: task_id={task_id}, 进度={percentage}%")
-                return True
-
-            # 推送进度更新
-            message = {
-                "type": "task:progress",
-                "id": f"progress_{task_id}_{int(time.time() * 1000)}",
-                "timestamp": int(time.time() * 1000),
-                "data": {"task_id": task_id, "progress": progress_info},
+            # 保留完整的进度信息（包含统计字段）
+            progress_info = {
+                "symbol": symbol,
+                "interval": interval,
+                "task_key": task_key,
+                "percentage": percentage,
+                "status": status,
+                # 新增：统计字段，用于显示任务完成情况
+                "completed": completed,
+                "total": total,
+                "failed": failed,
             }
 
-            # 在任何线程中执行异步操作（与 complete_task/fail_task 相同的方式）
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(manager.queue_message(message, topic="task:progress"))
-                else:
-                    loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
-            except RuntimeError:
-                asyncio.run(manager.queue_message(message, topic="task:progress"))
-        except Exception as e:
-            logger.error(f"WebSocket推送进度失败: {e}")
+            self._tasks[task_id]["progress"] = progress_info
 
-        logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%, 状态: {status}")
-        return True
+            # 更新数据库中的进度信息
+            try:
+                from ..db.models import TaskBusiness, TaskDetailBusiness
+
+                TaskBusiness.update_progress(task_id, current, completed, total, failed, status)
+                # 更新任务明细表（哨兵状态不写入明细）
+                if detail:
+                    TaskDetailBusiness.upsert(
+                        task_id=task_id,
+                        symbol=symbol,
+                        interval=interval,
+                        percentage=percentage,
+                        completed=completed,
+                        total=total,
+                        failed=failed,
+                        status_text=status,
+                    )
+            except Exception as e:
+                logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
+
+            # 通过WebSocket推送进度更新 - 使用与 complete_task 相同的方式
+            try:
+                # 检查消息队列是否已初始化（命令行模式下可能未初始化）
+                if not manager.message_queue:
+                    logger.debug(f"WebSocket未连接，跳过进度推送: task_id={task_id}, 进度={percentage}%")
+                    return True
+
+                # 推送进度更新
+                message = {
+                    "type": "task:progress",
+                    "id": f"progress_{task_id}_{int(time.time() * 1000)}",
+                    "timestamp": int(time.time() * 1000),
+                    "data": {"task_id": task_id, "progress": progress_info},
+                }
+
+                # 在任何线程中执行异步操作（与 complete_task/fail_task 相同的方式）
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(manager.queue_message(message, topic="task:progress"))
+                    else:
+                        loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
+                except RuntimeError:
+                    asyncio.run(manager.queue_message(message, topic="task:progress"))
+            except Exception as e:
+                logger.error(f"WebSocket推送进度失败: {e}")
+
+            logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%, 状态: {status}")
+            return True
 
     def complete_task(self, task_id: str) -> bool:
         """完成任务
