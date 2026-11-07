@@ -113,7 +113,10 @@ const ResearchList: React.FC = () => {
           <Tag color={row.scenario === 'strategy' ? 'geekblue' : row.scenario === 'model' ? 'purple' : 'cyan'}>
             {row.scenario === 'strategy' ? '策略' : row.scenario === 'model' ? '模型' : '因子'}
           </Tag>
-          <Tag>{row.mode === 'quick' ? '快速验证' : '深度研究'}</Tag>
+          {/* PRD §12 #9：quick 被 extend 后 mode 保留 quick + 记 extended_at，列表用复合徽标区分「快速→深入」 */}
+          <Tag color={row.mode === 'quick' && row.extended_at ? 'geekblue' : undefined}>
+            {row.mode === 'quick' ? (row.extended_at ? '快速→深入' : '快速验证') : '深度研究'}
+          </Tag>
         </Space>
       ),
     },
