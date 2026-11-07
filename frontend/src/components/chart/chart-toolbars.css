@@ -111,9 +111,14 @@ html.dark .chart-page {
   margin-left: 8px;
 }
 
-/* 紧邻品种的周期多留一点空隙（后声明，覆盖上面的 :first-of-type） */
-.chart-period-bar .symbol + .period {
-  margin-left: 12px;
+/* 周期条滑动容器：大屏自然平铺（左距 4px + 首周期 8px = 与旧版 symbol+period 间距 12px 一致）；
+   窄屏经媒体查询开启 overflow-x 横滑 */
+.chart-period-bar .period-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+  margin-left: 4px;
 }
 
 .chart-period-bar .tools {
@@ -153,6 +158,67 @@ html.dark .chart-page {
   align-items: center;
   margin-left: auto;
   padding: 0 12px;
+}
+
+/* ============ 窄窗口降级（768~1279px）：单行，工具图标化，周期横滑 ============ */
+@media (max-width: 1279px) {
+  /* 工具只留图标，文字收进 title 悬浮提示（省约 4×50px） */
+  .chart-period-bar .tool-label {
+    display: none;
+  }
+  .chart-period-bar .tools {
+    padding: 0 10px;
+  }
+  .chart-period-bar .tools .tool-ico {
+    margin-right: 0;
+  }
+  /* 周期条自身横滑，不撑破工具栏；被截断的最后一个按钮即可视化的可滑动提示 */
+  .chart-period-bar .period-strip {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .chart-period-bar .period-strip::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ============ 手机降级（<768px）：双行，周期条独占第二行横滑 ============ */
+@media (max-width: 767px) {
+  .chart-period-bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 38px;
+  }
+  /* 第一行元素固定高度，避免 wrap 后 height:100% 失效导致行高不齐 */
+  .chart-period-bar .menu-container,
+  .chart-period-bar .symbol,
+  .chart-period-bar .tools,
+  .chart-period-bar .live-area {
+    height: 38px;
+  }
+  /* 周期条 order 置后 + 独占整行，落到第二行 */
+  .chart-period-bar .period-strip {
+    order: 10;
+    flex: 1 1 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    height: 38px;
+    padding: 0 8px;
+    border-top: 1px solid var(--k-border);
+  }
+  .chart-period-bar .period-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .chart-period-bar .symbol {
+    font-size: 16px;
+    padding: 0 8px;
+  }
+  .chart-period-bar .tools {
+    padding: 0 8px;
+  }
+  .chart-period-bar .live-area {
+    padding: 0 8px;
+  }
 }
 
 /* ======================= 左侧绘图栏 ======================= */

@@ -284,6 +284,55 @@
   z-index: 10;
 }
 
+/* ========== 指标图例 hover 工具条（TradingView 式）========== */
+
+/* 浮层：挂在 .chart-area 上（position: relative），top 由 JS 按 pane 偏移动态写入 */
+.indicator-hover-toolbar {
+  position: absolute;
+  left: 8px;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 72px); /* 给右侧 Y 轴和左边绘图栏留空间 */
+}
+
+/* 单个指标 chip：名称 + (参数摘要) + ⚙ + × */
+.indicator-hover-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px;
+  border-radius: 6px;
+  background-color: var(--ant-color-bg-elevated);
+  border: 1px solid var(--ant-color-border-secondary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  line-height: 20px;
+}
+
+.indicator-hover-chip .chip-name {
+  padding-left: 8px;
+  font-size: 12px;
+  color: var(--ant-color-text);
+  white-space: nowrap;
+}
+
+.indicator-hover-chip .chip-params {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+  white-space: nowrap;
+}
+
+.indicator-hover-chip .ant-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+}
+
+
 .chart-error {
   position: absolute;
   top: 16px;

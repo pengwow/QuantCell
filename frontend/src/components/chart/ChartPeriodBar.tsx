@@ -102,35 +102,44 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
           <span>{symbol.name || symbol.code}</span>
         </div>
 
-        {periods.map((period) => (
-          <span
-            key={period.value}
-            className={`item period${period.value === currentPeriod ? ' selected' : ''}`}
-            onClick={() => onChangePeriod(period.value)}
-          >
-            {period.label}
-          </span>
-        ))}
+        {/* 周期条独立成滑动容器：窄屏时 overflow-x 横滑，避免整条工具栏溢出屏幕 */}
+        <div className="period-strip">
+          {periods.map((period) => (
+            <span
+              key={period.value}
+              className={`item period${period.value === currentPeriod ? ' selected' : ''}`}
+              onClick={() => onChangePeriod(period.value)}
+            >
+              {period.label}
+            </span>
+          ))}
+        </div>
 
-        <div className="item tools first" onClick={() => setIndicatorVisible(true)}>
+        <div className="item tools first" title={t('chart.toolbar.indicator', '指标')} onClick={() => setIndicatorVisible(true)}>
           <ChartIcon name="indicator" className="tool-ico" />
-          <span>{t('chart.toolbar.indicator', '指标')}</span>
+          <span className="tool-label">{t('chart.toolbar.indicator', '指标')}</span>
         </div>
-        <div className="item tools" onClick={() => setTimezoneVisible(true)}>
+        <div className="item tools" title={t('chart.toolbar.timezone', '时区')} onClick={() => setTimezoneVisible(true)}>
           <ChartIcon name="timezone" className="tool-ico" />
-          <span>{t('chart.toolbar.timezone', '时区')}</span>
+          <span className="tool-label">{t('chart.toolbar.timezone', '时区')}</span>
         </div>
-        <div className="item tools" onClick={() => setSettingVisible(true)}>
+        <div className="item tools" title={t('chart.toolbar.setting', '设置')} onClick={() => setSettingVisible(true)}>
           <ChartIcon name="setting" className="tool-ico" />
-          <span>{t('chart.toolbar.setting', '设置')}</span>
+          <span className="tool-label">{t('chart.toolbar.setting', '设置')}</span>
         </div>
-        <div className="item tools" onClick={handleScreenshotClick}>
+        <div className="item tools" title={t('chart.toolbar.screenshot', '截图')} onClick={handleScreenshotClick}>
           <ChartIcon name="screenshot" className="tool-ico" />
-          <span>{t('chart.toolbar.screenshot', '截图')}</span>
+          <span className="tool-label">{t('chart.toolbar.screenshot', '截图')}</span>
         </div>
-        <div className="item tools" onClick={toggleFullscreen}>
+        <div
+          className="item tools"
+          title={isFullscreen
+            ? t('chart.toolbar.exitFullscreen', '退出全屏')
+            : t('chart.toolbar.fullscreen', '全屏')}
+          onClick={toggleFullscreen}
+        >
           <ChartIcon name={isFullscreen ? 'exit-full-screen' : 'full-screen'} className="tool-ico" />
-          <span>
+          <span className="tool-label">
             {isFullscreen
               ? t('chart.toolbar.exitFullscreen', '退出全屏')
               : t('chart.toolbar.fullscreen', '全屏')}
