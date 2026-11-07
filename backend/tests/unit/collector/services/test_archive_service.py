@@ -173,20 +173,38 @@ def test_get_meta_returns_none_when_missing():
 # =================== list_symbols ===================
 
 
-def test_list_symbols_returns_sorted_subdirs(tmp_path: Path):
-    """list_symbols 扫描 market/kind 下子目录, 按字典序排序。"""
+def test_list_symbols_returns_sorted_subdirs_with_parquet(tmp_path: Path):
+    """list_symbols 只返回含 parquet 的目录, 按字典序排序。"""
     base = tmp_path
     spot = base / "spot" / "aggTrades"
     spot.mkdir(parents=True)
-    (spot / "BTCUSDT").mkdir()
-    (spot / "ETHUSDT").mkdir()
-    (spot / "ADAUSDT").mkdir()
+    for sym in ("BTCUSDT", "ETHUSDT", "ADAUSDT"):
+        sym_dir = spot / sym
+        sym_dir.mkdir()
+        (sym_dir / f"{sym}-aggTrades-2024-12-01.parquet").touch()
     # 放个文件, 不应被识别为 symbol
     (spot / "readme.txt").write_text("not a dir")
 
     svc = ArchiveService(base_dir=base)
     result = svc.list_symbols(ArchiveKind.AGG_TRADES, MarketType.SPOT)
     assert result == ["ADAUSDT", "BTCUSDT", "ETHUSDT"]
+
+
+def test_list_symbols_filters_meta_only_shell_dirs(tmp_path: Path):
+    """只有 _meta.json 没有 parquet 的空壳目录必须被过滤（历史上下载失败留下的
+    meta 空壳会让归档树显示大量点开为空的 symbol, 用户看到的"都是 0"一半源于此）。
+    """
+    spot = tmp_path / "spot" / "aggTrades"
+    shell = spot / "BNBUSDT"  # 空壳: 只有 _meta.json
+    shell.mkdir(parents=True)
+    (shell / "_meta.json").write_text("{}", encoding="utf-8")
+    real = spot / "BTCUSDT"
+    real.mkdir(parents=True)
+    (real / "BTCUSDT-aggTrades-2024-12-01.parquet").touch()
+
+    svc = ArchiveService(base_dir=tmp_path)
+    result = svc.list_symbols(ArchiveKind.AGG_TRADES, MarketType.SPOT)
+    assert result == ["BTCUSDT"]
 
 
 def test_list_symbols_empty_when_dir_missing(tmp_path: Path):

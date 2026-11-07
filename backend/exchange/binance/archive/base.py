@@ -190,7 +190,9 @@ class BaseBinanceArchiveDownloader:
                         path = self.save_instrument(sym, day, df)
                         if path is not None:
                             files_added += 1
-                        write_meta(self.save_dir, sym, self.archive_kind, self.market, day)
+                            # 只在真实落盘后写 meta：404/空数据日若也写 meta，
+                            # write_meta 会 mkdir，留下"树里显示 symbol 但点开 0 行"的空壳目录
+                            write_meta(self.save_dir, sym, self.archive_kind, self.market, day)
                     except Exception as exc:
                         # 单日失败先记账继续跑（增量语义：成功的日期下次不再补），
                         # 但绝不能静默吞掉——全败时任务会虚假显示"下载完成"
