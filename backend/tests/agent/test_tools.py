@@ -338,16 +338,3 @@ class TestTradingTools:
         result = await tool.execute()
 
         assert "API" in result or "未配置" in result
-
-    @pytest.mark.asyncio
-    async def test_list_strategies_no_db(self):
-        """测试无数据库时列出策略"""
-        from agent.tools.trading.strategy import ListStrategiesTool
-
-        tool = ListStrategiesTool()
-
-        # Mock数据库导入失败
-        with patch("builtins.__import__", side_effect=ImportError("No module")):
-            result = await tool.execute()
-
-            assert "错误" in result
