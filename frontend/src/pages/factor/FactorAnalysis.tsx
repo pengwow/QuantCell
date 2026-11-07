@@ -123,7 +123,7 @@ const FactorAnalysis: React.FC = () => {
                 />
                 <Drawer
                   open={detailOpen}
-                  width="68%"
+                  size="68%"
                   push
                   destroyOnHidden
                   closable

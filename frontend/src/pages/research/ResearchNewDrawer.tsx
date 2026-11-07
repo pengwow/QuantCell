@@ -188,7 +188,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
       open={open}
       onClose={onClose}
       // 表单字段多（场景/模式/硬门分组），用 large 抽屉宽度；窄屏收缩避免溢出
-      width="min(736px, 92vw)"
+      size="min(736px, 92vw)"
       // antd v6：「destroyOnClose」已废弃，更名 destroyOnHidden
       destroyOnHidden
     >

@@ -223,7 +223,7 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
       title={record ? `决策详情 · ${fmtDecisionTs(record._ts)}` : '决策详情'}
       open={!!record}
       onClose={onClose}
-      width={680}
+      size={680}
     >
       {loading && <Spin />}
       {error && <Alert type="warning" showIcon title={`详情加载失败：${error}`} style={{ marginBottom: 12 }} />}
