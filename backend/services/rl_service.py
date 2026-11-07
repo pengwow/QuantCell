@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -89,8 +90,7 @@ def observation_stats_from_meta(meta: dict[str, Any], *, model_path: str) -> lis
     stats = meta.get("observation_stats")
     if not stats:
         logger.warning(
-            f"[RLService] {rl_meta_path(model_path)} 缺少 observation_stats，"
-            "内核侧 Z-Score 恒为 0，与训练分布不一致"
+            f"[RLService] {rl_meta_path(model_path)} 缺少 observation_stats，内核侧 Z-Score 恒为 0，与训练分布不一致"
         )
         return None
     return stats
@@ -548,6 +548,28 @@ class RLService:
                     }
                 )
         return models
+
+    def delete_saved_model(self, model_id: str) -> None:
+        """删除指定模型文件（文件即模型存在的唯一事实）。
+
+        ponytail: Rust registry（model_registry）无 delete API，注册条目删除后
+        会成为孤立记录；列表展示一律以 MODELS_DIR 下 .zip 文件为准，孤立条目
+        无副作用。若未来 Rust 侧补 delete，再在此同步调用。
+        """
+        # 白名单字符集杜绝路径分隔符；`.`/`..` 虽过正则但无业务意义，显式排除；
+        # resolve 后再校验父目录双保险，防止 Windows 保留名 / 软链接等绕过正则
+        if model_id in {".", ".."} or not re.fullmatch(r"[\w.\-]+", model_id or ""):
+            raise ValueError(f"非法的模型 ID: {model_id!r}")
+        target = (MODELS_DIR / f"{model_id}.zip").resolve()
+        if target.parent != MODELS_DIR.resolve():
+            raise ValueError(f"非法的模型路径: {model_id!r}")
+        if not target.is_file():
+            raise FileNotFoundError(f"模型不存在: {model_id}")
+        target.unlink()
+        # 观测规格旁车文件一并清理，避免残留陈旧 meta
+        with contextlib.suppress(FileNotFoundError):
+            rl_meta_path(str(target)).unlink()
+        logger.info(f"[RLService] 模型已删除: {model_id}")
 
     def optimize_hyperparameters(
         self,

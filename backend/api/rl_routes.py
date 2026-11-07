@@ -100,10 +100,25 @@ async def start_training(req: TrainRequest, current_user: dict = Depends(get_cur
 @router.get("/models")
 @handle_rl_exceptions
 async def list_models(current_user: dict = Depends(get_current_user)):
-    # 延迟导入：ModelRegistryService 依赖 axon_quant.registry
-    from services.model_registry import ModelRegistryService
+    """列出已训练模型（数据源为 data/models 下真实 .zip 文件，含大小/路径/时间）。"""
+    # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
+    from services.rl_service import RLService
 
-    return ApiResponse(code=0, message="success", data=ModelRegistryService().list_models())
+    return ApiResponse(code=0, message="success", data=RLService().list_saved_models())
+
+
+@router.delete("/models/{model_id}")
+@handle_rl_exceptions
+async def delete_model(model_id: str, current_user: dict = Depends(get_current_user)):
+    """删除指定模型文件（含观测规格旁车 meta），服务端校验 ID 合法性防路径穿越。"""
+    # 延迟导入：同上，删除本身轻量但 RLService 构造依赖训练栈
+    from services.rl_service import RLService
+
+    try:
+        RLService().delete_saved_model(model_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ApiResponse(code=0, message="模型已删除", data={"model_id": model_id})
 
 
 @router.post("/walk-forward")

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Card, Alert, message } from 'antd';
+import { Alert, App as AntdApp, Card } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { rlApi } from '../../api/rlApi';
@@ -11,6 +11,7 @@ import RLTrainingResult, { TrainingResult } from './components/RLTrainingResult'
 import RLBacktestResult, { BacktestResult } from './components/RLBacktestResult';
 
 export default function RLTrainingPage() {
+  const { message, modal } = AntdApp.useApp();
   const [training, setTraining] = useState(false);
   const [progress, setProgress] = useState<TrainingProgress | null>(null);
   const [result, setResult] = useState<TrainingResult | null>(null);
@@ -30,9 +31,9 @@ export default function RLTrainingPage() {
   const fetchModels = async () => {
     try {
       // 走 rlApi：baseURL=/api/v1 补全为后端真实路由 /api/v1/rl/models，拦截器自动带 Authorization
-      // 响应拦截器已解包 ApiResponse，直接得到 [{ name }] 数组
+      // 响应拦截器已解包 ApiResponse，直接得到模型文件列表（name/path/size_mb/created）
       const data = await rlApi.listModels();
-      setModels((data || []).map((m: { name: string }) => ({ ...m, path: m.name, size_kb: 0 })));
+      setModels(data || []);
     } catch (err) {
       console.error('加载模型列表失败:', err);
     }
@@ -117,10 +118,25 @@ export default function RLTrainingPage() {
     message.warning('RL 回测暂未开放');
   };
 
-  const handleDeleteModel = async () => {
-    // 后端无 DELETE 模型端点（axon_quant registry 仅暴露
-    // register/list/get_production/promote，无 delete），待底层支持后接真实路由
-    message.warning('模型删除暂未开放');
+  const handleDeleteModel = (name: string) => {
+    modal.confirm({
+      title: '删除模型',
+      content: `确定删除模型 "${name}" 吗？模型文件删除后不可恢复。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await rlApi.deleteModel(name);
+          message.success('模型已删除');
+          // 若删除的是当前选中模型，清空选中态避免回测引用已删除文件
+          setSelectedModel((prev) => (prev === name ? '' : prev));
+          fetchModels();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+        }
+      },
+    });
   };
 
   return (
