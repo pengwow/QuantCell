@@ -78,3 +78,18 @@ class TestInvalidEnums:
     def test_valid_data_types_cover_all_10(self):
         # 10 种数据类型：1 个 K线 + 4 个归档 + 2 个衍生 + 3 个特殊 K线
         assert len(VALID_DATA_TYPES) == 10
+
+
+def test_max_workers_validation():
+    """并发数：默认 4，范围 1-8，越界拒绝（校验交给 Pydantic）
+
+    默认 data_type='kline' 必须带 interval，先满足既有校验再验证 max_workers。
+    """
+    assert DownloadCryptoRequest(symbols=["BTCUSDT"], interval=["15m"]).max_workers == 4
+    assert DownloadCryptoRequest(symbols=["BTCUSDT"], interval=["15m"], max_workers=8).max_workers == 8
+    assert DownloadCryptoRequest(symbols=["BTCUSDT"], interval=["15m"], max_workers=1).max_workers == 1
+
+    with pytest.raises(ValidationError):
+        DownloadCryptoRequest(symbols=["BTCUSDT"], interval=["15m"], max_workers=0)
+    with pytest.raises(ValidationError):
+        DownloadCryptoRequest(symbols=["BTCUSDT"], interval=["15m"], max_workers=9)

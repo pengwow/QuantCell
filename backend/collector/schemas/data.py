@@ -139,7 +139,12 @@ class DownloadCryptoRequest(BaseModel):
     start: str | None = Field(None, description="开始时间")
     end: str | None = Field(None, description="结束时间")
     exchange: str = Field(default="binance", description="交易所")
-    max_workers: int = Field(default=1, description="最大工作线程数")
+    max_workers: int = Field(
+        default=4,
+        ge=1,
+        le=8,
+        description="最大并发数：同时驱动 symbol 层线程数与单 symbol 内日期分片并行数（1-8）",
+    )
     candle_type: str = Field(default="spot", description="蜡烛图类型")
     save_dir: str | None = Field(None, description="保存目录（内部参数，忽略）")
     mode: str = Field(default="inc", description="下载模式，可选'inc'（增量）或'full'（全量）")
