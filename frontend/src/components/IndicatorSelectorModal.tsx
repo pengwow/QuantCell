@@ -88,15 +88,13 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
       is_encrypted: 0,
     };
 
-    // 传递内置指标标记和原始ID
+    // 传递内置指标标记和原始ID；点击只切换指标不关弹窗，关闭交给右上角 X
     onToggleIndicator(mockIndicator, { ...indicator.defaultParams, _builtInId: indicator.id });
-    onClose();
   };
 
   // 处理自定义指标点击
   const handleCustomIndicatorClick = (indicator: Indicator) => {
     onToggleIndicator(indicator);
-    onClose();
   };
 
   // 打开编辑器创建新指标

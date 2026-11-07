@@ -12,6 +12,10 @@ export interface ActiveIndicator {
   name: string;
   params?: IndicatorParams;
   isCustom?: boolean;
+  /** 指标所在 klinecharts pane（hover 工具条挂载/参数更新用；主图叠层指标同窗格） */
+  paneId?: string;
+  /** 启动时的完整指标对象（重新执行/移除时复用，避免对外部列表的查找依赖） */
+  original?: Indicator;
 }
 
 // 内置指标定义
@@ -26,7 +30,8 @@ export const builtInIndicators = [
   { id: 'cci', name: 'CCI (商品通道指数)', shortName: 'CCI', type: 'line', defaultParams: { length: 20 } },
   { id: 'wr', name: 'Williams %R (威廉指标)', shortName: 'WR', type: 'line', defaultParams: { length: 14 } },
   { id: 'mfi', name: 'MFI (资金流量指标)', shortName: 'MFI', type: 'line', defaultParams: { length: 14 } },
-  { id: 'adx', name: 'ADX (平均趋向指数)', shortName: 'ADX', type: 'line', defaultParams: { length: 14 } },
+  // ADX 由 klinecharts DMI 承载（calcParams [14, 6]：DI 周期 + ADX 平滑周期），键声明顺序与之一致
+  { id: 'adx', name: 'ADX (平均趋向指数)', shortName: 'ADX', type: 'line', defaultParams: { length: 14, smooth: 6 } },
   { id: 'obv', name: 'OBV (能量潮)', shortName: 'OBV', type: 'line', defaultParams: {} },
   { id: 'adosc', name: 'ADOSC (震荡指标)', shortName: 'ADOSC', type: 'line', defaultParams: { fast: 3, slow: 10 } },
   { id: 'ad', name: 'AD (累积/派发线)', shortName: 'AD', type: 'line', defaultParams: {} },

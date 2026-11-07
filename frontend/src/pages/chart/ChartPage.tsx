@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, Modal, Spin, Alert, App, theme } from 'antd';
+import { Button, Input, Modal, Spin, Alert, App, Tooltip, theme } from 'antd';
+import { CloseOutlined, SettingOutlined } from '@ant-design/icons';
 import { init, dispose, type Nullable, registerIndicator, registerOverlay, registerLocale } from 'klinecharts';
+import { calcLocalBuiltIn } from '../../utils/taBuiltins';
+import { IndicatorParamModal } from '../../components/IndicatorParamModal';
 import type {
   Chart,
   DataLoaderGetBarsParams,
@@ -21,7 +24,7 @@ import { CHART_SETTING_DEFS } from '../../components/chart/ChartSettingModal';
 import { setStyleValue } from '../../components/chart/chartStyles';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
-import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
+import { builtInIndicators, type Indicator, type ActiveIndicator, type IndicatorParams } from '../../hooks/useIndicators';
 import { getAccessToken } from '../../utils/tokenManager';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
@@ -62,7 +65,9 @@ const PERIOD_BAR_ITEMS: ChartPeriodItem[] = [...PERIODS, ...MORE_PERIODS].map(p 
   value: p.value,
 }));
 
-// 内置指标映射
+// 内置指标映射（id → klinecharts v10 内置指标名）
+// 注意：该版本 klinecharts 无独立 ADX/ATR/MFI/AD/ADOSC 内置；
+// ADX 由 DMI 承载（输出 PDI/MDI/ADX/ADXR），MFI/AD/ADOSC/ATR 走 utils/taBuiltins 本地计算
 const builtInIndicatorMap: Record<string, string> = {
   'vol': 'VOL',
   'sma': 'MA',
@@ -70,9 +75,47 @@ const builtInIndicatorMap: Record<string, string> = {
   'rsi': 'RSI',
   'macd': 'MACD',
   'bb': 'BOLL',
-  'atr': 'ATR',
   'cci': 'CCI',
-  'wr': 'WR'
+  'wr': 'WR',
+  'adx': 'DMI',
+  'kdj': 'KDJ',
+  'obv': 'OBV'
+};
+
+// 指标参数 localStorage 记忆（按 品种×指标 维度；用户调整过的参数刷新/切图后仍生效）
+const indicatorParamsKey = (symbolCode: string, indicatorId: string) =>
+  `qc:indicator-params:${symbolCode}:${indicatorId}`;
+
+const loadStoredIndicatorParams = (symbolCode: string, indicatorId: string): Record<string, unknown> | null => {
+  try {
+    const raw = localStorage.getItem(indicatorParamsKey(symbolCode, indicatorId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveStoredIndicatorParams = (symbolCode: string, indicatorId: string, params: Record<string, unknown>) => {
+  try {
+    localStorage.setItem(indicatorParamsKey(symbolCode, indicatorId), JSON.stringify(params));
+  } catch {
+    // 隐私模式等场景写入失败可忽略，不影响本会话使用
+  }
+};
+
+// params（含 _builtInId 标记）→ klinecharts calcParams 数值数组；依赖 defaultParams 键声明顺序与内置指标 calcParams 顺序一致
+const toCalcParamArray = (params?: Record<string, unknown>): number[] =>
+  Object.values(params || {}).filter((v): v is number => typeof v === 'number');
+
+// 参数摘要（hover 工具条 chip 展示）：只拼数值参数，如 "12 26 9"
+const paramSummary = (params?: Record<string, unknown>): string =>
+  toCalcParamArray(params).join(' ');
+
+// 参数编辑表单的 schema：内置/本地指标用 defaultParams 键；后端自定义指标无静态 schema，用当前参数键兜底
+const getParamSchema = (active: ActiveIndicator | null): IndicatorParams => {
+  if (!active) return {};
+  const def = builtInIndicators.find(b => b.id === String(active.id));
+  return def ? def.defaultParams : (active.params || {});
 };
 
 interface Symbol {
@@ -323,6 +366,16 @@ const ChartPage = () => {
   // 指标状态
   const [activeIndicators, setActiveIndicators] = useState<ActiveIndicator[]>([]);
 
+  // 指标 hover 工具条（TradingView 式）：当前悬停 pane、其相对 chart-area 的纵向偏移、参数弹窗正在编辑的指标
+  const [hoveredPaneId, setHoveredPaneId] = useState<string | null>(null);
+  const [hoveredPaneTop, setHoveredPaneTop] = useState(0);
+  const [paramModalActive, setParamModalActive] = useState<ActiveIndicator | null>(null);
+  const chartAreaRef = useRef<HTMLDivElement>(null);
+  // 工具条 DOM：用于 leave 判断鼠标去向是否是浮层自身（防闪烁，见 hidePane）
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  // 工具条消失延迟定时器：鼠标从 pane 移向浮层的间隙不立即隐藏
+  const hoverHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
 
 
   // 实时数据状态
@@ -469,33 +522,21 @@ const ChartPage = () => {
       // 加载初始数据
       loadKlineData();
 
-      // 自动添加VOL指标，并同步状态（只执行一次）
+      // 自动添加 VOL 指标（只执行一次）：复用 startIndicator 的内置指标链路，
+      // 补齐 paneId/params/original —— 旧实现手写 state 只有 id/name 且 params 为空，
+      // 导致 VOL 没有 hover 工具条（paneId 为空匹配不到 pane）、⚙ 参数弹窗也无法落盘
       if (!volInitializedRef.current) {
         volInitializedRef.current = true;
         // 延迟执行确保K线数据已加载
         setTimeout(() => {
           try {
-            if (!chartInstanceRef.current) return;
-            
-            const existingIndicators = chartInstanceRef.current.getIndicators() || [];
-            const hasVolIndicator = existingIndicators.some((ind) => ind.name === 'VOL');
-            
-            // 如果图表上还没有VOL，则创建
-            if (!hasVolIndicator) {
-              chartInstanceRef.current.createIndicator('VOL', true);
-            }
-            
-            // 同步状态（无论是否刚创建）
-            setActiveIndicators(prev => {
-              const alreadyExists = prev.some(ind => String(ind.id) === 'vol');
-              if (alreadyExists) return prev;
-              return [...prev, {
-                id: 'vol',
-                name: 'VOL',
-                params: {},
-                isCustom: false,
-              }];
-            });
+            const chart = chartInstanceRef.current;
+            if (!chart) return;
+            // 图表上已存在 VOL 时跳过（避免重复 createIndicator，幂等防御）
+            const hasVol = (chart.getIndicators() || []).some((ind) => ind.name === 'VOL');
+            const volDef = builtInIndicators.find(b => b.id === 'vol');
+            if (hasVol || !volDef) return;
+            void startIndicator(volDef as unknown as Indicator, volDef.defaultParams);
           } catch (err) {
             console.error('创建VOL指标失败:', err);
           }
@@ -925,104 +966,208 @@ const ChartPage = () => {
       });
   };
 
-  // 切换指标
-  const handleToggleIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>) => {
-    if (!chartInstanceRef.current) return;
+  // ===== 指标生命周期：启动 / 停止 / 切换 / 改参数 =====
+  // 拆成独立函数而非在单一 toggle 里判断"当前是否激活"：同一次 render 闭包中连续
+  // stop→start 会读到旧的 activeIndicators 快照（stale closure），按 id 配对才可靠
 
-    const builtInId = params?._builtInId;
-    const indicatorId = builtInId ? String(builtInId) : String(indicator.id);
-    const isActive = activeIndicators.some(ind => String(ind.id) === indicatorId);
-
-    if (isActive) {
-      // 停止指标
-      const indicators = chartInstanceRef.current.getIndicators();
-      indicators.forEach((ind) => {
-        if (ind.name === indicatorId || ind.name === builtInIndicatorMap[indicatorId] || ind.name === `custom_${indicator.id}`) {
-          chartInstanceRef.current?.removeIndicator({ paneId: ind.paneId, indicatorName: ind.name } as unknown as IndicatorFilter);
-        }
+  // 请求后端执行自定义指标，返回执行结果；失败时提示并返回 null
+  const executeBackendIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>): Promise<IndicatorExecuteResult | null> => {
+    try {
+      const token = getAccessToken();
+      const response = await fetch(`/api/v1/indicators/${indicator.id}/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          symbol: currentSymbol.code,
+          period: currentPeriod,
+          params: params || {},
+          klineData: klineDataRef.current || [],
+        })
       });
-      // 清理自定义指标缓存数据
-      customIndicatorDataRef.current.delete(`custom_${indicator.id}`);
-      setActiveIndicators(prev => prev.filter(ind => String(ind.id) !== indicatorId));
-    } else {
-      // 启动指标
-      const builtInName = builtInIndicatorMap[indicatorId];
 
-      if (builtInName) {
-        // 内置指标（v10：参数并入 createIndicator 的 value 对象，isStack 作为第二参）
-        const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName);
-        // v10 的 calcParams 必须是数值数组（内置指标 calc 内部会调用 params.map），
-        // 而 modal 传来的是对象（如 { fast:12, slow:26, signal:9, _builtInId:'macd' }）；
-        // defaultParams 的键声明顺序与 klinecharts 内置指标默认 calcParams 顺序一致，
-        // 按声明顺序展开并剔除 _builtInId 标记字段与非数值即可。
-        const calcParamArray = Object.values(params || {}).filter(
-          (v): v is number => typeof v === 'number',
-        );
-        chartInstanceRef.current.createIndicator(
-          { name: builtInName, calcParams: calcParamArray },
-          !isOverlay,
-        );
-        // 同步更新activeIndicators状态
-        setActiveIndicators(prev => [...prev, {
-          id: indicatorId,
-          name: builtInName,
-          params,
-          isCustom: false,
-        }]);
-      } else {
-        // 自定义指标
-        try {
-          const token = getAccessToken();
-          const currentKlineData = klineDataRef.current || [];
-          console.log(`[自定义指标] 发送请求: indicatorId=${indicator.id}, klineData长度=${currentKlineData.length}`);
-          
-          const response = await fetch(`/api/v1/indicators/${indicator.id}/execute`, {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              symbol: currentSymbol.code,
-              period: currentPeriod,
-              params: params || {},
-              klineData: currentKlineData,
-            })
-          });
-
-          if (!response.ok) {
-            if (response.status === 401) {
-              message.error(t('indicator.authError', '登录已过期，请重新登录'));
-              return;
-            }
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          const result = await response.json();
-
-          if ((result.code === 0 || result.success) && result.data) {
-            const customIndicatorName = registerCustomIndicator(indicator, result.data);
-            if (customIndicatorName) {
-              chartInstanceRef.current.createIndicator(customIndicatorName, true);
-              setActiveIndicators(prev => [...prev, {
-                id: indicatorId,
-                name: indicator.name,
-                params,
-                isCustom: true,
-              }]);
-            } else {
-              message.warning(t('indicator.registerError', '指标注册失败，请检查代码格式'));
-            }
-          } else {
-            message.error(t('indicator.executeError', '指标执行失败') + ': ' + (result.message || '未知错误'));
-          }
-        } catch (err) {
-          console.error('执行自定义指标失败:', err);
-          message.error(t('indicator.executeFailed', '自定义指标执行失败') + ': ' + (err instanceof Error ? err.message : String(err)));
+      if (!response.ok) {
+        if (response.status === 401) {
+          message.error(t('indicator.authError', '登录已过期，请重新登录'));
+          return null;
         }
+        throw new Error(`HTTP ${response.status}`);
       }
+
+      const result = await response.json();
+      if ((result.code === 0 || result.success) && result.data) {
+        return result.data as IndicatorExecuteResult;
+      }
+      message.error(t('indicator.executeError', '指标执行失败') + ': ' + (result.message || '未知错误'));
+      return null;
+    } catch (err) {
+      console.error('执行自定义指标失败:', err);
+      message.error(t('indicator.executeFailed', '自定义指标执行失败') + ': ' + (err instanceof Error ? err.message : String(err)));
+      return null;
     }
-  }, [activeIndicators, currentSymbol.code, currentPeriod, message, registerCustomIndicator, t]);
+  }, [currentSymbol.code, currentPeriod, message, t]);
+
+  // 启动指标（不判断是否已激活）。params 缺省时优先使用该品种的 localStorage 记忆参数
+  const startIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+
+    const indicatorId = String(indicator.id);
+    const storedParams = loadStoredIndicatorParams(currentSymbol.code, indicatorId);
+    // 记忆参数优先于调用方传入的 defaultParams
+    const effectiveParams = storedParams ? { ...params, ...storedParams } : params;
+    const builtInName = builtInIndicatorMap[indicatorId];
+
+    if (builtInName) {
+      // 内置指标（v10：参数并入 createIndicator 的 value 对象，isStack 作为第二参）
+      const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName);
+      // v10 的 calcParams 必须是数值数组（内置指标 calc 内部会调用 params.map），
+      // 而 modal 传来的是对象（如 { fast:12, slow:26, signal:9, _builtInId:'macd' }）；
+      // defaultParams 的键声明顺序与 klinecharts 内置指标默认 calcParams 顺序一致，
+      // 按声明顺序展开并剔除 _builtInId 标记字段与非数值即可。
+      chart.createIndicator({ name: builtInName, calcParams: toCalcParamArray(effectiveParams) }, !isOverlay);
+      // createIndicator 返回的是指标 id 而非 paneId，按注册名反查所在 pane 供 hover 工具条定位
+      const paneId = chart.getIndicators().find(ind => ind.name === builtInName)?.paneId;
+      setActiveIndicators(prev => [...prev, {
+        id: indicatorId,
+        name: builtInName,
+        params: effectiveParams,
+        isCustom: false,
+        paneId,
+        original: indicator,
+      }]);
+      return;
+    }
+
+    // 自定义指标；klinecharts 未内置的常用指标（MFI/AD/ADOSC/ATR）先走本地计算，
+    // 未命中再请求后端自定义指标执行接口（要求 int 指标 ID，内置字符串 ID 会 422）
+    const localResult = calcLocalBuiltIn(indicatorId, klineDataRef.current || [], effectiveParams);
+    const result = localResult ?? await executeBackendIndicator(indicator, effectiveParams);
+    if (!result) return;
+
+    const customIndicatorName = registerCustomIndicator(indicator, result);
+    if (!customIndicatorName) {
+      message.warning(t('indicator.registerError', '指标注册失败，请检查代码格式'));
+      return;
+    }
+    chart.createIndicator(customIndicatorName, true);
+    const paneId = chart.getIndicators().find(ind => ind.name === customIndicatorName)?.paneId;
+    setActiveIndicators(prev => [...prev, {
+      id: indicatorId,
+      name: indicator.name,
+      params: effectiveParams,
+      isCustom: true,
+      paneId,
+      original: indicator,
+    }]);
+  }, [currentSymbol.code, executeBackendIndicator, message, registerCustomIndicator, t]);
+
+  // 按 id 停止指标（幂等：已不存在时静默返回）
+  const stopIndicatorById = useCallback((indicatorId: string) => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const indicators = chart.getIndicators();
+    indicators.forEach((ind) => {
+      if (ind.name === indicatorId || ind.name === builtInIndicatorMap[indicatorId] || ind.name === `custom_${indicatorId}`) {
+        chart.removeIndicator({ paneId: ind.paneId, indicatorName: ind.name } as unknown as IndicatorFilter);
+      }
+    });
+    // 清理自定义指标缓存数据
+    customIndicatorDataRef.current.delete(`custom_${indicatorId}`);
+    setActiveIndicators(prev => prev.filter(ind => String(ind.id) !== indicatorId));
+  }, []);
+
+  // 切换指标：已激活则停止，未激活则启动
+  const handleToggleIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>) => {
+    const indicatorId = String(params?._builtInId ?? indicator.id);
+    if (activeIndicators.some(ind => String(ind.id) === indicatorId)) {
+      stopIndicatorById(indicatorId);
+    } else {
+      await startIndicator(indicator, params);
+    }
+  }, [activeIndicators, startIndicator, stopIndicatorById]);
+
+  // 参数更新入口（图例 ⚙ → 弹窗确认）：确认后回写 localStorage 记忆。
+  // 内置指标走 overrideIndicator 直接改 calcParams 重算；本地/后端自定义指标重算数据后
+  // 更新缓存再触发一次重算（calc 闭包实时读 customIndicatorDataRef，无闪烁、不换 pane）
+  const handleUpdateIndicatorParams = useCallback(async (active: ActiveIndicator, newParams: IndicatorParams) => {
+    const chart = chartInstanceRef.current;
+    const indicator = active.original;
+    if (!chart || !indicator) return;
+
+    const indicatorId = String(active.id);
+    saveStoredIndicatorParams(currentSymbol.code, indicatorId, newParams);
+
+    const builtInName = !active.isCustom ? builtInIndicatorMap[indicatorId] : undefined;
+    if (builtInName) {
+      chart.overrideIndicator({ name: builtInName, calcParams: toCalcParamArray(newParams) });
+    } else {
+      const localResult = calcLocalBuiltIn(indicatorId, klineDataRef.current || [], newParams);
+      const result = localResult ?? await executeBackendIndicator(indicator, newParams);
+      if (!result) return;
+      registerCustomIndicator(indicator, result);
+      // 用 overrideIndicator 触发实例重算，此时 calc 闭包读到的已是新缓存数据
+      chart.overrideIndicator({ name: `custom_${indicatorId}` });
+    }
+
+    setActiveIndicators(prev => prev.map(ind => String(ind.id) === indicatorId ? { ...ind, params: newParams } : ind));
+  }, [currentSymbol.code, executeBackendIndicator, registerCustomIndicator]);
+
+  // ===== 图例 hover 工具条：pane 的 mouseenter/mouseleave 绑定 =====
+  // 指标增删会创建/销毁 pane，故在 activeIndicators 变化后重新绑定
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+
+    const showPane = (paneId: string, dom: HTMLElement) => {
+      if (hoverHideTimerRef.current) {
+        clearTimeout(hoverHideTimerRef.current);
+        hoverHideTimerRef.current = null;
+      }
+      // 浮层挂在 chart-area 上，需把 pane 顶部换算为相对 chart-area 的偏移
+      const areaTop = chartAreaRef.current?.getBoundingClientRect().top ?? 0;
+      setHoveredPaneTop(dom.getBoundingClientRect().top - areaTop);
+      setHoveredPaneId(paneId);
+    };
+    const hidePane = (e: MouseEvent) => {
+      // 防闪烁（命中测试自噬）：浮层挂在 chart-area 而非 pane 内部，浮层挂载瞬间
+      // 恰好盖住鼠标 → pane 触发 mouseleave 且 relatedTarget 是浮层自身；此时若启动
+      // 隐藏 timer，会陷入「挂载→leave→卸载→重新挂载」的闪烁循环。鼠标移向浮层
+      // 内部时直接忽略这次 leave，循环就此斩断。
+      if (e.relatedTarget && toolbarRef.current?.contains(e.relatedTarget as Node)) return;
+      if (hoverHideTimerRef.current) clearTimeout(hoverHideTimerRef.current);
+      // 150ms 间隙：给鼠标从 pane 移到浮层留时间，浮层 onMouseEnter 会取消隐藏
+      hoverHideTimerRef.current = setTimeout(() => {
+        setHoveredPaneId(null);
+        hoverHideTimerRef.current = null;
+      }, 150);
+    };
+
+    const cleanups: Array<() => void> = [];
+    const paneOptions = chart.getPaneOptions();
+    const panes = Array.isArray(paneOptions) ? paneOptions : paneOptions ? [paneOptions] : [];
+    panes.forEach(({ id }) => {
+      const dom = chart.getDom(id);
+      if (!dom) return;
+      const enter = () => showPane(id, dom);
+      dom.addEventListener('mouseenter', enter);
+      dom.addEventListener('mouseleave', hidePane);
+      cleanups.push(() => {
+        dom.removeEventListener('mouseenter', enter);
+        dom.removeEventListener('mouseleave', hidePane);
+      });
+    });
+
+    return () => {
+      cleanups.forEach((fn) => fn());
+      if (hoverHideTimerRef.current) {
+        clearTimeout(hoverHideTimerRef.current);
+        hoverHideTimerRef.current = null;
+      }
+    };
+  }, [activeIndicators]);
 
   // 处理绘图工具点击
   const handleDrawingItemClick = useCallback((overlay: { name: string; lock: boolean; mode: string }) => {
@@ -1249,6 +1394,11 @@ const ChartPage = () => {
     };
   }, []);
 
+  // 当前悬停 pane 内的指标（决定 hover 工具条是否显示与显示内容）
+  const paneIndicators = hoveredPaneId
+    ? activeIndicators.filter(ind => ind.paneId === hoveredPaneId)
+    : [];
+
   return (
     <div className="chart-page-fullscreen page-fullscreen">
       <div className="chart-page" ref={fullscreenTargetRef}>
@@ -1297,7 +1447,7 @@ const ChartPage = () => {
           )}
 
           {/* 图表区域 */}
-          <div className="chart-area">
+          <div className="chart-area" ref={chartAreaRef}>
           {error && (
             <Alert
               title="错误"
@@ -1314,6 +1464,53 @@ const ChartPage = () => {
               className="kline-chart"
             />
           </Spin>
+
+          {/* 指标图例 hover 工具条：贴 pane 顶部浮出，⚙ 改参数 / × 移除；无指标的 pane 不显示 */}
+          {hoveredPaneId && paneIndicators.length > 0 && (
+            <div
+              ref={toolbarRef}
+              className="indicator-hover-toolbar"
+              style={{ top: hoveredPaneTop + 6 }}
+              onMouseEnter={() => {
+                if (hoverHideTimerRef.current) {
+                  clearTimeout(hoverHideTimerRef.current);
+                  hoverHideTimerRef.current = null;
+                }
+              }}
+              onMouseLeave={() => {
+                hoverHideTimerRef.current = setTimeout(() => setHoveredPaneId(null), 150);
+              }}
+            >
+              {paneIndicators.map((ind) => (
+                <div key={String(ind.id)} className="indicator-hover-chip">
+                  <span className="chip-name">
+                    {ind.name}
+                    {paramSummary(ind.params) && (
+                      <span className="chip-params">({paramSummary(ind.params)})</span>
+                    )}
+                  </span>
+                  <Tooltip title="修改参数">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<SettingOutlined />}
+                      aria-label={`修改 ${ind.name} 参数`}
+                      onClick={() => setParamModalActive(ind)}
+                    />
+                  </Tooltip>
+                  <Tooltip title="移除指标">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<CloseOutlined />}
+                      aria-label={`移除 ${ind.name}`}
+                      onClick={() => stopIndicatorById(String(ind.id))}
+                    />
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1368,6 +1565,21 @@ const ChartPage = () => {
             )}
           </div>
         </Modal>
+
+        {/* 指标参数编辑弹窗（图例 hover 工具条的 ⚙ 触发） */}
+        <IndicatorParamModal
+          open={!!paramModalActive}
+          indicatorName={paramModalActive?.name ?? ''}
+          paramSchema={getParamSchema(paramModalActive)}
+          initialValues={(paramModalActive?.params as IndicatorParams) || {}}
+          onOk={(values) => {
+            if (paramModalActive) {
+              handleUpdateIndicatorParams(paramModalActive, values);
+            }
+            setParamModalActive(null);
+          }}
+          onCancel={() => setParamModalActive(null)}
+        />
       </div>
     </div>
   );
