@@ -959,6 +959,7 @@
   "start_collection_failed": "Failed to start collection task",
   "please_select_symbol_first": "Please select at least one symbol",
   "batch_collection_started": "Batch collection task started",
+  "please_select_symbol_or_group": "Please select at least one symbol or watchlist group",
   "start_batch_collection_failed": "Failed to start batch collection",
   "quality_check_complete": "Data quality check completed",
   "quality_check_failed": "Data quality check failed",
