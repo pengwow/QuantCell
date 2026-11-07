@@ -1202,15 +1202,17 @@ class DataService:
         stats = {"completed": 0, "failed_symbols": []}
 
         def collect_one(symbol: str) -> tuple[str, str | None]:
-            # 线程内读到 stats 旧值仅影响"正在下载"行的显示，无正确性问题
+            # 线程内读到 stats 旧值仅影响"正在下载"行的显示，无正确性问题。
+            # 子任务行坐标是 per-symbol 的(0/1)，不是任务级累计值
             task_manager.update_progress(
                 task_id=task_id,
                 current=symbol,
-                completed=stats["completed"],
-                total=total_symbols,
-                failed=len(stats["failed_symbols"]),
+                completed=0,
+                total=1,
+                failed=0,
                 status=f"正在下载 {request.data_type} ({request.market}) {symbol}...",
                 interval="",
+                symbol_progress=0.0,
             )
             try:
                 collector = DataCollector()
@@ -1234,18 +1236,34 @@ class DataService:
 
         # gather 保序：stats 写在主线程独占段（gather 返回后），无需加锁
         for symbol, error in asyncio.run(_run_all()):
-            if error:
+            # 子任务行用 per-symbol 坐标(1/1 或 0/1)而非任务级累计值：
+            # 前端按行 percentage(>=100) 统计"已完成 x/y"并平均出总进度。
+            # 若把任务级计数(1/3,2/3,3/3)当成各 symbol 的明细行写入，
+            # 会出现"任务状态已完成，但总进度停在 66.7%"的假象
+            if error is None:
+                stats["completed"] += 1
+                task_manager.update_progress(
+                    task_id=task_id,
+                    current=symbol,
+                    completed=1,
+                    total=1,
+                    failed=0,
+                    status=f"{symbol} 下载完成",
+                    interval="",
+                    symbol_progress=100.0,
+                )
+            else:
                 stats["failed_symbols"].append((symbol, error))
-            stats["completed"] += 1
-            task_manager.update_progress(
-                task_id=task_id,
-                current=symbol,
-                completed=stats["completed"],
-                total=total_symbols,
-                failed=len(stats["failed_symbols"]),
-                status=f"{symbol} 下载完成" if error is None else f"{symbol} 下载失败",
-                interval="",
-            )
+                task_manager.update_progress(
+                    task_id=task_id,
+                    current=symbol,
+                    completed=0,
+                    total=1,
+                    failed=1,
+                    status=f"{symbol} 下载失败",
+                    interval="",
+                    symbol_progress=0.0,
+                )
 
         if stats["failed_symbols"] and len(stats["failed_symbols"]) == total_symbols:
             # 全部失败: 让外层统一走 fail_task, 前端显示失败态而非假完成
