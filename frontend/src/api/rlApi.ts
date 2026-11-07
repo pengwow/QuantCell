@@ -21,9 +21,12 @@ export interface RLTrainResult {
   walk_forward?: unknown;
 }
 
-// 后端 model_registry list_models 仅返回 [{ name }]
+// 与后端 RLService.list_saved_models() 对齐：data/models 下真实 .zip 文件
 export interface RLModelInfo {
   name: string;
+  path: string;
+  size_mb: number;
+  created: number;
 }
 
 export const rlApi = {
@@ -31,4 +34,6 @@ export const rlApi = {
     apiRequest.post<RLTrainResult>('/rl/train', data),
   listModels: () =>
     apiRequest.get<RLModelInfo[]>('/rl/models'),
+  deleteModel: (name: string) =>
+    apiRequest.delete(`/rl/models/${encodeURIComponent(name)}`),
 };

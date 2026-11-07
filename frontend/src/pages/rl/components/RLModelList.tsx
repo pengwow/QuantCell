@@ -6,7 +6,7 @@ const { Text } = Typography;
 export interface RLModel {
   name: string;
   path: string;
-  size_kb: number;
+  size_mb: number;
 }
 
 interface RLModelListProps {
@@ -44,6 +44,7 @@ export default function RLModelList({
         <Empty description="暂无训练模型" />
       ) : (
         <Table
+          rowKey="name"
           dataSource={models}
           columns={[
             {
@@ -60,9 +61,9 @@ export default function RLModelList({
             },
             {
               title: '大小',
-              dataIndex: 'size_kb',
-              key: 'size_kb',
-              render: (size: number) => `${size} KB`,
+              dataIndex: 'size_mb',
+              key: 'size_mb',
+              render: (size: number) => `${size} MB`,
             },
             {
               title: '操作',
@@ -71,10 +72,10 @@ export default function RLModelList({
                 <Space>
                   <Button
                     type="text"
-                    onClick={() => onSelectModel(record.path)}
-                    disabled={selectedModel === record.path}
+                    onClick={() => onSelectModel(record.name)}
+                    disabled={selectedModel === record.name}
                   >
-                    {selectedModel === record.path ? '已选中' : '选择回测'}
+                    {selectedModel === record.name ? '已选中' : '选择回测'}
                   </Button>
                   <Button
                     type="text"
@@ -92,9 +93,6 @@ export default function RLModelList({
           rowSelection={{
             selectedRowKeys: [selectedModel],
             onChange: (keys) => onSelectModel(keys[0] as string),
-            getCheckboxProps: (record) => ({
-              value: record.path,
-            }),
           }}
         />
       )}
