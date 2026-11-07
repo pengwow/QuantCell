@@ -97,23 +97,12 @@ class ConnectionManager:
                         except asyncio.QueueEmpty:
                             break
 
-                    # 按主题分组批量处理
-                    topic_messages = {}
-                    for msg in messages_batch:
-                        topic = msg.get("topic")
-                        if topic:
-                            if topic not in topic_messages:
-                                topic_messages[topic] = []
-                            topic_messages[topic].append(msg)
-
-                    # 并发处理不同主题的消息
-                    tasks = []
-                    for topic, msgs in topic_messages.items():
-                        # 对于同一主题的消息，只发送最新的一条（K线数据只需要最新值）
-                        if msgs:
-                            latest_msg = msgs[-1]  # 取最新的一条
-                            tasks.append(self.broadcast(latest_msg, topic))
-
+                    # 逐条广播，不做"同 topic 只发最新"合并:
+                    # 高频 K 线行情(lifespan.py)走 direct broadcast, 根本不经过本队列;
+                    # 队列里的 task:progress/factor:job 等都是逐条有语义的事件,
+                    # 合并发送会把子任务终值推送顶掉, 前端就卡在中间进度
+                    # (后端 DB 明明已 100%), 见 2026-11-07 ETH 96.9% 问题
+                    tasks = [self.broadcast(msg, msg.get("topic")) for msg in messages_batch]
                     if tasks:
                         await asyncio.gather(*tasks, return_exceptions=True)
 

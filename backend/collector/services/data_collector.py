@@ -6,6 +6,7 @@
 import os
 from pathlib import Path
 
+from collector.config import get_binance_proxy
 from collector.schemas.data import (
     _ARCHIVE_TYPES,
     _DERIV_TYPES,
@@ -57,6 +58,13 @@ class KlineCollector:
         max_workers: int = 1,
         mode: str = "inc",
     ) -> None:
+        # 代理兜底与 DerivCollector 同口径: system_config → 环境变量 → 直连。
+        # 注入环境变量后, BinanceDownloader 的 aiohttp(trust_env=True)
+        # 与 requests(默认 trust_env) 都会从环境变量读取
+        proxy = get_binance_proxy() or os.environ.get("https_proxy") or os.environ.get("http_proxy")
+        if proxy:
+            os.environ.setdefault("https_proxy", proxy)
+            os.environ.setdefault("http_proxy", proxy)
         candle_type = _candle_type_from_market(market)
         for interval in intervals:
             for symbol in symbols:
@@ -94,17 +102,26 @@ class ArchiveCollector:
     ) -> None:
         market_type = _market_type_from_str(market)
         interval = intervals[0] if intervals else None
-        proxy = os.environ.get("https_proxy") or os.environ.get("http_proxy")
+        # 代理兜底与 DerivCollector 同口径: system_config → 环境变量 → 直连
+        proxy = get_binance_proxy() or os.environ.get("https_proxy") or os.environ.get("http_proxy")
+
+        # 归档 URL 与落盘目录需要 API 符号: LTC/USDT → LTCUSDT(LTCUSD_PERP/cm),
+        # 带斜杠的原始符号会拼出坏 URL 且 Path 拆出伪层级
+        from collector.services.deriv_collector import to_api_symbol
+
+        api_symbol = to_api_symbol(market, symbols[0]) if symbols else ""
 
         downloader = self._factory.create(
             kind=data_type,
             market=market_type,
             base_dir=self.base_dir,
-            symbol=symbols[0] if symbols else "",
+            symbol=api_symbol,
             interval=interval,
             proxy=proxy,
         )
-        downloader.collect_data(symbols=symbols, start=start or "2024-01-01", end=end or "2025-12-31")
+        downloader.collect_data(
+            symbols=[api_symbol] if api_symbol else [], start=start or "2024-01-01", end=end or "2025-12-31"
+        )
 
 
 # —— 统一入口 ——
@@ -159,6 +176,7 @@ class DataCollector:
                 symbols=symbols,
                 start=start,
                 end=end,
+                intervals=intervals,
             )
         else:
             msg = f"未知的数据类型: {data_type}"

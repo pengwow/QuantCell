@@ -956,6 +956,7 @@
   "collection_started": "已开始采集 {{symbol}}",
   "start_collection_failed": "启动采集任务失败",
   "please_select_symbol_first": "请至少选择一个货币对",
+  "please_select_symbol_or_group": "请至少选择一个货币对或自选组",
   "batch_collection_started": "批量采集任务已启动",
   "start_batch_collection_failed": "启动批量采集失败",
   "quality_check_complete": "数据质量检查完成",

@@ -22,6 +22,15 @@ class DerivAdapter(BaseDataAdapter):
 
     _SUPPORTED_TYPES = {"fundingRate", "openInterest"}
 
+    @staticmethod
+    def _norm_symbol(symbol: str) -> str:
+        """与采集侧 data_provider.normalize_symbol 对齐: BTC/USDT → BTCUSDT
+
+        采集落盘目录/文件名统一无斜杠格式, 加载前必须做同一转换,
+        否则 Path 拼接会把斜杠拆成伪层级导致找不到文件。
+        """
+        return symbol.upper().replace("/", "")
+
     def load(self, config: LoadConfig) -> AdapterResult:
         """加载衍生数据并转换。"""
         if config.data_type == "fundingRate":
@@ -46,7 +55,9 @@ class DerivAdapter(BaseDataAdapter):
             raise ValueError(msg)
 
         # 加载资金费率数据
-        funding_path = self._find_parquet("fundingRate", config.market, config.symbol, config.interval)
+        funding_path = self._find_parquet(
+            "fundingRate", config.market, self._norm_symbol(config.symbol), config.interval
+        )
         funding_df = self._load_parquet(funding_path)
 
         base_df = mark_price_df[["timestamp", "Open", "High", "Low", "Close", "Volume"]].copy()
@@ -77,7 +88,7 @@ class DerivAdapter(BaseDataAdapter):
             raise ValueError(msg)
 
         # 加载持仓量数据
-        oi_path = self._find_parquet("openInterest", config.market, config.symbol, config.interval)
+        oi_path = self._find_parquet("openInterest", config.market, self._norm_symbol(config.symbol), config.interval)
         oi_df = self._load_parquet(oi_path)
 
         base_df = mark_price_df[["timestamp", "Open", "High", "Low", "Close", "Volume"]].copy()
@@ -99,7 +110,9 @@ class DerivAdapter(BaseDataAdapter):
     def _try_load_mark_price(self, config: LoadConfig) -> pd.DataFrame | None:
         """尝试加载 markPriceKlines。"""
         try:
-            path = self._find_parquet("markPriceKlines", config.market, config.symbol, config.interval)
+            path = self._find_parquet(
+                "markPriceKlines", config.market, self._norm_symbol(config.symbol), config.interval
+            )
             df = self._load_parquet(path)
             from .kline_adapter import KlineAdapter
 
