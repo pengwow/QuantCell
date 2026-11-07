@@ -2472,8 +2472,10 @@ const DataManagementPage = () => {
               {/* 数据表 */}
               <Table
                 size="small"
-                rowKey={(_r, idx) => String(idx)}
-                dataSource={archiveRows}
+                // 归档行结构动态无稳定业务键; antd v6 弃用 rowKey 的 index 参数,
+                // 改为渲染时注入序号键(__rk 不会与后端数据列名冲突)
+                dataSource={archiveRows.map((r, i) => ({ ...r, __rk: i }))}
+                rowKey={(r) => String(r.__rk)}
                 columns={archiveColumns}
                 loading={archiveQueryLoading}
                 scroll={{ x: 'max-content', y: 480 }}
