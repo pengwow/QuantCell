@@ -3,12 +3,14 @@
 import asyncio
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from collector.utils.task_manager import task_manager
 from exchange.base import BaseCollector
 from exchange.binance.downloader import BinanceDownloader
 
@@ -86,3 +88,36 @@ class TestDownloadDailyKlinesConcurrency:
         assert holder.get("calls", []) == []  # 未发出下载请求
         assert progress == [1]  # 进度仍照常推进
         assert df.empty
+
+
+def test_task_manager_update_progress_thread_safe():
+    """16 线程并发更新进度不炸不丢（update_progress 内含 DB 写与 WS 广播）"""
+    task_id = task_manager.create_task(
+        task_type="unit_test",
+        exchange="binance",
+        start="2024-01-01",
+        end="2024-01-02",
+        interval="1d",
+        max_workers=4,
+        candle_type="spot",
+        symbols=["BTCUSDT"],
+        save_dir=None,
+        data_type="kline",
+        market="spot",
+    )
+
+    def update(i: int) -> bool:
+        return task_manager.update_progress(
+            task_id=task_id,
+            current=f"S{i}",
+            completed=i,
+            total=64,
+            status=f"t{i}",
+            symbol_progress=float(i),
+            interval="1d",
+        )
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(update, range(64)))
+
+    assert all(results)
