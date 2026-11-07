@@ -25,7 +25,11 @@ const getAppVersion = () => {
 
 // 从环境变量获取host和port，使用默认值
 const getServerConfig = () => {
-  const host = process.env.VITE_HOST || 'localhost'
+  // host: true（双栈监听）而非 'localhost'：macOS 上 'localhost' 只绑 [::1]（IPv6），
+  // 而系统代理（mihomo 等）转发 localhost 请求时仅从 IPv4 连 127.0.0.1，
+  // 会得到 502 —— 浏览器开着系统代理时 dev 页面直接无法访问。host: true 单
+  // socket 同时接受 IPv4+IPv6，直连与代理路径全通。Tauri devUrl 不受影响。
+  const host = process.env.VITE_HOST || true
   const port = parseInt(process.env.VITE_PORT || '5173', 10)
   return { host, port }
 }
