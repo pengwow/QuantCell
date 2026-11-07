@@ -1,11 +1,18 @@
 """策略工具（已下线，留档）。
 
 文件名以 `_` 开头，create_registry 的自动发现会跳过，不再注入 /agent 工具集。
-下线原因（PRD §14.6 /agent 现状核查）：本组工具大多与 CLI 层签名不匹配——
-generate_strategy/optimize_strategy_params 位置参数个数不符必然 TypeError，
-run_backtest 把同步的 BacktestService.run_backtest(task_id) 当协程 await；
-策略研究会话（/research）已提供更完整的替代入口。恢复使用前需逐个对齐
-cli.strategy 的真实签名。"""
+下线原因（PRD §14.6 /agent 现状核查）：本组工具与 CLI 层签名不匹配，调用即报
+TypeError，三处断点（行号为本文件现状）——
+- RunBacktestTool（L94）：`await service.run_backtest(strategy_id=...)`，而
+  BacktestService.run_backtest（backtest/service.py L178）是同步方法且首参名为
+  task_id —— await 与关键字 strategy_id= 双重失配，必然 TypeError；
+- GenerateStrategyTool（L154）：传 3 个位置参数，cli.generate_strategy
+  （cli/strategy.py L97）只收 requirement/name 2 个，必然 TypeError；
+- OptimizeStrategyParamsTool（L244）：传 6 个位置参数，cli.optimize_strategy_params
+  （cli/strategy.py L259）只收 strategy_name/param_ranges 2 个，必然 TypeError。
+其余工具（analyze_backtest_result 3对3、deploy_strategy 8对8）位置参数恰好匹配。
+策略研究会话（/research）已提供更完整的替代入口。恢复使用前需逐个修掉上述
+断点并对齐 cli.strategy 的真实签名。"""
 
 from typing import Any
 
@@ -80,6 +87,9 @@ class RunBacktestTool(Tool):
         try:
             from backtest.service import BacktestService
 
+            # BUG（已下线留档）: BacktestService.run_backtest（backtest/service.py L178）是
+            # 同步方法且首参名为 task_id，这里 await + strategy_id= 双重失配，必然 TypeError；
+            # 修复时需去掉 await 并按 task_id 语义重构调用
             service = BacktestService()
             result = await service.run_backtest(
                 strategy_id=strategy_id,
@@ -139,6 +149,8 @@ class GenerateStrategyTool(Tool):
     ) -> str:
         from cli.strategy import generate_strategy
 
+        # BUG（已下线留档）: cli.generate_strategy（cli/strategy.py L97）只收
+        # (requirement, name) 2 参数，这里传 3 个位置参数必然 TypeError
         return generate_strategy(requirement, strategy_name, indicators)
 
 
@@ -227,6 +239,8 @@ class OptimizeStrategyParamsTool(Tool):
     ) -> str:
         from cli.strategy import optimize_strategy_params
 
+        # BUG（已下线留档）: cli.optimize_strategy_params（cli/strategy.py L259）只收
+        # (strategy_name, param_ranges) 2 参数，这里传 6 个位置参数必然 TypeError
         return optimize_strategy_params(strategy_name, param_ranges, symbols, timeframe, metric, max_iterations)
 
 
