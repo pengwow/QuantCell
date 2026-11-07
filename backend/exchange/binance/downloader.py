@@ -8,6 +8,7 @@ import asyncio
 import ssl
 import warnings
 import zipfile
+from datetime import UTC, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -165,7 +166,9 @@ class BinanceDownloader(BaseCollector):
         url = self.get_zip_url(symbol, timeframe, date)
         connector = aiohttp.TCPConnector(ssl=ssl.create_default_context(cafile=certifi.where()))
 
-        async with aiohttp.ClientSession(connector=connector) as session:
+        # trust_env 使 aiohttp 从环境变量(https_proxy 等)读代理,
+        # 上游 KlineCollector 会把 system_config 的代理注入环境变量
+        async with aiohttp.ClientSession(connector=connector, trust_env=True) as session:
             async with session.get(url) as resp:
                 if resp.status == 200:
                     content = await resp.read()
@@ -197,7 +200,10 @@ class BinanceDownloader(BaseCollector):
 
     async def download_daily_klines(self, symbol, timeframe, start_date, end_date, progress_callback=None):
         """
-        异步下载指定日期范围内的K线数据
+        异步下载指定日期范围内的K线数据（日期分片并发版）
+
+        并发语义：单 symbol 内最多 max_workers 个日期同时下载；
+        gather 保序，产物与串行逐日 append 完全一致。
 
         :param symbol: 交易对，如'BTCUSDT'
         :param timeframe: 时间间隔，如'1m'、'1h'、'1d'等
@@ -207,16 +213,34 @@ class BinanceDownloader(BaseCollector):
         :return: K线数据DataFrame
         """
         date_range = get_date_range(start_date, end_date)
-        all_data = []
         total_dates = len(date_range)
 
-        for idx, date in enumerate(date_range):
-            df = await self.get_daily_klines(symbol, timeframe, date)
-            if df is not None and not df.empty:
-                all_data.append(df)
+        # max_workers 同时驱动日期层并行数（symbol 层线程数由 collect_data 的 Parallel 控制）
+        sem = asyncio.Semaphore(max(self.max_workers, 1))
+        done = 0  # 完成计数器：并发下完成顺序乱序，用单调递增计数替代乱序 idx
 
+        # 日归档 zip 由币安在收盘后次日(T+1)生成，请求今天(UTC)及以后的日期必然 404，
+        # 直接跳过避免每次下载末尾必刷 WARNING 噪音；进度仍照常推进
+        today_utc = datetime.now(UTC).date()
+
+        async def fetch_one(date: str) -> pd.DataFrame:
+            nonlocal done
+            df = None
+            archive_date = datetime.strptime(date, "%Y-%m-%d").date()
+            if archive_date >= today_utc:
+                logger.info(f"{symbol} {timeframe} {date} 日归档未发布(次日生成，跳过下载)")
+            else:
+                # 信号量包住含重试的整段请求，防止重试放大并发
+                async with sem:
+                    df = await self.get_daily_klines(symbol, timeframe, date)
+
+            done += 1  # asyncio 单事件循环内协程并发，同步段无竞态
             if progress_callback:
-                progress_callback(symbol, idx + 1, total_dates, f"Downloaded {date}")
+                progress_callback(symbol, done, total_dates, f"Downloaded {date}")
+            return df if df is not None else pd.DataFrame()
+
+        # gather 保序：结果恒按 date_range 顺序，与串行逐日 append 产物一致
+        all_data = [d for d in await asyncio.gather(*(fetch_one(d) for d in date_range)) if not d.empty]
 
         if all_data:
             return pd.concat(all_data, ignore_index=True)
