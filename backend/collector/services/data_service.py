@@ -1192,27 +1192,26 @@ class DataService:
         )
 
     def _async_download_other(self, task_id: str, request: DownloadCryptoRequest):
-        """归档/衍生类异步下载"""
+        """归档/衍生类异步下载：per-symbol 并发执行"""
+        # 函数内 import：便于测试 monkeypatch data_collector.DataCollector 生效
         from ..services.data_collector import DataCollector
 
         logger.info(f"使用 DataCollector 下载 {request.data_type} 数据，市场: {request.market}")
 
         total_symbols = len(request.symbols)
-        completed = 0
-        failed_symbols: list[tuple[str, str]] = []
+        stats = {"completed": 0, "failed_symbols": []}
 
-        for symbol in request.symbols:
+        def collect_one(symbol: str) -> tuple[str, str | None]:
+            # 线程内读到 stats 旧值仅影响"正在下载"行的显示，无正确性问题
             task_manager.update_progress(
                 task_id=task_id,
                 current=symbol,
-                completed=completed,
+                completed=stats["completed"],
                 total=total_symbols,
-                failed=len(failed_symbols),
+                failed=len(stats["failed_symbols"]),
                 status=f"正在下载 {request.data_type} ({request.market}) {symbol}...",
                 interval="",
             )
-
-            ok = False
             try:
                 collector = DataCollector()
                 collector.collect(
@@ -1223,43 +1222,50 @@ class DataService:
                     start=request.start,
                     end=request.end,
                 )
-                ok = True
                 logger.info(f"{symbol} {request.data_type} 下载成功")
+                return symbol, None
             except Exception as e:
                 # 逐 symbol 吞掉异常继续下一个, 但失败必须计入统计向前端透出
                 logger.error(f"{symbol} {request.data_type} 下载失败: {e}")
-                failed_symbols.append((symbol, str(e)))
+                return symbol, str(e)
 
-            completed += 1
+        async def _run_all():
+            return await asyncio.gather(*(asyncio.to_thread(collect_one, s) for s in request.symbols))
+
+        # gather 保序：stats 写在主线程独占段（gather 返回后），无需加锁
+        for symbol, error in asyncio.run(_run_all()):
+            if error:
+                stats["failed_symbols"].append((symbol, error))
+            stats["completed"] += 1
             task_manager.update_progress(
                 task_id=task_id,
                 current=symbol,
-                completed=completed,
+                completed=stats["completed"],
                 total=total_symbols,
-                failed=len(failed_symbols),
-                status=f"{symbol} 下载完成" if ok else f"{symbol} 下载失败",
+                failed=len(stats["failed_symbols"]),
+                status=f"{symbol} 下载完成" if error is None else f"{symbol} 下载失败",
                 interval="",
             )
 
-        if failed_symbols and len(failed_symbols) == total_symbols:
+        if stats["failed_symbols"] and len(stats["failed_symbols"]) == total_symbols:
             # 全部失败: 让外层统一走 fail_task, 前端显示失败态而非假完成
-            first_symbol, first_error = failed_symbols[0]
+            first_symbol, first_error = stats["failed_symbols"][0]
             raise RuntimeError(
                 f"全部 {total_symbols} 个货币对 {request.data_type} 下载失败, 首个错误 {first_symbol}: {first_error}"
             )
 
         summary = f"{request.data_type} 数据下载完成"
-        if failed_symbols:
+        if stats["failed_symbols"]:
             # 部分失败: 完成态但文案明确区分
-            failed_names = ", ".join(f[0] for f in failed_symbols)
-            summary += f"（成功 {total_symbols - len(failed_symbols)}/{total_symbols}，失败: {failed_names}）"
+            failed_names = ", ".join(f[0] for f in stats["failed_symbols"])
+            summary += f"（成功 {total_symbols - len(stats['failed_symbols'])}/{total_symbols}，失败: {failed_names}）"
 
         task_manager.update_progress(
             task_id=task_id,
             current="完成",
-            completed=completed,
+            completed=stats["completed"],
             total=total_symbols,
-            failed=len(failed_symbols),
+            failed=len(stats["failed_symbols"]),
             status=summary,
             interval="",
             detail=False,

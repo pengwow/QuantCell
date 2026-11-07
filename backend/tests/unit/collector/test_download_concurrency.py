@@ -267,3 +267,64 @@ def test_kline_single_interval_still_works(monkeypatch):
         end="2024-01-02",
     )
     ds.DataService()._async_download_kline("t2", req)  # 不抛异常即过
+
+
+def test_archive_symbols_parallel_and_failures_isolated(monkeypatch):
+    """归档 per-symbol 并行；单 symbol 失败不阻断其余；全部失败抛 RuntimeError"""
+    import collector.services.data_collector as dc
+    import collector.services.data_service as ds
+    from collector.schemas.data import DownloadCryptoRequest
+
+    class FakeTaskManager:
+        def __init__(self):
+            self.updates = []
+
+        def update_progress(self, **kw):
+            self.updates.append(kw)
+            return True
+
+    class FakeDataCollector:
+        in_flight = {"n": 0}
+        peak = 0
+
+        def collect(self, *, data_type, market, symbols, intervals, start, end):
+            FakeDataCollector.in_flight["n"] += 1
+            FakeDataCollector.peak = max(FakeDataCollector.peak, FakeDataCollector.in_flight["n"])
+            time.sleep(0.1)
+            FakeDataCollector.in_flight["n"] -= 1
+            # 实现按 per-symbol 单元素列表调 collect, 失败判断要按单 symbol 匹配
+            if symbols[0].startswith("FAIL"):
+                raise RuntimeError("boom")
+
+    fake_tm = FakeTaskManager()
+    monkeypatch.setattr(dc, "DataCollector", FakeDataCollector)
+    monkeypatch.setattr(ds, "task_manager", fake_tm)
+
+    FakeDataCollector.in_flight = {"n": 0}
+    FakeDataCollector.peak = 0
+
+    # 部分失败：其余 symbol 仍要完成
+    req = DownloadCryptoRequest(
+        symbols=["OK1", "FAILSYM", "OK2"],
+        interval=[],
+        start="2024-01-01",
+        end="2024-01-02",
+        data_type="aggTrades",
+    )
+    ds.DataService()._async_download_other("t3", req)
+
+    assert FakeDataCollector.peak >= 2  # 并行发生
+    final = [u for u in fake_tm.updates if u["current"] == "完成"]
+    assert final and "失败: FAILSYM" in final[-1]["status"]
+    assert any(u["current"] == "OK1" and "下载完成" in u["status"] for u in fake_tm.updates)
+
+    # 全部失败：抛 RuntimeError 交给外层 fail_task
+    req_all_fail = DownloadCryptoRequest(
+        symbols=["FAILSYM", "FAILSYM2"],
+        interval=[],
+        start="2024-01-01",
+        end="2024-01-02",
+        data_type="aggTrades",
+    )
+    with pytest.raises(RuntimeError):
+        ds.DataService()._async_download_other("t4", req_all_fail)
