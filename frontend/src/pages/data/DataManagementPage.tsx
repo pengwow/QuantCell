@@ -41,6 +41,7 @@ import {
   Alert,
   App,
   Descriptions,
+  InputNumber,
 } from 'antd';
 import {
   StarOutlined,
@@ -1452,7 +1453,7 @@ const DataManagementPage = () => {
         start: values.dateRange?.[0]?.format('YYYY-MM-DD') || dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
         end: values.dateRange?.[1]?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD'),
         exchange: SYSTEM_CONFIG.exchange,
-        max_workers: 2,
+        max_workers: values.maxWorkers ?? 4,
         // 兼容旧字段：K 线时保留 candle_type 以便原有逻辑继续工作
         candle_type: KLINE_TYPES.has(dataType) ? market : undefined,
       };
@@ -1472,7 +1473,9 @@ const DataManagementPage = () => {
         message.success(`采集任务已启动：${dataType} (${market})`);
       }
     } catch (error) {
-      message.error('启动批量采集失败');
+      // antd validateFields reject 的 error.message 是表单 rule 文案（已翻译），
+      // 需要时可在提示中带上；此处兜底提示统一走 i18n
+      message.error(t('start_batch_collection_failed'));
       console.error('启动批量采集失败:', error);
     }
   };
@@ -3214,6 +3217,16 @@ const DataManagementPage = () => {
               rules={[{ required: true, message: t('please_select_date_range') || '请选择时间范围' }]}
             >
               <RangePicker style={{ width: '100%' }} />
+            </Form.Item>
+
+            {/* 并发数：驱动 symbol 层线程数与单 symbol 日期分片并行数（后端夹紧 1-8） */}
+            <Form.Item
+              name="maxWorkers"
+              label={t('concurrency') || '并发数'}
+              initialValue={4}
+              tooltip="并发越高下载越快，跨所/大范围回补可调高；1-8"
+            >
+              <InputNumber min={1} max={8} step={1} precision={0} style={{ width: 120 }} />
             </Form.Item>
 
             <Form.Item>
