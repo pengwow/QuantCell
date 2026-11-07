@@ -137,6 +137,15 @@ const MARKET_TAG_COLOR: Record<string, string> = {
   cm: 'purple',
 };
 
+/**
+ * 归档预览行 + 视图层注入的序号键。
+ * __rk 仅用于 antd v6 的 rowKey（其函数已弃用 index 参数），是前端渲染期注入，
+ * 不属于后端数据契约，因此不写进 types/data.ts 的 ArchiveRow。
+ */
+interface KeyedArchiveRow extends ArchiveRow {
+  __rk: number;
+}
+
 // 无限滚动容器 —— 监听子 div 滚动，触底触发 onReachBottom
 // 使用 IntersectionObserver 监听一个 sentinel 元素，避免 onScroll 节流烦恼
 interface TasksListScrollProps {
@@ -2474,7 +2483,7 @@ const DataManagementPage = () => {
                 size="small"
                 // 归档行结构动态无稳定业务键; antd v6 弃用 rowKey 的 index 参数,
                 // 改为渲染时注入序号键(__rk 不会与后端数据列名冲突)
-                dataSource={archiveRows.map((r, i) => ({ ...r, __rk: i }))}
+                dataSource={archiveRows.map((r, i): KeyedArchiveRow => ({ ...r, __rk: i }))}
                 rowKey={(r) => String(r.__rk)}
                 columns={archiveColumns}
                 loading={archiveQueryLoading}
