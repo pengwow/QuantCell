@@ -101,6 +101,29 @@ def test_transform_df_renames_and_casts_types():
     assert out["is_buyer_maker"].tolist() == [False, True]
 
 
+# ---- _parse_csv_bytes: 现行带 header 格式（um 实测取样） ----
+
+
+def test_parse_csv_bytes_handles_current_header_format():
+    """现行 Binance 归档 CSV 带 header（um 全量实测），header 行不能被当数据行。
+
+    线上故障：fetcher 曾按"永远无 header"解析，um 任务 header 行被当数据行，
+    astype 炸 `invalid literal for int() with base 10: 'agg_trade_id'`。
+    """
+    f = AggTradesFetcher(market=MarketType.FUTURES_UM, base_dir="/tmp", symbol="LTCUSDT")
+    raw_bytes = (
+        b"agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker\n"
+        b"38282901,72.31,4.44,38270000,38282901,1730775612345,false\n"
+        b"38282902,72.32,1.20,38282902,38282902,1730775612346,true\n"
+    )
+    df = f._parse_csv_bytes(raw_bytes)
+    assert len(df) == 2
+    assert list(df.columns) == list(f.column_mapping.keys())
+    assert df["agg_trade_id"].iloc[0] == 38282901
+    assert df["price"].iloc[0] == 72.31
+    assert df["transact_time"].iloc[0] == 1730775612345
+
+
 # ---- 端到端: monkeypatch get_daily_archive ----
 
 

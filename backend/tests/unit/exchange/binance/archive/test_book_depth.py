@@ -1,16 +1,19 @@
-"""Tests for BookDepthFetcher 完整实现（嵌套 bids/asks 展平为长表）。
+"""Tests for BookDepthFetcher 完整实现（双格式：spot 嵌套展平 + um/cm 扁平宽表）。
 
 覆盖:
 - column_mapping 为空 dict (列由 transform_df 构造, 不存在 raw→standard 固定映射)
-- parquet_schema 6 列: timestamp(i64), symbol(str), side(str), level(i32), price(f64), quantity(f64)
-- transform_df 把 nested bids/asks 展平: 1 条记录 → N bids + M asks 行
-- side 列在 'bid'/'ask' 之间
-- level 列从 0 开始 (0 = 最优)
-- 端到端: collect_data → parquet 落盘 → read_range
+- spot parquet_schema 6 列: timestamp(i64), symbol(str), side(str), level(i32), price(f64), quantity(f64)
+- spot transform_df 把 nested bids/asks 展平: 1 条记录 → N bids + M asks 行
+- um/cm 扁平格式 `timestamp,percentage,depth,notional`: 秒级 UTC 字符串转毫秒 + 注入 symbol
+- zip → 解包 → 格式分派 → transform 端到端（不经网络）
 """
 
 from __future__ import annotations
 
+import asyncio
+import io
+import zipfile
+from datetime import date
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -186,6 +189,79 @@ def test_parse_csv_bytes_parses_nested_bids_asks():
     assert isinstance(df["asks"].iloc[0], list)
     assert df["bids"].iloc[0] == [[100.0, 1.0], [99.0, 2.0]]
     assert df["asks"].iloc[0] == [[101.0, 1.5], [102.0, 2.5]]
+
+
+# ---- um/cm 扁平格式: 解析 + 转换 + zip 端到端 ----
+
+
+def test_parse_csv_bytes_dispatches_um_flat_format():
+    """um/cm bookDepth CSV 是 `timestamp,percentage,depth,notional` 扁平格式（实测取样）。
+
+    线上故障：fetcher 只会解析 spot 嵌套 bids/asks 格式，um 数据解析时
+    KeyError 'symbol' 直接失败。
+    """
+    f = BookDepthFetcher(market=MarketType.FUTURES_UM, base_dir="/tmp", symbol="LTCUSDT")
+    raw_bytes = (
+        b"timestamp,percentage,depth,notional\n"
+        b"2026-11-05 00:00:01,-5.00,123.456,7890.12\n"
+        b"2026-11-05 00:00:01,5.00,234.567,8901.23\n"
+    )
+    df = f._parse_csv_bytes(raw_bytes)
+    assert list(df.columns) == ["timestamp", "percentage", "depth", "notional"]
+    assert len(df) == 2
+
+
+def test_transform_df_um_flat_injects_symbol_and_converts_ms():
+    """um 扁平格式: 秒级 UTC 字符串 → epoch 毫秒（按 UTC 解析, 与系统时区无关）,
+    注入 symbol, 以 5 列宽表直存（percentage 自带方向, 不臆造 side/price）。"""
+    f = BookDepthFetcher(market=MarketType.FUTURES_UM, base_dir="/tmp", symbol="LTCUSDT")
+    raw = pd.DataFrame(
+        {
+            "timestamp": ["2026-11-05 00:00:01", "2026-11-05 00:00:01"],
+            "percentage": [-5.0, 5.0],
+            "depth": [123.456, 234.567],
+            "notional": [7890.12, 8901.23],
+        }
+    )
+    out = f.transform_df(raw)
+    assert list(out.columns) == ["timestamp", "symbol", "percentage", "depth", "notional"]
+    assert (out["symbol"] == "LTCUSDT").all()
+    # 2026-11-05 00:00:01 UTC = 1793836801 s → 1793836801000 ms
+    assert out["timestamp"].tolist() == [1793836801000, 1793836801000]
+    assert out["percentage"].dtype == "float64"
+    assert out["notional"].tolist() == [7890.12, 8901.23]
+
+
+def test_get_daily_archive_um_flat_end_to_end(tmp_path):
+    """um bookDepth zip → 解包 → 扁平格式分派 → 毫秒宽表，全链路（FakeSession 不经网络）。"""
+    f = BookDepthFetcher(market=MarketType.FUTURES_UM, base_dir=tmp_path, symbol="LTCUSDT", interval=None)
+    csv = "timestamp,percentage,depth,notional\n2026-11-05 00:00:01,-5.00,123.456,7890.12\n"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("LTCUSDT-bookDepth-2026-11-05.csv", csv)
+
+    class _FakeResp:
+        status = 200
+
+        def raise_for_status(self):
+            pass
+
+        async def read(self):
+            return buf.getvalue()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class _FakeSession:
+        def get(self, url, timeout=None):
+            return _FakeResp()
+
+    df = asyncio.run(f.get_daily_archive(_FakeSession(), "LTCUSDT", date(2026, 11, 5)))
+    assert list(df.columns) == ["timestamp", "symbol", "percentage", "depth", "notional"]
+    assert df["timestamp"].iloc[0] == 1793836801000
 
 
 # ---- 端到端: monkeypatch _run_async, collect_data → parquet ----

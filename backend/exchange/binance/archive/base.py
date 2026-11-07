@@ -39,6 +39,30 @@ _DISK_FREE_MIN_BYTES = 1 * 1024**3
 _READ_RANGE_MAX_ROWS = 1_000_000
 
 
+def read_csv_with_header_sniff(data: bytes, names: list[str]) -> pd.DataFrame:
+    """按嗅探结果解析归档 CSV，兼容 Binance 新旧两种格式。
+
+    Binance 归档 CSV 的首列均为整数 id（agg_trade_id / id 等），据此判断是否
+    带 header：带 header 的现行格式（futures 全量、spot 2020 后）skip 首行后
+    用 names 锁定列序；旧的无 header 格式直接用 names。fetchers 按 "永远无
+    header" 实现会把 header 行当数据行炸掉类型转换（线上 aggTrades/trades
+    um 任务全败的原因）。
+    """
+    first_line = data.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
+    first_field = first_line.split(",")[0].strip().strip('"')
+    try:
+        int(first_field)
+        has_header = False
+    except ValueError:
+        has_header = True
+    return pd.read_csv(
+        io.BytesIO(data),
+        header=None,
+        names=names,
+        skiprows=1 if has_header else 0,
+    )
+
+
 class BaseBinanceArchiveDownloader:
     """所有 7 种归档数据的下载器基类（独立实现，不继承 BaseCollector）。"""
 
@@ -176,6 +200,7 @@ class BaseBinanceArchiveDownloader:
         end_d = date.fromisoformat(end)
         files_added = 0
         symbols_processed = 0
+        days_attempted = 0
         failures: list[str] = []  # (symbol, day) 下载失败原因，用于全败时诚实上抛
 
         for sym in symbols:
@@ -185,6 +210,7 @@ class BaseBinanceArchiveDownloader:
             for s, e in ranges:
                 day = s
                 while day <= e:
+                    days_attempted += 1
                     try:
                         df = self._run_async(self.get_daily_archive, sym, day)
                         path = self.save_instrument(sym, day, df)
@@ -207,6 +233,13 @@ class BaseBinanceArchiveDownloader:
             # ponytail: 部分失败不炸（增量下次会补缺失日期），只拦"一个文件都没落盘
             # 却报成功"的最坏情况；要让前端逐日看到失败明细需引入 per-date 进度上报
             raise RuntimeError(f"{len(failures)} 天归档下载全部失败, 无数据落盘: {failures[0]}")
+        if files_added == 0 and days_attempted > 0:
+            # 全部日期都返回空（典型：Binance 归档无该数据，逐日 404 被当空 DF 跳过）。
+            # 若不拦截，任务会报 completed"下载完成"的假成功（bookTicker um 实测踩坑），
+            # 用户在浏览页只看到 0 行却查不到原因。
+            raise RuntimeError(
+                f"{days_attempted} 天归档数据在数据源均不可得（多为 404，如 Binance 未分发该品种/日期）, 无数据落盘"
+            )
         return {"files_added": files_added, "symbols_processed": symbols_processed}
 
     # —— 读区间（前端查询入口，spec §5.2） ——

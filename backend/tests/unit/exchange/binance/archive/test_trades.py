@@ -78,6 +78,28 @@ def test_parse_csv_bytes_handles_headerless():
     assert df["is_buyer_maker"].iloc[0] is False or not df["is_buyer_maker"].iloc[0]
 
 
+# ---- _parse_csv_bytes: 现行带 header 格式（um 实测取样） ----
+
+
+def test_parse_csv_bytes_handles_current_header_format():
+    """现行 Binance trades CSV 带 header（um 实测），header 行不能混入数据。
+
+    线上故障：header 行被当数据后 id 列混入 str，pyarrow 写 parquet 炸
+    `Conversion failed for column id`。
+    """
+    f = TradesFetcher(market=MarketType.FUTURES_UM, base_dir="/tmp", symbol="LTCUSDT")
+    raw_bytes = (
+        b"id,price,qty,quote_qty,time,is_buyer_maker\n"
+        b"38282901,72.31,0.500,36.155,1730775612345,false\n"
+        b"38282902,72.32,1.200,86.784,1730775612346,true\n"
+    )
+    df = f._parse_csv_bytes(raw_bytes)
+    assert len(df) == 2
+    assert list(df.columns) == ["id", "price", "qty", "quote_qty", "time", "is_buyer_maker"]
+    assert df["id"].iloc[0] == 38282901
+    assert df["time"].iloc[0] == 1730775612345
+
+
 # ---- 端到端: monkeypatch _run_async, collect_data → parquet ----
 
 
