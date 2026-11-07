@@ -42,6 +42,7 @@ import {
   App,
   Descriptions,
   InputNumber,
+  Flex,
 } from 'antd';
 import {
   StarOutlined,
@@ -2150,29 +2151,30 @@ const DataManagementPage = () => {
     const searchLower = archiveSymbolSearch.toLowerCase();
 
     return (
-    <div style={{ maxHeight: 600, overflow: 'auto' }}>
+    // 分类切换 + 搜索框固定在滚动区外（滚到底部分类后无需滚回即可搜索）；
+    // 树滚动区高度跟随视口而非写死 600px——7 类全展开时底部类别可直接滚到，
+    // 不再需要收起上方分支才能点击
+    <Flex vertical gap={8}>
       {/* 分类切换：归档数据（7 种） vs 衍生数据（2 种） */}
-      <div style={{ marginBottom: 8 }}>
-        <Segmented
-          block
-          size="small"
-          value={archiveBrowserCategory}
-          onChange={(v) => {
-            const cat = v as ArchiveBrowserCategory;
-            setArchiveBrowserCategory(cat);
-            const firstKind = cat === 'archive' ? ARCHIVE_KINDS[0] : DERIV_KINDS[0];
-            setArchiveKind(firstKind);
-            setArchiveSymbol('');
-            setArchiveExpandedKinds([firstKind]);
-            // 切换后首个 kind 处于默认展开态，需主动拉取市场列表，否则只显示 "..."
-            ensureKindSymbolsLoaded(firstKind);
-          }}
-          options={[
-            { value: 'archive', label: `行情 (${ARCHIVE_KINDS.length})` },
-            { value: 'deriv', label: `指标 (${DERIV_KINDS.length})` },
-          ]}
-        />
-      </div>
+      <Segmented
+        block
+        size="small"
+        value={archiveBrowserCategory}
+        onChange={(v) => {
+          const cat = v as ArchiveBrowserCategory;
+          setArchiveBrowserCategory(cat);
+          const firstKind = cat === 'archive' ? ARCHIVE_KINDS[0] : DERIV_KINDS[0];
+          setArchiveKind(firstKind);
+          setArchiveSymbol('');
+          setArchiveExpandedKinds([firstKind]);
+          // 切换后首个 kind 处于默认展开态，需主动拉取市场列表，否则只显示 "..."
+          ensureKindSymbolsLoaded(firstKind);
+        }}
+        options={[
+          { value: 'archive', label: `行情 (${ARCHIVE_KINDS.length})` },
+          { value: 'deriv', label: `指标 (${DERIV_KINDS.length})` },
+        ]}
+      />
 
       {/* Symbol 搜索框 */}
       <Input
@@ -2182,9 +2184,10 @@ const DataManagementPage = () => {
         allowClear
         value={archiveSymbolSearch}
         onChange={(e) => setArchiveSymbolSearch(e.target.value)}
-        style={{ marginBottom: 8 }}
       />
 
+      {/* kind 树滚动区：高度自适应视口，单层滚动 */}
+      <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 260px)', minHeight: 320 }}>
       {kinds.map((kind) => {
         const expanded = archiveExpandedKinds.includes(kind);
         const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[kind] ?? kind;
@@ -2237,8 +2240,9 @@ const DataManagementPage = () => {
                           {symList ? `(${searchLower && filteredSyms ? `${filteredSyms.length}/${symList.length}` : symList.length})` : '...'}
                         </Text>
                       </div>
+                      {/* symbol 列表不再内层滚动：统一交给外层树滚动区，避免双层滚动条 */}
                       {filteredSyms && filteredSyms.length > 0 && (
-                        <div style={{ paddingLeft: 12, maxHeight: 180, overflow: 'auto' }}>
+                        <div style={{ paddingLeft: 12 }}>
                           {filteredSyms.slice(0, 100).map((s) => (
                             <div
                               key={s}
@@ -2279,7 +2283,8 @@ const DataManagementPage = () => {
           </div>
         );
       })}
-    </div>
+      </div>
+    </Flex>
     );
   };
 
