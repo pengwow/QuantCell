@@ -15,6 +15,7 @@
 
 import abc
 import datetime
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -398,6 +399,8 @@ class BaseCollector(abc.ABC):
         """批量收集标的数据"""
         error_symbol = []
         failed = 0
+        # 多 symbol 线程并发回调，计数递增必须持锁（+= 非原子）
+        progress_lock = threading.Lock()
 
         def collect_with_progress(_inst, index):
             nonlocal completed, failed
@@ -418,11 +421,11 @@ class BaseCollector(abc.ABC):
                 progress_callback(_inst, 0, 1, failed, "starting")
 
             result = self._simple_collector(_inst, download_progress_callback)
-            completed += 1
-
-            if result != self.NORMAL_FLAG:
-                error_symbol.append(_inst)
-                failed += 1
+            with progress_lock:
+                completed += 1
+                if result != self.NORMAL_FLAG:
+                    error_symbol.append(_inst)
+                    failed += 1
 
             # 完成进度回调 - 该货币对自身进度为100%
             if progress_callback:
@@ -436,7 +439,10 @@ class BaseCollector(abc.ABC):
 
             return result
 
-        Parallel(n_jobs=self.max_workers)(
+        # threading 而非默认 loky(多进程)：下载是纯 I/O 且下方闭包计数器
+        # (completed/failed/error_symbol)必须在主进程真实递增——loky 子进程的
+        # += 全部丢失，n_jobs>1 时统计与失败上报全是错的(历史上 n_jobs 被迫=1 的根因)
+        Parallel(n_jobs=self.max_workers, backend="threading")(
             delayed(collect_with_progress)(_inst, idx) for idx, _inst in enumerate(instrument_list)
         )
 
@@ -501,6 +507,8 @@ class BaseCollector(abc.ABC):
         logger.info(
             f"[收集结果] 模式: {self.mode}, 成功: {len(self.instrument_list) - len(set(instrument_list))}, 失败: {len(set(instrument_list))}"
         )
+        # 把最终失败的标的列表返回给调用方（此前失败信息只用于重试轮与日志即被丢弃）
+        return sorted(set(instrument_list))
 
 
 class BaseExchange:

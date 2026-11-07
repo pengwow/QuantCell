@@ -121,3 +121,70 @@ def test_task_manager_update_progress_thread_safe():
         results = list(pool.map(update, range(64)))
 
     assert all(results)
+
+
+class _StubCollector(BaseCollector):
+    """最小可实现 collector：验证 collect_data 的 threading 并发与计数语义"""
+
+    def __init__(self, tmp_path: Path, symbol_count: int, max_workers: int):
+        self._symbols = [f"S{i}" for i in range(symbol_count)]
+        super().__init__(
+            save_dir=tmp_path,
+            start="2024-01-01",
+            end="2024-01-02",
+            interval="1d",
+            max_workers=max_workers,
+            max_collector_count=1,
+            mode="inc",
+        )
+
+    def get_instrument_list(self):
+        return self._symbols
+
+    def normalize_symbol(self, symbol: str):
+        return symbol
+
+    def get_data(self, symbol, interval, start_datetime, end_datetime, progress_callback=None):
+        raise NotImplementedError
+
+    def _simple_collector(self, symbol: str, progress_callback=None):
+        time.sleep(0.1)  # 模拟 I/O
+        return self.NORMAL_FLAG
+
+
+class TestCollectDataThreading:
+    """symbol 层：threading 并发、计数器留在主进程、失败统计不丢"""
+
+    def test_threads_concurrent_and_counters(self, tmp_path):
+        c = _StubCollector(tmp_path, symbol_count=6, max_workers=3)
+        holder = {"in_flight": 0, "peak": 0}
+        lock = threading.Lock()
+        orig = c._simple_collector
+
+        def wrap(symbol, progress_callback=None):
+            with lock:
+                holder["in_flight"] += 1
+                holder["peak"] = max(holder["peak"], holder["in_flight"])
+            try:
+                return orig(symbol, progress_callback)
+            finally:
+                with lock:
+                    holder["in_flight"] -= 1
+
+        c._simple_collector = wrap
+        errors = c.collect_data()
+
+        assert errors == []  # 无失败：loky 下计数器丢子进程会出错，threading 应正确
+        assert holder["peak"] >= 2  # 并发确实发生
+
+    def test_failed_symbols_counted(self, tmp_path):
+        c = _StubCollector(tmp_path, symbol_count=4, max_workers=2)
+
+        def flaky(symbol, progress_callback=None):
+            time.sleep(0.01)
+            return "FAILED" if symbol in ("S0", "S2") else c.NORMAL_FLAG
+
+        c._simple_collector = flaky
+        errors = c.collect_data()
+
+        assert sorted(errors) == ["S0", "S2"]  # 失败符号完整回收
