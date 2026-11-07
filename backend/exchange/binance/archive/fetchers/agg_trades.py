@@ -7,12 +7,13 @@ aggTrades zip 内的 CSV **不带 header**, 列顺序固定为
 
 from __future__ import annotations
 
-import io
-
 import pandas as pd
 import pyarrow as pa
 
-from exchange.binance.archive.base import BaseBinanceArchiveDownloader
+from exchange.binance.archive.base import (
+    BaseBinanceArchiveDownloader,
+    read_csv_with_header_sniff,
+)
 from exchange.binance.archive.kinds import ArchiveKind
 
 # 标准 pyarrow schema: 7 列, i64/f64/bool
@@ -49,13 +50,9 @@ class AggTradesFetcher(BaseBinanceArchiveDownloader):
     parquet_schema = AGG_TRADES_SCHEMA
 
     def _parse_csv_bytes(self, data: bytes) -> pd.DataFrame:
-        """aggTrades zip 内的 CSV 无 header, 强制指定列名。"""
-        return pd.read_csv(
-            io.BytesIO(data),
-            header=None,
-            names=_AGG_TRADES_COLS,
-            usecols=range(len(_AGG_TRADES_COLS)),
-        )
+        """嗅探 header：现行 Binance CSV（futures 全量/spot 2020 后）带 header，
+        旧格式无 header，统一由基类嗅探函数处理。"""
+        return read_csv_with_header_sniff(data, _AGG_TRADES_COLS)
 
     def transform_df(self, raw_df: pd.DataFrame) -> pd.DataFrame:
         """强制列类型, 确保 parquet schema 一致。"""

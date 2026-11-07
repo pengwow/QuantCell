@@ -5,7 +5,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from exchange.binance.archive.base import BaseBinanceArchiveDownloader
+from exchange.binance.archive.base import (
+    BaseBinanceArchiveDownloader,
+    read_csv_with_header_sniff,
+)
 from exchange.binance.archive.kinds import ArchiveKind, MarketType
 
 if TYPE_CHECKING:
@@ -110,8 +113,13 @@ def test_collect_data_partial_fail_no_raise(tmp_path, monkeypatch):
 
 
 def test_collect_data_empty_day_creates_no_shell_dir(tmp_path, monkeypatch):
-    """404/空数据日不许写 meta、不许建目录：write_meta 会 mkdir，若空数据日也写 meta
-    会留下"归档树显示 symbol 但点开 0 行"的空壳目录（线上曾出现 12 个这样的空壳）。
+    """全 404（逐日空 DataFrame）必须显性报错且不留目录。
+
+    两个守护点：
+    1. 不许假成功——bookTicker um 实测 Binance 无数据时任务报 completed
+       "下载完成"，用户在浏览页只看到 0 行却查不到原因；
+    2. 不留空壳——write_meta 会 mkdir，空数据日若写 meta 会留下
+       "归档树显示 symbol 但点开 0 行"的空壳目录。
     """
     import pandas as pd
 
@@ -121,6 +129,46 @@ def test_collect_data_empty_day_creates_no_shell_dir(tmp_path, monkeypatch):
 
     monkeypatch.setattr(BaseBinanceArchiveDownloader, "_run_async", _empty)
     fetcher = _StubFetcher(market=MarketType.SPOT, base_dir=tmp_path, symbol="BTCUSDT", interval=None)
-    result = fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
-    assert result["files_added"] == 0
+    with pytest.raises(RuntimeError, match=r"均不可得|404"):
+        fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
     assert not fetcher.save_dir.exists(), "空数据日不应创建任何目录（meta 空壳）"
+
+
+def test_collect_data_mixed_empty_and_success_no_raise(tmp_path, monkeypatch):
+    """404 日与成功日混合时正常完成且空日不留目录（增量语义：可得的日期先落盘）。"""
+    import pandas as pd
+
+    calls = {"n": 0}
+
+    def _one_day_empty(self, coro_func, *args):
+        calls["n"] += 1
+        return pd.DataFrame() if calls["n"] == 1 else pd.DataFrame({"a": [1.0], "b": [1.0]})
+
+    monkeypatch.setattr(BaseBinanceArchiveDownloader, "_run_async", _one_day_empty)
+    fetcher = _StubFetcher(market=MarketType.SPOT, base_dir=tmp_path, symbol="BTCUSDT", interval=None)
+    result = fetcher.collect_data(symbols=["BTCUSDT"], start="2024-12-01", end="2024-12-02", mode="inc")
+    assert result["files_added"] == 1
+
+
+# ---- read_csv_with_header_sniff: Binance 归档 CSV 新旧两种格式 ----
+
+
+def test_read_csv_with_header_sniff_skips_header_row():
+    """现行 Binance 归档 CSV 带 header（futures 全量 / spot 2020 后），header 行不能被当数据行。
+
+    线上故障：fetcher 按"永远无 header"解析，header 行混入数据后
+    astype(int) 炸 `invalid literal for int() with base 10: 'agg_trade_id'`。
+    """
+    data = b"agg_trade_id,price,quantity\n1,100.0,0.1\n2,101.0,0.2\n"
+    df = read_csv_with_header_sniff(data, ["agg_trade_id", "price", "quantity"])
+    assert len(df) == 2
+    assert list(df.columns) == ["agg_trade_id", "price", "quantity"]
+    assert df["agg_trade_id"].tolist() == [1, 2]
+
+
+def test_read_csv_with_header_sniff_keeps_all_rows_when_headerless():
+    """旧格式无 header（首列是整数 id），一行都不能丢。"""
+    data = b"1,100.0,0.1\n2,101.0,0.2\n"
+    df = read_csv_with_header_sniff(data, ["agg_trade_id", "price", "quantity"])
+    assert len(df) == 2
+    assert df["price"].tolist() == [100.0, 101.0]

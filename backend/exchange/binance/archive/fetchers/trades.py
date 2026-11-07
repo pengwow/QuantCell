@@ -8,12 +8,13 @@ trades zip 内的 CSV **不带 header**, 列顺序固定为
 
 from __future__ import annotations
 
-import io
-
 import pandas as pd
 import pyarrow as pa
 
-from exchange.binance.archive.base import BaseBinanceArchiveDownloader
+from exchange.binance.archive.base import (
+    BaseBinanceArchiveDownloader,
+    read_csv_with_header_sniff,
+)
 from exchange.binance.archive.kinds import ArchiveKind
 
 # 标准 pyarrow schema: 6 列, i64/f64/bool
@@ -48,9 +49,6 @@ class TradesFetcher(BaseBinanceArchiveDownloader):
     parquet_schema = TRADES_SCHEMA
 
     def _parse_csv_bytes(self, data: bytes) -> pd.DataFrame:
-        """trades zip 内的 CSV 无 header, 强制指定列名.
-
-        `Binance 官方逐笔成交` CSV 列顺序固定, 用 `names=` 锁定, 避免
-        pandas 把首行数据当作列名.
-        """
-        return pd.read_csv(io.BytesIO(data), header=None, names=_TRADES_COLS)
+        """嗅探 header：现行 Binance CSV（futures 全量/spot 2020 后）带 header，
+        旧格式无 header，统一由基类嗅探函数处理，避免 header 行混入数据炸类型。"""
+        return read_csv_with_header_sniff(data, _TRADES_COLS)
