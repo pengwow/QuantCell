@@ -102,6 +102,21 @@ dev-status:
 dev-restart:
 	./scripts/install.sh --restart
 
+# 决策模型（System 1 · Laya）本地服务，委托给 scripts/local_model_servers/start_laya.sh
+.PHONY: laya-start laya-stop laya-status laya-restart
+
+laya-start:
+	./scripts/local_model_servers/start_laya.sh start
+
+laya-stop:
+	./scripts/local_model_servers/start_laya.sh stop
+
+laya-status:
+	./scripts/local_model_servers/start_laya.sh status
+
+laya-restart:
+	./scripts/local_model_servers/start_laya.sh restart
+
 # ============================================================
 # 全链路
 # ============================================================
@@ -158,6 +173,11 @@ help:
 	@echo "  make dev-stop            停止开发服务"
 	@echo "  make dev-status          查看开发服务状态"
 	@echo "  make dev-restart         重启开发服务"
+	@echo "	=== 决策模型 (laya)==="
+	@echo "  make laya-start          启动本地决策模型服务（System 1，127.0.0.1:8010）"
+	@echo "  make laya-stop           停止决策模型服务"
+	@echo "  make laya-status         查看决策模型服务状态"
+	@echo "  make laya-restart        重启决策模型服务"
 	@echo "	=== 版本 (version)==="
 	@echo "  make version             体检：VERSION 与各处版本声明是否一致（不一致 exit 1）"
 	@echo "  make version v=0.0.1     落位：写 VERSION + 4 处声明 + 刷新 uv.lock / Cargo.lock"
