@@ -2143,6 +2143,36 @@ const DataManagementPage = () => {
 
   // ==================== 归档 / 衍生 浏览渲染 ====================
 
+  // 树滚动区最大高度：按滚动区自身在文档中的真实位置动态计算，
+  // 替代写死的 calc(100vh - 260px) 魔法数——页头/Tab/卡片结构变化时自动适应。
+  // 滚动宿主是 ConsoleLayout 的 Layout.Content（overflow-y-auto），
+  // 补偿其 scrollTop 得到文档坐标，使高度不随外层页面滚动漂移。
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  const [treeMaxHeight, setTreeMaxHeight] = useState(480);
+  useEffect(() => {
+    const measure = () => {
+      const el = treeScrollRef.current;
+      if (!el) return;
+      const scroller = el.closest('.ant-layout-content');
+      const outerScroll = scroller?.scrollTop ?? window.scrollY;
+      const docTop = el.getBoundingClientRect().top + outerScroll;
+      // 底部留 12px 呼吸边距；下限 320 防极小窗口挤压
+      setTreeMaxHeight(Math.max(320, window.innerHeight - docTop - 12));
+    };
+    measure();
+    // 首测可能早于布局稳定（字体加载 / 浏览器滚动恢复 / Tab 动画，实测曾
+    // 偏差 200px+）：body 高度随这些迟到变化而改变，用 ResizeObserver
+    // 触发重测校准。树展开只向下长、不改变滚动区文档位置，重测值不变，
+    // 不会形成 measure→render→RO 的循环。
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [activeTab]); // 树仅在 archive tab 激活后挂载，切 tab 需重测一次
+
   // 渲染左侧树形导航（archive 7 种 + deriv 2 种 → market → symbols）
   const renderArchiveTree = () => {
     const kinds = archiveBrowserCategory === 'archive' ? ARCHIVE_KINDS : DERIV_KINDS;
@@ -2186,8 +2216,8 @@ const DataManagementPage = () => {
         onChange={(e) => setArchiveSymbolSearch(e.target.value)}
       />
 
-      {/* kind 树滚动区：高度自适应视口，单层滚动 */}
-      <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 260px)', minHeight: 320 }}>
+      {/* kind 树滚动区：高度按滚动区真实位置自适应视口（treeMaxHeight），单层滚动 */}
+      <div ref={treeScrollRef} style={{ overflow: 'auto', maxHeight: treeMaxHeight, minHeight: 320 }}>
       {kinds.map((kind) => {
         const expanded = archiveExpandedKinds.includes(kind);
         const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[kind] ?? kind;
