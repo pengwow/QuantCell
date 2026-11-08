@@ -245,13 +245,25 @@ class TestFetchFromDatabase:
         assert timestamps == [1704067200000, 1704067260000]
         assert result["kline_data"][0]["open"] == 100.5
 
-    def test_invalid_start_time_is_ignored(self):
+    def test_invalid_start_time_fails_request(self):
         fetcher = StubKlineFetcher()
         fetcher.kline_model = MagicMock()
         db = make_db_klines([make_kline_row()])
-        # 非法时间格式应被忽略而不是崩溃
+        # 非法时间格式必须显式失败，禁止静默忽略过滤条件后返回全量数据
         result = fetcher._fetch_from_database(db, "BTCUSDT", "1h", start_time="not-a-date")
+        assert result["success"] is False
+        assert "开始时间" in result["message"]
+
+    def test_millisecond_timestamp_start_time(self):
+        fetcher = StubKlineFetcher()
+        fetcher.kline_model = MagicMock()
+        # 毫秒时间戳（int 或纯数字字符串）直接换算纳秒，不走 strptime
+        fetcher.kline_model.timestamp = FakeTimeColumn("0")
+        db = make_db_klines([make_kline_row()])
+        result = fetcher._fetch_from_database(db, "BTCUSDT", "1h", start_time=1704067200000)
         assert result["success"] is True
+        filter_calls = db.query.return_value.filter.call_args_list
+        assert len(filter_calls) == 2
 
     def test_valid_start_time_applies_filter(self):
         fetcher = StubKlineFetcher()
@@ -344,6 +356,23 @@ class TestCryptoSpotFetch:
             result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h")
         assert result["message"] == "数据库和ccxt均未找到K线数据"
 
+    def test_end_time_window_served_as_is_without_ccxt(self):
+        # 回放切周期/补历史块是带 end_time 的历史窗口查询：窗口末根本来就早于当前时间，
+        # 即使按新鲜度口径「过期」，也必须按库内结果如实返回，禁止回源 ccxt 用最新数据顶替
+        fetcher = CryptoSpotKlineFetcher()
+        db_result = {
+            "success": True,
+            "message": "查询K线数据成功",
+            "kline_data": [{"timestamp": 1788825600000, "open": 1, "close": 1, "high": 1, "low": 1, "volume": 1}],
+        }
+        with (
+            patch.object(fetcher, "_fetch_from_database", return_value=db_result),
+            patch.object(fetcher, "_fetch_from_ccxt") as m_ccxt,
+        ):
+            result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h", end_time=1788825600000)
+        m_ccxt.assert_not_called()
+        assert result["kline_data"] == db_result["kline_data"]
+
 
 # =================== 合约 fetch ===================
 
@@ -376,6 +405,18 @@ class TestCryptoFutureFetch:
             result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h")
         assert result["message"] == "从ccxt获取K线数据成功"
         m_save.assert_called_once()
+
+    def test_end_time_empty_window_returns_empty_without_ccxt(self):
+        # 带 end_time 的历史窗口查询：库内没有就是没有，不得回源 ccxt 用最新数据顶替窗口语义
+        fetcher = CryptoFutureKlineFetcher()
+        db_result = {"success": True, "message": "查询K线数据成功", "kline_data": []}
+        with (
+            patch.object(fetcher, "_fetch_from_database", return_value=db_result),
+            patch.object(fetcher, "_fetch_from_ccxt") as m_ccxt,
+        ):
+            result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h", end_time=1788825600000)
+        m_ccxt.assert_not_called()
+        assert result["kline_data"] == []
 
 
 # =================== 工厂 ===================

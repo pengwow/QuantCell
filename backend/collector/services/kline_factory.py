@@ -16,6 +16,25 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
+def parse_kline_time_bound_ns(value: str | int, field_label: str) -> int:
+    """把 /klines 的时间过滤参数解析为纳秒时间戳。
+
+    兼容两种输入：
+    - 毫秒整数（或纯数字字符串）：直接换算纳秒，无时区换算（前端 klinecharts 时间戳即 UTC epoch ms）
+    - "YYYY-MM-DD HH:MM:SS" 字符串：维持既有 strptime 语义
+
+    解析失败抛 ValueError，由调用方显式报错——禁止静默忽略过滤条件
+    （曾导致前端传非法时间后返回全量数据，回放窗口错位且难排查）。
+    """
+    if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+        return int(value) * 1_000_000
+    try:
+        dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise ValueError(f"无效的{field_label}格式: {value}，应为 YYYY-MM-DD HH:MM:SS 或毫秒时间戳") from exc
+    return datetime_to_nanoseconds(dt)
+
+
 class KlineDataFetcher(ABC):
     """K线数据获取器抽象基类
 
@@ -28,9 +47,10 @@ class KlineDataFetcher(ABC):
         db: Session,
         symbol: str,
         interval: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
         """获取K线数据
 
@@ -38,9 +58,10 @@ class KlineDataFetcher(ABC):
             db: 数据库会话
             symbol: 交易商标识
             interval: 时间周期
-            start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
-            end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
+            start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳
+            end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳
             limit: 返回数据条数，默认5000条
+            order: 取数方向，asc=从窗口最早端取，desc=从最新端取（默认）；返回恒为升序
 
         Returns:
             Dict[str, Any]: 包含K线数据的字典，格式如下：
@@ -293,11 +314,16 @@ class BaseKlineFetcher(KlineDataFetcher):
         db: Session,
         symbol: str,
         interval: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
-        """从数据库获取K线数据的通用方法"""
+        """从数据库获取K线数据的通用方法
+
+        Args:
+            order: 取数方向，asc=窗口内从最早端取 limit 条，desc=从最新端取（默认，历史行为）
+        """
         if not self.kline_model:
             logger.error("未设置K线模型，无法从数据库获取数据")
             return {"success": False, "message": "未设置K线模型", "kline_data": []}
@@ -307,25 +333,28 @@ class BaseKlineFetcher(KlineDataFetcher):
             self.kline_model.symbol == symbol, self.kline_model.interval == interval
         )
 
-        # 处理时间过滤 (使用纳秒级时间戳)
+        # 处理时间过滤 (使用纳秒级时间戳)；格式非法直接失败，不再静默忽略
         if start_time:
             try:
-                start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-                start_ts_ns = datetime_to_nanoseconds(start_dt)
-                query = query.filter(self.kline_model.timestamp >= str(start_ts_ns))
-            except ValueError:
-                logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
+                start_ts_ns = parse_kline_time_bound_ns(start_time, "开始时间")
+            except ValueError as e:
+                return {"success": False, "message": str(e), "kline_data": []}
+            query = query.filter(self.kline_model.timestamp >= str(start_ts_ns))
 
         if end_time:
             try:
-                end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
-                end_ts_ns = datetime_to_nanoseconds(end_dt)
-                query = query.filter(self.kline_model.timestamp <= str(end_ts_ns))
-            except ValueError:
-                logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
+                end_ts_ns = parse_kline_time_bound_ns(end_time, "结束时间")
+            except ValueError as e:
+                return {"success": False, "message": str(e), "kline_data": []}
+            query = query.filter(self.kline_model.timestamp <= str(end_ts_ns))
 
-        # 按时间降序排序并限制数量
-        query = query.order_by(self.kline_model.timestamp.desc()).limit(limit)
+        # 时间窗口内从哪一端取 limit 条由 order 决定；返回给调用方恒为升序
+        if order == "asc":
+            query = query.order_by(self.kline_model.timestamp.asc()).limit(limit)
+            need_reverse = False
+        else:
+            query = query.order_by(self.kline_model.timestamp.desc()).limit(limit)
+            need_reverse = True
 
         # 执行查询
         klines = query.all()
@@ -350,7 +379,8 @@ class BaseKlineFetcher(KlineDataFetcher):
             )
 
         # 按时间升序返回
-        kline_data.reverse()
+        if need_reverse:
+            kline_data.reverse()
 
         return {"success": True, "message": "查询K线数据成功", "kline_data": kline_data}
 
@@ -367,16 +397,17 @@ class StockKlineFetcher(BaseKlineFetcher):
         db: Session,
         symbol: str,
         interval: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
         """获取股票K线数据"""
         logger.info(f"获取股票K线数据: symbol={symbol}, interval={interval}, limit={limit}")
 
         # 实现股票市场的K线数据获取逻辑
         # 这里复用现有的数据库查询逻辑
-        return self._fetch_from_database(db, symbol, interval, start_time, end_time, limit)
+        return self._fetch_from_database(db, symbol, interval, start_time, end_time, limit, order)
 
 
 class FuturesKlineFetcher(BaseKlineFetcher):
@@ -391,16 +422,17 @@ class FuturesKlineFetcher(BaseKlineFetcher):
         db: Session,
         symbol: str,
         interval: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
         """获取期货K线数据"""
         logger.info(f"获取期货K线数据: symbol={symbol}, interval={interval}, limit={limit}")
 
         # 实现期货市场的K线数据获取逻辑
         # 这里复用现有的数据库查询逻辑
-        return self._fetch_from_database(db, symbol, interval, start_time, end_time, limit)
+        return self._fetch_from_database(db, symbol, interval, start_time, end_time, limit, order)
 
 
 class CryptoSpotKlineFetcher(BaseKlineFetcher):
@@ -468,9 +500,10 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
         db: Session,
         symbol: str,
         interval: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
         """获取加密货币现货K线数据"""
         # 格式化symbol，移除斜杠等分隔符，转换为数据库存储格式（如BTC/USDT -> BTCUSDT）
@@ -480,7 +513,18 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
         )
         interval = interval.lower()
         # 首先从数据库获取K线数据
-        result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
+        result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit, order)
+
+        # 数据库明确失败（如时间格式非法）时直接返回，不走 ccxt 兜底
+        if not result["success"]:
+            return result
+
+        # 显式携带 end_time 的是历史窗口查询（如行情回放切周期、向前补历史块）：
+        # 窗口末根本来就应早于当前时间，若走下面的新鲜度检查判定「过期」再从 ccxt
+        # 拉「最新数据」整体替换，会把回放位置跳到当前时刻、覆盖 end_time 语义。
+        # 历史窗口一律按库内查询结果如实返回（有无数据皆然）。
+        if end_time is not None:
+            return result
 
         # 检查数据时效性
         data_expired = False
@@ -533,9 +577,10 @@ class CryptoFutureKlineFetcher(BaseKlineFetcher):
         db: Session,
         symbol: str,
         interval: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
         """获取加密货币合约K线数据"""
         # 格式化symbol，移除斜杠等分隔符，转换为数据库存储格式（如BTC/USDT -> BTCUSDT）
@@ -545,7 +590,16 @@ class CryptoFutureKlineFetcher(BaseKlineFetcher):
         )
         interval = interval.lower()
         # 首先从数据库获取K线数据
-        result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
+        result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit, order)
+
+        # 数据库明确失败（如时间格式非法）时直接返回，不走 ccxt 兜底
+        if not result["success"]:
+            return result
+
+        # 显式携带 end_time 的是历史窗口查询：库内没有该窗口数据就如实返回空，
+        # 不能用 ccxt 回源的「最新数据」顶替历史窗口（同现货实现处说明）
+        if end_time is not None:
+            return result
 
         # 检查数据库返回的K线数据是否为空
         if not result["kline_data"]:

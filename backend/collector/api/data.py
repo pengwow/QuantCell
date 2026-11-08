@@ -21,6 +21,7 @@ from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline
 from ..schemas import ApiResponse
 from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest
 from ..services import DataService
+from ..services.kline_factory import parse_kline_time_bound_ns
 from ..services.kline_health_service import KlineHealthChecker
 
 # 创建API路由实例
@@ -719,24 +720,32 @@ def get_klines(
         "spot",
         description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）",
     ),
-    start_time: str | None = Query(None, description="开始时间，格式YYYY-MM-DD HH:MM:SS"),
-    end_time: str | None = Query(None, description="结束时间，格式YYYY-MM-DD HH:MM:SS"),
+    start_time: str | int | None = Query(
+        None, description="开始时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳（行情回放用毫秒）"
+    ),
+    end_time: str | int | None = Query(None, description="结束时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳"),
     limit: int | None = Query(5000, ge=1, le=10000, description="返回数据条数，默认5000条"),
+    order: str = Query(
+        "desc",
+        pattern="^(asc|desc)$",
+        description="取数方向：asc=时间窗口内从最早端取limit条（行情回放分块用），desc=从最新端取（默认）；返回恒为升序",
+    ),
     db: Session = Depends(get_db),
 ):
     """获取K线数据
 
-    从数据库中查询指定交易对和周期的K线数据，支持不同市场类型
+    从数据库中查询指定交易对和周期的K线数据，支持不同市场类型。
+    时间参数非法（既不是毫秒时间戳也不是 YYYY-MM-DD HH:MM:SS）时返回 400，不再静默忽略。
 
     Args:
         symbol: 交易商标识
         interval: 时间周期，如5m、10m、1H、D等
         market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）
         crypto_type: 加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）
-        start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
-        end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
+        start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳
+        end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳
         limit: 返回数据条数，默认5000条
-        db: 数据库会话
+        order: 取数方向，asc=从窗口最早端取，desc=从最新端取（默认）
 
     Returns:
         ApiResponse: 包含K线数据的响应
@@ -759,6 +768,14 @@ def get_klines(
                     detail=f"无效的加密货币类型: {crypto_type}，可选值：{', '.join(valid_crypto_types)}",
                 )
 
+        # 时间参数预校验：非法格式立即 400（与 factory /kline_factory 的解析规则一致）
+        for field_label, field_value in (("开始时间", start_time), ("结束时间", end_time)):
+            if field_value:
+                try:
+                    parse_kline_time_bound_ns(field_value, field_label)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e)) from e
+
         data_service = DataService(db)
         result = data_service.get_kline_data(
             symbol=symbol,
@@ -768,6 +785,7 @@ def get_klines(
             start_time=start_time,
             end_time=end_time,
             limit=limit,
+            order=order,
         )
 
         if result["success"]:

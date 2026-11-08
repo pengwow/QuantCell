@@ -957,9 +957,10 @@ class DataService:
         interval: str,
         market_type: str = "crypto",
         crypto_type: str | None = "spot",
-        start_time: str | None = None,
-        end_time: str | None = None,
+        start_time: str | int | None = None,
+        end_time: str | int | None = None,
         limit: int | None = 5000,
+        order: str = "desc",
     ) -> dict[str, Any]:
         """获取K线数据
 
@@ -970,9 +971,10 @@ class DataService:
             interval: 时间周期
             market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币），默认crypto
             crypto_type: 加密货币类型，当market_type为crypto时必填，可选值：spot（现货）、future（合约），默认spot
-            start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
-            end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
+            start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳
+            end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS 或毫秒时间戳
             limit: 返回数量限制，默认5000条
+            order: 取数方向，asc=窗口内从最早端取（行情回放分块用），desc=从最新端取（默认）
 
         Returns:
             Dict[str, Any]: 包含K线数据的字典
@@ -982,7 +984,7 @@ class DataService:
             raise ValueError(msg)
 
         logger.info(
-            f"查询K线数据: symbol={symbol}, interval={interval}, market_type={market_type}, crypto_type={crypto_type}, start_time={start_time}, end_time={end_time}, limit={limit}"
+            f"查询K线数据: symbol={symbol}, interval={interval}, market_type={market_type}, crypto_type={crypto_type}, start_time={start_time}, end_time={end_time}, limit={limit}, order={order}"
         )
 
         # 导入K线数据工厂
@@ -1000,6 +1002,7 @@ class DataService:
                 start_time=start_time,
                 end_time=end_time,
                 limit=limit,
+                order=order,
             )
 
             logger.info(
