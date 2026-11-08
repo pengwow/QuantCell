@@ -96,7 +96,7 @@ function createBaseRoutes(): RouteObject[] {
         { path: '/research/:id', element: <ResearchDetail /> },
         { path: '/model-management', element: <ModelManagement /> },
         { path: '/data-management', element: <DataManagementPage /> },
-        { path: '/data-management/replay', element: <KlineReplayPage /> },
+        { path: '/data-management/market-replay', element: <KlineReplayPage /> },
         {
           path: '/setting',
           element: <Setting />,

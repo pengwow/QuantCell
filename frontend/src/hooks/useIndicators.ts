@@ -67,7 +67,8 @@ output = {
 }
 `;
 
-export const useIndicators = () => {
+// autoFetch=false 用于纯内置指标场景（如行情回放页）：跳过自定义指标列表请求
+export const useIndicators = (autoFetch = true) => {
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -251,8 +252,9 @@ export const useIndicators = () => {
   }, []);
 
   useEffect(() => {
+    if (!autoFetch) return;
     fetchIndicators();
-  }, [fetchIndicators]);
+  }, [autoFetch, fetchIndicators]);
 
   return {
     indicators,

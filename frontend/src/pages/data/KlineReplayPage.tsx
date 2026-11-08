@@ -1,727 +1,608 @@
 import { QUANT_COLORS } from '@/utils/colors';
 /**
- * K线数据回放页面
- * 功能：回放指定货币对的K线数据，支持播放控制、速度调节、时间范围选择
+ * 行情回放页：基于历史K线的「时间机器」——只喂给图表已播放的 bar，
+ * 指标在截断数组上计算，避免未来函数偷看。
+ * 数据按块游标加载（chunk=2000），前进预取 / 回退补块，支持超大历史窗口回放。
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
-  Card,
+  Alert,
+  App,
+  Badge,
   Button,
+  Card,
+  Col,
+  DatePicker,
+  Flex,
+  Form,
+  Input,
+  Row,
   Select,
   Slider,
   Space,
-  Row,
-  Col,
-  Statistic,
-  Spin,
-  Alert,
-  App,
-  DatePicker,
   Tooltip,
-  Badge,
 } from 'antd';
 import {
   CaretRightOutlined,
   PauseOutlined,
-  FastForwardOutlined,
-  StopOutlined,
-  StepForwardOutlined,
+  RollbackOutlined,
   StepBackwardOutlined,
-  ArrowLeftOutlined,
-  HistoryOutlined,
-  ClockCircleOutlined,
-  CalendarOutlined,
+  StepForwardOutlined,
 } from '@ant-design/icons';
-import { init, dispose } from 'klinecharts';
-import type { Chart, DataLoaderGetBarsParams } from 'klinecharts';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import type { KLineData } from 'klinecharts';
 import { dataApi } from '@/api/dataApi';
-import type { KlineData } from '@/types/data';
+import ChartShell, { type ChartShellHandle } from '@/components/chart/ChartShell';
+import { PERIOD_BAR_ITEMS } from '@/components/chart/chartConstants';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
 
-const { Option } = Select;
-const { RangePicker } = DatePicker;
-
-// 播放速度选项
-const SPEED_OPTIONS = [
-  { label: '0.5x', value: 0.5 },
-  { label: '1x', value: 1 },
-  { label: '2x', value: 2 },
-  { label: '5x', value: 5 },
-  { label: '10x', value: 10 },
-];
-
-// 时间周期选项
-const INTERVAL_OPTIONS = [
-  { label: '1分钟', value: '1m' },
-  { label: '5分钟', value: '5m' },
-  { label: '15分钟', value: '15m' },
-  { label: '1小时', value: '1h' },
-  { label: '4小时', value: '4h' },
-  { label: '1天', value: '1d' },
-];
-
-// 快进步长选项
-const FAST_FORWARD_STEPS = [
-  { label: '+10', value: 10 },
-  { label: '+50', value: 50 },
-  { label: '+100', value: 100 },
-];
-
-/**
- * 格式化时间戳
- */
-const formatTimestamp = (timestamp: number | string): string => {
-  if (!timestamp) return '-';
-  const ts = typeof timestamp === 'string' ? parseInt(timestamp) : timestamp;
-  if (isNaN(ts)) return '-';
-  return dayjs(ts).format('YYYY-MM-DD HH:mm:ss');
+// 回放配置：分块大小、预取比例、播放节奏与速度边界（播放间隔一律由此推算）
+const REPLAY_CONFIG = {
+  chunkSize: 2000, // 每块加载的 bar 数
+  prefetchRatio: 0.2, // 播到块尾前该比例处预取下一块；退到块头该比例处向前补块
+  baseIntervalMs: 500, // 1x 速度下每根 bar 的间隔
+  minSpeed: 0.25,
+  maxSpeed: 64,
+  stepMs: 1000, // 「跳到时间」输入为秒级精度（DatePicker showTime）
 };
 
-/**
- * 格式化K线数据为klinecharts需要的格式
- */
-const formatKlineData = (data: KlineData[]): KlineData[] => data;
+// 速度档位（2 的幂，min/max 之外不提供）
+const SPEED_STEPS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
 
-/**
- * 解析周期字符串
- */
-const parseInterval = (interval: string): { span: number; type: 'minute' | 'hour' | 'day' | 'week' } => {
-  const match = interval.match(/\d+/);
-  const span = match ? parseInt(match[0]) : 1;
-  const unit = interval.replace(/\d+/, '');
+// 回放偏好（品种 / 周期 / 起始时间），下次进入自动回填
+const LAST_KEY = 'qc:market-replay:last';
 
-  switch (unit.toLowerCase()) {
+const formatTs = (ts?: number) => (ts ? dayjs(ts).format('YYYY-MM-DD HH:mm:ss') : '-');
+
+// 周期字符串 → 毫秒（分块请求按相邻块时间衔接需要）
+const intervalToMs = (interval: string): number => {
+  const m = interval.match(/^(\d+)([mhdwMy])$/);
+  if (!m) return 60 * 60 * 1000;
+  const n = parseInt(m[1], 10);
+  switch (m[2]) {
     case 'm':
-      return { span, type: 'minute' as const };
+      return n * 60_000;
     case 'h':
-      return { span, type: 'hour' as const };
+      return n * 3_600_000;
     case 'd':
-      return { span, type: 'day' as const };
+      return n * 86_400_000;
     case 'w':
-      return { span, type: 'week' as const };
+      return n * 7 * 86_400_000;
+    case 'M':
+      return n * 30 * 86_400_000;
+    case 'y':
+      return n * 365 * 86_400_000;
     default:
-      return { span: 15, type: 'minute' as const };
+      return 60 * 60 * 1000;
   }
 };
 
-interface KlineReplayPageProps {
+// 二分查找第一个 timestamp >= ts 的下标（「跳到时间」用）
+const lowerBound = (bars: KLineData[], ts: number): number => {
+  let lo = 0;
+  let hi = bars.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].timestamp < ts) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+};
+
+interface ReplayParams {
   symbol?: string;
+  startDate?: Dayjs | null;
 }
 
-const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
+const KlineReplayPage: React.FC = () => {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const location = useLocation();
 
-  // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('kline_replay') || 'K线回放');
+    setPageTitle(t('market_replay') || '行情回放');
   }, [t]);
 
-  // 从查询参数中获取货币对
-  const queryParams = new URLSearchParams(location.search);
-  const symbol = queryParams.get('symbol') || '';
+  const shellRef = useRef<ChartShellHandle>(null);
 
-  // 从路由状态中获取返回信息
-  const returnState = location.state as {
-    returnPath?: string;
-    returnSearch?: string;
-    pageState?: Record<string, unknown>;
-  } | null;
+  // ===== 启动表单 =====
+  const [form] = Form.useForm();
 
-  // K线数据
-  const [klines, setKlines] = useState<KlineData[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  // ===== 会话状态 =====
+  const [started, setStarted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [period, setPeriod] = useState('1h');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // 回放控制状态
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [playSpeed, setPlaySpeed] = useState<number>(1);
-  const [fastForwardStep, setFastForwardStep] = useState<number>(10);
+  // ===== 播放状态 =====
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [barsCount, setBarsCount] = useState(0);
+  const [atStart, setAtStart] = useState(false); // 左侧已无更早数据
+  const [atEnd, setAtEnd] = useState(false); // 右侧已无更多数据
 
-  // 时间范围设置
-  const [interval, setInterval] = useState<string>('1h');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  // ===== 游标引用（播放引擎读 ref，避免闭包过期）=====
+  const barsRef = useRef<KLineData[]>([]);
+  const indexRef = useRef(0);
+  const periodSwitchingRef = useRef(false); // 周期切换防连点：请求在途时忽略周期栏点击
+  const playingRef = useRef(false);
+  const speedRef = useRef(1);
+  const rafRef = useRef(0);
+  const lastFrameRef = useRef(0);
+  const accumRef = useRef(0); // 距上一整根 bar 的播放进度余数
+  const chunkLoadingRef = useRef(false);
+  const pastExhaustedRef = useRef(false); // 前面（更早）没有数据
+  const futureExhaustedRef = useRef(false); // 后面没有更多数据
+  const symbolRef = useRef(symbol);
+  const periodRef = useRef(period);
+  const intervalMsRef = useRef(60 * 60 * 1000);
 
-  // 图表引用
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<Chart | null>(null);
-  const playTimerRef = useRef<number | null>(null);
+  symbolRef.current = symbol;
+  periodRef.current = period;
+  intervalMsRef.current = intervalToMs(period);
 
-  // 统计数据
-  const [stats, setStats] = useState({
-    totalKlines: 0,
-    startTime: '',
-    endTime: '',
-    highestPrice: 0,
-    lowestPrice: 0,
-    totalVolume: 0,
-  });
+  // 统一喂数：图表读 barsRef 截断到当前索引；本地指标在截断数组上重算
+  const feed = useCallback(() => {
+    shellRef.current?.refreshData();
+    shellRef.current?.recalculateIndicators();
+  }, []);
 
-  /**
-   * 加载K线数据
-   */
-  const loadKlines = useCallback(async () => {
-    if (!symbol) return;
+  // 拉一块数据：order=asc 从 start 向后取，order=desc 从 end 向前取；后端返回恒为升序
+  const fetchChunk = useCallback(
+    async (sym: string, per: string, opts: { startMs?: number; endMs?: number }) => {
+      const resp = await dataApi.getKlines({
+        symbol: sym,
+        interval: per,
+        limit: REPLAY_CONFIG.chunkSize,
+        ...(opts.startMs !== undefined
+          ? { start_time: opts.startMs, order: 'asc' }
+          : { end_time: opts.endMs, order: 'desc' }),
+      });
+      const raw = Array.isArray(resp) ? resp : resp.data ?? resp.klines ?? [];
+      return raw as KLineData[];
+    },
+    []
+  );
 
-    setLoading(true);
-    setError(null);
+  // 设置当前索引（含进度状态推导），不喂数——由调用方决定是否 feed
+  const applyIndex = useCallback((idx: number) => {
+    const bars = barsRef.current;
+    const clamped = Math.max(0, Math.min(idx, bars.length - 1));
+    indexRef.current = clamped;
+    setCurrentIndex(clamped);
+    setAtStart(clamped === 0 && pastExhaustedRef.current);
+  }, []);
 
+  // 向前预取：播到块尾前 prefetchRatio 时加载下一块
+  const maybePrefetchNext = useCallback(async () => {
+    const bars = barsRef.current;
+    if (futureExhaustedRef.current || chunkLoadingRef.current || bars.length === 0) return;
+    if (indexRef.current < bars.length - Math.ceil(REPLAY_CONFIG.chunkSize * REPLAY_CONFIG.prefetchRatio))
+      return;
+    chunkLoadingRef.current = true;
     try {
-      const params: Record<string, unknown> = {
-        symbol,
-        interval,
-        limit: 1000,
-      };
-
-      if (dateRange && dateRange[0] && dateRange[1]) {
-        params.start_time = dateRange[0].valueOf();
-        params.end_time = dateRange[1].valueOf();
-      }
-
-      const response = await dataApi.getKlines(params);
-      // 支持直接数组 / { data } / { klines } 三种返回格式
-      const rawData = Array.isArray(response) ? response : response.data ?? response.klines;
-      const data = formatKlineData(rawData ?? []);
-
-      if (data.length === 0) {
-        setError('未找到K线数据');
-        setKlines([]);
+      const next = await fetchChunk(symbolRef.current, periodRef.current, {
+        startMs: bars[bars.length - 1].timestamp + intervalMsRef.current,
+      });
+      if (next.length === 0) {
+        futureExhaustedRef.current = true;
+        setAtEnd(true);
         return;
       }
-
-      setKlines(data);
-      setCurrentIndex(0);
-
-      // 计算统计数据
-      const prices = data.flatMap((k) => [k.high, k.low]);
-      const volumes = data.map((k) => k.volume || 0);
-
-      setStats({
-        totalKlines: data.length,
-        startTime: formatTimestamp(data[0]?.timestamp),
-        endTime: formatTimestamp(data[data.length - 1]?.timestamp),
-        highestPrice: Math.max(...prices),
-        lowestPrice: Math.min(...prices),
-        totalVolume: volumes.reduce((a, b) => a + b, 0),
-      });
+      barsRef.current = [...bars, ...next];
+      setBarsCount(barsRef.current.length);
+      if (next.length < REPLAY_CONFIG.chunkSize) {
+        futureExhaustedRef.current = true;
+        setAtEnd(true);
+      }
     } catch (err) {
-      console.error('加载K线数据失败:', err);
-      setError('加载K线数据失败，请稍后重试');
-      message.error('加载K线数据失败');
+      // 分块拉取失败不中断播放，只提示；下个预取窗口会重试
+      console.error('预取下一块失败:', err);
     } finally {
-      setLoading(false);
+      chunkLoadingRef.current = false;
     }
-  }, [symbol, interval, dateRange, message]);
+  }, [fetchChunk]);
 
-  /**
-   * 初始化图表
-   */
-  const initChart = useCallback(() => {
-    if (!chartRef.current || klines.length === 0) return;
-
-    // 清理旧图表
-    if (chartInstance.current) {
-      dispose(chartRef.current);
-      chartInstance.current = null;
-    }
-
+  // 向前补块：退到块头 prefetchRatio 内且更早还有数据时，往前补一块并平移索引
+  const maybeFillPast = useCallback(async () => {
+    const bars = barsRef.current;
+    if (pastExhaustedRef.current || chunkLoadingRef.current || bars.length === 0) return;
+    if (indexRef.current >= Math.ceil(REPLAY_CONFIG.chunkSize * REPLAY_CONFIG.prefetchRatio)) return;
+    chunkLoadingRef.current = true;
     try {
-      const chart = init(chartRef.current, {
-        locale: 'zh-CN',
-        styles: {
-          candle: {
-            tooltip: {
-              showRule: 'always',
-              showType: 'standard',
-            },
-          },
-        },
+      const prev = await fetchChunk(symbolRef.current, periodRef.current, {
+        endMs: bars[0].timestamp - 1,
       });
-
-      chartInstance.current = chart;
-
-      if (chart) {
-        // 设置货币对
-        chart.setSymbol({
-          ticker: symbol,
-          name: symbol,
-        });
-
-        // 设置周期
-        const periodInfo = parseInterval(interval);
-        chart.setPeriod(periodInfo);
-
-        // 设置初始数据
-        updateChartDisplay(0);
-
-        // 调整大小
-        chart.resize();
+      if (prev.length === 0) {
+        pastExhaustedRef.current = true;
+        setAtStart(true);
+        return;
       }
-    } catch (error) {
-      console.error('初始化图表失败:', error);
+      barsRef.current = [...prev, ...bars];
+      indexRef.current += prev.length;
+      setCurrentIndex(indexRef.current);
+      setBarsCount(barsRef.current.length);
+      if (prev.length < REPLAY_CONFIG.chunkSize) {
+        pastExhaustedRef.current = true;
+        setAtStart(true);
+      }
+      feed(); // 前插完成：窗口起点变了，必须重新喂数刷新图表
+    } catch (err) {
+      console.error('补历史块失败:', err);
+    } finally {
+      chunkLoadingRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [klines, symbol, interval]);
+  }, [fetchChunk, feed]);
 
-  /**
-   * 更新图表显示
-   */
-  const updateChartDisplay = useCallback(
-    (index: number) => {
-      const chart = chartInstance.current;
-      if (!chart || klines.length === 0) return;
-
-      try {
-        // 显示从开头到当前索引的数据
-        // 项目 KlineData 与 klinecharts 的 KLineData 类型索引签名不同，需逐字段映射
-        const visibleKlines = klines.slice(0, index + 1).map((k) => ({
-          timestamp: k.timestamp,
-          open: k.open,
-          high: k.high,
-          low: k.low,
-          close: k.close,
-          volume: k.volume,
-        }));
-
-        chart.setDataLoader({
-          getBars: (params: DataLoaderGetBarsParams) => {
-            params.callback(visibleKlines);
-          },
-        });
-
-        chart.resize();
-      } catch (error) {
-        console.error('更新图表显示失败:', error);
-      }
-    },
-    [klines]
-  );
-
-  /**
-   * 播放控制
-   */
-  const handlePlay = useCallback(() => {
-    if (klines.length === 0) return;
-
-    setIsPlaying(true);
-    playTimerRef.current = window.setInterval(() => {
-      setCurrentIndex((prev) => {
-        if (prev >= klines.length - 1) {
-          handlePause();
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 500 / playSpeed);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [klines.length, playSpeed]);
-
-  /**
-   * 暂停播放
-   */
-  const handlePause = useCallback(() => {
+  const pause = useCallback(() => {
+    playingRef.current = false;
+    accumRef.current = 0;
     setIsPlaying(false);
-    if (playTimerRef.current) {
-      window.clearInterval(playTimerRef.current);
-      playTimerRef.current = null;
-    }
   }, []);
 
-  /**
-   * 停止并重置
-   */
-  const handleStop = useCallback(() => {
-    handlePause();
-    setCurrentIndex(0);
-  }, [handlePause]);
-
-  /**
-   * 单步前进
-   */
-  const handleStepForward = useCallback(() => {
-    setCurrentIndex((prev) => Math.min(prev + 1, klines.length - 1));
-  }, [klines.length]);
-
-  /**
-   * 单步后退
-   */
-  const handleStepBackward = useCallback(() => {
-    setCurrentIndex((prev) => Math.max(prev - 1, 0));
-  }, []);
-
-  /**
-   * 快进
-   */
-  const handleFastForward = useCallback(() => {
-    setCurrentIndex((prev) => Math.min(prev + fastForwardStep, klines.length - 1));
-  }, [fastForwardStep, klines.length]);
-
-  /**
-   * 快退
-   */
-  const handleFastBackward = useCallback(() => {
-    setCurrentIndex((prev) => Math.max(prev - fastForwardStep, 0));
-  }, [fastForwardStep]);
-
-  /**
-   * 改变播放速度
-   */
-  const handleSpeedChange = useCallback(
-    (value: number) => {
-      setPlaySpeed(value);
-      if (isPlaying) {
-        handlePause();
-        setTimeout(() => {
-          handlePlay();
-        }, 0);
+  // 前进 n 根：clamp、到尽头自动暂停、触发预取
+  const advanceBy = useCallback(
+    (n: number) => {
+      const bars = barsRef.current;
+      if (bars.length === 0) return;
+      const target = indexRef.current + n;
+      if (n > 0 && target >= bars.length - 1) {
+        applyIndex(bars.length - 1);
+        if (futureExhaustedRef.current) {
+          pause();
+        } else {
+          void maybePrefetchNext();
+        }
+        return;
       }
+      applyIndex(target);
+      if (n > 0) {
+        void maybePrefetchNext();
+      } else {
+        void maybeFillPast(); // 后退到块头附近时向前补块
+      }
+      feed();
     },
-    [isPlaying, handlePause, handlePlay]
+    [applyIndex, feed, maybeFillPast, maybePrefetchNext, pause]
   );
 
-  /**
-   * 进度条变化
-   */
-  const handleProgressChange = useCallback((value: number) => {
-    setCurrentIndex(value);
-  }, []);
-
-  /**
-   * 返回数据管理页面
-   */
-  const handleBack = useCallback(() => {
-    if (returnState?.returnPath) {
-      // 使用保存的状态返回
-      navigate(returnState.returnPath + (returnState.returnSearch || ''), {
-        state: { pageState: returnState.pageState },
-      });
-    } else {
-      navigate('/data-management');
-    }
-  }, [navigate, returnState]);
-
-  /**
-   * 处理时间范围变化
-   */
-  const handleDateRangeChange = useCallback((dates: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null) => {
-    // RangePicker 允许选择范围内的单个值为 null，仅当两端都有值时更新
-    setDateRange(dates && dates[0] && dates[1] ? [dates[0], dates[1]] : null);
-  }, []);
-
-  /**
-   * 处理周期变化
-   */
-  const handleIntervalChange = useCallback((value: string) => {
-    setInterval(value);
-  }, []);
-
-  // 组件挂载时加载数据
-  useEffect(() => {
-    loadKlines();
-  }, [loadKlines]);
-
-  // 数据加载完成后初始化图表
-  useEffect(() => {
-    if (klines.length > 0 && chartRef.current) {
-      initChart();
-    }
-  }, [klines, initChart]);
-
-  // 当前索引变化时更新图表
-  useEffect(() => {
-    if (klines.length > 0) {
-      updateChartDisplay(currentIndex);
-    }
-  }, [currentIndex, klines.length, updateChartDisplay]);
-
-  // 组件卸载时清理
-  useEffect(() => {
-    return () => {
-      if (playTimerRef.current) {
-        window.clearInterval(playTimerRef.current);
+  // 播放引擎：rAF 时间积累器，速度变化只影响推进速率、不重置位置
+  const tick = useCallback(
+    (now: number) => {
+      if (playingRef.current) {
+        const dt = lastFrameRef.current > 0 ? now - lastFrameRef.current : 0;
+        if (dt > 0) {
+          accumRef.current += (dt * speedRef.current) / REPLAY_CONFIG.baseIntervalMs;
+          const whole = Math.floor(accumRef.current);
+          if (whole > 0) {
+            accumRef.current -= whole;
+            advanceBy(whole);
+          }
+        }
       }
-      // chart 实例在 init 后写入 ref，卸载时必须读取最新引用；
-      // 若在 effect 体内快照将始终为 null（挂载时图表尚未创建）导致泄漏
-      if (chartRef.current) {
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- 卸载时读取最新 ref 是有意为之
-        dispose(chartRef.current);
-      }
-    };
+      lastFrameRef.current = now;
+      rafRef.current = requestAnimationFrame(tick);
+    },
+    [advanceBy]
+  );
+
+  useEffect(() => {
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [tick]);
+
+  const handlePlay = useCallback(() => {
+    if (barsRef.current.length === 0) return;
+    playingRef.current = true;
+    lastFrameRef.current = 0;
+    accumRef.current = 0;
+    setIsPlaying(true);
   }, []);
 
-  // 渲染加载状态
-  if (loading) {
-    return (
-      <PageContainer title="K线回放">
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '100px 0' }}>
-          <Spin size="large" tip="加载K线数据中..." />
-        </div>
-      </PageContainer>
-    );
-  }
+  const handleStep = useCallback(
+    (delta: number) => {
+      pause();
+      advanceBy(delta);
+    },
+    [advanceBy, pause]
+  );
 
-  // 渲染错误状态
-  if (error) {
-    return (
-      <PageContainer title="K线回放">
-        <Card>
-          <Alert
-            title="加载失败"
-            description={error}
-            type="error"
-            showIcon
-            action={
-              <Button type="primary" onClick={loadKlines}>
-                重试
-              </Button>
-            }
-          />
-          <div style={{ marginTop: 16 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>
-              返回数据管理
-            </Button>
-          </div>
-        </Card>
-      </PageContainer>
-    );
-  }
+  const handleSeekIndex = useCallback(
+    (idx: number) => {
+      pause();
+      applyIndex(idx);
+      void maybeFillPast();
+      feed();
+    },
+    [applyIndex, feed, maybeFillPast, pause]
+  );
+
+  // 跳到时间：仅在已加载窗口内定位（窗口数据随播放/预取扩展）
+  const handleSeekTime = useCallback(
+    (value: Dayjs | null) => {
+      if (!value) return;
+      const bars = barsRef.current;
+      if (bars.length === 0) return;
+      const ts = value.valueOf();
+      if (ts < bars[0].timestamp || ts > bars[bars.length - 1].timestamp) {
+        message.info(`目标时间需在 ${formatTs(bars[0].timestamp)} ~ ${formatTs(bars[bars.length - 1].timestamp)} 范围内（随回放扩展）`);
+        return;
+      }
+      handleSeekIndex(lowerBound(bars, ts));
+    },
+    [handleSeekIndex, message]
+  );
+
+  const handleChangeSpeed = useCallback((v: number) => {
+    speedRef.current = v;
+    setSpeed(v);
+  }, []);
+
+  // 启动回放：从起始时间起拉第一块；周期取上次偏好/URL 值（进图后顶部可随时切，不再预选）
+  const startReplay = useCallback(
+    async (p: ReplayParams) => {
+      const sym = (p.symbol ?? '').trim();
+      const per = periodRef.current;
+      const startDate = p.startDate ?? null;
+      if (!sym) {
+        message.warning('请输入品种');
+        return;
+      }
+      if (!startDate) {
+        message.warning('请选择起始时间');
+        return;
+      }
+      pause();
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const startMs = startDate.valueOf();
+        const chunk = await fetchChunk(sym, per, { startMs });
+        if (chunk.length === 0) {
+          setLoadError(`起始时间 ${formatTs(startMs)} 之后没有 ${sym} 的数据`);
+          return;
+        }
+        barsRef.current = chunk;
+        pastExhaustedRef.current = false;
+        futureExhaustedRef.current = chunk.length < REPLAY_CONFIG.chunkSize;
+        indexRef.current = 0;
+        setCurrentIndex(0);
+        setBarsCount(chunk.length);
+        setAtStart(false);
+        setAtEnd(futureExhaustedRef.current);
+        setSymbol(sym);
+        setPeriod(per);
+        setStarted(true);
+        // 记住偏好，下次进入自动回填
+        try {
+          localStorage.setItem(LAST_KEY, JSON.stringify({ symbol: sym, period: per, startMs }));
+        } catch {
+          // 隐私模式等写入失败可忽略
+        }
+      } catch (err) {
+        console.error('启动回放失败:', err);
+        setLoadError('加载数据失败，请稍后重试');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchChunk, message, pause]
+  );
+
+  // 回放中切换周期（无缝衔接）：以「当前播放时刻」为新周期窗口的尾部向后拉一块，
+  // 索引移到窗口最后一根——旧 bar 在新数据就位前一直显示，图表无空白，
+  // 切换后与原时刻对齐继续播放（同 TradingView 切周期语义），前进/后退均可用
+  const handleChangePeriod = useCallback(
+    async (next: string) => {
+      if (!started) {
+        setPeriod(next);
+        return;
+      }
+      if (next === periodRef.current || periodSwitchingRef.current) return;
+      const wasPlaying = playingRef.current;
+      pause();
+      const bars = barsRef.current;
+      if (bars.length === 0) {
+        setPeriod(next);
+        return;
+      }
+      periodSwitchingRef.current = true;
+      try {
+        const chunk = await fetchChunk(symbolRef.current, next, {
+          endMs: bars[indexRef.current].timestamp,
+        });
+        if (chunk.length === 0) {
+          message.warning(`该时刻之前没有 ${symbolRef.current} 的 ${next} 数据`);
+          return;
+        }
+        barsRef.current = chunk;
+        pastExhaustedRef.current = chunk.length < REPLAY_CONFIG.chunkSize;
+        // 新窗口尾部是「当前时刻」，其后是否还有数据由预取判定
+        futureExhaustedRef.current = false;
+        indexRef.current = chunk.length - 1;
+        setCurrentIndex(chunk.length - 1);
+        setBarsCount(chunk.length);
+        setAtStart(pastExhaustedRef.current);
+        setAtEnd(false);
+        setPeriod(next);
+        feed();
+        if (wasPlaying) handlePlay(); // 播放中切换 → 数据就位后无缝继续
+      } catch (err) {
+        console.error('切换周期失败:', err);
+        message.error('切换周期失败，请稍后重试');
+      } finally {
+        periodSwitchingRef.current = false;
+      }
+    },
+    [fetchChunk, feed, handlePlay, message, pause, started]
+  );
+
+  // 表单初始值：URL 参数 > 本地偏好 > 默认
+  useEffect(() => {
+    const qs = new URLSearchParams(location.search);
+    let last: { symbol?: string; period?: string; startMs?: number } | null = null;
+    try {
+      last = JSON.parse(localStorage.getItem(LAST_KEY) || 'null');
+    } catch {
+      last = null;
+    }
+    const initSymbol = qs.get('symbol') || last?.symbol || 'BTCUSDT';
+    const initPeriod = qs.get('interval') || last?.period || '1h';
+    form.setFieldsValue({
+      symbol: initSymbol,
+      startDate: last?.startMs ? dayjs(last.startMs) : undefined,
+    });
+    setSymbol(initSymbol);
+    setPeriod(initPeriod);
+    // 仅在挂载时初始化一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 播放进度显示
+  const progressTooltip = useMemo(
+    () => (v?: number) => formatTs(barsRef.current[v ?? 0]?.timestamp),
+    []
+  );
 
   return (
-    <PageContainer title={`K线回放 - ${symbol} (${interval})`}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* 控制栏 */}
-        <Card size="small" title="回放控制">
-          <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-            {/* 第一行：时间范围和周期选择 */}
-            <Row align="middle" gutter={[16, 16]}>
-              <Col xs={24} lg={12} xl={10}>
-                <Space wrap>
-                  <CalendarOutlined />
-                  <span>时间范围:</span>
-                  <RangePicker
-                    showTime
-                    value={dateRange}
-                    onChange={handleDateRangeChange}
-                    style={{ width: '100%', maxWidth: 320 }}
-                    disabled={isPlaying}
-                  />
-                </Space>
-              </Col>
-              <Col xs={12} sm={8} lg={6} xl={5}>
-                <Space>
-                  <ClockCircleOutlined />
-                  <span>周期:</span>
-                  <Select
-                    value={interval}
-                    onChange={handleIntervalChange}
-                    style={{ width: 100 }}
-                    disabled={isPlaying}
-                  >
-                    {INTERVAL_OPTIONS.map((opt) => (
-                      <Option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </Option>
-                    ))}
-                  </Select>
-                </Space>
-              </Col>
-              <Col xs={12} sm={16} lg={6} xl={9}>
-                <Space wrap>
-                  <Button type="primary" onClick={loadKlines} disabled={isPlaying}>
-                    加载数据
-                  </Button>
-                  <Button onClick={handleBack} icon={<ArrowLeftOutlined />}>
-                    返回
-                  </Button>
-                </Space>
-              </Col>
-            </Row>
-
-            {/* 第二行：播放控制按钮 */}
-            <Row align="middle" gutter={[16, 16]} wrap>
-              <Col xs={24} sm={12} lg="auto">
-                <Space wrap>
-                  <Tooltip title="单步后退">
-                    <Button
-                      icon={<StepBackwardOutlined />}
-                      onClick={handleStepBackward}
-                      disabled={currentIndex === 0 || isPlaying}
-                    />
-                  </Tooltip>
-                  <Tooltip title={isPlaying ? '暂停' : '播放'}>
+    <PageContainer title={t('market_replay') || '行情回放'}>
+      {!started ? (
+        <Card title="启动回放" style={{ maxWidth: 720 }}>
+          <Alert
+            type="info"
+            showIcon
+            message="从指定品种与起始时间开始，逐根回放历史K线；指标只在已播放数据上计算"
+            style={{ marginBottom: 16 }}
+          />
+          {loadError && (
+            <Alert type="error" showIcon message={loadError} style={{ marginBottom: 16 }} />
+          )}
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={(v) => startReplay({ symbol: v.symbol, startDate: v.startDate })}
+          >
+            <Form.Item
+              name="symbol"
+              label="品种"
+              rules={[{ required: true, message: '请输入品种，如 BTCUSDT' }]}
+            >
+              <Input placeholder="BTCUSDT" allowClear />
+            </Form.Item>
+            <Form.Item
+              name="startDate"
+              label="起始时间"
+              rules={[{ required: true, message: '请选择回放起始时间' }]}
+            >
+              <DatePicker showTime style={{ width: '100%' }} placeholder="从此时间开始回放" />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              开始回放
+            </Button>
+          </Form>
+        </Card>
+      ) : (
+        <Flex
+          vertical
+          gap={16}
+          style={{ display: 'flex', width: '100%', height: 'calc(100vh - 88px)' }}
+        >
+          {/* 高度 88px = PageContainer 上下内边距 py-4(32) + 标题 h1(32) + mb-6(24)，
+              整页恰好占满视口无滚动；图表区 flex:1 自动吃掉剩余高度，底部不留白 */}
+          <Card size="small">
+            <Space orientation="vertical" size="small" style={{ display: 'flex', width: '100%' }}>
+              <Row align="middle" gutter={[12, 12]}>
+                <Col>
+                  <Space>
+                    <Tooltip title="单步后退">
+                      <Button icon={<StepBackwardOutlined />} onClick={() => handleStep(-1)} disabled={atStart && currentIndex === 0} />
+                    </Tooltip>
                     <Button
                       type="primary"
                       icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
-                      onClick={isPlaying ? handlePause : handlePlay}
-                      disabled={klines.length === 0}
+                      onClick={() => (isPlaying ? pause() : handlePlay())}
                     >
                       {isPlaying ? '暂停' : '播放'}
                     </Button>
-                  </Tooltip>
-                  <Tooltip title="停止并重置">
-                    <Button
-                      icon={<StopOutlined />}
-                      onClick={handleStop}
-                      disabled={currentIndex === 0 || klines.length === 0}
-                    >
-                      终止
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title="单步前进">
-                    <Button
-                      icon={<StepForwardOutlined />}
-                      onClick={handleStepForward}
-                      disabled={currentIndex >= klines.length - 1 || isPlaying}
+                    <Tooltip title="单步前进">
+                      <Button icon={<StepForwardOutlined />} onClick={() => handleStep(1)} disabled={atEnd && currentIndex >= barsCount - 1} />
+                    </Tooltip>
+                    <Tooltip title="回到本窗口最早时间">
+                      <Button icon={<RollbackOutlined />} onClick={() => handleSeekIndex(0)} disabled={currentIndex === 0} />
+                    </Tooltip>
+                  </Space>
+                </Col>
+                <Col>
+                  <Space>
+                    <span>速度</span>
+                    <Select
+                      value={speed}
+                      onChange={handleChangeSpeed}
+                      style={{ width: 90 }}
+                      options={SPEED_STEPS.filter(
+                        (s) => s >= REPLAY_CONFIG.minSpeed && s <= REPLAY_CONFIG.maxSpeed
+                      ).map((s) => ({ label: `${s}x`, value: s }))}
                     />
-                  </Tooltip>
-                </Space>
-              </Col>
-              <Col xs={24} sm={12} lg="auto">
-                <Space wrap>
-                  <Tooltip title="快退">
-                    <Button
-                      icon={<FastForwardOutlined style={{ transform: 'rotate(180deg)' }} />}
-                      onClick={handleFastBackward}
-                      disabled={currentIndex === 0 || klines.length === 0}
-                    >
-                      快退
-                    </Button>
-                  </Tooltip>
-                  <Select
-                    value={fastForwardStep}
-                    onChange={setFastForwardStep}
-                    style={{ width: 80 }}
-                    disabled={isPlaying}
-                  >
-                    {FAST_FORWARD_STEPS.map((opt) => (
-                      <Option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </Option>
-                    ))}
-                  </Select>
-                  <Tooltip title="快进">
-                    <Button
-                      icon={<FastForwardOutlined />}
-                      onClick={handleFastForward}
-                      disabled={currentIndex >= klines.length - 1 || klines.length === 0}
-                    >
-                      快进
-                    </Button>
-                  </Tooltip>
-                </Space>
-              </Col>
-              <Col>
-                <Space>
-                  <span>播放速度:</span>
-                  <Select
-                    value={playSpeed}
-                    onChange={handleSpeedChange}
-                    style={{ width: 90 }}
-                  >
-                    {SPEED_OPTIONS.map((opt) => (
-                      <Option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </Option>
-                    ))}
-                  </Select>
-                </Space>
-              </Col>
-            </Row>
-
-            {/* 第三行：进度条 */}
-            <Row align="middle">
-              <Col flex="none">
-                <Badge
-                  count={`${currentIndex + 1} / ${klines.length}`}
-                  style={{ backgroundColor: QUANT_COLORS.info }}
-                />
-              </Col>
-              <Col flex="auto" style={{ padding: '0 16px' }}>
-                <Slider
-                  min={0}
-                  max={Math.max(klines.length - 1, 0)}
-                  value={currentIndex}
-                  onChange={handleProgressChange}
-                  disabled={klines.length === 0}
-                  tooltip={{
-                    formatter: (value) => formatTimestamp(klines[value || 0]?.timestamp),
-                  }}
-                />
-              </Col>
-              <Col flex="none">
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {formatTimestamp(klines[currentIndex]?.timestamp)}
-                </Text>
-              </Col>
-            </Row>
-          </Space>
-        </Card>
-
-        {/* 统计信息 */}
-        {klines.length > 0 && (
-          <Card size="small">
-            <Row gutter={[16, 16]}>
-              <Col xs={12} sm={6} md={4}>
-                <Statistic
-                  title="总K线数"
-                  value={stats.totalKlines}
-                  prefix={<HistoryOutlined />}
-                />
-              </Col>
-              <Col xs={12} sm={6} md={5}>
-                <Statistic title="开始时间" value={stats.startTime} />
-              </Col>
-              <Col xs={12} sm={6} md={5}>
-                <Statistic title="结束时间" value={stats.endTime} />
-              </Col>
-              <Col xs={12} sm={6} md={4}>
-                <Statistic
-                  title="最高价"
-                  value={stats.highestPrice}
-                  precision={2}
-                  styles={{ content: { color: QUANT_COLORS.positive } }}
-                />
-              </Col>
-              <Col xs={12} sm={6} md={4}>
-                <Statistic
-                  title="最低价"
-                  value={stats.lowestPrice}
-                  precision={2}
-                  styles={{ content: { color: QUANT_COLORS.negative } }}
-                />
-              </Col>
-              <Col xs={12} sm={6} md={2}>
-                <Statistic title="总成交量" value={stats.totalVolume.toFixed(0)} />
-              </Col>
-            </Row>
+                  </Space>
+                </Col>
+                <Col>
+                  <Space>
+                    <span>跳到时间</span>
+                    <DatePicker showTime onChange={handleSeekTime} placeholder="秒级定位" />
+                  </Space>
+                </Col>
+              </Row>
+              <Row align="middle" gutter={[12, 12]}>
+                <Col flex="none">
+                  <Badge
+                    count={`${currentIndex + 1} / ${barsCount}`}
+                    style={{ backgroundColor: QUANT_COLORS.info }}
+                  />
+                </Col>
+                <Col flex="auto" style={{ padding: '0 12px' }}>
+                  <Slider
+                    min={0}
+                    max={Math.max(barsCount - 1, 0)}
+                    value={currentIndex}
+                    onChange={handleSeekIndex}
+                    tooltip={{ formatter: progressTooltip }}
+                  />
+                </Col>
+                <Col flex="none">
+                  <span style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
+                    {formatTs(barsRef.current[currentIndex]?.timestamp)}
+                  </span>
+                </Col>
+              </Row>
+            </Space>
           </Card>
-        )}
-
-        {/* 图表区域 */}
-        <Card styles={{ body: { padding: 0 } }}>
-          <div
-            ref={chartRef}
-            style={{
-              width: '100%',
-              height: '500px',
-              minHeight: '400px',
-            }}
-          />
-        </Card>
-      </div>
+          {/* flex:1 替代固定 calc(100vh - 320px)：控制卡高度变化时图表自动吃掉剩余视口，底部无空白带；
+              replay-chart-shell 供 ChartPage.css 把图表主体拉到侧边栏边缘而周期栏保持缩进 */}
+          <div className="replay-chart-shell" style={{ flex: 1, minHeight: 480 }}>
+            <ChartShell
+              ref={shellRef}
+              chartId="market-replay-k-line"
+              symbol={{ code: symbol }}
+              periods={PERIOD_BAR_ITEMS}
+              currentPeriod={period}
+              onChangePeriod={handleChangePeriod}
+              getBars={() => barsRef.current.slice(0, indexRef.current + 1)}
+              drawingBarLocked
+              indicatorScope="builtin-local"
+              loading={false}
+              error={loadError}
+            />
+          </div>
+        </Flex>
+      )}
     </PageContainer>
   );
 };
-
-// 导入Typography.Text
-import { Typography } from 'antd';
-const { Text } = Typography;
 
 export default KlineReplayPage;

@@ -6,7 +6,7 @@ import { QUANT_COLORS } from '@/utils/colors';
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams, useLocation } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   Card,
   Tabs,
@@ -66,6 +66,7 @@ import {
   ImportOutlined,
   FileSearchOutlined,
   SearchOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { MenuProps, TableProps } from 'antd';
 
@@ -492,9 +493,9 @@ const DataManagementPage = () => {
   const { t } = useTranslation();
   const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { message } = App.useApp();
-
+  const navigate = useNavigate();
   const location = useLocation();
+  const { message } = App.useApp();
 
   // 从路由状态恢复分页/筛选/视图等页面状态
   // note: viewType / pageSize 不在此恢复——二者已全局化，跟随系统配置（展示类型/每页条数）
@@ -2393,23 +2394,37 @@ const DataManagementPage = () => {
           }
           extra={
             archiveSymbol ? (
-              <Popconfirm
-                title={`确定删除 ${archiveSymbol} 的 ${kindLabel} 数据？`}
-                description="此操作不可恢复"
-                okText="确定删除"
-                cancelText="取消"
-                okButtonProps={{ danger: true }}
-                onConfirm={handleArchiveDelete}
-              >
-                <Button
-                  danger
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  loading={archiveDeleting}
+              <Space size="small">
+                {/* K 线类数据才支持逐根回放 */}
+                {needInterval && (
+                  <Button
+                    size="small"
+                    icon={<PlayCircleOutlined />}
+                    onClick={() =>
+                      navigate(`/data-management/market-replay?symbol=${archiveSymbol}&interval=${archiveInterval}`)
+                    }
+                  >
+                    行情回放
+                  </Button>
+                )}
+                <Popconfirm
+                  title={`确定删除 ${archiveSymbol} 的 ${kindLabel} 数据？`}
+                  description="此操作不可恢复"
+                  okText="确定删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={handleArchiveDelete}
                 >
-                  删除该 symbol
-                </Button>
-              </Popconfirm>
+                  <Button
+                    danger
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    loading={archiveDeleting}
+                  >
+                    删除该 symbol
+                  </Button>
+                </Popconfirm>
+              </Space>
             ) : null
           }
         >

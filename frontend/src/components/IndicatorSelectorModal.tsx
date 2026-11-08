@@ -43,6 +43,8 @@ interface IndicatorSelectorModalProps {
   onClose: () => void;
   activeIndicators: ActiveIndicator[];
   onToggleIndicator: (indicator: Indicator, params?: Record<string, unknown>) => void;
+  /** 指标范围：all = 内置 + 自定义；builtin-local = 只展示内置指标（行情回放页等离线场景） */
+  scope?: 'all' | 'builtin-local';
 }
 
 // 指标类型图标映射
@@ -58,9 +60,11 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
   onClose,
   activeIndicators,
   onToggleIndicator,
+  scope = 'all',
 }) => {
   const { t } = useTranslation();
-  const { indicators, loading, deleteIndicator, fetchIndicators } = useIndicators();
+  // builtin-local 范围只需要内置指标，跳过自定义指标列表的后端请求
+  const { indicators, loading, deleteIndicator, fetchIndicators } = useIndicators(scope !== 'builtin-local');
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingIndicator, setEditingIndicator] = useState<Indicator | null>(null);
   const { isGuest, checkPermission } = useGuestRestriction();
@@ -203,10 +207,13 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
             </div>
           </Card>
 
-          <Divider className="indicator-divider" />
+          {/* builtin-local 范围（如行情回放）不提供自定义指标：无后端执行链路 */}
+          {scope !== 'builtin-local' && (
+            <>
+              <Divider className="indicator-divider" />
 
-          {/* 自定义指标区域 */}
-          <Card
+              {/* 自定义指标区域 */}
+              <Card
             size="small"
             title={
               <div className="indicator-section-header">
@@ -297,6 +304,8 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
               </div>
             )}
           </Card>
+            </>
+          )}
         </div>
       </Modal>
     </>

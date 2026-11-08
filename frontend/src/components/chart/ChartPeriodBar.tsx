@@ -16,7 +16,8 @@ export interface ChartPeriodItem {
 interface ChartPeriodBarProps {
   /** 绘图栏是否展开（false 时菜单图标旋转 180°） */
   spread: boolean;
-  onToggleSpread: () => void;
+  /** 不传则隐藏收起按钮，左侧绘图栏常驻（回放页使用） */
+  onToggleSpread?: () => void;
   symbol: { code: string; name?: string; base?: string };
   periods: ChartPeriodItem[];
   currentPeriod: string;
@@ -35,6 +36,8 @@ interface ChartPeriodBarProps {
   getScreenshotUrl: () => string;
   /** 全屏目标元素（含工具栏与图表的主体容器） */
   fullscreenTarget: React.RefObject<HTMLElement | null>;
+  /** 指标范围：all = 内置 + 自定义；builtin-local = 只展示内置指标（行情回放页） */
+  indicatorScope?: 'all' | 'builtin-local';
 }
 
 /**
@@ -60,6 +63,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   onRestoreDefaultSettings,
   getScreenshotUrl,
   fullscreenTarget,
+  indicatorScope = 'all',
 }) => {
   const { t } = useTranslation();
 
@@ -93,9 +97,11 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   return (
     <>
       <div className="chart-period-bar">
-        <div className="menu-container" onClick={onToggleSpread}>
-          <ChartIcon name="menu" className={`menu-icon${spread ? '' : ' rotate'}`} />
-        </div>
+        {onToggleSpread && (
+          <div className="menu-container" onClick={onToggleSpread}>
+            <ChartIcon name="menu" className={`menu-icon${spread ? '' : ' rotate'}`} />
+          </div>
+        )}
 
         <div className="symbol" onClick={onOpenSymbolSearch}>
           <TokenDisplay symbol={symbol.base || 'BTC'} size={20} style={{ marginRight: 6 }} />
@@ -154,6 +160,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
         onClose={() => setIndicatorVisible(false)}
         activeIndicators={activeIndicators}
         onToggleIndicator={onToggleIndicator}
+        scope={indicatorScope}
       />
       <ChartSettingModal
         open={settingVisible}

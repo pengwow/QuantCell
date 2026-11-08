@@ -19,6 +19,26 @@
 /* 上方工具栏已迁移到 components/chart/ChartPeriodBar（复刻 klinecharts-pro），
    相关样式见 components/chart/chart-toolbars.css */
 
+/* 行情回放页（.replay-chart-shell 由 KlineReplayPage 挂在 ChartShell 外层）：
+   外层左移 24px 只抵消 PageContainer 的 px-6，保留 .chart-page-fullscreen
+   为侧边栏悬浮按钮预留的 16px 作为图表主体与侧边栏之间的呼吸空白；
+   顶部周期栏用 padding-left 补回 24px，保持原缩进位置不动。
+   注意不能给 .chart-main-with-toolbar 加负 margin：其祖先 .chart-page /
+   .chart-page-fullscreen 均 overflow:hidden，左移超出盒子的部分会被直接裁掉
+   （首次实现就因此把绘图工具栏图标整个裁没了） */
+.replay-chart-shell {
+  margin-left: -24px;
+}
+
+.replay-chart-shell .chart-period-bar {
+  padding-left: 24px;
+}
+
+/* 图表元素全屏时视口即图表本身，周期栏不再需要缩进补偿 */
+.replay-chart-shell .chart-page:fullscreen .chart-period-bar {
+  padding-left: 0;
+}
+
 /* 指标工具栏按钮样式 */
 .indicator-toolbar .ant-btn {
   height: 32px;
