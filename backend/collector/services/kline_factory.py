@@ -519,11 +519,15 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
         if not result["success"]:
             return result
 
-        # 显式携带 end_time 的是历史窗口查询（如行情回放切周期、向前补历史块）：
-        # 窗口末根本来就应早于当前时间，若走下面的新鲜度检查判定「过期」再从 ccxt
-        # 拉「最新数据」整体替换，会把回放位置跳到当前时刻、覆盖 end_time 语义。
-        # 历史窗口一律按库内查询结果如实返回（有无数据皆然）。
-        if end_time is not None:
+        # 显式携带时间锚点的是历史窗口查询（行情回放分块场景）：start_time 为回放
+        # 起点/向后预取锚（asc），end_time 为切周期、向前补历史块的窗口末（desc），
+        # 一律按库内查询结果如实返回（有无数据皆然），禁止走下面的新鲜度检查 +
+        # ccxt 兜底：
+        # 1) asc+start_time 的窗口末（[-1]）位于「起点 + limit 个周期」处，按新鲜度
+        #    口径必被判「过期」，再用 ccxt 无 since 的最新 limit 根整体替换，会静默把
+        #    回放起点漂移到当前时刻附近（正是「回到本窗口最早时间」显示数据不对的根因）；
+        # 2) end_time 的窗口末本来就该早于当前时间，同理禁止顶替。
+        if start_time is not None or end_time is not None:
             return result
 
         # 检查数据时效性
@@ -596,9 +600,9 @@ class CryptoFutureKlineFetcher(BaseKlineFetcher):
         if not result["success"]:
             return result
 
-        # 显式携带 end_time 的是历史窗口查询：库内没有该窗口数据就如实返回空，
-        # 不能用 ccxt 回源的「最新数据」顶替历史窗口（同现货实现处说明）
-        if end_time is not None:
+        # 显式携带时间锚点的是历史窗口查询（同现货实现处说明）：库内有无数据都
+        # 如实返回，不能用 ccxt 回源的「最新数据」顶替历史窗口
+        if start_time is not None or end_time is not None:
             return result
 
         # 检查数据库返回的K线数据是否为空

@@ -373,6 +373,28 @@ class TestCryptoSpotFetch:
         m_ccxt.assert_not_called()
         assert result["kline_data"] == db_result["kline_data"]
 
+    def test_start_time_anchor_served_as_is_without_ccxt(self):
+        # 回放起点/预取是带 start_time(+asc) 的历史锚定查询：asc 窗口末（[-1]）位于
+        # 「起点 + limit 个周期」处，按新鲜度口径必被判过期；若回源 ccxt（无 since、
+        # 交易所上限 1000 根），窗口会被静默替换成「当前时刻往前 limit 根」，回放
+        # 起点漂移到当前时刻附近。必须按库内结果如实返回。
+        fetcher = CryptoSpotKlineFetcher()
+        db_result = {
+            "success": True,
+            "message": "查询K线数据成功",
+            "kline_data": [
+                {"timestamp": 1785513600000, "open": 1, "close": 1, "high": 1, "low": 1, "volume": 1},
+                {"timestamp": 1788513600000, "open": 2, "close": 2, "high": 2, "low": 2, "volume": 2},
+            ],
+        }
+        with (
+            patch.object(fetcher, "_fetch_from_database", return_value=db_result),
+            patch.object(fetcher, "_fetch_from_ccxt") as m_ccxt,
+        ):
+            result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h", start_time=1785513600000, order="asc")
+        m_ccxt.assert_not_called()
+        assert result["kline_data"] == db_result["kline_data"]
+
 
 # =================== 合约 fetch ===================
 
@@ -415,6 +437,18 @@ class TestCryptoFutureFetch:
             patch.object(fetcher, "_fetch_from_ccxt") as m_ccxt,
         ):
             result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h", end_time=1788825600000)
+        m_ccxt.assert_not_called()
+        assert result["kline_data"] == []
+
+    def test_start_time_empty_window_returns_empty_without_ccxt(self):
+        # 带 start_time 的历史窗口查询同理：库内没有就是没有，不得回源 ccxt 顶替
+        fetcher = CryptoFutureKlineFetcher()
+        db_result = {"success": True, "message": "查询K线数据成功", "kline_data": []}
+        with (
+            patch.object(fetcher, "_fetch_from_database", return_value=db_result),
+            patch.object(fetcher, "_fetch_from_ccxt") as m_ccxt,
+        ):
+            result = fetcher.fetch_kline_data(MagicMock(), "BTC/USDT", "1h", start_time=1788825600000)
         m_ccxt.assert_not_called()
         assert result["kline_data"] == []
 

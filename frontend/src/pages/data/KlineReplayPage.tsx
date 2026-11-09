@@ -147,10 +147,14 @@ const KlineReplayPage: React.FC = () => {
   periodRef.current = period;
   intervalMsRef.current = intervalToMs(period);
 
-  // 统一喂数：图表读 barsRef 截断到当前索引；本地指标在截断数组上重算
+  // 统一喂数：图表读 barsRef 截断到当前索引；本地指标在截断数组上重算。
+  // 回补/预取会整块前插或追加数据（游标索引随之前后平移），klinecharts 重载数据
+  // 后的可见区不一定锚定在游标上（实测回补后视口会停在历史段），因此喂数后
+  // 显式滚动到当前 bar，保证图表可见区与回放游标一致。
   const feed = useCallback(() => {
     shellRef.current?.refreshData();
     shellRef.current?.recalculateIndicators();
+    shellRef.current?.getChart()?.scrollToDataIndex(indexRef.current);
   }, []);
 
   // 拉一块数据：order=asc 从 start 向后取，order=desc 从 end 向前取；后端返回恒为升序
@@ -209,11 +213,12 @@ const KlineReplayPage: React.FC = () => {
     }
   }, [fetchChunk]);
 
-  // 向前补块：退到块头 prefetchRatio 内且更早还有数据时，往前补一块并平移索引
-  const maybeFillPast = useCallback(async () => {
+  // 向前补块：退到块头 prefetchRatio 内且更早还有数据时，往前补一块并平移索引。
+  // 返回是否真的发生了补块（调用方据此决定喂数时机，避免中途用残缺数据刷图闪烁）
+  const maybeFillPast = useCallback(async (): Promise<boolean> => {
     const bars = barsRef.current;
-    if (pastExhaustedRef.current || chunkLoadingRef.current || bars.length === 0) return;
-    if (indexRef.current >= Math.ceil(REPLAY_CONFIG.chunkSize * REPLAY_CONFIG.prefetchRatio)) return;
+    if (pastExhaustedRef.current || chunkLoadingRef.current || bars.length === 0) return false;
+    if (indexRef.current >= Math.ceil(REPLAY_CONFIG.chunkSize * REPLAY_CONFIG.prefetchRatio)) return false;
     chunkLoadingRef.current = true;
     try {
       const prev = await fetchChunk(symbolRef.current, periodRef.current, {
@@ -222,7 +227,7 @@ const KlineReplayPage: React.FC = () => {
       if (prev.length === 0) {
         pastExhaustedRef.current = true;
         setAtStart(true);
-        return;
+        return false;
       }
       barsRef.current = [...prev, ...bars];
       indexRef.current += prev.length;
@@ -233,8 +238,10 @@ const KlineReplayPage: React.FC = () => {
         setAtStart(true);
       }
       feed(); // 前插完成：窗口起点变了，必须重新喂数刷新图表
+      return true;
     } catch (err) {
       console.error('补历史块失败:', err);
+      return false;
     } finally {
       chunkLoadingRef.current = false;
     }
@@ -317,8 +324,11 @@ const KlineReplayPage: React.FC = () => {
     (idx: number) => {
       pause();
       applyIndex(idx);
-      void maybeFillPast();
-      feed();
+      // 补块路径由补块完成后的 feed 统一刷新：若此刻立即 feed，补块请求在途时
+      // 图表会先用极少数据重建（闪现只剩几根 bar），等补块返回才能恢复
+      void maybeFillPast().then((filled) => {
+        if (!filled) feed();
+      });
     },
     [applyIndex, feed, maybeFillPast, pause]
   );
@@ -523,13 +533,14 @@ const KlineReplayPage: React.FC = () => {
                     <Tooltip title="单步后退">
                       <Button icon={<StepBackwardOutlined />} onClick={() => handleStep(-1)} disabled={atStart && currentIndex === 0} />
                     </Tooltip>
-                    <Button
-                      type="primary"
-                      icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
-                      onClick={() => (isPlaying ? pause() : handlePlay())}
-                    >
-                      {isPlaying ? '暂停' : '播放'}
-                    </Button>
+                    {/* 与相邻单步/回退按钮一致：icon-only，悬浮 Tooltip 显示文字 */}
+                    <Tooltip title={isPlaying ? '暂停' : '播放'}>
+                      <Button
+                        type="primary"
+                        icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
+                        onClick={() => (isPlaying ? pause() : handlePlay())}
+                      />
+                    </Tooltip>
                     <Tooltip title="单步前进">
                       <Button icon={<StepForwardOutlined />} onClick={() => handleStep(1)} disabled={atEnd && currentIndex >= barsCount - 1} />
                     </Tooltip>
