@@ -116,6 +116,8 @@ export interface ChartShellHandle {
   refreshData: () => void;
   /** 用最新 getBars() 数据重算所有本地/自定义指标（内置指标由 klinecharts 基于新数据自算，无需处理） */
   recalculateIndicators: () => void;
+  /** 重算「需后端执行」的自定义指标（回放页逐 bar 喂新数据后调用；内部 1s 尾沿节流 + 在途门闩） */
+  recalcBackendIndicators: () => void;
 }
 
 export interface ChartShellProps {
@@ -1045,6 +1047,49 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     };
   }, [chartId]);
 
+  // 后端自定义指标重算的节流状态：连续喂数合并为一次请求；执行在途时新调用只挂 pending，
+  // 完成后补一发尾沿，慢指标自动降频
+  const backendRecalcStateRef = useRef<{ timer?: number; pending?: boolean; inFlight?: boolean }>({});
+
+  // 尾沿节流的重算调度（回放场景专用入口）。1s 节流 + 在途门闩：
+  // 播放中每根 bar 的喂数最多合并为 1 次/秒的 /execute 请求，指标执行慢时由门闩自动降频。
+  // 递归引用自身实现在途完成后补尾沿，deps 不含自身（运行时引用已赋值）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const recalcBackendIndicators = useCallback(() => {
+    if (indicatorScope !== 'all') return;
+    const st = backendRecalcStateRef.current;
+    if (st.inFlight) { st.pending = true; return; }
+    if (st.timer != null) return;
+    st.timer = window.setTimeout(async () => {
+      st.timer = undefined;
+      st.inFlight = true;
+      try {
+        const chart = chartInstanceRef.current;
+        if (!chart) return;
+        const bars = getBarsRef.current() || [];
+        for (const active of activeIndicatorsRef.current) {
+          const indicatorId = String(active.id);
+          if (builtInIndicatorMap[indicatorId] && !active.isCustom) continue;
+          if (!active.original) continue;
+          // 本地计算的指标走 recalculateIndicators 通道，这里只处理需后端执行的
+          if (calcLocalBuiltIn(indicatorId, bars, active.params)) continue;
+          const result = await executeBackendIndicator(active.original, active.params);
+          if (!result) continue;
+          const cache = buildCustomIndicatorCache(result);
+          if (!cache) continue;
+          customIndicatorDataRef.current.set(`custom_${indicatorId}`, cache);
+          chart.overrideIndicator({ name: `custom_${indicatorId}` });
+        }
+      } finally {
+        st.inFlight = false;
+        if (st.pending) {
+          st.pending = false;
+          recalcBackendIndicators();
+        }
+      }
+    }, 1000);
+  }, [indicatorScope, executeBackendIndicator, buildCustomIndicatorCache]);
+
   // 命令式接口：页面通过 ref 触发喂数与指标重算
   useImperativeHandle(ref, () => ({
     getChart: () => chartInstanceRef.current,
@@ -1080,7 +1125,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
         chart.overrideIndicator({ name: `custom_${indicatorId}` });
       });
     },
-  }), [buildCustomIndicatorCache]);
+    recalcBackendIndicators,
+  }), [buildCustomIndicatorCache, indicatorScope, executeBackendIndicator, recalcBackendIndicators]);
 
   // 当前悬停 pane 内的指标（决定 hover 工具条是否显示与显示内容）
   const paneIndicators = hoveredPaneId

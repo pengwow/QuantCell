@@ -26,7 +26,7 @@ import {
 import {
   CaretRightOutlined,
   PauseOutlined,
-  RollbackOutlined,
+  ReloadOutlined,
   StepBackwardOutlined,
   StepForwardOutlined,
 } from '@ant-design/icons';
@@ -139,6 +139,7 @@ const KlineReplayPage: React.FC = () => {
   const chunkLoadingRef = useRef(false);
   const pastExhaustedRef = useRef(false); // 前面（更早）没有数据
   const futureExhaustedRef = useRef(false); // 后面没有更多数据
+  const sessionParamsRef = useRef<ReplayParams | null>(null); // 当前会话启动参数，重置用
   const symbolRef = useRef(symbol);
   const periodRef = useRef(period);
   const intervalMsRef = useRef(60 * 60 * 1000);
@@ -154,6 +155,8 @@ const KlineReplayPage: React.FC = () => {
   const feed = useCallback(() => {
     shellRef.current?.refreshData();
     shellRef.current?.recalculateIndicators();
+    // 需后端执行的自定义指标重算（内部 1s 节流 + 在途门闩，播放中不会每根一个请求）
+    shellRef.current?.recalcBackendIndicators();
     shellRef.current?.getChart()?.scrollToDataIndex(indexRef.current);
   }, []);
 
@@ -389,6 +392,8 @@ const KlineReplayPage: React.FC = () => {
         setSymbol(sym);
         setPeriod(per);
         setStarted(true);
+        sessionParamsRef.current = { symbol: sym, startDate: dayjs(startMs) };
+        feed(); // 重置时图表已挂载，重新喂数回到首块状态；首次启动时 shell 未挂载，feed 为 no-op
         // 记住偏好，下次进入自动回填
         try {
           localStorage.setItem(LAST_KEY, JSON.stringify({ symbol: sym, period: per, startMs }));
@@ -402,8 +407,14 @@ const KlineReplayPage: React.FC = () => {
         setLoading(false);
       }
     },
-    [fetchChunk, message, pause]
+    [fetchChunk, feed, message, pause]
   );
+
+  // 重置回放：用当前会话的启动参数重跑 startReplay——游标回起点、补块/预取扩大的窗口
+  // 也一并清空回到干净的首块状态。不禁用：即使停在起点，重置仍有「清窗口」的价值
+  const handleResetReplay = useCallback(() => {
+    if (sessionParamsRef.current) void startReplay(sessionParamsRef.current);
+  }, [startReplay]);
 
   // 回放中切换周期（无缝衔接）：以「当前播放时刻」为新周期窗口的尾部向后拉一块，
   // 索引移到窗口最后一根——旧 bar 在新数据就位前一直显示，图表无空白，
@@ -544,8 +555,8 @@ const KlineReplayPage: React.FC = () => {
                     <Tooltip title="单步前进">
                       <Button icon={<StepForwardOutlined />} onClick={() => handleStep(1)} disabled={atEnd && currentIndex >= barsCount - 1} />
                     </Tooltip>
-                    <Tooltip title="回到本窗口最早时间">
-                      <Button icon={<RollbackOutlined />} onClick={() => handleSeekIndex(0)} disabled={currentIndex === 0} />
+                    <Tooltip title="重置回放">
+                      <Button icon={<ReloadOutlined />} onClick={handleResetReplay} />
                     </Tooltip>
                   </Space>
                 </Col>
@@ -605,7 +616,7 @@ const KlineReplayPage: React.FC = () => {
               onChangePeriod={handleChangePeriod}
               getBars={() => barsRef.current.slice(0, indexRef.current + 1)}
               drawingBarLocked
-              indicatorScope="builtin-local"
+              indicatorScope="all"
               loading={false}
               error={loadError}
             />
