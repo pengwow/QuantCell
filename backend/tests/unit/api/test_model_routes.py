@@ -73,10 +73,19 @@ def test_model_detail_endpoint(tmp_path, _model_storage):
         "artifact_size_bytes",
         "artifact_hash",
         "storage_uri",
+        "algorithm",
+        "trained_at",
+        "spec_version",
+        "window_size",
+        "features",
+        "observation_stats_present",
+        "walk_forward",
     }
     assert data["name"] == "rl_model_a"
     assert data["stage"] == "production"
     assert data["metrics"] == {"sharpe": 1.2}
+    # 注册时无 algorithm metadata,名字尾段非纯数字 → 兜底占位
+    assert data["algorithm"] == "-"
     # 不存在的模型 → 404
     assert client.get("/api/v1/models/no_such_model/detail").status_code == 404
 
