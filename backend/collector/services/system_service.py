@@ -165,6 +165,27 @@ class SystemService:
         self.exchange_push_timer: asyncio.Task | None = None
         # 首页连接状态探测缓存：(time.monotonic 时间戳, 上次探测结论)
         self._conn_probe_cache: tuple[float, str] | None = None
+        # CPU 使用率采样缓存：(time.monotonic 时间戳, 上次有效采样值)。
+        # 预热基线：macOS 的 CPU 计数器约每秒才刷新一次，短窗口差分恒为 0
+        psutil.cpu_percent(interval=None)
+        self._cpu_usage_cache: tuple[float, float] | None = None
+
+    def _sample_cpu_usage(self) -> float:
+        """CPU 使用率（非阻塞）。
+
+        不能用 ``cpu_percent(interval=0.1)``：macOS 的 CPU 计数器约每秒刷新
+        一次，1s 内的差分基本恒为 0，短窗口采样会一直显示 0%。这里改为非阻塞
+        采样，距上次采样不足 1s 或撞上计数器未刷新（结果为 0）时复用上次值。
+        """
+        now = time.monotonic()
+        cached = self._cpu_usage_cache
+        if cached is not None and now - cached[0] < 1.0:
+            return cached[1]
+        value = psutil.cpu_percent(interval=None)
+        if value == 0.0 and cached is not None:
+            return cached[1]
+        self._cpu_usage_cache = (now, value)
+        return value
 
     def get_system_info(self) -> dict[str, Any]:
         """获取系统信息
@@ -243,8 +264,8 @@ class SystemService:
             Dict[str, Any]: 包含系统状态的数据
         """
         try:
-            # 获取CPU使用率
-            cpu_usage = psutil.cpu_percent(interval=0.1)
+            # 非阻塞采样，采样间隔不足 1s 时复用上次结果（见 _sample_cpu_usage）
+            cpu_usage = self._sample_cpu_usage()
 
             # 内存使用情况
             memory = psutil.virtual_memory()

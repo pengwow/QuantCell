@@ -1,5 +1,6 @@
-"""首页连接状态真实探测的最小验证（全部 mock，不发真实网络请求）。"""
+"""首页连接状态真实探测 + CPU 采样的最小验证（全部 mock，不发真实网络请求）。"""
 
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -106,3 +107,32 @@ async def test_ttl_cache_within_window(monkeypatch):
     created.clear()
     assert await svc.get_connection_status() == "connected"
     assert created == []
+
+
+def test_cpu_usage_reuses_recent_sample(monkeypatch):
+    """1s 内重复请求复用上次采样结果，不重复调用 psutil"""
+    svc = SystemService()
+    calls: list[float | None] = []
+
+    def fake_cpu_percent(interval=None):
+        calls.append(interval)
+        return 33.0
+
+    monkeypatch.setattr("collector.services.system_service.psutil.cpu_percent", fake_cpu_percent)
+    assert svc._sample_cpu_usage() == 33.0
+    assert svc._sample_cpu_usage() == 33.0
+    assert len(calls) == 1
+
+
+def test_cpu_usage_keeps_last_value_when_counter_not_refreshed(monkeypatch):
+    """macOS 计数器未刷新导致采样为 0 时保留上次有效值，不显示 0%"""
+    svc = SystemService()
+    seq = iter([41.0, 0.0])
+    monkeypatch.setattr(
+        "collector.services.system_service.psutil.cpu_percent",
+        lambda interval=None: next(seq),
+    )
+    assert svc._sample_cpu_usage() == 41.0
+    # 模拟已超过 1s 采样窗口，允许重新采样
+    svc._cpu_usage_cache = (time.monotonic() - 2.0, 41.0)
+    assert svc._sample_cpu_usage() == 41.0
