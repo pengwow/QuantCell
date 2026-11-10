@@ -90,6 +90,29 @@ def test_model_detail_endpoint(tmp_path, _model_storage):
     assert client.get("/api/v1/models/no_such_model/detail").status_code == 404
 
 
+def test_model_detail_endpoint_unpromoted(tmp_path, _model_storage):
+    from api.model_routes import router
+    from services.model_registry import ModelRegistryService
+
+    # 注册后不晋升 → service 走 get_latest 兜底,detail 仍 200 且 stage 为真实值
+    artifact = os.path.join(str(tmp_path), "dev_model.zip")
+    with open(artifact, "wb") as f:
+        f.write(b"fake-sb3-bytes")
+    ModelRegistryService(storage_path=str(tmp_path)).register_model(
+        name="dev_model", model_path=artifact, metrics={"sharpe": 0.5}
+    )
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.get("/api/v1/models/dev_model/detail")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["name"] == "dev_model"
+    assert data["stage"] == "staging"
+    assert data["metrics"] == {"sharpe": 0.5}
+
+
 def test_model_download_endpoint(tmp_path, _model_storage):
     from api.model_routes import router
 

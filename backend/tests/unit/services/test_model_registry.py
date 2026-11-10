@@ -71,9 +71,9 @@ def test_seed_demo_models_registers_and_promotes_first():
         names = [r["name"] for r in svc_rows]
         assert len(names) == 3
         stages = {r["name"]: r["stage"] for r in svc_rows}
-        # 第一个注册的被晋升为 production,其余保持 development
+        # 第一个注册的被晋升为 production,其余透传 Rust 最新记录的真实 stage(staging)
         assert list(stages.values()).count("production") == 1
-        assert list(stages.values()).count("development") == 2
+        assert list(stages.values()).count("staging") == 2
         prod_row = next(r for r in svc_rows if r["stage"] == "production")
         assert prod_row["version"]
 
@@ -152,9 +152,10 @@ def test_list_models_returns_full_contract():
         row = svc.list_models()[0]
         assert set(row.keys()) == {"id", "name", "version", "stage", "metrics"}
         assert row["id"] == row["name"] == "contract_model"
-        assert row["stage"] == "development"
-        assert row["version"] == ""
-        assert row["metrics"] == {}
+        # get_latest 兜底后 stage 为注册后的真实值,version/metrics 不再空占位
+        assert row["stage"] == "staging"
+        assert row["version"] == "1.0.0"
+        assert row["metrics"] == {"sharpe": 1.5}
 
 
 def test_promote_no_production_then_noop():
@@ -228,17 +229,41 @@ def test_get_model_detail_full_contract():
         assert detail["trained_at"] != "-" and "T" in detail["trained_at"]
 
 
-def test_get_model_detail_none_without_production():
+def test_get_model_detail_unpromoted_uses_latest_record():
+    """未晋升模型也能出详情:get_latest 兜底,stage 透传真实 staging;
+    metadata 聚合出的模型卡字段(特征等)与 production 路径一致。"""
     from services.model_registry import ModelRegistryService
 
     with tempfile.TemporaryDirectory() as td:
         svc = ModelRegistryService(storage_path=td)
-        model_file = os.path.join(td, "a.onnx")
+        model_file = os.path.join(td, "dev.zip")
         with open(model_file, "wb") as f:
             f.write(b"dummy")
-        svc.register_model(name="dev_model", model_path=model_file)
-        # 未晋升与不存在的模型都拿不到详情(Rust 只有 get_production 一个查询口)
-        assert svc.get_model_detail("dev_model") is None
+        svc.register_model(
+            name="devcard_ppo_1700000000",
+            model_path=model_file,
+            metadata={"features": [{"name": "close", "source": {"PriceField": "close"}}]},
+            metrics={"sharpe": 0.8},
+        )
+
+        d = svc.get_model_detail("devcard_ppo_1700000000")
+        assert d is not None
+        assert d["stage"] == "staging"
+        assert d["version"] == "1.0.0"
+        assert d["metrics"] == {"sharpe": 0.8}
+        assert d["features"] == [
+            {"name": "close", "source_display": "PriceField:close", "normalizer": None, "clip_range": None}
+        ]
+        # metadata 无 created_at 时经 get_latest 记录的 storage_uri 做 mtime 兜底
+        assert d["trained_at"] != "-" and "T" in d["trained_at"]
+
+
+def test_get_model_detail_none_for_unknown_model():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        # 未晋升模型由 get_latest 兜底出详情(见 unpromoted 用例);完全不存在的名字才 None
         assert svc.get_model_detail("ghost") is None
 
 
@@ -318,9 +343,10 @@ def test_get_model_detail_corrupted_description_placeholder(monkeypatch):
         svc = ModelRegistryService(storage_path=td)
         _register_prod(svc, "corrupt", td)
         # 模拟 description 损坏(非 JSON)且 artifact 查不到:必须返回占位而非 500
+        # patch 点是 _get_any —— detail 的记录来源已切换为该兜底查询
         monkeypatch.setattr(
             svc,
-            "get_model",
+            "_get_any",
             lambda mid: {
                 "name": "corrupt",
                 "version": "1.0.0",

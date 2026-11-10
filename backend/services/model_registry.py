@@ -133,28 +133,39 @@ class ModelRegistryService:
         result = self._registry.register(name, model_path, desc)
         return result["version"]
 
+    def _get_any(self, model_id: str) -> dict[str, Any] | None:
+        """最新记录:优先 production,否则取 get_latest(最新一条、不限 stage)。
+
+        为什么两段查询:Rust 侧只有 get_production(仅晋升记录)与 get_latest
+        (最新记录不限 stage)两个查询口,没有"任意 stage 详情"接口;未晋升
+        模型(注册后 stage=staging)只能靠 get_latest 兜底。异常一律吞成
+        None,与 get_model 的容错风格一致,上层只关心有或没有。
+        """
+        for getter in (self._registry.get_production, self._registry.get_latest):
+            try:
+                return getter(model_id)
+            except Exception:
+                continue
+        return None
+
     def list_models(self) -> list[dict[str, Any]]:
         """List all registered models with full contract.
 
-        非 Production 模型 Rust 侧无 detail 查询接口(version/stage 不可得),
-        统一以 development 占位 —— 这是 Rust list_models() 只返回名字的现状。
+        Rust list_models() 只返回模型名,version/metrics/stage 需逐条回查:
+        优先 production 记录,无 production 时用 get_latest 兜底 —— 未晋升行
+        因此也能展示真实版本、指标与 staging 状态,而非 development 空占位。
         """
         rows: list[dict[str, Any]] = []
         for name in self._registry.list_models():
-            prod = None
-            try:
-                prod = self._registry.get_production(name)
-            # 无 Production 版本时 Rust get_production 抛错属正常路径
-            except Exception:
-                prod = None
+            record = self._get_any(name)
             metrics: dict[str, Any] = {}
             version = ""
             stage = "development"
-            if prod:
-                version = prod.get("version", "")
-                stage = prod.get("stage", "development")
+            if record:
+                version = record.get("version", "")
+                stage = record.get("stage", "development")
                 try:
-                    metrics = json.loads(prod.get("description", "{}")).get("metrics", {})
+                    metrics = json.loads(record.get("description", "{}")).get("metrics", {})
                 except TypeError, ValueError:
                     metrics = {}
             rows.append(
@@ -176,16 +187,17 @@ class ModelRegistryService:
             return None
 
     def get_model_detail(self, model_id: str) -> dict[str, Any] | None:
-        """Production 模型详情(模型卡);不存在或无 production 返回 None。
+        """模型详情(模型卡);优先 production,未晋升模型用最新记录兜底。
 
         模型卡扩展字段全部从注册时并入的 metadata 聚合,旧数据缺字段时
-        以占位值展示,不报错、不做历史迁移。
+        以占位值展示,不报错、不做历史迁移。stage 透传 Rust 记录里的真实值
+        (production/staging),不再强制 production。
         """
-        prod = self.get_model(model_id)
-        if not prod:
+        record = self._get_any(model_id)
+        if not record:
             return None
         try:
-            desc = json.loads(prod.get("description", "{}"))
+            desc = json.loads(record.get("description", "{}"))
         # description 是注册时写入的 JSON 字符串,损坏不应导致 500
         except TypeError, ValueError:
             desc = {}
@@ -194,15 +206,15 @@ class ModelRegistryService:
             # description 结构异常(metadata 不是对象)按空处理
             meta = {}
         return {
-            "name": prod.get("name", model_id),
-            "version": prod.get("version", ""),
-            "stage": prod.get("stage", "production"),
+            "name": record.get("name", model_id),
+            "version": record.get("version", ""),
+            "stage": record.get("stage", ""),
             "metadata": meta,
             "metrics": desc.get("metrics", {}),
-            "artifact_size_bytes": prod.get("artifact_size_bytes", 0),
-            "artifact_hash": prod.get("artifact_hash", ""),
-            "storage_uri": prod.get("storage_uri", ""),
-            "algorithm": self._infer_algorithm(meta, prod.get("name", model_id)),
+            "artifact_size_bytes": record.get("artifact_size_bytes", 0),
+            "artifact_hash": record.get("artifact_hash", ""),
+            "storage_uri": record.get("storage_uri", ""),
+            "algorithm": self._infer_algorithm(meta, record.get("name", model_id)),
             "trained_at": meta.get("created_at") or self._artifact_mtime_iso(model_id),
             "spec_version": meta.get("spec_version", "-"),
             "window_size": meta.get("window_size", "-"),
@@ -228,8 +240,9 @@ class ModelRegistryService:
     def _artifact_mtime_iso(self, model_id: str) -> str:
         """trained_at 兜底:artifact 落盘 mtime 转 ISO 8601 毫秒时间串。
         created_at 未记录时,register 的 fs::copy 落盘时间≈训练完成时间;
+        allow_unpromoted 使未晋升模型(get_latest 记录)同样算得出 trained_at。
         取不到返回占位。"""
-        path = self.get_artifact_path(model_id)
+        path = self.get_artifact_path(model_id, allow_unpromoted=True)
         if not path:
             return "-"
         try:
@@ -262,12 +275,17 @@ class ModelRegistryService:
             )
         return result
 
-    def get_artifact_path(self, model_id: str) -> str | None:
-        """取 production artifact 的本地路径;路径逃逸或文件缺失时返回 None。"""
-        prod = self.get_model(model_id)
-        if not prod:
+    def get_artifact_path(self, model_id: str, *, allow_unpromoted: bool = False) -> str | None:
+        """取 artifact 的本地路径;路径逃逸或文件缺失时返回 None。
+
+        默认只认 production 记录 —— 下载端点"无生产版本 → 404"的语义与前端
+        下载入口(仅 production 行渲染)都依赖这一点;allow_unpromoted=True
+        时用 get_latest 兜底,供未晋升模型的详情(如 trained_at mtime)使用。
+        """
+        record = self._get_any(model_id) if allow_unpromoted else self.get_model(model_id)
+        if not record:
             return None
-        uri = prod.get("storage_uri", "")
+        uri = record.get("storage_uri", "")
         if not uri:
             return None
         # Rust 侧 storage_uri 是相对 storage_path 的相对路径(如 name/1.0.0/model.bin),
