@@ -18,6 +18,14 @@ const flattenKv = (obj: Record<string, unknown>, prefix = ''): Record<string, st
 const featureColumns: TableProps<ModelFeatureSpec>['columns'] = [
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
   { title: '来源', dataIndex: 'source_display', key: 'source_display', ellipsis: true },
+  { title: '归一化', dataIndex: 'normalizer', key: 'normalizer', width: 110, render: (v: string | null) => v || '-' },
+  {
+    title: 'Clip',
+    dataIndex: 'clip_range',
+    key: 'clip_range',
+    width: 130,
+    render: (v: number[] | null) => (v ? `[${v[0]}, ${v[1]}]` : '-'),
+  },
 ];
 
 interface ModelDetailDrawerProps {
