@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   App as AntdApp,
   Button,
@@ -8,25 +9,26 @@ import {
   Flex,
   Input,
   Pagination,
-  Popconfirm,
   Row,
   Segmented,
   Select,
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableProps } from 'antd';
 import {
   BarChartOutlined,
+  DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
   ReloadOutlined,
-  RestOutlined,
   RocketOutlined,
   RollbackOutlined,
   SearchOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { modelApi, type UnifiedModelRow } from '@/api/modelApi';
@@ -187,61 +189,84 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
     });
   };
 
-  // 操作按钮在表格操作列与卡片视图两处渲染,抽成共用函数(卡片侧需自行阻止冒泡)
-  const renderActions = (record: UnifiedModelRow) => {
-    const s = statusOf(record);
-    // 文件缺失条目仅可看详情(注册表无 delete/生命周期操作不可用)
-    if (s === 'missing') {
+  // 动作统一入口:表格操作列(iconOnly=图标+Tooltip)与卡片底部(文字按钮)共用,风格对齐 ResearchList
+  const actionsFor = (record: UnifiedModelRow) => {
+    const acts: { key: string; icon: ReactNode; label: string; danger?: boolean; onClick: () => void }[] = [
+      { key: 'view', icon: <EyeOutlined />, label: '详情', onClick: () => setDetailRow(record) },
+    ];
+    // 文件缺失条目仅可看详情(注册表条目的 delete/生命周期操作不可用)
+    if (statusOf(record) === 'missing') return acts;
+    if (!record.registered) {
+      acts.push({ key: 'register', icon: <TagOutlined />, label: '注册', onClick: () => setRegisterRow(record) });
+    }
+    if (record.registered && record.stage !== 'production') {
+      acts.push({
+        key: 'promote',
+        icon: <RocketOutlined />,
+        label: '晋升',
+        onClick: () => record.model_id && handlePromote(record.model_id),
+      });
+    }
+    if (record.registered && record.stage === 'production') {
+      acts.push({
+        key: 'download',
+        icon: <DownloadOutlined />,
+        label: '下载',
+        // 下载不经 axios:后端该端点刻意不带 Authorization(见 model_routes.download),location 跳转直接触发下载
+        onClick: () => {
+          window.location.href = `/api/v1/models/${encodeURIComponent(record.model_id ?? '')}/download`;
+        },
+      });
+      acts.push({
+        key: 'unpromote',
+        icon: <RollbackOutlined />,
+        label: '取消晋升',
+        onClick: () => {
+          if (!record.model_id) return;
+          modal.confirm({
+            title: '取消晋升',
+            content: '模型将从 production 移回 staging',
+            okText: '确定',
+            cancelText: '取消',
+            onOk: () => handleUnpromote(record.model_id!),
+          });
+        },
+      });
+    }
+    acts.push({
+      key: 'delete',
+      icon: <DeleteOutlined />,
+      label: '删除',
+      danger: true,
+      onClick: () => handleDelete(record),
+    });
+    return acts;
+  };
+
+  const renderActions = (record: UnifiedModelRow, iconOnly = false) => {
+    const acts = actionsFor(record);
+    if (iconOnly) {
       return (
-        <Button size="small" icon={<EyeOutlined />} onClick={() => setDetailRow(record)}>
-          详情
-        </Button>
+        // 表格操作列图标按钮 + Tooltip(与策略管理页操作列一致);行内点击不冒泡
+        <Space size={4} onClick={(e) => e.stopPropagation()}>
+          {acts.map((a) => (
+            <Tooltip key={a.key} title={a.label}>
+              <Button type="text" size="small" danger={a.danger} icon={a.icon} onClick={a.onClick} />
+            </Tooltip>
+          ))}
+        </Space>
       );
     }
     return (
-      <Space size={4} wrap>
-        <Button size="small" icon={<EyeOutlined />} onClick={() => setDetailRow(record)}>
-          详情
-        </Button>
-        {!record.registered && (
-          <Button size="small" type="primary" onClick={() => setRegisterRow(record)}>
-            注册
-          </Button>
-        )}
-        {record.registered && record.stage !== 'production' && (
-          <Button
-            size="small"
-            type="primary"
-            icon={<RocketOutlined />}
-            onClick={() => record.model_id && handlePromote(record.model_id)}
-          >
-            晋升
-          </Button>
-        )}
-        {record.registered && record.stage === 'production' && (
-          <>
-            {/* 下载走 <a download> 不经 axios:后端该端点刻意不带 Authorization(见 model_routes.download) */}
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              href={`/api/v1/models/${encodeURIComponent(record.model_id ?? '')}/download`}
-            >
-              下载
+      <Space size={4} onClick={(e) => e.stopPropagation()} wrap>
+        {/* 删除已上移卡片右上角 extra,文字按钮组不再重复展示 */}
+        {acts
+          .filter((a) => a.key !== 'delete')
+          .map((a) => (
+            <Button key={a.key} size="small" danger={a.danger} onClick={a.onClick}>
+              {a.label}
             </Button>
-            <Popconfirm
-              title="确定取消晋升吗？"
-              description="模型将从 production 移回 staging"
-              okText="确定"
-              cancelText="取消"
-              onConfirm={() => record.model_id && handleUnpromote(record.model_id)}
-            >
-              <Button size="small" icon={<RollbackOutlined />}>
-                取消晋升
-              </Button>
-            </Popconfirm>
-          </>
-        )}
-        <Button size="small" type="link" danger icon={<RestOutlined />} onClick={() => handleDelete(record)} />
+          ))}
       </Space>
     );
   };
@@ -278,7 +303,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       align: 'right',
       render: (v: number | null) => (v == null ? '-' : `${v} MB`),
     },
-    { title: '操作', key: 'actions', width: 280, render: (_, record) => renderActions(record) },
+    { title: '操作', key: 'actions', width: 220, render: (_, record) => renderActions(record, true) },
   ];
 
   // 双视图共享同一分页配置:列表视图交给 Table,卡片视图配 Grid + Pagination
@@ -361,37 +386,51 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
                 {pageRows.map((record) => {
                   const algo = algoLabel(record);
                   const isSelected = selected.includes(record.file_name);
+                  const nameTooltip = record.model_id ? `${record.file_name}（${record.model_id}）` : record.file_name;
                   return (
                     <Col key={record.file_name} xs={24} sm={12} md={8} lg={6}>
                       <Card
                         size="small"
                         hoverable
-                        style={isSelected ? { borderColor: '#1677ff' } : undefined}
+                        style={{ cursor: 'pointer', height: '100%', ...(isSelected ? { borderColor: '#1677ff' } : {}) }}
                         onClick={() => {
                           // 对齐表格禁选口径:文件缺失(无文件)不可选中
                           if (record.size_mb == null) return;
                           setSelected((prev) => (prev.includes(record.file_name) ? [] : [record.file_name]));
                         }}
+                        title={<span className="truncate" title={nameTooltip}>{record.model_id ?? record.file_name}</span>}
+                        extra={
+                          statusOf(record) !== 'missing' && (
+                            <Tooltip title="删除">
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                // 删除统一放卡片右上角;点击不可穿透到卡片选中
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(record);
+                                }}
+                              />
+                            </Tooltip>
+                          )
+                        }
                       >
                         <Flex vertical gap={8}>
-                          <Flex justify="space-between" align="center">
-                            {algo ? <Tag color="blue">{algo}</Tag> : <span />}
+                          <Space size={6} wrap>
+                            {algo ? <Tag color="blue">{algo}</Tag> : null}
+                            {/* 状态从右上角挪到标签行,右上角让位给删除按钮 */}
                             <StatusTag row={record} />
-                          </Flex>
-                          <Text
-                            strong
-                            ellipsis={{ tooltip: record.model_id ? `${record.file_name}（${record.model_id}）` : record.file_name }}
-                          >
-                            {record.model_id ?? record.file_name}
-                          </Text>
+                          </Space>
                           <MetaRow label="Sharpe" value={sharpeText(record)} />
                           <MetaRow
                             label="创建时间"
                             value={record.created ? dayjs(record.created * 1000).format('YYYY-MM-DD HH:mm') : '-'}
                           />
                           <MetaRow label="大小" value={record.size_mb == null ? '-' : `${record.size_mb} MB`} />
-                          {/* 阻止冒泡:操作区内点击不触发卡片选中切换 */}
-                          <div onClick={(e) => e.stopPropagation()}>{renderActions(record)}</div>
+                          {/* 操作区 renderActions 内部已阻止冒泡 */}
+                          <div className="pt-2 border-t border-gray-100">{renderActions(record)}</div>
                         </Flex>
                       </Card>
                     </Col>
@@ -417,9 +456,9 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
           )}
 
           {view === 'card' && filtered.length > 0 && (
-            <Flex justify="flex-end">
-              <Pagination align="end" {...paginationProps} total={filtered.length} />
-            </Flex>
+            <Row justify="center" style={{ marginTop: 16 }}>
+              <Pagination {...paginationProps} total={filtered.length} />
+            </Row>
           )}
         </Flex>
       </Card>
