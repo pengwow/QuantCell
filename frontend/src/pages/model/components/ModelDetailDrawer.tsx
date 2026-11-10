@@ -65,11 +65,12 @@ export default function ModelDetailDrawer({ row, onClose }: ModelDetailDrawerPro
     : {};
 
   return (
+    // antd v6 Drawer 的 width 已弃用,size 同样支持数值宽度
     <Drawer
       title={row ? `模型详情 - ${row.file_name}` : '模型详情'}
       open={!!row}
       onClose={onClose}
-      width={520}
+      size={520}
       destroyOnHidden
     >
       {!row || (row.registered && loading) ? (
