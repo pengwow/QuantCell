@@ -35,21 +35,25 @@ def test_model_registry_register_and_list():
         assert any(m["name"] == "test_ppo" for m in models)
 
 
-def _make_demo_artifact(td: str, model_id: str) -> str:
-    """造一个训练产物 zip + .meta.json,模拟 rl_service 的落盘方式"""
+def _make_demo_artifact(td: str, model_id: str, meta_extra: dict | None = None) -> str:
+    """造一个训练产物 zip + .meta.json,模拟 rl_service 的落盘方式
+    (features 结构对齐 KERNEL_FEATURES;meta_extra 可补 walk_forward 等训练上下文)"""
+    meta = {
+        "model_id": model_id,
+        "spec_version": "v1",
+        "window_size": 1,
+        "features": [
+            {"name": "close", "source": {"PriceField": "close"}, "normalizer": "ZScore", "clip_range": None},
+            {"name": "volume", "source": {"VolumeField": "volume"}, "normalizer": "None", "clip_range": None},
+        ],
+    }
+    if meta_extra:
+        meta.update(meta_extra)
     zip_path = os.path.join(td, f"{model_id}.zip")
     with open(zip_path, "wb") as f:
         f.write(b"dummy sb3 model")
     with open(zip_path + ".meta.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "model_id": model_id,
-                "spec_version": "v1",
-                "window_size": 1,
-                "features": [{"name": "close"}, {"name": "volume"}],
-            },
-            f,
-        )
+        json.dump(meta, f)
     return zip_path
 
 
@@ -89,6 +93,50 @@ def test_seed_demo_models_tolerates_empty_dir():
 
     with tempfile.TemporaryDirectory() as td:
         assert seed_demo_models(storage_path=td) == []
+
+
+def test_seed_models_expose_model_card_fields_in_detail():
+    from services.model_registry import ModelRegistryService, seed_demo_models
+
+    with tempfile.TemporaryDirectory() as td:
+        _make_demo_artifact(td, "rl_model_ppo_1700000000")
+        assert seed_demo_models(storage_path=td) == ["rl_model_ppo_1700000000"]
+
+        d = ModelRegistryService(storage_path=td).get_model_detail("rl_model_ppo_1700000000")
+        # seed 并入完整 meta 后,detail 可读出特征规格等模型卡字段(并入生效的证明)
+        assert d["spec_version"] == "v1"
+        assert d["window_size"] == 1
+        # metadata 无 algorithm 时从名字 <name>_<algo>_<unixts> 兜底
+        assert d["algorithm"] == "ppo"
+        assert d["features"] == [
+            {"name": "close", "source_display": "PriceField:close", "normalizer": "ZScore", "clip_range": None},
+            {"name": "volume", "source_display": "VolumeField:volume", "normalizer": "None", "clip_range": None},
+        ]
+        assert d["observation_stats_present"] is False
+        assert d["walk_forward"] == {}
+
+
+def test_seed_crops_walk_forward_to_aggregate():
+    from services.model_registry import ModelRegistryService, seed_demo_models
+
+    with tempfile.TemporaryDirectory() as td:
+        _make_demo_artifact(
+            td,
+            "rl_model_sac_1700000001",
+            meta_extra={
+                "walk_forward": {
+                    "folds": [{"fold": 0}, {"fold": 1}],
+                    "aggregate": {"mean": {"sharpe_ratio": 0.5}, "std": {}, "n_valid_folds": 2},
+                }
+            },
+        )
+        seed_demo_models(storage_path=td)
+
+        svc = ModelRegistryService(storage_path=td)
+        d = svc.get_model_detail("rl_model_sac_1700000001")
+        # folds 明细无消费方,不并入注册表;只保留 OOS 汇总
+        assert d["walk_forward"] == {"mean": {"sharpe_ratio": 0.5}, "std": {}, "n_valid_folds": 2}
+        assert "folds" not in d["metadata"]
 
 
 def test_list_models_returns_full_contract():

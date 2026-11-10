@@ -84,13 +84,18 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
             name = meta["model_id"]
+            # walk-forward 只并入 OOS 汇总:folds 明细无消费方,不进注册表;
+            # 其余(含 observation_stats)原样保留,作为模型卡的数据源
+            walk_forward = meta.get("walk_forward")
+            wf_aggregate = walk_forward.get("aggregate") if isinstance(walk_forward, dict) else None
+            card_meta = {k: v for k, v in meta.items() if k != "walk_forward"}
             svc.register_model(
                 name=name,
                 model_path=zip_path,
                 metadata={
-                    "spec_version": meta.get("spec_version", ""),
-                    "window_size": meta.get("window_size"),
+                    **card_meta,
                     "feature_count": len(meta.get("features", [])),
+                    "walk_forward_aggregate": wf_aggregate,
                 },
             )
             registered.append(name)
