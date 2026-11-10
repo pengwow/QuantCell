@@ -6,6 +6,7 @@ import glob
 import json
 import os
 import threading
+from datetime import datetime
 from typing import Any
 
 from utils.logger import LogType, get_logger
@@ -170,7 +171,11 @@ class ModelRegistryService:
             return None
 
     def get_model_detail(self, model_id: str) -> dict[str, Any] | None:
-        """Production 模型详情;不存在或无 production 返回 None。"""
+        """Production 模型详情(模型卡);不存在或无 production 返回 None。
+
+        模型卡扩展字段全部从注册时并入的 metadata 聚合,旧数据缺字段时
+        以占位值展示,不报错、不做历史迁移。
+        """
         prod = self.get_model(model_id)
         if not prod:
             return None
@@ -179,16 +184,78 @@ class ModelRegistryService:
         # description 是注册时写入的 JSON 字符串,损坏不应导致 500
         except TypeError, ValueError:
             desc = {}
+        meta = desc.get("metadata", {})
+        if not isinstance(meta, dict):
+            # description 结构异常(metadata 不是对象)按空处理
+            meta = {}
         return {
             "name": prod.get("name", model_id),
             "version": prod.get("version", ""),
             "stage": prod.get("stage", "production"),
-            "metadata": desc.get("metadata", {}),
+            "metadata": meta,
             "metrics": desc.get("metrics", {}),
             "artifact_size_bytes": prod.get("artifact_size_bytes", 0),
             "artifact_hash": prod.get("artifact_hash", ""),
             "storage_uri": prod.get("storage_uri", ""),
+            "algorithm": self._infer_algorithm(meta, prod.get("name", model_id)),
+            "trained_at": meta.get("created_at") or self._artifact_mtime_iso(model_id),
+            "spec_version": meta.get("spec_version", "-"),
+            "window_size": meta.get("window_size", "-"),
+            "features": self._normalize_features(meta.get("features")),
+            "observation_stats_present": bool(meta.get("observation_stats")),
+            "walk_forward": meta.get("walk_forward_aggregate") or {},
         }
+
+    @staticmethod
+    def _infer_algorithm(meta: dict[str, Any], model_name: str) -> str:
+        """算法取值:metadata.algorithm 优先;旧数据无该字段时从 seed 命名
+        `<name>_<algo>_<unixts>` 中段兜底,尾段必须是纯数字时间戳,避免
+        rl_model_a 这类普通名误判出 "model"。
+        ponytail: 升级路径是训练必写 metadata.algorithm 后删除此兜底。"""
+        algo = meta.get("algorithm")
+        if algo:
+            return str(algo)
+        parts = model_name.rsplit("_", 2)
+        if len(parts) == 3 and parts[2].isdigit():
+            return parts[1]
+        return "-"
+
+    def _artifact_mtime_iso(self, model_id: str) -> str:
+        """trained_at 兜底:artifact 落盘 mtime 转 ISO 8601 毫秒时间串。
+        created_at 未记录时,register 的 fs::copy 落盘时间≈训练完成时间;
+        取不到返回占位。"""
+        path = self.get_artifact_path(model_id)
+        if not path:
+            return "-"
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return "-"
+        return datetime.fromtimestamp(mtime).astimezone().isoformat(timespec="milliseconds")
+
+    @staticmethod
+    def _normalize_features(raw: Any) -> list[dict[str, Any]]:
+        """meta 的 features 归一为展示结构;缺 name/source 的元素跳过。"""
+        result: list[dict[str, Any]] = []
+        for item in raw or []:
+            if not isinstance(item, dict) or "name" not in item or "source" not in item:
+                continue
+            source = item["source"]
+            if isinstance(source, dict) and source:
+                # {"PriceField": "close"} → "PriceField:close"
+                key, value = next(iter(source.items()))
+                source_display = f"{key}:{value}"
+            else:
+                source_display = str(source)
+            result.append(
+                {
+                    "name": item["name"],
+                    "source_display": source_display,
+                    "normalizer": item.get("normalizer"),
+                    "clip_range": item.get("clip_range"),
+                }
+            )
+        return result
 
     def get_artifact_path(self, model_id: str) -> str | None:
         """取 production artifact 的本地路径;路径逃逸或文件缺失时返回 None。"""

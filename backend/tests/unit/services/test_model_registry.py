@@ -152,15 +152,32 @@ def test_get_model_detail_full_contract():
             "artifact_size_bytes",
             "artifact_hash",
             "storage_uri",
+            "algorithm",
+            "trained_at",
+            "spec_version",
+            "window_size",
+            "features",
+            "observation_stats_present",
+            "walk_forward",
         }
         assert detail["name"] == "detail_model"
         assert detail["stage"] == "production"
         assert detail["version"] == "1.0.0"
+        # description 里除 metadata 外还有 metrics,不得混回 metadata
         assert detail["metadata"] == {"algorithm": "ppo"}
         assert detail["metrics"] == {"sharpe": 1.5}
         assert detail["artifact_size_bytes"] == len(b"dummy")
         assert detail["artifact_hash"]
         assert detail["storage_uri"]
+        # 模型卡字段:旧式 metadata 只给 algorithm,其余占位
+        assert detail["algorithm"] == "ppo"
+        assert detail["spec_version"] == "-"
+        assert detail["window_size"] == "-"
+        assert detail["features"] == []
+        assert detail["observation_stats_present"] is False
+        assert detail["walk_forward"] == {}
+        # trained_at 兜底为 artifact mtime 的 ISO 毫秒时间戳
+        assert detail["trained_at"] != "-" and "T" in detail["trained_at"]
 
 
 def test_get_model_detail_none_without_production():
@@ -175,6 +192,108 @@ def test_get_model_detail_none_without_production():
         # 未晋升与不存在的模型都拿不到详情(Rust 只有 get_production 一个查询口)
         assert svc.get_model_detail("dev_model") is None
         assert svc.get_model_detail("ghost") is None
+
+
+def _register_prod(svc, name: str, td: str, metadata: dict | None = None) -> None:
+    """注册 + 晋升一个哑模型,供 detail 断言用。"""
+    model_file = os.path.join(td, f"{name}.zip")
+    with open(model_file, "wb") as f:
+        f.write(b"dummy")
+    svc.register_model(name=name, model_path=model_file, metadata=metadata)
+    assert svc.promote_to_production(name) is True
+
+
+def test_get_model_detail_model_card_fields():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        _register_prod(
+            svc,
+            "card_ppo_1700000000",
+            td,
+            metadata={
+                "spec_version": "v1",
+                "window_size": 1,
+                "algorithm": "ppo",
+                "total_timesteps": 10000,
+                "created_at": "2026-11-10T15:30:00.000+08:00",
+                "features": [
+                    {"name": "close", "source": {"PriceField": "close"}, "normalizer": "ZScore", "clip_range": None},
+                    {"name": "volume", "source": {"VolumeField": "volume"}, "normalizer": "None", "clip_range": None},
+                    # 缺 source 的坏元素必须被跳过,不让整个 detail 500
+                    {"name": "broken"},
+                ],
+                "observation_stats": [{"name": "close", "count": 100}],
+                "walk_forward_aggregate": {
+                    "mean": {"sharpe_ratio": 1.1},
+                    "std": {"sharpe_ratio": 0.2},
+                    "n_valid_folds": 3,
+                },
+            },
+        )
+
+        d = svc.get_model_detail("card_ppo_1700000000")
+        assert d["algorithm"] == "ppo"
+        assert d["trained_at"] == "2026-11-10T15:30:00.000+08:00"
+        assert d["spec_version"] == "v1"
+        assert d["window_size"] == 1
+        # source dict 序列化为 "Key:value" 形式;坏元素被跳过
+        assert d["features"] == [
+            {"name": "close", "source_display": "PriceField:close", "normalizer": "ZScore", "clip_range": None},
+            {"name": "volume", "source_display": "VolumeField:volume", "normalizer": "None", "clip_range": None},
+        ]
+        assert d["observation_stats_present"] is True
+        assert d["walk_forward"] == {"mean": {"sharpe_ratio": 1.1}, "std": {"sharpe_ratio": 0.2}, "n_valid_folds": 3}
+
+
+def test_get_model_detail_algorithm_fallback_from_name():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        _register_prod(svc, "x_ppo_123", td)
+        _register_prod(svc, "plainname", td)
+        _register_prod(svc, "rl_model_a", td)
+
+        # 旧数据 metadata 无 algorithm:从 seed 命名 <name>_<algo>_<unixts> 中段兜底
+        assert svc.get_model_detail("x_ppo_123")["algorithm"] == "ppo"
+        # 尾段不是纯数字(普通命名/短命名)不给错误答案,直接占位
+        assert svc.get_model_detail("plainname")["algorithm"] == "-"
+        assert svc.get_model_detail("rl_model_a")["algorithm"] == "-"
+
+
+def test_get_model_detail_corrupted_description_placeholder(monkeypatch):
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        _register_prod(svc, "corrupt", td)
+        # 模拟 description 损坏(非 JSON)且 artifact 查不到:必须返回占位而非 500
+        monkeypatch.setattr(
+            svc,
+            "get_model",
+            lambda mid: {
+                "name": "corrupt",
+                "version": "1.0.0",
+                "stage": "production",
+                "description": "{not-json",
+                "artifact_size_bytes": 5,
+                "artifact_hash": "h",
+                "storage_uri": "no-such-file.zip",
+            },
+        )
+
+        d = svc.get_model_detail("corrupt")
+        assert d is not None
+        assert d["metadata"] == {}
+        assert d["algorithm"] == "-"
+        assert d["trained_at"] == "-"
+        assert d["spec_version"] == "-"
+        assert d["window_size"] == "-"
+        assert d["features"] == []
+        assert d["observation_stats_present"] is False
+        assert d["walk_forward"] == {}
 
 
 def test_get_artifact_path_within_storage():
