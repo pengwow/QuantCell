@@ -58,11 +58,11 @@ export default function ModelRegistry() {
     { title: '版本', dataIndex: 'version', key: 'version' },
     {
       title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => (
-        <Tag color={status === 'production' ? 'green' : status === 'staging' ? 'orange' : 'default'}>
-          {status || 'development'}
+      dataIndex: 'stage',
+      key: 'stage',
+      render: (stage: string) => (
+        <Tag color={stage === 'production' ? 'green' : stage === 'archived' ? 'default' : 'orange'}>
+          {stage || 'development'}
         </Tag>
       ),
     },
@@ -71,7 +71,7 @@ export default function ModelRegistry() {
       key: 'actions',
       render: (_: unknown, record: ModelInfo) => (
         <Space>
-          {record.status !== 'production' && (
+          {record.stage !== 'production' && (
             <Button
               type="primary"
               size="small"

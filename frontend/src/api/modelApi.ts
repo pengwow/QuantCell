@@ -4,14 +4,14 @@ export interface ModelInfo {
   id: string;
   name: string;
   version: string;
-  status: string;
+  stage: string; // production | development | archived(Rust 术语)
   metrics: Record<string, number>;
 }
 
 export const modelApi = {
-  listModels: () => apiRequest.get<ModelInfo[]>('/v2/models/list'),
+  listModels: () => apiRequest.get<ModelInfo[]>('/models/list'),
   registerModel: (data: { name: string; model_path: string; metadata?: object; metrics?: object }) =>
-    apiRequest.post('/v2/models/register', data),
+    apiRequest.post('/models/register', data),
   promoteModel: (modelId: string) =>
-    apiRequest.post(`/v2/models/${modelId}/promote`),
+    apiRequest.post(`/models/${modelId}/promote`),
 };
