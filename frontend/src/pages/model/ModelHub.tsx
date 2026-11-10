@@ -4,16 +4,18 @@ import { Tabs } from 'antd';
 import PageContainer from '@/components/PageContainer';
 import UnifiedModelTable from './components/UnifiedModelTable';
 import TrainingWorkbench from './components/TrainingWorkbench';
+import EnsembleWorkbench from './components/EnsembleWorkbench';
 
 export default function ModelHub() {
   const [searchParams, setSearchParams] = useSearchParams();
-  // deep link:?tab=train → 训练工作台;无参/其他 → 模型总表(默认)
-  const tab = searchParams.get('tab') === 'train' ? 'train' : 'models';
+  // deep link:?tab=train → 训练工作台,?tab=ensemble → 模型集成,无参/其他 → 模型总表(默认)
+  const rawTab = searchParams.get('tab');
+  const tab = rawTab === 'train' || rawTab === 'ensemble' ? rawTab : 'models';
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleTabChange = (key: string) => {
     // replace:Tab 切换不留历史记录
-    setSearchParams(key === 'train' ? { tab: 'train' } : {}, { replace: true });
+    setSearchParams(key === 'models' ? {} : { tab: key }, { replace: true });
   };
 
   // 训练成功 → 切回总表并强制刷新(refreshKey 驱动 useEffect 重拉)
@@ -32,6 +34,7 @@ export default function ModelHub() {
         items={[
           { key: 'models', label: '模型总表', children: <UnifiedModelTable refreshKey={refreshKey} /> },
           { key: 'train', label: '训练工作台', children: <TrainingWorkbench onTrainSuccess={goToListAfterTrain} /> },
+          { key: 'ensemble', label: '模型集成', children: <EnsembleWorkbench /> },
         ]}
       />
     </PageContainer>
