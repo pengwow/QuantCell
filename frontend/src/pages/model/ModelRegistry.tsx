@@ -123,22 +123,21 @@ export default function ModelRegistry() {
       key: 'actions',
       render: (_: unknown, record: ModelInfo) => (
         <Space>
+          {/* 未晋升模型后端已可返回详情(get_latest 兜底),按钮对所有 stage 开放 */}
+          <Button size="small" icon={<EyeOutlined />} onClick={() => handleDetail(record.name)}>
+            详情
+          </Button>
           {record.stage === 'production' ? (
-            <>
-              <Button size="small" icon={<EyeOutlined />} onClick={() => handleDetail(record.name)}>
-                详情
-              </Button>
-              {/* 下载不走 axios:浏览器 <a download> 无法附带 Authorization 头,
-                  对应后端 download 端点刻意不鉴权(内网假设) */}
-              <Button
-                size="small"
-                icon={<DownloadOutlined />}
-                href={`/api/v1/models/${encodeURIComponent(record.name)}/download`}
-                download
-              >
-                下载
-              </Button>
-            </>
+            /* 下载不走 axios:浏览器 <a download> 无法附带 Authorization 头,
+                对应后端 download 端点刻意不鉴权(内网假设) */
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              href={`/api/v1/models/${encodeURIComponent(record.name)}/download`}
+              download
+            >
+              下载
+            </Button>
           ) : (
             <Button
               type="primary"
