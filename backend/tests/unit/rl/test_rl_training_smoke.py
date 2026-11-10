@@ -8,6 +8,7 @@ TradingEnv) → GymnasiumWrapper → stable-baselines3 PPO 短程训练,
 
 from __future__ import annotations
 
+import json
 import math
 
 import pandas as pd
@@ -84,3 +85,13 @@ def test_rl_service_train_full_cycle(tmp_path, monkeypatch) -> None:
     assert tmp_path.joinpath(result.model_path.split("/")[-1]).exists()
     loaded = service.load_model(result.model_path)
     assert loaded is not None
+
+    # meta.json 必须包含模型卡训练上下文(seed 并入注册表 metadata 的数据源)
+    meta_file = tmp_path / (result.model_path.split("/")[-1] + ".meta.json")
+    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    assert meta["algorithm"] == "ppo"
+    assert meta["total_timesteps"] == 64
+    assert meta["elapsed_seconds"] >= 0
+    assert meta["reward_type"] == "pnl"  # RLTrainConfig 默认 reward_type
+    assert isinstance(meta["created_at"], str) and "T" in meta["created_at"]
+    assert meta["walk_forward"] is None  # 未开启 walk-forward

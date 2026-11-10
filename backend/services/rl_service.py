@@ -10,6 +10,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -481,8 +482,14 @@ class RLService:
         model_id = f"{config.model_name}_{config.algorithm}_{int(time.time())}"
         model_path = str(MODELS_DIR / f"{model_id}.zip")
         model.save(model_path)
-        # 观测规格元数据：RL 策略启动时据此校验 spec_version / 窗口 / 特征是否
-        # 与本机内核口径一致，避免拿旧口径模型去跑新内核
+
+        # elapsed 计算前移到 meta 写入之前:elapsed_seconds 要随训练上下文落盘
+        elapsed = time.time() - start_time
+
+        # 观测规格元数据:RL 策略启动时据此校验 spec_version / 窗口 / 特征是否
+        # 与本机内核口径一致,避免拿旧口径模型去跑新内核;
+        # algorithm/total_timesteps/elapsed_seconds/reward_type/created_at/
+        # walk_forward 是模型卡的训练上下文,注册表 seed 时并入 metadata
         rl_meta_path(model_path).write_text(
             json.dumps(
                 {
@@ -490,9 +497,17 @@ class RLService:
                     "spec_version": KERNEL_SPEC_VERSION,
                     "window_size": KERNEL_WINDOW_SIZE,
                     "features": KERNEL_FEATURES,
-                    # 训练期归一化统计量：内核路径据此还原 Z-Score 分布，
-                    # 取不到时写 null（不伪造空统计量）
+                    # 训练期归一化统计量:内核路径据此还原 Z-Score 分布,
+                    # 取不到时写 null(不伪造空统计量)
                     "observation_stats": observation_stats,
+                    "algorithm": config.algorithm,
+                    "total_timesteps": config.total_timesteps,
+                    "elapsed_seconds": round(elapsed, 2),
+                    "reward_type": config.reward_type,
+                    # ISO 8601 毫秒精度(项目时间戳规范)
+                    "created_at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                    # walk-forward 完整结果(OOS 折明细 + 汇总);seed 并入注册表时只取 aggregate
+                    "walk_forward": wf_result,
                 },
                 ensure_ascii=False,
             ),
@@ -502,7 +517,6 @@ class RLService:
 
         wrapped_env.close()
 
-        elapsed = time.time() - start_time
         logger.info(f"[RLService] 训练完成: elapsed={elapsed:.1f}s")
 
         return RLTrainResult(
