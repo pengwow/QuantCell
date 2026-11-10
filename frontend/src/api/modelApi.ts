@@ -8,6 +8,13 @@ export interface ModelInfo {
   metrics: Record<string, number>;
 }
 
+export interface ModelFeatureSpec {
+  name: string;
+  source_display: string;
+  normalizer: string | null;
+  clip_range: number[] | null;
+}
+
 export interface ModelDetail {
   name: string;
   version: string;
@@ -17,6 +24,14 @@ export interface ModelDetail {
   artifact_size_bytes: number;
   artifact_hash: string;
   storage_uri: string;
+  // 模型卡扩展字段:service 从 metadata 聚合,旧数据为占位值("-" / 空数组)
+  algorithm: string;
+  trained_at: string;
+  spec_version: string;
+  window_size: number | string;
+  features: ModelFeatureSpec[];
+  observation_stats_present: boolean;
+  walk_forward: Record<string, unknown>;
 }
 
 export const modelApi = {

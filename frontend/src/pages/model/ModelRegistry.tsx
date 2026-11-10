@@ -23,6 +23,27 @@ import {
 import PageContainer from '@/components/PageContainer';
 import { modelApi, type ModelInfo, type ModelDetail } from '@/api/modelApi';
 
+// walk_forward aggregate 形如 {mean: {...}, std: {...}, n_valid_folds: n},
+// 嵌套对象展平为带前缀键(mean.sharpe_ratio)后逐行展示
+const flattenKv = (obj: Record<string, unknown>, prefix = ''): [string, unknown][] =>
+  Object.entries(obj).flatMap(([k, v]) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? flattenKv(v as Record<string, unknown>, `${prefix}${k}.`)
+      : ([[`${prefix}${k}`, v]] as [string, unknown][]),
+  );
+
+const featureColumns = [
+  { title: '特征', dataIndex: 'name', key: 'name' },
+  { title: '来源', dataIndex: 'source_display', key: 'source_display' },
+  { title: '归一化', dataIndex: 'normalizer', key: 'normalizer', render: (v: string | null) => v ?? '-' },
+  {
+    title: 'Clip',
+    dataIndex: 'clip_range',
+    key: 'clip_range',
+    render: (v: number[] | null) => (v == null ? '-' : JSON.stringify(v)),
+  },
+];
+
 export default function ModelRegistry() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -180,59 +201,121 @@ export default function ModelRegistry() {
         onClose={() => setDetailOpen(false)}
         width={520}
       >
-        <Descriptions
-          column={1}
-          size="small"
-          bordered
-          items={
-            detail
-              ? [
-                  { key: 'name', label: '名称', children: detail.name },
-                  { key: 'version', label: '版本', children: detail.version || '-' },
-                  { key: 'stage', label: '状态', children: <Tag color="green">{detail.stage}</Tag> },
+        {detail && (
+          <Space orientation="vertical" size="large" style={{ display: 'flex' }}>
+            {/* 1. 基本信息 */}
+            <Descriptions
+              title="基本信息"
+              column={1}
+              size="small"
+              bordered
+              items={[
+                { key: 'name', label: '名称', children: detail.name },
+                { key: 'version', label: '版本', children: detail.version || '-' },
+                { key: 'stage', label: '状态', children: <Tag color="green">{detail.stage}</Tag> },
+                { key: 'algorithm', label: '算法', children: detail.algorithm },
+                { key: 'trained_at', label: '训练时间', children: detail.trained_at },
+                { key: 'spec', label: '观测规格版本', children: detail.spec_version },
+                { key: 'window', label: '观测窗口', children: String(detail.window_size) },
+              ]}
+            />
+
+            {/* 2. 评估指标 */}
+            <Descriptions
+              title="评估指标"
+              column={1}
+              size="small"
+              bordered
+              items={[
+                {
+                  key: 'metrics',
+                  label: '注册指标',
+                  children:
+                    Object.keys(detail.metrics).length > 0 ? (
+                      Object.entries(detail.metrics).map(([k, v]) => <div key={k}>{`${k}: ${v}`}</div>)
+                    ) : (
+                      '-'
+                    ),
+                },
+                {
+                  key: 'wf',
+                  label: 'Walk-Forward OOS 汇总',
+                  children:
+                    flattenKv(detail.walk_forward ?? {}).length > 0 ? (
+                      flattenKv(detail.walk_forward ?? {}).map(([k, v]) => <div key={k}>{`${k}: ${v}`}</div>)
+                    ) : (
+                      '-'
+                    ),
+                },
+              ]}
+            />
+
+            {/* 3. 观测与特征规格 */}
+            <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+              <Typography.Text strong>观测与特征规格</Typography.Text>
+              <Descriptions
+                column={1}
+                size="small"
+                bordered
+                items={[
                   {
-                    key: 'metrics',
-                    label: '指标',
-                    children:
-                      Object.keys(detail.metrics).length > 0 ? (
-                        Object.entries(detail.metrics).map(([k, v]) => (
-                          <div key={k}>{`${k}: ${v}`}</div>
-                        ))
-                      ) : (
-                        '-'
-                      ),
-                  },
-                  {
-                    key: 'size',
-                    label: '文件大小',
-                    children: `${(detail.artifact_size_bytes / 1024 / 1024).toFixed(2)} MB`,
-                  },
-                  {
-                    key: 'hash',
-                    label: 'SHA256',
-                    children: (
-                      <Typography.Text
-                        code
-                        copyable={{ text: detail.artifact_hash }}
-                        style={{ fontSize: 12 }}
-                      >
-                        {detail.artifact_hash.slice(0, 16)}…
-                      </Typography.Text>
+                    key: 'stats',
+                    label: '归一化统计量',
+                    children: detail.observation_stats_present ? (
+                      '已随模型落盘'
+                    ) : (
+                      <Typography.Text type="warning">缺失,内核侧 Z-Score 将恒为 0</Typography.Text>
                     ),
                   },
-                  {
-                    key: 'uri',
-                    label: '存储路径',
-                    children: (
-                      <Typography.Text copyable style={{ fontSize: 12 }}>
-                        {detail.storage_uri}
-                      </Typography.Text>
-                    ),
-                  },
-                ]
-              : []
-          }
-        />
+                ]}
+              />
+              {detail.features.length > 0 ? (
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey="name"
+                  dataSource={detail.features}
+                  columns={featureColumns}
+                />
+              ) : (
+                <Typography.Text type="secondary">特征未记录</Typography.Text>
+              )}
+            </Space>
+
+            {/* 4. 文件 */}
+            <Descriptions
+              title="文件"
+              column={1}
+              size="small"
+              bordered
+              items={[
+                {
+                  key: 'size',
+                  label: '文件大小',
+                  children: `${(detail.artifact_size_bytes / 1024 / 1024).toFixed(2)} MB`,
+                },
+                {
+                  key: 'hash',
+                  label: 'SHA256',
+                  children: (
+                    <Typography.Text code copyable={{ text: detail.artifact_hash }} style={{ fontSize: 12 }}>
+                      {detail.artifact_hash.slice(0, 16)}…
+                    </Typography.Text>
+                  ),
+                },
+                {
+                  key: 'uri',
+                  label: '存储路径',
+                  children: (
+                    <Typography.Text copyable style={{ fontSize: 12 }}>
+                      {detail.storage_uri}
+                    </Typography.Text>
+                  ),
+                },
+              ]}
+            />
+          </Space>
+        )}
       </Drawer>
     </PageContainer>
   );
