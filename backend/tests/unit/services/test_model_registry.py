@@ -174,6 +174,27 @@ def test_promote_no_production_then_noop():
         assert svc.promote_to_production("prom_model") is False
 
 
+def test_unpromote_returns_to_staging():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        model_file = os.path.join(td, "up.zip")
+        with open(model_file, "wb") as f:
+            f.write(b"dummy")
+        svc.register_model(name="unp_model", model_path=model_file)
+        assert svc.promote_to_production("unp_model") is True
+        assert svc.get_model("unp_model")["stage"] == "production"
+
+        assert svc.unpromote_model("unp_model") is True
+        # production 已撤销:get_model 落空,detail 经 get_latest 兜底回真实 stage
+        assert svc.get_model("unp_model") is None
+        assert svc.get_model_detail("unp_model")["stage"] == "staging"
+        # 无 production 时再取消晋升是 no-op;不存在的模型同样 False
+        assert svc.unpromote_model("unp_model") is False
+        assert svc.unpromote_model("ghost") is False
+
+
 def test_get_model_detail_full_contract():
     from services.model_registry import ModelRegistryService
 

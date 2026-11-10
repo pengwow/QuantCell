@@ -318,3 +318,18 @@ class ModelRegistryService:
             return False
         self._registry.promote_to_production(model_id, "1.0.0")
         return True
+
+    def unpromote_model(self, model_id: str) -> bool:
+        """取消晋升:production 记录移回 staging。
+
+        Rust 状态机无 production→staging 直连,unpromote 内部走
+        archived→staging 两段流转;无 production 或模型不存在时返回 False
+        (no-op,与 promote 的幂等语义一致)。底层调用抛 RuntimeError 时
+        交给路由层转 503,与现有错误风格一致。
+        """
+        if model_id not in self._registry.list_models():
+            return False
+        if not self.get_model(model_id):
+            return False
+        self._registry.unpromote(model_id)
+        return True

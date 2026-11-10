@@ -66,6 +66,23 @@ async def promote_model(model_id: str, current_user: dict = Depends(get_current_
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@router.post("/{model_id}/unpromote", summary="取消晋升")
+async def unpromote_model(model_id: str, current_user: dict = Depends(get_current_user)):
+    """将 production 模型移回 staging(取消晋升);无生产版本时为 no-op。"""
+    try:
+        from services.model_registry import ModelRegistryService
+
+        svc = ModelRegistryService()
+        success = svc.unpromote_model(model_id)
+        return ApiResponse(
+            code=0,
+            message="已取消晋升,模型回到 staging" if success else "取消晋升失败(模型不存在或无生产版本)",
+            data={"success": success},
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
 @router.get("/{model_id}/detail", summary="模型详情")
 async def get_model_detail(model_id: str, current_user: dict = Depends(get_current_user)):
     """查询模型详情(名称/版本/指标/文件信息);未晋升模型走 get_latest 兜底,仅查无此名返回 404。"""

@@ -141,3 +141,24 @@ def test_model_download_development_404(tmp_path, _model_storage):
     client = TestClient(app)
 
     assert client.get("/api/v1/models/dev_model/download").status_code == 404
+
+
+def test_model_unpromote_endpoint(tmp_path, _model_storage):
+    from api.model_routes import router
+    from services.model_registry import ModelRegistryService
+
+    _register_promoted(str(tmp_path), "rl_model_c")
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.post("/api/v1/models/rl_model_c/unpromote")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["success"] is True
+    # 取消晋升后 production 落空,detail 走 get_latest 兜底回 staging
+    detail = client.get("/api/v1/models/rl_model_c/detail")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["stage"] == "staging"
+    # 无 production(已取消晋升)与不存在的模型 → success=False
+    assert client.post("/api/v1/models/rl_model_c/unpromote").json()["data"]["success"] is False
+    assert client.post("/api/v1/models/no_such_model/unpromote").json()["data"]["success"] is False
