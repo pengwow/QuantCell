@@ -18,7 +18,6 @@ import {
   IconPlug,
   IconShield,
   IconStack,
-  IconFlask,
   IconMicroscope,
 } from "@tabler/icons-react";
 import { Badge, Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
@@ -186,7 +185,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_DATA = "/data-management";
   const MENU_KEY_FACTOR = "/factor-analysis";
   const MENU_KEY_MODEL_HUB = "/model-hub";
-  const MENU_KEY_ENSEMBLE = "/ensemble";
   const MENU_KEY_RISK = "/risk-monitor";
   const MENU_KEY_RESEARCH = "/research";
 
@@ -200,7 +198,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     [MENU_KEY_STRATEGY_TASK, "strategy_task"],
     [MENU_KEY_DATA, "data_management"],
     [MENU_KEY_MODEL_HUB, "model_hub"],
-    [MENU_KEY_ENSEMBLE, "ensemble"],
     [MENU_KEY_RISK, "risk_monitor"],
     // 子路由补全 — menu 里没有但需要正确标题的页面
     ["/backtest", "backtest"],
@@ -238,7 +235,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_FACTOR, "factor_analysis", <IconChartHistogram size="1em" />, false],
       [MENU_KEY_RESEARCH, "research", <IconMicroscope size="1em" />, false],
       [MENU_KEY_MODEL_HUB, "model_hub", <IconStack size="1em" />, false],
-      [MENU_KEY_ENSEMBLE, "ensemble", <IconFlask size="1em" />, false],
       [MENU_KEY_RISK, "risk_monitor", <IconShield size="1em" />, false],
     ] satisfies Array<[string, string, React.ReactNode, boolean]>
   ).map(([key, label, icon, disabled]) => {

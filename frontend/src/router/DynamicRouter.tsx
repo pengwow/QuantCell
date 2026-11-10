@@ -23,7 +23,6 @@ const KlineReplayPage = lazy(() => import('@/pages/data/KlineReplayPage'));
 const Setting = lazy(() => import('@/pages/setting/Setting'));
 const Agent = lazy(() => import('@/pages/agent/Agent'));
 const ModelHub = lazy(() => import('@/pages/model/ModelHub'));
-const EnsemblePage = lazy(() => import('@/pages/ensemble/EnsemblePage'));
 const RiskMonitorPage = lazy(() => import('@/pages/risk/RiskMonitorPage'));
 const ResearchList = lazy(() => import('@/pages/research/ResearchList'));
 const ResearchDetail = lazy(() => import('@/pages/research/ResearchDetail'));
@@ -90,7 +89,8 @@ function createBaseRoutes(): RouteObject[] {
         // 旧地址 replace 重定向(SPA 内等价 302):/rl-training → 工作台,/model-registry → 总表
         { path: '/rl-training', element: <Navigate to="/model-hub?tab=train" replace /> },
         { path: '/model-registry', element: <Navigate to="/model-hub" replace /> },
-        { path: '/ensemble', element: <EnsemblePage /> },
+        // 旧地址 replace 重定向(SPA 内等价 302):/ensemble → 模型集成 Tab
+        { path: '/ensemble', element: <Navigate to="/model-hub?tab=ensemble" replace /> },
         { path: '/risk-monitor', element: <RiskMonitorPage /> },
         { path: '/factor-analysis', element: <FactorAnalysis /> },
         { path: '/research', element: <ResearchList /> },
