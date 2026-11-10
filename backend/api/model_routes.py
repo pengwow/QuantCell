@@ -68,14 +68,14 @@ async def promote_model(model_id: str, current_user: dict = Depends(get_current_
 
 @router.get("/{model_id}/detail", summary="模型详情")
 async def get_model_detail(model_id: str, current_user: dict = Depends(get_current_user)):
-    """查询 production 模型详情(名称/版本/指标/文件信息);development 无查询接口返回 404。"""
+    """查询模型详情(名称/版本/指标/文件信息);未晋升模型走 get_latest 兜底,仅查无此名返回 404。"""
     try:
         from services.model_registry import ModelRegistryService
 
         svc = ModelRegistryService()
         detail = svc.get_model_detail(model_id)
         if detail is None:
-            raise HTTPException(status_code=404, detail="模型不存在或无生产版本")
+            raise HTTPException(status_code=404, detail="模型不存在")
         return ApiResponse(code=0, message="success", data=detail)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
