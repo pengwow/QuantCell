@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -8,6 +10,33 @@ from fastapi.testclient import TestClient
 @pytest.fixture(autouse=True)
 def _debug_mode(monkeypatch):
     monkeypatch.setenv("DEBUG", "true")
+
+
+@pytest.fixture()
+def _model_storage(tmp_path, monkeypatch):
+    """把路由内 ModelRegistryService() 的默认存储重定向到临时目录,
+    避免端点测试污染真实 data/models;共享缓存按 abspath 键,
+    patched init 与测试内显式 storage_path 指向同一注册表。"""
+    from services.model_registry import ModelRegistryService
+
+    real_init = ModelRegistryService.__init__
+
+    def patched_init(self, storage_path=str(tmp_path)):
+        real_init(self, storage_path)
+
+    monkeypatch.setattr(ModelRegistryService, "__init__", patched_init)
+
+
+def _register_promoted(tmp_path: str, name: str) -> None:
+    """直接经 service 注册并晋升一个模型,artifact 内容固定可断言。"""
+    from services.model_registry import ModelRegistryService
+
+    artifact = os.path.join(tmp_path, f"{name}.zip")
+    with open(artifact, "wb") as f:
+        f.write(b"fake-sb3-bytes")
+    svc = ModelRegistryService(storage_path=tmp_path)
+    svc.register_model(name=name, model_path=artifact, metrics={"sharpe": 1.2})
+    svc.promote_to_production(name)
 
 
 def test_model_list_endpoint():
@@ -22,3 +51,61 @@ def test_model_list_endpoint():
     data = response.json()
     assert data["code"] == 0
     assert isinstance(data["data"], list)
+
+
+def test_model_detail_endpoint(tmp_path, _model_storage):
+    from api.model_routes import router
+
+    _register_promoted(str(tmp_path), "rl_model_a")
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.get("/api/v1/models/rl_model_a/detail")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert set(data.keys()) == {
+        "name",
+        "version",
+        "stage",
+        "metadata",
+        "metrics",
+        "artifact_size_bytes",
+        "artifact_hash",
+        "storage_uri",
+    }
+    assert data["name"] == "rl_model_a"
+    assert data["stage"] == "production"
+    assert data["metrics"] == {"sharpe": 1.2}
+    # 不存在的模型 → 404
+    assert client.get("/api/v1/models/no_such_model/detail").status_code == 404
+
+
+def test_model_download_endpoint(tmp_path, _model_storage):
+    from api.model_routes import router
+
+    _register_promoted(str(tmp_path), "rl_model_b")
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.get("/api/v1/models/rl_model_b/download")
+    assert resp.status_code == 200
+    # FileResponse 返回的字节必须与注册源文件一致
+    assert resp.content == b"fake-sb3-bytes"
+
+
+def test_model_download_development_404(tmp_path, _model_storage):
+    from api.model_routes import router
+    from services.model_registry import ModelRegistryService
+
+    # 只注册不晋升 → 无 production → 下载 404
+    artifact = os.path.join(str(tmp_path), "dev_model.zip")
+    with open(artifact, "wb") as f:
+        f.write(b"fake")
+    ModelRegistryService(storage_path=str(tmp_path)).register_model(name="dev_model", model_path=artifact)
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    assert client.get("/api/v1/models/dev_model/download").status_code == 404

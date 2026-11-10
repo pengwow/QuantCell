@@ -3,6 +3,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
@@ -61,5 +62,39 @@ async def promote_model(model_id: str, current_user: dict = Depends(get_current_
             message="晋升成功" if success else "晋升失败",
             data={"success": success},
         )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/{model_id}/detail", summary="模型详情")
+async def get_model_detail(model_id: str, current_user: dict = Depends(get_current_user)):
+    """查询 production 模型详情(名称/版本/指标/文件信息);development 无查询接口返回 404。"""
+    try:
+        from services.model_registry import ModelRegistryService
+
+        svc = ModelRegistryService()
+        detail = svc.get_model_detail(model_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="模型不存在或无生产版本")
+        return ApiResponse(code=0, message="success", data=detail)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/{model_id}/download", summary="下载模型文件")
+async def download_model(model_id: str):
+    """下载 production 模型 artifact。
+
+    ponytail: 不走 Authorization 头(浏览器 <a download> 无法附带 JWT)、
+    无大小/速率限制——内网单机假设;升级路径为签名 URL 或 limiter。
+    """
+    try:
+        from services.model_registry import ModelRegistryService
+
+        svc = ModelRegistryService()
+        path = svc.get_artifact_path(model_id)
+        if path is None:
+            raise HTTPException(status_code=404, detail="模型文件不存在或无生产版本")
+        return FileResponse(path, filename=f"{model_id}.zip")
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
