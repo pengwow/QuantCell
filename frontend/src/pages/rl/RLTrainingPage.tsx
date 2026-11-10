@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Alert, App as AntdApp, Card } from 'antd';
+import { Alert, App as AntdApp, Card, Col, Flex, Row } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { rlApi } from '../../api/rlApi';
@@ -17,6 +17,7 @@ export default function RLTrainingPage() {
   const [result, setResult] = useState<TrainingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<RLModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [backtesting] = useState(false);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
@@ -29,6 +30,7 @@ export default function RLTrainingPage() {
   }, []);
 
   const fetchModels = async () => {
+    setModelsLoading(true);
     try {
       // 走 rlApi：baseURL=/api/v1 补全为后端真实路由 /api/v1/rl/models，拦截器自动带 Authorization
       // 响应拦截器已解包 ApiResponse，直接得到模型文件列表（name/path/size_mb/created）
@@ -36,6 +38,9 @@ export default function RLTrainingPage() {
       setModels(data || []);
     } catch (err) {
       console.error('加载模型列表失败:', err);
+      message.error('加载模型列表失败');
+    } finally {
+      setModelsLoading(false);
     }
   };
 
@@ -141,78 +146,82 @@ export default function RLTrainingPage() {
 
   return (
     <PageContainer title="RL 训练">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      {/* 响应式两栏：宽屏左右分栏，窄屏上下堆叠 */}
+      <Row gutter={[16, 16]}>
         {/* 左侧: 训练配置 + 模型列表 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* 训练配置 */}
-          <Card
-            title={
-              <span>
-                <ExperimentOutlined /> 强化学习训练配置
-              </span>
-            }
-          >
-            <RLTrainConfigForm
-              onSubmit={handleStartTraining}
-              training={training}
-              backtesting={backtesting}
-              onCancel={handleCancelTraining}
-            />
-          </Card>
+        <Col xs={24} xl={12}>
+          <Flex vertical gap={16}>
+            <Card
+              title={
+                <span>
+                  <ExperimentOutlined /> 强化学习训练配置
+                </span>
+              }
+            >
+              <RLTrainConfigForm
+                onSubmit={handleStartTraining}
+                training={training}
+                backtesting={backtesting}
+                onCancel={handleCancelTraining}
+              />
+            </Card>
 
-          {/* 模型列表 */}
-          <RLModelList
-            models={models}
-            selectedModel={selectedModel}
-            onSelectModel={setSelectedModel}
-            onDeleteModel={handleDeleteModel}
-            onRefresh={fetchModels}
-            onBacktest={handleBacktest}
-            backtesting={backtesting}
-            training={training}
-          />
-        </div>
+            <RLModelList
+              models={models}
+              loading={modelsLoading}
+              selectedModel={selectedModel}
+              onSelectModel={setSelectedModel}
+              onDeleteModel={handleDeleteModel}
+              onRefresh={fetchModels}
+              onBacktest={handleBacktest}
+              backtesting={backtesting}
+              training={training}
+            />
+          </Flex>
+        </Col>
 
         {/* 右侧: 训练进度 + 结果 */}
-        <div>
-          {/* 错误提示 */}
-          {error && (
-            <Alert
-              type="error"
-              title="训练失败"
-              description={error}
-              style={{ marginBottom: 16 }}
-              closable
-              onClose={() => setError(null)}
-            />
-          )}
+        <Col xs={24} xl={12}>
+          <Flex vertical gap={16}>
+            {/* 错误提示 */}
+            {error && (
+              <Alert
+                type="error"
+                showIcon
+                title="训练失败"
+                description={error}
+                closable
+                onClose={() => setError(null)}
+              />
+            )}
 
-          {/* 训练进度 */}
-          {training && (
-            <RLTrainingProgress
-              progress={progress}
-              totalTimesteps={totalTimesteps}
-            />
-          )}
+            {/* 训练进度 */}
+            {training && (
+              <RLTrainingProgress
+                progress={progress}
+                totalTimesteps={totalTimesteps}
+              />
+            )}
 
-          {/* 训练结果 */}
-          {result && <RLTrainingResult result={result} />}
+            {/* 训练结果 */}
+            {result && <RLTrainingResult result={result} />}
 
-          {/* 回测结果 */}
-          {backtestResult && <RLBacktestResult result={backtestResult} />}
+            {/* 回测结果 */}
+            {backtestResult && <RLBacktestResult result={backtestResult} />}
 
-          {/* 空状态 */}
-          {!training && !result && !error && !backtestResult && (
-            <Card>
-              <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-                <ExperimentOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-                <div>配置训练参数后点击"开始训练"</div>
-                <div style={{ marginTop: 8 }}>或从下方模型列表选择模型进行回测</div>
-              </div>
-            </Card>
-          )}
-        </div>
-      </div>
+            {/* 空状态 */}
+            {!training && !result && !error && !backtestResult && (
+              <Card>
+                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                  <ExperimentOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+                  <div>配置训练参数后点击"开始训练"</div>
+                  <div style={{ marginTop: 8 }}>或在左侧模型列表选择已训练模型进行回测</div>
+                </div>
+              </Card>
+            )}
+          </Flex>
+        </Col>
+      </Row>
     </PageContainer>
   );
 }

@@ -22,14 +22,14 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
 
   return (
     <>
-      <Card title="训练结果" style={{ marginBottom: 16 }}>
+      <Card title="训练结果">
         <Row gutter={16}>
           <Col span={8}>
             <Statistic
               title="夏普比率"
               value={num('sharpe_ratio')}
               precision={2}
-              styles={{ content: { color: num('sharpe_ratio') >= 0 ? '#3f8600' : QUANT_COLORS.negative } }}
+              styles={{ content: { color: num('sharpe_ratio') >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
               prefix={<LineChartOutlined />}
             />
           </Col>

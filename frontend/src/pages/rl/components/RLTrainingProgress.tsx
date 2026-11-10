@@ -27,7 +27,7 @@ export default function RLTrainingProgress({ progress, totalTimesteps }: RLTrain
     : 0;
 
   return (
-    <Card style={{ marginBottom: 16 }}>
+    <Card>
       <div style={{ marginBottom: 16 }}>
         <Progress
           percent={Math.round(progressPercent)}

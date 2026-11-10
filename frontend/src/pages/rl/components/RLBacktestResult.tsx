@@ -18,14 +18,14 @@ interface RLBacktestResultProps {
 
 export default function RLBacktestResult({ result }: RLBacktestResultProps) {
   return (
-    <Card title="回测结果" style={{ marginTop: 16 }}>
+    <Card title="回测结果">
       <Row gutter={16}>
         <Col span={8}>
           <Statistic
             title="总收益"
             value={result.total_pnl}
             precision={2}
-            styles={{ content: { color: result.total_pnl >= 0 ? '#3f8600' : QUANT_COLORS.negative } }}
+            styles={{ content: { color: result.total_pnl >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
             prefix="¥"
           />
         </Col>
