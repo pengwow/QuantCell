@@ -123,3 +123,89 @@ def test_promote_no_production_then_noop():
         assert svc.get_model("prom_model")["stage"] == "production"
         # 已是 Production,重复晋升为 no-op
         assert svc.promote_to_production("prom_model") is False
+
+
+def test_get_model_detail_full_contract():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        model_file = os.path.join(td, "test.onnx")
+        with open(model_file, "wb") as f:
+            f.write(b"dummy")
+        svc.register_model(
+            name="detail_model",
+            model_path=model_file,
+            metadata={"algorithm": "ppo"},
+            metrics={"sharpe": 1.5},
+        )
+        svc.promote_to_production("detail_model")
+
+        detail = svc.get_model_detail("detail_model")
+        assert detail is not None
+        assert set(detail.keys()) == {
+            "name",
+            "version",
+            "stage",
+            "metadata",
+            "metrics",
+            "artifact_size_bytes",
+            "artifact_hash",
+            "storage_uri",
+        }
+        assert detail["name"] == "detail_model"
+        assert detail["stage"] == "production"
+        assert detail["version"] == "1.0.0"
+        assert detail["metadata"] == {"algorithm": "ppo"}
+        assert detail["metrics"] == {"sharpe": 1.5}
+        assert detail["artifact_size_bytes"] == len(b"dummy")
+        assert detail["artifact_hash"]
+        assert detail["storage_uri"]
+
+
+def test_get_model_detail_none_without_production():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        model_file = os.path.join(td, "a.onnx")
+        with open(model_file, "wb") as f:
+            f.write(b"dummy")
+        svc.register_model(name="dev_model", model_path=model_file)
+        # 未晋升与不存在的模型都拿不到详情(Rust 只有 get_production 一个查询口)
+        assert svc.get_model_detail("dev_model") is None
+        assert svc.get_model_detail("ghost") is None
+
+
+def test_get_artifact_path_within_storage():
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        model_file = os.path.join(td, "a.onnx")
+        with open(model_file, "wb") as f:
+            f.write(b"artifact-bytes")
+        svc.register_model(name="path_model", model_path=model_file)
+        svc.promote_to_production("path_model")
+
+        path = svc.get_artifact_path("path_model")
+        assert path is not None
+        # Rust fs::copy 后文件在 <storage>/<name>/<version>/ 下,必须仍位于 storage 内
+        assert path.startswith(os.path.realpath(td) + os.sep)
+        assert os.path.isfile(path)
+        with open(path, "rb") as f:
+            assert f.read() == b"artifact-bytes"
+
+
+def test_get_artifact_path_rejects_escape(monkeypatch):
+    from services.model_registry import ModelRegistryService
+
+    with tempfile.TemporaryDirectory() as td:
+        svc = ModelRegistryService(storage_path=td)
+        # 模拟 storage_uri 被改动指向注册表外的文件,必须拒绝
+        monkeypatch.setattr(
+            svc,
+            "get_model",
+            lambda mid: {"storage_uri": "/etc/passwd", "name": "evil"},
+        )
+        assert svc.get_artifact_path("evil") is None

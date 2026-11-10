@@ -112,6 +112,8 @@ class ModelRegistryService:
             raise RuntimeError(msg)
         # 底层 registry 进程内按路径共享,理由见模块级 _registry_cache 注释
         self._registry = _get_shared_registry(storage_path)
+        # get_artifact_path 的路径逃逸校验需要拿它做 realpath 前缀比对
+        self._storage_path = storage_path
 
     def register_model(
         self,
@@ -166,6 +168,46 @@ class ModelRegistryService:
             return self._registry.get_production(model_id)
         except Exception:
             return None
+
+    def get_model_detail(self, model_id: str) -> dict[str, Any] | None:
+        """Production 模型详情;不存在或无 production 返回 None。"""
+        prod = self.get_model(model_id)
+        if not prod:
+            return None
+        try:
+            desc = json.loads(prod.get("description", "{}"))
+        # description 是注册时写入的 JSON 字符串,损坏不应导致 500
+        except TypeError, ValueError:
+            desc = {}
+        return {
+            "name": prod.get("name", model_id),
+            "version": prod.get("version", ""),
+            "stage": prod.get("stage", "production"),
+            "metadata": desc.get("metadata", {}),
+            "metrics": desc.get("metrics", {}),
+            "artifact_size_bytes": prod.get("artifact_size_bytes", 0),
+            "artifact_hash": prod.get("artifact_hash", ""),
+            "storage_uri": prod.get("storage_uri", ""),
+        }
+
+    def get_artifact_path(self, model_id: str) -> str | None:
+        """取 production artifact 的本地路径;路径逃逸或文件缺失时返回 None。"""
+        prod = self.get_model(model_id)
+        if not prod:
+            return None
+        uri = prod.get("storage_uri", "")
+        if not uri:
+            return None
+        # Rust 侧 storage_uri 是相对 storage_path 的相对路径(如 name/1.0.0/model.bin),
+        # 必须先拼回 storage_path 再 realpath 才能与 base 同基比较(os.path.join
+        # 遇到绝对路径时直接使用绝对路径,故 storage_uri 为绝对路径时行为不变);
+        # 只放行 storage_path 内的路径,防 storage_uri 被改后变成任意文件下载;
+        # base + os.sep 前缀同时挡住同级目录(如 data/models-evil)的逃逸
+        base = os.path.realpath(self._storage_path)
+        real = os.path.realpath(os.path.join(self._storage_path, uri))
+        if not real.startswith(base + os.sep) or not os.path.isfile(real):
+            return None
+        return real
 
     def promote_to_production(self, model_id: str) -> bool:
         """Promote model to production.
