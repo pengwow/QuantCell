@@ -29,6 +29,7 @@ from plugins import PluginManager
 from plugins.event_bus import event_bus
 from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
+from services.model_registry import seed_demo_models
 from services.symbol_sync import symbol_sync_manager
 from utils.config_manager import load_system_configs
 from utils.secret_key_manager import initialize_secret_key
@@ -175,6 +176,12 @@ async def lifespan(app: FastAPI):
 
     # 自动扫描并初始化策略到数据库
     await asyncio.to_thread(_init_strategies)
+
+    # 模型注册表开箱即用 seed:幂等(非空跳过/重启自愈),内部全兜底,不影响启动
+    try:
+        await asyncio.to_thread(seed_models_safe)
+    except Exception:
+        logger.warning("模型注册表 seed 执行失败(不影响启动)", exc_info=True)
 
     # 异步加载系统配置到应用上下文
     app.state.configs = await asyncio.to_thread(load_system_configs)
@@ -592,9 +599,7 @@ def _mark_interrupted_workers():
         init_database_config()
         db = SessionLocal()
         try:
-            stale_ids = [
-                wid for (wid,) in db.query(Worker.id).filter(Worker.status == "running").all()
-            ]
+            stale_ids = [wid for (wid,) in db.query(Worker.id).filter(Worker.status == "running").all()]
             if stale_ids:
                 db.query(Worker).filter(Worker.id.in_(stale_ids)).update(
                     {"status": "interrupted", "updated_at": datetime.now()},
@@ -602,14 +607,21 @@ def _mark_interrupted_workers():
                 )
                 db.commit()
                 logger.warning(
-                    f"检测到 {len(stale_ids)} 个上次进程残留的 running worker，"
-                    f"已标记为 interrupted: {stale_ids}"
+                    f"检测到 {len(stale_ids)} 个上次进程残留的 running worker，已标记为 interrupted: {stale_ids}"
                 )
         finally:
             db.close()
     except Exception:
         # 恢复扫描失败不阻断启动，状态修正等下次重启再补
         logger.exception("running→interrupted 恢复扫描失败（不阻断启动）")
+
+
+def seed_models_safe() -> None:
+    """seed_demo_models 的传线程包装:自身已兜底,此处仅收敛异常避免污染 lifespan"""
+    try:
+        seed_demo_models()
+    except Exception:
+        logger.warning("模型注册表 seed 异常", exc_info=True)
 
 
 def _init_strategies():
