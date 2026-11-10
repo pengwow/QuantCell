@@ -4,10 +4,11 @@ import { ExperimentOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { rlApi } from '../../api/rlApi';
 import { getAccessToken } from '../../utils/tokenManager';
-import RLTrainConfigForm, { RLTrainConfig } from './components/RLTrainConfigForm';
+// 训练三组件已迁至模型中心（model/components），旧 RL 页面在 Task 8 下线前仍复用新位置
+import RLTrainConfigForm, { RLTrainConfig } from '../model/components/RLTrainConfigForm';
 import RLModelList, { RLModel } from './components/RLModelList';
-import RLTrainingProgress, { TrainingProgress } from './components/RLTrainingProgress';
-import RLTrainingResult, { TrainingResult } from './components/RLTrainingResult';
+import RLTrainingProgress, { TrainingProgress } from '../model/components/RLTrainingProgress';
+import RLTrainingResult, { TrainingResult } from '../model/components/RLTrainingResult';
 import RLBacktestResult, { BacktestResult } from './components/RLBacktestResult';
 
 export default function RLTrainingPage() {
