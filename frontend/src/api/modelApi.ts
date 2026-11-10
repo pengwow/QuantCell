@@ -40,6 +40,8 @@ export const modelApi = {
     apiRequest.post('/models/register', data),
   promoteModel: (modelId: string) =>
     apiRequest.post(`/models/${modelId}/promote`),
+  unpromoteModel: (modelId: string) =>
+    apiRequest.post(`/models/${modelId}/unpromote`),
   getModelDetail: (name: string) =>
     apiRequest.get<ModelDetail>(`/models/${encodeURIComponent(name)}/detail`),
 };

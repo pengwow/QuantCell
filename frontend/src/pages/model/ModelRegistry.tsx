@@ -13,12 +13,14 @@ import {
   Drawer,
   Descriptions,
   Typography,
+  Popconfirm,
 } from 'antd';
 import {
   PlusOutlined,
   RocketOutlined,
   EyeOutlined,
   DownloadOutlined,
+  RollbackOutlined,
 } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
 import { modelApi, type ModelInfo, type ModelDetail } from '@/api/modelApi';
@@ -75,6 +77,16 @@ export default function ModelRegistry() {
       loadModels();
     } catch {
       message.error('晋升失败');
+    }
+  };
+
+  const handleUnpromote = async (modelId: string) => {
+    try {
+      await modelApi.unpromoteModel(modelId);
+      message.success('已取消晋升,模型回到 staging');
+      loadModels();
+    } catch {
+      message.error('取消晋升失败');
     }
   };
 
@@ -147,6 +159,17 @@ export default function ModelRegistry() {
             >
               晋升
             </Button>
+          )}
+          {record.stage === 'production' && (
+            <Popconfirm
+              title="确定取消晋升吗?"
+              description="模型将从 production 移回 staging"
+              onConfirm={() => handleUnpromote(record.id)}
+            >
+              <Button size="small" icon={<RollbackOutlined />}>
+                取消晋升
+              </Button>
+            </Popconfirm>
           )}
         </Space>
       ),
