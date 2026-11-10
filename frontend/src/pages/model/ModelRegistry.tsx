@@ -1,14 +1,35 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Tag, Space, Card, message, Modal, Form, Input, InputNumber } from 'antd';
-import { PlusOutlined, RocketOutlined } from '@ant-design/icons';
+import {
+  Table,
+  Button,
+  Tag,
+  Space,
+  Card,
+  message,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Drawer,
+  Descriptions,
+  Typography,
+} from 'antd';
+import {
+  PlusOutlined,
+  RocketOutlined,
+  EyeOutlined,
+  DownloadOutlined,
+} from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
-import { modelApi, type ModelInfo } from '@/api/modelApi';
+import { modelApi, type ModelInfo, type ModelDetail } from '@/api/modelApi';
 
 export default function ModelRegistry() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detail, setDetail] = useState<ModelDetail | null>(null);
 
   useEffect(() => {
     loadModels();
@@ -33,6 +54,16 @@ export default function ModelRegistry() {
       loadModels();
     } catch {
       message.error('晋升失败');
+    }
+  };
+
+  const handleDetail = async (name: string) => {
+    try {
+      const data = await modelApi.getModelDetail(name);
+      setDetail(data);
+      setDetailOpen(true);
+    } catch {
+      message.error('加载模型详情失败');
     }
   };
 
@@ -71,7 +102,23 @@ export default function ModelRegistry() {
       key: 'actions',
       render: (_: unknown, record: ModelInfo) => (
         <Space>
-          {record.stage !== 'production' && (
+          {record.stage === 'production' ? (
+            <>
+              <Button size="small" icon={<EyeOutlined />} onClick={() => handleDetail(record.name)}>
+                详情
+              </Button>
+              {/* 下载不走 axios:浏览器 <a download> 无法附带 Authorization 头,
+                  对应后端 download 端点刻意不鉴权(内网假设) */}
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                href={`/api/v1/models/${encodeURIComponent(record.name)}/download`}
+                download
+              >
+                下载
+              </Button>
+            </>
+          ) : (
             <Button
               type="primary"
               size="small"
@@ -126,6 +173,67 @@ export default function ModelRegistry() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Drawer
+        title={detail ? `模型详情 - ${detail.name}` : '模型详情'}
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        width={520}
+      >
+        <Descriptions
+          column={1}
+          size="small"
+          bordered
+          items={
+            detail
+              ? [
+                  { key: 'name', label: '名称', children: detail.name },
+                  { key: 'version', label: '版本', children: detail.version || '-' },
+                  { key: 'stage', label: '状态', children: <Tag color="green">{detail.stage}</Tag> },
+                  {
+                    key: 'metrics',
+                    label: '指标',
+                    children:
+                      Object.keys(detail.metrics).length > 0 ? (
+                        Object.entries(detail.metrics).map(([k, v]) => (
+                          <div key={k}>{`${k}: ${v}`}</div>
+                        ))
+                      ) : (
+                        '-'
+                      ),
+                  },
+                  {
+                    key: 'size',
+                    label: '文件大小',
+                    children: `${(detail.artifact_size_bytes / 1024 / 1024).toFixed(2)} MB`,
+                  },
+                  {
+                    key: 'hash',
+                    label: 'SHA256',
+                    children: (
+                      <Typography.Text
+                        code
+                        copyable={{ text: detail.artifact_hash }}
+                        style={{ fontSize: 12 }}
+                      >
+                        {detail.artifact_hash.slice(0, 16)}…
+                      </Typography.Text>
+                    ),
+                  },
+                  {
+                    key: 'uri',
+                    label: '存储路径',
+                    children: (
+                      <Typography.Text copyable style={{ fontSize: 12 }}>
+                        {detail.storage_uri}
+                      </Typography.Text>
+                    ),
+                  },
+                ]
+              : []
+          }
+        />
+      </Drawer>
     </PageContainer>
   );
 }

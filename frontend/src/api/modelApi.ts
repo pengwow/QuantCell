@@ -8,10 +8,23 @@ export interface ModelInfo {
   metrics: Record<string, number>;
 }
 
+export interface ModelDetail {
+  name: string;
+  version: string;
+  stage: string;
+  metadata: Record<string, unknown>;
+  metrics: Record<string, number>;
+  artifact_size_bytes: number;
+  artifact_hash: string;
+  storage_uri: string;
+}
+
 export const modelApi = {
   listModels: () => apiRequest.get<ModelInfo[]>('/models/list'),
   registerModel: (data: { name: string; model_path: string; metadata?: object; metrics?: object }) =>
     apiRequest.post('/models/register', data),
   promoteModel: (modelId: string) =>
     apiRequest.post(`/models/${modelId}/promote`),
+  getModelDetail: (name: string) =>
+    apiRequest.get<ModelDetail>(`/models/${encodeURIComponent(name)}/detail`),
 };
