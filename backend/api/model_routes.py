@@ -31,6 +31,19 @@ async def list_models(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@router.get("/unified", summary="统一模型表")
+async def list_unified_models(current_user: dict = Depends(get_current_user)):
+    """「文件 = 唯一事实」的统一模型总表:扫 data/models/*.zip 与注册条目 join,
+    未注册文件与文件缺失条目同表呈现,一行 = 一个 zip 文件。"""
+    try:
+        from services.model_registry import ModelRegistryService
+
+        svc = ModelRegistryService()
+        return ApiResponse(code=0, message="success", data=svc.list_unified_models())
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
 @router.post("/register")
 async def register_model(req: RegisterModelRequest, current_user: dict = Depends(get_current_user)):
     """Register a new model."""
