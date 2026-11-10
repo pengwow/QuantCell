@@ -179,6 +179,98 @@ class ModelRegistryService:
             )
         return rows
 
+    def list_unified_models(self) -> list[dict[str, Any]]:
+        """统一模型表:「文件 = 唯一事实」的全量视图。
+
+        join 锚点:Rust register 会把 artifact 复制为 {name}/{version}/model.bin,
+        记录的 storage_uri 并非源 zip 路径 —— 故优先 metadata.model_path 显式指向
+        目录内 zip(统一页注册时写入),其次目录约定 {注册名}.zip(训练产物
+        model_id == zip stem == seed/统一页注册名)。同一 zip 命中多条注册条目时
+        取 metadata.created_at 最新一条(ISO 字符串字典序即时间序);条目盖不住的
+        文件 → 未注册行,盖不住文件的条目 → 「文件缺失」行(注册表无 delete,
+        孤立项保留可见)。
+        """
+        files: dict[str, dict[str, Any]] = {}
+        for f in glob.glob(os.path.join(self._storage_path, "*.zip")):
+            st = os.stat(f)
+            files[os.path.abspath(f)] = {
+                "path": f,
+                "size_mb": round(st.st_size / (1024 * 1024), 2),
+                "created": st.st_ctime,
+            }
+
+        # zip abspath -> (created_at 排序键, 行数据);重复命中保留 created_at 更新的条目
+        best: dict[str, tuple[str, dict[str, Any]]] = {}
+        missing: list[dict[str, Any]] = []
+        for name in self._registry.list_models():
+            record = self._get_any(name)
+            if not record:
+                continue
+            try:
+                desc = json.loads(record.get("description", "{}"))
+            except TypeError, ValueError:
+                desc = {}
+            meta = desc.get("metadata")
+            meta = meta if isinstance(meta, dict) else {}
+            entry: dict[str, Any] = {
+                "file_name": "",
+                "path": None,
+                "size_mb": None,
+                "created": None,
+                "algorithm": self._infer_algorithm(meta, name),
+                "registered": True,
+                "model_id": name,
+                "version": record.get("version", ""),
+                "stage": record.get("stage", ""),
+                "metrics": desc.get("metrics", {}) or {},
+            }
+            created_iso = str(meta.get("created_at") or "")
+            candidates: list[str] = []
+            source_path = meta.get("model_path")
+            if source_path:
+                candidates.append(os.path.abspath(str(source_path)))
+            candidates.append(os.path.abspath(os.path.join(self._storage_path, f"{name}.zip")))
+            zip_key = next((c for c in candidates if c in files), None)
+            if zip_key is None:
+                # 文件缺失行:路径尽力回显(来源路径 or 目录约定路径),时间回退条目 created_at
+                entry["path"] = str(source_path) if source_path else os.path.join(self._storage_path, f"{name}.zip")
+                entry["file_name"] = os.path.basename(entry["path"])
+                if created_iso:
+                    try:
+                        entry["created"] = datetime.fromisoformat(created_iso).timestamp()
+                    except ValueError:
+                        pass
+                missing.append(entry)
+                continue
+            if zip_key not in best or created_iso > best[zip_key][0]:
+                f = files[zip_key]
+                entry.update(path=f["path"], size_mb=f["size_mb"], created=f["created"])
+                entry["file_name"] = os.path.basename(f["path"])
+                best[zip_key] = (created_iso, entry)
+
+        rows = [entry for _, entry in best.values()]
+        for abspath, f in files.items():
+            if abspath in best:
+                continue
+            file_name = os.path.basename(f["path"])
+            rows.append(
+                {
+                    "file_name": file_name,
+                    "path": f["path"],
+                    "size_mb": f["size_mb"],
+                    "created": f["created"],
+                    "algorithm": self._infer_algorithm({}, file_name[: -len(".zip")]),
+                    "registered": False,
+                    "model_id": None,
+                    "version": "",
+                    "stage": "",
+                    "metrics": {},
+                }
+            )
+        rows.extend(missing)
+        rows.sort(key=lambda r: (r["created"] is not None, r["created"] or 0), reverse=True)
+        return rows
+
     def get_model(self, model_id: str) -> dict[str, Any] | None:
         """Get production model by name."""
         try:
