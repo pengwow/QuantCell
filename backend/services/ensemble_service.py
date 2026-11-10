@@ -20,6 +20,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+# 集成元数据落盘:与 MODELS_DIR 同级(backend/data/ensembles.json)
+ENSEMBLES_STORE = MODELS_DIR.parent / "ensembles.json"
+
 
 # ponytail: 限制 pickle 反序列化范围，防止任意代码执行
 class _SafeUnpickler(pickle.Unpickler):
@@ -172,20 +175,52 @@ def _load_model_from_path(path: str) -> Callable[[dict[str, Any]], dict[str, Any
 
 
 class EnsembleService:
-    """Ensemble service wrapping axon_quant.ensemble.EnsembleManager。"""
+    """Ensemble service wrapping axon_quant.ensemble.EnsembleManager。
+
+    元数据(records)持久化于 ENSEMBLES_STORE,manager 内存实例惰性重建:
+    只有 create 与首次 predict 需要真实加载模型,启动时零加载。
+    """
 
     def __init__(self) -> None:
         if not AVAILABLE:
             msg = "axon_quant.ensemble not available"
             raise RuntimeError(msg)
         self._managers: dict[str, EnsembleManager] = {}
+        self._records: dict[str, dict[str, Any]] = self._load_records()
+
+    # ---- 元数据持久化 ----
+
+    def _load_records(self) -> dict[str, dict[str, Any]]:
+        if not ENSEMBLES_STORE.exists():
+            return {}
+        try:
+            raw = json.loads(ENSEMBLES_STORE.read_text(encoding="utf-8"))
+            return {r["id"]: r for r in raw}
+        except (json.JSONDecodeError, KeyError, OSError, TypeError) as e:
+            logger.warning(f"集成元数据读取失败,按空列表启动: {e}")
+            return {}
+
+    def _save_records(self) -> None:
+        """原子写(临时文件 + replace),避免半写损坏。"""
+        tmp = ENSEMBLES_STORE.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(list(self._records.values()), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        tmp.replace(ENSEMBLES_STORE)
+
+    # ---- 对外接口 ----
 
     def create_ensemble(
         self,
         strategy: str = "soft_vote",
         model_paths: list[str] | None = None,
-    ) -> str:
-        """创建集成并返回 ID。model_paths 为 stem(SB3 zip)或绝对路径(pickle)。"""
+    ) -> tuple[str, list[dict[str, str]]]:
+        """创建集成,返回 (ensemble_id, 加载失败被跳过的模型列表)。
+
+        model_paths 语义:裸 stem(→ MODELS_DIR 下 SB3 zip)或绝对路径(pickle)。
+        连续动作模型抛 _UnsupportedActionSpace 整单拒绝;单个文件加载失败只跳过。
+        """
         strategy_cls = _STRATEGY_MAP.get(strategy)
         if strategy_cls is None:
             msg = f"Unknown strategy: {strategy}"
@@ -193,20 +228,38 @@ class EnsembleService:
 
         manager = EnsembleManager(strategy_cls())
         loaded = 0
+        skipped: list[dict[str, str]] = []
         for i, path in enumerate(model_paths or []):
             try:
                 model_fn = _load_model_from_path(path)
                 manager.register_model(model_fn, f"model_{i}", ModelType.RuleBased)
                 loaded += 1
             except _UnsupportedActionSpace:
-                # 连续动作模型无法参与离散投票,整单拒绝(spec §4:明确报错不静默降级)
                 raise
             except Exception as e:
                 logger.warning(f"加载模型 {path} 失败: {e}，跳过")
+                skipped.append({"path": path, "reason": str(e)})
 
         eid = uuid.uuid4().hex[:8]
+        self._records[eid] = {
+            "id": eid,
+            "strategy": strategy,
+            "model_paths": list(model_paths or []),
+            "models": loaded,  # 创建时成功加载的数量,重启后 list 直接读记录
+            "created_at": int(time.time()),
+        }
         self._managers[eid] = manager
-        return eid
+        self._save_records()
+        return eid, skipped
+
+    def delete_ensemble(self, ensemble_id: str) -> None:
+        """删除集成(内存与磁盘元数据同步)。id 不存在抛 KeyError。"""
+        if ensemble_id not in self._records:
+            msg = f"Ensemble {ensemble_id} not found"
+            raise KeyError(msg)
+        self._records.pop(ensemble_id, None)
+        self._managers.pop(ensemble_id, None)
+        self._save_records()
 
     def predict(
         self,
@@ -214,11 +267,11 @@ class EnsembleService:
         observation: dict[str, Any],
         timestamp: int = 0,
     ) -> dict[str, Any]:
-        """运行集成预测。"""
+        """运行集成预测。manager 不在内存时从元数据惰性重建。"""
         manager = self._managers.get(ensemble_id)
         if manager is None:
-            msg = f"Ensemble {ensemble_id} not found"
-            raise KeyError(msg)
+            manager = self._rebuild_manager(ensemble_id)
+            self._managers[ensemble_id] = manager
 
         if "market_features" in observation:
             obs = Observation(
@@ -240,16 +293,28 @@ class EnsembleService:
         }
 
     def list_ensembles(self) -> list[dict[str, Any]]:
-        """列出所有集成。"""
-        return [
-            {
-                "id": eid,
-                # model_count/strategy_name 在 Rust 绑定(pyclass pymethods)里是方法,不是 getter 属性
-                "models": m.model_count(),
-                "strategy": m.strategy_name(),
-            }
-            for eid, m in self._managers.items()
-        ]
+        """列出所有集成(读元数据;models 为创建时成功加载的数量)。"""
+        return [dict(r) for r in self._records.values()]
+
+    # ---- 内部 ----
+
+    def _rebuild_manager(self, ensemble_id: str) -> EnsembleManager:
+        """重启后首次 predict 时按元数据重建 manager。"""
+        record = self._records.get(ensemble_id)
+        if record is None:
+            msg = f"Ensemble {ensemble_id} not found"
+            raise KeyError(msg)
+        strategy_cls = _STRATEGY_MAP.get(record["strategy"])
+        if strategy_cls is None:
+            msg = f"Unknown strategy: {record['strategy']}"
+            raise ValueError(msg)
+        manager = EnsembleManager(strategy_cls())
+        for i, path in enumerate(record.get("model_paths", [])):
+            try:
+                manager.register_model(_load_model_from_path(path), f"model_{i}", ModelType.RuleBased)
+            except Exception as e:
+                logger.warning(f"重建集成 {ensemble_id} 时加载模型 {path} 失败: {e}，跳过")
+        return manager
 
 
 @lru_cache(maxsize=1)

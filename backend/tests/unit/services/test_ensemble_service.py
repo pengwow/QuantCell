@@ -68,7 +68,7 @@ def test_sb3_zip_create_and_list(models_dir):
     _save_discrete_ppo(models_dir, "ppo_dummy")
     svc = EnsembleService()
 
-    ensemble_id = svc.create_ensemble("soft_vote", ["ppo_dummy"])
+    ensemble_id, _ = svc.create_ensemble("soft_vote", ["ppo_dummy"])
 
     items = svc.list_ensembles()
     assert len(items) == 1
@@ -80,7 +80,7 @@ def test_sb3_zip_create_and_list(models_dir):
 def test_sb3_zip_predict(models_dir):
     _save_discrete_ppo(models_dir, "ppo_dummy2")
     svc = EnsembleService()
-    ensemble_id = svc.create_ensemble("soft_vote", ["ppo_dummy2"])
+    ensemble_id, _ = svc.create_ensemble("soft_vote", ["ppo_dummy2"])
 
     result = svc.predict(ensemble_id, {"market_features": [0.1, -0.2, 0.3]})
     assert result["action"] in {"hold", "buy", "sell"}
@@ -108,8 +108,52 @@ def test_pickle_abs_path_still_works(tmp_path, models_dir):
         pickle.dump(clf, f)
 
     svc = EnsembleService()
-    ensemble_id = svc.create_ensemble("soft_vote", [str(pkl)])
+    ensemble_id, _ = svc.create_ensemble("soft_vote", [str(pkl)])
 
     assert svc.list_ensembles()[0]["models"] == 1
     result = svc.predict(ensemble_id, {"market_features": [1.0, 1.0, 1.0]})
     assert result["action"] in {"hold", "buy", "sell"}
+
+
+@pytest.fixture
+def isolated_store(tmp_path, monkeypatch):
+    """ENSEMBLES_STORE 指向 tmp_path,持久化测试不读写真实数据目录。"""
+    monkeypatch.setattr(ensemble_service, "ENSEMBLES_STORE", tmp_path / "ensembles.json")
+    return tmp_path
+
+
+def test_create_returns_skipped(isolated_store):
+    svc = EnsembleService()
+    _, skipped = svc.create_ensemble("soft_vote", ["/tmp/definitely_missing.onnx"])
+    assert len(skipped) == 1
+    assert skipped[0]["path"] == "/tmp/definitely_missing.onnx"
+    assert "reason" in skipped[0]
+
+
+def test_persistence_and_restart(isolated_store, models_dir):
+    _save_discrete_ppo(models_dir, "ppo_dummy3")
+
+    svc = EnsembleService()
+    eid, _ = svc.create_ensemble("soft_vote", ["ppo_dummy3"])
+    assert (isolated_store / "ensembles.json").exists()
+
+    # 模拟重启:新实例从磁盘恢复元数据
+    svc2 = EnsembleService()
+    items = svc2.list_ensembles()
+    assert len(items) == 1
+    assert items[0]["id"] == eid
+    assert items[0]["models"] == 1
+    assert items[0]["created_at"] is not None
+
+
+def test_delete_ensemble(isolated_store):
+    svc = EnsembleService()
+    eid, _ = svc.create_ensemble("soft_vote", [])
+
+    svc.delete_ensemble(eid)
+    assert svc.list_ensembles() == []
+    # 删除后文件同步重写,重启不会复活
+    assert not EnsembleService().list_ensembles()
+
+    with pytest.raises(KeyError):
+        svc.delete_ensemble(eid)
