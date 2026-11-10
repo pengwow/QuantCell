@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     default_host: str = "localhost"
     default_port: int = 8000
 
+    # 交易所网络代理（可选），例如 PROXY_URL=http://127.0.0.1:7897。
+    # 供交易所连通性探测等出网请求使用；为空则直连。
+    proxy_url: str | None = None
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

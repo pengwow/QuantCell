@@ -79,13 +79,16 @@ async def get_system_metrics():
         # 获取系统状态
         system_status = system_service.get_system_status()
 
+        # 连接状态：真实探测交易所连通性（60s TTL 缓存在线程中探测，不会阻塞事件循环）
+        connection_status = await system_service.get_connection_status()
+
         # 解析内存和磁盘信息
         memory_parts = system_status.get("memory_usage", "0GB / 0GB").split(" / ")
         disk_parts = system_status.get("disk_space", "0GB / 0GB").split(" / ")
 
         # 构建响应数据
         metrics = SystemMetrics(
-            connectionStatus="connected",  # 默认连接状态
+            connectionStatus=connection_status,
             cpuUsage=system_status.get("cpu_usage", 0),
             memoryUsed=memory_parts[0] if len(memory_parts) > 0 else "0 GB",
             memoryTotal=memory_parts[1] if len(memory_parts) > 1 else "0 GB",

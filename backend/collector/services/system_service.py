@@ -11,6 +11,8 @@ from typing import Any
 import psutil
 
 from config.settings import get_settings
+from credentials.service import CredentialsService
+from exchange.connection import create_exchange_instance
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -19,6 +21,9 @@ logger = get_logger(__name__, LogType.APPLICATION)
 import contextlib
 
 from websocket.manager import manager
+
+# 首页连接状态探测缓存 TTL（秒），对齐前端首页 60s 轮询周期
+_CONN_PROBE_TTL_SECONDS = 60
 
 
 class ExchangeStatus(Enum):
@@ -158,6 +163,8 @@ class SystemService:
         self.exchange_monitor = ExchangeConnectionMonitor()
         # 交易所状态推送定时器
         self.exchange_push_timer: asyncio.Task | None = None
+        # 首页连接状态探测缓存：(time.monotonic 时间戳, 上次探测结论)
+        self._conn_probe_cache: tuple[float, str] | None = None
 
     def get_system_info(self) -> dict[str, Any]:
         """获取系统信息
@@ -279,6 +286,54 @@ class SystemService:
                 "timestamp": datetime.now().isoformat(),
                 "exchange_connections": self.get_exchange_connections_status(),
             }
+
+    def _probe_exchange_connections(self) -> dict[str, bool]:
+        """同步探测各交易所公共端点可达性。
+
+        探测目标取凭据库已配置账户的去重交易所；未配置或读取失败时退化为默认
+        binance（与 engine_status 的默认交易所一致）。health_check 走公共行情
+        端点（fetch_time），无需解密 API 密钥。方法内做同步网络 IO，只能在
+        线程中执行（get_connection_status 已通过 asyncio.to_thread 调用）。
+        """
+        try:
+            accounts = CredentialsService().list_accounts()
+            exchanges = sorted({a.exchange for a in accounts})
+        except Exception as e:
+            logger.warning(f"读取凭据账户失败，退化为默认探测目标: {e}")
+            exchanges = []
+        if not exchanges:
+            exchanges = ["binance"]
+
+        results: dict[str, bool] = {}
+        proxy_url = get_settings().proxy_url
+        for name in exchanges:
+            try:
+                # QuantCell 主用途是 USDT 永续，按 future 域名探测更贴近真实交易链路
+                exchange = create_exchange_instance(exchange_name=name, trading_mode="future", proxy_url=proxy_url)
+                results[name] = bool(exchange.health_check())
+            except Exception as e:
+                logger.warning(f"交易所 {name} 连接探测失败: {e}")
+                results[name] = False
+        return results
+
+    async def get_connection_status(self) -> str:
+        """真实探测交易所连通性，返回前端连接状态（connected / disconnected）。
+
+        60s TTL 缓存对齐首页轮询周期，失败结果同样缓存防止缓存穿透；
+        探测在线程中执行，避免阻塞事件循环。
+        """
+        now = time.monotonic()
+        cached = self._conn_probe_cache
+        if cached is not None and now - cached[0] < _CONN_PROBE_TTL_SECONDS:
+            return cached[1]
+
+        # 探测是最长 ccxt 默认超时(10s)的同步网络 IO，放线程防止卡死事件循环
+        detail = await asyncio.to_thread(self._probe_exchange_connections)
+        # 有任何一家交易所可达即视为系统在线（部分中断的明细已记日志）
+        status = "connected" if detail and any(detail.values()) else "disconnected"
+        logger.info(f"交易所连接探测结果: {detail} -> {status}")
+        self._conn_probe_cache = (now, status)
+        return status
 
     def get_exchange_connections_status(self) -> dict[str, Any]:
         """获取交易所连接状态

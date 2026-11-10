@@ -10,7 +10,7 @@ exchange/connection.py 三者的关键逻辑：
 - rate_limit：超限时阻塞
 - ExchangeAdapter：AXON_AVAILABLE 门控的 RuntimeError / 非法 exchange_id 的 ValueError
 - ExchangeAdapterProxy：axon 不可用时的空实现默认返回值
-- connection._create_exchange_instance：内部工厂函数（patch 内部 import）
+- connection.create_exchange_instance：工厂函数（patch 内部 import）
 
 运行环境不依赖 pytest-asyncio，全部为标准 pytest + unittest.mock。
 
@@ -335,11 +335,11 @@ class TestExchangeAdapterProxy:
 
 
 class TestConnectionFactory:
-    """测试 connection._create_exchange_instance 内部工厂函数"""
+    """测试 connection.create_exchange_instance 工厂函数"""
 
     def test_create_exchange_instance_binance(self):
         with mock.patch("exchange.binance.exchange.BinanceExchange") as mock_cls:
-            result = connection_mod._create_exchange_instance(
+            result = connection_mod.create_exchange_instance(
                 "binance",
                 api_key="k",
                 secret_key="s",
@@ -359,7 +359,7 @@ class TestConnectionFactory:
 
     def test_create_exchange_instance_okx(self):
         with mock.patch("exchange.okx.exchange.OkxExchange") as mock_cls:
-            result = connection_mod._create_exchange_instance("okx")
+            result = connection_mod.create_exchange_instance("okx")
         mock_cls.assert_called_once_with(
             exchange_name="okx",
             api_key=None,
@@ -372,7 +372,7 @@ class TestConnectionFactory:
 
     def test_create_exchange_instance_unsupported_raises_value_error(self):
         with pytest.raises(ValueError, match="不支持"):
-            connection_mod._create_exchange_instance("coinbase")
+            connection_mod.create_exchange_instance("coinbase")
 
     def test_test_exchange_connection_sync_unsupported(self):
         """不支持的交易所直接返回 UNKNOWN_ERROR 结果，不发起网络请求"""

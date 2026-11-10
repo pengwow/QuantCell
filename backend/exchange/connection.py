@@ -24,7 +24,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 SUPPORTED_EXCHANGES = ["binance", "okx"]
 
 
-def _create_exchange_instance(
+def create_exchange_instance(
     exchange_name: str,
     api_key=None,
     secret_key=None,
@@ -32,7 +32,7 @@ def _create_exchange_instance(
     proxy_url=None,
     testnet=False,
 ) -> BaseExchange:
-    """内部工厂函数，避免循环导入"""
+    """按名称构造交易所实例（公开工厂，供连通性探测等场景复用）"""
     if exchange_name == "binance":
         from exchange.binance.exchange import BinanceExchange
 
@@ -98,7 +98,7 @@ async def test_exchange_connection(
 
         def _run_test():
             logger.debug(f"创建 Exchange 实例: {exchange_name}")
-            exchange = _create_exchange_instance(
+            exchange = create_exchange_instance(
                 exchange_name=exchange_name,
                 api_key=api_key,
                 secret_key=secret_key,
@@ -175,7 +175,7 @@ def test_exchange_connection_sync(
         )
 
     try:
-        exchange = _create_exchange_instance(
+        exchange = create_exchange_instance(
             exchange_name=exchange_name,
             api_key=api_key,
             secret_key=secret_key,
@@ -196,6 +196,7 @@ def test_exchange_connection_sync(
 
 __all__ = [
     "SUPPORTED_EXCHANGES",
+    "create_exchange_instance",
     "test_exchange_connection",
     "test_exchange_connection_sync",
 ]
