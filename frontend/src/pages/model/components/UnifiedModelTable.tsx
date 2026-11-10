@@ -8,6 +8,7 @@ import {
   Empty,
   Flex,
   Input,
+  Grid,
   Pagination,
   Row,
   Segmented,
@@ -20,6 +21,7 @@ import {
 } from 'antd';
 import type { TableProps } from 'antd';
 import {
+  AppstoreOutlined,
   BarChartOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -29,6 +31,7 @@ import {
   RollbackOutlined,
   SearchOutlined,
   TagOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { modelApi, type UnifiedModelRow } from '@/api/modelApi';
@@ -95,6 +98,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
   // pageSize 全站开关,返回值是元组(同 RLModelList 既有用法)
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [current, setCurrent] = useState(1);
+  const screens = Grid.useBreakpoint();
 
   const loadRows = async () => {
     setLoading(true);
@@ -277,6 +281,8 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       dataIndex: 'file_name',
       key: 'file_name',
       ellipsis: true,
+      // 对齐 ResearchList 会话列:显式宽保证 scroll.x 容器不足时列不被压 0
+      width: 300,
       render: (text: string, record: UnifiedModelRow) => (
         <Space size="small">
           {algoLabel(record) && <Tag color="blue">{algoLabel(record)}</Tag>}
@@ -293,6 +299,8 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       dataIndex: 'created',
       key: 'created',
       width: 170,
+      // nowrap:完整时间戳一行展示,避免被截
+      className: 'whitespace-nowrap',
       render: (ts: number | null) => (ts ? dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss') : '-'),
     },
     {
@@ -303,7 +311,8 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       align: 'right',
       render: (v: number | null) => (v == null ? '-' : `${v} MB`),
     },
-    { title: '操作', key: 'actions', width: 220, render: (_, record) => renderActions(record, true) },
+    // 固定列:容器横向滚动时操作始终可见(production 行最多 4 个图标按钮,140 容纳)
+    { title: '操作', key: 'actions', width: 140, fixed: 'right', render: (_, record) => renderActions(record, true) },
   ];
 
   // 双视图共享同一分页配置:列表视图交给 Table,卡片视图配 Grid + Pagination
@@ -371,9 +380,10 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
             <Segmented
               value={view}
               onChange={(v) => setView(v as 'card' | 'list')}
+              // 图标+文字与 ResearchList 视图切换一致;小屏只留图标
               options={[
-                { value: 'card', label: '卡片' },
-                { value: 'list', label: '列表' },
+                { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
+                { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
               ]}
             />
           </Flex>
@@ -445,7 +455,9 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
               columns={columns}
               dataSource={filtered}
               loading={loading}
-              scroll={{ x: 'max-content' }}
+              /* 固定列总宽 900px(名称 300 + 其余列显式宽),所有列都有显式宽:
+                 容器不足时若无 scroll.x,无宽列会被压成 0 宽整列消失,声明后表格内部横滚且操作列冻结 */
+              scroll={{ x: 900 }}
               rowSelection={{
                 selectedRowKeys: selected,
                 onChange: (keys) => setSelected(keys.slice(-1).map(String)), // 单选携带
