@@ -34,6 +34,20 @@ export interface ModelDetail {
   walk_forward: Record<string, unknown>;
 }
 
+// UnifiedModelRow: 与后端 services/model_registry.list_unified_models 行结构逐字段对齐
+export interface UnifiedModelRow {
+  file_name: string;
+  path: string | null; // 文件缺失条目回显的来源路径,可能为 null
+  size_mb: number | null; // 文件缺失时为 null → 前端「文件缺失」态
+  created: number | null; // 秒级 unix;无任何时间来源时为 null
+  algorithm: string; // registry metadata 优先,否则文件名推断;无值为 "-"
+  registered: boolean;
+  model_id: string | null; // 未注册为 null
+  version: string;
+  stage: string; // staging | production | archived;未注册为 ""
+  metrics: Record<string, number>;
+}
+
 export const modelApi = {
   listModels: () => apiRequest.get<ModelInfo[]>('/models/list'),
   registerModel: (data: { name: string; model_path: string; metadata?: object; metrics?: object }) =>
@@ -44,4 +58,5 @@ export const modelApi = {
     apiRequest.post(`/models/${modelId}/unpromote`),
   getModelDetail: (name: string) =>
     apiRequest.get<ModelDetail>(`/models/${encodeURIComponent(name)}/detail`),
+  unifiedModels: () => apiRequest.get<UnifiedModelRow[]>('/models/unified'),
 };
