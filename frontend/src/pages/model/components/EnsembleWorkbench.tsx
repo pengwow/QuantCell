@@ -144,12 +144,33 @@ export default function EnsembleWorkbench() {
     },
     { title: '模型数', dataIndex: 'models', key: 'models', width: 90, align: 'right' },
     {
-      title: '模型列表', key: 'model_paths', width: 280, ellipsis: true,
-      render: (_, record) => (
-        <Tooltip title={record.model_paths.join('、')}>
-          <span className="truncate">{record.model_paths.join('、') || '-'}</span>
-        </Tooltip>
-      ),
+      title: '模型列表', key: 'model_paths', width: 280,
+      render: (_, record) => {
+        const members = record.members ?? [];
+        // 旧记录无 members 字段时降级为纯名称列表(维持原展示)
+        if (members.length === 0) {
+          return (
+            <Tooltip title={record.model_paths.join('、')}>
+              <span className="truncate">{record.model_paths.join('、') || '-'}</span>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title={members.map((m) => `${m.stem}（${m.action_space === 'box' ? '连续' : '离散'}）`).join('、')}>
+            <Space size={4} wrap>
+              {members.map((m) => (
+                <span key={m.stem}>
+                  {/* 成员动作空间:box=连续(0~1) / discrete=离散投票映射(spec §5) */}
+                  <Tag color={m.action_space === 'box' ? 'blue' : 'default'}>
+                    {m.action_space === 'box' ? '连续' : '离散'}
+                  </Tag>
+                  {m.stem}
+                </span>
+              ))}
+            </Space>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 170,

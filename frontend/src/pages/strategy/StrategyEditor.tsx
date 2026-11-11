@@ -553,6 +553,8 @@ class NewStrategy(BaseStrategy):
     let params: Strategy['params'] = isRl
       ? [
           { name: 'model_path', type: 'str', default: '', description: '已训练 PPO 模型路径', required: true },
+          // 集成运行:填了 ensemble_id 则优先于 model_path(spec §4.4,二选一,后端硬校验)
+          { name: 'ensemble_id', type: 'str', default: '', description: '模型集成 ID;填入后该 RL 策略按集成运行,忽略 model_path', required: false },
           { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
         ]
       : [
