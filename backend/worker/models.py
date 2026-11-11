@@ -19,7 +19,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import object_session, relationship
 
 from collector.db.database import Base
 
@@ -156,21 +156,23 @@ class Worker(Base):
             # 直接返回货币对列表
             return symbols_config.get("symbols", [])
 
-    def _get_latest_performance(self) -> Any:
-        """Get latest performance record, avoiding N+1 queries via try/except."""
+    def _get_total_profit(self) -> float:
+        """列表卡片/详情的总盈亏：聚合 worker_trades 的已实现盈亏。
+
+        与详情页 stats/overview 同口径（crud.get_trading_summary 的 total_pnl =
+        sum(realized_pnl)）。原实现读取 worker_performances 最新记录的 net_profit，
+        但该表全库无写入方、恒为空，导致列表卡片总盈利恒为 0 而详情页显示真实值。
+        ponytail: 列表序列化每 worker 一次聚合查询，任务规模（几十个）可接受；
+        超过百级时移到 crud 层一次 GROUP BY。
+        """
         try:
-            if not self.performance:
-                return None
-            performance_list = list(self.performance)
-            if not performance_list:
-                return None
-            first_date = performance_list[0].date or datetime.min
-            last_date = performance_list[-1].date or datetime.min
-            if first_date >= last_date:
-                return performance_list[0]
-            return max(performance_list, key=lambda x: x.date or datetime.min)
+            session = object_session(self)
+            if session is None:
+                return 0.0
+            total = session.query(func.sum(WorkerTrade.realized_pnl)).filter(WorkerTrade.worker_id == self.id).scalar()
+            return round(float(total), 6) if total is not None else 0.0
         except Exception:
-            return None
+            return 0.0
 
     def _get_strategy_info(self) -> dict[str, Any] | None:
         """Get strategy info, avoiding N+1 queries via try/except."""
@@ -189,7 +191,6 @@ class Worker(Base):
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
-        latest_performance = self._get_latest_performance()
         trading_config = self.get_trading_config_dict()
         symbols_config = trading_config.get("symbols_config", {})
         strategy_info = self._get_strategy_info()
@@ -213,7 +214,7 @@ class Worker(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "stopped_at": self.stopped_at.isoformat() if self.stopped_at else None,
-            "total_profit": latest_performance.net_profit if latest_performance else 0.0,
+            "total_profit": self._get_total_profit(),
         }
 
 

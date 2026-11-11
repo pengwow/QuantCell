@@ -133,8 +133,14 @@ async def list_workers(
 
     for item in items:
         worker_id = item.get("id")
-        if worker_id and worker_id in all_states:
-            state = all_states[worker_id]
+        if not worker_id:
+            continue
+        # get_all_states 只返回缓存中已水合的记录；后端重启后缓存为空，
+        # 未命中会导致列表与 GET /{id}/state（有惰性水合）口径分裂——
+        # 列表显示 DB 残留值（如 interrupted），单查显示修正后的 stopped。
+        # 因此未命中时必须走 get_state 触发同样的惰性水合，保证口径一致。
+        state = all_states.get(worker_id) or await worker_state_manager.get_state(worker_id)
+        if state:
             item["_status"] = state.status
             item["_pid"] = state.pid
             item["_updated_at"] = state.updated_at.isoformat()
