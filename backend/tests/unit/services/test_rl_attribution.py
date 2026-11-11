@@ -157,15 +157,16 @@ def test_e2e_kernel_vs_trading_env_attribution(monkeypatch, tmp_path):
 
     assert env_fees > 0.0, "固定 0.2 占比必须真的成交"
     assert kernel_result["num_trades"] >= 1
+    # 对外口径（05e0d85d 覆盖回写）：symbol 回原始入参、data_bars 按清洗前行数计，
+    # 而非设施回显的 BASE/QUOTE 归一化名与清洗后 bar 数
+    assert kernel_result["symbol"] == "BTCUSDT"
+    assert kernel_result["data_bars"] == n
     assert report["funding"]["kernel"] == 0.0, "现货口径没有资金费"
     assert report["total_pnl"]["diff"] == pytest.approx(kernel_result["total_pnl"] - metrics.total_pnl)
     # 四类归因自洽：-手续费差 + 资金费 + 动作差 + 残差 == 总差
     fees_diff = kernel_result["total_fees"] - env_fees
     assert report["total_pnl"]["diff"] == pytest.approx(
-        -fees_diff
-        + report["funding"]["kernel"]
-        + report["action"]["diff"]
-        + report["matching"]["residual"]
+        -fees_diff + report["funding"]["kernel"] + report["action"]["diff"] + report["matching"]["residual"]
     )
     assert report["cost"]["ok"] is True
     assert report["cost"]["trading_env_rate"] == pytest.approx(RL_TRANSACTION_COST, abs=1e-12)

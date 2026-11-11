@@ -629,7 +629,8 @@ class RLService:
         Uses TradingEnv as the simulation engine and the SB3 model for inference.
         Returns evaluation metrics (PnL, Sharpe, drawdown, etc.).
         """
-        # 延迟导入：原生扩展 / 回测数据链路是可选重依赖，模块导入期不应强依赖
+        # backtest.data_provider 顶层 import pandas 栈；保持调用点导入，
+        # rl_service 被轻量场景引用时（测试收集 / CLI）不为此拉起数据链路
         from backtest.data_provider import BacktestDataProvider
 
         if engine not in ("trading_env", "kernel"):
@@ -651,6 +652,8 @@ class RLService:
                 model_path, data, symbol, interval, initial_capital, ensemble_id=ensemble_id
             )
 
+        # 不能提升到模块顶部：rl/__init__ 反向 import 本模块（GymnasiumWrapper 等），
+        # rl_service 模块期 import rl.* 会撞上半初始化的 rl 包成环
         from rl.evaluation import evaluate_model
 
         env = self.create_env(data, reward_type=reward_type, initial_capital=initial_capital)

@@ -35,6 +35,12 @@ def test_evaluate_model_unwraps_predict_action():
 
     m = evaluate_model(FixedModel(), OneStepEnv(), transaction_cost=2.0)
     assert isinstance(m, EvaluationMetrics)
-    assert m.total_pnl == 5.0
+    # 全 8 字段逐个断言：设施侧 compute_metrics 减键/改名/键位错移时在此报警
+    assert m.total_pnl == 5.0  # 105 - 100
+    assert m.total_return_pct == 5.0  # 5 / 100 × 100，round 4
+    assert m.sharpe_ratio == 0.0  # 仅 1 个收益点，不满足 len>1 的 sharpe guard
+    assert m.max_drawdown_pct == 0.0  # 单调上涨无回撤
+    assert m.win_rate == 1.0  # 唯一收益点 >0
     assert m.num_trades == 2
+    assert m.profit_factor == 999.99  # 有盈利、无亏损 → 哨兵
     assert m.turnover == 0.0  # env 未给 transaction_costs → 反推无效记 0
