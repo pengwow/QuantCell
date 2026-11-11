@@ -586,6 +586,7 @@ class StrategyManager:
         """加载 RL 模型并整理推理回调 + 观测规格（回测内核 / LiveDriver 共用）。
 
         校验链：model_path 存在 → 观测规格元数据存在 → spec_version 匹配 → 模型可加载。
+        params 带 `ensemble_id` 时走集成路径，成员 obs 规格经一致性校验，以第一成员为准。
 
         Returns:
             dict：predict / model_id / spec_version / window_size / features /
@@ -605,6 +606,28 @@ class StrategyManager:
             observation_stats_from_meta,
             rl_meta_path,
         )
+
+        # ---- 集成分支:ensemble_id 优先于 model_path(spec §4.3) ----
+        # 校验/成员加载全部收敛在 services 层,worker 只做内核 spec 组装
+        ensemble_id = str(params.get("ensemble_id") or "").strip()
+        if ensemble_id:
+            # 函数内 import:与上方延迟 import 块同风格,避免模块加载期拉起重依赖链
+            from services.ensemble_aggregator import make_ensemble_predict_fn
+            from services.ensemble_service import load_ensemble_spec
+
+            requested_spec = str(params.get("spec_version") or KERNEL_SPEC_VERSION)
+            member_specs = load_ensemble_spec(ensemble_id, spec_version=requested_spec)
+            meta = member_specs.meta
+            return {
+                "predict": make_ensemble_predict_fn(member_specs.member_predict_fns),
+                "model_id": ensemble_id,
+                "spec_version": requested_spec,
+                "window_size": int(meta.get("window_size") or KERNEL_WINDOW_SIZE),
+                "features": meta.get("features") or KERNEL_FEATURES,
+                "action_space": KERNEL_ACTION_SPACE,
+                # stats 以第一成员 meta 为基准(全成员已通过一致性校验)
+                "stats": observation_stats_from_meta(meta, model_path=member_specs.representative_path),
+            }
 
         model_path = str(params.get("model_path") or "").strip()
         if not model_path:
