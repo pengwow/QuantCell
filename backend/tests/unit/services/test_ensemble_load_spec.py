@@ -8,10 +8,15 @@ from services.ensemble_aggregator import make_ensemble_predict_fn
 from services.ensemble_service import load_ensemble_spec
 
 # 与 services/conftest.py 重复定义,避免跨文件 import
+# features 对齐真实落盘形态(rl_service.KERNEL_FEATURES):特征定义 dict 列表
 META_TEMPLATE = {
     "spec_version": "v1",
     "window_size": 3,
-    "features": ["f1", "f2", "f3"],
+    "features": [
+        {"name": "f1", "source": {"PriceField": "f1"}, "normalizer": "ZScore", "clip_range": None},
+        {"name": "f2", "source": {"PriceField": "f2"}, "normalizer": "ZScore", "clip_range": None},
+        {"name": "f3", "source": {"PriceField": "f3"}, "normalizer": "ZScore", "clip_range": None},
+    ],
     "observation_stats": {"f1": {"mean": 0.0, "std": 1.0}, "f2": {"mean": 0.0, "std": 1.0}},
 }
 BOX_SPACE = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)

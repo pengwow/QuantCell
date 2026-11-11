@@ -81,6 +81,21 @@ def _validated_member_metas(model_paths: list[str]) -> list[tuple[str, Path, dic
     return validated
 
 
+def _feature_names(raw: list[Any]) -> list[str]:
+    """meta["features"] → 有序特征名列表。
+
+    真实落盘口径(rl_service.KERNEL_FEATURES / 训练写入的旁车 meta)是特征定义
+    dict 列表:{"name", "source", "normalizer", "clip_range"},名字取 item["name"];
+    历史口径是裸字符串名。两种形态都兼容,无名/空名元素跳过。
+    """
+    names: list[str] = []
+    for item in raw:
+        name = item.get("name") if isinstance(item, dict) else item
+        if name:
+            names.append(str(name))
+    return names
+
+
 def load_ensemble_spec(ensemble_id: str, *, spec_version: str | None = None) -> PredictMemberSpecs:
     """services 层公共入口:ensemble_id → 校验后可运行的成员 spec。
 
@@ -201,22 +216,24 @@ class EnsembleService:
             raise KeyError(f"集成 {ensemble_id} 不存在")
         # 成员函数单一事实源:公共入口产物,不在本方法内二次加载
         spec = load_ensemble_spec(ensemble_id)
-        features: list[str] = list(spec.meta.get("features") or [])
+        # meta["features"] 真实是特征定义 dict 列表(KERNEL_FEATURES 同构),
+        # 冒烟只需特征名;直接拿元素当 dict 键会 TypeError(线上 500 根因)
+        feature_names = _feature_names(spec.meta.get("features") or [])
         if not observation:
-            # 零观测冒烟(spec 决策 D1):空 dict 按 meta.features 全填 0.0。
+            # 零观测冒烟(spec 决策 D1):空 dict 按特征名全填 0.0。
             # 成员吃的是内核 Z-Score 后的值,0 = 标准化均值点,语义中性;
             # 非空观测仍严校缺特征(路由层转 400)。
-            flat: dict[str, float] = {f: 0.0 for f in features}
+            flat: dict[str, float] = {f: 0.0 for f in feature_names}
         else:
             flat = {}
             for k, v in observation.items():
                 values = v if isinstance(v, dict) else {k: v}
                 for name, val in values.items():
                     flat[name] = float(val)
-            missing = [f for f in features if f not in flat]
+            missing = [f for f in feature_names if f not in flat]
             if missing:
                 raise ValueError(f"observation 缺少特征: {missing[:5]}{'...' if len(missing) > 5 else ''}")
-        obs_vec = [flat[f] for f in features]
+        obs_vec = [flat[f] for f in feature_names]
 
         stems = [m.get("stem") for m in record.get("members") or []]
         outputs: list[float | None] = []

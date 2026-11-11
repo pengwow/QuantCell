@@ -11,7 +11,12 @@ from services.rl_service import KERNEL_ACTION_SPACE, KERNEL_SPEC_VERSION
 META = {
     "spec_version": KERNEL_SPEC_VERSION,
     "window_size": 3,
-    "features": ["f1", "f2", "f3"],
+    # features 对齐真实落盘形态(rl_service.KERNEL_FEATURES):特征定义 dict 列表
+    "features": [
+        {"name": "f1", "source": {"PriceField": "f1"}, "normalizer": "ZScore", "clip_range": None},
+        {"name": "f2", "source": {"PriceField": "f2"}, "normalizer": "ZScore", "clip_range": None},
+        {"name": "f3", "source": {"PriceField": "f3"}, "normalizer": "ZScore", "clip_range": None},
+    ],
     "observation_stats": {"f1": {"mean": 0.0, "std": 1.0}},
 }
 
@@ -101,7 +106,8 @@ def test_kernel_backtest_uses_ensemble_spec():
     FakeKernel.added = {}
     metrics = RLService().run_backtest("", "BTC/USDT:USDT", engine="kernel", ensemble_id="ens_bt")
     assert FakeKernel.added["model_id"] == "ens_bt"
-    assert FakeKernel.added["features"] == ["f1", "f2", "f3"]
+    # 内核收到的 features 就是 meta 原始特征定义 list[dict](真实落盘口径)
+    assert FakeKernel.added["features"] == META["features"]
     assert FakeKernel.added["action_space"] == KERNEL_ACTION_SPACE
     assert FakeKernel.added["stats"] is not None
     assert metrics["engine"] == "kernel"

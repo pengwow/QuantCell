@@ -48,7 +48,13 @@ def _seed_fake_members(monkeypatch, tmp_path, stems: list[str]) -> None:
 
     monkeypatch.setattr(RLService, "load_model", lambda self, path: _Fake(), raising=False)
 
-    meta = {"spec_version": "v1", "window_size": 3, "features": ["f1"], "observation_stats": {}}
+    # features 对齐真实落盘形态(rl_service.KERNEL_FEATURES):特征定义 dict 列表
+    meta = {
+        "spec_version": "v1",
+        "window_size": 3,
+        "features": [{"name": "f1", "source": {"PriceField": "f1"}, "normalizer": "ZScore", "clip_range": None}],
+        "observation_stats": {},
+    }
     for stem in stems:
         (mdir / f"{stem}.zip").write_bytes(b"x")
         (mdir / f"{stem}.zip.meta.json").write_text(json.dumps(meta), encoding="utf-8")
