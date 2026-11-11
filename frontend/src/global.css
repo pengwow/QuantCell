@@ -18,7 +18,7 @@
   --color-border: var(--tw-color-border);
   --color-border-secondary: var(--tw-color-border-secondary);
 
-  /* ===== 设计 token（对标 QuantDinger 五档间距体系，O1） =====
+  /* ===== 设计 token（qc- 五档间距体系，O1） =====
      命名必须带 qc- 前缀：Tailwind v4 中 --spacing-4 / --radius-lg 等裸名
      会覆盖内置数值语义（p-4 将从 16px 变 4px），qc- 前缀只新增工具类
      （如 gap-qc-2 / rounded-qc-md / duration-qc-base），不改既有工具类。 */
@@ -78,7 +78,7 @@
 }
 
 @layer base {
-  /* 数字等宽（O3，对标 QuantDinger 全局 tnum 教条）：行情/表格/盈亏数字逐位对齐不跳动。
+  /* 数字等宽（O3，全局 tnum 规范）：行情/表格/盈亏数字逐位对齐不跳动。
      全局继承，等宽特性只影响数字字形宽度，对文本渲染无副作用 */
   body {
     font-feature-settings: 'kern' 1, 'tnum' 1;

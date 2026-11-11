@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * i18n 硬编码中文审计（O6，对标 QuantDinger i18n-completeness-audit 门禁）
+ * i18n 硬编码中文审计（O6，i18n 完整性审计门禁）
  *
  * 扫描 src/pages、src/components、src/utils 下的 tsx/ts 文件中的硬编码中文字面量，
  * 按 file 排行输出。三种模式：
