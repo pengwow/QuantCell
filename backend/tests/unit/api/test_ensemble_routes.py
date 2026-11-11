@@ -117,3 +117,14 @@ def test_ensemble_predict_not_found():
     client = _make_app()
     resp = client.post("/api/v1/ensemble/nonexistent/predict", json={"observation": {}})
     assert resp.status_code == 404
+
+
+def test_ensemble_predict_missing_features_returns_400(monkeypatch, tmp_path):
+    """非空观测缺特征 → 服务层 ValueError → 路由 400(改动前路由未捕获会 500)。"""
+    _seed_fake_members(monkeypatch, tmp_path, ["pm1"])
+    client = _make_app()
+    eid = client.post("/api/v1/ensemble/create", json={"model_paths": ["pm1"]}).json()["data"]["ensemble_id"]
+
+    resp = client.post(f"/api/v1/ensemble/{eid}/predict", json={"observation": {"nope": 1.0}})
+    assert resp.status_code == 400
+    assert "缺少特征" in resp.json()["detail"]

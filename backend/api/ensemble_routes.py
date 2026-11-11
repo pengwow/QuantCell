@@ -49,6 +49,9 @@ async def predict(
         return ApiResponse(code=0, message="预测完成", data=result)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        # 非空观测缺特征:服务层严校转 400(零观测冒烟走不到这里)
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 

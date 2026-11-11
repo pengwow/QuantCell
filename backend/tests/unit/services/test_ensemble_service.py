@@ -58,3 +58,38 @@ def test_delete_ensemble(ensemble_env):
 
     with _pytest.raises(KeyError):
         svc.delete_ensemble(eid)
+
+
+def test_predict_zero_observation_fills_features(ensemble_env):
+    """D1 零观测冒烟:空 observation → 按 meta.features 全填 0.0,前端无需感知特征列表。
+
+    FakeSB3Model 离散动作 1 → ratio 1.0,两成员均值 1.0、置信度 clip(1-0)=1.0。
+    """
+    paths = ensemble_env(["m1", "m2"])
+    from services.ensemble_service import get_ensemble_service
+
+    svc = get_ensemble_service()
+    eid, _ = svc.create_ensemble("mean", paths)
+
+    result = svc.predict(eid, {})
+    assert result["action_type"] == "buy"
+    assert result["ratio"] == 1.0
+    assert result["confidence"] == 1.0
+    assert result["members"] == [
+        {"stem": "m1", "ratio": 1.0},
+        {"stem": "m2", "ratio": 1.0},
+    ]
+
+
+def test_predict_nonempty_observation_missing_features_still_rejected(ensemble_env):
+    """D1 只放宽空 dict;非空观测缺特征仍 ValueError(路由层转 400)。"""
+    import pytest
+
+    paths = ensemble_env(["m1"])
+    from services.ensemble_service import EnsembleService
+
+    svc = EnsembleService()
+    eid, _ = svc.create_ensemble("mean", paths)
+    # meta 有 f1/f2/f3,只给 f1 → 缺特征报错
+    with pytest.raises(ValueError, match="缺少特征"):
+        svc.predict(eid, {"f1": 0.0})

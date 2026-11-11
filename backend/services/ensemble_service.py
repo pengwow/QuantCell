@@ -202,14 +202,20 @@ class EnsembleService:
         # 成员函数单一事实源:公共入口产物,不在本方法内二次加载
         spec = load_ensemble_spec(ensemble_id)
         features: list[str] = list(spec.meta.get("features") or [])
-        flat: dict[str, float] = {}
-        for k, v in observation.items():
-            values = v if isinstance(v, dict) else {k: v}
-            for name, val in values.items():
-                flat[name] = float(val)
-        missing = [f for f in features if f not in flat]
-        if missing:
-            raise ValueError(f"observation 缺少特征: {missing[:5]}{'...' if len(missing) > 5 else ''}")
+        if not observation:
+            # 零观测冒烟(spec 决策 D1):空 dict 按 meta.features 全填 0.0。
+            # 成员吃的是内核 Z-Score 后的值,0 = 标准化均值点,语义中性;
+            # 非空观测仍严校缺特征(路由层转 400)。
+            flat: dict[str, float] = {f: 0.0 for f in features}
+        else:
+            flat = {}
+            for k, v in observation.items():
+                values = v if isinstance(v, dict) else {k: v}
+                for name, val in values.items():
+                    flat[name] = float(val)
+            missing = [f for f in features if f not in flat]
+            if missing:
+                raise ValueError(f"observation 缺少特征: {missing[:5]}{'...' if len(missing) > 5 else ''}")
         obs_vec = [flat[f] for f in features]
 
         stems = [m.get("stem") for m in record.get("members") or []]
