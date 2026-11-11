@@ -1,8 +1,8 @@
 name: Frontend Tests
 
-# 前端三件套门禁（对标 QuantDinger 的前端质量纪律，O4）：
-# lint（eslint）→ test（vitest 纯函数回归）→ build（含 tsc -b 类型检查 + 生产构建）。
-# build 同时充当 O5 的守护：生产产物由 esbuild drop 剥离 console/debugger。
+# 前端门禁（对标 QuantDinger 的前端质量纪律，O4）：
+# lint（eslint）→ test（vitest 纯函数回归）→ i18n 审计（O6）→ build（含 tsc -b 类型检查 + 生产构建）。
+# build 同时充当 O5 的守护：生产产物由 terser drop_console 剥离 console/debugger。
 #
 # 触发路径限定 frontend/**，纯后端改动不跑（与 backend-tests.yml 互斥，省 runner 时长）。
 
@@ -38,6 +38,11 @@ jobs:
       - name: Test
         working-directory: frontend
         run: bun run test
+
+      # O6 门禁：硬编码中文基线只降不升（注释不计文案；迁出词条后 --update-baseline 收紧）
+      - name: I18n hardcoded-Chinese audit
+        working-directory: frontend
+        run: bun run i18n:audit -- --check
 
       - name: Build (含 tsc -b 类型检查)
         working-directory: frontend

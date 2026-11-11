@@ -54,7 +54,9 @@ for (const sub of SCAN_DIRS) {
     let count = 0
     for (const line of lines) {
       if (COMMENT_LINE_RE.test(line)) continue
-      if (CJK_RE.test(line)) count++
+      // 行尾注释同样不计文案（如行内 // 说明）。要求注释符前有空白，避免误伤字符串里的 https://
+      const code = line.replace(/\s+\/\/.*$/, '').replace(/\s+\{?\/\*[\s\S]*?\*\/\s*$/, '')
+      if (CJK_RE.test(code)) count++
     }
     if (count > 0) results.push({ file: relative(frontendRoot, file), count })
   }
