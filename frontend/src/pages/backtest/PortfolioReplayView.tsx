@@ -4,6 +4,7 @@
  * 持仓由跨品种成交流重建。主图保留单品种 K 线作为行情背景（可切换品种）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   App,
@@ -124,6 +125,7 @@ interface KlineBackgroundProps {
 }
 
 const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineBackgroundProps) => {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   // 已渲染到的 K 线索引，时钟推进但未跨 K 线时不重绘（32~128 格/秒下避免无意义刷新）
@@ -168,18 +170,18 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
       // round-trip 契约：每条记录展开为开仓/平仓两个标记（side 即开仓方向 buy）
       trades.forEach((tr) => {
         const marks: Array<{ ms: number; price: number; label: string }> = [
-          { ms: tr.timestamp * 1000, price: tr.entry_price, label: '买入' },
+          { ms: tr.timestamp * 1000, price: tr.entry_price, label: t('buy') },
         ];
         if (tr.exit_timestamp) {
-          marks.push({ ms: tr.exit_timestamp * 1000, price: tr.exit_price, label: '卖出' });
+          marks.push({ ms: tr.exit_timestamp * 1000, price: tr.exit_price, label: t('sell') });
         }
         marks.forEach((mk) => {
           if (mk.ms < winStart || mk.ms > winEnd) return;
           chart.createOverlay({
             name: 'jsonAnnotation',
             extendData: JSON.stringify({
-              lines: [mk.label, `数量: ${tr.size.toFixed(4)}`],
-              colors: [mk.label === '买入' ? colors.positive : colors.negative, '#ffffff'], // O2: 特殊装饰色，保留（彩色气泡上的白标签字，canvas 绘制需字面色）
+              lines: [mk.label, t('backtest_qty_prefix', { v: tr.size.toFixed(4) })],
+              colors: [mk.label === t('buy') ? colors.positive : colors.negative, '#ffffff'], // O2: 特殊装饰色，保留（彩色气泡上的白标签字，canvas 绘制需字面色）
               fontSize: 12,
               align: 'left',
             }),
@@ -188,9 +190,9 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
         });
       });
     },
-    // colors 每渲染派生新对象，由 lastKlineIndexRef 去重保证不会重绘，不入 deps
+    // colors 每渲染派生新对象，由 lastKlineIndexRef 去重保证不会重绘，不入 deps；t 引用稳定，语言切换时重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [klineTimes, klines, trades],
+    [klineTimes, klines, trades, t],
   );
 
   // 挂载即初始化（klines 由父组件条件渲染保证就绪）
@@ -239,7 +241,7 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
             zIndex: 2,
           }}
         >
-          全局时钟早于该品种行情起点，暂无 K 线
+          {t('backtest_no_kline_yet')}
         </div>
       )}
     </div>
@@ -253,6 +255,7 @@ interface PortfolioReplayViewProps {
 }
 
 const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) => {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const colors = useQuantColors();
 
@@ -282,12 +285,12 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       })
       .catch((err) => {
         console.error('加载全局回放数据失败:', err);
-        if (!cancelled) setError('加载全局回放数据失败');
+        if (!cancelled) setError(t('backtest_load_portfolio_failed'));
       });
     return () => {
       cancelled = true;
     };
-  }, [backtestId]);
+  }, [backtestId, t]);
 
   // 加载行情背景品种的 K 线（复用单品种 replay 接口，K 线不进组合接口）
   useEffect(() => {
@@ -303,7 +306,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       })
       .catch((err) => {
         console.error('加载行情背景失败:', err);
-        message.error('加载行情背景失败');
+        message.error(t('backtest_load_market_bg_failed'));
       })
       .finally(() => {
         if (!cancelled) setBgLoading(false);
@@ -311,7 +314,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     return () => {
       cancelled = true;
     };
-  }, [backtestId, bgSymbol, message]);
+  }, [backtestId, bgSymbol, message, t]);
 
   // 卸载清理定时器
   useEffect(() => {
@@ -461,7 +464,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       dataZoom: [{ type: 'inside' }],
       series: [
         {
-          name: '组合权益',
+          name: t('backtest_portfolio_equity'),
           type: 'line',
           symbol: 'none',
           lineStyle: { width: 2, color: colors.chartLine },
@@ -477,31 +480,31 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
         },
       ],
     };
-  }, [data, currentMs, colors]);
+  }, [data, currentMs, colors, t]);
 
   // ---- 持仓表列 ----
   const holdingColumns: ColumnsType<HoldingRow> = [
-    { title: '品种', dataIndex: 'symbol', key: 'symbol' },
+    { title: t('backtest_symbol_label'), dataIndex: 'symbol', key: 'symbol' },
     {
-      title: '方向',
+      title: t('backtest_side'),
       dataIndex: 'qty',
       key: 'side',
       width: 80,
       render: (qty: number) =>
-        qty > 0 ? <Tag color="green">多</Tag> : <Tag color="red">空</Tag>,
+        qty > 0 ? <Tag color="green">{t('backtest_position_long')}</Tag> : <Tag color="red">{t('backtest_position_short')}</Tag>,
     },
     {
-      title: '数量',
+      title: t('quantity'),
       dataIndex: 'qty',
       key: 'qty',
       align: 'right',
       render: (qty: number) => Math.abs(qty).toFixed(6),
     },
-    { title: '均价', dataIndex: 'avg_cost', key: 'avg_cost', align: 'right', render: (v: number) => v.toFixed(4) },
-    { title: '现价', dataIndex: 'price', key: 'price', align: 'right', render: (v: number) => v.toFixed(4) },
-    { title: '市值', dataIndex: 'market_value', key: 'market_value', align: 'right', render: (v: number) => v.toFixed(2) },
+    { title: t('backtest_avg_price'), dataIndex: 'avg_cost', key: 'avg_cost', align: 'right', render: (v: number) => v.toFixed(4) },
+    { title: t('backtest_last_price'), dataIndex: 'price', key: 'price', align: 'right', render: (v: number) => v.toFixed(4) },
+    { title: t('backtest_market_value'), dataIndex: 'market_value', key: 'market_value', align: 'right', render: (v: number) => v.toFixed(2) },
     {
-      title: '浮动盈亏',
+      title: t('backtest_floating_pnl'),
       dataIndex: 'unrealized_pnl',
       key: 'unrealized_pnl',
       align: 'right',
@@ -512,7 +515,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
   ];
 
   if (error) {
-    return <Alert title="错误" description={error} type="error" showIcon />;
+    return <Alert title={t('error')} description={error} type="error" showIcon />;
   }
   if (!data) {
     return (
@@ -530,11 +533,11 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       <Alert
         type="info"
         showIcon
-        title="组合口径说明"
+        title={t('backtest_portfolio_scope_title')}
         description={
           data.capital_mode === 'shared'
-            ? '本次回测所有品种共用一笔初始资金（组合共享资金池），账户数字即该共享账户；持仓由跨品种成交流重建（现货双向口径），与单品种视角的持仓记录可能存在口径差异。'
-            : '本次回测各品种使用独立资金池，账户数字为各品种权益的汇总；持仓由跨品种成交流重建（现货双向口径），与单品种视角的持仓记录可能存在口径差异。'
+            ? t('backtest_scope_desc_shared')
+            : t('backtest_scope_desc_independent')
         }
       />
 
@@ -544,13 +547,13 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
           <Col flex="none">
             <Space align="center">
               <GlobalOutlined style={{ fontSize: 18, color: colors.info }} />
-              <span style={{ fontWeight: 500 }}>全局时钟</span>
+              <span style={{ fontWeight: 500 }}>{t('backtest_global_clock')}</span>
               <Tag>{data.interval}</Tag>
             </Space>
           </Col>
           <Col flex="auto" style={{ textAlign: 'center' }}>
             <Space size="small" align="center">
-              <Tooltip title="停止并回到起点">
+              <Tooltip title={t('backtest_stop_to_start')}>
                 <Button
                   type="text"
                   shape="circle"
@@ -569,7 +572,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
                 disabled={gridIndex >= maxIndex}
                 style={{ width: 48, height: 48, fontSize: 20, boxShadow: '0 2px 8px rgba(24, 144, 255, 0.35)' }}
               />
-              <Tooltip title="前进一格">
+              <Tooltip title={t('backtest_step_one_grid')}>
                 <Button
                   type="text"
                   shape="circle"
@@ -579,7 +582,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
                   style={{ fontSize: 16 }}
                 />
               </Tooltip>
-              <Tooltip title="跳到下一成交">
+              <Tooltip title={t('backtest_jump_next_trade')}>
                 <Button
                   type="text"
                   shape="circle"
@@ -590,7 +593,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
                 />
               </Tooltip>
               <Divider orientation="vertical" style={{ margin: '0 8px' }} />
-              <Tooltip title="播放速度">
+              <Tooltip title={t('play_speed')}>
                 <Space align="center">
                   <ClockCircleOutlined style={{ color: colors.neutral }} />
                   <Select
@@ -636,17 +639,17 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
         <Card size="small">
           <Row gutter={[16, 16]}>
             <Col xs={12} md={8} lg={4}>
-              <Statistic title="总权益" value={account.equity} precision={2} />
+              <Statistic title={t('backtest_total_equity')} value={account.equity} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
-              <Statistic title="可用余额" value={account.balance} precision={2} />
+              <Statistic title={t('backtest_available_balance')} value={account.balance} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
-              <Statistic title="保证金" value={account.margin} precision={2} />
+              <Statistic title={t('backtest_margin')} value={account.margin} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
               <Statistic
-                title="累计盈亏"
+                title={t('backtest_cum_pnl')}
                 value={account.cum_pnl}
                 precision={2}
                 styles={{ content: { color: pnlColor(account.cum_pnl) } }}
@@ -654,7 +657,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
             </Col>
             <Col xs={12} md={8} lg={4}>
               <Statistic
-                title="当日盈亏"
+                title={t('backtest_day_pnl')}
                 value={account.day_pnl}
                 precision={2}
                 styles={{ content: { color: pnlColor(account.day_pnl) } }}
@@ -662,7 +665,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
             </Col>
             <Col xs={12} md={8} lg={4}>
               <Statistic
-                title="最大回撤(当期)"
+                title={t('backtest_current_drawdown')}
                 value={account.drawdown * 100}
                 precision={2}
                 suffix="%"
@@ -676,7 +679,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       {/* 行情背景 K 线：条件渲染保证图表容器挂载时数据就绪、父级高度确定 */}
       <Card
         size="small"
-        title="行情背景（单品种）"
+        title={t('backtest_market_bg_title')}
         extra={
           <Select
             value={bgSymbol}
@@ -693,7 +696,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
           </div>
         ) : bgKlines.length === 0 ? (
           <div style={{ height: CHART_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.neutral }}>
-            该品种无行情数据
+            {t('backtest_no_market_data')}
           </div>
         ) : (
           <KlineBackground
@@ -708,7 +711,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 组合权益曲线 */}
-      <Card size="small" title="组合权益曲线">
+      <Card size="small" title={t('backtest_equity_curve_title')}>
         {equityOption ? (
           <EChart option={equityOption} style={{ height: 300, width: '100%' }} opts={{ renderer: 'canvas' }} />
         ) : (
@@ -717,21 +720,21 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 当前持仓 */}
-      <Card size="small" title={`当前持仓（${holdings.length} 个品种）`}>
+      <Card size="small" title={t('backtest_holdings_title', { count: holdings.length })}>
         <Table<HoldingRow>
           rowKey="symbol"
           size="small"
           columns={holdingColumns}
           dataSource={holdings}
           pagination={false}
-          locale={{ emptyText: '当前无持仓' }}
+          locale={{ emptyText: t('backtest_no_holdings') }}
         />
       </Card>
 
       {/* 跨品种成交流 */}
-      <Card size="small" title="跨品种成交流">
+      <Card size="small" title={t('backtest_cross_symbol_trades')}>
         <div style={{ marginBottom: 12, color: colors.neutral }}>
-          已成交 {filledCount} / {data.trades.length} 笔
+          {t('backtest_filled_progress', { done: filledCount, total: data.trades.length })}
         </div>
         <TradeTable
           data={allTableTrades.slice(0, filledCount)}

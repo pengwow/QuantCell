@@ -48,7 +48,7 @@ const BacktestLayout = () => {
               type="text"
             />
             <Title level={3} className="!m-0">
-              {t('strategy_backtest') || '策略回测'}
+              {t('strategy_backtest')}
             </Title>
           </Space>
         </div>

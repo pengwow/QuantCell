@@ -100,7 +100,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('backtest_config') || '回测配置');
+    setPageTitle(t('backtest_config'));
   }, [t]);
 
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -165,7 +165,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
       if (response) {
         if (Array.isArray(response.data_pools)) {
-          console.log('数据池数据:', response.data_pools);
+          console.log('Data pools response:', response.data_pools);
           dataPoolOptions.push(...response.data_pools.map((pool) => ({
             value: `pool_${pool.id}`,
             label: `⭐ ${pool.name}`,
@@ -186,7 +186,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       const mergedOptions = [...dataPoolOptions, ...directSymbolOptions];
       setSymbolOptions(mergedOptions);
     } catch (error) {
-      console.error('获取品种选项失败:', error);
+      console.error('Failed to load symbol options:', error);
       setSymbolOptions(getDefaultSymbolOptions());
     } finally {
       setSymbolOptionsLoading(false);
@@ -206,7 +206,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         }
       }
     } catch (error) {
-      console.error('加载数据池货币对失败:', error);
+      console.error('Failed to load data pool pairs:', error);
     }
     return [];
   };
@@ -227,7 +227,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const loadSystemConfig = async () => {
     try {
       const configData = await configApi.getConfig();
-      console.log('系统配置响应:', configData);
+      console.log('System config response:', configData);
 
       if (configData && typeof configData === 'object') {
         // 处理按 name 分组的新格式
@@ -256,7 +256,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           const intervalValue = extractConfigScalar(intervalConfig);
           if (intervalValue !== undefined) {
             setDefaultInterval(String(intervalValue));
-            console.log('成功加载默认时间间隔:', intervalValue);
+            console.log('Default interval loaded:', intervalValue);
           }
         }
 
@@ -265,7 +265,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           const commissionValue = extractConfigScalar(commissionConfig);
           if (commissionValue !== undefined) {
             setDefaultCommission(Number(commissionValue));
-            console.log('成功加载默认手续费:', commissionValue);
+            console.log('Default commission loaded:', commissionValue);
           }
         }
 
@@ -274,12 +274,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           const initialCashValue = extractConfigScalar(initialCashConfig);
           if (initialCashValue !== undefined) {
             setDefaultInitialCash(Number(initialCashValue));
-            console.log('成功加载默认初始资金:', initialCashValue);
+            console.log('Default initial cash loaded:', initialCashValue);
           }
         }
       }
     } catch (error) {
-      console.error('加载系统配置失败:', error);
+      console.error('Failed to load system config:', error);
       setDefaultInterval('15m');
       setDefaultCommission(0.001);
       setDefaultInitialCash(1000000);
@@ -290,7 +290,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     try {
       setLoading(true);
       const response = await backtestApi.getStrategies();
-      console.log('策略列表响应:', response);
+      console.log('Strategy list response:', response);
 
       if (response && typeof response === 'object' && Array.isArray(response.strategies)) {
         // API 返回的 StrategyInfo 字段较宽松，映射为页面需要的 Strategy 结构
@@ -306,14 +306,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           created_at: s.created_at ?? '',
           updated_at: s.updated_at ?? '',
         })));
-        console.log('成功加载策略列表:', response.strategies);
+        console.log('Strategy list loaded:', response.strategies);
       } else {
         setStrategies([]);
-        console.error('策略列表数据格式错误:', response);
+        console.error('Invalid strategy list data:', response);
         message.warning(t('backtest_strategy_list_invalid'));
       }
     } catch (error) {
-      console.error('加载策略列表失败:', error);
+      console.error('Failed to load strategy list:', error);
       message.error(t('backtest_strategy_list_load_failed'));
       setStrategies([]);
     } finally {
@@ -327,14 +327,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       const lastConfig = localStorage.getItem('lastBacktestConfig');
       if (lastConfig) {
         const config = JSON.parse(lastConfig);
-        console.log('[BacktestConfig] 加载上次回测配置:', config);
+        console.log('[BacktestConfig] Last saved config loaded:', config);
         
         // 填充交易标的
         if (config.symbols && config.symbols.length > 0) {
           form.setFieldsValue({
             symbols: config.symbols,
           });
-          console.log('[BacktestConfig] 已自动填充交易标的:', config.symbols);
+          console.log('[BacktestConfig] Symbols auto-filled:', config.symbols);
         }
         
         // 填充其他配置（如果存在）
@@ -360,7 +360,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         }
       }
     } catch (error) {
-      console.error('[BacktestConfig] 加载上次回测配置失败:', error);
+      console.error('[BacktestConfig] Failed to load last backtest config:', error);
     }
   };
 
@@ -379,9 +379,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         savedAt: new Date().toISOString(),
       };
       localStorage.setItem('lastBacktestConfig', JSON.stringify(config));
-      console.log('[BacktestConfig] 已保存回测配置:', config);
+      console.log('[BacktestConfig] Backtest config saved:', config);
     } catch (error) {
-      console.error('[BacktestConfig] 保存回测配置失败:', error);
+      console.error('[BacktestConfig] Failed to save backtest config:', error);
     }
   };
 
@@ -414,11 +414,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     console.log('[BacktestConfig] location.state:', location.state);
     console.log('[BacktestConfig] locationStrategy:', locationStrategy);
     console.log('[BacktestConfig] propStrategy:', propStrategy);
-    console.log('[BacktestConfig] 最终使用的 strategy:', strategy);
+    console.log('[BacktestConfig] Final strategy:', strategy);
     console.log('[BacktestConfig] showConfig:', showConfig);
 
     if (strategy) {
-      console.log('[BacktestConfig] 设置策略到表单:', strategy);
+      console.log('[BacktestConfig] Strategy set to form:', strategy);
       // 从 strategies 列表取完整对象（含 factors），location/prop 传入的可能缺字段
       const fullStrategy = strategies.find(s => s.name === strategy.name) || strategy;
       setSelectedStrategy(fullStrategy);
@@ -541,7 +541,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
    * 重构版本：简化逻辑，确保状态正确更新
    */
   const handleProgressUpdate = (data: BacktestProgressData) => {
-    console.log('[handleProgressUpdate] 收到进度数据:', JSON.stringify(data, null, 2));
+    console.log('[handleProgressUpdate] Progress data received:', JSON.stringify(data, null, 2));
     setBacktestProgressData(data);
 
     // 处理错误状态
@@ -610,7 +610,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     setStepStatus(newStepStatus);
     setCurrentStep(newCurrentStep);
 
-    console.log('[handleProgressUpdate] 更新后的状态:', {
+    console.log('[handleProgressUpdate] Updated state:', {
       progressData: newProgressData,
       stepStatus: newStepStatus,
       currentStep: newCurrentStep,
@@ -1034,12 +1034,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         }
       } catch (e) {
         // 预检失败不阻塞回测，降级走原有流程让引擎自行处理
-        console.warn('[BacktestConfig] 数据预检失败，跳过:', e);
+        console.warn('[BacktestConfig] Data precheck failed, skipping:', e);
       }
 
       await executeBacktest(backtestData);
     } catch (error) {
-      console.error('执行回测失败:', error);
+      console.error('Failed to run backtest:', error);
       setErrorMessage(error instanceof Error ? error.message : t('backtest_exec_failed_generic'));
       setIsBacktestRunning(false);
       setCurrentTaskId('');
@@ -1075,7 +1075,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           message.success({ content: data?.message || t('backtest_terminated'), key: stopKey, duration: 3 });
         }
       } catch (error) {
-        console.error('终止回测失败:', error);
+        console.error('Failed to stop backtest:', error);
         message.error({
           content: error instanceof Error ? error.message : t('backtest_stop_failed'),
           key: stopKey,
@@ -1348,12 +1348,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={24}>
                 <Form.Item
                   name="factorNames"
-                  label={t('backtest_factors') || '回测因子'}
+                  label={t('backtest_factors')}
                   extra={
                     watchedStrategy === 'factor_timing'
-                      ? t('backtest_factor_timing_hint') ||
-                        'factor_timing 策略将使用第一个所选因子；不选则不注入因子'
-                      : t('backtest_factor_optional_hint') || '不选则按无因子方式回测'
+                      ? t('backtest_factor_timing_hint')
+                      : t('backtest_factor_optional_hint')
                   }
                 >
                   <Select
@@ -1361,7 +1360,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     allowClear
                     showSearch
                     optionFilterProp="label"
-                    placeholder={t('backtest_factors_placeholder') || '选择因子库因子（可空）'}
+                    placeholder={t('backtest_factors_placeholder')}
                     options={factorOptions.map((f) => ({
                       value: f.name,
                       label: `${f.label} (${f.name})`,

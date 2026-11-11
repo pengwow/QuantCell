@@ -72,7 +72,7 @@ const BacktestList = () => {
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('strategy_backtest') || '策略回测');
+    setPageTitle(t('strategy_backtest'));
   }, [t]);
 
   // 加载回测任务列表
@@ -84,12 +84,12 @@ const BacktestList = () => {
         setBacktestTasks(response.backtests);
       }
     } catch (error) {
-      console.error('加载回测任务列表失败:', error);
-      message.error('加载回测任务列表失败');
+      console.error('Failed to load backtest list:', error);
+      message.error(t('backtest_list_load_failed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [message, t]);
 
   // 组件挂载时加载数据
   useEffect(() => {
@@ -115,14 +115,14 @@ const BacktestList = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'completed':
-        return '已完成';
+        return t('status_completed');
       case 'running':
       case 'in_progress':
-        return '运行中';
+        return t('status_running');
       case 'failed':
-        return '失败';
+        return t('status_failed');
       case 'pending':
-        return '等待中';
+        return t('status_pending');
       default:
         return status;
     }
@@ -132,14 +132,14 @@ const BacktestList = () => {
   const handleDelete = async (taskId: string) => {
     try {
       await backtestApi.deleteBacktest(taskId);
-      message.success('删除成功');
+      message.success(t('delete_success'));
       // 重新加载列表
       loadBacktestList();
       // 清除选中状态
       setSelectedRowKeys((prev) => prev.filter((key) => key !== taskId));
     } catch (error) {
-      console.error('删除回测任务失败:', error);
-      message.error('删除失败');
+      console.error('Failed to delete backtest task:', error);
+      message.error(t('delete_failed'));
     }
   };
 
@@ -161,7 +161,7 @@ const BacktestList = () => {
   // 表格列定义
   const columns: TableProps<BacktestTask>['columns'] = [
     {
-      title: '策略名称',
+      title: t('backtest_strategy_name'),
       dataIndex: 'strategy_name',
       key: 'strategy_name',
       width: 200,
@@ -169,7 +169,7 @@ const BacktestList = () => {
       ellipsis: true,
     },
     {
-      title: '状态',
+      title: t('status'),
       dataIndex: 'status',
       key: 'status',
       width: 90,
@@ -179,7 +179,7 @@ const BacktestList = () => {
       ),
     },
     {
-      title: '收益率',
+      title: t('return_rate'),
       dataIndex: 'total_return',
       key: 'total_return',
       width: 100,
@@ -195,7 +195,7 @@ const BacktestList = () => {
       },
     },
     {
-      title: '最大回撤',
+      title: t('max_drawdown'),
       dataIndex: 'max_drawdown',
       key: 'max_drawdown',
       width: 100,
@@ -206,14 +206,14 @@ const BacktestList = () => {
       },
     },
     {
-      title: '创建时间',
+      title: t('create_time'),
       dataIndex: 'created_at',
       key: 'created_at',
       width: 160,
       ellipsis: true,
     },
     {
-      title: '操作',
+      title: t('action'),
       key: 'action',
       width: 140,
       fixed: 'right',
@@ -225,14 +225,14 @@ const BacktestList = () => {
             icon={<IconEye size={16} />}
             onClick={() => handleViewDetail(record.id)}
           >
-            查看
+            {t('view')}
           </Button>
           <Popconfirm
-            title="确认删除"
-            description="确定要删除这个回测任务吗？此操作不可恢复。"
+            title={t('confirm_delete_backtest')}
+            description={t('delete_backtest_confirm')}
             onConfirm={() => handleDelete(record.id)}
-            okText="删除"
-            cancelText="取消"
+            okText={t('delete')}
+            cancelText={t('cancel')}
             okButtonProps={{ danger: true }}
           >
             <Button
@@ -241,7 +241,7 @@ const BacktestList = () => {
               danger
               icon={<DeleteOutlined />}
             >
-              删除
+              {t('delete')}
             </Button>
           </Popconfirm>
         </Space>
@@ -406,17 +406,17 @@ const BacktestList = () => {
                 extra={
                   // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
                   <Popconfirm
-                    title="确认删除"
-                    description="确定要删除这个回测任务吗？此操作不可恢复。"
+                    title={t('confirm_delete_backtest')}
+                    description={t('delete_backtest_confirm')}
                     onConfirm={(e) => {
                       e?.stopPropagation();
                       handleDelete(task.id);
                     }}
-                    okText="删除"
-                    cancelText="取消"
+                    okText={t('delete')}
+                    cancelText={t('cancel')}
                     okButtonProps={{ danger: true }}
                   >
-                    <Tooltip title="删除">
+                    <Tooltip title={t('delete')}>
                       <Button
                         type="text"
                         size="small"
@@ -434,7 +434,7 @@ const BacktestList = () => {
               >
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">收益率</span>
+                    <span className="text-gray-500">{t('return_rate')}</span>
                     <span
                       style={{
                         color:
@@ -452,7 +452,7 @@ const BacktestList = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">最大回撤</span>
+                    <span className="text-gray-500">{t('max_drawdown')}</span>
                     <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
                       {task.max_drawdown === undefined || task.max_drawdown === null
                         ? 'N/A'
@@ -460,7 +460,7 @@ const BacktestList = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">创建时间</span>
+                    <span className="text-gray-500">{t('create_time')}</span>
                     <span className="text-sm text-gray-600">{task.created_at}</span>
                   </div>
                   <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
@@ -473,7 +473,7 @@ const BacktestList = () => {
                         handleViewDetail(task.id);
                       }}
                     >
-                      查看
+                      {t('view')}
                     </Button>
                   </div>
                 </div>
@@ -562,7 +562,7 @@ const BacktestList = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
-            placeholder="搜索策略名称或ID"
+            placeholder={t('search_backtest')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
@@ -574,8 +574,8 @@ const BacktestList = () => {
             value={viewType}
             onChange={(value) => handleViewTypeChange(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('list_view') : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('card_view') : undefined },
             ]}
           />
         </Col>
@@ -588,22 +588,22 @@ const BacktestList = () => {
           <Row gutter={[8, 8]}>
             <Col xs={8} sm={8} md={8}>
               <Select
-                placeholder="状态"
+                placeholder={t('filter_status')}
                 value={statusFilter}
                 onChange={setStatusFilter}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'all', label: '全部状态' },
-                  { value: 'completed', label: '已完成' },
-                  { value: 'running', label: '运行中' },
-                  { value: 'failed', label: '失败' },
-                  { value: 'pending', label: '等待中' },
+                  { value: 'all', label: t('all_status') },
+                  { value: 'completed', label: t('status_completed') },
+                  { value: 'running', label: t('status_running') },
+                  { value: 'failed', label: t('status_failed') },
+                  { value: 'pending', label: t('status_pending') },
                 ]}
               />
             </Col>
             <Col xs={8} sm={8} md={8}>
               <RangePicker
-                placeholder={['开始', '结束']}
+                placeholder={[t('backtest_start_date'), t('backtest_end_date')]}
                 value={dateRange}
                 onChange={setDateRange}
                 style={{ width: '100%' }}
@@ -611,7 +611,7 @@ const BacktestList = () => {
             </Col>
             <Col xs={8} sm={8} md={8}>
               <Select
-                placeholder="排序"
+                placeholder={t('filter_sort')}
                 value={`${sortField}-${sortOrder}`}
                 onChange={(value) => {
                   const [field, order] = value.split('-');
@@ -620,14 +620,14 @@ const BacktestList = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'created_at-desc', label: '创建时间 ↓' },
-                  { value: 'created_at-asc', label: '创建时间 ↑' },
-                  { value: 'total_return-desc', label: '收益率 ↓' },
-                  { value: 'total_return-asc', label: '收益率 ↑' },
-                  { value: 'max_drawdown-desc', label: '最大回撤 ↓' },
-                  { value: 'max_drawdown-asc', label: '最大回撤 ↑' },
-                  { value: 'strategy_name-asc', label: '策略名称 A-Z' },
-                  { value: 'strategy_name-desc', label: '策略名称 Z-A' },
+                  { value: 'created_at-desc', label: t('sort_create_time_desc') },
+                  { value: 'created_at-asc', label: t('sort_create_time_asc') },
+                  { value: 'total_return-desc', label: t('sort_return_desc') },
+                  { value: 'total_return-asc', label: t('sort_return_asc') },
+                  { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
+                  { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
+                  { value: 'strategy_name-asc', label: t('backtest_sort_strategy_az') },
+                  { value: 'strategy_name-desc', label: t('backtest_sort_strategy_za') },
                 ]}
               />
             </Col>
@@ -643,7 +643,7 @@ const BacktestList = () => {
                 onClick={handleResetFilters}
                 style={{ width: '100%' }}
               >
-                重置
+                {t('reset_filter')}
               </Button>
             </Col>
             <Col xs={12}>
@@ -653,7 +653,7 @@ const BacktestList = () => {
                 onClick={handleStartBacktest}
                 style={{ width: '100%' }}
               >
-                开始回测
+                {t('start_backtest')}
               </Button>
             </Col>
           </Row>
@@ -665,11 +665,11 @@ const BacktestList = () => {
         <div style={{ marginTop: 12 }}>
           <Space>
             <FilterOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
-            {searchText && <Tag closable onClose={() => setSearchText('')}>搜索: {searchText}</Tag>}
-            {statusFilter !== 'all' && <Tag closable onClose={() => setStatusFilter('all')}>状态: {getStatusText(statusFilter)}</Tag>}
+            {searchText && <Tag closable onClose={() => setSearchText('')}>{t('filter_search', { keyword: searchText })}</Tag>}
+            {statusFilter !== 'all' && <Tag closable onClose={() => setStatusFilter('all')}>{t('filter_status_label', { status: getStatusText(statusFilter) })}</Tag>}
             {dateRange && dateRange[0] && dateRange[1] && (
               <Tag closable onClose={() => setDateRange(null)}>
-                日期: {dateRange[0].format('MM-DD')} ~ {dateRange[1].format('MM-DD')}
+                {t('filter_date_label', { start: dateRange[0].format('MM-DD'), end: dateRange[1].format('MM-DD') })}
               </Tag>
             )}
           </Space>
