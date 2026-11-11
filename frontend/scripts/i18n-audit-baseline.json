@@ -1,0 +1,377 @@
+{
+  "total": 3165,
+  "files": [
+    {
+      "file": "src/pages/data/DataManagementPage.tsx",
+      "count": 402
+    },
+    {
+      "file": "src/pages/strategy/StrategyEditor.tsx",
+      "count": 153
+    },
+    {
+      "file": "src/pages/strategy/StrategyManagement.tsx",
+      "count": 111
+    },
+    {
+      "file": "src/pages/backtest/BacktestDetail.tsx",
+      "count": 106
+    },
+    {
+      "file": "src/pages/setting/ExchangeSettingsPage.tsx",
+      "count": 104
+    },
+    {
+      "file": "src/pages/setting/LogSettingsUnified.tsx",
+      "count": 98
+    },
+    {
+      "file": "src/pages/setting/ModelSettingsPage.tsx",
+      "count": 78
+    },
+    {
+      "file": "src/components/worker/WorkerEditModal.tsx",
+      "count": 73
+    },
+    {
+      "file": "src/components/IndicatorEditor.tsx",
+      "count": 70
+    },
+    {
+      "file": "src/pages/model/components/EnsembleWorkbench.tsx",
+      "count": 69
+    },
+    {
+      "file": "src/pages/setting/NotificationsPage.tsx",
+      "count": 64
+    },
+    {
+      "file": "src/components/worker/WorkerCreateModal.tsx",
+      "count": 58
+    },
+    {
+      "file": "src/pages/backtest/BacktestList.tsx",
+      "count": 55
+    },
+    {
+      "file": "src/pages/agent/components/IntentPanels.tsx",
+      "count": 53
+    },
+    {
+      "file": "src/pages/backtest/metricCards.ts",
+      "count": 53
+    },
+    {
+      "file": "src/pages/agent/Agent.tsx",
+      "count": 52
+    },
+    {
+      "file": "src/components/RealtimeToggleButton.tsx",
+      "count": 51
+    },
+    {
+      "file": "src/components/worker/WorkerOrderTab.tsx",
+      "count": 51
+    },
+    {
+      "file": "src/pages/worker/Worker.tsx",
+      "count": 48
+    },
+    {
+      "file": "src/pages/backtest/BacktestReplay.tsx",
+      "count": 45
+    },
+    {
+      "file": "src/pages/data/KlineReplayPage.tsx",
+      "count": 45
+    },
+    {
+      "file": "src/pages/model/components/UnifiedModelTable.tsx",
+      "count": 45
+    },
+    {
+      "file": "src/pages/setting/PluginManagement.tsx",
+      "count": 43
+    },
+    {
+      "file": "src/components/worker/WorkerParamsTab.tsx",
+      "count": 42
+    },
+    {
+      "file": "src/pages/backtest/PortfolioReplayView.tsx",
+      "count": 40
+    },
+    {
+      "file": "src/pages/factor/FactorLibraryPane.tsx",
+      "count": 39
+    },
+    {
+      "file": "src/pages/setting/AccountSettings.tsx",
+      "count": 39
+    },
+    {
+      "file": "src/pages/backtest/DecisionDetailDrawer.tsx",
+      "count": 37
+    },
+    {
+      "file": "src/pages/factor/FactorCompare.tsx",
+      "count": 37
+    },
+    {
+      "file": "src/components/chart/ChartShell.tsx",
+      "count": 37
+    },
+    {
+      "file": "src/pages/setting/GeneralSettingsPage.tsx",
+      "count": 36
+    },
+    {
+      "file": "src/components/worker/WorkerPositionTab.tsx",
+      "count": 35
+    },
+    {
+      "file": "src/pages/factor/FactorFormModal.tsx",
+      "count": 34
+    },
+    {
+      "file": "src/components/AIChatModal.tsx",
+      "count": 34
+    },
+    {
+      "file": "src/pages/login/LoginPage.tsx",
+      "count": 32
+    },
+    {
+      "file": "src/pages/backtest/BacktestConfig.tsx",
+      "count": 31
+    },
+    {
+      "file": "src/components/BacktestProgressModal.tsx",
+      "count": 31
+    },
+    {
+      "file": "src/components/DrawingBar.tsx",
+      "count": 30
+    },
+    {
+      "file": "src/components/worker/WorkerShareModal.tsx",
+      "count": 29
+    },
+    {
+      "file": "src/components/worker/RiskControlForm.tsx",
+      "count": 28
+    },
+    {
+      "file": "src/pages/factor/FactorResultView.tsx",
+      "count": 27
+    },
+    {
+      "file": "src/pages/model/ModelManagement.tsx",
+      "count": 27
+    },
+    {
+      "file": "src/pages/worker/WorkerDetail.tsx",
+      "count": 26
+    },
+    {
+      "file": "src/pages/chart/ChartPage.tsx",
+      "count": 24
+    },
+    {
+      "file": "src/pages/setting/SettingsContext.tsx",
+      "count": 23
+    },
+    {
+      "file": "src/components/TradeTable.tsx",
+      "count": 23
+    },
+    {
+      "file": "src/pages/factor/FactorAnalyzePanel.tsx",
+      "count": 22
+    },
+    {
+      "file": "src/pages/factor/FactorOverviewPanel.tsx",
+      "count": 22
+    },
+    {
+      "file": "src/components/worker/WorkerOverviewTab.tsx",
+      "count": 22
+    },
+    {
+      "file": "src/utils/klineAnnotations.ts",
+      "count": 21
+    },
+    {
+      "file": "src/pages/model/components/RLTrainConfigForm.tsx",
+      "count": 20
+    },
+    {
+      "file": "src/pages/agent/store/agentStore.ts",
+      "count": 19
+    },
+    {
+      "file": "src/components/IndicatorSelectorModal.tsx",
+      "count": 19
+    },
+    {
+      "file": "src/pages/model/components/ModelDetailDrawer.tsx",
+      "count": 18
+    },
+    {
+      "file": "src/pages/setting/SoftwareUpdateCard.tsx",
+      "count": 18
+    },
+    {
+      "file": "src/components/chart/ChartTimezoneModal.tsx",
+      "count": 18
+    },
+    {
+      "file": "src/components/worker/WorkerLogsPanel.tsx",
+      "count": 18
+    },
+    {
+      "file": "src/pages/factor/FactorDetailPane.tsx",
+      "count": 17
+    },
+    {
+      "file": "src/components/IndicatorParamModal.tsx",
+      "count": 17
+    },
+    {
+      "file": "src/pages/risk/RiskMonitorPage.tsx",
+      "count": 16
+    },
+    {
+      "file": "src/components/worker/WorkerDecisionsTab.tsx",
+      "count": 16
+    },
+    {
+      "file": "src/components/worker/WorkerTradesGroupedTab.tsx",
+      "count": 16
+    },
+    {
+      "file": "src/pages/factor/FactorSnapshotsPanel.tsx",
+      "count": 14
+    },
+    {
+      "file": "src/pages/setting/SystemInfo.tsx",
+      "count": 14
+    },
+    {
+      "file": "src/components/chart/ChartSettingModal.tsx",
+      "count": 14
+    },
+    {
+      "file": "src/pages/setting/types.ts",
+      "count": 13
+    },
+    {
+      "file": "src/components/EquityChart.tsx",
+      "count": 12
+    },
+    {
+      "file": "src/components/chart/ChartPeriodBar.tsx",
+      "count": 12
+    },
+    {
+      "file": "src/pages/backtest/FactorSnapshot.tsx",
+      "count": 11
+    },
+    {
+      "file": "src/pages/factor/FactorCodePanel.tsx",
+      "count": 11
+    },
+    {
+      "file": "src/pages/model/components/RLTrainingResult.tsx",
+      "count": 11
+    },
+    {
+      "file": "src/pages/setting/Setting.tsx",
+      "count": 11
+    },
+    {
+      "file": "src/pages/setting/SystemLogs.tsx",
+      "count": 11
+    },
+    {
+      "file": "src/pages/model/components/RegisterModelModal.tsx",
+      "count": 10
+    },
+    {
+      "file": "src/pages/model/components/TrainingWorkbench.tsx",
+      "count": 9
+    },
+    {
+      "file": "src/pages/research/ResearchList.tsx",
+      "count": 9
+    },
+    {
+      "file": "src/utils/portConfig.ts",
+      "count": 7
+    },
+    {
+      "file": "src/pages/model/components/RLTrainingProgress.tsx",
+      "count": 5
+    },
+    {
+      "file": "src/pages/model/ModelHub.tsx",
+      "count": 4
+    },
+    {
+      "file": "src/utils/roleManager.ts",
+      "count": 3
+    },
+    {
+      "file": "src/pages/plugin/PluginPage.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/AppLocale.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/IndicatorToolbar.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/chart/ChartScreenshotModal.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/pages/backtest/BacktestLayout.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/backtest/factorSnapshot.ts",
+      "count": 1
+    },
+    {
+      "file": "src/pages/factor/MiningEventLog.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/research/ResearchDetail.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/research/ResearchNewDrawer.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/setting/SystemInfoPage.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/components/MetricCard.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/utils/pageTitle.ts",
+      "count": 1
+    },
+    {
+      "file": "src/utils/tokenManager.ts",
+      "count": 1
+    }
+  ]
+}
