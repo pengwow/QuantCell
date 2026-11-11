@@ -1,64 +1,12 @@
-"""Tests for rl/evaluation.py — _compute_metrics."""
+"""Tests for rl/evaluation.py — 门面转发与 EvaluationMetrics 契约。
 
-from rl.evaluation import EvaluationMetrics, _compute_metrics
+指标数值口径（sharpe √252 / profit_factor 999.99 哨兵 / 早退零值等）已随设施
+下沉 axon_quant，由 axon_quant 的 tests/python/test_rl_evaluation.py 守护；
+这里只测 backend 保留的契约：dataclass 默认值 + 门面把 SB3 predict 的
+action 正确交给 env 并转回 dataclass。
+"""
 
-
-def test_compute_metrics_flat_nav():
-    """Flat NAV → zero PnL, zero drawdown."""
-    nav = [100_000.0] * 100
-    m = _compute_metrics(nav, 0)
-    assert m.total_pnl == 0.0
-    assert m.total_return_pct == 0.0
-    assert m.max_drawdown_pct == 0.0
-    assert m.num_trades == 0
-
-
-def test_compute_metrics_monotonic_increase():
-    """Steadily increasing NAV → positive PnL, positive sharpe, 100% win rate."""
-    nav = [100_000.0 + i * 100 for i in range(100)]
-    m = _compute_metrics(nav, 3)
-    assert m.total_pnl > 0
-    assert m.total_return_pct > 0
-    assert m.win_rate == 1.0
-    assert m.max_drawdown_pct == 0.0
-    assert m.num_trades == 3
-    # 全正收益无亏损交易 → profit_factor 用有限哨兵而非 inf（防 JSON 序列化泄漏）
-    assert m.profit_factor == 999.99
-
-
-def test_compute_metrics_drawdown():
-    """NAV rises then drops → max_drawdown < 0."""
-    nav = [100_000.0 + i * 100 for i in range(50)]
-    nav += [nav[-1] - i * 200 for i in range(1, 51)]
-    m = _compute_metrics(nav, 0)
-    assert m.total_pnl < 0
-    assert m.max_drawdown_pct < 0
-
-
-def test_compute_metrics_num_trades():
-    """num_trades 直接透传到结果（真实成交笔数由环境 info 提供，不再从动作序列推导）。"""
-    nav = [100_000.0 + i for i in range(100)]
-    m = _compute_metrics(nav, 42)
-    assert m.num_trades == 42
-
-
-def test_compute_metrics_profit_factor():
-    """Mix of positive and negative returns → finite profit_factor."""
-    import math
-
-    nav = [100.0]
-    for i in range(50):
-        nav.append(nav[-1] * (1.01 if i % 3 != 0 else 0.99))
-    m = _compute_metrics(nav, 0)
-    assert m.profit_factor > 0
-    assert not math.isinf(m.profit_factor)
-
-
-def test_compute_metrics_short_nav():
-    """NAV with < 2 entries → returns default metrics."""
-    m = _compute_metrics([100_000.0], 0)
-    assert m.total_pnl == 0.0
-    assert m.sharpe_ratio == 0.0
+from rl.evaluation import EvaluationMetrics, evaluate_model
 
 
 def test_evaluate_metrics_dataclass():
@@ -67,3 +15,26 @@ def test_evaluate_metrics_dataclass():
     assert m.total_pnl == 0.0
     assert m.sharpe_ratio == 0.0
     assert m.num_trades == 0
+
+
+def test_evaluate_model_unwraps_predict_action():
+    """SB3 predict 返回 (action, state)；门面必须拆包后把 action 交给 env.step。"""
+
+    class FixedModel:
+        def predict(self, obs, deterministic=True):
+            assert deterministic is True
+            return "buy", None
+
+    class OneStepEnv:
+        def reset(self):
+            return None, {"portfolio_value": 100.0}
+
+        def step(self, action):
+            assert action == "buy"  # (action, state) tuple 漏下去会破坏 env 协议
+            return None, 0.0, True, False, {"portfolio_value": 105.0, "trades_executed": 2}
+
+    m = evaluate_model(FixedModel(), OneStepEnv(), transaction_cost=2.0)
+    assert isinstance(m, EvaluationMetrics)
+    assert m.total_pnl == 5.0
+    assert m.num_trades == 2
+    assert m.turnover == 0.0  # env 未给 transaction_costs → 反推无效记 0
