@@ -1,22 +1,24 @@
-"""EnsembleService — axon_quant.ensemble wrapper。"""
+"""EnsembleService — 模型集成服务(方案 A:创建期 meta 校验 + records 落盘 + Python 聚合冒烟)。
+
+聚合逻辑在 services.ensemble_aggregator(纯函数),本模块不再构造 Rust
+EnsembleManager 投票组件;真实信号路径统一从 load_ensemble_spec 取成员 spec。
+"""
 
 from __future__ import annotations
 
 import json
-import pickle
 import time
 import uuid
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import numpy as np
+from gymnasium import spaces
 
-from services.rl_service import MODELS_DIR  # 单一事实源,严禁在本模块重新定义(spec §8)
+from services.ensemble_aggregator import BUY_RATIO_EPS, aggregate_ratios, member_ratio_predict_fn
+from services.rl_service import MODELS_DIR, RLService, rl_meta_path  # 单一事实源,严禁在本模块重新定义(spec §8)
 from utils.logger import LogType, get_logger
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -24,70 +26,9 @@ logger = get_logger(__name__, LogType.APPLICATION)
 ENSEMBLES_STORE = MODELS_DIR.parent / "ensembles.json"
 
 
-# ponytail: 限制 pickle 反序列化范围，防止任意代码执行
-class _SafeUnpickler(pickle.Unpickler):
-    _ALLOWED_PREFIXES = ("sklearn.", "numpy.", "builtins.", "collections.", "datetime.")
-
-    def find_class(self, module: str, name: str):
-        # 顶层类(如 numpy.dtype)的 module 恰为 "numpy" 不带点,prefix 匹配会误杀,
-        # 需同时放行「模块名完全相等」与「模块名前缀匹配」两种情形
-        if not any(module == p.rstrip(".") or module.startswith(p) for p in self._ALLOWED_PREFIXES):
-            msg = f"不允许的类型: {module}.{name}"
-            raise pickle.UnpicklingError(msg)
-        return super().find_class(module, name)
-
-
-try:
-    from axon_quant.ensemble import Observation  # ensemble 专用 Observation, 与根级版本不同
-
-    from axon_bridge import (
-        Action,
-        ActionType,
-        EnsembleManager,
-        HardVoteStrategy,
-        ModelType,
-        SoftVoteStrategy,
-        WeightedVoteStrategy,
-    )
-
-    AVAILABLE = True
-except ImportError:
-    AVAILABLE = False
-
-_STRATEGY_MAP = {
-    "soft_vote": SoftVoteStrategy if AVAILABLE else None,
-    "hard_vote": HardVoteStrategy if AVAILABLE else None,
-    "weighted": WeightedVoteStrategy if AVAILABLE else None,
-}
-
-
-class _UnsupportedActionSpace(ValueError):
-    """连续动作模型(Box 输出)不能参与离散投票;create 阶段需整体拒绝而非跳过。"""
-
-
-# 0=hold, 1=buy, 2=sell —— pickle 与 SB3 两条加载分支共用
-_ACTION_MAP = {0: "hold", 1: "buy", 2: "sell"}
-
-
-def _features_from_obs(obs: Any) -> np.ndarray:
-    """从 Observation(Rust pyclass,属性访问)或 dict(.get)统一提取特征并拼成一维向量。
-
-    EnsembleManager 传给注册 callable 的形态不在类型上约束,两种访问方式都兼容。
-    """
-    getter = obs.get if hasattr(obs, "get") else (lambda k, d=None: getattr(obs, k, d))
-    features: list[float] = []
-    for key in ("market_features", "technical_indicators", "time_features"):
-        val = getter(key, [])
-        if isinstance(val, (list, tuple)):
-            features.extend(val)
-        elif val is not None:
-            features.append(float(val))
-    return np.array(features, dtype=float).reshape(1, -1)
-
-
 def _resolve_sb3_zip(entry: str) -> Path | None:
     """判断输入是否指向 SB3 zip:裸 stem(无路径分隔符)或 {stem}.zip,
-    且 MODELS_DIR 下存在同名 zip 时返回该路径;否则 None 走 pickle 分支。
+    且 MODELS_DIR 下存在同名 zip 时返回该路径;否则 None(集成通路直接拒绝)。
     """
     if "/" in entry or "\\" in entry:
         return None
@@ -96,96 +37,89 @@ def _resolve_sb3_zip(entry: str) -> Path | None:
     return zip_path if zip_path.exists() else None
 
 
-def _load_sb3_model(zip_path: Path) -> Callable[[Any], dict[str, Any]]:
-    """加载 MODELS_DIR 下的 SB3 zip 并包装为 ensemble 兼容的 callable。
+@dataclass
+class PredictMemberSpecs:
+    """load_ensemble_spec 的产物:成员 ratio predict_fn 列表 + 第一成员 meta。"""
 
-    算法按文件名关键词选择(对齐 rl_service.load_model 既有写法),未知关键词回退 PPO。
-    连续动作空间(SAC/TD3 等 Box 输出)抛 _UnsupportedActionSpace,由 create 整体拒绝。
+    member_predict_fns: list[Any]  # MemberPredictFn: obs(list[float]) -> float | None
+    meta: dict[str, Any]  # 第一成员(基准)obs 规格元数据
+    model_id: str  # ensemble_id
+    representative_path: str  # 第一成员 zip 路径(stats 缺失时告警定位用)
+
+
+def _resolved_member_paths(model_paths: list[str]) -> list[tuple[str, Path]]:
+    """成员路径 → SB3 zip。pickle 绝对路径在集成通路被拒(无 meta 无法做一致性校验)。"""
+    resolved: list[tuple[str, Path]] = []
+    for p in model_paths:
+        zip_path = _resolve_sb3_zip(p)
+        if zip_path is None:
+            raise ValueError(f"集成员 {p} 无法解析为模型目录下的 SB3 zip,集成仅支持 {MODELS_DIR} 下的已训练模型")
+        resolved.append((Path(p).name.removesuffix(".zip"), zip_path))
+    return resolved
+
+
+def _validated_member_metas(model_paths: list[str]) -> list[tuple[str, Path, dict[str, Any]]]:
+    """解析成员并做 obs 规格一致性校验(spec §4.2):第一成员为基准,差异成员明细报错。"""
+    members = _resolved_member_paths(model_paths)
+    if not members:
+        raise ValueError("集成至少需要 1 个成员")
+    validated: list[tuple[str, Path, dict[str, Any]]] = []
+    base_meta: dict[str, Any] | None = None
+    for stem, zip_path in members:
+        meta_path = rl_meta_path(zip_path)
+        if not meta_path.exists():
+            raise ValueError(f"成员 {stem} 缺少 obs 规格元数据({meta_path.name}),无法加入集成")
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if base_meta is None:
+            base_meta = meta
+            validated.append((stem, zip_path, meta))
+            continue
+        diffs = [key for key in ("spec_version", "window_size", "features") if meta.get(key) != base_meta.get(key)]
+        if diffs:
+            raise ValueError(f"成员 {stem} 与基准成员 obs 规格不一致: {', '.join(diffs)}")
+        validated.append((stem, zip_path, meta))
+    return validated
+
+
+def load_ensemble_spec(ensemble_id: str, *, spec_version: str | None = None) -> PredictMemberSpecs:
+    """services 层公共入口:ensemble_id → 校验后可运行的成员 spec。
+
+    paper/live(worker 层 _load_rl_spec)与回测(RLService._run_kernel_backtest)共用,
+    保证校验与加载单一事实源。ensemble 不存在 / 成员损坏 / meta 漂移 均 ValueError。
+    spec_version 非空时额外校验基准成员 spec_version 与期望一致(内核口径)。
     """
-    # 函数内 import:torch/SB3/gymnasium 加载重,仅 SB3 分支真正用到时才引入
-    from gymnasium import spaces
-    from stable_baselines3 import A2C, DQN, PPO, SAC
-
-    stem = zip_path.stem.lower()
-    if "sac" in stem:
-        cls = SAC
-    elif "dqn" in stem:
-        cls = DQN
-    elif "a2c" in stem:
-        cls = A2C
-    else:
-        cls = PPO
-
-    model = cls.load(str(zip_path))
-    if not isinstance(model.action_space, spaces.Discrete):
-        raise _UnsupportedActionSpace(f"连续动作模型暂不支持集成投票: {zip_path.stem}")
-
-    def _predict(obs: Any) -> dict[str, Any]:
-        x = _features_from_obs(obs)
-        action, _ = model.predict(x, deterministic=True)
-        action_idx = int(np.asarray(action).reshape(-1)[0])
-        # ponytail: Discrete 模型无概率输出,confidence 固定 0.8;升级路径 = policy 输出概率distribution
-        return {"action_type": _ACTION_MAP.get(action_idx, "hold"), "confidence": 0.8}
-
-    return _predict
-
-
-def _load_model_from_path(path: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """按输入语义二态加载模型并包装为 ensemble 兼容的 callable(spec §5.1)。
-
-    - 裸 stem 或 {stem}.zip → 解析到 MODELS_DIR/{stem}.zip 的 SB3 模型
-    - 其余(带路径分隔符)→ sklearn pickle 白名单加载,行为不变
-    返回的 callable 接收 Observation-like dict,返回 {"action_type": str, "confidence": float}。
-    """
-    resolved = _resolve_sb3_zip(path)
-    if resolved is not None:
-        return _load_sb3_model(resolved)
-
-    p = Path(path)
-    if not p.exists():
-        msg = f"模型文件不存在: {path}"
-        raise FileNotFoundError(msg)
-    with open(p, "rb") as f:
-        model = _SafeUnpickler(f).load()
-
-    def _predict(obs: dict[str, Any]) -> dict[str, Any]:
-        x = _features_from_obs(obs)
-
-        if hasattr(model, "predict_proba"):
-            probs = model.predict_proba(x)[0]
-            action_idx = int(np.argmax(probs))
-            confidence = float(np.max(probs))
-        elif hasattr(model, "predict"):
-            pred = model.predict(x)[0]
-            action_idx = int(pred) if hasattr(pred, "__int__") else 0
-            confidence = 0.8
-        elif callable(model):
-            result = model(obs)
-            if isinstance(result, dict):
-                return result
-            action_idx = int(result) if hasattr(result, "__int__") else 0
-            confidence = 0.8
-        else:
-            msg = f"不支持的模型类型: {type(model)}"
-            raise TypeError(msg)
-
-        return {"action_type": _ACTION_MAP.get(action_idx, "hold"), "confidence": confidence}
-
-    return _predict
+    svc = get_ensemble_service()
+    record = svc._records.get(ensemble_id)
+    if record is None:
+        raise ValueError(f"集成 {ensemble_id} 不存在")
+    validated = _validated_member_metas(list(record.get("model_paths") or []))
+    _base_stem, base_path, base_meta = validated[0]
+    if spec_version is not None and base_meta.get("spec_version") != spec_version:
+        raise ValueError(
+            f"集成 {ensemble_id} 基准成员 spec_version={base_meta.get('spec_version')!r} 与期望 {spec_version!r} 不符"
+        )
+    fns: list[Any] = []
+    for _stem, zip_path, _meta in validated:
+        model = RLService().load_model(str(zip_path))
+        if model is None:
+            raise ValueError(f"成员 {Path(zip_path).stem} 加载失败")
+        fns.append(member_ratio_predict_fn(model))
+    return PredictMemberSpecs(
+        member_predict_fns=fns,
+        meta=base_meta,
+        model_id=ensemble_id,
+        representative_path=str(base_path),
+    )
 
 
 class EnsembleService:
-    """Ensemble service wrapping axon_quant.ensemble.EnsembleManager。
+    """模型集成服务:records 持久化 + 创建期校验 + 前端冒烟预测。
 
-    元数据(records)持久化于 ENSEMBLES_STORE,manager 内存实例惰性重建:
-    只有 create 与首次 predict 需要真实加载模型,启动时零加载。
+    真实信号路径(paper/live/回测)统一经 load_ensemble_spec 拿成员 spec,
+    本类 predict 仅作前端冒烟(spec §4.6);启动时零加载(只读 records)。
     """
 
     def __init__(self) -> None:
-        if not AVAILABLE:
-            msg = "axon_quant.ensemble not available"
-            raise RuntimeError(msg)
-        self._managers: dict[str, EnsembleManager] = {}
         self._records: dict[str, dict[str, Any]] = self._load_records()
 
     # ---- 元数据持久化 ----
@@ -211,110 +145,92 @@ class EnsembleService:
 
     # ---- 对外接口 ----
 
-    def create_ensemble(
-        self,
-        strategy: str = "soft_vote",
-        model_paths: list[str] | None = None,
-    ) -> tuple[str, list[dict[str, str]]]:
-        """创建集成,返回 (ensemble_id, 加载失败被跳过的模型列表)。
-
-        model_paths 语义:裸 stem(→ MODELS_DIR 下 SB3 zip)或绝对路径(pickle)。
-        连续动作模型抛 _UnsupportedActionSpace 整单拒绝;单个文件加载失败只跳过。
+    def create_ensemble(self, strategy: str, model_paths: list[str]) -> tuple[str, list[dict[str, str]]]:
+        """创建集成:先做 obs 规格一致性校验(失败整体拒绝),再逐成员加载,
+        加载失败的成员进 skipped;skipped == 全体时拒单(spec §4.2)。
+        records 记录 members 元数据(action_space 类型供前端展示)。
         """
-        strategy_cls = _STRATEGY_MAP.get(strategy)
-        if strategy_cls is None:
-            msg = f"Unknown strategy: {strategy}"
-            raise ValueError(msg)
+        # 校验期:zip 解析 + meta 存在 + 一致性,任一失败直接 400
+        _validated_member_metas(model_paths)
 
-        manager = EnsembleManager(strategy_cls())
-        loaded = 0
         skipped: list[dict[str, str]] = []
-        for i, path in enumerate(model_paths or []):
+        members: list[dict[str, Any]] = []
+        for stem, zip_path in _resolved_member_paths(model_paths):
             try:
-                model_fn = _load_model_from_path(path)
-                manager.register_model(model_fn, f"model_{i}", ModelType.RuleBased)
-                loaded += 1
-            except _UnsupportedActionSpace:
-                raise
+                model = RLService().load_model(str(zip_path))
             except Exception as e:
-                logger.warning(f"加载模型 {path} 失败: {e}，跳过")
-                skipped.append({"path": path, "reason": str(e)})
+                logger.warning(f"成员 {stem} 加载失败,跳过: {e}")
+                skipped.append({"model_path": stem, "reason": str(e)})
+                continue
+            if model is None:
+                skipped.append({"model_path": stem, "reason": "加载返回空"})
+                continue
+            kind = "discrete" if isinstance(model.action_space, spaces.Discrete) else "box"
+            members.append({"stem": stem, "zip_path": str(zip_path), "action_space": kind})
 
-        eid = uuid.uuid4().hex[:8]
-        self._records[eid] = {
-            "id": eid,
-            "strategy": strategy,
-            "model_paths": list(model_paths or []),
-            "models": loaded,  # 创建时成功加载的数量,重启后 list 直接读记录
+        if not members:
+            raise ValueError("集成没有可加载的成员,创建被拒绝")
+
+        ensemble_id = uuid.uuid4().hex[:8]
+        self._records[ensemble_id] = {
+            "id": ensemble_id,
+            "strategy": strategy,  # 仅存档;方案 A 固定均值聚合,不再影响信号
+            "model_paths": list(model_paths),
+            "members": members,
             "created_at": int(time.time()),
         }
-        self._managers[eid] = manager
         self._save_records()
-        return eid, skipped
+        logger.info(f"集成创建成功: {ensemble_id},成员 {len(members)} 个,skipped {len(skipped)} 个")
+        return ensemble_id, skipped
 
     def delete_ensemble(self, ensemble_id: str) -> None:
-        """删除集成(内存与磁盘元数据同步)。id 不存在抛 KeyError。"""
+        """删除集成(磁盘元数据同步)。id 不存在抛 KeyError。"""
         if ensemble_id not in self._records:
             msg = f"Ensemble {ensemble_id} not found"
             raise KeyError(msg)
         self._records.pop(ensemble_id, None)
-        self._managers.pop(ensemble_id, None)
         self._save_records()
 
-    def predict(
-        self,
-        ensemble_id: str,
-        observation: dict[str, Any],
-        timestamp: int = 0,
-    ) -> dict[str, Any]:
-        """运行集成预测。manager 不在内存时从元数据惰性重建。"""
-        manager = self._managers.get(ensemble_id)
-        if manager is None:
-            manager = self._rebuild_manager(ensemble_id)
-            self._managers[ensemble_id] = manager
+    def predict(self, ensemble_id: str, observation: dict[str, Any]) -> dict[str, Any]:
+        """冒烟预测:dict-obs 按 meta.features 顺序抽特征 → 成员各自推理 → 聚合。
 
-        if "market_features" in observation:
-            obs = Observation(
-                market_features=list(observation["market_features"]),
-                technical_indicators=list(observation.get("technical_indicators", [])),
-                time_features=list(observation.get("time_features", [])),
-            )
-        else:
-            obs = Observation(
-                market_features=list(observation.values()),
-                technical_indicators=[],
-                time_features=[],
-            )
-        result = manager.predict(obs, timestamp)
-        # action_type 是 Rust 侧 pyclass 枚举(无 __hash__,pydantic 也无法 JSON 序列化),统一转小写字符串
+        真实信号路径是策略运行(内核构造特征),本接口只用于前端冒烟(spec §4.6)。
+        """
+        record = self._records.get(ensemble_id)
+        if record is None:
+            raise KeyError(f"集成 {ensemble_id} 不存在")
+        # 成员函数单一事实源:公共入口产物,不在本方法内二次加载
+        spec = load_ensemble_spec(ensemble_id)
+        features: list[str] = list(spec.meta.get("features") or [])
+        flat: dict[str, float] = {}
+        for k, v in observation.items():
+            values = v if isinstance(v, dict) else {k: v}
+            for name, val in values.items():
+                flat[name] = float(val)
+        missing = [f for f in features if f not in flat]
+        if missing:
+            raise ValueError(f"observation 缺少特征: {missing[:5]}{'...' if len(missing) > 5 else ''}")
+        obs_vec = [flat[f] for f in features]
+
+        stems = [m.get("stem") for m in record.get("members") or []]
+        outputs: list[float | None] = []
+        for i, fn in enumerate(spec.member_predict_fns):
+            try:
+                outputs.append(fn(obs_vec))
+            except Exception as e:
+                logger.warning(f"冒烟成员 {i} 推理失败,按弃权: {e}")
+                outputs.append(None)
+        ratio, confidence = aggregate_ratios(outputs)
         return {
-            "action": str(result.action_type),
-            "confidence": float(result.confidence),
+            "action_type": "buy" if ratio > BUY_RATIO_EPS else "hold",
+            "ratio": ratio,
+            "confidence": confidence,
+            "members": [{"stem": stems[i] if i < len(stems) else f"m{i}", "ratio": o} for i, o in enumerate(outputs)],
         }
 
     def list_ensembles(self) -> list[dict[str, Any]]:
-        """列出所有集成(读元数据;models 为创建时成功加载的数量)。"""
-        return [dict(r) for r in self._records.values()]
-
-    # ---- 内部 ----
-
-    def _rebuild_manager(self, ensemble_id: str) -> EnsembleManager:
-        """重启后首次 predict 时按元数据重建 manager。"""
-        record = self._records.get(ensemble_id)
-        if record is None:
-            msg = f"Ensemble {ensemble_id} not found"
-            raise KeyError(msg)
-        strategy_cls = _STRATEGY_MAP.get(record["strategy"])
-        if strategy_cls is None:
-            msg = f"Unknown strategy: {record['strategy']}"
-            raise ValueError(msg)
-        manager = EnsembleManager(strategy_cls())
-        for i, path in enumerate(record.get("model_paths", [])):
-            try:
-                manager.register_model(_load_model_from_path(path), f"model_{i}", ModelType.RuleBased)
-            except Exception as e:
-                logger.warning(f"重建集成 {ensemble_id} 时加载模型 {path} 失败: {e}，跳过")
-        return manager
+        """列出所有集成(读元数据;旧记录缺 members 字段时兜底为空列表)。"""
+        return [{**r, "members": r.get("members", [])} for r in self._records.values()]
 
 
 @lru_cache(maxsize=1)

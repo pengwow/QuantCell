@@ -1,159 +1,60 @@
-"""EnsembleService 单元测试:SB3 zip 加载 / 连续动作拒绝 / pickle 旧路径。
+"""EnsembleService 单元测试:方案 A 语义下的创建/持久化/删除守护。
 
-SB3 zip 用 tmp_path 内存构造(不训练,仅撑起模型结构),并 monkeypatch
-ensemble_service.MODELS_DIR 把 stem 解析根指到 tmp,避免读写 backend/data/models 真实目录。
+旧的 Rust 投票 / pickle / SB3 直加载测试随 ensemble_service 重构移除
+(由 test_ensemble_load_spec.py 承接加载口径),本文件只覆盖 EnsembleService
+公共 API 的 records 行为。模型细节由 conftest.ensemble_env 的 FakeSB3Model 替代。
 """
 
-import pickle
 
-import gymnasium as gym
-import numpy as np
-import pytest
-
-from services import ensemble_service
-from services.ensemble_service import EnsembleService
-
-
-class _DiscreteDummyEnv(gym.Env):
-    """最小离散动作环境,仅用于实例化 SB3 模型(不做训练)。"""
-
-    observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=float)
-    action_space = gym.spaces.Discrete(3)
-
-    def reset(self, seed=None, options=None):
-        return np.zeros(3, dtype=float), {}
-
-    def step(self, action):
-        return np.zeros(3, dtype=float), 0.0, True, False, {}
-
-
-class _BoxDummyEnv(gym.Env):
-    """连续动作环境(与 SAC 动作空间同构)。"""
-
-    observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=float)
-    action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=float)
-
-    def reset(self, seed=None, options=None):
-        return np.zeros(3, dtype=float), {}
-
-    def step(self, action):
-        return np.zeros(3, dtype=float), 0.0, True, False, {}
-
-
-@pytest.fixture
-def models_dir(tmp_path, monkeypatch):
-    """stem 解析根与元数据落盘都指向 tmp_path,测试不读写 backend/data/ 真实目录。"""
-    monkeypatch.setattr(ensemble_service, "MODELS_DIR", tmp_path)
-    # raising=False:ENSEMBLES_STORE 在 Task 2 才引入;Task 2 落地后本 fixture 隔离 create 的磁盘写入
-    monkeypatch.setattr(ensemble_service, "ENSEMBLES_STORE", tmp_path / "ensembles.json", raising=False)
-    return tmp_path
-
-
-def _save_discrete_ppo(models_dir, stem: str):
-    from stable_baselines3 import PPO
-
-    # n_steps/batch_size 取最小可整除值,纯构造不训练
-    model = PPO("MlpPolicy", _DiscreteDummyEnv(), n_steps=4, batch_size=4)
-    model.save(str(models_dir / f"{stem}.zip"))
-
-
-def test_ensemble_service_creation():
+def test_ensemble_service_creation(ensemble_env):
     from services.ensemble_service import EnsembleService
 
     svc = EnsembleService()
     assert svc is not None
 
 
-def test_sb3_zip_create_and_list(models_dir):
-    _save_discrete_ppo(models_dir, "ppo_dummy")
-    svc = EnsembleService()
+def test_create_records_members(ensemble_env):
+    paths = ensemble_env(["m1"])
+    from services import ensemble_service
 
-    ensemble_id, _ = svc.create_ensemble("soft_vote", ["ppo_dummy"])
-
-    items = svc.list_ensembles()
-    assert len(items) == 1
-    assert items[0]["id"] == ensemble_id
-    # 关键口径:创建后 models > 0,证明 SB3 分支真实加载而非静默跳过
-    assert items[0]["models"] == 1
-
-
-def test_sb3_zip_predict(models_dir):
-    _save_discrete_ppo(models_dir, "ppo_dummy2")
-    svc = EnsembleService()
-    ensemble_id, _ = svc.create_ensemble("soft_vote", ["ppo_dummy2"])
-
-    result = svc.predict(ensemble_id, {"market_features": [0.1, -0.2, 0.3]})
-    assert result["action"] in {"hold", "buy", "sell"}
-    assert 0.0 <= result["confidence"] <= 1.0
+    svc = ensemble_service.get_ensemble_service()
+    eid, skipped = svc.create_ensemble("soft_vote", paths)
+    assert skipped == []
+    rec = svc.list_ensembles()[0]
+    assert rec["id"] == eid
+    assert rec["members"][0]["stem"] == "m1"
+    assert rec["members"][0]["action_space"] == "discrete"
 
 
-def test_continuous_action_rejected(models_dir):
-    from stable_baselines3 import SAC
+def test_persistence_and_restart(ensemble_env, tmp_path):
+    paths = ensemble_env(["m1"])
+    from services import ensemble_service
 
-    model = SAC("MlpPolicy", _BoxDummyEnv(), batch_size=4, buffer_size=1000)
-    model.save(str(models_dir / "sac_cont.zip"))
-
-    svc = EnsembleService()
-    # 连续动作模型无法参与离散投票:create 阶段整单拒绝,不静默降级(spec §4)
-    with pytest.raises(ValueError, match="连续动作模型"):
-        svc.create_ensemble("soft_vote", ["sac_cont"])
-
-
-def test_pickle_abs_path_still_works(tmp_path, models_dir):
-    from sklearn.linear_model import LogisticRegression
-
-    clf = LogisticRegression().fit(np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]), [0, 1])
-    pkl = tmp_path / "clf.pkl"
-    with open(pkl, "wb") as f:
-        pickle.dump(clf, f)
-
-    svc = EnsembleService()
-    ensemble_id, _ = svc.create_ensemble("soft_vote", [str(pkl)])
-
-    assert svc.list_ensembles()[0]["models"] == 1
-    result = svc.predict(ensemble_id, {"market_features": [1.0, 1.0, 1.0]})
-    assert result["action"] in {"hold", "buy", "sell"}
-
-
-@pytest.fixture
-def isolated_store(tmp_path, monkeypatch):
-    """ENSEMBLES_STORE 指向 tmp_path,持久化测试不读写真实数据目录。"""
-    monkeypatch.setattr(ensemble_service, "ENSEMBLES_STORE", tmp_path / "ensembles.json")
-    return tmp_path
-
-
-def test_create_returns_skipped(isolated_store):
-    svc = EnsembleService()
-    _, skipped = svc.create_ensemble("soft_vote", ["/tmp/definitely_missing.onnx"])
-    assert len(skipped) == 1
-    assert skipped[0]["path"] == "/tmp/definitely_missing.onnx"
-    assert "reason" in skipped[0]
-
-
-def test_persistence_and_restart(isolated_store, models_dir):
-    _save_discrete_ppo(models_dir, "ppo_dummy3")
-
-    svc = EnsembleService()
-    eid, _ = svc.create_ensemble("soft_vote", ["ppo_dummy3"])
-    assert (isolated_store / "ensembles.json").exists()
+    svc = ensemble_service.get_ensemble_service()
+    eid, _ = svc.create_ensemble("soft_vote", paths)
+    assert (tmp_path / "ensembles.json").exists()
 
     # 模拟重启:新实例从磁盘恢复元数据
-    svc2 = EnsembleService()
+    svc2 = ensemble_service.EnsembleService()
     items = svc2.list_ensembles()
     assert len(items) == 1
     assert items[0]["id"] == eid
-    assert items[0]["models"] == 1
     assert items[0]["created_at"] is not None
 
 
-def test_delete_ensemble(isolated_store):
+def test_delete_ensemble(ensemble_env):
+    paths = ensemble_env(["m1"])
+    from services.ensemble_service import EnsembleService
+
     svc = EnsembleService()
-    eid, _ = svc.create_ensemble("soft_vote", [])
+    eid, _ = svc.create_ensemble("soft_vote", paths)
 
     svc.delete_ensemble(eid)
     assert svc.list_ensembles() == []
     # 删除后文件同步重写,重启不会复活
     assert not EnsembleService().list_ensembles()
+    # 删除不存在的 id → KeyError
+    import pytest as _pytest
 
-    with pytest.raises(KeyError):
+    with _pytest.raises(KeyError):
         svc.delete_ensemble(eid)
