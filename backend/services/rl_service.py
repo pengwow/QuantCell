@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from axon_quant.rl import run_kernel_backtest
 
 from backtest.hpo_runner import HPORunner
 from backtest.walk_forward import WalkForwardService
@@ -689,15 +690,14 @@ class RLService:
         initial_capital: float,
         ensemble_id: str | None = None,
     ) -> dict[str, Any]:
-        """统一内核路径：SB3 推理 → `worker.Kernel.add_rl_strategy`。
+        """统一内核路径：backend 编排（模型 IO / 数据清洗 / symbol 归一化）→ 执行设施。
 
-        与 `trading_env` 口径的差别只在编排层：成交、资金费、保证金与统计全部
-        由 Rust 内核完成（与实盘同一条主回路）。`ensemble_id` 非空时走集成
-        成员聚合，不再加载单模型。
+        执行段（worker.Kernel 装配 + 15 字段结果拼装）已下沉
+        `axon_quant.rl.kernel_backtest::run_kernel_backtest`（2026-11-11），
+        与 `trading_env` 口径的差别只在编排层：成交、资金费、保证金与统计
+        全部由 Rust 内核完成（与实盘同一条主回路）。`ensemble_id` 非空时走
+        集成员聚合，不再加载单模型。
         """
-        # 延迟导入：原生扩展 / 回测编排均为可选重依赖
-        from axon_quant import worker
-
         from backtest.backtest_loop import clean_ohlcv_df
         from backtest.engine_service import EventDrivenBacktestService
         from strategy.rust_adapter import _normalize_symbol
@@ -729,46 +729,23 @@ class RLService:
         bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(data))
 
         # 费率与训练环境同源：两边都是 `RL_TRANSACTION_COST`，否则归因会报成本模型不一致
-        kernel = worker.Kernel(initial_cash=initial_capital, interval=interval, fee_rate=RL_TRANSACTION_COST)
-        kernel.add_rl_strategy(
+        result = run_kernel_backtest(
+            bars,
             predict_fn,
-            model_id,
-            KERNEL_SPEC_VERSION,
-            window_size,
-            features,
-            KERNEL_ACTION_SPACE,
             rust_symbol,
-            # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，不是训练等价口径
+            interval,
+            {
+                "spec_version": KERNEL_SPEC_VERSION,
+                "window_size": window_size,
+                "features": features,
+                "action_space": KERNEL_ACTION_SPACE,
+            },
+            initial_capital=initial_capital,
+            fee_rate=RL_TRANSACTION_COST,
             stats=stats,
+            model_id=model_id,
         )
-        result = kernel.run(bars_by_symbol={rust_symbol: bars})
-
-        total_pnl = float(result.total_pnl)
-        # 成交名义总额 = Σ|price×qty|，与 `fees / turnover` 的费率口径配对；
-        # 旧版内核结果没有该字段时置 None，而不是编一个 0 冒充「零成交」
-        fills_detail = getattr(result, "fills_detail", None)
-        turnover = (
-            sum(abs(float(f["price"]) * float(f["quantity"])) for f in fills_detail)
-            if fills_detail is not None
-            else None
-        )
-        return {
-            "symbol": symbol,
-            "interval": interval,
-            "data_bars": len(data),
-            "initial_capital": initial_capital,
-            "total_pnl": total_pnl,
-            "total_return_pct": (round(total_pnl / initial_capital * 100, 4) if initial_capital else 0.0),
-            "sharpe_ratio": float(result.sharpe_ratio),
-            # 与 trading_env 口径对齐：回撤是百分比，win_rate 是 0-1 小数
-            "max_drawdown_pct": float(result.max_drawdown_pct) * 100.0,
-            "win_rate": float(result.win_rate),
-            "num_trades": int(result.fills),
-            # 内核结果不提供 round-trip 盈亏比，显式置 None 而不是编一个 0
-            "profit_factor": None,
-            # 成本 / 资金费 / 成交量明细：`attribute_engine_diff` 用它和 TradingEnv 口径对账
-            "total_fees": float(result.total_fees),
-            "total_funding": float(result.total_funding_pnl),
-            "turnover": turnover,
-            "engine": "kernel",
-        }
+        # 设施回显内核 symbol 与 len(bars)；对外契约沿用原始 symbol 与清洗前行数
+        result["symbol"] = symbol
+        result["data_bars"] = len(data)
+        return result
