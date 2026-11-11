@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   App as AntdApp,
   Button,
@@ -53,9 +54,10 @@ function statusOf(row: UnifiedModelRow): RowStatus {
 }
 
 function StatusTag({ row }: { row: UnifiedModelRow }) {
+  const { t } = useTranslation();
   const s = statusOf(row);
-  if (s === 'missing') return <Tag color="orange">文件缺失</Tag>;
-  if (s === 'unregistered') return <Tag>未注册</Tag>;
+  if (s === 'missing') return <Tag color="orange">{t('umt_status_missing')}</Tag>;
+  if (s === 'unregistered') return <Tag>{t('umt_status_unregistered')}</Tag>;
   if (s === 'production') return <Tag color="green">{s}</Tag>;
   if (s === 'archived') return <Tag>{s}</Tag>;
   return <Tag color="blue">{s}</Tag>;
@@ -83,6 +85,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }) {
+  const { t } = useTranslation();
   const { message, modal } = AntdApp.useApp();
   const [rows, setRows] = useState<UnifiedModelRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -106,7 +109,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       const data = await modelApi.unifiedModels();
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
-      message.error(`加载模型总表失败：${err instanceof Error ? err.message : String(err)}`);
+      message.error(t('umt_msg_load_failed', { err: err instanceof Error ? err.message : String(err) }));
     } finally {
       setLoading(false);
     }
@@ -145,49 +148,49 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
   );
 
   const stageOptions = [
-    { value: 'unregistered', label: '未注册' },
+    { value: 'unregistered', label: t('umt_status_unregistered') },
     { value: 'staging', label: 'staging' },
     { value: 'production', label: 'production' },
     { value: 'archived', label: 'archived' },
-    { value: 'missing', label: '文件缺失' },
+    { value: 'missing', label: t('umt_status_missing') },
   ];
 
   const handlePromote = async (modelId: string) => {
     try {
       await modelApi.promoteModel(modelId);
-      message.success('晋升成功');
+      message.success(t('umt_msg_promote_ok'));
       loadRows();
     } catch (err) {
-      message.error(`晋升失败：${err instanceof Error ? err.message : String(err)}`);
+      message.error(t('umt_msg_promote_failed', { err: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   const handleUnpromote = async (modelId: string) => {
     try {
       await modelApi.unpromoteModel(modelId);
-      message.success('已取消晋升,模型回到 staging');
+      message.success(t('umt_msg_unpromote_ok'));
       loadRows();
     } catch (err) {
-      message.error(`取消晋升失败：${err instanceof Error ? err.message : String(err)}`);
+      message.error(t('umt_msg_unpromote_failed', { err: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   const handleDelete = (row: UnifiedModelRow) => {
     const stem = row.file_name.replace(/\.zip$/, '');
     modal.confirm({
-      title: '删除模型文件',
-      content: `确定删除 "${row.file_name}" 吗？文件删除后不可恢复；已注册条目将变为「文件缺失」。`,
-      okText: '删除',
+      title: t('umt_delete_title'),
+      content: t('umt_delete_confirm', { name: row.file_name }),
+      okText: t('umt_action_delete'),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: t('umt_action_cancel'),
       onOk: async () => {
         try {
           await rlApi.deleteModel(stem);
-          message.success('模型文件已删除');
+          message.success(t('umt_msg_deleted'));
           setSelected((prev) => (prev.includes(row.file_name) ? prev.filter((k) => k !== row.file_name) : prev));
           loadRows();
         } catch (err) {
-          message.error(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+          message.error(t('umt_msg_delete_failed', { err: err instanceof Error ? err.message : String(err) }));
         }
       },
     });
@@ -196,18 +199,18 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
   // 动作统一入口:表格操作列(iconOnly=图标+Tooltip)与卡片底部(文字按钮)共用,风格对齐 ResearchList
   const actionsFor = (record: UnifiedModelRow) => {
     const acts: { key: string; icon: ReactNode; label: string; danger?: boolean; onClick: () => void }[] = [
-      { key: 'view', icon: <EyeOutlined />, label: '详情', onClick: () => setDetailRow(record) },
+      { key: 'view', icon: <EyeOutlined />, label: t('umt_action_detail'), onClick: () => setDetailRow(record) },
     ];
     // 文件缺失条目仅可看详情(注册表条目的 delete/生命周期操作不可用)
     if (statusOf(record) === 'missing') return acts;
     if (!record.registered) {
-      acts.push({ key: 'register', icon: <TagOutlined />, label: '注册', onClick: () => setRegisterRow(record) });
+      acts.push({ key: 'register', icon: <TagOutlined />, label: t('umt_action_register'), onClick: () => setRegisterRow(record) });
     }
     if (record.registered && record.stage !== 'production') {
       acts.push({
         key: 'promote',
         icon: <RocketOutlined />,
-        label: '晋升',
+        label: t('umt_action_promote'),
         onClick: () => record.model_id && handlePromote(record.model_id),
       });
     }
@@ -215,7 +218,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       acts.push({
         key: 'download',
         icon: <DownloadOutlined />,
-        label: '下载',
+        label: t('umt_action_download'),
         // 下载不经 axios:后端该端点刻意不带 Authorization(见 model_routes.download),location 跳转直接触发下载
         onClick: () => {
           window.location.href = `/api/v1/models/${encodeURIComponent(record.model_id ?? '')}/download`;
@@ -224,14 +227,14 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       acts.push({
         key: 'unpromote',
         icon: <RollbackOutlined />,
-        label: '取消晋升',
+        label: t('umt_action_unpromote'),
         onClick: () => {
           if (!record.model_id) return;
           modal.confirm({
-            title: '取消晋升',
-            content: '模型将从 production 移回 staging',
-            okText: '确定',
-            cancelText: '取消',
+            title: t('umt_action_unpromote'),
+            content: t('umt_unpromote_confirm'),
+            okText: t('umt_action_ok'),
+            cancelText: t('umt_action_cancel'),
             onOk: () => handleUnpromote(record.model_id!),
           });
         },
@@ -240,7 +243,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
     acts.push({
       key: 'delete',
       icon: <DeleteOutlined />,
-      label: '删除',
+      label: t('umt_action_delete'),
       danger: true,
       onClick: () => handleDelete(record),
     });
@@ -277,7 +280,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
 
   const columns: TableProps<UnifiedModelRow>['columns'] = [
     {
-      title: '模型名称',
+      title: t('umt_col_model'),
       dataIndex: 'file_name',
       key: 'file_name',
       ellipsis: true,
@@ -292,10 +295,10 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
         </Space>
       ),
     },
-    { title: '状态', key: 'status', width: 110, render: (_, record) => <StatusTag row={record} /> },
+    { title: t('umt_col_status'), key: 'status', width: 110, render: (_, record) => <StatusTag row={record} /> },
     { title: 'Sharpe', key: 'sharpe', width: 90, align: 'right', render: (_, record) => sharpeText(record) },
     {
-      title: '创建时间',
+      title: t('umt_col_created'),
       dataIndex: 'created',
       key: 'created',
       width: 170,
@@ -304,7 +307,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       render: (ts: number | null) => (ts ? dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss') : '-'),
     },
     {
-      title: '大小',
+      title: t('umt_col_size'),
       dataIndex: 'size_mb',
       key: 'size_mb',
       width: 90,
@@ -312,7 +315,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       render: (v: number | null) => (v == null ? '-' : `${v} MB`),
     },
     // 固定列:容器横向滚动时操作始终可见(production 行最多 4 个图标按钮,140 容纳)
-    { title: '操作', key: 'actions', width: 140, fixed: 'right', render: (_, record) => renderActions(record, true) },
+    { title: t('umt_col_actions'), key: 'actions', width: 140, fixed: 'right', render: (_, record) => renderActions(record, true) },
   ];
 
   // 双视图共享同一分页配置:列表视图交给 Table,卡片视图配 Grid + Pagination
@@ -321,7 +324,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
     pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (t: number) => `共 ${t} 条`,
+    showTotal: (total: number) => t('umt_total', { total }),
     onChange: (page: number, size: number) => {
       // 条数变化写回全局配置(与 RLModelList 既有口径一致)
       if (size !== pageSize) setPageSize(size);
@@ -343,7 +346,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
             <Flex gap={8} wrap="wrap" align="center">
               <Input
                 allowClear
-                placeholder="搜索文件名 / 模型 ID"
+                placeholder={t('umt_search_ph')}
                 prefix={<SearchOutlined />}
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
@@ -351,7 +354,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
               />
               <Select
                 allowClear
-                placeholder="算法"
+                placeholder={t('umt_filter_algo')}
                 value={algoFilter}
                 onChange={(v) => setAlgoFilter(v)}
                 options={algoOptions}
@@ -359,21 +362,21 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
               />
               <Select
                 allowClear
-                placeholder="状态"
+                placeholder={t('umt_filter_status')}
                 value={stageFilter}
                 onChange={(v) => setStageFilter(v)}
                 options={stageOptions}
                 style={{ width: 140 }}
               />
-              <Button type="text" icon={<ReloadOutlined />} onClick={loadRows} title="刷新" />
+              <Button type="text" icon={<ReloadOutlined />} onClick={loadRows} title={t('umt_action_refresh')} />
               {selected.length > 0 && (
                 <Button
                   type="primary"
                   icon={<BarChartOutlined />}
                   // ponytail: RL 回测占位随迁(上游 RLTrainingPage 即此行为),回测开放时改接真实跳转
-                  onClick={() => message.warning(`RL 回测暂未开放（${selected[0]}）`)}
+                  onClick={() => message.warning(t('umt_msg_rl_backtest_todo', { name: selected[0] }))}
                 >
-                  回测选中模型
+                  {t('umt_btn_backtest_selected')}
                 </Button>
               )}
             </Flex>
@@ -382,8 +385,8 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
               onChange={(v) => setView(v as 'card' | 'list')}
               // 图标+文字与 ResearchList 视图切换一致;小屏只留图标
               options={[
-                { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
-                { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
+                { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('umt_view_card') : undefined },
+                { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('umt_view_list') : undefined },
               ]}
             />
           </Flex>
@@ -411,7 +414,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
                         title={<span className="truncate" title={nameTooltip}>{record.model_id ?? record.file_name}</span>}
                         extra={
                           statusOf(record) !== 'missing' && (
-                            <Tooltip title="删除">
+                            <Tooltip title={t('umt_action_delete')}>
                               <Button
                                 type="text"
                                 size="small"
@@ -435,10 +438,10 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
                           </Space>
                           <MetaRow label="Sharpe" value={sharpeText(record)} />
                           <MetaRow
-                            label="创建时间"
+                            label={t('umt_col_created')}
                             value={record.created ? dayjs(record.created * 1000).format('YYYY-MM-DD HH:mm') : '-'}
                           />
-                          <MetaRow label="大小" value={record.size_mb == null ? '-' : `${record.size_mb} MB`} />
+                          <MetaRow label={t('umt_col_size')} value={record.size_mb == null ? '-' : `${record.size_mb} MB`} />
                           {/* 操作区 renderActions 内部已阻止冒泡 */}
                           <div className="pt-2 border-t border-gray-100">{renderActions(record)}</div>
                         </Flex>

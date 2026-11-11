@@ -1,5 +1,5 @@
 {
-  "total": 1644,
+  "total": 1509,
   "files": [
     {
       "file": "src/pages/data/DataManagementPage.tsx",
@@ -18,16 +18,8 @@
       "count": 70
     },
     {
-      "file": "src/pages/model/components/EnsembleWorkbench.tsx",
-      "count": 69
-    },
-    {
       "file": "src/components/RealtimeToggleButton.tsx",
       "count": 48
-    },
-    {
-      "file": "src/pages/model/components/UnifiedModelTable.tsx",
-      "count": 43
     },
     {
       "file": "src/pages/factor/FactorLibraryPane.tsx",
@@ -63,10 +55,6 @@
     },
     {
       "file": "src/pages/factor/FactorResultView.tsx",
-      "count": 27
-    },
-    {
-      "file": "src/pages/model/ModelManagement.tsx",
       "count": 27
     },
     {
@@ -198,6 +186,10 @@
       "count": 4
     },
     {
+      "file": "src/pages/model/ModelManagement.tsx",
+      "count": 3
+    },
+    {
       "file": "src/pages/setting/SystemInfo.tsx",
       "count": 3
     },
@@ -239,6 +231,10 @@
     },
     {
       "file": "src/pages/factor/MiningEventLog.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/model/components/UnifiedModelTable.tsx",
       "count": 1
     },
     {
