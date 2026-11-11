@@ -18,9 +18,36 @@ export interface EnsembleInfo {
   created_at: number | null; // 秒级 unix
 }
 
+// POST /ensemble/{id}/predict 响应(零观测冒烟):members[i].ratio 为 null 表示该成员弃权
+export interface EnsemblePredictMember {
+  stem: string;
+  ratio: number | null;
+}
+
 export interface EnsemblePredictResult {
-  action: string;
+  action_type: 'buy' | 'hold';
+  ratio: number;
   confidence: number;
+  members: EnsemblePredictMember[];
+}
+
+// POST /ensemble/{id}/backtest 响应:与 RLService.run_backtest kernel 口径字段对齐
+export interface EnsembleBacktestResult {
+  symbol: string;
+  interval: string;
+  data_bars: number;
+  initial_capital: number;
+  total_pnl: number;
+  total_return_pct: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  num_trades: number;
+  profit_factor: number | null;
+  total_fees: number;
+  total_funding: number;
+  turnover: number | null;
+  engine: string;
 }
 
 // POST /ensemble/create 响应:创建成功但可能有模型加载失败被跳过
@@ -37,4 +64,6 @@ export const ensembleApi = {
   deleteEnsemble: (id: string) => apiRequest.delete(`/ensemble/${id}`),
   predict: (ensembleId: string, observation: Record<string, number>) =>
     apiRequest.post<EnsemblePredictResult>(`/ensemble/${ensembleId}/predict`, { observation }),
+  backtestEnsemble: (id: string, data: { symbol: string; interval: string; initial_capital: number }) =>
+    apiRequest.post<EnsembleBacktestResult>(`/ensemble/${id}/backtest`, data),
 };
