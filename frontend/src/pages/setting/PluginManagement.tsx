@@ -311,7 +311,7 @@ function InstallModal({
                 }}
                 disabled={uploading}
               >
-                <p style={{ fontSize: 40, color: '#ccc' }}>
+                <p style={{ fontSize: 40, color: 'color-mix(in srgb, var(--tw-color-foreground) 20%, transparent)' }}>
                   {uploading ? <LoadingOutlined /> : <CloudUploadOutlined />}
                 </p>
                 <p>{uploading ? '正在安装...' : '点击或拖拽 ZIP 文件到此处'}</p>
@@ -409,7 +409,7 @@ function DetailModal({
           <Typography.Title level={5}>配置 Schema</Typography.Title>
           <pre
             style={{
-              background: '#f5f5f5',
+              background: 'color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background))',
               padding: 12,
               borderRadius: 6,
               maxHeight: 300,

@@ -1,4 +1,4 @@
-import { QUANT_COLORS } from '@/utils/colors';
+import { QUANT_COLORS, useQuantColors } from '@/utils/colors';
 /**
  * 回测回放页面组件
  * 功能：回放回测过程，展示K线图表和交易信号
@@ -148,6 +148,8 @@ const BacktestReplay = () => {
   // 获取主题
   const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
   const isDark = theme === 'dark';
+  // 买卖标记色画进 klinecharts（canvas），必须是可解析色值，用 hook 拿当前主题真实色
+  const quant = useQuantColors();
 
   // 设置页面标题
   useEffect(() => {
@@ -448,8 +450,9 @@ const BacktestReplay = () => {
           if (entryTime >= visibleStartTime && entryTime <= visibleEndTime) {
             const isBuy = trade.entry_side === 'buy';
             const directionText = isBuy ? '买入' : '卖出';
-            const color = isBuy ? '#26a69a' : '#ef5350';
+            const color = isBuy ? quant.positive : quant.negative;
             // 根据主题设置标签颜色
+            // O2: 特殊装饰色，保留（彩色气泡上的标签字，canvas 绘制需字面色，亮色深字/暗色白字）
             const labelColor = isDark ? '#ffffff' : '#333333';
 
             chart.createOverlay({
@@ -764,7 +767,7 @@ const BacktestReplay = () => {
                 {/* 播放速度 */}
                 <Tooltip title="播放速度">
                   <Space align="center" style={{ marginLeft: 8 }}>
-                    <ClockCircleOutlined style={{ color: '#8c8c8c' }} />
+                    <ClockCircleOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
                     <Select
                       value={playSpeed}
                       onChange={handleSpeedChange}
@@ -804,9 +807,9 @@ const BacktestReplay = () => {
           {/* 第二行：进度条 */}
           <Row align="middle" gutter={[16, 0]}>
             <Col flex="none">
-              <span style={{ 
-                fontSize: 12, 
-                color: '#8c8c8c',
+              <span style={{
+                fontSize: 12,
+                color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
                 fontFamily: 'monospace'
               }}>
                 {currentIndex + 1}
@@ -834,9 +837,9 @@ const BacktestReplay = () => {
               />
             </Col>
             <Col flex="none">
-              <span style={{ 
-                fontSize: 12, 
-                color: '#8c8c8c',
+              <span style={{
+                fontSize: 12,
+                color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
                 fontFamily: 'monospace'
               }}>
                 {replayData?.klines?.length || 0}
@@ -847,9 +850,9 @@ const BacktestReplay = () => {
           {/* 第三行：时间戳和进度百分比 */}
           <Row justify="center" style={{ marginTop: 4 }}>
             <Col>
-              <span style={{ 
-                fontSize: 13, 
-                color: '#595959',
+              <span style={{
+                fontSize: 13,
+                color: 'color-mix(in srgb, var(--tw-color-foreground) 70%, transparent)',
                 fontWeight: 500
               }}>
                 {formatTimestamp(
@@ -910,7 +913,7 @@ const BacktestReplay = () => {
               return (
                 <>
                   <div style={{ marginBottom: 16 }}>
-                    <span style={{ color: '#8c8c8c' }}>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
                       共 {visibleTrades.length} 条记录 (总 {replayData.trades?.length || 0} 条)
                     </span>
                   </div>

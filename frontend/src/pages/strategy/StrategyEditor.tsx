@@ -1518,7 +1518,7 @@ class NewStrategy(BaseStrategy):
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <div>
-            <div style={{ marginBottom: 8, color: '#666' }}>策略类型（创建后不可在编辑器内切换）：</div>
+            <div style={{ marginBottom: 8, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>策略类型（创建后不可在编辑器内切换）：</div>
             <Segmented
               block
               value={createStrategyType}
@@ -1531,7 +1531,7 @@ class NewStrategy(BaseStrategy):
           </div>
           {createStrategyType === 'rule' ? (
             <>
-              <div style={{ color: '#666' }}>
+              <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>
                 选择一个起始模板，或跳过使用空白 BaseStrategy 骨架（下拉底部可上传本地 .py 文件）：
               </div>
               <Select
@@ -1544,11 +1544,11 @@ class NewStrategy(BaseStrategy):
                   label: (
                     <span>
                       <strong>{t.name}</strong>
-                      <span style={{ color: '#888', marginLeft: 8 }}>
+                      <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', marginLeft: 8 }}>
                         [{t.category}]
                       </span>
                       {t.tags?.length ? (
-                        <span style={{ color: '#aaa', marginLeft: 8 }}>· {t.tags.join('/')}</span>
+                        <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 40%, transparent)', marginLeft: 8 }}>· {t.tags.join('/')}</span>
                       ) : null}
                     </span>
                   ),
@@ -1560,7 +1560,7 @@ class NewStrategy(BaseStrategy):
                   <>
                     {menu}
                     {/* strategy-template-upload-row：global.css 里把 Upload 中间层撑满整行，保证整行可点击 */}
-                    <div className="strategy-template-upload-row" style={{ padding: 4, borderTop: '1px solid #f0f0f0' }}>
+                    <div className="strategy-template-upload-row" style={{ padding: 4, borderTop: '1px solid var(--tw-color-border-secondary)' }}>
                       <Upload {...uploadProps}>
                         {/* mousedown 不 preventDefault 会让 Select 收起、click 丢失（antd 官方要求） */}
                         <Button
@@ -1579,7 +1579,7 @@ class NewStrategy(BaseStrategy):
               />
             </>
           ) : (
-            <div style={{ color: '#666' }}>
+            <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>
               RL 策略将使用内置骨架模板（加载已训练 PPO 模型 + on_bar 推理），点击下方按钮创建。
               或 <Upload {...uploadProps}><a>上传本地 .py 策略文件</a></Upload>（自动识别类型）。
             </div>
@@ -1589,7 +1589,7 @@ class NewStrategy(BaseStrategy):
               onClick={() => handlePickTemplate(null)}
               style={{
                 background: 'transparent',
-                border: '1px solid #d9d9d9',
+                border: '1px solid var(--tw-color-border)',
                 borderRadius: 6,
                 padding: '4px 12px',
                 cursor: 'pointer',

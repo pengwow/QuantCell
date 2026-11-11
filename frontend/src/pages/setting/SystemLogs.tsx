@@ -201,7 +201,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                           ghost
                           className="mt-1 ml-0"
                           expandIcon={({ isActive }) => (
-                            <DownOutlined rotate={isActive ? 180 : 0} style={{ fontSize: '10px', color: '#888' }} />
+                            <DownOutlined rotate={isActive ? 180 : 0} style={{ fontSize: '10px', color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
                           )}
                         >
                           <Panel

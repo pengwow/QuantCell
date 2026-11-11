@@ -396,8 +396,8 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   }
 
   function getProgressColor(percent: number): string {
-    if (percent > 85) return '#f5222d';
-    if (percent > 70) return '#faad14';
+    if (percent > 85) return QUANT_COLORS.negative;
+    if (percent > 70) return QUANT_COLORS.warning;
     return QUANT_COLORS.positive;
   }
 

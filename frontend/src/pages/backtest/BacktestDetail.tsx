@@ -467,7 +467,7 @@ const BacktestDetail = () => {
               )}
             </Space>
             {!marginApplied && (
-              <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+              <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 4 }}>
                 未启用保证金模拟（1x，无强平判定）
               </div>
             )}
@@ -772,7 +772,7 @@ const BacktestDetail = () => {
 
           {/* 筛选结果统计 */}
           <div style={{ marginBottom: 16 }}>
-            <span style={{ color: '#8c8c8c' }}>
+            <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
               共 {getTrades().length} 条记录
               {selectedSymbol !== 'all' && ` | 标的: ${selectedSymbol}`}
               {filterSide !== 'all' && ` | 方向: ${filterSide === 'long' ? '做多' : '做空'}`}
@@ -848,11 +848,11 @@ const BacktestDetail = () => {
               <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
                 {/* 统计摘要 */}
                 <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ color: '#8c8c8c' }}>
+                  <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
                     共 <strong>{decisions.length.toLocaleString()}</strong> 条决策
                   </span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: '#8c8c8c' }}>决策者：</span>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>决策者：</span>
                     {Object.entries(deciderCounts).map(([dv, cnt]) => (
                       <Tag key={dv} color={deciderColor(dv)}>
                         {dv}: {cnt.toLocaleString()}
@@ -860,7 +860,7 @@ const BacktestDetail = () => {
                     ))}
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: '#8c8c8c' }}>动作：</span>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>动作：</span>
                     {Object.entries(actionCounts).map(([act, cnt]) => (
                       <Tag key={act} color={actionColor[act] || 'default'}>
                         {act === 'buy' ? '买入' : act === 'sell' ? '卖出' : '持有'}: {cnt.toLocaleString()}
@@ -870,7 +870,7 @@ const BacktestDetail = () => {
                 </div>
                 {Object.keys(reasonCounts).length > 0 && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ color: '#8c8c8c' }}>降级原因 Top：</span>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>降级原因 Top：</span>
                     {Object.entries(reasonCounts)
                       .sort((a, b) => b[1] - a[1])
                       .slice(0, 5)

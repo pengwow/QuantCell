@@ -24,6 +24,7 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { IntentAction } from '../store/agentStore';
+import { useQuantColors } from '@/utils/colors';
 
 const { Text, Title } = Typography;
 const { Panel } = Collapse;
@@ -67,15 +68,15 @@ function deriveRoleTheme(roleName: string, token: ReturnType<typeof theme.useTok
   const fallbackIcon = ROLE_ICONS['AI 助手'];
   const icon = ROLE_ICONS[roleName] ?? fallbackIcon;
 
-  // bgColor 映射到 antd token 的 colorXxxBg 语义色
+  // bgColor 映射到 antd token 的 colorXxxBg 语义色（O2：antd token 恒有定义，无需 hex fallback）
   const bgMap: Record<string, { color: string; bg: string }> = {
-    '策略工程师': { color: token.colorInfo,        bg: token.colorInfoBg ?? '#e6f7ff' },
-    '回测分析师': { color: token.colorSuccess,     bg: token.colorSuccessBg ?? '#f6ffed' },
-    '风控顾问':   { color: token.colorWarning,     bg: token.colorWarningBg ?? '#fff7e6' },
-    '交易助手':   { color: '#722ed1',              bg: '#f9f0ff' },  // 紫色/粉色保留行业配色
-    '数据分析师': { color: token.colorInfo,        bg: '#e6fffb' },  // cyan bg 无对应 token，保留
-    'AI 训练师':  { color: '#eb2f96',              bg: '#fff0f6' },  // 粉色保留
-    'AI 助手':    { color: token.colorInfo,        bg: token.colorInfoBg ?? '#e6f7ff' },
+    '策略工程师': { color: token.colorInfo,        bg: token.colorInfoBg },
+    '回测分析师': { color: token.colorSuccess,     bg: token.colorSuccessBg },
+    '风控顾问':   { color: token.colorWarning,     bg: token.colorWarningBg },
+    '交易助手':   { color: '#722ed1',              bg: '#f9f0ff' },  // O2: 特殊装饰色，保留（紫色/粉色行业配色）
+    '数据分析师': { color: token.colorInfo,        bg: '#e6fffb' },  // O2: 特殊装饰色，保留（cyan bg 无对应 token）
+    'AI 训练师':  { color: '#eb2f96',              bg: '#fff0f6' },  // O2: 特殊装饰色，保留（粉色行业配色）
+    'AI 助手':    { color: token.colorInfo,        bg: token.colorInfoBg },
   };
   const pair = bgMap[roleName] ?? bgMap['AI 助手'];
   return { color: pair.color, bgColor: pair.bg, icon };
@@ -112,7 +113,7 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
         <Collapse defaultActiveKey={['1']}>
           <Panel header="策略代码" key="1">
             <pre style={{
-              background: '#1f1f1f',
+              background: '#1f1f1f', // O2: 特殊装饰色，保留（终端风代码块，亮暗恒深底）
               color: '#f0f0f0',
               padding: 16,
               borderRadius: 8,
@@ -162,13 +163,15 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = useRoleTheme(roleName);
+  const quant = useQuantColors();
 
+  // 收益/夏普/回撤等指标色全部走量化语义色（O2），紫色为行业惯例强调色保留
   const metrics = [
-    { key: '年化收益率', value: structuredData['年化收益率'], suffix: '%', color: '#52c41a' },
-    { key: '夏普比率', value: structuredData['夏普比率'], suffix: '', color: '#1890ff' },
-    { key: '最大回撤', value: structuredData['最大回撤'], suffix: '%', color: '#ff4d4f' },
-    { key: '总收益', value: structuredData['总收益'], suffix: '%', color: '#52c41a' },
-    { key: '胜率', value: structuredData['胜率'], suffix: '%', color: '#722ed1' },
+    { key: '年化收益率', value: structuredData['年化收益率'], suffix: '%', color: quant.positive },
+    { key: '夏普比率', value: structuredData['夏普比率'], suffix: '', color: quant.info },
+    { key: '最大回撤', value: structuredData['最大回撤'], suffix: '%', color: quant.negative },
+    { key: '总收益', value: structuredData['总收益'], suffix: '%', color: quant.positive },
+    { key: '胜率', value: structuredData['胜率'], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
   ].filter((m) => m.value !== undefined);
 
   return (
@@ -239,18 +242,19 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = useRoleTheme(roleName);
+  const quant = useQuantColors();
 
   const riskLevel = typeof structuredData.risk_level === 'string' ? structuredData.risk_level : '未知';
   const riskColors: Record<string, string> = {
-    '低风险': '#52c41a',
-    '中风险': '#fa8c16',
-    '高风险': '#ff4d4f',
-    '未知': '#999999',
+    '低风险': quant.positive,
+    '中风险': quant.warning,
+    '高风险': quant.negative,
+    '未知': quant.neutral,
   };
 
   const riskInfo = [
-    { label: '风险等级', value: riskLevel, color: riskColors[riskLevel] || '#999999' },
-    { label: '评估时间', value: new Date().toLocaleString(), color: '#1890ff' },
+    { label: '风险等级', value: riskLevel, color: riskColors[riskLevel] || quant.neutral },
+    { label: '评估时间', value: new Date().toLocaleString(), color: quant.info },
   ];
 
   return (
@@ -276,7 +280,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
 
       <div style={{ marginBottom: 16 }}>
         <Title level={5}>风险提示</Title>
-        <div style={{ padding: 12, background: '#fff2f0', borderRadius: 8 }}>
+        <div style={{ padding: 12, background: 'color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background))', borderRadius: 8 }}>
           <Text type="danger">
             ⚠️ 投资有风险，交易需谨慎。以上评估仅供参考，不构成投资建议。
           </Text>
@@ -313,15 +317,16 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = useRoleTheme(roleName);
+  const quant = useQuantColors();
 
   const direction = typeof structuredData.direction === 'string' ? structuredData.direction : '等待信号';
   const position = typeof structuredData.position === 'string' ? structuredData.position : '0%';
   const confidence = toNumber(structuredData.confidence);
 
   const tradeInfo = [
-    { label: '建议方向', value: direction, color: '#1890ff' },
-    { label: '建议仓位', value: position, color: '#52c41a' },
-    { label: '置信度', value: confidence ? `${confidence * 100}%` : '未知', color: '#722ed1' },
+    { label: '建议方向', value: direction, color: quant.info },
+    { label: '建议仓位', value: position, color: quant.positive },
+    { label: '置信度', value: confidence ? `${confidence * 100}%` : '未知', color: '#722ed1' }, // O2: 特殊装饰色，保留
   ];
 
   return (

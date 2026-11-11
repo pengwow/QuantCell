@@ -115,7 +115,11 @@ const ProbBar = ({
   probs: Record<string, unknown>;
   thresholds?: { open?: number; hold?: number };
 }) => {
-  const colors: Record<string, string> = { buy: '#52c41a', sell: '#ff4d4f', hold: '#8c8c8c' };
+  const colors: Record<string, string> = {
+    buy: 'var(--tw-color-success)',
+    sell: 'var(--tw-color-error)',
+    hold: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
+  };
   const labels: Record<string, string> = { buy: '买入', sell: '卖出', hold: '持有' };
   return (
     <div style={{ display: 'flex', gap: 16 }}>
@@ -147,7 +151,7 @@ const ProbBar = ({
                       top: -2,
                       bottom: -2,
                       width: 2,
-                      background: '#faad14',
+                      background: 'var(--tw-color-warning)',
                       transform: 'translateX(-1px)',
                       cursor: 'help',
                     }}

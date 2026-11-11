@@ -402,7 +402,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
                       <Card
                         size="small"
                         hoverable
-                        style={{ cursor: 'pointer', height: '100%', ...(isSelected ? { borderColor: '#1677ff' } : {}) }}
+                        style={{ cursor: 'pointer', height: '100%', ...(isSelected ? { borderColor: 'var(--tw-color-info)' } : {}) }}
                         onClick={() => {
                           // 对齐表格禁选口径:文件缺失(无文件)不可选中
                           if (record.size_mb == null) return;

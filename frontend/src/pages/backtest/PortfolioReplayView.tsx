@@ -179,7 +179,7 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
             name: 'jsonAnnotation',
             extendData: JSON.stringify({
               lines: [mk.label, `数量: ${tr.size.toFixed(4)}`],
-              colors: [mk.label === '买入' ? colors.positive : colors.negative, '#ffffff'],
+              colors: [mk.label === '买入' ? colors.positive : colors.negative, '#ffffff'], // O2: 特殊装饰色，保留（彩色气泡上的白标签字，canvas 绘制需字面色）
               fontSize: 12,
               align: 'left',
             }),

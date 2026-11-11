@@ -77,7 +77,7 @@ export default function RiskMonitorPage() {
               )}
             </div>
           ) : (
-            <p style={{ color: '#999', textAlign: 'center', padding: 24 }}>提交订单查看结果</p>
+            <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', textAlign: 'center', padding: 24 }}>提交订单查看结果</p>
           )}
         </Card>
       </div>

@@ -44,7 +44,7 @@ const codePreStyle = (maxHeight: number): React.CSSProperties => ({
   maxHeight,
   overflow: 'auto',
   padding: 12,
-  background: '#1e1e1e',
+  background: '#1e1e1e', // O2: 特殊装饰色，保留（VS Code 风代码块，亮暗恒深底）
   color: '#d4d4d4',
   borderRadius: 6,
 });

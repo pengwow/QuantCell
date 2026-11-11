@@ -108,7 +108,7 @@ export default function SoftwareUpdateCard() {
         </Space>
 
         {status === 'available' && (
-          <span style={{ color: '#94a3b8', fontSize: 12 }}>
+          <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
             {t('update_restart_hint') || '安装完成后应用将自动重启'}
           </span>
         )}
@@ -123,7 +123,7 @@ export default function SoftwareUpdateCard() {
             {t('update_mirror_save') || '保存镜像源'}
           </Button>
         </Space.Compact>
-        <span style={{ color: '#94a3b8', fontSize: 12 }}>
+        <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
           {t('update_mirror_label') || '更新镜像源（可选，留空仅使用官方源）'}
         </span>
       </Space>

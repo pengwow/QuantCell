@@ -421,7 +421,7 @@ const FactorCompare: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
-        <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
           {t('factor_cmp_form_hint') ||
             '2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。'}
         </p>

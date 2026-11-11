@@ -324,8 +324,8 @@ const WorkerDetail = () => {
                 </Space>
 
                 <Space size="small">
-                  <ClockCircleOutlined style={{ color: '#999' }} />
-                  <span style={{ color: '#666', fontSize: 13 }}>
+                  <ClockCircleOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
+                  <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', fontSize: 13 }}>
                     最后更新：{lastUpdateText}
                   </span>
                 </Space>

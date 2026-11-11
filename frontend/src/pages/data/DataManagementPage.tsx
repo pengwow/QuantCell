@@ -1,10 +1,15 @@
-import { QUANT_COLORS } from '@/utils/colors';
+import { QUANT_COLORS, useQuantColors } from '@/utils/colors';
 /**
  * 统一数据管理页面 - 多自选组管理优化版
  * 整合数据池、数据采集、数据质量三个核心功能模块
  * 支持多自选组管理（创建、命名、编辑、删除）
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
+// O2 设计对齐：本页内联 hex/魔法间距已 token 化。保留 style 的例外：
+// - antd Tag/Alert/Button/Empty 的 padding/fontSize 等由 antd unlayered cssinjs 设置，类压不过，必须留 style；
+// - 布局尺寸（width/maxHeight/position 等非间距/颜色值）不在 O2 范围；
+// - L1976 附近颜色选择器的 '#722ed1' 是候选色数据值（会写库的标识色），非主题 UI 色，保留 hex；
+// O2: 原表单 initialValue '#1890ff' 不在任何候选值中，已对齐为 QUANT_COLORS.info（= 蓝色选项）；“青色”选项与“蓝色”同值属既有数据问题，未在本轮修改。
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
@@ -108,13 +113,20 @@ const { RangePicker } = DatePicker;
 const { Search } = Input;
 const { useBreakpoint } = Grid;
 
+// O2 设计对齐：token 未覆盖的低饱和灰/淡底，用主题前景色、信息色按透明度逼近原 hex，亮暗色自动适配（替代 #8c8c8c/#bfbfbf/#e6f4ff 等）
+const QC_TEXT_MUTED = 'color-mix(in srgb, var(--tw-color-foreground) 45%, transparent)'; // ≈ 次要文字 #8c8c8c
+const QC_TEXT_FAINT = 'color-mix(in srgb, var(--tw-color-foreground) 25%, transparent)'; // ≈ 弱提示 #bfbfbf
+const INFO_BG_SOFT = 'color-mix(in srgb, var(--tw-color-info) 10%, transparent)';        // ≈ 展开态淡蓝底 #e6f4ff
+const INFO_BG_MID = 'color-mix(in srgb, var(--tw-color-info) 8%, transparent)';          // ≈ 市场选中淡蓝底 #f0f5ff
+const INFO_BG_STRONG = 'color-mix(in srgb, var(--tw-color-info) 30%, transparent)';      // ≈ symbol 选中蓝底 #bae0ff
+
 // ==================== 采集任务状态/格式常量 ====================
 
 const TASK_STATUS_CONFIG: Record<TaskStatus, { color: string; label: string; badge: 'processing' | 'success' | 'error' | 'default' | 'warning' }> = {
-  running: { color: '#1677ff', label: '运行中', badge: 'processing' },
+  running: { color: QUANT_COLORS.info, label: '运行中', badge: 'processing' },
   completed: { color: QUANT_COLORS.positive, label: '已完成', badge: 'success' },
   failed: { color: QUANT_COLORS.negative, label: '失败', badge: 'error' },
-  pending: { color: '#d9d9d9', label: '等待中', badge: 'default' },
+  pending: { color: 'var(--tw-color-border)', label: '等待中', badge: 'default' },
   canceled: { color: QUANT_COLORS.warning, label: '已取消', badge: 'warning' },
 };
 
@@ -229,6 +241,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const [details, setDetails] = useState<TaskDetailItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const qc = useQuantColors();
 
   const displayList = externalProgressList.length > 0 ? externalProgressList : details;
   const statusCfg = TASK_STATUS_CONFIG[task.status] || TASK_STATUS_CONFIG.pending;
@@ -315,7 +328,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
         {/* 第一行：类型/来源徽章 + 状态 */}
         {/* paddingRight 预留悬停删除按钮位置，避免 hover 时 badge 被盖住 */}
-        <Row justify="space-between" align="middle" style={{ marginBottom: 6, paddingRight: 32 }}>
+        <Row justify="space-between" align="middle" className="mb-1.5 pr-8">
           <Space size={4} wrap>
             <Tag color={DATA_TYPE_TAG_COLOR[dataType] || 'default'} style={{ margin: 0 }}>
               {dataTypeLabel}
@@ -336,15 +349,15 @@ const TaskCard: React.FC<TaskCardProps> = ({
         format={(percent) => `${percent?.toFixed(1) || '0.0'}%`}
       />
       {(progress.total > 0 || progress.completed > 0) && (
-        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+        <div className="mt-0.5 text-[11px] text-foreground/45">
           已完成 {progress.completed}/{progress.total}
-          {progress.failed > 0 && <Text type="danger" style={{ fontSize: 11, marginLeft: 8 }}>失败 {progress.failed}</Text>}
-          {progress.current && <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>正在: {progress.current}</Text>}
+          {progress.failed > 0 && <Text type="danger" className="ml-2 text-[11px]">失败 {progress.failed}</Text>}
+          {progress.current && <Text type="secondary" className="ml-2 text-[11px]">正在: {progress.current}</Text>}
         </div>
       )}
 
       {/* 第三行：时间信息 */}
-      <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4 }}>
+      <div className="mt-1 text-[11px] text-foreground/45">
         <Space size={12}>
           <span>创建: {task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '-'}</span>
           {task.start_time && <span>开始: {dayjs(task.start_time).format('HH:mm:ss')}</span>}
@@ -358,7 +371,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
           type="error"
           showIcon
           title={task.error_message}
-          style={{ marginTop: 6, padding: '4px 8px', fontSize: 12 }}
+          style={{ padding: '4px 8px', fontSize: 12 }}
+          className="mt-1.5"
           banner
         />
       )}
@@ -368,14 +382,15 @@ const TaskCard: React.FC<TaskCardProps> = ({
         type="link"
         size="small"
         onClick={handleExpand}
-        style={{ padding: 0, marginTop: 4, fontSize: 12 }}
+        style={{ padding: 0, fontSize: 12 }}
+        className="mt-1"
         loading={loading}
       >
         {expanded ? '收起详情' : `子任务详情 (${displayList.length || '...'})`}
       </Button>
 
       {expanded && (
-        <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
+        <div className="mt-2 rounded-qc-sm bg-foreground/2 px-3 py-2">
           {displayList.length > 0 ? (
             <>
               {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => {
@@ -383,14 +398,14 @@ const TaskCard: React.FC<TaskCardProps> = ({
                 const failed = Number(subTask.failed ?? 0) > 0;
                 const statusText = typeof subTask.status === 'string' ? subTask.status : '';
                 return (
-                  <div key={String(subTask.task_key ?? subTask.symbol ?? '')} style={{ marginBottom: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <div key={String(subTask.task_key ?? subTask.symbol ?? '')} className="mb-1.5">
+                    <div className="mb-0.5 flex items-center justify-between">
                       <Space size={4}>
-                        <Text style={{ fontSize: 12, fontWeight: 500 }}>{String(subTask.symbol ?? '')}</Text>
+                        <Text className="text-xs font-medium">{String(subTask.symbol ?? '')}</Text>
                         {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{String(subTask.interval)}</Tag>}
                         {failed && <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>失败</Tag>}
                       </Space>
-                      <Text style={{ fontSize: 11, color: failed ? '#cf1322' : '#8c8c8c' }}>{subTask.percentage?.toFixed(1)}%</Text>
+                      <Text style={{ fontSize: 11, color: failed ? qc.negative : QC_TEXT_MUTED }}>{subTask.percentage?.toFixed(1)}%</Text>
                     </div>
                     <Progress
                       percent={subTask.percentage || 0}
@@ -400,7 +415,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
                       strokeColor={!failed && (subTask.percentage ?? 0) >= 100 ? QUANT_COLORS.positive : undefined}
                     />
                     {failed && statusText && (
-                      <div style={{ fontSize: 11, color: '#cf1322' }}>{statusText}</div>
+                      <div className="text-[11px] text-error">{statusText}</div>
                     )}
                   </div>
                 );
@@ -1590,14 +1605,14 @@ const DataManagementPage = () => {
     return [
       {
         key: 'header',
-        label: <Text type="secondary" style={{ fontSize: 12 }}>添加到自选组</Text>,
+        label: <Text type="secondary" className="text-xs">添加到自选组</Text>,
         disabled: true,
       },
       ...favoriteGroups.map(group => ({
         key: group.id,
         label: (
           <Space>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: group.color }} />
+            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
             <span>{group.name}</span>
             {group.symbolIds.includes(symbolId) && <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
           </Space>
@@ -1769,7 +1784,7 @@ const DataManagementPage = () => {
 
   // 渲染自选组侧边栏
   const renderGroupSidebar = () => (
-    <div className="favorite-groups-sidebar" style={{ width: '100%' }}>
+    <div className="favorite-groups-sidebar w-full">
       <Card
         size="small"
         title={
@@ -1806,7 +1821,7 @@ const DataManagementPage = () => {
               key: 'all',
               icon: <DatabaseOutlined />,
               label: (
-                <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space className="w-full justify-between">
                   <span>{t('all') || '全部'}</span>
                   <Tag>{symbols.length}</Tag>
                 </Space>
@@ -1816,7 +1831,7 @@ const DataManagementPage = () => {
               key: String(group.id),
               icon: <FolderOutlined style={{ color: group.color }} />,
               label: (
-                <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space className="w-full justify-between">
                   <span>{group.name}</span>
                   <Tag>{group.symbolIds.length}</Tag>
                 </Space>
@@ -1825,14 +1840,15 @@ const DataManagementPage = () => {
           ]}
         />
         
-        <Divider style={{ margin: '8px 0' }} />
+        <Divider style={{ margin: 'var(--spacing-qc-2) 0' }} />
         
         <Button
           type="dashed"
           block
           icon={<PlusOutlined />}
           onClick={handleCreateGroup}
-          style={{ margin: '0 16px', width: 'calc(100% - 32px)' }}
+          className="mx-4"
+          style={{ width: 'calc(100% - 32px)' }}
         >
           {t('create_watchlist') || '新建自选组'}
         </Button>
@@ -1854,7 +1870,7 @@ const DataManagementPage = () => {
         </Button>
       }
     >
-      <Space orientation="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" className="w-full">
         {favoriteGroups.sort((a, b) => a.sortOrder - b.sortOrder).map((group) => (
           <Card
             key={group.id}
@@ -1905,10 +1921,10 @@ const DataManagementPage = () => {
               }
               description={
                 <Space orientation="vertical" size={0}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text type="secondary" className="text-xs">
                     {group.description || t('no_description') || '暂无描述'}
                   </Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text type="secondary" className="text-xs">
                     {group.symbolIds.length} 个货币对 · 创建于 {group.createdAt}
                   </Text>
                 </Space>
@@ -1949,17 +1965,17 @@ const DataManagementPage = () => {
         <Form.Item
           name="color"
           label={t('color_tag') || '颜色标识'}
-          initialValue="#1890ff"
+          initialValue={QUANT_COLORS.info}
         >
           <Select
             placeholder={t('color_tag_placeholder') || '选择颜色'}
             options={[
-              { value: QUANT_COLORS.info, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.info, borderRadius: 4 }} />蓝色</Space> },
-              { value: QUANT_COLORS.positive, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.positive, borderRadius: 4 }} />绿色</Space> },
-              { value: QUANT_COLORS.warning, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.warning, borderRadius: 4 }} />黄色</Space> },
-              { value: QUANT_COLORS.negative, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.negative, borderRadius: 4 }} />红色</Space> },
-              { value: '#722ed1', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#722ed1', borderRadius: 4 }} />紫色</Space> },
-              { value: QUANT_COLORS.info, label: <Space><div style={{ width: 16, height: 16, backgroundColor: QUANT_COLORS.info, borderRadius: 4 }} />青色</Space> },
+              { value: QUANT_COLORS.info, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.info }} />蓝色</Space> },
+              { value: QUANT_COLORS.positive, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.positive }} />绿色</Space> },
+              { value: QUANT_COLORS.warning, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.warning }} />黄色</Space> },
+              { value: QUANT_COLORS.negative, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.negative }} />红色</Space> },
+              { value: '#722ed1', label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:'#722ed1' }} />紫色</Space> },
+              { value: QUANT_COLORS.info, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.info }} />青色</Space> },
             ]}
           />
         </Form.Item>
@@ -1993,7 +2009,7 @@ const DataManagementPage = () => {
         cancelText="取消"
         destroyOnHidden
       >
-        <div style={{ marginBottom: 16 }}>
+        <div className="mb-4">
           <Text type="secondary">
             已选择 {transferTargetKeys.length} 个货币对，共 {symbols.length} 个可选
           </Text>
@@ -2006,9 +2022,9 @@ const DataManagementPage = () => {
           onChange={handleTransferChange}
           onSelectChange={handleTransferSelectChange}
           render={item => (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="flex flex-col">
               <Text strong>{item.title}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>{item.description}</Text>
+              <Text type="secondary" className="text-xs">{item.description}</Text>
             </div>
           )}
           listStyle={{
@@ -2054,7 +2070,7 @@ const DataManagementPage = () => {
         description="数据清理操作不可恢复，请谨慎操作！"
         type="warning"
         showIcon
-        style={{ marginBottom: 24 }}
+        className="mb-6"
       />
       <Form
         form={cleanForm}
@@ -2098,7 +2114,7 @@ const DataManagementPage = () => {
           label="时间范围"
         >
           <DatePicker.RangePicker
-            style={{ width: '100%' }}
+            className="w-full"
             placeholder={['开始日期', '结束日期']}
           />
         </Form.Item>
@@ -2122,7 +2138,7 @@ const DataManagementPage = () => {
 
       {cleanResult && (
         <>
-          <Divider style={{ margin: '24px 0' }} />
+          <Divider style={{ margin: 'var(--spacing-qc-6) 0' }} />
           <Alert
             title="清理结果"
             description={
@@ -2211,7 +2227,7 @@ const DataManagementPage = () => {
       <Input
         size="small"
         placeholder="搜索 symbol..."
-        prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+        prefix={<SearchOutlined className="text-foreground/25" />}
         allowClear
         value={archiveSymbolSearch}
         onChange={(e) => setArchiveSymbolSearch(e.target.value)}
@@ -2223,19 +2239,13 @@ const DataManagementPage = () => {
         const expanded = archiveExpandedKinds.includes(kind);
         const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[kind] ?? kind;
         return (
-          <div key={kind} style={{ marginBottom: 2 }}>
+          <div key={kind} className="mb-0.5">
             <div
               onClick={() => handleArchiveExpandKind(kind, !expanded)}
+              className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-[5px] text-[13px]"
               style={{
-                cursor: 'pointer',
-                padding: '5px 8px',
-                backgroundColor: expanded ? '#e6f4ff' : 'transparent',
-                borderRadius: 4,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
+                backgroundColor: expanded ? INFO_BG_SOFT : 'transparent',
                 fontWeight: archiveKind === kind ? 600 : 400,
-                fontSize: 13,
               }}
             >
               {expanded ? <FolderOpenOutlined /> : <FolderOutlined />}
@@ -2246,7 +2256,7 @@ const DataManagementPage = () => {
               {archiveBrowserCategory === 'deriv' && <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>衍生</Tag>}
             </div>
             {expanded && (
-              <div style={{ paddingLeft: 14, marginTop: 2 }}>
+              <div className="pl-3.5 mt-0.5">
                 {marketsForKind(kind).map((m) => {
                   const key = `${kind}__${m}`;
                   const symList = archiveSymbolsMap[key];
@@ -2255,56 +2265,50 @@ const DataManagementPage = () => {
                     ? symList.filter(s => s.toLowerCase().includes(searchLower))
                     : symList;
                   return (
-                    <div key={m} style={{ marginBottom: 2 }}>
+                    <div key={m} className="mb-0.5">
                       <div
+                        className="rounded px-1.5 py-[3px] text-xs text-foreground/60"
                         style={{
-                          padding: '3px 6px',
-                          backgroundColor: archiveKind === kind && archiveMarket === m ? '#f0f5ff' : 'transparent',
-                          borderRadius: 4,
-                          fontSize: 12,
-                          color: '#666',
+                          backgroundColor: archiveKind === kind && archiveMarket === m ? INFO_BG_MID : 'transparent',
                         }}
                       >
-                        <FolderOutlined style={{ marginRight: 4 }} />
+                        <FolderOutlined className="mr-1" />
                         {m.toUpperCase()}
-                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                        <Text type="secondary" className="ml-1.5 text-[11px]">
                           {symList ? `(${searchLower && filteredSyms ? `${filteredSyms.length}/${symList.length}` : symList.length})` : '...'}
                         </Text>
                       </div>
                       {/* symbol 列表不再内层滚动：统一交给外层树滚动区，避免双层滚动条 */}
                       {filteredSyms && filteredSyms.length > 0 && (
-                        <div style={{ paddingLeft: 12 }}>
+                        <div className="pl-3">
                           {filteredSyms.slice(0, 100).map((s) => (
                             <div
                               key={s}
                               onClick={() => handleArchiveSelectSymbol(kind, m, s)}
+                              className="cursor-pointer rounded-[3px] px-1.5 py-0.5 text-xs"
                               style={{
-                                cursor: 'pointer',
-                                padding: '2px 6px',
-                                fontSize: 12,
                                 backgroundColor:
                                   archiveKind === kind && archiveMarket === m && archiveSymbol === s
-                                    ? '#bae0ff'
+                                    ? INFO_BG_STRONG
                                     : 'transparent',
-                                borderRadius: 3,
                                 color:
                                   archiveKind === kind && archiveMarket === m && archiveSymbol === s
-                                    ? '#1677ff'
-                                    : '#333',
+                                    ? 'var(--tw-color-info)'
+                                    : 'var(--tw-color-foreground)',
                               }}
                             >
                               {s}
                             </div>
                           ))}
                           {filteredSyms.length > 100 && (
-                            <Text type="secondary" style={{ fontSize: 11, padding: '2px 6px' }}>
+                            <Text type="secondary" className="px-1.5 py-0.5 text-[11px]">
                               还有 {filteredSyms.length - 100} 个，请搜索缩小范围
                             </Text>
                           )}
                         </div>
                       )}
                       {searchLower && symList && filteredSyms && filteredSyms.length === 0 && (
-                        <Text type="secondary" style={{ fontSize: 11, paddingLeft: 12 }}>无匹配</Text>
+                        <Text type="secondary" className="pl-3 text-[11px]">无匹配</Text>
                       )}
                     </div>
                   );
@@ -2362,7 +2366,7 @@ const DataManagementPage = () => {
             </Space>
           }
           extra={
-            <Text type="secondary" style={{ fontSize: 11 }}>
+            <Text type="secondary" className="text-[11px]">
               {archiveSymbolsLoading ? '加载中...' : ''}
             </Text>
           }
@@ -2433,7 +2437,7 @@ const DataManagementPage = () => {
               description={
                 <Space orientation="vertical" size={4}>
                   <Text type="secondary">请在左侧选择数据浏览</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text type="secondary" className="text-xs">
                     步骤：展开数据种类 → 选择市场 → 点击 symbol
                   </Text>
                 </Space>
@@ -2442,10 +2446,10 @@ const DataManagementPage = () => {
               style={{ padding: '48px 0' }}
             />
           ) : (
-            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
+            <Space orientation="vertical" className="w-full" size="middle">
               {/* 元数据概览 */}
               {archiveMeta && (
-                <Descriptions size="small" column={{ xs: 2, sm: 4 }} bordered={false} style={{ background: '#fafafa', padding: '8px 12px', borderRadius: 6 }}>
+                <Descriptions size="small" column={{ xs: 2, sm: 4 }} bordered={false} className="rounded-qc-sm bg-foreground/2 px-3 py-2">
                   <Descriptions.Item label="数据起始">{archiveMeta.earliest_date}</Descriptions.Item>
                   <Descriptions.Item label="数据结束">{archiveMeta.latest_date}</Descriptions.Item>
                   <Descriptions.Item label="总行数">{archiveMeta.total_rows.toLocaleString()}</Descriptions.Item>
@@ -2458,7 +2462,7 @@ const DataManagementPage = () => {
                   showIcon
                   title={`损坏日期: ${archiveMeta.corrupt_dates.length} 个`}
                   description={archiveMeta.corrupt_dates.slice(0, 10).join(', ')}
-                  style={{ fontSize: 12 }}
+                  className="text-xs"
                 />
               )}
 
@@ -2522,7 +2526,7 @@ const DataManagementPage = () => {
                 >
                   查询
                 </Button>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" className="text-xs">
                   共 {archiveTotal.toLocaleString()} 行
                   {archiveTruncated && '（已截断）'}
                 </Text>
@@ -2605,19 +2609,19 @@ const DataManagementPage = () => {
   };
 
   const renderSymbolToolbar = () => (
-    <div style={{ marginBottom: 16 }}>
+    <div className="mb-4">
       {/* 第一行：搜索（左） + 视图切换（右） */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
+      <Row gutter={[12, 12]} className="mb-3" align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
             placeholder={t('search_symbol') || '搜索货币对'}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
-            style={{ width: '100%' }}
+            className="w-full"
           />
         </Col>
-        <Col xs={8} sm={8} md={12} lg={14} style={{ textAlign: 'right' }}>
+        <Col xs={8} sm={8} md={12} lg={14} className="text-right">
           <Segmented
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
@@ -2631,13 +2635,19 @@ const DataManagementPage = () => {
 
       {/* 批量操作工具栏 - 当有选中项时显示 */}
       {selectedSymbols.length > 0 && (
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
+        <Row gutter={[12, 12]} className="mb-3" align="middle">
           <Col xs={24}>
-            <Card size="small" style={{ backgroundColor: '#f6ffed', borderColor: '#b7eb8f' }}>
+            <Card
+              size="small"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--tw-color-success) 8%, transparent)',
+                borderColor: 'color-mix(in srgb, var(--tw-color-success) 45%, transparent)',
+              }}
+            >
               <Row align="middle" justify="space-between">
                 <Col>
                   <Space>
-                    <span style={{ color: QUANT_COLORS.positive, fontWeight: 500 }}>
+                    <span className="font-medium text-success">
                       已选择 {selectedSymbols.length} 个货币对
                     </span>
                     <Button type="link" size="small" onClick={clearSelection}>
@@ -2687,7 +2697,7 @@ const DataManagementPage = () => {
                 placeholder={t('quote_currency') || '计价货币'}
                 value={quoteFilter}
                 onChange={setQuoteFilter}
-                style={{ width: '100%' }}
+                className="w-full"
                 options={[
                   { value: 'all', label: t('all') || '全部' },
                   { value: 'USDT', label: 'USDT' },
@@ -2705,7 +2715,7 @@ const DataManagementPage = () => {
                   setSortField(field as SortField);
                   setSortOrder(order as SortOrder);
                 }}
-                style={{ width: '100%' }}
+                className="w-full"
                 options={[
                   { value: 'rank-asc', label: t('sort_by_rank') || '按排名' },
                   { value: 'symbol-asc', label: t('sort_by_name_asc') || '名称 A-Z' },
@@ -2724,7 +2734,7 @@ const DataManagementPage = () => {
         {/* 刷新按钮 - 右侧 */}
         <Col xs={24} md={8} lg={10}>
           <Row gutter={[8, 8]}>
-            <Col xs={24} style={{ textAlign: 'right' }}>
+            <Col xs={24} className="text-right">
               <Button
                 icon={<ReloadOutlined />}
                 onClick={fetchSymbols}
@@ -2742,7 +2752,7 @@ const DataManagementPage = () => {
 
   // 渲染统计卡片
   const renderStatistics = () => (
-    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+    <Row gutter={[16, 16]} className="mb-4">
       <Col xs={12} sm={6}>
         <Card size="small">
           <Statistic
@@ -2889,7 +2899,7 @@ const DataManagementPage = () => {
           {record.hasData ? (
             <>
               {getQualityTag(record.dataQuality)}
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" className="text-xs">
                 {record.lastUpdateTime}
               </Text>
             </>
@@ -3022,11 +3032,11 @@ const DataManagementPage = () => {
                 borderTop: `3px solid ${isInActiveGroup ? displayGroup?.color : 'transparent'}`,
               }}
             >
-              <Space orientation="vertical" style={{ width: '100%' }}>
+              <Space orientation="vertical" className="w-full">
                 <Row justify="space-between">
                   <Text type="secondary">价格</Text>
                   {isLoading ? <Spin size="small" /> : (
-                    <Text strong style={{ fontSize: 16 }}>
+                    <Text strong className="text-base">
                       {symbol.price ? `$${symbol.price.toLocaleString()}` : '-'}
                     </Text>
                   )}
@@ -3050,7 +3060,7 @@ const DataManagementPage = () => {
                     <Text>{symbol.volume24h ? formatVolume(symbol.volume24h) : '-'}</Text>
                   )}
                 </Row>
-                <Divider style={{ margin: '8px 0' }} />
+                <Divider style={{ margin: 'var(--spacing-qc-2) 0' }} />
                 <Row justify="space-between" align="middle">
                   {getQualityTag(symbol.dataQuality)}
                   <Space>
@@ -3080,7 +3090,7 @@ const DataManagementPage = () => {
         );
       })}
         </Row>
-        <Row justify="center" style={{ marginTop: 16 }}>
+        <Row justify="center" className="mt-4">
           <Pagination
             current={currentPage}
             pageSize={pageSize}
@@ -3154,7 +3164,7 @@ const DataManagementPage = () => {
             >
               <Select
                 placeholder="请选择数据类型"
-                style={{ width: '100%' }}
+                className="w-full"
                 showSearch
                 optionFilterProp="label"
                 options={[
@@ -3218,7 +3228,7 @@ const DataManagementPage = () => {
                   // 自选组选项
                   ...(favoriteGroups.length > 0 ? [
                     {
-                      label: <Text type="secondary" style={{ fontSize: 12 }}>{t('favorite_groups') || '自选组'}</Text>,
+                      label: <Text type="secondary" className="text-xs">{t('favorite_groups') || '自选组'}</Text>,
                       options: favoriteGroups.map((group) => ({
                         value: `group:${group.id}`,
                         label: `${group.name} (${group.symbolIds?.length || 0}${t('item') || '个'})`,
@@ -3227,7 +3237,7 @@ const DataManagementPage = () => {
                   ] : []),
                   // 货币对选项
                   {
-                    label: <Text type="secondary" style={{ fontSize: 12 }}>{t('symbols') || '货币对'}</Text>,
+                    label: <Text type="secondary" className="text-xs">{t('symbols') || '货币对'}</Text>,
                     options: symbols.map((s) => ({
                       value: s.symbol,
                       label: s.symbol,
@@ -3286,7 +3296,7 @@ const DataManagementPage = () => {
               label={t('date_range') || '时间范围'}
               rules={[{ required: true, message: t('please_select_date_range') || '请选择时间范围' }]}
             >
-              <RangePicker style={{ width: '100%' }} />
+              <RangePicker className="w-full" />
             </Form.Item>
 
             {/* 并发数：驱动 symbol 层线程数与单 symbol 日期分片并行数（后端夹紧 1-8） */}
@@ -3318,7 +3328,7 @@ const DataManagementPage = () => {
           title={
             <Space>
               <span>{t('collection_tasks') || '采集任务'}</span>
-              <Badge count={collectionTasks.filter(t => t.status === 'running').length} size="small" color="#1677ff" />
+              <Badge count={collectionTasks.filter(t => t.status === 'running').length} size="small" color={QUANT_COLORS.info} />
             </Space>
           }
           extra={
@@ -3343,7 +3353,7 @@ const DataManagementPage = () => {
               { label: '已完成', value: 'completed' },
               { label: '失败', value: 'failed' },
             ]}
-            style={{ marginBottom: 12 }}
+            className="mb-3"
             block
           />
 
@@ -3362,7 +3372,7 @@ const DataManagementPage = () => {
                   style={{ padding: '32px 0' }}
                 />
               ) : (
-                <Space orientation="vertical" style={{ width: '100%' }} size={0}>
+                <Space orientation="vertical" className="w-full" size={0}>
                   {/* 当前任务放在最前面 */}
                   {currentTaskId && taskStatusFilter === 'all' || (currentTaskId && taskStatusFilter === taskStatus) ? (
                     <TaskCard
@@ -3395,12 +3405,12 @@ const DataManagementPage = () => {
                     ))}
                   {/* 触底加载/结束提示 */}
                   {tasksLoadingMore && (
-                    <div style={{ textAlign: 'center', padding: '8px 0', color: '#8c8c8c', fontSize: 12 }}>
+                    <div className="py-2 text-center text-xs text-foreground/45">
                       加载中...
                     </div>
                   )}
                   {!tasksHasMore && collectionTasks.length > 0 && (
-                    <div style={{ textAlign: 'center', padding: '8px 0', color: '#bfbfbf', fontSize: 12 }}>
+                    <div className="py-2 text-center text-xs text-foreground/25">
                       —— 全部 {tasksTotal} 条已加载 ——
                     </div>
                   )}
@@ -3419,7 +3429,7 @@ const DataManagementPage = () => {
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={8}>
         <Card title="质量概览">
-          <Space orientation="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" className="w-full">
             <Row gutter={[16, 16]}>
               <Col span={12}>
                 <Statistic
@@ -3457,7 +3467,7 @@ const DataManagementPage = () => {
               <Text strong>快速检测</Text>
               <Select
                 placeholder="选择货币对"
-                style={{ width: '100%', marginTop: 8 }}
+                className="w-full mt-2"
                 value={selectedSymbolForQuality || undefined}
                 onChange={(value) => setSelectedSymbolForQuality(value)}
                 options={symbols
@@ -3466,7 +3476,7 @@ const DataManagementPage = () => {
               />
               <Select
                 placeholder="选择周期"
-                style={{ width: '100%', marginTop: 8 }}
+                className="w-full mt-2"
                 value={selectedIntervalForQuality || undefined}
                 onChange={(value) => setSelectedIntervalForQuality(value)}
                 options={[
@@ -3481,7 +3491,7 @@ const DataManagementPage = () => {
               <Button
                 type="primary"
                 icon={<BarChartOutlined />}
-                style={{ width: '100%', marginTop: 8 }}
+                className="w-full mt-2"
                 loading={qualityLoading}
                 disabled={!selectedSymbolForQuality || !selectedIntervalForQuality}
                 onClick={() =>
@@ -3496,13 +3506,13 @@ const DataManagementPage = () => {
 
             <div>
               <Text strong>数据清理</Text>
-              <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+              <Text type="secondary" className="mt-1 block text-xs">
                 清理指定货币对、周期或时间范围的数据
               </Text>
               <Button
                 danger
                 icon={<DeleteOutlined />}
-                style={{ width: '100%', marginTop: 8 }}
+                className="w-full mt-2"
                 onClick={handleOpenCleanModal}
               >
                 打开清理工具
@@ -3515,7 +3525,7 @@ const DataManagementPage = () => {
       <Col xs={24} lg={16}>
         <Card title="检测结果" loading={qualityLoading}>
           {qualityDetail ? (
-            <Space orientation="vertical" style={{ width: '100%' }}>
+            <Space orientation="vertical" className="w-full">
               <Row gutter={[16, 16]}>
                 <Col span={8}>
                   <Card size="small">
@@ -3558,7 +3568,7 @@ const DataManagementPage = () => {
                       key: 'integrity',
                       label: '完整性',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.integrity?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3569,22 +3579,22 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.integrity?.missing_columns && qualityDetail.details.integrity.missing_columns.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>缺失列:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.integrity.missing_columns.map((col: string) => (
-                                  <Tag key={col} color="error" style={{ marginBottom: 4 }}>{col}</Tag>
+                                  <Tag key={col} color="error" className="mb-1">{col}</Tag>
                                 ))}
                               </div>
                             </>
                           )}
                           {qualityDetail.details.integrity?.missing_values && Object.keys(qualityDetail.details.integrity.missing_values).length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>缺失值统计:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {Object.entries(qualityDetail.details.integrity.missing_values).map(([key, value]) => (
-                                  <div key={key} style={{ marginBottom: 4 }}>
+                                  <div key={key} className="mb-1">
                                     <Tag color="warning">{key}</Tag>
                                     <Text type="secondary"> 缺失 {value} 个</Text>
                                   </div>
@@ -3599,7 +3609,7 @@ const DataManagementPage = () => {
                       key: 'continuity',
                       label: '连续性',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.continuity?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3619,13 +3629,13 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.continuity?.missing_time_ranges && qualityDetail.details.continuity.missing_time_ranges.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong>缺失时间段:</Text>
-                              <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                              <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.continuity.missing_time_ranges.map((range, index: number) => (
-                                  <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                  <div key={index} className="mb-1 text-xs">
                                     <Tag style={{ fontSize: 12 }}>{range.start}</Tag> ~ <Tag style={{ fontSize: 12 }}>{range.end}</Tag>
-                                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                                    <Text type="secondary" className="ml-2">
                                       缺失 {range.count} 条
                                     </Text>
                                   </div>
@@ -3640,7 +3650,7 @@ const DataManagementPage = () => {
                       key: 'uniqueness',
                       label: '唯一性',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.uniqueness?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3651,33 +3661,33 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.uniqueness?.duplicate_periods && qualityDetail.details.uniqueness.duplicate_periods.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong>重复时间段:</Text>
-                              <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                              <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.uniqueness.duplicate_periods.map((period: string, index: number) => (
-                                  <Tag key={index} style={{ marginBottom: 4, fontSize: 12 }}>{period}</Tag>
+                                  <Tag key={index} style={{ fontSize: 12 }} className="mb-1">{period}</Tag>
                                 ))}
                               </div>
                             </>
                           )}
                           {qualityDetail.details.uniqueness?.duplicate_details && qualityDetail.details.uniqueness.duplicate_details.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong>重复详情:</Text>
-                              <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
+                              <div className="mt-2" style={{ maxHeight: 300, overflow: 'auto' }}>
                                 {qualityDetail.details.uniqueness.duplicate_details.map((detail, index: number) => (
-                                  <Card key={index} size="small" style={{ marginBottom: 8 }}>
+                                  <Card key={index} size="small" className="mb-2">
                                     <Text strong>时间: {detail.key}</Text>
-                                    <Text style={{ marginLeft: 8 }} type="secondary">({detail.count} 条重复)</Text>
-                                    <div style={{ marginTop: 8 }}>
+                                    <Text className="ml-2" type="secondary">({detail.count} 条重复)</Text>
+                                    <div className="mt-2">
                                       {(detail.records ?? []).map((record, rIndex: number) => (
-                                        <div key={rIndex} style={{ fontSize: 12, marginBottom: 4, padding: '4px 8px', background: '#f5f5f5', borderRadius: 4 }}>
+                                        <div key={rIndex} className="mb-1 rounded bg-foreground/4 px-2 py-1 text-xs">
                                           <Text type="secondary">#{record.row_number}</Text>
-                                          <Text style={{ marginLeft: 8 }}>开: {record.open}</Text>
-                                          <Text style={{ marginLeft: 8 }}>高: {record.high}</Text>
-                                          <Text style={{ marginLeft: 8 }}>低: {record.low}</Text>
-                                          <Text style={{ marginLeft: 8 }}>收: {record.close}</Text>
-                                          <Text style={{ marginLeft: 8 }}>量: {record.volume}</Text>
+                                          <Text className="ml-2">开: {record.open}</Text>
+                                          <Text className="ml-2">高: {record.high}</Text>
+                                          <Text className="ml-2">低: {record.low}</Text>
+                                          <Text className="ml-2">收: {record.close}</Text>
+                                          <Text className="ml-2">量: {record.volume}</Text>
                                         </div>
                                       ))}
                                     </div>
@@ -3693,7 +3703,7 @@ const DataManagementPage = () => {
                       key: 'validity',
                       label: '有效性',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.validity?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3704,41 +3714,41 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.validity?.negative_prices && qualityDetail.details.validity.negative_prices.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>负价格记录:</Text>
-                              <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.negative_prices.length} 条</Text>
+                              <Text type="secondary" className="ml-2">{qualityDetail.details.validity.negative_prices.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.negative_volumes && qualityDetail.details.validity.negative_volumes.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>负成交量记录:</Text>
-                              <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.negative_volumes.length} 条</Text>
+                              <Text type="secondary" className="ml-2">{qualityDetail.details.validity.negative_volumes.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.invalid_high_low && qualityDetail.details.validity.invalid_high_low.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>高低价异常记录 (high &lt; low):</Text>
-                              <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.invalid_high_low.length} 条</Text>
+                              <Text type="secondary" className="ml-2">{qualityDetail.details.validity.invalid_high_low.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.invalid_price_logic && qualityDetail.details.validity.invalid_price_logic.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>价格逻辑异常记录:</Text>
-                              <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.details.validity.invalid_price_logic.length} 条</Text>
+                              <Text type="secondary" className="ml-2">{qualityDetail.details.validity.invalid_price_logic.length} 条</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.abnormal_price_changes && qualityDetail.details.validity.abnormal_price_changes.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.warning }}>异常涨跌幅记录 (&gt;±20%):</Text>
-                              <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                              <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.validity.abnormal_price_changes.map((item, index: number) => (
-                                  <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                  <div key={index} className="mb-1 text-xs">
                                     <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
-                                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                                    <Text type="secondary" className="ml-2">
                                       涨跌幅: {item.change_pct}%
                                     </Text>
                                   </div>
@@ -3748,13 +3758,13 @@ const DataManagementPage = () => {
                           )}
                           {qualityDetail.details.validity?.abnormal_volumes && qualityDetail.details.validity.abnormal_volumes.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.warning }}>异常成交量记录 (&gt;30日均量10倍):</Text>
-                              <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                              <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.validity.abnormal_volumes.map((item, index: number) => (
-                                  <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                  <div key={index} className="mb-1 text-xs">
                                     <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
-                                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                                    <Text type="secondary" className="ml-2">
                                       成交量: {item.volume}, 30日均量: {item.avg_30d_volume}
                                     </Text>
                                   </div>
@@ -3764,13 +3774,13 @@ const DataManagementPage = () => {
                           )}
                           {qualityDetail.details.validity?.price_gaps && qualityDetail.details.validity.price_gaps.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.warning }}>价格跳空记录 (&gt;±5%):</Text>
-                              <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                              <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.validity.price_gaps.map((item, index: number) => (
-                                  <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                  <div key={index} className="mb-1 text-xs">
                                     <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
-                                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                                    <Text type="secondary" className="ml-2">
                                       跳空: {item.gap_pct}%
                                     </Text>
                                   </div>
@@ -3785,7 +3795,7 @@ const DataManagementPage = () => {
                       key: 'consistency',
                       label: '一致性',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.consistency?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3793,11 +3803,11 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.consistency?.time_format_issues && qualityDetail.details.consistency.time_format_issues.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>时间格式问题:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.consistency.time_format_issues.map((issue: string, index: number) => (
-                                  <div key={index} style={{ marginBottom: 4 }}>
+                                  <div key={index} className="mb-1">
                                     <Tag color="error">{issue}</Tag>
                                   </div>
                                 ))}
@@ -3806,33 +3816,33 @@ const DataManagementPage = () => {
                           )}
                           {qualityDetail.details.consistency?.duplicate_codes && qualityDetail.details.consistency.duplicate_codes.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>重复代码:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.consistency.duplicate_codes.map((code: string, index: number) => (
-                                  <Tag key={index} color="error" style={{ marginBottom: 4 }}>{code}</Tag>
+                                  <Tag key={index} color="error" className="mb-1">{code}</Tag>
                                 ))}
                               </div>
                             </>
                           )}
                           {qualityDetail.details.consistency?.code_name_mismatches && qualityDetail.details.consistency.code_name_mismatches.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>代码名称不匹配:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.consistency.code_name_mismatches.map((mismatch: string, index: number) => (
-                                  <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{mismatch}</Tag>
+                                  <Tag key={index} color="warning" className="mb-1">{mismatch}</Tag>
                                 ))}
                               </div>
                             </>
                           )}
                           {qualityDetail.details.consistency?.inconsistent_adj_factors && qualityDetail.details.consistency.inconsistent_adj_factors.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>复权因子不一致:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.consistency.inconsistent_adj_factors.map((issue: string, index: number) => (
-                                  <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{issue}</Tag>
+                                  <Tag key={index} color="warning" className="mb-1">{issue}</Tag>
                                 ))}
                               </div>
                             </>
@@ -3844,7 +3854,7 @@ const DataManagementPage = () => {
                       key: 'logic',
                       label: '逻辑性',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.logic?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3852,33 +3862,33 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.logic?.trading_time_issues && qualityDetail.details.logic.trading_time_issues.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>交易时间异常:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.logic.trading_time_issues.map((issue: string, index: number) => (
-                                  <Tag key={index} color="error" style={{ marginBottom: 4 }}>{issue}</Tag>
+                                  <Tag key={index} color="error" className="mb-1">{issue}</Tag>
                                 ))}
                               </div>
                             </>
                           )}
                           {qualityDetail.details.logic?.suspension_issues && qualityDetail.details.logic.suspension_issues.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>停牌数据问题:</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.logic.suspension_issues.map((issue: string, index: number) => (
-                                  <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{issue}</Tag>
+                                  <Tag key={index} color="warning" className="mb-1">{issue}</Tag>
                                 ))}
                               </div>
                             </>
                           )}
                           {qualityDetail.details.logic?.price_limit_issues && qualityDetail.details.logic.price_limit_issues.length > 0 && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong style={{ color: QUANT_COLORS.negative }}>涨跌停异常 (&gt;±10.1%):</Text>
-                              <div style={{ marginTop: 8 }}>
+                              <div className="mt-2">
                                 {qualityDetail.details.logic.price_limit_issues.map((issue: string, index: number) => (
-                                  <Tag key={index} color="error" style={{ marginBottom: 4 }}>{issue}</Tag>
+                                  <Tag key={index} color="error" className="mb-1">{issue}</Tag>
                                 ))}
                               </div>
                             </>
@@ -3890,7 +3900,7 @@ const DataManagementPage = () => {
                       key: 'coverage',
                       label: '覆盖率',
                       children: (
-                        <Space orientation="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
                               <Text strong>状态:</Text> {qualityDetail.details.coverage?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
@@ -3910,7 +3920,7 @@ const DataManagementPage = () => {
                           </Row>
                           {qualityDetail.details.coverage?.missing_historical_data && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Alert
                                 title="缺少历史数据"
                                 description={`缺少 ${qualityDetail.details.coverage?.historical_gap_days || 0} 天的历史数据`}
@@ -3921,7 +3931,7 @@ const DataManagementPage = () => {
                           )}
                           {qualityDetail.details.coverage?.missing_future_data && (
                             <>
-                              <Divider style={{ margin: '12px 0' }} />
+                              <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Alert
                                 title="缺少最新数据"
                                 description={`缺少 ${qualityDetail.details.coverage?.future_gap_days || 0} 天的最新数据`}

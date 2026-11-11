@@ -284,7 +284,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
                 : t('factor_form_validate') || '校验'}
             </Button>
             {validateResult && (
-              <span style={{ color: validateResult.ok ? '#52c41a' : '#ff4d4f', fontSize: 13 }}>
+              <span style={{ color: validateResult.ok ? 'var(--tw-color-success)' : 'var(--tw-color-error)', fontSize: 13 }}>
                 {validateResult.text}
               </span>
             )}
@@ -350,7 +350,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
                   icon={<BulbOutlined />}
                   loading={polishing === 'label'}
                   onClick={() => void handlePolish('label')}
-                  style={{ color: polishing === 'label' ? undefined : '#1677ff' }}
+                  style={{ color: polishing === 'label' ? undefined : 'var(--tw-color-info)' }}
                 />
               </Tooltip>
             }
@@ -377,7 +377,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
                   icon={<BulbOutlined />}
                   loading={polishing === 'description'}
                   onClick={() => void handlePolish('description')}
-                  style={{ color: polishing === 'description' ? undefined : '#1677ff' }}
+                  style={{ color: polishing === 'description' ? undefined : 'var(--tw-color-info)' }}
                 />
               </Tooltip>
             }

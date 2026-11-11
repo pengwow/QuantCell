@@ -199,7 +199,7 @@ const Worker = () => {
           content: (
             <div>
               <div><strong>{worker.name}</strong> 当前不允许启动</div>
-              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
                 原因: {errorMsg}
               </div>
             </div>
@@ -239,7 +239,7 @@ const Worker = () => {
           content: (
             <div>
               <div><strong>{worker.name}</strong> 当前不允许停止</div>
-              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
                 原因: {errorMsg}
               </div>
             </div>
@@ -430,8 +430,8 @@ const Worker = () => {
           <Statistic
             title={t('stopped')}
             value={statusStats.stopped}
-            styles={{ content: { color: '#999' } }}
-            prefix={<PoweroffOutlined style={{ color: '#999' }} />}
+            styles={{ content: { color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' } }}
+            prefix={<PoweroffOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />}
           />
         </Card>
       </Col>
@@ -507,7 +507,7 @@ const Worker = () => {
       style={{
         marginBottom: 16,
         padding: '12px 16px',
-        background: 'linear-gradient(135deg, #e6f7ff 0%, #bae0ff 100%)',
+        background: 'linear-gradient(135deg, color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background)) 0%, color-mix(in srgb, var(--tw-color-info) 28%, var(--tw-color-background)) 100%)',
         borderRadius: 8,
         display: 'flex',
         alignItems: 'center',

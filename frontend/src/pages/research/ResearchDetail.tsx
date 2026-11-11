@@ -232,8 +232,10 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
                   <div
                     key={idx}
                     style={{
-                      color: line.type === 'add' ? '#237804' : '#a8071a',
-                      background: line.type === 'add' ? '#f6ffed' : '#fff1f0',
+                      color: line.type === 'add' ? 'var(--tw-color-success)' : 'var(--tw-color-error)',
+                      background: line.type === 'add'
+                        ? 'color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background))'
+                        : 'color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background))',
                     }}
                   >
                     {line.type === 'add' ? '+ ' : '- '}
@@ -667,7 +669,7 @@ const ResearchDetail: React.FC = () => {
                     percent={tokenPercent}
                     status={detail?.status === 'running' ? 'active' : undefined}
                     // 用量分档变色：<60% 默认蓝，60-84% 橙色预警，>=85% 红色告警
-                    strokeColor={tokenPercent >= 85 ? '#ff4d4f' : tokenPercent >= 60 ? '#faad14' : undefined}
+                    strokeColor={tokenPercent >= 85 ? 'var(--tw-color-error)' : tokenPercent >= 60 ? 'var(--tw-color-warning)' : undefined}
                     format={() => ''}
                   />
                 </Tooltip>

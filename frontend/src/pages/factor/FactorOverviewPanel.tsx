@@ -156,7 +156,7 @@ const FactorOverviewPanel: React.FC<{
               children: factor.description ? (
                 <span style={{ fontSize: 12 }}>{factor.description}</span>
               ) : (
-                <span style={{ color: '#999' }}>—</span>
+                <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>—</span>
               ),
             },
             {

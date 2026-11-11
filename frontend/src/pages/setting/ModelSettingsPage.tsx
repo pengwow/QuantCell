@@ -108,6 +108,7 @@ const PROVIDER_ICONS: Record<string, string> = {
 };
 
 // 首字母圆圈调色板：无 logo 的厂商按 id hash 取色
+// O2: 特殊装饰色，保留（图表定制色盘，需高饱和区分色，不映射语义 token）
 const FALLBACK_COLORS = [
   "#3B82F6", "#8B5CF6", "#EC4899", "#EF4444",
   "#F97316", "#EAB308", "#10B981", "#14B8A6",

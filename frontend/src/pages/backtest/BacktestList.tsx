@@ -664,7 +664,7 @@ const BacktestList = () => {
       {(searchText || statusFilter !== 'all' || (dateRange && dateRange[0] && dateRange[1])) && (
         <div style={{ marginTop: 12 }}>
           <Space>
-            <FilterOutlined style={{ color: '#8c8c8c' }} />
+            <FilterOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
             {searchText && <Tag closable onClose={() => setSearchText('')}>搜索: {searchText}</Tag>}
             {statusFilter !== 'all' && <Tag closable onClose={() => setStatusFilter('all')}>状态: {getStatusText(statusFilter)}</Tag>}
             {dateRange && dateRange[0] && dateRange[1] && (

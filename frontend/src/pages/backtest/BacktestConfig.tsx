@@ -1196,7 +1196,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                                 {param.name}
                                 {param.description && (
                                   <Tooltip title={param.description}>
-                                    <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                                    <InfoCircleOutlined style={{ marginLeft: 4, color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
                                   </Tooltip>
                                 )}
                               </span>
@@ -1213,7 +1213,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     </Row>
                   </div>
                 ) : (
-                  <div style={{ color: '#999', textAlign: 'center', padding: '20px 0', border: '1px dashed #d9d9d9', borderRadius: '4px' }}>
+                  <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', textAlign: 'center', padding: '20px 0', border: '1px dashed var(--tw-color-border)', borderRadius: '4px' }}>
                     {selectedStrategy ? t('backtest_no_configurable_params') : t('backtest_select_strategy_for_params')}
                   </div>
                 )}
@@ -1302,7 +1302,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     {/* antd v6 下 space-y-* 会被 CSS-in-JS 覆盖失效，行间距必须用 Space 自己产生 */}
                     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
                       {marginSymbols.length === 0 ? (
-                        <span style={{ color: '#999' }}>{t('backtest_select_symbols_first')}</span>
+                        <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_select_symbols_first')}</span>
                       ) : (
                         // 行按品种键绑定：字段名里带 symbol，不再用下标对齐，
                         // 品种增删时自然对应，也就不会被 watch 与条件渲染互锁
@@ -1471,7 +1471,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           <div>
             {t('backtest_precheck_missing_before')} <b>{precheckMissing.length}</b>{t('backtest_precheck_missing_after')}
           </div>
-          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12 }}>
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--tw-color-border-secondary)', borderRadius: 6, padding: 12 }}>
             <Space wrap size={[8, 8]}>
               {precheckMissing.map((m, i) => (
                 <Tag key={`${m.symbol}-${m.timeframe}-${i}`} color="orange" style={{ fontFamily: 'monospace' }}>
@@ -1483,10 +1483,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           {precheckDownloading && (
             <>
               <Progress percent={precheckDownloadProgress} status="active" />
-              <div style={{ color: '#666', fontSize: 13 }}>{precheckDownloadMsg}</div>
+              <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', fontSize: 13 }}>{precheckDownloadMsg}</div>
               {/* 逐品种下载进度: 已完成品种绿色背景 */}
               {precheckSymbolsProgress.length > 0 && (
-                <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+                <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--tw-color-border-secondary)', borderRadius: 6 }}>
                   {precheckSymbolsProgress.map((p) => {
                     const done = p.status === 'completed';
                     return (
@@ -1497,14 +1497,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                           alignItems: 'center',
                           justifyContent: 'space-between',
                           padding: '6px 12px',
-                          borderBottom: '1px solid #f5f5f5',
-                          background: done ? '#f6ffed' : undefined,
+                          borderBottom: '1px solid var(--tw-color-border-secondary)',
+                          background: done ? 'color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background))' : undefined,
                         }}
                       >
                         <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
                           {p.symbol} · {p.interval}
                         </span>
-                        <span style={{ fontSize: 12, color: done ? '#52c41a' : '#8c8c8c' }}>
+                        <span style={{ fontSize: 12, color: done ? 'var(--tw-color-success)' : 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
                           {done ? t('backtest_download_completed') : `${p.percentage}%`}
                         </span>
                       </div>
@@ -1514,7 +1514,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               )}
             </>
           )}
-          <div style={{ color: '#999', fontSize: 12 }}>
+          <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
             {t('backtest_precheck_hint_before')}
             <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/data-management')}>
               {t('backtest_goto_data_management')}
