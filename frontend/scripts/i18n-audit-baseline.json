@@ -1,10 +1,6 @@
 {
-  "total": 788,
+  "total": 718,
   "files": [
-    {
-      "file": "src/components/IndicatorEditor.tsx",
-      "count": 70
-    },
     {
       "file": "src/components/RealtimeToggleButton.tsx",
       "count": 48

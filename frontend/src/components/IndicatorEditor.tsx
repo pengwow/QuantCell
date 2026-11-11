@@ -128,7 +128,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   // 验证代码
   const handleVerify = async () => {
     if (!code.trim()) {
-      message.warning(t('indicator.codeEmpty', '代码不能为空'));
+      message.warning(t('indicator.codeEmpty'));
       return;
     }
 
@@ -145,13 +145,13 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       };
       setVerifyResult(normalizedResult);
       if (normalizedResult.valid) {
-        message.success(t('indicator.verifySuccess', '代码验证通过'));
+        message.success(t('indicator.verifySuccess'));
       } else {
-        message.error(normalizedResult.message || t('indicator.verifyFailed', '代码验证失败'));
+        message.error(normalizedResult.message || t('indicator.verifyFailed'));
       }
     } catch (err) {
       // 显示详细的错误信息
-      const errorMessage = (axios.isAxiosError(err) ? err.response?.data?.message : '') || (err instanceof Error ? err.message : '') || t('indicator.verifyError', '验证出错');
+      const errorMessage = (axios.isAxiosError(err) ? err.response?.data?.message : '') || (err instanceof Error ? err.message : '') || t('indicator.verifyError');
       message.error(errorMessage);
     } finally {
       setLoading(false);
@@ -161,7 +161,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   // AI生成代码（带思维链）
   const handleAIGenerate = async () => {
     if (!aiPrompt.trim()) {
-      message.warning(t('indicator.aiPromptEmpty', '请输入AI提示词'));
+      message.warning(t('indicator.aiPromptEmpty'));
       return;
     }
 
@@ -170,10 +170,10 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     setThinkingProgress(5);
     // 立即初始化思维链步骤，确保UI即刻显示（后续SSE事件会更新标题和状态）
     setThinkingSteps([
-      { title: '需求分析', description: '正在分析指标需求...', status: 'pending' },
-      { title: '指标设计', description: '正在设计指标计算逻辑...', status: 'pending' },
-      { title: '代码生成', description: '正在调用AI模型生成代码...', status: 'pending' },
-      { title: '验证优化', description: '正在分析代码质量...', status: 'pending' },
+      { title: t('ie_think_step_analyze'), description: t('ie_think_step_analyze_desc'), status: 'pending' },
+      { title: t('ie_think_step_design'), description: t('ie_think_step_design_desc'), status: 'pending' },
+      { title: t('ie_think_step_generate'), description: t('ie_think_step_generate_desc'), status: 'pending' },
+      { title: t('ie_think_step_verify'), description: t('ie_think_step_verify_desc'), status: 'pending' },
     ]);
 
     try {
@@ -192,7 +192,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               const newSteps: ThinkingStep[] = [];
               for (let i = 1; i <= data.total_steps; i++) {
                 newSteps.push({
-                  title: i === data.current_step ? data.step_title : `步骤 ${i}`,
+                  title: i === data.current_step ? data.step_title : t('ie_think_step_fallback', { i }),
                   description: i === data.current_step ? (data.step_description || '') : '',
                   status: i < data.current_step ? 'completed' : i === data.current_step ? data.status : 'pending',
                 });
@@ -222,7 +222,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             // 存储到预览状态，不直接更新代码编辑器
             setGeneratedCode(result.code);
             setGeneratedQuality(result.quality || null);
-            message.success(t('indicator.aiGenerateSuccess', 'AI生成完成，请查看并采纳代码'));
+            message.success(t('indicator.aiGenerateSuccess'));
           }
           setThinkingProgress(100);
           setThinkingSteps((prev) => 
@@ -233,7 +233,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
         },
         // onError - 错误处理
         (error: Error) => {
-          message.error(t('indicator.aiGenerateError', 'AI生成失败') + ': ' + error.message);
+          message.error(t('indicator.aiGenerateError') + ': ' + error.message);
           setIsGenerating(false);
           setAiLoading(false);
         }
@@ -241,7 +241,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       
       streamCancelRef.current = cancelStream;
     } catch {
-      message.error(t('indicator.aiGenerateError', 'AI生成失败'));
+      message.error(t('indicator.aiGenerateError'));
       setIsGenerating(false);
       setAiLoading(false);
     }
@@ -253,7 +253,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       setCode(generatedCode);
       setGeneratedCode(null);
       setGeneratedQuality(null);
-      message.success(t('indicator.adoptSuccess', '已采纳代码，请切换到代码编辑页查看'));
+      message.success(t('indicator.adoptSuccess'));
       // 切换到代码编辑标签页
       setActiveTab('code');
     }
@@ -263,17 +263,17 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   const handleRejectCode = () => {
     setGeneratedCode(null);
     setGeneratedQuality(null);
-    message.info(t('indicator.rejectCode', '已放弃本次生成结果'));
+    message.info(t('indicator.rejectCode'));
   };
 
   // 保存指标
   const handleSave = async () => {
     if (!name.trim()) {
-      message.warning(t('indicator.nameEmpty', '请输入指标名称'));
+      message.warning(t('indicator.nameEmpty'));
       return;
     }
     if (!code.trim()) {
-      message.warning(t('indicator.codeEmpty', '代码不能为空'));
+      message.warning(t('indicator.codeEmpty'));
       return;
     }
 
@@ -287,22 +287,22 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           description,
           code,
         });
-        message.success(t('indicator.updateSuccess', '更新成功'));
+        message.success(t('indicator.updateSuccess'));
       } else {
         savedIndicator = await createIndicator({
           name,
           description,
           code,
         });
-        message.success(t('indicator.createSuccess', '创建成功'));
+        message.success(t('indicator.createSuccess'));
       }
       
       onSave(savedIndicator);
       onClose();
     } catch {
       message.error(editingIndicator 
-        ? t('indicator.updateError', '更新失败') 
-        : t('indicator.createError', '创建失败')
+        ? t('indicator.updateError')
+        : t('indicator.createError')
       );
     } finally {
       setLoading(false);
@@ -358,12 +358,12 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               {isGenerating ? (
                 <>
                   <Spin size="small" />
-                  {t('thinking_progress') || '思考进度'}
+                  {t('thinking_progress')}
                 </>
               ) : (
                 <>
                   <CheckCircleOutlined className="text-green-500" />
-                  {t('thinking_complete') || '思考完成'}
+                  {t('thinking_complete')}
                 </>
               )}
             </span>
@@ -388,7 +388,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       label: (
         <span>
           <CodeOutlined />
-          {t('indicator.codeEditor', '代码编辑')}
+          {t('indicator.codeEditor')}
         </span>
       ),
       children: (
@@ -401,24 +401,24 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               style={{ marginBottom: 16 }}
               title={
                 <Space>
-                  <span>{verifyResult.valid ? t('indicator.verifySuccess', '验证通过') : t('indicator.verifyFailed', '验证失败')}</span>
+                  <span>{verifyResult.valid ? t('indicator.verifySuccess') : t('indicator.verifyFailed')}</span>
                   {verifyResult.quality && (
                     <Tooltip
                       title={
                         <div style={{ maxWidth: 320 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 6 }}>质量评分基于静态代码分析：</div>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('ie_quality_intro')}</div>
                           <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-                            <li>危险模块（os/sys等）——扣30分/项</li>
-                            <li>代码安全（eval/exec等）——扣30分/项</li>
-                            <li>输出格式规范——扣30分/项</li>
-                            <li>其他规则——扣2~10分/项</li>
+                            <li>{t('ie_quality_rule_dangerous_module')}</li>
+                            <li>{t('ie_quality_rule_code_safety')}</li>
+                            <li>{t('ie_quality_rule_output_format')}</li>
+                            <li>{t('ie_quality_rule_other')}</li>
                           </ul>
                           <div style={{ marginTop: 8, color: QUANT_COLORS.warning }}>
-                            90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
+                            {t('ie_quality_scale')}
                           </div>
                           {verifyResult.quality.hints && verifyResult.quality.hints.length > 0 && (
                             <>
-                              <div style={{ marginTop: 8, fontWeight: 600 }}>检查出的问题：</div>
+                              <div style={{ marginTop: 8, fontWeight: 600 }}>{t('ie_quality_issues_found')}</div>
                               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
                                 {verifyResult.quality.hints.slice(0, 3).map((hint, i) => (
                                   <li key={i}>
@@ -441,14 +441,14 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                         color: verifyResult.quality.score >= 80 ? QUANT_COLORS.positive : verifyResult.quality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                         cursor: 'help',
                       }}>
-                        质量评分: {verifyResult.quality.score}/100 ({verifyResult.quality.level})
+                        {t('ie_quality_score', { score: verifyResult.quality.score, level: verifyResult.quality.level })}
                         <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
                       </span>
                     </Tooltip>
                   )}
                   {verifyResult.plots_count != null && (
                     <span style={{ fontSize: 12, color: '#666' }}>
-                      {verifyResult.plots_count}条线 · {verifyResult.signals_count || 0}个信号
+                      {t('ie_quality_plots_signals', { plots: verifyResult.plots_count, signals: verifyResult.signals_count || 0 })}
                     </span>
                   )}
                 </Space>
@@ -484,14 +484,14 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       label: (
         <span>
           <RobotOutlined />
-          {t('indicator.aiGenerate', 'AI生成')}
+          {t('indicator.aiGenerate')}
         </span>
       ),
       children: (
         <div className="ai-generate-container">
           <Alert
-            title={t('indicator.aiTip', '使用AI智能生成指标代码')}
-            description={t('indicator.aiDescription', '描述您想要的指标功能，AI将为您生成相应的Python代码。例如："创建一个基于RSI超买卖信号的双线指标"')}
+            title={t('indicator.aiTip')}
+            description={t('indicator.aiDescription')}
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -505,19 +505,19 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               style={{ marginBottom: 16 }}
               title={
                 <Space>
-                  <span>{verifyResult.valid ? t('indicator.verifySuccess', '验证通过') : t('indicator.verifyFailed', '验证失败')}</span>
+                  <span>{verifyResult.valid ? t('indicator.verifySuccess') : t('indicator.verifyFailed')}</span>
                   <Tooltip
                     title={
                       <div style={{ maxWidth: 320 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 6 }}>质量评分基于静态代码分析：</div>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('ie_quality_intro')}</div>
                         <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-                          <li>危险模块（os/sys等）——扣30分/项</li>
-                          <li>代码安全（eval/exec等）——扣30分/项</li>
-                          <li>输出格式规范——扣30分/项</li>
-                          <li>其他规则——扣2~10分/项</li>
+                          <li>{t('ie_quality_rule_dangerous_module')}</li>
+                          <li>{t('ie_quality_rule_code_safety')}</li>
+                          <li>{t('ie_quality_rule_output_format')}</li>
+                          <li>{t('ie_quality_rule_other')}</li>
                         </ul>
                         <div style={{ marginTop: 8, color: QUANT_COLORS.warning }}>
-                          90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
+                          {t('ie_quality_scale')}
                         </div>
                       </div>
                     }
@@ -527,13 +527,13 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                       background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
                       color: verifyResult.quality.score >= 80 ? QUANT_COLORS.positive : verifyResult.quality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                     }}>
-                      质量评分: {verifyResult.quality.score}/100 ({verifyResult.quality.level})
+                      {t('ie_quality_score', { score: verifyResult.quality.score, level: verifyResult.quality.level })}
                       <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
                     </span>
                   </Tooltip>
                   {verifyResult.plots_count != null && (
                     <span style={{ fontSize: 12, color: '#666' }}>
-                      {verifyResult.plots_count}条线 · {verifyResult.signals_count || 0}个信号
+                      {t('ie_quality_plots_signals', { plots: verifyResult.plots_count, signals: verifyResult.signals_count || 0 })}
                     </span>
                   )}
                 </Space>
@@ -551,24 +551,24 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               title={
                 <Space>
                   <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />
-                  <span>{t('indicator.generatedCodePreview', '生成代码预览')}</span>
+                  <span>{t('indicator.generatedCodePreview')}</span>
                   {generatedQuality && (
                     <Tooltip
                       title={
                         <div style={{ maxWidth: 320 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 6 }}>质量评分基于静态代码分析：</div>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('ie_quality_intro')}</div>
                           <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-                            <li>危险模块（os/sys等）——扣30分/项</li>
-                            <li>代码安全（eval/exec等）——扣30分/项</li>
-                            <li>输出格式规范——扣30分/项</li>
-                            <li>其他规则——扣2~10分/项</li>
+                            <li>{t('ie_quality_rule_dangerous_module')}</li>
+                            <li>{t('ie_quality_rule_code_safety')}</li>
+                            <li>{t('ie_quality_rule_output_format')}</li>
+                            <li>{t('ie_quality_rule_other')}</li>
                           </ul>
                           <div style={{ marginTop: 8, color: QUANT_COLORS.warning }}>
-                            90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
+                            {t('ie_quality_scale')}
                           </div>
                           {generatedQuality.hints && generatedQuality.hints.length > 0 && (
                             <>
-                              <div style={{ marginTop: 8, fontWeight: 600 }}>检查出的问题：</div>
+                              <div style={{ marginTop: 8, fontWeight: 600 }}>{t('ie_quality_issues_found')}</div>
                               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
                                 {generatedQuality.hints.slice(0, 3).map((hint: IndicatorQualityHint, i: number) => (
                                   <li key={i}>
@@ -578,7 +578,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                                   </li>
                                 ))}
                                 {generatedQuality.hints.length > 3 && (
-                                  <li style={{ color: '#999' }}>...还有 {generatedQuality.hints.length - 3} 个问题</li>
+                                  <li style={{ color: '#999' }}>{t('ie_quality_more_issues', { n: generatedQuality.hints.length - 3 })}</li>
                                 )}
                               </ul>
                             </>
@@ -594,7 +594,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                         color: generatedQuality.score >= 80 ? QUANT_COLORS.positive : generatedQuality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                         cursor: 'help',
                       }}>
-                        质量评分: {generatedQuality.score}/100 ({generatedQuality.level})
+                        {t('ie_quality_score', { score: generatedQuality.score, level: generatedQuality.level })}
                         <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
                       </span>
                     </Tooltip>
@@ -609,7 +609,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                     size="small"
                     onClick={handleRejectCode}
                   >
-                    {t('indicator.reject', '放弃')}
+                    {t('indicator.reject')}
                   </Button>
                   <Button
                     type="primary"
@@ -617,7 +617,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                     size="small"
                     onClick={handleAdoptCode}
                   >
-                    {t('indicator.adopt', '采纳此代码')}
+                    {t('indicator.adopt')}
                   </Button>
                 </Space>
               }
@@ -642,7 +642,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           
           <TextArea
             rows={4}
-            placeholder={t('indicator.aiPromptPlaceholder', '请输入指标描述，例如：创建一个基于5日和20日均线交叉产生买卖信号的指标')}
+            placeholder={t('indicator.aiPromptPlaceholder')}
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
             disabled={aiLoading}
@@ -656,7 +656,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             style={{ marginTop: 16 }}
             block
           >
-            {aiLoading ? t('indicator.aiGenerating', '生成中...') : t('indicator.aiGenerateBtn', 'AI生成代码')}
+            {aiLoading ? t('indicator.aiGenerating') : t('indicator.aiGenerateBtn')}
           </Button>
         </div>
       ),
@@ -669,8 +669,8 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
         <Space>
           <CodeOutlined />
           {editingIndicator 
-            ? t('indicator.editTitle', '编辑指标') 
-            : t('indicator.createTitle', '创建指标')
+            ? t('indicator.editTitle')
+            : t('indicator.createTitle')
           }
         </Space>
       }
@@ -679,7 +679,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       width={800}
       footer={[
         <Button key="cancel" onClick={onClose}>
-          {t('common.cancel', '取消')}
+          {t('common.cancel')}
         </Button>,
         <Button
           key="verify"
@@ -687,9 +687,9 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           onClick={handleVerify}
           loading={loading}
         >
-          {t('indicator.verify', '验证代码')}
+          {t('indicator.verify')}
         </Button>,
-        <Tooltip key="save-tooltip" title={isGuest ? '访客用户无法保存指标，请使用普通用户账号登录' : ''}>
+        <Tooltip key="save-tooltip" title={isGuest ? t('ie_guest_save_restricted') : ''}>
           <Button
             key="save"
             type="primary"
@@ -698,7 +698,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             loading={loading}
             disabled={isGuest}
           >
-            {t('common.save', '保存')}
+            {t('common.save')}
           </Button>
         </Tooltip>,
       ]}
@@ -707,9 +707,9 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
         {/* 基本信息 */}
         <div className="indicator-basic-info">
           <div className="form-item">
-            <label>{t('indicator.name', '指标名称')}</label>
+            <label>{t('indicator.name')}</label>
             <Input
-              placeholder={t('indicator.namePlaceholder', '请输入指标名称')}
+              placeholder={t('indicator.namePlaceholder')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={100}
@@ -717,9 +717,9 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             />
           </div>
           <div className="form-item">
-            <label>{t('indicator.description', '指标描述')}</label>
+            <label>{t('indicator.description')}</label>
             <Input.TextArea
-              placeholder={t('indicator.descriptionPlaceholder', '请输入指标描述（可选）')}
+              placeholder={t('indicator.descriptionPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
