@@ -748,7 +748,16 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 placeholder="选择策略"
                 loading={loadingStrategies}
                 showSearch
-                optionFilterProp="children"
+                // 回填到选择框只显示策略名，完整信息（名称+描述）在下拉项里展示
+                optionLabelProp="label"
+                // 下拉搜索同时匹配策略名与描述
+                filterOption={(input, option) => {
+                  const strategy = strategies.find(
+                    (s) => String(s.id ?? s.name) === String(option?.value)
+                  );
+                  const text = `${strategy?.name ?? ''} ${strategy?.description ?? ''}`.toLowerCase();
+                  return text.includes(input.toLowerCase());
+                }}
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
                 onChange={() => {
                   if (worker.id) {
@@ -762,8 +771,28 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                   .filter((strategy) => strategy?.name)
                   .map((strategy) => (
                     // 缺 id 的策略用 name 作为 value，保存时让后端按名称解析回真实 id
-                    <Option key={strategy.id ?? strategy.name} value={strategy.id ?? strategy.name}>
-                      {strategy.name}
+                    <Option
+                      key={strategy.id ?? strategy.name}
+                      value={strategy.id ?? strategy.name}
+                      label={strategy.name}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ flexShrink: 0 }}>{strategy.name}</span>
+                        {strategy.description && (
+                          <span
+                            style={{
+                              color: '#999',
+                              fontSize: 12,
+                              marginLeft: 8,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {strategy.description}
+                          </span>
+                        )}
+                      </div>
                     </Option>
                   ))}
               </Select>

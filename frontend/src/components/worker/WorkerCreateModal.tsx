@@ -503,7 +503,16 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 placeholder="选择策略"
                 loading={loadingStrategies}
                 showSearch
-                optionFilterProp="children"
+                // 回填到选择框只显示策略名，完整信息（名称+描述）在下拉项里展示
+                optionLabelProp="label"
+                // 下拉搜索同时匹配策略名与描述
+                filterOption={(input, option) => {
+                  const strategy = strategies.find(
+                    (s) => String(s.id ?? s.name) === String(option?.value)
+                  );
+                  const text = `${strategy?.name ?? ''} ${strategy?.description ?? ''}`.toLowerCase();
+                  return text.includes(input.toLowerCase());
+                }}
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
                 onChange={(value: number) => {
                   setSelectedStrategyId(value);
@@ -526,8 +535,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                           return a & a;
                         }, 0)) % 2147483647 + 1;
                     return (
-                      <Option key={strategyId} value={strategyId}>
-                        {strategy.name}
+                      <Option key={strategyId} value={strategyId} label={strategy.name}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <span style={{ flexShrink: 0 }}>{strategy.name}</span>
+                          {strategy.description && (
+                            <span
+                              style={{
+                                color: '#999',
+                                fontSize: 12,
+                                marginLeft: 8,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {strategy.description}
+                            </span>
+                          )}
+                        </div>
                       </Option>
                     );
                   })}
