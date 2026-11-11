@@ -113,8 +113,6 @@ interface WorkerActions {
   // 生命周期控制
   startWorker: (workerId: number) => Promise<boolean>;
   stopWorker: (workerId: number) => Promise<boolean>;
-  pauseWorker: (workerId: number) => Promise<boolean>;
-  resumeWorker: (workerId: number) => Promise<boolean>;
   restartWorker: (workerId: number) => Promise<boolean>;
 
   // 批量操作

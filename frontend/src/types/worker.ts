@@ -230,13 +230,6 @@ export interface WorkerTrade {
   created_at: string;
 }
 
-// 策略部署请求
-export interface StrategyDeployRequest {
-  strategy_id: number;
-  parameters?: Record<string, unknown>;
-  auto_start?: boolean;
-}
-
 // 策略参数
 export interface StrategyParameter {
   id?: number;
@@ -350,16 +343,6 @@ export interface MetricsHistoryParams {
   start_time?: string;
   end_time?: string;
   interval?: string;
-}
-
-// 交易信号
-export interface TradingSignal {
-  symbol: string;
-  action: 'buy' | 'sell';
-  quantity?: number;
-  price?: number;
-  order_type?: string;
-  params?: Record<string, unknown>;
 }
 
 // ============================================
