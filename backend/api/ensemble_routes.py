@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from common.schemas import ApiResponse
 from services.ensemble_service import get_ensemble_service
+from services.rl_service import RLService
 from utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/ensemble", tags=["Ensemble"])
@@ -19,6 +20,42 @@ class CreateEnsembleRequest(BaseModel):
 
 class PredictRequest(BaseModel):
     observation: dict[str, Any] = {}
+
+
+class EnsembleBacktestRequest(BaseModel):
+    symbol: str
+    interval: str = "1h"
+    initial_capital: float = 100_000.0
+
+
+@router.post(
+    "/{ensemble_id}/backtest",
+    summary="集成回测",
+    description="集成成员均值聚合跑统一内核回测(engine=kernel,集成仅该引擎支持);"
+    "按 symbol/interval 拉历史K线,返回 PnL/Sharpe/最大回撤/胜率等指标;"
+    "集成不存在或数据不可得时 400",
+)
+async def backtest_ensemble(
+    ensemble_id: str,
+    req: EnsembleBacktestRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        # 集成模式下 run_backtest 忽略 model_path;engine 必须显式 kernel
+        # (默认 trading_env 会被"集成仅 kernel"校验拒绝,报错语义绕)
+        result = RLService().run_backtest(
+            model_path="",
+            symbol=req.symbol,
+            interval=req.interval,
+            initial_capital=req.initial_capital,
+            engine="kernel",
+            ensemble_id=ensemble_id,
+        )
+        return ApiResponse(code=0, message="回测完成", data=result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.post(

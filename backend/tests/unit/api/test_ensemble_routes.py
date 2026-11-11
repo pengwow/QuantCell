@@ -128,3 +128,46 @@ def test_ensemble_predict_missing_features_returns_400(monkeypatch, tmp_path):
     resp = client.post(f"/api/v1/ensemble/{eid}/predict", json={"observation": {"nope": 1.0}})
     assert resp.status_code == 400
     assert "缺少特征" in resp.json()["detail"]
+
+
+def test_ensemble_backtest_endpoint(monkeypatch):
+    """回测端点把参数原样透传给 RLService.run_backtest,响应兜一层 ApiResponse。"""
+    captured: dict = {}
+
+    def fake_run_backtest(self, **kwargs):
+        captured.update(kwargs)
+        return {"total_pnl": 1234.5, "sharpe_ratio": 1.2, "engine": "kernel"}
+
+    from services.rl_service import RLService
+
+    monkeypatch.setattr(RLService, "run_backtest", fake_run_backtest)
+
+    client = _make_app()
+    resp = client.post(
+        "/api/v1/ensemble/abc123/backtest",
+        json={"symbol": "BTCUSDT", "interval": "4h", "initial_capital": 50000.0},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["code"] == 0
+    assert data["data"]["total_pnl"] == 1234.5
+    assert captured["ensemble_id"] == "abc123"
+    assert captured["engine"] == "kernel"
+    assert captured["symbol"] == "BTCUSDT"
+    assert captured["interval"] == "4h"
+    assert captured["initial_capital"] == 50000.0
+
+
+def test_ensemble_backtest_not_found_400(monkeypatch):
+    """集成不存在 → 服务层 ValueError → 路由 400。"""
+    from services.rl_service import RLService
+
+    def fake_run_backtest(self, **kwargs):
+        raise ValueError("集成 nope 不存在")
+
+    monkeypatch.setattr(RLService, "run_backtest", fake_run_backtest)
+
+    client = _make_app()
+    resp = client.post("/api/v1/ensemble/nope/backtest", json={"symbol": "BTCUSDT"})
+    assert resp.status_code == 400
+    assert "不存在" in resp.json()["detail"]
