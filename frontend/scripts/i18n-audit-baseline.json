@@ -1,10 +1,6 @@
 {
-  "total": 1442,
+  "total": 1051,
   "files": [
-    {
-      "file": "src/pages/data/DataManagementPage.tsx",
-      "count": 391
-    },
     {
       "file": "src/pages/strategy/StrategyEditor.tsx",
       "count": 152
