@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Card,
@@ -192,6 +192,9 @@ const StrategyEditor = () => {
   // 数据来源状态：'database' 表示来自数据库，'parsed' 表示来自策略解析
   const [dataSource, setDataSource] = useState<'database' | 'parsed'>('database');
 
+  // D4:从集成工作台跳入带来的待预填 ensemble_id;一次性,模板确认时消费
+  const prefillEnsembleIdRef = useRef('');
+
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
   const location = useLocation();
@@ -233,16 +236,24 @@ const StrategyEditor = () => {
     if (params.strategyName) {
       loadStrategyByName(params.strategyName);
     } else {
-      // 检查是否有从其他页面传递过来的生成代码
+      // 检查是否有从其他页面传递过来的生成代码 / 集成预填
       const state = location.state as {
         generatedCode?: string;
         generatedStrategyName?: string;
+        prefillEnsembleId?: string;
       } | null;
 
       if (state?.generatedCode) {
         // 使用 AI 生成的代码创建策略
         handleCreateStrategyWithCode(state.generatedCode, state.generatedStrategyName);
         // 清除 state，避免刷新页面时重复使用
+        navigate(location.pathname, { replace: true });
+      } else if (state?.prefillEnsembleId) {
+        // D4:集成工作台→建策略。预选 RL 类型(集成仅 RL 策略可用),
+        // 用户确认模板时把 prefillEnsembleIdRef 写进 ensemble_id 参数默认值
+        prefillEnsembleIdRef.current = state.prefillEnsembleId;
+        handleCreateStrategy('rl');
+        appMessage.success(`已带入集成 ${state.prefillEnsembleId}，新建 RL 策略时将自动预填 ensemble_id`);
         navigate(location.pathname, { replace: true });
       } else {
         // 创建新策略
@@ -521,9 +532,10 @@ class NewStrategy(BaseStrategy):
   const strategyType: 'rule' | 'rl' = selectedStrategy?.strategy_type === 'rl' ? 'rl' : 'rule';
 
   // 创建新策略 —— 弹出模板选择器
-  const handleCreateStrategy = async () => {
-    // 每次新建都回到默认的规则策略类型，避免上次的 RL 选择串到新会话
-    setCreateStrategyType('rule');
+  const handleCreateStrategy = async (preferType?: 'rule' | 'rl') => {
+    // 每次新建都回到默认的规则策略类型，避免上次的 RL 选择串到新会话;
+    // D4 场景可指定 preferType='rl' 预选
+    setCreateStrategyType(preferType ?? 'rule');
     setTemplatePickerLoading(true);
     try {
       // 拉真实模板列表（后端 strategy/templates/ 扫描结果）
@@ -554,7 +566,8 @@ class NewStrategy(BaseStrategy):
       ? [
           { name: 'model_path', type: 'str', default: '', description: '已训练 PPO 模型路径', required: true },
           // 集成运行:填了 ensemble_id 则优先于 model_path(spec §4.4,二选一,后端硬校验)
-          { name: 'ensemble_id', type: 'str', default: '', description: '模型集成 ID;填入后该 RL 策略按集成运行,忽略 model_path', required: false },
+          // D4:从集成工作台跳入时预填(一次性)
+          { name: 'ensemble_id', type: 'str', default: prefillEnsembleIdRef.current, description: '模型集成 ID;填入后该 RL 策略按集成运行,忽略 model_path', required: false },
           { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
         ]
       : [
@@ -600,6 +613,8 @@ class NewStrategy(BaseStrategy):
     setSelectedStrategy(newStrategy);
     setCode(code);
     setTemplatePickerVisible(false);
+    // D4:ensemble_id 预填只生效一次,消费后清零,避免下一个新建策略串值
+    prefillEnsembleIdRef.current = '';
   };
 
   // 上传本地 .py 创建策略：与模板 Select「选中即创建」对齐，选完文件直接进编辑器（未保存）。
