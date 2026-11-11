@@ -1,5 +1,5 @@
 {
-  "total": 1509,
+  "total": 1442,
   "files": [
     {
       "file": "src/pages/data/DataManagementPage.tsx",
@@ -78,16 +78,8 @@
       "count": 22
     },
     {
-      "file": "src/pages/model/components/RLTrainConfigForm.tsx",
-      "count": 20
-    },
-    {
       "file": "src/components/IndicatorSelectorModal.tsx",
       "count": 19
-    },
-    {
-      "file": "src/pages/model/components/ModelDetailDrawer.tsx",
-      "count": 18
     },
     {
       "file": "src/components/chart/ChartTimezoneModal.tsx",
@@ -122,10 +114,6 @@
       "count": 11
     },
     {
-      "file": "src/pages/model/components/RLTrainingResult.tsx",
-      "count": 11
-    },
-    {
       "file": "src/pages/backtest/BacktestReplay.tsx",
       "count": 10
     },
@@ -136,14 +124,6 @@
     {
       "file": "src/components/worker/WorkerCreateModal.tsx",
       "count": 10
-    },
-    {
-      "file": "src/pages/model/components/RegisterModelModal.tsx",
-      "count": 9
-    },
-    {
-      "file": "src/pages/model/components/TrainingWorkbench.tsx",
-      "count": 9
     },
     {
       "file": "src/components/worker/WorkerEditModal.tsx",

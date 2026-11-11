@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { App as AntdApp, Form, Input, Modal } from 'antd';
 import { modelApi, type UnifiedModelRow } from '@/api/modelApi';
+import { useTranslation } from 'react-i18next';
 
 interface RegisterModelModalProps {
   row: UnifiedModelRow | null; // 目标未注册文件行
@@ -11,6 +12,7 @@ interface RegisterModelModalProps {
 export default function RegisterModelModal({ row, onClose, onSuccess }: RegisterModelModalProps) {
   const [form] = Form.useForm();
   const { message } = AntdApp.useApp();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (row) {
@@ -34,30 +36,30 @@ export default function RegisterModelModal({ row, onClose, onSuccess }: Register
         },
         metrics: {},
       });
-      message.success('模型注册成功');
+      message.success(t('rmreg_msg_success'));
       form.resetFields();
       onSuccess();
     } catch (err) {
-      message.error(`注册失败：${err instanceof Error ? err.message : String(err)}`);
+      message.error(t('rmreg_msg_failed', { msg: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   return (
     <Modal
-      title={`注册模型 - ${row?.file_name ?? ''}`}
+      title={t('rmreg_title', { name: row?.file_name ?? '' })}
       open={!!row}
       onOk={handleOk}
       onCancel={onClose}
-      okText="注册"
-      cancelText="取消"
+      okText={t('rmreg_ok')}
+      cancelText={t('rmreg_cancel')}
       destroyOnHidden
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="name" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>
-          <Input placeholder="默认为文件名,可自定义" />
+        <Form.Item name="name" label={t('rmreg_label_name')} rules={[{ required: true, message: t('rmreg_rule_name') }]}>
+          <Input placeholder={t('rmreg_ph_name')} />
         </Form.Item>
-        <Form.Item name="description" label="描述">
-          <Input.TextArea rows={3} placeholder="选填,训练背景/用途等" />
+        <Form.Item name="description" label={t('rmreg_label_desc')}>
+          <Input.TextArea rows={3} placeholder={t('rmreg_ph_desc')} />
         </Form.Item>
       </Form>
     </Modal>
