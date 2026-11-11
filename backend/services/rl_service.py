@@ -18,6 +18,7 @@ import numpy as np
 
 from backtest.hpo_runner import HPORunner
 from backtest.walk_forward import WalkForwardService
+from services.ensemble_aggregator import make_ensemble_predict_fn
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -612,6 +613,7 @@ class RLService:
         initial_capital: float = 100_000.0,
         reward_type: str = "pnl",
         engine: str = "trading_env",
+        ensemble_id: str | None = None,
     ) -> dict[str, Any]:
         """用已训练模型回测，返回评估指标。
 
@@ -619,6 +621,8 @@ class RLService:
             engine: 评估口径。
                 - `"trading_env"`（默认）：SB3 + `axon_quant TradingEnv` 逐 step 评估；
                 - `"kernel"`：统一内核 `worker.Kernel` + RL host，撮合与实盘同一主回路。
+            ensemble_id: 非空时按模型集成加载成员（Python 侧聚合），仅 engine="kernel"
+                有效，此时 `model_path` 忽略。
             响应体固定带 `engine` 字段，调用方据此区分两条口径。
 
         Uses TradingEnv as the simulation engine and the SB3 model for inference.
@@ -631,6 +635,10 @@ class RLService:
             msg = f"未知 engine: {engine}（可选 'trading_env' / 'kernel'）"
             raise ValueError(msg)
 
+        if ensemble_id and engine != "kernel":
+            msg = "ensemble_id 仅支持 kernel 引擎回测(trading_env 口径按单模型加载)"
+            raise ValueError(msg)
+
         provider = BacktestDataProvider()
         data = provider.load_klines(symbol, interval, candle_type)
         if data.empty:
@@ -638,7 +646,9 @@ class RLService:
             raise ValueError(msg)
 
         if engine == "kernel":
-            return self._run_kernel_backtest(model_path, data, symbol, interval, initial_capital)
+            return self._run_kernel_backtest(
+                model_path, data, symbol, interval, initial_capital, ensemble_id=ensemble_id
+            )
 
         from rl.evaluation import evaluate_model
 
@@ -677,11 +687,13 @@ class RLService:
         symbol: str,
         interval: str,
         initial_capital: float,
+        ensemble_id: str | None = None,
     ) -> dict[str, Any]:
         """统一内核路径：SB3 推理 → `worker.Kernel.add_rl_strategy`。
 
         与 `trading_env` 口径的差别只在编排层：成交、资金费、保证金与统计全部
-        由 Rust 内核完成（与实盘同一条主回路）。
+        由 Rust 内核完成（与实盘同一条主回路）。`ensemble_id` 非空时走集成
+        成员聚合，不再加载单模型。
         """
         # 延迟导入：原生扩展 / 回测编排均为可选重依赖
         from axon_quant import worker
@@ -690,10 +702,27 @@ class RLService:
         from backtest.engine_service import EventDrivenBacktestService
         from strategy.rust_adapter import _normalize_symbol
 
-        model = self.load_model(model_path)
-        if model is None:
-            msg = f"无法加载模型: {model_path}"
-            raise RuntimeError(msg)
+        if ensemble_id:
+            # 集成:成员 ratio predict_fn 组合,spec 以基准成员 meta 为准(spec §4.4)
+            # 函数内 import:ensemble_service 顶层依赖本模块(rl_service),顶部 import 会成环
+            from services.ensemble_service import load_ensemble_spec
+
+            member_specs = load_ensemble_spec(ensemble_id, spec_version=KERNEL_SPEC_VERSION)
+            predict_fn = make_ensemble_predict_fn(member_specs.member_predict_fns)
+            model_id = ensemble_id
+            window_size = int(member_specs.meta.get("window_size") or KERNEL_WINDOW_SIZE)
+            features = member_specs.meta.get("features") or KERNEL_FEATURES
+            stats = observation_stats_from_meta(member_specs.meta, model_path=member_specs.representative_path)
+        else:
+            model = self.load_model(model_path)
+            if model is None:
+                msg = f"无法加载模型: {model_path}"
+                raise RuntimeError(msg)
+            predict_fn = make_predict_fn(model)
+            model_id = Path(model_path).stem
+            window_size = KERNEL_WINDOW_SIZE
+            features = KERNEL_FEATURES
+            stats = load_observation_stats(model_path)
 
         # 内核按 BASE/QUOTE 建 instrument；直接用交易所原始 symbol 会退化成默认品种
         rust_symbol = _normalize_symbol(symbol)
@@ -702,15 +731,15 @@ class RLService:
         # 费率与训练环境同源：两边都是 `RL_TRANSACTION_COST`，否则归因会报成本模型不一致
         kernel = worker.Kernel(initial_cash=initial_capital, interval=interval, fee_rate=RL_TRANSACTION_COST)
         kernel.add_rl_strategy(
-            make_predict_fn(model),
-            Path(model_path).stem,
+            predict_fn,
+            model_id,
             KERNEL_SPEC_VERSION,
-            KERNEL_WINDOW_SIZE,
-            KERNEL_FEATURES,
+            window_size,
+            features,
             KERNEL_ACTION_SPACE,
             rust_symbol,
             # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，不是训练等价口径
-            stats=load_observation_stats(model_path),
+            stats=stats,
         )
         result = kernel.run(bars_by_symbol={rust_symbol: bars})
 
