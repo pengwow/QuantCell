@@ -28,7 +28,7 @@ export default function SoftwareUpdateCard() {
     setSavingMirror(true);
     try {
       await setUpdateMirror(mirror.trim() || null);
-      message.success(t('update_mirror_saved') || '镜像源已保存');
+      message.success(t('update_mirror_saved'));
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -42,12 +42,10 @@ export default function SoftwareUpdateCard() {
       confirm: (running) =>
         new Promise<boolean>((resolve) => {
           Modal.confirm({
-            title: t('update_running_confirm_title') || '升级会中断运行中的策略',
-            content:
-              t('update_running_confirm_content', { count: running }) ||
-              `当前有 ${running} 个策略正在运行，升级并重启后将全部中断。确定继续？`,
-            okText: t('update_confirm_ok') || '继续升级',
-            cancelText: t('update_confirm_cancel') || '取消',
+            title: t('update_running_confirm_title'),
+            content: t('update_running_confirm_content', { count: running }),
+            okText: t('update_confirm_ok'),
+            cancelText: t('update_confirm_cancel'),
             onOk: () => resolve(true),
             onCancel: () => resolve(false),
           });
@@ -59,23 +57,23 @@ export default function SoftwareUpdateCard() {
   const busy = status === 'checking' || status === 'downloading';
 
   return (
-    <Card title={t('update_title') || '软件更新'} style={{ maxWidth: 640 }}>
+    <Card title={t('update_title')} style={{ maxWidth: 640 }}>
       <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
         <Space size="small" wrap>
           <span>
-            {t('update_current_version') || '当前版本'}：{currentVersion || '-'}
+            {t('update_current_version')}: {currentVersion || '-'}
           </span>
-          {status === 'idle' && <Tag color="success">{t('update_latest') || '已是最新版本'}</Tag>}
-          {status === 'checking' && <Tag>{t('update_checking') || '正在检查更新…'}</Tag>}
+          {status === 'idle' && <Tag color="success">{t('update_latest')}</Tag>}
+          {status === 'checking' && <Tag>{t('update_checking')}</Tag>}
           {status === 'available' && info && (
             <Tag color="processing">
-              {t('update_available', { version: info.version }) || `发现新版本 ${info.version}`}
+              {t('update_available', { version: info.version })}
             </Tag>
           )}
           {status === 'downloading' && (
-            <Tag color="processing">{t('update_downloading') || '正在下载更新'}</Tag>
+            <Tag color="processing">{t('update_downloading')}</Tag>
           )}
-          {status === 'error' && <Tag color="error">{t('update_failed') || '更新失败'}</Tag>}
+          {status === 'error' && <Tag color="error">{t('update_failed')}</Tag>}
         </Space>
 
         {status === 'error' && error && <Typography.Text type="danger">{error}</Typography.Text>}
@@ -87,7 +85,7 @@ export default function SoftwareUpdateCard() {
             type="secondary"
             style={{ whiteSpace: 'pre-wrap', marginBottom: 0, maxHeight: 120, overflow: 'auto' }}
           >
-            {t('update_notes') || '更新说明'}
+            {t('update_notes')}
             {'\n'}
             {info.notes}
           </Typography.Paragraph>
@@ -95,7 +93,7 @@ export default function SoftwareUpdateCard() {
 
         <Space size="small">
           <Button loading={status === 'checking'} disabled={busy} onClick={() => void runCheck()}>
-            {t('update_check') || '检查更新'}
+            {t('update_check')}
           </Button>
           <Button
             type="primary"
@@ -103,28 +101,28 @@ export default function SoftwareUpdateCard() {
             disabled={status !== 'available'}
             onClick={handleInstall}
           >
-            {t('update_install') || '立即更新'}
+            {t('update_install')}
           </Button>
         </Space>
 
         {status === 'available' && (
           <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
-            {t('update_restart_hint') || '安装完成后应用将自动重启'}
+            {t('update_restart_hint')}
           </span>
         )}
 
         <Space.Compact style={{ width: '100%' }}>
           <Input
-            placeholder={t('update_mirror_placeholder') || 'https://mirror.example.com/quantcell'}
+            placeholder={t('update_mirror_placeholder')}
             value={mirror}
             onChange={(e) => setMirror(e.target.value)}
           />
           <Button loading={savingMirror} onClick={() => void handleSaveMirror()}>
-            {t('update_mirror_save') || '保存镜像源'}
+            {t('update_mirror_save')}
           </Button>
         </Space.Compact>
         <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
-          {t('update_mirror_label') || '更新镜像源（可选，留空仅使用官方源）'}
+          {t('update_mirror_label')}
         </span>
       </Space>
     </Card>

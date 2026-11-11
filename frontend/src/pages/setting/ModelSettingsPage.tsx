@@ -132,7 +132,7 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
   },
   {
     id: "siliconflow",
-    name: t('provider_siliconflow') || '硅基流动',
+    name: t('provider_siliconflow'),
     icon: PROVIDER_ICONS.siliconflow,
   },
   {
@@ -147,32 +147,32 @@ const getPresetProviders = (t: TFunction): PresetProvider[] => [
   },
   {
     id: "openai-compatible",
-    name: t('provider_openai_compatible') || 'OpenAI兼容API',
+    name: t('provider_openai_compatible'),
     icon: PROVIDER_ICONS["openai-compatible"],
   },
   {
     id: "deepseek",
-    name: t('provider_deepseek') || '深度求索',
+    name: t('provider_deepseek'),
     icon: PROVIDER_ICONS.deepseek,
   },
   {
     id: "dashscope",
-    name: t('provider_aliyun') || '阿里云',
+    name: t('provider_aliyun'),
     icon: PROVIDER_ICONS.dashscope,
   },
   {
     id: "google",
-    name: t('provider_google') || '谷歌云',
+    name: t('provider_google'),
     icon: PROVIDER_ICONS.google,
   },
   {
     id: "azure",
-    name: t('provider_azure') || '微软Azure OpenAI',
+    name: t('provider_azure'),
     icon: PROVIDER_ICONS.azure,
   },
   {
     id: "xiaomi",
-    name: t('provider_xiaomi') || '小米',
+    name: t('provider_xiaomi'),
     icon: PROVIDER_ICONS.xiaomi,
   },
   {
@@ -272,7 +272,7 @@ const ModelSettingsPage = () => {
                 models = JSON.parse(existing.models);
               }
             } catch (e) {
-              console.warn(t('parse_model_list_failed', { provider: preset.id }) || `解析 ${preset.id} 模型列表失败`, e);
+              console.warn(t('parse_model_list_failed', { provider: preset.id }), e);
             }
 
             return {
@@ -318,8 +318,8 @@ const ModelSettingsPage = () => {
         initDefaultProviders();
       }
     } catch (error) {
-      console.error(t('load_model_config_failed', { message: error }) || "加载模型配置失败:", error);
-      message.error(t("load_failed") || "加载配置失败");
+      console.error(t('load_model_config_failed', { message: error }), error);
+      message.error(t("load_failed"));
       initDefaultProviders();
     }
   };
@@ -394,7 +394,7 @@ const ModelSettingsPage = () => {
           : p
       )
     );
-    message.success(t("default_provider_set") || "默认厂商已设置");
+    message.success(t("default_provider_set"));
   };
 
 
@@ -423,7 +423,7 @@ const ModelSettingsPage = () => {
           proxy_enabled: true,
           ...proxyConfig,
         });
-        message.success(t("proxy_auto_filled") || "已自动填充代理配置");
+        message.success(t("proxy_auto_filled"));
       } else {
         updateProvider(selectedProvider.id, { proxy_enabled: true });
       }
@@ -446,7 +446,7 @@ const ModelSettingsPage = () => {
     // System One 决策服务多为自托管、通常无鉴权，API Key 非必填
     const isSystemOne = provider.category === "system_one";
     if (!isSystemOne && !provider.api_key) {
-      message.warning(t("please_enter_api_key") || "请输入API密钥");
+      message.warning(t("please_enter_api_key"));
       return;
     }
 
@@ -465,7 +465,7 @@ const ModelSettingsPage = () => {
       });
 
       if (result?.available) {
-        message.success(result.message || t("api_key_valid") || "API密钥有效");
+        message.success(result.message || t("api_key_valid"));
         // 只有探测到真实模型才覆盖，空列表说明服务不提供 /v1/models，保留用户预设
         if (Array.isArray(result.models) && result.models.length > 0) {
           const newModels: Model[] = result.models.map((m) => ({
@@ -480,12 +480,12 @@ const ModelSettingsPage = () => {
           );
         }
       } else {
-        message.error(result.message || t("api_key_invalid") || "API密钥无效");
+        message.error(result.message || t("api_key_invalid"));
         setFetchedModels([]);
       }
     } catch (error) {
-      console.error("检查可用性失败:", error);
-      const errorMsg = (axios.isAxiosError(error) ? error.response?.data?.detail : undefined) || (error instanceof Error ? error.message : undefined) || t("check_failed") || "检查失败";
+      console.error("Failed to check availability:", error);
+      const errorMsg = (axios.isAxiosError(error) ? error.response?.data?.detail : undefined) || (error instanceof Error ? error.message : undefined) || t("check_failed");
       message.error(errorMsg);
       setFetchedModels([]);
     } finally {
@@ -517,7 +517,7 @@ const ModelSettingsPage = () => {
           : p
       )
     );
-    message.success(t("model_deleted") || "模型已删除");
+    message.success(t("model_deleted"));
   };
 
   // 添加模型
@@ -540,7 +540,7 @@ const ModelSettingsPage = () => {
 
     setIsAddModelModalOpen(false);
     addModelForm.resetFields();
-    message.success(t("model_added") || "模型已添加");
+    message.success(t("model_added"));
   };
 
   // 保存配置到系统配置表（使用扁平化存储格式）
@@ -559,26 +559,26 @@ const ModelSettingsPage = () => {
         const providerName = provider.name;
 
         batchConfigs.push(
-          { key: `${prefix}.name`, value: provider.name, name: 'ai_model', description: `${providerName}厂商名称` },
-          { key: `${prefix}.category`, value: provider.category, name: 'ai_model', description: `${providerName}模型类型` },
-          { key: `${prefix}.api_key`, value: provider.api_key || '', name: 'ai_model', description: `${providerName}API Key` },
-          { key: `${prefix}.api_host`, value: provider.api_host || '', name: 'ai_model', description: `${providerName}API Host` },
-          { key: `${prefix}.models`, value: JSON.stringify(provider.models), name: 'ai_model', description: `${providerName}模型列表` },
-          { key: `${prefix}.is_default`, value: provider.is_default ? '1' : '0', name: 'ai_model', description: `${providerName}是否为默认` },
-          { key: `${prefix}.is_enabled`, value: provider.is_enabled || '', name: 'ai_model', description: `${providerName}启用的模型ID` },
-          { key: `${prefix}.proxy_enabled`, value: provider.proxy_enabled ? '1' : '0', name: 'ai_model', description: `${providerName}是否启用代理` },
-          { key: `${prefix}.proxy_url`, value: provider.proxy_url || '', name: 'ai_model', description: `${providerName}代理地址` },
-          { key: `${prefix}.proxy_username`, value: provider.proxy_username || '', name: 'ai_model', description: `${providerName}代理用户名` },
-          { key: `${prefix}.proxy_password`, value: provider.proxy_password || '', name: 'ai_model', description: `${providerName}代理密码` }
+          { key: `${prefix}.name`, value: provider.name, name: 'ai_model', description: t('model_desc_name', { name: providerName }) },
+          { key: `${prefix}.category`, value: provider.category, name: 'ai_model', description: t('model_desc_category', { name: providerName }) },
+          { key: `${prefix}.api_key`, value: provider.api_key || '', name: 'ai_model', description: t('model_desc_api_key', { name: providerName }) },
+          { key: `${prefix}.api_host`, value: provider.api_host || '', name: 'ai_model', description: t('model_desc_api_host', { name: providerName }) },
+          { key: `${prefix}.models`, value: JSON.stringify(provider.models), name: 'ai_model', description: t('model_desc_models', { name: providerName }) },
+          { key: `${prefix}.is_default`, value: provider.is_default ? '1' : '0', name: 'ai_model', description: t('model_desc_is_default', { name: providerName }) },
+          { key: `${prefix}.is_enabled`, value: provider.is_enabled || '', name: 'ai_model', description: t('model_desc_is_enabled', { name: providerName }) },
+          { key: `${prefix}.proxy_enabled`, value: provider.proxy_enabled ? '1' : '0', name: 'ai_model', description: t('model_desc_proxy_enabled', { name: providerName }) },
+          { key: `${prefix}.proxy_url`, value: provider.proxy_url || '', name: 'ai_model', description: t('model_desc_proxy_url', { name: providerName }) },
+          { key: `${prefix}.proxy_username`, value: provider.proxy_username || '', name: 'ai_model', description: t('model_desc_proxy_username', { name: providerName }) },
+          { key: `${prefix}.proxy_password`, value: provider.proxy_password || '', name: 'ai_model', description: t('model_desc_proxy_password', { name: providerName }) }
         );
       });
 
       // 调用系统配置批量更新接口
       await configApi.updateConfig(batchConfigs);
-      message.success(t("config_saved") || "配置已保存");
+      message.success(t("config_saved"));
     } catch (error) {
-      const errorMsg = (error instanceof Error ? error.message : undefined) || (axios.isAxiosError(error) ? error.response?.data?.detail : undefined) || t("save_failed") || "保存失败";
-      console.error(t('save_model_config_failed', { message: error }) || "保存配置失败:", error);
+      const errorMsg = (error instanceof Error ? error.message : undefined) || (axios.isAxiosError(error) ? error.response?.data?.detail : undefined) || t("save_failed");
+      console.error(t('save_model_config_failed', { message: error }), error);
       if ((error as { code?: number })?.code === 401 || (axios.isAxiosError(error) && error.response?.status === 401)) {
         message.warning(errorMsg);
       } else {
@@ -610,7 +610,7 @@ const ModelSettingsPage = () => {
     });
     setProviders(initialProviders);
     setSelectedProviderId(initialProviders[0]?.id || "");
-    message.success(t("config_reset") || "配置已重置");
+    message.success(t("config_reset"));
   };
 
   // 获取API Key链接
@@ -634,7 +634,7 @@ const ModelSettingsPage = () => {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* 左侧厂商列表：按模型类型分组，每组独立维护默认项 */}
         <div className="w-full lg:w-64 flex-shrink-0">
-          <div className="text-base font-medium mb-4 leading-8 h-8">{t("model_provider") || "模型提供商"}</div>
+          <div className="text-base font-medium mb-4 leading-8 h-8">{t("model_provider")}</div>
           <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
             {(["system_one", "system_two"] as ModelCategory[]).map((category) => {
               const groupProviders = providers.filter((p) => p.category === category);
@@ -681,7 +681,7 @@ const ModelSettingsPage = () => {
                             setDefaultProvider(provider.id);
                           }}
                         >
-                          {provider.is_default ? "默认" : "设为默认"}
+                          {provider.is_default ? t("default") : t("model_set_default")}
                         </Button>
                       </div>
                     ))}
@@ -705,7 +705,7 @@ const ModelSettingsPage = () => {
               <div className="flex items-center justify-between h-8">
                 <div className="text-base font-medium">{selectedProvider.name}</div>
                 <Space>
-                  <Text type="secondary" className="text-sm">{t("default_provider") || "组内默认"}</Text>
+                  <Text type="secondary" className="text-sm">{t("default_provider")}</Text>
                   <Switch
                     checked={selectedProvider.is_default}
                     onChange={(checked) => {
@@ -718,7 +718,7 @@ const ModelSettingsPage = () => {
               <Card className="shadow-sm">
                 <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
                   {/* 模型类型：厂商固有属性，只读展示 */}
-                  <FieldGroup label={t("model_category") || "模型类型"}>
+                  <FieldGroup label={t("model_category")}>
                     <Tag color={selectedProvider.category === "system_one" ? "blue" : "purple"}>
                       {selectedProvider.category === "system_one" ? t("system_one_label") : t("system_two_label")}
                     </Tag>
@@ -730,7 +730,7 @@ const ModelSettingsPage = () => {
                   </FieldGroup>
 
                   {/* API Key */}
-                  <FieldGroup label={t("api_key") || "API密钥"}>
+                  <FieldGroup label={t("api_key")}>
                     <Space.Compact className="w-full">
                       <Input.Password
                         value={selectedProvider.api_key}
@@ -740,7 +740,7 @@ const ModelSettingsPage = () => {
                         placeholder={
                           selectedProvider.category === "system_one"
                             ? t("system_one_apikey_optional")
-                            : t("enter_api_key") || "输入API密钥"
+                            : t("enter_api_key")
                         }
                         className="flex-1"
                       />
@@ -749,7 +749,7 @@ const ModelSettingsPage = () => {
                         loading={checkingProvider === selectedProvider.id}
                         onClick={() => checkAvailability(selectedProvider.id)}
                       >
-                        {t("check_availability") || "检查可用性"}
+                        {t("check_availability")}
                       </Button>
                     </Space.Compact>
                     {getApiKeyUrl(selectedProvider.id) && (
@@ -759,19 +759,19 @@ const ModelSettingsPage = () => {
                         rel="noopener noreferrer"
                         className="text-sm text-gray-600 hover:text-gray-800 underline"
                       >
-                        {t("click_to_get_api_key") || "点击此处获取API密钥"}
+                        {t("click_to_get_api_key")}
                       </a>
                     )}
                   </FieldGroup>
 
                   {/* API Host */}
-                  <FieldGroup label={t("api_host") || "API主机"}>
+                  <FieldGroup label={t("api_host")}>
                     <Input
                       value={selectedProvider.api_host}
                       onChange={(e) =>
                         updateProvider(selectedProvider.id, { api_host: e.target.value })
                       }
-                      placeholder={t("enter_api_host") || "请输入 API Host"}
+                      placeholder={t("enter_api_host")}
                     />
                   </FieldGroup>
 
@@ -780,9 +780,9 @@ const ModelSettingsPage = () => {
                   {/* 代理设置 */}
                   <Space orientation="vertical" size="small" style={{ display: "flex" }}>
                     <div className="flex items-center justify-between">
-                      <Text strong>{t("proxy_settings") || "代理设置"}</Text>
+                      <Text strong>{t("proxy_settings")}</Text>
                       <Space>
-                        <Text type="secondary" className="text-sm">{t("proxy_enabled") || "启用代理"}</Text>
+                        <Text type="secondary" className="text-sm">{t("proxy_enabled")}</Text>
                         <Switch
                           checked={selectedProvider.proxy_enabled}
                           onChange={handleProxyToggle}
@@ -792,7 +792,7 @@ const ModelSettingsPage = () => {
 
                     {selectedProvider.proxy_enabled && (
                       <Space orientation="vertical" size="small" style={{ display: "flex" }}>
-                        <FieldGroup label={t("proxy_url") || "代理地址"}>
+                        <FieldGroup label={t("proxy_url")}>
                           <Input
                             value={selectedProvider.proxy_url}
                             onChange={(e) =>
@@ -802,23 +802,23 @@ const ModelSettingsPage = () => {
                           />
                         </FieldGroup>
 
-                        <FieldGroup label={t("proxy_username") || "代理用户名"}>
+                        <FieldGroup label={t("proxy_username")}>
                           <Input
                             value={selectedProvider.proxy_username}
                             onChange={(e) =>
                               updateProvider(selectedProvider.id, { proxy_username: e.target.value })
                             }
-                            placeholder={t("optional") || "可选"}
+                            placeholder={t("optional")}
                           />
                         </FieldGroup>
 
-                        <FieldGroup label={t("proxy_password") || "代理密码"}>
+                        <FieldGroup label={t("proxy_password")}>
                           <Input.Password
                             value={selectedProvider.proxy_password}
                             onChange={(e) =>
                               updateProvider(selectedProvider.id, { proxy_password: e.target.value })
                             }
-                            placeholder={t("optional") || "可选"}
+                            placeholder={t("optional")}
                           />
                         </FieldGroup>
                       </Space>
@@ -830,13 +830,13 @@ const ModelSettingsPage = () => {
                   {/* 模型列表 */}
                   <Space orientation="vertical" size="small" style={{ display: "flex" }}>
                     <div className="flex items-center justify-between">
-                      <Text strong>{t("models") || "模型"}</Text>
+                      <Text strong>{t("models")}</Text>
                       <Button
                         type="default"
                         icon={<IconPlus size="1em" />}
                         onClick={() => setIsAddModelModalOpen(true)}
                       >
-                        {t("add") || "添加"}
+                        {t("add")}
                       </Button>
                     </div>
 
@@ -856,11 +856,11 @@ const ModelSettingsPage = () => {
                               size="small"
                             />
                             <Popconfirm
-                              title={t("confirm_delete") || "确认删除"}
-                              description={t("delete_model_confirm") || "确定要删除这个模型吗？"}
+                              title={t("confirm_delete")}
+                              description={t("delete_model_confirm")}
                               onConfirm={() => deleteModel(selectedProvider.id, model.id)}
-                              okText={t("yes") || "是"}
-                              cancelText={t("no") || "否"}
+                              okText={t("yes")}
+                              cancelText={t("no")}
                             >
                               <Button
                                 type="text"
@@ -874,7 +874,7 @@ const ModelSettingsPage = () => {
                       ))}
                       {selectedProvider.models.length === 0 && (
                         <div className="text-center py-8 text-gray-400">
-                          {t("no_models") || "暂无模型"}
+                          {t("no_models")}
                         </div>
                       )}
                     </div>
@@ -886,7 +886,7 @@ const ModelSettingsPage = () => {
             <Card className="shadow-sm">
               <div className="text-center py-12 text-gray-500">
                 <IconRobot size="48" className="mx-auto mb-4 opacity-50" />
-                <p>{t("select_provider") || "请选择一个模型厂商"}</p>
+                <p>{t("select_provider")}</p>
               </div>
             </Card>
           )}
@@ -897,17 +897,17 @@ const ModelSettingsPage = () => {
       <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Space>
           <Button onClick={handleReset} disabled={isGuest}>
-            {t("reset") || "重置"}
+            {t("reset")}
           </Button>
           <Button type="primary" onClick={handleSave} disabled={isGuest}>
-            {t("save") || "保存"}
+            {t("save")}
           </Button>
         </Space>
       </div>
 
       {/* 添加模型弹窗 */}
       <Modal
-        title={<span className="text-lg font-medium">{t("add_model") || "添加模型"}</span>}
+        title={<span className="text-lg font-medium">{t("add_model")}</span>}
         open={isAddModelModalOpen}
         onCancel={() => {
           setIsAddModelModalOpen(false);
@@ -919,7 +919,7 @@ const ModelSettingsPage = () => {
         <Form form={addModelForm} onFinish={handleAddModel} layout="vertical" className="mt-4">
           {/* 从API获取的模型列表 */}
           {fetchedModels.length > 0 && (
-            <Form.Item label={<span className="font-medium">{t("available_models") || "可用模型"}</span>}>
+            <Form.Item label={<span className="font-medium">{t("available_models")}</span>}>
               <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
                 {fetchedModels.map((model) => {
                   const alreadyAdded = selectedProvider?.models.some((m) => m.id === model.id);
@@ -949,32 +949,32 @@ const ModelSettingsPage = () => {
 
           {fetchedModels.length === 0 && !fetchingModels && (
             <div className="text-center py-3 text-gray-400 text-sm mb-4">
-              {t("click_check_to_fetch_models") || "请先点击「检查可用性」获取模型列表"}
+              {t("click_check_to_fetch_models")}
             </div>
           )}
 
           <Form.Item
             name="model_id"
-            label={<span className="font-medium">{t("model_id") || "模型ID"}</span>}
+            label={<span className="font-medium">{t("model_id")}</span>}
             rules={[
-              { required: true, message: t("please_enter_model_id") || "请输入模型ID" },
+              { required: true, message: t("please_enter_model_id") },
             ]}
           >
             <Input
-              placeholder={t("enter_model_id") || "输入模型ID"}
+              placeholder={t("enter_model_id")}
               size="large"
               className="rounded-lg"
             />
           </Form.Item>
           <Form.Item
             name="name"
-            label={<span className="font-medium">{t("model_name") || "模型名称"}</span>}
+            label={<span className="font-medium">{t("model_name")}</span>}
             rules={[
-              { required: true, message: t("please_enter_model_name") || "请输入模型名称" },
+              { required: true, message: t("please_enter_model_name") },
             ]}
           >
             <Input
-              placeholder={t("enter_model_name") || "输入模型名称"}
+              placeholder={t("enter_model_name")}
               size="large"
               className="rounded-lg"
             />
@@ -989,7 +989,7 @@ const ModelSettingsPage = () => {
                   addModelForm.resetFields();
                 }}
               >
-                {t("cancel") || "取消"}
+                {t("cancel")}
               </Button>
               <Button
                 type="primary"
@@ -997,7 +997,7 @@ const ModelSettingsPage = () => {
                 size="large"
                 className="flex-1 rounded-lg bg-gray-900 hover:bg-gray-800 border-gray-900"
               >
-                {t("confirm") || "确认"}
+                {t("confirm")}
               </Button>
             </div>
           </Form.Item>

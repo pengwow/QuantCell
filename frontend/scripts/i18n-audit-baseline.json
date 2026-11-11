@@ -1,5 +1,5 @@
 {
-  "total": 2661,
+  "total": 2147,
   "files": [
     {
       "file": "src/pages/data/DataManagementPage.tsx",
@@ -14,20 +14,8 @@
       "count": 111
     },
     {
-      "file": "src/pages/setting/LogSettingsUnified.tsx",
-      "count": 98
-    },
-    {
-      "file": "src/pages/setting/ExchangeSettingsPage.tsx",
-      "count": 91
-    },
-    {
       "file": "src/components/worker/WorkerEditModal.tsx",
       "count": 72
-    },
-    {
-      "file": "src/pages/setting/ModelSettingsPage.tsx",
-      "count": 70
     },
     {
       "file": "src/components/IndicatorEditor.tsx",
@@ -36,10 +24,6 @@
     {
       "file": "src/pages/model/components/EnsembleWorkbench.tsx",
       "count": 69
-    },
-    {
-      "file": "src/pages/setting/NotificationsPage.tsx",
-      "count": 64
     },
     {
       "file": "src/components/worker/WorkerCreateModal.tsx",
@@ -70,10 +54,6 @@
       "count": 43
     },
     {
-      "file": "src/pages/setting/PluginManagement.tsx",
-      "count": 43
-    },
-    {
       "file": "src/components/worker/WorkerParamsTab.tsx",
       "count": 42
     },
@@ -82,16 +62,8 @@
       "count": 39
     },
     {
-      "file": "src/pages/setting/AccountSettings.tsx",
-      "count": 39
-    },
-    {
       "file": "src/pages/factor/FactorCompare.tsx",
       "count": 37
-    },
-    {
-      "file": "src/pages/setting/GeneralSettingsPage.tsx",
-      "count": 36
     },
     {
       "file": "src/components/worker/WorkerPositionTab.tsx",
@@ -146,10 +118,6 @@
       "count": 24
     },
     {
-      "file": "src/pages/setting/SettingsContext.tsx",
-      "count": 23
-    },
-    {
       "file": "src/components/TradeTable.tsx",
       "count": 23
     },
@@ -179,10 +147,6 @@
     },
     {
       "file": "src/pages/model/components/ModelDetailDrawer.tsx",
-      "count": 18
-    },
-    {
-      "file": "src/pages/setting/SoftwareUpdateCard.tsx",
       "count": 18
     },
     {
@@ -218,10 +182,6 @@
       "count": 14
     },
     {
-      "file": "src/pages/setting/SystemInfo.tsx",
-      "count": 14
-    },
-    {
       "file": "src/components/chart/ChartSettingModal.tsx",
       "count": 14
     },
@@ -238,15 +198,7 @@
       "count": 11
     },
     {
-      "file": "src/pages/setting/Setting.tsx",
-      "count": 11
-    },
-    {
       "file": "src/pages/backtest/BacktestReplay.tsx",
-      "count": 10
-    },
-    {
-      "file": "src/pages/setting/SystemLogs.tsx",
       "count": 10
     },
     {
@@ -280,6 +232,10 @@
     {
       "file": "src/pages/model/ModelHub.tsx",
       "count": 4
+    },
+    {
+      "file": "src/pages/setting/SystemInfo.tsx",
+      "count": 3
     },
     {
       "file": "src/utils/roleManager.ts",
@@ -318,7 +274,7 @@
       "count": 1
     },
     {
-      "file": "src/pages/setting/SystemInfoPage.tsx",
+      "file": "src/pages/setting/ExchangeSettingsPage.tsx",
       "count": 1
     },
     {

@@ -111,7 +111,7 @@ const EXCHANGE_ICONS: Record<string, React.ReactNode> = {
 };
 
 const getPresetExchanges = (t: TFunction): PresetExchange[] => [
-  { id: "binance", name: t('exchange_binance') || "币安", icon: EXCHANGE_ICONS.binance },
+  { id: "binance", name: t('exchange_binance'), icon: EXCHANGE_ICONS.binance },
   { id: "okx", name: "OKX", icon: EXCHANGE_ICONS.okx },
   { id: "bybit", name: "Bybit", icon: EXCHANGE_ICONS.bybit },
   { id: "gate", name: "Gate.io", icon: EXCHANGE_ICONS.gate },
@@ -132,27 +132,27 @@ const QUOTE_CURRENCIES = [
 
 // 交易模式选项
 const getTradingModes = (t: TFunction) => [
-  { value: "spot", label: t('trading_mode_spot') || "现货" },
-  { value: "futures", label: t('trading_mode_futures') || "合约" },
-  { value: "margin", label: t('trading_mode_margin') || "杠杆" },
+  { value: "spot", label: t('trading_mode_spot') },
+  { value: "futures", label: t('trading_mode_futures') },
+  { value: "margin", label: t('trading_mode_margin') },
 ];
 
 // 交易环境类型选项
 const getTradingEnvironments = (t: TFunction) => [
   {
     value: "live",
-    label: t('env_live') || "实盘交易",
-    description: t('env_live_desc') || "订单提交至交易所，使用真实资金执行",
+    label: t('env_live'),
+    description: t('env_live_desc'),
   },
   {
     value: "testnet",
-    label: t('env_testnet') || "测试网",
-    description: t('env_testnet_desc') || "连接交易所测试网环境，订单虚拟执行，无资金风险",
+    label: t('env_testnet'),
+    description: t('env_testnet_desc'),
   },
   {
     value: "paper",
-    label: t('env_paper') || "本地模拟",
-    description: t('env_paper_desc') || "基于实时行情本地回放，不提交订单至交易所",
+    label: t('env_paper'),
+    description: t('env_paper_desc'),
   },
 ];
 
@@ -285,8 +285,8 @@ const ExchangeSettingsPage = () => {
       setExchanges(loadedExchanges);
       setSelectedExchangeId(loadedExchanges[0]?.id || "");
     } catch (error) {
-      console.error("加载交易所配置失败:", error);
-      message.error(t("load_failed") || "加载配置失败");
+      console.error("Failed to load exchange config:", error);
+      message.error(t("load_failed"));
       initDefaultExchanges();
     } finally {
       setLoading(false);
@@ -334,21 +334,21 @@ const ExchangeSettingsPage = () => {
     if (newEnv === 'live') {
       // 实盘交易风险警告
       modal.confirm({
-        title: t('live_mode_warning_title') || '实盘交易确认',
+        title: t('live_mode_warning_title'),
         content: (
           <div className="py-2">
             <p className="text-gray-500 text-sm mb-3">
-              {t('live_mode_warning_desc') || '切换到实盘环境后，所有交易订单将提交至交易所并使用真实资金执行。'}
+              {t('live_mode_warning_desc')}
             </p>
             <ul className="text-gray-500 text-sm list-disc pl-4 space-y-1">
-              <li>{t('live_mode_warning_item1') || '请确保 API Key 仅开启交易权限，不开启提现权限'}</li>
-              <li>{t('live_mode_warning_item2') || '请确认策略已在测试网环境经过充分验证'}</li>
-              <li>{t('live_mode_warning_item3') || '交易存在资金损失风险，请自行评估风险承受能力'}</li>
+              <li>{t('live_mode_warning_item1')}</li>
+              <li>{t('live_mode_warning_item2')}</li>
+              <li>{t('live_mode_warning_item3')}</li>
             </ul>
           </div>
         ),
-        okText: t('live_mode_confirm') || '确认切换',
-        cancelText: t('cancel') || '取消',
+        okText: t('live_mode_confirm'),
+        cancelText: t('cancel'),
         width: 480,
         onOk() {
           updateExchange(exchangeId, { tradingEnvironment: newEnv as ExchangeConfig['tradingEnvironment'] });
@@ -368,14 +368,14 @@ const ExchangeSettingsPage = () => {
         isDefault: e.id === exchangeId,
       }))
     );
-    message.success(t("default_exchange_set") || "默认交易所已设置");
+    message.success(t("default_exchange_set"));
   };
 
   // 保存配置（使用批量更新接口，对象数组格式）
   const handleSave = async () => {
     // 访客权限检查（双重保护：按钮禁用 + 函数内检查）
     if (isGuest) {
-      message.warning(t('guest_save_restricted') || '访客用户无法保存交易所配置，请使用普通用户账号登录');
+      message.warning(t('guest_save_config_restricted'));
       return;
     }
     
@@ -394,53 +394,55 @@ const ExchangeSettingsPage = () => {
         const exchangeName = exchange.name;
 
         batchConfigs.push(
-          { key: `${prefix}.name`, value: exchange.name, name: 'exchange', description: `${exchangeName}交易所名称` },
-          { key: `${prefix}.trading_mode`, value: exchange.tradingMode, name: 'exchange', description: `${exchangeName}交易模式` },
-          { key: `${prefix}.trading_environment`, value: exchange.tradingEnvironment || 'live', name: 'exchange', description: `${exchangeName}交易环境` },
-          { key: `${prefix}.quote_currency`, value: exchange.quoteCurrency, name: 'exchange', description: `${exchangeName}计价货币` },
-          { key: `${prefix}.commission_rate`, value: String(exchange.commission), name: 'exchange', description: `${exchangeName}手续费率` },
+          { key: `${prefix}.name`, value: exchange.name, name: 'exchange', description: t('exchange_name_label', { name: exchangeName }) },
+          { key: `${prefix}.trading_mode`, value: exchange.tradingMode, name: 'exchange', description: t('exchange_trading_mode_label', { name: exchangeName }) },
+          { key: `${prefix}.trading_environment`, value: exchange.tradingEnvironment || 'live', name: 'exchange', description: t('exchange_trading_environment_label', { name: exchangeName }) },
+          { key: `${prefix}.quote_currency`, value: exchange.quoteCurrency, name: 'exchange', description: t('exchange_quote_currency_label', { name: exchangeName }) },
+          { key: `${prefix}.commission_rate`, value: String(exchange.commission), name: 'exchange', description: t('exchange_commission_label', { name: exchangeName }) },
 
           // 实盘环境 API 配置
-          { key: `${prefix}.live_api_key`, value: exchange.liveApiKey || '', name: 'exchange', description: `${exchangeName}实盘API Key` },
-          { key: `${prefix}.live_api_secret`, value: exchange.liveApiSecret || '', name: 'exchange', description: `${exchangeName}实盘API Secret` },
+          { key: `${prefix}.live_api_key`, value: exchange.liveApiKey || '', name: 'exchange', description: t('exchange_live_api_key_label', { name: exchangeName }) },
+          { key: `${prefix}.live_api_secret`, value: exchange.liveApiSecret || '', name: 'exchange', description: t('exchange_live_api_secret_label', { name: exchangeName }) },
 
           // 模拟盘环境 API 配置
-          { key: `${prefix}.testnet_api_key`, value: exchange.testnetApiKey || '', name: 'exchange', description: `${exchangeName}模拟盘API Key` },
-          { key: `${prefix}.testnet_api_secret`, value: exchange.testnetApiSecret || '', name: 'exchange', description: `${exchangeName}模拟盘API Secret` },
+          { key: `${prefix}.testnet_api_key`, value: exchange.testnetApiKey || '', name: 'exchange', description: t('exchange_testnet_api_key_label', { name: exchangeName }) },
+          { key: `${prefix}.testnet_api_secret`, value: exchange.testnetApiSecret || '', name: 'exchange', description: t('exchange_testnet_api_secret_label', { name: exchangeName }) },
 
           // 纸上交易配置
-          { key: `${prefix}.paper_initial_balance`, value: String(exchange.paperInitialBalance || 10000), name: 'exchange', description: `${exchangeName}纸上交易初始资金` },
+          { key: `${prefix}.paper_initial_balance`, value: String(exchange.paperInitialBalance || 10000), name: 'exchange', description: t('exchange_paper_initial_balance_label', { name: exchangeName }) },
 
           // 兼容旧字段（同步 live 配置到通用字段）
-          { key: `${prefix}.api_key`, value: exchange.liveApiKey || exchange.apiKey || '', name: 'exchange', description: `${exchangeName}API Key (兼容)` },
-          { key: `${prefix}.api_secret`, value: exchange.liveApiSecret || exchange.apiSecret || '', name: 'exchange', description: `${exchangeName}API Secret (兼容)` },
+          { key: `${prefix}.api_key`, value: exchange.liveApiKey || exchange.apiKey || '', name: 'exchange', description: t('exchange_api_key_compat_label', { name: exchangeName }) },
+          { key: `${prefix}.api_secret`, value: exchange.liveApiSecret || exchange.apiSecret || '', name: 'exchange', description: t('exchange_api_secret_compat_label', { name: exchangeName }) },
 
           // 代理设置
-          { key: `${prefix}.proxy_enabled`, value: exchange.proxyEnabled ? '1' : '0', name: 'exchange', description: `${exchangeName}是否启用代理` },
-          { key: `${prefix}.proxy_url`, value: exchange.proxyUrl || '', name: 'exchange', description: `${exchangeName}代理地址` },
-          { key: `${prefix}.proxy_username`, value: exchange.proxyUsername || '', name: 'exchange', description: `${exchangeName}代理用户名` },
-          { key: `${prefix}.proxy_password`, value: exchange.proxyPassword || '', name: 'exchange', description: `${exchangeName}代理密码` },
-          { key: `${prefix}.is_enabled`, value: exchange.isEnabled ? '1' : '0', name: 'exchange', description: `${exchangeName}是否启用` },
-          { key: `${prefix}.is_default`, value: exchange.isDefault ? '1' : '0', name: 'exchange', description: `${exchangeName}是否为默认` }
+          { key: `${prefix}.proxy_enabled`, value: exchange.proxyEnabled ? '1' : '0', name: 'exchange', description: t('exchange_proxy_enabled_label', { name: exchangeName }) },
+          { key: `${prefix}.proxy_url`, value: exchange.proxyUrl || '', name: 'exchange', description: t('exchange_proxy_url_label', { name: exchangeName }) },
+          { key: `${prefix}.proxy_username`, value: exchange.proxyUsername || '', name: 'exchange', description: t('exchange_proxy_username_label', { name: exchangeName }) },
+          { key: `${prefix}.proxy_password`, value: exchange.proxyPassword || '', name: 'exchange', description: t('exchange_proxy_password_label', { name: exchangeName }) },
+          { key: `${prefix}.is_enabled`, value: exchange.isEnabled ? '1' : '0', name: 'exchange', description: t('exchange_is_enabled_label', { name: exchangeName }) },
+          { key: `${prefix}.is_default`, value: exchange.isDefault ? '1' : '0', name: 'exchange', description: t('exchange_is_default_label', { name: exchangeName }) }
         );
       });
 
       // 使用批量更新接口保存所有配置（对象数组格式）
       await configApi.updateConfig(batchConfigs);
 
-      message.success(t("config_saved") || "配置已保存");
+      message.success(t("config_saved"));
     } catch (error) {
-      console.error("保存配置失败:", error);
-      
+      console.error("Failed to save exchange config:", error);
+
       // 特殊处理 401 认证错误
+      // 这里的 '请先登录' 是与后端返回的错误消息做字面比对（后端消息不随前端语言变化），
+      // 因此必须保留中文原样，不能替换为 t() 词条
       if ((error as { code?: number })?.code === 401 || (error instanceof Error && error.message === '请先登录')) {
-        message.error(t('auth_required') || '请先登录后再保存配置');
+        message.error(t('auth_required'));
         // 延迟跳转到登录页
         setTimeout(() => {
           window.location.href = '/login';
         }, 1500);
       } else {
-        message.error(t("save_failed") || "保存失败");
+        message.error(t("save_failed_generic"));
       }
     } finally {
       setSaving(false);
@@ -471,7 +473,7 @@ const ExchangeSettingsPage = () => {
     }));
     setExchanges(initialExchanges);
     setSelectedExchangeId(initialExchanges[0]?.id || "");
-    message.success(t("config_reset") || "配置已重置");
+    message.success(t("config_reset"));
   };
 
   // 测试交易所连接
@@ -500,7 +502,7 @@ const ExchangeSettingsPage = () => {
         message.error(result.message);
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "测试连接失败";
+      const errorMsg = error instanceof Error ? error.message : t('exchange_test_connection_failed');
       setTestResult({ success: false, message: errorMsg });
       message.error(errorMsg);
     } finally {
@@ -509,13 +511,13 @@ const ExchangeSettingsPage = () => {
   };
 
   return (
-    <Spin spinning={loading} description={t("loading") || "加载中..."}>
+    <Spin spinning={loading} description={t("loading")}>
       <div className="space-y-6">
         {/* 主内容区域 - 响应式布局 */}
         <div className="flex flex-col lg:flex-row gap-6">
           {/* 左侧交易所列表 */}
           <div className="w-full lg:w-64 flex-shrink-0">
-            <div className="text-base font-medium mb-4 leading-8 h-8">{t("exchange_list") || "交易所列表"}</div>
+            <div className="text-base font-medium mb-4 leading-8 h-8">{t("exchange_list")}</div>
             <Card className="shadow-sm" styles={{ body: { padding: 8 } }}>
               {/* 小屏幕：水平排列自动换行；大屏幕：垂直列表 */}
               <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
@@ -555,7 +557,7 @@ const ExchangeSettingsPage = () => {
                   <div className="text-base font-medium">{selectedExchange.name}</div>
                   <Space>
                     <Text type="secondary" className="text-sm">
-                      {t("default_exchange") || "默认交易所"}
+                      {t("default_exchange")}
                     </Text>
                     <Switch
                       checked={selectedExchange.isDefault}
@@ -571,7 +573,7 @@ const ExchangeSettingsPage = () => {
                     {/* 启用开关 */}
                     <Form.Item className="mb-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{t("enabled") || "启用"}</span>
+                        <span className="text-sm font-medium">{t("enabled")}</span>
                         <Switch
                           checked={selectedExchange.isEnabled}
                           onChange={(checked) =>
@@ -604,7 +606,7 @@ const ExchangeSettingsPage = () => {
                     <Divider />
 
                     {/* 交易模式 */}
-                    <Form.Item label={t("trading_mode") || "交易模式"}>
+                    <Form.Item label={t("trading_mode")}>
                       <Select
                         value={selectedExchange.tradingMode}
                         onChange={(value) =>
@@ -615,7 +617,7 @@ const ExchangeSettingsPage = () => {
                     </Form.Item>
 
                     {/* 计价货币 */}
-                    <Form.Item label={t("quote_currency") || "计价货币"}>
+                    <Form.Item label={t("quote_currency")}>
                       <Select
                         value={selectedExchange.quoteCurrency}
                         onChange={(value) =>
@@ -626,7 +628,7 @@ const ExchangeSettingsPage = () => {
                     </Form.Item>
 
                     {/* 手续费 */}
-                    <Form.Item label={t("commission_rate") || "手续费率"}>
+                    <Form.Item label={t("commission_rate")}>
                       <InputNumber
                         value={selectedExchange.commission}
                         onChange={(value) =>
@@ -650,8 +652,8 @@ const ExchangeSettingsPage = () => {
                           label={t("api_key") || "API Key"}
                           extra={
                             selectedExchange.tradingEnvironment === 'testnet'
-                              ? t('testnet_api_key_hint') || "请输入测试网环境的 API Key"
-                              : t('live_api_key_hint') || "请输入实盘环境的 API Key"
+                              ? t('testnet_api_key_hint')
+                              : t('live_api_key_hint')
                           }
                         >
                           <Input.Password
@@ -669,8 +671,8 @@ const ExchangeSettingsPage = () => {
                             }}
                             placeholder={
                               selectedExchange.tradingEnvironment === 'testnet'
-                                ? t('enter_testnet_api_key') || "请输入测试网 API Key"
-                                : t('enter_api_key') || "请输入 API Key"
+                                ? t('enter_testnet_api_key')
+                                : t('enter_api_key')
                             }
                           />
                         </Form.Item>
@@ -679,8 +681,8 @@ const ExchangeSettingsPage = () => {
                           label={t("api_secret") || "API Secret"}
                           extra={
                             selectedExchange.tradingEnvironment === 'testnet'
-                              ? t('testnet_api_secret_hint') || "请输入测试网环境的 API Secret"
-                              : t('live_api_secret_hint') || "请输入实盘环境的 API Secret"
+                              ? t('testnet_api_secret_hint')
+                              : t('live_api_secret_hint')
                           }
                         >
                           <Input.Password
@@ -698,8 +700,8 @@ const ExchangeSettingsPage = () => {
                             }}
                             placeholder={
                               selectedExchange.tradingEnvironment === 'testnet'
-                                ? t('enter_testnet_api_secret') || "请输入测试网 API Secret"
-                                : t('enter_api_secret') || "请输入 API Secret"
+                                ? t('enter_testnet_api_secret')
+                                : t('enter_api_secret')
                             }
                           />
                         </Form.Item>
@@ -709,8 +711,8 @@ const ExchangeSettingsPage = () => {
                     {/* 纸上交易配置 */}
                     {selectedExchange.tradingEnvironment === 'paper' && (
                       <Form.Item
-                        label={t("paper_initial_balance") || "初始资金"}
-                        extra={t("paper_initial_balance_hint") || "设置纸上交易账户的初始虚拟资金"}
+                        label={t("paper_initial_balance")}
+                        extra={t("paper_initial_balance_hint")}
                       >
                         <Space.Compact className="w-full">
                           <span className="inline-flex items-center px-3 bg-gray-100 dark:bg-gray-700 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-md text-sm">$</span>
@@ -736,7 +738,7 @@ const ExchangeSettingsPage = () => {
                     {/* 代理设置 */}
                     <Form.Item className="mb-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{t("proxy_enabled") || "启用代理"}</span>
+                        <span className="text-sm font-medium">{t("proxy_enabled")}</span>
                         <Switch
                           checked={selectedExchange.proxyEnabled}
                           onChange={(checked) =>
@@ -748,7 +750,7 @@ const ExchangeSettingsPage = () => {
 
                     {selectedExchange.proxyEnabled && (
                       <>
-                        <Form.Item label={t("proxy_url") || "代理地址"}>
+                        <Form.Item label={t("proxy_url")}>
                           <Input
                             value={selectedExchange.proxyUrl}
                             onChange={(e) =>
@@ -758,23 +760,23 @@ const ExchangeSettingsPage = () => {
                           />
                         </Form.Item>
 
-                        <Form.Item label={t("proxy_username") || "代理用户名"}>
+                        <Form.Item label={t("proxy_username")}>
                           <Input
                             value={selectedExchange.proxyUsername}
                             onChange={(e) =>
                               updateExchange(selectedExchange.id, { proxyUsername: e.target.value })
                             }
-                            placeholder={t("optional") || "可选"}
+                            placeholder={t("optional")}
                           />
                         </Form.Item>
 
-                        <Form.Item label={t("proxy_password") || "代理密码"}>
+                        <Form.Item label={t("proxy_password")}>
                           <Input.Password
                             value={selectedExchange.proxyPassword}
                             onChange={(e) =>
                               updateExchange(selectedExchange.id, { proxyPassword: e.target.value })
                             }
-                            placeholder={t("optional") || "可选"}
+                            placeholder={t("optional")}
                           />
                         </Form.Item>
                       </>
@@ -792,10 +794,10 @@ const ExchangeSettingsPage = () => {
                         disabled={testingConnection}
                         block
                       >
-                        {testingConnection ? t("testing") || "测试中..." : t("test_connection") || "测试连接"}
+                        {testingConnection ? t("testing") : t("test_connection")}
                       </Button>
                       <div className="text-xs text-gray-400 mt-1">
-                        {t("test_connection_hint") || "测试交易所连接、API Key有效性及代理设置（不会产生实际交易）"}
+                        {t("test_connection_hint")}
                       </div>
                     </Form.Item>
 
@@ -820,12 +822,12 @@ const ExchangeSettingsPage = () => {
                             <div className="text-xs space-y-1 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                               {/* 网络连接 */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("network") || "网络连接"}:</span>
+                                <span className="text-gray-500">{t("network_connection")}:</span>
                                 <div className="flex items-center gap-1">
                                   <span className={testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success ? 'text-green-600' : 'text-red-600'}>
                                     {(testResult.details.tests.ping ?? testResult.details.tests.server_time)?.success
-                                      ? (t("passed") || "通过")
-                                      : (t("failed") || "失败")}
+                                      ? (t("passed"))
+                                      : (t("failed"))}
                                   </span>
                                   {(testResult.details.tests.ping?.error || testResult.details.tests.server_time?.error) && (
                                     <Tooltip title={testResult.details.tests.ping?.error || testResult.details.tests.server_time?.error}>
@@ -833,7 +835,7 @@ const ExchangeSettingsPage = () => {
                                     </Tooltip>
                                   )}
                                   {!(testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success) && !testResult.details.tests.ping?.error && !testResult.details.tests.server_time?.error && (
-                                    <Tooltip title={testResult.message || (t("network_error_detail") || "网络连接异常，请检查代理或防火墙设置")}>
+                                    <Tooltip title={testResult.message || (t("network_error_detail"))}>
                                       <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
@@ -841,10 +843,10 @@ const ExchangeSettingsPage = () => {
                               </div>
                               {/* 市场数据 */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("market_data") || "市场数据"}:</span>
+                                <span className="text-gray-500">{t("market_data")}:</span>
                                 <div className="flex items-center gap-1">
                                   <span className={testResult.details.tests.market_data?.success ? 'text-green-600' : 'text-red-600'}>
-                                    {testResult.details.tests.market_data?.success ? (t("normal") || "正常") : (t("failed") || "异常")}
+                                    {testResult.details.tests.market_data?.success ? (t("normal")) : (t("failed"))}
                                   </span>
                                   {testResult.details.tests.market_data?.error && (
                                     <Tooltip title={testResult.details.tests.market_data.error}>
@@ -852,7 +854,7 @@ const ExchangeSettingsPage = () => {
                                     </Tooltip>
                                   )}
                                   {!testResult.details.tests.market_data?.success && !testResult.details.tests.market_data?.error && (
-                                    <Tooltip title={testResult.message || (t("market_data_error_detail") || "无法加载市场数据，请检查交易所状态")}>
+                                    <Tooltip title={testResult.message || (t("market_data_error_detail"))}>
                                       <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
@@ -870,10 +872,10 @@ const ExchangeSettingsPage = () => {
                                         : 'text-red-600'
                                   }>
                                     {testResult.details.tests.websocket?.skipped
-                                      ? (t("not_tested") || "未测试")
+                                      ? (t("not_tested"))
                                       : testResult.details.tests.websocket?.success
-                                        ? (t("passed") || "通过")
-                                        : (t("failed") || "失败")}
+                                        ? (t("passed"))
+                                        : (t("failed"))}
                                   </span>
                                   {testResult.details.tests.websocket?.error && (
                                     <Tooltip title={testResult.details.tests.websocket.error}>
@@ -881,7 +883,7 @@ const ExchangeSettingsPage = () => {
                                     </Tooltip>
                                   )}
                                   {!testResult.details.tests.websocket?.skipped && !testResult.details.tests.websocket?.success && !testResult.details.tests.websocket?.error && (
-                                    <Tooltip title={testResult.message || (t("websocket_error_detail") || "WebSocket 连接失败，可能被防火墙拦截")}>
+                                    <Tooltip title={testResult.message || (t("websocket_error_detail"))}>
                                       <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
@@ -889,7 +891,7 @@ const ExchangeSettingsPage = () => {
                               </div>
                               {/* API认证 */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("api_auth") || "API认证"}:</span>
+                                <span className="text-gray-500">{t("api_auth")}:</span>
                                 <div className="flex items-center gap-1">
                                   <span className={
                                     testResult.details.tests.authentication?.skipped
@@ -901,12 +903,12 @@ const ExchangeSettingsPage = () => {
                                         : 'text-gray-500'
                                   }>
                                     {testResult.details.tests.authentication?.skipped
-                                      ? (t("not_tested") || "未测试")
+                                      ? (t("not_tested"))
                                       : testResult.details.tests.authentication?.success === true
-                                        ? (t("passed") || "通过")
+                                        ? (t("passed"))
                                       : testResult.details.tests.authentication?.success === false
-                                        ? (t("failed") || "失败")
-                                      : (t("not_tested") || "未测试")}
+                                        ? (t("failed"))
+                                      : (t("not_tested"))}
                                   </span>
                                   {testResult.details.tests.authentication?.error && (
                                     <Tooltip title={testResult.details.tests.authentication.error}>
@@ -919,7 +921,7 @@ const ExchangeSettingsPage = () => {
                                     </Tooltip>
                                   )}
                                   {testResult.details.tests.authentication?.success === false && !testResult.details.tests.authentication?.error && (
-                                    <Tooltip title={testResult.message || (t("auth_error_detail") || "API Key 认证失败，请检查密钥是否正确或是否有足够权限")}>
+                                    <Tooltip title={testResult.message || (t("auth_error_detail"))}>
                                       <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
@@ -937,7 +939,7 @@ const ExchangeSettingsPage = () => {
               <Card className="shadow-sm">
                 <div className="text-center py-12 text-gray-500">
                   <IconBuildingBank size="48" className="mx-auto mb-4 opacity-50" />
-                  <p>{t("select_exchange") || "请选择一个交易所"}</p>
+                  <p>{t("select_exchange_first")}</p>
                 </div>
               </Card>
             )}
@@ -948,10 +950,10 @@ const ExchangeSettingsPage = () => {
         <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <Space>
             <Button onClick={handleReset} disabled={saving || isGuest}>
-              {t("reset") || "重置"}
+              {t("reset")}
             </Button>
             <Button type="primary" onClick={handleSave} loading={saving} disabled={isGuest}>
-              {t("save") || "保存"}
+              {t("save")}
             </Button>
           </Space>
         </div>

@@ -100,7 +100,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
       setHasMore(response.hasMore);
       setPage(pageNum);
     } catch (error) {
-      console.error('加载日志失败:', error);
+      console.error('Failed to load logs:', error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -132,7 +132,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
     <div>
       {/* 标题栏 - 包含日志设置按钮 */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium">{t('system_logs') || '系统日志'}</h3>
+        <h3 className="text-lg font-medium">{t('system_logs')}</h3>
         {onLogSettingsClick && (
           <Button
             type="default"
@@ -140,7 +140,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
             icon={<IconSettings size={14} />}
             onClick={onLogSettingsClick}
           >
-            日志设置
+            {t('log_settings')}
           </Button>
         )}
       </div>
@@ -150,7 +150,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
         <div className="relative">
           {loading && (
             <div className="absolute top-4 right-8 text-xs text-stone-400">
-              {t('loading') || '加载中...'}
+              {t('loading')}
             </div>
           )}
 
@@ -158,7 +158,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
             {logs.length === 0 ? (
               <>
                 <div className="text-xs text-stone-400">
-                  {t('no_logs') || '> 暂无日志'}
+                  {t('no_logs')}
                 </div>
                 {/* 空状态时也显示操作链接 */}
                 <div className="flex w-full items-center mt-4">
@@ -166,7 +166,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                     onClick={handleRefresh}
                     className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
                   >
-                    {t('refresh_logs') || '刷新日志'}
+                    {t('refresh_logs')}
                   </a>
                 </div>
               </>
@@ -205,7 +205,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                           )}
                         >
                           <Panel
-                            header={<span className="text-xs text-stone-500">{t('details') || '详情'}</span>}
+                            header={<span className="text-xs text-stone-500">{t('details')}</span>}
                             key="1"
                           >
                             <pre
@@ -227,7 +227,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                     onClick={handleRefresh}
                     className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
                   >
-                    {t('refresh_logs') || '刷新日志'}
+                    {t('refresh_logs')}
                   </a>
                   {/* 始终显示加载更多链接，如果 hasMore 为 false 则显示为禁用状态 */}
                   <Divider orientation="vertical" className="bg-stone-600 mx-2" />
@@ -236,11 +236,11 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                       onClick={handleLoadMore}
                       className={`text-xs cursor-pointer ${loadingMore ? 'text-stone-500' : 'text-blue-400 hover:text-blue-300'}`}
                     >
-                      {loadingMore ? (t('loading') || '加载中...') : (t('load_more') || '加载更多')}
+                      {loadingMore ? (t('loading')) : (t('load_more'))}
                     </a>
                   ) : (
                     <span className="text-xs text-stone-600">
-                      {t('no_more_logs') || '没有更多了'}
+                      {t('no_more')}
                     </span>
                   )}
                 </div>

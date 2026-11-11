@@ -29,17 +29,17 @@ const SettingLayout = () => {
 
   // 菜单配置
   const menus = [
-    ["account", t("account_management") || "账户管理", <IconUser size="1em" />],
-    ["general", t("general_settings") || "通用设置", <IconPalette size="1em" />],
-    ["env", t("env_variables") || "环境变量", <IconVariable size="1em" />],
-    ["exchange", t("exchange_settings") || "交易所设置", <IconBuildingBank size="1em" />],
-    ["notifications", t("notification_settings") || "通知设置", <IconBell size="1em" />],
-    ["model", t("model_settings") || "模型设置", <IconRobot size="1em" />],
-    ["info", t("system_info") || "系统信息", <IconInfoCircle size="1em" />],
-    ["plugins", t("plugin_management") || "插件管理", <IconPuzzle size="1em" />],
+    ["account", t("account_management"), <IconUser size="1em" />],
+    ["general", t("general_settings"), <IconPalette size="1em" />],
+    ["env", t("env_variables"), <IconVariable size="1em" />],
+    ["exchange", t("exchange_settings"), <IconBuildingBank size="1em" />],
+    ["notifications", t("notification_settings"), <IconBell size="1em" />],
+    ["model", t("model_settings"), <IconRobot size="1em" />],
+    ["info", t("system_info"), <IconInfoCircle size="1em" />],
+    ["plugins", t("plugin_management"), <IconPuzzle size="1em" />],
     // 仅桌面壳显示；Web 版无此入口
     ...(isTauri()
-      ? ([["desktop-backend", t("desktop_backend") || "桌面后端", <IconDeviceDesktop size="1em" />]] satisfies [
+      ? ([["desktop-backend", t("desktop_backend"), <IconDeviceDesktop size="1em" />]] satisfies [
           string,
           string,
           React.ReactElement,
@@ -61,7 +61,7 @@ const SettingLayout = () => {
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t("setting") || "设置");
+    setPageTitle(t("setting"));
   }, [t]);
 
   // 处理菜单点击
@@ -70,7 +70,7 @@ const SettingLayout = () => {
   };
 
   return (
-    <PageContainer title={t("setting") || "设置"}>
+    <PageContainer title={t("setting")}>
       {/* 移动端水平菜单 */}
       <div className="hidden select-none max-lg:block mb-4">
         <Menu
