@@ -48,7 +48,7 @@ const { Option } = Select;
 const { TextArea } = Input;
 
 // 根据参数类型渲染不同的输入控件
-const renderParamInput = (param: StrategyParameter) => {
+const renderParamInput = (param: StrategyParameter, t: ReturnType<typeof useTranslation>['t']) => {
   const { param_type, min_value, max_value } = param;
 
   switch (param_type) {
@@ -58,7 +58,7 @@ const renderParamInput = (param: StrategyParameter) => {
           min={min_value}
           max={max_value}
           style={{ width: '100%' }}
-          placeholder={`整数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+          placeholder={t('worker_param_placeholder_int', { min: min_value ?? '-', max: max_value ?? '-' })}
         />
       );
     case 'float':
@@ -69,54 +69,57 @@ const renderParamInput = (param: StrategyParameter) => {
           step={0.01}
           precision={2}
           style={{ width: '100%' }}
-          placeholder={`浮点数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+          placeholder={t('worker_param_placeholder_float', { min: min_value ?? '-', max: max_value ?? '-' })}
         />
       );
     case 'bool':
       return (
-        <Select placeholder="选择">
-          <Option value={true}>是</Option>
-          <Option value={false}>否</Option>
+        <Select placeholder={t('please_select')}>
+          <Option value={true}>{t('yes')}</Option>
+          <Option value={false}>{t('no')}</Option>
         </Select>
       );
     case 'json':
       return (
         <TextArea
           rows={2}
-          placeholder='JSON 格式，如: {"key": "value"}'
+          placeholder={t('worker_param_placeholder_json')}
         />
       );
     case 'string':
     default:
       return (
-        <Input placeholder={param.description || '请输入值'} />
+        <Input placeholder={param.description || t('please_input_value')} />
       );
   }
 };
 
 // 时间周期列表
+// label 存 i18n key，渲染处经 t() 翻译
 const TIMEFRAMES = [
-  { value: '1m', label: '1分钟' },
-  { value: '5m', label: '5分钟' },
-  { value: '15m', label: '15分钟' },
-  { value: '30m', label: '30分钟' },
-  { value: '1h', label: '1小时' },
-  { value: '4h', label: '4小时' },
-  { value: '1d', label: '1天' },
+  { value: '1m', label: 'period_1m' },
+  { value: '5m', label: 'period_5m' },
+  { value: '15m', label: 'period_15m' },
+  { value: '30m', label: 'period_30m' },
+  { value: '1h', label: 'period_1h' },
+  { value: '4h', label: 'period_4h' },
+  { value: '1d', label: 'period_1d' },
 ];
 
 // 市场类型
+// label 存 i18n key，渲染处经 t() 翻译
 const MARKET_TYPES = [
-  { value: 'spot', label: '现货' },
-  { value: 'futures', label: '合约' },
-  { value: 'margin', label: '杠杆' },
+  { value: 'spot', label: 'spot' },
+  { value: 'futures', label: 'futures' },
+  { value: 'margin', label: 'margin' },
 ];
 
 // 交易模式（与后端 worker/config.py 保持一致：live/testnet/paper）
+// label 存 i18n key，渲染处经 t() 翻译
 const TRADING_MODES = [
-  { value: 'live', label: '实盘交易' },
-  { value: 'testnet', label: '测试网' },
-  { value: 'paper', label: '本地模拟' },
+  { value: 'live', label: 'worker_trading_mode_live' },
+  { value: 'testnet', label: 'worker_trading_mode_testnet' },
+  { value: 'paper', label: 'worker_trading_mode_paper' },
 ];
 
 interface WorkerCreateModalProps {
@@ -181,7 +184,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       setStrategies(response.strategies ?? []);
     } catch (error) {
       console.error('获取策略列表失败:', error);
-      message.error('获取策略列表失败');
+      message.error(t('worker_fetch_strategies_failed'));
       setStrategies([]);
     } finally {
       setLoadingStrategies(false);
@@ -350,7 +353,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       // 去重 + 统一大写（后端按扩写后的符号列表启动独立策略实例）
       const symbols = Array.from(new Set(expandedSymbols.map((s) => s.toUpperCase())));
       if (symbols.length === 0) {
-        message.error('请至少选择一个有效的交易标的');
+        message.error(t('worker_select_valid_trading_target'));
         return;
       }
 
@@ -404,10 +407,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             await upsertRiskControl(result.id, formValueToPayload(riskValues));
           } catch (riskError) {
             console.error('保存风控配置失败:', riskError);
-            message.warning('风控配置保存失败，可稍后在编辑中重试');
+            message.warning(t('worker_risk_save_failed_editable'));
           }
         }
-        message.success('Worker创建成功');
+        message.success(t('worker_create_success'));
         form.resetFields();
         setStrategyParams([]);
         setSelectedStrategyId(null);
@@ -416,7 +419,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       }
     } catch (error) {
       console.error('创建Worker失败:', error);
-      message.error(error instanceof Error ? error.message : '创建Worker失败');
+      message.error(error instanceof Error ? error.message : t('worker_create_failed'));
     } finally {
       setLoading(false);
     }
@@ -476,12 +479,12 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               name="name"
               label={t('worker_name')}
               rules={[
-                { required: true, message: '请输入Worker名称' },
-                { max: 50, message: '名称不能超过50个字符' },
+                { required: true, message: t('worker_name_required') },
+                { max: 50, message: t('worker_name_max_length') },
               ]}
             >
               <Input
-                placeholder="例如：BTC趋势跟踪策略"
+                placeholder={t('worker_name_placeholder')}
                 prefix={<InfoCircleOutlined />}
               />
             </Form.Item>
@@ -492,15 +495,15 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               label={
                 <Space>
                   {t('strategy')}
-                  <Tooltip title="选择要运行的策略">
+                  <Tooltip title={t('worker_strategy_tooltip')}>
                     <QuestionCircleOutlined />
                   </Tooltip>
                 </Space>
               }
-              rules={[{ required: true, message: '请选择策略' }]}
+              rules={[{ required: true, message: t('select_strategy') }]}
             >
               <Select
-                placeholder="选择策略"
+                placeholder={t('select_strategy_title')}
                 loading={loadingStrategies}
                 showSearch
                 // 回填到选择框只显示策略名，完整信息（名称+描述）在下拉项里展示
@@ -513,7 +516,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                   const text = `${strategy?.name ?? ''} ${strategy?.description ?? ''}`.toLowerCase();
                   return text.includes(input.toLowerCase());
                 }}
-                notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
+                notFoundContent={loadingStrategies ? <Spin size="small" /> : t('no_strategies')}
                 onChange={(value: number) => {
                   setSelectedStrategyId(value);
                   fetchStrategyParams(value);
@@ -567,7 +570,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         >
           <TextArea
             rows={2}
-            placeholder="描述这个Worker的用途..."
+            placeholder={t('worker_description_placeholder')}
             maxLength={200}
             showCount
           />
@@ -578,7 +581,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           <>
             <Divider>
               <Space>
-                策略参数
+                {t('strategy_params')}
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
@@ -599,9 +602,9 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                         </Space>
                       }
                       tooltip={param.description}
-                      rules={param.required ? [{ required: true, message: `请输入 ${param.param_name}` }] : []}
+                      rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
                     >
-                      {renderParamInput(param)}
+                      {renderParamInput(param, t)}
                     </Form.Item>
                   </Col>
                 ))}
@@ -618,10 +621,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             <Form.Item
               name="exchange"
               label={t('exchange')}
-              rules={[{ required: true, message: '请选择交易所' }]}
+              rules={[{ required: true, message: t('worker_please_select_exchange') }]}
             >
               <Select
-                placeholder="选择交易所"
+                placeholder={t('worker_select_exchange')}
                 loading={loadingExchanges}
                 showSearch
               >
@@ -680,12 +683,12 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             <Form.Item
               name="timeframe"
               label={t('timeframe')}
-              rules={[{ required: true, message: '请选择时间周期' }]}
+              rules={[{ required: true, message: t('worker_please_select_timeframe') }]}
             >
-              <Select placeholder="选择时间周期">
+              <Select placeholder={t('select_interval_placeholder')}>
                 {TIMEFRAMES.map((tf) => (
                   <Option key={tf.value} value={tf.value}>
-                    {tf.label}
+                    {t(tf.label)}
                   </Option>
                 ))}
               </Select>
@@ -695,12 +698,12 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             <Form.Item
               name="market_type"
               label={t('market_type')}
-              rules={[{ required: true, message: '请选择市场类型' }]}
+              rules={[{ required: true, message: t('worker_please_select_market_type') }]}
             >
-              <Select placeholder="选择市场类型">
+              <Select placeholder={t('worker_select_market_type')}>
                 {MARKET_TYPES.map((type) => (
                   <Option key={type.value} value={type.value}>
-                    {type.label}
+                    {t(type.label)}
                   </Option>
                 ))}
               </Select>
@@ -715,17 +718,17 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               label={
                 <Space>
                   {t('trading_mode')}
-                  <Tooltip title="模拟交易不会产生真实交易，实盘交易将使用真实资金">
+                  <Tooltip title={t('worker_trading_mode_tooltip')}>
                     <QuestionCircleOutlined />
                   </Tooltip>
                 </Space>
               }
-              rules={[{ required: true, message: '请选择交易模式' }]}
+              rules={[{ required: true, message: t('backtest_trading_mode_required') }]}
             >
-              <Select placeholder="选择交易模式">
+              <Select placeholder={t('worker_select_trading_mode')}>
                 {TRADING_MODES.map((mode) => (
                   <Option key={mode.value} value={mode.value}>
-                    {mode.label}
+                    {t(mode.label)}
                   </Option>
                 ))}
               </Select>
@@ -740,7 +743,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 min={1}
                 max={125}
                 style={{ width: '100%' }}
-                placeholder="杠杆倍数"
+                placeholder={t('leverage')}
               />
             </Form.Item>
           </Col>
@@ -770,7 +773,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               label={
                 <Space>
                   {t('max_position_size')}
-                  <Tooltip title="最大仓位比例(0-1)">
+                  <Tooltip title={t('worker_max_position_tooltip')}>
                     <QuestionCircleOutlined />
                   </Tooltip>
                 </Space>

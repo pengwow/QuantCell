@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Card, Col, DatePicker, Empty, Pagination, Row, Select, Space } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import TradeTable from '@/components/TradeTable';
@@ -24,6 +25,7 @@ interface WorkerTradesGroupedTabProps {
 type DirectionFilter = 'all' | 'long' | 'short';
 
 const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerId, active = true }) => {
+  const { t } = useTranslation();
   const [items, setItems] = useState<Trade[]>([]);
   const [totalGroups, setTotalGroups] = useState(0);
   const [page, setPage] = useState(1);
@@ -81,23 +83,25 @@ const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerI
   };
 
   const statsText = useMemo(() => {
-    const parts = [`共 ${totalGroups} 组`];
-    if (filterSymbol !== 'all') parts.push(`标的: ${filterSymbol}`);
-    if (filterDirection !== 'all') parts.push(`方向: ${filterDirection === 'long' ? '做多' : '做空'}`);
-    if (filterDateRange) parts.push(`日期: ${filterDateRange[0]} 至 ${filterDateRange[1]}`);
+    const parts = [t('worker_total_groups', { total: totalGroups })];
+    if (filterSymbol !== 'all') parts.push(t('worker_filter_symbol', { symbol: filterSymbol }));
+    if (filterDirection !== 'all') {
+      parts.push(t('worker_filter_direction', { direction: filterDirection === 'long' ? t('long') : t('short') }));
+    }
+    if (filterDateRange) parts.push(t('worker_filter_date', { start: filterDateRange[0], end: filterDateRange[1] }));
     return parts.join(' | ');
-  }, [totalGroups, filterSymbol, filterDirection, filterDateRange]);
+  }, [totalGroups, filterSymbol, filterDirection, filterDateRange, t]);
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title="成交分组">
+      <Card title={t('worker_trades_grouped')}>
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <Row gutter={[16, 16]} align="middle">
             <Col xs={24} sm={12} md={6}>
-              <div style={{ marginBottom: 8 }}>交易标的</div>
+              <div style={{ marginBottom: 8 }}>{t('trading_symbols')}</div>
               <Select value={filterSymbol} onChange={handleSymbolChange} style={{ width: '100%' }}>
                 {/* 「全部」在任何筛选态下都可能是当前值，必须始终渲染 */}
-                <Select.Option value="all">全部</Select.Option>
+                <Select.Option value="all">{t('all')}</Select.Option>
                 {symbols.map((symbol) => (
                   <Select.Option key={symbol} value={symbol}>
                     {symbol}
@@ -106,15 +110,15 @@ const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerI
               </Select>
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <div style={{ marginBottom: 8 }}>交易方向</div>
+              <div style={{ marginBottom: 8 }}>{t('direction')}</div>
               <Select value={filterDirection} onChange={handleDirectionChange} style={{ width: '100%' }}>
-                <Select.Option value="all">全部</Select.Option>
-                <Select.Option value="long">做多</Select.Option>
-                <Select.Option value="short">做空</Select.Option>
+                <Select.Option value="all">{t('all')}</Select.Option>
+                <Select.Option value="long">{t('long')}</Select.Option>
+                <Select.Option value="short">{t('short')}</Select.Option>
               </Select>
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <div style={{ marginBottom: 8 }}>日期范围</div>
+              <div style={{ marginBottom: 8 }}>{t('backtest_date_range')}</div>
               <DatePicker.RangePicker
                 style={{ width: '100%' }}
                 onChange={(dates) => {
@@ -128,14 +132,14 @@ const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerI
               />
             </Col>
             <Col xs={24} sm={12} md={6} style={{ textAlign: 'right' }}>
-              <Button onClick={resetFilters}>重置</Button>
+              <Button onClick={resetFilters}>{t('reset')}</Button>
             </Col>
           </Row>
 
           <span style={{ color: '#8c8c8c' }}>{statsText}</span>
 
           {items.length === 0 && !loading ? (
-            <Empty description="暂无成交分组" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty description={t('worker_no_trades_grouped')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
           ) : (
             // 服务端已分页，关掉表格内部分页，避免对当前 10 条再切一次
             <TradeTable data={items} loading={loading} pagination={false} />
@@ -147,7 +151,7 @@ const WorkerTradesGroupedTab: React.FC<WorkerTradesGroupedTabProps> = ({ workerI
             total={totalGroups}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `共 ${total} 组`}
+            showTotal={(total) => t('worker_total_groups', { total })}
             onChange={(nextPage, nextSize) => {
               // 条数变化写回全局配置并回到第一页，避免服务端分页越界
               setPage(nextSize !== pageSize ? 1 : nextPage);

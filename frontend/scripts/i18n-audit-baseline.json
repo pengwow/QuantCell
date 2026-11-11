@@ -1,5 +1,5 @@
 {
-  "total": 2147,
+  "total": 1644,
   "files": [
     {
       "file": "src/pages/data/DataManagementPage.tsx",
@@ -14,10 +14,6 @@
       "count": 111
     },
     {
-      "file": "src/components/worker/WorkerEditModal.tsx",
-      "count": 72
-    },
-    {
       "file": "src/components/IndicatorEditor.tsx",
       "count": 70
     },
@@ -26,36 +22,12 @@
       "count": 69
     },
     {
-      "file": "src/components/worker/WorkerCreateModal.tsx",
-      "count": 56
-    },
-    {
-      "file": "src/pages/agent/components/IntentPanels.tsx",
-      "count": 53
-    },
-    {
-      "file": "src/pages/agent/Agent.tsx",
-      "count": 51
-    },
-    {
-      "file": "src/pages/worker/Worker.tsx",
-      "count": 48
-    },
-    {
       "file": "src/components/RealtimeToggleButton.tsx",
       "count": 48
     },
     {
-      "file": "src/components/worker/WorkerOrderTab.tsx",
-      "count": 44
-    },
-    {
       "file": "src/pages/model/components/UnifiedModelTable.tsx",
       "count": 43
-    },
-    {
-      "file": "src/components/worker/WorkerParamsTab.tsx",
-      "count": 42
     },
     {
       "file": "src/pages/factor/FactorLibraryPane.tsx",
@@ -64,10 +36,6 @@
     {
       "file": "src/pages/factor/FactorCompare.tsx",
       "count": 37
-    },
-    {
-      "file": "src/components/worker/WorkerPositionTab.tsx",
-      "count": 35
     },
     {
       "file": "src/pages/factor/FactorFormModal.tsx",
@@ -94,14 +62,6 @@
       "count": 29
     },
     {
-      "file": "src/components/worker/WorkerShareModal.tsx",
-      "count": 29
-    },
-    {
-      "file": "src/components/worker/RiskControlForm.tsx",
-      "count": 28
-    },
-    {
       "file": "src/pages/factor/FactorResultView.tsx",
       "count": 27
     },
@@ -110,7 +70,7 @@
       "count": 27
     },
     {
-      "file": "src/pages/worker/WorkerDetail.tsx",
+      "file": "src/pages/agent/components/IntentPanels.tsx",
       "count": 25
     },
     {
@@ -130,20 +90,12 @@
       "count": 22
     },
     {
-      "file": "src/components/worker/WorkerOverviewTab.tsx",
-      "count": 22
-    },
-    {
       "file": "src/pages/model/components/RLTrainConfigForm.tsx",
       "count": 20
     },
     {
       "file": "src/components/IndicatorSelectorModal.tsx",
       "count": 19
-    },
-    {
-      "file": "src/pages/agent/store/agentStore.ts",
-      "count": 18
     },
     {
       "file": "src/pages/model/components/ModelDetailDrawer.tsx",
@@ -158,24 +110,12 @@
       "count": 17
     },
     {
-      "file": "src/components/worker/WorkerLogsPanel.tsx",
-      "count": 17
-    },
-    {
       "file": "src/pages/risk/RiskMonitorPage.tsx",
       "count": 16
     },
     {
       "file": "src/components/IndicatorParamModal.tsx",
       "count": 16
-    },
-    {
-      "file": "src/components/worker/WorkerTradesGroupedTab.tsx",
-      "count": 16
-    },
-    {
-      "file": "src/components/worker/WorkerDecisionsTab.tsx",
-      "count": 15
     },
     {
       "file": "src/pages/factor/FactorSnapshotsPanel.tsx",
@@ -206,11 +146,19 @@
       "count": 10
     },
     {
+      "file": "src/components/worker/WorkerCreateModal.tsx",
+      "count": 10
+    },
+    {
       "file": "src/pages/model/components/RegisterModelModal.tsx",
       "count": 9
     },
     {
       "file": "src/pages/model/components/TrainingWorkbench.tsx",
+      "count": 9
+    },
+    {
+      "file": "src/components/worker/WorkerEditModal.tsx",
       "count": 9
     },
     {
@@ -222,6 +170,10 @@
       "count": 8
     },
     {
+      "file": "src/components/worker/WorkerShareModal.tsx",
+      "count": 7
+    },
+    {
       "file": "src/utils/portConfig.ts",
       "count": 7
     },
@@ -230,7 +182,19 @@
       "count": 5
     },
     {
+      "file": "src/components/worker/WorkerLogsPanel.tsx",
+      "count": 5
+    },
+    {
       "file": "src/pages/model/ModelHub.tsx",
+      "count": 4
+    },
+    {
+      "file": "src/pages/worker/Worker.tsx",
+      "count": 4
+    },
+    {
+      "file": "src/components/worker/WorkerParamsTab.tsx",
       "count": 4
     },
     {
@@ -266,6 +230,10 @@
       "count": 2
     },
     {
+      "file": "src/components/worker/WorkerPositionTab.tsx",
+      "count": 2
+    },
+    {
       "file": "src/pages/backtest/BacktestDetail.tsx",
       "count": 1
     },
@@ -279,6 +247,14 @@
     },
     {
       "file": "src/components/MetricCard.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/components/worker/WorkerOrderTab.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/components/worker/WorkerTradesGroupedTab.tsx",
       "count": 1
     },
     {

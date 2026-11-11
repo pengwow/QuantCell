@@ -25,6 +25,7 @@ import {
 } from '@ant-design/icons';
 import type { IntentAction } from '../store/agentStore';
 import { useQuantColors } from '@/utils/colors';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
 const { Panel } = Collapse;
@@ -96,6 +97,7 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = useRoleTheme(roleName);
+  const { t } = useTranslation();
   const codeText = typeof structuredData.code === 'string' ? structuredData.code : '';
   const strategyName = typeof structuredData.strategy_name === 'string' ? structuredData.strategy_name : '';
 
@@ -104,14 +106,14 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
       title={
         <Space>
           <Tag color={theme.color}>{roleName}</Tag>
-          <span>策略代码</span>
+          <span>{t('agent_panel_strategy_code')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
     >
       {codeText && (
         <Collapse defaultActiveKey={['1']}>
-          <Panel header="策略代码" key="1">
+          <Panel header={t('agent_panel_strategy_code')} key="1">
             <pre style={{
               background: '#1f1f1f', // O2: 特殊装饰色，保留（终端风代码块，亮暗恒深底）
               color: '#f0f0f0',
@@ -128,14 +130,14 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
 
       {strategyName && (
         <div style={{ marginTop: 12 }}>
-          <Text strong>策略名称：</Text>
+          <Text strong>{t('agent_strategy_name_label')}</Text>
           <Tag color={theme.color}>{strategyName}</Tag>
         </div>
       )}
 
       {actions.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <Title level={5}>快速操作</Title>
+          <Title level={5}>{t('agent_quick_actions')}</Title>
           <Space wrap>
             {actions.map((action) => (
               <Button
@@ -164,14 +166,16 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
 }) => {
   const theme = useRoleTheme(roleName);
   const quant = useQuantColors();
+  const { t } = useTranslation();
 
   // 收益/夏普/回撤等指标色全部走量化语义色（O2），紫色为行业惯例强调色保留
+  // key 为后端 structuredData 的中文字段名（数据契约不可改），label 为 i18n 显示文案
   const metrics = [
-    { key: '年化收益率', value: structuredData['年化收益率'], suffix: '%', color: quant.positive },
-    { key: '夏普比率', value: structuredData['夏普比率'], suffix: '', color: quant.info },
-    { key: '最大回撤', value: structuredData['最大回撤'], suffix: '%', color: quant.negative },
-    { key: '总收益', value: structuredData['总收益'], suffix: '%', color: quant.positive },
-    { key: '胜率', value: structuredData['胜率'], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
+    { key: '年化收益率', label: t('annual_return'), value: structuredData['年化收益率'], suffix: '%', color: quant.positive },
+    { key: '夏普比率', label: t('sharpe_ratio'), value: structuredData['夏普比率'], suffix: '', color: quant.info },
+    { key: '最大回撤', label: t('max_drawdown'), value: structuredData['最大回撤'], suffix: '%', color: quant.negative },
+    { key: '总收益', label: t('total_profit'), value: structuredData['总收益'], suffix: '%', color: quant.positive },
+    { key: '胜率', label: t('win_rate'), value: structuredData['胜率'], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
   ].filter((m) => m.value !== undefined);
 
   return (
@@ -179,7 +183,7 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
       title={
         <Space>
           <Tag color={theme.color}>{roleName}</Tag>
-          <span>回测结果</span>
+          <span>{t('agent_panel_backtest_result')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
@@ -191,7 +195,7 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
             return (
               <div key={metric.key} style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                  <Text>{metric.key}</Text>
+                  <Text>{metric.label}</Text>
                   <Text strong style={{ color: metric.color }}>
                     {String(metric.value)}{metric.suffix}
                   </Text>
@@ -209,12 +213,12 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
           })}
         </div>
       ) : (
-        <Text type="secondary">暂无回测指标数据</Text>
+        <Text type="secondary">{t('agent_no_backtest_metrics')}</Text>
       )}
 
       {actions.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <Title level={5}>分析操作</Title>
+          <Title level={5}>{t('agent_analysis_actions')}</Title>
           <Space wrap>
             {actions.map((action) => (
               <Button
@@ -243,18 +247,19 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
 }) => {
   const theme = useRoleTheme(roleName);
   const quant = useQuantColors();
+  const { t } = useTranslation();
 
-  const riskLevel = typeof structuredData.risk_level === 'string' ? structuredData.risk_level : '未知';
+  // 后端 risk_level 的值是中文（低风险/中风险/高风险），作为数据值参与映射，不可 i18n
+  const riskLevel = typeof structuredData.risk_level === 'string' ? structuredData.risk_level : t('agent_unknown');
   const riskColors: Record<string, string> = {
     '低风险': quant.positive,
     '中风险': quant.warning,
     '高风险': quant.negative,
-    '未知': quant.neutral,
   };
 
   const riskInfo = [
-    { label: '风险等级', value: riskLevel, color: riskColors[riskLevel] || quant.neutral },
-    { label: '评估时间', value: new Date().toLocaleString(), color: quant.info },
+    { label: t('agent_risk_level'), value: riskLevel, color: riskColors[riskLevel] || quant.neutral },
+    { label: t('agent_assess_time'), value: new Date().toLocaleString(), color: quant.info },
   ];
 
   return (
@@ -262,7 +267,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
       title={
         <Space>
           <Tag color={theme.color}>{roleName}</Tag>
-          <span>风险评估</span>
+          <span>{t('agent_panel_risk_assessment')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
@@ -279,17 +284,17 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <Title level={5}>风险提示</Title>
+        <Title level={5}>{t('agent_risk_warning_title')}</Title>
         <div style={{ padding: 12, background: 'color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background))', borderRadius: 8 }}>
           <Text type="danger">
-            ⚠️ 投资有风险，交易需谨慎。以上评估仅供参考，不构成投资建议。
+            {t('agent_risk_disclaimer')}
           </Text>
         </div>
       </div>
 
       {actions.length > 0 && (
         <div>
-          <Title level={5}>风控操作</Title>
+          <Title level={5}>{t('agent_risk_actions')}</Title>
           <Space wrap>
             {actions.map((action) => (
               <Button
@@ -318,15 +323,17 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
 }) => {
   const theme = useRoleTheme(roleName);
   const quant = useQuantColors();
+  const { t } = useTranslation();
 
-  const direction = typeof structuredData.direction === 'string' ? structuredData.direction : '等待信号';
+  // 后端 direction/position 的值是中文数据值，作为数据显示，fallback 文案走 i18n
+  const direction = typeof structuredData.direction === 'string' ? structuredData.direction : t('agent_awaiting_signal');
   const position = typeof structuredData.position === 'string' ? structuredData.position : '0%';
   const confidence = toNumber(structuredData.confidence);
 
   const tradeInfo = [
-    { label: '建议方向', value: direction, color: quant.info },
-    { label: '建议仓位', value: position, color: quant.positive },
-    { label: '置信度', value: confidence ? `${confidence * 100}%` : '未知', color: '#722ed1' }, // O2: 特殊装饰色，保留
+    { label: t('agent_suggested_direction'), value: direction, color: quant.info },
+    { label: t('agent_suggested_position'), value: position, color: quant.positive },
+    { label: t('backtest_confidence'), value: confidence ? `${confidence * 100}%` : t('agent_unknown'), color: '#722ed1' }, // O2: 特殊装饰色，保留
   ];
 
   return (
@@ -334,7 +341,7 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
       title={
         <Space>
           <Tag color={theme.color}>{roleName}</Tag>
-          <span>交易决策</span>
+          <span>{t('agent_panel_trading_decision')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
@@ -352,7 +359,7 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
 
       {actions.length > 0 && (
         <div>
-          <Title level={5}>交易操作</Title>
+          <Title level={5}>{t('agent_trade_actions')}</Title>
           <Space wrap>
             {actions.map((action) => (
               <Button
@@ -379,10 +386,11 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = useRoleTheme(roleName);
+  const { t } = useTranslation();
 
   const dataColumns = [
-    { title: '指标', dataIndex: 'key', key: 'key' },
-    { title: '数值', dataIndex: 'value', key: 'value' },
+    { title: t('agent_metric'), dataIndex: 'key', key: 'key' },
+    { title: t('agent_value'), dataIndex: 'value', key: 'value' },
   ];
 
   const dataSource = Object.entries(structuredData).map(([key, value]) => ({
@@ -395,7 +403,7 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
       title={
         <Space>
           <Tag color={theme.color}>{roleName}</Tag>
-          <span>数据查询</span>
+          <span>{t('agent_panel_data_query')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
@@ -408,12 +416,12 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
           size="small"
         />
       ) : (
-        <Text type="secondary">暂无结构化数据</Text>
+        <Text type="secondary">{t('agent_no_structured_data')}</Text>
       )}
 
       {actions.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <Title level={5}>数据操作</Title>
+          <Title level={5}>{t('agent_data_actions')}</Title>
           <Space wrap>
             {actions.map((action) => (
               <Button
@@ -440,20 +448,21 @@ export const GeneralPanel: React.FC<IntentPanelProps> = ({
   onAction,
 }) => {
   const theme = useRoleTheme(roleName);
+  const { t } = useTranslation();
 
   return (
     <Card
       title={
         <Space>
           <Tag color={theme.color}>{roleName}</Tag>
-          <span>对话</span>
+          <span>{t('agent_panel_general')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
     >
       {actions.length > 0 && (
         <div>
-          <Title level={5}>快捷操作</Title>
+          <Title level={5}>{t('agent_quick_actions')}</Title>
           <Space wrap>
             {actions.map((action) => (
               <Button

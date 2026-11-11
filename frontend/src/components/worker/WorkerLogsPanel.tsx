@@ -178,8 +178,8 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
       <div className="mb-3">
         <div className="flex items-center gap-2">
           <FileTextOutlined />
-          <span className="text-lg font-medium">{t('real_time_logs') || '实时日志'}</span>
-          {isPaused && <Tag color="orange">{t('paused') || '已暂停'}</Tag>}
+          <span className="text-lg font-medium">{t('real_time_logs')}</span>
+          {isPaused && <Tag color="orange">{t('paused')}</Tag>}
         </div>
       </div>
 
@@ -188,7 +188,7 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
         {/* 左侧：日志级别过滤下拉列表 */}
         <Select
           mode="multiple"
-          placeholder={t('filter_by_level') || '按级别过滤'}
+          placeholder={t('filter_by_level')}
           value={selectedLevels}
           onChange={setSelectedLevels}
           style={{ width: 360 }}
@@ -206,26 +206,26 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
         {/* 右侧：操作按钮组（2个按钮） */}
         <div className="flex items-center gap-2">
           {/* 暂停/恢复 */}
-          <Tooltip title={isPaused ? (t('resume') || '恢复' ) : (t('pause') || '暂停')}>
+          <Tooltip title={isPaused ? (t('resume') ) : (t('pause'))}>
             <Button
               type={isPaused ? 'primary' : 'default'}
               size="small"
               icon={isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
               onClick={handleTogglePause}
             >
-              {isPaused ? (t('resume') || '恢复') : (t('pause') || '暂停')}
+              {isPaused ? (t('resume')) : (t('pause'))}
             </Button>
           </Tooltip>
 
           {/* 清除日志 */}
-          <Tooltip title={t('clear_logs') || '清除日志'}>
+          <Tooltip title={t('clear_logs')}>
             <Button
               size="small"
               icon={<ClearOutlined />}
               onClick={handleClear}
               disabled={logs.length === 0}
             >
-              {t('clear_logs') || '清除'}
+              {t('clear_logs')}
             </Button>
           </Tooltip>
         </div>
@@ -240,7 +240,7 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
         {!isLogStreamConnected && !isPaused && (
           <div className="px-4 py-2 bg-yellow-900/30 border-b border-yellow-800/50 shrink-0">
             <span className="text-xs text-yellow-400">
-              ⚠ {t('log_stream_disconnected') || '日志流未连接'}
+              ⚠ {t('log_stream_disconnected')}
             </span>
           </div>
         )}
@@ -255,8 +255,8 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
             <div className="text-xs text-stone-400 py-8">
               {'> '}
               {isPaused
-                ? (t('logs_paused') || '日志已暂停')
-                : (t('no_logs') || '> 暂无日志，等待连接...')}
+                ? (t('logs_paused'))
+                : (t('no_logs'))}
             </div>
           ) : (
             /* 终端风格日志列表 */
@@ -302,14 +302,14 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
         >
           <div className="flex w-full items-center">
             <span className="text-xs text-stone-500">
-              {t('total_logs') || '总数'}: {logs.length} | {t('filtered_logs') || '过滤'}:{filteredLogs.length}
+              {t('total_logs')}: {logs.length} | {t('filtered_logs')}:{filteredLogs.length}
             </span>
 
             {isPaused && (
               <>
                 <span className="mx-2 text-stone-600">|</span>
                 <span className="text-xs text-yellow-400">
-                  {t('stream_paused') || '流已暂停'}
+                  {t('stream_paused')}
                 </span>
               </>
             )}

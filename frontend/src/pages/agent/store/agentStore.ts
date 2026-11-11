@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+// 非组件模块无法使用 useTranslation hook，直接用 i18n 单例取词（同 useUpdater.ts 先例）
+import i18n from '../../../i18n/config';
 
 export interface ToolCall {
   id: string;
@@ -100,13 +102,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: '请求失败' }));
+        const errorData = await response.json().catch(() => ({ detail: i18n.t('agent_request_failed') }));
         throw new Error(errorData.detail || `HTTP ${response.status}`);
       }
 
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error('无法读取响应流');
+        throw new Error(i18n.t('agent_cannot_read_stream'));
       }
 
       let accumulatedContent = '';
@@ -155,7 +157,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             case 'start':
               // 收到意图和角色信息
               currentIntent = data.data?.intent || '';
-              currentRole = data.data?.role || 'AI 助手';
+              currentRole = data.data?.role || i18n.t('agent_ai_assistant');
               
               // 创建 AI 消息骨架
               assistantMessage = {
@@ -224,7 +226,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
             case 'error':
               // 错误事件
-              throw new Error(data.data?.error || '流式处理出错');
+              throw new Error(data.data?.error || i18n.t('agent_stream_error'));
           }
         }
       }
@@ -236,7 +238,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const defaultMessage: Message = {
           id: messageId,
           role: 'assistant',
-          content: accumulatedContent || '处理完成',
+          content: accumulatedContent || i18n.t('agent_processing_complete'),
           timestamp: new Date().toISOString(),
           intent: currentIntent,
           roleName: currentRole,
@@ -249,13 +251,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ loading: false, streaming: false });
 
     } catch (error) {
-      let errorMsg = '发送消息失败';
+      let errorMsg = i18n.t('agent_send_failed');
       let errorDetail = String(error);
 
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          errorMsg = '请求超时，Agent处理时间过长';
-          errorDetail = 'Agent处理时间超过3分钟，请简化问题或稍后重试';
+          errorMsg = i18n.t('agent_request_timeout');
+          errorDetail = i18n.t('agent_timeout_detail');
         } else {
           errorMsg = error.message;
           errorDetail = error.stack || error.message;
@@ -287,13 +289,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set({ sessions: data.sessions });
       }
     } catch (error) {
-      console.error('获取会话列表失败:', error);
+      console.error(`${i18n.t('agent_fetch_sessions_failed')}:`, error);
       // 降级使用本地存储
       const sessions: Session[] = JSON.parse(localStorage.getItem('ai-agent-sessions') || '[]');
       if (sessions.length === 0) {
         const defaultSession: Session = {
           id: 'default',
-          name: '默认会话',
+          name: i18n.t('agent_default_session'),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -314,7 +316,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const response = await fetch('/api/v1/agent/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `会话 ${new Date().toLocaleString()}` }),
+        body: JSON.stringify({ name: i18n.t('agent_session_name', { time: new Date().toLocaleString() }) }),
       });
       const data = await response.json();
       if (data.success && data.session) {
@@ -328,11 +330,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set({ sessions, currentSessionId: newSession.id, messages: [] });
       }
     } catch (error) {
-      console.error('创建会话失败:', error);
+      console.error(`${i18n.t('agent_create_session_failed')}:`, error);
       // 降级使用本地存储
       const newSession: Session = {
         id: `session-${Date.now()}`,
-        name: `会话 ${new Date().toLocaleString()}`,
+        name: i18n.t('agent_session_name', { time: new Date().toLocaleString() }),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -356,7 +358,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       });
 
       if (!response.ok) {
-        throw new Error('删除失败');
+        throw new Error(i18n.t('delete_failed'));
       }
 
       // 更新本地状态
@@ -371,7 +373,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           // 创建默认会话
           const defaultSession: Session = {
             id: 'default',
-            name: '默认会话',
+            name: i18n.t('agent_default_session'),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -388,7 +390,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
       return true;
     } catch (error) {
-      console.error('删除会话失败:', error);
+      console.error(`${i18n.t('agent_delete_session_failed')}:`, error);
       return false;
     }
   },
@@ -399,7 +401,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const tools = await response.json();
       set({ tools });
     } catch (error) {
-      console.error('获取工具列表失败:', error);
+      console.error(`${i18n.t('agent_fetch_tools_failed')}:`, error);
     }
   },
   
@@ -411,7 +413,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set({ messages: data.history });
       }
     } catch (error) {
-      console.error('获取历史记录失败:', error);
+      console.error(`${i18n.t('agent_fetch_history_failed')}:`, error);
     }
   },
 }));

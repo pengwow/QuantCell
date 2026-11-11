@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, Col, Empty, Row, Segmented, Skeleton, Statistic, Button, Space, theme } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import EChart from '@/components/EChart';
@@ -20,13 +21,15 @@ import { formatUSD, formatPercent } from '../../utils/format';
 import { useQuantColors } from '@/utils/colors';
 import { downloadCsv, timestampedFilename } from '../../utils/exportCsv';
 
-const WINDOW_OPTIONS: { label: string; value: OverviewWindow }[] = [
-  { label: '24h', value: '24h' },
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
-  { label: '90d', value: '90d' },
-  { label: '全部', value: 'all' },
-];
+// 时间范围选项的固定档位；「全部」文案需 i18n，故在组件内构造（见下）
+const WINDOW_OPTION_VALUES: OverviewWindow[] = ['24h', '7d', '30d', '90d', 'all'];
+const WINDOW_LABEL_KEYS: Record<OverviewWindow, string> = {
+  '24h': '24h',
+  '7d': '7d',
+  '30d': '30d',
+  '90d': '90d',
+  all: 'all',
+};
 
 interface KPICardSpec {
   key: keyof OverviewMetrics | 'return_rate';
@@ -36,21 +39,28 @@ interface KPICardSpec {
 
 const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNavigate?: (tab: string) => void }> = ({ workerId, active = true, onNavigate }) => {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
   const qc = useQuantColors();
   const { overview, overviewWindow, loadingOverview, fetchOverview } = useWorkerStore();
   const [localWindow, setLocalWindow] = useState<OverviewWindow>(overviewWindow || '30d');
 
+  // 时间范围选项：「全部」label 经 t() 翻译，其余档位为固定英文标记
+  const WINDOW_OPTIONS = useMemo(
+    () => WINDOW_OPTION_VALUES.map((value) => ({ label: t(WINDOW_LABEL_KEYS[value]), value })),
+    [t],
+  );
+
   // ponytail: KPI_CARDS 依赖 quantColors（跟随主题切换），必须放在 useMemo 里重建
   const KPI_CARDS = useMemo<KPICardSpec[]>(() => [
-    { key: 'total_pnl', label: '总盈亏', render: (m) => ({ value: formatUSD(m.total_pnl, { showSign: true }), color: m.total_pnl >= 0 ? qc.positive : qc.negative }) },
-    { key: 'return_rate', label: '收益率', render: (m) => ({ value: formatPercent(m.return_rate, { showSign: true }), color: m.return_rate >= 0 ? qc.positive : qc.negative }) },
-    { key: 'win_rate', label: '胜率', render: (m) => ({ value: formatPercent(m.win_rate), color: m.win_rate >= 50 ? qc.positive : qc.negative }) },
-    { key: 'profit_loss_ratio', label: '盈亏比', render: (m) => ({ value: m.profit_loss_ratio?.toFixed(2) || '0.00', color: m.profit_loss_ratio >= 1 ? qc.positive : qc.negative }) },
+    { key: 'total_pnl', label: t('backtest_metric_total_pnl'), render: (m) => ({ value: formatUSD(m.total_pnl, { showSign: true }), color: m.total_pnl >= 0 ? qc.positive : qc.negative }) },
+    { key: 'return_rate', label: t('return_rate'), render: (m) => ({ value: formatPercent(m.return_rate, { showSign: true }), color: m.return_rate >= 0 ? qc.positive : qc.negative }) },
+    { key: 'win_rate', label: t('win_rate'), render: (m) => ({ value: formatPercent(m.win_rate), color: m.win_rate >= 50 ? qc.positive : qc.negative }) },
+    { key: 'profit_loss_ratio', label: t('profit_loss_ratio'), render: (m) => ({ value: m.profit_loss_ratio?.toFixed(2) || '0.00', color: m.profit_loss_ratio >= 1 ? qc.positive : qc.negative }) },
     { key: 'profit_factor', label: 'Profit Factor', render: (m) => ({ value: m.profit_factor?.toFixed(2) || '0.00', color: m.profit_factor >= 1 ? qc.positive : qc.negative }) },
-    { key: 'max_drawdown', label: '最大回撤', render: (m) => ({ value: formatPercent(m.max_drawdown), color: qc.negative }) },
+    { key: 'max_drawdown', label: t('max_drawdown'), render: (m) => ({ value: formatPercent(m.max_drawdown), color: qc.negative }) },
     { key: 'sharpe_ratio', label: 'Sharpe Ratio', render: (m) => ({ value: m.sharpe_ratio?.toFixed(2) || '0.00', color: m.sharpe_ratio >= 1 ? qc.positive : qc.warning }) },
-    { key: 'total_trades', label: '总交易次数', render: (m) => ({ value: String(m.total_trades ?? 0), color: qc.info }) },
-  ], [qc]);
+    { key: 'total_trades', label: t('total_trades'), render: (m) => ({ value: String(m.total_trades ?? 0), color: qc.info }) },
+  ], [qc, t]);
 
   // 首次挂载 / window 切换时拉取
   useEffect(() => {
@@ -85,11 +95,11 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
   const pnlDist = overview?.pnlDistribution;
 
   // ============ 累计收益曲线 ECharts 配置 ============
-  // ponytail: 所有颜色从 theme token 派生的 quantColors 取，主题切换时自动重建
+  // ponytail: 所有颜色从 theme token 派生的 quantColors 取，主题切换时自动重建；series 名经 t() 翻译后同色重建
   const cumulativePnlOption = useMemo(() => {
     if (!series?.dates?.length) {
       return {
-        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
+        title: { text: t('no_data'), left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
         xAxis: { type: 'category', data: [] },
         yAxis: { type: 'value' },
         series: [],
@@ -112,10 +122,10 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         trigger: 'axis',
         formatter: (params: TooltipComponentFormatterCallbackParams) => {
           const items = Array.isArray(params) ? params : [params];
-          const p = items.find((x) => x.seriesName === '累计盈亏');
+          const p = items.find((x) => x.seriesName === t('backtest_cum_pnl'));
           if (!p) return '';
           const value = typeof p.value === 'number' ? p.value : Number(p.value);
-          return `${p.name}<br/>累计盈亏: <b>${formatUSD(value, { showSign: true })}</b>`;
+          return `${p.name}<br/>${t('backtest_cum_pnl')}: <b>${formatUSD(value, { showSign: true })}</b>`;
         },
       },
       grid: { left: '3%', right: '4%', bottom: '12%', top: '10%', containLabel: true },
@@ -134,7 +144,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       series: [
         // 最大回撤阴影
         {
-          name: '最大回撤',
+          name: t('max_drawdown'),
           type: 'line',
           data: drawdownArea,
           symbol: 'none',
@@ -152,7 +162,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         },
         // 累计收益曲线
         {
-          name: '累计盈亏',
+          name: t('backtest_cum_pnl'),
           type: 'line',
           data: values,
           smooth: true,
@@ -179,13 +189,13 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         { start: 0, end: 100, height: 30, bottom: 10 },
       ],
     };
-  }, [series, qc]);
+  }, [series, qc, t]);
 
   // ============ 盈亏分布直方图 ECharts 配置 ============
   const pnlDistributionOption = useMemo(() => {
     if (!pnlDist?.bins?.length) {
       return {
-        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
+        title: { text: t('no_data'), left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
         xAxis: { type: 'category', data: [] },
         yAxis: { type: 'value' },
         series: [],
@@ -206,7 +216,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         formatter: (params: TooltipComponentFormatterCallbackParams) => {
           const items = Array.isArray(params) ? params : [params];
           const p = items[0];
-          return `${p?.name || ''}<br/>交易次数: <b>${p?.value ?? 0}</b>`;
+          return `${p?.name || ''}<br/>${t('trade_count')}: <b>${p?.value ?? 0}</b>`;
         },
       },
       grid: { left: '3%', right: '4%', bottom: '12%', top: '10%', containLabel: true },
@@ -224,7 +234,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       },
       series: [
         {
-          name: '交易次数',
+          name: t('trade_count'),
           type: 'bar',
           data: pnlDist.counts,
           itemStyle: {
@@ -238,7 +248,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         },
       ],
     };
-  }, [pnlDist, qc]);
+  }, [pnlDist, qc, t]);
 
   // ============ CSV 导出 ============
   const handleExport = () => {
@@ -247,7 +257,7 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       timestampedFilename('worker_overview', workerId, localWindow),
       [metrics as unknown as Record<string, unknown>],
       [
-        { header: '指标', accessor: (m) => Object.entries(m).map(([k, v]) => `${k}: ${v}`).join('; ') },
+        { header: t('worker_metric'), accessor: (m) => Object.entries(m).map(([k, v]) => `${k}: ${v}`).join('; ') },
       ],
     );
   };
@@ -274,12 +284,12 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
   if (!metrics) {
     return (
       <Empty
-        description="暂无总览数据"
+        description={t('worker_no_overview_data')}
         image={Empty.PRESENTED_IMAGE_SIMPLE}
         style={{ marginTop: 100 }}
       >
         <Button type="primary" icon={<ReloadOutlined />} onClick={() => fetchOverview(workerId, localWindow)}>
-          重试
+          {t('retry')}
         </Button>
       </Empty>
     );
@@ -301,10 +311,10 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
             onClick={() => fetchOverview(workerId, localWindow)}
             loading={loadingOverview}
           >
-            刷新
+            {t('refresh')}
           </Button>
           <Button icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 CSV
+            {t('worker_export_csv')}
           </Button>
         </Space>
       </div>
@@ -335,12 +345,12 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       </Row>
 
       {/* 累计收益曲线 */}
-      <Card title="累计收益曲线" style={{ marginBottom: 16 }}>
+      <Card title={t('worker_cumulative_pnl_chart')} style={{ marginBottom: 16 }}>
         <EChart option={cumulativePnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
 
       {/* 盈亏分布 */}
-      <Card title="盈亏分布">
+      <Card title={t('worker_pnl_distribution')}>
         <EChart option={pnlDistributionOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
     </div>

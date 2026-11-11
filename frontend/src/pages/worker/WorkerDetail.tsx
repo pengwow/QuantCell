@@ -82,7 +82,7 @@ const WorkerDetail = () => {
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('worker_detail') || '策略详情');
+    setPageTitle(t('worker_detail'));
   }, [t]);
 
   // URL hash 同步：初始化时根据 hash 激活 tab，监听 hashchange
@@ -96,7 +96,7 @@ const WorkerDetail = () => {
       // 旧 hash 兼容
       if (raw in LEGACY_HASH_MAP) {
         const newTab = LEGACY_HASH_MAP[raw];
-        message.info('该视图已合并到 总览', 2);
+        message.info(t('worker_legacy_hash_merged'), 2);
         window.location.hash = `#${newTab}`;
         return;
       }
@@ -110,7 +110,7 @@ const WorkerDetail = () => {
     applyHash();
     window.addEventListener('hashchange', applyHash);
     return () => window.removeEventListener('hashchange', applyHash);
-  }, [message]);
+  }, [message, t]);
 
   // 切换 tab 时更新 URL hash
   const handleTabChange = (key: string) => {
@@ -162,28 +162,28 @@ const WorkerDetail = () => {
     const status = String(currentWorker.status ?? '');
     // 运行时门槛兜底：按钮 disabled 只是 UI 层拦截，弹窗打开间隙状态可能已变化
     if (!['stopped', 'error'].includes(status)) {
-      message.warning('仅已停止或异常状态的 Worker 可归档');
+      message.warning(t('worker_archive_not_allowed'));
       return;
     }
     modal.confirm({
-      title: '归档 journal 并 fresh start？',
-      content: `journal 将移动到 archive/ 目录，下次启动以 ${currentWorker.name || '该 Worker'} 的当前权益为基准重新锚定，不再对账历史记录。实盘账户请先人工核对交易所实际持仓与本地记录一致。`,
-      okText: '归档',
+      title: t('worker_archive_confirm_title'),
+      content: t('worker_archive_confirm_content', { name: currentWorker.name || t('worker_default_name') }),
+      okText: t('worker_archive_ok'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
           const result = await archiveWorkerJournal(currentWorker.id);
-          message.success(`已归档 ${result.archived.length} 个文件，下次启动 fresh start`);
+          message.success(t('worker_archive_success', { total: result.archived.length }));
           await fetchWorkerDetail(currentWorker.id);
         } catch (e) {
           // ApiError extends Error，e.message 已由响应拦截器填好后端错误信息
           const errorMsg = e instanceof Error ? e.message : String(e);
-          message.error(`归档失败: ${errorMsg}`);
+          message.error(t('worker_archive_failed', { message: errorMsg }));
         }
       },
     });
-  }, [currentWorker, fetchWorkerDetail, message, modal]);
+  }, [currentWorker, fetchWorkerDetail, message, modal, t]);
 
   // 只在 worker 确实不存在时整页替换 Spin。不能加 loading 条件：fetchWorkers 会
   // 置 store.loading=true，若此处整页 return 会卸载所有 tab（滚动位置丢失、轮询重启）；
@@ -206,11 +206,11 @@ const WorkerDetail = () => {
   }
 
   // 7 个 tab 顺序：总览 → 持仓 → 成交分组 → 委托 → 决策 → 参数 → 日志
-  // 所有标签使用 i18n；key 兜底保证 key 缺失时显示正确中文
+  // 所有标签使用 i18n
   const tabItems = [
     {
       key: 'overview',
-      label: t('overview') || '总览',
+      label: t('overview'),
       children: (
         <WorkerOverviewTab
           workerId={currentWorker.id}
@@ -221,28 +221,27 @@ const WorkerDetail = () => {
     },
     {
       key: 'positions',
-      label: t('position') || '持仓',
+      label: t('position'),
       children: <WorkerPositionTab workerId={currentWorker.id} active={activeTab === 'positions'} />,
     },
     {
       key: 'tradesGrouped',
-      // trades_grouped 尚未入库 i18n 资源，defaultValue 兜底避免直接显示 key
-      label: t('trades_grouped', '成交分组'),
+      label: t('trades_grouped'),
       children: <WorkerTradesGroupedTab workerId={currentWorker.id} active={activeTab === 'tradesGrouped'} />,
     },
     {
       key: 'orders',
-      label: t('orders') || '委托',
+      label: t('orders'),
       children: <WorkerOrderTab workerId={currentWorker.id} active={activeTab === 'orders'} />,
     },
     {
       key: 'decisions',
-      label: t('decisions', '决策'),
+      label: t('decisions'),
       children: <WorkerDecisionsTab workerId={currentWorker.id} active={activeTab === 'decisions'} />,
     },
     {
       key: 'params',
-      label: t('parameters') || '参数',
+      label: t('parameters'),
       children: (
         <WorkerParamsTab
           worker={currentWorker}
@@ -253,7 +252,7 @@ const WorkerDetail = () => {
     },
     {
       key: 'logs',
-      label: t('logs') || '日志',
+      label: t('logs'),
       children: <WorkerLogsTab workerId={currentWorker.id} />,
     },
   ];
@@ -270,14 +269,14 @@ const WorkerDetail = () => {
         <div style={{ marginBottom: 16 }}>
           <Space>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/strategy-worker')}>
-              {t('back_to_list') || '返回列表'}
+              {t('back_to_list')}
             </Button>
             <Button
               icon={<ShareAltOutlined />}
               onClick={() => setShareOpen(true)}
               disabled={!currentWorker}
             >
-              {t('share.button') || '分享'}
+              {t('share.button')}
             </Button>
             <Button
               danger
@@ -285,7 +284,7 @@ const WorkerDetail = () => {
               disabled={!currentWorker || !['stopped', 'error'].includes(String(currentWorker.status ?? ''))}
               onClick={handleArchive}
             >
-              归档重锚
+              {t('worker_archive_reanchor')}
             </Button>
           </Space>
         </div>
@@ -297,7 +296,7 @@ const WorkerDetail = () => {
               <Space>
                 <span style={{ color: QUANT_COLORS.negative }}>{error}</span>
                 <Button size="small" onClick={clearErrors}>
-                  关闭
+                  {t('close_button')}
                 </Button>
               </Space>
             </Card>
@@ -312,7 +311,7 @@ const WorkerDetail = () => {
                 <Space size="middle">
                   <span style={{ fontSize: 20, fontWeight: 600 }}>{currentWorker.name}</span>
                   {currentWorker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-                  {currentWorker.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
+                  {currentWorker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
                   <Tag color={WorkerStatusColor[currentWorker.status]}>
                     {WorkerStatusText[currentWorker.status]}
                   </Tag>
@@ -326,7 +325,7 @@ const WorkerDetail = () => {
                 <Space size="small">
                   <ClockCircleOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
                   <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', fontSize: 13 }}>
-                    最后更新：{lastUpdateText}
+                    {t('worker_last_updated', { time: lastUpdateText })}
                   </span>
                 </Space>
               </Space>
@@ -334,10 +333,10 @@ const WorkerDetail = () => {
 
             <Col>
               <Descriptions size="small" column={2}>
-                <Descriptions.Item label={t('timeframe') || '周期'}>
+                <Descriptions.Item label={t('timeframe')}>
                   <Tag color="blue">{currentWorker.trading_config?.timeframe}</Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label={t('total_profit') || '总收益'}>
+                <Descriptions.Item label={t('total_profit')}>
                   <span
                     style={{
                       fontWeight: 600,
@@ -360,7 +359,7 @@ const WorkerDetail = () => {
           <Alert
             type="error"
             showIcon
-            title={t('error_reason') || '失败原因'}
+            title={t('error_reason')}
             description={selectedWorker._state_info.error_message}
             style={{ marginBottom: 16 }}
           />

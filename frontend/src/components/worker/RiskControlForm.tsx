@@ -16,6 +16,7 @@
  * 生效的是固定金额默认，故占比行的默认与金额行同文。
  */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Col,
@@ -189,22 +190,23 @@ interface RiskControlFormProps {
 }
 
 const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
+  const { t } = useTranslation();
   // Switch 关 → 折叠字段区（值保留不清空，随 PUT 原样提交；重新启用后原值回填）
   const enabled = Form.useWatch('risk_enabled', form);
 
   return (
     <>
-      <Divider>风控防护</Divider>
+      <Divider>{t('worker_risk_guard')}</Divider>
       <Form.Item
         name="risk_enabled"
-        label="启用风控防护"
+        label={t('worker_risk_enable_label')}
         valuePropName="checked"
-        tooltip="启用后本 Worker 的交易在引擎风控层按下方阈值拦截；关闭后不再拦截任何交易"
+        tooltip={t('worker_risk_enable_tooltip')}
       >
         <Switch />
       </Form.Item>
       <Text type="secondary">
-        关闭后不再拦截交易，但已填字段值会保留，重新启用后自动恢复。未填写的项沿用引擎内置默认。
+        {t('worker_risk_off_hint')}
       </Text>
 
       {enabled && (
@@ -213,17 +215,17 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
             <Col span={12}>
               <PctField
                 name="risk_max_position_pct"
-                label="单币种最大仓位占比"
-                tooltip="持仓市值占账户权益的比例上限"
-                placeholder="引擎默认：不限制"
+                label={t('worker_risk_max_position_pct')}
+                tooltip={t('worker_risk_position_pct_tooltip')}
+                placeholder={t('worker_risk_placeholder_unlimited')}
               />
             </Col>
             <Col span={12}>
               <PctField
                 name="risk_daily_loss_limit"
-                label="当日亏损占比上限"
-                tooltip="当日累计亏损占账户权益的比例上限，超出后拦截新开仓"
-                placeholder="引擎默认：10,000 USDT"
+                label={t('worker_risk_daily_loss_limit')}
+                tooltip={t('worker_risk_daily_loss_limit_tooltip')}
+                placeholder={t('worker_risk_placeholder_loss')}
               />
             </Col>
           </Row>
@@ -231,50 +233,50 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
             <Col span={12}>
               <SuffixField
                 name="risk_daily_loss_amount"
-                label="当日亏损金额上限"
-                tooltip="当日累计亏损金额（USDT）上限，超出后拦截新开仓"
+                label={t('worker_risk_daily_loss_amount')}
+                tooltip={t('worker_risk_daily_loss_amount_tooltip')}
                 suffix="USDT"
-                placeholder="引擎默认：10,000 USDT"
+                placeholder={t('worker_risk_placeholder_loss')}
                 min={0}
               />
             </Col>
             <Col span={12}>
               <PctField
                 name="risk_max_drawdown"
-                label="最大回撤上限"
-                tooltip="账户净值自高点的最大回撤比例上限"
-                placeholder="引擎默认：15%"
+                label={t('worker_risk_max_drawdown_limit')}
+                tooltip={t('worker_risk_drawdown_tooltip')}
+                placeholder={t('worker_risk_placeholder_drawdown')}
               />
             </Col>
           </Row>
           <Text type="secondary">
-            同组限制同时填写时取更严格者生效：仓位（占比 / 名义价值）、当日亏损（占比 / 金额）。
+            {t('worker_risk_stricter_hint')}
           </Text>
 
           <Collapse
             items={[
               {
                 key: 'advanced',
-                label: '高级设置',
+                label: t('worker_risk_advanced'),
                 children: (
                   <Row gutter={16}>
                     <Col span={12}>
                       <SuffixField
                         name="risk_max_position_size"
-                        label="单币种最大持仓名义价值"
-                        tooltip="持仓市值绝对值（USDT）上限"
+                        label={t('worker_risk_max_position_size')}
+                        tooltip={t('worker_risk_position_size_tooltip')}
                         suffix="USDT"
-                        placeholder="引擎默认：不限制"
+                        placeholder={t('worker_risk_placeholder_unlimited')}
                         min={0}
                       />
                     </Col>
                     <Col span={12}>
                       <SuffixField
                         name="risk_max_leverage"
-                        label="最大杠杆倍数"
-                        tooltip="允许使用的最大杠杆"
+                        label={t('worker_risk_max_leverage')}
+                        tooltip={t('worker_risk_leverage_tooltip')}
                         suffix="x"
-                        placeholder="引擎默认：5x"
+                        placeholder={t('worker_risk_placeholder_leverage')}
                         min={1}
                         max={200}
                       />
@@ -282,10 +284,10 @@ const RiskControlForm: React.FC<RiskControlFormProps> = ({ form }) => {
                     <Col span={12}>
                       <SuffixField
                         name="risk_circuit_breaker_cooldown_secs"
-                        label="熔断冷却时长"
-                        tooltip="触发熔断后的交易暂停时长，冷却期内不下新单"
-                        suffix="分钟"
-                        placeholder="引擎默认：60 分钟"
+                        label={t('worker_risk_cooldown')}
+                        tooltip={t('worker_risk_cooldown_tooltip')}
+                        suffix={t('worker_risk_minutes')}
+                        placeholder={t('worker_risk_placeholder_cooldown')}
                         min={0}
                         max={10080}
                       />

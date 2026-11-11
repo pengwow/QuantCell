@@ -52,7 +52,7 @@ const { TextArea } = Input;
 const { Text } = Typography;
 
 // 根据参数类型渲染不同的输入控件
-const renderParamInput = (param: StrategyParameter) => {
+const renderParamInput = (param: StrategyParameter, t: ReturnType<typeof useTranslation>['t']) => {
   const { param_type, min_value, max_value } = param;
 
   switch (param_type) {
@@ -62,7 +62,7 @@ const renderParamInput = (param: StrategyParameter) => {
           min={min_value}
           max={max_value}
           style={{ width: '100%' }}
-          placeholder={`整数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+          placeholder={t('worker_param_placeholder_int', { min: min_value ?? '-', max: max_value ?? '-' })}
         />
       );
     case 'float':
@@ -73,54 +73,57 @@ const renderParamInput = (param: StrategyParameter) => {
           step={0.01}
           precision={2}
           style={{ width: '100%' }}
-          placeholder={`浮点数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+          placeholder={t('worker_param_placeholder_float', { min: min_value ?? '-', max: max_value ?? '-' })}
         />
       );
     case 'bool':
       return (
-        <Select placeholder="选择">
-          <Option value={true}>是</Option>
-          <Option value={false}>否</Option>
+        <Select placeholder={t('please_select')}>
+          <Option value={true}>{t('yes')}</Option>
+          <Option value={false}>{t('no')}</Option>
         </Select>
       );
     case 'json':
       return (
         <TextArea
           rows={2}
-          placeholder='JSON 格式，如: {"key": "value"}'
+          placeholder={t('worker_param_placeholder_json')}
         />
       );
     case 'string':
     default:
       return (
-        <Input placeholder={param.description || '请输入值'} />
+        <Input placeholder={param.description || t('please_input_value')} />
       );
   }
 };
 
 // 时间周期列表
+// label 存 i18n key，渲染处经 t() 翻译
 const TIMEFRAMES = [
-  { value: '1m', label: '1分钟' },
-  { value: '5m', label: '5分钟' },
-  { value: '15m', label: '15分钟' },
-  { value: '30m', label: '30分钟' },
-  { value: '1h', label: '1小时' },
-  { value: '4h', label: '4小时' },
-  { value: '1d', label: '1天' },
+  { value: '1m', label: 'period_1m' },
+  { value: '5m', label: 'period_5m' },
+  { value: '15m', label: 'period_15m' },
+  { value: '30m', label: 'period_30m' },
+  { value: '1h', label: 'period_1h' },
+  { value: '4h', label: 'period_4h' },
+  { value: '1d', label: 'period_1d' },
 ];
 
 // 市场类型
+// label 存 i18n key，渲染处经 t() 翻译
 const MARKET_TYPES = [
-  { value: 'spot', label: '现货' },
-  { value: 'futures', label: '合约' },
-  { value: 'margin', label: '杠杆' },
+  { value: 'spot', label: 'spot' },
+  { value: 'futures', label: 'futures' },
+  { value: 'margin', label: 'margin' },
 ];
 
 // 交易模式（与后端 worker/config.py 保持一致：live/testnet/paper）
+// label 存 i18n key，渲染处经 t() 翻译
 const TRADING_MODES = [
-  { value: 'live', label: '实盘交易' },
-  { value: 'testnet', label: '测试网' },
-  { value: 'paper', label: '本地模拟' },
+  { value: 'live', label: 'worker_trading_mode_live' },
+  { value: 'testnet', label: 'worker_trading_mode_testnet' },
+  { value: 'paper', label: 'worker_trading_mode_paper' },
 ];
 
 // 可编辑的 worker 对象（含本地表单预填用的扩展字段）
@@ -216,9 +219,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     try {
       const out = await upsertRiskControl(workerId, formValueToPayload(values));
       if (out?.applied === 'hot') {
-        message.success('风控配置已实时生效');
+        message.success(t('worker_risk_applied_hot'));
       } else {
-        message.info('风控配置将在下次启动时生效');
+        message.info(t('worker_risk_applied_on_start'));
       }
       if (out) {
         riskSnapshotRef.current = payloadToFormValue(out);
@@ -227,7 +230,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     } catch (error) {
       // 不向上抛：确认弹窗已有 OK 按钮 loading，这里给提示并返回失败
       console.error('保存风控配置失败:', error);
-      message.error('风控配置保存失败，请稍后重试');
+      message.error(t('worker_risk_save_failed'));
       return false;
     }
   };
@@ -239,13 +242,13 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       const prev = riskSnapshotRef.current;
       // 数值型风控项；cooldown 特殊：值越大限制越严（锁仓更久），方向与其余上限项相反
       const FIELDS: { f: keyof RiskFormValues; label: string; suffix: string; invert?: boolean }[] = [
-        { f: 'risk_max_position_pct', label: '单币种最大仓位占比', suffix: '%' },
-        { f: 'risk_max_position_size', label: '单币种最大名义价值', suffix: 'USDT' },
-        { f: 'risk_daily_loss_limit', label: '当日亏损上限占比', suffix: '%' },
-        { f: 'risk_daily_loss_amount', label: '当日亏损上限金额', suffix: 'USDT' },
-        { f: 'risk_max_drawdown', label: '最大回撤上限', suffix: '%' },
-        { f: 'risk_max_leverage', label: '最大杠杆', suffix: 'x' },
-        { f: 'risk_circuit_breaker_cooldown_secs', label: '熔断冷却时长', suffix: '分钟', invert: true },
+        { f: 'risk_max_position_pct', label: t('worker_risk_label_max_position_pct'), suffix: '%' },
+        { f: 'risk_max_position_size', label: t('worker_risk_label_max_position_size'), suffix: 'USDT' },
+        { f: 'risk_daily_loss_limit', label: t('worker_risk_label_daily_loss_pct'), suffix: '%' },
+        { f: 'risk_daily_loss_amount', label: t('worker_risk_label_daily_loss_amount'), suffix: 'USDT' },
+        { f: 'risk_max_drawdown', label: t('worker_risk_label_max_drawdown'), suffix: '%' },
+        { f: 'risk_max_leverage', label: t('worker_risk_label_max_leverage'), suffix: 'x' },
+        { f: 'risk_circuit_breaker_cooldown_secs', label: t('worker_risk_label_cooldown'), suffix: t('worker_risk_unit_minute'), invert: true },
       ];
       const fmtVal = (v: number | null | undefined, suffix: string) =>
         v === null || v === undefined ? '—' : `${v}${suffix ? ' ' : ''}${suffix}`;
@@ -256,7 +259,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       if (prev.risk_enabled && next.risk_enabled === false) {
         // 启用 → 停用 单独置顶提示
         switchingOff = true;
-        rows.push({ key: 'enabled', label: '风控防护', before: '启用', after: '停用', loosen: null });
+        rows.push({ key: 'enabled', label: t('worker_risk_protection'), before: t('enabled'), after: t('worker_risk_disable'), loosen: null });
       } else {
         for (const { f, label, suffix, invert } of FIELDS) {
           // TS 联合索引带出 boolean（risk_enabled），运行时这里只会取到数值字段，断言收窄
@@ -282,12 +285,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       }
 
       modal.confirm({
-        title: '确认更新风控配置？',
+        title: t('worker_risk_confirm_update_title'),
         width: 560,
         content: (
           <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
             {/* spec §5.3 要求的顶部提示：live 运行中热推即刻生效，未运行则下次启动生效 */}
-            <Text strong>修改立即作用于运行中的 worker，未运行的 worker 将在启动时生效</Text>
+            <Text strong>{t('worker_risk_confirm_effect_note')}</Text>
             {rows.map((r) => (
               <Row key={r.key} gutter={8}>
                 <Col span={9}>{r.label}</Col>
@@ -296,14 +299,14 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                     <Text type="secondary">{r.before}</Text>
                     <span>→</span>
                     <Text>{r.after}</Text>
-                    {r.loosen === true && <Tag color="orange">▲ 放宽</Tag>}
-                    {r.loosen === false && <Tag color="green">▼ 收紧</Tag>}
+                    {r.loosen === true && <Tag color="orange">{t('worker_risk_loosen')}</Tag>}
+                    {r.loosen === false && <Tag color="green">{t('worker_risk_tighten')}</Tag>}
                   </Space>
                 </Col>
               </Row>
             ))}
             {switchingOff && (
-              <Text strong type="warning">注意：关闭后风控不再拦截任何交易</Text>
+              <Text strong type="warning">{t('worker_risk_disable_warning')}</Text>
             )}
           </Space>
         ),
@@ -385,7 +388,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       setStrategies(strategyList);
     } catch (error) {
       console.error('获取策略列表失败:', error);
-      message.error('获取策略列表失败');
+      message.error(t('worker_fetch_strategies_failed'));
       setStrategies([]);
     } finally {
       setLoadingStrategies(false);
@@ -569,7 +572,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       // 去重 + 统一大写（后端按扩写后的符号列表启动独立策略实例）
       const symbols = Array.from(new Set(expandedSymbols.map((s) => s.toUpperCase())));
       if (symbols.length === 0) {
-        message.error('请至少选择一个有效的交易标的');
+        message.error(t('worker_select_valid_trading_target'));
         return;
       }
 
@@ -592,7 +595,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         strategyId = typeof rawStrategyValue === 'number' ? rawStrategyValue : worker.strategy_id;
         strategyName = worker.strategy_info?.name ?? null;
         if (!strategyName) {
-          message.error('当前关联的策略已失效，请在下拉中重新选择策略');
+          message.error(t('worker_strategy_invalid_reselect'));
           return;
         }
       }
@@ -655,20 +658,20 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             // 等待二次确认结果：用户取消时不关闭主弹窗（Worker 其余修改已保存，可继续编辑）
             const outcome = await confirmRiskUpdate(worker.id, riskValues);
             if (outcome === 'cancelled') {
-              message.info('已取消风控更新，Worker 其他修改已保存');
+              message.info(t('worker_risk_update_cancelled'));
               return;
             }
           } else {
             await pushRiskControl(worker.id, riskValues);
           }
         }
-        message.success('Worker更新成功');
+        message.success(t('worker_update_success'));
         onSuccess?.();
         handleCancel();
       }
     } catch (error) {
       console.error('更新Worker失败:', error);
-      message.error(error instanceof Error ? error.message : '更新Worker失败');
+      message.error(error instanceof Error ? error.message : t('worker_update_failed'));
     } finally {
       setLoading(false);
     }
@@ -721,12 +724,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               name="name"
               label={t('worker_name')}
               rules={[
-                { required: true, message: '请输入Worker名称' },
-                { max: 50, message: '名称不能超过50个字符' },
+                { required: true, message: t('worker_name_required') },
+                { max: 50, message: t('worker_name_max_length') },
               ]}
             >
               <Input
-                placeholder="例如：BTC趋势跟踪策略"
+                placeholder={t('worker_name_placeholder')}
                 prefix={<InfoCircleOutlined />}
               />
             </Form.Item>
@@ -737,15 +740,15 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               label={
                 <Space>
                   {t('strategy')}
-                  <Tooltip title="选择要运行的策略">
+                  <Tooltip title={t('worker_strategy_tooltip')}>
                     <QuestionCircleOutlined />
                   </Tooltip>
                 </Space>
               }
-              rules={[{ required: true, message: '请选择策略' }]}
+              rules={[{ required: true, message: t('select_strategy') }]}
             >
               <Select
-                placeholder="选择策略"
+                placeholder={t('select_strategy_title')}
                 loading={loadingStrategies}
                 showSearch
                 // 回填到选择框只显示策略名，完整信息（名称+描述）在下拉项里展示
@@ -758,7 +761,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                   const text = `${strategy?.name ?? ''} ${strategy?.description ?? ''}`.toLowerCase();
                   return text.includes(input.toLowerCase());
                 }}
-                notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
+                notFoundContent={loadingStrategies ? <Spin size="small" /> : t('no_strategies')}
                 onChange={() => {
                   if (worker.id) {
                     fetchStrategyParams(worker.id);
@@ -806,7 +809,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         >
           <TextArea
             rows={2}
-            placeholder="描述这个Worker的用途..."
+            placeholder={t('worker_description_placeholder')}
             maxLength={200}
             showCount
           />
@@ -817,7 +820,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
           <>
             <Divider>
               <Space>
-                策略参数
+                {t('strategy_params')}
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
@@ -838,9 +841,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                         </Space>
                       }
                       tooltip={param.description}
-                      rules={param.required ? [{ required: true, message: `请输入 ${param.param_name}` }] : []}
+                      rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
                     >
-                      {renderParamInput(param)}
+                      {renderParamInput(param, t)}
                     </Form.Item>
                   </Col>
                 ))}
@@ -857,10 +860,10 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             <Form.Item
               name="exchange"
               label={t('exchange')}
-              rules={[{ required: true, message: '请选择交易所' }]}
+              rules={[{ required: true, message: t('worker_please_select_exchange') }]}
             >
               <Select
-                placeholder="选择交易所"
+                placeholder={t('worker_select_exchange')}
                 loading={loadingExchanges}
                 showSearch
               >
@@ -918,12 +921,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             <Form.Item
               name="timeframe"
               label={t('timeframe')}
-              rules={[{ required: true, message: '请选择时间周期' }]}
+              rules={[{ required: true, message: t('worker_please_select_timeframe') }]}
             >
-              <Select placeholder="选择时间周期">
+              <Select placeholder={t('select_interval_placeholder')}>
                 {TIMEFRAMES.map((tf) => (
                   <Option key={tf.value} value={tf.value}>
-                    {tf.label}
+                    {t(tf.label)}
                   </Option>
                 ))}
               </Select>
@@ -933,12 +936,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             <Form.Item
               name="market_type"
               label={t('market_type')}
-              rules={[{ required: true, message: '请选择市场类型' }]}
+              rules={[{ required: true, message: t('worker_please_select_market_type') }]}
             >
-              <Select placeholder="选择市场类型">
+              <Select placeholder={t('worker_select_market_type')}>
                 {MARKET_TYPES.map((type) => (
                   <Option key={type.value} value={type.value}>
-                    {type.label}
+                    {t(type.label)}
                   </Option>
                 ))}
               </Select>
@@ -953,17 +956,17 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               label={
                 <Space>
                   {t('trading_mode')}
-                  <Tooltip title="模拟交易不会产生真实交易，实盘交易将使用真实资金">
+                  <Tooltip title={t('worker_trading_mode_tooltip')}>
                     <QuestionCircleOutlined />
                   </Tooltip>
                 </Space>
               }
-              rules={[{ required: true, message: '请选择交易模式' }]}
+              rules={[{ required: true, message: t('backtest_trading_mode_required') }]}
             >
-              <Select placeholder="选择交易模式">
+              <Select placeholder={t('worker_select_trading_mode')}>
                 {TRADING_MODES.map((mode) => (
                   <Option key={mode.value} value={mode.value}>
-                    {mode.label}
+                    {t(mode.label)}
                   </Option>
                 ))}
               </Select>
@@ -978,7 +981,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 min={1}
                 max={125}
                 style={{ width: '100%' }}
-                placeholder="杠杆倍数"
+                placeholder={t('leverage')}
               />
             </Form.Item>
           </Col>
@@ -1008,7 +1011,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               label={
                 <Space>
                   {t('max_position_size')}
-                  <Tooltip title="最大仓位比例(0-1)">
+                  <Tooltip title={t('worker_max_position_tooltip')}>
                     <QuestionCircleOutlined />
                   </Tooltip>
                 </Space>
