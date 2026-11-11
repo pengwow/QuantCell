@@ -140,7 +140,7 @@ const StrategyManagement = () => {
 
   // 页面加载时输出全局配置（用于调试）
   useEffect(() => {
-    console.log('[StrategyManagement] 页面加载，当前全局配置状态:', useConfigStore.getState());
+    console.log('[StrategyManagement] page loaded, global config state:', useConfigStore.getState());
   }, []);
 
   // 设置页面标题
@@ -158,8 +158,8 @@ const StrategyManagement = () => {
         setStrategies(response.strategies as unknown as Strategy[]);
       }
     } catch (error) {
-      console.error('加载策略列表失败:', error);
-      message.error(t('load_strategy_list_failed_generic') || '加载策略列表失败');
+      console.error('Failed to load strategy list:', error);
+      message.error(t('load_strategy_list_failed_generic'));
     } finally {
       setLoading(false);
     }
@@ -179,7 +179,7 @@ const StrategyManagement = () => {
 
     // 如果是从详情页返回（有 returnUrl 相关参数），恢复搜索和筛选状态
     if (searchFromUrl !== null || statusFromUrl !== null || sortFieldFromUrl !== null || sortOrderFromUrl !== null) {
-      console.log('[StrategyManagement] 从详情页返回，恢复搜索和筛选状态:', {
+      console.log('[StrategyManagement] returning from detail page, restoring search and filter state:', {
         search: searchFromUrl,
         strategy: strategyFromUrl,
         status: statusFromUrl,
@@ -216,7 +216,7 @@ const StrategyManagement = () => {
 
     // 如果是从回测完成跳转过来（有 taskId）
     if (taskIdFromUrl || strategyFromUrl) {
-      console.log('[StrategyManagement] 从 URL 获取参数:', { taskId: taskIdFromUrl, strategy: strategyFromUrl });
+      console.log('[StrategyManagement] params from URL:', { taskId: taskIdFromUrl, strategy: strategyFromUrl });
 
       // 如果有 taskId，填充到回测搜索框
       if (taskIdFromUrl) {
@@ -289,8 +289,8 @@ const StrategyManagement = () => {
         }));
       }
     } catch (error) {
-      console.error('加载回测列表失败:', error);
-      message.error(t('load_backtest_list_failed_generic') || '加载回测列表失败');
+      console.error('Failed to load backtest list:', error);
+      message.error(t('load_backtest_list_failed_generic'));
     } finally {
       setBacktestLoading(false);
     }
@@ -345,28 +345,28 @@ const StrategyManagement = () => {
   const handleDeleteBacktest = (backtestId: string) => {
     // 访客用户无法删除
     if (isGuest) {
-      message.warning(t('guest_delete_restricted') || '访客用户无法删除回测记录');
+      message.warning(t('guest_delete_restricted'));
       return;
     }
 
     confirm({
-      title: t('confirm_delete_backtest') || '确认删除回测记录',
-      content: t('delete_backtest_confirm_msg') || '确定要删除这条回测记录吗？此操作不可恢复。',
-      okText: t('delete') || '删除',
+      title: t('confirm_delete_backtest'),
+      content: t('delete_backtest_confirm_msg'),
+      okText: t('delete'),
       okType: 'danger',
-      cancelText: t('cancel') || '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
           await backtestApi.deleteBacktest(backtestId);
-          message.success(t('backtest_delete_success') || '回测记录删除成功');
+          message.success(t('backtest_delete_success'));
           loadBacktests();
           // 如果删除的是已选中的，清空选择
           if (backtestSelectedRowKeys.includes(backtestId)) {
             setBacktestSelectedRowKeys([]);
           }
         } catch (error) {
-          console.error('删除回测记录失败:', error);
-          message.error(t('backtest_delete_failed') || '删除回测记录失败');
+          console.error('Failed to delete backtest record:', error);
+          message.error(t('backtest_delete_failed'));
         }
       },
     });
@@ -376,34 +376,33 @@ const StrategyManagement = () => {
   const handleBatchDeleteBacktests = () => {
     // 访客用户无法删除
     if (isGuest) {
-      message.warning(t('guest_batch_delete_restricted') || '访客用户无法批量删除回测记录');
+      message.warning(t('guest_batch_delete_restricted'));
       return;
     }
 
     if (backtestSelectedRowKeys.length === 0) {
-      message.warning(t('please_select_backtest') || '请先选择要删除的回测记录');
+      message.warning(t('please_select_backtest'));
       return;
     }
 
     confirm({
-      title: t('confirm_batch_delete_backtest') || '确认批量删除回测记录',
-      content: t('batch_delete_backtest_confirm_msg', { count: backtestSelectedRowKeys.length }) ||
-        `确定要删除选中的 ${backtestSelectedRowKeys.length} 条回测记录吗？此操作不可恢复。`,
-      okText: t('delete') || '删除',
+      title: t('confirm_batch_delete_backtest'),
+      content: t('batch_delete_backtest_confirm_msg', { count: backtestSelectedRowKeys.length }),
+      okText: t('delete'),
       okType: 'danger',
-      cancelText: t('cancel') || '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
           // 并行删除所有选中的回测记录
           await Promise.all(
             backtestSelectedRowKeys.map((id) => backtestApi.deleteBacktest(id as string))
           );
-          message.success(t('batch_backtest_delete_success') || '批量删除回测记录成功');
+          message.success(t('batch_backtest_delete_success'));
           setBacktestSelectedRowKeys([]);
           loadBacktests();
         } catch (error) {
-          console.error('批量删除回测记录失败:', error);
-          message.error(t('batch_backtest_delete_failed') || '批量删除回测记录失败');
+          console.error('Failed to batch delete backtest records:', error);
+          message.error(t('batch_backtest_delete_failed'));
         }
       },
     });
@@ -422,20 +421,20 @@ const StrategyManagement = () => {
   // 删除策略
   const handleDeleteStrategy = (strategy: Strategy) => {
     confirm({
-      title: t('confirm_delete_strategy') || '确认删除策略',
-      content: t('delete_strategy_confirm_msg', { name: strategy.name }) || `确定要删除策略 "${strategy.name}" 吗？`,
-      okText: t('delete') || '删除',
+      title: t('confirm_delete_strategy'),
+      content: t('delete_strategy_confirm_msg', { name: strategy.name }),
+      okText: t('delete'),
       okType: 'danger',
-      cancelText: t('cancel') || '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
           setLoading(true);
           await strategyApi.deleteStrategy(strategy.name);
-          message.success(t('strategy_delete_success') || '策略删除成功');
+          message.success(t('strategy_delete_success'));
           loadStrategies();
         } catch (error) {
-          console.error('删除策略失败:', error);
-          message.error(t('strategy_delete_failed') || '删除策略失败');
+          console.error('Failed to delete strategy:', error);
+          message.error(t('strategy_delete_failed'));
         } finally {
           setLoading(false);
         }
@@ -460,7 +459,7 @@ const StrategyManagement = () => {
       }
       return date.toLocaleString();
     } catch (error) {
-      console.error('日期解析错误:', error);
+      console.error('Date parsing error:', error);
       return '';
     }
   };
@@ -522,7 +521,7 @@ const StrategyManagement = () => {
   // 表格列定义
   const columns: TableProps<Strategy>['columns'] = [
     {
-      title: t('strategy_name') || '策略名称',
+      title: t('strategy_name'),
       dataIndex: 'name',
       key: 'name',
       width: 200,
@@ -534,14 +533,14 @@ const StrategyManagement = () => {
           <Space>
             <span className="font-medium" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{text}</span>
             {record.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-            {record.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
+            {record.strategy_type === 'rule' && <Tag color="green">{t('sm_tag_rule')}</Tag>}
             <Tag color="blue">v{(record as unknown as StrategyBackendFields).version || '1.0.0'}</Tag>
           </Space>
         </Tooltip>
       ),
     },
     {
-      title: t('description') || '描述',
+      title: t('description'),
       dataIndex: 'description',
       key: 'description',
       width: 250,
@@ -549,33 +548,33 @@ const StrategyManagement = () => {
         showTitle: false,
       },
       render: (text: string) => (
-        <Tooltip title={text || t('no_description') || '暂无描述'} placement="topLeft">
+        <Tooltip title={text || t('no_description')} placement="topLeft">
           <span style={{ maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
-            {text || t('no_description') || '暂无描述'}
+            {text || t('no_description')}
           </span>
         </Tooltip>
       ),
     },
     {
-      title: t('create_time') || '创建时间',
+      title: t('create_time'),
       key: 'created_at',
       width: 160,
       render: (_, record: Strategy) => formatDate((record as unknown as StrategyBackendFields).created_at),
     },
     {
-      title: t('update_time') || '更新时间',
+      title: t('update_time'),
       key: 'updated_at',
       width: 160,
       render: (_, record: Strategy) => formatDate((record as unknown as StrategyBackendFields).updated_at),
     },
     {
-      title: t('action') || '操作',
+      title: t('action'),
       key: 'action',
       width: 180,
       fixed: 'right',
       render: (_, record: Strategy) => (
         <Space size="small">
-          <Tooltip title={t('edit_strategy') || '编辑策略'}>
+          <Tooltip title={t('edit_strategy')}>
             <Button
               type="text"
               size="small"
@@ -583,7 +582,7 @@ const StrategyManagement = () => {
               onClick={() => handleEditStrategy(record)}
             />
           </Tooltip>
-          <Tooltip title={isGuest ? t('guest_save_restricted') || '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
+          <Tooltip title={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}>
             <Button
               type="text"
               size="small"
@@ -593,7 +592,7 @@ const StrategyManagement = () => {
               disabled={isGuest}
             />
           </Tooltip>
-          <Tooltip title={t('backtest_strategy') || '回测策略'}>
+          <Tooltip title={t('backtest_strategy')}>
             <Button
               type="text"
               size="small"
@@ -601,7 +600,7 @@ const StrategyManagement = () => {
               onClick={() => handleBacktestStrategy(record)}
             />
           </Tooltip>
-          <Tooltip title={t('backtest_records') || '回测记录'}>
+          <Tooltip title={t('backtest_records')}>
             <Button
               type="text"
               size="small"
@@ -621,7 +620,7 @@ const StrategyManagement = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
-            placeholder={t('search_strategy') || '搜索策略名称或描述'}
+            placeholder={t('search_strategy')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
@@ -633,8 +632,8 @@ const StrategyManagement = () => {
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view')) : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view')) : undefined },
             ]}
           />
         </Col>
@@ -647,7 +646,7 @@ const StrategyManagement = () => {
           <Row gutter={[8, 8]}>
             <Col xs={12} sm={12} md={8}>
               <Select
-                placeholder={t('sort_by') || '排序'}
+                placeholder={t('sort_by')}
                 value={`${sortField}-${sortOrder}`}
                 onChange={(value) => {
                   const [field, order] = value.split('-');
@@ -656,12 +655,12 @@ const StrategyManagement = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'updated_at-desc', label: t('sort_update_time_desc') || '更新时间 ↓' },
-                  { value: 'updated_at-asc', label: t('sort_update_time_asc') || '更新时间 ↑' },
-                  { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') || '创建时间 ↓' },
-                  { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') || '创建时间 ↑' },
-                  { value: 'name-asc', label: t('sort_name_asc') || '名称 A-Z' },
-                  { value: 'name-desc', label: t('sort_name_desc') || '名称 Z-A' },
+                  { value: 'updated_at-desc', label: t('sort_update_time_desc') },
+                  { value: 'updated_at-asc', label: t('sort_update_time_asc') },
+                  { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') },
+                  { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') },
+                  { value: 'name-asc', label: t('sort_name_asc') },
+                  { value: 'name-desc', label: t('sort_name_desc') },
                 ]}
               />
             </Col>
@@ -677,7 +676,7 @@ const StrategyManagement = () => {
                 onClick={handleResetFilters}
                 style={{ width: '100%' }}
               >
-                {t('reset') || '重置'}
+                {t('reset')}
               </Button>
             </Col>
             <Col xs={12}>
@@ -687,7 +686,7 @@ const StrategyManagement = () => {
                 onClick={handleCreateStrategy}
                 style={{ width: '100%' }}
               >
-                {t('new_strategy') || '新建策略'}
+                {t('new_strategy')}
               </Button>
             </Col>
           </Row>
@@ -736,7 +735,7 @@ const StrategyManagement = () => {
                   }
                   extra={
                     <Space size="small">
-                      <Tooltip title={t('edit_strategy') || '编辑策略'}>
+                      <Tooltip title={t('edit_strategy')}>
                         <Button
                           type="text"
                           size="small"
@@ -744,7 +743,7 @@ const StrategyManagement = () => {
                           onClick={() => handleEditStrategy(strategy)}
                         />
                       </Tooltip>
-                      <Tooltip title={isGuest ? t('guest_save_restricted') || '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
+                      <Tooltip title={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}>
                         <Button
                           type="text"
                           size="small"
@@ -763,18 +762,18 @@ const StrategyManagement = () => {
                 >
                   <div className="mb-3">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-500 text-sm">{t('strategy_description') || '策略描述'}</span>
+                      <span className="text-gray-500 text-sm">{t('strategy_description')}</span>
                       <Space size={4}>
                         {strategy.strategy_type === 'rl' && (
                           <Tag color="purple">RL</Tag>
                         )}
                         {strategy.strategy_type === 'rule' && (
-                          <Tag color="green">规则</Tag>
+                          <Tag color="green">{t('sm_tag_rule')}</Tag>
                         )}
                         <Tag color="blue">v{(strategy as unknown as StrategyBackendFields).version || '1.0.0'}</Tag>
                       </Space>
                     </div>
-                    <Tooltip title={strategy.description || t('no_description') || '暂无描述'} placement="topLeft">
+                    <Tooltip title={strategy.description || t('no_description')} placement="topLeft">
                       <div
                         className="overflow-hidden text-ellipsis"
                         style={{
@@ -784,18 +783,18 @@ const StrategyManagement = () => {
                           WebkitBoxOrient: 'vertical',
                         }}
                       >
-                        {strategy.description || t('no_description') || '暂无描述'}
+                        {strategy.description || t('no_description')}
                       </div>
                     </Tooltip>
                   </div>
 
                   <div className="text-xs text-gray-500 space-y-1">
                     <div className="flex justify-between">
-                      <span>{t('create_time') || '创建时间'}:</span>
+                      <span>{t('create_time')}:</span>
                       <span>{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>{t('update_time') || '更新时间'}:</span>
+                      <span>{t('update_time')}:</span>
                       <span>{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
                     </div>
                   </div>
@@ -810,7 +809,7 @@ const StrategyManagement = () => {
                           onClick={() => handleBacktestStrategy(strategy)}
                           style={{ width: '100%' }}
                         >
-                          {t('backtest') || '回测'}
+                          {t('backtest')}
                         </Button>
                       </Col>
                       <Col span={12}>
@@ -820,7 +819,7 @@ const StrategyManagement = () => {
                           onClick={() => handleViewBacktests(strategy.name)}
                           style={{ width: '100%' }}
                         >
-                          {t('records') || '记录'}
+                          {t('records')}
                         </Button>
                       </Col>
                     </Row>
@@ -836,9 +835,9 @@ const StrategyManagement = () => {
                   padding: '60px 0',
                 }}
               >
-                <div className="mb-4">{t('no_strategies') || '暂无策略'}</div>
+                <div className="mb-4">{t('no_strategies')}</div>
                 <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateStrategy}>
-                  {t('create_first_strategy') || '创建第一个策略'}
+                  {t('create_first_strategy')}
                 </Button>
               </Card>
             </Col>
@@ -884,14 +883,14 @@ const StrategyManagement = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'completed':
-        return t('status_completed') || '已完成';
+        return t('status_completed');
       case 'running':
       case 'in_progress':
-        return t('status_running') || '运行中';
+        return t('status_running');
       case 'failed':
-        return t('status_failed') || '失败';
+        return t('status_failed');
       case 'pending':
-        return t('status_pending') || '等待中';
+        return t('status_pending');
       default:
         return status;
     }
@@ -916,14 +915,14 @@ const StrategyManagement = () => {
   // 回测列表表格列
   const backtestColumns: TableProps<BacktestTask>['columns'] = [
     {
-      title: t('strategy_name') || '策略名称',
+      title: t('strategy_name'),
       dataIndex: 'strategy_name',
       key: 'strategy_name',
       width: 150,
       ellipsis: true,
     },
     {
-      title: t('status') || '状态',
+      title: t('status'),
       dataIndex: 'status',
       key: 'status',
       width: 90,
@@ -933,7 +932,7 @@ const StrategyManagement = () => {
       ),
     },
     {
-      title: t('total_return') || '收益率',
+      title: t('total_return'),
       dataIndex: 'total_return',
       key: 'total_return',
       width: 100,
@@ -949,7 +948,7 @@ const StrategyManagement = () => {
       },
     },
     {
-      title: t('max_drawdown') || '最大回撤',
+      title: t('max_drawdown'),
       dataIndex: 'max_drawdown',
       key: 'max_drawdown',
       width: 100,
@@ -960,20 +959,20 @@ const StrategyManagement = () => {
       },
     },
     {
-      title: t('create_time') || '创建时间',
+      title: t('create_time'),
       dataIndex: 'created_at',
       key: 'created_at',
       width: 160,
       render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
     },
     {
-      title: t('action') || '操作',
+      title: t('action'),
       key: 'action',
       width: 150,
       fixed: 'right',
       render: (_, record: BacktestTask) => (
         <Space size="small">
-          <Tooltip title={t('view_details') || '查看详情'}>
+          <Tooltip title={t('view_details')}>
             <Button
               type="text"
               size="small"
@@ -981,7 +980,7 @@ const StrategyManagement = () => {
               onClick={() => handleViewDetail(record.id)}
             />
           </Tooltip>
-          <Tooltip title={t('replay') || '回放'}>
+          <Tooltip title={t('replay')}>
             <Button
               type="text"
               size="small"
@@ -989,7 +988,7 @@ const StrategyManagement = () => {
               onClick={() => handleReplay(record.id)}
             />
           </Tooltip>
-          <Tooltip title={isGuest ? (t('guest_delete_restricted') || '访客用户无法删除回测记录') : (t('delete') || '删除')}>
+          <Tooltip title={isGuest ? (t('guest_delete_restricted')) : (t('delete'))}>
             <Button
               type="text"
               size="small"
@@ -1067,7 +1066,7 @@ const StrategyManagement = () => {
                 }
                 extra={
                   // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
-                  <Tooltip title={isGuest ? t('guest_delete_restricted') || '访客用户无法删除回测记录' : (t('delete') || '删除')}>
+                  <Tooltip title={isGuest ? t('guest_delete_restricted') : (t('delete'))}>
                     <Button
                       type="text"
                       size="small"
@@ -1088,7 +1087,7 @@ const StrategyManagement = () => {
               >
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('total_return') || '收益率'}</span>
+                    <span className="text-gray-500">{t('total_return')}</span>
                     <span
                       style={{
                         color:
@@ -1106,7 +1105,7 @@ const StrategyManagement = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('max_drawdown') || '最大回撤'}</span>
+                    <span className="text-gray-500">{t('max_drawdown')}</span>
                     <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
                       {task.max_drawdown === undefined || task.max_drawdown === null
                         ? 'N/A'
@@ -1114,7 +1113,7 @@ const StrategyManagement = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('create_time') || '创建时间'}</span>
+                    <span className="text-gray-500">{t('create_time')}</span>
                     <span className="text-sm text-gray-600">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
                   </div>
                   <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
@@ -1127,7 +1126,7 @@ const StrategyManagement = () => {
                         handleViewDetail(task.id);
                       }}
                     >
-                      {t('view') || '查看'}
+                      {t('view')}
                     </Button>
                     <Button
                       type="link"
@@ -1138,7 +1137,7 @@ const StrategyManagement = () => {
                         handleReplay(task.id);
                       }}
                     >
-                      {t('replay') || '回放'}
+                      {t('replay')}
                     </Button>
                   </div>
                 </div>
@@ -1172,7 +1171,7 @@ const StrategyManagement = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
-            placeholder={t('search_backtest') || '搜索策略名称或ID'}
+            placeholder={t('search_backtest')}
             value={backtestSearchText}
             onChange={(e) => setBacktestSearchText(e.target.value)}
             onSearch={(value) => loadBacktests({ keyword: value, page: 1 })}
@@ -1185,8 +1184,8 @@ const StrategyManagement = () => {
             value={backtestViewType}
             onChange={(value) => setBacktestViewType(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view')) : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view')) : undefined },
             ]}
           />
         </Col>
@@ -1199,7 +1198,7 @@ const StrategyManagement = () => {
           <Row gutter={[8, 8]}>
             <Col xs={12} sm={8} md={8}>
               <Select
-                placeholder={t('select_strategy') || '选择策略'}
+                placeholder={t('select_strategy')}
                 value={selectedStrategy || undefined}
                 onChange={(value) => {
                   setSelectedStrategy(value ?? '');
@@ -1212,7 +1211,7 @@ const StrategyManagement = () => {
             </Col>
             <Col xs={12} sm={8} md={8}>
               <Select
-                placeholder={t('status') || '状态'}
+                placeholder={t('status')}
                 value={backtestStatusFilter}
                 onChange={(value) => {
                   setBacktestStatusFilter(value);
@@ -1220,17 +1219,17 @@ const StrategyManagement = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'all', label: t('all_status_backtest') || '全部状态' },
-                  { value: 'completed', label: t('status_completed') || '已完成' },
-                  { value: 'running', label: t('status_running') || '运行中' },
-                  { value: 'failed', label: t('status_failed') || '失败' },
-                  { value: 'pending', label: t('status_pending') || '等待中' },
+                  { value: 'all', label: t('all_status_backtest') },
+                  { value: 'completed', label: t('status_completed') },
+                  { value: 'running', label: t('status_running') },
+                  { value: 'failed', label: t('status_failed') },
+                  { value: 'pending', label: t('status_pending') },
                 ]}
               />
             </Col>
             <Col xs={12} sm={8} md={8}>
               <Select
-                placeholder={t('sort_by') || '排序'}
+                placeholder={t('sort_by')}
                 value={`${backtestSortField}-${backtestSortOrder}`}
                 onChange={(value) => {
                   const [field, order] = value.split('-');
@@ -1240,13 +1239,13 @@ const StrategyManagement = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'created_at-desc', label: t('sort_create_time_desc') || '创建时间 ↓' },
-                  { value: 'created_at-asc', label: t('sort_create_time_asc') || '创建时间 ↑' },
-                  { value: 'total_return-desc', label: t('sort_return_desc') || '收益率 ↓' },
-                  { value: 'total_return-asc', label: t('sort_return_asc') || '收益率 ↑' },
-                  { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') || '最大回撤 ↓' },
-                  { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') || '最大回撤 ↑' },
-                  { value: 'strategy_name-asc', label: t('sort_name_asc') || '策略名称 A-Z' },
+                  { value: 'created_at-desc', label: t('sort_create_time_desc') },
+                  { value: 'created_at-asc', label: t('sort_create_time_asc') },
+                  { value: 'total_return-desc', label: t('sort_return_desc') },
+                  { value: 'total_return-asc', label: t('sort_return_asc') },
+                  { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
+                  { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
+                  { value: 'strategy_name-asc', label: t('sort_name_asc') },
                 ]}
               />
             </Col>
@@ -1262,7 +1261,7 @@ const StrategyManagement = () => {
                 onClick={handleResetBacktestFilters}
                 style={{ width: '100%' }}
               >
-                {t('reset') || '重置'}
+                {t('reset')}
               </Button>
             </Col>
             <Col xs={backtestSelectedRowKeys.length > 0 ? 8 : 12}>
@@ -1273,7 +1272,7 @@ const StrategyManagement = () => {
                 loading={backtestLoading}
                 style={{ width: '100%' }}
               >
-                {t('refresh') || '刷新'}
+                {t('refresh')}
               </Button>
             </Col>
             {backtestSelectedRowKeys.length > 0 && (
@@ -1302,13 +1301,13 @@ const StrategyManagement = () => {
       label: (
         <span>
           <AppstoreOutlined style={{ marginRight: 8 }} />
-          {t('strategy_list') || '策略列表'}
+          {t('strategy_list')}
         </span>
       ),
       children: (
         <>
           {renderToolbar()}
-          <Spin spinning={loading} description={t('loading') || '加载中...'}>
+          <Spin spinning={loading} description={t('loading')}>
             {viewType === 'list' ? renderListView() : renderCardView()}
           </Spin>
         </>
@@ -1319,14 +1318,14 @@ const StrategyManagement = () => {
       label: (
         <span>
           <HistoryOutlined style={{ marginRight: 8 }} />
-          {t('backtest_records') || '回测记录'}
+          {t('backtest_records')}
           {selectedStrategy && <Tag color="blue" style={{ marginLeft: 8 }}>{selectedStrategy}</Tag>}
         </span>
       ),
       children: (
         <>
           {renderBacktestToolbar()}
-          <Spin spinning={backtestLoading} description={t('loading') || '加载中...'}>
+          <Spin spinning={backtestLoading} description={t('loading')}>
             {backtestViewType === 'list' ? renderBacktestListView() : renderBacktestCardView()}
           </Spin>
         </>

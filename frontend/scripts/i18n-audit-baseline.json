@@ -1,14 +1,6 @@
 {
-  "total": 1051,
+  "total": 788,
   "files": [
-    {
-      "file": "src/pages/strategy/StrategyEditor.tsx",
-      "count": 152
-    },
-    {
-      "file": "src/pages/strategy/StrategyManagement.tsx",
-      "count": 111
-    },
     {
       "file": "src/components/IndicatorEditor.tsx",
       "count": 70

@@ -81,10 +81,10 @@ function inferStrategyType(code: string): 'rule' | 'rl' {
  * 用户后续可从后端模板列表选择其他真实模板替代。
  */
 const DEFAULT_NEW_STRATEGY_CODE = `# -*- coding: utf-8 -*-
-"""简单 SMA 交叉策略示例 — 展示 QuantCell BaseStrategy 框架用法。
+"""Simple SMA crossover strategy — demonstrates QuantCell BaseStrategy usage.
 
-当短期均线上穿长期均线时买入，下穿时平仓。
-参数通过 StrategyConfig.params 注入。
+Buy when the fast MA crosses above the slow MA, close on cross down.
+Parameters are injected via StrategyConfig.params.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class NewStrategy(BaseStrategy):
-    """SMA 交叉策略 — 展示 BaseStrategy 正确用法。"""
+    """SMA crossover strategy — correct BaseStrategy usage."""
 
     def __init__(self, config: StrategyConfig):
         super().__init__(config)
@@ -106,7 +106,7 @@ class NewStrategy(BaseStrategy):
         closes = ctx.closes if ctx else []
         closes.append(bar["close"])
 
-        # 因子调用示例 —— 运行时适配器会注入
+        # Factor access example — injected by the runtime adapter
         rsi = ctx.get_feature("rsi", 50.0) if ctx else 50.0
 
         if len(closes) < self.slow_period:
@@ -210,7 +210,7 @@ const StrategyEditor = () => {
       name: name,
       file_name: `${name}.py`,
       file_path: '',
-      description: t('ai_generated_strategy') || 'AI 生成的策略',
+      description: t('ai_generated_strategy'),
       version: '1.0.0',
       params: [],
       created_at: new Date().toISOString(),
@@ -223,12 +223,12 @@ const StrategyEditor = () => {
 
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
-    appMessage.success(t('ai_loaded_to_editor') || 'AI 生成策略已加载到编辑器');
+    appMessage.success(t('ai_loaded_to_editor'));
   };
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(params.strategyName || t('strategy_editor') || '策略编辑器');
+    setPageTitle(params.strategyName || t('strategy_editor'));
   }, [params.strategyName, t]);
 
   // 组件挂载时，如果有策略名称参数，加载对应策略
@@ -253,7 +253,7 @@ const StrategyEditor = () => {
         // 用户确认模板时把 prefillEnsembleIdRef 写进 ensemble_id 参数默认值
         prefillEnsembleIdRef.current = state.prefillEnsembleId;
         handleCreateStrategy('rl');
-        appMessage.success(`已带入集成 ${state.prefillEnsembleId}，新建 RL 策略时将自动预填 ensemble_id`);
+        appMessage.success(t('se_msg_ensemble_prefill', { id: state.prefillEnsembleId }));
         navigate(location.pathname, { replace: true });
       } else {
         // 创建新策略
@@ -271,8 +271,8 @@ const StrategyEditor = () => {
       setSelectedStrategy(response);
       setCode(response.code);
     } catch (error) {
-      console.error(t('load_strategy_error', { message: error }) || '加载策略失败:', error);
-      appMessage.error(t('load_strategy_failed') || '加载策略失败');
+      console.error('Failed to load strategy:', error);
+      appMessage.error(t('load_strategy_failed'));
     } finally {
       setEditorLoading(false);
     }
@@ -301,32 +301,32 @@ const StrategyEditor = () => {
   // 解析策略
   // force: 是否强制重新解析，忽略缓存
   const parseStrategy = async (force = false) => {
-    console.log('[parseStrategy] 开始解析策略, force:', force);
+    console.log('[parseStrategy] start parsing, force:', force);
     if (!selectedStrategy) {
-      console.log('[parseStrategy] 没有选中策略，直接返回');
+      console.log('[parseStrategy] no strategy selected, return early');
       return;
     }
 
     const codeHash = generateCodeHash(code);
     console.log('[parseStrategy] codeHash:', codeHash);
-    console.log('[parseStrategy] 缓存状态:', parseCache.has(codeHash), '缓存大小:', parseCache.size);
+    console.log('[parseStrategy] cache state:', parseCache.has(codeHash), 'cache size:', parseCache.size);
 
     // 如果不是强制解析，检查缓存
     if (!force && parseCache.has(codeHash)) {
       const cached = parseCache.get(codeHash);
-      console.log('[parseStrategy] 找到缓存数据:', cached);
+      console.log('[parseStrategy] found cached data:', cached);
       // 只有当缓存数据有效时才使用缓存
       if (isCacheValid(cached)) {
-        console.log('[parseStrategy] 缓存数据有效，使用缓存');
+        console.log('[parseStrategy] cache valid, using cached result');
         setParsedStrategy(cached);
         setDataSource('parsed');
         setParseError(null);
         return;
       }
-      console.log('[parseStrategy] 缓存数据无效，继续调用接口');
+      console.log('[parseStrategy] cache invalid, calling backend parse API');
     }
 
-    console.log('[parseStrategy] 调用后端接口解析策略');
+    console.log('[parseStrategy] calling backend parse API');
     setIsParsing(true);
     setParseError(null);
 
@@ -337,7 +337,7 @@ const StrategyEditor = () => {
       const response = await Promise.race([
         strategyApi.parseStrategy(selectedStrategy.name, code) as Promise<Strategy>,
         new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('请求超时')), 30000);
+          setTimeout(() => reject(new Error(t('se_msg_request_timeout'))), 30000);
         })
       ]);
 
@@ -345,11 +345,11 @@ const StrategyEditor = () => {
       parseCache.set(codeHash, response);
       setDataSource('parsed');
       setParseError(null);
-      appMessage.success(t('parse_success') || '策略解析成功');
+      appMessage.success(t('parse_success'));
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : t('parse_failed') || '解析策略失败';
+      const errorMsg = error instanceof Error ? error.message : t('se_msg_parse_failed');
       setParseError(errorMsg);
-      appMessage.error(t('parse_failed', { message: errorMsg }) || `策略解析失败: ${errorMsg}`);
+      appMessage.error(t('parse_failed', { message: errorMsg }));
     } finally {
       clearTimeout(timeoutId);
       setIsParsing(false);
@@ -361,13 +361,13 @@ const StrategyEditor = () => {
   const shouldParseStrategy = (): boolean => {
     // 如果后台已有存储数据（selectedStrategy存在且有参数），直接使用存储数据，不再解析
     if (selectedStrategy && selectedStrategy.params && selectedStrategy.params.length > 0) {
-      console.log('[shouldParseStrategy] 后台已有存储数据，直接使用，不需要解析');
+      console.log('[shouldParseStrategy] stored data exists, skip parsing');
       return false;
     }
 
     // 如果没有解析过，需要解析
     if (!parsedStrategy) {
-      console.log('[shouldParseStrategy] 没有解析过，需要解析');
+      console.log('[shouldParseStrategy] never parsed, need parsing');
       return true;
     }
 
@@ -377,29 +377,29 @@ const StrategyEditor = () => {
     
     // 如果缓存中没有对应当前代码的解析结果，需要重新解析
     if (!cached) {
-      console.log('[shouldParseStrategy] 缓存中没有对应当前代码的解析结果，需要重新解析');
+      console.log('[shouldParseStrategy] no parse result for current code, need reparsing');
       return true;
     }
 
     // 如果缓存数据无效（params为空），需要重新解析
     if (!cached.params || cached.params.length === 0) {
-      console.log('[shouldParseStrategy] 缓存数据无效（params为空），需要重新解析');
+      console.log('[shouldParseStrategy] cache invalid (empty params), need reparsing');
       return true;
     }
 
-    console.log('[shouldParseStrategy] 不需要重新解析');
+    console.log('[shouldParseStrategy] no reparsing needed');
     return false;
   };
 
   // 处理标签页切换
   const handleTabChange = (key: string) => {
-    console.log('[handleTabChange] 切换到标签页:', key);
+    console.log('[handleTabChange] switch to tab:', key);
     setActiveTabKey(key);
     if (key === 'preview') {
-      console.log('[handleTabChange] 切换到preview，检查是否需要解析');
+      console.log('[handleTabChange] switch to preview, check if parsing needed');
       // 只有在需要时才调用解析接口
       const needParse = shouldParseStrategy();
-      console.log('[handleTabChange] 是否需要解析:', needParse);
+      console.log('[handleTabChange] need parsing:', needParse);
       if (needParse) {
         parseStrategy();
       } else {
@@ -415,14 +415,14 @@ const StrategyEditor = () => {
       // 切换到解析数据
       if (parsedStrategy) {
         setDataSource('parsed');
-        appMessage.info(t('switch_to_parsed') || '已切换到策略解析数据');
+        appMessage.info(t('switch_to_parsed'));
       } else {
         // 如果没有解析数据，提示用户先解析
         modal.confirm({
-          title: t('no_parse_data') || '无解析数据',
-          content: t('parse_now_confirm') || '当前没有策略解析数据，是否立即解析？',
-          okText: t('parse_now') || '立即解析',
-          cancelText: t('cancel') || '取消',
+          title: t('no_parse_data'),
+          content: t('parse_now_confirm'),
+          okText: t('parse_now'),
+          cancelText: t('cancel'),
           onOk: () => {
             parseStrategy(true);
           },
@@ -431,7 +431,7 @@ const StrategyEditor = () => {
     } else {
       // 切换到数据库数据
       setDataSource('database');
-      appMessage.info(t('switch_to_db') || '已切换到数据库存储数据');
+      appMessage.info(t('switch_to_db'));
     }
   };
 
@@ -442,9 +442,9 @@ const StrategyEditor = () => {
 
   // 规则策略示例模板（on_bar → Action，双均线交叉）
   const buildRuleTemplate = () => `# -*- coding: utf-8 -*-
-"""简单 SMA 交叉规则策略 — QuantCell BaseStrategy 框架。
+"""Simple SMA crossover rule strategy — QuantCell BaseStrategy framework.
 
-快线上穿慢线买入，下穿平多仓。参数通过 config.params 注入。
+Buy on fast-over-slow cross, close long on cross down. Parameters via config.params.
 """
 
 from __future__ import annotations
@@ -454,7 +454,7 @@ from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class NewStrategy(BaseStrategy):
-    """SMA 交叉策略：快线上穿慢线买入，下穿平多仓。"""
+    """SMA crossover: buy on fast-over-slow cross, close long on cross down."""
 
     def __init__(self, config: StrategyConfig):
         super().__init__(config)
@@ -482,10 +482,10 @@ class NewStrategy(BaseStrategy):
 
   // RL 示例模板（TradingEnv + stable-baselines3）
   const buildRlTemplate = () => `# -*- coding: utf-8 -*-
-"""RL 策略模板 — 加载已训练 PPO 模型，on_bar 推理输出 Action。
+"""RL strategy template — loads a trained PPO model, on_bar inference outputs Action.
 
-依赖: stable-baselines3、numpy、axon_quant.rl。
-训练后导出模型路径通过 config.params["model_path"] 注入。
+Deps: stable-baselines3, numpy, axon_quant.rl.
+The exported model path after training is injected via config.params["model_path"].
 """
 
 from __future__ import annotations
@@ -498,7 +498,7 @@ from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
 
 
 class NewStrategy(BaseStrategy):
-    """RL 策略模板：加载 PPO 模型，on_bar 推理目标仓位。"""
+    """RL strategy template: loads a PPO model, on_bar infers target position."""
 
     def __init__(self, config: StrategyConfig):
         super().__init__(config)
@@ -559,21 +559,21 @@ class NewStrategy(BaseStrategy):
 
     let code = isRl ? buildRlTemplate() : DEFAULT_NEW_STRATEGY_CODE;
     let description = isRl
-      ? 'RL 策略 - TradingEnv + stable-baselines3'
-      : t('new_strategy_template') || '新策略 - 基于 BaseStrategy 新框架';
+      ? t('se_field_rl_template_desc')
+      : t('new_strategy_template');
     // RL 骨架依赖两个参数（与模板代码里 config.params.get 的 key 一一对应）
     let params: Strategy['params'] = isRl
       ? [
-          { name: 'model_path', type: 'str', default: '', description: '已训练 PPO 模型路径', required: true },
+          { name: 'model_path', type: 'str', default: '', description: t('se_field_model_path_desc'), required: true },
           // 集成运行:填了 ensemble_id 则优先于 model_path(spec §4.4,二选一,后端硬校验)
           // D4:从集成工作台跳入时预填(一次性)
-          { name: 'ensemble_id', type: 'str', default: prefillEnsembleIdRef.current, description: '模型集成 ID;填入后该 RL 策略按集成运行,忽略 model_path', required: false },
-          { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
+          { name: 'ensemble_id', type: 'str', default: prefillEnsembleIdRef.current, description: t('se_field_ensemble_id_desc'), required: false },
+          { name: 'position_size', type: 'float', default: 0.1, description: t('se_field_position_size_desc'), required: false },
         ]
       : [
-          { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
-          { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
-          { name: 'position_size', type: 'float', default: 0.1, description: '目标仓位比例 (0.0-1.0)', required: false },
+          { name: 'fast_period', type: 'int', default: 10, description: t('short_period'), required: false },
+          { name: 'slow_period', type: 'int', default: 30, description: t('long_period'), required: false },
+          { name: 'position_size', type: 'float', default: 0.1, description: t('se_field_position_size_desc'), required: false },
         ];
 
     if (!isRl && templateId) {
@@ -621,19 +621,19 @@ class NewStrategy(BaseStrategy):
   // 类型按代码特征推断回填 Segmented；params 留空走 AI 采纳先例，编辑器里可补。
   const handleCreateFromFile = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.py')) {
-      appMessage.error('仅支持 .py 策略文件');
+      appMessage.error(t('se_msg_py_only'));
       return;
     }
     // ponytail: 1MB 上限只防误传大文件；超限说明选错对象，策略脚本远小于此
     if (file.size > 1024 * 1024) {
-      appMessage.error('文件超过 1MB，请确认选择的是策略脚本');
+      appMessage.error(t('se_msg_file_too_large'));
       return;
     }
     let content = '';
     try {
       content = await file.text();
     } catch {
-      appMessage.error('文件读取失败，请重试');
+      appMessage.error(t('se_msg_file_read_failed'));
       return;
     }
     const inferredType = inferStrategyType(content);
@@ -643,7 +643,7 @@ class NewStrategy(BaseStrategy):
       name,
       file_name: file.name,
       file_path: '',
-      description: `从本地文件创建 - ${file.name}`,
+      description: t('se_msg_created_from_file', { name: file.name }),
       version: '1.0.0',
       params: [],
       created_at: new Date().toISOString(),
@@ -654,7 +654,7 @@ class NewStrategy(BaseStrategy):
     setSelectedStrategy(newStrategy);
     setCode(content);
     setTemplatePickerVisible(false);
-    appMessage.success(`已从文件创建「${name}」（${inferredType === 'rl' ? 'RL 策略' : '规则策略'}）`);
+    appMessage.success(t(inferredType === 'rl' ? 'se_msg_created_from_file_rl' : 'se_msg_created_from_file_rule', { name }));
   };
 
   // 创建弹窗两处上传入口（模板下拉底部规则策略、RL 说明区链接）共用一套上传行为
@@ -672,16 +672,16 @@ class NewStrategy(BaseStrategy):
   // 保存策略
   const handleSaveStrategy = async () => {
     if (!selectedStrategy) {
-      appMessage.error(t('please_select_create_strategy') || '请先选择或创建策略');
+      appMessage.error(t('please_select_create_strategy'));
       return;
     }
 
     modal.confirm({
-      title: t('confirm_save_strategy') || '确认保存策略',
-      content: t('save_strategy_confirm') || '您确定要保存当前策略吗？',
-      okText: t('save') || '保存',
+      title: t('confirm_save_strategy'),
+      content: t('save_strategy_confirm'),
+      okText: t('save'),
       okType: 'primary',
-      cancelText: t('cancel') || '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
           setLoading(true);
@@ -724,10 +724,10 @@ class NewStrategy(BaseStrategy):
             strategy_type: selectedStrategy.strategy_type || 'rule',
           });
 
-          appMessage.success(t('strategy_saved') || '策略保存成功');
+          appMessage.success(t('strategy_saved'));
         } catch (error) {
-          console.error(t('save_strategy_failed') || '保存策略失败:', error);
-          appMessage.error(t('save_strategy_failed') || '保存策略失败');
+          console.error('Failed to save strategy:', error);
+          appMessage.error(t('save_strategy_failed'));
         } finally {
           setLoading(false);
         }
@@ -814,14 +814,14 @@ class NewStrategy(BaseStrategy):
   const handleReparseStrategy = async () => {
     if (!selectedStrategy) return;
     modal.confirm({
-      title: t('confirm_reparse') || '确认重新解析',
-      content: t('reparse_warning') || '将从策略源码 AST 提取参数、因子和描述信息，覆盖数据库中的当前版本。确定要继续吗？',
-      okText: t('reparse') || '重新解析',
+      title: t('confirm_reparse'),
+      content: t('reparse_warning'),
+      okText: t('reparse'),
       okType: 'primary',
-      cancelText: t('cancel') || '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
-          appMessage.loading({ content: t('reparsing') || '重新解析中...', key: 'reparse' });
+          appMessage.loading({ content: t('reparsing'), key: 'reparse' });
 
           const isSaved = !!selectedStrategy.file_path;
           let info: any;
@@ -843,11 +843,11 @@ class NewStrategy(BaseStrategy):
             factors: info?.factors || [],
           });
           appMessage.success({
-            content: t('reparse_done') || `重新解析完成：参数 ${info?.params?.length || 0} 个，因子 ${info?.factors?.length || 0} 个`,
+            content: t('se_msg_reparse_done', { params: info?.params?.length || 0, factors: info?.factors?.length || 0 }),
             key: 'reparse',
           });
         } catch (e: any) {
-          appMessage.error({ content: `${t('reparse_failed') || '重新解析失败'}: ${e?.message || e}`, key: 'reparse' });
+          appMessage.error({ content: `${t('reparse_failed')}: ${e?.message || e}`, key: 'reparse' });
         }
       },
     });
@@ -856,20 +856,20 @@ class NewStrategy(BaseStrategy):
   // 重置策略代码
   const handleResetCode = () => {
     if (!selectedStrategy) {
-      appMessage.error(t('please_select_create_strategy') || '请先选择或创建策略');
+      appMessage.error(t('please_select_create_strategy'));
       return;
     }
 
     modal.confirm({
-      title: t('confirm_reset_code') || '确认重置策略代码',
-      content: t('reset_code_confirm') || '您确定要重置当前策略代码吗？所有未保存的更改将丢失。',
-      okText: t('reset') || '重置',
+      title: t('confirm_reset_code'),
+      content: t('reset_code_confirm'),
+      okText: t('reset'),
       okType: 'danger',
-      cancelText: t('cancel') || '取消',
+      cancelText: t('cancel'),
       onOk: () => {
         if (selectedStrategy) {
           setCode(selectedStrategy.code);
-          appMessage.success(t('code_reset') || '策略代码已重置');
+          appMessage.success(t('code_reset'));
         }
       },
     });
@@ -878,7 +878,7 @@ class NewStrategy(BaseStrategy):
   // 回测策略
   const handleBacktestStrategy = () => {
     if (!selectedStrategy) {
-      appMessage.error(t('please_select_create_strategy') || '请先选择或创建策略');
+      appMessage.error(t('please_select_create_strategy'));
       return;
     }
 
@@ -973,8 +973,8 @@ class NewStrategy(BaseStrategy):
 
   // 根据编辑/创建模式确定页面标题
   const pageTitle = params.strategyName
-    ? t('edit_strategy') || '编辑策略'
-    : t('create_strategy') || '创建策略';
+    ? t('edit_strategy')
+    : t('create_strategy');
 
   return (
     <PageContainer title={pageTitle}>
@@ -987,7 +987,7 @@ class NewStrategy(BaseStrategy):
             onClick={handleBack}
             className="mr-4"
           >
-            {t('back') || '返回'}
+            {t('back')}
           </Button>
           {isEditingName ? (
             <div className="relative flex-grow min-w-0">
@@ -1010,7 +1010,7 @@ class NewStrategy(BaseStrategy):
               }}
               onClick={handleStartEditName}
             >
-              {selectedStrategy ? selectedStrategy.name : t('strategy_editor') || '策略编辑器'}
+              {selectedStrategy ? selectedStrategy.name : t('strategy_editor')}
             </h2>
           )}
         </div>
@@ -1021,42 +1021,42 @@ class NewStrategy(BaseStrategy):
           className={isMobile ? 'w-full justify-start' : ''}
         >
           {/* 操作按钮统一图标化，文字经 Tooltip 悬浮显示，保持工具栏简洁 */}
-          <Tooltip title={t('reset') || '重置'}>
+          <Tooltip title={t('reset')}>
             <Button
               type="default"
               icon={<ReloadOutlined />}
               onClick={handleResetCode}
               loading={loading}
-              aria-label={t('reset') || '重置'}
+              aria-label={t('reset')}
             />
           </Tooltip>
-          <Tooltip title={t('backtest') || '回测'}>
+          <Tooltip title={t('backtest')}>
             <Button
               type="primary"
               icon={<PlayCircleOutlined />}
               onClick={handleBacktestStrategy}
               loading={loading}
-              aria-label={t('backtest') || '回测'}
+              aria-label={t('backtest')}
             />
           </Tooltip>
           {/* 访客时 Tooltip 显示保存限制提示，正常显示按钮名 */}
-          <Tooltip title={isGuest ? (t('guest_save_restricted') || '访客用户无法保存策略，请使用普通用户账号登录') : (t('save') || '保存')}>
+          <Tooltip title={isGuest ? t('guest_save_restricted') : t('save')}>
             <Button
               type="primary"
               icon={<SaveOutlined />}
               onClick={handleSaveStrategy}
               loading={loading}
               disabled={isGuest}
-              aria-label={t('save') || '保存'}
+              aria-label={t('save')}
             />
           </Tooltip>
           {/* AI 助手入口：单击直接打开对话框，模式选择（生成/优化）移到对话框内部 */}
-          <Tooltip title={t('ai_generate_strategy') || 'AI 生成 / 优化策略'}>
+          <Tooltip title={t('ai_generate_strategy')}>
             <Button
               type="default"
               icon={<RobotOutlined />}
               onClick={() => setAiModalVisible(true)}
-              aria-label={t('ai_generate_strategy') || 'AI 生成 / 优化策略'}
+              aria-label={t('ai_generate_strategy')}
             />
           </Tooltip>
         </Space>
@@ -1064,7 +1064,7 @@ class NewStrategy(BaseStrategy):
 
       {/* 主内容区域 */}
       <Card>
-        <Spin spinning={editorLoading} description={t('loading') || '加载中...'}>
+        <Spin spinning={editorLoading} description={t('loading')}>
           <Tabs
             activeKey={activeTabKey}
             onChange={handleTabChange}
@@ -1072,7 +1072,7 @@ class NewStrategy(BaseStrategy):
             items={[
               {
                 key: 'editor',
-                label: <><CodeOutlined /> {t('editor') || '编辑器'}</>,
+                label: <><CodeOutlined /> {t('editor')}</>,
                 children: (
                   <div className="w-full" style={{ minHeight: '600px' }}>
                     <MonacoEditor
@@ -1100,10 +1100,10 @@ class NewStrategy(BaseStrategy):
               },
               {
                 key: 'preview',
-                label: <><EyeOutlined /> {t('preview') || '预览'}</>,
+                label: <><EyeOutlined /> {t('preview')}</>,
                 children: (
                   <div className="p-5">
-                    <Spin spinning={isParsing} description="解析策略中...">
+                    <Spin spinning={isParsing} description={t('se_msg_parsing')}>
                       {parseError ? (
                         <div className="p-6 text-center border border-red-300 rounded-lg bg-red-50 dark:bg-red-900/20">
                           <CloseCircleOutlined className="text-4xl text-red-500 mb-4" />
@@ -1113,23 +1113,23 @@ class NewStrategy(BaseStrategy):
                             icon={<ReloadOutlined />}
                             onClick={() => parseStrategy(true)}
                           >
-                            {t('retry') || '重试'}
+                            {t('retry')}
                           </Button>
                         </div>
                       ) : (
                         <>
                           {/* 策略信息头部：标题、数据来源标签、操作按钮 */}
                           <div className="flex justify-between items-center mb-4">
-                            <h3 className="mb-0">{t('strategy_information') || '策略信息'}</h3>
+                            <h3 className="mb-0">{t('strategy_information')}</h3>
                             <Space>
                               {/* 数据来源标签 */}
-                              <Tooltip title={dataSource === 'database' ? (t('data_from_db') || '当前显示数据来自数据库存储') : (t('data_from_parse') || '当前显示数据来自策略代码解析')}>
+                              <Tooltip title={dataSource === 'database' ? t('data_from_db') : t('data_from_parse')}>
                                 <Tag
                                   color={dataSource === 'database' ? 'blue' : 'green'}
                                   className="cursor-pointer"
                                   onClick={handleSwitchDataSource}
                                 >
-                                  {dataSource === 'database' ? (t('source_db') || '来源: 数据库') : (t('source_parse') || '来源: 策略解析')}
+                                  {dataSource === 'database' ? t('source_db') : t('source_parse')}
                                 </Tag>
                               </Tooltip>
                               {/* 重新解析按钮 */}
@@ -1138,7 +1138,7 @@ class NewStrategy(BaseStrategy):
                                 onClick={handleReparseStrategy}
                                 size="small"
                               >
-                                {t('reparse') || '重新解析'}
+                                {t('reparse')}
                               </Button>
                             </Space>
                           </div>
@@ -1146,14 +1146,14 @@ class NewStrategy(BaseStrategy):
                           {/* 数据来源提示 */}
                           <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-400">
                             {dataSource === 'database' ? (
-                              <span>{t('db_data_hint') || '当前显示的是数据库存储的策略信息。如需查看最新代码中的信息，请点击"重新解析"。'}</span>
+                              <span>{t('db_data_hint')}</span>
                             ) : (
-                              <span>{t('parse_data_hint') || '当前显示的是从代码解析的策略信息。如需恢复数据库中的信息，请点击来源标签切换。'}</span>
+                              <span>{t('parse_data_hint')}</span>
                             )}
                           </div>
 
                           <Descriptions bordered column={1} className="mb-5">
-                            <Descriptions.Item label={t('version') || '版本'}>
+                            <Descriptions.Item label={t('version')}>
                               <div className="min-h-[32px] flex items-center">
                                 {isEditingVersion ? (
                                   <Input
@@ -1169,7 +1169,7 @@ class NewStrategy(BaseStrategy):
                                   <span
                                     onClick={handleStartEditVersion}
                                     className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1"
-                                    title={t('click_to_edit') || '点击编辑'}
+                                    title={t('click_to_edit')}
                                   >
                                     {dataSource === 'database'
                                       ? (selectedStrategy?.version || '')
@@ -1178,7 +1178,7 @@ class NewStrategy(BaseStrategy):
                                 )}
                               </div>
                             </Descriptions.Item>
-                            <Descriptions.Item label={t('description') || '描述'}>
+                            <Descriptions.Item label={t('description')}>
                               <div className="min-h-[120px]">
                                 {isEditingDescription ? (
                                   <Input.TextArea
@@ -1195,33 +1195,33 @@ class NewStrategy(BaseStrategy):
                                   <span
                                     onClick={handleStartEditDescription}
                                     className="cursor-pointer hover:text-blue-500 transition-colors whitespace-pre-wrap block w-full py-1"
-                                    title={t('click_to_edit') || '点击编辑描述'}
+                                    title={t('click_to_edit')}
                                   >
                                     {dataSource === 'database'
-                                      ? (selectedStrategy?.description || t('no_description') || '暂无描述')
-                                      : (parsedStrategy?.description || selectedStrategy?.description || t('no_description') || '暂无描述')}
+                                      ? (selectedStrategy?.description || t('no_description'))
+                                      : (parsedStrategy?.description || selectedStrategy?.description || t('no_description'))}
                                   </span>
                                 )}
                               </div>
                             </Descriptions.Item>
-                            <Descriptions.Item label={t('created_at') || '创建时间'}>
+                            <Descriptions.Item label={t('created_at')}>
                               {selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : ''}
                             </Descriptions.Item>
-                            <Descriptions.Item label={t('updated_at') || '更新时间'}>
+                            <Descriptions.Item label={t('updated_at')}>
                               {selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : ''}
                             </Descriptions.Item>
                           </Descriptions>
 
                           {/* —— 参数列表（可增删改） —— */}
                           <h3 className="mt-5 mb-3 flex items-center justify-between">
-                            <span>{t('parameter_list') || '参数列表'}</span>
+                            <span>{t('parameter_list')}</span>
                             <Button
                               size="small"
                               type="primary"
                               onClick={handleAddParam}
                               disabled={!selectedStrategy}
                             >
-                                + {t('add_parameter') || '添加参数'}
+                                + {t('add_parameter')}
                               </Button>
                           </h3>
                           {(() => {
@@ -1240,7 +1240,7 @@ class NewStrategy(BaseStrategy):
                                         <Input
                                           size="small"
                                           value={param.name}
-                                          placeholder={t('param_name') || '名称'}
+                                          placeholder={t('param_name')}
                                           onChange={(e) => handleParamChange(index, 'name', e.target.value)}
                                           style={{ width: 140 }}
                                         />
@@ -1262,7 +1262,7 @@ class NewStrategy(BaseStrategy):
                                           <Select
                                             size="small"
                                             value={param.default === undefined || param.default === null ? undefined : String(param.default)}
-                                            placeholder={t('default_value') || '默认值'}
+                                            placeholder={t('default_value')}
                                             onChange={(v) => handleParamChange(index, 'default', v)}
                                             style={{ width: 140 }}
                                             options={(param.options || []).map((opt: string) => ({ value: opt, label: opt }))}
@@ -1271,7 +1271,7 @@ class NewStrategy(BaseStrategy):
                                           <Input
                                             size="small"
                                             value={param.default === undefined || param.default === null ? '' : String(param.default)}
-                                            placeholder={t('default_value') || '默认值'}
+                                            placeholder={t('default_value')}
                                             onChange={(e) => handleParamChange(index, 'default', e.target.value)}
                                             style={{ width: 140 }}
                                           />
@@ -1279,7 +1279,7 @@ class NewStrategy(BaseStrategy):
                                         <Input
                                           size="small"
                                           value={param.description || ''}
-                                          placeholder={t('description') || '描述'}
+                                          placeholder={t('description')}
                                           onChange={(e) => handleParamChange(index, 'description', e.target.value)}
                                           style={{ flex: 1, minWidth: 160 }}
                                         />
@@ -1288,14 +1288,14 @@ class NewStrategy(BaseStrategy):
                                           type="primary"
                                           icon={<CheckOutlined />}
                                           onClick={() => toggleParamEdit(index)}
-                                          title="完成"
+                                          title={t('se_action_done')}
                                         />
                                         <Button
                                           size="small"
                                           danger
                                           icon={<CloseCircleOutlined />}
                                           onClick={() => handleRemoveParam(index)}
-                                          title={t('delete') || '删除'}
+                                          title={t('delete')}
                                         />
                                       </div>
                                     );
@@ -1307,7 +1307,7 @@ class NewStrategy(BaseStrategy):
                                       key={index}
                                       className="flex gap-2 items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
                                       onClick={() => toggleParamEdit(index)}
-                                      title="点击编辑"
+                                      title={t('click_to_edit')}
                                     >
                                       <Tag color="blue" className="mb-0">{param.name}</Tag>
                                       <Tag color="purple" className="mb-0">{param.type || 'Any'}</Tag>
@@ -1326,7 +1326,7 @@ class NewStrategy(BaseStrategy):
                                           type="text"
                                           icon={<EditOutlined />}
                                           onClick={(e) => { e.stopPropagation(); toggleParamEdit(index); }}
-                                          title="编辑"
+                                          title={t('se_action_edit')}
                                         />
                                         <Button
                                           size="small"
@@ -1334,7 +1334,7 @@ class NewStrategy(BaseStrategy):
                                           danger
                                           icon={<CloseCircleOutlined />}
                                           onClick={(e) => { e.stopPropagation(); handleRemoveParam(index); }}
-                                          title={t('delete') || '删除'}
+                                          title={t('delete')}
                                         />
                                       </span>
                                     </div>
@@ -1343,21 +1343,21 @@ class NewStrategy(BaseStrategy):
                               </Space>
                             ) : (
                               <div className="p-4 text-center text-gray-400 text-sm">
-                                {t('no_parameters') || '暂无参数'}
+                                {t('no_parameters')}
                               </div>
                             );
                           })()}
 
                           {/* —— 因子列表（可增删改） —— */}
                           <h3 className="mt-5 mb-3 flex items-center justify-between">
-                            <span>{t('factor_list') || '因子列表'}</span>
+                            <span>{t('factor_list')}</span>
                             <Button
                               size="small"
                               type="primary"
                               onClick={handleAddFactor}
                               disabled={!selectedStrategy}
                             >
-                              + {t('add_factor') || '添加因子'}
+                              + {t('add_factor')}
                             </Button>
                           </h3>
                           <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
@@ -1372,7 +1372,7 @@ class NewStrategy(BaseStrategy):
                                       <Input
                                         size="small"
                                         value={factor.name}
-                                        placeholder={t('factor_name') || '因子名'}
+                                        placeholder={t('factor_name')}
                                         onChange={(e) => handleFactorChange(index, 'name', e.target.value)}
                                         style={{ width: 160 }}
                                       />
@@ -1390,7 +1390,7 @@ class NewStrategy(BaseStrategy):
                                       <Input
                                         size="small"
                                         value={factor.description || catalog?.description || ''}
-                                        placeholder={catalog?.description || t('description') || '描述'}
+                                        placeholder={catalog?.description || t('description')}
                                         onChange={(e) => handleFactorChange(index, 'description', e.target.value)}
                                         style={{ flex: 1, minWidth: 160 }}
                                       />
@@ -1399,14 +1399,14 @@ class NewStrategy(BaseStrategy):
                                         type="primary"
                                         icon={<CheckOutlined />}
                                         onClick={() => toggleFactorEdit(index)}
-                                        title="完成"
+                                        title={t('se_action_done')}
                                       />
                                       <Button
                                         size="small"
                                         danger
                                         icon={<CloseCircleOutlined />}
                                         onClick={() => handleRemoveFactor(index)}
-                                        title={t('delete') || '删除'}
+                                        title={t('delete')}
                                       />
                                     </div>
                                   );
@@ -1423,7 +1423,7 @@ class NewStrategy(BaseStrategy):
                                     key={index}
                                     className="flex gap-2 items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
                                     onClick={() => toggleFactorEdit(index)}
-                                    title="点击编辑"
+                                    title={t('click_to_edit')}
                                   >
                                     <Tag color="blue" className="mb-0">{factor.name}</Tag>
                                     <Tag color={typeColor[factor.type] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
@@ -1445,7 +1445,7 @@ class NewStrategy(BaseStrategy):
                                         type="text"
                                         icon={<EditOutlined />}
                                         onClick={(e) => { e.stopPropagation(); toggleFactorEdit(index); }}
-                                        title="编辑"
+                                        title={t('se_action_edit')}
                                       />
                                       <Button
                                         size="small"
@@ -1453,7 +1453,7 @@ class NewStrategy(BaseStrategy):
                                         danger
                                         icon={<CloseCircleOutlined />}
                                         onClick={(e) => { e.stopPropagation(); handleRemoveFactor(index); }}
-                                        title={t('delete') || '删除'}
+                                        title={t('delete')}
                                       />
                                     </span>
                                   </div>
@@ -1461,7 +1461,7 @@ class NewStrategy(BaseStrategy):
                               })
                             ) : (
                               <div className="p-4 text-center text-gray-400 text-sm">
-                                {t('no_factors') || '暂无因子（重新解析可从策略源码自动提取）'}
+                                {t('no_factors')}
                               </div>
                             )}
                           </Space>
@@ -1480,37 +1480,37 @@ class NewStrategy(BaseStrategy):
       <AIChatModal
         open={aiModalVisible}
         onClose={() => setAiModalVisible(false)}
-        title={t('ai_generate_strategy') || 'AI生成策略'}
-        welcomeTitle={t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}
+        title={t('ai_generate_strategy')}
+        welcomeTitle={t('ai_welcome')}
         // 快捷建议取代原 welcomeDescription（"例如：……"纯文本），点击直接发送
         promptSuggestions={[
-          '创建一个双均线交叉策略',
-          '创建一个RSI超买超卖策略',
-          '创建一个布林带均值回归策略',
-          '创建一个ATR通道突破策略',
+          t('se_prompt_ma_cross'),
+          t('se_prompt_rsi'),
+          t('se_prompt_bollinger'),
+          t('se_prompt_atr'),
         ]}
-        inputPlaceholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
+        inputPlaceholder={t('ai_input_placeholder')}
         // 传入编辑器当前代码，对话框内部据此显示「优化当前代码」模式
         currentCode={code}
         // 策略类型后缀拼接进请求发后端，不在气泡里显示；流式链路收敛到 AIChatModal 内部
         requirementSuffix={
           strategyType === 'rl'
-            ? '\n[策略类型: RL策略，使用TradingEnv+stable-baselines3]'
-            : '\n[策略类型: 规则策略，使用on_bar→Action]'
+            ? t('se_req_sfx_rl')
+            : t('se_req_sfx_rule')
         }
         onAcceptCode={(code: string) => {
           setCode(code);
-          appMessage.success(t('ai_adopted') || '已采纳并应用到编辑器');
+          appMessage.success(t('ai_adopted'));
           setAiModalVisible(false);
         }}
         onRejectCode={() => {
-          appMessage.info(t('ai_rejected') || '已拒绝，可以继续提问');
+          appMessage.info(t('ai_rejected'));
         }}
       />
 
       {/* 模板选择器 —— 新建策略时弹出：先选类型（创建后不再切换）；规则策略可选真实模板，RL 用内置骨架 */}
       <Modal
-        title="创建策略"
+        title={t('create_strategy')}
         open={templatePickerVisible}
         onCancel={() => handlePickTemplate(null)}
         footer={null}
@@ -1518,25 +1518,25 @@ class NewStrategy(BaseStrategy):
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <div>
-            <div style={{ marginBottom: 8, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>策略类型（创建后不可在编辑器内切换）：</div>
+            <div style={{ marginBottom: 8, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>{t('se_sec_type_hint')}</div>
             <Segmented
               block
               value={createStrategyType}
               onChange={(value) => setCreateStrategyType(value as 'rule' | 'rl')}
               options={[
-                { value: 'rule', label: '规则策略 (on_bar→Action)' },
-                { value: 'rl', label: 'RL 策略 (PPO)' },
+                { value: 'rule', label: t('se_opt_rule_strategy') },
+                { value: 'rl', label: t('se_opt_rl_strategy') },
               ]}
             />
           </div>
           {createStrategyType === 'rule' ? (
             <>
               <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>
-                选择一个起始模板，或跳过使用空白 BaseStrategy 骨架（下拉底部可上传本地 .py 文件）：
+                {t('se_sec_template_hint')}
               </div>
               <Select
                 style={{ width: '100%' }}
-                placeholder={templatePickerLoading ? '加载中...' : '选择模板（可跳过）'}
+                placeholder={templatePickerLoading ? t('loading') : t('se_ph_pick_template')}
                 loading={templatePickerLoading}
                 disabled={templatePickerLoading}
                 options={templates.map((t) => ({
@@ -1570,7 +1570,7 @@ class NewStrategy(BaseStrategy):
                           icon={<UploadOutlined />}
                           onMouseDown={(e) => e.preventDefault()}
                         >
-                          上传本地 .py 文件…
+                          {t('se_action_upload_py')}
                         </Button>
                       </Upload>
                     </div>
@@ -1580,8 +1580,8 @@ class NewStrategy(BaseStrategy):
             </>
           ) : (
             <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>
-              RL 策略将使用内置骨架模板（加载已训练 PPO 模型 + on_bar 推理），点击下方按钮创建。
-              或 <Upload {...uploadProps}><a>上传本地 .py 策略文件</a></Upload>（自动识别类型）。
+              {t('se_sec_rl_skeleton')}
+              {' '}{t('se_sec_rl_upload_prefix')}<Upload {...uploadProps}><a>{t('se_action_upload_py_strategy')}</a></Upload>{t('se_sec_auto_detect')}
             </div>
           )}
           <div style={{ textAlign: 'right' }}>
@@ -1595,7 +1595,7 @@ class NewStrategy(BaseStrategy):
                 cursor: 'pointer',
               }}
             >
-              {createStrategyType === 'rl' ? '创建 RL 策略' : '跳过，使用空白模板'}
+              {createStrategyType === 'rl' ? t('se_action_create_rl') : t('se_action_skip_blank')}
             </button>
           </div>
         </Space>
