@@ -31,6 +31,10 @@ class EventType(StrEnum):
     POSITION = "position"
 
 
+# 控制面信封协议版本（P2-09）：组装端固定注入；校验端 missing 视为 v0（旧版消息向后兼容读），
+# 大于当前版本直接拒绝（新版消费旧端会产生字段歧义，宁可显式失败）
+PROTOCOL_SCHEMA_VERSION = 1
+
 # 命令常量
 CMD_PING = "ping"
 CMD_START = "start"
@@ -80,6 +84,12 @@ def validate_message(msg: dict[str, Any]) -> str | None:
         return "Missing required field: worker_id"
     if "timestamp" not in msg:
         return "Missing required field: timestamp"
+    # 版本校验：missing 视为 v0 放行（存量旧版消息没有该字段），高版本拒绝
+    version = msg.get("schema_version", 0)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 0:
+        return f"Invalid 'schema_version': {version}"
+    if version > PROTOCOL_SCHEMA_VERSION:
+        return f"Unsupported schema_version: {version} (> {PROTOCOL_SCHEMA_VERSION})"
     if msg_type == MessageType.COMMAND and "cmd" not in msg:
         return "Command message missing 'cmd' field"
     if msg_type == MessageType.COMMAND and "request_id" not in msg:
@@ -96,6 +106,7 @@ def make_command(
 ) -> dict[str, Any]:
     """构建命令消息。"""
     return {
+        "schema_version": PROTOCOL_SCHEMA_VERSION,
         "type": MessageType.COMMAND,
         "worker_id": worker_id,
         "cmd": cmd,
@@ -108,6 +119,7 @@ def make_command(
 def make_response(worker_id: int, request_id: str, status: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
     """构建响应消息。"""
     return {
+        "schema_version": PROTOCOL_SCHEMA_VERSION,
         "type": MessageType.RESPONSE,
         "worker_id": worker_id,
         "request_id": request_id,
@@ -120,6 +132,7 @@ def make_response(worker_id: int, request_id: str, status: str, data: dict[str, 
 def make_event(worker_id: int, event_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """构建事件消息。"""
     return {
+        "schema_version": PROTOCOL_SCHEMA_VERSION,
         "type": MessageType.EVENT,
         "worker_id": worker_id,
         "event_type": event_type,

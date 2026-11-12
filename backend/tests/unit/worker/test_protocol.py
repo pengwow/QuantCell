@@ -7,6 +7,7 @@ from worker.protocol import (
     CMD_START,
     CMD_STATUS,
     CMD_STOP,
+    PROTOCOL_SCHEMA_VERSION,
     EventType,
     MessageType,
     decode_message,
@@ -95,6 +96,61 @@ class TestValidation:
         err = validate_message(msg)
         assert err is not None
         assert "event_type" in err
+
+
+class TestSchemaVersion:
+    """P2-09 控制面信封 schema_version：组装注入 + 兼容读旧版。"""
+
+    @pytest.mark.parametrize("factory", [make_command, make_response, make_event])
+    def test_envelope_carries_version(self, factory):
+        args = {"make_command": (11, "ping"), "make_response": (11, "r", "ok"), "make_event": (11, "heartbeat")}[
+            factory.__name__
+        ]
+        assert factory(*args)["schema_version"] == PROTOCOL_SCHEMA_VERSION
+
+    def test_version_0_accepted(self):
+        # 旧版消息显式标 0 也放行
+        msg = {
+            "schema_version": 0,
+            "type": "event",
+            "worker_id": 11,
+            "event_type": "log",
+            "payload": {},
+            "timestamp": 0,
+        }
+        assert validate_message(msg) is None
+
+    def test_missing_version_treated_as_v0(self):
+        # 存量旧版消息没有该字段 → 向后兼容读
+        msg = {"type": "event", "worker_id": 11, "event_type": "log", "payload": {}, "timestamp": 0}
+        assert validate_message(msg) is None
+
+    @pytest.mark.parametrize("bad_version", ["1", 1.5, -1, True])
+    def test_invalid_version_rejected(self, bad_version):
+        msg = {
+            "schema_version": bad_version,
+            "type": "event",
+            "worker_id": 11,
+            "event_type": "log",
+            "payload": {},
+            "timestamp": 0,
+        }
+        err = validate_message(msg)
+        assert err is not None
+        assert "schema_version" in err
+
+    def test_future_version_rejected(self):
+        msg = {
+            "schema_version": PROTOCOL_SCHEMA_VERSION + 1,
+            "type": "event",
+            "worker_id": 11,
+            "event_type": "log",
+            "payload": {},
+            "timestamp": 0,
+        }
+        err = validate_message(msg)
+        assert err is not None
+        assert "Unsupported" in err
 
 
 class TestFactories:

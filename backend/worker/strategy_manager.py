@@ -17,7 +17,6 @@ import os
 import threading
 import time
 import traceback
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +38,7 @@ from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync, find_orp
 from .log_utils import append_worker_error_log, start_worker_log_sink, stop_worker_log_sink
 from .models import WorkerStatusHistory
 from .paper_trade_sync import PaperTradeSync
+from .pump_client import PaperKline, as_kline, fetch_paper_klines
 from .risk_config import RiskPnlFeeder, apply_risk_config
 from .worker_state import worker_state_manager
 
@@ -56,8 +56,8 @@ _PAPER_INTERVAL_SECONDS = {
     "1d": 86400,
 }
 
-# paper 行情泵轮询端点：testnet 公共 K 线，不签名、无需凭证
-_PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
+# paper 行情泵的 HTTP 端点与 no-proxy 直连 opener 已迁至 pump_client（P2-09 typed client），
+# 本模块只经 fetch_paper_klines 调用，行格式由 PaperKline 定义
 
 # live tick 线程节拍与 snapshot 轮询推送窗口（Driver 无逐笔查询口，轮询是唯一观测口）
 _LIVE_TICK_INTERVAL_S = 1.0
@@ -67,11 +67,6 @@ _LIVE_RECONCILE_INTERVAL_S = 6 * 3600
 # 资金费对账回看窗口（P1-03）：覆盖一个对账周期 + 一个资金费结算间隔（Binance 8h）的余量，
 # 宁宽勿窄——窄窗口会把"上次窗口已结算、本次窗口恰好空档"误判成 venue_absent
 _FUNDING_WINDOW_S = 30 * 3600
-
-# 轮询强制直连：urllib 默认读 macOS/GUI 代理工具注册的系统代理（如 127.0.0.1:7897），
-# 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
-# 环境变量故直连可达，这里显式清掉代理保持同一语义
-_PAPER_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def _resolve_live_credentials(worker_id: int, exchange: str, params: dict[str, Any]) -> tuple[str, str]:
@@ -1472,7 +1467,8 @@ class StrategyManager:
         for symbol in symbols:
             api_symbol = symbol.replace("/", "")  # BTC/USDT → BTCUSDT
             for row in self._paper_fetch_klines(api_symbol, timeframe, limit):
-                open_ms = int(row[0])
+                kline = as_kline(row)  # monkeypatch 注入的原始行与 client 输出统一转 typed
+                open_ms = kline["open_time"]
                 if open_ms + step_ms > now_ms:
                     continue  # 未收市的最新 K 线不喂（决策只用收盘确认价）
                 if open_ms <= seen_open_ms.get(api_symbol, 0):
@@ -1482,11 +1478,11 @@ class StrategyManager:
                 driver.feed_bar(
                     symbol,
                     open_ms * 1_000_000,
-                    float(row[1]),
-                    float(row[2]),
-                    float(row[3]),
-                    float(row[4]),
-                    float(row[5]),
+                    kline["open"],
+                    kline["high"],
+                    kline["low"],
+                    kline["close"],
+                    kline["volume"],
                 )
         driver.tick()
         # 泵轮末尾只取一次快照：当日盈亏回灌与前端推送共用
@@ -1507,20 +1503,13 @@ class StrategyManager:
         except Exception as e:
             log.debug(f"[StrategyManager] paper snapshot 推送失败: worker_id={worker_id}, error={e}")
 
-    def _paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[list]:
-        """拉 binance USDT-M testnet 公共收市 K 线（不签名）。
+    def _paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[PaperKline]:
+        """拉 binance USDT-M testnet 公共收市 K 线，委托 pump_client typed 实现。
 
-        ponytail: 标准库 urlopen 就够（一次 GET + timeout）；requests 未在
-        pyproject 声明为直接依赖（只是 python-binance 的传递依赖），不为一次
-        调用把它升级成直接依赖。symbol/timeframe 均来自白名单受限字符集，
-        URL 无需额外编码。
-
-        Returns:
-            binance 原始行：[openTime, open, high, low, close, volume, ...]（数值是字符串）
+        保留方法作为测试挂点：services 测试 monkeypatch 本方法注入 binance
+        原始行，泵轮消费端用 as_kline 统一转换，两种注入形态均兼容。
         """
-        url = f"{_PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
-        with _PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        return fetch_paper_klines(api_symbol, timeframe, limit)
 
     @staticmethod
     def _push_kernel_snapshot(worker_id: int, snap: Any) -> None:
