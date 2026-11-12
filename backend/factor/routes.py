@@ -12,13 +12,13 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 
+from collector.db.models import DataPoolBusiness
 from common.schemas import ApiResponse
 from factor.catalog_service import CatalogError, FactorCatalogService
 from factor.job_manager import JobStatus, job_manager
 from factor.models import FactorCatalog, FactorSnapshot
 from factor.sandbox import SandboxError
 from quality.parquet_provider import ParquetDataProvider
-from universe.service import UniverseNotFoundError, resolve_universe_symbols
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -100,19 +100,18 @@ def _returns_dict_to_series(data: dict[str, Any]) -> pd.Series:
 
 
 def _resolve_instruments(request: FactorCalculateBase) -> None:
-    """P2-03 标的池注入：universe_id 解析为当前成分并回填 instruments。
+    """自选组注入：pool_id 解析为当前成分并回填 instruments。
 
     需查库所以放 routes 层（schema 层只验二选一）；调用方必须放在业务 try 之前，
     避免 404/空池被兜底 except 改写成 400/500。
     """
-    if request.universe_id is None:
+    if request.pool_id is None:
         return
-    try:
-        instruments = resolve_universe_symbols(request.universe_id)
-    except UniverseNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    instruments = DataPoolBusiness.resolve_symbols(request.pool_id)
+    if instruments is None:
+        raise HTTPException(status_code=404, detail=f"自选组不存在: {request.pool_id}")
     if not instruments:
-        raise HTTPException(status_code=400, detail=f"标的池 {request.universe_id} 当前没有成分")
+        raise HTTPException(status_code=400, detail=f"自选组 {request.pool_id} 当前没有成分")
     request.instruments = instruments
 
 

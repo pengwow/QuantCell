@@ -616,43 +616,6 @@ export const capabilitiesApi = {
   }
 };
 
-/** 标的池（P2-03） */
-export interface UniverseSummary {
-  id: number;
-  name: string;
-  description: string | null;
-  member_count: number;
-  created_at: string;
-}
-export interface UniverseDetail extends UniverseSummary {
-  members: string[];
-}
-export interface UniverseSnapshot {
-  id: number;
-  universe_id: number;
-  symbols: string[];
-  created_at: string;
-}
-
-/**
- * 标的池 API（P2-03）
- * 可复用的交易对池：CRUD + 成分增删 + 快照历史
- */
-export const universeApi = {
-  list: (): Promise<UniverseSummary[]> => apiRequest.get('/universes'),
-  getDetail: (id: number): Promise<UniverseDetail> => apiRequest.get(`/universes/${id}`),
-  create: (data: { name: string; description?: string; symbols?: string[] }): Promise<UniverseDetail> =>
-    apiRequest.post('/universes', data),
-  update: (id: number, data: { name?: string; description?: string }): Promise<UniverseDetail> =>
-    apiRequest.put(`/universes/${id}`, data),
-  remove: (id: number): Promise<{ deleted: boolean }> => apiRequest.delete(`/universes/${id}`),
-  addMembers: (id: number, symbols: string[]): Promise<{ added: number; members: string[] }> =>
-    apiRequest.post(`/universes/${id}/members`, { symbols }),
-  removeMembers: (id: number, symbols: string[]): Promise<{ removed: number; members: string[] }> =>
-    apiRequest.post(`/universes/${id}/members/remove`, { symbols }),
-  listSnapshots: (id: number): Promise<UniverseSnapshot[]> => apiRequest.get(`/universes/${id}/snapshots`),
-};
-
 /** Agent Token 用量记录（P2-06） */
 export interface AgentTokenInfo {
   id: number;

@@ -1,5 +1,5 @@
 // P2-06 Agent Token 管理页面：签发（明文仅展示一次）、用量查看与软撤销
-// 结构对齐 UniversePage：useState + useEffect 加载 + Table + Modal + useTranslation
+// 结构：useState + useEffect 加载 + Table + Modal + useTranslation
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, App, Button, Flex, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';

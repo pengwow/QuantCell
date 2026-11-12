@@ -64,13 +64,13 @@ class BacktestConfig(BaseSchema):
 
     symbols: list[str] = Field(
         default_factory=list,
-        description="回测交易对列表；与 universe_id 必须且只能提供其一",
+        description="回测交易对列表；与 pool_id 必须且只能提供其一",
         json_schema_extra={"example": ["BTCUSDT", "ETHUSDT"]},
     )
-    universe_id: int | None = Field(
+    pool_id: int | None = Field(
         default=None,
         ge=1,
-        description="标的池 ID（P2-03）：给定后以池内当前成分作为回测标的，与 symbols 二选一",
+        description="自选组 ID：给定后以组内当前成分作为回测标的，与 symbols 二选一",
         json_schema_extra={"example": None},
     )
     interval: str = Field(
@@ -164,16 +164,16 @@ class BacktestConfig(BaseSchema):
 
     @model_validator(mode="after")
     def _validate_symbols_source(self) -> BacktestConfig:
-        """P2-03 标的来源二选一：symbols 与 universe_id 必须且只能提供其一。
+        """标的来源二选一：symbols 与 pool_id 必须且只能提供其一。
 
-        universe_id 解析成标的列表发生在 routes 层（需查库），这里只做入口把关。
+        pool_id 解析成标的列表发生在 routes 层（需查库），这里只做入口把关。
         """
         has_symbols = bool(self.symbols)
-        has_universe = self.universe_id is not None
-        if has_symbols and has_universe:
-            raise ValueError("symbols 与 universe_id 只能提供其一")
-        if not has_symbols and not has_universe:
-            raise ValueError("symbols 与 universe_id 必须提供其一")
+        has_pool = self.pool_id is not None
+        if has_symbols and has_pool:
+            raise ValueError("symbols 与 pool_id 只能提供其一")
+        if not has_symbols and not has_pool:
+            raise ValueError("symbols 与 pool_id 必须提供其一")
         return self
 
     @model_validator(mode="after")
@@ -190,8 +190,8 @@ class BacktestConfig(BaseSchema):
         allowed = set(self.symbols)
         seen: set[str] = set()
         for item in self.margin_settings:
-            # 标的池来源（universe_id）时成分在 routes 层解析后才可知，归属校验由 routes 补齐
-            if self.universe_id is None and item.symbol not in allowed:
+            # 自选组来源（pool_id）时成分在 routes 层解析后才可知，归属校验由 routes 补齐
+            if self.pool_id is None and item.symbol not in allowed:
                 raise ValueError(f"margin_settings 中的 {item.symbol} 不在回测品种列表内")
             if item.symbol in seen:
                 raise ValueError(f"margin_settings 中 {item.symbol} 重复配置")

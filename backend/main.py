@@ -19,7 +19,6 @@ from fastapi.responses import JSONResponse
 import agent.models
 import backtest.models
 import strategy.models
-import universe.models
 
 # 导入核心模块
 from config.settings import get_settings
@@ -63,7 +62,6 @@ from share import (
 )
 from share import router as share_router  # 分享系统路由
 from strategy import router as strategy_router
-from universe.routes import router as universe_router
 from utils.log_routes import router as log_router
 from websocket.routes import router as websocket_router
 from worker import router as worker_router
@@ -112,7 +110,6 @@ app.include_router(indicators_router)
 app.include_router(indicator_alerts_router)  # 指标信号提醒规则 CRUD/测试发送（P2-07）
 app.include_router(strategy_router)
 app.include_router(backtest_router)
-app.include_router(universe_router)  # 标的池管理（P2-03）
 app.include_router(realtime_router)
 app.include_router(websocket_router)
 app.include_router(worker_router)

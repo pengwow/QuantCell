@@ -141,13 +141,13 @@ class FactorCalculateBase(BaseSchema):
 
     instruments: list[str] = Field(
         default_factory=list,
-        description="交易对列表；与 universe_id 必须且只能提供其一",
+        description="交易对列表；与 pool_id 必须且只能提供其一",
         example=["BTCUSDT", "ETHUSDT"],
     )
-    universe_id: int | None = Field(
+    pool_id: int | None = Field(
         default=None,
         ge=1,
-        description="标的池 ID（P2-03）：给定后以池内当前成分作为计算标的，与 instruments 二选一",
+        description="自选组 ID：给定后以组内当前成分作为计算标的，与 instruments 二选一",
     )
     interval: str = Field(default="1h", min_length=1, description="K线周期，如 15m/1h/4h/1d")
     candle_type: str = Field(default="spot", description="市场类型：spot/future")
@@ -156,16 +156,16 @@ class FactorCalculateBase(BaseSchema):
 
     @model_validator(mode="after")
     def validate_instruments_source(self) -> FactorCalculateBase:
-        """P2-03 标的来源二选一：instruments 与 universe_id 必须且只能提供其一。
+        """标的来源二选一：instruments 与 pool_id（自选组）必须且只能提供其一。
 
-        universe_id 解析成标的列表发生在 routes 层（需查库），这里只做入口把关。
+        pool_id 解析成标的列表发生在 routes 层（需查库），这里只做入口把关。
         """
         has_instruments = bool(self.instruments)
-        has_universe = self.universe_id is not None
-        if has_instruments and has_universe:
-            raise ValueError("instruments 与 universe_id 只能提供其一")
-        if not has_instruments and not has_universe:
-            raise ValueError("instruments 与 universe_id 必须提供其一")
+        has_pool = self.pool_id is not None
+        if has_instruments and has_pool:
+            raise ValueError("instruments 与 pool_id 只能提供其一")
+        if not has_instruments and not has_pool:
+            raise ValueError("instruments 与 pool_id 必须提供其一")
         return self
 
     @validator("candle_type")

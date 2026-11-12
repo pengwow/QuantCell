@@ -180,7 +180,6 @@ def init_db():
         import backtest.models
         import factor.models
         import strategy.models
-        import universe.models
 
         # 先初始化数据库配置和引擎
         from .database import init_database_config
