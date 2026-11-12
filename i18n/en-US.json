@@ -2014,6 +2014,8 @@
   "backtest_hint_total_return": "Period PnL ÷ initial capital. Under the shared pool the denominator is the account's single initial capital, so per-symbol returns sum to the account total return",
   "backtest_hint_cagr": "Compounded annualization over the data range: (1 + total return)^(365 / backtest days) − 1. Inflated when the span is under a year; use this metric for cross-period comparison",
   "backtest_hint_sharpe_ratio": "Risk-adjusted return: annualized return ÷ annualized volatility; higher means more return per unit of risk. Account-level, not splittable per symbol under a shared pool",
+  "backtest_metric_deflated_sharpe": "Deflated Sharpe",
+  "backtest_hint_deflated_sharpe": "Luck-adjusted Sharpe credibility (0~1, higher is more credible): the equity curve is split into calendar-year segments, each segment's return Sharpe forms the trial distribution, and the kernel DSR algorithm then evaluates whether the overall Sharpe significantly beats chance. '—' means fewer than two valid year segments or kernel unavailable",
   "backtest_hint_max_drawdown": "Largest peak-to-trough decline of equity, measuring worst-case loss depth. Account-level, not splittable per symbol under a shared pool",
   "backtest_hint_win_rate": "Winning fills ÷ total fills. Note the denominator counts engine fills (both opens and closes)",
   "backtest_hint_profit_factor": "Gross profit of winning trades ÷ absolute gross loss of losing trades. Above 1 means net profit; 1 means break-even",

@@ -46,7 +46,8 @@ import { useTheme } from 'ahooks';
 interface BacktestMetrics {
   name: string;
   key: string;
-  value: number;
+  // P1-04 起 Deflated Sharpe 等指标在数据不足时显式输出 null（不降级伪值）
+  value: number | null;
   description: string;
   type: string;
 }
@@ -577,12 +578,14 @@ const BacktestDetail = () => {
             )}
             <Row gutter={[16, 16]}>
               {visibleMetricCards(backtestConfig.capital_mode, selectedSymbol).map((spec) => {
-                const value = getMetricValue(spec.key);
+                // 指标显式为 null（如 Deflated Sharpe 数据不足）时展示 '—'，着色回退 0
+                const raw = backtestData?.metrics?.find((m) => m.key === spec.key)?.value;
+                const value = raw ?? 0;
                 return (
                   <Col key={spec.key} xs={12} sm={8} md={6} lg={4}>
                     <MetricCard
                       label={spec.label}
-                      value={formatMetricValue(spec, value)}
+                      value={raw == null ? '—' : formatMetricValue(spec, value)}
                       type={spec.color(value, getMetricValue)}
                       hint={spec.hint}
                     />

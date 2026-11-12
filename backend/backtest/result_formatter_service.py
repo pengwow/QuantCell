@@ -12,7 +12,7 @@
 
 from datetime import datetime
 
-from backtest import derived_metrics
+from backtest import derived_metrics, robustness
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -449,6 +449,9 @@ class ResultFormatterService:
         exposure_value = derived_metrics.exposure_time_pct(trades, data_start_ns, data_end_ns)
         duration_days_value = derived_metrics.duration_days(data_start_ns, data_end_ns)
         avg_trade_hours, max_trade_hours = derived_metrics.trade_duration_hours(trades)
+        # Deflated Sharpe（P1-04）：按年分段试验口径直调内核 DSR；不足两个有效年段
+        # 或内核缺位时为 None（不降级为伪值），展示层显示"—"
+        robustness_value = robustness.deflated_sharpe(robustness.yearly_sharpes(equity_curve_input))
         cagr_value = derived_metrics.annualized_return_pct(total_return_pct, data_start_ns, data_end_ns)
 
         winning_trades = len([t for t in trades if isinstance(t, dict) and t.get("PnL", t.get("pnl", 0)) > 0])
@@ -701,6 +704,13 @@ class ResultFormatterService:
                 "description": "最长持仓时间（小时）",
                 "type": "number",
             },
+            {
+                "name": "Deflated Sharpe",
+                "key": "deflated_sharpe",
+                "value": round(robustness_value, 4) if robustness_value is not None else None,
+                "description": "缩水夏普比率（按年分段试验剔除运气成分；None=不足两个有效年段或内核缺位）",
+                "type": "number",
+            },
         ]
 
         formatted = {
@@ -723,6 +733,8 @@ class ResultFormatterService:
                 "margin_specs_effective": margin_specs_effective,
                 "liquidation_count": liquidation_count,
                 "margin_shortfall_count": margin_shortfall_count,
+                # 稳健性指标组（P1-04 起；值为 None 表示数据不足或内核缺位）
+                "robustness": {"deflated_sharpe": robustness_value},
             }
         }
 
