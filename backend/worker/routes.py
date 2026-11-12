@@ -6,6 +6,7 @@ Worker API路由定义
 """
 
 import asyncio
+import contextlib
 import json
 import time
 from datetime import UTC, datetime, timedelta
@@ -26,6 +27,7 @@ from fastapi import (
 from strategy.decision_recording import list_decisions_from_file, load_record_by_seq, worker_replay_path
 from utils.auth import authenticate_request, get_current_user
 from utils.logger import LogType, get_logger
+from utils.rbac import Permission, require_permission
 from worker.state import connection_manager, strategy_registry
 
 from . import crud, schemas
@@ -92,7 +94,12 @@ async def websocket_endpoint(websocket: WebSocket):
 # ==================== 基础管理模块 ====================
 
 
-@router.post("", response_model=schemas.ApiResponse)
+@router.post(
+    "",
+    response_model=schemas.ApiResponse,
+    # P1-07 权限灰度：写 worker 需 WORKER_WRITE（enforcement off 时依赖直接放行）
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("创建Worker")
 async def create_worker(
     request: schemas.WorkerCreate,
@@ -100,7 +107,12 @@ async def create_worker(
     current_user: dict = Depends(get_current_user),
 ):
     """创建新的Worker节点 - 委托给 WorkerCoreService"""
-    result = await worker_core_service.async_create_worker(request.dict())
+    data = request.dict()
+    # P1-07 工人属地：归属来自登录态（JWT sub），服务端注入不信任前端传值；
+    # debug 假用户/非数字 sub 归为无归属（None），不阻断创建
+    with contextlib.suppress(TypeError, ValueError):
+        data["owner_id"] = int(current_user.get("user_id"))
+    result = await worker_core_service.async_create_worker(data)
     return schemas.ApiResponse(code=0, message="Worker创建成功", data=result)
 
 
@@ -308,7 +320,11 @@ async def get_worker_decision_detail(
     return schemas.ApiResponse(code=0, message="ok", data=record)
 
 
-@router.put("/{worker_id}", response_model=schemas.ApiResponse)
+@router.put(
+    "/{worker_id}",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("更新Worker")
 async def update_worker(
     worker_id: int,
@@ -321,7 +337,11 @@ async def update_worker(
     return schemas.ApiResponse(code=0, message="Worker更新成功", data=result)
 
 
-@router.patch("/{worker_id}/config", response_model=schemas.ApiResponse)
+@router.patch(
+    "/{worker_id}/config",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("更新Worker配置")
 async def update_worker_config(
     worker_id: int,
@@ -334,7 +354,11 @@ async def update_worker_config(
     return schemas.ApiResponse(code=0, message="配置更新成功", data=result)
 
 
-@router.delete("/{worker_id}", response_model=schemas.ApiResponse)
+@router.delete(
+    "/{worker_id}",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("删除Worker")
 async def delete_worker(
     worker_id: int,
@@ -346,7 +370,11 @@ async def delete_worker(
     return schemas.ApiResponse(code=0, message="Worker删除成功")
 
 
-@router.post("/{worker_id}/clone", response_model=schemas.ApiResponse)
+@router.post(
+    "/{worker_id}/clone",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("克隆Worker")
 async def clone_worker(
     worker_id: int,
@@ -361,7 +389,11 @@ async def clone_worker(
     return schemas.ApiResponse(code=0, message="Worker克隆成功", data=result)
 
 
-@router.post("/batch", response_model=schemas.ApiResponse)
+@router.post(
+    "/batch",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("批量操作Worker")
 async def batch_operation(
     request: schemas.BatchOperationRequest,
@@ -377,7 +409,12 @@ async def batch_operation(
 # ==================== 生命周期管理模块 ====================
 
 
-@router.post("/{worker_id}/lifecycle/start", response_model=schemas.ApiResponse)
+@router.post(
+    "/{worker_id}/lifecycle/start",
+    response_model=schemas.ApiResponse,
+    # 生命周期操作单独走 WORKER_OPERATE（启停/归档/优化），与配置写分离
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+)
 @handle_worker_exceptions("启动Worker")
 async def start_worker(
     worker_id: int,
@@ -428,7 +465,11 @@ async def start_worker(
     return schemas.ApiResponse(code=0, message="Worker启动中（异步操作）", data=result)
 
 
-@router.post("/{worker_id}/lifecycle/stop", response_model=schemas.ApiResponse)
+@router.post(
+    "/{worker_id}/lifecycle/stop",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+)
 @handle_worker_exceptions("停止Worker")
 async def stop_worker(
     worker_id: int,
@@ -481,7 +522,11 @@ async def stop_worker(
     return schemas.ApiResponse(code=0, message="Worker停止中（异步操作）", data=result)
 
 
-@router.post("/{worker_id}/lifecycle/restart", response_model=schemas.ApiResponse)
+@router.post(
+    "/{worker_id}/lifecycle/restart",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+)
 @handle_worker_exceptions("重启Worker")
 async def restart_worker(
     worker_id: int,
@@ -494,7 +539,11 @@ async def restart_worker(
     return schemas.ApiResponse(code=0, message="Worker重启中", data=result)
 
 
-@router.post("/{worker_id}/lifecycle/archive", response_model=schemas.ApiResponse)
+@router.post(
+    "/{worker_id}/lifecycle/archive",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+)
 @handle_worker_exceptions("归档Worker journal")
 async def archive_worker_journal(
     worker_id: int,
@@ -584,7 +633,11 @@ async def get_worker_logs(
         raise HTTPException(status_code=404, detail=f"Worker {worker_id} 的日志文件不存在") from e
 
 
-@router.delete("/{worker_id}/monitoring/logs", response_model=schemas.ApiResponse)
+@router.delete(
+    "/{worker_id}/monitoring/logs",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("清理Worker日志")
 async def clear_worker_logs(
     worker_id: int,
@@ -833,7 +886,11 @@ async def get_strategy_parameters(
     return schemas.ApiResponse(code=0, message="success", data=params)
 
 
-@router.put("/{worker_id}/strategy/parameters", response_model=schemas.ApiResponse)
+@router.put(
+    "/{worker_id}/strategy/parameters",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("更新策略参数")
 async def update_strategy_parameters(
     worker_id: int,
@@ -866,7 +923,11 @@ async def get_worker_risk_control(
     return schemas.ApiResponse(code=0, message="success", data=data)
 
 
-@router.put("/{worker_id}/risk-control", response_model=schemas.ApiResponse)
+@router.put(
+    "/{worker_id}/risk-control",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("保存人工风控配置")
 async def update_worker_risk_control(
     worker_id: int,
@@ -878,7 +939,11 @@ async def update_worker_risk_control(
     return schemas.ApiResponse(code=0, message="风控配置已保存", data=data)
 
 
-@router.delete("/{worker_id}/risk-control", response_model=schemas.ApiResponse)
+@router.delete(
+    "/{worker_id}/risk-control",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
 @handle_worker_exceptions("取消人工风控管控")
 async def delete_worker_risk_control(
     worker_id: int,
@@ -1207,7 +1272,11 @@ async def get_trading_summary_filtered(
 # 注意：lifecycle/start 与 lifecycle/stop 已在本文件上方（start_worker /
 # stop_worker，走 WorkerCoreService 真实启停语义）注册，此处不得重复注册，
 # 否则 FastAPI 先注册优先会把这里的假停止路由顶掉真实路由（B4 修复）。
-@router.post("/{worker_id}/lifecycle/optimize", summary="手动触发一次优化")
+@router.post(
+    "/{worker_id}/lifecycle/optimize",
+    summary="手动触发一次优化",
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+)
 @handle_worker_exceptions("触发优化")
 async def trigger_optimize(
     worker_id: int,

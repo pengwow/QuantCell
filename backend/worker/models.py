@@ -73,6 +73,10 @@ class Worker(Base):
     # 进程信息
     pid = Column(Integer, nullable=True)
 
+    # 归属用户ID（P1-07 工人属地）：来自 JWT sub，nullable 表示无归属（历史数据/单用户模式），
+    # RBAC enforcement 开启后可按此字段判定资源归属
+    owner_id = Column(Integer, nullable=True, index=True)
+
     # 时间戳
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -210,6 +214,7 @@ class Worker(Base):
             "market_type": trading_config.get("market_type", "spot"),
             "trading_mode": trading_config.get("trading_mode", "paper"),
             "pid": self.pid,
+            "owner_id": self.owner_id,
             "config": self.get_config_dict(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

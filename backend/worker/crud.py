@@ -122,6 +122,8 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         if (worker_data.config or worker_data.strategy_file_name)
         else "{}",
         status="stopped",
+        # 归属用户ID（P1-07 工人属地）：路由层已从 JWT sub 注入；历史数据/未登录为 None
+        owner_id=worker_data.owner_id,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -235,6 +237,8 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
         env_vars=source_worker.env_vars if request.copy_config else "{}",
         config=source_worker.config if request.copy_config else "{}",
         status="stopped",
+        # 克隆副本继承源 worker 的归属（P1-07 工人属地），保持属主不变
+        owner_id=source_worker.owner_id,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )

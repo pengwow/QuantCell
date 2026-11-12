@@ -62,6 +62,9 @@ class WorkerCreate(WorkerBase):
     # 其他配置
     env_vars: dict[str, str] | None = Field(default=None, description="环境变量")
     config: dict[str, Any] | None = Field(default=None, description="Worker配置")
+    # 归属用户ID（P1-07 工人属地）：服务端创建时从 JWT sub 提取注入，前端无需传；
+    # 声明在此是为了显式接受该字段（extra="forbid"），历史数据为 None
+    owner_id: int | None = Field(default=None, description="归属用户ID（服务端注入）")
 
 
 class WorkerUpdate(BaseModel):

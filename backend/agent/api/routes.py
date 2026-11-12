@@ -7,11 +7,12 @@ import time
 from datetime import datetime
 from enum import StrEnum
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from utils.logger import LogType, get_logger
+from utils.rbac import Permission, require_permission
 
 from ..config.manager import ToolParamManager, mask_sensitive_value
 from ..config.schemas import BatchUpdateRequest, ImportConfigRequest, SetValueRequest
@@ -258,7 +259,13 @@ def build_actions(intent: str) -> list[dict]:
     return action_mapping.get(intent, [])
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    # P1-07 权限灰度：/api/v1/agent/* 全量挂载，读走 AI_READ、变更走 AI_WRITE
+    # （enforcement off 时依赖直接放行，行为与未挂载一致）
+    dependencies=[Depends(require_permission(Permission.AI_WRITE))],
+)
 async def chat(request: ChatRequest):
     """
     与 Agent 进行对话
@@ -295,7 +302,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
 async def chat_stream(request: ChatRequest):
     """
     流式对话端点 (SSE - Server-Sent Events)
@@ -415,7 +422,7 @@ async def chat_stream(request: ChatRequest):
     )
 
 
-@router.get("/tools", response_model=list[ToolInfo])
+@router.get("/tools", response_model=list[ToolInfo], dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def list_tools():
     """获取所有可用工具列表"""
     try:
@@ -431,7 +438,7 @@ async def list_tools():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/sessions/{session_id}/clear")
+@router.post("/sessions/{session_id}/clear", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
 async def clear_session(session_id: str):
     try:
         agent = get_agent()
@@ -442,7 +449,7 @@ async def clear_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/sessions/{session_id}/history")
+@router.get("/sessions/{session_id}/history", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def get_session_history(session_id: str, limit: int = 50):
     try:
         agent = get_agent()
@@ -453,7 +460,7 @@ async def get_session_history(session_id: str, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
 async def delete_session(session_id: str):
     try:
         agent = get_agent()
@@ -472,7 +479,7 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/sessions")
+@router.get("/sessions", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def list_sessions():
     try:
         agent = get_agent()
@@ -487,7 +494,7 @@ class CreateSessionRequest(BaseModel):
     name: str | None = None
 
 
-@router.post("/sessions")
+@router.post("/sessions", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
 async def create_session(request: CreateSessionRequest):
     try:
         agent = get_agent()
@@ -498,7 +505,7 @@ async def create_session(request: CreateSessionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def get_session(session_id: str):
     try:
         agent = get_agent()
@@ -516,7 +523,7 @@ async def get_session(session_id: str):
 # ==================== 工具参数管理 API ====================
 
 
-@router.get("/tools/params/tools")
+@router.get("/tools/params/tools", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def get_registered_tools():
     """获取所有已注册的工具列表及其参数状态"""
     try:
@@ -527,7 +534,7 @@ async def get_registered_tools():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/tools/params/{tool_name}")
+@router.get("/tools/params/{tool_name}", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def get_tool_params(
     tool_name: str,
     include_sensitive: bool = Query(False, description="是否包含敏感参数真实值"),
@@ -543,7 +550,10 @@ async def get_tool_params(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/tools/params/{tool_name}/{param_name}")
+@router.put(
+    "/tools/params/{tool_name}/{param_name}",
+    dependencies=[Depends(require_permission(Permission.AI_WRITE))],
+)
 async def set_tool_param(tool_name: str, param_name: str, request: SetValueRequest):
     """设置工具参数"""
     try:
@@ -573,7 +583,7 @@ async def set_tool_param(tool_name: str, param_name: str, request: SetValueReque
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/tools/params/{tool_name}/batch")
+@router.post("/tools/params/{tool_name}/batch", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
 async def batch_update_params(tool_name: str, request: BatchUpdateRequest):
     """批量更新工具参数"""
     try:
@@ -590,7 +600,10 @@ async def batch_update_params(tool_name: str, request: BatchUpdateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/tools/params/{tool_name}/{param_name}")
+@router.delete(
+    "/tools/params/{tool_name}/{param_name}",
+    dependencies=[Depends(require_permission(Permission.AI_WRITE))],
+)
 async def delete_tool_param(tool_name: str, param_name: str):
     """删除工具参数"""
     try:
@@ -606,7 +619,7 @@ async def delete_tool_param(tool_name: str, param_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/tools/params/export")
+@router.get("/tools/params/export", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def export_config(
     tool_name: str | None = Query(None, description="工具名称，不传则导出全部"),
 ):
@@ -619,7 +632,7 @@ async def export_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/tools/params/import")
+@router.post("/tools/params/import", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
 async def import_config(request: ImportConfigRequest):
     """导入配置"""
     try:

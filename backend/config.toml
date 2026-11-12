@@ -31,3 +31,10 @@ execution_lock_enabled = false
 # 缺省）、by = Benjamini-Yekutieli（任意依赖，更保守）、none = 不做校正主张；
 # compare 请求里的 fdr_method 入参优先于本配置
 fdr.method = "bh"
+
+# RBAC 权限枚举开关（utils/rbac.require_permission 读取，P1-07 权限灰度）
+[rbac]
+# false = 现行为（单用户全通，挂了权限依赖的路由直接放行）
+# true  = 按 token 角色强制校验（worker 写/操作、agent 全部路由：
+#         未认证 401、权限不足 403，拒绝与通过均写审计日志）
+enforcement_enabled = false
