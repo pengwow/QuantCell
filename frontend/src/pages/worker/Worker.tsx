@@ -23,8 +23,6 @@ import {
   Dropdown,
   Checkbox,
   Flex,
-  Grid,
-  Segmented,
   Pagination,
   theme,
   type MenuProps,
@@ -42,8 +40,6 @@ import {
   PoweroffOutlined,
   CaretRightOutlined,
   FileTextOutlined,
-  AppstoreOutlined,
-  UnorderedListOutlined,
   EyeOutlined,
   MoreOutlined,
   CheckSquareOutlined,
@@ -66,14 +62,12 @@ import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 
 // 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
 type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
-type ViewType = 'card' | 'list';
 
 const Worker = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { message: apiMessage, modal } = App.useApp();
   const { token } = theme.useToken();
-  const screens = Grid.useBreakpoint();
 
   // Store state and actions
   // 注意：详情展示已移交 /strategy-worker/:id 独立页（WorkerDetail），
@@ -99,8 +93,8 @@ const Worker = () => {
   const [workerToEdit, setWorkerToEdit] = useState<WorkerType | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  // 视图类型状态 - 列表/卡片（与策略管理一致，默认跟随全局配置）
-  const [viewType, setViewType] = useViewType();
+  // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
+  const viewType = useViewType();
   // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 来自全局配置（条数切换器即全站开关）
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
@@ -463,14 +457,6 @@ const Worker = () => {
             setSearchKeyword(e.target.value);
             gotoPage1();
           }}
-        />
-        <Segmented
-          value={viewType}
-          onChange={(v) => setViewType(v as ViewType)}
-          options={[
-            { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('list_view') : undefined },
-            { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('card_view') : undefined },
-          ]}
         />
       </Flex>
       <Flex justify="space-between" align="center" gap="small" wrap="wrap">

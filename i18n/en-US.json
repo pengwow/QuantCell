@@ -813,8 +813,6 @@
   "batch_backtest_delete_success": "Batch delete successful",
   "batch_backtest_delete_failed": "Batch delete failed",
   "search_backtest": "Search strategy name or ID",
-  "list_view": "List",
-  "card_view": "Card",
   "filter_status": "Status",
   "all_status": "All Status",
   "filter_date": "Date",
@@ -2716,8 +2714,6 @@
   "umt_filter_status": "Status",
   "umt_msg_rl_backtest_todo": "RL backtest not available yet ({{name}})",
   "umt_btn_backtest_selected": "Backtest selected model",
-  "umt_view_card": "Card",
-  "umt_view_list": "List",
 
   "mm_field_name": "Model name",
   "mm_col_type": "Type",

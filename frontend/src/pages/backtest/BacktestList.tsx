@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Button, Tag, Space, Popconfirm, App, Segmented, Row, Col, Pagination, Input, Select, DatePicker, Grid, Tooltip } from 'antd';
+import { Card, Table, Button, Tag, Space, Popconfirm, App, Row, Col, Pagination, Input, Select, DatePicker, Tooltip } from 'antd';
 import type { TableProps } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, FilterOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FilterOutlined, DeleteOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
 import { useTranslation } from 'react-i18next';
 import { IconPlayerPlay, IconEye } from '@tabler/icons-react';
@@ -15,13 +15,8 @@ import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 
-const { useBreakpoint } = Grid;
-
 const { Search } = Input;
 const { RangePicker } = DatePicker;
-
-// 视图类型
-type ViewType = 'list' | 'card';
 
 // 筛选状态类型
 type FilterStatus = 'all' | 'completed' | 'running' | 'failed' | 'pending';
@@ -42,8 +37,8 @@ const BacktestList = () => {
   // 选中的行keys
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  // 视图类型状态：全局默认 + 会话内临时覆盖（不写回全局配置，刷新后回归全局）
-  const [viewType, setViewType] = useViewType();
+  // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
+  const viewType = useViewType();
 
   // 筛选状态
   const [searchText, setSearchText] = useState<string>('');
@@ -51,10 +46,6 @@ const BacktestList = () => {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-
-  // 响应式断点
-  const screens = useBreakpoint();
-
   // 分页配置：pageSize 来自全局配置（条数切换器即全站开关）
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [pagination, setPagination] = useState<TableProps<BacktestTask>['pagination']>(() => ({
@@ -151,11 +142,6 @@ const BacktestList = () => {
   // 跳转到回测配置页面
   const handleStartBacktest = () => {
     navigate('/backtest/config');
-  };
-
-  // 处理视图切换（会话级临时覆盖，不再持久化到 localStorage）
-  const handleViewTypeChange = (value: ViewType) => {
-    setViewType(value);
   };
 
   // 表格列定义
@@ -558,25 +544,15 @@ const BacktestList = () => {
   // 渲染工具栏 - 优化小屏幕布局
   const renderToolbar = () => (
     <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索（左） + 视图切换（右） */}
+      {/* 第一行：搜索 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={16} sm={16} md={12} lg={10}>
+        <Col xs={24}>
           <Search
             placeholder={t('search_backtest')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
             style={{ width: '100%' }}
-          />
-        </Col>
-        <Col xs={8} sm={8} md={12} lg={14} style={{ textAlign: 'right' }}>
-          <Segmented
-            value={viewType}
-            onChange={(value) => handleViewTypeChange(value as ViewType)}
-            options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('list_view') : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('card_view') : undefined },
-            ]}
           />
         </Col>
       </Row>

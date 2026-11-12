@@ -13,9 +13,7 @@ import {
   Select,
   Row,
   Col,
-  Segmented,
   Table,
-  Grid,
   Tabs,
   Pagination,
 } from 'antd';
@@ -26,7 +24,6 @@ import {
   PlusOutlined,
   ReloadOutlined,
   AppstoreOutlined,
-  UnorderedListOutlined,
   HistoryOutlined,
   LineChartOutlined,
 } from '@ant-design/icons';
@@ -47,10 +44,6 @@ import { QUANT_COLORS } from '@/utils/colors';
 
 const { confirm } = Modal;
 const { Search } = Input;
-const { useBreakpoint } = Grid;
-
-// 视图类型
-type ViewType = 'list' | 'card';
 
 // 排序字段
 type SortField = 'name' | 'created_at' | 'updated_at';
@@ -77,7 +70,6 @@ const StrategyManagement = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { isGuest } = useGuestRestriction();
-  const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
   const { message } = App.useApp();
 
@@ -85,8 +77,8 @@ const StrategyManagement = () => {
   const tabFromUrl = searchParams.get('tab') as TabType;
   const validTab = tabFromUrl === 'strategies' || tabFromUrl === 'backtests' ? tabFromUrl : 'strategies';
 
-  // 视图类型状态 - 策略列表（全局默认 + 会话内临时覆盖）
-  const [viewType, setViewType] = useViewType();
+  // 视图类型状态 - 策略列表（跟随系统设置「默认展示类型」，页面不提供切换）
+  const viewType = useViewType();
 
   // Tab 状态 - 从 URL 参数初始化
   const [activeTab, setActiveTab] = useState<TabType>(validTab);
@@ -101,8 +93,8 @@ const StrategyManagement = () => {
   const [backtestLoading, setBacktestLoading] = useState<boolean>(false);
   const [selectedStrategy, setSelectedStrategy] = useState<string>('');
 
-  // 回测列表视图类型（全局默认 + 会话内临时覆盖）
-  const [backtestViewType, setBacktestViewType] = useViewType();
+  // 回测列表视图类型（跟随系统设置「默认展示类型」，页面不提供切换）
+  const backtestViewType = useViewType();
   const [backtestSelectedRowKeys, setBacktestSelectedRowKeys] = useState<React.Key[]>([]);
 
   // 回测筛选状态
@@ -616,25 +608,15 @@ const StrategyManagement = () => {
   // 渲染工具栏 - 参考策略回测页面风格
   const renderToolbar = () => (
     <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索（左） + 视图切换（右） */}
+      {/* 第一行：搜索 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={16} sm={16} md={12} lg={10}>
+        <Col xs={24}>
           <Search
             placeholder={t('search_strategy')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
             style={{ width: '100%' }}
-          />
-        </Col>
-        <Col xs={8} sm={8} md={12} lg={14} style={{ textAlign: 'right' }}>
-          <Segmented
-            value={viewType}
-            onChange={(value) => setViewType(value as ViewType)}
-            options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view')) : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view')) : undefined },
-            ]}
           />
         </Col>
       </Row>
@@ -1167,9 +1149,9 @@ const StrategyManagement = () => {
   // 渲染回测工具栏 - 参考策略回测页面风格
   const renderBacktestToolbar = () => (
     <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索（左） + 视图切换（右） */}
+      {/* 第一行：搜索 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={16} sm={16} md={12} lg={10}>
+        <Col xs={24}>
           <Search
             placeholder={t('search_backtest')}
             value={backtestSearchText}
@@ -1177,16 +1159,6 @@ const StrategyManagement = () => {
             onSearch={(value) => loadBacktests({ keyword: value, page: 1 })}
             allowClear
             style={{ width: '100%' }}
-          />
-        </Col>
-        <Col xs={8} sm={8} md={12} lg={14} style={{ textAlign: 'right' }}>
-          <Segmented
-            value={backtestViewType}
-            onChange={(value) => setBacktestViewType(value as ViewType)}
-            options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view')) : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view')) : undefined },
-            ]}
           />
         </Col>
       </Row>

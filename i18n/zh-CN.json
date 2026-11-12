@@ -1368,8 +1368,6 @@
   "add_to": "添加",
   "remove": "移除",
   "auto_update_count": "自动更新",
-  "list_view": "列表",
-  "card_view": "卡片",
   "sort_rank": "按排名",
   "sort_price_high": "价格 高-低",
   "sort_price_low": "价格 低-高",
@@ -2716,8 +2714,6 @@
   "umt_filter_status": "状态",
   "umt_msg_rl_backtest_todo": "RL 回测暂未开放（{{name}}）",
   "umt_btn_backtest_selected": "回测选中模型",
-  "umt_view_card": "卡片",
-  "umt_view_list": "列表",
 
   "mm_field_name": "模型名称",
   "mm_col_type": "类型",

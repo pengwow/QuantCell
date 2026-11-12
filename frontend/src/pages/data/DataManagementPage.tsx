@@ -65,8 +65,6 @@ import {
   DeleteOutlined,
   FolderOutlined,
   FolderOpenOutlined,
-  AppstoreOutlined,
-  UnorderedListOutlined,
   SettingOutlined,
   ImportOutlined,
   FileSearchOutlined,
@@ -496,9 +494,6 @@ interface MarketDataPoint {
   [key: string]: unknown;
 }
 
-// 视图类型
-type ViewType = 'list' | 'card';
-
 // 排序字段
  type SortField = 'symbol' | 'price' | 'change' | 'volume' | 'marketCap' | 'rank';
  type SortOrder = 'asc' | 'desc';
@@ -559,8 +554,8 @@ const DataManagementPage = () => {
   const [symbolLoading, setSymbolLoading] = useState(false);
   const [searchText, setSearchText] = useState(restoredState?.pageState?.searchText || '');
   const [quoteFilter, setQuoteFilter] = useState<string>(restoredState?.pageState?.quoteFilter || 'all');
-  // 视图类型：全局默认 + 会话内临时覆盖（不再从路由状态恢复，跟随系统配置）
-  const [viewType, setViewType] = useViewType();
+  // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
+  const viewType = useViewType();
   const [sortField, setSortField] = useState<SortField>(restoredState?.pageState?.sortField || 'rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>(restoredState?.pageState?.sortOrder || 'asc');
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(restoredState?.pageState?.selectedSymbols || []);
@@ -2612,25 +2607,15 @@ const DataManagementPage = () => {
 
   const renderSymbolToolbar = () => (
     <div className="mb-4">
-      {/* 第一行：搜索（左） + 视图切换（右） */}
+      {/* 第一行：搜索 */}
       <Row gutter={[12, 12]} className="mb-3" align="middle">
-        <Col xs={16} sm={16} md={12} lg={10}>
+        <Col xs={24}>
           <Search
             placeholder={t('search_symbol')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
             className="w-full"
-          />
-        </Col>
-        <Col xs={8} sm={8} md={12} lg={14} className="text-right">
-          <Segmented
-            value={viewType}
-            onChange={(value) => setViewType(value as ViewType)}
-            options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('list_view') : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('card_view') : undefined },
-            ]}
           />
         </Col>
       </Row>

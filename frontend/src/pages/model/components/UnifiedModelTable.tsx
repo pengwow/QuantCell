@@ -9,10 +9,8 @@ import {
   Empty,
   Flex,
   Input,
-  Grid,
   Pagination,
   Row,
-  Segmented,
   Select,
   Space,
   Table,
@@ -22,7 +20,6 @@ import {
 } from 'antd';
 import type { TableProps } from 'antd';
 import {
-  AppstoreOutlined,
   BarChartOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -32,13 +29,13 @@ import {
   RollbackOutlined,
   SearchOutlined,
   TagOutlined,
-  UnorderedListOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { modelApi, type UnifiedModelRow } from '@/api/modelApi';
 import { rlApi } from '@/api/rlApi';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
+import { useViewType } from '@/hooks/useViewType';
 import ModelDetailDrawer from './ModelDetailDrawer';
 import RegisterModelModal from './RegisterModelModal';
 
@@ -96,12 +93,11 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
   const [selected, setSelected] = useState<string[]>([]);
   const [registerRow, setRegisterRow] = useState<UnifiedModelRow | null>(null);
   const [detailRow, setDetailRow] = useState<UnifiedModelRow | null>(null);
-  // 视图切换:卡片(默认,对齐 ResearchList 网格浏览习惯)/列表
-  const [view, setView] = useState<'card' | 'list'>('card');
+  // 视图类型:跟随系统设置「默认展示类型」(复用 useViewType),页面不提供切换
+  const view = useViewType();
   // pageSize 全站开关,返回值是元组(同 RLModelList 既有用法)
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [current, setCurrent] = useState(1);
-  const screens = Grid.useBreakpoint();
 
   const loadRows = async () => {
     setLoading(true);
@@ -380,15 +376,6 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
                 </Button>
               )}
             </Flex>
-            <Segmented
-              value={view}
-              onChange={(v) => setView(v as 'card' | 'list')}
-              // 图标+文字与 ResearchList 视图切换一致;小屏只留图标
-              options={[
-                { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('umt_view_card') : undefined },
-                { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('umt_view_list') : undefined },
-              ]}
-            />
           </Flex>
 
           {view === 'card' ? (
