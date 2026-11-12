@@ -888,6 +888,23 @@ export const indicatorApi = {
   getIndicatorParams: (id: number) => {
     return apiRequest.get(`/indicators/${id}/params`);
   },
+
+  // ===== 指标信号提醒规则（P2-07） =====
+  listAlertRules: (indicatorId?: number) => {
+    return apiRequest.get('/indicators/alerts', indicatorId != null ? { indicator_id: indicatorId } : undefined);
+  },
+  createAlertRule: (payload: Record<string, unknown>) => {
+    return apiRequest.post('/indicators/alerts', payload);
+  },
+  updateAlertRule: (id: number, payload: Record<string, unknown>) => {
+    return apiRequest.put(`/indicators/alerts/${id}`, payload);
+  },
+  deleteAlertRule: (id: number) => {
+    return apiRequest.delete(`/indicators/alerts/${id}`);
+  },
+  testAlertRule: (id: number) => {
+    return apiRequest.post(`/indicators/alerts/${id}/test`);
+  },
 };
 
 /**

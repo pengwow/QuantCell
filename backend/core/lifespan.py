@@ -422,6 +422,42 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] WorkerOrchestrator 初始化失败 (ZMQ 不可用): {e}")
 
+    # 指标信号提醒评估循环（P2-07）：60s 一轮，评估在 to_thread 内同步执行，
+    # 命中后此协程侧经统一通知服务投递；规则本身可随时暂停/恢复
+    async def _indicator_alert_loop():
+        # 函数内 import：通知服务与 alerts 各自拖带较重依赖，且评估线程才真正用到
+        from common.notifications.models import (
+            NotificationCategory,
+            NotificationChannel,
+            NotificationLevel,
+        )
+        from common.notifications.service import notification_service
+        from indicators.alerts import run_evaluation_round
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                triggers = await asyncio.to_thread(run_evaluation_round)
+                for trigger in triggers:
+                    channels = [
+                        NotificationChannel(c)
+                        for c in (trigger["rule"].get("channels") or ["websocket"])
+                        if c in [x.value for x in NotificationChannel]
+                    ]
+                    await notification_service.send_notification(
+                        title=trigger["title"],
+                        content=trigger["message"],
+                        level=NotificationLevel.WARNING,
+                        category=NotificationCategory.ALERT,
+                        channels=channels,
+                        metadata={"rule_id": trigger["rule"]["id"]},
+                    )
+            except Exception as e:
+                logger.warning(f"[指标提醒循环] 异常: {e}")
+
+    app.state.indicator_alert_task = asyncio.create_task(_indicator_alert_loop())
+    logger.info("[Lifespan] 指标信号提醒评估循环已启动")
+
     # 安装关停看门狗：链式包装 uvicorn 信号处理器，保证一次 Ctrl+C 即可有界退出
     # （uvicorn 默认会无限等待浏览器持有的 SSE/WebSocket 连接关闭）
     shutdown_watchdog = _ShutdownWatchdog(timeout=_stop_timeout(_LEGACY_WATCHDOG, shutdown_watchdog_timeout()))
@@ -550,6 +586,14 @@ async def lifespan(app: FastAPI):
             logger.info("[Lifespan] 已取消 WorkerOrchestrator 健康检查循环")
     except Exception as e:
         logger.warning(f"[Lifespan] 取消健康检查循环失败: {e}")
+
+    # 步骤 8.5: 取消指标信号提醒评估循环
+    try:
+        if hasattr(app.state, "indicator_alert_task") and not app.state.indicator_alert_task.done():
+            app.state.indicator_alert_task.cancel()
+            logger.info("[Lifespan] 已取消指标信号提醒评估循环")
+    except Exception as e:
+        logger.warning(f"[Lifespan] 取消指标提醒循环失败: {e}")
 
     # 步骤 9: 关闭 worker_system (StrategyManager) — 含自己的 ThreadPoolExecutor
     try:

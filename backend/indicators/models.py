@@ -184,3 +184,32 @@ class CustomIndicatorBusiness:
             return None
         finally:
             db.close()
+
+
+class IndicatorAlertRule(TimezoneAwareBase):
+    """指标信号提醒规则（P2-07）
+
+    对指定标的/周期拉取K线沙箱重算指标，将某个 plot 线的最新值与阈值比较，
+    命中后经统一通知服务投递（websocket/email/feishu/wecom），按 frequency(分钟)
+    去重，避免同一条件反复打扰。
+    """
+
+    __tablename__ = "indicator_alert_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    indicator_id = Column(Integer, nullable=False, index=True)
+    name = Column(String(100), nullable=False, default="")
+    symbol = Column(String(50), nullable=False)
+    period = Column(String(20), nullable=False, default="1h")
+    market_type = Column(String(20), nullable=False, default="crypto")
+    crypto_type = Column(String(20), nullable=False, default="spot")
+    params = Column(Text, nullable=False, default="{}")  # 指标参数，JSON 对象
+    plot_name = Column(String(100), nullable=False, default="")  # 空=第一个 plot 线
+    op = Column(String(20), nullable=False, default="gt")  # gt/lt/cross_up/cross_down
+    threshold = Column(Numeric(24, 10), nullable=False, default=0)
+    channels = Column(Text, nullable=False, default='["websocket"]')  # 通知渠道，JSON 数组
+    frequency = Column(Integer, nullable=False, default=30)  # 触发去重窗口（分钟）
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_fired_at = Column(DateTime(timezone=True))  # 上次触发时间，去重依据
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())

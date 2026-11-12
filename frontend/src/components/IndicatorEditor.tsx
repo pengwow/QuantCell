@@ -16,6 +16,7 @@ import {
   CodeOutlined,
   CheckOutlined,
   CloseOutlined,
+  BellOutlined,
 } from '@ant-design/icons';
 import {
   Modal,
@@ -34,6 +35,7 @@ import Editor, { type OnMount } from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
 import { indicatorApi, type ThinkingChainEventData, type IndicatorQualityHint } from '../api';
 import { useGuestRestriction } from '../hooks/useGuestRestriction';
+import IndicatorAlertTab from './IndicatorAlertTab';
 import { QUANT_COLORS } from '@/utils/colors';
 
 interface IndicatorEditorProps {
@@ -661,6 +663,21 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
         </div>
       ),
     },
+    // 提醒页签：仅已保存的指标可配置（规则表通过 indicator_id 关联）
+    ...(editingIndicator?.id
+      ? [
+          {
+            key: 'alerts',
+            label: (
+              <span>
+                <BellOutlined />
+                {t('indicator.alerts')}
+              </span>
+            ),
+            children: <IndicatorAlertTab indicatorId={editingIndicator.id} />,
+          },
+        ]
+      : []),
   ];
 
   return (

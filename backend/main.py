@@ -51,6 +51,7 @@ from collector.routes import router as collector_router
 from common.notifications.routes import router as notification_router
 from extensions.api import router as extensions_router
 from factor import router as factor_router
+from indicators.alerts_routes import router as indicator_alerts_router
 from indicators.routes import router as indicators_router
 from plugins.routes import router as plugins_router
 from realtime.routes import realtime_router
@@ -108,6 +109,7 @@ app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
 app.include_router(indicators_router)
+app.include_router(indicator_alerts_router)  # 指标信号提醒规则 CRUD/测试发送（P2-07）
 app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(universe_router)  # 标的池管理（P2-03）
