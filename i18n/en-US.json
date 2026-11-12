@@ -3165,5 +3165,18 @@
   "ie_quality_score": "Quality: {{score}}/100 ({{level}})",
   "ie_quality_plots_signals": "{{plots}} lines · {{signals}} signals",
   "ie_quality_more_issues": "...and {{n}} more issues",
-  "ie_guest_save_restricted": "Guest users cannot save indicators. Please sign in with a regular user account"
+  "ie_guest_save_restricted": "Guest users cannot save indicators. Please sign in with a regular user account",
+  "rtb_tip_start": "Start realtime updates",
+  "rtb_tip_pause": "Pause realtime updates",
+  "rtb_tip_starting": "Starting...",
+  "rtb_tip_pausing": "Pausing...",
+  "rtb_msg_started": "Realtime updates enabled",
+  "rtb_msg_paused": "Realtime updates paused",
+  "rtb_msg_start_engine_failed": "Failed to start realtime engine",
+  "rtb_msg_connect_exchange_failed": "Failed to connect to exchange",
+  "rtb_msg_subscribe_failed": "Failed to subscribe kline data",
+  "rtb_msg_start_failed": "Failed to start realtime data: {{msg}}",
+  "rtb_msg_stop_failed": "Failed to stop realtime data: {{msg}}",
+  "rtb_msg_engine_stopped": "Realtime engine stopped, button state reset",
+  "rtb_msg_check_network": "Please check your network connection"
 }

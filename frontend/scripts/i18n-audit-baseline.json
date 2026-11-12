@@ -1,17 +1,13 @@
 {
-  "total": 718,
+  "total": 670,
   "files": [
     {
-      "file": "src/components/RealtimeToggleButton.tsx",
-      "count": 48
+      "file": "src/pages/factor/FactorCompare.tsx",
+      "count": 37
     },
     {
       "file": "src/pages/factor/FactorLibraryPane.tsx",
       "count": 39
-    },
-    {
-      "file": "src/pages/factor/FactorCompare.tsx",
-      "count": 37
     },
     {
       "file": "src/pages/factor/FactorFormModal.tsx",
