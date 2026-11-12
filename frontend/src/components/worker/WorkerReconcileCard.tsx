@@ -12,7 +12,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { getReconcileSummary } from '../../api/workerApi';
 import type { ReconcileSummaryItem } from '../../types/worker';
 
-// 六类 break 的展示名映射；未识别的 key（后端演进新增）直接展示原始 key
+// 各类 break 的展示名映射（P1-02 三资 + P1-03 专项）；未识别的 key（后端演进新增）直接展示原始 key
 const BREAK_LABEL_KEYS: Record<string, string> = {
   position_breaks: 'reconcile_break_position',
   missing_fills: 'reconcile_break_missing_fills',
@@ -21,6 +21,10 @@ const BREAK_LABEL_KEYS: Record<string, string> = {
   orphan_local_orders: 'reconcile_break_orphan_orders',
   open_orders_unverified: 'reconcile_break_unverified',
   cash_break: 'reconcile_break_cash',
+  // P1-03 资金费/平仓专项
+  venue_absent: 'reconcile_break_venue_absent',
+  closed_without_rt: 'reconcile_break_closed_without_rt',
+  rt_unfilled_pnl: 'reconcile_break_rt_unfilled_pnl',
 };
 
 const WorkerReconcileCard: React.FC<{ workerId: number; active?: boolean }> = ({ workerId, active = true }) => {

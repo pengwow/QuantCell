@@ -223,3 +223,159 @@ def run_periodic_reconcile(
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return import_reconcile_reports(worker_id, journal)
+
+
+# ── P1-03 资金费 / 平仓专项对账 ─────────────────────────────────────
+
+
+def _log_reconcile_summary(session: Session, worker_id: int, payload: dict) -> bool:
+    """reconciliation 摘要落库（source=reconciliation），与最新一条内容相同即跳过。
+
+    Returns:
+        True = 本次新落库；False = 去重跳过。
+    """
+    from worker import crud  # 函数内 import 防 worker.__init__ 循环链（同 import_reconcile_reports）
+
+    latest = next(
+        (log for log in crud.get_worker_logs(session, worker_id, limit=20) if log.source == RECONCILE_LOG_SOURCE),
+        None,
+    )
+    message = json.dumps(payload, ensure_ascii=False)
+    if latest is not None and latest.message == message:
+        return False
+    level = "INFO" if payload.get("ok") else "WARNING"
+    crud.create_worker_log(session, worker_id, level, message, source=RECONCILE_LOG_SOURCE)
+    return True
+
+
+def funding_breaks(
+    worker_id: int,
+    exchange,
+    ccxt_symbol: str,
+    since_ms: int,
+    local_positions: dict | None = None,
+    *,
+    db: Session | None = None,
+) -> dict:
+    """资金费专项对账（P1-03）：交易所 FUNDING_FEE income 逐笔摘要 + 存在性核对。
+
+    现实约束：live 引擎 OMS/journal 没有逐笔资金费簿记（LiveSink 不记账 funding、
+    journal 不产 Funding 事件），详设中"vs 本地资金费记录逐笔差额"当前无本地依据，
+    落地为可核算的部分：
+    - income 逐笔拉取 → 笔数/净额摘要可见，cash_break 出现时可对照归因；
+    - venue_absent：窗口内本地有持仓而交易所 income 为空 → break（疑似
+      API 权限/记账丢失）。
+    ponytail: 逐笔差额核对需 LiveSink 增加 funding 簿记（Rust 改动）后再升级。
+
+    Returns:
+        摘要 payload（落库去重后仍返回，供调用方告警判定）。
+    """
+    if ":" not in ccxt_symbol:
+        return {"kind": "funding", "skipped": "spot"}  # 现货无资金费概念，不产生记录
+
+    def _run(session: Session) -> dict:
+        rows = exchange.fetch_funding_fees(ccxt_symbol, since_ms)
+        net: dict[str, float] = {}
+        for r in rows:
+            currency = r.get("currency") or "USDT"
+            net[currency] = net.get(currency, 0.0) + float(r.get("amount") or 0.0)
+        # 单边缺失（详设"差额>0.01 记 break"的 live 现实等价物）
+        venue_absent = bool(local_positions) and not rows
+        payload = {
+            "kind": "funding",
+            "ok": not venue_absent,
+            "counts": {"venue_absent": 1 if venue_absent else 0},
+            "income_count": len(rows),
+            "income_net": {k: round(v, 8) for k, v in net.items()},
+        }
+        _log_reconcile_summary(session, worker_id, payload)
+        return payload
+
+    if db is not None:
+        return _run(db)
+    with get_db_session() as session:
+        return _run(session)
+
+
+def close_consistency(worker_id: int, *, db: Session | None = None) -> dict:
+    """平仓专项对账（P1-03）：paper 配对链（round_trip_id）交叉核对，两类 break：
+
+    - closed_without_rt：品种存在 CLOSED 持仓且有成交、却没有任何配对组 →
+      成交落库了而 finalize 回填链完全断裂（详设"无配对平仓"）；
+    - rt_unfilled_pnl：配对组的 finalize 行（组键尾段与 trade_id 中段一致）
+      realized_pnl 仍为 NULL → 组产出但盈亏回填失败（详设"配对后残留"）。
+    详设原口径"组内 residual_qty != 0"不落地：引擎反手 fill 不拆分（同一根
+    fill 既是旧组 exit 又是新组 entry），组内买卖量平衡恒被反手打破，字面
+    核对必误报。
+    ponytail: worker_trades 全量扫描，单 worker 成交量大时升级为按 updated_at 窗口。
+    """
+    from worker.models import WorkerPosition, WorkerTrade  # 函数内 import 防循环链
+
+    def _is_finalize_row(t) -> bool:
+        # trade_id = paper:{worker_id}:{fill_id}:{ts_ns}，round_trip_id = rt:{worker_id}:{finalize_id}
+        tid = (t.trade_id or "").split(":")
+        rid = (t.round_trip_id or "").split(":")
+        return len(tid) >= 3 and len(rid) >= 3 and tid[2] == rid[2]
+
+    def _run(session: Session) -> dict:
+        trades = (
+            session.query(
+                WorkerTrade.symbol,
+                WorkerTrade.trade_id,
+                WorkerTrade.round_trip_id,
+                WorkerTrade.realized_pnl,
+            )
+            .filter(WorkerTrade.worker_id == worker_id)
+            .all()
+        )
+        rt_symbols = {t.symbol for t in trades if t.round_trip_id}
+        trade_symbols = {t.symbol for t in trades}
+        closed_symbols = {
+            row.symbol
+            for row in session.query(WorkerPosition.symbol)
+            .filter(WorkerPosition.worker_id == worker_id, WorkerPosition.status == "CLOSED")
+            .all()
+        }
+        # 优先核对该品种确实留有成交记录的，纯残留 CLOSED 行不判 break
+        broken_closed = sorted(closed_symbols & (trade_symbols - rt_symbols))
+        unfinalized = sum(1 for t in trades if t.round_trip_id and t.realized_pnl is None and _is_finalize_row(t))
+
+        counts = {"closed_without_rt": len(broken_closed), "rt_unfilled_pnl": unfinalized}
+        payload = {
+            "kind": "close",
+            "ok": not any(counts.values()),
+            "counts": counts,
+            "symbols": broken_closed[:10],
+        }
+        _log_reconcile_summary(session, worker_id, payload)
+        return payload
+
+    if db is not None:
+        return _run(db)
+    with get_db_session() as session:
+        return _run(session)
+
+
+def run_funding_close_reconcile(
+    worker_id: int,
+    driver,
+    exchange,
+    ccxt_symbol: str,
+    since_ms: int,
+    *,
+    db: Session | None = None,
+) -> list[dict]:
+    """P1-03 专项对账一条龙：资金费（须传交易所包装）+ 平仓配对链核对。
+
+    并入 6h 周期对账 tick（resume → funding → close 顺序），异常向上抛由
+    驱动线程兜底记日志。
+
+    Returns:
+        本次产生（或去重跳过）的摘要 payload 列表。
+    """
+    local = driver.snapshot()
+    out = [
+        funding_breaks(worker_id, exchange, ccxt_symbol, since_ms, local_positions=local.positions or {}, db=db),
+        close_consistency(worker_id, db=db),
+    ]
+    return [item for item in out if not item.get("skipped")]

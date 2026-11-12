@@ -594,6 +594,30 @@ class BinanceExchange(BaseExchange):
             logger.error(f"获取账户余额失败: {e}")
             return {}
 
+    def fetch_funding_fees(self, symbol: str, since_ms: int) -> list[dict]:
+        """拉取永续资金费流水（P1-03 资金费专项对账）
+
+        通过 fapiPrivate_get_income 逐笔获取 FUNDING_FEE income。
+        symbol 直接按 Binance 永续命名规则转 market id（去结算后缀 + 去斜杠），
+        不走 market_id() 以免依赖 markets 预加载。
+        """
+        market_id = symbol.partition(":")[0].replace("/", "")
+        rows = (
+            self.exchange.fapiPrivate_get_income(
+                {"symbol": market_id, "incomeType": "FUNDING_FEE", "startTime": since_ms, "limit": 1000}
+            )
+            or []
+        )
+        return [
+            {
+                "ts_ms": int(row.get("time") or 0),
+                "symbol": symbol,
+                "amount": float(row.get("income") or 0.0),
+                "currency": row.get("asset") or "USDT",
+            }
+            for row in rows
+        ]
+
     def set_account_config(self) -> None:
         logger.info("账户配置设置方法")
 

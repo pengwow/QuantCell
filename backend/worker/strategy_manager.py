@@ -63,6 +63,9 @@ _LIVE_TICK_INTERVAL_S = 1.0
 _LIVE_SNAPSHOT_INTERVAL_S = 15.0
 # 运行期周期对账窗口（P1-02）：与 resume 对账互补的兜底保障，频次不用高
 _LIVE_RECONCILE_INTERVAL_S = 6 * 3600
+# 资金费对账回看窗口（P1-03）：覆盖一个对账周期 + 一个资金费结算间隔（Binance 8h）的余量，
+# 宁宽勿窄——窄窗口会把"上次窗口已结算、本次窗口恰好空档"误判成 venue_absent
+_FUNDING_WINDOW_S = 30 * 3600
 
 # 轮询强制直连：urllib 默认读 macOS/GUI 代理工具注册的系统代理（如 127.0.0.1:7897），
 # 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
@@ -1079,6 +1082,7 @@ class StrategyManager:
         # worker.__init__ 循环链在部分入口被点爆）
         exec_lock_on = False
         periodic_recon_on = False
+        funding_close_on = False
         if trade_sync is not None:
             from utils.config_manager import get_flag
 
@@ -1089,6 +1093,12 @@ class StrategyManager:
                 from worker.reconciliation import run_periodic_reconcile
 
                 periodic_recon_on = True
+            # P1-03 资金费/平仓专项对账（灰度，默认关）：并入周期对账 tick，
+            # 二开关独立，只开专项不跑三资时也可工作
+            if get_flag("worker.reconciliation.funding_close_enabled", False):
+                from worker.reconciliation import run_funding_close_reconcile
+
+                funding_close_on = True
         if exec_lock_on:
             # 「启动成功后 acquire」占位：失败不阻断，循环首拍再争（状态沿写 history）
             try:
@@ -1216,6 +1226,21 @@ class StrategyManager:
                             )
                 except Exception as e:
                     wlog.warning(f"[StrategyManager] 周期对账失败: worker_id={worker_id}, error={e}")
+            # 资金费/平仓专项对账（P1-03，默认关）：与周期对账同节奏，先后
+            # 独立 try——专项挂了不拖累三资对账结果
+            if funding_close_on and now_s - last_reconcile >= _LIVE_RECONCILE_INTERVAL_S:
+                try:
+                    since_ms = int((time.time() - _FUNDING_WINDOW_S) * 1000)
+                    for item in run_funding_close_reconcile(
+                        worker_id, driver, trade_sync.exchange, trade_sync.ccxt_symbol, since_ms
+                    ):
+                        if not item["ok"]:
+                            wlog.warning(
+                                f"[StrategyManager] 专项对账发现异常: worker_id={worker_id}, "
+                                f"kind={item.get('kind')}, counts={item.get('counts')}"
+                            )
+                except Exception as e:
+                    wlog.warning(f"[StrategyManager] 专项对账失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
