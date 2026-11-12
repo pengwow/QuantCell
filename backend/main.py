@@ -121,6 +121,11 @@ from observability.routes import router as observability_router
 
 app.include_router(observability_router)
 
+# 能力开关只读端点（P2-02：按部署形态裁剪功能域，前端据此过滤菜单/降级）
+from api.capabilities_routes import router as capabilities_router
+
+app.include_router(capabilities_router)
+
 # 模型/集成/风控/RL 服务路由
 app.include_router(models_router)
 app.include_router(ensemble_router)

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from config.capabilities import Capability, require_capability
 from utils.logger import LogType, get_logger
 from utils.rbac import Permission, require_permission
 
@@ -25,6 +26,8 @@ router = APIRouter(
     prefix="/api/v1/agent",
     tags=["agent"],
     responses={404: {"description": "Not found"}},
+    # P2-02：agent_gateway 能力域整组守卫，部署侧关闭时该前缀下全部端点 403
+    dependencies=[Depends(require_capability(Capability.AGENT_GATEWAY))],
 )
 
 

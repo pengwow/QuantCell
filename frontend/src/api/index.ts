@@ -535,6 +535,16 @@ export const configApi = {
 };
 
 /**
+ * 能力开关 API（P2-02 capability flags）
+ * 只读部署能力集，供菜单过滤与页面降级使用；拦截器已解包 code=0 的 data
+ */
+export const capabilitiesApi = {
+  getCapabilities: (): Promise<Record<string, boolean>> => {
+    return apiRequest.get('/capabilities');
+  }
+};
+
+/**
  * 回测相关 API
  */
 export const backtestApi = {

@@ -24,6 +24,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
+from config.capabilities import require_live_trading
 from strategy.decision_recording import list_decisions_from_file, load_record_by_seq, worker_replay_path
 from utils.auth import authenticate_request, get_current_user
 from utils.logger import LogType, get_logger
@@ -107,6 +108,8 @@ async def create_worker(
     current_user: dict = Depends(get_current_user),
 ):
     """创建新的Worker节点 - 委托给 WorkerCoreService"""
+    # P2-02 实盘闸门：live_trading 能力关闭时拒绝创建 live/testnet 配置的 worker
+    require_live_trading(request.trading_config.trading_mode)
     data = request.dict()
     # P1-07 工人属地：归属来自登录态（JWT sub），服务端注入不信任前端传值；
     # debug 假用户/非数字 sub 归为无归属（None），不阻断创建
@@ -402,6 +405,13 @@ async def batch_operation(
     current_user: dict = Depends(get_current_user),
 ):
     """批量操作Worker（支持批量启动、停止、重启）- 委托给 WorkerCoreService"""
+    # P2-02 实盘闸门：批量启动/重启时任一 live/testnet worker 命中即整批 403
+    # （stop 是安全方向操作，不拦；命中后整批拒绝，避免部分启动造成状态混乱）
+    if request.operation in ("start", "restart"):
+        for wid in request.worker_ids:
+            worker_rec = crud.get_worker(db, wid)
+            if worker_rec is not None:
+                require_live_trading(worker_rec.get_trading_config_dict().get("trading_mode", "paper"))
     result = await worker_core_service.async_batch_operation(request.worker_ids, request.operation)
     return schemas.ApiResponse(code=0, message="批量操作完成", data=result)
 
@@ -440,6 +450,12 @@ async def start_worker(
 
     注意：此操作为异步执行，实际状态变更请通过 GET /workers/{worker_id}/state 轮询
     """
+    # P2-02 实盘闸门：live/testnet 模式的 worker 启动需要 live_trading 能力；
+    # worker 不存在时不抢答 404，交由 service 统一处理。paper 模式不受影响。
+    worker_rec = crud.get_worker(db, worker_id)
+    if worker_rec is not None:
+        require_live_trading(worker_rec.get_trading_config_dict().get("trading_mode", "paper"))
+
     state = await worker_state_manager.get_state(worker_id)
 
     if state and state.status in ("running", "starting"):

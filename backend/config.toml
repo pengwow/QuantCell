@@ -44,3 +44,15 @@ enforcement_enabled = false
 # false = 不采集指标，/api/v1/metrics 返回 404（默认关）
 # true  = 中间件埋点 + worker 三项指标生效，/api/v1/metrics 返回文本格式
 metrics_enabled = false
+
+# 能力开关 capability flags（config/capabilities.py 读取，P2-02）
+# env QUANTCELL_CAPABILITY_<NAME>（如 QUANTCELL_CAPABILITY_LIVE_TRADING=false）优先于本分组
+[capabilities]
+# false = 实盘闸门收口：live/testnet 模式的 worker 创建与启动/批量启动全部 403，
+#         仅允许 paper 模拟；true = 现行为（单机全功能，默认）
+live_trading = true
+# false = Agent 网关整组关闭：/api/v1/agent 下全部端点 403，前端隐藏代理菜单；
+#         true = 现行为（默认）
+agent_gateway = true
+# mcp_server 能力域尚未实现（P2-04 预留），恒关；实现后由该能力控制 MCP 入口
+mcp_server = false

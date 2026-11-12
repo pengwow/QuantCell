@@ -260,6 +260,8 @@
   "scheduled_tasks": "Scheduled Tasks",
   "strategy_backtest": "Strategy Backtest",
   "strategy_agent": "Strategy Agent",
+  "capability_disabled_title": "Capability Disabled",
+  "capability_disabled_desc": "This capability ({{capability}}) is not enabled in the current deployment. Enable it via the [capabilities] section in config.toml or the corresponding environment variable.",
   "chart": "Chart",
   "backtest_results": "Backtest Results",
   "backtest_replay": "Backtest Replay",

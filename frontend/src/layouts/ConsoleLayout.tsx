@@ -30,6 +30,8 @@ import type { ThemeMode } from "@/components/AppTheme";
 import { pluginRegistry } from "@/plugins/PluginRegistry";
 import { useUpdateStore } from "@/desktop/updateStore";
 import { useUpdater } from "@/desktop/useUpdater";
+// P2-02 能力开关：菜单按部署能力过滤（agent_gateway 关闭时隐藏代理菜单）
+import { isCapabilityEnabled, useCapabilityStore } from "@/store/capabilityStore";
 
 const ConsoleLayout = () => {
   const { t } = useTranslation();
@@ -177,6 +179,12 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const navigate = useNavigate();
   const { t } = useTranslation();
 
+  // P2-02：能力集启动时加载一次；未就绪时按兼容默认渲染（不阻塞首屏）
+  const capabilities = useCapabilityStore((s) => s.capabilities);
+  useEffect(() => {
+    void useCapabilityStore.getState().loadCapabilities();
+  }, []);
+
   const MENU_KEY_HOME = "/home";
   const MENU_KEY_CHART = "/chart";
   const MENU_KEY_AGENT = "/agent";
@@ -272,7 +280,10 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     },
   }));
 
-  const menuItems = [...baseMenuItems, ...pluginMenuItems];
+  // P2-02 能力过滤：agent_gateway 关闭时隐藏代理菜单
+  const menuItems = [...baseMenuItems, ...pluginMenuItems].filter(
+    (item) => item?.key !== MENU_KEY_AGENT || isCapabilityEnabled(capabilities, "agent_gateway"),
+  );
 
   const [menuSelectedKey, setMenuSelectedKey] = useState<string>();
 

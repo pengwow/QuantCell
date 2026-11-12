@@ -260,6 +260,8 @@
   "setting": "设置",
   "scheduled_tasks": "定时任务",
   "strategy_agent": "策略代理",
+  "capability_disabled_title": "功能未开启",
+  "capability_disabled_desc": "当前部署未启用该能力（{{capability}}）。可在 config.toml 的 [capabilities] 分组或对应环境变量中开启。",
   "chart": "图表",
   "backtest_results": "回测结果",
   "backtest_replay": "回测回放",

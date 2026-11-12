@@ -4,6 +4,7 @@ import type { RouteObject } from 'react-router-dom';
 import { Spin } from 'antd';
 
 import AuthGuard from '@/components/AuthGuard';
+import CapabilityGuard from '@/components/CapabilityGuard';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 // 首屏关键页面保持同步加载，避免登录后白屏等待
 import LoginPage from '@/pages/login/LoginPage';
@@ -84,7 +85,15 @@ function createBaseRoutes(): RouteObject[] {
             { path: 'replay/:backtestId', element: <BacktestReplay /> },
           ],
         },
-        { path: '/agent', element: <Agent /> },
+        {
+          // P2-02：agent_gateway 能力关闭时降级为 403 页（菜单已隐藏，此处兜底直达 URL）
+          path: '/agent',
+          element: (
+            <CapabilityGuard capability="agent_gateway">
+              <Agent />
+            </CapabilityGuard>
+          ),
+        },
         { path: '/model-hub', element: <ModelHub /> },
         // 旧地址 replace 重定向(SPA 内等价 302):/rl-training → 工作台,/model-registry → 总表
         { path: '/rl-training', element: <Navigate to="/model-hub?tab=train" replace /> },
