@@ -38,3 +38,9 @@ fdr.method = "bh"
 # true  = 按 token 角色强制校验（worker 写/操作、agent 全部路由：
 #         未认证 401、权限不足 403，拒绝与通过均写审计日志）
 enforcement_enabled = false
+
+# Prometheus 指标埋点（observability/metrics.py 读取，P2-01）
+[observability]
+# false = 不采集指标，/api/v1/metrics 返回 404（默认关）
+# true  = 中间件埋点 + worker 三项指标生效，/api/v1/metrics 返回文本格式
+metrics_enabled = false

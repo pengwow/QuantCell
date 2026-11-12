@@ -90,6 +90,12 @@ from core.middleware import RequestIDMiddleware
 
 app.add_middleware(RequestIDMiddleware)
 
+# ========== Prometheus 指标埋点中间件（P2-01，开关 observability.metrics_enabled 默认关） ==========
+# 注册在 RequestID 之后 → 内层：开关关闭时直通零开销，不改变现有追踪行为
+from observability.http import MetricsMiddleware
+
+app.add_middleware(MetricsMiddleware)
+
 # 注册业务路由（保持向后兼容）
 app.include_router(ai_model_router)
 app.include_router(ai_model_strategy_router)
@@ -110,6 +116,10 @@ app.include_router(agent_router)
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
 app.include_router(extensions_router)  # 桌面端可选扩展（非桌面环境下安装接口 503）
+# Prometheus 指标端点（P2-01，开关关时 404）
+from observability.routes import router as observability_router
+
+app.include_router(observability_router)
 
 # 模型/集成/风控/RL 服务路由
 app.include_router(models_router)

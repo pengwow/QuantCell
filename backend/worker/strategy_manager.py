@@ -25,6 +25,7 @@ from typing import Any
 
 from axon_quant import worker as axon_worker
 
+from observability import metrics as obs_metrics
 from strategy.decision_recording import default_replay_dir, worker_replay_path
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -1173,6 +1174,7 @@ class StrategyManager:
                 except Exception as e:
                     wlog.warning(f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}")
             try:
+                _tick_t0 = time.perf_counter()
                 driver.tick()
                 last_risk_reject = None
             except Exception as e:
@@ -1187,6 +1189,12 @@ class StrategyManager:
                 else:
                     last_risk_reject = None
                     wlog.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
+            finally:
+                # P2-01：live tick 节拍耗时（轮询延迟指标）；观测路径异常不影响交易循环
+                try:
+                    obs_metrics.observe_pump_round(worker_id, "live", _tick_t0)
+                except Exception:
+                    pass
             # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
             now_s = time.monotonic()
             if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
@@ -1202,6 +1210,11 @@ class StrategyManager:
                     inserted = trade_sync.sync_once()
                 except Exception as e:
                     inserted = 0
+                    # P2-01：同步失败计数（指标直方图挂了也不影响交易循环）
+                    try:
+                        obs_metrics.inc_sync_failure(worker_id, "live")
+                    except Exception:
+                        pass
                     wlog.warning(f"[StrategyManager] live 成交落库轮询失败: worker_id={worker_id}, error={e}")
                 # 有新成交才查当日汇总：回灌是风控额度更新，不能靠旧值漂移
                 if inserted and pnl_feeder is not None:
@@ -1393,6 +1406,7 @@ class StrategyManager:
         # 成交落库：内核 fill 只存 Rust 内存，泵轮后增量拉取落库（失败只记日志）
         trade_sync = PaperTradeSync(worker_id)
         while not stop_event.is_set():
+            _round_t0 = time.perf_counter()
             try:
                 self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder, wlog)
                 limit = 2
@@ -1411,9 +1425,20 @@ class StrategyManager:
                     wlog.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
                 # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
                 # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
+            finally:
+                # P2-01：paper 泵轮耗时（轮询延迟指标）；观测路径异常不影响交易循环
+                try:
+                    obs_metrics.observe_pump_round(worker_id, "paper", _round_t0)
+                except Exception:
+                    pass
             try:
                 trade_sync.sync_once(driver)
             except Exception as e:
+                # P2-01：同步失败计数（指标挂了也不影响交易循环）
+                try:
+                    obs_metrics.inc_sync_failure(worker_id, "paper")
+                except Exception:
+                    pass
                 wlog.warning(f"[StrategyManager] paper 成交落库失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒；+0.5s 缓冲等交易所端收市 K 线就绪
             stop_event.wait(step_s - (time.time() % step_s) + 0.5)

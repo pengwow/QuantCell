@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Any
 import tomli
 import tomli_w
 
-from collector.db.database import SessionLocal, init_database_config
-from collector.db.models import SystemConfig
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -217,6 +215,13 @@ class ConfigManager:
         Returns:
             str: 导出的文件路径
         """
+        # 函数内 import：模块顶部不得拉起 collector.db——否则形成
+        # config_manager → collector → worker → strategy_manager → live_trade_sync →
+        # config_manager 的循环导入（测试期以 config_manager 为首入口时必炸）。
+        # 本方法为低频运维路径，且与文件尾 get_all_system_configs 等函数的既有惯例一致。
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import SystemConfig
+
         init_database_config()
         db: Session = SessionLocal()
 
@@ -274,6 +279,9 @@ class ConfigManager:
         Returns:
             Dict[str, Any]: 层级结构的配置数据
         """
+        # 函数内 import：同 export_to_toml——顶部拉 collector.db 会形成循环导入
+        from collector.db.models import SystemConfig
+
         # 按name分组构建层级结构
         config_groups: dict[str, dict[str, Any]] = {}
 
@@ -358,6 +366,9 @@ class ConfigManager:
         Returns:
             Dict[str, Any]: 扁平化的配置数据
         """
+        # 函数内 import：同 export_to_toml——顶部拉 collector.db 会形成循环导入
+        from collector.db.models import SystemConfig
+
         configs = db.query(SystemConfig).all()
         config_groups: dict[str, dict[str, Any]] = {}
 
@@ -402,6 +413,10 @@ class ConfigManager:
         Returns:
             Dict: 导入结果统计
         """
+        # 函数内 import：同 export_to_toml——顶部拉 collector.db 会形成循环导入
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import SystemConfig
+
         init_database_config()
         db: Session = SessionLocal()
 

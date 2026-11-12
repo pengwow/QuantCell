@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from collector.db import init_db
+from observability.metrics import inc_worker_restart
 from utils.logger import LogType, get_logger
 
 # 获取生命周期管理模块日志器
@@ -648,6 +649,8 @@ async def _mark_interrupted_workers():
             # pid=None：旧进程的驱动线程已消亡，残留 pid 不再有效
             if await worker_state_manager.transition(worker_id, "interrupted", pid=None):
                 marked += 1
+                # P2-01：worker 重启收口计数（本次启动补记上次会话中断数，语义见指标 help）
+                inc_worker_restart(worker_id)
             else:
                 # 转换表拒绝（如该 worker 已被并发标为 stopped），尊重现值跳过
                 logger.info(f"Worker {worker_id} 恢复收口被状态机拒绝，保持现有状态")
