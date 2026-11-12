@@ -63,10 +63,12 @@ class ChatResponse(BaseModel):
 
 
 class ToolInfo(BaseModel):
-    """工具信息"""
+    """工具信息（risk_level/requires_approval 为 P2-06 风险分级）"""
 
     name: str
     description: str
+    risk_level: str = "read"
+    requires_approval: bool = False
 
 
 # 预编译正则表达式（缓存以提高性能）
@@ -434,7 +436,14 @@ async def list_tools():
         for name in agent.tools.tool_names:
             tool = agent.tools.get(name)
             if tool:
-                tools.append(ToolInfo(name=name, description=tool.description))
+                tools.append(
+                    ToolInfo(
+                        name=name,
+                        description=tool.description,
+                        risk_level=tool.risk_level,
+                        requires_approval=tool.requires_approval,
+                    )
+                )
         return tools
     except Exception as e:
         logger.error(f"获取工具列表失败: {e}")

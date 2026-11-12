@@ -581,6 +581,34 @@ export const universeApi = {
   listSnapshots: (id: number): Promise<UniverseSnapshot[]> => apiRequest.get(`/universes/${id}/snapshots`),
 };
 
+/** Agent Token 用量记录（P2-06） */
+export interface AgentTokenInfo {
+  id: number;
+  name: string;
+  scope: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+  revoked: boolean;
+  created_at: string;
+}
+
+/**
+ * Agent Token API（P2-06）
+ * 签发明文仅在 issue 响应中返回一次；撤销为软删除保留审计
+ */
+export const agentTokensApi = {
+  list: (): Promise<AgentTokenInfo[]> => apiRequest.get('/agent/tokens'),
+  issue: (data: { name: string; scope?: string; expires_days?: number | null }): Promise<{
+    token: string;
+    id: number;
+    name: string;
+    scope: string;
+    expires_at: string | null;
+  }> => apiRequest.post('/agent/tokens', data),
+  revoke: (id: number): Promise<{ id: number; revoked: boolean }> => apiRequest.delete(`/agent/tokens/${id}`),
+};
+
 /**
  * 回测相关 API
  */

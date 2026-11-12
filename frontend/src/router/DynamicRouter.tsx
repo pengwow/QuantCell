@@ -44,6 +44,8 @@ const SystemInfoPage = lazy(() => import('@/pages/setting/SystemInfoPage'));
 const EnvironmentVariablesPage = lazy(() => import('@/pages/setting/EnvironmentVariablesPage'));
 const PluginManagement = lazy(() => import('@/pages/setting/PluginManagement'));
 const AccountSettings = lazy(() => import('@/pages/setting/AccountSettings'));
+// P2-06 Agent Token 管理页
+const AgentTokenPage = lazy(() => import('@/pages/setting/AgentTokenPage'));
 const DesktopBackendSettings = lazy(() => import('@/desktop/DesktopBackendSettings'));
 
 import { pluginRegistry } from '@/plugins/PluginRegistry';
@@ -122,6 +124,7 @@ function createBaseRoutes(): RouteObject[] {
             { path: 'exchange', element: <ExchangeSettingsPage /> },
             { path: 'notifications', element: <NotificationsPage /> },
             { path: 'model', element: <ModelSettingsPage /> },
+            { path: 'agentTokens', element: <AgentTokenPage /> },
             { path: 'info', element: <SystemInfoPage /> },
             { path: 'plugins', element: <PluginManagement /> },
             { path: 'desktop-backend', element: <DesktopBackendSettings /> },

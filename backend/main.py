@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import agent.models
 import backtest.models
 import strategy.models
 import universe.models
@@ -36,6 +37,7 @@ logger = get_logger(__name__, LogType.SYSTEM)
 
 # 导入业务模块路由（标准化模块化架构）
 from agent.api.routes import router as agent_router
+from agent.tokens import router as agent_token_router
 from ai.config import router as ai_model_router
 from ai.polish import router as ai_polish_router
 from ai.strategy import router as ai_model_strategy_router
@@ -116,6 +118,7 @@ app.include_router(share_router)  # 分享系统
 app.include_router(log_router)
 app.include_router(notification_router)
 app.include_router(agent_router)
+app.include_router(agent_token_router)  # P2-06 Agent Token 签发/撤销
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
 app.include_router(extensions_router)  # 桌面端可选扩展（非桌面环境下安装接口 503）

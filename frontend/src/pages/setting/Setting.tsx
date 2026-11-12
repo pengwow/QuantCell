@@ -15,6 +15,7 @@ import {
   IconPuzzle,
   IconDeviceDesktop,
   IconUser,
+  IconKey,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
@@ -35,6 +36,7 @@ const SettingLayout = () => {
     ["exchange", t("exchange_settings"), <IconBuildingBank size="1em" />],
     ["notifications", t("notification_settings"), <IconBell size="1em" />],
     ["model", t("model_settings"), <IconRobot size="1em" />],
+    ["agentTokens", t("agentToken_settings"), <IconKey size="1em" />],
     ["info", t("system_info"), <IconInfoCircle size="1em" />],
     ["plugins", t("plugin_management"), <IconPuzzle size="1em" />],
     // 仅桌面壳显示；Web 版无此入口

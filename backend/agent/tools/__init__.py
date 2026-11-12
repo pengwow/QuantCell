@@ -1,5 +1,6 @@
 """Agent 工具模块 - 统一工具注册入口"""
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +80,12 @@ def create_registry(workspace: Path | str | None = None, **kwargs) -> ToolRegist
     # 获取 allowed_dir 参数（用于文件系统工具的安全限制）
     allowed_dir = kwargs.pop("allowed_dir", None) or workspace
 
-    registry = ToolRegistry()
+    # P2-06 信任模式：环境变量 QUANTCELL_AGENT_ALLOW_DANGEROUS=1 时放行 dangerous
+    # 工具（exec）。部署方显式确认后才开启。
+    # ponytail: 信任模式暂走 env 开关，P2-05 设置 schema 化后迁入配置管理
+    allow_dangerous = os.environ.get("QUANTCELL_AGENT_ALLOW_DANGEROUS", "").strip() == "1"
+
+    registry = ToolRegistry(allow_dangerous=allow_dangerous)
 
     # 自动发现并实例化所有工具
     tool_classes = _discover_tool_classes()

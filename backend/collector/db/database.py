@@ -64,6 +64,7 @@ def _import_all_models():
         "indicators.models",
         "share.models",
         "universe.models",
+        "agent.models",
     ]
 
     imported_modules = []

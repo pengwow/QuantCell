@@ -20,6 +20,12 @@ class Tool(ABC):
         "object": dict,
     }
 
+    # 工具风险分级（P2-06）：read=只读；write=产生持久化副作用（写文件、改配置）；
+    # dangerous=可执行任意命令/交易动作。子类按需覆盖。
+    risk_level: str = "read"
+    # True 时执行前需人工二次确认；当前以 registry 默认拦截 dangerous 工具落地
+    requires_approval: bool = False
+
     @property
     @abstractmethod
     def name(self) -> str:

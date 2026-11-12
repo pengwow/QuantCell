@@ -307,6 +307,28 @@ def require_permission(permission: Permission):
                 status_code=401, detail={"code": 401, "message": "无效的认证令牌格式，请重新登录", "data": None}
             )
 
+        # P2-06：Agent Token（qctk_ 前缀）不走 JWT/角色体系，按令牌 scope 判定：
+        # read 令牌只放行读权限端点，write 令牌可访问写权限端点。
+        if token.startswith("qctk_"):
+            # 函数内 import：与下方 config_manager 同理，避免模块初始化期拉起
+            # collector.db（agent.tokens → agent.models）形成导入环
+            from agent.tokens import authenticate_agent_token
+
+            agent_row = authenticate_agent_token(token)
+            if agent_row is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail={"code": 401, "message": "代理令牌无效、已撤销或已过期", "data": None},
+                )
+            write_permission = permission in (Permission.AI_WRITE, Permission.WORKER_OPERATE, Permission.SYSTEM_ADMIN)
+            if write_permission and agent_row.scope != "write":
+                logger.warning(f"RBAC 拦截: agent_token={agent_row.id} scope={agent_row.scope} 需要写权限")
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": 403, "message": "权限不足：只读代理令牌不可执行写操作", "data": None},
+                )
+            return
+
         try:
             payload = decode_jwt_token(token)
         except TokenExpiredError as e:
