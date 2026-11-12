@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from common.schemas import ApiResponse
 from config.capabilities import Capability, require_capability
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -95,7 +96,7 @@ class TokenIssueResponse(BaseModel):
     description="生成新令牌，明文仅在响应中返回一次；expires_days 缺省表示永不过期。",
     dependencies=[Depends(require_permission(Permission.AI_WRITE))],
 )
-def issue_token_api(req: TokenIssueRequest) -> TokenIssueResponse:
+def issue_token_api(req: TokenIssueRequest) -> ApiResponse:
     raw = TOKEN_PREFIX + secrets.token_hex(20)
     expires_at = _utc_now() + timedelta(days=req.expires_days) if req.expires_days else None
     with get_db_session() as db:
@@ -109,12 +110,16 @@ def issue_token_api(req: TokenIssueRequest) -> TokenIssueResponse:
         db.commit()
         db.refresh(row)
         logger.info(f"签发 Agent Token: id={row.id} name={row.name} scope={row.scope}")
-        return TokenIssueResponse(
-            token=raw,
-            id=row.id,
-            name=row.name,
-            scope=row.scope,
-            expires_at=row.expires_at,
+        return ApiResponse(
+            code=0,
+            message="签发成功",
+            data=TokenIssueResponse(
+                token=raw,
+                id=row.id,
+                name=row.name,
+                scope=row.scope,
+                expires_at=row.expires_at,
+            ),
         )
 
 
@@ -124,22 +129,26 @@ def issue_token_api(req: TokenIssueRequest) -> TokenIssueResponse:
     description="列出全部令牌及用量（不含摘要与明文），已撤销令牌保留供审计追溯。",
     dependencies=[Depends(require_permission(Permission.AI_READ))],
 )
-def list_tokens_api() -> list[dict]:
+def list_tokens_api() -> ApiResponse:
     with get_db_session() as db:
         rows = db.scalars(select(AgentToken).order_by(AgentToken.id)).all()
-        return [
-            {
-                "id": r.id,
-                "name": r.name,
-                "scope": r.scope,
-                "expires_at": r.expires_at,
-                "last_used_at": r.last_used_at,
-                "use_count": r.use_count,
-                "revoked": r.revoked_at is not None,
-                "created_at": r.created_at,
-            }
-            for r in rows
-        ]
+        return ApiResponse(
+            code=0,
+            message="查询成功",
+            data=[
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "scope": r.scope,
+                    "expires_at": r.expires_at,
+                    "last_used_at": r.last_used_at,
+                    "use_count": r.use_count,
+                    "revoked": r.revoked_at is not None,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ],
+        )
 
 
 @router.delete(
@@ -148,7 +157,7 @@ def list_tokens_api() -> list[dict]:
     description="软撤销（记 revoked_at），历史记录保留。幂等：重复撤销返回成功。",
     dependencies=[Depends(require_permission(Permission.AI_WRITE))],
 )
-def revoke_token_api(token_id: int) -> dict:
+def revoke_token_api(token_id: int) -> ApiResponse:
     with get_db_session() as db:
         row = db.get(AgentToken, token_id)
         if row is None:
@@ -157,4 +166,4 @@ def revoke_token_api(token_id: int) -> dict:
             row.revoked_at = _utc_now()
             db.commit()
             logger.info(f"撤销 Agent Token: id={token_id} name={row.name}")
-    return {"id": token_id, "revoked": True}
+    return ApiResponse(code=0, message="撤销成功", data={"id": token_id, "revoked": True})
