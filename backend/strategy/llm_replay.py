@@ -173,10 +173,7 @@ class ReplayProvider:
         try:
             response = self._records[fingerprint]
         except KeyError:
-            msg = (
-                f"LLM replay 未命中: fingerprint={fingerprint} "
-                f"(file={self.path}, recorded={len(self._records)} 条)"
-            )
+            msg = f"LLM replay 未命中: fingerprint={fingerprint} (file={self.path}, recorded={len(self._records)} 条)"
             raise ReplayMissError(msg) from None
         self.hits += 1
         return response
@@ -209,8 +206,7 @@ def wrap_llm_provider(
         path = resolve_replay_path(strategy_name, params)
         if path is None or not path.is_file():
             msg = (
-                "LLM 策略回测必须提供 replay 记录(llm_replay_path)，"
-                "禁止静默降级为 heuristic；当前未找到可用的录制文件"
+                "LLM 策略回测必须提供 replay 记录(llm_replay_path)，禁止静默降级为 heuristic；当前未找到可用的录制文件"
             )
             raise ReplayMissError(msg)
         out["llm_provider"] = ReplayProvider(path)

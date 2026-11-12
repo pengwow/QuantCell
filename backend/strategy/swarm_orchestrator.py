@@ -252,7 +252,9 @@ class SwarmOrchestrator:
         """把已注册的规则策略收编为一个复合策略(M5 收编路径)。"""
         voting = {"weighted_majority": "weighted", "weighted": "weighted", "majority": "majority"}.get(self._voting)
         if voting is None:
-            raise ValueError(f"composite 装配模式不支持 voting={self._voting!r}, 可选 weighted_majority/weighted/majority")
+            raise ValueError(
+                f"composite 装配模式不支持 voting={self._voting!r}, 可选 weighted_majority/weighted/majority"
+            )
         return CompositeStrategy(
             config=StrategyConfig(name="swarm_composite", symbol=self._symbol),
             children=[spec.strategy for spec in self._strategy_specs],
