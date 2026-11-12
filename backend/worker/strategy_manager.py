@@ -17,7 +17,6 @@ import os
 import threading
 import time
 import traceback
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,18 +24,22 @@ from typing import Any
 
 from axon_quant import worker as axon_worker
 
+from observability import metrics as obs_metrics
 from strategy.decision_recording import default_replay_dir, worker_replay_path
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
-from . import crud
+from . import crud, execution_lock
+from .events import EVENTS_SCHEMA_VERSION
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
 )
-from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
+from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync, find_orphan_fill_client_ids
 from .log_utils import append_worker_error_log, start_worker_log_sink, stop_worker_log_sink
+from .models import WorkerStatusHistory
 from .paper_trade_sync import PaperTradeSync
+from .pump_client import PaperKline, as_kline, fetch_paper_klines
 from .risk_config import RiskPnlFeeder, apply_risk_config
 from .worker_state import worker_state_manager
 
@@ -54,17 +57,17 @@ _PAPER_INTERVAL_SECONDS = {
     "1d": 86400,
 }
 
-# paper 行情泵轮询端点：testnet 公共 K 线，不签名、无需凭证
-_PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
+# paper 行情泵的 HTTP 端点与 no-proxy 直连 opener 已迁至 pump_client（P2-09 typed client），
+# 本模块只经 fetch_paper_klines 调用，行格式由 PaperKline 定义
 
 # live tick 线程节拍与 snapshot 轮询推送窗口（Driver 无逐笔查询口，轮询是唯一观测口）
 _LIVE_TICK_INTERVAL_S = 1.0
 _LIVE_SNAPSHOT_INTERVAL_S = 15.0
-
-# 轮询强制直连：urllib 默认读 macOS/GUI 代理工具注册的系统代理（如 127.0.0.1:7897），
-# 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
-# 环境变量故直连可达，这里显式清掉代理保持同一语义
-_PAPER_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+# 运行期周期对账窗口（P1-02）：与 resume 对账互补的兜底保障，频次不用高
+_LIVE_RECONCILE_INTERVAL_S = 6 * 3600
+# 资金费对账回看窗口（P1-03）：覆盖一个对账周期 + 一个资金费结算间隔（Binance 8h）的余量，
+# 宁宽勿窄——窄窗口会把"上次窗口已结算、本次窗口恰好空档"误判成 venue_absent
+_FUNDING_WINDOW_S = 30 * 3600
 
 
 def _resolve_live_credentials(worker_id: int, exchange: str, params: dict[str, Any]) -> tuple[str, str]:
@@ -1002,6 +1005,8 @@ class StrategyManager:
         （registry + DB），线程自身退出；单次 tick 异常只记日志继续。
         trade_sync 非空时按窗口节流轮询交易所成交并落库，失败只记日志。
         risk_enabled 时按 DB 当日已实现盈亏回灌风控（每轮检查跨日清零）。
+        execution_lock_enabled 开（P0-03，默认关）时按 10s 节拍争/续执行锁，
+        失锁窗口内暂停 tick 与成交同步，防止两个 worker 对同账户同 symbol 重复下单。
         """
         # per-worker 日志通道：sink 挂载失败/线程早退时不卸载，错误日志仍能被前端看到
         start_worker_log_sink(worker_id)
@@ -1027,8 +1032,84 @@ class StrategyManager:
             return
 
         wlog.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
+        # 启动观测（P0-01/P0-02）：孤立成交与同步游标 gap 只告警不阻断，放线程
+        # 起步处是因为两者都需要 DB/网络而 start 路径不承受 IO；history 表此前
+        # 无写入方，本处为首个写入方（old/new 均为当前运行态 running）。
+        if trade_sync is not None:
+            try:
+                orphan_ids = find_orphan_fill_client_ids(worker_id)
+                if orphan_ids:
+                    wlog.warning(
+                        f"[StrategyManager] 孤立成交观测: worker_id={worker_id} "
+                        f"{len(orphan_ids)} 个 client_order_id 无对应订单: {orphan_ids}"
+                    )
+                    with get_db_session() as db:
+                        db.add(
+                            WorkerStatusHistory(
+                                worker_id=worker_id,
+                                old_status="running",
+                                new_status="running",
+                                reason=f"orphan_fill: {len(orphan_ids)} 个成交无订单意图 {orphan_ids[:5]}",
+                            )
+                        )
+                        db.commit()
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 孤立成交观测失败: worker_id={worker_id}, error={e}")
+            try:
+                gap_hours, gap_warned, gap_truncated = trade_sync.backfill_from_cursor()
+                if gap_warned or gap_truncated:
+                    suffix = "（已截断为最近 24h）" if gap_truncated else ""
+                    wlog.warning(f"[StrategyManager] 同步游标落后 {gap_hours:.1f}h: worker_id={worker_id}{suffix}")
+                    with get_db_session() as db:
+                        db.add(
+                            WorkerStatusHistory(
+                                worker_id=worker_id,
+                                old_status="running",
+                                new_status="running",
+                                reason=f"sync_gap: 游标落后 {gap_hours:.1f}h{suffix}",
+                            )
+                        )
+                        db.commit()
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 同步游标回补检查失败: worker_id={worker_id}, error={e}")
+
+        # P0-03 执行锁（灰度，默认关）：锁 = order_lease 行（symbol:account_id）；
+        # trade_sync 为 None（无落库通道 → 无账户口径）时不参与锁。函数内 import
+        # get_flag 与 crud 同口径（utils.config_manager 顶层拉 collector.db，防
+        # worker.__init__ 循环链在部分入口被点爆）
+        exec_lock_on = False
+        periodic_recon_on = False
+        funding_close_on = False
+        if trade_sync is not None:
+            from utils.config_manager import get_flag
+
+            exec_lock_on = get_flag("worker.execution.execution_lock_enabled", False)
+            # P1-02 运行期周期对账（灰度，默认关）：与执行锁开关同部位读取，
+            # 线程生命周期内只读一次
+            if get_flag("worker.reconciliation.periodic_enabled", False):
+                from worker.reconciliation import run_periodic_reconcile
+
+                periodic_recon_on = True
+            # P1-03 资金费/平仓专项对账（灰度，默认关）：并入周期对账 tick，
+            # 二开关独立，只开专项不跑三资时也可工作
+            if get_flag("worker.reconciliation.funding_close_enabled", False):
+                from worker.reconciliation import run_funding_close_reconcile
+
+                funding_close_on = True
+        if exec_lock_on:
+            # 「启动成功后 acquire」占位：失败不阻断，循环首拍再争（状态沿写 history）
+            try:
+                execution_lock.acquire(trade_sync.symbol, trade_sync.account_id, worker_id)
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 执行锁启动占位失败: worker_id={worker_id}, error={e}")
+        lease_ok = not exec_lock_on
+        lease_contended = False  # 争锁状态沿：进入时写一次 history，防逐 tick 刷屏
+        last_lease_check = 0.0
+
         last_snapshot = float("-inf")
         last_trade_sync = 0.0
+        # 周期对账起点锚在"现在"：resume 刚做过全量对账，首轮 tick 不必重复跑
+        last_reconcile = time.monotonic()
         # 当日盈亏回灌：live 以 DB 当日已实现盈亏为准（重启不重置当日亏损额度）。
         # 注意 resume 恢复路径不装配风控（Rust 侧契约），此时绑定层方法 no-op
         pnl_feeder = RiskPnlFeeder(driver, daily_scoped=True) if risk_enabled else None
@@ -1041,6 +1122,47 @@ class StrategyManager:
         # live 1s/tick 会持续命中同一原因，按原因去重防刷屏；tick 恢复后清空再触发才重记
         last_risk_reject: str | None = None
         while not stop_event.is_set():
+            # 执行锁检查/续期：与成交同步同节拍（10s < TTL 30s），acquire 幂等即续期；
+            # DB 异常按失锁处理（安全侧暂停交易），恢复后自动续上
+            if exec_lock_on and time.monotonic() - last_lease_check >= LIVE_TRADE_SYNC_INTERVAL_S:
+                last_lease_check = time.monotonic()
+                try:
+                    lease_ok = execution_lock.acquire(trade_sync.symbol, trade_sync.account_id, worker_id)
+                except Exception as e:
+                    lease_ok = False
+                    wlog.error(f"[StrategyManager] 执行锁检查异常（按失锁处理）: worker_id={worker_id}, error={e}")
+                if lease_ok:
+                    # 顺手清崩溃残留的过期锁行；换主不依赖 sweep，失败无所谓
+                    try:
+                        execution_lock.sweep_expired()
+                    except Exception:
+                        pass
+                # 状态沿写 history：进入失锁记一次，恢复只在内存清沿（防逐 tick 刷屏）
+                if not lease_ok and not lease_contended:
+                    lease_contended = True
+                    wlog.warning(
+                        f"[StrategyManager] 执行锁被其它 worker 持有，暂停交易: worker_id={worker_id}, "
+                        f"lease={trade_sync.symbol}"
+                    )
+                    try:
+                        with get_db_session() as db:
+                            db.add(
+                                WorkerStatusHistory(
+                                    worker_id=worker_id,
+                                    old_status="running",
+                                    new_status="running",
+                                    reason=f"lease_contended: {trade_sync.symbol} 执行锁被其它 worker 持有",
+                                )
+                            )
+                            db.commit()
+                    except Exception as e:
+                        wlog.warning(f"[StrategyManager] 争锁 history 写入失败: worker_id={worker_id}, error={e}")
+                elif lease_ok:
+                    lease_contended = False
+            # 失锁窗口完全静默：不 tick（不下单）、不回灌风控、不落成交
+            if not lease_ok:
+                stop_event.wait(_LIVE_TICK_INTERVAL_S)
+                continue
             # 跨日清零必须每轮做：昨日熔断若只在成交时解除，空仓账户会永远等不到
             if pnl_feeder is not None:
                 try:
@@ -1048,6 +1170,7 @@ class StrategyManager:
                 except Exception as e:
                     wlog.warning(f"[StrategyManager] live 风控跨日清零失败: worker_id={worker_id}, error={e}")
             try:
+                _tick_t0 = time.perf_counter()
                 driver.tick()
                 last_risk_reject = None
             except Exception as e:
@@ -1062,6 +1185,12 @@ class StrategyManager:
                 else:
                     last_risk_reject = None
                     wlog.error(f"[StrategyManager] 实盘 tick 异常: worker_id={worker_id}, error={e}")
+            finally:
+                # P2-01：live tick 节拍耗时（轮询延迟指标）；观测路径异常不影响交易循环
+                try:
+                    obs_metrics.observe_pump_round(worker_id, "live", _tick_t0)
+                except Exception:
+                    pass
             # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
             now_s = time.monotonic()
             if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
@@ -1077,6 +1206,11 @@ class StrategyManager:
                     inserted = trade_sync.sync_once()
                 except Exception as e:
                     inserted = 0
+                    # P2-01：同步失败计数（指标直方图挂了也不影响交易循环）
+                    try:
+                        obs_metrics.inc_sync_failure(worker_id, "live")
+                    except Exception:
+                        pass
                     wlog.warning(f"[StrategyManager] live 成交落库轮询失败: worker_id={worker_id}, error={e}")
                 # 有新成交才查当日汇总：回灌是风控额度更新，不能靠旧值漂移
                 if inserted and pnl_feeder is not None:
@@ -1084,10 +1218,51 @@ class StrategyManager:
                         pnl_feeder.feed(trade_sync.daily_realized_pnl())
                     except Exception as e:
                         wlog.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
+            # 运行期周期对账（P1-02，默认关）：本地影子账 vs 交易所三资，结果与
+            # resume 对账落同一套报告文件并写入 worker_logs。fill 快照是覆盖型
+            # 窗口，venue ⊇ local 永不产生 extra_fills 误报。失败只记日志
+            # （观测性不反噬交易循环，同 trade_sync 口径）
+            if periodic_recon_on and now_s - last_reconcile >= _LIVE_RECONCILE_INTERVAL_S:
+                last_reconcile = now_s
+                try:
+                    for item in run_periodic_reconcile(
+                        worker_id, driver, trade_sync.exchange, trade_sync.ccxt_symbol, journal.parent
+                    ):
+                        if not item["ok"]:
+                            wlog.warning(
+                                f"[StrategyManager] 周期对账发现账实不符: worker_id={worker_id}, "
+                                f"file={item['file']}, counts={item['counts']}"
+                            )
+                except Exception as e:
+                    wlog.warning(f"[StrategyManager] 周期对账失败: worker_id={worker_id}, error={e}")
+            # 资金费/平仓专项对账（P1-03，默认关）：与周期对账同节奏，先后
+            # 独立 try——专项挂了不拖累三资对账结果
+            if funding_close_on and now_s - last_reconcile >= _LIVE_RECONCILE_INTERVAL_S:
+                try:
+                    since_ms = int((time.time() - _FUNDING_WINDOW_S) * 1000)
+                    for item in run_funding_close_reconcile(
+                        worker_id, driver, trade_sync.exchange, trade_sync.ccxt_symbol, since_ms
+                    ):
+                        if not item["ok"]:
+                            wlog.warning(
+                                f"[StrategyManager] 专项对账发现异常: worker_id={worker_id}, "
+                                f"kind={item.get('kind')}, counts={item.get('counts')}"
+                            )
+                except Exception as e:
+                    wlog.warning(f"[StrategyManager] 专项对账失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
         wlog.info(f"[StrategyManager] 实盘 tick 循环退出: worker_id={worker_id}")
+
+        # 正常退出（stop_strategy 的 join 等待期间到达）让出执行锁；kill -9 到不了
+        # 这里，残留锁靠 TTL 过期换主自愈。release 幂等且非持锁方无副作用
+        if exec_lock_on and trade_sync is not None:
+            try:
+                execution_lock.release(trade_sync.symbol, trade_sync.account_id, worker_id)
+                wlog.info(f"[StrategyManager] 执行锁已释放: worker_id={worker_id}")
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 执行锁释放失败（等 TTL 自愈）: worker_id={worker_id}, error={e}")
 
     def start_rl_paper(
         self,
@@ -1227,6 +1402,7 @@ class StrategyManager:
         # 成交落库：内核 fill 只存 Rust 内存，泵轮后增量拉取落库（失败只记日志）
         trade_sync = PaperTradeSync(worker_id)
         while not stop_event.is_set():
+            _round_t0 = time.perf_counter()
             try:
                 self._paper_pump_round(worker_id, driver, symbols, timeframe, seen_open_ms, limit, pnl_feeder, wlog)
                 limit = 2
@@ -1245,9 +1421,20 @@ class StrategyManager:
                     wlog.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
                 # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
                 # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
+            finally:
+                # P2-01：paper 泵轮耗时（轮询延迟指标）；观测路径异常不影响交易循环
+                try:
+                    obs_metrics.observe_pump_round(worker_id, "paper", _round_t0)
+                except Exception:
+                    pass
             try:
                 trade_sync.sync_once(driver)
             except Exception as e:
+                # P2-01：同步失败计数（指标挂了也不影响交易循环）
+                try:
+                    obs_metrics.inc_sync_failure(worker_id, "paper")
+                except Exception:
+                    pass
                 wlog.warning(f"[StrategyManager] paper 成交落库失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒；+0.5s 缓冲等交易所端收市 K 线就绪
             stop_event.wait(step_s - (time.time() % step_s) + 0.5)
@@ -1281,7 +1468,8 @@ class StrategyManager:
         for symbol in symbols:
             api_symbol = symbol.replace("/", "")  # BTC/USDT → BTCUSDT
             for row in self._paper_fetch_klines(api_symbol, timeframe, limit):
-                open_ms = int(row[0])
+                kline = as_kline(row)  # monkeypatch 注入的原始行与 client 输出统一转 typed
+                open_ms = kline["open_time"]
                 if open_ms + step_ms > now_ms:
                     continue  # 未收市的最新 K 线不喂（决策只用收盘确认价）
                 if open_ms <= seen_open_ms.get(api_symbol, 0):
@@ -1291,11 +1479,11 @@ class StrategyManager:
                 driver.feed_bar(
                     symbol,
                     open_ms * 1_000_000,
-                    float(row[1]),
-                    float(row[2]),
-                    float(row[3]),
-                    float(row[4]),
-                    float(row[5]),
+                    kline["open"],
+                    kline["high"],
+                    kline["low"],
+                    kline["close"],
+                    kline["volume"],
                 )
         driver.tick()
         # 泵轮末尾只取一次快照：当日盈亏回灌与前端推送共用
@@ -1316,20 +1504,13 @@ class StrategyManager:
         except Exception as e:
             log.debug(f"[StrategyManager] paper snapshot 推送失败: worker_id={worker_id}, error={e}")
 
-    def _paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[list]:
-        """拉 binance USDT-M testnet 公共收市 K 线（不签名）。
+    def _paper_fetch_klines(self, api_symbol: str, timeframe: str, limit: int) -> list[PaperKline]:
+        """拉 binance USDT-M testnet 公共收市 K 线，委托 pump_client typed 实现。
 
-        ponytail: 标准库 urlopen 就够（一次 GET + timeout）；requests 未在
-        pyproject 声明为直接依赖（只是 python-binance 的传递依赖），不为一次
-        调用把它升级成直接依赖。symbol/timeframe 均来自白名单受限字符集，
-        URL 无需额外编码。
-
-        Returns:
-            binance 原始行：[openTime, open, high, low, close, volume, ...]（数值是字符串）
+        保留方法作为测试挂点：services 测试 monkeypatch 本方法注入 binance
+        原始行，泵轮消费端用 as_kline 统一转换，两种注入形态均兼容。
         """
-        url = f"{_PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
-        with _PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        return fetch_paper_klines(api_symbol, timeframe, limit)
 
     @staticmethod
     def _push_kernel_snapshot(worker_id: int, snap: Any) -> None:
@@ -1345,6 +1526,7 @@ class StrategyManager:
         connection_manager.broadcast_threadsafe(
             {
                 "event": "kernel.snapshot",
+                "schema_version": EVENTS_SCHEMA_VERSION,
                 "worker_id": worker_id,
                 "equity": snap.get("equity"),
                 "positions": snap.get("positions"),

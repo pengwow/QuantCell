@@ -4,6 +4,7 @@ import type { RouteObject } from 'react-router-dom';
 import { Spin } from 'antd';
 
 import AuthGuard from '@/components/AuthGuard';
+import CapabilityGuard from '@/components/CapabilityGuard';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 // 首屏关键页面保持同步加载，避免登录后白屏等待
 import LoginPage from '@/pages/login/LoginPage';
@@ -34,6 +35,8 @@ const BacktestConfig = lazy(() => import('@/pages/backtest/BacktestConfig'));
 const BacktestReplay = lazy(() => import('@/pages/backtest/BacktestReplay'));
 
 const GeneralSettingsPage = lazy(() => import('@/pages/setting/GeneralSettingsPage'));
+// P2-05：schema 驱动设置渲染器
+const SchemaSettingsPage = lazy(() => import('@/pages/setting/SchemaSettingsPage'));
 const ExchangeSettingsPage = lazy(() => import('@/pages/setting/ExchangeSettingsPage'));
 const NotificationsPage = lazy(() => import('@/pages/setting/NotificationsPage'));
 const ModelSettingsPage = lazy(() => import('@/pages/setting/ModelSettingsPage'));
@@ -41,6 +44,8 @@ const SystemInfoPage = lazy(() => import('@/pages/setting/SystemInfoPage'));
 const EnvironmentVariablesPage = lazy(() => import('@/pages/setting/EnvironmentVariablesPage'));
 const PluginManagement = lazy(() => import('@/pages/setting/PluginManagement'));
 const AccountSettings = lazy(() => import('@/pages/setting/AccountSettings'));
+// P2-06 Agent Token 管理页
+const AgentTokenPage = lazy(() => import('@/pages/setting/AgentTokenPage'));
 const DesktopBackendSettings = lazy(() => import('@/desktop/DesktopBackendSettings'));
 
 import { pluginRegistry } from '@/plugins/PluginRegistry';
@@ -84,7 +89,15 @@ function createBaseRoutes(): RouteObject[] {
             { path: 'replay/:backtestId', element: <BacktestReplay /> },
           ],
         },
-        { path: '/agent', element: <Agent /> },
+        {
+          // P2-02：agent_gateway 能力关闭时降级为 403 页（菜单已隐藏，此处兜底直达 URL）
+          path: '/agent',
+          element: (
+            <CapabilityGuard capability="agent_gateway">
+              <Agent />
+            </CapabilityGuard>
+          ),
+        },
         { path: '/model-hub', element: <ModelHub /> },
         // 旧地址 replace 重定向(SPA 内等价 302):/rl-training → 工作台,/model-registry → 总表
         { path: '/rl-training', element: <Navigate to="/model-hub?tab=train" replace /> },
@@ -104,11 +117,14 @@ function createBaseRoutes(): RouteObject[] {
           children: [
             { index: true, element: <Navigate to="/setting/general" replace /> },
             { path: 'account', element: <AccountSettings /> },
+            // P2-05：schema 驱动设置渲染器（新增配置项只改 backend/settings/schema.py）
+            { path: 'schema', element: <SchemaSettingsPage /> },
             { path: 'general', element: <GeneralSettingsPage /> },
             { path: 'env', element: <EnvironmentVariablesPage /> },
             { path: 'exchange', element: <ExchangeSettingsPage /> },
             { path: 'notifications', element: <NotificationsPage /> },
             { path: 'model', element: <ModelSettingsPage /> },
+            { path: 'agentTokens', element: <AgentTokenPage /> },
             { path: 'info', element: <SystemInfoPage /> },
             { path: 'plugins', element: <PluginManagement /> },
             { path: 'desktop-backend', element: <DesktopBackendSettings /> },

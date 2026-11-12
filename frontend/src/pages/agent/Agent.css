@@ -2,95 +2,97 @@
 
 /* ==================== 主题变量定义 ==================== */
 :root {
-  /* 亮色模式 - Agent 页面专用变量 */
-  --agent-bg: #f5f5f5;
-  --agent-header-bg: #ffffff;
-  --agent-header-border: #e8e8e8;
-  --agent-input-bg: #ffffff;
-  --agent-input-border: #e8e8e8;
-  
+  /* O2: 局部变量统一挂到全局语义 token，亮暗自适应；色块微调对（浅色悬浮底、状态气泡
+     着色）用 color-mix 在 token 上调出，hover 底需与页面底色可区分 */
+  --agent-bg: var(--tw-color-background);
+  --agent-header-bg: var(--tw-color-background);
+  --agent-header-border: var(--tw-color-border-secondary);
+  --agent-input-bg: var(--tw-color-background);
+  --agent-input-border: var(--tw-color-border-secondary);
+
   /* 消息气泡 */
-  --message-bg: #ffffff;
-  --message-user-bg: #1890ff;
-  --message-user-color: #ffffff;
-  --message-tool-bg: #f6ffed;
-  --message-tool-border: #b7eb8f;
-  --message-error-bg: #fff2f0;
-  --message-error-border: #ffccc7;
-  
-  /* 文字颜色 */
-  --text-primary: #141414;
-  --text-secondary: #999999;
-  --text-muted: #666666;
-  --text-hint: #8c8c8c;
-  
+  --message-bg: var(--tw-color-background);
+  --message-user-bg: var(--tw-color-info);
+  --message-user-color: #ffffff; /* O2: 特殊装饰色，保留（info 色底上的反白文字，亮暗恒白） */
+  --message-tool-bg: color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background));
+  --message-tool-border: color-mix(in srgb, var(--tw-color-success) 40%, var(--tw-color-background));
+  --message-error-bg: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
+  --message-error-border: color-mix(in srgb, var(--tw-color-error) 40%, var(--tw-color-background));
+
+  /* 文字颜色：次级/弱化文字 = 前景色按比例混入底色 */
+  --text-primary: var(--tw-color-foreground);
+  --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 45%, var(--tw-color-background));
+  --text-muted: color-mix(in srgb, var(--tw-color-foreground) 65%, var(--tw-color-background));
+  --text-hint: color-mix(in srgb, var(--tw-color-foreground) 50%, var(--tw-color-background));
+
   /* 边框和分隔线 */
-  --border-color: #e8e8e8;
-  --border-light: #f0f0f0;
-  --border-lighter: #f5f5f5;
-  
+  --border-color: var(--tw-color-border-secondary);
+  --border-light: var(--tw-color-border-secondary);
+  --border-lighter: var(--tw-color-background);
+
   /* 交互状态 */
-  --hover-bg: #f5f5f5;
-  --active-bg: #e6f7ff;
-  --active-color: #1890ff;
-  
+  --hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  --active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
+  --active-color: var(--tw-color-info);
+
   /* 工具面板 */
-  --tool-panel-bg: #fafafa;
-  --tool-item-bg: #ffffff;
-  --tool-item-border: #f0f0f0;
-  --tool-item-hover-border: #d9d9d9;
-  --param-row-bg: #fafafa;
-  --param-row-hover-bg: #f0f5ff;
-  
+  --tool-panel-bg: var(--tw-color-background);
+  --tool-item-bg: var(--tw-color-background);
+  --tool-item-border: var(--tw-color-border-secondary);
+  --tool-item-hover-border: var(--tw-color-border);
+  --param-row-bg: var(--tw-color-background);
+  --param-row-hover-bg: color-mix(in srgb, var(--tw-color-info) 6%, var(--tw-color-background));
+
   /* 会话列表 */
-  --session-hover-bg: #f5f5f5;
-  --session-active-bg: #e6f7ff;
+  --session-hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
 }
 
+/* 亮色/暗色共用同一组 token 表达式，.dark 下变量自动换挡，仅保留结构占位 */
 .dark {
-  /* 暗色模式 - Agent 页面专用变量 */
-  --agent-bg: #0f1115;
-  --agent-header-bg: #1a1d23;
-  --agent-header-border: #2d3748;
-  --agent-input-bg: #1a1d23;
-  --agent-input-border: #2d3748;
-  
+  /* 暗色模式 - Agent 页面专用变量（与亮色共享 token，无需重复调色） */
+  --agent-bg: var(--tw-color-background);
+  --agent-header-bg: var(--tw-color-background);
+  --agent-header-border: var(--tw-color-border-secondary);
+  --agent-input-bg: var(--tw-color-background);
+  --agent-input-border: var(--tw-color-border-secondary);
+
   /* 消息气泡 */
-  --message-bg: #252a34;
-  --message-user-bg: #1890ff;
-  --message-user-color: #ffffff;
-  --message-tool-bg: #1a2e1a;
-  --message-tool-border: #3d6b3d;
-  --message-error-bg: #2d1f1c;
-  --message-error-border: #5c3d36;
-  
+  --message-bg: var(--tw-color-background);
+  --message-user-bg: var(--tw-color-info);
+  --message-user-color: #ffffff; /* O2: 特殊装饰色，保留（同上） */
+  --message-tool-bg: color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background));
+  --message-tool-border: color-mix(in srgb, var(--tw-color-success) 40%, var(--tw-color-background));
+  --message-error-bg: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
+  --message-error-border: color-mix(in srgb, var(--tw-color-error) 40%, var(--tw-color-background));
+
   /* 文字颜色 */
-  --text-primary: #fafaf9;
-  --text-secondary: #9ca3af;
-  --text-muted: #9ca3af;
-  --text-hint: #6b7280;
-  
+  --text-primary: var(--tw-color-foreground);
+  --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
+  --text-muted: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
+  --text-hint: color-mix(in srgb, var(--tw-color-foreground) 38%, var(--tw-color-background));
+
   /* 边框和分隔线 */
-  --border-color: #2d3748;
-  --border-light: #374151;
-  --border-lighter: #1f2937;
-  
+  --border-color: var(--tw-color-border-secondary);
+  --border-light: var(--tw-color-border-secondary);
+  --border-lighter: var(--tw-color-background);
+
   /* 交互状态 */
-  --hover-bg: #252a34;
-  --active-bg: #1e3a5f;
-  --active-color: #60a5fa;
-  
+  --hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  --active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
+  --active-color: var(--tw-color-info);
+
   /* 工具面板 */
-  --tool-panel-bg: #17191c;
-  --tool-item-bg: #1e2228;
-  --tool-item-border: #2d3748;
-  --tool-item-hover-border: #374151;
-  --param-row-bg: #1e2228;
-  --param-row-hover-bg: #1e293b;
-  
+  --tool-panel-bg: var(--tw-color-background);
+  --tool-item-bg: var(--tw-color-background);
+  --tool-item-border: var(--tw-color-border-secondary);
+  --tool-item-hover-border: var(--tw-color-border);
+  --param-row-bg: var(--tw-color-background);
+  --param-row-hover-bg: color-mix(in srgb, var(--tw-color-info) 6%, var(--tw-color-background));
+
   /* 会话列表 */
-  --session-hover-bg: #252a34;
-  --session-active-bg: #1e3a5f;
+  --session-hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
 }
 
 /* ==================== 布局容器 ==================== */
@@ -442,15 +444,15 @@
 
 /* 更多操作下拉菜单 */
 .session-actions-dropdown .ant-dropdown-menu-item-danger {
-  color: #ff4d4f;
+  color: var(--tw-color-error);
 }
 
 .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
-  background: #fff1f0;
+  background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
 }
 
 .dark .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
-  background: #3d2020;
+  background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
 }
 
 /* 删除确认 Modal */
@@ -459,7 +461,7 @@
 }
 
 .delete-confirm-modal .ant-modal-title {
-  color: #ff4d4f;
+  color: var(--tw-color-error);
 }
 
 .delete-confirm-modal .ant-modal-body {
@@ -503,7 +505,7 @@
 }
 
 .delete-confirm-highlight {
-  color: #ff4d4f;
+  color: var(--tw-color-error);
 }
 
 /* 响应式适配 */
@@ -651,12 +653,12 @@
 
 /* 敏感参数特殊样式 */
 .param-row:has(.anticon-lock-unfilled) {
-  border-left-color: #faad14;
-  background: #fffbe6;
+  border-left-color: var(--tw-color-warning);
+  background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
 }
 
 .dark .param-row:has(.anticon-lock-unfilled) {
-  background: #3d3020;
+  background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
 }
 
 /* 参数信息区 */

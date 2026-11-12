@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from collector.db.models import DataPoolBusiness
 from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
@@ -254,6 +255,24 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             status_code=400,
             detail="LLM 策略回测必须提供 replay 记录（策略参数 llm_replay_path），禁止静默降级为 heuristic",
         )
+
+    # 自选组入参：pool_id 在此解析为当前成分（需查库，schema 层只验二选一）。
+    # 必须放在 try 之前：404/空池是用户输入错误，不能被兜底 except 改写成 500。
+    if request.backtest_config.pool_id is not None:
+        resolved_symbols = DataPoolBusiness.resolve_symbols(request.backtest_config.pool_id)
+        if resolved_symbols is None:
+            raise HTTPException(status_code=404, detail=f"自选组不存在: {request.backtest_config.pool_id}")
+        if not resolved_symbols:
+            raise HTTPException(
+                status_code=400,
+                detail=f"自选组 {request.backtest_config.pool_id} 当前没有成分，无法发起回测",
+            )
+        # 组成分解析前无法校验 margin_settings 品种归属（schema 层跳过），在此补齐
+        invalid = {m.symbol for m in request.backtest_config.margin_settings} - set(resolved_symbols)
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"margin_settings 中的 {sorted(invalid)} 不在自选组成分内")
+        # 覆盖回测标的，沿用原有单/多品种回测链路；pool_id 保留原值入库便于详情页溯源
+        request.backtest_config.symbols = resolved_symbols
 
     try:
         logger.info("=" * 80)

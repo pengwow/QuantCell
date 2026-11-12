@@ -30,6 +30,8 @@ from factor.engine import (
 )
 from factor.models import FactorCatalog
 from factor.sandbox import FactorSandbox
+from factor.statistics import FDR_METHODS, annotate_fdr
+from utils.config_manager import get_value
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -1634,6 +1636,7 @@ class FactorService:
         provider=None,
         horizons: list[int] | tuple[int, ...] | None = None,
         cost_bps: float = 0.0,
+        fdr_method: str | None = None,
     ) -> dict:
         """2-5 个因子共用参数横向对比；逐因子 analyze（读盘缓存复用）+ IC 时序时间轴对齐。"""
         results = {
@@ -1656,13 +1659,17 @@ class FactorService:
         }
         details = {d["name"]: d for d in self.get_factor_details()}
         labels = {name: details.get(name, {}).get("label", name) for name in factor_names}
-        return self._assemble_compare(results, labels)
+        return self._assemble_compare(results, labels, fdr_method=fdr_method)
 
     @staticmethod
-    def _assemble_compare(results: dict[str, dict], labels: dict[str, str] | None = None) -> dict:
+    def _assemble_compare(
+        results: dict[str, dict], labels: dict[str, str] | None = None, fdr_method: str | None = None
+    ) -> dict:
         """把 {factor_name: analyze 结果} 组装成对比行 + 时间轴对齐的 IC 序列。
 
         同步 compare_factors 与异步 compare job 共用，保证两条链路口径一致。
+        fdr_method（P1-06）：显式指定 FDR 方法（none/bh/by）；None 时读全局
+        配置 factor.fdr.method（缺省 bh），非法配置值回落 bh。
         """
         labels = labels or {}
         rows = []
@@ -1695,6 +1702,9 @@ class FactorService:
 
         # IC 时序按时间标签 outer 对齐，缺失补 None
         aligned_ic = pd.DataFrame(ic_by_factor).sort_index()
+        # P1-06 多重检验 FDR：在 compare 的整批因子上联合校正，行上补 p_bh/p_by/significant_bh
+        method = fdr_method or str(get_value("factor.fdr.method", "bh") or "bh")
+        annotate_fdr(rows, aligned_ic, fdr_method=method if method in FDR_METHODS else "bh")
         return {
             "factors": rows,
             "ic_series": {

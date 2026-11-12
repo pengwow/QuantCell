@@ -46,7 +46,8 @@ import { useTheme } from 'ahooks';
 interface BacktestMetrics {
   name: string;
   key: string;
-  value: number;
+  // P1-04 起 Deflated Sharpe 等指标在数据不足时显式输出 null（不降级伪值）
+  value: number | null;
   description: string;
   type: string;
 }
@@ -167,13 +168,14 @@ const BacktestDetail = () => {
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('backtest_detail') || '回测详情');
+    // backtest_detail 词条由本次 i18n 迁移补齐，t() 不会返回空串，无需 fallback 字面量
+    setPageTitle(t('backtest_detail'));
   }, [t]);
 
   // 加载回测详情数据
   useEffect(() => {
     if (!backtestId) {
-      message.error('回测ID不存在');
+      message.error(t('backtest_id_not_exist'));
       navigate('/backtest');
       return;
     }
@@ -203,10 +205,10 @@ const BacktestDetail = () => {
             ? ((response as unknown as BacktestResponse).selected_symbol || symbolKeys[0] || 'all')
             : 'all');
         } else {
-          message.error('获取回测数据失败');
+          message.error(t('backtest_fetch_data_failed'));
         }
       } catch (error) {
-        message.error('加载回测详情失败');
+        message.error(t('load_backtest_detail_failed'));
         console.error(error);
       } finally {
         setLoading(false);
@@ -312,15 +314,16 @@ const BacktestDetail = () => {
       const link = document.createElement('a');
       link.href = url;
       // 与后端 report_filename 保持一致（blob 下载取 download 属性名）
-      link.download = `回测报告_${backtestId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.html`;
+      // 复用 backtest_report_filename 词条，任务短 ID 与日期并入 {{id}} 插值
+      link.download = `${t('backtest_report_filename', { id: `${backtestId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}` })}.html`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      message.success('报告已导出');
+      message.success(t('export_report_success'));
     } catch (error) {
-      message.error('导出报告失败');
+      message.error(t('export_report_failed'));
       console.error(error);
     } finally {
       setExporting(false);
@@ -339,9 +342,9 @@ const BacktestDetail = () => {
   // 渲染加载状态
   if (loading) {
     return (
-      <PageContainer title="回测详情">
+      <PageContainer title={t('backtest_detail')}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
-          <Spin size="large" description="加载中..." />
+          <Spin size="large" description={t('loading')} />
         </div>
       </PageContainer>
     );
@@ -350,9 +353,9 @@ const BacktestDetail = () => {
   // 渲染空状态
   if (!backtestData) {
     return (
-      <PageContainer title="回测详情">
+      <PageContainer title={t('backtest_detail')}>
         <div style={{ padding: '100px 0' }}>
-          <Empty description="未找到回测数据" />
+          <Empty description={t('backtest_not_found')} />
         </div>
       </PageContainer>
     );
@@ -377,15 +380,15 @@ const BacktestDetail = () => {
   // 档位来源：db=交易所档位、snapshot=内置快照、default=默认档位；无来源即旧任务配置回显
   const bracketSourceLabel = (item: EffectiveMarginSpec): string =>
     item.bracket_source === 'db'
-      ? '交易所档位'
+      ? t('backtest_bracket_source_db')
       : item.bracket_source === 'snapshot'
-        ? '内置快照'
+        ? t('backtest_bracket_source_snapshot')
         : item.bracket_source === 'default'
-          ? '默认档位'
-          : '配置回显';
+          ? t('backtest_bracket_source_default')
+          : t('backtest_bracket_source_config');
 
   return (
-    <PageContainer title={`${strategyName} - 回测详情`}>
+    <PageContainer title={`${strategyName} - ${t('backtest_detail')}`}>
       <div className="space-y-6">
         {/* 页面操作按钮 */}
         <div className="flex flex-wrap justify-start sm:justify-end gap-2">
@@ -394,87 +397,87 @@ const BacktestDetail = () => {
             onClick={handleReplay}
             type="primary"
           >
-            回放
+            {t('replay')}
           </Button>
           <Button
             icon={<DownloadOutlined />}
             onClick={handleExport}
             loading={exporting}
           >
-            导出报告
+            {t('export_report')}
           </Button>
         </div>
 
         {/* 配置信息 */}
-        <Card title="配置信息" className="mb-6">
+        <Card title={t('config_info')} className="mb-6">
           <Flex vertical gap={12}>
           <Descriptions bordered column={{ xs: 1, sm: 2, md: 3, lg: 4 }}>
-            <Descriptions.Item label="策略名称">
+            <Descriptions.Item label={t('backtest_strategy_name')}>
               {strategyName}
             </Descriptions.Item>
-            <Descriptions.Item label="交易标的">
+            <Descriptions.Item label={t('backtest_symbols')}>
               {symbols.length === 0 ? '-' : (
                 <>
                   {symbols.slice(0, 3).join('、')}
                   {symbols.length > 3 && (
                     <>
-                      {' '}等 {symbols.length} 个
+                      {' '}{t('backtest_symbols_more', { num: symbols.length })}
                       <Button type="link" size="small" style={{ padding: 0, marginLeft: 8 }} onClick={() => setShowAllSymbols(true)}>
-                        查看全部
+                        {t('home_view_all')}
                       </Button>
                     </>
                   )}
                 </>
               )}
             </Descriptions.Item>
-            <Descriptions.Item label="时间周期">
+            <Descriptions.Item label={t('backtest_timeframe')}>
               {backtestConfig.interval || '-'}
             </Descriptions.Item>
-            <Descriptions.Item label="交易模式">
-              {backtestConfig.trading_mode === 'futures' ? '永续合约' : '现货'}
+            <Descriptions.Item label={t('backtest_trading_mode')}>
+              {backtestConfig.trading_mode === 'futures' ? t('backtest_futures') : t('spot')}
             </Descriptions.Item>
-            <Descriptions.Item label="回测时间">
+            <Descriptions.Item label={t('backtest_period')}>
               {backtestConfig.start_time && backtestConfig.end_time
-                ? `${backtestConfig.start_time} 至 ${backtestConfig.end_time}`
+                ? t('backtest_date_span', { start: backtestConfig.start_time, end: backtestConfig.end_time })
                 : '-'}
             </Descriptions.Item>
-            <Descriptions.Item label="初始资金">
+            <Descriptions.Item label={t('backtest_initial_cash')}>
               {formatNumber(backtestConfig.initial_cash || 0)}
             </Descriptions.Item>
-            <Descriptions.Item label="资金使用方式">
-              {backtestConfig.capital_mode === 'shared' ? '组合共享资金池' : '各品种独立资金池'}
+            <Descriptions.Item label={t('backtest_capital_mode')}>
+              {backtestConfig.capital_mode === 'shared' ? t('backtest_capital_shared') : t('backtest_capital_per_symbol')}
             </Descriptions.Item>
-            <Descriptions.Item label="状态">
+            <Descriptions.Item label={t('status')}>
               {backtestData.status}
             </Descriptions.Item>
           </Descriptions>
           {/* 杠杆与保证金：整块常显，未启用时明确告诉用户「没算保证金」，而不是悄悄消失 */}
           <div>
-            <div className="mb-2 text-sm font-medium">杠杆与保证金</div>
+            <div className="mb-2 text-sm font-medium">{t('backtest_margin_settings')}</div>
             <Space size={4} wrap>
               {effectiveSpecs.map((item) => (
                 <Tag key={item.symbol} className="mb-0">
-                  {`${item.symbol} ${item.leverage}x ${item.margin_mode === 'isolated' ? '逐仓' : '全仓'} · ${bracketSourceLabel(item)}`}
+                  {`${item.symbol} ${item.leverage}x ${item.margin_mode === 'isolated' ? t('backtest_margin_isolated') : t('backtest_margin_cross')} · ${bracketSourceLabel(item)}`}
                 </Tag>
               ))}
               {marginApplied && (
                 <>
-                  <Tag color="blue" className="mb-0">{`强平 ${liquidationCount} 次`}</Tag>
+                  <Tag color="blue" className="mb-0">{t('backtest_liquidation_count', { num: liquidationCount })}</Tag>
                   {shortfallCount > 0 && (
-                    <Tag color="orange" className="mb-0">{`保证金受限缩量 ${shortfallCount} 次`}</Tag>
+                    <Tag color="orange" className="mb-0">{t('backtest_margin_shortfall_count', { num: shortfallCount })}</Tag>
                   )}
                 </>
               )}
             </Space>
             {!marginApplied && (
-              <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
-                未启用保证金模拟（1x，无强平判定）
+              <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 4 }}>
+                {t('backtest_margin_disabled_hint')}
               </div>
             )}
           </div>
           {/* 策略参数独占一块：参数条目数量不定，塞进 Descriptions 格子会显示不全 */}
           <div>
-            <div className="mb-2 text-sm font-medium">策略参数</div>
+            <div className="mb-2 text-sm font-medium">{t('strategy_params')}</div>
             {Object.keys(backtestConfig.strategy_params || {}).length === 0 ? (
               '-'
             ) : (
@@ -492,13 +495,13 @@ const BacktestDetail = () => {
 
         {/* 强平记录：逐档部分强平的审计视图；无事件（含旧任务缺失字段）时整块不渲染 */}
         {liquidationEvents.length > 0 && (
-          <Card title="强平记录" className="mb-6">
+          <Card title={t('backtest_liquidation_records')} className="mb-6">
             <Flex vertical gap={12}>
               {insuranceFundLoss > 0 && (
                 <Alert
                   type="warning"
                   showIcon
-                  title={`穿仓损失 ${formatNumber(insuranceFundLoss)} 由保险基金承担`}
+                  title={t('backtest_insurance_fund_loss', { v: formatNumber(insuranceFundLoss) })}
                 />
               )}
               <Table
@@ -511,29 +514,29 @@ const BacktestDetail = () => {
                 }
                 columns={[
                   {
-                    title: '时间',
+                    title: t('backtest_time'),
                     dataIndex: 'timestamp_ns',
                     // 引擎时间戳是纳秒，换成毫秒再本地化展示
                     render: (value: number) => new Date(value / 1e6).toLocaleString(),
                   },
-                  { title: '品种', dataIndex: 'symbol' },
+                  { title: t('backtest_symbol'), dataIndex: 'symbol' },
                   {
-                    title: '模式',
+                    title: t('backtest_mode'),
                     dataIndex: 'margin_mode',
-                    render: (value: string) => (value === 'isolated' ? '逐仓' : '全仓'),
+                    render: (value: string) => (value === 'isolated' ? t('backtest_margin_isolated') : t('backtest_margin_cross')),
                   },
                   {
-                    title: '档位',
+                    title: t('backtest_tier'),
                     render: (_: unknown, record: LiquidationEventRecord) =>
                       `${record.tier_from ?? '-'} → ${record.tier_to ?? '-'}`,
                   },
                   {
-                    title: '减仓量',
+                    title: t('backtest_reduced_qty'),
                     dataIndex: 'reduced_qty',
                     render: (value: number) => formatNumber(value ?? 0, 4),
                   },
                   {
-                    title: '强平费',
+                    title: t('backtest_liquidation_fee'),
                     dataIndex: 'fee',
                     render: (value: number) => formatNumber(value ?? 0),
                   },
@@ -545,16 +548,16 @@ const BacktestDetail = () => {
 
         {/* 回测概览指标（多品种时右上角切换品种，指标/曲线/成交均按品种展示） */}
         <Card
-          title="回测概览"
+          title={t('backtest_overview')}
           className="mb-6"
           extra={isMultiSymbol && symbols.length > 0 ? (
             <Space>
-              <span>品种</span>
+              <span>{t('backtest_symbol')}</span>
               <Select
                 value={selectedSymbol}
                 onChange={handleSymbolChange}
                 style={{ width: 150 }}
-                options={[{ label: '全部', value: 'all' }, ...symbols.map((s) => ({ label: s, value: s }))]}
+                options={[{ label: t('all'), value: 'all' }, ...symbols.map((s) => ({ label: s, value: s }))]}
               />
             </Space>
           ) : undefined}
@@ -568,19 +571,21 @@ const BacktestDetail = () => {
                 showIcon
                 title={
                   Object.keys(skippedSymbols).length === 1
-                    ? `${Object.keys(skippedSymbols)[0]} 在所选时间范围内无本地数据，已跳过本次回测，请补齐数据或调整时间范围`
-                    : `以下品种在所选时间范围内无本地数据，已跳过：${Object.keys(skippedSymbols).join('、')}`
+                    ? t('backtest_symbol_skipped', { symbol: Object.keys(skippedSymbols)[0] })
+                    : t('backtest_symbols_skipped', { symbols: Object.keys(skippedSymbols).join('、') })
                 }
               />
             )}
             <Row gutter={[16, 16]}>
               {visibleMetricCards(backtestConfig.capital_mode, selectedSymbol).map((spec) => {
-                const value = getMetricValue(spec.key);
+                // 指标显式为 null（如 Deflated Sharpe 数据不足）时展示 '—'，着色回退 0
+                const raw = backtestData?.metrics?.find((m) => m.key === spec.key)?.value;
+                const value = raw ?? 0;
                 return (
                   <Col key={spec.key} xs={12} sm={8} md={6} lg={4}>
                     <MetricCard
                       label={spec.label}
-                      value={formatMetricValue(spec, value)}
+                      value={raw == null ? '—' : formatMetricValue(spec, value)}
                       type={spec.color(value, getMetricValue)}
                       hint={spec.hint}
                     />
@@ -592,35 +597,35 @@ const BacktestDetail = () => {
         </Card>
 
         {/* 绩效分析图表 */}
-        <Card title="权益曲线" className="mb-6">
+        <Card title={t('backtest_equity_curve')} className="mb-6">
           {getEquityCurve().length > 0 ? (
             <EquityChart data={getEquityCurve()} isDark={isDark} initialCash={backtestData?.backtest_config?.initial_cash} />
           ) : (
-            <Empty description="暂无权益曲线数据" />
+            <Empty description={t('no_equity_data')} />
           )}
         </Card>
 
         {/* 因子分析（品种维度数据，组合视图「全部」下无口径，仅具体品种且配置了 factor_names 时渲染） */}
         {selectedSymbol !== 'all' && backtestData.factors && backtestData.factors.names && backtestData.factors.names.length > 0 && (
-          <Card title="因子分析" className="mb-6">
+          <Card title={t('factor_analysis')} className="mb-6">
             <Space orientation="vertical" size="large" style={{ display: 'flex', width: '100%' }}>
               {/* 因子概览：名称 + 阈值 */}
               <Descriptions bordered column={{ xs: 1, sm: 2, md: 3 }} size="small">
-                <Descriptions.Item label="使用因子">
+                <Descriptions.Item label={t('backtest_factors_used')}>
                   {backtestData.factors.names.join('、')}
                 </Descriptions.Item>
                 {Object.entries(backtestData.factors.thresholds || {}).map(([fname, th]) => (
-                  <Descriptions.Item key={fname} label={`${fname} 阈值`}>
-                    {th.buy != null && `买入 ≥ ${th.buy}`}
+                  <Descriptions.Item key={fname} label={t('backtest_factor_threshold', { name: fname })}>
+                    {th.buy != null && `${t('buy')} ≥ ${th.buy}`}
                     {th.buy != null && th.sell != null && ' / '}
-                    {th.sell != null && `卖出 ≤ ${th.sell}`}
+                    {th.sell != null && `${t('sell')} ≤ ${th.sell}`}
                   </Descriptions.Item>
                 ))}
               </Descriptions>
 
               {/* 因子时序曲线 */}
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>因子时序</div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('backtest_factor_time_series')}</div>
                 {(() => {
                   const ts = backtestData.factors!.time_series;
                   const xData = ts.formatted_times as string[];
@@ -653,7 +658,7 @@ const BacktestDetail = () => {
               {/* 因子归因指标 + 分组收益 */}
               {Object.entries(backtestData.factors.attribution || {}).map(([fname, attr]) => (
                 <div key={fname}>
-                  <div style={{ fontWeight: 600, marginBottom: 8 }}>{fname} · 绩效归因</div>
+                  <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('backtest_factor_attribution', { name: fname })}</div>
                   <Row gutter={[12, 12]}>
                     <Col xs={12} sm={8} md={6} lg={4}>
                       <MetricCard label="IC" value={attr.ic != null ? attr.ic.toFixed(4) : 'N/A'} type={attr.ic && attr.ic >= 0 ? 'positive' : 'negative'} />
@@ -665,13 +670,13 @@ const BacktestDetail = () => {
                       <MetricCard label="ICIR" value={attr.icir != null ? attr.icir.toFixed(4) : 'N/A'} />
                     </Col>
                     <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label="多空收益" value={attr.long_short_return != null ? (attr.long_short_return * 100).toFixed(2) + '%' : 'N/A'} type={attr.long_short_return && attr.long_short_return >= 0 ? 'positive' : 'negative'} />
+                      <MetricCard label={t('research_detail_metric_long_short')} value={attr.long_short_return != null ? (attr.long_short_return * 100).toFixed(2) + '%' : 'N/A'} type={attr.long_short_return && attr.long_short_return >= 0 ? 'positive' : 'negative'} />
                     </Col>
                     <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label="因子均值" value={attr.stats?.mean != null ? attr.stats.mean.toFixed(4) : 'N/A'} />
+                      <MetricCard label={t('backtest_factor_mean')} value={attr.stats?.mean != null ? attr.stats.mean.toFixed(4) : 'N/A'} />
                     </Col>
                     <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label="因子标准差" value={attr.stats?.std != null ? attr.stats.std.toFixed(4) : 'N/A'} />
+                      <MetricCard label={t('backtest_factor_std')} value={attr.stats?.std != null ? attr.stats.std.toFixed(4) : 'N/A'} />
                     </Col>
                   </Row>
                   {/* 分组收益柱状图 */}
@@ -701,7 +706,7 @@ const BacktestDetail = () => {
 
         {/* 交易详情 */}
         <Card
-          title="交易详情"
+          title={t('trade_details')}
           className="mb-6"
           extra={
             <Space>
@@ -709,7 +714,7 @@ const BacktestDetail = () => {
                 type={showAdvancedFilter ? 'primary' : 'default'}
                 onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
               >
-                筛选
+                {t('backtest_filter')}
               </Button>
             </Space>
           }
@@ -719,15 +724,15 @@ const BacktestDetail = () => {
             <div style={{ marginBottom: 16, padding: 16, backgroundColor: 'transparent', border: '1px solid var(--ant-color-border)', borderRadius: 8 }}>
               <Row gutter={[16, 16]} align="middle">
                 <Col xs={24} sm={12} md={6}>
-                  <div style={{ marginBottom: 8 }}>交易标的</div>
+                  <div style={{ marginBottom: 8 }}>{t('backtest_symbols')}</div>
                   <Select
                     value={selectedSymbol}
                     onChange={handleSymbolChange}
                     style={{ width: '100%' }}
-                    placeholder="选择交易标的"
+                    placeholder={t('select_trading_symbol')}
                   >
                     {/* 「全部」在单/多品种下都可能是当前值，必须始终渲染 */}
-                    <Select.Option value="all">全部</Select.Option>
+                    <Select.Option value="all">{t('all')}</Select.Option>
                     {symbols.map((symbol) => (
                       <Select.Option key={symbol} value={symbol}>
                         {symbol}
@@ -736,20 +741,20 @@ const BacktestDetail = () => {
                   </Select>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
-                  <div style={{ marginBottom: 8 }}>交易方向</div>
+                  <div style={{ marginBottom: 8 }}>{t('direction')}</div>
                   <Select
                     value={filterSide}
                     onChange={setFilterSide}
                     style={{ width: '100%' }}
-                    placeholder="选择方向"
+                    placeholder={t('backtest_side_placeholder')}
                   >
-                    <Select.Option value="all">全部</Select.Option>
-                    <Select.Option value="long">做多</Select.Option>
-                    <Select.Option value="short">做空</Select.Option>
+                    <Select.Option value="all">{t('all')}</Select.Option>
+                    <Select.Option value="long">{t('long')}</Select.Option>
+                    <Select.Option value="short">{t('short')}</Select.Option>
                   </Select>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
-                  <div style={{ marginBottom: 8 }}>日期范围</div>
+                  <div style={{ marginBottom: 8 }}>{t('backtest_date_range')}</div>
                   <DatePicker.RangePicker
                     style={{ width: '100%' }}
                     onChange={(dates) => {
@@ -764,7 +769,7 @@ const BacktestDetail = () => {
               </Row>
               <Row style={{ marginTop: 16 }}>
                 <Col span={24} style={{ textAlign: 'right' }}>
-                  <Button onClick={resetFilters}>重置</Button>
+                  <Button onClick={resetFilters}>{t('reset')}</Button>
                 </Col>
               </Row>
             </div>
@@ -772,28 +777,28 @@ const BacktestDetail = () => {
 
           {/* 筛选结果统计 */}
           <div style={{ marginBottom: 16 }}>
-            <span style={{ color: '#8c8c8c' }}>
-              共 {getTrades().length} 条记录
-              {selectedSymbol !== 'all' && ` | 标的: ${selectedSymbol}`}
-              {filterSide !== 'all' && ` | 方向: ${filterSide === 'long' ? '做多' : '做空'}`}
-              {filterDateRange && ` | 日期: ${filterDateRange[0]} 至 ${filterDateRange[1]}`}
+            <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
+              {t('total_count', { count: getTrades().length })}
+              {selectedSymbol !== 'all' && t('backtest_filter_symbol', { v: selectedSymbol })}
+              {filterSide !== 'all' && t('backtest_filter_side', { v: filterSide === 'long' ? t('long') : t('short') })}
+              {filterDateRange && t('backtest_filter_date', { start: filterDateRange[0], end: filterDateRange[1] })}
             </span>
           </div>
 
           {getTrades().length > 0 ? (
             <TradeTable data={getTrades()} leverageBySymbol={leverageBySymbol} />
           ) : isLegacyOnly ? (
-            <Empty description="该回测由旧版本引擎生成，无成交明细" />
+            <Empty description={t('backtest_legacy_no_trades')} />
           ) : rawTrades.length === 0 ? (
             <Empty
               description={
                 getMetricValue('total_trades') > 0
-                  ? `该回测有 ${getMetricValue('total_trades')} 笔成交但尚未平仓，无完整交易记录`
-                  : '该回测未产生任何成交，请检查策略参数（如价格区间）是否与市场行情匹配'
+                  ? t('backtest_trades_unclosed', { num: getMetricValue('total_trades') })
+                  : t('backtest_no_fills_hint')
               }
             />
           ) : (
-            <Empty description="暂无交易记录" />
+            <Empty description={t('no_trade_records')} />
           )}
         </Card>
 
@@ -809,8 +814,8 @@ const BacktestDetail = () => {
           const deciderOf = (d: CascadeDecisionRecord): string => {
             if (d._decider) return d._decider;
             if (d.source === 'sdm_direct') return d._s1_model ? `S1:${d._s1_model}` : 'S1';
-            if (d.source === 'fallback') return '降级兜底';
-            return '其他';
+            if (d.source === 'fallback') return t('backtest_decider_fallback');
+            return t('backtest_decider_other');
           };
           // 降级原因聚合键：新格式「类别: 细分: 详情」收敛到「类别: 细分」避免按详情炸开；
           // 旧格式两段以内（含 low_confidence: buy=0.63 旧写法）取原串
@@ -831,6 +836,7 @@ const BacktestDetail = () => {
           const deciderColor = (v: string): string | undefined => {
             if (v.startsWith('S1')) return 'blue';
             if (v.startsWith('S2')) return 'purple';
+            // '规则' 是录制数据里 _decider 的历史取值（数据枚举值而非 UI 文案），翻译会导致英文环境下匹配失效，保留原样
             if (v === '规则') return 'cyan';
             return undefined; // 回放 / 降级兜底 / 其他 → antd 默认灰
           };
@@ -844,15 +850,16 @@ const BacktestDetail = () => {
           const PAGE_SIZE = 200;
 
           return (
-            <Card title="决策详情" className="mb-6">
+            <Card title={t('backtest_decision_details')} className="mb-6">
               <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
                 {/* 统计摘要 */}
                 <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ color: '#8c8c8c' }}>
-                    共 <strong>{decisions.length.toLocaleString()}</strong> 条决策
+                  {/* 原文案用 <strong> 包住数字，插值词条无法承载富文本，改为整句纯文本 */}
+                  <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
+                    {t('backtest_decisions_total', { num: decisions.length.toLocaleString() })}
                   </span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: '#8c8c8c' }}>决策者：</span>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_decider_prefix')}</span>
                     {Object.entries(deciderCounts).map(([dv, cnt]) => (
                       <Tag key={dv} color={deciderColor(dv)}>
                         {dv}: {cnt.toLocaleString()}
@@ -860,17 +867,17 @@ const BacktestDetail = () => {
                     ))}
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: '#8c8c8c' }}>动作：</span>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_action_prefix')}</span>
                     {Object.entries(actionCounts).map(([act, cnt]) => (
                       <Tag key={act} color={actionColor[act] || 'default'}>
-                        {act === 'buy' ? '买入' : act === 'sell' ? '卖出' : '持有'}: {cnt.toLocaleString()}
+                        {act === 'buy' ? t('buy') : act === 'sell' ? t('sell') : t('backtest_hold')}: {cnt.toLocaleString()}
                       </Tag>
                     ))}
                   </div>
                 </div>
                 {Object.keys(reasonCounts).length > 0 && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ color: '#8c8c8c' }}>降级原因 Top：</span>
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_fallback_top')}</span>
                     {Object.entries(reasonCounts)
                       .sort((a, b) => b[1] - a[1])
                       .slice(0, 5)
@@ -890,11 +897,11 @@ const BacktestDetail = () => {
                     pageSize: PAGE_SIZE,
                     showSizeChanger: false,
                     showQuickJumper: true,
-                    showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total.toLocaleString()} 条`,
+                    showTotal: (total, range) => t('backtest_page_total', { start: range[0], end: range[1], total: total.toLocaleString() }),
                   }}
                   columns={[
                     {
-                      title: '时间',
+                      title: t('backtest_time'),
                       dataIndex: '_ts',
                       width: 200,
                       render: (_v: unknown, record: CascadeDecisionRecord) => (
@@ -902,24 +909,24 @@ const BacktestDetail = () => {
                       ),
                     },
                     {
-                      title: '动作',
+                      title: t('backtest_action'),
                       dataIndex: 'action',
                       width: 80,
                       render: (v: string) => {
-                        const label = v === 'buy' ? '买入' : v === 'sell' ? '卖出' : '持有';
+                        const label = v === 'buy' ? t('buy') : v === 'sell' ? t('sell') : t('backtest_hold');
                         const color = actionColor[v] || 'default';
                         return <Tag color={color}>{label}</Tag>;
                       },
                     },
                     {
-                      title: '置信度',
+                      title: t('backtest_confidence'),
                       dataIndex: 'confidence',
                       width: 100,
                       align: 'right',
                       render: (v: number) => (v != null ? (v * 100).toFixed(1) + '%' : '-'),
                     },
                     {
-                      title: '决策者',
+                      title: t('backtest_decider'),
                       dataIndex: '_decider',
                       width: 200,
                       ellipsis: true,
@@ -929,22 +936,22 @@ const BacktestDetail = () => {
                       },
                     },
                     {
-                      title: '降级原因',
+                      title: t('backtest_fallback_reason'),
                       dataIndex: 'fallback_reason',
                       ellipsis: true,
                       render: (v: string) => humanizeFallbackReason(v),
                     },
                     {
-                      title: '操作',
+                      title: t('action'),
                       key: 'detail',
                       width: 80,
                       fixed: 'right' as const,
                       render: (_v: unknown, record: CascadeDecisionRecord) =>
                         record._seq == null ? (
-                          <Tooltip title="旧任务无行号定位键，无法查看录制详情">-</Tooltip>
+                          <Tooltip title={t('backtest_no_seq_tooltip')}>-</Tooltip>
                         ) : (
                           <Button size="small" onClick={() => setDetailRecord(record)}>
-                            详情
+                            {t('details')}
                           </Button>
                         ),
                     },
@@ -963,10 +970,10 @@ const BacktestDetail = () => {
 
       {/* 全部交易标的弹窗（标的过多时点开查看） */}
       <Modal
-        title={`全部交易标的（共 ${symbols.length} 个）`}
+        title={t('backtest_all_symbols_title', { num: symbols.length })}
         open={showAllSymbols}
         onCancel={() => setShowAllSymbols(false)}
-        footer={<Button onClick={() => setShowAllSymbols(false)}>关闭</Button>}
+        footer={<Button onClick={() => setShowAllSymbols(false)}>{t('backtest_close')}</Button>}
         width={640}
       >
         <div style={{ maxHeight: 500, overflowY: 'auto' }}>

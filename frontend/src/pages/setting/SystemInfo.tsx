@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import { Card, Descriptions, Tag, Drawer } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { useSettings } from './SettingsContext';
 import SystemLogs from './SystemLogs';
 import LogSettingsPanel from './LogSettingsPanel';
@@ -14,6 +15,7 @@ interface SystemInfoProps {
 }
 
 const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
+  const { t } = useTranslation();
   const { systemMetrics } = useSettings();
   const [showLogSettings, setShowLogSettings] = useState(false);
 
@@ -48,32 +50,32 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
 
       {/* 系统信息 - 合并版本信息和系统状态 */}
       <div>
-        <h3 className="text-lg font-medium mb-4">系统信息</h3>
+        <h3 className="text-lg font-medium mb-4">{t('system_info')}</h3>
         <Card size="small">
           <Descriptions bordered column={1}>
             {/* 版本信息 */}
-            <Descriptions.Item label="系统版本">
+            <Descriptions.Item label={t('system_version')}>
               {systemInfo.version.system_version}
             </Descriptions.Item>
-            <Descriptions.Item label="Python版本">
+            <Descriptions.Item label={t('system_python_version')}>
               {systemInfo.version.python_version}
             </Descriptions.Item>
-            <Descriptions.Item label="构建日期">
+            <Descriptions.Item label={t('system_build_date')}>
               {systemInfo.version.build_date}
             </Descriptions.Item>
 
             {/* 运行状态信息 */}
-            <Descriptions.Item label="运行时间">
+            <Descriptions.Item label={t('uptime')}>
               {systemInfo.running_status.uptime}
             </Descriptions.Item>
-            <Descriptions.Item label="运行状态">
+            <Descriptions.Item label={t('running_status')}>
               <Tag color={getStatusColor(systemInfo.running_status.status)}>
                 {systemInfo.running_status.status}
               </Tag>
             </Descriptions.Item>
 
             {/* 资源状态 */}
-            <Descriptions.Item label="CPU使用率">
+            <Descriptions.Item label={t('cpu_usage')}>
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block w-2 h-2 rounded-full ${
@@ -87,7 +89,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
                 <span>{systemMetrics.cpuUsage}%</span>
               </div>
             </Descriptions.Item>
-            <Descriptions.Item label="内存使用">
+            <Descriptions.Item label={t('memory_usage')}>
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block w-2 h-2 rounded-full ${
@@ -105,7 +107,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
                 <span>{systemMetrics.memoryUsed} / {systemMetrics.memoryTotal}</span>
               </div>
             </Descriptions.Item>
-            <Descriptions.Item label="磁盘空间">
+            <Descriptions.Item label={t('disk_space')}>
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block w-2 h-2 rounded-full ${
@@ -123,7 +125,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
                 <span>{systemMetrics.diskUsed} / {systemMetrics.diskTotal}</span>
               </div>
             </Descriptions.Item>
-            <Descriptions.Item label="最后更新">
+            <Descriptions.Item label={t('system_last_updated')}>
               {new Date(systemMetrics.lastUpdated).toLocaleString('zh-CN')}
             </Descriptions.Item>
           </Descriptions>
@@ -132,7 +134,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
 
       {/* 日志设置面板 - 右侧抽屉 */}
       <Drawer
-        title="日志设置"
+        title={t('system_log_settings')}
         placement="right"
         size="large"
         onClose={() => setShowLogSettings(false)}

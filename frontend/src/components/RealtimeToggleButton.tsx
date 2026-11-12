@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button, Tooltip, App } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import * as realtimeApi from '../api/realtimeApi';
 import { wsService } from '../services/websocketService';
 
@@ -46,6 +47,7 @@ export function RealtimeToggleButton({
   onStatusChange,
 }: RealtimeToggleButtonProps) {
   const { message } = App.useApp();
+  const { t } = useTranslation();
   // 从 localStorage 恢复状态
   const getInitialState = (): boolean => {
     try {
@@ -59,12 +61,12 @@ export function RealtimeToggleButton({
         const isSamePeriod = state.period === period;
 
         if (isRecent && isSameSymbol && isSamePeriod && state.isRealtime) {
-          console.log('[RealtimeToggleButton] 从localStorage恢复实时状态');
+          console.log('[RealtimeToggleButton] Restored realtime state from localStorage');
           return true;
         }
       }
     } catch (e) {
-      console.error('[RealtimeToggleButton] 恢复状态失败:', e);
+      console.error('[RealtimeToggleButton] Failed to restore state:', e);
     }
     return defaultRealtimeEnabled;
   };
@@ -94,7 +96,7 @@ export function RealtimeToggleButton({
       };
       localStorage.setItem(REALTIME_STATE_KEY, JSON.stringify(state));
     } catch (e) {
-      console.error('[RealtimeToggleButton] 保存状态失败:', e);
+      console.error('[RealtimeToggleButton] Failed to save state:', e);
     }
   };
 
@@ -102,12 +104,12 @@ export function RealtimeToggleButton({
    * 处理WebSocket消息
    */
   const handleWebSocketMessage = useCallback((data: unknown) => {
-    console.log('[RealtimeToggleButton] 收到WebSocket消息:', data);
+    console.log('[RealtimeToggleButton] WebSocket message received:', data);
     if (data && onRealtimeData) {
-      console.log('[RealtimeToggleButton] 调用onRealtimeData回调');
+      console.log('[RealtimeToggleButton] Calling onRealtimeData callback');
       onRealtimeData(data);
     } else {
-      console.warn('[RealtimeToggleButton] 数据或回调为空:', { data, hasCallback: !!onRealtimeData });
+      console.warn('[RealtimeToggleButton] Data or callback is empty:', { data, hasCallback: !!onRealtimeData });
     }
   }, [onRealtimeData]);
 
@@ -117,69 +119,69 @@ export function RealtimeToggleButton({
   const startRealtime = async (silent: boolean = false) => {
     setLoading(true);
     try {
-      console.log('[RealtimeToggleButton] 启动实时数据...');
+      console.log('[RealtimeToggleButton] Starting realtime data...');
 
       // 0. 确保WebSocket连接并订阅kline主题
-      console.log('[RealtimeToggleButton] 确保WebSocket连接...');
+      console.log('[RealtimeToggleButton] Ensuring WebSocket connection...');
       if (!wsService.getConnected()) {
-        console.log('[RealtimeToggleButton] WebSocket未连接，正在连接...');
+        console.log('[RealtimeToggleButton] WebSocket not connected, connecting...');
         wsService.connect();
         // 等待连接建立
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
       // 订阅kline主题
-      console.log('[RealtimeToggleButton] 订阅kline主题...');
+      console.log('[RealtimeToggleButton] Subscribing kline topic...');
       wsService.subscribe('kline');
 
       // 1. 先检查实时引擎状态
-      console.log('[RealtimeToggleButton] 检查引擎状态...');
+      console.log('[RealtimeToggleButton] Checking engine status...');
       const status = await realtimeApi.getRealtimeStatus();
-      console.log('[RealtimeToggleButton] 引擎状态:', status);
+      console.log('[RealtimeToggleButton] Engine status:', status);
 
       // 2. 如果引擎未运行，快速启动引擎（不连接交易所）
       if (status.status !== 'running') {
-        console.log('[RealtimeToggleButton] 引擎未运行，快速启动引擎...');
+        console.log('[RealtimeToggleButton] Engine not running, starting engine quickly...');
         const startResult = await realtimeApi.startRealtimeEngine();
-        console.log('[RealtimeToggleButton] 启动结果:', startResult);
+        console.log('[RealtimeToggleButton] Start result:', startResult);
 
         if (!startResult.success) {
-          if (!silent) message.error('启动实时引擎失败');
+          if (!silent) message.error(t('rtb_msg_start_engine_failed'));
           return;
         }
       } else {
-        console.log('[RealtimeToggleButton] 引擎已在运行');
+        console.log('[RealtimeToggleButton] Engine already running');
       }
 
       // 3. 连接交易所（如果未连接）
       if (!status.connected) {
-        console.log('[RealtimeToggleButton] 连接交易所...');
+        console.log('[RealtimeToggleButton] Connecting exchange...');
         const connectResult = await realtimeApi.connectExchange();
-        console.log('[RealtimeToggleButton] 连接结果:', connectResult);
+        console.log('[RealtimeToggleButton] Connect result:', connectResult);
 
         if (!connectResult.success) {
-          if (!silent) message.error('连接交易所失败');
+          if (!silent) message.error(t('rtb_msg_connect_exchange_failed'));
           return;
         }
       } else {
-        console.log('[RealtimeToggleButton] 交易所已连接');
+        console.log('[RealtimeToggleButton] Exchange already connected');
       }
 
       // 4. 订阅K线数据频道
-      console.log('[RealtimeToggleButton] 订阅K线频道:', klineChannel);
+      console.log('[RealtimeToggleButton] Subscribing kline channels:', klineChannel);
       const subscribeResult = await realtimeApi.subscribeKlineChannels([klineChannel]);
-      console.log('[RealtimeToggleButton] 订阅结果:', subscribeResult);
+      console.log('[RealtimeToggleButton] Subscribe result:', subscribeResult);
 
       if (!subscribeResult.success) {
-        if (!silent) message.error(`订阅K线数据失败`);
+        if (!silent) message.error(t('rtb_msg_subscribe_failed'));
         return;
       }
 
       // 5. 订阅WebSocket消息（先注册监听器）
-      console.log('[RealtimeToggleButton] 订阅WebSocket消息...');
+      console.log('[RealtimeToggleButton] Subscribing WebSocket messages...');
       // 只订阅 'kline' 主题，避免重复处理
       wsService.on('kline', handleWebSocketMessage);
       // 检查是否已注册监听器
-      console.log('[RealtimeToggleButton] WebSocket监听器已注册');
+      console.log('[RealtimeToggleButton] WebSocket listener registered');
 
       // 6. 更新状态
       setIsRealtime(true);
@@ -188,7 +190,7 @@ export function RealtimeToggleButton({
 
       // 只在非静默模式下显示提示
       if (!silent) {
-        message.success('实时数据更新已开启');
+        message.success(t('rtb_msg_started'));
       }
 
       // 7. 通知父组件
@@ -196,9 +198,9 @@ export function RealtimeToggleButton({
         onStatusChange(true);
       }
     } catch (error) {
-      console.error('[RealtimeToggleButton] 启动实时数据失败:', error);
+      console.error('[RealtimeToggleButton] Failed to start realtime data:', error);
       if (!silent) {
-        message.error(`启动实时数据失败: ${error instanceof Error ? error.message : '请检查网络连接'}`);
+        message.error(t('rtb_msg_start_failed', { msg: error instanceof Error ? error.message : t('rtb_msg_check_network') }));
       }
     } finally {
       setLoading(false);
@@ -211,17 +213,17 @@ export function RealtimeToggleButton({
   const stopRealtime = async () => {
     setLoading(true);
     try {
-      console.log('[RealtimeToggleButton] 停止实时数据...');
+      console.log('[RealtimeToggleButton] Stopping realtime data...');
 
       // 1. 取消订阅K线数据频道
       if (isSubscribed) {
-        console.log('[RealtimeToggleButton] 取消订阅K线频道:', klineChannel);
+        console.log('[RealtimeToggleButton] Unsubscribing kline channel:', klineChannel);
         const unsubscribeResult = await realtimeApi.unsubscribeKlineChannels([klineChannel]);
-        console.log('[RealtimeToggleButton] 取消订阅结果:', unsubscribeResult);
+        console.log('[RealtimeToggleButton] Unsubscribe result:', unsubscribeResult);
 
         // 检查引擎状态，如果引擎未运行，更新按钮状态为未开启
         if (unsubscribeResult.engine_status && unsubscribeResult.engine_status !== 'running') {
-          console.log('[RealtimeToggleButton] 引擎未运行，更新按钮状态为未开启');
+          console.log('[RealtimeToggleButton] Engine not running, resetting button state');
           setIsRealtime(false);
           setIsSubscribed(false);
           saveState(false);
@@ -230,7 +232,7 @@ export function RealtimeToggleButton({
           wsService.off('kline', handleWebSocketMessage);
           wsService.off('kline:update', handleWebSocketMessage);
 
-          message.info('实时引擎已停止，按钮状态已重置');
+          message.info(t('rtb_msg_engine_stopped'));
 
           // 通知父组件
           if (onStatusChange) {
@@ -241,7 +243,7 @@ export function RealtimeToggleButton({
       }
 
       // 2. 移除WebSocket监听器
-      console.log('[RealtimeToggleButton] 移除WebSocket监听器...');
+      console.log('[RealtimeToggleButton] Removing WebSocket listeners...');
       wsService.off('kline', handleWebSocketMessage);
       wsService.off('kline:update', handleWebSocketMessage);
 
@@ -253,15 +255,15 @@ export function RealtimeToggleButton({
       setIsRealtime(false);
       setIsSubscribed(false);
       saveState(false); // 保存状态到 localStorage
-      message.success('实时数据更新已暂停');
+      message.success(t('rtb_msg_paused'));
 
       // 5. 通知父组件
       if (onStatusChange) {
         onStatusChange(false);
       }
     } catch (error) {
-      console.error('[RealtimeToggleButton] 停止实时数据失败:', error);
-      message.error(`停止实时数据失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      console.error('[RealtimeToggleButton] Failed to stop realtime data:', error);
+      message.error(t('rtb_msg_stop_failed', { msg: error instanceof Error ? error.message : t('unknown_error') }));
     } finally {
       setLoading(false);
     }
@@ -273,7 +275,7 @@ export function RealtimeToggleButton({
   const toggleRealtime = async () => {
     // 防止快速点击，如果正在处理中则忽略
     if (isProcessing || loading) {
-      console.log('[RealtimeToggleButton] 操作过于频繁，请稍后再试');
+      console.log('[RealtimeToggleButton] Operation too frequent, please retry later');
       return;
     }
 
@@ -297,9 +299,9 @@ export function RealtimeToggleButton({
    */
   const getTooltipText = () => {
     if (loading) {
-      return isRealtime ? '正在暂停...' : '正在开启...';
+      return isRealtime ? t('rtb_tip_pausing') : t('rtb_tip_starting');
     }
-    return isRealtime ? '暂停实时更新' : '开启实时更新';
+    return isRealtime ? t('rtb_tip_pause') : t('rtb_tip_start');
   };
 
   /**
@@ -308,7 +310,7 @@ export function RealtimeToggleButton({
   useEffect(() => {
     // 如果需要恢复实时连接（从localStorage恢复的状态）
     if (isRealtime && !hasRestored) {
-      console.log('[RealtimeToggleButton] 检测到需要恢复实时连接...');
+      console.log('[RealtimeToggleButton] Detected pending realtime connection restore...');
       setHasRestored(true);
       // 延迟恢复，等待组件完全挂载
       setTimeout(() => {
@@ -319,7 +321,7 @@ export function RealtimeToggleButton({
     // 组件卸载时清理
     return () => {
       if (isSubscribed) {
-        console.log('[RealtimeToggleButton] 组件卸载，清理订阅...');
+        console.log('[RealtimeToggleButton] Component unmounting, cleaning up subscription...');
         // 取消订阅但不停止引擎（避免影响其他页面）
         realtimeApi.unsubscribeKlineChannels([klineChannel]).catch(console.error);
         wsService.off('kline', handleWebSocketMessage);
@@ -334,22 +336,22 @@ export function RealtimeToggleButton({
    */
   useEffect(() => {
     if (isRealtime && isSubscribed) {
-      console.log('[RealtimeToggleButton] 交易对/周期变化，重新订阅...');
-      console.log('[RealtimeToggleButton] 旧频道:', klineChannel);
+      console.log('[RealtimeToggleButton] Symbol/period changed, resubscribing...');
+      console.log('[RealtimeToggleButton] Old channel:', klineChannel);
 
       // 先取消旧订阅
       realtimeApi.unsubscribeKlineChannels([klineChannel]).catch((error) => {
-        console.error('[RealtimeToggleButton] 取消旧订阅失败:', error);
+        console.error('[RealtimeToggleButton] Failed to unsubscribe old channel:', error);
       });
 
       // 再订阅新频道
       const newChannel = `${symbol}@kline_${period}`;
-      console.log('[RealtimeToggleButton] 新频道:', newChannel);
+      console.log('[RealtimeToggleButton] New channel:', newChannel);
 
       realtimeApi.subscribeKlineChannels([newChannel]).then((result) => {
-        console.log('[RealtimeToggleButton] 新订阅结果:', result);
+        console.log('[RealtimeToggleButton] New subscribe result:', result);
       }).catch((error) => {
-        console.error('[RealtimeToggleButton] 新订阅失败:', error);
+        console.error('[RealtimeToggleButton] Failed to subscribe new channel:', error);
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行

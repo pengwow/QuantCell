@@ -392,6 +392,56 @@ def get_pool_assets(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.get(
+    "/{pool_id}/snapshots",
+    response_model=ApiResponse,
+    summary="获取数据池成分快照",
+    description="按时间倒序返回该数据池历次成分变更后的完整成分列表（原标的池快照能力并入自选组）",
+    response_description="成功返回快照列表",
+    responses={
+        200: {"description": "成功获取快照列表（池不存在时返回空列表）"},
+        500: {"description": "获取快照列表失败"},
+    },
+)
+def get_pool_snapshots(
+    pool_id: int = Path(
+        ...,
+        description="数据池ID",
+        examples=[1],
+        ge=1,
+    ),
+):
+    """获取数据池成分快照历史
+
+    每次成分增删都会写入一条变更后的完整成分快照，按时间倒序返回。
+
+    Args:
+        pool_id: 数据池ID
+
+    Returns:
+        ApiResponse: 包含快照列表的响应
+
+    Example:
+        ```
+        GET /api/data-pools/1/snapshots
+        ```
+    """
+    try:
+        logger.info(f"开始获取数据池成分快照: pool_id={pool_id}")
+
+        snapshots = DataPool.list_snapshots(pool_id)
+
+        logger.info(f"成功获取数据池成分快照，共 {len(snapshots)} 条")
+        return ApiResponse(
+            code=0,
+            message="获取数据池成分快照成功",
+            data={"pool_id": pool_id, "snapshots": snapshots},
+        )
+    except Exception as e:
+        logger.error(f"获取数据池成分快照失败: pool_id={pool_id}, error={e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.post(
     "/{pool_id}/assets",
     response_model=ApiResponse,

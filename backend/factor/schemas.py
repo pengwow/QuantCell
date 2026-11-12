@@ -32,7 +32,7 @@
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, model_validator, validator
 
 
 class BaseSchema(BaseModel):
@@ -140,15 +140,33 @@ class FactorCalculateBase(BaseSchema):
     """因子计算公共参数：标的 + K线周期 + 时间范围。"""
 
     instruments: list[str] = Field(
-        ...,
-        min_items=1,
-        description="交易对列表",
+        default_factory=list,
+        description="交易对列表；与 pool_id 必须且只能提供其一",
         example=["BTCUSDT", "ETHUSDT"],
+    )
+    pool_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="自选组 ID：给定后以组内当前成分作为计算标的，与 instruments 二选一",
     )
     interval: str = Field(default="1h", min_length=1, description="K线周期，如 15m/1h/4h/1d")
     candle_type: str = Field(default="spot", description="市场类型：spot/future")
     start_time: str | None = Field(default=None, description="开始日期 YYYY-MM-DD，空=全部")
     end_time: str | None = Field(default=None, description="结束日期 YYYY-MM-DD，空=至今")
+
+    @model_validator(mode="after")
+    def validate_instruments_source(self) -> FactorCalculateBase:
+        """标的来源二选一：instruments 与 pool_id（自选组）必须且只能提供其一。
+
+        pool_id 解析成标的列表发生在 routes 层（需查库），这里只做入口把关。
+        """
+        has_instruments = bool(self.instruments)
+        has_pool = self.pool_id is not None
+        if has_instruments and has_pool:
+            raise ValueError("instruments 与 pool_id 只能提供其一")
+        if not has_instruments and not has_pool:
+            raise ValueError("instruments 与 pool_id 必须提供其一")
+        return self
 
     @validator("candle_type")
     def validate_candle_type(cls, v: str) -> str:
@@ -226,12 +244,22 @@ class FactorCompareRequest(FactorCalculateBase):
         description="自定义衰减滞后（K线根数，1-120、最多20个）；null 用默认 1/2/3/5/10",
     )
     cost_bps: float = Field(default=0.0, ge=0.0, le=1000.0, description="单边交易成本（基点），用于分位组合费后净值")
+    fdr_method: str | None = Field(
+        default=None, description="FDR 校正方法：none/bh/by；null 用全局配置 factor.fdr.method（缺省 bh）"
+    )
 
     @validator("method")
     def validate_compare_method(cls, v: str) -> str:
         """校验相关性方法"""
         if v not in {"spearman", "pearson"}:
             raise ValueError("method 必须为 spearman 或 pearson")
+        return v
+
+    @validator("fdr_method")
+    def validate_compare_fdr_method(cls, v: str | None) -> str | None:
+        """校验 FDR 方法（P1-06）"""
+        if v is not None and v not in ("none", "bh", "by"):
+            raise ValueError("fdr_method 只支持 none、bh、by")
         return v
 
     @validator("horizons")

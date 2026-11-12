@@ -159,18 +159,18 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       timestampedFilename('worker_orders', workerId),
       orders,
       [
-        { header: '订单ID', accessor: (o) => o.client_order_id },
-        { header: '交易对', accessor: 'symbol' },
-        { header: '方向', accessor: 'side' },
-        { header: '类型', accessor: 'order_type' },
-        { header: '数量', accessor: 'quantity' },
-        { header: '委托价', accessor: 'price' },
-        { header: '成交均价', accessor: 'avg_fill_price' },
-        { header: '已成交', accessor: 'filled_quantity' },
-        { header: '状态', accessor: 'status' },
-        { header: '持仓方向', accessor: 'position_side' },
-        { header: '创建时间', accessor: (o) => (o.created_at ? formatTimestamp(o.created_at) : '') },
-        { header: '提交时间', accessor: (o) => (o.submitted_at ? formatTimestamp(o.submitted_at) : '') },
+        { header: t('worker_order_id'), accessor: (o) => o.client_order_id },
+        { header: t('trading_pair'), accessor: 'symbol' },
+        { header: t('backtest_side'), accessor: 'side' },
+        { header: t('type'), accessor: 'order_type' },
+        { header: t('quantity'), accessor: 'quantity' },
+        { header: t('worker_order_price'), accessor: 'price' },
+        { header: t('worker_avg_fill_price'), accessor: 'avg_fill_price' },
+        { header: t('filled'), accessor: 'filled_quantity' },
+        { header: t('status'), accessor: 'status' },
+        { header: t('worker_position_side'), accessor: 'position_side' },
+        { header: t('create_time'), accessor: (o) => (o.created_at ? formatTimestamp(o.created_at) : '') },
+        { header: t('worker_submitted_at'), accessor: (o) => (o.submitted_at ? formatTimestamp(o.submitted_at) : '') },
       ],
     );
   };
@@ -178,7 +178,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
   // 表格列：标准量化展示顺序
   const columns: TableColumnsType<Order> = [
     {
-      title: '订单ID',
+      title: t('worker_order_id'),
       dataIndex: 'client_order_id',
       key: 'client_order_id',
       width: 180,
@@ -191,14 +191,14 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       ),
     },
     {
-      title: t('symbol') || '交易对',
+      title: t('symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
       width: 110,
       render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
     },
     {
-      title: t('direction') || '方向',
+      title: t('direction'),
       dataIndex: 'side',
       key: 'side',
       width: 80,
@@ -207,31 +207,31 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       ),
     },
     {
-      title: t('order_type') || '类型',
+      title: t('order_type'),
       dataIndex: 'order_type',
       key: 'order_type',
       width: 110,
       render: (type: string) => <Tag color="orange">{type?.toUpperCase() || '-'}</Tag>,
     },
     {
-      title: t('quantity') || '数量',
+      title: t('quantity'),
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right',
       render: (qty: number) => (qty !== undefined ? qty.toFixed(6) : '-'),
     },
     {
-      title: '委托价',
+      title: t('worker_order_price'),
       dataIndex: 'price',
       key: 'price',
       align: 'right',
       render: (price?: number) =>
         price !== undefined && price !== null
           ? formatUSD(price)
-          : <span style={{ color: '#999' }}>市价</span>,
+          : <span style={{ color: '#999' }}>{t('market_order')}</span>,
     },
     {
-      title: '成交均价',
+      title: t('worker_avg_fill_price'),
       dataIndex: 'avg_fill_price',
       key: 'avg_fill_price',
       align: 'right',
@@ -239,7 +239,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         price !== undefined && price !== null ? formatUSD(price) : '-',
     },
     {
-      title: t('filled_quantity') || '已成交',
+      title: t('filled_quantity'),
       key: 'filled',
       align: 'right',
       width: 140,
@@ -253,7 +253,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       ),
     },
     {
-      title: t('status') || '状态',
+      title: t('status'),
       dataIndex: 'status',
       key: 'status',
       width: 100,
@@ -262,21 +262,21 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       ),
     },
     {
-      title: '持仓方向',
+      title: t('worker_position_side'),
       dataIndex: 'position_side',
       key: 'position_side',
       width: 90,
       render: (pos?: string) => (pos ? <Tag>{pos}</Tag> : '-'),
     },
     {
-      title: t('created_at') || '创建时间',
+      title: t('created_at'),
       dataIndex: 'created_at',
       key: 'created_at',
       width: 170,
       render: (time: string) => (time ? formatTimestamp(time) : '-'),
     },
     {
-      title: '提交时间',
+      title: t('worker_submitted_at'),
       dataIndex: 'submitted_at',
       key: 'submitted_at',
       width: 170,
@@ -314,7 +314,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         ))}
         {orders.length === 0 && initialized && (
           <Col>
-            <span style={{ color: '#999' }}>暂无委托</span>
+            <span style={{ color: '#999' }}>{t('worker_no_orders')}</span>
           </Col>
         )}
       </Row>
@@ -322,11 +322,11 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       <Card
         title={
           <span>
-            {t('current_orders') || '当前委托'}
+            {t('current_orders')}
             {active && (
               <Badge
                 status="processing"
-                text="实时"
+                text={t('worker_realtime')}
                 style={{ marginLeft: 12, color: QUANT_COLORS.info }}
               />
             )}
@@ -339,7 +339,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
               onClick={() => setFilterCollapsed(!filterCollapsed)}
               size="small"
             >
-              {filterCollapsed ? '收起筛选' : '展开筛选'}
+              {filterCollapsed ? t('worker_collapse_filter') : t('worker_expand_filter')}
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -347,7 +347,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
               loading={loading}
               size="small"
             >
-              刷新
+              {t('refresh')}
             </Button>
             <Button
               icon={<DownloadOutlined />}
@@ -355,7 +355,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
               disabled={orders.length === 0}
               size="small"
             >
-              导出 CSV
+              {t('worker_export_csv')}
             </Button>
           </Space>
         }
@@ -368,34 +368,34 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
             onFinish={handleApplyFilter}
             style={{ marginBottom: 16, rowGap: 8 }}
           >
-            <Form.Item name="symbol" label="交易对">
-              <Input placeholder="如 BTCUSDT" allowClear style={{ width: 150 }} />
+            <Form.Item name="symbol" label={t('trading_pair')}>
+              <Input placeholder={t('worker_symbol_placeholder')} allowClear style={{ width: 150 }} />
             </Form.Item>
-            <Form.Item name="side" label="方向">
+            <Form.Item name="side" label={t('backtest_side')}>
               <Select
-                placeholder="全部"
+                placeholder={t('all')}
                 allowClear
                 options={SIDE_OPTIONS}
                 style={{ width: 100 }}
               />
             </Form.Item>
-            <Form.Item name="order_type" label="类型">
+            <Form.Item name="order_type" label={t('type')}>
               <Select
-                placeholder="全部"
+                placeholder={t('all')}
                 allowClear
                 options={ORDER_TYPE_OPTIONS}
                 style={{ width: 160 }}
               />
             </Form.Item>
-            <Form.Item name="status" label="状态">
+            <Form.Item name="status" label={t('status')}>
               <Select
-                placeholder="全部"
+                placeholder={t('all')}
                 allowClear
                 options={STATUS_OPTIONS}
                 style={{ width: 130 }}
               />
             </Form.Item>
-            <Form.Item name="time_range" label="时间">
+            <Form.Item name="time_range" label={t('backtest_time')}>
               <RangePicker
                 showTime={{ format: 'HH:mm:ss' }}
                 format="YYYY-MM-DD HH:mm:ss"
@@ -404,9 +404,9 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
             <Form.Item>
               <Space>
                 <Button type="primary" htmlType="submit" loading={loading}>
-                  应用
+                  {t('worker_apply')}
                 </Button>
-                <Button onClick={handleResetFilter}>重置</Button>
+                <Button onClick={handleResetFilter}>{t('reset')}</Button>
               </Space>
             </Form.Item>
           </Form>
@@ -414,7 +414,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
 
         {orders.length === 0 ? (
           <Empty
-            description={t('no_order_data') || '暂无委托数据'}
+            description={t('no_order_data')}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (

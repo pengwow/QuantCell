@@ -230,10 +230,6 @@ def test_invalid_config_raises():
     with pytest.raises(ValueError):
         CompositeStrategy(StrategyConfig(name="x"), children=[])
     with pytest.raises(ValueError):
-        CompositeStrategy(
-            StrategyConfig(name="x"), children=[FixedStrategy("b", "buy", 0.5)], weights=[1.0, 2.0]
-        )
+        CompositeStrategy(StrategyConfig(name="x"), children=[FixedStrategy("b", "buy", 0.5)], weights=[1.0, 2.0])
     with pytest.raises(ValueError):
-        CompositeStrategy(
-            StrategyConfig(name="x"), children=[FixedStrategy("b", "buy", 0.5)], voting="unanimous"
-        )
+        CompositeStrategy(StrategyConfig(name="x"), children=[FixedStrategy("b", "buy", 0.5)], voting="unanimous")

@@ -228,8 +228,14 @@ class _StubProvider:
 def _assert_deep_parity(py, rs, path: str = "") -> None:
     """递归比对两条路径的格式化结果（跳过 klines / _meta），数值容差 1e-6。"""
     if isinstance(py, dict) and isinstance(rs, dict):
+        in_robustness = path.endswith(".robustness")
         for k in set(py) | set(rs):
             if k in ("klines", "_meta"):
+                continue
+            # sharpe_ci 是 Block Bootstrap 置信区间（formatter 未传 seed 的统计估计），
+            # 逐位复现在设计上不可能；deep parity 只校验引擎编排确定性，稳健性组其余
+            # 字段（deflated_sharpe/pbo/cost_curve/grade）均为确定性计算，照常比对
+            if in_robustness and k == "sharpe_ci":
                 continue
             assert k in py and k in rs, f"{path}.{k} 单边存在"
             _assert_deep_parity(py[k], rs[k], f"{path}.{k}")

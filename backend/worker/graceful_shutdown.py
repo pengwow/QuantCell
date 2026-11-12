@@ -409,3 +409,28 @@ def reset_shutdown_manager():
     """重置全局停机管理器（用于测试）"""
     global _shutdown_manager
     _shutdown_manager = None
+
+
+# ============ P1-01 停机链路超时派生（单一事实源 = ShutdownConfig） ============
+#
+# 链式余量不变式：lifespan 停机总预算(total=30) < uvicorn 优雅窗口(35) < 看门狗(40)。
+# lifespan / main.py 各处的停机超时不再硬编码，统一从下面三个纯函数拿值，
+# 调整 ShutdownConfig 即全链等比例生效。
+
+
+def worker_stop_budget(cfg: ShutdownConfig | None = None) -> float:
+    """单 worker 停机预算：total_timeout 的 1/6，下限 5s"""
+    cfg = cfg or ShutdownConfig()
+    return max(5.0, cfg.total_timeout / 6.0)
+
+
+def uvicorn_graceful_timeout(cfg: ShutdownConfig | None = None) -> int:
+    """uvicorn 优雅关停窗口：> lifespan 总预算 +5s，保证 lifespan 先完成再被强杀"""
+    cfg = cfg or ShutdownConfig()
+    return int(cfg.total_timeout) + 5
+
+
+def shutdown_watchdog_timeout(cfg: ShutdownConfig | None = None) -> float:
+    """关停看门狗：最后兜底，> uvicorn 窗口 +5s，链式余量恒成立"""
+    cfg = cfg or ShutdownConfig()
+    return int(cfg.total_timeout) + 10.0

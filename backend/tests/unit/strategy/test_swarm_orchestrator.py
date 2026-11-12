@@ -270,4 +270,3 @@ class TestCompositeAssembly:
         orch.add_strategy(self._two_buy_strategies()[0])
         with pytest.raises(ValueError):
             orch.build()
-

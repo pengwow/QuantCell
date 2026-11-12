@@ -14,7 +14,6 @@ import {
   Statistic,
   Empty,
   Space,
-  Badge,
   Alert,
   Input,
   Select,
@@ -23,11 +22,8 @@ import {
   Dropdown,
   Checkbox,
   Flex,
-  Grid,
-  Segmented,
   Pagination,
   theme,
-  type MenuProps,
   type TablePaginationConfig,
 } from 'antd';
 import {
@@ -42,8 +38,6 @@ import {
   PoweroffOutlined,
   CaretRightOutlined,
   FileTextOutlined,
-  AppstoreOutlined,
-  UnorderedListOutlined,
   EyeOutlined,
   MoreOutlined,
   CheckSquareOutlined,
@@ -51,7 +45,6 @@ import {
   ThunderboltOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import type { TooltipComponentFormatterCallbackParams } from 'echarts';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
 import { triggerOptimize } from '../../api/workerApi';
@@ -64,16 +57,11 @@ import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 
-// 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
-type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
-type ViewType = 'card' | 'list';
-
 const Worker = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { message: apiMessage, modal } = App.useApp();
   const { token } = theme.useToken();
-  const screens = Grid.useBreakpoint();
 
   // Store state and actions
   // 注意：详情展示已移交 /strategy-worker/:id 独立页（WorkerDetail），
@@ -99,8 +87,8 @@ const Worker = () => {
   const [workerToEdit, setWorkerToEdit] = useState<WorkerType | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  // 视图类型状态 - 列表/卡片（与策略管理一致，默认跟随全局配置）
-  const [viewType, setViewType] = useViewType();
+  // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
+  const viewType = useViewType();
   // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 来自全局配置（条数切换器即全站开关）
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
@@ -188,7 +176,7 @@ const Worker = () => {
       await startWorker(worker.id);
       apiMessage.success(t('worker_start_success'));
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : '未知错误';
+      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : t('unknown_error');
 
       if (
         errorMsg.includes('非法状态转换') ||
@@ -198,18 +186,18 @@ const Worker = () => {
         apiMessage.warning({
           content: (
             <div>
-              <div><strong>{worker.name}</strong> 当前不允许启动</div>
-              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                原因: {errorMsg}
+              <div><strong>{worker.name}</strong> {t('worker_cannot_start_now')}</div>
+              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
+                {t('worker_reason_label', { message: errorMsg })}
               </div>
             </div>
           ),
           duration: 5,
         });
       } else if (errorMsg.includes('already running') || errorMsg.includes('已在运行')) {
-        apiMessage.info(`${worker.name} 已在运行中`);
+        apiMessage.info(t('worker_already_running', { name: worker.name }));
       } else {
-        apiMessage.error(`启动失败: ${errorMsg}`);
+        apiMessage.error(t('worker_start_failed', { message: errorMsg }));
       }
     } finally {
       setSubmittingWorkerIds((prev) => {
@@ -228,7 +216,7 @@ const Worker = () => {
       await stopWorker(worker.id);
       apiMessage.success(t('worker_stop_success'));
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : '未知错误';
+      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : t('unknown_error');
 
       if (
         errorMsg.includes('非法状态转换') ||
@@ -238,18 +226,18 @@ const Worker = () => {
         apiMessage.warning({
           content: (
             <div>
-              <div><strong>{worker.name}</strong> 当前不允许停止</div>
-              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                原因: {errorMsg}
+              <div><strong>{worker.name}</strong> {t('worker_cannot_stop_now')}</div>
+              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
+                {t('worker_reason_label', { message: errorMsg })}
               </div>
             </div>
           ),
           duration: 5,
         });
       } else if (errorMsg.includes('already stopped') || errorMsg.includes('已停止')) {
-        apiMessage.info(`${worker.name} 已停止`);
+        apiMessage.info(t('worker_already_stopped', { name: worker.name }));
       } else {
-        apiMessage.error(`停止失败: ${errorMsg}`);
+        apiMessage.error(t('worker_stop_failed', { message: errorMsg }));
       }
     } finally {
       setSubmittingWorkerIds((prev) => {
@@ -271,12 +259,12 @@ const Worker = () => {
     try {
       const result = await triggerOptimize(worker.id);
       const data = result as ApiResponse<{ strategy_type?: string }>;
-      apiMessage.success(`优化完成 (${data?.data?.strategy_type || 'rule'})`);
+      apiMessage.success(t('worker_optimize_success', { type: data?.data?.strategy_type || 'rule' }));
       fetchWorkers();
     } catch (error) {
-      apiMessage.error(`优化失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      apiMessage.error(t('worker_optimize_failed', { message: error instanceof Error ? error.message : t('unknown_error') }));
     }
-  }, [apiMessage, fetchWorkers]);
+  }, [apiMessage, fetchWorkers, t]);
 
   // ============================================
   // 批量操作处理函数
@@ -291,10 +279,10 @@ const Worker = () => {
       const failCount = Object.keys(result?.failed || {}).length;
 
       if (failCount === 0) {
-        apiMessage.success(`成功启动 ${successCount} 个 Worker`);
+        apiMessage.success(t('worker_batch_start_success', { total: successCount }));
       } else {
         apiMessage.warning(
-          `部分成功: ${successCount} 个启动成功, ${failCount} 个失败`,
+          t('worker_batch_start_partial', { success: successCount, fail: failCount }),
           5
         );
         // 注：BatchOperationResponse 仅含 success/failed/total，无 results 明细字段，
@@ -302,11 +290,11 @@ const Worker = () => {
       }
       setSelectedRowKeys([]);
     } catch (error) {
-        apiMessage.error(`批量启动失败: ${error instanceof Error ? error.message : String(error)}`);
+        apiMessage.error(t('worker_batch_start_failed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       setBatchOperationLoading(false);
     }
-  }, [selectedRowKeys, batchStartWorkers, apiMessage]);
+  }, [selectedRowKeys, batchStartWorkers, apiMessage, t]);
 
   const handleBatchStop = useCallback(async () => {
     if (selectedRowKeys.length === 0) return;
@@ -317,20 +305,20 @@ const Worker = () => {
       const failCount = Object.keys(result?.failed || {}).length;
 
       if (failCount === 0) {
-        apiMessage.success(`成功停止 ${successCount} 个 Worker`);
+        apiMessage.success(t('worker_batch_stop_success', { total: successCount }));
       } else {
         apiMessage.warning(
-          `部分成功: ${successCount} 个停止成功, ${failCount} 个失败`,
+          t('worker_batch_stop_partial', { success: successCount, fail: failCount }),
           5
         );
       }
       setSelectedRowKeys([]);
     } catch (error) {
-      apiMessage.error(`批量停止失败: ${error instanceof Error ? error.message : String(error)}`);
+      apiMessage.error(t('worker_batch_stop_failed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       setBatchOperationLoading(false);
     }
-  }, [selectedRowKeys, batchStopWorkers, apiMessage]);
+  }, [selectedRowKeys, batchStopWorkers, apiMessage, t]);
 
   const handleBatchRestart = useCallback(async () => {
     if (selectedRowKeys.length === 0) return;
@@ -341,20 +329,20 @@ const Worker = () => {
       const failCount = Object.keys(result?.failed || {}).length;
 
       if (failCount === 0) {
-        apiMessage.success(`成功重启 ${successCount} 个 Worker`);
+        apiMessage.success(t('worker_batch_restart_success', { total: successCount }));
       } else {
         apiMessage.warning(
-          `部分成功: ${successCount} 个重启成功, ${failCount} 个失败`,
+          t('worker_batch_restart_partial', { success: successCount, fail: failCount }),
           5
         );
       }
       setSelectedRowKeys([]);
     } catch (error) {
-      apiMessage.error(`批量重启失败: ${error instanceof Error ? error.message : String(error)}`);
+      apiMessage.error(t('worker_batch_restart_failed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       setBatchOperationLoading(false);
     }
-  }, [selectedRowKeys, batchRestartWorkers, apiMessage]);
+  }, [selectedRowKeys, batchRestartWorkers, apiMessage, t]);
 
   const handleDelete = useCallback(async (worker: WorkerType) => {
     const success = await deleteWorker(worker.id);
@@ -430,15 +418,15 @@ const Worker = () => {
           <Statistic
             title={t('stopped')}
             value={statusStats.stopped}
-            styles={{ content: { color: '#999' } }}
-            prefix={<PoweroffOutlined style={{ color: '#999' }} />}
+            styles={{ content: { color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' } }}
+            prefix={<PoweroffOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />}
           />
         </Card>
       </Col>
       <Col xs={12} sm={6}>
         <Card size="small">
           <Statistic
-            title={t('total_profit') || '总盈利'}
+            title={t('total_profit')}
             value={statusStats.totalProfit}
             precision={2}
             prefix={'$'}
@@ -463,14 +451,6 @@ const Worker = () => {
             setSearchKeyword(e.target.value);
             gotoPage1();
           }}
-        />
-        <Segmented
-          value={viewType}
-          onChange={(v) => setViewType(v as ViewType)}
-          options={[
-            { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
-            { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
-          ]}
         />
       </Flex>
       <Flex justify="space-between" align="center" gap="small" wrap="wrap">
@@ -507,7 +487,7 @@ const Worker = () => {
       style={{
         marginBottom: 16,
         padding: '12px 16px',
-        background: 'linear-gradient(135deg, #e6f7ff 0%, #bae0ff 100%)',
+        background: 'linear-gradient(135deg, color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background)) 0%, color-mix(in srgb, var(--tw-color-info) 28%, var(--tw-color-background)) 100%)',
         borderRadius: 8,
         display: 'flex',
         alignItems: 'center',
@@ -516,7 +496,7 @@ const Worker = () => {
     >
       <span style={{ fontSize: 14, color: QUANT_COLORS.info }}>
         <CheckSquareOutlined style={{ marginRight: 8 }} />
-        已选择 <strong>{selectedRowKeys.length}</strong> 个 Worker
+        {t('worker_selected_prefix')} <strong>{selectedRowKeys.length}</strong> {t('worker_selected_suffix')}
       </span>
       <Space>
         <Button
@@ -526,7 +506,7 @@ const Worker = () => {
           loading={batchOperationLoading}
           onClick={handleBatchStart}
         >
-          批量启动
+          {t('worker_batch_start')}
         </Button>
         <Button
           danger
@@ -535,7 +515,7 @@ const Worker = () => {
           loading={batchOperationLoading}
           onClick={handleBatchStop}
         >
-          批量停止
+          {t('worker_batch_stop')}
         </Button>
         <Button
           size="small"
@@ -543,14 +523,14 @@ const Worker = () => {
           loading={batchOperationLoading}
           onClick={handleBatchRestart}
         >
-          批量重启
+          {t('worker_batch_restart')}
         </Button>
         <Button
           size="small"
           icon={<BorderOutlined />}
           onClick={() => setSelectedRowKeys([])}
         >
-          取消选择
+          {t('worker_cancel_selection')}
         </Button>
       </Space>
     </div>
@@ -602,7 +582,7 @@ const Worker = () => {
           </Button>
         ) : (
           <Popconfirm
-            title={t('confirm_stop_worker') || '确定停止此 Worker？'}
+            title={t('confirm_stop_worker')}
             onConfirm={() => handleStop(worker)}
             okText={t('yes')}
             cancelText={t('no')}
@@ -628,7 +608,7 @@ const Worker = () => {
           onClick={() => navigate(`/strategy-worker/${worker.id}`)}
           style={{ width: '100%' }}
         >
-          {t('detail') || '详情'}
+          {t('detail')}
         </Button>
       </Col>
       {worker.status === 'running' && (
@@ -640,7 +620,7 @@ const Worker = () => {
             onClick={() => handleOptimize(worker)}
             style={{ width: '100%' }}
           >
-            {t('auto_optimize') || '自动优化'}
+            {t('auto_optimize')}
           </Button>
         </Col>
       )}
@@ -663,7 +643,7 @@ const Worker = () => {
               onClick={() => handleViewLogs(worker)}
               style={{ width: '100%' }}
             >
-              {t('logs') || '日志'}
+              {t('logs')}
             </Button>
           </Col>
         </>
@@ -732,15 +712,15 @@ const Worker = () => {
                 <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
                   <Space size={4} wrap style={{ rowGap: 4 }}>
                     {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-                    {worker.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
+                    {worker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
                     <Tag color={WorkerStatusColor[worker.status]}>
                       {WorkerStatusText[worker.status]}
                     </Tag>
                   </Space>
-                  {infoRow(t('exchange') || '交易所', <Tag>{worker.trading_config?.exchange}</Tag>)}
-                  {infoRow(t('timeframe') || '周期', <Tag color="blue">{worker.trading_config?.timeframe}</Tag>)}
+                  {infoRow(t('exchange'), <Tag>{worker.trading_config?.exchange}</Tag>)}
+                  {infoRow(t('timeframe'), <Tag color="blue">{worker.trading_config?.timeframe}</Tag>)}
                   {infoRow(
-                    t('total_profit') || '总收益',
+                    t('total_profit'),
                     <span
                       style={{
                         fontSize: 13,
@@ -781,7 +761,7 @@ const Worker = () => {
   // 列表操作列：详情跳转 + 更多下拉（启停/重启/编辑/删除）
   const renderListActions = (worker: WorkerType) => (
     <Space size="small">
-      <Tooltip title={t('detail') || '详情'}>
+      <Tooltip title={t('detail')}>
         <Button
           type="text"
           size="small"
@@ -864,7 +844,7 @@ const Worker = () => {
       onChange={handleWorkerTableChange}
       columns={[
         {
-          title: t('worker_name') || '任务名称',
+          title: t('worker_name'),
           dataIndex: 'name',
           key: 'name',
           width: 180,
@@ -879,19 +859,19 @@ const Worker = () => {
           ),
         },
         {
-          title: t('exchange') || '交易所',
+          title: t('exchange'),
           dataIndex: 'exchange',
           key: 'exchange',
           width: 90,
         },
         {
-          title: t('timeframe') || '周期',
+          title: t('timeframe'),
           dataIndex: 'timeframe',
           key: 'timeframe',
           width: 70,
         },
         {
-          title: t('total_profit') || '总收益',
+          title: t('total_profit'),
           dataIndex: 'total_profit',
           key: 'total_profit',
           width: 100,
@@ -906,7 +886,7 @@ const Worker = () => {
           ),
         },
         {
-          title: t('action') || '操作',
+          title: t('action'),
           key: 'action',
           width: 100,
           fixed: 'right',
@@ -965,7 +945,7 @@ const Worker = () => {
       {/* Logs Panel Modal */}
       {logsWorkerId && (
         <Modal
-          title={t('worker_logs') || 'Worker 日志'}
+          title={t('worker_logs')}
           open={logsPanelVisible}
           onCancel={handleCloseLogsPanel}
           footer={null}

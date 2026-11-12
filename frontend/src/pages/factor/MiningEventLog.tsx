@@ -44,7 +44,7 @@ const MiningEventLog: React.FC<{ events: MiningEvent[] }> = ({ events }) => {
       style={{
         height: 220,
         overflowY: 'auto',
-        border: '1px solid #f0f0f0',
+        border: '1px solid var(--tw-color-border-secondary)',
         borderRadius: 6,
         padding: 8,
       }}
@@ -57,12 +57,12 @@ const MiningEventLog: React.FC<{ events: MiningEvent[] }> = ({ events }) => {
             gap: 8,
             alignItems: 'baseline',
             padding: '2px 0',
-            color: e.level === 'warning' ? '#d46b08' : undefined,
+            color: e.level === 'warning' ? 'var(--tw-color-warning)' : undefined,
           }}
         >
           <span
             style={{
-              color: '#8c8c8c',
+              color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
               fontVariantNumeric: 'tabular-nums',
               whiteSpace: 'nowrap',
             }}

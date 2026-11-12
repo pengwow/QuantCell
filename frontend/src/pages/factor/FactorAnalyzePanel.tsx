@@ -83,7 +83,7 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
   const [form] = Form.useForm<FormValues>();
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [result, setResult] = useState<FactorAnalyzeResult | null>(null);
-  const [lastParams, setLastParams] = useState<FactorAnalyzeParams | null>(null);
+  const [, setLastParams] = useState<FactorAnalyzeParams | null>(null);
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
@@ -230,7 +230,7 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
             </Button>
           </Form.Item>
         </Form>
-        <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
           {t('factor_wb_form_hint') ||
             '滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数；财务因子无数据来源，不在可选列表'}
         </p>

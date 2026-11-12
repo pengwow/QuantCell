@@ -27,6 +27,7 @@ type RiskDisplayKey =
 
 /**
  * 人工风控展示行（启用明细态）：key 为 RiskControlOut 数值字段。
+ * label / engineDefault 存的是 i18n key，渲染处经 t() 翻译；
  * engineDefault = 该字段未配置（null）时引擎实际生效的默认档，硬编码出处：
  * - 亏损/回撤/杠杆/冷却：axon-risk config.rs `RiskConfig::default()`
  * - 仓位两行：axon-worker risk_check.rs 桥接口径 max_position_value=None = 不做仓位检查
@@ -35,31 +36,14 @@ type RiskDisplayKey =
  * ponytail: 前端内嵌默认值有与引擎漂移的风险，升级路径是后端接口回带默认值字段
  */
 const RISK_DISPLAY_ROWS: { key: RiskDisplayKey; label: string; unit: 'pct' | 'usdt' | 'x' | 'min'; engineDefault: string }[] = [
-  { key: 'max_position_pct', label: '单币种最大仓位占比', unit: 'pct', engineDefault: '不限制' },
-  { key: 'max_position_size', label: '单币种最大名义价值', unit: 'usdt', engineDefault: '不限制' },
-  { key: 'daily_loss_limit', label: '当日亏损上限占比', unit: 'pct', engineDefault: '10,000 USDT' },
-  { key: 'daily_loss_amount', label: '当日亏损上限金额', unit: 'usdt', engineDefault: '10,000 USDT' },
-  { key: 'max_drawdown', label: '最大回撤上限', unit: 'pct', engineDefault: '15%' },
-  { key: 'max_leverage', label: '最大杠杆', unit: 'x', engineDefault: '5x' },
-  { key: 'circuit_breaker_cooldown_secs', label: '熔断冷却时长', unit: 'min', engineDefault: '60 分钟' },
+  { key: 'max_position_pct', label: 'worker_risk_max_position_pct', unit: 'pct', engineDefault: 'worker_risk_unlimited' },
+  { key: 'max_position_size', label: 'worker_risk_max_position_size', unit: 'usdt', engineDefault: 'worker_risk_unlimited' },
+  { key: 'daily_loss_limit', label: 'worker_risk_daily_loss_limit', unit: 'pct', engineDefault: 'worker_risk_engine_default_loss' },
+  { key: 'daily_loss_amount', label: 'worker_risk_daily_loss_amount', unit: 'usdt', engineDefault: 'worker_risk_engine_default_loss' },
+  { key: 'max_drawdown', label: 'worker_risk_max_drawdown_limit', unit: 'pct', engineDefault: 'worker_risk_engine_default_drawdown' },
+  { key: 'max_leverage', label: 'worker_risk_max_leverage', unit: 'x', engineDefault: 'worker_risk_engine_default_leverage' },
+  { key: 'circuit_breaker_cooldown_secs', label: 'worker_risk_cooldown', unit: 'min', engineDefault: 'worker_risk_engine_default_cooldown' },
 ];
-
-/**
- * 后端口径 → 展示文本：% 字段 0-1 → xx%，冷却秒 → 分钟；加零位小数避免 15.0%。
- * 只负责已配置值的格式化，未配置（null）的「引擎默认」分支在渲染处处理。
- */
-const fmtRiskValue = (v: number, unit: 'pct' | 'usdt' | 'x' | 'min'): string => {
-  switch (unit) {
-    case 'pct':
-      return `${+(v * 100).toFixed(4)}%`;
-    case 'usdt':
-      return `${v.toLocaleString('en-US')} USDT`;
-    case 'x':
-      return `${v}x`;
-    case 'min':
-      return `${+(v / 60).toFixed(2)} 分钟`;
-  }
-};
 
 interface WorkerParamsTabProps {
   worker: WorkerType;
@@ -71,6 +55,24 @@ interface WorkerParamsTabProps {
 
 const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloadKey = 0 }) => {
   const { t } = useTranslation();
+
+  /**
+   * 后端口径 → 展示文本：% 字段 0-1 → xx%，冷却秒 → 分钟；加零位小数避免 15.0%。
+   * 只负责已配置值的格式化，未配置（null）的「引擎默认」分支在渲染处处理。
+   * 定义在组件内是因为「分钟」单位后缀需要经 t() 翻译。
+   */
+  const fmtRiskValue = (v: number, unit: 'pct' | 'usdt' | 'x' | 'min'): string => {
+    switch (unit) {
+      case 'pct':
+        return `${+(v * 100).toFixed(4)}%`;
+      case 'usdt':
+        return `${v.toLocaleString('en-US')} USDT`;
+      case 'x':
+        return `${v}x`;
+      case 'min':
+        return `${+(v / 60).toFixed(2)} ${t('worker_risk_minutes')}`;
+    }
+  };
 
   // 从 config 中提取策略参数（如果存在）
   const config: Record<string, unknown> = worker.config ?? {};
@@ -128,7 +130,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
       cancelled = true;
     };
     // reloadKey 仅作为重拉信号（编辑保存成功后由父页面递增），不参与 effect 内部逻辑
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [worker.id, reloadKey]);
 
   return (
@@ -139,7 +141,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           title={
             <Space>
               <CodeOutlined />
-              <span>{t('strategy_info') || '策略信息'}</span>
+              <span>{t('strategy_info')}</span>
             </Space>
           }
           style={{ marginBottom: 16 }}
@@ -147,7 +149,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           <Row gutter={[24, 16]}>
             <Col xs={24} sm={12} md={8}>
               <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                <Descriptions.Item label={t('strategy_name') || '策略名称'}>
+                <Descriptions.Item label={t('strategy_name')}>
                   <Tag color="blue">{worker.strategy_info.name}</Tag>
                 </Descriptions.Item>
               </Descriptions>
@@ -155,7 +157,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
             <Col xs={24} sm={12} md={8}>
               <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                <Descriptions.Item label={t('strategy_type') || '策略类型'}>
+                <Descriptions.Item label={t('strategy_type')}>
                   {/* 值域对齐策略库 models（rule/rl）；'default' 为无关联策略时的兜底档，未知值归默认 */}
                   <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'rl' ? 'purple' : 'green'}>
                     {worker.strategy_info.strategy_type === 'rl'
@@ -170,7 +172,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
             <Col xs={24} sm={12} md={8}>
               <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                <Descriptions.Item label={t('strategy_version') || '策略版本'}>
+                <Descriptions.Item label={t('strategy_version')}>
                   <span style={{ fontWeight: 500 }}>v{worker.strategy_info.version}</span>
                 </Descriptions.Item>
               </Descriptions>
@@ -179,7 +181,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
             {worker.strategy_info.description && (
               <Col span={24}>
                 <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                  <Descriptions.Item label={t('strategy_description') || '策略描述'}>
+                  <Descriptions.Item label={t('strategy_description')}>
                     <span>{worker.strategy_info.description}</span>
                   </Descriptions.Item>
                 </Descriptions>
@@ -194,7 +196,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
         title={
           <Space>
             <span>⚙️</span>
-            <span>{t('basic_config') || '基础配置'}</span>
+            <span>{t('basic_config')}</span>
           </Space>
         }
         style={{ marginBottom: 16 }}
@@ -202,7 +204,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
         <Row gutter={[24, 16]}>
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('symbol') || '交易对'}>
+              <Descriptions.Item label={t('symbol')}>
                 <Tag color="blue">{worker.trading_config?.symbols_config?.symbols?.join(', ') || '-'}</Tag>
               </Descriptions.Item>
             </Descriptions>
@@ -210,7 +212,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('exchange') || '交易所'}>
+              <Descriptions.Item label={t('exchange')}>
                 <Tag>{worker.trading_config?.exchange}</Tag>
               </Descriptions.Item>
             </Descriptions>
@@ -218,14 +220,14 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('trading_mode') || '交易模式'}>
+              <Descriptions.Item label={t('trading_mode')}>
                 {/* live 红色提醒真实资金，testnet 橙色表示测试网，paper 蓝色本地模拟；文案与创建/编辑弹窗的 TRADING_MODES 保持一致 */}
                 <Tag color={worker.trading_config?.trading_mode === 'live' ? 'red' : worker.trading_config?.trading_mode === 'testnet' ? 'orange' : 'blue'}>
                   {worker.trading_config?.trading_mode === 'live'
-                    ? '实盘交易'
+                    ? t('env_live')
                     : worker.trading_config?.trading_mode === 'testnet'
-                      ? '测试网'
-                      : '本地模拟'}
+                      ? t('env_testnet')
+                      : t('env_paper')}
                 </Tag>
               </Descriptions.Item>
             </Descriptions>
@@ -233,7 +235,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('timeframe') || 'K线周期'}>
+              <Descriptions.Item label={t('timeframe')}>
                 <Tag color="blue">{worker.trading_config?.timeframe}</Tag>
               </Descriptions.Item>
             </Descriptions>
@@ -241,7 +243,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('leverage') || '杠杆倍数'}>
+              <Descriptions.Item label={t('leverage')}>
                 <Tag color="orange">{config.leverage ? `${String(config.leverage)}x` : '1x'}</Tag>
               </Descriptions.Item>
             </Descriptions>
@@ -249,7 +251,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('total_investment') || '总投入金额'}>
+              <Descriptions.Item label={t('total_investment')}>
                 {/* config 里没有 total_investment；创建/编辑弹窗提交与启动参数读的都是 initial_capital（worker 初始资金） */}
                 <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
                   ${typeof config.initial_capital === 'number' ? config.initial_capital.toFixed(2) : '-'}
@@ -260,11 +262,11 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
 
           <Col xs={24} sm={12} md={8}>
             <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-              <Descriptions.Item label={t('order_type') || '下单方式'}>
+              <Descriptions.Item label={t('order_type')}>
                 {/* config.order_type 是死字段（worker 配置从未支持过下单方式，读了必是 undefined）。
                     实际执行：paper/live 主回路按目标仓位差额固定下市价单，与 paper_trade_sync「paper 撮合只产市价单」同口径，
                     故此处如实显示市价单；limit 仅存在于订单/成交记录的筛选条件 */}
-                <Tag color="cyan">{t('market_order') || '市价单'}</Tag>
+                <Tag color="cyan">{t('market_order')}</Tag>
               </Descriptions.Item>
             </Descriptions>
           </Col>
@@ -276,7 +278,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
         title={
           <Space>
             <span>📊</span>
-            <span>{t('strategy_params') || '策略参数'}</span>
+            <span>{t('strategy_params')}</span>
           </Space>
         }
         style={{ marginBottom: 16 }}
@@ -300,7 +302,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
               } else if (typeof displayValue === 'boolean') {
                 valueDisplay = (
                   <Tag color={displayValue ? 'green' : 'red'}>
-                    {displayValue ? '是' : '否'}
+                    {displayValue ? t('yes') : t('no')}
                   </Tag>
                 );
               } else {
@@ -334,7 +336,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           </Row>
         ) : loadingParams ? (
           <div style={{ textAlign: 'center', padding: 30 }}>
-            <Tag icon={<CodeOutlined />} color="processing">加载中...</Tag>
+            <Tag icon={<CodeOutlined />} color="processing">{t('loading')}</Tag>
           </div>
         ) : Object.keys(currentStrategyParams).length > 0 ? (
           <Row gutter={[24, 16]}>
@@ -350,7 +352,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
           </Row>
         ) : (
           <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-            <Tag>该策略无可编辑参数</Tag>
+            <Tag>{t('no_configurable_params')}</Tag>
           </div>
         )}
       </Card>
@@ -360,23 +362,23 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
         title={
           <Space>
             <span>🛡️</span>
-            <span>{t('risk_params') || '风控参数'}</span>
-            {risk?.enabled && <Tag color="green">风控防护启用中</Tag>}
+            <span>{t('risk_params')}</span>
+            {risk?.enabled && <Tag color="green">{t('worker_risk_guard_active')}</Tag>}
           </Space>
         }
-        extra={onEdit && <Button size="small" onClick={onEdit}>编辑</Button>}
+        extra={onEdit && <Button size="small" onClick={onEdit}>{t('edit')}</Button>}
       >
         {!riskLoaded ? (
           <div style={{ textAlign: 'center', padding: 30 }}>
-            <Tag icon={<CodeOutlined />} color="processing">加载中...</Tag>
+            <Tag icon={<CodeOutlined />} color="processing">{t('loading')}</Tag>
           </div>
         ) : risk === null ? (
           <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
-            继承策略参数配置
+            {t('worker_risk_inherit_strategy')}
           </div>
         ) : !risk.enabled ? (
           <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
-            风控防护已停用
+            {t('worker_risk_guard_disabled')}
           </div>
         ) : (
           <Row gutter={[24, 16]}>
@@ -386,7 +388,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
               return (
                 <Col key={key} xs={24} sm={12} md={8}>
                   <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                    <Descriptions.Item label={label}>
+                    <Descriptions.Item label={t(label)}>
                       {v === null || v === undefined ? (
                         // 未配置 → 引擎默认档：保持原染色警示，感叹号悬浮展示具体默认值
                         <span
@@ -395,8 +397,8 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
                             color: unit === 'pct' || unit === 'usdt' ? QUANT_COLORS.negative : undefined,
                           }}
                         >
-                          引擎默认
-                          <Tooltip title={`未配置该项，当前按引擎内置默认生效：${engineDefault}`}>
+                          {t('worker_risk_engine_default')}
+                          <Tooltip title={t('worker_risk_engine_default_tooltip', { value: t(engineDefault) })}>
                             <ExclamationCircleOutlined
                               style={{ marginLeft: 4, fontSize: 12, color: '#faad14', cursor: 'help' }}
                             />
@@ -419,7 +421,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
             })}
             <Col span={24}>
               <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                <Descriptions.Item label="更新时间">
+                <Descriptions.Item label={t('updated_at')}>
                   <span style={{ color: '#999' }}>
                     {risk.updated_at ? new Date(risk.updated_at).toLocaleString() : '-'}
                   </span>

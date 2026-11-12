@@ -176,6 +176,7 @@ def init_db():
 
         # 首先导入策略模型和回测模型以确保正确的表结构
         # 这必须在导入 collector.db.models 之前完成
+        import agent.models
         import backtest.models
         import factor.models
         import strategy.models

@@ -8,41 +8,42 @@
    CSS 变量定义
    ======================================== */
 :root {
-  /* 背景色 */
-  --bg-primary: var(--tw-color-background, #ffffff);
-  --bg-secondary: var(--tw-color-background, #f9fafb);
-  --bg-tertiary: var(--tw-color-border-secondary, #f3f4f6);
-  --bg-card: var(--tw-color-background, #ffffff);
-  --bg-hover: var(--tw-color-border-secondary, #f9fafb);
+  /* O2: 全部挂到全局语义 token（原 var() 的 hex fallback 因全局 token 恒有定义而不可达，
+     已删除）；按钮 hover、浅色状态底等 token 缺失的层次用 color-mix 调出 */
+  --bg-primary: var(--tw-color-background);
+  --bg-secondary: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  --bg-tertiary: var(--tw-color-border-secondary);
+  --bg-card: var(--tw-color-background);
+  --bg-hover: var(--tw-color-border-secondary);
   --bg-active: rgba(74, 108, 247, 0.08);
 
   /* 文字色 */
-  --text-primary: var(--tw-color-foreground, #1f2937);
-  --text-secondary: var(--tw-color-foreground, #6b7280);
-  --text-tertiary: var(--tw-color-foreground, #9ca3af);
+  --text-primary: var(--tw-color-foreground);
+  --text-secondary: var(--tw-color-foreground);
+  --text-tertiary: var(--tw-color-foreground);
 
   /* 边框色 */
-  --border-color: var(--tw-color-border, #e5e7eb);
-  --border-color-hover: var(--tw-color-primary, #4a6cf7);
+  --border-color: var(--tw-color-border);
+  --border-color-hover: var(--tw-color-primary);
 
   /* 主色调 */
-  --primary-color: var(--tw-color-primary, #4a6cf7);
-  --primary-color-hover: #3b5bdb;
+  --primary-color: var(--tw-color-primary);
+  --primary-color-hover: color-mix(in srgb, var(--tw-color-primary) 85%, var(--tw-color-foreground));
   --primary-color-light: rgba(74, 108, 247, 0.1);
 
   /* 状态色 */
-  --success-color: var(--tw-color-success, #10b981);
-  --success-bg: #d1fae5;
-  --warning-color: var(--tw-color-warning, #f59e0b);
-  --warning-bg: #fef3c7;
-  --error-color: var(--tw-color-error, #ef4444);
-  --error-bg: #fee2e2;
-  --info-color: var(--tw-color-info, #3b82f6);
-  --info-bg: #dbeafe;
+  --success-color: var(--tw-color-success);
+  --success-bg: color-mix(in srgb, var(--tw-color-success) 14%, var(--tw-color-background));
+  --warning-color: var(--tw-color-warning);
+  --warning-bg: color-mix(in srgb, var(--tw-color-warning) 22%, var(--tw-color-background));
+  --error-color: var(--tw-color-error);
+  --error-bg: color-mix(in srgb, var(--tw-color-error) 14%, var(--tw-color-background));
+  --info-color: var(--tw-color-info);
+  --info-bg: color-mix(in srgb, var(--tw-color-info) 18%, var(--tw-color-background));
 
   /* 涨跌色 */
-  --positive-color: #10b981;
-  --negative-color: #ef4444;
+  --positive-color: var(--tw-color-success);
+  --negative-color: var(--tw-color-error);
 
   /* 阴影 */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -70,11 +71,11 @@
   --transition-slow: 300ms ease;
 }
 
-/* 暗色模式变量覆盖 */
+/* 暗色模式变量覆盖（token 在 .dark 下自动换挡，仅保留提升层次的覆盖） */
 .dark {
-  --bg-secondary: #1f2937;
-  --bg-tertiary: #374151;
-  --bg-hover: #374151;
+  --bg-secondary: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  --bg-tertiary: var(--tw-color-border-secondary);
+  --bg-hover: var(--tw-color-border-secondary);
   --bg-active: rgba(74, 108, 247, 0.15);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
@@ -208,7 +209,7 @@
 }
 
 .backtest-btn--warning:hover {
-  background-color: #d97706;
+  background-color: color-mix(in srgb, var(--tw-color-warning) 82%, var(--tw-color-foreground));
 }
 
 .backtest-btn--sm {
@@ -291,17 +292,17 @@
 
 .status-badge--completed {
   background-color: var(--success-bg);
-  color: #065f46;
+  color: var(--success-color);
 }
 
 .status-badge--running {
   background-color: var(--info-bg);
-  color: #1e40af;
+  color: var(--info-color);
 }
 
 .status-badge--failed {
   background-color: var(--error-bg);
-  color: #991b1b;
+  color: var(--error-color);
 }
 
 .status-badge--pending {
@@ -488,17 +489,17 @@
 
 .backtest-task-item__status--completed {
   background-color: var(--success-bg);
-  color: #065f46;
+  color: var(--success-color);
 }
 
 .backtest-task-item__status--running {
   background-color: var(--info-bg);
-  color: #1e40af;
+  color: var(--info-color);
 }
 
 .backtest-task-item__status--failed {
   background-color: var(--error-bg);
-  color: #991b1b;
+  color: var(--error-color);
 }
 
 .backtest-task-item__meta {

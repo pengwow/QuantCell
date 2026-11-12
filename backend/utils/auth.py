@@ -21,6 +21,7 @@ from config import is_auth_check_disabled
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
 from .jwt_utils import (
     JWTError,
     TokenDecodeError,
@@ -182,6 +183,31 @@ def _store_authenticated_user(request: Request, jwt_token: str, payload: dict) -
     return user
 
 
+def _authenticate_agent_token(request: Request, raw_token: str, path: str) -> dict:
+    """Agent Token（qctk_ 前缀，P2-06）认证分支。
+
+    摘要查表 + 撤销/过期判定（authenticate_agent_token 内完成用量计数），
+    通过后写入 request.state 并设置审计调用方上下文（user/token/scope）。
+    """
+    # 函数内 import：agent.tokens 顶层会拉起 collector.db（→ collector 包 →
+    # strategy → utils.auth），顶部导入会形成导入环，这里需延迟到运行期
+    from agent.core.audit import agent_caller
+    from agent.tokens import authenticate_agent_token
+
+    row = authenticate_agent_token(raw_token)
+    if row is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"path": path, "reason": "代理令牌无效、已撤销或已过期"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = _build_user_dict({"sub": f"agent_token:{row.id}", "name": row.name, "role": "agent"})
+    request.state.user = user
+    request.state.agent_token_scope = row.scope
+    agent_caller.set((row.name, f"#{row.id}", row.scope))
+    return user
+
+
 def _authenticate(request: Request, token: str | None = None) -> dict:
     """同步认证核心（装饰器与 async 依赖共用同一套校验逻辑）。"""
     if _auth_disabled():
@@ -190,6 +216,9 @@ def _authenticate(request: Request, token: str | None = None) -> dict:
         return request.state.user
 
     jwt_token = token or _extract_bearer_token(request)
+    if jwt_token.startswith("qctk_"):
+        # Agent Token 走独立分支，不进入 JWT 解码（P2-06）；前缀与 tokens.TOKEN_PREFIX 一致
+        return _authenticate_agent_token(request, jwt_token, request.url.path)
     payload = _decode_token_or_raise(jwt_token, request.url.path)
     return _store_authenticated_user(request, jwt_token, payload)
 

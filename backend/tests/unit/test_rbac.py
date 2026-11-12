@@ -8,6 +8,7 @@ RBAC权限控制模块单元测试
 日期: 2026-05-09
 """
 
+import asyncio
 from unittest.mock import Mock, patch
 
 import pytest
@@ -22,6 +23,7 @@ from utils.rbac import (
     get_current_user_info,
     get_user_role_from_token,
     is_guest_user,
+    require_permission,
     require_permission_sync,
 )
 
@@ -69,6 +71,7 @@ class TestPermission:
             "ai",
             "log",
             "exchange",
+            "worker",
         ]
         for category in categories:
             assert hasattr(Permission, f"{category.upper()}_READ")
@@ -482,8 +485,142 @@ class TestEdgeCases:
                 "ai",
                 "log",
                 "exchange",
+                "worker",
             ]
-            assert parts[1] in ["read", "write"]
+            assert parts[1] in ["read", "write", "operate"]
+
+
+class TestWorkerPermissions:
+    """P1-07 worker 权限枚举落地：read/write/operate 与角色映射"""
+
+    def test_permission_values(self):
+        assert Permission.WORKER_READ.value == "worker:read"
+        assert Permission.WORKER_WRITE.value == "worker:write"
+        assert Permission.WORKER_OPERATE.value == "worker:operate"
+
+    def test_guest_read_only(self):
+        """访客可读 worker 但不可写/操作"""
+        guest_perms = ROLE_PERMISSIONS[UserRole.GUEST]
+        assert Permission.WORKER_READ in guest_perms
+        assert Permission.WORKER_WRITE not in guest_perms
+        assert Permission.WORKER_OPERATE not in guest_perms
+
+    def test_user_full_worker_access(self):
+        user_perms = ROLE_PERMISSIONS[UserRole.USER]
+        assert Permission.WORKER_READ in user_perms
+        assert Permission.WORKER_WRITE in user_perms
+        assert Permission.WORKER_OPERATE in user_perms
+
+
+class _FakeRequest:
+    """require_permission 依赖的最小请求替身（headers + url.path）"""
+
+    def __init__(self, headers=None, path="/api/v1/workers"):
+        self.headers = headers or {}
+        self.url = Mock()
+        self.url.path = path
+
+
+class TestRequirePermissionDep:
+    """测试 require_permission FastAPI 依赖（P1-07 灰度挂载点）
+
+    开关 rbac.enforcement_enabled（config 默认 false）：
+    - off：旁路放行，行为与未挂载一致（现有测试链路零影响）
+    - on：无 token/无效 token 401（未认证语义，与 is_guest_user 一致）、
+      权限不足 403、通过放行；拒绝与通过均写审计日志
+    """
+
+    def _dep(self, permission=Permission.WORKER_WRITE):
+        # require_permission(p) 直接返回 async 依赖函数（路由里包在 Depends 中）
+        return require_permission(permission)
+
+    def _run(self, dep, request):
+        asyncio.run(dep(request))
+
+    def test_enforcement_off_bypasses_even_without_token(self):
+        """off 时无 token 也放行（现行为，回归保护）"""
+        with patch("utils.config_manager.get_value", return_value=False):
+            self._run(self._dep(), _FakeRequest(headers={}))
+
+    def test_enforcement_on_no_token_401(self):
+        with patch("utils.config_manager.get_value", return_value=True):
+            with pytest.raises(HTTPException) as exc_info:
+                self._run(self._dep(), _FakeRequest(headers={}))
+        assert exc_info.value.status_code == 401
+
+    def test_enforcement_on_malformed_header_401(self):
+        with patch("utils.config_manager.get_value", return_value=True):
+            with pytest.raises(HTTPException) as exc_info:
+                self._run(self._dep(), _FakeRequest(headers={"Authorization": "InvalidFormat"}))
+        assert exc_info.value.status_code == 401
+
+    def test_enforcement_on_invalid_token_401(self):
+        from utils.jwt_utils import JWTError
+
+        with (
+            patch("utils.config_manager.get_value", return_value=True),
+            patch("utils.rbac.decode_jwt_token", side_effect=JWTError("bad")),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                self._run(self._dep(), _FakeRequest(headers={"Authorization": "Bearer bad"}))
+        assert exc_info.value.status_code == 401
+
+    def test_enforcement_on_expired_token_401(self):
+        from utils.jwt_utils import TokenExpiredError
+
+        with (
+            patch("utils.config_manager.get_value", return_value=True),
+            patch("utils.rbac.decode_jwt_token", side_effect=TokenExpiredError()),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                self._run(self._dep(), _FakeRequest(headers={"Authorization": "Bearer expired"}))
+        assert exc_info.value.status_code == 401
+        assert "过期" in str(exc_info.value.detail)
+
+    def test_enforcement_on_guest_write_403(self):
+        with (
+            patch("utils.config_manager.get_value", return_value=True),
+            patch("utils.rbac.decode_jwt_token", return_value={"sub": "1", "role": "guest"}),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                self._run(self._dep(), _FakeRequest(headers={"Authorization": "Bearer 1"}, path="/api/v1/workers"))
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["data"]["required_permission"] == "worker:write"
+
+    def test_enforcement_on_guest_read_allowed(self):
+        with (
+            patch("utils.config_manager.get_value", return_value=True),
+            patch("utils.rbac.decode_jwt_token", return_value={"sub": "1", "role": "guest"}),
+        ):
+            self._run(
+                self._dep(Permission.WORKER_READ),
+                _FakeRequest(headers={"Authorization": "Bearer 1"}, path="/api/v1/workers"),
+            )
+
+    def test_enforcement_on_user_operate_allowed(self):
+        with (
+            patch("utils.config_manager.get_value", return_value=True),
+            patch("utils.rbac.decode_jwt_token", return_value={"sub": "2", "role": "user"}),
+        ):
+            self._run(
+                self._dep(Permission.WORKER_OPERATE),
+                _FakeRequest(headers={"Authorization": "Bearer 1"}, path="/api/v1/workers/1/start"),
+            )
+
+    def test_denial_writes_audit_log(self):
+        """403 拒绝时写审计日志（user/permission/result）"""
+        with (
+            patch("utils.config_manager.get_value", return_value=True),
+            patch("utils.rbac.decode_jwt_token", return_value={"sub": "1", "role": "guest"}),
+            patch("utils.rbac.logger") as mock_logger,
+        ):
+            with pytest.raises(HTTPException):
+                self._run(
+                    self._dep(),
+                    _FakeRequest(headers={"Authorization": "Bearer 1"}, path="/api/v1/workers"),
+                )
+        denied_call = "".join(str(c) for c in mock_logger.warning.call_args_list)
+        assert "denied" in denied_call and "worker:write" in denied_call
 
 
 if __name__ == "__main__":

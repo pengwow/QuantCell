@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Key } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   App as AntdApp,
   Button,
@@ -29,14 +30,8 @@ import type { UnifiedModelRow } from '@/api/modelApi';
 // 模型文件名 → stem:后端契约用 stem,解析为 MODELS_DIR/{stem}.zip
 const fileNameToStem = (name: string) => name.replace(/\.zip$/, '');
 
-const INTERVAL_OPTIONS = [
-  { value: '15m', label: '15 分钟' },
-  { value: '1h', label: '1 小时' },
-  { value: '4h', label: '4 小时' },
-  { value: '1d', label: '1 天' },
-];
-
 export default function EnsembleWorkbench() {
+  const { t } = useTranslation();
   const { message, modal } = AntdApp.useApp();
   const navigate = useNavigate();
   const [ensembles, setEnsembles] = useState<EnsembleInfo[]>([]);
@@ -65,13 +60,21 @@ export default function EnsembleWorkbench() {
   const [btResult, setBtResult] = useState<EnsembleBacktestResult | null>(null);
   const [btForm] = Form.useForm();
 
+  // K线周期选项:value 是后端契约,仅在 label 做 i18n
+  const intervalOptions = [
+    { value: '15m', label: t('ens_interval_15m') },
+    { value: '1h', label: t('ens_interval_1h') },
+    { value: '4h', label: t('ens_interval_4h') },
+    { value: '1d', label: t('ens_interval_1d') },
+  ];
+
   const loadEnsembles = async () => {
     setLoading(true);
     try {
       const data = await ensembleApi.listEnsembles();
       setEnsembles(Array.isArray(data) ? data : []);
     } catch {
-      message.error('加载集成列表失败');
+      message.error(t('ens_msg_load_failed'));
     } finally {
       setLoading(false);
     }
@@ -92,7 +95,7 @@ export default function EnsembleWorkbench() {
       // 重开弹窗时回显已选
       setModalSelected([...selected]);
     } catch {
-      message.error('加载模型列表失败');
+      message.error(t('ens_msg_models_load_failed'));
     } finally {
       setModalLoading(false);
     }
@@ -115,15 +118,15 @@ export default function EnsembleWorkbench() {
     try {
       // D2:聚合口径固定 mean(strategy 在后端仅存档,不影响信号)
       const result = await ensembleApi.createEnsemble({ strategy: 'mean', model_paths: selected });
-      message.success(`集成 ${result.ensemble_id} 创建成功`);
+      message.success(t('ens_msg_created', { id: result.ensemble_id }));
       if (result.skipped?.length) {
-        message.warning(`其中 ${result.skipped.length} 个模型加载失败被跳过`);
+        message.warning(t('ens_msg_skipped', { n: result.skipped.length }));
       }
       setSelected([]);
       setModalSelected([]);
       await loadEnsembles();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '创建失败');
+      message.error(err instanceof Error ? err.message : t('ens_msg_create_failed'));
     } finally {
       setCreating(false);
     }
@@ -131,14 +134,14 @@ export default function EnsembleWorkbench() {
 
   const handleDelete = (record: EnsembleInfo) => {
     modal.confirm({
-      title: '删除集成',
-      content: `确定删除集成 ${record.id} 吗？该操作不可恢复。`,
-      okText: '删除',
+      title: t('ens_delete_title'),
+      content: t('ens_delete_confirm', { id: record.id }),
+      okText: t('ens_action_delete'),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: t('ens_action_cancel'),
       onOk: async () => {
         await ensembleApi.deleteEnsemble(record.id);
-        message.success('集成已删除');
+        message.success(t('ens_msg_deleted'));
         loadEnsembles();
       },
     });
@@ -152,7 +155,7 @@ export default function EnsembleWorkbench() {
       setPredictRecord(record);
       setPredictResult(result);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '冒烟预测失败');
+      message.error(err instanceof Error ? err.message : t('ens_msg_predict_failed'));
     } finally {
       setPredictingId(null);
     }
@@ -172,7 +175,7 @@ export default function EnsembleWorkbench() {
       const result = await ensembleApi.backtestEnsemble(btRecord.id, values);
       setBtResult(result);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '集成回测失败');
+      message.error(err instanceof Error ? err.message : t('ens_msg_backtest_failed'));
     } finally {
       setBtLoading(false);
     }
@@ -185,7 +188,7 @@ export default function EnsembleWorkbench() {
 
   const candidateColumns: TableProps<UnifiedModelRow>['columns'] = [
     {
-      title: '模型名称', dataIndex: 'file_name', key: 'file_name', ellipsis: true,
+      title: t('ens_col_model'), dataIndex: 'file_name', key: 'file_name', ellipsis: true,
       render: (text: string, record) => (
         <Tooltip title={record.model_id ? `${record.model_id}（${text}）` : text}>
           <span className="truncate">{record.model_id ?? text}</span>
@@ -193,28 +196,28 @@ export default function EnsembleWorkbench() {
       ),
     },
     {
-      title: '算法', dataIndex: 'algorithm', key: 'algorithm', width: 110,
+      title: t('ens_col_algo'), dataIndex: 'algorithm', key: 'algorithm', width: 110,
       render: (a: string) => (a && a !== '-' ? <Tag color="blue">{a}</Tag> : '-'),
     },
     {
-      title: '大小', dataIndex: 'size_mb', key: 'size_mb', width: 90, align: 'right',
+      title: t('ens_col_size'), dataIndex: 'size_mb', key: 'size_mb', width: 90, align: 'right',
       render: (v: number | null) => (v == null ? '-' : `${v} MB`),
     },
   ];
 
   const ensembleColumns: TableProps<EnsembleInfo>['columns'] = [
     {
-      title: '集成 ID', dataIndex: 'id', key: 'id', width: 120,
+      title: t('ens_col_id'), dataIndex: 'id', key: 'id', width: 120,
       render: (id: string) => <Tag>{id}</Tag>,
     },
     {
-      title: '聚合', key: 'strategy', width: 100,
+      title: t('ens_col_agg'), key: 'strategy', width: 100,
       // D2:方案 A 聚合口径固定均值,records.strategy 仅存档,不再渲染历史投票值
-      render: () => <Tag color="blue">均值聚合</Tag>,
+      render: () => <Tag color="blue">{t('ens_agg_mean')}</Tag>,
     },
-    { title: '模型数', dataIndex: 'models', key: 'models', width: 80, align: 'right' },
+    { title: t('ens_col_model_count'), dataIndex: 'models', key: 'models', width: 80, align: 'right' },
     {
-      title: '模型列表', key: 'model_paths', width: 260,
+      title: t('ens_col_model_list'), key: 'model_paths', width: 260,
       render: (_, record) => {
         const members = record.members ?? [];
         // 旧记录无 members 字段时降级为纯名称列表(维持原展示)
@@ -226,13 +229,13 @@ export default function EnsembleWorkbench() {
           );
         }
         return (
-          <Tooltip title={members.map((m) => `${m.stem}（${m.action_space === 'box' ? '连续' : '离散'}）`).join('、')}>
+          <Tooltip title={members.map((m) => `${m.stem}（${m.action_space === 'box' ? t('ens_space_box') : t('ens_space_discrete')}）`).join('、')}>
             <Space size={4} wrap>
               {members.map((m) => (
                 <span key={m.stem}>
                   {/* 成员动作空间:box=连续(0~1) / discrete=离散投票映射 */}
                   <Tag color={m.action_space === 'box' ? 'blue' : 'default'}>
-                    {m.action_space === 'box' ? '连续' : '离散'}
+                    {m.action_space === 'box' ? t('ens_space_box') : t('ens_space_discrete')}
                   </Tag>
                   {m.stem}
                 </span>
@@ -243,15 +246,15 @@ export default function EnsembleWorkbench() {
       },
     },
     {
-      title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 160,
+      title: t('ens_col_created'), dataIndex: 'created_at', key: 'created_at', width: 160,
       className: 'whitespace-nowrap',
       render: (ts: number | null) => (ts ? dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss') : '-'),
     },
     {
-      title: '操作', key: 'actions', width: 190, fixed: 'right',
+      title: t('ens_col_actions'), key: 'actions', width: 190, fixed: 'right',
       render: (_, record) => (
         <Space size={0}>
-          <Tooltip title="零观测冒烟预测">
+          <Tooltip title={t('ens_tip_smoke')}>
             <Button
               type="text"
               size="small"
@@ -260,13 +263,13 @@ export default function EnsembleWorkbench() {
               onClick={() => handlePredict(record)}
             />
           </Tooltip>
-          <Tooltip title="集成回测">
+          <Tooltip title={t('ens_tip_backtest')}>
             <Button type="text" size="small" icon={<LineChartOutlined />} onClick={() => openBacktest(record)} />
           </Tooltip>
-          <Tooltip title="用此集成新建 RL 策略">
+          <Tooltip title={t('ens_tip_new_strategy')}>
             <Button type="text" size="small" icon={<RocketOutlined />} onClick={() => goCreateStrategy(record)} />
           </Tooltip>
-          <Tooltip title="删除">
+          <Tooltip title={t('ens_action_delete')}>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
           </Tooltip>
         </Space>
@@ -276,11 +279,11 @@ export default function EnsembleWorkbench() {
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title="创建集成" size="small">
+      <Card title={t('ens_title_create')} size="small">
         <Space wrap>
-          <Button icon={<PlusOutlined />} onClick={openModal}>选择模型</Button>
+          <Button icon={<PlusOutlined />} onClick={openModal}>{t('ens_pick_model')}</Button>
           <Button type="primary" disabled={selected.length === 0} loading={creating} onClick={handleCreate}>
-            创建集成{selected.length > 0 ? `（${selected.length}）` : ''}
+            {selected.length > 0 ? t('ens_btn_create_count', { n: selected.length }) : t('ens_title_create')}
           </Button>
         </Space>
         {selected.length > 0 && (
@@ -300,7 +303,7 @@ export default function EnsembleWorkbench() {
         )}
       </Card>
 
-      <Card title="集成列表" size="small">
+      <Card title={t('ens_title_list')} size="small">
         <Table<EnsembleInfo>
           columns={ensembleColumns}
           dataSource={ensembles}
@@ -308,30 +311,30 @@ export default function EnsembleWorkbench() {
           rowKey="id"
           size="small"
           scroll={{ x: 980 }}
-          pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 条` }}
+          pagination={{ pageSize: 10, showTotal: (total) => t('ens_total', { total }) }}
         />
       </Card>
 
       {/* 冒烟预测结果弹窗:D1 零观测,展示聚合结果 + 成员明细 */}
       <Modal
-        title={`冒烟预测 — ${predictRecord?.id ?? ''}`}
+        title={t('ens_predict_title', { id: predictRecord?.id ?? '' })}
         open={predictResult !== null}
         width={560}
-        footer={<Button onClick={() => setPredictResult(null)}>关闭</Button>}
+        footer={<Button onClick={() => setPredictResult(null)}>{t('ens_action_close')}</Button>}
         onCancel={() => setPredictResult(null)}
       >
         {predictResult && predictRecord && (
           <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
             <Descriptions size="small" column={3}>
-              <Descriptions.Item label="聚合动作">
+              <Descriptions.Item label={t('ens_field_agg_action')}>
                 <Tag color={predictResult.action_type === 'buy' ? 'green' : 'default'}>
                   {predictResult.action_type === 'buy' ? 'BUY' : 'HOLD'}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="目标仓位 ratio">
+              <Descriptions.Item label={t('ens_field_ratio')}>
                 {(predictResult.ratio * 100).toFixed(2)}%
               </Descriptions.Item>
-              <Descriptions.Item label="一致性置信度">
+              <Descriptions.Item label={t('ens_field_confidence')}>
                 {(predictResult.confidence * 100).toFixed(1)}%
               </Descriptions.Item>
             </Descriptions>
@@ -346,20 +349,20 @@ export default function EnsembleWorkbench() {
                 ratio: m.ratio,
               }))}
               columns={[
-                { title: '成员', dataIndex: 'stem', key: 'stem' },
+                { title: t('ens_col_member'), dataIndex: 'stem', key: 'stem' },
                 {
-                  title: '类型', dataIndex: 'action_space', key: 'action_space', width: 80,
+                  title: t('ens_col_type'), dataIndex: 'action_space', key: 'action_space', width: 80,
                   render: (a?: string) =>
-                    a ? <Tag color={a === 'box' ? 'blue' : 'default'}>{a === 'box' ? '连续' : '离散'}</Tag> : '-',
+                    a ? <Tag color={a === 'box' ? 'blue' : 'default'}>{a === 'box' ? t('ens_space_box') : t('ens_space_discrete')}</Tag> : '-',
                 },
                 {
                   title: 'ratio', dataIndex: 'ratio', key: 'ratio', width: 110, align: 'right' as const,
-                  render: (r: number | null) => (r == null ? <Tag>弃权</Tag> : r.toFixed(4)),
+                  render: (r: number | null) => (r == null ? <Tag>{t('ens_abstain')}</Tag> : r.toFixed(4)),
                 },
               ]}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              零观测冒烟（observation 全 0，即标准化均值点）：仅验证成员推理与均值聚合管线，不构成交易信号。
+              {t('ens_smoke_note')}
             </Typography.Text>
           </Space>
         )}
@@ -367,20 +370,20 @@ export default function EnsembleWorkbench() {
 
       {/* 集成回测弹窗:表单 → 结果(可再次回测) */}
       <Modal
-        title={`集成回测 — ${btRecord?.id ?? ''}`}
+        title={t('ens_backtest_title', { id: btRecord?.id ?? '' })}
         open={btOpen}
         width={560}
         onCancel={() => setBtOpen(false)}
         footer={
           btResult
             ? [
-                <Button key="again" onClick={() => setBtResult(null)}>再次回测</Button>,
-                <Button key="close" type="primary" onClick={() => setBtOpen(false)}>关闭</Button>,
+                <Button key="again" onClick={() => setBtResult(null)}>{t('ens_action_again')}</Button>,
+                <Button key="close" type="primary" onClick={() => setBtOpen(false)}>{t('ens_action_close')}</Button>,
               ]
             : [
-                <Button key="cancel" onClick={() => setBtOpen(false)}>取消</Button>,
+                <Button key="cancel" onClick={() => setBtOpen(false)}>{t('ens_action_cancel')}</Button>,
                 <Button key="run" type="primary" loading={btLoading} onClick={() => btForm.submit()}>
-                  开始回测
+                  {t('ens_action_run_backtest')}
                 </Button>,
               ]
         }
@@ -388,45 +391,45 @@ export default function EnsembleWorkbench() {
         {btResult ? (
           <Descriptions size="small" column={2} bordered>
             <Descriptions.Item label="PnL">{btResult.total_pnl.toFixed(2)} USDT</Descriptions.Item>
-            <Descriptions.Item label="收益率">{btResult.total_return_pct.toFixed(2)}%</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_return')}>{btResult.total_return_pct.toFixed(2)}%</Descriptions.Item>
             <Descriptions.Item label="Sharpe">{btResult.sharpe_ratio.toFixed(3)}</Descriptions.Item>
-            <Descriptions.Item label="最大回撤">{btResult.max_drawdown_pct.toFixed(2)}%</Descriptions.Item>
-            <Descriptions.Item label="胜率">{(btResult.win_rate * 100).toFixed(1)}%</Descriptions.Item>
-            <Descriptions.Item label="成交笔数">{btResult.num_trades}</Descriptions.Item>
-            <Descriptions.Item label="手续费">{btResult.total_fees.toFixed(2)}</Descriptions.Item>
-            <Descriptions.Item label="资金费盈亏">{btResult.total_funding.toFixed(2)}</Descriptions.Item>
-            <Descriptions.Item label="K线数">{btResult.data_bars}</Descriptions.Item>
-            <Descriptions.Item label="引擎">
+            <Descriptions.Item label={t('ens_metric_max_dd')}>{btResult.max_drawdown_pct.toFixed(2)}%</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_win_rate')}>{(btResult.win_rate * 100).toFixed(1)}%</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_trades')}>{btResult.num_trades}</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_fees')}>{btResult.total_fees.toFixed(2)}</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_funding')}>{btResult.total_funding.toFixed(2)}</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_bars')}>{btResult.data_bars}</Descriptions.Item>
+            <Descriptions.Item label={t('ens_metric_engine')}>
               <Tag color="purple">{btResult.engine}</Tag>
             </Descriptions.Item>
           </Descriptions>
         ) : (
           <Form form={btForm} layout="vertical" onFinish={handleBacktest}>
-            <Form.Item name="symbol" label="交易对" rules={[{ required: true, message: '请输入交易对' }]}>
-              <Input placeholder="如 BTCUSDT" />
+            <Form.Item name="symbol" label={t('ens_field_symbol')} rules={[{ required: true, message: t('ens_field_symbol_rule') }]}>
+              <Input placeholder={t('ens_field_symbol_ph')} />
             </Form.Item>
-            <Form.Item name="interval" label="K线周期" rules={[{ required: true, message: '请选择周期' }]}>
-              <Select options={INTERVAL_OPTIONS} />
+            <Form.Item name="interval" label={t('ens_field_interval')} rules={[{ required: true, message: t('ens_field_interval_rule') }]}>
+              <Select options={intervalOptions} />
             </Form.Item>
-            <Form.Item name="initial_capital" label="初始资金" rules={[{ required: true, message: '请输入初始资金' }]}>
-              <InputNumber min={1000} step={10000} style={{ width: '100%' }} addonAfter="USDT" />
+            <Form.Item name="initial_capital" label={t('ens_field_capital')} rules={[{ required: true, message: t('ens_field_capital_rule') }]}>
+              <InputNumber min={1000} step={10000} style={{ width: '100%' }} suffix="USDT" />
             </Form.Item>
           </Form>
         )}
       </Modal>
 
       <Modal
-        title="选择模型"
+        title={t('ens_pick_model')}
         open={modalOpen}
         width={680}
         onOk={confirmSelect}
         onCancel={() => setModalOpen(false)}
-        okText="确定"
-        cancelText="取消"
+        okText={t('ens_action_ok')}
+        cancelText={t('ens_action_cancel')}
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <Input
-            placeholder="搜索模型名称"
+            placeholder={t('ens_pick_search_ph')}
             allowClear
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -436,7 +439,7 @@ export default function EnsembleWorkbench() {
             dataSource={filteredCandidates}
             loading={modalLoading}
             size="small"
-            pagination={{ pageSize: 8, showTotal: (total) => `共 ${total} 条` }}
+            pagination={{ pageSize: 8, showTotal: (total) => t('ens_total', { total }) }}
             // rowKey 用 stem:确认后直接作为 model_paths 传给后端,免去二次映射
             rowKey={(r) => fileNameToStem(r.file_name)}
             rowSelection={{

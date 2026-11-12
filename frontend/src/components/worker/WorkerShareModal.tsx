@@ -217,7 +217,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
     // qrcode.react 渲染成 canvas / svg，取第一个 canvas
     const canvas = qrCanvasRef.current.querySelector<HTMLCanvasElement>('canvas');
     if (!canvas) {
-      message.error(t('share.qr_download_failed') || '二维码下载失败');
+      message.error(t('share.qr_download_failed'));
       return;
     }
     try {
@@ -228,11 +228,11 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      message.success(t('share.qr_downloaded') || '二维码已下载');
+      message.success(t('share.qr_downloaded'));
     } catch (err) {
        
       console.error('下载二维码失败:', err);
-      message.error(t('share.qr_download_failed') || '二维码下载失败');
+      message.error(t('share.qr_download_failed'));
     }
   };
 
@@ -246,9 +246,9 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
     const text = `${title}\n\n${desc}\n\n${generatedUrl}`;
     const ok = await copyToClipboard(text);
     if (ok) {
-      message.success(t('share.wechat_copied') || '微信分享文案已复制');
+      message.success(t('share.wechat_copied'));
     } else {
-      message.error(t('share.copy_failed') || '复制失败，请手动复制');
+      message.error(t('share.copy_failed'));
     }
   };
 
@@ -302,12 +302,12 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
     setRevokingId(shareId);
     try {
       await deleteShareToken(workerId, shareId);
-      message.success(t('share.delete_success') || '已删除');
+      message.success(t('share.delete_success'));
       fetchTokens();
     } catch (err) {
        
       console.error('删除分享 token 失败:', err);
-      message.error((err instanceof Error ? err.message : t('share.delete_failed')) || '删除失败');
+      message.error(err instanceof Error ? err.message : t('share.delete_failed'));
     } finally {
       setRevokingId(null);
     }
@@ -320,15 +320,15 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
     try {
       const res = await retryShareRemoteUpload(workerId, shareId);
       if (res?.short_url) {
-        message.success(t('share.retry_remote_success') || '已重新发布到 quantcell.top');
+        message.success(t('share.retry_remote_success'));
       } else {
-        message.warning(t('share.retry_remote_failed') || '重试失败');
+        message.warning(t('share.retry_remote_failed'));
       }
       fetchTokens();
     } catch (err) {
        
       console.error('重新上传分享失败:', err);
-      message.error((err instanceof Error ? err.message : t('share.retry_remote_failed')) || '重试失败');
+      message.error(err instanceof Error ? err.message : t('share.retry_remote_failed'));
     } finally {
       setRevokingId(null);
     }
@@ -401,22 +401,22 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         },
       },
       {
-        title: t('share.remote_status_label') || '分发',
+        title: t('share.remote_status_label'),
         key: 'remote_status',
         width: 140,
         align: 'center',
         render: (_, record: ShareTokenListItem) => {
           const r = record.remote_status;
-          if (r === 'UPLOADED') return <Tag color="green">{t('share.remote_uploaded') || '已发布'}</Tag>;
-          if (r === 'PENDING') return <Tag color="blue">{t('share.remote_pending') || '推送中'}</Tag>;
+          if (r === 'UPLOADED') return <Tag color="green">{t('share.remote_uploaded')}</Tag>;
+          if (r === 'PENDING') return <Tag color="blue">{t('share.remote_pending')}</Tag>;
           if (r === 'FAILED') {
             return (
               <Tooltip title={record.remote_error || ''}>
-                <Tag color="red">{t('share.remote_failed') || '推送失败'}</Tag>
+                <Tag color="red">{t('share.remote_failed')}</Tag>
               </Tooltip>
             );
           }
-          if (r === 'REVOKED') return <Tag color="default">{t('share.remote_revoked') || '已撤销'}</Tag>;
+          if (r === 'REVOKED') return <Tag color="default">{t('share.remote_revoked')}</Tag>;
           return <Tag>-</Tag>;
         },
       },
@@ -441,7 +441,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
                   loading={revokingId === record.id}
                   onClick={() => handleRetryRemote(record.id)}
                 >
-                  {t('share.retry') || '重试'}
+                  {t('share.retry')}
                 </Button>
               )}
               <Popconfirm
@@ -461,7 +461,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
                 </Button>
               </Popconfirm>
               <Popconfirm
-                title={t('share.confirm_delete') || '确定要删除该分享链接？删除后无法恢复。'}
+                title={t('share.confirm_delete')}
                 onConfirm={() => handleDelete(record.id)}
                 okText={t('confirm')}
                 okButtonProps={{ danger: true }}
@@ -473,7 +473,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
                   icon={<DeleteOutlined />}
                   loading={revokingId === record.id}
                 >
-                  {t('share.delete') || '删除'}
+                  {t('share.delete')}
                 </Button>
               </Popconfirm>
             </Space>
@@ -513,7 +513,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
             type="warning"
             showIcon
             style={{ marginBottom: 12 }}
-            title={t('share.remote_failed_hint') || '部分链接推送失败，可在列表中点击「重试」再次发布到 quantcell.top'}
+            title={t('share.remote_failed_hint')}
           />
         )}
 
@@ -585,7 +585,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
             >
               {t('share.copy_link')}
             </Button>
-            <Tooltip title={t('share.copy_wechat_text') || '复制为微信分享文案'}>
+            <Tooltip title={t('share.copy_wechat_text')}>
               <Button
                 type="default"
                 icon={<WechatOutlined />}
@@ -593,7 +593,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
                 disabled={!generatedUrl}
                 onClick={handleCopyWechatText}
               >
-                {t('share.wechat_share') || '微信'}
+                {t('share.wechat_share')}
               </Button>
             </Tooltip>
             <Button
@@ -603,7 +603,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
               disabled={!generatedUrl}
               onClick={handleDownloadQR}
             >
-              {t('share.qr_code') || '二维码'}
+              {t('share.qr_code')}
             </Button>
           </Space.Compact>
         </Form.Item>

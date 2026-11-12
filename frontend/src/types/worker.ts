@@ -230,13 +230,6 @@ export interface WorkerTrade {
   created_at: string;
 }
 
-// 策略部署请求
-export interface StrategyDeployRequest {
-  strategy_id: number;
-  parameters?: Record<string, unknown>;
-  auto_start?: boolean;
-}
-
 // 策略参数
 export interface StrategyParameter {
   id?: number;
@@ -350,16 +343,6 @@ export interface MetricsHistoryParams {
   start_time?: string;
   end_time?: string;
   interval?: string;
-}
-
-// 交易信号
-export interface TradingSignal {
-  symbol: string;
-  action: 'buy' | 'sell';
-  quantity?: number;
-  price?: number;
-  order_type?: string;
-  params?: Record<string, unknown>;
 }
 
 // ============================================
@@ -721,5 +704,21 @@ export interface RiskControlOut {
   circuit_breaker_cooldown_secs: number | null
   updated_at: string | null
   applied: 'hot' | 'on_start' | null
+}
+
+/**
+ * 对账摘要条目（GET /workers/{id}/reconciliation/summary）
+ *
+ * 后端把 resume / 周期对账报告摘要写进 worker_logs（source=reconciliation），
+ * message JSON 含 ok 与六类 break 计数；脏数据降级为 raw 原文。
+ */
+export interface ReconcileSummaryItem {
+  timestamp: string | null
+  level: string
+  ok?: boolean
+  counts?: Record<string, number>
+  reported_at?: string | null
+  file?: string
+  raw?: string
 }
 

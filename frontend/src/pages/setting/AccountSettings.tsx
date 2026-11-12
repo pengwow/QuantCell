@@ -6,14 +6,15 @@
 import { useState } from 'react';
 import { App, Avatar, Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Space, Tag } from 'antd';
 import type { Rule } from 'antd/es/form';
+import { useTranslation } from 'react-i18next';
 import { IconLock, IconLogout, IconUser } from '@tabler/icons-react';
 import { getAccessToken, removeToken } from '@/utils/tokenManager';
 import { clearUserRoleInfo } from '@/utils/roleManager';
 
-// 角色码 → 中文展示
-const ROLE_LABELS: Record<string, string> = {
-  admin: '管理员',
-  user: '普通用户',
+// 角色码 → 展示词条 key（文案经组件内 t() 取出，保持 i18n 单一事实源）
+const ROLE_LABEL_KEYS: Record<string, string> = {
+  admin: 'account_role_admin',
+  user: 'account_role_user',
 };
 
 // 注销后需要清除的本地凭证（与登录时写入的字段一一对应）
@@ -43,8 +44,8 @@ const clearAllAuthData = () => {
   clearUserRoleInfo();
 };
 
-/** 调后端改密接口，失败抛异常（消息已从后端透传） */
-const changePasswordApi = async (oldPassword: string, newPassword: string) => {
+/** 调后端改密接口，失败抛异常（消息优先透传后端，请求非 JSON 响应时使用调用方传入的兜底文案） */
+const changePasswordApi = async (oldPassword: string, newPassword: string, fallbackMsg: string) => {
   const token = getAccessToken();
   const res = await fetch('/api/v1/auth/change-password', {
     method: 'POST',
@@ -55,7 +56,7 @@ const changePasswordApi = async (oldPassword: string, newPassword: string) => {
     body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
   });
   if (!res.ok) {
-    let msg = '修改失败';
+    let msg = fallbackMsg;
     try {
       const data = await res.json();
       msg = data?.detail || data?.message || msg;
@@ -67,6 +68,7 @@ const changePasswordApi = async (oldPassword: string, newPassword: string) => {
 };
 
 const AccountSettings = () => {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -76,8 +78,8 @@ const AccountSettings = () => {
 
   // 改密表单校验规则
   const newPwdRules: Rule[] = [
-    { required: true, message: '请输入新密码' },
-    { min: 6, message: '新密码至少需要 6 个字符' },
+    { required: true, message: t('account_new_password_required') },
+    { min: 6, message: t('account_new_password_min_length', { min: 6 }) },
   ];
 
   // 改密提交：先让 antd Form 跑本地校验，再调后端（后端做最终校验+写 users 表）
@@ -85,23 +87,23 @@ const AccountSettings = () => {
     try {
       const values = await form.validateFields();
       if (values.newPassword !== values.confirmPassword) {
-        message.error('两次输入的新密码不一致');
+        message.error(t('account_password_mismatch'));
         return;
       }
       if (values.newPassword === values.oldPassword) {
-        message.error('新密码不能与旧密码相同');
+        message.error(t('account_password_same_as_old'));
         return;
       }
       setChangingPwd(true);
-      await changePasswordApi(values.oldPassword, values.newPassword);
+      await changePasswordApi(values.oldPassword, values.newPassword, t('account_change_password_failed'));
       form.resetFields();
       setPwdModalOpen(false);
-      message.success('密码修改成功');
+      message.success(t('account_password_changed'));
     } catch (err) {
       // antd Form.validateFields 失败时抛出带 errorFields 的对象，UI 已自动展示错误；
       // 只有接口/运行时异常才需要额外 message 提示
       if (err instanceof Error) {
-        message.error(err.message || '密码修改失败');
+        message.error(err.message || t('account_change_password_failed'));
       }
     } finally {
       setChangingPwd(false);
@@ -131,7 +133,7 @@ const AccountSettings = () => {
     } finally {
       clearAllAuthData();
       setLoggingOut(false);
-      message.success('已注销登录');
+      message.success(t('account_logged_out'));
       // 整页跳转，确保内存中的用户状态随页面卸载一并清空
       window.location.href = '/login';
     }
@@ -142,32 +144,32 @@ const AccountSettings = () => {
     // 后者依赖 margin-top，在 antd v5 CSS-in-JS 场景下会失效导致卡片紧贴
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       {/* 账户信息：用户名/昵称/角色/ID，全部只读 */}
-      <Card title="账户信息">
+      <Card title={t('account_info_title')}>
         <div className="flex items-center gap-4">
           <Avatar size={56} icon={<IconUser size={28} />} />
           <Descriptions column={1} size="small" className="flex-1">
-            <Descriptions.Item label="用户名">{account.username}</Descriptions.Item>
-            <Descriptions.Item label="昵称">{account.nickname || '-'}</Descriptions.Item>
-            <Descriptions.Item label="角色">
+            <Descriptions.Item label={t('username')}>{account.username}</Descriptions.Item>
+            <Descriptions.Item label={t('account_nickname')}>{account.nickname || '-'}</Descriptions.Item>
+            <Descriptions.Item label={t('account_role')}>
               <Tag color={account.role === 'admin' ? 'red' : 'blue'}>
-                {ROLE_LABELS[account.role] || account.role}
+                {ROLE_LABEL_KEYS[account.role] ? t(ROLE_LABEL_KEYS[account.role]) : account.role}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="用户 ID">{account.userId}</Descriptions.Item>
-            <Descriptions.Item label="账户类型">
-              {account.isGuest ? <Tag>访客</Tag> : <Tag color="green">注册用户</Tag>}
+            <Descriptions.Item label={t('account_user_id')}>{account.userId}</Descriptions.Item>
+            <Descriptions.Item label={t('account_type')}>
+              {account.isGuest ? <Tag>{t('account_guest')}</Tag> : <Tag color="green">{t('account_registered_user')}</Tag>}
             </Descriptions.Item>
           </Descriptions>
         </div>
       </Card>
 
       {/* 修改密码：入口按钮 + Modal 弹窗（账户安全类操作的业内标准交互） */}
-      <Card title="账户安全">
+      <Card title={t('account_security_title')}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium">登录密码</span>
+            <span className="text-sm font-medium">{t('account_login_password')}</span>
             <span className="text-sm text-gray-500 dark:text-gray-400">
-              定期修改密码可提升账户安全，修改时需验证当前密码。
+              {t('account_security_hint')}
             </span>
           </div>
           <Button
@@ -175,68 +177,72 @@ const AccountSettings = () => {
             onClick={() => setPwdModalOpen(true)}
             disabled={account.isGuest}
           >
-            {account.isGuest ? '访客不可修改' : '修改密码'}
+            {account.isGuest ? t('account_guest_forbidden') : t('account_change_password')}
           </Button>
         </div>
       </Card>
 
       {/* 修改密码弹窗 */}
       <Modal
-        title="修改密码"
+        title={t('account_change_password')}
         open={pwdModalOpen}
         onOk={handleChangePassword}
         onCancel={closePwdModal}
-        okText="确认修改"
-        cancelText="取消"
+        okText={t('account_confirm_change')}
+        cancelText={t('cancel')}
         confirmLoading={changingPwd}
         okButtonProps={{ danger: true }}
         destroyOnHidden
         mask={{ closable: false }}
       >
         <Form form={form} layout="vertical" className="mt-4" preserve={false}>
-          <Form.Item label="旧密码" name="oldPassword" rules={[{ required: true, message: '请输入旧密码' }]}>
-            <Input.Password placeholder="请输入当前密码" autoComplete="current-password" />
+          <Form.Item
+            label={t('account_old_password')}
+            name="oldPassword"
+            rules={[{ required: true, message: t('account_old_password_required') }]}
+          >
+            <Input.Password placeholder={t('account_current_password_placeholder')} autoComplete="current-password" />
           </Form.Item>
-          <Form.Item label="新密码" name="newPassword" rules={newPwdRules}>
-            <Input.Password placeholder="请输入新密码（至少 6 个字符）" autoComplete="new-password" />
+          <Form.Item label={t('account_new_password')} name="newPassword" rules={newPwdRules}>
+            <Input.Password placeholder={t('account_new_password_placeholder')} autoComplete="new-password" />
           </Form.Item>
           <Form.Item
-            label="确认新密码"
+            label={t('account_confirm_new_password')}
             name="confirmPassword"
             dependencies={['newPassword']}
             rules={[
-              { required: true, message: '请再次输入新密码' },
+              { required: true, message: t('account_confirm_password_required') },
               ({ getFieldValue }) => ({
                 validator(_, value) {
                   if (!value || getFieldValue('newPassword') === value) {
                     return Promise.resolve();
                   }
-                  return Promise.reject(new Error('两次输入的新密码不一致'));
+                  return Promise.reject(new Error(t('account_password_mismatch')));
                 },
               }),
             ]}
           >
-            <Input.Password placeholder="请再次输入新密码" autoComplete="new-password" />
+            <Input.Password placeholder={t('account_confirm_password_placeholder')} autoComplete="new-password" />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* 注销登录 */}
-      <Card title="注销登录">
+      <Card title={t('account_logout')}>
         <div className="flex items-center justify-between gap-4">
           <span className="text-sm text-gray-500 dark:text-gray-400">
-            注销后将清除本机登录凭证并返回登录页，需要重新登录才能继续使用。
+            {t('account_logout_hint')}
           </span>
           <Popconfirm
-            title="确认注销登录？"
-            description="当前登录态将被清除，未保存的数据请先保存。"
-            okText="注销"
+            title={t('account_logout_confirm_title')}
+            description={t('account_logout_confirm_desc')}
+            okText={t('logout')}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={t('cancel')}
             onConfirm={handleLogout}
           >
             <Button type="primary" danger icon={<IconLogout size="1em" />} loading={loggingOut}>
-              注销登录
+              {t('account_logout')}
             </Button>
           </Popconfirm>
         </div>

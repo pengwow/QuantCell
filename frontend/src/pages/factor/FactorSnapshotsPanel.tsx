@@ -103,7 +103,7 @@ const FactorSnapshotsPanel: React.FC<{
             title={t('factor_snap_delete_confirm') || '删除该快照？parquet 将归档'}
             onConfirm={() => remove(r.id)}
           >
-            <a style={{ color: '#ff4d4f' }}>{t('factor_snap_delete_btn') || '删除'}</a>
+            <a style={{ color: 'var(--tw-color-error)' }}>{t('factor_snap_delete_btn') || '删除'}</a>
           </Popconfirm>
         </span>
       ),

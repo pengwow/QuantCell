@@ -53,6 +53,8 @@ dependencies = [
     "jinja2>=3.1.6",
     "matplotlib>=3.11.2",
     "scikit-learn>=1.9.1",
+    "prometheus-client>=0.26.0",
+    "mcp>=2.3.0",
 ]
 
 [tool.pytest.ini_options]

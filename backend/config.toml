@@ -13,3 +13,46 @@ base_url = "https://share.quantcell.top"
 timeout_seconds = 10
 max_retries = 3
 retry_backoff = 0.6
+
+# Worker 执行链路开关（utils/config_manager.get_flag 读取，缺 key 时默认全部开启）
+[worker.execution]
+# 成交证据链：live 同步对每笔成交写 worker_fill_evidence 幂等锚点（默认开）
+fill_evidence_enabled = true
+# 同步游标持久化：进程重启后从上次提交位置续拉交易所成交（默认开）；
+# false 时回退旧行为（起点=同步器构造时刻，停机期间成交漏记）
+sync_cursor_enabled = true
+# 跨 worker 执行锁：同一账户同一 symbol 同时只允许一个 worker 交易（灰度，
+# P0 批次唯一默认关——开启前确认 order_lease 迁移已就位且无多实例并发写入依赖）
+execution_lock_enabled = false
+
+# 因子分析配置（utils/config_manager.get_value 读取）
+[factor]
+# compare 多重检验 FDR 校正方法（P1-06）：bh = Benjamini-Hochberg（独立假设，
+# 缺省）、by = Benjamini-Yekutieli（任意依赖，更保守）、none = 不做校正主张；
+# compare 请求里的 fdr_method 入参优先于本配置
+fdr.method = "bh"
+
+# RBAC 权限枚举开关（utils/rbac.require_permission 读取，P1-07 权限灰度）
+[rbac]
+# false = 现行为（单用户全通，挂了权限依赖的路由直接放行）
+# true  = 按 token 角色强制校验（worker 写/操作、agent 全部路由：
+#         未认证 401、权限不足 403，拒绝与通过均写审计日志）
+enforcement_enabled = false
+
+# Prometheus 指标埋点（observability/metrics.py 读取，P2-01）
+[observability]
+# false = 不采集指标，/api/v1/metrics 返回 404（默认关）
+# true  = 中间件埋点 + worker 三项指标生效，/api/v1/metrics 返回文本格式
+metrics_enabled = false
+
+# 能力开关 capability flags（config/capabilities.py 读取，P2-02）
+# env QUANTCELL_CAPABILITY_<NAME>（如 QUANTCELL_CAPABILITY_LIVE_TRADING=false）优先于本分组
+[capabilities]
+# false = 实盘闸门收口：live/testnet 模式的 worker 创建与启动/批量启动全部 403，
+#         仅允许 paper 模拟；true = 现行为（单机全功能，默认）
+live_trading = true
+# false = Agent 网关整组关闭：/api/v1/agent 下全部端点 403，前端隐藏代理菜单；
+#         true = 现行为（默认）
+agent_gateway = true
+# mcp_server 能力域尚未实现（P2-04 预留），恒关；实现后由该能力控制 MCP 入口
+mcp_server = false

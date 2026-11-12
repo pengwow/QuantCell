@@ -13,6 +13,7 @@ from sqlalchemy import and_, case, desc, func
 
 from .models import (
     Worker,
+    WorkerFillEvidence,
     WorkerLog,
     WorkerMetric,
     WorkerOrder,
@@ -121,6 +122,8 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         if (worker_data.config or worker_data.strategy_file_name)
         else "{}",
         status="stopped",
+        # 归属用户ID（P1-07 工人属地）：路由层已从 JWT sub 注入；历史数据/未登录为 None
+        owner_id=worker_data.owner_id,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -234,6 +237,8 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
         env_vars=source_worker.env_vars if request.copy_config else "{}",
         config=source_worker.config if request.copy_config else "{}",
         status="stopped",
+        # 克隆副本继承源 worker 的归属（P1-07 工人属地），保持属主不变
+        owner_id=source_worker.owner_id,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -524,10 +529,50 @@ def get_worker_trades(
     return trades, total
 
 
-def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade:
+def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | None:
+    """幂等写入成交；未新建（trade_id 查重命中 / evidence 冲突）返回 None，新建返回行。
+
+    返回值语义 = 「是否真的落了一笔」：paper 链路靠先自查绕过旧版无法区分的
+    缺陷，live 链路（sync_once）直接按返回值统计新落库笔数，避免重复回报
+    被计成“新落库 N 笔”的日志谎报。
+    """
     existing = db.query(WorkerTrade).filter(WorkerTrade.trade_id == trade_data["trade_id"]).first()
     if existing:
-        return existing
+        return None
+
+    # 函数内 import：utils.config_manager 顶层会拉起 collector.db（SystemConfig），
+    # 而 crud 位于 worker.__init__ 循环链内（见文件头注释），沿用既有防御口径
+    from sqlalchemy.dialects import postgresql, sqlite
+
+    from utils.config_manager import get_flag
+
+    # 成交证据链（P0-01）：venue_trade_id 幂等主锚，与 trade 行同 session 同事务
+    # 提交。rowcount == 0 说明这笔成交已被应用过（跨路径/前次写入命中）——等于
+    # 在 trade_id 查重之外的第二把锁，防止 live / 恢复同步两条路重复入账。
+    # client_order_id 缺失（paper / journal 通道不提供）时不写 evidence，
+    # 幂等完全退回 trade_id 查重（旧行为）。
+    if get_flag("worker.execution.fill_evidence_enabled", True) and trade_data.get("client_order_id"):
+        dialect_insert = sqlite.insert if db.get_bind().dialect.name == "sqlite" else postgresql.insert
+        stmt = (
+            dialect_insert(WorkerFillEvidence)
+            .values(
+                worker_id=trade_data["worker_id"],
+                client_order_id=trade_data["client_order_id"],
+                venue_order_id=trade_data.get("venue_order_id"),
+                venue_trade_id=trade_data["trade_id"],
+                symbol=trade_data["symbol"],
+                side=trade_data["side"],
+                qty=trade_data["quantity"],
+                price=trade_data.get("price"),
+                fee=trade_data.get("fee"),
+                source="sync",
+            )
+            .on_conflict_do_nothing(index_elements=["venue_trade_id"])
+        )
+        if db.execute(stmt).rowcount == 0:
+            # 证据已存在而 trade 行缺失仅在手工修数据的异常态出现：不再写 trade，跳过
+            return None
+
     db_trade = WorkerTrade(**trade_data)
     db.add(db_trade)
     db.commit()

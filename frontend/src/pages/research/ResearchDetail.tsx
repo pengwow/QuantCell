@@ -232,8 +232,10 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
                   <div
                     key={idx}
                     style={{
-                      color: line.type === 'add' ? '#237804' : '#a8071a',
-                      background: line.type === 'add' ? '#f6ffed' : '#fff1f0',
+                      color: line.type === 'add' ? 'var(--tw-color-success)' : 'var(--tw-color-error)',
+                      background: line.type === 'add'
+                        ? 'color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background))'
+                        : 'color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background))',
                     }}
                   >
                     {line.type === 'add' ? '+ ' : '- '}
@@ -636,7 +638,7 @@ const ResearchDetail: React.FC = () => {
                   total: detail?.loop_n ?? '—',
                 })}
                 {isDeep && detail?.step_idx
-                  ? `　${t('research_detail_current_step', {
+                  ? `${t('research_detail_current_step', {
                       step: STEP_LABEL_KEYS[detail.step_idx]
                         ? t(STEP_LABEL_KEYS[detail.step_idx])
                         : '—',
@@ -667,7 +669,7 @@ const ResearchDetail: React.FC = () => {
                     percent={tokenPercent}
                     status={detail?.status === 'running' ? 'active' : undefined}
                     // 用量分档变色：<60% 默认蓝，60-84% 橙色预警，>=85% 红色告警
-                    strokeColor={tokenPercent >= 85 ? '#ff4d4f' : tokenPercent >= 60 ? '#faad14' : undefined}
+                    strokeColor={tokenPercent >= 85 ? 'var(--tw-color-error)' : tokenPercent >= 60 ? 'var(--tw-color-warning)' : undefined}
                     format={() => ''}
                   />
                 </Tooltip>
@@ -748,7 +750,7 @@ const ResearchDetail: React.FC = () => {
               {events.map((evt) => (
                 <div key={evt.seq}>
                   <Typography.Text type="secondary">
-                    {new Date(evt.ts * 1000).toLocaleTimeString()}　#{evt.seq}
+                    {new Date(evt.ts * 1000).toLocaleTimeString()}#{evt.seq}
                   </Typography.Text>{' '}
                   <Tag>{evt.stage}</Tag>
                   {evt.msg}
@@ -849,22 +851,22 @@ const ResearchDetail: React.FC = () => {
               <Typography.Text type="secondary">
                 {t('research_detail_metrics_label')}
                 {trial.model
-                  ? `　${t('research_detail_meta_model', { model: trial.model })}`
+                  ? `${t('research_detail_meta_model', { model: trial.model })}`
                   : ''}
                 {trial.temperature != null
-                  ? `　${t('research_detail_meta_temperature', { value: trial.temperature })}`
+                  ? `${t('research_detail_meta_temperature', { value: trial.temperature })}`
                   : ''}
                 {trial.duration_ms
-                  ? `　${t('research_detail_meta_duration', { ms: trial.duration_ms })}`
+                  ? `${t('research_detail_meta_duration', { ms: trial.duration_ms })}`
                   : ''}
                 {trial.prompt_hash
-                  ? `　${t('research_detail_meta_prompt', { hash: trial.prompt_hash })}`
+                  ? `${t('research_detail_meta_prompt', { hash: trial.prompt_hash })}`
                   : ''}
                 {trial.corr_sota != null
-                  ? `　${t('research_detail_meta_corr_sota', { value: fmt(trial.corr_sota) })}`
+                  ? `${t('research_detail_meta_corr_sota', { value: fmt(trial.corr_sota) })}`
                   : ''}
                 {trial.corr_library != null
-                  ? `　${t('research_detail_meta_corr_library', { value: fmt(trial.corr_library) })}`
+                  ? `${t('research_detail_meta_corr_library', { value: fmt(trial.corr_library) })}`
                   : ''}
               </Typography.Text>
               <pre style={{ margin: 0, maxHeight: 240, overflow: 'auto', fontSize: 12 }}>

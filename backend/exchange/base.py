@@ -721,6 +721,21 @@ class BaseExchange:
         msg = f"{self.__class__.__name__} does not implement get_recent_trades()"
         raise NotImplementedError(msg)
 
+    def fetch_funding_fees(self, symbol: str, since_ms: int) -> list[dict]:
+        """
+        获取资金费流水（P1-03 资金费专项对账）
+
+        Args:
+            symbol: ccxt 统一符号（永续格式如 BTC/USDT:USDT）
+            since_ms: 起始时间（毫秒时间戳）
+
+        Returns:
+            资金费流水列表，每项含 ts_ms / symbol / amount / currency，
+            amount 正负即收款/付款
+        """
+        msg = f"{self.__class__.__name__} does not implement fetch_funding_fees()"
+        raise NotImplementedError(msg)
+
     def get_balance(self, asset: str | None = None) -> list[Balance]:
         """
         获取账户余额

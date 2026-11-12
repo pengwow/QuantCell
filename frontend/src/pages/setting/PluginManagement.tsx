@@ -32,15 +32,17 @@ import {
 } from '@ant-design/icons';
 import { pluginApi, type PluginInfo, type PluginStatus } from '@/api/plugin';
 import { usePlugins } from '@/plugins';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Paragraph } = Typography;
 
+// text 存 i18n key（部分复用通用词条如 status_running/stopped/error），渲染处用 t() 翻译
 const STATUS_CONFIG: Record<PluginStatus, { color: 'default' | 'success' | 'warning' | 'processing' | 'error'; text: string }> = {
-  installed: { color: 'default', text: '已安装' },
-  enabled: { color: 'success', text: '运行中' },
-  disabled: { color: 'warning', text: '已停止' },
-  pending_restart: { color: 'processing', text: '待重启' },
-  error: { color: 'error', text: '错误' },
+  installed: { color: 'default', text: 'plugin_status_installed' },
+  enabled: { color: 'success', text: 'status_running' },
+  disabled: { color: 'warning', text: 'stopped' },
+  pending_restart: { color: 'processing', text: 'plugin_status_pending_restart' },
+  error: { color: 'error', text: 'error' },
 };
 
 // 卡片栅格按插件数量自适应：1 个全宽铺满、2 个各占一半、3 个三等分、4 个及以上四等分，
@@ -55,6 +57,7 @@ function pluginColProps(count: number) {
 export default function PluginManagement() {
   const { plugins, loading, refresh, enablePlugin, disablePlugin } = usePlugins();
   const { message } = App.useApp();
+  const { t } = useTranslation();
 
   const [installOpen, setInstallOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -87,10 +90,10 @@ export default function PluginManagement() {
     setPluginLoading(name, true);
     try {
       await pluginApi.uninstallPlugin(name);
-      message.success(`插件 ${name} 已卸载`);
+      message.success(t('plugin_uninstalled', { name }));
       await refresh();
     } catch (err) {
-      message.error(`卸载失败: ${(err as Error).message}`);
+      message.error(t('plugin_uninstall_failed', { message: (err as Error).message }));
     } finally {
       setPluginLoading(name, false);
     }
@@ -100,11 +103,11 @@ export default function PluginManagement() {
     setUploading(true);
     try {
       await pluginApi.installFromZip(file);
-      message.success('插件安装成功，重启后端服务后生效');
+      message.success(t('plugin_install_success'));
       setInstallOpen(false);
       await refresh();
     } catch (err) {
-      message.error(`安装失败: ${(err as Error).message}`);
+      message.error(t('plugin_install_failed', { message: (err as Error).message }));
     } finally {
       setUploading(false);
     }
@@ -116,7 +119,7 @@ export default function PluginManagement() {
       const { url, branch } = await gitForm.validateFields();
       setUploading(true);
       await pluginApi.installFromGit(url, branch || undefined);
-      message.success('插件安装成功，重启后端服务后生效');
+      message.success(t('plugin_install_success'));
       setInstallOpen(false);
       gitForm.resetFields();
       await refresh();
@@ -135,13 +138,13 @@ export default function PluginManagement() {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>插件管理</Typography.Title>
+        <Typography.Title level={4} style={{ margin: 0 }}>{t('plugin_management')}</Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}>
-            刷新
+            {t('refresh')}
           </Button>
           <Button type="primary" icon={<UploadOutlined />} onClick={() => setInstallOpen(true)}>
-            安装插件
+            {t('plugin_install')}
           </Button>
         </Space>
       </div>
@@ -150,14 +153,14 @@ export default function PluginManagement() {
         <Alert
           type="warning"
           showIcon
-          title="有插件待生效：安装或启用的插件需重启后端服务后才会加载。"
+          title={t('plugin_pending_restart_alert')}
           style={{ marginBottom: 16 }}
           closable
         />
       )}
 
       {plugins.length === 0 && !loading ? (
-        <Empty description="暂无已安装插件" />
+        <Empty description={t('plugin_empty')} />
       ) : (
         <Row gutter={[16, 16]}>
           {plugins.map((plugin) => (
@@ -207,6 +210,7 @@ function PluginCard({
   onUninstall: (name: string) => void;
   onDetail: (p: PluginInfo) => void;
 }) {
+  const { t } = useTranslation();
   const sc = STATUS_CONFIG[plugin.status] ?? STATUS_CONFIG.installed;
 
   return (
@@ -216,18 +220,18 @@ function PluginCard({
       // 卸载（删除）统一放卡片右上角，与其他卡片页面一致；详情留在底栏 actions
       extra={
         <Popconfirm
-          title={`确定卸载插件「${plugin.name}」？`}
+          title={t('plugin_uninstall_confirm', { name: plugin.name })}
           onConfirm={() => onUninstall(plugin.name)}
-          okText="卸载"
-          cancelText="取消"
+          okText={t('plugin_uninstall')}
+          cancelText={t('cancel')}
         >
-          <Tooltip title="卸载">
+          <Tooltip title={t('plugin_uninstall')}>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
           </Tooltip>
         </Popconfirm>
       }
       actions={[
-        <Tooltip title="详情" key="info">
+        <Tooltip title={t('details')} key="info">
           <InfoCircleOutlined onClick={() => onDetail(plugin)} />
         </Tooltip>,
       ]}
@@ -236,7 +240,7 @@ function PluginCard({
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text strong ellipsis style={{ flex: 1, minWidth: 0, marginInlineEnd: 12 }}>{plugin.name}</Text>
-            <Badge status={sc.color} text={<Text type="secondary" style={{ fontSize: 12 }}>{sc.text}</Text>} />
+            <Badge status={sc.color} text={<Text type="secondary" style={{ fontSize: 12 }}>{t(sc.text)}</Text>} />
           </div>
         }
         description={
@@ -247,7 +251,7 @@ function PluginCard({
               ellipsis={{ rows: 2 }}
               style={{ fontSize: 13, marginBottom: 8 }}
             >
-              {plugin.description || '暂无描述'}
+              {plugin.description || t('no_description')}
             </Paragraph>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Tag>{plugin.version}</Tag>
@@ -285,9 +289,11 @@ function InstallModal({
   gitForm: ReturnType<typeof Form.useForm>[0];
   onGitInstall: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Modal
-      title="安装插件"
+      title={t('plugin_install')}
       open={open}
       onCancel={onClose}
       footer={null}
@@ -299,7 +305,7 @@ function InstallModal({
         items={[
           {
             key: 'zip',
-            label: 'ZIP 上传',
+            label: t('plugin_upload_zip'),
             children: (
               <Upload.Dragger
                 accept=".zip"
@@ -311,10 +317,10 @@ function InstallModal({
                 }}
                 disabled={uploading}
               >
-                <p style={{ fontSize: 40, color: '#ccc' }}>
+                <p style={{ fontSize: 40, color: 'color-mix(in srgb, var(--tw-color-foreground) 20%, transparent)' }}>
                   {uploading ? <LoadingOutlined /> : <CloudUploadOutlined />}
                 </p>
-                <p>{uploading ? '正在安装...' : '点击或拖拽 ZIP 文件到此处'}</p>
+                <p>{uploading ? t('plugin_installing') : t('plugin_drop_zip')}</p>
               </Upload.Dragger>
             ),
           },
@@ -327,16 +333,16 @@ function InstallModal({
               <Form form={gitForm} layout="vertical">
                 <Form.Item
                   name="url"
-                  label="Git 仓库地址"
-                  rules={[{ required: true, message: '请输入 Git URL' }]}
+                  label={t('plugin_git_url_label')}
+                  rules={[{ required: true, message: t('plugin_git_url_required') }]}
                 >
                   <Input placeholder="https://github.com/user/plugin.git" />
                 </Form.Item>
-                <Form.Item name="branch" label="分支（可选）">
+                <Form.Item name="branch" label={t('plugin_branch_optional')}>
                   <Input placeholder="main" />
                 </Form.Item>
                 <Button type="primary" onClick={onGitInstall} loading={uploading} block>
-                  安装
+                  {t('plugin_install_action')}
                 </Button>
               </Form>
             ),
@@ -356,12 +362,13 @@ function DetailModal({
   plugin: PluginInfo | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   if (!plugin) return null;
   const sc = STATUS_CONFIG[plugin.status] ?? STATUS_CONFIG.installed;
 
   return (
     <Modal
-      title={`插件详情 — ${plugin.name}`}
+      title={t('plugin_detail_title', { name: plugin.name })}
       open={open}
       onCancel={onClose}
       footer={null}
@@ -369,27 +376,27 @@ function DetailModal({
       destroyOnHidden
     >
       <Descriptions column={2} bordered size="small">
-        <Descriptions.Item label="名称">{plugin.name}</Descriptions.Item>
-        <Descriptions.Item label="版本">{plugin.version}</Descriptions.Item>
-        <Descriptions.Item label="作者">{plugin.author || '-'}</Descriptions.Item>
-        <Descriptions.Item label="状态">
-          <Badge status={sc.color} text={sc.text} />
+        <Descriptions.Item label={t('name')}>{plugin.name}</Descriptions.Item>
+        <Descriptions.Item label={t('version')}>{plugin.version}</Descriptions.Item>
+        <Descriptions.Item label={t('plugin_author')}>{plugin.author || '-'}</Descriptions.Item>
+        <Descriptions.Item label={t('status')}>
+          <Badge status={sc.color} text={t(sc.text)} />
         </Descriptions.Item>
-        <Descriptions.Item label="安装来源">{plugin.install_source}</Descriptions.Item>
-        <Descriptions.Item label="描述" span={2}>
-          {plugin.description || '暂无描述'}
+        <Descriptions.Item label={t('plugin_install_source')}>{plugin.install_source}</Descriptions.Item>
+        <Descriptions.Item label={t('description')} span={2}>
+          {plugin.description || t('no_description')}
         </Descriptions.Item>
-        <Descriptions.Item label="权限" span={2}>
+        <Descriptions.Item label={t('plugin_permissions')} span={2}>
           {plugin.permissions?.length
             ? plugin.permissions.map((p) => <Tag key={p}>{p}</Tag>)
-            : '无特殊权限'}
+            : t('plugin_no_permissions')}
         </Descriptions.Item>
-        <Descriptions.Item label="安装时间" span={2}>{plugin.installed_at}</Descriptions.Item>
-        <Descriptions.Item label="前端入口" span={2}>
+        <Descriptions.Item label={t('plugin_installed_at')} span={2}>{plugin.installed_at}</Descriptions.Item>
+        <Descriptions.Item label={t('plugin_frontend_entry')} span={2}>
           {plugin.frontend_entry ? (
             <Text code>{plugin.frontend_entry}</Text>
           ) : (
-            <Text type="secondary">无前端入口（纯后端插件）</Text>
+            <Text type="secondary">{t('plugin_no_frontend_entry')}</Text>
           )}
         </Descriptions.Item>
       </Descriptions>
@@ -398,7 +405,7 @@ function DetailModal({
         <Alert
           type="error"
           showIcon
-          title="错误信息"
+          title={t('plugin_error_message')}
           description={plugin.error_message}
           style={{ marginTop: 16 }}
         />
@@ -406,10 +413,10 @@ function DetailModal({
 
       {plugin.config_schema && (
         <div style={{ marginTop: 16 }}>
-          <Typography.Title level={5}>配置 Schema</Typography.Title>
+          <Typography.Title level={5}>{t('plugin_config_schema')}</Typography.Title>
           <pre
             style={{
-              background: '#f5f5f5',
+              background: 'color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background))',
               padding: 12,
               borderRadius: 6,
               maxHeight: 300,

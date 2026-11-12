@@ -21,12 +21,10 @@ import type {
   WorkerLog,
   WorkerPerformance,
   WorkerTrade,
-  StrategyDeployRequest,
   StrategyParameter,
   UpdateStrategyParametersRequest,
   PositionInfo,
   OrderInfo,
-  TradingSignal,
   WorkerFilterParams,
   LogQueryParams,
   TradeQueryParams,
@@ -44,6 +42,7 @@ import type {
   ShareTokenListItem,
   RiskControlUpsert,
   RiskControlOut,
+  ReconcileSummaryItem,
 } from '../types/worker';
 import type { CascadeDecisionRecord, DecisionDetailRecord } from '../types/backtest';
 
@@ -216,6 +215,15 @@ export const getMetricsHistory = (
  */
 export const getWorkerLogs = (workerId: number, params?: LogQueryParams): Promise<WorkerLog[]> => {
   return apiRequest.get(`/workers/${workerId}/monitoring/logs`, params);
+};
+
+/**
+ * 获取最近对账摘要（resume / 周期对账报告，新→旧）
+ * @param workerId Worker ID
+ * @param limit 返回条数
+ */
+export const getReconcileSummary = (workerId: number, limit = 5): Promise<ReconcileSummaryItem[]> => {
+  return apiRequest.get(`/workers/${workerId}/reconciliation/summary`, { limit });
 };
 
 /**
@@ -635,26 +643,6 @@ export class WorkerLogStream {
 // ============================================
 
 /**
- * 部署策略到 Worker
- * @param workerId Worker ID
- * @param data 部署请求数据
- */
-export const deployStrategy = (
-  workerId: number,
-  data: StrategyDeployRequest
-): Promise<{ success: boolean; message: string }> => {
-  return apiRequest.post(`/workers/${workerId}/strategy/deploy`, data);
-};
-
-/**
- * 卸载 Worker 上的策略
- * @param workerId Worker ID
- */
-export const undeployStrategy = (workerId: number): Promise<{ success: boolean; message: string }> => {
-  return apiRequest.post(`/workers/${workerId}/strategy/undeploy`);
-};
-
-/**
  * 获取策略参数
  * @param workerId Worker ID
  */
@@ -732,18 +720,6 @@ export const getOrders = (
   }
 ): Promise<{ items: OrderInfo[]; total: number; page: number; page_size: number }> => {
   return apiRequest.get(`/workers/${workerId}/strategy/orders`, { params });
-};
-
-/**
- * 发送交易信号
- * @param workerId Worker ID
- * @param signal 交易信号
- */
-export const sendTradingSignal = (
-  workerId: number,
-  signal: TradingSignal
-): Promise<{ success: boolean; message: string }> => {
-  return apiRequest.post(`/workers/${workerId}/strategy/signal`, signal);
 };
 
 // ============================================
@@ -947,8 +923,6 @@ export const workerApi = {
   getWorkerTradesGrouped,
 
   // Strategy
-  deployStrategy,
-  undeployStrategy,
   getStrategyParameters,
   updateStrategyParameters,
   getRiskControl,
@@ -956,7 +930,6 @@ export const workerApi = {
   deleteRiskControl,
   getPositions,
   getOrders,
-  sendTradingSignal,
 
   // WebSocket / SSE
   WorkerLogStream,

@@ -84,6 +84,7 @@ backend/output/
 
 .trae_deleted/
 
+docs/.temp/
 docs/*
 docs/compose/specs/*
 .mimocode/

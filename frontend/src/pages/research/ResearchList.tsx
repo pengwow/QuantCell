@@ -13,10 +13,8 @@ import {
   Col,
   Empty,
   Flex,
-  Grid,
   Pagination,
   Row,
-  Segmented,
   Select,
   Space,
   Table,
@@ -26,7 +24,6 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import type { TableProps } from 'antd';
 import {
-  AppstoreOutlined,
   CopyOutlined,
   DeleteOutlined,
   EyeOutlined,
@@ -36,11 +33,10 @@ import {
   PlusOutlined,
   RobotOutlined,
   StopOutlined,
-  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
-import { useViewType, type ViewType } from '@/hooks/useViewType';
+import { useViewType } from '@/hooks/useViewType';
 import { formatTokens } from '@/utils/format';
 import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
@@ -82,8 +78,8 @@ const ResearchList: React.FC = () => {
   // 分页：pageSize 走全局档位（与其他分页页共用开关），offset/limit 下推到后端真分页
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useGlobalPageSize();
-  const [viewType, setViewType] = useViewType();
-  const screens = Grid.useBreakpoint();
+  // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
+  const viewType = useViewType();
 
   const load = useCallback(async () => {
     try {
@@ -451,14 +447,6 @@ const ResearchList: React.FC = () => {
             <Button onClick={() => void load()}>{t('refresh')}</Button>
           </Space>
           <Space>
-            <Segmented
-              value={viewType}
-              onChange={(value) => setViewType(value as ViewType)}
-              options={[
-                { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('list_view') : undefined },
-                { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('card_view') : undefined },
-              ]}
-            />
             <Button
               type="primary"
               icon={<PlusOutlined />}

@@ -1,0 +1,229 @@
+{
+  "total": 676,
+  "files": [
+    {
+      "file": "src/pages/factor/FactorCompare.tsx",
+      "count": 44
+    },
+    {
+      "file": "src/pages/factor/FactorLibraryPane.tsx",
+      "count": 37
+    },
+    {
+      "file": "src/pages/factor/FactorFormModal.tsx",
+      "count": 34
+    },
+    {
+      "file": "src/components/AIChatModal.tsx",
+      "count": 33
+    },
+    {
+      "file": "src/components/chart/ChartShell.tsx",
+      "count": 33
+    },
+    {
+      "file": "src/pages/login/LoginPage.tsx",
+      "count": 32
+    },
+    {
+      "file": "src/components/DrawingBar.tsx",
+      "count": 30
+    },
+    {
+      "file": "src/components/BacktestProgressModal.tsx",
+      "count": 29
+    },
+    {
+      "file": "src/pages/factor/FactorResultView.tsx",
+      "count": 27
+    },
+    {
+      "file": "src/pages/agent/components/IntentPanels.tsx",
+      "count": 25
+    },
+    {
+      "file": "src/pages/chart/ChartPage.tsx",
+      "count": 24
+    },
+    {
+      "file": "src/components/TradeTable.tsx",
+      "count": 23
+    },
+    {
+      "file": "src/pages/factor/FactorAnalyzePanel.tsx",
+      "count": 22
+    },
+    {
+      "file": "src/pages/factor/FactorOverviewPanel.tsx",
+      "count": 22
+    },
+    {
+      "file": "src/components/IndicatorSelectorModal.tsx",
+      "count": 19
+    },
+    {
+      "file": "src/components/chart/ChartTimezoneModal.tsx",
+      "count": 18
+    },
+    {
+      "file": "src/pages/factor/FactorDetailPane.tsx",
+      "count": 17
+    },
+    {
+      "file": "src/pages/risk/RiskMonitorPage.tsx",
+      "count": 16
+    },
+    {
+      "file": "src/components/IndicatorParamModal.tsx",
+      "count": 16
+    },
+    {
+      "file": "src/pages/factor/FactorSnapshotsPanel.tsx",
+      "count": 14
+    },
+    {
+      "file": "src/components/chart/ChartSettingModal.tsx",
+      "count": 14
+    },
+    {
+      "file": "src/components/chart/ChartPeriodBar.tsx",
+      "count": 12
+    },
+    {
+      "file": "src/pages/factor/FactorCodePanel.tsx",
+      "count": 11
+    },
+    {
+      "file": "src/pages/backtest/BacktestReplay.tsx",
+      "count": 10
+    },
+    {
+      "file": "src/components/EquityChart.tsx",
+      "count": 10
+    },
+    {
+      "file": "src/components/worker/WorkerCreateModal.tsx",
+      "count": 10
+    },
+    {
+      "file": "src/components/worker/WorkerEditModal.tsx",
+      "count": 9
+    },
+    {
+      "file": "src/pages/data/KlineReplayPage.tsx",
+      "count": 8
+    },
+    {
+      "file": "src/pages/research/ResearchList.tsx",
+      "count": 8
+    },
+    {
+      "file": "src/components/worker/WorkerShareModal.tsx",
+      "count": 7
+    },
+    {
+      "file": "src/utils/portConfig.ts",
+      "count": 7
+    },
+    {
+      "file": "src/pages/model/components/RLTrainingProgress.tsx",
+      "count": 5
+    },
+    {
+      "file": "src/components/worker/WorkerLogsPanel.tsx",
+      "count": 5
+    },
+    {
+      "file": "src/pages/model/ModelHub.tsx",
+      "count": 4
+    },
+    {
+      "file": "src/pages/worker/Worker.tsx",
+      "count": 4
+    },
+    {
+      "file": "src/components/worker/WorkerParamsTab.tsx",
+      "count": 4
+    },
+    {
+      "file": "src/pages/model/ModelManagement.tsx",
+      "count": 3
+    },
+    {
+      "file": "src/pages/setting/SystemInfo.tsx",
+      "count": 3
+    },
+    {
+      "file": "src/utils/roleManager.ts",
+      "count": 3
+    },
+    {
+      "file": "src/pages/backtest/BacktestConfig.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/pages/backtest/PortfolioReplayView.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/pages/plugin/PluginPage.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/AppLocale.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/IndicatorToolbar.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/chart/ChartScreenshotModal.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/components/worker/WorkerPositionTab.tsx",
+      "count": 2
+    },
+    {
+      "file": "src/pages/backtest/BacktestDetail.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/factor/MiningEventLog.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/model/components/UnifiedModelTable.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/setting/ExchangeSettingsPage.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/setting/SchemaSettingsPage.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/components/MetricCard.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/components/worker/WorkerOrderTab.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/components/worker/WorkerTradesGroupedTab.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/utils/pageTitle.ts",
+      "count": 1
+    },
+    {
+      "file": "src/utils/tokenManager.ts",
+      "count": 1
+    }
+  ]
+}

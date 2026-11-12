@@ -4,7 +4,10 @@
 提供统一的通知发送接口,管理所有通知渠道
 """
 
+import asyncio
 import json
+import re
+import urllib.parse
 from datetime import datetime
 from typing import Any
 
@@ -25,6 +28,21 @@ from .models import (
 )
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def _camel_keys_to_snake(config: dict[str, Any]) -> dict[str, Any]:
+    """把前端传入的驼峰键配置转换为模型字段所需的 snake_case 键（浅层转换）
+
+    /test 端点收到的 config 是前端表单的驼峰键(webhookUrl/smtpPort 等),
+    而 XxxConfig 模型字段都是 snake_case; pydantic v2 默认忽略 extra 字段,
+    直接 **config 展开会静默丢失所有驼峰键,导致误报"Webhook地址为空"。
+    """
+
+    def conv(key: str) -> str:
+        # 连续大写字母(如 SSL)整体下沉: ignoreSSL → ignore_ssl
+        return re.sub(r"([A-Z]+)", lambda m: "_" + m.group(1).lower(), key)
+
+    return {conv(k): v for k, v in config.items()}
 
 
 class NotificationService:
@@ -339,21 +357,21 @@ class NotificationService:
             if channel_type == NotificationChannel.EMAIL:
                 from .models import EmailConfig
 
-                email_config = EmailConfig(**config) if config else self._load_config().email
+                email_config = EmailConfig(**_camel_keys_to_snake(config)) if config else self._load_config().email
                 channel = EmailChannel()
                 return await channel.send(test_message, email_config)
 
             elif channel_type == NotificationChannel.WECOM:
                 from .models import WeComConfig
 
-                wecom_config = WeComConfig(**config) if config else self._load_config().wecom
+                wecom_config = WeComConfig(**_camel_keys_to_snake(config)) if config else self._load_config().wecom
                 channel = WeComChannel()
                 return await channel.send(test_message, wecom_config)
 
             elif channel_type == NotificationChannel.FEISHU:
                 from .models import FeishuConfig
 
-                feishu_config = FeishuConfig(**config) if config else self._load_config().feishu
+                feishu_config = FeishuConfig(**_camel_keys_to_snake(config)) if config else self._load_config().feishu
                 channel = FeishuChannel()
                 return await channel.send(test_message, feishu_config)
 
@@ -411,3 +429,80 @@ class NotificationService:
 
 # 创建全局通知服务实例
 notification_service = NotificationService()
+
+
+async def _probe_tcp(host: str, port: int) -> bool:
+    """TCP 连通探测(1.5s 超时)
+
+    只验证目标地址可达, 不发送任何 HTTP/SMTP 内容, 因此不会触发真实消息推送;
+    完整的可用性仍以「测试发送」(POST /notifications/test)为准。
+    """
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.5)
+        writer.close()
+        return True
+    except Exception:
+        return False
+
+
+async def validate_notification_channels(
+    channels: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """校验通知渠道可用性(不发真实消息)
+
+    三层校验: 是否启用 -> 配置完整性 -> 服务地址连通性(TCP)。
+    供报警规则等场景的渠道下拉筛选无效渠道。
+
+    Args:
+        channels: GET /notifications/channels 返回的渠道配置列表,
+                  每项含 id / enabled / config
+
+    Returns:
+        每个渠道一条结果: {id, valid, reason_code, detail}
+        reason_code: not_enabled / config_missing / unreachable
+        detail: config_missing 时为缺失字段名, unreachable 时为目标地址
+    """
+    results: list[dict[str, Any]] = []
+    for item in channels or []:
+        channel_id = str(item.get("id") or "")
+        config = item.get("config") or {}
+        valid = False
+        reason_code = ""
+        detail = ""
+
+        if channel_id == "websocket":
+            # 站内推送, 无外部依赖
+            valid = True
+        elif not item.get("enabled"):
+            reason_code = "not_enabled"
+        elif channel_id == "email":
+            missing = [f for f in ("smtpHost", "username", "password") if not str(config.get(f) or "").strip()]
+            if missing:
+                reason_code, detail = "config_missing", ",".join(missing)
+            else:
+                host = str(config.get("smtpHost")).strip()
+                try:
+                    port = int(config.get("smtpPort") or 465)
+                except TypeError, ValueError:
+                    port = 465
+                if not await _probe_tcp(host, port):
+                    reason_code, detail = "unreachable", f"{host}:{port}"
+                else:
+                    valid = True
+        elif channel_id in ("wecom", "feishu"):
+            webhook = str(config.get("webhookUrl") or "").strip()
+            parsed = urllib.parse.urlsplit(webhook)
+            if not webhook or not parsed.hostname:
+                reason_code, detail = "config_missing", "webhookUrl"
+            else:
+                port = 443 if parsed.scheme == "https" else (parsed.port or 80)
+                if not await _probe_tcp(parsed.hostname, port):
+                    reason_code, detail = "unreachable", parsed.hostname
+                else:
+                    valid = True
+        else:
+            # 未知渠道类型按未配置处理
+            reason_code, detail = "config_missing", channel_id
+
+        results.append({"id": channel_id, "valid": valid, "reason_code": reason_code, "detail": detail})
+    return results

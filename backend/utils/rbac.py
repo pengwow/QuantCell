@@ -62,6 +62,11 @@ class Permission(StrEnum):
     EXCHANGE_READ = "exchange:read"
     EXCHANGE_WRITE = "exchange:write"
 
+    # Worker 管理权限（P1-07 权限枚举落地，operate=启停/归档/优化等生命周期操作）
+    WORKER_READ = "worker:read"
+    WORKER_WRITE = "worker:write"
+    WORKER_OPERATE = "worker:operate"
+
 
 # 角色权限映射
 ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
@@ -75,6 +80,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         Permission.AI_READ,
         Permission.LOG_READ,
         Permission.EXCHANGE_READ,
+        Permission.WORKER_READ,
     },
     UserRole.USER: {
         # 普通用户拥有大部分读写权限
@@ -95,6 +101,9 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         Permission.LOG_READ,
         Permission.EXCHANGE_READ,
         Permission.EXCHANGE_WRITE,
+        Permission.WORKER_READ,
+        Permission.WORKER_WRITE,
+        Permission.WORKER_OPERATE,
     },
     UserRole.ADMIN: {
         # 管理员拥有所有权限
@@ -262,6 +271,104 @@ def require_permission_sync(permission: Permission):
         return wrapper
 
     return decorator
+
+
+def require_permission(permission: Permission):
+    """FastAPI 依赖形式的权限检查（P1-07 权限枚举落地）
+
+    用法（逐路由灰度挂载）：
+        @router.post("", dependencies=[Depends(require_permission(Permission.WORKER_WRITE))])
+
+    开关 rbac.enforcement_enabled（config.toml，默认 false）：
+    - off：完全旁路直接放行，行为与未挂载一致（单用户模式全通）
+    - on：解析 Bearer token 取角色并校验权限；token 缺失/无效按"未认证"抛 401
+      （与 is_guest_user 语义一致，让前端拦截器触发重新登录），权限不足抛 403。
+      拒绝与通过均写审计日志（user/permission/resource/result），复用 utils/logger。
+    """
+
+    async def dependency(request: Request) -> None:
+        # 函数内 import：utils.config_manager 顶部会拉起 collector.db.database
+        # → collector.api → worker/__init__ → worker.routes → utils.rbac，
+        # 形成 utils.rbac 自环（模块初始化未完成时 Permission 尚不存在）；
+        # 请求期各模块已就绪，函数内导入安全
+        from utils.config_manager import get_value as get_config_value
+
+        if not get_config_value("rbac.enforcement_enabled", False):
+            return
+
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header:
+            raise HTTPException(status_code=401, detail={"code": 401, "message": "未登录，请先登录", "data": None})
+
+        try:
+            token = auth_header.split(" ")[1]
+        except IndexError:
+            raise HTTPException(
+                status_code=401, detail={"code": 401, "message": "无效的认证令牌格式，请重新登录", "data": None}
+            )
+
+        # P2-06：Agent Token（qctk_ 前缀）不走 JWT/角色体系，按令牌 scope 判定：
+        # read 令牌只放行读权限端点，write 令牌可访问写权限端点。
+        if token.startswith("qctk_"):
+            # 函数内 import：与下方 config_manager 同理，避免模块初始化期拉起
+            # collector.db（agent.tokens → agent.models）形成导入环
+            from agent.tokens import authenticate_agent_token
+
+            agent_row = authenticate_agent_token(token)
+            if agent_row is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail={"code": 401, "message": "代理令牌无效、已撤销或已过期", "data": None},
+                )
+            write_permission = permission in (Permission.AI_WRITE, Permission.WORKER_OPERATE, Permission.SYSTEM_ADMIN)
+            if write_permission and agent_row.scope != "write":
+                logger.warning(f"RBAC 拦截: agent_token={agent_row.id} scope={agent_row.scope} 需要写权限")
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": 403, "message": "权限不足：只读代理令牌不可执行写操作", "data": None},
+                )
+            return
+
+        try:
+            payload = decode_jwt_token(token)
+        except TokenExpiredError as e:
+            logger.warning(f"RBAC 拦截: 登录已过期, resource={request.url.path} ({e})")
+            raise HTTPException(
+                status_code=401, detail={"code": 401, "message": "登录已过期，请重新登录", "data": None}
+            )
+        except JWTError as e:
+            logger.warning(f"RBAC 拦截: 无效认证令牌, resource={request.url.path} ({e})")
+            raise HTTPException(
+                status_code=401, detail={"code": 401, "message": "无效的认证令牌，请重新登录", "data": None}
+            )
+
+        user_role = UserRole(payload.get("role", "guest"))
+        resource = request.url.path
+
+        if not check_permission(user_role, permission):
+            logger.warning(
+                f"RBAC 拒绝: user={payload.get('sub')}, role={user_role.value}, "
+                f"permission={permission.value}, resource={resource}, result=denied"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": 403,
+                    "message": "权限不足",
+                    "data": {
+                        "required_permission": permission.value,
+                        "current_role": user_role.value,
+                        "is_guest": user_role == UserRole.GUEST,
+                    },
+                },
+            )
+
+        logger.info(
+            f"RBAC 通过: user={payload.get('sub')}, role={user_role.value}, "
+            f"permission={permission.value}, resource={resource}, result=allowed"
+        )
+
+    return dependency
 
 
 def get_current_user_info(request: Request) -> dict:

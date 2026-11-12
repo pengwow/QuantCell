@@ -93,6 +93,8 @@ class WriteFileTool(Tool):
 
     name = "write_file"
     description = "写入或覆盖文件内容。如果目录不存在会自动创建。"
+    # P2-06：产生文件系统副作用
+    risk_level = "write"
     parameters = {
         "type": "object",
         "properties": {

@@ -263,6 +263,45 @@ export interface Indicator {
   pricing_type: string;
   price: number;
   is_encrypted: number;
+  /** 当前版本号（P2-08） */
+  version?: number;
+}
+
+/**
+ * 指标版本快照（P2-08）
+ */
+export interface IndicatorVersion {
+  id: number;
+  indicator_id: number;
+  version_no: number;
+  name: string;
+  description: string;
+  source: string;
+  is_current: boolean;
+  created_at: string;
+  code?: string;
+}
+
+/**
+ * 指标沙箱预览结果（P2-08）
+ */
+export interface IndicatorPreviewResult {
+  success: boolean;
+  error?: string;
+  plots: Array<{
+    name: string;
+    data: Array<number | null>;
+    color?: string;
+    overlay?: boolean;
+    type?: string;
+  }>;
+  signals: Array<{
+    type: string;
+    text?: string;
+    data: Array<number | null>;
+    color?: string;
+  }>;
+  execution_time_ms?: number;
 }
 
 /**
@@ -512,6 +551,26 @@ export const strategyApi = {
 /**
  * 配置相关 API
  */
+/** Schema 化设置字段定义（P2-05），结构与 backend/settings/schema.py 对齐 */
+export interface SchemaFieldDef {
+  key: string;
+  label: string;
+  type: 'bool' | 'number' | 'string' | 'select' | 'text';
+  default: string | number | boolean;
+  description?: string | null;
+  options: { value: string | number; label: string }[];
+  advanced: boolean;
+}
+
+/** Schema 化设置分组定义 */
+export interface SchemaGroupDef {
+  key: string;
+  title: string;
+  description?: string | null;
+  order: number;
+  fields: SchemaFieldDef[];
+}
+
 export const configApi = {
   getConfig: (): Promise<Record<string, unknown>> => {
     return apiRequest.get('/config/');
@@ -519,6 +578,19 @@ export const configApi = {
 
   updateConfig: <T>(data: T) => {
     return apiRequest.post('/config/batch', data);
+  },
+
+  // P2-05：schema 驱动设置；拦截器已解包 code=0 的 data
+  getConfigSchema: (): Promise<{ groups: SchemaGroupDef[] }> => {
+    return apiRequest.get('/config/schema');
+  },
+
+  getConfigValues: (): Promise<Record<string, string | number | boolean>> => {
+    return apiRequest.get('/config/values');
+  },
+
+  updateConfigValues: (values: Record<string, string | number | boolean>) => {
+    return apiRequest.put('/config/values', { values });
   },
 
   updatePluginConfig: <T extends Record<string, unknown>>(pluginName: string, data: T[]) => {
@@ -532,6 +604,44 @@ export const configApi = {
   getPluginConfig: (pluginName: string): Promise<Record<string, unknown>> => {
     return apiRequest.get(`/config/plugin/${pluginName}`);
   }
+};
+
+/**
+ * 能力开关 API（P2-02 capability flags）
+ * 只读部署能力集，供菜单过滤与页面降级使用；拦截器已解包 code=0 的 data
+ */
+export const capabilitiesApi = {
+  getCapabilities: (): Promise<Record<string, boolean>> => {
+    return apiRequest.get('/capabilities');
+  }
+};
+
+/** Agent Token 用量记录（P2-06） */
+export interface AgentTokenInfo {
+  id: number;
+  name: string;
+  scope: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+  revoked: boolean;
+  created_at: string;
+}
+
+/**
+ * Agent Token API（P2-06）
+ * 签发明文仅在 issue 响应中返回一次；撤销为软删除保留审计
+ */
+export const agentTokensApi = {
+  list: (): Promise<AgentTokenInfo[]> => apiRequest.get('/agent/tokens'),
+  issue: (data: { name: string; scope?: string; expires_days?: number | null }): Promise<{
+    token: string;
+    id: number;
+    name: string;
+    scope: string;
+    expires_at: string | null;
+  }> => apiRequest.post('/agent/tokens', data),
+  revoke: (id: number): Promise<{ id: number; revoked: boolean }> => apiRequest.delete(`/agent/tokens/${id}`),
 };
 
 /**
@@ -685,6 +795,30 @@ export const indicatorApi = {
     return apiRequest.post('/indicators/verify', { code });
   },
 
+  /** 沙箱预览：对未保存的草稿代码做一次性求值（P2-08） */
+  previewIndicator: (data: {
+    code: string;
+    params?: Record<string, unknown>;
+    klineData?: Array<Record<string, unknown>>;
+  }): Promise<IndicatorPreviewResult> => {
+    return apiRequest.post('/indicators/preview', data);
+  },
+
+  /** 版本快照列表（新版本在前，P2-08） */
+  getIndicatorVersions: (id: number): Promise<IndicatorVersion[]> => {
+    return apiRequest.get(`/indicators/${id}/versions`);
+  },
+
+  /** 对比两个版本代码（diff 渲染由前端完成，P2-08） */
+  diffIndicatorVersions: (id: number, a: number, b: number): Promise<{ a: IndicatorVersion; b: IndicatorVersion }> => {
+    return apiRequest.get(`/indicators/${id}/versions/diff?a=${a}&b=${b}`);
+  },
+
+  /** 回滚到指定版本（生成 rollback 新快照，不删历史，P2-08） */
+  rollbackIndicatorVersion: (id: number, versionNo: number): Promise<Indicator> => {
+    return apiRequest.post(`/indicators/${id}/versions/${versionNo}/rollback`, {});
+  },
+
   aiGenerate: (prompt: string, existingCode?: string) => {
     return apiRequest.post('/indicators/ai-generate', { prompt, existing_code: existingCode });
   },
@@ -779,6 +913,27 @@ export const indicatorApi = {
 
   getIndicatorParams: (id: number) => {
     return apiRequest.get(`/indicators/${id}/params`);
+  },
+
+  // ===== 指标信号提醒规则（P2-07） =====
+  listAlertRules: (indicatorId?: number) => {
+    return apiRequest.get('/indicators/alerts', indicatorId != null ? { indicator_id: indicatorId } : undefined);
+  },
+  createAlertRule: (payload: Record<string, unknown>) => {
+    return apiRequest.post('/indicators/alerts', payload);
+  },
+  updateAlertRule: (id: number, payload: Record<string, unknown>) => {
+    return apiRequest.put(`/indicators/alerts/${id}`, payload);
+  },
+  deleteAlertRule: (id: number) => {
+    return apiRequest.delete(`/indicators/alerts/${id}`);
+  },
+  testAlertRule: (id: number) => {
+    return apiRequest.post(`/indicators/alerts/${id}/test`);
+  },
+  // 预演未保存的规则：send=false 仅返回消息预览；send=true 按所选渠道真实发送
+  previewAlertRule: (payload: Record<string, unknown>, send: boolean) => {
+    return apiRequest.post('/indicators/alerts/preview', { rule: payload, send });
   },
 };
 
@@ -875,6 +1030,17 @@ export const notificationApi = {
    */
   testChannel: <T>(channelId: string, config: T) => {
     return apiRequest.post('/notifications/test', { channel_id: channelId, config });
+  },
+
+  /**
+   * 校验通知渠道可用性（启用/配置完整性/服务地址连通性，不发真实消息）
+   */
+  validateChannels: (
+    channels: { id: string; enabled: boolean; config: Record<string, unknown> }[],
+  ): Promise<{
+    results: { id: string; valid: boolean; reason_code: string; detail: string }[];
+  }> => {
+    return apiRequest.post('/notifications/channels/validate', { channels });
   },
 };
 

@@ -17,6 +17,31 @@
   --color-error: var(--tw-color-error);
   --color-border: var(--tw-color-border);
   --color-border-secondary: var(--tw-color-border-secondary);
+
+  /* ===== 设计 token（qc- 五档间距体系，O1） =====
+     命名必须带 qc- 前缀：Tailwind v4 中 --spacing-4 / --radius-lg 等裸名
+     会覆盖内置数值语义（p-4 将从 16px 变 4px），qc- 前缀只新增工具类
+     （如 gap-qc-2 / rounded-qc-md / duration-qc-base），不改既有工具类。 */
+  /* 间距五档：紧凑元素 small → 大分区 large，替代页面魔法数 */
+  --spacing-qc-1: 4px;
+  --spacing-qc-2: 8px;
+  --spacing-qc-3: 12px;
+  --spacing-qc-4: 16px;
+  --spacing-qc-5: 20px;
+  --spacing-qc-6: 24px;
+  /* 控件高度：与 antd 默认 32px 一致，密度锚点禁止页面内联写死 */
+  --control-height: 32px;
+  /* 圆角三档：控件 / 卡片 / 大面板 */
+  --radius-qc-sm: 6px;
+  --radius-qc-md: 10px;
+  --radius-qc-lg: 14px;
+  /* 阴影两档：卡片微阴影 / 浮层抬升 */
+  --shadow-qc-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+  --shadow-qc-raised: 0 4px 12px rgb(0 0 0 / 0.10), 0 12px 32px rgb(0 0 0 / 0.12);
+  /* 动效三档：微交互 / 控件页签 / 区块切换，统一 ease，禁弹性大位移 */
+  --duration-qc-fast: 140ms;
+  --duration-qc-base: 160ms;
+  --duration-qc-slow: 180ms;
 }
 
 @layer base {
@@ -53,6 +78,13 @@
 }
 
 @layer base {
+  /* 数字等宽（O3，全局 tnum 规范）：行情/表格/盈亏数字逐位对齐不跳动。
+     全局继承，等宽特性只影响数字字形宽度，对文本渲染无副作用 */
+  body {
+    font-feature-settings: 'kern' 1, 'tnum' 1;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Reset */
   ol,
   ul,

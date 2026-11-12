@@ -71,8 +71,7 @@ class PaperTradeSync:
             for fill in fills:
                 data = self._to_trade_data(fill)
                 try:
-                    # crud.create_trade_if_not_exists 无法区分「新建」与「查重命中」，
-                    # 这里先自查一次：paper 账重启重放会产出同 trade_id 的 fill，
+                    # paper 账重启重放会产出同 trade_id 的 fill，
                     # 命中属既有记录，不计入新落库（也不必重复走 crud 提交）
                     exists = (
                         db.query(crud.WorkerTrade).filter(crud.WorkerTrade.trade_id == data["trade_id"]).first()

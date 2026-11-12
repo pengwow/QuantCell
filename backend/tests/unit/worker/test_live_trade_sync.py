@@ -2,7 +2,16 @@
 
 from datetime import datetime
 
+import pytest
+
+import worker.live_trade_sync as lts
 from worker.live_trade_sync import LiveTradeSync
+
+
+@pytest.fixture(autouse=True)
+def _no_cursor_db(monkeypatch):
+    """本文件只测纯逻辑：关闭同步游标开关，__init__ 不读真库游标"""
+    monkeypatch.setattr(lts, "get_flag", lambda key, default=True: False)
 
 
 def _make_sync() -> LiveTradeSync:

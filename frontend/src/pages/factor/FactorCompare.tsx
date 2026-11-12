@@ -14,6 +14,7 @@ import {
   Select,
   Space,
   Table,
+  Tag,
 } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -46,6 +47,8 @@ interface FormValues {
   /** 仅表单文本态，不进入 factor 参数对象；提交时解析为 horizons（多因子共用） */
   horizonsText?: string;
   costBps: number;
+  /** FDR 校正方法；undefined = 不传（后端用全局配置 factor.fdr.method，缺省 bh） */
+  fdrMethod?: 'none' | 'bh' | 'by';
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message || '对比失败';
@@ -158,6 +161,7 @@ const FactorCompare: React.FC = () => {
       forward: v.forward,
       horizons,
       cost_bps: v.costBps ?? 0,
+      fdr_method: v.fdrMethod ?? null,
     };
     try {
       await runJob(
@@ -242,6 +246,37 @@ const FactorCompare: React.FC = () => {
       key: 'nw_t_stat',
       align: 'right',
       render: (v: number | null) => fmt(v, 2),
+    },
+    {
+      title: t('factor_cmp_col_fdr_bh') || 'FDR q(BH)',
+      dataIndex: 'p_bh',
+      key: 'p_bh',
+      align: 'right',
+      // q 值升序 = 校正后越显著排越前（P1-06 验收：可按 q 排序）
+      sorter: (a, b) => (a.p_bh ?? 2) - (b.p_bh ?? 2),
+      render: (v: number | null) => fmt(v, 3),
+    },
+    {
+      title: t('factor_cmp_col_fdr_by') || 'FDR q(BY)',
+      dataIndex: 'p_by',
+      key: 'p_by',
+      align: 'right',
+      sorter: (a, b) => (a.p_by ?? 2) - (b.p_by ?? 2),
+      render: (v: number | null) => fmt(v, 3),
+    },
+    {
+      title: t('factor_cmp_col_fdr_sig') || 'FDR通过',
+      dataIndex: 'significant_bh',
+      key: 'significant_bh',
+      align: 'center',
+      render: (v: boolean | null) =>
+        v == null ? (
+          '—'
+        ) : v ? (
+          <Tag color="success">{t('factor_cmp_fdr_pass') || '通过'}</Tag>
+        ) : (
+          <Tag>{t('factor_cmp_fdr_fail') || '未通过'}</Tag>
+        ),
     },
     {
       title: t('factor_cmp_col_ic_pos') || 'IC胜率',
@@ -415,13 +450,32 @@ const FactorCompare: React.FC = () => {
           >
             <InputNumber min={0} max={1000} step={1} precision={0} style={{ width: 110 }} />
           </Form.Item>
+          <Form.Item
+            name="fdrMethod"
+            label={t('factor_cmp_form_fdr') || 'FDR校正'}
+            extra={
+              t('factor_cmp_form_fdr_hint') ||
+              '多重检验假发现率校正；缺省用全局配置（BH）'
+            }
+          >
+            <Select
+              allowClear
+              placeholder={t('factor_cmp_form_fdr_ph') || '全局默认'}
+              style={{ width: 130 }}
+              options={[
+                { value: 'bh', label: t('factor_cmp_fdr_bh_opt') || 'BH' },
+                { value: 'by', label: t('factor_cmp_fdr_by_opt') || 'BY' },
+                { value: 'none', label: t('factor_cmp_fdr_none_opt') || '不校正' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item>
             <Button type="primary" icon={<SwapOutlined />} loading={jobLoading} onClick={run}>
               {t('factor_cmp_run') || '开始对比'}
             </Button>
           </Form.Item>
         </Form>
-        <p style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
           {t('factor_cmp_form_hint') ||
             '2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。'}
         </p>

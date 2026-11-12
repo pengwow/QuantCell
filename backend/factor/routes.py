@@ -12,6 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 
+from collector.db.models import DataPoolBusiness
 from common.schemas import ApiResponse
 from factor.catalog_service import CatalogError, FactorCatalogService
 from factor.job_manager import JobStatus, job_manager
@@ -96,6 +97,22 @@ def _returns_dict_to_series(data: dict[str, Any]) -> pd.Series:
         for v in values:
             rows.append(v)
     return pd.Series(rows, dtype=float)
+
+
+def _resolve_instruments(request: FactorCalculateBase) -> None:
+    """自选组注入：pool_id 解析为当前成分并回填 instruments。
+
+    需查库所以放 routes 层（schema 层只验二选一）；调用方必须放在业务 try 之前，
+    避免 404/空池被兜底 except 改写成 400/500。
+    """
+    if request.pool_id is None:
+        return
+    instruments = DataPoolBusiness.resolve_symbols(request.pool_id)
+    if instruments is None:
+        raise HTTPException(status_code=404, detail=f"自选组不存在: {request.pool_id}")
+    if not instruments:
+        raise HTTPException(status_code=400, detail=f"自选组 {request.pool_id} 当前没有成分")
+    request.instruments = instruments
 
 
 # 创建路由
@@ -288,6 +305,7 @@ def delete_factor(factor_name: str, current_user: dict = Depends(get_current_use
 )
 def calculate_factor(request: FactorCalculateRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """计算指定因子的值"""
+    _resolve_instruments(request)
     try:
         logger.info(f"计算因子请求，因子名称: {request.factor_name}")
         factor_data = factor_service.calculate_factor(
@@ -326,6 +344,7 @@ def calculate_factors(
     request: FactorCalculateMultiRequest, current_user: dict = Depends(get_current_user)
 ) -> ApiResponse:
     """计算多个因子的值"""
+    _resolve_instruments(request)
     try:
         logger.info(f"计算多个因子请求，因子数量: {len(request.factor_names)}")
         factor_data = factor_service.calculate_factors(
@@ -362,6 +381,7 @@ def calculate_factors(
 )
 def calculate_all_factors(request: FactorCalculateBase, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """计算所有可计算因子的值"""
+    _resolve_instruments(request)
     try:
         logger.info("计算所有因子请求")
         factor_data = factor_service.calculate_all_factors(
@@ -658,6 +678,7 @@ def get_factor_detail_list() -> ApiResponse:
 )
 def analyze_factor(request: FactorAnalyzeRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """一站式因子分析"""
+    _resolve_instruments(request)
     try:
         result = factor_service.analyze(
             factor_name=request.factor_name,
@@ -688,6 +709,7 @@ def analyze_factor(request: FactorAnalyzeRequest, current_user: dict = Depends(g
 )
 def compare_factors(request: FactorCompareRequest, current_user: dict = Depends(get_current_user)) -> ApiResponse:
     """多因子横向对比：逐因子分析 + IC 时序按时间轴 outer 对齐。"""
+    _resolve_instruments(request)
     try:
         data = factor_service.compare_factors(
             factor_names=request.factor_names,
@@ -700,6 +722,7 @@ def compare_factors(request: FactorCompareRequest, current_user: dict = Depends(
             n_groups=request.n_groups,
             window=request.window,
             forward=request.forward,
+            fdr_method=request.fdr_method,
         )
         return ApiResponse(code=0, message="ok", data=_sanitize(data))
     except Exception as e:
@@ -952,7 +975,7 @@ def _run_compare_job(params: dict[str, Any]):
         on_progress(95, "assembling", "汇总对比…")
         details = {d["name"]: d for d in factor_service.get_factor_details()}
         labels = {n: details.get(n, {}).get("label", n) for n in names}
-        return FactorService._assemble_compare(results, labels)
+        return FactorService._assemble_compare(results, labels, fdr_method=params.get("fdr_method"))
 
     return runner
 

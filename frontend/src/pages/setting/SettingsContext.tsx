@@ -60,13 +60,14 @@ const defaultNotificationSettings: NotificationSettings = {
   notifyOnSystemUpdate: false,
 };
 
-// 默认 API 设置
+// 默认 API 设置（permissions 文案用 i18n 单例在模块加载时求值一次：
+// 仅作 useState 初始兜底值，行为与原硬编码默认值一致，不随语言切换刷新）
 const defaultApiSettings: ApiSettings = {
   apiKey: '',
   permissions: [
-    { id: 'read', name: '读取', description: '允许读取数据', enabled: true },
-    { id: 'write', name: '写入', description: '允许写入数据', enabled: false },
-    { id: 'execute', name: '执行', description: '允许执行操作', enabled: false },
+    { id: 'read', name: i18n.t('settings_perm_read'), description: i18n.t('settings_perm_read_desc'), enabled: true },
+    { id: 'write', name: i18n.t('settings_perm_write'), description: i18n.t('settings_perm_write_desc'), enabled: false },
+    { id: 'execute', name: i18n.t('settings_perm_execute'), description: i18n.t('settings_perm_execute_desc'), enabled: false },
   ],
 };
 
@@ -79,8 +80,8 @@ const defaultSystemInfo: SystemInfo = {
     build_date: '2025-01-01',
   },
   running_status: {
-    uptime: '0天0小时0分钟',
-    status: '运行中',
+    uptime: i18n.t('settings_default_uptime'),
+    status: i18n.t('status_running'),
     status_color: 'green',
     last_check: '2025-01-01 00:00:00',
   },
@@ -187,7 +188,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       const metrics = await systemApi.getSystemMetrics();
       setSystemMetrics(metrics);
     } catch (error) {
-      console.error('获取系统指标失败:', error);
+      console.error('Failed to fetch system metrics:', error);
     }
   }, []);
 
@@ -244,7 +245,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
         if (targetLanguage && targetLanguage !== i18n.language) {
           i18n.changeLanguage(targetLanguage);
-          console.log(`[SettingsContext] 已同步语言设置为: ${targetLanguage} (来源: ${filteredGeneralSettings.language ? '后端' : 'localStorage'})`);
+          console.log(`[SettingsContext] Language synced: ${targetLanguage} (source: ${filteredGeneralSettings.language ? 'backend' : 'localStorage'})`);
         }
 
         // 同步到 localStorage（确保一致性）
@@ -293,8 +294,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       // 获取系统指标
       await refreshSystemMetrics();
     } catch (error) {
-      console.error('加载配置失败:', error);
-      message.error('加载配置失败');
+      console.error('Failed to load config:', error);
+      // useCallback 内不走 useTranslation 的 t（t 引用变动会让 loadConfig 重建，
+      // 触发 useEffect 重拉配置、用旧语言覆盖用户选择，见文件头部说明），统一用 i18n 单例
+      message.error(i18n.t('load_failed'));
     } finally {
       setLoading(false);
     }
@@ -310,12 +313,12 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       // name 字段用于分组
       const configList = [
         // 通用设置 - 使用 'general' 作为 name 分组
-        { key: 'theme', value: generalSettings.theme, name: 'general', description: '系统主题设置' },
-        { key: 'language', value: generalSettings.language, name: 'general', description: '系统语言设置' },
-        { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: '列表页默认显示数量' },
-        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'card', name: 'general', description: '默认展示类型（卡片/列表）' },
-        { key: 'timezone', value: generalSettings.timezone, name: 'general', description: '系统默认时区' },
-        { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: '是否显示提示' },
+        { key: 'theme', value: generalSettings.theme, name: 'general', description: i18n.t('settings_desc_theme') },
+        { key: 'language', value: generalSettings.language, name: 'general', description: i18n.t('settings_desc_language') },
+        { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: i18n.t('default_per_page') },
+        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'card', name: 'general', description: i18n.t('settings_desc_view_type') },
+        { key: 'timezone', value: generalSettings.timezone, name: 'general', description: i18n.t('default_timezone') },
+        { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: i18n.t('settings_desc_show_tips') },
       ];
 
       await configApi.updateConfig(configList);
@@ -335,13 +338,13 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       // 持久化语言设置到 localStorage（确保刷新后立即生效）
       if (generalSettings.language) {
         localStorage.setItem('quantcell-language', generalSettings.language);
-        console.log(`[SettingsContext] 语言设置已持久化到 localStorage: ${generalSettings.language}`);
+        console.log(`[SettingsContext] Language persisted to localStorage: ${generalSettings.language}`);
       }
 
       // 重新加载系统配置
-      console.log('[SettingsContext] 保存成功，重新加载系统配置');
+      console.log('[SettingsContext] Saved, reloading system config');
       const updatedConfig = await configApi.getConfig();
-      console.log('[SettingsContext] 重新加载的配置:', updatedConfig);
+      console.log('[SettingsContext] Reloaded config:', updatedConfig);
 
       // 更新全局配置
       if (typeof window !== 'undefined') {
@@ -351,13 +354,13 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
           notificationSettings,
           apiSettings,
         };
-        console.log('[SettingsContext] window.APP_CONFIG 已更新:', window.APP_CONFIG);
+        console.log('[SettingsContext] window.APP_CONFIG updated:', window.APP_CONFIG);
       }
 
-      message.success('设置保存成功');
+      message.success(i18n.t('settings_saved'));
     } catch (error) {
-      console.error('保存配置失败:', error);
-      message.error('保存配置失败');
+      console.error('Failed to save config:', error);
+      message.error(i18n.t('save_failed'));
     } finally {
       setSaving(false);
     }
@@ -370,7 +373,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     setApiSettings(defaultApiSettings);
     setSystemMetrics(defaultSystemMetrics);
     applyTheme(defaultGeneralSettings.theme);
-    message.success('设置已重置为默认值');
+    message.success(i18n.t('config_reset'));
   }, [applyTheme, message]);
 
   // 检测通用设置是否有变更

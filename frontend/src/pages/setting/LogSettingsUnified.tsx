@@ -41,6 +41,7 @@ import {
   IconRotateDot,
 } from '@tabler/icons-react';
 import { systemApi } from '../../api';
+import { useTranslation } from 'react-i18next';
 import type { LogDirectoryNode, LogFileInfo, LogAutoCleanupConfig, LogDiskUsage, LogTypeInfo, CleanupResult } from './types';
 
 interface LogSettingsUnifiedProps {
@@ -48,6 +49,7 @@ interface LogSettingsUnifiedProps {
 }
 
 function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
+  const { t } = useTranslation();
   const { message, modal } = App.useApp();
   // ========== 状态定义 ==========
   const [directoryTree, setDirectoryTree] = useState<LogDirectoryNode | null>(null);
@@ -112,8 +114,8 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         setCurrentDir(dirData.path);
       }
     } catch (error) {
-      message.error('加载数据失败');
-      console.error('加载日志数据失败:', error);
+      message.error(t('log_load_data_failed'));
+      console.error('Failed to load log data:', error);
     } finally {
       setLoading(false);
     }
@@ -187,7 +189,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         setSelectedFile(prev => prev ? { ...prev, ...detailInfo } : detailInfo);
       }
     } catch (error) {
-      console.error('获取文件详情失败:', error);
+      console.error('Failed to get file detail:', error);
     }
   };
 
@@ -196,9 +198,9 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       setSaving(true);
       await systemApi.updateAutoCleanupConfig(config);
       setOriginalConfig({ ...config });
-      message.success('配置已保存');
+      message.success(t('config_saved'));
     } catch {
-      message.error('保存配置失败');
+      message.error(t('log_save_config_failed'));
     } finally {
       setSaving(false);
     }
@@ -206,14 +208,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
   const handleResetConfig = () => {
     modal.confirm({
-      title: '确认重置',
-      content: '确定要重置所有配置为默认值吗？此操作不可撤销。',
-      okText: '确认重置',
-      cancelText: '取消',
+      title: t('log_confirm_reset'),
+      content: t('log_reset_confirm_content'),
+      okText: t('log_confirm_reset'),
+      cancelText: t('cancel'),
       onOk: () => {
         if (originalConfig) {
           setConfig({ ...originalConfig });
-          message.info('已恢复为上次保存的配置');
+          message.info(t('log_config_restored'));
         }
       },
     });
@@ -222,7 +224,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   // 导出选中日志文件为ZIP
   const handleExportLogs = async () => {
     if (selectedKeys.size === 0) {
-      message.warning('请先勾选需要导出的日志文件');
+      message.warning(t('log_select_files_first'));
       return;
     }
 
@@ -237,10 +239,10 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       a.click();
       URL.revokeObjectURL(url);
 
-      message.success(`成功导出 ${filePaths.length} 个日志文件`);
+      message.success(t('log_export_success', { count: filePaths.length }));
     } catch (error) {
-      console.error('导出日志文件失败:', error);
-      message.error('导出日志文件失败，请重试');
+      console.error('Failed to export log files:', error);
+      message.error(t('log_export_failed'));
     }
   };
 
@@ -274,12 +276,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       await loadAllData();
 
       if (result.errors.length === 0) {
-        message.success(`成功删除 ${result.deleted_count} 个文件`);
+        message.success(t('log_delete_success_count', { count: result.deleted_count }));
       } else {
-        message.warning(`删除完成：${result.deleted_count} 成功，${result.errors.length} 失败`);
+        message.warning(t('log_delete_partial', { success: result.deleted_count, failed: result.errors.length }));
       }
     } catch {
-      message.error('删除操作失败');
+      message.error(t('delete_failed'));
     } finally {
       setDeleting(false);
     }
@@ -288,7 +290,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   // ========== 表格列定义 ==========
   const columns = [
     {
-      title: '文件名',
+      title: t('log_file_name'),
       dataIndex: 'name',
       render: (name: string) => (
         <div className="flex items-center gap-2">
@@ -298,7 +300,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       ),
     },
     {
-      title: '大小',
+      title: t('log_size'),
       dataIndex: 'size',
       width: 100,
       sorter: true,
@@ -308,7 +310,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       ),
     },
     {
-      title: '类型',
+      title: t('type'),
       dataIndex: 'type',
       width: 90,
       render: (type: string) => {
@@ -321,7 +323,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       },
     },
     {
-      title: '修改时间',
+      title: t('log_modified_time'),
       dataIndex: 'modified_time',
       width: 160,
       render: (time: string) => (
@@ -343,7 +345,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
             handleRowClick(record);
           }}
         >
-          详情
+          {t('details')}
         </Button>
       ),
     },
@@ -385,10 +387,10 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
 
-      if (diffMins < 1) return '刚刚';
-      if (diffMins < 60) return `${diffMins}分钟前`;
-      if (diffHours < 24) return `${diffHours}小时前`;
-      if (diffDays < 7) return `${diffDays}天前`;
+      if (diffMins < 1) return t('log_time_just_now');
+      if (diffMins < 60) return t('log_time_minutes_ago', { count: diffMins });
+      if (diffHours < 24) return t('log_time_hours_ago', { count: diffHours });
+      if (diffDays < 7) return t('log_time_days_ago', { count: diffDays });
       return time.toLocaleDateString('zh-CN');
     } catch {
       return '-';
@@ -396,8 +398,8 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   }
 
   function getProgressColor(percent: number): string {
-    if (percent > 85) return '#f5222d';
-    if (percent > 70) return '#faad14';
+    if (percent > 85) return QUANT_COLORS.negative;
+    if (percent > 70) return QUANT_COLORS.warning;
     return QUANT_COLORS.positive;
   }
 
@@ -415,14 +417,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               <div className="space-y-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Input
-                    placeholder="搜索文件名..."
+                    placeholder={t('log_search_placeholder')}
                     prefix={<IconSearch size={16} className="text-gray-400" />}
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
                     allowClear
                     style={{ flex: 1, minWidth: 200 }}
                   />
-                  <Tooltip title={`排序: ${sortOrder === 'descend' ? '降序' : '升序'}`}>
+                  <Tooltip title={t('log_sort_tooltip', { order: sortOrder === 'descend' ? t('log_sort_desc') : t('log_sort_asc') })}>
                     <Button
                       icon={sortOrder === 'ascend' ? <IconSortAscending size={18} /> : <IconSortDescending size={18} />}
                       onClick={toggleSort}
@@ -433,20 +435,20 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     onClick={loadAllData}
                     loading={loading}
                   >
-                    刷新
+                    {t('refresh')}
                   </Button>
-                  <Tooltip title="导出选中日志文件为ZIP">
+                  <Tooltip title={t('log_export_tooltip')}>
                     <Button
                       icon={<IconDownload size={16} />}
                       onClick={handleExportLogs}
                       disabled={selectedKeys.size === 0}
                     >
-                      导出
+                      {t('export')}
                     </Button>
                   </Tooltip>
                   {onClose && (
                     <Button onClick={onClose}>
-                      返回
+                      {t('back')}
                     </Button>
                   )}
                 </div>
@@ -454,7 +456,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 {selectedKeys.size > 0 && (
                   <div className="flex items-center justify-between p-2 bg-blue-50 rounded border border-blue-200">
                     <span className="text-sm text-gray-700">
-                      已选择 <strong>{stats.count}</strong> 个文件（总计 <strong className="text-blue-600">{formatSize(stats.totalSize)}</strong>）
+                      {t('log_selected_prefix')} <strong>{stats.count}</strong> {t('log_selected_middle')} <strong className="text-blue-600">{formatSize(stats.totalSize)}</strong>{t('log_selected_suffix')}
                     </span>
                     <Button
                       danger
@@ -462,7 +464,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                       icon={<IconTrash size={14} />}
                       onClick={() => setDeleteModalVisible(true)}
                     >
-                      批量删除
+                      {t('log_batch_delete')}
                     </Button>
                   </div>
                 )}
@@ -477,7 +479,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     checked={currentDir === directoryTree.path}
                     onChange={() => setCurrentDir(directoryTree.path)}
                   >
-                    📁 全部 ({directoryTree.file_count || 0})
+                    {t('log_dir_all', { count: directoryTree.file_count || 0 })}
                   </Tag.CheckableTag>
                   {directoryTree.children.map(child => {
                     return (
@@ -486,7 +488,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                         checked={currentDir === child.path}
                         onChange={() => setCurrentDir(child.path)}
                       >
-                        📂 {child.name} ({child.file_count || 0})
+                        {t('log_dir_item', { name: child.name, count: child.file_count || 0 })}
                       </Tag.CheckableTag>
                     );
                   })}
@@ -498,17 +500,17 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
             <Spin spinning={loading}>
               <Card size="small" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex items-center gap-2 p-2 bg-gray-50 border-b flex-wrap">
-                  <span className="text-sm text-gray-600">全选:</span>
+                  <span className="text-sm text-gray-600">{t('log_select_all_label')}</span>
                   <Switch
                     size="small"
                     checked={selectAllPages}
                     onChange={handleSelectAllPages}
-                    checkedChildren="全部"
-                    unCheckedChildren="无"
+                    checkedChildren={t('all')}
+                    unCheckedChildren={t('none')}
                   />
                   {selectedKeys.size > 0 && (
                     <span className="text-xs text-blue-600">
-                      已选 {selectedKeys.size}/{currentFiles.length} 个
+                      {t('log_selected_count', { selected: selectedKeys.size, total: currentFiles.length })}
                     </span>
                   )}
                 </div>
@@ -519,7 +521,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   scroll={{ x: 'max-content' }}
                   pagination={{
                     pageSize,
-                    showTotal: (total) => `共 ${total} 个文件`,
+                    showTotal: (total) => t('log_total_files', { total }),
                     size: 'small',
                     showSizeChanger: false,
                     showQuickJumper: false,
@@ -544,7 +546,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   footer={() => (
                     <div className="flex items-center justify-between px-4 py-2 border-t bg-gray-50">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-600">每页:</span>
+                        <span className="text-sm text-gray-600">{t('log_per_page_label')}</span>
                         <Select
                           size="small"
                           value={pageSize}
@@ -554,11 +556,11 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                           }}
                           style={{ width: 70 }}
                           options={[
-                            { value: 8, label: '8 条' },
-                            { value: 15, label: '15 条' },
-                            { value: 25, label: '25 条' },
-                            { value: 50, label: '50 条' },
-                            { value: 100, label: '100 条' },
+                            { value: 8, label: t('log_rows_option', { count: 8 }) },
+                            { value: 15, label: t('log_rows_option', { count: 15 }) },
+                            { value: 25, label: t('log_rows_option', { count: 25 }) },
+                            { value: 50, label: t('log_rows_option', { count: 50 }) },
+                            { value: 100, label: t('log_rows_option', { count: 100 }) },
                           ]}
                         />
                       </div>
@@ -580,41 +582,42 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                       size="small"
                       onClick={() => setDetailExpanded(false)}
                     >
-                      收起
+                      {t('collapse')}
                     </Button>
                   </div>
                 }
                 className="shadow-sm"
               >
                 <Descriptions column={2} size="small" bordered>
-                  <Descriptions.Item label="大小">
+                  <Descriptions.Item label={t('log_size')}>
                     <Tag color="blue">{formatSize(selectedFile.size)}</Tag>
                   </Descriptions.Item>
-                  <Descriptions.Item label="类型">
+                  <Descriptions.Item label={t('type')}>
                     <Tag>{selectedFile.type}</Tag>
                   </Descriptions.Item>
-                  <Descriptions.Item label="路径" span={2}>
+                  <Descriptions.Item label={t('log_path')} span={2}>
                     <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all block">
                       {selectedFile.path}
                     </code>
                   </Descriptions.Item>
-                  <Descriptions.Item label="修改时间">
+                  <Descriptions.Item label={t('log_modified_time')}>
                     {getRelativeTime(selectedFile.modified_time) !== '-' ? new Date(selectedFile.modified_time).toLocaleString('zh-CN') : '-'}
                   </Descriptions.Item>
-                  <Descriptions.Item label="日期标签">
+                  <Descriptions.Item label={t('log_date_label')}>
                     <Tag color="geekblue">{selectedFile.date}</Tag>
                   </Descriptions.Item>
-                  <Descriptions.Item label="日志行数" span={2}>
-                    {selectedFile.line_count?.toLocaleString() || '-'} 行
+                  <Descriptions.Item label={t('log_line_count')} span={2}>
+                    {/* i18next 的 count 是复数保留参数必须为 number；此处传字符串走下方占位符 */}
+                    {t('log_lines_value', { lines: selectedFile.line_count?.toLocaleString() || '-' })}
                   </Descriptions.Item>
                 </Descriptions>
 
                 <Divider style={{ margin: '12px 0' }} />
 
                 <div className="flex gap-2 justify-end">
-                  <Button size="small">预览</Button>
-                  <Button size="small" type="primary" ghost>下载</Button>
-                  <Button size="small" danger ghost icon={<IconTrash size={14} />}>删除此文件</Button>
+                  <Button size="small">{t('preview')}</Button>
+                  <Button size="small" type="primary" ghost>{t('log_download')}</Button>
+                  <Button size="small" danger ghost icon={<IconTrash size={14} />}>{t('log_delete_this_file')}</Button>
                 </div>
               </Card>
             )}
@@ -632,7 +635,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 title={
                   <span className="flex items-center gap-2">
                     <IconDatabase size={16} />
-                    存储概览
+                    {t('log_storage_overview')}
                   </span>
                 }
                 className="shadow-sm"
@@ -650,27 +653,27 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 <Row gutter={[12, 12]}>
                   <Col span={12}>
                     <div className="text-center p-2 bg-gray-50 rounded">
-                      <div className="text-xs text-gray-500">总空间</div>
+                      <div className="text-xs text-gray-500">{t('log_total_space')}</div>
                       <div className="font-medium">{formatSize(diskUsage.total_space || 0)}</div>
                     </div>
                   </Col>
                   <Col span={12}>
                     <div className="text-center p-2 bg-blue-50 rounded">
-                      <div className="text-xs text-gray-500">已用空间</div>
+                      <div className="text-xs text-gray-500">{t('log_used_space')}</div>
                       <div className="font-medium text-blue-600">{formatSize(diskUsage.used_space || 0)}</div>
                     </div>
                   </Col>
                   <Col span={12}>
                     <div className="text-center p-2 bg-green-50 rounded">
-                      <div className="text-xs text-gray-500">剩余空间</div>
+                      <div className="text-xs text-gray-500">{t('log_free_space')}</div>
                       <div className="font-medium text-green-600">{formatSize(diskUsage.free_space || 0)}</div>
                     </div>
                   </Col>
                   <Col span={12}>
                     <div className="text-center p-2 bg-orange-50 rounded">
-                      <div className="text-xs text-gray-500">文件总数</div>
+                      <div className="text-xs text-gray-500">{t('log_file_total')}</div>
                       <div className="font-medium text-orange-600">
-                        {directoryTree?.file_count || currentFiles.length || 0} 个
+                        {t('log_count_files', { count: directoryTree?.file_count || currentFiles.length || 0 })}
                       </div>
                     </div>
                   </Col>
@@ -685,14 +688,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 <div className="flex items-center justify-between w-full pr-4">
                   <span className="flex items-center gap-2">
                     <IconSettings size={16} />
-                    自动清理策略
+                    {t('log_auto_cleanup_title')}
                   </span>
                   <Switch
                     size="small"
                     checked={config.enabled}
                     onChange={(checked) => setConfig(prev => ({ ...prev, enabled: checked }))}
-                    checkedChildren="开"
-                    unCheckedChildren="关"
+                    checkedChildren={t('settings_switch_on')}
+                    unCheckedChildren={t('settings_switch_off')}
                   />
                 </div>
               }
@@ -701,9 +704,9 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               {config.enabled ? (
                 <div className="space-y-6">
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">保留策略</div>
+                    <div className="text-sm font-medium text-gray-700 mb-2">{t('log_retention_policy')}</div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">保留最近</span>
+                      <span className="text-sm text-gray-600">{t('log_retention_prefix')}</span>
                       <Space.Compact size="small">
                         <InputNumber
                           min={1}
@@ -715,21 +718,21 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                         />
                         <Input
                           readOnly
-                          value="天"
+                          value={t('log_unit_day')}
                           className="w-10 text-center"
-                          aria-label="天"
+                          aria-label={t('log_unit_day')}
                         />
                       </Space.Compact>
-                      <span className="text-sm text-gray-400">的日志</span>
+                      <span className="text-sm text-gray-400">{t('log_retention_suffix')}</span>
                     </div>
                   </div>
 
                   <Divider style={{ margin: '16px 0' }} />
 
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">空间限制</div>
+                    <div className="text-sm font-medium text-gray-700 mb-2">{t('log_space_limit')}</div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">超过</span>
+                      <span className="text-sm text-gray-600">{t('log_space_limit_prefix')}</span>
                       <Space.Compact size="small">
                         <InputNumber
                           min={0}
@@ -746,7 +749,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                           aria-label="GB"
                         />
                       </Space.Compact>
-                      <span className="text-sm text-gray-400">时自动清理</span>
+                      <span className="text-sm text-gray-400">{t('log_space_limit_suffix')}</span>
                     </div>
                     {config.max_size_gb > 0 && (
                       <Progress
@@ -761,7 +764,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   <Divider style={{ margin: '16px 0' }} />
 
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">执行计划</div>
+                    <div className="text-sm font-medium text-gray-700 mb-2">{t('log_schedule_title')}</div>
                     <Radio.Group
                       size="small"
                       value={config.cleanup_schedule}
@@ -769,14 +772,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                       optionType="button"
                       buttonStyle="solid"
                     >
-                      <Radio.Button value="daily">每天</Radio.Button>
-                      <Radio.Button value="weekly">每周</Radio.Button>
-                      <Radio.Button value="monthly">每月</Radio.Button>
+                      <Radio.Button value="daily">{t('log_schedule_daily')}</Radio.Button>
+                      <Radio.Button value="weekly">{t('log_schedule_weekly')}</Radio.Button>
+                      <Radio.Button value="monthly">{t('log_schedule_monthly')}</Radio.Button>
                     </Radio.Group>
                     
                     {config.last_cleanup_time && (
                       <div className="text-xs text-gray-500 mt-3">
-                        上次执行: {new Date(config.last_cleanup_time).toLocaleString('zh-CN')}
+                        {t('log_last_run', { time: new Date(config.last_cleanup_time).toLocaleString('zh-CN') })}
                       </div>
                     )}
                   </div>
@@ -784,8 +787,8 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               ) : (
                 <div className="text-center py-8 text-gray-400">
                   <IconSettings size={32} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-xs">自动清理已禁用</p>
-                  <p className="text-xs mt-1 text-gray-300">开启上方开关以启用配置选项</p>
+                  <p className="text-xs">{t('log_cleanup_disabled')}</p>
+                  <p className="text-xs mt-1 text-gray-300">{t('log_cleanup_disabled_hint')}</p>
                 </div>
               )}
             </Card>
@@ -797,7 +800,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 title={
                   <span className="flex items-center gap-2">
                     <IconChartPie size={16} />
-                    各类型统计
+                    {t('log_type_stats_title')}
                   </span>
                 }
                 className="shadow-sm"
@@ -821,7 +824,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                             <Tag color={colors[type] || 'default'}>{type}</Tag>
                           </span>
                           <span className="text-xs text-gray-500">
-                            {(totalBytes / 1024 / 1024).toFixed(2)} MB · {info?.count || 0} 个
+                            {t('log_type_stats_item', { size: (totalBytes / 1024 / 1024).toFixed(2), count: info?.count || 0 })}
                           </span>
                         </div>
                         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -852,7 +855,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   disabled={!isDirty}
                   block
                 >
-                  保存配置
+                  {t('log_save_config')}
                 </Button>
                 <Button
                   size="small"
@@ -860,13 +863,13 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   onClick={handleResetConfig}
                   block
                 >
-                  重置
+                  {t('reset')}
                 </Button>
               </div>
               
               {!isDirty && originalConfig && (
                 <div className="mt-2 text-center text-xs text-gray-400">
-                  ✓ 配置已是最新状态
+                  {t('log_config_up_to_date')}
                 </div>
               )}
             </Card>
@@ -880,10 +883,10 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 onClose={() => setLastResult(null)}
                 title={
                   lastResult.errors.length === 0 ?
-                    `✅ 成功删除 ${lastResult.deleted_count} 个文件` :
-                    `⚠️ 完成：${lastResult.deleted_count} 成功，${lastResult.errors.length} 失败`
+                    t('log_delete_success_alert', { count: lastResult.deleted_count }) :
+                    t('log_delete_partial_alert', { success: lastResult.deleted_count, failed: lastResult.errors.length })
                 }
-                description={`释放空间: ${formatSize(lastResult.freed_space)}`}
+                description={t('log_freed_space', { size: formatSize(lastResult.freed_space) })}
                 className="rounded"
               />
             )}
@@ -897,7 +900,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         title={
           <span className="flex items-center gap-2">
             <IconAlertTriangle size={20} className="text-orange-500" />
-            批量删除确认
+            {t('log_batch_delete_confirm')}
           </span>
         }
         open={deleteModalVisible}
@@ -907,7 +910,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         }}
         footer={[
           <Button key="cancel" onClick={() => { setDeleteModalVisible(false); setRiskConfirmed(false); }}>
-            取消
+            {t('cancel')}
           </Button>,
           <Button
             key="delete"
@@ -917,16 +920,16 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
             disabled={!riskConfirmed}
             onClick={handleDeleteSelected}
           >
-            确认删除
+            {t('confirm_delete')}
           </Button>,
         ]}
         width={480}
       >
         <div className="space-y-4">
-          <Alert type="warning" showIcon title="此操作不可撤销" description="删除的文件将无法恢复，请谨慎操作。" />
+          <Alert type="warning" showIcon title={t('log_irreversible')} description={t('log_irreversible_desc')} />
 
           <div>
-            <p className="font-medium mb-2">待删除文件列表：</p>
+            <p className="font-medium mb-2">{t('log_files_to_delete')}</p>
             <div className="max-h-32 overflow-y-auto bg-gray-50 rounded p-2">
               {currentFiles
                 .filter(file => selectedKeys.has(file.path))
@@ -941,8 +944,8 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
           <div className="bg-red-50 border border-red-200 p-2 rounded">
             <p className="text-sm">
-              总计：<span className="font-bold text-red-600">{formatSize(stats.totalSize)}</span>
-              {' '}(<span className="font-bold text-red-600">{stats.count}</span> 个文件)
+              {t('log_delete_total_label')}<span className="font-bold text-red-600">{formatSize(stats.totalSize)}</span>
+              {' '}(<span className="font-bold text-red-600">{stats.count}</span> {t('log_files_suffix')})
             </p>
           </div>
 
@@ -955,14 +958,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               className="mt-0.5"
             />
             <label htmlFor="risk-confirm" className="text-sm text-gray-600 cursor-pointer">
-              我已了解此操作的风险，确认永久删除以上文件
+              {t('log_risk_confirm_label')}
             </label>
           </div>
 
           {deleting && (
             <div className="text-center py-2">
               <Progress percent={50} status="active" showInfo={false} />
-              <p className="text-sm text-gray-500 mt-1">正在删除...</p>
+              <p className="text-sm text-gray-500 mt-1">{t('log_deleting')}</p>
             </div>
           )}
         </div>

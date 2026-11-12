@@ -15,11 +15,9 @@ import {
   Col,
   Empty,
   Flex,
-  Grid,
   Input,
   Pagination,
   Row,
-  Segmented,
   Select,
   Space,
   Table,
@@ -30,14 +28,12 @@ import {
   type TablePaginationConfig,
 } from 'antd';
 import {
-  AppstoreOutlined,
   DeleteOutlined,
   EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
   RobotOutlined,
   SearchOutlined,
-  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { factorApi, type FactorCatalogItem } from '@/api/factor';
 import {
@@ -55,8 +51,6 @@ import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import FactorFormModal from './FactorFormModal';
-
-type ViewType = 'list' | 'card';
 
 interface Props {
   catalog: FactorCatalogItem[];
@@ -80,9 +74,8 @@ const FactorLibraryPane: React.FC<Props> = ({
   const navigate = useNavigate();
   const { token } = theme.useToken();
   const qc = useQuantColors();
-  const screens = Grid.useBreakpoint();
-  // 视图类型：全局默认 + 会话内临时覆盖（不写回全局配置）
-  const [viewType, setViewType] = useViewType();
+  // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
+  const viewType = useViewType();
   // 分页大小来自全局配置（条数切换器即全站开关）
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [keyword, setKeyword] = useState('');
@@ -312,14 +305,6 @@ const FactorLibraryPane: React.FC<Props> = ({
             setKeyword(e.target.value);
             gotoPage1();
           }}
-        />
-        <Segmented
-          value={viewType}
-          onChange={(v) => setViewType(v as ViewType)}
-          options={[
-            { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
-            { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
-          ]}
         />
       </Flex>
       <Flex justify="space-between" align="center" gap="small" wrap="wrap">

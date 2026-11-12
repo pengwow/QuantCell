@@ -110,7 +110,7 @@ const FactorDetailPane: React.FC<{
         <Flex justify="space-between" align="center" wrap="wrap" gap="small">
           <Flex gap="small" align="center" wrap>
             <span style={{ fontSize: 16, fontWeight: 600 }}>{factor.label}</span>
-            <span style={{ color: '#999' }}>{factor.name}</span>
+            <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{factor.name}</span>
             {factor.builtin && <Tag>{t('factor_lib_builtin') || '内置'}</Tag>}
             {factorSource(factor) === 'code' && <Tag color="magenta">{t('factor_lib_code') || '代码'}</Tag>}
             {factorSource(factor) === 'composite' && <Tag color="purple">{t('factor_lib_composite') || '合成'}</Tag>}

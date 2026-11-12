@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import agent.models
 import backtest.models
 import strategy.models
 
@@ -23,13 +24,19 @@ import strategy.models
 from config.settings import get_settings
 from core import lifespan
 from core.port_manager import PortAllocationError, port_manager
+from utils.config_manager import get_flag
 from utils.logger import LogType, get_logger
+from worker.graceful_shutdown import uvicorn_graceful_timeout
+
+# P1-01：worker.shutdown.use_config_timeouts 关闭时回退的旧 uvicorn 优雅窗口（S）
+_LEGACY_UVICORN_GRACE = 6
 
 # 获取主模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
 
 # 导入业务模块路由（标准化模块化架构）
 from agent.api.routes import router as agent_router
+from agent.tokens import router as agent_token_router
 from ai.config import router as ai_model_router
 from ai.polish import router as ai_polish_router
 from ai.strategy import router as ai_model_strategy_router
@@ -43,6 +50,7 @@ from collector.routes import router as collector_router
 from common.notifications.routes import router as notification_router
 from extensions.api import router as extensions_router
 from factor import router as factor_router
+from indicators.alerts_routes import router as indicator_alerts_router
 from indicators.routes import router as indicators_router
 from plugins.routes import router as plugins_router
 from realtime.routes import realtime_router
@@ -85,6 +93,12 @@ from core.middleware import RequestIDMiddleware
 
 app.add_middleware(RequestIDMiddleware)
 
+# ========== Prometheus 指标埋点中间件（P2-01，开关 observability.metrics_enabled 默认关） ==========
+# 注册在 RequestID 之后 → 内层：开关关闭时直通零开销，不改变现有追踪行为
+from observability.http import MetricsMiddleware
+
+app.add_middleware(MetricsMiddleware)
+
 # 注册业务路由（保持向后兼容）
 app.include_router(ai_model_router)
 app.include_router(ai_model_strategy_router)
@@ -92,6 +106,9 @@ app.include_router(ai_polish_router)
 app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
+# alerts 路由必须先于 indicators_router 挂载：indicators 的 GET /{indicator_id}
+# 会把 /api/v1/indicators/alerts 当作 indicator_id 吞掉，int("alerts") 转换失败返回 422
+app.include_router(indicator_alerts_router)  # 指标信号提醒规则 CRUD/测试发送（P2-07）
 app.include_router(indicators_router)
 app.include_router(strategy_router)
 app.include_router(backtest_router)
@@ -102,9 +119,19 @@ app.include_router(share_router)  # 分享系统
 app.include_router(log_router)
 app.include_router(notification_router)
 app.include_router(agent_router)
+app.include_router(agent_token_router)  # P2-06 Agent Token 签发/撤销
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
 app.include_router(extensions_router)  # 桌面端可选扩展（非桌面环境下安装接口 503）
+# Prometheus 指标端点（P2-01，开关关时 404）
+from observability.routes import router as observability_router
+
+app.include_router(observability_router)
+
+# 能力开关只读端点（P2-02：按部署形态裁剪功能域，前端据此过滤菜单/降级）
+from api.capabilities_routes import router as capabilities_router
+
+app.include_router(capabilities_router)
 
 # 模型/集成/风控/RL 服务路由
 app.include_router(models_router)
@@ -361,10 +388,15 @@ def main(
         port=fastapi_port,  # 使用动态分配的端口
         reload=False,  # 禁用热重载，避免DuckDB锁冲突
         log_level=log_level.lower(),  # 设置日志级别
-        # 优雅关停最多等待在途连接 6s（浏览器持有的 SSE/WebSocket 不会主动断开，
-        # 默认 None 会无限等待导致一次 Ctrl+C 退不掉）；超时后 uvicorn 强制取消任务，
-        # lifespan 内还有 12s 关停看门狗做最终兜底。
-        timeout_graceful_shutdown=6,
+        # 优雅关停窗口从 ShutdownConfig 派生（P1-01），不再硬编码：保证
+        # lifespan 停机预算(30) < uvicorn 窗口(35) < 看门狗(40) 链式余量成立；
+        # 浏览器持有的 SSE/WebSocket 不会主动断开，默认 None 会无限等待导致
+        # 一次 Ctrl+C 退不掉，超时后 uvicorn 强制取消任务，看门狗最后兜底。
+        timeout_graceful_shutdown=(
+            uvicorn_graceful_timeout()
+            if get_flag("worker.shutdown.use_config_timeouts", True)
+            else _LEGACY_UVICORN_GRACE
+        ),
     )
 
 

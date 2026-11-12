@@ -344,12 +344,17 @@ const KlineReplayPage: React.FC = () => {
       if (bars.length === 0) return;
       const ts = value.valueOf();
       if (ts < bars[0].timestamp || ts > bars[bars.length - 1].timestamp) {
-        message.info(`目标时间需在 ${formatTs(bars[0].timestamp)} ~ ${formatTs(bars[bars.length - 1].timestamp)} 范围内（随回放扩展）`);
+        message.info(
+          t('backtest_seek_range_hint', {
+            start: formatTs(bars[0].timestamp),
+            end: formatTs(bars[bars.length - 1].timestamp),
+          })
+        );
         return;
       }
       handleSeekIndex(lowerBound(bars, ts));
     },
-    [handleSeekIndex, message]
+    [handleSeekIndex, message, t]
   );
 
   const handleChangeSpeed = useCallback((v: number) => {
@@ -364,11 +369,11 @@ const KlineReplayPage: React.FC = () => {
       const per = periodRef.current;
       const startDate = p.startDate ?? null;
       if (!sym) {
-        message.warning('请输入品种');
+        message.warning(t('backtest_input_symbol'));
         return;
       }
       if (!startDate) {
-        message.warning('请选择起始时间');
+        message.warning(t('backtest_select_start_time'));
         return;
       }
       pause();
@@ -378,7 +383,7 @@ const KlineReplayPage: React.FC = () => {
         const startMs = startDate.valueOf();
         const chunk = await fetchChunk(sym, per, { startMs });
         if (chunk.length === 0) {
-          setLoadError(`起始时间 ${formatTs(startMs)} 之后没有 ${sym} 的数据`);
+          setLoadError(t('backtest_no_data_after_start', { start: formatTs(startMs), symbol: sym }));
           return;
         }
         barsRef.current = chunk;
@@ -402,12 +407,12 @@ const KlineReplayPage: React.FC = () => {
         }
       } catch (err) {
         console.error('启动回放失败:', err);
-        setLoadError('加载数据失败，请稍后重试');
+        setLoadError(t('backtest_load_data_failed_retry'));
       } finally {
         setLoading(false);
       }
     },
-    [fetchChunk, feed, message, pause]
+    [fetchChunk, feed, message, pause, t]
   );
 
   // 重置回放：用当前会话的启动参数重跑 startReplay——游标回起点、补块/预取扩大的窗口
@@ -439,7 +444,7 @@ const KlineReplayPage: React.FC = () => {
           endMs: bars[indexRef.current].timestamp,
         });
         if (chunk.length === 0) {
-          message.warning(`该时刻之前没有 ${symbolRef.current} 的 ${next} 数据`);
+          message.warning(t('backtest_no_data_before_time', { symbol: symbolRef.current, period: next }));
           return;
         }
         barsRef.current = chunk;
@@ -456,12 +461,12 @@ const KlineReplayPage: React.FC = () => {
         if (wasPlaying) handlePlay(); // 播放中切换 → 数据就位后无缝继续
       } catch (err) {
         console.error('切换周期失败:', err);
-        message.error('切换周期失败，请稍后重试');
+        message.error(t('backtest_change_period_failed'));
       } finally {
         periodSwitchingRef.current = false;
       }
     },
-    [fetchChunk, feed, handlePlay, message, pause, started]
+    [fetchChunk, feed, handlePlay, message, pause, started, t]
   );
 
   // 表单初始值：URL 参数 > 本地偏好 > 默认
@@ -494,11 +499,11 @@ const KlineReplayPage: React.FC = () => {
   return (
     <PageContainer title={t('market_replay') || '行情回放'}>
       {!started ? (
-        <Card title="启动回放" style={{ maxWidth: 720 }}>
+        <Card title={t('backtest_launch_replay')} style={{ maxWidth: 720 }}>
           <Alert
             type="info"
             showIcon
-            message="从指定品种与起始时间开始，逐根回放历史K线；指标只在已播放数据上计算"
+            message={t('backtest_replay_intro')}
             style={{ marginBottom: 16 }}
           />
           {loadError && (
@@ -511,20 +516,20 @@ const KlineReplayPage: React.FC = () => {
           >
             <Form.Item
               name="symbol"
-              label="品种"
-              rules={[{ required: true, message: '请输入品种，如 BTCUSDT' }]}
+              label={t('backtest_symbol_label')}
+              rules={[{ required: true, message: t('backtest_input_symbol_example') }]}
             >
               <Input placeholder="BTCUSDT" allowClear />
             </Form.Item>
             <Form.Item
               name="startDate"
-              label="起始时间"
-              rules={[{ required: true, message: '请选择回放起始时间' }]}
+              label={t('backtest_start_time')}
+              rules={[{ required: true, message: t('backtest_select_replay_start_time') }]}
             >
-              <DatePicker showTime style={{ width: '100%' }} placeholder="从此时间开始回放" />
+              <DatePicker showTime style={{ width: '100%' }} placeholder={t('backtest_start_from_time')} />
             </Form.Item>
             <Button type="primary" htmlType="submit" loading={loading}>
-              开始回放
+              {t('backtest_start_replay')}
             </Button>
           </Form>
         </Card>
@@ -541,28 +546,28 @@ const KlineReplayPage: React.FC = () => {
               <Row align="middle" gutter={[12, 12]}>
                 <Col>
                   <Space>
-                    <Tooltip title="单步后退">
+                    <Tooltip title={t('backtest_step_backward')}>
                       <Button icon={<StepBackwardOutlined />} onClick={() => handleStep(-1)} disabled={atStart && currentIndex === 0} />
                     </Tooltip>
                     {/* 与相邻单步/回退按钮一致：icon-only，悬浮 Tooltip 显示文字 */}
-                    <Tooltip title={isPlaying ? '暂停' : '播放'}>
+                    <Tooltip title={isPlaying ? t('pause') : t('play')}>
                       <Button
                         type="primary"
                         icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
                         onClick={() => (isPlaying ? pause() : handlePlay())}
                       />
                     </Tooltip>
-                    <Tooltip title="单步前进">
+                    <Tooltip title={t('backtest_step_forward')}>
                       <Button icon={<StepForwardOutlined />} onClick={() => handleStep(1)} disabled={atEnd && currentIndex >= barsCount - 1} />
                     </Tooltip>
-                    <Tooltip title="重置回放">
+                    <Tooltip title={t('backtest_reset_replay')}>
                       <Button icon={<ReloadOutlined />} onClick={handleResetReplay} />
                     </Tooltip>
                   </Space>
                 </Col>
                 <Col>
                   <Space>
-                    <span>速度</span>
+                    <span>{t('backtest_speed_label')}</span>
                     <Select
                       value={speed}
                       onChange={handleChangeSpeed}
@@ -575,8 +580,8 @@ const KlineReplayPage: React.FC = () => {
                 </Col>
                 <Col>
                   <Space>
-                    <span>跳到时间</span>
-                    <DatePicker showTime onChange={handleSeekTime} placeholder="秒级定位" />
+                    <span>{t('backtest_jump_to_time')}</span>
+                    <DatePicker showTime onChange={handleSeekTime} placeholder={t('backtest_second_precision')} />
                   </Space>
                 </Col>
               </Row>

@@ -4,6 +4,7 @@
  * 详情 Drawer 复用回测侧组件，四区块内容口径完全一致。
  */
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Button, Card, Empty, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import { getWorkerDecisionDetail, getWorkerDecisions } from '../../api/workerApi';
 import type { CascadeDecisionRecord } from '../../types/backtest';
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function WorkerDecisionsTab({ workerId, active }: Props) {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<CascadeDecisionRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -42,23 +44,23 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
   return (
     <Spin spinning={loading}>
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-        {error && <Alert type="warning" showIcon title={`决策列表加载失败：${error}`} />}
+        {error && <Alert type="warning" showIcon title={t('worker_decision_load_failed', { error })} />}
         <Card
           title={
             <Space wrap>
-              <span>决策记录</span>
-              <Typography.Text type="secondary">共 {total} 条</Typography.Text>
+              <span>{t('worker_decision_records')}</span>
+              <Typography.Text type="secondary">{t('total_items', { total })}</Typography.Text>
               {rows.length > 0 && (
                 <Tag color={fallbackCount > 0 ? 'orange' : 'green'}>
-                  降级 {fallbackCount} / {rows.length} 条
+                  {t('worker_decision_fallback_count', { count: fallbackCount, total: rows.length })}
                 </Tag>
               )}
             </Space>
           }
-          extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>最近 {rows.length} 条（含历史运行）</Typography.Text>}
+          extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('worker_decision_recent', { count: rows.length })}</Typography.Text>}
         >
           {rows.length === 0 && !loading ? (
-            <Empty description="该 Worker 未运行过 cascade 决策策略，或尚未产生决策（P2 之前的旧录制文件不展示）" />
+            <Empty description={t('worker_decisions_empty')} />
           ) : (
             <Table
               size="small"
@@ -67,7 +69,7 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
               pagination={{ pageSize: PAGE_SIZE, showSizeChanger: false }}
               columns={[
                 {
-                  title: '时间',
+                  title: t('backtest_time'),
                   dataIndex: '_ts',
                   width: 180,
                   render: (ts: string) => (
@@ -77,20 +79,20 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
                   ),
                 },
                 {
-                  title: '动作',
+                  title: t('backtest_action'),
                   dataIndex: 'action',
                   width: 80,
                   render: (a: string) => <Tag color={ACTION_COLORS[a] || 'default'}>{a}</Tag>,
                 },
                 {
-                  title: '置信度',
+                  title: t('backtest_confidence'),
                   dataIndex: 'confidence',
                   width: 100,
                   render: (v: number) => (typeof v === 'number' ? v.toFixed(4) : '-'),
                 },
-                { title: '决策者', dataIndex: '_decider', width: 130, render: (v: string) => v || '-' },
+                { title: t('backtest_decider'), dataIndex: '_decider', width: 130, render: (v: string) => v || '-' },
                 {
-                  title: '降级原因',
+                  title: t('backtest_fallback_reason'),
                   dataIndex: 'fallback_reason',
                   ellipsis: true,
                   render: (reason: string) =>
@@ -103,16 +105,16 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
                     ),
                 },
                 {
-                  title: '操作',
+                  title: t('action'),
                   width: 80,
                   fixed: 'right',
                   render: (_: unknown, record: CascadeDecisionRecord) =>
                     record._seq == null ? (
-                      <Tooltip title="旧录制无行号定位键">
-                        <Button size="small" disabled>详情</Button>
+                      <Tooltip title={t('worker_decision_no_seq')}>
+                        <Button size="small" disabled>{t('detail')}</Button>
                       </Tooltip>
                     ) : (
-                      <Button size="small" onClick={() => setDetailRecord(record)}>详情</Button>
+                      <Button size="small" onClick={() => setDetailRecord(record)}>{t('detail')}</Button>
                     ),
                 },
               ]}

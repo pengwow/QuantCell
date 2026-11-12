@@ -23,6 +23,7 @@ from typing import Any
 
 import pandas as pd
 
+from backtest import robustness
 from backtest.backtest_loop import BacktestLoop, BacktestResult, clean_ohlcv_df
 from backtest.margin_specs import build_margin_specs
 from backtest.stop_control import BacktestCancelled
@@ -1558,6 +1559,19 @@ class EventDrivenBacktestService:
         results["win_rate"] = win_rate
         results["max_drawdown"] = max_dd_pct  # 用 pct 字段(百分比,单位一致)
         results["sharpe_ratio"] = sharpe_ratio
+
+        # P1-05：组合级 PBO（CSCV 过拟合概率）。输入 = 独立资金池下各品种权益曲线的
+        # 逐 bar log 收益，按时间戳对齐为 T×N 矩阵（列为"策略"，即品种）。共享资金池
+        # 下各品种条目的 equity_curve 是同一账户曲线的复制，列间无差异（没有可比对象），
+        # 保持 None；单品种同理由 pbo() 内部的列数防御返回 None
+        pbo_value = None
+        if not shares_equity and len(per_symbol_results) >= 2:
+            ret_cols = {}
+            for sym, r in per_symbol_results.items():
+                ts_list, ret_list, _ = robustness.curve_returns(r.get("equity_curve"))
+                ret_cols[sym] = pd.Series(ret_list, index=ts_list)
+            pbo_value = robustness.pbo(pd.DataFrame(ret_cols))
+        results["robustness_pbo"] = pbo_value
 
         # portfolio 级别的 metrics 使用聚合数据格式化
         # format_axon_results 按 initial_capital/final_nav/max_drawdown_pct 取数，

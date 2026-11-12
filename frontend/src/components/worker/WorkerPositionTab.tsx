@@ -102,46 +102,46 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   // 表格列：按量化行业标准排序
   const columns: TableColumnsType<Position> = [
     {
-      title: t('symbol') || '交易对',
+      title: t('symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
       width: 120,
       render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
     },
     {
-      title: t('direction') || '方向',
+      title: t('direction'),
       dataIndex: 'side',
       key: 'side',
       width: 80,
       render: (side: 'long' | 'short') => (
         <Tag color={side === 'long' ? 'green' : 'red'}>
-          {side === 'long' ? t('long') || '做多' : t('short') || '做空'}
+          {side === 'long' ? t('long') : t('short')}
         </Tag>
       ),
     },
     {
-      title: t('quantity') || '数量',
+      title: t('quantity'),
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right',
       render: (qty: number) => formatQuantity(qty),
     },
     {
-      title: t('entry_price') || '开仓价',
+      title: t('entry_price'),
       dataIndex: 'entry_price',
       key: 'entry_price',
       align: 'right',
       render: (price: number) => formatUSD(price),
     },
     {
-      title: t('current_price') || '最新价',
+      title: t('current_price'),
       dataIndex: 'current_price',
       key: 'current_price',
       align: 'right',
       render: (price: number) => formatUSD(price),
     },
     {
-      title: '标记价',
+      title: t('worker_mark_price'),
       dataIndex: 'mark_price',
       key: 'mark_price',
       align: 'right',
@@ -149,7 +149,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         price === null || price === undefined ? <span style={{ color: '#999' }}>-</span> : formatUSD(price),
     },
     {
-      title: '强平价',
+      title: t('worker_liquidation_price'),
       dataIndex: 'liquidation_price',
       key: 'liquidation_price',
       align: 'right',
@@ -157,7 +157,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         price === null || price === undefined ? <span style={{ color: '#999' }}>-</span> : formatUSD(price),
     },
     {
-      title: t('leverage') || '杠杆',
+      title: t('leverage'),
       dataIndex: 'leverage',
       key: 'leverage',
       width: 80,
@@ -165,14 +165,14 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       render: (lev?: number) => (lev ? <Tag color="orange">{formatLeverage(lev)}</Tag> : '-'),
     },
     {
-      title: '保证金',
+      title: t('backtest_margin'),
       dataIndex: 'margin_used',
       key: 'margin_used',
       align: 'right',
       render: (margin?: number) => formatUSD(margin),
     },
     {
-      title: t('unrealized_pnl') || '未实现盈亏',
+      title: t('unrealized_pnl'),
       dataIndex: 'unrealized_pnl',
       key: 'unrealized_pnl',
       align: 'right',
@@ -200,14 +200,14 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       },
     },
     {
-      title: t('open_time') || '开仓时间',
+      title: t('open_time'),
       dataIndex: 'open_time',
       key: 'open_time',
       width: 170,
       render: (time?: string) => (time ? formatTimestamp(time) : '-'),
     },
     {
-      title: '持仓时长',
+      title: t('worker_holding_duration'),
       dataIndex: 'open_time',
       key: 'holding_duration',
       width: 110,
@@ -225,7 +225,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   // 成交明细表格列：时间优先取平仓时间，未平仓行回退为成交时间
   const tradeColumns: TableColumnsType<WorkerTrade> = [
     {
-      title: '时间',
+      title: t('backtest_time'),
       dataIndex: 'exit_time',
       key: 'exit_time',
       width: 170,
@@ -235,45 +235,45 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       },
     },
     {
-      title: t('symbol') || '交易对',
+      title: t('symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
       width: 120,
       render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
     },
     {
-      title: t('direction') || '方向',
+      title: t('direction'),
       dataIndex: 'side',
       key: 'side',
       width: 80,
       render: (side: 'buy' | 'sell') => (
-        <Tag color={side === 'buy' ? 'green' : 'red'}>{side === 'buy' ? '买入' : '卖出'}</Tag>
+        <Tag color={side === 'buy' ? 'green' : 'red'}>{side === 'buy' ? t('buy') : t('sell')}</Tag>
       ),
     },
     {
-      title: '状态',
+      title: t('status'),
       dataIndex: 'realized_pnl',
       key: 'trade_status',
       width: 90,
       render: (pnl?: number | null) =>
-        pnl === undefined || pnl === null ? <Tag color="gold">持仓中</Tag> : <Tag>已平仓</Tag>,
+        pnl === undefined || pnl === null ? <Tag color="gold">{t('worker_holding')}</Tag> : <Tag>{t('worker_closed')}</Tag>,
     },
     {
-      title: t('quantity') || '数量',
+      title: t('quantity'),
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right',
       render: (qty: number) => formatQuantity(qty),
     },
     {
-      title: '成交价',
+      title: t('worker_fill_price'),
       dataIndex: 'price',
       key: 'price',
       align: 'right',
       render: (price: number) => formatUSD(price),
     },
     {
-      title: t('realized_pnl') || '已实现盈亏',
+      title: t('realized_pnl'),
       dataIndex: 'realized_pnl',
       key: 'realized_pnl',
       align: 'right',
@@ -288,7 +288,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         ),
     },
     {
-      title: '收益率',
+      title: t('return_rate'),
       dataIndex: 'realized_pnl_pct',
       key: 'realized_pnl_pct',
       align: 'right',
@@ -316,7 +316,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
-              title={t('total_position_value') || '总持仓价值'}
+              title={t('total_position_value')}
               value={summary.totalPositionValue}
               precision={2}
               prefix="$"
@@ -327,7 +327,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
-              title={t('unrealized_pnl') || '总未实现盈亏'}
+              title={t('unrealized_pnl')}
               value={summary.totalUnrealizedPnL}
               precision={2}
               prefix="$"
@@ -342,7 +342,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
-              title={t('margin_used') || '总保证金占用'}
+              title={t('margin_used')}
               value={summary.totalMarginUsed}
               precision={2}
               prefix="$"
@@ -353,7 +353,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
-              title="总 ROE"
+              title={t('worker_total_roe')}
               value={summary.totalROE}
               precision={2}
               suffix="%"
@@ -372,11 +372,11 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       <Card
         title={
           <span>
-            {t('current_position') || '当前持仓'}
+            {t('current_position')}
             {active && (
               <Badge
                 status="processing"
-                text="实时"
+                text={t('worker_realtime')}
                 style={{ marginLeft: 12, color: QUANT_COLORS.info }}
               />
             )}
@@ -385,7 +385,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       >
         {positions.length === 0 ? (
           <Empty
-            description={t('no_position_data') || '暂无持仓数据'}
+            description={t('no_position_data')}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (
@@ -402,21 +402,21 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       </Card>
 
       {/* 成交明细：全部 fill 行（含持仓中/未平仓），服务端分页（数据 append-only，翻页/15s 轮询按当前页刷新） */}
-      <Card title="成交明细">
+      <Card title={t('worker_trade_details')}>
         <Table
           columns={tradeColumns}
           dataSource={trades}
           rowKey="trade_id"
           loading={tradeLoading}
           locale={{
-            emptyText: <Empty description="暂无成交记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+            emptyText: <Empty description={t('worker_no_trades')} image={Empty.PRESENTED_IMAGE_SIMPLE} />,
           }}
           pagination={{
             current: tradePage,
             pageSize: 10,
             total: tradeTotal,
             showSizeChanger: false,
-            showTotal: (total) => `共 ${total} 笔`,
+            showTotal: (total) => t('worker_trades_count', { total }),
             onChange: (page) => fetchTrades(page),
           }}
           size="middle"

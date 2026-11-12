@@ -30,6 +30,7 @@ from indicators.executor import (
     parse_indicator_params,
 )
 from indicators.models import CustomIndicatorBusiness
+from indicators.versions import IndicatorVersionBusiness
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -149,6 +150,20 @@ class VerifyCodeRequest(BaseModel):
     code: str
 
 
+class IndicatorPreviewRequest(BaseModel):
+    """沙箱预览请求（P2-08）：对未保存的草稿代码做一次性求值"""
+
+    code: str = Field(..., description="草稿指标代码")
+    params: dict[str, Any] | None = Field(default=None, description="指标参数")
+    kline_data: list[dict[str, Any]] | None = Field(
+        default=None,
+        alias="klineData",
+        description="可选K线数据，为空则使用mock数据",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class ExecuteIndicatorRequest(BaseModel):
     symbol: str = Field(..., description="交易对符号")
     period: str = Field("1h", description="K线周期")
@@ -245,6 +260,8 @@ async def create_indicator(request_body: IndicatorCreateRequest, http_request: R
         )
 
     logger.info(f"创建指标: {result['name']} (ID: {result['id']})")
+    # 首个快照 v1（P2-08），保证版本列表非空
+    IndicatorVersionBusiness.record_version(result["id"], source="create")
     return ApiResponse(
         code=0,
         message="创建指标成功",
@@ -283,6 +300,8 @@ async def update_indicator(indicator_id: int, request_body: IndicatorUpdateReque
         )
 
     logger.info(f"更新指标: ID={indicator_id}")
+    # 每次保存生成新版本快照（P2-08），供版本列表/回滚/diff
+    IndicatorVersionBusiness.record_version(indicator_id, source="save")
     return ApiResponse(
         code=0,
         message="更新指标成功",
@@ -359,6 +378,49 @@ async def verify_code(request: VerifyCodeRequest):
             code=500,
             message=f"验证过程异常: {e!s}",
             data={"valid": False},
+            timestamp=datetime.now(),
+        )
+
+
+@router.post("/preview")
+async def preview_indicator(request: IndicatorPreviewRequest):
+    """沙箱预览（P2-08）：对未保存的草稿代码做一次性求值
+
+    与 /execute 不同：不落库、面向 IDE 编辑中的草稿；独立 executor 限时 2s，
+    防止草稿死循环拖垮进程。ponytail: 内存隔离口径与项目沙箱一致（受限 builtins +
+    超时线程），线程无法强杀、真进程级隔离成本高，超时只是让本次结果作废。
+    """
+    if not request.code.strip():
+        return ApiResponse(
+            code=400,
+            message="代码不能为空",
+            data=None,
+            timestamp=datetime.now(),
+        )
+
+    # 一次性实例：预览走 2s 限时，不复用全局 10s 执行器，避免互相影响
+    preview_executor = IndicatorExecutor(timeout=2.0)
+
+    try:
+        result = await preview_executor.execute(
+            code=request.code,
+            kline_data=request.kline_data or [],
+            params=request.params or {},
+        )
+        if result["success"]:
+            return ApiResponse(code=0, message="预览成功", data=result, timestamp=datetime.now())
+        return ApiResponse(
+            code=400,
+            message=result.get("error", "预览失败"),
+            data=result,
+            timestamp=datetime.now(),
+        )
+    except Exception as e:
+        logger.error(f"指标预览异常: {e}")
+        return ApiResponse(
+            code=500,
+            message=f"预览异常: {e!s}",
+            data={"success": False, "error": str(e), "plots": [], "signals": []},
             timestamp=datetime.now(),
         )
 
@@ -460,6 +522,41 @@ async def get_indicator_params(indicator_id: int):
         data=params,
         timestamp=datetime.now(),
     )
+
+
+@router.get("/{indicator_id}/versions")
+async def get_indicator_versions(indicator_id: int):
+    """获取指标版本快照列表（新版本在前，P2-08）"""
+    if not CustomIndicatorBusiness.get_by_id(indicator_id):
+        return ApiResponse(code=404, message="指标不存在", data=None, timestamp=datetime.now())
+    versions = IndicatorVersionBusiness.list_versions(indicator_id)
+    return ApiResponse(code=0, message="获取版本列表成功", data=versions, timestamp=datetime.now())
+
+
+@router.get("/{indicator_id}/versions/diff")
+async def get_indicator_version_diff(indicator_id: int, a: int, b: int):
+    """对比两个版本的代码内容（query 参数 a/b 版本号，diff 渲染由前端完成）"""
+    data = IndicatorVersionBusiness.diff_versions(indicator_id, a, b)
+    if data is None:
+        return ApiResponse(code=404, message="版本不存在", data=None, timestamp=datetime.now())
+    return ApiResponse(code=0, message="获取版本对比成功", data=data, timestamp=datetime.now())
+
+
+@router.post("/{indicator_id}/versions/{version_no}/rollback")
+async def rollback_indicator_version(indicator_id: int, version_no: int, http_request: Request):
+    """回滚指标到指定版本（生成 source=rollback 的新快照，不删历史）"""
+    if is_guest_user(http_request):
+        return ApiResponse(
+            code=403,
+            message="权限不足",
+            data={"detail": "访客用户无法回滚指标版本"},
+            timestamp=datetime.now(),
+        )
+
+    result = IndicatorVersionBusiness.rollback(indicator_id, version_no)
+    if not result:
+        return ApiResponse(code=404, message="版本不存在或回滚失败", data=None, timestamp=datetime.now())
+    return ApiResponse(code=0, message="版本回滚成功", data=result, timestamp=datetime.now())
 
 
 async def generate_indicator_stream(prompt: str, existing_code: str = "") -> AsyncGenerator[str]:

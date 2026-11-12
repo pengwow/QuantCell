@@ -69,23 +69,26 @@ const ErrorDetailModal = ({
   visible: boolean;
   onClose: () => void;
   errorDetail: string;
-}) => (
-  <Modal
-    title="错误详情"
-    open={visible}
-    onCancel={onClose}
-    footer={[
-      <Button key="close" onClick={onClose}>
-        关闭
-      </Button>,
-    ]}
-    width={600}
-  >
-    <div className="error-detail-content">
-      <pre>{errorDetail}</pre>
-    </div>
-  </Modal>
-);
+}) => {
+  const { t } = useTranslation();
+  return (
+    <Modal
+      title={t('agent_error_detail')}
+      open={visible}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          {t('close_button')}
+        </Button>,
+      ]}
+      width={600}
+    >
+      <div className="error-detail-content">
+        <pre>{errorDetail}</pre>
+      </div>
+    </Modal>
+  );
+};
 
 // 消息气泡组件
 const ChatMessage = ({ message }: { message: Message }) => {
@@ -94,10 +97,11 @@ const ChatMessage = ({ message }: { message: Message }) => {
   const isError = message.isError;
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const { message: antMessage } = App.useApp();
+  const { t } = useTranslation();
 
   // 处理意图面板操作
   const handleIntentAction = (actionType: string) => {
-    antMessage.info(`执行操作: ${actionType}`);
+    antMessage.info(t('agent_execute_action', { action: actionType }));
     // TODO: 根据 actionType 跳转到相应功能页面或执行操作
   };
 
@@ -116,7 +120,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
         <div className="message-content">
           <div className="message-header">
             <span className="message-role">
-              {isUser ? '用户' : isTool ? '工具' : isError ? '错误' : (message.roleName || 'AI Agent')}
+              {isUser ? t('agent_user') : isTool ? t('agent_tool') : isError ? t('error') : (message.roleName || 'AI Agent')}
             </span>
             <span className="message-time">
               {new Date(message.timestamp).toLocaleTimeString()}
@@ -134,7 +138,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
             )}
             <div className="message-text">
               {isError && (
-                <Tooltip title="点击查看详细错误信息">
+                <Tooltip title={t('agent_click_view_error')}>
                   <Button
                     type="text"
                     size="small"
@@ -161,7 +165,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
       {hasIntent && (
         <IntentPanelRenderer
           intent={message.intent!}
-          roleName={message.roleName || 'AI 助手'}
+          roleName={message.roleName || t('agent_ai_assistant')}
           content={message.content}
           structuredData={message.structuredData || {}}
           actions={message.actions || []}
@@ -173,7 +177,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
         <ErrorDetailModal
           visible={errorModalVisible}
           onClose={() => setErrorModalVisible(false)}
-          errorDetail={message.errorDetail || '无详细错误信息'}
+          errorDetail={message.errorDetail || t('agent_no_error_detail')}
         />
       )}
     </>
@@ -196,6 +200,7 @@ const ToolListDrawerWithConfig = ({
   const [editingValues, setEditingValues] = useState<Record<string, Record<string, unknown>>>({});
   const [showSensitive, setShowSensitive] = useState<Record<string, Record<string, boolean>>>({});
   const { message } = App.useApp();
+  const { t } = useTranslation();
 
   // 切换工具展开/折叠
   const toggleExpand = async (toolName: string) => {
@@ -235,7 +240,7 @@ const ToolListDrawerWithConfig = ({
           [toolName]: { tool_name: toolName, params: {} } 
         }));
       } else {
-        message.error(`加载 ${toolName} 参数失败`);
+        message.error(t('agent_load_tool_params_failed', { name: toolName }));
       }
     } finally {
         setLoadingParams(prev => {
@@ -264,7 +269,7 @@ const ToolListDrawerWithConfig = ({
           [toolName]: { ...prev[toolName], [paramName]: true },
         }));
       } catch {
-        message.error('获取敏感参数值失败');
+        message.error(t('agent_sensitive_value_failed'));
       }
     } else {
       // 重新加载脱敏版本
@@ -280,19 +285,19 @@ const ToolListDrawerWithConfig = ({
   const handleUpdateParam = async (toolName: string, paramName: string, value: unknown) => {
     try {
       await toolParamApi.setToolParam(toolName, paramName, value);
-      message.success(`${paramName} 已更新`);
+      message.success(t('agent_param_updated', { name: paramName }));
       await loadToolParams(toolName); // 刷新参数
     } catch (error) {
-      message.error(`更新失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      message.error(t('agent_update_failed', { message: error instanceof Error ? error.message : t('unknown_error') }));
     }
   };
 
   // 渲染来源标签
   const renderSourceTag = (source: string) => {
     const config: Record<string, { color: string; icon: React.ReactNode; text: string }> = {
-      database: { color: 'blue', icon: <DatabaseOutlined />, text: '数据库' },
-      environment: { color: 'green', icon: <GlobalOutlined />, text: '环境变量' },
-      default: { color: 'default', icon: <SettingOutlined />, text: '默认值' },
+      database: { color: 'blue', icon: <DatabaseOutlined />, text: t('agent_source_database') },
+      environment: { color: 'green', icon: <GlobalOutlined />, text: t('env_variables') },
+      default: { color: 'default', icon: <SettingOutlined />, text: t('default_value') },
     };
     const c = config[source] || config.default;
     return <Tag color={c.color} icon={c.icon}>{c.text}</Tag>;
@@ -319,7 +324,7 @@ const ToolListDrawerWithConfig = ({
             icon={<EyeOutlined />}
             onClick={() => toggleSensitive(toolName, paramName)}
           >
-            显示
+            {t('show')}
           </Button>
         </Space>
       );
@@ -397,17 +402,18 @@ const ToolListDrawerWithConfig = ({
       title={
         <Space>
           <ToolOutlined />
-          <span>可用工具</span>
+          <span>{t('agent_available_tools')}</span>
           <Button
             type="text"
             size="small"
             icon={<ReloadOutlined />}
             onClick={() => {
               setToolsParams({});
-              tools.forEach(t => loadToolParams(t.name));
+              // 重命名局部变量避免与翻译函数 t 遮蔽冲突
+              tools.forEach(tool => loadToolParams(tool.name));
             }}
           >
-            刷新配置
+            {t('agent_refresh_config')}
           </Button>
         </Space>
       }
@@ -441,7 +447,7 @@ const ToolListDrawerWithConfig = ({
                   </Space>
                 </div>
                 <Space>
-                  <Tooltip title={isExpanded ? '收起参数' : '展开参数'}>
+                  <Tooltip title={isExpanded ? t('agent_collapse_params') : t('agent_expand_params')}>
                     {isExpanded ? <UpOutlined /> : <DownOutlined />}
                   </Tooltip>
                 </Space>
@@ -454,7 +460,7 @@ const ToolListDrawerWithConfig = ({
               {isExpanded && (
                 <div className="tool-params-panel">
                   {isLoading ? (
-                    <Spin size="small" tip="加载中..." />
+                    <Spin size="small" tip={t('loading')} />
                   ) : params && params.params && Object.keys(params.params).length > 0 ? (
                     <div className="params-container">
                       {Object.entries(params.params).map(
@@ -516,7 +522,7 @@ const ToolListDrawerWithConfig = ({
                                       )
                                     }
                                   >
-                                    保存
+                                    {t('save')}
                                   </Button>
                                 )}
                               </Space>
@@ -530,7 +536,7 @@ const ToolListDrawerWithConfig = ({
                     <Empty
                       description={
                         <span style={{ fontSize: 11 }}>
-                          该工具无需配置参数
+                          {t('agent_no_params_needed')}
                         </span>
                       }
                       styles={{ image: { height: 35 } }}
@@ -566,16 +572,17 @@ const SessionListDrawer = ({
   onClearSession: () => void;
   onDeleteSession: (sessionId: string, e: React.MouseEvent) => void;
 }) => {
+  const { t } = useTranslation();
   return (
     <Drawer
-      title="会话列表"
+      title={t('agent_session_list')}
       placement="right"
       onClose={onClose}
       open={visible}
       size="default"
       className="session-drawer"
       extra={
-        <Tooltip title="新会话">
+        <Tooltip title={t('agent_new_session')}>
           <Button
             type="primary"
             size="small"
@@ -605,7 +612,7 @@ const SessionListDrawer = ({
                   items: [
                     {
                       key: 'clear',
-                      label: '清空消息',
+                      label: t('agent_clear_messages'),
                       icon: <ClearOutlined />,
                       onClick: (e) => {
                         e.domEvent.stopPropagation();
@@ -616,7 +623,7 @@ const SessionListDrawer = ({
                       key: 'delete',
                       label: (
                         <span style={{ color: QUANT_COLORS.negative }}>
-                          <DeleteOutlined /> 删除会话
+                          <DeleteOutlined /> {t('agent_delete_session')}
                         </span>
                       ),
                       danger: true,
@@ -648,8 +655,6 @@ const SessionListDrawer = ({
 // 主页面
 const Agent = () => {
   const { t } = useTranslation();
-  // 使用 t 函数来避免 TypeScript 的 "declared but never read" 错误
-  void t;
   const { message } = App.useApp();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState('');
@@ -702,28 +707,28 @@ const Agent = () => {
 
   const handleNewSession = async () => {
     await createSession();
-    message.success('新会话已创建');
+    message.success(t('agent_session_created'));
     setSessionDrawerOpen(false);
   };
 
   const handleClearSession = async () => {
     await clearSession(currentSessionId);
-    message.success('会话已清空');
+    message.success(t('agent_session_cleared'));
   };
 
   const handleDeleteConfirm = async () => {
-    if (confirmText !== '确认删除' || !sessionToDelete) {
+    if (confirmText !== t('confirm_delete') || !sessionToDelete) {
       return;
     }
 
     const success = await deleteSession(sessionToDelete);
     if (success) {
-      message.success('会话已删除');
+      message.success(t('agent_session_deleted'));
       setDeleteModalVisible(false);
       setConfirmText('');
       setSessionToDelete(null);
     } else {
-      message.error('删除失败');
+      message.error(t('delete_failed'));
     }
   };
 
@@ -745,7 +750,7 @@ const Agent = () => {
         {/* 头部 */}
         <div className="agent-header">
           <div className="header-left">
-            <Tooltip title="会话列表">
+            <Tooltip title={t('agent_session_list')}>
               <Button
                 type="text"
                 icon={<MessageOutlined />}
@@ -758,7 +763,7 @@ const Agent = () => {
             </span>
           </div>
           <div className="header-right">
-            <Tooltip title="会话列表">
+            <Tooltip title={t('agent_session_list')}>
               <Button
                 type="text"
                 icon={<HistoryOutlined />}
@@ -766,14 +771,14 @@ const Agent = () => {
                 className={sessionDrawerOpen ? 'active' : ''}
               />
             </Tooltip>
-            <Tooltip title="工具列表">
+            <Tooltip title={t('agent_tool_list')}>
               <Button
                 type="text"
                 icon={<ToolOutlined />}
                 onClick={() => setToolDrawerVisible(true)}
               />
             </Tooltip>
-            <Tooltip title="清空会话">
+            <Tooltip title={t('agent_clear_session')}>
               <Button
                 type="text"
                 icon={<DeleteOutlined />}
@@ -787,7 +792,7 @@ const Agent = () => {
         <Content className="agent-content">
           {messages.length === 0 ? (
             <Empty
-              description="开始与 AI Agent 对话"
+              description={t('agent_start_chat')}
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
@@ -798,7 +803,7 @@ const Agent = () => {
               {loading && (
                 <div className="loading-indicator">
                   <Spin size="small" />
-                  <span>AI 正在思考...</span>
+                  <span>{t('agent_thinking')}</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -813,7 +818,7 @@ const Agent = () => {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入消息，按 Enter 发送，Shift+Enter 换行..."
+              placeholder={t('agent_input_placeholder')}
               autoSize={{ minRows: 1, maxRows: 6 }}
               disabled={loading}
             />
@@ -826,8 +831,8 @@ const Agent = () => {
             />
           </div>
           <div className="input-hint">
-            支持工具调用: {tools.slice(0, 3).map(t => t.name).join(', ')}
-            {tools.length > 3 && ` 等 ${tools.length} 个工具`}
+            {t('agent_support_tools', { tools: tools.slice(0, 3).map(tool => tool.name).join(', ') })}
+            {tools.length > 3 && ` ${t('agent_and_more_tools', { total: tools.length })}`}
           </div>
         </div>
       </Layout>
@@ -856,7 +861,7 @@ const Agent = () => {
         title={
           <span className="delete-modal-title">
             <ExclamationCircleOutlined style={{ marginRight: 8 }} />
-            确认删除会话
+            {t('agent_confirm_delete_session')}
           </span>
         }
         open={deleteModalVisible}
@@ -866,36 +871,36 @@ const Agent = () => {
           setConfirmText('');
           setSessionToDelete(null);
         }}
-        okText="确认删除"
-        cancelText="取消"
+        okText={t('confirm_delete')}
+        cancelText={t('cancel')}
         okButtonProps={{
           danger: true,
-          disabled: confirmText !== '确认删除',
+          disabled: confirmText !== t('confirm_delete'),
         }}
         className="delete-confirm-modal"
       >
         <div style={{ marginBottom: 16 }}>
-          <p><strong>您即将删除此会话，该操作不可恢复。</strong></p>
+          <p><strong>{t('agent_delete_warning_main')}</strong></p>
 
           <div className="delete-warning-box">
-            <p className="delete-warning-title">删除将影响以下内容：</p>
+            <p className="delete-warning-title">{t('agent_delete_warning_title')}</p>
             <ul className="delete-warning-list">
-              <li>该会话的所有历史消息将被永久删除</li>
-              <li>无法再通过此会话ID追溯对话记录</li>
-              <li>未整合到长期记忆的近期对话细节将丢失</li>
+              <li>{t('agent_delete_warning_item1')}</li>
+              <li>{t('agent_delete_warning_item2')}</li>
+              <li>{t('agent_delete_warning_item3')}</li>
             </ul>
             <p className="delete-warning-note">
-              <strong>注意：</strong>已整合的长期记忆（MEMORY.md）不受影响
+              <strong>{t('agent_delete_warning_note_prefix')}</strong>{t('agent_delete_warning_note_body')}
             </p>
           </div>
 
           <p className="delete-confirm-hint">
-            请输入 <strong className="delete-confirm-highlight">确认删除</strong> 以继续：
+            {t('please_input')} <strong className="delete-confirm-highlight">{t('confirm_delete')}</strong> {t('agent_to_continue')}
           </p>
           <Input
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            placeholder="请输入：确认删除"
+            placeholder={`${t('please_input')}：${t('confirm_delete')}`}
             style={{ width: '100%' }}
           />
         </div>

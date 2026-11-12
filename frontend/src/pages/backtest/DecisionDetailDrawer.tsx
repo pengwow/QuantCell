@@ -21,6 +21,10 @@ import {
   Typography,
 } from 'antd';
 import type { DecisionDetailRecord } from '../../types/backtest';
+import { useTranslation } from 'react-i18next';
+// 本文件顶层的 humanizeFallbackReason 是纯工具函数（聚合页共用、不可改签名加 hook），
+// 非组件场景取词条走全局 i18n 实例（与 hooks/useUpdater.ts 同一惯例）
+import i18n from '../../i18n/config';
 
 /** 轻列表行中参与定位的子集（由详情页表格传入） */
 export interface DrawerRecord {
@@ -44,12 +48,15 @@ export const humanizeFallbackReason = (reason?: string): string => {
   let suffix = '';
   if (body.endsWith('|s2_replay')) {
     body = body.slice(0, -'|s2_replay'.length);
-    suffix = '（已回放覆盖）';
+    suffix = i18n.t('backtest_decision_replay_suffix');
   }
   const lc = body.match(/^low_confidence:\s*(\w+):\s*([\d.]+)$/);
-  if (lc) return `置信度 ${lc[2]} 低于阈值，规则接管（方向 ${lc[1]}）${suffix}`;
-  if (body.startsWith('sdm_error:')) return `S1 调用异常: ${body.slice(10).trim()}${suffix}`;
-  if (body.startsWith('fallback_error:')) return `规则兜底异常: ${body.slice(15).trim()}${suffix}`;
+  if (lc)
+    return i18n.t('backtest_decision_reason_low_confidence', { conf: lc[2], direction: lc[1], suffix });
+  if (body.startsWith('sdm_error:'))
+    return i18n.t('backtest_decision_reason_s1_error', { message: body.slice(10).trim(), suffix });
+  if (body.startsWith('fallback_error:'))
+    return i18n.t('backtest_decision_reason_fallback_error', { message: body.slice(15).trim(), suffix });
   return `${body}${suffix}`;
 };
 
@@ -79,11 +86,12 @@ const preStyle: React.CSSProperties = {
 
 /** 键值表：短值单行内联；长 JSON 格式化进可滚动 pre 完整展示；支持字段名搜索 */
 const KVTable = ({ data, search }: { data: Record<string, unknown>; search: string }) => {
+  const { t } = useTranslation();
   const rows = Object.entries(data || {})
     .filter(([k]) => !search || k.toLowerCase().includes(search.toLowerCase()))
     .map(([k, v]) => ({ key: k, k, v: JSON.stringify(v) }));
   if (rows.length === 0)
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配字段" />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('backtest_decision_no_field_matched')} />;
   return (
     <Table
       size="small"
@@ -91,9 +99,9 @@ const KVTable = ({ data, search }: { data: Record<string, unknown>; search: stri
       scroll={{ y: 320 }}
       dataSource={rows}
       columns={[
-        { title: '字段', dataIndex: 'k', width: 220, render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code> },
+        { title: t('backtest_decision_col_field'), dataIndex: 'k', width: 220, render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code> },
         {
-          title: '值',
+          title: t('backtest_decision_col_value'),
           dataIndex: 'v',
           render: (v: string) =>
             v.length <= 80 ? (
@@ -115,8 +123,13 @@ const ProbBar = ({
   probs: Record<string, unknown>;
   thresholds?: { open?: number; hold?: number };
 }) => {
-  const colors: Record<string, string> = { buy: '#52c41a', sell: '#ff4d4f', hold: '#8c8c8c' };
-  const labels: Record<string, string> = { buy: '买入', sell: '卖出', hold: '持有' };
+  const { t } = useTranslation();
+  const colors: Record<string, string> = {
+    buy: 'var(--tw-color-success)',
+    sell: 'var(--tw-color-error)',
+    hold: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
+  };
+  const labels: Record<string, string> = { buy: t('buy'), sell: t('sell'), hold: t('backtest_decision_action_hold') };
   return (
     <div style={{ display: 'flex', gap: 16 }}>
       {['buy', 'sell', 'hold'].map((k) => {
@@ -139,7 +152,9 @@ const ProbBar = ({
                 }}
               />
               {typeof th === 'number' && (
-                <Tooltip title={`${labels[k]}阈值 ${(th * 100).toFixed(1)}%（meta.open_threshold/hold_threshold）`}>
+                <Tooltip
+                  title={t('backtest_decision_threshold_tooltip', { label: labels[k], value: (th * 100).toFixed(1) })}
+                >
                   <div
                     style={{
                       position: 'absolute',
@@ -147,7 +162,7 @@ const ProbBar = ({
                       top: -2,
                       bottom: -2,
                       width: 2,
-                      background: '#faad14',
+                      background: 'var(--tw-color-warning)',
                       transform: 'translateX(-1px)',
                       cursor: 'help',
                     }}
@@ -170,6 +185,7 @@ interface DecisionDetailDrawerProps {
 }
 
 export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: DecisionDetailDrawerProps) {
+  const { t } = useTranslation();
   const [detail, setDetail] = useState<DecisionDetailRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -220,19 +236,19 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
 
   return (
     <Drawer
-      title={record ? `决策详情 · ${fmtDecisionTs(record._ts)}` : '决策详情'}
+      title={record ? t('backtest_decision_detail_title', { time: fmtDecisionTs(record._ts) }) : t('backtest_decision_detail')}
       open={!!record}
       onClose={onClose}
       size={680}
     >
       {loading && <Spin />}
-      {error && <Alert type="warning" showIcon title={`详情加载失败：${error}`} style={{ marginBottom: 12 }} />}
+      {error && <Alert type="warning" showIcon title={t('backtest_decision_detail_load_failed', { message: error })} style={{ marginBottom: 12 }} />}
       {detail && (
         <Tabs
           items={[
             {
               key: 'decision',
-              label: '① 最终决策',
+              label: t('backtest_decision_tab_final'),
               children: (
                 <>
                   {isFallback && detail.decision.fallback_reason ? (
@@ -240,50 +256,53 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
                       type="warning"
                       showIcon
                       style={{ marginBottom: 12 }}
-                      title={`规则接管：${humanizeFallbackReason(String(detail.decision.fallback_reason))}`}
+                      title={t('backtest_decision_rule_takeover', { reason: humanizeFallbackReason(String(detail.decision.fallback_reason)) })}
                     />
                   ) : null}
                   <Space size="small" wrap style={{ marginBottom: 12 }}>
                     {detail._decider && <Tag color="blue">{detail._decider}</Tag>}
-                    <Tooltip title="来源字段 decision.source">
-                      <Tag>{isFallback ? '规则兜底' : 'S1 直出'}</Tag>
+                    <Tooltip title={t('backtest_decision_source_tooltip')}>
+                      <Tag>{isFallback ? t('backtest_decision_rule_fallback') : t('backtest_decision_s1_direct')}</Tag>
                     </Tooltip>
                     {detail.meta?.s1_model ? <Tag color="geekblue">S1: {String(detail.meta.s1_model)}</Tag> : null}
                     {detail.meta?.s2_model ? <Tag color="purple">S2: {String(detail.meta.s2_model)}</Tag> : null}
                   </Space>
                   <div style={{ marginBottom: 8 }}>
-                    <Typography.Text type="secondary">置信度 </Typography.Text>
+                    <Typography.Text type="secondary">{t('backtest_decision_confidence')}{' '}</Typography.Text>
                     <Typography.Text strong>{fmtNum(confidence)}</Typography.Text>
                     {typeof confidence === 'number' && typeof effThreshold === 'number' && (
                       <Typography.Text type={confidence >= effThreshold ? 'secondary' : 'warning'}>
-                        {' '}｜ 阈值 {fmtNum(effThreshold, 2)}
-                        （{confidence >= effThreshold ? '达标' : `低 ${fmtNum(effThreshold - confidence)}`}）
+                        {' '}
+                        {confidence >= effThreshold
+                          ? t('backtest_decision_threshold_met', { value: fmtNum(effThreshold, 2) })
+                          : t('backtest_decision_threshold_below', { value: fmtNum(effThreshold, 2), gap: fmtNum(effThreshold - confidence) })}
                       </Typography.Text>
                     )}
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>概率分布（decision.probabilities）</div>
+                    <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>{t('backtest_decision_prob_distribution')}</div>
                     <ProbBar probs={probs} thresholds={thCfg} />
                   </div>
                   {decision.sdm_usage ? (
                     <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 8 }}>
-                      SDM 计费：input_tokens={String((decision.sdm_usage as Record<string, unknown>).input_tokens ?? '-')}
-                      ，cost_usd=
-                      {String((decision.sdm_usage as Record<string, unknown>).cost_usd ?? '-')}
+                      {t('backtest_decision_sdm_usage', {
+                        tokens: String((decision.sdm_usage as Record<string, unknown>).input_tokens ?? '-'),
+                        cost: String((decision.sdm_usage as Record<string, unknown>).cost_usd ?? '-'),
+                      })}
                     </div>
                   ) : null}
                   {subs && Object.keys(subs).length > 0 && (
                     <>
                       <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', margin: '8px 0 4px' }}>
-                        子信号（decision.sub_signals，仅归因不参与门控）
+                        {t('backtest_decision_sub_signals_title')}
                       </div>
                       <Table
                         size="small"
                         pagination={false}
                         dataSource={Object.entries(subs).map(([k, v]) => ({ key: k, k, v }))}
                         columns={[
-                          { title: '子信号', dataIndex: 'k', width: 240, render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code> },
-                          { title: '数值', dataIndex: 'v', render: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : String(v)) },
+                          { title: t('backtest_decision_col_sub_signal'), dataIndex: 'k', width: 240, render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code> },
+                          { title: t('backtest_decision_col_numeric'), dataIndex: 'v', render: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : String(v)) },
                         ]}
                       />
                     </>
@@ -293,12 +312,12 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
             },
             {
               key: 'state',
-              label: '② 市场快照',
+              label: t('backtest_decision_tab_state'),
               children: (
                 <>
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>来源：录制层 state（决策时的行情/持仓快照）</div>
+                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>{t('backtest_decision_state_source')}</div>
                   <Input
-                    placeholder="搜索字段名"
+                    placeholder={t('backtest_decision_search_field')}
                     allowClear
                     value={stateSearch}
                     onChange={(e) => setStateSearch(e.target.value)}
@@ -310,14 +329,14 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
             },
             {
               key: 'prompt',
-              label: '③ Prompt 输入',
+              label: t('backtest_decision_tab_prompt'),
               children: (
                 <>
                   <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>
-                    来源：录制层 questions（发给 S1 的问题集，S2 复用同 state）
+                    {t('backtest_decision_prompt_source')}
                   </div>
                   <Input
-                    placeholder="搜索字段名"
+                    placeholder={t('backtest_decision_search_field')}
                     allowClear
                     value={qSearch}
                     onChange={(e) => setQSearch(e.target.value)}
@@ -329,25 +348,25 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
             },
             {
               key: 'model',
-              label: '④ 模型输出',
+              label: t('backtest_decision_tab_model'),
               children: (
                 <>
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 4 }}>来源：录制层 s1_raw（S1 结构化响应 JSON）</div>
+                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 4 }}>{t('backtest_decision_s1_raw_source')}</div>
                   {detail.s1_raw ? (
                     <pre style={preStyle}>{prettyJson(detail.s1_raw)}</pre>
                   ) : (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未录制 S1 原始响应（旧版本引擎产生的任务无该字段）" />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('backtest_decision_s1_raw_missing')} />
                   )}
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', margin: '12px 0 4px' }}>来源：录制层 s2_raw（S2 兜底原始文本，仅兜底时存在）</div>
+                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', margin: '12px 0 4px' }}>{t('backtest_decision_s2_raw_source')}</div>
                   {detail.s2_raw ? (
                     <pre style={preStyle}>{detail.s2_raw}</pre>
                   ) : isFallback ? (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未录制 S2 原始文本（旧版本引擎产生的任务无该字段）" />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('backtest_decision_s2_raw_missing')} />
                   ) : null}
                   {detail.s2_thinking && (
                     <Collapse
                       style={{ marginTop: 12 }}
-                      items={[{ key: 'thinking', label: 'S2 思考过程（s2_thinking）', children: <pre style={preStyle}>{detail.s2_thinking}</pre> }]}
+                      items={[{ key: 'thinking', label: t('backtest_decision_s2_thinking_label'), children: <pre style={preStyle}>{detail.s2_thinking}</pre> }]}
                     />
                   )}
                 </>
@@ -356,7 +375,7 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
           ]}
         />
       )}
-      {!detail && !loading && !error && record && <Empty description="未命中录制内容" />}
+      {!detail && !loading && !error && record && <Empty description={t('backtest_decision_record_miss')} />}
     </Drawer>
   );
 }

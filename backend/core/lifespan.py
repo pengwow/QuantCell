@@ -15,7 +15,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from collector.db import init_db
+from observability.metrics import inc_worker_restart
 from utils.logger import LogType, get_logger
+from worker.events import EVENTS_SCHEMA_VERSION
 
 # 获取生命周期管理模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
@@ -31,9 +33,14 @@ from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
 from services.model_registry import seed_demo_models
 from services.symbol_sync import symbol_sync_manager
-from utils.config_manager import load_system_configs
+from utils.config_manager import get_flag, load_system_configs
 from utils.secret_key_manager import initialize_secret_key
 from websocket.manager import manager
+from worker.graceful_shutdown import (
+    ShutdownConfig,
+    shutdown_watchdog_timeout,
+    worker_stop_budget,
+)
 from worker.state import connection_manager
 
 if TYPE_CHECKING:
@@ -41,6 +48,17 @@ if TYPE_CHECKING:
 
 # 全局实时引擎实例
 realtime_engine = None
+
+# P1-01：worker.shutdown.use_config_timeouts 关闭时回退的旧硬编码停机超时（S）
+_LEGACY_STOP_TIMEOUT = 1.0
+_LEGACY_SCHED_TIMEOUT = 1.5
+_LEGACY_MGR_TIMEOUT = 2.0
+_LEGACY_WATCHDOG = 12.0
+
+
+def _stop_timeout(legacy: float, derived: float) -> float:
+    """停机超时开关：use_config_timeouts 开启用 ShutdownConfig 派生值，关闭回旧硬编码"""
+    return derived if get_flag("worker.shutdown.use_config_timeouts", True) else legacy
 
 
 class _ShutdownNoiseFilter(logging.Filter):
@@ -171,8 +189,9 @@ async def lifespan(app: FastAPI):
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)
 
-    # 恢复扫描：上一进程残留的 running worker 线程已不存在，如实标记 interrupted
-    await asyncio.to_thread(_mark_interrupted_workers)
+    # 恢复扫描：上一进程残留的 running worker 线程已不存在，经状态机收口为 interrupted。
+    # 在主 loop 直接 await（不走 to_thread 短暂 loop），让状态变更事件能正常派发到前端
+    await _mark_interrupted_workers()
 
     # 自动扫描并初始化策略到数据库
     await asyncio.to_thread(_init_strategies)
@@ -391,6 +410,7 @@ async def lifespan(app: FastAPI):
                         await manager.broadcast(
                             {
                                 "type": "worker_event",
+                                "schema_version": EVENTS_SCHEMA_VERSION,
                                 "topic": "worker",
                                 "data": {"worker_id": wid, "event_type": event_type, "payload": payload},
                             },
@@ -404,9 +424,45 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] WorkerOrchestrator 初始化失败 (ZMQ 不可用): {e}")
 
+    # 指标信号提醒评估循环（P2-07）：60s 一轮，评估在 to_thread 内同步执行，
+    # 命中后此协程侧经统一通知服务投递；规则本身可随时暂停/恢复
+    async def _indicator_alert_loop():
+        # 函数内 import：通知服务与 alerts 各自拖带较重依赖，且评估线程才真正用到
+        from common.notifications.models import (
+            NotificationCategory,
+            NotificationChannel,
+            NotificationLevel,
+        )
+        from common.notifications.service import notification_service
+        from indicators.alerts import run_evaluation_round
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                triggers = await asyncio.to_thread(run_evaluation_round)
+                for trigger in triggers:
+                    channels = [
+                        NotificationChannel(c)
+                        for c in (trigger["rule"].get("channels") or ["websocket"])
+                        if c in [x.value for x in NotificationChannel]
+                    ]
+                    await notification_service.send_notification(
+                        title=trigger["title"],
+                        content=trigger["message"],
+                        level=NotificationLevel.WARNING,
+                        category=NotificationCategory.ALERT,
+                        channels=channels,
+                        metadata={"rule_id": trigger["rule"]["id"]},
+                    )
+            except Exception as e:
+                logger.warning(f"[指标提醒循环] 异常: {e}")
+
+    app.state.indicator_alert_task = asyncio.create_task(_indicator_alert_loop())
+    logger.info("[Lifespan] 指标信号提醒评估循环已启动")
+
     # 安装关停看门狗：链式包装 uvicorn 信号处理器，保证一次 Ctrl+C 即可有界退出
     # （uvicorn 默认会无限等待浏览器持有的 SSE/WebSocket 连接关闭）
-    shutdown_watchdog = _ShutdownWatchdog(timeout=12.0)
+    shutdown_watchdog = _ShutdownWatchdog(timeout=_stop_timeout(_LEGACY_WATCHDOG, shutdown_watchdog_timeout()))
     _install_signal_watchdog(shutdown_watchdog)
 
     yield
@@ -418,17 +474,25 @@ async def lifespan(app: FastAPI):
 
     logger.info("========== 应用开始关闭 ==========")
 
+    # P1-01：关闭段一次性快照 StopConfig 总预算 deadline，
+    # 后续各步派生超时（schedulers 步骤再按剩余预算收敛）。
+    # ponytail: deadline 只在关闭段起点取一次、不做逐步记账；
+    # 若某一步耗尽预算后续自动让路，升级路径是按失败阶段加权记账。
+    _shut_cfg = ShutdownConfig()
+    _shut_deadline = time.monotonic() + _shut_cfg.total_timeout
+
     # 步骤 1: 停止所有运行中的策略（通过 TradingSystem）
     try:
         from worker.state import strategy_registry
         from worker.trading_system import trading_system
 
+        _stop_budget = _stop_timeout(_LEGACY_STOP_TIMEOUT, worker_stop_budget())
         for runtime in strategy_registry.list_all():
             if runtime.is_running:
                 try:
-                    await asyncio.wait_for(trading_system.stop_strategy(runtime.worker_id), timeout=1.0)
+                    await asyncio.wait_for(trading_system.stop_strategy(runtime.worker_id), timeout=_stop_budget)
                 except TimeoutError:
-                    logger.warning(f"停止策略 {runtime.worker_id} 超时，强制跳过")
+                    logger.warning(f"停止策略 {runtime.worker_id} 超时（>{_stop_budget:g}s），强制跳过")
         logger.info("✓ 所有策略已停止")
     except Exception as e:
         logger.error(f"停止策略时发生意外错误: {e}")
@@ -436,10 +500,12 @@ async def lifespan(app: FastAPI):
     # 步骤 3: 停止实时引擎（带超时保护）
     if realtime_engine:
         try:
-            await asyncio.wait_for(realtime_engine.stop(), timeout=1.0)
+            # 引擎停机预算为单 worker 预算的一半，下限 1s
+            _re_timeout = _stop_timeout(_LEGACY_STOP_TIMEOUT, max(worker_stop_budget() / 2, 1.0))
+            await asyncio.wait_for(realtime_engine.stop(), timeout=_re_timeout)
             logger.info("实时引擎已停止")
         except TimeoutError:
-            logger.warning("实时引擎停止超时（>1s），强制跳过")
+            logger.warning(f"实时引擎停止超时（>{_re_timeout:g}s），强制跳过")
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -500,10 +566,16 @@ async def lifespan(app: FastAPI):
             await loop.run_in_executor(None, plugin_manager.stop_all_plugins)
             await loop.run_in_executor(None, event_bus.clear)
 
-        await asyncio.wait_for(_shutdown_schedulers(), timeout=1.5)
+        # 调度器排空超时 = min(drain_timeout, 关闭段剩余预算)，
+        # 预算被前面步骤耗尽时此步接近 0 并被跳过——优先保障 worker 停机
+        _sched_timeout = _stop_timeout(
+            _LEGACY_SCHED_TIMEOUT,
+            min(_shut_cfg.drain_timeout, max(_shut_deadline - time.monotonic(), 0.0)),
+        )
+        await asyncio.wait_for(_shutdown_schedulers(), timeout=_sched_timeout)
         logger.info("调度器和插件已全部关闭")
     except TimeoutError:
-        logger.warning("调度器或插件关闭超时（>1.5s），强制跳过")
+        logger.warning(f"调度器或插件关闭超时（>{_sched_timeout:g}s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -517,16 +589,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] 取消健康检查循环失败: {e}")
 
+    # 步骤 8.5: 取消指标信号提醒评估循环
+    try:
+        if hasattr(app.state, "indicator_alert_task") and not app.state.indicator_alert_task.done():
+            app.state.indicator_alert_task.cancel()
+            logger.info("[Lifespan] 已取消指标信号提醒评估循环")
+    except Exception as e:
+        logger.warning(f"[Lifespan] 取消指标提醒循环失败: {e}")
+
     # 步骤 9: 关闭 worker_system (StrategyManager) — 含自己的 ThreadPoolExecutor
     try:
         from worker.strategy_manager import worker_system
 
+        _mgr_timeout = _stop_timeout(_LEGACY_MGR_TIMEOUT, worker_stop_budget())
         await asyncio.wait_for(
             asyncio.to_thread(worker_system.shutdown),
-            timeout=2.0,
+            timeout=_mgr_timeout,
         )
     except TimeoutError:
-        logger.warning("[Lifespan] worker_system.shutdown() 超时（>2s），强制跳过")
+        logger.warning(f"[Lifespan] worker_system.shutdown() 超时（>{_mgr_timeout:g}s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -580,37 +661,49 @@ def init_database():
     logger.info("初始化定时任务管理器")
 
 
-def _mark_interrupted_workers():
-    """启动恢复扫描：把 DB 中残留的 running worker 标记为 interrupted
+async def _mark_interrupted_workers():
+    """启动恢复扫描：把 DB 中残留的 running worker 经状态机收口为 interrupted
 
     上一进程会话的驱动线程已随进程消亡，running 状态是假象；如实标记，
-    避免 live 策略实际已停摆但状态面板仍显示运行中。interrupted 命名与
-    factor 模块的 run 状态语义一致（重启后 running 行的统一修正约定）。
+    避免 live 策略实际已停摆但状态面板仍显示运行中。本函数是 running→interrupted
+    转换边的唯一合法调用方（启动收口，reason=process_restart 语义）：写状态统一走
+    worker_state.transition（转换表校验 + 缓存同步 + 事件派发），替代此前的裸 SQL
+    直写旁路——旁路会让状态机约束在该场景失效，形成双轨恢复路径。
     """
     # 延迟 import：与 init_database/_init_strategies 同理，避免模块加载期建立 DB 连接
     try:
         from collector.db.database import SessionLocal, init_database_config
         from worker.models import Worker
+        from worker.worker_state import worker_state_manager
     except ImportError as e:
         logger.warning(f"worker 恢复扫描模块导入失败，跳过 running→interrupted 修正: {e}")
         return
 
     try:
-        init_database_config()
-        db = SessionLocal()
-        try:
-            stale_ids = [wid for (wid,) in db.query(Worker.id).filter(Worker.status == "running").all()]
-            if stale_ids:
-                db.query(Worker).filter(Worker.id.in_(stale_ids)).update(
-                    {"status": "interrupted", "updated_at": datetime.now()},
-                    synchronize_session=False,
-                )
-                db.commit()
-                logger.warning(
-                    f"检测到 {len(stale_ids)} 个上次进程残留的 running worker，已标记为 interrupted: {stale_ids}"
-                )
-        finally:
-            db.close()
+        await asyncio.to_thread(init_database_config)
+
+        def _scan_stale_ids() -> list[int]:
+            db = SessionLocal()
+            try:
+                return [wid for (wid,) in db.query(Worker.id).filter(Worker.status == "running").all()]
+            finally:
+                db.close()
+
+        stale_ids = await asyncio.to_thread(_scan_stale_ids)
+        marked = 0
+        for worker_id in stale_ids:
+            # pid=None：旧进程的驱动线程已消亡，残留 pid 不再有效
+            if await worker_state_manager.transition(worker_id, "interrupted", pid=None):
+                marked += 1
+                # P2-01：worker 重启收口计数（本次启动补记上次会话中断数，语义见指标 help）
+                inc_worker_restart(worker_id)
+            else:
+                # 转换表拒绝（如该 worker 已被并发标为 stopped），尊重现值跳过
+                logger.info(f"Worker {worker_id} 恢复收口被状态机拒绝，保持现有状态")
+        if stale_ids:
+            logger.warning(
+                f"检测到 {len(stale_ids)} 个上次进程残留的 running worker，已收口 interrupted {marked} 个: {stale_ids}"
+            )
     except Exception:
         # 恢复扫描失败不阻断启动，状态修正等下次重启再补
         logger.exception("running→interrupted 恢复扫描失败（不阻断启动）")

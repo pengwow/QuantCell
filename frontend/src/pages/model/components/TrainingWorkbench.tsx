@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Alert, App as AntdApp, Button, Card, Flex, Space } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { getAccessToken } from '@/utils/tokenManager';
 import RLTrainConfigForm, { RLTrainConfig } from './RLTrainConfigForm';
 import RLTrainingProgress, { TrainingProgress } from './RLTrainingProgress';
@@ -14,6 +15,7 @@ interface TrainingWorkbenchProps {
 // 训练工作台：迁自 RLTrainingPage 的主训练流程（去掉模型列表 / 回测区，那两块职责归统一模型总表）
 export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchProps) {
   const { message } = AntdApp.useApp();
+  const { t } = useTranslation();
   const [training, setTraining] = useState(false);
   const [progress, setProgress] = useState<TrainingProgress | null>(null);
   const [result, setResult] = useState<TrainingResult | null>(null);
@@ -54,7 +56,7 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
       const payload = await response.json();
       // HTTPException（鉴权/校验失败）返回 {detail}，业务响应返回 {code, message, data}
       if (payload.code !== 0) {
-        throw new Error(payload.message || payload.detail || '训练失败');
+        throw new Error(payload.message || payload.detail || t('rlwb_msg_failed'));
       }
 
       const trained: TrainingResult = {
@@ -63,14 +65,14 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
         metrics: payload.data?.metrics ?? {},
       };
       setResult(trained);
-      message.success(`训练完成，模型: ${trained.model_id}`);
+      message.success(t('rlwb_msg_success', { id: trained.model_id }));
     } catch (err) {
       // fetch 中断抛 AbortError（DOMException），业务异常为 Error，统一按 { name, message } 读取
       const e = err as { name?: string; message?: string };
       if (e.name === 'AbortError') {
-        setError('训练已取消');
+        setError(t('rlwb_msg_cancelled'));
       } else {
-        const msg = e.message || '训练失败';
+        const msg = e.message || t('rlwb_msg_failed');
         setError(msg);
         message.error(msg);
       }
@@ -84,7 +86,7 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
     abortControllerRef.current?.abort();
     setTraining(false);
     setProgress(null);
-    message.info('训练已取消');
+    message.info(t('rlwb_msg_cancelled'));
   };
 
   return (
@@ -92,7 +94,7 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
       <Card
         title={
           <span>
-            <ExperimentOutlined /> 强化学习训练配置
+            <ExperimentOutlined /> {t('rlwb_title_config')}
           </span>
         }
       >
@@ -108,7 +110,7 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
         <Alert
           type="error"
           showIcon
-          title="训练失败"
+          title={t('rlwb_msg_failed')}
           description={error}
           closable
           onClose={() => setError(null)}
@@ -126,10 +128,10 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
             <Alert
               type="success"
               showIcon
-              title="训练完成，产物已写入模型目录"
+              title={t('rlwb_title_done')}
               action={
                 <Button size="small" type="primary" onClick={onTrainSuccess}>
-                  前往模型总表查看
+                  {t('rlwb_goto_hub')}
                 </Button>
               }
             />

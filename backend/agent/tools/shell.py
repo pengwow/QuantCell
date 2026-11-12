@@ -11,6 +11,9 @@ class ExecTool(Tool):
 
     name = "exec"
     description = "在 shell 中执行命令。支持管道和重定向。超时默认为 60 秒。"
+    # P2-06：任意命令执行，最高风险，默认由 registry 拦截（信任模式才放行）
+    risk_level = "dangerous"
+    requires_approval = True
     parameters = {
         "type": "object",
         "properties": {

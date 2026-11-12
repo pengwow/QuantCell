@@ -161,10 +161,16 @@ export default defineConfig({
     },
     // antd 与图标库合并后 ui-vendor 约 1.3MB 属正常体量
     chunkSizeWarningLimit: 1500,
-    // 压缩配置 - 使用 esbuild 减少内存使用。vite 8（rolldown 内核）已把 esbuild 降级为
-    // 可选 peer：启用本配置必须显式声明 devDependency esbuild，否则 CI 全新安装下压缩阶段报
-    // "Cannot find package 'esbuild'"（本地曾靠 vite7 时代的 node_modules 遗留物侥幸通过）
-    minify: 'esbuild',
+    // 压缩配置：vite 8（rolldown 内核）忽略 build.esbuild.drop（实测产物 grep 仍有 console），
+    // 故生产剥离 console/debugger（O5）走 terser drop_console，这是产物可验证的可靠路径。
+    // terser 已在 devDependencies，全新安装可用
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
     // CSS 代码分割
     cssCodeSplit: true,
     // 禁用预加载减少内存使用

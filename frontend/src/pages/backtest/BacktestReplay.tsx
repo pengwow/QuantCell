@@ -1,9 +1,9 @@
-import { QUANT_COLORS } from '@/utils/colors';
+import { QUANT_COLORS, useQuantColors } from '@/utils/colors';
 /**
  * 回测回放页面组件
  * 功能：回放回测过程，展示K线图表和交易信号
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'ahooks';
@@ -61,12 +61,13 @@ const SPEED_OPTIONS = [
   { label: '128x', value: 128 },
 ];
 
-// Segmented 视角切换选项提到模块级常量，避免每次 render 新引用触发 antd 内部 rebuild
+// Segmented 视角切换图标放模块级，文案经 i18n 在组件内组装并 useMemo 保引用稳定——
+// 避免每次 render 新引用触发 antd 内部 rebuild
 // （rebuild 时 onMouseMove 监听残留会造成 setViewMode 死循环）
-const VIEW_MODE_OPTIONS = [
-  { label: '品种视角', value: 'symbol', icon: <StockOutlined /> },
-  { label: '全局视角', value: 'portfolio', icon: <GlobalOutlined /> },
-];
+const VIEW_MODE_ICONS = {
+  symbol: <StockOutlined />,
+  portfolio: <GlobalOutlined />,
+};
 
 /**
  * 格式化时间戳为可读的日期时间字符串
@@ -148,6 +149,8 @@ const BacktestReplay = () => {
   // 获取主题
   const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
   const isDark = theme === 'dark';
+  // 买卖标记色画进 klinecharts（canvas），必须是可解析色值，用 hook 拿当前主题真实色
+  const quant = useQuantColors();
 
   // 设置页面标题
   useEffect(() => {
@@ -173,6 +176,15 @@ const BacktestReplay = () => {
   // 视角：多品种回测默认进入全局（组合）视角，单品种只有品种视角
   const [viewMode, setViewMode] = useState<'symbol' | 'portfolio'>('symbol');
 
+  // Segmented 文案，引用仅在语言变化时更新，保持原模块级常量的引用稳定性
+  const viewModeOptions = useMemo(
+    () => [
+      { label: t('backtest_view_symbol'), value: 'symbol', icon: VIEW_MODE_ICONS.symbol },
+      { label: t('backtest_view_portfolio'), value: 'portfolio', icon: VIEW_MODE_ICONS.portfolio },
+    ],
+    [t],
+  );
+
   // 视角切换过渡：统一为整页 Spin 动画，避免 portfolio 数据快到时瞬间替换
   // ponytail: 首次挂载跳过，否则已缓存数据的首屏也会白转 300ms
   const [viewChanging, setViewChanging] = useState(false);
@@ -193,26 +205,26 @@ const BacktestReplay = () => {
   const playTimerRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
 
-  // 注册语言包
+  // 注册语言包（文案经 i18n 求值，语言切换时重新注册；图表 locale 名保持 'zh-CN' 不变）
   useEffect(() => {
     registerLocale('zh-CN', {
-      time: '时间：',
-      open: '开：',
-      high: '高：',
-      low: '低：',
-      close: '收：',
-      volume: '成交量：',
-      change: '涨跌：',
-      turnover: '成交额：',
-      second: '秒',
-      minute: '分',
-      hour: '时',
-      day: '日',
-      week: '周',
-      month: '月',
-      year: '年',
+      time: t('backtest_locale_time'),
+      open: t('backtest_locale_open'),
+      high: t('backtest_locale_high'),
+      low: t('backtest_locale_low'),
+      close: t('backtest_locale_close'),
+      volume: t('backtest_locale_volume'),
+      change: t('backtest_locale_change'),
+      turnover: t('backtest_locale_turnover'),
+      second: t('backtest_locale_second'),
+      minute: t('backtest_locale_minute'),
+      hour: t('backtest_locale_hour'),
+      day: t('backtest_locale_day'),
+      week: t('backtest_locale_week'),
+      month: t('backtest_locale_month'),
+      year: t('backtest_locale_year'),
     });
-  }, []);
+  }, [t]);
 
   /**
    * 加载货币对列表
@@ -234,7 +246,7 @@ const BacktestReplay = () => {
       const formattedSymbols: SymbolInfo[] = symbolList.map((symbol: string) => ({
         symbol,
         status: 'success',
-        message: '回测成功'
+        message: t('backtest_symbol_success')
       }));
       
       setSymbols(formattedSymbols);
@@ -251,7 +263,7 @@ const BacktestReplay = () => {
       }
     } catch (err) {
       console.error('加载货币对列表失败:', err);
-      message.error('加载货币对列表失败');
+      message.error(t('backtest_load_symbols_failed'));
     } finally {
       setLoadingSymbols(false);
     }
@@ -302,8 +314,8 @@ const BacktestReplay = () => {
       setReplayData(mappedData);
     } catch (err) {
       console.error('加载回放数据失败:', err);
-      setError('加载回放数据失败，请稍后重试');
-      message.error('加载回放数据失败');
+      setError(t('backtest_load_replay_failed_retry'));
+      message.error(t('backtest_load_replay_failed'));
     } finally {
       setLoading(false);
     }
@@ -447,15 +459,20 @@ const BacktestReplay = () => {
         try {
           if (entryTime >= visibleStartTime && entryTime <= visibleEndTime) {
             const isBuy = trade.entry_side === 'buy';
-            const directionText = isBuy ? '买入' : '卖出';
-            const color = isBuy ? '#26a69a' : '#ef5350';
+            const directionText = isBuy ? t('buy') : t('sell');
+            const color = isBuy ? quant.positive : quant.negative;
             // 根据主题设置标签颜色
+            // O2: 特殊装饰色，保留（彩色气泡上的标签字，canvas 绘制需字面色，亮色深字/暗色白字）
             const labelColor = isDark ? '#ffffff' : '#333333';
 
             chart.createOverlay({
               name: 'jsonAnnotation',
               extendData: JSON.stringify({
-                lines: [directionText, `数量: ${trade.size.toFixed(4)}`, `金额: ${(trade.entry_price * trade.size).toFixed(2)}`],
+                lines: [
+                  directionText,
+                  t('backtest_qty_prefix', { v: trade.size.toFixed(4) }),
+                  t('backtest_amount_prefix', { v: (trade.entry_price * trade.size).toFixed(2) }),
+                ],
                 colors: [color, labelColor, labelColor],
                 fontSize: 12,
                 align: 'left',
@@ -621,7 +638,7 @@ const BacktestReplay = () => {
       dispose(chartRef.current);
     }
     chartInstance.current = null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在视角切换时处理
+     
   }, [viewMode]);
 
   // 渲染加载状态：品种列表加载、品种视角下回放数据加载、视角切换过渡统一走整页 Spin
@@ -640,7 +657,7 @@ const BacktestReplay = () => {
     return (
       <PageContainer title={t('backtest_replay') || '回测回放'}>
         <Alert
-          title="错误"
+          title={t('error')}
           description={error}
           type="error"
           showIcon
@@ -663,7 +680,7 @@ const BacktestReplay = () => {
           <Segmented
             value={viewMode}
             onChange={(value) => setViewMode(value as 'symbol' | 'portfolio')}
-            options={VIEW_MODE_OPTIONS}
+            options={viewModeOptions}
           />
         </div>
       )}
@@ -680,14 +697,14 @@ const BacktestReplay = () => {
             <Col flex="none">
               <Space align="center">
                 <StockOutlined style={{ fontSize: 18, color: QUANT_COLORS.info }} />
-                <span style={{ fontWeight: 500 }}>货币对</span>
+                <span style={{ fontWeight: 500 }}>{t('symbol')}</span>
                 <Select
                   value={selectedSymbol}
                   onChange={handleSymbolChange}
                   style={{ width: 140 }}
                   disabled={loadingSymbols || symbols.length === 0}
                   loading={loadingSymbols}
-                  placeholder="选择货币对"
+                  placeholder={t('select_symbol_placeholder')}
                   suffixIcon={<StockOutlined />}
                 >
                   {symbols.map((symbol) => (
@@ -703,7 +720,7 @@ const BacktestReplay = () => {
             <Col flex="auto" style={{ textAlign: 'center' }}>
               <Space size="small" align="center">
                 {/* 停止按钮 */}
-                <Tooltip title="停止并重置">
+                <Tooltip title={t('backtest_stop_reset')}>
                   <Button
                     type="text"
                     shape="circle"
@@ -736,7 +753,7 @@ const BacktestReplay = () => {
                 />
 
                 {/* 单步前进 */}
-                <Tooltip title="单步前进">
+                <Tooltip title={t('backtest_step_forward')}>
                   <Button
                     type="text"
                     shape="circle"
@@ -748,7 +765,7 @@ const BacktestReplay = () => {
                 </Tooltip>
 
                 {/* 快进 */}
-                <Tooltip title="快进10步">
+                <Tooltip title={t('backtest_fast_forward_10')}>
                   <Button
                     type="text"
                     shape="circle"
@@ -762,9 +779,9 @@ const BacktestReplay = () => {
                 <Divider orientation="vertical" style={{ margin: '0 8px' }} />
 
                 {/* 播放速度 */}
-                <Tooltip title="播放速度">
+                <Tooltip title={t('play_speed')}>
                   <Space align="center" style={{ marginLeft: 8 }}>
-                    <ClockCircleOutlined style={{ color: '#8c8c8c' }} />
+                    <ClockCircleOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
                     <Select
                       value={playSpeed}
                       onChange={handleSpeedChange}
@@ -804,9 +821,9 @@ const BacktestReplay = () => {
           {/* 第二行：进度条 */}
           <Row align="middle" gutter={[16, 0]}>
             <Col flex="none">
-              <span style={{ 
-                fontSize: 12, 
-                color: '#8c8c8c',
+              <span style={{
+                fontSize: 12,
+                color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
                 fontFamily: 'monospace'
               }}>
                 {currentIndex + 1}
@@ -822,7 +839,7 @@ const BacktestReplay = () => {
                 tooltip={{
                   formatter: (value) => (
                     <div>
-                      <div>第 {value! + 1} / {replayData?.klines?.length || 0} 根K线</div>
+                      <div>{t('backtest_bar_position', { current: value! + 1, total: replayData?.klines?.length || 0 })}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>
                         {formatTimestamp(
                           replayData?.klines?.[value!]?.time || replayData?.klines?.[value!]?.timestamp || ''
@@ -834,9 +851,9 @@ const BacktestReplay = () => {
               />
             </Col>
             <Col flex="none">
-              <span style={{ 
-                fontSize: 12, 
-                color: '#8c8c8c',
+              <span style={{
+                fontSize: 12,
+                color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
                 fontFamily: 'monospace'
               }}>
                 {replayData?.klines?.length || 0}
@@ -847,9 +864,9 @@ const BacktestReplay = () => {
           {/* 第三行：时间戳和进度百分比 */}
           <Row justify="center" style={{ marginTop: 4 }}>
             <Col>
-              <span style={{ 
-                fontSize: 13, 
-                color: '#595959',
+              <span style={{
+                fontSize: 13,
+                color: 'color-mix(in srgb, var(--tw-color-foreground) 70%, transparent)',
                 fontWeight: 500
               }}>
                 {formatTimestamp(
@@ -883,8 +900,8 @@ const BacktestReplay = () => {
             <Alert
               type="info"
               showIcon
-              title="共享账户权益"
-              description="本回测为组合共享资金池，本页品种视角的权益与成交均取自共享账户口径，不是该品种的独立权益。"
+              title={t('backtest_shared_equity_title')}
+              description={t('backtest_shared_equity_desc')}
             />
           </div>
         )}
@@ -894,7 +911,7 @@ const BacktestReplay = () => {
 
         {/* 交易详情表格 - 使用 TradeTable 组件，根据播放进度动态显示 */}
         {replayData && (
-          <Card size="small" title="交易详情" style={{ marginTop: 24 }}>
+          <Card size="small" title={t('backtest_trade_details')} style={{ marginTop: 24 }}>
             {(() => {
               // 根据当前播放进度过滤交易
               const currentKline = replayData.klines?.[currentIndex];
@@ -910,8 +927,8 @@ const BacktestReplay = () => {
               return (
                 <>
                   <div style={{ marginBottom: 16 }}>
-                    <span style={{ color: '#8c8c8c' }}>
-                      共 {visibleTrades.length} 条记录 (总 {replayData.trades?.length || 0} 条)
+                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
+                      {t('backtest_trade_count_filtered', { visible: visibleTrades.length, total: replayData.trades?.length || 0 })}
                     </span>
                   </div>
                   <TradeTable

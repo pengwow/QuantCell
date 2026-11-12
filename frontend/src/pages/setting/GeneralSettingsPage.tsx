@@ -5,7 +5,7 @@
 import { useState, useMemo } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
-import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip, Input } from 'antd';
+import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip } from 'antd';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { PER_PAGE_OPTIONS, snapPageSize } from '../../constants/pagination';
@@ -24,35 +24,35 @@ type TranslateFn = ReturnType<typeof useTranslation>['t'];
 
 // 主题选项
 const getThemeOptions = (t: TranslateFn) => [
-  { key: 'light', label: t('theme_light') || '浅色', image: THEME_IMAGES.light },
-  { key: 'dark', label: t('theme_dark') || '暗黑', image: THEME_IMAGES.dark },
-  { key: 'auto', label: t('theme_auto') || '自动', image: THEME_IMAGES.auto },
+  { key: 'light', label: t('theme_light'), image: THEME_IMAGES.light },
+  { key: 'dark', label: t('theme_dark'), image: THEME_IMAGES.dark },
+  { key: 'auto', label: t('theme_auto'), image: THEME_IMAGES.auto },
 ];
 
 // 语言选项
 const getLanguageOptions = (t: TranslateFn) => [
-  { value: 'zh-CN', label: t('language_zh_cn') || '简体中文' },
+  { value: 'zh-CN', label: t('language_zh_cn') },
   { value: 'en-US', label: 'English' },
 ];
 
 // 展示类型选项
-const VIEW_TYPE_OPTIONS = [
-  { value: 'card', label: '卡片视图' },
-  { value: 'list', label: '列表视图' },
+const getViewTypeOptions = (t: TranslateFn) => [
+  { value: 'card', label: t('settings_view_type_card') },
+  { value: 'list', label: t('settings_view_type_list') },
 ];
 
 // 时区选项
 const getTimezoneOptions = (t: TranslateFn) => [
-  { value: 'Asia/Shanghai', label: t('timezone_shanghai') || 'Asia/Shanghai (中国标准时间, UTC+8)' },
-  { value: 'Asia/Hong_Kong', label: t('timezone_hongkong') || 'Asia/Hong_Kong (香港时间, UTC+8)' },
-  { value: 'Asia/Tokyo', label: t('timezone_tokyo') || 'Asia/Tokyo (日本标准时间, UTC+9)' },
-  { value: 'Asia/Singapore', label: t('timezone_singapore') || 'Asia/Singapore (新加坡时间, UTC+8)' },
-  { value: 'America/New_York', label: t('timezone_newyork') || 'America/New_York (美国东部时间, UTC-5/UTC-4)' },
-  { value: 'America/Los_Angeles', label: t('timezone_losangeles') || 'America/Los_Angeles (美国西部时间, UTC-8/UTC-7)' },
-  { value: 'Europe/London', label: t('timezone_london') || 'Europe/London (格林尼治时间, UTC+0/UTC+1)' },
-  { value: 'Europe/Paris', label: t('timezone_paris') || 'Europe/Paris (中欧时间, UTC+1/UTC+2)' },
-  { value: 'Australia/Sydney', label: t('timezone_sydney') || 'Australia/Sydney (澳大利亚东部时间, UTC+10/UTC+11)' },
-  { value: 'UTC', label: t('timezone_utc') || 'UTC (协调世界时, UTC+0)' },
+  { value: 'Asia/Shanghai', label: t('timezone_shanghai') },
+  { value: 'Asia/Hong_Kong', label: t('timezone_hongkong') },
+  { value: 'Asia/Tokyo', label: t('timezone_tokyo') },
+  { value: 'Asia/Singapore', label: t('timezone_singapore') },
+  { value: 'America/New_York', label: t('timezone_newyork') },
+  { value: 'America/Los_Angeles', label: t('timezone_losangeles') },
+  { value: 'Europe/London', label: t('timezone_london') },
+  { value: 'Europe/Paris', label: t('timezone_paris') },
+  { value: 'Australia/Sydney', label: t('timezone_sydney') },
+  { value: 'UTC', label: t('timezone_utc') },
 ];
 
 const GeneralSettingsPage = () => {
@@ -76,6 +76,7 @@ const GeneralSettingsPage = () => {
   // 使用 useMemo 缓存翻译后的选项数组
   const THEME_OPTIONS = useMemo(() => getThemeOptions(t), [t]);
   const LANGUAGE_OPTIONS = useMemo(() => getLanguageOptions(t), [t]);
+  const VIEW_TYPE_OPTIONS = useMemo(() => getViewTypeOptions(t), [t]);
   const TIMEZONE_OPTIONS = useMemo(() => getTimezoneOptions(t), [t]);
 
   // 检测表单是否有变更
@@ -88,7 +89,7 @@ const GeneralSettingsPage = () => {
       setThemeChanged(true);
       setGeneralSettings(prev => ({ ...prev, theme: value }));
       applyTheme(value);
-      message.success(t('theme_changed') || '主题已切换');
+      message.success(t('theme_changed'));
     }
   };
 
@@ -101,7 +102,7 @@ const GeneralSettingsPage = () => {
     // 只在语言真正改变时才切换 i18n（避免不必要的重渲染）
     if (value !== (i18n.resolvedLanguage ?? i18n.language)) {
       i18n.changeLanguage(value);
-      message.success(t('language_changed') || '语言已切换');
+      message.success(t('language_changed'));
     }
 
     // 立即持久化到 localStorage，防止刷新丢失
@@ -126,7 +127,7 @@ const GeneralSettingsPage = () => {
   // 保存配置
   const handleSave = async () => {
     // 检查访客权限
-    if (!checkPermission('保存系统配置')) {
+    if (!checkPermission(t('save_system_config'))) {
       return;
     }
     try {
@@ -136,7 +137,7 @@ const GeneralSettingsPage = () => {
     } catch (error) {
       // 处理后端返回的权限错误
       if (axios.isAxiosError(error) && error.response?.data?.code === 403) {
-        message.error(error.response.data.message || '访客用户无法保存系统配置');
+        message.error(error.response.data.message || t('guest_save_system_config_restricted'));
       }
     }
   };
@@ -150,14 +151,14 @@ const GeneralSettingsPage = () => {
   };
 
   return (
-    <Spin spinning={loading} description={t('loading') || '加载中...'}>
+    <Spin spinning={loading} description={t('loading')}>
       <div className="space-y-6">
         {/* 主题设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('theme') || '主题'}</h2>
+          <h2 className="text-lg font-medium mb-4">{t('theme')}</h2>
           <Form layout="vertical">
             <Form.Item
-              extra={themeChanged ? t('theme_changed_hint') || '主题已更改，刷新页面后生效' : undefined}
+              extra={themeChanged ? t('theme_changed_hint') : undefined}
             >
               <div className="flex gap-4 flex-wrap">
                 {THEME_OPTIONS.map((item) => (
@@ -205,10 +206,10 @@ const GeneralSettingsPage = () => {
 
         {/* 语言设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('language') || '语言'}</h2>
+          <h2 className="text-lg font-medium mb-4">{t('language')}</h2>
           <Form layout="vertical">
             <Form.Item
-              extra={localeChanged ? t('language_changed_hint') || '语言已更改' : undefined}
+              extra={localeChanged ? t('language_changed_hint') : undefined}
             >
               <Select
                 value={generalSettings.language}
@@ -224,20 +225,23 @@ const GeneralSettingsPage = () => {
 
         {/* 分页设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('pagination') || '分页'}</h2>
+          <h2 className="text-lg font-medium mb-4">{t('pagination')}</h2>
           <Form layout="vertical">
-            <Form.Item label={t('default_per_page') || '列表页默认显示数量'}>
+            <Form.Item label={t('default_per_page')}>
               <Select
                 value={snapPageSize(generalSettings.defaultPerPage || 12)}
                 onChange={handlePerPageChange}
                 options={PER_PAGE_OPTIONS.map((value) => ({
                   value,
-                  label: `${value} ${t('per_page') || '条每页'}`,
+                  label: `${value} ${t('per_page')}`,
                 }))}
                 className="w-full max-w-md"
               />
             </Form.Item>
-            <Form.Item label="默认展示类型" extra="控制所有支持卡片/列表切换页面的默认展示方式，页内可临时切换">
+            <Form.Item
+              label={t('settings_view_type_label')}
+              extra={t('settings_view_type_hint')}
+            >
               <Select
                 value={generalSettings.defaultViewType || 'card'}
                 onChange={handleViewTypeChange}
@@ -252,9 +256,9 @@ const GeneralSettingsPage = () => {
 
         {/* 时区设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('timezone') || '时区'}</h2>
+          <h2 className="text-lg font-medium mb-4">{t('timezone')}</h2>
           <Form layout="vertical">
-            <Form.Item label={t('default_timezone') || '默认时区'}>
+            <Form.Item label={t('default_timezone')}>
               <Select
                 value={generalSettings.timezone || 'Asia/Shanghai'}
                 onChange={handleTimezoneChange}
@@ -282,17 +286,17 @@ const GeneralSettingsPage = () => {
         {/* 操作按钮 */}
         <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <Space>
-            <Tooltip title={isGuest ? '访客用户无法重置配置' : ''}>
+            <Tooltip title={isGuest ? t('guest_reset_restricted') : ''}>
               <Button onClick={handleReset} disabled={saving || isGuest}>
-                {t('reset') || '重置'}
+                {t('reset')}
               </Button>
             </Tooltip>
             <Tooltip
               title={
                 isGuest
-                  ? '访客用户无法保存配置'
+                  ? t('guest_save_config_restricted')
                   : !isFormChanged
-                    ? '请先修改配置后再保存'
+                    ? t('settings_save_hint_no_change')
                     : ''
               }
             >
@@ -302,7 +306,7 @@ const GeneralSettingsPage = () => {
                 loading={saving}
                 disabled={isGuest || !isFormChanged}
               >
-                {t('save') || '保存'}
+                {t('save')}
               </Button>
             </Tooltip>
           </Space>

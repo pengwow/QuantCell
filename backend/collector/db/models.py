@@ -232,6 +232,21 @@ class DataPoolAsset(TimezoneAwareBase):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
+class DataPoolSnapshot(TimezoneAwareBase):
+    """资产池成分快照：每次成分增删后写入变更后的完整成分 JSON，供按时间回看。
+
+    原 universe 模块（P2-03）的 universes/universe_memberships/universe_snapshots
+    三表已合并进 data_pools 体系：自选组即唯一的分组概念，快照能力挂在这里。
+    """
+
+    __tablename__ = "data_pool_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    pool_id = Column(Integer, nullable=False, index=True)
+    symbols = Column(Text, nullable=False)  # JSON 数组字符串
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class CryptoSymbol(TimezoneAwareBase):
     """加密货币对SQLAlchemy模型
 
@@ -1623,8 +1638,9 @@ class DataPoolBusiness:
         init_database_config()
         db: Session = SessionLocal()
         try:
-            # 删除资产池关联的资产
+            # 删除资产池关联的资产与成分快照
             db.query(DataPoolAsset).filter_by(pool_id=pool_id).delete()
+            db.query(DataPoolSnapshot).filter_by(pool_id=pool_id).delete()
 
             # 删除资产池
             pool = db.query(DataPool).filter_by(id=pool_id).first()
@@ -1673,6 +1689,8 @@ class DataPoolBusiness:
             # 添加资产到资产池
             pool_asset = DataPoolAsset(pool_id=pool_id, asset_id=asset_id, asset_type=asset_type)
             db.add(pool_asset)
+            db.flush()  # 先落库，快照才能读到变更后的完整成分
+            DataPoolBusiness._take_snapshot(db, pool_id)
             db.commit()
 
             logger.info(f"资产已添加到资产池: pool_id={pool_id}, asset_id={asset_id}")
@@ -1720,6 +1738,8 @@ class DataPoolBusiness:
 
             # 批量添加到会话
             db.add_all(pool_assets)
+            db.flush()  # 先落库，快照才能读到变更后的完整成分
+            DataPoolBusiness._take_snapshot(db, pool_id)
             db.commit()
             logger.info(f"批量更新资产池资产成功: pool_id={pool_id}, asset_count={len(assets)}")
             return True
@@ -1750,6 +1770,8 @@ class DataPoolBusiness:
             existing_asset = db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).first()
             if existing_asset:
                 db.delete(existing_asset)
+                db.flush()  # 先落库，快照才能读到变更后的完整成分
+                DataPoolBusiness._take_snapshot(db, pool_id)
                 db.commit()
                 logger.info(f"资产已从资产池移除: pool_id={pool_id}, asset_id={asset_id}")
 
@@ -1781,6 +1803,8 @@ class DataPoolBusiness:
             for asset_id in assets:
                 db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).delete()
 
+            db.flush()  # 先落库，快照才能读到变更后的完整成分
+            DataPoolBusiness._take_snapshot(db, pool_id)
             db.commit()
             logger.info(f"批量从资产池移除资产成功: pool_id={pool_id}, asset_count={len(assets)}")
             return True
@@ -1926,6 +1950,52 @@ class DataPoolBusiness:
         except Exception as e:
             logger.error(f"获取资产池资产列表失败: pool_id={pool_id}, error={e}")
             return []
+        finally:
+            db.close()
+
+    @staticmethod
+    def _take_snapshot(db: Session, pool_id: int) -> None:
+        """成分变更后写入快照（变更后的完整成分）；调用方负责先 flush 再 commit。"""
+        symbols = [a.asset_id for a in db.query(DataPoolAsset).filter_by(pool_id=pool_id).all()]
+        db.add(DataPoolSnapshot(pool_id=pool_id, symbols=json.dumps(symbols)))
+
+    @staticmethod
+    def resolve_symbols(pool_id: int) -> list[str] | None:
+        """解析池内当前成分，供回测/因子按自选组取标的。
+
+        池不存在返回 None（调用方据此报 404）；空池返回空列表（调用方报 400）。
+        """
+        from .database import SessionLocal, init_database_config
+
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            if db.query(DataPool.id).filter_by(id=pool_id).first() is None:
+                return None
+            return [a.asset_id for a in db.query(DataPoolAsset).filter_by(pool_id=pool_id).all()]
+        finally:
+            db.close()
+
+    @staticmethod
+    def list_snapshots(pool_id: int) -> list[dict]:
+        """按时间倒序返回成分变更快照（原标的池能力并入自选组的读取入口）。"""
+        from .database import SessionLocal, init_database_config
+
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            if db.query(DataPool.id).filter_by(id=pool_id).first() is None:
+                return []
+            rows = db.query(DataPoolSnapshot).filter_by(pool_id=pool_id).order_by(DataPoolSnapshot.id.desc()).all()
+            return [
+                {
+                    "id": r.id,
+                    "pool_id": r.pool_id,
+                    "symbols": json.loads(r.symbols) if r.symbols else [],
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
         finally:
             db.close()
 
