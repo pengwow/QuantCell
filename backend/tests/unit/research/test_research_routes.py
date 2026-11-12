@@ -119,6 +119,35 @@ def test_pause_resume_cancel(client):
     assert tc.post(f"/api/v1/research/sessions/{sid}/pause").status_code == 409
 
 
+def test_pause_cancel_stop_flag_survives_session_close(client, monkeypatch):
+    """跨进程 stop 标志必须真正落库（job_lease 疑点回归）。
+
+    生产 get_db_session 退出时 close 会回滚未提交事务；pause/cancel 路由若不
+    显式 commit，request_session_stop 写的标志随会话关闭丢失，跨进程持有方的
+    心跳线程永远收不到信号。fake_db 对齐生产的 close 语义，路由返回后重新
+    查库验证标志仍在（默认 fixture 不 close，看不出本 bug）。
+    """
+    tc, db = client
+    sid = _create(tc)
+
+    @contextmanager
+    def fake_db_close():
+        try:
+            yield db
+        finally:
+            db.close()  # 复刻生产语义：close 回滚未提交事务
+
+    monkeypatch.setattr(research_routes, "get_db_session", fake_db_close)
+
+    assert tc.post(f"/api/v1/research/sessions/{sid}/pause").status_code == 200
+    row = db.get(ResearchSession, sid)  # close 后新事务查库，看不到未提交数据
+    assert row.pause_requested == 1, "pause 标志随会话关闭回滚，跨进程暂停失效"
+
+    assert tc.post(f"/api/v1/research/sessions/{sid}/cancel").status_code == 200
+    row = db.get(ResearchSession, sid)
+    assert row.cancel_requested == 1, "cancel 标志随会话关闭回滚，跨进程取消失效"
+
+
 def test_extend_keeps_mode_and_caps_loops(client):
     tc, db = client
     sid = _create(tc, mode="deep")

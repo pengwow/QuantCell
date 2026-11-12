@@ -406,6 +406,9 @@ def pause_session(
             # （标志保留在行上（本地 ctrl 未消费时）不引起问题，心跳线程清零）
             if row.backend_job_id:
                 job_lease.request_session_stop(row.backend_job_id, "pause", db=db)
+                # 标志 UPDATE 落在 set_session_status 提交后的新事务里，get_db_session
+                # 退出时 close 会回滚未提交事务——不显式 commit，标志丢失，跨进程暂停失效
+                db.commit()
             data = _detail(db, row)
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
@@ -465,6 +468,8 @@ def cancel_session(
             # 跨进程投递：作业跑在其它进程时，本地 ctrl 为 None，靠 DB 标志传递取消
             if row.backend_job_id:
                 job_lease.request_session_stop(row.backend_job_id, "cancel", db=db)
+                # 同 pause 路由：get_db_session 关闭回滚未提交事务，必须显式 commit 才能落库
+                db.commit()
             data = _detail(db, row)
         except service.ResearchError as exc:
             raise _http_error(exc) from exc
