@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -620,6 +621,10 @@ class WorkerTrade(Base):
     # 无配对的历史/live 成交保持 NULL，分组视图按行自成一组展示为「未配对」
     round_trip_id = Column(String(100), nullable=True)
 
+    # 订单意图关联（成交证据链）：live 同步回报 myTrades info 里带出的下单上下文
+    client_order_id = Column(String(100), nullable=True)
+    venue_order_id = Column(String(100), nullable=True)
+
     __table_args__ = (
         Index("idx_worker_trades_worker_id", "worker_id"),
         Index("idx_worker_trades_trade_id", "trade_id"),
@@ -627,6 +632,7 @@ class WorkerTrade(Base):
         Index("idx_worker_trades_created_at", "created_at"),
         Index("idx_worker_trades_worker_symbol", "worker_id", "symbol"),
         Index("idx_worker_trades_round_trip", "round_trip_id"),
+        Index("idx_worker_trades_client_order_id", "client_order_id"),
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -777,3 +783,68 @@ class WorkerPosition(Base):
             "opened_at": self.opened_at.isoformat() if self.opened_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class WorkerFillEvidence(Base):
+    """成交证据链（P0-01）
+
+    live 同步器写入的交易所原生成交锚点：venue_trade_id 是幂等主锚（唯一约束），
+    client_order_id 关联 worker_orders.client_order_id（OMS UUID），用于反查订单
+    意图与孤立成交（有成交无订单）观测。与 worker_trades 同事务写入。
+    """
+
+    __tablename__ = "worker_fill_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
+
+    client_order_id = Column(String(100), nullable=False, index=True)
+    venue_order_id = Column(String(100), nullable=True)
+    venue_trade_id = Column(String(64), nullable=False, unique=True)
+    symbol = Column(String(50), nullable=False)
+    side = Column(String(10), nullable=False)
+    qty = Column(Float, nullable=False)
+    price = Column(Float, nullable=True)
+    fee = Column(Float, nullable=True)
+
+    applied_at = Column(DateTime, default=func.now())
+    source = Column(String(20), nullable=False)  # 'sync' | 'recovery'
+
+
+class WorkerSyncCursor(Base):
+    """live 成交同步游标（P0-02）
+
+    进程重启后从上次提交位置续拉交易所成交，不因固定保守窗口漏单。
+    cursor_ts 与 ccxt since 同单位（毫秒）；cursor_trade_id 兜底同毫秒多笔。
+    (worker_id, account_id) 唯一：同一 worker 换 API key 后从零起步，不串账户。
+    """
+
+    __tablename__ = "worker_sync_cursor"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
+    account_id = Column(String(100), nullable=False, default="")
+    cursor_ts = Column(BigInteger, nullable=False)
+    cursor_trade_id = Column(String(64), nullable=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("worker_id", "account_id"),)
+
+
+class OrderLease(Base):
+    """跨 worker 执行锁槽位（P0-03）
+
+    一行 = 一个 `symbol:account_id` 锁：持有 = owner_worker_id 是自己且心跳
+    新鲜；过期 = expires_at < now，他人可条件 UPDATE 换主（kill -9 等无法
+    release 的死亡靠 TTL 自愈）。读写接口见 worker/execution_lock.py。
+    """
+
+    __tablename__ = "order_lease"
+
+    id = Column(Integer, primary_key=True)
+    lease_key = Column(String(120), nullable=False, unique=True)  # f"{symbol}:{account_id}"
+    owner_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
+    acquired_at = Column(DateTime, default=func.now())
+    # 心跳/过期用 time.time() 浮点秒（与 factor/job_lease 同口径），跨方言可比较
+    heartbeat_at = Column(Float, nullable=False)
+    expires_at = Column(Float, nullable=False)

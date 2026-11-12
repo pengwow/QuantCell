@@ -22,6 +22,23 @@ logger = get_logger(__name__, LogType.APPLICATION)
 _BACKEND_DIR = Path(__file__).parent.parent  # backend/ 目录
 
 
+def get_flag(dotted_key: str, default: bool = True) -> bool:
+    """读取点分布尔开关（如 worker.execution.fill_evidence_enabled）
+
+    逐段下钻 config.toml 嵌套表；key 缺失 / 文件缺失 / 解析失败一律返回 default。
+    ponytail: 每次调用重读文件（微秒级），调用方均为低频路径（同步 tick、单体
+    成交落库），不做缓存；若将来被热路径引用再加速查缓存。
+    """
+    try:
+        with open(_BACKEND_DIR / "config.toml", "rb") as f:
+            data: Any = tomli.load(f)
+        for part in dotted_key.split("."):
+            data = data[part]
+        return bool(data)
+    except Exception:
+        return default
+
+
 class ConfigManager:
     """配置文件管理器
 

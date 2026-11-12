@@ -13,3 +13,14 @@ base_url = "https://share.quantcell.top"
 timeout_seconds = 10
 max_retries = 3
 retry_backoff = 0.6
+
+# Worker 执行链路开关（utils/config_manager.get_flag 读取，缺 key 时默认全部开启）
+[worker.execution]
+# 成交证据链：live 同步对每笔成交写 worker_fill_evidence 幂等锚点（默认开）
+fill_evidence_enabled = true
+# 同步游标持久化：进程重启后从上次提交位置续拉交易所成交（默认开）；
+# false 时回退旧行为（起点=同步器构造时刻，停机期间成交漏记）
+sync_cursor_enabled = true
+# 跨 worker 执行锁：同一账户同一 symbol 同时只允许一个 worker 交易（灰度，
+# P0 批次唯一默认关——开启前确认 order_lease 迁移已就位且无多实例并发写入依赖）
+execution_lock_enabled = false

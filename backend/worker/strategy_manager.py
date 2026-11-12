@@ -29,13 +29,14 @@ from strategy.decision_recording import default_replay_dir, worker_replay_path
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
-from . import crud
+from . import crud, execution_lock
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
 )
-from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync
+from .live_trade_sync import LIVE_TRADE_SYNC_INTERVAL_S, LiveTradeSync, find_orphan_fill_client_ids
 from .log_utils import append_worker_error_log, start_worker_log_sink, stop_worker_log_sink
+from .models import WorkerStatusHistory
 from .paper_trade_sync import PaperTradeSync
 from .risk_config import RiskPnlFeeder, apply_risk_config
 from .worker_state import worker_state_manager
@@ -1002,6 +1003,8 @@ class StrategyManager:
         （registry + DB），线程自身退出；单次 tick 异常只记日志继续。
         trade_sync 非空时按窗口节流轮询交易所成交并落库，失败只记日志。
         risk_enabled 时按 DB 当日已实现盈亏回灌风控（每轮检查跨日清零）。
+        execution_lock_enabled 开（P0-03，默认关）时按 10s 节拍争/续执行锁，
+        失锁窗口内暂停 tick 与成交同步，防止两个 worker 对同账户同 symbol 重复下单。
         """
         # per-worker 日志通道：sink 挂载失败/线程早退时不卸载，错误日志仍能被前端看到
         start_worker_log_sink(worker_id)
@@ -1027,6 +1030,66 @@ class StrategyManager:
             return
 
         wlog.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
+        # 启动观测（P0-01/P0-02）：孤立成交与同步游标 gap 只告警不阻断，放线程
+        # 起步处是因为两者都需要 DB/网络而 start 路径不承受 IO；history 表此前
+        # 无写入方，本处为首个写入方（old/new 均为当前运行态 running）。
+        if trade_sync is not None:
+            try:
+                orphan_ids = find_orphan_fill_client_ids(worker_id)
+                if orphan_ids:
+                    wlog.warning(
+                        f"[StrategyManager] 孤立成交观测: worker_id={worker_id} "
+                        f"{len(orphan_ids)} 个 client_order_id 无对应订单: {orphan_ids}"
+                    )
+                    with get_db_session() as db:
+                        db.add(
+                            WorkerStatusHistory(
+                                worker_id=worker_id,
+                                old_status="running",
+                                new_status="running",
+                                reason=f"orphan_fill: {len(orphan_ids)} 个成交无订单意图 {orphan_ids[:5]}",
+                            )
+                        )
+                        db.commit()
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 孤立成交观测失败: worker_id={worker_id}, error={e}")
+            try:
+                gap_hours, gap_warned, gap_truncated = trade_sync.backfill_from_cursor()
+                if gap_warned or gap_truncated:
+                    suffix = "（已截断为最近 24h）" if gap_truncated else ""
+                    wlog.warning(f"[StrategyManager] 同步游标落后 {gap_hours:.1f}h: worker_id={worker_id}{suffix}")
+                    with get_db_session() as db:
+                        db.add(
+                            WorkerStatusHistory(
+                                worker_id=worker_id,
+                                old_status="running",
+                                new_status="running",
+                                reason=f"sync_gap: 游标落后 {gap_hours:.1f}h{suffix}",
+                            )
+                        )
+                        db.commit()
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 同步游标回补检查失败: worker_id={worker_id}, error={e}")
+
+        # P0-03 执行锁（灰度，默认关）：锁 = order_lease 行（symbol:account_id）；
+        # trade_sync 为 None（无落库通道 → 无账户口径）时不参与锁。函数内 import
+        # get_flag 与 crud 同口径（utils.config_manager 顶层拉 collector.db，防
+        # worker.__init__ 循环链在部分入口被点爆）
+        exec_lock_on = False
+        if trade_sync is not None:
+            from utils.config_manager import get_flag
+
+            exec_lock_on = get_flag("worker.execution.execution_lock_enabled", False)
+        if exec_lock_on:
+            # 「启动成功后 acquire」占位：失败不阻断，循环首拍再争（状态沿写 history）
+            try:
+                execution_lock.acquire(trade_sync.symbol, trade_sync.account_id, worker_id)
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 执行锁启动占位失败: worker_id={worker_id}, error={e}")
+        lease_ok = not exec_lock_on
+        lease_contended = False  # 争锁状态沿：进入时写一次 history，防逐 tick 刷屏
+        last_lease_check = 0.0
+
         last_snapshot = float("-inf")
         last_trade_sync = 0.0
         # 当日盈亏回灌：live 以 DB 当日已实现盈亏为准（重启不重置当日亏损额度）。
@@ -1041,6 +1104,47 @@ class StrategyManager:
         # live 1s/tick 会持续命中同一原因，按原因去重防刷屏；tick 恢复后清空再触发才重记
         last_risk_reject: str | None = None
         while not stop_event.is_set():
+            # 执行锁检查/续期：与成交同步同节拍（10s < TTL 30s），acquire 幂等即续期；
+            # DB 异常按失锁处理（安全侧暂停交易），恢复后自动续上
+            if exec_lock_on and time.monotonic() - last_lease_check >= LIVE_TRADE_SYNC_INTERVAL_S:
+                last_lease_check = time.monotonic()
+                try:
+                    lease_ok = execution_lock.acquire(trade_sync.symbol, trade_sync.account_id, worker_id)
+                except Exception as e:
+                    lease_ok = False
+                    wlog.error(f"[StrategyManager] 执行锁检查异常（按失锁处理）: worker_id={worker_id}, error={e}")
+                if lease_ok:
+                    # 顺手清崩溃残留的过期锁行；换主不依赖 sweep，失败无所谓
+                    try:
+                        execution_lock.sweep_expired()
+                    except Exception:
+                        pass
+                # 状态沿写 history：进入失锁记一次，恢复只在内存清沿（防逐 tick 刷屏）
+                if not lease_ok and not lease_contended:
+                    lease_contended = True
+                    wlog.warning(
+                        f"[StrategyManager] 执行锁被其它 worker 持有，暂停交易: worker_id={worker_id}, "
+                        f"lease={trade_sync.symbol}"
+                    )
+                    try:
+                        with get_db_session() as db:
+                            db.add(
+                                WorkerStatusHistory(
+                                    worker_id=worker_id,
+                                    old_status="running",
+                                    new_status="running",
+                                    reason=f"lease_contended: {trade_sync.symbol} 执行锁被其它 worker 持有",
+                                )
+                            )
+                            db.commit()
+                    except Exception as e:
+                        wlog.warning(f"[StrategyManager] 争锁 history 写入失败: worker_id={worker_id}, error={e}")
+                elif lease_ok:
+                    lease_contended = False
+            # 失锁窗口完全静默：不 tick（不下单）、不回灌风控、不落成交
+            if not lease_ok:
+                stop_event.wait(_LIVE_TICK_INTERVAL_S)
+                continue
             # 跨日清零必须每轮做：昨日熔断若只在成交时解除，空仓账户会永远等不到
             if pnl_feeder is not None:
                 try:
@@ -1088,6 +1192,15 @@ class StrategyManager:
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
         wlog.info(f"[StrategyManager] 实盘 tick 循环退出: worker_id={worker_id}")
+
+        # 正常退出（stop_strategy 的 join 等待期间到达）让出执行锁；kill -9 到不了
+        # 这里，残留锁靠 TTL 过期换主自愈。release 幂等且非持锁方无副作用
+        if exec_lock_on and trade_sync is not None:
+            try:
+                execution_lock.release(trade_sync.symbol, trade_sync.account_id, worker_id)
+                wlog.info(f"[StrategyManager] 执行锁已释放: worker_id={worker_id}")
+            except Exception as e:
+                wlog.warning(f"[StrategyManager] 执行锁释放失败（等 TTL 自愈）: worker_id={worker_id}, error={e}")
 
     def start_rl_paper(
         self,
