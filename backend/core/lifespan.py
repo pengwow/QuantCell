@@ -17,6 +17,7 @@ from datetime import datetime
 from collector.db import init_db
 from observability.metrics import inc_worker_restart
 from utils.logger import LogType, get_logger
+from worker.events import EVENTS_SCHEMA_VERSION
 
 # 获取生命周期管理模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
@@ -409,6 +410,7 @@ async def lifespan(app: FastAPI):
                         await manager.broadcast(
                             {
                                 "type": "worker_event",
+                                "schema_version": EVENTS_SCHEMA_VERSION,
                                 "topic": "worker",
                                 "data": {"worker_id": wid, "event_type": event_type, "payload": payload},
                             },

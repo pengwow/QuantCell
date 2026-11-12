@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from utils.logger import LogType, get_logger
+from worker.events import EVENTS_SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -374,6 +375,7 @@ def _broadcast_state_change(
     """策略状态变更时通过 WebSocket 广播消息到所有客户端"""
     message = {
         "type": "strategy_event",
+        "schema_version": EVENTS_SCHEMA_VERSION,
         "worker_id": worker_id,
         "old_status": old_status,
         "new_status": new_status,

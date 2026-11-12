@@ -30,6 +30,7 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 from . import crud, execution_lock
+from .events import EVENTS_SCHEMA_VERSION
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
@@ -1525,6 +1526,7 @@ class StrategyManager:
         connection_manager.broadcast_threadsafe(
             {
                 "event": "kernel.snapshot",
+                "schema_version": EVENTS_SCHEMA_VERSION,
                 "worker_id": worker_id,
                 "equity": snap.get("equity"),
                 "positions": snap.get("positions"),

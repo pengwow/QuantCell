@@ -3,6 +3,11 @@
  * 实现WebSocket连接管理、消息处理、自动重连等功能
  */
 
+// wire 事件 schema 迁移（P2-10）实现在 wireEventMigration.ts（无浏览器 API 依赖，可单测）
+import { migrate_event } from './wireEventMigration';
+
+export { KNOWN_EVENT_SCHEMA_VERSION, migrate_event } from './wireEventMigration';
+
 // WebSocket消息类型定义
 export interface WebSocketMessage {
   type: string;
@@ -16,6 +21,8 @@ export interface WebSocketMessage {
   };
   topic?: string;
   messages?: WebSocketMessage[];
+  /** wire 事件 schema 版本（P2-10）：缺失视为 v0，与后端 worker/events.py 对齐 */
+  schema_version?: number;
 }
 
 // WebSocket客户端配置
@@ -113,7 +120,11 @@ export class WebSocketService {
         try {
           const rawData = event.data;
           // console.log('[WebSocket] 收到原始数据:', rawData);
-          const message: WebSocketMessage = JSON.parse(rawData);
+          // wire 事件按 schema_version 迁移（P2-10）：高于已知版本的事件当前
+          // 前端无法理解，直接丢弃等升级；v0（缺失）/v1 事件透传给分发逻辑
+          const migrated = migrate_event(JSON.parse(rawData));
+          if (migrated === null) return;
+          const message = migrated as unknown as WebSocketMessage;
 
           if (message.type === 'kline') {
             // data 已收窄为 unknown，编译期无法直接访问字段，此处仅用于日志输出
