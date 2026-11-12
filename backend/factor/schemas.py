@@ -226,12 +226,22 @@ class FactorCompareRequest(FactorCalculateBase):
         description="自定义衰减滞后（K线根数，1-120、最多20个）；null 用默认 1/2/3/5/10",
     )
     cost_bps: float = Field(default=0.0, ge=0.0, le=1000.0, description="单边交易成本（基点），用于分位组合费后净值")
+    fdr_method: str | None = Field(
+        default=None, description="FDR 校正方法：none/bh/by；null 用全局配置 factor.fdr.method（缺省 bh）"
+    )
 
     @validator("method")
     def validate_compare_method(cls, v: str) -> str:
         """校验相关性方法"""
         if v not in {"spearman", "pearson"}:
             raise ValueError("method 必须为 spearman 或 pearson")
+        return v
+
+    @validator("fdr_method")
+    def validate_compare_fdr_method(cls, v: str | None) -> str | None:
+        """校验 FDR 方法（P1-06）"""
+        if v is not None and v not in ("none", "bh", "by"):
+            raise ValueError("fdr_method 只支持 none、bh、by")
         return v
 
     @validator("horizons")

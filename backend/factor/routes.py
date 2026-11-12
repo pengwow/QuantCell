@@ -700,6 +700,7 @@ def compare_factors(request: FactorCompareRequest, current_user: dict = Depends(
             n_groups=request.n_groups,
             window=request.window,
             forward=request.forward,
+            fdr_method=request.fdr_method,
         )
         return ApiResponse(code=0, message="ok", data=_sanitize(data))
     except Exception as e:
@@ -952,7 +953,7 @@ def _run_compare_job(params: dict[str, Any]):
         on_progress(95, "assembling", "汇总对比…")
         details = {d["name"]: d for d in factor_service.get_factor_details()}
         labels = {n: details.get(n, {}).get("label", n) for n in names}
-        return FactorService._assemble_compare(results, labels)
+        return FactorService._assemble_compare(results, labels, fdr_method=params.get("fdr_method"))
 
     return runner
 

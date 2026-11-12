@@ -24,3 +24,10 @@ sync_cursor_enabled = true
 # 跨 worker 执行锁：同一账户同一 symbol 同时只允许一个 worker 交易（灰度，
 # P0 批次唯一默认关——开启前确认 order_lease 迁移已就位且无多实例并发写入依赖）
 execution_lock_enabled = false
+
+# 因子分析配置（utils/config_manager.get_value 读取）
+[factor]
+# compare 多重检验 FDR 校正方法（P1-06）：bh = Benjamini-Hochberg（独立假设，
+# 缺省）、by = Benjamini-Yekutieli（任意依赖，更保守）、none = 不做校正主张；
+# compare 请求里的 fdr_method 入参优先于本配置
+fdr.method = "bh"

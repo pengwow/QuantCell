@@ -94,6 +94,8 @@ export interface FactorCompareParams {
   horizons?: number[] | null;
   /** 单边交易成本基点，默认 0（如 10 = 0.1%） */
   cost_bps?: number;
+  /** FDR 校正方法（P1-06 多重检验）；null/不传 = 用全局配置 factor.fdr.method（缺省 bh） */
+  fdr_method?: 'none' | 'bh' | 'by' | null;
 }
 
 /** 多因子对比结果行：单因子 inspection + 分析核心指标 */
@@ -111,6 +113,12 @@ export interface FactorCompareRow {
   long_short_return: number | null;
   monotonicity_spearman: number | null;
   stability_autocorr: number | null;
+  /** BH 校正后 q 值（P1-06 多重检验）；null = 无有效 p 值或 method=none */
+  p_bh: number | null;
+  /** BY 校正后 q 值（任意依赖假设，更保守） */
+  p_by: number | null;
+  /** 是否通过 FDR 显著性（口径随 fdr_method：bh 用 q_bh，by 用 q_by） */
+  significant_bh: boolean | null;
   n_groups: number;
   bar_count: number;
 }
