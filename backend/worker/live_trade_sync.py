@@ -158,6 +158,11 @@ class LiveTradeSync:
             # 起点取构造时刻（毫秒）：驱动尚未启动，不会有更早的新成交
             self._since = self.exchange.exchange.milliseconds()
 
+    @property
+    def ccxt_symbol(self) -> str:
+        """ccxt 统一符号（带结算后缀），供周期对账等包内调用方只读访问"""
+        return self._ccxt_symbol
+
     def backfill_from_cursor(self) -> tuple[float, bool, bool]:
         """启动回补检查（P0-02 改造点 C。
 

@@ -38,6 +38,9 @@ class _FakeExchange:
 @pytest.fixture()
 def engine_session(monkeypatch, tmp_path):
     """sqlite 内存库 + live_trade_sync 模块级 get_db_session 指向它"""
+    from collector.db.database import _import_all_models
+
+    _import_all_models()  # workers 表外键依赖 strategies 表，必须先注册全模型
     engine = create_engine(f"sqlite:///{tmp_path}/cursor.db", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()

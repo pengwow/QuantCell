@@ -61,6 +61,8 @@ _PAPER_KLINES_URL = "https://testnet.binancefuture.com/fapi/v1/klines"
 # live tick 线程节拍与 snapshot 轮询推送窗口（Driver 无逐笔查询口，轮询是唯一观测口）
 _LIVE_TICK_INTERVAL_S = 1.0
 _LIVE_SNAPSHOT_INTERVAL_S = 15.0
+# 运行期周期对账窗口（P1-02）：与 resume 对账互补的兜底保障，频次不用高
+_LIVE_RECONCILE_INTERVAL_S = 6 * 3600
 
 # 轮询强制直连：urllib 默认读 macOS/GUI 代理工具注册的系统代理（如 127.0.0.1:7897），
 # 代理不在线时整个轮询管线收不到任何 bar；同链路的 requests/python-binance 只读
@@ -1076,10 +1078,17 @@ class StrategyManager:
         # get_flag 与 crud 同口径（utils.config_manager 顶层拉 collector.db，防
         # worker.__init__ 循环链在部分入口被点爆）
         exec_lock_on = False
+        periodic_recon_on = False
         if trade_sync is not None:
             from utils.config_manager import get_flag
 
             exec_lock_on = get_flag("worker.execution.execution_lock_enabled", False)
+            # P1-02 运行期周期对账（灰度，默认关）：与执行锁开关同部位读取，
+            # 线程生命周期内只读一次
+            if get_flag("worker.reconciliation.periodic_enabled", False):
+                from worker.reconciliation import run_periodic_reconcile
+
+                periodic_recon_on = True
         if exec_lock_on:
             # 「启动成功后 acquire」占位：失败不阻断，循环首拍再争（状态沿写 history）
             try:
@@ -1092,6 +1101,8 @@ class StrategyManager:
 
         last_snapshot = float("-inf")
         last_trade_sync = 0.0
+        # 周期对账起点锚在"现在"：resume 刚做过全量对账，首轮 tick 不必重复跑
+        last_reconcile = time.monotonic()
         # 当日盈亏回灌：live 以 DB 当日已实现盈亏为准（重启不重置当日亏损额度）。
         # 注意 resume 恢复路径不装配风控（Rust 侧契约），此时绑定层方法 no-op
         pnl_feeder = RiskPnlFeeder(driver, daily_scoped=True) if risk_enabled else None
@@ -1188,6 +1199,23 @@ class StrategyManager:
                         pnl_feeder.feed(trade_sync.daily_realized_pnl())
                     except Exception as e:
                         wlog.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
+            # 运行期周期对账（P1-02，默认关）：本地影子账 vs 交易所三资，结果与
+            # resume 对账落同一套报告文件并写入 worker_logs。fill 快照是覆盖型
+            # 窗口，venue ⊇ local 永不产生 extra_fills 误报。失败只记日志
+            # （观测性不反噬交易循环，同 trade_sync 口径）
+            if periodic_recon_on and now_s - last_reconcile >= _LIVE_RECONCILE_INTERVAL_S:
+                last_reconcile = now_s
+                try:
+                    for item in run_periodic_reconcile(
+                        worker_id, driver, trade_sync.exchange, trade_sync.ccxt_symbol, journal.parent
+                    ):
+                        if not item["ok"]:
+                            wlog.warning(
+                                f"[StrategyManager] 周期对账发现账实不符: worker_id={worker_id}, "
+                                f"file={item['file']}, counts={item['counts']}"
+                            )
+                except Exception as e:
+                    wlog.warning(f"[StrategyManager] 周期对账失败: worker_id={worker_id}, error={e}")
             # wait 而非 sleep：stop 可即时唤醒
             stop_event.wait(_LIVE_TICK_INTERVAL_S)
 
