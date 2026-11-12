@@ -8,7 +8,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  PlusOutlined,
   BellOutlined,
   SendOutlined,
 } from '@ant-design/icons';
