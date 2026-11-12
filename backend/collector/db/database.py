@@ -63,6 +63,7 @@ def _import_all_models():
         "collector.db.models",
         "indicators.models",
         "share.models",
+        "universe.models",
     ]
 
     imported_modules = []

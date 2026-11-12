@@ -21,6 +21,8 @@ const FactorAnalysis = lazy(() => import('@/pages/factor/FactorAnalysis'));
 const ModelManagement = lazy(() => import('@/pages/model/ModelManagement'));
 const DataManagementPage = lazy(() => import('@/pages/data/DataManagementPage'));
 const KlineReplayPage = lazy(() => import('@/pages/data/KlineReplayPage'));
+// P2-03 标的池管理
+const UniversePage = lazy(() => import('@/pages/universe/UniversePage'));
 const Setting = lazy(() => import('@/pages/setting/Setting'));
 const Agent = lazy(() => import('@/pages/agent/Agent'));
 const ModelHub = lazy(() => import('@/pages/model/ModelHub'));
@@ -107,6 +109,8 @@ function createBaseRoutes(): RouteObject[] {
         { path: '/model-management', element: <ModelManagement /> },
         { path: '/data-management', element: <DataManagementPage /> },
         { path: '/data-management/market-replay', element: <KlineReplayPage /> },
+        // P2-03 标的池管理
+        { path: '/universe', element: <UniversePage /> },
         {
           path: '/setting',
           element: <Setting />,

@@ -32,7 +32,7 @@
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, model_validator, validator
 
 
 class BaseSchema(BaseModel):
@@ -140,15 +140,33 @@ class FactorCalculateBase(BaseSchema):
     """因子计算公共参数：标的 + K线周期 + 时间范围。"""
 
     instruments: list[str] = Field(
-        ...,
-        min_items=1,
-        description="交易对列表",
+        default_factory=list,
+        description="交易对列表；与 universe_id 必须且只能提供其一",
         example=["BTCUSDT", "ETHUSDT"],
+    )
+    universe_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="标的池 ID（P2-03）：给定后以池内当前成分作为计算标的，与 instruments 二选一",
     )
     interval: str = Field(default="1h", min_length=1, description="K线周期，如 15m/1h/4h/1d")
     candle_type: str = Field(default="spot", description="市场类型：spot/future")
     start_time: str | None = Field(default=None, description="开始日期 YYYY-MM-DD，空=全部")
     end_time: str | None = Field(default=None, description="结束日期 YYYY-MM-DD，空=至今")
+
+    @model_validator(mode="after")
+    def validate_instruments_source(self) -> FactorCalculateBase:
+        """P2-03 标的来源二选一：instruments 与 universe_id 必须且只能提供其一。
+
+        universe_id 解析成标的列表发生在 routes 层（需查库），这里只做入口把关。
+        """
+        has_instruments = bool(self.instruments)
+        has_universe = self.universe_id is not None
+        if has_instruments and has_universe:
+            raise ValueError("instruments 与 universe_id 只能提供其一")
+        if not has_instruments and not has_universe:
+            raise ValueError("instruments 与 universe_id 必须提供其一")
+        return self
 
     @validator("candle_type")
     def validate_candle_type(cls, v: str) -> str:
