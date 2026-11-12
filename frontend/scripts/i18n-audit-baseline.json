@@ -1,9 +1,9 @@
 {
-  "total": 668,
+  "total": 676,
   "files": [
     {
       "file": "src/pages/factor/FactorCompare.tsx",
-      "count": 37
+      "count": 44
     },
     {
       "file": "src/pages/factor/FactorLibraryPane.tsx",
@@ -199,6 +199,10 @@
     },
     {
       "file": "src/pages/setting/ExchangeSettingsPage.tsx",
+      "count": 1
+    },
+    {
+      "file": "src/pages/setting/SchemaSettingsPage.tsx",
       "count": 1
     },
     {

@@ -97,6 +97,19 @@ class ConfigBatchUpdateResponse(BaseModel):
     updated_count: int = Field(..., description="成功更新的配置项数量", examples=[2])
 
 
+class ConfigValuesUpdateRequest(BaseModel):
+    """按 Schema 批量更新设置项的请求（P2-05）
+
+    key 必须已在 backend/settings/schema.py 声明，类型由后端按字段定义校验。
+    """
+
+    values: dict[str, str | int | float | bool] = Field(
+        ...,
+        description="待更新的设置项键值对，key 必须已在 settings/schema.py 登记",
+        examples=[{"theme": "dark", "showTips": False}],
+    )
+
+
 class VersionInfo(BaseModel):
     """系统版本信息"""
 

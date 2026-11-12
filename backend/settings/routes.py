@@ -76,10 +76,18 @@ from collector.db.models import UserBusiness
 from common.schemas import ApiResponse
 from settings.models import SystemConfigBusiness as SystemConfig
 
+# Schema 化设置（P2-05）：schema 定义与 values 读写的核心逻辑都在 schema.py
+from settings.schema import (
+    read_setting_values,
+    serialize_schema,
+    write_setting_values,
+)
+
 # 导入详细的Schema模型
 from settings.schemas import (
     ConfigBatchUpdateRequest,
     ConfigUpdateRequest,
+    ConfigValuesUpdateRequest,
 )
 from settings.services import SystemService
 from utils.db_session import get_db_session
@@ -280,6 +288,80 @@ def change_password(
         raise HTTPException(status_code=500, detail=f"密码修改失败: {e}")
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Schema 化设置端点（P2-05）：
+# 声明顺序必须在 GET /{key} 之前，否则 "schema" / "values" 会被当成 key 吞掉
+# ---------------------------------------------------------------------------
+
+
+@config_router.get("/schema", response_model=ApiResponse)
+def get_config_schema():
+    """获取设置项 Schema
+
+    返回 backend/settings/schema.py 声明的分组与字段定义（含类型/默认值/
+    options/advanced 标记），前端 schema 渲染器据此自动生成表单。
+    新增配置项只需改 schema.py，无需动前端页面。
+
+    Returns:
+        ApiResponse[{"groups": [SchemaGroup...]}]
+    """
+    try:
+        return ApiResponse(code=0, message="获取设置项 Schema 成功", data=serialize_schema())
+    except Exception as e:
+        logger.error(f"获取设置项 Schema 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@config_router.get("/values", response_model=ApiResponse)
+def get_config_values():
+    """获取设置项现值
+
+    按 schema 全量返回各配置项的当前值（类型已还原，未配置项返回 default 兜底），
+    key 与 GET /schema 中字段定义一一对应。
+
+    Returns:
+        ApiResponse[Dict[str, Any]]: 扁平 {字段key: 现值}
+    """
+    try:
+        return ApiResponse(code=0, message="获取设置项现值成功", data=read_setting_values())
+    except Exception as e:
+        logger.error(f"获取设置项现值失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@config_router.put("/values", response_model=ApiResponse)
+def update_config_values(request: Request, payload: ConfigValuesUpdateRequest):
+    """按 Schema 批量更新设置项
+
+    仅接受 schema 中已声明的 key，按字段类型校验（bool/number/select 越界），
+    两阶段写入：全部校验通过才落库。访客用户无权限。
+
+    Args:
+        request: FastAPI 请求对象，用于访客判定
+        payload: {values: {key: value}} 待更新键值对
+
+    Returns:
+        ApiResponse[{"updated_count": int}]
+    """
+    if is_guest_user(request):
+        logger.warning("未认证用户尝试按 Schema 更新设置，已拦截")
+        return ApiResponse(
+            code=401,
+            message="请先登录",
+            data={"detail": "请登录后再修改系统设置"},
+            timestamp=datetime.now(),
+        )
+    try:
+        written = write_setting_values(payload.values)
+        logger.info(f"Schema 化设置批量更新完成: {written}/{len(payload.values)} 项")
+        return ApiResponse(code=0, message="设置已保存", data={"updated_count": written})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Schema 化设置批量更新失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @config_router.get("/", response_model=ApiResponse)

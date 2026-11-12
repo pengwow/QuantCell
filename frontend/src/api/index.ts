@@ -512,6 +512,26 @@ export const strategyApi = {
 /**
  * 配置相关 API
  */
+/** Schema 化设置字段定义（P2-05），结构与 backend/settings/schema.py 对齐 */
+export interface SchemaFieldDef {
+  key: string;
+  label: string;
+  type: 'bool' | 'number' | 'string' | 'select' | 'text';
+  default: string | number | boolean;
+  description?: string | null;
+  options: { value: string | number; label: string }[];
+  advanced: boolean;
+}
+
+/** Schema 化设置分组定义 */
+export interface SchemaGroupDef {
+  key: string;
+  title: string;
+  description?: string | null;
+  order: number;
+  fields: SchemaFieldDef[];
+}
+
 export const configApi = {
   getConfig: (): Promise<Record<string, unknown>> => {
     return apiRequest.get('/config/');
@@ -519,6 +539,19 @@ export const configApi = {
 
   updateConfig: <T>(data: T) => {
     return apiRequest.post('/config/batch', data);
+  },
+
+  // P2-05：schema 驱动设置；拦截器已解包 code=0 的 data
+  getConfigSchema: (): Promise<{ groups: SchemaGroupDef[] }> => {
+    return apiRequest.get('/config/schema');
+  },
+
+  getConfigValues: (): Promise<Record<string, string | number | boolean>> => {
+    return apiRequest.get('/config/values');
+  },
+
+  updateConfigValues: (values: Record<string, string | number | boolean>) => {
+    return apiRequest.put('/config/values', { values });
   },
 
   updatePluginConfig: <T extends Record<string, unknown>>(pluginName: string, data: T[]) => {
