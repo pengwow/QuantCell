@@ -81,8 +81,12 @@ def test_concurrent_jobs_isolated(tmp_path):
 def test_ttl_cleans_completed_jobs(tmp_path):
     mgr = make_manager(ttl=0.05, sweep=0.05)
     jid = mgr.submit("analyze", {}, lambda p, s, e=None: {})
-    wait_terminal(mgr, jid)
-    deadline = time.time() + 3.0
+    # 不能先 wait_terminal：TTL/扫尾间隔只有 0.05s，"完成→被清掉"可能整体落在
+    # wait_terminal 的一次轮询间隔内，get() 返回 None 被它视为"未终态"而一直死等，
+    # 全量长跑时调度抖动会放大该窗口，10s 后误报"未到终态"。
+    # 本用例守护的是清理行为本身，直接等"job 消失"即可；若生命周期卡死（永久
+    # RUNNING/PENDING），扫尾不会清理，超时后断言同样失败，仍能拦截回归。
+    deadline = time.time() + 10.0
     while time.time() < deadline and mgr.get(jid) is not None:
         time.sleep(0.05)
     assert mgr.get(jid) is None

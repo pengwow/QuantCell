@@ -26,11 +26,17 @@ class _FakeWS:
 async def test_process_messages_delivers_all_same_topic_messages():
     """同一 topic 的批量消息必须逐条送达, 不得合并丢弃。"""
     manager = ConnectionManager()
-    # 单例可能被其它用例启动过消费循环, 先清理避免双消费者分走消息
-    if manager.processing_task and not manager.processing_task.done():
-        manager.processing_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await manager.processing_task
+    # 单例可能被其它用例（FastAPI lifespan 启停）启动过消费循环, 先清理避免双消费者分走消息。
+    # 残留任务可能绑定在已关闭的旧事件循环上（lifespan shutdown 的 1s 超时内未完成取消）,
+    # 跨 loop await 它会抛 RuntimeError: attached to a different loop —— 只能标记取消
+    # 并置空指针跳过; 仅当任务属于当前 loop 时才真正等待其退出
+    stale = manager.processing_task
+    if stale is not None and not stale.done():
+        stale.cancel()
+        if stale.get_loop() is asyncio.get_running_loop():
+            with contextlib.suppress(asyncio.CancelledError):
+                await stale
+    manager.processing_task = None
     manager.message_queue = asyncio.Queue()
     fake_ws = _FakeWS()
     manager.active_connections = {"c1": fake_ws}
