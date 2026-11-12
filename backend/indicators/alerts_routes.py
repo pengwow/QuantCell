@@ -213,3 +213,64 @@ async def test_alert_rule(rule_id: int):
         message="测试发送完成",
         data={"evaluation": evaluation, "send_result": send_result, "notified_at": datetime.now(UTC).isoformat()},
     )
+
+
+class AlertPreviewRequest(BaseModel):
+    """预演请求：规则尚未保存，直接携带 Upsert 载荷评估。"""
+
+    rule: AlertRuleUpsert = Field(description="未保存的规则载荷（与创建接口同 schema）")
+    send: bool = Field(default=False, description="true=按所选渠道真实发送；false=仅返回消息预览")
+
+
+def _upsert_to_snapshot(rule_in: AlertRuleUpsert) -> dict[str, Any]:
+    """未落库的 Upsert 载荷转评估快照（字段口径与 alerts._rule_snapshot 对齐）。"""
+    return {
+        "id": 0,
+        "indicator_id": rule_in.indicator_id,
+        "name": rule_in.name,
+        "symbol": rule_in.symbol.upper(),
+        "period": rule_in.period,
+        "market_type": rule_in.market_type,
+        "crypto_type": rule_in.crypto_type,
+        "params": rule_in.params,
+        "plot_name": rule_in.plot_name,
+        "op": rule_in.op,
+        "threshold": rule_in.threshold,
+        "channels": rule_in.channels,
+        "frequency": rule_in.frequency,
+        "last_fired_at": None,
+    }
+
+
+@router.post(
+    "/preview",
+    summary="预演提醒规则（新建弹窗用）",
+    description="按当前K线评估一次未保存的规则：send=false 返回消息预览；send=true 按所选渠道真实发送测试通知。",
+)
+async def preview_alert_rule(request_body: AlertPreviewRequest, http_request: Request):
+    if is_guest_user(http_request):
+        raise HTTPException(status_code=403, detail="访客无权预演提醒规则")
+    rule = _upsert_to_snapshot(request_body.rule)
+    # 指标代码从 Business 侧取（与执行器/测试发送同一读取口径）
+    code = CustomIndicatorBusiness.get_code(rule["indicator_id"])
+    if not code:
+        raise HTTPException(status_code=404, detail=f"指标不存在或已删除: {rule['indicator_id']}")
+
+    bars = alerts.fetch_kline_bars(rule)
+    evaluation = await alerts.evaluate_rule(rule, code, IndicatorExecutor(timeout=10.0), bars)
+    title, message = alerts.build_alert_texts(rule, evaluation)
+    data: dict[str, Any] = {
+        "evaluation": evaluation,
+        "preview": {"title": title, "content": message, "channels": rule["channels"]},
+    }
+    if request_body.send:
+        channels = validate_channels(rule["channels"])
+        data["send_result"] = await notification_service.send_notification(
+            title=f"[测试] {title}",
+            content=message,
+            level=NotificationLevel.WARNING,
+            category=NotificationCategory.ALERT,
+            channels=channels,
+            metadata={"rule_id": 0, "triggered": bool(evaluation.get("triggered")), "preview": True},
+        )
+    return ApiResponse(code=0, message="预演完成" if request_body.send else "预览生成", data=data)

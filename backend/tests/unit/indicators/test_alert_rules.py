@@ -259,6 +259,86 @@ class TestAlertRoutes:
     def test_update_unknown_rule_404(self, alert_client):
         assert alert_client.put("/api/v1/indicators/alerts/999", json={"enabled": False}).status_code == 404
 
+    def test_alerts_not_shadowed_by_detail_route(self, alert_db, monkeypatch):
+        """回归守护（main.py 路由挂载顺序）：
+
+        indicators_router 的 GET /{indicator_id} 若先于 alerts_router 挂载，
+        会把 /api/v1/indicators/alerts 当作 indicator_id 吞掉（int("alerts") 失败 → 422）。
+        这里复刻 main.py 的真实顺序挂载两个 router，断言列表端点正常命中。
+        """
+        from indicators import alerts_routes
+        from indicators import routes as indicator_routes
+
+        monkeypatch.setattr(alerts_routes, "is_guest_user", lambda request: False)
+        monkeypatch.setattr(indicator_routes, "is_guest_user", lambda request: False)
+        app = FastAPI()
+        # 顺序必须与 main.py 一致：alerts 在前
+        app.include_router(alerts_routes.router)
+        app.include_router(indicator_routes.router)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        ind_id = _seed_indicator(alert_db)
+        rule_id = _seed_rule(alert_db, ind_id)
+
+        # 422 复现路径：GET /api/v1/indicators/alerts?indicator_id=5 被 GET /{indicator_id} 吞掉
+        resp = client.get("/api/v1/indicators/alerts", params={"indicator_id": ind_id})
+        assert resp.status_code == 200
+        assert [r["id"] for r in resp.json()["data"]] == [rule_id]
+
+        # 挂载顺序调整不得破坏 indicators 自身路由
+        assert client.get(f"/api/v1/indicators/{ind_id}").status_code == 200
+
+    def test_preview_send_semantics(self, alert_db, alert_client, monkeypatch):
+        """预演端点：send=false 仅返回消息预览不投递；send=true 才按所选渠道真实发送。"""
+        from indicators import alerts_routes as ar
+
+        ind_id = _seed_indicator(alert_db)
+        monkeypatch.setattr(
+            ar, "IndicatorExecutor", lambda timeout=None: FakeExecutor([{"name": "ma", "data": [90.0, 110.0]}])
+        )
+        monkeypatch.setattr(ar.alerts, "fetch_kline_bars", lambda rule: _bars())
+
+        sent: list[dict] = []
+
+        async def fake_send(**kwargs):
+            sent.append(kwargs)
+            return {"success": True, "channel_results": {}}
+
+        monkeypatch.setattr(ar.notification_service, "send_notification", fake_send)
+
+        # send=false：纯预览，评估+组装文案，不发送
+        resp = alert_client.post(
+            "/api/v1/indicators/alerts/preview",
+            json={"rule": self._payload(ind_id), "send": False},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["evaluation"]["triggered"] is True
+        assert data["evaluation"]["value"] == 110.0
+        assert "MA 越界提醒" in data["preview"]["title"]
+        assert "110" in data["preview"]["content"]
+        assert "send_result" not in data
+        assert sent == []
+
+        # send=true：真实投递，标题带 [测试] 前缀
+        resp = alert_client.post(
+            "/api/v1/indicators/alerts/preview",
+            json={"rule": self._payload(ind_id), "send": True},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["send_result"]["success"] is True
+        assert len(sent) == 1
+        assert sent[0]["title"].startswith("[测试]")
+        assert [c.value for c in sent[0]["channels"]] == ["websocket"]
+
+        # 指标不存在 → 404
+        missing = self._payload(999999)
+        assert (
+            alert_client.post("/api/v1/indicators/alerts/preview", json={"rule": missing, "send": False}).status_code
+            == 404
+        )
+
     def test_test_send_forces_notification(self, alert_db, alert_client, monkeypatch):
         from indicators import alerts_routes as ar
 

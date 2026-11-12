@@ -931,6 +931,10 @@ export const indicatorApi = {
   testAlertRule: (id: number) => {
     return apiRequest.post(`/indicators/alerts/${id}/test`);
   },
+  // 预演未保存的规则：send=false 仅返回消息预览；send=true 按所选渠道真实发送
+  previewAlertRule: (payload: Record<string, unknown>, send: boolean) => {
+    return apiRequest.post('/indicators/alerts/preview', { rule: payload, send });
+  },
 };
 
 /**
@@ -1026,6 +1030,17 @@ export const notificationApi = {
    */
   testChannel: <T>(channelId: string, config: T) => {
     return apiRequest.post('/notifications/test', { channel_id: channelId, config });
+  },
+
+  /**
+   * 校验通知渠道可用性（启用/配置完整性/服务地址连通性，不发真实消息）
+   */
+  validateChannels: (
+    channels: { id: string; enabled: boolean; config: Record<string, unknown> }[],
+  ): Promise<{
+    results: { id: string; valid: boolean; reason_code: string; detail: string }[];
+  }> => {
+    return apiRequest.post('/notifications/channels/validate', { channels });
   },
 };
 
