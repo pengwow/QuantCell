@@ -4,7 +4,10 @@
 提供统一的通知发送接口,管理所有通知渠道
 """
 
+import asyncio
 import json
+import re
+import urllib.parse
 from datetime import datetime
 from typing import Any
 
@@ -25,6 +28,21 @@ from .models import (
 )
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def _camel_keys_to_snake(config: dict[str, Any]) -> dict[str, Any]:
+    """把前端传入的驼峰键配置转换为模型字段所需的 snake_case 键（浅层转换）
+
+    /test 端点收到的 config 是前端表单的驼峰键(webhookUrl/smtpPort 等),
+    而 XxxConfig 模型字段都是 snake_case; pydantic v2 默认忽略 extra 字段,
+    直接 **config 展开会静默丢失所有驼峰键,导致误报"Webhook地址为空"。
+    """
+
+    def conv(key: str) -> str:
+        # 连续大写字母(如 SSL)整体下沉: ignoreSSL → ignore_ssl
+        return re.sub(r"([A-Z]+)", lambda m: "_" + m.group(1).lower(), key)
+
+    return {conv(k): v for k, v in config.items()}
 
 
 class NotificationService:
@@ -339,21 +357,21 @@ class NotificationService:
             if channel_type == NotificationChannel.EMAIL:
                 from .models import EmailConfig
 
-                email_config = EmailConfig(**config) if config else self._load_config().email
+                email_config = EmailConfig(**_camel_keys_to_snake(config)) if config else self._load_config().email
                 channel = EmailChannel()
                 return await channel.send(test_message, email_config)
 
             elif channel_type == NotificationChannel.WECOM:
                 from .models import WeComConfig
 
-                wecom_config = WeComConfig(**config) if config else self._load_config().wecom
+                wecom_config = WeComConfig(**_camel_keys_to_snake(config)) if config else self._load_config().wecom
                 channel = WeComChannel()
                 return await channel.send(test_message, wecom_config)
 
             elif channel_type == NotificationChannel.FEISHU:
                 from .models import FeishuConfig
 
-                feishu_config = FeishuConfig(**config) if config else self._load_config().feishu
+                feishu_config = FeishuConfig(**_camel_keys_to_snake(config)) if config else self._load_config().feishu
                 channel = FeishuChannel()
                 return await channel.send(test_message, feishu_config)
 

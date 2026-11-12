@@ -1024,8 +1024,17 @@ def save_notification_channels(
             else:
                 logger.error(f"保存渠道配置失败: {channel_id}")
 
+        # 无论全部/部分成功都清通知服务配置缓存（60s TTL），
+        # 否则保存后立刻真实发送会命中旧缓存，以为配置没保存上。
+        # 函数内导入: 与下方 /test 端点一致, common.notifications 内部会延迟引用 settings 配置, 顶部导入存在循环依赖风险
+        from common.notifications.service import notification_service
+
+        notification_service.reload_config()
+
         if success_count == len(channels):
             # 刷新应用上下文配置
+            from utils.config_manager import load_system_configs
+
             request.app.state.configs = load_system_configs()
             logger.info("所有通知渠道配置保存成功")
             return ApiResponse(code=0, message="保存通知渠道配置成功", data={"channels": channels})
@@ -1038,6 +1047,27 @@ def save_notification_channels(
             )
     except Exception as e:
         logger.error(f"保存通知渠道配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@notification_router.post("/channels/validate", response_model=ApiResponse)
+async def validate_notification_channels_endpoint(
+    payload: dict[str, Any] = Body(default={"channels": []}),
+    current_user: dict = Depends(get_current_user),
+):
+    """校验通知渠道可用性（启用/配置完整性/服务地址连通性）
+
+    不发送任何真实消息，供前端在报警规则等场景的渠道下拉中
+    置灰无效渠道并给出原因。
+    """
+    # 函数内导入: 与下方 /test 端点一致, common.notifications 内部会延迟引用 settings 配置, 顶部导入存在循环依赖风险
+    from common.notifications.service import validate_notification_channels
+
+    try:
+        results = await validate_notification_channels(payload.get("channels") or [])
+        return ApiResponse(code=0, message="校验完成", data={"results": results})
+    except Exception as e:
+        logger.error(f"校验通知渠道失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

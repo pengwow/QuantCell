@@ -17,8 +17,12 @@ import {
 import {
   IconMail,
 } from "@tabler/icons-react";
-import { testNotificationChannel, type NotificationTestResult } from "../../services/notificationService";
-import { configApi } from "../../api";
+import {
+  getNotificationChannels,
+  saveNotificationChannels,
+  testNotificationChannel,
+  type NotificationTestResult,
+} from "../../services/notificationService";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 import { IconPlugConnected } from "@tabler/icons-react";
 
@@ -137,94 +141,37 @@ const NotificationsPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
-  // 加载通知渠道配置（从扁平化配置加载）
+  // 加载通知渠道配置（走通知渠道专用接口；后端对未保存渠道返回默认配置）
+  // 注意：必须用这套接口保存/加载，真实发送时后端也只读这套存储（key=渠道ID 的整条 JSON）
   const loadChannels = async () => {
     try {
       setLoading(true);
-      // 使用 configApi 获取所有配置（返回格式为按 name 分组）
-      const groupedConfigs = await configApi.getConfig() as Record<string, Record<string, string>>;
-
-      // 获取 notification 分组的配置
-      const notificationGroup = groupedConfigs.notification || {};
-
-      // 将扁平化配置按渠道ID分组
-      const channelConfigs: Record<string, Record<string, string>> = {};
-      Object.entries(notificationGroup).forEach(([key, value]) => {
-        if (key.startsWith('notification.')) {
-          const parts = key.split('.');
-          if (parts.length >= 3) {
-            const channelId = parts[1];
-            const field = parts[2];
-            if (!channelConfigs[channelId]) {
-              channelConfigs[channelId] = {};
-            }
-            channelConfigs[channelId][field] = value;
-          }
-        }
+      const res = await getNotificationChannels();
+      const remote = (res?.channels ?? []) as Array<
+        Partial<NotificationChannel> & { id?: string; displayName?: string }
+      >;
+      const loadedChannels = PRESET_CHANNELS.map((preset) => {
+        const found = remote.find((c) => c.id === preset.id);
+        return {
+          id: preset.id,
+          // displayName 为后端给的展示名；保存后 name 会回落为渠道ID
+          name: t(found?.displayName || found?.name || preset.name),
+          icon: preset.icon,
+          enabled: Boolean(found?.enabled),
+          isDefault: Boolean(found?.isDefault),
+          // 与页面默认模板合并，防后端缺字段
+          config: { ...DEFAULT_CONFIGS[preset.id], ...(found?.config ?? {}) },
+        };
       });
-
-      // 检查是否有保存的配置
-      const hasSavedConfig = Object.keys(channelConfigs).length > 0;
-
-      if (hasSavedConfig) {
-        // 将后端数据转换为前端格式
-        const loadedChannels = PRESET_CHANNELS.map((preset) => {
-          const existing = channelConfigs[preset.id];
-          if (existing && Object.keys(existing).length > 0) {
-            // 解析 config JSON
-            let config = DEFAULT_CONFIGS[preset.id];
-            try {
-              if (existing.config) {
-                config = JSON.parse(existing.config);
-              }
-            } catch (e) {
-              console.warn(`Failed to parse ${preset.id} config`, e);
-            }
-
-            return {
-              id: preset.id,
-              name: t(existing.name),
-              icon: preset.icon,
-              enabled: existing.enabled === '1',
-              isDefault: existing.isDefault === '1',
-              config: config,
-            };
-          }
-          // 返回默认配置
-          return {
-            id: preset.id,
-            name: t(preset.name),
-            icon: preset.icon,
-            enabled: false,
-            isDefault: false,
-            config: DEFAULT_CONFIGS[preset.id],
-          };
-        });
-        setChannels(loadedChannels);
-        setSelectedChannelId(loadedChannels[0]?.id || "");
-      } else {
-        // 使用默认配置
-        initDefaultChannels();
-      }
+      setChannels(loadedChannels);
+      setSelectedChannelId(loadedChannels[0]?.id || "");
     } catch (error) {
       console.error("Failed to load notification channel config:", error);
       message.error(t("load_failed"));
-      initDefaultChannels();
+      setSelectedChannelId(PRESET_CHANNELS[0]?.id || "");
     } finally {
       setLoading(false);
     }
-  };
-
-  // 初始化默认配置
-  const initDefaultChannels = () => {
-    const initialChannels = PRESET_CHANNELS.map((preset, index) => ({
-      ...preset,
-      enabled: index === 0,
-      isDefault: index === 0,
-      config: DEFAULT_CONFIGS[preset.id],
-    }));
-    setChannels(initialChannels);
-    setSelectedChannelId(initialChannels[0]?.id || "");
   };
 
   // 获取当前选中的渠道
@@ -241,33 +188,23 @@ const NotificationsPage = () => {
     );
   };
 
-  // 保存配置（使用批量更新接口，对象数组格式）
+  // 启用/停用渠道（enabled 是渠道级字段，不在 config 内；测试按钮与后端都要求渠道已启用）
+  const toggleChannelEnabled = (channelId: string, enabled: boolean) => {
+    setChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, enabled } : c)));
+  };
+
+  // 保存配置（走通知渠道专用接口，与真实发送读取的存储保持一致）
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 构建批量更新的配置数组，格式与 general 页面一致
-      const batchConfigs: Array<{
-        key: string;
-        value: string;
-        name: string;
-        description: string;
-      }> = [];
-
-      channels.forEach((channel) => {
-        const prefix = `notification.${channel.id}`;
-        const channelName = channel.name;
-
-        batchConfigs.push(
-          { key: `${prefix}.name`, value: channel.name, name: 'notification', description: t('notification_desc_name', { name: channelName }) },
-          { key: `${prefix}.enabled`, value: channel.enabled ? '1' : '0', name: 'notification', description: t('notification_desc_enabled', { name: channelName }) },
-          { key: `${prefix}.isDefault`, value: channel.isDefault ? '1' : '0', name: 'notification', description: t('notification_desc_is_default', { name: channelName }) },
-          { key: `${prefix}.config`, value: JSON.stringify(channel.config), name: 'notification', description: t('notification_desc_config', { name: channelName }) }
-        );
-      });
-
-      // 使用批量更新接口保存所有配置（对象数组格式）
-      await configApi.updateConfig(batchConfigs);
-
+      await saveNotificationChannels(
+        channels.map((channel) => ({
+          id: channel.id,
+          enabled: channel.enabled,
+          isDefault: channel.isDefault,
+          config: channel.config,
+        }))
+      );
       message.success(t("settings_saved"));
     } catch (error) {
       console.error("Failed to save notification channel config:", error);
@@ -286,40 +223,6 @@ const NotificationsPage = () => {
     } catch (error) {
       console.error("Failed to reset config:", error);
       message.error(t("reset_failed"));
-    }
-  };
-
-  // 测试发送通知（渠道级别）
-  const handleTestSend = async (channelId: string) => {
-    const channel = channels.find((c) => c.id === channelId);
-    if (!channel) return;
-
-    // 检查配置是否完整
-    if (channel.id === "email" && (!channel.config.smtpHost || !channel.config.username || !channel.config.password)) {
-      message.error(t("email_config_incomplete"));
-      return;
-    }
-    if (channel.id === "wecom" && !channel.config.webhookUrl) {
-      message.error(t("wechat_config_incomplete"));
-      return;
-    }
-    if (channel.id === "feishu" && !channel.config.webhookUrl) {
-      message.error(t("feishu_config_incomplete"));
-      return;
-    }
-
-    // 发送测试消息
-    message.loading(t("sending_test"), 1);
-    try {
-      const response = await testNotificationChannel(channelId, channel.config);
-      if (response.code === 0) {
-        message.success(t("test_sent"));
-      } else {
-        message.error(response.message || t("test_send_failed"));
-      }
-    } catch (error) {
-      console.error("Failed to send test message:", error);
-      message.error(t("test_send_failed"));
     }
   };
 
@@ -351,17 +254,13 @@ const NotificationsPage = () => {
     setTestResult(null);
 
     try {
-      const response = await testNotificationChannel(selectedChannel.id, selectedChannel.config);
-      setTestResult(response);
-
-      if (response.code === 0) {
-        message.success(response.message || t("notification_test_success"));
-      } else {
-        message.error(response.message || t("test_send_failed"));
-      }
+      // 拦截器对业务码非 0 的响应直接抛 ApiError，能走到这里说明后端确认发送成功
+      await testNotificationChannel(selectedChannel.id, selectedChannel.config);
+      setTestResult({ success: true, message: t("notification_test_success") });
+      message.success(t("notification_test_success"));
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : t("test_send_failed");
-      setTestResult({ code: -1, message: errorMsg });
+      setTestResult({ success: false, message: errorMsg });
       message.error(errorMsg);
     } finally {
       setTestingChannel(false);
@@ -418,7 +317,18 @@ const NotificationsPage = () => {
             <div className="space-y-4">
               {/* 渠道标题和测试按钮 - 与左侧标题对齐 */}
               <div className="flex items-center justify-between h-8">
-                <div className="text-base font-medium">{selectedChannel.name}</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-medium">{selectedChannel.name}</span>
+                  {/* 渠道启用开关：未启用时测试按钮置灰 */}
+                  <Switch
+                    size="small"
+                    checked={selectedChannel.enabled}
+                    checkedChildren={t("enabled")}
+                    onChange={(checked) =>
+                      toggleChannelEnabled(selectedChannel.id, checked)
+                    }
+                  />
+                </div>
                 <Space>
                   <Button
                     type="primary"
@@ -558,12 +468,6 @@ const NotificationsPage = () => {
                       />
                     </div>
 
-                    {/* 测试发送按钮 */}
-                    <div className="flex justify-end pt-4">
-                      <Button onClick={() => handleTestSend(selectedChannel.id)}>
-                        {t("test_send")}
-                      </Button>
-                    </div>
                   </div>
                 )}
 
@@ -611,12 +515,6 @@ const NotificationsPage = () => {
                       </div>
                     )}
 
-                    {/* 测试发送按钮 */}
-                    <div className="flex justify-end pt-4">
-                      <Button onClick={() => handleTestSend(selectedChannel.id)}>
-                        {t("test_send")}
-                      </Button>
-                    </div>
                   </div>
                 )}
 
@@ -664,42 +562,22 @@ const NotificationsPage = () => {
                       </div>
                     )}
 
-                    {/* 测试发送按钮 */}
-                    <div className="flex justify-end pt-4">
-                      <Button onClick={() => handleTestSend(selectedChannel.id)}>
-                        {t("test_send")}
-                      </Button>
-                    </div>
                   </div>
                 )}
 
                 {/* 测试结果 */}
                 {testResult && (
-                  <div className={`mt-4 p-3 rounded-lg ${testResult.code === 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                  <div className={`mt-4 p-3 rounded-lg ${testResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
                     <div className="flex items-center gap-2">
-                      {testResult.code === 0 ? (
+                      {testResult.success ? (
                         <span className="text-green-500">✓</span>
                       ) : (
                         <span className="text-red-500">✗</span>
                       )}
-                      <span className={testResult.code === 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
+                      <span className={testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
                         {testResult.message}
                       </span>
                     </div>
-                    {testResult.data?.result && (
-                      <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                        <div className="flex justify-between">
-                          <span>{t("notification_channel_label")}:</span>
-                          <span>{selectedChannel?.name}</span>
-                        </div>
-                        {testResult.data.result.error && (
-                          <div className="flex justify-between mt-1">
-                            <span>{t("notification_error_details")}:</span>
-                            <span className="text-red-600">{testResult.data.result.error}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
 
