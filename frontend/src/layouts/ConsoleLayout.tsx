@@ -7,7 +7,6 @@ import {
   IconChartHistogram,
   IconCode,
   IconDatabase,
-  IconFlask,
   IconHelp,
   IconHome,
   IconLayoutSidebarLeftCollapse,
@@ -192,8 +191,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_STRATEGY = "/strategy-management";
   const MENU_KEY_STRATEGY_TASK = "/strategy-worker";
   const MENU_KEY_DATA = "/data-management";
-  // P2-08 指标 IDE（版本/预览）
-  const MENU_KEY_INDICATOR_LAB = "/indicator-lab";
   const MENU_KEY_FACTOR = "/factor-analysis";
   const MENU_KEY_MODEL_HUB = "/model-hub";
   const MENU_KEY_RISK = "/risk-monitor";
@@ -208,7 +205,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     [MENU_KEY_STRATEGY, "strategy_management"],
     [MENU_KEY_STRATEGY_TASK, "strategy_task"],
     [MENU_KEY_DATA, "data_management"],
-    [MENU_KEY_INDICATOR_LAB, "indicator_lab"],
     [MENU_KEY_MODEL_HUB, "model_hub"],
     [MENU_KEY_RISK, "risk_monitor"],
     // 子路由补全 — menu 里没有但需要正确标题的页面
@@ -244,8 +240,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />, false],
       [MENU_KEY_STRATEGY_TASK, "strategy_task", <IconBotId size="1em" />, false],
       [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />, false],
-      // P2-08 指标实验室（指标 IDE：版本/预览）
-      [MENU_KEY_INDICATOR_LAB, "indicator_lab", <IconFlask size="1em" />, false],
       [MENU_KEY_FACTOR, "factor_analysis", <IconChartHistogram size="1em" />, false],
       [MENU_KEY_RESEARCH, "research", <IconMicroscope size="1em" />, false],
       [MENU_KEY_MODEL_HUB, "model_hub", <IconStack size="1em" />, false],

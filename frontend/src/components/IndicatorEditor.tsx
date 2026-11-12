@@ -17,6 +17,7 @@ import {
   CheckOutlined,
   CloseOutlined,
   BellOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import {
   Modal,
@@ -36,6 +37,7 @@ import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/us
 import { indicatorApi, type ThinkingChainEventData, type IndicatorQualityHint } from '../api';
 import { useGuestRestriction } from '../hooks/useGuestRestriction';
 import IndicatorAlertTab from './IndicatorAlertTab';
+import IndicatorVersionHistory from './IndicatorVersionHistory';
 import { QUANT_COLORS } from '@/utils/colors';
 
 interface IndicatorEditorProps {
@@ -675,6 +677,27 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
               </span>
             ),
             children: <IndicatorAlertTab indicatorId={editingIndicator.id} />,
+          },
+          // 版本历史页签（原指标实验室迁入）：仅已保存的指标有快照
+          {
+            key: 'history',
+            label: (
+              <span>
+                <ClockCircleOutlined />
+                {t('indicatorVersion.title')}
+              </span>
+            ),
+            children: (
+              <IndicatorVersionHistory
+                indicatorId={editingIndicator.id}
+                onRolledBack={(updated) => {
+                  // 回滚已生成新快照并切换服务端当前版本，编辑器同步装载回滚后的代码
+                  setName(updated.name);
+                  setDescription(updated.description || '');
+                  setCode(updated.code || defaultIndicatorCode);
+                }}
+              />
+            ),
           },
         ]
       : []),
