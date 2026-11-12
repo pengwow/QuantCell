@@ -2016,6 +2016,8 @@
   "backtest_hint_sharpe_ratio": "Risk-adjusted return: annualized return ÷ annualized volatility; higher means more return per unit of risk. Account-level, not splittable per symbol under a shared pool",
   "backtest_metric_deflated_sharpe": "Deflated Sharpe",
   "backtest_hint_deflated_sharpe": "Luck-adjusted Sharpe credibility (0~1, higher is more credible): the equity curve is split into calendar-year segments, each segment's return Sharpe forms the trial distribution, and the kernel DSR algorithm then evaluates whether the overall Sharpe significantly beats chance. '—' means fewer than two valid year segments or kernel unavailable",
+  "backtest_metric_pbo": "Overfitting PBO",
+  "backtest_hint_pbo": "Backtest overfitting probability (CSCV method, 0~1, lower is better): each symbol's return series is split into combinatorially symmetric cross-validation blocks, counting how often the in-sample winner falls behind out-of-sample; >0.5 suggests the edge between strategies is largely luck. No cross-strategy comparison exists for single-symbol backtests or a shared equity pool, shown as '—'",
   "backtest_hint_max_drawdown": "Largest peak-to-trough decline of equity, measuring worst-case loss depth. Account-level, not splittable per symbol under a shared pool",
   "backtest_hint_win_rate": "Winning fills ÷ total fills. Note the denominator counts engine fills (both opens and closes)",
   "backtest_hint_profit_factor": "Gross profit of winning trades ÷ absolute gross loss of losing trades. Above 1 means net profit; 1 means break-even",

@@ -452,6 +452,13 @@ class ResultFormatterService:
         # Deflated Sharpe（P1-04）：按年分段试验口径直调内核 DSR；不足两个有效年段
         # 或内核缺位时为 None（不降级为伪值），展示层显示"—"
         robustness_value = robustness.deflated_sharpe(robustness.yearly_sharpes(equity_curve_input))
+        # P1-05 稳健性组：block bootstrap 置信区间 + 成本压力曲线 + PBO（组合级注入）+ 评级。
+        # pbo 由 engine_service 在多品种独立资金池下注入 results["robustness_pbo"]，
+        # 单品种/共享资金池保持 None（没有品种间比较对象）
+        sharpe_ci = robustness.block_bootstrap_sharpe(robustness.log_returns(equity_curve_input))
+        cost_curve = robustness.cost_stress(equity_curve_input, trades)
+        pbo_value = results.get("robustness_pbo")
+        grade = robustness.robustness_grade({"deflated_sharpe": robustness_value, "pbo": pbo_value})
         cagr_value = derived_metrics.annualized_return_pct(total_return_pct, data_start_ns, data_end_ns)
 
         winning_trades = len([t for t in trades if isinstance(t, dict) and t.get("PnL", t.get("pnl", 0)) > 0])
@@ -711,6 +718,20 @@ class ResultFormatterService:
                 "description": "缩水夏普比率（按年分段试验剔除运气成分；None=不足两个有效年段或内核缺位）",
                 "type": "number",
             },
+            {
+                "name": "PBO 过拟合概率",
+                "key": "pbo",
+                "value": round(pbo_value, 4) if pbo_value is not None else None,
+                "description": "CSCV 回测过拟合概率（0~1，越低越好；多品种独立资金池下的品种间比较。None=品种数不足或资金池共享）",
+                "type": "number",
+            },
+            {
+                "name": "稳健性评级",
+                "key": "robustness_grade",
+                "value": grade,
+                "description": "A=PBO<0.30 且 DSR>0；B=PBO<0.45 或 DSR>-0.5；其余 C",
+                "type": "string",
+            },
         ]
 
         formatted = {
@@ -734,7 +755,13 @@ class ResultFormatterService:
                 "liquidation_count": liquidation_count,
                 "margin_shortfall_count": margin_shortfall_count,
                 # 稳健性指标组（P1-04 起；值为 None 表示数据不足或内核缺位）
-                "robustness": {"deflated_sharpe": robustness_value},
+                "robustness": {
+                    "deflated_sharpe": robustness_value,
+                    "pbo": pbo_value,
+                    "sharpe_ci": sharpe_ci,
+                    "cost_curve": cost_curve,
+                    "grade": grade,
+                },
             }
         }
 

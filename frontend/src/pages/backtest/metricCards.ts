@@ -34,7 +34,7 @@ const bySign = (value: number): MetricColor => (value >= 0 ? 'positive' : 'negat
 const fixed = (color: MetricColor) => (): MetricColor => color;
 
 /**
- * 28 张卡片。**数组顺序 = 页面展示顺序，必须与改造前逐项一致**（保证「全部」视图与
+ * 29 张卡片。**数组顺序 = 页面展示顺序，必须与改造前逐项一致**（保证「全部」视图与
  * 独立资金池模式行为不变）；`scope` 只决定可见性（共享模式品种视角只看 `symbol`），
  * 不参与排序，所以这里是原顺序而非按 scope 分组。
  * label/hint 在模块加载时经 i18n.t 求值（非 React 组件，同 useUpdater.ts 模式），语言切换需刷新页面生效。
@@ -71,6 +71,14 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     color: fixed('neutral'),
     scope: 'account',
     hint: i18n.t('backtest_hint_deflated_sharpe'),
+  },
+  {
+    key: 'pbo',
+    label: i18n.t('backtest_metric_pbo'),
+    format: 'number',
+    color: fixed('neutral'),
+    scope: 'account',
+    hint: i18n.t('backtest_hint_pbo'),
   },
   {
     key: 'max_drawdown',
@@ -279,7 +287,7 @@ export const METRIC_CARDS: MetricCardSpec[] = [
 
 /**
  * 可见性：共享资金池 + 单品种视角 → 只保留按品种归因的贡献类指标；
- * 其余情形（「全部」视图 / 独立资金池模式）保持全部 27 张。
+ * 其余情形（「全部」视图 / 独立资金池模式）保持全部 29 张。
  */
 export function visibleMetricCards(capitalMode: string | undefined, selectedSymbol: string): MetricCardSpec[] {
   const isSharedSymbolView = capitalMode === 'shared' && selectedSymbol !== 'all';

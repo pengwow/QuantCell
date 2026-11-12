@@ -25,12 +25,13 @@ const SYMBOL_KEYS = [
 const keys = (mode: string | undefined, sym: string) =>
   visibleMetricCards(mode, sym).map((m) => m.key);
 
-/** 改造后「回测概览」的 28 张卡片顺序（「全部」视图必须保持这个顺序） */
+/** 改造后「回测概览」的 29 张卡片顺序（「全部」视图必须保持这个顺序） */
 const FULL_KEYS = [
   'total_return',
   'cagr',
   'sharpe_ratio',
   'deflated_sharpe',
+  'pbo',
   'max_drawdown',
   'win_rate',
   'profit_factor',
@@ -74,8 +75,8 @@ describe('口径标注', () => {
   it('两种视图下可见的卡片都带 hint（切换品种后提示不丢失）', () => {
     const views = [
       visibleMetricCards('shared', 'ETH/USDT'), // 共享资金池品种视角（17 张）
-      visibleMetricCards('shared', 'all'), // 组合视图（28 张）
-      visibleMetricCards('per_symbol', 'ETH/USDT'), // 独立资金池（28 张）
+      visibleMetricCards('shared', 'all'), // 组合视图（29 张）
+      visibleMetricCards('per_symbol', 'ETH/USDT'), // 独立资金池（29 张）
     ];
     for (const view of views) {
       expect(view.length).toBeGreaterThan(0);
@@ -106,14 +107,14 @@ describe('visibleMetricCards', () => {
     }
   });
 
-  it('共享资金池 + 全部视图：展示全部 28 张', () => {
-    expect(METRIC_CARDS).toHaveLength(28);
-    expect(keys('shared', 'all')).toHaveLength(28);
+  it('共享资金池 + 全部视图：展示全部 29 张', () => {
+    expect(METRIC_CARDS).toHaveLength(29);
+    expect(keys('shared', 'all')).toHaveLength(29);
   });
 
-  it('独立资金池（或缺省）模式单品种视角：展示全部 28 张', () => {
-    expect(keys('per_symbol', 'ETH/USDT')).toHaveLength(28);
-    expect(keys(undefined, 'ETH/USDT')).toHaveLength(28);
+  it('独立资金池（或缺省）模式单品种视角：展示全部 29 张', () => {
+    expect(keys('per_symbol', 'ETH/USDT')).toHaveLength(29);
+    expect(keys(undefined, 'ETH/USDT')).toHaveLength(29);
   });
 });
 
