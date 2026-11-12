@@ -412,7 +412,7 @@ export default function EnsembleWorkbench() {
               <Select options={intervalOptions} />
             </Form.Item>
             <Form.Item name="initial_capital" label={t('ens_field_capital')} rules={[{ required: true, message: t('ens_field_capital_rule') }]}>
-              <InputNumber min={1000} step={10000} style={{ width: '100%' }} addonAfter="USDT" />
+              <InputNumber min={1000} step={10000} style={{ width: '100%' }} suffix="USDT" />
             </Form.Item>
           </Form>
         )}

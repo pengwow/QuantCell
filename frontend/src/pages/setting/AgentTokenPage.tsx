@@ -125,7 +125,7 @@ const AgentTokenPage = () => {
   return (
     <PageContainer title={t('agentToken_settings')}>
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-        <Alert type="info" showIcon message={t('agentToken_intro')} />
+        <Alert type="info" showIcon title={t('agentToken_intro')} />
         <Flex justify="end">
           <Button
             type="primary"
@@ -180,7 +180,7 @@ const AgentTokenPage = () => {
             placeholder={t('agentToken_expires_hint')}
             value={expiresDays}
             onChange={(v) => setExpiresDays(v ?? null)}
-            addonAfter={t('agentToken_days')}
+            suffix={t('agentToken_days')}
           />
         </Space>
       </Modal>
@@ -197,7 +197,7 @@ const AgentTokenPage = () => {
         ]}
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-          <Alert type="warning" showIcon message={t('agentToken_issue_warning')} />
+          <Alert type="warning" showIcon title={t('agentToken_issue_warning')} />
           <Typography.Text code copyable={{ text: issuedToken ?? '' }} style={{ maxWidth: '100%' }} ellipsis>
             {issuedToken}
           </Typography.Text>
