@@ -30,11 +30,12 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 中间状态集合（程序异常退出后残留的风险状态）
 # 从 DB 恢复/水合状态时统一修正为 stopped，防止状态永久冻住
-# interrupted：lifespan._mark_interrupted_workers 在进程重启时把残留 running 直写 DB
-# 的标记，不在 WorkerState 枚举内。它语义上等同于停摆——驱动线程已随旧进程消亡；
-# 若不纳入，水合后缓存里的裸字符串会让 is_valid_transition 恒拒绝
-# （WorkerState("interrupted") 抛 ValueError），停止/重启/启动全部被状态机冻住。
-# 按 stopped 处理后：停止命中 stopped 幂等特例，重启/启动走 stopped→starting 合法转换。
+# interrupted：lifespan._mark_interrupted_workers 在进程重启时对残留 running 的
+# 如实标记，已纳入 WorkerState 枚举——唯一合法入口是启动收口路径的
+# running→interrupted 转换边（非收口路径一律被转换表拒绝）。它的事实语义等同
+# 停摆：驱动线程已随旧进程消亡。水合时仍按 'stopped' 处理：停止命中 stopped
+# 幂等特例、重启/启动走 stopped→starting 合法转换；DB 中的 interrupted 值保持
+# 到下一次 transition 随 _persist_state 覆写。
 RECOVERABLE_STATUSES = {"starting", "stopping", "restarting", "paused", "interrupted"}
 
 # 中间态超过该时长仍未收敛即视为残留（正常的同步 stop 最长约 10s ZMQ 超时 + 兜底，
@@ -76,6 +77,9 @@ class WorkerState(Enum):
 
     # 暂停状态
     PAUSED = "paused"  # 已暂停
+
+    # 中断状态：进程重启后对残留 running 的收口标记（驱动线程已随旧进程消亡）
+    INTERRUPTED = "interrupted"
 
     def is_active(self) -> bool:
         """
@@ -136,12 +140,18 @@ class WorkerState(Enum):
                 WorkerState.RELOADING,
                 WorkerState.RESTARTING,  # 允许从运行中直接重启
                 WorkerState.ERROR,
+                WorkerState.INTERRUPTED,  # 仅限启动收口路径（core/lifespan 恢复扫描）
             ],
             WorkerState.PAUSED: [
                 WorkerState.RUNNING,
                 WorkerState.STOPPING,
                 WorkerState.RESTARTING,  # 允许从暂停中重启
                 WorkerState.ERROR,
+            ],
+            WorkerState.INTERRUPTED: [
+                # 进程重启收口后的恢复出口：重新启动，或手动确认停机
+                WorkerState.STARTING,
+                WorkerState.STOPPED,
             ],
             WorkerState.STOPPING: [
                 WorkerState.STOPPED,
