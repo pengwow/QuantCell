@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Any
 import pytz
 from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, func
 
-from collector.db.database import SessionLocal, init_database_config
+# 模块属性访问而非 from-import：测试可通过 monkeypatch db_module.SessionLocal 注入内存库
+from collector.db import database as db_module
+from collector.db.database import init_database_config
 from collector.db.models import TimezoneAwareBase
 from utils.logger import LogType, get_logger
 
@@ -31,6 +33,8 @@ class CustomIndicator(TimezoneAwareBase):
     name = Column(String(100), nullable=False)
     description = Column(Text, default="")
     code = Column(Text, nullable=False)
+    # 当前版本号（P2-08），快照明细见 indicator_versions 表
+    version = Column(Integer, nullable=False, default=1)
     is_encrypted = Column(Boolean, default=False)
     publish_to_community = Column(Boolean, default=False)
     pricing_type = Column(String(20), default="free")
@@ -63,6 +67,7 @@ class CustomIndicatorBusiness:
             "name": indicator.name,
             "description": indicator.description,
             "code": indicator.code,
+            "version": indicator.version or 1,
             "is_encrypted": indicator.is_encrypted,
             "publish_to_community": indicator.publish_to_community,
             "pricing_type": indicator.pricing_type,
@@ -76,7 +81,7 @@ class CustomIndicatorBusiness:
     @staticmethod
     def create(user_id: int, name: str, code: str, description: str = "", **kwargs) -> dict[str, Any] | None:
         init_database_config()
-        db: Session = SessionLocal()
+        db: Session = db_module.SessionLocal()
         try:
             indicator = CustomIndicator(
                 user_id=user_id,
@@ -105,7 +110,7 @@ class CustomIndicatorBusiness:
     @staticmethod
     def get_by_id(indicator_id: int) -> dict[str, Any] | None:
         init_database_config()
-        db: Session = SessionLocal()
+        db: Session = db_module.SessionLocal()
         try:
             indicator = db.query(CustomIndicator).filter_by(id=indicator_id).first()
             return CustomIndicatorBusiness._to_dict(indicator) if indicator else None
@@ -118,7 +123,7 @@ class CustomIndicatorBusiness:
     @staticmethod
     def get_all(user_id: int | None = None) -> list:
         init_database_config()
-        db: Session = SessionLocal()
+        db: Session = db_module.SessionLocal()
         try:
             query = db.query(CustomIndicator)
             if user_id is not None:
@@ -134,7 +139,7 @@ class CustomIndicatorBusiness:
     @staticmethod
     def update(indicator_id: int, **kwargs) -> dict[str, Any] | None:
         init_database_config()
-        db: Session = SessionLocal()
+        db: Session = db_module.SessionLocal()
         try:
             indicator = db.query(CustomIndicator).filter_by(id=indicator_id).first()
             if not indicator:
@@ -157,7 +162,7 @@ class CustomIndicatorBusiness:
     @staticmethod
     def delete(indicator_id: int) -> bool:
         init_database_config()
-        db: Session = SessionLocal()
+        db: Session = db_module.SessionLocal()
         try:
             indicator = db.query(CustomIndicator).filter_by(id=indicator_id).first()
             if indicator:
@@ -175,7 +180,7 @@ class CustomIndicatorBusiness:
     @staticmethod
     def get_code(indicator_id: int) -> str | None:
         init_database_config()
-        db: Session = SessionLocal()
+        db: Session = db_module.SessionLocal()
         try:
             indicator = db.query(CustomIndicator.code).filter_by(id=indicator_id).first()
             return indicator.code if indicator else None
@@ -184,6 +189,26 @@ class CustomIndicatorBusiness:
             return None
         finally:
             db.close()
+
+
+class IndicatorVersion(TimezoneAwareBase):
+    """指标版本快照（P2-08）
+
+    指标每次创建/保存/回滚时的代码快照，(indicator_id, version_no) 唯一，
+    version_no 单调递增；indicators.version 指向当前版本。
+    """
+
+    __tablename__ = "indicator_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    indicator_id = Column(Integer, nullable=False, index=True)
+    version_no = Column(Integer, nullable=False)
+    name = Column(String(100), nullable=False, default="")
+    description = Column(Text, default="")
+    code = Column(Text, nullable=False)
+    source = Column(String(20), nullable=False, default="save")  # create/save/rollback
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
 class IndicatorAlertRule(TimezoneAwareBase):

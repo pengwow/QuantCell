@@ -263,6 +263,45 @@ export interface Indicator {
   pricing_type: string;
   price: number;
   is_encrypted: number;
+  /** 当前版本号（P2-08） */
+  version?: number;
+}
+
+/**
+ * 指标版本快照（P2-08）
+ */
+export interface IndicatorVersion {
+  id: number;
+  indicator_id: number;
+  version_no: number;
+  name: string;
+  description: string;
+  source: string;
+  is_current: boolean;
+  created_at: string;
+  code?: string;
+}
+
+/**
+ * 指标沙箱预览结果（P2-08）
+ */
+export interface IndicatorPreviewResult {
+  success: boolean;
+  error?: string;
+  plots: Array<{
+    name: string;
+    data: Array<number | null>;
+    color?: string;
+    overlay?: boolean;
+    type?: string;
+  }>;
+  signals: Array<{
+    type: string;
+    text?: string;
+    data: Array<number | null>;
+    color?: string;
+  }>;
+  execution_time_ms?: number;
 }
 
 /**
@@ -791,6 +830,30 @@ export const indicatorApi = {
     } | null;
   }> => {
     return apiRequest.post('/indicators/verify', { code });
+  },
+
+  /** 沙箱预览：对未保存的草稿代码做一次性求值（P2-08） */
+  previewIndicator: (data: {
+    code: string;
+    params?: Record<string, unknown>;
+    klineData?: Array<Record<string, unknown>>;
+  }): Promise<IndicatorPreviewResult> => {
+    return apiRequest.post('/indicators/preview', data);
+  },
+
+  /** 版本快照列表（新版本在前，P2-08） */
+  getIndicatorVersions: (id: number): Promise<IndicatorVersion[]> => {
+    return apiRequest.get(`/indicators/${id}/versions`);
+  },
+
+  /** 对比两个版本代码（diff 渲染由前端完成，P2-08） */
+  diffIndicatorVersions: (id: number, a: number, b: number): Promise<{ a: IndicatorVersion; b: IndicatorVersion }> => {
+    return apiRequest.get(`/indicators/${id}/versions/diff?a=${a}&b=${b}`);
+  },
+
+  /** 回滚到指定版本（生成 rollback 新快照，不删历史，P2-08） */
+  rollbackIndicatorVersion: (id: number, versionNo: number): Promise<Indicator> => {
+    return apiRequest.post(`/indicators/${id}/versions/${versionNo}/rollback`, {});
   },
 
   aiGenerate: (prompt: string, existingCode?: string) => {

@@ -260,13 +260,11 @@ class TestAlertRoutes:
         assert alert_client.put("/api/v1/indicators/alerts/999", json={"enabled": False}).status_code == 404
 
     def test_test_send_forces_notification(self, alert_db, alert_client, monkeypatch):
-        import indicators.models as im
         from indicators import alerts_routes as ar
 
         ind_id = _seed_indicator(alert_db)
         rule_id = _seed_rule(alert_db, ind_id)
-        # CustomIndicatorBusiness.get_code 走 indicators.models 模块级绑定的 SessionLocal，同步替换
-        monkeypatch.setattr(im, "SessionLocal", alert_db)
+        # CustomIndicatorBusiness.get_code 统一走 db_module.SessionLocal，alert_db fixture 已替换，无需再补丁
 
         sent: dict = {}
 
