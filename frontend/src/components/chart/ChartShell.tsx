@@ -1054,7 +1054,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   // 尾沿节流的重算调度（回放场景专用入口）。1s 节流 + 在途门闩：
   // 播放中每根 bar 的喂数最多合并为 1 次/秒的 /execute 请求，指标执行慢时由门闩自动降频。
   // 递归引用自身实现在途完成后补尾沿，deps 不含自身（运行时引用已赋值）
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   const recalcBackendIndicators = useCallback(() => {
     if (indicatorScope !== 'all') return;
     const st = backendRecalcStateRef.current;

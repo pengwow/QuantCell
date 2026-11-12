@@ -130,7 +130,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker, onEdit, reloa
       cancelled = true;
     };
     // reloadKey 仅作为重拉信号（编辑保存成功后由父页面递增），不参与 effect 内部逻辑
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [worker.id, reloadKey]);
 
   return (

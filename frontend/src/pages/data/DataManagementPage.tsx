@@ -113,7 +113,7 @@ const { useBreakpoint } = Grid;
 
 // O2 设计对齐：token 未覆盖的低饱和灰/淡底，用主题前景色、信息色按透明度逼近原 hex，亮暗色自动适配（替代 #8c8c8c/#bfbfbf/#e6f4ff 等）
 const QC_TEXT_MUTED = 'color-mix(in srgb, var(--tw-color-foreground) 45%, transparent)'; // ≈ 次要文字 #8c8c8c
-const QC_TEXT_FAINT = 'color-mix(in srgb, var(--tw-color-foreground) 25%, transparent)'; // ≈ 弱提示 #bfbfbf
+// QC_TEXT_FAINT 已移除——弱提示统一走 Tailwind text-muted 类
 const INFO_BG_SOFT = 'color-mix(in srgb, var(--tw-color-info) 10%, transparent)';        // ≈ 展开态淡蓝底 #e6f4ff
 const INFO_BG_MID = 'color-mix(in srgb, var(--tw-color-info) 8%, transparent)';          // ≈ 市场选中淡蓝底 #f0f5ff
 const INFO_BG_STRONG = 'color-mix(in srgb, var(--tw-color-info) 30%, transparent)';      // ≈ symbol 选中蓝底 #bae0ff
@@ -194,7 +194,7 @@ const TasksListScroll: React.FC<TasksListScrollProps> = ({ onReachBottom, childr
     observer.observe(sentinel);
     return () => observer.disconnect();
     // 空依赖：observer 建一次，cb 通过 ref 拿最新值
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return (

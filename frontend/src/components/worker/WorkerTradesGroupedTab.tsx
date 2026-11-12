@@ -6,7 +6,7 @@
  * - 无配对的历史 / live 成交：每行自成一组，标记「未配对」
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Card, Col, DatePicker, Empty, Pagination, Row, Select, Space } from 'antd';
 import { workerApi } from '@/api/workerApi';

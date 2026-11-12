@@ -638,7 +638,7 @@ const BacktestReplay = () => {
       dispose(chartRef.current);
     }
     chartInstance.current = null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在视角切换时处理
+     
   }, [viewMode]);
 
   // 渲染加载状态：品种列表加载、品种视角下回放数据加载、视角切换过渡统一走整页 Spin

@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App as AntApp, Drawer, Flex, Tabs } from 'antd';
+import { App as AntApp, Drawer, Tabs } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -22,7 +22,7 @@ const LAST_VIEWED_KEY = 'factor.lastViewed';
 
 const FactorAnalysis: React.FC = () => {
   const { t } = useTranslation();
-  const { message } = AntApp.useApp();
+  AntApp.useApp(); // 仅为触发 App 全局注入（message 能力由子组件按需 useApp）
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = TAB_KEYS.includes(searchParams.get('tab') as (typeof TAB_KEYS)[number])
     ? (searchParams.get('tab') as (typeof TAB_KEYS)[number])

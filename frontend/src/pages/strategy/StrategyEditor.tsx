@@ -440,46 +440,7 @@ const StrategyEditor = () => {
     navigate('/strategy-management');
   };
 
-  // 规则策略示例模板（on_bar → Action，双均线交叉）
-  const buildRuleTemplate = () => `# -*- coding: utf-8 -*-
-"""Simple SMA crossover rule strategy — QuantCell BaseStrategy framework.
-
-Buy on fast-over-slow cross, close long on cross down. Parameters via config.params.
-"""
-
-from __future__ import annotations
-from typing import Any
-
-from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext
-
-
-class NewStrategy(BaseStrategy):
-    """SMA crossover: buy on fast-over-slow cross, close long on cross down."""
-
-    def __init__(self, config: StrategyConfig):
-        super().__init__(config)
-        self.fast_period: int = config.params.get("fast_period", 10)
-        self.slow_period: int = config.params.get("slow_period", 20)
-        self.position_size: float = config.params.get("position_size", 0.1)
-
-    def on_bar(self, bar: dict, ctx: StrategyContext | None = None) -> Action:
-        closes = ctx.closes if ctx else []
-        closes.append(bar["close"])
-
-        if len(closes) < self.slow_period:
-            return Action("hold", 0.0, 0.0, "new_strategy", 0)
-
-        fast_ma = sum(closes[-self.fast_period:]) / self.fast_period
-        slow_ma = sum(closes[-self.slow_period:]) / self.slow_period
-
-        if fast_ma > slow_ma:
-            return Action("buy", 0.8, self.position_size, "new_strategy", 0)
-        elif fast_ma < slow_ma:
-            return Action("reduce_long", 0.8, 0.0, "new_strategy", 0)
-
-        return Action("hold", 0.0, 0.0, "new_strategy", 0)
-`;
-
+  // 规则策略模板直接用 DEFAULT_NEW_STRATEGY_CODE（未维护单独构建函数）
   // RL 示例模板（TradingEnv + stable-baselines3）
   const buildRlTemplate = () => `# -*- coding: utf-8 -*-
 """RL strategy template — loads a trained PPO model, on_bar inference outputs Action.
@@ -541,7 +502,7 @@ class NewStrategy(BaseStrategy):
       // 拉真实模板列表（后端 strategy/templates/ 扫描结果）
       // 后端返回 { list: [...], total: N } 分页结构，axios 拦截器已拆外层
       const res = await aiModelApi.getTemplates();
-      const list = (res as any)?.list ?? (Array.isArray(res) ? res : []);
+      const list = ((res as unknown as { list?: unknown[] })?.list ?? (Array.isArray(res) ? res : [])) as typeof templates;
       setTemplates(list);
     } catch {
       // 拉取失败也允许用户继续（用默认代码）
@@ -688,7 +649,7 @@ class NewStrategy(BaseStrategy):
 
           // 调用保存策略的API（带手动维护的 params + factors）
           // type coercion：Input 把 default 全转成了 string，保存前按 type 字段转回正确类型
-          const coercedParams = (selectedStrategy.params || []).map((p: any) => {
+          const coercedParams = (selectedStrategy.params || []).map((p: Strategy['params'][number]) => {
             const v = p.default;
             let coerced: any = v;
             if (v !== null && v !== undefined && v !== '' && typeof v === 'string') {
@@ -738,7 +699,7 @@ class NewStrategy(BaseStrategy):
   // —— 参数增删改 + 行编辑态 ——
   // ponytail: 同时更新 selectedStrategy 和 parsedStrategy，避免 dataSource 切到 parsed 视图时修改白做
 
-  const handleParamChange = (index: number, field: string, value: any) => {
+  const handleParamChange = (index: number, field: string, value: unknown) => {
     if (!selectedStrategy) return;
     const params = [...selectedStrategy.params];
     params[index] = { ...params[index], [field]: value };
@@ -775,7 +736,7 @@ class NewStrategy(BaseStrategy):
 
   // —— 因子增删改 + 行编辑态 ——
 
-  const handleFactorChange = (index: number, field: string, value: any) => {
+  const handleFactorChange = (index: number, field: string, value: unknown) => {
     if (!selectedStrategy) return;
     const factors = [...(selectedStrategy.factors || [])];
     factors[index] = { ...factors[index], [field]: value };
@@ -824,12 +785,12 @@ class NewStrategy(BaseStrategy):
           appMessage.loading({ content: t('reparsing'), key: 'reparse' });
 
           const isSaved = !!selectedStrategy.file_path;
-          let info: any;
+          let info: any; // API 返回对象，字段名固定但缺接口定义
 
           if (isSaved) {
             // 已保存 → 后端 reparse（从磁盘读 + 写 DB）
             const res = await strategyApi.reparseStrategy(selectedStrategy.name);
-            info = (res as any)?.data ?? res;
+            info = ((res as unknown as { data?: unknown })?.data ?? res) as any;
           } else {
             // 未保存 → 直接解析编辑器当前代码（不查 DB）
             info = await strategyApi.parseStrategy(selectedStrategy.name, code);
@@ -846,8 +807,9 @@ class NewStrategy(BaseStrategy):
             content: t('se_msg_reparse_done', { params: info?.params?.length || 0, factors: info?.factors?.length || 0 }),
             key: 'reparse',
           });
-        } catch (e: any) {
-          appMessage.error({ content: `${t('reparse_failed')}: ${e?.message || e}`, key: 'reparse' });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          appMessage.error({ content: `${t('reparse_failed')}: ${msg}`, key: 'reparse' });
         }
       },
     });
@@ -1231,7 +1193,7 @@ class NewStrategy(BaseStrategy):
 
                             return params.length > 0 ? (
                               <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
-                                {params.map((param: any, index: number) => {
+                                {params.map((param: Strategy['params'][number], index: number) => {
                                   const editing = editingParamRows.has(index);
 
                                   if (editing) {
@@ -1362,7 +1324,7 @@ class NewStrategy(BaseStrategy):
                           </h3>
                           <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
                             {(selectedStrategy?.factors && selectedStrategy.factors.length > 0) ? (
-                              selectedStrategy.factors.map((factor: any, index: number) => {
+                              selectedStrategy.factors.map((factor: NonNullable<Strategy['factors']>[number], index: number) => {
                                 const editing = editingFactorRows.has(index);
 
                                 if (editing) {
@@ -1426,7 +1388,7 @@ class NewStrategy(BaseStrategy):
                                     title={t('click_to_edit')}
                                   >
                                     <Tag color="blue" className="mb-0">{factor.name}</Tag>
-                                    <Tag color={typeColor[factor.type] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
+                                    <Tag color={typeColor[factor.type ?? ''] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
                                     {(() => {
                                       // 只读态同时展示因子库 label（中文名）和 description（表达式/说明），不显示"（因子库）"标记
                                       const catalog = factorCatalog.get(factor.name);

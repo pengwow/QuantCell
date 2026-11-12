@@ -5,7 +5,7 @@
 import { useState, useMemo } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
-import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip, Input } from 'antd';
+import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip } from 'antd';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { PER_PAGE_OPTIONS, snapPageSize } from '../../constants/pagination';

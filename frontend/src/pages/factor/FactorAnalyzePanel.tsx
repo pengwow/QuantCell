@@ -83,7 +83,7 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
   const [form] = Form.useForm<FormValues>();
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([]);
   const [result, setResult] = useState<FactorAnalyzeResult | null>(null);
-  const [lastParams, setLastParams] = useState<FactorAnalyzeParams | null>(null);
+  const [, setLastParams] = useState<FactorAnalyzeParams | null>(null);
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];

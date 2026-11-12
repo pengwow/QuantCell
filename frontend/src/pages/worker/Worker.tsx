@@ -14,7 +14,6 @@ import {
   Statistic,
   Empty,
   Space,
-  Badge,
   Alert,
   Input,
   Select,
@@ -25,7 +24,6 @@ import {
   Flex,
   Pagination,
   theme,
-  type MenuProps,
   type TablePaginationConfig,
 } from 'antd';
 import {
@@ -47,7 +45,6 @@ import {
   ThunderboltOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import type { TooltipComponentFormatterCallbackParams } from 'echarts';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
 import { triggerOptimize } from '../../api/workerApi';
@@ -59,9 +56,6 @@ import { QUANT_COLORS } from '@/utils/colors';
 import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
-
-// 菜单项点击事件类型：antd v5 未直接导出 MenuInfo，从 MenuProps 推导
-type MenuItemClickEvent = Parameters<NonNullable<MenuProps['onClick']>>[0];
 
 const Worker = () => {
   const { t } = useTranslation();

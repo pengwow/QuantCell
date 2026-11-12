@@ -52,6 +52,17 @@ jobs:
           ref: ${{ inputs.axon_quant_ref || '0.21.0' }}
           path: axon_quant
 
+      # uv 不识别 cache-keys 里独立的 `glob` 字段（合法选项只有
+      # file/dir/git/env），但 file 字段本身支持 glob 语法。axon_quant
+      # pyproject.toml 写成 `glob = "crates/**/*.rs"` 会导致 uv sync 直接
+      # TOML 解析失败——在 CI runner 上把它 patch 成 `file = ...`。
+      # （不动 axon_quant 仓库本身，只改临时 checkout 副本）
+      - name: Patch axon_quant cache-keys glob → file
+        run: |
+          sed -i 's/{ glob = "crates\/\*\*\/\*.rs" }/{ file = "crates\/**\/*.rs" }/' \
+            axon_quant/pyproject.toml
+          grep 'cache-keys' axon_quant/pyproject.toml
+
       # uv 会就地构建 axon-quant 扩展（其 pyproject 用 maturin），故需要 Rust 工具链
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
