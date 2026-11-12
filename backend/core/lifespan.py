@@ -31,9 +31,14 @@ from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
 from services.model_registry import seed_demo_models
 from services.symbol_sync import symbol_sync_manager
-from utils.config_manager import load_system_configs
+from utils.config_manager import get_flag, load_system_configs
 from utils.secret_key_manager import initialize_secret_key
 from websocket.manager import manager
+from worker.graceful_shutdown import (
+    ShutdownConfig,
+    shutdown_watchdog_timeout,
+    worker_stop_budget,
+)
 from worker.state import connection_manager
 
 if TYPE_CHECKING:
@@ -41,6 +46,17 @@ if TYPE_CHECKING:
 
 # 全局实时引擎实例
 realtime_engine = None
+
+# P1-01：worker.shutdown.use_config_timeouts 关闭时回退的旧硬编码停机超时（S）
+_LEGACY_STOP_TIMEOUT = 1.0
+_LEGACY_SCHED_TIMEOUT = 1.5
+_LEGACY_MGR_TIMEOUT = 2.0
+_LEGACY_WATCHDOG = 12.0
+
+
+def _stop_timeout(legacy: float, derived: float) -> float:
+    """停机超时开关：use_config_timeouts 开启用 ShutdownConfig 派生值，关闭回旧硬编码"""
+    return derived if get_flag("worker.shutdown.use_config_timeouts", True) else legacy
 
 
 class _ShutdownNoiseFilter(logging.Filter):
@@ -407,7 +423,7 @@ async def lifespan(app: FastAPI):
 
     # 安装关停看门狗：链式包装 uvicorn 信号处理器，保证一次 Ctrl+C 即可有界退出
     # （uvicorn 默认会无限等待浏览器持有的 SSE/WebSocket 连接关闭）
-    shutdown_watchdog = _ShutdownWatchdog(timeout=12.0)
+    shutdown_watchdog = _ShutdownWatchdog(timeout=_stop_timeout(_LEGACY_WATCHDOG, shutdown_watchdog_timeout()))
     _install_signal_watchdog(shutdown_watchdog)
 
     yield
@@ -419,17 +435,25 @@ async def lifespan(app: FastAPI):
 
     logger.info("========== 应用开始关闭 ==========")
 
+    # P1-01：关闭段一次性快照 StopConfig 总预算 deadline，
+    # 后续各步派生超时（schedulers 步骤再按剩余预算收敛）。
+    # ponytail: deadline 只在关闭段起点取一次、不做逐步记账；
+    # 若某一步耗尽预算后续自动让路，升级路径是按失败阶段加权记账。
+    _shut_cfg = ShutdownConfig()
+    _shut_deadline = time.monotonic() + _shut_cfg.total_timeout
+
     # 步骤 1: 停止所有运行中的策略（通过 TradingSystem）
     try:
         from worker.state import strategy_registry
         from worker.trading_system import trading_system
 
+        _stop_budget = _stop_timeout(_LEGACY_STOP_TIMEOUT, worker_stop_budget())
         for runtime in strategy_registry.list_all():
             if runtime.is_running:
                 try:
-                    await asyncio.wait_for(trading_system.stop_strategy(runtime.worker_id), timeout=1.0)
+                    await asyncio.wait_for(trading_system.stop_strategy(runtime.worker_id), timeout=_stop_budget)
                 except TimeoutError:
-                    logger.warning(f"停止策略 {runtime.worker_id} 超时，强制跳过")
+                    logger.warning(f"停止策略 {runtime.worker_id} 超时（>{_stop_budget:g}s），强制跳过")
         logger.info("✓ 所有策略已停止")
     except Exception as e:
         logger.error(f"停止策略时发生意外错误: {e}")
@@ -437,10 +461,12 @@ async def lifespan(app: FastAPI):
     # 步骤 3: 停止实时引擎（带超时保护）
     if realtime_engine:
         try:
-            await asyncio.wait_for(realtime_engine.stop(), timeout=1.0)
+            # 引擎停机预算为单 worker 预算的一半，下限 1s
+            _re_timeout = _stop_timeout(_LEGACY_STOP_TIMEOUT, max(worker_stop_budget() / 2, 1.0))
+            await asyncio.wait_for(realtime_engine.stop(), timeout=_re_timeout)
             logger.info("实时引擎已停止")
         except TimeoutError:
-            logger.warning("实时引擎停止超时（>1s），强制跳过")
+            logger.warning(f"实时引擎停止超时（>{_re_timeout:g}s），强制跳过")
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -501,10 +527,16 @@ async def lifespan(app: FastAPI):
             await loop.run_in_executor(None, plugin_manager.stop_all_plugins)
             await loop.run_in_executor(None, event_bus.clear)
 
-        await asyncio.wait_for(_shutdown_schedulers(), timeout=1.5)
+        # 调度器排空超时 = min(drain_timeout, 关闭段剩余预算)，
+        # 预算被前面步骤耗尽时此步接近 0 并被跳过——优先保障 worker 停机
+        _sched_timeout = _stop_timeout(
+            _LEGACY_SCHED_TIMEOUT,
+            min(_shut_cfg.drain_timeout, max(_shut_deadline - time.monotonic(), 0.0)),
+        )
+        await asyncio.wait_for(_shutdown_schedulers(), timeout=_sched_timeout)
         logger.info("调度器和插件已全部关闭")
     except TimeoutError:
-        logger.warning("调度器或插件关闭超时（>1.5s），强制跳过")
+        logger.warning(f"调度器或插件关闭超时（>{_sched_timeout:g}s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -522,12 +554,13 @@ async def lifespan(app: FastAPI):
     try:
         from worker.strategy_manager import worker_system
 
+        _mgr_timeout = _stop_timeout(_LEGACY_MGR_TIMEOUT, worker_stop_budget())
         await asyncio.wait_for(
             asyncio.to_thread(worker_system.shutdown),
-            timeout=2.0,
+            timeout=_mgr_timeout,
         )
     except TimeoutError:
-        logger.warning("[Lifespan] worker_system.shutdown() 超时（>2s），强制跳过")
+        logger.warning(f"[Lifespan] worker_system.shutdown() 超时（>{_mgr_timeout:g}s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:

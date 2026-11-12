@@ -23,7 +23,12 @@ import strategy.models
 from config.settings import get_settings
 from core import lifespan
 from core.port_manager import PortAllocationError, port_manager
+from utils.config_manager import get_flag
 from utils.logger import LogType, get_logger
+from worker.graceful_shutdown import uvicorn_graceful_timeout
+
+# P1-01：worker.shutdown.use_config_timeouts 关闭时回退的旧 uvicorn 优雅窗口（S）
+_LEGACY_UVICORN_GRACE = 6
 
 # 获取主模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
@@ -361,10 +366,15 @@ def main(
         port=fastapi_port,  # 使用动态分配的端口
         reload=False,  # 禁用热重载，避免DuckDB锁冲突
         log_level=log_level.lower(),  # 设置日志级别
-        # 优雅关停最多等待在途连接 6s（浏览器持有的 SSE/WebSocket 不会主动断开，
-        # 默认 None 会无限等待导致一次 Ctrl+C 退不掉）；超时后 uvicorn 强制取消任务，
-        # lifespan 内还有 12s 关停看门狗做最终兜底。
-        timeout_graceful_shutdown=6,
+        # 优雅关停窗口从 ShutdownConfig 派生（P1-01），不再硬编码：保证
+        # lifespan 停机预算(30) < uvicorn 窗口(35) < 看门狗(40) 链式余量成立；
+        # 浏览器持有的 SSE/WebSocket 不会主动断开，默认 None 会无限等待导致
+        # 一次 Ctrl+C 退不掉，超时后 uvicorn 强制取消任务，看门狗最后兜底。
+        timeout_graceful_shutdown=(
+            uvicorn_graceful_timeout()
+            if get_flag("worker.shutdown.use_config_timeouts", True)
+            else _LEGACY_UVICORN_GRACE
+        ),
     )
 
 
