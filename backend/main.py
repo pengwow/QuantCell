@@ -106,8 +106,10 @@ app.include_router(ai_polish_router)
 app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
-app.include_router(indicators_router)
+# alerts 路由必须先于 indicators_router 挂载：indicators 的 GET /{indicator_id}
+# 会把 /api/v1/indicators/alerts 当作 indicator_id 吞掉，int("alerts") 转换失败返回 422
 app.include_router(indicator_alerts_router)  # 指标信号提醒规则 CRUD/测试发送（P2-07）
+app.include_router(indicators_router)
 app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(realtime_router)
