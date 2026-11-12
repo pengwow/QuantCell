@@ -20,6 +20,7 @@ import type { OverviewWindow, OverviewMetrics } from '../../types/worker';
 import { formatUSD, formatPercent } from '../../utils/format';
 import { useQuantColors } from '@/utils/colors';
 import { downloadCsv, timestampedFilename } from '../../utils/exportCsv';
+import WorkerReconcileCard from './WorkerReconcileCard';
 
 // 时间范围选项的固定档位；「全部」文案需 i18n，故在组件内构造（见下）
 const WINDOW_OPTION_VALUES: OverviewWindow[] = ['24h', '7d', '30d', '90d', 'all'];
@@ -353,6 +354,9 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       <Card title={t('worker_pnl_distribution')}>
         <EChart option={pnlDistributionOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
+
+      {/* 最近对账（P1-02）：账实一致性观测 */}
+      <WorkerReconcileCard workerId={workerId} active={active} />
     </div>
   );
 };

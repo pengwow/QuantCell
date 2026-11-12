@@ -125,6 +125,40 @@ def import_reconcile_reports(worker_id: int, journal_dir: str | Path, *, db: Ses
         return _run(session)
 
 
+def recent_reconcile_summaries(worker_id: int, limit: int = 5, *, db: Session | None = None) -> list[dict]:
+    """读取最近的 reconciliation 日志摘要（新→旧），供 API 端点消费。
+
+    message 为 import_reconcile_reports 写入的 JSON 摘要；历史脏数据解析失败
+    时降级返回原文（raw），不丢记录。
+    """
+    from worker import crud  # 与 import_reconcile_reports 同口径：防 worker.__init__ 循环链
+
+    def _run(session: Session) -> list[dict]:
+        out: list[dict] = []
+        for log in crud.get_worker_logs(session, worker_id, limit=50):
+            if log.source != RECONCILE_LOG_SOURCE:
+                continue
+            try:
+                payload = json.loads(log.message)
+            except json.JSONDecodeError:
+                payload = {"raw": log.message}
+            out.append(
+                {
+                    "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                    "level": log.level,
+                    **payload,
+                }
+            )
+            if len(out) >= limit:
+                break
+        return out
+
+    if db is not None:
+        return _run(db)
+    with get_db_session() as session:
+        return _run(session)
+
+
 def build_venue_snapshot(exchange, ccxt_symbol: str, since_ms: int | None = None) -> dict:
     """从 ccxt 拼装 venue 三资快照，口径对齐 Rust fetch_venue_snapshot（live_driver.rs）：
 

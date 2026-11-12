@@ -42,6 +42,7 @@ import type {
   ShareTokenListItem,
   RiskControlUpsert,
   RiskControlOut,
+  ReconcileSummaryItem,
 } from '../types/worker';
 import type { CascadeDecisionRecord, DecisionDetailRecord } from '../types/backtest';
 
@@ -214,6 +215,15 @@ export const getMetricsHistory = (
  */
 export const getWorkerLogs = (workerId: number, params?: LogQueryParams): Promise<WorkerLog[]> => {
   return apiRequest.get(`/workers/${workerId}/monitoring/logs`, params);
+};
+
+/**
+ * 获取最近对账摘要（resume / 周期对账报告，新→旧）
+ * @param workerId Worker ID
+ * @param limit 返回条数
+ */
+export const getReconcileSummary = (workerId: number, limit = 5): Promise<ReconcileSummaryItem[]> => {
+  return apiRequest.get(`/workers/${workerId}/reconciliation/summary`, { limit });
 };
 
 /**

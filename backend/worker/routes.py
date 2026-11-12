@@ -613,6 +613,31 @@ async def clear_worker_logs(
         return schemas.ApiResponse(code=400, message=str(e), data=None)
 
 
+@router.get("/{worker_id}/reconciliation/summary", response_model=schemas.ApiResponse)
+@handle_worker_exceptions("获取最近对账摘要")
+async def get_reconcile_summary(
+    worker_id: int,
+    limit: int = Query(5, ge=1, le=50, description="返回条数 (1-50)"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    获取最近对账摘要（新→旧）
+
+    数据来源为 worker_logs 中 source=reconciliation 的记录（resume 对账报告
+    导入 + 运行期周期对账），供前端"最近对账"卡片与告警消费。
+    """
+    # 函数内 import：reconciliation 依赖 axon_quant 重绑定，与 worker 包延迟
+    # 加载口径一致，避免拉长路由模块导入链
+    from worker.reconciliation import recent_reconcile_summaries
+
+    return schemas.ApiResponse(
+        code=0,
+        message="success",
+        data=recent_reconcile_summaries(worker_id, limit, db=db),
+    )
+
+
 @router.get("/{worker_id}/monitoring/logs/stream")
 async def log_stream_sse(
     worker_id: int,

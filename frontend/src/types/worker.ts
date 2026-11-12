@@ -706,3 +706,19 @@ export interface RiskControlOut {
   applied: 'hot' | 'on_start' | null
 }
 
+/**
+ * 对账摘要条目（GET /workers/{id}/reconciliation/summary）
+ *
+ * 后端把 resume / 周期对账报告摘要写进 worker_logs（source=reconciliation），
+ * message JSON 含 ok 与六类 break 计数；脏数据降级为 raw 原文。
+ */
+export interface ReconcileSummaryItem {
+  timestamp: string | null
+  level: string
+  ok?: boolean
+  counts?: Record<string, number>
+  reported_at?: string | null
+  file?: string
+  raw?: string
+}
+

@@ -177,3 +177,37 @@ def test_run_periodic_reconcile_clean_writes_ok_report(db_session, tmp_path):
     assert len(imported) == 1 and imported[0]["ok"] is True
     on_disk = json.loads(Path(journal_dir, f"worker_{WID}.reconcile_last_ok.json").read_text())
     assert on_disk["position_breaks"] == []
+
+
+def test_recent_reconcile_summaries(db_session, tmp_path):
+    """API 读取摘要：只收 source=reconciliation、新→旧、脏 JSON 降级 raw"""
+    from datetime import UTC, datetime, timedelta
+
+    base = datetime.now(UTC)
+    # 显式递增时间戳：同秒日志 desc 排序不稳定，断言不依赖排序实现细节
+    # 一条其它 source 的日志 + 一条正常对账日志 + 一条脏 JSON
+    db_session.add(WorkerLog(worker_id=WID, level="INFO", message="无关日志", timestamp=base))
+    db_session.add(
+        WorkerLog(
+            worker_id=WID,
+            level="WARNING",
+            source="reconciliation",
+            message=json.dumps({"ok": False, "counts": {"cash_break": 1}}),
+            timestamp=base + timedelta(seconds=1),
+        )
+    )
+    db_session.add(
+        WorkerLog(
+            worker_id=WID,
+            level="INFO",
+            source="reconciliation",
+            message="不是JSON的旧消息",
+            timestamp=base - timedelta(seconds=1),
+        )
+    )
+    db_session.commit()
+
+    out = rec.recent_reconcile_summaries(WID, 5, db=db_session)
+    assert len(out) == 2  # 无 source 的日志被过滤
+    assert out[0]["ok"] is False and out[0]["counts"]["cash_break"] == 1
+    assert out[1] == {"timestamp": out[1]["timestamp"], "level": "INFO", "raw": "不是JSON的旧消息"}
