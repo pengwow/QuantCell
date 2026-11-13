@@ -594,7 +594,7 @@ export const configApi = {
   },
 
   // 写/更新单条配置（后端 POST /config/ 的 upsert 语义）；用于 chart.indicatorParams.* 动态键
-  setConfigKey: (data: { key: string; value: string; name: string }) => {
+  setConfigKey: (data: { key: string; value: string; name: string; description?: string }) => {
     return apiRequest.post('/config/', data);
   },
 

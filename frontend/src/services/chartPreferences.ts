@@ -28,6 +28,8 @@ const CHART_GROUP = 'chart';
 const PARAMS_PREFIX = 'indicatorParams.';
 const UI_PREFS_KEY = 'uiPrefs';
 const DEBOUNCE_MS = 800;
+// indicatorParams 动态键落库时的描述（schema 不覆盖动态键，只能写入方携带）
+const INDICATOR_PARAMS_DESCRIPTION = '图表指标参数（品种×指标维度），由图表页自动保存，JSON 对象';
 
 // 旧 localStorage 键（持久化切后端前的一次性迁移来源；迁移成功后清理）
 const LEGACY_USER_PREFS_KEY = 'chart_user_preferences';
@@ -100,7 +102,13 @@ const migrateLegacyIndicatorParams = (
     if (Object.keys(params).length === 0) return;
     indicatorParamsSnapshot[snapshotKey] = params;
     configApi
-      .setConfigKey({ key: backendKey, value: JSON.stringify(params), name: CHART_GROUP })
+      .setConfigKey({
+        key: backendKey,
+        value: JSON.stringify(params),
+        name: CHART_GROUP,
+        // 动态键没有 schema 描述兜底，描述由写入方携带（一次性设置，更新时后端仅非空才覆盖）
+        description: INDICATOR_PARAMS_DESCRIPTION,
+      })
       .catch(() => undefined); // 迁移失败下次未命中仍会重试
     localStorage.removeItem(legacyIndicatorParamsKey(symbolCode, indicatorId));
   } catch {
@@ -234,7 +242,13 @@ export const saveIndicatorParams = async (
   const backendKey = `${PARAMS_PREFIX}${snapshotKey}`;
   indicatorParamsSnapshot[snapshotKey] = params;
   try {
-    await configApi.setConfigKey({ key: backendKey, value: JSON.stringify(params), name: CHART_GROUP });
+    await configApi.setConfigKey({
+      key: backendKey,
+      value: JSON.stringify(params),
+      name: CHART_GROUP,
+      // 同上：动态键描述由写入方携带
+      description: INDICATOR_PARAMS_DESCRIPTION,
+    });
     try {
       localStorage.removeItem(legacyIndicatorParamsKey(symbolCode, indicatorId));
     } catch {

@@ -149,6 +149,8 @@ describe('loadIndicatorParams / saveIndicatorParams', () => {
       key: 'indicatorParams.BTCUSDT.macd',
       value: '{"fast":6}',
       name: 'chart',
+      // 动态键无 schema 描述兜底，写入方必须携带描述（否则落库行 description 为空）
+      description: expect.any(String),
     });
     expect(mod.loadIndicatorParams('BTCUSDT', 'macd')).toEqual({ fast: 6 });
   });
