@@ -5,7 +5,7 @@
  * 未读数的权威值在收件箱接口返回的 unread_count（loadList 时同步进 store）。
  */
 
-import { use, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { DeleteOutlined } from '@ant-design/icons';

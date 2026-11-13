@@ -96,8 +96,8 @@ const IndicatorAlertsModal: React.FC<IndicatorAlertsModalProps> = ({
   const options = useMemo(() => {
     const groups = [
       {
-        label: t('indicator.alertsBuiltinGroup', '系统指标'),
-        title: t('indicator.alertsBuiltinGroup', '系统指标'),
+        label: t('indicator.alertsBuiltinGroup'),
+        title: t('indicator.alertsBuiltinGroup'),
         options: builtins.map((item) => ({
           value: `builtin:${item.key}`,
           label: builtinName(item),
@@ -105,8 +105,8 @@ const IndicatorAlertsModal: React.FC<IndicatorAlertsModalProps> = ({
         })),
       },
       {
-        label: t('indicator.alertsCustomGroup', '自定义指标'),
-        title: t('indicator.alertsCustomGroup', '自定义指标'),
+        label: t('indicator.alertsCustomGroup'),
+        title: t('indicator.alertsCustomGroup'),
         options: indicators.map((ind) => ({
           value: `custom:${ind.id}`,
           label: ind.name,
@@ -140,7 +140,7 @@ const IndicatorAlertsModal: React.FC<IndicatorAlertsModalProps> = ({
       title={
         <div className="indicator-modal-title">
           <BellOutlined />
-          <span>{t('chart.toolbar.alerts', '信号提醒')}</span>
+          <span>{t('chart.toolbar.alerts')}</span>
         </div>
       }
       open={visible}
@@ -157,7 +157,7 @@ const IndicatorAlertsModal: React.FC<IndicatorAlertsModalProps> = ({
       ) : options.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('indicator.alertsNoIndicator', '暂无可用指标，请先在「指标」中创建')}
+          description={t('indicator.alertsNoIndicator')}
         />
       ) : (
         // Flex vertical 保证下拉与规则列表间距走 antd 间距体系
@@ -167,7 +167,7 @@ const IndicatorAlertsModal: React.FC<IndicatorAlertsModalProps> = ({
             onChange={(value) => setSelectedKey(value)}
             options={options}
             optionRender={(opt) => optionRender(opt.label as string, (opt.data as { desc?: string }).desc)}
-            placeholder={t('indicator.alertsSelectIndicator', '选择指标')}
+            placeholder={t('indicator.alertsSelectIndicator')}
             style={{ width: 320 }}
             showSearch
             // 名称与描述一起参与过滤，方便按"均线/超买"等关键词找指标

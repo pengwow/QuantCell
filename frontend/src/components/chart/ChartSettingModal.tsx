@@ -8,11 +8,11 @@ export interface ChartSettingDef {
   /** 样式路径；yAxis.reverse 是虚拟路径（v10 中不属于 styles，需走 overrideYAxis） */
   path: string;
   i18nKey: string;
-  label: string;
   /** klinecharts 默认值，供「恢复默认」使用 */
   defaultValue: unknown;
   control: 'switch' | 'select';
-  options?: [string, string][];
+  /** select 选项值列表；文案统一走词条 chart.setting.{control}.{value} */
+  options?: string[];
   /** select 选项左侧渲染类型迷你预览图标（蜡烛图类型下拉使用） */
   withIcon?: boolean;
 }
@@ -28,31 +28,30 @@ export const CHART_SETTING_DEFS: ChartSettingDef[] = [
   {
     path: 'candle.type',
     i18nKey: 'chart.setting.candleType',
-    label: '蜡烛图类型',
     defaultValue: 'candle_solid',
     control: 'select',
     withIcon: true,
     options: [
       // 除前六种为 v10 原生形状外，其余为派生类型（由 ChartShell 做数据变换或复用 area 渲染）
-      ['candle_solid', '实心蜡烛'],
-      ['candle_stroke', '空心蜡烛'],
-      ['candle_up_stroke', '上涨空心'],
-      ['candle_down_stroke', '下跌空心'],
-      ['ohlc', 'OHLC'],
-      ['area', '面积图'],
-      ['line', '线形图'],
-      ['hlc_area', 'HLC 面积'],
-      ['heikin_ashi', '平均K线'],
-      ['renko', '砖形图'],
-      ['range', '范围图'],
+      'candle_solid',
+      'candle_stroke',
+      'candle_up_stroke',
+      'candle_down_stroke',
+      'ohlc',
+      'area',
+      'line',
+      'hlc_area',
+      'heikin_ashi',
+      'renko',
+      'range',
     ],
   },
-  { path: 'candle.priceMark.last.show', i18nKey: 'chart.setting.priceMarkLast', label: '显示最新价', defaultValue: true, control: 'switch' },
-  { path: 'candle.priceMark.high.show', i18nKey: 'chart.setting.priceMarkHigh', label: '显示最高价', defaultValue: true, control: 'switch' },
-  { path: 'candle.priceMark.low.show', i18nKey: 'chart.setting.priceMarkLow', label: '显示最低价', defaultValue: true, control: 'switch' },
-  { path: 'indicator.lastValueMark.show', i18nKey: 'chart.setting.indicatorLastValue', label: '显示指标最新值', defaultValue: false, control: 'switch' },
-  { path: 'yAxis.reverse', i18nKey: 'chart.setting.yAxisReverse', label: '反转 Y 轴', defaultValue: false, control: 'switch' },
-  { path: 'grid.show', i18nKey: 'chart.setting.grid', label: '显示网格线', defaultValue: true, control: 'switch' },
+  { path: 'candle.priceMark.last.show', i18nKey: 'chart.setting.priceMarkLast', defaultValue: true, control: 'switch' },
+  { path: 'candle.priceMark.high.show', i18nKey: 'chart.setting.priceMarkHigh', defaultValue: true, control: 'switch' },
+  { path: 'candle.priceMark.low.show', i18nKey: 'chart.setting.priceMarkLow', defaultValue: true, control: 'switch' },
+  { path: 'indicator.lastValueMark.show', i18nKey: 'chart.setting.indicatorLastValue', defaultValue: false, control: 'switch' },
+  { path: 'yAxis.reverse', i18nKey: 'chart.setting.yAxisReverse', defaultValue: false, control: 'switch' },
+  { path: 'grid.show', i18nKey: 'chart.setting.grid', defaultValue: true, control: 'switch' },
 ];
 
 interface ChartSettingModalProps {
@@ -80,17 +79,17 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
     () =>
       CHART_SETTING_DEFS.map((def) => ({
         ...def,
-        label: t(def.i18nKey, def.label),
-        options: def.options?.map(([value, label]) => ({
+        label: t(def.i18nKey),
+        options: def.options?.map((value) => ({
           value,
           // withIcon 的下拉选项带迷你预览图标（选中回显同样渲染，无需额外节点）
           label: def.withIcon ? (
             <span className="candle-type-option">
               <ChartTypeIcon type={value} />
-              <span>{t(`chart.setting.${def.control}.${value}`, label)}</span>
+              <span>{t(`chart.setting.${def.control}.${value}`)}</span>
             </span>
           ) : (
-            t(`chart.setting.${def.control}.${value}`, label)
+            t(`chart.setting.${def.control}.${value}`)
           ),
         })),
       })),
@@ -111,10 +110,10 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
 
   return (
     <Modal
-      title={t('chart.setting.title', '图表设置')}
+      title={t('chart.setting.title')}
       open={open}
       onCancel={onClose}
-      footer={<Button onClick={onRestoreDefault}>{t('chart.setting.restore', '恢复默认')}</Button>}
+      footer={<Button onClick={onRestoreDefault}>{t('chart.setting.restore')}</Button>}
       width={420}
     >
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
