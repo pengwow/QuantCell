@@ -116,6 +116,11 @@ export interface BacktestTask {
   status: string;
   total_return?: number;
   max_drawdown?: number;
+  /** /backtest/list 行附带字段（RL 回测历史页展示参数用；老页面未引用） */
+  symbols?: string;
+  timeframes?: string;
+  engine_type?: string;
+  updated_at?: string;
 }
 
 // 回测详情数据接口

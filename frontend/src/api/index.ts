@@ -664,6 +664,8 @@ export const backtestApi = {
     status?: string;
     keyword?: string;
     strategy?: string;
+    /** 来源过滤：'rl' 只取 rl_model:/rl_ensemble: 前缀策略的 RL 回测任务 */
+    source?: string;
     sort_by?: string;
     sort_order?: string;
   }): Promise<{ backtests: BacktestTask[]; total: number }> => {
