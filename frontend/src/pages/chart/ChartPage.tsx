@@ -8,7 +8,7 @@ import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
 import ChartShell, { type ChartShellHandle } from '../../components/chart/ChartShell';
 import { PERIOD_BAR_ITEMS } from '../../components/chart/chartConstants';
-import { getUiPrefsSnapshot, loadChartPrefs, saveUiPrefs } from '../../services/chartPreferences';
+import { loadChartPrefs, saveUiPrefs } from '../../services/chartPreferences';
 import { setPageTitle } from '@/utils/pageTitle';
 // 搜索弹窗的样式类（symbol-search-results 等）定义在此文件中
 import './ChartPage.css';
