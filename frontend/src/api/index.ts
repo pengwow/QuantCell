@@ -916,8 +916,15 @@ export const indicatorApi = {
   },
 
   // ===== 指标信号提醒规则（P2-07） =====
-  listAlertRules: (indicatorId?: number) => {
-    return apiRequest.get('/indicators/alerts', indicatorId != null ? { indicator_id: indicatorId } : undefined);
+  listAlertRules: (indicatorId?: number, builtinId?: string) => {
+    const params: Record<string, unknown> = {};
+    if (indicatorId != null) params.indicator_id = indicatorId;
+    if (builtinId) params.builtin_id = builtinId;
+    return apiRequest.get('/indicators/alerts', Object.keys(params).length ? params : undefined);
+  },
+  // 系统内置指标的提醒定义（key/名称/描述/plot 线/默认参数）
+  getAlertBuiltins: () => {
+    return apiRequest.get('/indicators/alerts/builtins');
   },
   createAlertRule: (payload: Record<string, unknown>) => {
     return apiRequest.post('/indicators/alerts', payload);
@@ -1042,7 +1049,50 @@ export const notificationApi = {
   }> => {
     return apiRequest.post('/notifications/channels/validate', { channels });
   },
+
+  /**
+   * 站内收件箱列表（按 id 倒序游标分页，携带未读/已读数）
+   */
+  getInbox: (params?: { limit?: number; before_id?: number }): Promise<{
+    items: InboxNotificationItem[];
+    unread_count: number;
+    read_count: number;
+    has_more: boolean;
+  }> => {
+    return apiRequest.get('/notifications/inbox', params);
+  },
+
+  /**
+   * 站内收件箱全部已读
+   */
+  markInboxRead: (): Promise<{ ok: boolean }> => {
+    return apiRequest.post('/notifications/inbox/read-all');
+  },
+
+  /**
+   * 删除单条站内通知，返回删除后的全局未读数
+   */
+  deleteInboxItem: (id: number): Promise<{ ok: boolean; unread_count: number }> => {
+    return apiRequest.delete(`/notifications/inbox/${id}`);
+  },
+
+  /**
+   * 清空已读通知（保留未读），返回删除条数与剩余未读数
+   */
+  clearReadInbox: (): Promise<{ deleted: number; unread_count: number }> => {
+    return apiRequest.delete('/notifications/inbox/read');
+  },
 };
+
+/** 站内收件箱条目（与后端 common/notifications/inbox.py::_to_dict 对齐） */
+export interface InboxNotificationItem {
+  id: number;
+  title: string;
+  content: string;
+  level: string; // NotificationLevel 枚举字符串：info/success/warning/error/critical
+  source: string; // NotificationCategory 枚举字符串：system/task/alert/trade/security
+  created_at: string | null;
+}
 
 /**
  * AI模型配置相关 API

@@ -3329,5 +3329,18 @@
   "rtb_msg_start_failed": "Failed to start realtime data: {{msg}}",
   "rtb_msg_stop_failed": "Failed to stop realtime data: {{msg}}",
   "rtb_msg_engine_stopped": "Realtime engine stopped, button state reset",
-  "rtb_msg_check_network": "Please check your network connection"
+  "rtb_msg_check_network": "Please check your network connection",
+  "message_center": "Messages",
+  "mark_all_read": "Mark all as read",
+  "clear_read": "Clear read",
+  "delete_notification_confirm": "Delete this notification?",
+  "view_all": "View all",
+  "load_older": "Load older",
+  "no_more_notifications": "No more notifications",
+  "inbox_empty": "No notifications yet",
+  "inbox_empty_action": "Configure notification channels",
+  "level_info": "Info",
+  "level_success": "Success",
+  "level_warning": "Warning",
+  "level_error": "Error"
 }

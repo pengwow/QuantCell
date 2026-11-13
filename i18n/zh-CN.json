@@ -3329,5 +3329,18 @@
   "rtb_msg_start_failed": "启动实时数据失败: {{msg}}",
   "rtb_msg_stop_failed": "停止实时数据失败: {{msg}}",
   "rtb_msg_engine_stopped": "实时引擎已停止，按钮状态已重置",
-  "rtb_msg_check_network": "请检查网络连接"
+  "rtb_msg_check_network": "请检查网络连接",
+  "message_center": "消息中心",
+  "mark_all_read": "全部已读",
+  "clear_read": "清空已读",
+  "delete_notification_confirm": "确认删除这条通知？",
+  "view_all": "查看全部",
+  "load_older": "加载更多",
+  "no_more_notifications": "没有更多通知了",
+  "inbox_empty": "暂无站内通知",
+  "inbox_empty_action": "前往配置通知渠道",
+  "level_info": "提示",
+  "level_success": "成功",
+  "level_warning": "警告",
+  "level_error": "错误"
 }

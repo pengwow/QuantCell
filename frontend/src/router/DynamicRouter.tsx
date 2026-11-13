@@ -27,6 +27,8 @@ const ModelHub = lazy(() => import('@/pages/model/ModelHub'));
 const RiskMonitorPage = lazy(() => import('@/pages/risk/RiskMonitorPage'));
 const ResearchList = lazy(() => import('@/pages/research/ResearchList'));
 const ResearchDetail = lazy(() => import('@/pages/research/ResearchDetail'));
+// 站内通知收件箱（铃铛入口跳转的列表页；/setting/notifications 是渠道配置页，二者不同）
+const InboxPage = lazy(() => import('@/pages/notifications/InboxPage'));
 
 const BacktestLayout = lazy(() => import('@/pages/backtest/BacktestLayout'));
 const BacktestList = lazy(() => import('@/pages/backtest/BacktestList'));
@@ -108,6 +110,7 @@ function createBaseRoutes(): RouteObject[] {
         { path: '/factor-analysis', element: <FactorAnalysis /> },
         { path: '/research', element: <ResearchList /> },
         { path: '/research/:id', element: <ResearchDetail /> },
+        { path: '/notifications', element: <InboxPage /> },
         { path: '/model-management', element: <ModelManagement /> },
         { path: '/data-management', element: <DataManagementPage /> },
         { path: '/data-management/market-replay', element: <KlineReplayPage /> },

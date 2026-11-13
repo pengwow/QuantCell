@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
+  IconBell,
   IconBrandGithub,
   IconChartBar,
   IconChartHistogram,
@@ -20,11 +21,12 @@ import {
   IconStack,
   IconMicroscope,
 } from "@tabler/icons-react";
-import { Badge, Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
+import { Badge, Button, Drawer, Layout, Menu, type MenuProps, Popover, theme } from "antd";
 import { setPageTitle } from "@/utils/pageTitle";
 
 import AppLocale from "@/components/AppLocale";
 import AppTheme from "@/components/AppTheme";
+import { NotificationPanel } from "@/components/NotificationInbox";
 import useBrowserTheme from "@/hooks/useBrowserTheme";
 import type { ThemeMode } from "@/components/AppTheme";
 import { pluginRegistry } from "@/plugins/PluginRegistry";
@@ -32,6 +34,7 @@ import { useUpdateStore } from "@/desktop/updateStore";
 import { useUpdater } from "@/desktop/useUpdater";
 // P2-02 能力开关：菜单按部署能力过滤（agent_gateway 关闭时隐藏代理菜单）
 import { isCapabilityEnabled, useCapabilityStore } from "@/store/capabilityStore";
+import { useNotificationStore } from "@/store/notificationStore";
 
 const ConsoleLayout = () => {
   const { t } = useTranslation();
@@ -54,6 +57,9 @@ const ConsoleLayout = () => {
   // 有可用更新时设置菜单显示红点；useUpdater 顺带触发启动后静默检查（全局只调度一次）
   const updateAvailable = useUpdateStore((s) => s.status) === 'available';
   useUpdater();
+
+  // 站内通知未读数（ws 实时增量 + 收件箱页读取后的权威值）
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const handleDocumentClick = () => {
     window.open("https://github.com/pengwow/QuantCell", "_blank");
@@ -80,6 +86,31 @@ const ConsoleLayout = () => {
             <Menu
               style={{ background: "transparent", borderInlineEnd: "none" }}
               items={[
+                {
+                  key: "/notifications",
+                  // 未读角标挂在铃铛图标本体上：折叠模式只渲染 icon，挂在 label 文本上折叠后完全不可见。
+                  // 折叠态 antd 会给 .anticon 强制写入 line-height:40px（menu/style/vertical.js 折叠规则），
+                  // 把 Badge 的定位容器撑高、角标跑到铃铛正上方并被菜单项顶部裁掉一半。
+                  // 内联锁死 line-height/font-size（内联样式特异性高于 antd 规则），展开/折叠两态几何完全一致。
+                  icon: (
+                    <Badge count={unreadCount} size="small" offset={[-2, 2]}>
+                      <span className="anticon" role="img" style={{ lineHeight: 1, fontSize: 14 }}>
+                        <IconBell size="1em" />
+                      </span>
+                    </Badge>
+                  ),
+                  label: (
+                    // 悬停出最近通知预览面板（辅助入口）；点击直接进收件箱页
+                    <Popover
+                      content={<NotificationPanel />}
+                      placement="rightBottom"
+                      trigger="hover"
+                    >
+                      <span className="flex items-center">{t('message_center') || "消息"}</span>
+                    </Popover>
+                  ),
+                  onClick: () => navigate("/notifications"),
+                },
                 {
                   key: "document",
                   icon: (
@@ -160,6 +191,15 @@ const ConsoleLayout = () => {
                 setThemeMode={handleSetThemeMode}
               />
               <AppLocale.LinkButton />
+              {/* 小屏铃铛：语言切换右侧、GitHub 左侧，最右保留设置入口。
+                  offset 向内收（+y 下压、-x 左移），否则角标伸出按钮顶部被 Header 裁掉一半 */}
+              <Badge count={unreadCount} size="small" offset={[-4, 6]}>
+                <Button
+                  aria-label={t('message_center') || "消息"}
+                  icon={<IconBell size="1.25em" stroke="1.25" />}
+                  onClick={() => navigate("/notifications")}
+                />
+              </Badge>
               <Button icon={<IconBrandGithub size="1.25em" stroke="1.25" />} onClick={handleGitHubClick} />
               <Button icon={<IconSettings size="1.25em" stroke="1.25" />} onClick={() => navigate("/setting")} />
             </div>
@@ -209,6 +249,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     [MENU_KEY_RISK, "risk_monitor"],
     // 子路由补全 — menu 里没有但需要正确标题的页面
     ["/backtest", "backtest"],
+    ["/notifications", "message_center"],
     ["/setting/general", "general"],
     ["/setting/env", "env"],
     ["/setting/exchange", "exchange"],
