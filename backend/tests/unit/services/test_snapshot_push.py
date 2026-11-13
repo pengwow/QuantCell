@@ -11,6 +11,7 @@
 
 import threading
 
+from worker.events import EVENTS_SCHEMA_VERSION
 from worker.state import connection_manager
 from worker.strategy_manager import StrategyManager
 
@@ -33,7 +34,16 @@ def test_push_kernel_snapshot_shape(monkeypatch):
     """snapshot dict → kernel.snapshot 事件；非 dict 快照静默跳过。"""
     sent = _capture_broadcast(monkeypatch)
     StrategyManager._push_kernel_snapshot(42, {"equity": 99500.5, "positions": {"BTC/USDT": 0.2}})
-    assert sent == [{"event": "kernel.snapshot", "worker_id": 42, "equity": 99500.5, "positions": {"BTC/USDT": 0.2}}]
+    # P2-10 起所有 wire 事件统一注入 schema_version（worker.events.EVENTS_SCHEMA_VERSION）
+    assert sent == [
+        {
+            "event": "kernel.snapshot",
+            "schema_version": EVENTS_SCHEMA_VERSION,
+            "worker_id": 42,
+            "equity": 99500.5,
+            "positions": {"BTC/USDT": 0.2},
+        }
+    ]
     # 非法快照静默：不推送也不抛
     StrategyManager._push_kernel_snapshot(42, None)
     assert len(sent) == 1
