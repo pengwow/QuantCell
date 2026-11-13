@@ -20,6 +20,7 @@ from common.notifications.models import (
 from common.notifications.service import notification_service
 from common.schemas import ApiResponse
 from indicators import alerts
+from indicators.builtin_alerts import BUILTIN_ALERT_INDICATORS, builtin_definitions
 from indicators.executor import IndicatorExecutor
 from indicators.models import CustomIndicator, CustomIndicatorBusiness, IndicatorAlertRule
 from utils.db_session import get_db_session
@@ -30,11 +31,19 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 router = APIRouter(prefix="/api/v1/indicators/alerts", tags=["指标信号提醒"])
 
+# 频率上限放宽到 30 天（分钟）：支持前端"小时/天"单位的组合控件
+FREQUENCY_MIN = 1
+FREQUENCY_MAX = 30 * 24 * 60
+
 
 class AlertRuleUpsert(BaseModel):
     """创建提醒规则的请求体。"""
 
-    indicator_id: int = Field(description="指标 ID")
+    # 自定义指标 ID；builtin_id 非空时忽略（存 0）
+    indicator_id: int = Field(default=0, description="自定义指标 ID，与 builtin_id 二选一")
+    builtin_id: str | None = Field(
+        default=None, max_length=50, description="系统内置指标标识（builtin_alerts.py 的 key），与 indicator_id 二选一"
+    )
     name: str = Field(default="", max_length=100, description="规则名称")
     symbol: str = Field(min_length=1, max_length=50, description="标的，如 BTCUSDT")
     period: str = Field(min_length=1, max_length=20, description="K线周期，如 1h")
@@ -45,8 +54,19 @@ class AlertRuleUpsert(BaseModel):
     op: str = Field(default="gt", pattern="^(gt|lt|cross_up|cross_down)$", description="条件类型")
     threshold: float = Field(default=0.0, description="阈值")
     channels: list[str] = Field(default_factory=lambda: ["websocket"], description="通知渠道")
-    frequency: int = Field(default=30, ge=1, le=1440, description="触发去重窗口（分钟）")
+    frequency: int = Field(default=30, ge=FREQUENCY_MIN, le=FREQUENCY_MAX, description="触发去重窗口（分钟）")
     enabled: bool = Field(default=True, description="是否启用")
+
+    def resolve_target(self) -> tuple[int, str | None]:
+        """校验并返回 (indicator_id, builtin_id)：二者互斥且必须有其一。"""
+        builtin_id = self.builtin_id or None
+        if builtin_id and builtin_id not in BUILTIN_ALERT_INDICATORS:
+            raise HTTPException(status_code=400, detail=f"未知内置指标: {builtin_id}")
+        if builtin_id and self.indicator_id:
+            raise HTTPException(status_code=400, detail="indicator_id 与 builtin_id 只能指定其一")
+        if not builtin_id and not self.indicator_id:
+            raise HTTPException(status_code=400, detail="必须指定 indicator_id 或 builtin_id")
+        return (self.indicator_id if not builtin_id else 0), builtin_id
 
 
 class AlertRuleUpdate(BaseModel):
@@ -62,7 +82,7 @@ class AlertRuleUpdate(BaseModel):
     op: str | None = Field(default=None, pattern="^(gt|lt|cross_up|cross_down)$")
     threshold: float | None = None
     channels: list[str] | None = None
-    frequency: int | None = Field(default=None, ge=1, le=1440)
+    frequency: int | None = Field(default=None, ge=FREQUENCY_MIN, le=FREQUENCY_MAX)
     enabled: bool | None = None
 
 
@@ -80,6 +100,7 @@ def _rule_to_dict(row: IndicatorAlertRule) -> dict[str, Any]:
     return {
         "id": row.id,
         "indicator_id": row.indicator_id,
+        "builtin_id": row.builtin_id,
         "name": row.name or "",
         "symbol": row.symbol,
         "period": row.period,
@@ -110,12 +131,33 @@ def _assert_indicator_exists(indicator_id: int) -> None:
             raise HTTPException(status_code=404, detail=f"指标不存在: {indicator_id}")
 
 
-@router.get("", summary="提醒规则列表", description="按 indicator_id 过滤（可选），返回全部指标信号提醒规则。")
-async def list_alert_rules(indicator_id: int | None = None):
+def _resolve_rule_code(rule: dict) -> str | None:
+    """按规则目标取沙箱代码：内置指标走 builtin_alerts 模板，否则查自定义指标。"""
+    builtin_code = BUILTIN_ALERT_INDICATORS.get(rule.get("builtin_id") or "", {}).get("code")
+    if builtin_code:
+        return builtin_code
+    return CustomIndicatorBusiness.get_code(rule["indicator_id"])
+
+
+@router.get(
+    "/builtins",
+    summary="内置指标定义",
+    description="返回可创建提醒规则的系统内置指标（key/名称/描述/plot 线/默认参数）。",
+)
+async def list_builtin_indicators():
+    return ApiResponse(code=0, message="ok", data=builtin_definitions())
+
+
+@router.get(
+    "", summary="提醒规则列表", description="按 indicator_id 或 builtin_id 过滤（可选），返回指标信号提醒规则。"
+)
+async def list_alert_rules(indicator_id: int | None = None, builtin_id: str | None = None):
     with get_db_session() as db:
         stmt = select(IndicatorAlertRule).order_by(IndicatorAlertRule.id.desc())
         if indicator_id is not None:
             stmt = stmt.where(IndicatorAlertRule.indicator_id == indicator_id)
+        if builtin_id:
+            stmt = stmt.where(IndicatorAlertRule.builtin_id == builtin_id)
         rows = db.scalars(stmt).all()
         return ApiResponse(code=0, message="ok", data=[_rule_to_dict(r) for r in rows])
 
@@ -125,10 +167,13 @@ async def create_alert_rule(request_body: AlertRuleUpsert, http_request: Request
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权创建提醒规则")
     validate_channels(request_body.channels)
-    _assert_indicator_exists(request_body.indicator_id)
+    indicator_id, builtin_id = request_body.resolve_target()
+    if not builtin_id:
+        _assert_indicator_exists(indicator_id)
     with get_db_session() as db:
         row = IndicatorAlertRule(
-            indicator_id=request_body.indicator_id,
+            indicator_id=indicator_id,
+            builtin_id=builtin_id,
             name=request_body.name,
             symbol=request_body.symbol.upper(),
             period=request_body.period,
@@ -191,8 +236,8 @@ async def test_alert_rule(rule_id: int):
     with get_db_session() as db:
         row = _get_rule_row_or_404(db, rule_id)
         rule = alerts._rule_snapshot(row)
-    # 指标代码从 Business 侧取（与执行器同一读取口径）
-    code = CustomIndicatorBusiness.get_code(rule["indicator_id"])
+    # 内置指标走 builtin_alerts 模板，其余从 Business 侧取（与执行器同一读取口径）
+    code = _resolve_rule_code(rule)
     if not code:
         raise HTTPException(status_code=404, detail=f"指标不存在或已删除: {rule['indicator_id']}")
 
@@ -227,6 +272,7 @@ def _upsert_to_snapshot(rule_in: AlertRuleUpsert) -> dict[str, Any]:
     return {
         "id": 0,
         "indicator_id": rule_in.indicator_id,
+        "builtin_id": rule_in.builtin_id,
         "name": rule_in.name,
         "symbol": rule_in.symbol.upper(),
         "period": rule_in.period,
@@ -250,9 +296,12 @@ def _upsert_to_snapshot(rule_in: AlertRuleUpsert) -> dict[str, Any]:
 async def preview_alert_rule(request_body: AlertPreviewRequest, http_request: Request):
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权预演提醒规则")
-    rule = _upsert_to_snapshot(request_body.rule)
-    # 指标代码从 Business 侧取（与执行器/测试发送同一读取口径）
-    code = CustomIndicatorBusiness.get_code(rule["indicator_id"])
+    rule_in = request_body.rule
+    # 与创建接口同一目标校验口径（互斥 + 内置 key 合法）
+    rule_in.resolve_target()
+    rule = _upsert_to_snapshot(rule_in)
+    # 内置指标走 builtin_alerts 模板，其余从 Business 侧取（与执行器/测试发送同一读取口径）
+    code = _resolve_rule_code(rule)
     if not code:
         raise HTTPException(status_code=404, detail=f"指标不存在或已删除: {rule['indicator_id']}")
 

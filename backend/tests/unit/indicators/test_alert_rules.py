@@ -369,3 +369,115 @@ class TestAlertRoutes:
         # 测试发送不去重：last_fired_at 保持空
         with alert_db() as db:
             assert db.get(IndicatorAlertRule, rule_id).last_fired_at is None
+
+
+class TestBuiltinAlertIndicators:
+    """系统内置指标提醒（builtin_alerts.py）：定义完整性 + 沙箱可执行 + 评估/路由分支。"""
+
+    def test_definitions_complete(self):
+        from indicators.builtin_alerts import BUILTIN_ALERT_INDICATORS
+
+        assert {"sma", "macd", "kdj", "vol"} <= set(BUILTIN_ALERT_INDICATORS)
+        for key, item in BUILTIN_ALERT_INDICATORS.items():
+            assert item["name"] and item["description"], key
+            assert item["plots"], key
+            assert item["code"].strip().startswith("=") is False
+            # 沙箱契约：模板必须赋值 output
+            assert "output = {" in item["code"], key
+
+    def test_builtin_codes_run_in_sandbox(self):
+        """每个内置模板都必须能在指标沙箱跑通且输出 plot 长度对齐（防止模板语法/契约漂移）。"""
+        import asyncio
+
+        from indicators.builtin_alerts import BUILTIN_ALERT_INDICATORS
+        from indicators.executor import IndicatorExecutor
+
+        executor = IndicatorExecutor(timeout=20.0)
+        for key, item in BUILTIN_ALERT_INDICATORS.items():
+            result = asyncio.run(executor.execute(code=item["code"], kline_data=_bars(30), params=dict(item["params"])))
+            assert result.get("success") is True, f"{key}: {result.get('error')}"
+            # 执行器返回顶层 plots（FakeExecutor 同构）
+            plots = result["plots"]
+            assert {p["name"] for p in plots} == set(item["plots"]), key
+            assert all(len(p["data"]) == 30 for p in plots), key
+
+    def test_builtin_rule_evaluates(self, alert_db):
+        """builtin 规则不查自定义指标表也能取到代码并触发（indicator_id=0 不被跳过）。"""
+        rule_id = _seed_rule(alert_db, 0, builtin_id="sma", plot_name="sma")
+        executor = FakeExecutor([{"name": "sma", "data": [90.0, 110.0]}])
+        triggers = alerts.run_evaluation_round(executor=executor, fetch_kline=lambda rule: _bars())
+        assert [t["rule"]["id"] for t in triggers] == [rule_id]
+
+    def test_unknown_builtin_skipped(self, alert_db):
+        # 未知 builtin_id ≈ 无代码 → 评估轮跳过而非崩溃
+        _seed_rule(alert_db, 0, builtin_id="no_such_key", plot_name="sma")
+        executor = FakeExecutor([{"name": "sma", "data": [90.0, 110.0]}])
+        assert alerts.run_evaluation_round(executor=executor, fetch_kline=lambda rule: _bars()) == []
+
+
+class TestBuiltinAlertRoutes:
+    def _builtin_payload(self, **extra) -> dict:
+        payload = {
+            "builtin_id": "sma",
+            "name": "SMA 越界",
+            "symbol": "btcusdt",
+            "period": "1h",
+            "op": "gt",
+            "threshold": 100.0,
+            "channels": ["websocket"],
+        }
+        payload.update(extra)
+        return payload
+
+    def test_builtins_endpoint(self, alert_client):
+        resp = alert_client.get("/api/v1/indicators/alerts/builtins")
+        assert resp.status_code == 200
+        keys = {item["key"] for item in resp.json()["data"]}
+        assert "sma" in keys and "macd" in keys
+
+    def test_create_list_and_mutual_exclusion(self, alert_db, alert_client):
+        ind_id = _seed_indicator(alert_db)
+        resp = alert_client.post("/api/v1/indicators/alerts", json=self._builtin_payload())
+        assert resp.status_code == 200
+        rule = resp.json()["data"]
+        assert rule["builtin_id"] == "sma"
+        assert rule["indicator_id"] == 0
+
+        # 混一条自定义指标规则，验证两个过滤维度互不串扰
+        custom = alert_client.post(
+            "/api/v1/indicators/alerts",
+            json={"indicator_id": ind_id, "symbol": "BTCUSDT", "period": "1h", "op": "gt", "threshold": 1.0},
+        ).json()["data"]
+
+        listed = alert_client.get("/api/v1/indicators/alerts", params={"builtin_id": "sma"}).json()["data"]
+        assert [r["id"] for r in listed] == [rule["id"]]
+        listed = alert_client.get("/api/v1/indicators/alerts", params={"indicator_id": ind_id}).json()["data"]
+        assert [r["id"] for r in listed] == [custom["id"]]
+
+        # 互斥：同时指定 → 400；只给 indicator_id=0 且无 builtin → 400；未知 builtin → 400
+        assert (
+            alert_client.post("/api/v1/indicators/alerts", json=self._builtin_payload(indicator_id=ind_id)).status_code
+            == 400
+        )
+        missing_both = {"indicator_id": 0, "symbol": "BTCUSDT", "period": "1h"}
+        assert alert_client.post("/api/v1/indicators/alerts", json=missing_both).status_code == 400
+        assert (
+            alert_client.post("/api/v1/indicators/alerts", json=self._builtin_payload(builtin_id="nope")).status_code
+            == 400
+        )
+
+    def test_preview_builtin(self, alert_client, monkeypatch):
+        from indicators import alerts_routes as ar
+
+        monkeypatch.setattr(
+            ar, "IndicatorExecutor", lambda timeout=None: FakeExecutor([{"name": "sma", "data": [90.0, 110.0]}])
+        )
+        monkeypatch.setattr(ar.alerts, "fetch_kline_bars", lambda rule: _bars())
+        resp = alert_client.post("/api/v1/indicators/alerts/preview", json={"rule": self._builtin_payload()})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["evaluation"]["triggered"] is True
+
+        # 未知 builtin → 400
+        missing = self._builtin_payload(builtin_id="nope")
+        resp = alert_client.post("/api/v1/indicators/alerts/preview", json={"rule": missing})
+        assert resp.status_code == 400
