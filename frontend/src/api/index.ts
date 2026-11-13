@@ -593,6 +593,15 @@ export const configApi = {
     return apiRequest.put('/config/values', { values });
   },
 
+  // 写/更新单条配置（后端 POST /config/ 的 upsert 语义）；用于 chart.indicatorParams.* 动态键
+  setConfigKey: (data: { key: string; value: string; name: string }) => {
+    return apiRequest.post('/config/', data);
+  },
+
+  deleteConfigKey: (key: string) => {
+    return apiRequest.delete(`/config/${key}`);
+  },
+
   updatePluginConfig: <T extends Record<string, unknown>>(pluginName: string, data: T[]) => {
     const pluginConfigData = data.map((item: T) => ({
       ...item,
