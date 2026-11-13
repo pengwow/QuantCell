@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Flex, Modal, Select, Space, Switch } from 'antd';
 import { getStyleValue } from './chartStyles';
+import ChartTypeIcon from './ChartTypeIcon';
 
 export interface ChartSettingDef {
   /** 样式路径；yAxis.reverse 是虚拟路径（v10 中不属于 styles，需走 overrideYAxis） */
@@ -12,6 +13,8 @@ export interface ChartSettingDef {
   defaultValue: unknown;
   control: 'switch' | 'select';
   options?: [string, string][];
+  /** select 选项左侧渲染类型迷你预览图标（蜡烛图类型下拉使用） */
+  withIcon?: boolean;
 }
 
 /**
@@ -28,13 +31,20 @@ export const CHART_SETTING_DEFS: ChartSettingDef[] = [
     label: '蜡烛图类型',
     defaultValue: 'candle_solid',
     control: 'select',
+    withIcon: true,
     options: [
+      // 除前六种为 v10 原生形状外，其余为派生类型（由 ChartShell 做数据变换或复用 area 渲染）
       ['candle_solid', '实心蜡烛'],
       ['candle_stroke', '空心蜡烛'],
       ['candle_up_stroke', '上涨空心'],
       ['candle_down_stroke', '下跌空心'],
       ['ohlc', 'OHLC'],
       ['area', '面积图'],
+      ['line', '线形图'],
+      ['hlc_area', 'HLC 面积'],
+      ['heikin_ashi', '平均K线'],
+      ['renko', '砖形图'],
+      ['range', '范围图'],
     ],
   },
   { path: 'candle.priceMark.last.show', i18nKey: 'chart.setting.priceMarkLast', label: '显示最新价', defaultValue: true, control: 'switch' },
@@ -73,7 +83,15 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
         label: t(def.i18nKey, def.label),
         options: def.options?.map(([value, label]) => ({
           value,
-          label: t(`chart.setting.${def.control}.${value}`, label),
+          // withIcon 的下拉选项带迷你预览图标（选中回显同样渲染，无需额外节点）
+          label: def.withIcon ? (
+            <span className="candle-type-option">
+              <ChartTypeIcon type={value} />
+              <span>{t(`chart.setting.${def.control}.${value}`, label)}</span>
+            </span>
+          ) : (
+            t(`chart.setting.${def.control}.${value}`, label)
+          ),
         })),
       })),
     [t],
@@ -115,6 +133,8 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
                 style={{ width: 160 }}
                 value={values[item.path] as string | undefined}
                 options={item.options}
+                // 下拉项内容较宽（图标 + 文案），关闭宽度回显限制避免被压缩
+                popupMatchSelectWidth={false}
                 onChange={(value) => handleChange(item.path, value)}
               />
             )}
