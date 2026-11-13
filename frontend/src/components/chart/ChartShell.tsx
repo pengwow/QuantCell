@@ -319,7 +319,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   const fullscreenTargetRef = useRef<HTMLDivElement>(null);
 
   // 上方工具栏状态：左侧绘图栏是否展开、图表时区、Y 轴是否反转
-  const [spread, setSpread] = useState(true);
+  // 绘图工具栏默认收起（点周期栏汉堡按钮展开）；行情回放页 drawingBarLocked 恒显不受此影响
+  const [spread, setSpread] = useState(false);
   const [timezone, setTimezone] = useState('Asia/Shanghai');
   // ponytail: v10 没有公开读取轴 reverse 的接口，这里自己记一份，供设置弹窗回显
   const [yAxisReverse, setYAxisReverse] = useState(false);
