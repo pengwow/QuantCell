@@ -49,6 +49,15 @@ import ChartPeriodBar, { type ChartPeriodItem } from './ChartPeriodBar';
 import { CHART_SETTING_DEFS } from './ChartSettingModal';
 import { setStyleValue } from './chartStyles';
 import { findPeriodItem } from './chartConstants';
+import {
+  cancelPendingSaves,
+  loadChartPrefs,
+  loadIndicatorParams,
+  restorePriceStyle,
+  saveIndicatorParams,
+  savePriceStyleValue,
+  saveUiPrefs,
+} from '../../services/chartPreferences';
 import DrawingBar from '../DrawingBar';
 import { IndicatorParamModal } from '../IndicatorParamModal';
 // 样式沿用 ChartPage 的图表布局 CSS（chart-page/period-bar/hover 工具条等类名）
@@ -92,27 +101,6 @@ const AREA_DEFAULT_BG = [
   { offset: 1, color: 'rgba(22, 119, 255, 0.2)' },
 ];
 const AREA_TRANSPARENT_BG = 'rgba(22, 119, 255, 0)';
-
-// 指标参数 localStorage 记忆（按 品种×指标 维度；用户调整过的参数刷新/切图后仍生效）
-const indicatorParamsKey = (symbolCode: string, indicatorId: string) =>
-  `qc:indicator-params:${symbolCode}:${indicatorId}`;
-
-const loadStoredIndicatorParams = (symbolCode: string, indicatorId: string): Record<string, unknown> | null => {
-  try {
-    const raw = localStorage.getItem(indicatorParamsKey(symbolCode, indicatorId));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-const saveStoredIndicatorParams = (symbolCode: string, indicatorId: string, params: Record<string, unknown>) => {
-  try {
-    localStorage.setItem(indicatorParamsKey(symbolCode, indicatorId), JSON.stringify(params));
-  } catch {
-    // 隐私模式等场景写入失败可忽略，不影响本会话使用
-  }
-};
 
 // params（含 _builtInId 标记）→ klinecharts calcParams 数值数组；依赖 defaultParams 键声明顺序与内置指标 calcParams 顺序一致
 const toCalcParamArray = (params?: Record<string, unknown>): number[] =>
@@ -676,13 +664,15 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     }
   }, [indicatorScope, symbol.code, currentPeriod, message]);
 
-  // 启动指标（不判断是否已激活）。params 缺省时优先使用该品种的 localStorage 记忆参数
+  // 启动指标（不判断是否已激活）。params 缺省时优先使用该品种的记忆参数（后端 chart 组，含旧 localStorage 迁移值）
   const startIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
 
     const indicatorId = String(indicator.id);
-    const storedParams = loadStoredIndicatorParams(symbol.code, indicatorId);
+    // 指标参数快照依赖 loadChartPrefs 完成后建立的模块级缓存（幂等 Promise，已是重入调用）
+    await loadChartPrefs();
+    const storedParams = loadIndicatorParams(symbol.code, indicatorId);
     // 记忆参数优先于调用方传入的 defaultParams
     const effectiveParams = storedParams ? { ...params, ...storedParams } : params;
     const builtInName = builtInIndicatorMap[indicatorId];
@@ -767,7 +757,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     }
   }, [activeIndicators, startIndicator, stopIndicatorById]);
 
-  // 参数更新入口（图例 ⚙ → 弹窗确认）：确认后回写 localStorage 记忆。
+  // 参数更新入口（图例 ⚙ → 弹窗确认）：确认后回写后端参数记忆（fire-and-forget）。
   // 内置指标走 overrideIndicator 直接改 calcParams 重算；本地/后端自定义指标重算数据后
   // 更新缓存再触发一次重算（calc 闭包实时读 customIndicatorDataRef，无闪烁、不换 pane）
   const handleUpdateIndicatorParams = useCallback(async (active: ActiveIndicator, newParams: IndicatorParams) => {
@@ -776,7 +766,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     if (!chart || !indicator) return;
 
     const indicatorId = String(active.id);
-    saveStoredIndicatorParams(symbol.code, indicatorId, newParams);
+    // 参数记忆写后端（即时动态键；同步更新快照，弹窗内再读立即可见）
+    saveIndicatorParams(symbol.code, indicatorId, newParams);
 
     const builtInName = !active.isCustom ? builtInIndicatorMap[indicatorId] : undefined;
     if (builtInName) {
@@ -917,13 +908,16 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     chart.resize();
   }, [getDisplayBars]);
 
-  // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis
-  const applyChartSetting = useCallback((path: string, value: unknown) => {
+  // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis。
+  // persist=false 用于偏好回放与恢复默认（读到的值/默认值不回写，否则会把服务端值原样再写一遍）
+  const applyChartSetting = useCallback((path: string, value: unknown, persist = true) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
     if (path === 'yAxis.reverse') {
       chart.overrideYAxis({ reverse: Boolean(value) });
       setYAxisReverse(Boolean(value));
+      // 注意：此处不走 return 短路前的公共保存口，统一落在各分支末尾
+      if (persist) savePriceStyleValue(path, value);
       return;
     }
     // 蜡烛图类型特判：派生类型不是合法的 v10 chartType，需映射为原生形状；
@@ -941,12 +935,14 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       if (DERIVED_PRICE_TYPES.has(nextType)) {
         refreshChartData();
       }
+      if (persist) savePriceStyleValue(path, value);
       return;
     }
     // klinecharts setStyles 是深合并，局部路径更新即可
     const styles: Record<string, unknown> = {};
     setStyleValue(styles, path, value);
     chart.setStyles(styles as Parameters<Chart['setStyles']>[0]);
+    if (persist) savePriceStyleValue(path, value);
   }, [refreshChartData]);
 
   // 读取当前样式，并把轴上的 reverse 补进去（设置弹窗回显用）；
@@ -962,15 +958,18 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     };
   }, [yAxisReverse, semanticCandleType]);
 
-  // 恢复默认：逐项还原为 klinecharts 默认值
+  // 恢复默认：取消 pending 防抖 + 删除后端 priceStyle，再按默认值重置图表（不回写）
   const handleRestoreDefaultSettings = useCallback(() => {
-    CHART_SETTING_DEFS.forEach(({ path, defaultValue }) => applyChartSetting(path, defaultValue));
+    cancelPendingSaves();
+    restorePriceStyle();
+    CHART_SETTING_DEFS.forEach(({ path, defaultValue }) => applyChartSetting(path, defaultValue, false));
   }, [applyChartSetting]);
 
-  // 切换时区
+  // 切换时区：图表生效并持久化到 uiPrefs
   const handleTimezoneSelect = useCallback((nextTimezone: string) => {
     chartInstanceRef.current?.setTimezone(nextTimezone);
     setTimezone(nextTimezone);
+    saveUiPrefs({ timezone: nextTimezone });
   }, []);
 
   // 截图：导出含 overlay 的 jpeg，底色跟随当前主题
@@ -1088,6 +1087,25 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, [chartId]);
+
+  // 偏好回放：图表先按默认创建，后端 chart 组加载完成后逐项应用保存值。
+  // 只在挂载时回放一次，applyChartSetting 为稳定 useCallback，故意固定空依赖
+  useEffect(() => {
+    let cancelled = false;
+    loadChartPrefs().then(({ priceStyle, uiPrefs }) => {
+      if (cancelled || !chartInstanceRef.current) return;
+      // persist=false：回放不触发保存，否则把刚读到的值原样写回服务端
+      for (const [path, value] of Object.entries(priceStyle)) {
+        applyChartSetting(path, value, false);
+      }
+      if (uiPrefs.timezone) {
+        chartInstanceRef.current?.setTimezone(uiPrefs.timezone);
+        setTimezone(uiPrefs.timezone);
+      }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性回放
+  }, []);
 
   // symbol / period 变化（或壳晚于页面初始化完成）时同步到图表
   useEffect(() => {
