@@ -33,6 +33,7 @@ from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
 from services.model_registry import seed_demo_models
 from services.symbol_sync import symbol_sync_manager
+from settings.schema import backfill_descriptions
 from utils.config_manager import get_flag, load_system_configs
 from utils.secret_key_manager import initialize_secret_key
 from websocket.manager import manager
@@ -204,6 +205,14 @@ async def lifespan(app: FastAPI):
 
     # 异步加载系统配置到应用上下文
     app.state.configs = await asyncio.to_thread(load_system_configs)
+
+    # 幂等回填 schema 声明键缺失的描述（只补空不覆盖，详见 settings.schema.backfill_descriptions）
+    try:
+        backfilled = await asyncio.to_thread(backfill_descriptions)
+        if backfilled:
+            logger.info(f"系统配置描述回填完成: {backfilled} 行")
+    except Exception:
+        logger.warning("系统配置描述回填执行失败(不影响启动)", exc_info=True)
 
     # 从配置中提取代理信息
     # 首先查找启用的默认交易所
