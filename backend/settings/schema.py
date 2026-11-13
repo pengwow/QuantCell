@@ -157,6 +157,29 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
             ),
         ],
     ),
+    # 图表页用户偏好：值是 JSON 字符串（前端解析），进 schema 是为了复用
+    # values 读写通道与类型校验；chart.indicatorParams.* 动态键不走 schema（品种无法预声明）
+    "chart": SchemaGroup(
+        key="chart",
+        title="chart_settings",
+        order=1,
+        fields=[
+            SchemaField(
+                key="priceStyle",
+                label="chart_price_style",
+                type=FieldType.STRING,
+                default="{}",
+                description="图表样式设置，JSON 字符串（klinecharts 样式 path -> value）",
+            ),
+            SchemaField(
+                key="uiPrefs",
+                label="chart_ui_prefs",
+                type=FieldType.STRING,
+                default="{}",
+                description="图表页偏好，JSON 字符串（period/symbol/timezone）",
+            ),
+        ],
+    ),
 }
 
 

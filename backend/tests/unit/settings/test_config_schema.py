@@ -11,6 +11,8 @@
 存储走 conftest 的 DB_FILE 临时副本库，真实读写、零污染。
 """
 
+import json
+
 import pytest
 from fastapi import HTTPException
 
@@ -147,3 +149,35 @@ def test_bool_accepts_string_form():
     assert store_value(bool_field, "false") == "0"
     with pytest.raises(ValueError):
         store_value(bool_field, "yes")
+
+
+# ---------------------------------------------------------------------------
+# chart 组（图表页偏好持久化：priceStyle/uiPrefs 以 JSON 字符串存储，解析归前端）
+# ---------------------------------------------------------------------------
+
+
+def test_schema_contains_chart_group():
+    data = routes.get_config_schema().data
+    groups = {g["key"]: g for g in data["groups"]}
+    assert "chart" in groups
+    keys = [f["key"] for f in groups["chart"]["fields"]]
+    assert "priceStyle" in keys and "uiPrefs" in keys
+
+
+def test_chart_price_style_roundtrip():
+    SystemConfigBusiness.delete("priceStyle")
+    raw = json.dumps({"candle.type": "renko", "yAxis.reverse": True})
+    assert _update({"priceStyle": raw}) == 1
+    # STRING 类型原样返回，不做 JSON 解析（解析归前端）
+    values = routes.get_config_values().data
+    assert values["priceStyle"] == raw
+    assert SystemConfigBusiness.get("priceStyle") == raw
+    # name 分组挂 chart，旧接口 GET /api/v1/config/ 按 chart 组可见
+    assert SystemConfigBusiness.get_with_details("priceStyle")["name"] == "chart"
+
+
+def test_chart_ui_prefs_roundtrip():
+    SystemConfigBusiness.delete("uiPrefs")
+    raw = json.dumps({"period": "4h", "symbol": "ETHUSDT", "timezone": "UTC"})
+    assert _update({"uiPrefs": raw}) == 1
+    assert json.loads(routes.get_config_values().data["uiPrefs"])["period"] == "4h"
