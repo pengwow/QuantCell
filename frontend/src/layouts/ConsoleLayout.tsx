@@ -410,6 +410,9 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       <div className="w-full grow overflow-x-hidden overflow-y-auto">
         <Menu
           style={{ background: "transparent", borderInlineEnd: "none" }}
+          // 分组名居中：antd group 标题默认 padding 8px 16px + 左对齐，80px 折叠栏里贴左且
+          // 英文 Research（≈58px）放不进 47px 内容区会换行；去内边距后两态均居中且不折行
+          className="[&_.ant-menu-item-group-title]:px-0 [&_.ant-menu-item-group-title]:text-center"
           items={menuItems}
           mode="inline"
           inlineCollapsed={collapsed}
