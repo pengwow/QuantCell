@@ -21,3 +21,24 @@ repos:
         pass_filenames: false
         always_run: true
         exclude: ^(\.trae_deleted/|backend/decision_py_archive_v2_202610/|\.github/)
+
+      # 前端门禁：改动 frontend/ 或词条 i18n/ 时跑 CI 同款 lint / tests / i18n audit
+      # （build 含 tsc 全量类型检查且依赖 dist 产物，较重，留给 CI 把关）
+      - id: frontend-lint
+        name: frontend lint (eslint)
+        entry: bash -c 'cd frontend && bun run lint'
+        language: system
+        pass_filenames: false
+        files: ^(frontend/|i18n/)
+      - id: frontend-tests
+        name: frontend tests (vitest)
+        entry: bash -c 'cd frontend && bun run test'
+        language: system
+        pass_filenames: false
+        files: ^(frontend/|i18n/)
+      - id: frontend-i18n-audit
+        name: i18n hardcoded-Chinese audit
+        entry: bash -c 'cd frontend && bun run i18n:audit -- --check'
+        language: system
+        pass_filenames: false
+        files: ^(frontend/|i18n/)
