@@ -142,7 +142,8 @@ def get_agent() -> AgentLoop:
 
     if _agent_instance is None:
         # 创建工作空间目录
-        workspace = Path(__file__).parent.parent.parent.parent / "agent_workspace"
+        # Agent 工作区统一放到 backend/data 下，避免根目录堆运行时产物
+        workspace = Path(__file__).parent.parent.parent / "data" / "agent_workspace"
         workspace.mkdir(parents=True, exist_ok=True)
 
         # 从系统配置获取AI模型配置

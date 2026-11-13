@@ -76,7 +76,7 @@ def create_registry(workspace: Path | str | None = None, **kwargs) -> ToolRegist
     if workspace and isinstance(workspace, str):
         workspace = Path(workspace)
     elif workspace is None:
-        workspace = Path(__file__).resolve().parent.parent.parent / "agent_workspace"
+        workspace = Path(__file__).resolve().parent.parent.parent / "data" / "agent_workspace"
     # 获取 allowed_dir 参数（用于文件系统工具的安全限制）
     allowed_dir = kwargs.pop("allowed_dir", None) or workspace
 
