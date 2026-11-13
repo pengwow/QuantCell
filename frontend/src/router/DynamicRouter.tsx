@@ -37,8 +37,6 @@ const BacktestConfig = lazy(() => import('@/pages/backtest/BacktestConfig'));
 const BacktestReplay = lazy(() => import('@/pages/backtest/BacktestReplay'));
 
 const GeneralSettingsPage = lazy(() => import('@/pages/setting/GeneralSettingsPage'));
-// P2-05：schema 驱动设置渲染器
-const SchemaSettingsPage = lazy(() => import('@/pages/setting/SchemaSettingsPage'));
 const ExchangeSettingsPage = lazy(() => import('@/pages/setting/ExchangeSettingsPage'));
 const NotificationsPage = lazy(() => import('@/pages/setting/NotificationsPage'));
 const ModelSettingsPage = lazy(() => import('@/pages/setting/ModelSettingsPage'));
@@ -120,8 +118,6 @@ function createBaseRoutes(): RouteObject[] {
           children: [
             { index: true, element: <Navigate to="/setting/general" replace /> },
             { path: 'account', element: <AccountSettings /> },
-            // P2-05：schema 驱动设置渲染器（新增配置项只改 backend/settings/schema.py）
-            { path: 'schema', element: <SchemaSettingsPage /> },
             { path: 'general', element: <GeneralSettingsPage /> },
             { path: 'env', element: <EnvironmentVariablesPage /> },
             { path: 'exchange', element: <ExchangeSettingsPage /> },
