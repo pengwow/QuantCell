@@ -8,6 +8,7 @@ import {
   IconChartHistogram,
   IconCode,
   IconDatabase,
+  IconFlask,
   IconHelp,
   IconHome,
   IconLayoutSidebarLeftCollapse,
@@ -284,6 +285,8 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_FACTOR, "factor_analysis", <IconChartHistogram size="1em" />, false],
       [MENU_KEY_RESEARCH, "research", <IconMicroscope size="1em" />, false],
       [MENU_KEY_MODEL_HUB, "model_hub", <IconStack size="1em" />, false],
+      // 回测中心：RL/普通回测任务列表的固定入口；side nav 分组后落入「交易」组
+      ["/backtest", "backtest_center", <IconFlask size="1em" />, false],
       [MENU_KEY_RISK, "risk_monitor", <IconShield size="1em" />, false],
     ] satisfies Array<[string, string, React.ReactNode, boolean]>
   ).map(([key, label, icon, disabled]) => {
@@ -321,17 +324,49 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     },
   }));
 
-  // P2-02 能力过滤：agent_gateway 关闭时隐藏代理菜单
-  const menuItems = [...baseMenuItems, ...pluginMenuItems].filter(
+  // P2-02 能力过滤：agent_gateway 关闭时隐藏代理菜单（平铺层单层 filter，逻辑不变）
+  const capabilityItems = [...baseMenuItems, ...pluginMenuItems].filter(
     (item) => item?.key !== MENU_KEY_AGENT || isCapabilityEnabled(capabilities, "agent_gateway"),
   );
+  const itemByKey = new Map(capabilityItems.map((item) => [item!.key as string, item!]));
+
+  // 侧边菜单按业务域分组：无组区（首页 / 策略智能体）→「交易」→「研究」→ 插件项；
+  // 分组容器 items 是 type:'group'，叶子项全部来自上面已过滤的平铺 Map
+  const menuItems: Required<MenuProps>["items"] = [
+    ...capabilityItems.filter(
+      (item) => item!.key === MENU_KEY_HOME || item!.key === MENU_KEY_AGENT,
+    ),
+    {
+      key: "nav-group-trade",
+      type: "group" as const,
+      label: t("nav_group_trade"),
+      children: [MENU_KEY_STRATEGY, MENU_KEY_STRATEGY_TASK, "/backtest", MENU_KEY_RISK].map(
+        (key) => itemByKey.get(key)!,
+      ),
+    },
+    {
+      key: "nav-group-research",
+      type: "group" as const,
+      label: t("nav_group_research_data"),
+      children: [MENU_KEY_CHART, MENU_KEY_FACTOR, MENU_KEY_RESEARCH, MENU_KEY_DATA, MENU_KEY_MODEL_HUB].map(
+        (key) => itemByKey.get(key)!,
+      ),
+    },
+    ...pluginMenuItems,
+  ];
 
   const [menuSelectedKey, setMenuSelectedKey] = useState<string>();
 
   const getActiveMenuItem = () => {
+    // 分组后顶层是 type:'group' 容器（无路由 key），先拍平到叶子项再匹配
+    const flatItems = menuItems.flatMap((item) =>
+      item && "children" in item && Array.isArray(item.children) ? item.children : [item],
+    );
     const item =
-      menuItems.find((item) => item!.key === location.pathname) ??
-      menuItems.find((item) => item!.key !== MENU_KEY_CHART && location.pathname.startsWith(item!.key as string));
+      flatItems.find((it) => it?.key === location.pathname) ??
+      flatItems.find(
+        (it) => it?.key !== MENU_KEY_CHART && location.pathname.startsWith(it?.key as string),
+      );
     return item;
   };
 
