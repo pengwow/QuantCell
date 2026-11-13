@@ -692,6 +692,9 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             status = task.status
             metrics: list = []
             trades: list = []
+            # 逐笔成交明细（fill 粒度）：round-trip trades 稀疏时（如 RL 目标仓位
+            # 策略持仓长期不归零）详情页兜底展示，随单品种 entry 透传
+            fills_detail: list = []
             equity_curve: list = []
             positions: list = []
             factors: dict = {}
@@ -749,6 +752,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
 
                     metrics = entry.get("metrics") or []
                     trades = entry.get("trades") or []
+                    fills_detail = entry.get("fills_detail") or []
                     equity_curve = entry.get("equity_curve") or []
                     positions = entry.get("positions") or []
                     factors = entry.get("factors") or {}
@@ -769,6 +773,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "metrics": metrics,
                 "equity_curve": equity_curve,
                 "trades": trades,
+                "fills_detail": fills_detail,
                 "positions": positions,
                 "factors": factors,
                 # 保证金模拟结果（逐档强平审计视图 + 穿仓损失），前端据此渲染强平卡片

@@ -33,7 +33,12 @@ import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from './D
 import MetricCard from '../../components/MetricCard';
 import { formatMetricValue, visibleMetricCards } from './metricCards';
 import TradeTable, { type Trade } from '../../components/TradeTable';
-import { buildLeverageMap, type CascadeDecisionRecord, type EffectiveMarginSpec } from '../../types/backtest';
+import {
+  buildLeverageMap,
+  type BacktestFill,
+  type CascadeDecisionRecord,
+  type EffectiveMarginSpec,
+} from '../../types/backtest';
 import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
 import { useQuantColors } from '@/utils/colors';
@@ -41,6 +46,35 @@ import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'ahooks';
+
+// 逐笔成交兜底表：round-trip 稀疏（如 RL 目标仓位策略持仓长期不归零）时
+// 在交易详情 Card 内展示 fill 粒度记录，替代误导性的「无完整交易记录」空态
+const FillsDetailTable = ({ fills }: { fills: BacktestFill[] }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Alert type="info" showIcon style={{ marginBottom: 16 }} title={t('backtest_fills_detail_hint')} />
+      <Table
+        size="small"
+        rowKey="fill_id"
+        dataSource={fills}
+        scroll={{ y: 480 }}
+        pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => t('total_count', { count: total }) }}
+        columns={[
+          { title: t('trade_time'), dataIndex: 'formatted_time', key: 'ft' },
+          {
+            title: t('direction'),
+            dataIndex: 'side',
+            key: 'side',
+            render: (v: string) => <Tag color={v === 'buy' ? 'green' : 'red'}>{v === 'buy' ? t('buy') : t('sell')}</Tag>,
+          },
+          { title: t('price'), dataIndex: 'price', key: 'p', align: 'right', render: (v: number) => v.toFixed(4) },
+          { title: t('quantity'), dataIndex: 'quantity', key: 'q', align: 'right', render: (v: number) => v.toFixed(4) },
+        ]}
+      />
+    </>
+  );
+};
 
 // 后端返回的数据类型定义
 interface BacktestMetrics {
@@ -119,6 +153,8 @@ interface BacktestResponse {
   strategy_config: Record<string, unknown>;
   metrics: BacktestMetrics[];
   trades: Trade[];
+  /** 逐笔成交明细（fill 粒度）：round-trip 稀疏时（如 RL 目标仓位策略）兜底展示，旧任务无此键 */
+  fills_detail?: BacktestFill[];
   equity_curve: EquityCurvePoint[];
   factors?: BacktestFactors;
   // 多品种结果：实际有数据的品种列表、当前返回品种
@@ -775,10 +811,10 @@ const BacktestDetail = () => {
             </div>
           )}
 
-          {/* 筛选结果统计 */}
+          {/* 筛选结果统计（fills 兜底分支计数跟随展示粒度，避免「共 0 条」与逐笔表矛盾） */}
           <div style={{ marginBottom: 16 }}>
             <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
-              {t('total_count', { count: getTrades().length })}
+              {t('total_count', { count: getTrades().length || (backtestData?.fills_detail?.length ?? 0) })}
               {selectedSymbol !== 'all' && t('backtest_filter_symbol', { v: selectedSymbol })}
               {filterSide !== 'all' && t('backtest_filter_side', { v: filterSide === 'long' ? t('long') : t('short') })}
               {filterDateRange && t('backtest_filter_date', { start: filterDateRange[0], end: filterDateRange[1] })}
@@ -787,6 +823,9 @@ const BacktestDetail = () => {
 
           {getTrades().length > 0 ? (
             <TradeTable data={getTrades()} leverageBySymbol={leverageBySymbol} />
+          ) : (backtestData?.fills_detail?.length ?? 0) > 0 ? (
+            // round-trip 为空但有逐笔成交（RL 目标仓位策略常态）：展示 fill 粒度明细
+            <FillsDetailTable fills={backtestData!.fills_detail!} />
           ) : isLegacyOnly ? (
             <Empty description={t('backtest_legacy_no_trades')} />
           ) : rawTrades.length === 0 ? (

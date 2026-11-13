@@ -1,6 +1,8 @@
 """RL Training API routes."""
 
 import functools
+import json
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -66,6 +68,16 @@ class WalkForwardRequest(BaseModel):
     reward_type: str = "pnl"
 
 
+class RLBacktestRequest(BaseModel):
+    model_id: str  # data/models 下 .zip 文件 stem（统一模型总表传 file_name 去掉 .zip）
+    symbol: str  # 回测目标交易对，如 BTCUSDT
+    interval: str = "1h"
+    candle_type: str = "spot"
+    initial_capital: float = 100_000.0
+    # 非空时跑集成员聚合回测（engine 固定 kernel），model_id 仅作兜底不做存在性校验
+    ensemble_id: str | None = None
+
+
 @router.post("/train")
 @handle_rl_exceptions
 async def start_training(req: TrainRequest, current_user: dict = Depends(get_current_user)):
@@ -119,6 +131,71 @@ async def delete_model(model_id: str, current_user: dict = Depends(get_current_u
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ApiResponse(code=0, message="模型已删除", data={"model_id": model_id})
+
+
+@router.post("/backtest")
+@handle_rl_exceptions
+async def backtest_model(req: RLBacktestRequest, current_user: dict = Depends(get_current_user)):
+    """用已训练 RL 模型回测（统一内核口径），结果任务化落盘并返回 task_id。
+
+    结果按策略回测同一契约落盘（文件任务 + 结果 JSON + backtest_tasks 表行），
+    回测列表 / 详情 / 回放页零感知复用；前端凭 task_id 跳完整详情页。
+    引擎固定 kernel（与实盘同一条主回路）；kernel 回测为秒级，采用同步执行。
+    """
+    from services.rl_service import RLService
+
+    svc = RLService()
+    if not req.ensemble_id:
+        # 集成回测的具体成员校验在 service 层（load_ensemble_spec）；单模型在此做
+        # 路径安全解析与存在性校验，404 早于执行
+        try:
+            model_path = svc.resolve_saved_model_path(req.model_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not model_path.is_file():
+            raise HTTPException(status_code=404, detail=f"模型不存在: {req.model_id}")
+
+    result = svc.run_backtest_task(
+        req.model_id,
+        req.symbol,
+        interval=req.interval,
+        candle_type=req.candle_type,
+        initial_capital=req.initial_capital,
+        ensemble_id=req.ensemble_id,
+    )
+
+    # DB 任务行：详情 / replay / 列表筛选共享 backtest_tasks 表（import 方式与
+    # backtest/routes.py 的既有模式一致——函数内 import 避免 API 启动拉起 ORM）
+    from backtest.models import BacktestTask
+    from utils.db_session import get_db_session
+
+    now = datetime.now(UTC)
+    config_json = json.dumps(
+        {
+            "symbols": [req.symbol],
+            "interval": req.interval,
+            "initial_capital": req.initial_capital,
+            "engine_type": "axon",
+            "data_type": "kline",
+            "trading_mode": "spot" if req.candle_type == "spot" else "futures",
+            "source": "rl_model_backtest",
+        },
+        default=str,
+        ensure_ascii=False,
+    )
+    with get_db_session() as db:
+        task = BacktestTask(
+            id=result["task_id"],
+            strategy_name=result["strategy_name"],
+            backtest_config=config_json,
+            status="completed",
+            started_at=now,
+            completed_at=now,
+        )
+        db.add(task)
+        db.commit()
+
+    return ApiResponse(code=0, message="回测完成", data=result)
 
 
 @router.post("/walk-forward")

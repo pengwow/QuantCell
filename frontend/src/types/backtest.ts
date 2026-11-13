@@ -129,8 +129,22 @@ export interface BacktestDetailData {
   metrics: BacktestMetric[];
   equity_curve: EquityData[];
   trades: Trade[];
+  /** 逐笔成交明细（fill 粒度）：round-trip 稀疏时（如 RL 目标仓位策略）详情页兜底展示 */
+  fills_detail?: BacktestFill[];
   status: string;
   created_at: string;
+}
+
+/** 逐笔成交展示行（后端 rl_service fill_rows 契约） */
+export interface BacktestFill {
+  fill_id: number;
+  /** 秒级 Unix 时间戳 */
+  timestamp: number;
+  formatted_time: string;
+  /** Taker 方向：buy / sell */
+  side: 'buy' | 'sell';
+  price: number;
+  quantity: number;
 }
 
 /** cascade 决策轻列表行（回测 / Worker 决策报告共用；后端 decisions 字段契约） */

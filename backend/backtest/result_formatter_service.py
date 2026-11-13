@@ -740,6 +740,9 @@ class ResultFormatterService:
                 "timeframe": timeframe,
                 "metrics": metrics_list,
                 "trades": trades,
+                # 逐笔成交明细（fill 粒度）：round-trip trades 天然稀疏（如 RL 目标
+                # 仓位策略持仓长期不归零）时由详情页兜底展示；缺省空时前端不渲染
+                "fills_detail": results.get("fills_detail", []),
                 "positions": results.get("positions", []),
                 "equity_curve": results.get("equity_curve", []),
                 # 清洗后的 K 线（回放页 kline_data 数据源，仅存结果 JSON）

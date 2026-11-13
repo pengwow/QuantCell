@@ -1259,6 +1259,16 @@ class BacktestService:
 
         self.logger.info(f"保存回测结果: {result_file}")
 
+    def complete_task(self, task_id: Any, result: dict) -> None:
+        """任务完成后的标准收尾：落盘结果 + 写列表页摘要 + 置状态 completed。
+
+        供 RL 模型回测等外部服务复用同一套落盘口径（与 /backtest/run 的
+        异步线程收尾序列一致），避免外部直接调私有方法。
+        """
+        self._save_result(task_id, result)
+        self._write_metrics_summary(task_id, self._metrics_summary_from_result(result))
+        self._update_task_status(task_id, "completed")
+
     def _get_task_file(self, task_id: Any) -> Path:
         """获取任务文件路径"""
         tasks_dir = self.results_dir.parent / "backtest_tasks"

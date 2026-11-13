@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -171,3 +173,84 @@ def test_e2e_kernel_vs_trading_env_attribution(monkeypatch, tmp_path):
     assert report["cost"]["ok"] is True
     assert report["cost"]["trading_env_rate"] == pytest.approx(RL_TRANSACTION_COST, abs=1e-12)
     assert report["cost"]["kernel_rate"] == pytest.approx(RL_TRANSACTION_COST, abs=1e-12)
+
+
+def test_run_backtest_task_persists_result(monkeypatch, tmp_path):
+    """任务化回测端到端：真 kernel 跑通并把结果按策略回测契约落盘。
+
+    DB 任务行写在 routes 层、不在此范围；BacktestService 的目录重定向到
+    tmp_path，避免污染 backend/data。断言三件套：返回摘要可用、任务文件
+    状态 completed、结果 JSON 携带详情页所需的 equity_curve/klines/trades 契约。
+    """
+    axon_quant = pytest.importorskip("axon_quant")
+    if not hasattr(axon_quant, "worker"):
+        pytest.skip("axon_quant.worker 不可用")
+
+    import numpy as np
+
+    from backtest.data_provider import BacktestDataProvider
+    from backtest.service import BacktestService
+    from services.rl_service import RLService
+
+    n = 30
+    data = pd.DataFrame(
+        {
+            "open": [100.0 + i * 0.1 for i in range(n)],
+            "high": [100.0 + i * 0.1 + 1.0 for i in range(n)],
+            "low": [100.0 + i * 0.1 - 1.0 for i in range(n)],
+            "close": [100.0 + i * 0.1 + 0.5 for i in range(n)],
+            "volume": [10.0] * n,
+        },
+        index=pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC"),
+    )
+
+    class FixedModel:
+        """前 5 根 bar 持 20% 仓位、后 5 根清仓：制造至少一次 round-trip。"""
+
+        step = 0
+
+        def predict(self, obs, deterministic=True):
+            self.step = (self.step + 1) % 10
+            target = 0.2 if self.step < 5 else 0.0
+            return np.array([target], dtype=np.float32), None
+
+    svc = RLService()
+    monkeypatch.setattr(svc, "load_model", lambda path: FixedModel())
+    # resolve_saved_model_path 里 model_id 即文件 stem，落盘策略名可预测
+    (tmp_path / "demo_ppo.zip").write_bytes(b"stub")
+    monkeypatch.setattr(svc, "resolve_saved_model_path", lambda model_id: tmp_path / f"{model_id}.zip")
+    monkeypatch.setattr(BacktestDataProvider, "load_klines", lambda self, *a, **k: data)
+
+    def fake_init(self):
+        from unittest.mock import MagicMock
+
+        self.results_dir = tmp_path
+        self.logger = MagicMock()
+
+    monkeypatch.setattr(BacktestService, "__init__", fake_init)
+
+    summary = svc.run_backtest_task("demo_ppo", "BTCUSDT", "1h", "spot", 100_000.0)
+
+    # 返回摘要：给前端 modal 直接展示的聚合指标
+    assert summary["task_id"]
+    assert summary["strategy_name"] == "rl_model:demo_ppo"
+    assert summary["engine"] == "kernel"
+    assert summary["data_bars"] == n
+
+    svc_bts = BacktestService()
+    # 任务文件：状态 completed，strategy_name 带 rl_model: 前缀供列表页识别来源
+    task = json.loads(svc_bts._get_task_file(summary["task_id"]).read_text(encoding="utf-8"))
+    assert task["status"] == "completed"
+    assert task["strategy_name"] == "rl_model:demo_ppo"
+
+    # 结果文件：详情/回放页复用所需的字段齐全（entry 键 = {SYMBOL}_{interval}）
+    result = svc_bts.get_result(summary["task_id"])
+    assert result["status"] == "completed"
+    entry = result["results"]["BTCUSDT_1h"]
+    assert len(entry["equity_curve"]) == n
+    assert entry["trades"], "固定 20% 占比必须产生 round-trip 交易"
+    assert entry["klines"] and len(entry["klines"]) == n
+    assert result["results"]["portfolio"]["metrics"], "列表摘要依赖 portfolio.metrics"
+    # 列表页摘要口径：total_return / max_drawdown 必须能从结果 JSON 提取
+    metrics_summary = svc_bts._metrics_summary_from_result(result)
+    assert {"total_return", "max_drawdown"} <= set(metrics_summary)
