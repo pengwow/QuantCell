@@ -22,7 +22,6 @@ import {
   CodeOutlined,
   EyeOutlined,
   ReloadOutlined,
-  BackwardOutlined,
   RobotOutlined,
   CloseCircleOutlined,
   EditOutlined,
@@ -939,18 +938,10 @@ class NewStrategy(BaseStrategy):
     : t('create_strategy');
 
   return (
-    <PageContainer title={pageTitle}>
+    <PageContainer title={pageTitle} onBack={handleBack}>
       {/* 页面头部 */}
       <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
         <div className="flex items-center flex-grow min-w-0">
-          <Button
-            type="default"
-            icon={<BackwardOutlined />}
-            onClick={handleBack}
-            className="mr-4"
-          >
-            {t('back')}
-          </Button>
           {isEditingName ? (
             <div className="relative flex-grow min-w-0">
               <Input

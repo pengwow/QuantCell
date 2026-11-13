@@ -43,6 +43,7 @@ import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
 import { useQuantColors } from '@/utils/colors';
 import PageContainer from '@/components/PageContainer';
+import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'ahooks';
@@ -184,6 +185,8 @@ const BacktestDetail = () => {
   const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
   const isDark = theme === 'dark';
   const qc = useQuantColors();
+  // 统一返回逻辑：returnUrl 优先（保留列表筛选状态），否则历史返回
+  const handleBack = usePageBack();
 
   const [loading, setLoading] = useState(true);
   const [backtestData, setBacktestData] = useState<BacktestResponse | null>(null);
@@ -378,7 +381,7 @@ const BacktestDetail = () => {
   // 渲染加载状态
   if (loading) {
     return (
-      <PageContainer title={t('backtest_detail')}>
+      <PageContainer title={t('backtest_detail')} onBack={handleBack}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
           <Spin size="large" description={t('loading')} />
         </div>
@@ -389,7 +392,7 @@ const BacktestDetail = () => {
   // 渲染空状态
   if (!backtestData) {
     return (
-      <PageContainer title={t('backtest_detail')}>
+      <PageContainer title={t('backtest_detail')} onBack={handleBack}>
         <div style={{ padding: '100px 0' }}>
           <Empty description={t('backtest_not_found')} />
         </div>
@@ -424,7 +427,7 @@ const BacktestDetail = () => {
           : t('backtest_bracket_source_config');
 
   return (
-    <PageContainer title={`${strategyName} - ${t('backtest_detail')}`}>
+    <PageContainer title={`${strategyName} - ${t('backtest_detail')}`} onBack={handleBack}>
       <div className="space-y-6">
         {/* 页面操作按钮 */}
         <div className="flex flex-wrap justify-start sm:justify-end gap-2">

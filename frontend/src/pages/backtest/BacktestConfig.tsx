@@ -38,6 +38,7 @@ import type { StepStatusState, ProgressData } from '../../components/BacktestPro
 import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/backtest';
 import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
+import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
 import {
   buildMarginSettingsPayload,
@@ -84,6 +85,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
+  // 统一返回逻辑：returnUrl 优先（保留列表筛选状态），否则历史返回
+  const handleBack = usePageBack();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const watchedStrategy = Form.useWatch('strategy', form);
@@ -1104,7 +1107,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   };
 
   return (
-    <PageContainer title={t('backtest_config')}>
+    <PageContainer title={t('backtest_config')} onBack={handleBack}>
       <div className="space-y-6">
         <Spin spinning={loading}>
         <Form

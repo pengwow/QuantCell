@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { Card, Button, Statistic, Row, Col, Form, Input, message } from 'antd';
 import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, SafetyOutlined } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
+import { useTranslation } from 'react-i18next';
 import { riskApi, RiskMetrics, RiskCheckResult } from '@/api/riskApi';
 import { QUANT_COLORS } from '@/utils/colors';
 
 export default function RiskMonitorPage() {
+  const { t } = useTranslation();
   const [metrics, setMetrics] = useState<RiskMetrics | null>(null);
   const [checkResult, setCheckResult] = useState<RiskCheckResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,7 +44,7 @@ export default function RiskMonitorPage() {
   };
 
   return (
-    <PageContainer title="风控监控">
+    <PageContainer title={t('risk_monitor')}>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card><Statistic title="总检查次数" value={metrics?.total_checks ?? '-'} /></Card></Col>
         <Col span={6}><Card><Statistic title="拒绝订单数" value={metrics?.rejected_orders ?? '-'} styles={{ content: { color: QUANT_COLORS.negative } }} /></Card></Col>
