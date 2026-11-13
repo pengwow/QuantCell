@@ -1,5 +1,5 @@
 /**
- * AI 研究会话列表（PRD §6.3/§6.4，v0.3 起为独立一级页面 /research）。
+ * 策略研究会话列表（PRD §6.3/§6.4，v0.3 起为独立一级页面 /research）。
  * 列表 + 筛选 + 新建抽屉 + 空状态引导；点行进入 /research/:id。
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';

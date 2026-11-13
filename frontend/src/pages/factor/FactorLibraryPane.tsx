@@ -343,7 +343,7 @@ const FactorLibraryPane: React.FC<Props> = ({
         <Space size="small" wrap>
           {/* 旧 LLM 挖掘已退役：AI 因子挖掘统一走研究模块 */}
           <Button icon={<RobotOutlined />} onClick={() => navigate('/research')}>
-            {'AI 研究'}
+            {t('ai_research')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             {t('factor_lib_create_btn') || '新建因子'}

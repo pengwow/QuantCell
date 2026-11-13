@@ -347,7 +347,7 @@ export const getAgentTrades = async (
   return apiRequest.get<{ items: AgentTrade[]; total: number; page: number; page_size: number }>(`/workers/${agentId}/monitoring/trades`, params);
 };
 
-// ==================== 策略代理API ====================
+// ==================== 策略智能体API ====================
 
 /**
  * 部署策略
