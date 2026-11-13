@@ -503,11 +503,11 @@ const KlineReplayPage: React.FC = () => {
           <Alert
             type="info"
             showIcon
-            message={t('backtest_replay_intro')}
+            title={t('backtest_replay_intro')}
             style={{ marginBottom: 16 }}
           />
           {loadError && (
-            <Alert type="error" showIcon message={loadError} style={{ marginBottom: 16 }} />
+            <Alert type="error" showIcon title={loadError} style={{ marginBottom: 16 }} />
           )}
           <Form
             form={form}
