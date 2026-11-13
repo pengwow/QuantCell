@@ -88,6 +88,7 @@ def get_backtest_list(
     ),
     keyword: str | None = Query(None, description="关键字，模糊匹配策略名称或任务ID"),
     strategy: str | None = Query(None, description="精确匹配策略名称"),
+    source: str | None = Query(None, description="来源过滤：'rl' 匹配 rl_model:/rl_ensemble: 前缀策略，其他值忽略"),
     sort_by: str = Query("created_at", description="排序字段：created_at/total_return/max_drawdown/strategy_name"),
     sort_order: str = Query("desc", description="排序方向：asc/desc"),
 ) -> ApiResponse:
@@ -112,7 +113,7 @@ def get_backtest_list(
     try:
         logger.info(
             f"获取回测结果列表请求 page={page} page_size={page_size} "
-            f"status={status} keyword={keyword} strategy={strategy} "
+            f"status={status} keyword={keyword} strategy={strategy} source={source} "
             f"sort_by={sort_by} sort_order={sort_order}"
         )
 
@@ -122,6 +123,7 @@ def get_backtest_list(
             status_filter=status if status and status != "all" else None,
             keyword=keyword,
             strategy=strategy,
+            source=source,
             sort_by=sort_by,
             sort_order=sort_order,
         )
