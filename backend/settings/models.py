@@ -89,6 +89,31 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
+    def update_description_if_empty(key: str, description: str) -> bool:
+        """仅当行已存在且 description 为空时回填描述，不创建行、不改 value。
+
+        专为 settings.schema 的启动幂等回填设计：存量行可能是旧版配置管理页
+        写入的（带语义化描述），绝不能被覆盖；行不存在也不能凭空造出只有
+        描述没有值的配置。
+        """
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            if config is None or config.description:
+                return False
+            config.description = description
+            db.commit()
+            logger.info(f"已回填配置描述: key={key}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"回填配置描述失败: key={key}, error={e}")
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
     def delete(key: str) -> bool:
         init_database_config()
         db: Session = SessionLocal()

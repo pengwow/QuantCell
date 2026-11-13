@@ -419,3 +419,177 @@ html.dark .chart-page {
   width: 100%;
   border: 1px solid var(--k-border);
 }
+
+/* ======================= 蜡烛图类型迷你预览图标 ======================= */
+/* 纯 CSS 绘制的三根竖条：基类为实心蜡烛，各类变体改描边/高低错落/渐变裁切。
+   Select 下拉浮层渲染在 body 下，不继承 .chart-page 变量，色值固定并由 html.dark 覆盖 */
+.candle-type-icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 24px;
+  height: 18px;
+  overflow: visible;
+  color: #76808f;
+}
+
+html.dark .candle-type-icon {
+  color: #929aa5;
+}
+
+.candle-type-icon i {
+  position: relative;
+  z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 4px;
+  height: 9px;
+  border: 1px solid currentColor;
+  background: currentColor;
+}
+
+/* 每根蜡烛上下的影线 */
+.candle-type-icon i::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 50%;
+  border-left: 1px solid currentColor;
+  transform: translateX(-50%);
+}
+
+.candle-type-icon i:nth-child(1) { height: 7px; }
+.candle-type-icon i:nth-child(2) { height: 12px; }
+.candle-type-icon i:nth-child(3) { height: 8px; }
+
+/* 空心蜡烛：全部实心区域透空，仅保留描边 + 影线 */
+.candle-type-icon--candle_stroke i {
+  background: transparent;
+}
+
+/* 上涨空心：首尾两根透空 */
+.candle-type-icon--candle_up_stroke i:nth-child(1),
+.candle-type-icon--candle_up_stroke i:nth-child(3) {
+  background: transparent;
+}
+
+/* 下跌空心：中间一根透空 */
+.candle-type-icon--candle_down_stroke i:nth-child(2) {
+  background: transparent;
+}
+
+/* OHLC 美国线：细竖线 + 左开右收的横杠 */
+.candle-type-icon--ohlc i {
+  width: 1px;
+  height: 14px !important;
+  border: 0;
+  background: currentColor;
+}
+
+.candle-type-icon--ohlc i::before,
+.candle-type-icon--ohlc i::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  border-top: 1px solid currentColor;
+}
+
+.candle-type-icon--ohlc i::before {
+  top: 4px;
+  left: -3px;
+  bottom: auto;
+  transform: none;
+}
+
+.candle-type-icon--ohlc i::after {
+  right: -3px;
+  bottom: 4px;
+}
+
+/* 面积图：取消竖条，整块渐变 + 折线轮廓裁切 */
+.candle-type-icon--area {
+  background: linear-gradient(180deg, currentColor 0%, rgba(118, 128, 143, 0.08) 100%);
+  clip-path: polygon(0 72%, 28% 48%, 49% 62%, 76% 20%, 100% 38%, 100% 100%, 0 100%);
+  opacity: 0.9;
+}
+
+.candle-type-icon--area i {
+  display: none;
+}
+
+/* 线形 / HLC 面积：斜向折线；HLC 面积在折线下方补渐变填充 */
+.candle-type-icon--line,
+.candle-type-icon--hlc_area {
+  display: block;
+  background: none;
+}
+
+.candle-type-icon--line::before,
+.candle-type-icon--hlc_area::before {
+  content: '';
+  position: absolute;
+  inset: 3px 0 2px;
+  border-top: 2px solid currentColor;
+  transform: skewY(-22deg) translateY(5px);
+}
+
+.candle-type-icon--line i,
+.candle-type-icon--hlc_area i {
+  display: none;
+}
+
+.candle-type-icon--hlc_area {
+  background: linear-gradient(180deg, transparent 36%, rgba(118, 128, 143, 0.18) 100%);
+  clip-path: polygon(0 72%, 28% 48%, 49% 62%, 76% 20%, 100% 38%, 100% 100%, 0 100%);
+}
+
+/* 平均K线：圆角实体，涨跌方块高低错落 */
+.candle-type-icon--heikin_ashi i {
+  border-radius: 1px;
+}
+
+.candle-type-icon--heikin_ashi i:nth-child(1) { height: 11px; background: transparent; }
+.candle-type-icon--heikin_ashi i:nth-child(2) { height: 15px; }
+.candle-type-icon--heikin_ashi i:nth-child(3) { height: 10px; background: transparent; }
+
+/* 砖形：绝对定位的三块砖，上下交替 */
+.candle-type-icon--renko {
+  display: block;
+}
+
+.candle-type-icon--renko i {
+  position: absolute;
+  width: 7px;
+  height: 7px !important;
+  border: 1px solid currentColor;
+  background: transparent;
+  transform: none;
+}
+
+.candle-type-icon--renko i::before {
+  display: none;
+}
+
+.candle-type-icon--renko i:nth-child(1) { left: 1px; bottom: 1px; }
+.candle-type-icon--renko i:nth-child(2) { left: 8px; top: 1px; }
+.candle-type-icon--renko i:nth-child(3) { right: 1px; bottom: 1px; }
+
+/* 范围图：三根加宽的柱，自低到高排布 */
+.candle-type-icon--range i {
+  width: 5px;
+  border-radius: 1px;
+}
+
+.candle-type-icon--range i:nth-child(1) { height: 6px; align-self: flex-end; }
+.candle-type-icon--range i:nth-child(2) { height: 10px; }
+.candle-type-icon--range i:nth-child(3) { height: 14px; align-self: flex-start; }
+
+/* 下拉选项：图标 + 文案横向排布 */
+.candle-type-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -486,7 +486,20 @@ export class WebSocketService {
 // 使用相对路径，让 Vite 代理处理 WebSocket 连接
 const defaultConfig: WebSocketConfig = {
   url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
-  topics: ['task:progress', 'task:status', 'system:info', 'system:status', 'kline'],
+  // notification.* 为站内通知实时推送主题（后端 common/notifications/channels.py 按类别广播，
+  // 未订阅收不到——broadcast 带 topic 过滤）
+  topics: [
+    'task:progress',
+    'task:status',
+    'system:info',
+    'system:status',
+    'kline',
+    'notification.system',
+    'notification.alert',
+    'notification.task',
+    'notification.trade',
+    'notification.security',
+  ],
 };
 
 export const wsService = new WebSocketService(defaultConfig);

@@ -515,13 +515,12 @@ const ResearchDetail: React.FC = () => {
   return (
     <PageContainer
       title={detail?.name || t('research_detail_page_title', { id: sessionId })}
+      // 返回入口统一收敛到 PageContainer 标题行（原「返回列表」按钮已移除）
+      onBack={() => navigate('/research')}
     >
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         <Flex align="center" justify="space-between" wrap gap={8}>
           <Space size="small" wrap>
-            <Button onClick={() => navigate('/research')}>
-              {t('research_detail_back_to_list')}
-            </Button>
             <Typography.Title level={5} style={{ margin: 0 }}>
               {detail?.name || t('research_detail_session_title', { id: sessionId })}
             </Typography.Title>

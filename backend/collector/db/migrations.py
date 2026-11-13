@@ -886,6 +886,41 @@ def update_ai_models_table(session: Session, db_type: str) -> None:
         logger.error(f"添加 ai_models.category 列失败: {e}")
 
 
+def update_indicator_alert_rules_table(session, db_type: str) -> None:
+    """indicator_alert_rules 增加 builtin_id 列（系统内置指标提醒，indicators/builtin_alerts.py）。"""
+    table_exists = session.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name='indicator_alert_rules'")
+        if db_type == "sqlite"
+        else text("SELECT table_name FROM information_schema.tables WHERE table_name='indicator_alert_rules'")
+    ).fetchone()
+    if not table_exists:
+        logger.info("indicator_alert_rules 表不存在（首次建库由 create_all 负责），跳过 builtin_id 迁移")
+        return
+
+    try:
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('indicator_alert_rules') WHERE name='builtin_id'")
+            ).fetchone()
+        else:
+            column_exists = session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name='indicator_alert_rules' AND column_name='builtin_id'"
+                )
+            ).fetchone()
+
+        if column_exists:
+            logger.info("indicator_alert_rules.builtin_id 列已存在，跳过")
+            return
+
+        session.execute(text("ALTER TABLE indicator_alert_rules ADD COLUMN builtin_id VARCHAR(50)"))
+        session.commit()
+        logger.info("indicator_alert_rules.builtin_id 列添加成功")
+    except Exception as e:
+        logger.error(f"添加 indicator_alert_rules.builtin_id 列失败: {e}")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
 
@@ -942,6 +977,9 @@ def run_migrations() -> None:
             from factor.job_lease import ensure_lease_columns
 
             ensure_lease_columns(session, db_type)
+
+            # indicator_alert_rules 增加 builtin_id 列（系统内置指标提醒）
+            update_indicator_alert_rules_table(session, db_type)
 
             # 提交所有更改
             session.commit()

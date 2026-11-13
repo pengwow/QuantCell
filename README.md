@@ -166,10 +166,8 @@ QuantCell/
 ├── frontend/                          # React 前端（Vite + antd 6）
 ├── docs/                              # 技术文档
 ├── scripts/                           # 辅助脚本
-├── ui/                                # 微前端壳
 ├── i18n/                              # 国际化资源
 ├── logs/                              # 运行日志
-├── agent_workspace/                   # Agent 工作区
 ├── install.sh                         # 一键安装脚本
 └── README.md                          # 本文件
 ```

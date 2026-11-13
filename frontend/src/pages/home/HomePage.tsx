@@ -394,7 +394,7 @@ const HomePage = () => {
                   )}
                 </Card>
 
-                {/* 最近 AI 研究 */}
+                {/* 最近策略研究 */}
                 <Card
                   title={t('home_recent_research')}
                   extra={

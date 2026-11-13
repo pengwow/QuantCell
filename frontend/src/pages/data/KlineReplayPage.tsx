@@ -5,7 +5,7 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 数据按块游标加载（chunk=2000），前进预取 / 回退补块，支持超大历史窗口回放。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   App,
@@ -102,6 +102,9 @@ const KlineReplayPage: React.FC = () => {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const location = useLocation();
+  // 行情回放从数据管理页进入，属于详情级页面，返回入口与其他详情页统一
+  const navigate = useNavigate();
+  const handleBack = useCallback(() => navigate('/data-management'), [navigate]);
 
   useEffect(() => {
     setPageTitle(t('market_replay') || '行情回放');
@@ -497,17 +500,17 @@ const KlineReplayPage: React.FC = () => {
   );
 
   return (
-    <PageContainer title={t('market_replay') || '行情回放'}>
+    <PageContainer title={t('market_replay') || '行情回放'} onBack={handleBack}>
       {!started ? (
         <Card title={t('backtest_launch_replay')} style={{ maxWidth: 720 }}>
           <Alert
             type="info"
             showIcon
-            message={t('backtest_replay_intro')}
+            title={t('backtest_replay_intro')}
             style={{ marginBottom: 16 }}
           />
           {loadError && (
-            <Alert type="error" showIcon message={loadError} style={{ marginBottom: 16 }} />
+            <Alert type="error" showIcon title={loadError} style={{ marginBottom: 16 }} />
           )}
           <Form
             form={form}

@@ -27,6 +27,8 @@ const ModelHub = lazy(() => import('@/pages/model/ModelHub'));
 const RiskMonitorPage = lazy(() => import('@/pages/risk/RiskMonitorPage'));
 const ResearchList = lazy(() => import('@/pages/research/ResearchList'));
 const ResearchDetail = lazy(() => import('@/pages/research/ResearchDetail'));
+// 站内通知收件箱（铃铛入口跳转的列表页；/setting/notifications 是渠道配置页，二者不同）
+const InboxPage = lazy(() => import('@/pages/notifications/InboxPage'));
 
 const BacktestLayout = lazy(() => import('@/pages/backtest/BacktestLayout'));
 const BacktestList = lazy(() => import('@/pages/backtest/BacktestList'));
@@ -35,8 +37,6 @@ const BacktestConfig = lazy(() => import('@/pages/backtest/BacktestConfig'));
 const BacktestReplay = lazy(() => import('@/pages/backtest/BacktestReplay'));
 
 const GeneralSettingsPage = lazy(() => import('@/pages/setting/GeneralSettingsPage'));
-// P2-05：schema 驱动设置渲染器
-const SchemaSettingsPage = lazy(() => import('@/pages/setting/SchemaSettingsPage'));
 const ExchangeSettingsPage = lazy(() => import('@/pages/setting/ExchangeSettingsPage'));
 const NotificationsPage = lazy(() => import('@/pages/setting/NotificationsPage'));
 const ModelSettingsPage = lazy(() => import('@/pages/setting/ModelSettingsPage'));
@@ -108,6 +108,7 @@ function createBaseRoutes(): RouteObject[] {
         { path: '/factor-analysis', element: <FactorAnalysis /> },
         { path: '/research', element: <ResearchList /> },
         { path: '/research/:id', element: <ResearchDetail /> },
+        { path: '/notifications', element: <InboxPage /> },
         { path: '/model-management', element: <ModelManagement /> },
         { path: '/data-management', element: <DataManagementPage /> },
         { path: '/data-management/market-replay', element: <KlineReplayPage /> },
@@ -117,8 +118,6 @@ function createBaseRoutes(): RouteObject[] {
           children: [
             { index: true, element: <Navigate to="/setting/general" replace /> },
             { path: 'account', element: <AccountSettings /> },
-            // P2-05：schema 驱动设置渲染器（新增配置项只改 backend/settings/schema.py）
-            { path: 'schema', element: <SchemaSettingsPage /> },
             { path: 'general', element: <GeneralSettingsPage /> },
             { path: 'env', element: <EnvironmentVariablesPage /> },
             { path: 'exchange', element: <ExchangeSettingsPage /> },

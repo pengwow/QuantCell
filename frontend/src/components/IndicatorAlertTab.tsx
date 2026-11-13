@@ -32,10 +32,13 @@ import {
 } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { indicatorApi, notificationApi } from '../api';
+import { dataApi } from '../api/dataApi';
 
 interface AlertRule {
   id: number;
   indicator_id: number;
+  /** 系统内置指标标识（builtin_alerts.py 的 key），indicator_id=0 时由它指向指标 */
+  builtin_id?: string | null;
   name: string;
   symbol: string;
   period: string;
@@ -79,6 +82,14 @@ interface ChannelStatus {
   detail?: string;
 }
 
+/** 提醒间隔的表单时间单位 → 分钟换算（后端去重粒度为分钟，最小 1 分钟） */
+const UNIT_TO_MINUTES: Record<string, number> = {
+  second: 1 / 60,
+  minute: 1,
+  hour: 60,
+  day: 1440,
+};
+
 /** 预演结果：evaluation 为真实评估值，preview 为消息文案；send_result 仅模拟发送时存在 */
 interface AlertPreviewData {
   evaluation: { triggered: boolean; value?: number; error?: string };
@@ -90,7 +101,29 @@ interface AlertPreviewData {
   };
 }
 
-const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) => {
+interface IndicatorAlertTabProps {
+  /** 自定义指标 ID（与 builtinId 二选一；指标编辑器入口只传它） */
+  indicatorId?: number;
+  /** 系统内置指标标识（信号提醒直达弹窗入口） */
+  builtinId?: string;
+  /** 弹窗外层当前选中的指标名称，作为新建规则名称的默认值 */
+  indicatorName?: string;
+  /** 内置指标的输出线列表，plot_name 变为下拉选择 */
+  builtinPlots?: string[];
+  /** 图表当前交易对，作为新建规则的默认 symbol */
+  defaultSymbol?: string;
+  /** 图表当前周期，作为新建规则的默认 period */
+  defaultPeriod?: string;
+}
+
+const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
+  indicatorId,
+  builtinId,
+  indicatorName = '',
+  builtinPlots,
+  defaultSymbol,
+  defaultPeriod,
+}) => {
   const { t } = useTranslation();
   const { message } = App.useApp();
 
@@ -99,6 +132,10 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  // 提醒间隔单位（useWatch 保证改单位时校验规则立即使用新值换算）
+  const frequencyUnit = (Form.useWatch('frequency_unit', form) as string | undefined) ?? 'minute';
+  // 交易对可搜索下拉的数据源（复用图表交易对接口）
+  const [symbolOptions, setSymbolOptions] = useState<string[]>([]);
 
   // 通知渠道可用性状态（无效项置灰 + 原因提示 + 去配置入口)
   const [channelStatuses, setChannelStatuses] = useState<ChannelStatus[]>([]);
@@ -144,6 +181,13 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
   useEffect(() => {
     if (!modalOpen) return undefined;
     void loadChannelStatus();
+    // 交易对列表：拉一次热门交易对供搜索选择；失败不阻塞（保留手输数据的默认值场景）
+    dataApi
+      .getProducts({ filter: '', limit: 100 })
+      .then((res) => {
+        setSymbolOptions((res?.products ?? []).map((p) => p.symbol));
+      })
+      .catch(() => setSymbolOptions([]));
     const onFocus = () => void loadChannelStatus();
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -152,20 +196,21 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
   const loadRules = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await indicatorApi.listAlertRules(indicatorId);
+      // 内置指标规则按 builtin_id 过滤（indicator_id 恒为 0），自定义按 id 过滤
+      const data = await indicatorApi.listAlertRules(indicatorId, builtinId);
       setRules(Array.isArray(data) ? data : []);
     } catch {
       message.error(t('indicator.alertLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [indicatorId, message, t]);
+  }, [indicatorId, builtinId, message, t]);
 
   useEffect(() => {
-    if (indicatorId) {
+    if (indicatorId || builtinId) {
       loadRules();
     }
-  }, [indicatorId, loadRules]);
+  }, [indicatorId, builtinId, loadRules]);
 
   const handleToggle = async (rule: AlertRule, checked: boolean) => {
     try {
@@ -199,6 +244,26 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
     }
   };
 
+  /**
+   * 表单值 → 创建/预演请求体（两处共用，保证口径一致）：
+   * - 频率（值+单位）换算为分钟（后端契约单位为分钟）
+   * - 内置指标规则带 builtin_id，indicator_id 置 0；自定义规则只带 indicator_id
+   */
+  const buildPayload = (values: Record<string, unknown>) => {
+    const { frequency_value, frequency_unit, ...rest } = values;
+    const unit = (frequency_unit as string) ?? 'minute';
+    const minutes = Math.round(Number(frequency_value ?? 0) * UNIT_TO_MINUTES[unit]);
+    return {
+      ...rest,
+      // 换算结果由表单 validator 保证 >= 1 分钟；Math.round 只兜浮点误差
+      frequency: minutes,
+      indicator_id: builtinId ? 0 : indicatorId,
+      market_type: 'crypto',
+      crypto_type: 'spot',
+      ...(builtinId ? { builtin_id: builtinId } : {}),
+    };
+  };
+
   /** 预演：send=false 仅生成消息预览；send=true 按所选渠道真实发送（标题带 [测试] 前缀） */
   const handlePreview = async (send: boolean) => {
     let values: Record<string, unknown>;
@@ -210,10 +275,8 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
     }
     setPreviewLoading(send ? 'send' : 'preview');
     try {
-      const data = await indicatorApi.previewAlertRule(
-        { ...values, indicator_id: indicatorId, market_type: 'crypto', crypto_type: 'spot' },
-        send,
-      );
+      // api 层已负责包装为 { rule, send }，这里只传 rule 负载
+      const data = await indicatorApi.previewAlertRule(buildPayload(values), send);
       const preview = data as AlertPreviewData;
       setPreviewData(preview);
       if (send && preview.send_result?.success) {
@@ -236,12 +299,7 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
     }
     setSaving(true);
     try {
-      await indicatorApi.createAlertRule({
-        ...values,
-        indicator_id: indicatorId,
-        market_type: 'crypto',
-        crypto_type: 'spot',
-      });
+      await indicatorApi.createAlertRule(buildPayload(values));
       message.success(t('indicator.alertSaved'));
       setModalOpen(false);
       setPreviewData(null);
@@ -252,6 +310,14 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
     } finally {
       setSaving(false);
     }
+  };
+
+  /** 频率（分钟，后端契约单位）→ 展示文本：整小时/整日向上归约，其余按分钟展示 */
+  const formatFrequency = (minutes: number) => {
+    if (minutes == null) return '-';
+    if (minutes % 1440 === 0) return `${minutes / 1440} ${t('indicator.alertFreqDays')}`;
+    if (minutes % 60 === 0) return `${minutes / 60} ${t('indicator.alertFreqHours')}`;
+    return t('indicator.alertFrequencyUnit', { minutes });
   };
 
   const columns = [
@@ -277,7 +343,7 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
     {
       title: t('indicator.alertFrequency'),
       dataIndex: 'frequency',
-      render: (frequency: number) => t('indicator.alertFrequencyUnit', { minutes: frequency }),
+      render: (frequency: number) => formatFrequency(frequency),
     },
     {
       title: t('indicator.alertLastFired'),
@@ -370,7 +436,17 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ name: '', symbol: '', period: '1h', op: 'gt', threshold: 0, frequency: 30, channels: ['websocket'] }}
+          // 默认值对齐弹窗外层：规则名=当前指标名、交易对/周期=图表当前值；间隔默认 30 分钟
+          initialValues={{
+            name: indicatorName,
+            symbol: defaultSymbol ?? '',
+            period: defaultPeriod || '1h',
+            op: 'gt',
+            threshold: 0,
+            frequency_value: 30,
+            frequency_unit: 'minute',
+            channels: ['websocket'],
+          }}
         >
           <Form.Item name="name" label={t('indicator.alertName')}>
             <Input placeholder={t('indicator.alertNamePlaceholder')} maxLength={100} />
@@ -380,19 +456,37 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
               name="symbol"
               label={t('indicator.alertSymbol')}
               rules={[{ required: true, message: t('indicator.alertSymbolRequired') }]}
-              style={{ width: 200 }}
+              style={{ width: 260 }}
             >
-              <Input placeholder="BTCUSDT" maxLength={50} />
+              {/* 可搜索下拉：输入关键词实时匹配交易对；列表拉取失败时选项为空，但仍展示默认值 */}
+              <Select
+                showSearch
+                placeholder={t('indicator.alertSymbolPlaceholder')}
+                optionFilterProp="value"
+                options={symbolOptions.map((s) => ({ value: s, label: s }))}
+              />
             </Form.Item>
             <Form.Item name="period" label={t('indicator.alertPeriod')} style={{ width: 120 }}>
               <Select
-                options={['5m', '15m', '30m', '1h', '4h', '1d'].map((p) => ({ value: p, label: p }))}
+                // 与图表周期条（PERIOD_BAR_ITEMS）取值范围对齐
+                options={['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w', '1M', '1y'].map(
+                  (p) => ({ value: p, label: p }),
+                )}
               />
             </Form.Item>
           </Space>
           <Space size="middle" style={{ display: 'flex' }} align="center">
             <Form.Item name="plot_name" label={t('indicator.alertPlot')} style={{ width: 160 }}>
-              <Input maxLength={100} placeholder={t('indicator.alertDefaultPlot')} />
+              {/* 内置指标输出线已知 → 下拉选线；自定义指标线名由用户定义 → 保留手输 */}
+              {builtinPlots && builtinPlots.length > 0 ? (
+                <Select
+                  allowClear
+                  placeholder={t('indicator.alertDefaultPlot')}
+                  options={builtinPlots.map((p) => ({ value: p, label: p }))}
+                />
+              ) : (
+                <Input maxLength={100} placeholder={t('indicator.alertDefaultPlot')} />
+              )}
             </Form.Item>
             <Form.Item name="op" label={t('indicator.alertOp')} style={{ width: 130 }}>
               <Select
@@ -417,10 +511,12 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
               name="channels"
               label={t('indicator.alertChannels')}
               rules={[{ required: true, message: t('indicator.alertChannelsRequired') }]}
+              // 与同行「提醒间隔」组合控件（170）合计约 416，保证不超出弹窗内容宽度
+              style={{ width: 230 }}
             >
               <Select
                 mode="multiple"
-                style={{ width: 300 }}
+                style={{ width: '100%' }}
                 loading={channelChecking}
                 optionFilterProp="label"
                 // 每次展开都重新校验，保证读到系统通知配置的最新状态
@@ -468,12 +564,39 @@ const IndicatorAlertTab: React.FC<{ indicatorId: number }> = ({ indicatorId }) =
               />
             </Form.Item>
             <Form.Item
-              name="frequency"
               label={t('indicator.alertFrequency')}
               tooltip={t('indicator.alertFrequencyTip')}
-              style={{ width: 160 }}
             >
-              <InputNumber min={1} max={1440} style={{ width: '100%' }} suffix="min" />
+              {/* 数值 + 单位组合控件（秒/分钟/小时/天）；换算成分钟由 buildPayload 统一处理 */}
+              <Space.Compact style={{ width: 170 }}>
+                <Form.Item
+                  name="frequency_value"
+                  noStyle
+                  rules={[
+                    { required: true, message: t('indicator.alertFrequencyRequired') },
+                    {
+                      // 后端按分钟粒度去重：秒类取值换算后需 ≥ 1 分钟
+                      validator: (_, value) =>
+                        Number(value ?? 0) * UNIT_TO_MINUTES[frequencyUnit] >= 1
+                          ? Promise.resolve()
+                          : Promise.reject(new Error(t('indicator.alertFrequencyMin'))),
+                    },
+                  ]}
+                >
+                  <InputNumber min={1} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="frequency_unit" noStyle>
+                  <Select
+                    style={{ width: 92 }}
+                    options={[
+                      { value: 'second', label: t('indicator.alertFreqUnitSecond') },
+                      { value: 'minute', label: t('indicator.alertFreqUnitMinute') },
+                      { value: 'hour', label: t('indicator.alertFreqUnitHour') },
+                      { value: 'day', label: t('indicator.alertFreqUnitDay') },
+                    ]}
+                  />
+                </Form.Item>
+              </Space.Compact>
             </Form.Item>
           </Space>
         </Form>

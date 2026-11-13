@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from indicators.builtin_alerts import BUILTIN_ALERT_INDICATORS
 from indicators.executor import IndicatorExecutor
 from indicators.models import CustomIndicator, IndicatorAlertRule
 from utils.db_session import get_db_session
@@ -132,6 +133,7 @@ def _rule_snapshot(row: IndicatorAlertRule) -> dict[str, Any]:
     return {
         "id": row.id,
         "indicator_id": row.indicator_id,
+        "builtin_id": row.builtin_id,
         "name": row.name or "",
         "symbol": row.symbol,
         "period": row.period,
@@ -249,7 +251,9 @@ def run_evaluation_round(
 
     triggers: list[dict[str, Any]] = []
     for rule in due:
-        code = codes.get(rule["indicator_id"])
+        # 内置指标规则走 builtin_alerts 的沙箱模板，其余按 indicator_id 查自定义指标代码
+        builtin_code = BUILTIN_ALERT_INDICATORS.get(rule.get("builtin_id") or "", {}).get("code")
+        code = builtin_code or codes.get(rule["indicator_id"])
         if not code:
             logger.warning(f"提醒规则指向的指标不存在，跳过: rule_id={rule['id']} indicator_id={rule['indicator_id']}")
             continue

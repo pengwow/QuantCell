@@ -16,7 +16,8 @@ SystemConfig 存储；若挂进本 schema 的 values 写通道会与 env 覆盖�
 产生双源冲突。M4.2 如需打通，应在 SchemaGroup 增加 source 声明，让
 values 端点对只读组拒绝写入，而不是把 capabilities 搬进 SystemConfig。
 
-label / description 存前端 i18n key（i18next 缺 key 时原样返回，不碍事）；
+label 存前端 i18n key；description 为落库到 system_config.description 的
+说明文本，倾向直接写中文（设置页/配置管理页直接展示，i18n 收益低）。
 特殊控件（如主题图片选择器）属于渲染器逃生口的范畴，见前端渲染器的
 CUSTOM_WIDGETS 注册表，本 schema 不承载 UI 细节。
 """
@@ -106,6 +107,7 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 label="theme",
                 type=FieldType.SELECT,
                 default="light",
+                description="界面主题：light 亮色 / dark 暗色 / auto 跟随系统",
                 options=[
                     SchemaOption(value="light", label="theme_light"),
                     SchemaOption(value="dark", label="theme_dark"),
@@ -117,6 +119,7 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 label="language",
                 type=FieldType.SELECT,
                 default="zh-CN",
+                description="界面显示语言",
                 options=[
                     SchemaOption(value="zh-CN", label="language_zh_cn"),
                     SchemaOption(value="en-US", label="English"),
@@ -128,6 +131,7 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 type=FieldType.NUMBER,
                 # 档位与前端 constants/pagination 的 PER_PAGE_OPTIONS 保持 12 倍数口径
                 default=12,
+                description="列表默认每页条数",
                 options=[SchemaOption(value=n, label=str(n)) for n in (12, 24, 36, 48, 96)],
             ),
             SchemaField(
@@ -146,6 +150,7 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 label="show_tips",
                 type=FieldType.BOOL,
                 default=True,
+                description="是否显示新手引导提示",
                 advanced=True,
             ),
             SchemaField(
@@ -153,7 +158,31 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 label="default_timezone",
                 type=FieldType.SELECT,
                 default="Asia/Shanghai",
+                description="全局默认时区（各页面时区切换的初始值）",
                 options=[SchemaOption(value=v, label=lab) for v, lab in _SETTING_TIMEZONES],
+            ),
+        ],
+    ),
+    # 图表页用户偏好：值是 JSON 字符串（前端解析），进 schema 是为了复用
+    # values 读写通道与类型校验；chart.indicatorParams.* 动态键不走 schema（品种无法预声明）
+    "chart": SchemaGroup(
+        key="chart",
+        title="chart_settings",
+        order=1,
+        fields=[
+            SchemaField(
+                key="priceStyle",
+                label="chart_price_style",
+                type=FieldType.STRING,
+                default="{}",
+                description="图表样式设置，JSON 字符串（klinecharts 样式 path -> value）",
+            ),
+            SchemaField(
+                key="uiPrefs",
+                label="chart_ui_prefs",
+                type=FieldType.STRING,
+                default="{}",
+                description="图表页偏好，JSON 字符串（period/symbol/timezone）",
             ),
         ],
     ),
@@ -264,11 +293,26 @@ def write_setting_values(values: dict[str, Any]) -> int:
 
     written = 0
     for key, str_value, group_name in prepared:
+        field = find_field(key)[1]
         if SystemConfigBusiness.set(
             key=key,
             value=str_value,
-            description="",
+            # 描述随 schema 落库；set 对已存在行仅非空才覆盖，不会冲掉人工描述
+            description=field.description or "",
             name=group_name,
         ):
             written += 1
     return written
+
+
+def backfill_descriptions() -> int:
+    """启动幂等回填：存量行 description 为空的 schema 声明键，按 schema 补描述。
+
+    只补空、不覆盖已有人工描述，也不为不存在的 key 造行（避免凭空写入
+    尚未使用过的配置项）。返回回填行数，供启动日志观测。
+    """
+    count = 0
+    for _, field in iter_fields():
+        if field.description and SystemConfigBusiness.update_description_if_empty(field.key, field.description):
+            count += 1
+    return count

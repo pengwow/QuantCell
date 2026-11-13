@@ -64,6 +64,7 @@ def _import_all_models():
         "indicators.models",
         "share.models",
         "agent.models",
+        "common.notifications.inbox_models",
     ]
 
     imported_modules = []

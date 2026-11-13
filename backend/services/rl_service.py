@@ -10,7 +10,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -565,6 +565,19 @@ class RLService:
                 )
         return models
 
+    def resolve_saved_model_path(self, model_id: str) -> Path:
+        """将模型 ID（文件 stem）安全解析为 MODELS_DIR 下的 .zip 路径。
+
+        白名单字符集杜绝路径分隔符；`.`/`..` 虽过正则但无业务意义，显式排除；
+        resolve 后再校验父目录双保险，防止 Windows 保留名 / 软链接等绕过正则。
+        """
+        if model_id in {".", ".."} or not re.fullmatch(r"[\w.\-]+", model_id or ""):
+            raise ValueError(f"非法的模型 ID: {model_id!r}")
+        target = (MODELS_DIR / f"{model_id}.zip").resolve()
+        if target.parent != MODELS_DIR.resolve():
+            raise ValueError(f"非法的模型路径: {model_id!r}")
+        return target
+
     def delete_saved_model(self, model_id: str) -> None:
         """删除指定模型文件（文件即模型存在的唯一事实）。
 
@@ -572,13 +585,7 @@ class RLService:
         会成为孤立记录；列表展示一律以 MODELS_DIR 下 .zip 文件为准，孤立条目
         无副作用。若未来 Rust 侧补 delete，再在此同步调用。
         """
-        # 白名单字符集杜绝路径分隔符；`.`/`..` 虽过正则但无业务意义，显式排除；
-        # resolve 后再校验父目录双保险，防止 Windows 保留名 / 软链接等绕过正则
-        if model_id in {".", ".."} or not re.fullmatch(r"[\w.\-]+", model_id or ""):
-            raise ValueError(f"非法的模型 ID: {model_id!r}")
-        target = (MODELS_DIR / f"{model_id}.zip").resolve()
-        if target.parent != MODELS_DIR.resolve():
-            raise ValueError(f"非法的模型路径: {model_id!r}")
+        target = self.resolve_saved_model_path(model_id)
         if not target.is_file():
             raise FileNotFoundError(f"模型不存在: {model_id}")
         target.unlink()
@@ -752,3 +759,141 @@ class RLService:
         result["symbol"] = symbol
         result["data_bars"] = len(data)
         return result
+
+    def run_backtest_task(
+        self,
+        model_id: str,
+        symbol: str,
+        interval: str = "1h",
+        candle_type: str = "spot",
+        initial_capital: float = 100_000.0,
+        ensemble_id: str | None = None,
+    ) -> dict[str, Any]:
+        """RL 模型回测任务化：跑统一内核 → 结果落盘 → 复用策略回测列表/详情链路。
+
+        与 `run_backtest`（同步自查、结果不落盘）的分工：本方法面向前端任务流，
+        结果按策略回测同一份契约写入 backtest_service 的结果/任务目录，
+        列表页按 strategy_name 前缀 `rl_model:`（集成 `rl_ensemble:`）识别来源，
+        详情页 / 回放页零感知复用。引擎口径固定 kernel（与实盘同一条主回路）。
+
+        ponytail: 同步执行——RL kernel 回测为秒级；若未来模型/数据规模放大到
+        分钟级，升级路径是线程 + progress_tracker 轮询（与策略 /backtest/run 同模式）。
+        """
+        from backtest.backtest_loop import BacktestLoop, clean_ohlcv_df
+        from backtest.engine_service import EventDrivenBacktestService
+        from backtest.result_formatter_service import ResultFormatterService
+        from backtest.service import BacktestService
+
+        model_path = self.resolve_saved_model_path(model_id)
+        if ensemble_id:
+            strategy_name = f"rl_ensemble:{ensemble_id}"
+        else:
+            strategy_name = f"rl_model:{model_id}"
+
+        # 函数内 import 同 run_backtest：pandas 数据链路按需拉起，轻量场景（测试收集）不受累
+        from backtest.data_provider import BacktestDataProvider
+
+        data = BacktestDataProvider().load_klines(symbol, interval, candle_type)
+        if data.empty:
+            msg = f"无法加载 {symbol} {interval} 数据"
+            raise ValueError(msg)
+
+        kernel_result = self._run_kernel_backtest(
+            str(model_path), data, symbol, interval, initial_capital, ensemble_id=ensemble_id
+        )
+
+        # 引擎逐 bar 产物适配策略回测格式化契约（ms 时间戳 / 前端 Trade 契约 / kline records）
+        nav_curve = kernel_result["bar_nav_curve"]
+        equity_curve = EventDrivenBacktestService.nav_curves_to_equity(nav_curve, kernel_result["bar_balance_curve"])
+        trade_records = BacktestLoop._format_round_trip_trades(
+            kernel_result["trades"], symbol, kernel_result["fills_detail"]
+        )
+        # RL 目标仓位策略持仓可长期不归零，round-trip trades 天然稀疏甚至为空
+        # （同名指标 total_trades 数的是 fills，配对口径数的是 round-trip）。
+        # 逐笔成交是恒有的事实粒度，转成前端展示契约透传，详情页在 trades
+        # 为空时用兜底展示；时间口径与 _format_round_trip_trades 一致（UTC 秒）。
+        fill_rows = [
+            {
+                "fill_id": int(f.get("fill_id", 0)),
+                "timestamp": int(f.get("timestamp_ns", 0)) // 1_000_000_000,
+                "formatted_time": datetime.fromtimestamp(int(f.get("timestamp_ns", 0)) / 1e9, tz=UTC).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                "side": str(f.get("taker_side", "Buy")).lower(),
+                "price": float(f.get("price", 0.0)),
+                "quantity": float(f.get("quantity", 0.0)),
+            }
+            for f in (kernel_result["fills_detail"] or [])
+        ]
+        cleaned = clean_ohlcv_df(data)
+        adapted = {
+            "initial_capital": kernel_result["initial_capital"],
+            "final_nav": nav_curve[-1][1] if nav_curve else initial_capital,
+            "total_pnl": kernel_result["total_pnl"],
+            "trade_count": len(trade_records),
+            "fills": kernel_result["num_trades"],
+            "max_drawdown_pct": kernel_result["max_drawdown_pct"],
+            # kernel 设施的 win_rate 为 0~1 小数；格式化器口径是百分数
+            "win_rate": kernel_result["win_rate"] * 100.0,
+            "sharpe_ratio": kernel_result["sharpe_ratio"],
+            "total_fees": kernel_result["total_fees"],
+            "nav_peak": max((nav for _, nav in nav_curve), default=initial_capital),
+            "trades": trade_records,
+            "fills_detail": fill_rows,
+            "equity_curve": equity_curve,
+            "klines": EventDrivenBacktestService._klines_to_records(cleaned),
+            # 清洗后时间戳在 DatetimeIndex（clean_ohlcv_df 口径），统一转 ns 整数
+            "data_start_ns": int(cleaned.index.as_unit("ns").asi8[0]) if len(cleaned) else 0,
+            "data_end_ns": int(cleaned.index.as_unit("ns").asi8[-1]) if len(cleaned) else 0,
+        }
+        formatted = ResultFormatterService.format_axon_results(adapted, symbol, interval, strategy_name)
+
+        # 落盘契约与策略回测 service.run_backtest 的顶层结构对齐（列表/详情共用读取口）
+        result = {
+            "status": "completed",
+            "message": "RL 模型回测完成",
+            "successful_currencies": [symbol],
+            "failed_currencies": [],
+            "results": formatted,
+        }
+
+        backtest_service = BacktestService()
+        task_id = backtest_service.create_task(
+            strategy_name=strategy_name,
+            strategy_params={
+                "model_id": model_id,
+                "ensemble_id": ensemble_id,
+                "interval": interval,
+                "candle_type": candle_type,
+                "engine": "kernel",
+                "spec_version": KERNEL_SPEC_VERSION,
+            },
+            symbols=[symbol],
+            timeframes=[interval],
+            engine_type="axon",
+            config={
+                "symbols": [symbol],
+                "interval": interval,
+                "market": "spot" if candle_type == "spot" else "um",
+                "initial_capital": initial_capital,
+                "engine_type": "axon",
+                "data_type": "kline",
+                "trading_mode": "spot" if candle_type == "spot" else "futures",
+            },
+        )
+        backtest_service.complete_task(task_id, result)
+
+        return {
+            "task_id": task_id,
+            "strategy_name": strategy_name,
+            "symbol": symbol,
+            "interval": interval,
+            "total_pnl": kernel_result["total_pnl"],
+            "total_return_pct": kernel_result["total_return_pct"],
+            "sharpe_ratio": kernel_result["sharpe_ratio"],
+            "max_drawdown_pct": kernel_result["max_drawdown_pct"],
+            "win_rate": kernel_result["win_rate"],
+            "num_trades": kernel_result["num_trades"],
+            "engine": "kernel",
+            "data_bars": kernel_result["data_bars"],
+        }

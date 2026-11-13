@@ -37,6 +37,7 @@ import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import ModelDetailDrawer from './ModelDetailDrawer';
+import RLBacktestModal from './RLBacktestModal';
 import RegisterModelModal from './RegisterModelModal';
 
 const { Text } = Typography;
@@ -89,10 +90,11 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
   const [keyword, setKeyword] = useState('');
   const [algoFilter, setAlgoFilter] = useState<string>();
   const [stageFilter, setStageFilter] = useState<string>();
-  // 单选行(携带给回测占位);存 file_name 作为 rowKey
+  // 单选行;存 file_name 作为 rowKey
   const [selected, setSelected] = useState<string[]>([]);
   const [registerRow, setRegisterRow] = useState<UnifiedModelRow | null>(null);
   const [detailRow, setDetailRow] = useState<UnifiedModelRow | null>(null);
+  const [backtestRow, setBacktestRow] = useState<UnifiedModelRow | null>(null);
   // 视图类型:跟随系统设置「默认展示类型」(复用 useViewType),页面不提供切换
   const view = useViewType();
   // pageSize 全站开关,返回值是元组(同 RLModelList 既有用法)
@@ -369,8 +371,8 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
                 <Button
                   type="primary"
                   icon={<BarChartOutlined />}
-                  // ponytail: RL 回测占位随迁(上游 RLTrainingPage 即此行为),回测开放时改接真实跳转
-                  onClick={() => message.warning(t('umt_msg_rl_backtest_todo', { name: selected[0] }))}
+                  // selected 里存的是 file_name,回显时从当前数据找回 row 对象
+                  onClick={() => setBacktestRow(rows.find((r) => r.file_name === selected[0]) ?? null)}
                 >
                   {t('umt_btn_backtest_selected')}
                 </Button>
@@ -473,6 +475,7 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
         }}
       />
       <ModelDetailDrawer row={detailRow} onClose={() => setDetailRow(null)} />
+      <RLBacktestModal row={backtestRow} onClose={() => setBacktestRow(null)} />
     </>
   );
 }

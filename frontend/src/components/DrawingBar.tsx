@@ -105,8 +105,9 @@ interface DrawingBarProps {
 /**
  * 左侧绘图工具栏：复刻 klinecharts-pro 的 drawing-bar
  * 5 个绘图分组 + 磁吸模式 + 锁定/显示 + 全部清除。
- * 行为对齐 pro：分组主图标点击即用当前工具发起绘制（无选中态），
- * 右侧箭头展开浮层列表；磁吸主图标在 normal 与上次磁吸模式之间循环。
+ * 行为：划线分组的整行（含主图标）点击展开/收起浮层列表，选中子工具即发起
+ * 绘制并更新主图标（无选中态）；磁吸主图标在 normal 与上次磁吸模式之间循环，
+ * 右侧箭头展开磁吸选项。
  */
 const DrawingBar: React.FC<DrawingBarProps> = ({
   onDrawingItemClick,
@@ -126,10 +127,15 @@ const DrawingBar: React.FC<DrawingBarProps> = ({
   // 当前展开浮层的分组 key（'' 表示全部收起）
   const [popoverKey, setPopoverKey] = useState('');
 
-  const renderArrow = (groupKey: string) => (
+  const renderArrow = (groupKey: string, interactive = true) => (
     <div
       className="icon-arrow"
-      onClick={() => setPopoverKey((prev) => (prev === groupKey ? '' : groupKey))}
+      // interactive=false：展开命中区已扩大到整个 item，箭头不再单独处理点击
+      onClick={
+        interactive
+          ? () => setPopoverKey((prev) => (prev === groupKey ? '' : groupKey))
+          : undefined
+      }
     >
       <svg className={popoverKey === groupKey ? 'rotate' : ''} viewBox="0 0 4 6">
         <path d="M1.07298,0.159458C0.827521,-0.0531526,0.429553,-0.0531526,0.184094,0.159458C-0.0613648,0.372068,-0.0613648,0.716778,0.184094,0.929388L2.61275,3.03303L0.260362,5.07061C0.0149035,5.28322,0.0149035,5.62793,0.260362,5.84054C0.505822,6.05315,0.903789,6.05315,1.14925,5.84054L3.81591,3.53075C4.01812,3.3556,4.05374,3.0908,3.92279,2.88406C3.93219,2.73496,3.87113,2.58315,3.73964,2.46925L1.07298,0.159458Z" />
@@ -147,20 +153,22 @@ const DrawingBar: React.FC<DrawingBarProps> = ({
             className="item"
             tabIndex={0}
             onBlur={() => setPopoverKey('')}
+            // 点击整行（含主图标）展开/收起子工具浮层；主图标不再直接发起绘制，
+            // 绘制统一由浮层内选中子工具触发
+            onClick={() => setPopoverKey((prev) => (prev === group.key ? '' : group.key))}
           >
-            <span
-              className="d-hit"
-              onClick={() => onDrawingItemClick({ name: currentName, lock, mode })}
-            >
+            <span className="d-hit">
               <ChartIcon name={iconNameOf(currentName)} className="d-ico" />
             </span>
-            {renderArrow(group.key)}
+            {renderArrow(group.key, false)}
             {popoverKey === group.key && (
               <ul className="k-list">
                 {group.options.map((option) => (
                   <li
                     key={option.name}
-                    onClick={() => {
+                    onClick={(e) => {
+                      // 阻止冒泡：li 置空 popoverKey 后若再冒泡，item 的 toggle 会立即把浮层重新展开
+                      e.stopPropagation();
                       setToolIcons((prev) => ({ ...prev, [group.key]: option.name }));
                       onDrawingItemClick({ name: option.name, lock, mode });
                       setPopoverKey('');

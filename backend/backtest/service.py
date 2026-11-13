@@ -945,6 +945,7 @@ class BacktestService:
         status_filter: str | None = None,
         keyword: str | None = None,
         strategy: str | None = None,
+        source: str | None = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> tuple[list[dict], int]:
@@ -957,6 +958,7 @@ class BacktestService:
             status_filter: 状态过滤 (pending/running/completed/failed)，'running' 同时匹配 in_progress
             keyword: 关键字，模糊匹配策略名称或任务ID（不区分大小写）
             strategy: 精确匹配策略名称
+            source: 来源过滤，'rl' 匹配 rl_model:/rl_ensemble: 前缀策略；其他值忽略不过滤
             sort_by: 排序字段 (created_at/total_return/max_drawdown/strategy_name)，非法值回落 created_at
             sort_order: 排序方向 (asc/desc)
 
@@ -997,6 +999,11 @@ class BacktestService:
                     continue
 
             if strategy and task.get("strategy_name") != strategy:
+                continue
+
+            # RL 来源过滤：rl_model:{model_id} / rl_ensemble:{ensemble_id} 前缀都算 RL 回测；
+            # 其他 source 值忽略（当前只有一个合法值，不设白名单报错）
+            if source == "rl" and not str(task.get("strategy_name") or "").startswith(("rl_model:", "rl_ensemble:")):
                 continue
 
             summary = task.get("metrics_summary")
@@ -1258,6 +1265,16 @@ class BacktestService:
             json.dump(result, f, indent=2, ensure_ascii=False, default=str)
 
         self.logger.info(f"保存回测结果: {result_file}")
+
+    def complete_task(self, task_id: Any, result: dict) -> None:
+        """任务完成后的标准收尾：落盘结果 + 写列表页摘要 + 置状态 completed。
+
+        供 RL 模型回测等外部服务复用同一套落盘口径（与 /backtest/run 的
+        异步线程收尾序列一致），避免外部直接调私有方法。
+        """
+        self._save_result(task_id, result)
+        self._write_metrics_summary(task_id, self._metrics_summary_from_result(result))
+        self._update_task_status(task_id, "completed")
 
     def _get_task_file(self, task_id: Any) -> Path:
         """获取任务文件路径"""

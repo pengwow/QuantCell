@@ -11,12 +11,20 @@
 存储走 conftest 的 DB_FILE 临时副本库，真实读写、零污染。
 """
 
+import json
+
 import pytest
 from fastapi import HTTPException
 
 from settings import routes
 from settings.models import SystemConfigBusiness
-from settings.schema import SETTINGS_SCHEMA, FieldType, find_field, restore_value
+from settings.schema import (
+    SETTINGS_SCHEMA,
+    FieldType,
+    backfill_descriptions,
+    find_field,
+    restore_value,
+)
 from settings.schemas import ConfigValuesUpdateRequest
 
 
@@ -147,3 +155,72 @@ def test_bool_accepts_string_form():
     assert store_value(bool_field, "false") == "0"
     with pytest.raises(ValueError):
         store_value(bool_field, "yes")
+
+
+# ---------------------------------------------------------------------------
+# chart 组（图表页偏好持久化：priceStyle/uiPrefs 以 JSON 字符串存储，解析归前端）
+# ---------------------------------------------------------------------------
+
+
+def test_schema_contains_chart_group():
+    data = routes.get_config_schema().data
+    groups = {g["key"]: g for g in data["groups"]}
+    assert "chart" in groups
+    keys = [f["key"] for f in groups["chart"]["fields"]]
+    assert "priceStyle" in keys and "uiPrefs" in keys
+
+
+def test_chart_price_style_roundtrip():
+    SystemConfigBusiness.delete("priceStyle")
+    raw = json.dumps({"candle.type": "renko", "yAxis.reverse": True})
+    assert _update({"priceStyle": raw}) == 1
+    # STRING 类型原样返回，不做 JSON 解析（解析归前端）
+    values = routes.get_config_values().data
+    assert values["priceStyle"] == raw
+    assert SystemConfigBusiness.get("priceStyle") == raw
+    # name 分组挂 chart，旧接口 GET /api/v1/config/ 按 chart 组可见
+    assert SystemConfigBusiness.get_with_details("priceStyle")["name"] == "chart"
+
+
+def test_chart_ui_prefs_roundtrip():
+    SystemConfigBusiness.delete("uiPrefs")
+    raw = json.dumps({"period": "4h", "symbol": "ETHUSDT", "timezone": "UTC"})
+    assert _update({"uiPrefs": raw}) == 1
+    assert json.loads(routes.get_config_values().data["uiPrefs"])["period"] == "4h"
+
+
+# ---------------------------------------------------------------------------
+# 字段描述链路（schema description 随写入落库 + 启动幂等回填）
+# ---------------------------------------------------------------------------
+
+
+def test_general_fields_all_have_description():
+    """schema 字段级描述完整：以后新增字段漏写 description 在测试期即暴露"""
+    missing = [f.key for f in SETTINGS_SCHEMA["general"].fields if not f.description]
+    assert missing == []
+
+
+def test_put_writes_description_from_schema():
+    SystemConfigBusiness.delete("priceStyle")
+    _update({"priceStyle": "{}"})
+    # 写通道携带 schema 描述落库，不再是空串（chart.priceStyle 空描述的根因回归用例）
+    details = SystemConfigBusiness.get_with_details("priceStyle")
+    assert details["description"]
+
+
+def test_backfill_descriptions_fill_semantics():
+    """回填三原则：不造行、补空、不覆盖已有人工描述"""
+
+    # 行不存在：删除后回填不应凭空造出行
+    SystemConfigBusiness.delete("theme")
+    assert SystemConfigBusiness.get_with_details("theme") is None
+
+    # 空描述行会被补上；已有人工描述的行保持原样
+    SystemConfigBusiness.set("theme", "light", description="")
+    SystemConfigBusiness.set("showTips", "1", description="人工描述")
+
+    backfill_descriptions()
+
+    _, theme_field = find_field("theme")
+    assert SystemConfigBusiness.get_with_details("theme")["description"] == theme_field.description
+    assert SystemConfigBusiness.get_with_details("showTips")["description"] == "人工描述"

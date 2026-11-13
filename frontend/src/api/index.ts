@@ -551,26 +551,6 @@ export const strategyApi = {
 /**
  * 配置相关 API
  */
-/** Schema 化设置字段定义（P2-05），结构与 backend/settings/schema.py 对齐 */
-export interface SchemaFieldDef {
-  key: string;
-  label: string;
-  type: 'bool' | 'number' | 'string' | 'select' | 'text';
-  default: string | number | boolean;
-  description?: string | null;
-  options: { value: string | number; label: string }[];
-  advanced: boolean;
-}
-
-/** Schema 化设置分组定义 */
-export interface SchemaGroupDef {
-  key: string;
-  title: string;
-  description?: string | null;
-  order: number;
-  fields: SchemaFieldDef[];
-}
-
 export const configApi = {
   getConfig: (): Promise<Record<string, unknown>> => {
     return apiRequest.get('/config/');
@@ -580,17 +560,18 @@ export const configApi = {
     return apiRequest.post('/config/batch', data);
   },
 
-  // P2-05：schema 驱动设置；拦截器已解包 code=0 的 data
-  getConfigSchema: (): Promise<{ groups: SchemaGroupDef[] }> => {
-    return apiRequest.get('/config/schema');
-  },
-
-  getConfigValues: (): Promise<Record<string, string | number | boolean>> => {
-    return apiRequest.get('/config/values');
-  },
-
+  // schema 化设置 values 写通道（GET /config/values 仅旧 schema 渲染页使用，已随页面移除）
   updateConfigValues: (values: Record<string, string | number | boolean>) => {
     return apiRequest.put('/config/values', { values });
+  },
+
+  // 写/更新单条配置（后端 POST /config/ 的 upsert 语义）；用于 chart.indicatorParams.* 动态键
+  setConfigKey: (data: { key: string; value: string; name: string; description?: string }) => {
+    return apiRequest.post('/config/', data);
+  },
+
+  deleteConfigKey: (key: string) => {
+    return apiRequest.delete(`/config/${key}`);
   },
 
   updatePluginConfig: <T extends Record<string, unknown>>(pluginName: string, data: T[]) => {
@@ -655,6 +636,8 @@ export const backtestApi = {
     status?: string;
     keyword?: string;
     strategy?: string;
+    /** 来源过滤：'rl' 只取 rl_model:/rl_ensemble: 前缀策略的 RL 回测任务 */
+    source?: string;
     sort_by?: string;
     sort_order?: string;
   }): Promise<{ backtests: BacktestTask[]; total: number }> => {
@@ -916,8 +899,15 @@ export const indicatorApi = {
   },
 
   // ===== 指标信号提醒规则（P2-07） =====
-  listAlertRules: (indicatorId?: number) => {
-    return apiRequest.get('/indicators/alerts', indicatorId != null ? { indicator_id: indicatorId } : undefined);
+  listAlertRules: (indicatorId?: number, builtinId?: string) => {
+    const params: Record<string, unknown> = {};
+    if (indicatorId != null) params.indicator_id = indicatorId;
+    if (builtinId) params.builtin_id = builtinId;
+    return apiRequest.get('/indicators/alerts', Object.keys(params).length ? params : undefined);
+  },
+  // 系统内置指标的提醒定义（key/名称/描述/plot 线/默认参数）
+  getAlertBuiltins: () => {
+    return apiRequest.get('/indicators/alerts/builtins');
   },
   createAlertRule: (payload: Record<string, unknown>) => {
     return apiRequest.post('/indicators/alerts', payload);
@@ -1042,7 +1032,50 @@ export const notificationApi = {
   }> => {
     return apiRequest.post('/notifications/channels/validate', { channels });
   },
+
+  /**
+   * 站内收件箱列表（按 id 倒序游标分页，携带未读/已读数）
+   */
+  getInbox: (params?: { limit?: number; before_id?: number }): Promise<{
+    items: InboxNotificationItem[];
+    unread_count: number;
+    read_count: number;
+    has_more: boolean;
+  }> => {
+    return apiRequest.get('/notifications/inbox', params);
+  },
+
+  /**
+   * 站内收件箱全部已读
+   */
+  markInboxRead: (): Promise<{ ok: boolean }> => {
+    return apiRequest.post('/notifications/inbox/read-all');
+  },
+
+  /**
+   * 删除单条站内通知，返回删除后的全局未读数
+   */
+  deleteInboxItem: (id: number): Promise<{ ok: boolean; unread_count: number }> => {
+    return apiRequest.delete(`/notifications/inbox/${id}`);
+  },
+
+  /**
+   * 清空已读通知（保留未读），返回删除条数与剩余未读数
+   */
+  clearReadInbox: (): Promise<{ deleted: number; unread_count: number }> => {
+    return apiRequest.delete('/notifications/inbox/read');
+  },
 };
+
+/** 站内收件箱条目（与后端 common/notifications/inbox.py::_to_dict 对齐） */
+export interface InboxNotificationItem {
+  id: number;
+  title: string;
+  content: string;
+  level: string; // NotificationLevel 枚举字符串：info/success/warning/error/critical
+  source: string; // NotificationCategory 枚举字符串：system/task/alert/trade/security
+  created_at: string | null;
+}
 
 /**
  * AI模型配置相关 API

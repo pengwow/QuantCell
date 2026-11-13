@@ -45,6 +45,7 @@ import PortfolioReplayView from './PortfolioReplayView';
 import FactorSnapshot from './FactorSnapshot.tsx';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
+import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
 
 const { Option } = Select;
@@ -145,6 +146,8 @@ const BacktestReplay = () => {
   const initialSymbol = searchParams.get('symbol') || '';
   const { t } = useTranslation();
   const { message } = App.useApp();
+  // 统一返回逻辑：returnUrl 优先（保留列表筛选状态），否则历史返回
+  const handleBack = usePageBack();
 
   // 获取主题
   const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
@@ -644,7 +647,7 @@ const BacktestReplay = () => {
   // 渲染加载状态：品种列表加载、品种视角下回放数据加载、视角切换过渡统一走整页 Spin
   if (loadingSymbols || (loading && viewMode === 'symbol') || viewChanging) {
     return (
-      <PageContainer title={t('backtest_replay') || '回测回放'}>
+      <PageContainer title={t('backtest_replay') || '回测回放'} onBack={handleBack}>
         <div className="flex justify-center items-center py-24">
           <Spin size="large" />
         </div>
@@ -655,7 +658,7 @@ const BacktestReplay = () => {
   // 渲染错误状态
   if (error && viewMode === 'symbol') {
     return (
-      <PageContainer title={t('backtest_replay') || '回测回放'}>
+      <PageContainer title={t('backtest_replay') || '回测回放'} onBack={handleBack}>
         <Alert
           title={t('error')}
           description={error}
@@ -674,7 +677,7 @@ const BacktestReplay = () => {
     : 0;
 
   return (
-    <PageContainer title={t('backtest_replay') || '回测回放'}>
+    <PageContainer title={t('backtest_replay') || '回测回放'} onBack={handleBack}>
       {symbols.length > 1 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
           <Segmented

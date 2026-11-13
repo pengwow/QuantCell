@@ -12,9 +12,11 @@ import { DynamicRouter } from './router/DynamicRouter';
 import CrashMask from './desktop/CrashMask';
 import { isTauri } from './desktop/env';
 import { useConfigStore } from './store';
+import { useNotificationStore } from './store/notificationStore';
 import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
 import { RESEARCH_BUDGET_EXHAUSTED_STAGE, researchWsService } from './services/researchWs';
+import type { InboxNotificationItem } from './api';
 import { PluginProvider } from './plugins';
 import './i18n/config';
 import './global.css';
@@ -158,6 +160,7 @@ function App() {
           <PluginProvider>
             <AppInjector setMessageApi={setMessageApi} />
             <ResearchEventBridge />
+            <NotificationBridge />
             <DynamicRouter />
             {isTauri() && <CrashMask />}
           </PluginProvider>
@@ -214,6 +217,56 @@ function ResearchEventBridge() {
       researchWsService.off('research.event', handler);
     };
   }, [notification, t]);
+
+  return null;
+}
+
+/**
+ * 站内通知实时桥：WS 推送 type=notification 的消息 → 未读数 +1 + 全站浮层提醒。
+ * 未读数的权威值以后端为准（收件箱加载时 loadList 拉取），这里只做增量叠加。
+ */
+function NotificationBridge() {
+  const { notification } = AntdApp.useApp();
+  const bumpUnread = useNotificationStore((s) => s.bumpUnread);
+
+  useEffect(() => {
+    const handler = (data: unknown) => {
+      const payload = data as
+        | { title?: string; content?: string; level?: string; source?: string; created_at?: string }
+        | undefined;
+      if (!payload?.title) return;
+
+      const item: InboxNotificationItem = {
+        // ponytail: ws 推送无 id，用负时间戳做临时 key 避免与真实 id 冲突；刷新列表时以服务端为准
+        id: -Date.now(),
+        title: payload.title,
+        content: payload.content ?? '',
+        level: payload.level ?? 'info',
+        source: payload.source ?? 'system',
+        created_at: payload.created_at ?? null,
+      };
+      bumpUnread(item);
+
+      // 浮层按 level 分级：info/success 自动关，error/critical 常驻需手动关
+      const byLevel: Record<string, (cfg: { message: string; description?: string; duration?: number }) => void> = {
+        info: notification.info,
+        success: notification.success,
+        warning: notification.warning,
+        error: notification.error,
+        critical: notification.error,
+      };
+      const show = byLevel[payload.level ?? 'info'] ?? notification.info;
+      show({
+        message: payload.title,
+        description: payload.content || undefined,
+        duration: payload.level === 'error' || payload.level === 'critical' ? 0 : 4.5,
+      });
+    };
+
+    // 消息结构 {type:'notification', data:{...}}，wsService 对未知 type 走 fallback 分发
+    wsService.on('notification', handler);
+    return () => wsService.off('notification', handler);
+  }, [notification, bumpUnread]);
 
   return null;
 }

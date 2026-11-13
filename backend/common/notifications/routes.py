@@ -12,6 +12,10 @@
     - POST /api/notifications/alert: 发送告警通知
     - POST /api/notifications/task: 发送任务通知
     - GET /api/notifications/status: 获取通知渠道状态
+    - GET /api/notifications/inbox: 站内收件箱列表（游标分页 + 未读数）
+    - POST /api/notifications/inbox/read-all: 站内收件箱全部已读
+    - DELETE /api/notifications/inbox/read: 清空收件箱已读（保留未读）
+    - DELETE /api/notifications/inbox/{id}: 删除单条站内通知
 
 标签: notifications
 
@@ -22,13 +26,15 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse
 from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
+from utils.rbac import is_guest_user
 
+from . import inbox
 from .models import NotificationCategory, NotificationChannel, NotificationLevel
 from .service import notification_service
 
@@ -184,6 +190,81 @@ async def send_task_notification(
         )
     except Exception as e:
         logger.error(f"发送任务通知失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/inbox", response_model=ApiResponse)
+async def list_inbox_notifications(
+    http_request: Request,
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
+    before_id: int | None = Query(default=None, description="游标：取 id 小于该值的更旧一页"),
+    current_user: dict = Depends(get_current_user),
+):
+    """站内收件箱列表（按 id 倒序游标分页，携带全局未读数）"""
+    if is_guest_user(http_request):
+        raise HTTPException(status_code=403, detail="访客无权查看站内收件箱")
+    try:
+        data = inbox.list_inbox_notifications(limit=limit, before_id=before_id)
+        return ApiResponse(code=0, message="获取站内收件箱成功", data=data)
+    except Exception as e:
+        logger.error(f"获取站内收件箱失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/inbox/read-all", response_model=ApiResponse)
+async def mark_inbox_read(
+    http_request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """站内收件箱全部已读（推送全局已读水位到当前时间）"""
+    if is_guest_user(http_request):
+        raise HTTPException(status_code=403, detail="访客无权操作站内收件箱")
+    try:
+        inbox.mark_inbox_read()
+        return ApiResponse(code=0, message="站内收件箱已全部标记为已读", data={"ok": True})
+    except Exception as e:
+        logger.error(f"站内收件箱全部已读失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 注意：固定路径 /inbox/read 必须注册在 /inbox/{notification_id} 之前，
+# 否则 "read" 会被当作路径参数解析后 int 校验失败返回 422
+@router.delete("/inbox/read", response_model=ApiResponse)
+async def clear_read_inbox_notifications(
+    http_request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """清空收件箱已读通知（保留未读，物理删除）"""
+    if is_guest_user(http_request):
+        raise HTTPException(status_code=403, detail="访客无权操作站内收件箱")
+    try:
+        deleted, unread_count = inbox.clear_read_notifications()
+        return ApiResponse(
+            code=0, message="已清空全部已读通知", data={"deleted": deleted, "unread_count": unread_count}
+        )
+    except Exception as e:
+        logger.error(f"清空收件箱已读失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/inbox/{notification_id}", response_model=ApiResponse)
+async def delete_inbox_notification(
+    http_request: Request,
+    notification_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """删除单条站内通知（物理删除）"""
+    if is_guest_user(http_request):
+        raise HTTPException(status_code=403, detail="访客无权操作站内收件箱")
+    try:
+        unread_count = inbox.delete_notification(notification_id)
+        if unread_count is None:
+            raise HTTPException(status_code=404, detail="通知不存在或已删除")
+        return ApiResponse(code=0, message="通知已删除", data={"ok": True, "unread_count": unread_count})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除站内通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

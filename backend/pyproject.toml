@@ -147,7 +147,7 @@ select = [
     "I",   # isort
     "FURB", # flake8-raise-broken-exception
 ]
-exclude = ["tests", "agent_workspace", "data", ".trash", "__pycache__"]
+exclude = ["tests", "data", ".trash", "__pycache__"]
 # 对需要过渡期的规则放宽，后续逐步收紧
 # 注：PERF/SIM 已从 select 移除（此前 select 与 extend-ignore 重复配置等于永不生效）
 extend-ignore = [
@@ -190,7 +190,6 @@ axon-quant = { path = "../../axon_quant" }
 where = ["."]
 include = ["*"]
 exclude = [
-    "agent_workspace*",
     "performance_reports*",
     "data*",
     "scripts*",

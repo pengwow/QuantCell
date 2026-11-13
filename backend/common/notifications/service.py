@@ -19,6 +19,7 @@ from .channels import (
     WebSocketChannel,
     WeComChannel,
 )
+from .inbox import record_inbox_notification
 from .models import (
     NotificationCategory,
     NotificationChannel,
@@ -222,6 +223,14 @@ class NotificationService:
             category=category,
             channels=channels or [],
             metadata=metadata or {},
+        )
+        # 站内收件箱落库：send_notification 是所有通知类型的统一入口，
+        # 在渠道分发前写一条流水；失败仅记日志，不阻塞投递
+        record_inbox_notification(
+            title=title,
+            content=content,
+            level=level.value,
+            source=category.value,
         )
         return await self.send(message)
 

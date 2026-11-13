@@ -65,14 +65,13 @@ test_*.csv
 test_qlib_data/
 qlib/
 quantcell.egg-info/*
-ui/node_modules/
 temp/.*
 QuantCell.code-workspace
 
 .agents/*
 
 
-agent_workspace/sessions/*.json
+backend/data/agent_workspace/
 
 
 backend/_archive_20260515/*

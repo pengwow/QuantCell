@@ -222,7 +222,9 @@ class IndicatorAlertRule(TimezoneAwareBase):
     __tablename__ = "indicator_alert_rules"
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    indicator_id = Column(Integer, nullable=False, index=True)
+    indicator_id = Column(Integer, nullable=False, index=True)  # 自定义指标 ID；builtin_id 非空时为 0
+    # 系统内置指标标识（builtin_alerts.py 的 key，如 "sma"），与 indicator_id 二选一
+    builtin_id = Column(String(50), nullable=True, index=True)
     name = Column(String(100), nullable=False, default="")
     symbol = Column(String(50), nullable=False)
     period = Column(String(20), nullable=False, default="1h")

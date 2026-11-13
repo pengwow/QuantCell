@@ -8,6 +8,7 @@ import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
 import ChartShell, { type ChartShellHandle } from '../../components/chart/ChartShell';
 import { PERIOD_BAR_ITEMS } from '../../components/chart/chartConstants';
+import { loadChartPrefs, saveUiPrefs } from '../../services/chartPreferences';
 import { setPageTitle } from '@/utils/pageTitle';
 // 搜索弹窗的样式类（symbol-search-results 等）定义在此文件中
 import './ChartPage.css';
@@ -76,8 +77,14 @@ const REALTIME_UPDATE_CONFIG = {
   batchInterval: 200,
 };
 
-// 本地存储key
-const STORAGE_KEY = 'chart_user_preferences';
+// 后端 ProductItem -> 前端 Symbol 最小映射（历史口径：缺省 name 用 symbol 兜底）
+const toSymbols = (list: ProductItem[]): Symbol[] =>
+  list.map((item: ProductItem) => ({
+    code: item.symbol,
+    name: item.name || item.symbol,
+    exchange: item.exchange,
+    base: item.base,
+  }));
 
 /**
  * 实时图表页：只负责数据加载、实时订阅队列、品种搜索与系统配置自动连接。
@@ -127,15 +134,9 @@ const ChartPage = () => {
   const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const klineDataRef = useRef<KLineData[]>([]);
 
-  // 保存用户偏好
+  // 保存用户偏好：写后端 chart.uiPrefs（800ms 防抖合并，见 services/chartPreferences）
   const saveUserPreferences = (symbol: string, period: string) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ symbol, period }));
-  };
-
-  // 读取用户偏好
-  const getUserPreferences = () => {
-    const preferences = localStorage.getItem(STORAGE_KEY);
-    return preferences ? JSON.parse(preferences) : null;
+    saveUiPrefs({ symbol, period });
   };
 
   // 加载K线数据：拿到数据后由壳统一喂数（内部重新 setDataLoader + resize）
@@ -165,18 +166,35 @@ const ChartPage = () => {
   }, [currentSymbol, currentPeriod, message]);
 
   // 当品种或周期变化时重新加载数据（setSymbol/setPeriod 由壳内部响应 props 变化完成）
+  const preferSavingRef = useRef(false);
   useEffect(() => {
     loadKlineData();
-    saveUserPreferences(currentSymbol.code, currentPeriod);
+    // 首渲染不保存：防止 load 完成前以默认 BTCUSDT/1h 覆盖服务端偏好
+    if (preferSavingRef.current) {
+      saveUserPreferences(currentSymbol.code, currentPeriod);
+    }
+    preferSavingRef.current = true;
   }, [currentSymbol, currentPeriod, loadKlineData]);
 
-  // 组件挂载时读取用户偏好
+  // 组件挂载时读取图表偏好：恢复周期；品种需与商品列表对账取完整 Symbol 对象
   useEffect(() => {
-    const preferences = getUserPreferences();
-    if (preferences) {
-      setCurrentPeriod(preferences.period);
-      // 品种将在搜索后更新
-    }
+    let cancelled = false;
+    loadChartPrefs().then(async ({ uiPrefs }) => {
+      if (cancelled) return;
+      if (uiPrefs.period) setCurrentPeriod(uiPrefs.period);
+      const preferredCode = uiPrefs.symbol;
+      if (!preferredCode) return;
+      try {
+        const response = await dataApi.getProducts({ filter: preferredCode, limit: 20 });
+        const productsList = (response?.products || []) as unknown as ProductItem[];
+        if (cancelled) return;
+        const hit = toSymbols(productsList).find((p: Symbol) => p.code === preferredCode);
+        if (hit) setCurrentSymbol(hit); // 找不到（品种名变更/下架）保持默认 BTCUSDT
+      } catch {
+        // 商品列表拉取失败保持默认品种，不打扰
+      }
+    });
+    return () => { cancelled = true; };
   }, []);
 
   // 组件挂载时获取系统配置并自动连接实时引擎
@@ -254,22 +272,7 @@ const ChartPage = () => {
       const productsList = (response?.products || []) as unknown as ProductItem[];
 
       if (productsList.length > 0) {
-        const products = productsList.map((item: ProductItem) => ({
-          code: item.symbol,
-          name: item.name || item.symbol,
-          exchange: item.exchange,
-          base: item.base,
-        }));
-        setSearchResults(products);
-
-        // 如果有本地存储的偏好，检查是否需要更新默认品种
-        const preferences = getUserPreferences();
-        if (preferences && currentSymbol.code !== preferences.symbol) {
-          const preferredProduct = products.find((p: Symbol) => p.code === preferences.symbol);
-          if (preferredProduct) {
-            setCurrentSymbol(preferredProduct);
-          }
-        }
+        setSearchResults(toSymbols(productsList));
       } else {
         setSearchResults([]);
       }
@@ -279,7 +282,7 @@ const ChartPage = () => {
     } finally {
       setSearchLoading(false);
     }
-  }, [searchKeyword, currentSymbol.code, message]);
+  }, [searchKeyword, message]);
 
   // 当搜索弹窗打开时自动搜索
   useEffect(() => {

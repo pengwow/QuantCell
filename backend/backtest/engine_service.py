@@ -1310,24 +1310,10 @@ class EventDrivenBacktestService:
         raw_max_dd_pct = float(rust_result.max_drawdown_pct)
         max_drawdown_usd = float(rust_result.nav_peak) * raw_max_dd_pct
 
-        # equity_curve：逐 bar NAV 曲线（bar_nav_curve），格式适配前端 EquityChart
-        # 0.21.0 起同时携带 balance（存款）曲线：引擎 bar_balance_curve 与 bar_nav_curve
-        # 逐帧对齐，equity - balance 即该帧浮盈；旧 wheel 无该属性时退化为 0（不画存款曲线）
-        raw_balance_curve = getattr(rust_result, "bar_balance_curve", None) or []
-        equity_curve = []
-        for idx, (ts_ns, nav) in enumerate(rust_result.bar_nav_curve):
-            dt_str = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            nav_float = float(nav)
-            balance_float = float(raw_balance_curve[idx][1]) if idx < len(raw_balance_curve) else 0.0
-            equity_curve.append(
-                {
-                    "datetime": dt_str,
-                    "equity": nav_float,
-                    "balance": balance_float,
-                    "formatted_time": dt_str,
-                    "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
-                }
-            )
+        # 0.21.0 起引擎同时携带 balance 曲线；旧 wheel 无该属性时退化为 0（不画存款曲线）
+        equity_curve = EventDrivenBacktestService.nav_curves_to_equity(
+            rust_result.bar_nav_curve, getattr(rust_result, "bar_balance_curve", None)
+        )
 
         trade_records = BacktestLoop._format_round_trip_trades(
             list(rust_result.trades), symbol, list(rust_result.fills_detail)
@@ -1383,6 +1369,31 @@ class EventDrivenBacktestService:
             liquidation_count=int(getattr(rust_result, "liquidation_count", 0) or 0),
             margin_shortfall_count=int(getattr(rust_result, "margin_shortfall_count", 0) or 0),
         )
+
+    @staticmethod
+    def nav_curves_to_equity(nav_curve, balance_curve=None) -> list[dict[str, Any]]:
+        """逐 bar NAV 曲线 → 前端 EquityChart 的 equity_curve 记录。
+
+        `nav_curve` / `balance_curve` 为引擎的 (ns, float) 对序列（bar_nav_curve /
+        bar_balance_curve，逐帧对齐）；balance 缺帧或为 None 时置 0。供 kernel 路径
+        与 RL 模型回测任务共用（RL 侧经 rl.kernel_backtest 的 pass-through dict 传入）。
+        """
+        raw_balance = balance_curve or []
+        equity_curve = []
+        for idx, (ts_ns, nav) in enumerate(nav_curve):
+            dt_str = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            nav_float = float(nav)
+            balance_float = float(raw_balance[idx][1]) if idx < len(raw_balance) else 0.0
+            equity_curve.append(
+                {
+                    "datetime": dt_str,
+                    "equity": nav_float,
+                    "balance": balance_float,
+                    "formatted_time": dt_str,
+                    "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
+                }
+            )
+        return equity_curve
 
     @staticmethod
     def _klines_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:

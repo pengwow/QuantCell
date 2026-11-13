@@ -16,7 +16,6 @@ import {
   IconDeviceDesktop,
   IconUser,
   IconKey,
-  IconSettings,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
@@ -32,9 +31,6 @@ const SettingLayout = () => {
   // 菜单配置
   const menus = [
     ["account", t("account_management"), <IconUser size="1em" />],
-    // P2-05：schema 驱动的基础设置入口（后端 settings/schema.py 声明即生效）；
-    // 原 GeneralSettingsPage 保留，M4.2 收编后再决定是否替换
-    ["schema", t("schema_settings"), <IconSettings size="1em" />],
     ["general", t("general_settings"), <IconPalette size="1em" />],
     ["env", t("env_variables"), <IconVariable size="1em" />],
     ["exchange", t("exchange_settings"), <IconBuildingBank size="1em" />],

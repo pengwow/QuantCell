@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BellOutlined } from '@ant-design/icons';
 import ChartIcon from './ChartIcon';
 import ChartSettingModal from './ChartSettingModal';
 import ChartTimezoneModal from './ChartTimezoneModal';
 import ChartScreenshotModal from './ChartScreenshotModal';
 import TokenDisplay from '../TokenDisplay';
 import IndicatorSelectorModal from '../IndicatorSelectorModal';
+import IndicatorAlertsModal from '../IndicatorAlertsModal';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
 
 export interface ChartPeriodItem {
@@ -68,6 +70,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   const { t } = useTranslation();
 
   const [indicatorVisible, setIndicatorVisible] = useState(false);
+  const [alertsVisible, setAlertsVisible] = useState(false);
   const [settingVisible, setSettingVisible] = useState(false);
   const [timezoneVisible, setTimezoneVisible] = useState(false);
   const [screenshotVisible, setScreenshotVisible] = useState(false);
@@ -121,34 +124,42 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
           ))}
         </div>
 
-        <div className="item tools first" title={t('chart.toolbar.indicator', '指标')} onClick={() => setIndicatorVisible(true)}>
+        <div className="item tools first" title={t('chart.toolbar.indicator')} onClick={() => setIndicatorVisible(true)}>
           <ChartIcon name="indicator" className="tool-ico" />
-          <span className="tool-label">{t('chart.toolbar.indicator', '指标')}</span>
+          <span className="tool-label">{t('chart.toolbar.indicator')}</span>
         </div>
-        <div className="item tools" title={t('chart.toolbar.timezone', '时区')} onClick={() => setTimezoneVisible(true)}>
+        {/* 信号提醒直达入口：规则管理原本藏在编辑器提醒 Tab 三层深处；回放页（builtin-local）无自定义指标，隐藏 */}
+        {indicatorScope !== 'builtin-local' && (
+          <div className="item tools" title={t('chart.toolbar.alerts')} onClick={() => setAlertsVisible(true)}>
+            {/* 不用 .tool-ico（CSS mask 方案），antd 字体图标直接继承文字色即可与图表图标对齐 */}
+            <BellOutlined style={{ fontSize: 16, marginRight: 4 }} />
+            <span className="tool-label">{t('chart.toolbar.alerts')}</span>
+          </div>
+        )}
+        <div className="item tools" title={t('chart.toolbar.timezone')} onClick={() => setTimezoneVisible(true)}>
           <ChartIcon name="timezone" className="tool-ico" />
-          <span className="tool-label">{t('chart.toolbar.timezone', '时区')}</span>
+          <span className="tool-label">{t('chart.toolbar.timezone')}</span>
         </div>
-        <div className="item tools" title={t('chart.toolbar.setting', '设置')} onClick={() => setSettingVisible(true)}>
+        <div className="item tools" title={t('chart.toolbar.setting')} onClick={() => setSettingVisible(true)}>
           <ChartIcon name="setting" className="tool-ico" />
-          <span className="tool-label">{t('chart.toolbar.setting', '设置')}</span>
+          <span className="tool-label">{t('chart.toolbar.setting')}</span>
         </div>
-        <div className="item tools" title={t('chart.toolbar.screenshot', '截图')} onClick={handleScreenshotClick}>
+        <div className="item tools" title={t('chart.toolbar.screenshot')} onClick={handleScreenshotClick}>
           <ChartIcon name="screenshot" className="tool-ico" />
-          <span className="tool-label">{t('chart.toolbar.screenshot', '截图')}</span>
+          <span className="tool-label">{t('chart.toolbar.screenshot')}</span>
         </div>
         <div
           className="item tools"
           title={isFullscreen
-            ? t('chart.toolbar.exitFullscreen', '退出全屏')
-            : t('chart.toolbar.fullscreen', '全屏')}
+            ? t('chart.toolbar.exitFullscreen')
+            : t('chart.toolbar.fullscreen')}
           onClick={toggleFullscreen}
         >
           <ChartIcon name={isFullscreen ? 'exit-full-screen' : 'full-screen'} className="tool-ico" />
           <span className="tool-label">
             {isFullscreen
-              ? t('chart.toolbar.exitFullscreen', '退出全屏')
-              : t('chart.toolbar.fullscreen', '全屏')}
+              ? t('chart.toolbar.exitFullscreen')
+              : t('chart.toolbar.fullscreen')}
           </span>
         </div>
 
@@ -161,6 +172,13 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
         activeIndicators={activeIndicators}
         onToggleIndicator={onToggleIndicator}
         scope={indicatorScope}
+      />
+      <IndicatorAlertsModal
+        visible={alertsVisible}
+        onClose={() => setAlertsVisible(false)}
+        // 新建提醒规则的表单默认值对齐图表当前交易对与周期
+        defaultSymbol={symbol.code}
+        defaultPeriod={currentPeriod}
       />
       <ChartSettingModal
         open={settingVisible}

@@ -24,6 +24,7 @@ import {
   registerLocale,
   type Nullable,
   type Chart,
+  type CandleStyle,
   type DataLoaderGetBarsParams,
   type IndicatorFilter,
   type IndicatorFigure,
@@ -33,6 +34,12 @@ import {
   type OverlayFigure,
 } from 'klinecharts';
 import { calcLocalBuiltIn } from '../../utils/taBuiltins';
+import {
+  buildHeikinAshiRows,
+  buildHlcAreaRows,
+  buildRenkoBricks,
+  buildRangeBars,
+} from '../../utils/priceChartTransforms';
 import { getAccessToken } from '../../utils/tokenManager';
 import { QUANT_COLORS } from '@/utils/colors';
 import { builtInIndicators, type Indicator, type ActiveIndicator, type IndicatorParams } from '../../hooks/useIndicators';
@@ -42,6 +49,15 @@ import ChartPeriodBar, { type ChartPeriodItem } from './ChartPeriodBar';
 import { CHART_SETTING_DEFS } from './ChartSettingModal';
 import { setStyleValue } from './chartStyles';
 import { findPeriodItem } from './chartConstants';
+import {
+  cancelPendingSaves,
+  loadChartPrefs,
+  loadIndicatorParams,
+  restorePriceStyle,
+  saveIndicatorParams,
+  savePriceStyleValue,
+  saveUiPrefs,
+} from '../../services/chartPreferences';
 import DrawingBar from '../DrawingBar';
 import { IndicatorParamModal } from '../IndicatorParamModal';
 // 样式沿用 ChartPage 的图表布局 CSS（chart-page/period-bar/hover 工具条等类名）
@@ -64,26 +80,27 @@ const builtInIndicatorMap: Record<string, string> = {
   'obv': 'OBV'
 };
 
-// 指标参数 localStorage 记忆（按 品种×指标 维度；用户调整过的参数刷新/切图后仍生效）
-const indicatorParamsKey = (symbolCode: string, indicatorId: string) =>
-  `qc:indicator-params:${symbolCode}:${indicatorId}`;
-
-const loadStoredIndicatorParams = (symbolCode: string, indicatorId: string): Record<string, unknown> | null => {
-  try {
-    const raw = localStorage.getItem(indicatorParamsKey(symbolCode, indicatorId));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+// ===== 蜡烛图类型扩展 =====
+// v10 原生只有 6 种 candle shape，其余类型通过下面两条路径补充：
+// 1. 复用 area 渲染：line（纯线，面积背景透明）、hlc_area（三角均值 + 渐变背景）
+// 2. 复用 candle_solid 渲染 + 数据变换：heikin_ashi/renko/range（变换见 utils/priceChartTransforms）
+const CANDLE_TYPE_TO_NATIVE: Record<string, CandleStyle['type']> = {
+  line: 'area',
+  hlc_area: 'area',
+  heikin_ashi: 'candle_solid',
+  renko: 'candle_solid',
+  range: 'candle_solid',
 };
 
-const saveStoredIndicatorParams = (symbolCode: string, indicatorId: string, params: Record<string, unknown>) => {
-  try {
-    localStorage.setItem(indicatorParamsKey(symbolCode, indicatorId), JSON.stringify(params));
-  } catch {
-    // 隐私模式等场景写入失败可忽略，不影响本会话使用
-  }
-};
+// 需要把原始 K 线变换为派生 bar 后再喂数的类型（其余类型直接透传原始数据）
+const DERIVED_PRICE_TYPES = new Set(['heikin_ashi', 'hlc_area', 'renko', 'range']);
+
+// v10 默认 area 渐变背景（klinecharts 内置 Color.BLUE 派生，离开纯线形时按此值恢复渐变）
+const AREA_DEFAULT_BG = [
+  { offset: 0, color: 'rgba(22, 119, 255, 0.01)' },
+  { offset: 1, color: 'rgba(22, 119, 255, 0.2)' },
+];
+const AREA_TRANSPARENT_BG = 'rgba(22, 119, 255, 0)';
 
 // params（含 _builtInId 标记）→ klinecharts calcParams 数值数组；依赖 defaultParams 键声明顺序与内置指标 calcParams 顺序一致
 const toCalcParamArray = (params?: Record<string, unknown>): number[] =>
@@ -302,7 +319,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   const fullscreenTargetRef = useRef<HTMLDivElement>(null);
 
   // 上方工具栏状态：左侧绘图栏是否展开、图表时区、Y 轴是否反转
-  const [spread, setSpread] = useState(true);
+  // 绘图工具栏默认收起（点周期栏汉堡按钮展开）；行情回放页 drawingBarLocked 恒显不受此影响
+  const [spread, setSpread] = useState(false);
   const [timezone, setTimezone] = useState('Asia/Shanghai');
   // ponytail: v10 没有公开读取轴 reverse 的接口，这里自己记一份，供设置弹窗回显
   const [yAxisReverse, setYAxisReverse] = useState(false);
@@ -647,13 +665,15 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     }
   }, [indicatorScope, symbol.code, currentPeriod, message]);
 
-  // 启动指标（不判断是否已激活）。params 缺省时优先使用该品种的 localStorage 记忆参数
+  // 启动指标（不判断是否已激活）。params 缺省时优先使用该品种的记忆参数（后端 chart 组，含旧 localStorage 迁移值）
   const startIndicator = useCallback(async (indicator: Indicator, params?: Record<string, unknown>) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
 
     const indicatorId = String(indicator.id);
-    const storedParams = loadStoredIndicatorParams(symbol.code, indicatorId);
+    // 指标参数快照依赖 loadChartPrefs 完成后建立的模块级缓存（幂等 Promise，已是重入调用）
+    await loadChartPrefs();
+    const storedParams = loadIndicatorParams(symbol.code, indicatorId);
     // 记忆参数优先于调用方传入的 defaultParams
     const effectiveParams = storedParams ? { ...params, ...storedParams } : params;
     const builtInName = builtInIndicatorMap[indicatorId];
@@ -738,7 +758,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     }
   }, [activeIndicators, startIndicator, stopIndicatorById]);
 
-  // 参数更新入口（图例 ⚙ → 弹窗确认）：确认后回写 localStorage 记忆。
+  // 参数更新入口（图例 ⚙ → 弹窗确认）：确认后回写后端参数记忆（fire-and-forget）。
   // 内置指标走 overrideIndicator 直接改 calcParams 重算；本地/后端自定义指标重算数据后
   // 更新缓存再触发一次重算（calc 闭包实时读 customIndicatorDataRef，无闪烁、不换 pane）
   const handleUpdateIndicatorParams = useCallback(async (active: ActiveIndicator, newParams: IndicatorParams) => {
@@ -747,7 +767,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     if (!chart || !indicator) return;
 
     const indicatorId = String(active.id);
-    saveStoredIndicatorParams(symbol.code, indicatorId, newParams);
+    // 参数记忆写后端（即时动态键；同步更新快照，弹窗内再读立即可见）
+    saveIndicatorParams(symbol.code, indicatorId, newParams);
 
     const builtInName = !active.isCustom ? builtInIndicatorMap[indicatorId] : undefined;
     if (builtInName) {
@@ -859,38 +880,97 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     chartInstanceRef.current.removeOverlay({ groupId });
   }, []);
 
-  // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis
-  const applyChartSetting = useCallback((path: string, value: unknown) => {
+  // 当前语义蜡烛类型（下拉值）；ref 供数据闭包读取，state 供设置弹窗回显
+  const [semanticCandleType, setSemanticCandleType] = useState<string>('candle_solid');
+  const semanticCandleTypeRef = useRef<string>('candle_solid');
+
+  // 按当前蜡烛类型把原始 K 线变换为图表显示数据：
+  // heikin_ashi/renko/range/hlc_area 输出派生 bar，其余类型透传原始数据。
+  // 指标与图例都消费这条喂数链路，与主图联动保持一致
+  const getDisplayBars = useCallback((bars: KLineData[]): KLineData[] => {
+    switch (semanticCandleTypeRef.current) {
+      case 'heikin_ashi': return buildHeikinAshiRows(bars);
+      case 'hlc_area': return buildHlcAreaRows(bars);
+      case 'renko': return buildRenkoBricks(bars);
+      case 'range': return buildRangeBars(bars);
+      default: return bars;
+    }
+  }, []);
+
+  // 重新喂数（内部重新 setDataLoader + resize）；页面 ref 与蜡烛类型切换共用
+  const refreshChartData = useCallback(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    chart.setDataLoader({
+      getBars: ({ callback }: DataLoaderGetBarsParams) => {
+        callback(getDisplayBars(getBarsRef.current()));
+      }
+    });
+    chart.resize();
+  }, [getDisplayBars]);
+
+  // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis。
+  // persist=false 用于偏好回放与恢复默认（读到的值/默认值不回写，否则会把服务端值原样再写一遍）
+  const applyChartSetting = useCallback((path: string, value: unknown, persist = true) => {
     const chart = chartInstanceRef.current;
     if (!chart) return;
     if (path === 'yAxis.reverse') {
       chart.overrideYAxis({ reverse: Boolean(value) });
       setYAxisReverse(Boolean(value));
+      // 注意：此处不走 return 短路前的公共保存口，统一落在各分支末尾
+      if (persist) savePriceStyleValue(path, value);
+      return;
+    }
+    // 蜡烛图类型特判：派生类型不是合法的 v10 chartType，需映射为原生形状；
+    // area 家族还要切换渐变背景（线形图透明面积）；随后重新喂数以刷新派生 bar
+    if (path === 'candle.type') {
+      const nextType = String(value);
+      const nativeType = CANDLE_TYPE_TO_NATIVE[nextType] ?? (nextType as CandleStyle['type']);
+      semanticCandleTypeRef.current = nextType;
+      setSemanticCandleType(nextType);
+      // 线形图 = area 渲染 + 透明面积背景；其余场景恢复默认渐变，避免从线形切回后残留透明
+      const areaBg = nativeType === 'area' && nextType === 'line'
+        ? AREA_TRANSPARENT_BG
+        : AREA_DEFAULT_BG;
+      chart.setStyles({ candle: { type: nativeType, area: { backgroundColor: areaBg } } });
+      if (DERIVED_PRICE_TYPES.has(nextType)) {
+        refreshChartData();
+      }
+      if (persist) savePriceStyleValue(path, value);
       return;
     }
     // klinecharts setStyles 是深合并，局部路径更新即可
     const styles: Record<string, unknown> = {};
     setStyleValue(styles, path, value);
     chart.setStyles(styles as Parameters<Chart['setStyles']>[0]);
-  }, []);
+    if (persist) savePriceStyleValue(path, value);
+  }, [refreshChartData]);
 
-  // 读取当前样式，并把轴上的 reverse 补进去（设置弹窗回显用）
+  // 读取当前样式，并把轴上的 reverse 补进去（设置弹窗回显用）；
+  // candle.type 回显语义类型而非映射后的原生 chartType
   const getChartSettings = useCallback(() => {
     const chart = chartInstanceRef.current;
     if (!chart) return {} as Record<string, unknown>;
     const styles = chart.getStyles() as unknown as Record<string, unknown>;
-    return { ...styles, yAxis: { ...(styles.yAxis as object), reverse: yAxisReverse } };
-  }, [yAxisReverse]);
+    return {
+      ...styles,
+      candle: { ...(styles.candle as object), type: semanticCandleType },
+      yAxis: { ...(styles.yAxis as object), reverse: yAxisReverse },
+    };
+  }, [yAxisReverse, semanticCandleType]);
 
-  // 恢复默认：逐项还原为 klinecharts 默认值
+  // 恢复默认：取消 pending 防抖 + 删除后端 priceStyle，再按默认值重置图表（不回写）
   const handleRestoreDefaultSettings = useCallback(() => {
-    CHART_SETTING_DEFS.forEach(({ path, defaultValue }) => applyChartSetting(path, defaultValue));
+    cancelPendingSaves();
+    restorePriceStyle();
+    CHART_SETTING_DEFS.forEach(({ path, defaultValue }) => applyChartSetting(path, defaultValue, false));
   }, [applyChartSetting]);
 
-  // 切换时区
+  // 切换时区：图表生效并持久化到 uiPrefs
   const handleTimezoneSelect = useCallback((nextTimezone: string) => {
     chartInstanceRef.current?.setTimezone(nextTimezone);
     setTimezone(nextTimezone);
+    saveUiPrefs({ timezone: nextTimezone });
   }, []);
 
   // 截图：导出含 overlay 的 jpeg，底色跟随当前主题
@@ -971,10 +1051,10 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
         type: period?.type || 'minute',
       });
 
-      // 设置数据加载器（数据由页面通过 getBars 提供）
+      // 设置数据加载器（数据由页面通过 getBars 提供；派生蜡烛类型在喂数时统一变换）
       chart.setDataLoader({
         getBars: ({ callback }: DataLoaderGetBarsParams) => {
-          callback(getBarsRef.current());
+          callback(getDisplayBars(getBarsRef.current()));
         }
       });
 
@@ -1008,6 +1088,25 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, [chartId]);
+
+  // 偏好回放：图表先按默认创建，后端 chart 组加载完成后逐项应用保存值。
+  // 只在挂载时回放一次，applyChartSetting 为稳定 useCallback，故意固定空依赖
+  useEffect(() => {
+    let cancelled = false;
+    loadChartPrefs().then(({ priceStyle, uiPrefs }) => {
+      if (cancelled || !chartInstanceRef.current) return;
+      // persist=false：回放不触发保存，否则把刚读到的值原样写回服务端
+      for (const [path, value] of Object.entries(priceStyle)) {
+        applyChartSetting(path, value, false);
+      }
+      if (uiPrefs.timezone) {
+        chartInstanceRef.current?.setTimezone(uiPrefs.timezone);
+        setTimezone(uiPrefs.timezone);
+      }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性回放
+  }, []);
 
   // symbol / period 变化（或壳晚于页面初始化完成）时同步到图表
   useEffect(() => {
@@ -1093,16 +1192,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   // 命令式接口：页面通过 ref 触发喂数与指标重算
   useImperativeHandle(ref, () => ({
     getChart: () => chartInstanceRef.current,
-    refreshData: () => {
-      const chart = chartInstanceRef.current;
-      if (!chart) return;
-      chart.setDataLoader({
-        getBars: ({ callback }: DataLoaderGetBarsParams) => {
-          callback(getBarsRef.current());
-        }
-      });
-      chart.resize();
-    },
+    // 喂数统一走蜡烛类型变换 helper，确保派生类型（平均K/砖形等）与主图类型一致
+    refreshData: refreshChartData,
     recalculateIndicators: () => {
       const chart = chartInstanceRef.current;
       if (!chart) return;
@@ -1126,7 +1217,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       });
     },
     recalcBackendIndicators,
-  }), [buildCustomIndicatorCache, indicatorScope, executeBackendIndicator, recalcBackendIndicators]);
+  }), [buildCustomIndicatorCache, indicatorScope, executeBackendIndicator, recalcBackendIndicators, refreshChartData]);
 
   // 当前悬停 pane 内的指标（决定 hover 工具条是否显示与显示内容）
   const paneIndicators = hoveredPaneId

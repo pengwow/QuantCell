@@ -11,3 +11,6 @@ export type { WorkerState } from './workerStore';
 // 导出Config Store
 export { useConfigStore } from './configStore';
 export type { ConfigState, SystemConfig } from './configStore';
+
+// 导出Notification Store（站内收件箱）
+export { useNotificationStore } from './notificationStore';

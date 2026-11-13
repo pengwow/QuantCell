@@ -153,6 +153,21 @@ const BacktestList = () => {
       width: 200,
       minWidth: 120,
       ellipsis: true,
+      // RL 模型回测任务名带来源前缀（rl_model: / rl_ensemble:），拆成来源标签 + 模型名展示
+      render: (name: string) => {
+        if (name?.startsWith('rl_model:') || name?.startsWith('rl_ensemble:')) {
+          const [prefix, ...rest] = name.split(':');
+          return (
+            <Space size={4}>
+              <Tag color={prefix === 'rl_model' ? 'purple' : 'geekblue'} style={{ marginRight: 0 }}>
+                {t(prefix === 'rl_model' ? 'backtest_source_rl_model' : 'backtest_source_rl_ensemble')}
+              </Tag>
+              <span>{rest.join(':')}</span>
+            </Space>
+          );
+        }
+        return name || '-';
+      },
     },
     {
       title: t('status'),
