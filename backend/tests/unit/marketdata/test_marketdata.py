@@ -96,7 +96,8 @@ def test_service_oi_column_mapping(monkeypatch):
         def __init__(self, market="um", interval="1h"):
             captured["market"], captured["interval"] = market, interval
 
-        async def fetch(self, session, symbol, start_ms, end_ms):
+        async def fetch(self, session, symbol, start_ms, end_ms, proxy=None):
+            # 签名对齐真实 OpenInterestFetcher.fetch（含 proxy 透传参数）
             captured["symbol"], captured["window"] = symbol, (start_ms, end_ms)
             return pd.DataFrame(
                 [
@@ -134,7 +135,8 @@ def test_service_funding_column_mapping(monkeypatch):
         def __init__(self, market="um"):
             captured["market"] = market
 
-        async def fetch(self, session, symbol, start_ms, end_ms):
+        async def fetch(self, session, symbol, start_ms, end_ms, proxy=None):
+            # 签名对齐真实 FundingRateFetcher.fetch（含 proxy 透传参数）
             captured["symbol"] = symbol
             return pd.DataFrame(
                 [
