@@ -3,12 +3,24 @@ import { useTranslation } from 'react-i18next';
 import { Input, Modal, Spin, App } from 'antd';
 import type { KLineData } from 'klinecharts';
 import { dataApi } from '../../api/dataApi';
+import { backtestApi } from '../../api';
 import * as realtimeApi from '../../api/realtimeApi';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
 import ChartShell, { type ChartShellHandle } from '../../components/chart/ChartShell';
 import { PERIOD_BAR_ITEMS } from '../../components/chart/chartConstants';
-import { loadChartPrefs, saveUiPrefs } from '../../services/chartPreferences';
+import { OrderBookPanel } from '../../components/chart/orderbook/OrderBookPanel';
+import { TradeTape } from '../../components/chart/orderbook/TradeTape';
+import type { FillPoint } from '../../components/chart/orderbook/fillMarkers';
+import type { DepthProfileSnapshot } from '../../components/chart/orderbook/depthOverlay';
+import wsService from '../../services/websocketService';
+import {
+  loadChartPrefs,
+  saveUiPrefs,
+  saveOrderbookPrefs,
+  getOrderbookPrefsSnapshot,
+  type OrderbookPrefs,
+} from '../../services/chartPreferences';
 import { setPageTitle } from '@/utils/pageTitle';
 // 搜索弹窗的样式类（symbol-search-results 等）定义在此文件中
 import './ChartPage.css';
@@ -258,6 +270,131 @@ const ChartPage = () => {
     }
   };
 
+  // ========== 订单簿 / 深度轮廓 / 成交流水接线（设置开关 + WS 订阅 + 回测成交标记） ==========
+
+  // 订单簿面板/深度轮廓/成交流水偏好：挂载后从后端一次性回放
+  const [orderbookPrefs, setOrderbookPrefs] = useState<OrderbookPrefs | null>(null);
+  const [depthData, setDepthData] = useState<DepthProfileSnapshot | null>(null);
+  const [backtestFills, setBacktestFills] = useState<FillPoint[]>([]);
+  const [backtestOptions, setBacktestOptions] = useState<{ label: string; value: string }[]>([]);
+  // WS 连接标记：动态 topic 订阅在断线重连后不会自动恢复，用它作为订阅 effect 的依赖触发重订阅
+  const [wsConnected, setWsConnected] = useState(wsService.getConnected());
+
+  useEffect(() => {
+    let cancelled = false;
+    loadChartPrefs().then(() => {
+      if (!cancelled) setOrderbookPrefs(getOrderbookPrefsSnapshot());
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // 设置弹窗的偏好更新：patch 为「顶层键完整值」粒度（见 ChartSettingModal 各 onChange），
+  // 浅合并单步 setState 即可，落库复用 saveOrderbookPrefs 的 800ms 防抖（弹窗仅在偏好非空时打开，
+  // prev 兜底取当前快照防载入竞态）
+  const updateOrderbookPrefs = useCallback((patch: Partial<OrderbookPrefs>) => {
+    setOrderbookPrefs((prev) => ({ ...(prev ?? getOrderbookPrefsSnapshot()), ...patch }));
+    saveOrderbookPrefs(patch);
+  }, []);
+
+  useEffect(() => {
+    const onConnectionChange = (connected: boolean) => setWsConnected(connected);
+    wsService.onConnectionChange(onConnectionChange);
+    return () => wsService.offConnectionChange(onConnectionChange);
+  }, []);
+
+  // 盘口深度/成交流水的喂流需求：面板或深度轮廓开 → 交易所 depth20 引擎频道 + 'depth' 广播 topic；
+  // 成交流水开 → aggTrade 引擎频道 + 'trades' 广播 topic。条件变化/断线重连时对称增删
+  const needsDepthFeed = (orderbookPrefs?.panel ?? false) || (orderbookPrefs?.depthProfile ?? false);
+  const needsTradeFeed = orderbookPrefs?.tradeTape ?? false;
+
+  useEffect(() => {
+    if (!wsConnected || (!needsDepthFeed && !needsTradeFeed)) return;
+    const topics: string[] = [];
+    const channels: string[] = [];
+    if (needsDepthFeed) {
+      topics.push('depth');
+      // 引擎频道固定 depth20 档快照流，与显示档数（depthLevels）解耦：渲染在前端截取
+      channels.push(`${currentSymbol.code}@depth20`);
+    }
+    if (needsTradeFeed) {
+      topics.push('trades');
+      channels.push(`${currentSymbol.code}@aggTrade`);
+    }
+    if (!wsService.getConnected()) wsService.connect();
+    wsService.subscribe(topics);
+    realtimeApi.subscribeKlineChannels(channels).catch((e) => {
+      console.error('[ChartPage] Failed to subscribe depth/trade engine channels:', e);
+    });
+    return () => {
+      realtimeApi.unsubscribeKlineChannels(channels).catch(() => {});
+      wsService.unsubscribe(topics);
+    };
+  }, [needsDepthFeed, needsTradeFeed, currentSymbol.code, wsConnected]);
+
+  // 深度轮廓数据 listener：仅开关开启时收集；topic 收发由上面的订阅 effect 统一持有
+  const depthProfileOn = orderbookPrefs?.depthProfile ?? false;
+  useEffect(() => {
+    if (!depthProfileOn) {
+      setDepthData(null); // 关闭时清残快照，避免重开瞬间闪旧数据
+      return;
+    }
+    const handleDepth = (data: unknown) => {
+      const snapshot = data as { symbol?: string; bids?: [number, number][]; asks?: [number, number][] } | null;
+      if (!snapshot?.bids?.length || !snapshot?.asks?.length) return;
+      setDepthData({
+        // overlay 按 WS 口径（大写）比对品种，这里统一大写化
+        symbol: (snapshot.symbol ?? currentSymbol.code).toUpperCase(),
+        bids: snapshot.bids,
+        asks: snapshot.asks,
+        timestamp: Date.now(),
+      });
+    };
+    wsService.on('depth', handleDepth);
+    return () => wsService.off('depth', handleDepth);
+  }, [depthProfileOn, currentSymbol.code]);
+
+  // 回测成交点：设置里选定回测任务后按 T9 契约拉 fills_detail（秒级时间戳），
+  // 换算毫秒 FillPoint 传给壳画 replay 标记；清空选择 / 品种切换时同步清理
+  const backtestFillTaskId = orderbookPrefs?.tradeMarkers?.backtestId ?? null;
+  useEffect(() => {
+    if (!backtestFillTaskId) {
+      setBacktestFills([]);
+      return;
+    }
+    let cancelled = false;
+    backtestApi.getBacktestDetail(backtestFillTaskId)
+      .then((detail) => {
+        if (cancelled) return;
+        setBacktestFills((detail.fills_detail ?? []).map((fill) => ({
+          timestamp: fill.timestamp * 1000, // fills_detail 秒级 → FillPoint 毫秒
+          side: fill.side === 'sell' ? 'sell' : 'buy',
+          price: fill.price,
+          quantity: fill.quantity,
+          source: 'backtest' as const,
+        })));
+      })
+      .catch((e) => {
+        console.warn('[ChartPage] Failed to fetch backtest fills:', backtestFillTaskId, e);
+        if (!cancelled) setBacktestFills([]);
+      });
+    return () => { cancelled = true; };
+  }, [backtestFillTaskId, currentSymbol.code]);
+
+  // 回测任务下拉（设置弹窗选用）：ponytail 挂载时一次性拉取，新任务需刷新页面 —— 升级路径为打开弹窗时重拉
+  useEffect(() => {
+    let cancelled = false;
+    backtestApi.getBacktestList({ page: 1, page_size: 50 })
+      .then((resp) => {
+        if (cancelled) return;
+        setBacktestOptions((resp.backtests ?? []).map((task) => ({
+          label: `${task.strategy_name} ${task.created_at.slice(0, 16).replace('T', ' ')}`,
+          value: task.id,
+        })));
+      })
+      .catch((e) => console.warn('[ChartPage] Failed to fetch backtest task list:', e));
+    return () => { cancelled = true; };
+  }, []);
+
   // 搜索品种
   const handleSearch = useCallback(async () => {
     setSearchLoading(true);
@@ -441,6 +578,28 @@ const ChartPage = () => {
         indicatorScope="all"
         loading={loading}
         error={error}
+        rightPanelSlot={
+          orderbookPrefs && (orderbookPrefs.panel || orderbookPrefs.tradeTape) ? (
+            // 右栏子块为原生元素，间距用 gap；面板（订单簿）与成交流水开关各自独立生效
+            <>
+              {orderbookPrefs.panel && (
+                <OrderBookPanel symbol={currentSymbol.code} depthLevels={orderbookPrefs.depthLevels} />
+              )}
+              {orderbookPrefs.tradeTape && <TradeTape symbol={currentSymbol.code} />}
+            </>
+          ) : null
+        }
+        depthData={depthData}
+        orderbookModalProps={
+          orderbookPrefs
+            ? {
+                orderbook: orderbookPrefs,
+                onOrderbookChange: updateOrderbookPrefs,
+                backtestOptions,
+              }
+            : undefined
+        }
+        backtestFills={backtestFills}
       />
 
       {/* 品种搜索弹窗 */}

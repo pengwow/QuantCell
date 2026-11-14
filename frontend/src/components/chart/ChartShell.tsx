@@ -61,6 +61,7 @@ import {
 } from '../../services/chartPreferences';
 import { CVD_INDICATOR, FUNDING_INDICATOR, OI_INDICATOR, oiIntervalForPeriod, periodToMs, setFundingHistory, setOiHistory } from './orderbook/extraIndicators';
 import { alignToBar, clearFillMarkers, createFillMarker, type FillPoint } from './orderbook/fillMarkers';
+import { registerDepthProfileOverlay, setDepthProfileSymbol, updateDepthSnapshot, type DepthProfileSnapshot } from './orderbook/depthOverlay';
 import { marketdataApi } from '@/api/marketdataApi';
 import wsService from '@/services/websocketService';
 import DrawingBar from '../DrawingBar';
@@ -171,6 +172,10 @@ export interface ChartShellProps {
    * 壳内先删后加幂等重画）。缺省不绘制回放标记
    */
   backtestFills?: FillPoint[];
+  /** 主区右侧插槽（/chart 页放订单簿面板 + 成交流水；回放页不传不渲染） */
+  rightPanelSlot?: React.ReactNode;
+  /** 最新盘口深度快照（页面 WS listener 喂入，驱动深度轮廓 overlay；null 不更新） */
+  depthData?: DepthProfileSnapshot | null;
 }
 
 // 信号标注 overlay 的扩展数据（由 createOverlay 传入，亦可由页面 props 提供成交标记）
@@ -331,6 +336,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   error = null,
   orderbookModalProps,
   backtestFills,
+  rightPanelSlot,
+  depthData,
 }, ref) => {
   const { message } = App.useApp();
   // ponytail: klinecharts 独立于 antd theme，需要从 token 派生主题感知的样式值
@@ -1026,6 +1033,13 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       console.warn('[Chart] 注册signalTag overlay失败:', e);
     }
 
+    // 注册深度轮廓 overlay 模板（幂等；实例的挂/卸由下方 depthProfile 开关 effect 驱动）
+    try {
+      registerDepthProfileOverlay();
+    } catch (e) {
+      console.warn('[Chart] Failed to register depthProfile overlay:', e);
+    }
+
     // 注册 OI/FUNDING/CVD 副图指标模板（重名注册直接覆盖模板表，幂等；
     // 实例的创建/移除由下方 indicators 开关 effect 驱动）
     [OI_INDICATOR, FUNDING_INDICATOR, CVD_INDICATOR].forEach((tpl) => {
@@ -1266,6 +1280,36 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     };
   }, [liveMarkersOn, symbol.code, currentPeriod]);
 
+  // ===== 深度轮廓（depthProfile）：数据由页面喂数（depthData），壳负责品种对齐与 overlay 挂载 =====
+  // 开关派生自 orderbookPrefs（回放页为 null 不生效）
+  const depthProfileOn = orderbookPrefs?.depthProfile ?? false;
+
+  // 品种对齐：overlay 内部会忽略 symbol 不匹配的快照，防止切品种串数据
+  useEffect(() => {
+    setDepthProfileSymbol(symbol.code);
+  }, [symbol.code]);
+
+  // 页面喂入的最新快照写入模块缓存，下一次画布绘制即生效
+  useEffect(() => {
+    if (depthData) updateDepthSnapshot(depthData);
+  }, [depthData]);
+
+  // 开关 → overlay 实例挂/卸（按名自查幂等，同副图指标先例；依赖含 chartId 因 init 重建图表后需重新挂载）
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    try {
+      const existing = chart.getOverlays({ name: 'depthProfile' }) || [];
+      if (depthProfileOn && existing.length === 0) {
+        chart.createOverlay({ name: 'depthProfile' });
+      } else if (!depthProfileOn && existing.length > 0) {
+        for (const overlay of existing) chart.removeOverlay({ id: overlay.id });
+      }
+    } catch (e) {
+      console.warn('[Chart] Failed to toggle depth profile overlay:', e);
+    }
+  }, [depthProfileOn, chartId]);
+
   // 监听图表容器大小变化
   useEffect(() => {
     const chartElement = document.getElementById(chartId);
@@ -1480,6 +1524,11 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
               </div>
             )}
           </div>
+
+          {/* 主区右侧插槽：订单簿面板/成交流水（仅 /chart 页传入；回放页不传不渲染） */}
+          {rightPanelSlot != null && (
+            <aside className="chart-orderbook-slot">{rightPanelSlot}</aside>
+          )}
         </div>
 
         {/* 指标参数编辑弹窗（图例 hover 工具条的 ⚙ 触发） */}
