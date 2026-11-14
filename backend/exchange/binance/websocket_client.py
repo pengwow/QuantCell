@@ -7,6 +7,7 @@ Binance WebSocket客户端
 
 import asyncio
 import json
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -235,12 +236,25 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                         logger.warning(f"Invalid channel format: {channel}")
                         continue
 
+                    # depth 系流名先做一次解析：无层数（depth、depth@100ms）是全量 diff 流，
+                    # 带层数（depth20、depth20@100ms）是部分订单簿快照流
+                    depth_match = re.match(r"^depth(\d+)?(?:@\d+ms)?$", stream_type)
+
                     # 根据类型创建对应的socket
                     if stream_type.startswith("kline_"):
                         interval = stream_type.split("_", 1)[1]
                         socket = self._socket_manager.kline_socket(symbol=symbol, interval=interval)
-                    elif stream_type == "depth":
-                        socket = self._socket_manager.depth_socket(symbol=symbol)
+                    elif depth_match is not None:
+                        if depth_match.group(1):
+                            # 快照流：depth_socket 的 interval 仅允许 None/100，不传即 1s
+                            # 快照推送（@Nms 后缀不透传），满足订单簿面板的刷新粒度
+                            socket = self._socket_manager.depth_socket(symbol=symbol, depth=depth_match.group(1))
+                        else:
+                            # 全量 diff 增量流，保持旧行为
+                            socket = self._socket_manager.depth_socket(symbol=symbol)
+                    elif stream_type == "aggTrade":
+                        # 聚合成交流（python-binance 方法名为 aggtrade_socket）
+                        socket = self._socket_manager.aggtrade_socket(symbol=symbol)
                     elif stream_type == "trade":
                         socket = self._socket_manager.trade_socket(symbol=symbol)
                     elif stream_type == "ticker":

@@ -1,4 +1,5 @@
 # 数据处理器
+import time
 from typing import Any
 
 from utils.logger import LogType, get_logger
@@ -28,6 +29,11 @@ class DataProcessor:
             "bookTicker",
         }
 
+        # handler 方法名为小写蛇形，而部分 data_type 是 camelCase，动态拼名会 miss
+        # （aggTrade 会拼出不存在的 _process_binance_aggTrade）；显式别名兜住不一致项，
+        # 其余 data_type 与方法名后缀一致，保持精确匹配
+        self._handler_name_alias = {"aggTrade": "aggtrade"}
+
     def process_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         """
         处理消息
@@ -46,8 +52,9 @@ class DataProcessor:
             exchange = message.get("exchange", "")
             data_type = message.get("data_type", "")
 
-            # 根据交易所和数据类型调用相应的处理方法
-            handler = getattr(self, f"_process_{exchange}_{data_type}", None)
+            # 根据交易所和数据类型调用相应的处理方法（camelCase 走别名表）
+            handler_suffix = self._handler_name_alias.get(data_type, data_type)
+            handler = getattr(self, f"_process_{exchange}_{handler_suffix}", None)
             if handler:
                 return handler(message)
             else:
@@ -100,8 +107,6 @@ class DataProcessor:
             Dict[str, Any]: 处理后的消息
         """
         # 添加处理时间戳 (统一使用纳秒级)
-        import time
-
         message["processed_timestamp"] = int(time.time() * 1_000_000_000)
 
         return message
@@ -166,62 +171,68 @@ class DataProcessor:
 
         return kline_data
 
-    def _process_binance_depth(self, message: dict[str, Any]) -> dict[str, Any]:
+    def _process_binance_depth(self, message: dict[str, Any]) -> dict[str, Any] | None:
         """
         处理币安深度数据
 
-        Args:
-            message: 待处理的深度消息
-
-        Returns:
-            Dict[str, Any]: 处理后的深度数据
+        兼容两种来源：
+        - depth20 快照流 raw 信封：{channel, lastUpdateId, bids, asks}（无 E/s 字段，
+          symbol/exchange/data_type 已由 engine 注入）
+        - 已解析长键 dict：symbol/event_time/last_update_id…
+        时间戳统一毫秒；快照流缺事件时间时用接受时刻兜底。
         """
-        # 调用通用处理方法
-        processed = self._process_generic(message)
+        bids = message.get("bids") or []
+        asks = message.get("asks") or []
+        if not bids and not asks:
+            return None
 
-        # 标准化深度数据字段名
-        depth_standard = {
-            "exchange": processed["exchange"],
-            "symbol": processed["symbol"],
+        symbol = str(message.get("symbol") or message.get("s") or "")
+        event_time = message.get("event_time") or message.get("E")
+        # 快照流缺失事件时间（E），用接受时刻兜底，毫秒与前端 kline.t 口径一致
+        ts_ms = int(event_time) if event_time else int(time.time() * 1000)
+
+        return {
+            "exchange": message.get("exchange", "binance"),
+            "symbol": symbol.upper(),
             "data_type": "depth",
-            "timestamp": processed["event_time"],
-            "last_update_id": processed["last_update_id"],
-            "bids": processed["bids"],
-            "asks": processed["asks"],
-            "processed_timestamp": processed["processed_timestamp"],
+            "timestamp": ts_ms,
+            "last_update_id": message.get("last_update_id", message.get("lastUpdateId")),
+            "bids": [[float(p), float(q)] for p, q in bids][:50],
+            "asks": [[float(p), float(q)] for p, q in asks][:50],
+            "processed_timestamp": int(time.time() * 1_000_000_000),
         }
 
-        return depth_standard
-
-    def _process_binance_aggtrade(self, message: dict[str, Any]) -> dict[str, Any]:
+    def _process_binance_aggtrade(self, message: dict[str, Any]) -> dict[str, Any] | None:
         """
         处理币安聚合交易数据
 
-        Args:
-            message: 待处理的聚合交易消息
-
-        Returns:
-            Dict[str, Any]: 处理后的聚合交易数据
+        兼容 raw aggTrade 短键（{e,E,s,a,p,q,f,l,T,m}）与已解析长键；
+        缺价格/数量视为不可用消息直接丢弃。
         """
-        # 调用通用处理方法
-        processed = self._process_generic(message)
+        price = message.get("price", message.get("p"))
+        quantity = message.get("quantity", message.get("q"))
+        if price is None or quantity is None:
+            logger.warning("aggTrade 缺少价格/数量字段，丢弃: %s", list(message.keys()))
+            return None
 
-        # 标准化聚合交易数据字段名
-        aggtrade_standard = {
-            "exchange": processed["exchange"],
-            "symbol": processed["symbol"],
+        # 成交时间优先级：T（撮合时间，毫秒）> E（事件时间）> 接受时刻兜底
+        trade_time = message.get("trade_time") or message.get("T") or message.get("E")
+        if not trade_time:
+            trade_time = int(time.time() * 1000)
+
+        return {
+            "exchange": message.get("exchange", "binance"),
+            "symbol": str(message.get("symbol") or message.get("s") or "").upper(),
             "data_type": "aggTrade",
-            "timestamp": processed["trade_time"],
-            "agg_trade_id": processed["agg_trade_id"],
-            "price": processed["price"],
-            "quantity": processed["quantity"],
-            "first_trade_id": processed["first_trade_id"],
-            "last_trade_id": processed["last_trade_id"],
-            "is_buyer_maker": processed["is_buyer_maker"],
-            "processed_timestamp": processed["processed_timestamp"],
+            "timestamp": int(trade_time),
+            "agg_trade_id": message.get("agg_trade_id", message.get("a")),
+            "price": float(price),
+            "quantity": float(quantity),
+            "first_trade_id": message.get("first_trade_id", message.get("f")),
+            "last_trade_id": message.get("last_trade_id", message.get("l")),
+            "is_buyer_maker": bool(message.get("is_buyer_maker", message.get("m", False))),
+            "processed_timestamp": int(time.time() * 1_000_000_000),
         }
-
-        return aggtrade_standard
 
     def _process_binance_trade(self, message: dict[str, Any]) -> dict[str, Any]:
         """

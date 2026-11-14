@@ -274,7 +274,7 @@ class LiveTradeSync:
         if raw_pnl:
             try:
                 realized = float(raw_pnl)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 realized = None
 
         entry_time = None
