@@ -4,6 +4,9 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from exchange.binance.websocket_client import BinanceWebSocketClient
+from realtime.data_distributor import DataDistributor
+from realtime.data_processor import DataProcessor
+from realtime.engine import RealtimeEngine
 
 
 def _client():
@@ -55,3 +58,111 @@ def test_subscribe_aggtrade_routes_to_aggtrade_socket():
     client = _client()
     _run(client.subscribe(["BTCUSDT@aggTrade"]))
     client._socket_manager.aggtrade_socket.assert_called_once_with(symbol="BTCUSDT")
+
+
+# ---------------------------------------------------------------------------
+# Task 1：engine channel 信封分发 + data_processor raw 解析兼容
+# ---------------------------------------------------------------------------
+
+
+def _processor():
+    return DataProcessor()
+
+
+def _engine():
+    # 跳过 __init__（会拉起全部子系统），只装配消息链路所需组件
+    engine = RealtimeEngine.__new__(RealtimeEngine)
+    engine.data_processor = DataProcessor()
+    engine.data_distributor = DataDistributor()
+    engine.monitor = MagicMock()
+    return engine
+
+
+def test_engine_routes_depth_channel_envelope():
+    """无 \"e\" 的 depth 频道信封应经 channel 分支解析后分发到 depth 消费方"""
+    engine = _engine()
+    seen = []
+    engine.data_distributor.register_consumer("depth", seen.append)
+    raw = {
+        "channel": "BTCUSDT@depth20",
+        "lastUpdateId": 1,
+        "bids": [["60000", "1.2"]],
+        "asks": [["60000.1", "0.5"]],
+    }
+    engine._handle_message(raw)
+    assert len(seen) == 1
+    assert seen[0]["symbol"] == "BTCUSDT"
+    assert seen[0]["data_type"] == "depth"
+    # 浅拷贝注入：engine 内补字段不得改写 _receive_messages 持有的原消息 dict
+    assert "symbol" not in raw
+    assert "data_type" not in raw
+
+
+def test_process_depth_raw_snapshot():
+    """binance depth20 快照 raw（经 engine 注入 exchange/data_type/symbol 后的形态）"""
+    out = _processor().process_message(
+        {
+            "exchange": "binance",
+            "data_type": "depth",
+            "channel": "BTCUSDT@depth20",
+            "symbol": "BTCUSDT",
+            "lastUpdateId": 1,
+            "bids": [["60000", "1.2"]],
+            "asks": [["60000.1", "0.5"]],
+        }
+    )
+    assert out["symbol"] == "BTCUSDT"
+    assert out["bids"] == [[60000.0, 1.2]]
+    assert out["asks"] == [[60000.1, 0.5]]
+    assert out["last_update_id"] == 1
+    assert out["data_type"] == "depth"
+    # 快照缺事件时间：timestamp 为接受时刻兜底的毫秒整数
+    assert isinstance(out["timestamp"], int)
+
+
+def test_process_depth_parsed_long_keys():
+    """已解析长键形态（event_time/symbol/last_update_id）保持兼容"""
+    out = _processor().process_message(
+        {
+            "exchange": "binance",
+            "data_type": "depth",
+            "symbol": "ETHUSDT",
+            "event_time": 1700000000000,
+            "bids": [["2000", "3"]],
+            "asks": [["2000.5", "2"]],
+        }
+    )
+    assert out["symbol"] == "ETHUSDT"
+    assert out["timestamp"] == 1700000000000
+
+
+def test_process_aggtrade_raw():
+    """raw aggTrade 短键（e/E/s/a/p/q/f/l/T/m）可正确解析"""
+    out = _processor().process_message(
+        {
+            "exchange": "binance",
+            "data_type": "aggTrade",
+            "e": "aggTrade",
+            "E": 1700000000000,
+            "s": "BTCUSDT",
+            "a": 1,
+            "p": "60000.5",
+            "q": "0.01",
+            "f": 10,
+            "l": 12,
+            "T": 1700000000001,
+            "m": True,
+        }
+    )
+    assert out["symbol"] == "BTCUSDT"
+    assert out["price"] == 60000.5
+    assert out["quantity"] == 0.01
+    assert out["timestamp"] == 1700000000001
+    assert out["is_buyer_maker"] is True
+
+
+def test_process_aggtrade_missing_price_drops():
+    """缺价格/数量的 aggTrade 视为不可用消息丢弃"""
+    assert (
+        _processor().process_message({"exchange": "binance", "data_type": "aggTrade", "s": "BTCUSDT", "q": "1"}) is None
+    )
