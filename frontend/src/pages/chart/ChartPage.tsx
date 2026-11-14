@@ -133,8 +133,9 @@ const ChartPage = () => {
   const [searchResults, setSearchResults] = useState<Symbol[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // 实时数据状态
-  const [, setIsRealtimeActive] = useState(false);
+  // 实时数据状态：realtimeActive 是「引擎就绪」信号（RealtimeToggleButton 完成启动/连接后才回调 true），
+  // 引擎频道的订阅必须等它就位，否则页面加载早期必报「订阅失败」
+  const [realtimeActive, setIsRealtimeActive] = useState(false);
   const [systemConfig, setSystemConfig] = useState({
     realtime_enabled: false,
     data_mode: 'cache' as 'realtime' | 'cache',
@@ -307,26 +308,38 @@ const ChartPage = () => {
   const needsDepthFeed = (orderbookPrefs?.panel ?? false) || (orderbookPrefs?.depthProfile ?? false);
   const needsTradeFeed = orderbookPrefs?.tradeTape ?? false;
 
+  // 引擎频道的交易所侧订阅（depth20/aggTrade）：必须等实时引擎就绪（realtimeActive），
+  // 提前发起会被 engine.subscribe 拒绝并返回「订阅失败」；与下方 WS 广播 topic 订阅解耦
   useEffect(() => {
-    if (!wsConnected || (!needsDepthFeed && !needsTradeFeed)) return;
-    const topics: string[] = [];
+    if (!realtimeActive || (!needsDepthFeed && !needsTradeFeed)) return;
     const channels: string[] = [];
     if (needsDepthFeed) {
-      topics.push('depth');
       // 引擎频道固定 depth20 档快照流，与显示档数（depthLevels）解耦：渲染在前端截取
       channels.push(`${currentSymbol.code}@depth20`);
     }
     if (needsTradeFeed) {
-      topics.push('trades');
       channels.push(`${currentSymbol.code}@aggTrade`);
     }
-    if (!wsService.getConnected()) wsService.connect();
-    wsService.subscribe(topics);
     realtimeApi.subscribeKlineChannels(channels).catch((e) => {
       console.error('[ChartPage] Failed to subscribe depth/trade engine channels:', e);
     });
     return () => {
       realtimeApi.unsubscribeKlineChannels(channels).catch(() => {});
+    };
+  }, [realtimeActive, needsDepthFeed, needsTradeFeed, currentSymbol.code]);
+
+  // WS 广播 topic（depth/trades）由常驻 ws_push 消费者产出，与引擎启动时序无关，仅随 WS 连接触发
+  useEffect(() => {
+    if (!wsConnected || (!needsDepthFeed && !needsTradeFeed)) return;
+    const topics: string[] = [];
+    if (needsDepthFeed) {
+      topics.push('depth');
+    }
+    if (needsTradeFeed) {
+      topics.push('trades');
+    }
+    wsService.subscribe(topics);
+    return () => {
       wsService.unsubscribe(topics);
     };
   }, [needsDepthFeed, needsTradeFeed, currentSymbol.code, wsConnected]);
