@@ -116,9 +116,7 @@ class PaperTradeSync:
     def _strategy_id(self) -> str:
         """worker↔strategy 绑定运行期不变：首次广播前解析一次并缓存。"""
         if self._strategy_id_cache is None:
-            self._strategy_id_cache = ws_fill_events.resolve_worker_strategy_id(
-                self.worker_id
-            )
+            self._strategy_id_cache = ws_fill_events.resolve_worker_strategy_id(self.worker_id)
         return self._strategy_id_cache
 
     # ── 配对盈亏回填（trades 游标） ───────────────────────────────

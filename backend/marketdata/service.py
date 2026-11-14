@@ -34,10 +34,7 @@ _30D_MS = 30 * 24 * 3600 * 1000  # OI 历史接口的上限窗口
 def _market_proxy() -> str | None:
     """与 collector 同源的代理解析顺序；各级均未配置时返回 None（直连）。"""
     return (
-        get_binance_proxy()
-        or get_settings().proxy_url
-        or os.environ.get("https_proxy")
-        or os.environ.get("http_proxy")
+        get_binance_proxy() or get_settings().proxy_url or os.environ.get("https_proxy") or os.environ.get("http_proxy")
     )
 
 

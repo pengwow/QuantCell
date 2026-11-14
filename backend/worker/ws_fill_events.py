@@ -27,11 +27,7 @@ def resolve_worker_strategy_id(worker_id: int) -> str:
         from worker.models import Worker
 
         with get_db_session() as db:
-            row = (
-                db.query(Worker.strategy_id)
-                .filter(Worker.id == int(worker_id))
-                .first()
-            )
+            row = db.query(Worker.strategy_id).filter(Worker.id == int(worker_id)).first()
         if row and row[0] is not None:
             return str(row[0])
     except Exception as e:
@@ -76,6 +72,4 @@ def broadcast_strategy_fill(
         )
     except Exception as e:
         # LoggerWrapper 不支持 exc_info，warning 自带 worker/strategy 上下文即可定位
-        logger.warning(
-            f"策略成交广播失败: worker_id={worker_id} strategy_id={strategy_id}: {e}"
-        )
+        logger.warning(f"策略成交广播失败: worker_id={worker_id} strategy_id={strategy_id}: {e}")
