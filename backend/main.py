@@ -52,6 +52,7 @@ from extensions.api import router as extensions_router
 from factor import router as factor_router
 from indicators.alerts_routes import router as indicator_alerts_router
 from indicators.routes import router as indicators_router
+from marketdata.routes import router as marketdata_router
 from plugins.routes import router as plugins_router
 from realtime.routes import realtime_router
 from research.routes import research_ws_endpoint
@@ -110,6 +111,7 @@ app.include_router(factor_router)
 # 会把 /api/v1/indicators/alerts 当作 indicator_id 吞掉，int("alerts") 转换失败返回 422
 app.include_router(indicator_alerts_router)  # 指标信号提醒规则 CRUD/测试发送（P2-07）
 app.include_router(indicators_router)
+app.include_router(marketdata_router)  # /chart 订单簿快照/OI/资金费率历史补充接口
 app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(realtime_router)
