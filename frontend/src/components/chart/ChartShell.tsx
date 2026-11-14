@@ -57,6 +57,7 @@ import {
   saveIndicatorParams,
   savePriceStyleValue,
   saveUiPrefs,
+  type OrderbookPrefs,
 } from '../../services/chartPreferences';
 import DrawingBar from '../DrawingBar';
 import { IndicatorParamModal } from '../IndicatorParamModal';
@@ -155,6 +156,12 @@ export interface ChartShellProps {
   indicatorScope: IndicatorScope;
   loading?: boolean;
   error?: string | null;
+  /** 订单簿设置弹窗三件套（仅 /chart 页传入；回放页不传即隐藏弹窗中的订单簿分组） */
+  orderbookModalProps?: {
+    orderbook: OrderbookPrefs | null;
+    onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
+    backtestOptions?: { label: string; value: string }[];
+  };
 }
 
 // 信号标注 overlay 的扩展数据（由 createOverlay 传入）
@@ -308,6 +315,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   indicatorScope,
   loading = false,
   error = null,
+  orderbookModalProps,
 }, ref) => {
   const { message } = App.useApp();
   // ponytail: klinecharts 独立于 antd theme，需要从 token 派生主题感知的样式值
@@ -1248,6 +1256,9 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
           getScreenshotUrl={getScreenshotUrl}
           fullscreenTarget={fullscreenTargetRef}
           indicatorScope={indicatorScope}
+          orderbook={orderbookModalProps?.orderbook}
+          onOrderbookChange={orderbookModalProps?.onOrderbookChange}
+          backtestOptions={orderbookModalProps?.backtestOptions}
         />
 
         {/* 主图表区域 - 包含常驻的左侧绘图工具栏 */}

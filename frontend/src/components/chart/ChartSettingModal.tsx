@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Flex, Modal, Select, Space, Switch } from 'antd';
+import { Button, Divider, Flex, Modal, Select, Space, Switch } from 'antd';
 import { getStyleValue } from './chartStyles';
 import ChartTypeIcon from './ChartTypeIcon';
+import type { OrderbookPrefs } from '../../services/chartPreferences';
 
 export interface ChartSettingDef {
   /** 样式路径；yAxis.reverse 是虚拟路径（v10 中不属于 styles，需走 overrideYAxis） */
@@ -62,6 +63,12 @@ interface ChartSettingModalProps {
   /** 单项变更后立即回写图表 */
   onChange: (path: string, value: unknown) => void;
   onRestoreDefault: () => void;
+  /** null/undefined = 调用方未接订单簿（如回放页），隐藏整个分组 */
+  orderbook?: OrderbookPrefs | null;
+  /** 订单簿分组的 patch 回写（直接对应 saveOrderbookPrefs） */
+  onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
+  /** 回测成交标记备选项 */
+  backtestOptions?: { label: string; value: string }[];
 }
 
 /** 图表样式设置弹窗：对应 pro 的 setting-modal（含恢复默认） */
@@ -71,6 +78,9 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
   getSettings,
   onChange,
   onRestoreDefault,
+  orderbook,
+  onOrderbookChange,
+  backtestOptions,
 }) => {
   const { t } = useTranslation();
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -139,6 +149,66 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
             )}
           </Flex>
         ))}
+        {/* 订单簿分组：orderbook 与 onOrderbookChange 均存在才渲染（回放页不传即隐藏，向后兼容）。
+            返回数组而非 Fragment：Space 会把 Fragment 当单个 child 包进同一 item 容器，
+            组内行间 middle 间距会塌陷；数组被逐项展平，每个元素独立参与 Space 间距 */}
+        {orderbook && onOrderbookChange ? [
+          <Divider key="ob-group" titlePlacement="left" plain>{t('chart.setting.orderbookGroup')}</Divider>,
+          <Flex key="ob-panel" justify="space-between" align="center" gap={16}>
+            <span>{t('chart.setting.orderbookPanel')}</span>
+            <Switch size="small" checked={orderbook.panel}
+              onChange={(v) => onOrderbookChange({ panel: v })} />
+          </Flex>,
+          <Flex key="ob-depthLevels" justify="space-between" align="center" gap={16}>
+            <span>{t('chart.setting.depthLevels')}</span>
+            <Select<OrderbookPrefs['depthLevels']>
+              size="small"
+              style={{ width: 80 }}
+              value={orderbook.depthLevels}
+              options={[{ value: 10, label: '10' }, { value: 20, label: '20' }]}
+              onChange={(v) => onOrderbookChange({ depthLevels: v })}
+            />
+          </Flex>,
+          <Flex key="ob-depthProfile" justify="space-between" align="center" gap={16}>
+            <span>{t('chart.setting.depthProfile')}</span>
+            <Switch size="small" checked={orderbook.depthProfile}
+              onChange={(v) => onOrderbookChange({ depthProfile: v })} />
+          </Flex>,
+          <Flex key="ob-tradeTape" justify="space-between" align="center" gap={16}>
+            <span>{t('chart.setting.tradeTape')}</span>
+            <Switch size="small" checked={orderbook.tradeTape}
+              onChange={(v) => onOrderbookChange({ tradeTape: v })} />
+          </Flex>,
+          // 副图指标组：独立分组标题，不复用业务开关文案
+          <Divider key="ob-sub-ind" titlePlacement="left" plain>{t('chart.setting.subIndicators')}</Divider>,
+          ...(['oi', 'funding', 'cvd'] as const).map((key) => (
+            <Flex key={`ob-ind-${key}`} justify="space-between" align="center" gap={16}>
+              <span>{t(`chart.setting.${key}Indicator`)}</span>
+              <Switch size="small" checked={orderbook.indicators[key]}
+                onChange={(v) => onOrderbookChange({ indicators: { ...orderbook.indicators, [key]: v } })} />
+            </Flex>
+          )),
+          // 成交标记组：独立分组标题
+          <Divider key="ob-marker-group" titlePlacement="left" plain>{t('chart.setting.tradeMarkerGroup')}</Divider>,
+          <Flex key="ob-live-markers" justify="space-between" align="center" gap={16}>
+            <span>{t('chart.setting.liveTradeMarkers')}</span>
+            <Switch size="small" checked={orderbook.tradeMarkers.live}
+              onChange={(v) => onOrderbookChange({ tradeMarkers: { ...orderbook.tradeMarkers, live: v } })} />
+          </Flex>,
+          <Flex key="ob-bt-markers" justify="space-between" align="center" gap={16}>
+            <span>{t('chart.setting.backtestMarkers')}</span>
+            <Select
+              size="small"
+              style={{ width: 160 }}
+              allowClear
+              value={orderbook.tradeMarkers.backtestId}
+              placeholder={t('chart.setting.backtestMarkersPlaceholder')}
+              options={backtestOptions ?? []}
+              // allowClear 清空时 v 为 undefined，归一化为 null（无回测任务）
+              onChange={(v) => onOrderbookChange({ tradeMarkers: { ...orderbook.tradeMarkers, backtestId: v ?? null } })}
+            />
+          </Flex>,
+        ] : null}
       </Space>
     </Modal>
   );

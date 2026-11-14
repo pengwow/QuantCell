@@ -9,6 +9,7 @@ import TokenDisplay from '../TokenDisplay';
 import IndicatorSelectorModal from '../IndicatorSelectorModal';
 import IndicatorAlertsModal from '../IndicatorAlertsModal';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
+import type { OrderbookPrefs } from '../../services/chartPreferences';
 
 export interface ChartPeriodItem {
   label: string;
@@ -40,6 +41,11 @@ interface ChartPeriodBarProps {
   fullscreenTarget: React.RefObject<HTMLElement | null>;
   /** 指标范围：all = 内置 + 自定义；builtin-local = 只展示内置指标（行情回放页） */
   indicatorScope?: 'all' | 'builtin-local';
+  /** 订单簿偏好：null/undefined = 调用方未接订单簿（回放页），设置弹窗隐藏整个分组 */
+  orderbook?: OrderbookPrefs | null;
+  onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
+  /** 设置弹窗回测成交标记备选项 */
+  backtestOptions?: { label: string; value: string }[];
 }
 
 /**
@@ -66,6 +72,9 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   getScreenshotUrl,
   fullscreenTarget,
   indicatorScope = 'all',
+  orderbook,
+  onOrderbookChange,
+  backtestOptions,
 }) => {
   const { t } = useTranslation();
 
@@ -186,6 +195,9 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
         getSettings={getSettings}
         onChange={onSettingChange}
         onRestoreDefault={onRestoreDefaultSettings}
+        orderbook={orderbook}
+        onOrderbookChange={onOrderbookChange}
+        backtestOptions={backtestOptions}
       />
       <ChartTimezoneModal
         open={timezoneVisible}
