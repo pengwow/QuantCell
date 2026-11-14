@@ -16,12 +16,36 @@ export interface ChartUiPrefs {
   timezone?: string;
 }
 
+export interface OrderbookPrefs {
+  /** 右侧订单簿面板 */
+  panel: boolean;
+  /** K 线内深度轮廓 overlay */
+  depthProfile: boolean;
+  /** 成交流水（实时 tape） */
+  tradeTape: boolean;
+  depthLevels: 10 | 20;
+  /** 副图指标开关（现货品种数据拉取失败时面板内降级「暂无数据」，不灰置开关） */
+  indicators: { oi: boolean; funding: boolean; cvd: boolean };
+  tradeMarkers: { live: boolean; backtestId: string | null };
+}
+
+const ORDERBOOK_DEFAULTS: OrderbookPrefs = {
+  panel: true,
+  depthProfile: false,
+  tradeTape: true,
+  depthLevels: 20,
+  indicators: { oi: false, funding: false, cvd: false },
+  tradeMarkers: { live: true, backtestId: null },
+};
+
 export interface ChartPrefsSnapshot {
   /** 设置弹窗 7 项：klinecharts 样式 path -> value */
   priceStyle: Record<string, unknown>;
   uiPrefs: ChartUiPrefs;
   /** "symbolCode.indicatorId" -> 参数对象 */
   indicatorParams: Record<string, Record<string, unknown>>;
+  /** 订单簿偏好（设置弹窗 orderbook 组） */
+  orderbook: OrderbookPrefs;
 }
 
 const CHART_GROUP = 'chart';
@@ -48,6 +72,9 @@ let loaded = false;
 let loadPromise: Promise<ChartPrefsSnapshot> | null = null;
 let priceStyleTimer: ReturnType<typeof setTimeout> | null = null;
 let uiPrefsTimer: ReturnType<typeof setTimeout> | null = null;
+let orderbookServer: OrderbookPrefs = ORDERBOOK_DEFAULTS;
+let orderbookBuffer: Partial<OrderbookPrefs> = {};
+let orderbookTimer: ReturnType<typeof setTimeout> | null = null;
 
 const parsePref = (raw: unknown): Record<string, unknown> => {
   if (typeof raw !== 'string' || !raw) return {};
@@ -57,6 +84,34 @@ const parsePref = (raw: unknown): Record<string, unknown> => {
   } catch {
     return {};
   }
+};
+
+// 订单簿偏好防御合并：入参可为 JSON 字符串或已解析对象（merge buffer 时是对象，
+// 后端 chart 组的 orderbook 是 JSON 字符串），逐字段校验兜底，后端数据不可信
+const parseOrderbook = (raw: unknown): OrderbookPrefs => {
+  const p =
+    typeof raw === 'string'
+      ? parsePref(raw)
+      : raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+  const ind = (p.indicators && typeof p.indicators === 'object' ? p.indicators : {}) as Record<string, unknown>;
+  const tm = (p.tradeMarkers && typeof p.tradeMarkers === 'object' ? p.tradeMarkers : {}) as Record<string, unknown>;
+  return {
+    panel: Boolean(p.panel ?? ORDERBOOK_DEFAULTS.panel),
+    depthProfile: Boolean(p.depthProfile ?? ORDERBOOK_DEFAULTS.depthProfile),
+    tradeTape: Boolean(p.tradeTape ?? ORDERBOOK_DEFAULTS.tradeTape),
+    depthLevels: p.depthLevels === 10 ? 10 : 20,
+    indicators: {
+      oi: Boolean(ind.oi ?? ORDERBOOK_DEFAULTS.indicators.oi),
+      funding: Boolean(ind.funding ?? ORDERBOOK_DEFAULTS.indicators.funding),
+      cvd: Boolean(ind.cvd ?? ORDERBOOK_DEFAULTS.indicators.cvd),
+    },
+    tradeMarkers: {
+      live: Boolean(tm.live ?? ORDERBOOK_DEFAULTS.tradeMarkers.live),
+      backtestId: typeof tm.backtestId === 'string' ? tm.backtestId : null,
+    },
+  };
 };
 
 // GET /config/{key} 对不存在的键返回 code=1，会被 apiRequest 拦截器 reject 并打
@@ -119,6 +174,7 @@ const migrateLegacyIndicatorParams = (
 const finishLoad = (chartGroup: Record<string, unknown>): ChartPrefsSnapshot => {
   priceStyleServer = parsePref(chartGroup.priceStyle);
   uiPrefsServer = migrateLegacyUserPrefs(chartGroup);
+  orderbookServer = parseOrderbook(chartGroup.orderbook);
   indicatorParamsSnapshot = {};
   for (const [rawKey, rawValue] of Object.entries(chartGroup)) {
     if (!rawKey.startsWith(PARAMS_PREFIX)) continue;
@@ -129,13 +185,14 @@ const finishLoad = (chartGroup: Record<string, unknown>): ChartPrefsSnapshot => 
       indicatorParamsSnapshot[rawKey.slice(PARAMS_PREFIX.length)] = parsed;
     }
   }
-  // 注意：这里不能清 priceStyleBuffer/uiPrefsBuffer —— mount 与 load 完成之间
+  // 注意：这里不能清 priceStyleBuffer/uiPrefsBuffer/orderbookBuffer —— mount 与 load 完成之间
   // 已缓冲的用户改动要等 loaded 后由 flush 写出，load 直接清会静默丢改动
   loaded = true;
   return {
     priceStyle: { ...priceStyleServer },
     uiPrefs: { ...uiPrefsServer },
     indicatorParams: indicatorParamsSnapshot,
+    orderbook: { ...orderbookServer },
   };
 };
 
@@ -164,8 +221,10 @@ export const loadChartPrefs = (): Promise<ChartPrefsSnapshot> => {
 export const cancelPendingSaves = (): void => {
   if (priceStyleTimer) { clearTimeout(priceStyleTimer); priceStyleTimer = null; }
   if (uiPrefsTimer) { clearTimeout(uiPrefsTimer); uiPrefsTimer = null; }
+  if (orderbookTimer) { clearTimeout(orderbookTimer); orderbookTimer = null; }
   priceStyleBuffer = {};
   uiPrefsBuffer = {};
+  orderbookBuffer = {};
 };
 
 const flushPriceStyle = async (): Promise<void> => {
@@ -216,6 +275,35 @@ export const saveUiPrefs = (patch: Partial<ChartUiPrefs>): void => {
   if (uiPrefsTimer) clearTimeout(uiPrefsTimer);
   uiPrefsTimer = setTimeout(flushUiPrefs, DEBOUNCE_MS);
 };
+
+const flushOrderbook = async (): Promise<void> => {
+  orderbookTimer = null;
+  if (Object.keys(orderbookBuffer).length === 0) return;
+  // 未完成首次 load 不写：防 mount 瞬间默认值覆盖服务端配置；重新排队等活动完成
+  if (!loaded) {
+    orderbookTimer = setTimeout(flushOrderbook, DEBOUNCE_MS);
+    return;
+  }
+  const merged = parseOrderbook({ ...orderbookServer, ...orderbookBuffer });
+  try {
+    await configApi.updateConfigValues({ orderbook: JSON.stringify(merged) });
+    orderbookServer = merged;
+    orderbookBuffer = {};
+  } catch (error) {
+    console.warn('[chartPreferences] 保存订单簿偏好失败', error);
+  }
+};
+
+/** 订单簿偏好变更：800ms 尾沿防抖合并写 */
+export const saveOrderbookPrefs = (patch: Partial<OrderbookPrefs>): void => {
+  orderbookBuffer = { ...orderbookBuffer, ...patch };
+  if (orderbookTimer) clearTimeout(orderbookTimer);
+  orderbookTimer = setTimeout(flushOrderbook, DEBOUNCE_MS);
+};
+
+/** 图表页读取订单簿偏好快照（深拷贝，调用方可直接改） */
+export const getOrderbookPrefsSnapshot = (): OrderbookPrefs =>
+  parseOrderbook(JSON.stringify(orderbookServer));
 
 /**
  * 读取单条指标参数（同步读 load 快照；调用方需先 await loadChartPrefs()）。
