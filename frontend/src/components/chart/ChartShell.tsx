@@ -59,8 +59,10 @@ import {
   saveUiPrefs,
   type OrderbookPrefs,
 } from '../../services/chartPreferences';
-import { CVD_INDICATOR, FUNDING_INDICATOR, OI_INDICATOR, oiIntervalForPeriod, setFundingHistory, setOiHistory } from './orderbook/extraIndicators';
+import { CVD_INDICATOR, FUNDING_INDICATOR, OI_INDICATOR, oiIntervalForPeriod, periodToMs, setFundingHistory, setOiHistory } from './orderbook/extraIndicators';
+import { alignToBar, clearFillMarkers, createFillMarker, type FillPoint } from './orderbook/fillMarkers';
 import { marketdataApi } from '@/api/marketdataApi';
+import wsService from '@/services/websocketService';
 import DrawingBar from '../DrawingBar';
 import { IndicatorParamModal } from '../IndicatorParamModal';
 // 样式沿用 ChartPage 的图表布局 CSS（chart-page/period-bar/hover 工具条等类名）
@@ -164,13 +166,20 @@ export interface ChartShellProps {
     onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
     backtestOptions?: { label: string; value: string }[];
   };
+  /**
+   * 回放成交点（页面接线：backtestApi.getBacktestDetail().fills_detail 转换后传入；
+   * 壳内先删后加幂等重画）。缺省不绘制回放标记
+   */
+  backtestFills?: FillPoint[];
 }
 
-// 信号标注 overlay 的扩展数据（由 createOverlay 传入）
+// 信号标注 overlay 的扩展数据（由 createOverlay 传入，亦可由页面 props 提供成交标记）
 interface SignalExtendData {
   text?: string;
   color?: string;
   side?: string;
+  source?: 'backtest' | 'live';
+  quantity?: number;
 }
 
 // 信号标注点坐标（在基础坐标上附加 extendData）
@@ -221,12 +230,15 @@ interface SignalPoint {
 }
 
 // 创建 signalTag 覆盖物图形：矩形标签 + 文字 + 圆点 + 连线
-const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ coordinates }: OverlayCreateFiguresCallbackParams<unknown>) => {
+const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ overlay, coordinates }: OverlayCreateFiguresCallbackParams<unknown>) => {
   const coord0 = coordinates[0];
   const coord1 = coordinates[1] as SignalTagCoordinate;
   if (!coord0 || !coord1) return [] as OverlayFigure[];
 
-  const { extendData = {} } = coord1;
+  // v10 契约：coordinates 只有 {x,y}，不携带点级 extendData —— 绘制数据统一读 overlay 级
+  // extendData（fillMarkers 成交标记与原有 signal 标注均以 OverlayCreate.extendData 传入）；
+  // 保留 coord1 点级读取兼容旧扩展路径
+  const extendData = ((overlay?.extendData as SignalExtendData | undefined) ?? coord1.extendData ?? {}) as SignalExtendData;
   const text = extendData.text || '';
   const color = extendData.color || QUANT_COLORS.info;
   const side = extendData.side || 'buy';
@@ -318,6 +330,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   loading = false,
   error = null,
   orderbookModalProps,
+  backtestFills,
 }, ref) => {
   const { message } = App.useApp();
   // ponytail: klinecharts 独立于 antd theme，需要从 token 派生主题感知的样式值
@@ -1204,6 +1217,54 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   }, [fundingOn, symbol.code]);
 
   // CVD 纯本地累计，无外部数据，创建实例即可
+
+  // ===== 策略成交标记：回放（backtestFills props）+ 实时（ws 'strategy.fill'）=====
+  // 回放：props 变化先删后加全量重画（幂等）；仅 source === 'backtest' 增删，
+  // 与实时标记、原有下单信号标注互不干扰
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    clearFillMarkers(chart, 'backtest');
+    for (const fill of backtestFills ?? []) createFillMarker(chart, fill);
+  }, [backtestFills]);
+
+  // 实时：订阅 topic 才会收流（listener 收 message.data 本体：{symbol, side, price, quantity, ts}）。
+  // 收放对称：离开组件/关开关时退订（当前仅本组件消费该 topic）
+  const liveMarkersOn = orderbookPrefs?.tradeMarkers?.live ?? false;
+
+  // symbol 切换时清掉旧品种的 live 标记（回放标记由 props 驱动，无需处理）
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (chart && liveMarkersOn) clearFillMarkers(chart, 'live');
+  }, [liveMarkersOn, symbol.code]);
+
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart || !liveMarkersOn) return;
+    if (!wsService.getConnected()) wsService.connect();
+    wsService.subscribe('strategy.fill');
+    const handleFill = (data: unknown) => {
+      const f = data as Partial<{ symbol: string; side: string; price: number; quantity: number; ts: number }> | null;
+      if (!f || typeof f.ts !== 'number' || typeof f.price !== 'number') return;
+      // 后端推流的 symbol 已规范化为 BTCUSDT 形态，与页面 symbol.code 大小写不敏感比对
+      if ((f.symbol ?? '').toUpperCase() !== symbol.code.toUpperCase()) return;
+      const liveChart = chartInstanceRef.current;
+      if (!liveChart) return;
+      // ts 对齐到所属 bar 起点（周K等大周期时间戳网格更明显）
+      createFillMarker(liveChart, {
+        timestamp: alignToBar(f.ts, periodToMs(currentPeriod)),
+        side: f.side === 'sell' ? 'sell' : 'buy',
+        price: f.price,
+        quantity: typeof f.quantity === 'number' ? f.quantity : 0,
+        source: 'live',
+      });
+    };
+    wsService.on('strategy.fill', handleFill);
+    return () => {
+      wsService.off('strategy.fill', handleFill);
+      wsService.unsubscribe('strategy.fill');
+    };
+  }, [liveMarkersOn, symbol.code, currentPeriod]);
 
   // 监听图表容器大小变化
   useEffect(() => {
