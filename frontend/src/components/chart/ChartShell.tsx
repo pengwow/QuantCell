@@ -59,6 +59,8 @@ import {
   saveUiPrefs,
   type OrderbookPrefs,
 } from '../../services/chartPreferences';
+import { CVD_INDICATOR, FUNDING_INDICATOR, OI_INDICATOR, oiIntervalForPeriod, setFundingHistory, setOiHistory } from './orderbook/extraIndicators';
+import { marketdataApi } from '@/api/marketdataApi';
 import DrawingBar from '../DrawingBar';
 import { IndicatorParamModal } from '../IndicatorParamModal';
 // 样式沿用 ChartPage 的图表布局 CSS（chart-page/period-bar/hover 工具条等类名）
@@ -1011,6 +1013,16 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       console.warn('[Chart] 注册signalTag overlay失败:', e);
     }
 
+    // 注册 OI/FUNDING/CVD 副图指标模板（重名注册直接覆盖模板表，幂等；
+    // 实例的创建/移除由下方 indicators 开关 effect 驱动）
+    [OI_INDICATOR, FUNDING_INDICATOR, CVD_INDICATOR].forEach((tpl) => {
+      try {
+        registerIndicator(tpl);
+      } catch (e) {
+        console.warn('[Chart] Failed to register sub indicator:', tpl.name, e);
+      }
+    });
+
     if (chartRef.current && !chartInstanceRef.current) {
       const chart = init(chartId, {
         locale: 'zh-CN',
@@ -1127,6 +1139,71 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       type: period?.type || 'minute',
     });
   }, [symbol.code, symbol.name, currentPeriod]);
+
+  // ===== OI/FUNDING/CVD 副图指标：开关接线 + 历史数据（仅 /chart 页；回放页 orderbookPrefs 为 null 不生效）=====
+  const orderbookPrefs = orderbookModalProps?.orderbook ?? null;
+  const oiOn = orderbookPrefs?.indicators?.oi ?? false;
+  const fundingOn = orderbookPrefs?.indicators?.funding ?? false;
+  const cvdOn = orderbookPrefs?.indicators?.cvd ?? false;
+
+  // 开关 → 指标实例的创建/移除。createIndicator 无显式 paneId 时每次调用都新建独立副图 pane，
+  // 所以按名自查已在图上的实例（同 VOL 的幂等防御），避免开关抖动重复开 pane
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const wantOn: Record<string, boolean> = { OI: oiOn, FUNDING: fundingOn, CVD: cvdOn };
+    const existing = new Set((chart.getIndicators() || []).map((ind) => ind.name));
+    for (const name of ['OI', 'FUNDING', 'CVD'] as const) {
+      try {
+        if (wantOn[name] && !existing.has(name)) {
+          chart.createIndicator({ name });
+        } else if (!wantOn[name] && existing.has(name)) {
+          // v10 IndicatorFilter 字段为 paneId/id/name（name 过滤删除全表同名实例，pane 空后图随删）
+          chart.removeIndicator({ name });
+        }
+      } catch (e) {
+        console.warn('[Chart] Failed to toggle sub indicator:', name, e);
+      }
+    }
+  }, [oiOn, fundingOn, cvdOn]);
+
+  // OI 历史：interval 取 ≥ K 线周期的最小档；无数据/拉取失败（如现货无 OI）时副图留空轴，
+  // 降级不打断页面。历史到位后 overrideIndicator 变更 extendData 触发该实例重算
+  //（calc 闭包实时读 extraIndicators 模块缓存，同自定义指标缓存层思路）
+  useEffect(() => {
+    if (!oiOn) return;
+    let cancelled = false;
+    marketdataApi
+      .getOiHistory(symbol.code, oiIntervalForPeriod(currentPeriod))
+      .then((rows) => {
+        if (cancelled || rows.length === 0) return;
+        setOiHistory(rows);
+        chartInstanceRef.current?.overrideIndicator({ name: 'OI', extendData: { rev: Date.now() } });
+      })
+      .catch((e) => {
+        console.warn('[Chart] OI history fetch failed, empty pane:', symbol.code, e);
+      });
+    return () => { cancelled = true; };
+  }, [oiOn, symbol.code, currentPeriod]);
+
+  // FUNDING 历史：固定 8h 结算序列（无 interval），limit 42 ≈ 两周
+  useEffect(() => {
+    if (!fundingOn) return;
+    let cancelled = false;
+    marketdataApi
+      .getFundingHistory(symbol.code, 42)
+      .then((rows) => {
+        if (cancelled || rows.length === 0) return;
+        setFundingHistory(rows);
+        chartInstanceRef.current?.overrideIndicator({ name: 'FUNDING', extendData: { rev: Date.now() } });
+      })
+      .catch((e) => {
+        console.warn('[Chart] Funding history fetch failed, empty pane:', symbol.code, e);
+      });
+    return () => { cancelled = true; };
+  }, [fundingOn, symbol.code]);
+
+  // CVD 纯本地累计，无外部数据，创建实例即可
 
   // 监听图表容器大小变化
   useEffect(() => {
