@@ -78,7 +78,8 @@ export function OrderBookPanel({ symbol, depthLevels }: OrderBookPanelProps) {
 
   const bestBid = rows.bids[0]?.price ?? 0;
   const bestAsk = rows.asks[rows.asks.length - 1]?.price ?? 0;
-  const spread = Math.max(bestBid - bestAsk, 0);
+  // 价差 = 最低卖价 - 最高买价；旧实现写反（bestBid - bestAsk 恒为负被 clamp 成 0.00）
+  const spread = Math.max(bestAsk - bestBid, 0);
 
   const renderRow = (row: OrderbookRow, side: 'ask' | 'bid') => (
     <div className={`ob-row ob-${side}`} key={`${side}-${row.price}`}>

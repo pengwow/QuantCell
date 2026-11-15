@@ -61,8 +61,13 @@ export function TradeTape({ symbol, limit = 30 }: TradeTapeProps) {
     return () => wsService.off('trades', handler);
   }, [symbol, limit]);
 
+  // 空态也保留 .ob-tape 容器（含表头+背景），裸渲染 ob-empty 会丢容器样式贴在盘口下方
   if (!rows.length) {
-    return <div className="ob-empty">{t('chart.orderbook.noData')}</div>;
+    return (
+      <div className="ob-tape">
+        <div className="ob-empty">{t('chart.orderbook.noData')}</div>
+      </div>
+    );
   }
 
   return (

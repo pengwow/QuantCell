@@ -121,6 +121,9 @@ const ChartPage = () => {
     name: 'BTC/USDT',
     base: 'BTC'
   });
+  // WS 内部品种口径无斜杠（如 ETHUSDT）；currentSymbol.code 来自品种列表，可能带斜杠（ETH/USDT）。
+  // 引擎频道订阅与 depth/trades 过滤必须用无斜杠口径，否则永远匹配不上（TradeTape 曾因此恒空态）
+  const wsSymbol = currentSymbol.code.replace('/', '');
   const [currentPeriod, setCurrentPeriod] = useState('1h');
 
   // 加载状态
@@ -314,11 +317,12 @@ const ChartPage = () => {
     if (!realtimeActive || (!needsDepthFeed && !needsTradeFeed)) return;
     const channels: string[] = [];
     if (needsDepthFeed) {
-      // 引擎频道固定 depth20 档快照流，与显示档数（depthLevels）解耦：渲染在前端截取
-      channels.push(`${currentSymbol.code}@depth20`);
+      // 引擎频道固定 depth20 档快照流，与显示档数（depthLevels）解耦：渲染在前端截取。
+      // 必须显式 @100ms：币安部分订单簿流默认 1s 推一条，不带后缀订单簿只有 1Hz
+      channels.push(`${wsSymbol}@depth20@100ms`);
     }
     if (needsTradeFeed) {
-      channels.push(`${currentSymbol.code}@aggTrade`);
+      channels.push(`${wsSymbol}@aggTrade`);
     }
     realtimeApi.subscribeKlineChannels(channels).catch((e) => {
       console.error('[ChartPage] Failed to subscribe depth/trade engine channels:', e);
@@ -326,7 +330,7 @@ const ChartPage = () => {
     return () => {
       realtimeApi.unsubscribeKlineChannels(channels).catch(() => {});
     };
-  }, [realtimeActive, needsDepthFeed, needsTradeFeed, currentSymbol.code]);
+  }, [realtimeActive, needsDepthFeed, needsTradeFeed, wsSymbol]);
 
   // WS 广播 topic（depth/trades）由常驻 ws_push 消费者产出，与引擎启动时序无关，仅随 WS 连接触发
   useEffect(() => {
@@ -598,8 +602,8 @@ const ChartPage = () => {
           orderbookPrefs?.panel ? (
             // 右栏子块为原生元素，间距用 gap；成交流水从属于面板开关
             <>
-              <OrderBookPanel symbol={currentSymbol.code} depthLevels={orderbookPrefs.depthLevels} />
-              {orderbookPrefs.tradeTape && <TradeTape symbol={currentSymbol.code} />}
+              <OrderBookPanel symbol={wsSymbol} depthLevels={orderbookPrefs.depthLevels} />
+              {orderbookPrefs.tradeTape && <TradeTape symbol={wsSymbol} />}
             </>
           ) : null
         }
