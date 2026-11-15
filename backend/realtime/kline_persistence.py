@@ -4,6 +4,8 @@ K线数据持久化模块
 当收到完结的K线数据(is_final=True)时，自动保存到数据库
 """
 
+import queue
+import threading
 from typing import Any
 
 from utils.logger import LogType, get_logger
@@ -15,41 +17,56 @@ from collector.db.models import CryptoSpotKline
 
 
 class KlinePersistenceConsumer:
-    """K线数据持久化消费者"""
+    """K线数据持久化消费者
 
-    def __init__(self):
-        """初始化持久化消费者"""
-        self.db_session = None
-        logger.info("KlinePersistenceConsumer initialized")
+    消费者回调跑在引擎数据泵的同步链上，任何 DB I/O 都会阻塞整条实时链路
+    （此前同步写库把每条消息的处理耗时拖到 0.16s，depth/aggTrade 被整体饿慢），
+    因此这里只做 O(1) 入队，实际写库由独立后台线程串行执行。
+    """
+
+    def __init__(self, queue_size: int = 2000):
+        """初始化持久化消费者并启动后台写库线程"""
+        self._queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=queue_size)
+        self._dropped = 0
+        self._worker = threading.Thread(target=self._run, daemon=True, name="kline-persistence")
+        self._worker.start()
+        logger.info("KlinePersistenceConsumer initialized (background writer started)")
 
     def process_kline(self, data: dict[str, Any]) -> bool:
         """
-        处理K线数据，只保存完结的K线
+        接收K线数据：过滤出完结K线并入队，不做任何 DB I/O
 
         Args:
             data: K线数据，包含k字段
 
         Returns:
-            bool: 是否成功保存
+            bool: 是否成功入队
         """
         try:
-            # 获取K线数据
             kline = data.get("k", {})
             if not kline:
                 return False
-
             # 只处理完结的K线
-            is_final = kline.get("x", False)
-            if not is_final:
-                # K线未完结，跳过
+            if not kline.get("x", False):
                 return False
-
-            # 保存到数据库
-            return self._save_to_database(kline)
-
-        except Exception as e:
-            logger.error(f"[KlinePersistence] 处理K线数据失败: {e}")
+            self._queue.put_nowait(kline)
+            return True
+        except queue.Full:
+            # ponytail: 写库线程积压时丢弃新完结K线（上限即放弃），写库本身幂等（写前查重），
+            # 历史缺口由 K 线 REST 补数路径兜底；代价是极端积压下丢最后一根收盘K线
+            self._dropped += 1
+            if self._dropped % 50 == 1:
+                logger.warning(f"[KlinePersistence] 写库队列已满，累计丢弃 {self._dropped} 条完结K线")
             return False
+
+    def _run(self) -> None:
+        """后台写库线程：串行消费队列，写库失败只记日志不入队重试"""
+        while True:
+            kline = self._queue.get()
+            try:
+                self._save_to_database(kline)
+            except Exception as e:  # pragma: no cover - 兜底防线程崩溃
+                logger.error(f"[KlinePersistence] 后台写库线程异常: {e}")
 
     def _save_to_database(self, kline: dict[str, Any]) -> bool:
         """
@@ -88,19 +105,14 @@ class KlinePersistenceConsumer:
                     base_symbol = f"{symbol[: -len(quote)]}/{quote}"
                     break
 
+            unique_key = f"{base_symbol}_{interval}_{timestamp}"
+
             # 创建数据库会话
             db = SessionLocal()
 
-            # 检查是否已存在相同记录
-            existing = (
-                db.query(CryptoSpotKline)
-                .filter(
-                    CryptoSpotKline.symbol == base_symbol,
-                    CryptoSpotKline.interval == interval,
-                    CryptoSpotKline.timestamp == timestamp,
-                )
-                .first()
-            )
+            # 检查是否已存在相同记录（走 unique_kline 唯一索引；
+            # 旧实现按 symbol/interval/timestamp 三列过滤，命中不了索引）
+            existing = db.query(CryptoSpotKline).filter(CryptoSpotKline.unique_kline == unique_key).first()
 
             if existing:
                 # 更新现有记录
@@ -121,7 +133,7 @@ class KlinePersistenceConsumer:
                     low=str(low_price),
                     close=str(close_price),
                     volume=str(volume),
-                    unique_kline=f"{base_symbol}_{interval}_{timestamp}",
+                    unique_kline=unique_key,
                     data_source="binance_websocket",
                 )
                 db.add(kline_record)
