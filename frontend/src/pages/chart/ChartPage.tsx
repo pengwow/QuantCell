@@ -592,12 +592,13 @@ const ChartPage = () => {
         loading={loading}
         error={error}
         rightPanelSlot={
-          orderbookPrefs && (orderbookPrefs.panel || orderbookPrefs.tradeTape) ? (
-            // 右栏子块为原生元素，间距用 gap；面板（订单簿）与成交流水开关各自独立生效
+          // 「订单簿面板」是右栏总开关：关闭即整体卸载右栏（含成交流水），
+          // K线图 flex 自动铺满释放的横向空间；重新开启时右栏恢复，图表自动缩回。
+          // 布局偏好由 saveOrderbookPrefs 持久化到后端，下次进入自动套用
+          orderbookPrefs?.panel ? (
+            // 右栏子块为原生元素，间距用 gap；成交流水从属于面板开关
             <>
-              {orderbookPrefs.panel && (
-                <OrderBookPanel symbol={currentSymbol.code} depthLevels={orderbookPrefs.depthLevels} />
-              )}
+              <OrderBookPanel symbol={currentSymbol.code} depthLevels={orderbookPrefs.depthLevels} />
               {orderbookPrefs.tradeTape && <TradeTape symbol={currentSymbol.code} />}
             </>
           ) : null

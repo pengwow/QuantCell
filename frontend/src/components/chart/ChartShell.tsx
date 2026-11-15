@@ -1336,6 +1336,17 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     };
   }, [chartId]);
 
+  // 右栏插槽显隐会瞬间改变 chart-area 宽度（关闭订单簿面板 → K线铺满；重新开启 → 缩回）。
+  // ResizeObserver 能兜住常规变化，但与 init 兜底同口径补一发双 rAF resize，
+  // 防止量到 flex 过渡态宽度后画布僵持留白；显隐两个方向都触发
+  const rightSlotVisible = rightPanelSlot != null;
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => chart.resize()));
+    return () => cancelAnimationFrame(raf);
+  }, [rightSlotVisible]);
+
   // 后端自定义指标重算的节流状态：连续喂数合并为一次请求；执行在途时新调用只挂 pending，
   // 完成后补一发尾沿，慢指标自动降频
   const backendRecalcStateRef = useRef<{ timer?: number; pending?: boolean; inFlight?: boolean }>({});

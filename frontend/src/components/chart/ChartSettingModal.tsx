@@ -161,9 +161,11 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
           </Flex>,
           <Flex key="ob-depthLevels" justify="space-between" align="center" gap={16}>
             <span>{t('chart.setting.depthLevels')}</span>
+            {/* 档位数只作用于订单簿面板，面板关闭时无从属展示位，禁用避免“调了没反应” */}
             <Select<OrderbookPrefs['depthLevels']>
               size="small"
               style={{ width: 80 }}
+              disabled={!orderbook.panel}
               value={orderbook.depthLevels}
               options={[{ value: 10, label: '10' }, { value: 20, label: '20' }]}
               onChange={(v) => onOrderbookChange({ depthLevels: v })}
@@ -176,7 +178,8 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
           </Flex>,
           <Flex key="ob-tradeTape" justify="space-between" align="center" gap={16}>
             <span>{t('chart.setting.tradeTape')}</span>
-            <Switch size="small" checked={orderbook.tradeTape}
+            {/* 成交流水渲染在右栏内、从属于面板开关，面板关闭时禁用避免“开了没反应” */}
+            <Switch size="small" checked={orderbook.tradeTape} disabled={!orderbook.panel}
               onChange={(v) => onOrderbookChange({ tradeTape: v })} />
           </Flex>,
           // 副图指标组：独立分组标题，不复用业务开关文案
