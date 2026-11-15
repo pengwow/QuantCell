@@ -87,6 +87,35 @@
   position: relative;
 }
 
+/* 主区右侧插槽：ChartShell 在 rightPanelSlot 非空时渲染的 aside
+   （/chart 页放订单簿面板 + 成交流水，回放页不传不渲染）。
+   尺寸与边框对齐 .indicator-sidebar 右栏先例 */
+.chart-orderbook-slot {
+  width: 280px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  /* 间距规则：子块均为原生元素（ob- 前缀 class），用 gap 组织 */
+  gap: 8px;
+  padding: 8px 0;
+  border-left: 1px solid var(--ant-color-border);
+  background-color: var(--ant-color-bg-container);
+  overflow-y: auto;
+  /* flex 列容器内防止子块把插槽撑出可视区（配合子块 min-height: 0 才能内部滚动） */
+  min-height: 0;
+}
+
+/* 订单簿/成交流水在右栏内按比例分配高度：mini book 三行区 + tape 两行 */
+.chart-orderbook-slot > .ob-book {
+  flex: 3;
+  min-height: 0;
+}
+
+.chart-orderbook-slot > .ob-tape {
+  flex: 2;
+  min-height: 0;
+}
+
 /* Spin 容器填满 */
 .chart-spin {
   flex: 1;
@@ -628,6 +657,14 @@
 }
 
 /* 响应式布局 */
+@media (max-width: 1280px) {
+  /* 窄桌面下收窄右栏插槽，避免 280px 固定宽挤压 K线主区 */
+  .chart-orderbook-slot {
+    width: 240px;
+    min-width: 240px;
+  }
+}
+
 @media (max-width: 768px) {
   /* 左侧绘图工具栏 - 小屏幕下收窄 */
   .drawing-toolbar-vertical {

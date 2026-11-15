@@ -31,6 +31,7 @@ from datetime import datetime
 
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
+from worker import ws_fill_events
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -42,6 +43,9 @@ class PaperTradeSync:
         self.worker_id = worker_id
         self._cursor = 0
         self._trades_cursor = 0
+        # 成交广播信封的 strategy_id：worker↔strategy 绑定运行期不变，
+        # 惰性解析一次并缓存（与 LiveTradeSync 同口径）
+        self._strategy_id_cache: str | None = None
         # fill_id → trade_id 映射：配对 trade 回填 realized_pnl 时定位
         # finalize fill（最后一根平仓 fill）行。仅覆盖本实例已拉取的区间，
         # 与 fills 游标同寿命（引擎重启则两者一起归零重放，见模块 ponytail 注释）
@@ -88,6 +92,19 @@ class PaperTradeSync:
                 # fills 游标的 fill_id，fail-fast 路径下游标与索引同步停摆
                 self._fill_index[fill["fill_id"]] = data["trade_id"]
                 inserted += 0 if exists else 1
+                if not exists:
+                    # 新落库的模拟成交同步广播到前端 WebSocket（旁路，失败不影响入账）
+                    inst = fill["instrument"]
+                    ws_fill_events.broadcast_strategy_fill(
+                        worker_id=str(self.worker_id),
+                        strategy_id=self._strategy_id(),
+                        # instrument 是 ("swap", base, quote, ...) tuple，取 base/quote
+                        symbol=f"{inst[1]}/{inst[2]}",
+                        side=str(fill.get("taker_side") or ""),  # 引擎侧 "Buy"/"Sell"，广播侧 lower
+                        price=float(fill.get("price") or 0.0),
+                        quantity=float(fill.get("quantity") or 0.0),
+                        ts=int(fill.get("timestamp_ns") or 0) // 1_000_000,  # ns → ms
+                    )
             else:
                 # for 无 break（全部成功）才推进游标；失败路径下轮重拉兜底
                 self._cursor += len(fills)
@@ -95,6 +112,12 @@ class PaperTradeSync:
         if inserted:
             logger.info(f"PaperTradeSync: worker_id={self.worker_id} 新落库 {inserted} 笔模拟成交")
         return inserted
+
+    def _strategy_id(self) -> str:
+        """worker↔strategy 绑定运行期不变：首次广播前解析一次并缓存。"""
+        if self._strategy_id_cache is None:
+            self._strategy_id_cache = ws_fill_events.resolve_worker_strategy_id(self.worker_id)
+        return self._strategy_id_cache
 
     # ── 配对盈亏回填（trades 游标） ───────────────────────────────
 

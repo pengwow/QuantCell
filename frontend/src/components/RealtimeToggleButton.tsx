@@ -9,7 +9,7 @@
  * - 订阅/取消订阅WebSocket K线数据
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Tooltip, App } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -29,15 +29,8 @@ interface RealtimeToggleButtonProps {
   onStatusChange?: (isRealtime: boolean) => void;
 }
 
-// localStorage key for realtime state
-const REALTIME_STATE_KEY = 'realtime_button_state';
-
-interface RealtimeState {
-  isRealtime: boolean;
-  symbol: string;
-  period: string;
-  timestamp: number;
-}
+// localStorage key：仅本组件（图表页实时按钮）读写，存用户显式开启意图
+const REALTIME_STATE_KEY = 'realtime_user_enabled';
 
 export function RealtimeToggleButton({
   symbol,
@@ -48,23 +41,13 @@ export function RealtimeToggleButton({
 }: RealtimeToggleButtonProps) {
   const { message } = App.useApp();
   const { t } = useTranslation();
-  // 从 localStorage 恢复状态
+  // 从 localStorage 恢复用户意图：只存一个布尔，不绑定品种/周期、不设过期窗口，
+  // 刷新、切菜单再切回、换品种周期回来都应保持上次的状态
   const getInitialState = (): boolean => {
     try {
-      const savedState = localStorage.getItem(REALTIME_STATE_KEY);
-      if (savedState) {
-        const state: RealtimeState = JSON.parse(savedState);
-        // 检查状态是否在5分钟内（避免过期状态）
-        const isRecent = Date.now() - state.timestamp < 5 * 60 * 1000;
-        // 检查是否是相同的交易对和周期
-        const isSameSymbol = state.symbol === symbol;
-        const isSamePeriod = state.period === period;
-
-        if (isRecent && isSameSymbol && isSamePeriod && state.isRealtime) {
-          console.log('[RealtimeToggleButton] Restored realtime state from localStorage');
-          return true;
-        }
-      }
+      const saved = localStorage.getItem(REALTIME_STATE_KEY);
+      if (saved === 'true') return true;
+      if (saved === 'false') return false;
     } catch (e) {
       console.error('[RealtimeToggleButton] Failed to restore state:', e);
     }
@@ -81,6 +64,8 @@ export function RealtimeToggleButton({
   const [hasRestored, setHasRestored] = useState(false);
   // 操作锁，防止快速点击
   const [isProcessing, setIsProcessing] = useState(false);
+  // 上一条已订阅频道：切品种/周期时用于退订旧频道（effect 闭包里的 klineChannel 是变更后的新值）
+  const prevChannelRef = useRef('');
 
   // 构建K线频道名称
   const klineChannel = `${symbol}@kline_${period}`;
@@ -88,13 +73,7 @@ export function RealtimeToggleButton({
   // 保存状态到 localStorage
   const saveState = (realtime: boolean) => {
     try {
-      const state: RealtimeState = {
-        isRealtime: realtime,
-        symbol,
-        period,
-        timestamp: Date.now(),
-      };
-      localStorage.setItem(REALTIME_STATE_KEY, JSON.stringify(state));
+      localStorage.setItem(REALTIME_STATE_KEY, realtime ? 'true' : 'false');
     } catch (e) {
       console.error('[RealtimeToggleButton] Failed to save state:', e);
     }
@@ -116,7 +95,8 @@ export function RealtimeToggleButton({
   /**
    * 启动实时数据更新
    */
-  const startRealtime = async (silent: boolean = false) => {
+  // 返回是否成功启动：挂载恢复 / 切频道重订路径据此回退按钮状态，保证按钮与实际数据拉取一致
+  const startRealtime = async (silent: boolean = false): Promise<boolean> => {
     setLoading(true);
     try {
       console.log('[RealtimeToggleButton] Starting realtime data...');
@@ -146,7 +126,7 @@ export function RealtimeToggleButton({
 
         if (!startResult.success) {
           if (!silent) message.error(t('rtb_msg_start_engine_failed'));
-          return;
+          return false;
         }
       } else {
         console.log('[RealtimeToggleButton] Engine already running');
@@ -160,7 +140,7 @@ export function RealtimeToggleButton({
 
         if (!connectResult.success) {
           if (!silent) message.error(t('rtb_msg_connect_exchange_failed'));
-          return;
+          return false;
         }
       } else {
         console.log('[RealtimeToggleButton] Exchange already connected');
@@ -173,7 +153,7 @@ export function RealtimeToggleButton({
 
       if (!subscribeResult.success) {
         if (!silent) message.error(t('rtb_msg_subscribe_failed'));
-        return;
+        return false;
       }
 
       // 5. 订阅WebSocket消息（先注册监听器）
@@ -186,6 +166,8 @@ export function RealtimeToggleButton({
       // 6. 更新状态
       setIsRealtime(true);
       setIsSubscribed(true);
+      // 记录已订阅频道：切品种/周期时按此退订旧频道（effect 闭包里拿到的已是新频道）
+      prevChannelRef.current = klineChannel;
       saveState(true); // 保存状态到 localStorage
 
       // 只在非静默模式下显示提示
@@ -197,11 +179,13 @@ export function RealtimeToggleButton({
       if (onStatusChange) {
         onStatusChange(true);
       }
+      return true;
     } catch (error) {
       console.error('[RealtimeToggleButton] Failed to start realtime data:', error);
       if (!silent) {
         message.error(t('rtb_msg_start_failed', { msg: error instanceof Error ? error.message : t('rtb_msg_check_network') }));
       }
+      return false;
     } finally {
       setLoading(false);
     }
@@ -309,17 +293,27 @@ export function RealtimeToggleButton({
    */
   useEffect(() => {
     // 如果需要恢复实时连接（从localStorage恢复的状态）
+    let restoreTimer: ReturnType<typeof setTimeout> | undefined;
     if (isRealtime && !hasRestored) {
       console.log('[RealtimeToggleButton] Detected pending realtime connection restore...');
       setHasRestored(true);
-      // 延迟恢复，等待组件完全挂载
-      setTimeout(() => {
-        startRealtime(true); // 传入 true 表示静默模式，不显示提示
+      // 延迟恢复，等待组件完全挂载；恢复失败时回退按钮状态，保证按钮与实际数据拉取一致
+      restoreTimer = setTimeout(() => {
+        startRealtime(true) // 传入 true 表示静默模式，不显示提示
+          .then((ok) => {
+            if (!ok) {
+              setIsRealtime(false);
+              setIsSubscribed(false);
+              saveState(false);
+              onStatusChange?.(false);
+            }
+          });
       }, 500);
     }
 
     // 组件卸载时清理
     return () => {
+      if (restoreTimer) clearTimeout(restoreTimer);
       if (isSubscribed) {
         console.log('[RealtimeToggleButton] Component unmounting, cleaning up subscription...');
         // 取消订阅但不停止引擎（避免影响其他页面）
@@ -335,23 +329,32 @@ export function RealtimeToggleButton({
    * 当交易对或周期变化时，重新订阅
    */
   useEffect(() => {
-    if (isRealtime && isSubscribed) {
+    // 退订必须用 ref 记录的旧频道：effect 运行时闭包里的 klineChannel 已是变更后的新值
+    const prevChannel = prevChannelRef.current;
+    prevChannelRef.current = klineChannel;
+    if (isRealtime && isSubscribed && prevChannel && prevChannel !== klineChannel) {
       console.log('[RealtimeToggleButton] Symbol/period changed, resubscribing...');
-      console.log('[RealtimeToggleButton] Old channel:', klineChannel);
+      console.log('[RealtimeToggleButton] Old channel:', prevChannel, '-> New channel:', klineChannel);
 
       // 先取消旧订阅
-      realtimeApi.unsubscribeKlineChannels([klineChannel]).catch((error) => {
+      realtimeApi.unsubscribeKlineChannels([prevChannel]).catch((error) => {
         console.error('[RealtimeToggleButton] Failed to unsubscribe old channel:', error);
       });
 
-      // 再订阅新频道
-      const newChannel = `${symbol}@kline_${period}`;
-      console.log('[RealtimeToggleButton] New channel:', newChannel);
-
-      realtimeApi.subscribeKlineChannels([newChannel]).then((result) => {
-        console.log('[RealtimeToggleButton] New subscribe result:', result);
+      // 再订阅新频道；失败则回退状态，保证按钮与实际数据拉取一致
+      realtimeApi.subscribeKlineChannels([klineChannel]).then((result) => {
+        if (isRealtime && !result.success) {
+          setIsRealtime(false);
+          setIsSubscribed(false);
+          saveState(false);
+          onStatusChange?.(false);
+        }
       }).catch((error) => {
         console.error('[RealtimeToggleButton] Failed to subscribe new channel:', error);
+        setIsRealtime(false);
+        setIsSubscribed(false);
+        saveState(false);
+        onStatusChange?.(false);
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行

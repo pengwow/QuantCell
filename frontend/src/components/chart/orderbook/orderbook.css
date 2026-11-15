@@ -1,0 +1,112 @@
+/*
+ * 订单簿 & 成交流水样式（ob- 前缀避免全局污染）
+ * 涨跌色对齐 src/utils/colors.ts 的 QUANT_COLORS：positive #1a7f37 / negative #d1242f
+ * （现场无 --qc-* CSS 变量，直接用实值）
+ */
+
+.ob-book,
+.ob-tape {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  color: #9ca3af; /* QUANT_COLORS.chartMark，表头弱化文本 */
+  font-size: 11px;
+}
+
+.ob-rows {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ob-row {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 8px;
+  line-height: 18px;
+}
+
+/* 深度条：右对齐，叠在文字下层 */
+.ob-bar {
+  position: absolute;
+  right: 0;
+  top: 1px;
+  bottom: 1px;
+  max-width: 100%;
+  z-index: 0;
+}
+
+.ob-ask .ob-bar {
+  background: rgba(209, 36, 47, 0.16); /* negative #d1242f 半透明 */
+}
+
+.ob-bid .ob-bar {
+  background: rgba(26, 127, 55, 0.16); /* positive #1a7f37 半透明 */
+}
+
+.ob-price,
+.ob-qty,
+.ob-time {
+  position: relative;
+  z-index: 1;
+}
+
+.ob-price.is-up {
+  color: #1a7f37;
+}
+
+.ob-price.is-down {
+  color: #d1242f;
+}
+
+.ob-qty {
+  color: #6a737d;
+  margin-left: auto;
+  padding-left: 12px;
+}
+
+.ob-time {
+  color: #9ca3af;
+  padding-left: 8px;
+  min-width: 56px;
+  text-align: right;
+}
+
+/* 中间价 + 价差行 */
+.ob-mid {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-top: 1px solid rgba(110, 118, 129, 0.2);
+  border-bottom: 1px solid rgba(110, 118, 129, 0.2);
+}
+
+.ob-mid-value {
+  font-weight: 600;
+}
+
+.ob-mid-label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.ob-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: #9ca3af;
+  font-size: 12px;
+}

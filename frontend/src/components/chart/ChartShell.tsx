@@ -57,7 +57,13 @@ import {
   saveIndicatorParams,
   savePriceStyleValue,
   saveUiPrefs,
+  type OrderbookPrefs,
 } from '../../services/chartPreferences';
+import { CVD_INDICATOR, FUNDING_INDICATOR, OI_INDICATOR, oiIntervalForPeriod, periodToMs, setFundingHistory, setOiHistory } from './orderbook/extraIndicators';
+import { alignToBar, clearFillMarkers, createFillMarker, type FillPoint } from './orderbook/fillMarkers';
+import { registerDepthProfileOverlay, setDepthProfileSymbol, updateDepthSnapshot, type DepthProfileSnapshot } from './orderbook/depthOverlay';
+import { marketdataApi } from '@/api/marketdataApi';
+import wsService from '@/services/websocketService';
 import DrawingBar from '../DrawingBar';
 import { IndicatorParamModal } from '../IndicatorParamModal';
 // 样式沿用 ChartPage 的图表布局 CSS（chart-page/period-bar/hover 工具条等类名）
@@ -155,13 +161,30 @@ export interface ChartShellProps {
   indicatorScope: IndicatorScope;
   loading?: boolean;
   error?: string | null;
+  /** 订单簿设置弹窗三件套（仅 /chart 页传入；回放页不传即隐藏弹窗中的订单簿分组） */
+  orderbookModalProps?: {
+    orderbook: OrderbookPrefs | null;
+    onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
+    backtestOptions?: { label: string; value: string }[];
+  };
+  /**
+   * 回放成交点（页面接线：backtestApi.getBacktestDetail().fills_detail 转换后传入；
+   * 壳内先删后加幂等重画）。缺省不绘制回放标记
+   */
+  backtestFills?: FillPoint[];
+  /** 主区右侧插槽（/chart 页放订单簿面板 + 成交流水；回放页不传不渲染） */
+  rightPanelSlot?: React.ReactNode;
+  /** 最新盘口深度快照（页面 WS listener 喂入，驱动深度轮廓 overlay；null 不更新） */
+  depthData?: DepthProfileSnapshot | null;
 }
 
-// 信号标注 overlay 的扩展数据（由 createOverlay 传入）
+// 信号标注 overlay 的扩展数据（由 createOverlay 传入，亦可由页面 props 提供成交标记）
 interface SignalExtendData {
   text?: string;
   color?: string;
   side?: string;
+  source?: 'backtest' | 'live';
+  quantity?: number;
 }
 
 // 信号标注点坐标（在基础坐标上附加 extendData）
@@ -212,12 +235,15 @@ interface SignalPoint {
 }
 
 // 创建 signalTag 覆盖物图形：矩形标签 + 文字 + 圆点 + 连线
-const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ coordinates }: OverlayCreateFiguresCallbackParams<unknown>) => {
+const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ overlay, coordinates }: OverlayCreateFiguresCallbackParams<unknown>) => {
   const coord0 = coordinates[0];
   const coord1 = coordinates[1] as SignalTagCoordinate;
   if (!coord0 || !coord1) return [] as OverlayFigure[];
 
-  const { extendData = {} } = coord1;
+  // v10 契约：coordinates 只有 {x,y}，不携带点级 extendData —— 绘制数据统一读 overlay 级
+  // extendData（fillMarkers 成交标记与原有 signal 标注均以 OverlayCreate.extendData 传入）；
+  // 保留 coord1 点级读取兼容旧扩展路径
+  const extendData = ((overlay?.extendData as SignalExtendData | undefined) ?? coord1.extendData ?? {}) as SignalExtendData;
   const text = extendData.text || '';
   const color = extendData.color || QUANT_COLORS.info;
   const side = extendData.side || 'buy';
@@ -308,6 +334,10 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   indicatorScope,
   loading = false,
   error = null,
+  orderbookModalProps,
+  backtestFills,
+  rightPanelSlot,
+  depthData,
 }, ref) => {
   const { message } = App.useApp();
   // ponytail: klinecharts 独立于 antd theme，需要从 token 派生主题感知的样式值
@@ -1003,6 +1033,23 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       console.warn('[Chart] 注册signalTag overlay失败:', e);
     }
 
+    // 注册深度轮廓 overlay 模板（幂等；实例的挂/卸由下方 depthProfile 开关 effect 驱动）
+    try {
+      registerDepthProfileOverlay();
+    } catch (e) {
+      console.warn('[Chart] Failed to register depthProfile overlay:', e);
+    }
+
+    // 注册 OI/FUNDING/CVD 副图指标模板（重名注册直接覆盖模板表，幂等；
+    // 实例的创建/移除由下方 indicators 开关 effect 驱动）
+    [OI_INDICATOR, FUNDING_INDICATOR, CVD_INDICATOR].forEach((tpl) => {
+      try {
+        registerIndicator(tpl);
+      } catch (e) {
+        console.warn('[Chart] Failed to register sub indicator:', tpl.name, e);
+      }
+    });
+
     if (chartRef.current && !chartInstanceRef.current) {
       const chart = init(chartId, {
         locale: 'zh-CN',
@@ -1120,6 +1167,149 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     });
   }, [symbol.code, symbol.name, currentPeriod]);
 
+  // ===== OI/FUNDING/CVD 副图指标：开关接线 + 历史数据（仅 /chart 页；回放页 orderbookPrefs 为 null 不生效）=====
+  const orderbookPrefs = orderbookModalProps?.orderbook ?? null;
+  const oiOn = orderbookPrefs?.indicators?.oi ?? false;
+  const fundingOn = orderbookPrefs?.indicators?.funding ?? false;
+  const cvdOn = orderbookPrefs?.indicators?.cvd ?? false;
+
+  // 开关 → 指标实例的创建/移除。createIndicator 无显式 paneId 时每次调用都新建独立副图 pane，
+  // 所以按名自查已在图上的实例（同 VOL 的幂等防御），避免开关抖动重复开 pane
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const wantOn: Record<string, boolean> = { OI: oiOn, FUNDING: fundingOn, CVD: cvdOn };
+    const existing = new Set((chart.getIndicators() || []).map((ind) => ind.name));
+    for (const name of ['OI', 'FUNDING', 'CVD'] as const) {
+      try {
+        if (wantOn[name] && !existing.has(name)) {
+          chart.createIndicator({ name });
+        } else if (!wantOn[name] && existing.has(name)) {
+          // v10 IndicatorFilter 字段为 paneId/id/name（name 过滤删除全表同名实例，pane 空后图随删）
+          chart.removeIndicator({ name });
+        }
+      } catch (e) {
+        console.warn('[Chart] Failed to toggle sub indicator:', name, e);
+      }
+    }
+  }, [oiOn, fundingOn, cvdOn]);
+
+  // OI 历史：interval 取 ≥ K 线周期的最小档；无数据/拉取失败（如现货无 OI）时副图留空轴，
+  // 降级不打断页面。历史到位后 overrideIndicator 变更 extendData 触发该实例重算
+  //（calc 闭包实时读 extraIndicators 模块缓存，同自定义指标缓存层思路）
+  useEffect(() => {
+    if (!oiOn) return;
+    let cancelled = false;
+    marketdataApi
+      .getOiHistory(symbol.code, oiIntervalForPeriod(currentPeriod))
+      .then((rows) => {
+        if (cancelled || rows.length === 0) return;
+        setOiHistory(rows);
+        chartInstanceRef.current?.overrideIndicator({ name: 'OI', extendData: { rev: Date.now() } });
+      })
+      .catch((e) => {
+        console.warn('[Chart] OI history fetch failed, empty pane:', symbol.code, e);
+      });
+    return () => { cancelled = true; };
+  }, [oiOn, symbol.code, currentPeriod]);
+
+  // FUNDING 历史：固定 8h 结算序列（无 interval），limit 42 ≈ 两周
+  useEffect(() => {
+    if (!fundingOn) return;
+    let cancelled = false;
+    marketdataApi
+      .getFundingHistory(symbol.code, 42)
+      .then((rows) => {
+        if (cancelled || rows.length === 0) return;
+        setFundingHistory(rows);
+        chartInstanceRef.current?.overrideIndicator({ name: 'FUNDING', extendData: { rev: Date.now() } });
+      })
+      .catch((e) => {
+        console.warn('[Chart] Funding history fetch failed, empty pane:', symbol.code, e);
+      });
+    return () => { cancelled = true; };
+  }, [fundingOn, symbol.code]);
+
+  // CVD 纯本地累计，无外部数据，创建实例即可
+
+  // ===== 策略成交标记：回放（backtestFills props）+ 实时（ws 'strategy.fill'）=====
+  // 回放：props 变化先删后加全量重画（幂等）；仅 source === 'backtest' 增删，
+  // 与实时标记、原有下单信号标注互不干扰
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    clearFillMarkers(chart, 'backtest');
+    for (const fill of backtestFills ?? []) createFillMarker(chart, fill);
+  }, [backtestFills]);
+
+  // 实时：订阅 topic 才会收流（listener 收 message.data 本体：{symbol, side, price, quantity, ts}）。
+  // 收放对称：离开组件/关开关时退订（当前仅本组件消费该 topic）
+  const liveMarkersOn = orderbookPrefs?.tradeMarkers?.live ?? false;
+
+  // symbol 切换时清掉旧品种的 live 标记（回放标记由 props 驱动，无需处理）
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (chart && liveMarkersOn) clearFillMarkers(chart, 'live');
+  }, [liveMarkersOn, symbol.code]);
+
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart || !liveMarkersOn) return;
+    if (!wsService.getConnected()) wsService.connect();
+    wsService.subscribe('strategy.fill');
+    const handleFill = (data: unknown) => {
+      const f = data as Partial<{ symbol: string; side: string; price: number; quantity: number; ts: number }> | null;
+      if (!f || typeof f.ts !== 'number' || typeof f.price !== 'number') return;
+      // 后端推流的 symbol 已规范化为 BTCUSDT 形态，与页面 symbol.code 大小写不敏感比对
+      if ((f.symbol ?? '').toUpperCase() !== symbol.code.toUpperCase()) return;
+      const liveChart = chartInstanceRef.current;
+      if (!liveChart) return;
+      // ts 对齐到所属 bar 起点（周K等大周期时间戳网格更明显）
+      createFillMarker(liveChart, {
+        timestamp: alignToBar(f.ts, periodToMs(currentPeriod)),
+        side: f.side === 'sell' ? 'sell' : 'buy',
+        price: f.price,
+        quantity: typeof f.quantity === 'number' ? f.quantity : 0,
+        source: 'live',
+      });
+    };
+    wsService.on('strategy.fill', handleFill);
+    return () => {
+      wsService.off('strategy.fill', handleFill);
+      wsService.unsubscribe('strategy.fill');
+    };
+  }, [liveMarkersOn, symbol.code, currentPeriod]);
+
+  // ===== 深度轮廓（depthProfile）：数据由页面喂数（depthData），壳负责品种对齐与 overlay 挂载 =====
+  // 开关派生自 orderbookPrefs（回放页为 null 不生效）
+  const depthProfileOn = orderbookPrefs?.depthProfile ?? false;
+
+  // 品种对齐：overlay 内部会忽略 symbol 不匹配的快照，防止切品种串数据
+  useEffect(() => {
+    setDepthProfileSymbol(symbol.code);
+  }, [symbol.code]);
+
+  // 页面喂入的最新快照写入模块缓存，下一次画布绘制即生效
+  useEffect(() => {
+    if (depthData) updateDepthSnapshot(depthData);
+  }, [depthData]);
+
+  // 开关 → overlay 实例挂/卸（按名自查幂等，同副图指标先例；依赖含 chartId 因 init 重建图表后需重新挂载）
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    try {
+      const existing = chart.getOverlays({ name: 'depthProfile' }) || [];
+      if (depthProfileOn && existing.length === 0) {
+        chart.createOverlay({ name: 'depthProfile' });
+      } else if (!depthProfileOn && existing.length > 0) {
+        for (const overlay of existing) chart.removeOverlay({ id: overlay.id });
+      }
+    } catch (e) {
+      console.warn('[Chart] Failed to toggle depth profile overlay:', e);
+    }
+  }, [depthProfileOn, chartId]);
+
   // 监听图表容器大小变化
   useEffect(() => {
     const chartElement = document.getElementById(chartId);
@@ -1145,6 +1335,17 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       window.removeEventListener('resize', handleResize);
     };
   }, [chartId]);
+
+  // 右栏插槽显隐会瞬间改变 chart-area 宽度（关闭订单簿面板 → K线铺满；重新开启 → 缩回）。
+  // ResizeObserver 能兜住常规变化，但与 init 兜底同口径补一发双 rAF resize，
+  // 防止量到 flex 过渡态宽度后画布僵持留白；显隐两个方向都触发
+  const rightSlotVisible = rightPanelSlot != null;
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => chart.resize()));
+    return () => cancelAnimationFrame(raf);
+  }, [rightSlotVisible]);
 
   // 后端自定义指标重算的节流状态：连续喂数合并为一次请求；执行在途时新调用只挂 pending，
   // 完成后补一发尾沿，慢指标自动降频
@@ -1248,6 +1449,9 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
           getScreenshotUrl={getScreenshotUrl}
           fullscreenTarget={fullscreenTargetRef}
           indicatorScope={indicatorScope}
+          orderbook={orderbookModalProps?.orderbook}
+          onOrderbookChange={orderbookModalProps?.onOrderbookChange}
+          backtestOptions={orderbookModalProps?.backtestOptions}
         />
 
         {/* 主图表区域 - 包含常驻的左侧绘图工具栏 */}
@@ -1331,6 +1535,11 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
               </div>
             )}
           </div>
+
+          {/* 主区右侧插槽：订单簿面板/成交流水（仅 /chart 页传入；回放页不传不渲染） */}
+          {rightPanelSlot != null && (
+            <aside className="chart-orderbook-slot">{rightPanelSlot}</aside>
+          )}
         </div>
 
         {/* 指标参数编辑弹窗（图例 hover 工具条的 ⚙ 触发） */}

@@ -7,6 +7,8 @@ Binance WebSocket客户端
 
 import asyncio
 import json
+import os
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -14,12 +16,16 @@ from binance import AsyncClient
 from binance.ws.streams import BinanceSocketManager
 
 from utils.logger import LogType, get_logger
+from utils.proxy import resolve_proxy
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from realtime.abstract_client import AbstractExchangeClient
 
 from .config import BinanceConfig
+
+# 排障插桩开关：QC_WS_DEBUG=1 时输出每轮接收循环的耗时与结果类型（默认关闭）
+_WS_DEBUG = os.environ.get("QC_WS_DEBUG") == "1"
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -62,6 +68,11 @@ class BinanceWebSocketClient(AbstractExchangeClient):
         self._active_sockets: dict[str, Any] = {}
         self._callbacks: list[Callable[[dict[str, Any]], None]] = []
         self._receive_task: asyncio.Task | None = None
+        # 断流自愈待重试表：channel -> [下次重试时刻(monotonic), 已尝试次数]。
+        # python-binance 的 ReconnectingWebsocket 读循环在连续 5 次重连失败后会
+        # 永久退出（之后 recv() 抛 ReadLoopClosed），仅依赖其内置自愈不够；
+        # 曾导致 BTCUSDT@aggTrade 死后无限期断流（trades 广播全灭）。
+        self._resubscribe_due: dict[str, list[float]] = {}
 
         # 重连相关
         self._reconnect_enabled = True
@@ -85,12 +96,17 @@ class BinanceWebSocketClient(AbstractExchangeClient):
             if self._connected:
                 await self.disconnect()
 
-            # 创建异步客户端
+            # 本机直连 binance 域名不可达，REST 与 WS 统一走项目代理解析。
+            # python-binance 默认超时 10s，testnet REST 偶发 >10s（2026-11-15 21:00 实测
+            # 连接耗时 10.088s 报空 TimeoutError），放宽到 30s 吸收抖动。
+            proxy = self.config.get("proxy_url") or resolve_proxy()
             self._client = await AsyncClient.create(
                 api_key=self.config.get("api_key"),
                 api_secret=self.config.get("api_secret"),
                 testnet=self.config.get("testnet", True),
                 tld=self.config.get("tld", "com"),
+                https_proxy=proxy,
+                requests_params={"timeout": 30},
             )
 
             # 创建Socket管理器
@@ -217,9 +233,13 @@ class BinanceWebSocketClient(AbstractExchangeClient):
             bool: 订阅是否成功
         """
         try:
+            # 连接丢失时现场重连：engine/ws_manager 的 connected 标志可能滞后于
+            # 真实链路（断线重连耗尽后无人回写），订阅请求不能依赖上游标志
             if not self._connected or not self._socket_manager:
-                logger.error("WebSocket not connected")
-                return False
+                logger.warning("WebSocket not connected, attempting reconnect before subscribe")
+                if not await self.connect():
+                    logger.error("WebSocket not connected and reconnect failed")
+                    return False
 
             for channel in channels:
                 try:
@@ -230,17 +250,38 @@ class BinanceWebSocketClient(AbstractExchangeClient):
 
                     # 解析频道名
                     if "@" in channel:
-                        symbol, stream_type = channel.split("@", 1)
+                        symbol_raw, stream_type = channel.split("@", 1)
                     else:
                         logger.warning(f"Invalid channel format: {channel}")
                         continue
+                    # symbol 必须清洗为币安流名格式（ETHUSDT）：带分隔符（如 ETH/USDT）
+                    # 会拼出 /ws/eth/usdt@… 的斜杠路径，服务端静默不推流
+                    symbol = symbol_raw.replace("/", "").replace(":", "").upper()
+
+                    # depth 系流名先做一次解析：无层数（depth、depth@100ms）是全量 diff 流，
+                    # 带层数（depth20、depth20@100ms）是部分订单簿快照流
+                    depth_match = re.match(r"^depth(\d+)?(?:@(\d+)ms)?$", stream_type)
 
                     # 根据类型创建对应的socket
                     if stream_type.startswith("kline_"):
                         interval = stream_type.split("_", 1)[1]
                         socket = self._socket_manager.kline_socket(symbol=symbol, interval=interval)
-                    elif stream_type == "depth":
-                        socket = self._socket_manager.depth_socket(symbol=symbol)
+                    elif depth_match is not None:
+                        if depth_match.group(1):
+                            # 快照流：@Nms 后缀透传刷新率——不传默认 1s 推一条（订单簿慢的根因），
+                            # depth_socket 仅支持 None/0/100，故仅 100ms 映射为 interval=100，
+                            # 其余后缀（如显式 1000ms）按默认 1s
+                            interval_ms = int(depth_match.group(2)) if depth_match.group(2) else None
+                            update_interval = 100 if interval_ms == 100 else None
+                            socket = self._socket_manager.depth_socket(
+                                symbol=symbol, depth=depth_match.group(1), interval=update_interval
+                            )
+                        else:
+                            # 全量 diff 增量流，保持旧行为
+                            socket = self._socket_manager.depth_socket(symbol=symbol)
+                    elif stream_type == "aggTrade":
+                        # 聚合成交流（python-binance 方法名为 aggtrade_socket）
+                        socket = self._socket_manager.aggtrade_socket(symbol=symbol)
                     elif stream_type == "trade":
                         socket = self._socket_manager.trade_socket(symbol=symbol)
                     elif stream_type == "ticker":
@@ -326,24 +367,37 @@ class BinanceWebSocketClient(AbstractExchangeClient):
         """
         consecutive_errors = 0
         max_consecutive_errors = 5
+        # 每轮每 socket 最多排空的缓冲消息数：首条到达后连读已缓冲报文，
+        # 避免旧实现每轮只搬 1 条把 @100ms 订单簿（10Hz）等高频流拖成秒级
+        max_drain_per_round = 20
 
         async def receive_from_socket(channel: str, socket):
-            """从单个socket接收消息"""
+            """从单个socket接收本轮已到达的消息（最多 max_drain_per_round 条）"""
             try:
                 # 检查socket是否已关闭
                 if hasattr(socket, "_conn") and socket._conn is None:
                     logger.warning(f"Socket {channel} connection is None, removing")
                     return {"type": "socket_closed", "channel": channel}
 
-                # 使用asyncio.wait_for设置超时
+                messages = []
+                # 首条消息等待 0.1s：静默 socket 靠超时让路，活跃 socket 立即返回
                 msg = await asyncio.wait_for(socket.recv(), timeout=0.1)
 
-                if msg:
-                    # 解析消息
+                # 后续消息用 1ms 短超时当非阻塞探询，只排空已缓冲的报文
+                while msg:
                     data = json.loads(msg) if isinstance(msg, str) else msg
                     # 添加频道信息
                     data["channel"] = channel
-                    return {"type": "message", "data": data}
+                    messages.append(data)
+                    if len(messages) >= max_drain_per_round:
+                        break
+                    try:
+                        msg = await asyncio.wait_for(socket.recv(), timeout=0.001)
+                    except TimeoutError:
+                        break
+
+                if messages:
+                    return {"type": "messages", "data_list": messages}
 
             except TimeoutError:
                 # 超时是正常的
@@ -369,6 +423,11 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                 try:
                     has_message = False
 
+                    # 断流自愈：每轮先处理到期的重订阅（指数退避 2s→4s→…→30s 封顶）
+                    await self._run_resubscribe_due()
+                    if _WS_DEBUG:
+                        _round_start = time.perf_counter()
+
                     # 检查是否需要发送ping保持连接
                     current_time = time.time()
                     if current_time - self._last_ping_time > self._ping_interval:
@@ -393,22 +452,28 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                             if result is None:
                                 continue
 
-                            if result["type"] == "message":
+                            if result["type"] == "messages":
                                 has_message = True
                                 consecutive_errors = 0
-                                data = result["data"]
-
                                 # 调用回调（使用create_task避免阻塞）
-                                for callback in self._callbacks:
-                                    try:
-                                        callback(data)
-                                    except Exception as e:
-                                        logger.error(f"[KlinePush] 回调函数执行失败: {e}")
+                                for data in result["data_list"]:
+                                    for callback in self._callbacks:
+                                        try:
+                                            callback(data)
+                                        except Exception as e:
+                                            logger.error(f"[KlinePush] 回调函数执行失败: {e}")
 
                             elif result["type"] == "socket_closed":
                                 channel = result["channel"]
                                 self._active_sockets.pop(channel, None)
                                 consecutive_errors += 1
+                                # 登记 1 秒后重试：仅从活跃表移除会让频道无限期断流
+                                # （全局 _reconnect 需连续 5 轮错误，而健康流消息会
+                                # 持续清零计数器，实际永远触发不了）
+                                if channel in self.subscribed_channels:
+                                    next_due = time.monotonic() + 1.0
+                                    self._resubscribe_due.setdefault(channel, [next_due, 0])
+                                    logger.warning(f"Socket {channel} closed, resubscribe scheduled")
 
                             elif result["type"] == "error":
                                 consecutive_errors += 1
@@ -430,6 +495,20 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                     # 短暂休眠避免CPU占用过高（如果没有消息，减少CPU使用）
                     await asyncio.sleep(0.001 if has_message else 0.01)
 
+                    if _WS_DEBUG:
+                        _dur = (time.perf_counter() - _round_start) * 1000
+                        _parts = []
+                        for _chan, _res in zip(self._active_sockets.keys(), results, strict=False):
+                            if isinstance(_res, Exception):
+                                _parts.append(f"{_chan}:EXC:{type(_res).__name__}")
+                            elif _res is None:
+                                _parts.append(f"{_chan}:-")
+                            elif _res["type"] == "messages":
+                                _parts.append(f"{_chan}x{len(_res['data_list'])}")
+                            else:
+                                _parts.append(f"{_chan}:{_res['type']}")
+                        logger.info(f"[WSDebug] round={_dur:.1f}ms {' '.join(_parts)}")
+
                 except Exception as e:
                     logger.error(f"Error in message receive loop: {e}")
                     consecutive_errors += 1
@@ -442,12 +521,44 @@ class BinanceWebSocketClient(AbstractExchangeClient):
         finally:
             logger.info("Message receive task ended")
 
+    async def _run_resubscribe_due(self) -> None:
+        """断流自愈：重试登记在 _resubscribe_due 里的频道（指数退避）。
+
+        重订阅成功判定 = channel 回到 _active_sockets（subscribe 内部对连接
+        失败的频道不会登记）；失败则按 2^n 秒退避（封顶 30s）继续排队。
+        用户显式退订（已从 subscribed_channels 移除）的频道直接剔除，不再自愈。
+        """
+        if not self._resubscribe_due:
+            return
+        now = time.monotonic()
+        for channel, state in list(self._resubscribe_due.items()):
+            due, attempts = state
+            if now < due:
+                continue
+            if channel not in self.subscribed_channels:
+                # 用户已显式退订，停止自愈
+                self._resubscribe_due.pop(channel, None)
+                continue
+            try:
+                await self.subscribe([channel])
+            except Exception as e:
+                logger.warning(f"Resubscribe {channel} attempt {attempts + 1} error: {e}")
+            if channel in self._active_sockets:
+                self._resubscribe_due.pop(channel, None)
+                logger.info(f"Socket {channel} resubscribed successfully")
+            else:
+                wait = min(2.0**attempts, 30.0)
+                self._resubscribe_due[channel] = [now + wait, attempts + 1]
+                logger.warning(f"Resubscribe {channel} attempt {attempts + 1} failed, retry in {wait:.0f}s")
+
+    @property
     def is_connected(self) -> bool:
         """
         检查是否已连接
 
-        Returns:
-            bool: 是否已连接
+        必须是 property（对齐抽象基类契约）：websocket_manager 的断线监控与
+        状态上报以属性方式访问 `client.is_connected`，若定义为普通方法，
+        拿到的是恒为真值的 bound method，断线检测将永远失效。
         """
         return self._connected and self._client is not None
 

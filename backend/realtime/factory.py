@@ -55,11 +55,13 @@ class ExchangeClientFactory:
             if exchange_name == "binance":
                 from exchange.binance import BinanceConfig
 
-                # 将字典转换为BinanceConfig对象
+                # 将字典转换为BinanceConfig对象（proxy_url 显式注入通道，未配置时
+                # websocket_client 内部走 utils.proxy.resolve_proxy 兜底）
                 binance_config = BinanceConfig(
                     api_key=config.get("api_key", ""),
                     api_secret=config.get("api_secret", ""),
                     testnet=config.get("testnet", True),
+                    proxy_url=config.get("proxy_url"),
                 )
                 client = client_class(binance_config)
             else:

@@ -30,6 +30,7 @@ from exchange.binance.exchange import BinanceExchange
 from utils.config_manager import get_flag
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
+from worker import ws_fill_events
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -130,6 +131,10 @@ class LiveTradeSync:
         self.worker_id = worker_id
         self.symbol = symbol
 
+        # 成交广播信封的 strategy_id：worker↔strategy 绑定运行期不变，
+        # 惰性解析一次并缓存（构造期不查库，纯逻辑测试无需 DB 也能构造）
+        self._strategy_id_cache: str | None = None
+
         # v1 边界仅 Binance USDT-M 永续；trading_mode="future" 使 ccxt defaultType
         # 指向 fapi，testnet=True 复用 BinanceExchange 手工覆盖端点的既有逻辑
         self.exchange = BinanceExchange(
@@ -222,6 +227,17 @@ class LiveTradeSync:
                     max_seen_id = str(t["id"])
                 if row is not None:
                     inserted += 1
+                    # 新落库的成交同步广播到前端 WebSocket（旁路，失败不影响入账）
+                    ws_fill_events.broadcast_strategy_fill(
+                        worker_id=str(self.worker_id),
+                        strategy_id=self._strategy_id(),
+                        # ccxt trade 的 symbol 为永续口径 "BTC/USDT:USDT"，广播侧统一归一
+                        symbol=str(t.get("symbol") or ""),
+                        side=str(t.get("side") or ""),
+                        price=float(t.get("price") or 0.0),
+                        quantity=float(t.get("amount") or 0.0),
+                        ts=int(t.get("timestamp") or 0),  # ccxt 毫秒
+                    )
             else:
                 # for 正常跑完（无 break）：同 session 持久化游标；
                 # 失败仅记日志（游标滞后只会导致重复拉取，幂等兜底）
@@ -237,6 +253,12 @@ class LiveTradeSync:
                 f"新落库 {inserted} 笔成交（本轮共 {len(trades)} 笔回报）"
             )
         return inserted
+
+    def _strategy_id(self) -> str:
+        """worker↔strategy 绑定运行期不变：首次广播前解析一次并缓存。"""
+        if self._strategy_id_cache is None:
+            self._strategy_id_cache = ws_fill_events.resolve_worker_strategy_id(self.worker_id)
+        return self._strategy_id_cache
 
     def daily_realized_pnl(self) -> float:
         """DB 当日已实现盈亏汇总（B3 风控当日亏损额度的数据源）。

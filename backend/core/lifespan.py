@@ -31,6 +31,7 @@ from plugins import PluginManager
 from plugins.event_bus import event_bus
 from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
+from realtime.ws_push import make_aggtrade_push_consumer, make_depth_push_consumer
 from services.model_registry import seed_demo_models
 from services.symbol_sync import symbol_sync_manager
 from settings.schema import backfill_descriptions
@@ -368,6 +369,12 @@ async def lifespan(app: FastAPI):
 
         realtime_engine.register_consumer("kline", kline_persistence_consumer.process_kline)
         logger.info("已注册K线持久化消费者")
+
+        # 注册订单簿/成交广播消费者：depth 快照节流推送、aggTrade 攒批推送，
+        # /chart 页订单簿面板与成交流水的数据源（与 kline consumer 同走 message_queue）
+        realtime_engine.register_consumer("depth", make_depth_push_consumer(manager))
+        realtime_engine.register_consumer("aggTrade", make_aggtrade_push_consumer(manager))
+        logger.info("已注册depth/aggTrade WebSocket广播消费者")
 
         logger.info("实时引擎初始化成功")
     except Exception as e:

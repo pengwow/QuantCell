@@ -62,6 +62,16 @@ class RealtimeEngine:
                 # 币安消息格式
                 message["exchange"] = "binance"
                 message["data_type"] = message["e"]
+            elif str(message.get("channel", "")).split("@", 1)[-1].startswith("depth"):
+                # depth 系频道信封（如 btcusdt@depth20 部分订单簿快照）没有 "e" 字段，
+                # 补齐 exchange/data_type/symbol 后走下方统一处理路径；symbol 只能
+                # 从 channel 头部恢复（channel 是 _receive_messages 附加的唯一来源）
+                channel = str(message.get("channel", ""))
+                # 浅拷贝注入，避免改写 _receive_messages 侧持有的原消息 dict
+                message = dict(message)
+                message["exchange"] = "binance"
+                message["data_type"] = "depth"
+                message["symbol"] = channel.split("@", 1)[0].upper()
             elif "exchange" not in message or "data_type" not in message:
                 logger.warning(f"[KlinePush] 消息缺少exchange/data_type字段，无法处理: {message}")
                 return
