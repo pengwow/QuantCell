@@ -6,7 +6,7 @@ ponytail: 每请求新建 aiohttp.ClientSession 的天花板是连接握手开�
 对图表初始兜底无感；升级路径是复用 collector 的 session 池/连接复用。
 
 网络可用性：binance REST 域名在国内直连不可达（2026-11-14 实测超时，仅 WS 引擎
-经代理可达），因此所有外发请求统一走 _market_proxy()，与 collector 调用方的
+经代理可达），因此所有外发请求统一走 resolve_proxy()，与 collector 调用方的
 代理解析顺序保持一致（系统配置 > .env PROXY_URL > shell 环境变量）。
 
 Fetcher 复用 collector/services/deriv_collector.py 的实现：
@@ -17,25 +17,16 @@ Fetcher 复用 collector/services/deriv_collector.py 的实现：
   （interval ∈ {5m,15m,30m,1h,2h,4h,6h,12h,1d}，历史接口仅保留近 30 天）
 """
 
-import os
 import time
 from typing import Any
 
 import aiohttp
 
-from collector.config import get_binance_proxy
 from collector.services.deriv_collector import FundingRateFetcher, OpenInterestFetcher
-from config.settings import get_settings
+from utils.proxy import resolve_proxy
 
 SPOT_DEPTH_URL = "https://api.binance.com/api/v3/depth"
 _30D_MS = 30 * 24 * 3600 * 1000  # OI 历史接口的上限窗口
-
-
-def _market_proxy() -> str | None:
-    """与 collector 同源的代理解析顺序；各级均未配置时返回 None（直连）。"""
-    return (
-        get_binance_proxy() or get_settings().proxy_url or os.environ.get("https_proxy") or os.environ.get("http_proxy")
-    )
 
 
 async def fetch_depth_snapshot(symbol: str, limit: int) -> dict[str, Any]:
@@ -45,7 +36,7 @@ async def fetch_depth_snapshot(symbol: str, limit: int) -> dict[str, Any]:
         async with session.get(
             SPOT_DEPTH_URL,
             params={"symbol": clean, "limit": limit},
-            proxy=_market_proxy(),
+            proxy=resolve_proxy(),
             timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             resp.raise_for_status()
@@ -66,7 +57,7 @@ async def fetch_oi_history(symbol: str, interval: str, limit: int) -> list[dict[
     end_ms = int(time.time() * 1000)
     async with aiohttp.ClientSession() as session:
         df = await fetcher.fetch(
-            session, symbol.replace("/", "").upper(), end_ms - _30D_MS, end_ms, proxy=_market_proxy()
+            session, symbol.replace("/", "").upper(), end_ms - _30D_MS, end_ms, proxy=resolve_proxy()
         )
     rows: list[dict[str, Any]] = []
     for _, row in df.tail(limit).iterrows():
@@ -90,7 +81,7 @@ async def fetch_funding_history(symbol: str, limit: int) -> list[dict[str, Any]]
             symbol.replace("/", "").upper(),
             end_ms - 14 * 24 * 3600 * 1000,
             end_ms,  # 8h * 42 = 14 天足够覆盖 limit≤42
-            proxy=_market_proxy(),
+            proxy=resolve_proxy(),
         )
     return [
         {"timestamp": int(row["timestamp"]), "fundingRate": float(row["fundingRate"])}

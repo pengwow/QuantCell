@@ -15,6 +15,7 @@ from binance import AsyncClient
 from binance.ws.streams import BinanceSocketManager
 
 from utils.logger import LogType, get_logger
+from utils.proxy import resolve_proxy
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -86,12 +87,17 @@ class BinanceWebSocketClient(AbstractExchangeClient):
             if self._connected:
                 await self.disconnect()
 
-            # 创建异步客户端
+            # 本机直连 binance 域名不可达，REST 与 WS 统一走项目代理解析。
+            # python-binance 默认超时 10s，testnet REST 偶发 >10s（2026-11-15 21:00 实测
+            # 连接耗时 10.088s 报空 TimeoutError），放宽到 30s 吸收抖动。
+            proxy = self.config.get("proxy_url") or resolve_proxy()
             self._client = await AsyncClient.create(
                 api_key=self.config.get("api_key"),
                 api_secret=self.config.get("api_secret"),
                 testnet=self.config.get("testnet", True),
                 tld=self.config.get("tld", "com"),
+                https_proxy=proxy,
+                requests_params={"timeout": 30},
             )
 
             # 创建Socket管理器
