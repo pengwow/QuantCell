@@ -224,9 +224,13 @@ class BinanceWebSocketClient(AbstractExchangeClient):
             bool: 订阅是否成功
         """
         try:
+            # 连接丢失时现场重连：engine/ws_manager 的 connected 标志可能滞后于
+            # 真实链路（断线重连耗尽后无人回写），订阅请求不能依赖上游标志
             if not self._connected or not self._socket_manager:
-                logger.error("WebSocket not connected")
-                return False
+                logger.warning("WebSocket not connected, attempting reconnect before subscribe")
+                if not await self.connect():
+                    logger.error("WebSocket not connected and reconnect failed")
+                    return False
 
             for channel in channels:
                 try:
@@ -465,12 +469,14 @@ class BinanceWebSocketClient(AbstractExchangeClient):
         finally:
             logger.info("Message receive task ended")
 
+    @property
     def is_connected(self) -> bool:
         """
         检查是否已连接
 
-        Returns:
-            bool: 是否已连接
+        必须是 property（对齐抽象基类契约）：websocket_manager 的断线监控与
+        状态上报以属性方式访问 `client.is_connected`，若定义为普通方法，
+        拿到的是恒为真值的 bound method，断线检测将永远失效。
         """
         return self._connected and self._client is not None
 
