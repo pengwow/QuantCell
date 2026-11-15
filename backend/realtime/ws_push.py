@@ -8,11 +8,11 @@ from utils.logger import LogType, get_logger
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-def make_depth_push_consumer(mgr, throttle: float = 0.5, clock: Callable[[], float] = time.monotonic):
+def make_depth_push_consumer(mgr, throttle: float = 0.1, clock: Callable[[], float] = time.monotonic):
     """depth 快照广播消费者：同品种 throttle 秒内只推一次（leading-edge 节流）。
 
-    binance depth20 本身 1s 推一条快照，throttle 仅防御订阅风暴；不做 trailing
-    补发——降级窗口最多 1s，肉眼不可感知。
+    binance 快照流在显式 @100ms 下 100ms 推一条（未带后缀为 1s），throttle 定为
+    0.1 仅次于源速率，仅防御订阅风暴；不做 trailing 补发。
 
     Args:
         mgr: websocket manager 单例（只消费其 message_queue 属性，put_nowait 广播）

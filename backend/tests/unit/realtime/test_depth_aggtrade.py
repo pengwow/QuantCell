@@ -37,7 +37,7 @@ def test_subscribe_depth20_routes_to_snapshot_socket():
     client = _client()
     _run(client.subscribe(["BTCUSDT@depth20"]))
     # 快照流：depth_socket(symbol=..., depth="20")，不传 interval（1s 快照推送）
-    client._socket_manager.depth_socket.assert_called_once_with(symbol="BTCUSDT", depth="20")
+    client._socket_manager.depth_socket.assert_called_once_with(symbol="BTCUSDT", depth="20", interval=None)
 
 
 def test_subscribe_plain_depth_routes_to_diff_socket():
@@ -50,8 +50,15 @@ def test_subscribe_plain_depth_routes_to_diff_socket():
 def test_subscribe_depth20_with_update_suffix_routes_to_snapshot_socket():
     client = _client()
     _run(client.subscribe(["BTCUSDT@depth20@100ms"]))
-    # 带 @Nms 更新频率后缀的快照流，仍按 depth= 层数订阅（后缀不透传）
-    client._socket_manager.depth_socket.assert_called_once_with(symbol="BTCUSDT", depth="20")
+    # 带 @100ms 后缀的快照流：后缀透传为 interval=100（10Hz 快照，订单簿 1s 一条太慢）
+    client._socket_manager.depth_socket.assert_called_once_with(symbol="BTCUSDT", depth="20", interval=100)
+
+
+def test_subscribe_depth20_with_non_100ms_suffix_falls_back_to_1s():
+    client = _client()
+    _run(client.subscribe(["BTCUSDT@depth20@1000ms"]))
+    # depth_socket 仅支持 None/0/100，非 100ms 后缀回退默认 1s 推送
+    client._socket_manager.depth_socket.assert_called_once_with(symbol="BTCUSDT", depth="20", interval=None)
 
 
 def test_subscribe_aggtrade_routes_to_aggtrade_socket():

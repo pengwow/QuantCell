@@ -21,6 +21,10 @@ class RealtimeConfig:
             # 交易所配置
             "default_exchange": "binance",
             "quote": "USDT",  # 计价货币
+            # 行情泵固定连生产网：测试网订单簿/成交极稀疏（实测 depth ~4/s、aggTrade ~0.8/s，
+            # 生产网 depth 10Hz），图表行情失真。公共行情流无需 API key；交易环境（testnet/live）
+            # 由 live_adapter 自己的配置管理，与此处无关
+            "testnet": False,
             # 币安配置
             "binance_websocket_url": "wss://stream.binance.com:9443/stream",
             "binance_max_reconnect": 5,
