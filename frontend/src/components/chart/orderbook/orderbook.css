@@ -26,6 +26,13 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* 面板被右栏 flex 压缩时内容在容器内滚动，禁止溢出画出容器（曾与相邻面板叠印） */
+  overflow-y: auto;
+}
+
+/* 盘口卖侧独立滚动 + column-reverse：初始视图贴着价差行（best ask 在底），向上滚看远端档 */
+.ob-rows.ob-asks {
+  flex-direction: column-reverse;
 }
 
 .ob-row {

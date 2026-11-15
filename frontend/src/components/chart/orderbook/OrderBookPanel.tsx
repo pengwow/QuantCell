@@ -32,7 +32,8 @@ const cumulate = (levels: DepthLevel[]): OrderbookRow[] => {
 /** bids/asks 为 [[price, qty], ...] 二元组（内部与 REST 口径一致：bids/asks 均为升序） */
 const buildRows = (rawBids: DepthLevel[], rawAsks: DepthLevel[]) => {
   const bids = cumulate([...rawBids].sort((a, b) => b[0] - a[0])); // best bid 置顶，向下延伸
-  const asks = cumulate([...rawAsks].sort((a, b) => a[0] - b[0])).reverse(); // 最高卖价置顶
+  // asks 保持升序（best ask 首位），渲染交给 .ob-asks 的 column-reverse：底部贴价差行、向上滚看远端
+  const asks = cumulate([...rawAsks].sort((a, b) => a[0] - b[0]));
   const maxCum = Math.max(
     bids.length ? bids[bids.length - 1].cum : 0,
     asks.length ? asks[asks.length - 1].cum : 0,
@@ -77,7 +78,7 @@ export function OrderBookPanel({ symbol, depthLevels }: OrderBookPanelProps) {
   }
 
   const bestBid = rows.bids[0]?.price ?? 0;
-  const bestAsk = rows.asks[rows.asks.length - 1]?.price ?? 0;
+  const bestAsk = rows.asks[0]?.price ?? 0; // 升序首位即最低卖价（best ask）
   // 价差 = 最低卖价 - 最高买价；旧实现写反（bestBid - bestAsk 恒为负被 clamp 成 0.00）
   const spread = Math.max(bestAsk - bestBid, 0);
 
@@ -98,14 +99,13 @@ export function OrderBookPanel({ symbol, depthLevels }: OrderBookPanelProps) {
         <span>{t('chart.orderbook.price')}</span>
         <span>{t('chart.orderbook.amount')}</span>
       </div>
-      <div className="ob-rows">
-        {rows.asks.map((r) => renderRow(r, 'ask'))}
-        <div className="ob-mid">
-          <span className="ob-mid-value">{spread.toFixed(2)}</span>
-          <span className="ob-mid-label">{t('chart.orderbook.spread')}</span>
-        </div>
-        {rows.bids.map((r) => renderRow(r, 'bid'))}
+      {/* 卖侧/买侧各自独立滚动（内容超出面板高度时面板内滚动不外溢），价差行固定居中 */}
+      <div className="ob-rows ob-asks">{rows.asks.map((r) => renderRow(r, 'ask'))}</div>
+      <div className="ob-mid">
+        <span className="ob-mid-value">{spread.toFixed(2)}</span>
+        <span className="ob-mid-label">{t('chart.orderbook.spread')}</span>
       </div>
+      <div className="ob-rows">{rows.bids.map((r) => renderRow(r, 'bid'))}</div>
     </div>
   );
 }
