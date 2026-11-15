@@ -237,10 +237,13 @@ class BinanceWebSocketClient(AbstractExchangeClient):
 
                     # 解析频道名
                     if "@" in channel:
-                        symbol, stream_type = channel.split("@", 1)
+                        symbol_raw, stream_type = channel.split("@", 1)
                     else:
                         logger.warning(f"Invalid channel format: {channel}")
                         continue
+                    # symbol 必须清洗为币安流名格式（ETHUSDT）：带分隔符（如 ETH/USDT）
+                    # 会拼出 /ws/eth/usdt@… 的斜杠路径，服务端静默不推流
+                    symbol = symbol_raw.replace("/", "").replace(":", "").upper()
 
                     # depth 系流名先做一次解析：无层数（depth、depth@100ms）是全量 diff 流，
                     # 带层数（depth20、depth20@100ms）是部分订单簿快照流
