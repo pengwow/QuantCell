@@ -33,6 +33,7 @@ from .exceptions import (
     WorkerOperationException,
     WorkerStateConflictException,
 )
+from .risk_config import risk_status_snapshot
 from .state import strategy_registry
 from .worker_state import worker_state_manager
 
@@ -994,6 +995,14 @@ class WorkerCoreService:
             # running/starting/stopping 会出现 journal 边写边移，必须先停
             if worker.status in ("running", "starting", "stopping"):
                 raise WorkerStateConflictException(worker_id, worker.status)
+            # journal 文件只由 LiveDriver 链路（live/testnet）写盘；paper 演练走
+            # PaperDriver 内存撮合从不产生 journal，归档无从谈起——前置拦截给出
+            # 明确语义，而不是落到「无可归档的 journal 文件」的泛化报错
+            trading_mode = (worker.get_trading_config_dict() or {}).get("trading_mode", "paper")
+            if trading_mode == "paper":
+                raise WorkerOperationException(
+                    "归档", worker_id, message="paper 模式不产生 journal 文件（内存撮合），无需归档"
+                )
 
         try:
             # 函数内 import：worker_system 构造重（交易所配置扫描），避免
@@ -2032,6 +2041,47 @@ class WorkerCoreService:
     async def async_get_risk_control(self, worker_id: int) -> schemas.RiskControlOut | None:
         """查询人工风控管控行；未配置返回 None（前端回落继承策略参数展示）。"""
         return await asyncio.to_thread(self._get_risk_control_sync, worker_id)
+
+    def _load_worker_and_params(self, worker_id: int) -> tuple[models.Worker, dict[str, Any], float]:
+        """查询 Worker 行 + 策略参数 JSON + initial_cash（worker 不存在抛 WorkerNotFoundException）。
+
+        与 _push_risk_control_sync 的三段式（worker -> strategy.parameters JSON ->
+        initial_capital）保持同一路径；JSON 解析失败降级为空参数 + 默认资金（脏数据兜底）。"""
+        with get_db_session() as db:
+            worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+            if worker is None:
+                raise WorkerNotFoundException(worker_id)
+            params: dict[str, Any] = {}
+            initial_cash = 100_000.0
+            if worker.strategy_id is not None:
+                from strategy.models import (
+                    Strategy,  # 跨模块模型，函数内 import 防循环依赖（同 _push_risk_control_sync）
+                )
+
+                strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+                if strategy is not None:
+                    try:
+                        params = json.loads(strategy.parameters or "{}")
+                        if not isinstance(params, dict):
+                            params = {}
+                        initial_cash = float(params.get("initial_capital", 100_000.0))
+                    except ValueError, TypeError:
+                        params, initial_cash = {}, 100_000.0
+            return worker, params, initial_cash
+
+    def _get_risk_status_sync(self, worker_id: int) -> dict[str, Any]:
+        """风控状态快照（GET /workers/{id}/risk-status 查询层，spec 2026-11-16 §4）。"""
+        _, params, initial_cash = self._load_worker_and_params(worker_id)
+        try:
+            daily_pnl: float | None = crud.sum_daily_realized_pnl(worker_id)
+        except Exception as exc:
+            logger.warning(f"[core_service] 当日盈亏聚合失败 worker_id={worker_id}: {exc}")
+            daily_pnl = None
+        # 统一交易表口径：live 即引擎回灌同源；paper 为模拟成交值（spec 微调记录 §1）
+        return risk_status_snapshot(params, worker_id, initial_cash, daily_pnl)
+
+    async def async_get_risk_status(self, worker_id: int) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_risk_status_sync, worker_id)
 
     def _upsert_risk_control_sync(self, worker_id: int, payload: schemas.RiskControlUpsert) -> None:
         # 显式写全部 8 字段（含 None）：表内历史 ORM default 非零，靠缺省无法区分「用户清空」

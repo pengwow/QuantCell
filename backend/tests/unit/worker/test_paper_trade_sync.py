@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 import strategy.models
 import worker.paper_trade_sync as pts
 from collector.db.database import Base
-from worker.models import WorkerTrade
+from worker.models import WorkerOrder, WorkerTrade
 from worker.paper_trade_sync import PaperTradeSync
 
 NS = 1_700_000_000_000_000_000
@@ -239,3 +239,59 @@ def test_round_trip_id_idempotent_across_replay(db_session_factory):
         rows = {r.trade_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
     assert {r.round_trip_id for r in rows.values()} == {"rt:7:1"}
     assert len(rows) == 2
+
+
+def test_fill_persists_order_filled_rows(db_session_factory):
+    """每笔新落库 fill 同步落 FILLED 订单行（client_order_id 由 taker_order_id 派生）。"""
+    sync = PaperTradeSync(7)
+    driver = FakeDriver([[_fill(0, NS)], [_fill(1, NS + 60_000_000_000, "Sell")]])
+    driver.advance()
+    sync.sync_once(driver)
+    driver.advance()
+    sync.sync_once(driver)
+
+    with db_session_factory() as db:
+        orders = db.scalars(select(WorkerOrder).order_by(WorkerOrder.client_order_id)).all()
+    assert [o.client_order_id for o in orders] == ["paper:7:t0", "paper:7:t1"]
+    assert {o.status for o in orders} == {"FILLED"}
+    entry = orders[0]
+    assert entry.side == "BUY"
+    assert entry.symbol == "BTC/USDT"
+    assert entry.order_type == "MARKET"
+    assert entry.filled_qty == pytest.approx(30.0)
+    assert entry.avg_fill_price == pytest.approx(100.05)
+
+
+def test_same_order_partial_fills_accumulate(db_session_factory):
+    """同一 taker_order_id 的分笔成交：单订单行，filled_qty 累加、均价数量加权。"""
+    f2 = _fill(1, NS + 1_000_000_000)
+    f2["taker_order_id"] = "t0"  # 与 fill 0 同单
+    f2["price"] = 101.05
+    sync = PaperTradeSync(7)
+    driver = FakeDriver([[_fill(0, NS), f2]])
+    driver.advance()
+    sync.sync_once(driver)
+
+    with db_session_factory() as db:
+        orders = db.scalars(select(WorkerOrder)).all()
+    assert len(orders) == 1
+    order = orders[0]
+    assert order.client_order_id == "paper:7:t0"
+    assert order.filled_qty == pytest.approx(60.0)
+    assert order.avg_fill_price == pytest.approx((100.05 * 30.0 + 101.05 * 30.0) / 60.0)
+
+
+def test_order_upsert_idempotent_across_replay(db_session_factory):
+    """paper 重启重放同批 fill：查重命中走 exists 分支，订单行不重复累加。"""
+    sync = PaperTradeSync(7)
+    driver = FakeDriver([[_fill(0, NS)]])
+    driver.advance()
+    sync.sync_once(driver)
+
+    replay = PaperTradeSync(7)
+    assert replay.sync_once(driver) == 0
+
+    with db_session_factory() as db:
+        orders = db.scalars(select(WorkerOrder)).all()
+    assert len(orders) == 1
+    assert orders[0].filled_qty == pytest.approx(30.0)

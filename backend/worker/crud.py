@@ -5,11 +5,13 @@ Worker模块CRUD操作
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from sqlalchemy import and_, case, desc, func
+
+from utils.db_session import get_db_session
 
 from .models import (
     Worker,
@@ -529,6 +531,26 @@ def get_worker_trades(
     return trades, total
 
 
+def sum_daily_realized_pnl(worker_id: int) -> float:
+    """Worker 当日（本地 0 点起）已实现盈亏汇总。
+
+    与 B3 风控引擎回灌共用同一聚合口径（RiskConfig.feeder 的观测源），
+    从 LiveTradeSync.daily_realized_pnl 抽取——两处必须同源，避免
+    risk-status 展示值与引擎额度判定各算各的。realized_pnl 为空按 0 计
+    （现货无 realized_pnl 列值）。"""
+    day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    with get_db_session() as db:
+        total = (
+            db.query(func.coalesce(func.sum(WorkerTrade.realized_pnl), 0.0))
+            .filter(
+                WorkerTrade.worker_id == worker_id,
+                WorkerTrade.entry_time >= day_start,
+            )
+            .scalar()
+        )
+    return float(total or 0.0)
+
+
 def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | None:
     """幂等写入成交；未新建（trade_id 查重命中 / evidence 冲突）返回 None，新建返回行。
 
@@ -589,6 +611,62 @@ def create_order_if_not_exists(db: Session, order_data: dict) -> WorkerOrder:
     db.commit()
     db.refresh(db_order)
     return db_order
+
+
+def upsert_order_filled_from_fill(
+    db: Session,
+    worker_id: int,
+    client_order_id: str,
+    symbol: str,
+    side: str,
+    order_type: str,
+    quantity: float,
+    price: float,
+    venue_order_id: str | None = None,
+    filled_at: datetime | None = None,
+) -> None:
+    """成交回报驱动的订单 upsert（FILLED 终态）。
+
+    paper/live 同步链路只能从成交明细看到订单（下单意图事件引擎不回传，
+    events.order.* 无发布方），因此首笔 fill 直接落 FILLED 行——订单至少有
+    完整的成交历史；同一订单的分笔 fill 累加 filled_qty 并重算加权均价。
+    委托量（quantity）不可知，以首笔成交量近似，分笔场景下会小于 filled_qty。
+
+    幂等性由调用方保证：仅在 trade 新落库（create_trade_if_not_exists 返回
+    新行 / 查重未命中）时调用，查重命中不重复累加。
+    """
+    order = db.query(WorkerOrder).filter(WorkerOrder.client_order_id == client_order_id).first()
+    if order is None:
+        order = WorkerOrder(
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            worker_id=worker_id,
+            symbol=symbol,
+            side=side.upper(),
+            order_type=order_type.upper(),
+            quantity=quantity,
+            price=None,  # 委托价不可知（市价单），留空展示为“市价”
+            filled_qty=quantity,
+            avg_fill_price=price,
+            status="FILLED",
+            filled_at=filled_at or datetime.now(),
+        )
+        db.add(order)
+    else:
+        total_qty = (order.filled_qty or 0.0) + quantity
+        # 数量加权均价（分笔成交逐步逼近真实 VWAP）
+        order.avg_fill_price = (
+            ((order.avg_fill_price or 0.0) * (order.filled_qty or 0.0) + price * quantity) / total_qty
+            if total_qty
+            else price
+        )
+        order.filled_qty = total_qty
+        if order.status != "FILLED":
+            order.status = "FILLED"
+            order.filled_at = filled_at or datetime.now()
+        if venue_order_id and not order.venue_order_id:
+            order.venue_order_id = venue_order_id
+    db.commit()
 
 
 def create_position_if_not_exists(db: Session, position_data: dict) -> WorkerPosition:
@@ -753,50 +831,82 @@ def get_trading_summary(
 
 
 def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict:
-    start_date = datetime.now() - timedelta(days=days)
+    """
+    交易收益曲线数据：X 轴按时间窗口完整铺满，无成交的桶补 0
+    （daily_pnl=0、trade_count=0，累计值保持前值 —— 曲线呈水平而非归零）。
+
+    粒度选择：
+    - 24h 窗口（days<=1）：按小时铺 24 个点，否则一天只有一个点看不出走势
+    - 常规窗口：按天从窗口起点铺到今天
+    - all 档（days>365，映射 100 年）：起点收敛到首笔成交，避免铺出上万个空点；
+      完全无成交返回空图。
+
+    ponytail: 用 Python 内存聚合而非 SQL 分组 —— 单 worker 交易量级小，
+    且要把无数据的日期/小时补零铺轴，SQL group 只能返回有数据的桶。
+    """
+    now = datetime.now()
+    start = now - timedelta(days=days)
+
+    if days > 365:
+        first_trade_at = db.query(func.min(WorkerTrade.created_at)).filter(WorkerTrade.worker_id == worker_id).scalar()
+        if not first_trade_at:
+            return {
+                "dates": [],
+                "cumulative_pnl": [],
+                "daily_pnl": [],
+                "trade_count": [],
+            }
+        start = max(start, first_trade_at)
+
     trades = (
         db.query(WorkerTrade)
         .filter(
             and_(
                 WorkerTrade.worker_id == worker_id,
-                WorkerTrade.created_at >= start_date,
+                WorkerTrade.created_at >= start,
             )
         )
         .order_by(WorkerTrade.created_at)
         .all()
     )
 
-    if not trades:
-        return {
-            "dates": [],
-            "cumulative_pnl": [],
-            "daily_pnl": [],
-            "trade_count": [],
-        }
+    if days <= 1:
+        # 24h 档：最近 24 个整点
+        bucket_num = 24
+        bucket_start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
+        step = timedelta(hours=1)
+        label_fmt = "%m-%d %H:%M"
+    else:
+        bucket_num = (now.date() - start.date()).days + 1
+        bucket_start = datetime.combine(start.date(), time.min)
+        step = timedelta(days=1)
+        label_fmt = "%Y-%m-%d"
 
-    daily_data: dict[str, dict[str, float]] = {}
+    def _bucket_index(created_at: datetime) -> int:
+        if days <= 1:
+            return int((created_at.replace(minute=0, second=0, microsecond=0) - bucket_start) / step)
+        return (created_at.date() - bucket_start.date()).days
+
+    buckets = [{"pnl": 0.0, "count": 0} for _ in range(bucket_num)]
     for t in trades:
         if not t.created_at:
             continue
-        date_str = t.created_at.strftime("%Y-%m-%d")
-        if date_str not in daily_data:
-            daily_data[date_str] = {"pnl": 0.0, "count": 0}
-        daily_data[date_str]["pnl"] += t.realized_pnl or 0.0
-        daily_data[date_str]["count"] += 1
+        idx = _bucket_index(t.created_at)
+        if 0 <= idx < bucket_num:
+            buckets[idx]["pnl"] += t.realized_pnl or 0.0
+            buckets[idx]["count"] += 1
 
-    sorted_dates = sorted(daily_data.keys())
-    dates = []
-    cumulative_pnl = []
-    daily_pnl = []
-    trade_count = []
+    dates: list[str] = []
+    cumulative_pnl: list[float] = []
+    daily_pnl: list[float] = []
+    trade_count: list[int] = []
     cumulative = 0.0
-
-    for date_str in sorted_dates:
-        cumulative += daily_data[date_str]["pnl"]
-        dates.append(date_str)
+    for i in range(bucket_num):
+        cumulative += buckets[i]["pnl"]
+        dates.append((bucket_start + step * i).strftime(label_fmt))
         cumulative_pnl.append(round(cumulative, 2))
-        daily_pnl.append(round(daily_data[date_str]["pnl"], 2))
-        trade_count.append(int(daily_data[date_str]["count"]))
+        daily_pnl.append(round(buckets[i]["pnl"], 2))
+        trade_count.append(buckets[i]["count"])
 
     return {
         "dates": dates,
@@ -806,13 +916,18 @@ def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict
     }
 
 
-def get_pnl_distribution(db: Session, worker_id: int) -> dict:
+def get_pnl_distribution(db: Session, worker_id: int, start_time: datetime | None = None) -> dict:
     """
     获取 PNL 分布统计（优化版 - 使用 SQL 聚合计算统计量）
 
     使用 SQLAlchemy 聚合函数在数据库层面计算 mean、std，
     仅加载 pnl_values 用于直方图计算。
+    start_time 非空时仅统计该时刻之后的成交（总览页时间窗口切换依赖此过滤）。
     """
+    filters = [WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.isnot(None)]
+    if start_time:
+        filters.append(WorkerTrade.created_at >= start_time)
+
     # 使用 SQL 聚合计算统计量
     stats_query = db.query(
         func.count(WorkerTrade.id).label("count"),
@@ -820,7 +935,7 @@ def get_pnl_distribution(db: Session, worker_id: int) -> dict:
         func.avg(WorkerTrade.realized_pnl).label("mean_pnl"),
         func.min(WorkerTrade.realized_pnl).label("min_pnl"),
         func.max(WorkerTrade.realized_pnl).label("max_pnl"),
-    ).filter(WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.isnot(None))
+    ).filter(*filters)
 
     stats_row = stats_query.first()
 
@@ -834,11 +949,7 @@ def get_pnl_distribution(db: Session, worker_id: int) -> dict:
         }
 
     # 仅加载 pnl_values 用于直方图和标准差计算
-    pnl_values = (
-        db.query(WorkerTrade.realized_pnl)
-        .filter(WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.isnot(None))
-        .all()
-    )
+    pnl_values = db.query(WorkerTrade.realized_pnl).filter(*filters).all()
     pnl_values = [p[0] for p in pnl_values]
 
     pnl_array = np.array(pnl_values)

@@ -18,7 +18,6 @@ import {
   IconBotId,
   IconRobot,
   IconPlug,
-  IconShield,
   IconStack,
   IconMicroscope,
 } from "@tabler/icons-react";
@@ -234,7 +233,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_DATA = "/data-management";
   const MENU_KEY_FACTOR = "/factor-analysis";
   const MENU_KEY_MODEL_HUB = "/model-hub";
-  const MENU_KEY_RISK = "/risk-monitor";
   const MENU_KEY_RESEARCH = "/research";
 
   // ponytail: 路由路径 → 翻译键的映射表，用于自动设置浏览器 tab 标题。
@@ -247,7 +245,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     [MENU_KEY_STRATEGY_TASK, "strategy_task"],
     [MENU_KEY_DATA, "data_management"],
     [MENU_KEY_MODEL_HUB, "model_hub"],
-    [MENU_KEY_RISK, "risk_monitor"],
     // 子路由补全 — menu 里没有但需要正确标题的页面
     ["/backtest", "backtest"],
     ["/notifications", "message_center"],
@@ -287,7 +284,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_MODEL_HUB, "model_hub", <IconStack size="1em" />, false],
       // 回测中心：RL/普通回测任务列表的固定入口；side nav 分组后落入「交易」组
       ["/backtest", "backtest_center", <IconFlask size="1em" />, false],
-      [MENU_KEY_RISK, "risk_monitor", <IconShield size="1em" />, false],
     ] satisfies Array<[string, string, React.ReactNode, boolean]>
   ).map(([key, label, icon, disabled]) => {
     return {
@@ -340,7 +336,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       key: "nav-group-trade",
       type: "group" as const,
       label: t("nav_group_trade"),
-      children: [MENU_KEY_STRATEGY, MENU_KEY_STRATEGY_TASK, "/backtest", MENU_KEY_RISK].map(
+      children: [MENU_KEY_STRATEGY, MENU_KEY_STRATEGY_TASK, "/backtest"].map(
         (key) => itemByKey.get(key)!,
       ),
     },

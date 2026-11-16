@@ -5,7 +5,7 @@
  * - 8 个核心 KPI 卡片
  * - 时间范围切换 (24h/7d/30d/90d/all)
  * - 累计收益曲线（含最大回撤阴影 + 标注）
- * - 盈亏分布直方图（按 ROI 分桶 + 均值/中位数参考线）
+ * - 每日盈亏分布（横轴=时间，与累计曲线同源，盈绿亏红柱）
  * - CSV 导出
  */
 
@@ -20,7 +20,8 @@ import type { OverviewWindow, OverviewMetrics } from '../../types/worker';
 import { formatUSD, formatPercent } from '../../utils/format';
 import { useQuantColors } from '@/utils/colors';
 import { downloadCsv, timestampedFilename } from '../../utils/exportCsv';
-import WorkerReconcileCard from './WorkerReconcileCard';
+import WorkerRiskBanner from './WorkerRiskBanner';
+import WorkerPositionSection from './WorkerPositionSection';
 
 // 时间范围选项的固定档位；「全部」文案需 i18n，故在组件内构造（见下）
 const WINDOW_OPTION_VALUES: OverviewWindow[] = ['24h', '7d', '30d', '90d', 'all'];
@@ -76,24 +77,19 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  // KPI 卡片点击跳转：总盈亏、收益率、胜率、Profit Factor 等都跳总览本身（刷新）
-  // 未实现盈亏、ROE 等跳持仓 tab
+  // KPI 卡片点击：委托类跳交易 tab（合并后首页即委托明细）。
+  // 持仓类（unrealized_pnl/roe/positions）不跳转——持仓区已在总览页内，与其它指标一样停留刷新
   const handleKpiClick = (kpiKey: string) => {
     if (!onNavigate) return;
-    if (kpiKey === 'unrealized_pnl' || kpiKey === 'roe' || kpiKey === 'positions') {
-      onNavigate('positions');
-    } else if (kpiKey === 'open_orders' || kpiKey === 'orders') {
-      onNavigate('orders');
+    if (kpiKey === 'open_orders' || kpiKey === 'orders') {
+      onNavigate('trades');
     } else {
-      // 总盈亏、收益率、胜率、盈亏比、Profit Factor、最大回撤、Sharpe、总交易次数
-      // 都停留在总览 tab
       fetchOverview(workerId, localWindow);
     }
   };
 
   const metrics = overview?.metrics;
   const series = overview?.cumulativePnlSeries;
-  const pnlDist = overview?.pnlDistribution;
 
   // ============ 累计收益曲线 ECharts 配置 ============
   // ponytail: 所有颜色从 theme token 派生的 quantColors 取，主题切换时自动重建；series 名经 t() 翻译后同色重建
@@ -192,9 +188,11 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
     };
   }, [series, qc, t]);
 
-  // ============ 盈亏分布直方图 ECharts 配置 ============
-  const pnlDistributionOption = useMemo(() => {
-    if (!pnlDist?.bins?.length) {
+  // ============ 每日盈亏分布（横轴=时间） ECharts 配置 ============
+  // 与累计收益曲线同源（series.dates/daily_pnl），窗口切换自动跟随；
+  // 有成交才有柱：盈=绿、亏=红
+  const dailyPnlOption = useMemo(() => {
+    if (!series?.dates?.length) {
       return {
         title: { text: t('no_data'), left: 'center', top: 'center', textStyle: { color: qc.neutral, fontSize: 14 } },
         xAxis: { type: 'category', data: [] },
@@ -203,13 +201,6 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
       };
     }
 
-    const binLabels = pnlDist.bins.map((bin, index) => {
-      if (index < pnlDist.bins.length - 1) {
-        return `${bin.toFixed(0)}~${pnlDist.bins[index + 1].toFixed(0)}`;
-      }
-      return `${bin.toFixed(0)}+`;
-    });
-
     return {
       tooltip: {
         trigger: 'axis',
@@ -217,39 +208,39 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         formatter: (params: TooltipComponentFormatterCallbackParams) => {
           const items = Array.isArray(params) ? params : [params];
           const p = items[0];
-          return `${p?.name || ''}<br/>${t('trade_count')}: <b>${p?.value ?? 0}</b>`;
+          const idx = typeof p?.dataIndex === 'number' ? p.dataIndex : 0;
+          const value = typeof p?.value === 'number' ? p.value : Number(p?.value ?? 0);
+          return `${p?.name || ''}<br/>${t('worker_daily_pnl')}: <b>${formatUSD(value, { showSign: true })}</b><br/>${t('trade_count')}: ${series.trade_count[idx] ?? 0}`;
         },
       },
       grid: { left: '3%', right: '4%', bottom: '12%', top: '10%', containLabel: true },
       xAxis: {
         type: 'category',
-        data: binLabels.slice(0, -1),
+        data: series.dates,
         axisLine: { lineStyle: { color: qc.chartAxis } },
-        axisLabel: { color: qc.chartMark, rotate: 30 },
+        axisLabel: { color: qc.chartMark, formatter: (v: string) => v.slice(5), rotate: 30 },
       },
       yAxis: {
         type: 'value',
         axisLine: { lineStyle: { color: qc.chartAxis } },
-        axisLabel: { color: qc.chartMark },
+        axisLabel: { color: qc.chartMark, formatter: (v: number) => `$${v.toFixed(0)}` },
         splitLine: { lineStyle: { color: qc.chartSplit } },
       },
       series: [
         {
-          name: t('trade_count'),
+          name: t('worker_daily_pnl'),
           type: 'bar',
-          data: pnlDist.counts,
+          data: series.daily_pnl,
           itemStyle: {
-            color: (params: { dataIndex: number }) => {
-              const start = pnlDist.bins[params.dataIndex];
-              return start >= 0 ? qc.positive : qc.negative;
-            },
+            color: (params: { dataIndex: number }) =>
+              (series.daily_pnl[params.dataIndex] ?? 0) >= 0 ? qc.positive : qc.negative,
             borderRadius: [4, 4, 0, 0],
           },
           barWidth: '60%',
         },
       ],
     };
-  }, [pnlDist, qc, t]);
+  }, [series, qc, t]);
 
   // ============ CSV 导出 ============
   const handleExport = () => {
@@ -298,6 +289,9 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
 
   return (
     <div>
+      {/* 熔断横幅：仅熔断时渲染块级 Alert，常态不占布局（spec 方案 A §4.1） */}
+      <WorkerRiskBanner workerId={workerId} active={active} />
+
       {/* 顶部工具栏：时间范围 + 刷新 + 导出 */}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <Segmented
@@ -350,13 +344,13 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         <EChart option={cumulativePnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
 
-      {/* 盈亏分布 */}
-      <Card title={t('worker_pnl_distribution')}>
-        <EChart option={pnlDistributionOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
+      {/* 每日盈亏分布（横轴=时间） */}
+      <Card title={t('worker_daily_pnl')}>
+        <EChart option={dailyPnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
 
-      {/* 最近对账（P1-02）：账实一致性观测 */}
-      <WorkerReconcileCard workerId={workerId} active={active} />
+      {/* 当前持仓：持仓 tab 并入总览（spec 2026-11-16 方案 A） */}
+      <WorkerPositionSection workerId={workerId} active={active} />
     </div>
   );
 };

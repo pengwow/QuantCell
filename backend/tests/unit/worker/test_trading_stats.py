@@ -766,15 +766,59 @@ class TestPnLDistribution:
         assert sum(result["counts"]) == len(pnl_values)
         assert result["mean"] != 0.0
 
+    def test_get_pnl_distribution_start_time_filter(self, db_session):
+        """start_time 过滤：总览页切换时间档时盈亏分布必须随之收窄"""
+        worker_id = 1
+        now = datetime.now()
+
+        old_trade = WorkerTrade(
+            worker_id=worker_id,
+            trade_id="t1",
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=1,
+            price=50000,
+            amount=50000,
+            realized_pnl=100.0,
+        )
+        old_trade.created_at = now - timedelta(days=10)
+        db_session.add(old_trade)
+
+        new_trade = WorkerTrade(
+            worker_id=worker_id,
+            trade_id="t2",
+            symbol="BTCUSDT",
+            side="sell",
+            order_type="market",
+            quantity=1,
+            price=51000,
+            amount=51000,
+            realized_pnl=50.0,
+        )
+        new_trade.created_at = now - timedelta(days=1)
+        db_session.add(new_trade)
+        db_session.commit()
+
+        # 不传 start_time = 全量（独立分布端点保持原口径）
+        full = crud.get_pnl_distribution(db_session, worker_id)
+        assert sum(full["counts"]) == 2
+
+        # 只统计窗口内成交
+        filtered = crud.get_pnl_distribution(db_session, worker_id, start_time=now - timedelta(days=5))
+        assert sum(filtered["counts"]) == 1
+        assert filtered["mean"] == 50.0
+
 
 class TestTradeHistoryChart:
     """交易历史图表数据测试"""
 
     def test_get_trade_history_chart_empty(self, db_session):
-        """无交易记录"""
+        """无交易记录 → 铺满窗口的轴 + 全零曲线（轴仍随窗口切换，缺数据补 0）"""
         result = crud.get_trade_history_chart(db_session, 1, days=30)
-        assert result["dates"] == []
-        assert result["cumulative_pnl"] == []
+        assert len(result["dates"]) == 31
+        assert result["cumulative_pnl"] == [0.0] * 31
+        assert result["trade_count"] == [0] * 31
 
     def test_get_trade_history_chart_basic(self, db_session):
         """基础历史数据"""
@@ -832,6 +876,73 @@ class TestTradeHistoryChart:
         assert len(result["daily_pnl"]) > 0
         assert len(result["trade_count"]) > 0
         assert result["cumulative_pnl"][-1] == 130.0
+
+    def _add_trade(self, db_session, trade_id: str, realized_pnl: float, created_at: datetime) -> None:
+        obj = WorkerTrade(
+            worker_id=1,
+            trade_id=trade_id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=1,
+            price=50000,
+            amount=50000,
+            realized_pnl=realized_pnl,
+            # created_at 显式传值：模型 default(func.now()) 仅在未提供时生效
+            created_at=created_at,
+        )
+        db_session.add(obj)
+        db_session.commit()
+
+    def test_chart_pads_empty_days_with_zero(self, db_session):
+        """X 轴必须铺满窗口：无成交的日期 daily=0，累计曲线保持前值（不归零、不留空）"""
+        now = datetime.now()
+        self._add_trade(db_session, "pad1", 100.0, now - timedelta(days=3))
+
+        result = crud.get_trade_history_chart(db_session, 1, days=7)
+        # 7 天窗口 → 铺满 8 个日桶（窗口起点当天 ~ 今天）
+        assert len(result["dates"]) == 8
+        assert len(result["cumulative_pnl"]) == 8
+        # 无交易日 daily 与 count 补 0
+        zero_idx = result["trade_count"].index(0)
+        assert result["daily_pnl"][zero_idx] == 0.0
+        # 累计曲线 carry-forward：全程非降（无负收益时），终点 == 总盈亏
+        ladder = result["cumulative_pnl"]
+        assert all(ladder[i] <= ladder[i + 1] for i in range(len(ladder) - 1))
+        assert ladder[-1] == 100.0
+
+    def test_chart_24h_uses_hourly_buckets(self, db_session):
+        """24h 档按小时铺 24 个点（天粒度一天只有一个点，看不出走势）"""
+        # 成交时间锚定在当前小时桶内（整点+15min）：now-30min 在半点前运行会
+        # 落入上一个小时桶，trade_count[-1] 断言随墙钟波动
+        trade_at = datetime.now().replace(minute=15, second=0, microsecond=0)
+        self._add_trade(db_session, "h1", 60.0, trade_at)
+
+        result = crud.get_trade_history_chart(db_session, 1, days=1)
+        assert len(result["dates"]) == 24
+        assert ":" in result["dates"][-1]  # 小时标签形如 11-16 15:00
+        assert result["cumulative_pnl"][-1] == 60.0
+        assert result["trade_count"] == [0] * 23 + [1]
+
+    def test_chart_all_window_starts_from_first_trade(self, db_session):
+        """all 档（days>365）起点收敛到首笔成交，不铺上万个空点；无成交返回空图"""
+        now = datetime.now()
+        self._add_trade(db_session, "a1", 20.0, now - timedelta(days=10))
+
+        result = crud.get_trade_history_chart(db_session, 1, days=36500)
+        # 首笔 10 天前 → 约 11 个日桶，绝不可能是 36500
+        assert 10 <= len(result["dates"]) <= 12
+        assert result["cumulative_pnl"][-1] == 20.0
+
+        # 完全无成交的 worker → 空图
+        empty = crud.get_trade_history_chart(db_session, 999, days=36500)
+        assert empty["dates"] == []
+
+    def test_window_to_days_all_covers_full_history(self, db_session):
+        """all 档映射天数必须远超常规生命周期，否则「全部」曲线会被静默截断"""
+        from worker.stats_service import _window_to_days
+
+        assert _window_to_days("all") >= 3650
 
 
 class TestTradingStatsService:

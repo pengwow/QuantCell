@@ -83,6 +83,22 @@ class PaperTradeSync:
                     )
                     if not exists:
                         crud.create_trade_if_not_exists(db, data)
+                        # 订单持久化：paper 引擎只回传成交不分发订单事件，
+                        # 以 taker_order_id（引擎订单 id，同单分笔共享）为
+                        # client_order_id 落 FILLED 行；缺失时退回 fill_id
+                        taker_id = str(fill.get("taker_order_id") or "")
+                        order_key = taker_id or f"fill{fill['fill_id']}"
+                        crud.upsert_order_filled_from_fill(
+                            db,
+                            worker_id=self.worker_id,
+                            client_order_id=f"paper:{self.worker_id}:{order_key}",
+                            symbol=data["symbol"],
+                            side=data["side"],
+                            order_type=data["order_type"],
+                            quantity=data["quantity"],
+                            price=data["price"],
+                            filled_at=data["entry_time"],
+                        )
                 except Exception as e:
                     logger.warning(
                         f"PaperTradeSync: fill_id={data.get('fill_id')} 落库失败 (worker_id={self.worker_id}): {e}"

@@ -8,9 +8,12 @@ QuantCell 主入口文件
 - utils/: 工具模块
 """
 
+import sys
+
 # 首先导入策略模型和回测模型以确保正确的表结构被使用
 # 这必须在导入 collector.db.models 之前完成
 import typer  # CLI 入口参数解析（项目规范：带参数脚本统一用 typer）
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +22,7 @@ from fastapi.responses import JSONResponse
 import agent.models
 import backtest.models
 import strategy.models
+from collector.db import init_db
 
 # 导入核心模块
 from config.settings import get_settings
@@ -42,7 +46,6 @@ from ai.polish import router as ai_polish_router
 from ai.strategy import router as ai_model_strategy_router
 from api.ensemble_routes import router as ensemble_router
 from api.model_routes import router as models_router
-from api.risk_routes import router as risk_router
 from api.rl_routes import router as rl_router
 from api.system_ports import router as system_ports_router
 from backtest import router as backtest_router
@@ -135,10 +138,9 @@ from api.capabilities_routes import router as capabilities_router
 
 app.include_router(capabilities_router)
 
-# 模型/集成/风控/RL 服务路由
+# 模型/集成/RL 服务路由
 app.include_router(models_router)
 app.include_router(ensemble_router)
-app.include_router(risk_router)
 app.include_router(rl_router)
 # 研究模块（AI 研究闭环；router 自带 /research 前缀，这里统一补 /api/v1）
 app.include_router(research_router, prefix="/api/v1")
@@ -344,11 +346,6 @@ def main(
     使用 uvicorn 作为 ASGI 服务器，在 localhost:8000 默认启动应用；
     禁用自动重载，避免 DuckDB 锁冲突。
     """
-    import sys
-
-    import uvicorn
-
-    from collector.db import init_db
 
     # ========== 关闭机制说明 ==========
     # 不安装自定义 SIGINT/SIGTERM 处理器，让 uvicorn 默认处理

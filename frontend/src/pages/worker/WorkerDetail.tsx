@@ -2,7 +2,7 @@ import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker 详情页
  *
- * 7 个 tab 布局（顺序：总览、持仓、成交分组、委托、决策、参数、日志）
+ * 6 个 tab 布局（顺序：总览、交易、决策、风控、参数、日志）
  * - URL hash 同步：切换 tab 时更新 hash，刷新页面时根据 hash 恢复
  * - 旧 hash (#performance/#stats) 兼容：自动重定向到 #overview 并 toast 提示
  * - 页面头部 Card 增加「最后更新时间」字段，每 60s 刷新
@@ -12,43 +12,27 @@ import { QUANT_COLORS } from '@/utils/colors';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions, Alert } from 'antd';
+import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions, Alert, Tooltip } from 'antd';
 import { ArrowLeftOutlined, ClockCircleOutlined, FolderAddOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import 'dayjs/locale/zh-cn';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
+import { formatUSD } from '@/utils/format';
 import { archiveWorkerJournal } from '../../api/workerApi';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
 import WorkerOverviewTab from '../../components/worker/WorkerOverviewTab';
-import WorkerPositionTab from '../../components/worker/WorkerPositionTab';
-import WorkerTradesGroupedTab from '../../components/worker/WorkerTradesGroupedTab';
-import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
 import WorkerDecisionsTab from '../../components/worker/WorkerDecisionsTab';
+import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
+import WorkerRiskTab from '../../components/worker/WorkerRiskTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
 import WorkerShareModal from '../../components/worker/WorkerShareModal';
 import WorkerEditModal from '../../components/worker/WorkerEditModal';
+import { LEGACY_HASH_MAP, VALID_TABS, type TabKey } from './workerDetailTabs';
 
 dayjs.extend(relativeTime);
-
-// Tab key 类型
-type TabKey = 'params' | 'overview' | 'positions' | 'tradesGrouped' | 'orders' | 'decisions' | 'logs';
-
-// 合法 tab key
-const VALID_TABS: TabKey[] = ['params', 'overview', 'positions', 'tradesGrouped', 'orders', 'decisions', 'logs'];
-
-// 旧 hash -> 新 hash 映射
-// TODO(ux-hash-compat): 这是 URL hash 的 UX 兼容（旧分享链接），并非旧数据协议；
-// 待旧版分享链接自然淘汰（预计 2026-12）后移除。
-const LEGACY_HASH_MAP: Record<string, TabKey> = {
-  performance: 'overview',
-  stats: 'overview',
-  trading_stats: 'overview',
-  position: 'positions', // 单数兼容
-};
 
 const DEFAULT_TAB: TabKey = 'overview';
 
@@ -65,8 +49,8 @@ const WorkerDetail = () => {
   const [shareOpen, setShareOpen] = useState<boolean>(false);
   // 编辑 modal 的 open 状态
   const [editOpen, setEditOpen] = useState<boolean>(false);
-  // 参数 tab 重拉信号量：编辑保存成功后递增，触发 WorkerParamsTab 重拉风控配置
-  const [paramsReloadKey, setParamsReloadKey] = useState<number>(0);
+  // 风控配置重拉信号量：编辑保存成功后递增，触发风控 tab 的 WorkerRiskControlCard 重拉
+  const [riskReloadKey, setRiskReloadKey] = useState<number>(0);
 
   const {
     workers,
@@ -158,6 +142,11 @@ const WorkerDetail = () => {
   // 归档 journal：二次确认后调用归档 API，成功后刷新详情（journal 移走 → 下次启动 fresh start）
   const handleArchive = useCallback(() => {
     if (!currentWorker) return;
+    // paper 走 PaperDriver 内存撮合，从不产生 journal——归档对它无从谈起
+    if (currentWorker.trading_config?.trading_mode === 'paper') {
+      message.warning(t('worker_archive_paper_hint'));
+      return;
+    }
     // String() 解耦 status 字面量类型：后端允许 error 态归档，前端类型未必含该字面量
     const status = String(currentWorker.status ?? '');
     // 运行时门槛兜底：按钮 disabled 只是 UI 层拦截，弹窗打开间隙状态可能已变化
@@ -205,7 +194,10 @@ const WorkerDetail = () => {
     );
   }
 
-  // 7 个 tab 顺序：总览 → 持仓 → 成交分组 → 委托 → 决策 → 参数 → 日志
+  // 头部基础配置展示所需（口径同原 params tab basic_config 卡）
+  const workerConfig = currentWorker.config ?? {};
+
+  // 6 个 tab 顺序：总览 → 交易 → 决策 → 风控 → 参数 → 日志
   // 所有标签使用 i18n
   const tabItems = [
     {
@@ -220,19 +212,9 @@ const WorkerDetail = () => {
       ),
     },
     {
-      key: 'positions',
-      label: t('position'),
-      children: <WorkerPositionTab workerId={currentWorker.id} active={activeTab === 'positions'} />,
-    },
-    {
-      key: 'tradesGrouped',
-      label: t('trades_grouped'),
-      children: <WorkerTradesGroupedTab workerId={currentWorker.id} active={activeTab === 'tradesGrouped'} />,
-    },
-    {
-      key: 'orders',
-      label: t('orders'),
-      children: <WorkerOrderTab workerId={currentWorker.id} active={activeTab === 'orders'} />,
+      key: 'trades',
+      label: t('trades'),
+      children: <WorkerOrderTab workerId={currentWorker.id} active={activeTab === 'trades'} />,
     },
     {
       key: 'decisions',
@@ -240,15 +222,21 @@ const WorkerDetail = () => {
       children: <WorkerDecisionsTab workerId={currentWorker.id} active={activeTab === 'decisions'} />,
     },
     {
-      key: 'params',
-      label: t('parameters'),
+      key: 'risk',
+      label: t('risk_tab'),
       children: (
-        <WorkerParamsTab
-          worker={currentWorker}
-          reloadKey={paramsReloadKey}
+        <WorkerRiskTab
+          workerId={currentWorker.id}
+          active={activeTab === 'risk'}
+          reloadKey={riskReloadKey}
           onEdit={() => setEditOpen(true)}
         />
       ),
+    },
+    {
+      key: 'params',
+      label: t('parameters'),
+      children: <WorkerParamsTab worker={currentWorker} />,
     },
     {
       key: 'logs',
@@ -278,14 +266,28 @@ const WorkerDetail = () => {
             >
               {t('share.button')}
             </Button>
-            <Button
-              danger
-              icon={<FolderAddOutlined />}
-              disabled={!currentWorker || !['stopped', 'error'].includes(String(currentWorker.status ?? ''))}
-              onClick={handleArchive}
+            {/* paper 无 journal 可归档：disabled + Tooltip 说明（disabled 按钮事件不触发，
+             *  Tooltip 必须包在外层才能悬浮提示） */}
+            <Tooltip
+              title={
+                currentWorker?.trading_config?.trading_mode === 'paper'
+                  ? t('worker_archive_paper_hint')
+                  : undefined
+              }
             >
-              {t('worker_archive_reanchor')}
-            </Button>
+              <Button
+                danger
+                icon={<FolderAddOutlined />}
+                disabled={
+                  !currentWorker
+                  || currentWorker.trading_config?.trading_mode === 'paper'
+                  || !['stopped', 'error'].includes(String(currentWorker.status ?? ''))
+                }
+                onClick={handleArchive}
+              >
+                {t('worker_archive_reanchor')}
+              </Button>
+            </Tooltip>
           </Space>
         </div>
 
@@ -332,7 +334,7 @@ const WorkerDetail = () => {
             </Col>
 
             <Col>
-              <Descriptions size="small" column={2}>
+              <Descriptions size="small" column={3}>
                 <Descriptions.Item label={t('timeframe')}>
                   <Tag color="blue">{currentWorker.trading_config?.timeframe}</Tag>
                 </Descriptions.Item>
@@ -345,9 +347,33 @@ const WorkerDetail = () => {
                         (currentWorker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
                     }}
                   >
-                    {(currentWorker.total_profit || 0) >= 0 ? '+' : ''}$
-                    {Math.abs(currentWorker.total_profit || 0).toFixed(2)}
+                    {formatUSD(currentWorker.total_profit, { showSign: true })}
                   </span>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('trading_mode')}>
+                  {/* live 红色提醒真实资金，testnet 橙色表示测试网，paper 蓝色本地模拟；文案与创建/编辑弹窗的 TRADING_MODES 保持一致 */}
+                  <Tag color={currentWorker.trading_config?.trading_mode === 'live' ? 'red' : currentWorker.trading_config?.trading_mode === 'testnet' ? 'orange' : 'blue'}>
+                    {currentWorker.trading_config?.trading_mode === 'live'
+                      ? t('env_live')
+                      : currentWorker.trading_config?.trading_mode === 'testnet'
+                        ? t('env_testnet')
+                        : t('env_paper')}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('leverage')}>
+                  <Tag color="orange">{workerConfig.leverage ? `${String(workerConfig.leverage)}x` : '1x'}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('total_investment')}>
+                  {/* config 里没有 total_investment；创建/编辑弹窗提交与启动参数读的都是 initial_capital（worker 初始资金） */}
+                  <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
+                    ${typeof workerConfig.initial_capital === 'number' ? workerConfig.initial_capital.toFixed(2) : '-'}
+                  </span>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('order_type')}>
+                  {/* config.order_type 是死字段（worker 配置从未支持过下单方式，读了必是 undefined）。
+                   *  实际执行：paper/live 主回路按目标仓位差额固定下市价单，与 paper_trade_sync「paper 撮合只产市价单」同口径，
+                   *  故此处如实显示市价单；limit 仅存在于订单/成交记录的筛选条件 */}
+                  <Tag color="cyan">{t('market_order')}</Tag>
                 </Descriptions.Item>
               </Descriptions>
             </Col>
@@ -383,14 +409,14 @@ const WorkerDetail = () => {
           onClose={() => setShareOpen(false)}
         />
 
-        {/* 编辑 Worker Modal（受控）：保存成功后刷新列表并递增参数 tab 重拉信号量 */}
+        {/* 编辑 Worker Modal（受控）：保存成功后刷新列表并递增风控 tab 重拉信号量 */}
         <WorkerEditModal
           visible={editOpen}
           worker={currentWorker}
           onCancel={() => setEditOpen(false)}
           onSuccess={() => {
             fetchWorkers();
-            setParamsReloadKey((k) => k + 1);
+            setRiskReloadKey((k) => k + 1);
           }}
         />
       </Spin>

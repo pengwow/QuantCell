@@ -29,7 +29,6 @@ import {
   IconPlayerPlay,
   IconRefresh,
   IconRobot,
-  IconShield,
   IconSparkles,
   IconTrendingUp,
 } from '@tabler/icons-react';
@@ -187,12 +186,6 @@ const HomePage = () => {
       icon: <IconDatabase size="1.15em" />,
       label: t('data_management'),
       desc: t('home_quick_data_desc'),
-    },
-    {
-      path: '/risk-monitor',
-      icon: <IconShield size="1.15em" />,
-      label: t('risk_monitor'),
-      desc: t('home_quick_risk_desc'),
     },
   ];
 

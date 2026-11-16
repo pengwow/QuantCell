@@ -24,8 +24,6 @@ import json
 from datetime import datetime
 from hashlib import sha1
 
-from sqlalchemy import func
-
 from exchange.binance.exchange import BinanceExchange
 from utils.config_manager import get_flag
 from utils.db_session import get_db_session
@@ -212,7 +210,8 @@ class LiveTradeSync:
                 if not t.get("id"):
                     continue
                 try:
-                    row = crud.create_trade_if_not_exists(db, self._to_trade_data(t))
+                    data = self._to_trade_data(t)
+                    row = crud.create_trade_if_not_exists(db, data)
                 except Exception as e:
                     # 保留持久化游标，下轮从该笔重试
                     logger.warning(f"LiveTradeSync: trade {t.get('id')} 落库失败 (worker_id={self.worker_id}): {e}")
@@ -227,6 +226,23 @@ class LiveTradeSync:
                     max_seen_id = str(t["id"])
                 if row is not None:
                     inserted += 1
+                    # 订单持久化：live 链路只拉 myTrades（成交回报），下单意图
+                    # 事件与 openOrders 均不可见，故以 clientOrderId（缺省退
+                    # venue orderId / trade id）落 FILLED 行，让订单列表有成交历史
+                    crud.upsert_order_filled_from_fill(
+                        db,
+                        worker_id=self.worker_id,
+                        client_order_id=data.get("client_order_id")
+                        or data.get("venue_order_id")
+                        or f"live:{self.worker_id}:{t['id']}",
+                        symbol=data["symbol"],
+                        side=data["side"],
+                        order_type=data["order_type"],
+                        quantity=data["quantity"],
+                        price=data["price"],
+                        venue_order_id=data.get("venue_order_id"),
+                        filled_at=data["entry_time"],
+                    )
                     # 新落库的成交同步广播到前端 WebSocket（旁路，失败不影响入账）
                     ws_fill_events.broadcast_strategy_fill(
                         worker_id=str(self.worker_id),
@@ -263,26 +279,12 @@ class LiveTradeSync:
     def daily_realized_pnl(self) -> float:
         """DB 当日已实现盈亏汇总（B3 风控当日亏损额度的数据源）。
 
-        读 DB 而不是进程内累计：进程重启后当日更早的成交亏损仍计入，
-        风控额度不会因重启被重置。`realized_pnl` 为空（现货 / 无盈亏字段）
-        的行按 0 计。
+        聚合逻辑已抽到 crud.sum_daily_realized_pnl，风控回灌与
+        risk-status 快照共用同一函数，保证口径唯一。realized_pnl 为空
+        （现货 / 无盈亏字段）的行按 0 计。"""
+        from .crud import sum_daily_realized_pnl  # 函数内 import：方法层只做委托，避免模块加载顺序问题
 
-        ponytail: 按服务端本地日期切日（与 risk_config._local_today 同口径）；
-        交易所时区与服务端差异大时需要按品种传入时区。
-        """
-        from . import crud  # 同包 crud 依赖 models，无环
-
-        day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        with get_db_session() as db:
-            total = (
-                db.query(func.coalesce(func.sum(crud.WorkerTrade.realized_pnl), 0.0))
-                .filter(
-                    crud.WorkerTrade.worker_id == self.worker_id,
-                    crud.WorkerTrade.entry_time >= day_start,
-                )
-                .scalar()
-            )
-        return float(total or 0.0)
+        return sum_daily_realized_pnl(self.worker_id)
 
     def _to_trade_data(self, trade: dict) -> dict:
         """ccxt trade → WorkerTrade 字段映射（键名与 worker_trades 严格一致）。"""

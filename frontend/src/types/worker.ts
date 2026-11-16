@@ -4,7 +4,6 @@
  * 与后端Worker模块API规范保持一致
  */
 
-import type { Trade } from './backtest';
 
 // Worker状态常量
 export const WorkerStatus = {
@@ -252,6 +251,9 @@ export interface UpdateStrategyParametersRequest {
 
 // 持仓信息
 export interface PositionInfo {
+  id?: number;
+  worker_id?: number;
+  position_id: string;
   symbol: string;
   side: 'long' | 'short';
   quantity: number;
@@ -260,13 +262,15 @@ export interface PositionInfo {
   mark_price?: number;
   liquidation_price?: number;
   leverage?: number;
-  margin_used?: number;
+  margin_used: number;
   unrealized_pnl: number;
-  pnl_percentage: number;
+  realized_pnl: number;
+  // 对齐后端 WorkerPosition.to_dict() 契约（字段名为 unrealized_pnl_pct / opened_at）
+  unrealized_pnl_pct: number;
   roe?: number;
-  open_time?: string;
-  holding_duration?: string;
-  timestamp: string;
+  status: string;
+  opened_at?: string;
+  updated_at?: string;
 }
 
 // 订单信息
@@ -316,26 +320,12 @@ export interface LogQueryParams extends PaginationParams {
 // 交易记录查询参数
 export interface TradeQueryParams extends PaginationParams {
   symbol?: string;
+  side?: string;
+  order_type?: string;
   /** 盈亏状态筛选：profit/loss/flat/closed（closed = 已平仓，realized_pnl 非空） */
   pnl_status?: 'profit' | 'loss' | 'flat' | 'closed';
   start_time?: string;
   end_time?: string;
-}
-
-// 成交分组查询参数（direction 只接受 long/short；unpaired 组会被排除）
-export interface GroupedTradeQueryParams extends PaginationParams {
-  symbol?: string;
-  direction?: 'long' | 'short';
-  start_time?: string;
-  end_time?: string;
-}
-
-// 成交分组响应：按组分页，total_groups 为组总数
-export interface GroupedTradeResponse {
-  items: Trade[];
-  total_groups: number;
-  page: number;
-  page_size: number;
 }
 
 // 指标历史查询参数

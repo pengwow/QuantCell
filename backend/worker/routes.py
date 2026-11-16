@@ -939,6 +939,24 @@ async def get_worker_risk_control(
     return schemas.ApiResponse(code=0, message="success", data=data)
 
 
+@router.get(
+    "/{worker_id}/risk-status",
+    response_model=schemas.ApiResponse,
+    summary="查询 Worker 风控运行时状态快照",
+    description="返回风控装配三态（人工管控/策略参数直通/未配置）、当日盈亏与亏损额度消耗、推导熔断态。"
+    "当日盈亏与 B3 风控回灌共用同一聚合口径；熔断态为推导值（tripped_source=derived），"
+    "引擎侧精确快照（含冷却恢复）由后续引擎迭代提供。",
+)
+@handle_worker_exceptions("查询风控状态快照")
+async def get_worker_risk_status(
+    worker_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """与 get_worker_risk_control 同形：鉴权 + core_service 查询 + ApiResponse 包装"""
+    data = await worker_core_service.async_get_risk_status(worker_id)
+    return schemas.ApiResponse(code=0, message="success", data=data)
+
+
 @router.put(
     "/{worker_id}/risk-control",
     response_model=schemas.ApiResponse,
@@ -980,10 +998,24 @@ async def get_positions(
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    from . import crud
+    """获取Worker持仓。
 
+    worker_positions 表只有 live 事件链路写入，paper 内核持仓仅存引擎内存、
+    不产生持仓事件——表为空且查询 OPEN 时从成交明细未配对 fill 推导兜底
+    （crud.derive_positions_from_trades），与「交易」tab 的「持仓中」行同口径，
+    避免 paper 账总览「当前持仓」恒空而成交明细有数据。
+    """
     positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, side)
-    return schemas.ApiResponse(code=0, message="success", data=positions)
+    if positions or status != "OPEN":
+        return schemas.ApiResponse(code=0, message="success", data=positions)
+
+    # 兜底推导行同样应用 symbol/side 过滤（side 统一小写比对，与 to_dict 一致）
+    derived = crud.derive_positions_from_trades(db, worker_id)
+    if symbol:
+        derived = [d for d in derived if d["symbol"] == symbol]
+    if side:
+        derived = [d for d in derived if d["side"] == side.lower()]
+    return schemas.ApiResponse(code=0, message="success", data=derived)
 
 
 @router.get("/{worker_id}/strategy/orders", response_model=schemas.ApiResponse)

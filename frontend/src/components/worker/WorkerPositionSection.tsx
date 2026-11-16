@@ -1,20 +1,17 @@
 /**
- * Worker 持仓 Tab
- *
- * 展示当前 Worker 的实时持仓情况：
- * - 5s 轮询刷新（仅在 tab 激活时启用）
- * - 量化行业标准列：标记价、强平价、ROE、持仓时长
- * - 汇总卡片：总持仓价值、总未实现盈亏、总保证金、总 ROE
- * - 盈亏绝对值 > 5% 的行高亮提示
+ * 总览页持仓区（spec 2026-11-16 方案 A：持仓 tab 并入总览）
+ * 代码逐字搬自 WorkerPositionTab.tsx（该文件随 T6 下线）：
+ * 摘要 4 卡（总持仓价值/总未实现盈亏/总保证金/总 ROE）+ 当前持仓表（行高亮 |盈亏%|>5%）
+ * 轮询/首帧行为保持不变：5s 轮询仅 active 时启用；initialized 保证首帧后 DOM 稳定不跳滚动
+ * 原「成交明细」分表不随迁：成交视角由「交易」tab（订单明细，按状态区分挂单/成交）承接
  */
-
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
-import type { PositionInfo, WorkerTrade } from '@/types/worker';
+import type { PositionInfo } from '@/types/worker';
 import {
   QUANT_COLORS,
   calcROE,
@@ -29,22 +26,18 @@ import {
 // 持仓数据模型：直接复用 workerApi.getPositions 的返回类型（PositionInfo）与后端保持一致
 type Position = PositionInfo;
 
-interface WorkerPositionTabProps {
+interface WorkerPositionSectionProps {
   workerId: number;
   /** tab 是否激活；激活时才进行 5s 轮询，避免无效请求 */
   active?: boolean;
 }
 
-const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active = true }) => {
+const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId, active = true }) => {
   const { t } = useTranslation();
   // initialized：首帧数据是否已返回。轮询刷新只做局部 setState 更新，
   // 不再用 loading 把整个面板替换成 Spin——DOM 被替换会丢失浏览器滚动位置（页面跳回顶部）
   const [initialized, setInitialized] = useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [trades, setTrades] = useState<WorkerTrade[]>([]);
-  const [tradeTotal, setTradeTotal] = useState(0);
-  const [tradePage, setTradePage] = useState(1);
-  const [tradeLoading, setTradeLoading] = useState(false);
 
   // 拉取持仓数据：兼容多种返回结构
   const fetchPositionData = useCallback(async () => {
@@ -53,7 +46,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
       const items = await workerApi.getPositions(workerId);
       setPositions(items);
     } catch (error) {
-      console.error('获取持仓数据失败:', error);
+      console.error(t('worker_positions_load_failed'), error);
       setPositions([]);
     } finally {
       setInitialized(true);
@@ -62,29 +55,6 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
 
   // 5s 轮询：仅在 tab 激活时启用
   usePolling(fetchPositionData, { interval: 5000, enabled: active });
-
-  // 成交明细：展示全部 fill 行，与总览「总交易次数」口径一致（count 所有 fill）。
-  // realized_pnl 为 null = 开仓 fill 尚未配对出 round-trip（即当前持仓），标记「持仓中」；
-  // 之前按 pnl_status='closed' 过滤导致未平仓的 entry fill 在所有 tab 都不可见
-  const fetchTrades = useCallback(async (page: number) => {
-    setTradeLoading(true);
-    try {
-      const res = await workerApi.getWorkerTrades(workerId, {
-        page,
-        page_size: 10,
-      });
-      setTrades(res.items);
-      setTradeTotal(res.total);
-      setTradePage(page);
-    } catch (error) {
-      console.error('获取成交记录失败:', error);
-      setTrades([]);
-    } finally {
-      setTradeLoading(false);
-    }
-  }, [workerId]);
-
-  usePolling(() => fetchTrades(tradePage), { interval: 15000, enabled: active });
 
   // 汇总指标
   const summary = useMemo(() => {
@@ -201,108 +171,25 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
     },
     {
       title: t('open_time'),
-      dataIndex: 'open_time',
-      key: 'open_time',
+      dataIndex: 'opened_at',
+      key: 'opened_at',
       width: 170,
       render: (time?: string) => (time ? formatTimestamp(time) : '-'),
     },
     {
       title: t('worker_holding_duration'),
-      dataIndex: 'open_time',
+      dataIndex: 'opened_at',
       key: 'holding_duration',
       width: 110,
-      render: (time?: string, record?: Position) =>
-        formatHoldingDuration(record?.holding_duration ? null : time),
+      render: (time?: string) => formatHoldingDuration(time),
     },
   ];
 
-  // 高亮 |pnl| > 5% 的持仓行
+  // 高亮 |盈亏%| > 5% 的持仓行（后端字段 unrealized_pnl_pct）
   const rowClassName = (record: Position) => {
-    const pnlPct = Math.abs(record.pnl_percentage || 0);
+    const pnlPct = Math.abs(record.unrealized_pnl_pct || 0);
     return pnlPct > 5 ? 'position-row-highlight' : '';
   };
-
-  // 成交明细表格列：时间优先取平仓时间，未平仓行回退为成交时间
-  const tradeColumns: TableColumnsType<WorkerTrade> = [
-    {
-      title: t('backtest_time'),
-      dataIndex: 'exit_time',
-      key: 'exit_time',
-      width: 170,
-      render: (time: string | undefined, record: WorkerTrade) => {
-        const t0 = time || record.created_at;
-        return t0 ? formatTimestamp(t0) : '-';
-      },
-    },
-    {
-      title: t('symbol'),
-      dataIndex: 'symbol',
-      key: 'symbol',
-      width: 120,
-      render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
-    },
-    {
-      title: t('direction'),
-      dataIndex: 'side',
-      key: 'side',
-      width: 80,
-      render: (side: 'buy' | 'sell') => (
-        <Tag color={side === 'buy' ? 'green' : 'red'}>{side === 'buy' ? t('buy') : t('sell')}</Tag>
-      ),
-    },
-    {
-      title: t('status'),
-      dataIndex: 'realized_pnl',
-      key: 'trade_status',
-      width: 90,
-      render: (pnl?: number | null) =>
-        pnl === undefined || pnl === null ? <Tag color="gold">{t('worker_holding')}</Tag> : <Tag>{t('worker_closed')}</Tag>,
-    },
-    {
-      title: t('quantity'),
-      dataIndex: 'quantity',
-      key: 'quantity',
-      align: 'right',
-      render: (qty: number) => formatQuantity(qty),
-    },
-    {
-      title: t('worker_fill_price'),
-      dataIndex: 'price',
-      key: 'price',
-      align: 'right',
-      render: (price: number) => formatUSD(price),
-    },
-    {
-      title: t('realized_pnl'),
-      dataIndex: 'realized_pnl',
-      key: 'realized_pnl',
-      align: 'right',
-      width: 140,
-      render: (pnl?: number | null) =>
-        pnl === undefined || pnl === null ? (
-          <span style={{ color: '#999' }}>—</span>
-        ) : (
-          <span style={{ fontWeight: 600, color: pnl >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
-            {formatUSD(pnl, { showSign: true })}
-          </span>
-        ),
-    },
-    {
-      title: t('return_rate'),
-      dataIndex: 'realized_pnl_pct',
-      key: 'realized_pnl_pct',
-      align: 'right',
-      width: 100,
-      render: (pct?: number) =>
-        pct === undefined || pct === null ? (
-          '-'
-        ) : (
-          <span style={{ fontWeight: 600, color: pct >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
-            {formatPercent(pct, { showSign: true })}
-          </span>
-        ),
-    },
-  ];
 
   // 仅首帧未返回数据时用 Spin 占位；之后轮询不触发此分支，DOM 结构保持稳定
   if (!initialized) {
@@ -367,7 +254,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
         </Col>
       </Row>
 
-      {/* 持仓列表 + 历史平仓记录（Card 间距由 Space 统一管理） */}
+      {/* 持仓列表（成交明细不在此处：由「交易」tab 承接；Card 间距由 Space 统一管理） */}
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Card
         title={
@@ -400,29 +287,6 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
           />
         )}
       </Card>
-
-      {/* 成交明细：全部 fill 行（含持仓中/未平仓），服务端分页（数据 append-only，翻页/15s 轮询按当前页刷新） */}
-      <Card title={t('worker_trade_details')}>
-        <Table
-          columns={tradeColumns}
-          dataSource={trades}
-          rowKey="trade_id"
-          loading={tradeLoading}
-          locale={{
-            emptyText: <Empty description={t('worker_no_trades')} image={Empty.PRESENTED_IMAGE_SIMPLE} />,
-          }}
-          pagination={{
-            current: tradePage,
-            pageSize: 10,
-            total: tradeTotal,
-            showSizeChanger: false,
-            showTotal: (total) => t('worker_trades_count', { total }),
-            onChange: (page) => fetchTrades(page),
-          }}
-          size="middle"
-          scroll={{ x: 'max-content' }}
-        />
-      </Card>
       </Space>
 
       {/* 高亮行样式：盈亏绝对值 > 5% */}
@@ -438,4 +302,4 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   );
 };
 
-export default WorkerPositionTab;
+export default WorkerPositionSection;

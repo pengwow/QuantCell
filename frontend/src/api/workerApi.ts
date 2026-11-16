@@ -28,8 +28,6 @@ import type {
   WorkerFilterParams,
   LogQueryParams,
   TradeQueryParams,
-  GroupedTradeQueryParams,
-  GroupedTradeResponse,
   MetricsHistoryParams,
   TradingSummary,
   PositionSummary,
@@ -253,18 +251,6 @@ export const getWorkerTrades = (
   params?: TradeQueryParams
 ): Promise<{ items: WorkerTrade[]; total: number; page: number; page_size: number }> => {
   return apiRequest.get(`/workers/${workerId}/monitoring/trades`, params);
-};
-
-/**
- * 获取 Worker 成交分组（round-trip 契约，与回测详情页 TradeTable 一致）
- * @param workerId Worker ID
- * @param params 筛选 + 组分页参数
- */
-export const getWorkerTradesGrouped = (
-  workerId: number,
-  params?: GroupedTradeQueryParams
-): Promise<GroupedTradeResponse> => {
-  return apiRequest.get(`/workers/${workerId}/monitoring/trades/grouped`, params);
 };
 
 // ============================================
@@ -690,6 +676,29 @@ export const deleteRiskControl = (workerId: number): Promise<RiskControlOut | nu
   return apiRequest.delete(`/workers/${workerId}/risk-control`);
 };
 
+/** 风控状态快照（GET /workers/{id}/risk-status，spec 2026-11-16） */
+export interface RiskStatusOut {
+  configured: boolean;
+  source: 'manual' | 'params' | 'none';
+  enabled: boolean;
+  /** 展示限额（manual=归一化金额键；params=策略参数原样键；未配置=null） */
+  config: Record<string, number> | null;
+  daily_pnl: number | null;
+  daily_loss_limit: number | null;
+  /** 当日亏损/额度，可 >1；字段缺失时 null */
+  loss_usage: number | null;
+  circuit_breaker_tripped: boolean;
+  tripped_source: 'derived' | 'engine';
+}
+
+/**
+ * 查询 Worker 风控运行时状态快照
+ * @param workerId Worker ID
+ */
+export const getRiskStatus = (workerId: number): Promise<RiskStatusOut> => {
+  return apiRequest.get(`/workers/${workerId}/risk-status`);
+};
+
 /**
  * 获取持仓信息
  * @param workerId Worker ID
@@ -920,7 +929,6 @@ export const workerApi = {
   clearWorkerLogs,
   getWorkerPerformance,
   getWorkerTrades,
-  getWorkerTradesGrouped,
 
   // Strategy
   getStrategyParameters,
@@ -928,6 +936,7 @@ export const workerApi = {
   getRiskControl,
   upsertRiskControl,
   deleteRiskControl,
+  getRiskStatus,
   getPositions,
   getOrders,
 

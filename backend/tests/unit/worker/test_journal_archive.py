@@ -125,8 +125,12 @@ def fake_worker_system(monkeypatch: pytest.MonkeyPatch) -> _FakeWorkerSystem:
     return fake
 
 
-def _db_with_worker(monkeypatch: pytest.MonkeyPatch, worker_status: str | None) -> None:
-    """替换 get_db 与 crud.get_worker，绕开真实 DB（单例 service 便于直测）。"""
+def _db_with_worker(monkeypatch: pytest.MonkeyPatch, worker_status: str | None, trading_mode: str = "live") -> None:
+    """替换 get_db 与 crud.get_worker，绕开真实 DB（单例 service 便于直测）。
+
+    trading_mode 默认 live：journal 归档只对 live/testnet 有意义，既有用例
+    默认放行路径；paper 用例显式传入触发前置拦截。
+    """
 
     @contextmanager
     def _fake_session():
@@ -135,10 +139,24 @@ def _db_with_worker(monkeypatch: pytest.MonkeyPatch, worker_status: str | None) 
     def _fake_get_worker(db, worker_id):
         if worker_status is None:
             return None
-        return SimpleNamespace(id=worker_id, status=worker_status, name=f"worker-{worker_id}")
+        return SimpleNamespace(
+            id=worker_id,
+            status=worker_status,
+            name=f"worker-{worker_id}",
+            get_trading_config_dict=lambda: {"trading_mode": trading_mode},
+        )
 
     monkeypatch.setattr(WorkerCoreService, "get_db", lambda self: _fake_session())
     monkeypatch.setattr(cs.crud, "get_worker", _fake_get_worker)
+
+
+def test_service_archive_rejects_paper_mode(monkeypatch, fake_worker_system):
+    """paper 走 PaperDriver 内存撮合不产生 journal，归档在入口即拦截。"""
+    service = WorkerCoreService()
+    _db_with_worker(monkeypatch, "stopped", trading_mode="paper")
+    with pytest.raises(WorkerOperationException, match="paper"):
+        service.archive_worker_journal(1)
+    assert not fake_worker_system.calls
 
 
 def test_service_archive_requires_stopped_or_error(monkeypatch, fake_worker_system):
