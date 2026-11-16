@@ -85,6 +85,9 @@ backend/output/
 
 docs/.temp/
 docs/*
+# 官方文档站源文件（中英双语，mkdocs 构建）必须入库
+!docs/zh/
+!docs/en/
 docs/compose/specs/*
 .mimocode/
 .mimocode/plans/
@@ -120,3 +123,6 @@ backend/quantcell-backend.spec
 
 
 logs/*
+
+# mkdocs 文档站构建产物
+site/

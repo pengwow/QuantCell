@@ -1,0 +1,151 @@
+# QuantCell docs site config (English) — mirrors mkdocs.yml
+# Deploy: GitHub Pages (https://pengwow.github.io/quantcell/en/)
+# Local preview: make docs-serve-en
+# Build: make docs-build-all
+
+site_name: QuantCell
+site_description: AI-native quantitative trading system — axon-quant Rust core + FastAPI + React
+site_url: https://pengwow.github.io/quantcell/en/
+repo_url: https://github.com/pengwow/quantcell
+repo_name: pengwow/quantcell
+edit_uri: edit/main/docs/en/
+
+strict: true
+
+docs_dir: docs/en
+site_dir: site/en
+
+# Language switcher
+extra:
+  alternate:
+    - name: 中文
+      link: /quantcell/zh/
+      lang: zh
+    - name: English
+      link: /quantcell/en/
+      lang: en
+
+# Theme: Material
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+# Plugins
+plugins:
+  - search:
+      lang:
+        - en
+  - git-revision-date-localized:
+      enabled: true
+      type: date
+      strict: false
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+
+# Markdown extensions
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - meta
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.smartsymbols
+
+# Navigation ("Home → Getting started → User guide → Module reference → API reference → Practices & troubleshooting")
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - User guide:
+      - Architecture: user-guide/architecture.md
+      - Strategy development: user-guide/strategy-development.md
+      - Backtesting: user-guide/backtesting.md
+      - Paper & live trading: user-guide/live-trading.md
+      - Reinforcement learning: user-guide/rl-training.md
+      - Data ecosystem: user-guide/data.md
+      - Desktop client: user-guide/desktop.md
+  - Module reference:
+      - CLI: modules/cli.md
+      - Plugin system: modules/plugins.md
+  - API reference:
+      - REST API: reference/api.md
+      - WebSocket channels: reference/websocket.md
+  - Best practices: best-practices.md
+  - Troubleshooting: troubleshooting.md
+
+# Copyright
+copyright: Copyright &copy; 2026 QuantCell Authors

@@ -118,6 +118,42 @@ laya-restart:
 	./scripts/local_model_servers/start_laya.sh restart
 
 # ============================================================
+# 文档（mkdocs-material，中英双语 → site/zh + site/en + 根重定向）
+# ============================================================
+
+# 统一通过 uv 临时环境运行 mkdocs，不污染系统 Python，也无需单独的 docs venv
+DOCS_RUN := uv run --no-project --with-requirements requirements-docs.txt
+
+.PHONY: docs-install docs-serve docs-serve-en docs-build docs-build-en docs-build-all docs-validate docs-clean
+
+# 预热文档依赖缓存（首次可跑一次，后续 serve/build 直接走缓存）
+docs-install:
+	$(DOCS_RUN) python -c "import mkdocs; print('mkdocs ready:', mkdocs.__version__)"
+
+docs-serve:
+	$(DOCS_RUN) python -m mkdocs serve
+
+docs-serve-en:
+	$(DOCS_RUN) python -m mkdocs serve -f mkdocs-en.yml -a 127.0.0.1:8001
+
+docs-build:
+	$(DOCS_RUN) python -m mkdocs build --strict
+
+docs-build-en:
+	$(DOCS_RUN) python -m mkdocs build -f mkdocs-en.yml --strict
+
+# 顺序：zh → en → 根重定向页。mkdocs 只清理各自 site_dir（site/zh、site/en），
+# 所以最后写 site/index.html 不会被清掉
+docs-build-all: docs-build docs-build-en
+	printf '%s\n' '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=zh/"><link rel="canonical" href="zh/"><title>QuantCell Docs</title></head><body>Redirecting to <a href="zh/">QuantCell 文档（中文）</a> / <a href="en/">QuantCell docs (English)</a></body></html>' > site/index.html
+
+docs-validate: docs-build-all
+	@echo "==> docs build passed (--strict, zh + en + root redirect)"
+
+docs-clean:
+	rm -rf site/
+
+# ============================================================
 # 全链路
 # ============================================================
 
@@ -178,6 +214,15 @@ help:
 	@echo "  make laya-stop           停止决策模型服务"
 	@echo "  make laya-status         查看决策模型服务状态"
 	@echo "  make laya-restart        重启决策模型服务"
+	@echo "	=== 文档 (docs)==="
+	@echo "  make docs-install        预热 mkdocs 依赖（uv 临时环境）"
+	@echo "  make docs-serve          本地预览中文站 http://localhost:8000"
+	@echo "  make docs-serve-en       本地预览英文站 http://127.0.0.1:8001"
+	@echo "  make docs-build          构建中文站 → site/zh"
+	@echo "  make docs-build-en       构建英文站 → site/en"
+	@echo "  make docs-build-all      zh + en + 根重定向页 → site/"
+	@echo "  make docs-validate       全量严格构建（--strict）"
+	@echo "  make docs-clean          清理 site/"
 	@echo "	=== 版本 (version)==="
 	@echo "  make version             体检：VERSION 与各处版本声明是否一致（不一致 exit 1）"
 	@echo "  make version v=0.0.1     落位：写 VERSION + 4 处声明 + 刷新 uv.lock / Cargo.lock"
