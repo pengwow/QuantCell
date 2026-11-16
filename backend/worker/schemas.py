@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .vocab import PositionSide, Side
+
 
 class SymbolsConfig(BaseModel):
     """交易标的配置"""
@@ -223,7 +225,7 @@ class PositionInfo(BaseModel):
     """持仓信息"""
 
     symbol: str = Field(..., description="交易对")
-    side: str = Field(..., description="方向: long/short")
+    side: PositionSide = Field(..., description="持仓方向（canonical 小写）: long/short/both")
     quantity: float = Field(..., description="持仓数量")
     entry_price: float = Field(..., description="入场价格")
     current_price: float = Field(..., description="当前价格")
@@ -237,7 +239,7 @@ class OrderInfo(BaseModel):
 
     order_id: str = Field(..., description="订单ID")
     symbol: str = Field(..., description="交易对")
-    side: str = Field(..., description="方向: buy/sell")
+    side: Side = Field(..., description="方向（canonical 小写）: buy/sell")
     order_type: str = Field(..., description="订单类型")
     quantity: float = Field(..., description="数量")
     price: float | None = Field(None, description="价格")
