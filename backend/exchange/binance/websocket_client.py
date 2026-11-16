@@ -507,7 +507,8 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                                 _parts.append(f"{_chan}x{len(_res['data_list'])}")
                             else:
                                 _parts.append(f"{_chan}:{_res['type']}")
-                        logger.info(f"[WSDebug] round={_dur:.1f}ms {' '.join(_parts)}")
+                        # 插桩日志走 DEBUG 级别：不能污染 INFO 层常规日志，需 LOG_LEVEL=DEBUG 才可见
+                        logger.debug(f"[WSDebug] round={_dur:.1f}ms {' '.join(_parts)}")
 
                 except Exception as e:
                     logger.error(f"Error in message receive loop: {e}")

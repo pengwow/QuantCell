@@ -124,6 +124,9 @@ const ChartPage = () => {
   // WS 内部品种口径无斜杠（如 ETHUSDT）；currentSymbol.code 来自品种列表，可能带斜杠（ETH/USDT）。
   // 引擎频道订阅与 depth/trades 过滤必须用无斜杠口径，否则永远匹配不上（TradeTape 曾因此恒空态）
   const wsSymbol = currentSymbol.code.replace('/', '');
+  // 供 processBatchUpdate 等稳定回调读取当前品种（避免 useCallback 依赖抖动引起下游订阅重建）
+  const wsSymbolRef = useRef(wsSymbol);
+  wsSymbolRef.current = wsSymbol;
   const [currentPeriod, setCurrentPeriod] = useState('1h');
 
   // 加载状态
@@ -149,6 +152,8 @@ const ChartPage = () => {
   const lastUpdateTimeRef = useRef<number>(0);
   const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const klineDataRef = useRef<KLineData[]>([]);
+  // K线请求序号：品种/周期切换并发拉取时，只有最后一次请求允许写回 klineDataRef（防旧响应盖新图）
+  const klineReqSeqRef = useRef(0);
 
   // 保存用户偏好：写后端 chart.uiPrefs（800ms 防抖合并，见 services/chartPreferences）
   const saveUserPreferences = (symbol: string, period: string) => {
@@ -157,6 +162,7 @@ const ChartPage = () => {
 
   // 加载K线数据：拿到数据后由壳统一喂数（内部重新 setDataLoader + resize）
   const loadKlineData = useCallback(async () => {
+    const seq = ++klineReqSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -166,6 +172,9 @@ const ChartPage = () => {
         limit: 500,
       });
 
+      // 竞态守卫：慢的旧请求返回时直接丢弃，否则旧品种数据会覆盖新品种图表
+      if (seq !== klineReqSeqRef.current) return;
+
       // API 返回的数据已经是正确的格式，直接使用
       if (data && Array.isArray(data)) {
         // types/data 的 KlineData 与 klinecharts KLineData 字段一致（后者多 volume?/turnover? 可选字段与索引签名），此处做受控断言
@@ -173,6 +182,8 @@ const ChartPage = () => {
         shellRef.current?.refreshData();
       }
     } catch (error) {
+      // 过时请求的失败同样静默丢弃，避免已被取代的旧请求误报错误
+      if (seq !== klineReqSeqRef.current) return;
       setError('加载K线数据失败');
       message.error('加载K线数据失败');
       console.error('加载K线数据失败:', error);
@@ -205,7 +216,11 @@ const ChartPage = () => {
         const productsList = (response?.products || []) as unknown as ProductItem[];
         if (cancelled) return;
         const hit = toSymbols(productsList).find((p: Symbol) => p.code === preferredCode);
-        if (hit) setCurrentSymbol(hit); // 找不到（品种名变更/下架）保持默认 BTCUSDT
+        if (hit) {
+          // 与切品种同理：清空默认品种数据，防 setSymbol 快照成「偏好 ticker + 默认品种图」
+          klineDataRef.current = [];
+          setCurrentSymbol(hit);
+        }
       } catch {
         // 商品列表拉取失败保持默认品种，不打扰
       }
@@ -457,11 +472,20 @@ const ChartPage = () => {
 
   // 选择品种
   const handleSelectSymbol = (symbol: Symbol) => {
+    // 切品种必须先清空旧 K 线：ChartShell（子组件）的 setSymbol effect 先于本页加载 effect 执行，
+    // klinecharts 的 setSymbol 会同步回调 getBars，把 ref 里的旧品种数据快照成新品种的图
+    klineDataRef.current = [];
     setCurrentSymbol(symbol);
     setSearchVisible(false);
     setSearchKeyword('');
     saveUserPreferences(symbol.code, currentPeriod);
   };
+
+  // 切周期与切品种同理：setPeriod 触发的同步 getBars 会把旧周期数据快照成新周期图，先清空
+  const handleChangePeriod = useCallback((period: string) => {
+    klineDataRef.current = [];
+    setCurrentPeriod(period);
+  }, []);
 
   // 批量处理实时数据更新
   const processBatchUpdate = useCallback(() => {
@@ -476,6 +500,11 @@ const ChartPage = () => {
         // 从实时消息（可能嵌套多层）中解析K线
         const kline = extractRealtimeKline(data);
         if (!kline) {
+          return;
+        }
+
+        // 品种过滤：切品种瞬间旧订阅的残留推送不得混入新图（消息缺 s 字段时无法判定，放行）
+        if (kline.s != null && String(kline.s).toUpperCase() !== wsSymbolRef.current.toUpperCase()) {
           return;
         }
 
@@ -580,7 +609,7 @@ const ChartPage = () => {
         symbol={currentSymbol}
         periods={PERIOD_BAR_ITEMS}
         currentPeriod={currentPeriod}
-        onChangePeriod={setCurrentPeriod}
+        onChangePeriod={handleChangePeriod}
         getBars={() => klineDataRef.current}
         onOpenSymbolSearch={() => setSearchVisible(true)}
         realtimeSlot={

@@ -1,0 +1,153 @@
+# QuantCell 技术文档站配置(中文主站)
+# 部署: GitHub Pages (https://pengwow.github.io/quantcell/zh/)
+# 本地预览: make docs-serve
+# 构建: make docs-build-all
+# 参考规范: axon_quant mkdocs.yml
+
+site_name: QuantCell
+site_description: AI 原生量化交易系统 — axon-quant Rust 内核 + FastAPI + React
+site_url: https://pengwow.github.io/quantcell/zh/
+repo_url: https://github.com/pengwow/quantcell
+repo_name: pengwow/quantcell
+edit_uri: edit/main/docs/zh/
+
+strict: true
+
+docs_dir: docs/zh
+site_dir: site/zh
+
+# 多语言切换
+extra:
+  alternate:
+    - name: 中文
+      link: /quantcell/zh/
+      lang: zh
+    - name: English
+      link: /quantcell/en/
+      lang: en
+
+# 主题: Material
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+  palette:
+    # 亮色模式
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    # 暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+# 插件
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+  - git-revision-date-localized:
+      enabled: true
+      type: date
+      strict: false
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+
+# Markdown 扩展
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - meta
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.smartsymbols
+
+# 导航(按"首页 → 快速开始 → 用户指南 → 模块参考 → API 参考 → 实践与排查"组织)
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - 安装: getting-started/installation.md
+      - 5 分钟跑通: getting-started/quickstart.md
+  - 用户指南:
+      - 架构总览: user-guide/architecture.md
+      - 策略开发全流程: user-guide/strategy-development.md
+      - 回测详解: user-guide/backtesting.md
+      - 模拟盘与实盘: user-guide/live-trading.md
+      - 强化学习: user-guide/rl-training.md
+      - 数据生态: user-guide/data.md
+      - 桌面客户端: user-guide/desktop.md
+  - 模块参考:
+      - CLI 命令行: modules/cli.md
+      - 插件系统: modules/plugins.md
+  - API 参考:
+      - REST API: reference/api.md
+      - WebSocket 实时通道: reference/websocket.md
+  - 最佳实践: best-practices.md
+  - 常见问题排查: troubleshooting.md
+
+# 版权
+copyright: Copyright &copy; 2026 QuantCell Authors

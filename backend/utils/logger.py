@@ -326,8 +326,17 @@ class UnifiedLogger:
             # 在主进程中，移除默认处理器
             _loguru_logger.remove()
 
-        # 获取日志级别
-        level = os.environ.get("LOG_LEVEL", "INFO").upper()
+        # 获取日志级别：环境变量优先；未显式 export 时回落 pydantic-settings（.env / settings 默认），
+        # 保证 LOG_LEVEL 在 uvicorn 与业务日志两条链路里同一事实源
+        level = os.environ.get("LOG_LEVEL", "").upper()
+        if not level:
+            try:
+                # 惰性 import：仅缺省时需要，且 config.settings 无反向依赖 utils.logger，不会循环
+                from config.settings import get_settings
+
+                level = (get_settings().log_level or "INFO").upper()
+            except Exception:
+                level = "INFO"
 
         # ========== CLI 模式智能检测 ==========
         # 自动检测是否在命令行工具中运行，如果是则提升日志级别以减少干扰
