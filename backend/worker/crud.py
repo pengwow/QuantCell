@@ -656,6 +656,9 @@ def upsert_order_filled_from_fill(
             price=None,  # 委托价不可知（市价单），留空展示为“市价”
             filled_qty=quantity,
             avg_fill_price=price,
+            # position_side 是声明值（调用方透传，不从 side 推导，铁律2）
+            position_side=normalize_position_side(position_side),
+            reduce_only=bool(reduce_only),
             status="FILLED",
             filled_at=filled_at or datetime.now(),
         )
@@ -1032,7 +1035,7 @@ def get_worker_positions_filtered(
         query = query.filter(WorkerPosition.symbol == symbol)
     if side:
         # positions 的 "side" 参数语义=持仓方向（long/short/both），与 buy/sell 不同值域
-        query = query.filter(WorkerPosition.side == normalize_position_side(side))
+        query = query.filter(WorkerPosition.position_side == normalize_position_side(side))
 
     return query.order_by(desc(WorkerPosition.updated_at)).all()
 

@@ -599,6 +599,11 @@ class WorkerTrade(Base):
     trade_id = Column(String(100), unique=True, nullable=False)
     symbol = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # buy, sell
+    # 订单声明值透传（铁律2，非由 side 推导）：live 直取回报 info.positionSide，
+    # paper 单向模式固定 both；存量行由 Alembic 40 回填 'both'
+    position_side = Column(String(10), nullable=False, server_default="both")  # long/short/both
+    # 只减仓标记：当前全链路单向净仓恒 False；对冲模式启用前仅落库不参与撮合
+    reduce_only = Column(Boolean, nullable=False, server_default="0")
     order_type = Column(String(20), nullable=False)  # market, limit, stop
 
     # 交易数量
@@ -647,6 +652,9 @@ class WorkerTrade(Base):
             "trade_id": self.trade_id,
             "symbol": self.symbol,
             "side": self.side,
+            # 声明值透传（铁律2）：与 side 独立，不从 side 推导
+            "position_side": self.position_side,
+            "reduce_only": self.reduce_only,
             "order_type": self.order_type,
             "quantity": self.quantity,
             "price": self.price,
@@ -675,7 +683,12 @@ class WorkerOrder(Base):
 
     # 订单基本信息
     symbol = Column(String(50), nullable=False)
-    side = Column(String(10), nullable=False)  # BUY, SELL
+    side = Column(String(10), nullable=False)  # buy/sell（canonical 小写，入库前经 vocab.normalize_side 归一）
+    # 订单声明值透传（铁律2，非由 side 推导）：live 直取回报 info.positionSide，
+    # paper 单向模式固定 both；存量行由 Alembic 40 回填 'both'
+    position_side = Column(String(10), nullable=False, server_default="both")  # long/short/both
+    # 只减仓标记：当前全链路单向净仓恒 False；对冲模式启用前仅落库不参与撮合
+    reduce_only = Column(Boolean, nullable=False, server_default="0")
     order_type = Column(String(20), nullable=False)  # MARKET, LIMIT, STOP_MARKET...
 
     # 数量和价格
@@ -713,6 +726,9 @@ class WorkerOrder(Base):
             "venue_order_id": self.venue_order_id,
             "symbol": self.symbol,
             "side": self.side,
+            # 声明值透传（铁律2）：与 side 独立，不从 side 推导
+            "position_side": self.position_side,
+            "reduce_only": self.reduce_only,
             "order_type": self.order_type,
             "quantity": self.quantity,
             "price": self.price,
@@ -738,7 +754,9 @@ class WorkerPosition(Base):
     symbol = Column(String(50), nullable=False)
 
     # 持仓方向和数量
-    side = Column(String(10), nullable=False)  # LONG, SHORT
+    # 声明值语义的持仓方向：canonical 小写；列名由 side 改名（旧注释写 LONG/SHORT
+    # 与事件链路实际落库大写相矛盾的历史一并终结），Alembic 40 RENAME COLUMN
+    position_side = Column(String(10), nullable=False)  # long/short/both
     quantity = Column(Float, nullable=False)  # 持仓数量（正数）
 
     # 价格信息
@@ -772,7 +790,10 @@ class WorkerPosition(Base):
             "worker_id": self.worker_id,
             "position_id": self.position_id,
             "symbol": self.symbol,
-            "side": self.side.lower(),
+            "position_side": self.position_side,
+            # deprecated 响应别名：老前端消费方分批切换，与 position_side 恒同值。
+            # 不再防御性 lower：写入端归一（vocab）+ 存量归一（迁移 UPDATE）已保证 canonical
+            "side": self.position_side,
             "quantity": self.quantity,
             "entry_price": self.entry_price,
             "current_price": self.current_price,
@@ -807,7 +828,7 @@ class WorkerFillEvidence(Base):
     venue_order_id = Column(String(100), nullable=True)
     venue_trade_id = Column(String(64), nullable=False, unique=True)
     symbol = Column(String(50), nullable=False)
-    side = Column(String(10), nullable=False)
+    side = Column(String(10), nullable=False)  # buy/sell（canonical 小写，create_trade_if_not_exists 归一后透传）
     qty = Column(Float, nullable=False)
     price = Column(Float, nullable=True)
     fee = Column(Float, nullable=True)

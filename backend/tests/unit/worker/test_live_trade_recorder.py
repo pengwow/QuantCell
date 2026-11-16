@@ -320,7 +320,8 @@ class TestLiveTradeRecorder:
         assert position is not None
         assert position.worker_id == 1
         assert position.symbol == "BTCUSDT"
-        assert position.side == "LONG"
+        # 事件词 "LONG" 经 vocab 归一后 canonical 小写落库；键名随列改名切换
+        assert position.position_side == "long"
         assert position.quantity == 0.01
         assert position.entry_price == 50000.0
         assert position.unrealized_pnl == 100.0

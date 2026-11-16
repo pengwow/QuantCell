@@ -450,7 +450,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -461,7 +461,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=3000.0,
                 status="CLOSED",
@@ -481,7 +481,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -492,7 +492,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=3000.0,
                 status="CLOSED",
@@ -512,7 +512,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -523,7 +523,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=3000.0,
                 status="OPEN",
@@ -543,7 +543,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -554,7 +554,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="BTCUSDT",
-                side="short",
+                position_side="short",
                 quantity=1.0,
                 entry_price=51000.0,
                 status="OPEN",
@@ -565,7 +565,7 @@ class TestPositionQuery:
         # 筛选参数条件性保留大写：验证 crud 对查询参数大小写不敏感（vocab 归一）
         positions = crud.get_worker_positions_filtered(db_session, worker_id, side="SHORT")
         assert len(positions) == 1
-        assert positions[0].side == "short"
+        assert positions[0].position_side == "short"
 
     def test_get_worker_positions_filtered_empty(self, db_session):
         """无持仓返回空列表"""
@@ -973,7 +973,7 @@ class TestTradingStatsService:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 current_price=51000.0,
@@ -987,7 +987,7 @@ class TestTradingStatsService:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="short",
+                position_side="short",
                 quantity=5.0,
                 entry_price=3000.0,
                 current_price=2950.0,
@@ -1155,7 +1155,7 @@ class TestDataIntegrity:
                 worker_id=worker_id,
                 position_id="pos-1",
                 symbol="BTCUSDT",
-                side="long",
+                position_side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -1167,7 +1167,7 @@ class TestDataIntegrity:
             worker_id=worker_id,
             position_id="pos-1",
             symbol="ETHUSDT",
-            side="long",
+            position_side="long",
             quantity=1.0,
             entry_price=3000.0,
             status="OPEN",
@@ -1285,16 +1285,15 @@ class TestDerivePositionsFromTrades:
             worker_id=worker_id,
             position_id="p",
             symbol="BTC/USDT",
-            side="long",
+            position_side="long",
             quantity=1.0,
             entry_price=100.0,
             # 列 default=0.0 只在 flush 时填充；内存对象必须显式给值才能调 to_dict
             unrealized_pnl=0.0,
             status="OPEN",
         ).to_dict()
-        # 起派生行先行双送 canonical 主键 position_side（deprecated 别名 side 保留）；
-        # WorkerPosition.to_dict() 在列改造批才补送该键，届时两侧形状重新全等
-        expected["position_side"] = expected["side"]
+        # to_dict 已双送 canonical 主键 position_side 与 deprecated 别名 side，
+        # 与派生行（同样双送）的形状全等即视为契约对齐
         assert set(derived.keys()) == set(expected.keys())
 
 

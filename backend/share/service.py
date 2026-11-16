@@ -131,7 +131,8 @@ def _filter_position(p: WorkerPosition) -> dict:
 
     return {
         "symbol": p.symbol,
-        "side": p.side,
+        # 取值随 WorkerPosition 列改名切换；"side" 是对外投影契约键，保持不变
+        "side": p.position_side,
         "quantity": float(p.quantity or 0),
         "entry_price": float(p.entry_price or 0),
         "current_price": float(p.current_price or 0),

@@ -132,7 +132,7 @@ def test_close_consistency_breaks(db_session):
             worker_id=WID,
             position_id="pos1",
             symbol="ETH/USDT",
-            side="LONG",
+            position_side="long",
             quantity=0.0,
             entry_price=1.0,
             status="CLOSED",
