@@ -1593,6 +1593,7 @@
   "risk_status_failed": "Failed to load risk status",
   "risk_control_load_failed": "Failed to load risk control config",
   "worker_positions_load_failed": "Failed to load positions",
+  "trade_closed_tag": "Closed",
   "risk_breaker_tripped_title": "Circuit breaker tripped: daily loss limit reached",
   "risk_breaker_tripped_desc": "Position increase rejected; reducing/closing is still allowed. Raise the limit in Params tab or wait for cooldown.",
   "worker_risk_banner_title": "Circuit breaker tripped",

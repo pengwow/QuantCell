@@ -1593,6 +1593,7 @@
   "risk_status_failed": "风控状态获取失败",
   "risk_control_load_failed": "加载风控配置失败",
   "worker_positions_load_failed": "获取持仓数据失败",
+  "trade_closed_tag": "平仓",
   "risk_breaker_tripped_title": "熔断中：当日亏损已达额度",
   "risk_breaker_tripped_desc": "扩仓被拒；减仓/平仓仍放行。可在参数 Tab 放宽额度或等待冷却。",
   "worker_risk_banner_title": "熔断触发",

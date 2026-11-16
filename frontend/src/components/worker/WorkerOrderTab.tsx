@@ -384,18 +384,22 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       width: 120,
       render: (pnl?: number | null) => {
         if (pnl === undefined || pnl === null) return '-';
+        // 盈亏只在平仓 finalize 行有值（round-trip 配对回填），该行即整轮建仓→平仓的盈亏归属行
         return (
-          <span
-            style={{
-              fontFamily: 'monospace',
-              fontWeight: 600,
-              color:
-                pnl >= 0
-                  ? QUANT_COLORS.positive
-                  : QUANT_COLORS.negative,
-            }}
-          >
-            {formatUSD(pnl)}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span
+              style={{
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                color:
+                  pnl >= 0
+                    ? QUANT_COLORS.positive
+                    : QUANT_COLORS.negative,
+              }}
+            >
+              {formatUSD(pnl)}
+            </span>
+            <Tag style={{ marginInlineEnd: 0 }}>{t('trade_closed_tag')}</Tag>
           </span>
         );
       },
