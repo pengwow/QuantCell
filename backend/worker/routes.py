@@ -1000,10 +1000,11 @@ async def get_positions(
 ):
     """获取Worker持仓。
 
-    worker_positions 表只有 live 事件链路写入，paper 内核持仓仅存引擎内存、
-    不产生持仓事件——表为空且查询 OPEN 时从成交明细未配对 fill 推导兜底
-    （crud.derive_positions_from_trades），与「交易」tab 的「持仓中」行同口径，
-    避免 paper 账总览「当前持仓」恒空而成交明细有数据。
+    worker_positions 表两模式均无常态写入口（live 的 LiveTradeRecorder 事件
+    链路未接线、paper 内核持仓仅存引擎内存）——表为空且查询 OPEN 时从成交
+    明细未配对 fill 推导兜底（crud.derive_positions_from_trades），与「交易」
+    tab 的「持仓中」行同口径，避免 paper/live 账总览「当前持仓」恒空而成交
+    明细有数据。
     """
     positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, side)
     if positions or status != "OPEN":

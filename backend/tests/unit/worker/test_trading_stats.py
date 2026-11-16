@@ -1181,7 +1181,7 @@ class TestDerivePositionsFromTrades:
     """从未配对 fill 推导当前持仓（paper 账 worker_positions 表恒空的回退口径）"""
 
     @staticmethod
-    def _add_fill(db_session, worker_id, trade_id, symbol, side, qty, price, pnl=None, ts=None):
+    def _add_fill(db_session, worker_id, trade_id, symbol, side, qty, price, pnl=None, ts=None, round_trip_id=None):
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
@@ -1193,6 +1193,7 @@ class TestDerivePositionsFromTrades:
                 price=price,
                 amount=qty * price,
                 realized_pnl=pnl,
+                round_trip_id=round_trip_id,
                 entry_time=ts,
             )
         )
@@ -1234,13 +1235,29 @@ class TestDerivePositionsFromTrades:
         assert items[0]["position_id"] == "derived:1:ETH/USDT"
 
     def test_excludes_paired_rows(self, db_session):
-        """已配对行（realized_pnl 非空）是历史 round-trip，不计入当前持仓"""
+        """已配对行（round_trip_id 组键回填）是历史 round-trip，不计入当前持仓"""
         worker_id = 1
-        self._add_fill(db_session, worker_id, "old1", "BTC/USDT", "buy", 1.0, 100.0, pnl=5.0)
-        self._add_fill(db_session, worker_id, "old2", "BTC/USDT", "sell", 1.0, 105.0, pnl=5.0)
+        rt = "rt:1:f9"
+        self._add_fill(db_session, worker_id, "old1", "BTC/USDT", "buy", 1.0, 100.0, pnl=5.0, round_trip_id=rt)
+        self._add_fill(db_session, worker_id, "old2", "BTC/USDT", "sell", 1.0, 105.0, pnl=5.0, round_trip_id=rt)
         db_session.commit()
 
         assert crud.derive_positions_from_trades(db_session, worker_id) == []
+
+    def test_live_fill_with_zero_pnl_included(self, db_session):
+        """live 账口径：开仓 fill 的 realized_pnl 为 0.0（币安 realizedPnl="0" 误标）
+        也无组键，必须参与净额推导——realized_pnl 过滤会让 live 持仓恒空"""
+        worker_id = 3
+        self._add_fill(db_session, worker_id, "l1", "ETH/USDT", "buy", 0.5, 3000.0, pnl=0.0)
+        self._add_fill(db_session, worker_id, "l2", "ETH/USDT", "sell", 0.2, 3100.0, pnl=0.0)
+        db_session.commit()
+
+        items = crud.derive_positions_from_trades(db_session, worker_id)
+        assert len(items) == 1
+        assert items[0]["symbol"] == "ETH/USDT"
+        assert items[0]["side"] == "long"
+        assert items[0]["quantity"] == pytest.approx(0.3)
+        assert items[0]["entry_price"] == pytest.approx(3000.0)
 
     def test_net_zero_symbol_skipped(self, db_session):
         """未配对但净额归零（对冲抵消）的 symbol 不出持仓行"""

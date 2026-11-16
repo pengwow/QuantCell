@@ -694,21 +694,28 @@ def update_position(db: Session, position_id: str, position_data: dict) -> Worke
 
 
 def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
-    """从 worker_trades 未配对 fill（realized_pnl IS NULL）推导当前持仓。
+    """从 worker_trades 未配对 fill（round_trip_id IS NULL）推导当前持仓。
 
-    worker_positions 表只有 live 事件链路（LiveTradeRecorder）写入；paper 模式
-    的内核持仓仅存引擎内存、不产生持仓事件，导致 paper 账「当前持仓」恒空，
-    与成交明细「持仓中」行（同一份数据的未配对 fill 视图）自相矛盾。这里按
-    FLAT_TO_FLAT 配对语义回推：未配对 fill 的净持仓量按 symbol 聚合，非零即
-    当前持仓，返回字段形状与 WorkerPosition.to_dict() 完全对齐。
+    worker_positions 表在两种模式下都无常态写入口（live 的 LiveTradeRecorder
+    事件链路未接线、paper 内核持仓仅存引擎内存），故统一从成交明细推导，「当前
+    持仓」与「持仓中」行（同一份数据的未配对 fill 视图）保持同一口径。
 
-    ponytail: 反手场景下反手 fill 已被配对（realized_pnl 非空）而排除在推导
-    之外，其作为反手后新仓 entry 的部分会丢失——天花板是引擎不回传 per-fill
-    净仓轨迹；升级路径是 paper 泵线程直接同步内核 snapshot 落 worker_positions。
+    过滤用 round_trip_id 而非 realized_pnl：paper 配对语义下两者等价（组键只在
+    round-trip 关闭时回填）；live 由 LiveTradeSync 落库、从不回填组键——若按
+    realized_pnl IS NULL 过滤会漏光 live 成交（币安开仓 fill 的 realizedPnl
+    也是 0，早期版本误标 0.0 导致 live 持仓恒空，历史误标行已一次性清洗）。
+
+    按净持仓回推：未配对 fill 的净持仓量按 symbol 聚合，非零即当前持仓，
+    返回字段形状与 WorkerPosition.to_dict() 完全对齐。
+
+    ponytail: 反手场景下反手 fill 已被配对（有组键）而排除在推导之外，其作为
+    反手后新仓 entry 的部分会丢失——天花板是引擎不回传 per-fill 净仓轨迹；
+    升级路径是泵线程直接同步内核 snapshot 落 worker_positions（live 则需接
+    binance user-data position 流）。
     """
     fills = (
         db.query(WorkerTrade)
-        .filter(WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.is_(None))
+        .filter(WorkerTrade.worker_id == worker_id, WorkerTrade.round_trip_id.is_(None))
         .order_by(WorkerTrade.entry_time.asc())
         .all()
     )

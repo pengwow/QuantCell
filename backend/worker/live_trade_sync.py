@@ -297,7 +297,14 @@ class LiveTradeSync:
         raw_pnl = info.get("realizedPnl")
         if raw_pnl:
             try:
-                realized = float(raw_pnl)
+                value = float(raw_pnl)
+                # 币安 futures 开仓 fill 的 realizedPnl 也返回 "0.00000000"：
+                # 0 视为开仓（置 None）。否则 live 全部 fill 的 realized_pnl
+                # 都非 NULL，crud.derive_positions_from_trades 的未配对 fill
+                # 推导会把持仓排除干净，总览「当前持仓」恒空。
+                # ponytail: 恰好 0 盈亏的平仓 fill 会被误判为开仓（少一行 0 盈亏
+                # 展示）；区分需 venue 端逐笔方向元数据，不做。
+                realized = value or None
             except TypeError, ValueError:
                 realized = None
 

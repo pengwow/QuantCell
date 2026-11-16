@@ -231,8 +231,9 @@ async def get_positions(worker_id: int) -> dict[str, Any]:
             if positions:
                 items = [pos.to_dict() for pos in positions]
             else:
-                # worker_positions 只有 live 事件链路写入；paper 内核持仓在引擎内存，
-                # 表为空时从成交明细未配对 fill 推导，与「持仓中」行保持同一口径
+                # worker_positions 两模式均无常态写入口（live 事件链路未接线、
+                # paper 持仓仅在引擎内存），表为空时从成交明细未配对 fill 推导，
+                # 与「持仓中」行保持同一口径
                 items = crud.derive_positions_from_trades(db, worker_id)
 
             return {
