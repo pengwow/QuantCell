@@ -113,7 +113,8 @@ def test_sync_once_persists_order_rows(monkeypatch):
     assert set(orders) == {"c1", "o2"}
     o1 = orders["c1"]
     assert o1.status == "FILLED"
-    assert o1.side == "BUY"
+    # 落库方向词汇统一为 canonical 小写（上游原词大小写由 crud 归一）
+    assert o1.side == "buy"
     assert o1.symbol == "BTC/USDT"
     assert o1.order_type == "MARKET"
     assert o1.filled_qty == pytest.approx(0.5)

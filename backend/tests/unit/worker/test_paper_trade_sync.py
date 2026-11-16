@@ -255,7 +255,8 @@ def test_fill_persists_order_filled_rows(db_session_factory):
     assert [o.client_order_id for o in orders] == ["paper:7:t0", "paper:7:t1"]
     assert {o.status for o in orders} == {"FILLED"}
     entry = orders[0]
-    assert entry.side == "BUY"
+    # 落库方向词汇统一为 canonical 小写（上游原词大小写由 crud 归一）
+    assert entry.side == "buy"
     assert entry.symbol == "BTC/USDT"
     assert entry.order_type == "MARKET"
     assert entry.filled_qty == pytest.approx(30.0)

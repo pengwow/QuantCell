@@ -212,7 +212,8 @@ class TestLiveTradeRecorder:
         assert order is not None
         assert order.worker_id == 1
         assert order.symbol == "BTCUSDT"
-        assert order.side == "BUY"
+        # 落库方向词汇统一为 canonical 小写（上游原词大小写由 crud 归一）
+        assert order.side == "buy"
         assert order.order_type == "MARKET"
         assert order.quantity == 0.01
         assert order.price == 50000.0
@@ -289,7 +290,8 @@ class TestLiveTradeRecorder:
         assert trade is not None
         assert trade.worker_id == 1
         assert trade.symbol == "BTCUSDT"
-        assert trade.side == "BUY"
+        # 落库方向词汇统一为 canonical 小写（上游原词大小写由 crud 归一）
+        assert trade.side == "buy"
         assert trade.order_type == "MARKET"
         assert trade.quantity == 0.01
         assert trade.price == 50000.0

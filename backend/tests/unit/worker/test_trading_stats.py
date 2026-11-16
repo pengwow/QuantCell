@@ -331,7 +331,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id=f"order-{i}",
                 symbol="BTCUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1.0,
                 status="FILLED",
@@ -351,7 +351,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id="o1",
                 symbol="BTCUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1,
                 status="FILLED",
@@ -362,7 +362,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id="o2",
                 symbol="BTCUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1,
                 status="CANCELED",
@@ -382,7 +382,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id="o1",
                 symbol="BTCUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1,
                 status="FILLED",
@@ -393,7 +393,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id="o2",
                 symbol="ETHUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1,
                 status="FILLED",
@@ -413,7 +413,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id="o1",
                 symbol="BTCUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1,
                 status="FILLED",
@@ -424,7 +424,7 @@ class TestOrderQuery:
                 worker_id=worker_id,
                 client_order_id="o2",
                 symbol="BTCUSDT",
-                side="SELL",
+                side="sell",
                 order_type="LIMIT",
                 quantity=1,
                 status="OPEN",
@@ -450,7 +450,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -461,7 +461,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=3000.0,
                 status="CLOSED",
@@ -481,7 +481,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -492,7 +492,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=3000.0,
                 status="CLOSED",
@@ -512,7 +512,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -523,7 +523,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=3000.0,
                 status="OPEN",
@@ -543,7 +543,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -554,7 +554,7 @@ class TestPositionQuery:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="BTCUSDT",
-                side="SHORT",
+                side="short",
                 quantity=1.0,
                 entry_price=51000.0,
                 status="OPEN",
@@ -562,9 +562,10 @@ class TestPositionQuery:
         )
         db_session.commit()
 
+        # 筛选参数条件性保留大写：验证 crud 对查询参数大小写不敏感（vocab 归一）
         positions = crud.get_worker_positions_filtered(db_session, worker_id, side="SHORT")
         assert len(positions) == 1
-        assert positions[0].side == "SHORT"
+        assert positions[0].side == "short"
 
     def test_get_worker_positions_filtered_empty(self, db_session):
         """无持仓返回空列表"""
@@ -972,7 +973,7 @@ class TestTradingStatsService:
                 worker_id=worker_id,
                 position_id="p1",
                 symbol="BTCUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 current_price=51000.0,
@@ -986,7 +987,7 @@ class TestTradingStatsService:
                 worker_id=worker_id,
                 position_id="p2",
                 symbol="ETHUSDT",
-                side="SHORT",
+                side="short",
                 quantity=5.0,
                 entry_price=3000.0,
                 current_price=2950.0,
@@ -1124,7 +1125,7 @@ class TestDataIntegrity:
                 worker_id=worker_id,
                 client_order_id="order-1",
                 symbol="BTCUSDT",
-                side="BUY",
+                side="buy",
                 order_type="MARKET",
                 quantity=1,
                 status="FILLED",
@@ -1136,7 +1137,7 @@ class TestDataIntegrity:
             worker_id=worker_id,
             client_order_id="order-1",
             symbol="ETHUSDT",
-            side="BUY",
+            side="buy",
             order_type="MARKET",
             quantity=1,
             status="FILLED",
@@ -1154,7 +1155,7 @@ class TestDataIntegrity:
                 worker_id=worker_id,
                 position_id="pos-1",
                 symbol="BTCUSDT",
-                side="LONG",
+                side="long",
                 quantity=1.0,
                 entry_price=50000.0,
                 status="OPEN",
@@ -1166,7 +1167,7 @@ class TestDataIntegrity:
             worker_id=worker_id,
             position_id="pos-1",
             symbol="ETHUSDT",
-            side="LONG",
+            side="long",
             quantity=1.0,
             entry_price=3000.0,
             status="OPEN",
@@ -1284,11 +1285,60 @@ class TestDerivePositionsFromTrades:
             worker_id=worker_id,
             position_id="p",
             symbol="BTC/USDT",
-            side="LONG",
+            side="long",
             quantity=1.0,
             entry_price=100.0,
             # 列 default=0.0 只在 flush 时填充；内存对象必须显式给值才能调 to_dict
             unrealized_pnl=0.0,
             status="OPEN",
         ).to_dict()
+        # 起派生行先行双送 canonical 主键 position_side（deprecated 别名 side 保留）；
+        # WorkerPosition.to_dict() 在列改造批才补送该键，届时两侧形状重新全等
+        expected["position_side"] = expected["side"]
         assert set(derived.keys()) == set(expected.keys())
+
+
+class TestDerivePositionsDirectionVocab:
+    """P0 防回归（设计 §4.5）：大写 side 混入不得反转净额方向/漏算持仓。
+
+    改造前净额计算用 `r.side == "buy"` 全等匹配，DB 里的 "BUY" 行会被当作
+    卖出计入净额并反向进出 same_dir，直接倒置持仓方向——本用例改造前必红。
+    """
+
+    def test_uppercase_side_no_flip(self, db_session) -> None:
+        worker_id = 1
+        crud.create_trade_if_not_exists(
+            db_session,
+            {
+                "worker_id": worker_id,
+                "trade_id": "vocab:case:1",
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "order_type": "MARKET",
+                "quantity": 1.0,
+                "price": 100.0,
+                # WorkerTrade.amount 列非空且无默认值，最小键集合按模型约束补齐
+                "amount": 100.0,
+                "entry_time": datetime(2026, 11, 1, 10, 0),
+            },
+        )
+        # 同向第二笔写入大写（模拟 adapter 边界脏数据）
+        crud.create_trade_if_not_exists(
+            db_session,
+            {
+                "worker_id": worker_id,
+                "trade_id": "vocab:case:2",
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "order_type": "MARKET",
+                "quantity": 1.0,
+                "price": 110.0,
+                "amount": 110.0,
+                "entry_time": datetime(2026, 11, 1, 11, 0),
+            },
+        )
+        positions = crud.derive_positions_from_trades(db_session, worker_id)
+        # 两笔同向买入 → 净多头；反转 bug 下会是空头或漏笔
+        assert len(positions) == 1
+        assert positions[0]["position_side"] == "long"
+        assert positions[0]["quantity"] == 2.0

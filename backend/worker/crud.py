@@ -24,6 +24,7 @@ from .models import (
     WorkerPosition,
     WorkerTrade,
 )
+from .vocab import normalize_position_side, normalize_side
 
 # strategy.models 仅类型检查期导入：worker.crud ← worker.__init__ ← collector
 # （collector.api.archive → worker.decorators）存在模块级循环链，运行时顶层
@@ -558,6 +559,9 @@ def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | N
     缺陷，live 链路（sync_once）直接按返回值统计新落库笔数，避免重复回报
     被计成“新落库 N 笔”的日志谎报。
     """
+    # 三个调用方（live/paper sync、event_handler）各自归一，这里再兜一道：
+    # create_trade 与 worker_fill_evidence 同事务双写，防止 evidence 旁路脏写
+    trade_data["side"] = normalize_side(trade_data["side"])
     existing = db.query(WorkerTrade).filter(WorkerTrade.trade_id == trade_data["trade_id"]).first()
     if existing:
         return None
@@ -603,6 +607,8 @@ def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | N
 
 
 def create_order_if_not_exists(db: Session, order_data: dict) -> WorkerOrder:
+    # 落库信任边界归一：side 上游词形不定（交易所/事件原词），统一 canonical 小写
+    order_data["side"] = normalize_side(order_data["side"])
     existing = db.query(WorkerOrder).filter(WorkerOrder.client_order_id == order_data["client_order_id"]).first()
     if existing:
         return existing
@@ -624,6 +630,8 @@ def upsert_order_filled_from_fill(
     price: float,
     venue_order_id: str | None = None,
     filled_at: datetime | None = None,
+    position_side: str = "both",
+    reduce_only: bool = False,
 ) -> None:
     """成交回报驱动的订单 upsert（FILLED 终态）。
 
@@ -642,7 +650,7 @@ def upsert_order_filled_from_fill(
             venue_order_id=venue_order_id,
             worker_id=worker_id,
             symbol=symbol,
-            side=side.upper(),
+            side=normalize_side(side),
             order_type=order_type.upper(),
             quantity=quantity,
             price=None,  # 委托价不可知（市价单），留空展示为“市价”
@@ -729,13 +737,13 @@ def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
 
     derived: list[dict] = []
     for symbol, rows in rows_by_symbol.items():
-        net = sum(r.quantity if r.side == "buy" else -r.quantity for r in rows)
+        net = sum(r.quantity if normalize_side(r.side) == "buy" else -r.quantity for r in rows)
         if net == 0:
             continue  # 净额归零 = 该 symbol 已无持仓（部分平仓后的残余互相抵消）
 
         # 开仓均价 = 与净仓同向的未配对 fill 的成交量加权价
         # （部分平仓 fill 虽也是未配对行，但方向相反，不参与均价）
-        same_dir = [r for r in rows if (net > 0) == (r.side == "buy")]
+        same_dir = [r for r in rows if (net > 0) == (normalize_side(r.side) == "buy")]
         same_qty = sum(r.quantity for r in same_dir)
         entry_price = sum(r.quantity * r.price for r in same_dir) / same_qty if same_qty else 0.0
 
@@ -749,6 +757,9 @@ def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
                 "worker_id": worker_id,
                 "position_id": f"derived:{worker_id}:{symbol}",
                 "symbol": symbol,
+                # 派生持仓是推导值，此处推导合法（铁律2 只约束声明字段）
+                "position_side": "long" if net > 0 else "short",
+                # deprecated 响应别名：老前端消费方分批切换，与 position_side 恒同值
                 "side": "long" if net > 0 else "short",
                 "quantity": quantity,
                 "entry_price": entry_price,
@@ -777,7 +788,7 @@ def get_all_worker_trades(
     if symbol:
         query = query.filter(WorkerTrade.symbol == symbol)
     if side:
-        query = query.filter(WorkerTrade.side == side)
+        query = query.filter(WorkerTrade.side == normalize_side(side))  # 大小写不敏感筛选
     if start_time:
         query = query.filter(WorkerTrade.created_at >= start_time)
     if end_time:
@@ -993,7 +1004,7 @@ def get_worker_orders_paginated(
     if symbol:
         query = query.filter(WorkerOrder.symbol == symbol)
     if side:
-        query = query.filter(WorkerOrder.side == side)
+        query = query.filter(WorkerOrder.side == normalize_side(side))  # 大小写不敏感筛选
     if order_type:
         query = query.filter(WorkerOrder.order_type == order_type)
     if start_time:
@@ -1020,7 +1031,8 @@ def get_worker_positions_filtered(
     if symbol:
         query = query.filter(WorkerPosition.symbol == symbol)
     if side:
-        query = query.filter(WorkerPosition.side == side)
+        # positions 的 "side" 参数语义=持仓方向（long/short/both），与 buy/sell 不同值域
+        query = query.filter(WorkerPosition.side == normalize_position_side(side))
 
     return query.order_by(desc(WorkerPosition.updated_at)).all()
 
@@ -1127,7 +1139,7 @@ def get_worker_trades_paginated(
     if symbol:
         query = query.filter(WorkerTrade.symbol == symbol)
     if side:
-        query = query.filter(WorkerTrade.side == side)
+        query = query.filter(WorkerTrade.side == normalize_side(side))  # 大小写不敏感筛选
     if order_type:
         query = query.filter(WorkerTrade.order_type == order_type)
     if pnl_status is not None:

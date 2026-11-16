@@ -168,8 +168,10 @@ class TradingStatsService:
         )
 
         total_positions = len(positions)
-        long_positions = sum(1 for p in positions if p.side == "LONG")
-        short_positions = sum(1 for p in positions if p.side == "SHORT")
+        # 方向词汇统一后落库为 canonical 小写（vocab 归一 + 40 号迁移存量归一），
+        # 统计口径改为大小写不敏感比较，避免对新旧数据出现单向漏数
+        long_positions = sum(1 for p in positions if p.side.lower() == "long")
+        short_positions = sum(1 for p in positions if p.side.lower() == "short")
         total_value = sum(p.quantity * (p.current_price or p.entry_price or 0) for p in positions)
         total_unrealized_pnl = sum(p.unrealized_pnl or 0 for p in positions)
         total_margin_used = sum(p.margin_used or 0 for p in positions)
