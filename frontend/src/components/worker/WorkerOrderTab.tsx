@@ -30,7 +30,7 @@ import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/ic
 import type { Dayjs } from 'dayjs';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
-import { formatTimestamp, formatUSD, truncateId, QUANT_COLORS } from '@/utils/format';
+import { formatQuantity, formatTimestamp, formatUSD, truncateId, QUANT_COLORS } from '@/utils/format';
 import { downloadCsv, timestampedFilename } from '@/utils/exportCsv';
 import type { TradeQueryParams } from '@/types/worker';
 
@@ -54,10 +54,8 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
 
 const STATUS_OPTIONS = Object.keys(STATUS_LABEL_KEYS);
 
-const SIDE_OPTIONS = [
-  { label: 'BUY', value: 'BUY' },
-  { label: 'SELL', value: 'SELL' },
-];
+// 方向枚举：显示标签走 i18n（买入/卖出），与总览持仓区（做多/做空）共用同一套文案体系
+const SIDE_OPTIONS = ['BUY', 'SELL'];
 
 // 订单类型 -> i18n key（未知类型回退显示原始英文枚举）
 const ORDER_TYPE_LABEL_KEYS: Record<string, string> = {
@@ -312,7 +310,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       width: 80,
       render: (side: string) => (
         <Tag color={side === 'BUY' ? 'green' : side === 'SELL' ? 'red' : 'default'}>
-          {side || '-'}
+          {(side && t(side.toLowerCase())) || '-'}
         </Tag>
       ),
     },
@@ -328,7 +326,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right',
-      render: (qty: number) => (qty !== undefined ? qty.toFixed(6) : '-'),
+      render: (qty: number) => formatQuantity(qty),
     },
     {
       title: t('worker_order_price'),
@@ -356,14 +354,14 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       render: (_: unknown, record: MergedRow) =>
         record.kind === 'trade' ? (
           <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-            {record.filled_quantity.toFixed(6)}
+            {formatQuantity(record.filled_quantity)}
           </span>
         ) : (
           <span>
             <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-              {(record.filled_quantity ?? 0).toFixed(6)}
+              {formatQuantity(record.filled_quantity ?? 0)}
             </span>
-            <span style={{ color: '#999' }}> / {(record.quantity ?? 0).toFixed(6)}</span>
+            <span style={{ color: '#999' }}> / {formatQuantity(record.quantity ?? 0)}</span>
           </span>
         ),
     },
@@ -512,7 +510,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
               <Select
                 placeholder={t('all')}
                 allowClear
-                options={SIDE_OPTIONS}
+                options={SIDE_OPTIONS.map((v) => ({ value: v, label: t(v.toLowerCase()) }))}
                 style={{ width: 100 }}
               />
             </Form.Item>
