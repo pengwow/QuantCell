@@ -13,7 +13,7 @@ from utils.logger import LogType, get_logger
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import SessionLocal
-from collector.db.models import CryptoSpotKline
+from collector.db.models import CryptoSpotKline, decimal_or_zero
 
 
 class KlinePersistenceConsumer:
@@ -120,7 +120,7 @@ class KlinePersistenceConsumer:
                 existing.high = str(high_price)
                 existing.low = str(low_price)
                 existing.close = str(close_price)
-                existing.volume = str(volume)
+                existing.volume = decimal_or_zero(volume)
                 logger.debug(f"[KlinePersistence] 更新K线数据: {symbol}@{interval}, timestamp={timestamp}")
             else:
                 # 创建新记录
@@ -132,7 +132,7 @@ class KlinePersistenceConsumer:
                     high=str(high_price),
                     low=str(low_price),
                     close=str(close_price),
-                    volume=str(volume),
+                    volume=decimal_or_zero(volume),
                     unique_kline=unique_key,
                     data_source="binance_websocket",
                 )

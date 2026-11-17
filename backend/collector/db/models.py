@@ -48,6 +48,7 @@ else:
 # SQLAlchemy模型定义
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -274,6 +275,20 @@ class CryptoSymbol(TimezoneAwareBase):
     __table_args__ = (sqlalchemy.UniqueConstraint("symbol", "exchange", name="unique_symbol_exchange"),)
 
 
+def decimal_or_zero(value: Any) -> Decimal:
+    """字符串/数值 → Decimal；非法输入（None/'None'/空串等）归零，不阻断主写入。
+
+    K线 volume 列是 DECIMAL(40, 8)（nullable=False），三张K线表与所有写入点
+    （kline_factory / kline_persistence / standalone_downloader）共用此转换。
+    """
+    if value is None:
+        return Decimal(0)
+    try:
+        return Decimal(str(value))
+    except InvalidOperation, ValueError:
+        return Decimal(0)
+
+
 class CryptoSpotKline(TimezoneAwareBase):
     """加密货币现货K线数据SQLAlchemy模型
 
@@ -290,7 +305,9 @@ class CryptoSpotKline(TimezoneAwareBase):
     high = Column(String, nullable=False)
     low = Column(String, nullable=False)
     close = Column(String, nullable=False)
-    volume = Column(String, nullable=False)
+    # volume 单列 DECIMAL（P2-4 B-11）：旧 String 列存量数据直接重建（迁移 update_kline_volume_to_decimal DROP+create），
+    # 写入统一 decimal_or_zero()，读出 float()/DataFrame 均为数值类型
+    volume = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     unique_kline = Column(String, nullable=False, unique=True, index=True)
     data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -313,7 +330,9 @@ class CryptoFutureKline(TimezoneAwareBase):
     high = Column(String, nullable=False)
     low = Column(String, nullable=False)
     close = Column(String, nullable=False)
-    volume = Column(String, nullable=False)
+    # volume 单列 DECIMAL（P2-4 B-11）：旧 String 列存量数据直接重建（迁移 update_kline_volume_to_decimal DROP+create），
+    # 写入统一 decimal_or_zero()，读出 float()/DataFrame 均为数值类型
+    volume = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     unique_kline = Column(String, nullable=False, unique=True, index=True)
     data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -336,7 +355,8 @@ class StockKline(TimezoneAwareBase):
     high = Column(String, nullable=False)
     low = Column(String, nullable=False)
     close = Column(String, nullable=False)
-    volume = Column(String, nullable=False)
+    # volume 单列 DECIMAL，口径同 CryptoSpotKline / CryptoFutureKline（见上注释）
+    volume = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     unique_kline = Column(String, nullable=False, unique=True, index=True)
     data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

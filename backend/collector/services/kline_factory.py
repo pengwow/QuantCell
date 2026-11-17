@@ -10,7 +10,7 @@ from utils.timestamp_utils import datetime_to_nanoseconds, from_nanoseconds, nor
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
-from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline
+from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline, decimal_or_zero
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -175,7 +175,7 @@ class BaseKlineFetcher(KlineDataFetcher):
                     existing.high = str(kline.get("high"))
                     existing.low = str(kline.get("low"))
                     existing.close = str(kline.get("close"))
-                    existing.volume = str(kline.get("volume"))
+                    existing.volume = decimal_or_zero(kline.get("volume"))
                     existing.data_source = "ccxt_binance"
                     updated_count += 1
                 else:
@@ -188,7 +188,7 @@ class BaseKlineFetcher(KlineDataFetcher):
                         high=str(kline.get("high")),
                         low=str(kline.get("low")),
                         close=str(kline.get("close")),
-                        volume=str(kline.get("volume")),
+                        volume=decimal_or_zero(kline.get("volume")),
                         unique_kline=unique_kline,
                         data_source="ccxt_binance",
                     )

@@ -119,6 +119,16 @@ def normalize_symbol(symbol: str) -> str:
 #               的 phase1/phase2 提示词。跨进程时序说 phase，跨工作流水线说
 #               stage，两词不得混用。
 
+# ---------------------------------------------------------------------------
+# 数值列域（命名审计 P2-4 / B-11）：K线 volume 列 canonical = DECIMAL(40, 8) 单列
+# ---------------------------------------------------------------------------
+
+# K线三表（crypto_spot_klines / crypto_future_klines / stock_klines）的 volume
+# 列已从 String 重建为 DECIMAL(40, 8)（迁移 update_kline_volume_to_decimal，
+# 旧数据丢弃可重拉）。写入统一 collector.db.models.decimal_or_zero；读出统一
+# float()（Decimal 可直接转）。OHLC 四列仍为 String（价格列改造属价格域，
+# 不在本档范围）。新代码禁止再为 volume 引入 String/双列形态。
+
 
 def expand_symbol(symbol: str) -> str:
     """紧缩格式展开为 "BASE/QUOTE"（Rust 引擎可解析的 instrument key）。
