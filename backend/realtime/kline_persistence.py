@@ -9,6 +9,7 @@ import threading
 from typing import Any
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import normalize_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -97,6 +98,11 @@ class KlinePersistenceConsumer:
                 )
                 return False
 
+            # ws 的 t 为毫秒 int；统一换算纳秒整型（P2-14 BIGINT 收口），与 K线 REST
+            # 落库（kline_factory）同口径——此前直接写毫秒字符串，同一根K线 REST 写
+            # 纳秒、ws 写毫秒，unique_kline 对不上而双写重复
+            timestamp_ns = int(normalize_to_nanoseconds(timestamp, input_precision="ms"))
+
             # 转换symbol格式 BTCUSDT -> BTC/USDT
             # ponytail: 按常见计价资产后缀拆分，未匹配则保留原样；新增计价资产时在此补充
             base_symbol = symbol
@@ -105,7 +111,7 @@ class KlinePersistenceConsumer:
                     base_symbol = f"{symbol[: -len(quote)]}/{quote}"
                     break
 
-            unique_key = f"{base_symbol}_{interval}_{timestamp}"
+            unique_key = f"{base_symbol}_{interval}_{timestamp_ns}"
 
             # 创建数据库会话
             db = SessionLocal()
@@ -127,7 +133,7 @@ class KlinePersistenceConsumer:
                 kline_record = CryptoSpotKline(
                     symbol=base_symbol,
                     interval=interval,
-                    timestamp=str(timestamp),
+                    timestamp=timestamp_ns,
                     open=decimal_or_zero(open_price),
                     high=decimal_or_zero(high_price),
                     low=decimal_or_zero(low_price),

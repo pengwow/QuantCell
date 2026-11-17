@@ -247,8 +247,9 @@ VOCAB_DOMAINS: tuple[VocabDomain, ...] = (
                 "canonical",
                 "K线三表 OHLC 四列 canonical 类型为 DECIMAL(40, 8)（P2-11 价格域收口，"
                 "迁移 update_kline_ohlc_to_decimal DROP+create，存量K线可重拉）。写入统一 "
-                "decimal_or_zero，读出统一 float()，API/前端零感知；timestamp 列为纳秒"
-                "字符串，不在价格域范围。",
+                "decimal_or_zero，读出统一 float()，API/前端零感知；timestamp 列 P2-14 "
+                "起为 BigInteger 纳秒整型（迁移 update_kline_timestamp_to_bigint），"
+                "不在价格域范围。",
             ),
         ),
     ),

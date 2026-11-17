@@ -266,7 +266,8 @@ class ExportData:
                     result["missing_ranges"][symbol] = [{"error": "数据库中无该品种数据"}]
                     continue
 
-                # timestamp 为自适应精度的字符串存储，统一转 datetime 后再按时间范围过滤与排序
+                # timestamp 为纳秒整型存储（P2-14 BIGINT，自动精度检测兼容历史精度），
+                # 统一转 datetime 后再按时间范围过滤与排序
                 df["dt"] = convert_to_datetime(df["timestamp"])
                 df.sort_values("dt", inplace=True)
 

@@ -300,7 +300,8 @@ class CryptoSpotKline(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    timestamp = Column(String, nullable=False, index=True)
+    # timestamp 纳秒整型（P2-14 数值收口：迁移 update_kline_timestamp_to_bigint DROP+create，存量可重拉）
+    timestamp = Column(sqlalchemy.BigInteger, nullable=False, index=True)
     # OHLC 四列 DECIMAL（P2-11 价格域收口）：与 volume 同款（迁移 update_kline_ohlc_to_decimal DROP+create，存量可重拉），
     # 写入统一 decimal_or_zero()，读出统一 float()，API/前端零感知
     open = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
@@ -325,7 +326,8 @@ class CryptoFutureKline(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    timestamp = Column(String, nullable=False, index=True)
+    # timestamp 纳秒整型（P2-14 数值收口：迁移 update_kline_timestamp_to_bigint DROP+create，存量可重拉）
+    timestamp = Column(sqlalchemy.BigInteger, nullable=False, index=True)
     # OHLC 四列 DECIMAL，口径同 CryptoSpotKline（P2-11 价格域收口，见上注释）
     open = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     high = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
@@ -349,7 +351,8 @@ class StockKline(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    timestamp = Column(String, nullable=False, index=True)
+    # timestamp 纳秒整型（P2-14 数值收口：迁移 update_kline_timestamp_to_bigint DROP+create，存量可重拉）
+    timestamp = Column(sqlalchemy.BigInteger, nullable=False, index=True)
     # OHLC 四列 DECIMAL，口径同 CryptoSpotKline / CryptoFutureKline（P2-11 价格域收口，见上注释）
     open = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     high = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
