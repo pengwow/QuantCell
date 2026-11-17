@@ -86,7 +86,7 @@ def _trade_returns(trades: list[dict]) -> list[float]:
             continue
         value = trade.get("return_pct")
         if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-            entry_value = float(trade.get("entry_price") or 0.0) * float(trade.get("size") or 0.0)
+            entry_value = float(trade.get("entry_price") or 0.0) * float(trade.get("quantity") or 0.0)
             if entry_value <= 0:
                 continue
             value = float(trade.get("pnl") or 0.0) / entry_value * 100.0

@@ -237,7 +237,7 @@ async def get_worker_state(
     - strategy_id: 策略ID
     - exchange: 交易所
     - symbol: 交易对列表
-    - timeframe: K线周期
+    - interval: K线周期（canonical 键，旧名 timeframe 已废弃）
     - pid: 进程ID
     - started_at: 启动时间 (ISO 8601)
     - stopped_at: 停止时间 (ISO 8601)
@@ -265,7 +265,7 @@ async def get_worker_state(
         trading_config = worker.get_trading_config_dict()
         result["exchange"] = trading_config.get("exchange", "binance")
         result["symbol"] = worker.get_symbols()
-        result["timeframe"] = trading_config.get("timeframe", "1h")
+        result["interval"] = worker.get_interval()
         result["market_type"] = trading_config.get("market_type", "spot")
         result["trading_mode"] = trading_config.get("trading_mode", "paper")
 

@@ -7,7 +7,7 @@ Worker API数据模型定义
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .vocab import PositionSide, Side
 
@@ -29,9 +29,17 @@ class TradingConfig(BaseModel):
         default_factory=lambda: SymbolsConfig(type="symbols", symbols=[], pool_id=None, pool_name=None),
         description="交易标的配置",
     )
-    timeframe: str = Field(default="1h", description="时间周期")
+    interval: str = Field(default="1h", description="K线周期（canonical 键，旧名 timeframe 已废弃）")
     market_type: str = Field(default="spot", description="市场类型: spot/future")
     trading_mode: str = Field(default="paper", description="交易模式: paper/testnet/live")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_timeframe(cls, data):
+        """API 双接受：旧客户端仍可发 timeframe，映射为 interval。双键期随迁移退役后移除。"""
+        if isinstance(data, dict) and "timeframe" in data and "interval" not in data:
+            data = {**data, "interval": data["timeframe"]}
+        return data
 
 
 class WorkerBase(BaseModel):

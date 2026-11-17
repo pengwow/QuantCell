@@ -165,11 +165,13 @@ class CascadeSignalStrategy(BaseStrategy):
 
     @staticmethod
     def _to_action(decision: dict, target_ratio: float, model_id: str) -> Action:
+        # cascade Rust 出口的动作键是方向语义 long/short/hold；
+        # 历史录制 JSONL 仍是动词词表 buy/sell，回放时按同义接受
         action = decision.get("action", "hold")
         confidence = float(decision.get("confidence") or 0.0)
-        if action == "buy":
+        if action in ("long", "buy"):
             target = target_ratio
-        elif action == "sell":
+        elif action in ("short", "sell"):
             target = 0.0
         else:
             action = "hold"

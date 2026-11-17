@@ -35,15 +35,19 @@ class OrderType(StrEnum):
     LIMIT_MAKER = "LIMIT_MAKER"
 
 
-class OrderSide(StrEnum):
-    """订单方向"""
+class BinanceOrderSide(StrEnum):
+    """订单方向（Binance REST DTO 原生大写，禁止进入内部词汇）。
+
+    内部 canonical 词汇见根级 vocab（Side = "buy"/"sell"）；
+    本枚举仅用于 Binance REST 请求/响应反序列化，不得跨出 adapter 边界。
+    """
 
     BUY = "BUY"
     SELL = "SELL"
 
 
-class OrderStatus(StrEnum):
-    """订单状态"""
+class BinanceOrderStatus(StrEnum):
+    """订单状态（Binance REST DTO 原生大写，禁止进入内部词汇）"""
 
     NEW = "NEW"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -113,7 +117,7 @@ class OrderRequest:
     """订单请求"""
 
     symbol: str
-    side: OrderSide
+    side: BinanceOrderSide
     order_type: OrderType
     quantity: float
     price: float | None = None
@@ -160,10 +164,10 @@ class OrderResponse:
     price: str
     orig_qty: str
     executed_qty: str
-    status: OrderStatus
+    status: BinanceOrderStatus
     time_in_force: TimeInForce
     order_type: OrderType
-    side: OrderSide
+    side: BinanceOrderSide
 
     @classmethod
     def from_binance_response(cls, data: dict[str, Any]) -> OrderResponse:
@@ -176,10 +180,10 @@ class OrderResponse:
             price=data["price"],
             orig_qty=data["origQty"],
             executed_qty=data["executedQty"],
-            status=OrderStatus(data["status"]),
+            status=BinanceOrderStatus(data["status"]),
             time_in_force=TimeInForce(data["timeInForce"]),
             order_type=OrderType(data["type"]),
-            side=OrderSide(data["side"]),
+            side=BinanceOrderSide(data["side"]),
         )
 
 

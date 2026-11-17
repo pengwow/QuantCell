@@ -27,6 +27,7 @@ from exchange.base import BaseCollector
 from utils.decorators import async_deco_retry, deco_retry
 from utils.deprecation import deprecated
 from utils.time_parser import get_date_range
+from vocab import normalize_symbol
 
 
 class BinanceDownloader(BaseCollector):
@@ -450,13 +451,8 @@ class BinanceDownloader(BaseCollector):
         return self.get_all_symbols()
 
     def normalize_symbol(self, symbol):
-        """
-        标准化交易对符号
-
-        :param symbol: 交易对符号，如'BTC/USDT'或'BTCUSDT'
-        :return: 标准化后的交易对符号，如'BTCUSDT'
-        """
-        return symbol.replace("/", "")
+        """标准化交易对符号：canonical 实现见 vocab（任意分隔格式归一为紧缩大写 BTCUSDT）。"""
+        return normalize_symbol(symbol)
 
     def get_data(
         self,

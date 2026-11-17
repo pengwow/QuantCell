@@ -119,7 +119,6 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
         strategy_name=worker_data.strategy_name,  # 策略名称（冗余存储，用于 strategy_id 失效时回退查找）
-        trading_config=json.dumps(worker_data.trading_config.model_dump()),
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else "{}",
         config=json.dumps({**(worker_data.config or {}), "strategy_file_name": worker_data.strategy_file_name})
         if (worker_data.config or worker_data.strategy_file_name)
@@ -130,6 +129,9 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
+    # trading_config 必须走 set_trading_config_dict 落库（Phase A 双写收敛点）：
+    # 直接 json.dumps(model_dump()) 只剩 interval 单键，会绕过双键共存承诺
+    db_worker.set_trading_config_dict(worker_data.trading_config.model_dump())
     db.add(db_worker)
     db.commit()
     db.refresh(db_worker)
@@ -180,7 +182,11 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
         if json_field in update_data:
             value = update_data.pop(json_field)
             if value is not None:
-                setattr(worker, json_field, json.dumps(value))
+                if json_field == "trading_config":
+                    # trading_config 走双写收敛点（Phase A）：K线周期在 interval/timeframe 两键同步
+                    worker.set_trading_config_dict(value)
+                else:
+                    setattr(worker, json_field, json.dumps(value))
 
     if strategy_file_name is not None:
         merged_config = worker.get_config_dict()
@@ -553,7 +559,7 @@ def sum_daily_realized_pnl(worker_id: int) -> float:
 
 
 def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | None:
-    """幂等写入成交；未新建（trade_id 查重命中 / evidence 冲突）返回 None，新建返回行。
+    """幂等写入成交；未新建（fill_id 查重命中 / evidence 冲突）返回 None，新建返回行。
 
     返回值语义 = 「是否真的落了一笔」：paper 链路靠先自查绕过旧版无法区分的
     缺陷，live 链路（sync_once）直接按返回值统计新落库笔数，避免重复回报
@@ -562,7 +568,7 @@ def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | N
     # 三个调用方（live/paper sync、event_handler）各自归一，这里再兜一道：
     # create_trade 与 worker_fill_evidence 同事务双写，防止 evidence 旁路脏写
     trade_data["side"] = normalize_side(trade_data["side"])
-    existing = db.query(WorkerTrade).filter(WorkerTrade.trade_id == trade_data["trade_id"]).first()
+    existing = db.query(WorkerTrade).filter(WorkerTrade.fill_id == trade_data["fill_id"]).first()
     if existing:
         return None
 
@@ -574,9 +580,10 @@ def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | N
 
     # 成交证据链（P0-01）：venue_trade_id 幂等主锚，与 trade 行同 session 同事务
     # 提交。rowcount == 0 说明这笔成交已被应用过（跨路径/前次写入命中）——等于
-    # 在 trade_id 查重之外的第二把锁，防止 live / 恢复同步两条路重复入账。
+    # 在 fill_id 查重之外的第二把锁，防止 live / 恢复同步两条路重复入账。
     # client_order_id 缺失（paper / journal 通道不提供）时不写 evidence，
-    # 幂等完全退回 trade_id 查重（旧行为）。
+    # 幂等完全退回 fill_id 查重（旧行为）。venue_trade_id 列的值域是交易所
+    # 原生成交易 id（myTrades 语境，词表按审计裁决保留），数据源即本笔 fill_id 的值
     if get_flag("worker.execution.fill_evidence_enabled", True) and trade_data.get("client_order_id"):
         dialect_insert = sqlite.insert if db.get_bind().dialect.name == "sqlite" else postgresql.insert
         stmt = (
@@ -585,10 +592,10 @@ def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade | N
                 worker_id=trade_data["worker_id"],
                 client_order_id=trade_data["client_order_id"],
                 venue_order_id=trade_data.get("venue_order_id"),
-                venue_trade_id=trade_data["trade_id"],
+                venue_trade_id=trade_data["fill_id"],
                 symbol=trade_data["symbol"],
                 side=trade_data["side"],
-                qty=trade_data["quantity"],
+                quantity=trade_data["quantity"],
                 price=trade_data.get("price"),
                 fee=trade_data.get("fee"),
                 source="sync",
@@ -637,8 +644,8 @@ def upsert_order_filled_from_fill(
 
     paper/live 同步链路只能从成交明细看到订单（下单意图事件引擎不回传，
     events.order.* 无发布方），因此首笔 fill 直接落 FILLED 行——订单至少有
-    完整的成交历史；同一订单的分笔 fill 累加 filled_qty 并重算加权均价。
-    委托量（quantity）不可知，以首笔成交量近似，分笔场景下会小于 filled_qty。
+    完整的成交历史；同一订单的分笔 fill 累加 filled_quantity 并重算加权均价。
+    委托量（quantity）不可知，以首笔成交量近似，分笔场景下会小于 filled_quantity。
 
     幂等性由调用方保证：仅在 trade 新落库（create_trade_if_not_exists 返回
     新行 / 查重未命中）时调用，查重命中不重复累加。
@@ -654,7 +661,7 @@ def upsert_order_filled_from_fill(
             order_type=order_type.upper(),
             quantity=quantity,
             price=None,  # 委托价不可知（市价单），留空展示为“市价”
-            filled_qty=quantity,
+            filled_quantity=quantity,
             avg_fill_price=price,
             # position_side 是声明值（调用方透传，不从 side 推导，铁律2）
             position_side=normalize_position_side(position_side),
@@ -664,14 +671,14 @@ def upsert_order_filled_from_fill(
         )
         db.add(order)
     else:
-        total_qty = (order.filled_qty or 0.0) + quantity
+        total_qty = (order.filled_quantity or 0.0) + quantity
         # 数量加权均价（分笔成交逐步逼近真实 VWAP）
         order.avg_fill_price = (
-            ((order.avg_fill_price or 0.0) * (order.filled_qty or 0.0) + price * quantity) / total_qty
+            ((order.avg_fill_price or 0.0) * (order.filled_quantity or 0.0) + price * quantity) / total_qty
             if total_qty
             else price
         )
-        order.filled_qty = total_qty
+        order.filled_quantity = total_qty
         if order.status != "FILLED":
             order.status = "FILLED"
             order.filled_at = filled_at or datetime.now()
@@ -816,7 +823,7 @@ def update_worker_order_status(
     db: Session,
     order_id: int,
     status: str,
-    filled_qty: float,
+    filled_quantity: float,
     avg_fill_price: float,
     commission: float,
     venue_order_id: str,
@@ -825,7 +832,7 @@ def update_worker_order_status(
     if not order:
         return None
     order.status = status
-    order.filled_qty = filled_qty
+    order.filled_quantity = filled_quantity
     order.avg_fill_price = avg_fill_price
     order.venue_order_id = venue_order_id
     order.updated_at = datetime.now()
@@ -1061,7 +1068,7 @@ def get_trading_summary_optimized(
         func.sum(case((WorkerTrade.realized_pnl < 0, WorkerTrade.realized_pnl), else_=0)).label("total_loss"),
         func.max(WorkerTrade.realized_pnl).label("largest_profit"),
         func.min(WorkerTrade.realized_pnl).label("largest_loss"),
-        func.sum(WorkerTrade.amount).label("total_volume"),
+        func.sum(WorkerTrade.notional).label("total_volume"),
         func.sum(WorkerTrade.fee).label("total_fees"),
         func.count(func.distinct(func.date(WorkerTrade.created_at))).label("trading_days"),
     ).filter(WorkerTrade.worker_id == worker_id)
@@ -1191,7 +1198,7 @@ def _build_group_item(group_key: str, group_rows: list[WorkerTrade]) -> dict:
 
     def _vwap(rows_: list[WorkerTrade]) -> float:
         qty = sum(r.quantity for r in rows_)
-        return sum(r.amount for r in rows_) / qty if qty else 0.0
+        return sum(r.notional for r in rows_) / qty if qty else 0.0
 
     def _ts(dt: datetime | None) -> int:
         return int(dt.timestamp()) if dt else 0
@@ -1209,7 +1216,7 @@ def _build_group_item(group_key: str, group_rows: list[WorkerTrade]) -> dict:
 
     entry_price = _vwap(open_rows) if open_rows else rows[0].price
     exit_price = _vwap(close_rows) if close_rows else entry_price
-    size = sum(r.quantity for r in close_rows) or sum(r.quantity for r in open_rows)
+    quantity = sum(r.quantity for r in close_rows) or sum(r.quantity for r in open_rows)
     # unpaired 行 realized_pnl 可能为 None：记 0，避免前端数值格式化拿 null 崩
     pnl = sum(r.realized_pnl or 0.0 for r in rows)
 
@@ -1241,9 +1248,9 @@ def _build_group_item(group_key: str, group_rows: list[WorkerTrade]) -> dict:
         "exit_timestamp": _ts(exit_dt) if exit_dt else None,
         "entry_price": entry_price,
         "exit_price": exit_price,
-        "size": size,
+        "quantity": quantity,
         "pnl": pnl,
-        "return_pct": (pnl / (entry_price * size) * 100.0) if entry_price * size > 0 else 0.0,
+        "return_pct": (pnl / (entry_price * quantity) * 100.0) if entry_price * quantity > 0 else 0.0,
         "direction": direction,
         "entry_side": entry_side,
         "exit_side": "sell" if entry_side == "buy" else "buy",
@@ -1280,8 +1287,8 @@ def get_worker_trades_grouped(
 
     groups: dict[str, list[WorkerTrade]] = {}
     for r in rows:
-        # 行组键：有配对的多行归一组，无配对行用 trade_id 自成一组
-        groups.setdefault(r.round_trip_id or f"row:{r.trade_id}", []).append(r)
+        # 行组键：有配对的多行归一组，无配对行用 fill_id 自成一组
+        groups.setdefault(r.round_trip_id or f"row:{r.fill_id}", []).append(r)
 
     end_bound = end_time
     if end_bound is not None and (end_bound.hour, end_bound.minute, end_bound.second, end_bound.microsecond) == (

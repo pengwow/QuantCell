@@ -18,6 +18,7 @@ from binance import AsyncClient
 
 from utils.logger import LogType, get_logger
 from utils.timestamp_utils import utc_now_naive
+from vocab import normalize_symbol
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -222,11 +223,8 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
         )
 
     def _normalize_symbol(self, symbol: str) -> str:
-        """标准化symbol格式
-
-        将 BTC/USDT 转换为 BTCUSDT（币安格式）
-        """
-        return symbol.replace("/", "")
+        """标准化symbol格式：任意分隔格式归一为紧缩大写（币安格式，canonical 实现见 vocab）。"""
+        return normalize_symbol(symbol)
 
     def _denormalize_symbol(self, symbol: str) -> str:
         """反标准化symbol格式

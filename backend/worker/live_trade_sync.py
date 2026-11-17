@@ -7,7 +7,7 @@ fetch_my_trades 增量轮询交易所成交明细，直接按 WorkerTrade 契约
 零 Rust 改动，异常只记日志、不反噬交易循环。
 
 口径（与 worker/event_handler.py 的 LiveTradeRecorder 一致）：
-- trade_id 用交易所原生成交 ID，create_trade_if_not_exists 全局查重幂等；
+- fill_id 用交易所原生成交 ID，create_trade_if_not_exists 全局查重幂等；
 - realized_pnl 取 binance futures myTrades 的 info.realizedPnl，缺失为 None；
 - order_type 兜底 "MARKET"（ccxt myTrades 不带原生 orderType 字段）。
 
@@ -219,7 +219,7 @@ class LiveTradeSync:
                     logger.warning(f"LiveTradeSync: trade {t.get('id')} 落库失败 (worker_id={self.worker_id}): {e}")
                     break
                 # 游标推进用已见最大时间戳（不 +1）：同毫秒多笔成交不漏，
-                # 重复拉取由 trade_id 查重 + evidence 幂等兜底。查重命中也推进，
+                # 重复拉取由 fill_id 查重 + evidence 幂等兜底。查重命中也推进，
                 # 否则游标停在旧值，每轮都重拉同一批（幂等但空转）。
                 if t.get("timestamp"):
                     ts = int(t["timestamp"])
@@ -321,7 +321,7 @@ class LiveTradeSync:
 
         return {
             "worker_id": self.worker_id,
-            "trade_id": str(trade["id"]),
+            "fill_id": str(trade["id"]),
             "symbol": self.symbol,
             "side": normalize_side(trade.get("side") or ""),
             # 回报声明值直取：binance futures myTrades 的 info.positionSide
@@ -332,7 +332,7 @@ class LiveTradeSync:
             "order_type": str(trade.get("orderType") or "MARKET").upper(),
             "quantity": quantity,
             "price": price,
-            "amount": quantity * price,
+            "notional": quantity * price,
             "fee": float(fee.get("cost") or 0.0),
             "fee_currency": str(fee.get("currency") or "USDT"),
             "realized_pnl": realized,

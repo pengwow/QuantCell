@@ -261,7 +261,7 @@ def cost_stress(equity_curve: list[dict], trades: list[dict], bps_grid=(1, 3, 5,
         if not isinstance(t, dict):
             continue
         price = t.get("entry_price")
-        size = t.get("size")
+        size = t.get("quantity")
         if not (isinstance(price, (int, float)) and isinstance(size, (int, float))):
             continue
         notional = float(price) * float(size)

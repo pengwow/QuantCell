@@ -23,13 +23,13 @@ def _trade(worker_id: int, pnl: float) -> WorkerTrade:
     """构造一条满足非空约束的成交记录。"""
     return WorkerTrade(
         worker_id=worker_id,
-        trade_id=f"t-{worker_id}-{pnl}",
+        fill_id=f"t-{worker_id}-{pnl}",
         symbol="BTC/USDT",
         side="buy",
         order_type="market",
         quantity=0.01,
         price=50000.0,
-        amount=500.0,
+        notional=500.0,
         realized_pnl=pnl,
     )
 

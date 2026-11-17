@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
-from utils import _normalize_symbol, filter_by_date_range, get_source_data_dir
+from utils import filter_by_date_range, get_source_data_dir, normalize_symbol
 from utils.parquet_utils import load_from_parquet
 
 from .data_provider import DataProvider
@@ -105,7 +105,7 @@ class ParquetDataProvider(DataProvider):
         Raises:
             FileNotFoundError: 当Parquet文件不存在时
         """
-        norm_symbol = _normalize_symbol(symbol)
+        norm_symbol = normalize_symbol(symbol)
         parquet_path = self._klines_dir(candle_type) / interval / f"{norm_symbol}.parquet"
 
         if not parquet_path.exists():
@@ -184,7 +184,7 @@ class ParquetDataProvider(DataProvider):
         Returns:
             List[str]: 如 ['1m', '5m', '15m', '1h', '4h', '1d']
         """
-        norm_symbol = _normalize_symbol(symbol)
+        norm_symbol = normalize_symbol(symbol)
         root = self._klines_dir(candle_type)
         if not root.exists():
             return []

@@ -26,6 +26,7 @@ import pandas as pd
 from backtest import stop_control
 from backtest.progress_tracker import get_progress_tracker
 from backtest.result_analysis import ResultAnalyzer
+from vocab import normalize_side
 
 
 class BacktestService:
@@ -749,12 +750,12 @@ class BacktestService:
         # pnl 归平仓事件；exit_timestamp 缺失时退化为开仓时刻
         fill_events: list[dict[str, Any]] = []
         for tr in all_trades:
-            size = float(tr.get("size") or 0.0)
+            size = float(tr.get("quantity") or 0.0)
             if not tr.get("symbol") or size == 0.0:
                 continue
             is_long = tr.get("direction") == "long"
-            entry_side = "BUY" if is_long else "SELL"
-            exit_side = "SELL" if is_long else "BUY"
+            entry_side = "buy" if is_long else "sell"
+            exit_side = "sell" if is_long else "buy"
             entry_ts = int(tr.get("timestamp") or 0)
             fill_events.append(
                 {
@@ -809,7 +810,7 @@ class BacktestService:
     ) -> tuple[list[dict[str, Any]], dict[str, list[list[float]]]]:
         """从成交流重建净持仓序列，并给出持仓期间的收盘价点。
 
-        现货允许双向：BUY 记 +quantity、SELL 记 -quantity。同方向加仓按
+        现货允许双向：buy 记 +quantity、sell 记 -quantity。同方向加仓按
         移动加权计算均价；反向成交减仓时均价不变；穿越 0 翻仓后剩余部分以
         成交价为新开仓均价。
 
@@ -829,8 +830,12 @@ class BacktestService:
             sym = tr.get("symbol") or ""
             price = float(tr.get("price") or 0.0)
             qty = float(tr.get("quantity") or 0.0)
-            side = str(tr.get("side") or "").upper()
-            signed = qty if side == "BUY" else -qty if side == "SELL" else qty
+            # 方向入口经 vocab 归一（canonical 小写）；空/非法值不中断重建，按未知方向放行
+            try:
+                side = normalize_side(tr.get("side") or "")
+            except ValueError:
+                side = str(tr.get("side") or "")
+            signed = qty if side == "buy" else -qty if side == "sell" else qty
             if not sym or qty == 0.0 or price == 0.0:
                 continue
 
@@ -856,8 +861,8 @@ class BacktestService:
                 "ts": int(tr["timestamp"]),
                 "symbol": sym,
                 "side": side or tr.get("direction") or "",
-                "qty": round(new_qty, 10),
-                "traded_qty": round(signed, 10),
+                "quantity": round(new_qty, 10),
+                "traded_quantity": round(signed, 10),
                 "avg_cost": round(new_avg, 10),
                 "price": price,
                 "pnl": float(tr.get("pnl") or 0.0),
@@ -870,7 +875,7 @@ class BacktestService:
         state: dict[str, list[float]] = {}
         for t in grid:
             for ev in events_by_grid.get(t, []):
-                state[ev["symbol"]] = [ev["qty"], ev["avg_cost"]]
+                state[ev["symbol"]] = [ev["quantity"], ev["avg_cost"]]
             for sym, qty_avg in state.items():
                 qty = qty_avg[0]
                 if qty == 0.0:
@@ -1019,8 +1024,10 @@ class BacktestService:
                 {
                     "id": task.get("id"),
                     "strategy_name": task.get("strategy_name"),
-                    "symbols": ", ".join(task.get("symbols", [])),
-                    "timeframes": ", ".join(task.get("timeframes", [])),
+                    # 数组直出（合约改版：不再 join 成逗号串）；intervals 为 canonical 键，
+                    # task 文件内部历史键名仍为 timeframes，此处做投影转换
+                    "symbols": task.get("symbols", []),
+                    "intervals": task.get("timeframes", []),
                     "engine_type": task.get("engine_type"),
                     "status": status,
                     "created_at": task.get("created_at"),

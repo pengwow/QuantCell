@@ -147,7 +147,7 @@ def test_sync_once_persists_cursor(engine_session, monkeypatch):
     cursor = lts.load_cursor(1, lts.account_id_for_key("key-1"))
     assert cursor == (NOW_MS - 1000, "b"), "游标应推进到本轮最大时间戳"
 
-    # 二轮重拉同一批（模拟重启）：trade_id 查重跳过，游标不回退
+    # 二轮重拉同一批（模拟重启）：fill_id 查重跳过，游标不回退
     s2 = _make_sync()
     assert s2._since == NOW_MS - 1000
     assert s2.sync_once() == 0

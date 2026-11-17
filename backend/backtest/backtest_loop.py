@@ -436,7 +436,7 @@ class BacktestLoop:
                     "exit_timestamp": exit_ts_sec,
                     "entry_price": entry_price,
                     "exit_price": exit_price,
-                    "size": size,
+                    "quantity": size,
                     "pnl": pnl,
                     "return_pct": return_pct,
                     "direction": direction,

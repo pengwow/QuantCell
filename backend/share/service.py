@@ -67,7 +67,7 @@ WORKER_SNAPSHOT_FIELDS = (
     "name",
     "status",
     "exchange",
-    "timeframe",
+    "interval",
     "market_type",
     "trading_mode",
     "symbols",
@@ -99,7 +99,8 @@ def _filter_worker(worker: Worker) -> dict:
         "name": worker.name,
         "status": worker.status,
         "exchange": _safe_get_trading_cfg_field(trading_cfg, "exchange"),
-        "timeframe": _safe_get_trading_cfg_field(trading_cfg, "timeframe"),
+        # K线周期（canonical 键=interval，get_interval 内部兼容旧 timeframe 键）
+        "interval": worker.get_interval(),
         "market_type": _safe_get_trading_cfg_field(trading_cfg, "market_type"),
         "trading_mode": _safe_get_trading_cfg_field(trading_cfg, "trading_mode"),
         "symbols": _extract_symbols_from_trading_config(trading_cfg),

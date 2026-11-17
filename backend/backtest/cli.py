@@ -270,7 +270,8 @@ def show(
                 table.add_row(
                     str(r.get("id", "-")),
                     r.get("strategy_name", "-"),
-                    r.get("symbols", "-"),
+                    # symbols 现为数组，CLI 表格 join 展示
+                    ", ".join(r.get("symbols") or []) or "-",
                     r.get("created_at", "-")[:19],
                     f"[{status_style}]{r.get('status', '-')}[/{status_style}]",
                 )

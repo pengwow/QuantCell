@@ -31,7 +31,6 @@ task_manager = None
 from utils.data_utils import (
     _find_parquet_file,
     _get_default_date_range,
-    _normalize_symbol,
     _parse_interval_minutes,
     _ts_to_datetime,
     _validate_parquet_export,
@@ -43,6 +42,7 @@ from utils.data_utils import (
     get_parquet_info,
     get_source_data_dir,
     load_from_parquet,
+    normalize_symbol,
     scan_parquet_files,
 )
 

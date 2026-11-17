@@ -235,7 +235,7 @@ class TestLiveTradeRecorder:
             "order_type": "MARKET",
             "quantity": 0.01,
             "price": 50000.0,
-            "filled_qty": 0.0,
+            "filled_quantity": 0.0,
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
@@ -271,7 +271,7 @@ class TestLiveTradeRecorder:
             "order_type": "MARKET",
             "quantity": 0.01,
             "price": 50000.0,
-            "filled_qty": 0.0,
+            "filled_quantity": 0.0,
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
@@ -286,7 +286,7 @@ class TestLiveTradeRecorder:
         recorder._handle_fill(db_session, mock_order_filled_event)
 
         # 验证交易记录被创建
-        trade = db_session.query(WorkerTrade).filter(WorkerTrade.trade_id == "trade-456").first()
+        trade = db_session.query(WorkerTrade).filter(WorkerTrade.fill_id == "trade-456").first()
         assert trade is not None
         assert trade.worker_id == 1
         assert trade.symbol == "BTCUSDT"
@@ -295,7 +295,7 @@ class TestLiveTradeRecorder:
         assert trade.order_type == "MARKET"
         assert trade.quantity == 0.01
         assert trade.price == 50000.0
-        assert trade.amount == 500.0
+        assert trade.notional == 500.0
         assert trade.fee == 1.0
         assert trade.fee_currency == "USDT"
 
@@ -303,7 +303,7 @@ class TestLiveTradeRecorder:
         order = db_session.query(WorkerOrder).filter(WorkerOrder.client_order_id == "test-order-123").first()
         assert order is not None
         assert order.status == "FILLED"
-        assert order.filled_qty == 0.01
+        assert order.filled_quantity == 0.01
         assert order.avg_fill_price == 50000.0
 
     def test_handle_position_event_with_real_db(self, recorder, mock_position_event, db_session):

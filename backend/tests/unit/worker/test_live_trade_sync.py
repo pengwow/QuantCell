@@ -44,13 +44,13 @@ def test_to_trade_data_mapping():
     }
     d = s._to_trade_data(trade)
     assert d["worker_id"] == 7
-    assert d["trade_id"] == "373270969"
+    assert d["fill_id"] == "373270969"
     assert d["symbol"] == "BTC/USDT"
     assert d["side"] == "buy"
     assert d["order_type"] == "MARKET"
     assert d["quantity"] == 0.5
     assert d["price"] == 60000.0
-    assert d["amount"] == 30000.0
+    assert d["notional"] == 30000.0
     assert d["fee"] == 0.03
     assert d["fee_currency"] == "USDT"
     assert d["realized_pnl"] == 12.5
@@ -123,7 +123,7 @@ def test_sync_once_persists_order_rows(monkeypatch):
     assert o1.side == "buy"
     assert o1.symbol == "BTC/USDT"
     assert o1.order_type == "MARKET"
-    assert o1.filled_qty == pytest.approx(0.5)
+    assert o1.filled_quantity == pytest.approx(0.5)
     assert o1.avg_fill_price == pytest.approx(60000.0)
     assert o1.venue_order_id == "o1"
     # 成交行同步落库（既有行为不回归）

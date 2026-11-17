@@ -58,7 +58,7 @@ class Worker(Base):
     #     "pool_id": null,
     #     "pool_name": null
     #   },
-    #   "timeframe": "1h",
+    #   "interval": "1h",
     #   "market_type": "spot",
     #   "trading_mode": "paper"
     # }
@@ -146,8 +146,21 @@ class Worker(Base):
             return {}
 
     def set_trading_config_dict(self, trading_config: dict[str, Any]):
-        """设置交易配置字典"""
-        self.trading_config = json.dumps(trading_config)
+        """设置交易配置字典
+
+        Phase A 双写（迁移 41）：K线周期在 interval（canonical）与 timeframe（旧键）两键同步保留，
+        保证未升级的旧读取方不断供；双键退役至少保留 2 个版本后再收敛单键。
+        """
+        cfg = dict(trading_config)
+        interval = cfg.get("interval") or cfg.get("timeframe") or "1h"
+        cfg["interval"] = interval
+        cfg["timeframe"] = interval
+        self.trading_config = json.dumps(cfg)
+
+    def get_interval(self) -> str:
+        """获取K线周期（canonical 键=interval；兼容迁移 41 前的旧 timeframe 键，interval 优先）"""
+        cfg = self.get_trading_config_dict()
+        return cfg.get("interval") or cfg.get("timeframe") or "1h"
 
     def get_symbols(self) -> list:
         """获取交易标的列表（兼容旧版本）"""
@@ -210,7 +223,7 @@ class Worker(Base):
             "trading_config": trading_config,
             "exchange": trading_config.get("exchange", "binance"),
             "symbols": symbols_config.get("symbols", []),
-            "timeframe": trading_config.get("timeframe", "1h"),
+            "interval": self.get_interval(),
             "market_type": trading_config.get("market_type", "spot"),
             "trading_mode": trading_config.get("trading_mode", "paper"),
             "pid": self.pid,
@@ -596,7 +609,9 @@ class WorkerTrade(Base):
     worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
 
     # 交易信息
-    trade_id = Column(String(100), unique=True, nullable=False)
+    # 成交行的唯一标识：paper 链路为 "paper:{worker_id}:{fill_id}:{ts_ns}"，
+    # live 链路为交易所原生成交 ID。列名按审计裁决用 fill_id（成交语境禁用 trade_id）
+    fill_id = Column(String(100), unique=True, nullable=False)
     symbol = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # buy, sell
     # 订单声明值透传（铁律2，非由 side 推导）：live 直取回报 info.positionSide，
@@ -609,7 +624,9 @@ class WorkerTrade(Base):
     # 交易数量
     quantity = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
-    amount = Column(Float, nullable=False)  # quantity * price
+    # 名义价值（数量×价格）。列名原为 amount，迁移 42 改名 notional，
+    # 与交易所响应里"下单数量"含义的 amount 解除词形重载
+    notional = Column(Float, nullable=False)
 
     # 费用
     fee = Column(Float, default=0.0)
@@ -637,7 +654,7 @@ class WorkerTrade(Base):
 
     __table_args__ = (
         Index("idx_worker_trades_worker_id", "worker_id"),
-        Index("idx_worker_trades_trade_id", "trade_id"),
+        Index("idx_worker_trades_fill_id", "fill_id"),
         Index("idx_worker_trades_symbol", "symbol"),
         Index("idx_worker_trades_created_at", "created_at"),
         Index("idx_worker_trades_worker_symbol", "worker_id", "symbol"),
@@ -649,7 +666,7 @@ class WorkerTrade(Base):
         return {
             "id": self.id,
             "worker_id": self.worker_id,
-            "trade_id": self.trade_id,
+            "fill_id": self.fill_id,
             "symbol": self.symbol,
             "side": self.side,
             # 声明值透传（铁律2）：与 side 独立，不从 side 推导
@@ -658,7 +675,9 @@ class WorkerTrade(Base):
             "order_type": self.order_type,
             "quantity": self.quantity,
             "price": self.price,
-            "amount": self.amount,
+            "notional": self.notional,
+            # deprecated 双字段日期响应别名（迁移 42）：老消费方分批切换到 notional
+            "amount": self.notional,
             "fee": self.fee,
             "fee_currency": self.fee_currency,
             "realized_pnl": self.realized_pnl,
@@ -694,7 +713,8 @@ class WorkerOrder(Base):
     # 数量和价格
     quantity = Column(Float, nullable=False)  # 委托数量
     price = Column(Float, nullable=True)  # 委托价格（市价单为None）
-    filled_qty = Column(Float, default=0.0)  # 已成交数量
+    # 已成交数量。列名原为 filled_qty，迁移 42 改名，数量族统一 quantity 拼写
+    filled_quantity = Column(Float, default=0.0)
     avg_fill_price = Column(Float, default=0.0)  # 成交均价
 
     # 订单状态
@@ -732,7 +752,9 @@ class WorkerOrder(Base):
             "order_type": self.order_type,
             "quantity": self.quantity,
             "price": self.price,
-            "filled_qty": self.filled_qty,
+            "filled_quantity": self.filled_quantity,
+            # deprecated 双字段日期响应别名（迁移 42）：老消费方分批切换到 filled_quantity
+            "filled_qty": self.filled_quantity,
             "avg_fill_price": self.avg_fill_price,
             "status": self.status,
             "position_id": self.position_id,
@@ -829,7 +851,7 @@ class WorkerFillEvidence(Base):
     venue_trade_id = Column(String(64), nullable=False, unique=True)
     symbol = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # buy/sell（canonical 小写，create_trade_if_not_exists 归一后透传）
-    qty = Column(Float, nullable=False)
+    quantity = Column(Float, nullable=False)  # 列名原为 qty，迁移 42 改名与 WorkerTrade.quantity 对齐
     price = Column(Float, nullable=True)
     fee = Column(Float, nullable=True)
 

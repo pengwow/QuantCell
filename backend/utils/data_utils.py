@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from utils.logger import LogType, get_logger
+from vocab import normalize_symbol
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -160,11 +161,6 @@ def sanitize_for_json(data: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _normalize_symbol(symbol: str) -> str:
-    """标准化交易对名称"""
-    return symbol.replace("/", "").replace("\\", "").replace(" ", "")
-
-
 def _find_parquet_file(symbol: str, interval: str, market_type: str = "spot") -> Path | None:
     """查找指定交易对和时间框架的parquet文件。
 
@@ -173,7 +169,7 @@ def _find_parquet_file(symbol: str, interval: str, market_type: str = "spot") ->
     及因子特征构建同源），保证回测 K 线与因子读到同一物理文件。
     """
     data_dir = get_source_data_dir()
-    norm_symbol = _normalize_symbol(symbol)
+    norm_symbol = normalize_symbol(symbol)
     legacy_path = data_dir / market_type / interval / f"{norm_symbol}.parquet"
     if legacy_path.exists():
         return legacy_path

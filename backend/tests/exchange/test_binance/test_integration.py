@@ -11,7 +11,7 @@ import os
 import pytest
 
 from exchange.binance import BinanceClient, BinanceConfig
-from exchange.binance.config import OrderRequest, OrderSide, OrderType, TimeInForce
+from exchange.binance.config import BinanceOrderSide, OrderRequest, OrderType, TimeInForce
 from exchange.binance.exceptions import (
     BinanceAPIError,
 )
@@ -187,7 +187,7 @@ class TestIntegration:
         # 创建一个远低于市价的买单（不会成交）
         order_request = OrderRequest(
             symbol="BTCUSDT",
-            side=OrderSide.BUY,
+            side=BinanceOrderSide.BUY,
             order_type=OrderType.LIMIT,
             quantity=0.001,
             price=current_price * 0.5,  # 50%的当前价格
@@ -197,7 +197,7 @@ class TestIntegration:
         response = client.create_order(order_request)
 
         assert response.symbol == "BTCUSDT"
-        assert response.side == OrderSide.BUY
+        assert response.side == BinanceOrderSide.BUY
         assert response.order_type == OrderType.LIMIT
         assert response.status.value in ["NEW", "PARTIALLY_FILLED", "FILLED"]
 

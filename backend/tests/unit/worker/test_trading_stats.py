@@ -31,13 +31,13 @@ class TestEnhancedTradeQuery:
         for i in range(5):
             trade = WorkerTrade(
                 worker_id=worker_id,
-                trade_id=f"trade-{i}",
+                fill_id=f"trade-{i}",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1.0,
                 price=50000.0,
-                amount=50000.0,
+                notional=50000.0,
                 realized_pnl=100.0,
             )
             db_session.add(trade)
@@ -53,25 +53,25 @@ class TestEnhancedTradeQuery:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="ETHUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=3000,
-                amount=3000,
+                notional=3000,
             )
         )
         db_session.commit()
@@ -86,25 +86,25 @@ class TestEnhancedTradeQuery:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="BTCUSDT",
                 side="sell",
                 order_type="market",
                 quantity=1,
                 price=51000,
-                amount=51000,
+                notional=51000,
             )
         )
         db_session.commit()
@@ -119,25 +119,25 @@ class TestEnhancedTradeQuery:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="limit",
                 quantity=1,
                 price=49000,
-                amount=49000,
+                notional=49000,
             )
         )
         db_session.commit()
@@ -152,39 +152,39 @@ class TestEnhancedTradeQuery:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="BTCUSDT",
                 side="sell",
                 order_type="market",
                 quantity=1,
                 price=49000,
-                amount=49000,
+                notional=49000,
                 realized_pnl=-50.0,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t3",
+                fill_id="t3",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=0.0,
             )
         )
@@ -192,13 +192,13 @@ class TestEnhancedTradeQuery:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t4",
+                fill_id="t4",
                 symbol="BTCUSDT",
                 side="sell",
                 order_type="market",
                 quantity=1,
                 price=51000,
-                amount=51000,
+                notional=51000,
                 realized_pnl=None,
             )
         )
@@ -232,26 +232,26 @@ class TestEnhancedTradeQuery:
         now = datetime.now()
         old_trade = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t1",
+            fill_id="t1",
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=50000,
-            amount=50000,
+            notional=50000,
         )
         old_trade.created_at = now - timedelta(days=10)
         db_session.add(old_trade)
 
         new_trade = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t2",
+            fill_id="t2",
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=51000,
-            amount=51000,
+            notional=51000,
         )
         new_trade.created_at = now - timedelta(days=1)
         db_session.add(new_trade)
@@ -261,7 +261,7 @@ class TestEnhancedTradeQuery:
         end = now
         trades, total = crud.get_worker_trades_paginated(db_session, worker_id, start_time=start, end_time=end)
         assert total == 1
-        assert trades[0].trade_id == "t2"
+        assert trades[0].fill_id == "t2"
 
     def test_get_worker_trades_paginated_combined_filters(self, db_session):
         """组合筛选条件"""
@@ -269,39 +269,39 @@ class TestEnhancedTradeQuery:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="ETHUSDT",
                 side="buy",
                 order_type="limit",
                 quantity=1,
                 price=3000,
-                amount=3000,
+                notional=3000,
                 realized_pnl=50.0,
             )
         )
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t3",
+                fill_id="t3",
                 symbol="BTCUSDT",
                 side="sell",
                 order_type="market",
                 quantity=1,
                 price=51000,
-                amount=51000,
+                notional=51000,
                 realized_pnl=-30.0,
             )
         )
@@ -311,7 +311,7 @@ class TestEnhancedTradeQuery:
             db_session, worker_id, symbol="BTCUSDT", side="buy", pnl_status="profit"
         )
         assert total == 1
-        assert trades[0].trade_id == "t1"
+        assert trades[0].fill_id == "t1"
 
     def test_get_worker_trades_paginated_empty_result(self, db_session):
         """无结果返回空列表"""
@@ -589,13 +589,13 @@ class TestTradingSummary:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
                 fee=5.0,
             )
@@ -603,13 +603,13 @@ class TestTradingSummary:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="BTCUSDT",
                 side="sell",
                 order_type="market",
                 quantity=1,
                 price=51000,
-                amount=51000,
+                notional=51000,
                 realized_pnl=-30.0,
                 fee=5.0,
             )
@@ -617,13 +617,13 @@ class TestTradingSummary:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t3",
+                fill_id="t3",
                 symbol="ETHUSDT",
                 side="buy",
                 order_type="limit",
                 quantity=1,
                 price=3000,
-                amount=3000,
+                notional=3000,
                 realized_pnl=50.0,
                 fee=3.0,
             )
@@ -656,13 +656,13 @@ class TestTradingSummary:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
                 fee=5.0,
             )
@@ -670,13 +670,13 @@ class TestTradingSummary:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t2",
+                fill_id="t2",
                 symbol="BTCUSDT",
                 side="sell",
                 order_type="market",
                 quantity=1,
                 price=49000,
-                amount=49000,
+                notional=49000,
                 realized_pnl=-50.0,
                 fee=5.0,
             )
@@ -698,13 +698,13 @@ class TestTradingSummary:
 
         old_trade = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t1",
+            fill_id="t1",
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=50000,
-            amount=50000,
+            notional=50000,
             realized_pnl=100.0,
         )
         old_trade.created_at = now - timedelta(days=10)
@@ -712,13 +712,13 @@ class TestTradingSummary:
 
         new_trade = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t2",
+            fill_id="t2",
             symbol="BTCUSDT",
             side="sell",
             order_type="market",
             quantity=1,
             price=51000,
-            amount=51000,
+            notional=51000,
             realized_pnl=50.0,
         )
         new_trade.created_at = now - timedelta(days=1)
@@ -749,13 +749,13 @@ class TestPnLDistribution:
             db_session.add(
                 WorkerTrade(
                     worker_id=worker_id,
-                    trade_id=f"t{i}",
+                    fill_id=f"t{i}",
                     symbol="BTCUSDT",
                     side="buy",
                     order_type="market",
                     quantity=1,
                     price=50000,
-                    amount=50000,
+                    notional=50000,
                     realized_pnl=float(pnl),
                 )
             )
@@ -774,13 +774,13 @@ class TestPnLDistribution:
 
         old_trade = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t1",
+            fill_id="t1",
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=50000,
-            amount=50000,
+            notional=50000,
             realized_pnl=100.0,
         )
         old_trade.created_at = now - timedelta(days=10)
@@ -788,13 +788,13 @@ class TestPnLDistribution:
 
         new_trade = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t2",
+            fill_id="t2",
             symbol="BTCUSDT",
             side="sell",
             order_type="market",
             quantity=1,
             price=51000,
-            amount=51000,
+            notional=51000,
             realized_pnl=50.0,
         )
         new_trade.created_at = now - timedelta(days=1)
@@ -829,13 +829,13 @@ class TestTradeHistoryChart:
         day1 = now - timedelta(days=2)
         t1 = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t1",
+            fill_id="t1",
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=50000,
-            amount=50000,
+            notional=50000,
             realized_pnl=100.0,
         )
         t1.created_at = day1
@@ -844,13 +844,13 @@ class TestTradeHistoryChart:
         day2 = now - timedelta(days=1)
         t2 = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t2",
+            fill_id="t2",
             symbol="BTCUSDT",
             side="sell",
             order_type="market",
             quantity=1,
             price=51000,
-            amount=51000,
+            notional=51000,
             realized_pnl=-50.0,
         )
         t2.created_at = day2
@@ -858,13 +858,13 @@ class TestTradeHistoryChart:
 
         t3 = WorkerTrade(
             worker_id=worker_id,
-            trade_id="t3",
+            fill_id="t3",
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=50000,
-            amount=50000,
+            notional=50000,
             realized_pnl=80.0,
         )
         t3.created_at = day2
@@ -878,16 +878,16 @@ class TestTradeHistoryChart:
         assert len(result["trade_count"]) > 0
         assert result["cumulative_pnl"][-1] == 130.0
 
-    def _add_trade(self, db_session, trade_id: str, realized_pnl: float, created_at: datetime) -> None:
+    def _add_trade(self, db_session, fill_id: str, realized_pnl: float, created_at: datetime) -> None:
         obj = WorkerTrade(
             worker_id=1,
-            trade_id=trade_id,
+            fill_id=fill_id,
             symbol="BTCUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=50000,
-            amount=50000,
+            notional=50000,
             realized_pnl=realized_pnl,
             # created_at 显式传值：模型 default(func.now()) 仅在未提供时生效
             created_at=created_at,
@@ -1016,13 +1016,13 @@ class TestTradingStatsService:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
             )
         )
@@ -1041,13 +1041,13 @@ class TestTradingStatsService:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
             )
         )
@@ -1065,13 +1065,13 @@ class TestTradingStatsService:
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="t1",
+                fill_id="t1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
                 realized_pnl=100.0,
             )
         )
@@ -1085,32 +1085,32 @@ class TestTradingStatsService:
 class TestDataIntegrity:
     """数据完整性测试"""
 
-    def test_trade_id_uniqueness(self, db_session):
+    def test_fill_id_uniqueness(self, db_session):
         """交易ID唯一性"""
         worker_id = 1
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id="unique-1",
+                fill_id="unique-1",
                 symbol="BTCUSDT",
                 side="buy",
                 order_type="market",
                 quantity=1,
                 price=50000,
-                amount=50000,
+                notional=50000,
             )
         )
         db_session.commit()
 
         duplicate = WorkerTrade(
             worker_id=worker_id,
-            trade_id="unique-1",
+            fill_id="unique-1",
             symbol="ETHUSDT",
             side="buy",
             order_type="market",
             quantity=1,
             price=3000,
-            amount=3000,
+            notional=3000,
         )
         db_session.add(duplicate)
 
@@ -1182,17 +1182,17 @@ class TestDerivePositionsFromTrades:
     """从未配对 fill 推导当前持仓（paper 账 worker_positions 表恒空的回退口径）"""
 
     @staticmethod
-    def _add_fill(db_session, worker_id, trade_id, symbol, side, qty, price, pnl=None, ts=None, round_trip_id=None):
+    def _add_fill(db_session, worker_id, fill_id, symbol, side, qty, price, pnl=None, ts=None, round_trip_id=None):
         db_session.add(
             WorkerTrade(
                 worker_id=worker_id,
-                trade_id=trade_id,
+                fill_id=fill_id,
                 symbol=symbol,
                 side=side,
                 order_type="market",
                 quantity=qty,
                 price=price,
-                amount=qty * price,
+                notional=qty * price,
                 realized_pnl=pnl,
                 round_trip_id=round_trip_id,
                 entry_time=ts,
@@ -1310,14 +1310,14 @@ class TestDerivePositionsDirectionVocab:
             db_session,
             {
                 "worker_id": worker_id,
-                "trade_id": "vocab:case:1",
+                "fill_id": "vocab:case:1",
                 "symbol": "BTCUSDT",
                 "side": "buy",
                 "order_type": "MARKET",
                 "quantity": 1.0,
                 "price": 100.0,
-                # WorkerTrade.amount 列非空且无默认值，最小键集合按模型约束补齐
-                "amount": 100.0,
+                # WorkerTrade.notional 列非空且无默认值，最小键集合按模型约束补齐
+                "notional": 100.0,
                 "entry_time": datetime(2026, 11, 1, 10, 0),
             },
         )
@@ -1326,13 +1326,13 @@ class TestDerivePositionsDirectionVocab:
             db_session,
             {
                 "worker_id": worker_id,
-                "trade_id": "vocab:case:2",
+                "fill_id": "vocab:case:2",
                 "symbol": "BTCUSDT",
                 "side": "BUY",
                 "order_type": "MARKET",
                 "quantity": 1.0,
                 "price": 110.0,
-                "amount": 110.0,
+                "notional": 110.0,
                 "entry_time": datetime(2026, 11, 1, 11, 0),
             },
         )

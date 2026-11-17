@@ -62,17 +62,17 @@ class _Ctx:
         return False
 
 
-def _trade_data(trade_id: str = "t1", client_order_id: str | None = "co1") -> dict:
+def _trade_data(fill_id: str = "t1", client_order_id: str | None = "co1") -> dict:
     """live 链路的 trade_data 契约样本（字段与 live_trade_sync._to_trade_data 对齐）"""
     return {
         "worker_id": 1,
-        "trade_id": trade_id,
+        "fill_id": fill_id,
         "symbol": "BTC/USDT",
         "side": "buy",
         "order_type": "MARKET",
         "quantity": 0.01,
         "price": 50000.0,
-        "amount": 500.0,
+        "notional": 500.0,
         "fee": 0.35,
         "fee_currency": "USDT",
         "realized_pnl": None,
@@ -92,14 +92,14 @@ def _enable_evidence(monkeypatch, enabled: bool):
 
 
 def test_evidence_double_write_and_conflict(db_session, monkeypatch):
-    """同 trade_id 二次插入：evidence 幂等命中，trade 不重复入账"""
+    """同 fill_id 二次插入：evidence 幂等命中，trade 不重复入账"""
     _enable_evidence(monkeypatch, True)
 
     first = crud.create_trade_if_not_exists(db_session, _trade_data("t1"))
     assert first is not None
     second = crud.create_trade_if_not_exists(db_session, _trade_data("t1"))
 
-    assert second is None  # 幂等命中返回 None（未新建），由 trade_id 查重锁定
+    assert second is None  # 幂等命中返回 None（未新建），由 fill_id 查重锁定
     assert db_session.query(WorkerTrade).count() == 1
     assert db_session.query(WorkerFillEvidence).count() == 1
     ev = db_session.query(WorkerFillEvidence).one()
@@ -108,8 +108,8 @@ def test_evidence_double_write_and_conflict(db_session, monkeypatch):
     assert ev.source == "sync"
 
 
-def test_evidence_disabled_falls_back_to_trade_id(db_session, monkeypatch):
-    """开关关闭：不写 evidence，幂等完全退回 trade_id 查重（旧行为）"""
+def test_evidence_disabled_falls_back_to_fill_id(db_session, monkeypatch):
+    """开关关闭：不写 evidence，幂等完全退回 fill_id 查重（旧行为）"""
     _enable_evidence(monkeypatch, False)
 
     crud.create_trade_if_not_exists(db_session, _trade_data("t2"))
@@ -161,7 +161,7 @@ def test_orphan_fill_detection(db_session, monkeypatch):
     """孤立成交：evidence 有 client_order_id 而订单表无此行 → 告警列表命中"""
     _enable_evidence(monkeypatch, True)
 
-    def _ev(tid: str, cid: str, symbol: str = "BTC/USDT", qty: float = 0.01, side: str = "buy"):
+    def _ev(tid: str, cid: str, symbol: str = "BTC/USDT", quantity: float = 0.01, side: str = "buy"):
         return WorkerFillEvidence(
             worker_id=1,
             client_order_id=cid,
@@ -169,7 +169,7 @@ def test_orphan_fill_detection(db_session, monkeypatch):
             venue_trade_id=tid,
             symbol=symbol,
             side=side,
-            qty=qty,
+            quantity=quantity,
             price=50000.0,
             fee=0.35,
             source="sync",
@@ -177,7 +177,7 @@ def test_orphan_fill_detection(db_session, monkeypatch):
 
     # 孤立成交（订单行不存在）+ 正常成交（订单行存在）
     db_session.add(_ev("t-orphan", "co-orphan"))
-    db_session.add(_ev("t-normal", "co-normal", qty=0.02))
+    db_session.add(_ev("t-normal", "co-normal", quantity=0.02))
     db_session.add(
         WorkerOrder(
             id=1,

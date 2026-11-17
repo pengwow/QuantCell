@@ -617,7 +617,10 @@ class ResultFormatterService:
                     max(
                         (
                             t.get("PnL", t.get("pnl", 0))
-                            / (t.get("EntryPrice", t.get("entry_price", 1)) * t.get("Size", t.get("size", 1)))
+                            / (
+                                t.get("EntryPrice", t.get("entry_price", 1))
+                                * t.get("Size", t.get("quantity", t.get("size", 1)))
+                            )
                             * 100
                             for t in trades
                             if isinstance(t, dict)
@@ -636,7 +639,10 @@ class ResultFormatterService:
                     min(
                         (
                             t.get("PnL", t.get("pnl", 0))
-                            / (t.get("EntryPrice", t.get("entry_price", 1)) * t.get("Size", t.get("size", 1)))
+                            / (
+                                t.get("EntryPrice", t.get("entry_price", 1))
+                                * t.get("Size", t.get("quantity", t.get("size", 1)))
+                            )
                             * 100
                             for t in trades
                             if isinstance(t, dict)

@@ -175,14 +175,15 @@ def get_strategy_list() -> ApiResponse:
 )
 def precheck_data(
     symbols: str,
-    timeframes: str,
+    intervals: str = Query(..., description='K线周期，逗号分隔，如 "15m,1h"（canonical 参数名）'),
+    timeframes: str | None = Query(None, deprecated=True, description="旧参数名，等价于 intervals；双接受过渡期后移除"),
     candle_type: str = "spot",
 ) -> ApiResponse:
     """回测前预检哪些品种缺少本地数据。
 
     Args:
         symbols: 逗号分隔的交易对列表，如 "ETH/USDT,LTC/USDT"
-        timeframes: 逗号分隔的周期列表，如 "15m,1h"
+        intervals: 逗号分隔的周期列表，如 "15m,1h"（旧名 timeframes 仍被接受）
         candle_type: 市场类型 spot/future
 
     Returns:
@@ -190,7 +191,9 @@ def precheck_data(
     """
     try:
         symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-        timeframe_list = [t.strip() for t in timeframes.split(",") if t.strip()]
+        # 旧参数名 timeframes 仍接受（interval 优先），过渡期后移除
+        effective_intervals = intervals or timeframes or ""
+        timeframe_list = [t.strip() for t in effective_intervals.split(",") if t.strip()]
 
         if not symbol_list or not timeframe_list:
             return ApiResponse(

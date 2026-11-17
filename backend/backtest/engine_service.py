@@ -770,15 +770,15 @@ class EventDrivenBacktestService:
             return []
         # 函数内 import：strategy 包 __init__ 会连带载入 routes/service，
         # 提到模块顶层会让 engine_service 的导入链变重并可能成环
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
-        target = _normalize_symbol(symbol)
+        target = expand_symbol(symbol)
         return [
             event
             for event in events
             if isinstance(event, dict)
             and isinstance(event.get("symbol"), str)
-            and _normalize_symbol(event["symbol"]) == target
+            and expand_symbol(event["symbol"]) == target
         ]
 
     @staticmethod
@@ -1022,13 +1022,14 @@ class EventDrivenBacktestService:
         - `margin_specs`：每品种保证金规格（key 为 BASE/QUOTE），None/空 = 不启用保证金模拟；
         - `interval`：真实 K 线周期（内核派生收市时刻用），None = 内核默认。
         """
-        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+        from strategy.rust_adapter import RustStrategyAdapter
+        from vocab import expand_symbol
 
         # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
         df = clean_ohlcv_df(df)
         bars = self._df_to_rust_bars(df)
         bar_ts_list = [b["timestamp"] for b in bars]
-        rust_symbol = _normalize_symbol(symbol)
+        rust_symbol = expand_symbol(symbol)
 
         states_by_symbol = self._build_rust_states(feature_dataframe, bar_ts_list, rust_symbol)
         funding_by_symbol = self._build_rust_funding(funding_df, rust_symbol, futures)
@@ -1112,7 +1113,8 @@ class EventDrivenBacktestService:
             详情页「交易次数」沿用引擎 fills 口径，故单独回传
         """
         from backtest.shared_capital_grid import align_bars_to_grid, build_shared_grid
-        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+        from strategy.rust_adapter import RustStrategyAdapter
+        from vocab import expand_symbol
 
         # 1) 各品种清洗 → Rust bars → 网格并集（Rust 侧要求所有品种等长，故按并集对齐）
         bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
@@ -1121,19 +1123,19 @@ class EventDrivenBacktestService:
             df = clean_ohlcv_df(entry["data"])
             bars_by_symbol[sym] = self._df_to_rust_bars(df)
             # Rust 侧 instrument 用 BASE/QUOTE 归一化名，回拆成交时需还原成 QuantCell 品种名
-            rust_to_qc[_normalize_symbol(sym)] = sym
+            rust_to_qc[expand_symbol(sym)] = sym
         grid = build_shared_grid(bars_by_symbol)
         grid_len = len(grid)
 
         # 2) 按网格对齐 bar（缺口 None，由 Rust 前向填充价格）
-        aligned_bars = {_normalize_symbol(sym): align_bars_to_grid(bars, grid) for sym, bars in bars_by_symbol.items()}
+        aligned_bars = {expand_symbol(sym): align_bars_to_grid(bars, grid) for sym, bars in bars_by_symbol.items()}
 
         # 3) 逐 bar state 按同一网格对齐（复用 _build_rust_states 的键口径）；
         #    funding 查找表语义同 _run_rust_single（仅 futures 时非空）
         states_by_symbol: dict[str, list] = {}
         funding_by_symbol: dict[str, dict[int, tuple[float, float]]] = {}
         for sym, entry in entries.items():
-            rust_symbol = _normalize_symbol(sym)
+            rust_symbol = expand_symbol(sym)
             states_by_symbol.update(self._build_rust_states(entry.get("feature_dataframe"), grid, rust_symbol))
             funding_by_symbol.update(
                 self._build_rust_funding(
@@ -1155,7 +1157,7 @@ class EventDrivenBacktestService:
         )
         for sym, strategy in strategies_by_symbol.items():
             # 每品种独立杠杆：共享账户下各品种的放大倍数可以不同
-            leverage = (margin_specs or {}).get(_normalize_symbol(sym), {}).get("leverage", 1.0)
+            leverage = (margin_specs or {}).get(expand_symbol(sym), {}).get("leverage", 1.0)
             runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash, leverage=leverage))
         if margin_specs:
             # 全品种参与：未列入配置的品种也带着默认 1x / cross 规格进来

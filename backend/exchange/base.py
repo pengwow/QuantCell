@@ -31,6 +31,7 @@ from utils.timestamp_utils import (
     normalize_timestamp_column,
     validate_timestamp_column,
 )
+from vocab import normalize_symbol
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -1193,13 +1194,8 @@ class CryptoBaseCollector(BaseCollector):
         )
 
     def normalize_symbol(self, symbol):
-        """
-        标准化加密货币符号，去除'/'分隔符
-
-        :param symbol: 加密货币符号，如'BTC/USDT'
-        :return: 标准化后的符号，如'BTCUSDT'
-        """
-        return symbol.replace("/", "")
+        """标准化交易对符号：任意分隔格式归一为紧缩大写 'BTCUSDT'（canonical 实现见 vocab）。"""
+        return normalize_symbol(symbol)
 
     def get_instrument_list(self):
         """

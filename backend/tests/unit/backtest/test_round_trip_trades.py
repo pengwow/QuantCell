@@ -24,7 +24,7 @@ CONTRACT_FIELDS = {
     "exit_timestamp",
     "entry_price",
     "exit_price",
-    "size",
+    "quantity",
     "pnl",
     "return_pct",
     "direction",
@@ -170,11 +170,11 @@ def test_pnl_and_prices_from_engine():
     assert trades[0]["pnl"] == 10.0
     assert trades[0]["entry_price"] == 100.0
     assert trades[0]["exit_price"] == 110.0
-    assert trades[0]["size"] == 1.0
+    assert trades[0]["quantity"] == 1.0
     # 加仓后 avg_cost 由引擎算好, QuantCell 不做 FIFO
     assert trades[1]["entry_price"] == 105.6
     assert trades[1]["pnl"] == 36.0
-    assert trades[1]["size"] == 2.5
+    assert trades[1]["quantity"] == 2.5
     # 做空 pnl 同样来自引擎
     assert trades[2]["pnl"] == 1.0
 

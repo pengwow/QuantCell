@@ -327,8 +327,8 @@ async def get_orders(worker_id: int, status: str | None = None) -> dict[str, Any
 
                 orders.append(
                     {
-                        "order_id": t.trade_id,
-                        "client_order_id": raw_data.get("client_order_id", t.trade_id),
+                        "order_id": t.fill_id,
+                        "client_order_id": raw_data.get("client_order_id", t.fill_id),
                         "venue_order_id": raw_data.get("venue_order_id", ""),
                         "event_type": "OrderFilled",
                         "instrument_id": raw_data.get("instrument_id", f"{t.symbol}.BINANCE"),

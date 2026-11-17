@@ -81,13 +81,13 @@ def db_session_factory(monkeypatch):
 def test_to_trade_data_spot():
     d = PaperTradeSync(7)._to_trade_data(_fill(0, NS))
     assert d["worker_id"] == 7
-    assert d["trade_id"] == f"paper:7:0:{NS}"
+    assert d["fill_id"] == f"paper:7:0:{NS}"
     assert d["symbol"] == "BTC/USDT"
     assert d["side"] == "buy"  # 引擎 "Buy" → ccxt 小写
     assert d["order_type"] == "MARKET"
     assert d["quantity"] == 30.0
     assert d["price"] == 100.05
-    assert d["amount"] == 30.0 * 100.05
+    assert d["notional"] == 30.0 * 100.05
     assert d["fee"] == 0.0
     assert d["realized_pnl"] is None
     assert d["entry_time"] == datetime.fromtimestamp(NS / 1e9)
@@ -122,16 +122,16 @@ def test_sync_once_cursor_and_idempotency(db_session_factory):
     assert sync.sync_once(driver) == 0
 
     with db_session_factory() as db:
-        rows = db.scalars(select(WorkerTrade).order_by(WorkerTrade.trade_id)).all()
-    assert [r.trade_id for r in rows] == [
+        rows = db.scalars(select(WorkerTrade).order_by(WorkerTrade.fill_id)).all()
+    assert [r.fill_id for r in rows] == [
         f"paper:7:0:{NS}",
         f"paper:7:1:{NS + 60_000_000_000}",
     ]
     assert [r.side for r in rows] == ["buy", "sell"]
 
 
-def test_trade_id_idempotent_across_run_replay(db_session_factory):
-    """paper 重启清零重放同根 bar：trade_id 局部查重命中，不重复插入。"""
+def test_fill_id_idempotent_across_run_replay(db_session_factory):
+    """paper 重启清零重放同根 bar：fill_id 局部查重命中，不重复插入。"""
     sync = PaperTradeSync(7)
     driver = FakeDriver([[_fill(0, NS)]])
     driver.advance()
@@ -160,7 +160,7 @@ def test_backfill_paired_pnl_to_finalize_fill(db_session_factory):
 
     assert sync._trades_cursor == 1
     with db_session_factory() as db:
-        rows = {r.trade_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
+        rows = {r.fill_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
     assert rows["0"].realized_pnl is None  # entry fill 行不背盈亏
     fin = rows["1"]
     assert fin.realized_pnl == pytest.approx(148.5)
@@ -188,7 +188,7 @@ def test_backfill_idempotent_across_run_replay(db_session_factory):
     assert replay._trades_cursor == 1
 
     with db_session_factory() as db:
-        rows = db.scalars(select(WorkerTrade).order_by(WorkerTrade.trade_id)).all()
+        rows = db.scalars(select(WorkerTrade).order_by(WorkerTrade.fill_id)).all()
     assert len(rows) == 2
     assert {r.realized_pnl for r in rows} == {None, 148.5}
 
@@ -213,7 +213,7 @@ def test_backfill_writes_round_trip_id_to_all_rows(db_session_factory):
         sync.sync_once(driver)
 
     with db_session_factory() as db:
-        rows = {r.trade_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
+        rows = {r.fill_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
     assert set(rows) == {"0", "1", "2"}
     # finalize_id = max([1, 2]) = 2 → 组键 rt:7:2
     assert {r.round_trip_id for r in rows.values()} == {"rt:7:2"}
@@ -239,7 +239,7 @@ def test_round_trip_id_idempotent_across_replay(db_session_factory):
     assert replay.sync_once(driver) == 0
 
     with db_session_factory() as db:
-        rows = {r.trade_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
+        rows = {r.fill_id.split(":")[2]: r for r in db.scalars(select(WorkerTrade)).all()}
     assert {r.round_trip_id for r in rows.values()} == {"rt:7:1"}
     assert len(rows) == 2
 
@@ -262,12 +262,12 @@ def test_fill_persists_order_filled_rows(db_session_factory):
     assert entry.side == "buy"
     assert entry.symbol == "BTC/USDT"
     assert entry.order_type == "MARKET"
-    assert entry.filled_qty == pytest.approx(30.0)
+    assert entry.filled_quantity == pytest.approx(30.0)
     assert entry.avg_fill_price == pytest.approx(100.05)
 
 
 def test_same_order_partial_fills_accumulate(db_session_factory):
-    """同一 taker_order_id 的分笔成交：单订单行，filled_qty 累加、均价数量加权。"""
+    """同一 taker_order_id 的分笔成交：单订单行，filled_quantity 累加、均价数量加权。"""
     f2 = _fill(1, NS + 1_000_000_000)
     f2["taker_order_id"] = "t0"  # 与 fill 0 同单
     f2["price"] = 101.05
@@ -281,7 +281,7 @@ def test_same_order_partial_fills_accumulate(db_session_factory):
     assert len(orders) == 1
     order = orders[0]
     assert order.client_order_id == "paper:7:t0"
-    assert order.filled_qty == pytest.approx(60.0)
+    assert order.filled_quantity == pytest.approx(60.0)
     assert order.avg_fill_price == pytest.approx((100.05 * 30.0 + 101.05 * 30.0) / 60.0)
 
 
@@ -298,4 +298,4 @@ def test_order_upsert_idempotent_across_replay(db_session_factory):
     with db_session_factory() as db:
         orders = db.scalars(select(WorkerOrder)).all()
     assert len(orders) == 1
-    assert orders[0].filled_qty == pytest.approx(30.0)
+    assert orders[0].filled_quantity == pytest.approx(30.0)
