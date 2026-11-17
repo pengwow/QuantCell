@@ -9,9 +9,13 @@
 2. Side 不携带仓位信息；PositionSide 是「下单时声明的仓位归属」，不从 side 推导。
    成交/订单行上的 position_side 是声明值透传（回报直取或固定 both），不是算出来的。
 3. 展示一律 i18n，任何文案/翻译逻辑不得进入本模块。
+
+命名契约的机器可读事实源 = VOCAB_ENUMS / VOCAB_DOMAINS（命名审计 P2-5 / A-4）：
+GET /api/v1/vocab 与前端类型生成脚本（backend/scripts/export_vocab_types.py）
+都消费这两个结构；词条 note 承载裁决全文，注释不再另行定档（单一事实源）。
 """
 
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 Side = Literal["buy", "sell"]
 PositionSide = Literal["long", "short", "both"]
@@ -37,24 +41,212 @@ def normalize_position_side(value: str) -> PositionSide:
 
 
 # ---------------------------------------------------------------------------
-# 账户域（命名审计 P2-1）：资金口径 5 词边界，禁止混用
+# 命名契约结构化事实源（命名审计 P2-5 / A-4）
+# kind 语义：canonical = 该概念唯一正确用词；banned = 误用词（新代码出现即告警，
+# P2-6 lint 门禁消费）；reserved = 限定语境内合法的词。
 # ---------------------------------------------------------------------------
 
-# canonical 与分界（审计报告 §10.4 裁决）：
-#   equity           账户总价值（cash + 持仓市值，含浮盈）——总量口径的唯一词。
-#   balance          不含浮盈的余额口径，两个注册子语义：
-#                      (a) 回测 MT4 存款曲线：本金 + 已实现盈亏 − 费用（equity − balance 即浮盈）；
-#                      (b) 交易所钱包余额快照（adapter 的 get_balance，各币种 dict，ccxt 惯例）。
-#   cash             纯现金余额（账户/现货语境）。
-#   nav              份额制净值（factor 域 cumprod 曲线）+ Rust 内核边界词（序列化产物
-#                      bar_nav_curve / final_nav / nav_peak）。Python/TS 新代码禁止再引入
-#                      nav 表示账户绝对总值；消费内核产物时应立即映射为 equity。
-#   wallet_balance   交易所单币种钱包余额；裸 wallet 禁用。
-#   available        仅允许"可用性布尔"语义；资金语义必须是 available_balance。
-#   margin_used      已用保证金（曲线/字段）。margin 前缀仅保留于保证金配置语境
-#                      （margin_mode / margin_applied / margin_specs_effective）。
-# Rust 内核内部保留自有词汇（Portfolio::cash / Portfolio::nav()），属引擎域内实现，
-# 跨到 Python/TS 即按上表映射。
+# 枚举值域（与上方 Literal / 归一 frozenset 必须一致，由测试守护）
+VOCAB_ENUMS: dict[str, tuple[str, ...]] = {
+    "side": ("buy", "sell"),
+    "position_side": ("long", "short", "both"),
+}
+
+
+class VocabTerm(NamedTuple):
+    """单个词条：词 + 类别 + 边界裁决（人类可读全文）。"""
+
+    term: str
+    kind: Literal["canonical", "banned", "reserved"]
+    note: str
+
+
+class VocabDomain(NamedTuple):
+    """一个词汇域：概念分组 + 词条集。"""
+
+    name: str
+    terms: tuple[VocabTerm, ...]
+
+
+VOCAB_DOMAINS: tuple[VocabDomain, ...] = (
+    VocabDomain(
+        "direction",
+        (
+            VocabTerm(
+                "side",
+                "canonical",
+                "下单方向唯一词（buy/sell 二值，见 enums.side）。铁律1：落库/传输/类型/"
+                "日志只允许 canonical 小写，交易所原生大小写仅在 exchange adapter 边界内；"
+                "铁律2：side 不携带仓位信息，不从 side 推导仓位归属。",
+            ),
+            VocabTerm(
+                "position_side",
+                "canonical",
+                "下单时声明的仓位归属（long/short/both，见 enums.position_side）。"
+                "成交/订单行上的 position_side 是声明值透传（回报直取或固定 both），"
+                "不是算出来的。",
+            ),
+            VocabTerm(
+                "LONG/SHORT",
+                "banned",
+                "long/short 只许表达仓位归属（position_side），下单方向一律 buy/sell；"
+                "交易所返回的 LONG/SHORT 原生大写值仅在 adapter 边界内出现，跨模块即归一。",
+            ),
+        ),
+    ),
+    VocabDomain(
+        "account",
+        (
+            VocabTerm(
+                "equity",
+                "canonical",
+                "账户总价值（cash + 持仓市值，含浮盈）——总量口径的唯一词。",
+            ),
+            VocabTerm(
+                "balance",
+                "canonical",
+                "不含浮盈的余额口径，两个注册子语义：(a) 回测 MT4 存款曲线：本金 + "
+                "已实现盈亏 − 费用（equity − balance 即浮盈）；(b) 交易所钱包余额快照"
+                "（adapter 的 get_balance，各币种 dict，ccxt 惯例）。",
+            ),
+            VocabTerm("cash", "canonical", "纯现金余额（账户/现货语境）。"),
+            VocabTerm(
+                "nav",
+                "canonical",
+                "份额制净值（factor 域 cumprod 曲线）+ Rust 内核边界词（序列化产物 "
+                "bar_nav_curve / final_nav / nav_peak）。Python/TS 新代码禁止再用 nav "
+                "表示账户绝对总值，消费内核产物时应立即映射为 equity；Rust 内核内部保留"
+                "自有词汇（Portfolio::cash / Portfolio::nav()），属引擎域内实现，跨到 "
+                "Python/TS 即按本表映射。",
+            ),
+            VocabTerm(
+                "wallet_balance",
+                "canonical",
+                "交易所单币种钱包余额（wallet_balance 与 balance 子语义 (b) 同义，哪个词以所在模型既有口径为准）。",
+            ),
+            VocabTerm("wallet", "banned", "裸 wallet 禁用，钱包余额语义一律 wallet_balance。"),
+            VocabTerm("available", "reserved", "仅允许『可用性布尔』语义。"),
+            VocabTerm("available_balance", "canonical", "资金语义必须用 available_balance。"),
+            VocabTerm("margin_used", "canonical", "已用保证金（曲线/字段）。"),
+            VocabTerm("margin_mode", "reserved", "保证金配置语境专用词。"),
+            VocabTerm("margin_applied", "reserved", "保证金配置语境专用词。"),
+            VocabTerm("margin_specs_effective", "reserved", "保证金配置语境专用词。"),
+            VocabTerm("margin", "banned", "裸 margin 前缀仅保留上列保证金配置语境，其余组合禁止。"),
+        ),
+    ),
+    VocabDomain(
+        "symbol",
+        (
+            VocabTerm(
+                "BTCUSDT",
+                "canonical",
+                "紧缩大写格式（normalize_symbol 归一）。落库/文件名/键查询一律使用本格式；"
+                "分隔变体（BTC-USDT / BTC_USDT / 带斜杠、空格）只能出现在输入边界，"
+                "进入系统即被归一。",
+            ),
+            VocabTerm(
+                "BASE/QUOTE",
+                "reserved",
+                "展开格式（expand_symbol），仅用于 Rust 引擎 instrument key、leverage 键"
+                "与前端展示；计价币后缀表按长度匹配（_SYMBOL_QUOTES：USDT/USDC/USD/BTC/ETH），"
+                "识别不出时原样返回不做猜测。",
+            ),
+        ),
+    ),
+    VocabDomain(
+        "interval",
+        (
+            VocabTerm(
+                "interval",
+                "canonical",
+                'K线/数据采样周期唯一词（"1h"/"15m"）。锚：Rust 内核 Kernel(interval=...)、'
+                "DataService.get_kline_data(interval=...)。前端图表 UI 与 chartPreferences 的 "
+                "period 是展示层/本地遗留词，新增传输/API 字段一律 interval；"
+                "indicator_alert_rules / features 表的 DB 列 period / freq 为历史列名，"
+                "ORM 属性与传输面已改 interval，列名不动避免迁移。",
+            ),
+            VocabTerm(
+                "period",
+                "banned",
+                "禁止用于 K线频率。例外（语义独立，允许保留）：策略/指标回看窗口参数"
+                "（bb_period / rsi_period 等，整数根数）；exchange/decorators.rate_limit"
+                "(calls, period) 限流窗口（秒）；collector/services/deriv_collector.py 的 "
+                "_PERIOD_MAP / self.period（交易所 OpenInterest API 原生参数名，adapter "
+                "边界内，同 side 域的『BINANCE BUY 原则』）；backtest/baseline.py 报表的 "
+                "report.period（报告覆盖的日期区间）。",
+            ),
+            VocabTerm(
+                "freq",
+                "banned",
+                "禁止用于 K线频率。例外：pandas date_range(freq=…) 第三方库参数名；"
+                "collector quality 服务内部 freq 局部变量（同第三方参数语境）。",
+            ),
+            VocabTerm(
+                "frequency",
+                "reserved",
+                "语义独立，不属于 K线频率域：IndicatorAlertRule.frequency 是通知去重窗口"
+                "（分钟）；frequency_type 是采集调度频率（hourly/daily）。",
+            ),
+        ),
+    ),
+    VocabDomain(
+        "position",
+        (
+            VocabTerm(
+                "position",
+                "canonical",
+                "仓位/持仓唯一词：position_events（逐笔成交重建的事件流）、position_prices"
+                "（回测 replay 响应键 {symbol: [[t, close], ...]}，仅净持仓非零的网格点，"
+                "供前端算浮盈）。二者数据形态不同，不合并。",
+            ),
+            VocabTerm(
+                "holdings",
+                "banned",
+                "禁止用于持仓语义；原响应键 holding_prices 已改名 position_prices。"
+                "hold 仅允许策略输出枚举（ActionType.Hold）与「持有期间」的自然语言语境。",
+            ),
+        ),
+    ),
+    VocabDomain(
+        "stage_phase",
+        (
+            VocabTerm(
+                "stage",
+                "canonical",
+                "业务工作流阶段：research 编排流水线、backtest 的 data_prep/execution/"
+                "analysis、factor 计算阶段；model_registry 的 stage 是 MLflow 术语"
+                "（development/production），按引擎记录值透传，不改名。",
+            ),
+            VocabTerm(
+                "phase",
+                "canonical",
+                "进程/流程时序阶段：graceful_shutdown 的 ShutdownPhase、内存构建的 "
+                "phase1/phase2 提示词。跨进程时序说 phase，跨工作流水线说 stage，"
+                "两词不得混用。",
+            ),
+        ),
+    ),
+    VocabDomain(
+        "kline_volume",
+        (
+            VocabTerm(
+                "volume",
+                "canonical",
+                "K线三表（crypto_spot_klines / crypto_future_klines / stock_klines）的 "
+                "volume 列 canonical 类型为 DECIMAL(40, 8) 单列（迁移 "
+                "update_kline_volume_to_decimal，旧数据丢弃可重拉）。写入统一 "
+                "collector.db.models.decimal_or_zero，读出统一 float()（Decimal 可直接转）。"
+                "OHLC 四列仍为 String（价格列改造属价格域，不在本档范围）。",
+            ),
+            VocabTerm(
+                "volume_decimal",
+                "banned",
+                "禁止再为 volume 引入 String/双列形态（含 volume_decimal 伴生列）。",
+            ),
+        ),
+    ),
+)
+
 
 # ---------------------------------------------------------------------------
 # symbol 域（命名审计 P1-5）：canonical = 紧缩大写 "BTCUSDT"
@@ -70,64 +262,6 @@ def normalize_symbol(symbol: str) -> str:
     canonical 紧缩大写 "BTCUSDT"。落库/文件名/键查询一律使用本格式。"""
     s = str(symbol or "").upper()
     return s.replace("/", "").replace("\\", "").replace("-", "").replace("_", "").replace(" ", "")
-
-
-# ---------------------------------------------------------------------------
-# K线周期域（命名审计 P2-3）：K线频率 canonical = interval，禁止 period/freq
-# ---------------------------------------------------------------------------
-
-# interval      K线/数据采样周期（"1h"/"15m"）。锚：Rust 内核 Kernel(interval=...)、
-#               DataService.get_kline_data(interval=...) 既有口径。
-# period 例外清单（语义独立，非 K线频率，允许保留）：
-#   - 策略/指标回看窗口参数（bb_period / rsi_period 等，整数根数）；
-#   - exchange/decorators.rate_limit(calls, period) —— 限流窗口（秒）；
-#   - collector/services/deriv_collector.py 的 _PERIOD_MAP / self.period ——
-#     交易所 OpenInterest API 原生参数名，adapter 边界内允许（同 side 域的
-#     "BINANCE BUY 原则"：交易所原生词汇只存在于 adapter 边界内）；
-#   - backtest/baseline.py 报表的 report.period —— 报告覆盖的日期区间；
-#   - indicator_alert_rules / features 表的 DB 列 period / freq —— 历史列名，
-#     ORM 属性与传输面已改 interval，列名不动避免迁移。
-# freq 例外清单：
-#   - pandas date_range(freq=…) —— 第三方库参数名；
-#   - collector quality 服务内部 freq 局部变量——同上第三方参数语境。
-# frequency 语义独立，不属于本域：
-#   - IndicatorAlertRule.frequency —— 通知去重窗口（分钟）；
-#   - frequency_type —— 采集调度频率（hourly/daily）。
-# 前端图表 UI 与 chartPreferences 的 period 是展示层/本地遗留词；新增传输/API
-# 字段一律 interval。
-
-# ---------------------------------------------------------------------------
-# position / holding 域（命名审计 P2-3）：持仓 canonical = position
-# ---------------------------------------------------------------------------
-
-# position      仓位/持仓唯一词：position_events（逐笔成交重建的事件流）、
-#               position_prices（回测 replay 响应键，{symbol: [[t, close], ...]}
-#               仅净持仓非零的网格点，供前端算浮盈）。二者数据形态不同，不合并。
-#               原响应键 holding_prices 已改名 position_prices。
-# hold/holdings 禁止新用于持仓语义；"hold" 仅允许出现在「持有期间」的自然语言
-#               注释里。
-
-# ---------------------------------------------------------------------------
-# stage / phase 域（命名审计 P2-3）：两词自洽分界，只定边界不改代码
-# ---------------------------------------------------------------------------
-
-# stage         业务工作流阶段：research 编排流水线、backtest 的
-#               data_prep/execution/analysis、factor 计算阶段；
-#               model_registry 的 stage 是 MLflow 术语（development/production），
-#               按引擎记录值透传，不改名。
-# phase         进程/流程时序阶段：graceful_shutdown 的 ShutdownPhase、内存构建
-#               的 phase1/phase2 提示词。跨进程时序说 phase，跨工作流水线说
-#               stage，两词不得混用。
-
-# ---------------------------------------------------------------------------
-# 数值列域（命名审计 P2-4 / B-11）：K线 volume 列 canonical = DECIMAL(40, 8) 单列
-# ---------------------------------------------------------------------------
-
-# K线三表（crypto_spot_klines / crypto_future_klines / stock_klines）的 volume
-# 列已从 String 重建为 DECIMAL(40, 8)（迁移 update_kline_volume_to_decimal，
-# 旧数据丢弃可重拉）。写入统一 collector.db.models.decimal_or_zero；读出统一
-# float()（Decimal 可直接转）。OHLC 四列仍为 String（价格列改造属价格域，
-# 不在本档范围）。新代码禁止再为 volume 引入 String/双列形态。
 
 
 def expand_symbol(symbol: str) -> str:

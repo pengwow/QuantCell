@@ -3,6 +3,9 @@
  * 集中管理回测相关的所有类型接口
  */
 
+// 方向词汇值域事实源：生成的 vocab.generated.ts（P2-5），不再散写 'buy' | 'sell'
+import type { Side } from './vocab.generated';
+
 // 回放数据中的 K 线原始字段（后端字段名与前端类型存在差异，按 index signature 兜底）
 export interface ReplayKline {
   time?: string | number;
@@ -18,7 +21,7 @@ export interface ReplayKline {
 // 逐笔成交（引擎 fill_detail 关联后的展示契约）
 export interface TradeFill {
   fill_id: number;
-  side: 'buy' | 'sell';
+  side: Side;
   offset: 'open' | 'close';
   price: number;
   quantity: number;
@@ -44,8 +47,8 @@ export interface Trade {
   pnl: number;
   return_pct: number;
   direction: 'long' | 'short' | null;   // 持仓方向；null = 未配对（Worker 分组视图）
-  entry_side: 'buy' | 'sell';    // 开仓方向
-  exit_side: 'buy' | 'sell';     // 平仓方向
+  entry_side: Side;    // 开仓方向
+  exit_side: Side;     // 平仓方向
   status: 'closed' | 'unpaired';        // 回测恒为 closed
   entry_fill_ids: number[];      // 构成该持仓的开仓 fill id
   exit_fill_ids: number[];       // 平仓 fill id 列表（FLAT_TO_FLAT 下可能多条）
@@ -147,7 +150,7 @@ export interface BacktestFill {
   timestamp: number;
   formatted_time: string;
   /** Taker 方向：buy / sell */
-  side: 'buy' | 'sell';
+  side: Side;
   price: number;
   quantity: number;
 }

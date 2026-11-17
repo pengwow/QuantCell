@@ -48,6 +48,7 @@ from api.ensemble_routes import router as ensemble_router
 from api.model_routes import router as models_router
 from api.rl_routes import router as rl_router
 from api.system_ports import router as system_ports_router
+from api.vocab_routes import router as vocab_router  # 命名契约词汇表（P2-5）
 from backtest import router as backtest_router
 from collector.routes import router as collector_router
 from common.notifications.routes import router as notification_router
@@ -137,6 +138,8 @@ app.include_router(observability_router)
 from api.capabilities_routes import router as capabilities_router
 
 app.include_router(capabilities_router)
+# 命名契约词汇表（P2-5：GET /api/v1/vocab，前端类型生成与词汇表 UI 消费）
+app.include_router(vocab_router)
 
 # 模型/集成/RL 服务路由
 app.include_router(models_router)

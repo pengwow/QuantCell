@@ -24,9 +24,10 @@ export const WorkerStatus = {
 // Worker状态类型
 export type WorkerStatus = typeof WorkerStatus[keyof typeof WorkerStatus];
 
-/** 方向词汇 canonical（与 backend/worker/vocab.py 对齐，铁律1） */
-export type Side = 'buy' | 'sell';
-export type PositionSide = 'long' | 'short' | 'both';
+// 方向词汇 canonical：事实源已收口到生成的 vocab.generated.ts（P2-5），
+// 此处 re-export 保持既有 `from './worker'` 的调用方不变
+import type { PositionSide, Side } from './vocab.generated';
+export type { PositionSide, Side };
 
 // Worker状态文本映射：值为 i18n key（铁律3 展示一律 i18n），调用方用 t(WorkerStatusText[...])
 export const WorkerStatusText: Record<WorkerStatus, string> = {
@@ -504,7 +505,7 @@ export interface WorkerTradeRecord {
   id: string;
   timestamp: string;
   symbol: string;
-  action: 'buy' | 'sell';
+  action: Side;
   price: number;
   quantity: number;
   notional: number;
