@@ -123,7 +123,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [progressVisible, setProgressVisible] = useState<boolean>(false);
   // 回测前数据预检弹窗状态
   const [precheckVisible, setPrecheckVisible] = useState(false);
-  const [precheckMissing, setPrecheckMissing] = useState<Array<{ symbol: string; timeframe: string; expected_path: string }>>([]);
+  const [precheckMissing, setPrecheckMissing] = useState<Array<{ symbol: string; interval: string; expected_path: string }>>([]);
   const [precheckDownloading, setPrecheckDownloading] = useState(false);
   const [precheckDownloadProgress, setPrecheckDownloadProgress] = useState(0);
   const [precheckDownloadMsg, setPrecheckDownloadMsg] = useState('');
@@ -810,7 +810,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
     // 去重缺失品种和周期
     const missingSymbols = [...new Set(precheckMissing.map(m => m.symbol))];
-    const missingTimeframes = [...new Set(precheckMissing.map(m => m.timeframe))];
+    const missingIntervals = [...new Set(precheckMissing.map(m => m.interval))];
     const cfg = pendingData.backtest_config;
 
     setPrecheckDownloading(true);
@@ -823,7 +823,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       // 1. 创建下载任务
       const downloadRes: any = await dataApi.downloadCryptoData({
         symbols: missingSymbols,
-        interval: missingTimeframes,
+        interval: missingIntervals,
         start: cfg.start_time,
         end: cfg.end_time,
         candle_type: cfg.trading_mode === 'futures' ? 'future' : 'spot',
@@ -1022,7 +1022,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       try {
         const precheck = await backtestApi.precheckData({
           symbols: symbols,
-          timeframes: [values.interval || '15m'],
+          intervals: [values.interval || '15m'],
           candle_type: candleType,
         });
         if (!precheck.all_available && precheck.missing.length > 0) {
@@ -1476,8 +1476,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--tw-color-border-secondary)', borderRadius: 6, padding: 12 }}>
             <Space wrap size={[8, 8]}>
               {precheckMissing.map((m, i) => (
-                <Tag key={`${m.symbol}-${m.timeframe}-${i}`} color="orange" style={{ fontFamily: 'monospace' }}>
-                  {m.symbol} · {m.timeframe}
+                <Tag key={`${m.symbol}-${m.interval}-${i}`} color="orange" style={{ fontFamily: 'monospace' }}>
+                  {m.symbol} · {m.interval}
                 </Tag>
               ))}
             </Space>

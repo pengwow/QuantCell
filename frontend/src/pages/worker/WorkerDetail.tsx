@@ -315,7 +315,7 @@ const WorkerDetail = () => {
                   {currentWorker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
                   {currentWorker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
                   <Tag color={WorkerStatusColor[currentWorker.status]}>
-                    {WorkerStatusText[currentWorker.status]}
+                    {t(WorkerStatusText[currentWorker.status])}
                   </Tag>
                 </Space>
 
@@ -336,7 +336,7 @@ const WorkerDetail = () => {
             <Col>
               <Descriptions size="small" column={3}>
                 <Descriptions.Item label={t('timeframe')}>
-                  <Tag color="blue">{currentWorker.trading_config?.timeframe}</Tag>
+                  <Tag color="blue">{currentWorker.trading_config?.interval}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label={t('total_profit')}>
                   <span

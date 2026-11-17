@@ -473,8 +473,8 @@ const BacktestReplay = () => {
               extendData: JSON.stringify({
                 lines: [
                   directionText,
-                  t('backtest_qty_prefix', { v: trade.size.toFixed(4) }),
-                  t('backtest_amount_prefix', { v: (trade.entry_price * trade.size).toFixed(2) }),
+                  t('backtest_qty_prefix', { v: trade.quantity.toFixed(4) }),
+                  t('backtest_amount_prefix', { v: (trade.entry_price * trade.quantity).toFixed(2) }),
                 ],
                 colors: [color, labelColor, labelColor],
                 fontSize: 12,

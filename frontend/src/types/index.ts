@@ -16,7 +16,7 @@ export interface TradeRecord {
   action: 'buy' | 'sell';
   price: number;
   quantity: number;
-  amount: number;
+  notional: number;
   status: 'filled' | 'pending' | 'canceled';
 }
 

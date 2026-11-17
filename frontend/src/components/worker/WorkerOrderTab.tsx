@@ -73,7 +73,7 @@ const ORDER_TYPE_OPTIONS = Object.keys(ORDER_TYPE_LABEL_KEYS);
 interface MergedRow {
   key: string;
   kind: 'trade' | 'order';
-  /** trade → trade_id；order → client_order_id */
+  /** 成交行 → fill_id（单笔成交标识）；订单行 → client_order_id */
   order_id: string;
   symbol: string;
   side: string;
@@ -187,9 +187,9 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         ]);
 
         const tradeRows: MergedRow[] = (tradeRes?.items ?? []).map((tr) => ({
-          key: `trade-${tr.trade_id}`,
+          key: `trade-${tr.fill_id}`,
           kind: 'trade',
-          order_id: tr.trade_id,
+          order_id: tr.fill_id,
           symbol: tr.symbol,
           side: tr.side || '',                       // 响应已 canonical，不再翻转
           position_side: tr.position_side,
@@ -298,7 +298,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       key: 'order_id',
       width: 190,
       render: (id: string, record: MergedRow) => (
-        <Tooltip title={record.kind === 'trade' ? 'trade_id' : 'client_order_id'}>
+        <Tooltip title={record.kind === 'trade' ? 'fill_id' : 'client_order_id'}>
           <span style={{ fontFamily: 'monospace', fontSize: 12 }}>
             {truncateId(id, 8, 6)}
           </span>

@@ -5,13 +5,20 @@
  */
 
 
-// Worker状态常量
+// Worker状态常量（与后端 worker/worker_state.py WorkerState 12 态对齐）
 export const WorkerStatus = {
-  STOPPED: 'stopped',
-  RUNNING: 'running',
-  ERROR: 'error',
+  INITIALIZING: 'initializing',
+  INITIALIZED: 'initialized',
   STARTING: 'starting',
-  STOPPING: 'stopping'
+  RUNNING: 'running',
+  STOPPING: 'stopping',
+  STOPPED: 'stopped',
+  ERROR: 'error',
+  RECOVERING: 'recovering',
+  RELOADING: 'reloading',
+  RESTARTING: 'restarting',
+  PAUSED: 'paused',
+  INTERRUPTED: 'interrupted'
 } as const;
 
 // Worker状态类型
@@ -21,22 +28,36 @@ export type WorkerStatus = typeof WorkerStatus[keyof typeof WorkerStatus];
 export type Side = 'buy' | 'sell';
 export type PositionSide = 'long' | 'short' | 'both';
 
-// Worker状态文本映射
+// Worker状态文本映射：值为 i18n key（铁律3 展示一律 i18n），调用方用 t(WorkerStatusText[...])
 export const WorkerStatusText: Record<WorkerStatus, string> = {
-  [WorkerStatus.STOPPED]: '已停止',
-  [WorkerStatus.RUNNING]: '运行中',
-  [WorkerStatus.ERROR]: '错误',
-  [WorkerStatus.STARTING]: '启动中',
-  [WorkerStatus.STOPPING]: '停止中'
+  [WorkerStatus.INITIALIZING]: 'worker_status_initializing',
+  [WorkerStatus.INITIALIZED]: 'worker_status_initialized',
+  [WorkerStatus.STARTING]: 'worker_status_starting',
+  [WorkerStatus.RUNNING]: 'worker_status_running',
+  [WorkerStatus.STOPPING]: 'worker_status_stopping',
+  [WorkerStatus.STOPPED]: 'worker_status_stopped',
+  [WorkerStatus.ERROR]: 'worker_status_error',
+  [WorkerStatus.RECOVERING]: 'worker_status_recovering',
+  [WorkerStatus.RELOADING]: 'worker_status_reloading',
+  [WorkerStatus.RESTARTING]: 'worker_status_restarting',
+  [WorkerStatus.PAUSED]: 'worker_status_paused',
+  [WorkerStatus.INTERRUPTED]: 'worker_status_interrupted'
 };
 
 // Worker状态标签颜色映射
 export const WorkerStatusColor: Record<WorkerStatus, string> = {
-  [WorkerStatus.STOPPED]: 'gray',
-  [WorkerStatus.RUNNING]: 'green',
-  [WorkerStatus.ERROR]: 'red',
+  [WorkerStatus.INITIALIZING]: 'blue',
+  [WorkerStatus.INITIALIZED]: 'gray',
   [WorkerStatus.STARTING]: 'blue',
-  [WorkerStatus.STOPPING]: 'cyan'
+  [WorkerStatus.RUNNING]: 'green',
+  [WorkerStatus.STOPPING]: 'cyan',
+  [WorkerStatus.STOPPED]: 'gray',
+  [WorkerStatus.ERROR]: 'red',
+  [WorkerStatus.RECOVERING]: 'orange',
+  [WorkerStatus.RELOADING]: 'blue',
+  [WorkerStatus.RESTARTING]: 'blue',
+  [WorkerStatus.PAUSED]: 'gold',
+  [WorkerStatus.INTERRUPTED]: 'volcano'
 };
 
 // 交易标的配置
@@ -51,7 +72,7 @@ export interface SymbolsConfig {
 export interface TradingConfig {
   exchange: string;
   symbols_config: SymbolsConfig;
-  timeframe: string;
+  interval: string;  // K线周期（canonical 键，旧名 timeframe 已废弃）
   market_type: string;
   trading_mode: string;
 }
@@ -217,7 +238,8 @@ export interface WorkerPerformance {
 export interface WorkerTrade {
   id: number;
   worker_id: number;
-  trade_id: string;
+  /** 单笔成交标识：paper 为 paper:{worker_id}:{fill_id}:{ts_ns}，live 为交易所原生成交 ID */
+  fill_id: string;
   symbol: string;
   side: Side;
   position_side?: PositionSide;
@@ -225,7 +247,7 @@ export interface WorkerTrade {
   order_type: string;
   quantity: number;
   price: number;
-  amount: number;
+  notional: number;
   fee: number;
   fee_currency: string;
   realized_pnl?: number;
@@ -485,7 +507,7 @@ export interface WorkerTradeRecord {
   action: 'buy' | 'sell';
   price: number;
   quantity: number;
-  amount: number;
+  notional: number;
   status: 'filled' | 'pending' | 'cancelled';
 }
 
@@ -499,24 +521,6 @@ export interface WorkerWithPerformance extends Worker {
   tradeRecords: WorkerTradeRecord[];       // 交易记录
   returnRateData: ReturnRateDataPoint[];  // 收益率曲线数据
 }
-
-// 策略状态文本映射（用于 UI 展示）
-export const WorkerStatusDisplayText: Record<WorkerStatus, string> = {
-  [WorkerStatus.STOPPED]: '已停止',
-  [WorkerStatus.RUNNING]: '运行中',
-  [WorkerStatus.ERROR]: '错误',
-  [WorkerStatus.STARTING]: '启动中',
-  [WorkerStatus.STOPPING]: '停止中'
-};
-
-// 策略状态颜色映射（Ant Design Tag 颜色）
-export const WorkerStatusTagColor: Record<WorkerStatus, string> = {
-  [WorkerStatus.STOPPED]: 'default',
-  [WorkerStatus.RUNNING]: 'success',
-  [WorkerStatus.ERROR]: 'error',
-  [WorkerStatus.STARTING]: 'processing',
-  [WorkerStatus.STOPPING]: 'cyan'
-};
 
 export interface TradingSummary {
   total_trades: number

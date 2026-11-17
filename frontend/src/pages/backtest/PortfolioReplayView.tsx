@@ -104,7 +104,7 @@ const parseInterval = (interval: string): { span: number; type: PeriodType } => 
 // ---- 当前持仓表行 ----
 interface HoldingRow {
   symbol: string;
-  qty: number;
+  quantity: number;
   avg_cost: number;
   price: number;
   market_value: number;
@@ -180,7 +180,7 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
           chart.createOverlay({
             name: 'jsonAnnotation',
             extendData: JSON.stringify({
-              lines: [mk.label, t('backtest_qty_prefix', { v: tr.size.toFixed(4) })],
+              lines: [mk.label, t('backtest_qty_prefix', { v: tr.quantity.toFixed(4) })],
               colors: [mk.label === t('buy') ? colors.positive : colors.negative, '#ffffff'], // O2: 特殊装饰色，保留（彩色气泡上的白标签字，canvas 绘制需字面色）
               fontSize: 12,
               align: 'left',
@@ -405,17 +405,17 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     }
     const rows: HoldingRow[] = [];
     latest.forEach((ev, symbol) => {
-      if (ev.qty === 0) return;
+      if (ev.quantity === 0) return;
       const prices = data.holding_prices[symbol] ?? [];
       const priceIdx = bisectRight<[number, number]>(prices, currentMs, (p) => p[0]) - 1;
       const price = priceIdx >= 0 ? prices[priceIdx][1] : ev.avg_cost;
       rows.push({
         symbol,
-        qty: ev.qty,
+        quantity: ev.quantity,
         avg_cost: ev.avg_cost,
         price,
-        market_value: price * Math.abs(ev.qty),
-        unrealized_pnl: (price - ev.avg_cost) * ev.qty,
+        market_value: price * Math.abs(ev.quantity),
+        unrealized_pnl: (price - ev.avg_cost) * ev.quantity,
       });
     });
     return rows;
@@ -487,18 +487,18 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     { title: t('backtest_symbol_label'), dataIndex: 'symbol', key: 'symbol' },
     {
       title: t('backtest_side'),
-      dataIndex: 'qty',
+      dataIndex: 'quantity',
       key: 'side',
       width: 80,
-      render: (qty: number) =>
-        qty > 0 ? <Tag color="green">{t('backtest_position_long')}</Tag> : <Tag color="red">{t('backtest_position_short')}</Tag>,
+      render: (quantity: number) =>
+        quantity > 0 ? <Tag color="green">{t('backtest_position_long')}</Tag> : <Tag color="red">{t('backtest_position_short')}</Tag>,
     },
     {
       title: t('quantity'),
-      dataIndex: 'qty',
-      key: 'qty',
+      dataIndex: 'quantity',
+      key: 'quantity',
       align: 'right',
-      render: (qty: number) => Math.abs(qty).toFixed(6),
+      render: (quantity: number) => Math.abs(quantity).toFixed(6),
     },
     { title: t('backtest_avg_price'), dataIndex: 'avg_cost', key: 'avg_cost', align: 'right', render: (v: number) => v.toFixed(4) },
     { title: t('backtest_last_price'), dataIndex: 'price', key: 'price', align: 'right', render: (v: number) => v.toFixed(4) },

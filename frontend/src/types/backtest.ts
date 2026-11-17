@@ -40,7 +40,7 @@ export interface Trade {
   exit_timestamp: number | null;  // 平仓时间（秒级）
   entry_price: number;
   exit_price: number;
-  size: number;
+  quantity: number;        // 成交数量（原 size，迁移 42 契约对齐 quantity canonical）
   pnl: number;
   return_pct: number;
   direction: 'long' | 'short' | null;   // 持仓方向；null = 未配对（Worker 分组视图）
@@ -117,8 +117,8 @@ export interface BacktestTask {
   total_return?: number;
   max_drawdown?: number;
   /** /backtest/list 行附带字段（RL 回测历史页展示参数用；老页面未引用） */
-  symbols?: string;
-  timeframes?: string;
+  symbols?: string[];
+  intervals?: string[];
   engine_type?: string;
   updated_at?: string;
 }
@@ -271,9 +271,9 @@ export interface PortfolioPositionEvent {
   t: number;          // 归属网格点（ms）
   ts: number;         // 成交时间（秒）
   symbol: string;
-  side: string;       // BUY / SELL
-  qty: number;        // 成交后净持仓（正多 / 负空 / 0 平仓）
-  traded_qty: number; // 本次成交数量（带方向）
+  side: string;       // buy / sell（canonical 小写）
+  quantity: number;        // 成交后净持仓（正多 / 负空 / 0 平仓；原 qty）
+  traded_quantity: number; // 本次成交数量（带方向；原 traded_qty）
   avg_cost: number;   // 成交后持仓均价
   price: number;      // 成交价
   pnl: number;        // 平仓/减仓实现盈亏

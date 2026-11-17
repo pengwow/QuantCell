@@ -85,7 +85,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       width: 80,
       render: (side: PositionSide) => (
         <Tag color={side === 'long' ? 'green' : side === 'short' ? 'red' : 'blue'}>
-          {side === 'long' ? t('long') : side === 'short' ? t('short') : t('position_side_both')}
+          {side === 'long' ? t('position_side_long') : side === 'short' ? t('position_side_short') : t('position_side_both')}
         </Tag>
       ),
     },

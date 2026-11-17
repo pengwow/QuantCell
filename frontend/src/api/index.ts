@@ -649,15 +649,15 @@ export const backtestApi = {
   },
 
   /** 回测前数据预检：检查给定品种×周期的 Parquet 文件是否存在 */
-  precheckData: (params: { symbols: string[]; timeframes: string[]; candle_type?: string }) =>
+  precheckData: (params: { symbols: string[]; intervals: string[]; candle_type?: string }) =>
     apiRequest.get('/backtest/precheck-data', {
       symbols: params.symbols.join(','),
-      timeframes: params.timeframes.join(','),
+      intervals: params.intervals.join(','),
       candle_type: params.candle_type || 'spot',
     }) as Promise<{
       all_available: boolean;
-      missing: Array<{ symbol: string; timeframe: string; expected_path: string }>;
-      available: Array<{ symbol: string; timeframe: string }>;
+      missing: Array<{ symbol: string; interval: string; expected_path: string }>;
+      available: Array<{ symbol: string; interval: string }>;
     }>,
 
   runBacktest: <T>(data: T, signal?: AbortSignal): Promise<{

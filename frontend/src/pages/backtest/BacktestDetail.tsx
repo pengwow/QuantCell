@@ -882,11 +882,20 @@ const BacktestDetail = () => {
             if (v === '规则') return 'cyan';
             return undefined; // 回放 / 降级兜底 / 其他 → antd 默认灰
           };
+          // 新决策 action 词表为 long/short（Rust cascade 方向语义）；历史报表仍存 buy/sell，两套都备齐
           const actionColor: Record<string, string> = {
+            long: 'green',
+            short: 'red',
             buy: 'green',
             sell: 'red',
             hold: 'default',
           };
+          const actionLabel = (v: string) =>
+            v === 'long' || v === 'buy'
+              ? t('long')
+              : v === 'short' || v === 'sell'
+                ? t('short')
+                : t('backtest_hold');
 
           // 只展示前 100 条 + 分页，3 万条全渲染卡浏览器
           const PAGE_SIZE = 200;
@@ -912,7 +921,7 @@ const BacktestDetail = () => {
                     <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_action_prefix')}</span>
                     {Object.entries(actionCounts).map(([act, cnt]) => (
                       <Tag key={act} color={actionColor[act] || 'default'}>
-                        {act === 'buy' ? t('buy') : act === 'sell' ? t('sell') : t('backtest_hold')}: {cnt.toLocaleString()}
+                        {actionLabel(act)}: {cnt.toLocaleString()}
                       </Tag>
                     ))}
                   </div>
@@ -955,9 +964,8 @@ const BacktestDetail = () => {
                       dataIndex: 'action',
                       width: 80,
                       render: (v: string) => {
-                        const label = v === 'buy' ? t('buy') : v === 'sell' ? t('sell') : t('backtest_hold');
                         const color = actionColor[v] || 'default';
-                        return <Tag color={color}>{label}</Tag>;
+                        return <Tag color={color}>{actionLabel(v)}</Tag>;
                       },
                     },
                     {

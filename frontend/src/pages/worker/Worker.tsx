@@ -714,11 +714,11 @@ const Worker = () => {
                     {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
                     {worker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
                     <Tag color={WorkerStatusColor[worker.status]}>
-                      {WorkerStatusText[worker.status]}
+                      {t(WorkerStatusText[worker.status])}
                     </Tag>
                   </Space>
                   {infoRow(t('exchange'), <Tag>{worker.trading_config?.exchange}</Tag>)}
-                  {infoRow(t('timeframe'), <Tag color="blue">{worker.trading_config?.timeframe}</Tag>)}
+                  {infoRow(t('timeframe'), <Tag color="blue">{worker.trading_config?.interval}</Tag>)}
                   {infoRow(
                     t('total_profit'),
                     <span
@@ -866,8 +866,8 @@ const Worker = () => {
         },
         {
           title: t('timeframe'),
-          dataIndex: 'timeframe',
-          key: 'timeframe',
+          dataIndex: 'interval',
+          key: 'interval',
           width: 70,
         },
         {
