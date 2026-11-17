@@ -33,6 +33,8 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from worker import ws_fill_events
 
+from .vocab import normalize_side
+
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
@@ -98,6 +100,7 @@ class PaperTradeSync:
                             quantity=data["quantity"],
                             price=data["price"],
                             filled_at=data["entry_time"],
+                            position_side=data["position_side"],
                         )
                 except Exception as e:
                     logger.warning(
@@ -220,7 +223,10 @@ class PaperTradeSync:
             "worker_id": self.worker_id,
             "trade_id": f"paper:{self.worker_id}:{fill['fill_id']}:{fill['timestamp_ns']}",
             "symbol": f"{inst[1]}/{inst[2]}",
-            "side": str(fill["taker_side"]).lower(),  # 引擎侧 "Buy"/"Sell" → ccxt 口径
+            "side": normalize_side(fill["taker_side"]),  # 引擎侧 "Buy"/"Sell" → ccxt 口径
+            # paper 引擎单向净仓：声明值固定 both、无只减仓概念（铁律2 因此处为固定声明而非推导）
+            "position_side": "both",
+            "reduce_only": False,
             "order_type": "MARKET",  # paper 撮合只产市价单
             "quantity": quantity,
             "price": price,

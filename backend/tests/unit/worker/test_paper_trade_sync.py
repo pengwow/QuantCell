@@ -91,6 +91,9 @@ def test_to_trade_data_spot():
     assert d["fee"] == 0.0
     assert d["realized_pnl"] is None
     assert d["entry_time"] == datetime.fromtimestamp(NS / 1e9)
+    # 新契约键：paper 单向净仓声明值固定 both（不从 side 推导）、reduce_only 恒 False
+    assert d["position_side"] == "both"
+    assert d["reduce_only"] is False
 
 
 def test_to_trade_data_swap_instrument():

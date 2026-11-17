@@ -152,7 +152,7 @@ def test_to_trade_data_extracts_order_ref(db_session, monkeypatch):
     assert data["venue_order_id"] == "9001"
     assert data["realized_pnl"] == 12.5
 
-    data2 = sync._to_trade_data({"id": "v-2", "timestamp": None, "info": {}})
+    data2 = sync._to_trade_data({"id": "v-2", "side": "buy", "timestamp": None, "info": {}})
     assert data2["client_order_id"] is None
     assert data2["venue_order_id"] is None
 

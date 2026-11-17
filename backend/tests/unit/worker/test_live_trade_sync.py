@@ -57,21 +57,27 @@ def test_to_trade_data_mapping():
     assert d["realized_pnl_pct"] is None
     assert d["entry_time"] == datetime.fromtimestamp(1750000000)
     assert d["exit_time"] is None
+    # 新契约键：现货/无 positionSide 回报兜底 both（声明值，不从 side 推导）；trade 行 reduce_only 恒 False
+    assert d["position_side"] == "both"
+    assert d["reduce_only"] is False
 
 
 def test_to_trade_data_missing_fields():
     s = _make_sync()
-    d = s._to_trade_data({"id": "1"})
+    d = s._to_trade_data({"id": "1", "side": "buy"})
     assert d["order_type"] == "MARKET"
     assert d["fee"] == 0.0
     assert d["fee_currency"] == "USDT"
     assert d["realized_pnl"] is None
     assert d["entry_time"] is None
+    # side 缺失属脏回报：vocab 归一层抛 ValueError，由 sync_once 兜底中断本轮（脏路径不落盘）
+    with pytest.raises(ValueError):
+        s._to_trade_data({"id": "1"})
 
 
 def test_to_trade_data_bad_realized_pnl():
     s = _make_sync()
-    d = s._to_trade_data({"id": "2", "info": {"realizedPnl": "abc"}})
+    d = s._to_trade_data({"id": "2", "side": "sell", "info": {"realizedPnl": "abc"}})
     assert d["realized_pnl"] is None
 
 

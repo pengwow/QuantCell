@@ -30,6 +30,8 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from worker import ws_fill_events
 
+from .vocab import normalize_position_side, normalize_side
+
 logger = get_logger(__name__, LogType.APPLICATION)
 
 # live 成交轮询间隔（秒）。远低于交易所 rate limit 预算，
@@ -242,6 +244,7 @@ class LiveTradeSync:
                         price=data["price"],
                         venue_order_id=data.get("venue_order_id"),
                         filled_at=data["entry_time"],
+                        position_side=data["position_side"],
                     )
                     # 新落库的成交同步广播到前端 WebSocket（旁路，失败不影响入账）
                     ws_fill_events.broadcast_strategy_fill(
@@ -320,7 +323,12 @@ class LiveTradeSync:
             "worker_id": self.worker_id,
             "trade_id": str(trade["id"]),
             "symbol": self.symbol,
-            "side": str(trade.get("side") or ""),
+            "side": normalize_side(trade.get("side") or ""),
+            # 回报声明值直取：binance futures myTrades 的 info.positionSide
+            # （LONG/SHORT/BOTH 原生大写，归一落库）；现货/字段缺失兜底 both（单向净仓声明）
+            "position_side": normalize_position_side(info.get("positionSide") or "both"),
+            # ccxt myTrades 不带 reduceOnly（仅订单层有），trade 行恒 False
+            "reduce_only": False,
             "order_type": str(trade.get("orderType") or "MARKET").upper(),
             "quantity": quantity,
             "price": price,
