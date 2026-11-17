@@ -720,14 +720,14 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 当前持仓 */}
-      <Card size="small" title={t('backtest_holdings_title', { count: positions.length })}>
+      <Card size="small" title={t('backtest_positions_title', { count: positions.length })}>
         <Table<PositionRow>
           rowKey="symbol"
           size="small"
           columns={positionColumns}
           dataSource={positions}
           pagination={false}
-          locale={{ emptyText: t('backtest_no_holdings') }}
+          locale={{ emptyText: t('backtest_no_positions') }}
         />
       </Card>
 
