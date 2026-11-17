@@ -170,11 +170,11 @@ class BaseKlineFetcher(KlineDataFetcher):
                 existing = db.query(self.kline_model).filter(self.kline_model.unique_kline == unique_kline).first()
 
                 if existing:
-                    # 更新现有记录
-                    existing.open = str(kline.get("open"))
-                    existing.high = str(kline.get("high"))
-                    existing.low = str(kline.get("low"))
-                    existing.close = str(kline.get("close"))
+                    # 更新现有记录（OHLC DECIMAL 列：写入统一 decimal_or_zero，与 volume 同口径）
+                    existing.open = decimal_or_zero(kline.get("open"))
+                    existing.high = decimal_or_zero(kline.get("high"))
+                    existing.low = decimal_or_zero(kline.get("low"))
+                    existing.close = decimal_or_zero(kline.get("close"))
                     existing.volume = decimal_or_zero(kline.get("volume"))
                     existing.data_source = "ccxt_binance"
                     updated_count += 1
@@ -184,10 +184,10 @@ class BaseKlineFetcher(KlineDataFetcher):
                         symbol=symbol,
                         interval=interval,
                         timestamp=timestamp_ns,  # 统一为纳秒级
-                        open=str(kline.get("open")),
-                        high=str(kline.get("high")),
-                        low=str(kline.get("low")),
-                        close=str(kline.get("close")),
+                        open=decimal_or_zero(kline.get("open")),
+                        high=decimal_or_zero(kline.get("high")),
+                        low=decimal_or_zero(kline.get("low")),
+                        close=decimal_or_zero(kline.get("close")),
                         volume=decimal_or_zero(kline.get("volume")),
                         unique_kline=unique_kline,
                         data_source="ccxt_binance",

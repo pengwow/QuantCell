@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -137,8 +138,9 @@ class TestSaveToDatabase:
 
         ok = fetcher._save_to_database(db, "BTCUSDT", "1h", [BASE_KLINE])
         assert ok is True
-        assert existing.open == "100.5"
-        assert existing.close == "101.0"
+        # OHLC DECIMAL 列（P2-11）：写入统一 decimal_or_zero，落库为 Decimal
+        assert existing.open == Decimal("100.5")
+        assert existing.close == Decimal("101.0")
         assert existing.data_source == "ccxt_binance"
         db.add.assert_not_called()
 

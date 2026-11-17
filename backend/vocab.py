@@ -160,8 +160,8 @@ VOCAB_DOMAINS: tuple[VocabDomain, ...] = (
                 "interval",
                 "canonical",
                 'K线/数据采样周期唯一词（"1h"/"15m"）。锚：Rust 内核 Kernel(interval=...)、'
-                "DataService.get_kline_data(interval=...)。前端图表 UI 与 chartPreferences 的 "
-                "period 是展示层/本地遗留词，新增传输/API 字段一律 interval；"
+                "DataService.get_kline_data(interval=...)。前端 chartPreferences / localStorage "
+                "wire 字段已统一 interval（P2-10 切断式改名，无旧读兼容）；"
                 "indicator_alert_rules / features 表历史列名 period / freq 已由迁移"
                 "（alembic 46 / collector rename_kline_interval_columns）统一改名 interval。",
             ),
@@ -235,13 +235,20 @@ VOCAB_DOMAINS: tuple[VocabDomain, ...] = (
                 "K线三表（crypto_spot_klines / crypto_future_klines / stock_klines）的 "
                 "volume 列 canonical 类型为 DECIMAL(40, 8) 单列（迁移 "
                 "update_kline_volume_to_decimal，旧数据丢弃可重拉）。写入统一 "
-                "collector.db.models.decimal_or_zero，读出统一 float()（Decimal 可直接转）。"
-                "OHLC 四列仍为 String（价格列改造属价格域，不在本档范围）。",
+                "collector.db.models.decimal_or_zero，读出统一 float()（Decimal 可直接转）。",
             ),
             VocabTerm(
                 "volume_decimal",
                 "banned",
                 "禁止再为 volume 引入 String/双列形态（含 volume_decimal 伴生列）。",
+            ),
+            VocabTerm(
+                "ohlc",
+                "canonical",
+                "K线三表 OHLC 四列 canonical 类型为 DECIMAL(40, 8)（P2-11 价格域收口，"
+                "迁移 update_kline_ohlc_to_decimal DROP+create，存量K线可重拉）。写入统一 "
+                "decimal_or_zero，读出统一 float()，API/前端零感知；timestamp 列为纳秒"
+                "字符串，不在价格域范围。",
             ),
         ),
     ),

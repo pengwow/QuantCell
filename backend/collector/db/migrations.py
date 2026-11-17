@@ -1005,6 +1005,46 @@ def update_kline_volume_to_decimal(session: Session, db_type: str) -> None:
         logger.info(f"{table_name} 重建完成（volume DECIMAL(40, 8)）")
 
 
+def update_kline_ohlc_to_decimal(session: Session, db_type: str) -> None:
+    """K线三表 OHLC 四列从 String 重建为 DECIMAL(40, 8)（P2-11 价格域收口）。
+
+    策略与 update_kline_volume_to_decimal（P2-4 B-11）一致：旧 String 列的存量
+    K线允许丢弃（可由交易所/数据源重新拉取），直接 DROP 后按当前 ORM 重建；
+    新库已由 create_all 按 DECIMAL 建好，此处自动跳过（幂等）。timestamp 列
+    仍为纳秒字符串，不在价格域范围内，不动。
+
+    models 在函数内导入：迁移模块先于全量模型注册执行，顶部导入会拉起
+    worker 全模型链导致 mapper 过早 configure。
+    """
+    from sqlalchemy import Numeric
+    from sqlalchemy import inspect as sa_inspect
+
+    from . import models
+
+    kline_tables = [
+        ("crypto_spot_klines", models.CryptoSpotKline),
+        ("crypto_future_klines", models.CryptoFutureKline),
+        ("stock_klines", models.StockKline),
+    ]
+    ohlc_cols = ("open", "high", "low", "close")
+    bind = session.get_bind()
+    inspector = sa_inspect(bind)
+    for table_name, model in kline_tables:
+        if not inspector.has_table(table_name):
+            logger.info(f"{table_name} 表不存在（首次建库由 create_all 负责），跳过 OHLC 类型迁移")
+            continue
+        cols = {c["name"]: c["type"] for c in inspector.get_columns(table_name)}
+        if all(isinstance(cols.get(c), Numeric) for c in ohlc_cols):
+            logger.info(f"{table_name}.OHLC 已是 DECIMAL，跳过")
+            continue
+        logger.warning(f"{table_name} OHLC 存在非 DECIMAL 列，删除旧表并按新模型重建（存量K线数据丢弃）")
+        session.execute(text(f"DROP TABLE {table_name}"))
+        # SQLite 的 DDL 参与事务：先提交 DROP，create() 在新连接上才看得到旧表已删除
+        session.commit()
+        model.__table__.create(bind=bind)
+        logger.info(f"{table_name} 重建完成（OHLC DECIMAL(40, 8)）")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
 
@@ -1050,6 +1090,9 @@ def run_migrations() -> None:
 
             # K线三表 volume 列 String→DECIMAL 重建（P2-4 B-11，旧数据可删）
             update_kline_volume_to_decimal(session, db_type)
+
+            # K线三表 OHLC 四列 String→DECIMAL 重建（P2-11 价格域收口，旧数据可删）
+            update_kline_ohlc_to_decimal(session, db_type)
 
             # 更新 share_tokens 表结构，补齐远端分发相关列
             update_share_tokens_table(session, db_type)

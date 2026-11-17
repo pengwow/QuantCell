@@ -115,11 +115,11 @@ class KlinePersistenceConsumer:
             existing = db.query(CryptoSpotKline).filter(CryptoSpotKline.unique_kline == unique_key).first()
 
             if existing:
-                # 更新现有记录
-                existing.open = str(open_price)
-                existing.high = str(high_price)
-                existing.low = str(low_price)
-                existing.close = str(close_price)
+                # 更新现有记录（OHLC DECIMAL 列：写入统一 decimal_or_zero，与 volume 同口径）
+                existing.open = decimal_or_zero(open_price)
+                existing.high = decimal_or_zero(high_price)
+                existing.low = decimal_or_zero(low_price)
+                existing.close = decimal_or_zero(close_price)
                 existing.volume = decimal_or_zero(volume)
                 logger.debug(f"[KlinePersistence] 更新K线数据: {symbol}@{interval}, timestamp={timestamp}")
             else:
@@ -128,10 +128,10 @@ class KlinePersistenceConsumer:
                     symbol=base_symbol,
                     interval=interval,
                     timestamp=str(timestamp),
-                    open=str(open_price),
-                    high=str(high_price),
-                    low=str(low_price),
-                    close=str(close_price),
+                    open=decimal_or_zero(open_price),
+                    high=decimal_or_zero(high_price),
+                    low=decimal_or_zero(low_price),
+                    close=decimal_or_zero(close_price),
                     volume=decimal_or_zero(volume),
                     unique_kline=unique_key,
                     data_source="binance_websocket",
