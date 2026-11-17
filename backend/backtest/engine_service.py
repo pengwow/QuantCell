@@ -251,16 +251,17 @@ class EventDrivenBacktestService:
 
         # 保证金模拟：只支持 U 本位永续。币本位乘数尚未入账（见上方 ponytail 说明），
         # 强平与保证金都会算错，所以硬拒绝而不是给出一份看起来正常的结果。
-        margin_settings = list(engine_cfg.get("margin_settings") or [])
-        if margin_settings and market == "cm":
+        # 旧任务行落库的配置键名是 margin_settings，回退一行避免历史任务丢杠杆配置
+        specs_cfg = list(engine_cfg.get("margin_specs") or engine_cfg.get("margin_settings") or [])
+        if specs_cfg and market == "cm":
             msg = "币本位合约暂不支持杠杆与保证金模拟，请改用 U 本位合约"
             raise ValueError(msg)
 
         # 每品种保证金规格（空 dict = 不启用）。启用即**全品种参与**：未配置的品种
         # 按 1x / cross 默认注入，否则全仓的 ΣMMR 会漏算品种，强平判定失真。
         margin_specs: dict[str, dict] = {}
-        if margin_settings:
-            configured = {item["symbol"]: item for item in margin_settings}
+        if specs_cfg:
+            configured = {item["symbol"]: item for item in specs_cfg}
             settings = [
                 (
                     configured[sym]["symbol"],
@@ -986,7 +987,7 @@ class EventDrivenBacktestService:
             "margin_applied": result.margin_applied,
             "margin_specs_effective": list(result.margin_specs_effective),
             "liquidation_count": result.liquidation_count,
-            "margin_shortfall_count": result.margin_shortfall_count,
+            "shortfall_count": result.shortfall_count,
         }
 
     # ─── Rust 原生回测路径（axon_quant.worker.Kernel / legacy BacktestRunner） ───
@@ -1369,7 +1370,7 @@ class EventDrivenBacktestService:
             margin_specs_effective=margin_specs_effective,
             # 旧 wheel 无计数时按事件条数兜底，避免详情页出现「有强平记录但 0 次」
             liquidation_count=int(getattr(rust_result, "liquidation_count", 0) or 0),
-            margin_shortfall_count=int(getattr(rust_result, "margin_shortfall_count", 0) or 0),
+            shortfall_count=int(getattr(rust_result, "shortfall_count", 0) or 0),
         )
 
     @staticmethod
@@ -1633,7 +1634,7 @@ class EventDrivenBacktestService:
                 dict(spec) for spec in (results.get("margin_specs_effective") or []) if isinstance(spec, dict)
             ]
             portfolio_liquidation_count = int(results.get("liquidation_count") or 0)
-            portfolio_shortfall_count = int(results.get("margin_shortfall_count") or 0)
+            portfolio_shortfall_count = int(results.get("shortfall_count") or 0)
         else:
             portfolio_margin_applied = any(bool(r.get("margin_applied")) for r in per_symbol_results.values())
             portfolio_margin_specs = [
@@ -1643,9 +1644,7 @@ class EventDrivenBacktestService:
                 if isinstance(spec, dict)
             ]
             portfolio_liquidation_count = len(portfolio_events)
-            portfolio_shortfall_count = sum(
-                int(r.get("margin_shortfall_count") or 0) for r in per_symbol_results.values()
-            )
+            portfolio_shortfall_count = sum(int(r.get("shortfall_count") or 0) for r in per_symbol_results.values())
         portfolio_payload = ResultFormatterService.format_axon_results(
             results={
                 **results,
@@ -1660,7 +1659,7 @@ class EventDrivenBacktestService:
                 "margin_applied": portfolio_margin_applied,
                 "margin_specs_effective": portfolio_margin_specs,
                 "liquidation_count": portfolio_liquidation_count,
-                "margin_shortfall_count": portfolio_shortfall_count,
+                "shortfall_count": portfolio_shortfall_count,
             },
             symbol=symbols[0] if symbols else "PORTFOLIO",
             timeframe=timeframe,
@@ -1721,6 +1720,6 @@ class EventDrivenBacktestService:
                 "margin_applied": portfolio_margin_applied,
                 "margin_specs_effective": portfolio_margin_specs,
                 "liquidation_count": portfolio_liquidation_count,
-                "margin_shortfall_count": portfolio_shortfall_count,
+                "shortfall_count": portfolio_shortfall_count,
             },
         }

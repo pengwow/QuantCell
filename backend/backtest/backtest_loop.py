@@ -96,7 +96,7 @@ class BacktestResult:
     margin_applied: bool = False
     margin_specs_effective: list = field(default_factory=list)
     liquidation_count: int = 0
-    margin_shortfall_count: int = 0
+    shortfall_count: int = 0
 
 
 class BacktestLoop:

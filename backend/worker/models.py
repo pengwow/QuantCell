@@ -451,7 +451,6 @@ class WorkerCapital(Base):
     available_capital = Column(Float, default=100000.0)  # 可用资金
     frozen_capital = Column(Float, default=0.0)  # 冻结资金
     margin_used = Column(Float, default=0.0)  # 已用保证金
-    margin_ratio = Column(Float, default=0.0)  # 保证金比例
 
     # 杠杆设置
     leverage = Column(Float, default=1.0)  # 杠杆倍数
@@ -473,7 +472,6 @@ class WorkerCapital(Base):
             "available_capital": self.available_capital,
             "frozen_capital": self.frozen_capital,
             "margin_used": self.margin_used,
-            "margin_ratio": self.margin_ratio,
             "leverage": self.leverage,
             "max_leverage": self.max_leverage,
             "currency": self.currency,

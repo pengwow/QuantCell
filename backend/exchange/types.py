@@ -277,7 +277,7 @@ class ExchangeFeatures(TypedDict, total=False):
 
     # 基础功能
     spot_trading: bool
-    margin_trading: bool
+    leverage_trading: bool
     futures_trading: bool
 
     # 订单功能
@@ -311,7 +311,7 @@ class ExchangeFeatures(TypedDict, total=False):
     staking: bool
     savings: bool
     convert: bool
-    margin_loan: bool
+    leverage_loan: bool
     futures_leverage: bool
     funding_rate: bool
 

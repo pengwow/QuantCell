@@ -71,9 +71,21 @@ TERM_RULES: dict[str, dict] = {
     "margin": {
         "regex": r"\bmargin\w*",
         "case_sensitive": False,
-        "erase": r"\bmargin(?:_used|_mode|_applied|_specs\w*|_asset|_equity|(?:(?:usd|coin)_)?margin)\b",
+        # erase：词形本身合法的 term（snake canonical/reserved + TS camel 镜像），扫描前从违规检查层挖掉
+        "erase": r"\bmargin(?:_used|_mode|_applied|_specs\w*|_asset|_equity|(?:(?:usd|coin)_)?margin)\b|[Mm]argin(?:Used|Mode|Applied|Specs?\w*|Asset|Equity)\b",
         "context_allow": [
             r"margin(?:[A-Z]\w*)?\s*[:=]\s*[\"'0-9(.\[-]",  # CSS：margin: 8 / marginBottom: 16
+            r"\.margins\(",  # matplotlib/empyrical 的_ax.margins 轴边距 API
+            r"margin-(?:top|bottom|left|right)",  # template literal 内的 CSS 连字符属性
+            r"MARGIN\s*=\s*[\"']",  # 交易所协议枚举值 MARGIN = "margin"
+            r"AccountType\s*\.|account_type|accountType",  # 账户类型：account_type / 拼接词 BinanceAccountType.MARGIN
+            r"trading_mode|tradingMode|TradingMode",  # trading_mode 值域含 "margin"，键本身合法
+            r"margin_type|marginType",  # set_margin_type 是交易所接口命名
+            r"value:\s*[\"']margin[\"']",  # 下拉选项 { value: 'margin' }，UI 值域
+            r"margin\.rs",  # axon-quant 源文件名的文档引用
+            r"asset_type, base, quote, margin",  # axon_bridge instrument 元组的文档注释
+            r"Column\([\"']margin_ratio",  # alembic 历史迁移里的 DB 列（列保留，ORM 层已删）
+            r"\.get\([\"']margin_(?:shortfall_count|settings)[\"']\)",  # 旧结果 JSON/任务行的兼容回退键
         ],
     },
     # interval 域：period 禁用于 K线频率；_period 后缀参数（bb_period 等）天然不命中

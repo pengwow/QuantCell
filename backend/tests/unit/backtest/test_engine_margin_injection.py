@@ -54,7 +54,7 @@ def _run(svc: EventDrivenBacktestService, engine_config: dict, market: str = "um
     )
 
 
-def test_coin_margin_rejects_margin_settings():
+def test_coin_margin_rejects_margin_specs():
     """币本位乘数未入账，启用保证金必须直接拒绝而不是给出错误结果"""
     svc = EventDrivenBacktestService(data_provider=None)
     with pytest.raises(ValueError, match="币本位"):
@@ -65,7 +65,7 @@ def test_coin_margin_rejects_margin_settings():
             timeframes=["1h"],
             engine_config={
                 "trading_mode": "futures",
-                "margin_settings": [{"symbol": "BTCUSDT", "leverage": 5, "margin_mode": "cross"}],
+                "margin_specs": [{"symbol": "BTCUSDT", "leverage": 5, "margin_mode": "cross"}],
             },
             market="cm",
         )
@@ -83,7 +83,7 @@ def test_unlisted_symbols_get_default_spec(monkeypatch):
 
     _run(
         _service(),
-        {"margin_settings": [{"symbol": "BTCUSDT", "leverage": 10, "margin_mode": "cross"}]},
+        {"margin_specs": [{"symbol": "BTCUSDT", "leverage": 10, "margin_mode": "cross"}]},
     )
 
     assert captured["BTCUSDT"]["BTC/USDT"]["leverage"] == 10.0
@@ -110,7 +110,7 @@ def test_shared_budget_disabled_when_margin_enabled(monkeypatch):
         {
             "capital_mode": "shared",
             "leverage": 10,
-            "margin_settings": [{"symbol": "BTCUSDT", "leverage": 20, "margin_mode": "isolated"}],
+            "margin_specs": [{"symbol": "BTCUSDT", "leverage": 20, "margin_mode": "isolated"}],
         },
     )
 
@@ -180,7 +180,7 @@ def test_map_rust_result_passes_margin_fields():
             {"symbol": "BTC/USDT", "leverage": 20.0, "margin_mode": "cross", "bracket_source": "default"}
         ]
         liquidation_count = 1
-        margin_shortfall_count = 2
+        shortfall_count = 2
 
     mapped = EventDrivenBacktestService._map_rust_result(_FakeRustResult(), None, "BTCUSDT")
 
@@ -192,7 +192,7 @@ def test_map_rust_result_passes_margin_fields():
         {"symbol": "BTC/USDT", "leverage": 20.0, "margin_mode": "cross", "bracket_source": "default"}
     ]
     assert mapped.liquidation_count == 1
-    assert mapped.margin_shortfall_count == 2
+    assert mapped.shortfall_count == 2
 
 
 def test_map_rust_result_defaults_when_margin_fields_absent():
@@ -221,4 +221,4 @@ def test_map_rust_result_defaults_when_margin_fields_absent():
     assert mapped.margin_applied is False
     assert mapped.margin_specs_effective == []
     assert mapped.liquidation_count == 0
-    assert mapped.margin_shortfall_count == 0
+    assert mapped.shortfall_count == 0

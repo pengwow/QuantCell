@@ -272,10 +272,10 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                 status_code=400,
                 detail=f"自选组 {request.backtest_config.pool_id} 当前没有成分，无法发起回测",
             )
-        # 组成分解析前无法校验 margin_settings 品种归属（schema 层跳过），在此补齐
-        invalid = {m.symbol for m in request.backtest_config.margin_settings} - set(resolved_symbols)
+        # 组成分解析前无法校验 margin_specs 品种归属（schema 层跳过），在此补齐
+        invalid = {m.symbol for m in request.backtest_config.margin_specs} - set(resolved_symbols)
         if invalid:
-            raise HTTPException(status_code=400, detail=f"margin_settings 中的 {sorted(invalid)} 不在自选组成分内")
+            raise HTTPException(status_code=400, detail=f"margin_specs 中的 {sorted(invalid)} 不在自选组成分内")
         # 覆盖回测标的，沿用原有单/多品种回测链路；pool_id 保留原值入库便于详情页溯源
         request.backtest_config.symbols = resolved_symbols
 
@@ -712,7 +712,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             margin_applied: bool = False
             margin_specs_effective: list = []
             liquidation_count: int = 0
-            margin_shortfall_count: int = 0
+            shortfall_count: int = 0
             # cascade 决策记录（任务级，引擎结束时从录制 JSONL 采集；非 cascade 无此字段）
             decisions: list = []
 
@@ -746,7 +746,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     margin_applied = bool(view.get("margin_applied"))
                     margin_specs_effective = view.get("margin_specs_effective") or []
                     liquidation_count = int(view.get("liquidation_count") or 0)
-                    margin_shortfall_count = int(view.get("margin_shortfall_count") or 0)
+                    # 旧结果 JSON 的键名是 margin_shortfall_count，回退一行避免历史统计归零
+                    shortfall_count = int(view.get("shortfall_count") or view.get("margin_shortfall_count") or 0)
                 else:
                     # 指定品种优先，缺省（单品种）取第一个品种
                     entry = entries.get(symbol) if symbol else None
@@ -768,7 +769,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     margin_applied = bool(entry.get("margin_applied"))
                     margin_specs_effective = entry.get("margin_specs_effective") or []
                     liquidation_count = int(entry.get("liquidation_count") or 0)
-                    margin_shortfall_count = int(entry.get("margin_shortfall_count") or 0)
+                    # 旧结果 JSON 的键名是 margin_shortfall_count，回退一行避免历史统计归零
+                    shortfall_count = int(entry.get("shortfall_count") or entry.get("margin_shortfall_count") or 0)
 
             # 构建前端期望的响应格式
             detail_data = {
@@ -789,7 +791,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "margin_applied": margin_applied,
                 "margin_specs_effective": margin_specs_effective,
                 "liquidation_count": liquidation_count,
-                "margin_shortfall_count": margin_shortfall_count,
+                "shortfall_count": shortfall_count,
                 # 结果中实际有数据的品种列表（多品种切换用），及当前返回的品种
                 "symbols": result_symbols,
                 "selected_symbol": (

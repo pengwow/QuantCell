@@ -41,10 +41,10 @@ import PageContainer from '@/components/PageContainer';
 import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
 import {
-  buildMarginSettingsPayload,
+  buildMarginSpecsPayload,
   pickDirectSymbols,
-  type MarginRowValue,
-} from './marginSettings';
+  type MarginSpecRow,
+} from './marginSpecs';
 import type { Dayjs } from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -78,7 +78,7 @@ interface BacktestFormValues {
   tradingMode?: string;
   capitalMode?: 'per_symbol' | 'shared';
   // 以品种为键存行值：用下标对齐品种在增删时会串写到别的行，symbol 作 key 从根上避免
-  margin_settings?: Record<string, MarginRowValue>;
+  margin_specs?: Record<string, MarginSpecRow>;
 }
 
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
@@ -97,9 +97,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const isMultiSymbol = (watchedSymbols?.length ?? 0) > 1;
   // 保证金区块只在永续合约下出现（币本位由后端拦截，前端没有 market 选择器）
   const watchedTradingMode = Form.useWatch('tradingMode', form);
-  // 行渲染只依赖已注册的 symbols：若反过来依赖 margin_settings 的 watch 值，
+  // 行渲染只依赖已注册的 symbols：若反过来依赖 margin_specs 的 watch 值，
   // 字段又要先渲染才注册，两者互锁会导致整个区块永远不渲染
-  const marginSymbols = pickDirectSymbols(watchedSymbols);
+  const specSymbols = pickDirectSymbols(watchedSymbols);
 
   // 设置页面标题
   useEffect(() => {
@@ -1009,9 +1009,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           trading_mode: values.tradingMode || 'spot',
           capital_mode: values.capitalMode || 'per_symbol',
           // 只有永续合约允许杠杆配置；按本次实际提交的品种过滤，残留键自然丢弃
-          margin_settings:
+          margin_specs:
             values.tradingMode === 'futures'
-              ? buildMarginSettingsPayload(values.margin_settings, symbols)
+              ? buildMarginSpecsPayload(values.margin_specs, symbols)
               : [],
         },
       };
@@ -1299,17 +1299,17 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               {watchedTradingMode === 'futures' && (
                 <Col span={24}>
                   <Form.Item
-                    label={t('backtest_margin_settings')}
-                    extra={t('backtest_margin_settings_extra')}
+                    label={t('backtest_margin_specs')}
+                    extra={t('backtest_margin_specs_extra')}
                   >
                     {/* antd v6 下 space-y-* 会被 CSS-in-JS 覆盖失效，行间距必须用 Space 自己产生 */}
                     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-                      {marginSymbols.length === 0 ? (
+                      {specSymbols.length === 0 ? (
                         <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_select_symbols_first')}</span>
                       ) : (
                         // 行按品种键绑定：字段名里带 symbol，不再用下标对齐，
                         // 品种增删时自然对应，也就不会被 watch 与条件渲染互锁
-                        marginSymbols.map((symbol) => (
+                        specSymbols.map((symbol) => (
                           <Flex key={symbol} gap="small" align="center">
                             <span style={{ minWidth: 100 }}>{symbol}</span>
                             {/* addonAfter 在 antd v6 已废弃，官方迁移方式是 Space.Compact + 禁用按钮作后缀。
@@ -1317,7 +1317,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                                 把 value/onChange 注入直接子元素，若直接子元素是 Compact div 容器则 InputNumber 拿不到值 */}
                             <Space.Compact>
                               <Form.Item
-                                name={['margin_settings', symbol, 'leverage']}
+                                name={['margin_specs', symbol, 'leverage']}
                                 initialValue={1}
                                 noStyle
                               >
@@ -1328,7 +1328,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                               </Button>
                             </Space.Compact>
                             <Form.Item
-                              name={['margin_settings', symbol, 'margin_mode']}
+                              name={['margin_specs', symbol, 'margin_mode']}
                               initialValue="cross"
                               noStyle
                             >

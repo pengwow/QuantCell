@@ -105,7 +105,7 @@ const TradeTable = ({
                 <span>保证金占用</span>
               </Tooltip>
             ),
-            key: 'margin_occupancy',
+            key: 'initial_margin',
             render: (_: unknown, record: Trade) => {
               const leverage = leverageMap[normalizeSymbolKey(record.symbol)];
               if (!leverage || leverage <= 0) return '-';

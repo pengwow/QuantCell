@@ -29,7 +29,7 @@ class BaseSchema(BaseModel):
         from_attributes = True
 
 
-class SymbolMarginSetting(BaseSchema):
+class SymbolMarginSpec(BaseSchema):
     """单品种保证金设置（仅永续合约回测生效）。"""
 
     symbol: str = Field(..., min_length=1, description="交易对，必须在 symbols 列表内")
@@ -55,7 +55,7 @@ class BacktestConfig(BaseSchema):
         engine_type: 回测引擎类型 (default/event)
         base_currency: 基础货币代码（仅事件驱动引擎）
         leverage: LEGACY 全局杠杆（保证金未启用时的总名义预算）
-        margin_settings: 每品种杠杆与保证金模式（仅永续合约）
+        margin_specs: 每品种杠杆与保证金模式（仅永续合约）
         venue: 交易所名称（仅事件驱动引擎）
         auto_download: 是否自动下载缺失数据
         ignore_missing: 是否忽略缺失数据
@@ -124,7 +124,7 @@ class BacktestConfig(BaseSchema):
     leverage: float = Field(
         default=1.0,
         ge=1,
-        description="LEGACY：全局杠杆，仅在 capital_mode=shared 且 margin_settings 为空时作为总名义敞口预算；启用 margin_settings 后由每品种杠杆接管",
+        description="LEGACY：全局杠杆，仅在 capital_mode=shared 且 margin_specs 为空时作为总名义敞口预算；启用 margin_specs 后由每品种杠杆接管",
         json_schema_extra={"example": 1.0},
     )
     venue: str = Field(
@@ -157,7 +157,7 @@ class BacktestConfig(BaseSchema):
         description="交易模式: spot 现货 / futures 永续合约（永续模式会构造 swap 品种并结算资金费）",
         json_schema_extra={"example": "spot"},
     )
-    margin_settings: list[SymbolMarginSetting] = Field(
+    margin_specs: list[SymbolMarginSpec] = Field(
         default_factory=list,
         description="每品种杠杆与保证金模式；空=不启用保证金模拟（仅在 trading_mode=futures 下允许非空）",
     )
@@ -177,24 +177,24 @@ class BacktestConfig(BaseSchema):
         return self
 
     @model_validator(mode="after")
-    def _validate_margin_settings(self) -> BacktestConfig:
+    def _validate_margin_specs(self) -> BacktestConfig:
         """保证金配置的跨字段校验：模式、品种归属、重复项。
 
         放在 schema 层而非服务层，是为了让前端换品种后残留的脏条目在请求入口就 422，
         而不是被服务层静默忽略、跑出一个和配置不符的结果。
         """
-        if not self.margin_settings:
+        if not self.margin_specs:
             return self
         if self.trading_mode != "futures":
             raise ValueError("杠杆与保证金仅在永续合约（trading_mode=futures）下可用")
         allowed = set(self.symbols)
         seen: set[str] = set()
-        for item in self.margin_settings:
+        for item in self.margin_specs:
             # 自选组来源（pool_id）时成分在 routes 层解析后才可知，归属校验由 routes 补齐
             if self.pool_id is None and item.symbol not in allowed:
-                raise ValueError(f"margin_settings 中的 {item.symbol} 不在回测品种列表内")
+                raise ValueError(f"margin_specs 中的 {item.symbol} 不在回测品种列表内")
             if item.symbol in seen:
-                raise ValueError(f"margin_settings 中 {item.symbol} 重复配置")
+                raise ValueError(f"margin_specs 中 {item.symbol} 重复配置")
             seen.add(item.symbol)
         return self
 

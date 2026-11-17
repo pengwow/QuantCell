@@ -139,7 +139,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       dataIndex: 'margin_used',
       key: 'margin_used',
       align: 'right',
-      render: (margin?: number) => formatUSD(margin),
+      render: (usedMargin?: number) => formatUSD(usedMargin),
     },
     {
       title: t('unrealized_pnl'),

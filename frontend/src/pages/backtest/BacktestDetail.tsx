@@ -145,7 +145,7 @@ interface BacktestResponse {
     initial_cash?: number;
     capital_mode?: string;
     // 创建回测时的杠杆配置（提交体落在 backtest_config 里，旧任务缺失）
-    margin_settings?: EffectiveMarginSpec[];
+    margin_specs?: EffectiveMarginSpec[];
     // 创建回测时的策略参数（后端入库时随 backtest_config 保存；旧任务可能缺失）
     strategy_params?: Record<string, unknown>;
     [key: string]: unknown;
@@ -168,7 +168,7 @@ interface BacktestResponse {
   margin_applied?: boolean;
   margin_specs_effective?: EffectiveMarginSpec[];
   liquidation_count?: number;
-  margin_shortfall_count?: number;
+  shortfall_count?: number;
   liquidation_events?: LiquidationEventRecord[];
   insurance_fund_loss?: number;
   // cascade 策略决策记录（回测结束后从录制 JSONL 采集；非 cascade 策略无此字段）
@@ -405,12 +405,12 @@ const BacktestDetail = () => {
   const effectiveSpecs: EffectiveMarginSpec[] =
     backtestData.margin_specs_effective?.length
       ? backtestData.margin_specs_effective
-      : backtestConfig.margin_settings ?? [];
+      : backtestConfig.margin_specs ?? [];
   const marginApplied = backtestData.margin_applied ?? false;
   // 交易表「保证金占用」列的口径来源：仅启用保证金时传杠杆，否则表格不渲染该列
   const leverageBySymbol: Record<string, number> | undefined = buildLeverageMap(marginApplied, effectiveSpecs);
   const liquidationCount = backtestData.liquidation_count ?? 0;
-  const shortfallCount = backtestData.margin_shortfall_count ?? 0;
+  const shortfallCount = backtestData.shortfall_count ?? 0;
   // 旧任务没有保证金结果字段，一律按“无强平”处理
   const liquidationEvents: LiquidationEventRecord[] = backtestData.liquidation_events ?? [];
   const insuranceFundLoss = backtestData.insurance_fund_loss ?? 0;
@@ -490,7 +490,7 @@ const BacktestDetail = () => {
           </Descriptions>
           {/* 杠杆与保证金：整块常显，未启用时明确告诉用户「没算保证金」，而不是悄悄消失 */}
           <div>
-            <div className="mb-2 text-sm font-medium">{t('backtest_margin_settings')}</div>
+            <div className="mb-2 text-sm font-medium">{t('backtest_margin_specs')}</div>
             <Space size={4} wrap>
               {effectiveSpecs.map((item) => (
                 <Tag key={item.symbol} className="mb-0">
@@ -501,7 +501,7 @@ const BacktestDetail = () => {
                 <>
                   <Tag color="blue" className="mb-0">{t('backtest_liquidation_count', { num: liquidationCount })}</Tag>
                   {shortfallCount > 0 && (
-                    <Tag color="orange" className="mb-0">{t('backtest_margin_shortfall_count', { num: shortfallCount })}</Tag>
+                    <Tag color="orange" className="mb-0">{t('backtest_shortfall_count', { num: shortfallCount })}</Tag>
                   )}
                 </>
               )}

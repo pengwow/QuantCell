@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMarginSettingsPayload, pickDirectSymbols } from './marginSettings';
+import { buildMarginSpecsPayload, pickDirectSymbols } from './marginSpecs';
 
 describe('pickDirectSymbols', () => {
   it('排除数据池占位符，保留直接选择的品种', () => {
@@ -11,16 +11,16 @@ describe('pickDirectSymbols', () => {
   });
 });
 
-describe('buildMarginSettingsPayload', () => {
+describe('buildMarginSpecsPayload', () => {
   it('按当前品种顺序生成数组并补默认值', () => {
-    expect(buildMarginSettingsPayload(undefined, ['BTC/USDT', 'ETH/USDT'])).toEqual([
+    expect(buildMarginSpecsPayload(undefined, ['BTC/USDT', 'ETH/USDT'])).toEqual([
       { symbol: 'BTC/USDT', leverage: 1, margin_mode: 'cross' },
       { symbol: 'ETH/USDT', leverage: 1, margin_mode: 'cross' },
     ]);
   });
 
   it('保留用户已填的杠杆与模式', () => {
-    const payload = buildMarginSettingsPayload(
+    const payload = buildMarginSpecsPayload(
       { 'BTC/USDT': { leverage: 20, margin_mode: 'isolated' } },
       ['BTC/USDT'],
     );
@@ -28,7 +28,7 @@ describe('buildMarginSettingsPayload', () => {
   });
 
   it('丢弃已不在本次回测列表里的残留键', () => {
-    const payload = buildMarginSettingsPayload(
+    const payload = buildMarginSpecsPayload(
       { 'BTC/USDT': { leverage: 5, margin_mode: 'cross' }, SOLUSDT: { leverage: 10, margin_mode: 'cross' } },
       ['BTC/USDT'],
     );
@@ -37,12 +37,12 @@ describe('buildMarginSettingsPayload', () => {
   });
 
   it('排除数据池占位符', () => {
-    const payload = buildMarginSettingsPayload(undefined, ['pool_3', 'BTC/USDT']);
+    const payload = buildMarginSpecsPayload(undefined, ['pool_3', 'BTC/USDT']);
     expect(payload).toEqual([{ symbol: 'BTC/USDT', leverage: 1, margin_mode: 'cross' }]);
   });
 
   it('杠杆被清空时回退 1', () => {
-    const payload = buildMarginSettingsPayload({ 'BTC/USDT': { margin_mode: 'isolated' } }, ['BTC/USDT']);
+    const payload = buildMarginSpecsPayload({ 'BTC/USDT': { margin_mode: 'isolated' } }, ['BTC/USDT']);
     expect(payload[0].leverage).toBe(1);
   });
 });

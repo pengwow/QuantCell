@@ -7,12 +7,12 @@
 
 export type MarginMode = 'isolated' | 'cross';
 
-export interface MarginRowValue {
+export interface MarginSpecRow {
   leverage?: number;
   margin_mode?: MarginMode;
 }
 
-export interface MarginSettingPayload {
+export interface MarginSpecPayload {
   symbol: string;
   leverage: number;
   margin_mode: MarginMode;
@@ -23,11 +23,11 @@ export const pickDirectSymbols = (selected?: string[]): string[] =>
   (selected ?? []).filter((value) => !value.startsWith('pool_'));
 
 /** 表单对象 → 后端数组；缺失值按 1x 全仓兜底，列表外的残留键自动丢弃 */
-export function buildMarginSettingsPayload(
-  settings: Record<string, MarginRowValue> | undefined,
+export function buildMarginSpecsPayload(
+  specs: Record<string, MarginSpecRow> | undefined,
   symbols: string[],
-): MarginSettingPayload[] {
-  const raw = settings ?? {};
+): MarginSpecPayload[] {
+  const raw = specs ?? {};
   return pickDirectSymbols(symbols).map((symbol) => ({
     symbol,
     leverage: raw[symbol]?.leverage ?? 1,

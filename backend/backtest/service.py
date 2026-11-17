@@ -470,7 +470,7 @@ class BacktestService:
         Returns:
             dict: {metrics, trades, equity_curve, positions, liquidation_events,
                 insurance_fund_loss, price_basis, margin_applied,
-                margin_specs_effective, liquidation_count, margin_shortfall_count}
+                margin_specs_effective, liquidation_count, shortfall_count}
         """
         entries = BacktestService.extract_symbol_entries(results)
         portfolio = results.get("portfolio") if isinstance(results, dict) else None
@@ -512,7 +512,12 @@ class BacktestService:
         # 旧结果没有计数键：用事件条数兜底，保持与详情页「强平记录」一致
         if liquidation_count == 0 and liquidation_events:
             liquidation_count = len(liquidation_events)
-        margin_shortfall_count = int(portfolio.get("margin_shortfall_count") or 0) if isinstance(portfolio, dict) else 0
+        # 旧结果 JSON 的键名是 margin_shortfall_count，回退一行避免历史统计归零
+        shortfall_count = (
+            int(portfolio.get("shortfall_count") or portfolio.get("margin_shortfall_count") or 0)
+            if isinstance(portfolio, dict)
+            else 0
+        )
 
         return {
             "metrics": metrics,
@@ -525,7 +530,7 @@ class BacktestService:
             "margin_applied": margin_applied,
             "margin_specs_effective": margin_specs_effective,
             "liquidation_count": liquidation_count,
-            "margin_shortfall_count": margin_shortfall_count,
+            "shortfall_count": shortfall_count,
         }
 
     @staticmethod

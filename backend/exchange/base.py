@@ -530,7 +530,7 @@ class BaseExchange:
 
     _exchange_features: ExchangeFeatures = {
         "spot_trading": True,
-        "margin_trading": False,
+        "leverage_trading": False,
         "futures_trading": False,
         "stoploss_on_exchange": False,
         "stoploss_order_types": {},
@@ -554,7 +554,7 @@ class BaseExchange:
         "staking": False,
         "savings": False,
         "convert": False,
-        "margin_loan": False,
+        "leverage_loan": False,
         "futures_leverage": False,
         "funding_rate": False,
         "ws_enabled": False,
@@ -577,7 +577,7 @@ class BaseExchange:
             exchange_name: 交易所名称
             api_key: API密钥
             secret_key: API密钥密钥
-            trading_mode: 交易模式，如 'spot', 'margin', 'futures'
+            trading_mode: 交易模式，如 'spot', 'futures'
             proxy_url: 代理URL
             testnet: 是否使用测试网络
             **kwargs: 其他配置参数
@@ -961,7 +961,7 @@ class BaseExchange:
             feature="convert",
         )
 
-    def margin_borrow(
+    def borrow_margin(
         self,
         asset: str,
         amount: Decimal,
@@ -983,14 +983,14 @@ class BaseExchange:
         Raises:
             NotImplementedFeatureError: 交易所不支持杠杆功能
         """
-        msg = f"Margin trading is not supported by {self.exchange_name}"
+        msg = f"Leverage borrowing is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
             msg,
             exchange_name=self.exchange_name,
-            feature="margin_loan",
+            feature="leverage_loan",
         )
 
-    def margin_repay(
+    def repay_margin(
         self,
         asset: str,
         amount: Decimal,
@@ -1012,11 +1012,11 @@ class BaseExchange:
         Raises:
             NotImplementedFeatureError: 交易所不支持杠杆功能
         """
-        msg = f"Margin trading is not supported by {self.exchange_name}"
+        msg = f"Leverage repayment is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
             msg,
             exchange_name=self.exchange_name,
-            feature="margin_loan",
+            feature="leverage_loan",
         )
 
     def set_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
