@@ -11,7 +11,7 @@ import { Badge, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag } from
 import type { TableColumnsType } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
-import type { PositionInfo } from '@/types/worker';
+import type { PositionInfo, PositionSide } from '@/types/worker';
 import {
   QUANT_COLORS,
   calcROE,
@@ -80,12 +80,12 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
     },
     {
       title: t('direction'),
-      dataIndex: 'side',
-      key: 'side',
+      dataIndex: 'position_side',
+      key: 'position_side',
       width: 80,
-      render: (side: 'long' | 'short') => (
-        <Tag color={side === 'long' ? 'green' : 'red'}>
-          {side === 'long' ? t('long') : t('short')}
+      render: (side: PositionSide) => (
+        <Tag color={side === 'long' ? 'green' : side === 'short' ? 'red' : 'blue'}>
+          {side === 'long' ? t('long') : side === 'short' ? t('short') : t('position_side_both')}
         </Tag>
       ),
     },
@@ -279,7 +279,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
           <Table
             columns={columns}
             dataSource={positions}
-            rowKey={(record) => `${record.symbol}-${record.side}`}
+            rowKey={(record) => `${record.symbol}-${record.position_side}`}
             rowClassName={rowClassName}
             pagination={false}
             size="middle"

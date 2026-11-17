@@ -17,6 +17,10 @@ export const WorkerStatus = {
 // Worker状态类型
 export type WorkerStatus = typeof WorkerStatus[keyof typeof WorkerStatus];
 
+/** 方向词汇 canonical（与 backend/worker/vocab.py 对齐，铁律1） */
+export type Side = 'buy' | 'sell';
+export type PositionSide = 'long' | 'short' | 'both';
+
 // Worker状态文本映射
 export const WorkerStatusText: Record<WorkerStatus, string> = {
   [WorkerStatus.STOPPED]: '已停止',
@@ -215,7 +219,9 @@ export interface WorkerTrade {
   worker_id: number;
   trade_id: string;
   symbol: string;
-  side: 'buy' | 'sell';
+  side: Side;
+  position_side?: PositionSide;
+  reduce_only?: boolean;
   order_type: string;
   quantity: number;
   price: number;
@@ -255,7 +261,9 @@ export interface PositionInfo {
   worker_id?: number;
   position_id: string;
   symbol: string;
-  side: 'long' | 'short';
+  position_side: PositionSide;           // canonical 主键
+  /** @deprecated 后端双送别名过渡一个版本，恒等于 position_side */
+  side?: PositionSide;
   quantity: number;
   entry_price: number;
   current_price: number;
@@ -279,14 +287,15 @@ export interface OrderInfo {
   client_order_id?: string;
   venue_order_id?: string;
   symbol: string;
-  side: 'buy' | 'sell';
+  side: Side;
   order_type: string;
   quantity: number;
   price?: number;
   avg_fill_price?: number;
   status: string;
   filled_quantity: number;
-  position_side?: 'LONG' | 'SHORT' | 'BOTH';
+  position_side?: PositionSide;
+  reduce_only?: boolean;
   created_at: string;
   submitted_at?: string;
 }

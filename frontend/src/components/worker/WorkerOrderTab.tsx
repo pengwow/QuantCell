@@ -32,7 +32,7 @@ import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
 import { formatQuantity, formatTimestamp, formatUSD, truncateId, QUANT_COLORS } from '@/utils/format';
 import { downloadCsv, timestampedFilename } from '@/utils/exportCsv';
-import type { TradeQueryParams } from '@/types/worker';
+import type { Side, PositionSide, TradeQueryParams } from '@/types/worker';
 
 const { RangePicker } = DatePicker;
 
@@ -54,8 +54,8 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
 
 const STATUS_OPTIONS = Object.keys(STATUS_LABEL_KEYS);
 
-// 方向枚举：显示标签走 i18n（买入/卖出），与总览持仓区（做多/做空）共用同一套文案体系
-const SIDE_OPTIONS = ['BUY', 'SELL'];
+// 方向枚举：canonical 小写（铁律1），显示标签走 i18n（买入/卖出）
+const SIDE_OPTIONS: Side[] = ['buy', 'sell'];
 
 // 订单类型 -> i18n key（未知类型回退显示原始英文枚举）
 const ORDER_TYPE_LABEL_KEYS: Record<string, string> = {
@@ -77,6 +77,9 @@ interface MergedRow {
   order_id: string;
   symbol: string;
   side: string;
+  /** 声明值（仓位归属，不从 side 推导）；老后端响应无此键为 undefined */
+  position_side?: PositionSide;
+  reduce_only?: boolean;
   order_type: string;
   quantity: number;
   /** 仅订单行：委托价（市价单为空） */
@@ -132,7 +135,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       setLoading(true);
       try {
         const symbol = applied.symbol || undefined;
-        // 成交表 side 存小写（ccxt 口径），订单表存大写
+        // 方向筛选值为 canonical 小写，响应已统一（铁律1），无需大小写补丁
         const side = applied.side || undefined;
         const orderType = applied.order_type || undefined;
         const timeParams =
@@ -151,7 +154,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         const tradeParams: TradeQueryParams | undefined = tradesNeeded
           ? {
               symbol,
-              side: side?.toLowerCase(),
+              side: side,   // canonical 值直传，后端归一兜底
               order_type: orderType,
               ...timeParams,
               page: targetPage,
@@ -188,7 +191,9 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
           kind: 'trade',
           order_id: tr.trade_id,
           symbol: tr.symbol,
-          side: (tr.side || '').toUpperCase(),
+          side: tr.side || '',                       // 响应已 canonical，不再翻转
+          position_side: tr.position_side,
+          reduce_only: tr.reduce_only,
           order_type: (tr.order_type || 'MARKET').toUpperCase(),
           quantity: tr.quantity,
           avg_fill_price: tr.price,
@@ -202,7 +207,9 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
           kind: 'order',
           order_id: o.client_order_id || o.venue_order_id || '',
           symbol: o.symbol,
-          side: (o.side || '').toUpperCase(),
+          side: o.side || '',                        // 响应已 canonical，不再翻转
+          position_side: o.position_side,
+          reduce_only: o.reduce_only,
           order_type: (o.order_type || '').toUpperCase(),
           quantity: o.quantity,
           price: o.price,
@@ -269,6 +276,8 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         { header: t('worker_order_id'), accessor: (r) => r.order_id },
         { header: t('symbol'), accessor: 'symbol' },
         { header: t('direction'), accessor: 'side' },
+        { header: t('position_side'), accessor: (r: MergedRow) => r.position_side ?? '' },
+        { header: t('reduce_only'), accessor: (r: MergedRow) => (r.reduce_only == null ? '' : r.reduce_only ? 'true' : 'false') },
         { header: t('type'), accessor: 'order_type' },
         { header: t('quantity'), accessor: 'quantity' },
         { header: t('worker_order_price'), accessor: (r) => r.price ?? '' },
@@ -309,8 +318,8 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       key: 'side',
       width: 80,
       render: (side: string) => (
-        <Tag color={side === 'BUY' ? 'green' : side === 'SELL' ? 'red' : 'default'}>
-          {(side && t(side.toLowerCase())) || '-'}
+        <Tag color={side === 'buy' ? 'green' : side === 'sell' ? 'red' : 'default'}>
+          {side ? t(side) : '-'}
         </Tag>
       ),
     },
@@ -510,7 +519,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
               <Select
                 placeholder={t('all')}
                 allowClear
-                options={SIDE_OPTIONS.map((v) => ({ value: v, label: t(v.toLowerCase()) }))}
+                options={SIDE_OPTIONS.map((v) => ({ value: v, label: t(v) }))}
                 style={{ width: 100 }}
               />
             </Form.Item>
