@@ -61,7 +61,15 @@ TERM_RULES: dict[str, dict] = {
     "LONG/SHORT": {
         "regex": r"\b(LONG|SHORT)\b",
         "case_sensitive": True,
-        "context_allow": [r"PositionSide\.", r"position_side"],  # 原生值归一边界
+        "context_allow": [
+            r"PositionSide\.",
+            r"position_side",
+            # 测试守护情境（P2-13 定性）：词汇归一收口后，必须持续验证「大写入参被
+            # 兼容归一 / 被 Schema 拒绝」，以下非 canonical 字面量是测试本体，故意保留：
+            r"side\s*=?\s*[\"']?(?:LONG|SHORT)\b",  # side="LONG" / ?side=LONG / event.side = "LONG"
+            r"[\"'](?:LONG|SHORT)[\"']\s*,\s*[\"'](?:long|short)[\"']",  # 参数化归一对 ("LONG", "long")
+            r"VALUES\s*\(\s*[\"'](?:LONG|SHORT)[\"']\s*\)",  # 迁移测试的遗留大写脏数据
+        ],
     },
     # account 域：裸 wallet 禁用（wallet_balance canonical 有 _ 续接，\bwallet\b 天然不命中）
     "wallet": {"regex": r"\bwallet\b", "case_sensitive": False},

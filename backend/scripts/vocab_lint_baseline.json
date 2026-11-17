@@ -1,17 +1,1 @@
-{
-  "backend/tests/unit/worker/test_event_handler.py": {
-    "LONG/SHORT": 1
-  },
-  "backend/tests/unit/worker/test_migration_40_position_side.py": {
-    "LONG/SHORT": 1
-  },
-  "backend/tests/unit/worker/test_trading_stats.py": {
-    "LONG/SHORT": 1
-  },
-  "backend/tests/unit/worker/test_vocab.py": {
-    "LONG/SHORT": 2
-  },
-  "backend/tests/unit/worker/test_worker_positions_route.py": {
-    "LONG/SHORT": 2
-  }
-}
+{}
