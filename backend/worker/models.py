@@ -4,9 +4,11 @@ Worker数据库模型定义
 
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    DECIMAL,
     BigInteger,
     Boolean,
     Column,
@@ -21,8 +23,37 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import object_session, relationship
+from sqlalchemy.types import TypeDecorator
 
 from collector.db.database import Base
+
+
+class PriceAsFloat(TypeDecorator):
+    """worker 域价格列统一口径：DECIMAL(30, 8) 存储，读出恒 float（P2-7）。
+
+    读取面分散（to_dict 透传前端、数量×价格混算、分笔 VWAP 累加），用
+    TypeDecorator 一处收口而不是逐点 float()：SQLite 对 DECIMAL(asdecimal=False)
+    读 float，但 DuckDB 等 native decimal 方言下 asdecimal=False 不生效仍读出
+    Decimal（实测），Float×Decimal 混算会 TypeError；本装饰器在全部方言读 float，
+    下游计算与序列化零改动。写入端 float/str/Decimal 统一 Decimal(str(...))
+    规整（与 market_data_factory 口径一致），DECIMAL 精度真正落地，历史 float
+    的二进制尾数误差不再进入交易台账。
+    """
+
+    impl = DECIMAL
+    cache_ok = True
+
+    def __init__(self, precision: int = 30, scale: int = 8) -> None:
+        super().__init__(precision=precision, scale=scale)
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if value is None or isinstance(value, Decimal):
+            return value
+        # str 中转保留十进制字面精度，避免 float repr 的二进制噪声入库
+        return Decimal(str(value))
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        return float(value) if value is not None else None
 
 
 class Worker(Base):
@@ -623,7 +654,8 @@ class WorkerTrade(Base):
 
     # 交易数量
     quantity = Column(Float, nullable=False)
-    price = Column(Float, nullable=False)
+    # 价格列 P2-7 迁移 DECIMAL(30,8)，读出 float（PriceAsFloat 收口，四处价格列同口径）
+    price = Column(PriceAsFloat(), nullable=False)
     # 名义价值（数量×价格）。列名原为 amount，迁移 42 改名 notional，
     # 与交易所响应里"下单数量"含义的 amount 解除词形重载
     notional = Column(Float, nullable=False)
@@ -712,10 +744,10 @@ class WorkerOrder(Base):
 
     # 数量和价格
     quantity = Column(Float, nullable=False)  # 委托数量
-    price = Column(Float, nullable=True)  # 委托价格（市价单为None）
+    price = Column(PriceAsFloat(), nullable=True)  # 委托价格（市价单为None）
     # 已成交数量。列名原为 filled_qty，迁移 42 改名，数量族统一 quantity 拼写
     filled_quantity = Column(Float, default=0.0)
-    avg_fill_price = Column(Float, default=0.0)  # 成交均价
+    avg_fill_price = Column(PriceAsFloat(), default=0.0)  # 成交均价
 
     # 订单状态
     status = Column(String(20), nullable=False, index=True)
@@ -782,8 +814,8 @@ class WorkerPosition(Base):
     quantity = Column(Float, nullable=False)  # 持仓数量（正数）
 
     # 价格信息
-    entry_price = Column(Float, nullable=False)  # 开仓均价
-    current_price = Column(Float, nullable=True)  # 当前价格（用于计算浮动盈亏）
+    entry_price = Column(PriceAsFloat(), nullable=False)  # 开仓均价
+    current_price = Column(PriceAsFloat(), nullable=True)  # 当前价格（用于计算浮动盈亏）
 
     # 盈亏计算
     unrealized_pnl = Column(Float, default=0.0)  # 未实现盈亏
@@ -852,7 +884,7 @@ class WorkerFillEvidence(Base):
     symbol = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # buy/sell（canonical 小写，create_trade_if_not_exists 归一后透传）
     quantity = Column(Float, nullable=False)  # 列名原为 qty，迁移 42 改名与 WorkerTrade.quantity 对齐
-    price = Column(Float, nullable=True)
+    price = Column(PriceAsFloat(), nullable=True)
     fee = Column(Float, nullable=True)
 
     applied_at = Column(DateTime, default=func.now())

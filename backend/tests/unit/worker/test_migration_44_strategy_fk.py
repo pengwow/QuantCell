@@ -24,20 +24,30 @@ def _load_migration():
 
 
 def _build_broken_db(conn) -> None:
-    """复刻 8b8f30ec3699 重建后的物理 DDL：strategy_id 无任何 FK 约束。"""
+    """复刻 8b8f30ec3699 重建后的物理 DDL：strategy_id 无任何 FK 约束。
+
+    trading_config / strategy_type 两列与真实库对齐（batch 重建时迁移会顺带
+    规整这两列的 server_default，见 44 号迁移内注释）。
+    """
     conn.execute(sa.text("CREATE TABLE strategies (id INTEGER PRIMARY KEY, name TEXT)"))
     conn.execute(
         sa.text(
             "CREATE TABLE workers ("
             "id INTEGER PRIMARY KEY, "
             "name TEXT NOT NULL, "
+            "trading_config TEXT, "
+            "strategy_type VARCHAR(20), "
             "strategy_id INTEGER, "  # 历史重建 bug：裸列
             "strategy_name TEXT"
             ")"
         )
     )
     conn.execute(sa.text("INSERT INTO strategies (id, name) VALUES (1, 'dual_ma')"))
-    conn.execute(sa.text("INSERT INTO workers (id, name, strategy_id, strategy_name) VALUES (1, 'w1', 1, 'dual_ma')"))
+    conn.execute(
+        sa.text(
+            "INSERT INTO workers (id, name, trading_config, strategy_type, strategy_id, strategy_name) VALUES (1, 'w1', '{}', 'rule', 1, 'dual_ma')"
+        )
+    )
 
 
 def _upgrade(engine) -> None:
@@ -68,10 +78,13 @@ def test_upgrade_adds_fk_and_is_idempotent() -> None:
 
     fks = _strategy_fks(engine)
     assert [(f[3], f[2]) for f in fks] == [("strategy_id", "strategies")]  # (from, referred_table)
-    # 列与数据在 batch 重建后保留
+    # 列与数据在 batch 重建后保留；server_default 被规整为单引号纯常量（不再 DQS 歧义）
     with engine.connect() as conn:
         rows = conn.execute(sa.text("SELECT id, name, strategy_id, strategy_name FROM workers")).fetchall()
+        cols = {c["name"]: c for c in sa.inspect(conn).get_columns("workers")}
     assert rows == [(1, "w1", 1, "dual_ma")]
+    assert cols["trading_config"]["default"] == "'{}'"
+    assert cols["strategy_type"]["default"] == "'rule'"
 
 
 def test_upgrade_on_fk_ready_db_is_noop() -> None:

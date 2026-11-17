@@ -44,8 +44,22 @@ def upgrade() -> None:
     if _strategy_fk(conn) is not None:
         return  # FK 已存在（新库 create_all / 本迁移重放）则跳过
     if conn.dialect.name == "sqlite":
-        # SQLite 无 ADD CONSTRAINT，只能整表重建；batch 模式自动反射并恢复全部列/索引
+        # SQLite 无 ADD CONSTRAINT，只能整表重建；batch 模式自动反射并恢复全部列/索引。
+        # 顺带规整两列 DQS 歧义 server_default（历史 schema 写成双引号 DEFAULT "{}" /
+        # DEFAULT "rule"，SQLite 判 identifier 非 constant，新引擎整表重建报错）：
+        # trading_config 的 JSON 语义本就是对空对象，单引号 '{}' 才是正字面；
+        # strategy_type 同理规整为 'rule'。
         with op.batch_alter_table(_TABLE) as batch_op:
+            batch_op.alter_column(
+                "trading_config",
+                existing_type=sa.Text(),
+                server_default=sa.text("'{}'"),
+            )
+            batch_op.alter_column(
+                "strategy_type",
+                existing_type=sa.String(20),
+                server_default=sa.text("'rule'"),
+            )
             batch_op.create_foreign_key(_FK_NAME, _REFERRED, ["strategy_id"], ["id"])
     else:
         op.create_foreign_key(_FK_NAME, _TABLE, _REFERRED, ["strategy_id"], ["id"])
