@@ -52,10 +52,10 @@ export interface Trade {
   fills: TradeFill[];            // 逐笔成交明细
 }
 
-// 权益数据接口
+// 权益数据接口（字段小写，与后端 equity_curve 点契约对齐）
 export interface EquityData {
   datetime: string;
-  Equity: number;
+  equity: number;
 }
 
 // 回测指标接口
@@ -263,7 +263,7 @@ export interface SymbolInfo {
 }
 
 // ---- 全局视角（组合）回放 ----
-// 账户稀疏点：[t(ms), equity, balance, margin, cum_pnl, drawdown, day_pnl]
+// 账户稀疏点：[t(ms), equity, balance, margin_used, cum_pnl, drawdown, day_pnl]
 export type PortfolioAccountPoint = [number, number, number, number, number, number, number];
 
 // 成交流重建的单笔持仓事件（成交后净持仓状态）

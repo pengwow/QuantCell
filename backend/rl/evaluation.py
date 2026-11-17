@@ -1,6 +1,6 @@
 """RL model evaluation — 门面转发 axon_quant.rl 评估设施。
 
-指标计算设施（env 逐 step 回放 + NAV 统计口径：√252 年化 / 999.99 哨兵 /
+指标计算设施（env 逐 step 回放 + 账户净值 equity 统计口径：√252 年化 / 999.99 哨兵 /
 round 精度）已于 2026-11-11 下沉到 `axon_quant.rl.evaluation`，数值口径逐行
 对齐原实现；backend 保留 `evaluate_model` 签名与 `EvaluationMetrics` dataclass
 作为编排契约，门面仅做 SB3 模型适配与 dict→dataclass 转换。
@@ -27,7 +27,7 @@ class EvaluationMetrics:
 
 
 def evaluate_model(model, env, transaction_cost: float | None = None) -> EvaluationMetrics:
-    """Run a trained SB3 model on env, collect NAV trajectory, compute metrics.
+    """Run a trained SB3 model on env, collect equity trajectory, compute metrics.
 
     Args:
         transaction_cost: 环境实际使用的费率（`TradingEnv` 的 `transaction_cost`）。

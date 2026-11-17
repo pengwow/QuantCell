@@ -9,13 +9,12 @@ import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallback
 import { theme } from 'antd';
 import { useQuantColors } from '@/utils/colors';
 
-// 权益数据接口（统一用小写字段：equity / balance / margin）
+// 权益数据接口（统一用小写字段：equity / balance）
 export interface EquityData {
   datetime?: string;
   formatted_time?: string;
   equity?: number;
   balance?: number;
-  margin?: number;
   timestamp?: number;
 }
 

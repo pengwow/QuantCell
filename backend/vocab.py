@@ -37,6 +37,26 @@ def normalize_position_side(value: str) -> PositionSide:
 
 
 # ---------------------------------------------------------------------------
+# 账户域（命名审计 P2-1）：资金口径 5 词边界，禁止混用
+# ---------------------------------------------------------------------------
+
+# canonical 与分界（审计报告 §10.4 裁决）：
+#   equity           账户总价值（cash + 持仓市值，含浮盈）——总量口径的唯一词。
+#   balance          不含浮盈的余额口径，两个注册子语义：
+#                      (a) 回测 MT4 存款曲线：本金 + 已实现盈亏 − 费用（equity − balance 即浮盈）；
+#                      (b) 交易所钱包余额快照（adapter 的 get_balance，各币种 dict，ccxt 惯例）。
+#   cash             纯现金余额（账户/现货语境）。
+#   nav              份额制净值（factor 域 cumprod 曲线）+ Rust 内核边界词（序列化产物
+#                      bar_nav_curve / final_nav / nav_peak）。Python/TS 新代码禁止再引入
+#                      nav 表示账户绝对总值；消费内核产物时应立即映射为 equity。
+#   wallet_balance   交易所单币种钱包余额；裸 wallet 禁用。
+#   available        仅允许"可用性布尔"语义；资金语义必须是 available_balance。
+#   margin_used      已用保证金（曲线/字段）。margin 前缀仅保留于保证金配置语境
+#                      （margin_mode / margin_applied / margin_specs_effective）。
+# Rust 内核内部保留自有词汇（Portfolio::cash / Portfolio::nav()），属引擎域内实现，
+# 跨到 Python/TS 即按上表映射。
+
+# ---------------------------------------------------------------------------
 # symbol 域（命名审计 P1-5）：canonical = 紧缩大写 "BTCUSDT"
 # ---------------------------------------------------------------------------
 

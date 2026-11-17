@@ -559,7 +559,7 @@ class BacktestService:
             initial = {
                 "equity": float(first_point.get("equity") or 0.0),
                 "balance": float(first_point.get("balance") or 0.0),
-                "margin": float(first_point.get("margin") or 0.0),
+                "margin_used": float(first_point.get("margin_used") or 0.0),
             }
             prepared.append((ts_to_point, initial, first_point))
 
@@ -568,7 +568,7 @@ class BacktestService:
         last_points: list[dict[str, Any] | None] = [None] * len(prepared)
 
         for ts in all_ts:
-            total = {"equity": 0.0, "balance": 0.0, "margin": 0.0}
+            total = {"equity": 0.0, "balance": 0.0, "margin_used": 0.0}
             ref_point: dict[str, Any] | None = None
             for idx, (ts_to_point, initial, _first) in enumerate(prepared):
                 point = ts_to_point.get(ts)
@@ -583,7 +583,7 @@ class BacktestService:
                     values = {
                         "equity": float(current.get("equity") or 0.0),
                         "balance": float(current.get("balance") or 0.0),
-                        "margin": float(current.get("margin") or 0.0),
+                        "margin_used": float(current.get("margin_used") or 0.0),
                     }
                 for k in total:
                     total[k] += values[k]
@@ -597,7 +597,7 @@ class BacktestService:
                     "formatted_time": formatted_time,
                     "equity": round(total["equity"], 8),
                     "balance": round(total["balance"], 8),
-                    "margin": round(total["margin"], 8),
+                    "margin_used": round(total["margin_used"], 8),
                 }
             )
 
@@ -734,11 +734,11 @@ class BacktestService:
                 [
                     t,
                     round(equity, 4),
-                    # balance / margin 用 get 兜底：共享模式下 merged 直接来自引擎的
+                    # balance / margin_used 用 get 兜底：共享模式下 merged 直接来自引擎的
                     # bar_nav_curve（只有 equity/timestamp），没有这两个键；非共享模式
                     # 经 _merge_equity_curves 会补上且恒为 0，两者取值一致
                     round(float(p.get("balance") or 0.0), 4),
-                    round(float(p.get("margin") or 0.0), 4),
+                    round(float(p.get("margin_used") or 0.0), 4),
                     round(equity - total_initial, 4),
                     round(drawdown, 6),
                     round(equity - day_first_equity[day_key], 4),

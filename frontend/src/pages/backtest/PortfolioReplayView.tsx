@@ -387,10 +387,10 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     if (!data) return null;
     const idx = bisectRight<PortfolioAccountPoint>(data.account, currentMs, (p) => p[0]);
     if (idx === 0) {
-      return { equity: data.init_cash, balance: data.init_cash, margin: 0, cum_pnl: 0, drawdown: 0, day_pnl: 0 };
+      return { equity: data.init_cash, balance: data.init_cash, margin_used: 0, cum_pnl: 0, drawdown: 0, day_pnl: 0 };
     }
     const p = data.account[idx - 1];
-    return { equity: p[1], balance: p[2], margin: p[3], cum_pnl: p[4], drawdown: p[5], day_pnl: p[6] };
+    return { equity: p[1], balance: p[2], margin_used: p[3], cum_pnl: p[4], drawdown: p[5], day_pnl: p[6] };
   }, [data, currentMs]);
 
   // ---- 当前持仓：扫描截至当前的事件，取每品种最新状态 ----
@@ -645,7 +645,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
               <Statistic title={t('backtest_available_balance')} value={account.balance} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
-              <Statistic title={t('backtest_margin')} value={account.margin} precision={2} />
+              <Statistic title={t('backtest_margin')} value={account.margin_used} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
               <Statistic

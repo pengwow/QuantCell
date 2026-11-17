@@ -92,7 +92,6 @@ interface EquityCurvePoint {
   formatted_time: string;
   equity: number;
   balance: number;
-  margin?: number;
 }
 
 // 逐档部分强平事件（引擎产出；字段按可选处理，旧任务结果 JSON 无此项）
@@ -323,12 +322,11 @@ const BacktestDetail = () => {
 
   // 获取权益曲线数据，转换为 EquityChart 组件期望的格式
   // 包含结余(balance)和净值(equity)两条线
-  const getEquityCurve = (): Array<{ datetime: string; equity: number; balance: number; margin?: number }> => {
+  const getEquityCurve = (): Array<{ datetime: string; equity: number; balance: number }> => {
     return (backtestData?.equity_curve || []).map(point => ({
       datetime: point.formatted_time || new Date(point.timestamp * 1000).toISOString(),
       equity: point.equity,
       balance: point.balance,
-      margin: point.margin,
     }));
   };
 

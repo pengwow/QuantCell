@@ -609,7 +609,7 @@ class TestResultConversionPerformance:
                 "timestamp": pd.date_range("2023-01-01", periods=n_points, freq="1min"),
                 "equity": 100000 + np.cumsum(np.random.normal(0, 100, n_points)),
                 "balance": 100000 + np.cumsum(np.random.normal(0, 100, n_points)),
-                "margin": np.random.uniform(1000, 10000, n_points),
+                "margin_used": np.random.uniform(1000, 10000, n_points),
             }
         )
 
@@ -622,7 +622,7 @@ class TestResultConversionPerformance:
                         "timestamp": str(row["timestamp"]),
                         "equity": float(row["equity"]),
                         "balance": float(row["balance"]),
-                        "margin": float(row["margin"]),
+                        "margin_used": float(row["margin_used"]),
                     }
                 )
 

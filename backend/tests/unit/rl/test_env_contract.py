@@ -26,7 +26,7 @@ def test_backtest_env_obs_dim_64() -> None:
     assert env.observation_space.shape == (64,)
     obs, info = env.reset()
     assert obs.shape == (64,)
-    assert info["nav"] == 100_000.0
+    assert info["equity"] == 100_000.0
 
 
 def test_backtest_env_action_bounded_neg1_1() -> None:
@@ -46,7 +46,7 @@ def test_backtest_env_step_returns_gym_5_tuple() -> None:
     assert isinstance(reward, float)
     assert isinstance(terminated, bool)
     assert isinstance(truncated, bool)
-    assert "nav" in info
+    assert "equity" in info
 
 
 def test_backtest_env_reset_with_seed() -> None:
