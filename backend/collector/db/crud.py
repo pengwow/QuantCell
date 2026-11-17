@@ -381,7 +381,7 @@ def create_features(db: Session, features: list[schemas.FeatureCreate]) -> list[
         insert_data = {
             "symbol": feature.symbol,
             "feature_name": feature.feature_name,
-            "freq": feature.freq,
+            "freq": feature.interval,
         }
 
         # 执行原始SQL插入，获取自动生成的字段值
@@ -395,7 +395,7 @@ def create_features(db: Session, features: list[schemas.FeatureCreate]) -> list[
                 id=insert_result[0],
                 symbol=feature.symbol,
                 feature_name=feature.feature_name,
-                freq=feature.freq,
+                interval=feature.interval,
                 created_at=insert_result[1],
                 updated_at=insert_result[2],
             )

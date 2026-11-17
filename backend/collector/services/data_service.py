@@ -520,7 +520,7 @@ class DataService:
             # 格式化特征信息
             feature_info = {
                 "symbol": symbol,
-                "features": [{"feature_name": f.feature_name, "freq": f.freq} for f in features],
+                "features": [{"feature_name": f.feature_name, "interval": f.interval} for f in features],
                 "count": len(features),
             }
             return {
@@ -537,7 +537,7 @@ class DataService:
             for f in features:
                 if f.symbol not in features_by_symbol:
                     features_by_symbol[f.symbol] = []
-                features_by_symbol[f.symbol].append({"feature_name": f.feature_name, "freq": f.freq})
+                features_by_symbol[f.symbol].append({"feature_name": f.feature_name, "interval": f.interval})
 
             # 返回所有货币的特征
             result = {"features": []}
@@ -567,7 +567,7 @@ class DataService:
         # 格式化特征信息
         feature_info = {
             "symbol": symbol,
-            "features": [{"feature_name": f.feature_name, "freq": f.freq} for f in features],
+            "features": [{"feature_name": f.feature_name, "interval": f.interval} for f in features],
             "count": len(features),
         }
 

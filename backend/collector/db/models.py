@@ -188,7 +188,8 @@ class Feature(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     feature_name = Column(String, nullable=False, index=True)
-    freq = Column(String, nullable=False, index=True)
+    # K线/数据采样周期：DB 列名保留 freq（历史表结构），应用面统一为 interval（见 vocab.py）
+    interval = Column("freq", String(20), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 

@@ -29,7 +29,7 @@ export interface IndicatorAlertsModalProps {
   onClose: () => void;
   /** 图表当前交易对（如 BTC/USDT），作为新建规则的默认 symbol */
   defaultSymbol?: string;
-  /** 图表当前周期（如 1h），作为新建规则的默认 period */
+  /** 图表当前周期（如 1h），作为新建规则的默认 interval */
   defaultPeriod?: string;
 }
 

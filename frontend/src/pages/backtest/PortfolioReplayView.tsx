@@ -102,7 +102,7 @@ const parseInterval = (interval: string): { span: number; type: PeriodType } => 
 };
 
 // ---- 当前持仓表行 ----
-interface HoldingRow {
+interface PositionRow {
   symbol: string;
   quantity: number;
   avg_cost: number;
@@ -396,17 +396,17 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
   // ---- 当前持仓：扫描截至当前的事件，取每品种最新状态 ----
   // ponytail: 每帧 O(事件数) 线性扫描，3453 事件 × 128 格/秒量级无压力；
   // 若未来事件上万且掉帧，升级为「网格索引 -> 事件指针」增量维护
-  const holdings = useMemo<HoldingRow[]>(() => {
+  const positions = useMemo<PositionRow[]>(() => {
     if (!data) return [];
     const latest = new Map<string, PortfolioPositionEvent>();
     for (const ev of data.position_events) {
       if (ev.t > currentMs) break;
       latest.set(ev.symbol, ev);
     }
-    const rows: HoldingRow[] = [];
+    const rows: PositionRow[] = [];
     latest.forEach((ev, symbol) => {
       if (ev.quantity === 0) return;
-      const prices = data.holding_prices[symbol] ?? [];
+      const prices = data.position_prices[symbol] ?? [];
       const priceIdx = bisectRight<[number, number]>(prices, currentMs, (p) => p[0]) - 1;
       const price = priceIdx >= 0 ? prices[priceIdx][1] : ev.avg_cost;
       rows.push({
@@ -483,7 +483,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
   }, [data, currentMs, colors, t]);
 
   // ---- 持仓表列 ----
-  const holdingColumns: ColumnsType<HoldingRow> = [
+  const positionColumns: ColumnsType<PositionRow> = [
     { title: t('backtest_symbol_label'), dataIndex: 'symbol', key: 'symbol' },
     {
       title: t('backtest_side'),
@@ -720,12 +720,12 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 当前持仓 */}
-      <Card size="small" title={t('backtest_holdings_title', { count: holdings.length })}>
-        <Table<HoldingRow>
+      <Card size="small" title={t('backtest_holdings_title', { count: positions.length })}>
+        <Table<PositionRow>
           rowKey="symbol"
           size="small"
-          columns={holdingColumns}
-          dataSource={holdings}
+          columns={positionColumns}
+          dataSource={positions}
           pagination={false}
           locale={{ emptyText: t('backtest_no_holdings') }}
         />

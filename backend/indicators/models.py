@@ -227,7 +227,8 @@ class IndicatorAlertRule(TimezoneAwareBase):
     builtin_id = Column(String(50), nullable=True, index=True)
     name = Column(String(100), nullable=False, default="")
     symbol = Column(String(50), nullable=False)
-    period = Column(String(20), nullable=False, default="1h")
+    # K线周期：DB 列名保留 period（历史表结构），应用面统一为 interval（见 vocab.py）
+    interval = Column("period", String(20), nullable=False, default="1h")
     market_type = Column(String(20), nullable=False, default="crypto")
     crypto_type = Column(String(20), nullable=False, default="spot")
     params = Column(Text, nullable=False, default="{}")  # 指标参数，JSON 对象

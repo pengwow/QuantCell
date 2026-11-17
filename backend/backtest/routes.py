@@ -996,7 +996,7 @@ def get_backtest_replay_portfolio(backtest_id: str) -> ApiResponse:
 
     Returns:
         ApiResponse: 包含 start_ms/end_ms/grid_count/grid_step_ms/account/
-                     position_events/holding_prices/trades
+                     position_events/position_prices/trades
     """
     try:
         logger.info(f"获取全局回放数据请求，回测ID: {backtest_id}")

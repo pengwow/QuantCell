@@ -290,7 +290,7 @@ export interface PortfolioReplayData {
   account: PortfolioAccountPoint[];
   position_events: PortfolioPositionEvent[];
   // 持仓期收盘价点（仅净持仓非零网格）：{ symbol: [[t(ms), close], ...] }
-  holding_prices: Record<string, Array<[number, number]>>;
+  position_prices: Record<string, Array<[number, number]>>;
   trades: ReplayTrade[];
   capital_mode?: 'per_symbol' | 'shared';   // 本次回测的资金使用方式，供口径说明按模式渲染
   // 生效保证金回显：与单品种 /replay 口径一致；仅启用保证金时显示「保证金占用」列

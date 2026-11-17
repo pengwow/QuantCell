@@ -58,20 +58,6 @@ class DataInfoResponse(BaseModel):
     total_features: int = Field(default=0, description="总特征数量")
 
 
-class CalendarInfoResponse(BaseModel):
-    """交易日历信息响应模型
-
-    Attributes:
-        freq: 频率
-        dates: 日期列表
-        count: 日期数量
-    """
-
-    freq: str = Field(..., description="频率")
-    dates: list[str] = Field(default_factory=list, description="日期列表")
-    count: int = Field(default=0, description="日期数量")
-
-
 class InstrumentInfoResponse(BaseModel):
     """成分股信息响应模型
 

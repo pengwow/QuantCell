@@ -41,7 +41,7 @@ interface AlertRule {
   builtin_id?: string | null;
   name: string;
   symbol: string;
-  period: string;
+  interval: string;
   market_type: string;
   crypto_type: string;
   plot_name: string;
@@ -112,7 +112,7 @@ interface IndicatorAlertTabProps {
   builtinPlots?: string[];
   /** 图表当前交易对，作为新建规则的默认 symbol */
   defaultSymbol?: string;
-  /** 图表当前周期，作为新建规则的默认 period */
+  /** 图表当前周期，作为新建规则的默认 interval */
   defaultPeriod?: string;
 }
 
@@ -333,7 +333,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
     },
     {
       title: t('indicator.alertTarget'),
-      render: (_: unknown, rule: AlertRule) => `${rule.symbol} · ${rule.period}`,
+      render: (_: unknown, rule: AlertRule) => `${rule.symbol} · ${rule.interval}`,
     },
     {
       title: t('indicator.alertChannels'),
@@ -440,7 +440,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
           initialValues={{
             name: indicatorName,
             symbol: defaultSymbol ?? '',
-            period: defaultPeriod || '1h',
+            interval: defaultPeriod || '1h',
             op: 'gt',
             threshold: 0,
             frequency_value: 30,
@@ -466,7 +466,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
                 options={symbolOptions.map((s) => ({ value: s, label: s }))}
               />
             </Form.Item>
-            <Form.Item name="period" label={t('indicator.alertPeriod')} style={{ width: 120 }}>
+            <Form.Item name="interval" label={t('indicator.alertPeriod')} style={{ width: 120 }}>
               <Select
                 // 与图表周期条（PERIOD_BAR_ITEMS）取值范围对齐
                 options={['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w', '1M', '1y'].map(

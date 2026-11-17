@@ -629,7 +629,7 @@ class BacktestService:
         - account：每个网格点的组合权益/余额/保证金（合并权益曲线 ffill 对齐），
           并派生累计盈亏、滚动回撤、当日盈亏
         - position_events：逐笔成交重建净持仓后的稀疏事件（带移动加权均价）
-        - holding_prices：仅在各品种净持仓非零的网格区间给出收盘价点，供前端算浮盈
+        - position_prices：仅在各品种净持仓非零的网格区间给出收盘价点，供前端算浮盈
 
         Args:
             results: 结果 JSON 的 results 字段
@@ -686,7 +686,7 @@ class BacktestService:
                 "grid_step_ms": 900_000,
                 "account": [],
                 "position_events": [],
-                "holding_prices": {},
+                "position_prices": {},
                 "trades": [],
             }
         start_ms, end_ms = min(bounds), max(bounds)
@@ -779,7 +779,7 @@ class BacktestService:
             )
         fill_events.sort(key=lambda e: e["timestamp"])
 
-        position_events, holdings = self._rebuild_positions(fill_events, grid, klines_ts, klines_close)
+        position_events, positions = self._rebuild_positions(fill_events, grid, klines_ts, klines_close)
 
         # 新契约记录本身即展示所需全集，直接透传（无需再裁剪白名单）
         slim_trades = all_trades
@@ -797,7 +797,7 @@ class BacktestService:
             "account": account,
             "position_events": position_events,
             # {symbol: [[t, close], ...]} 仅净持仓非零的网格点
-            "holding_prices": holdings,
+            "position_prices": positions,
             "trades": slim_trades,
         }
 
@@ -815,15 +815,15 @@ class BacktestService:
         成交价为新开仓均价。
 
         Returns:
-            (position_events, holding_prices)
+            (position_events, position_prices)
             - position_events：每笔成交一条，含成交后净持仓/均价/网格时刻
-            - holding_prices：{symbol: [[t, close], ...]}，仅净持仓非零的网格点
+            - position_prices：{symbol: [[t, close], ...]}，仅净持仓非零的网格点
         """
         # 每笔成交归入其发生后的第一个网格点（该笔在该格末已成交）
         events: list[dict[str, Any]] = []
         events_by_grid: dict[int, list[dict[str, Any]]] = {}
         # 净持仓状态：symbol -> (qty, avg_cost)
-        holding: dict[str, list[float]] = {}
+        positions: dict[str, list[float]] = {}
 
         for tr in trades:
             # 输入恒为 service 层展开的 fill 事件（symbol/side/quantity/price/timestamp/pnl）
@@ -839,7 +839,7 @@ class BacktestService:
             if not sym or qty == 0.0 or price == 0.0:
                 continue
 
-            old_qty, old_avg = holding.get(sym, [0.0, 0.0])
+            old_qty, old_avg = positions.get(sym, [0.0, 0.0])
             new_qty = old_qty + signed
             if old_qty == 0.0:
                 new_avg = price
@@ -852,7 +852,7 @@ class BacktestService:
             else:
                 # 穿越 0 翻仓：反向剩余部分以成交价为均价
                 new_avg = price
-            holding[sym] = [new_qty, new_avg]
+            positions[sym] = [new_qty, new_avg]
 
             grid_idx = bisect_left(grid, int(tr["timestamp"]) * 1000)
             t = grid[min(grid_idx, len(grid) - 1)]
@@ -871,7 +871,7 @@ class BacktestService:
             events_by_grid.setdefault(t, []).append(event)
 
         # ---- 扫描网格，维护持仓状态，仅在净持仓非零时记录收盘价点 ----
-        holding_prices: dict[str, list[list[float]]] = {s: [] for s in holding}
+        position_prices: dict[str, list[list[float]]] = {s: [] for s in positions}
         state: dict[str, list[float]] = {}
         for t in grid:
             for ev in events_by_grid.get(t, []):
@@ -884,9 +884,9 @@ class BacktestService:
                 idx = bisect_right(ts_seq, t) - 1
                 if idx < 0:
                     continue  # 该品种此时尚无 K 线，无法取价
-                holding_prices[sym].append([t, klines_close[sym][idx]])
+                position_prices[sym].append([t, klines_close[sym][idx]])
 
-        return events, holding_prices
+        return events, position_prices
 
     def get_latest_result(self) -> dict | None:
         """获取最新的回测结果"""

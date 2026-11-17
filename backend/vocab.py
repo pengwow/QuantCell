@@ -72,6 +72,54 @@ def normalize_symbol(symbol: str) -> str:
     return s.replace("/", "").replace("\\", "").replace("-", "").replace("_", "").replace(" ", "")
 
 
+# ---------------------------------------------------------------------------
+# K线周期域（命名审计 P2-3）：K线频率 canonical = interval，禁止 period/freq
+# ---------------------------------------------------------------------------
+
+# interval      K线/数据采样周期（"1h"/"15m"）。锚：Rust 内核 Kernel(interval=...)、
+#               DataService.get_kline_data(interval=...) 既有口径。
+# period 例外清单（语义独立，非 K线频率，允许保留）：
+#   - 策略/指标回看窗口参数（bb_period / rsi_period 等，整数根数）；
+#   - exchange/decorators.rate_limit(calls, period) —— 限流窗口（秒）；
+#   - collector/services/deriv_collector.py 的 _PERIOD_MAP / self.period ——
+#     交易所 OpenInterest API 原生参数名，adapter 边界内允许（同 side 域的
+#     "BINANCE BUY 原则"：交易所原生词汇只存在于 adapter 边界内）；
+#   - backtest/baseline.py 报表的 report.period —— 报告覆盖的日期区间；
+#   - indicator_alert_rules / features 表的 DB 列 period / freq —— 历史列名，
+#     ORM 属性与传输面已改 interval，列名不动避免迁移。
+# freq 例外清单：
+#   - pandas date_range(freq=…) —— 第三方库参数名；
+#   - collector quality 服务内部 freq 局部变量——同上第三方参数语境。
+# frequency 语义独立，不属于本域：
+#   - IndicatorAlertRule.frequency —— 通知去重窗口（分钟）；
+#   - frequency_type —— 采集调度频率（hourly/daily）。
+# 前端图表 UI 与 chartPreferences 的 period 是展示层/本地遗留词；新增传输/API
+# 字段一律 interval。
+
+# ---------------------------------------------------------------------------
+# position / holding 域（命名审计 P2-3）：持仓 canonical = position
+# ---------------------------------------------------------------------------
+
+# position      仓位/持仓唯一词：position_events（逐笔成交重建的事件流）、
+#               position_prices（回测 replay 响应键，{symbol: [[t, close], ...]}
+#               仅净持仓非零的网格点，供前端算浮盈）。二者数据形态不同，不合并。
+#               原响应键 holding_prices 已改名 position_prices。
+# hold/holdings 禁止新用于持仓语义；"hold" 仅允许出现在「持有期间」的自然语言
+#               注释里。
+
+# ---------------------------------------------------------------------------
+# stage / phase 域（命名审计 P2-3）：两词自洽分界，只定边界不改代码
+# ---------------------------------------------------------------------------
+
+# stage         业务工作流阶段：research 编排流水线、backtest 的
+#               data_prep/execution/analysis、factor 计算阶段；
+#               model_registry 的 stage 是 MLflow 术语（development/production），
+#               按引擎记录值透传，不改名。
+# phase         进程/流程时序阶段：graceful_shutdown 的 ShutdownPhase、内存构建
+#               的 phase1/phase2 提示词。跨进程时序说 phase，跨工作流水线说
+#               stage，两词不得混用。
+
+
 def expand_symbol(symbol: str) -> str:
     """紧缩格式展开为 "BASE/QUOTE"（Rust 引擎可解析的 instrument key）。
 

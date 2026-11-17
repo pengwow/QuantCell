@@ -299,21 +299,21 @@ class TestDataService:
     def test_get_features_by_symbol(self, tmp_path):
         svc = DataService(db=MagicMock())
         with patch("collector.services.data_service.crud.get_features_by_symbol") as mock_get:
-            mock_get.return_value = [MagicMock(feature_name="f1", freq="1d")]
+            mock_get.return_value = [MagicMock(feature_name="f1", interval="1d")]
             result = svc.get_features("BTCUSDT")
 
         assert result["success"] is True
         assert result["feature_info"]["symbol"] == "BTCUSDT"
         assert result["feature_info"]["count"] == 1
-        assert result["feature_info"]["features"] == [{"feature_name": "f1", "freq": "1d"}]
+        assert result["feature_info"]["features"] == [{"feature_name": "f1", "interval": "1d"}]
 
     def test_get_features_grouped_by_symbol(self):
         svc = DataService(db=MagicMock())
         with patch("collector.services.data_service.crud.get_features") as mock_get:
             mock_get.return_value = [
-                MagicMock(symbol="A", feature_name="f1", freq="1d"),
-                MagicMock(symbol="A", feature_name="f2", freq="1h"),
-                MagicMock(symbol="B", feature_name="f1", freq="1d"),
+                MagicMock(symbol="A", feature_name="f1", interval="1d"),
+                MagicMock(symbol="A", feature_name="f2", interval="1h"),
+                MagicMock(symbol="B", feature_name="f1", interval="1d"),
             ]
             result = svc.get_features()
 
@@ -325,7 +325,7 @@ class TestDataService:
     def test_get_symbol_features(self):
         svc = DataService(db=MagicMock())
         with patch("collector.services.data_service.crud.get_features_by_symbol") as mock_get:
-            mock_get.return_value = [MagicMock(feature_name="f", freq="1d")]
+            mock_get.return_value = [MagicMock(feature_name="f", interval="1d")]
             result = svc.get_symbol_features("BTCUSDT")
         assert result["feature_info"]["symbol"] == "BTCUSDT"
 
