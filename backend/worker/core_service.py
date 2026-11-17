@@ -1512,6 +1512,8 @@ class WorkerCoreService:
         end_time: datetime | None = None,
         page: int = 1,
         page_size: int = 20,
+        position_side: str | None = None,
+        reduce_only: bool | None = None,
     ) -> dict:
         """
         获取 Worker 交易记录（SQLAlchemy 主库）
@@ -1526,6 +1528,8 @@ class WorkerCoreService:
             end_time: 结束时间
             page: 页码（从1开始）
             page_size: 每页数量
+            position_side: 持仓方向过滤 long/short/both（canonical）
+            reduce_only: 只减仓过滤
 
         Returns:
             dict: {"items": List[dict], "total": int, "page": int, "page_size": int}
@@ -1549,6 +1553,8 @@ class WorkerCoreService:
                     end_time=end_time,
                     skip=skip,
                     limit=page_size,
+                    position_side=position_side,
+                    reduce_only=reduce_only,
                 )
                 return {
                     "items": [t.to_dict() for t in trades],
@@ -1572,6 +1578,8 @@ class WorkerCoreService:
         end_time: datetime | None = None,
         page: int = 1,
         page_size: int = 20,
+        position_side: str | None = None,
+        reduce_only: bool | None = None,
     ) -> dict:
         """异步版本获取 Worker 交易记录（通过线程池执行同步操作）"""
         return await asyncio.to_thread(
@@ -1585,6 +1593,8 @@ class WorkerCoreService:
             end_time,
             page,
             page_size,
+            position_side,
+            reduce_only,
         )
 
     def get_worker_trades_grouped(

@@ -999,6 +999,8 @@ def get_worker_orders_paginated(
     end_time: datetime | None = None,
     skip: int = 0,
     limit: int = 50,
+    position_side: str | None = None,
+    reduce_only: bool | None = None,
 ) -> tuple[list[WorkerOrder], int]:
     query = db.query(WorkerOrder).filter(WorkerOrder.worker_id == worker_id)
 
@@ -1014,6 +1016,10 @@ def get_worker_orders_paginated(
         query = query.filter(WorkerOrder.created_at >= start_time)
     if end_time:
         query = query.filter(WorkerOrder.created_at <= end_time)
+    if position_side:
+        query = query.filter(WorkerOrder.position_side == normalize_position_side(position_side))
+    if reduce_only is not None:
+        query = query.filter(WorkerOrder.reduce_only == reduce_only)
 
     total = query.count()
     orders = query.order_by(desc(WorkerOrder.created_at)).offset(skip).limit(limit).all()
@@ -1136,6 +1142,8 @@ def get_worker_trades_paginated(
     end_time: datetime | None = None,
     skip: int = 0,
     limit: int = 50,
+    position_side: str | None = None,
+    reduce_only: bool | None = None,
 ) -> tuple[list[WorkerTrade], int]:
     query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
 
@@ -1162,6 +1170,10 @@ def get_worker_trades_paginated(
         query = query.filter(WorkerTrade.created_at >= start_time)
     if end_time:
         query = query.filter(WorkerTrade.created_at <= end_time)
+    if position_side:
+        query = query.filter(WorkerTrade.position_side == normalize_position_side(position_side))
+    if reduce_only is not None:
+        query = query.filter(WorkerTrade.reduce_only == reduce_only)
 
     total = query.count()
     trades = query.order_by(desc(WorkerTrade.created_at)).offset(skip).limit(limit).all()

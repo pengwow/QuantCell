@@ -18,6 +18,8 @@ DERIVED_ROW = {
     "worker_id": 1,
     "position_id": "derived:1:BTCUSDT",
     "symbol": "BTCUSDT",
+    # 对齐 derive_positions_from_trades 真实契约：canonical 键 + deprecated 别名双送
+    "position_side": "long",
     "side": "long",
     "quantity": 0.5,
     "entry_price": 50000.0,

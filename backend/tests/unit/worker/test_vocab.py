@@ -104,3 +104,32 @@ class TestSchemaLiteral:
                 filled_quantity=0.0,
                 created_at=datetime(2026, 11, 16),
             )
+
+
+class TestRoutesFilterHelpers:
+    """查询参数归一 helper：垃圾值 422（HTTPException），空值透传 None。"""
+
+    def test_side_filter_normalizes_and_passes_none(self) -> None:
+        from worker.routes import _side_filter
+
+        assert _side_filter("BUY") == "buy"
+        assert _side_filter(None) is None
+        assert _side_filter("") is None
+
+    def test_side_filter_rejects_garbage(self) -> None:
+        from fastapi import HTTPException
+
+        from worker.routes import _side_filter
+
+        with pytest.raises(HTTPException) as exc:
+            _side_filter("hold")
+        assert exc.value.status_code == 422
+
+    def test_position_side_filter_rejects_buy(self) -> None:
+        from fastapi import HTTPException
+
+        from worker.routes import _position_side_filter
+
+        assert _position_side_filter("LONG") == "long"
+        with pytest.raises(HTTPException):
+            _position_side_filter("buy")
