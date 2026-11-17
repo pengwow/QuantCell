@@ -3651,8 +3651,8 @@ const DataManagementPage = () => {
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
                               <Text strong>{t('dm_dup_ranges')}</Text>
                               <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
-                                {qualityDetail.details.uniqueness.duplicate_periods.map((period: string, index: number) => (
-                                  <Tag key={index} style={{ fontSize: 12 }} className="mb-1">{period}</Tag>
+                                {qualityDetail.details.uniqueness.duplicate_periods.map((interval: string, index: number) => (
+                                  <Tag key={index} style={{ fontSize: 12 }} className="mb-1">{interval}</Tag>
                                 ))}
                               </div>
                             </>

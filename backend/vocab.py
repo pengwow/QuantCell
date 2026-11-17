@@ -162,8 +162,8 @@ VOCAB_DOMAINS: tuple[VocabDomain, ...] = (
                 'K线/数据采样周期唯一词（"1h"/"15m"）。锚：Rust 内核 Kernel(interval=...)、'
                 "DataService.get_kline_data(interval=...)。前端图表 UI 与 chartPreferences 的 "
                 "period 是展示层/本地遗留词，新增传输/API 字段一律 interval；"
-                "indicator_alert_rules / features 表的 DB 列 period / freq 为历史列名，"
-                "ORM 属性与传输面已改 interval，列名不动避免迁移。",
+                "indicator_alert_rules / features 表历史列名 period / freq 已由迁移"
+                "（alembic 46 / collector rename_kline_interval_columns）统一改名 interval。",
             ),
             VocabTerm(
                 "period",
@@ -173,7 +173,7 @@ VOCAB_DOMAINS: tuple[VocabDomain, ...] = (
                 "(calls, period) 限流窗口（秒）；collector/services/deriv_collector.py 的 "
                 "_PERIOD_MAP / self.period（交易所 OpenInterest API 原生参数名，adapter "
                 "边界内，同 side 域的『BINANCE BUY 原则』）；backtest/baseline.py 报表的 "
-                "report.period（报告覆盖的日期区间）。",
+                "report.period（报告覆盖的日期区间）；列名 rename 迁移文件（历史 DDL 记录）。",
             ),
             VocabTerm(
                 "freq",

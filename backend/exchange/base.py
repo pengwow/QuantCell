@@ -196,8 +196,8 @@ class BaseCollector(abc.ABC):
 
     def _generate_complete_date_range(self):
         """生成完整的日期范围"""
-        freq = self._get_interval_freq()
-        return pd.date_range(start=self.start_datetime, end=self.end_datetime, freq=freq)
+        # freq= 与 date_range 同行：pandas 参数名 freq 是 API 语境（vocab_lint date_range 豁免行级生效）
+        return pd.date_range(start=self.start_datetime, end=self.end_datetime, freq=self._get_interval_freq())
 
     def _calculate_missing_ranges(self, existing_timestamps):
         """计算缺失的日期范围"""

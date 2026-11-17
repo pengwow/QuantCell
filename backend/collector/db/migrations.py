@@ -921,6 +921,52 @@ def update_indicator_alert_rules_table(session, db_type: str) -> None:
         logger.error(f"添加 indicator_alert_rules.builtin_id 列失败: {e}")
 
 
+def rename_kline_interval_columns(session: Session, db_type: str) -> None:
+    """历史 K线周期列统一改名 interval：features.freq → interval、indicator_alert_rules.period → interval。
+
+    vocab.py P2-10：应用面 ORM 属性早已是 interval，本迁移把存量库的物理列名一并对齐。
+    表不存在（首次建库由 create_all 以 interval 直建）或新列已存在时幂等跳过。
+    """
+    renames = [
+        ("features", "freq"),
+        ("indicator_alert_rules", "period"),
+    ]
+    for table, legacy_col in renames:
+        table_exists = session.execute(
+            text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
+            if db_type == "sqlite"
+            else text(f"SELECT table_name FROM information_schema.tables WHERE table_name='{table}'")
+        ).fetchone()
+        if not table_exists:
+            logger.info(f"{table} 表不存在（新库由 create_all 直建 interval），跳过 {legacy_col} 改名")
+            continue
+
+        try:
+            if db_type == "sqlite":
+                old_col = session.execute(
+                    text(f"SELECT name FROM pragma_table_info('{table}') WHERE name='{legacy_col}'")
+                ).fetchone()
+            else:
+                old_col = session.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name='{table}' AND column_name='{legacy_col}'"
+                    )
+                ).fetchone()
+
+            if not old_col:
+                logger.info(f"{table}.{legacy_col} 列不存在（已改名为 interval），跳过")
+                continue
+
+            # SQLite(>=3.25)/DuckDB/PG 均支持 RENAME COLUMN；interval 引号防 DuckDB 保留字
+            session.execute(text(f'ALTER TABLE {table} RENAME COLUMN {legacy_col} TO "interval"'))
+            session.commit()
+            logger.info(f"{table}.{legacy_col} 列已改名为 interval")
+        except Exception as e:
+            logger.error(f"重命名 {table}.{legacy_col} → interval 失败: {e}")
+            raise
+
+
 def update_kline_volume_to_decimal(session: Session, db_type: str) -> None:
     """K线三表 volume 列从 String 重建为 DECIMAL(40, 8)（P2-4 B-11）。
 
@@ -1021,6 +1067,9 @@ def run_migrations() -> None:
 
             # indicator_alert_rules 增加 builtin_id 列（系统内置指标提醒）
             update_indicator_alert_rules_table(session, db_type)
+
+            # 历史 K线周期列统一改名 interval（features.freq / indicator_alert_rules.period）
+            rename_kline_interval_columns(session, db_type)
 
             # 提交所有更改
             session.commit()

@@ -94,22 +94,35 @@ TERM_RULES: dict[str, dict] = {
         "case_sensitive": False,
         "context_allow": [
             r"_PERIOD_MAP",
-            r"rate_limit\(",
-            r'Column\("period"',  # 历史 DB 列名映射（vocab note：列名不动避免迁移）
+            r"rate_limit\(",  # 限流窗口参数（秒），freq 无关
+            r'Column\("period"',  # 历史 alembic 迁移文件（历史 DDL 记录不可改）
+            r'"period"\s*:\s*\d',  # 指标参数 JSON 回看窗口根数（rsi.period=14 同 taBuiltins 例外）
         ],
         "file_allow": (
             "backend/backtest/baseline.py",  # report.period：报表覆盖日期区间
             "backend/collector/services/deriv_collector.py",  # 交易所 OpenInterest 原生参数
             "backend/collector/services/",  # deriv/quality 交易所原生参数语境（tests 同语境）
             "backend/strategy/templates/mean_reversion.py",  # _rsi(closes, period) 回看窗口（note 例外）
-            "frontend/src/services/chartPreferences.ts",  # 展示层遗留词（vocab note 明文豁免）
+            "backend/collector/db/migrations.py",  # 历史列名 rename 迁移（features.freq → interval）
+            "backend/alembic/versions/46_rename_indicator_alert_rules_period_to_interval.py",  # rename 迁移
+            "backend/tests/unit/collector/test_kline_interval_rename_migration.py",  # 迁移自检测试：须书写历史列名验证 rename
+            "backend/exchange/decorators.py",  # rate_limit(calls, period) 限流窗口秒数（vocab note 例外）
+            "backend/tests/unit/collector/services/",  # 交易所原生参数语境的适配层测试
             "frontend/src/components/chart/",  # 图表 UI 展示层遗留词（vocab note 明文豁免）
-            "frontend/src/components/RealtimeToggleButton.tsx",  # K线 WS 订阅展示层遗留
             "frontend/src/utils/taBuiltins.ts",  # TA 指标回看窗口参数（note 例外：指标窗口根数）
         ),
     },
     # interval 域：freq 禁用于 K线频率；pandas 参数名语境豁免
-    "freq": {"regex": r"\bfreq\b", "case_sensitive": False, "context_allow": [r"date_range", r"resample\("]},
+    "freq": {
+        "regex": r"\bfreq\b",
+        "case_sensitive": False,
+        "context_allow": [r"date_range", r"resample\("],
+        "file_allow": (
+            "backend/collector/db/migrations.py",  # 历史列名 rename 迁移（features.freq → interval）
+            "backend/alembic/versions/46_rename_indicator_alert_rules_period_to_interval.py",  # 同上
+            "backend/tests/unit/collector/test_kline_interval_rename_migration.py",  # 迁移自检测试：同上语境
+        ),
+    },
     # position 域：holdings 禁用于持仓语义（hold 是策略输出枚举，不命中）
     "holdings": {"regex": r"\bholdings\b", "case_sensitive": False},
     # kline_volume 域：禁止 volume 的 String/双列伴生形态

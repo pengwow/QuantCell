@@ -48,24 +48,24 @@ describe('loadChartPrefs', () => {
     configApiMock.getConfig.mockResolvedValue({
       chart: {
         priceStyle: JSON.stringify({ 'candle.type': 'renko' }),
-        uiPrefs: JSON.stringify({ period: '4h' }),
+        uiPrefs: JSON.stringify({ interval: '4h' }),
         'indicatorParams.BTCUSDT.macd': JSON.stringify({ fast: 12 }),
       },
     });
     const mod = await importFresh();
     const snap = await mod.loadChartPrefs();
     expect(snap.priceStyle['candle.type']).toBe('renko');
-    expect(snap.uiPrefs.period).toBe('4h');
+    expect(snap.uiPrefs.interval).toBe('4h');
     expect(snap.indicatorParams['BTCUSDT.macd']).toEqual({ fast: 12 });
   });
 
   it('后端不可达时返回空快照，并迁移旧 localStorage 偏好', async () => {
     configApiMock.getConfig.mockRejectedValue(new Error('down'));
-    store.setItem('chart_user_preferences', JSON.stringify({ period: '4h', symbol: 'ETHUSDT' }));
+    store.setItem('chart_user_preferences', JSON.stringify({ interval: '4h', symbol: 'ETHUSDT' }));
     const mod = await importFresh();
     const snap = await mod.loadChartPrefs();
     expect(snap.priceStyle).toEqual({});
-    expect(snap.uiPrefs).toEqual({ period: '4h', symbol: 'ETHUSDT' });
+    expect(snap.uiPrefs).toEqual({ interval: '4h', symbol: 'ETHUSDT' });
     expect(store.getItem('chart_user_preferences')).toBeNull();
     expect(configApiMock.setConfigKey).toHaveBeenCalledWith(
       expect.objectContaining({ key: 'uiPrefs', name: 'chart' }),
@@ -118,17 +118,17 @@ describe('savePriceStyleValue', () => {
 describe('saveUiPrefs', () => {
   it('uiPrefs 防抖合并写回', async () => {
     configApiMock.getConfig.mockResolvedValue({
-      chart: { uiPrefs: JSON.stringify({ period: '1h' }) },
+      chart: { uiPrefs: JSON.stringify({ interval: '1h' }) },
     });
     const mod = await importFresh();
     await mod.loadChartPrefs();
 
     mod.saveUiPrefs({ symbol: 'ETHUSDT' });
-    mod.saveUiPrefs({ period: '4h' });
+    mod.saveUiPrefs({ interval: '4h' });
     await vi.advanceTimersByTimeAsync(800);
     expect(configApiMock.updateConfigValues).toHaveBeenCalledTimes(1);
     expect(JSON.parse(configApiMock.updateConfigValues.mock.calls[0][0].uiPrefs))
-      .toEqual({ period: '4h', symbol: 'ETHUSDT' });
+      .toEqual({ interval: '4h', symbol: 'ETHUSDT' });
   });
 });
 

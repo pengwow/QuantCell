@@ -249,9 +249,7 @@ class DataIntegrityChecker:
 
         # 生成完整的时间序列
         minutes = self.INTERVAL_MINUTES.get(interval, 1)
-        freq = f"{minutes}min"
-
-        full_range = pd.date_range(start=start_time, end=end_time, freq=freq)
+        full_range = pd.date_range(start=start_time, end=end_time, freq=f"{minutes}min")
 
         # 获取现有数据的时间戳（转换为毫秒时间戳以便比较）
         existing_timestamps = set(existing_data["timestamp"])

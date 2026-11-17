@@ -695,16 +695,13 @@ class BacktestService:
                 "trades": [],
             }
         start_ms, end_ms = min(bounds), max(bounds)
-        freq = self._GRID_FREQ.get(interval, "15min")
         # ponytail: 网格点数无上限保护，15m 频率可覆盖约 3 年；更细周期+超长区间会增大响应体
         # 不用 DatetimeIndex.asi8：pandas 2.x 起底层单位不再固定纳秒，直接取毫秒
+        grid_start = pd.to_datetime(start_ms, unit="ms")
+        grid_end = pd.to_datetime(end_ms, unit="ms")
         grid = [
             int(ts.timestamp() * 1000)
-            for ts in pd.date_range(
-                pd.to_datetime(start_ms, unit="ms"),
-                pd.to_datetime(end_ms, unit="ms"),
-                freq=freq,
-            )
+            for ts in pd.date_range(grid_start, grid_end, freq=self._GRID_FREQ.get(interval, "15min"))
         ]
         # 等距网格只回传起点/步长/点数，播放端按 索引 -> start+step*i 自行换算，避免 5 万点数组
         grid_step = grid[1] - grid[0] if len(grid) > 1 else 900_000

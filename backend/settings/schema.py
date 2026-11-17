@@ -182,7 +182,7 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 label="chart_ui_prefs",
                 type=FieldType.STRING,
                 default="{}",
-                description="图表页偏好，JSON 字符串（period/symbol/timezone）",
+                description="图表页偏好，JSON 字符串（interval/symbol/timezone）",
             ),
         ],
     ),

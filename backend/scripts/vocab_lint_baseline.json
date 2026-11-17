@@ -1,37 +1,4 @@
 {
-  "backend/backtest/data_integrity.py": {
-    "freq": 1
-  },
-  "backend/backtest/service.py": {
-    "freq": 2
-  },
-  "backend/collector/db/crud.py": {
-    "freq": 3
-  },
-  "backend/collector/db/models.py": {
-    "freq": 1
-  },
-  "backend/exchange/base.py": {
-    "freq": 1
-  },
-  "backend/exchange/decorators.py": {
-    "period": 3
-  },
-  "backend/settings/schema.py": {
-    "period": 1
-  },
-  "backend/tests/integration/api/test_backtest_api.py": {
-    "period": 1
-  },
-  "backend/tests/integration/api/test_schema_validation.py": {
-    "period": 1
-  },
-  "backend/tests/unit/collector/services/test_deriv_collector.py": {
-    "period": 4
-  },
-  "backend/tests/unit/settings/test_config_schema.py": {
-    "period": 2
-  },
   "backend/tests/unit/worker/test_event_handler.py": {
     "LONG/SHORT": 1
   },
@@ -46,14 +13,5 @@
   },
   "backend/tests/unit/worker/test_worker_positions_route.py": {
     "LONG/SHORT": 2
-  },
-  "frontend/src/pages/chart/ChartPage.tsx": {
-    "period": 6
-  },
-  "frontend/src/pages/data/DataManagementPage.tsx": {
-    "period": 2
-  },
-  "frontend/src/pages/data/KlineReplayPage.tsx": {
-    "period": 9
   }
 }
