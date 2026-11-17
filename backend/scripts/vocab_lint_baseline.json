@@ -1,0 +1,166 @@
+{
+  "backend/alembic/versions/8b8f30ec3699_add_strategy_model_and_update_worker.py": {
+    "margin": 1
+  },
+  "backend/alembic/versions/ed0da7529e75_add_task_detail_table.py": {
+    "margin": 1
+  },
+  "backend/axon_bridge/__init__.py": {
+    "margin": 1
+  },
+  "backend/backtest/backtest_loop.py": {
+    "margin": 1
+  },
+  "backend/backtest/data_integrity.py": {
+    "freq": 1
+  },
+  "backend/backtest/engine_service.py": {
+    "margin": 10
+  },
+  "backend/backtest/margin_specs.py": {
+    "margin": 1
+  },
+  "backend/backtest/report_service.py": {
+    "margin": 2
+  },
+  "backend/backtest/result_formatter_service.py": {
+    "margin": 4
+  },
+  "backend/backtest/routes.py": {
+    "margin": 6
+  },
+  "backend/backtest/schemas.py": {
+    "margin": 7
+  },
+  "backend/backtest/service.py": {
+    "freq": 2,
+    "margin": 3
+  },
+  "backend/collector/db/crud.py": {
+    "freq": 3
+  },
+  "backend/collector/db/models.py": {
+    "freq": 1
+  },
+  "backend/common/notifications/channels.py": {
+    "margin": 1
+  },
+  "backend/exchange/__init__.py": {
+    "margin": 2
+  },
+  "backend/exchange/axon_exchange_adapter.py": {
+    "margin": 3
+  },
+  "backend/exchange/base.py": {
+    "freq": 1,
+    "margin": 9
+  },
+  "backend/exchange/binance/config.py": {
+    "margin": 1
+  },
+  "backend/exchange/binance/live_adapter.py": {
+    "margin": 6
+  },
+  "backend/exchange/decorators.py": {
+    "period": 3
+  },
+  "backend/exchange/types.py": {
+    "margin": 5
+  },
+  "backend/settings/schema.py": {
+    "period": 1
+  },
+  "backend/tests/backtest/test_integration.py": {
+    "margin": 1
+  },
+  "backend/tests/integration/api/test_backtest_api.py": {
+    "period": 1
+  },
+  "backend/tests/integration/api/test_schema_validation.py": {
+    "period": 1
+  },
+  "backend/tests/unit/backtest/test_engine_margin_injection.py": {
+    "margin": 6
+  },
+  "backend/tests/unit/backtest/test_liquidation_result_passthrough.py": {
+    "margin": 6
+  },
+  "backend/tests/unit/backtest/test_margin_accounting.py": {
+    "margin": 7
+  },
+  "backend/tests/unit/backtest/test_margin_settings.py": {
+    "margin": 7
+  },
+  "backend/tests/unit/collector/services/test_deriv_collector.py": {
+    "period": 4
+  },
+  "backend/tests/unit/exchange/test_binance_exchange.py": {
+    "margin": 1
+  },
+  "backend/tests/unit/settings/test_config_schema.py": {
+    "period": 2
+  },
+  "backend/tests/unit/test_validation.py": {
+    "margin": 1
+  },
+  "backend/tests/unit/worker/test_event_handler.py": {
+    "LONG/SHORT": 1
+  },
+  "backend/tests/unit/worker/test_migration_40_position_side.py": {
+    "LONG/SHORT": 1
+  },
+  "backend/tests/unit/worker/test_trading_stats.py": {
+    "LONG/SHORT": 1
+  },
+  "backend/tests/unit/worker/test_vocab.py": {
+    "LONG/SHORT": 2
+  },
+  "backend/tests/unit/worker/test_worker_positions_route.py": {
+    "LONG/SHORT": 2
+  },
+  "backend/worker/models.py": {
+    "margin": 2
+  },
+  "frontend/src/components/TradeTable.tsx": {
+    "margin": 1
+  },
+  "frontend/src/components/worker/WorkerCreateModal.tsx": {
+    "margin": 1
+  },
+  "frontend/src/components/worker/WorkerEditModal.tsx": {
+    "margin": 1
+  },
+  "frontend/src/components/worker/WorkerPositionSection.tsx": {
+    "margin": 1
+  },
+  "frontend/src/desktop/splash.ts": {
+    "margin": 1
+  },
+  "frontend/src/pages/backtest/BacktestConfig.tsx": {
+    "margin": 10
+  },
+  "frontend/src/pages/backtest/BacktestDetail.tsx": {
+    "margin": 8
+  },
+  "frontend/src/pages/backtest/marginSettings.ts": {
+    "margin": 7
+  },
+  "frontend/src/pages/chart/ChartPage.tsx": {
+    "period": 6
+  },
+  "frontend/src/pages/data/DataManagementPage.tsx": {
+    "period": 2
+  },
+  "frontend/src/pages/data/KlineReplayPage.tsx": {
+    "period": 9
+  },
+  "frontend/src/pages/setting/ExchangeSettingsPage.tsx": {
+    "margin": 3
+  },
+  "frontend/src/types/backtest.ts": {
+    "margin": 2
+  },
+  "frontend/src/utils/format.ts": {
+    "margin": 3
+  }
+}

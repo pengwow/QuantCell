@@ -10,13 +10,23 @@ repos:
         files: ^backend/
         exclude: ^backend/decision_py_archive_v2_202610/
 
-  # pytest 门禁：提交前跑 CI 同款测试（backtest / conformance / integration）
+  # pytest 门禁：提交前跑 CI 同款测试（backtest / conformance / integration / db 列型门禁）
   # 避免本地 .so 缓存过期导致跑了假绿灯、推上去 CI 才炸
   - repo: local
     hooks:
       - id: pytest-backend
-        name: pytest (backtest / conformance / integration)
-        entry: bash -c 'cd backend && uv run pytest tests/unit/backtest tests/conformance tests/integration -q'
+        name: pytest (backtest / conformance / integration / db)
+        entry: bash -c 'cd backend && uv run pytest tests/unit/backtest tests/conformance tests/integration tests/unit/db -q'
+        language: system
+        pass_filenames: false
+        always_run: true
+        exclude: ^(\.trae_deleted/|backend/decision_py_archive_v2_202610/|\.github/)
+
+      # banned 词条 lint 门禁（命名审计 P2-6）：消费 vocab.py 的 banned 词条事实源，
+      # 基线只降不升（backend/scripts/vocab_lint.py 顶部注释有完整用法）
+      - id: vocab-lint
+        name: vocab banned-terms lint (vocab.py fact source)
+        entry: bash -c 'cd backend && uv run python scripts/vocab_lint.py --check'
         language: system
         pass_filenames: false
         always_run: true
