@@ -217,6 +217,86 @@ def test_collect_sections_without_data(review_db, clean_models, replay_dir):
     assert sections["workers"] == []
     assert sections["anomalies"] == []
     assert sections["models"] == {"families": 0, "blocked": [], "latest_rounds": []}
+    assert sections["risk_advisories"] == {
+        "window_days": 30,
+        "workers": [],
+        "advisories": [],
+        "count": 0,
+        "max_severity": None,
+    }
+
+
+def test_sections_include_risk_advisories_per_active_worker(review_db, clean_models, replay_dir):
+    """P4-2：风控建议作为 report 的新 section，对活跃 worker 逐个评估。
+
+    空表持仓会由 get_positions_sync 从未配对成交推导（与该端点既有口径一致），
+    这里单笔买入即形成 100% 单品种集中度 → 触发 concentration advisory。
+    """
+    worker = _seed_worker(review_db, name="w-risk")
+    _add_trade(review_db, worker, pnl=5.0, when=datetime.combine(DAY, time(10, 0)))
+
+    sections = dr.collect_sections(DAY)
+
+    adv = sections["risk_advisories"]
+    assert adv["window_days"] == 30
+    assert adv["count"] >= 1
+    assert adv["count"] == len(adv["advisories"])
+    assert adv["max_severity"] == "crit"
+    assert [w["worker_id"] for w in adv["workers"]] == [worker]
+
+    concentration = [a for a in adv["advisories"] if a["metric"] == "concentration"]
+    assert concentration, adv["advisories"]
+    assert concentration[0]["severity"] == "crit"
+    assert concentration[0]["suggested_notional_cap"] == 60.0  # 100 × 60%
+    assert "风控建议" in dr.render_template_text(sections)
+
+
+def test_template_renders_risk_advisory_entries(review_db, clean_models, replay_dir, monkeypatch):
+    """模板文本必须带上风控建议段（advisory 非空时逐条列出，含建议额度）。"""
+    _seed_worker(review_db, name="w-risk-text")
+
+    fake_section = {
+        "window_days": 30,
+        "workers": [],
+        "advisories": [
+            {
+                "worker_id": 1,
+                "worker_name": "w-risk-text",
+                "metric": "volatility",
+                "severity": "warn",
+                "value": 0.04,
+                "threshold": 0.03,
+                "reason": "w-risk-text 近 30 日 EWMA 日波动率 4.00% 达 warn 档，建议名义敞口上限降至 75000.00",
+                "suggested_notional_cap": 75_000.0,
+                "suggested_ratio": 0.75,
+            }
+        ],
+        "count": 1,
+        "max_severity": "warn",
+    }
+    monkeypatch.setattr("services.risk_advisory.collect_risk_advisories", lambda workers: fake_section)
+
+    text = dr.build_report(DAY)["template_text"]
+
+    assert "风控建议 1 条（最高 warn）" in text
+    assert "EWMA 日波动率" in text
+    assert "建议名义敞口上限" in text
+
+
+def test_risk_advisory_failure_degrades_without_breaking_review(review_db, clean_models, replay_dir, monkeypatch):
+    """建议层异常只降级该 section 并暴露 error，不复盘整体失败、不静默。"""
+    _seed_worker(review_db, name="w-risk-broken")
+
+    def boom(_workers):
+        raise RuntimeError("advisory exploded")
+
+    monkeypatch.setattr("services.risk_advisory.collect_risk_advisories", boom)
+
+    report = dr.build_report(DAY)
+
+    assert "advisory exploded" in report["sections"]["risk_advisories"]["error"]
+    assert "风控建议计算失败" in report["template_text"]
+    assert report["summary_text"]  # 报告仍然完整
 
 
 # ---------- 模板报告 ----------

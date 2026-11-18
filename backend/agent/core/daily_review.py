@@ -24,6 +24,8 @@
 - decisions：``strategy.decision_recording.worker_replay_path`` +
   ``list_decisions_from_file``（按 ``_ts`` 前缀过滤当日）
 - models / oos_gate：``services.oos_gate.audit_oos_gate``（读 data/models/*.meta.json 旁车）
+- risk_advisories：``services.risk_advisory.collect_risk_advisories``（只读评估，
+  仅输出告警与建议额度；**不写任何风控参数**，硬规则入口保持不变）
 """
 
 from __future__ import annotations
@@ -57,7 +59,8 @@ _LLM_MAX_TOKENS = 512
 _LLM_PROMPT_HEAD = (
     "你是量化交易的复盘助手。下面是一次每日复盘的结构化数据（JSON）。"
     "请用 200-300 字中文写一段自然语言复盘：先讲总体盈亏与成交，"
-    "再点出异常持仓/集中度风险，最后说明模型与 OOS 晋升门槛状态。"
+    "再点出异常持仓/集中度风险与风控建议（波动率、回撤、VaR、建议名义额度），"
+    "最后说明模型与 OOS 晋升门槛状态。"
     "只使用数据里出现过的数字，不要编造。直接输出复盘正文，不加标题。\n\n"
 )
 
@@ -179,6 +182,17 @@ def _position_anomalies(worker: dict[str, Any], positions: list[dict[str, Any]])
     return anomalies
 
 
+def _risk_advisories(workers: list[dict[str, Any]]) -> dict[str, Any]:
+    """风控建议 section（只读评估，失败降级为空并对外暴露 error，不静默）。"""
+    try:
+        from services.risk_advisory import collect_risk_advisories
+
+        return collect_risk_advisories(workers)
+    except Exception as e:
+        logger.warning(f"[daily_review] 风控建议计算失败: {e}")
+        return {"window_days": 0, "workers": [], "advisories": [], "count": 0, "max_severity": None, "error": str(e)}
+
+
 def collect_sections(day: date) -> dict[str, Any]:
     """聚合当日复盘的全部数据源，返回可直接渲染/序列化的 sections。"""
     from utils.db_session import get_db_session
@@ -243,6 +257,7 @@ def collect_sections(day: date) -> dict[str, Any]:
         "overview": overview,
         "workers": workers,
         "anomalies": anomalies,
+        "risk_advisories": _risk_advisories(workers),
         "models": _model_status(),
     }
 
@@ -264,6 +279,15 @@ def render_template_text(sections: dict[str, Any]) -> str:
         lines.extend(f"- {a['detail']}" for a in sections["anomalies"])
     else:
         lines.append("持仓异常 0 项，未见高浮亏或高集中度仓位。")
+
+    adv = sections.get("risk_advisories") or {}
+    if adv.get("error"):
+        lines.append(f"风控建议计算失败：{adv['error']}")
+    elif adv.get("count"):
+        lines.append(f"风控建议 {adv['count']} 条（最高 {adv['max_severity']}）：")
+        lines.extend(f"- [{a['severity']}] {a['reason']}" for a in adv["advisories"])
+    else:
+        lines.append("风控建议 0 条，波动率/回撤/VaR/集中度均在宽松阈值内。")
 
     models = sections["models"]
     if models.get("error"):

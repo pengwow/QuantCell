@@ -544,7 +544,8 @@ async def get_daily_review_report(
 ):
     """每日复盘报告：数据聚合 + 模板/LLM 摘要。
 
-    sections 为确定性数据（worker 盈亏/持仓/订单、决策录制、模型 OOS 门槛），
+    sections 为确定性数据（worker 盈亏/持仓/订单、决策录制、模型 OOS 门槛、风控建议），
+    风控建议只读评估并给出建议额度，不写任何风控参数/不热更引擎；
     meta.mode 区分 template / llm / template_fallback，degraded=True 表示 LLM 请求失败已兜底。
     复盘入聊天流由调度器完成（assistant 消息 + meta.kind=daily_review），本端点只读不发布。
     """
