@@ -837,6 +837,13 @@ class BacktestService:
                 side = normalize_side(tr.get("side") or "")
             except ValueError:
                 side = str(tr.get("side") or "")
+                # 防御留痕：当前链路 side 恒为 canonical 小写，此处触发说明有新调用方
+                # 传入了未归一方向（正按多头重建，做空会反号），需上游收口
+                from utils.logger import LogType, get_logger
+
+                get_logger("backtest.service", LogType.APPLICATION).warning(
+                    f"rebuild_positions 遇到非法 side={side!r}, symbol={sym}, 按正数量处理"
+                )
             signed = qty if side == "buy" else -qty if side == "sell" else qty
             if not sym or qty == 0.0 or price == 0.0:
                 continue

@@ -127,7 +127,7 @@ const RLBacktestHistory = () => {
     },
     { title: t('symbols'), dataIndex: 'symbols', key: 'symbols', ellipsis: true, render: (v?: string[]) => (v ?? []).join(', ') },
     // 后端 intervals 为数组，join 后保持原有逗号分隔展示
-    { title: t('timeframe'), dataIndex: 'intervals', key: 'intervals', width: 110, ellipsis: true, render: (v?: string[]) => (v ?? []).join(', ') },
+    { title: t('interval'), dataIndex: 'intervals', key: 'intervals', width: 110, ellipsis: true, render: (v?: string[]) => (v ?? []).join(', ') },
     {
       title: t('status'),
       dataIndex: 'status',

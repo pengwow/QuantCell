@@ -853,7 +853,7 @@ const Worker = () => {
             <Space size={4}>
               <span>{text}</span>
               <Tag color={WorkerStatusColor[worker.status]}>
-                {WorkerStatusText[worker.status]}
+                {t(WorkerStatusText[worker.status])}
               </Tag>
             </Space>
           ),
@@ -865,7 +865,7 @@ const Worker = () => {
           width: 90,
         },
         {
-          title: t('timeframe'),
+          title: t('interval'),
           dataIndex: 'interval',
           key: 'interval',
           width: 70,
