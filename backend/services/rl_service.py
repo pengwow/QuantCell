@@ -21,6 +21,7 @@ from backtest.hpo_runner import HPORunner
 from backtest.walk_forward import WalkForwardService
 from services.ensemble_aggregator import make_ensemble_predict_fn
 from services.rl_task_runner import NullReporter, ScaledReporter, learn_in_chunks
+from services.slippage import SlippageCurve
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -106,21 +107,32 @@ class CostProfile:
     缺省实例等价于改造前的单一常量 `RL_TRANSACTION_COST`（所有查询落到
     `default`，数值完全一致）。优先级：交易对 → 数据类型 → 默认。
 
-    ponytail: v1 只做费率查表，不含滑点/深度曲线（P4 事项）。
+    可选的 `slippage_curve`（P4-1）是「名义额 → 总成本」的查表曲线，**优先于
+    标量**：给了 `notional` 且有曲线时返回曲线插值，否则走标量查表（零漂移）。
+    曲线是总成本口径（费率 + 滑点），标定时用 `fee_bps` 把费率并进去，否则替换
+    标量费率会丢掉手续费。
+
+    ponytail: v1 一条全局曲线（不按交易对拆分）；拆分时把 curve 塞进
+    `by_symbol` 同构映射即可，不必新建类。
     """
 
     default: float = RL_TRANSACTION_COST
     by_symbol: dict[str, float] = field(default_factory=dict)
     by_candle_type: dict[str, float] = field(default_factory=dict)
+    #: 量分档成本曲线；None = 纯标量口径（现行为）
+    slippage_curve: SlippageCurve | None = None
 
     def __post_init__(self) -> None:
         for rate in (self.default, *self.by_symbol.values(), *self.by_candle_type.values()):
             if not np.isfinite(rate) or rate < 0:
                 msg = f"cost_profile 费率必须是有限非负数: {rate}"
                 raise ValueError(msg)
+        if self.slippage_curve is not None and not isinstance(self.slippage_curve, SlippageCurve):
+            msg = f"slippage_curve 必须是 SlippageCurve: {type(self.slippage_curve).__name__}"
+            raise ValueError(msg)
 
-    def rate_for(self, *, symbol: str | None = None, candle_type: str | None = None) -> float:
-        """按优先级 交易对 → 数据类型 → 默认 取费率。"""
+    def _scalar_rate(self, *, symbol: str | None = None, candle_type: str | None = None) -> float:
+        """标量查表：交易对 → 数据类型 → 默认。"""
         if symbol:
             rate = self.by_symbol.get(symbol)
             if rate is None:
@@ -133,18 +145,62 @@ class CostProfile:
                 return float(rate)
         return float(self.default)
 
+    def rate_for(
+        self,
+        *,
+        symbol: str | None = None,
+        candle_type: str | None = None,
+        notional: float | None = None,
+    ) -> float:
+        """按优先级取费率（小数口径）。
+
+        `notional` 给了且配了曲线 → 曲线插值（曲线优先，标量覆盖被忽略）；
+        `notional` 缺省或没配曲线 → 标量查表（与 P2 完全一致）。
+        """
+        if notional is not None and self.slippage_curve is not None:
+            return self.slippage_curve.cost_rate(float(notional))
+        return self._scalar_rate(symbol=symbol, candle_type=candle_type)
+
+    def kernel_rate(self, *, symbol: str | None = None, candle_type: str | None = None) -> float:
+        """内核 / 训练环境只吃标量 `fee_rate`，曲线场景取首档代表值。
+
+        近似语义：等于假设每笔名义额都不超过首档（`curve.notionals[0]`）。实际
+        大单更贵，标量口径会低估成本；曲线只在 `rate_for(notional=...)` 的
+        调用点（有名义额的地方）才是精确的。这是 v1 的已知天花板，不是 L2 撮合。
+        """
+        if self.slippage_curve is not None:
+            return self.slippage_curve.representative_rate()
+        return self._scalar_rate(symbol=symbol, candle_type=candle_type)
+
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> CostProfile:
-        """从 JSON 友好的 dict 构造：`{"default": x, "by_symbol": {...}, "by_candle_type": {...}}`。"""
-        unknown = set(raw) - {"default", "by_symbol", "by_candle_type"}
+        """从 JSON 友好的 dict 构造：
+        `{"default": x, "by_symbol": {...}, "by_candle_type": {...}, "slippage_curve": {"tiers": [...]}}`。
+        """
+        unknown = set(raw) - {"default", "by_symbol", "by_candle_type", "slippage_curve"}
         if unknown:
             msg = f"未知 cost_profile 字段: {sorted(unknown)}"
             raise ValueError(msg)
+        curve_raw = raw.get("slippage_curve")
+        if curve_raw is not None and not isinstance(curve_raw, SlippageCurve):
+            curve_raw = SlippageCurve.from_mapping(curve_raw)
         return cls(
             default=float(raw.get("default", RL_TRANSACTION_COST)),
             by_symbol={str(k): float(v) for k, v in (raw.get("by_symbol") or {}).items()},
             by_candle_type={str(k): float(v) for k, v in (raw.get("by_candle_type") or {}).items()},
+            slippage_curve=curve_raw,
         )
+
+    def to_mapping(self) -> dict[str, Any]:
+        """序列化（meta 回写 / API 回显）；无曲线时不落 `slippage_curve` 键。"""
+        raw: dict[str, Any] = {
+            "default": float(self.default),
+            "by_symbol": dict(self.by_symbol),
+            "by_candle_type": dict(self.by_candle_type),
+        }
+        if self.slippage_curve is not None:
+            raw["slippage_curve"] = self.slippage_curve.to_mapping()
+        return raw
 
 
 class RLDeployError(Exception):
@@ -228,10 +284,30 @@ def load_rl_meta(model_path: str) -> dict[str, Any]:
     return meta if isinstance(meta, dict) else {}
 
 
-def transaction_cost_from_meta(meta: dict[str, Any] | None, default: float = RL_TRANSACTION_COST) -> float:
-    """取模型训练时实际使用的费率；旧 meta 无该字段时回落 `default`（零漂移）。"""
+def transaction_cost_from_meta(
+    meta: dict[str, Any] | None,
+    default: float = RL_TRANSACTION_COST,
+    *,
+    notional: float | None = None,
+) -> float:
+    """取模型训练时实际使用的费率；旧 meta 无该字段时回落 `default`（零漂移）。
+
+    `notional` 给了且 meta 的 `cost_profile` 带曲线时，按该笔名义额取曲线插值
+    （曲线优先于标量）；否则一律读 meta 记录的训练标量费率。旧 meta 没有
+    `cost_profile` 键，走标量分支，数值与 P2 完全一致。
+    """
     if not meta:
         return default
+    if notional is not None:
+        raw_profile = meta.get("cost_profile")
+        if isinstance(raw_profile, dict):
+            try:
+                profile = CostProfile.from_mapping(raw_profile)
+            except ValueError as exc:
+                logger.warning(f"[RLService] meta 里的 cost_profile 非法，按标量费率处理: {exc}")
+            else:
+                if profile.slippage_curve is not None:
+                    return profile.rate_for(notional=float(notional))
     rate = meta.get("transaction_cost")
     if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not np.isfinite(rate) or rate < 0:
         return default
@@ -973,11 +1049,17 @@ class RLService:
 
     @staticmethod
     def _cost_rate(config: RLTrainConfig) -> float:
-        """训练实际使用的费率：有 profile 按 symbol/candle_type 查表，否则沿用常量。"""
+        """训练实际使用的费率：有 profile 按 symbol/candle_type 查表，否则沿用常量。
+
+        曲线场景的近似语义：训练环境（`TradingEnv`）与内核都只接受标量费率，
+        没有逐笔名义额可查，因此取曲线**首档代表值**（`CostProfile.kernel_rate`），
+        相当于假设每笔成交名义额都不超过首档。真实大单更贵 —— 这个偏差是 v1
+        的已知天花板（不做 L2 撮合/逐档吃单），不在训练回路里假装精确。
+        """
         profile = config.cost_profile
         if not isinstance(profile, CostProfile):
             return RL_TRANSACTION_COST
-        return profile.rate_for(symbol=config.symbol, candle_type=config.candle_type)
+        return profile.kernel_rate(symbol=config.symbol, candle_type=config.candle_type)
 
     @staticmethod
     def _obs_stats(frame: pd.DataFrame, extra_channels: list[str] | None) -> list[dict[str, float]]:
@@ -1146,6 +1228,13 @@ class RLService:
                     "reward_terms": config.effective_reward_terms(),
                     # 训练实际费率，供回测/归因与训练同源（旧 meta 无此字段时回落常量）
                     "transaction_cost": cost_rate,
+                    # 成本 profile 原样落盘（含 slippage_curve）：回测侧据此按名义额
+                    # 查曲线；旧 meta 无此键 = 纯标量口径
+                    **(
+                        {"cost_profile": config.cost_profile.to_mapping()}
+                        if isinstance(config.cost_profile, CostProfile)
+                        else {}
+                    ),
                     # obs 编码口径（模型卡摘要依据）：缺键 = 旧模型的指标向量口径；
                     # ohlcv_window 的统计量必须随模型冻结，推理侧不许重算
                     "obs_mode": config.obs_mode,
@@ -1549,7 +1638,10 @@ class RLService:
         bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(data))
 
         # 费率与训练环境同源：取模型 meta 记录的训练费率（旧 meta 回落 `RL_TRANSACTION_COST`），
-        # 否则训练用了自定义 cost profile 时归因会误报「成本模型不一致」
+        # 否则训练用了自定义 cost profile 时归因会误报「成本模型不一致」。
+        # 曲线场景：内核只吃标量 `fee_rate`，meta 的 transaction_cost 已是曲线首档
+        # 代表值（见 `RLService._cost_rate`），训练/回测口径一致；真实大单成本更高，
+        # 该口径会低估 —— v1 已知近似，不承诺 L2 撮合。
         result = run_kernel_backtest(
             bars,
             predict_fn,
