@@ -18,6 +18,7 @@ from utils.rbac import Permission, require_permission
 from ..config.manager import ToolParamManager, mask_sensitive_value
 from ..config.schemas import BatchUpdateRequest, ImportConfigRequest, SetValueRequest
 from ..core.audit import MAX_LIMIT, parse_time_bound, query_tool_calls
+from ..core.daily_review import get_daily_review
 from ..core.factory import get_agent
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -531,6 +532,30 @@ async def get_session(session_id: str):
     except Exception as e:
         logger.error(f"获取会话详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 每日复盘 API ====================
+
+
+@router.get("/daily-review", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def get_daily_review_report(
+    date_str: str | None = Query(None, alias="date", description="复盘日期 YYYY-MM-DD，默认昨天"),
+    llm: bool = Query(False, description="是否追加 LLM 自然语言摘要（不可用时降级为模板文本）"),
+):
+    """每日复盘报告：数据聚合 + 模板/LLM 摘要。
+
+    sections 为确定性数据（worker 盈亏/持仓/订单、决策录制、模型 OOS 门槛），
+    meta.mode 区分 template / llm / template_fallback，degraded=True 表示 LLM 请求失败已兜底。
+    复盘入聊天流由调度器完成（assistant 消息 + meta.kind=daily_review），本端点只读不发布。
+    """
+    try:
+        report = await asyncio.to_thread(get_daily_review, date_str, use_llm=llm)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"生成每日复盘失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, **report}
 
 
 # ==================== 工具调用审计 API ====================

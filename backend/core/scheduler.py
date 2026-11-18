@@ -4,6 +4,8 @@
 提供定时任务调度功能
 """
 
+import os
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -74,6 +76,28 @@ def start_scheduler(
         trigger=CronTrigger(hour=3, minute=30),
         id="rl_oos_gate_audit",
         name="RL OOS gate audit",
+        replace_existing=True,
+    )
+
+    # 每日复盘（P4-4）：聚合昨日 worker 盈亏/持仓异常/决策数/模型 OOS 状态，
+    # 作为一条 assistant 消息注入 /agent 默认会话（不伪装成用户输入）。
+    # LLM 摘要 opt-in：默认关（QUANTCELL_DAILY_REVIEW_LLM=1 开启），
+    # 启用但不可用时回落模板文本并在 meta.degraded 标注。导入放函数内与上面 OOS 一致。
+    def scheduled_daily_review():
+        try:
+            from agent.core.daily_review import build_report, publish
+
+            use_llm = os.environ.get("QUANTCELL_DAILY_REVIEW_LLM", "0").strip().lower() in ("1", "true", "yes")
+            report = build_report(use_llm=use_llm)
+            publish(report)
+        except Exception:
+            logger.exception("每日复盘生成失败")
+
+    scheduler.add_job(
+        func=scheduled_daily_review,
+        trigger=CronTrigger(hour=3, minute=35),  # 排在 OOS 审计之后，复用当日审计结果
+        id="agent_daily_review",
+        name="Agent daily review",
         replace_existing=True,
     )
 

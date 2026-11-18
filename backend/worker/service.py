@@ -201,9 +201,12 @@ async def stream_logs(websocket, worker_id: int):
                 pass
 
 
-async def get_positions(worker_id: int) -> dict[str, Any]:
+def get_positions_sync(worker_id: int) -> dict[str, Any]:
     """
-    获取Worker持仓信息（从 worker_positions 表查询）
+    获取Worker持仓信息（从 worker_positions 表查询，同步版）
+
+    同步入口供线程型调用方（定时任务/Agent 每日复盘）复用同一份持仓口径；
+    get_positions 只是把它包成 async，两者行为完全一致。
 
     返回格式：
     {
@@ -250,6 +253,11 @@ async def get_positions(worker_id: int) -> dict[str, Any]:
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
         }
+
+
+async def get_positions(worker_id: int) -> dict[str, Any]:
+    """异步包装：内部无 await，保持既有 async 调用方签名不变。"""
+    return get_positions_sync(worker_id)
 
 
 async def get_trades(
