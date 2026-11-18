@@ -10,12 +10,16 @@ from datetime import datetime
 from typing import Any
 
 from services.oos_gate import OosGateError, check_oos_gate
+from utils import get_data_dir
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# 训练产物与注册表共用同一目录(rl_service MODELS_DIR);顶层只放 *.zip + .meta.json
-DEFAULT_MODELS_DIR = os.path.join("data", "models")
+# 训练产物与注册表共用同一目录(rl_service MODELS_DIR,与 get_data_dir 同锚点);
+# 顶层只放 *.zip + .meta.json。必须走数据根目录解析:相对 "data" 在桌面
+# sidecar(CWD=/ 只读)下 seed 直接 OSError [Errno 30],打包后启动即崩
+# (2026-11-18 打包验证实录)
+DEFAULT_MODELS_DIR = str(get_data_dir() / "models")
 
 try:
     from axon_quant._native import registry as _registry_mod
@@ -156,10 +160,11 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
 class ModelRegistryService:
     """Model registry service wrapping axon_quant ModelRegistry."""
 
-    def __init__(self, storage_path: str = "data/models"):
+    def __init__(self, storage_path: str | None = None):
         if not AVAILABLE:
             msg = "axon_quant.registry not available"
             raise RuntimeError(msg)
+        storage_path = storage_path or DEFAULT_MODELS_DIR
         # 底层 registry 进程内按路径共享,理由见模块级 _registry_cache 注释
         self._registry = _get_shared_registry(storage_path)
         # get_artifact_path 的路径逃逸校验需要拿它做 realpath 前缀比对

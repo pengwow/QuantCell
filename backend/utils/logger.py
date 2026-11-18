@@ -523,6 +523,25 @@ class LoggerWrapper:
         self._unified_logger = unified_logger
         self._logger = _loguru_logger.bind(logger_name=name)
 
+    @staticmethod
+    def _resolve_exc_info(exc_info: Any) -> BaseException | None:
+        """兼容 stdlib logging 的 exc_info 传参。
+
+        项目代码混用 stdlib 风格 `logger.warning(msg, exc_info=True)`,此前仅
+        loguru 原生 `exception=` 签名,传 exc_info 直接 TypeError——它在 except
+        块里触发时会吞掉原始异常并让可降级路径升级成启动失败(2026-11-18 打包
+        验证实录)。True→当前异常;BaseException→原样;tuple→取实例。
+        """
+        if not exc_info:
+            return None
+        if exc_info is True:
+            return sys.exc_info()[1]
+        if isinstance(exc_info, BaseException):
+            return exc_info
+        if isinstance(exc_info, tuple) and exc_info and isinstance(exc_info[0], type):
+            return exc_info[1]
+        return None
+
     def _log(
         self,
         level: LogLevel,
@@ -574,35 +593,37 @@ class LoggerWrapper:
         if LoggerConfig.ENABLE_FILE_LOG:
             self._unified_logger._emit_to_file(record)
 
-    def debug(self, message: str, extra: dict[str, Any] | None = None) -> None:
+    def debug(self, message: str, extra: dict[str, Any] | None = None, exc_info: Any = None) -> None:
         """记录DEBUG级别日志"""
-        self._log(LogLevel.DEBUG, message, extra)
+        self._log(LogLevel.DEBUG, message, extra, self._resolve_exc_info(exc_info))
 
-    def info(self, message: str, extra: dict[str, Any] | None = None) -> None:
+    def info(self, message: str, extra: dict[str, Any] | None = None, exc_info: Any = None) -> None:
         """记录INFO级别日志"""
-        self._log(LogLevel.INFO, message, extra)
+        self._log(LogLevel.INFO, message, extra, self._resolve_exc_info(exc_info))
 
-    def warning(self, message: str, extra: dict[str, Any] | None = None) -> None:
+    def warning(self, message: str, extra: dict[str, Any] | None = None, exc_info: Any = None) -> None:
         """记录WARNING级别日志"""
-        self._log(LogLevel.WARNING, message, extra)
+        self._log(LogLevel.WARNING, message, extra, self._resolve_exc_info(exc_info))
 
     def error(
         self,
         message: str,
         extra: dict[str, Any] | None = None,
         exception: BaseException | None = None,
+        exc_info: Any = None,
     ) -> None:
         """记录ERROR级别日志"""
-        self._log(LogLevel.ERROR, message, extra, exception)
+        self._log(LogLevel.ERROR, message, extra, exception or self._resolve_exc_info(exc_info))
 
     def critical(
         self,
         message: str,
         extra: dict[str, Any] | None = None,
         exception: BaseException | None = None,
+        exc_info: Any = None,
     ) -> None:
         """记录CRITICAL级别日志"""
-        self._log(LogLevel.CRITICAL, message, extra, exception)
+        self._log(LogLevel.CRITICAL, message, extra, exception or self._resolve_exc_info(exc_info))
 
     def exception(self, message: str, extra: dict[str, Any] | None = None) -> None:
         """记录异常信息（自动捕获当前异常）"""

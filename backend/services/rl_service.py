@@ -22,6 +22,7 @@ from backtest.walk_forward import WalkForwardService
 from services.ensemble_aggregator import make_ensemble_predict_fn
 from services.rl_task_runner import NullReporter, ScaledReporter, learn_in_chunks
 from services.slippage import SlippageCurve
+from utils import get_data_dir
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-MODELS_DIR = Path(__file__).parent.parent / "data" / "models"
+MODELS_DIR = get_data_dir() / "models"
 
 # 内核 RL 口径：与训练环境 `PyTradingEnv` 的默认观测空间一致
 # （close Z-Score + volume 不归一化，window=1），保证模型输入维度对齐。
