@@ -5,6 +5,7 @@
 """
 
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +18,26 @@ from utils.logger import LogType, get_logger
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
+#: 进程内「上次运行」记录：job_id -> {ts_iso, ok, detail, ...}。
+#: 只读端点 /agent/loop-status 消费；重启即清空（不持久化，进度条会变空但不会撒谎）。
+LAST_RUNS: dict[str, dict] = {}
+#: 本进程实际挂上的定时 job id（`/agent/loop-status` 判断 mounted）。
+MOUNTED_JOBS: set[str] = set()
+
+
+def _record_run(job_id: str, ok: bool, detail: str = "", **extra) -> None:
+    """记一次 job 运行结果（纯内存，失败也记）。"""
+    LAST_RUNS[job_id] = {
+        "ts_iso": datetime.now(UTC).isoformat(),
+        "ok": ok,
+        "detail": detail,
+    } | extra
+
+
+def get_last_runs() -> dict[str, dict]:
+    """LAST_RUNS 的浅拷贝（调用方不得改动调度器内部状态）。"""
+    return dict(LAST_RUNS)
+
 
 def run_auto_retrain_job() -> dict[str, Any] | None:
     """每日自动重训闭环 job 体（模块级，便于单测直接调）。
@@ -28,14 +49,21 @@ def run_auto_retrain_job() -> dict[str, Any] | None:
         from rl.lifecycle import run_auto_retrain_cycle
 
         summary = run_auto_retrain_cycle()
+        families = [(r.get("family"), r.get("status")) for r in summary.get("results") or []]
         logger.info(
             "RL 自动重训闭环完成: candidates=%s results=%s",
             len(summary.get("candidates") or []),
-            [(r.get("family"), r.get("status")) for r in summary.get("results") or []],
+            families,
+        )
+        _record_run(
+            "rl_auto_retrain",
+            True,
+            detail=f"candidates={len(summary.get('candidates') or [])} families={families}",
         )
         return summary
-    except Exception:
+    except Exception as e:
         logger.exception("RL 自动重训闭环失败")
+        _record_run("rl_auto_retrain", False, error=str(e)[:300])
         return None
 
 
@@ -50,12 +78,23 @@ def run_agent_dream_job() -> bool:
     事件循环，用 get_agent() 单例 + asyncio.run 驱动。
     """
     import asyncio
+    import time
 
     from agent.core.factory import get_agent
 
-    dream = get_agent().dream
-    updated = asyncio.run(dream.run())
+    started = time.monotonic()
+    try:
+        dream = get_agent().dream
+        updated = asyncio.run(dream.run())
+    except Exception as e:
+        logger.exception("Agent Dream 记忆整理失败")
+        _record_run("agent_dream", False, error=str(e)[:300])
+        raise
+    elapsed = time.monotonic() - started
     logger.info(f"Agent Dream 记忆整理完成: updated={updated}")
+    # ponytail: 消费条数在 Dream.run 内部，骨架拿不到就不编造（只报 updated/耗时）。
+    detail = f"updated={updated} elapsed={elapsed:.1f}s" if updated else "noop: 无未处理历史"
+    _record_run("agent_dream", True, detail=detail)
     return updated
 
 
@@ -78,6 +117,8 @@ def start_scheduler(
     """
     # 创建后台调度器
     scheduler = BackgroundScheduler()
+    # 重复调用 start_scheduler（测试/热重启）时以本次挂载为准
+    MOUNTED_JOBS.clear()
 
     # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
     # 使用同步管理器执行，确保与主动同步的协调
@@ -111,8 +152,11 @@ def start_scheduler(
             from rl.lifecycle import audit_recent_oos
 
             audit_recent_oos()
-        except Exception:
+        except Exception as e:
             logger.exception("OOS 门槛周期审计失败")
+            _record_run("rl_oos_gate_audit", False, error=str(e)[:300])
+            return
+        _record_run("rl_oos_gate_audit", True)
 
     scheduler.add_job(
         func=scheduled_rl_oos_audit,
@@ -121,20 +165,24 @@ def start_scheduler(
         name="RL OOS gate audit",
         replace_existing=True,
     )
+    MOUNTED_JOBS.add("rl_oos_gate_audit")
 
     # 每日复盘（P4-4）：聚合昨日 worker 盈亏/持仓异常/决策数/模型 OOS 状态，
     # 作为一条 assistant 消息注入 /agent 默认会话（不伪装成用户输入）。
     # LLM 摘要 opt-in：默认关（QUANTCELL_DAILY_REVIEW_LLM=1 开启），
     # 启用但不可用时回落模板文本并在 meta.degraded 标注。导入放函数内与上面 OOS 一致。
     def scheduled_daily_review():
+        use_llm = os.environ.get("QUANTCELL_DAILY_REVIEW_LLM", "0").strip().lower() in ("1", "true", "yes")
         try:
             from agent.core.daily_review import build_report, publish
 
-            use_llm = os.environ.get("QUANTCELL_DAILY_REVIEW_LLM", "0").strip().lower() in ("1", "true", "yes")
             report = build_report(use_llm=use_llm)
             publish(report)
-        except Exception:
+        except Exception as e:
             logger.exception("每日复盘生成失败")
+            _record_run("agent_daily_review", False, error=str(e)[:300])
+            return
+        _record_run("agent_daily_review", True, detail=f"use_llm={use_llm}")
 
     scheduler.add_job(
         func=scheduled_daily_review,
@@ -143,6 +191,7 @@ def start_scheduler(
         name="Agent daily review",
         replace_existing=True,
     )
+    MOUNTED_JOBS.add("agent_daily_review")
 
     # 每日自动重训闭环（P4-3）：选目（retrain_policy）→ 重训 → shadow 纸面对照
     # → 「晋升待审」记录（AUTO_PROMOTE=1 才自动 promote）。
@@ -158,6 +207,7 @@ def start_scheduler(
             name="RL auto retrain (closed loop)",
             replace_existing=True,
         )
+        MOUNTED_JOBS.add("rl_auto_retrain")
         logger.info("自动重训闭环已挂载（每日 03:40）")
     else:
         logger.info(f"自动重训闭环未启用（{AUTO_RETRAIN_ENV} != 1）")
@@ -174,6 +224,7 @@ def start_scheduler(
             name="Agent dream (memory self-edit)",
             replace_existing=True,
         )
+        MOUNTED_JOBS.add("agent_dream")
         logger.info("Agent Dream 记忆自迭代已挂载（每日 04:00）")
     else:
         logger.info("Agent Dream 记忆自迭代未启用（QUANTCELL_AGENT_DREAM 未开启）")

@@ -161,6 +161,17 @@ const ChatMessage = ({ message }: { message: Message }) => {
             <span className="message-role">
               {isUser ? t('agent_user') : isTool ? t('agent_tool') : isError ? t('error') : (message.roleName || 'AI Agent')}
             </span>
+            {/* 迭代徽标：仅在 SSE 上报过 ReAct 轮次时出现（纯展示，无额外请求） */}
+            {message.iteration && (
+              <span className="message-iteration">
+                {message.iteration.max > 0
+                  ? t('agent_iteration_badge', {
+                      current: message.iteration.current,
+                      max: message.iteration.max,
+                    })
+                  : t('agent_iteration_badge_no_max', { current: message.iteration.current })}
+              </span>
+            )}
             <span className="message-time">
               {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
             </span>

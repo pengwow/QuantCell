@@ -6,6 +6,7 @@ import re
 import time
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -632,6 +633,123 @@ async def get_daily_review_report(
         logger.error(f"生成每日复盘失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     return {"success": True, **report}
+
+
+# ==================== 自迭代（Loop）状态 API ====================
+
+#: Agent 工作区（与 agent/core/factory.py::get_agent 同口径）
+_AGENT_WORKSPACE = Path(__file__).parent.parent.parent / "data" / "agent_workspace"
+
+#: 自迭代链路四个 job：(id, 展示名, cron 文案)；cron 文案与 core/scheduler.py 手写对齐
+_LOOP_JOBS = (
+    ("rl_oos_gate_audit", "RL OOS gate audit", "每日 03:30"),
+    ("agent_daily_review", "Agent daily review", "每日 03:35"),
+    ("rl_auto_retrain", "RL auto retrain (closed loop)", "每日 03:40"),
+    ("agent_dream", "Agent dream (memory self-edit)", "每日 04:00"),
+)
+
+
+def _read_text_or(path: Path, default: str = "") -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError, ValueError:
+        return default
+
+
+def _lifecycle_families() -> list[dict]:
+    """lifecycle_state.json → 每族一行（缺失/损坏一律 []，不猜字段）。
+
+    shadow 台账条目只有 date/winner/engine/degraded/error，没有 status：
+    有 promotion 记录就用它的 status，否则给 lifecycle 结果里同义的 shadow_running。
+    其余字段映射不了的，原样塞进 note（截断 200 字），不新造字段。
+    """
+    try:
+        from rl.lifecycle import load_lifecycle_state
+
+        state = load_lifecycle_state()
+    except Exception:
+        return []
+    shadow = state.get("shadow") if isinstance(state.get("shadow"), dict) else {}
+    promo_status = {
+        str(rec["family"]): str(rec.get("status") or "")
+        for rec in state.get("promotions") or []
+        if isinstance(rec, dict) and rec.get("family")
+    }
+    families: list[dict] = []
+    for family in [*shadow, *(f for f in promo_status if f not in shadow)]:
+        entries = [e for e in (shadow.get(family) or []) if isinstance(e, dict)]
+        last = entries[-1] if entries else {}
+        item: dict = {"family": family, "status": promo_status.get(family) or "shadow_running"}
+        days = {str(e["date"]) for e in entries if e.get("date")}
+        if days:
+            item["shadow_days"] = len(days)
+        raw = {k: last[k] for k in ("winner", "engine", "degraded", "error") if last.get(k) is not None}
+        if raw:
+            item["note"] = str(raw)[:200]
+        families.append(item)
+    return families
+
+
+@router.get("/memory", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def get_agent_memory():
+    """记忆自迭代只读视图：MEMORY.md 全文 / Dream 游标 / 历史条数 / 上次运行。
+
+    全部软失败（缺文件给空值），进程内 LAST_RUNS 重启即空属预期。
+    """
+    from core.scheduler import get_last_runs
+    from services.retrain_policy import env_flag
+
+    memory_dir = _AGENT_WORKSPACE / "memory"
+    try:
+        dream_cursor = int(_read_text_or(memory_dir / ".dream_cursor").strip() or 0)
+    except ValueError:
+        dream_cursor = 0
+    history_entries = 0
+    try:
+        with open(memory_dir / "history.jsonl", encoding="utf-8") as f:
+            history_entries = sum(1 for _ in f)
+    except OSError:
+        pass
+    return {
+        "success": True,
+        "enabled": env_flag("QUANTCELL_AGENT_DREAM"),
+        "memory_markdown": _read_text_or(memory_dir / "MEMORY.md"),
+        "dream_cursor": dream_cursor,
+        "history_entries": history_entries,
+        "last_run": get_last_runs().get("agent_dream"),
+    }
+
+
+@router.get("/loop-status", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def get_loop_status():
+    """自迭代四个 job 的挂载/上次运行 + 重训双闸 + 各族状态。
+
+    mounted 与 last_run 都来自本进程内存（core.scheduler），重启后为空/未挂。
+    """
+    from core.scheduler import MOUNTED_JOBS, get_last_runs
+    from services.retrain_policy import auto_promote_enabled, auto_retrain_enabled
+
+    last_runs = get_last_runs()
+    return {
+        "success": True,
+        "jobs": [
+            {
+                "id": job_id,
+                "name": name,
+                "cron": cron,
+                "mounted": job_id in MOUNTED_JOBS,
+                "last_run": last_runs.get(job_id),
+            }
+            for job_id, name, cron in _LOOP_JOBS
+        ],
+        "retrain": {
+            "gates": {
+                "auto_retrain": auto_retrain_enabled(),
+                "auto_promote": auto_promote_enabled(),
+            },
+            "families": _lifecycle_families(),
+        },
+    }
 
 
 # ==================== 工具调用审计 API ====================

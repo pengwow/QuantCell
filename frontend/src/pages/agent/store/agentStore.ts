@@ -42,6 +42,8 @@ export interface Message {
   structuredData?: Record<string, unknown>;
   /** 模型推理流（reasoning 事件累积），用于「思考中」过程展示 */
   reasoning?: string;
+  /** ReAct 迭代进度（iteration_start / complete{iteration}），仅当轮流内有值 */
+  iteration?: { current: number; max: number };
 }
 
 interface AgentState {
@@ -150,6 +152,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       let accumulatedReasoning = '';
       let currentIntent: string = '';
       let currentRole: string = '';
+      // ReAct 迭代进度：iteration_start 逐轮推进，complete{iteration} 落最终轮次
+      let iterationCurrent = 0;
+      let iterationMax = 0;
       const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       let assistantMessage: Message | null = null;
       // SSE 事件可能被网络层切成半个事件，必须跨 chunk 缓冲后再按空行切分
@@ -163,6 +168,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           state.messages.some(m => m.id === messageId)
             ? { messages: state.messages.map(m => (m.id === messageId ? assistantMessage! : m)) }
             : { messages: [...state.messages, assistantMessage!] },
+        );
+      };
+
+      // 迭代进度只写 meta：气泡未入列表时保持纯内存，入列表后原地刷新（不提前插入空气泡）
+      const applyIteration = () => {
+        if (!assistantMessage || iterationCurrent <= 0) return;
+        assistantMessage.iteration = {
+          current: iterationCurrent,
+          max: iterationMax || iterationCurrent,
+        };
+        set(state =>
+          state.messages.some(m => m.id === messageId)
+            ? { messages: state.messages.map(m => (m.id === messageId ? assistantMessage! : m)) }
+            : {},
         );
       };
 
@@ -223,7 +242,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                   intent: currentIntent,
                   roleName: currentRole || i18n.t('agent_ai_assistant'),
                 };
+                // iteration_start 可能先于 start 到达：骨架补上已知进度
+                if (iterationCurrent > 0) {
+                  assistantMessage.iteration = {
+                    current: iterationCurrent,
+                    max: iterationMax || iterationCurrent,
+                  };
+                }
               }
+              break;
+
+            case 'iteration_start':
+              // ReAct 每轮开始：{iteration, max_iterations}。只记进度，不改正文。
+              if (typeof data.data?.iteration === 'number') {
+                iterationCurrent = data.data.iteration;
+              }
+              if (typeof data.data?.max_iterations === 'number') {
+                iterationMax = data.data.max_iterations;
+              }
+              applyIteration();
               break;
 
             case 'reasoning':
@@ -276,12 +313,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               break;
 
             case 'complete': {
-              // 后端有两条 complete：loop 的（content）与 routes 的（structured_data/actions）。
+              // 后端有两条 complete：loop 的（content/iteration）与 routes 的（structured_data/actions）。
               // 两条都要消费，且只更新同一条消息。
               if (!assistantMessage) break;
               if (typeof data.data?.content === 'string' && !accumulatedContent) {
                 accumulatedContent = data.data.content;
                 assistantMessage.content = accumulatedContent;
+              }
+              // loop 的 complete 带最终轮次；routes 的没有，不该把已有进度清掉
+              if (typeof data.data?.iteration === 'number') {
+                iterationCurrent = data.data.iteration;
+                assistantMessage.iteration = {
+                  current: iterationCurrent,
+                  max: iterationMax || iterationCurrent,
+                };
               }
               if (data.data?.structured_data) {
                 assistantMessage.structuredData = data.data.structured_data;

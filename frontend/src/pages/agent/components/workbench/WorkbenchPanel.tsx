@@ -12,6 +12,7 @@ import PerformanceTab from './PerformanceTab';
 import ModelsTab from './ModelsTab';
 import LogsTab from './LogsTab';
 import AuditTab from './AuditTab';
+import SelfLoopTab from './SelfLoopTab';
 import { EventsTab } from './placeholders';
 
 export default function WorkbenchPanel() {
@@ -30,6 +31,7 @@ export default function WorkbenchPanel() {
     { key: 'logs', label: t('wb_tab_logs'), children: <LogsTab /> },
     { key: 'audit', label: t('wb_tab_audit'), children: <AuditTab /> },
     { key: 'events', label: t('wb_tab_events'), children: <EventsTab /> },
+    { key: 'selfloop', label: t('wb_tab_selfloop'), children: <SelfLoopTab /> },
   ];
 
   return (

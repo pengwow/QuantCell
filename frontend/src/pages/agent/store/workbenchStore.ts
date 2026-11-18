@@ -22,7 +22,8 @@ export type WorkbenchTab =
   | 'models'
   | 'logs'
   | 'audit'
-  | 'events';
+  | 'events'
+  | 'selfloop';
 
 export const WORKBENCH_TABS: WorkbenchTab[] = [
   'decisions',
@@ -32,6 +33,7 @@ export const WORKBENCH_TABS: WorkbenchTab[] = [
   'logs',
   'audit',
   'events',
+  'selfloop',
 ];
 
 export const isWorkbenchTab = (v: string | null): v is WorkbenchTab =>
