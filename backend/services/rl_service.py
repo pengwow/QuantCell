@@ -53,8 +53,63 @@ KERNEL_ACTION_SPACE = {"type": "continuous", "min": -1.0, "max": 1.0}
 RL_TRANSACTION_COST = 0.0001
 RL_SLIPPAGE = 0.00001
 
+#: 复合 reward 的 term 键域（`RLTrainConfig.reward_terms` 只接受这些键）
+REWARD_TERM_KEYS = ("pnl", "sharpe", "downside", "turnover", "mdd")
+
+#: 现行 reward（原生 `TradingEnv` 的 `reward="pnl"`）固化为默认配比：pnl=1，其余 0。
+#: 因此不传 `reward_terms` 时行为与改造前完全一致（零漂移）。
+DEFAULT_REWARD_TERMS: dict[str, float] = {"pnl": 1.0, "sharpe": 0.0, "downside": 0.0, "turnover": 0.0, "mdd": 0.0}
+
 #: 部署策略行名前缀：`rl_paper_<model_id>`（`build_deploy_spec` 幂等 upsert 的键）
 DEPLOY_STRATEGY_PREFIX = "rl_paper_"
+
+
+@dataclass(frozen=True)
+class CostProfile:
+    """成本口径 profile：默认费率 + 按交易对 / 数据类型（candle_type）覆盖。
+
+    缺省实例等价于改造前的单一常量 `RL_TRANSACTION_COST`（所有查询落到
+    `default`，数值完全一致）。优先级：交易对 → 数据类型 → 默认。
+
+    ponytail: v1 只做费率查表，不含滑点/深度曲线（P4 事项）。
+    """
+
+    default: float = RL_TRANSACTION_COST
+    by_symbol: dict[str, float] = field(default_factory=dict)
+    by_candle_type: dict[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for rate in (self.default, *self.by_symbol.values(), *self.by_candle_type.values()):
+            if not np.isfinite(rate) or rate < 0:
+                msg = f"cost_profile 费率必须是有限非负数: {rate}"
+                raise ValueError(msg)
+
+    def rate_for(self, *, symbol: str | None = None, candle_type: str | None = None) -> float:
+        """按优先级 交易对 → 数据类型 → 默认 取费率。"""
+        if symbol:
+            rate = self.by_symbol.get(symbol)
+            if rate is None:
+                rate = self.by_symbol.get(symbol.upper())
+            if rate is not None:
+                return float(rate)
+        if candle_type:
+            rate = self.by_candle_type.get(candle_type)
+            if rate is not None:
+                return float(rate)
+        return float(self.default)
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any]) -> CostProfile:
+        """从 JSON 友好的 dict 构造：`{"default": x, "by_symbol": {...}, "by_candle_type": {...}}`。"""
+        unknown = set(raw) - {"default", "by_symbol", "by_candle_type"}
+        if unknown:
+            msg = f"未知 cost_profile 字段: {sorted(unknown)}"
+            raise ValueError(msg)
+        return cls(
+            default=float(raw.get("default", RL_TRANSACTION_COST)),
+            by_symbol={str(k): float(v) for k, v in (raw.get("by_symbol") or {}).items()},
+            by_candle_type={str(k): float(v) for k, v in (raw.get("by_candle_type") or {}).items()},
+        )
 
 
 class RLDeployError(Exception):
@@ -123,6 +178,29 @@ def load_observation_stats(model_path: str) -> list[dict[str, Any]] | None:
         return None
     meta = json.loads(meta_file.read_text(encoding="utf-8"))
     return observation_stats_from_meta(meta, model_path=model_path)
+
+
+def load_rl_meta(model_path: str) -> dict[str, Any]:
+    """读模型旁车元数据；文件缺失或损坏时返回空 dict（旧模型照常可用）。"""
+    meta_file = rl_meta_path(model_path)
+    if not meta_file.is_file():
+        return {}
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(f"[RLService] 模型元数据不可读，按缺省口径处理: {meta_file} ({exc})")
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def transaction_cost_from_meta(meta: dict[str, Any] | None, default: float = RL_TRANSACTION_COST) -> float:
+    """取模型训练时实际使用的费率；旧 meta 无该字段时回落 `default`（零漂移）。"""
+    if not meta:
+        return default
+    rate = meta.get("transaction_cost")
+    if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not np.isfinite(rate) or rate < 0:
+        return default
+    return float(rate)
 
 
 def attribute_engine_diff(*, trading_env: dict[str, Any], kernel: dict[str, Any]) -> dict[str, Any]:
@@ -228,6 +306,29 @@ class RLTrainConfig:
     model_name: str = "rl_model"
     walk_forward: bool = False
     wf_splits: int = 5
+    #: 复合 reward 权重覆盖；None = 现行 pnl 单 term（零漂移）。
+    #: 只写要覆盖的 term，未列出的沿用 `DEFAULT_REWARD_TERMS`。
+    reward_terms: dict[str, float] | None = None
+    #: 成本 profile（`CostProfile` 或 JSON dict）；None = `RL_TRANSACTION_COST`。
+    cost_profile: CostProfile | dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.reward_terms is not None:
+            unknown = set(self.reward_terms) - set(REWARD_TERM_KEYS)
+            if unknown:
+                msg = f"未知 reward term: {sorted(unknown)}（可选: {list(REWARD_TERM_KEYS)}）"
+                raise ValueError(msg)
+            weights = {term: float(self.reward_terms[term]) for term in REWARD_TERM_KEYS if term in self.reward_terms}
+            if not all(np.isfinite(w) for w in weights.values()):
+                msg = f"reward_terms 权重必须是有限数: {self.reward_terms}"
+                raise ValueError(msg)
+            self.reward_terms = weights
+        if self.cost_profile is not None and not isinstance(self.cost_profile, CostProfile):
+            self.cost_profile = CostProfile.from_mapping(self.cost_profile)
+
+    def effective_reward_terms(self) -> dict[str, float]:
+        """实际生效的 term 权重（缺省 = 现行 pnl 单 term）。"""
+        return {**DEFAULT_REWARD_TERMS, **(self.reward_terms or {})}
 
 
 @dataclass
@@ -245,11 +346,12 @@ def _make_env_config(
     max_steps: int = 500,
     seed: int = 42,
     symbol: str = "BTCUSDT",
+    transaction_cost: float = RL_TRANSACTION_COST,
 ) -> dict[str, Any]:
     """Create default environment config."""
     return {
         "initial_capital": initial_capital,
-        "transaction_cost": RL_TRANSACTION_COST,
+        "transaction_cost": transaction_cost,
         "slippage": RL_SLIPPAGE,
         "max_steps": max_steps,
         "seed": seed,
@@ -377,6 +479,118 @@ except ImportError:
     GymnasiumWrapper = None
 
 
+class RewardShapingEnv:
+    """多 term 加权 reward 环境包装（只在显式配置 `reward_terms` 时启用）。
+
+    原生 `TradingEnv` 的 reward 是 pnl/sharpe/sortino 三选一，表达不了
+    「pnl - λ·回撤 - μ·换手」这类目标。这层把观测/成交原样透传给原生 env，
+    只按 `info` 的权益曲线重算 reward：
+
+    - `pnl`：本步权益变动（净，已扣手续费/滑点）
+    - `sharpe`：最近 `window` 步权益收益率的滚动 Sharpe（样本不足记 0）
+    - `downside`：`min(pnl, 0)`，只罚亏损步
+    - `turnover`：本步成交名义额 = 手续费增量 / 费率
+    - `mdd`：当前回撤 `(peak - equity) / peak`
+
+    term 量纲不同（pnl 是货币、mdd 是比例），权重由调用方标定。
+    ponytail: 只读 `info` 公开字段，不复制原生撮合逻辑；原生 env 若日后
+    直接支持 term 权重，这层整体删除。
+    """
+
+    def __init__(
+        self, env: Any, weights: dict[str, float], *, cost_rate: float = RL_TRANSACTION_COST, window: int = 50
+    ):
+        self._env = env
+        self._weights = {term: float(weights.get(term, 0.0)) for term in REWARD_TERM_KEYS}
+        self._cost_rate = float(cost_rate)
+        self._window = max(2, int(window))
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        self._equity: float | None = None
+        self._peak = 0.0
+        self._fees = 0.0
+        self._returns: list[float] = []
+
+    @property
+    def info(self) -> dict[str, Any]:
+        info = getattr(self._env, "info", {})
+        return info if isinstance(info, dict) else {}
+
+    @property
+    def portfolio_value(self) -> float:
+        return float(getattr(self._env, "portfolio_value", 0.0))
+
+    def observation_stats(self) -> str:
+        getter = getattr(self._env, "observation_stats", None)
+        return getter() if getter is not None else "null"
+
+    def reset(self, *args, **kwargs) -> Any:
+        self._reset_state()
+        obs = self._env.reset(*args, **kwargs)
+        info = self.info
+        equity = info.get("portfolio_value")
+        if equity is not None:
+            self._equity = float(equity)
+            self._peak = self._equity
+        self._fees = float(info.get("transaction_costs") or 0.0)
+        return obs
+
+    def step(self, action: Any) -> Any:
+        result = self._env.step(action)
+        obs, raw_reward, terminated, truncated = result[0], result[1], result[2], result[3]
+        info = result[4] if len(result) > 4 else {}
+        reward = self._shape_reward(raw_reward, info)
+        return obs, reward, terminated, truncated, info
+
+    def close(self) -> None:
+        closer = getattr(self._env, "close", None)
+        if closer is not None:
+            closer()
+
+    def _shape_reward(self, raw_reward: Any, info: Any) -> float:
+        info = info if isinstance(info, dict) else {}
+        equity_raw = info.get("portfolio_value")
+        if equity_raw is None or self._equity is None:
+            # 没有权益曲线就没有拆 term 的依据，退回原生 reward（不臆造指标）
+            return float(raw_reward)
+
+        equity = float(equity_raw)
+        prev_equity = self._equity
+        pnl = equity - prev_equity
+        self._equity = equity
+        self._peak = max(self._peak, equity)
+
+        fees = float(info.get("transaction_costs") or 0.0)
+        turnover = (fees - self._fees) / self._cost_rate if self._cost_rate > 0 else 0.0
+        self._fees = fees
+
+        if prev_equity > 0:
+            self._returns.append(pnl / prev_equity)
+            del self._returns[: max(0, len(self._returns) - self._window)]
+
+        terms = {
+            "pnl": pnl,
+            "sharpe": self._rolling_sharpe(),
+            "downside": min(pnl, 0.0),
+            "turnover": turnover,
+            "mdd": (self._peak - equity) / self._peak if self._peak > 0 else 0.0,
+        }
+        # term 明细随 info 出参，便于训练后诊断（不影响 SB3）
+        info["reward_terms"] = terms
+        return float(sum(self._weights[term] * value for term, value in terms.items()))
+
+    def _rolling_sharpe(self) -> float:
+        """滚动窗口内权益收益率的 Sharpe（mean/std × √n）；样本不足或零波动记 0。"""
+        if len(self._returns) < 2:
+            return 0.0
+        returns = np.asarray(self._returns, dtype=np.float64)
+        std = float(returns.std())
+        if std <= 0.0:
+            return 0.0
+        return float(returns.mean() / std * np.sqrt(returns.size))
+
+
 class RLService:
     """RL training pipeline service."""
 
@@ -410,6 +624,7 @@ class RLService:
         features: list[str] | None = None,
         reward_type: str = "pnl",
         initial_capital: float = 100_000.0,
+        transaction_cost: float = RL_TRANSACTION_COST,
     ) -> Any:
         """Create an RL training environment.
 
@@ -428,8 +643,23 @@ class RLService:
             df["timestamp"] = range(len(df))
 
         market_data = df.to_dict("records")
-        config = _make_env_config(initial_capital=initial_capital, max_steps=len(df))
+        config = _make_env_config(initial_capital=initial_capital, max_steps=len(df), transaction_cost=transaction_cost)
         return _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
+
+    @staticmethod
+    def _cost_rate(config: RLTrainConfig) -> float:
+        """训练实际使用的费率：有 profile 按 symbol/candle_type 查表，否则沿用常量。"""
+        profile = config.cost_profile
+        if not isinstance(profile, CostProfile):
+            return RL_TRANSACTION_COST
+        return profile.rate_for(symbol=config.symbol, candle_type=config.candle_type)
+
+    def _build_train_env(self, data: pd.DataFrame, config: RLTrainConfig, *, cost_rate: float) -> Any:
+        """训练环境：未配置 `reward_terms` 时返回原生 env（零漂移），否则套 reward 组合层。"""
+        env = self.create_env(data, config.features, config.reward_type, transaction_cost=cost_rate)
+        if config.reward_terms is None:
+            return env
+        return RewardShapingEnv(env, config.effective_reward_terms(), cost_rate=cost_rate)
 
     def train(self, config: RLTrainConfig, reporter: Any = None) -> RLTrainResult:
         """Execute RL training with stable-baselines3 and save model.
@@ -448,6 +678,7 @@ class RLService:
         reporter = reporter if reporter is not None else NullReporter()
         reporter.state(stage="loading_data", progress=0.0, message="加载行情数据")
         data = self._load_data(config)
+        cost_rate = self._cost_rate(config)
         reporter.check_cancel()
 
         logger.info(
@@ -466,7 +697,7 @@ class RLService:
             wf_svc = RLWalkForwardService()
 
             def env_factory(d: pd.DataFrame):
-                env = self.create_env(d, config.features, config.reward_type)
+                env = self._build_train_env(d, config, cost_rate=cost_rate)
                 return GymnasiumWrapper(env)
 
             try:
@@ -492,7 +723,7 @@ class RLService:
 
         reporter.check_cancel()
         reporter.state(stage="learning", progress=wf_share, message="构建训练环境")
-        env = self.create_env(data, config.features, config.reward_type)
+        env = self._build_train_env(data, config, cost_rate=cost_rate)
 
         try:
             from stable_baselines3 import DQN, PPO, SAC
@@ -549,6 +780,10 @@ class RLService:
                     "total_timesteps": config.total_timesteps,
                     "elapsed_seconds": round(elapsed, 2),
                     "reward_type": config.reward_type,
+                    # 实际生效的 term 权重（缺省 = pnl 单 term）；OOS 明细归 `walk_forward`
+                    "reward_terms": config.effective_reward_terms(),
+                    # 训练实际费率，供回测/归因与训练同源（旧 meta 无此字段时回落常量）
+                    "transaction_cost": cost_rate,
                     # ISO 8601 毫秒精度(项目时间戳规范)
                     "created_at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
                     # walk-forward 完整结果(OOS 折明细 + 汇总);seed 并入注册表时只取 aggregate
@@ -834,7 +1069,10 @@ class RLService:
         # rl_service 模块期 import rl.* 会撞上半初始化的 rl 包成环
         from rl.evaluation import evaluate_model
 
-        env = self.create_env(data, reward_type=reward_type, initial_capital=initial_capital)
+        cost_rate = transaction_cost_from_meta(load_rl_meta(model_path))
+        env = self.create_env(
+            data, reward_type=reward_type, initial_capital=initial_capital, transaction_cost=cost_rate
+        )
         wrapped_env = GymnasiumWrapper(env)
 
         model = self.load_model(model_path)
@@ -842,7 +1080,7 @@ class RLService:
             msg = f"无法加载模型: {model_path}"
             raise RuntimeError(msg)
 
-        metrics = evaluate_model(model, wrapped_env, transaction_cost=RL_TRANSACTION_COST)
+        metrics = evaluate_model(model, wrapped_env, transaction_cost=cost_rate)
         wrapped_env.close()
 
         return {
@@ -894,6 +1132,7 @@ class RLService:
             window_size = int(member_specs.meta.get("window_size") or KERNEL_WINDOW_SIZE)
             features = member_specs.meta.get("features") or KERNEL_FEATURES
             stats = observation_stats_from_meta(member_specs.meta, model_path=member_specs.representative_path)
+            cost_rate = transaction_cost_from_meta(member_specs.meta)
         else:
             model = self.load_model(model_path)
             if model is None:
@@ -904,12 +1143,14 @@ class RLService:
             window_size = KERNEL_WINDOW_SIZE
             features = KERNEL_FEATURES
             stats = load_observation_stats(model_path)
+            cost_rate = transaction_cost_from_meta(load_rl_meta(model_path))
 
         # 内核按 BASE/QUOTE 建 instrument；直接用交易所原始 symbol 会退化成默认品种
         rust_symbol = expand_symbol(symbol)
         bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(data))
 
-        # 费率与训练环境同源：两边都是 `RL_TRANSACTION_COST`，否则归因会报成本模型不一致
+        # 费率与训练环境同源：取模型 meta 记录的训练费率（旧 meta 回落 `RL_TRANSACTION_COST`），
+        # 否则训练用了自定义 cost profile 时归因会误报「成本模型不一致」
         result = run_kernel_backtest(
             bars,
             predict_fn,
@@ -922,7 +1163,7 @@ class RLService:
                 "action_space": KERNEL_ACTION_SPACE,
             },
             initial_capital=initial_capital,
-            fee_rate=RL_TRANSACTION_COST,
+            fee_rate=cost_rate,
             stats=stats,
             model_id=model_id,
         )
