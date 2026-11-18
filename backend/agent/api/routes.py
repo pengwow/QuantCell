@@ -17,6 +17,7 @@ from utils.rbac import Permission, require_permission
 
 from ..config.manager import ToolParamManager, mask_sensitive_value
 from ..config.schemas import BatchUpdateRequest, ImportConfigRequest, SetValueRequest
+from ..core.audit import MAX_LIMIT, parse_time_bound, query_tool_calls
 from ..core.factory import get_agent
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -530,6 +531,44 @@ async def get_session(session_id: str):
     except Exception as e:
         logger.error(f"获取会话详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 工具调用审计 API ====================
+
+
+@router.get("/audit", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def list_tool_audit(
+    start: str | None = Query(None, description="起始时间（ISO8601 或 epoch 秒/毫秒，含边界）"),
+    end: str | None = Query(None, description="结束时间（ISO8601 或 epoch 秒/毫秒，含边界）"),
+    tool: str | None = Query(None, description="工具名（前缀匹配，传完整工具名即精确）"),
+    result_status: str | None = Query(None, description="结果状态，如 success / error / blocked_scope"),
+    user: str | None = Query(None, description="调用方（JWT sub 或 token 名称）"),
+    token: str | None = Query(None, description='令牌来源："jwt" 或 "#<token_id>"'),
+    limit: int = Query(50, ge=1, description="每页条数（上限 500，超出按 500 截断）"),
+    offset: int = Query(0, ge=0, description="分页偏移"),
+):
+    """查询工具调用审计（P2-06 落库表 agent_tool_audit），created_at 倒序。
+
+    args_redacted 落库时已脱敏，原样返回；args_hash 为参数摘要，供等幂比对。
+    """
+    limit = min(limit, MAX_LIMIT)
+    try:
+        total, audits = query_tool_calls(
+            start=parse_time_bound(start, name="start"),
+            end=parse_time_bound(end, name="end"),
+            tool=tool,
+            result_status=result_status,
+            user=user,
+            token=token,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"查询工具调用审计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "total": total, "limit": limit, "offset": offset, "audits": audits}
 
 
 # ==================== 工具参数管理 API ====================

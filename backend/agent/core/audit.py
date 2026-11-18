@@ -8,7 +8,10 @@
 import hashlib
 import json
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
+
+from sqlalchemy import func, select
 
 from utils.logger import LogType, get_logger
 
@@ -83,3 +86,103 @@ def record_tool_call(tool: str, params: Any, result_status: str, duration_ms: in
             db.commit()
     except Exception as e:
         logger.warning(f"工具审计落库失败: tool={tool} err={e}")
+
+
+# ---------- 查询侧（/audit 审计 Tab） ----------
+
+# limit 上限：超出按此截断而非报错（前端传大值不会 422）
+MAX_LIMIT = 500
+
+
+def parse_time_bound(value: str | None, *, name: str = "time") -> datetime | None:
+    """解析时间边界：ISO8601（可带 Z/偏移）或 epoch 秒/毫秒，统一为 UTC naive。
+
+    库列 created_at 为 UTC naive（SQLite func.now()），比较前必须对齐口径；
+    无时区的 ISO 串按 UTC 解释。
+    """
+    if value is None:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        num = float(raw)
+    except ValueError:
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} 需为 ISO8601 或 epoch 秒/毫秒: {value!r}") from exc
+        return dt.astimezone(UTC).replace(tzinfo=None) if dt.tzinfo else dt
+    # ponytail: 按量级区分秒/毫秒（>=1e11 视为毫秒；1e11 秒≈5138 年，正常时间戳达不到）
+    ts = num / 1000 if abs(num) >= 1e11 else num
+    try:
+        return datetime.fromtimestamp(ts, UTC).replace(tzinfo=None)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise ValueError(f"{name} 超出可解析范围: {value!r}") from exc
+
+
+def query_tool_calls(
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    tool: str | None = None,
+    result_status: str | None = None,
+    user: str | None = None,
+    token: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[int, list[dict]]:
+    """分页查询工具调用审计（agent_tool_audit），created_at 倒序。
+
+    tool 为前缀匹配（传完整工具名即精确）。args_redacted 落库时已脱敏，原样返回。
+    返回 (满足条件的总数, 当前页记录)；数据库未初始化时返回 (0, [])。
+    """
+    # 函数内 import：SessionLocal 初始无 bind，运行期读模块属性（测试替换通道同 record_tool_call）
+    from collector.db.database import SessionLocal
+
+    if SessionLocal is None or SessionLocal.kw.get("bind") is None:
+        return 0, []
+
+    from agent.models import AgentToolAudit
+
+    conds = []
+    if start is not None:
+        conds.append(AgentToolAudit.created_at >= start)
+    if end is not None:
+        conds.append(AgentToolAudit.created_at <= end)
+    if tool:
+        conds.append(AgentToolAudit.tool.startswith(tool, autoescape=True))
+    if result_status:
+        conds.append(AgentToolAudit.result_status == result_status)
+    if user:
+        conds.append(AgentToolAudit.user == user)
+    if token:
+        conds.append(AgentToolAudit.token == token)
+
+    limit = max(1, min(limit, MAX_LIMIT))
+    with SessionLocal() as db:
+        total = db.scalar(select(func.count()).select_from(AgentToolAudit).where(*conds)) or 0
+        rows = db.scalars(
+            select(AgentToolAudit)
+            .where(*conds)
+            # ponytail: SQLite func.now() 只到秒，同秒内用 id 兜底保证翻页稳定
+            .order_by(AgentToolAudit.created_at.desc(), AgentToolAudit.id.desc())
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        # 会话内取值成 dict：避免回传 detached ORM 实例后的懒加载
+        items = [
+            {
+                "id": r.id,
+                "tool": r.tool,
+                "args_hash": r.args_hash,
+                "args_redacted": r.args_redacted,
+                "result_status": r.result_status,
+                "user": r.user,
+                "token": r.token,
+                "duration_ms": r.duration_ms,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
+    return total, items
