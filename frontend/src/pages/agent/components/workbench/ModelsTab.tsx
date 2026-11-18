@@ -1,6 +1,7 @@
 /**
  * 右栏 ④ 模型：GET /models/unified（modelApi.unifiedModels，与模型页总表同源）。
- * 只读展示（名称/阶段/算法/关键指标）；promote/unpromote 复用 UnifiedModelTable
+ * 顶部是训练任务面板（TrainPanel，异步训练 + 进度），下方模型总表只读展示
+ * （名称/阶段/算法/关键指标）；promote/unpromote 复用 UnifiedModelTable
  * 已确认的 API 契约（modelApi.promoteModel / unpromoteModel），规则一致：
  * 已注册且 stage!==production 可晋升，stage===production 可回退（unpromote 二次确认）。
  */
@@ -12,6 +13,7 @@ import { ReloadOutlined, RocketOutlined, RollbackOutlined } from '@ant-design/ic
 import { modelApi } from '@/api/modelApi';
 import type { UnifiedModelRow } from '@/api/modelApi';
 import { useWorkbenchStore } from '../../store/workbenchStore';
+import TrainPanel from './TrainPanel';
 
 const STAGE_COLORS: Record<string, string> = {
   production: 'green',
@@ -137,11 +139,18 @@ export default function ModelsTab() {
   ];
 
   if (!workerId) {
-    return <Empty description={t('wb_select_worker')} image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return (
+      <div className="wb-models">
+        {/* 训练任务与 worker 无关，未选 worker 时仍可用 */}
+        <TrainPanel onTrained={refresh} />
+        <Empty description={t('wb_select_worker')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      </div>
+    );
   }
 
   return (
     <div className="wb-models">
+      <TrainPanel onTrained={refresh} />
       <div className="wb-list-meta wb-models-toolbar">
         <span>{t('wb_models_from_registry')}</span>
         <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>

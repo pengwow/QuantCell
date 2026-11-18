@@ -11,7 +11,8 @@ import PositionsTab from './PositionsTab';
 import PerformanceTab from './PerformanceTab';
 import ModelsTab from './ModelsTab';
 import LogsTab from './LogsTab';
-import { AuditTab, EventsTab } from './placeholders';
+import AuditTab from './AuditTab';
+import { EventsTab } from './placeholders';
 
 export default function WorkbenchPanel() {
   const { t } = useTranslation();
