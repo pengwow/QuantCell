@@ -6,6 +6,7 @@ import {
 } from './bridge';
 import { setDesktopRuntime } from './env';
 import { installNetworkBridge } from './network';
+import { updateApiClientBaseUrl } from '../api';
 import { hideSplash, showSplash, showSplashError, updateSplash } from './splash';
 
 const HEALTH_TIMEOUTS = 180; // 秒；onefile 自解压 ~1 分钟 + 存量库升级迁移，实测冷启可达 ~110s（90s 会误报超时）
@@ -53,6 +54,11 @@ export async function bootstrapDesktop(): Promise<void> {
 
     setDesktopRuntime({ mode: cfg.mode, baseUrl });
     installNetworkBridge();
+    // axios 实例在模块加载期烘焙 baseURL，彼时 runtime.base 还未就绪，
+    // 会固化成相对 `/api/v1`——XHR 落到 tauri:// 协议处理器上，全部页面
+    // 无声失败（fetch 已被网络桥重写，唯独 axios 走 XHR 不经过它）。
+    // 桌面壳就绪后必须重指 axios 到 sidecar/remote 地址。
+    updateApiClientBaseUrl();
     installCrashEvents();
     // 仅成功路径移除遮罩；失败时保留错误态（见 catch）
     hideSplash();
