@@ -64,10 +64,10 @@ class TestQueryToolCalls:
         assert total2 == 5
         assert len(page1) == 2
         assert len(page2) == 2
-        # created_at desc：第 1 页最新（hour=4,3）
-        assert page1[0]["created_at"] == _dt(1, 4)
-        assert page1[1]["created_at"] == _dt(1, 3)
-        assert page2[0]["created_at"] == _dt(1, 2)
+        # created_at desc：第 1 页最新（hour=4,3）；现为 UTC ISO + Z 串
+        assert page1[0]["created_at"] == "2026-01-01T04:00:00Z"
+        assert page1[1]["created_at"] == "2026-01-01T03:00:00Z"
+        assert page2[0]["created_at"] == "2026-01-01T02:00:00Z"
         # 返回字段与 ORM 列一致
         assert set(page1[0]) == {
             "id",
@@ -114,10 +114,10 @@ class TestQueryToolCalls:
         _add(audit_factory, "t", created_at=_dt(10, 12))
         _add(audit_factory, "t", created_at=_dt(11, 0))
 
-        # 左闭右闭：恰好落在边界的行都包含
+        # 左闭右闭：恰好落在边界的行都包含（created_at 现输出 UTC ISO + Z 串）
         total, rows = query_tool_calls(start=_dt(10, 0), end=_dt(10, 12))
         assert total == 2
-        assert [r["created_at"] for r in rows] == [_dt(10, 12), _dt(10, 0)]
+        assert [r["created_at"] for r in rows] == ["2026-01-10T12:00:00Z", "2026-01-10T00:00:00Z"]
 
         # 只给 start
         assert query_tool_calls(start=_dt(10, 12))[0] == 2

@@ -164,14 +164,23 @@ def get_workers(
     strategy_id: int | None = None,
     skip: int = 0,
     limit: int = 20,
+    owner_id: int | None = None,
 ) -> tuple[list[Worker], int]:
-    """获取Worker列表"""
+    """获取Worker列表
+
+    `owner_id` 提供时按归属过滤（非特权用户只看自己的 worker）；
+    None 不过滤（admin / 服务令牌走全量）。
+    """
     query = db.query(Worker)
 
     if status:
         query = query.filter(Worker.status == status)
     if strategy_id:
         query = query.filter(Worker.strategy_id == strategy_id)
+    if owner_id is not None:
+        # ponytail: 只做归属过滤，不做行级 ACL 推广到所有端点——
+        # 逐端点鉴权（详情/订单/决策）需要统一 dependency，另行立项
+        query = query.filter(Worker.owner_id == owner_id)
 
     total = query.count()
     workers = query.order_by(desc(Worker.created_at)).offset(skip).limit(limit).all()

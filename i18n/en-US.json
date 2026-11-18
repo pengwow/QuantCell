@@ -2747,6 +2747,8 @@
   "agent_send_failed": "Failed to send message",
   "agent_request_timeout": "Request timed out: the Agent took too long",
   "agent_timeout_detail": "The Agent took more than 3 minutes. Please simplify your question or try again later",
+  "agent_reconnecting": "Connection lost, retrying (attempt {{n}})...",
+  "agent_stream_interrupted": "Connection interrupted; this reply may be incomplete.",
   "agent_session_name": "Session {{time}}",
   "agent_default_session": "Default Session",
   "agent_fetch_sessions_failed": "Failed to fetch sessions",

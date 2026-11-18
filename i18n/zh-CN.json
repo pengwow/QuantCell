@@ -2747,6 +2747,8 @@
   "agent_send_failed": "发送消息失败",
   "agent_request_timeout": "请求超时，Agent处理时间过长",
   "agent_timeout_detail": "Agent处理时间超过3分钟，请简化问题或稍后重试",
+  "agent_reconnecting": "连接中断，正在重连（第 {{n}} 次）…",
+  "agent_stream_interrupted": "连接中断，本轮回复可能不完整。",
   "agent_session_name": "会话 {{time}}",
   "agent_default_session": "默认会话",
   "agent_fetch_sessions_failed": "获取会话列表失败",

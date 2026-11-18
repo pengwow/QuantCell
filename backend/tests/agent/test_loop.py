@@ -187,7 +187,7 @@ class TestAgentLoop:
             workspace=temp_workspace,
         )
 
-        async def _boom(content, session_key, on_stream=None):
+        async def _boom(content, session_key, on_stream=None, extra_context=None):
             raise RuntimeError("boom")
 
         agent._run_message_stream = _boom

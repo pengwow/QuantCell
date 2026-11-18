@@ -47,6 +47,33 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+# 这些角色不做归属过滤：admin 是平台管理角色；agent 是服务间令牌
+# （sub=agent_token:*），供后端内部调用（如智能体拉取 worker 上下文）
+_OWNER_FILTER_EXEMPT_ROLES = {"admin", "agent"}
+
+
+def _worker_owner_filter(current_user: dict) -> int | None:
+    """按当前用户决定 worker 列表归属过滤。
+
+    - 鉴权开启：human（role=user/guest）只能看到 owner_id 等于自己的 worker；
+      admin/agent 免过滤。user_id 是 JWT sub，human 为数字串，解析失败宁可
+      不返回数据（-1）也不全量泄露。
+    - 鉴权关闭（debug/桌面本地，config.toml security.auth_enabled=false）：
+      get_current_user 返回 {}，当前不存在"用户"概念——单机模式不过滤，
+      与整个平台在该模式下的行为（调试、本地跑通）一致。
+    """
+    role = current_user.get("role")
+    if not role:
+        # 鉴权关闭路径：{} 或缺 role 一律视为单机模式
+        return None
+    if role in _OWNER_FILTER_EXEMPT_ROLES:
+        return None
+    try:
+        return int(current_user.get("user_id"))
+    except TypeError, ValueError:
+        return -1
+
+
 router = APIRouter(
     prefix="/api/v1/workers",
     tags=["workers"],
@@ -161,7 +188,11 @@ async def list_workers(
     性能优化：使用 get_all_states() 批量获取，避免 N+1 查询问题
     """
     result = await worker_core_service.async_list_workers(
-        status=status, strategy_id=strategy_id, page=page, page_size=page_size
+        status=status,
+        strategy_id=strategy_id,
+        page=page,
+        page_size=page_size,
+        owner_id=_worker_owner_filter(current_user),
     )
 
     all_states = await worker_state_manager.get_all_states()

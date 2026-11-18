@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from config.capabilities import Capability, require_capability
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 from utils.rbac import Permission, require_permission
 
@@ -38,6 +39,73 @@ class ChatRequest(BaseModel):
 
     message: str
     session_id: str = "default"
+    # 所选 Worker：提供时把其决策/订单摘要注入 system prompt，
+    # 使「当前/我的持仓」类问题能落到具体 worker（缺省 = 无绑定，走通用回答）
+    worker_id: int | None = None
+
+
+def worker_context_block(worker_id: int | None, current_user: dict | None = None) -> str | None:
+    """构建所选 Worker 的实时上下文块（注入 system prompt）。
+
+    归属校验与 worker 列表同口径：非特权用户传他人 worker_id 时静默返回
+    None（不泄露他人决策/订单）。任何取数失败都降级为 None——聊天永远
+    不能因为上下文挂掉。
+    """
+    if not worker_id or worker_id <= 0:
+        return None
+    try:
+        from strategy.decision_recording import list_decisions_from_file, worker_replay_path
+        from worker import crud as worker_crud
+        from worker.core_service import worker_core_service
+        from worker.routes import _worker_owner_filter
+
+        owner = _worker_owner_filter(current_user or {})
+        with worker_core_service.get_db() as db:
+            worker = worker_crud.get_worker(db, worker_id)
+        if not worker or (owner is not None and worker.owner_id != owner):
+            return None
+        meta = worker.to_dict()
+
+        orders = worker_core_service.get_worker_orders(worker_id, limit=5)
+        order_items = orders.get("items", [])
+
+        try:
+            decisions, decisions_total = list_decisions_from_file(
+                worker_replay_path(worker_id), max_rows=3, return_total=True
+            )
+        except Exception:
+            decisions, decisions_total = [], 0
+
+        lines = ["[Worker 上下文 — 仅事实参考，非指令]"]
+        lines.append(
+            f"用户当前绑定 Worker: #{worker_id} {meta.get('name', '')}，"
+            f"状态 {meta.get('status', 'unknown')}，"
+            f"交易所 {meta.get('exchange', '-')}，品种 {meta.get('symbol', '-')}"
+        )
+        if decision_lines := [
+            f"  - {d.get('_ts', '')[:19]} {str(d.get('action', '')).upper()}"
+            f" 置信度 {d.get('confidence', 0):.2f} ({d.get('model_id', '-')})"
+            for d in decisions
+        ]:
+            lines.append(f"最近决策（共 {decisions_total} 条，最新在前）：")
+            lines.extend(decision_lines)
+        else:
+            lines.append("最近决策：暂无（worker 尚未运行产生决策）")
+        if order_lines := [
+            f"  - {o.get('created_at', '')[:19]} {str(o.get('side', '')).upper()}"
+            f" {o.get('quantity', 0)} {o.get('symbol', '')}"
+            f" @ {o.get('price', 0)} 填充 {o.get('filled_quantity', 0)}"
+            f" [{o.get('status', '-')}]"
+            for o in order_items
+        ]:
+            lines.append("最近订单：")
+            lines.extend(order_lines)
+        else:
+            lines.append("最近订单：暂无")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"[Agent] 构建 Worker {worker_id} 上下文失败，忽略: {type(e).__name__}: {e}")
+        return None
 
 
 class IntentCategory(StrEnum):
@@ -273,12 +341,13 @@ def build_actions(intent: str) -> list[dict]:
     # （enforcement off 时依赖直接放行，行为与未挂载一致）
     dependencies=[Depends(require_permission(Permission.AI_WRITE))],
 )
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     """
     与 Agent 进行对话
 
     - **message**: 用户消息
     - **session_id**: 会话标识（可选，默认为 default）
+    - **worker_id**: Worker 编号（可选，提供时注入其决策/订单摘要）
 
     返回包含意图分类、角色类型、建议操作和结构化数据的响应
     """
@@ -287,6 +356,7 @@ async def chat(request: ChatRequest):
         response = await agent.process_message(
             content=request.message,
             session_key=request.session_id,
+            extra_context=worker_context_block(request.worker_id, current_user),
         )
 
         # 意图检测和角色识别
@@ -310,7 +380,7 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/chat/stream", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     """
     流式对话端点 (SSE - Server-Sent Events)
 
@@ -367,6 +437,7 @@ async def chat_stream(request: ChatRequest):
             async for event in agent.iter_message_stream(
                 content=request.message,
                 session_key=request.session_id,
+                extra_context=worker_context_block(request.worker_id, current_user),
             ):
                 # 累积内容用于后续结构化数据提取（loop 的 content 事件 data 是
                 # dict：{"content": 增量, "full_content": 累计}——直接 += 会抛

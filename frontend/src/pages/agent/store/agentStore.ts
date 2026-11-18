@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 // 非组件模块无法使用 useTranslation hook，直接用 i18n 单例取词（同 useUpdater.ts 先例）
 import i18n from '../../../i18n/config';
+import { useWorkbenchStore } from './workbenchStore';
 
 export interface ToolCall {
   id: string;
@@ -75,6 +76,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   
   sendMessage: async (content: string) => {
     const { currentSessionId } = get();
+    // 工作台选中的 Worker 一并带上，供后端注入决策/订单摘要（0/未选不带，后端可选参数）
+    const workerId = useWorkbenchStore.getState().workerId;
 
     // 添加用户消息
     const userMessage: Message = {
@@ -91,17 +94,47 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       error: null,
     }));
 
+    // 是否已收到过流内容：收到后断线不重试（避免重复注入消息）
+    let receivedAny = false;
+    const retryNoticeId = `${Date.now()}-retry`;
+
     try {
       // 创建 AbortController 用于超时控制
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3分钟超时
 
-      const response = await fetch('/api/v1/agent/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: content, session_id: currentSessionId }),
-        signal: controller.signal,
-      });
+      const body: Record<string, unknown> = { message: content, session_id: currentSessionId };
+      if (workerId) body.worker_id = workerId;
+
+      // ponytail: 仅建连阶段重试，最多 2 次、间隔 800ms；已收到内容后断流直接报错不重试。
+      // 天花板是固定退避，升级路径：指数退避 + 可配置次数。
+      let response: Response | null = null;
+      for (let attempt = 0; !response; attempt++) {
+        try {
+          response = await fetch('/api/v1/agent/chat/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+        } catch (err) {
+          // 超时/主动 abort 不重试
+          if ((err as Error).name === 'AbortError' || attempt >= 2) throw err;
+          const notice: Message = {
+            id: retryNoticeId,
+            role: 'assistant',
+            content: i18n.t('agent_reconnecting', { n: attempt + 1 }),
+            timestamp: new Date().toISOString(),
+            isError: true,
+          };
+          set(state => ({
+            messages: [...state.messages.filter(m => m.id !== retryNoticeId), notice],
+          }));
+          await new Promise(resolve => setTimeout(resolve, 800));
+        }
+      }
+      // 重连成功即撤掉提示，不让过期气泡留在聊天里
+      set(state => ({ messages: state.messages.filter(m => m.id !== retryNoticeId) }));
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: i18n.t('agent_request_failed') }));
@@ -195,6 +228,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
             case 'reasoning':
               // 推理增量（GLM 等模型的思考过程）
+              receivedAny = true;
               if (typeof data.data === 'string') {
                 accumulatedReasoning += data.data;
               } else if (data.data?.content) {
@@ -208,6 +242,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
             case 'content':
               // 增量内容更新（后端 content 事件 data 为 {content, full_content}，兼容旧版纯字符串）
+              receivedAny = true;
               if (data.data) {
                 const delta =
                   typeof data.data === 'string' ? data.data : (data.data.content ?? '');
@@ -285,7 +320,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         upsertAssistant();
       }
 
-      set({ loading: false, streaming: false });
+      set({ loading: false, streaming: false, error: null });
 
     } catch (error) {
       let errorMsg = i18n.t('agent_send_failed');
@@ -295,6 +330,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         if (error.name === 'AbortError') {
           errorMsg = i18n.t('agent_request_timeout');
           errorDetail = i18n.t('agent_timeout_detail');
+        } else if (receivedAny) {
+          // 已收到部分内容才断流：不重试，只提示本轮可能不完整（半截气泡保留）
+          errorMsg = i18n.t('agent_stream_interrupted');
+          errorDetail = error.stack || error.message;
         } else {
           errorMsg = error.message;
           errorDetail = error.stack || error.message;

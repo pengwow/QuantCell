@@ -496,6 +496,7 @@ class AgentLoop:
         content: str,
         session_key: str = "default",
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        extra_context: str | None = None,
     ) -> str:
         """
         处理单条消息
@@ -504,6 +505,7 @@ class AgentLoop:
             content: 用户消息内容
             session_key: 会话标识
             on_progress: 进度回调函数
+            extra_context: 附加 system 上下文（如所选 Worker 的实时摘要）
 
         Returns:
             Agent 响应内容
@@ -539,6 +541,7 @@ class AgentLoop:
         initial_messages = self.context.build_messages(
             history=history,
             current_message=content,
+            extra_system=extra_context,
         )
         logger.info(f"[AgentLoop] 消息构建完成, history={len(history)}, total_messages={len(initial_messages)}")
 
@@ -598,14 +601,20 @@ class AgentLoop:
         content: str,
         session_key: str = "default",
         on_stream: Callable[..., Awaitable[None]] | None = None,
+        extra_context: str | None = None,
     ):
         """回调模式流式处理：事件实时推给 on_stream
 
         如需 async-for 消费（如 SSE 接口），使用 iter_message_stream。
         """
-        return await self._run_message_stream(content, session_key, on_stream)
+        return await self._run_message_stream(content, session_key, on_stream, extra_context)
 
-    async def iter_message_stream(self, content: str, session_key: str = "default"):
+    async def iter_message_stream(
+        self,
+        content: str,
+        session_key: str = "default",
+        extra_context: str | None = None,
+    ):
         """async-for 模式流式处理：将回调流桥接为异步迭代器
 
         事件经队列从后台任务转发，任务结束后以哨兵收尾；
@@ -619,7 +628,7 @@ class AgentLoop:
 
         async def _runner():
             try:
-                await self._run_message_stream(content, session_key, on_stream=_push)
+                await self._run_message_stream(content, session_key, _push, extra_context)
             except Exception as e:
                 # 后台任务的异常无法直接传给消费者，放入队列由消费侧抛出
                 await queue.put(e)
@@ -644,6 +653,7 @@ class AgentLoop:
         content: str,
         session_key: str = "default",
         on_stream: Callable[..., Awaitable[None]] | None = None,
+        extra_context: str | None = None,
     ):
         """流式处理消息的主体实现：事件实时推给 on_stream 回调"""
         import time
@@ -679,6 +689,7 @@ class AgentLoop:
         initial_messages = self.context.build_messages(
             history=history,
             current_message=content,
+            extra_system=extra_context,
         )
         logger.info(f"[AgentLoop] 消息构建完成, history={len(history)}, total_messages={len(initial_messages)}")
 

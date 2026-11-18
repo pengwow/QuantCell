@@ -76,8 +76,7 @@ export default function AuditTab() {
       title: t('wb_audit_time'),
       dataIndex: 'created_at',
       width: 150,
-      // ponytail: 库列是 UTC naive，FastAPI 序列化后无时区后缀，formatTimestamp 按本地时间解释
-      // （与全站表格口径一致）；真要做时区正确显示需后端带 Z 或走 dayjs UTC 插件
+      // ponytail: 后端已统一返回带 Z 的 UTC ISO 串，formatTimestamp 直接本地化即可
       render: (v: string) => <span className="wb-nowrap-mono">{formatTimestamp(v)}</span>,
     },
     {

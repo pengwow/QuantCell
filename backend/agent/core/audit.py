@@ -170,7 +170,22 @@ def query_tool_calls(
             .limit(limit)
             .offset(offset)
         ).all()
+
         # 会话内取值成 dict：避免回传 detached ORM 实例后的懒加载
+        def _iso_utc(v):
+            """库存 UTC naive（SQLite func.now()）→ 带 Z 的 ISO 串。
+
+            前端 formatTimestamp 按 ISO 解析并本地化；无 Z 会被当本地时间
+            显示差 8 小时（AuditTab 历史缺陷）。
+            """
+            if v is None:
+                return None
+            if isinstance(v, datetime):
+                # DATETIME 列此处为 naive UTC；若未来换有时区后端可直接透传
+                return v.isoformat() + ("" if v.tzinfo else "Z")
+            s = str(v)
+            return s if s.endswith(("Z", "+00:00")) else f"{s}Z"
+
         items = [
             {
                 "id": r.id,
@@ -181,7 +196,7 @@ def query_tool_calls(
                 "user": r.user,
                 "token": r.token,
                 "duration_ms": r.duration_ms,
-                "created_at": r.created_at,
+                "created_at": _iso_utc(r.created_at),
             }
             for r in rows
         ]

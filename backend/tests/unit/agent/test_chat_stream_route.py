@@ -26,7 +26,9 @@ def _debug_auth(monkeypatch):
 
 def _stub_agent():
     class _StubAgent:
-        async def iter_message_stream(self, content: str, session_key: str = "default"):
+        async def iter_message_stream(
+            self, content: str, session_key: str = "default", extra_context: str | None = None
+        ):
             # loop 实际形状：content 事件 data 是 dict；同时容忍 str 数据
             yield StreamEvent(event_type="content", data={"content": "1", "full_content": "1"})
             yield StreamEvent(event_type="content", data={"content": "+1", "full_content": "1+1"})
