@@ -48,6 +48,43 @@ def _get_shared_registry(storage_path: str) -> Any:
         return registry
 
 
+#: 训练期 meta 的 unified 行透传字段(前端 UnifiedModelRow 契约,见 frontend/src/api/modelApi.ts)
+_TRAINING_META_FIELDS = ("obs_mode", "obs_window", "obs_features", "data_type", "reward_terms", "transaction_cost")
+
+
+def _read_sidecar_meta(zip_path: str | None) -> dict[str, Any]:
+    """读 zip 旁车 `<zip>.meta.json`;缺失/损坏/非对象一律返回 {}。
+
+    调用方把 {} 当作"没有训练期 meta"降级为缺省字段 —— 单行旁车坏掉不该让
+    整个 unified 列表失败(与 oos_gate 读旁车的容错口径一致)。
+    """
+    if not zip_path:
+        return {}
+    try:
+        with open(f"{zip_path}.meta.json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except OSError, ValueError, TypeError:
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _training_meta_fields(sidecar: dict[str, Any], registry_meta: dict[str, Any]) -> dict[str, Any]:
+    """提取 unified 行上的 7 个训练期字段;缺键 → None(前端渲染「—」)。
+
+    磁盘旁车优先(训练产物真源,不受注册时间点快照影响),注册表 metadata 兜底
+    (文件缺失行没有旁车;seed 注册时已把 meta 顶层键并入 metadata)。`oos` 依次
+    回退 walk_forward.oos / walk_forward_oos(seed 裁剪后的键),再不行给 None。
+    """
+    meta = {**registry_meta, **sidecar}
+    oos = meta.get("oos")
+    if not isinstance(oos, dict):
+        walk_forward = meta.get("walk_forward")
+        oos = walk_forward.get("oos") if isinstance(walk_forward, dict) else None
+    if not isinstance(oos, dict):
+        oos = meta.get("walk_forward_oos")
+    return {**{key: meta.get(key) for key in _TRAINING_META_FIELDS}, "oos": oos if isinstance(oos, dict) else None}
+
+
 def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> list[str]:
     """把最近训练的 RL 模型产物幂等 seed 进模型注册表(开箱即用)。
 
@@ -196,6 +233,10 @@ class ModelRegistryService:
         取 metadata.created_at 最新一条(ISO 字符串字典序即时间序);条目盖不住的
         文件 → 未注册行,盖不住文件的条目 → 「文件缺失」行(注册表无 delete,
         孤立项保留可见)。
+
+        行上另透传 7 个训练期字段(obs_mode/obs_window/obs_features/data_type/
+        reward_terms/transaction_cost/oos),值取 zip 旁车 .meta.json,注册表
+        metadata 兜底;缺键为 None,旁车损坏只影响本行。
         """
         files: dict[str, dict[str, Any]] = {}
         for f in glob.glob(os.path.join(self._storage_path, "*.zip")):
@@ -242,6 +283,7 @@ class ModelRegistryService:
                 # 文件缺失行:路径尽力回显(来源路径 or 目录约定路径),时间回退条目 created_at
                 entry["path"] = str(source_path) if source_path else os.path.join(self._storage_path, f"{name}.zip")
                 entry["file_name"] = os.path.basename(entry["path"])
+                entry.update(_training_meta_fields({}, meta))
                 if created_iso:
                     try:
                         entry["created"] = datetime.fromisoformat(created_iso).timestamp()
@@ -253,6 +295,7 @@ class ModelRegistryService:
                 f = files[zip_key]
                 entry.update(path=f["path"], size_mb=f["size_mb"], created=f["created"])
                 entry["file_name"] = os.path.basename(f["path"])
+                entry.update(_training_meta_fields(_read_sidecar_meta(f["path"]), meta))
                 best[zip_key] = (created_iso, entry)
 
         rows = [entry for _, entry in best.values()]
@@ -272,6 +315,7 @@ class ModelRegistryService:
                     "version": "",
                     "stage": "",
                     "metrics": {},
+                    **_training_meta_fields(_read_sidecar_meta(f["path"]), {}),
                 }
             )
         rows.extend(missing)
