@@ -11,6 +11,7 @@ import numpy as np
 
 from backtest.walk_forward import WalkForwardService
 from rl.evaluation import EvaluationMetrics, evaluate_model
+from services.rl_task_runner import NullReporter, ScaledReporter, TrainingCancelled, learn_in_chunks
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ class RLWalkForwardService:
         train_ratio: float = 0.7,
         mode: str = "rolling",
         total_timesteps: int = 10_000,
+        reporter: Any = None,
     ) -> dict[str, Any]:
         """Run Walk-Forward validation for an RL model.
 
@@ -53,10 +55,14 @@ class RLWalkForwardService:
             train_ratio: Train/test ratio within each fold.
             mode: "rolling" or "expanding".
             total_timesteps: Training timesteps per fold.
+            reporter: 可选任务上报器（进度 / 日志 / 取消），缺省空实现。
+                折内进度按 (已完成折 + 折内进度) / n_splits 折算，stage 取
+                `wf_fold_i` / `wf_eval`。
 
         Returns:
             Dict with per-fold OOS metrics and aggregate mean/std.
         """
+        reporter = reporter if reporter is not None else NullReporter()
         if algo_kwargs is None:
             algo_kwargs = {}
 
@@ -86,11 +92,31 @@ class RLWalkForwardService:
             logger.info(f"[WF] Fold {i}: train={len(train_data)}, test={len(test_data)}")
 
             try:
+                reporter.check_cancel()
+                fold_base = i / max(1, len(splits))
+                fold_span = 1.0 / max(1, len(splits))
+                reporter.state(
+                    stage=f"wf_fold_{i}",
+                    progress=fold_base,
+                    message=f"Walk-Forward 折 {i + 1}/{len(splits)} 训练",
+                )
                 train_env = env_factory(train_data)
                 model = algo_cls("MlpPolicy", train_env, verbose=0, **algo_kwargs)
-                model.learn(total_timesteps=total_timesteps)
+                # 折内前 85% 给训练，尾巴留给 OOS 评估
+                learn_in_chunks(
+                    model,
+                    total_timesteps,
+                    ScaledReporter(reporter, base=fold_base, span=fold_span * 0.85),
+                    stage=f"wf_fold_{i}",
+                )
                 train_env.close()
 
+                reporter.check_cancel()
+                reporter.state(
+                    stage="wf_eval",
+                    progress=fold_base + fold_span * 0.9,
+                    message=f"Walk-Forward 折 {i + 1}/{len(splits)} OOS 评估",
+                )
                 test_env = env_factory(test_data)
                 metrics = evaluate_model(model, test_env)
                 test_env.close()
@@ -103,6 +129,9 @@ class RLWalkForwardService:
                         "oos_metrics": _metrics_to_dict(metrics),
                     }
                 )
+                reporter.log(f"[WF] 折 {i} 完成: sharpe={metrics.sharpe_ratio:.3f}")
+            except TrainingCancelled:
+                raise  # 取消不是折失败：直接中止整轮 walk-forward
             except Exception as e:
                 logger.error(f"[WF] Fold {i} 失败: {e}")
                 folds.append(

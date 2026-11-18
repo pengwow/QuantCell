@@ -5,6 +5,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
@@ -78,13 +79,11 @@ class RLBacktestRequest(BaseModel):
     ensemble_id: str | None = None
 
 
-@router.post("/train")
-@handle_rl_exceptions
-async def start_training(req: TrainRequest, current_user: dict = Depends(get_current_user)):
-    # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
-    from services.rl_service import RLService, RLTrainConfig
+def _to_train_config(req: TrainRequest):
+    """TrainRequest → RLTrainConfig（同步 /train 与任务化 /train/async 共用）。"""
+    from services.rl_service import RLTrainConfig
 
-    config = RLTrainConfig(
+    return RLTrainConfig(
         algorithm=req.algorithm,
         symbol=req.symbol,
         interval=req.interval,
@@ -96,7 +95,15 @@ async def start_training(req: TrainRequest, current_user: dict = Depends(get_cur
         walk_forward=req.walk_forward,
         wf_splits=req.wf_splits,
     )
-    result = RLService().train(config)
+
+
+@router.post("/train")
+@handle_rl_exceptions
+async def start_training(req: TrainRequest, current_user: dict = Depends(get_current_user)):
+    # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
+    from services.rl_service import RLService
+
+    result = RLService().train(_to_train_config(req))
     return ApiResponse(
         code=0,
         message="训练完成",
@@ -107,6 +114,69 @@ async def start_training(req: TrainRequest, current_user: dict = Depends(get_cur
             "walk_forward": result.walk_forward,
         },
     )
+
+
+@router.post("/train/async", status_code=202)
+@handle_rl_exceptions
+async def start_training_async(req: TrainRequest, current_user: dict = Depends(get_current_user)):
+    """任务化训练：立即返回 202 + task_id，训练在后台单工作线程跑。
+
+    与同步 /train 共用请求模型与 `RLService.train` 实现，差异只在调用方式；
+    进度 / 日志 / 取消走 `/train/{task_id}` 与 `/train/{task_id}/events`。
+    """
+    from services.rl_task_runner import submit_train_task
+
+    task_id = submit_train_task(_to_train_config(req))
+    return {"task_id": task_id, "status": "queued"}
+
+
+@router.get("/train/{task_id}")
+@handle_rl_exceptions
+async def get_training_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """训练任务快照（轮询用；SSE 见 /train/{task_id}/events）。"""
+    from services.rl_task_runner import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    return task.snapshot()
+
+
+@router.get("/train/{task_id}/events")
+async def stream_training_events(task_id: str, current_user: dict = Depends(get_current_user)):
+    """SSE 进度流：`state`（完整快照）/ `log`（单行日志）/ 15s `: ping`。
+
+    终态推一条 `state` 后关闭连接。不加 `handle_rl_exceptions`：流式响应只能
+    在开始前校验任务存在，生成器内的异常由客户端断开处理。
+    """
+    from services.rl_task_runner import get_task, sse_stream
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    return StreamingResponse(
+        sse_stream(task),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 关掉 nginx 缓冲，事件立即到达前端
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/train/{task_id}/cancel")
+@handle_rl_exceptions
+async def cancel_training_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """协作式取消：运行中任务在下一个阶段边界 / 进度回调生效。"""
+    from services.rl_task_runner import cancel_task, get_task
+
+    if get_task(task_id) is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    if not cancel_task(task_id):
+        raise HTTPException(status_code=409, detail=f"训练任务已结束，无法取消: {task_id}")
+    return {"accepted": True}
 
 
 @router.get("/models")

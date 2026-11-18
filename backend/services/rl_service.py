@@ -20,6 +20,7 @@ from axon_quant.rl import run_kernel_backtest
 from backtest.hpo_runner import HPORunner
 from backtest.walk_forward import WalkForwardService
 from services.ensemble_aggregator import make_ensemble_predict_fn
+from services.rl_task_runner import NullReporter, ScaledReporter, learn_in_chunks
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
@@ -415,19 +416,34 @@ class RLService:
         config = _make_env_config(initial_capital=initial_capital, max_steps=len(df))
         return _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
 
-    def train(self, config: RLTrainConfig) -> RLTrainResult:
+    def train(self, config: RLTrainConfig, reporter: Any = None) -> RLTrainResult:
         """Execute RL training with stable-baselines3 and save model.
 
         When config.walk_forward=True, runs Walk-Forward validation first,
         then trains final model on full data with OOS evaluation.
+
+        Args:
+            reporter: 可选任务上报器（`status` 协议见 `services.rl_task_runner`）。
+                缺省 `NullReporter`，同步 `/train`（ModelHub）行为不变。
+
+        progress 语义（对前端单一数值）：walk-forward 占前 50%，最终训练
+        50%→95%，保存 95%→100%；stage 取 `loading_data` / `wf_fold_i` /
+        `wf_eval` / `learning` / `saving` 五个取值。
         """
+        reporter = reporter if reporter is not None else NullReporter()
+        reporter.state(stage="loading_data", progress=0.0, message="加载行情数据")
         data = self._load_data(config)
+        reporter.check_cancel()
 
         logger.info(
             f"[RLService] 开始训练: algorithm={config.algorithm}, timesteps={config.total_timesteps}, reward={config.reward_type}"
         )
+        reporter.log(
+            f"开始训练: algorithm={config.algorithm}, timesteps={config.total_timesteps}, reward={config.reward_type}"
+        )
         start_time = time.time()
 
+        wf_share = 0.5 if config.walk_forward else 0.0
         wf_result = None
         if config.walk_forward:
             from rl.walk_forward_rl import RLWalkForwardService
@@ -456,8 +472,11 @@ class RLService:
                 algo_cls=algo_cls,
                 n_splits=config.wf_splits,
                 total_timesteps=config.total_timesteps,
+                reporter=ScaledReporter(reporter, base=0.0, span=wf_share),
             )
 
+        reporter.check_cancel()
+        reporter.state(stage="learning", progress=wf_share, message="构建训练环境")
         env = self.create_env(data, config.features, config.reward_type)
 
         try:
@@ -473,11 +492,20 @@ class RLService:
             raise ValueError(msg)
 
         logger.info(f"[RLService] 使用 {algo_cls.__name__} 训练...")
+        reporter.log(f"使用 {algo_cls.__name__} 训练 {config.total_timesteps} steps")
 
         wrapped_env = GymnasiumWrapper(env)
         model = algo_cls("MlpPolicy", wrapped_env, verbose=0)
-        model.learn(total_timesteps=config.total_timesteps)
+        # 分块 learn：块间检查取消，块内 BaseCallback 逐 step 报进度
+        learn_in_chunks(
+            model,
+            config.total_timesteps,
+            ScaledReporter(reporter, base=wf_share, span=0.95 - wf_share),
+            stage="learning",
+        )
 
+        reporter.check_cancel()
+        reporter.state(stage="saving", progress=0.95, message="保存模型与观测规格")
         # 统计量必须在训练循环跑完后再取：每次 step 都会在线更新 RunningStats
         observation_stats = export_observation_stats(env)
 
@@ -516,10 +544,13 @@ class RLService:
             encoding="utf-8",
         )
         logger.info(f"[RLService] 模型已保存: {model_path}")
+        reporter.log(f"模型已保存: {model_path}")
 
         wrapped_env.close()
 
         logger.info(f"[RLService] 训练完成: elapsed={elapsed:.1f}s")
+        reporter.log(f"训练完成: elapsed={elapsed:.1f}s")
+        reporter.state(progress=1.0, message="训练完成")
 
         return RLTrainResult(
             model_id=model_id,
