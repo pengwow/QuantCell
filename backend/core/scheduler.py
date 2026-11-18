@@ -58,6 +58,25 @@ def start_scheduler(
         replace_existing=True,
     )
 
+    # 每日 OOS 门槛审计:只读模型旁车,把"连续 N 轮 OOS 不达标"的模型族
+    # 记进日志(promote 端点本身已同步拦截)。不触发训练——训练侧仍归
+    # rl.lifecycle 的 run_loop。导入放函数内,避免调度器启动时拉起 RL 依赖。
+    def scheduled_rl_oos_audit():
+        try:
+            from rl.lifecycle import audit_recent_oos
+
+            audit_recent_oos()
+        except Exception:
+            logger.exception("OOS 门槛周期审计失败")
+
+    scheduler.add_job(
+        func=scheduled_rl_oos_audit,
+        trigger=CronTrigger(hour=3, minute=30),
+        id="rl_oos_gate_audit",
+        name="RL OOS gate audit",
+        replace_existing=True,
+    )
+
     # 启动调度器
     scheduler.start()
     logger.info("定时任务调度器已启动，货币对同步任务将在每周日凌晨2点执行")

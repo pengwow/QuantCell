@@ -53,7 +53,9 @@ class TrainRequest(BaseModel):
     end: str | None = None
     total_timesteps: int = 100000
     reward_type: str = "sharpe"
-    walk_forward: bool = False
+    # 默认开启:walk-forward OOS 是模型卡的训练上下文,也是 promote 门槛的数据源;
+    # 显式传 false 仍可关闭(ModelHub 不传时行为随之改变,见 changelog)
+    walk_forward: bool = True
     wf_splits: int = 5
 
 

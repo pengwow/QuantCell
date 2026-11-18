@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 from typing import Any
 
+from services.oos_gate import OosGateError, check_oos_gate
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -88,6 +89,7 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
             # 其余(含 observation_stats)原样保留,作为模型卡的数据源
             walk_forward = meta.get("walk_forward")
             wf_aggregate = walk_forward.get("aggregate") if isinstance(walk_forward, dict) else None
+            wf_oos = walk_forward.get("oos") if isinstance(walk_forward, dict) else None
             card_meta = {k: v for k, v in meta.items() if k != "walk_forward"}
             svc.register_model(
                 name=name,
@@ -96,6 +98,9 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
                     **card_meta,
                     "feature_count": len(meta.get("features", [])),
                     "walk_forward_aggregate": wf_aggregate,
+                    # 本轮 OOS 报告(小字典):promote 门槛可从注册表侧读取,
+                    # 同时不影响 folds 明细不落注册表的既有裁剪
+                    "walk_forward_oos": wf_oos,
                 },
             )
             registered.append(name)
@@ -104,7 +109,9 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
 
     # 第一个示例晋升为 Production,页面状态列可呈现完整生命周期
     if registered:
-        svc.promote_to_production(registered[0])
+        # seed 是启动自愈/开箱即用路径,不能因历史 OOS 连续不达标把启动流程卡死;
+        # 正式晋升(action=promote)仍走默认开启的 OOS 门槛
+        svc.promote_to_production(registered[0], enforce_oos_gate=False)
         logger.info("模型注册表 seed 完成: %s", registered)
     return registered
 
@@ -391,8 +398,12 @@ class ModelRegistryService:
             return None
         return real
 
-    def promote_to_production(self, model_id: str) -> bool:
+    def promote_to_production(self, model_id: str, *, enforce_oos_gate: bool = True) -> bool:
         """Promote model to production.
+
+        默认先过 OOS 门槛:最近 2 轮同族 walk-forward OOS 连续不达标时抛
+        `OosGateError`(路由回 409)。`enforce_oos_gate=False` 只给内部
+        bootstrap(seed)用,API 不暴露 bypass。
 
         ponytail: Rust 无 list_versions API,拿不到"最新版本",这里晋升首版
         1.0.0;已有 Production 时 no-op 返回 False(语义修正:晋升已有生产版
@@ -408,6 +419,10 @@ class ModelRegistryService:
             prod = None
         if prod:
             return False
+        if enforce_oos_gate:
+            gate = check_oos_gate(model_id, self._storage_path)
+            if gate["blocked"]:
+                raise OosGateError(gate)
         self._registry.promote_to_production(model_id, "1.0.0")
         return True
 

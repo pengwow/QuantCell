@@ -10,11 +10,27 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from services.rl_service import RLService, RLTrainConfig
+from services.rl_service import MODELS_DIR, RLService, RLTrainConfig
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def audit_recent_oos(models_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """扫描模型旁车,按族给出 promote 门槛判定(只读,不触发训练)。
+
+    周期入口:core.scheduler 的每日审计 job 直接调用;也可在 lifecycle
+    run_loop 的每轮迭代里复用。
+    """
+    from services.oos_gate import audit_oos_gate
+
+    results = audit_oos_gate(models_dir or MODELS_DIR)
+    for result in results:
+        if result.get("blocked"):
+            logger.warning("[OOS] 晋升门槛: %s", result["reason"])
+    return results
 
 
 @dataclass
@@ -95,6 +111,16 @@ class RLLifecycle:
         logger.info(f"[Phase 2] 回测完成: PnL=${result.get('total_pnl', 0.0):.2f}")
         return result
 
+    def oos_promotion_status(self, model_id: str) -> dict[str, Any]:
+        """读取同族最近 N 轮 walk-forward OOS,返回 promote 门槛判定。"""
+        from services.oos_gate import check_oos_gate
+
+        return check_oos_gate(model_id, MODELS_DIR)
+
+    def run_oos_audit(self) -> list[dict[str, Any]]:
+        """周期审计所有模型族的 OOS 门槛状态(只读,不训练)。"""
+        return audit_recent_oos()
+
     def evaluate_and_decide(self, metrics: ModelMetrics) -> str:
         """根据真实指标决定下一步。"""
         reasons = []
@@ -152,6 +178,9 @@ class RLLifecycle:
         logger.info(f"RL 自动迭代生命周期启动: {self.config.symbol} {self.config.interval}")
         while True:
             self.run_once()
+            # OOS 门槛是 promote 的读侧闸门,不需要额外训练;每轮顺带审计一次,
+            # 让连续不达标的模型在日志里可见(真正的训练/重训仍在 run_once)。
+            self.run_oos_audit()
             logger.info(f"等待 {self.config.check_interval_hours}h 后下次检查...")
             time.sleep(self.config.check_interval_hours * 3600)
 
