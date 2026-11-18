@@ -498,6 +498,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               content,
               // 后端历史不带时间戳；留空由气泡隐藏，避免伪造"当前时间"
               timestamp: '',
+              ...(role === 'assistant' ? { roleName: i18n.t('agent_ai_assistant') } : {}),
             } as Message;
           });
         set({ messages: history });
