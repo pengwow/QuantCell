@@ -44,6 +44,25 @@ def handle_rl_exceptions(func):
     return wrapper
 
 
+def handle_rl_exceptions_sync(func):
+    """同 `handle_rl_exceptions`，给同步端点（FastAPI 线程池）用。
+
+    async 包装器会 `await` 返回值，同步函数返回的 ApiResponse 不可 await；
+    长任务端点（如手动触发重训闭环）保留 def 定义才能不阻塞事件循环。
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _map_rl_exception(exc) from exc
+
+    return wrapper
+
+
 class TrainRequest(BaseModel):
     algorithm: str = "ppo"
     symbol: str  # 必填：训练目标交易对
@@ -335,3 +354,59 @@ async def run_walk_forward(req: WalkForwardRequest, current_user: dict = Depends
         message="Walk-Forward 验证完成",
         data={"walk_forward": result.walk_forward, "model_id": result.model_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# P4-3 自动重训闭环（薄路由）
+#
+# 总闸 QUANTCELL_AUTO_RETRAIN / 第二闸 QUANTCELL_AUTO_PROMOTE 只影响
+# core.scheduler 是否挂 job 与是否自动 promote；这里的手动入口始终可用，
+# 便于运维在闸门关闭时「按需跑一次」并在返回体里看到完整证据。
+# ---------------------------------------------------------------------------
+
+
+class LifecycleRunRequest(BaseModel):
+    #: 默认只跑选目（不训练）：误点 POST 不会烧几小时 CPU
+    dry_run: bool = True
+
+
+@router.get("/lifecycle/state")
+@handle_rl_exceptions
+async def get_lifecycle_state(current_user: dict = Depends(get_current_user)):
+    """闭环状态：双闸开关、当日选目、shadow 台账、晋升待审记录。"""
+    from rl.lifecycle import load_lifecycle_state, pending_promotions
+    from services.retrain_policy import auto_promote_enabled, auto_retrain_enabled, select_retrain_candidates
+
+    return ApiResponse(
+        code=0,
+        message="success",
+        data={
+            "auto_retrain_enabled": auto_retrain_enabled(),
+            "auto_promote_enabled": auto_promote_enabled(),
+            "candidates": [c.to_dict() for c in select_retrain_candidates()],
+            "pending_promotions": pending_promotions(),
+            # 全量促升记录（pending / auto_promoted / auto_promote_failed），人审页据此展示历史
+            "promotions": load_lifecycle_state().get("promotions", []),
+            "shadow": load_lifecycle_state().get("shadow", {}),
+        },
+    )
+
+
+# 同步端点（不是 async def）：跑满一次闭环可能几十分钟，交给 FastAPI 线程池，
+# 不阻塞事件循环。dry_run=False 时请把 HTTP 超时调大，或直接用调度器/CLI。
+@router.post("/lifecycle/run")
+@handle_rl_exceptions_sync
+def run_lifecycle_cycle(req: LifecycleRunRequest, current_user: dict = Depends(get_current_user)):
+    """手动触发一次闭环：dry_run=True 只返回选目；False 真跑重训/对照/闸门。"""
+    from rl.lifecycle import AutoCycleConfig, run_auto_retrain_cycle
+    from services.retrain_policy import RetrainPolicy, select_retrain_candidates
+
+    if req.dry_run:
+        policy = RetrainPolicy.from_env()
+        candidates = [c.to_dict() for c in select_retrain_candidates(policy=policy)]
+        return ApiResponse(
+            code=0,
+            message="选目预览（未训练）",
+            data={"dry_run": True, "candidates": candidates, "policy": policy.__dict__},
+        )
+    return ApiResponse(code=0, message="闭环执行完成", data=run_auto_retrain_cycle(AutoCycleConfig()))

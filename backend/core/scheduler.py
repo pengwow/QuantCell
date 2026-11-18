@@ -5,15 +5,38 @@
 """
 
 import os
+from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from services.retrain_policy import AUTO_RETRAIN_ENV, env_flag
+from services.symbol_sync import symbol_sync_manager
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from services.symbol_sync import symbol_sync_manager
+
+
+def run_auto_retrain_job() -> dict[str, Any] | None:
+    """每日自动重训闭环 job 体（模块级，便于单测直接调）。
+
+    job 级 try/except：选目 / 训练 / 对照任何一步炸掉都只记日志，绝不让异常
+    冒泡到 APScheduler（否则该 job 后续触发会被框架按失败策略处理）。
+    """
+    try:
+        from rl.lifecycle import run_auto_retrain_cycle
+
+        summary = run_auto_retrain_cycle()
+        logger.info(
+            "RL 自动重训闭环完成: candidates=%s results=%s",
+            len(summary.get("candidates") or []),
+            [(r.get("family"), r.get("status")) for r in summary.get("results") or []],
+        )
+        return summary
+    except Exception:
+        logger.exception("RL 自动重训闭环失败")
+        return None
 
 
 def start_scheduler(
@@ -100,6 +123,24 @@ def start_scheduler(
         name="Agent daily review",
         replace_existing=True,
     )
+
+    # 每日自动重训闭环（P4-3）：选目（retrain_policy）→ 重训 → shadow 纸面对照
+    # → 「晋升待审」记录（AUTO_PROMOTE=1 才自动 promote）。
+    # 顺序理由：排在 03:30 OOS 审计之后（复用当天的新鲜旁车/审计结论）；
+    # 排在 03:35 每日复盘之后 —— 重训是长任务（跑满全局训练锁），不与复盘争资源，
+    # 复盘当天看到的仍是「重训前」快照，不会出现「报告说已换模型、训练还没跑完」。
+    # 总闸默认关：QUANTCELL_AUTO_RETRAIN 未开启时干脆不挂 job（函数本身仍可直调）。
+    if env_flag(AUTO_RETRAIN_ENV):
+        scheduler.add_job(
+            func=run_auto_retrain_job,
+            trigger=CronTrigger(hour=3, minute=40),
+            id="rl_auto_retrain",
+            name="RL auto retrain (closed loop)",
+            replace_existing=True,
+        )
+        logger.info("自动重训闭环已挂载（每日 03:40）")
+    else:
+        logger.info(f"自动重训闭环未启用（{AUTO_RETRAIN_ENV} != 1）")
 
     # 启动调度器
     scheduler.start()
