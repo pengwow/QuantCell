@@ -368,9 +368,13 @@ async def chat_stream(request: ChatRequest):
                 content=request.message,
                 session_key=request.session_id,
             ):
-                # 累积内容用于后续结构化数据提取
+                # 累积内容用于后续结构化数据提取（loop 的 content 事件 data 是
+                # dict：{"content": 增量, "full_content": 累计}——直接 += 会抛
+                # "can only concatenate str (not \"dict\") to str"）
                 if event.event_type == "content" and event.data:
-                    accumulated_content += event.data
+                    accumulated_content += (
+                        event.data.get("content", "") if isinstance(event.data, dict) else str(event.data)
+                    )
 
                 # 格式化为 SSE 事件
                 event_data = json.dumps(
