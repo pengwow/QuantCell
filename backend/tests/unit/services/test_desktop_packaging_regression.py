@@ -106,3 +106,44 @@ def test_add_missing_columns_skips_unsupported_dialect():
     eng = create_engine("sqlite://")
     with Session(eng) as session:
         add_missing_columns_from_models(session, "postgresql")  # 不应抛
+
+
+def _bare_request() -> object:
+    """无 Authorization 头的最小 Request 替身（is_guest_user 只读 headers）。"""
+
+    class _R:
+        headers: dict[str, str] = {}
+        url = type("U", (), {"path": "/api/v1/notifications/inbox"})()
+
+    return _R()
+
+
+def test_is_guest_user_allows_desktop_local_without_header(monkeypatch):
+    """桌面实录:免登录模式下无 Authorization 头被 is_guest_user 401 踢回登录页。
+
+    rbac 必须走中央豁免判定(is_auth_exempt→_auth_disabled),与其余端点
+    的整体豁免(QUANTCELL_DESKTOP_LOCAL)口径一致。
+    """
+    from fastapi import HTTPException
+
+    from utils.rbac import is_guest_user
+
+    monkeypatch.setenv("QUANTCELL_DESKTOP_LOCAL", "1")
+    try:
+        assert is_guest_user(_bare_request()) is False  # 非访客,放行,不得 401
+    except HTTPException as e:  # pragma: no cover
+        raise AssertionError(f"桌面 local 免登录被 401 拦截: {e}") from e
+
+
+def test_is_guest_user_still_401_when_fail_closed(monkeypatch):
+    """豁免收紧时(AP_ENV=production 强制)缺头仍须 401——修复不得裸奔生产。"""
+    from fastapi import HTTPException
+
+    from utils.rbac import is_guest_user
+
+    monkeypatch.setenv("APP_ENV", "production")  # fail-closed 优先级最高
+    import pytest
+
+    with pytest.raises(HTTPException) as exc:
+        is_guest_user(_bare_request())
+    assert exc.value.status_code == 401

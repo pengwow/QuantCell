@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { getAccessToken, updateAccessToken, removeToken } from '../utils/tokenManager';
+import { desktopBypassAuth } from '../desktop/env';
 import { getApiBaseUrl, initializePortConfig, type PortConfig } from '../utils/portConfig';
 import type {
   LogQueryParams,
@@ -46,6 +47,11 @@ let isRedirecting = false;
 
 // 导出供非 axios 通道（如 XRequest 中间件）复用同一套 401 跳转逻辑
 export const handleUnauthorized = (): void => {
+  // 桌面 local 模式：sidecar 自启绑定 127.0.0.1，后端整体豁免鉴权。
+  // 个别未接豁免的端点返回 401 时跳登录页，只会把免登录用户踹出主界面
+  // （桌面实录：点击菜单经 notifications/inbox 401 被硬跳 /login）。
+  // 此处忽略，让页面按"无通知数据"降级。
+  if (desktopBypassAuth()) return;
   if (isRedirecting) return;
   isRedirecting = true;
 

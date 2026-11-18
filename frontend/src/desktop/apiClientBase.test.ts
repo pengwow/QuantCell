@@ -18,7 +18,7 @@ vi.mock('./env', () => ({
   desktopBypassAuth: () => true,
 }));
 
-import { api, updateApiClientBaseUrl } from '../api';
+import { api, handleUnauthorized, updateApiClientBaseUrl } from '../api';
 import { setDesktopRuntime } from './env';
 
 describe('桌面 axios baseURL 绑定', () => {
@@ -37,5 +37,12 @@ describe('桌面 axios baseURL 绑定', () => {
     setDesktopRuntime({ mode: 'remote', baseUrl: 'http://192.168.1.8:8000' });
     updateApiClientBaseUrl();
     expect(api.defaults.baseURL).toBe('http://192.168.1.8:8000/api/v1');
+  });
+
+  it('桌面 local 下 401 不跳登录页(免登录实录:点菜单被踢回登录)', () => {
+    const scheduled = vi.spyOn(globalThis, 'setTimeout');
+    handleUnauthorized();
+    expect(scheduled).not.toHaveBeenCalled(); // 未安排任何跳转
+    scheduled.mockRestore();
   });
 });
