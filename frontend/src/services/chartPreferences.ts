@@ -11,7 +11,7 @@
 import { configApi } from '../api';
 
 export interface ChartUiPrefs {
-  period?: string;
+  interval?: string;
   symbol?: string;
   timezone?: string;
 }

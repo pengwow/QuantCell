@@ -186,21 +186,20 @@ class DataIntegrityChecker:
             # 标准化symbol格式（去除/）
             normalized_symbol = symbol.replace("/", "")
 
-            # 转换时间戳为微秒字符串（与数据库16位时间戳格式一致）
-            start_timestamp = int(start_time.timestamp() * 1000 * 1000)  # 13位毫秒转16位微秒
-            end_timestamp = int(end_time.timestamp() * 1000 * 1000)  # 13位毫秒转16位微秒
+            # 转换为纳秒整型（timestamp 列 P2-14 起为 BIGINT 纳秒整型）
+            start_timestamp = int(start_time.timestamp() * 1_000_000_000)
+            end_timestamp = int(end_time.timestamp() * 1_000_000_000)
 
             if market_type == "crypto":
                 model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
 
-                # 使用字符串比较（因为数据库中timestamp是String类型）
                 query = (
                     self.db.query(model)
                     .filter(
                         model.symbol == normalized_symbol,
                         model.interval == interval,
-                        model.timestamp >= str(start_timestamp),
-                        model.timestamp <= str(end_timestamp),
+                        model.timestamp >= start_timestamp,
+                        model.timestamp <= end_timestamp,
                     )
                     .order_by(model.timestamp.asc())
                 )
@@ -249,9 +248,7 @@ class DataIntegrityChecker:
 
         # 生成完整的时间序列
         minutes = self.INTERVAL_MINUTES.get(interval, 1)
-        freq = f"{minutes}min"
-
-        full_range = pd.date_range(start=start_time, end=end_time, freq=freq)
+        full_range = pd.date_range(start=start_time, end=end_time, freq=f"{minutes}min")
 
         # 获取现有数据的时间戳（转换为毫秒时间戳以便比较）
         existing_timestamps = set(existing_data["timestamp"])

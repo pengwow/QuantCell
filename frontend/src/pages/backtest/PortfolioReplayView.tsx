@@ -102,9 +102,9 @@ const parseInterval = (interval: string): { span: number; type: PeriodType } => 
 };
 
 // ---- 当前持仓表行 ----
-interface HoldingRow {
+interface PositionRow {
   symbol: string;
-  qty: number;
+  quantity: number;
   avg_cost: number;
   price: number;
   market_value: number;
@@ -180,7 +180,7 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
           chart.createOverlay({
             name: 'jsonAnnotation',
             extendData: JSON.stringify({
-              lines: [mk.label, t('backtest_qty_prefix', { v: tr.size.toFixed(4) })],
+              lines: [mk.label, t('backtest_qty_prefix', { v: tr.quantity.toFixed(4) })],
               colors: [mk.label === t('buy') ? colors.positive : colors.negative, '#ffffff'], // O2: 特殊装饰色，保留（彩色气泡上的白标签字，canvas 绘制需字面色）
               fontSize: 12,
               align: 'left',
@@ -387,35 +387,35 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     if (!data) return null;
     const idx = bisectRight<PortfolioAccountPoint>(data.account, currentMs, (p) => p[0]);
     if (idx === 0) {
-      return { equity: data.init_cash, balance: data.init_cash, margin: 0, cum_pnl: 0, drawdown: 0, day_pnl: 0 };
+      return { equity: data.init_cash, balance: data.init_cash, margin_used: 0, cum_pnl: 0, drawdown: 0, day_pnl: 0 };
     }
     const p = data.account[idx - 1];
-    return { equity: p[1], balance: p[2], margin: p[3], cum_pnl: p[4], drawdown: p[5], day_pnl: p[6] };
+    return { equity: p[1], balance: p[2], margin_used: p[3], cum_pnl: p[4], drawdown: p[5], day_pnl: p[6] };
   }, [data, currentMs]);
 
   // ---- 当前持仓：扫描截至当前的事件，取每品种最新状态 ----
   // ponytail: 每帧 O(事件数) 线性扫描，3453 事件 × 128 格/秒量级无压力；
   // 若未来事件上万且掉帧，升级为「网格索引 -> 事件指针」增量维护
-  const holdings = useMemo<HoldingRow[]>(() => {
+  const positions = useMemo<PositionRow[]>(() => {
     if (!data) return [];
     const latest = new Map<string, PortfolioPositionEvent>();
     for (const ev of data.position_events) {
       if (ev.t > currentMs) break;
       latest.set(ev.symbol, ev);
     }
-    const rows: HoldingRow[] = [];
+    const rows: PositionRow[] = [];
     latest.forEach((ev, symbol) => {
-      if (ev.qty === 0) return;
-      const prices = data.holding_prices[symbol] ?? [];
+      if (ev.quantity === 0) return;
+      const prices = data.position_prices[symbol] ?? [];
       const priceIdx = bisectRight<[number, number]>(prices, currentMs, (p) => p[0]) - 1;
       const price = priceIdx >= 0 ? prices[priceIdx][1] : ev.avg_cost;
       rows.push({
         symbol,
-        qty: ev.qty,
+        quantity: ev.quantity,
         avg_cost: ev.avg_cost,
         price,
-        market_value: price * Math.abs(ev.qty),
-        unrealized_pnl: (price - ev.avg_cost) * ev.qty,
+        market_value: price * Math.abs(ev.quantity),
+        unrealized_pnl: (price - ev.avg_cost) * ev.quantity,
       });
     });
     return rows;
@@ -483,22 +483,22 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
   }, [data, currentMs, colors, t]);
 
   // ---- 持仓表列 ----
-  const holdingColumns: ColumnsType<HoldingRow> = [
+  const positionColumns: ColumnsType<PositionRow> = [
     { title: t('backtest_symbol_label'), dataIndex: 'symbol', key: 'symbol' },
     {
       title: t('backtest_side'),
-      dataIndex: 'qty',
+      dataIndex: 'quantity',
       key: 'side',
       width: 80,
-      render: (qty: number) =>
-        qty > 0 ? <Tag color="green">{t('backtest_position_long')}</Tag> : <Tag color="red">{t('backtest_position_short')}</Tag>,
+      render: (quantity: number) =>
+        quantity > 0 ? <Tag color="green">{t('backtest_position_long')}</Tag> : <Tag color="red">{t('backtest_position_short')}</Tag>,
     },
     {
       title: t('quantity'),
-      dataIndex: 'qty',
-      key: 'qty',
+      dataIndex: 'quantity',
+      key: 'quantity',
       align: 'right',
-      render: (qty: number) => Math.abs(qty).toFixed(6),
+      render: (quantity: number) => Math.abs(quantity).toFixed(6),
     },
     { title: t('backtest_avg_price'), dataIndex: 'avg_cost', key: 'avg_cost', align: 'right', render: (v: number) => v.toFixed(4) },
     { title: t('backtest_last_price'), dataIndex: 'price', key: 'price', align: 'right', render: (v: number) => v.toFixed(4) },
@@ -645,7 +645,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
               <Statistic title={t('backtest_available_balance')} value={account.balance} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
-              <Statistic title={t('backtest_margin')} value={account.margin} precision={2} />
+              <Statistic title={t('backtest_margin')} value={account.margin_used} precision={2} />
             </Col>
             <Col xs={12} md={8} lg={4}>
               <Statistic
@@ -720,14 +720,14 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 当前持仓 */}
-      <Card size="small" title={t('backtest_holdings_title', { count: holdings.length })}>
-        <Table<HoldingRow>
+      <Card size="small" title={t('backtest_positions_title', { count: positions.length })}>
+        <Table<PositionRow>
           rowKey="symbol"
           size="small"
-          columns={holdingColumns}
-          dataSource={holdings}
+          columns={positionColumns}
+          dataSource={positions}
           pagination={false}
-          locale={{ emptyText: t('backtest_no_holdings') }}
+          locale={{ emptyText: t('backtest_no_positions') }}
         />
       </Card>
 

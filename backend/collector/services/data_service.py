@@ -266,7 +266,8 @@ class ExportData:
                     result["missing_ranges"][symbol] = [{"error": "数据库中无该品种数据"}]
                     continue
 
-                # timestamp 为自适应精度的字符串存储，统一转 datetime 后再按时间范围过滤与排序
+                # timestamp 为纳秒整型存储（P2-14 BIGINT，自动精度检测兼容历史精度），
+                # 统一转 datetime 后再按时间范围过滤与排序
                 df["dt"] = convert_to_datetime(df["timestamp"])
                 df.sort_values("dt", inplace=True)
 
@@ -520,7 +521,7 @@ class DataService:
             # 格式化特征信息
             feature_info = {
                 "symbol": symbol,
-                "features": [{"feature_name": f.feature_name, "freq": f.freq} for f in features],
+                "features": [{"feature_name": f.feature_name, "interval": f.interval} for f in features],
                 "count": len(features),
             }
             return {
@@ -537,7 +538,7 @@ class DataService:
             for f in features:
                 if f.symbol not in features_by_symbol:
                     features_by_symbol[f.symbol] = []
-                features_by_symbol[f.symbol].append({"feature_name": f.feature_name, "freq": f.freq})
+                features_by_symbol[f.symbol].append({"feature_name": f.feature_name, "interval": f.interval})
 
             # 返回所有货币的特征
             result = {"features": []}
@@ -567,7 +568,7 @@ class DataService:
         # 格式化特征信息
         feature_info = {
             "symbol": symbol,
-            "features": [{"feature_name": f.feature_name, "freq": f.freq} for f in features],
+            "features": [{"feature_name": f.feature_name, "interval": f.interval} for f in features],
             "count": len(features),
         }
 

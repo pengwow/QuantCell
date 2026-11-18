@@ -248,7 +248,7 @@ def test_cost_stress_decays_with_fees():
     """
     curve = [100.0, 120.0, 132.0, 171.6]
     points = [{"timestamp": MS_2023 + i * HOUR_MS, "equity": curve[i]} for i in range(4)]
-    trade = {"entry_price": 50.0, "size": 2.0, "exit_timestamp": MS_2023}  # 名义额 100，挂在首个收益点
+    trade = {"entry_price": 50.0, "quantity": 2.0, "exit_timestamp": MS_2023}  # 名义额 100，挂在首个收益点
 
     curves = robustness.cost_stress(points, [trade], bps_grid=(0, 10))
     sharpe_by_bps = {d["bps"]: d["sharpe"] for d in curves}

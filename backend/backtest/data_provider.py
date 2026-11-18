@@ -268,8 +268,8 @@ class BacktestDataProvider:
         Returns:
             {
                 "all_available": bool,
-                "missing": [{"symbol", "timeframe", "expected_path"}, ...],
-                "available": [{"symbol", "timeframe"}, ...],
+                "missing": [{"symbol", "interval", "expected_path"}, ...],
+                "available": [{"symbol", "interval"}, ...],
             }
         """
         from utils import _find_parquet_file
@@ -282,12 +282,12 @@ class BacktestDataProvider:
                 try:
                     parquet_path = _find_parquet_file(symbol, timeframe, candle_type)
                     if parquet_path.exists():
-                        available.append({"symbol": symbol, "timeframe": timeframe})
+                        available.append({"symbol": symbol, "interval": timeframe})
                     else:
                         missing.append(
                             {
                                 "symbol": symbol,
-                                "timeframe": timeframe,
+                                "interval": timeframe,
                                 "expected_path": str(parquet_path),
                             }
                         )
@@ -297,7 +297,7 @@ class BacktestDataProvider:
                     missing.append(
                         {
                             "symbol": symbol,
-                            "timeframe": timeframe,
+                            "interval": timeframe,
                             "expected_path": str(e),
                         }
                     )

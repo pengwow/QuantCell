@@ -64,12 +64,12 @@ def test_merge_equity_curves_sums_balance_across_symbols():
     from backtest.service import BacktestService
 
     curve_a = [
-        {"timestamp": 1000, "equity": 10_000.0, "balance": 10_000.0, "margin": 0.0},
-        {"timestamp": 2000, "equity": 10_100.0, "balance": 10_050.0, "margin": 0.0},
+        {"timestamp": 1000, "equity": 10_000.0, "balance": 10_000.0, "margin_used": 0.0},
+        {"timestamp": 2000, "equity": 10_100.0, "balance": 10_050.0, "margin_used": 0.0},
     ]
     curve_b = [
-        {"timestamp": 1000, "equity": 20_000.0, "balance": 20_000.0, "margin": 0.0},
-        {"timestamp": 2000, "equity": 19_900.0, "balance": 19_950.0, "margin": 0.0},
+        {"timestamp": 1000, "equity": 20_000.0, "balance": 20_000.0, "margin_used": 0.0},
+        {"timestamp": 2000, "equity": 19_900.0, "balance": 19_950.0, "margin_used": 0.0},
     ]
 
     merged = BacktestService._merge_equity_curves([curve_a, curve_b])

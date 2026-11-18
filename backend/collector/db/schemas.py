@@ -140,7 +140,7 @@ class FeatureBase(BaseModel):
 
     symbol: str
     feature_name: str
-    freq: str
+    interval: str
 
 
 class FeatureCreate(FeatureBase):
@@ -160,7 +160,7 @@ class FeatureUpdate(BaseModel):
 
     symbol: str | None = None
     feature_name: str | None = None
-    freq: str | None = None
+    interval: str | None = None
 
 
 class Feature(FeatureBase):

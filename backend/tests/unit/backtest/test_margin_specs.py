@@ -1,80 +1,58 @@
-"""档位数据三级回退（DB → 内置快照 → 默认档位）与杠杆上限校验单测。"""
+"""BacktestConfig.margin_specs 校验单测。
+
+覆盖信任边界：只有永续模式能带保证金配置、品种必须在本轮回测列表内、
+同品种不得重复、杠杆范围 1~125（全局 legacy leverage 也不允许 0）。
+"""
 
 import pytest
+from pydantic import ValidationError
 
-from backtest import margin_specs
-from backtest.margin_specs import DEFAULT_BRACKETS, build_margin_specs
-
-
-def _brackets(mmr: float = 0.004, max_leverage: float = 125.0) -> list[dict]:
-    return [
-        {
-            "notional_floor": 0.0,
-            "notional_cap": None,
-            "mmr": mmr,
-            "cum": 0.0,
-            "liquidation_fee_rate": 0.001,
-            "max_leverage": max_leverage,
-        }
-    ]
+from backtest.schemas import BacktestConfig, SymbolMarginSpec
 
 
-def _patch_no_source(monkeypatch) -> None:
-    """DB 与快照都缺失"""
-    monkeypatch.setattr(margin_specs, "_load_from_db", lambda symbol: None)
-    monkeypatch.setattr(margin_specs, "_load_from_snapshot", lambda symbol: None)
+def _config(**overrides):
+    base = {
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "start_time": "2024-01-01 00:00:00",
+        "end_time": "2024-02-01 00:00:00",
+    }
+    base.update(overrides)
+    return BacktestConfig(**base)
 
 
-def test_fallback_to_default_when_no_data(monkeypatch):
-    _patch_no_source(monkeypatch)
-    specs = build_margin_specs([("BTCUSDT", 20.0, "cross")])
-    assert specs["BTC/USDT"]["leverage"] == 20.0
-    assert specs["BTC/USDT"]["mode"] == "cross"
-    assert specs["BTC/USDT"]["brackets"] == DEFAULT_BRACKETS
+def test_spot_rejects_margin_specs():
+    with pytest.raises(ValidationError):
+        _config(trading_mode="spot", margin_specs=[{"symbol": "BTCUSDT", "leverage": 10}])
 
 
-def test_leverage_above_symbol_cap_rejected(monkeypatch):
-    monkeypatch.setattr(
-        margin_specs,
-        "_load_from_db",
-        lambda symbol: _brackets(mmr=0.01, max_leverage=5.0),
-    )
-    with pytest.raises(ValueError, match=r"BTCUSDT.*最高 5"):
-        build_margin_specs([("BTCUSDT", 20.0, "cross")])
+def test_futures_accepts_margin_specs():
+    cfg = _config(trading_mode="futures", margin_specs=[{"symbol": "BTCUSDT", "leverage": 10}])
+    assert cfg.margin_specs[0].leverage == 10.0
+    assert cfg.margin_specs[0].margin_mode == "cross"
 
 
-def test_symbol_normalized_to_instrument_key(monkeypatch):
-    _patch_no_source(monkeypatch)
-    specs = build_margin_specs([("ETHUSDT", 3.0, "isolated")])
-    assert "ETH/USDT" in specs
-    assert specs["ETH/USDT"]["mode"] == "isolated"
+def test_unknown_symbol_rejected():
+    with pytest.raises(ValidationError):
+        _config(trading_mode="futures", margin_specs=[{"symbol": "SOLUSDT", "leverage": 5}])
 
 
-def test_db_takes_precedence_over_snapshot(monkeypatch):
-    db_brackets = _brackets(mmr=0.004)
-    snapshot_brackets = _brackets(mmr=0.006)
-    monkeypatch.setattr(margin_specs, "_load_from_db", lambda symbol: db_brackets)
-    monkeypatch.setattr(margin_specs, "_load_from_snapshot", lambda symbol: snapshot_brackets)
-
-    specs = build_margin_specs([("BTCUSDT", 5.0, "cross")])
-    assert specs["BTC/USDT"]["brackets"] is db_brackets
-
-
-def test_snapshot_used_when_db_missing(monkeypatch):
-    snapshot_brackets = _brackets(mmr=0.006, max_leverage=75.0)
-    monkeypatch.setattr(margin_specs, "_load_from_db", lambda symbol: None)
-    monkeypatch.setattr(margin_specs, "_load_from_snapshot", lambda symbol: snapshot_brackets)
-
-    specs = build_margin_specs([("BTCUSDT", 20.0, "cross")])
-    assert specs["BTC/USDT"]["brackets"] is snapshot_brackets
+def test_duplicate_symbol_rejected():
+    with pytest.raises(ValidationError):
+        _config(
+            trading_mode="futures",
+            margin_specs=[
+                {"symbol": "BTCUSDT", "leverage": 5},
+                {"symbol": "BTCUSDT", "leverage": 10},
+            ],
+        )
 
 
-def test_load_from_db_is_safe_without_initialized_db(monkeypatch):
-    """DB 未初始化（表不存在）时不能把回测带崩，必须安全降级返回 None"""
-    import collector.db.database as db_module
+@pytest.mark.parametrize("leverage", [0, 0.5, 126])
+def test_leverage_out_of_range_rejected(leverage):
+    with pytest.raises(ValidationError):
+        SymbolMarginSpec(symbol="BTCUSDT", leverage=leverage)
 
-    def _raise_not_initialized():
-        raise RuntimeError("数据库未初始化")
 
-    monkeypatch.setattr(db_module, "init_database_config", _raise_not_initialized)
-    assert margin_specs._load_from_db("BTCUSDT") is None
+def test_global_leverage_must_be_at_least_one():
+    with pytest.raises(ValidationError):
+        _config(leverage=0)

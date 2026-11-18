@@ -19,8 +19,8 @@ import { wsService } from '../services/websocketService';
 interface RealtimeToggleButtonProps {
   /** 当前交易对，如 BTCUSDT */
   symbol: string;
-  /** 当前时间周期，如 1m, 5m, 15m */
-  period: string;
+  /** 当前K线周期，如 1m, 5m, 15m */
+  interval: string;
   /** 系统默认实时数据状态 */
   defaultRealtimeEnabled?: boolean;
   /** 实时数据更新回调 */
@@ -34,7 +34,7 @@ const REALTIME_STATE_KEY = 'realtime_user_enabled';
 
 export function RealtimeToggleButton({
   symbol,
-  period,
+  interval,
   defaultRealtimeEnabled = false,
   onRealtimeData,
   onStatusChange,
@@ -68,7 +68,7 @@ export function RealtimeToggleButton({
   const prevChannelRef = useRef('');
 
   // 构建K线频道名称
-  const klineChannel = `${symbol}@kline_${period}`;
+  const klineChannel = `${symbol}@kline_${interval}`;
 
   // 保存状态到 localStorage
   const saveState = (realtime: boolean) => {
@@ -333,7 +333,7 @@ export function RealtimeToggleButton({
     const prevChannel = prevChannelRef.current;
     prevChannelRef.current = klineChannel;
     if (isRealtime && isSubscribed && prevChannel && prevChannel !== klineChannel) {
-      console.log('[RealtimeToggleButton] Symbol/period changed, resubscribing...');
+      console.log('[RealtimeToggleButton] Symbol/interval changed, resubscribing...');
       console.log('[RealtimeToggleButton] Old channel:', prevChannel, '-> New channel:', klineChannel);
 
       // 先取消旧订阅
@@ -358,7 +358,7 @@ export function RealtimeToggleButton({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [symbol, period]);
+  }, [symbol, interval]);
 
   return (
     <Tooltip

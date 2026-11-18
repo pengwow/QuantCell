@@ -7,6 +7,8 @@
 
 import { apiRequest } from './index';
 import { getAccessToken, removeToken } from '../utils/tokenManager';
+// 方向词汇值域事实源：生成的 vocab.generated.ts（P2-5）
+import type { Side } from '../types/vocab.generated';
 
 // API基础URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -110,7 +112,7 @@ export interface AgentPerformance {
 export interface AgentTrade {
   id: string;
   symbol: string;
-  side: 'buy' | 'sell';
+  side: Side;
   quantity: number;
   price: number;
   timestamp: string;
@@ -145,7 +147,7 @@ export interface PositionInfo {
 export interface OrderInfo {
   id: string;
   symbol: string;
-  side: 'buy' | 'sell';
+  side: Side;
   type: 'market' | 'limit' | 'stop';
   quantity: number;
   price?: number;

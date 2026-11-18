@@ -19,6 +19,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.base import BaseCollector
 from utils.decorators import deco_retry
 from utils.deprecation import deprecated
+from vocab import normalize_symbol
 
 
 class OKXDownloader(BaseCollector):
@@ -302,13 +303,8 @@ class OKXDownloader(BaseCollector):
         return self.get_all_symbols()
 
     def normalize_symbol(self, symbol):
-        """
-        标准化交易对符号
-
-        :param symbol: 交易对符号，如'BTC/USDT'或'BTC-USDT'
-        :return: 标准化后的交易对符号，如'BTCUSDT'
-        """
-        return symbol.replace("/", "").replace("-", "")
+        """标准化交易对符号：canonical 实现见 vocab（任意分隔格式归一为紧缩大写 BTCUSDT）。"""
+        return normalize_symbol(symbol)
 
     def get_data(
         self,

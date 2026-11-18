@@ -10,7 +10,7 @@ from utils.timestamp_utils import datetime_to_nanoseconds, from_nanoseconds, nor
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
-from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline
+from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline, decimal_or_zero
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -159,7 +159,7 @@ class BaseKlineFetcher(KlineDataFetcher):
             updated_count = 0
 
             for kline in kline_data:
-                # 转换timestamp为纳秒级字符串 (ccxt返回的是毫秒级)
+                # 转换timestamp为纳秒级整型 (ccxt返回的是毫秒级；P2-14 起列类型为 BIGINT)
                 timestamp_ms = kline.get("timestamp")
                 timestamp_ns = normalize_to_nanoseconds(timestamp_ms, input_precision="ms")
 
@@ -170,12 +170,12 @@ class BaseKlineFetcher(KlineDataFetcher):
                 existing = db.query(self.kline_model).filter(self.kline_model.unique_kline == unique_kline).first()
 
                 if existing:
-                    # 更新现有记录
-                    existing.open = str(kline.get("open"))
-                    existing.high = str(kline.get("high"))
-                    existing.low = str(kline.get("low"))
-                    existing.close = str(kline.get("close"))
-                    existing.volume = str(kline.get("volume"))
+                    # 更新现有记录（OHLC DECIMAL 列：写入统一 decimal_or_zero，与 volume 同口径）
+                    existing.open = decimal_or_zero(kline.get("open"))
+                    existing.high = decimal_or_zero(kline.get("high"))
+                    existing.low = decimal_or_zero(kline.get("low"))
+                    existing.close = decimal_or_zero(kline.get("close"))
+                    existing.volume = decimal_or_zero(kline.get("volume"))
                     existing.data_source = "ccxt_binance"
                     updated_count += 1
                 else:
@@ -183,12 +183,12 @@ class BaseKlineFetcher(KlineDataFetcher):
                     kline_instance = self.kline_model(
                         symbol=symbol,
                         interval=interval,
-                        timestamp=timestamp_ns,  # 统一为纳秒级
-                        open=str(kline.get("open")),
-                        high=str(kline.get("high")),
-                        low=str(kline.get("low")),
-                        close=str(kline.get("close")),
-                        volume=str(kline.get("volume")),
+                        timestamp=int(timestamp_ns),  # 统一为纳秒级整型（BIGINT 列）
+                        open=decimal_or_zero(kline.get("open")),
+                        high=decimal_or_zero(kline.get("high")),
+                        low=decimal_or_zero(kline.get("low")),
+                        close=decimal_or_zero(kline.get("close")),
+                        volume=decimal_or_zero(kline.get("volume")),
                         unique_kline=unique_kline,
                         data_source="ccxt_binance",
                     )
@@ -339,14 +339,14 @@ class BaseKlineFetcher(KlineDataFetcher):
                 start_ts_ns = parse_kline_time_bound_ns(start_time, "开始时间")
             except ValueError as e:
                 return {"success": False, "message": str(e), "kline_data": []}
-            query = query.filter(self.kline_model.timestamp >= str(start_ts_ns))
+            query = query.filter(self.kline_model.timestamp >= start_ts_ns)
 
         if end_time:
             try:
                 end_ts_ns = parse_kline_time_bound_ns(end_time, "结束时间")
             except ValueError as e:
                 return {"success": False, "message": str(e), "kline_data": []}
-            query = query.filter(self.kline_model.timestamp <= str(end_ts_ns))
+            query = query.filter(self.kline_model.timestamp <= end_ts_ns)
 
         # 时间窗口内从哪一端取 limit 条由 order 决定；返回给调用方恒为升序
         if order == "asc":

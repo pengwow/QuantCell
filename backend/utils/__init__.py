@@ -35,7 +35,6 @@ def get_source_data_dir() -> Path:
 from .data_utils import (
     _find_parquet_file,
     _get_default_date_range,
-    _normalize_symbol,
     _parse_interval_minutes,
     _ts_to_datetime,
     _validate_parquet_export,
@@ -46,6 +45,7 @@ from .data_utils import (
     format_time_range,
     get_parquet_info,
     load_from_parquet,
+    normalize_symbol,
     scan_parquet_files,
 )
 from .decorators import async_deco_retry, deco_retry
@@ -94,7 +94,6 @@ __all__ = [
     # data_utils (parquet tools)
     "_find_parquet_file",
     "_get_default_date_range",
-    "_normalize_symbol",
     "_parse_interval_minutes",
     "_ts_to_datetime",
     "_validate_parquet_export",
@@ -132,6 +131,7 @@ __all__ = [
     # i18n
     "get_translation_dict",
     "load_from_parquet",
+    "normalize_symbol",
     "parse_percentage",
     "parse_time_range",
     # number_utils

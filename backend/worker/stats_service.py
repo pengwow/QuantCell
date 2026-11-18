@@ -12,12 +12,13 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 
 # 时间窗口 → 大致天数（用于 trade_history_chart 的 days 参数）
+# all 用 100 年等效「不限制」：get_trade_history_chart 以天为步长，传超大值即覆盖全部历史
 _WINDOW_TO_DAYS = {
     "24h": 1,
     "7d": 7,
     "30d": 30,
     "90d": 90,
-    "all": 365,
+    "all": 36500,
 }
 
 
@@ -147,8 +148,8 @@ class TradingStatsService:
             window=window_key,
         )
 
-        # 2. 盈亏分布
-        pnl_distribution = self.get_pnl_distribution(worker_id)
+        # 2. 盈亏分布（与 KPI / 曲线同窗口，否则切换时间档分布不变）
+        pnl_distribution = self.get_pnl_distribution(worker_id, start_time=start_time)
 
         return {
             "metrics": metrics.model_dump(),
@@ -167,8 +168,9 @@ class TradingStatsService:
         )
 
         total_positions = len(positions)
-        long_positions = sum(1 for p in positions if p.side == "LONG")
-        short_positions = sum(1 for p in positions if p.side == "SHORT")
+        # 落库已 canonical 小写（vocab 写入归一 + 40 号迁移存量归一），列改名 side → position_side
+        long_positions = sum(1 for p in positions if p.position_side == "long")
+        short_positions = sum(1 for p in positions if p.position_side == "short")
         total_value = sum(p.quantity * (p.current_price or p.entry_price or 0) for p in positions)
         total_unrealized_pnl = sum(p.unrealized_pnl or 0 for p in positions)
         total_margin_used = sum(p.margin_used or 0 for p in positions)
@@ -183,8 +185,9 @@ class TradingStatsService:
             "positions": [p.to_dict() for p in positions],
         }
 
-    def get_pnl_distribution(self, worker_id: int) -> dict:
-        return crud.get_pnl_distribution(self.db, worker_id)
+    def get_pnl_distribution(self, worker_id: int, start_time=None) -> dict:
+        """start_time 非空时按窗口过滤（总览页时间切换依赖）；None = 全量"""
+        return crud.get_pnl_distribution(self.db, worker_id, start_time=start_time)
 
     def get_trade_history_chart(self, worker_id: int, days: int = 30) -> dict:
         return crud.get_trade_history_chart(self.db, worker_id, days)

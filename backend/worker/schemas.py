@@ -7,7 +7,9 @@ Worker API数据模型定义
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .vocab import PositionSide, Side
 
 
 class SymbolsConfig(BaseModel):
@@ -27,9 +29,17 @@ class TradingConfig(BaseModel):
         default_factory=lambda: SymbolsConfig(type="symbols", symbols=[], pool_id=None, pool_name=None),
         description="交易标的配置",
     )
-    timeframe: str = Field(default="1h", description="时间周期")
+    interval: str = Field(default="1h", description="K线周期（canonical 键，旧名 timeframe 已废弃）")
     market_type: str = Field(default="spot", description="市场类型: spot/future")
     trading_mode: str = Field(default="paper", description="交易模式: paper/testnet/live")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_timeframe(cls, data):
+        """API 双接受：旧客户端仍可发 timeframe，映射为 interval。双键期随迁移退役后移除。"""
+        if isinstance(data, dict) and "timeframe" in data and "interval" not in data:
+            data = {**data, "interval": data["timeframe"]}
+        return data
 
 
 class WorkerBase(BaseModel):
@@ -223,7 +233,7 @@ class PositionInfo(BaseModel):
     """持仓信息"""
 
     symbol: str = Field(..., description="交易对")
-    side: str = Field(..., description="方向: long/short")
+    side: PositionSide = Field(..., description="持仓方向（canonical 小写）: long/short/both")
     quantity: float = Field(..., description="持仓数量")
     entry_price: float = Field(..., description="入场价格")
     current_price: float = Field(..., description="当前价格")
@@ -237,7 +247,7 @@ class OrderInfo(BaseModel):
 
     order_id: str = Field(..., description="订单ID")
     symbol: str = Field(..., description="交易对")
-    side: str = Field(..., description="方向: buy/sell")
+    side: Side = Field(..., description="方向（canonical 小写）: buy/sell")
     order_type: str = Field(..., description="订单类型")
     quantity: float = Field(..., description="数量")
     price: float | None = Field(None, description="价格")

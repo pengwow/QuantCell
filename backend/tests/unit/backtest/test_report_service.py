@@ -44,7 +44,7 @@ def _fake_trade(symbol: str, i: int) -> dict:
         "exit_timestamp": 1776759300 + i,
         "entry_price": 76139.4,
         "exit_price": 75783.4,
-        "size": 0.01,
+        "quantity": 0.01,
         "pnl": -0.47,
         "return_pct": -0.06,
         "direction": "long",

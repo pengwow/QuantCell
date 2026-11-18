@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,7 +48,7 @@ class FakeTimeColumn:
     一个同时支持比较和 desc() 的最小假列即可满足 filter 与 order_by 两处调用。
     """
 
-    def __init__(self, value="0"):
+    def __init__(self, value=0):
         self._value = value
 
     def __ge__(self, other):
@@ -137,8 +138,9 @@ class TestSaveToDatabase:
 
         ok = fetcher._save_to_database(db, "BTCUSDT", "1h", [BASE_KLINE])
         assert ok is True
-        assert existing.open == "100.5"
-        assert existing.close == "101.0"
+        # OHLC DECIMAL 列（P2-11）：写入统一 decimal_or_zero，落库为 Decimal
+        assert existing.open == Decimal("100.5")
+        assert existing.close == Decimal("101.0")
         assert existing.data_source == "ccxt_binance"
         db.add.assert_not_called()
 
@@ -215,7 +217,7 @@ def make_db_klines(klines):
     return db
 
 
-def make_kline_row(ts_ns="1704067200000000000", open_="100.5", close_="101.0"):
+def make_kline_row(ts_ns=1704067200000000000, open_="100.5", close_="101.0"):
     row = MagicMock()
     row.timestamp = ts_ns
     row.open = open_
@@ -258,7 +260,7 @@ class TestFetchFromDatabase:
         fetcher = StubKlineFetcher()
         fetcher.kline_model = MagicMock()
         # 毫秒时间戳（int 或纯数字字符串）直接换算纳秒，不走 strptime
-        fetcher.kline_model.timestamp = FakeTimeColumn("0")
+        fetcher.kline_model.timestamp = FakeTimeColumn(0)
         db = make_db_klines([make_kline_row()])
         result = fetcher._fetch_from_database(db, "BTCUSDT", "1h", start_time=1704067200000)
         assert result["success"] is True
@@ -269,7 +271,7 @@ class TestFetchFromDatabase:
         fetcher = StubKlineFetcher()
         fetcher.kline_model = MagicMock()
         # 有效时间过滤要对 timestamp 做 >= 比较，同时 order_by 还要调用 .desc()
-        fetcher.kline_model.timestamp = FakeTimeColumn("0")
+        fetcher.kline_model.timestamp = FakeTimeColumn(0)
         db = make_db_klines([make_kline_row()])
         # 有效时间应触发时间过滤 -> 调用 datetime_to_nanoseconds 并追加时间戳条件
         result = fetcher._fetch_from_database(db, "BTCUSDT", "1h", start_time="2024-01-01 00:00:00")

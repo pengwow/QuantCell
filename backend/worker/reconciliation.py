@@ -302,7 +302,7 @@ def close_consistency(worker_id: int, *, db: Session | None = None) -> dict:
 
     - closed_without_rt：品种存在 CLOSED 持仓且有成交、却没有任何配对组 →
       成交落库了而 finalize 回填链完全断裂（详设"无配对平仓"）；
-    - rt_unfilled_pnl：配对组的 finalize 行（组键尾段与 trade_id 中段一致）
+    - rt_unfilled_pnl：配对组的 finalize 行（组键尾段与 fill_id 中段一致）
       realized_pnl 仍为 NULL → 组产出但盈亏回填失败（详设"配对后残留"）。
     详设原口径"组内 residual_qty != 0"不落地：引擎反手 fill 不拆分（同一根
     fill 既是旧组 exit 又是新组 entry），组内买卖量平衡恒被反手打破，字面
@@ -312,8 +312,8 @@ def close_consistency(worker_id: int, *, db: Session | None = None) -> dict:
     from worker.models import WorkerPosition, WorkerTrade  # 函数内 import 防循环链
 
     def _is_finalize_row(t) -> bool:
-        # trade_id = paper:{worker_id}:{fill_id}:{ts_ns}，round_trip_id = rt:{worker_id}:{finalize_id}
-        tid = (t.trade_id or "").split(":")
+        # fill_id = paper:{worker_id}:{fill_id}:{ts_ns}，round_trip_id = rt:{worker_id}:{finalize_id}
+        tid = (t.fill_id or "").split(":")
         rid = (t.round_trip_id or "").split(":")
         return len(tid) >= 3 and len(rid) >= 3 and tid[2] == rid[2]
 
@@ -321,7 +321,7 @@ def close_consistency(worker_id: int, *, db: Session | None = None) -> dict:
         trades = (
             session.query(
                 WorkerTrade.symbol,
-                WorkerTrade.trade_id,
+                WorkerTrade.fill_id,
                 WorkerTrade.round_trip_id,
                 WorkerTrade.realized_pnl,
             )

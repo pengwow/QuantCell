@@ -39,6 +39,7 @@ from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
 )
+from .vocab import normalize_position_side, normalize_side
 from .worker_state import worker_state_manager
 
 if TYPE_CHECKING:
@@ -54,6 +55,26 @@ router = APIRouter(
         500: {"description": "服务器内部错误"},
     },
 )
+
+
+def _side_filter(side: str | None) -> str | None:
+    """buy/sell 值域查询参数归一：空值透传 None，垃圾值转 422（不 500）。"""
+    if not side:
+        return None
+    try:
+        return normalize_side(side)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+def _position_side_filter(side: str | None) -> str | None:
+    """long/short/both 值域查询参数归一（positions 端点的 side 参数语义=持仓方向）。"""
+    if not side:
+        return None
+    try:
+        return normalize_position_side(side)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 # ==================== WebSocket端点 ====================
@@ -216,7 +237,7 @@ async def get_worker_state(
     - strategy_id: 策略ID
     - exchange: 交易所
     - symbol: 交易对列表
-    - timeframe: K线周期
+    - interval: K线周期（canonical 键，旧名 timeframe 已废弃）
     - pid: 进程ID
     - started_at: 启动时间 (ISO 8601)
     - stopped_at: 停止时间 (ISO 8601)
@@ -244,7 +265,7 @@ async def get_worker_state(
         trading_config = worker.get_trading_config_dict()
         result["exchange"] = trading_config.get("exchange", "binance")
         result["symbol"] = worker.get_symbols()
-        result["timeframe"] = trading_config.get("timeframe", "1h")
+        result["interval"] = worker.get_interval()
         result["market_type"] = trading_config.get("market_type", "spot")
         result["trading_mode"] = trading_config.get("trading_mode", "paper")
 
@@ -827,7 +848,7 @@ async def get_worker_performance(
 async def get_worker_trades(
     worker_id: int,
     symbol: str | None = Query(None, description="交易对筛选"),
-    side: str | None = Query(None, description="买卖方向: buy/sell"),
+    side: str | None = Query(None, description="方向（canonical，大小写不敏感）: buy/sell"),
     order_type: str | None = Query(None, description="订单类型: market/limit/stop"),
     pnl_status: str | None = Query(
         None, description="盈亏状态: profit/loss/flat/closed(已平仓=realized_pnl非空)/open(持仓中=realized_pnl为空)"
@@ -836,6 +857,9 @@ async def get_worker_trades(
     end_time: datetime | None = Query(None, description="结束时间"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    # 新增两个过滤参数（追加在原参数列表尾部，与 orders 端点口径一致，trades 表列相同）
+    position_side: str | None = Query(None, description="持仓方向过滤（canonical，大小写不敏感）: long/short/both"),
+    reduce_only: bool | None = Query(None, description="只减仓过滤: true/false"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -843,13 +867,15 @@ async def get_worker_trades(
     result = await worker_core_service.async_get_worker_trades(
         worker_id,
         symbol,
-        side,
+        _side_filter(side),
         order_type,
         pnl_status,
         start_time,
         end_time,
         page,
         page_size,
+        position_side=_position_side_filter(position_side),
+        reduce_only=reduce_only,
     )
     return schemas.ApiResponse(code=0, message="success", data=result)
 
@@ -939,6 +965,24 @@ async def get_worker_risk_control(
     return schemas.ApiResponse(code=0, message="success", data=data)
 
 
+@router.get(
+    "/{worker_id}/risk-status",
+    response_model=schemas.ApiResponse,
+    summary="查询 Worker 风控运行时状态快照",
+    description="返回风控装配三态（人工管控/策略参数直通/未配置）、当日盈亏与亏损额度消耗、推导熔断态。"
+    "当日盈亏与 B3 风控回灌共用同一聚合口径；熔断态为推导值（tripped_source=derived），"
+    "引擎侧精确快照（含冷却恢复）由后续引擎迭代提供。",
+)
+@handle_worker_exceptions("查询风控状态快照")
+async def get_worker_risk_status(
+    worker_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """与 get_worker_risk_control 同形：鉴权 + core_service 查询 + ApiResponse 包装"""
+    data = await worker_core_service.async_get_risk_status(worker_id)
+    return schemas.ApiResponse(code=0, message="success", data=data)
+
+
 @router.put(
     "/{worker_id}/risk-control",
     response_model=schemas.ApiResponse,
@@ -976,14 +1020,29 @@ async def get_positions(
     worker_id: int,
     status: str | None = Query("OPEN", description="持仓状态: OPEN/CLOSED"),
     symbol: str | None = Query(None, description="交易对筛选"),
-    side: str | None = Query(None, description="方向: LONG/SHORT"),
+    side: str | None = Query(None, description="持仓方向（canonical，大小写不敏感）: long/short/both；deprecated 别名"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    from . import crud
+    """获取Worker持仓。
 
-    positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, side)
-    return schemas.ApiResponse(code=0, message="success", data=positions)
+    worker_positions 表两模式均无常态写入口（live 的 LiveTradeRecorder 事件
+    链路未接线、paper 内核持仓仅存引擎内存）——表为空且查询 OPEN 时从成交
+    明细未配对 fill 推导兜底（crud.derive_positions_from_trades），与「交易」
+    tab 的「持仓中」行同口径，避免 paper/live 账总览「当前持仓」恒空而成交
+    明细有数据。
+    """
+    positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, _position_side_filter(side))
+    if positions or status != "OPEN":
+        return schemas.ApiResponse(code=0, message="success", data=positions)
+
+    # 兜底推导行同样应用 symbol/side 过滤（与 canonical 别名等值比较，垃圾值由 helper 已拦截）
+    derived = crud.derive_positions_from_trades(db, worker_id)
+    if symbol:
+        derived = [d for d in derived if d["symbol"] == symbol]
+    if side:
+        derived = [d for d in derived if d["position_side"] == normalize_position_side(side)]
+    return schemas.ApiResponse(code=0, message="success", data=derived)
 
 
 @router.get("/{worker_id}/strategy/orders", response_model=schemas.ApiResponse)
@@ -992,12 +1051,15 @@ async def get_orders(
     worker_id: int,
     status: str | None = Query(None, description="订单状态筛选: OPEN/FILLED/CANCELED 等"),
     symbol: str | None = Query(None, description="交易对"),
-    side: str | None = Query(None, description="方向: BUY/SELL"),
+    side: str | None = Query(None, description="方向（canonical，大小写不敏感）: buy/sell"),
     order_type: str | None = Query(None, description="订单类型"),
     start_time: datetime | None = Query(None, description="开始时间"),
     end_time: datetime | None = Query(None, description="结束时间"),
     page_size: int = Query(50, ge=1, le=100, description="每页数量"),
     page: int = Query(1, ge=1, description="页码"),
+    # 新增两个过滤参数（追加在原参数列表尾部，顺序不影响既有 front-end 调用）
+    position_side: str | None = Query(None, description="持仓方向过滤（canonical，大小写不敏感）: long/short/both"),
+    reduce_only: bool | None = Query(None, description="只减仓过滤: true/false"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -1009,12 +1071,14 @@ async def get_orders(
         worker_id,
         status=status,
         symbol=symbol,
-        side=side,
+        side=_side_filter(side),
         order_type=order_type,
         start_time=start_time,
         end_time=end_time,
         skip=skip,
         limit=page_size,
+        position_side=_position_side_filter(position_side),
+        reduce_only=reduce_only,
     )
     return schemas.ApiResponse(
         code=0,

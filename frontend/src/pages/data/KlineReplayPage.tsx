@@ -119,7 +119,7 @@ const KlineReplayPage: React.FC = () => {
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [symbol, setSymbol] = useState('BTCUSDT');
-  const [period, setPeriod] = useState('1h');
+  const [klineInterval, setKlineInterval] = useState('1h');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // ===== 播放状态 =====
@@ -144,12 +144,12 @@ const KlineReplayPage: React.FC = () => {
   const futureExhaustedRef = useRef(false); // 后面没有更多数据
   const sessionParamsRef = useRef<ReplayParams | null>(null); // 当前会话启动参数，重置用
   const symbolRef = useRef(symbol);
-  const periodRef = useRef(period);
+  const intervalRef = useRef(klineInterval);
   const intervalMsRef = useRef(60 * 60 * 1000);
 
   symbolRef.current = symbol;
-  periodRef.current = period;
-  intervalMsRef.current = intervalToMs(period);
+  intervalRef.current = klineInterval;
+  intervalMsRef.current = intervalToMs(klineInterval);
 
   // 统一喂数：图表读 barsRef 截断到当前索引；本地指标在截断数组上重算。
   // 回补/预取会整块前插或追加数据（游标索引随之前后平移），klinecharts 重载数据
@@ -197,7 +197,7 @@ const KlineReplayPage: React.FC = () => {
       return;
     chunkLoadingRef.current = true;
     try {
-      const next = await fetchChunk(symbolRef.current, periodRef.current, {
+      const next = await fetchChunk(symbolRef.current, intervalRef.current, {
         startMs: bars[bars.length - 1].timestamp + intervalMsRef.current,
       });
       if (next.length === 0) {
@@ -227,7 +227,7 @@ const KlineReplayPage: React.FC = () => {
     if (indexRef.current >= Math.ceil(REPLAY_CONFIG.chunkSize * REPLAY_CONFIG.prefetchRatio)) return false;
     chunkLoadingRef.current = true;
     try {
-      const prev = await fetchChunk(symbolRef.current, periodRef.current, {
+      const prev = await fetchChunk(symbolRef.current, intervalRef.current, {
         endMs: bars[0].timestamp - 1,
       });
       if (prev.length === 0) {
@@ -369,7 +369,7 @@ const KlineReplayPage: React.FC = () => {
   const startReplay = useCallback(
     async (p: ReplayParams) => {
       const sym = (p.symbol ?? '').trim();
-      const per = periodRef.current;
+      const per = intervalRef.current;
       const startDate = p.startDate ?? null;
       if (!sym) {
         message.warning(t('backtest_input_symbol'));
@@ -398,13 +398,13 @@ const KlineReplayPage: React.FC = () => {
         setAtStart(false);
         setAtEnd(futureExhaustedRef.current);
         setSymbol(sym);
-        setPeriod(per);
+        setKlineInterval(per);
         setStarted(true);
         sessionParamsRef.current = { symbol: sym, startDate: dayjs(startMs) };
         feed(); // 重置时图表已挂载，重新喂数回到首块状态；首次启动时 shell 未挂载，feed 为 no-op
         // 记住偏好，下次进入自动回填
         try {
-          localStorage.setItem(LAST_KEY, JSON.stringify({ symbol: sym, period: per, startMs }));
+          localStorage.setItem(LAST_KEY, JSON.stringify({ symbol: sym, interval: per, startMs }));
         } catch {
           // 隐私模式等写入失败可忽略
         }
@@ -430,15 +430,15 @@ const KlineReplayPage: React.FC = () => {
   const handleChangePeriod = useCallback(
     async (next: string) => {
       if (!started) {
-        setPeriod(next);
+        setKlineInterval(next);
         return;
       }
-      if (next === periodRef.current || periodSwitchingRef.current) return;
+      if (next === intervalRef.current || periodSwitchingRef.current) return;
       const wasPlaying = playingRef.current;
       pause();
       const bars = barsRef.current;
       if (bars.length === 0) {
-        setPeriod(next);
+        setKlineInterval(next);
         return;
       }
       periodSwitchingRef.current = true;
@@ -447,7 +447,7 @@ const KlineReplayPage: React.FC = () => {
           endMs: bars[indexRef.current].timestamp,
         });
         if (chunk.length === 0) {
-          message.warning(t('backtest_no_data_before_time', { symbol: symbolRef.current, period: next }));
+          message.warning(t('backtest_no_data_before_time', { symbol: symbolRef.current, interval: next }));
           return;
         }
         barsRef.current = chunk;
@@ -459,7 +459,7 @@ const KlineReplayPage: React.FC = () => {
         setBarsCount(chunk.length);
         setAtStart(pastExhaustedRef.current);
         setAtEnd(false);
-        setPeriod(next);
+        setKlineInterval(next);
         feed();
         if (wasPlaying) handlePlay(); // 播放中切换 → 数据就位后无缝继续
       } catch (err) {
@@ -475,20 +475,20 @@ const KlineReplayPage: React.FC = () => {
   // 表单初始值：URL 参数 > 本地偏好 > 默认
   useEffect(() => {
     const qs = new URLSearchParams(location.search);
-    let last: { symbol?: string; period?: string; startMs?: number } | null = null;
+    let last: { symbol?: string; interval?: string; startMs?: number } | null = null;
     try {
       last = JSON.parse(localStorage.getItem(LAST_KEY) || 'null');
     } catch {
       last = null;
     }
     const initSymbol = qs.get('symbol') || last?.symbol || 'BTCUSDT';
-    const initPeriod = qs.get('interval') || last?.period || '1h';
+    const initPeriod = qs.get('interval') || last?.interval || '1h';
     form.setFieldsValue({
       symbol: initSymbol,
       startDate: last?.startMs ? dayjs(last.startMs) : undefined,
     });
     setSymbol(initSymbol);
-    setPeriod(initPeriod);
+    setKlineInterval(initPeriod);
     // 仅在挂载时初始化一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -620,7 +620,7 @@ const KlineReplayPage: React.FC = () => {
               chartId="market-replay-k-line"
               symbol={{ code: symbol }}
               periods={PERIOD_BAR_ITEMS}
-              currentPeriod={period}
+              currentPeriod={klineInterval}
               onChangePeriod={handleChangePeriod}
               getBars={() => barsRef.current.slice(0, indexRef.current + 1)}
               drawingBarLocked

@@ -26,6 +26,7 @@ import pandas as pd
 from backtest import stop_control
 from backtest.progress_tracker import get_progress_tracker
 from backtest.result_analysis import ResultAnalyzer
+from vocab import normalize_side
 
 
 class BacktestService:
@@ -469,7 +470,7 @@ class BacktestService:
         Returns:
             dict: {metrics, trades, equity_curve, positions, liquidation_events,
                 insurance_fund_loss, price_basis, margin_applied,
-                margin_specs_effective, liquidation_count, margin_shortfall_count}
+                margin_specs_effective, liquidation_count, shortfall_count}
         """
         entries = BacktestService.extract_symbol_entries(results)
         portfolio = results.get("portfolio") if isinstance(results, dict) else None
@@ -511,7 +512,12 @@ class BacktestService:
         # 旧结果没有计数键：用事件条数兜底，保持与详情页「强平记录」一致
         if liquidation_count == 0 and liquidation_events:
             liquidation_count = len(liquidation_events)
-        margin_shortfall_count = int(portfolio.get("margin_shortfall_count") or 0) if isinstance(portfolio, dict) else 0
+        # 旧结果 JSON 的键名是 margin_shortfall_count，回退一行避免历史统计归零
+        shortfall_count = (
+            int(portfolio.get("shortfall_count") or portfolio.get("margin_shortfall_count") or 0)
+            if isinstance(portfolio, dict)
+            else 0
+        )
 
         return {
             "metrics": metrics,
@@ -524,7 +530,7 @@ class BacktestService:
             "margin_applied": margin_applied,
             "margin_specs_effective": margin_specs_effective,
             "liquidation_count": liquidation_count,
-            "margin_shortfall_count": margin_shortfall_count,
+            "shortfall_count": shortfall_count,
         }
 
     @staticmethod
@@ -558,7 +564,7 @@ class BacktestService:
             initial = {
                 "equity": float(first_point.get("equity") or 0.0),
                 "balance": float(first_point.get("balance") or 0.0),
-                "margin": float(first_point.get("margin") or 0.0),
+                "margin_used": float(first_point.get("margin_used") or 0.0),
             }
             prepared.append((ts_to_point, initial, first_point))
 
@@ -567,7 +573,7 @@ class BacktestService:
         last_points: list[dict[str, Any] | None] = [None] * len(prepared)
 
         for ts in all_ts:
-            total = {"equity": 0.0, "balance": 0.0, "margin": 0.0}
+            total = {"equity": 0.0, "balance": 0.0, "margin_used": 0.0}
             ref_point: dict[str, Any] | None = None
             for idx, (ts_to_point, initial, _first) in enumerate(prepared):
                 point = ts_to_point.get(ts)
@@ -582,7 +588,7 @@ class BacktestService:
                     values = {
                         "equity": float(current.get("equity") or 0.0),
                         "balance": float(current.get("balance") or 0.0),
-                        "margin": float(current.get("margin") or 0.0),
+                        "margin_used": float(current.get("margin_used") or 0.0),
                     }
                 for k in total:
                     total[k] += values[k]
@@ -596,7 +602,7 @@ class BacktestService:
                     "formatted_time": formatted_time,
                     "equity": round(total["equity"], 8),
                     "balance": round(total["balance"], 8),
-                    "margin": round(total["margin"], 8),
+                    "margin_used": round(total["margin_used"], 8),
                 }
             )
 
@@ -628,7 +634,7 @@ class BacktestService:
         - account：每个网格点的组合权益/余额/保证金（合并权益曲线 ffill 对齐），
           并派生累计盈亏、滚动回撤、当日盈亏
         - position_events：逐笔成交重建净持仓后的稀疏事件（带移动加权均价）
-        - holding_prices：仅在各品种净持仓非零的网格区间给出收盘价点，供前端算浮盈
+        - position_prices：仅在各品种净持仓非零的网格区间给出收盘价点，供前端算浮盈
 
         Args:
             results: 结果 JSON 的 results 字段
@@ -685,20 +691,17 @@ class BacktestService:
                 "grid_step_ms": 900_000,
                 "account": [],
                 "position_events": [],
-                "holding_prices": {},
+                "position_prices": {},
                 "trades": [],
             }
         start_ms, end_ms = min(bounds), max(bounds)
-        freq = self._GRID_FREQ.get(interval, "15min")
         # ponytail: 网格点数无上限保护，15m 频率可覆盖约 3 年；更细周期+超长区间会增大响应体
         # 不用 DatetimeIndex.asi8：pandas 2.x 起底层单位不再固定纳秒，直接取毫秒
+        grid_start = pd.to_datetime(start_ms, unit="ms")
+        grid_end = pd.to_datetime(end_ms, unit="ms")
         grid = [
             int(ts.timestamp() * 1000)
-            for ts in pd.date_range(
-                pd.to_datetime(start_ms, unit="ms"),
-                pd.to_datetime(end_ms, unit="ms"),
-                freq=freq,
-            )
+            for ts in pd.date_range(grid_start, grid_end, freq=self._GRID_FREQ.get(interval, "15min"))
         ]
         # 等距网格只回传起点/步长/点数，播放端按 索引 -> start+step*i 自行换算，避免 5 万点数组
         grid_step = grid[1] - grid[0] if len(grid) > 1 else 900_000
@@ -733,11 +736,11 @@ class BacktestService:
                 [
                     t,
                     round(equity, 4),
-                    # balance / margin 用 get 兜底：共享模式下 merged 直接来自引擎的
+                    # balance / margin_used 用 get 兜底：共享模式下 merged 直接来自引擎的
                     # bar_nav_curve（只有 equity/timestamp），没有这两个键；非共享模式
                     # 经 _merge_equity_curves 会补上且恒为 0，两者取值一致
                     round(float(p.get("balance") or 0.0), 4),
-                    round(float(p.get("margin") or 0.0), 4),
+                    round(float(p.get("margin_used") or 0.0), 4),
                     round(equity - total_initial, 4),
                     round(drawdown, 6),
                     round(equity - day_first_equity[day_key], 4),
@@ -749,12 +752,12 @@ class BacktestService:
         # pnl 归平仓事件；exit_timestamp 缺失时退化为开仓时刻
         fill_events: list[dict[str, Any]] = []
         for tr in all_trades:
-            size = float(tr.get("size") or 0.0)
+            size = float(tr.get("quantity") or 0.0)
             if not tr.get("symbol") or size == 0.0:
                 continue
             is_long = tr.get("direction") == "long"
-            entry_side = "BUY" if is_long else "SELL"
-            exit_side = "SELL" if is_long else "BUY"
+            entry_side = "buy" if is_long else "sell"
+            exit_side = "sell" if is_long else "buy"
             entry_ts = int(tr.get("timestamp") or 0)
             fill_events.append(
                 {
@@ -778,7 +781,7 @@ class BacktestService:
             )
         fill_events.sort(key=lambda e: e["timestamp"])
 
-        position_events, holdings = self._rebuild_positions(fill_events, grid, klines_ts, klines_close)
+        position_events, positions = self._rebuild_positions(fill_events, grid, klines_ts, klines_close)
 
         # 新契约记录本身即展示所需全集，直接透传（无需再裁剪白名单）
         slim_trades = all_trades
@@ -796,7 +799,7 @@ class BacktestService:
             "account": account,
             "position_events": position_events,
             # {symbol: [[t, close], ...]} 仅净持仓非零的网格点
-            "holding_prices": holdings,
+            "position_prices": positions,
             "trades": slim_trades,
         }
 
@@ -809,32 +812,43 @@ class BacktestService:
     ) -> tuple[list[dict[str, Any]], dict[str, list[list[float]]]]:
         """从成交流重建净持仓序列，并给出持仓期间的收盘价点。
 
-        现货允许双向：BUY 记 +quantity、SELL 记 -quantity。同方向加仓按
+        现货允许双向：buy 记 +quantity、sell 记 -quantity。同方向加仓按
         移动加权计算均价；反向成交减仓时均价不变；穿越 0 翻仓后剩余部分以
         成交价为新开仓均价。
 
         Returns:
-            (position_events, holding_prices)
+            (position_events, position_prices)
             - position_events：每笔成交一条，含成交后净持仓/均价/网格时刻
-            - holding_prices：{symbol: [[t, close], ...]}，仅净持仓非零的网格点
+            - position_prices：{symbol: [[t, close], ...]}，仅净持仓非零的网格点
         """
         # 每笔成交归入其发生后的第一个网格点（该笔在该格末已成交）
         events: list[dict[str, Any]] = []
         events_by_grid: dict[int, list[dict[str, Any]]] = {}
         # 净持仓状态：symbol -> (qty, avg_cost)
-        holding: dict[str, list[float]] = {}
+        positions: dict[str, list[float]] = {}
 
         for tr in trades:
             # 输入恒为 service 层展开的 fill 事件（symbol/side/quantity/price/timestamp/pnl）
             sym = tr.get("symbol") or ""
             price = float(tr.get("price") or 0.0)
             qty = float(tr.get("quantity") or 0.0)
-            side = str(tr.get("side") or "").upper()
-            signed = qty if side == "BUY" else -qty if side == "SELL" else qty
+            # 方向入口经 vocab 归一（canonical 小写）；空/非法值不中断重建，按未知方向放行
+            try:
+                side = normalize_side(tr.get("side") or "")
+            except ValueError:
+                side = str(tr.get("side") or "")
+                # 防御留痕：当前链路 side 恒为 canonical 小写，此处触发说明有新调用方
+                # 传入了未归一方向（正按多头重建，做空会反号），需上游收口
+                from utils.logger import LogType, get_logger
+
+                get_logger("backtest.service", LogType.APPLICATION).warning(
+                    f"rebuild_positions 遇到非法 side={side!r}, symbol={sym}, 按正数量处理"
+                )
+            signed = qty if side == "buy" else -qty if side == "sell" else qty
             if not sym or qty == 0.0 or price == 0.0:
                 continue
 
-            old_qty, old_avg = holding.get(sym, [0.0, 0.0])
+            old_qty, old_avg = positions.get(sym, [0.0, 0.0])
             new_qty = old_qty + signed
             if old_qty == 0.0:
                 new_avg = price
@@ -847,7 +861,7 @@ class BacktestService:
             else:
                 # 穿越 0 翻仓：反向剩余部分以成交价为均价
                 new_avg = price
-            holding[sym] = [new_qty, new_avg]
+            positions[sym] = [new_qty, new_avg]
 
             grid_idx = bisect_left(grid, int(tr["timestamp"]) * 1000)
             t = grid[min(grid_idx, len(grid) - 1)]
@@ -856,8 +870,8 @@ class BacktestService:
                 "ts": int(tr["timestamp"]),
                 "symbol": sym,
                 "side": side or tr.get("direction") or "",
-                "qty": round(new_qty, 10),
-                "traded_qty": round(signed, 10),
+                "quantity": round(new_qty, 10),
+                "traded_quantity": round(signed, 10),
                 "avg_cost": round(new_avg, 10),
                 "price": price,
                 "pnl": float(tr.get("pnl") or 0.0),
@@ -866,11 +880,11 @@ class BacktestService:
             events_by_grid.setdefault(t, []).append(event)
 
         # ---- 扫描网格，维护持仓状态，仅在净持仓非零时记录收盘价点 ----
-        holding_prices: dict[str, list[list[float]]] = {s: [] for s in holding}
+        position_prices: dict[str, list[list[float]]] = {s: [] for s in positions}
         state: dict[str, list[float]] = {}
         for t in grid:
             for ev in events_by_grid.get(t, []):
-                state[ev["symbol"]] = [ev["qty"], ev["avg_cost"]]
+                state[ev["symbol"]] = [ev["quantity"], ev["avg_cost"]]
             for sym, qty_avg in state.items():
                 qty = qty_avg[0]
                 if qty == 0.0:
@@ -879,9 +893,9 @@ class BacktestService:
                 idx = bisect_right(ts_seq, t) - 1
                 if idx < 0:
                     continue  # 该品种此时尚无 K 线，无法取价
-                holding_prices[sym].append([t, klines_close[sym][idx]])
+                position_prices[sym].append([t, klines_close[sym][idx]])
 
-        return events, holding_prices
+        return events, position_prices
 
     def get_latest_result(self) -> dict | None:
         """获取最新的回测结果"""
@@ -1019,8 +1033,10 @@ class BacktestService:
                 {
                     "id": task.get("id"),
                     "strategy_name": task.get("strategy_name"),
-                    "symbols": ", ".join(task.get("symbols", [])),
-                    "timeframes": ", ".join(task.get("timeframes", [])),
+                    # 数组直出（合约改版：不再 join 成逗号串）；intervals 为 canonical 键，
+                    # task 文件内部历史键名仍为 timeframes，此处做投影转换
+                    "symbols": task.get("symbols", []),
+                    "intervals": task.get("timeframes", []),
                     "engine_type": task.get("engine_type"),
                     "status": status,
                     "created_at": task.get("created_at"),

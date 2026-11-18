@@ -125,16 +125,29 @@ const ProbBar = ({
 }) => {
   const { t } = useTranslation();
   const colors: Record<string, string> = {
+    long: 'var(--tw-color-success)',
+    short: 'var(--tw-color-error)',
+    // 新词表（long/short/hold，Rust cascade 出口）与历史报表的旧词表（buy/sell）都各备齐全
     buy: 'var(--tw-color-success)',
     sell: 'var(--tw-color-error)',
     hold: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
   };
-  const labels: Record<string, string> = { buy: t('buy'), sell: t('sell'), hold: t('backtest_decision_action_hold') };
+  const labels: Record<string, string> = {
+    long: t('long'),
+    short: t('short'),
+    buy: t('buy'),
+    sell: t('sell'),
+    hold: t('backtest_decision_action_hold'),
+  };
+  // 新决策概率键为 long/short/hold；历史录制/旧报表仍是 buy/sell，按数据自适应
+  const keys = Object.prototype.hasOwnProperty.call(probs, 'long')
+    ? (['long', 'short', 'hold'] as const)
+    : (['buy', 'sell', 'hold'] as const);
   return (
     <div style={{ display: 'flex', gap: 16 }}>
-      {['buy', 'sell', 'hold'].map((k) => {
+      {keys.map((k) => {
         const p = typeof probs[k] === 'number' ? (probs[k] as number) : 0;
-        // Rust 侧门控口径：buy/sell 用 open_threshold，hold 用 hold_threshold
+        // Rust 侧门控口径：开仓方向用 open_threshold，hold 用 hold_threshold
         const th = k === 'hold' ? thresholds?.hold : thresholds?.open;
         return (
           <div key={k} style={{ flex: 1 }}>

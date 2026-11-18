@@ -56,7 +56,7 @@ def _raw_results(events: list[dict], *, insurance_fund_loss: float = 12.5, **ext
         "margin_applied": True,
         "margin_specs_effective": [EFFECTIVE_SPEC],
         "liquidation_count": len(events),
-        "margin_shortfall_count": 2,
+        "shortfall_count": 2,
         **extra,
     }
 
@@ -77,7 +77,7 @@ def test_format_axon_results_passes_liquidation_fields():
     assert entry["margin_applied"] is True
     assert entry["margin_specs_effective"] == [EFFECTIVE_SPEC]
     assert entry["liquidation_count"] == 1
-    assert entry["margin_shortfall_count"] == 2
+    assert entry["shortfall_count"] == 2
 
     for section in ("account", "portfolio"):
         assert formatted[section]["liquidation_events"] == [EVENT_BTC]
@@ -86,7 +86,7 @@ def test_format_axon_results_passes_liquidation_fields():
         assert formatted[section]["margin_applied"] is True
         assert formatted[section]["margin_specs_effective"] == [EFFECTIVE_SPEC]
         assert formatted[section]["liquidation_count"] == 1
-        assert formatted[section]["margin_shortfall_count"] == 2
+        assert formatted[section]["shortfall_count"] == 2
 
     # 结果 JSON 要落盘，时间戳必须是 int 且整体可序列化
     dumped = json.loads(json.dumps(formatted))
@@ -109,7 +109,7 @@ def test_format_axon_results_defaults_for_legacy_results():
     assert entry["margin_applied"] is False
     assert entry["margin_specs_effective"] == []
     assert entry["liquidation_count"] == 0
-    assert entry["margin_shortfall_count"] == 0
+    assert entry["shortfall_count"] == 0
     assert formatted["portfolio"]["liquidation_events"] == []
     json.dumps(formatted)
 
@@ -156,7 +156,7 @@ def test_format_results_filters_events_per_symbol_in_shared_mode():
     assert formatted["portfolio"]["margin_applied"] is True
     assert formatted["portfolio"]["margin_specs_effective"] == [EFFECTIVE_SPEC]
     assert formatted["portfolio"]["liquidation_count"] == 2
-    assert formatted["portfolio"]["margin_shortfall_count"] == 2
+    assert formatted["portfolio"]["shortfall_count"] == 2
     assert formatted["account"]["liquidation_events"] == events
 
 
@@ -214,4 +214,4 @@ def test_format_results_legacy_input_uses_defaults():
     assert formatted["portfolio"]["margin_applied"] is False
     assert formatted["portfolio"]["margin_specs_effective"] == []
     assert formatted["portfolio"]["liquidation_count"] == 0
-    assert formatted["portfolio"]["margin_shortfall_count"] == 0
+    assert formatted["portfolio"]["shortfall_count"] == 0

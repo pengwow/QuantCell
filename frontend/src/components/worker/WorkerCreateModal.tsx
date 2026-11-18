@@ -385,7 +385,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         trading_config: {
           exchange: values.exchange,
           symbols_config: { type: 'symbols', symbols },
-          timeframe: values.timeframe,
+          interval: values.interval,
           market_type: values.market_type,
           trading_mode: values.trading_mode,
         },
@@ -464,7 +464,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         initialValues={{
           market_type: 'futures',
           trading_mode: 'paper',
-          timeframe: '1h',
+          interval: '1h',
           initial_capital: 10000,
           leverage: 1,
           risk_enabled: false,
@@ -681,7 +681,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
-              name="timeframe"
+              name="interval"
               label={t('timeframe')}
               rules={[{ required: true, message: t('worker_please_select_timeframe') }]}
             >

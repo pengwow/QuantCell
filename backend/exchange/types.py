@@ -217,7 +217,7 @@ class Position:
     """持仓数据类（合约）"""
 
     symbol: str
-    position_side: str  # LONG or SHORT
+    position_side: str  # long/short/both（canonical 小写；adapter 收到交易所原生大写需先经 vocab 归一）
     position_amount: Decimal
     entry_price: Decimal
     mark_price: Decimal
@@ -277,7 +277,7 @@ class ExchangeFeatures(TypedDict, total=False):
 
     # 基础功能
     spot_trading: bool
-    margin_trading: bool
+    leverage_trading: bool
     futures_trading: bool
 
     # 订单功能
@@ -311,7 +311,7 @@ class ExchangeFeatures(TypedDict, total=False):
     staking: bool
     savings: bool
     convert: bool
-    margin_loan: bool
+    leverage_loan: bool
     futures_leverage: bool
     funding_rate: bool
 

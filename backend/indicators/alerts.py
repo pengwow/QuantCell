@@ -1,6 +1,6 @@
 """指标信号提醒：规则评估 + 去重 + 通知文本组装（P2-07）。
 
-评估口径：按规则 symbol/period 拉最近若干根K线（缺数自动向交易所回补），
+评估口径：按规则 symbol/interval 拉最近若干根K线（缺数自动向交易所回补），
 用指标沙箱重算，取指定 plot 线的最新值（cross_* 用最近两根）与阈值比较；
 命中后刷新 last_fired_at 作为去重依据，触发列表交由 lifespan 协程经统一
 通知服务投递。本模块全部为同步函数（供 `asyncio.to_thread` 调用），
@@ -90,14 +90,14 @@ def fetch_kline_bars(rule: dict[str, Any]) -> list[dict[str, Any]]:
         service = DataService(db)
         result = service.get_kline_data(
             symbol=rule["symbol"],
-            interval=rule["period"],
+            interval=rule["interval"],
             market_type=rule.get("market_type") or "crypto",
             crypto_type=rule.get("crypto_type") or "spot",
             limit=DEFAULT_EVAL_BARS,
             order="desc",
         )
     if not result.get("success"):
-        logger.warning(f"提醒评估拉取K线失败: {rule['symbol']} {rule['period']}: {result.get('message')}")
+        logger.warning(f"提醒评估拉取K线失败: {rule['symbol']} {rule['interval']}: {result.get('message')}")
         return []
     bars = result.get("kline_data") or []
     # kline 工厂多数路径返回升序，这里强排序一次，保证「最后两根为最新」语义
@@ -116,7 +116,7 @@ def build_alert_texts(rule: dict[str, Any], evaluation: dict[str, Any]) -> tuple
     """组装通知标题与正文。"""
     title = f"指标信号提醒: {rule.get('name') or rule['plot_name'] or '指标'}"
     detail = (
-        f"{rule['symbol']} {rule['period']} | {rule['plot_name'] or '默认plot'} "
+        f"{rule['symbol']} {rule['interval']} | {rule['plot_name'] or '默认plot'} "
         f"{OP_DESC.get(rule['op'], rule['op'])} {rule['threshold']}"
     )
     value = evaluation.get("value")
@@ -136,7 +136,7 @@ def _rule_snapshot(row: IndicatorAlertRule) -> dict[str, Any]:
         "builtin_id": row.builtin_id,
         "name": row.name or "",
         "symbol": row.symbol,
-        "period": row.period,
+        "interval": row.interval,
         "market_type": row.market_type,
         "crypto_type": row.crypto_type,
         "params": json.loads(row.params) if row.params else {},

@@ -625,7 +625,7 @@ class TestDataFlowIntegrity:
             "timestamp": "2020-01-01 00:00:00",
             "equity": 100000.0,
             "balance": 100000.0,
-            "margin": 0.0,
+            "margin_used": 0.0,
         }
 
         # 验证权益曲线点包含必需的字段

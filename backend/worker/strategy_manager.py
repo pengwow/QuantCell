@@ -384,7 +384,7 @@ class StrategyManager:
         try:
             from backtest.strategy_loader_service import StrategyLoaderService
             from strategy.models import Strategy
-            from strategy.rust_adapter import _normalize_symbol
+            from vocab import expand_symbol
 
             # 关联的策略对象
             strategy = getattr(worker, "strategy", None)
@@ -398,7 +398,8 @@ class StrategyManager:
             # 解析交易配置，获取品种和时间周期
             trading_config = worker.get_trading_config_dict() if hasattr(worker, "get_trading_config_dict") else {}
             symbols = worker.get_symbols() if hasattr(worker, "get_symbols") else []
-            timeframe = trading_config.get("timeframe", "1h")
+            # K线周期读取：interval 为 canonical 键，兼容迁移 41 前的旧 timeframe 键
+            timeframe = trading_config.get("interval") or trading_config.get("timeframe", "1h")
 
             if not symbols:
                 msg = f"worker {worker_id} 未配置交易品种"
@@ -503,7 +504,7 @@ class StrategyManager:
             worker_id, strategy_instance, params, timeframe, symbols
         )
 
-        symbols_norm = [_normalize_symbol(s) for s in symbols]
+        symbols_norm = [expand_symbol(s) for s in symbols]
         stop_event = threading.Event()
         thread = threading.Thread(
             target=self._paper_thread_main,
@@ -546,14 +547,15 @@ class StrategyManager:
         """
         from axon_quant import worker as axon_worker
 
-        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+        from strategy.rust_adapter import RustStrategyAdapter
+        from vocab import expand_symbol
 
         if timeframe not in _PAPER_INTERVAL_SECONDS:
             msg = f"worker {worker_id} paper 模式不支持时间周期 {timeframe}，支持: {sorted(_PAPER_INTERVAL_SECONDS)}"
             raise ValueError(msg)
 
         initial_cash = float(params.get("initial_capital", 100_000.0))
-        symbols_norm = [_normalize_symbol(s) for s in symbols]
+        symbols_norm = [expand_symbol(s) for s in symbols]
         driver = axon_worker.PaperDriver(symbols_norm, initial_cash=initial_cash, interval=timeframe)
         driver.add_strategy(
             # ponytail: 多品种沿用 RL 语义只挂首个品种；升级路径是每品种独立内核
@@ -692,7 +694,7 @@ class StrategyManager:
         from axon_quant import worker as axon_worker
 
         from services.rl_service import RL_TRANSACTION_COST
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
         spec = self._load_rl_spec(worker_id, params)
 
@@ -711,7 +713,7 @@ class StrategyManager:
             spec["window_size"],
             spec["features"],
             spec["action_space"],
-            _normalize_symbol(symbol),
+            expand_symbol(symbol),
             stats=spec["stats"],
         )
         self._rl_kernels[worker_id] = kernel
@@ -755,7 +757,7 @@ class StrategyManager:
         from axon_quant.exchange import ExchangeConfig, ExchangeId
 
         from services.rl_service import RL_TRANSACTION_COST
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
         if exchange.lower() != "binance":
             msg = f"worker {worker_id} RL 实盘暂只支持 binance，当前配置: {exchange}"
@@ -784,7 +786,7 @@ class StrategyManager:
 
         driver = axon_worker.LiveDriver(
             config,
-            [_normalize_symbol(s) for s in symbols],
+            [expand_symbol(s) for s in symbols],
             initial_cash=float(params.get("initial_capital", 100_000.0)),
             interval=timeframe,
             # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
@@ -802,7 +804,7 @@ class StrategyManager:
             spec["window_size"],
             spec["features"],
             spec["action_space"],
-            _normalize_symbol(symbols[0]),
+            expand_symbol(symbols[0]),
             stats=spec["stats"],
         )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
@@ -876,7 +878,8 @@ class StrategyManager:
         from axon_quant import worker as axon_worker
         from axon_quant.exchange import ExchangeConfig, ExchangeId
 
-        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+        from strategy.rust_adapter import RustStrategyAdapter
+        from vocab import expand_symbol
 
         if exchange.lower() != "binance":
             msg = f"worker {worker_id} 实盘暂只支持 binance，当前配置: {exchange}"
@@ -905,7 +908,7 @@ class StrategyManager:
         initial_cash = float(params.get("initial_capital", 100_000.0))
         driver = axon_worker.LiveDriver(
             config,
-            [_normalize_symbol(s) for s in symbols],
+            [expand_symbol(s) for s in symbols],
             initial_cash=initial_cash,
             interval=timeframe,
             # adopt 持仓接管（与引擎默认一致）：fresh start 遇交易所残留持仓时
@@ -916,7 +919,7 @@ class StrategyManager:
             # ponytail: 多品种沿用 RL/paper 语义只挂首个品种；升级路径是每品种
             # 独立内核共享同一份决策，与回测一致
             RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
-            symbol=_normalize_symbol(symbols[0]),
+            symbol=expand_symbol(symbols[0]),
         )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
         risk_enabled = apply_risk_config(driver, params, worker_id, initial_cash)
@@ -975,14 +978,14 @@ class StrategyManager:
         """
         # 与 start_*_live 一致的函数内 import：rust_adapter 依赖 axon_quant，
         # 延迟到调用时加载，避免加重模块链
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
         try:
             return LiveTradeSync(
                 worker_id=worker_id,
                 api_key=api_key,
                 api_secret=api_secret,
-                symbol=_normalize_symbol(symbols[0]),
+                symbol=expand_symbol(symbols[0]),
             )
         except Exception as e:
             logger.warning(
@@ -1293,7 +1296,7 @@ class StrategyManager:
         from axon_quant import worker as axon_worker
 
         from services.rl_service import RL_TRANSACTION_COST
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
         if exchange.lower() != "binance":
             msg = f"worker {worker_id} RL paper 暂只支持 binance，当前配置: {exchange}"
@@ -1311,7 +1314,7 @@ class StrategyManager:
         spec = self._load_rl_spec(worker_id, params)
 
         driver = axon_worker.PaperDriver(
-            [_normalize_symbol(s) for s in symbols],
+            [expand_symbol(s) for s in symbols],
             initial_cash=float(params.get("initial_capital", 100_000.0)),
             # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
             fee_rate=RL_TRANSACTION_COST,
@@ -1324,7 +1327,7 @@ class StrategyManager:
             spec["window_size"],
             spec["features"],
             spec["action_space"],
-            _normalize_symbol(symbols[0]),
+            expand_symbol(symbols[0]),
             stats=spec["stats"],
         )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
@@ -1337,7 +1340,7 @@ class StrategyManager:
                 worker_id,
                 driver,
                 timeframe,
-                [_normalize_symbol(s) for s in symbols],
+                [expand_symbol(s) for s in symbols],
                 # 首轮拉取条数：补满 RL 观测窗口再留 2 根余量，由通用泵原样使用
                 spec["window_size"] + 2,
                 stop_event,

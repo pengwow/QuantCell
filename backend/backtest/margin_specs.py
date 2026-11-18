@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from utils.logger import LogType, get_logger
+from vocab import expand_symbol
 
 logger = get_logger(__name__, LogType.BACKTEST)
 
@@ -104,24 +105,6 @@ def _load_from_snapshot(symbol: str) -> list[dict] | None:
     return data.get(symbol.upper()) or None
 
 
-def normalize_symbol(symbol: str) -> str:
-    """BTCUSDT → BTC/USDT（与 Rust 引擎 instrument key 对齐）。
-
-    关键约束：已带 `/` 的 symbol 直接透传，避免 ETH/USDT → ETH//USDT 这种
-    双斜杠污染（会导致 engine_service.py 按 _normalize_symbol 查 leverage 键
-    时永远 miss，回退到 1x）。
-    """
-    s = symbol.upper()
-    if "/" in s:
-        return s
-    s = s.replace("-", "").replace("_", "")
-    # 计价货币按长度从长到短匹配，避免 USDC 被 USD 抢先截断
-    for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
-        if s.endswith(quote) and len(s) > len(quote):
-            return f"{s[: -len(quote)]}/{quote}"
-    return s
-
-
 def build_margin_specs(settings: Iterable[tuple[str, float, str]]) -> dict[str, dict]:
     """[("BTCUSDT", 20.0, "cross")] → {"BTC/USDT": {"leverage": …, "mode": …, "brackets": …}}。
 
@@ -152,7 +135,7 @@ def build_margin_specs(settings: Iterable[tuple[str, float, str]]) -> dict[str, 
         if lev > cap:
             raise ValueError(f"{symbol} 杠杆 {lev:g}x 超过该品种最高 {cap:g}x")
 
-        specs[normalize_symbol(symbol)] = {
+        specs[expand_symbol(symbol)] = {
             "leverage": lev,
             "mode": mode,
             "brackets": brackets,

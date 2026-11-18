@@ -7,7 +7,7 @@ fetch_my_trades 增量轮询交易所成交明细，直接按 WorkerTrade 契约
 零 Rust 改动，异常只记日志、不反噬交易循环。
 
 口径（与 worker/event_handler.py 的 LiveTradeRecorder 一致）：
-- trade_id 用交易所原生成交 ID，create_trade_if_not_exists 全局查重幂等；
+- fill_id 用交易所原生成交 ID，create_trade_if_not_exists 全局查重幂等；
 - realized_pnl 取 binance futures myTrades 的 info.realizedPnl，缺失为 None；
 - order_type 兜底 "MARKET"（ccxt myTrades 不带原生 orderType 字段）。
 
@@ -24,13 +24,13 @@ import json
 from datetime import datetime
 from hashlib import sha1
 
-from sqlalchemy import func
-
 from exchange.binance.exchange import BinanceExchange
 from utils.config_manager import get_flag
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from worker import ws_fill_events
+
+from .vocab import normalize_position_side, normalize_side
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -212,13 +212,14 @@ class LiveTradeSync:
                 if not t.get("id"):
                     continue
                 try:
-                    row = crud.create_trade_if_not_exists(db, self._to_trade_data(t))
+                    data = self._to_trade_data(t)
+                    row = crud.create_trade_if_not_exists(db, data)
                 except Exception as e:
                     # 保留持久化游标，下轮从该笔重试
                     logger.warning(f"LiveTradeSync: trade {t.get('id')} 落库失败 (worker_id={self.worker_id}): {e}")
                     break
                 # 游标推进用已见最大时间戳（不 +1）：同毫秒多笔成交不漏，
-                # 重复拉取由 trade_id 查重 + evidence 幂等兜底。查重命中也推进，
+                # 重复拉取由 fill_id 查重 + evidence 幂等兜底。查重命中也推进，
                 # 否则游标停在旧值，每轮都重拉同一批（幂等但空转）。
                 if t.get("timestamp"):
                     ts = int(t["timestamp"])
@@ -227,6 +228,24 @@ class LiveTradeSync:
                     max_seen_id = str(t["id"])
                 if row is not None:
                     inserted += 1
+                    # 订单持久化：live 链路只拉 myTrades（成交回报），下单意图
+                    # 事件与 openOrders 均不可见，故以 clientOrderId（缺省退
+                    # venue orderId / trade id）落 FILLED 行，让订单列表有成交历史
+                    crud.upsert_order_filled_from_fill(
+                        db,
+                        worker_id=self.worker_id,
+                        client_order_id=data.get("client_order_id")
+                        or data.get("venue_order_id")
+                        or f"live:{self.worker_id}:{t['id']}",
+                        symbol=data["symbol"],
+                        side=data["side"],
+                        order_type=data["order_type"],
+                        quantity=data["quantity"],
+                        price=data["price"],
+                        venue_order_id=data.get("venue_order_id"),
+                        filled_at=data["entry_time"],
+                        position_side=data["position_side"],
+                    )
                     # 新落库的成交同步广播到前端 WebSocket（旁路，失败不影响入账）
                     ws_fill_events.broadcast_strategy_fill(
                         worker_id=str(self.worker_id),
@@ -263,26 +282,12 @@ class LiveTradeSync:
     def daily_realized_pnl(self) -> float:
         """DB 当日已实现盈亏汇总（B3 风控当日亏损额度的数据源）。
 
-        读 DB 而不是进程内累计：进程重启后当日更早的成交亏损仍计入，
-        风控额度不会因重启被重置。`realized_pnl` 为空（现货 / 无盈亏字段）
-        的行按 0 计。
+        聚合逻辑已抽到 crud.sum_daily_realized_pnl，风控回灌与
+        risk-status 快照共用同一函数，保证口径唯一。realized_pnl 为空
+        （现货 / 无盈亏字段）的行按 0 计。"""
+        from .crud import sum_daily_realized_pnl  # 函数内 import：方法层只做委托，避免模块加载顺序问题
 
-        ponytail: 按服务端本地日期切日（与 risk_config._local_today 同口径）；
-        交易所时区与服务端差异大时需要按品种传入时区。
-        """
-        from . import crud  # 同包 crud 依赖 models，无环
-
-        day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        with get_db_session() as db:
-            total = (
-                db.query(func.coalesce(func.sum(crud.WorkerTrade.realized_pnl), 0.0))
-                .filter(
-                    crud.WorkerTrade.worker_id == self.worker_id,
-                    crud.WorkerTrade.entry_time >= day_start,
-                )
-                .scalar()
-            )
-        return float(total or 0.0)
+        return sum_daily_realized_pnl(self.worker_id)
 
     def _to_trade_data(self, trade: dict) -> dict:
         """ccxt trade → WorkerTrade 字段映射（键名与 worker_trades 严格一致）。"""
@@ -295,7 +300,14 @@ class LiveTradeSync:
         raw_pnl = info.get("realizedPnl")
         if raw_pnl:
             try:
-                realized = float(raw_pnl)
+                value = float(raw_pnl)
+                # 币安 futures 开仓 fill 的 realizedPnl 也返回 "0.00000000"：
+                # 0 视为开仓（置 None）。否则 live 全部 fill 的 realized_pnl
+                # 都非 NULL，crud.derive_positions_from_trades 的未配对 fill
+                # 推导会把持仓排除干净，总览「当前持仓」恒空。
+                # ponytail: 恰好 0 盈亏的平仓 fill 会被误判为开仓（少一行 0 盈亏
+                # 展示）；区分需 venue 端逐笔方向元数据，不做。
+                realized = value or None
             except TypeError, ValueError:
                 realized = None
 
@@ -309,13 +321,18 @@ class LiveTradeSync:
 
         return {
             "worker_id": self.worker_id,
-            "trade_id": str(trade["id"]),
+            "fill_id": str(trade["id"]),
             "symbol": self.symbol,
-            "side": str(trade.get("side") or ""),
+            "side": normalize_side(trade.get("side") or ""),
+            # 回报声明值直取：binance futures myTrades 的 info.positionSide
+            # （LONG/SHORT/BOTH 原生大写，归一落库）；现货/字段缺失兜底 both（单向净仓声明）
+            "position_side": normalize_position_side(info.get("positionSide") or "both"),
+            # ccxt myTrades 不带 reduceOnly（仅订单层有），trade 行恒 False
+            "reduce_only": False,
             "order_type": str(trade.get("orderType") or "MARKET").upper(),
             "quantity": quantity,
             "price": price,
-            "amount": quantity * price,
+            "notional": quantity * price,
             "fee": float(fee.get("cost") or 0.0),
             "fee_currency": str(fee.get("currency") or "USDT"),
             "realized_pnl": realized,

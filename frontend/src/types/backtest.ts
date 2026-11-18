@@ -3,6 +3,9 @@
  * 集中管理回测相关的所有类型接口
  */
 
+// 方向词汇值域事实源：生成的 vocab.generated.ts（P2-5），不再散写 'buy' | 'sell'
+import type { Side } from './vocab.generated';
+
 // 回放数据中的 K 线原始字段（后端字段名与前端类型存在差异，按 index signature 兜底）
 export interface ReplayKline {
   time?: string | number;
@@ -18,7 +21,7 @@ export interface ReplayKline {
 // 逐笔成交（引擎 fill_detail 关联后的展示契约）
 export interface TradeFill {
   fill_id: number;
-  side: 'buy' | 'sell';
+  side: Side;
   offset: 'open' | 'close';
   price: number;
   quantity: number;
@@ -40,22 +43,22 @@ export interface Trade {
   exit_timestamp: number | null;  // 平仓时间（秒级）
   entry_price: number;
   exit_price: number;
-  size: number;
+  quantity: number;        // 成交数量（原 size，迁移 42 契约对齐 quantity canonical）
   pnl: number;
   return_pct: number;
   direction: 'long' | 'short' | null;   // 持仓方向；null = 未配对（Worker 分组视图）
-  entry_side: 'buy' | 'sell';    // 开仓方向
-  exit_side: 'buy' | 'sell';     // 平仓方向
+  entry_side: Side;    // 开仓方向
+  exit_side: Side;     // 平仓方向
   status: 'closed' | 'unpaired';        // 回测恒为 closed
   entry_fill_ids: number[];      // 构成该持仓的开仓 fill id
   exit_fill_ids: number[];       // 平仓 fill id 列表（FLAT_TO_FLAT 下可能多条）
   fills: TradeFill[];            // 逐笔成交明细
 }
 
-// 权益数据接口
+// 权益数据接口（字段小写，与后端 equity_curve 点契约对齐）
 export interface EquityData {
   datetime: string;
-  Equity: number;
+  equity: number;
 }
 
 // 回测指标接口
@@ -117,8 +120,8 @@ export interface BacktestTask {
   total_return?: number;
   max_drawdown?: number;
   /** /backtest/list 行附带字段（RL 回测历史页展示参数用；老页面未引用） */
-  symbols?: string;
-  timeframes?: string;
+  symbols?: string[];
+  intervals?: string[];
   engine_type?: string;
   updated_at?: string;
 }
@@ -147,7 +150,7 @@ export interface BacktestFill {
   timestamp: number;
   formatted_time: string;
   /** Taker 方向：buy / sell */
-  side: 'buy' | 'sell';
+  side: Side;
   price: number;
   quantity: number;
 }
@@ -263,7 +266,7 @@ export interface SymbolInfo {
 }
 
 // ---- 全局视角（组合）回放 ----
-// 账户稀疏点：[t(ms), equity, balance, margin, cum_pnl, drawdown, day_pnl]
+// 账户稀疏点：[t(ms), equity, balance, margin_used, cum_pnl, drawdown, day_pnl]
 export type PortfolioAccountPoint = [number, number, number, number, number, number, number];
 
 // 成交流重建的单笔持仓事件（成交后净持仓状态）
@@ -271,9 +274,9 @@ export interface PortfolioPositionEvent {
   t: number;          // 归属网格点（ms）
   ts: number;         // 成交时间（秒）
   symbol: string;
-  side: string;       // BUY / SELL
-  qty: number;        // 成交后净持仓（正多 / 负空 / 0 平仓）
-  traded_qty: number; // 本次成交数量（带方向）
+  side: string;       // buy / sell（canonical 小写）
+  quantity: number;        // 成交后净持仓（正多 / 负空 / 0 平仓；原 qty）
+  traded_quantity: number; // 本次成交数量（带方向；原 traded_qty）
   avg_cost: number;   // 成交后持仓均价
   price: number;      // 成交价
   pnl: number;        // 平仓/减仓实现盈亏
@@ -290,7 +293,7 @@ export interface PortfolioReplayData {
   account: PortfolioAccountPoint[];
   position_events: PortfolioPositionEvent[];
   // 持仓期收盘价点（仅净持仓非零网格）：{ symbol: [[t(ms), close], ...] }
-  holding_prices: Record<string, Array<[number, number]>>;
+  position_prices: Record<string, Array<[number, number]>>;
   trades: ReplayTrade[];
   capital_mode?: 'per_symbol' | 'shared';   // 本次回测的资金使用方式，供口径说明按模式渲染
   // 生效保证金回显：与单品种 /replay 口径一致；仅启用保证金时显示「保证金占用」列

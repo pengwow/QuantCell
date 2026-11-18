@@ -92,13 +92,13 @@ def _mock_env_factory(data: pd.DataFrame):
             super().__init__()
             self._data = data
             self._step = 0
-            self._nav = 100_000.0
+            self._equity = 100_000.0
             self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32)
             self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
 
         def reset(self, seed=None, options=None):
             self._step = 0
-            self._nav = 100_000.0
+            self._equity = 100_000.0
             return np.zeros(5, dtype=np.float32), {}
 
         def step(self, action):
@@ -106,14 +106,14 @@ def _mock_env_factory(data: pd.DataFrame):
             row = self._data.iloc[self._step - 1]
             ret = (row["close"] - row["open"]) / row["open"]
             position = float(action[0])
-            self._nav *= 1 + position * ret * 0.01
+            self._equity *= 1 + position * ret * 0.01
             done = self._step >= len(self._data)
             return (
                 np.zeros(5, dtype=np.float32),
                 position * ret,
                 done,
                 False,
-                {"nav": self._nav},
+                {"equity": self._equity},
             )
 
     return MockTradingEnv(data)

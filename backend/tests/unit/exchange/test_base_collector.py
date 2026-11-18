@@ -22,6 +22,8 @@ import pandas as pd
 import pytest
 
 from exchange.base import BaseCollector, CryptoBaseCollector
+from exchange.binance.downloader import BinanceDownloader
+from exchange.okx.downloader import OKXDownloader
 
 
 class ConcreteCollector(BaseCollector):
@@ -501,6 +503,14 @@ class TestCryptoBaseCollector:
 
         assert collector.normalize_symbol("BTC/USDT") == "BTCUSDT"
         assert collector.normalize_symbol("ETH/USDT") == "ETHUSDT"
+
+    def test_concrete_downloaders_satisfy_abstract_contract(self, tmp_path):
+        """Binance/OKX downloader 直接继承 BaseCollector，必须自带 normalize_symbol
+        具体实现：删除 override 曾导致实例化即 TypeError，且 OKX 此前无任何测试覆盖。"""
+        binance = BinanceDownloader(save_dir=str(tmp_path), symbols=["BTC/USDT"])
+        okx = OKXDownloader(save_dir=str(tmp_path), symbols=["BTC-USDT"])
+        assert binance.normalize_symbol("BTC/USDT") == "BTCUSDT"
+        assert okx.normalize_symbol("ETH-USDT") == "ETHUSDT"
 
     def test_format_candle(self, tmp_path):
         """测试K线数据格式化"""

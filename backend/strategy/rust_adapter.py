@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from strategy.base import BaseStrategy, StrategyContext
 from strategy.target import ratio_to_target_qty
+from vocab import expand_symbol
 
 
 class RustStrategyAdapter:
@@ -57,7 +58,7 @@ class RustStrategyAdapter:
         self._leverage = float(leverage)
         # 上下文与归一化 symbol 必须同源，否则 ctx.symbol 与引擎 instrument 会不一致
         raw_symbol = symbol or getattr(strategy.config, "symbol", "BTCUSDT")
-        self._symbol = _normalize_symbol(raw_symbol)
+        self._symbol = expand_symbol(raw_symbol)
         self._ctx = StrategyContext(symbol=raw_symbol)
         self._strategy.on_start(self._ctx)
         # 当前目标持仓数量（绝对量），hold 时保持不变
@@ -105,16 +106,3 @@ class RustStrategyAdapter:
             "confidence": action.confidence,
             "target_position": self._last_target_qty,
         }
-
-
-def _normalize_symbol(symbol: str) -> str:
-    """把 'BTCUSDT' / 'BTC-USDT' 归一化为 Rust 可解析的 'BTC/USDT'。"""
-    s = symbol.upper()
-    if "/" in s:
-        return s
-    # 无分隔符：去掉 "-"/"_" 后按已知计价币后缀切分
-    s = s.replace("-", "").replace("_", "")
-    for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
-        if s.endswith(quote) and len(s) > len(quote):
-            return f"{s[: -len(quote)]}/{quote}"
-    return s

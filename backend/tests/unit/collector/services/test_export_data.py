@@ -1,5 +1,7 @@
 """ExportData 导出功能最小测试"""
 
+from decimal import Decimal
+
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine
@@ -31,7 +33,7 @@ def _add_kline(session, symbol, ts_ms):
             high="110",
             low="90",
             close="105",
-            volume="10",
+            volume=Decimal(10),
             unique_kline=f"{symbol}-1d-{ts_ms}",
         )
     )

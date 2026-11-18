@@ -89,7 +89,7 @@ def _seed_rule(factory, indicator_id: int, **kw) -> int:
     payload = dict(
         indicator_id=indicator_id,
         symbol="BTCUSDT",
-        period="1h",
+        interval="1h",
         op="gt",
         threshold=100.0,
         channels='["websocket"]',
@@ -217,7 +217,7 @@ class TestAlertRoutes:
             "indicator_id": indicator_id,
             "name": "MA 越界提醒",
             "symbol": "btcusdt",
-            "period": "1h",
+            "interval": "1h",
             "op": "gt",
             "threshold": 100.0,
             "channels": ["websocket"],
@@ -421,7 +421,7 @@ class TestBuiltinAlertRoutes:
             "builtin_id": "sma",
             "name": "SMA 越界",
             "symbol": "btcusdt",
-            "period": "1h",
+            "interval": "1h",
             "op": "gt",
             "threshold": 100.0,
             "channels": ["websocket"],
@@ -446,7 +446,7 @@ class TestBuiltinAlertRoutes:
         # 混一条自定义指标规则，验证两个过滤维度互不串扰
         custom = alert_client.post(
             "/api/v1/indicators/alerts",
-            json={"indicator_id": ind_id, "symbol": "BTCUSDT", "period": "1h", "op": "gt", "threshold": 1.0},
+            json={"indicator_id": ind_id, "symbol": "BTCUSDT", "interval": "1h", "op": "gt", "threshold": 1.0},
         ).json()["data"]
 
         listed = alert_client.get("/api/v1/indicators/alerts", params={"builtin_id": "sma"}).json()["data"]
@@ -459,7 +459,7 @@ class TestBuiltinAlertRoutes:
             alert_client.post("/api/v1/indicators/alerts", json=self._builtin_payload(indicator_id=ind_id)).status_code
             == 400
         )
-        missing_both = {"indicator_id": 0, "symbol": "BTCUSDT", "period": "1h"}
+        missing_both = {"indicator_id": 0, "symbol": "BTCUSDT", "interval": "1h"}
         assert alert_client.post("/api/v1/indicators/alerts", json=missing_both).status_code == 400
         assert (
             alert_client.post("/api/v1/indicators/alerts", json=self._builtin_payload(builtin_id="nope")).status_code

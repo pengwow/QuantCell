@@ -68,7 +68,7 @@ def _raw_results(**extra) -> dict:
         "margin_applied": True,
         "margin_specs_effective": [EFFECTIVE_SPEC],
         "liquidation_count": 1,
-        "margin_shortfall_count": 3,
+        "shortfall_count": 3,
         **extra,
     }
 
@@ -102,7 +102,7 @@ def test_formatter_passes_effective_specs_and_counts():
         assert single[section]["margin_applied"] is True
         assert single[section]["margin_specs_effective"] == [EFFECTIVE_SPEC]
         assert single[section]["liquidation_count"] == 1
-        assert single[section]["margin_shortfall_count"] == 3
+        assert single[section]["shortfall_count"] == 3
 
     # 多品种：共享账户下每个品种条目复制全账户事件，计数按过滤后的本品种事件重算
     svc = EventDrivenBacktestService(data_provider=MagicMock())
@@ -120,7 +120,7 @@ def test_formatter_passes_effective_specs_and_counts():
     assert formatted["results_by_symbol"]["BTCUSDT"]["margin_specs_effective"] == [EFFECTIVE_SPEC]
     assert formatted["results_by_symbol"]["BTCUSDT"]["liquidation_count"] == 1
     assert formatted["account"]["margin_applied"] is True
-    assert formatted["account"]["margin_shortfall_count"] == 3
+    assert formatted["account"]["shortfall_count"] == 3
     assert formatted["portfolio"]["margin_specs_effective"] == [EFFECTIVE_SPEC]
 
     # 详情接口读取侧：组合视图必须原样取到这些字段
@@ -128,7 +128,7 @@ def test_formatter_passes_effective_specs_and_counts():
     assert view["margin_applied"] is True
     assert view["margin_specs_effective"] == [EFFECTIVE_SPEC]
     assert view["liquidation_count"] == 1
-    assert view["margin_shortfall_count"] == 3
+    assert view["shortfall_count"] == 3
 
 
 def test_legacy_results_have_margin_defaults():
@@ -149,7 +149,7 @@ def test_legacy_results_have_margin_defaults():
         assert single[section]["margin_applied"] is False
         assert single[section]["margin_specs_effective"] == []
         assert single[section]["liquidation_count"] == 0
-        assert single[section]["margin_shortfall_count"] == 0
+        assert single[section]["shortfall_count"] == 0
 
     svc = EventDrivenBacktestService(data_provider=MagicMock())
     formatted = svc._format_results(
@@ -163,13 +163,13 @@ def test_legacy_results_have_margin_defaults():
     assert formatted["portfolio"]["margin_applied"] is False
     assert formatted["portfolio"]["margin_specs_effective"] == []
     assert formatted["portfolio"]["liquidation_count"] == 0
-    assert formatted["portfolio"]["margin_shortfall_count"] == 0
+    assert formatted["portfolio"]["shortfall_count"] == 0
 
     view = BacktestService.build_portfolio_view({"portfolio": {}, "results_by_symbol": {}})
     assert view["margin_applied"] is False
     assert view["margin_specs_effective"] == []
     assert view["liquidation_count"] == 0
-    assert view["margin_shortfall_count"] == 0
+    assert view["shortfall_count"] == 0
 
 
 # ─────────────────────────── 受控行情回归 ───────────────────────────

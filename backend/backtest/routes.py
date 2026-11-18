@@ -175,14 +175,15 @@ def get_strategy_list() -> ApiResponse:
 )
 def precheck_data(
     symbols: str,
-    timeframes: str,
+    intervals: str = Query(..., description='K线周期，逗号分隔，如 "15m,1h"（canonical 参数名）'),
+    timeframes: str | None = Query(None, deprecated=True, description="旧参数名，等价于 intervals；双接受过渡期后移除"),
     candle_type: str = "spot",
 ) -> ApiResponse:
     """回测前预检哪些品种缺少本地数据。
 
     Args:
         symbols: 逗号分隔的交易对列表，如 "ETH/USDT,LTC/USDT"
-        timeframes: 逗号分隔的周期列表，如 "15m,1h"
+        intervals: 逗号分隔的周期列表，如 "15m,1h"（旧名 timeframes 仍被接受）
         candle_type: 市场类型 spot/future
 
     Returns:
@@ -190,7 +191,9 @@ def precheck_data(
     """
     try:
         symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-        timeframe_list = [t.strip() for t in timeframes.split(",") if t.strip()]
+        # 旧参数名 timeframes 仍接受（interval 优先），过渡期后移除
+        effective_intervals = intervals or timeframes or ""
+        timeframe_list = [t.strip() for t in effective_intervals.split(",") if t.strip()]
 
         if not symbol_list or not timeframe_list:
             return ApiResponse(
@@ -269,10 +272,10 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                 status_code=400,
                 detail=f"自选组 {request.backtest_config.pool_id} 当前没有成分，无法发起回测",
             )
-        # 组成分解析前无法校验 margin_settings 品种归属（schema 层跳过），在此补齐
-        invalid = {m.symbol for m in request.backtest_config.margin_settings} - set(resolved_symbols)
+        # 组成分解析前无法校验 margin_specs 品种归属（schema 层跳过），在此补齐
+        invalid = {m.symbol for m in request.backtest_config.margin_specs} - set(resolved_symbols)
         if invalid:
-            raise HTTPException(status_code=400, detail=f"margin_settings 中的 {sorted(invalid)} 不在自选组成分内")
+            raise HTTPException(status_code=400, detail=f"margin_specs 中的 {sorted(invalid)} 不在自选组成分内")
         # 覆盖回测标的，沿用原有单/多品种回测链路；pool_id 保留原值入库便于详情页溯源
         request.backtest_config.symbols = resolved_symbols
 
@@ -709,7 +712,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             margin_applied: bool = False
             margin_specs_effective: list = []
             liquidation_count: int = 0
-            margin_shortfall_count: int = 0
+            shortfall_count: int = 0
             # cascade 决策记录（任务级，引擎结束时从录制 JSONL 采集；非 cascade 无此字段）
             decisions: list = []
 
@@ -743,7 +746,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     margin_applied = bool(view.get("margin_applied"))
                     margin_specs_effective = view.get("margin_specs_effective") or []
                     liquidation_count = int(view.get("liquidation_count") or 0)
-                    margin_shortfall_count = int(view.get("margin_shortfall_count") or 0)
+                    # 旧结果 JSON 的键名是 margin_shortfall_count，回退一行避免历史统计归零
+                    shortfall_count = int(view.get("shortfall_count") or view.get("margin_shortfall_count") or 0)
                 else:
                     # 指定品种优先，缺省（单品种）取第一个品种
                     entry = entries.get(symbol) if symbol else None
@@ -765,7 +769,8 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     margin_applied = bool(entry.get("margin_applied"))
                     margin_specs_effective = entry.get("margin_specs_effective") or []
                     liquidation_count = int(entry.get("liquidation_count") or 0)
-                    margin_shortfall_count = int(entry.get("margin_shortfall_count") or 0)
+                    # 旧结果 JSON 的键名是 margin_shortfall_count，回退一行避免历史统计归零
+                    shortfall_count = int(entry.get("shortfall_count") or entry.get("margin_shortfall_count") or 0)
 
             # 构建前端期望的响应格式
             detail_data = {
@@ -786,7 +791,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "margin_applied": margin_applied,
                 "margin_specs_effective": margin_specs_effective,
                 "liquidation_count": liquidation_count,
-                "margin_shortfall_count": margin_shortfall_count,
+                "shortfall_count": shortfall_count,
                 # 结果中实际有数据的品种列表（多品种切换用），及当前返回的品种
                 "symbols": result_symbols,
                 "selected_symbol": (
@@ -993,7 +998,7 @@ def get_backtest_replay_portfolio(backtest_id: str) -> ApiResponse:
 
     Returns:
         ApiResponse: 包含 start_ms/end_ms/grid_count/grid_step_ms/account/
-                     position_events/holding_prices/trades
+                     position_events/position_prices/trades
     """
     try:
         logger.info(f"获取全局回放数据请求，回测ID: {backtest_id}")

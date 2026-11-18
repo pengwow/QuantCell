@@ -572,7 +572,8 @@ class ResultSerializer:
                 "position_id": order.get("position_id", ""),
                 "direction": order.get("direction", ""),
                 "price": float(order.get("price", 0)) if order.get("price") is not None else 0.0,
-                "volume": float(order.get("volume") or order.get("size") or 0),
+                # 旧格式订单兼容读：size/quantity 两代键（历史结果 JSON 不可改写）
+                "volume": float(order.get("volume") or order.get("quantity") or order.get("size") or 0),
                 "status": order.get("status", "filled"),
                 "timestamp": self._serialize_timestamp(order.get("timestamp")),
                 "formatted_time": self._format_timestamp(order.get("timestamp")),

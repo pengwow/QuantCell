@@ -46,7 +46,7 @@ class AlertRuleUpsert(BaseModel):
     )
     name: str = Field(default="", max_length=100, description="规则名称")
     symbol: str = Field(min_length=1, max_length=50, description="标的，如 BTCUSDT")
-    period: str = Field(min_length=1, max_length=20, description="K线周期，如 1h")
+    interval: str = Field(min_length=1, max_length=20, description="K线周期，如 1h")
     market_type: str = Field(default="crypto", pattern="^(stock|futures|crypto)$", description="市场类型")
     crypto_type: str = Field(default="spot", pattern="^(spot|future)$", description="加密货币类型")
     params: dict[str, Any] = Field(default_factory=dict, description="指标参数")
@@ -74,7 +74,7 @@ class AlertRuleUpdate(BaseModel):
 
     name: str | None = Field(default=None, max_length=100)
     symbol: str | None = Field(default=None, min_length=1, max_length=50)
-    period: str | None = Field(default=None, min_length=1, max_length=20)
+    interval: str | None = Field(default=None, min_length=1, max_length=20)
     market_type: str | None = Field(default=None, pattern="^(stock|futures|crypto)$")
     crypto_type: str | None = Field(default=None, pattern="^(spot|future)$")
     params: dict[str, Any] | None = None
@@ -103,7 +103,7 @@ def _rule_to_dict(row: IndicatorAlertRule) -> dict[str, Any]:
         "builtin_id": row.builtin_id,
         "name": row.name or "",
         "symbol": row.symbol,
-        "period": row.period,
+        "interval": row.interval,
         "market_type": row.market_type,
         "crypto_type": row.crypto_type,
         "params": json.loads(row.params) if row.params else {},
@@ -176,7 +176,7 @@ async def create_alert_rule(request_body: AlertRuleUpsert, http_request: Request
             builtin_id=builtin_id,
             name=request_body.name,
             symbol=request_body.symbol.upper(),
-            period=request_body.period,
+            interval=request_body.interval,
             market_type=request_body.market_type,
             crypto_type=request_body.crypto_type,
             params=json.dumps(request_body.params, ensure_ascii=False),
@@ -190,7 +190,7 @@ async def create_alert_rule(request_body: AlertRuleUpsert, http_request: Request
         db.add(row)
         db.commit()
         db.refresh(row)
-        logger.info(f"创建提醒规则: id={row.id} indicator_id={row.indicator_id} {row.symbol} {row.period} {row.op}")
+        logger.info(f"创建提醒规则: id={row.id} indicator_id={row.indicator_id} {row.symbol} {row.interval} {row.op}")
         return ApiResponse(code=0, message="已创建", data=_rule_to_dict(row))
 
 
@@ -275,7 +275,7 @@ def _upsert_to_snapshot(rule_in: AlertRuleUpsert) -> dict[str, Any]:
         "builtin_id": rule_in.builtin_id,
         "name": rule_in.name,
         "symbol": rule_in.symbol.upper(),
-        "period": rule_in.period,
+        "interval": rule_in.interval,
         "market_type": rule_in.market_type,
         "crypto_type": rule_in.crypto_type,
         "params": rule_in.params,

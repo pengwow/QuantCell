@@ -432,7 +432,7 @@ class ResultFormatterService:
         # 旧结果只有事件列表、没有计数键：用事件条数兜底，避免「有强平记录却显示 0 次」
         if liquidation_count == 0 and liquidation_events:
             liquidation_count = len(liquidation_events)
-        margin_shortfall_count = int(results.get("margin_shortfall_count") or 0)
+        shortfall_count = int(results.get("shortfall_count") or 0)
 
         # 计算额外指标
         trades = results.get("trades", [])
@@ -617,7 +617,10 @@ class ResultFormatterService:
                     max(
                         (
                             t.get("PnL", t.get("pnl", 0))
-                            / (t.get("EntryPrice", t.get("entry_price", 1)) * t.get("Size", t.get("size", 1)))
+                            / (
+                                t.get("EntryPrice", t.get("entry_price", 1))
+                                * t.get("Size", t.get("quantity", t.get("size", 1)))
+                            )
                             * 100
                             for t in trades
                             if isinstance(t, dict)
@@ -636,7 +639,10 @@ class ResultFormatterService:
                     min(
                         (
                             t.get("PnL", t.get("pnl", 0))
-                            / (t.get("EntryPrice", t.get("entry_price", 1)) * t.get("Size", t.get("size", 1)))
+                            / (
+                                t.get("EntryPrice", t.get("entry_price", 1))
+                                * t.get("Size", t.get("quantity", t.get("size", 1)))
+                            )
                             * 100
                             for t in trades
                             if isinstance(t, dict)
@@ -756,7 +762,7 @@ class ResultFormatterService:
                 "margin_applied": margin_applied,
                 "margin_specs_effective": margin_specs_effective,
                 "liquidation_count": liquidation_count,
-                "margin_shortfall_count": margin_shortfall_count,
+                "shortfall_count": shortfall_count,
                 # 稳健性指标组（P1-04 起；值为 None 表示数据不足或内核缺位）
                 "robustness": {
                     "deflated_sharpe": robustness_value,
@@ -779,7 +785,7 @@ class ResultFormatterService:
             "margin_applied": margin_applied,
             "margin_specs_effective": margin_specs_effective,
             "liquidation_count": liquidation_count,
-            "margin_shortfall_count": margin_shortfall_count,
+            "shortfall_count": shortfall_count,
         }
 
         # 投资组合汇总
@@ -793,7 +799,7 @@ class ResultFormatterService:
             "margin_applied": margin_applied,
             "margin_specs_effective": margin_specs_effective,
             "liquidation_count": liquidation_count,
-            "margin_shortfall_count": margin_shortfall_count,
+            "shortfall_count": shortfall_count,
         }
 
         # 元数据

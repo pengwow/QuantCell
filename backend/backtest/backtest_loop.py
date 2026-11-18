@@ -96,7 +96,7 @@ class BacktestResult:
     margin_applied: bool = False
     margin_specs_effective: list = field(default_factory=list)
     liquidation_count: int = 0
-    margin_shortfall_count: int = 0
+    shortfall_count: int = 0
 
 
 class BacktestLoop:
@@ -436,7 +436,7 @@ class BacktestLoop:
                     "exit_timestamp": exit_ts_sec,
                     "entry_price": entry_price,
                     "exit_price": exit_price,
-                    "size": size,
+                    "quantity": size,
                     "pnl": pnl,
                     "return_pct": return_pct,
                     "direction": direction,

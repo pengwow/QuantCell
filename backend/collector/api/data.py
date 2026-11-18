@@ -12,6 +12,7 @@ from fastapi import (
 )
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import datetime_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -345,11 +346,11 @@ async def clean_kline_data(
         if interval:
             query = query.filter(KlineModel.interval == interval)
 
-        # 添加时间范围过滤
+        # 添加时间范围过滤（timestamp 列为纳秒整型 BIGINT，P2-14；列必须与纳秒 int 比较）
         if start_dt:
-            query = query.filter(KlineModel.timestamp >= start_dt)
+            query = query.filter(KlineModel.timestamp >= datetime_to_nanoseconds(start_dt))
         if end_dt:
-            query = query.filter(KlineModel.timestamp <= end_dt)
+            query = query.filter(KlineModel.timestamp <= datetime_to_nanoseconds(end_dt))
 
         # 获取清理前的记录数
         total_before = query.count()

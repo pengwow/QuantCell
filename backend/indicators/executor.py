@@ -183,39 +183,11 @@ class IndicatorExecutor:
     """自定义指标执行引擎
 
     负责在安全的沙箱环境中执行用户Python指标代码，
-    提供超时控制、缓存、NaN清理等功能。
+    提供超时控制、NaN清理等功能。
     """
 
     def __init__(self, timeout: float = DEFAULT_EXEC_TIMEOUT):
         self.timeout = timeout
-        self._cache: dict[str, tuple[Any, float]] = {}
-        self._cache_max_size = 100
-        self._cache_ttl = 60.0
-
-    def _cache_key(
-        self,
-        indicator_id: int,
-        symbol: str,
-        period: str,
-        params_hash: str,
-        data_hash: str,
-    ) -> str:
-        return f"{indicator_id}:{symbol}:{period}:{params_hash}:{data_hash}"
-
-    def _cache_get(self, key: str) -> Any | None:
-        if key not in self._cache:
-            return None
-        result, ts = self._cache[key]
-        if time.time() - ts > self._cache_ttl:
-            del self._cache[key]
-            return None
-        return result
-
-    def _cache_set(self, key: str, value: Any):
-        if len(self._cache) >= self._cache_max_size:
-            oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][1])
-            del self._cache[oldest_key]
-        self._cache[key] = (value, time.time())
 
     @staticmethod
     def _build_param_getter(params: dict[str, Any]):

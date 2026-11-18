@@ -37,8 +37,8 @@ def test_shared_mode_portfolio_replay_uses_single_curve():
     from backtest.service import BacktestService
 
     shared_curve = [
-        {"timestamp": 1000, "equity": 10000.0, "balance": 0.0, "margin": 0.0},
-        {"timestamp": 2000, "equity": 10500.0, "balance": 0.0, "margin": 0.0},
+        {"timestamp": 1000, "equity": 10000.0, "balance": 0.0, "margin_used": 0.0},
+        {"timestamp": 2000, "equity": 10500.0, "balance": 0.0, "margin_used": 0.0},
     ]
     # 真实结果的每个品种条目都带 klines（回放网格范围依赖它）；此处给出最小可跑数据
     klines = [
@@ -77,15 +77,15 @@ def test_shared_mode_portfolio_replay_uses_single_curve():
 
 def test_shared_mode_portfolio_replay_tolerates_engine_curve_without_balance():
     """共享模式的 merged 曲线直接取自引擎 bar_nav_curve（只有 equity/timestamp），
-    没有 balance/margin 键；账户序列构建必须容错，否则 /replay/portfolio 报
+    没有 balance/margin_used 键；账户序列构建必须容错，否则 /replay/portfolio 报
     KeyError('balance') 直接 500。
 
-    回归背景：上一个用例的 fixture 给共享曲线补了 balance/margin，恰好把该
+    回归背景：上一个用例的 fixture 给共享曲线补了 balance/margin_used，恰好把该
     KeyError 掩盖了（实测 HTTP 接口才暴露）。
     """
     from backtest.service import BacktestService
 
-    # 与 _map_rust_result 产出的真实形状一致：无 balance / margin
+    # 与 _map_rust_result 产出的真实形状一致：无 balance / margin_used
     engine_curve = [
         {
             "datetime": "2025-01-01T00:00:00.000Z",
@@ -127,7 +127,7 @@ def test_shared_mode_portfolio_replay_tolerates_engine_curve_without_balance():
 
     assert data["init_cash"] == 10000.0
     assert len(data["account"]) == 2
-    # account 元组 = [t, equity, balance, margin, cum_pnl, drawdown, day_pnl]
-    # balance/margin 缺失 → 兜底 0（与非共享模式下 _merge_equity_curves 补的 0 一致）
+    # account 元组 = [t, equity, balance, margin_used, cum_pnl, drawdown, day_pnl]
+    # balance/margin_used 缺失 → 兜底 0（与非共享模式下 _merge_equity_curves 补的 0 一致）
     assert data["account"][0][2] == 0.0
     assert data["account"][0][3] == 0.0

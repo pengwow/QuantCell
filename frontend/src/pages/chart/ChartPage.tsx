@@ -156,8 +156,8 @@ const ChartPage = () => {
   const klineReqSeqRef = useRef(0);
 
   // 保存用户偏好：写后端 chart.uiPrefs（800ms 防抖合并，见 services/chartPreferences）
-  const saveUserPreferences = (symbol: string, period: string) => {
-    saveUiPrefs({ symbol, period });
+  const saveUserPreferences = (symbol: string, interval: string) => {
+    saveUiPrefs({ symbol, interval });
   };
 
   // 加载K线数据：拿到数据后由壳统一喂数（内部重新 setDataLoader + resize）
@@ -208,7 +208,7 @@ const ChartPage = () => {
     let cancelled = false;
     loadChartPrefs().then(async ({ uiPrefs }) => {
       if (cancelled) return;
-      if (uiPrefs.period) setCurrentPeriod(uiPrefs.period);
+      if (uiPrefs.interval) setCurrentPeriod(uiPrefs.interval);
       const preferredCode = uiPrefs.symbol;
       if (!preferredCode) return;
       try {
@@ -482,9 +482,9 @@ const ChartPage = () => {
   };
 
   // 切周期与切品种同理：setPeriod 触发的同步 getBars 会把旧周期数据快照成新周期图，先清空
-  const handleChangePeriod = useCallback((period: string) => {
+  const handleChangePeriod = useCallback((interval: string) => {
     klineDataRef.current = [];
-    setCurrentPeriod(period);
+    setCurrentPeriod(interval);
   }, []);
 
   // 批量处理实时数据更新
@@ -615,7 +615,7 @@ const ChartPage = () => {
         realtimeSlot={
           <RealtimeToggleButton
             symbol={currentSymbol.code}
-            period={currentPeriod.toLowerCase()}
+            interval={currentPeriod.toLowerCase()}
             defaultRealtimeEnabled={systemConfig.realtime_enabled}
             onRealtimeData={handleRealtimeData}
             onStatusChange={handleRealtimeStatusChange}

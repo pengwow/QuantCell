@@ -166,7 +166,7 @@ class IndicatorPreviewRequest(BaseModel):
 
 class ExecuteIndicatorRequest(BaseModel):
     symbol: str = Field(..., description="交易对符号")
-    period: str = Field("1h", description="K线周期")
+    interval: str = Field("1h", description="K线周期")
     limit: int = Field(500, ge=50, le=2000, description="K线数据条数")
     params: dict[str, Any] | None = Field(default=None, description="指标参数")
     kline_data: list[dict[str, Any]] | None = Field(

@@ -4,9 +4,11 @@ Worker数据库模型定义
 
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    DECIMAL,
     BigInteger,
     Boolean,
     Column,
@@ -21,8 +23,40 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import object_session, relationship
+from sqlalchemy.types import TypeDecorator
 
 from collector.db.database import Base
+
+
+class PriceAsFloat(TypeDecorator):
+    """worker 域价格列统一口径：DECIMAL(30, 8) 存储，读出恒 float（P2-7）。
+
+    P2-12 起数量/资金账务列（quantity/fee/pnl/capital 族）同口径复用本装饰器：
+    实现与「价格」无关，语义就是「账务列 DECIMAL 存储 float 读出」。
+
+    读取面分散（to_dict 透传前端、数量×价格混算、分笔 VWAP 累加），用
+    TypeDecorator 一处收口而不是逐点 float()：SQLite 对 DECIMAL(asdecimal=False)
+    读 float，但 DuckDB 等 native decimal 方言下 asdecimal=False 不生效仍读出
+    Decimal（实测），Float×Decimal 混算会 TypeError；本装饰器在全部方言读 float，
+    下游计算与序列化零改动。写入端 float/str/Decimal 统一 Decimal(str(...))
+    规整（与 market_data_factory 口径一致），DECIMAL 精度真正落地，历史 float
+    的二进制尾数误差不再进入交易台账。
+    """
+
+    impl = DECIMAL
+    cache_ok = True
+
+    def __init__(self, precision: int = 30, scale: int = 8) -> None:
+        super().__init__(precision=precision, scale=scale)
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if value is None or isinstance(value, Decimal):
+            return value
+        # str 中转保留十进制字面精度，避免 float repr 的二进制噪声入库
+        return Decimal(str(value))
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        return float(value) if value is not None else None
 
 
 class Worker(Base):
@@ -58,7 +92,7 @@ class Worker(Base):
     #     "pool_id": null,
     #     "pool_name": null
     #   },
-    #   "timeframe": "1h",
+    #   "interval": "1h",
     #   "market_type": "spot",
     #   "trading_mode": "paper"
     # }
@@ -146,8 +180,21 @@ class Worker(Base):
             return {}
 
     def set_trading_config_dict(self, trading_config: dict[str, Any]):
-        """设置交易配置字典"""
-        self.trading_config = json.dumps(trading_config)
+        """设置交易配置字典
+
+        Phase A 双写（迁移 41）：K线周期在 interval（canonical）与 timeframe（旧键）两键同步保留，
+        保证未升级的旧读取方不断供；双键退役至少保留 2 个版本后再收敛单键。
+        """
+        cfg = dict(trading_config)
+        interval = cfg.get("interval") or cfg.get("timeframe") or "1h"
+        cfg["interval"] = interval
+        cfg["timeframe"] = interval
+        self.trading_config = json.dumps(cfg)
+
+    def get_interval(self) -> str:
+        """获取K线周期（canonical 键=interval；兼容迁移 41 前的旧 timeframe 键，interval 优先）"""
+        cfg = self.get_trading_config_dict()
+        return cfg.get("interval") or cfg.get("timeframe") or "1h"
 
     def get_symbols(self) -> list:
         """获取交易标的列表（兼容旧版本）"""
@@ -210,7 +257,7 @@ class Worker(Base):
             "trading_config": trading_config,
             "exchange": trading_config.get("exchange", "binance"),
             "symbols": symbols_config.get("symbols", []),
-            "timeframe": trading_config.get("timeframe", "1h"),
+            "interval": self.get_interval(),
             "market_type": trading_config.get("market_type", "spot"),
             "trading_mode": trading_config.get("trading_mode", "paper"),
             "pid": self.pid,
@@ -401,13 +448,13 @@ class WorkerCapital(Base):
     worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, unique=True)
     worker = relationship("Worker", back_populates="capital_config")
 
-    # 资金配置
-    initial_capital = Column(Float, default=100000.0)  # 初始资金
-    current_capital = Column(Float, default=100000.0)  # 当前资金
-    available_capital = Column(Float, default=100000.0)  # 可用资金
-    frozen_capital = Column(Float, default=0.0)  # 冻结资金
-    margin_used = Column(Float, default=0.0)  # 已用保证金
-    margin_ratio = Column(Float, default=0.0)  # 保证金比例
+    # 资金配置：账务金额列 P2-12 收口 DECIMAL(30,8)，PriceAsFloat 写入 float/str/Decimal
+    # 全收、读出恒 float（与价格列 P2-7 同口径），float 台账的二进制尾数误差不再进入资金曲线
+    initial_capital = Column(PriceAsFloat(), default=100000.0)  # 初始资金
+    current_capital = Column(PriceAsFloat(), default=100000.0)  # 当前资金
+    available_capital = Column(PriceAsFloat(), default=100000.0)  # 可用资金
+    frozen_capital = Column(PriceAsFloat(), default=0.0)  # 冻结资金
+    margin_used = Column(PriceAsFloat(), default=0.0)  # 已用保证金
 
     # 杠杆设置
     leverage = Column(Float, default=1.0)  # 杠杆倍数
@@ -429,7 +476,6 @@ class WorkerCapital(Base):
             "available_capital": self.available_capital,
             "frozen_capital": self.frozen_capital,
             "margin_used": self.margin_used,
-            "margin_ratio": self.margin_ratio,
             "leverage": self.leverage,
             "max_leverage": self.max_leverage,
             "currency": self.currency,
@@ -596,22 +642,32 @@ class WorkerTrade(Base):
     worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
 
     # 交易信息
-    trade_id = Column(String(100), unique=True, nullable=False)
+    # 成交行的唯一标识：paper 链路为 "paper:{worker_id}:{fill_id}:{ts_ns}"，
+    # live 链路为交易所原生成交 ID。列名按审计裁决用 fill_id（成交语境禁用 trade_id）
+    fill_id = Column(String(100), unique=True, nullable=False)
     symbol = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # buy, sell
+    # 订单声明值透传（铁律2，非由 side 推导）：live 直取回报 info.positionSide，
+    # paper 单向模式固定 both；存量行由 Alembic 40 回填 'both'
+    position_side = Column(String(10), nullable=False, server_default="both")  # long/short/both
+    # 只减仓标记：当前全链路单向净仓恒 False；对冲模式启用前仅落库不参与撮合
+    reduce_only = Column(Boolean, nullable=False, server_default="0")
     order_type = Column(String(20), nullable=False)  # market, limit, stop
 
-    # 交易数量
-    quantity = Column(Float, nullable=False)
-    price = Column(Float, nullable=False)
-    amount = Column(Float, nullable=False)  # quantity * price
+    # 交易数量（P2-12 数量域收口，PriceAsFloat 同口径）
+    quantity = Column(PriceAsFloat(), nullable=False)
+    # 价格列 P2-7 迁移 DECIMAL(30,8)，读出 float（PriceAsFloat 收口，四处价格列同口径）
+    price = Column(PriceAsFloat(), nullable=False)
+    # 名义价值（数量×价格）。列名原为 amount，迁移 42 改名 notional，
+    # 与交易所响应里"下单数量"含义的 amount 解除词形重载
+    notional = Column(PriceAsFloat(), nullable=False)  # P2-12 数量域收口
 
-    # 费用
-    fee = Column(Float, default=0.0)
+    # 费用（P2-12 数量域收口）
+    fee = Column(PriceAsFloat(), default=0.0)
     fee_currency = Column(String(10), default="USDT")
 
-    # 盈亏
-    realized_pnl = Column(Float, nullable=True)  # 已实现盈亏
+    # 盈亏（P2-12 数量域收口）；realized_pnl_pct 为展示比率列，数量域 B 层豁免不强类型化
+    realized_pnl = Column(PriceAsFloat(), nullable=True)  # 已实现盈亏
     realized_pnl_pct = Column(Float, nullable=True)  # 已实现盈亏百分比
 
     # 时间戳
@@ -632,7 +688,7 @@ class WorkerTrade(Base):
 
     __table_args__ = (
         Index("idx_worker_trades_worker_id", "worker_id"),
-        Index("idx_worker_trades_trade_id", "trade_id"),
+        Index("idx_worker_trades_fill_id", "fill_id"),
         Index("idx_worker_trades_symbol", "symbol"),
         Index("idx_worker_trades_created_at", "created_at"),
         Index("idx_worker_trades_worker_symbol", "worker_id", "symbol"),
@@ -644,13 +700,18 @@ class WorkerTrade(Base):
         return {
             "id": self.id,
             "worker_id": self.worker_id,
-            "trade_id": self.trade_id,
+            "fill_id": self.fill_id,
             "symbol": self.symbol,
             "side": self.side,
+            # 声明值透传（铁律2）：与 side 独立，不从 side 推导
+            "position_side": self.position_side,
+            "reduce_only": self.reduce_only,
             "order_type": self.order_type,
             "quantity": self.quantity,
             "price": self.price,
-            "amount": self.amount,
+            "notional": self.notional,
+            # deprecated 双字段日期响应别名（迁移 42）：老消费方分批切换到 notional
+            "amount": self.notional,
             "fee": self.fee,
             "fee_currency": self.fee_currency,
             "realized_pnl": self.realized_pnl,
@@ -675,14 +736,20 @@ class WorkerOrder(Base):
 
     # 订单基本信息
     symbol = Column(String(50), nullable=False)
-    side = Column(String(10), nullable=False)  # BUY, SELL
+    side = Column(String(10), nullable=False)  # buy/sell（canonical 小写，入库前经 vocab.normalize_side 归一）
+    # 订单声明值透传（铁律2，非由 side 推导）：live 直取回报 info.positionSide，
+    # paper 单向模式固定 both；存量行由 Alembic 40 回填 'both'
+    position_side = Column(String(10), nullable=False, server_default="both")  # long/short/both
+    # 只减仓标记：当前全链路单向净仓恒 False；对冲模式启用前仅落库不参与撮合
+    reduce_only = Column(Boolean, nullable=False, server_default="0")
     order_type = Column(String(20), nullable=False)  # MARKET, LIMIT, STOP_MARKET...
 
-    # 数量和价格
-    quantity = Column(Float, nullable=False)  # 委托数量
-    price = Column(Float, nullable=True)  # 委托价格（市价单为None）
-    filled_qty = Column(Float, default=0.0)  # 已成交数量
-    avg_fill_price = Column(Float, default=0.0)  # 成交均价
+    # 数量和价格（数量族 P2-12 收口 DECIMAL(30,8)，PriceAsFloat 同口径）
+    quantity = Column(PriceAsFloat(), nullable=False)  # 委托数量
+    price = Column(PriceAsFloat(), nullable=True)  # 委托价格（市价单为None）
+    # 已成交数量。列名原为 filled_qty，迁移 42 改名，数量族统一 quantity 拼写
+    filled_quantity = Column(PriceAsFloat(), default=0.0)
+    avg_fill_price = Column(PriceAsFloat(), default=0.0)  # 成交均价
 
     # 订单状态
     status = Column(String(20), nullable=False, index=True)
@@ -713,10 +780,15 @@ class WorkerOrder(Base):
             "venue_order_id": self.venue_order_id,
             "symbol": self.symbol,
             "side": self.side,
+            # 声明值透传（铁律2）：与 side 独立，不从 side 推导
+            "position_side": self.position_side,
+            "reduce_only": self.reduce_only,
             "order_type": self.order_type,
             "quantity": self.quantity,
             "price": self.price,
-            "filled_qty": self.filled_qty,
+            "filled_quantity": self.filled_quantity,
+            # deprecated 双字段日期响应别名（迁移 42）：老消费方分批切换到 filled_quantity
+            "filled_qty": self.filled_quantity,
             "avg_fill_price": self.avg_fill_price,
             "status": self.status,
             "position_id": self.position_id,
@@ -738,17 +810,19 @@ class WorkerPosition(Base):
     symbol = Column(String(50), nullable=False)
 
     # 持仓方向和数量
-    side = Column(String(10), nullable=False)  # LONG, SHORT
-    quantity = Column(Float, nullable=False)  # 持仓数量（正数）
+    # 声明值语义的持仓方向：canonical 小写；列名由 side 改名（旧注释写 LONG/SHORT
+    # 与事件链路实际落库大写相矛盾的历史一并终结），Alembic 40 RENAME COLUMN
+    position_side = Column(String(10), nullable=False)  # long/short/both
+    quantity = Column(PriceAsFloat(), nullable=False)  # 持仓数量（正数，P2-12 数量域收口）
 
     # 价格信息
-    entry_price = Column(Float, nullable=False)  # 开仓均价
-    current_price = Column(Float, nullable=True)  # 当前价格（用于计算浮动盈亏）
+    entry_price = Column(PriceAsFloat(), nullable=False)  # 开仓均价
+    current_price = Column(PriceAsFloat(), nullable=True)  # 当前价格（用于计算浮动盈亏）
 
-    # 盈亏计算
-    unrealized_pnl = Column(Float, default=0.0)  # 未实现盈亏
-    realized_pnl = Column(Float, default=0.0)  # 已实现盈亏
-    margin_used = Column(Float, default=0.0)  # 已用保证金
+    # 盈亏计算（P2-12 数量域收口，PriceAsFloat 同口径）
+    unrealized_pnl = Column(PriceAsFloat(), default=0.0)  # 未实现盈亏
+    realized_pnl = Column(PriceAsFloat(), default=0.0)  # 已实现盈亏
+    margin_used = Column(PriceAsFloat(), default=0.0)  # 已用保证金
 
     # 持仓状态
     status = Column(String(20), nullable=False, index=True)  # OPEN, CLOSED
@@ -772,7 +846,10 @@ class WorkerPosition(Base):
             "worker_id": self.worker_id,
             "position_id": self.position_id,
             "symbol": self.symbol,
-            "side": self.side.lower(),
+            "position_side": self.position_side,
+            # deprecated 响应别名：老前端消费方分批切换，与 position_side 恒同值。
+            # 不再防御性 lower：写入端归一（vocab）+ 存量归一（迁移 UPDATE）已保证 canonical
+            "side": self.position_side,
             "quantity": self.quantity,
             "entry_price": self.entry_price,
             "current_price": self.current_price,
@@ -807,10 +884,12 @@ class WorkerFillEvidence(Base):
     venue_order_id = Column(String(100), nullable=True)
     venue_trade_id = Column(String(64), nullable=False, unique=True)
     symbol = Column(String(50), nullable=False)
-    side = Column(String(10), nullable=False)
-    qty = Column(Float, nullable=False)
-    price = Column(Float, nullable=True)
-    fee = Column(Float, nullable=True)
+    side = Column(String(10), nullable=False)  # buy/sell（canonical 小写，create_trade_if_not_exists 归一后透传）
+    quantity = Column(
+        PriceAsFloat(), nullable=False
+    )  # 列名原为 qty，迁移 42 改名与 WorkerTrade.quantity 对齐（P2-12 数量域收口）
+    price = Column(PriceAsFloat(), nullable=True)
+    fee = Column(PriceAsFloat(), nullable=True)  # P2-12 数量域收口
 
     applied_at = Column(DateTime, default=func.now())
     source = Column(String(20), nullable=False)  # 'sync' | 'recovery'

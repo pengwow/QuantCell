@@ -184,9 +184,9 @@ def test_chart_price_style_roundtrip():
 
 def test_chart_ui_prefs_roundtrip():
     SystemConfigBusiness.delete("uiPrefs")
-    raw = json.dumps({"period": "4h", "symbol": "ETHUSDT", "timezone": "UTC"})
+    raw = json.dumps({"interval": "4h", "symbol": "ETHUSDT", "timezone": "UTC"})
     assert _update({"uiPrefs": raw}) == 1
-    assert json.loads(routes.get_config_values().data["uiPrefs"])["period"] == "4h"
+    assert json.loads(routes.get_config_values().data["uiPrefs"])["interval"] == "4h"
 
 
 # ---------------------------------------------------------------------------

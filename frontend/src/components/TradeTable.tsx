@@ -84,16 +84,16 @@ const TradeTable = ({
     },
     {
       title: '数量',
-      dataIndex: 'size',
-      key: 'size',
+      dataIndex: 'quantity',
+      key: 'quantity',
       render: (value: number) => formatQuantity(value),
       align: 'right',
     },
     {
       title: '金额',
       key: 'notional',
-      // 契约无金额字段，按开仓价 × 数量计算
-      render: (_: unknown, record: Trade) => formatVolume(record.entry_price * record.size),
+      // 契约无金额字段，按开仓价 × quantity 计算
+      render: (_: unknown, record: Trade) => formatVolume(record.entry_price * record.quantity),
       align: 'right',
     },
     // 保证金占用：只有调用方传入杠杆时出现（未启用保证金/现货回测不传）
@@ -105,11 +105,11 @@ const TradeTable = ({
                 <span>保证金占用</span>
               </Tooltip>
             ),
-            key: 'margin_occupancy',
+            key: 'initial_margin',
             render: (_: unknown, record: Trade) => {
               const leverage = leverageMap[normalizeSymbolKey(record.symbol)];
               if (!leverage || leverage <= 0) return '-';
-              return formatVolume((record.entry_price * record.size) / leverage);
+              return formatVolume((record.entry_price * record.quantity) / leverage);
             },
             align: 'right',
           },

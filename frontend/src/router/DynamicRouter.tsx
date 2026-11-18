@@ -24,7 +24,6 @@ const KlineReplayPage = lazy(() => import('@/pages/data/KlineReplayPage'));
 const Setting = lazy(() => import('@/pages/setting/Setting'));
 const Agent = lazy(() => import('@/pages/agent/Agent'));
 const ModelHub = lazy(() => import('@/pages/model/ModelHub'));
-const RiskMonitorPage = lazy(() => import('@/pages/risk/RiskMonitorPage'));
 const ResearchList = lazy(() => import('@/pages/research/ResearchList'));
 const ResearchDetail = lazy(() => import('@/pages/research/ResearchDetail'));
 // 站内通知收件箱（铃铛入口跳转的列表页；/setting/notifications 是渠道配置页，二者不同）
@@ -104,7 +103,6 @@ function createBaseRoutes(): RouteObject[] {
         { path: '/model-registry', element: <Navigate to="/model-hub" replace /> },
         // 旧地址 replace 重定向(SPA 内等价 302):/ensemble → 模型集成 Tab
         { path: '/ensemble', element: <Navigate to="/model-hub?tab=ensemble" replace /> },
-        { path: '/risk-monitor', element: <RiskMonitorPage /> },
         { path: '/factor-analysis', element: <FactorAnalysis /> },
         { path: '/research', element: <ResearchList /> },
         { path: '/research/:id', element: <ResearchDetail /> },

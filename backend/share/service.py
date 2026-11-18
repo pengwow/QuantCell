@@ -67,7 +67,7 @@ WORKER_SNAPSHOT_FIELDS = (
     "name",
     "status",
     "exchange",
-    "timeframe",
+    "interval",
     "market_type",
     "trading_mode",
     "symbols",
@@ -99,7 +99,8 @@ def _filter_worker(worker: Worker) -> dict:
         "name": worker.name,
         "status": worker.status,
         "exchange": _safe_get_trading_cfg_field(trading_cfg, "exchange"),
-        "timeframe": _safe_get_trading_cfg_field(trading_cfg, "timeframe"),
+        # K线周期（canonical 键=interval，get_interval 内部兼容旧 timeframe 键）
+        "interval": worker.get_interval(),
         "market_type": _safe_get_trading_cfg_field(trading_cfg, "market_type"),
         "trading_mode": _safe_get_trading_cfg_field(trading_cfg, "trading_mode"),
         "symbols": _extract_symbols_from_trading_config(trading_cfg),
@@ -131,7 +132,8 @@ def _filter_position(p: WorkerPosition) -> dict:
 
     return {
         "symbol": p.symbol,
-        "side": p.side,
+        # 取值随 WorkerPosition 列改名切换；"side" 是对外投影契约键，保持不变
+        "side": p.position_side,
         "quantity": float(p.quantity or 0),
         "entry_price": float(p.entry_price or 0),
         "current_price": float(p.current_price or 0),

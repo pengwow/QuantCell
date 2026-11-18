@@ -217,11 +217,13 @@ class ExecutionPipeline:
         order_id = str(uuid.uuid4())[:8]
         order_dict = {
             "symbol": symbol,
-            "side": side,
+            "side": side,  # 引擎大写驼峰口径，仅存在于 adapter 边界（铁律1）
             "type": "market",
             "quantity": qty,
             "price": current_price,
             "order_id": order_id,
+            "position_side": "both",  # 单向净仓声明值（铁律2），对冲模式启用前恒 both
+            "reduce_only": False,
         }
 
         try:

@@ -251,16 +251,17 @@ class EventDrivenBacktestService:
 
         # 保证金模拟：只支持 U 本位永续。币本位乘数尚未入账（见上方 ponytail 说明），
         # 强平与保证金都会算错，所以硬拒绝而不是给出一份看起来正常的结果。
-        margin_settings = list(engine_cfg.get("margin_settings") or [])
-        if margin_settings and market == "cm":
+        # 旧任务行落库的配置键名是 margin_settings，回退一行避免历史任务丢杠杆配置
+        specs_cfg = list(engine_cfg.get("margin_specs") or engine_cfg.get("margin_settings") or [])
+        if specs_cfg and market == "cm":
             msg = "币本位合约暂不支持杠杆与保证金模拟，请改用 U 本位合约"
             raise ValueError(msg)
 
         # 每品种保证金规格（空 dict = 不启用）。启用即**全品种参与**：未配置的品种
         # 按 1x / cross 默认注入，否则全仓的 ΣMMR 会漏算品种，强平判定失真。
         margin_specs: dict[str, dict] = {}
-        if margin_settings:
-            configured = {item["symbol"]: item for item in margin_settings}
+        if specs_cfg:
+            configured = {item["symbol"]: item for item in specs_cfg}
             settings = [
                 (
                     configured[sym]["symbol"],
@@ -770,15 +771,15 @@ class EventDrivenBacktestService:
             return []
         # 函数内 import：strategy 包 __init__ 会连带载入 routes/service，
         # 提到模块顶层会让 engine_service 的导入链变重并可能成环
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
-        target = _normalize_symbol(symbol)
+        target = expand_symbol(symbol)
         return [
             event
             for event in events
             if isinstance(event, dict)
             and isinstance(event.get("symbol"), str)
-            and _normalize_symbol(event["symbol"]) == target
+            and expand_symbol(event["symbol"]) == target
         ]
 
     @staticmethod
@@ -986,7 +987,7 @@ class EventDrivenBacktestService:
             "margin_applied": result.margin_applied,
             "margin_specs_effective": list(result.margin_specs_effective),
             "liquidation_count": result.liquidation_count,
-            "margin_shortfall_count": result.margin_shortfall_count,
+            "shortfall_count": result.shortfall_count,
         }
 
     # ─── Rust 原生回测路径（axon_quant.worker.Kernel / legacy BacktestRunner） ───
@@ -1022,13 +1023,14 @@ class EventDrivenBacktestService:
         - `margin_specs`：每品种保证金规格（key 为 BASE/QUOTE），None/空 = 不启用保证金模拟；
         - `interval`：真实 K 线周期（内核派生收市时刻用），None = 内核默认。
         """
-        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+        from strategy.rust_adapter import RustStrategyAdapter
+        from vocab import expand_symbol
 
         # 与 BacktestLoop 一致：先做 K 线清洗归一（单调时间/无 NaN/Inf）
         df = clean_ohlcv_df(df)
         bars = self._df_to_rust_bars(df)
         bar_ts_list = [b["timestamp"] for b in bars]
-        rust_symbol = _normalize_symbol(symbol)
+        rust_symbol = expand_symbol(symbol)
 
         states_by_symbol = self._build_rust_states(feature_dataframe, bar_ts_list, rust_symbol)
         funding_by_symbol = self._build_rust_funding(funding_df, rust_symbol, futures)
@@ -1112,7 +1114,8 @@ class EventDrivenBacktestService:
             详情页「交易次数」沿用引擎 fills 口径，故单独回传
         """
         from backtest.shared_capital_grid import align_bars_to_grid, build_shared_grid
-        from strategy.rust_adapter import RustStrategyAdapter, _normalize_symbol
+        from strategy.rust_adapter import RustStrategyAdapter
+        from vocab import expand_symbol
 
         # 1) 各品种清洗 → Rust bars → 网格并集（Rust 侧要求所有品种等长，故按并集对齐）
         bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
@@ -1121,19 +1124,19 @@ class EventDrivenBacktestService:
             df = clean_ohlcv_df(entry["data"])
             bars_by_symbol[sym] = self._df_to_rust_bars(df)
             # Rust 侧 instrument 用 BASE/QUOTE 归一化名，回拆成交时需还原成 QuantCell 品种名
-            rust_to_qc[_normalize_symbol(sym)] = sym
+            rust_to_qc[expand_symbol(sym)] = sym
         grid = build_shared_grid(bars_by_symbol)
         grid_len = len(grid)
 
         # 2) 按网格对齐 bar（缺口 None，由 Rust 前向填充价格）
-        aligned_bars = {_normalize_symbol(sym): align_bars_to_grid(bars, grid) for sym, bars in bars_by_symbol.items()}
+        aligned_bars = {expand_symbol(sym): align_bars_to_grid(bars, grid) for sym, bars in bars_by_symbol.items()}
 
         # 3) 逐 bar state 按同一网格对齐（复用 _build_rust_states 的键口径）；
         #    funding 查找表语义同 _run_rust_single（仅 futures 时非空）
         states_by_symbol: dict[str, list] = {}
         funding_by_symbol: dict[str, dict[int, tuple[float, float]]] = {}
         for sym, entry in entries.items():
-            rust_symbol = _normalize_symbol(sym)
+            rust_symbol = expand_symbol(sym)
             states_by_symbol.update(self._build_rust_states(entry.get("feature_dataframe"), grid, rust_symbol))
             funding_by_symbol.update(
                 self._build_rust_funding(
@@ -1155,7 +1158,7 @@ class EventDrivenBacktestService:
         )
         for sym, strategy in strategies_by_symbol.items():
             # 每品种独立杠杆：共享账户下各品种的放大倍数可以不同
-            leverage = (margin_specs or {}).get(_normalize_symbol(sym), {}).get("leverage", 1.0)
+            leverage = (margin_specs or {}).get(expand_symbol(sym), {}).get("leverage", 1.0)
             runner.add_strategy(RustStrategyAdapter(strategy, initial_cash=init_cash, leverage=leverage))
         if margin_specs:
             # 全品种参与：未列入配置的品种也带着默认 1x / cross 规格进来
@@ -1367,7 +1370,7 @@ class EventDrivenBacktestService:
             margin_specs_effective=margin_specs_effective,
             # 旧 wheel 无计数时按事件条数兜底，避免详情页出现「有强平记录但 0 次」
             liquidation_count=int(getattr(rust_result, "liquidation_count", 0) or 0),
-            margin_shortfall_count=int(getattr(rust_result, "margin_shortfall_count", 0) or 0),
+            shortfall_count=int(getattr(rust_result, "shortfall_count", 0) or 0),
         )
 
     @staticmethod
@@ -1631,7 +1634,7 @@ class EventDrivenBacktestService:
                 dict(spec) for spec in (results.get("margin_specs_effective") or []) if isinstance(spec, dict)
             ]
             portfolio_liquidation_count = int(results.get("liquidation_count") or 0)
-            portfolio_shortfall_count = int(results.get("margin_shortfall_count") or 0)
+            portfolio_shortfall_count = int(results.get("shortfall_count") or 0)
         else:
             portfolio_margin_applied = any(bool(r.get("margin_applied")) for r in per_symbol_results.values())
             portfolio_margin_specs = [
@@ -1641,9 +1644,7 @@ class EventDrivenBacktestService:
                 if isinstance(spec, dict)
             ]
             portfolio_liquidation_count = len(portfolio_events)
-            portfolio_shortfall_count = sum(
-                int(r.get("margin_shortfall_count") or 0) for r in per_symbol_results.values()
-            )
+            portfolio_shortfall_count = sum(int(r.get("shortfall_count") or 0) for r in per_symbol_results.values())
         portfolio_payload = ResultFormatterService.format_axon_results(
             results={
                 **results,
@@ -1658,7 +1659,7 @@ class EventDrivenBacktestService:
                 "margin_applied": portfolio_margin_applied,
                 "margin_specs_effective": portfolio_margin_specs,
                 "liquidation_count": portfolio_liquidation_count,
-                "margin_shortfall_count": portfolio_shortfall_count,
+                "shortfall_count": portfolio_shortfall_count,
             },
             symbol=symbols[0] if symbols else "PORTFOLIO",
             timeframe=timeframe,
@@ -1719,6 +1720,6 @@ class EventDrivenBacktestService:
                 "margin_applied": portfolio_margin_applied,
                 "margin_specs_effective": portfolio_margin_specs,
                 "liquidation_count": portfolio_liquidation_count,
-                "margin_shortfall_count": portfolio_shortfall_count,
+                "shortfall_count": portfolio_shortfall_count,
             },
         }

@@ -20,6 +20,7 @@ from utils.parquet_utils import append_to_parquet
 logger = get_logger(__name__, LogType.APPLICATION)
 from typing import TYPE_CHECKING
 
+from collector.db.models import decimal_or_zero
 from exchange.binance.downloader import BinanceDownloader
 from utils.time_parser import get_date_range
 
@@ -332,11 +333,12 @@ class StandaloneDataDownloader:
                             "symbol": symbol,
                             "interval": interval,
                             "timestamp": str(timestamp_ms),
-                            "open": str(row["open"]),
-                            "high": str(row["high"]),
-                            "low": str(row["low"]),
-                            "close": str(row["close"]),
-                            "volume": str(row["volume"]),
+                            # OHLC DECIMAL 列：写入统一 decimal_or_zero，与 volume 同口径（P2-11）
+                            "open": decimal_or_zero(row["open"]),
+                            "high": decimal_or_zero(row["high"]),
+                            "low": decimal_or_zero(row["low"]),
+                            "close": decimal_or_zero(row["close"]),
+                            "volume": decimal_or_zero(row["volume"]),
                             "unique_kline": unique_kline,
                             "data_source": "binance",
                         }

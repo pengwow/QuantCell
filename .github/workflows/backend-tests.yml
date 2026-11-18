@@ -36,7 +36,7 @@ env:
 
 jobs:
   backend-tests:
-    name: pytest (backtest / conformance / integration)
+    name: pytest (backtest / conformance / integration / db)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -75,4 +75,12 @@ jobs:
 
       - name: pytest
         working-directory: QuantCell/backend
-        run: uv run pytest tests/unit/backtest tests/conformance tests/integration -q
+        run: uv run pytest tests/unit/backtest tests/conformance tests/integration tests/unit/db -q
+
+      # banned 词条 lint 门禁（命名审计 P2-6）：banned 词条只许迁出减少，不许新增。
+      # vocab_lint 跨栈扫描 frontend/src，故 pre-commit 每次提交都会跑；CI 侧挂在本
+      # workflow 兜底（frontend workflow 无 Python 环境），但 path 触发不含 frontend/**
+      # —— 想强制前端改动也过 CI lint，可在此追加 frontend/** 触发路径。
+      - name: vocab lint (banned terms)
+        working-directory: QuantCell/backend
+        run: uv run python scripts/vocab_lint.py --check

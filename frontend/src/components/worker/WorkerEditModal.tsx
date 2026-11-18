@@ -346,7 +346,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       strategy_id: currentStrategyId,
       exchange: tradingConfig.exchange || 'binance',
       symbol: symbolsConfig?.symbols ?? [],
-      timeframe: tradingConfig.timeframe || '1h',
+      interval: tradingConfig.interval || '1h',
       market_type: tradingConfig.market_type || 'futures',
       trading_mode: tradingConfig.trading_mode || 'paper',
       initial_capital: config.initial_capital || 10000,
@@ -629,7 +629,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         trading_config: {
           exchange: values.exchange,
           symbols_config: { type: 'symbols', symbols },
-          timeframe: values.timeframe,
+          interval: values.interval,
           market_type: values.market_type,
           trading_mode: values.trading_mode,
         },
@@ -919,7 +919,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
-              name="timeframe"
+              name="interval"
               label={t('timeframe')}
               rules={[{ required: true, message: t('worker_please_select_timeframe') }]}
             >

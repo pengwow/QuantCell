@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Any
 
 from utils.logger import LogType, get_logger
 
+from .vocab import normalize_position_side, normalize_side
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -854,16 +856,24 @@ class LiveTradeRecorder:
         """创建订单记录（状态=ACCEPTED）"""
         from . import crud
 
+        raw_side = str(getattr(event, "order_side", "")).replace("OrderSide.", "")
+
         order_data = {
             "worker_id": self.worker_id,
             "client_order_id": str(event.client_order_id),
             "venue_order_id": str(getattr(event, "venue_order_id", "")) or None,
             "symbol": str(event.instrument_id),
-            "side": str(getattr(event, "order_side", "")).replace("OrderSide.", ""),
+            # 缺省保持旧 "" 行为，非空一律归一 canonical 小写
+            "side": normalize_side(raw_side) if raw_side else "",
+            # position_side 是下单时声明的仓位归属（铁律2），不从 side 推导
+            "position_side": normalize_position_side(
+                str(getattr(event, "position_side", "both")).replace("PositionSide.", "") or "both"
+            ),
+            "reduce_only": bool(getattr(event, "reduce_only", False)),
             "order_type": str(getattr(event, "order_type", "MARKET")).replace("OrderType.", ""),
             "quantity": float(getattr(event, "order_qty", 0)),
             "price": float(getattr(event, "order_px", 0)) if getattr(event, "order_px", None) is not None else None,
-            "filled_qty": 0.0,
+            "filled_quantity": 0.0,
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
@@ -925,13 +935,23 @@ class LiveTradeRecorder:
 
         trade_data = {
             "worker_id": self.worker_id,
-            "trade_id": str(event.trade_id),
+            # event.trade_id 是 axon 引擎事件协议属性名（我的Trades 词汇），落库键用 fill_id
+            "fill_id": str(event.trade_id),
             "symbol": str(event.instrument_id),
-            "side": str(getattr(event, "order_side", "")).replace("OrderSide.", ""),
+            # 缺省保持旧 "" 行为，非空一律归一 canonical 小写；position_side 是声明值透传（铁律2）
+            "side": (
+                normalize_side(str(getattr(event, "order_side", "")).replace("OrderSide.", ""))
+                if str(getattr(event, "order_side", ""))
+                else ""
+            ),
+            "position_side": normalize_position_side(
+                str(getattr(event, "position_side", "both")).replace("PositionSide.", "") or "both"
+            ),
+            "reduce_only": bool(getattr(event, "reduce_only", False)),
             "order_type": str(getattr(event, "order_type", "MARKET")).replace("OrderType.", ""),
             "quantity": float(event.last_qty),
             "price": float(event.last_px),
-            "amount": float(event.last_qty) * float(event.last_px),
+            "notional": float(event.last_qty) * float(event.last_px),
             "fee": commission,
             "fee_currency": self._extract_commission_currency(event),
             "realized_pnl": None,
@@ -944,7 +964,7 @@ class LiveTradeRecorder:
                     "instrument_id": str(event.instrument_id),
                     "client_order_id": str(event.client_order_id),
                     "venue_order_id": str(getattr(event, "venue_order_id", "")),
-                    "trade_id": str(event.trade_id),
+                    "fill_id": str(event.trade_id),
                     "last_qty": str(event.last_qty),
                     "last_px": str(event.last_px),
                     "liquidity_side": str(getattr(event, "liquidity_side", "")),
@@ -956,7 +976,7 @@ class LiveTradeRecorder:
 
         crud.create_trade_if_not_exists(db, trade_data)
         logger.info(
-            f"LiveTradeRecorder: FILLED trade {trade_data['trade_id']} "
+            f"LiveTradeRecorder: FILLED fill {trade_data['fill_id']} "
             f"{trade_data['symbol']} {trade_data['side']} "
             f"qty={trade_data['quantity']} px={trade_data['price']} "
             f"(worker_id={self.worker_id})"
@@ -982,7 +1002,8 @@ class LiveTradeRecorder:
         from . import crud
 
         pos_id = str(event.position_id)
-        side = str(getattr(event, "position_side", "LONG")).replace("PositionSide.", "")
+        raw_position_side = str(getattr(event, "position_side", "LONG")).replace("PositionSide.", "")
+        position_side = normalize_position_side(raw_position_side) if raw_position_side else "both"
         qty = float(getattr(event, "qty", 0))
         entry_px = float(getattr(event, "entry_avg_px", 0))
         unrealized = float(getattr(event, "unrealized_pnl", 0))
@@ -995,7 +1016,8 @@ class LiveTradeRecorder:
             "worker_id": self.worker_id,
             "position_id": pos_id,
             "symbol": str(event.instrument_id),
-            "side": side,
+            # 键名随 WorkerPosition 列改名（side → position_side）同步
+            "position_side": position_side,
             "quantity": abs(qty),
             "entry_price": entry_px,
             "current_price": entry_px,  # 近似值，后续可由 tick 更新
@@ -1012,7 +1034,7 @@ class LiveTradeRecorder:
 
         logger.info(
             f"LiveTradeRecorder: POSITION {position_data['status']} "
-            f"{pos_id} {side} qty={qty} entry={entry_px} "
+            f"{pos_id} {position_side} qty={qty} entry={entry_px} "
             f"(worker_id={self.worker_id})"
         )
 

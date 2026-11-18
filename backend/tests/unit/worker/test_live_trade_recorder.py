@@ -212,7 +212,8 @@ class TestLiveTradeRecorder:
         assert order is not None
         assert order.worker_id == 1
         assert order.symbol == "BTCUSDT"
-        assert order.side == "BUY"
+        # 落库方向词汇统一为 canonical 小写（上游原词大小写由 crud 归一）
+        assert order.side == "buy"
         assert order.order_type == "MARKET"
         assert order.quantity == 0.01
         assert order.price == 50000.0
@@ -234,7 +235,7 @@ class TestLiveTradeRecorder:
             "order_type": "MARKET",
             "quantity": 0.01,
             "price": 50000.0,
-            "filled_qty": 0.0,
+            "filled_quantity": 0.0,
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
@@ -270,7 +271,7 @@ class TestLiveTradeRecorder:
             "order_type": "MARKET",
             "quantity": 0.01,
             "price": 50000.0,
-            "filled_qty": 0.0,
+            "filled_quantity": 0.0,
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
@@ -285,15 +286,16 @@ class TestLiveTradeRecorder:
         recorder._handle_fill(db_session, mock_order_filled_event)
 
         # 验证交易记录被创建
-        trade = db_session.query(WorkerTrade).filter(WorkerTrade.trade_id == "trade-456").first()
+        trade = db_session.query(WorkerTrade).filter(WorkerTrade.fill_id == "trade-456").first()
         assert trade is not None
         assert trade.worker_id == 1
         assert trade.symbol == "BTCUSDT"
-        assert trade.side == "BUY"
+        # 落库方向词汇统一为 canonical 小写（上游原词大小写由 crud 归一）
+        assert trade.side == "buy"
         assert trade.order_type == "MARKET"
         assert trade.quantity == 0.01
         assert trade.price == 50000.0
-        assert trade.amount == 500.0
+        assert trade.notional == 500.0
         assert trade.fee == 1.0
         assert trade.fee_currency == "USDT"
 
@@ -301,7 +303,7 @@ class TestLiveTradeRecorder:
         order = db_session.query(WorkerOrder).filter(WorkerOrder.client_order_id == "test-order-123").first()
         assert order is not None
         assert order.status == "FILLED"
-        assert order.filled_qty == 0.01
+        assert order.filled_quantity == 0.01
         assert order.avg_fill_price == 50000.0
 
     def test_handle_position_event_with_real_db(self, recorder, mock_position_event, db_session):
@@ -318,7 +320,8 @@ class TestLiveTradeRecorder:
         assert position is not None
         assert position.worker_id == 1
         assert position.symbol == "BTCUSDT"
-        assert position.side == "LONG"
+        # 事件词 "LONG" 经 vocab 归一后 canonical 小写落库；键名随列改名切换
+        assert position.position_side == "long"
         assert position.quantity == 0.01
         assert position.entry_price == 50000.0
         assert position.unrealized_pnl == 100.0

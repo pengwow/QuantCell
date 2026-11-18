@@ -92,7 +92,6 @@ interface EquityCurvePoint {
   formatted_time: string;
   equity: number;
   balance: number;
-  margin?: number;
 }
 
 // 逐档部分强平事件（引擎产出；字段按可选处理，旧任务结果 JSON 无此项）
@@ -146,7 +145,7 @@ interface BacktestResponse {
     initial_cash?: number;
     capital_mode?: string;
     // 创建回测时的杠杆配置（提交体落在 backtest_config 里，旧任务缺失）
-    margin_settings?: EffectiveMarginSpec[];
+    margin_specs?: EffectiveMarginSpec[];
     // 创建回测时的策略参数（后端入库时随 backtest_config 保存；旧任务可能缺失）
     strategy_params?: Record<string, unknown>;
     [key: string]: unknown;
@@ -169,7 +168,7 @@ interface BacktestResponse {
   margin_applied?: boolean;
   margin_specs_effective?: EffectiveMarginSpec[];
   liquidation_count?: number;
-  margin_shortfall_count?: number;
+  shortfall_count?: number;
   liquidation_events?: LiquidationEventRecord[];
   insurance_fund_loss?: number;
   // cascade 策略决策记录（回测结束后从录制 JSONL 采集；非 cascade 策略无此字段）
@@ -323,12 +322,11 @@ const BacktestDetail = () => {
 
   // 获取权益曲线数据，转换为 EquityChart 组件期望的格式
   // 包含结余(balance)和净值(equity)两条线
-  const getEquityCurve = (): Array<{ datetime: string; equity: number; balance: number; margin?: number }> => {
+  const getEquityCurve = (): Array<{ datetime: string; equity: number; balance: number }> => {
     return (backtestData?.equity_curve || []).map(point => ({
       datetime: point.formatted_time || new Date(point.timestamp * 1000).toISOString(),
       equity: point.equity,
       balance: point.balance,
-      margin: point.margin,
     }));
   };
 
@@ -407,12 +405,12 @@ const BacktestDetail = () => {
   const effectiveSpecs: EffectiveMarginSpec[] =
     backtestData.margin_specs_effective?.length
       ? backtestData.margin_specs_effective
-      : backtestConfig.margin_settings ?? [];
+      : backtestConfig.margin_specs ?? [];
   const marginApplied = backtestData.margin_applied ?? false;
   // 交易表「保证金占用」列的口径来源：仅启用保证金时传杠杆，否则表格不渲染该列
   const leverageBySymbol: Record<string, number> | undefined = buildLeverageMap(marginApplied, effectiveSpecs);
   const liquidationCount = backtestData.liquidation_count ?? 0;
-  const shortfallCount = backtestData.margin_shortfall_count ?? 0;
+  const shortfallCount = backtestData.shortfall_count ?? 0;
   // 旧任务没有保证金结果字段，一律按“无强平”处理
   const liquidationEvents: LiquidationEventRecord[] = backtestData.liquidation_events ?? [];
   const insuranceFundLoss = backtestData.insurance_fund_loss ?? 0;
@@ -492,7 +490,7 @@ const BacktestDetail = () => {
           </Descriptions>
           {/* 杠杆与保证金：整块常显，未启用时明确告诉用户「没算保证金」，而不是悄悄消失 */}
           <div>
-            <div className="mb-2 text-sm font-medium">{t('backtest_margin_settings')}</div>
+            <div className="mb-2 text-sm font-medium">{t('backtest_margin_specs')}</div>
             <Space size={4} wrap>
               {effectiveSpecs.map((item) => (
                 <Tag key={item.symbol} className="mb-0">
@@ -503,7 +501,7 @@ const BacktestDetail = () => {
                 <>
                   <Tag color="blue" className="mb-0">{t('backtest_liquidation_count', { num: liquidationCount })}</Tag>
                   {shortfallCount > 0 && (
-                    <Tag color="orange" className="mb-0">{t('backtest_margin_shortfall_count', { num: shortfallCount })}</Tag>
+                    <Tag color="orange" className="mb-0">{t('backtest_shortfall_count', { num: shortfallCount })}</Tag>
                   )}
                 </>
               )}
@@ -882,11 +880,20 @@ const BacktestDetail = () => {
             if (v === '规则') return 'cyan';
             return undefined; // 回放 / 降级兜底 / 其他 → antd 默认灰
           };
+          // 新决策 action 词表为 long/short（Rust cascade 方向语义）；历史报表仍存 buy/sell，两套都备齐
           const actionColor: Record<string, string> = {
+            long: 'green',
+            short: 'red',
             buy: 'green',
             sell: 'red',
             hold: 'default',
           };
+          const actionLabel = (v: string) =>
+            v === 'long' || v === 'buy'
+              ? t('long')
+              : v === 'short' || v === 'sell'
+                ? t('short')
+                : t('backtest_hold');
 
           // 只展示前 100 条 + 分页，3 万条全渲染卡浏览器
           const PAGE_SIZE = 200;
@@ -912,7 +919,7 @@ const BacktestDetail = () => {
                     <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_action_prefix')}</span>
                     {Object.entries(actionCounts).map(([act, cnt]) => (
                       <Tag key={act} color={actionColor[act] || 'default'}>
-                        {act === 'buy' ? t('buy') : act === 'sell' ? t('sell') : t('backtest_hold')}: {cnt.toLocaleString()}
+                        {actionLabel(act)}: {cnt.toLocaleString()}
                       </Tag>
                     ))}
                   </div>
@@ -955,9 +962,8 @@ const BacktestDetail = () => {
                       dataIndex: 'action',
                       width: 80,
                       render: (v: string) => {
-                        const label = v === 'buy' ? t('buy') : v === 'sell' ? t('sell') : t('backtest_hold');
                         const color = actionColor[v] || 'default';
-                        return <Tag color={color}>{label}</Tag>;
+                        return <Tag color={color}>{actionLabel(v)}</Tag>;
                       },
                     },
                     {

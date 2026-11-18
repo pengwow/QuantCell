@@ -36,16 +36,16 @@ def _row(
     symbol: str = "BTC/USDT",
     created_at: datetime | None = None,
 ) -> WorkerTrade:
-    """直插 WorkerTrade 行（绕过 sync），trade_id 沿用 paper 口径。"""
+    """直插 WorkerTrade 行（绕过 sync），fill_id 沿用 paper 口径。"""
     return WorkerTrade(
         worker_id=WORKER_ID,
-        trade_id=f"paper:{WORKER_ID}:{fill_id}:{int(ts.timestamp() * 1e9)}",
+        fill_id=f"paper:{WORKER_ID}:{fill_id}:{int(ts.timestamp() * 1e9)}",
         symbol=symbol,
         side=side,
         order_type="MARKET",
         quantity=qty,
         price=price,
-        amount=qty * price,
+        notional=qty * price,
         fee=0.0,
         fee_currency="USDT",
         realized_pnl=realized_pnl,
@@ -78,7 +78,7 @@ def test_paired_group_merges_into_one_row(db):
     assert it["entry_side"] == "buy" and it["exit_side"] == "sell"
     assert it["entry_price"] == pytest.approx(100.05)  # 开仓 VWAP
     assert it["exit_price"] == pytest.approx(105.0)  # 平仓 VWAP
-    assert it["size"] == pytest.approx(30.0)
+    assert it["quantity"] == pytest.approx(30.0)
     assert it["pnl"] == pytest.approx(148.5)  # 取 finalize 行
     assert it["return_pct"] == pytest.approx(148.5 / (100.05 * 30.0) * 100)
     assert [f["offset"] for f in it["fills"]] == ["open", "close"]
@@ -98,7 +98,7 @@ def test_unpaired_row_is_own_group(db):
     assert it["pnl"] == 0.0  # realized_pnl 为 None 时记 0，防前端 toFixed 崩
     assert it["exit_time"] is None
     assert it["exit_price"] == pytest.approx(100.05)  # 无平仓行回退开仓价
-    assert it["size"] == pytest.approx(30.0)
+    assert it["quantity"] == pytest.approx(30.0)
     assert len(it["fills"]) == 1
 
 

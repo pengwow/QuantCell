@@ -1,6 +1,9 @@
 /**
  * 策略执行历史记录类型
  */
+// 方向词汇值域事实源：生成的 vocab.generated.ts（P2-5）
+import type { Side } from './vocab.generated';
+
 export interface ExecutionHistory {
   timestamp: string;
   status: 'success' | 'failed';
@@ -13,10 +16,10 @@ export interface TradeRecord {
   id: string;
   timestamp: string;
   symbol: string;
-  action: 'buy' | 'sell';
+  action: Side;
   price: number;
   quantity: number;
-  amount: number;
+  notional: number;
   status: 'filled' | 'pending' | 'canceled';
 }
 

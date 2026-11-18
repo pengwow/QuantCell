@@ -97,17 +97,17 @@ def test_funding_skips_spot(db_session):
     assert exch.calls == [] and _recon_logs(db_session) == []
 
 
-def _add_trade(session, trade_id, symbol, rt=None, pnl=0.25):
+def _add_trade(session, fill_id, symbol, rt=None, pnl=0.25):
     session.add(
         WorkerTrade(
             worker_id=WID,
-            trade_id=trade_id,
+            fill_id=fill_id,
             symbol=symbol,
             side="buy",
             order_type="market",
             quantity=1.0,
             price=100.0,
-            amount=100.0,
+            notional=100.0,
             round_trip_id=rt,
             realized_pnl=pnl,
         )
@@ -116,7 +116,7 @@ def _add_trade(session, trade_id, symbol, rt=None, pnl=0.25):
 
 def test_close_consistency_healthy(db_session):
     """正常配对：finalize 行已回填 pnl + 无 CLOSED 残破 → ok"""
-    # 一组正常 rt：组键尾部 fill7，finalize 行 trade_id=...:fill7:...，pnl 已回填
+    # 一组正常 rt：组键尾部 fill7，finalize 行 fill_id=...:fill7:...，pnl 已回填
     _add_trade(db_session, "paper:9:fill7:100", "BTC/USDT", rt="rt:9:fill7", pnl=-2.5)
     _add_trade(db_session, "paper:9:fill2:90", "BTC/USDT", rt="rt:9:fill7", pnl=None)
 
@@ -132,7 +132,7 @@ def test_close_consistency_breaks(db_session):
             worker_id=WID,
             position_id="pos1",
             symbol="ETH/USDT",
-            side="LONG",
+            position_side="long",
             quantity=0.0,
             entry_price=1.0,
             status="CLOSED",

@@ -1,6 +1,8 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
+import dayjs from 'dayjs';
+import 'dayjs/locale/zh-cn';
 
 // 从根目录 i18n 文件导入翻译
 // 注意：这些文件通过构建脚本或符号链接同步到前端
@@ -41,5 +43,13 @@ i18n
       escapeValue: false,
     },
   });
+
+// dayjs 全局语言跟随应用语言：fromNow() 等相对时间输出（如「3 分钟前」/ "3 minutes ago"）
+// 'zh-cn' 是 dayjs 的 locale key（小写连字符），en 为内置默认
+const syncDayjsLocale = (lng: string) => {
+  dayjs.locale(lng.startsWith('zh') ? 'zh-cn' : 'en');
+};
+syncDayjsLocale(getInitialLanguage());
+i18n.on('languageChanged', syncDayjsLocale);
 
 export default i18n;

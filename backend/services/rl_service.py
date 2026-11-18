@@ -710,7 +710,7 @@ class RLService:
         """
         from backtest.backtest_loop import clean_ohlcv_df
         from backtest.engine_service import EventDrivenBacktestService
-        from strategy.rust_adapter import _normalize_symbol
+        from vocab import expand_symbol
 
         if ensemble_id:
             # 集成:成员 ratio predict_fn 组合,spec 以基准成员 meta 为准(spec §4.4)
@@ -735,7 +735,7 @@ class RLService:
             stats = load_observation_stats(model_path)
 
         # 内核按 BASE/QUOTE 建 instrument；直接用交易所原始 symbol 会退化成默认品种
-        rust_symbol = _normalize_symbol(symbol)
+        rust_symbol = expand_symbol(symbol)
         bars = EventDrivenBacktestService._df_to_rust_bars(clean_ohlcv_df(data))
 
         # 费率与训练环境同源：两边都是 `RL_TRANSACTION_COST`，否则归因会报成本模型不一致

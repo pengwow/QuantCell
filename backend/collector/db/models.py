@@ -48,6 +48,7 @@ else:
 # SQLAlchemy模型定义
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -188,7 +189,8 @@ class Feature(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     feature_name = Column(String, nullable=False, index=True)
-    freq = Column(String, nullable=False, index=True)
+    # K线/数据采样周期，历史列名 freq 已由迁移统一改名 interval（见 vocab.py 与 db.migrations）
+    interval = Column(String(20), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -273,6 +275,20 @@ class CryptoSymbol(TimezoneAwareBase):
     __table_args__ = (sqlalchemy.UniqueConstraint("symbol", "exchange", name="unique_symbol_exchange"),)
 
 
+def decimal_or_zero(value: Any) -> Decimal:
+    """字符串/数值 → Decimal；非法输入（None/'None'/空串等）归零，不阻断主写入。
+
+    K线 volume 列是 DECIMAL(40, 8)（nullable=False），三张K线表与所有写入点
+    （kline_factory / kline_persistence / standalone_downloader）共用此转换。
+    """
+    if value is None:
+        return Decimal(0)
+    try:
+        return Decimal(str(value))
+    except InvalidOperation, ValueError:
+        return Decimal(0)
+
+
 class CryptoSpotKline(TimezoneAwareBase):
     """加密货币现货K线数据SQLAlchemy模型
 
@@ -284,12 +300,15 @@ class CryptoSpotKline(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    timestamp = Column(String, nullable=False, index=True)
-    open = Column(String, nullable=False)
-    high = Column(String, nullable=False)
-    low = Column(String, nullable=False)
-    close = Column(String, nullable=False)
-    volume = Column(String, nullable=False)
+    # timestamp 纳秒整型（P2-14 数值收口：迁移 update_kline_timestamp_to_bigint DROP+create，存量可重拉）
+    timestamp = Column(sqlalchemy.BigInteger, nullable=False, index=True)
+    # OHLC 四列 DECIMAL（P2-11 价格域收口）：与 volume 同款（迁移 update_kline_ohlc_to_decimal DROP+create，存量可重拉），
+    # 写入统一 decimal_or_zero()，读出统一 float()，API/前端零感知
+    open = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    high = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    low = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    close = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    volume = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     unique_kline = Column(String, nullable=False, unique=True, index=True)
     data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -307,12 +326,14 @@ class CryptoFutureKline(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    timestamp = Column(String, nullable=False, index=True)
-    open = Column(String, nullable=False)
-    high = Column(String, nullable=False)
-    low = Column(String, nullable=False)
-    close = Column(String, nullable=False)
-    volume = Column(String, nullable=False)
+    # timestamp 纳秒整型（P2-14 数值收口：迁移 update_kline_timestamp_to_bigint DROP+create，存量可重拉）
+    timestamp = Column(sqlalchemy.BigInteger, nullable=False, index=True)
+    # OHLC 四列 DECIMAL，口径同 CryptoSpotKline（P2-11 价格域收口，见上注释）
+    open = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    high = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    low = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    close = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    volume = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     unique_kline = Column(String, nullable=False, unique=True, index=True)
     data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -330,12 +351,14 @@ class StockKline(TimezoneAwareBase):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    timestamp = Column(String, nullable=False, index=True)
-    open = Column(String, nullable=False)
-    high = Column(String, nullable=False)
-    low = Column(String, nullable=False)
-    close = Column(String, nullable=False)
-    volume = Column(String, nullable=False)
+    # timestamp 纳秒整型（P2-14 数值收口：迁移 update_kline_timestamp_to_bigint DROP+create，存量可重拉）
+    timestamp = Column(sqlalchemy.BigInteger, nullable=False, index=True)
+    # OHLC 四列 DECIMAL，口径同 CryptoSpotKline / CryptoFutureKline（P2-11 价格域收口，见上注释）
+    open = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    high = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    low = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    close = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
+    volume = Column(sqlalchemy.DECIMAL(40, 8), nullable=False, default=Decimal(0))
     unique_kline = Column(String, nullable=False, unique=True, index=True)
     data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

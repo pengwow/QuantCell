@@ -369,10 +369,10 @@ def create_features(db: Session, features: list[schemas.FeatureCreate]) -> list[
 
     from sqlalchemy import text
 
-    # 准备插入语句
+    # 准备插入语句（interval 加引号：duckdb 中 INTERVAL 是类型关键字）
     insert_sql = text("""
-    INSERT INTO features (symbol, feature_name, freq)
-    VALUES (:symbol, :feature_name, :freq)
+    INSERT INTO features (symbol, feature_name, "interval")
+    VALUES (:symbol, :feature_name, :interval)
     RETURNING id, created_at, updated_at
     """)
 
@@ -381,7 +381,7 @@ def create_features(db: Session, features: list[schemas.FeatureCreate]) -> list[
         insert_data = {
             "symbol": feature.symbol,
             "feature_name": feature.feature_name,
-            "freq": feature.freq,
+            "interval": feature.interval,
         }
 
         # 执行原始SQL插入，获取自动生成的字段值
@@ -395,7 +395,7 @@ def create_features(db: Session, features: list[schemas.FeatureCreate]) -> list[
                 id=insert_result[0],
                 symbol=feature.symbol,
                 feature_name=feature.feature_name,
-                freq=feature.freq,
+                interval=feature.interval,
                 created_at=insert_result[1],
                 updated_at=insert_result[2],
             )

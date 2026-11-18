@@ -25,6 +25,10 @@ def _existing_tables() -> set[str]:
     return set(sa.inspect(op.get_bind()).get_table_names())
 
 
+def _existing_indexes(table: str) -> set[str]:
+    return {i["name"] for i in sa.inspect(op.get_bind()).get_indexes(table)}
+
+
 def upgrade() -> None:
     # 幂等建 data_pool_snapshots（存量库 create_all 双通道可能已建）
     if "data_pool_snapshots" not in _existing_tables():
@@ -40,12 +44,17 @@ def upgrade() -> None:
 
     # 清理废弃的 universe 三表（模块已删除，留着只会误导）
     tables = _existing_tables()
+    # 存量库的 universe 表可能由 create_all 双通道建出且不带索引（35 的索引守卫只覆盖建表路径），
+    # drop_index 前先确认存在，否则这类库 upgrade 会直接炸
     if "universe_snapshots" in tables:
-        op.drop_index("ix_universe_snapshots_universe_id", table_name="universe_snapshots")
+        if "ix_universe_snapshots_universe_id" in _existing_indexes("universe_snapshots"):
+            op.drop_index("ix_universe_snapshots_universe_id", table_name="universe_snapshots")
         op.drop_table("universe_snapshots")
     if "universe_memberships" in tables:
-        op.drop_index("ix_universe_memberships_universe_symbol", table_name="universe_memberships")
-        op.drop_index("ix_universe_memberships_universe_id", table_name="universe_memberships")
+        if "ix_universe_memberships_universe_symbol" in _existing_indexes("universe_memberships"):
+            op.drop_index("ix_universe_memberships_universe_symbol", table_name="universe_memberships")
+        if "ix_universe_memberships_universe_id" in _existing_indexes("universe_memberships"):
+            op.drop_index("ix_universe_memberships_universe_id", table_name="universe_memberships")
         op.drop_table("universe_memberships")
     if "universes" in tables:
         op.drop_table("universes")

@@ -88,6 +88,58 @@ def _map_row_to_settings(row: dict[str, Any], initial_cash: float) -> tuple[dict
     return config, max_position_value
 
 
+def risk_status_snapshot(
+    params: dict[str, Any],
+    worker_id: int,
+    initial_cash: float,
+    daily_pnl: float | None,
+) -> dict[str, Any]:
+    """风控状态快照组装（spec 2026-11-16 §4.1）。
+
+    三态：人工表行(manual) > params.risk 直通(params) > 未配置(none)。
+    daily_pnl 由调用方提供（统一交易表口径：live 即引擎回灌同源，paper 为模拟成交值）。
+    熔断态为推导值：仅在启用且有额度与盈亏时计算；cooldown 冷却恢复
+    不建模（引擎侧精确快照在 B 路线落地后 tripped_source 切 "engine"）。
+    """
+    row = _load_risk_control_row(worker_id)
+    config_out: dict[str, Any] | None = None
+    if row is not None:
+        source, enabled = "manual", bool(row["enabled"])
+        if enabled:
+            # 人工停用态没有"生效配置"，config 保持 None 只展示停用标识
+            config, max_position_value = _map_row_to_settings(row, initial_cash)
+            config_out = dict(config)
+            if max_position_value is not None:
+                config_out["max_position_value"] = max_position_value
+    else:
+        risk = params.get("risk") if isinstance(params, dict) else None
+        if isinstance(risk, dict) and risk:
+            source, enabled = "params", True
+            # params.risk 直通分支：策略参数原样键透传，不做二次换算
+            config_out = dict(risk)
+        else:
+            source, enabled = "none", False
+
+    daily_loss_limit = config_out.get("max_daily_loss") if config_out else None
+    loss_usage: float | None = None
+    tripped = False
+    if daily_pnl is not None and daily_loss_limit:
+        # 推导口径：当日亏损触达额度即视为熔断（恰等于额度也算，与引擎 <0 判定对齐）
+        loss_usage = max(0.0, -daily_pnl) / daily_loss_limit
+        tripped = daily_pnl <= -daily_loss_limit
+    return {
+        "configured": source != "none",
+        "source": source,
+        "enabled": enabled,
+        "config": config_out,
+        "daily_pnl": daily_pnl,
+        "daily_loss_limit": daily_loss_limit,
+        "loss_usage": loss_usage,
+        "circuit_breaker_tripped": tripped,
+        "tripped_source": "derived",
+    }
+
+
 def apply_risk_config(
     driver: Any,
     params: dict[str, Any],

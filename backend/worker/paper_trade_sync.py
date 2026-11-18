@@ -6,7 +6,7 @@ paper 泵线程喂 bar → 内核撮合产生的成交只存在于 Rust 引擎�
 拉取新成交，按 WorkerTrade 契约幂等落库，异常只记日志、不反噬行情泵。
 
 口径（与 worker/live_trade_sync.py 的 LiveTradeSync 对齐）：
-- trade_id 拼装 "paper:{worker_id}:{fill_id}:{timestamp_ns}"：fill_id 是
+- fill_id 拼装 "paper:{worker_id}:{fill_id}:{timestamp_ns}"：引擎 fill_id 是
   fills_detail 下标、单次运行内全局唯一；带上 timestamp_ns 后，paper 账
   重启清零从游标 0 重来的重放成交仍指向同一条 DB 记录（查重幂等，不重复插入）；
 - quantity 为正数绝对量，方向在 taker_side（Buy/Sell → buy/sell 对齐 ccxt 口径）；
@@ -20,10 +20,10 @@ paper 泵线程喂 bar → 内核撮合产生的成交只存在于 Rust 引擎�
   （基于 entry_price × |net_quantity| 名义本金）一并写入。
   毛口径与 binance myTrades 的 realizedPnl 一致（手续费不挤入盈亏）。
 
-ponytail: 游标与 fill→trade_id 索引均为内存态不持久化。天花板：paper 账
-纯内存、重启后成交时间线从零重演，历史 DB 记录与新 run 靠 trade_id 幂等
+ponytail: 游标与 fill 下标→DB fill_id 索引均为内存态不持久化。天花板：paper 账
+纯内存、重启后成交时间线从零重演，历史 DB 记录与新 run 靠 fill_id 幂等
 去重、配对行靠 realized_pnl 非空跳过防重写，不做已停 worker 的清理；
-升级路径是把运行态 run_id 拼进 trade_id 并在启动时归档旧 run 的记录。
+升级路径是把运行态 run_id 拼进 fill_id 并在启动时归档旧 run 的记录。
 """
 
 import json
@@ -32,6 +32,8 @@ from datetime import datetime
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from worker import ws_fill_events
+
+from .vocab import normalize_side
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -46,8 +48,9 @@ class PaperTradeSync:
         # 成交广播信封的 strategy_id：worker↔strategy 绑定运行期不变，
         # 惰性解析一次并缓存（与 LiveTradeSync 同口径）
         self._strategy_id_cache: str | None = None
-        # fill_id → trade_id 映射：配对 trade 回填 realized_pnl 时定位
-        # finalize fill（最后一根平仓 fill）行。仅覆盖本实例已拉取的区间，
+        # 引擎 fill 下标 → DB fill_id（组装串）映射：配对 trade 回填
+        # realized_pnl 时定位 finalize fill（最后一根平仓 fill）行。
+        # 仅覆盖本实例已拉取的区间，
         # 与 fills 游标同寿命（引擎重启则两者一起归零重放，见模块 ponytail 注释）
         self._fill_index: dict[int, str] = {}
 
@@ -55,7 +58,7 @@ class PaperTradeSync:
         """拉取自游标起的新成交与配对盈亏并落库，返回新落库成交笔数。
 
         仅在 paper 泵线程循环内被调用（调用方已做异常兜底）；单条落库失败
-        即中断本轮并保留游标，下轮原样重拉重试（已入库的由 trade_id 查重幂等）。
+        即中断本轮并保留游标，下轮原样重拉重试（已入库的由 fill_id 查重幂等）。
         """
         from . import crud  # 同包 crud 依赖 models，无环；与 live_trade_sync 口径一致
 
@@ -75,14 +78,31 @@ class PaperTradeSync:
             for fill in fills:
                 data = self._to_trade_data(fill)
                 try:
-                    # paper 账重启重放会产出同 trade_id 的 fill，
+                    # paper 账重启重放会产出同 fill_id 的 fill，
                     # 命中属既有记录，不计入新落库（也不必重复走 crud 提交）
                     exists = (
-                        db.query(crud.WorkerTrade).filter(crud.WorkerTrade.trade_id == data["trade_id"]).first()
+                        db.query(crud.WorkerTrade).filter(crud.WorkerTrade.fill_id == data["fill_id"]).first()
                         is not None
                     )
                     if not exists:
                         crud.create_trade_if_not_exists(db, data)
+                        # 订单持久化：paper 引擎只回传成交不分发订单事件，
+                        # 以 taker_order_id（引擎订单 id，同单分笔共享）为
+                        # client_order_id 落 FILLED 行；缺失时退回 fill_id
+                        taker_id = str(fill.get("taker_order_id") or "")
+                        order_key = taker_id or f"fill{fill['fill_id']}"
+                        crud.upsert_order_filled_from_fill(
+                            db,
+                            worker_id=self.worker_id,
+                            client_order_id=f"paper:{self.worker_id}:{order_key}",
+                            symbol=data["symbol"],
+                            side=data["side"],
+                            order_type=data["order_type"],
+                            quantity=data["quantity"],
+                            price=data["price"],
+                            filled_at=data["entry_time"],
+                            position_side=data["position_side"],
+                        )
                 except Exception as e:
                     logger.warning(
                         f"PaperTradeSync: fill_id={data.get('fill_id')} 落库失败 (worker_id={self.worker_id}): {e}"
@@ -90,7 +110,7 @@ class PaperTradeSync:
                     break
                 # 落库成功（含查重命中）才入索引：配对 trade 只会引用 ≤ 当前
                 # fills 游标的 fill_id，fail-fast 路径下游标与索引同步停摆
-                self._fill_index[fill["fill_id"]] = data["trade_id"]
+                self._fill_index[fill["fill_id"]] = data["fill_id"]
                 inserted += 0 if exists else 1
                 if not exists:
                     # 新落库的模拟成交同步广播到前端 WebSocket（旁路，失败不影响入账）
@@ -138,8 +158,8 @@ class PaperTradeSync:
                     # FLAT_TO_FLAT 聚合下 exit_fill_ids 可能跨多根部分平仓 fill，
                     # 盈亏归属最后一根（触发完全平仓/反手的那根）
                     finalize_id = max(tr["exit_fill_ids"])
-                    trade_id = self._fill_index.get(finalize_id)
-                    if trade_id is None:
+                    fill_id = self._fill_index.get(finalize_id)
+                    if fill_id is None:
                         # finalize fill 不在索引：理论上只可能发生在泵线程
                         # 与 sync 实例寿命错位（引擎重置但游标未归零），跳过
                         # 防脏写，等待重启后重放对齐
@@ -148,7 +168,7 @@ class PaperTradeSync:
                             f"跳过配对回填 (worker_id={self.worker_id})"
                         )
                         continue
-                    row = db.query(crud.WorkerTrade).filter(crud.WorkerTrade.trade_id == trade_id).first()
+                    row = db.query(crud.WorkerTrade).filter(crud.WorkerTrade.fill_id == fill_id).first()
                     # paper 账重启重放会重复产出同一配对，已回填即幂等跳过
                     if row is None or row.realized_pnl is not None:
                         continue
@@ -165,16 +185,16 @@ class PaperTradeSync:
                     group_fill_ids = [int(x) for x in tr.get("entry_fill_ids") or []] + [
                         int(x) for x in tr.get("exit_fill_ids") or []
                     ]
-                    other_trade_ids = [
+                    other_fill_ids = [
                         self._fill_index[fid]
                         for fid in group_fill_ids
                         if fid != finalize_id and self._fill_index.get(fid)
                     ]
-                    if other_trade_ids:
+                    if other_fill_ids:
                         # 只补空组键（is_(None)），不覆盖既有值；与 realized_pnl
                         # 同一 commit，任何异常一起回滚
                         db.query(crud.WorkerTrade).filter(
-                            crud.WorkerTrade.trade_id.in_(other_trade_ids),
+                            crud.WorkerTrade.fill_id.in_(other_fill_ids),
                             crud.WorkerTrade.round_trip_id.is_(None),
                         ).update({"round_trip_id": round_trip_id}, synchronize_session=False)
                     updated += 1
@@ -202,13 +222,16 @@ class PaperTradeSync:
 
         return {
             "worker_id": self.worker_id,
-            "trade_id": f"paper:{self.worker_id}:{fill['fill_id']}:{fill['timestamp_ns']}",
+            "fill_id": f"paper:{self.worker_id}:{fill['fill_id']}:{fill['timestamp_ns']}",
             "symbol": f"{inst[1]}/{inst[2]}",
-            "side": str(fill["taker_side"]).lower(),  # 引擎侧 "Buy"/"Sell" → ccxt 口径
+            "side": normalize_side(fill["taker_side"]),  # 引擎侧 "Buy"/"Sell" → ccxt 口径
+            # paper 引擎单向净仓：声明值固定 both、无只减仓概念（铁律2 因此处为固定声明而非推导）
+            "position_side": "both",
+            "reduce_only": False,
             "order_type": "MARKET",  # paper 撮合只产市价单
             "quantity": quantity,
             "price": price,
-            "amount": quantity * price,
+            "notional": quantity * price,
             "fee": 0.0,
             "fee_currency": "USDT",
             "realized_pnl": None,  # 配对毛盈亏由 _sync_trade_pnl 回填到 finalize 行
