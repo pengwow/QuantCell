@@ -610,6 +610,7 @@ class StrategyManager:
             RLService,
             make_predict_fn,
             observation_stats_from_meta,
+            require_kernel_obs,
             rl_meta_path,
             transaction_cost_from_meta,
         )
@@ -625,6 +626,8 @@ class StrategyManager:
             requested_spec = str(params.get("spec_version") or KERNEL_SPEC_VERSION)
             member_specs = load_ensemble_spec(ensemble_id, spec_version=requested_spec)
             meta = member_specs.meta
+            # 内核 host 只喂指标向量 obs：原始序列模型显式拒绝（不静默错维推理）
+            require_kernel_obs(meta)
             return {
                 "predict": make_ensemble_predict_fn(member_specs.member_predict_fns),
                 "model_id": ensemble_id,
@@ -655,6 +658,9 @@ class StrategyManager:
         if meta.get("spec_version") != requested_spec:
             msg = f"RL 模型 spec_version 不匹配: 模型={meta.get('spec_version')} 期望={requested_spec}"
             raise ValueError(msg)
+
+        # 内核 host 只喂指标向量 obs：原始序列模型显式拒绝（不静默错维推理）
+        require_kernel_obs(meta)
 
         model = RLService().load_model(model_path)
         if model is None:

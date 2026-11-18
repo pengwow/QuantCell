@@ -47,6 +47,17 @@ KERNEL_FEATURES = [
 # 这样 `ratio -> Action -> decode_target_ratio` 才是恒等映射
 KERNEL_ACTION_SPACE = {"type": "continuous", "min": -1.0, "max": 1.0}
 
+#: obs 编码模式。`features` = 原生 `TradingEnv` 的指标向量（窗口 1，
+#: close Z-Score + volume），旧模型都是这个口径；`ohlcv_window` = 原始 OHLCV
+#: 归一化窗口（P3 opt-in，Python 侧变换层，见 `ObsWindowEnv`）。
+OBS_MODE_FEATURES = "features"
+OBS_MODE_OHLCV_WINDOW = "ohlcv_window"
+OBS_MODES = (OBS_MODE_FEATURES, OBS_MODE_OHLCV_WINDOW)
+#: OHLCV 窗口模式的默认窗口长度（bar）
+OBS_WINDOW_DEFAULT = 64
+#: OHLCV 窗口模式的通道顺序（摊平顺序 = 时间窗内逐 bar 按此顺序）
+OBS_CHANNELS = ("open", "high", "low", "close", "volume")
+
 # RL 成本口径的唯一来源：训练环境（`TradingEnv`）与内核评估（`worker.Kernel`）
 # 都从这里取，改这一处即两边同步。任何一边自己写数字都会让
 # `attribute_engine_diff` 报「成本模型不一致」。
@@ -203,6 +214,102 @@ def transaction_cost_from_meta(meta: dict[str, Any] | None, default: float = RL_
     return float(rate)
 
 
+def compute_obs_stats(frame: pd.DataFrame, channels: tuple[str, ...] = OBS_CHANNELS) -> list[dict[str, float]]:
+    """按训练窗计算 OHLCV 逐通道 mean / std（ddof=0），作为 obs 归一化统计量。
+
+    统计量随模型落盘（meta 的 `obs_stats`），推理侧必须复用同一份 —— 用推理
+    数据重算等于特征分布漂移。数据缺失列/非有限值时直接报错，不静默产出
+    错误归一化。
+    """
+    missing = [ch for ch in channels if ch not in frame.columns]
+    if missing:
+        msg = f"obs_mode=ohlcv_window 需要 OHLCV 列，缺少: {missing}"
+        raise ValueError(msg)
+    stats: list[dict[str, float]] = []
+    for channel in channels:
+        values = np.asarray(frame[channel], dtype=np.float64)
+        if values.size == 0:
+            msg = f"OHLCV 列 {channel} 为空，无法计算 obs 统计量"
+            raise ValueError(msg)
+        if not np.isfinite(values).all():
+            msg = f"OHLCV 列 {channel} 含非有限值（NaN/inf），请先清洗数据"
+            raise ValueError(msg)
+        std = float(values.std())
+        stats.append({"mean": float(values.mean()), "std": std if std > 0 else 0.0})
+    return stats
+
+
+def obs_spec_from_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
+    """解析模型 meta 里的 obs 规格；缺键 = 旧模型 → 指标向量口径（零漂移）。
+
+    返回 `{mode, window, features, stats}`。`ohlcv_window` 模式要求
+    `obs_window / obs_features / obs_stats` 三者齐备且统计量长度与特征一致，
+    否则显式报错 —— 静默按默认统计量归一化比直接失败更危险。
+    """
+    meta = meta or {}
+    mode = str(meta.get("obs_mode") or OBS_MODE_FEATURES)
+    if mode not in OBS_MODES:
+        msg = f"未知 obs_mode: {mode}（可选: {list(OBS_MODES)}）"
+        raise ValueError(msg)
+    if mode == OBS_MODE_FEATURES:
+        return {
+            "mode": mode,
+            "window": 1,
+            "features": [feature["name"] for feature in KERNEL_FEATURES],
+            "stats": None,
+        }
+
+    window = meta.get("obs_window")
+    features = meta.get("obs_features")
+    stats = meta.get("obs_stats")
+    if not isinstance(window, int) or isinstance(window, bool) or window < 1:
+        msg = f"obs_mode=ohlcv_window 的 obs_window 非法: {window!r}"
+        raise ValueError(msg)
+    if not isinstance(features, list) or not features:
+        msg = f"obs_mode=ohlcv_window 缺少 obs_features: {features!r}"
+        raise ValueError(msg)
+    if not isinstance(stats, list) or len(stats) != len(features):
+        msg = (
+            "obs_mode=ohlcv_window 的 obs_stats 缺失或与 obs_features 长度不匹配："
+            f"stats={None if not isinstance(stats, list) else len(stats)}, features={len(features)}"
+        )
+        raise ValueError(msg)
+    for entry in stats:
+        if not isinstance(entry, dict):
+            msg = f"obs_stats 条目必须是 {{mean, std}}: {entry!r}"
+            raise ValueError(msg)
+        mean, std = entry.get("mean"), entry.get("std")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (mean, std)):
+            msg = f"obs_stats 条目必须含数值 mean/std: {entry!r}"
+            raise ValueError(msg)
+        if not np.isfinite(mean) or not np.isfinite(std) or std < 0:
+            msg = f"obs_stats 数值非法: {entry!r}"
+            raise ValueError(msg)
+    return {
+        "mode": mode,
+        "window": int(window),
+        "features": [str(name) for name in features],
+        "stats": [{"mean": float(entry["mean"]), "std": float(entry["std"])} for entry in stats],
+    }
+
+
+def require_kernel_obs(meta: dict[str, Any] | None) -> dict[str, Any]:
+    """内核推理路径（paper/live/kernel 回测）只支持指标向量 obs。
+
+    `ohlcv_window` 模型的 obs 由 Python 侧编码，内核 host 只会喂 close/volume
+    特征 —— 继续跑等于拿错维度静默推理，因此显式拒绝。升级路径：内核侧
+    接 obs 编码器（P3 后续）后放开此处。
+    """
+    spec = obs_spec_from_meta(meta)
+    if spec["mode"] != OBS_MODE_FEATURES:
+        msg = (
+            f"模型 obs_mode={spec['mode']} 暂不支持内核推理（paper/live/kernel 回测）；"
+            "内核 host 只提供指标向量 obs，请用 engine='trading_env' 评估或等待内核侧 obs 编码接入"
+        )
+        raise ValueError(msg)
+    return spec
+
+
 def attribute_engine_diff(*, trading_env: dict[str, Any], kernel: dict[str, Any]) -> dict[str, Any]:
     """把两口径的收益差异拆成 成本 / 资金费 / 动作 / 撮合 四类。
 
@@ -311,8 +418,19 @@ class RLTrainConfig:
     reward_terms: dict[str, float] | None = None
     #: 成本 profile（`CostProfile` 或 JSON dict）；None = `RL_TRANSACTION_COST`。
     cost_profile: CostProfile | dict[str, Any] | None = None
+    #: obs 编码模式：`features` = 原生指标向量（默认，旧模型口径）；
+    #: `ohlcv_window` = 原始 OHLCV 归一化窗口（P3 opt-in）。
+    obs_mode: str = OBS_MODE_FEATURES
+    #: `ohlcv_window` 模式的窗口长度（bar 数）；`features` 模式忽略。
+    obs_window: int = OBS_WINDOW_DEFAULT
 
     def __post_init__(self) -> None:
+        if self.obs_mode not in OBS_MODES:
+            msg = f"未知 obs_mode: {self.obs_mode}（可选: {list(OBS_MODES)}）"
+            raise ValueError(msg)
+        if int(self.obs_window) < 1:
+            msg = f"obs_window 必须 >= 1: {self.obs_window}"
+            raise ValueError(msg)
         if self.reward_terms is not None:
             unknown = set(self.reward_terms) - set(REWARD_TERM_KEYS)
             if unknown:
@@ -591,6 +709,107 @@ class RewardShapingEnv:
         return float(returns.mean() / std * np.sqrt(returns.size))
 
 
+class ObsWindowEnv:
+    """把原生 env 的指标 obs 换成归一化 OHLCV 滚动窗口（P3 opt-in，不碰撮合）。
+
+    原生 `TradingEnv` 的 obs 固定为 close Z-Score + volume（窗口 1，不可配）。
+    这层按训练数据重建观测：第 t 步取最近 `window` 根 bar 的 `channels` 列，
+    用 `stats`（训练窗逐通道 mean/std）z-score 后摊平，obs 维度 =
+    `window × len(channels)`（默认 64×5=320）。
+
+    归一化统计量必须来自训练窗并冻结进 meta：推理侧传入的 `stats` 与训练
+    不一致等于特征分布漂移。这层不做兜底猜测，缺/不匹配由
+    `obs_spec_from_meta` 显式拒绝。
+
+    `stats=None` 时按 `frame` 现算（训练窗），因此 WF 折内务必显式传入
+    首折训练窗统计量，别让验证窗重算造成特征泄漏。
+
+    ponytail: v1 只做 OHLCV 五列 + 逐通道 z-score（无 log/差分/多尺度）；
+    升级路径是 encoder 抽象 + 可配置变换，`obs_spec_from_meta` 的 meta 契约
+    可原样承载。
+    """
+
+    def __init__(
+        self,
+        env: Any,
+        frame: pd.DataFrame,
+        *,
+        window: int = OBS_WINDOW_DEFAULT,
+        stats: list[dict[str, float]] | None = None,
+        channels: tuple[str, ...] = OBS_CHANNELS,
+    ) -> None:
+        self._env = env
+        self._window = int(window)
+        self._channels = tuple(channels)
+        if self._window < 1:
+            msg = f"obs_window 必须 >= 1: {window}"
+            raise ValueError(msg)
+        missing = [ch for ch in self._channels if ch not in frame.columns]
+        if missing:
+            msg = f"obs_mode=ohlcv_window 需要 OHLCV 列，缺少: {missing}"
+            raise ValueError(msg)
+        self._frames = np.asarray(frame[list(self._channels)], dtype=np.float64)
+        if self._frames.shape[0] == 0:
+            msg = "obs_mode=ohlcv_window 需要非空行情数据"
+            raise ValueError(msg)
+        self._stats = list(stats) if stats is not None else compute_obs_stats(frame, self._channels)
+        if len(self._stats) != len(self._channels):
+            msg = f"obs_stats 长度 {len(self._stats)} 与通道数 {len(self._channels)} 不匹配"
+            raise ValueError(msg)
+        stds = np.asarray([entry["std"] for entry in self._stats], dtype=np.float64)
+        # std=0（常量通道）→ 除以 1，归一化结果恒为 0，避免 0/0 造 NaN
+        self._std = np.where(stds > 0, stds, 1.0)
+        self._mean = np.asarray([entry["mean"] for entry in self._stats], dtype=np.float64)
+        self._idx = 0
+
+    @property
+    def info(self) -> dict[str, Any]:
+        info = getattr(self._env, "info", {})
+        return info if isinstance(info, dict) else {}
+
+    @property
+    def portfolio_value(self) -> float:
+        return float(getattr(self._env, "portfolio_value", 0.0))
+
+    def observation_stats(self) -> str:
+        getter = getattr(self._env, "observation_stats", None)
+        return getter() if getter is not None else "null"
+
+    def obs_encoder_meta(self) -> dict[str, Any]:
+        """训练落盘用：模式 / 窗口 / 通道清单 / 冻结统计量。"""
+        return {
+            "obs_mode": OBS_MODE_OHLCV_WINDOW,
+            "obs_window": self._window,
+            "obs_features": list(self._channels),
+            "obs_stats": self._stats,
+        }
+
+    def reset(self, *args, **kwargs) -> Any:
+        self._env.reset(*args, **kwargs)
+        self._idx = 0
+        return self._obs(self._idx)
+
+    def step(self, action: Any) -> Any:
+        _obs, reward, terminated, truncated, info = self._env.step(action)
+        self._idx = min(self._idx + 1, self._frames.shape[0] - 1)
+        return self._obs(self._idx), reward, terminated, truncated, info
+
+    def close(self) -> None:
+        closer = getattr(self._env, "close", None)
+        if closer is not None:
+            closer()
+
+    def _obs(self, idx: int) -> np.ndarray:
+        start = idx - self._window + 1
+        if start < 0:
+            # 序列头部不足一个窗口：用首根 bar 补齐（保持窗口形状恒定）
+            pad = np.repeat(self._frames[:1], -start, axis=0)
+            window_frames = np.vstack([pad, self._frames[: idx + 1]])
+        else:
+            window_frames = self._frames[start : idx + 1]
+        return ((window_frames - self._mean) / self._std).reshape(-1).astype(np.float32)
+
+
 class RLService:
     """RL training pipeline service."""
 
@@ -625,8 +844,14 @@ class RLService:
         reward_type: str = "pnl",
         initial_capital: float = 100_000.0,
         transaction_cost: float = RL_TRANSACTION_COST,
+        obs_mode: str = OBS_MODE_FEATURES,
+        obs_window: int = OBS_WINDOW_DEFAULT,
+        obs_stats: list[dict[str, float]] | None = None,
     ) -> Any:
         """Create an RL training environment.
+
+        `obs_mode=ohlcv_window` 时在原生 env 外套 `ObsWindowEnv`（原始 OHLCV
+        归一化窗口）；缺省 `features` 原样返回原生 env（零漂移）。
 
         Requires axon_quant. Raises RuntimeError if not available.
         """
@@ -644,7 +869,10 @@ class RLService:
 
         market_data = df.to_dict("records")
         config = _make_env_config(initial_capital=initial_capital, max_steps=len(df), transaction_cost=transaction_cost)
-        return _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
+        env = _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
+        if obs_mode == OBS_MODE_OHLCV_WINDOW:
+            return ObsWindowEnv(env, df, window=obs_window, stats=obs_stats)
+        return env
 
     @staticmethod
     def _cost_rate(config: RLTrainConfig) -> float:
@@ -654,9 +882,27 @@ class RLService:
             return RL_TRANSACTION_COST
         return profile.rate_for(symbol=config.symbol, candle_type=config.candle_type)
 
-    def _build_train_env(self, data: pd.DataFrame, config: RLTrainConfig, *, cost_rate: float) -> Any:
-        """训练环境：未配置 `reward_terms` 时返回原生 env（零漂移），否则套 reward 组合层。"""
-        env = self.create_env(data, config.features, config.reward_type, transaction_cost=cost_rate)
+    def _build_train_env(
+        self,
+        data: pd.DataFrame,
+        config: RLTrainConfig,
+        *,
+        cost_rate: float,
+        obs_stats: list[dict[str, float]] | None = None,
+    ) -> Any:
+        """训练环境：obs 变换层按 config 装配，reward 组合层只在显式配置时套。
+
+        不配置新模式/新 reward 时逐字节等价于改造前（原生 env 直出）。
+        """
+        env = self.create_env(
+            data,
+            config.features,
+            config.reward_type,
+            transaction_cost=cost_rate,
+            obs_mode=config.obs_mode,
+            obs_window=config.obs_window,
+            obs_stats=obs_stats,
+        )
         if config.reward_terms is None:
             return env
         return RewardShapingEnv(env, config.effective_reward_terms(), cost_rate=cost_rate)
@@ -679,6 +925,9 @@ class RLService:
         reporter.state(stage="loading_data", progress=0.0, message="加载行情数据")
         data = self._load_data(config)
         cost_rate = self._cost_rate(config)
+        # 原始序列模式的归一化统计量来自训练窗；WF 折内冻结首折训练窗（避免
+        # 用验证窗重算 = 特征泄漏），最终模型用全量训练数据重算
+        final_obs_stats = compute_obs_stats(data) if config.obs_mode == OBS_MODE_OHLCV_WINDOW else None
         reporter.check_cancel()
 
         logger.info(
@@ -695,9 +944,16 @@ class RLService:
             from rl.walk_forward_rl import RLWalkForwardService
 
             wf_svc = RLWalkForwardService()
+            wf_obs_stats: dict[str, list[dict[str, float]]] = {}
 
             def env_factory(d: pd.DataFrame):
-                env = self._build_train_env(d, config, cost_rate=cost_rate)
+                stats = None
+                if config.obs_mode == OBS_MODE_OHLCV_WINDOW:
+                    # 首折训练窗统计量冻结后复用：验证窗不重算，杜绝特征泄漏
+                    if "stats" not in wf_obs_stats:
+                        wf_obs_stats["stats"] = compute_obs_stats(d)
+                    stats = wf_obs_stats["stats"]
+                env = self._build_train_env(d, config, cost_rate=cost_rate, obs_stats=stats)
                 return GymnasiumWrapper(env)
 
             try:
@@ -723,7 +979,7 @@ class RLService:
 
         reporter.check_cancel()
         reporter.state(stage="learning", progress=wf_share, message="构建训练环境")
-        env = self._build_train_env(data, config, cost_rate=cost_rate)
+        env = self._build_train_env(data, config, cost_rate=cost_rate, obs_stats=final_obs_stats)
 
         try:
             from stable_baselines3 import DQN, PPO, SAC
@@ -784,6 +1040,16 @@ class RLService:
                     "reward_terms": config.effective_reward_terms(),
                     # 训练实际费率，供回测/归因与训练同源（旧 meta 无此字段时回落常量）
                     "transaction_cost": cost_rate,
+                    # obs 编码口径（模型卡摘要依据）：缺键 = 旧模型的指标向量口径；
+                    # ohlcv_window 的统计量必须随模型冻结，推理侧不许重算
+                    "obs_mode": config.obs_mode,
+                    "obs_window": config.obs_window if config.obs_mode == OBS_MODE_OHLCV_WINDOW else 1,
+                    "obs_features": (
+                        list(OBS_CHANNELS)
+                        if config.obs_mode == OBS_MODE_OHLCV_WINDOW
+                        else [feature["name"] for feature in KERNEL_FEATURES]
+                    ),
+                    "obs_stats": final_obs_stats,
                     # ISO 8601 毫秒精度(项目时间戳规范)
                     "created_at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
                     # walk-forward 完整结果(OOS 折明细 + 汇总);seed 并入注册表时只取 aggregate
@@ -1069,9 +1335,17 @@ class RLService:
         # rl_service 模块期 import rl.* 会撞上半初始化的 rl 包成环
         from rl.evaluation import evaluate_model
 
-        cost_rate = transaction_cost_from_meta(load_rl_meta(model_path))
+        meta = load_rl_meta(model_path)
+        cost_rate = transaction_cost_from_meta(meta)
+        obs = obs_spec_from_meta(meta)
         env = self.create_env(
-            data, reward_type=reward_type, initial_capital=initial_capital, transaction_cost=cost_rate
+            data,
+            reward_type=reward_type,
+            initial_capital=initial_capital,
+            transaction_cost=cost_rate,
+            obs_mode=obs["mode"],
+            obs_window=obs["window"],
+            obs_stats=obs["stats"],
         )
         wrapped_env = GymnasiumWrapper(env)
 
@@ -1133,7 +1407,13 @@ class RLService:
             features = member_specs.meta.get("features") or KERNEL_FEATURES
             stats = observation_stats_from_meta(member_specs.meta, model_path=member_specs.representative_path)
             cost_rate = transaction_cost_from_meta(member_specs.meta)
+            meta = member_specs.meta
+            # 内核 host 只喂指标向量 obs：原始序列模型在这里显式拒绝，不静默错维推理
+            require_kernel_obs(meta)
         else:
+            meta = load_rl_meta(model_path)
+            cost_rate = transaction_cost_from_meta(meta)
+            require_kernel_obs(meta)
             model = self.load_model(model_path)
             if model is None:
                 msg = f"无法加载模型: {model_path}"
@@ -1143,7 +1423,6 @@ class RLService:
             window_size = KERNEL_WINDOW_SIZE
             features = KERNEL_FEATURES
             stats = load_observation_stats(model_path)
-            cost_rate = transaction_cost_from_meta(load_rl_meta(model_path))
 
         # 内核按 BASE/QUOTE 建 instrument；直接用交易所原始 symbol 会退化成默认品种
         rust_symbol = expand_symbol(symbol)
