@@ -43,6 +43,11 @@ uv run --with pyinstaller pyinstaller \
   --collect-all ccxt \
   --collect-all statsmodels \
   --collect-submodules uvicorn \
+  `# factor/__init__ 与 agent/tools/__init__ 用 PEP 562 __getattr__ 懒加载，
+  # PyInstaller modulegraph 无法跟随 import_module，必须显式收集全部子模块，
+  # 否则每次新增懒加载子模块（如 factor.routes）都会在冻结产物里 ModuleNotFoundError` \
+  --collect-submodules factor \
+  --collect-submodules agent.tools \
   `# 可选扩展依赖：不打入归档；未安装时业务侧保持既有"缺少 RL 训练依赖"降级提示` \
   --exclude-module torch \
   --exclude-module stable_baselines3 \
