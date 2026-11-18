@@ -172,13 +172,44 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
         match result {
             Ok((mut rx, child)) => {
                 let app_handle = app.clone();
+                // sidecar stdout/stderr 全量落盘（GUI 无控制台，这是崩溃排查的第一现场）。
+                // ponytail: 追加写 + 5MB 单级轮转；升级路径是滚动多副本或 tracing-appender。
+                let log_path = data_dir(&app).map(|d| d.join("sidecar.log")).ok();
+                if let Some(p) = &log_path {
+                    if let Ok(meta) = std::fs::metadata(p) {
+                        if meta.len() > 5 * 1024 * 1024 {
+                            let _ = std::fs::rename(p, p.with_extension("log.1"));
+                        }
+                    }
+                }
                 tauri::async_runtime::spawn(async move {
                     let mut code: Option<i32> = None;
+                    let mut log = log_path.and_then(|p| {
+                        std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
+                    });
+                    use std::io::Write as _;
                     while let Some(event) = rx.recv().await {
-                        if let CommandEvent::Terminated(payload) = event {
-                            code = payload.code;
-                            break;
+                        match event {
+                            CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
+                                if let Some(f) = log.as_mut() {
+                                    let _ = f.write_all(&bytes);
+                                    let _ = f.flush();
+                                }
+                            }
+                            CommandEvent::Terminated(payload) => {
+                                code = payload.code;
+                                break;
+                            }
+                            _ => {}
                         }
+                    }
+                    if let Some(f) = log.as_mut() {
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        let _ = writeln!(f, "==== sidecar terminated code={code:?} at unix={ts} ====");
+                        let _ = f.flush();
                     }
                     let runtime = app_handle.state::<SharedRuntime>();
                     let mut rt = runtime.lock().unwrap();
