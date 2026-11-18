@@ -39,6 +39,26 @@ def run_auto_retrain_job() -> dict[str, Any] | None:
         return None
 
 
+def run_agent_dream_job() -> bool:
+    """每日记忆自迭代（Dream）job 体（模块级，便于单测/手动直调）。
+
+    Dream 是 Agent 的自我修改记忆机制：消费 Consolidator 归档到
+    history.jsonl 的条目，两阶段 LLM（分析 → 编辑）改写 MEMORY.md。
+    无新条目直接 no-op；Phase1 输出 [SKIP] 时不触碰 MEMORY.md——
+    最坏情况就是一次 LLM 调用的成本，不会写坏记忆。
+    总闸 QUANTCELL_AGENT_DREAM 与重训双闸同款默认关；调度线程内没有
+    事件循环，用 get_agent() 单例 + asyncio.run 驱动。
+    """
+    import asyncio
+
+    from agent.core.factory import get_agent
+
+    dream = get_agent().dream
+    updated = asyncio.run(dream.run())
+    logger.info(f"Agent Dream 记忆整理完成: updated={updated}")
+    return updated
+
+
 def start_scheduler(
     proxy_enabled: bool = False,
     proxy_url: str = "",
@@ -141,6 +161,22 @@ def start_scheduler(
         logger.info("自动重训闭环已挂载（每日 03:40）")
     else:
         logger.info(f"自动重训闭环未启用（{AUTO_RETRAIN_ENV} != 1）")
+
+    # 每日记忆自迭代（Dream）：两阶段 LLM 编辑 MEMORY.md（历史 → 事实 → 自改写）。
+    # 排在 04:00 —— 复盘（03:35）与重训（03:40）之后；Dream 只调 LLM、不碰训练锁，
+    # 与重训并行安全。总闸默认关：QUANTCELL_AGENT_DREAM 未开启时干脆不挂
+    # job（函数本身仍可直调：手动触发 / 单测）。
+    if env_flag("QUANTCELL_AGENT_DREAM"):
+        scheduler.add_job(
+            func=run_agent_dream_job,
+            trigger=CronTrigger(hour=4, minute=0),
+            id="agent_dream",
+            name="Agent dream (memory self-edit)",
+            replace_existing=True,
+        )
+        logger.info("Agent Dream 记忆自迭代已挂载（每日 04:00）")
+    else:
+        logger.info("Agent Dream 记忆自迭代未启用（QUANTCELL_AGENT_DREAM 未开启）")
 
     # 启动调度器
     scheduler.start()
