@@ -1330,6 +1330,19 @@
   font-size: 12.5px;
 }
 
+/* Tab 内容超出视口时在面板内滚动（Tab 栏吸顶不滚走）：
+   .agent-work-col 是 overflow:hidden 的 flex 列，.wb-tabs（antd 自身已是
+   flex-column）必须 min-height:0 才能 shrink，content-holder 才拿得到 flex:1。 */
+.wb-tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.wb-tabs > .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+}
+
 .wb-tabs .ant-tabs-content-holder {
   overflow-y: auto;
   padding: 0 10px 12px;
