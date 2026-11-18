@@ -195,3 +195,22 @@ def test_history_survives_corrupted_file(tmp_path):
     target.write_text("{not json", encoding="utf-8")
 
     assert policy_mod.load_retrain_history(tmp_path) == []
+
+
+def test_family_snapshots_accepts_rl_service_sidecar_naming(tmp_path):
+    """回归：rl_service 落盘的旁车是 `<stem>.zip.meta.json`——必须能配对 zip。
+
+    此前 zip_path 按 `<stem>.zip` 拼接（stem 已含 .zip），真实目录上恒缺失，
+    自动重训永远选不出候选；仅 synthetic `X.meta.json` 命名的单测掩盖了该错位。
+    """
+    model_id = "BTCUSDT_ppo_1794974672"
+    (tmp_path / f"{model_id}.zip").write_bytes(b"")
+    (tmp_path / f"{model_id}.zip.meta.json").write_text(
+        json.dumps({"model_id": model_id, "created_at": (NOW - timedelta(days=20)).isoformat()}),
+        encoding="utf-8",
+    )
+    snaps = family_snapshots(tmp_path, now=NOW)
+    assert snaps["BTCUSDT"]["model_id"] == model_id
+    assert snaps["BTCUSDT"]["model_path"] == str(tmp_path / f"{model_id}.zip")
+    cands = select_retrain_candidates(tmp_path, now=NOW, policy=RetrainPolicy(stale_days=14.0))
+    assert [(c.family, c.reason) for c in cands] == [("BTCUSDT", REASON_STALE)]

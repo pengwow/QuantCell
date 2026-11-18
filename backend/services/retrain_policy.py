@@ -212,12 +212,16 @@ def family_snapshots(
             logger.warning(f"跳过无法解析的模型旁车: {meta_path}")
             continue
         stem = os.path.basename(meta_path)[: -len(".meta.json")]
-        family = model_family(str(meta.get("model_id") or stem))
+        # 旁车两种命名并存：legacy `<stem>.meta.json` 与 rl_service 产物的
+        # `<stem>.zip.meta.json`——统一归约到 zip 实名，否则 zip_path 拼成
+        # `<stem>.zip.zip` 恒缺失，真实目录（一律 .zip.meta.json）上永远选不出候选。
+        model_stem = stem.removesuffix(".zip")
+        family = model_family(str(meta.get("model_id") or model_stem))
         train_sharpe, oos_sharpe = _metrics_of(meta)
-        zip_path = os.path.join(str(base), f"{stem}.zip")
+        zip_path = os.path.join(str(base), f"{model_stem}.zip")
         by_family.setdefault(family, []).append(
             {
-                "model_id": stem,
+                "model_id": model_stem,
                 "model_path": zip_path if os.path.isfile(zip_path) else None,
                 "created_at": _parse_created_at(meta, mtime),
                 "train_sharpe": train_sharpe,
