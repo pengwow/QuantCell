@@ -55,8 +55,32 @@ OBS_MODE_OHLCV_WINDOW = "ohlcv_window"
 OBS_MODES = (OBS_MODE_FEATURES, OBS_MODE_OHLCV_WINDOW)
 #: OHLCV 窗口模式的默认窗口长度（bar）
 OBS_WINDOW_DEFAULT = 64
+#: 视为「常量通道」的 std 阈值。浮点累加残差（如 1.4e-17）若不当 0，
+#: z-score 会把常量通道放大成 ±1e17 的垃圾特征。
+OBS_STD_EPS = 1e-12
 #: OHLCV 窗口模式的通道顺序（摊平顺序 = 时间窗内逐 bar 按此顺序）
 OBS_CHANNELS = ("open", "high", "low", "close", "volume")
+
+#: 派生微结构通道 → 适配器实际产出列（`backend/backtest/data_adapters/`）。
+#:
+#: 来源核实（P3-2）：
+#: - `orderbook_adapter.py:72-73` bookTicker 产 `feature_mid_price` / `feature_spread`；
+#: - `orderbook_adapter.py:119` bookDepth 只产 `feature_mid_price`（无 spread）；
+#: - `tick_adapter.py:81-85` aggTrades/trades 只产 OHLCV，原始 `isBuyerMaker` 等方向列
+#:   在聚合时被丢弃，故没有买卖不平衡通道可接（升级项：adapter 透传方向列后加）。
+#:
+#: 语义红线（`backtest/engine_service.py` 顶部）：bookDepth/bookTicker 的价是
+#: **mid-price 合成价**，只作特征，绝不当作可撮合价。
+OBS_EXTRA_CHANNELS: dict[str, dict[str, str]] = {
+    "mid_price": {
+        "column": "feature_mid_price",
+        "note": "bookDepth/bookTicker 聚合的 mid 价（合成价，仅特征）",
+    },
+    "spread": {
+        "column": "feature_spread",
+        "note": "bookTicker 聚合的最优买卖价差均值（quote 单位）",
+    },
+}
 
 # RL 成本口径的唯一来源：训练环境（`TradingEnv`）与内核评估（`worker.Kernel`）
 # 都从这里取，改这一处即两边同步。任何一边自己写数字都会让
@@ -215,7 +239,7 @@ def transaction_cost_from_meta(meta: dict[str, Any] | None, default: float = RL_
 
 
 def compute_obs_stats(frame: pd.DataFrame, channels: tuple[str, ...] = OBS_CHANNELS) -> list[dict[str, float]]:
-    """按训练窗计算 OHLCV 逐通道 mean / std（ddof=0），作为 obs 归一化统计量。
+    """按训练窗计算逐通道 mean / std（ddof=0），作为 obs 归一化统计量。
 
     统计量随模型落盘（meta 的 `obs_stats`），推理侧必须复用同一份 —— 用推理
     数据重算等于特征分布漂移。数据缺失列/非有限值时直接报错，不静默产出
@@ -223,28 +247,67 @@ def compute_obs_stats(frame: pd.DataFrame, channels: tuple[str, ...] = OBS_CHANN
     """
     missing = [ch for ch in channels if ch not in frame.columns]
     if missing:
-        msg = f"obs_mode=ohlcv_window 需要 OHLCV 列，缺少: {missing}"
+        msg = f"obs 通道缺少列: {missing}，可用列: {sorted(frame.columns)}"
         raise ValueError(msg)
     stats: list[dict[str, float]] = []
     for channel in channels:
         values = np.asarray(frame[channel], dtype=np.float64)
         if values.size == 0:
-            msg = f"OHLCV 列 {channel} 为空，无法计算 obs 统计量"
+            msg = f"obs 通道 {channel} 为空，无法计算统计量"
             raise ValueError(msg)
         if not np.isfinite(values).all():
-            msg = f"OHLCV 列 {channel} 含非有限值（NaN/inf），请先清洗数据"
+            msg = f"obs 通道 {channel} 含非有限值（NaN/inf），请先清洗数据"
             raise ValueError(msg)
         std = float(values.std())
-        stats.append({"mean": float(values.mean()), "std": std if std > 0 else 0.0})
+        stats.append({"mean": float(values.mean()), "std": std if std > OBS_STD_EPS else 0.0})
     return stats
+
+
+def select_obs_channels(frame: pd.DataFrame, extra_channels: list[str] | None = None) -> tuple[pd.DataFrame, list[str]]:
+    """按通道清单从 bar 形状的 DataFrame 抽列，返回 (通道矩阵, 通道名顺序)。
+
+    基座 = `OBS_CHANNELS`（OHLCV）；追加通道取自 `OBS_EXTRA_CHANNELS` 的实际
+    适配器列。缺列/未知通道显式报错（不做静默降维）：列缺失通常意味着
+    data_type 不对（如 kline 数据选了 `spread`）或适配器未产该特征。
+
+    列名按小写匹配：适配器产出 `Open/High/...`，`load_klines` 也是大写，
+    而通道名是小写。
+    """
+    import pandas as pd  # 仅 TYPE_CHECKING 导入，运行期需要真正的构造器
+
+    extras = list(extra_channels or [])
+    unknown = [name for name in extras if name not in OBS_EXTRA_CHANNELS]
+    if unknown:
+        msg = f"未知 obs_extra_channels: {unknown}（可选: {sorted(OBS_EXTRA_CHANNELS)}）"
+        raise ValueError(msg)
+    lookup = {str(col).lower(): col for col in frame.columns}
+    names = list(OBS_CHANNELS) + extras
+    selected: dict[str, Any] = {}
+    for name in names:
+        if name in OBS_CHANNELS:
+            column = name
+            note = "OHLCV"
+        else:
+            column = OBS_EXTRA_CHANNELS[name]["column"]
+            note = OBS_EXTRA_CHANNELS[name]["note"]
+        actual = lookup.get(column)
+        if actual is None:
+            msg = (
+                f"obs 通道 {name} 需要列 {column}（{note}），当前数据缺该列；"
+                f"请用对应 data_type 加载或从 obs_extra_channels 移除它。可用列: {sorted(frame.columns)}"
+            )
+            raise ValueError(msg)
+        selected[name] = frame[actual]
+    return pd.DataFrame(selected), names
 
 
 def obs_spec_from_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
     """解析模型 meta 里的 obs 规格；缺键 = 旧模型 → 指标向量口径（零漂移）。
 
-    返回 `{mode, window, features, stats}`。`ohlcv_window` 模式要求
-    `obs_window / obs_features / obs_stats` 三者齐备且统计量长度与特征一致，
-    否则显式报错 —— 静默按默认统计量归一化比直接失败更危险。
+    返回 `{mode, window, features, stats, extra_channels}`。`ohlcv_window` 模式
+    要求 `obs_window / obs_features / obs_stats` 三者齐备且统计量长度与特征
+    一致，否则显式报错 —— 静默按默认统计量归一化比直接失败更危险。
+    `extra_channels` 是 features 里超出基座 OHLCV 的部分（回测重建用）。
     """
     meta = meta or {}
     mode = str(meta.get("obs_mode") or OBS_MODE_FEATURES)
@@ -257,6 +320,7 @@ def obs_spec_from_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
             "window": 1,
             "features": [feature["name"] for feature in KERNEL_FEATURES],
             "stats": None,
+            "extra_channels": [],
         }
 
     window = meta.get("obs_window")
@@ -290,6 +354,8 @@ def obs_spec_from_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
         "window": int(window),
         "features": [str(name) for name in features],
         "stats": [{"mean": float(entry["mean"]), "std": float(entry["std"])} for entry in stats],
+        # 超出基座 OHLCV 的派生通道（回测按它重建同一 obs 编码）
+        "extra_channels": [str(name) for name in features if str(name) not in OBS_CHANNELS],
     }
 
 
@@ -423,6 +489,11 @@ class RLTrainConfig:
     obs_mode: str = OBS_MODE_FEATURES
     #: `ohlcv_window` 模式的窗口长度（bar 数）；`features` 模式忽略。
     obs_window: int = OBS_WINDOW_DEFAULT
+    #: 额外派生微结构通道（opt-in，None = 只吃基座 OHLCV，零漂移）。
+    #: 取值见 `OBS_EXTRA_CHANNELS`，需要数据里有对应适配器列（如 bookTicker 的 spread）。
+    obs_extra_channels: list[str] | None = None
+    #: 数据适配器类型（`kline` 走 `load_klines`，其余走 data_adapters，如 aggTrades/bookDepth）。
+    data_type: str = "kline"
 
     def __post_init__(self) -> None:
         if self.obs_mode not in OBS_MODES:
@@ -431,6 +502,17 @@ class RLTrainConfig:
         if int(self.obs_window) < 1:
             msg = f"obs_window 必须 >= 1: {self.obs_window}"
             raise ValueError(msg)
+        if self.obs_extra_channels:
+            unknown = sorted(set(self.obs_extra_channels) - set(OBS_EXTRA_CHANNELS))
+            if unknown:
+                msg = f"未知 obs_extra_channels: {unknown}（可选: {sorted(OBS_EXTRA_CHANNELS)}）"
+                raise ValueError(msg)
+            if len(set(self.obs_extra_channels)) != len(self.obs_extra_channels):
+                msg = f"obs_extra_channels 存在重复项: {self.obs_extra_channels}"
+                raise ValueError(msg)
+            if self.obs_mode != OBS_MODE_OHLCV_WINDOW:
+                msg = "obs_extra_channels 只在 obs_mode=ohlcv_window 下生效，请同时开启窗口模式"
+                raise ValueError(msg)
         if self.reward_terms is not None:
             unknown = set(self.reward_terms) - set(REWARD_TERM_KEYS)
             if unknown:
@@ -710,12 +792,15 @@ class RewardShapingEnv:
 
 
 class ObsWindowEnv:
-    """把原生 env 的指标 obs 换成归一化 OHLCV 滚动窗口（P3 opt-in，不碰撮合）。
+    """把原生 env 的指标 obs 换成归一化滚动窗口（P3 opt-in，不碰撮合）。
 
     原生 `TradingEnv` 的 obs 固定为 close Z-Score + volume（窗口 1，不可配）。
-    这层按训练数据重建观测：第 t 步取最近 `window` 根 bar 的 `channels` 列，
+    这层按训练数据重建观测：第 t 步取最近 `window` 根 bar 的通道矩阵，
     用 `stats`（训练窗逐通道 mean/std）z-score 后摊平，obs 维度 =
-    `window × len(channels)`（默认 64×5=320）。
+    `window × 通道数`（默认 64×5=320）。
+
+    通道 = 基座 `OBS_CHANNELS`（OHLCV）+ `extra_channels`（`OBS_EXTRA_CHANNELS`
+    注册的派生微结构通道，如 bookTicker 的 `spread`）；缺列显式报错。
 
     归一化统计量必须来自训练窗并冻结进 meta：推理侧传入的 `stats` 与训练
     不一致等于特征分布漂移。这层不做兜底猜测，缺/不匹配由
@@ -724,9 +809,8 @@ class ObsWindowEnv:
     `stats=None` 时按 `frame` 现算（训练窗），因此 WF 折内务必显式传入
     首折训练窗统计量，别让验证窗重算造成特征泄漏。
 
-    ponytail: v1 只做 OHLCV 五列 + 逐通道 z-score（无 log/差分/多尺度）；
-    升级路径是 encoder 抽象 + 可配置变换，`obs_spec_from_meta` 的 meta 契约
-    可原样承载。
+    ponytail: v1 只做逐通道 z-score（无 log/差分/多尺度）；升级路径是
+    encoder 抽象 + 可配置变换，`obs_spec_from_meta` 的 meta 契约可原样承载。
     """
 
     def __init__(
@@ -736,29 +820,25 @@ class ObsWindowEnv:
         *,
         window: int = OBS_WINDOW_DEFAULT,
         stats: list[dict[str, float]] | None = None,
-        channels: tuple[str, ...] = OBS_CHANNELS,
+        extra_channels: list[str] | None = None,
     ) -> None:
         self._env = env
         self._window = int(window)
-        self._channels = tuple(channels)
         if self._window < 1:
             msg = f"obs_window 必须 >= 1: {window}"
             raise ValueError(msg)
-        missing = [ch for ch in self._channels if ch not in frame.columns]
-        if missing:
-            msg = f"obs_mode=ohlcv_window 需要 OHLCV 列，缺少: {missing}"
-            raise ValueError(msg)
-        self._frames = np.asarray(frame[list(self._channels)], dtype=np.float64)
+        channel_frame, self._channels = select_obs_channels(frame, extra_channels)
+        self._frames = np.asarray(channel_frame, dtype=np.float64)
         if self._frames.shape[0] == 0:
             msg = "obs_mode=ohlcv_window 需要非空行情数据"
             raise ValueError(msg)
-        self._stats = list(stats) if stats is not None else compute_obs_stats(frame, self._channels)
+        self._stats = list(stats) if stats is not None else compute_obs_stats(channel_frame, tuple(self._channels))
         if len(self._stats) != len(self._channels):
             msg = f"obs_stats 长度 {len(self._stats)} 与通道数 {len(self._channels)} 不匹配"
             raise ValueError(msg)
         stds = np.asarray([entry["std"] for entry in self._stats], dtype=np.float64)
-        # std=0（常量通道）→ 除以 1，归一化结果恒为 0，避免 0/0 造 NaN
-        self._std = np.where(stds > 0, stds, 1.0)
+        # std≈0（常量通道）→ 除以 1，归一化结果恒为 0，避免 0/0 造 NaN 或残差放大
+        self._std = np.where(stds > OBS_STD_EPS, stds, 1.0)
         self._mean = np.asarray([entry["mean"] for entry in self._stats], dtype=np.float64)
         self._idx = 0
 
@@ -820,13 +900,28 @@ class RLService:
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     def _load_data(self, config: RLTrainConfig) -> pd.DataFrame:
-        """Load data from config.data or BacktestDataProvider."""
+        """Load data from config.data or BacktestDataProvider.
+
+        `data_type != "kline"` 走 data_adapters（aggTrades/trades/bookDepth/bookTicker
+        等），产出 bar 形状 + 该类型的派生特征列；适配器的 `market` 由
+        `candle_type` 推导（spot→spot，其余→um 本位永续）。
+        """
         if config.data is not None:
             return config.data
         if config.symbol:
             from backtest.data_provider import BacktestDataProvider
 
             provider = BacktestDataProvider()
+            if config.data_type and config.data_type != "kline":
+                market = "spot" if config.candle_type == "spot" else "um"
+                return provider.load_data(
+                    config.symbol,
+                    config.interval,
+                    data_type=config.data_type,
+                    market=market,
+                    start=config.start,
+                    end=config.end,
+                ).data
             return provider.load_klines(
                 config.symbol,
                 config.interval,
@@ -847,11 +942,13 @@ class RLService:
         obs_mode: str = OBS_MODE_FEATURES,
         obs_window: int = OBS_WINDOW_DEFAULT,
         obs_stats: list[dict[str, float]] | None = None,
+        obs_extra_channels: list[str] | None = None,
     ) -> Any:
         """Create an RL training environment.
 
         `obs_mode=ohlcv_window` 时在原生 env 外套 `ObsWindowEnv`（原始 OHLCV
-        归一化窗口）；缺省 `features` 原样返回原生 env（零漂移）。
+        归一化窗口，可追加 `OBS_EXTRA_CHANNELS` 派生微结构通道）；缺省
+        `features` 原样返回原生 env（零漂移）。
 
         Requires axon_quant. Raises RuntimeError if not available.
         """
@@ -871,7 +968,7 @@ class RLService:
         config = _make_env_config(initial_capital=initial_capital, max_steps=len(df), transaction_cost=transaction_cost)
         env = _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
         if obs_mode == OBS_MODE_OHLCV_WINDOW:
-            return ObsWindowEnv(env, df, window=obs_window, stats=obs_stats)
+            return ObsWindowEnv(env, df, window=obs_window, stats=obs_stats, extra_channels=obs_extra_channels)
         return env
 
     @staticmethod
@@ -881,6 +978,12 @@ class RLService:
         if not isinstance(profile, CostProfile):
             return RL_TRANSACTION_COST
         return profile.rate_for(symbol=config.symbol, candle_type=config.candle_type)
+
+    @staticmethod
+    def _obs_stats(frame: pd.DataFrame, extra_channels: list[str] | None) -> list[dict[str, float]]:
+        """训练窗逐通道统计量（基座 OHLCV + 派生微结构通道）。"""
+        channel_frame, names = select_obs_channels(frame, extra_channels)
+        return compute_obs_stats(channel_frame, tuple(names))
 
     def _build_train_env(
         self,
@@ -902,6 +1005,7 @@ class RLService:
             obs_mode=config.obs_mode,
             obs_window=config.obs_window,
             obs_stats=obs_stats,
+            obs_extra_channels=config.obs_extra_channels,
         )
         if config.reward_terms is None:
             return env
@@ -927,7 +1031,9 @@ class RLService:
         cost_rate = self._cost_rate(config)
         # 原始序列模式的归一化统计量来自训练窗；WF 折内冻结首折训练窗（避免
         # 用验证窗重算 = 特征泄漏），最终模型用全量训练数据重算
-        final_obs_stats = compute_obs_stats(data) if config.obs_mode == OBS_MODE_OHLCV_WINDOW else None
+        final_obs_stats = (
+            self._obs_stats(data, config.obs_extra_channels) if config.obs_mode == OBS_MODE_OHLCV_WINDOW else None
+        )
         reporter.check_cancel()
 
         logger.info(
@@ -951,7 +1057,7 @@ class RLService:
                 if config.obs_mode == OBS_MODE_OHLCV_WINDOW:
                     # 首折训练窗统计量冻结后复用：验证窗不重算，杜绝特征泄漏
                     if "stats" not in wf_obs_stats:
-                        wf_obs_stats["stats"] = compute_obs_stats(d)
+                        wf_obs_stats["stats"] = self._obs_stats(d, config.obs_extra_channels)
                     stats = wf_obs_stats["stats"]
                 env = self._build_train_env(d, config, cost_rate=cost_rate, obs_stats=stats)
                 return GymnasiumWrapper(env)
@@ -1045,11 +1151,13 @@ class RLService:
                     "obs_mode": config.obs_mode,
                     "obs_window": config.obs_window if config.obs_mode == OBS_MODE_OHLCV_WINDOW else 1,
                     "obs_features": (
-                        list(OBS_CHANNELS)
+                        list(OBS_CHANNELS) + list(config.obs_extra_channels or [])
                         if config.obs_mode == OBS_MODE_OHLCV_WINDOW
                         else [feature["name"] for feature in KERNEL_FEATURES]
                     ),
                     "obs_stats": final_obs_stats,
+                    # 训练取数口径：回测按它取同一份数据源（旧 meta 无此键 → kline）
+                    "data_type": config.data_type,
                     # ISO 8601 毫秒精度(项目时间戳规范)
                     "created_at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
                     # walk-forward 完整结果(OOS 折明细 + 汇总);seed 并入注册表时只取 aggregate
@@ -1321,7 +1429,19 @@ class RLService:
             raise ValueError(msg)
 
         provider = BacktestDataProvider()
-        data = provider.load_klines(symbol, interval, candle_type)
+        meta = load_rl_meta(model_path)
+        data_type = str(meta.get("data_type") or "kline")
+        if data_type != "kline":
+            # 与训练同源取数：适配器训练（aggTrades/bookTicker 等）的 obs 通道
+            # 来自这些数据，回测拿 kline 会缺列（旧 meta 无 data_type → kline）
+            data = provider.load_data(
+                symbol,
+                interval,
+                data_type=data_type,
+                market="spot" if candle_type == "spot" else "um",
+            ).data
+        else:
+            data = provider.load_klines(symbol, interval, candle_type)
         if data.empty:
             msg = f"无法加载 {symbol} {interval} 数据"
             raise ValueError(msg)
@@ -1335,7 +1455,6 @@ class RLService:
         # rl_service 模块期 import rl.* 会撞上半初始化的 rl 包成环
         from rl.evaluation import evaluate_model
 
-        meta = load_rl_meta(model_path)
         cost_rate = transaction_cost_from_meta(meta)
         obs = obs_spec_from_meta(meta)
         env = self.create_env(
@@ -1346,6 +1465,7 @@ class RLService:
             obs_mode=obs["mode"],
             obs_window=obs["window"],
             obs_stats=obs["stats"],
+            obs_extra_channels=obs["extra_channels"],
         )
         wrapped_env = GymnasiumWrapper(env)
 

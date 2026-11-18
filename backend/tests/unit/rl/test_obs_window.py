@@ -51,7 +51,13 @@ def test_default_obs_mode_is_features_and_env_stays_native():
     assert len(obs["features"]) == 2  # close ZScore + volume（现行口径）
 
     spec = obs_spec_from_meta({})  # 旧 meta：无 obs 键
-    assert spec == {"mode": OBS_MODE_FEATURES, "window": 1, "features": ["close", "volume"], "stats": None}
+    assert spec == {
+        "mode": OBS_MODE_FEATURES,
+        "window": 1,
+        "features": ["close", "volume"],
+        "stats": None,
+        "extra_channels": [],
+    }
 
 
 def test_unknown_obs_mode_rejected_at_config():
