@@ -12,6 +12,7 @@ import json
 import os
 import time
 from collections import deque
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,102 @@ def _iso8601_ns() -> str:
     ns = time.time_ns()
     dt = datetime.fromtimestamp(ns // 1_000_000_000, tz=UTC)
     return dt.strftime("%Y-%m-%dT%H:%M:%S") + f".{ns % 1_000_000_000:09d}Z"
+
+
+def make_decision_record(
+    fingerprint: str,
+    decision: dict,
+    state: dict,
+    questions: dict,
+    decider: str,
+    meta: dict | None = None,
+) -> dict:
+    """构造一行录制（cascade 与 RL 共用的单一 schema 真相源）。
+
+    Worker 决策页/Drawer 按该结构渲染；新增录制来源必须复用本函数，
+    否则字段口径漂移会让前端渲染空白。
+    """
+    record = {
+        "fingerprint": fingerprint,
+        "decision": decision,
+        "state": state,
+        "questions": questions,
+        "ts": _iso8601_ns(),
+        "_decider": decider,
+    }
+    if meta:
+        record["meta"] = meta
+    return record
+
+
+def append_decision_record(
+    path: str | Path,
+    *,
+    decision: dict,
+    state: dict,
+    questions: dict,
+    decider: str,
+    meta: dict | None = None,
+) -> None:
+    """追加一行录制（单次 open/append/flush）。
+
+    ponytail: 供 RL 逐 bar 预测这类低频场景使用；cascade 逐 bar 高频写盘走
+    RecordingCascadeLayer 的长生命周期句柄，未复用本函数以免多一次 syscall。
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    record = make_decision_record(request_fingerprint(state, questions), decision, state, questions, decider, meta)
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def wrap_rl_predict(
+    predict: Callable[[list[float]], float],
+    *,
+    path: str | Path,
+    model_id: str,
+    symbol: str = "",
+) -> Callable[[list[float]], float]:
+    """包装 RL predict：每次推理后按 cascade 同一 schema 追一条决策录制。
+
+    RL host 直接调 `predict(obs) -> target_ratio`，没有 decision 对象；这里把
+    目标仓位的变化方向映射成既有字段：target 相对上一次上升=buy、下降=sell、
+    不变=hold，confidence 放目标仓位（0..1 的做多比例），原始观测窗口放 state。
+    前端列表/Drawer 按 cascade 字段（action/confidence/source/_decider）渲染，
+    故不新增顶层键，RL 专属信息（target_position/model_id）放 decision 本体。
+
+    ponytail: 录制失败只告警，绝不影响交易主回路；每 bar 单次 open/flush 在
+    ≥1m 周期下可忽略，若未来出现 tick 级 predict 再换长生命周期句柄。
+    """
+    last_target: float | None = None
+
+    def recorded(obs: list[float]) -> float:
+        nonlocal last_target
+        target = float(predict(obs))
+        try:
+            if last_target is None:
+                action = "buy" if target > 0.0 else "hold"
+            elif target > last_target:
+                action = "buy"
+            elif target < last_target:
+                action = "sell"
+            else:
+                action = "hold"
+            decision = {
+                "action": action,
+                "confidence": target,
+                "source": "rl",
+                "target_position": target,
+                "model_id": model_id,
+            }
+            state = {"symbol": symbol, "obs": list(obs)}
+            append_decision_record(path, decision=decision, state=state, questions={}, decider=f"RL:{model_id}")
+        except Exception as exc:  # 录制是旁路，任何错误都不能打断交易
+            logger.warning(f"[rl] 决策录制失败（不影响交易）: model={model_id}, error={exc}")
+        last_target = target
+        return target
+
+    return recorded
 
 
 def _parse_line(line: str) -> dict | None:
@@ -252,22 +349,13 @@ class RecordingCascadeLayer:
             return
         if len(self._seen) < _MAX_DEDUPE_FINGERPRINTS:
             self._seen.add(fp)
-        record = {
-            "fingerprint": fp,
-            "decision": decision,
-            "state": state,
-            "questions": questions,
-            "ts": _iso8601_ns(),
-            "_decider": self._decider_of(decision),
-        }
+        record = make_decision_record(fp, decision, state, questions, self._decider_of(decision), self._meta)
         # 模型原始输出由 Rust CascadeDecision 经 decision dict 带入；提到顶层游离存储，
         # 不留在 decision —— ReplayTable 回放查表时避免把大段原文一起回灌
         for key in ("s1_raw", "s2_raw", "s2_thinking"):
             value = decision.pop(key, None)
             if value:
                 record[key] = value
-        if self._meta:
-            record["meta"] = self._meta
         if self._writer is None:
             self._writer = self.path.open("a", encoding="utf-8")
         self._writer.write(json.dumps(record, ensure_ascii=False) + "\n")

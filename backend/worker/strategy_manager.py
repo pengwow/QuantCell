@@ -25,7 +25,7 @@ from typing import Any
 from axon_quant import worker as axon_worker
 
 from observability import metrics as obs_metrics
-from strategy.decision_recording import default_replay_dir, worker_replay_path
+from strategy.decision_recording import default_replay_dir, worker_replay_path, wrap_rl_predict
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -1313,6 +1313,15 @@ class StrategyManager:
 
         spec = self._load_rl_spec(worker_id, params)
 
+        # 决策流插桩（零内核改动）：内核逐 bar 调 predict 后按 cascade 同一 JSONL
+        # schema 追一条录制，Worker 决策页的数据源与规则策略一致。
+        predict = wrap_rl_predict(
+            spec["predict"],
+            path=worker_replay_path(worker_id),
+            model_id=spec["model_id"],
+            symbol=expand_symbol(symbols[0]),
+        )
+
         driver = axon_worker.PaperDriver(
             [expand_symbol(s) for s in symbols],
             initial_cash=float(params.get("initial_capital", 100_000.0)),
@@ -1321,7 +1330,7 @@ class StrategyManager:
             interval=timeframe,
         )
         driver.add_rl_strategy(
-            spec["predict"],
+            predict,
             spec["model_id"],
             spec["spec_version"],
             spec["window_size"],
