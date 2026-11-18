@@ -57,3 +57,52 @@ def test_logger_wrapper_resolve_exc_info_variants():
         assert log._resolve_exc_info(False) is None
         # 之外的 tuple 形态不预测,返回 None 即不附加异常
         assert log._resolve_exc_info(("not", "exception")) is None
+
+
+def test_add_missing_columns_upgrades_legacy_workers_table(monkeypatch, tmp_path):
+    """存量库缺 owner_id 列时,通用补列通道自动补齐(桌面实录 /workers 500 根因)。
+
+    本测试用独立 sqlite 文件构造旧版 workers 表(仅历史列),再跑
+    add_missing_columns_from_models——它按 collector Base.metadata 对照补列。
+    """
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import add_missing_columns_from_models
+
+    monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))  # database 模块 import 期读 env
+    eng = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE workers ("
+                "id INTEGER PRIMARY KEY, name VARCHAR, status VARCHAR, "
+                "strategy_id INTEGER, created_at TIMESTAMP)"
+            )
+        )
+
+    with Session(eng) as session:
+        add_missing_columns_from_models(session, "sqlite")
+        session.commit()
+        # 幂等:第二遍不得报错或重复加列
+        add_missing_columns_from_models(session, "sqlite")
+        session.commit()
+
+    insp = inspect(eng)
+    cols = {c["name"] for c in insp.get_columns("workers")}
+    assert "owner_id" in cols  # 实录缺失列
+    assert "id" in cols and cols.__len__() >= 16  # 其余模型列也已补齐
+    index_names = {ix["name"] for ix in insp.get_indexes("workers")}
+    assert "ix_workers_owner_id" in index_names  # index=True 的索引也要补建
+
+
+def test_add_missing_columns_skips_unsupported_dialect():
+    """非 sqlite/duckdb 方言直接跳过,不抛异常(守护 boot 路径)。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import add_missing_columns_from_models
+
+    eng = create_engine("sqlite://")
+    with Session(eng) as session:
+        add_missing_columns_from_models(session, "postgresql")  # 不应抛

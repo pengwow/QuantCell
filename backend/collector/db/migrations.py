@@ -20,6 +20,83 @@ except ImportError:
     SessionLocal = Session
 
 
+def add_missing_columns_from_models(session: Session, db_type: str) -> None:
+    """通用兜底迁移：对照模型 Base.metadata，为已存在的表补齐缺失列/索引。
+
+    动机（2026-11-18 桌面打包实录）：worker.Worker 新增 owner_id 只改了模型
+    没写迁移，桌面存量库 create_all 不改已存在的表 → GET /api/v1/workers
+    500。逐表手写 update_xxx_table 每加一列都要记得补一行，必然再漏。
+
+    ponytail: 天花板=仅做「加列/加索引」这类可幂等叠加的变更；改名、删列、
+    改类型、约束收紧无法自动推导，仍需专用迁移
+    （update_kline_volume_to_decimal、rename_kline_interval_columns 等）。
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    # 与 init_db 相同的模型注册前置:metadata 必须含有全部模型,
+    # 否则 sorted_tables/FK 解析会因缺表引用报 NoReferencedTableError
+    import agent.models
+    import backtest.models
+    import factor.models
+    import strategy.models
+    from collector.db.database import Base
+
+    if db_type not in ("sqlite", "duckdb"):
+        logger.info(f"add_missing_columns: 方言 {db_type} 不支持通用补列，跳过")
+        return
+
+    inspector = sa_inspect(session.get_bind())
+    try:
+        existing_tables = set(inspector.get_table_names())
+    except Exception as e:
+        logger.warning(f"add_missing_columns: 读取表清单失败，跳过（{e}）")
+        return
+
+    added = 0
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        try:
+            existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+            existing_ix = {ix["name"] for ix in inspector.get_indexes(table.name)}
+        except Exception as e:
+            logger.warning(f"add_missing_columns: 读取 {table.name} 结构失败，跳过（{e}）")
+            continue
+
+        for col in table.columns:
+            if col.name in existing_cols:
+                continue
+            coltype = col.type.compile(inspector.dialect)
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}'
+            if col.server_default is not None:
+                default_sql = col.server_default.arg
+                # TextClause 已是 SQL 片段；裸字符串按值加引号
+                if hasattr(default_sql, "text"):
+                    ddl += f" DEFAULT {default_sql.text}"
+                else:
+                    ddl += f" DEFAULT '{str(default_sql).replace(chr(39), chr(39) * 2)}'"
+            elif not col.nullable:
+                logger.warning(
+                    f"add_missing_columns: {table.name}.{col.name} 为 NOT NULL 且无默认值，"
+                    "跳过自动补列（需要专用迁移，存量行无法安全填值）"
+                )
+                continue
+            session.execute(text(ddl))
+            added += 1
+            logger.info(f"add_missing_columns: 表 {table.name} 补齐缺失列 {col.name}")
+
+        # 模型里有、旧库没有的索引（如 owner_id 的 index=True）
+        for ix in table.indexes:
+            if ix.name in existing_ix or not ix.columns:
+                continue
+            cols = ", ".join(f'"{c.name}"' for c in ix.columns)
+            session.execute(text(f'CREATE INDEX IF NOT EXISTS "{ix.name}" ON "{table.name}" ({cols})'))
+            logger.info(f"add_missing_columns: 表 {table.name} 补建索引 {ix.name}")
+
+    if added:
+        logger.info(f"add_missing_columns: 共补齐 {added} 个缺失列")
+
+
 def update_data_pools_table(session: Session, db_type: str) -> None:
     """更新data_pools表结构，添加缺失的列
 
@@ -1158,6 +1235,9 @@ def run_migrations() -> None:
 
             # 历史 K线周期列统一改名 interval（features.freq / indicator_alert_rules.period）
             rename_kline_interval_columns(session, db_type)
+
+            # 通用兜底：对照模型补齐遗漏的加列型迁移（桌面实录：owner_id 漏迁）
+            add_missing_columns_from_models(session, db_type)
 
             # 提交所有更改
             session.commit()
