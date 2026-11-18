@@ -123,6 +123,15 @@ const Agent = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在 workers 首次就绪时补一次缺省
   }, [workers, workerId]);
 
+  // 切到列表里还没有的 worker（工作台新建 worker 后立即切换 / URL 直达旧 id）：
+  // 立即补拉一次，不等 30s 轮询，避免选择器短暂显示裸 id
+  useEffect(() => {
+    if (workerId == null) return;
+    if (workers.some((w) => w.id === workerId)) return;
+    fetchWorkers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchWorkers 为内联函数，仅跟随 workerId 触发
+  }, [workerId]);
+
   const currentWorker = workers.find(w => w.id === workerId);
 
   const handleSelectWorker = (value: number) => {

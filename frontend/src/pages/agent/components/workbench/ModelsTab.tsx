@@ -4,16 +4,27 @@
  * （名称/阶段/算法/关键指标）；promote/unpromote 复用 UnifiedModelTable
  * 已确认的 API 契约（modelApi.promoteModel / unpromoteModel），规则一致：
  * 已注册且 stage!==production 可晋升，stage===production 可回退（unpromote 二次确认）。
+ * 行动作已扩展训练→回测→部署闭环（P1 batch3）：回测 = ModelBacktestDrawer（工作台内嵌），
+ * 部署 = DeployConfirmModal（paper 二次确认卡），部署成功后切换 worker + 决策流 Tab。
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App, Button, Empty, Spin, Table, Tag, Tooltip } from 'antd';
+import { App, Button, Empty, Space, Spin, Table, Tag, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { ReloadOutlined, RocketOutlined, RollbackOutlined } from '@ant-design/icons';
+import {
+  CloudUploadOutlined,
+  LineChartOutlined,
+  ReloadOutlined,
+  RocketOutlined,
+  RollbackOutlined,
+} from '@ant-design/icons';
 import { modelApi } from '@/api/modelApi';
 import type { UnifiedModelRow } from '@/api/modelApi';
 import { useWorkbenchStore } from '../../store/workbenchStore';
 import TrainPanel from './TrainPanel';
+import ModelBacktestDrawer from './ModelBacktestDrawer';
+import DeployConfirmModal from './DeployConfirmModal';
+import type { DeployPrefill } from './DeployConfirmModal';
 
 const STAGE_COLORS: Record<string, string> = {
   production: 'green',
@@ -27,6 +38,11 @@ export default function ModelsTab() {
   const { message, modal } = App.useApp();
   const workerId = useWorkbenchStore((s) => s.workerId);
   const entry = useWorkbenchStore((s) => s.models);
+
+  // 「训练→回测→部署」闭环的行内动作状态（数据不进 store：两卡互斥、生命周期跟 Tab）
+  const [btRow, setBtRow] = useState<UnifiedModelRow | null>(null);
+  const [deployRow, setDeployRow] = useState<UnifiedModelRow | null>(null);
+  const [deployPrefill, setDeployPrefill] = useState<DeployPrefill | null>(null);
 
   const active = !!entry && entry.workerId === workerId;
 
@@ -87,6 +103,27 @@ export default function ModelsTab() {
     return preferred ? { key: preferred[0], value: preferred[1] as number } : { key: entries[0][0], value: entries[0][1] as number };
   };
 
+  /** 回测抽屉「去部署」→ 关抽屉开确认卡（prefill 本次回测参数） */
+  const handleGoDeploy = (prefill: DeployPrefill) => {
+    if (!btRow) return;
+    setDeployPrefill(prefill);
+    setDeployRow(btRow);
+    setBtRow(null);
+  };
+
+  /** 确认卡创建成功：切 worker 选择器到新进程 + 决策流 Tab（URL 由 Agent 既有回写同步） */
+  const handleDeployed = (newWorkerId: number) => {
+    const store = useWorkbenchStore.getState();
+    if (store.workerId !== newWorkerId) store.setWorker(newWorkerId);
+    store.setTab('decisions');
+  };
+
+  /** 总表直开部署：不带 prefill（确认卡走默认值） */
+  const openDeploy = (row: UnifiedModelRow) => {
+    setDeployPrefill(null);
+    setDeployRow(row);
+  };
+
   const columns: TableColumnsType<UnifiedModelRow> = [
     {
       title: t('wb_model_name'),
@@ -119,20 +156,28 @@ export default function ModelsTab() {
     },
     {
       title: t('action'),
-      width: 110,
+      width: 130,
       render: (_: unknown, row) => {
-        if (!row.registered || !row.model_id) return null;
-        if (row.stage !== 'production') {
-          return (
-            <Tooltip title={t('umt_action_promote')}>
-              <Button size="small" icon={<RocketOutlined />} onClick={() => handlePromote(row.model_id!)} />
-            </Tooltip>
-          );
-        }
+        if (!row.file_name) return null;
         return (
-          <Tooltip title={t('umt_action_unpromote')}>
-            <Button size="small" icon={<RollbackOutlined />} onClick={() => handleUnpromote(row.model_id!)} />
-          </Tooltip>
+          <Space size={2}>
+            <Tooltip title={t('wb_bt_action')}>
+              <Button size="small" type="text" icon={<LineChartOutlined />} onClick={() => setBtRow(row)} />
+            </Tooltip>
+            <Tooltip title={t('wb_deploy_action')}>
+              <Button size="small" type="text" icon={<CloudUploadOutlined />} onClick={() => openDeploy(row)} />
+            </Tooltip>
+            {row.registered && row.model_id && row.stage !== 'production' && (
+              <Tooltip title={t('umt_action_promote')}>
+                <Button size="small" type="text" icon={<RocketOutlined />} onClick={() => handlePromote(row.model_id!)} />
+              </Tooltip>
+            )}
+            {row.registered && row.model_id && row.stage === 'production' && (
+              <Tooltip title={t('umt_action_unpromote')}>
+                <Button size="small" type="text" icon={<RollbackOutlined />} onClick={() => handleUnpromote(row.model_id!)} />
+              </Tooltip>
+            )}
+          </Space>
         );
       },
     },
@@ -171,6 +216,15 @@ export default function ModelsTab() {
           locale={{ emptyText: t('no_data') }}
         />
       )}
+
+      {/* 行动作：回测抽屉（内嵌）与部署二次确认卡（互斥打开） */}
+      <ModelBacktestDrawer row={btRow} onClose={() => setBtRow(null)} onDeploy={handleGoDeploy} />
+      <DeployConfirmModal
+        row={deployRow}
+        prefill={deployPrefill}
+        onClose={() => setDeployRow(null)}
+        onDeployed={handleDeployed}
+      />
     </div>
   );
 }

@@ -19,8 +19,8 @@ import type { RLTrainTask } from '@/api/rlApi';
 import { useWorkbenchStore } from '../../store/workbenchStore';
 import { TRAIN_STATUS_COLORS, formatElapsed, isTrainTaskTerminal } from './workbenchFormat';
 
-/** 任务 id 落 localStorage：跨页面刷新继续跟踪同一次训练 */
-const TASK_KEY = 'quantcell_workbench_rl_train_task';
+/** 任务 id 落 localStorage：跨页面刷新继续跟踪同一次训练（部署确认卡凭它关联最近一次训练） */
+export const TASK_KEY = 'quantcell_workbench_rl_train_task';
 const POLL_MS = 5000;
 
 interface TrainFormValues {

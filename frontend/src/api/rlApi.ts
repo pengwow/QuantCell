@@ -1,6 +1,7 @@
 import { apiRequest, handleUnauthorized } from './index';
 import { getAccessToken } from '../utils/tokenManager';
 import { getApiBaseUrl } from '../utils/portConfig';
+import type { CreateWorkerRequest } from '../types/worker';
 
 // 与后端 api/rl_routes.py 的 TrainRequest 对齐：symbol 必填，其余有默认值
 export interface RLTrainRequest {
@@ -215,6 +216,14 @@ export const rlApi = {
     trainFetch<RLTrainTask>(`/rl/train/${encodeURIComponent(taskId)}`),
   cancelTrainTask: (taskId: string) =>
     trainFetch<{ accepted: boolean }>(`/rl/train/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
+  // 部署规格（工作台"部署 paper"三步串联第一步）：注册策略并返回可直接 POST /workers 的完整 body
+  // （strategy_id/strategy_name 已回填）。裸 JSON 走 trainFetch 通道（同 trainAsync）；
+  // 409=任务非完成态/模型缺失、422=meta 校验失败、404=任务不存在；幂等，重复调用安全
+  deploySpec: (taskId: string) =>
+    trainFetch<{ strategy: Record<string, unknown>; worker: CreateWorkerRequest }>(
+      `/rl/train/${encodeURIComponent(taskId)}/deploy-spec`,
+      { method: 'POST' },
+    ),
   listModels: () =>
     apiRequest.get<RLModelInfo[]>('/rl/models'),
   deleteModel: (name: string) =>
