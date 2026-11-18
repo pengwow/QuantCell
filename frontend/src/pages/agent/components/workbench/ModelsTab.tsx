@@ -6,6 +6,8 @@
  * 已注册且 stage!==production 可晋升，stage===production 可回退（unpromote 二次确认）。
  * 行动作已扩展训练→回测→部署闭环（P1 batch3）：回测 = ModelBacktestDrawer（工作台内嵌），
  * 部署 = DeployConfirmModal（paper 二次确认卡），部署成功后切换 worker + 决策流 Tab。
+ * P3 收尾：行内观测徽标列 + 行展开训练期元数据面板（ModelObsPanel）——数据源为
+ * detail.metadata（已注册行）与 unified 行可选字段（透传缺口上报中，落地即生效）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,6 +25,8 @@ import type { UnifiedModelRow } from '@/api/modelApi';
 import { useWorkbenchStore } from '../../store/workbenchStore';
 import TrainPanel from './TrainPanel';
 import ModelBacktestDrawer from './ModelBacktestDrawer';
+import ModelObsPanel from './ModelObsPanel';
+import { isRewardNonDefault, rewardText } from './metaFormat';
 import DeployConfirmModal from './DeployConfirmModal';
 import type { DeployPrefill } from './DeployConfirmModal';
 
@@ -146,6 +150,44 @@ export default function ModelsTab() {
     },
     { title: t('wb_algorithm'), dataIndex: 'algorithm', width: 80, render: (v: string) => v || '-' },
     {
+      // 训练期 meta 紧凑徽标（P3）：obs 模式 / data_type（非 kline）/ reward（非默认）。
+      // unified 端点当前未透传这些字段（缺口已上报）→ 旧行/未透传时该列显示 '-'，透传落地即生效
+      title: t('wb_meta_col_obs'),
+      width: 150,
+      render: (_: unknown, row) => {
+        const obsLabel =
+          row.obs_mode === 'ohlcv_window'
+            ? t('wb_meta_obs_mode_ohlcv', { n: row.obs_window ?? '?' })
+            : row.obs_mode === 'features'
+              ? t('wb_meta_obs_mode_features')
+              : null;
+        const rewardFull = rewardText(row.reward_terms);
+        const showReward = rewardFull != null && isRewardNonDefault(row.reward_terms);
+        const tags = [
+          obsLabel ? (
+            <Tooltip key="obs" title={t('wb_meta_label_obs_mode')}>
+              <Tag style={{ marginInlineEnd: 0 }}>{obsLabel}</Tag>
+            </Tooltip>
+          ) : null,
+          row.data_type && row.data_type !== 'kline' ? (
+            <Tooltip key="dt" title={t('wb_meta_label_data_type')}>
+              <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+                {t('wb_meta_data_type_badge', { type: row.data_type })}
+              </Tag>
+            </Tooltip>
+          ) : null,
+          showReward ? (
+            <Tooltip key="rw" title={rewardFull}>
+              <Tag color="purple" style={{ marginInlineEnd: 0 }}>
+                {t('wb_meta_reward_badge')}
+              </Tag>
+            </Tooltip>
+          ) : null,
+        ].filter(Boolean);
+        return tags.length > 0 ? <Space size={4} wrap>{tags}</Space> : '-';
+      },
+    },
+    {
       title: t('wb_key_metric'),
       width: 120,
       align: 'right',
@@ -213,6 +255,10 @@ export default function ModelsTab() {
           dataSource={entry.data}
           columns={columns}
           pagination={false}
+          expandable={{
+            // 训练期元数据摘要面板（obs/奖励/成本/OOS）：未注册行也展开（提示 + 行字段兜底）
+            expandedRowRender: (record) => <ModelObsPanel row={record} />,
+          }}
           locale={{ emptyText: t('no_data') }}
         />
       )}
