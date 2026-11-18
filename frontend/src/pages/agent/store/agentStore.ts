@@ -39,6 +39,8 @@ export interface Message {
   roleName?: string;
   actions?: IntentAction[];
   structuredData?: Record<string, unknown>;
+  /** 模型推理流（reasoning 事件累积），用于「思考中」过程展示 */
+  reasoning?: string;
 }
 
 interface AgentState {
@@ -112,10 +114,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
 
       let accumulatedContent = '';
+      let accumulatedReasoning = '';
       let currentIntent: string = '';
       let currentRole: string = '';
       const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       let assistantMessage: Message | null = null;
+      // SSE 事件可能被网络层切成半个事件，必须跨 chunk 缓冲后再按空行切分
+      let sseBuffer = '';
+      const decoder = new TextDecoder();
+
+      // 首次收到内容时把 AI 气泡插入消息列表（start 阶段不插，避免闪现空气泡）
+      const upsertAssistant = () => {
+        if (!assistantMessage) return;
+        set(state =>
+          state.messages.some(m => m.id === messageId)
+            ? { messages: state.messages.map(m => (m.id === messageId ? assistantMessage! : m)) }
+            : { messages: [...state.messages, assistantMessage!] },
+        );
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -124,9 +140,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           break;
         }
 
-        const chunk = new TextDecoder().decode(value);
+        sseBuffer += decoder.decode(value, { stream: true });
         // 按空行分割事件，处理可能的边界情况
-        const rawEvents = chunk.split(/\n\n/).filter(e => e.trim());
+        const rawEvents = sseBuffer.split(/\n\n/);
+        sseBuffer = rawEvents.pop() ?? '';
 
         for (const rawEvent of rawEvents) {
           // 健壮解析 SSE 事件格式
@@ -155,74 +172,91 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
           switch (eventType) {
             case 'start':
-              // 收到意图和角色信息
-              currentIntent = data.data?.intent || '';
-              currentRole = data.data?.role || i18n.t('agent_ai_assistant');
-              
-              // 创建 AI 消息骨架
-              assistantMessage = {
-                id: messageId,
-                role: 'assistant',
-                content: '',
-                timestamp: new Date().toISOString(),
-                intent: currentIntent,
-                roleName: currentRole,
-              };
+              // 后端会发两条 start：第一条带 intent/role，第二条带 session 元信息。
+              // 只在缺省时赋值，避免第二条把已识别的意图/角色覆盖成空。
+              if (data.data?.intent && !currentIntent) {
+                currentIntent = data.data.intent;
+              }
+              if (data.data?.role && !currentRole) {
+                currentRole = data.data.role;
+              }
+              // 创建 AI 消息骨架（不落库，等首个 content 再插入）
+              if (!assistantMessage) {
+                assistantMessage = {
+                  id: messageId,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                  intent: currentIntent,
+                  roleName: currentRole || i18n.t('agent_ai_assistant'),
+                };
+              }
+              break;
+
+            case 'reasoning':
+              // 推理增量（GLM 等模型的思考过程）
+              if (typeof data.data === 'string') {
+                accumulatedReasoning += data.data;
+              } else if (data.data?.content) {
+                accumulatedReasoning += data.data.content;
+              }
+              if (assistantMessage) {
+                assistantMessage.reasoning = accumulatedReasoning;
+                set(state => ({ messages: state.messages.map(m => (m.id === messageId ? assistantMessage! : m)) }));
+              }
               break;
 
             case 'content':
-              // 增量内容更新
+              // 增量内容更新（后端 content 事件 data 为 {content, full_content}，兼容旧版纯字符串）
               if (data.data) {
-                accumulatedContent += data.data;
+                const delta =
+                  typeof data.data === 'string' ? data.data : (data.data.content ?? '');
+                accumulatedContent += delta;
                 if (assistantMessage) {
                   assistantMessage.content = accumulatedContent;
-                  set(state => ({
-                    messages: state.messages.map(m => 
-                      m.id === messageId ? assistantMessage! : m
-                    ),
-                  }));
+                  upsertAssistant();
                 }
               }
               break;
 
             case 'tool_calls':
-              // 工具调用信息
+              // 工具调用信息（后端 data 形状为 {tools: [...]}）
               if (data.data && assistantMessage) {
-                assistantMessage.toolCalls = data.data;
-                set(state => ({
-                  messages: state.messages.map(m => 
-                    m.id === messageId ? assistantMessage! : m
-                  ),
-                }));
+                assistantMessage.toolCalls = Array.isArray(data.data)
+                  ? data.data
+                  : (data.data.tools ?? []);
+                upsertAssistant();
               }
               break;
 
             case 'tool_result':
-              // 工具执行结果
+              // 工具执行结果（后端 data 形状为 {name, result, elapsed}）
               if (data.data && assistantMessage) {
-                assistantMessage.toolResult = data.data;
-                set(state => ({
-                  messages: state.messages.map(m => 
-                    m.id === messageId ? assistantMessage! : m
-                  ),
-                }));
+                assistantMessage.toolResult =
+                  typeof data.data === 'string'
+                    ? data.data
+                    : (data.data.result ?? JSON.stringify(data.data));
+                upsertAssistant();
               }
               break;
 
-            case 'complete':
-              // 处理完成，添加结构化数据和建议操作
-              if (data.data && assistantMessage) {
-                assistantMessage.structuredData = data.data.structured_data || {};
-                assistantMessage.actions = data.data.actions || [];
-                
-                // 更新最终消息
-                set(state => ({
-                  messages: state.messages.map(m => 
-                    m.id === messageId ? assistantMessage! : m
-                  ),
-                }));
+            case 'complete': {
+              // 后端有两条 complete：loop 的（content）与 routes 的（structured_data/actions）。
+              // 两条都要消费，且只更新同一条消息。
+              if (!assistantMessage) break;
+              if (typeof data.data?.content === 'string' && !accumulatedContent) {
+                accumulatedContent = data.data.content;
+                assistantMessage.content = accumulatedContent;
               }
+              if (data.data?.structured_data) {
+                assistantMessage.structuredData = data.data.structured_data;
+              }
+              if (Array.isArray(data.data?.actions) && data.data.actions.length > 0) {
+                assistantMessage.actions = data.data.actions;
+              }
+              upsertAssistant();
               break;
+            }
 
             case 'error':
               // 错误事件
@@ -246,6 +280,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set(state => ({
           messages: [...state.messages, defaultMessage],
         }));
+      } else {
+        // 兜底：只有 reasoning 没有 content 时也要落一条消息
+        upsertAssistant();
       }
 
       set({ loading: false, streaming: false });
@@ -286,7 +323,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const response = await fetch('/api/v1/agent/sessions');
       const data = await response.json();
       if (data.success && data.sessions) {
-        set({ sessions: data.sessions });
+        // 后端列表返回 {key, name, messages_count, created_at, updated_at}，
+        // 前端 Session 需要 {id, name, createdAt, updatedAt}——不做映射会导致
+        // 会话抽屉渲染空行（name/id 均 undefined）。
+        const sessions: Session[] = (data.sessions as Record<string, unknown>[]).map(s => {
+          const id = String(s.key ?? s.id ?? '');
+          const rawName = String(s.name ?? '');
+          // 旧会话文件的 name 可能等于 key（如 default），此时给可读名
+          const name =
+            rawName && rawName !== id
+              ? rawName
+              : id === 'default'
+                ? i18n.t('agent_default_session')
+                : id;
+          return {
+            id,
+            name,
+            createdAt: String(s.createdAt ?? s.created_at ?? ''),
+            updatedAt: String(s.updatedAt ?? s.updated_at ?? s.created_at ?? ''),
+          };
+        });
+        set({ sessions });
       }
     } catch (error) {
       console.error(`${i18n.t('agent_fetch_sessions_failed')}:`, error);
@@ -303,6 +360,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         localStorage.setItem('ai-agent-sessions', JSON.stringify(sessions));
       }
       set({ sessions });
+    }
+    // 挂载时顺带恢复当前会话的聊天记录（否则刷新后聊天区恒为空态）
+    if (get().messages.length === 0) {
+      await get().fetchHistory(get().currentSessionId);
     }
   },
   
@@ -323,8 +384,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const newSession: Session = {
           id: data.session.id,
           name: data.session.name,
-          createdAt: data.session.created_at,
-          updatedAt: data.session.updated_at,
+          createdAt: data.session.created_at ?? '',
+          updatedAt: data.session.updated_at ?? data.session.created_at ?? '',
         };
         const sessions = [...get().sessions, newSession];
         set({ sessions, currentSessionId: newSession.id, messages: [] });
@@ -410,7 +471,36 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const response = await fetch(`/api/v1/agent/sessions/${sessionId}/history`);
       const data = await response.json();
       if (data.success) {
-        set({ messages: data.history });
+        // 后端 history 是 OpenAI 风格原始消息（role/content，无 id/时间戳），
+        // 前端渲染需要统一结构；system 提示词与空助手消息不展示。
+        const history: Message[] = (data.history || [])
+          .filter((m: Record<string, unknown>) => m.role !== 'system')
+          // tool 消息是智能体内部往返，恢复会话时展示会刷屏（且与工具卡片重复）
+          .filter((m: Record<string, unknown>) => m.role !== 'tool')
+          // 带 tool_calls 但无正文的 assistant 是中间轮次，展示会得到空气泡
+          .filter(
+            (m: Record<string, unknown>) =>
+              !(m.role === 'assistant' && !String(m.content ?? '').trim()),
+          )
+          .filter((m: Record<string, unknown>) => m.content || m.tool_calls)
+          .map((m: Record<string, unknown>, idx: number) => {
+            const role = m.role === 'assistant' ? 'assistant' : 'user';
+            const rawContent = m.content;
+            const content =
+              typeof rawContent === 'string'
+                ? rawContent
+                : rawContent == null
+                  ? ''
+                  : JSON.stringify(rawContent);
+            return {
+              id: `history-${sessionId}-${idx}`,
+              role,
+              content,
+              // 后端历史不带时间戳；留空由气泡隐藏，避免伪造"当前时间"
+              timestamp: '',
+            } as Message;
+          });
+        set({ messages: history });
       }
     } catch (error) {
       console.error(`${i18n.t('agent_fetch_history_failed')}:`, error);

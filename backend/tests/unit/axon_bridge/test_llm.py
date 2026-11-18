@@ -72,23 +72,22 @@ class TestToAxonMessages:
         msgs = [{"role": "assistant", "content": None}]
         assert to_axon_messages(msgs)[0]["content"] == ""
 
-    def test_openai_tool_calls_serialized_to_axon_json(self):
-        msgs = [
+    def test_tool_calls_passthrough_as_openai_shape(self):
+        """tool_calls 必须原样透传（嵌套 function）。
+
+        真机 400 实证：扁平化成 {function_name, arguments} 后，binding 会把该结构
+        直接放进请求体，OpenAI 兼容服务（GLM/sglang）报 tool_calls[0].function
+        Field required，第二轮工具调用必然失败。
+        """
+        tool_calls = [
             {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call_1",
-                        "type": "function",
-                        "function": {"name": "foo", "arguments": '{"x": 1}'},
-                    }
-                ],
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "foo", "arguments": '{"x": 1}'},
             }
         ]
-        result = to_axon_messages(msgs)[0]
-        parsed = json.loads(result["tool_calls"])
-        assert parsed == [{"id": "call_1", "function_name": "foo", "arguments": '{"x": 1}'}]
+        msgs = [{"role": "assistant", "content": "", "tool_calls": tool_calls}]
+        assert to_axon_messages(msgs)[0]["tool_calls"] == tool_calls
 
     def test_tool_call_id_passthrough(self):
         msgs = [{"role": "tool", "content": "ok", "tool_call_id": "call_1"}]

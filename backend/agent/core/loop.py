@@ -277,49 +277,81 @@ class AgentLoop:
                 )
 
             try:
-                # 调用流式 LLM API
+                # 调用 LLM（带工具时退回非流式，原因见下）
                 response_content = ""
                 response_tool_calls = []
                 finish_reason = None
                 reasoning_parts = []
 
                 llm_start = time.time()
-                logger.info(f"[AgentLoop] 调用流式 LLM API... (model={self.model}, messages={len(messages)})")
-
-                async for chunk in accumulate_stream(self.llm_backend, messages):
-                    # 文本内容 - 立即推送给客户端
-                    if chunk.get("delta"):
-                        response_content += chunk["delta"]
-                        if on_stream:
-                            await on_stream(
-                                StreamEvent(
-                                    event_type="content",
-                                    data={
-                                        "content": chunk["delta"],
-                                        "full_content": response_content,
-                                    },
-                                )
-                            )
-
-                    # 推理过程（DeepSeek-R1 等）
-                    if chunk.get("reasoning_content"):
-                        reasoning_parts.append(chunk["reasoning_content"])
+                tool_defs = self.tools.get_definitions()
+                if tool_defs:
+                    # axon_quant 的 stream_chat_async 不接受 tools 参数（Rust 绑定限制），
+                    # 走流式就永远拿不到 function calling——12 个工具会集体失效
+                    # （真机实证：模型答「当前会话中没有可用的行情查询工具」）。
+                    # 因此注册了工具就退回非流式：工具调用/结果正常，代价是文本整段下发。
+                    # ponytail: 上限=token 不能边生成边推；升级路径=绑定层补
+                    # stream_chat_with_tools 后删掉这个分支。
+                    logger.info(
+                        f"[AgentLoop] 非流式 LLM 调用（带 {len(tool_defs)} 个工具）... "
+                        f"(model={self.model}, messages={len(messages)})"
+                    )
+                    response = await chat_to_dict(self.llm_backend, messages, tools=tool_defs)
+                    response_content = response.get("content") or ""
+                    response_tool_calls = response.get("tool_calls") or []
+                    finish_reason = response.get("finish_reason")
+                    if response.get("reasoning_content"):
+                        reasoning_parts.append(response["reasoning_content"])
                         if on_stream:
                             await on_stream(
                                 StreamEvent(
                                     event_type="reasoning",
-                                    data={"content": chunk["reasoning_content"]},
+                                    data={"content": response["reasoning_content"]},
                                 )
                             )
+                    if response_content and on_stream:
+                        await on_stream(
+                            StreamEvent(
+                                event_type="content",
+                                data={"content": response_content, "full_content": response_content},
+                            )
+                        )
+                else:
+                    logger.info(f"[AgentLoop] 调用流式 LLM API... (model={self.model}, messages={len(messages)})")
+                    async for chunk in accumulate_stream(self.llm_backend, messages):
+                        # 文本内容 - 立即推送给客户端
+                        if chunk.get("delta"):
+                            response_content += chunk["delta"]
+                            if on_stream:
+                                await on_stream(
+                                    StreamEvent(
+                                        event_type="content",
+                                        data={
+                                            "content": chunk["delta"],
+                                            "full_content": response_content,
+                                        },
+                                    )
+                                )
 
-                    # 结束事件:捕获 finish_reason 与工具调用
-                    if "finish_reason" in chunk:
-                        finish_reason = chunk["finish_reason"]
-                        if chunk.get("is_tool_call") and chunk.get("tool_calls"):
-                            response_tool_calls = chunk["tool_calls"]
+                        # 推理过程（DeepSeek-R1 等）
+                        if chunk.get("reasoning_content"):
+                            reasoning_parts.append(chunk["reasoning_content"])
+                            if on_stream:
+                                await on_stream(
+                                    StreamEvent(
+                                        event_type="reasoning",
+                                        data={"content": chunk["reasoning_content"]},
+                                    )
+                                )
+
+                        # 结束事件:捕获 finish_reason 与工具调用
+                        if "finish_reason" in chunk:
+                            finish_reason = chunk["finish_reason"]
+                            if chunk.get("is_tool_call") and chunk.get("tool_calls"):
+                                response_tool_calls = chunk["tool_calls"]
 
                 llm_elapsed = time.time() - llm_start
-                logger.info(f"[AgentLoop] 流式 LLM 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={finish_reason}")
+                logger.info(f"[AgentLoop] LLM 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={finish_reason}")
 
             except Exception as e:
                 logger.error(f"[AgentLoop] 流式 LLM API 调用失败: {type(e).__name__}: {e}")

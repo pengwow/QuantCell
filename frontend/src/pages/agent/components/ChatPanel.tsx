@@ -9,7 +9,6 @@ import {
   Button,
   Avatar,
   Spin,
-  Empty,
   Modal,
   Tag,
   Tooltip,
@@ -22,6 +21,12 @@ import {
   RobotOutlined,
   UserOutlined,
   CodeOutlined,
+  DownOutlined,
+  RightOutlined,
+  LineChartOutlined,
+  DashboardOutlined,
+  GlobalOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../store/agentStore';
@@ -44,6 +49,18 @@ const INTENT_ACTION_ROUTES: Record<string, string> = {
   view_code: '/strategy-editor',   // 策略编辑器
   deploy_strategy: '/strategy-worker',    // 创建/启动 worker 即部署
 };
+
+/**
+ * 快捷指令：兑现设计文档的「快捷指令条 /train /backtest /deploy」承诺。
+ * 点击是「填充不直发」——后端不解析斜杠命令，填自然语言模板更诚实，
+ * 也留出改品种/参数的空间。空态能力卡与输入框上方 chips 共用这组数据。
+ */
+const QUICK_PROMPTS = [
+  { key: 'train', icon: <LineChartOutlined /> },     // 行情速览（key 名保留历史命名，语义见 i18n）
+  { key: 'backtest', icon: <DashboardOutlined /> },  // 市场情绪
+  { key: 'deploy', icon: <GlobalOutlined /> },       // 最新资讯（web 检索）
+  { key: 'diagnose', icon: <FundOutlined /> },       // K线分析
+] as const;
 
 // 错误详情弹窗组件
 const ErrorDetailModal = ({
@@ -76,6 +93,32 @@ const ErrorDetailModal = ({
 };
 
 // 消息气泡组件
+
+/**
+ * 消息内轻量折叠块（工具结果 / 思考过程共用）：默认收起，展开时长文本限高滚动。
+ * 用 button+state 而非 antd Collapse：贴合现有消息样式、不引入额外包裹层。
+ */
+const CollapsibleBlock = ({
+  title,
+  variant,
+  children,
+}: {
+  title: string;
+  variant: 'tool' | 'reasoning';
+  children: React.ReactNode;
+}) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`collapse-block ${variant}`}>
+      <button type="button" className="collapse-toggle" onClick={() => setOpen(!open)}>
+        {open ? <DownOutlined className="collapse-caret" /> : <RightOutlined className="collapse-caret" />}
+        <span>{title}</span>
+      </button>
+      {open && <div className="collapse-body">{children}</div>}
+    </div>
+  );
+};
+
 const ChatMessage = ({ message }: { message: Message }) => {
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
@@ -119,7 +162,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
               {isUser ? t('agent_user') : isTool ? t('agent_tool') : isError ? t('error') : (message.roleName || 'AI Agent')}
             </span>
             <span className="message-time">
-              {new Date(message.timestamp).toLocaleTimeString()}
+              {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
             </span>
           </div>
           <div className={`message-body ${isError ? 'error-body' : ''}`}>
@@ -131,6 +174,12 @@ const ChatMessage = ({ message }: { message: Message }) => {
                   </Tag>
                 ))}
               </div>
+            )}
+            {/* 思考过程：默认折叠，仅后端返回 reasoning 时出现，不挤压正文 */}
+            {!isUser && !isTool && message.reasoning && (
+              <CollapsibleBlock variant="reasoning" title={t('agent_reasoning')}>
+                <pre>{message.reasoning}</pre>
+              </CollapsibleBlock>
             )}
             <div className="message-text">
               {isError && (
@@ -148,11 +197,17 @@ const ChatMessage = ({ message }: { message: Message }) => {
                 {message.content}
               </ReactMarkdown>
             </div>
-            {message.toolResult && (
-              <div className="tool-result">
+            {/* 工具输出默认折叠，不再全量刷屏；有调用仍无结果时给轻量进行中提示 */}
+            {message.toolResult ? (
+              <CollapsibleBlock variant="tool" title={t('agent_tool_result')}>
                 <pre>{message.toolResult}</pre>
+              </CollapsibleBlock>
+            ) : message.toolCalls?.length ? (
+              <div className="tool-running">
+                <Spin size="small" />
+                <span>{t('agent_tool_running', { name: message.toolCalls[message.toolCalls.length - 1].name })}</span>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -184,11 +239,11 @@ const ChatMessage = ({ message }: { message: Message }) => {
 const ChatPanel = () => {
   const { t } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<React.ComponentRef<typeof Input.TextArea>>(null);
   const [inputValue, setInputValue] = useState('');
 
   const {
     messages,
-    tools,
     loading,
     sendMessage,
   } = useAgentStore();
@@ -205,6 +260,12 @@ const ChatPanel = () => {
     await sendMessage(content);
   };
 
+  // 快捷指令（空态能力卡 / chips 条共用）：填充输入框并聚焦，不直接发送
+  const applyPrompt = (key: (typeof QUICK_PROMPTS)[number]['key']) => {
+    setInputValue(t(`agent_quick_${key}_prompt`));
+    inputRef.current?.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -217,10 +278,26 @@ const ChatPanel = () => {
       {/* 消息列表 */}
       <div className="agent-content">
         {messages.length === 0 ? (
-          <Empty
-            description={t('agent_start_chat')}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          />
+          // 空态：定位描述 + 四类能力引导，点击即填充对应指令
+          <div className="chat-empty">
+            <div className="chat-empty-title">{t('agent_empty_title')}</div>
+            <div className="chat-empty-desc">{t('agent_empty_desc')}</div>
+            <div className="chat-empty-caps">
+              {QUICK_PROMPTS.map(cap => (
+                <button
+                  key={cap.key}
+                  className="chat-empty-cap"
+                  onClick={() => applyPrompt(cap.key)}
+                >
+                  <span className="cap-icon">{cap.icon}</span>
+                  <span className="cap-copy">
+                    <span className="cap-label">{t(`agent_quick_${cap.key}_label`)}</span>
+                    <span className="cap-desc">{t(`agent_quick_${cap.key}_desc`)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <div className="messages-container">
             {messages.map(msg => (
@@ -239,8 +316,23 @@ const ChatPanel = () => {
 
       {/* 输入区 */}
       <div className="agent-input-area">
+        {/* 快捷指令条：常驻轻量 chips，点击填充输入框 */}
+        <div className="quick-commands">
+          {QUICK_PROMPTS.map(cap => (
+            <button
+              key={cap.key}
+              className="quick-chip"
+              disabled={loading}
+              onClick={() => applyPrompt(cap.key)}
+            >
+              {cap.icon}
+              <span>{t(`agent_quick_${cap.key}_label`)}</span>
+            </button>
+          ))}
+        </div>
         <div className="input-wrapper">
           <Input.TextArea
+            ref={inputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -257,8 +349,7 @@ const ChatPanel = () => {
           />
         </div>
         <div className="input-hint">
-          {t('agent_support_tools', { tools: tools.slice(0, 3).map(tool => tool.name).join(', ') })}
-          {tools.length > 3 && ` ${t('agent_and_more_tools', { total: tools.length })}`}
+          {t('agent_input_hint')}
         </div>
       </div>
     </>

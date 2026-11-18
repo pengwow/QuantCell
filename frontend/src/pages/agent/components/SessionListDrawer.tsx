@@ -31,7 +31,7 @@ const SessionListDrawer = ({
   const { t } = useTranslation();
   return (
     <Drawer
-      title={t('agent_session_list')}
+      title={t('agent_session_history')}
       placement="right"
       onClose={onClose}
       open={visible}

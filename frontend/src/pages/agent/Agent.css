@@ -329,20 +329,71 @@
   margin-bottom: 8px;
 }
 
-.tool-result {
+/* ==================== 消息内折叠块（工具结果 / 思考过程） ==================== */
+/* 默认收起；展开后限高内部滚动，长文本不再把聊天流撑爆 */
+.collapse-block {
   margin-top: 8px;
+}
+
+.collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+}
+
+.collapse-toggle:hover {
+  color: var(--active-color);
+}
+
+.collapse-caret {
+  font-size: 10px;
+}
+
+.collapse-block.reasoning {
+  margin-top: 4px;
+}
+
+.collapse-block.reasoning .collapse-toggle {
+  color: var(--text-hint);
+}
+
+.collapse-body {
+  margin-top: 6px;
   padding: 8px;
+  max-height: 220px;
+  overflow-y: auto;
   background: var(--border-lighter);
   border-radius: 4px;
+  color: var(--text-primary);
   transition: background-color 0.3s ease;
 }
 
-.tool-result pre {
+.collapse-body pre {
   margin: 0;
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--text-muted);
+}
+
+.collapse-block.reasoning .collapse-body pre {
+  color: var(--text-secondary);
+}
+
+/* 工具调用进行中（tool_start 已到、结果未到） */
+.tool-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-hint);
 }
 
 /* ==================== 加载指示器 ==================== */
@@ -417,6 +468,122 @@
   font-size: 12px;
   color: var(--text-hint);
   transition: color 0.3s ease;
+}
+
+/* ==================== 快捷指令条（输入框上方 chips） ==================== */
+.quick-commands {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 900px;
+  margin: 0 auto 10px;
+}
+
+.quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  background: var(--message-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-chip:hover:not(:disabled) {
+  color: var(--active-color);
+  border-color: var(--active-color);
+  background: var(--active-bg);
+}
+
+.quick-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== 空态引导（策略能力） ==================== */
+.chat-empty {
+  max-width: 560px;
+  margin: 0 auto;
+  padding-top: 10vh;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.chat-empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-empty-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.chat-empty-caps {
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+
+.chat-empty-cap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--message-bg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chat-empty-cap:hover {
+  border-color: var(--active-color);
+  background: var(--hover-bg);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.cap-icon {
+  font-size: 16px;
+  line-height: 1;
+  margin-top: 2px;
+  color: var(--active-color);
+}
+
+.cap-copy {
+  min-width: 0;
+}
+
+.cap-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cap-desc {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-hint);
+}
+
+@media (max-width: 576px) {
+  .chat-empty-caps {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ==================== 工具列表 ==================== */
@@ -539,6 +706,12 @@
 }
 
 /* ==================== 工具列表（集成参数配置）样式 ==================== */
+.tool-list-note {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
 .tool-list-config-drawer .ant-drawer-body {
   padding: 12px;
   background: var(--tool-panel-bg);

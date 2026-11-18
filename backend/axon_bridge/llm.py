@@ -95,7 +95,9 @@ def to_axon_messages(messages: list[dict]) -> list[dict]:
     """OpenAI 风格消息列表 → axon dict 消息格式
 
     - content None → ""(axon 要求 str)
-    - assistant 消息的 OpenAI 格式 tool_calls(list) → axon JSON 字符串
+    - assistant 的 tool_calls 原样透传：binding 会把消息字段直接转发给
+      OpenAI 兼容服务，扁平化（function_name/arguments）会被服务端判为
+      缺 function 字段（实测 400）。见 test_to_axon_messages_keeps_tool_calls。
     - tool_call_id 透传
     """
     out = []
@@ -103,21 +105,8 @@ def to_axon_messages(messages: list[dict]) -> list[dict]:
         d: dict[str, Any] = {"role": m.get("role", "user"), "content": m.get("content") or ""}
         if m.get("tool_call_id"):
             d["tool_call_id"] = m["tool_call_id"]
-        tcs = m.get("tool_calls")
-        if tcs:
-            if isinstance(tcs, str):
-                d["tool_calls"] = tcs
-            else:
-                # OpenAI 格式 → axon ToolCall 格式后序列化
-                flat = [
-                    {
-                        "id": tc.get("id", ""),
-                        "function_name": tc.get("function", {}).get("name", ""),
-                        "arguments": tc.get("function", {}).get("arguments", ""),
-                    }
-                    for tc in tcs
-                ]
-                d["tool_calls"] = json.dumps(flat, ensure_ascii=False)
+        if m.get("tool_calls"):
+            d["tool_calls"] = m["tool_calls"]
         out.append(d)
     return out
 

@@ -18,7 +18,6 @@ import {
   Typography,
 } from 'antd';
 import {
-  ToolOutlined,
   CheckCircleOutlined,
   LockOutlined,
   DatabaseOutlined,
@@ -258,8 +257,8 @@ const ToolListDrawerWithConfig = ({
     <Drawer
       title={
         <Space>
-          <ToolOutlined />
-          <span>{t('agent_available_tools')}</span>
+          <SettingOutlined />
+          <span>{t('agent_tool_settings')}</span>
           <Button
             type="text"
             size="small"
@@ -280,6 +279,7 @@ const ToolListDrawerWithConfig = ({
       size="large"
       className="tool-list-config-drawer"
     >
+      <p className="tool-list-note">{t('agent_tool_settings_note')}</p>
       <div className="tool-list-with-config">
         {tools.map(tool => {
           const isExpanded = expandedTools.has(tool.name);

@@ -12,9 +12,8 @@ import {
 import {
   DeleteOutlined,
   HistoryOutlined,
-  ToolOutlined,
+  SettingOutlined,
   ExclamationCircleOutlined,
-  MessageOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
@@ -37,7 +36,7 @@ const { Content } = Layout;
 // 主页面
 const Agent = () => {
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [toolDrawerVisible, setToolDrawerVisible] = useState(false);
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
@@ -144,9 +143,19 @@ const Agent = () => {
     setSessionDrawerOpen(false);
   };
 
-  const handleClearSession = async () => {
-    await clearSession(currentSessionId);
-    message.success(t('agent_session_cleared'));
+  // 清空不可恢复，双入口（顶栏 + 会话抽屉）统一在此加确认再执行
+  const handleClearSession = () => {
+    modal.confirm({
+      title: t('agent_clear_confirm_title'),
+      content: t('agent_clear_confirm_content'),
+      okText: t('agent_clear_session'),
+      cancelText: t('cancel'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        await clearSession(currentSessionId);
+        message.success(t('agent_session_cleared'));
+      },
+    });
   };
 
   const handleDeleteConfirm = async () => {
@@ -180,13 +189,13 @@ const Agent = () => {
     <Layout className="ai-agent-layout page-fullscreen">
       {/* 主内容区：顶栏 + 双栏 */}
       <Layout className="agent-content-layout">
-        {/* 顶栏（会话/工具按钮保留；新增 worker 选择域 + 面板折叠） */}
+        {/* 顶栏（会话历史 / 工具参数 / 清空；worker 选择域 + 面板折叠） */}
         <div className="agent-header">
           <div className="header-left">
-            <Tooltip title={t('agent_session_list')}>
+            <Tooltip title={t('agent_session_history')}>
               <Button
                 type="text"
-                icon={<MessageOutlined />}
+                icon={<HistoryOutlined />}
                 onClick={toggleSessionDrawer}
                 className={sessionDrawerOpen ? 'active' : ''}
               />
@@ -221,18 +230,10 @@ const Agent = () => {
                 </Tooltip>
               )}
             </div>
-            <Tooltip title={t('agent_session_list')}>
+            <Tooltip title={t('agent_tool_settings')}>
               <Button
                 type="text"
-                icon={<HistoryOutlined />}
-                onClick={toggleSessionDrawer}
-                className={sessionDrawerOpen ? 'active' : ''}
-              />
-            </Tooltip>
-            <Tooltip title={t('agent_tool_list')}>
-              <Button
-                type="text"
-                icon={<ToolOutlined />}
+                icon={<SettingOutlined />}
                 onClick={() => setToolDrawerVisible(true)}
               />
             </Tooltip>

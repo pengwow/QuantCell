@@ -14,7 +14,13 @@ import { useWorkbenchStore } from '../../store/workbenchStore';
 const ACTION_COLORS: Record<string, string> = { buy: 'green', sell: 'red', hold: 'default' };
 const VISIBLE_ROWS = 50;
 
-const timeOf = (ts?: string) => (ts ? (fmtDecisionTs(ts) || '').slice(11, 19) || fmtDecisionTs(ts) : '--:--:--');
+// 决策 _ts 后端带 Z（UTC）；直接截字符串会显示 UTC 时间（08:04 vs 本地 16:04）。
+const timeOf = (ts?: string) => {
+  if (!ts) return '--:--:--';
+  const d = new Date(ts);
+  if (!Number.isNaN(d.getTime())) return d.toLocaleTimeString('zh-CN', { hour12: false });
+  return (fmtDecisionTs(ts) || '').slice(11, 19) || fmtDecisionTs(ts);
+};
 
 export default function DecisionsTab() {
   const { t } = useTranslation();
