@@ -77,6 +77,14 @@ def main(
 
     init_db()
 
+    # 首次建库补齐共享 Base 之外的两张表（thinking_chains / strategy_history）：
+    # 两个模型模块为避免循环导入了独立 declarative_base，init_db() 的 create_all
+    # 覆盖不到；此前全新桌面库上 AI 模型策略历史/思维链接口直接报 no such table
+    # （backend/init_db.py 文档字符串同样记录了该缺口）。幂等可重复执行。
+    from init_db import create_aux_tables
+
+    create_aux_tables()
+
     # 在 env 注入之后再导入 app，保证配置/路径在模块加载时已被重定向
     from main import app
 
