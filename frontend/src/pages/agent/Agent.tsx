@@ -53,12 +53,26 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { IntentPanelRenderer } from './components/IntentPanels';
+import { useNavigate } from 'react-router-dom';
 import './Agent.css';
 import { QUANT_COLORS } from '@/utils/colors';
 
 const { Content } = Layout;
 const { TextArea } = Input;
 const { Text } = Typography;
+
+/**
+ * 意图面板 action.type → 现有路由（路径均取自 router/DynamicRouter.tsx，勿造新页面）。
+ * 未列出的 action 走降级提示，清单与原因见 handleIntentAction。
+ */
+const INTENT_ACTION_ROUTES: Record<string, string> = {
+  view_chart: '/chart',            // 行情图表
+  view_kline: '/chart',            // K 线看图（无独立 K 线路由，图表页承载）
+  backtest_strategy: '/backtest/config',  // 回测配置
+  optimize_params: '/backtest/config',    // 参数优化在本轮回测配置里做
+  view_code: '/strategy-editor',   // 策略编辑器
+  deploy_strategy: '/strategy-worker',    // 创建/启动 worker 即部署
+};
 
 // 错误详情弹窗组件
 const ErrorDetailModal = ({
@@ -98,11 +112,22 @@ const ChatMessage = ({ message }: { message: Message }) => {
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const { message: antMessage } = App.useApp();
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
-  // 处理意图面板操作
+  // 处理意图面板操作：能映射到现有页面就直接跳转，其余降级为提示（不造页面）。
+  // 降级项的设计归属（等对应路由/交互落地后再接线）：
+  //   view_positions / view_history -> 需交易持仓/成交历史页，当前路由表无此页面
+  //   place_order / set_stop_loss / adjust_position -> 需在 worker 详情页（/strategy-worker/:workerId）内联执行，非页面跳转
+  //   export_report / export_data -> 导出走接口下载，等 Agent 侧导出接口
+  //   compare_symbols -> 需多标的对比视图，无对应页面
+  //   view_risk_report -> 当前风险结论已由 risk_assessment 面板内联展示，暂无独立报告页
   const handleIntentAction = (actionType: string) => {
+    const target = INTENT_ACTION_ROUTES[actionType];
+    if (target) {
+      navigate(target);
+      return;
+    }
     antMessage.info(t('agent_execute_action', { action: actionType }));
-    // TODO: 根据 actionType 跳转到相应功能页面或执行操作
   };
 
   // 判断是否为 AI 消息且有意图信息
