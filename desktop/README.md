@@ -58,6 +58,26 @@ cd desktop && bunx @tauri-apps/cli build       # 自动 bun install + build fron
 
 产物：`src-tauri/target/release/bundle/`（dmg / .app）。
 
+## 浏览器验证打包产物（不安装 .app / 先跑通再打包）
+
+打包产物 = PyInstaller sidecar + `frontend/dist`（Tauri 壳只负责内嵌渲染与网络重写：
+`frontend/src/desktop/network.ts` 把 `/api`、`/ws` 相对路径重写到 sidecar 地址）。
+因此浏览器里「dist + 代理到 sidecar」与桌面壳内跑的是同一套前端代码、同一个后端二进制，
+页面数据链路等价（仅不覆盖 Tauri 专属能力：更新器、崩溃遮罩、local 免登录在浏览器内不生效，需登录）。
+
+```bash
+# 1. 起打包 sidecar（同 .app 内二进制；日志落文件便于排查启动问题；CORS 需放行 preview 端口）
+mkdir -p /tmp/qc-desktop-data   # 或直接用真实数据目录
+CORS_ORIGINS="tauri://localhost,http://tauri.localhost,http://localhost:4173,http://127.0.0.1:4173" \
+  desktop/src-tauri/binaries/quantcell-backend-* --port 19999 --data-dir /tmp/qc-desktop-data \
+  > /tmp/qc-sidecar.log 2>&1 &
+
+# 2. vite preview 服务 dist（QC_PROXY_TARGET 指向 sidecar）
+QC_PROXY_TARGET=http://127.0.0.1:19999 bunx vite preview --port 4173   # 在 frontend/ 下执行
+
+# 3. 浏览器打开 http://localhost:4173（注册/登录后测页面数据）
+```
+
 ## 后端模式
 
 - local（默认）：应用自动在 127.0.0.1 临时端口拉起 sidecar，local 模式免登录，
@@ -65,6 +85,6 @@ cd desktop && bunx @tauri-apps/cli build       # 自动 bun install + build fron
 - remote：设置（设置页 →「桌面后端」，仅桌面壳内可见）填入远程 API 地址后，
   应用停止本机 sidecar，界面走正常登录鉴权。
 
-已知限制：onefile sidecar 首次冷启动自解压约 1 分钟（torch 被静态打入，待瘦身）；
+已知限制：onefile sidecar 首次冷启动（自解压 + 存量库升级迁移）实测 ~110 秒，前端就绪等待为 180s（frontend/src/desktop/bootstrap.ts HEALTH_TIMEOUTS）；
 窗口关闭与正常退出（Cmd+Q）均会同步灭杀 sidecar 进程树；SIGKILL/掉电等无法走退出
 流程的场景仍可能留孤儿，后续通过 sidecar 父进程探活兜底。

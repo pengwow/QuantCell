@@ -8,10 +8,10 @@ import { setDesktopRuntime } from './env';
 import { installNetworkBridge } from './network';
 import { hideSplash, showSplash, showSplashError, updateSplash } from './splash';
 
-const HEALTH_TIMEOUTS = 90; // 秒；onefile 冷启自解压实测约 1 分钟
+const HEALTH_TIMEOUTS = 180; // 秒；onefile 自解压 ~1 分钟 + 存量库升级迁移，实测冷启可达 ~110s（90s 会误报超时）
 
 async function waitHealth(baseUrl: string, label: string): Promise<void> {
-  updateSplash(`${label}，首次启动约需 1 分钟…`);
+  updateSplash(`${label}，首次启动约需 1-2 分钟…`);
   for (let i = 0; i < HEALTH_TIMEOUTS; i++) {
     try {
       const res = await fetch(`${baseUrl}/health`);

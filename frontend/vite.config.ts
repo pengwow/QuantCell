@@ -66,12 +66,14 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // 浏览器验证打包产物（desktop/README「浏览器验证打包产物」）：QC_PROXY_TARGET
+        // 指向打包 sidecar 地址即可让 vite preview/dev 代理到与本机 sidecar 相同的后端
+        target: process.env.QC_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
         ws: true,
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: process.env.QC_PROXY_TARGET?.replace(/^http/, 'ws') ?? 'ws://localhost:8000',
         ws: true,
         changeOrigin: true,
         // 添加错误处理，避免 EPIPE 错误导致崩溃
