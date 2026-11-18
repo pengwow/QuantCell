@@ -4,12 +4,13 @@ import functools
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
 from utils.auth import get_current_user
+from utils.rbac import Permission, require_permission
 
 router = APIRouter(prefix="/api/v1/rl", tags=["RL Training"])
 
@@ -177,6 +178,46 @@ async def cancel_training_task(task_id: str, current_user: dict = Depends(get_cu
     if not cancel_task(task_id):
         raise HTTPException(status_code=409, detail=f"训练任务已结束，无法取消: {task_id}")
     return {"accepted": True}
+
+
+@router.post(
+    "/train/{task_id}/deploy-spec",
+    # 写动作：会 upsert 一行 RL 策略（worker 创建的前置）。与 worker 创建同权
+    # （worker/routes.py 创建端点用 WORKER_WRITE），RBAC enforcement off 时旁路。
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
+@handle_rl_exceptions
+async def build_train_deploy_spec(
+    task_id: str,
+    symbol: str | None = Query(None, description="部署 worker 的交易对（训练产物未记录标的，缺省留空）"),
+    current_user: dict = Depends(get_current_user),
+):
+    """训练产物 → 部署 spec：策略行 upsert + 可直接 POST /workers 的完整 body。
+
+    前置校验（写库前，失败不留半截数据）：任务存在 → 终态 done → 快照有
+    model_path → 模型文件 / meta 旁车存在 → spec_version 匹配运行时口径。
+    策略行按 `rl_paper_<model_id>` 幂等（重复调用返回同一 strategy.id）。
+    """
+    from services.rl_service import RLDeployError, RLService
+    from services.rl_task_runner import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    snapshot = task.snapshot()
+    if snapshot["status"] != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=f"训练任务未完成（status={snapshot['status']}），没有可部署的产物",
+        )
+    model_path = snapshot.get("model_path")
+    if not model_path:
+        raise HTTPException(status_code=409, detail="训练任务快照缺少 model_path，无法生成部署 spec")
+
+    try:
+        return RLService().build_deploy_spec(model_path, symbol=symbol)
+    except RLDeployError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
 @router.get("/models")

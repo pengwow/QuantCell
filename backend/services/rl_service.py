@@ -53,6 +53,21 @@ KERNEL_ACTION_SPACE = {"type": "continuous", "min": -1.0, "max": 1.0}
 RL_TRANSACTION_COST = 0.0001
 RL_SLIPPAGE = 0.00001
 
+#: 部署策略行名前缀：`rl_paper_<model_id>`（`build_deploy_spec` 幂等 upsert 的键）
+DEPLOY_STRATEGY_PREFIX = "rl_paper_"
+
+
+class RLDeployError(Exception):
+    """部署 spec 生成失败。
+
+    `status` 是建议的 HTTP 状态码（service 层不 import fastapi，路由按此透传）：
+    404 产物缺失 / 409 状态冲突 / 422 产物与运行时口径不兼容。
+    """
+
+    def __init__(self, message: str, *, status: int = 422) -> None:
+        super().__init__(message)
+        self.status = status
+
 
 def rl_meta_path(model_path: str) -> Path:
     """模型观测规格元数据旁车文件路径（训练时写入，启动时校验口径）。"""
@@ -615,6 +630,10 @@ class RLService:
         ponytail: Rust registry（model_registry）无 delete API，注册条目删除后
         会成为孤立记录；列表展示一律以 MODELS_DIR 下 .zip 文件为准，孤立条目
         无副作用。若未来 Rust 侧补 delete，再在此同步调用。
+
+        部署侧连带关系：本方法**不回收** `build_deploy_spec` 生成的 `rl_paper_*`
+        策略行（孤儿行无副作用——RL 启动时会因模型文件缺失直接报错，策略列表以
+        文件为事实源）。级联删除留待策略库有「RL 行」语义后再做。
         """
         target = self.resolve_saved_model_path(model_id)
         if not target.is_file():
@@ -624,6 +643,127 @@ class RLService:
         with contextlib.suppress(FileNotFoundError):
             rl_meta_path(str(target)).unlink()
         logger.info(f"[RLService] 模型已删除: {model_id}")
+
+    def build_deploy_spec(self, model_path: str, *, symbol: str | None = None) -> dict[str, Any]:
+        """把训练产物登记成可部署的 RL 策略行，返回可直接 POST /workers 的 payload。
+
+        为什么要 upsert 策略行：worker 创建只认 `strategy_id`，而 RL 启动要求该行
+        `strategy_type='rl'` 且 `parameters` 是 **JSON object**（含 model_path，
+        见 `worker/strategy_manager.py::_load_rl_spec`）。策略库唯一的写入口
+        `/strategy/upload` 写的是数组形态的 schema 描述、且不落 strategy_type，
+        不能用于 RL —— 所以部署必须先在这里物化一行。
+
+        校验全部在写库前完成（不落半截数据）：模型文件 → meta 旁车 → spec_version。
+        `file_name` / `file_path` 留空：RL 分支直接注册模型到内核 RL host，不走
+        StrategyLoaderService（不加载源码）。
+
+        Args:
+            model_path: 训练产物 .zip 路径（任务快照的 `model_path`）。
+            symbol: 部署 worker 的交易对（训练产物不记录标的，缺省留空由前端填）。
+
+        Returns:
+            `{"strategy": {id,name,strategy_type,parameters}, "worker": {...}}`。
+
+        Raises:
+            RLDeployError: 产物缺失（404）/ spec_version 不匹配（422）/ 同名非 RL
+                策略冲突（409）；HTTP 状态码由路由按 `exc.status` 透传。
+        """
+        raw_path = str(model_path or "").strip()
+        if not raw_path:
+            raise RLDeployError("缺少 model_path", status=404)
+        path = Path(raw_path)
+        if not path.is_file():
+            raise RLDeployError(f"模型文件不存在: {raw_path}", status=404)
+
+        meta_file = rl_meta_path(raw_path)
+        if not meta_file.is_file():
+            raise RLDeployError(f"模型缺少观测规格元数据（训练产物不完整或已被清理）: {meta_file}", status=404)
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RLDeployError(f"模型元数据不可读: {meta_file} ({exc})", status=422) from exc
+        spec_version = str(meta.get("spec_version") or "")
+        if spec_version != KERNEL_SPEC_VERSION:
+            raise RLDeployError(
+                f"模型 spec_version 不匹配: 模型={spec_version or '缺失'} 期望={KERNEL_SPEC_VERSION}", status=422
+            )
+
+        model_id = path.stem
+        strategy_name = f"{DEPLOY_STRATEGY_PREFIX}{model_id}"
+        # 契约里 model_path 必须能被 worker 进程直接 isfile：存绝对路径，不依赖 CWD
+        deploy_params = {"model_path": str(path.resolve()), "spec_version": spec_version}
+
+        # 函数内 import：ORM / DB 会话只在部署路径拉起，与 rl_service 其余轻量场景隔离
+        from strategy.models import Strategy
+        from utils.db_session import get_db_session
+
+        with get_db_session() as db:
+            row = db.query(Strategy).filter(Strategy.name == strategy_name).first()
+            if row is not None and (row.strategy_type or "rule") != "rl" and (row.code or row.file_name):
+                # 同名但不是我们生成的 RL 部署行：拒绝覆盖，避免把用户源码策略改成 RL
+                raise RLDeployError(f"同名策略已存在且不是 RL 部署行: {strategy_name}", status=409)
+
+            if row is not None:
+                # 幂等更新：保留 id 与用户改过的其它参数键（如 initial_capital）
+                effective = dict(self._deploy_params_of(row)) | deploy_params
+                row.strategy_type = "rl"
+                row.parameters = json.dumps(effective, ensure_ascii=False)
+            else:
+                effective = deploy_params
+                row = Strategy(
+                    name=strategy_name,
+                    description=f"RL 模型 {model_id}（训练产物部署行，由训练任务自动登记）",
+                    strategy_type="rl",
+                    parameters=json.dumps(effective, ensure_ascii=False),
+                    tags=json.dumps(["rl", "deploy"], ensure_ascii=False),
+                    # RL 不加载源码：file_name/file_path/code 留空（两列均 nullable）
+                    version="1.0.0",
+                )
+                db.add(row)
+            db.commit()
+            db.refresh(row)
+            strategy_id = row.id
+            strategy_name = row.name
+
+        symbol_norm = str(symbol or "").strip().upper()
+        initial_capital = float(effective.get("initial_capital") or 100_000.0)
+        worker_body = {
+            "name": f"rl-{model_id}",
+            "description": f"RL model {model_id} (paper)",
+            "strategy_id": strategy_id,
+            "strategy_name": strategy_name,
+            "strategy_file_name": None,
+            # RL paper v1 边界（strategy_manager.start_rl_paper）：binance + 永续 + 这些周期
+            "trading_config": {
+                "exchange": "binance",
+                "symbols_config": {"type": "symbols", "symbols": [symbol_norm] if symbol_norm else []},
+                "interval": "1h",
+                "market_type": "futures",
+                "trading_mode": "paper",
+            },
+            "config": {"initial_capital": initial_capital},
+        }
+        logger.info(f"[RLService] 部署 spec 已生成: strategy_id={strategy_id}, name={strategy_name}, model={model_id}")
+        return {
+            "strategy": {
+                "id": strategy_id,
+                "name": strategy_name,
+                "strategy_type": "rl",
+                "parameters": effective,
+            },
+            "worker": worker_body,
+        }
+
+    @staticmethod
+    def _deploy_params_of(row: Any) -> dict[str, Any]:
+        """读已有部署行的 parameters（仅 object 形态有效；数组/垃圾值当作空）。"""
+        if not row.parameters:
+            return {}
+        try:
+            raw = json.loads(row.parameters)
+        except json.JSONDecodeError, TypeError:
+            return {}
+        return raw if isinstance(raw, dict) else {}
 
     def optimize_hyperparameters(
         self,
