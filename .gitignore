@@ -88,6 +88,8 @@ docs/*
 # 官方文档站源文件（中英双语，mkdocs 构建）必须入库
 !docs/zh/
 !docs/en/
+# 功能验证文档体系（文档即测试，check-coverage 闸门基准）必须入库
+!docs/testing/
 docs/compose/specs/*
 .mimocode/
 .mimocode/plans/
