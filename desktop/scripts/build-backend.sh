@@ -36,6 +36,10 @@ uv run --with pyinstaller pyinstaller \
   --noconfirm --clean --onefile --name quantcell-backend \
   --paths . \
   --add-data "alembic:alembic" \
+  `# ai/strategy/prompts/templates 含提示词 .txt 与思维链 .toml，运行时按
+  # Path(__file__).parent/templates 相对定位（manager.py），漏打会在 AI 生成时
+  # 报"模板分类 'strategy_generation' 不存在或未加载"` \
+  --add-data "ai/strategy/prompts/templates:ai/strategy/prompts/templates" \
   --collect-all axon_quant \
   --collect-all duckdb \
   --collect-all pyarrow \
