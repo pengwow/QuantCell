@@ -60,7 +60,14 @@ cd desktop && bunx @tauri-apps/cli build       # 自动 bun install + build fron
 
 ## 浏览器验证打包产物（不安装 .app / 先跑通再打包）
 
-打包产物 = PyInstaller sidecar + `frontend/dist`（Tauri 壳只负责内嵌渲染与网络重写：
+一键脚本（起 sidecar + 起 preview + 打印免登录注入片段，Ctrl-C 一并收尾）：
+
+```bash
+bash desktop/scripts/preview-packaged.sh            # 数据目录默认保留（AI 提供商配置留存）
+bash desktop/scripts/preview-packaged.sh --fresh    # 清空数据目录
+```
+
+手动等价流程（排查脚本问题时用）：打包产物 = PyInstaller sidecar + `frontend/dist`（Tauri 壳只负责内嵌渲染与网络重写：
 `frontend/src/desktop/network.ts` 把 `/api`、`/ws` 相对路径重写到 sidecar 地址）。
 因此浏览器里「dist + 代理到 sidecar」与桌面壳内跑的是同一套前端代码、同一个后端二进制，
 页面数据链路等价（仅不覆盖 Tauri 专属能力：更新器、崩溃遮罩、local 免登录在浏览器内不生效，需登录）。
