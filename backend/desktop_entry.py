@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +50,49 @@ def apply_runtime_env(data_dir: str) -> None:
         os.environ[key] = value
 
 
+def _parse_system_proxy(scutil_output: str) -> str | None:
+    """解析 `scutil --proxy` 输出，HTTPEnable=1 且 host/port 齐全时返回代理 URL。"""
+
+    def _val(key: str) -> str | None:
+        m = re.search(rf"^[ \t]*{key}\s*:\s*(\S+)$", scutil_output, re.MULTILINE)
+        return m.group(1) if m else None
+
+    if _val("HTTPEnable") != "1":
+        return None
+    host, port = _val("HTTPProxy"), _val("HTTPPort")
+    if not host or not port:
+        return None
+    return f"http://{host}:{port}"
+
+
+def inherit_system_proxy() -> None:
+    """继承 macOS 系统代理到 PROXY_URL（显式 env 永远优先，幂等可重复）。
+
+    桌面实录：Finder/launchd 启动的 sidecar 拿不到用户 shell 环境里的
+    PROXY_URL/HTTP_PROXY，backend/.env 又按 CWD 解析不可达（CWD=/，与
+    data/ 相对路径同族问题），交易所连通性探测直连 binance 失败 →
+    首页"系统离线"。clash/v2ray 类代理内核会把 HTTP 代理写入系统代理，
+    `scutil --proxy` 即得。
+    ponytail: 解析失败静默维持直连——现状不可能更坏；Windows/Linux 平台待补。
+    """
+    if os.environ.get("PROXY_URL") or os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY"):
+        return
+    try:
+        out = subprocess.run(
+            ["/usr/sbin/scutil", "--proxy"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout
+    except Exception:
+        return
+    proxy = _parse_system_proxy(out)
+    if proxy:
+        os.environ["PROXY_URL"] = proxy
+        print(f"[desktop] inherit system proxy for exchange probe: {proxy}", file=sys.stderr)
+
+
 def apply_extensions_path(data_dir: str) -> None:
     """把已安装扩展的 site-packages 注入 sys.path 头部。
 
@@ -69,6 +114,7 @@ def main(
 ) -> None:
     """启动桌面 sidecar：先落 env，再初始化 DB，最后起 uvicorn。"""
     apply_runtime_env(data_dir)
+    inherit_system_proxy()
     apply_extensions_path(data_dir)
 
     import uvicorn

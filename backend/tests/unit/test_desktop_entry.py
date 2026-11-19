@@ -59,3 +59,55 @@ def test_apply_extensions_path_skips_non_dir_glob(tmp_path, _restore_sys_path):
     before = list(sys.path)
     apply_extensions_path(str(tmp_path))
     assert sys.path == before
+
+
+def test_parse_system_proxy_enabled():
+    from desktop_entry import _parse_system_proxy
+
+    sample = (
+        "<dictionary> {\n"
+        "  HTTPEnable : 1\n"
+        "  HTTPPort : 7897\n"
+        "  HTTPProxy : 127.0.0.1\n"
+        "  SOCKSEnable : 1\n"
+        "  SOCKSPort : 7897\n"
+        "  SOCKSProxy : 127.0.0.1\n"
+        "}\n"
+    )
+    assert _parse_system_proxy(sample) == "http://127.0.0.1:7897"
+
+
+def test_parse_system_proxy_disabled_or_incomplete():
+    from desktop_entry import _parse_system_proxy
+
+    assert _parse_system_proxy("HTTPEnable : 0") is None
+    assert _parse_system_proxy("HTTPEnable : 1\nHTTPProxy : 127.0.0.1") is None  # 缺端口
+    assert _parse_system_proxy("") is None
+
+
+def test_inherit_system_proxy_explicit_env_wins(monkeypatch):
+    import os
+
+    from desktop_entry import inherit_system_proxy
+
+    monkeypatch.setenv("PROXY_URL", "http://explicit:9999")
+    inherit_system_proxy()
+    assert os.environ["PROXY_URL"] == "http://explicit:9999"
+
+
+def test_inherit_system_proxy_scutil_fallback(monkeypatch):
+    import os
+
+    import desktop_entry as de
+
+    sample = "HTTPEnable : 1\nHTTPPort : 7897\nHTTPProxy : 127.0.0.1\n"
+    monkeypatch.delenv("PROXY_URL", raising=False)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+
+    class R:
+        stdout = sample
+
+    monkeypatch.setattr(de.subprocess, "run", lambda *a, **k: R())
+    de.inherit_system_proxy()
+    assert os.environ["PROXY_URL"] == "http://127.0.0.1:7897"
