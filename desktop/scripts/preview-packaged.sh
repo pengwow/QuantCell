@@ -18,7 +18,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
-SIDECAR="$REPO_ROOT/desktop/src-tauri/binaries/quantcell-backend-$TRIPLE"
+SIDECAR="$REPO_ROOT/desktop/src-tauri/binaries/backend/quantcell-backend"
 VITE_BIN="$FRONTEND_DIR/node_modules/.bin/vite"
 
 SIDECAR_PORT=19999
@@ -50,7 +50,7 @@ if [[ "$FRESH" == 1 && -d "$DATA_DIR" ]]; then
 fi
 mkdir -p "$DATA_DIR"
 
-echo ">> sidecar: $(basename "$SIDECAR") $(du -h "$SIDECAR" | cut -f1) mtime=$(stat -f '%Sm' "$SIDECAR")"
+echo ">> sidecar: $(basename "$SIDECAR") $(du -sh "$(dirname "$SIDECAR")" | cut -f1) mtime=$(stat -f '%Sm' "$SIDECAR")"
 echo ">> 数据目录: $DATA_DIR"
 echo ">> dist 构建时间: $(stat -f '%Sm' "$FRONTEND_DIR/dist/index.html")"
 
@@ -70,7 +70,7 @@ for _ in $(seq 1 40); do
   if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$SIDECAR_PORT/health"; then
     break
   fi
-  # onefile 冷启动在外部盘可能要 1-2 分钟；等 failure 早点暴露
+  # onedir 冷启动仍是秒级；留足余量但别掩盖真正启动失败
   if ! kill -0 "$SIDECAR_PID" 2>/dev/null; then
     echo ">> sidecar 启动即退，日志尾部：" >&2
     tail -20 "$DATA_DIR/sidecar.log" >&2

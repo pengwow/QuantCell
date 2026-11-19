@@ -39,6 +39,9 @@ def build_runtime_env(data_dir: str) -> dict[str, str]:
         # 桌面 local 模式免登录标记：仅本 sidecar 进程内生效，
         # utils.auth 读取；APP_ENV=production 时该豁免被强制忽略
         "QUANTCELL_DESKTOP_LOCAL": "1",
+        # matplotlib 缓存钉到持久目录：默认落 HOME 缓存（冻结 env 下曾每次
+        # 重建字体缓存 fontList.json，实测每次启动 +5-10s）
+        "MPLCONFIGDIR": str(root / "mpl-cache"),
     }
 
 

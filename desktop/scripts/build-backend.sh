@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# 把 backend/ 打包成 Tauri sidecar 单文件可执行，并按 target triple 落位到
-# desktop/src-tauri/binaries/quantcell-backend-<triple>（Tauri externalBin 约定）。
+# 把 backend/ 打包成 Tauri bundle resource（PyInstaller --onedir 整目录），并落位到
+# desktop/src-tauri/binaries/backend/（可执行 + _internal/），由 tauri.conf.json 的
+# bundle.resources 映射为 .app/Contents/Resources/backend/。
+# onedir 取代 onefile：省掉每次启动对 ~250MB 二进制的自解压（实测 10-15s）。
 # 用法: bash desktop/scripts/build-backend.sh [target-triple]
 set -euo pipefail
 
@@ -9,13 +11,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
 BIN_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
 
-# Tauri externalBin 要求在 Windows 上带 .exe 后缀；PyInstaller 在 Windows 的产物名也带 .exe
+# PyInstaller --onedir 产物是目录 dist/quantcell-backend/（内含可执行与 _internal/）；
+# 落位目标同为整目录，跨平台只差可执行文件名（.exe 后缀）
+PYINSTALLER_OUT_DIR="$BACKEND_DIR/dist/quantcell-backend"
+SIDECAR_DIR="$BIN_DIR/backend"
 if [[ "$TRIPLE" == *windows* ]]; then
-  PYINSTALLER_OUT="$BACKEND_DIR/dist/quantcell-backend.exe"
-  SIDECAR_OUT="$BIN_DIR/quantcell-backend-$TRIPLE.exe"
+  BACKEND_EXE="quantcell-backend.exe"
 else
-  PYINSTALLER_OUT="$BACKEND_DIR/dist/quantcell-backend"
-  SIDECAR_OUT="$BIN_DIR/quantcell-backend-$TRIPLE"
+  BACKEND_EXE="quantcell-backend"
 fi
 
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
@@ -33,7 +36,7 @@ cd "$BACKEND_DIR"
 # PyInstaller 的 modulegraph 无法透过该 finder 解析本地包，必须显式把 backend
 # 目录（即当前目录）加入模块搜索路径，否则冻结产物运行时 ModuleNotFoundError
 uv run --with pyinstaller pyinstaller \
-  --noconfirm --clean --onefile --name quantcell-backend \
+  --noconfirm --clean --onedir --name quantcell-backend \
   --paths . \
   --add-data "alembic:alembic" \
   `# ai/strategy/prompts/templates 含提示词 .txt 与思维链 .toml，运行时按
@@ -72,9 +75,14 @@ uv run --with pyinstaller pyinstaller \
 # 注意：--collect-all 每次只接受一个包名，必须逐包重复该 flag
 
 mkdir -p "$BIN_DIR"
-mv -f "$PYINSTALLER_OUT" "$SIDECAR_OUT"
+# 整目录替换（不残留上一版 _internal/ 里的旧 .so）
+rm -rf "$SIDECAR_DIR"
+mv -f "$PYINSTALLER_OUT_DIR" "$SIDECAR_DIR"
+# 清掉 onefile 时代的历史单文件产物，避免误拷旧 250MB 二进制
+rm -f "$BIN_DIR/quantcell-backend-$TRIPLE" "$BIN_DIR/quantcell-backend-$TRIPLE.exe"
 # Windows 不需要 chmod（git-bash 下 chmod 无效但无害，跳过以避免误解）
 if [[ "$TRIPLE" != *windows* ]]; then
-  chmod +x "$SIDECAR_OUT"
+  chmod +x "$SIDECAR_DIR/$BACKEND_EXE"
 fi
-echo ">> sidecar 已生成: $SIDECAR_OUT"
+echo ">> backend onedir 已生成: $SIDECAR_DIR/$BACKEND_EXE"
+echo ">> 目录大小: $(du -sh "$SIDECAR_DIR" | cut -f1)，文件数: $(find "$SIDECAR_DIR" -type f | wc -l | tr -d ' ')"

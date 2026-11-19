@@ -124,6 +124,34 @@ fn uv_bin_path(app: &AppHandle) -> Option<std::path::PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// resource 内 backend 可执行文件的相对路径（跨平台 exe 后缀差异）。
+/// 布局由 build-backend.sh（PyInstaller --onedir）+ tauri.conf.json 的
+/// bundle.resources 映射共同决定：.app/Contents/Resources/backend/{可执行,_internal/}
+fn backend_resource_relative() -> &'static str {
+    if cfg!(windows) {
+        "backend/quantcell-backend.exe"
+    } else {
+        "backend/quantcell-backend"
+    }
+}
+
+/// 解析随包 backend 可执行文件绝对路径；缺失时给可操作文案（安装包损坏/未随包）。
+/// onedir 产物必须整目录一起用（同级 _internal/ 是 PyInstaller 的依赖目录），
+/// 故此处刻意只按 resource 路径启动，不再走 externalBin/sidecar 解析。
+fn backend_bin_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let path = app
+        .path()
+        .resolve(backend_resource_relative(), tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("后端二进制缺失，请重新安装（resource 路径解析失败: {e}）"))?;
+    if !path.is_file() {
+        return Err(format!(
+            "后端二进制缺失，请重新安装（找不到 {}）",
+            path.display()
+        ));
+    }
+    Ok(path)
+}
+
 /// spawn sidecar；端口探测与实际绑定间存在竞态，最多换端口重试 PORT_ATTEMPTS 次。
 /// 约定：调用方已在锁内把 starting 置为 true；本函数负责在所有出口复位。
 fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
@@ -136,6 +164,10 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
     }
     let dir_str = dir.to_string_lossy().to_string();
 
+    let bin = backend_bin_path(app).inspect_err(|_| {
+        app.state::<SharedRuntime>().lock().unwrap().starting = false;
+    })?;
+
     let mut last_error = String::new();
     for _ in 0..PORT_ATTEMPTS {
         let Some(port) = pick_free_port() else {
@@ -143,10 +175,12 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
             return Err("无法分配空闲端口".into());
         };
 
+        // 通用 command（非 sidecar）：program 为 resource 内绝对路径。
+        // tauri-plugin-shell 的 scope 校验只在 JS 的 commands.rs 里做，Rust 侧
+        // Shell::command 直接 std::process::Command，故 capabilities 无需 shell 权限。
         let mut cmd = app
             .shell()
-            .sidecar("quantcell-backend")
-            .map_err(|e| e.to_string())?
+            .command(&bin)
             .args([
                 "--host",
                 "127.0.0.1",
@@ -509,6 +543,18 @@ mod tests {
             assert_eq!(p, "resources/uv/uv.exe");
         } else {
             assert_eq!(p, "resources/uv/uv");
+        }
+    }
+
+    /// onedir 产物落在 bundle resources 的 backend/ 下（tauri.conf.json 里
+    /// `binaries/backend` → `backend`），Windows 带 .exe 后缀。
+    #[test]
+    fn backend_resource_path_is_platform_suffixed() {
+        let p = backend_resource_relative();
+        if cfg!(windows) {
+            assert_eq!(p, "backend/quantcell-backend.exe");
+        } else {
+            assert_eq!(p, "backend/quantcell-backend");
         }
     }
 }

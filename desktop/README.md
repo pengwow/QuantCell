@@ -1,6 +1,7 @@
 # QuantCell Desktop (Tauri)
 
-桌面客户端：Rust 壳 + 复用仓库 `frontend/` 的 React 应用 + PyInstaller 打包的 FastAPI sidecar。
+桌面客户端：Rust 壳 + 复用仓库 `frontend/` 的 React 应用 + PyInstaller 打包的 FastAPI sidecar
+（`--onedir` 整目录打进 bundle resources，启动不做自解压）。
 
 Web 版与桌面版共用 `frontend/` 同一份代码，仅在 Tauri 壳内激活 `frontend/src/desktop/` 薄适配层
 （sidecar 引导、动态端口网络重写、local 免登录、崩溃遮罩、后端模式设置）。
@@ -52,9 +53,14 @@ Windows / Linux 均为 x86_64。CPU 型号（如 Intel/AMD、M1/M2）无需区�
 ## 打包
 
 ```bash
-bash desktop/scripts/build-backend.sh          # 先打 sidecar（约 3-5 分钟）
+bash desktop/scripts/build-backend.sh          # 先打 sidecar（约 3-5 分钟，产出 onedir 目录）
 cd desktop && bunx @tauri-apps/cli build       # 自动 bun install + build frontend
 ```
+
+sidecar 产物是 **onedir 整目录** `desktop/src-tauri/binaries/backend/`（内含 `quantcell-backend`
+与 `_internal/`），由 `tauri.conf.json` 的 `bundle.resources` 映射为
+`.app/Contents/Resources/backend/`；`backend.rs` 从 Resource 目录解析绝对路径后启动，
+不再走 `bundle.externalBin`（onefile 每次启动自解压 ~250MB，实测 10-15s）。
 
 产物：`src-tauri/target/release/bundle/`（dmg / .app）。
 
@@ -76,7 +82,7 @@ bash desktop/scripts/preview-packaged.sh --fresh    # 清空数据目录
 # 1. 起打包 sidecar（同 .app 内二进制；日志落文件便于排查启动问题；CORS 需放行 preview 端口）
 mkdir -p /tmp/qc-desktop-data   # 或直接用真实数据目录
 CORS_ORIGINS="tauri://localhost,http://tauri.localhost,http://localhost:4173,http://127.0.0.1:4173" \
-  desktop/src-tauri/binaries/quantcell-backend-* --port 19999 --data-dir /tmp/qc-desktop-data \
+  desktop/src-tauri/binaries/backend/quantcell-backend --port 19999 --data-dir /tmp/qc-desktop-data \
   > /tmp/qc-sidecar.log 2>&1 &
 
 # 2. vite preview 服务 dist（QC_PROXY_TARGET 指向 sidecar）
