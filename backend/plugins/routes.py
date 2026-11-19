@@ -14,11 +14,15 @@ from pydantic import BaseModel
 from common.schemas import ApiResponse
 from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# 插件资源目录基准路径，与 plugin_manager.py 保持一致
-_PLUGIN_ASSETS_BASE = Path(__file__).resolve().parent.parent / "data" / "installed_plugins"
+# 插件资源目录基准路径，与 plugin_manager.py 保持一致；桌面下重定向到持久数据目录
+_PLUGIN_ASSETS_BASE = get_persistent_dir(
+    "data/installed_plugins",
+    Path(__file__).resolve().parent.parent / "data" / "installed_plugins",
+)
 
 router = APIRouter(
     prefix="/api/v1/plugins",

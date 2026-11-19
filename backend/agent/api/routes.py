@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from config.capabilities import Capability, require_capability
 from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 from utils.rbac import Permission, require_permission
 
 from ..config.manager import ToolParamManager, mask_sensitive_value
@@ -637,8 +638,11 @@ async def get_daily_review_report(
 
 # ==================== 自迭代（Loop）状态 API ====================
 
-#: Agent 工作区（与 agent/core/factory.py::get_agent 同口径）
-_AGENT_WORKSPACE = Path(__file__).parent.parent.parent / "data" / "agent_workspace"
+#: Agent 工作区（与 agent/core/factory.py::get_agent 同口径；桌面=持久数据目录）
+_AGENT_WORKSPACE = get_persistent_dir(
+    "data/agent_workspace",
+    Path(__file__).parent.parent.parent / "data" / "agent_workspace",
+)
 
 #: 自迭代链路四个 job：(id, 展示名, cron 文案)；cron 文案与 core/scheduler.py 手写对齐
 _LOOP_JOBS = (

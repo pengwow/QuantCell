@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from utils.paths import get_persistent_dir
+
 from .base import Tool
 from .registry import ToolRegistry
 
@@ -76,7 +78,11 @@ def create_registry(workspace: Path | str | None = None, **kwargs) -> ToolRegist
     if workspace and isinstance(workspace, str):
         workspace = Path(workspace)
     elif workspace is None:
-        workspace = Path(__file__).resolve().parent.parent.parent / "data" / "agent_workspace"
+        # 桌面打包下此相对路径位于临时解压目录 → 工作区落持久数据目录
+        workspace = get_persistent_dir(
+            "data/agent_workspace",
+            Path(__file__).resolve().parent.parent.parent / "data" / "agent_workspace",
+        )
     # 获取 allowed_dir 参数（用于文件系统工具的安全限制）
     allowed_dir = kwargs.pop("allowed_dir", None) or workspace
 

@@ -27,6 +27,7 @@
 | AG14 | 把 `agent_gateway` 能力关闭后直达 `/agent` | 渲染 403 页：标题`功能未开启`，副标题含 `agent_gateway`；侧边菜单也不出现该入口 | L2（环境配置分支） |
 
 ## 历史雷区
+- **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`
 - **无子路由**：不要构造 `/agent/xxx` 之类的地址找子页——React Router 里只有 `/agent`，工作台子页一律用 `?tab=`。写错路径会落到首页重定向或 404，而不是某个 Tab
 - **URL 与 store 双向同步有回写竞态**（已修）：挂载首拍同时执行 URL→store 与 store→URL，曾把 URL 里的 tab/worker 打回默认值。断言 AG3 要等同步稳定（条件轮询 URL），不要在 `domcontentloaded` 瞬间取值
 - **图标按钮无文本**：顶栏`会话历史`/`工具参数设置`/`清空会话`/`展开或收起面板`都是纯图标 + tooltip，文本扫描找不到，按 `aria-label`/tooltip 或 DOM 直查定位

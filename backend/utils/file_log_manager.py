@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from utils.paths import get_persistent_dir
 from utils.timestamp_utils import utc_now_naive
 
 if TYPE_CHECKING:
@@ -78,8 +79,9 @@ class FileLogManager:
         if base_log_dir:
             self.base_log_dir = Path(base_log_dir)
         else:
+            # 桌面打包下 backend 相对路径位于临时解压目录 → 日志落持久数据目录
             backend_path = Path(__file__).resolve().parent.parent
-            self.base_log_dir = backend_path / "logs" / "system"
+            self.base_log_dir = get_persistent_dir("logs/system", backend_path / "logs" / "system")
 
         # 创建目录结构
         self.base_log_dir.mkdir(parents=True, exist_ok=True)

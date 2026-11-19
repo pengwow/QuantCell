@@ -7,6 +7,7 @@ from typing import Any
 
 from axon_bridge.llm import create_llm_backend
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 from .loop import AgentLoop
 
@@ -141,9 +142,11 @@ def get_agent() -> AgentLoop:
     global _agent_instance
 
     if _agent_instance is None:
-        # 创建工作空间目录
-        # Agent 工作区统一放到 backend/data 下，避免根目录堆运行时产物
-        workspace = Path(__file__).parent.parent.parent / "data" / "agent_workspace"
+        # Agent 工作区统一放到 data 目录下；桌面打包下落 QUANTCELL_DATA_DIR（临时解压目录重启即丢）
+        workspace = get_persistent_dir(
+            "data/agent_workspace",
+            Path(__file__).parent.parent.parent / "data" / "agent_workspace",
+        )
         workspace.mkdir(parents=True, exist_ok=True)
 
         # 从系统配置获取AI模型配置

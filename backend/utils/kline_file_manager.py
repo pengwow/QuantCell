@@ -16,6 +16,7 @@ import pandas as pd
 
 from utils.logger import LogType, get_logger
 from utils.parquet_utils import append_to_parquet, load_from_parquet, save_to_parquet
+from utils.paths import get_persistent_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -47,7 +48,7 @@ class KlineFileManager:
             base_dir: 基础目录路径，默认为 backend/data/source
         """
         if base_dir is None:
-            self.base_dir = Path(__file__).parent.parent / "data" / "source"
+            self.base_dir = get_persistent_dir("data/source", Path(__file__).parent.parent / "data" / "source")
         else:
             self.base_dir = Path(base_dir)
 

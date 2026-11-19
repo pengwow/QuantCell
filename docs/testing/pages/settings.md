@@ -108,6 +108,7 @@
 | S41 | 浏览器链路直接访问 `/setting/desktop-backend` | 菜单无此入口但 URL 可达；卡片骨架渲染，状态标签显示「未知」/无「当前地址」（浏览器无 Tauri 桥，`invoke` 不可用）。**这不算失败**，如实记录；不要在浏览器上点「保存并切换」（会整页重载走引导） | L1 |
 
 ## 历史雷区
+- **升级/重装丢历史数据（已根治，桌面 sidecar 全量路径收编）**：打包 sidecar 是 PyInstaller onefile，`__file__` 位于每次启动重新解压的临时目录。此前 K线源数据、策略 .py、已装插件、agent 工作区、因子快照、日志、LLM 录制等凡按模块相对路径写入的，**重启/升级即蒸发**（DB/模型库本就落 app_data_dir 不受影响）。已统一经 `utils/paths.get_persistent_dir` 落 `QUANTCELL_DATA_DIR`（守护测试 `backend/tests/unit/test_persistent_paths.py`）。桌面验证回归点：升级替换 .app 后旧 worker/策略/K线数据应仍在
 - **系统信息有硬编码占位值**：`SettingsContext` 的 `defaultSystemInfo` 里 `python_version: '3.10.0'`、`build_date: '2025-01-01'`，而 `systemInfo` 从未被后端数据写入（`_setSystemInfo` 无调用点）。S34 只断言"字段渲染"，别拿 Python 版本/构建日期做环境核对；真实指标只有 `/api/v1/system/metrics` 那几项。
 - **"重置"只改前端，提示却像已生效**：通用设置 `resetConfig` 不写后端（S10），模型页「重置」同理；模型页「添加/删除模型」也只改本地 state，未点保存刷新即丢（S30）。看到「配置已重置 / 模型已删除」不等于已落库——排查"设置不生效"时先确认是否漏点保存。
 - **语言/主题在保存前就持久化**：切语言即时写 `localStorage.quantcell-language` 并切换 i18n，切主题即时写 `quantcell-ui-theme`（S7/S9）。"没保存却变了"是设计如此，不是状态泄漏。

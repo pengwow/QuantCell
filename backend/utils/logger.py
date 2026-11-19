@@ -107,6 +107,7 @@ class LogRecord:
 import contextlib
 
 from utils.deprecation import deprecated
+from utils.paths import get_persistent_dir
 
 
 @deprecated("2.0", "3.0", "utils.file_log_manager.FileLogManager")
@@ -448,8 +449,9 @@ class UnifiedLogger:
         """获取默认日志文件路径"""
         try:
             backend_path = Path(__file__).resolve().parent.parent
-            log_dir = backend_path / "logs"
-            log_dir.mkdir(exist_ok=True)
+            # 桌面打包下 backend 相对路径位于临时解压目录 → 日志落持久数据目录
+            log_dir = get_persistent_dir("logs", backend_path / "logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
             return str(log_dir / "quantcell_{time:YYYYMMDD}.log")
         except Exception:
             return None
@@ -719,8 +721,8 @@ class StrategyLogger:
     为策略提供独立的日志记录功能，自动标记策略名称
     """
 
-    # 策略日志目录
-    LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "strategies"
+    # 策略日志目录（桌面打包下落 QUANTCELL_DATA_DIR/logs/strategies）
+    LOG_DIR = get_persistent_dir("logs/strategies", Path(__file__).resolve().parent.parent / "logs" / "strategies")
 
     # 类级别的logger缓存
     _loggers: dict[str, StrategyLogger] = {}
@@ -796,7 +798,8 @@ class PluginLogger:
     为每个插件提供独立的日志文件，存储在 backend/logs/plugins/ 目录下
     """
 
-    LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "plugins"
+    # 插件日志目录（桌面打包下落 QUANTCELL_DATA_DIR/logs/plugins）
+    LOG_DIR = get_persistent_dir("logs/plugins", Path(__file__).resolve().parent.parent / "logs" / "plugins")
     _loggers: dict[str, PluginLogger] = {}
 
     def __new__(cls, plugin_name: str):
