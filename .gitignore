@@ -126,3 +126,6 @@ logs/*
 
 # mkdocs 文档站构建产物
 site/
+
+# desktop 本地构建 CLI(tauri build 不再依赖 bunx 联网解析)
+desktop/node_modules/
