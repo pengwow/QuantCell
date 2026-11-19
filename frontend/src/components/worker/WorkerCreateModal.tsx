@@ -6,7 +6,7 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 包含表单验证、策略选择、交易所配置等功能
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   Form,
@@ -32,6 +32,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
+import { buildWorkerName } from './workerName';
 import { strategyApi, configApi } from '../../api';
 import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
 import { upsertRiskControl } from '../../api/workerApi';
@@ -145,7 +146,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [form] = Form.useForm();
-  const { createWorker } = useWorkerStore();
+  const { createWorker, workers } = useWorkerStore();
 
   const [loading, setLoading] = useState(false);
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
@@ -162,6 +163,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
   const [loadingParams, setLoadingParams] = useState(false);
   const [, setSelectedStrategyId] = useState<number | null>(null);
+
+  // Worker名称自动生成：用户手输过就不再覆盖（onChange 只在真实键入时触发，
+  // setFieldValue 不触发，正好用作"是否手输"的判定标志）
+  const nameTouchedByUserRef = useRef(false);
 
   // 获取所有数据
   useEffect(() => {
@@ -376,7 +381,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       });
 
       const requestData: CreateWorkerRequest = {
-        name: values.name,
+        // 选策略时已自动生成（或用户手改）；此处兜底用户清空后直接提交的场景
+        name: (values.name || '').trim() || buildWorkerName(
+          selectedStrategy?.name || '',
+          workers.map((w) => w.name)
+        ),
         description: values.description,
         strategy_id: strategyId,
         strategy_file_name: strategyFileName,  // 策略文件名
@@ -412,6 +421,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         }
         message.success(t('worker_create_success'));
         form.resetFields();
+        nameTouchedByUserRef.current = false;
         setStrategyParams([]);
         setSelectedStrategyId(null);
         onSuccess?.();
@@ -428,6 +438,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // 处理取消
   const handleCancel = () => {
     form.resetFields();
+    nameTouchedByUserRef.current = false;
     setStrategyParams([]);
     setSelectedStrategyId(null);
     onCancel();
@@ -476,21 +487,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
-              name="name"
-              label={t('worker_name')}
-              rules={[
-                { required: true, message: t('worker_name_required') },
-                { max: 50, message: t('worker_name_max_length') },
-              ]}
-            >
-              <Input
-                placeholder={t('worker_name_placeholder')}
-                prefix={<InfoCircleOutlined />}
-              />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
               name="strategy_id"
               label={
                 <Space>
@@ -520,6 +516,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 onChange={(value: number) => {
                   setSelectedStrategyId(value);
                   fetchStrategyParams(value);
+                  // 名称未手输时按所选策略自动生成（策略名+短码，避开现有 Worker 名单）
+                  if (!nameTouchedByUserRef.current) {
+                    // 与下方 Option 的 value 逻辑一致：无 id 策略用名称 hash 当 id
+                    const hashName = (n: string) =>
+                      Math.abs(n.split('').reduce((a: number, b: string) => {
+                        a = ((a << 5) - a) + b.charCodeAt(0);
+                        return a & a;
+                      }, 0)) % 2147483647 + 1;
+                    const strategy = strategies.find(
+                      (s) => (s.id !== undefined && s.id !== null ? s.id : hashName(s.name)) === value
+                    );
+                    if (strategy) {
+                      form.setFieldValue(
+                        'name',
+                        buildWorkerName(strategy.name, workers.map((w) => w.name))
+                      );
+                    }
+                  }
                 }}
               >
                 {strategies
@@ -560,6 +574,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                     );
                   })}
               </Select>
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
+              name="name"
+              label={t('worker_name')}
+              rules={[
+                { max: 50, message: t('worker_name_max_length') },
+              ]}
+            >
+              <Input
+                placeholder={t('worker_name_placeholder')}
+                prefix={<InfoCircleOutlined />}
+                // 用户键入后不再被选策略的自动生成覆盖
+                onChange={() => {
+                  nameTouchedByUserRef.current = true;
+                }}
+              />
             </Form.Item>
           </Col>
         </Row>
