@@ -68,6 +68,9 @@ const geometry = [
   ['弹窗 560px/14px', 'width:min(560px, 94vw); max-height:86vh; display:flex; flex-direction:column; border-radius:14px'],
   ['按钮 30px/8px', '.btn {'],
   ['页码钮 28px', 'height:28px'],
+  // 过滤 chips 与表格内 chip 是两个原语（§6.6 / §6.2）：一个 26px 胶囊，一个 10px 徽章
+  ['过滤 chip 26px/13px/11.5px', '.ichip { display:inline-flex; align-items:center; height:26px; padding:0 11px; border-radius:13px'],
+  ['表格 chip 3px 7px/10px', '.chip { display:inline-flex; align-items:center; gap:4px; font-size:10px; line-height:1; padding:3px 7px; border-radius:20px'],
   ['导航项 13px', 'font:inherit; font-size:13px; cursor:pointer; text-align:left; white-space:nowrap'],
   // 编辑器 chrome（§6.16）：唯一真相源是 src/monaco/quantcellTheme.ts，demo 必须逐值跟上
   ['编辑器容器 10px + 1px 边框', '.ced { border:1px solid var(--bd); border-radius:10px; overflow:hidden; background:#1e1e1e'],

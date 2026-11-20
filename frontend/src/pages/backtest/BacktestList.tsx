@@ -1,78 +1,103 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Button, Tag, Space, Popconfirm, App, Row, Col, Pagination, Input, Select, DatePicker, Tooltip } from 'antd';
+import { Button, Card, Col, Popconfirm, Row, Select, Tooltip, App, Pagination } from 'antd';
 import type { TableProps } from 'antd';
-import { ReloadOutlined, FilterOutlined, DeleteOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EyeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
 import { useTranslation } from 'react-i18next';
-import { IconPlayerPlay, IconEye } from '@tabler/icons-react';
 import { setPageTitle } from '@/utils/pageTitle';
 import type { BacktestTask } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import PageToolbar from '@/components/ui/PageToolbar';
+import { useGuestRestriction } from '@/hooks/useGuestRestriction';
 import dayjs from 'dayjs';
-import { QUANT_COLORS } from '@/utils/colors';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 
-const { Search } = Input;
-const { RangePicker } = DatePicker;
+// 状态筛选（chips）：'all' 不传后端
+type FilterStatus = 'all' | 'completed' | 'running' | 'failed';
 
-// 筛选状态类型
-type FilterStatus = 'all' | 'completed' | 'running' | 'failed' | 'pending';
-
-// 排序字段
+// 排序字段（与后端 sort_by 取值对齐）
 type SortField = 'created_at' | 'total_return' | 'max_drawdown' | 'strategy_name';
 type SortOrder = 'asc' | 'desc';
+
+const STATUS_CHIPS: Array<{ value: FilterStatus; i18nKey: string }> = [
+  { value: 'all', i18nKey: 'all' },
+  { value: 'completed', i18nKey: 'status_completed' },
+  { value: 'running', i18nKey: 'status_running' },
+  { value: 'failed', i18nKey: 'status_failed' },
+];
 
 const BacktestList = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const { isGuest } = useGuestRestriction();
 
-  // 回测任务数据
-  const [backtestTasks, setBacktestTasks] = useState<BacktestTask[]>([]);
-  // 加载状态
+  // 回测任务数据（服务端分页：tasks 即当前页数据）
+  const [tasks, setTasks] = useState<BacktestTask[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  // 选中的行keys
-  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-
   // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
   const viewType = useViewType();
 
-  // 筛选状态
+  // 筛选状态（搜索词回车/清除才提交服务端；chips 即点即查）
   const [searchText, setSearchText] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  // 分页配置：pageSize 来自全局配置（条数切换器即全站开关）
+  // 分页：pageSize 来自全局配置（条数切换器即全站开关）；total 为过滤后总数
   const [pageSize, setPageSize] = useGlobalPageSize();
-  const [pagination, setPagination] = useState<TableProps<BacktestTask>['pagination']>(() => ({
-    current: 1,
-    pageSize,
-    showSizeChanger: true,
-    pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total_items', { total })}`,
-  }));
+  const [page, setPage] = useState<number>(1);
+  const [total, setTotal] = useState<number>(0);
+  // 无筛选总数（页头副标「任务表 N 条」口径，不随筛选抖动）
+  const [overallTotal, setOverallTotal] = useState<number>(0);
 
-  // 全局条数变化（设置页/其他页面改动）实时同步到本页分页状态
-  useEffect(() => {
-    setPagination((p) => ({ ...p, pageSize }));
-  }, [pageSize]);
+  // 选中的行（点击行进详情前先打选中 tint；键盘 ↑↓ 也可移动）
+  const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('strategy_backtest'));
+    setPageTitle(t('backtest_center'));
   }, [t]);
 
-  // 加载回测任务列表
-  const loadBacktestList = useCallback(async () => {
+  // 加载回测任务列表（服务端分页/筛选/排序）
+  // overrides：setState 异步生效前需要用新值发起请求时的显式传值入口
+  const loadBacktestList = useCallback(async (overrides?: {
+    page?: number;
+    pageSize?: number;
+    status?: FilterStatus;
+    keyword?: string;
+    sortBy?: SortField;
+    sortOrder?: SortOrder;
+  }) => {
     setLoading(true);
     try {
-      const response = await backtestApi.getBacktestList();
-      if (response.backtests && Array.isArray(response.backtests)) {
-        setBacktestTasks(response.backtests);
+      const nextPage = overrides?.page ?? page;
+      const nextPageSize = overrides?.pageSize ?? pageSize;
+      const nextStatus = overrides?.status ?? statusFilter;
+      const nextKeyword = overrides?.keyword ?? searchText;
+      const nextSortBy = overrides?.sortBy ?? sortField;
+      const nextSortOrder = overrides?.sortOrder ?? sortOrder;
+      const response = await backtestApi.getBacktestList({
+        page: nextPage,
+        page_size: nextPageSize,
+        // 'all' 表示不筛选状态，不传给后端
+        status: nextStatus === 'all' ? undefined : nextStatus,
+        keyword: nextKeyword || undefined,
+        sort_by: nextSortBy,
+        sort_order: nextSortOrder,
+      });
+      const rows = Array.isArray(response.backtests) ? response.backtests : [];
+      const nextTotal = typeof response.total === 'number' ? response.total : rows.length;
+      setTasks(rows);
+      setTotal(nextTotal);
+      // 页码越界钳制（切档位/筛掉数据后 current 可能超出最大页）
+      setPage(Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(nextTotal / nextPageSize))));
+      // 无筛选请求才刷新「任务表 N 条」口径，副标不随筛选抖动
+      if (nextStatus === 'all' && !nextKeyword) {
+        setOverallTotal(nextTotal);
       }
     } catch (error) {
       console.error('Failed to load backtest list:', error);
@@ -80,54 +105,40 @@ const BacktestList = () => {
     } finally {
       setLoading(false);
     }
-  }, [message, t]);
+  }, [message, t, page, pageSize, statusFilter, searchText, sortField, sortOrder]);
 
   // 组件挂载时加载数据
   useEffect(() => {
     loadBacktestList();
-  }, [loadBacktestList]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首载一次性执行
+  }, []);
 
-  // 获取状态标签颜色
-  const getStatusColor = (status: string) => {
+  // 状态 → §6.2 chip（运行中带 pulse 圆点；pending/stopped 等中性）
+  const renderStatusChip = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'success';
+        return <span className="qc-chip ok">{t('status_completed')}</span>;
       case 'running':
       case 'in_progress':
-        return 'processing';
+        return <span className="qc-chip info"><span className="qc-pdot" />{t('status_running')}</span>;
       case 'failed':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
-  // 获取状态显示文本
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return t('status_completed');
-      case 'running':
-      case 'in_progress':
-        return t('status_running');
-      case 'failed':
-        return t('status_failed');
+        return <span className="qc-chip down">{t('status_failed')}</span>;
       case 'pending':
-        return t('status_pending');
+        return <span className="qc-chip quiet">{t('status_pending')}</span>;
       default:
-        return status;
+        return <span className="qc-chip quiet">{status}</span>;
     }
   };
 
-  // 删除回测任务
+  // 删除回测任务（Popconfirm 确认；入口按钮由访客禁用兜底）
   const handleDelete = async (taskId: string) => {
     try {
       await backtestApi.deleteBacktest(taskId);
       message.success(t('delete_success'));
-      // 重新加载列表
-      loadBacktestList();
-      // 清除选中状态
-      setSelectedRowKeys((prev) => prev.filter((key) => key !== taskId));
+      // 重新加载列表（页内删空时钳到上一页）
+      const remaining = total - 1;
+      const maxPage = Math.max(1, Math.ceil(remaining / pageSize));
+      loadBacktestList({ page: Math.min(page, maxPage) });
     } catch (error) {
       console.error('Failed to delete backtest task:', error);
       message.error(t('delete_failed'));
@@ -144,90 +155,121 @@ const BacktestList = () => {
     navigate('/backtest/config');
   };
 
-  // 表格列定义
+  // 数值列：正绿负红；null →「—」弱文本（demo .c-num / .c-muted 口径）
+  const renderReturn = (value: number | null | undefined) => {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return <span className="qc-mono qc-cell-none">—</span>;
+    }
+    return (
+      <span className={`qc-mono ${value >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>
+        {value >= 0 ? '+' : ''}{value.toFixed(2)}%
+      </span>
+    );
+  };
+
+  // 最大回撤是幅度而非盈亏符号：接口给的是正数幅度（0.06%），按符号染红会把 0.00% 也显示成亏损。
+  // ponytail: 一律中性前景色；若后端改为带符号的回撤值，再按符号上色
+  const renderDrawdown = (value: number | null | undefined) => {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return <span className="qc-mono qc-cell-none">—</span>;
+    }
+    return <span className="qc-mono">{value.toFixed(2)}%</span>;
+  };
+
+  // 空/缺字段统一「—」弱文本（老记录可能没有 symbols / intervals）
+  const renderJoinField = (values: string[] | undefined | null) => {
+    if (!values || values.length === 0) {
+      return <span className="qc-mono qc-cell-none">—</span>;
+    }
+    return <span className="qc-mono">{values.join(',')}</span>;
+  };
+
+  // 表格列定义 — §6.5：时间 mono 11px fg-3、策略 mono 截断、状态 chip、数值右对齐
   const columns: TableProps<BacktestTask>['columns'] = [
     {
-      title: t('backtest_strategy_name'),
+      title: t('bt_col_time'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 100,
+      render: (value: string) => (
+        <span className="qc-cell-time qc-mono">{value ? dayjs(value).format('MM-DD HH:mm') : '—'}</span>
+      ),
+    },
+    {
+      title: t('strategy'),
       dataIndex: 'strategy_name',
       key: 'strategy_name',
       width: 200,
-      minWidth: 120,
-      ellipsis: true,
-      // RL 模型回测任务名带来源前缀（rl_model: / rl_ensemble:），拆成来源标签 + 模型名展示
-      render: (name: string) => {
-        if (name?.startsWith('rl_model:') || name?.startsWith('rl_ensemble:')) {
-          const [prefix, ...rest] = name.split(':');
-          return (
-            <Space size={4}>
-              <Tag color={prefix === 'rl_model' ? 'purple' : 'geekblue'} style={{ marginRight: 0 }}>
-                {t(prefix === 'rl_model' ? 'backtest_source_rl_model' : 'backtest_source_rl_ensemble')}
-              </Tag>
-              <span>{rest.join(':')}</span>
-            </Space>
-          );
-        }
-        return name || '-';
-      },
+      ellipsis: { showTitle: false },
+      render: (name: string) => (
+        <Tooltip title={name} placement="topLeft">
+          <span className="qc-cell-strat-wrap">
+            <span className="qc-cell-strat" style={{ maxWidth: 160 }}>{name || '—'}</span>
+          </span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: t('symbol'),
+      dataIndex: 'symbols',
+      key: 'symbols',
+      width: 130,
+      ellipsis: { showTitle: false },
+      render: (values: string[] | undefined) => (
+        <Tooltip title={values?.length ? values.join(',') : ''} placement="topLeft">
+          {renderJoinField(values)}
+        </Tooltip>
+      ),
+    },
+    {
+      title: t('bt_col_interval'),
+      dataIndex: 'intervals',
+      key: 'intervals',
+      width: 84,
+      render: (values: string[] | undefined) => (
+        <span className="qc-mono qc-cell-none">{values?.length ? values.join(',') : '—'}</span>
+      ),
     },
     {
       title: t('status'),
       dataIndex: 'status',
       key: 'status',
-      width: 90,
-      align: 'center',
-      render: (status: string) => (
-        <Tag color={getStatusColor(status)}>{getStatusText(status)}</Tag>
-      ),
+      width: 92,
+      render: (status: string) => renderStatusChip(status),
     },
     {
       title: t('return_rate'),
       dataIndex: 'total_return',
       key: 'total_return',
-      width: 100,
+      width: 96,
       align: 'right',
-      render: (value: number | undefined) => {
-        if (value === undefined || value === null) return 'N/A';
-        const isPositive = value >= 0;
-        return (
-          <span style={{ color: isPositive ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
-            {isPositive ? '+' : ''}{value.toFixed(2)}%
-          </span>
-        );
-      },
+      render: (value: number | undefined) => renderReturn(value),
     },
     {
       title: t('max_drawdown'),
       dataIndex: 'max_drawdown',
       key: 'max_drawdown',
-      width: 100,
+      width: 104,
       align: 'right',
-      render: (value: number | undefined) => {
-        if (value === undefined || value === null) return 'N/A';
-        return <span style={{ color: QUANT_COLORS.negative }}>{value.toFixed(2)}%</span>;
-      },
-    },
-    {
-      title: t('create_time'),
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 160,
-      ellipsis: true,
+      render: (value: number | undefined) => renderDrawdown(value),
     },
     {
       title: t('action'),
       key: 'action',
-      width: 140,
+      width: 92,
       fixed: 'right',
       render: (_, record: BacktestTask) => (
-        <Space size="small">
-          <Button
-            type="link"
-            size="small"
-            icon={<IconEye size={16} />}
-            onClick={() => handleViewDetail(record.id)}
-          >
-            {t('view')}
-          </Button>
+        <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
+          <Tooltip title={t('view_details')}>
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('view_details')}
+              onClick={() => handleViewDetail(record.id)}
+            >
+              <EyeOutlined />
+            </button>
+          </Tooltip>
           <Popconfirm
             title={t('confirm_delete_backtest')}
             description={t('delete_backtest_confirm')}
@@ -236,312 +278,285 @@ const BacktestList = () => {
             cancelText={t('cancel')}
             okButtonProps={{ danger: true }}
           >
-            <Button
-              type="link"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-            >
-              {t('delete')}
-            </Button>
+            <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete')}>
+              <button
+                type="button"
+                className="qc-mini-btn qc-icon-only danger"
+                aria-label={isGuest ? t('guest_delete_restricted') : t('delete')}
+                disabled={isGuest}
+              >
+                <DeleteOutlined />
+              </button>
+            </Tooltip>
           </Popconfirm>
-        </Space>
+        </div>
       ),
     },
   ];
 
-  // 行选择配置
-  const rowSelection: TableProps<BacktestTask>['rowSelection'] = {
-    selectedRowKeys,
-    onChange: (newSelectedRowKeys: React.Key[]) => {
-      setSelectedRowKeys(newSelectedRowKeys);
-    },
-  };
-
-  // 表格数据（带key）
-  const dataSource = backtestTasks.map((task) => ({
-    ...task,
-    key: task.id,
-  }));
-
-  // 过滤和排序后的数据
-  const filteredDataSource = useMemo(() => {
-    let result = [...dataSource];
-
-    // 搜索过滤
-    if (searchText) {
-      const lowerSearch = searchText.toLowerCase();
-      result = result.filter(
-        (task) =>
-          task.strategy_name?.toLowerCase().includes(lowerSearch) ||
-          String(task.id ?? '').toLowerCase().includes(lowerSearch)
-      );
-    }
-
-    // 状态过滤
-    if (statusFilter !== 'all') {
-      result = result.filter((task) => {
-        if (statusFilter === 'running') {
-          return task.status === 'running' || task.status === 'in_progress';
-        }
-        return task.status === statusFilter;
-      });
-    }
-
-    // 日期范围过滤
-    if (dateRange && dateRange[0] && dateRange[1]) {
-      const startDate = dateRange[0].startOf('day').valueOf();
-      const endDate = dateRange[1].endOf('day').valueOf();
-      result = result.filter((task) => {
-        if (!task.created_at) return false;
-        const taskDate = dayjs(task.created_at).valueOf();
-        return taskDate >= startDate && taskDate <= endDate;
-      });
-    }
-
-    // 排序
-    result.sort((a, b) => {
-      let aVal: number | string = '';
-      let bVal: number | string = '';
-
-      switch (sortField) {
-        case 'strategy_name':
-          aVal = a.strategy_name || '';
-          bVal = b.strategy_name || '';
-          break;
-        case 'total_return':
-          aVal = a.total_return ?? -Infinity;
-          bVal = b.total_return ?? -Infinity;
-          break;
-        case 'max_drawdown':
-          aVal = a.max_drawdown ?? Infinity;
-          bVal = b.max_drawdown ?? Infinity;
-          break;
-        case 'created_at':
-        default:
-          aVal = a.created_at || '';
-          bVal = b.created_at || '';
-          break;
-      }
-
-      if (typeof aVal === 'string') {
-        return sortOrder === 'asc'
-          ? aVal.localeCompare(bVal as string)
-          : (bVal as string).localeCompare(aVal);
-      }
-      return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
-    });
-
-    return result;
-  }, [dataSource, searchText, statusFilter, dateRange, sortField, sortOrder]);
-
-  // 重置筛选
+  // 重置筛选（chips/排序/搜索归位后按默认参数重拉第一页）
   const handleResetFilters = () => {
     setSearchText('');
     setStatusFilter('all');
-    setDateRange(null);
     setSortField('created_at');
     setSortOrder('desc');
-    setPagination({
-      ...pagination,
-      current: 1,
+    loadBacktestList({
+      page: 1,
+      status: 'all',
+      keyword: '',
+      sortBy: 'created_at',
+      sortOrder: 'desc',
     });
   };
 
-  // 渲染列表视图
-  const renderListView = () => (
-    <Table
-      columns={columns}
-      dataSource={filteredDataSource}
-      rowSelection={rowSelection}
-      pagination={pagination}
-      loading={loading}
-      scroll={{ x: 'max-content' }}
-      onChange={(newPagination) => {
-        // 条数变化写回全局配置，全站生效
-        if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
-          setPageSize(newPagination.pageSize);
-        }
-        setPagination(newPagination);
-      }}
-      onRow={(record) => ({
-        onClick: () => {
-          setSelectedRowKeys([record.id]);
-        },
-        onDoubleClick: () => {
-          handleViewDetail(record.id);
-        },
-        style: {
-          cursor: 'pointer',
-        },
-      })}
-    />
-  );
-
-  // 渲染卡片视图
-  const renderCardView = () => {
-    // 获取当前页数据
-    const currentPage = typeof pagination === 'object' && pagination ? (pagination.current as number) || 1 : 1;
-    const pageSize = typeof pagination === 'object' && pagination ? (pagination.pageSize as number) || 10 : 10;
-    const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-    const currentPageData = filteredDataSource.slice(startIndex, endIndex);
-
-    return (
-      <>
-        <Row gutter={[16, 16]}>
-          {currentPageData.map((task) => (
-            <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
-              <Card
-                size="small"
-                title={
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium truncate" style={{ maxWidth: '70%' }}>
-                      {task.strategy_name}
-                    </span>
-                    <Tag color={getStatusColor(task.status)}>
-                      {getStatusText(task.status)}
-                    </Tag>
-                  </div>
-                }
-                extra={
-                  // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
-                  <Popconfirm
-                    title={t('confirm_delete_backtest')}
-                    description={t('delete_backtest_confirm')}
-                    onConfirm={(e) => {
-                      e?.stopPropagation();
-                      handleDelete(task.id);
-                    }}
-                    okText={t('delete')}
-                    cancelText={t('cancel')}
-                    okButtonProps={{ danger: true }}
-                  >
-                    <Tooltip title={t('delete')}>
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </Tooltip>
-                  </Popconfirm>
-                }
-                className={selectedRowKeys.includes(task.id) ? 'ring-2 ring-blue-500' : ''}
-                onClick={() => setSelectedRowKeys([task.id])}
-                onDoubleClick={() => handleViewDetail(task.id)}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('return_rate')}</span>
-                    <span
-                      style={{
-                        color:
-                          task.total_return === undefined || task.total_return === null
-                            ? 'inherit'
-                            : task.total_return >= 0
-                              ? QUANT_COLORS.positive
-                              : QUANT_COLORS.negative,
-                        fontWeight: 'bold',
-                      }}
-                    >
-                      {task.total_return === undefined || task.total_return === null
-                        ? 'N/A'
-                        : `${task.total_return >= 0 ? '+' : ''}${task.total_return.toFixed(2)}%`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('max_drawdown')}</span>
-                    <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
-                      {task.max_drawdown === undefined || task.max_drawdown === null
-                        ? 'N/A'
-                        : `${task.max_drawdown.toFixed(2)}%`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('create_time')}</span>
-                    <span className="text-sm text-gray-600">{task.created_at}</span>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
-                    <Button
-                      type="link"
-                      size="small"
-                      icon={<IconEye size={14} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleViewDetail(task.id);
-                      }}
-                    >
-                      {t('view')}
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            </Col>
-          ))}
-        </Row>
-        <Row justify="center" style={{ marginTop: 16 }}>
-          <Pagination
-            current={currentPage}
-            pageSize={pageSize}
-            total={filteredDataSource.length}
-            showSizeChanger
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total_items', { total })}`}
-            onChange={(page, size) => {
-              // 条数变化写回全局配置，全站生效
-              setPageSize(size);
-              setPagination({
-                ...pagination,
-                current: page,
-                pageSize: size,
-              });
-            }}
-          />
-        </Row>
-      </>
-    );
+  // 工具栏计数「显示 x-y / 共 z」：按当前页与页大小折算，空数据归 0
+  const shownRange = (current: number, size: number, totalCount: number) => {
+    const start = totalCount === 0 ? 0 : (current - 1) * size + 1;
+    const end = Math.min(current * size, totalCount);
+    return t('shown_range', { start, end, total: totalCount });
   };
 
-  // 键盘导航处理
+  const hasFilters = searchText !== '' || statusFilter !== 'all';
+
+  // 渲染列表视图 — §6.5/§6.6/§6.7：chips 状态筛选 + DataTable + 脚注；行点击进详情
+  const renderListView = () => (
+    <>
+      <PageToolbar
+        search={{
+          value: searchText,
+          onChange: (value) => {
+            setSearchText(value);
+            // 点 clear 清空时同步重发服务端过滤，避免「界面已清、结果仍是旧过滤」；§6.6 过滤联动页码归 1
+            if (value === '') {
+              loadBacktestList({ keyword: '', page: 1 });
+            }
+          },
+          onPressEnter: (value) => loadBacktestList({ keyword: value, page: 1 }),
+          placeholder: t('search_backtest'),
+          ariaLabel: t('search_backtest'),
+        }}
+        filters={
+          <>
+            <div role="group" aria-label={t('filter_status')} style={{ display: 'contents' }}>
+              {STATUS_CHIPS.map((chip) => (
+                <button
+                  key={chip.value}
+                  type="button"
+                  className={`qc-ichip${statusFilter === chip.value ? ' qc-ichip-on' : ''}`}
+                  onClick={() => {
+                    setStatusFilter(chip.value);
+                    loadBacktestList({ status: chip.value, page: 1 });
+                  }}
+                >
+                  {t(chip.i18nKey)}
+                </button>
+              ))}
+            </div>
+            <Select
+              aria-label={t('sort_by')}
+              value={`${sortField}-${sortOrder}`}
+              onChange={(value) => {
+                const [field, order] = value.split('-');
+                setSortField(field as SortField);
+                setSortOrder(order as SortOrder);
+                loadBacktestList({ sortBy: field as SortField, sortOrder: order as SortOrder, page: 1 });
+              }}
+              style={{ width: 150 }}
+              options={[
+                { value: 'created_at-desc', label: t('sort_create_time_desc') },
+                { value: 'created_at-asc', label: t('sort_create_time_asc') },
+                { value: 'total_return-desc', label: t('sort_return_desc') },
+                { value: 'total_return-asc', label: t('sort_return_asc') },
+                { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
+                { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
+                { value: 'strategy_name-asc', label: t('backtest_sort_strategy_az') },
+                { value: 'strategy_name-desc', label: t('sort_name_desc') },
+              ]}
+            />
+          </>
+        }
+        count={shownRange(page, pageSize, total)}
+        actions={
+          <Button onClick={handleResetFilters}>{t('reset_filter')}</Button>
+        }
+      />
+      <DataTable<BacktestTask>
+        columns={columns}
+        dataSource={tasks}
+        loading={loading}
+        rowKey="id"
+        rowClassName={(record) => (record.id === selectedRowKey ? 'qc-row-selected' : '')}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          onChange: (pg, size) => {
+            // 条数变化写回全局配置，全站生效
+            if (size !== pageSize) setPageSize(size);
+            loadBacktestList({ page: pg, pageSize: size });
+          },
+        }}
+        remote
+        emptyTitle={hasFilters ? t('bt_no_match_title') : t('no_backtest_tasks')}
+        emptyDescription={hasFilters ? t('bt_no_match_desc') : t('bt_empty_desc')}
+        emptyAction={
+          hasFilters ? undefined : (
+            <button type="button" className="qc-mini-btn pri" onClick={handleStartBacktest}>
+              {t('launch_backtest')}
+            </button>
+          )
+        }
+        onRow={(record) => ({
+          onClick: () => {
+            setSelectedRowKey(record.id);
+            handleViewDetail(record.id);
+          },
+          style: { cursor: 'pointer' },
+        })}
+      />
+      <div className="qc-footnote">
+        <span>{t('bt_footnote')}</span>
+      </div>
+    </>
+  );
+
+  // 卡片视图 — 保留原结构，样式 token 化（触发服务端同页数据）
+  const renderCardView = () => (
+    <>
+      {tasks.length === 0 && !loading && (
+        <Card size="small">
+          <QcEmpty
+            title={hasFilters ? t('bt_no_match_title') : t('no_backtest_tasks')}
+            description={hasFilters ? t('bt_no_match_desc') : t('bt_empty_desc')}
+          />
+        </Card>
+      )}
+      <Row gutter={[16, 16]}>
+        {tasks.map((task) => (
+          <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
+            <Card
+              size="small"
+              title={
+                <div className="flex items-center justify-between">
+                  <span className="qc-mono font-medium truncate" style={{ maxWidth: '70%' }}>
+                    {task.strategy_name}
+                  </span>
+                  {renderStatusChip(task.status)}
+                </div>
+              }
+              extra={
+                // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
+                <Popconfirm
+                  title={t('confirm_delete_backtest')}
+                  description={t('delete_backtest_confirm')}
+                  onConfirm={(e) => {
+                    e?.stopPropagation();
+                    handleDelete(task.id);
+                  }}
+                  okText={t('delete')}
+                  cancelText={t('cancel')}
+                  okButtonProps={{ danger: true }}
+                  disabled={isGuest}
+                >
+                  <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete')}>
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      disabled={isGuest}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </Tooltip>
+                </Popconfirm>
+              }
+              className={selectedRowKey === task.id ? 'qc-card-selected' : ''}
+              onClick={() => setSelectedRowKey(task.id)}
+              onDoubleClick={() => handleViewDetail(task.id)}
+              style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
+            >
+              <div className="space-y-3" style={{ color: 'var(--qc-text-secondary)' }}>
+                <div className="flex justify-between items-center">
+                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('return_rate')}</span>
+                  {renderReturn(task.total_return)}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('max_drawdown')}</span>
+                  {renderDrawdown(task.max_drawdown)}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('bt_col_time')}</span>
+                  <span className="qc-cell-time qc-mono">{task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '—'}</span>
+                </div>
+                <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewDetail(task.id);
+                    }}
+                  >
+                    {t('view')}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+      <Row justify="center" style={{ marginTop: 16 }}>
+        <Pagination
+          current={page}
+          pageSize={pageSize}
+          total={total}
+          showSizeChanger
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          showTotal={(totalCount) => t('total_items', { total: totalCount })}
+          onChange={(pg, size) => {
+            // 分页事件下沉服务端重新拉取；条数变化写回全局配置
+            if (size !== pageSize) setPageSize(size);
+            loadBacktestList({ page: pg, pageSize: size });
+          }}
+        />
+      </Row>
+    </>
+  );
+
+  // 键盘导航（↑↓ 移动选中行、Enter 打开详情；删除必须走 Popconfirm，见历史雷区）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 只有在有选中行时才处理键盘事件
-      if (selectedRowKeys.length === 0) return;
+      // 输入控件内按键交给控件（搜索框里 Enter 是提交关键词，不能抢跑成「打开选中行详情」）
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+        return;
+      }
+      if (tasks.length === 0) return;
 
-      const currentIndex = filteredDataSource.findIndex(
-        (item) => item.id === selectedRowKeys[0]
-      );
-      if (currentIndex === -1) return;
+      const currentIndex = tasks.findIndex((item) => item.id === selectedRowKey);
 
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault();
           if (currentIndex > 0) {
-            const prevId = filteredDataSource[currentIndex - 1].id;
-            setSelectedRowKeys([prevId]);
+            setSelectedRowKey(tasks[currentIndex - 1].id);
+          } else if (currentIndex === -1) {
+            setSelectedRowKey(tasks[0].id);
           }
           break;
         case 'ArrowDown':
           e.preventDefault();
-          if (currentIndex < filteredDataSource.length - 1) {
-            const nextId = filteredDataSource[currentIndex + 1].id;
-            setSelectedRowKeys([nextId]);
+          if (currentIndex === -1) {
+            setSelectedRowKey(tasks[0].id);
+          } else if (currentIndex < tasks.length - 1) {
+            setSelectedRowKey(tasks[currentIndex + 1].id);
           }
           break;
         case 'Enter':
           e.preventDefault();
-          handleViewDetail(selectedRowKeys[0] as string);
-          break;
-        case 'Delete':
-          e.preventDefault();
-          // 显示确认弹窗
-          if (selectedRowKeys.length > 0) {
-            const taskId = selectedRowKeys[0] as string;
-            // 使用Modal.confirm或直接调用删除
-            handleDelete(taskId);
+          if (currentIndex !== -1) {
+            handleViewDetail(tasks[currentIndex].id);
           }
           break;
         default:
@@ -554,127 +569,32 @@ const BacktestList = () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [selectedRowKeys, filteredDataSource]);
-
-  // 渲染工具栏 - 优化小屏幕布局
-  const renderToolbar = () => (
-    <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索 */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={24}>
-          <Search
-            placeholder={t('search_backtest')}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            allowClear
-            style={{ width: '100%' }}
-          />
-        </Col>
-      </Row>
-
-      {/* 第二行：筛选工具（左） + 操作按钮（右） */}
-      <Row gutter={[12, 12]} align="middle">
-        {/* 筛选工具 - 左侧 */}
-        <Col xs={24} md={16} lg={14}>
-          <Row gutter={[8, 8]}>
-            <Col xs={8} sm={8} md={8}>
-              <Select
-                placeholder={t('filter_status')}
-                value={statusFilter}
-                onChange={setStatusFilter}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'all', label: t('all_status') },
-                  { value: 'completed', label: t('status_completed') },
-                  { value: 'running', label: t('status_running') },
-                  { value: 'failed', label: t('status_failed') },
-                  { value: 'pending', label: t('status_pending') },
-                ]}
-              />
-            </Col>
-            <Col xs={8} sm={8} md={8}>
-              <RangePicker
-                placeholder={[t('backtest_start_date'), t('backtest_end_date')]}
-                value={dateRange}
-                onChange={setDateRange}
-                style={{ width: '100%' }}
-              />
-            </Col>
-            <Col xs={8} sm={8} md={8}>
-              <Select
-                placeholder={t('filter_sort')}
-                value={`${sortField}-${sortOrder}`}
-                onChange={(value) => {
-                  const [field, order] = value.split('-');
-                  setSortField(field as SortField);
-                  setSortOrder(order as SortOrder);
-                }}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'created_at-desc', label: t('sort_create_time_desc') },
-                  { value: 'created_at-asc', label: t('sort_create_time_asc') },
-                  { value: 'total_return-desc', label: t('sort_return_desc') },
-                  { value: 'total_return-asc', label: t('sort_return_asc') },
-                  { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
-                  { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
-                  { value: 'strategy_name-asc', label: t('backtest_sort_strategy_az') },
-                  { value: 'strategy_name-desc', label: t('backtest_sort_strategy_za') },
-                ]}
-              />
-            </Col>
-          </Row>
-        </Col>
-
-        {/* 操作按钮 - 右侧 */}
-        <Col xs={24} md={8} lg={10}>
-          <Row gutter={[8, 8]}>
-            <Col xs={12}>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={handleResetFilters}
-                style={{ width: '100%' }}
-              >
-                {t('reset_filter')}
-              </Button>
-            </Col>
-            <Col xs={12}>
-              <Button
-                type="primary"
-                icon={<IconPlayerPlay size={16} />}
-                onClick={handleStartBacktest}
-                style={{ width: '100%' }}
-              >
-                {t('start_backtest')}
-              </Button>
-            </Col>
-          </Row>
-        </Col>
-      </Row>
-
-      {/* 筛选标签 */}
-      {(searchText || statusFilter !== 'all' || (dateRange && dateRange[0] && dateRange[1])) && (
-        <div style={{ marginTop: 12 }}>
-          <Space>
-            <FilterOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
-            {searchText && <Tag closable onClose={() => setSearchText('')}>{t('filter_search', { keyword: searchText })}</Tag>}
-            {statusFilter !== 'all' && <Tag closable onClose={() => setStatusFilter('all')}>{t('filter_status_label', { status: getStatusText(statusFilter) })}</Tag>}
-            {dateRange && dateRange[0] && dateRange[1] && (
-              <Tag closable onClose={() => setDateRange(null)}>
-                {t('filter_date_label', { start: dateRange[0].format('MM-DD'), end: dateRange[1].format('MM-DD') })}
-              </Tag>
-            )}
-          </Space>
-        </div>
-      )}
-    </div>
-  );
+  }, [selectedRowKey, tasks]);
 
   return (
-    <PageContainer title={t('strategy_backtest')}>
-      <Card>
-        {renderToolbar()}
-        {viewType === 'list' ? renderListView() : renderCardView()}
-      </Card>
+    <PageContainer
+      title={t('backtest_center')}
+      subtitle={t('bt_subtitle', { total: overallTotal })}
+      actions={
+        <>
+          <Button
+            type="primary"
+            onClick={handleStartBacktest}
+            style={{ height: 30, padding: '0 12px', fontSize: 12, fontWeight: 550 }}
+          >
+            {t('launch_backtest')}
+          </Button>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/home')}
+            style={{ height: 30, padding: '0 12px', fontSize: 12 }}
+          >
+            {t('back_to_home')}
+          </Button>
+        </>
+      }
+    >
+      {viewType === 'list' ? renderListView() : renderCardView()}
     </PageContainer>
   );
 };

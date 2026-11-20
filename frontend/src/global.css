@@ -591,7 +591,7 @@ html body {
   gap: 4px;
   font-size: 10px;
   line-height: 1;
-  padding: 2px 7px;
+  padding: 3px 7px;
   border-radius: 20px;
   border: 1px solid transparent;
   white-space: nowrap;
@@ -1028,6 +1028,68 @@ ul.qc-pagination li.ant-pagination-jump-prev,
 ul.qc-pagination li.ant-pagination-jump-next {
   pointer-events: none;
   cursor: default;
+}
+
+/* ---- §6.6 状态过滤 chips（demo .ichip：26px / 13px 圆角 / 11.5px；选中主色 tint） ---- */
+.qc-ichip {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 13px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qc-ichip:hover:not(.qc-ichip-on) {
+  color: var(--qc-text);
+  border-color: var(--qc-border-strong);
+}
+
+.qc-ichip.qc-ichip-on,
+.qc-ichip:disabled.qc-ichip-on {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+  font-weight: 550;
+}
+
+/* ---- 单元格数值色（§6.5 收益正绿 / 负红；空值走弱文本） ---- */
+.qc-cell-up {
+  color: var(--qc-success);
+}
+
+.qc-cell-down {
+  color: var(--qc-error);
+}
+
+/* 空值「—」与卡片口径一致：fg-4 弱文本 */
+.qc-cell-none {
+  color: var(--qc-text-quaternary);
+}
+
+/* ---- 列表脚注（demo .card-foot 口径：虚线上边 + 10.5px fg-4 + mono code） ---- */
+.qc-footnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-footnote code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--qc-text-tertiary);
 }
 
 /* 系统状态指示器 */

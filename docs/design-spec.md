@@ -266,7 +266,8 @@ font-variant-numeric: tabular-nums;
 ### 6.6 工具栏 `.toolbar`
 
 - `display:flex; gap:8px; margin:0 0 12px;` 搜索框 `.tsearch`：`height:32px; width:min(240px,58vw); border-radius:8px;` 占位 `fg-4`、mono 提示。
-- 状态过滤 chips：与 `.chip` 同款，选中态主色 tint；右侧 `.r-count`（11px `fg-4`）「显示 x-y / 共 z」。
+- 状态过滤 chips `.ichip`（与表格内 `.chip` 是两个原语，不要混用）：`display:inline-flex; align-items:center; height:26px; padding:0 11px; border-radius:13px; border:1px solid var(--bd); background:var(--bgc); color:var(--fg-2); font-size:11.5px;` hover `fg` + `bd-2`；`.on`：主色字 + `primary 45%` 边 + `primary 9%` 底 + 550 字重。
+- 右侧 `.r-count`（11px `fg-4` mono）「显示 x-y / 共 z」。
 - 过滤与分页联动：过滤后页码归 1。
 
 ### 6.7 分页 `.pg-bar`
