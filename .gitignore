@@ -92,6 +92,9 @@ docs/*
 !docs/testing/
 # 主题系统维护者指南（settings.md / 测试文档引用）必须入库
 !docs/theme.md
+# 前端设计规范 + 像素基准 demo（check-spec.mjs 守护一致性）必须入库
+!docs/design-spec.md
+!docs/design/
 docs/compose/specs/*
 .mimocode/
 .mimocode/plans/
