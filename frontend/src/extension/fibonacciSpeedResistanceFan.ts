@@ -14,6 +14,10 @@
 
 import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
+// 离散豁免：扇形射线的灰色是装饰色，与 palette 语义槽位（chartMark #9ca3af 等）
+// 不等值，保留原值、集中到模块顶部便于后续并入离散调色板。
+const RAY_STROKE = '#6C757D'
+
 const fibonacciSpeedResistanceFan: OverlayTemplate = {
   name: 'fibonacciSpeedResistanceFan',
   totalStep: 2,
@@ -54,7 +58,7 @@ const fibonacciSpeedResistanceFan: OverlayTemplate = {
           attrs: { coordinates: rayLine },
           styles: {
             style: 'stroke',
-            stroke: '#6C757D',
+            stroke: RAY_STROKE,
             strokeOpacity: 0.8,
             strokeDasharray: '5,5'
           }
@@ -70,7 +74,7 @@ const fibonacciSpeedResistanceFan: OverlayTemplate = {
             text: `${(level * 100).toFixed(0)}%`
           },
           styles: {
-            textFill: '#6C757D',
+            textFill: RAY_STROKE,
             fontSize: 10,
             textAlign: 'start',
             textBaseline: 'middle'

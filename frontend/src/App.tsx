@@ -19,6 +19,7 @@ import { RESEARCH_BUDGET_EXHAUSTED_STAGE, researchWsService } from './services/r
 import type { InboxNotificationItem } from './api';
 import { taskNotificationRoute } from './utils/taskRoutes';
 import { PluginProvider } from './plugins';
+import { applyThemeVars, paletteToTradingToken } from './theme';
 import './i18n/config';
 import './global.css';
 import './index.css';
@@ -62,11 +63,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 监听主题变化
+    // 监听主题变化：.dark class 是模式开关的唯一真相（index.html 首帧脚本 / useBrowserTheme / 设置页都改它），
+    // 任一路径触发时同步重写 CSS 变量 + 通知 React 侧 isDarkMode
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.attributeName === 'class') {
           const isDark = document.documentElement.classList.contains('dark');
+          applyThemeVars(isDark ? 'dark' : 'light');
           setIsDarkMode(isDark);
         }
       });
@@ -80,46 +83,13 @@ function App() {
     return () => observer.disconnect();
   }, []);
 
-  // ponytail: 量化交易语义色，集中在 ConfigProvider token 里作为单一真相源。
-  // 各组件（QUANT_COLORS、ECharts、MetricCard）通过 theme.useToken() 取色，
-  // 禁止在子组件里硬编码 QUANT_COLORS.positive / QUANT_COLORS.negative / QUANT_COLORS.info 等 antd v5 风格颜色。
-  const tradingToken = useMemo(() => (isDarkMode
-    ? {
-        // 暗色模式
-        colorPrimary: '#f97316',
-        colorInfo: '#478be6',
-        colorSuccess: '#57ab5a',   // 正收益 / 盈利
-        colorWarning: '#daaa3f',
-        colorError: '#e5534b',     // 负收益 / 亏损
-        colorBgBase: '#17191c',
-        colorTextBase: '#fafaf9',
-        // Chart/ECharts 专用
-        colorChartLine: '#478be6',
-        colorChartAxis: '#4b5563',
-        colorChartSplit: '#374151',
-        colorChartMark: '#9ca3af',
-        colorChartGradientStart: 'rgba(71, 139, 230, 0.35)',
-        colorChartGradientEnd: 'rgba(71, 139, 230, 0.04)',
-        colorDrawdownArea: 'rgba(229, 83, 75, 0.18)',
-      }
-    : {
-        // 亮色模式
-        colorPrimary: '#ea580c',
-        colorInfo: '#0969da',
-        colorSuccess: '#1a7f37',
-        colorWarning: '#eac54f',
-        colorError: '#d1242f',
-        colorBgBase: '#ffffff',
-        colorTextBase: '#141414',
-        // Chart/ECharts 专用
-        colorChartLine: '#0969da',
-        colorChartAxis: '#d1d5db',
-        colorChartSplit: '#e5e7eb',
-        colorChartMark: '#9ca3af',
-        colorChartGradientStart: 'rgba(9, 105, 218, 0.25)',
-        colorChartGradientEnd: 'rgba(9, 105, 218, 0.02)',
-        colorDrawdownArea: 'rgba(209, 36, 47, 0.12)',
-      }), [isDarkMode]);
+  // ponytail: 交易语义色一切以 src/theme/palettes.ts 为准（品牌色唯一真相源）。
+  // 这里只做 palette → antd token 的渠道映射；各组件（QUANT_COLORS、ECharts、MetricCard）
+  // 通过 theme.useToken() / useQuantColors() 取色，禁止在子组件里硬编码颜色值。
+  const tradingToken = useMemo(
+    () => paletteToTradingToken(isDarkMode ? 'dark' : 'light'),
+    [isDarkMode],
+  );
 
   // 静态方法主题桥接：message/notification/Modal 的静态调用通过独立 render 创建弹窗 DOM，
   // 不消费 React 树内 ConfigProvider 的动态主题（dev 下会报

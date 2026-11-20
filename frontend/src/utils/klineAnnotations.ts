@@ -33,6 +33,9 @@ interface AnnotationData {
 }
 
 // 可扩展的颜色配置
+// 离散豁免：这些注解气泡色与 palette 语义槽位均不等值（success #1a7f37 / error #d1242f /
+// info #0969da / chartMark #9ca3af），迁移会改 canvas 像素，故保留原字面量。
+// 后续若要跟随主题，应先在 palettes.ts 增加「注解气泡」专用槽位，再整体替换。
 const COLOR_CONFIG = {
   buy: '#26a666ff', // 多单绿色
   sell: '#ff0400ff', // 空单红色
@@ -41,6 +44,9 @@ const COLOR_CONFIG = {
   border: '#1e88e5', // 边框色
   line: '#bdbdbd' // 连接线色
 }
+
+// 纯文本注解的字色兜底（非 palette.foreground #141414，离散豁免：气泡内字色）
+const PLAIN_TEXT_COLOR = '#000000'
 
 // 颜色切换映射（用于快速转换）- 用于绿色与红色的快速转换功能
 const COLOR_SWITCH_MAP = {
@@ -89,7 +95,7 @@ const jsonAnnotation: OverlayTemplate = {
           // 如果不是有效的JSON，作为普通文本处理
           jsonData = { 
             lines: [extendData], 
-            colors: ['#000000'], 
+            colors: [PLAIN_TEXT_COLOR], 
             fontSize: 12,
             align: 'center',
             type: 'default'
@@ -105,7 +111,7 @@ const jsonAnnotation: OverlayTemplate = {
           } catch {
             jsonData = { 
               lines: [result], 
-              colors: ['#000000'], 
+              colors: [PLAIN_TEXT_COLOR], 
               fontSize: 12,
               align: 'center',
               type: 'default'

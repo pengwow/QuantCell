@@ -15,6 +15,8 @@
   --bg-tertiary: var(--tw-color-border-secondary);
   --bg-card: var(--tw-color-background);
   --bg-hover: var(--tw-color-border-secondary);
+  /* ponytail: 选中底仍是迁移前 antd 蓝的 8% 淡染，palette 主色为橙；
+     换成 --qc-primary 会改变亮色观感（蓝→橙），按像素守恒保留，待品牌确认 */
   --bg-active: rgba(74, 108, 247, 0.08);
 
   /* 文字色 */
@@ -29,7 +31,7 @@
   /* 主色调 */
   --primary-color: var(--tw-color-primary);
   --primary-color-hover: color-mix(in srgb, var(--tw-color-primary) 85%, var(--tw-color-foreground));
-  --primary-color-light: rgba(74, 108, 247, 0.1);
+  --primary-color-light: rgba(74, 108, 247, 0.1); /* 同上：旧蓝主色淡层，focus ring 用 */
 
   /* 状态色 */
   --success-color: var(--tw-color-success);
@@ -71,11 +73,9 @@
   --transition-slow: 300ms ease;
 }
 
-/* 暗色模式变量覆盖（token 在 .dark 下自动换挡，仅保留提升层次的覆盖） */
+/* 暗色模式变量覆盖：token 在 .dark 下自动换挡，故只保留真正需要分模式的两项
+   （选中底透明度、卡片阴影深度），其余声明与 :root 完全一致（已收敛删除） */
 .dark {
-  --bg-secondary: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --bg-tertiary: var(--tw-color-border-secondary);
-  --bg-hover: var(--tw-color-border-secondary);
   --bg-active: rgba(74, 108, 247, 0.15);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
 }

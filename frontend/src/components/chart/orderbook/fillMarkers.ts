@@ -16,6 +16,8 @@ export interface FillPoint {
   source: 'backtest' | 'live';
 }
 
+// 离散豁免：成交标记用高饱和绿/红（Material 亮色），在深/浅两种 K 线底上都要够跳；
+// 与 palette success/error（#1a7f37 / #d1242f）不等值，迁过去会改渲染像素，故保留字面量。
 const BUY_COLOR = '#00E676';
 const SELL_COLOR = '#FF5252';
 

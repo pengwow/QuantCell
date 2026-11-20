@@ -42,6 +42,7 @@ import {
 } from '../../utils/priceChartTransforms';
 import { getAccessToken } from '../../utils/tokenManager';
 import { QUANT_COLORS } from '@/utils/colors';
+import { getPalette } from '@/theme';
 import { builtInIndicators, type Indicator, type ActiveIndicator, type IndicatorParams } from '../../hooks/useIndicators';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
@@ -102,6 +103,8 @@ const CANDLE_TYPE_TO_NATIVE: Record<string, CandleStyle['type']> = {
 const DERIVED_PRICE_TYPES = new Set(['heikin_ashi', 'hlc_area', 'renko', 'range']);
 
 // v10 默认 area 渐变背景（klinecharts 内置 Color.BLUE 派生，离开纯线形时按此值恢复渐变）
+// 离散豁免：这是 klinecharts 引擎自身的默认蓝 rgba(22,119,255)，不是 palette 槽位
+// （chartLine/colorInfo 亮色为 #0969da），改走主题会改变线形图面积色的色相 → 保持字面量。
 const AREA_DEFAULT_BG = [
   { offset: 0, color: 'rgba(22, 119, 255, 0.01)' },
   { offset: 1, color: 'rgba(22, 119, 255, 0.2)' },
@@ -1007,7 +1010,9 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   const getScreenshotUrl = useCallback(() => {
     const chart = chartInstanceRef.current;
     if (!chart) return '';
-    const backgroundColor = document.documentElement.classList.contains('dark') ? '#151517' : '#ffffff';
+    const isDark = document.documentElement.classList.contains('dark');
+    // 底色走 palette 语义槽位（亮 #ffffff / 暗 #151517，与迁移前字面量等值）
+    const backgroundColor = getPalette(isDark ? 'dark' : 'light').chartScreenshotBg;
     return chart.getConvertPictureUrl(true, 'jpeg', backgroundColor);
   }, []);
 

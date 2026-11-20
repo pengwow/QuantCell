@@ -36,6 +36,16 @@
 | S9 | 改语言下拉为 English | 界面文案立即切英文并提示「语言已切换」；`localStorage.quantcell-language` 变为 `en-US`。切回中文；**注意**语言在点保存前就已持久化到本地（见雷区"语言/主题在保存前就持久化"） | L2 |
 | S10 | 点「重置」 | 提示「配置已重置」，控件回到默认值；但 `POST /api/v1/config/batch` **未**发出 → 刷新页面后会回到后端里的旧配置。此条为预期行为（见雷区「重置只改前端，提示却像已生效」），判"提示有、落库无" | L2 |
 
+## 主题体系（全局，面向维护者；详见 docs/theme.md）
+
+| # | 操作 | 预期（可观测信号） | 层级 |
+|---|---|---|---|
+| T1 | 按浏览器/系统切换亮暗（浅色/暗黑/自动，见 S6-S8） | 页面底色、卡片、文字、边框、按钮、状态点全站联动变主题；`document.documentElement.style` 上有整套 `--qc-*` 与 `--tw-color-*` 变量（DevTools 查） | L1 |
+| T2 | 暗色模式下整页刷新 | 首帧即暗（白色闪屏不可见）：index.html 内联脚本锁 `dark` class + 兜底底色，main.tsx 渲染前注入调色板 | L1 |
+| T3 | 品牌改色冒烟（docs/theme.md 路径） | 改 `frontend/src/theme/palettes.ts` 某槽位（如 primary）→ `bun run test -- src/theme/theme.test.ts` 全绿 → 刷新页面，antd 组件/CSS/图表对应色全站生效，业务组件零改动 | L2（按需） |
+| T4 | theme.test.ts 守卫回归 | 以下任一情形测试红灯：global.css/index.css 出现颜色字面量；index.html 首帧兜底底色与 palettes.ts 不同步；ACTIVE_THEME_ID 写成未注册主题 | L1 |
+| T5 | 主题包导入链（docs/theme.md 路径 B） | `bun scripts/theme-import.mjs export → 改 json → import <id>.json → use <id> → theme.test 全绿 → 构建生效 → use default 回滚`；非法包（缺字段/色值错）在 import 时被逐项拒绝 | L2（按需） |
+
 ## 环境变量（/setting/env）
 
 | # | 操作 | 预期（可观测信号） | 层级 |
@@ -108,6 +118,8 @@
 | S41 | 浏览器链路直接访问 `/setting/desktop-backend` | 菜单无此入口但 URL 可达；卡片骨架渲染，状态标签显示「未知」/无「当前地址」（浏览器无 Tauri 桥，`invoke` 不可用）。**这不算失败**，如实记录；不要在浏览器上点「保存并切换」（会整页重载走引导） | L1 |
 
 ## 历史雷区
+- **主题体系重构（2026-11-20，docs/theme.md）**：全部品牌色收编进 `frontend/src/theme/palettes.ts`（唯一真相源），antd/CSS/canvas 三渠道自动同步；`theme.test.ts` 守卫（global.css 零字面量等）。回归点：亮暗切换全站联动（T1）、暗色首帧不闪白（T2）。遗留待砍：backtest.css 里迁移前的 antd 蓝选中/悬浮底（`rgba(74,108,247,*)`/`rgba(24,144,255,*)`，与橙色品牌现已不一致——** anci 行为保留**，换 `--qc-primary` 属视觉变更需单独拍板）；backtest 进度弹窗的 tint/边框/渐变、`#faad14`、行高亮 `#fff7e6/#ffe7ba` 等五处不等值字面量集中待 palette 补槽位后二次迁移。
+- **ModelObsPanel 的 `var(--text-hint, #999)` 假变量（已修）**：该 CSS 变量从未定义，fallback 恒生效，形似语义化实为硬编码；已改接 `--qc-text-tertiary`。写 `var(--x, fallback)` 前先确认变量真的有人定义。
 - **启动横幅不再阻塞 + onedir 提速（2026-11-20 改）**：双管齐下。① 桌面引导改为**立即进 UI**，后端未就绪时各页以离线态渲染；后端 `/health` 就绪后自动整页刷新一次（`sessionStorage: qc_boot_reloaded_once` 防循环，手动重启场景靠"刷新后首探即健康则清标志"复用）。② sidecar 从 PyInstaller onefile 改 **onedir**（`binaries/backend/` 整目录 → `.app/Contents/Resources/backend/`，`backend.rs` 直启），免每次自解压 ~250MB；matplotlib 字体缓存钉持久目录。实测（Resource 后端直测）：旧 onefile 每次 45-70s → 新 **热启动 ~2.4s / 装后冷首启 ~15s（一次性）**；GUI 界面 <2s 可见。桌面验证回归点：冷启动 app 界面秒现；后端就绪后数据自动出现（热启 ~10s 内）；预热窗口内只一次自动刷新
 - **构建环境雷：外置盘 Spotlight 索引会让打包龟速（2026-11-20）**：`/Volumes/ExtDisk` 索引开启 + 大量构建产物触发 `mds_stores` 全量索引（84% CPU），PyInstaller 从健康 176s 拖到 >60min×5 轮。构建卡死先查 `mdutil -s /Volumes/ExtDisk`，关索引 `mdutil -i off /Volumes/ExtDisk`（无需 sudo）立恢复（实测关后 122s 完成）
 - **升级/重装丢历史数据（已根治，桌面 sidecar 全量路径收编）**：打包 sidecar 是 PyInstaller onefile，`__file__` 位于每次启动重新解压的临时目录。此前 K线源数据、策略 .py、已装插件、agent 工作区、因子快照、日志、LLM 录制等凡按模块相对路径写入的，**重启/升级即蒸发**（DB/模型库本就落 app_data_dir 不受影响）。已统一经 `utils/paths.get_persistent_dir` 落 `QUANTCELL_DATA_DIR`（守护测试 `backend/tests/unit/test_persistent_paths.py`）。桌面验证回归点：升级替换 .app 后旧 worker/策略/K线数据应仍在

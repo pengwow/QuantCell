@@ -48,51 +48,13 @@
   --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
 }
 
-/* 亮色/暗色共用同一组 token 表达式，.dark 下变量自动换挡，仅保留结构占位 */
+/* 亮色/暗色共用同一组 token 表达式：.dark 下变量自动换挡，故此处只保留
+   「弱化文字混色比例」三档分模式微调，其余声明与 :root 完全一致（已收敛删除） */
 .dark {
-  /* 暗色模式 - Agent 页面专用变量（与亮色共享 token，无需重复调色） */
-  --agent-bg: var(--tw-color-background);
-  --agent-header-bg: var(--tw-color-background);
-  --agent-header-border: var(--tw-color-border-secondary);
-  --agent-input-bg: var(--tw-color-background);
-  --agent-input-border: var(--tw-color-border-secondary);
-
-  /* 消息气泡 */
-  --message-bg: var(--tw-color-background);
-  --message-user-bg: var(--tw-color-info);
-  --message-user-color: #ffffff; /* O2: 特殊装饰色，保留（同上） */
-  --message-tool-bg: color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background));
-  --message-tool-border: color-mix(in srgb, var(--tw-color-success) 40%, var(--tw-color-background));
-  --message-error-bg: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
-  --message-error-border: color-mix(in srgb, var(--tw-color-error) 40%, var(--tw-color-background));
-
-  /* 文字颜色 */
-  --text-primary: var(--tw-color-foreground);
+  /* 文字颜色：暗底上提高次级/弱化文字的对比度 */
   --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
   --text-muted: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
   --text-hint: color-mix(in srgb, var(--tw-color-foreground) 38%, var(--tw-color-background));
-
-  /* 边框和分隔线 */
-  --border-color: var(--tw-color-border-secondary);
-  --border-light: var(--tw-color-border-secondary);
-  --border-lighter: var(--tw-color-background);
-
-  /* 交互状态 */
-  --hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
-  --active-color: var(--tw-color-info);
-
-  /* 工具面板 */
-  --tool-panel-bg: var(--tw-color-background);
-  --tool-item-bg: var(--tw-color-background);
-  --tool-item-border: var(--tw-color-border-secondary);
-  --tool-item-hover-border: var(--tw-color-border);
-  --param-row-bg: var(--tw-color-background);
-  --param-row-hover-bg: color-mix(in srgb, var(--tw-color-info) 6%, var(--tw-color-background));
-
-  /* 会话列表 */
-  --session-hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
 }
 
 /* ==================== 布局容器 ==================== */
@@ -618,10 +580,6 @@
   background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
 }
 
-.dark .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
-  background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
-}
-
 /* 删除确认 Modal */
 .delete-confirm-modal .ant-modal-header {
   border-bottom: 1px solid var(--message-error-border);
@@ -824,13 +782,9 @@
   border-left-color: var(--active-color);
 }
 
-/* 敏感参数特殊样式 */
+/* 敏感参数特殊样式（浅底由 warning token 混出，亮暗同一表达式） */
 .param-row:has(.anticon-lock-unfilled) {
   border-left-color: var(--tw-color-warning);
-  background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
-}
-
-.dark .param-row:has(.anticon-lock-unfilled) {
   background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
 }
 

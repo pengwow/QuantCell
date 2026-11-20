@@ -16,6 +16,11 @@ import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
 import { calculateFibonacciExtensions } from './utils'
 
+// 离散豁免：斐波那契工具的水平线灰与主趋势珊瑚红是装饰色，与 palette 语义槽位
+// （chartMark #9ca3af / error #d1242f 等）均不等值，保留原值、集中到模块顶部便于后续并入离散调色板。
+const LEVEL_STROKE = '#6C757D'
+const TREND_STROKE = '#FF6B6B'
+
 const fibonacciExtension: OverlayTemplate = {
   name: 'fibonacciExtension',
   totalStep: 3,
@@ -45,7 +50,7 @@ const fibonacciExtension: OverlayTemplate = {
           },
           styles: {
             style: 'stroke',
-            stroke: '#6C757D',
+            stroke: LEVEL_STROKE,
             strokeOpacity: 0.8,
             strokeDasharray: '5,5'
           }
@@ -60,7 +65,7 @@ const fibonacciExtension: OverlayTemplate = {
             text: `${levels[index] === 0 ? '0' : levels[index]}`
           },
           styles: {
-            textFill: '#6C757D',
+            textFill: LEVEL_STROKE,
             fontSize: 10,
             textAlign: 'start',
             textBaseline: 'middle'
@@ -76,7 +81,7 @@ const fibonacciExtension: OverlayTemplate = {
         },
         styles: {
           style: 'stroke',
-          stroke: '#FF6B6B',
+          stroke: TREND_STROKE,
           strokeOpacity: 0.8
         }
       })

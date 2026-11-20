@@ -64,7 +64,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
         >
           <Row gutter={[24, 16]}>
             <Col xs={24} sm={12} md={8}>
-              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                 <Descriptions.Item label={t('strategy_name')}>
                   <Tag color="blue">{worker.strategy_info.name}</Tag>
                 </Descriptions.Item>
@@ -72,7 +72,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             </Col>
 
             <Col xs={24} sm={12} md={8}>
-              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                 <Descriptions.Item label={t('strategy_type')}>
                   {/* 值域对齐策略库 models（rule/rl）；'default' 为无关联策略时的兜底档，未知值归默认 */}
                   <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'rl' ? 'purple' : 'green'}>
@@ -87,7 +87,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             </Col>
 
             <Col xs={24} sm={12} md={8}>
-              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                 <Descriptions.Item label={t('strategy_version')}>
                   <span style={{ fontWeight: 500 }}>v{worker.strategy_info.version}</span>
                 </Descriptions.Item>
@@ -96,7 +96,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
 
             {worker.strategy_info.description && (
               <Col span={24}>
-                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                   <Descriptions.Item label={t('strategy_description')}>
                     <span>{worker.strategy_info.description}</span>
                   </Descriptions.Item>
@@ -145,7 +145,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
 
               return (
                 <Col key={param.param_name} xs={24} sm={12} md={8}>
-                  <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                  <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                     <Descriptions.Item
                       label={
                         <Space size={4}>
@@ -176,7 +176,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           <Row gutter={[24, 16]}>
             {Object.entries(currentStrategyParams).map(([key, value]) => (
               <Col key={key} xs={24} sm={12} md={8}>
-                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                   <Descriptions.Item label={key}>
                     <span style={{ fontWeight: 500 }}>{String(value)}</span>
                   </Descriptions.Item>
@@ -185,7 +185,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
             ))}
           </Row>
         ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--qc-text-tertiary)' }}>
             <Tag>{t('no_configurable_params')}</Tag>
           </div>
         )}

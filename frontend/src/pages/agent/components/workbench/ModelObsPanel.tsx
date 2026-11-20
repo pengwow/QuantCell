@@ -74,7 +74,7 @@ export default function ModelObsPanel({ row }: { row: UnifiedModelRow }) {
   const rewardTextVal = rewardText(rewardTerms);
   const costText = typeof txnCost === 'number' && Number.isFinite(txnCost) ? `${txnCost}（${(txnCost * 100).toFixed(3).replace(/\.?0+$/, '')}%）` : null;
 
-  const dash = <span style={{ color: 'var(--text-hint, #999)' }}>—</span>;
+  const dash = <span style={{ color: 'var(--qc-text-tertiary)' }}>—</span>;
   const oosItem = (() => {
     if (oos == null || typeof oos !== 'object') return dash;
     if (oos.evaluable !== true) return <span>{t('wb_meta_oos_evaluable_false')}</span>;
@@ -127,7 +127,7 @@ export default function ModelObsPanel({ row }: { row: UnifiedModelRow }) {
                     {f}
                   </Tag>
                 ))}
-                <span style={{ color: 'var(--text-hint, #999)', fontSize: 12 }}>
+                <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>
                   {t('wb_meta_label_features_count', { n: featuresText.length })}
                 </span>
               </>

@@ -38,6 +38,16 @@ export const builtInIndicators = [
   { id: 'kdj', name: 'KDJ (随机指标)', shortName: 'KDJ', type: 'line', defaultParams: { k: 9, d: 3, j: 3 } }
 ];
 
+// 默认指标模板的多系列调色板（候选并入 theme 离散调色板：无语义、纯视觉可辨）。
+// 目前 palette 的 chartSeries 是后端返回值里使用的一套，这份模板文案仍保持自身配色，
+// 故保留字面量并集中到模块顶部，便于后续统一。
+const TEMPLATE_PLOT_COLORS = {
+  fast: '#1890ff',
+  slow: '#ff7a45',
+  buy: '#00E676',
+  sell: '#FF5252',
+} as const;
+
 // 默认指标代码模板
 export const defaultIndicatorCode = `# 指标代码示例
 # 注意: pd, np, math, df 已预置在执行环境中，无需 import
@@ -57,12 +67,12 @@ sell = (sma_short < sma_long) & (sma_short.shift(1) >= sma_long.shift(1))
 output = {
     "name": my_indicator_name,
     "plots": [
-        {"name": "SMA5", "data": sma_short.tolist(), "color": "#1890ff", "overlay": True},
-        {"name": "SMA20", "data": sma_long.tolist(), "color": "#ff7a45", "overlay": True}
+        {"name": "SMA5", "data": sma_short.tolist(), "color": "${TEMPLATE_PLOT_COLORS.fast}", "overlay": True},
+        {"name": "SMA20", "data": sma_long.tolist(), "color": "${TEMPLATE_PLOT_COLORS.slow}", "overlay": True}
     ],
     "signals": [
-        {"type": "buy", "text": "B", "data": buy.tolist(), "color": "#00E676"},
-        {"type": "sell", "text": "S", "data": sell.tolist(), "color": "#FF5252"}
+        {"type": "buy", "text": "B", "data": buy.tolist(), "color": "${TEMPLATE_PLOT_COLORS.buy}"},
+        {"type": "sell", "text": "S", "data": sell.tolist(), "color": "${TEMPLATE_PLOT_COLORS.sell}"}
     ]
 }
 `;

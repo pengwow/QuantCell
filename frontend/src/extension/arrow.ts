@@ -17,6 +17,10 @@ import { utils } from 'klinecharts'
 
 import { getRotateCoordinate } from './utils'
 
+// 离散豁免：箭头工具的珊瑚红描边是装饰色，与 palette 语义槽位
+// （error #d1242f 等）不等值，保留原值、集中到模块顶部便于后续并入离散调色板。
+const ARROW_STROKE = '#FF6B6B'
+
 const arrow: OverlayTemplate = {
   name: 'arrow',
   totalStep: 3,
@@ -45,7 +49,7 @@ const arrow: OverlayTemplate = {
           attrs: { coordinates },
           styles: {
             style: 'stroke',
-            stroke: '#FF6B6B',
+            stroke: ARROW_STROKE,
             strokeOpacity: 0.9,
             strokeWidth: 2
           }
@@ -56,7 +60,7 @@ const arrow: OverlayTemplate = {
           attrs: { coordinates: [rotateCoordinate1, coordinates[1], rotateCoordinate2] },
           styles: {
             style: 'stroke',
-            stroke: '#FF6B6B',
+            stroke: ARROW_STROKE,
             strokeOpacity: 0.9,
             strokeWidth: 2
           }

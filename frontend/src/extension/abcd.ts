@@ -14,6 +14,10 @@
 
 import type { OverlayTemplate } from 'klinecharts'
 
+// 离散豁免：形态（ABCD）三角形的橙色描边/填充是装饰色，与 palette 语义槽位
+// （primary #ea580c / error #d1242f 等）均不等值，保留原值、集中到模块顶部便于后续并入离散调色板。
+const PATTERN_FILL = '#FFA500'
+
 const abcd: OverlayTemplate = {
   name: 'abcd',
   totalStep: 4,
@@ -34,10 +38,10 @@ const abcd: OverlayTemplate = {
           },
           styles: {
             style: 'stroke_fill',
-            stroke: '#FFA500',
+            stroke: PATTERN_FILL,
             strokeOpacity: 0.8,
             strokeWidth: 1,
-            fill: '#FFA500',
+            fill: PATTERN_FILL,
             fillOpacity: 0.2
           }
         }

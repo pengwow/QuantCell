@@ -4,6 +4,7 @@
  * 在非Tauri环境下显示默认的字母图标
  */
 import React, { useState, useEffect } from "react";
+import { theme } from "antd";
 
 // 使用Vite环境变量检测是否为Tauri打包环境
 const isTauri = import.meta.env.VITE_IS_TAURI == '1' || import.meta.env.VITE_IS_TAURI == 'true';
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function TokenDisplay({ symbol, size = 32, style }: Props) {
+  const { token } = theme.useToken();
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -87,7 +89,7 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
           height: `${size}px`,
           borderRadius: "50%",
           backgroundColor: bgColor,
-          color: "white",
+          color: "white", // 底色为 hash 生成的高饱和 hsl，白字是固定对比度语义（palette 暂无 inverse 槽位）
           fontSize: `${size * 0.6}px`,
           display: "flex",
           alignItems: "center",
@@ -110,13 +112,13 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
           width: `${size}px`,
           height: `${size}px`,
           borderRadius: "50%",
-          backgroundColor: "#f0f0f0",
+          backgroundColor: token.colorFillSecondary,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontWeight: "bold",
           fontSize: `${size * 0.6}px`,
-          color: "#999",
+          color: 'var(--qc-text-tertiary)',
           ...style
         }}
       >

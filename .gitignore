@@ -90,6 +90,8 @@ docs/*
 !docs/en/
 # 功能验证文档体系（文档即测试，check-coverage 闸门基准）必须入库
 !docs/testing/
+# 主题系统维护者指南（settings.md / 测试文档引用）必须入库
+!docs/theme.md
 docs/compose/specs/*
 .mimocode/
 .mimocode/plans/

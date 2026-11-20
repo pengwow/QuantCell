@@ -110,11 +110,11 @@ const WorkerRiskControlCard: React.FC<WorkerRiskControlCardProps> = ({ workerId,
           <Tag icon={<CodeOutlined />} color="processing">{t('loading')}</Tag>
         </div>
       ) : risk === null ? (
-        <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
+        <div style={{ textAlign: 'center', padding: 30, color: 'var(--qc-text-tertiary)' }}>
           {t('worker_risk_inherit_strategy')}
         </div>
       ) : !risk.enabled ? (
-        <div style={{ textAlign: 'center', padding: 30, color: '#999' }}>
+        <div style={{ textAlign: 'center', padding: 30, color: 'var(--qc-text-tertiary)' }}>
           {t('worker_risk_guard_disabled')}
         </div>
       ) : (
@@ -124,7 +124,7 @@ const WorkerRiskControlCard: React.FC<WorkerRiskControlCardProps> = ({ workerId,
             const v = risk[key];
             return (
               <Col key={key} xs={24} sm={12} md={8}>
-                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                   <Descriptions.Item label={t(label)}>
                     {v === null || v === undefined ? (
                       // 未配置 → 引擎默认档：保持原染色警示，感叹号悬浮展示具体默认值
@@ -136,6 +136,8 @@ const WorkerRiskControlCard: React.FC<WorkerRiskControlCardProps> = ({ workerId,
                       >
                         {t('worker_risk_engine_default')}
                         <Tooltip title={t('worker_risk_engine_default_tooltip', { value: t(engineDefault) })}>
+                          {/* 提示图标：现值为 antd gold-6 (#faad14)，与 palette warning (#eac54f) 不等值，
+                            * 换 token 会改变亮色渲染；候选 palette 补「警示图标色」槽位后派生 */}
                           <ExclamationCircleOutlined
                             style={{ marginLeft: 4, fontSize: 12, color: '#faad14', cursor: 'help' }}
                           />
@@ -157,9 +159,9 @@ const WorkerRiskControlCard: React.FC<WorkerRiskControlCardProps> = ({ workerId,
             );
           })}
           <Col span={24}>
-            <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+            <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
               <Descriptions.Item label={t('updated_at')}>
-                <span style={{ color: '#999' }}>
+                <span style={{ color: 'var(--qc-text-tertiary)' }}>
                   {risk.updated_at ? new Date(risk.updated_at).toLocaleString() : '-'}
                 </span>
               </Descriptions.Item>

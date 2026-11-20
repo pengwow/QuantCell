@@ -24,6 +24,7 @@ import {
   Spin,
   Tag,
   Typography,
+  theme,
 } from 'antd';
 import {
   EditOutlined,
@@ -155,6 +156,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
+  const { token } = theme.useToken();
   const [form] = Form.useForm();
   const { updateWorker } = useWorkerStore();
 
@@ -493,7 +495,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               <Space>
                 <StarFilled style={{ color: QUANT_COLORS.warning }} />
                 <span>{pool.name}</span>
-                <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
+                <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>({t('favorite_group')})</span>
               </Space>
             ),
             value: `pool_${pool.id}`,
@@ -784,7 +786,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                         {strategy.description && (
                           <span
                             style={{
-                              color: '#999',
+                              color: 'var(--qc-text-tertiary)',
                               fontSize: 12,
                               marginLeft: 8,
                               overflow: 'hidden',
@@ -824,7 +826,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
-            <Card size="small" variant="borderless" style={{ background: '#fafafa', marginBottom: 16 }}>
+            <Card size="small" variant="borderless" style={{ background: token.colorFillAlter, marginBottom: 16 }}>
               <Row gutter={[12, 12]}>
                 {strategyParams.map((param) => (
                   <Col span={12} key={param.param_name}>
@@ -835,7 +837,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                           <span>{param.param_name}</span>
                           {param.description && (
                             <Tooltip title={param.description}>
-                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                              <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
                             </Tooltip>
                           )}
                         </Space>

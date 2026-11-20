@@ -21,6 +21,12 @@
         }
       })();
     </script>
+    <style>
+      /* 首帧背景兜底：完整调色板由 src/theme JS 注入（main.tsx），这里是模块加载前的防闪屏兜底。
+         ponytail: 仅 background 两个值 —— palettes.ts 修改页面底色时需同步此两处（theme.spec.ts 会校验）。 */
+      html { background-color: #ffffff; }
+      html.dark { background-color: #17191c; }
+    </style>
     <script type="importmap">
     {
       "imports": {
