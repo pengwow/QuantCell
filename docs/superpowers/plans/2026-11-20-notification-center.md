@@ -2497,7 +2497,7 @@ git commit -m "feat(notifications): 五域启动补偿扫描与 lifespan 挂载"
 
 前端无单测基础设施（项目铁则：验证 = `cd frontend && bun run build`），本任务的红绿循环 = TypeScript 类型检查：Step 2 扩 required 字段后 build 必红（App.tsx 构造点缺字段），Step 4 修复后转绿。
 
-- [ ] **Step 1: 创建 taskRoutes.ts**
+- [x] **Step 1: 创建 taskRoutes.ts**
 
 创建 `frontend/src/utils/taskRoutes.ts`：
 
@@ -2549,7 +2549,7 @@ export function taskNotificationRoute(source: string, ctx: TaskRouteCtx): string
 }
 ```
 
-- [ ] **Step 2: 扩 api/index.ts 类型与接口，跑 build 确认红**
+- [x] **Step 2: 扩 api/index.ts 类型与接口，跑 build 确认红**
 
 2a. `frontend/src/api/index.ts` L1077 附近的 `InboxNotificationItem` 整体替换为：
 
@@ -2603,7 +2603,7 @@ export interface InboxNotificationItem {
 Run: `cd frontend && bun run build`
 Expected: FAIL，TS 报错指向 `App.tsx` NotificationBridge 的 `const item: InboxNotificationItem = {`（缺 `read` / `processed`）。这就是本任务的红灯。
 
-- [ ] **Step 3: notificationStore.ts 扩展（loadList 过滤参数、markRead、已读语义对齐）**
+- [x] **Step 3: notificationStore.ts 扩展（loadList 过滤参数、markRead、已读语义对齐）**
 
 `frontend/src/store/notificationStore.ts` 修改四处：
 
@@ -2683,7 +2683,7 @@ Expected: FAIL，TS 报错指向 `App.tsx` NotificationBridge 的 `const item: I
 Run: `cd frontend && bun run build`
 Expected: 仍 FAIL（红灯未修复，报错仍在 App.tsx——预期，Step 4 修）。
 
-- [ ] **Step 4: App.tsx —— NotificationBridge 透传 metadata + toast 点击跳转**
+- [x] **Step 4: App.tsx —— NotificationBridge 透传 metadata + toast 点击跳转**
 
 `frontend/src/App.tsx`：
 
@@ -2770,7 +2770,7 @@ function NotificationBridge() {
 Run: `cd frontend && bun run build`
 Expected: PASS（红灯转绿：read/processed 构造点补齐，metadata 仅可选透传）。
 
-- [ ] **Step 5: NotificationInbox.tsx —— 行点击已读+跳转、未读视觉**
+- [x] **Step 5: NotificationInbox.tsx —— 行点击已读+跳转、未读视觉**
 
 `frontend/src/components/NotificationInbox.tsx`：
 
@@ -2854,7 +2854,7 @@ export function InboxItemRow({ item }: { item: InboxNotificationItem }) {
 
 Run: 不跑（下一 Step 合并验证）。
 
-- [ ] **Step 6: InboxPage.tsx —— 读写过滤 Segmented + 任务域 Select**
+- [x] **Step 6: InboxPage.tsx —— 读写过滤 Segmented + 任务域 Select**
 
 `frontend/src/pages/notifications/InboxPage.tsx`：
 
@@ -2935,7 +2935,7 @@ import { TASK_SOURCES } from '@/utils/taskRoutes';
 
 Run: 不跑（下一 Step 合并验证）。
 
-- [ ] **Step 7: i18n 追加文案 key**
+- [x] **Step 7: i18n 追加文案 key**
 
 `i18n/zh-CN.json`：`"level_error": "错误"` 行（L3636）之后追加（注意其为文件最后一个 key，需补逗号）：
 
@@ -2969,7 +2969,7 @@ Run: 不跑（下一 Step 合并验证）。
 
 两个文件都是纯 key 追加进最外层对象末尾，不引入嵌套结构。
 
-- [ ] **Step 8: 构建终验 + 提交**
+- [x] **Step 8: 构建终验 + 提交**
 
 Run: `cd frontend && bun run build`
 Expected: PASS，无 TS 报错、vite 产物生成成功。
@@ -2986,7 +2986,7 @@ Run: `git add frontend/src/utils/taskRoutes.ts frontend/src/api/index.ts fronten
 
 本任务不改动任何前后端代码，是对本次功能的验收文档同步（项目铁则：功能变更必须同一变更内更新 docs/testing）+ 全量回归守门。
 
-- [ ] **Step 1: notifications.md 前置区更新**
+- [x] **Step 1: notifications.md 前置区更新**
 
 `docs/testing/pages/notifications.md` L5-6 两行替换为：
 
@@ -2996,7 +2996,7 @@ Run: `git add frontend/src/utils/taskRoutes.ts frontend/src/api/index.ts fronten
 - 种子：默认数据目录**无通知**，L1 走空态分支；要验列表/已读/删除需先产生通知（运行任一策略或回测产生站内通知，或沿用已有通知的旧数据目录），在报告中注明种子来源；验任务类通知（N13/N14/N16）用任务终态产生：跑一次回测 / RL 训练 / 因子计算 / 数据采集 / 研究会话至终态，五域 key 为 `backtest` / `rl_train` / `factor_job` / `collector_task` / `research`
 ```
 
-- [ ] **Step 2: 验证表追加 N12-N16**
+- [x] **Step 2: 验证表追加 N12-N16**
 
 在 N11 行（L23）之后追加：
 
@@ -3008,7 +3008,7 @@ Run: `git add frontend/src/utils/taskRoutes.ts frontend/src/api/index.ts fronten
 | N16 | 服务重启后的中断补偿 | 重启前人为留下中断任务（如 rl_train / factor_job 的 `async_task_records` 行留 queued、collector `tasks` 行留 running、`backtest_tasks` 行留 pending、research 会话留 running），重启后日志出现`任务通知补偿扫描`行，各域残留行被置终态，收件箱出现对应`已中断`/`失败`通知 | 按需（需重启场景） |
 ```
 
-- [ ] **Step 3: 历史雷区追加 2 条**
+- [x] **Step 3: 历史雷区追加 2 条**
 
 `docs/testing/pages/notifications.md` 历史雷区列表末尾（L30 之后）追加：
 
@@ -3017,7 +3017,7 @@ Run: `git add frontend/src/utils/taskRoutes.ts frontend/src/api/index.ts fronten
 - **跳转落点由 taskRoutes.ts 统一注册**：任务域 → 路径映射在 `frontend/src/utils/taskRoutes.ts`，五域 key 与后端 `task_notices.TASK_TYPES` 必须一致；新增任务域先加 resolver，漏配时点击已读但不跳转（静默，无报错）
 ```
 
-- [ ] **Step 4: MANIFEST.md 备注更新**
+- [x] **Step 4: MANIFEST.md 备注更新**
 
 `docs/testing/MANIFEST.md` L18 行替换为：
 
@@ -3025,7 +3025,7 @@ Run: `git add frontend/src/utils/taskRoutes.ts frontend/src/api/index.ts fronten
 | `/notifications` | 消息中心 | `pages/notifications.md` | ✅ | L1+L2 | token 注入；非空态种子靠业务事件/任务终态；任务过滤与跳转见 N12-N15 |
 ```
 
-- [ ] **Step 5: spec 实施注记回写（评审后简化决议落档）**
+- [x] **Step 5: spec 实施注记回写（评审后简化决议落档）**
 
 spec 是已评审的上游文档，本次实施对它做了 5 处已获批的简化/调整（详见本计划头部 Architecture 与 Task 2 的简化注释）。在 `docs/superpowers/specs/2026-11-20-notification-center-design.md` 顶部 `状态：已评审通过（方案 A：任务终态埋点 + 统一通知 Hub）` 行之后追加一段注记，防止后来者按 spec 旧形态找列/签名：
 
@@ -3039,7 +3039,7 @@ spec 是已评审的上游文档，本次实施对它做了 5 处已获批的简
 > 实施细节与验收见 `docs/superpowers/plans/2026-11-20-notification-center.md`。
 ```
 
-- [ ] **Step 6: 覆盖率守门 + 后端全量回归**
+- [x] **Step 6: 覆盖率守门 + 后端全量回归**
 
 Run: `node docs/testing/check-coverage.mjs`（仓库根执行）
 Expected: 全绿（`/notifications` 已登记，无漏登路由）
@@ -3050,7 +3050,7 @@ Expected: 全部 PASS（test_inbox / test_task_notices / test_notification_route
 Run: `cd frontend && bun run build`
 Expected: PASS（发布前例行确认；Task 8 全程只改 docs，若 Task 7 已通过可跳过）
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 Run: `git add docs/testing/pages/notifications.md docs/testing/MANIFEST.md docs/superpowers/specs/2026-11-20-notification-center-design.md && git commit -m "docs(testing): 消息中心任务通知/过滤/跳转验证项、补偿扫描场景与 spec 实施注记"`
 
