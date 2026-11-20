@@ -17,6 +17,12 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+    upsert_async_task_record,
+)
 from factor.job_lease import LEASE_HOOKS, LEASE_TICK_SECONDS
 from utils.logger import LogType, get_logger
 from websocket.manager import manager
@@ -99,6 +105,7 @@ class FactorJobManager:
         with self._lock:
             self._jobs[job_id] = job
         self._emit(job)
+        upsert_async_task_record("factor_job", job_id, "queued")
         self._executor.submit(self._run, job, runner, on_terminal, on_event_cb)
         return job_id
 
@@ -124,6 +131,7 @@ class FactorJobManager:
 
         try:
             self._update(job.job_id, status=JobStatus.RUNNING, progress=0.0, stage="running")
+            self._report_status(job)
             result = runner(on_progress, on_progress, on_event)
             with self._lock:
                 job.result = result
@@ -134,6 +142,7 @@ class FactorJobManager:
                 stage="completed",
                 message="完成",
             )
+            self._report_status(job)
             if on_terminal is not None:
                 try:
                     on_terminal(job.job_id, True, result)
@@ -143,6 +152,7 @@ class FactorJobManager:
         except Exception as e:
             logger.exception(f"因子任务失败: {job.job_id}")
             self._update(job.job_id, status=JobStatus.FAILED, error=str(e), message="失败")
+            self._report_status(job)
             if on_terminal is not None:
                 try:
                     on_terminal(job.job_id, False, str(e))
@@ -214,6 +224,26 @@ class FactorJobManager:
         return {"events": evts, "next_idx": next_idx}
 
     # ---------- 内部 ----------
+
+    def _report_status(self, job: FactorJob) -> None:
+        """通知中心挂钩：running 落影子行；completed/failed 发终态通知。
+
+        JobStatus 无取消语义（仅四值），cancelled 不存在；影子表只写
+        rl_train/factor_job 两域（见 task_notices._SHADOWED_TASK_TYPES）。
+        """
+        status = str(job.status)
+        if status == "running":
+            upsert_async_task_record("factor_job", job.job_id, "running")
+        elif status == "completed":
+            notify_task_event("factor_job", job.job_id, TASK_STATUS_SUCCEEDED, extra={"kind": job.kind})
+        elif status == "failed":
+            notify_task_event(
+                "factor_job",
+                job.job_id,
+                TASK_STATUS_FAILED,
+                error=job.error,
+                extra={"kind": job.kind},
+            )
 
     def _update(self, job_id: str, **fields: Any) -> None:
         with self._lock:

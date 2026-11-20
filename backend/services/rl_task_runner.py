@@ -33,6 +33,12 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+    upsert_async_task_record,
+)
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -236,6 +242,7 @@ def submit_train_task(config: Any, *, train_fn: Callable[[Any, Any], Any] | None
     task = TrainTask(task_id=f"rltrain_{uuid.uuid4().hex[:12]}")
     with _registry_lock:
         _tasks[task.task_id] = task
+    upsert_async_task_record("rl_train", task.task_id, "queued")
     runner = train_fn or _default_train
     threading.Thread(
         target=_run_task,
@@ -267,6 +274,7 @@ def cancel_task(task_id: str) -> bool:
             task.finished_at = time.monotonic()
             queued_abort = True
     if queued_abort:
+        upsert_async_task_record("rl_train", task.task_id, "cancelled")
         task._broadcast_state()
     else:
         task.log("收到取消请求，将在当前阶段边界停止")
@@ -323,6 +331,7 @@ def _run_task(task: TrainTask, config: Any, train_fn: Callable[[Any, Any], Any])
         with task.lock:
             task.status = "running"
             task.started_at = time.monotonic()
+        upsert_async_task_record("rl_train", task.task_id, "running")
         task.state(stage="starting", progress=0.0, message="训练任务启动")
         task.log("训练任务启动")
         try:
@@ -353,6 +362,26 @@ def _meta_path_of(model_path: str | None) -> str | None:
     return str(rl_meta_path(model_path))
 
 
+#: RL 内部状态 → 通知中心终态（task_notices 仅接受 SUCCEEDED/FAILED/INTERRUPTED）
+_RL_NOTIFY_STATUS = {"done": TASK_STATUS_SUCCEEDED, "error": TASK_STATUS_FAILED}
+
+
+def _report_terminal(task: TrainTask) -> None:
+    """终态挂钩：done/error 发通知并写影子行；cancelled 只写影子行（用户自己取消）"""
+    if task.status == "cancelled":
+        upsert_async_task_record("rl_train", task.task_id, "cancelled")
+        return
+    notify_status = _RL_NOTIFY_STATUS.get(task.status)
+    if notify_status:
+        notify_task_event(
+            "rl_train",
+            task.task_id,
+            notify_status,
+            error=task.error,
+            extra={"model_path": task.model_path},
+        )
+
+
 def _finish(
     task: TrainTask,
     status: str,
@@ -378,6 +407,7 @@ def _finish(
         task.active = False
     task._broadcast_state()
     task.log(f"任务结束: {status}")
+    _report_terminal(task)
 
 
 # ---------------------------------------------------------------------------
