@@ -20,8 +20,19 @@ import {
   Typography,
 } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { factorApi, type FactorCatalogItem, type FactorDefinition } from '@/api/factor';
+import {
+  QC_EDITOR_BG,
+  QC_EDITOR_BORDER,
+  QC_EDITOR_FONT_FAMILY,
+  QC_EDITOR_FONT_SIZE,
+  QC_EDITOR_LINE_HEIGHT,
+  QC_EDITOR_RADIUS,
+  QC_THEME_NAME,
+  registerQuantcellTheme,
+} from '@/monaco/quantcellTheme';
+import QcEditorStatusBar from '@/monaco/QcEditorStatusBar';
 
 /** Monaco 渲染失败兜底：退化为 <pre>，复制功能不受影响 */
 class EditorBoundary extends Component<{ children: ReactNode; fallbackPre: ReactNode }, { failed: boolean }> {
@@ -40,36 +51,56 @@ class EditorBoundary extends Component<{ children: ReactNode; fallbackPre: React
 const codePreStyle = (maxHeight: number): React.CSSProperties => ({
   whiteSpace: 'pre-wrap',
   margin: 0,
-  fontSize: 13,
+  fontSize: QC_EDITOR_FONT_SIZE,
+  fontFamily: QC_EDITOR_FONT_FAMILY,
   maxHeight,
   overflow: 'auto',
   padding: 12,
-  background: '#1e1e1e', // O2: 特殊装饰色，保留（VS Code 风代码块，亮暗恒深底）
+  background: QC_EDITOR_BG, // O2: 特殊装饰色，保留（VS Code 风代码块，亮暗恒深底）
   color: '#d4d4d4',
   borderRadius: 6,
 });
 
 /** 只读 Python 代码块（Monaco；加载/渲染异常由 EditorBoundary 降级为 <pre>） */
-const ReadOnlyCode: React.FC<{ code: string; height?: number }> = ({ code, height = 460 }) => (
-  <EditorBoundary fallbackPre={<pre style={codePreStyle(height)}>{code}</pre>}>
-    <Editor
-      defaultLanguage="python"
-      theme="vs-dark"
-      value={code}
-      height={height}
-      loading={<Spin />}
-      options={{
-        readOnly: true,
-        minimap: { enabled: false },
-        fontSize: 13,
-        lineNumbers: 'on',
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        automaticLayout: true,
-      }}
-    />
-  </EditorBoundary>
-);
+const ReadOnlyCode: React.FC<{ code: string; height?: number }> = ({ code, height = 460 }) => {
+  // 只读也带光标：状态栏 Ln/Col 与策略编辑器口径一致
+  const [cursor, setCursor] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
+  const handleMount: OnMount = (editor) => {
+    const pos = editor.getPosition();
+    if (pos) setCursor({ line: pos.lineNumber, column: pos.column });
+    editor.onDidChangeCursorPosition((e) => {
+      setCursor({ line: e.position.lineNumber, column: e.position.column });
+    });
+  };
+
+  return (
+    <EditorBoundary fallbackPre={<pre style={codePreStyle(height)}>{code}</pre>}>
+      <div style={{ background: QC_EDITOR_BG, border: QC_EDITOR_BORDER, borderRadius: QC_EDITOR_RADIUS, overflow: 'hidden' }}>
+        <Editor
+          defaultLanguage="python"
+          theme={QC_THEME_NAME}
+          beforeMount={registerQuantcellTheme}
+          onMount={handleMount}
+          value={code}
+          height={height}
+          loading={<Spin />}
+          options={{
+            readOnly: true,
+            minimap: { enabled: false },
+            fontSize: QC_EDITOR_FONT_SIZE,
+            lineHeight: QC_EDITOR_LINE_HEIGHT,
+            fontFamily: QC_EDITOR_FONT_FAMILY,
+            lineNumbers: 'on',
+            scrollBeyondLastLine: false,
+            wordWrap: 'on',
+            automaticLayout: true,
+          }}
+        />
+        <QcEditorStatusBar line={cursor.line} column={cursor.column} />
+      </div>
+    </EditorBoundary>
+  );
+};
 
 const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) => {
   const { t } = useTranslation();

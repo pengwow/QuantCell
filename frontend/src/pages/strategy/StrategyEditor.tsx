@@ -28,8 +28,19 @@ import {
   CheckOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import MonacoEditor from '@monaco-editor/react';
+import MonacoEditor, { type OnMount } from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
+import {
+  QC_EDITOR_BG,
+  QC_EDITOR_BORDER,
+  QC_EDITOR_FONT_FAMILY,
+  QC_EDITOR_FONT_SIZE,
+  QC_EDITOR_LINE_HEIGHT,
+  QC_EDITOR_RADIUS,
+  QC_THEME_NAME,
+  registerQuantcellTheme,
+} from '../../monaco/quantcellTheme';
+import QcEditorStatusBar from '../../monaco/QcEditorStatusBar';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
@@ -131,6 +142,8 @@ const StrategyEditor = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [editorLoading, setEditorLoading] = useState<boolean>(false);
   const [code, setCode] = useState<string>('');
+  // 编辑器状态栏光标位置（Ln/Col 必须来自真实光标，不写死）
+  const [cursor, setCursor] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
 
   const [activeTabKey, setActiveTabKey] = useState<string>('editor');
   const [isParsing, setIsParsing] = useState<boolean>(false);
@@ -223,6 +236,15 @@ const StrategyEditor = () => {
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
     appMessage.success(t('ai_loaded_to_editor'));
+  };
+
+  // 编辑器挂载：注册光标追踪，驱动下方 mono 状态栏
+  const handleEditorMount: OnMount = (editor) => {
+    const pos = editor.getPosition();
+    if (pos) setCursor({ line: pos.lineNumber, column: pos.column });
+    editor.onDidChangeCursorPosition((e) => {
+      setCursor({ line: e.position.lineNumber, column: e.position.column });
+    });
   };
 
   // 设置页面标题
@@ -1027,14 +1049,28 @@ class NewStrategy(BaseStrategy):
                 key: 'editor',
                 label: <><CodeOutlined /> {t('editor')}</>,
                 children: (
-                  <div className="w-full" style={{ minHeight: '600px' }}>
+                  <div
+                    className="w-full"
+                    style={{
+                      minHeight: '600px',
+                      // 编辑器 chrome 恒深色（design-spec §6.16），不随 light/dark 主题
+                      background: QC_EDITOR_BG,
+                      border: QC_EDITOR_BORDER,
+                      borderRadius: QC_EDITOR_RADIUS,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <MonacoEditor
                       height="600px"
                       language="python"
                       value={code}
                       onChange={(value) => setCode(value || '')}
+                      beforeMount={registerQuantcellTheme}
+                      onMount={handleEditorMount}
                       options={{
-                        fontSize: 14,
+                        fontSize: QC_EDITOR_FONT_SIZE,
+                        lineHeight: QC_EDITOR_LINE_HEIGHT,
+                        fontFamily: QC_EDITOR_FONT_FAMILY,
                         minimap: { enabled: true },
                         scrollBeyondLastLine: false,
                         automaticLayout: true,
@@ -1046,8 +1082,10 @@ class NewStrategy(BaseStrategy):
                         scrollbar: { vertical: 'auto', horizontal: 'auto' },
                         wordWrap: 'on',
                       }}
-                      theme="vs-dark"
+                      theme={QC_THEME_NAME}
                     />
+                    {/* 状态栏：x/y 跟随真实光标（onDidChangeCursorPosition） */}
+                    <QcEditorStatusBar line={cursor.line} column={cursor.column} />
                   </div>
                 )
               },

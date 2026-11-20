@@ -25,6 +25,7 @@ frontend/dist/*
 frontend/dist/
 frontend/design-proposal.md
 frontend/test_data/*
+frontend/test-results/
 frontend/tsconfig.tsbuildinfo
 
 crypto_data/

@@ -328,10 +328,11 @@ font-variant-numeric: tabular-nums;
 
 ### 6.16 代码编辑器 chrome（策略编辑器）
 
-- **恒深色，不随主题**：编辑器底 `#1e1e1e`，行号列 `#252526`/`#858585`，代码 12.5px mono、行高 1.55。
-- Dark+ 语义色：关键字 `#c586c0`/`#569cd6`、字符串 `#ce9178`、注释 `#6a9955` 斜体、数字 `#b5cea8`、函数 `#dcdcaa`、类名 `#4ec9b0`。
-- 状态栏：`#007acc` 底或 `bge` 底 + mono 10.5px（`Python · UTF-8 · Ln 12, Col 4 · Spaces: 4`）。
-- 产品实现直接用 Monaco（`@monaco-editor/react`），主题名自建 `quantcell-dark`，token 色按上表。
+- **恒深色，不随主题**：容器 `border:1px solid var(--bd); border-radius:10px; overflow:hidden; background:#1e1e1e`；行号列 `#252526`/`#858585`；代码 12.5px mono、行高 19px（1.52）。
+- Dark+ 语义色：注释 `#6a9955` 斜体、字符串 `#ce9178`、数字 `#b5cea8`、函数 `#dcdcaa`、类名 `#4ec9b0`、标识符与 `self` `#9cdcfe`、关键字 `#c586c0`。
+  - `#569cd6` 仅留给 `keyword.directive` / `keyword.other`：Monaco 的 Python Monarch 文法把 `def/class/import` 与 `if/return` 归入同一个 `keyword` token，无法像 VS Code 那样单独染蓝（`docs/design/qc-prototype-demo.html` 的 `.tk-kw2` 因此与 `.tk-kw` 同色）。
+- 状态栏：`background:#007acc; color:#fff; font-size:10.5px; padding:3px 14px; gap:14px`，末项「Spaces: 4」靠右；文案 `Python · UTF-8 · Ln x, Col y · Spaces: 4`，x/y 取自真实光标位置（`onDidChangeCursorPosition`）。
+- 产品实现直接用 Monaco（`@monaco-editor/react`），主题名自建 `quantcell-dark`，token 色按上表（`src/monaco/quantcellTheme.ts` 为唯一真相源；改色先改此处，再同步 demo 与本表）。
 
 ### 6.17 状态点 / 指示灯行
 

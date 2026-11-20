@@ -69,8 +69,32 @@ const geometry = [
   ['按钮 30px/8px', '.btn {'],
   ['页码钮 28px', 'height:28px'],
   ['导航项 13px', 'font:inherit; font-size:13px; cursor:pointer; text-align:left; white-space:nowrap'],
+  // 编辑器 chrome（§6.16）：唯一真相源是 src/monaco/quantcellTheme.ts，demo 必须逐值跟上
+  ['编辑器容器 10px + 1px 边框', '.ced { border:1px solid var(--bd); border-radius:10px; overflow:hidden; background:#1e1e1e'],
+  ['编辑器 12.5px/1.52', 'font-size:12.5px; line-height:1.52'],
+  ['状态栏 #007acc/10.5px', '.ced-status { display:flex; gap:14px; padding:3px 14px; background:#007acc'],
 ];
 for (const [label, needle] of geometry) ok(demo.includes(needle), `几何 ${label}`);
+
+/* ---------- 5. 编辑器 token 色 = §6.16 Dark+ 语义表 ---------- */
+// 每项 [说明, demo 里必须出现的声明, spec 里必须出现的色值]
+const editorTokens = [
+  ['注释 #6a9955 斜体', '.tk-cmt { color:#6a9955; font-style:italic; }', '#6a9955` 斜体'],
+  ['字符串 #ce9178', '.tk-str { color:#ce9178; }', '字符串 `#ce9178`'],
+  ['数字 #b5cea8', '.tk-num { color:#b5cea8; }', '数字 `#b5cea8`'],
+  ['函数 #dcdcaa', '.tk-fn { color:#dcdcaa; }', '函数 `#dcdcaa`'],
+  ['类名 #4ec9b0', '.tk-cls { color:#4ec9b0; }', '类名 `#4ec9b0`'],
+  ['标识符/self #9cdcfe', '.tk-self { color:#9cdcfe; }', '`#9cdcfe`'],
+  ['关键字 #c586c0（含 def/class，Monaco 限制）', '.tk-kw { color:#c586c0; } .tk-kw2 { color:#c586c0; }', '关键字 `#c586c0`'],
+];
+for (const [label, demoNeedle, specNeedle] of editorTokens) {
+  ok(demo.includes(demoNeedle), `编辑器色 demo ${label}`);
+  ok(spec.includes(specNeedle), `编辑器色 spec ${label}`);
+}
+// 旧近似值（手写 <pre> 时代）不得回流
+for (const stale of ['#8a9199', '#d19a66', 'background:#181818']) {
+  ok(!demo.includes(stale), `编辑器色 demo 无旧值 ${stale}`);
+}
 
 console.log(fail ? `\n✗ ${fail} 项不一致` : '\n✓ 规范与 demo 完全一致');
 process.exit(fail ? 1 : 0);

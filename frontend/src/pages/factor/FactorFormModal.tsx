@@ -18,12 +18,22 @@ import {
   Space,
   Spin,
   Tooltip,
-  theme,
 } from 'antd';
 import { BulbOutlined } from '@ant-design/icons';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import { aiApi } from '@/api/ai';
 import { factorApi, type FactorCatalogItem } from '@/api/factor';
+import {
+  QC_EDITOR_BG,
+  QC_EDITOR_BORDER,
+  QC_EDITOR_FONT_FAMILY,
+  QC_EDITOR_FONT_SIZE,
+  QC_EDITOR_LINE_HEIGHT,
+  QC_EDITOR_RADIUS,
+  QC_THEME_NAME,
+  registerQuantcellTheme,
+} from '@/monaco/quantcellTheme';
+import QcEditorStatusBar from '@/monaco/QcEditorStatusBar';
 import { EDITABLE_CATEGORIES, categoryLabel, factorSource } from './factorMeta';
 
 const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
@@ -36,37 +46,47 @@ const CodeEditor: React.FC<{ value?: string; onChange?: (v: string) => void }> =
   value,
   onChange,
 }) => {
-  const { token } = theme.useToken();
   const { t } = useTranslation();
   // Monaco 无原生 placeholder：空内容时叠一层灰色示例文字（与表达式 tab 的 placeholder 对齐）。
   // 正文左偏移取 getLayoutInfo().contentLeft——行号槽宽度随字号/主题变化，不能硬编码。
   const [contentLeft, setContentLeft] = useState(0);
+  // 状态栏 Ln/Col 走真实光标（onDidChangeCursorPosition）
+  const [cursor, setCursor] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
 
   const handleMount: OnMount = (editor) => {
     const sync = () => setContentLeft(editor.getLayoutInfo().contentLeft);
     sync();
     editor.onDidLayoutChange(sync);
+    const pos = editor.getPosition();
+    if (pos) setCursor({ line: pos.lineNumber, column: pos.column });
+    editor.onDidChangeCursorPosition((e) => {
+      setCursor({ line: e.position.lineNumber, column: e.position.column });
+    });
   };
 
   return (
     <div
       style={{
         position: 'relative',
-        border: `1px solid ${token.colorBorder}`,
-        borderRadius: token.borderRadius,
+        border: QC_EDITOR_BORDER,
+        borderRadius: QC_EDITOR_RADIUS,
         overflow: 'hidden',
+        background: QC_EDITOR_BG,
       }}
     >
       <Editor
         height="260px"
         defaultLanguage="python"
-        theme="vs-dark"
+        theme={QC_THEME_NAME}
+        beforeMount={registerQuantcellTheme}
         value={value ?? ''}
         onChange={(v) => onChange?.(v ?? '')}
         onMount={handleMount}
         options={{
           minimap: { enabled: false },
-          fontSize: 13,
+          fontSize: QC_EDITOR_FONT_SIZE,
+          lineHeight: QC_EDITOR_LINE_HEIGHT,
+          fontFamily: QC_EDITOR_FONT_FAMILY,
           lineNumbers: 'on',
           automaticLayout: true,
           tabSize: 4,
@@ -80,18 +100,19 @@ const CodeEditor: React.FC<{ value?: string; onChange?: (v: string) => void }> =
             position: 'absolute',
             top: 0,
             left: contentLeft,
-            height: 20,
-            lineHeight: '20px',
+            height: QC_EDITOR_LINE_HEIGHT,
+            lineHeight: `${QC_EDITOR_LINE_HEIGHT}px`,
             pointerEvents: 'none',
-            color: token.colorTextTertiary,
-            fontSize: 13,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            color: '#6a6a6a',
+            fontSize: QC_EDITOR_FONT_SIZE,
+            fontFamily: QC_EDITOR_FONT_FAMILY,
             whiteSpace: 'nowrap',
           }}
         >
           {t('factor_form_code_ph') || '如 factor = df["close"].pct_change(5)'}
         </div>
       )}
+      <QcEditorStatusBar line={cursor.line} column={cursor.column} />
     </div>
   );
 };
