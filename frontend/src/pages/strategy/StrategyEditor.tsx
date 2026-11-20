@@ -1135,7 +1135,13 @@ class NewStrategy(BaseStrategy):
                           </div>
 
                           {/* 数据来源提示 */}
-                          <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-400">
+                          <div
+                            className="mb-4 p-3 rounded text-xs"
+                            style={{
+                              background: 'var(--qc-surface-muted)',
+                              color: 'var(--qc-text-secondary)',
+                            }}
+                          >
                             {dataSource === 'database' ? (
                               <span>{t('db_data_hint')}</span>
                             ) : (
@@ -1296,7 +1302,7 @@ class NewStrategy(BaseStrategy):
                                   return (
                                     <div
                                       key={index}
-                                      className="flex gap-2 items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+                                      className="flex gap-2 items-center py-1 px-2 rounded transition-colors cursor-pointer group hover:bg-[var(--qc-surface-muted)]"
                                       onClick={() => toggleParamEdit(index)}
                                       title={t('click_to_edit')}
                                     >
@@ -1309,7 +1315,9 @@ class NewStrategy(BaseStrategy):
                                         <Tag color="gold" className="mb-0">∈ {param.options.join(' / ')}</Tag>
                                       )}
                                       {param.description && (
-                                        <span className="text-gray-500 text-sm flex-1 truncate">{param.description}</span>
+                                        <span className="text-xs flex-1 truncate" style={{ color: 'var(--qc-text-tertiary)' }}>
+                                        {param.description}
+                                      </span>
                                       )}
                                       <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Button
@@ -1333,7 +1341,10 @@ class NewStrategy(BaseStrategy):
                                 })}
                               </Space>
                             ) : (
-                              <div className="p-4 text-center text-gray-400 text-sm">
+                              <div
+                                className="p-4 text-center text-xs"
+                                style={{ color: 'var(--qc-text-quaternary)' }}
+                              >
                                 {t('no_parameters')}
                               </div>
                             );
@@ -1412,7 +1423,7 @@ class NewStrategy(BaseStrategy):
                                 return (
                                   <div
                                     key={index}
-                                    className="flex gap-2 items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+                                    className="flex gap-2 items-center py-1 px-2 rounded transition-colors cursor-pointer group hover:bg-[var(--qc-surface-muted)]"
                                     onClick={() => toggleFactorEdit(index)}
                                     title={t('click_to_edit')}
                                   >
@@ -1425,7 +1436,7 @@ class NewStrategy(BaseStrategy):
                                       const desc = factor.description || catalog?.description || '';
                                       const parts = [label, desc].filter(Boolean);
                                       return parts.length > 0 ? (
-                                        <span className="text-gray-500 text-sm flex-1 truncate">
+                                        <span className="text-xs flex-1 truncate" style={{ color: 'var(--qc-text-tertiary)' }}>
                                           {parts.join(' — ')}
                                         </span>
                                       ) : null;
@@ -1451,7 +1462,10 @@ class NewStrategy(BaseStrategy):
                                 );
                               })
                             ) : (
-                              <div className="p-4 text-center text-gray-400 text-sm">
+                              <div
+                                className="p-4 text-center text-xs"
+                                style={{ color: 'var(--qc-text-quaternary)' }}
+                              >
                                 {t('no_factors')}
                               </div>
                             )}

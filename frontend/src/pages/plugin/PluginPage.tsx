@@ -14,7 +14,7 @@ export default function PluginPage({ pluginName }: PluginPageProps) {
 
   return (
     <PageContainer title={`插件: ${pluginName}`}>
-      <p className="text-gray-500 dark:text-gray-400">此插件尚未提供前端页面组件。</p>
+      <p style={{ color: 'var(--qc-text-tertiary)' }}>此插件尚未提供前端页面组件。</p>
     </PageContainer>
   );
 }
