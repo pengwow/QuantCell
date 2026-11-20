@@ -47,7 +47,7 @@
 - Create: `backend/alembic/versions/48_notification_read_at_and_async_task_records.py`
 - Test: `backend/tests/unit/notifications/test_inbox.py`（追加）
 
-- [ ] **Step 1: 在 test_inbox.py 追加失败测试（fixture 扩 AsyncTaskRecord 表 + 两个新断言）**
+- [x] **Step 1: 在 test_inbox.py 追加失败测试（fixture 扩 AsyncTaskRecord 表 + 两个新断言）**
 
 在 `test_inbox.py` 顶部 import 区（L10 后）追加：
 
@@ -114,12 +114,12 @@ class TestAsyncTaskRecord:
         assert row.processed_at is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败（模型缺列/缺类）**
+- [x] **Step 2: 运行测试确认失败（模型缺列/缺类）**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_inbox.py -q`
 Expected: FAIL，报错含 `read_at`（AttributeError）或 `cannot import name 'AsyncTaskRecord'`
 
-- [ ] **Step 3: 修改 inbox_models.py**
+- [x] **Step 3: 修改 inbox_models.py**
 
 3a. import 行（L15）改为：
 
@@ -178,12 +178,12 @@ class AsyncTaskRecord(TimezoneAwareBase):
     )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_inbox.py -q`
 Expected: PASS（原水位语义用例不受影响：read_at 默认 None 不参与旧判定）
 
-- [ ] **Step 5: 新建迁移 48**
+- [x] **Step 5: 新建迁移 48**
 
 创建 `backend/alembic/versions/48_notification_read_at_and_async_task_records.py`：
 
@@ -292,12 +292,12 @@ def downgrade() -> None:
     # 列可空无害（旧代码路径不引用）
 ```
 
-- [ ] **Step 6: 对本地开发库验证迁移可进可退**
+- [x] **Step 6: 对本地开发库验证迁移可进可退**
 
 Run: `cd backend && uv run alembic upgrade head && uv run alembic downgrade -1 && uv run alembic upgrade head`
 Expected: 三条命令均无 traceback；最后一句 `Running upgrade 47 -> 48`（若当前库已滞后多个 head，会先补跑既有迁移，属正常）
 
-- [ ] **Step 7: 全量通知测试回归 + Commit**
+- [x] **Step 7: 全量通知测试回归 + Commit**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/ -q`
 Expected: 全部 PASS
@@ -318,7 +318,7 @@ git commit -m "feat(notifications): inbox 逐行已读列与 AsyncTaskRecord 影
 - Create: `backend/tests/unit/notifications/test_notification_routes.py`
 - Modify: `backend/tests/unit/notifications/test_inbox.py`（TestClass 重写）
 
-- [ ] **Step 1: 公开任务类型常量（inbox_models.py 一行重命名）**
+- [x] **Step 1: 公开任务类型常量（inbox_models.py 一行重命名）**
 
 ```python
 # 名字从 _TASK_TYPES 改为 TASK_TYPES：inbox.py / task_notices.py 均要引用，
@@ -334,7 +334,7 @@ TASK_TYPES = (
 
 同时 InboxNotification 旁的 `AsyncTaskRecord.task_type` 注释中 `_TASK_TYPES` 同步改为 `TASK_TYPES`。
 
-- [ ] **Step 2: 重写 test_inbox.py 已读语义用例并新增过滤/单条已读用例（先失败）**
+- [x] **Step 2: 重写 test_inbox.py 已读语义用例并新增过滤/单条已读用例（先失败）**
 
 `test_inbox.py` 全文替换为：
 
@@ -545,12 +545,12 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 ```
 
-- [ ] **Step 3: 运行确认失败**
+- [x] **Step 3: 运行确认失败**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_inbox.py -q`
 Expected: FAIL —— `AttributeError: module 'common.notifications.inbox' has no attribute 'list_inbox_notifications' ... unexpected keyword argument 'task_type'`（或 mark_notification_read 不存在）
 
-- [ ] **Step 4: 重写 inbox.py（全文）**
+- [x] **Step 4: 重写 inbox.py（全文）**
 
 `backend/common/notifications/inbox.py` 全文替换为：
 
@@ -715,7 +715,7 @@ def clear_read_notifications(db_session: typing.Any | None = None) -> tuple[int,
         return int(result.rowcount or 0), _count_unread(db)
 ```
 
-- [ ] **Step 5: 路由层测试先行（新建 test_notification_routes.py）**
+- [x] **Step 5: 路由层测试先行（新建 test_notification_routes.py）**
 
 ```python
 """通知路由层集成测试：inbox 过滤参数透传、单条已读、全部已读返回值
@@ -833,7 +833,7 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 ```
 
-- [ ] **Step 6: 修改 routes.py（三处）**
+- [x] **Step 6: 修改 routes.py（三处）**
 
 6a. 模块 docstring 的端点清单（L15-18 区）追加一行：
 
@@ -906,12 +906,12 @@ async def mark_notification_read(
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
-- [ ] **Step 7: 运行全部通知测试确认通过**
+- [x] **Step 7: 运行全部通知测试确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/ -q`
 Expected: 全部 PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/common/notifications/inbox.py backend/common/notifications/inbox_models.py backend/common/notifications/routes.py backend/tests/unit/notifications/test_inbox.py backend/tests/unit/notifications/test_notification_routes.py
@@ -933,7 +933,7 @@ git commit -m "feat(notifications): inbox 逐行已读语义 + 任务过滤/单�
 - `common/notifications/service.py:131`：`await notification_service.send(message, channels=[...])`，模块级单例 `notification_service`（routes.py:39 引用）。
 - `websocket/manager.py`：全局 `manager`，`async broadcast(message: dict, topic: str | None = None)`；`WebSocketChannel._get_manager` 延迟导入同一实例（channels.py:408）。
 
-- [ ] **Step 1: 新建 test_task_notices.py（先失败）**
+- [x] **Step 1: 新建 test_task_notices.py（先失败）**
 
 ```python
 """任务终态通知 Hub 单测：影子表翻转 / 收件箱文案 / loop 调度三态"""
@@ -1090,12 +1090,12 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_task_notices.py -q`
 Expected: FAIL —— `ModuleNotFoundError: No module named 'common.notifications.task_notices'`
 
-- [ ] **Step 3: 新建 task_notices.py**
+- [x] **Step 3: 新建 task_notices.py**
 
 ```python
 """任务终态通知 Hub（spec §5）：五个异步任务域统一出口
@@ -1298,12 +1298,12 @@ async def _deliver(message: NotificationMessage, channels: list[NotificationChan
 
 **注意 websocket.run_thread 安全：** WS 渠道由 `NotificationService.send` 经 `WebSocketChannel` 到 `websocket/manager.py::manager.broadcast`，全程 asyncio 原生，无额外线程动作，符合项目规则。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/ -q`
 Expected: 全部 PASS（含 Task 1/2 既有用例）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/common/notifications/task_notices.py backend/tests/unit/notifications/test_task_notices.py
@@ -1321,7 +1321,7 @@ git commit -m "feat(notifications): 任务终态通知 Hub task_notices"
 - Modify: `backend/factor/job_manager.py`（4 处挂钩）
 - Test: `backend/tests/unit/notifications/test_task_hooks.py`（新建）
 
-- [ ] **Step 1: 写失败测试（test_task_hooks.py 全文）**
+- [x] **Step 1: 写失败测试（test_task_hooks.py 全文）**
 
 fixture 与 `test_task_notices.py` 同款：内存 SQLite + patch 两处 `use_db_session`。
 RL / factor 的状态机跑在工作线程，fake 闭包让两处落库共享同一个 session；
@@ -1490,13 +1490,13 @@ class TestFactorJobHooks:
         assert items[0]["level"] == "error"
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_task_hooks.py -v`
 Expected: FAIL — RL 用例 KeyError（影子行不存在）、factor 用例 `assert [] == ['succeeded']`；
 `test_cancelled_quiet_shadow_only` 同样 FAIL（无影子行写入）。
 
-- [ ] **Step 3: rl_task_runner.py 四处挂钩**
+- [x] **Step 3: rl_task_runner.py 四处挂钩**
 
 3a. 顶部 import（`from utils.logger import ...` 之后）：
 
@@ -1566,12 +1566,12 @@ def _report_terminal(task: TrainTask) -> None:
         task._broadcast_state()
 ```
 
-- [ ] **Step 4: 跑 RL 用例确认通过**
+- [x] **Step 4: 跑 RL 用例确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_task_hooks.py::TestRlTaskHooks -v`
 Expected: PASS（4 passed）
 
-- [ ] **Step 5: factor/job_manager.py 挂钩**
+- [x] **Step 5: factor/job_manager.py 挂钩**
 
 5a. 顶部 import（`from factor.job_lease import ...` 之前）：
 
@@ -1642,12 +1642,12 @@ from common.notifications.task_notices import (
             if on_terminal is not None:
 ```
 
-- [ ] **Step 6: 跑全部挂钩用例确认通过**
+- [x] **Step 6: 跑全部挂钩用例确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_task_hooks.py -v`
 Expected: PASS（6 passed）
 
-- [ ] **Step 7: 全量通知回归 + Commit**
+- [x] **Step 7: 全量通知回归 + Commit**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/ -q`
 Expected: 全部 PASS
@@ -1671,7 +1671,7 @@ git commit -m "feat(notifications): RL/因子任务接入终态通知与影子�
 monkeypatch 各模块命名空间里的 `notify_task_event` 收集调用断言；另配 `inspect.getsource`
 接线检查防止「函数写了没接上」。
 
-- [ ] **Step 1: 写失败测试 `tests/unit/notifications/test_domain_hooks.py`**
+- [x] **Step 1: 写失败测试 `tests/unit/notifications/test_domain_hooks.py`**
 
 ```python
 """采集/回测/研究三域终态挂钩单测。
@@ -1778,12 +1778,12 @@ if __name__ == "__main__":
     raise SystemExit("请用 pytest 运行: uv run pytest tests/unit/notifications/test_domain_hooks.py -v")
 ```
 
-- [ ] **Step 2: 跑测试确认失败（三个挂钩函数都不存在）**
+- [x] **Step 2: 跑测试确认失败（三个挂钩函数都不存在）**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_domain_hooks.py -v`
 Expected: FAIL/ERROR — `AttributeError: module 'collector.utils.task_manager' has no attribute '_notify_terminal'`（完成情况对 backtest/research 同理）。
 
-- [ ] **Step 3: collector 埋点**
+- [x] **Step 3: collector 埋点**
 
 3a. [task_manager.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/collector/utils/task_manager.py) 顶部 L16（`from websocket.manager import manager` 之后）追加：
 
@@ -1827,12 +1827,12 @@ def _notify_terminal(task_id: str, status: str, *, name: str, error: str | None 
         )
 ```
 
-- [ ] **Step 4: 跑 collector 用例确认通过**
+- [x] **Step 4: 跑 collector 用例确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_domain_hooks.py::TestCollectorHook -v`
 Expected: 3 passed。
 
-- [ ] **Step 5: backtest 埋点**
+- [x] **Step 5: backtest 埋点**
 
 5a. [routes.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/backtest/routes.py) 顶部 L38（`from utils.rbac import is_guest_user` 之后）追加：
 
@@ -1889,12 +1889,12 @@ def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
                     )
 ```
 
-- [ ] **Step 6: 跑 backtest 用例确认通过**
+- [x] **Step 6: 跑 backtest 用例确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_domain_hooks.py::TestBacktestHook -v`
 Expected: 4 passed。
 
-- [ ] **Step 7: research 埋点**
+- [x] **Step 7: research 埋点**
 
 7a. [loop.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/research/loop.py) 顶部 L40（`from utils.logger import ...` 之后）追加：
 
@@ -1942,12 +1942,12 @@ def _notify_session_terminal(
             _notify_session_terminal(self.session_id, name, status, error=error)
 ```
 
-- [ ] **Step 8: 跑整套确认通过**
+- [x] **Step 8: 跑整套确认通过**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/ -q`
 Expected: 全部 PASS（Task 3/4 的 test_task_notices.py、test_task_hooks.py、test_inbox.py 不受影响）。
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/collector/utils/task_manager.py backend/backtest/routes.py backend/research/loop.py backend/tests/unit/notifications/test_domain_hooks.py
