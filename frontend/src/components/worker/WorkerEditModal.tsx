@@ -22,9 +22,7 @@ import {
   App,
   Card,
   Spin,
-  Tag,
   Typography,
-  theme,
 } from 'antd';
 import {
   EditOutlined,
@@ -156,7 +154,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
-  const { token } = theme.useToken();
   const [form] = Form.useForm();
   const { updateWorker } = useWorkerStore();
 
@@ -301,8 +298,8 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                     <Text type="secondary">{r.before}</Text>
                     <span>→</span>
                     <Text>{r.after}</Text>
-                    {r.loosen === true && <Tag color="orange">{t('worker_risk_loosen')}</Tag>}
-                    {r.loosen === false && <Tag color="green">{t('worker_risk_tighten')}</Tag>}
+                    {r.loosen === true && <span className="qc-chip warn">{t('worker_risk_loosen')}</span>}
+                    {r.loosen === false && <span className="qc-chip ok">{t('worker_risk_tighten')}</span>}
                   </Space>
                 </Col>
               </Row>
@@ -828,7 +825,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
-            <Card size="small" variant="borderless" style={{ background: token.colorFillAlter, marginBottom: 16 }}>
+            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
               <Row gutter={[12, 12]}>
                 {strategyParams.map((param) => (
                   <Col span={12} key={param.param_name}>

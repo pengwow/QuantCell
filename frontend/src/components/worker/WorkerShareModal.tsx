@@ -27,8 +27,6 @@ import {
   Radio,
   Skeleton,
   Space,
-  Table,
-  Tag,
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -43,6 +41,7 @@ import {
   WechatOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import DataTable from '@/components/ui/DataTable';
 import {
   createShareToken,
   listShareTokens,
@@ -77,16 +76,17 @@ const computeStatus = (item: ShareTokenListItem): TokenStatus => {
   return 'active';
 };
 
+// 状态 → §6.2 chip 语义档：生效=ok、撤销/失效=down、过期=quiet、一次性已用=warn
 const statusMeta = (status: TokenStatus) => {
   switch (status) {
     case 'active':
-      return { color: 'green', key: 'status_active' };
+      return { cls: ' ok', key: 'status_active' };
     case 'revoked':
-      return { color: 'red', key: 'status_revoked' };
+      return { cls: ' down', key: 'status_revoked' };
     case 'expired':
-      return { color: 'default', key: 'status_expired' };
+      return { cls: ' quiet', key: 'status_expired' };
     case 'one_time_consumed':
-      return { color: 'orange', key: 'status_one_time_used' };
+      return { cls: ' warn', key: 'status_one_time_used' };
   }
 };
 
@@ -344,7 +344,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         width: 200,
         render: (v: string, record: ShareTokenListItem) => (
           <Tooltip title={record.short_url || ''} placement="topLeft">
-            <span style={{ fontFamily: 'monospace', fontSize: 12 }}>
+            <span className="qc-mono">
               {record.short_url
                 ? record.short_url.replace(/^https?:\/\//, '').slice(0, 32) + (record.short_url.length > 40 ? '…' : '')
                 : v}
@@ -361,12 +361,12 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
           // max_views 优先：1 = 一次性（等同 one_time），>1 = 数字 N
           // 历史数据兼容：one_time=true 但 max_views=null 时仍展示"一次性"
           if (record.max_views === 1 || (record.one_time && record.max_views === null)) {
-            return <Tag color="orange">{t('share.one_time')}</Tag>;
+            return <span className="qc-chip warn">{t('share.one_time')}</span>;
           }
           if (record.max_views !== null && record.max_views > 1) {
-            return <Tag color="blue">{record.max_views}</Tag>;
+            return <span className="qc-chip info"><span className="qc-mono">{record.max_views}</span></span>;
           }
-          return <Tag>{t('share.max_views_unlimited')}</Tag>;
+          return <span className="qc-chip quiet">{t('share.max_views_unlimited')}</span>;
         },
       },
       {
@@ -375,20 +375,25 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         key: 'view_count',
         width: 100,
         align: 'center',
+        render: (v: number) => <span className="qc-mono">{v}</span>,
       },
       {
         title: t('share.created_at'),
         dataIndex: 'created_at',
         key: 'created_at',
         width: 170,
-        render: (v: string) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-'),
+        render: (v: string) => (
+          <span className="qc-cell-time qc-mono">{v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '—'}</span>
+        ),
       },
       {
         title: t('share.expires_at'),
         dataIndex: 'expires_at',
         key: 'expires_at',
         width: 170,
-        render: (v: string | null) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : t('share.expires_in_unlimited')),
+        render: (v: string | null) => (
+          <span className="qc-cell-time qc-mono">{v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : t('share.expires_in_unlimited')}</span>
+        ),
       },
       {
         title: t('share.status'),
@@ -397,7 +402,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         render: (_, record: ShareTokenListItem) => {
           const status = computeStatus(record);
           const meta = statusMeta(status);
-          return <Tag color={meta.color}>{t(`share.${meta.key}`)}</Tag>;
+          return <span className={`qc-chip${meta.cls}`}>{t(`share.${meta.key}`)}</span>;
         },
       },
       {
@@ -407,17 +412,17 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         align: 'center',
         render: (_, record: ShareTokenListItem) => {
           const r = record.remote_status;
-          if (r === 'UPLOADED') return <Tag color="green">{t('share.remote_uploaded')}</Tag>;
-          if (r === 'PENDING') return <Tag color="blue">{t('share.remote_pending')}</Tag>;
+          if (r === 'UPLOADED') return <span className="qc-chip ok">{t('share.remote_uploaded')}</span>;
+          if (r === 'PENDING') return <span className="qc-chip info">{t('share.remote_pending')}</span>;
           if (r === 'FAILED') {
             return (
               <Tooltip title={record.remote_error || ''}>
-                <Tag color="red">{t('share.remote_failed')}</Tag>
+                <span className="qc-chip down">{t('share.remote_failed')}</span>
               </Tooltip>
             );
           }
-          if (r === 'REVOKED') return <Tag color="default">{t('share.remote_revoked')}</Tag>;
-          return <Tag>-</Tag>;
+          if (r === 'REVOKED') return <span className="qc-chip quiet">{t('share.remote_revoked')}</span>;
+          return <span className="qc-chip quiet">—</span>;
         },
       },
       {
@@ -612,6 +617,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         {/* 二维码预览（仅在有链接时显示） */}
         {generatedUrl && (
           <div ref={qrCanvasRef} style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
+            {/* ponytail: 二维码必须恒定黑码白底（外部扫描器的最低对比要求），非主题色、不随暗色主题变化 */}
             <QRCode
               value={generatedUrl}
               size={160}
@@ -646,15 +652,13 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       {loadingTokens && tokens.length === 0 ? (
         <Skeleton active paragraph={{ rows: 4 }} />
       ) : (
-        <Table
+        <DataTable
           rowKey="id"
           columns={columns}
           dataSource={tokens}
           loading={loadingTokens}
           pagination={false}
-          size="small"
-          scroll={{ x: 'max-content' }}
-          locale={{ emptyText: t('share.no_tokens') }}
+          emptyTitle={t('share.no_tokens')}
         />
       )}
     </Modal>

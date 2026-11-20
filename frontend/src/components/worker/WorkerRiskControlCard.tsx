@@ -6,8 +6,8 @@
  */
 
 import { useTranslation } from 'react-i18next';
-import { Button, Card, Col, Descriptions, Row, Space, Tag, Tooltip } from 'antd';
-import { CodeOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Button, Card, Col, Descriptions, Row, Space, Spin, Tooltip } from 'antd';
+import { ExclamationCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import type { RiskControlOut } from '../../types/worker';
 import { getRiskControl } from '../../api/workerApi';
 import { QUANT_COLORS } from '@/utils/colors';
@@ -96,18 +96,20 @@ const WorkerRiskControlCard: React.FC<WorkerRiskControlCardProps> = ({ workerId,
 
   return (
     <Card
+      className="qc-card"
       title={
         <Space>
-          <span>🛡️</span>
+          {/* 盾形图标与 WorkerParamsTab 的卡头图标体系一致（emoji 不入卡头） */}
+          <SafetyCertificateOutlined />
           <span>{t('risk_params')}</span>
-          {risk?.enabled && <Tag color="green">{t('worker_risk_guard_active')}</Tag>}
+          {risk?.enabled && <span className="qc-chip ok">{t('worker_risk_guard_active')}</span>}
         </Space>
       }
       extra={onEdit && <Button size="small" onClick={onEdit}>{t('edit')}</Button>}
     >
       {!riskLoaded ? (
         <div style={{ textAlign: 'center', padding: 30 }}>
-          <Tag icon={<CodeOutlined />} color="processing">{t('loading')}</Tag>
+          <Spin size="small" />
         </div>
       ) : risk === null ? (
         <div style={{ textAlign: 'center', padding: 30, color: 'var(--qc-text-tertiary)' }}>

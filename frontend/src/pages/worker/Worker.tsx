@@ -4,18 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Card,
-  Tag,
-  Table,
   Spin,
   Tooltip,
   Popconfirm,
   Row,
   Col,
-  Statistic,
-  Empty,
   Space,
   Alert,
-  Input,
   Select,
   Modal,
   App,
@@ -23,7 +18,6 @@ import {
   Checkbox,
   Flex,
   Pagination,
-  theme,
   type TablePaginationConfig,
 } from 'antd';
 import {
@@ -33,9 +27,6 @@ import {
   StopOutlined,
   EditOutlined,
   DeleteOutlined,
-  CheckCircleOutlined,
-  BarChartOutlined,
-  PoweroffOutlined,
   CaretRightOutlined,
   FileTextOutlined,
   EyeOutlined,
@@ -43,25 +34,26 @@ import {
   CheckSquareOutlined,
   BorderOutlined,
   ThunderboltOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
 import { triggerOptimize } from '../../api/workerApi';
 import type { Worker as WorkerType, ApiResponse } from '../../types/worker';
-import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
+import { WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
+import PageToolbar from '@/components/ui/PageToolbar';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import { setPageTitle } from '@/utils/pageTitle';
 import { QUANT_COLORS } from '@/utils/colors';
 import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
+import { workerStatusChip } from '../../components/worker/statusChip';
 
 const Worker = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { message: apiMessage, modal } = App.useApp();
-  const { token } = theme.useToken();
 
   // Store state and actions
   // 注意：详情展示已移交 /strategy-worker/:id 独立页（WorkerDetail），
@@ -158,14 +150,6 @@ const Worker = () => {
   // 筛选条件变化时回到第一页（避免过滤后停留在超出范围的页码）
   const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
 
-  // 表格条数变化写回全局配置，全站生效
-  const handleWorkerTableChange = (nextPagination: TablePaginationConfig) => {
-    if (nextPagination.pageSize && nextPagination.pageSize !== pageSize) {
-      setPageSize(nextPagination.pageSize);
-    }
-    setPagination(nextPagination);
-  };
-
   // Event handlers
   const handleStart = useCallback(async (worker: WorkerType) => {
     // 防重复点击
@@ -187,7 +171,7 @@ const Worker = () => {
           content: (
             <div>
               <div><strong>{worker.name}</strong> {t('worker_cannot_start_now')}</div>
-              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--qc-text-secondary)', marginTop: 4 }}>
                 {t('worker_reason_label', { message: errorMsg })}
               </div>
             </div>
@@ -227,7 +211,7 @@ const Worker = () => {
           content: (
             <div>
               <div><strong>{worker.name}</strong> {t('worker_cannot_stop_now')}</div>
-              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--qc-text-secondary)', marginTop: 4 }}>
                 {t('worker_reason_label', { message: errorMsg })}
               </div>
             </div>
@@ -391,114 +375,113 @@ const Worker = () => {
     );
   };
 
-  // Render statistics cards
+  // Render statistics cards — §6.4 KPI：label 11 fg-4 → mono 22/650 → 真值副标；
+  // 计数类恒中性，仅「总盈亏」按方向染涨跌色（幅度/计数不染色）
   const renderStatistics = () => (
-    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('total_tasks')}
-            value={statusStats.total}
-            prefix={<BarChartOutlined />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('running')}
-            value={statusStats.running}
-            styles={{ content: { color: QUANT_COLORS.positive } }}
-            prefix={<CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('stopped')}
-            value={statusStats.stopped}
-            styles={{ content: { color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' } }}
-            prefix={<PoweroffOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('total_profit')}
-            value={statusStats.totalProfit}
-            precision={2}
-            prefix={'$'}
-            styles={{ content: { color: statusStats.totalProfit >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
-          />
-        </Card>
-      </Col>
-    </Row>
+    <div className="qc-kpi-grid" style={{ marginBottom: 12 }}>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('total_tasks')}</span></div>
+        <div className="qc-kpi-num">{statusStats.total}</div>
+        <div className="qc-kpi-sub">
+          {t('wt_kpi_sub_tasks', { running: statusStats.running, stopped: statusStats.stopped, error: statusStats.error })}
+        </div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('running')}</span></div>
+        <div className="qc-kpi-num">{statusStats.running}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('stopped')}</span></div>
+        <div className="qc-kpi-num">{statusStats.stopped}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('total_profit')}</span></div>
+        <div className={`qc-kpi-num${statusStats.totalProfit > 0 ? ' up' : statusStats.totalProfit < 0 ? ' down' : ''}`}>
+          {statusStats.totalProfit > 0 ? '+' : ''}${statusStats.totalProfit.toFixed(2)}
+        </div>
+        <div className="qc-kpi-sub">{t('wt_kpi_sub_pnl', { total: workers.length })}</div>
+      </div>
+    </div>
   );
 
-  // 工具栏：与策略管理/因子库一致的「搜索+视图切换 / 筛选+操作」两行布局
-  const renderToolbar = () => (
-    <Space orientation="vertical" size="middle" style={{ display: 'flex', marginBottom: 8 }}>
-      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
-        <Input
-          allowClear
-          prefix={<SearchOutlined />}
-          style={{ width: 260, maxWidth: '100%' }}
-          placeholder={t('search_worker')}
-          value={searchKeyword}
-          onChange={(e) => {
-            setSearchKeyword(e.target.value);
+  // 状态 → §6.2 chip（映射收口在 ./statusChip，详情页/交易 tab 共用）
+  const renderStatusChip = (status: WorkerType['status']) =>
+    workerStatusChip(status, t(WorkerStatusText[status]));
+
+  // 工具栏：§6.6 PageToolbar（搜索 + 状态筛选 + 计数 + 操作）
+  const renderToolbar = () => {
+    const current = (pagination.current as number) || 1;
+    const currentSize = (pagination.pageSize as number) || pageSize;
+    const start = filteredWorkers.length === 0 ? 0 : (current - 1) * currentSize + 1;
+    const end = Math.min(current * currentSize, filteredWorkers.length);
+    return (
+      <PageToolbar
+        search={{
+          value: searchKeyword,
+          onChange: (value) => {
+            setSearchKeyword(value);
             gotoPage1();
-          }}
-        />
-      </Flex>
-      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
-        <Select
-          style={{ width: 120 }}
-          placeholder={t('filter_by_status')}
-          allowClear
-          value={statusFilter || undefined}
-          onChange={(v) => {
-            setStatusFilter(v || '');
-            gotoPage1();
-          }}
-          options={[
-            { value: 'running', label: t('running') },
-            { value: 'stopped', label: t('stopped') },
-            { value: 'error', label: t('error') },
-          ]}
-        />
-        <Space size="small" wrap>
-          <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
-            {t('refresh')}
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
-            {t('create_worker')}
-          </Button>
-        </Space>
-      </Flex>
-    </Space>
-  );
+          },
+          placeholder: t('search_worker'),
+          ariaLabel: t('search_worker'),
+        }}
+        filters={
+          <Select
+            style={{ width: 120 }}
+            aria-label={t('filter_by_status')}
+            placeholder={t('filter_by_status')}
+            allowClear
+            value={statusFilter || undefined}
+            onChange={(v) => {
+              setStatusFilter(v || '');
+              gotoPage1();
+            }}
+            options={[
+              { value: 'running', label: t('running') },
+              { value: 'stopped', label: t('stopped') },
+              { value: 'error', label: t('error') },
+            ]}
+          />
+        }
+        count={t('shown_range', { start, end, total: filteredWorkers.length })}
+        actions={
+          <>
+            <Button icon={<ReloadOutlined />} onClick={handleRefresh} style={{ height: 30 }}>
+              {t('refresh')}
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)} style={{ height: 30 }}>
+              {t('create_worker')}
+            </Button>
+          </>
+        }
+      />
+    );
+  };
 
   // 批量操作工具栏 - 仅在选中 Worker 时显示
+  // 形制：选中态 primary 5% tint 底 + 45% 边（§2.3 表格选中行同源公式），不再用渐变信息蓝
   const renderBatchBar = () => (
     <div
       style={{
-        marginBottom: 16,
-        padding: '12px 16px',
-        background: 'linear-gradient(135deg, color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background)) 0%, color-mix(in srgb, var(--tw-color-info) 28%, var(--tw-color-background)) 100%)',
-        borderRadius: 8,
+        marginBottom: 12,
+        padding: '10px 14px',
+        background: 'color-mix(in srgb, var(--qc-primary) 5%, var(--qc-surface))',
+        border: '1px solid color-mix(in srgb, var(--qc-primary) 45%, transparent)',
+        borderRadius: 10,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        gap: 8,
+        flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontSize: 14, color: QUANT_COLORS.info }}>
-        <CheckSquareOutlined style={{ marginRight: 8 }} />
-        {t('worker_selected_prefix')} <strong>{selectedRowKeys.length}</strong> {t('worker_selected_suffix')}
+      <span style={{ fontSize: 12.5, color: 'var(--qc-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <CheckSquareOutlined style={{ color: 'var(--qc-primary)' }} />
+        {t('worker_selected_prefix')}
+        <span className="qc-count-chip">{selectedRowKeys.length}</span>
+        {t('worker_selected_suffix')}
       </span>
-      <Space>
+      <Space size="small" wrap>
         <Button
           type="primary"
           size="small"
@@ -564,7 +547,7 @@ const Worker = () => {
     </Space>
   );
 
-  // 卡片操作按钮：启停/详情/优化/重启/日志
+  // 卡片操作按钮：启停/详情/优化/重启/日志（§6.1 danger 变体：tint 描边而非实色填充）
   const renderCardActions = (worker: WorkerType) => (
     <Row gutter={[8, 8]}>
       <Col span={12}>
@@ -589,7 +572,6 @@ const Worker = () => {
             disabled={submittingWorkerIds.has(worker.id)}
           >
             <Button
-              type="primary"
               danger
               size="small"
               icon={<StopOutlined />}
@@ -662,25 +644,33 @@ const Worker = () => {
     </Row>
   );
 
-  // 信息行：左标签右内容（卡片指标区，与因子库卡片同风格）
+  // 信息行：左标签（12px fg-3）右 mono 值（§6.5 标识 mono）
   const infoRow = (label: string, node: React.ReactNode) => (
-    <Flex justify="space-between" align="center">
-      <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>{label}</span>
+    <Flex justify="space-between" align="center" gap={8}>
+      <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>{label}</span>
       {node}
     </Flex>
   );
 
+  // 卡片视图 — §6.3 卡片 + §6.2 chip + §6.7 分页条
   const renderCardView = () => {
     const current = (pagination.current as number) || 1;
-    const pageSize = (pagination.pageSize as number) || 10;
-    const pageData = filteredWorkers.slice((current - 1) * pageSize, current * pageSize);
+    const currentSize = (pagination.pageSize as number) || pageSize;
+    const pageData = filteredWorkers.slice((current - 1) * currentSize, current * currentSize);
+    const pgChange = (page: number, size: number) => {
+      if (size !== pageSize) setPageSize(size);
+      setPagination((p) => ({ ...p, current: page, pageSize: size }));
+    };
 
     if (!pageData.length) {
       return (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('no_workers')}
-          style={{ padding: '48px 0' }}
+        <QcEmpty
+          title={t('no_workers')}
+          action={
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+              {t('create_worker')}
+            </Button>
+          }
         />
       );
     }
@@ -692,9 +682,11 @@ const Worker = () => {
             <Col xs={24} sm={12} md={8} lg={6} key={worker.id}>
               <Card
                 size="small"
+                className="qc-card"
                 title={
                   <span
                     title={worker.name}
+                    className="qc-mono"
                     style={{
                       display: 'inline-block',
                       overflow: 'hidden',
@@ -711,49 +703,67 @@ const Worker = () => {
               >
                 <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
                   <Space size={4} wrap style={{ rowGap: 4 }}>
-                    {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-                    {worker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
-                    <Tag color={WorkerStatusColor[worker.status]}>
-                      {t(WorkerStatusText[worker.status])}
-                    </Tag>
+                    {worker.strategy_type === 'rl' && <span className="qc-chip pri">RL</span>}
+                    {worker.strategy_type === 'rule' && <span className="qc-chip info">{t('worker_rule_tag')}</span>}
+                    {renderStatusChip(worker.status)}
                   </Space>
-                  {infoRow(t('exchange'), <Tag>{worker.trading_config?.exchange}</Tag>)}
-                  {infoRow(t('timeframe'), <Tag color="blue">{worker.trading_config?.interval}</Tag>)}
+                  {infoRow(t('exchange'), <span className="qc-mono" style={{ fontSize: 12 }}>{worker.trading_config?.exchange || '—'}</span>)}
+                  {infoRow(t('timeframe'), <span className="qc-mono" style={{ fontSize: 12 }}>{worker.trading_config?.interval || '—'}</span>)}
                   {infoRow(
                     t('total_profit'),
                     <span
+                      className="qc-mono"
                       style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: (worker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: (worker.total_profit || 0) > 0 ? QUANT_COLORS.positive : (worker.total_profit || 0) < 0 ? QUANT_COLORS.negative : 'var(--qc-text)',
                       }}
                     >
-                      {(worker.total_profit || 0) >= 0 ? '+' : ''}
+                      {(worker.total_profit || 0) > 0 ? '+' : ''}
                       ${(worker.total_profit || 0).toFixed(2)}
                     </span>,
                   )}
-                  <div style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }} />
+                  <div style={{ borderTop: '1px solid var(--qc-border)' }} />
                   {renderCardActions(worker)}
                 </Space>
               </Card>
             </Col>
           ))}
         </Row>
-        <Row justify="center" style={{ marginTop: 16 }}>
+        <div className="qc-pg-bar">
+          <div className="qc-pg-info">
+            <span>{t('total_items', { total: filteredWorkers.length })}</span>
+            <span className="qc-pg-sep">·</span>
+            <span>{t('per_page')}</span>
+            <Select
+              size="small"
+              className="qc-pg-size"
+              value={currentSize}
+              popupMatchSelectWidth={false}
+              aria-label={t('per_page')}
+              onChange={(size) => pgChange(1, size)}
+              options={PAGE_SIZE_OPTIONS.map((n) => ({ value: Number(n), label: n }))}
+            />
+          </div>
           <Pagination
+            size="small"
+            className="qc-pagination"
+            showLessItems
+            showQuickJumper
+            showSizeChanger={false}
             current={current}
-            pageSize={pageSize}
+            pageSize={currentSize}
             total={filteredWorkers.length}
-            showSizeChanger
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => t('total_items', { total })}
-            onChange={(page, size) => {
-              // 条数变化写回全局配置，全站生效
-              setPageSize(size);
-              setPagination((p) => ({ ...p, current: page, pageSize: size }));
-            }}
+            onChange={pgChange}
+            itemRender={(pg, type, node) =>
+              type === 'jump-prev' || type === 'jump-next' ? (
+                <span className="qc-pg-ellipsis">…</span>
+              ) : (
+                node
+              )
+            }
           />
-        </Row>
+        </div>
       </>
     );
   };
@@ -765,7 +775,7 @@ const Worker = () => {
         <Button
           type="text"
           size="small"
-          icon={<EyeOutlined style={{ color: QUANT_COLORS.info }} />}
+          icon={<EyeOutlined />}
           onClick={() => navigate(`/strategy-worker/${worker.id}`)}
         />
       </Tooltip>
@@ -826,64 +836,71 @@ const Worker = () => {
     </Space>
   );
 
+  // 列表视图 — §6.5/§6.6：DataTable（qc-table + 自绘 §6.7 分页条），名称 mono、状态 chip、盈亏涨跌色
   const renderListView = () => (
-    <Table
+    <DataTable<WorkerType>
       dataSource={filteredWorkers}
       rowKey="id"
-      size="small"
-      // 分页由共享 pagination 状态控制，卡片视图复用同一份页码
-      pagination={pagination}
-      scroll={{ x: 800 }}
+      emptyTitle={t('no_workers')}
+      // 分页由共享 pagination 状态控制，卡片视图复用同一份页码；条数变化写回全局配置
+      pagination={{
+        current: (pagination.current as number) || 1,
+        pageSize: (pagination.pageSize as number) || pageSize,
+        showSizeChanger: true,
+        pageSizeOptions: PAGE_SIZE_OPTIONS,
+        onChange: (page, size) => {
+          if (size !== pageSize) setPageSize(size);
+          setPagination((p) => ({ ...p, current: page, pageSize: size }));
+        },
+      }}
       rowSelection={{
         selectedRowKeys,
         onChange: (keys) => setSelectedRowKeys(keys),
       }}
-      locale={{
-        emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('no_workers')} />,
-      }}
-      onChange={handleWorkerTableChange}
       columns={[
         {
           title: t('worker_name'),
           dataIndex: 'name',
           key: 'name',
-          width: 180,
-          ellipsis: true,
+          width: 220,
           render: (text: string, worker: WorkerType) => (
-            <Space size={4}>
-              <span>{text}</span>
-              <Tag color={WorkerStatusColor[worker.status]}>
-                {t(WorkerStatusText[worker.status])}
-              </Tag>
+            <Space size={6}>
+              <span className="qc-mono qc-cell-strat" title={text}>{text}</span>
+              {renderStatusChip(worker.status)}
             </Space>
           ),
         },
         {
           title: t('exchange'),
-          dataIndex: 'exchange',
           key: 'exchange',
           width: 90,
+          render: (_: unknown, worker: WorkerType) => (
+            <span className="qc-mono">{worker.trading_config?.exchange || '—'}</span>
+          ),
         },
         {
           title: t('interval'),
-          dataIndex: 'interval',
           key: 'interval',
-          width: 70,
+          width: 80,
+          render: (_: unknown, worker: WorkerType) => (
+            <span className="qc-mono">{worker.trading_config?.interval || '—'}</span>
+          ),
         },
         {
           title: t('total_profit'),
           dataIndex: 'total_profit',
           key: 'total_profit',
-          width: 100,
-          render: (profit: number) => (
-            <span style={{
-              fontWeight: 500,
-              color: (profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
-            }}>
-              {(profit || 0) >= 0 ? '+' : ''}
-              ${(profit || 0).toFixed(2)}
-            </span>
-          ),
+          width: 110,
+          align: 'right',
+          render: (profit: number | undefined) => {
+            const p = profit || 0;
+            // 0 归中性：盈亏才染色，不是「非负即绿」
+            return (
+              <span className={`qc-mono${p > 0 ? ' qc-cell-up' : p < 0 ? ' qc-cell-down' : ''}`}>
+                {p > 0 ? '+' : ''}${p.toFixed(2)}
+              </span>
+            );
+          },
         },
         {
           title: t('action'),
@@ -896,8 +913,18 @@ const Worker = () => {
     />
   );
 
+  // 页头副标（§5 page-sub）：mono 11 真值口径行——任务分布 + 累计盈亏（正负号带出）
+  const pnlText = `${statusStats.totalProfit > 0 ? '+' : ''}$${statusStats.totalProfit.toFixed(2)}`;
+  const pageSubtitle = t('wt_sub_list', {
+    total: statusStats.total,
+    running: statusStats.running,
+    stopped: statusStats.stopped,
+    error: statusStats.error,
+    pnl: pnlText,
+  });
+
   return (
-    <PageContainer title={t('strategy_task')}>
+    <PageContainer title={t('strategy_task')} subtitle={pageSubtitle}>
       <Spin spinning={loading}>
         {/* Error Alert */}
         {error && (
@@ -945,6 +972,7 @@ const Worker = () => {
       {/* Logs Panel Modal */}
       {logsWorkerId && (
         <Modal
+          className="qc-modal"
           title={t('worker_logs')}
           open={logsPanelVisible}
           onCancel={handleCloseLogsPanel}

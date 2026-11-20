@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Col, Empty, Row, Segmented, Skeleton, Statistic, Button, Space, theme } from 'antd';
+import { Button, Card, Empty, Segmented, Skeleton, Space } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import EChart from '@/components/EChart';
 import type { TooltipComponentFormatterCallbackParams } from 'echarts';
@@ -33,14 +33,16 @@ const WINDOW_LABEL_KEYS: Record<OverviewWindow, string> = {
   all: 'all',
 };
 
+// KPI 数字语义档：up/down/warn 按 §6.4；空串 = 恒中性（计数/名义额/回撤幅度）
+type KpiTone = 'up' | 'down' | 'warn' | '';
+
 interface KPICardSpec {
   key: keyof OverviewMetrics | 'return_rate';
   label: string;
-  render: (m: OverviewMetrics) => { value: string; color: string };
+  render: (m: OverviewMetrics) => { value: string; tone: KpiTone };
 }
 
 const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNavigate?: (tab: string) => void }> = ({ workerId, active = true, onNavigate }) => {
-  const { token } = theme.useToken();
   const { t } = useTranslation();
   const qc = useQuantColors();
   const { overview, overviewWindow, loadingOverview, fetchOverview } = useWorkerStore();
@@ -52,17 +54,19 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
     [t],
   );
 
-  // ponytail: KPI_CARDS 依赖 quantColors（跟随主题切换），必须放在 useMemo 里重建
+  // ponytail: KPI_CARDS 原依赖 quantColors（跟随主题切换）；改 qc-kpi 语义档后不再取色，纯静态
   const KPI_CARDS = useMemo<KPICardSpec[]>(() => [
-    { key: 'total_pnl', label: t('backtest_metric_total_pnl'), render: (m) => ({ value: formatUSD(m.total_pnl, { showSign: true }), color: m.total_pnl >= 0 ? qc.positive : qc.negative }) },
-    { key: 'return_rate', label: t('return_rate'), render: (m) => ({ value: formatPercent(m.return_rate, { showSign: true }), color: m.return_rate >= 0 ? qc.positive : qc.negative }) },
-    { key: 'win_rate', label: t('win_rate'), render: (m) => ({ value: formatPercent(m.win_rate), color: m.win_rate >= 50 ? qc.positive : qc.negative }) },
-    { key: 'profit_loss_ratio', label: t('profit_loss_ratio'), render: (m) => ({ value: m.profit_loss_ratio?.toFixed(2) || '0.00', color: m.profit_loss_ratio >= 1 ? qc.positive : qc.negative }) },
-    { key: 'profit_factor', label: 'Profit Factor', render: (m) => ({ value: m.profit_factor?.toFixed(2) || '0.00', color: m.profit_factor >= 1 ? qc.positive : qc.negative }) },
-    { key: 'max_drawdown', label: t('max_drawdown'), render: (m) => ({ value: formatPercent(m.max_drawdown), color: qc.negative }) },
-    { key: 'sharpe_ratio', label: 'Sharpe Ratio', render: (m) => ({ value: m.sharpe_ratio?.toFixed(2) || '0.00', color: m.sharpe_ratio >= 1 ? qc.positive : qc.warning }) },
-    { key: 'total_trades', label: t('total_trades'), render: (m) => ({ value: String(m.total_trades ?? 0), color: qc.info }) },
-  ], [qc, t]);
+    { key: 'total_pnl', label: t('backtest_metric_total_pnl'), render: (m) => ({ value: formatUSD(m.total_pnl, { showSign: true }), tone: m.total_pnl > 0 ? 'up' : m.total_pnl < 0 ? 'down' : '' }) },
+    { key: 'return_rate', label: t('return_rate'), render: (m) => ({ value: formatPercent(m.return_rate, { showSign: true }), tone: m.return_rate > 0 ? 'up' : m.return_rate < 0 ? 'down' : '' }) },
+    { key: 'win_rate', label: t('win_rate'), render: (m) => ({ value: formatPercent(m.win_rate), tone: m.win_rate >= 50 ? 'up' : 'down' }) },
+    { key: 'profit_loss_ratio', label: t('profit_loss_ratio'), render: (m) => ({ value: m.profit_loss_ratio?.toFixed(2) || '0.00', tone: m.profit_loss_ratio >= 1 ? 'up' : 'down' }) },
+    { key: 'profit_factor', label: 'Profit Factor', render: (m) => ({ value: m.profit_factor?.toFixed(2) || '0.00', tone: m.profit_factor >= 1 ? 'up' : 'down' }) },
+    // 回撤是幅度而非盈亏符号：§6.4 口径恒中性（同回测中心 renderDrawdown）
+    { key: 'max_drawdown', label: t('max_drawdown'), render: (m) => ({ value: formatPercent(m.max_drawdown), tone: '' }) },
+    { key: 'sharpe_ratio', label: 'Sharpe Ratio', render: (m) => ({ value: m.sharpe_ratio?.toFixed(2) || '0.00', tone: m.sharpe_ratio >= 1 ? 'up' : 'warn' }) },
+    // 计数类恒中性（§6.4：只染盈亏，不染数量）
+    { key: 'total_trades', label: t('total_trades'), render: (m) => ({ value: String(m.total_trades ?? 0), tone: '' }) },
+  ], [t]);
 
   // 首次挂载 / window 切换时拉取
   useEffect(() => {
@@ -257,16 +261,15 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
   if (loadingOverview && !overview) {
     return (
       <div>
-        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        {/* 骨架与实况同构：qc-kpi 网格 + qc-card 图表占位，落地不闪框 */}
+        <div className="qc-kpi-grid" style={{ marginBottom: 16 }}>
           {[...Array(8)].map((_, i) => (
-            <Col xs={12} sm={12} md={6} key={i}>
-              <Card size="small">
-                <Skeleton active paragraph={false} />
-              </Card>
-            </Col>
+            <div className="qc-kpi" key={i}>
+              <Skeleton active paragraph={false} title={{ width: '60%' }} />
+            </div>
           ))}
-        </Row>
-        <Card>
+        </div>
+        <Card className="qc-card">
           <Skeleton active />
         </Card>
       </div>
@@ -314,38 +317,41 @@ const WorkerOverviewTab: React.FC<{ workerId: number; active?: boolean; onNaviga
         </Space>
       </div>
 
-      {/* 8 核心 KPI 卡片 */}
-      {/* ponytail: 所有 KPI 卡片统一 hoverable + cursor:pointer，background 从 theme token 取 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+      {/* 8 核心 KPI —— §6.4 .qc-kpi 制式（label → mono 22/650 → 语义档），4 列网格；
+          * 交互意图保留：cursor:pointer + role="button" + tabIndex/onKeyDown（§9 键盘等价）。 */}
+      <div className="qc-kpi-grid" style={{ marginBottom: 16 }}>
         {KPI_CARDS.map((card) => {
-          const { value, color } = card.render(metrics);
+          const { value, tone } = card.render(metrics);
           return (
-            <Col xs={12} sm={12} md={6} key={card.key}>
-              <Card
-                size="small"
-                variant="borderless"
-                hoverable
-                style={{ background: token.colorBgLayout, cursor: 'pointer' }}
-                onClick={() => handleKpiClick(String(card.key))}
-              >
-                <Statistic
-                  title={<span style={{ fontSize: 13, color: qc.neutral }}>{card.label}</span>}
-                  value={value}
-                  styles={{ content: { fontSize: 22, fontWeight: 'bold', color } }}
-                />
-              </Card>
-            </Col>
+            <div
+              key={card.key}
+              className="qc-kpi"
+              role="button"
+              tabIndex={0}
+              aria-label={card.label}
+              style={{ cursor: 'pointer' }}
+              onClick={() => handleKpiClick(String(card.key))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleKpiClick(String(card.key));
+                }
+              }}
+            >
+              <div className="qc-kpi-top"><span className="qc-kpi-lb">{card.label}</span></div>
+              <div className={`qc-kpi-num${tone ? ` ${tone}` : ''}`}>{value}</div>
+            </div>
           );
         })}
-      </Row>
+      </div>
 
       {/* 累计收益曲线 */}
-      <Card title={t('worker_cumulative_pnl_chart')} style={{ marginBottom: 16 }}>
+      <Card className="qc-card" title={t('worker_cumulative_pnl_chart')} style={{ marginBottom: 16 }}>
         <EChart option={cumulativePnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
 
       {/* 每日盈亏分布（横轴=时间） */}
-      <Card title={t('worker_daily_pnl')}>
+      <Card className="qc-card" title={t('worker_daily_pnl')}>
         <EChart option={dailyPnlOption} style={{ height: 400 }} opts={{ renderer: 'svg' }} />
       </Card>
 

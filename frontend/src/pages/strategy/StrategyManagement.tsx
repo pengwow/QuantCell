@@ -30,7 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
-import DataTable from '@/components/ui/DataTable';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
 import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
@@ -38,7 +38,6 @@ import { useConfigStore } from '@/store';
 import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
-import { QUANT_COLORS } from '@/utils/colors';
 
 const { confirm } = Modal;
 
@@ -627,6 +626,61 @@ const StrategyManagement = () => {
     },
   ];
 
+  // 页头副标（§5 page-sub）：mono 11 真值口径行，随页签切换取对应列表的真实计数
+  const rlCount = strategies.filter((s) => s.strategy_type === 'rl').length;
+  const ruleCount = strategies.filter((s) => s.strategy_type === 'rule').length;
+  const pageSubtitle =
+    activeTab === 'strategies'
+      ? t('sm_sub_strategies', { total: strategies.length, rl: rlCount, rule: ruleCount })
+      : t('sm_sub_backtests', {
+          total: (backtestPagination.total as number) || 0,
+          size: pageSize,
+        });
+
+  // 卡片视图分页条：与 DataTable/研究列表同一 §6.7 原语（.qc-pg-bar + .qc-pagination）
+  const renderPgBar = (
+    current: number,
+    size: number,
+    total: number,
+    onPgChange: (page: number, size: number) => void
+  ) =>
+    total > 0 ? (
+      <div className="qc-pg-bar">
+        <div className="qc-pg-info">
+          <span>{t('total_items', { total })}</span>
+          <span className="qc-pg-sep">·</span>
+          <span>{t('per_page')}</span>
+          <Select
+            size="small"
+            className="qc-pg-size"
+            value={size}
+            popupMatchSelectWidth={false}
+            aria-label={t('per_page')}
+            onChange={(value) => onPgChange(1, value)}
+            options={PAGE_SIZE_OPTIONS.map((n) => ({ value: Number(n), label: n }))}
+          />
+        </div>
+        <Pagination
+          size="small"
+          className="qc-pagination"
+          showLessItems
+          showQuickJumper
+          showSizeChanger={false}
+          current={current}
+          pageSize={size}
+          total={total}
+          onChange={onPgChange}
+          itemRender={(pg, type, node) =>
+            type === 'jump-prev' || type === 'jump-next' ? (
+              <span className="qc-pg-ellipsis">…</span>
+            ) : (
+              node
+            )
+          }
+        />
+      </div>
+    ) : null;
+
   // 渲染列表视图 — §6.5/§6.6：PageToolbar + DataTable，行点击选中（primary tint）
   const renderListView = () => {
     const paginationCfg = (pagination ?? {}) as TablePaginationConfig;
@@ -698,25 +752,28 @@ const StrategyManagement = () => {
     );
   };
 
-  // 渲染卡片视图
+  // 渲染卡片视图 — §6.3 卡片 chrome + §6.7 分页条
   const renderCardView = () => {
     const currentPage = typeof pagination === 'object' && pagination ? (pagination.current as number) || 1 : 1;
-    const pageSize = typeof pagination === 'object' && pagination ? (pagination.pageSize as number) || 12 : 12;
-    const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
+    const currentSize = typeof pagination === 'object' && pagination ? (pagination.pageSize as number) || 12 : 12;
+    const startIndex = (currentPage - 1) * currentSize;
+    const endIndex = startIndex + currentSize;
     const currentPageData = filteredStrategies.slice(startIndex, endIndex);
+    const pgChange = (page: number, size: number) => {
+      if (size !== pageSize) setPageSize(size);
+      setPagination({ ...(pagination || {}), current: page, pageSize: size });
+    };
 
     return (
       <>
-        <Row gutter={[16, 16]}>
-          {currentPageData.length > 0 ? (
-            currentPageData.map((strategy) => (
+        {currentPageData.length > 0 ? (
+          <Row gutter={[16, 16]}>
+            {currentPageData.map((strategy) => (
               <Col xs={24} sm={12} md={8} lg={6} key={strategy.name}>
                 <Card
                   size="small"
-                  title={
-                    <span className="font-medium">{strategy.name}</span>
-                  }
+                  className="qc-card"
+                  title={<span className="qc-mono">{strategy.name}</span>}
                   extra={
                     <Space size="small">
                       <Tooltip title={t('edit_strategy')}>
@@ -775,11 +832,11 @@ const StrategyManagement = () => {
                   <div className="text-xs space-y-1" style={{ color: 'var(--qc-text-tertiary)' }}>
                     <div className="flex justify-between">
                       <span>{t('create_time')}:</span>
-                      <span className="qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
+                      <span className="qc-cell-time qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>{t('update_time')}:</span>
-                      <span className="qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
+                      <span className="qc-cell-time qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
                     </div>
                   </div>
 
@@ -810,40 +867,23 @@ const StrategyManagement = () => {
                   </div>
                 </Card>
               </Col>
-            ))
-          ) : (
-            <Col span={24}>
-              <Card
-                className="text-center"
-                style={{
-                  padding: '60px 0',
-                }}
-              >
-                <div className="mb-4">{t('no_strategies')}</div>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateStrategy}>
-                  {t('create_first_strategy')}
-                </Button>
-              </Card>
-            </Col>
-          )}
-        </Row>
-        <Row justify="center" style={{ marginTop: 16 }}>
-          <Pagination
-            current={currentPage}
-            pageSize={pageSize}
-            total={filteredStrategies.length}
-            showSizeChanger
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total_items', { total })}`}
-            onChange={(page, size) => {
-              setPagination({
-                ...pagination,
-                current: page,
-                pageSize: size,
-              });
-            }}
-          />
-        </Row>
+            ))}
+          </Row>
+        ) : (
+          <Card className="qc-card">
+            <QcEmpty
+              title={searchText ? t('no_data') : t('no_strategies')}
+              action={
+                !searchText && (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateStrategy}>
+                    {t('create_first_strategy')}
+                  </Button>
+                )
+              }
+            />
+          </Card>
+        )}
+        {renderPgBar(currentPage, currentSize, filteredStrategies.length, pgChange)}
       </>
     );
   };
@@ -912,11 +952,11 @@ const StrategyManagement = () => {
       width: 100,
       align: 'right',
       render: (value: number | undefined) => {
-        if (value === undefined || value === null) return 'N/A';
-        const isPositive = value >= 0;
+        // §6.5 数值列口径（与回测中心一致）：null →「—」弱文本；正绿负红
+        if (value === undefined || value === null) return <span className="qc-mono qc-cell-none">—</span>;
         return (
-          <span className="qc-mono" style={{ color: isPositive ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
-            {isPositive ? '+' : ''}{value.toFixed(2)}%
+          <span className={`qc-mono ${value >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>
+            {value >= 0 ? '+' : ''}{value.toFixed(2)}%
           </span>
         );
       },
@@ -928,8 +968,9 @@ const StrategyManagement = () => {
       width: 100,
       align: 'right',
       render: (value: number | undefined) => {
-        if (value === undefined || value === null) return 'N/A';
-        return <span className="qc-mono" style={{ color: QUANT_COLORS.negative }}>{value.toFixed(2)}%</span>;
+        // 回撤是幅度而非盈亏符号：一律中性前景色（口径同回测中心 renderDrawdown）
+        if (value === undefined || value === null) return <span className="qc-mono qc-cell-none">—</span>;
+        return <span className="qc-mono">{value.toFixed(2)}%</span>;
       },
     },
     {
@@ -1109,124 +1150,112 @@ const StrategyManagement = () => {
     </>
   );
 
-  // 渲染回测卡片视图
+  // 渲染回测卡片视图 — §6.3 卡片 chrome + §6.7 分页条（服务端分页）
   const renderBacktestCardView = () => {
     const currentPage = (backtestPagination.current as number) || 1;
-    const pageSize = (backtestPagination.pageSize as number) || 10;
+    const currentSize = (backtestPagination.pageSize as number) || pageSize;
     // backtests 即服务端返回的当前页数据，无需再本地切片
     const currentPageData = backtests;
+    const pgChange = (page: number, size: number) => {
+      // 分页事件下沉服务端重新拉取；条数变化写回全局配置
+      setPageSize(size);
+      loadBacktests({ page, pageSize: size });
+    };
 
     return (
       <>
-        <Row gutter={[16, 16]}>
-          {currentPageData.map((task: BacktestTask) => (
-            <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
-              <Card
-                size="small"
-                title={
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium truncate qc-mono" style={{ maxWidth: '70%' }}>
-                      {task.strategy_name}
-                    </span>
-                    {renderStatusChip(task.status)}
+        {currentPageData.length > 0 ? (
+          <Row gutter={[16, 16]}>
+            {currentPageData.map((task: BacktestTask) => (
+              <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
+                <Card
+                  size="small"
+                  className={`qc-card${backtestSelectedRowKeys.includes(task.id) ? ' qc-card-selected' : ''}`}
+                  title={
+                    <div className="flex items-center justify-between">
+                      <span className="qc-mono truncate" style={{ maxWidth: '70%' }}>
+                        {task.strategy_name}
+                      </span>
+                      {renderStatusChip(task.status)}
+                    </div>
+                  }
+                  extra={
+                    // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
+                    <Tooltip title={isGuest ? t('guest_delete_restricted') : (t('delete'))}>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        disabled={isGuest}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteBacktest(task.id);
+                        }}
+                      />
+                    </Tooltip>
+                  }
+                  onClick={() => setBacktestSelectedRowKeys([task.id])}
+                  onDoubleClick={() => handleViewDetail(task.id)}
+                  style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
+                >
+                  <div className="space-y-3" style={{ color: 'var(--qc-text-tertiary)' }}>
+                    <div className="flex justify-between items-center">
+                      <span>{t('total_return')}</span>
+                      {task.total_return === undefined || task.total_return === null ? (
+                        <span className="qc-cell-none qc-mono">—</span>
+                      ) : (
+                        <span className={`qc-mono ${task.total_return >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>
+                          {task.total_return >= 0 ? '+' : ''}{task.total_return.toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>{t('max_drawdown')}</span>
+                      {/* 幅度类指标恒中性（同回测中心口径） */}
+                      <span className="qc-mono">
+                        {task.max_drawdown === undefined || task.max_drawdown === null ? '—' : `${task.max_drawdown.toFixed(2)}%`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>{t('create_time')}</span>
+                      <span className="qc-cell-time qc-mono">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<LineChartOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewDetail(task.id);
+                        }}
+                      >
+                        {t('view')}
+                      </Button>
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<PlayCircleOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReplay(task.id);
+                        }}
+                      >
+                        {t('replay')}
+                      </Button>
+                    </div>
                   </div>
-                }
-                extra={
-                  // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
-                  <Tooltip title={isGuest ? t('guest_delete_restricted') : (t('delete'))}>
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      disabled={isGuest}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteBacktest(task.id);
-                      }}
-                    />
-                  </Tooltip>
-                }
-                className={backtestSelectedRowKeys.includes(task.id) ? 'qc-card-selected' : ''}
-                onClick={() => setBacktestSelectedRowKeys([task.id])}
-                onDoubleClick={() => handleViewDetail(task.id)}
-                style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
-              >
-                <div className="space-y-3" style={{ color: 'var(--qc-text-tertiary)' }}>
-                  <div className="flex justify-between items-center">
-                    <span>{t('total_return')}</span>
-                    <span
-                      style={{
-                        color:
-                          task.total_return === undefined || task.total_return === null
-                            ? 'inherit'
-                            : task.total_return >= 0
-                              ? QUANT_COLORS.positive
-                              : QUANT_COLORS.negative,
-                        fontWeight: 'bold',
-                      }}
-                    >
-                      {task.total_return === undefined || task.total_return === null
-                        ? 'N/A'
-                        : `${task.total_return >= 0 ? '+' : ''}${task.total_return.toFixed(2)}%`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>{t('max_drawdown')}</span>
-                    <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
-                      {task.max_drawdown === undefined || task.max_drawdown === null
-                        ? 'N/A'
-                        : `${task.max_drawdown.toFixed(2)}%`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>{t('create_time')}</span>
-                    <span className="qc-mono">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
-                    <Button
-                      type="link"
-                      size="small"
-                      icon={<LineChartOutlined />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleViewDetail(task.id);
-                      }}
-                    >
-                      {t('view')}
-                    </Button>
-                    <Button
-                      type="link"
-                      size="small"
-                      icon={<PlayCircleOutlined />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleReplay(task.id);
-                      }}
-                    >
-                      {t('replay')}
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            </Col>
-          ))}
-        </Row>
-        <Row justify="center" style={{ marginTop: 16 }}>
-          <Pagination
-            current={currentPage}
-            pageSize={pageSize}
-            total={(backtestPagination.total as number) || 0}
-            showSizeChanger
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total_items', { total })}`}
-            onChange={(page, size) => {
-              // 分页事件下沉服务端重新拉取；条数变化写回全局配置
-              setPageSize(size);
-              loadBacktests({ page, pageSize: size });
-            }}
-          />
-        </Row>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        ) : (
+          <Card className="qc-card">
+            <QcEmpty title={t('no_data')} />
+          </Card>
+        )}
+        {renderPgBar(currentPage, currentSize, (backtestPagination.total as number) || 0, pgChange)}
       </>
     );
   };
@@ -1253,7 +1282,12 @@ const StrategyManagement = () => {
         <span>
           <HistoryOutlined style={{ marginRight: 8 }} />
           {t('backtest_records')}
-          {selectedStrategy && <span className="qc-chip info qc-mono" style={{ marginLeft: 8 }}>{selectedStrategy}</span>}
+          {/* 当前过滤值标注：mono 弱文本（非徽章/非胶囊——不消费点击，不冒充交互原语） */}
+          {selectedStrategy && (
+            <span className="qc-mono" style={{ marginLeft: 8, fontSize: 11, color: 'var(--qc-text-quaternary)' }}>
+              {selectedStrategy}
+            </span>
+          )}
         </span>
       ),
       children: (
@@ -1277,6 +1311,7 @@ const StrategyManagement = () => {
   return (
     <PageContainer
       title={t('strategy_management')}
+      subtitle={pageSubtitle}
       actions={
         <Button
           type="primary"

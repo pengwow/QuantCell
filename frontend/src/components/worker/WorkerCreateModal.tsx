@@ -22,7 +22,6 @@ import {
   App,
   Card,
   Spin,
-  theme,
 } from 'antd';
 import {
   PlusOutlined,
@@ -146,7 +145,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const { message } = App.useApp();
-  const { token } = theme.useToken();
   const [form] = Form.useForm();
   const { createWorker, workers } = useWorkerStore();
 
@@ -621,7 +619,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
-            <Card size="small" variant="borderless" style={{ background: token.colorFillAlter, marginBottom: 16 }}>
+            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
               <Row gutter={[12, 12]}>
                 {strategyParams.map((param) => (
                   <Col span={12} key={param.param_name}>

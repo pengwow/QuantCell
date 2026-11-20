@@ -7,13 +7,13 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag } from 'antd';
-import type { TableColumnsType } from 'antd';
+import { Card, Space, Spin } from 'antd';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import type { TableColumnsType } from 'antd';
 import type { PositionInfo, PositionSide } from '@/types/worker';
 import {
-  QUANT_COLORS,
   calcROE,
   formatHoldingDuration,
   formatLeverage,
@@ -69,14 +69,14 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
     return { totalPositionValue, totalUnrealizedPnL, totalMarginUsed, totalROE };
   }, [positions]);
 
-  // 表格列：按量化行业标准排序
+  // 表格列：按量化行业标准排序（§6.5：标识 mono、方向涨跌色、时间弱色；类别值不上色）
   const columns: TableColumnsType<Position> = [
     {
       title: t('symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
       width: 120,
-      render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
+      render: (symbol: string) => <span className="qc-mono">{symbol}</span>,
     },
     {
       title: t('direction'),
@@ -84,9 +84,9 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       key: 'position_side',
       width: 80,
       render: (side: PositionSide) => (
-        <Tag color={side === 'long' ? 'green' : side === 'short' ? 'red' : 'blue'}>
+        <span className={`qc-mono${side === 'long' ? ' qc-cell-up' : side === 'short' ? ' qc-cell-down' : ''}`}>
           {side === 'long' ? t('position_side_long') : side === 'short' ? t('position_side_short') : t('position_side_both')}
-        </Tag>
+        </span>
       ),
     },
     {
@@ -132,7 +132,8 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       key: 'leverage',
       width: 80,
       align: 'center',
-      render: (lev?: number) => (lev ? <Tag color="orange">{formatLeverage(lev)}</Tag> : '-'),
+      // 倍数值中性 mono（类别值不上色，同 WorkerOrderTab type 列口径）
+      render: (lev?: number) => (lev ? <span className="qc-mono">{formatLeverage(lev)}</span> : <span className="qc-mono qc-cell-none">—</span>),
     },
     {
       title: t('backtest_margin'),
@@ -148,7 +149,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       align: 'right',
       width: 140,
       render: (pnl: number) => (
-        <span style={{ fontWeight: 600, color: pnl >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+        <span className={`qc-mono${pnl >= 0 ? ' qc-cell-up' : ' qc-cell-down'}`}>
           {formatUSD(pnl, { showSign: true })}
         </span>
       ),
@@ -163,7 +164,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       render: (roe: number | undefined, record: Position) => {
         const value = roe !== undefined ? roe : calcROE(record.unrealized_pnl, record.margin_used || 0);
         return (
-          <span style={{ fontWeight: 600, color: value >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+          <span className={`qc-mono${value >= 0 ? ' qc-cell-up' : ' qc-cell-down'}`}>
             {formatPercent(value, { showSign: true })}
           </span>
         );
@@ -174,7 +175,9 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       dataIndex: 'opened_at',
       key: 'opened_at',
       width: 170,
-      render: (time?: string) => (time ? formatTimestamp(time) : '-'),
+      render: (time?: string) => (
+        <span className="qc-cell-time qc-mono">{time ? formatTimestamp(time) : '—'}</span>
+      ),
     },
     {
       title: t('worker_holding_duration'),
@@ -198,92 +201,56 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
 
   return (
     <div>
-      {/* 汇总卡片：总持仓价值 / 总未实现盈亏 / 总保证金 / 总 ROE */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic
-              title={t('total_position_value')}
-              value={summary.totalPositionValue}
-              precision={2}
-              prefix="$"
-              styles={{ content: { color: QUANT_COLORS.info } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic
-              title={t('unrealized_pnl')}
-              value={summary.totalUnrealizedPnL}
-              precision={2}
-              prefix="$"
-              styles={{
-                content: {
-                  color: summary.totalUnrealizedPnL >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-                },
-              }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic
-              title={t('margin_used')}
-              value={summary.totalMarginUsed}
-              precision={2}
-              prefix="$"
-              styles={{ content: { color: QUANT_COLORS.warning } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic
-              title={t('worker_total_roe')}
-              value={summary.totalROE}
-              precision={2}
-              suffix="%"
-              styles={{
-                content: {
-                  color: summary.totalROE >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-                },
-              }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* 摘要：总持仓价值 / 总未实现盈亏 / 总保证金 / 总 ROE —— §6.4 .qc-kpi
+          * 语义档：名义额与占用类恒中性，只有盈亏/ROE 按方向染 */}
+      <div className="qc-kpi-grid" style={{ marginBottom: 16 }}>
+        <div className="qc-kpi">
+          <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('total_position_value')}</span></div>
+          <div className="qc-kpi-num">${summary.totalPositionValue.toFixed(2)}</div>
+        </div>
+        <div className="qc-kpi">
+          <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('unrealized_pnl')}</span></div>
+          <div className={`qc-kpi-num${summary.totalUnrealizedPnL >= 0 ? ' up' : ' down'}`}>
+            {formatUSD(summary.totalUnrealizedPnL, { showSign: true })}
+          </div>
+        </div>
+        <div className="qc-kpi">
+          <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('margin_used')}</span></div>
+          <div className="qc-kpi-num">${summary.totalMarginUsed.toFixed(2)}</div>
+        </div>
+        <div className="qc-kpi">
+          <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('worker_total_roe')}</span></div>
+          <div className={`qc-kpi-num${summary.totalROE >= 0 ? ' up' : ' down'}`}>
+            {formatPercent(summary.totalROE, { showSign: true })}
+          </div>
+        </div>
+      </div>
 
       {/* 持仓列表（成交明细不在此处：由「交易」tab 承接；Card 间距由 Space 统一管理） */}
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       <Card
+        className="qc-card"
         title={
-          <span>
-            {t('current_position')}
+          <Space size={12}>
+            <span>{t('current_position')}</span>
             {active && (
-              <Badge
-                status="processing"
-                text={t('worker_realtime')}
-                style={{ marginLeft: 12, color: QUANT_COLORS.info }}
-              />
+              <span className="qc-chip info">
+                <span className="qc-pdot" />
+                {t('worker_realtime')}
+              </span>
             )}
-          </span>
+          </Space>
         }
       >
         {positions.length === 0 ? (
-          <Empty
-            description={t('no_position_data')}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          />
+          <QcEmpty title={t('no_position_data')} />
         ) : (
-          <Table
+          <DataTable
             columns={columns}
             dataSource={positions}
             rowKey={(record) => `${record.symbol}-${record.position_side}`}
             rowClassName={rowClassName}
             pagination={false}
-            size="middle"
-            scroll={{ x: 'max-content' }}
           />
         )}
       </Card>

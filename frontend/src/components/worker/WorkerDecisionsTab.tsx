@@ -5,13 +5,16 @@
  */
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button, Card, Empty, Space, Spin, Table, Tag, theme, Tooltip, Typography } from 'antd';
+import { Alert, Button, Card, Space, Spin, Tooltip, Typography } from 'antd';
 import { getWorkerDecisionDetail, getWorkerDecisions } from '../../api/workerApi';
 import type { CascadeDecisionRecord } from '../../types/backtest';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from '../../pages/backtest/DecisionDetailDrawer';
 
 const PAGE_SIZE = 200;
-const ACTION_COLORS: Record<string, string> = { buy: 'green', sell: 'red', hold: 'default' };
+
+// 决策动作 → §6.2 chip 语义档：buy=up / sell=down / hold=quiet
+const ACTION_CHIP_CLS: Record<string, string> = { buy: ' ok', sell: ' down', hold: ' quiet' };
 
 interface Props {
   workerId: number;
@@ -20,7 +23,6 @@ interface Props {
 
 export default function WorkerDecisionsTab({ workerId, active }: Props) {
   const { t } = useTranslation();
-  const { token } = theme.useToken();
   const [rows, setRows] = useState<CascadeDecisionRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -47,24 +49,24 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         {error && <Alert type="warning" showIcon title={t('worker_decision_load_failed', { error })} />}
         <Card
+          className="qc-card"
           title={
             <Space wrap>
               <span>{t('worker_decision_records')}</span>
               <Typography.Text type="secondary">{t('total_items', { total })}</Typography.Text>
               {rows.length > 0 && (
-                <Tag color={fallbackCount > 0 ? 'orange' : 'green'}>
+                <span className={`qc-chip${fallbackCount > 0 ? ' warn' : ' ok'}`}>
                   {t('worker_decision_fallback_count', { count: fallbackCount, total: rows.length })}
-                </Tag>
+                </span>
               )}
             </Space>
           }
           extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('worker_decision_recent', { count: rows.length })}</Typography.Text>}
         >
           {rows.length === 0 && !loading ? (
-            <Empty description={t('worker_decisions_empty')} />
+            <QcEmpty title={t('worker_decisions_empty')} />
           ) : (
-            <Table
-              size="small"
+            <DataTable
               rowKey={(r) => `${r._seq}:${r.fingerprint}`}
               dataSource={rows}
               pagination={{ pageSize: PAGE_SIZE, showSizeChanger: false }}
@@ -73,9 +75,10 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
                   title: t('backtest_time'),
                   dataIndex: '_ts',
                   width: 180,
+                  // §6.5 时间列：mono 11px fg-3 口径
                   render: (ts: string) => (
                     <Tooltip title={ts || '-'}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{fmtDecisionTs(ts)}</span>
+                      <span className="qc-cell-time qc-mono">{fmtDecisionTs(ts)}</span>
                     </Tooltip>
                   ),
                 },
@@ -83,13 +86,16 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
                   title: t('backtest_action'),
                   dataIndex: 'action',
                   width: 80,
-                  render: (a: string) => <Tag color={ACTION_COLORS[a] || 'default'}>{a}</Tag>,
+                  render: (a: string) => (
+                    <span className={`qc-chip${ACTION_CHIP_CLS[a] ?? ' quiet'}`}>{a}</span>
+                  ),
                 },
                 {
                   title: t('backtest_confidence'),
                   dataIndex: 'confidence',
                   width: 100,
-                  render: (v: number) => (typeof v === 'number' ? v.toFixed(4) : '-'),
+                  align: 'right',
+                  render: (v: number) => (typeof v === 'number' ? <span className="qc-mono">{v.toFixed(4)}</span> : <span className="qc-mono qc-cell-none">—</span>),
                 },
                 { title: t('backtest_decider'), dataIndex: '_decider', width: 130, render: (v: string) => v || '-' },
                 {
@@ -102,7 +108,7 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
                         <span>{humanizeFallbackReason(reason)}</span>
                       </Tooltip>
                     ) : (
-                      <span style={{ color: token.colorTextTertiary }}>—</span>
+                      <span style={{ color: 'var(--qc-text-tertiary)' }}>—</span>
                     ),
                 },
                 {

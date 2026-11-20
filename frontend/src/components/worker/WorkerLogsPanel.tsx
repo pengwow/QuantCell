@@ -7,7 +7,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Tag,
   Select,
   Tooltip,
   Button,
@@ -24,23 +23,21 @@ import { fetchRecentLogs } from '../../api/workerApi';
 
 const { Option } = Select;
 
-// 日志级别配置（与 NautilusTrader 实际输出保持一致）
-const LOG_LEVELS = [
-  { value: 'DEBUG', label: 'DEBUG', color: 'default' },
-  { value: 'INFO', label: 'INFO', color: 'blue' },
-  { value: 'WARN', label: 'WARN', color: 'orange' },
-  { value: 'ERROR', label: 'ERROR', color: 'red' },
-];
+// 日志级别（与 NautilusTrader 实际输出保持一致）；着色收敛到 .qc-term-lv-*（§2.3 语义变量）
+const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'] as const;
+
+// 级别 → qc-term-lv 类（未知级别回退 debug 的中性灰）
+const LEVEL_CLS: Record<string, string> = {
+  DEBUG: 'debug',
+  INFO: 'info',
+  WARN: 'warn',
+  ERROR: 'error',
+};
 
 interface WorkerLogsPanelProps {
   workerId: number;
   maxHeight?: number;
 }
-
-const getLevelColor = (level: string): string => {
-  const levelConfig = LOG_LEVELS.find((l) => l.value === level);
-  return levelConfig?.color || 'default';
-};
 
 const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
   workerId,
@@ -174,13 +171,11 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
 
   return (
     <div>
-      {/* 标题栏 - 第一行 */}
-      <div className="mb-3">
-        <div className="flex items-center gap-2">
-          <FileTextOutlined />
-          <span className="text-lg font-medium">{t('real_time_logs')}</span>
-          {isPaused && <Tag color="orange">{t('paused')}</Tag>}
-        </div>
+      {/* 标题栏 - 第一行（§6.3 卡头字号） */}
+      <div className="mb-3 flex items-center gap-2">
+        <FileTextOutlined />
+        <span style={{ fontSize: 13.5, fontWeight: 650 }}>{t('real_time_logs')}</span>
+        {isPaused && <span className="qc-chip warn">{t('paused')}</span>}
       </div>
 
       {/* 控制按钮组 - 第二行 */}
@@ -191,14 +186,14 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
           placeholder={t('filter_by_level')}
           value={selectedLevels}
           onChange={setSelectedLevels}
-          style={{ width: 360 }}
+          style={{ width: 360, maxWidth: '100%' }}
           size="small"
           maxTagCount='responsive'
           popupMatchSelectWidth={false}
         >
           {LOG_LEVELS.map((level) => (
-            <Option key={level.value} value={level.value}>
-              <Tag color={level.color} style={{ margin: 0 }}>{level.label}</Tag>
+            <Option key={level} value={level}>
+              <span className={`qc-term-lv qc-term-lv-${LEVEL_CLS[level] ?? 'debug'}`}>{level}</span>
             </Option>
           ))}
         </Select>
@@ -231,28 +226,23 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
         </div>
       </div>
 
-      {/* 终端风格日志容器 - 黑色背景，使用 flex 布局固定底部操作栏 */}
-      <div
-        className="rounded-md bg-black text-stone-200 flex flex-col"
-        style={{ maxHeight: maxHeight + 80 }}
-      >
+      {/* 终端风格日志容器（.qc-term：变量驱动的暗色词法平面，亮暗主题自适应） */}
+      <div className="qc-term" style={{ maxHeight: maxHeight + 80 }}>
         {/* 1. 固定顶部：连接状态提示 */}
         {!isLogStreamConnected && !isPaused && (
-          <div className="px-4 py-2 bg-yellow-900/30 border-b border-yellow-800/50 shrink-0">
-            <span className="text-xs text-yellow-400">
-              ⚠ {t('log_stream_disconnected')}
-            </span>
+          <div className="qc-term-bar" style={{ color: 'var(--qc-warning)' }}>
+            <span>⚠ {t('log_stream_disconnected')}</span>
           </div>
         )}
 
         {/* 2. 可滚动中间区域：日志列表 */}
         <div
           ref={listRef}
-          className="flex-1 px-4 py-2 overflow-auto min-h-0"
+          className="qc-term-body"
           onScroll={handleScroll}
         >
           {filteredLogs.length === 0 ? (
-            <div className="text-xs text-stone-400 py-8">
+            <div style={{ padding: '24px 0' }}>
               {'> '}
               {isPaused
                 ? (t('logs_paused'))
@@ -262,27 +252,23 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
             /* 终端风格日志列表 */
             <div className="flex w-full flex-col">
               {filteredLogs.map((log, index) => (
-                <div key={`${log.timestamp}-${index}`} className="text-xs leading-relaxed mb-1">
+                <div key={`${log.timestamp}-${index}`} className="mb-1">
                   {log.source === 'raw' ? (
-                    <span className="font-mono break-all text-stone-300">{log.message}</span>
+                    <span className="break-all qc-term-msg">{log.message}</span>
                   ) : (
                     <div className="flex items-start gap-2">
                       {/* 时间戳 - 终端风格 */}
-                      <span className="font-mono whitespace-nowrap text-stone-400 shrink-0">
+                      <span className="qc-term-ts">
                         [{formatTimestamp(log.timestamp)}]
                       </span>
 
-                      {/* 日志级别标签 - 紧凑样式 */}
-                      <Tag
-                        color={getLevelColor(log.level)}
-                        className="shrink-0 m-0"
-                        style={{ fontSize: '10px', padding: '0 4px', lineHeight: '16px' }}
-                      >
+                      {/* 日志级别 - 紧凑词法标签 */}
+                      <span className={`qc-term-lv qc-term-lv-${LEVEL_CLS[log.level] ?? 'debug'}`}>
                         {log.level}
-                      </Tag>
+                      </span>
 
                       {/* 消息内容 */}
-                      <span className="break-all">{log.message}</span>
+                      <span className="qc-term-msg">{log.message}</span>
                     </div>
                   )}
                 </div>
@@ -293,27 +279,24 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
 
         {/* 3. 固定底部：操作栏（不随滚动移动） */}
         <div
-          className="px-4 py-2 border-t border-stone-700 bg-black shrink-0"
+          className="qc-term-foot"
           style={{
             position: 'sticky',
             bottom: 0,
             zIndex: 10,
           }}
         >
-          <div className="flex w-full items-center">
-            <span className="text-xs text-stone-500">
-              {t('total_logs')}: {logs.length} | {t('filtered_logs')}:{filteredLogs.length}
-            </span>
+          <span>
+            {t('total_logs')}: <span className="qc-mono">{logs.length}</span>
+            {' | '}
+            {t('filtered_logs')}: <span className="qc-mono">{filteredLogs.length}</span>
+          </span>
 
-            {isPaused && (
-              <>
-                <span className="mx-2 text-stone-600">|</span>
-                <span className="text-xs text-yellow-400">
-                  {t('stream_paused')}
-                </span>
-              </>
-            )}
-          </div>
+          {isPaused && (
+            <span style={{ color: 'var(--qc-warning)' }}>
+              {t('stream_paused')}
+            </span>
+          )}
         </div>
       </div>
     </div>
