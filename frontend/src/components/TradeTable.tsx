@@ -138,7 +138,7 @@ const TradeTable = ({
       ),
     },
     {
-      title: '交易标的',
+      title: '标的',
       dataIndex: 'symbol',
       key: 'symbol',
       render: (value: string) => <span style={{ fontFamily: 'monospace' }}>{value || '-'}</span>,

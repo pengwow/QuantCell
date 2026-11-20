@@ -80,7 +80,7 @@ const FactorSnapshotsPanel: React.FC<{
       render: (v: string | null) => v?.replace('T', ' ').slice(0, 19) ?? '—',
     },
     {
-      title: t('factor_snap_col_scope') || '周期/品种',
+      title: t('factor_snap_col_scope') || '周期/标的',
       render: (_, r) => `${r.params.interval} × ${r.params.instruments?.length ?? 0}`,
     },
     { title: t('factor_snap_col_samples') || '样本数', dataIndex: 'bar_count', width: 90 },
