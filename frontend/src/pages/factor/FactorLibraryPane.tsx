@@ -438,10 +438,11 @@ const FactorLibraryPane: React.FC<Props> = ({
               <Col xs={24} sm={12} md={8} lg={6} key={f.name}>
                 <Card
                   size="small"
-                  style={{ boxShadow: 'var(--qc-shadow-card)' }}
                   // 选中因子高亮（详情抽屉对应项），与列表行选中背景同语义；
                   // 整卡不可点击，打开抽屉只走「查看详情」按钮
-                  className={f.name === selected ? 'qc-card-selected' : ''}
+                  // §6.3 卡片 chrome + §6.3 选中 tint（qc-card 基础上加 qc-card-selected；
+                  // 阴影由 .qc-card 自带，不再内联）
+                  className={`qc-card${f.name === selected ? ' qc-card-selected' : ''}`}
                   title={
                     <span
                       title={f.label}

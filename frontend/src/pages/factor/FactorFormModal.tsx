@@ -103,6 +103,8 @@ const CodeEditor: React.FC<{ value?: string; onChange?: (v: string) => void }> =
             height: QC_EDITOR_LINE_HEIGHT,
             lineHeight: `${QC_EDITOR_LINE_HEIGHT}px`,
             pointerEvents: 'none',
+            // Monaco 输入占位前景（VS Code 深色 input.placeholderForeground 默认值）：占位
+            // 叠在恒深色编辑器底上，不随 UI 主题，保留 hex（编辑器 chrome 色，非 UI 文字色 §6.16）
             color: '#6a6a6a',
             fontSize: QC_EDITOR_FONT_SIZE,
             fontFamily: QC_EDITOR_FONT_FAMILY,
@@ -280,6 +282,7 @@ const FactorFormModal: React.FC<Props> = ({ open, editing, onCancel, onSaved }) 
 
   return (
     <Modal
+      className="qc-modal"
       title={
         isEdit
           ? t('factor_lib_edit_modal', { name: editing?.name ?? '' }) ||

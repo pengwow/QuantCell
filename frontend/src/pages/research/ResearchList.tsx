@@ -431,7 +431,7 @@ const ResearchList: React.FC = () => {
                   size="small"
                   hoverable
                   /* §6.3 卡片 chrome（qc-card：bgc 底/--bd 边/10px 圆角/12·14 内边距/head 13px·650）
-                     由 global.css 列表卡片段提供（并行车道合入，缺失时回退 antd Card 默认） */
+                     由 global.css 列表卡片段提供 */
                   className="qc-card"
                   style={{ cursor: 'pointer', height: '100%' }}
                   onClick={() => navigate(`/research/${row.id}`)}

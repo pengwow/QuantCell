@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   DatePicker,
-  Empty,
   Flex,
   Form,
   Input,
@@ -30,6 +29,7 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import FactorResultView from './FactorResultView';
+import { QcEmpty } from '@/components/ui/DataTable';
 
 const { RangePicker } = DatePicker;
 
@@ -152,7 +152,7 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title={t('factor_wb_card_params') || '分析参数'}>
+      <Card className="qc-card" title={t('factor_wb_card_params') || '分析参数'}>
         {/* inline 表单项换行后默认无垂直间距，用 rowGap 补到 middle 档 16px */}
         <Form<FormValues>
           form={form}
@@ -236,9 +236,9 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
         </p>
       </Card>
 
-      {jobLoading && <Card loading />}
+      {jobLoading && <Card loading className="qc-card" />}
       {jobLoading && jobStatus && (
-        <Card size="small">
+        <Card size="small" className="qc-card">
           <Flex gap="middle" align="center">
             <Progress type="circle" size={48} percent={Math.round(jobStatus.progress)} status="active" />
             <span>{jobStatus.message || t('factor_wb_queueing') || 'Queueing…'}</span>
@@ -246,8 +246,9 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
         </Card>
       )}
       {!jobLoading && !result && (
-        <Card>
-          <Empty description={t('factor_wb_empty_hint') || '选择参数后点击「开始分析」'} />
+        <Card className="qc-card">
+          {/* §6.13 空态原语（与对比 Tab / 快照 Tab 的 QcEmpty 同源） */}
+          <QcEmpty title={t('factor_wb_empty_hint') || '选择参数后点击「开始分析」'} />
         </Card>
       )}
 

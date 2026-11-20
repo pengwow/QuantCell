@@ -358,7 +358,7 @@ const FactorResultView: React.FC<{ result: FactorAnalyzeResult }> = ({ result })
             s.key === 'ic_positive_rate' ? positiveRateTone() : rawNum == null ? 'flat' : toneOf(s.key, rawNum);
           return (
             <Col xs={12} sm={8} lg={6} xl={4} key={s.key}>
-              <Card size="small">
+              <Card size="small" className="qc-card">
                 <Statistic
                   title={s.title}
                   value={s.value}
@@ -371,6 +371,7 @@ const FactorResultView: React.FC<{ result: FactorAnalyzeResult }> = ({ result })
         })}
       </Row>
       <Card
+        className="qc-card"
         title={
           t('factor_card_price_factor', { count: result.bar_count }) ||
           `因子值 vs 价格（样本 ${result.bar_count} 根）`
@@ -379,6 +380,7 @@ const FactorResultView: React.FC<{ result: FactorAnalyzeResult }> = ({ result })
         <EChart option={priceFactorOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
       </Card>
       <Card
+        className="qc-card"
         title={t('factor_card_ic_ts') || 'IC 时序'}
         extra={
           <Tooltip
@@ -416,10 +418,11 @@ const FactorResultView: React.FC<{ result: FactorAnalyzeResult }> = ({ result })
           ]}
         />
       </Card>
-      <Card title={t('factor_card_group_return') || '分组平均前瞻收益'}>
+      <Card className="qc-card" title={t('factor_card_group_return') || '分组平均前瞻收益'}>
         <EChart option={groupOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
       </Card>
       <Card
+        className="qc-card"
         title={
           t('factor_card_ic_decay', {
             lags: (result.inspection?.decay ?? []).map((d) => d.lag).join(', ') || '1–10',
@@ -430,7 +433,7 @@ const FactorResultView: React.FC<{ result: FactorAnalyzeResult }> = ({ result })
         <EChart option={decayOption} style={{ height: 300 }} opts={{ renderer: 'svg' }} />
       </Card>
       {result.inspection?.quantile_nav && (
-        <Card title={t('factor_card_quantile_nav') || '分位组合净值'}>
+        <Card className="qc-card" title={t('factor_card_quantile_nav') || '分位组合净值'}>
           <EChart option={quantileNavOption} style={{ height: 340 }} opts={{ renderer: 'svg' }} />
         </Card>
       )}

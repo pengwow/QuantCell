@@ -223,6 +223,7 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
         return (
           <Card
             size="small"
+            className="qc-card"
             key={tr.id}
             title={t('research_detail_code_diff_title', { from: base.id, to: tr.id })}
           >
@@ -614,7 +615,7 @@ const ResearchDetail: React.FC = () => {
         {/* 主/侧栏两列（demo rd-grid 1.25fr/.75fr 折成 24 栅格 15/9）：左运行状态、右运行事件 */}
         <Row gutter={[12, 12]}>
           <Col xs={24} lg={15}>
-            <Card size="small" title={t('research_detail_card_status')}>
+            <Card size="small" className="qc-card" title={t('research_detail_card_status')}>
           <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
             <Space size="large" wrap>
               <span>
@@ -691,6 +692,7 @@ const ResearchDetail: React.FC = () => {
           <Col xs={24} lg={9}>
             <Card
               size="small"
+              className="qc-card"
               title={t('research_detail_card_events')}
               extra={
                 <Typography.Text type="secondary">
@@ -881,6 +883,7 @@ const ResearchDetail: React.FC = () => {
         {replayResult && (
           <Card
             size="small"
+            className="qc-card"
             title={t('research_detail_replay_title', {
               orig: replayResult.original.id,
               replay: replayResult.trial.id,
@@ -959,6 +962,7 @@ const ResearchDetail: React.FC = () => {
         )}
 
         <Modal
+          className="qc-modal"
           open={compareOpen}
           title={t('research_detail_compare_title', { n: compareTrials.length })}
           footer={null}

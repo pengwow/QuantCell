@@ -349,7 +349,7 @@ const FactorCompare: React.FC = () => {
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title={t('factor_wb_card_params') || '对比参数'}>
+      <Card className="qc-card" title={t('factor_wb_card_params') || '对比参数'}>
         {/* inline 表单项换行后默认无垂直间距，用 flex rowGap 补到 middle 档 */}
         <Form<FormValues>
           form={form}
@@ -479,9 +479,9 @@ const FactorCompare: React.FC = () => {
         </p>
       </Card>
 
-      {jobLoading && <Card loading />}
+      {jobLoading && <Card loading className="qc-card" />}
       {jobLoading && jobStatus && (
-        <Card size="small">
+        <Card size="small" className="qc-card">
           <Flex gap="middle" align="center">
             <Progress
               type="circle"
@@ -494,14 +494,14 @@ const FactorCompare: React.FC = () => {
         </Card>
       )}
       {!jobLoading && !result && (
-        <Card>
+        <Card className="qc-card">
           <QcEmpty title={t('factor_cmp_empty_hint') || '选择 2-5 个因子后点击「开始对比」'} />
         </Card>
       )}
 
       {!jobLoading && result && (
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-          <Card title={t('factor_cmp_card_metrics') || '指标对比'}>
+          <Card className="qc-card" title={t('factor_cmp_card_metrics') || '指标对比'}>
             <DataTable<FactorCompareRow>
               rowKey="factor_name"
               columns={columns}
@@ -510,7 +510,7 @@ const FactorCompare: React.FC = () => {
               scroll={{ x: 'max-content' }}
             />
           </Card>
-          <Card title={t('factor_cmp_card_ic_ts') || 'IC 时序叠加'}>
+          <Card className="qc-card" title={t('factor_cmp_card_ic_ts') || 'IC 时序叠加'}>
             <EChart option={icOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
           </Card>
         </Space>

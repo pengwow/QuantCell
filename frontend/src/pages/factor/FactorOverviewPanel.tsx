@@ -93,7 +93,7 @@ const FactorOverviewPanel: React.FC<{
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card size="small">
+      <Card size="small" className="qc-card">
         <Descriptions
           column={2}
           size="small"
@@ -191,7 +191,7 @@ const FactorOverviewPanel: React.FC<{
       </Card>
 
       {lm ? (
-        <Card size="small" title={t('factor_detail_metrics_title') || '最近分析核心指标'}>
+        <Card size="small" className="qc-card" title={t('factor_detail_metrics_title') || '最近分析核心指标'}>
           <Row gutter={[16, 16]}>
             {metrics.map((m) => (
               <Col xs={12} sm={8} lg={6} xl={4} key={m.key}>
@@ -210,7 +210,7 @@ const FactorOverviewPanel: React.FC<{
           </Row>
         </Card>
       ) : (
-        <Card>
+        <Card className="qc-card">
           <QcEmpty
             title={t('factor_detail_overview_empty_title')}
             description={t('factor_detail_overview_empty')}

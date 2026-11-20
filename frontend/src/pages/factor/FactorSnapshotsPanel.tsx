@@ -182,7 +182,7 @@ const FactorSnapshotsPanel: React.FC<{
         destroyOnHidden
       >
         {detailLoading || !detail ? (
-          <Card loading />
+          <Card loading className="qc-card" />
         ) : (
           <FactorResultView result={detail.result} />
         )}

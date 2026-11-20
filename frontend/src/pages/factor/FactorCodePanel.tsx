@@ -57,6 +57,8 @@ const codePreStyle = (maxHeight: number): React.CSSProperties => ({
   overflow: 'auto',
   padding: 12,
   background: QC_EDITOR_BG, // O2: 特殊装饰色，保留（VS Code 风代码块，亮暗恒深底）
+  // Monaco Dark+ 默认前景（quantcellTheme「editor.foreground」同值）：编辑器 chrome 恒深色、
+  // 不随 UI 主题，此处不能换 var(--qc-text-*)（设计规范 §6.16 例外）
   color: '#d4d4d4',
   borderRadius: 6,
 });
@@ -158,7 +160,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
 
   if (def.kind === 'expression') {
     return (
-      <Card size="small">
+      <Card size="small" className="qc-card">
         <Flex justify="space-between" align="center" gap="middle">
           <Typography.Text code style={{ fontSize: 14 }}>
             {def.expression}
@@ -175,7 +177,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
     const lines = def.code.split('\n').length;
     return (
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-        <Card size="small">
+        <Card size="small" className="qc-card">
           <Flex justify="space-between" align="center" wrap="wrap" gap="small">
             <Space size="small" wrap>
               {def.description && <span>{def.description}</span>}
@@ -198,7 +200,7 @@ const FactorCodePanel: React.FC<{ factor: FactorCatalogItem }> = ({ factor }) =>
   const tw = def.train_window ?? {};
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card size="small">
+      <Card size="small" className="qc-card">
         <Descriptions
           column={{ xs: 1, sm: 2 }}
           size="small"

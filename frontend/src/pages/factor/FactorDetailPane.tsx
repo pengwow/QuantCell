@@ -47,7 +47,7 @@ const FactorDetailPane: React.FC<{
 
   if (!factor) {
     return (
-      <Card>
+      <Card className="qc-card">
         <QcEmpty title={t('factor_detail_empty')} />
       </Card>
     );
@@ -109,7 +109,7 @@ const FactorDetailPane: React.FC<{
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card size="small">
+      <Card size="small" className="qc-card">
         <Flex justify="space-between" align="center" wrap="wrap" gap="small">
           <Flex gap={6} align="center" wrap>
             <span style={{ fontSize: 16, fontWeight: 650, color: 'var(--qc-text)' }}>{factor.label}</span>
@@ -175,6 +175,7 @@ const FactorDetailPane: React.FC<{
       </Card>
 
       <Card
+        className="qc-card"
         styles={{ body: { paddingTop: 8 } }}
       >
         <Tabs
