@@ -36,19 +36,21 @@ const { Text } = Typography;
 /**
  * 进度卡状态配色（仅本组件使用）。
  *
- * 现值 = antd v5 预设色阶（error/success/info 的 1 号淡底 + 3 号边框，10% 透明叠加），
- * palette 目前没有等值槽位：自定义 seed（colorError=#d1242f 等）派生的 *Border 与这些
- * 预设色阶并不相同，直接换成 antd token 会改变亮色渲染。
- * 候选后续并入 palette 的 statusTintBg / statusBorder 派生槽位后迁走。
+ * 原来是 antd v5 预设色阶字面量（1 号淡底 + 3 号边框），亮暗不跟随主题 —— 暗色下
+ * 淡粉淡绿底直接糊在深底上。改为语义 token 的透明度派生：底 10%、边 30% 混卡底，
+ * 数值即原预设色阶的近似（antd 的 1/3 号色本身就是同色相的低饱和派生）。
  */
+const tint = (token: string, pct: number) => `color-mix(in srgb, ${token} ${pct}%, transparent)`;
+const tintBorder = (token: string) => `color-mix(in srgb, ${token} 30%, var(--qc-surface))`;
+
 const STATE_STYLE = {
-  error: { cardBg: 'rgba(255, 241, 240, 0.1)', cardBorder: '#ffccc7' },
-  success: { cardBg: 'rgba(246, 255, 237, 0.1)', cardBorder: '#b7eb8f' },
-  running: { cardBg: 'rgba(230, 247, 255, 0.1)', cardBorder: '#91d5ff' },
+  error: { cardBg: tint('var(--qc-error)', 10), cardBorder: tintBorder('var(--qc-error)') },
+  success: { cardBg: tint('var(--qc-success)', 10), cardBorder: tintBorder('var(--qc-success)') },
+  running: { cardBg: tint('var(--qc-info)', 10), cardBorder: tintBorder('var(--qc-info)') },
 } as const;
 
-/** 进行中进度条渐变（antd 蓝 → 绿预设，同样无 palette 等值槽位） */
-const RUNNING_STROKE = { '0%': '#108ee9', '100%': '#87d068' };
+/** 进行中进度条渐变（信息色 → 成功色；CSS 变量在 background-image 里可解析） */
+const RUNNING_STROKE = { '0%': 'var(--qc-info)', '100%': 'var(--qc-success)' };
 
 // 步骤状态类型
 export type StepStatus = 'wait' | 'process' | 'finish' | 'error';
