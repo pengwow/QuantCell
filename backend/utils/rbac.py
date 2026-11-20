@@ -9,6 +9,7 @@ from functools import wraps
 from fastapi import HTTPException, Request
 
 from config import is_auth_check_disabled
+from utils.auth import is_auth_exempt
 from utils.jwt_utils import JWTError, TokenExpiredError, decode_jwt_token
 from utils.logger import LogType, get_logger
 
@@ -160,6 +161,11 @@ def is_guest_user(request: Request) -> bool:
     （开发调试用），直接按非访客放行；生产环境由 is_auth_check_disabled
     强制回收该开关。
     """
+    if is_auth_exempt():
+        # 中央豁免（config 开关 / debug / 桌面 sidecar local）：全信任环境，
+        # 不存在"未认证"语义，返回非访客放行（桌面实录：无头请求被 401 踢登录）
+        return False
+
     if is_auth_check_disabled():
         return False
 
@@ -292,6 +298,10 @@ def require_permission(permission: Permission):
         # 形成 utils.rbac 自环（模块初始化未完成时 Permission 尚不存在）；
         # 请求期各模块已就绪，函数内导入安全
         from utils.config_manager import get_value as get_config_value
+
+        if is_auth_exempt():
+            # 中央豁免同 is_guest_user：桌面 sidecar local 等全信任环境放行
+            return
 
         if not get_config_value("rbac.enforcement_enabled", False):
             return

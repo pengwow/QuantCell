@@ -394,18 +394,18 @@ const FactorCompare: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="instruments"
-            label={t('factor_wb_form_instruments') || '品种'}
+            label={t('factor_wb_form_instruments') || '标的'}
             rules={[
               {
                 required: true,
-                message: t('factor_wb_form_instruments_req') || '选择品种',
+                message: t('factor_wb_form_instruments_req') || '选择标的',
               },
             ]}
           >
             <Select
               mode="multiple"
               style={{ minWidth: 220 }}
-              placeholder={t('factor_wb_form_instruments_ph') || '选择品种'}
+              placeholder={t('factor_wb_form_instruments_ph') || '选择标的'}
               options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>

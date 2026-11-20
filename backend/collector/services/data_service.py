@@ -35,8 +35,10 @@ if TYPE_CHECKING:
         ExportCryptoRequest,
     )
 
-# 基础源数据目录：项目后端根目录的 data/source 目录
-SOURCE_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "source"
+# 基础源数据目录：开发态=backend/data/source；桌面(QUANTCELL_DATA_DIR)=<data>/data/source
+from utils.paths import get_persistent_dir
+
+SOURCE_DATA_DIR = get_persistent_dir("data/source", Path(__file__).parent.parent.parent / "data" / "source")
 
 
 def get_crypto_kline_dir(exchange_type: str = "spot", data_type: str = "klines") -> Path:

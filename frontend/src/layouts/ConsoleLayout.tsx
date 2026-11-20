@@ -148,9 +148,9 @@ const ConsoleLayout = () => {
             className="bg-background shadow-sm"
             icon={
               siderCollapsed ? (
-                <IconLayoutSidebarRightCollapse size="1.5em" stroke="1.25" color="#999" />
+                <IconLayoutSidebarRightCollapse size="1.5em" stroke="1.25" color="var(--qc-text-tertiary)" />
               ) : (
-                <IconLayoutSidebarLeftCollapse size="1.5em" stroke="1.25" color="#999" />
+                <IconLayoutSidebarLeftCollapse size="1.5em" stroke="1.25" color="var(--qc-text-tertiary)" />
               )
             }
             shape="circle"

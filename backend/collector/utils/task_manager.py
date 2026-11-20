@@ -4,7 +4,7 @@ import asyncio
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -13,6 +13,12 @@ from utils.logger import LogType, get_logger
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.models import Task
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+)
 from websocket.manager import manager
 
 
@@ -23,6 +29,15 @@ class TaskStatus(StrEnum):
     RUNNING = "running"  # 运行中
     COMPLETED = "completed"  # 已完成
     FAILED = "failed"  # 失败
+
+
+def _notify_terminal(task_id: str, status: str, *, name: str, error: str | None = None) -> None:
+    """采集任务终态唯一通知出口；complete_task/fail_task 各调一次
+
+    name 用任务类型标识（如 crypto_download）：TaskInfo 没有
+    独立 name 字段，params 里的名字不可靠。
+    """
+    notify_task_event("collector_task", task_id, status, name=name or None, error=error)
 
 
 class TaskManager:
@@ -372,6 +387,9 @@ class TaskManager:
         except Exception as e:
             logger.error(f"更新数据库任务状态失败: task_id={task_id}, error={e}")
 
+        # 终态通知（WS 未连接的提前 return 在其后，不影响本挂钩）
+        _notify_terminal(task_id, TASK_STATUS_SUCCEEDED, name=self._tasks[task_id].get("task_type", ""))
+
         # 通过WebSocket推送状态更新
         try:
             # 检查消息队列是否已初始化（命令行模式下可能未初始化）
@@ -437,6 +455,13 @@ class TaskManager:
             TaskBusiness.fail(task_id, error_message)
         except Exception as e:
             logger.error(f"更新数据库任务状态失败: task_id={task_id}, error={e}")
+
+        _notify_terminal(
+            task_id,
+            TASK_STATUS_FAILED,
+            name=self._tasks[task_id].get("task_type", ""),
+            error=error_message,
+        )
 
         # 通过WebSocket推送状态更新
         try:
@@ -562,3 +587,44 @@ class TaskManager:
 
 # 创建全局任务管理器实例
 task_manager = TaskManager()
+
+
+def _collector_db_session():
+    """采集任务库 session 工厂（补偿扫描用；测试注入内存库工厂）"""
+    from collector.db.database import SessionLocal, init_database_config
+
+    init_database_config()
+    return SessionLocal()
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：tasks 表残留 pending/running 的行置 failed 并补发中断通知
+
+    采集链路无租约（单进程内存 dict 驱动），重启即中断。
+    业务表没有 interrupted 状态值，落库置 failed 避免前端枚举失配；
+    通知级别用 INTERRUPTED（warning，见 Hub 的 level 映射）。
+    """
+    try:
+        db = _collector_db_session()
+        try:
+            rows = db.query(Task).filter(Task.status.in_(("pending", "running"))).all()
+            stale = [(r.task_id, r.task_type) for r in rows]
+            for row in rows:
+                row.status = "failed"
+                row.error_message = "服务重启，任务被中断"
+                row.end_time = datetime.now(UTC)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("[采集] 启动补偿扫描失败")
+        return 0
+    for task_id, task_type in stale:
+        notify_task_event(
+            "collector_task",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=task_type or None,
+            error="服务重启，任务被中断",
+        )
+    return len(stale)

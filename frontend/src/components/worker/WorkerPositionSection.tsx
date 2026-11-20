@@ -116,7 +116,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       key: 'mark_price',
       align: 'right',
       render: (price?: number) =>
-        price === null || price === undefined ? <span style={{ color: '#999' }}>-</span> : formatUSD(price),
+        price === null || price === undefined ? <span style={{ color: 'var(--qc-text-tertiary)' }}>-</span> : formatUSD(price),
     },
     {
       title: t('worker_liquidation_price'),
@@ -124,7 +124,7 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       key: 'liquidation_price',
       align: 'right',
       render: (price?: number) =>
-        price === null || price === undefined ? <span style={{ color: '#999' }}>-</span> : formatUSD(price),
+        price === null || price === undefined ? <span style={{ color: 'var(--qc-text-tertiary)' }}>-</span> : formatUSD(price),
     },
     {
       title: t('leverage'),
@@ -289,7 +289,10 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       </Card>
       </Space>
 
-      {/* 高亮行样式：盈亏绝对值 > 5% */}
+      {/* 高亮行样式：盈亏绝对值 > 5%
+        * 现值 = antd orange-1 / orange-2；palette 的 warningSoftBg (#fffbe6) 与
+        * --qc-warning (#eac54f) 均不等值，换 token 会改变亮色渲染 → 保留，
+        * 候选 palette 补「橙色行高亮底 / 悬停底」槽位后派生 */}
       <style>{`
         .position-row-highlight {
           background-color: #fff7e6 !important;

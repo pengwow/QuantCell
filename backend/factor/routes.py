@@ -22,6 +22,7 @@ from quality.parquet_provider import ParquetDataProvider
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 from .schemas import (
     CodeFactorAddRequest,
@@ -128,10 +129,10 @@ router = APIRouter(
 # 进程级共享单例：研究采纳 / quick 挖掘写入后路由内存立即可见
 factor_service = get_factor_service()
 
-# 因子档案服务：快照落 backend/data/factor/snapshots，删除归档到 backend/.trash
+# 因子档案服务：快照落 data/factor/snapshots（桌面=持久数据目录），删除归档到 .trash
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
-_SNAPSHOTS_DIR = _BACKEND_DIR / "data" / "factor" / "snapshots"
-_TRASH_DIR = _BACKEND_DIR / ".trash"
+_SNAPSHOTS_DIR = get_persistent_dir("data/factor/snapshots", _BACKEND_DIR / "data" / "factor" / "snapshots")
+_TRASH_DIR = get_persistent_dir(".trash", _BACKEND_DIR / ".trash")
 _catalog_service = FactorCatalogService(
     factor_service=factor_service,
     snapshots_dir=_SNAPSHOTS_DIR,

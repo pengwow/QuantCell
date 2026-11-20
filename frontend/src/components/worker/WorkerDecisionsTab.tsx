@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button, Card, Empty, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Card, Empty, Space, Spin, Table, Tag, theme, Tooltip, Typography } from 'antd';
 import { getWorkerDecisionDetail, getWorkerDecisions } from '../../api/workerApi';
 import type { CascadeDecisionRecord } from '../../types/backtest';
 import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from '../../pages/backtest/DecisionDetailDrawer';
@@ -20,6 +20,7 @@ interface Props {
 
 export default function WorkerDecisionsTab({ workerId, active }: Props) {
   const { t } = useTranslation();
+  const { token } = theme.useToken();
   const [rows, setRows] = useState<CascadeDecisionRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -101,7 +102,7 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
                         <span>{humanizeFallbackReason(reason)}</span>
                       </Tooltip>
                     ) : (
-                      <span style={{ color: '#8c8c8c' }}>—</span>
+                      <span style={{ color: token.colorTextTertiary }}>—</span>
                     ),
                 },
                 {

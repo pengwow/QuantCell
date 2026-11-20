@@ -127,6 +127,37 @@ class TestAgentLoop:
         assert "complete" in event_types
 
     @pytest.mark.asyncio
+    async def test_process_message_stream_uses_tool_capable_path(self, temp_workspace):
+        """有工具时必须走非流式 chat_with_tools_async。
+
+        axon_quant 的 stream_chat_async 不接受 tools，历史实现因此永远拿不到
+        function calling（真机表现：模型答"没有可用的行情查询工具"）。本测试锁死
+        「注册了工具 → 不再走 stream_chat_async」这一行为。
+        """
+        from agent.tools.filesystem import ReadFileTool
+
+        backend = FakeLLMBackend(
+            responses=[text_response("Tool-capable answer")],
+            stream_chunks=[
+                {"type": "content", "content": "STREAMED-WITHOUT-TOOLS"},
+                {"type": "done", "finish_reason": "Stop"},
+            ],
+        )
+        agent = AgentLoop(llm_backend=backend, workspace=temp_workspace)
+        agent.register_tool(ReadFileTool(temp_workspace))
+
+        events = []
+
+        async def on_stream(event):
+            events.append(event)
+
+        await agent.process_message_stream("Hello", on_stream=on_stream)
+
+        contents = "".join(e.data.get("content", "") for e in events if e.event_type == "content")
+        assert "Tool-capable answer" in contents
+        assert "STREAMED-WITHOUT-TOOLS" not in contents
+
+    @pytest.mark.asyncio
     async def test_iter_message_stream(self, temp_workspace):
         """async-for 模式应转发全部流事件（SSE 桥接契约）"""
         backend = FakeLLMBackend(
@@ -156,7 +187,7 @@ class TestAgentLoop:
             workspace=temp_workspace,
         )
 
-        async def _boom(content, session_key, on_stream=None):
+        async def _boom(content, session_key, on_stream=None, extra_context=None):
             raise RuntimeError("boom")
 
         agent._run_message_stream = _boom

@@ -1,0 +1,7 @@
+{
+  "name": "quantcell-desktop",
+  "private": true,
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

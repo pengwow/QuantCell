@@ -651,7 +651,7 @@ const ChartPage = () => {
 
       {/* 品种搜索弹窗 */}
       <Modal
-        title={t('chart.searchSymbol', '搜索品种')}
+        title={t('chart.searchSymbol', '搜索标的')}
         open={searchVisible}
         onCancel={() => {
           setSearchVisible(false);
@@ -662,7 +662,7 @@ const ChartPage = () => {
         width={600}
       >
         <Input
-          placeholder={t('chart.searchPlaceholder', '输入品种代码或名称')}
+          placeholder={t('chart.searchPlaceholder', '输入标的代码或名称')}
           value={searchKeyword}
           onChange={(e) => setSearchKeyword(e.target.value)}
           allowClear

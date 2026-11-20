@@ -89,6 +89,8 @@ const WorkerRiskStatusCard: React.FC<{
           {status.daily_pnl != null && (
             <Descriptions.Item label={t('risk_daily_pnl')}>
               <Space size="small">
+                {/* 负盈亏色：现值 antd red-7 (#cf1322)，与 palette error (#d1242f) 不等值，
+                  * 换 QUANT_COLORS.negative 会改变亮色渲染；候选并入 palette 后派生 */}
                 <span style={{ color: status.daily_pnl >= 0 ? undefined : '#cf1322' }}>
                   {formatUSD(status.daily_pnl, { showSign: true })}
                 </span>

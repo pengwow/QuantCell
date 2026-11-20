@@ -47,6 +47,7 @@ import './backtest.css';
 import PageContainer from '@/components/PageContainer';
 import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
+import { getPalette } from '@/theme';
 
 const { Option } = Select;
 
@@ -465,8 +466,8 @@ const BacktestReplay = () => {
             const directionText = isBuy ? t('buy') : t('sell');
             const color = isBuy ? quant.positive : quant.negative;
             // 根据主题设置标签颜色
-            // O2: 特殊装饰色，保留（彩色气泡上的标签字，canvas 绘制需字面色，亮色深字/暗色白字）
-            const labelColor = isDark ? '#ffffff' : '#333333';
+            // 彩色气泡上的标签字，canvas 绘制需字面色：走 palette chartReplayLabel 槽位（亮 #333333 / 暗 #ffffff，等值迁移）
+            const labelColor = getPalette(isDark ? 'dark' : 'light').chartReplayLabel;
 
             chart.createOverlay({
               name: 'jsonAnnotation',

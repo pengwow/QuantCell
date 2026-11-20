@@ -21,8 +21,16 @@ interface NotificationState {
   hasMore: boolean;
   loading: boolean;
 
-  /** 拉取收件箱列表；beforeId 传游标（取更旧一页并追加），缺省为刷新第一页 */
-  loadList: (opts?: { beforeId?: number; limit?: number }) => Promise<void>;
+  /** 拉取收件箱列表；beforeId 传游标（取更旧一页并追加），缺省为刷新第一页；
+   * unread/taskType 为收件箱页过滤条件（翻页时调用方需原样带上，否则翻页换语义） */
+  loadList: (opts?: {
+    beforeId?: number;
+    limit?: number;
+    unread?: boolean;
+    taskType?: string;
+  }) => Promise<void>;
+  /** 单条已读：调后端置 read_at（任务类同时归档），本地同步行状态与未读数 */
+  markRead: (id: number) => Promise<void>;
   /** 全部已读：调后端水位接口，成功后本地清零未读数 */
   markAllRead: () => Promise<void>;
   /** 删除单条：后端物理删除，本地移除并取回权威未读数 */
@@ -44,7 +52,12 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
     set({ loading: true });
     try {
       const beforeId = opts?.beforeId;
-      const data = await notificationApi.getInbox({ limit: opts?.limit ?? 20, before_id: beforeId });
+      const data = await notificationApi.getInbox({
+        limit: opts?.limit ?? 20,
+        before_id: beforeId,
+        unread: opts?.unread,
+        task_type: opts?.taskType,
+      });
       set((state) => ({
         items: beforeId ? [...state.items, ...data.items] : data.items,
         hasMore: data.has_more,
@@ -61,18 +74,21 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
 
   markAllRead: async () => {
     await notificationApi.markInboxRead();
-    set((state) => ({ unreadCount: 0, readCount: state.readCount + state.unreadCount }));
+    set((state) => ({
+      unreadCount: 0,
+      readCount: state.readCount + state.unreadCount,
+      items: state.items.map((it) => ({ ...it, read: true })),
+    }));
   },
 
   removeItem: async (id) => {
-    // 未读条目必为 items 前缀（id 单调 + 新通知插头部），按 index 判断删除的是否已读
     const state = get();
-    const idx = state.items.findIndex((it) => it.id === id);
+    const target = state.items.find((it) => it.id === id);
     const { unread_count } = await notificationApi.deleteInboxItem(id);
     set((s) => ({
       items: s.items.filter((it) => it.id !== id),
       unreadCount: unread_count,
-      readCount: Math.max(state.readCount + (idx >= state.unreadCount ? -1 : 0), 0),
+      readCount: Math.max(state.readCount + (target?.read ? -1 : 0), 0),
     }));
   },
 
@@ -87,5 +103,20 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
       // 新通知是最新的，插头部；列表超限截尾
       items: [item, ...state.items].slice(0, MAX_ITEMS),
     }));
+  },
+
+  markRead: async (id) => {
+    const updated = await notificationApi.markInboxItemRead(id);
+    set((state) => {
+      const target = state.items.find((it) => it.id === id);
+      const wasUnread = !!target && !target.read;
+      return {
+        items: state.items.map((it) =>
+          it.id === id ? { ...it, read: updated.read, processed: updated.processed } : it,
+        ),
+        unreadCount: Math.max(state.unreadCount - (wasUnread ? 1 : 0), 0),
+        readCount: state.readCount + (wasUnread ? 1 : 0),
+      };
+    });
   },
 }));

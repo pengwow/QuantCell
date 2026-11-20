@@ -345,7 +345,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       render: (price?: number | null) =>
         price !== undefined && price !== null
           ? formatUSD(price)
-          : <span style={{ color: '#999' }}>-</span>,
+          : <span style={{ color: 'var(--qc-text-tertiary)' }}>-</span>,
     },
     {
       title: t('worker_avg_fill_price'),
@@ -370,7 +370,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
             <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
               {formatQuantity(record.filled_quantity ?? 0)}
             </span>
-            <span style={{ color: '#999' }}> / {formatQuantity(record.quantity ?? 0)}</span>
+            <span style={{ color: 'var(--qc-text-tertiary)' }}> / {formatQuantity(record.quantity ?? 0)}</span>
           </span>
         ),
     },

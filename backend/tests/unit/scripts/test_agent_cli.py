@@ -1,7 +1,11 @@
-"""Agent管理CLI单元测试"""
+"""Agent管理CLI单元测试
+
+当前口径：`tool` / `params` 为真实功能；`session` / `chat` / `workspace` / `action`
+未实现，必须显式失败（非 0 退出码 + 提示语），不允许静默 no-op 或假成功输出。
+"""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -10,148 +14,61 @@ runner = CliRunner()
 
 
 class TestAgentCliSession:
-    """测试会话管理命令"""
+    """会话命令：显式未实现（不静默）"""
 
-    @patch("cli.agent.SessionManager")
-    def test_session_list_empty(self, mock_sm_cls):
-        """测试空会话列表"""
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["session", "list"],
+            ["session", "list", "--format", "json"],
+            ["session", "info", "session-1"],
+            ["session", "create", "--name", "自定义名称"],
+            ["session", "delete", "session-1", "--force"],
+            ["session", "delete", "session-1"],
+            ["session", "clear", "session-1"],
+        ],
+    )
+    def test_session_commands_fail_explicitly(self, args):
+        """任何 session 子命令都必须非 0 退出并提示未实现"""
         from cli.agent import app
 
-        mock_sm = MagicMock()
-        mock_sm.list_sessions.return_value = []
-        mock_sm_cls.return_value = mock_sm
+        result = runner.invoke(app, args)
 
-        result = runner.invoke(app, ["session", "list"])
-        assert result.exit_code == 0
-        assert "暂无会话" in result.output
-
-    @patch("cli.agent.SessionManager")
-    def test_session_list_with_data(self, mock_sm_cls):
-        """测试有数据的会话列表"""
-        from cli.agent import app
-
-        mock_sm = MagicMock()
-        mock_sm.list_sessions.return_value = [
-            {"key": "session-1", "updated_at": "2024-01-01T00:00:00"},
-            {"key": "session-2", "updated_at": "2024-01-02T00:00:00"},
-        ]
-        mock_sm_cls.return_value = mock_sm
-
-        result = runner.invoke(app, ["session", "list"])
-        assert result.exit_code == 0
-        assert "session-1" in result.output
-        assert "共 2 个会话" in result.output
-
-    @patch("cli.agent.SessionManager")
-    def test_session_list_json(self, mock_sm_cls):
-        """测试JSON格式输出"""
-        from cli.agent import app
-
-        mock_sm = MagicMock()
-        mock_sm.list_sessions.return_value = [{"key": "session-1"}]
-        mock_sm_cls.return_value = mock_sm
-
-        result = runner.invoke(app, ["session", "list", "--format", "json"])
-        assert result.exit_code == 0
-        assert '"key"' in result.output
-
-    @patch("cli.agent.SessionManager")
-    def test_session_info_found(self, mock_sm_cls):
-        """测试会话信息存在"""
-        from cli.agent import app
-
-        mock_sm = MagicMock()
-        mock_sm.get_session_info.return_value = {
-            "id": "session-1",
-            "name": "测试会话",
-            "created_at": "2024-01-01T00:00:00",
-            "updated_at": "2024-01-02T00:00:00",
-            "message_count": 5,
-        }
-        mock_sm_cls.return_value = mock_sm
-
-        result = runner.invoke(app, ["session", "info", "session-1"])
-        assert result.exit_code == 0
-        assert "session-1" in result.output
-        assert "测试会话" in result.output
-
-    @patch("cli.agent.SessionManager")
-    def test_session_info_not_found(self, mock_sm_cls):
-        """测试会话信息不存在"""
-        from cli.agent import app
-
-        mock_sm = MagicMock()
-        mock_sm.get_session_info.return_value = None
-        mock_sm_cls.return_value = mock_sm
-
-        result = runner.invoke(app, ["session", "info", "nonexistent"])
         assert result.exit_code == 1
+        assert "未实现" in result.output
+        # 提示语必须指向可用替代路径，而不是留个死胡同
+        assert "agent/session/manager.py" in result.output
 
-    @patch("cli.agent.SessionManager")
-    def test_session_create(self, mock_sm_cls):
-        """测试创建会话"""
+    def test_session_help_lists_all_commands(self):
+        """命令注册面不因实现清空而减少"""
         from cli.agent import app
 
-        mock_sm = MagicMock()
-        mock_sm.create_session.return_value = {"id": "session-new", "name": "新会话"}
-        mock_sm_cls.return_value = mock_sm
+        result = runner.invoke(app, ["session", "--help"])
 
-        result = runner.invoke(app, ["session", "create"])
         assert result.exit_code == 0
-        assert "session-new" in result.output
+        for cmd in ("list", "info", "create", "delete", "clear"):
+            assert cmd in result.output
 
-    @patch("cli.agent.SessionManager")
-    def test_session_create_with_name(self, mock_sm_cls):
-        """测试带名称创建会话"""
+
+class TestAgentCliSurface:
+    """命令组注册面冒烟"""
+
+    def test_agent_help_lists_subcommand_groups(self):
         from cli.agent import app
 
-        mock_sm = MagicMock()
-        mock_sm.create_session.return_value = {
-            "id": "session-new",
-            "name": "自定义名称",
-        }
-        mock_sm_cls.return_value = mock_sm
+        result = runner.invoke(app, ["--help"])
 
-        result = runner.invoke(app, ["session", "create", "--name", "自定义名称"])
         assert result.exit_code == 0
-        assert "自定义名称" in result.output
+        for group in ("session", "tool", "chat", "workspace", "params", "action"):
+            assert group in result.output
 
-    @patch("cli.agent.SessionManager")
-    def test_session_delete_success(self, mock_sm_cls):
-        """测试删除会话成功"""
+    def test_params_help_lists_commands(self):
         from cli.agent import app
 
-        mock_sm = MagicMock()
-        mock_sm.delete.return_value = True
-        mock_sm_cls.return_value = mock_sm
+        result = runner.invoke(app, ["params", "--help"])
 
-        result = runner.invoke(app, ["session", "delete", "session-1", "--force"])
         assert result.exit_code == 0
-        assert "已删除" in result.output
-
-    @patch("cli.agent.SessionManager")
-    def test_session_delete_cancel(self, mock_sm_cls):
-        """测试取消删除会话"""
-        from cli.agent import app
-
-        mock_sm = MagicMock()
-        mock_sm_cls.return_value = mock_sm
-
-        result = runner.invoke(app, ["session", "delete", "session-1"], input="n\n")
-        assert result.exit_code == 0
-        assert "已取消" in result.output
-
-    @patch("cli.agent.SessionManager")
-    def test_session_clear(self, mock_sm_cls):
-        """测试清空会话"""
-        from cli.agent import app
-
-        mock_sm = MagicMock()
-        mock_sm_cls.return_value = mock_sm
-
-        result = runner.invoke(app, ["session", "clear", "session-1"])
-        assert result.exit_code == 0
-        assert "已清空" in result.output
+        assert "tools" in result.output
 
 
 class TestAgentCliTool:
@@ -233,130 +150,87 @@ class TestAgentCliTool:
 
 
 class TestAgentCliChat:
-    """测试对话交互命令"""
+    """对话命令：显式未实现（不静默）"""
 
-    @patch("cli.agent.asyncio.run")
-    @patch("cli.agent._run_chat", new_callable=MagicMock)
-    def test_chat_send_success(self, mock_run_chat, mock_asyncio_run):
-        """测试发送消息成功"""
+    def test_chat_send_fails_explicitly(self):
+        """chat send 不再打印「消息已发送」假成功"""
         from cli.agent import app
 
-        mock_asyncio_run.return_value = None
-
         result = runner.invoke(app, ["chat", "send", "你好"])
-        assert result.exit_code == 0
 
-    @patch("cli.agent.asyncio.run")
-    @patch("cli.agent._run_chat", new_callable=MagicMock)
-    def test_chat_send_init_failed(self, mock_run_chat, mock_asyncio_run):
-        """测试Agent初始化失败"""
-        from cli.agent import app
-
-        mock_asyncio_run.side_effect = Exception("初始化失败")
-
-        result = runner.invoke(app, ["chat", "send", "你好"])
         assert result.exit_code == 1
+        assert "未实现" in result.output
+        assert "消息已发送" not in result.output
+        assert "/api/v1/agent/chat/stream" in result.output
 
-    @patch("cli.agent.SessionManager")
-    def test_chat_history(self, mock_sm_cls):
-        """测试查看历史消息"""
+    def test_chat_send_with_session_fails_explicitly(self):
         from cli.agent import app
 
-        mock_sm = MagicMock()
-        mock_sm.get_history.return_value = {
-            "history": [
-                {"role": "user", "content": "你好", "timestamp": "2024-01-01T00:00:00"},
-                {
-                    "role": "assistant",
-                    "content": "你好！",
-                    "timestamp": "2024-01-01T00:00:01",
-                },
-            ],
-            "total_messages": 2,
-        }
-        mock_sm_cls.return_value = mock_sm
+        result = runner.invoke(app, ["chat", "send", "你好", "--session", "session-1"])
 
-        result = runner.invoke(app, ["chat", "history", "session-1"])
-        assert result.exit_code == 0
-        assert "用户:" in result.output
-        assert "Agent:" in result.output
+        assert result.exit_code == 1
+        assert "未实现" in result.output
 
-    @patch("cli.agent.SessionManager")
-    def test_chat_history_empty(self, mock_sm_cls):
-        """测试无历史消息"""
+    def test_chat_history_fails_explicitly(self):
+        """chat history 不再返回恒空历史"""
         from cli.agent import app
 
-        mock_sm = MagicMock()
-        mock_sm.get_history.return_value = {"history": [], "total_messages": 0}
-        mock_sm_cls.return_value = mock_sm
-
         result = runner.invoke(app, ["chat", "history", "session-1"])
+
+        assert result.exit_code == 1
+        assert "未实现" in result.output
+        assert "暂无历史消息" not in result.output
+
+    def test_chat_help_lists_commands(self):
+        from cli.agent import app
+
+        result = runner.invoke(app, ["chat", "--help"])
+
         assert result.exit_code == 0
-        assert "暂无历史消息" in result.output
+        assert "send" in result.output
 
 
 class TestAgentCliWorkspace:
-    """测试工作空间管理命令"""
+    """工作空间命令：显式未实现（不静默）"""
 
-    @patch("cli.agent._workspace_list", new_callable=AsyncMock)
-    def test_workspace_list(self, mock_list):
-        """测试列出工作空间文件"""
+    def test_workspace_list_fails_explicitly(self):
+        """workspace list 不再返回恒空目录"""
         from cli.agent import app
-
-        mock_list.return_value = json.dumps(
-            {
-                "files": [{"name": "file1.py", "size": 100}],
-                "directories": [{"name": "dir1"}],
-            }
-        )
 
         result = runner.invoke(app, ["workspace", "list"])
+
+        assert result.exit_code == 1
+        assert "未实现" in result.output
+        assert "空目录" not in result.output
+
+    def test_workspace_cat_fails_explicitly(self):
+        from cli.agent import app
+
+        result = runner.invoke(app, ["workspace", "cat", "file.py"])
+
+        assert result.exit_code == 1
+        assert "未实现" in result.output
+
+    def test_workspace_cat_missing_file_not_misreported(self):
+        """不再用「文件不存在」掩盖功能缺失（backend/workspace 根本不存在）"""
+        from cli.agent import app
+
+        result = runner.invoke(app, ["workspace", "cat", "nonexistent.py"])
+
+        assert result.exit_code == 1
+        assert "不存在" not in result.output
+        assert "未实现" in result.output
+
+    def test_workspace_help_lists_commands(self):
+        from cli.agent import app
+
+        result = runner.invoke(app, ["workspace", "--help"])
+
         assert result.exit_code == 0
-        assert "file1.py" in result.output
-
-    @patch("cli.agent._workspace_list", new_callable=AsyncMock)
-    def test_workspace_list_empty(self, mock_list):
-        """测试空工作空间"""
-        from cli.agent import app
-
-        mock_list.return_value = json.dumps({"files": [], "directories": []})
-
-        result = runner.invoke(app, ["workspace", "list"])
-        assert result.exit_code == 0
-        assert "空目录" in result.output
-
-    @patch("cli.agent._workspace_cat", new_callable=AsyncMock)
-    def test_workspace_cat(self, mock_cat):
-        """测试查看文件"""
-        from cli.agent import app
-
-        mock_cat.return_value = "文件内容"
-
-        with patch("cli.agent.WORKSPACE") as mock_workspace:
-            mock_file = MagicMock()
-            mock_file.exists.return_value = True
-            mock_file.is_file.return_value = True
-            mock_file.__str__ = MagicMock(return_value="/workspace/file.py")
-            mock_workspace.__truediv__ = MagicMock(return_value=mock_file)
-
-            result = runner.invoke(app, ["workspace", "cat", "file.py"])
-            assert result.exit_code == 0
-            assert "文件内容" in result.output
-
-    def test_workspace_cat_not_found(self):
-        """测试查看不存在的文件"""
-        from cli.agent import app
-
-        with patch("cli.agent.WORKSPACE") as mock_workspace:
-            mock_file = MagicMock()
-            mock_file.exists.return_value = False
-            mock_workspace.__truediv__ = MagicMock(return_value=mock_file)
-
-            result = runner.invoke(app, ["workspace", "cat", "nonexistent.py"])
-            assert result.exit_code == 1
+        assert "list" in result.output
 
     def test_workspace_clean(self):
-        """测试清理工作空间"""
+        """workspace clean 仍走真实文件操作（未被下架）"""
         from cli.agent import app
 
         with patch("cli.agent.WORKSPACE") as mock_workspace:

@@ -25,6 +25,7 @@ import ast
 from pathlib import Path
 
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
 from datetime import datetime
@@ -107,7 +108,8 @@ class StrategyService:
     """策略服务类"""
 
     def __init__(self):
-        self.strategy_dir = Path(__file__).parent.parent / "strategies"
+        # 桌面打包下 __file__ 在临时解压目录，策略 .py 必须落 QUANTCELL_DATA_DIR 才能升级存活
+        self.strategy_dir = get_persistent_dir("strategies", Path(__file__).parent.parent / "strategies")
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
         self.strategy_instances: dict[str, Any] = {}
 

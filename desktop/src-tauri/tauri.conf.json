@@ -35,12 +35,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/quantcell-backend"
-    ],
-    "resources": [
-      "resources/uv/*"
-    ]
+    "resources": {
+      "binaries/backend": "backend",
+      "resources/uv/*": "resources/uv"
+    }
   },
   "plugins": {
     "updater": {

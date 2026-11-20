@@ -1,21 +1,26 @@
 /**
- * 量化交易语义色 — 单一真相源
+ * 量化交易语义色 — antd / canvas 渠道适配
  *
  * 所有涉及"涨/跌/盈利/亏损/正负"语义的颜色必须从这里取，
- * 禁止在子组件里硬编码 QUANT_COLORS.positive / QUANT_COLORS.negative / QUANT_COLORS.info 等 antd v5 风格颜色。
+ * 禁止在子组件里硬编码 QUANT_COLORS.positive / QUANT_COLORS.negative 等颜色值。
+ *
+ * 颜色的"值"统一来自 src/theme/palettes.ts（品牌色唯一真相源）；
+ * 本文件只负责把它适配成组件图形消费的 QuantColors 形状。
  *
  * 使用方式：
- *   1. 组件内用 React hook（推荐，跟随主题切换自动更新）：
- *      const { token } = theme.useToken();
- *      const { positive, negative, ... } = useQuantColors();
- *
+ *   1. React 组件（推荐，跟随主题切换自动更新）：
+ *      const colors = useQuantColors();
  *   2. 非 React 场景 / 静态展示（向后兼容）：
  *      import { QUANT_COLORS } from '@/utils/colors';
- *      注意：QUANT_COLORS 是 antd 默认亮色 token 快照，不会跟随主题切换。
+ *      注意：静态快照由亮色 palette 派生（paletteToTradingToken('light')），不跟随运行时主题切换。
  */
 import { theme, type GlobalToken } from 'antd';
+import { activeTheme, paletteToTradingToken } from '@/theme';
+import type { QuantTradingToken } from '@/theme/types';
 
-/** 量化语义色结构 — 与 App.tsx ConfigProvider token 里的 tradingToken 字段对齐 */
+export type { QuantTradingToken as TradingToken } from '@/theme/types';
+
+/** 量化语义色结构 — 与 ConfigProvider token 里的交易字段对齐 */
 export interface QuantColors {
   /** 正收益 / 盈利 / 多头 */
   positive: string;
@@ -45,41 +50,31 @@ export interface QuantColors {
   chartSeries: string[];
 }
 
-/** QuantCell 扩展 token — 在 antd GlobalToken 基础上加上交易语义色。
- * 用 Partial 因为 deriveQuantColors 只读取部分字段，
- * 静态快照也只需要传颜色值，不需要完整 token 对象。 */
-export type TradingToken = Partial<GlobalToken> & {
-  colorChartLine?: string;
-  colorChartAxis?: string;
-  colorChartSplit?: string;
-  colorChartMark?: string;
-  colorChartGradientStart?: string;
-  colorChartGradientEnd?: string;
-  colorDrawdownArea?: string;
-  chartSeries?: string[];
-};
+/** 兼容形状：ConfigProvider 运行时 token（GlobalToken）或静态快照的部分字段 */
+type Tokenish = Partial<GlobalToken> & Partial<Omit<QuantTradingToken, keyof GlobalToken>>;
 
 /**
- * 从当前 antd theme token 派生出完整的量化语义色。
- * antd 的 colorSuccess / colorError 已经在 ConfigProvider 里被
- * 映射为 QuantCell 自定义的正/负收益色，所以直接用。
+ * 从 antd token（或部分字段）派生完整的量化语义色。
+ * 缺省位回退到亮色 palette —— 静态快照场景下等价于亮色值。
+ * antd 的 colorSuccess / colorError 已在 ConfigProvider 被映射为
+ * QuantCell 自定义正/负收益色，直接取用。
  */
-export function deriveQuantColors(t: TradingToken): QuantColors {
+export function deriveQuantColors(t: Tokenish): QuantColors {
+  const p = activeTheme.light;
   return {
-    positive: t.colorSuccess ?? '#1a7f37',
-    negative: t.colorError ?? '#d1242f',
-    neutral: t.colorTextSecondary ?? t.colorText ?? '#595959',
-    warning: t.colorWarning ?? '#eac54f',
-    info: t.colorInfo ?? '#0969da',
-    chartLine: t.colorChartLine ?? t.colorInfo ?? '#0969da',
-    chartAxis: t.colorChartAxis ?? t.colorBorderSecondary ?? '#d1d5db',
-    chartSplit: t.colorChartSplit ?? t.colorBorderSecondary ?? '#e5e7eb',
-    chartMark: t.colorChartMark ?? t.colorTextTertiary ?? '#999',
-    chartGradientStart: t.colorChartGradientStart ?? 'rgba(9, 105, 218, 0.25)',
-    chartGradientEnd: t.colorChartGradientEnd ?? 'rgba(9, 105, 218, 0.02)',
-    drawdownArea: t.colorDrawdownArea ?? 'rgba(209, 36, 47, 0.12)',
-    // ponytail: 离散折线调色板固定 8 色，不随主题切换；暗色下依然可辨
-    chartSeries: ['#0969da', '#91cc75', '#ea580c', '#7c3aed', '#14b8a6', '#d4a017', '#dc2626', '#9a60b4'],
+    positive: t.colorSuccess ?? p.success,
+    negative: t.colorError ?? p.error,
+    neutral: t.colorTextSecondary ?? t.colorText ?? p.textSecondary,
+    warning: t.colorWarning ?? p.warning,
+    info: t.colorInfo ?? p.info,
+    chartLine: t.colorChartLine ?? t.colorInfo ?? p.chartLine,
+    chartAxis: t.colorChartAxis ?? t.colorBorderSecondary ?? p.chartAxis,
+    chartSplit: t.colorChartSplit ?? t.colorBorderSecondary ?? p.chartSplit,
+    chartMark: t.colorChartMark ?? t.colorTextTertiary ?? p.chartMark,
+    chartGradientStart: t.colorChartGradientStart ?? p.chartGradientStart,
+    chartGradientEnd: t.colorChartGradientEnd ?? p.chartGradientEnd,
+    drawdownArea: t.colorDrawdownArea ?? p.drawdownArea,
+    chartSeries: t.chartSeries ?? p.chartSeries,
   };
 }
 
@@ -93,24 +88,8 @@ export function useQuantColors(): QuantColors {
 }
 
 /**
- * 静态快照 — antd 默认亮色主题下的语义色。
+ * 静态快照 — 亮色主题下的量化语义色。
  * 用于非 React 场景 / 向后兼容旧代码（WorkerOverviewTab 等正在逐步迁移）。
  * 警告：这个值不会跟随主题切换，只在非 React 代码里使用。
  */
-export const QUANT_COLORS: QuantColors = deriveQuantColors({
-  colorSuccess: '#1a7f37',
-  colorError: '#d1242f',
-  colorText: '#141414',
-  colorTextSecondary: '#595959',
-  colorWarning: '#eac54f',
-  colorInfo: '#0969da',
-  colorChartLine: '#0969da',
-  colorChartAxis: '#d1d5db',
-  colorChartSplit: '#e5e7eb',
-  colorChartMark: '#9ca3af',
-  colorChartGradientStart: 'rgba(9, 105, 218, 0.25)',
-  colorChartGradientEnd: 'rgba(9, 105, 218, 0.02)',
-  colorDrawdownArea: 'rgba(209, 36, 47, 0.12)',
-  colorBorderSecondary: '#e5e7eb',
-  chartSeries: ['#0969da', '#91cc75', '#ea580c', '#7c3aed', '#14b8a6', '#d4a017', '#dc2626', '#9a60b4'],
-});
+export const QUANT_COLORS: QuantColors = deriveQuantColors(paletteToTradingToken('light'));

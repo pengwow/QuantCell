@@ -14,6 +14,11 @@
 
 import type { OverlayFigure, OverlayTemplate } from 'klinecharts'
 
+// 离散豁免：江恩箱的箱体灰 / 对角线珊瑚红是装饰色，与 palette 语义槽位
+// （chartMark #9ca3af / error #d1242f 等）均不等值，保留原值、集中到模块顶部便于后续并入离散调色板。
+const GUIDE_STROKE = '#6C757D'
+const DIAGONAL_STROKE = '#FF6B6B'
+
 const gannBox: OverlayTemplate = {
   name: 'gannBox',
   totalStep: 2,
@@ -47,9 +52,9 @@ const gannBox: OverlayTemplate = {
         },
         styles: {
           style: 'stroke_fill',
-          stroke: '#6C757D',
+          stroke: GUIDE_STROKE,
           strokeOpacity: 0.8,
-          fill: '#6C757D',
+          fill: GUIDE_STROKE,
           fillOpacity: 0.1
         }
       })
@@ -65,7 +70,7 @@ const gannBox: OverlayTemplate = {
         },
         styles: {
           style: 'stroke',
-          stroke: '#FF6B6B',
+          stroke: DIAGONAL_STROKE,
           strokeOpacity: 0.8,
           strokeDasharray: '5,5'
         }
@@ -81,7 +86,7 @@ const gannBox: OverlayTemplate = {
         },
         styles: {
           style: 'stroke',
-          stroke: '#FF6B6B',
+          stroke: DIAGONAL_STROKE,
           strokeOpacity: 0.8,
           strokeDasharray: '5,5'
         }
@@ -103,7 +108,7 @@ const gannBox: OverlayTemplate = {
           },
           styles: {
             style: 'stroke',
-            stroke: '#6C757D',
+            stroke: GUIDE_STROKE,
             strokeOpacity: 0.6,
             strokeDasharray: '3,3'
           }
@@ -122,7 +127,7 @@ const gannBox: OverlayTemplate = {
           },
           styles: {
             style: 'stroke',
-            stroke: '#6C757D',
+            stroke: GUIDE_STROKE,
             strokeOpacity: 0.6,
             strokeDasharray: '3,3'
           }

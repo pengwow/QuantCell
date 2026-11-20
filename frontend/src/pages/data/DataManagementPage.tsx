@@ -118,6 +118,10 @@ const INFO_BG_SOFT = 'color-mix(in srgb, var(--tw-color-info) 10%, transparent)'
 const INFO_BG_MID = 'color-mix(in srgb, var(--tw-color-info) 8%, transparent)';          // ≈ 市场选中淡蓝底 #f0f5ff
 const INFO_BG_STRONG = 'color-mix(in srgb, var(--tw-color-info) 30%, transparent)';      // ≈ symbol 选中蓝底 #bae0ff
 
+// 自选列表「紫色」标识：会写库的品种离散标识色，与品牌语义无关，
+// 故不映射状态/品牌 token；候选后续并入 theme 的离散身份调色板（同 chartSeries 定位）。
+const WATCHLIST_COLOR_PURPLE = '#722ed1';
+
 // ==================== 采集任务状态/格式常量 ====================
 // 状态文案依赖 i18n，配置移入 TaskCard 组件内定义（label 由 t() 生成，badge/color 为静态值）
 
@@ -1971,7 +1975,7 @@ const DataManagementPage = () => {
               { value: QUANT_COLORS.positive, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.positive }} />{t('dm_color_green')}</Space> },
               { value: QUANT_COLORS.warning, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.warning }} />{t('dm_color_yellow')}</Space> },
               { value: QUANT_COLORS.negative, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.negative }} />{t('dm_color_red')}</Space> },
-              { value: '#722ed1', label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:'#722ed1' }} />{t('dm_color_purple')}</Space> },
+              { value: WATCHLIST_COLOR_PURPLE, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:WATCHLIST_COLOR_PURPLE }} />{t('dm_color_purple')}</Space> },
               { value: QUANT_COLORS.info, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.info }} />{t('dm_color_cyan')}</Space> },
             ]}
           />

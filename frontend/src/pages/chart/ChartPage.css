@@ -516,7 +516,8 @@
 }
 
 .custom-indicator-item:hover {
-  background: rgba(100, 108, 255, 0.05);
+  /* hover 底：迁移前为旧主色 indigo 5% 淡染，合成后与中性 hover 底在肉眼上不可辨 */
+  background: var(--qc-surface-hover);
   border-color: var(--ant-color-primary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }

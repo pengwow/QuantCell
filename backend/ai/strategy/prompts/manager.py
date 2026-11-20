@@ -10,6 +10,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 
 class PromptCategory(StrEnum):
     """提示词模板分类"""
@@ -57,6 +59,15 @@ class PromptManager:
             template_path = self._templates_dir / f"{category.value}.txt"
             if template_path.exists():
                 self._templates[category] = template_path.read_text(encoding="utf-8")
+            else:
+                # 静默跳过会掩盖打包缺陷（PyInstaller 漏 add-data 时全部 exists()==False，
+                # 直到生成时报"模板分类不存在"）。缺失即告警，留排查现场。
+                logger.warning(f"提示词模板文件不存在: {template_path}")
+        if not self._templates:
+            logger.error(
+                f"提示词模板目录未加载到任何模板: {self._templates_dir}"
+                "（大概率是打包遗漏数据文件，检查 PyInstaller --add-data）"
+            )
 
     def get_template(self, category: PromptCategory) -> str:
         """获取指定分类的模板内容

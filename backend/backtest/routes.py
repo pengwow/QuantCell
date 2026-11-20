@@ -29,11 +29,19 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from backtest.models import BacktestTask
 from collector.db.models import DataPoolBusiness
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+)
 from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import get_current_user
+from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
@@ -58,6 +66,55 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 创建回测服务实例
 backtest_service = BacktestService()
+
+
+def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
+    """回测结果 → 终态通知唯一出口
+
+    status∈{success,completed} 发成功；stopped 是用户主动终止不发；
+    其余一律按失败发（未知状态也报，避免静默丢通知）。
+    """
+    status = result.get("status")
+    if status == "stopped":
+        return
+    if status in ("success", "completed"):
+        notify_task_event("backtest", task_id, TASK_STATUS_SUCCEEDED, name=name or None)
+    else:
+        notify_task_event(
+            "backtest",
+            task_id,
+            TASK_STATUS_FAILED,
+            name=name or None,
+            error=str(result.get("message") or "回测失败"),
+        )
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：backtest_tasks 残留 pending/running 的行置 failed 并补发中断通知
+
+    回测跑在后台线程，进程重启即全部中断；status 值域无 interrupted，落库置 failed。
+    """
+    try:
+        with get_db_session() as db:
+            rows = db.query(BacktestTask).filter(BacktestTask.status.in_(("pending", "running"))).all()
+            stale = [(r.id, r.strategy_name) for r in rows]
+            for row in rows:
+                row.status = "failed"
+                row.completed_at = datetime.now(UTC)
+            db.commit()
+    except Exception:
+        logger.exception("[回测] 启动补偿扫描失败")
+        return 0
+    for task_id, strategy_name in stale:
+        notify_task_event(
+            "backtest",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=strategy_name or None,
+            error="服务重启，回测被中断",
+        )
+    return len(stale)
+
 
 # 创建API路由实例
 router = APIRouter(
@@ -358,6 +415,9 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     # 执行回测
                     result = backtest_service.run_backtest(task_id=service_task_id, progress_tracker=progress_tracker)
 
+                    # 终态通知唯一出口：stopped 由挂钩内部静默
+                    notify_backtest_result(task_id, result, name=str(strategy_config_dict.get("strategy_name") or ""))
+
                     logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
                     # 回测成功状态可能是 'success' 或 'completed'
                     if result.get("status") in ("success", "completed"):
@@ -386,6 +446,13 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     logger.exception(e)
                     # 更新进度为失败状态
                     progress_tracker.fail_progress(task_id, f"回测执行失败: {e!s}", "execution")
+                    notify_task_event(
+                        "backtest",
+                        task_id,
+                        TASK_STATUS_FAILED,
+                        name=str(strategy_config_dict.get("strategy_name") or ""),
+                        error=f"回测执行发生异常: {e}",
+                    )
 
             # 启动后台线程
             thread = threading.Thread(target=run_backtest_async, daemon=True)

@@ -9,12 +9,17 @@ import threading
 from datetime import datetime
 from typing import Any
 
+from services.oos_gate import OosGateError, check_oos_gate
+from utils import get_data_dir
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# 训练产物与注册表共用同一目录(rl_service MODELS_DIR);顶层只放 *.zip + .meta.json
-DEFAULT_MODELS_DIR = os.path.join("data", "models")
+# 训练产物与注册表共用同一目录(rl_service MODELS_DIR,与 get_data_dir 同锚点);
+# 顶层只放 *.zip + .meta.json。必须走数据根目录解析:相对 "data" 在桌面
+# sidecar(CWD=/ 只读)下 seed 直接 OSError [Errno 30],打包后启动即崩
+# (2026-11-18 打包验证实录)
+DEFAULT_MODELS_DIR = str(get_data_dir() / "models")
 
 try:
     from axon_quant._native import registry as _registry_mod
@@ -45,6 +50,43 @@ def _get_shared_registry(storage_path: str) -> Any:
             registry = _registry_mod.ModelRegistry(local_storage, persist_dir)
             _registry_cache[key] = registry
         return registry
+
+
+#: 训练期 meta 的 unified 行透传字段(前端 UnifiedModelRow 契约,见 frontend/src/api/modelApi.ts)
+_TRAINING_META_FIELDS = ("obs_mode", "obs_window", "obs_features", "data_type", "reward_terms", "transaction_cost")
+
+
+def _read_sidecar_meta(zip_path: str | None) -> dict[str, Any]:
+    """读 zip 旁车 `<zip>.meta.json`;缺失/损坏/非对象一律返回 {}。
+
+    调用方把 {} 当作"没有训练期 meta"降级为缺省字段 —— 单行旁车坏掉不该让
+    整个 unified 列表失败(与 oos_gate 读旁车的容错口径一致)。
+    """
+    if not zip_path:
+        return {}
+    try:
+        with open(f"{zip_path}.meta.json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except OSError, ValueError, TypeError:
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _training_meta_fields(sidecar: dict[str, Any], registry_meta: dict[str, Any]) -> dict[str, Any]:
+    """提取 unified 行上的 7 个训练期字段;缺键 → None(前端渲染「—」)。
+
+    磁盘旁车优先(训练产物真源,不受注册时间点快照影响),注册表 metadata 兜底
+    (文件缺失行没有旁车;seed 注册时已把 meta 顶层键并入 metadata)。`oos` 依次
+    回退 walk_forward.oos / walk_forward_oos(seed 裁剪后的键),再不行给 None。
+    """
+    meta = {**registry_meta, **sidecar}
+    oos = meta.get("oos")
+    if not isinstance(oos, dict):
+        walk_forward = meta.get("walk_forward")
+        oos = walk_forward.get("oos") if isinstance(walk_forward, dict) else None
+    if not isinstance(oos, dict):
+        oos = meta.get("walk_forward_oos")
+    return {**{key: meta.get(key) for key in _TRAINING_META_FIELDS}, "oos": oos if isinstance(oos, dict) else None}
 
 
 def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> list[str]:
@@ -88,6 +130,7 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
             # 其余(含 observation_stats)原样保留,作为模型卡的数据源
             walk_forward = meta.get("walk_forward")
             wf_aggregate = walk_forward.get("aggregate") if isinstance(walk_forward, dict) else None
+            wf_oos = walk_forward.get("oos") if isinstance(walk_forward, dict) else None
             card_meta = {k: v for k, v in meta.items() if k != "walk_forward"}
             svc.register_model(
                 name=name,
@@ -96,6 +139,9 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
                     **card_meta,
                     "feature_count": len(meta.get("features", [])),
                     "walk_forward_aggregate": wf_aggregate,
+                    # 本轮 OOS 报告(小字典):promote 门槛可从注册表侧读取,
+                    # 同时不影响 folds 明细不落注册表的既有裁剪
+                    "walk_forward_oos": wf_oos,
                 },
             )
             registered.append(name)
@@ -104,7 +150,9 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
 
     # 第一个示例晋升为 Production,页面状态列可呈现完整生命周期
     if registered:
-        svc.promote_to_production(registered[0])
+        # seed 是启动自愈/开箱即用路径,不能因历史 OOS 连续不达标把启动流程卡死;
+        # 正式晋升(action=promote)仍走默认开启的 OOS 门槛
+        svc.promote_to_production(registered[0], enforce_oos_gate=False)
         logger.info("模型注册表 seed 完成: %s", registered)
     return registered
 
@@ -112,10 +160,11 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
 class ModelRegistryService:
     """Model registry service wrapping axon_quant ModelRegistry."""
 
-    def __init__(self, storage_path: str = "data/models"):
+    def __init__(self, storage_path: str | None = None):
         if not AVAILABLE:
             msg = "axon_quant.registry not available"
             raise RuntimeError(msg)
+        storage_path = storage_path or DEFAULT_MODELS_DIR
         # 底层 registry 进程内按路径共享,理由见模块级 _registry_cache 注释
         self._registry = _get_shared_registry(storage_path)
         # get_artifact_path 的路径逃逸校验需要拿它做 realpath 前缀比对
@@ -189,6 +238,10 @@ class ModelRegistryService:
         取 metadata.created_at 最新一条(ISO 字符串字典序即时间序);条目盖不住的
         文件 → 未注册行,盖不住文件的条目 → 「文件缺失」行(注册表无 delete,
         孤立项保留可见)。
+
+        行上另透传 7 个训练期字段(obs_mode/obs_window/obs_features/data_type/
+        reward_terms/transaction_cost/oos),值取 zip 旁车 .meta.json,注册表
+        metadata 兜底;缺键为 None,旁车损坏只影响本行。
         """
         files: dict[str, dict[str, Any]] = {}
         for f in glob.glob(os.path.join(self._storage_path, "*.zip")):
@@ -235,6 +288,7 @@ class ModelRegistryService:
                 # 文件缺失行:路径尽力回显(来源路径 or 目录约定路径),时间回退条目 created_at
                 entry["path"] = str(source_path) if source_path else os.path.join(self._storage_path, f"{name}.zip")
                 entry["file_name"] = os.path.basename(entry["path"])
+                entry.update(_training_meta_fields({}, meta))
                 if created_iso:
                     try:
                         entry["created"] = datetime.fromisoformat(created_iso).timestamp()
@@ -246,6 +300,7 @@ class ModelRegistryService:
                 f = files[zip_key]
                 entry.update(path=f["path"], size_mb=f["size_mb"], created=f["created"])
                 entry["file_name"] = os.path.basename(f["path"])
+                entry.update(_training_meta_fields(_read_sidecar_meta(f["path"]), meta))
                 best[zip_key] = (created_iso, entry)
 
         rows = [entry for _, entry in best.values()]
@@ -265,6 +320,7 @@ class ModelRegistryService:
                     "version": "",
                     "stage": "",
                     "metrics": {},
+                    **_training_meta_fields(_read_sidecar_meta(f["path"]), {}),
                 }
             )
         rows.extend(missing)
@@ -391,8 +447,12 @@ class ModelRegistryService:
             return None
         return real
 
-    def promote_to_production(self, model_id: str) -> bool:
+    def promote_to_production(self, model_id: str, *, enforce_oos_gate: bool = True) -> bool:
         """Promote model to production.
+
+        默认先过 OOS 门槛:最近 2 轮同族 walk-forward OOS 连续不达标时抛
+        `OosGateError`(路由回 409)。`enforce_oos_gate=False` 只给内部
+        bootstrap(seed)用,API 不暴露 bypass。
 
         ponytail: Rust 无 list_versions API,拿不到"最新版本",这里晋升首版
         1.0.0;已有 Production 时 no-op 返回 False(语义修正:晋升已有生产版
@@ -408,6 +468,10 @@ class ModelRegistryService:
             prod = None
         if prod:
             return False
+        if enforce_oos_gate:
+            gate = check_oos_gate(model_id, self._storage_path)
+            if gate["blocked"]:
+                raise OosGateError(gate)
         self._registry.promote_to_production(model_id, "1.0.0")
         return True
 

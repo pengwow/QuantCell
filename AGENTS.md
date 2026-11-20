@@ -275,3 +275,10 @@ print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 ```bash
 cd backend && .venv/bin/python -m pytest tests/unit/ai_model/ -v
 ```
+
+## 功能验证文档（docs/testing/）——新增/修改功能必须同步
+
+- 新增或修改页面/功能时，**同一变更内**更新 `docs/testing/pages/<功能区>.md` 的验证项（验收标准直接写成打勾步骤，格式照 `pages/home.md` / `pages/strategy-editor.md`），新路由在 `docs/testing/MANIFEST.md` 登记
+- 提交前跑 `node docs/testing/check-coverage.mjs` 必须全绿（路由漏登记直接失败）
+- 修过的 bug 当场记入对应文档"历史雷区"栏；打包/发布验证按 `docs/testing/README.md` 执行协议跑 L1 并落报告
+

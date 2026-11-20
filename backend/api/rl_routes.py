@@ -4,11 +4,13 @@ import functools
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
 from utils.auth import get_current_user
+from utils.rbac import Permission, require_permission
 
 router = APIRouter(prefix="/api/v1/rl", tags=["RL Training"])
 
@@ -42,6 +44,25 @@ def handle_rl_exceptions(func):
     return wrapper
 
 
+def handle_rl_exceptions_sync(func):
+    """同 `handle_rl_exceptions`，给同步端点（FastAPI 线程池）用。
+
+    async 包装器会 `await` 返回值，同步函数返回的 ApiResponse 不可 await；
+    长任务端点（如手动触发重训闭环）保留 def 定义才能不阻塞事件循环。
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _map_rl_exception(exc) from exc
+
+    return wrapper
+
+
 class TrainRequest(BaseModel):
     algorithm: str = "ppo"
     symbol: str  # 必填：训练目标交易对
@@ -51,7 +72,9 @@ class TrainRequest(BaseModel):
     end: str | None = None
     total_timesteps: int = 100000
     reward_type: str = "sharpe"
-    walk_forward: bool = False
+    # 默认开启:walk-forward OOS 是模型卡的训练上下文,也是 promote 门槛的数据源;
+    # 显式传 false 仍可关闭(ModelHub 不传时行为随之改变,见 changelog)
+    walk_forward: bool = True
     wf_splits: int = 5
 
 
@@ -78,13 +101,11 @@ class RLBacktestRequest(BaseModel):
     ensemble_id: str | None = None
 
 
-@router.post("/train")
-@handle_rl_exceptions
-async def start_training(req: TrainRequest, current_user: dict = Depends(get_current_user)):
-    # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
-    from services.rl_service import RLService, RLTrainConfig
+def _to_train_config(req: TrainRequest):
+    """TrainRequest → RLTrainConfig（同步 /train 与任务化 /train/async 共用）。"""
+    from services.rl_service import RLTrainConfig
 
-    config = RLTrainConfig(
+    return RLTrainConfig(
         algorithm=req.algorithm,
         symbol=req.symbol,
         interval=req.interval,
@@ -96,7 +117,15 @@ async def start_training(req: TrainRequest, current_user: dict = Depends(get_cur
         walk_forward=req.walk_forward,
         wf_splits=req.wf_splits,
     )
-    result = RLService().train(config)
+
+
+@router.post("/train")
+@handle_rl_exceptions
+async def start_training(req: TrainRequest, current_user: dict = Depends(get_current_user)):
+    # 延迟导入：避免 API 启动时加载 stable-baselines3/torch 等训练重依赖
+    from services.rl_service import RLService
+
+    result = RLService().train(_to_train_config(req))
     return ApiResponse(
         code=0,
         message="训练完成",
@@ -107,6 +136,109 @@ async def start_training(req: TrainRequest, current_user: dict = Depends(get_cur
             "walk_forward": result.walk_forward,
         },
     )
+
+
+@router.post("/train/async", status_code=202)
+@handle_rl_exceptions
+async def start_training_async(req: TrainRequest, current_user: dict = Depends(get_current_user)):
+    """任务化训练：立即返回 202 + task_id，训练在后台单工作线程跑。
+
+    与同步 /train 共用请求模型与 `RLService.train` 实现，差异只在调用方式；
+    进度 / 日志 / 取消走 `/train/{task_id}` 与 `/train/{task_id}/events`。
+    """
+    from services.rl_task_runner import submit_train_task
+
+    task_id = submit_train_task(_to_train_config(req))
+    return {"task_id": task_id, "status": "queued"}
+
+
+@router.get("/train/{task_id}")
+@handle_rl_exceptions
+async def get_training_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """训练任务快照（轮询用；SSE 见 /train/{task_id}/events）。"""
+    from services.rl_task_runner import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    return task.snapshot()
+
+
+@router.get("/train/{task_id}/events")
+async def stream_training_events(task_id: str, current_user: dict = Depends(get_current_user)):
+    """SSE 进度流：`state`（完整快照）/ `log`（单行日志）/ 15s `: ping`。
+
+    终态推一条 `state` 后关闭连接。不加 `handle_rl_exceptions`：流式响应只能
+    在开始前校验任务存在，生成器内的异常由客户端断开处理。
+    """
+    from services.rl_task_runner import get_task, sse_stream
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    return StreamingResponse(
+        sse_stream(task),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 关掉 nginx 缓冲，事件立即到达前端
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/train/{task_id}/cancel")
+@handle_rl_exceptions
+async def cancel_training_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """协作式取消：运行中任务在下一个阶段边界 / 进度回调生效。"""
+    from services.rl_task_runner import cancel_task, get_task
+
+    if get_task(task_id) is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    if not cancel_task(task_id):
+        raise HTTPException(status_code=409, detail=f"训练任务已结束，无法取消: {task_id}")
+    return {"accepted": True}
+
+
+@router.post(
+    "/train/{task_id}/deploy-spec",
+    # 写动作：会 upsert 一行 RL 策略（worker 创建的前置）。与 worker 创建同权
+    # （worker/routes.py 创建端点用 WORKER_WRITE），RBAC enforcement off 时旁路。
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+)
+@handle_rl_exceptions
+async def build_train_deploy_spec(
+    task_id: str,
+    symbol: str | None = Query(None, description="部署 worker 的交易对（训练产物未记录标的，缺省留空）"),
+    current_user: dict = Depends(get_current_user),
+):
+    """训练产物 → 部署 spec：策略行 upsert + 可直接 POST /workers 的完整 body。
+
+    前置校验（写库前，失败不留半截数据）：任务存在 → 终态 done → 快照有
+    model_path → 模型文件 / meta 旁车存在 → spec_version 匹配运行时口径。
+    策略行按 `rl_paper_<model_id>` 幂等（重复调用返回同一 strategy.id）。
+    """
+    from services.rl_service import RLDeployError, RLService
+    from services.rl_task_runner import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"训练任务不存在: {task_id}")
+    snapshot = task.snapshot()
+    if snapshot["status"] != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=f"训练任务未完成（status={snapshot['status']}），没有可部署的产物",
+        )
+    model_path = snapshot.get("model_path")
+    if not model_path:
+        raise HTTPException(status_code=409, detail="训练任务快照缺少 model_path，无法生成部署 spec")
+
+    try:
+        return RLService().build_deploy_spec(model_path, symbol=symbol)
+    except RLDeployError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
 @router.get("/models")
@@ -222,3 +354,59 @@ async def run_walk_forward(req: WalkForwardRequest, current_user: dict = Depends
         message="Walk-Forward 验证完成",
         data={"walk_forward": result.walk_forward, "model_id": result.model_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# P4-3 自动重训闭环（薄路由）
+#
+# 总闸 QUANTCELL_AUTO_RETRAIN / 第二闸 QUANTCELL_AUTO_PROMOTE 只影响
+# core.scheduler 是否挂 job 与是否自动 promote；这里的手动入口始终可用，
+# 便于运维在闸门关闭时「按需跑一次」并在返回体里看到完整证据。
+# ---------------------------------------------------------------------------
+
+
+class LifecycleRunRequest(BaseModel):
+    #: 默认只跑选目（不训练）：误点 POST 不会烧几小时 CPU
+    dry_run: bool = True
+
+
+@router.get("/lifecycle/state")
+@handle_rl_exceptions
+async def get_lifecycle_state(current_user: dict = Depends(get_current_user)):
+    """闭环状态：双闸开关、当日选目、shadow 台账、晋升待审记录。"""
+    from rl.lifecycle import load_lifecycle_state, pending_promotions
+    from services.retrain_policy import auto_promote_enabled, auto_retrain_enabled, select_retrain_candidates
+
+    return ApiResponse(
+        code=0,
+        message="success",
+        data={
+            "auto_retrain_enabled": auto_retrain_enabled(),
+            "auto_promote_enabled": auto_promote_enabled(),
+            "candidates": [c.to_dict() for c in select_retrain_candidates()],
+            "pending_promotions": pending_promotions(),
+            # 全量促升记录（pending / auto_promoted / auto_promote_failed），人审页据此展示历史
+            "promotions": load_lifecycle_state().get("promotions", []),
+            "shadow": load_lifecycle_state().get("shadow", {}),
+        },
+    )
+
+
+# 同步端点（不是 async def）：跑满一次闭环可能几十分钟，交给 FastAPI 线程池，
+# 不阻塞事件循环。dry_run=False 时请把 HTTP 超时调大，或直接用调度器/CLI。
+@router.post("/lifecycle/run")
+@handle_rl_exceptions_sync
+def run_lifecycle_cycle(req: LifecycleRunRequest, current_user: dict = Depends(get_current_user)):
+    """手动触发一次闭环：dry_run=True 只返回选目；False 真跑重训/对照/闸门。"""
+    from rl.lifecycle import AutoCycleConfig, run_auto_retrain_cycle
+    from services.retrain_policy import RetrainPolicy, select_retrain_candidates
+
+    if req.dry_run:
+        policy = RetrainPolicy.from_env()
+        candidates = [c.to_dict() for c in select_retrain_candidates(policy=policy)]
+        return ApiResponse(
+            code=0,
+            message="选目预览（未训练）",
+            data={"dry_run": True, "candidates": candidates, "policy": policy.__dict__},
+        )
+    return ApiResponse(code=0, message="闭环执行完成", data=run_auto_retrain_cycle(AutoCycleConfig()))

@@ -111,14 +111,29 @@ def find_strategy_by_name_or_id(
 
 
 def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
-    """创建Worker"""
+    """创建Worker
+
+    `strategy_type` 不在 WorkerCreate 里：worker 镜像被引用策略行的类型
+    （rule/rl），本函数回填。/workers/{id}/lifecycle/optimize 按该列分支
+    （worker/routes.py:1373），不回填会让 RL 策略的 worker 走成 rule 分支。
+    """
     import json
+
+    strategy_type = "rule"
+    if worker_data.strategy_id:
+        # 函数内 import：跨模块模型（同 find_strategy_by_name_or_id，防 worker ← collector 循环链）
+        from strategy.models import Strategy
+
+        strategy = db.query(Strategy).filter(Strategy.id == worker_data.strategy_id).first()
+        if strategy is not None and strategy.strategy_type:
+            strategy_type = strategy.strategy_type
 
     db_worker = Worker(
         name=worker_data.name,
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
         strategy_name=worker_data.strategy_name,  # 策略名称（冗余存储，用于 strategy_id 失效时回退查找）
+        strategy_type=strategy_type,
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else "{}",
         config=json.dumps({**(worker_data.config or {}), "strategy_file_name": worker_data.strategy_file_name})
         if (worker_data.config or worker_data.strategy_file_name)
@@ -149,14 +164,23 @@ def get_workers(
     strategy_id: int | None = None,
     skip: int = 0,
     limit: int = 20,
+    owner_id: int | None = None,
 ) -> tuple[list[Worker], int]:
-    """获取Worker列表"""
+    """获取Worker列表
+
+    `owner_id` 提供时按归属过滤（非特权用户只看自己的 worker）；
+    None 不过滤（admin / 服务令牌走全量）。
+    """
     query = db.query(Worker)
 
     if status:
         query = query.filter(Worker.status == status)
     if strategy_id:
         query = query.filter(Worker.strategy_id == strategy_id)
+    if owner_id is not None:
+        # ponytail: 只做归属过滤，不做行级 ACL 推广到所有端点——
+        # 逐端点鉴权（详情/订单/决策）需要统一 dependency，另行立项
+        query = query.filter(Worker.owner_id == owner_id)
 
     total = query.count()
     workers = query.order_by(desc(Worker.created_at)).offset(skip).limit(limit).all()

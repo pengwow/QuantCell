@@ -1,7 +1,7 @@
 /*
  * 订单簿 & 成交流水样式（ob- 前缀避免全局污染）
- * 涨跌色对齐 src/utils/colors.ts 的 QUANT_COLORS：positive #1a7f37 / negative #d1242f
- * （现场无 --qc-* CSS 变量，直接用实值）
+ * 涨跌色取 --qc-success / --qc-error（light 值与 src/utils/colors.ts 的 QUANT_COLORS
+ * positive / negative 同值，暗色随主题换挡）；弱化文本取 --qc-chart-mark。
  */
 
 .ob-book,
@@ -17,7 +17,7 @@
   display: flex;
   justify-content: space-between;
   padding: 4px 8px;
-  color: #9ca3af; /* QUANT_COLORS.chartMark，表头弱化文本 */
+  color: var(--qc-chart-mark); /* 表头弱化文本 */
   font-size: 11px;
 }
 
@@ -54,11 +54,13 @@
 }
 
 .ob-ask .ob-bar {
-  background: rgba(209, 36, 47, 0.16); /* negative #d1242f 半透明 */
+  /* 卖侧深度条：跌色 16% 透明（亮色解析值与迁移前同值，暗色跟随主题） */
+  background: color-mix(in srgb, var(--qc-error) 16%, transparent);
 }
 
 .ob-bid .ob-bar {
-  background: rgba(26, 127, 55, 0.16); /* positive #1a7f37 半透明 */
+  /* 买侧深度条：涨色 16% 透明（同上） */
+  background: color-mix(in srgb, var(--qc-success) 16%, transparent);
 }
 
 .ob-price,
@@ -69,11 +71,11 @@
 }
 
 .ob-price.is-up {
-  color: #1a7f37;
+  color: var(--qc-success);
 }
 
 .ob-price.is-down {
-  color: #d1242f;
+  color: var(--qc-error);
 }
 
 .ob-qty {
@@ -83,7 +85,7 @@
 }
 
 .ob-time {
-  color: #9ca3af;
+  color: var(--qc-chart-mark);
   padding-left: 8px;
   min-width: 56px;
   text-align: right;
@@ -106,7 +108,7 @@
 
 .ob-mid-label {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--qc-chart-mark);
 }
 
 .ob-empty {
@@ -114,6 +116,6 @@
   align-items: center;
   justify-content: center;
   min-height: 120px;
-  color: #9ca3af;
+  color: var(--qc-chart-mark);
   font-size: 12px;
 }

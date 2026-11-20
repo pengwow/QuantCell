@@ -817,7 +817,10 @@ export const getOverview = (
   workerId: number,
   window: OverviewWindow = '30d'
 ): Promise<OverviewApiData> => {
-  return apiRequest.get(`/workers/${workerId}/stats/overview`, { params: { window } });
+  // apiRequest.get 的第二参本身就是 axios params（index.ts:450-451）：
+  // 此处历史写法包了两层 { params: { window } }，window 从未到达后端，
+  // 任何窗口都返回默认 30d（WorkerOverviewTab 的窗口切换同样踩坑）。
+  return apiRequest.get(`/workers/${workerId}/stats/overview`, { window });
 };
 
 /**

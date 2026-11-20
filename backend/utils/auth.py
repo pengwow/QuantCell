@@ -75,6 +75,17 @@ def _auth_disabled() -> bool:
     return IS_DEBUG_MODE or _is_debug_mode()
 
 
+def is_auth_exempt() -> bool:
+    """鉴权豁免的公开判定入口（中间件 / RBAC 等跨模块调用）。
+
+    与 _auth_disabled 同源：config.toml security.auth_enabled、debug、
+    桌面 sidecar local（QUANTCELL_DESKTOP_LOCAL）。桌面实录缺口：
+    rbac.is_guest_user 只查 config 开关，导致桌面免登录模式下无
+    Authorization 头的请求被 401 踢回登录页。
+    """
+    return _auth_disabled()
+
+
 def _extract_bearer_token(request: Request) -> str:
     """从 Authorization 头提取 Bearer token，失败抛 HTTP 401。
 

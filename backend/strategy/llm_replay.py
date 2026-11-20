@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -67,12 +68,14 @@ def _backend_root() -> Path:
 def default_replay_dir() -> Path:
     """默认录制目录：跟随项目 data 目录约定（backend/data/llm_replay）。
 
-    桌面 sidecar 可用 ``QUANTCELL_LLM_REPLAY_DIR`` 重定向到可写目录。
+    桌面 sidecar 可用 ``QUANTCELL_LLM_REPLAY_DIR`` 显式重定向；未显式配置但处于
+    冻结/桌面环境（QUANTCELL_DATA_DIR）时落持久数据目录，避免写进 onefile
+    临时解压目录（重启/升级即丢）。
     """
     override = os.environ.get("QUANTCELL_LLM_REPLAY_DIR")
     if override:
         return Path(override).expanduser()
-    return _backend_root() / "data" / "llm_replay"
+    return get_persistent_dir("data/llm_replay", _backend_root() / "data" / "llm_replay")
 
 
 def _resolve_user_path(raw: str | Path) -> Path:

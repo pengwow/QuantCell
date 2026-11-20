@@ -17,6 +17,8 @@
   --color-error: var(--tw-color-error);
   --color-border: var(--tw-color-border);
   --color-border-secondary: var(--tw-color-border-secondary);
+  --color-surface: var(--qc-surface);
+  --color-surface-muted: var(--qc-surface-muted);
 
   /* ===== 设计 token（qc- 五档间距体系，O1） =====
      命名必须带 qc- 前缀：Tailwind v4 中 --spacing-4 / --radius-lg 等裸名
@@ -45,35 +47,16 @@
 }
 
 @layer base {
+  /* 主题色变量（亮/暗两套 --qc-* / --tw-color-*）由 src/theme 在运行时注入：
+     main.tsx 首帧 + App.tsx 监听 .dark class 切换时调用 applyThemeVars()。
+     颜色值的唯一真相源是 src/theme/palettes.ts —— 修改品牌配色只改那一处，
+     本文件不再持有任何颜色字面量（theme.spec.ts 有守卫）。 */
+
+  /* 布局尺寸变量（非颜色） */
   :root {
-    /* 亮色模式配色 */
-    --tw-color-background: #ffffff;
-    --tw-color-foreground: #141414;
-    --tw-color-primary: #ea580c;
-    --tw-color-info: #0969da;
-    --tw-color-success: #1a7f37;
-    --tw-color-warning: #eac54f;
-    --tw-color-error: #d1242f;
-    --tw-color-border: #d1d5db;
-    --tw-color-border-secondary: #e5e7eb;
-    
-    /* 侧边栏变量 */
     --sider-width: 256px;
     --sider-collapsed-width: 81px;
     --header-height: 64px;
-  }
-
-  .dark {
-    /* 暗色模式配色 */
-    --tw-color-background: #17191c;
-    --tw-color-foreground: #fafaf9;
-    --tw-color-primary: #f97316;
-    --tw-color-info: #478be6;
-    --tw-color-success: #57ab5a;
-    --tw-color-warning: #daaa3f;
-    --tw-color-error: #e5534b;
-    --tw-color-border: #374151;
-    --tw-color-border-secondary: #4b5563;
   }
 }
 
@@ -147,16 +130,16 @@
 
 .status-indicator[data-status="connected"],
 .status-indicator[data-status="normal"] {
-  --status-color: #4CAF50;
+  --status-color: var(--qc-status-dot-ok);
 }
 
 .status-indicator[data-status="disconnected"],
 .status-indicator[data-status="critical"] {
-  --status-color: #F44336;
+  --status-color: var(--qc-status-dot-fail);
 }
 
 .status-indicator[data-status="warning"] {
-  --status-color: #FFC107;
+  --status-color: var(--qc-status-dot-warn);
 }
 
 /* ========== AI Chat Markdown 样式 ========== */
@@ -220,7 +203,7 @@
 }
 
 .prose thead {
-  background-color: rgba(128, 128, 128, 0.1);
+  background-color: var(--qc-overlay);
 }
 
 .prose th {
@@ -270,7 +253,7 @@
 
 /* 内联代码 */
 .prose code:not(.hljs) {
-  background-color: rgba(128, 128, 128, 0.15);
+  background-color: var(--qc-overlay-strong);
   padding: 0.2em 0.4em;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -285,23 +268,23 @@
   margin: 1em 0;
 }
 
-/* 暗色模式下的 Prose 样式调整 */
+/* 暗色模式下的 Prose 样式调整（值取自主题暗色 palette 对应槽位） */
 .dark .prose {
-  color: #e5e7eb;
+  color: var(--qc-text-secondary);
 }
 
 .dark .prose h2 {
-  border-bottom-color: #374151;
+  border-bottom-color: var(--qc-border);
 }
 
 .dark .prose th {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--qc-overlay);
 }
 
 .dark .prose code:not(.hljs) {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--qc-overlay-strong);
 }
 
 .dark .prose blockquote {
-  color: #9ca3af;
+  color: var(--qc-text-tertiary);
 }

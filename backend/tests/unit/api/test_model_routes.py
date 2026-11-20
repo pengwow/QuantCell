@@ -162,3 +162,47 @@ def test_model_unpromote_endpoint(tmp_path, _model_storage):
     # 无 production(已取消晋升)与不存在的模型 → success=False
     assert client.post("/api/v1/models/rl_model_c/unpromote").json()["data"]["success"] is False
     assert client.post("/api/v1/models/no_such_model/unpromote").json()["data"]["success"] is False
+
+
+def _write_oos_round(td: str, model_id: str, *, sharpe: float, ret: float, created_at: str) -> None:
+    import json
+
+    meta = {
+        "model_id": model_id,
+        "created_at": created_at,
+        "walk_forward": {"oos": {"sharpe_ratio": sharpe, "total_return_pct": ret}},
+    }
+    with open(os.path.join(td, f"{model_id}.meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f)
+
+
+def test_model_promote_blocked_by_oos_gate(tmp_path, _model_storage):
+    """验收反例:同族连续 2 轮 OOS 不达标 → promote 409 且 detail 带指标证据。"""
+    from api.model_routes import router
+    from services.model_registry import ModelRegistryService
+
+    artifact = os.path.join(str(tmp_path), "gate_model.zip")
+    with open(artifact, "wb") as f:
+        f.write(b"fake-sb3-bytes")
+    ModelRegistryService(storage_path=str(tmp_path)).register_model(name="gate_model", model_path=artifact)
+
+    _write_oos_round(
+        str(tmp_path), "gate_model_ppo_1700000000", sharpe=-0.2, ret=-1.5, created_at="2026-01-01T00:00:00.000"
+    )
+    _write_oos_round(
+        str(tmp_path), "gate_model_ppo_1700000001", sharpe=-0.1, ret=-0.5, created_at="2026-01-02T00:00:00.000"
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.post("/api/v1/models/gate_model/promote")
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert "连续 2 轮" in detail
+    assert "sharpe=-0.1" in detail
+    assert "return%=-0.5" in detail
+    # 拦停后仍是 staging
+    assert client.get("/api/v1/models/gate_model/detail").json()["data"]["stage"] == "staging"

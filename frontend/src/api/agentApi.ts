@@ -638,6 +638,114 @@ export const importToolConfig = async (
   });
 };
 
+// ==================== 工具调用审计查询 ====================
+
+/** GET /agent/audit 的行（agent_tool_audit，created_at 倒序） */
+export interface ToolAuditRow {
+  id: number;
+  tool: string;
+  /** 参数规范化 sha256 摘要，供等幂比对 */
+  args_hash?: string | null;
+  /** 落库时已脱敏的 JSON 文本（字符串，需前端格式化） */
+  args_redacted?: string | null;
+  result_status: string;
+  user?: string | null;
+  /** 令牌来源："jwt" 或 "#<token_id>" */
+  token?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export interface ToolAuditQuery {
+  /** ISO8601 或 epoch 秒/毫秒（含边界） */
+  start?: string;
+  end?: string;
+  /** 工具名前缀匹配（传完整名即精确） */
+  tool?: string;
+  result_status?: string;
+  user?: string;
+  token?: string;
+  /** 上限 500，超出后端按 500 截断 */
+  limit?: number;
+  offset?: number;
+}
+
+/** 审计后端返回 success 风格 body（无 code 包裹，拦截器整包透传） */
+export interface ToolAuditResponse {
+  success: boolean;
+  total: number;
+  limit: number;
+  offset: number;
+  audits: ToolAuditRow[];
+}
+
+export const queryToolAudit = async (params?: ToolAuditQuery): Promise<ToolAuditResponse> => {
+  return apiRequest.get<ToolAuditResponse>('/agent/audit', params);
+};
+
+// ==================== 自迭代可视化（记忆 / 每日闭环 / 重训台账） ====================
+
+/** 一次定时 job / Dream 的运行结果；detail 由后端给出，前端只做展示兜底 */
+export interface AgentRunRecord {
+  ts_iso: string;
+  ok: boolean;
+  /** 结构化摘要（如 {updated: true, chars: 418}），未知形状按字符串兜底 */
+  detail?: unknown;
+  /** 仅部分 job 上报的失败原因 */
+  error?: string | null;
+}
+
+/** GET /agent/memory —— Dream（记忆自迭代）的对外可见状态 */
+export interface AgentMemoryResponse {
+  /** 总闸（QUANTCELL_AGENT_DREAM）是否开启 */
+  enabled: boolean;
+  /** MEMORY.md 全文（只读展示，前端不改写） */
+  memory_markdown: string;
+  /** 已消费到 history.jsonl 的第几条 */
+  dream_cursor: number;
+  /** history.jsonl 当前条目总数 */
+  history_entries: number;
+  last_run: AgentRunRecord | null;
+}
+
+export const getAgentMemory = async (): Promise<AgentMemoryResponse> => {
+  return apiRequest.get<AgentMemoryResponse>('/agent/memory');
+};
+
+/** 每日闭环里单个调度 job */
+export interface AgentLoopJob {
+  id: string;
+  name: string;
+  cron: string;
+  /** 总闸开启时 job 才会挂载到调度器 */
+  mounted: boolean;
+  last_run: AgentRunRecord | null;
+}
+
+/** 重训台账里的单个模型族 */
+export interface AgentRetrainFamily {
+  family: string;
+  status: string;
+  shadow_days?: number | null;
+  note?: string | null;
+}
+
+/** GET /agent/loop-status —— 每日闭环 job 状态 + 重训双闸与台账 */
+export interface AgentLoopStatusResponse {
+  jobs: AgentLoopJob[];
+  retrain: {
+    gates: {
+      auto_retrain: boolean;
+      auto_promote: boolean;
+    };
+    families: AgentRetrainFamily[];
+  };
+}
+
+export const getAgentLoopStatus = async (): Promise<AgentLoopStatusResponse> => {
+  return apiRequest.get<AgentLoopStatusResponse>('/agent/loop-status');
+};
+
 // 工具参数管理API导出
 export const toolParamApi = {
   getRegisteredTools,

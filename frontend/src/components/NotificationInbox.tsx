@@ -6,34 +6,61 @@
  */
 
 import { useEffect } from 'react';
-import { Badge, Button, Empty, Spin, Typography } from 'antd';
+import { Badge, Button, Empty, Spin, theme, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 
 import { useNotificationStore } from '@/store/notificationStore';
+import { taskNotificationRoute } from '@/utils/taskRoutes';
 import type { InboxNotificationItem } from '@/api';
+import { QUANT_COLORS } from '@/utils/colors';
 
-/** level → 前景色（未知 level 按 info 兜底） */
+/**
+ * critical 等级暂无独立色相：palette 尚未注册 critical 槽位，
+ * 现取值与 error 同源。palette 补槽位后改为派生即可。
+ */
+const CRITICAL_COLOR = QUANT_COLORS.negative;
+
+/** level → 前景色（未知 level 按 info 兜底）。语义色全部来自 utils/colors（值源自 palettes.ts） */
 export const LEVEL_COLORS: Record<string, string> = {
-  info: '#0969da',
-  success: '#1a7f37',
-  warning: '#eac54f',
-  error: '#d1242f',
-  critical: '#d1242f',
+  info: QUANT_COLORS.info,
+  success: QUANT_COLORS.positive,
+  warning: QUANT_COLORS.warning,
+  error: QUANT_COLORS.negative,
+  critical: CRITICAL_COLOR,
 };
 
-/** 列表行：色点 + 标题（相对/绝对时间） */
+/** 列表行：色点 + 标题（相对/绝对时间）。任务类通知点击 = 单条已读 + 跳转详情/列表页 */
 export function InboxItemRow({ item }: { item: InboxNotificationItem }) {
+  const navigate = useNavigate();
+  const markRead = useNotificationStore((s) => s.markRead);
+
+  const handleClick = () => {
+    // 已读失败不影响跳转（后端幂等，下次点击会再置）
+    if (!item.read) void markRead(item.id).catch(() => {});
+    const route = taskNotificationRoute(item.source, {
+      id: typeof item.metadata?.task_id === 'string' ? item.metadata.task_id : null,
+      detail: item.metadata,
+    });
+    if (route) navigate(route);
+  };
+
   return (
-    <div className="flex items-start gap-2 overflow-hidden">
+    <div
+      className="flex cursor-pointer items-start gap-2 overflow-hidden"
+      onClick={handleClick}
+    >
       <span
         className="mt-[7px] size-1.5 shrink-0 rounded-full"
         style={{ background: LEVEL_COLORS[item.level] ?? LEVEL_COLORS.info }}
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <Typography.Text ellipsis className="text-[13px] font-medium leading-[20px]">
+          <Typography.Text
+            ellipsis
+            className={`text-[13px] leading-[20px] ${item.read ? 'text-foreground/60' : 'font-medium'}`}
+          >
             {item.title}
           </Typography.Text>
           <Typography.Text type="secondary" className="shrink-0 text-[11px] leading-[20px]">
@@ -63,6 +90,7 @@ export function InboxItemRow({ item }: { item: InboxNotificationItem }) {
 export function NotificationPanel({ pageSize = 15, onViewAll }: { pageSize?: number; onViewAll?: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { token } = theme.useToken();
   const { items, unreadCount, hasMore, loading, loadList, markAllRead } = useNotificationStore();
 
   useEffect(() => {
@@ -99,7 +127,7 @@ export function NotificationPanel({ pageSize = 15, onViewAll }: { pageSize?: num
         )}
       </Spin>
 
-      <div className="flex items-center justify-between border-t border-solid pt-1" style={{ borderColor: 'var(--ant-color-split, #f0f0f0)' }}>
+      <div className="flex items-center justify-between border-t border-solid pt-1" style={{ borderColor: token.colorSplit }}>
         {hasMore ? (
           <Button
             size="small"

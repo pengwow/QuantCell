@@ -39,6 +39,19 @@ interface IntentPanelProps {
   onAction: (actionType: string) => void;
 }
 
+/**
+ * structuredData 中文字段名常量。
+ * 值是后端数据契约（backend/agent/api/routes.py 的指标正则按中文名抽取），**不可改**；
+ * 此处集中定义只是为了让展示层不再散落中文字符串字面量。
+ */
+export const SD = {
+  annualizedReturn: '年化收益率',
+  sharpeRatio: '夏普比率',
+  maxDrawdown: '最大回撤',
+  totalReturn: '总收益',
+  winRate: '胜率',
+} as const;
+
 // 将结构化数据中的值安全转换为数字，非数字返回 0
 const toNumber = (value: unknown): number => {
   const num = typeof value === 'number' ? value : Number(value);
@@ -169,13 +182,13 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
   const { t } = useTranslation();
 
   // 收益/夏普/回撤等指标色全部走量化语义色（O2），紫色为行业惯例强调色保留
-  // key 为后端 structuredData 的中文字段名（数据契约不可改），label 为 i18n 显示文案
+  // key 为后端 structuredData 的中文字段名（见 SD 常量，数据契约不可改），label 为 i18n 显示文案
   const metrics = [
-    { key: '年化收益率', label: t('annual_return'), value: structuredData['年化收益率'], suffix: '%', color: quant.positive },
-    { key: '夏普比率', label: t('sharpe_ratio'), value: structuredData['夏普比率'], suffix: '', color: quant.info },
-    { key: '最大回撤', label: t('max_drawdown'), value: structuredData['最大回撤'], suffix: '%', color: quant.negative },
-    { key: '总收益', label: t('total_profit'), value: structuredData['总收益'], suffix: '%', color: quant.positive },
-    { key: '胜率', label: t('win_rate'), value: structuredData['胜率'], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
+    { key: SD.annualizedReturn, label: t('annual_return'), value: structuredData[SD.annualizedReturn], suffix: '%', color: quant.positive },
+    { key: SD.sharpeRatio, label: t('sharpe_ratio'), value: structuredData[SD.sharpeRatio], suffix: '', color: quant.info },
+    { key: SD.maxDrawdown, label: t('max_drawdown'), value: structuredData[SD.maxDrawdown], suffix: '%', color: quant.negative },
+    { key: SD.totalReturn, label: t('total_profit'), value: structuredData[SD.totalReturn], suffix: '%', color: quant.positive },
+    { key: SD.winRate, label: t('win_rate'), value: structuredData[SD.winRate], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
   ].filter((m) => m.value !== undefined);
 
   return (
@@ -200,7 +213,7 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
                     {String(metric.value)}{metric.suffix}
                   </Text>
                 </div>
-                {metric.key === '最大回撤' && (
+                {metric.key === SD.maxDrawdown && (
                   <Progress
                     percent={Math.abs(metricValue)}
                     status={metricValue > 20 ? 'exception' : metricValue > 10 ? 'active' : 'success'}
