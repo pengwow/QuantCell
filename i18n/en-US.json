@@ -3633,5 +3633,14 @@
   "level_info": "Info",
   "level_success": "Success",
   "level_warning": "Warning",
-  "level_error": "Error"
+  "level_error": "Error",
+  "filter_all": "All",
+  "filter_unread": "Unread",
+  "filter_read": "Read",
+  "task_filter_placeholder": "All task types",
+  "task_type_rl_train": "RL training",
+  "task_type_factor_job": "Factor job",
+  "task_type_collector_task": "Data collection",
+  "task_type_backtest": "Backtest",
+  "task_type_research": "Research"
 }

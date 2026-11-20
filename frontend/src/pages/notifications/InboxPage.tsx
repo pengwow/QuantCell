@@ -5,14 +5,15 @@
  * 未读数的权威值在收件箱接口返回的 unread_count（loadList 时同步进 store）。
  */
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { DeleteOutlined } from '@ant-design/icons';
-import { Badge, Button, Card, Empty, Popconfirm, Space, Spin, theme, Typography } from 'antd';
+import { Badge, Button, Card, Empty, Flex, Popconfirm, Segmented, Select, Space, Spin, theme, Typography } from 'antd';
 
 import { InboxItemRow, LEVEL_COLORS } from '@/components/NotificationInbox';
 import { useNotificationStore } from '@/store/notificationStore';
+import { TASK_SOURCES } from '@/utils/taskRoutes';
 
 // ponytail: 每页 20 条与后端默认一致；游标取当前列表最后一条 id
 const PAGE_SIZE = 20;
@@ -24,15 +25,27 @@ const InboxPage = () => {
   const { items, unreadCount, readCount, hasMore, loading, loadList, markAllRead, removeItem, clearRead } =
     useNotificationStore();
 
-  useEffect(() => {
-    void loadList({ limit: PAGE_SIZE });
-    // ponytail: 仅挂载拉取首页；此后实时新通知由 store.bumpUnread 增量插入
+  // 过滤态是页面局部状态（不进 store：预览面板始终看全量，不受页面过滤影响）
+  const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [taskType, setTaskType] = useState<string | null>(null);
+
+  const listParams = () => ({
+    unread: readFilter === 'all' ? undefined : readFilter === 'unread',
+    taskType: taskType ?? undefined,
+  });
+
+  const reload = useCallback(() => {
+    void loadList({ limit: PAGE_SIZE, ...listParams() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadList, readFilter, taskType]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const loadOlder = () => {
     const last = items[items.length - 1];
-    if (last) void loadList({ limit: PAGE_SIZE, beforeId: last.id });
+    if (last) void loadList({ limit: PAGE_SIZE, beforeId: last.id, ...listParams() });
   };
 
   const handleMarkAllRead = () => {
@@ -67,6 +80,29 @@ const InboxPage = () => {
           </Space>
         }
       >
+        {/* 读写态 + 任务域过滤：垂直间距用 antd Flex（项目铁则禁 Tailwind space-y-*） */}
+        <Flex vertical gap={12} className="mb-3">
+          <Flex gap={12} wrap>
+            <Segmented
+              value={readFilter}
+              onChange={(v) => setReadFilter(v as 'all' | 'unread' | 'read')}
+              options={[
+                { label: t('filter_all'), value: 'all' },
+                { label: t('filter_unread'), value: 'unread' },
+                { label: t('filter_read'), value: 'read' },
+              ]}
+            />
+            <Select
+              allowClear
+              placeholder={t('task_filter_placeholder')}
+              value={taskType}
+              onChange={(v) => setTaskType(v ?? null)}
+              style={{ minWidth: 140 }}
+              options={TASK_SOURCES.map((s) => ({ value: s, label: t(`task_type_${s}`) }))}
+            />
+          </Flex>
+        </Flex>
+
         <Spin spinning={loading && items.length === 0}>
           {items.length === 0 && !loading ? (
             <Empty description={t('inbox_empty')}>

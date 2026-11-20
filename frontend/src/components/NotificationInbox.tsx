@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 
 import { useNotificationStore } from '@/store/notificationStore';
+import { taskNotificationRoute } from '@/utils/taskRoutes';
 import type { InboxNotificationItem } from '@/api';
 
 /** level → 前景色（未知 level 按 info 兜底） */
@@ -23,17 +24,36 @@ export const LEVEL_COLORS: Record<string, string> = {
   critical: '#d1242f',
 };
 
-/** 列表行：色点 + 标题（相对/绝对时间） */
+/** 列表行：色点 + 标题（相对/绝对时间）。任务类通知点击 = 单条已读 + 跳转详情/列表页 */
 export function InboxItemRow({ item }: { item: InboxNotificationItem }) {
+  const navigate = useNavigate();
+  const markRead = useNotificationStore((s) => s.markRead);
+
+  const handleClick = () => {
+    // 已读失败不影响跳转（后端幂等，下次点击会再置）
+    if (!item.read) void markRead(item.id).catch(() => {});
+    const route = taskNotificationRoute(item.source, {
+      id: typeof item.metadata?.task_id === 'string' ? item.metadata.task_id : null,
+      detail: item.metadata,
+    });
+    if (route) navigate(route);
+  };
+
   return (
-    <div className="flex items-start gap-2 overflow-hidden">
+    <div
+      className="flex cursor-pointer items-start gap-2 overflow-hidden"
+      onClick={handleClick}
+    >
       <span
         className="mt-[7px] size-1.5 shrink-0 rounded-full"
         style={{ background: LEVEL_COLORS[item.level] ?? LEVEL_COLORS.info }}
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <Typography.Text ellipsis className="text-[13px] font-medium leading-[20px]">
+          <Typography.Text
+            ellipsis
+            className={`text-[13px] leading-[20px] ${item.read ? 'text-foreground/60' : 'font-medium'}`}
+          >
             {item.title}
           </Typography.Text>
           <Typography.Text type="secondary" className="shrink-0 text-[11px] leading-[20px]">

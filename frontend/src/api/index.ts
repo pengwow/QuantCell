@@ -1042,7 +1042,12 @@ export const notificationApi = {
   /**
    * 站内收件箱列表（按 id 倒序游标分页，携带未读/已读数）
    */
-  getInbox: (params?: { limit?: number; before_id?: number }): Promise<{
+  getInbox: (params?: {
+    limit?: number;
+    before_id?: number;
+    unread?: boolean;
+    task_type?: string;
+  }): Promise<{
     items: InboxNotificationItem[];
     unread_count: number;
     read_count: number;
@@ -1056,6 +1061,13 @@ export const notificationApi = {
    */
   markInboxRead: (): Promise<{ ok: boolean }> => {
     return apiRequest.post('/notifications/inbox/read-all');
+  },
+
+  /**
+   * 单条已读（任务类通知首次已读同时置归档），返回更新后的条目；404 由拦截器抛出
+   */
+  markInboxItemRead: (id: number): Promise<InboxNotificationItem> => {
+    return apiRequest.post(`/notifications/inbox/${id}/read`);
   },
 
   /**
@@ -1073,14 +1085,20 @@ export const notificationApi = {
   },
 };
 
-/** 站内收件箱条目（与后端 common/notifications/inbox.py::_to_dict 对齐） */
+/** 站内收件箱条目（与后端 common/notifications/inbox.py::_to_dict 对齐；
+ * metadata 仅 WS 实时推送携带（NotificationMessage.metadata 透传），REST 列表不返回 */
 export interface InboxNotificationItem {
   id: number;
   title: string;
   content: string;
   level: string; // NotificationLevel 枚举字符串：info/success/warning/error/critical
-  source: string; // NotificationCategory 枚举字符串：system/task/alert/trade/security
+  source: string; // NotificationCategory 或任务域：system/task/.../rl_train/factor_job/...
   created_at: string | null;
+  // 迁移 48 逐行语义：read = read_at 非空；任务类首次读置 processed（已读即归档）
+  read: boolean;
+  processed: boolean;
+  /** 任务终态元数据：{ task_type, task_id, status, name? }（仅 WS 推送） */
+  metadata?: Record<string, unknown>;
 }
 
 /**

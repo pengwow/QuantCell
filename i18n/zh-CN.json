@@ -3633,5 +3633,14 @@
   "level_info": "提示",
   "level_success": "成功",
   "level_warning": "警告",
-  "level_error": "错误"
+  "level_error": "错误",
+  "filter_all": "全部",
+  "filter_unread": "未读",
+  "filter_read": "已读",
+  "task_filter_placeholder": "全部任务类型",
+  "task_type_rl_train": "RL 训练",
+  "task_type_factor_job": "因子计算",
+  "task_type_collector_task": "数据采集",
+  "task_type_backtest": "回测",
+  "task_type_research": "研究"
 }

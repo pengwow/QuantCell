@@ -6,7 +6,7 @@ import zhCN from 'antd/es/locale/zh_CN';
 import enUS from 'antd/es/locale/en_US';
 import { useTranslation } from 'react-i18next';
 import type { MessageInstance } from 'antd/es/message/interface';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DynamicRouter } from './router/DynamicRouter';
 import CrashMask from './desktop/CrashMask';
@@ -17,6 +17,7 @@ import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
 import { RESEARCH_BUDGET_EXHAUSTED_STAGE, researchWsService } from './services/researchWs';
 import type { InboxNotificationItem } from './api';
+import { taskNotificationRoute } from './utils/taskRoutes';
 import { PluginProvider } from './plugins';
 import './i18n/config';
 import './global.css';
@@ -227,12 +228,20 @@ function ResearchEventBridge() {
  */
 function NotificationBridge() {
   const { notification } = AntdApp.useApp();
+  const navigate = useNavigate();
   const bumpUnread = useNotificationStore((s) => s.bumpUnread);
 
   useEffect(() => {
     const handler = (data: unknown) => {
       const payload = data as
-        | { title?: string; content?: string; level?: string; source?: string; created_at?: string }
+        | {
+            title?: string;
+            content?: string;
+            level?: string;
+            source?: string;
+            created_at?: string;
+            metadata?: Record<string, unknown>;
+          }
         | undefined;
       if (!payload?.title) return;
 
@@ -244,11 +253,20 @@ function NotificationBridge() {
         level: payload.level ?? 'info',
         source: payload.source ?? 'system',
         created_at: payload.created_at ?? null,
+        read: false,
+        processed: false,
+        metadata: payload.metadata,
       };
       bumpUnread(item);
 
+      // 任务类通知点击浮层直达详情页（兜底逻辑见 taskRoutes.ts 头注释）
+      const route = taskNotificationRoute(payload.source ?? '', {
+        id: typeof payload.metadata?.task_id === 'string' ? payload.metadata.task_id : null,
+        detail: payload.metadata,
+      });
+
       // 浮层按 level 分级：info/success 自动关，error/critical 常驻需手动关
-      const byLevel: Record<string, (cfg: { message: string; description?: string; duration?: number }) => void> = {
+      const byLevel: Record<string, (cfg: { message: string; description?: string; duration?: number; onClick?: () => void }) => void> = {
         info: notification.info,
         success: notification.success,
         warning: notification.warning,
@@ -260,13 +278,14 @@ function NotificationBridge() {
         message: payload.title,
         description: payload.content || undefined,
         duration: payload.level === 'error' || payload.level === 'critical' ? 0 : 4.5,
+        ...(route ? { onClick: () => navigate(route) } : {}),
       });
     };
 
     // 消息结构 {type:'notification', data:{...}}，wsService 对未知 type 走 fallback 分发
     wsService.on('notification', handler);
     return () => wsService.off('notification', handler);
-  }, [notification, bumpUnread]);
+  }, [notification, bumpUnread, navigate]);
 
   return null;
 }
