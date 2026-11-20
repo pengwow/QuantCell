@@ -18,8 +18,12 @@ export interface ThemePalette {
   primary: string;
   /** 主色的浅底（选中行背景、高亮胶囊等） */
   primarySoftBg: string;
+  /** 主色实心按钮上的文字色（design-spec --on-primary） */
+  onPrimary: string;
 
   /* ===== 背景与表面 ===== */
+  /** 画布 / 内容区最底层底色（区别于页面底 background） */
+  canvas: string;
   /** 页面背景 */
   background: string;
   /** 常规卡片 / 面板表面（antd 由 algorithm 从 BgBase 派生，CSS 消费用） */
@@ -42,12 +46,32 @@ export interface ThemePalette {
   textSecondary: string;
   /** 弱化文本（占位符、提示） */
   textTertiary: string;
+  /** 弱文本：占位、脚注、表头（design-spec --fg-4） */
+  textQuaternary: string;
 
   /* ===== 边框 ===== */
   /** 常规边框 */
   border: string;
   /** 次级分隔线 / 弱边框 */
   borderSubtle: string;
+  /** hover / 徽章强调描边（design-spec --bd-2） */
+  borderStrong: string;
+
+  /* ===== 聊天气泡 ===== */
+  /** 用户消息气泡底 */
+  userBubbleBg: string;
+  /** 用户消息气泡文字色 */
+  userBubbleFg: string;
+
+  /* ===== 阴影 / 辉光（非颜色 token，自由字符串） ===== */
+  /** 卡片阴影（box-shadow 值） */
+  shadowCard: string;
+  /** 气泡阴影（box-shadow 值） */
+  shadowBubble: string;
+  /** 画布辉光 A（品牌橙，径向渐变光晕） */
+  glowCanvasA: string;
+  /** 画布辉光 B（信息蓝，径向渐变光晕） */
+  glowCanvasB: string;
 
   /* ===== 状态色 ===== */
   info: string;
@@ -103,10 +127,11 @@ export interface ThemeDefinition {
  */
 export type QuantTradingToken = Pick<
   GlobalToken,
-  // 注意：colorText / colorTextSecondary 故意不覆盖 —— 由 antd algorithm 按 BgBase 派生，
-  // 与重构前 App.tsx tradingToken 行为一致（palette 的 text* 槽位只服务 CSS / canvas 渠道）
+  // colorText* 现按 design-spec §10.2 显式覆盖（文本改为 alpha 阶梯），不再由 algorithm 派生
   | 'colorPrimary' | 'colorInfo' | 'colorSuccess' | 'colorWarning' | 'colorError'
   | 'colorBgBase' | 'colorTextBase' | 'colorBorderSecondary'
+  | 'colorBgLayout' | 'colorBgContainer' | 'colorBgElevated' | 'colorBorder'
+  | 'colorText' | 'colorTextSecondary' | 'colorTextTertiary' | 'colorTextQuaternary'
 > & {
   colorChartLine: string;
   colorChartAxis: string;

@@ -35,17 +35,29 @@
 | 分组 | 槽位 | 语义 |
 |------|------|------|
 | 品牌主色 | `primary` / `primarySoftBg` | 主色 / 主色浅底（选中高亮） |
-| 背景表面 | `background` / `surface` / `surfaceRaised` | 页面 / 卡片 / 浮层 |
+| | `onPrimary` | 主色实心按钮上的文字色（design-spec `--on-primary`） |
+| 背景表面 | `canvas` | 画布 / 内容区最底层底色（区别于页面底 `background`） |
+| | `background` / `surface` / `surfaceRaised` | 页面 / 卡片 / 浮层 |
 | | `surfaceMuted` / `surfaceHover` | 次级底（表头工具条）/ hover 底 |
 | | `overlayBase` / `overlayStrong` | 半透明中性叠层两档（随模式自动适配） |
 | 文本 | `foreground` / `textSecondary` / `textTertiary` | 正文 / 次级 / 弱化（占位符） |
-| 边框 | `border` / `borderSubtle` | 常规边框 / 次级分隔 |
+| | `textQuaternary` | 弱文本：占位、脚注、表头（`--fg-4`） |
+| 边框 | `border` / `borderSubtle` | 常规边框 / 次级分隔（图表轴保留实色） |
+| | `borderStrong` | hover / 徽章强调描边（`--bd-2`） |
+| 聊天气泡 | `userBubbleBg` / `userBubbleFg` | 用户消息气泡底 / 字 |
+| 阴影辉光 | `shadowCard` / `shadowBubble` | 卡片 / 气泡阴影（box-shadow 值，非颜色 token） |
+| | `glowCanvasA` / `glowCanvasB` | 画布径向辉光（品牌色 / 信息色） |
 | 状态 | `info` `success` `warning` `error` + `*SoftBg` | 四态 + 各自浅底 |
 | 图表交易 | `chartLine` `chartAxis` `chartSplit` `chartMark` | 曲线 / 轴 / 分割 / 标记 |
 | | `chartGradientStart/End` `drawdownArea` | 面积渐变 / 回撤阴影 |
 | | `chartScreenshotBg` `chartReplayLabel` `chartSeries[8]` | 截图底色 / 标注文字 / 多系列离散 |
 | 图表工具条 | `chartToolbarText/TextMuted/Border/Accent/AccentTint` | klinecharts-pro 图纸 chrome（周期条/绘图栏），与页面语义色解耦 |
 | 指示灯 | `statusDotOk/Fail/Warn` | 连接状态点 |
+
+> 以上除「图表工具条」「指示灯」外的语义槽位已对齐 `docs/design-spec.md` v1：
+> 文本 / 边框从实色灰阶改为 alpha 阶梯（`textSecondary` `#666 → rgba(20,20,20,.72)` 等）、
+> 亮色 `warning` 加深（`#eac54f → #b45309`，保对比度）、背景拆出 `canvas` 最底层。
+> 这是**有意的视觉变更**，不再是此前主题重构的「像素守恒」口径。
 
 **交互状态（hover/active）不手工定义**：antd 组件由 `darkAlgorithm/defaultAlgorithm`
 从 `colorPrimary` 等自动派生；CSS 消费走 `surfaceHover` / `overlay*`。这是刻意设计——
@@ -56,9 +68,18 @@
 | palette 槽位 | CSS 变量（规范名） | 兼容旧名 | antd token |
 |---|---|---|---|
 | `background` | `--qc-bg` | `--tw-color-background` | `colorBgBase` |
-| `foreground` | `--qc-text` | `--tw-color-foreground` | `colorTextBase` |
+| `canvas` | `--qc-canvas` | — | `colorBgLayout` |
+| `surface` / `surfaceRaised` | `--qc-surface` / `--qc-surface-raised` | — | `colorBgContainer` / `colorBgElevated` |
+| `foreground` | `--qc-text` | `--tw-color-foreground` | `colorTextBase` / `colorText` |
+| `textSecondary` / `textTertiary` / `textQuaternary` | `--qc-text-secondary` / `--qc-text-tertiary` / `--qc-text-quaternary` | — | `colorTextSecondary` / `colorTextTertiary` / `colorTextQuaternary` |
+| `border` / `borderStrong` | `--qc-border` / `--qc-border-strong` | `--tw-color-border`（= border） | `colorBorder` |
+| `borderSubtle` | `--qc-border-subtle` | `--tw-color-border-secondary` | `colorBorderSecondary` |
 | `primary` | `--qc-primary` | `--tw-color-primary` | `colorPrimary` |
 | `success` | `--qc-success` | `--tw-color-success` | `colorSuccess` |
+| `onPrimary` | `--qc-on-primary` | — | — |
+| `userBubbleBg` / `userBubbleFg` | `--qc-user-bubble-bg` / `--qc-user-bubble-fg` | — | — |
+| `shadowCard` / `shadowBubble` | `--qc-shadow-card` / `--qc-shadow-bubble` | — | — |
+| `glowCanvasA` / `glowCanvasB` | `--qc-glow-1` / `--qc-glow-2` | — | — |
 | … | `--qc-<语义>`（kebab-case） | 九个旧名别名保留 | 见 theme/index.ts |
 
 新代码一律用 `--qc-*`；`--tw-color-*` 是迁移期别名，消费端逐步改名后可删（删除点：`getCssVars`）。
@@ -76,7 +97,7 @@ cd frontend
 # 1. 导出当前主题（拿到起点模板；--all 连同 packs 里的一起导出）
 bun scripts/theme-import.mjs export --out /tmp/my-themes
 
-# 2. 修改 JSON（结构 = { label, light: {...39 个槽位}, dark: {...} }，见 src/theme/fields.ts 契约）
+# 2. 修改 JSON（结构 = { label, light: {...49 个槽位}, dark: {...} }，见 src/theme/fields.ts 契约）
 #    也可以拿到别人给的 主题包.json / 主题包.zip，跳过 1-2
 
 # 3. 导入（JSON 或 zip 均可；自动校验字段完整性与取值合法性，非法即列项报错不落盘）
@@ -155,5 +176,5 @@ global.css / index.css 零颜色字面量。修改主题相关代码后跑它，
   `useQuantColors()`。
 - klinecharts 主图样式 `setStyles` 在 mount 时按当次主题注册，亮暗切换后部分轴/网格色延迟到图表
   重建才更新（重构前既有行为，非本次引入）。
-- 推断值标记：`palettes.ts` 里标注 `ponytail: 推断值` 的槽位（各 *SoftBg 暗色、surfaceHover 等）
-  是为亮色像素守恒而新造的暗色值，可按品牌微调，不影响既有亮色还原。
+- 推断值标记：`palettes.ts` 里标注 `ponytail: 推断值` 的槽位（各 *SoftBg 暗色等）
+  是为亮色还原而新造的暗色值，可按品牌微调，不影响既有亮色还原。

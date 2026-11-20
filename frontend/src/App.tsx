@@ -24,6 +24,34 @@ import './i18n/config';
 import './global.css';
 import './index.css';
 
+/**
+ * ConfigProvider 主题基座（组件外定义，单点维护）：
+ * - algorithm 仍随亮暗切换（唯一动态部分）；
+ * - token 由 palette 派生（品牌色唯一真相源 = src/theme/builtin.ts），再叠加 design-spec §3/§10.2
+ *   的紧凑排印与几何（13px 正文 / 32px 控件 / 8-10 圆角 / 1.6 行高）；
+ * - Layout 底色统一透明，页面底色交给 --qc-canvas / background 控制。
+ * 树内 ConfigProvider 与 holderRender（静态 message/Modal）共用本函数，避免两处漂移。
+ */
+const baseTheme = (mode: 'light' | 'dark') => ({
+  algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+  token: {
+    ...paletteToTradingToken(mode),
+    fontSize: 13,
+    controlHeight: 32,
+    borderRadius: 8,
+    borderRadiusLG: 10,
+    lineHeight: 1.6,
+    fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif',
+  },
+  components: {
+    Layout: {
+      bodyBg: 'transparent',
+      headerBg: 'transparent',
+      siderBg: 'transparent',
+    },
+  },
+});
+
 function App() {
   const { i18n } = useTranslation();
   const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
@@ -86,10 +114,7 @@ function App() {
   // ponytail: 交易语义色一切以 src/theme/palettes.ts 为准（品牌色唯一真相源）。
   // 这里只做 palette → antd token 的渠道映射；各组件（QUANT_COLORS、ECharts、MetricCard）
   // 通过 theme.useToken() / useQuantColors() 取色，禁止在子组件里硬编码颜色值。
-  const tradingToken = useMemo(
-    () => paletteToTradingToken(isDarkMode ? 'dark' : 'light'),
-    [isDarkMode],
-  );
+  const appTheme = useMemo(() => baseTheme(isDarkMode ? 'dark' : 'light'), [isDarkMode]);
 
   // 静态方法主题桥接：message/notification/Modal 的静态调用通过独立 render 创建弹窗 DOM，
   // 不消费 React 树内 ConfigProvider 的动态主题（dev 下会报
@@ -98,34 +123,15 @@ function App() {
   useEffect(() => {
     ConfigProvider.config({
       holderRender: (node) => (
-        <ConfigProvider
-          locale={antdLocale}
-          theme={{
-            algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-            token: tradingToken,
-          }}
-        >
+        <ConfigProvider locale={antdLocale} theme={appTheme}>
           {node}
         </ConfigProvider>
       ),
     });
-  }, [isDarkMode, tradingToken, antdLocale]);
+  }, [appTheme, antdLocale]);
 
   return (
-    <ConfigProvider
-      locale={antdLocale}
-      theme={{
-        algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: tradingToken,
-        components: {
-          Layout: {
-            bodyBg: 'transparent',
-            headerBg: 'transparent',
-            siderBg: 'transparent',
-          },
-        },
-      }}
-    >
+    <ConfigProvider locale={antdLocale} theme={appTheme}>
       <AntdApp>
         <BrowserRouter>
           <PluginProvider>

@@ -9,7 +9,8 @@
  *   两条路径都受 theme.test.ts 守护；点击生效需 `bun run build`（或开发态热更）。
  *
  * ▍字段分组命名约定 —— 见 builtin.ts / types.ts 注释。
- * ▍default 主题的值原样继承自 2026-11 重构前的既有字面量（保证零视觉回归）。
+ * ▍default 主题的值已按 docs/design-spec.md v1 对齐（文本/边框转 alpha 阶梯、warning 加深），
+ *   不再是重构前的"像素守恒"口径。
  */
 import type { ThemeDefinition } from './types';
 import { validateThemeData } from './fields';

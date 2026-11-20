@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { paletteToTradingToken, getCssVars, getPalette } from './index';
 import { THEMES } from './palettes';
 import { ACTIVE_THEME_ID, resolveTheme } from './config';
-import { THEME_MODES, THEME_PALETTE_FIELDS, COLOR_RE } from './fields';
+import { THEME_MODES, THEME_PALETTE_FIELDS, THEME_EFFECT_FIELDS, COLOR_RE } from './fields';
 import type { ThemeMode } from './types';
 
 const src = (p: string) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8');
@@ -56,6 +56,12 @@ describe('theme: 渠道映射由同一 palette 派生', () => {
     expect(vars['--qc-text']).toBe(p.foreground);
     expect(vars['--qc-border']).toBe(p.border);
     expect(vars['--qc-success']).toBe(p.success);
+    // design-spec §2.1 / §10.3 新增槽位
+    expect(vars['--qc-canvas']).toBe(p.canvas);
+    expect(vars['--qc-text-quaternary']).toBe(p.textQuaternary);
+    expect(vars['--qc-border-strong']).toBe(p.borderStrong);
+    expect(vars['--qc-on-primary']).toBe(p.onPrimary);
+    expect(vars['--qc-shadow-card']).toBe(p.shadowCard);
     // 旧名别名与规范名取值一致（消费端逐步迁移，别名不能漂移）
     expect(vars['--tw-color-background']).toBe(p.background);
     expect(vars['--tw-color-foreground']).toBe(p.foreground);
@@ -63,8 +69,21 @@ describe('theme: 渠道映射由同一 palette 派生', () => {
     // antd token
     expect(token.colorPrimary).toBe(p.primary);
     expect(token.colorBgBase).toBe(p.background);
+    expect(token.colorBgLayout).toBe(p.canvas);
+    expect(token.colorTextSecondary).toBe(p.textSecondary);
     expect(token.colorChartLine).toBe(p.chartLine);
     expect(token.chartSeries).toEqual(p.chartSeries);
+  });
+
+  it.each(MODES)('%s palette 的 effect 槽位（阴影）是非空字符串', (mode) => {
+    for (const [name, theme] of Object.entries(THEMES)) {
+      const palette = theme[mode];
+      for (const field of THEME_EFFECT_FIELDS) {
+        const v = palette[field];
+        expect(typeof v, `${name}.${mode}.${field}`).toBe('string');
+        expect(v.trim(), `${name}.${mode}.${field}`).not.toBe('');
+      }
+    }
   });
 });
 
