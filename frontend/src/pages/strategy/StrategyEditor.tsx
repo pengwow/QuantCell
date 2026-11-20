@@ -13,7 +13,6 @@ import {
   Descriptions,
   Segmented,
   Tooltip,
-  Tag,
   App,
 } from 'antd';
 import {
@@ -30,6 +29,7 @@ import {
 } from '@ant-design/icons';
 import MonacoEditor, { type OnMount } from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
+import dayjs from 'dayjs';
 import {
   QC_EDITOR_BG,
   QC_EDITOR_BORDER,
@@ -41,7 +41,6 @@ import {
   registerQuantcellTheme,
 } from '../../monaco/quantcellTheme';
 import QcEditorStatusBar from '../../monaco/QcEditorStatusBar';
-import { useResponsive } from '../../hooks/useResponsive';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
 import { factorApi, type FactorDetail } from '../../api/factor';
@@ -211,7 +210,6 @@ const StrategyEditor = () => {
   const params = useParams<{ strategyName?: string }>();
   const location = useLocation();
   const { t } = useTranslation();
-  const { isMobile } = useResponsive();
   const { isGuest } = useGuestRestriction();
   const { message: appMessage, modal } = App.useApp();
 
@@ -430,29 +428,33 @@ const StrategyEditor = () => {
     }
   };
 
-  // 切换数据来源
-  const handleSwitchDataSource = () => {
-    if (dataSource === 'database') {
-      // 切换到解析数据
-      if (parsedStrategy) {
-        setDataSource('parsed');
-        appMessage.info(t('switch_to_parsed'));
-      } else {
-        // 如果没有解析数据，提示用户先解析
-        modal.confirm({
-          title: t('no_parse_data'),
-          content: t('parse_now_confirm'),
-          okText: t('parse_now'),
-          cancelText: t('cancel'),
-          onOk: () => {
-            parseStrategy(true);
-          },
-        });
-      }
-    } else {
-      // 切换到数据库数据
+  // 预览页数据来源切换（demo edSeg 对位，antd Segmented 受控值 = dataSource）。
+  // 原逻辑是「点击当前项则反向切换」；Segmented 语义是「点另一项才触发」，按目标值分流：
+  //  - 切回 database：直接切（与原 toggle 卸载 parse 侧一致）
+  //  - 切到 parsed：已有解析结果直接切；没有则弹确认先解析（原逻辑一致）
+  const handleSourceSegment = (value: string | number) => {
+    const next = value as 'database' | 'parsed';
+    if (next === dataSource) return;
+
+    if (next === 'database') {
       setDataSource('database');
       appMessage.info(t('switch_to_db'));
+      return;
+    }
+
+    if (parsedStrategy) {
+      setDataSource('parsed');
+      appMessage.info(t('switch_to_parsed'));
+    } else {
+      modal.confirm({
+        title: t('no_parse_data'),
+        content: t('parse_now_confirm'),
+        okText: t('parse_now'),
+        cancelText: t('cancel'),
+        onOk: () => {
+          parseStrategy(true);
+        },
+      });
     }
   };
 
@@ -954,97 +956,93 @@ class NewStrategy(BaseStrategy):
     setTempDescription(e.target.value);
   };
 
-  // 根据编辑/创建模式确定页面标题
+  // 根据编辑/创建模式确定页面标题（未选中策略时的兜底；选中后标题 = 真实策略名，demo edTitle 对位）
   const pageTitle = params.strategyName
     ? t('edit_strategy')
     : t('create_strategy');
 
-  return (
-    <PageContainer title={pageTitle} onBack={handleBack}>
-      {/* 页面头部 */}
-      <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
-        <div className="flex items-center flex-grow min-w-0">
-          {isEditingName ? (
-            <div className="relative flex-grow min-w-0">
-              <Input
-                type="text"
-                value={tempName}
-                onChange={handleTempNameChange}
-                onKeyPress={(e) => e.key === 'Enter' && handleSaveName()}
-                onBlur={handleSaveName}
-                autoFocus
-                className="text-xl font-medium border-blue-500 rounded w-full max-w-xs"
-              />
-            </div>
-          ) : (
-            <h2
-              className="text-xl font-medium m-0 cursor-pointer truncate"
-              style={{
-                maxWidth: isMobile ? '100%' : 'calc(100% - 100px)',
-                whiteSpace: isMobile ? 'normal' : 'nowrap',
-              }}
-              onClick={handleStartEditName}
-            >
-              {selectedStrategy ? selectedStrategy.name : t('strategy_editor')}
-            </h2>
-          )}
-        </div>
+  // §5 page-sub mono 真值副标（demo「最近保存 … · 来源 database」）：
+  // 真实口径 = updated_at + 数据来源，缺词条 se_sub_last_saved 已报缺口；未选中策略时不出副标，不造假数据
+  const editorSubtitle = !selectedStrategy
+    ? undefined
+    : [
+        `${t('updated_at')} ${dayjs(selectedStrategy.updated_at).format('YYYY-MM-DD HH:mm')}`,
+        t(dataSource === 'database' ? 'source_db' : 'source_parse'),
+      ].join(' · ');
 
-        {/* 操作按钮组 */}
-        <Space
-          wrap
-          className={isMobile ? 'w-full justify-start' : ''}
-        >
-          {/* 操作按钮统一图标化，文字经 Tooltip 悬浮显示，保持工具栏简洁 */}
+  // §6.1 页头动作钮：30px 带字（demo page-actions）；主色钮 550 字重
+  const btn30Style: React.CSSProperties = { height: 30, padding: '0 12px', fontSize: 12 };
+  const btn30PrimaryStyle: React.CSSProperties = { ...btn30Style, fontWeight: 550 };
+
+  return (
+    <PageContainer
+      title={selectedStrategy?.name || pageTitle}
+      subtitle={editorSubtitle}
+      onBack={handleBack}
+      titleExtra={
+        /* 版本 chip（demo #edVer）：真实 version，与标题同一基线（§5 titleExtra 槽） */
+        selectedStrategy?.version ? (
+          <span className="qc-chip info qc-mono">{`v${selectedStrategy.version}`}</span>
+        ) : undefined
+      }
+      actions={
+        <>
           <Tooltip title={t('reset')}>
             <Button
-              type="default"
               icon={<ReloadOutlined />}
               onClick={handleResetCode}
               loading={loading}
+              style={btn30Style}
               aria-label={t('reset')}
-            />
+            >
+              {t('reset')}
+            </Button>
           </Tooltip>
-          <Tooltip title={t('backtest')}>
+          <Tooltip title={t('se_action_goto_backtest')}>
             <Button
-              type="primary"
               icon={<PlayCircleOutlined />}
               onClick={handleBacktestStrategy}
               loading={loading}
-              aria-label={t('backtest')}
-            />
+              style={btn30Style}
+              aria-label={t('se_action_goto_backtest')}
+            >
+              {t('se_action_goto_backtest')}
+            </Button>
           </Tooltip>
           {/* 访客时 Tooltip 显示保存限制提示，正常显示按钮名 */}
           <Tooltip title={isGuest ? t('guest_save_restricted') : t('save')}>
             <Button
-              type="primary"
               icon={<SaveOutlined />}
               onClick={handleSaveStrategy}
               loading={loading}
               disabled={isGuest}
+              style={btn30Style}
               aria-label={t('save')}
-            />
+            >
+              {t('save')}
+            </Button>
           </Tooltip>
-          {/* AI 助手入口：单击直接打开对话框，模式选择（生成/优化）移到对话框内部 */}
+          {/* AI 助手入口：单击直接打开对话框，模式选择（生成/优化）移到对话框内部；demo 中为唯一主色钮 */}
           <Tooltip title={t('ai_generate_strategy')}>
             <Button
-              type="default"
+              type="primary"
               icon={<RobotOutlined />}
               onClick={() => setAiModalVisible(true)}
+              style={btn30PrimaryStyle}
               aria-label={t('ai_generate_strategy')}
-            />
+            >
+              {t('ai_generate_strategy')}
+            </Button>
           </Tooltip>
-        </Space>
-      </div>
-
-      {/* 主内容区域 */}
-      <Card>
-        <Spin spinning={editorLoading} description={t('loading')}>
-          <Tabs
-            activeKey={activeTabKey}
-            onChange={handleTabChange}
-            tabBarStyle={{ marginBottom: 0 }}
-            items={[
+        </>
+      }
+    >
+      {/* 主内容区域：demo 结构 = 页签直接落页，编辑器面板自带 §6.16 chrome，预览为 qc-card */}
+      <Spin spinning={editorLoading} description={t('loading')}>
+        <Tabs
+          activeKey={activeTabKey}
+          onChange={handleTabChange}
+          items={[
               {
                 key: 'editor',
                 label: <><CodeOutlined /> {t('editor')}</>,
@@ -1093,12 +1091,42 @@ class NewStrategy(BaseStrategy):
                 key: 'preview',
                 label: <><EyeOutlined /> {t('preview')}</>,
                 children: (
-                  <div className="p-5">
+                  <Card
+                    className="qc-card"
+                    title={t('strategy_information')}
+                    extra={
+                      <div className="flex items-center gap-2">
+                        {/* 数据来源 seg（demo edSeg）：枚举原文 mono，悬浮说明沿用原 Tooltip；切换走 handleSourceSegment */}
+                        <Tooltip title={dataSource === 'database' ? t('data_from_db') : t('data_from_parse')}>
+                          <Segmented
+                            value={dataSource}
+                            onChange={handleSourceSegment}
+                            options={[
+                              { value: 'database', label: <span className="qc-mono">database</span> },
+                              { value: 'parsed', label: <span className="qc-mono">parse</span> },
+                            ]}
+                          />
+                        </Tooltip>
+                        {/* 重新解析（§6.1 mini-btn） */}
+                        <button type="button" className="qc-mini-btn" onClick={handleReparseStrategy}>
+                          <ReloadOutlined />
+                          {t('reparse')}
+                        </button>
+                      </div>
+                    }
+                  >
                     <Spin spinning={isParsing} description={t('se_msg_parsing')}>
                       {parseError ? (
-                        <div className="p-6 text-center border border-red-300 rounded-lg bg-red-50 dark:bg-red-900/20">
-                          <CloseCircleOutlined className="text-4xl text-red-500 mb-4" />
-                          <p className="text-red-600 dark:text-red-400 mb-4">{parseError}</p>
+                        /* 解析失败：§6.1 danger tint（error 42% 边 + 7% 底），不吃 Tailwind 红阶 */
+                        <div
+                          className="p-6 text-center rounded-[10px]"
+                          style={{
+                            border: '1px solid color-mix(in srgb, var(--qc-error) 42%, transparent)',
+                            background: 'color-mix(in srgb, var(--qc-error) 7%, transparent)',
+                          }}
+                        >
+                          <CloseCircleOutlined className="text-[28px] mb-4" style={{ color: 'var(--qc-error)' }} />
+                          <p className="mb-4" style={{ color: 'var(--qc-error)' }}>{parseError}</p>
                           <Button
                             type="primary"
                             icon={<ReloadOutlined />}
@@ -1109,31 +1137,6 @@ class NewStrategy(BaseStrategy):
                         </div>
                       ) : (
                         <>
-                          {/* 策略信息头部：标题、数据来源标签、操作按钮 */}
-                          <div className="flex justify-between items-center mb-4">
-                            <h3 className="mb-0">{t('strategy_information')}</h3>
-                            <Space>
-                              {/* 数据来源标签 */}
-                              <Tooltip title={dataSource === 'database' ? t('data_from_db') : t('data_from_parse')}>
-                                <Tag
-                                  color={dataSource === 'database' ? 'blue' : 'green'}
-                                  className="cursor-pointer"
-                                  onClick={handleSwitchDataSource}
-                                >
-                                  {dataSource === 'database' ? t('source_db') : t('source_parse')}
-                                </Tag>
-                              </Tooltip>
-                              {/* 重新解析按钮 */}
-                              <Button
-                                icon={<ReloadOutlined />}
-                                onClick={handleReparseStrategy}
-                                size="small"
-                              >
-                                {t('reparse')}
-                              </Button>
-                            </Space>
-                          </div>
-
                           {/* 数据来源提示 */}
                           <div
                             className="mb-4 p-3 rounded text-xs"
@@ -1149,7 +1152,32 @@ class NewStrategy(BaseStrategy):
                             )}
                           </div>
 
-                          <Descriptions bordered column={1} className="mb-5">
+                          {/* 策略档案（demo kvtab）：名称 / 描述 / 版本 点击编辑；创建 / 更新为只读真值 */}
+                          <Descriptions size="small" column={1} className="mb-2">
+                            <Descriptions.Item label={t('name')}>
+                              <div className="min-h-[32px] flex items-center">
+                                {isEditingName ? (
+                                  <Input
+                                    value={tempName}
+                                    onChange={handleTempNameChange}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSaveName()}
+                                    onBlur={handleSaveName}
+                                    onFocus={(e) => e.target.select()}
+                                    autoFocus
+                                    className="w-full max-w-xs"
+                                  />
+                                ) : (
+                                  <span
+                                    onClick={handleStartEditName}
+                                    className="cursor-pointer hover:text-[var(--qc-primary)] transition-colors inline-flex items-center gap-1.5"
+                                    title={t('click_to_edit')}
+                                  >
+                                    <span className="qc-mono">{selectedStrategy?.name || '—'}</span>
+                                    <EditOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 11 }} />
+                                  </span>
+                                )}
+                              </div>
+                            </Descriptions.Item>
                             <Descriptions.Item label={t('version')}>
                               <div className="min-h-[32px] flex items-center">
                                 {isEditingVersion ? (
@@ -1160,17 +1188,18 @@ class NewStrategy(BaseStrategy):
                                     onBlur={handleSaveVersion}
                                     onFocus={(e) => e.target.select()}
                                     autoFocus
-                                    className="w-full"
+                                    className="w-full max-w-[120px]"
                                   />
                                 ) : (
                                   <span
                                     onClick={handleStartEditVersion}
-                                    className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1"
+                                    className="cursor-pointer hover:text-[var(--qc-primary)] transition-colors inline-flex items-center gap-1.5"
                                     title={t('click_to_edit')}
                                   >
-                                    {dataSource === 'database'
+                                    <span className="qc-mono">{dataSource === 'database'
                                       ? (selectedStrategy?.version || '')
-                                      : (parsedStrategy?.version || selectedStrategy?.version || '')}
+                                      : (parsedStrategy?.version || selectedStrategy?.version || '')}</span>
+                                    <EditOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 11 }} />
                                   </span>
                                 )}
                               </div>
@@ -1191,7 +1220,7 @@ class NewStrategy(BaseStrategy):
                                 ) : (
                                   <span
                                     onClick={handleStartEditDescription}
-                                    className="cursor-pointer hover:text-blue-500 transition-colors whitespace-pre-wrap block w-full py-1"
+                                    className="cursor-pointer hover:text-[var(--qc-primary)] transition-colors whitespace-pre-wrap inline-flex items-start gap-1.5"
                                     title={t('click_to_edit')}
                                   >
                                     {dataSource === 'database'
@@ -1202,25 +1231,25 @@ class NewStrategy(BaseStrategy):
                               </div>
                             </Descriptions.Item>
                             <Descriptions.Item label={t('created_at')}>
-                              {selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : ''}
+                              <span className="qc-mono">{selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : '—'}</span>
                             </Descriptions.Item>
                             <Descriptions.Item label={t('updated_at')}>
-                              {selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : ''}
+                              <span className="qc-mono">{selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : '—'}</span>
                             </Descriptions.Item>
                           </Descriptions>
 
-                          {/* —— 参数列表（可增删改） —— */}
-                          <h3 className="mt-5 mb-3 flex items-center justify-between">
-                            <span>{t('parameter_list')}</span>
-                            <Button
-                              size="small"
-                              type="primary"
+                          {/* —— 参数配置（demo kvtab 行，§6.2 徽章标注钮标元数据；行内点击进入编辑） —— */}
+                          <div className="flex items-center justify-between mt-4 mb-2">
+                            <span className="qc-card-sub">{t('parameter_list')}</span>
+                            <button
+                              type="button"
+                              className="qc-mini-btn pri"
                               onClick={handleAddParam}
                               disabled={!selectedStrategy}
                             >
-                                + {t('add_parameter')}
-                              </Button>
-                          </h3>
+                              + {t('add_parameter')}
+                            </button>
+                          </div>
                           {(() => {
                             const params = dataSource === 'database'
                               ? (selectedStrategy?.params || [])
@@ -1280,20 +1309,24 @@ class NewStrategy(BaseStrategy):
                                           onChange={(e) => handleParamChange(index, 'description', e.target.value)}
                                           style={{ flex: 1, minWidth: 160 }}
                                         />
-                                        <Button
-                                          size="small"
-                                          type="primary"
-                                          icon={<CheckOutlined />}
-                                          onClick={() => toggleParamEdit(index)}
+                                        <button
+                                          type="button"
+                                          className="qc-mini-btn pri qc-icon-only"
+                                          aria-label={t('se_action_done')}
                                           title={t('se_action_done')}
-                                        />
-                                        <Button
-                                          size="small"
-                                          danger
-                                          icon={<CloseCircleOutlined />}
-                                          onClick={() => handleRemoveParam(index)}
+                                          onClick={() => toggleParamEdit(index)}
+                                        >
+                                          <CheckOutlined />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="qc-mini-btn qc-icon-only danger"
+                                          aria-label={t('delete')}
                                           title={t('delete')}
-                                        />
+                                          onClick={() => handleRemoveParam(index)}
+                                        >
+                                          <CloseCircleOutlined />
+                                        </button>
                                       </div>
                                     );
                                   }
@@ -1306,35 +1339,38 @@ class NewStrategy(BaseStrategy):
                                       onClick={() => toggleParamEdit(index)}
                                       title={t('click_to_edit')}
                                     >
-                                      <Tag color="blue" className="mb-0">{param.name}</Tag>
-                                      <Tag color="purple" className="mb-0">{param.type || 'Any'}</Tag>
+                                      <span className="qc-chip quiet qc-mono">{param.name}</span>
+                                      <span className="qc-chip info qc-mono">{param.type || 'Any'}</span>
                                       {param.default !== undefined && param.default !== null && param.default !== '' && (
-                                        <Tag color="geekblue" className="mb-0">= {String(param.default)}</Tag>
+                                        <span className="qc-chip ok qc-mono">= {String(param.default)}</span>
                                       )}
                                       {param.type === 'select' && !!param.options?.length && (
-                                        <Tag color="gold" className="mb-0">∈ {param.options.join(' / ')}</Tag>
+                                        <span className="qc-chip warn qc-mono">∈ {param.options.join(' / ')}</span>
                                       )}
                                       {param.description && (
                                         <span className="text-xs flex-1 truncate" style={{ color: 'var(--qc-text-tertiary)' }}>
                                         {param.description}
                                       </span>
                                       )}
-                                      <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <Button
-                                          size="small"
-                                          type="text"
-                                          icon={<EditOutlined />}
-                                          onClick={(e) => { e.stopPropagation(); toggleParamEdit(index); }}
+                                      <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity qc-row-actions">
+                                        <button
+                                          type="button"
+                                          className="qc-mini-btn qc-icon-only"
+                                          aria-label={t('se_action_edit')}
                                           title={t('se_action_edit')}
-                                        />
-                                        <Button
-                                          size="small"
-                                          type="text"
-                                          danger
-                                          icon={<CloseCircleOutlined />}
-                                          onClick={(e) => { e.stopPropagation(); handleRemoveParam(index); }}
+                                          onClick={(e) => { e.stopPropagation(); toggleParamEdit(index); }}
+                                        >
+                                          <EditOutlined />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="qc-mini-btn qc-icon-only danger"
+                                          aria-label={t('delete')}
                                           title={t('delete')}
-                                        />
+                                          onClick={(e) => { e.stopPropagation(); handleRemoveParam(index); }}
+                                        >
+                                          <CloseCircleOutlined />
+                                        </button>
                                       </span>
                                     </div>
                                   );
@@ -1350,18 +1386,18 @@ class NewStrategy(BaseStrategy):
                             );
                           })()}
 
-                          {/* —— 因子列表（可增删改） —— */}
-                          <h3 className="mt-5 mb-3 flex items-center justify-between">
-                            <span>{t('factor_list')}</span>
-                            <Button
-                              size="small"
-                              type="primary"
+                          {/* —— 依赖因子（demo ichip 行：名称 chip + 类型 + 库说明；增删改逻辑保留） —— */}
+                          <div className="flex items-center justify-between mt-4 mb-2">
+                            <span className="qc-card-sub">{t('factor_list')}</span>
+                            <button
+                              type="button"
+                              className="qc-mini-btn pri"
                               onClick={handleAddFactor}
                               disabled={!selectedStrategy}
                             >
                               + {t('add_factor')}
-                            </Button>
-                          </h3>
+                            </button>
+                          </div>
                           <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
                             {(selectedStrategy?.factors && selectedStrategy.factors.length > 0) ? (
                               selectedStrategy.factors.map((factor: NonNullable<Strategy['factors']>[number], index: number) => {
@@ -1396,30 +1432,33 @@ class NewStrategy(BaseStrategy):
                                         onChange={(e) => handleFactorChange(index, 'description', e.target.value)}
                                         style={{ flex: 1, minWidth: 160 }}
                                       />
-                                      <Button
-                                        size="small"
-                                        type="primary"
-                                        icon={<CheckOutlined />}
-                                        onClick={() => toggleFactorEdit(index)}
+                                      <button
+                                        type="button"
+                                        className="qc-mini-btn pri qc-icon-only"
+                                        aria-label={t('se_action_done')}
                                         title={t('se_action_done')}
-                                      />
-                                      <Button
-                                        size="small"
-                                        danger
-                                        icon={<CloseCircleOutlined />}
-                                        onClick={() => handleRemoveFactor(index)}
+                                        onClick={() => toggleFactorEdit(index)}
+                                      >
+                                        <CheckOutlined />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="qc-mini-btn qc-icon-only danger"
+                                        aria-label={t('delete')}
                                         title={t('delete')}
-                                      />
+                                        onClick={() => handleRemoveFactor(index)}
+                                      >
+                                        <CloseCircleOutlined />
+                                      </button>
                                     </div>
                                   );
                                 }
 
-                                // 只读态
-                                const typeColor: Record<string, string> = {
-                                  factor: 'green',
-                                  config_ref: 'orange',
-                                  factor_param: 'cyan',
-                                };
+                                // 只读态：名称 chip（点击编辑）+ 类型 chip + 因子库 label/描述
+                                const factorCatalogEntry = factorCatalog.get(factor.name);
+                                const factorLabel = factorCatalogEntry?.label;
+                                const factorDesc = factor.description || factorCatalogEntry?.description || '';
+                                const factorParts = [factorLabel, factorDesc].filter(Boolean);
                                 return (
                                   <div
                                     key={index}
@@ -1427,36 +1466,32 @@ class NewStrategy(BaseStrategy):
                                     onClick={() => toggleFactorEdit(index)}
                                     title={t('click_to_edit')}
                                   >
-                                    <Tag color="blue" className="mb-0">{factor.name}</Tag>
-                                    <Tag color={typeColor[factor.type ?? ''] || 'default'} className="mb-0">{factor.type || 'factor'}</Tag>
-                                    {(() => {
-                                      // 只读态同时展示因子库 label（中文名）和 description（表达式/说明），不显示"（因子库）"标记
-                                      const catalog = factorCatalog.get(factor.name);
-                                      const label = catalog?.label;
-                                      const desc = factor.description || catalog?.description || '';
-                                      const parts = [label, desc].filter(Boolean);
-                                      return parts.length > 0 ? (
-                                        <span className="text-xs flex-1 truncate" style={{ color: 'var(--qc-text-tertiary)' }}>
-                                          {parts.join(' — ')}
-                                        </span>
-                                      ) : null;
-                                    })()}
-                                    <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <Button
-                                        size="small"
-                                        type="text"
-                                        icon={<EditOutlined />}
-                                        onClick={(e) => { e.stopPropagation(); toggleFactorEdit(index); }}
+                                    <span className="qc-chip info qc-mono">{factor.name}</span>
+                                    <span className="qc-chip quiet qc-mono">{factor.type || 'factor'}</span>
+                                    {factorParts.length > 0 && (
+                                      <span className="text-xs flex-1 truncate" style={{ color: 'var(--qc-text-tertiary)' }}>
+                                        {factorParts.join(' — ')}
+                                      </span>
+                                    )}
+                                    <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity qc-row-actions">
+                                      <button
+                                        type="button"
+                                        className="qc-mini-btn qc-icon-only"
+                                        aria-label={t('se_action_edit')}
                                         title={t('se_action_edit')}
-                                      />
-                                      <Button
-                                        size="small"
-                                        type="text"
-                                        danger
-                                        icon={<CloseCircleOutlined />}
-                                        onClick={(e) => { e.stopPropagation(); handleRemoveFactor(index); }}
+                                        onClick={(e) => { e.stopPropagation(); toggleFactorEdit(index); }}
+                                      >
+                                        <EditOutlined />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="qc-mini-btn qc-icon-only danger"
+                                        aria-label={t('delete')}
                                         title={t('delete')}
-                                      />
+                                        onClick={(e) => { e.stopPropagation(); handleRemoveFactor(index); }}
+                                      >
+                                        <CloseCircleOutlined />
+                                      </button>
                                     </span>
                                   </div>
                                 );
@@ -1473,13 +1508,12 @@ class NewStrategy(BaseStrategy):
                         </>
                       )}
                     </Spin>
-                  </div>
+                  </Card>
                 )
               }
             ]}
           />
-        </Spin>
-      </Card>
+      </Spin>
 
       {/* AI生成策略弹窗 - 使用 AIChatModal 组件 */}
       <AIChatModal
@@ -1514,7 +1548,9 @@ class NewStrategy(BaseStrategy):
       />
 
       {/* 模板选择器 —— 新建策略时弹出：先选类型（创建后不再切换）；规则策略可选真实模板，RL 用内置骨架 */}
+      {/* 弹窗走 §6.11 qc-modal chrome；页面无 antd Form，qc-form 不适用 */}
       <Modal
+        className="qc-modal"
         title={t('create_strategy')}
         open={templatePickerVisible}
         onCancel={() => handlePickTemplate(null)}
@@ -1523,7 +1559,7 @@ class NewStrategy(BaseStrategy):
       >
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <div>
-            <div style={{ marginBottom: 8, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>{t('se_sec_type_hint')}</div>
+            <div style={{ marginBottom: 8, color: 'var(--qc-text-secondary)' }}>{t('se_sec_type_hint')}</div>
             <Segmented
               block
               value={createStrategyType}
@@ -1536,7 +1572,7 @@ class NewStrategy(BaseStrategy):
           </div>
           {createStrategyType === 'rule' ? (
             <>
-              <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>
+              <div style={{ color: 'var(--qc-text-secondary)' }}>
                 {t('se_sec_template_hint')}
               </div>
               <Select
@@ -1549,11 +1585,11 @@ class NewStrategy(BaseStrategy):
                   label: (
                     <span>
                       <strong>{t.name}</strong>
-                      <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', marginLeft: 8 }}>
+                      <span style={{ color: 'var(--qc-text-tertiary)', marginLeft: 8 }}>
                         [{t.category}]
                       </span>
                       {t.tags?.length ? (
-                        <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 40%, transparent)', marginLeft: 8 }}>· {t.tags.join('/')}</span>
+                        <span style={{ color: 'var(--qc-text-quaternary)', marginLeft: 8 }}>· {t.tags.join('/')}</span>
                       ) : null}
                     </span>
                   ),
@@ -1565,7 +1601,7 @@ class NewStrategy(BaseStrategy):
                   <>
                     {menu}
                     {/* strategy-template-upload-row：global.css 里把 Upload 中间层撑满整行，保证整行可点击 */}
-                    <div className="strategy-template-upload-row" style={{ padding: 4, borderTop: '1px solid var(--tw-color-border-secondary)' }}>
+                    <div className="strategy-template-upload-row" style={{ padding: 4, borderTop: '1px solid var(--qc-border-subtle)' }}>
                       <Upload {...uploadProps}>
                         {/* mousedown 不 preventDefault 会让 Select 收起、click 丢失（antd 官方要求） */}
                         <Button
@@ -1584,21 +1620,16 @@ class NewStrategy(BaseStrategy):
               />
             </>
           ) : (
-            <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)' }}>
+            <div style={{ color: 'var(--qc-text-secondary)' }}>
               {t('se_sec_rl_skeleton')}
               {' '}{t('se_sec_rl_upload_prefix')}<Upload {...uploadProps}><a>{t('se_action_upload_py_strategy')}</a></Upload>{t('se_sec_auto_detect')}
             </div>
           )}
           <div style={{ textAlign: 'right' }}>
             <button
+              type="button"
+              className="qc-mini-btn"
               onClick={() => handlePickTemplate(null)}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--tw-color-border)',
-                borderRadius: 6,
-                padding: '4px 12px',
-                cursor: 'pointer',
-              }}
             >
               {createStrategyType === 'rl' ? t('se_action_create_rl') : t('se_action_skip_blank')}
             </button>
