@@ -5,7 +5,6 @@ import {
   Button,
   Card,
   DatePicker,
-  Empty,
   Flex,
   Form,
   Input,
@@ -13,8 +12,6 @@ import {
   Progress,
   Select,
   Space,
-  Table,
-  Tag,
 } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -22,6 +19,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { EChartsOption } from 'echarts';
 import type { TableProps } from 'antd';
 import EChart from '@/components/EChart';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import {
   factorApi,
   type FactorCompareParams,
@@ -271,11 +269,11 @@ const FactorCompare: React.FC = () => {
       align: 'center',
       render: (v: boolean | null) =>
         v == null ? (
-          '—'
+          <span className="qc-cell-none">—</span>
         ) : v ? (
-          <Tag color="success">{t('factor_cmp_fdr_pass') || '通过'}</Tag>
+          <span className="qc-chip ok">{t('factor_cmp_fdr_pass') || '通过'}</span>
         ) : (
-          <Tag>{t('factor_cmp_fdr_fail') || '未通过'}</Tag>
+          <span className="qc-chip quiet">{t('factor_cmp_fdr_fail') || '未通过'}</span>
         ),
     },
     {
@@ -475,7 +473,7 @@ const FactorCompare: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
-        <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ color: 'var(--qc-text-tertiary)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
           {t('factor_cmp_form_hint') ||
             '2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。'}
         </p>
@@ -497,19 +495,14 @@ const FactorCompare: React.FC = () => {
       )}
       {!jobLoading && !result && (
         <Card>
-          <Empty
-            description={
-              t('factor_cmp_empty_hint') ||
-              '选择 2-5 个因子后点击「开始对比」'
-            }
-          />
+          <QcEmpty title={t('factor_cmp_empty_hint') || '选择 2-5 个因子后点击「开始对比」'} />
         </Card>
       )}
 
       {!jobLoading && result && (
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
           <Card title={t('factor_cmp_card_metrics') || '指标对比'}>
-            <Table<FactorCompareRow>
+            <DataTable<FactorCompareRow>
               rowKey="factor_name"
               columns={columns}
               dataSource={result.factors}

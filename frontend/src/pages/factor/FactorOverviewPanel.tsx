@@ -2,19 +2,18 @@
  * 右栏「概览」页签：因子元信息 + 最近一次分析的核心指标（catalog.last_metrics，0 额外请求）。
  */
 import { useTranslation } from 'react-i18next';
-import { Button, Card, Col, Descriptions, Empty, Flex, Row, Select, Space, Statistic, Tag } from 'antd';
+import { Button, Card, Col, Descriptions, Flex, Row, Select, Space, Statistic } from 'antd';
 import type { FactorCatalogItem } from '@/api/factor';
 import { useQuantColors } from '@/utils/colors';
 import {
-  CATEGORY_COLOR,
   EDITABLE_CATEGORIES,
-  STATUS_COLOR,
   categoryLabel,
   factorSource,
   isAiProduced,
   toneColor,
   toneOf,
 } from './factorMeta';
+import { QcEmpty } from '@/components/ui/DataTable';
 
 const FactorOverviewPanel: React.FC<{
   factor: FactorCatalogItem;
@@ -118,25 +117,33 @@ const FactorOverviewPanel: React.FC<{
                     }))}
                   />
                 ) : (
-                  <Tag color={CATEGORY_COLOR[factor.category] ?? 'default'}>
-                    {categoryLabel(factor.category, t)}
-                  </Tag>
+                  <span className="qc-chip info">{categoryLabel(factor.category, t)}</span>
                 ),
             },
             {
               key: 'source',
               label: t('factor_detail_meta_source') || '来源',
               children: (
-                <>
-                  <Tag>{sourceLabel(factorSource(factor))}</Tag>
-                  {isAiProduced(factor) && <Tag color="geekblue">AI</Tag>}
-                </>
+                <span className="qc-row-chips">
+                  <span className="qc-chip quiet">{sourceLabel(factorSource(factor))}</span>
+                  {isAiProduced(factor) && <span className="qc-chip pri">AI</span>}
+                </span>
               ),
             },
             {
               key: 'status',
               label: t('factor_detail_lifecycle') || '生命周期',
-              children: <Tag color={STATUS_COLOR[factor.lifecycle_status]}>{statusLabel(factor.lifecycle_status)}</Tag>,
+              children: (
+                <span className={`qc-chip ${
+                  factor.lifecycle_status === 'LIVE'
+                    ? 'ok'
+                    : factor.lifecycle_status === 'RETIRED'
+                      ? 'down'
+                      : 'warn'
+                }`}>
+                  {statusLabel(factor.lifecycle_status)}
+                </span>
+              ),
             },
             {
               key: 'count',
@@ -156,7 +163,7 @@ const FactorOverviewPanel: React.FC<{
               children: factor.description ? (
                 <span style={{ fontSize: 12 }}>{factor.description}</span>
               ) : (
-                <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>—</span>
+                <span className="qc-cell-none">—</span>
               ),
             },
             {
@@ -166,17 +173,17 @@ const FactorOverviewPanel: React.FC<{
               children:
                 source === 'code' || source === 'composite' ? (
                   <Flex gap="small" align="center" wrap="wrap">
-                    <Tag color={source === 'code' ? 'magenta' : 'purple'}>
+                    <span className={`qc-chip ${source === 'code' ? 'info' : 'pri'}`}>
                       {source === 'code'
                         ? t('factor_code_summary_code') || 'Python 代码因子'
                         : t('factor_code_summary_composite') || 'IC 加权合成因子'}
-                    </Tag>
+                    </span>
                     <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onGoCode}>
                       {t('factor_code_view') || '查看代码'} →
                     </Button>
                   </Flex>
                 ) : (
-                  <code style={{ fontSize: 12 }}>{factor.expression || '—'}</code>
+                  <code className="qc-mono" style={{ fontSize: 12 }}>{factor.expression || '—'}</code>
                 ),
             },
           ]}
@@ -204,11 +211,15 @@ const FactorOverviewPanel: React.FC<{
         </Card>
       ) : (
         <Card>
-          <Empty description={t('factor_detail_overview_empty') || '该因子还没有分析记录'}>
-            <Button type="primary" onClick={onGoAnalyze}>
-              {t('factor_detail_overview_go_analyze') || '去分析'}
-            </Button>
-          </Empty>
+          <QcEmpty
+            title={t('factor_detail_overview_empty_title')}
+            description={t('factor_detail_overview_empty')}
+            action={
+              <button type="button" className="qc-mini-btn pri" onClick={onGoAnalyze}>
+                {t('factor_detail_overview_go_analyze') || '去分析'}
+              </button>
+            }
+          />
         </Card>
       )}
     </Space>
