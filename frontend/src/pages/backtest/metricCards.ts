@@ -84,7 +84,8 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     key: 'max_drawdown',
     label: i18n.t('max_drawdown'),
     format: 'percent',
-    color: fixed('negative'),
+    // 回撤是幅度不是盈亏：恒中性，染红会让 0.06% 看起来像亏损（§6.4 / backtest.md B16）
+    color: fixed('neutral'),
     scope: 'account',
     hint: i18n.t('backtest_hint_max_drawdown'),
   },
@@ -174,7 +175,8 @@ export const METRIC_CARDS: MetricCardSpec[] = [
     key: 'avg_drawdown',
     label: i18n.t('backtest_metric_avg_drawdown'),
     format: 'percent',
-    color: fixed('negative'),
+    // 同 max_drawdown：幅度值恒中性
+    color: fixed('neutral'),
     // 依赖账户级 equity_curve（共享分支 per-symbol 是深拷贝），物理上无法按品种拆分 → 归 account
     scope: 'account',
     hint: i18n.t('backtest_hint_avg_drawdown'),

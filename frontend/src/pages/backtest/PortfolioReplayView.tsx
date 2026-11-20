@@ -17,9 +17,6 @@ import {
   Slider,
   Space,
   Spin,
-  Statistic,
-  Table,
-  Tag,
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -39,6 +36,7 @@ import type { EChartsOption } from 'echarts';
 import TradeTable, { type Trade as TradeTableTrade } from '@/components/TradeTable';
 import { buildLeverageMap } from '@/types/backtest';
 import { useQuantColors } from '@/utils/colors';
+import DataTable from '@/components/ui/DataTable';
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
 import type {
@@ -69,6 +67,10 @@ const formatDateTime = (ms: number): string =>
     hour: '2-digit',
     minute: '2-digit',
   });
+
+/** 账户状态 KPI 数值：千分位 + 2 位小数（对齐原 antd Statistic 语义） */
+const fmt2 = (v: number): string =>
+  v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** 二分：返回 arr 中满足 pick(item) <= key 的元素个数 */
 function bisectRight<T>(arr: T[], key: number, pick: (item: T) => number): number {
@@ -110,6 +112,41 @@ interface PositionRow {
   market_value: number;
   unrealized_pnl: number;
 }
+
+// ---- 当前持仓表列 ----
+// 数值列 mono 右对齐；浮盈亏走 §6.5 涨/跌语义色；方向列用 §6.2 语义 chip
+const buildPositionColumns = (t: (key: string) => string): ColumnsType<PositionRow> => [
+  { title: t('backtest_symbol_label'), dataIndex: 'symbol', key: 'symbol', render: (v: string) => <span className="qc-mono">{v}</span> },
+  {
+    title: t('backtest_side'),
+    dataIndex: 'quantity',
+    key: 'side',
+    width: 80,
+    render: (quantity: number) =>
+      quantity > 0
+        ? <span className="qc-chip ok">{t('backtest_position_long')}</span>
+        : <span className="qc-chip down">{t('backtest_position_short')}</span>,
+  },
+  {
+    title: t('quantity'),
+    dataIndex: 'quantity',
+    key: 'quantity',
+    align: 'right',
+    render: (quantity: number) => <span className="qc-mono">{Math.abs(quantity).toFixed(6)}</span>,
+  },
+  { title: t('backtest_avg_price'), dataIndex: 'avg_cost', key: 'avg_cost', align: 'right', render: (v: number) => <span className="qc-mono">{v.toFixed(4)}</span> },
+  { title: t('backtest_last_price'), dataIndex: 'price', key: 'price', align: 'right', render: (v: number) => <span className="qc-mono">{v.toFixed(4)}</span> },
+  { title: t('backtest_market_value'), dataIndex: 'market_value', key: 'market_value', align: 'right', render: (v: number) => <span className="qc-mono">{v.toFixed(2)}</span> },
+  {
+    title: t('backtest_floating_pnl'),
+    dataIndex: 'unrealized_pnl',
+    key: 'unrealized_pnl',
+    align: 'right',
+    render: (v: number) => (
+      <span className={`qc-mono ${v >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>{v.toFixed(2)}</span>
+    ),
+  },
+];
 
 // 行情背景卡片固定高度：K 线容器必须在挂载时就拿到确定高度，klinecharts 才不会把主图区算成 0
 const CHART_HEIGHT = 480;
@@ -236,7 +273,7 @@ const KlineBackground = ({ symbol, interval, klines, trades, currentMs }: KlineB
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: colors.neutral,
+            color: 'var(--qc-text-quaternary)',
             pointerEvents: 'none',
             zIndex: 2,
           }}
@@ -482,38 +519,6 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
     };
   }, [data, currentMs, colors, t]);
 
-  // ---- 持仓表列 ----
-  const positionColumns: ColumnsType<PositionRow> = [
-    { title: t('backtest_symbol_label'), dataIndex: 'symbol', key: 'symbol' },
-    {
-      title: t('backtest_side'),
-      dataIndex: 'quantity',
-      key: 'side',
-      width: 80,
-      render: (quantity: number) =>
-        quantity > 0 ? <Tag color="green">{t('backtest_position_long')}</Tag> : <Tag color="red">{t('backtest_position_short')}</Tag>,
-    },
-    {
-      title: t('quantity'),
-      dataIndex: 'quantity',
-      key: 'quantity',
-      align: 'right',
-      render: (quantity: number) => Math.abs(quantity).toFixed(6),
-    },
-    { title: t('backtest_avg_price'), dataIndex: 'avg_cost', key: 'avg_cost', align: 'right', render: (v: number) => v.toFixed(4) },
-    { title: t('backtest_last_price'), dataIndex: 'price', key: 'price', align: 'right', render: (v: number) => v.toFixed(4) },
-    { title: t('backtest_market_value'), dataIndex: 'market_value', key: 'market_value', align: 'right', render: (v: number) => v.toFixed(2) },
-    {
-      title: t('backtest_floating_pnl'),
-      dataIndex: 'unrealized_pnl',
-      key: 'unrealized_pnl',
-      align: 'right',
-      render: (v: number) => (
-        <span style={{ color: v >= 0 ? colors.positive : colors.negative }}>{v.toFixed(2)}</span>
-      ),
-    },
-  ];
-
   if (error) {
     return <Alert title={t('error')} description={error} type="error" showIcon />;
   }
@@ -525,8 +530,6 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </div>
     );
   }
-
-  const pnlColor = (v: number) => (v >= 0 ? colors.positive : colors.negative);
 
   return (
     <Space orientation="vertical" size="large" style={{ display: 'flex' }}>
@@ -542,13 +545,13 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       />
 
       {/* 时钟控制栏 */}
-      <Card size="small">
+      <Card size="small" className="qc-card">
         <Row align="middle" justify="space-between" gutter={[16, 16]}>
           <Col flex="none">
             <Space align="center">
-              <GlobalOutlined style={{ fontSize: 18, color: colors.info }} />
+              <GlobalOutlined style={{ fontSize: 18, color: 'var(--qc-info)' }} />
               <span style={{ fontWeight: 500 }}>{t('backtest_global_clock')}</span>
-              <Tag>{data.interval}</Tag>
+              <span className="qc-chip quiet"><span className="qc-mono">{data.interval}</span></span>
             </Space>
           </Col>
           <Col flex="auto" style={{ textAlign: 'center' }}>
@@ -560,7 +563,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
                   icon={<StopOutlined />}
                   onClick={handleStop}
                   disabled={gridIndex === 0}
-                  style={{ color: gridIndex === 0 ? undefined : colors.negative, fontSize: 18 }}
+                  style={{ color: gridIndex === 0 ? undefined : 'var(--qc-error)', fontSize: 18 }}
                 />
               </Tooltip>
               <Button
@@ -570,7 +573,8 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
                 icon={playing ? <PauseOutlined /> : <CaretRightOutlined />}
                 onClick={playing ? handlePause : handlePlay}
                 disabled={gridIndex >= maxIndex}
-                style={{ width: 48, height: 48, fontSize: 20, boxShadow: '0 2px 8px rgba(24, 144, 255, 0.35)' }}
+                className="bt-play-glow"
+                style={{ width: 48, height: 48, fontSize: 20 }}
               />
               <Tooltip title={t('backtest_step_one_grid')}>
                 <Button
@@ -595,7 +599,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
               <Divider orientation="vertical" style={{ margin: '0 8px' }} />
               <Tooltip title={t('play_speed')}>
                 <Space align="center">
-                  <ClockCircleOutlined style={{ color: colors.neutral }} />
+                  <ClockCircleOutlined style={{ color: 'var(--qc-text-quaternary)' }} />
                   <Select
                     value={speed}
                     onChange={handleSpeedChange}
@@ -609,15 +613,17 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
             </Space>
           </Col>
           <Col flex="none">
-            <Space align="center" style={{ border: '1px solid var(--ant-color-border)', borderRadius: 4, padding: '4px 12px' }}>
-              <ClockCircleOutlined style={{ color: colors.neutral }} />
-              <span style={{ fontFamily: 'monospace' }}>{formatDateTime(currentMs)}</span>
-            </Space>
+            <div className="bt-timebox">
+              <ClockCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
+              <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>{formatDateTime(currentMs)}</span>
+            </div>
           </Col>
         </Row>
         <Row align="middle" gutter={[16, 0]} style={{ marginTop: 8 }}>
-          <Col flex="none" style={{ fontSize: 12, color: colors.neutral, fontFamily: 'monospace' }}>
-            {gridIndex + 1}
+          <Col flex="none">
+            <span className="qc-mono" style={{ fontSize: 12, color: 'var(--qc-text-quaternary)' }}>
+              {gridIndex + 1}
+            </span>
           </Col>
           <Col flex="auto" style={{ padding: '0 8px' }}>
             <Slider
@@ -628,57 +634,51 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
               tooltip={{ formatter: (v) => formatDateTime(data.start_ms + (v ?? 0) * data.grid_step_ms) }}
             />
           </Col>
-          <Col flex="none" style={{ fontSize: 12, color: colors.neutral, fontFamily: 'monospace' }}>
-            {data.grid_count}
+          <Col flex="none">
+            <span className="qc-mono" style={{ fontSize: 12, color: 'var(--qc-text-quaternary)' }}>
+              {data.grid_count}
+            </span>
           </Col>
         </Row>
       </Card>
 
-      {/* 账户状态条 */}
+      {/* 账户状态条（§6.4 KPI：label 11px → mono 22px/650） */}
       {account && (
-        <Card size="small">
-          <Row gutter={[16, 16]}>
-            <Col xs={12} md={8} lg={4}>
-              <Statistic title={t('backtest_total_equity')} value={account.equity} precision={2} />
-            </Col>
-            <Col xs={12} md={8} lg={4}>
-              <Statistic title={t('backtest_available_balance')} value={account.balance} precision={2} />
-            </Col>
-            <Col xs={12} md={8} lg={4}>
-              <Statistic title={t('backtest_margin')} value={account.margin_used} precision={2} />
-            </Col>
-            <Col xs={12} md={8} lg={4}>
-              <Statistic
-                title={t('backtest_cum_pnl')}
-                value={account.cum_pnl}
-                precision={2}
-                styles={{ content: { color: pnlColor(account.cum_pnl) } }}
-              />
-            </Col>
-            <Col xs={12} md={8} lg={4}>
-              <Statistic
-                title={t('backtest_day_pnl')}
-                value={account.day_pnl}
-                precision={2}
-                styles={{ content: { color: pnlColor(account.day_pnl) } }}
-              />
-            </Col>
-            <Col xs={12} md={8} lg={4}>
-              <Statistic
-                title={t('backtest_current_drawdown')}
-                value={account.drawdown * 100}
-                precision={2}
-                suffix="%"
-                styles={{ content: { color: account.drawdown < 0 ? colors.negative : undefined } }}
-              />
-            </Col>
-          </Row>
+        <Card size="small" className="qc-card">
+          <div className="bt-kpi-grid">
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('backtest_total_equity')}</div>
+              <div className="qc-kpi-num">{fmt2(account.equity)}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('backtest_available_balance')}</div>
+              <div className="qc-kpi-num">{fmt2(account.balance)}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('backtest_margin')}</div>
+              <div className="qc-kpi-num">{fmt2(account.margin_used)}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('backtest_cum_pnl')}</div>
+              <div className={`qc-kpi-num${account.cum_pnl >= 0 ? ' up' : ' down'}`}>{fmt2(account.cum_pnl)}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('backtest_day_pnl')}</div>
+              <div className={`qc-kpi-num${account.day_pnl >= 0 ? ' up' : ' down'}`}>{fmt2(account.day_pnl)}</div>
+            </div>
+            {/* 回撤是幅度不是方向：中性 mono，不染红 */}
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('backtest_current_drawdown')}</div>
+              <div className="qc-kpi-num">{fmt2(account.drawdown * 100)}%</div>
+            </div>
+          </div>
         </Card>
       )}
 
       {/* 行情背景 K 线：条件渲染保证图表容器挂载时数据就绪、父级高度确定 */}
       <Card
         size="small"
+        className="qc-card"
         title={t('backtest_market_bg_title')}
         extra={
           <Select
@@ -695,7 +695,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
             <Spin />
           </div>
         ) : bgKlines.length === 0 ? (
-          <div style={{ height: CHART_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.neutral }}>
+          <div style={{ height: CHART_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--qc-text-quaternary)' }}>
             {t('backtest_no_market_data')}
           </div>
         ) : (
@@ -711,7 +711,7 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 组合权益曲线 */}
-      <Card size="small" title={t('backtest_equity_curve_title')}>
+      <Card size="small" className="qc-card" title={t('backtest_equity_curve_title')}>
         {equityOption ? (
           <EChart option={equityOption} style={{ height: 300, width: '100%' }} opts={{ renderer: 'canvas' }} />
         ) : (
@@ -720,11 +720,10 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 当前持仓 */}
-      <Card size="small" title={t('backtest_positions_title', { count: positions.length })}>
-        <Table<PositionRow>
+      <Card size="small" className="qc-card" title={t('backtest_positions_title', { count: positions.length })}>
+        <DataTable<PositionRow>
           rowKey="symbol"
-          size="small"
-          columns={positionColumns}
+          columns={buildPositionColumns(t)}
           dataSource={positions}
           pagination={false}
           locale={{ emptyText: t('backtest_no_positions') }}
@@ -732,8 +731,8 @@ const PortfolioReplayView = ({ backtestId, symbols }: PortfolioReplayViewProps) 
       </Card>
 
       {/* 跨品种成交流 */}
-      <Card size="small" title={t('backtest_cross_symbol_trades')}>
-        <div style={{ marginBottom: 12, color: colors.neutral }}>
+      <Card size="small" className="qc-card" title={t('backtest_cross_symbol_trades')}>
+        <div className="bt-note" style={{ marginBottom: 12 }}>
           {t('backtest_filled_progress', { done: filledCount, total: data.trades.length })}
         </div>
         <TradeTable

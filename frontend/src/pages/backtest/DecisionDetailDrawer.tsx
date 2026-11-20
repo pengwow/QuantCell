@@ -14,13 +14,12 @@ import {
   Input,
   Space,
   Spin,
-  Table,
   Tabs,
-  Tag,
   Tooltip,
   Typography,
 } from 'antd';
 import type { DecisionDetailRecord } from '../../types/backtest';
+import DataTable from '@/components/ui/DataTable';
 import { useTranslation } from 'react-i18next';
 // 本文件顶层的 humanizeFallbackReason 是纯工具函数（聚合页共用、不可改签名加 hook），
 // 非组件场景取词条走全局 i18n 实例（与 hooks/useUpdater.ts 同一惯例）
@@ -71,13 +70,17 @@ const prettyJson = (s: string): string => {
   }
 };
 
+// 注意：本抽屉被 Worker / 策略研究等多页共用，backtest.css 不保证已加载——
+// 样式一律内联 + --qc-* token（:root 全局可用），不要新增 backtest.css 依赖
 const preStyle: React.CSSProperties = {
   margin: 0,
   padding: 8,
-  background: 'rgba(128,128,128,0.08)',
+  background: 'var(--qc-surface-raised)',
+  border: '1px solid var(--qc-border)',
   borderRadius: 6,
   fontSize: 12,
-  fontFamily: 'monospace',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontVariantNumeric: 'tabular-nums',
   maxHeight: 320,
   overflow: 'auto',
   whiteSpace: 'pre-wrap',
@@ -93,19 +96,18 @@ const KVTable = ({ data, search }: { data: Record<string, unknown>; search: stri
   if (rows.length === 0)
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('backtest_decision_no_field_matched')} />;
   return (
-    <Table
-      size="small"
+    <DataTable
       pagination={false}
       scroll={{ y: 320 }}
       dataSource={rows}
       columns={[
-        { title: t('backtest_decision_col_field'), dataIndex: 'k', width: 220, render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code> },
+        { title: t('backtest_decision_col_field'), dataIndex: 'k', width: 220, render: (v: string) => <code className="qc-mono" style={{ fontSize: 11.5 }}>{v}</code> },
         {
           title: t('backtest_decision_col_value'),
           dataIndex: 'v',
           render: (v: string) =>
             v.length <= 80 ? (
-              <div style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{v}</div>
+              <div className="qc-mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{v}</div>
             ) : (
               <pre style={{ ...preStyle, maxHeight: 240 }}>{prettyJson(v)}</pre>
             ),
@@ -124,13 +126,14 @@ const ProbBar = ({
   thresholds?: { open?: number; hold?: number };
 }) => {
   const { t } = useTranslation();
+  // 语义 token（§2）：开仓方向 = 成功/失败色，hold 弱文本，阈值参考线 = warning
   const colors: Record<string, string> = {
-    long: 'var(--tw-color-success)',
-    short: 'var(--tw-color-error)',
+    long: 'var(--qc-success)',
+    short: 'var(--qc-error)',
     // 新词表（long/short/hold，Rust cascade 出口）与历史报表的旧词表（buy/sell）都各备齐全
-    buy: 'var(--tw-color-success)',
-    sell: 'var(--tw-color-error)',
-    hold: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
+    buy: 'var(--qc-success)',
+    sell: 'var(--qc-error)',
+    hold: 'var(--qc-text-quaternary)',
   };
   const labels: Record<string, string> = {
     long: t('long'),
@@ -155,7 +158,7 @@ const ProbBar = ({
               <span>{labels[k]}</span>
               <span style={{ color: colors[k] }}>{(p * 100).toFixed(1)}%</span>
             </div>
-            <div style={{ position: 'relative', height: 6, background: 'rgba(128,128,128,0.15)', borderRadius: 3, marginTop: 4 }}>
+            <div style={{ position: 'relative', height: 6, background: 'color-mix(in srgb, var(--qc-text) 12%, transparent)', borderRadius: 3, marginTop: 4 }}>
               <div
                 style={{
                   width: `${Math.max(0, Math.min(100, p * 100))}%`,
@@ -175,7 +178,7 @@ const ProbBar = ({
                       top: -2,
                       bottom: -2,
                       width: 2,
-                      background: 'var(--tw-color-warning)',
+                      background: 'var(--qc-warning)',
                       transform: 'translateX(-1px)',
                       cursor: 'help',
                     }}
@@ -252,7 +255,7 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
       title={record ? t('backtest_decision_detail_title', { time: fmtDecisionTs(record._ts) }) : t('backtest_decision_detail')}
       open={!!record}
       onClose={onClose}
-      size={680}
+      width={680}
     >
       {loading && <Spin />}
       {error && <Alert type="warning" showIcon title={t('backtest_decision_detail_load_failed', { message: error })} style={{ marginBottom: 12 }} />}
@@ -273,16 +276,16 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
                     />
                   ) : null}
                   <Space size="small" wrap style={{ marginBottom: 12 }}>
-                    {detail._decider && <Tag color="blue">{detail._decider}</Tag>}
+                    {detail._decider && <span className="qc-chip info"><span className="qc-mono">{detail._decider}</span></span>}
                     <Tooltip title={t('backtest_decision_source_tooltip')}>
-                      <Tag>{isFallback ? t('backtest_decision_rule_fallback') : t('backtest_decision_s1_direct')}</Tag>
+                      <span className="qc-chip quiet">{isFallback ? t('backtest_decision_rule_fallback') : t('backtest_decision_s1_direct')}</span>
                     </Tooltip>
-                    {detail.meta?.s1_model ? <Tag color="geekblue">S1: {String(detail.meta.s1_model)}</Tag> : null}
-                    {detail.meta?.s2_model ? <Tag color="purple">S2: {String(detail.meta.s2_model)}</Tag> : null}
+                    {detail.meta?.s1_model ? <span className="qc-chip pri"><span className="qc-mono">S1: {String(detail.meta.s1_model)}</span></span> : null}
+                    {detail.meta?.s2_model ? <span className="qc-chip pri"><span className="qc-mono">S2: {String(detail.meta.s2_model)}</span></span> : null}
                   </Space>
                   <div style={{ marginBottom: 8 }}>
                     <Typography.Text type="secondary">{t('backtest_decision_confidence')}{' '}</Typography.Text>
-                    <Typography.Text strong>{fmtNum(confidence)}</Typography.Text>
+                    <Typography.Text strong className="qc-mono">{fmtNum(confidence)}</Typography.Text>
                     {typeof confidence === 'number' && typeof effThreshold === 'number' && (
                       <Typography.Text type={confidence >= effThreshold ? 'secondary' : 'warning'}>
                         {' '}
@@ -293,29 +296,28 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
                     )}
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>{t('backtest_decision_prob_distribution')}</div>
+                    <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>{t('backtest_decision_prob_distribution')}</Typography.Text>
                     <ProbBar probs={probs} thresholds={thCfg} />
                   </div>
                   {decision.sdm_usage ? (
-                    <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 8 }}>
+                    <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
                       {t('backtest_decision_sdm_usage', {
                         tokens: String((decision.sdm_usage as Record<string, unknown>).input_tokens ?? '-'),
                         cost: String((decision.sdm_usage as Record<string, unknown>).cost_usd ?? '-'),
                       })}
-                    </div>
+                    </Typography.Text>
                   ) : null}
                   {subs && Object.keys(subs).length > 0 && (
                     <>
-                      <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', margin: '8px 0 4px' }}>
+                      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', margin: '8px 0 4px' }}>
                         {t('backtest_decision_sub_signals_title')}
-                      </div>
-                      <Table
-                        size="small"
+                      </Typography.Text>
+                      <DataTable
                         pagination={false}
                         dataSource={Object.entries(subs).map(([k, v]) => ({ key: k, k, v }))}
                         columns={[
-                          { title: t('backtest_decision_col_sub_signal'), dataIndex: 'k', width: 240, render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code> },
-                          { title: t('backtest_decision_col_numeric'), dataIndex: 'v', render: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : String(v)) },
+                          { title: t('backtest_decision_col_sub_signal'), dataIndex: 'k', width: 240, render: (v: string) => <code className="qc-mono" style={{ fontSize: 11.5 }}>{v}</code> },
+                          { title: t('backtest_decision_col_numeric'), dataIndex: 'v', align: 'right', render: (v: unknown) => (typeof v === 'number' ? <span className="qc-mono">{v.toFixed(4)}</span> : String(v)) },
                         ]}
                       />
                     </>
@@ -328,7 +330,7 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
               label: t('backtest_decision_tab_state'),
               children: (
                 <>
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>{t('backtest_decision_state_source')}</div>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>{t('backtest_decision_state_source')}</Typography.Text>
                   <Input
                     placeholder={t('backtest_decision_search_field')}
                     allowClear
@@ -345,9 +347,9 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
               label: t('backtest_decision_tab_prompt'),
               children: (
                 <>
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 6 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
                     {t('backtest_decision_prompt_source')}
-                  </div>
+                  </Typography.Text>
                   <Input
                     placeholder={t('backtest_decision_search_field')}
                     allowClear
@@ -364,13 +366,13 @@ export default function DecisionDetailDrawer({ fetchDetail, record, onClose }: D
               label: t('backtest_decision_tab_model'),
               children: (
                 <>
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', marginBottom: 4 }}>{t('backtest_decision_s1_raw_source')}</div>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>{t('backtest_decision_s1_raw_source')}</Typography.Text>
                   {detail.s1_raw ? (
                     <pre style={preStyle}>{prettyJson(detail.s1_raw)}</pre>
                   ) : (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('backtest_decision_s1_raw_missing')} />
                   )}
-                  <div style={{ fontSize: 12, color: 'rgba(128,128,128,0.9)', margin: '12px 0 4px' }}>{t('backtest_decision_s2_raw_source')}</div>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', margin: '12px 0 4px' }}>{t('backtest_decision_s2_raw_source')}</Typography.Text>
                   {detail.s2_raw ? (
                     <pre style={preStyle}>{detail.s2_raw}</pre>
                   ) : isFallback ? (

@@ -1,4 +1,4 @@
-import { QUANT_COLORS, useQuantColors } from '@/utils/colors';
+import { useQuantColors } from '@/utils/colors';
 /**
  * 回测回放页面组件
  * 功能：回放回测过程，展示K线图表和交易信号
@@ -158,7 +158,7 @@ const BacktestReplay = () => {
 
   // 设置页面标题
   useEffect(() => {
-    setPageTitle(t('backtest_replay') || '回测回放');
+    setPageTitle(t('backtest_replay'));
   }, [t]);
 
   // 回放数据
@@ -648,7 +648,7 @@ const BacktestReplay = () => {
   // 渲染加载状态：品种列表加载、品种视角下回放数据加载、视角切换过渡统一走整页 Spin
   if (loadingSymbols || (loading && viewMode === 'symbol') || viewChanging) {
     return (
-      <PageContainer title={t('backtest_replay') || '回测回放'} onBack={handleBack}>
+      <PageContainer title={t('backtest_replay')} onBack={handleBack}>
         <div className="flex justify-center items-center py-24">
           <Spin size="large" />
         </div>
@@ -659,7 +659,7 @@ const BacktestReplay = () => {
   // 渲染错误状态
   if (error && viewMode === 'symbol') {
     return (
-      <PageContainer title={t('backtest_replay') || '回测回放'} onBack={handleBack}>
+      <PageContainer title={t('backtest_replay')} onBack={handleBack}>
         <Alert
           title={t('error')}
           description={error}
@@ -677,10 +677,15 @@ const BacktestReplay = () => {
     ? Math.round((currentIndex / (replayData.klines.length - 1)) * 100) 
     : 0;
 
+  // §5 页头副标只写真实数据：当前品种 · 周期（未加载数据时不渲染）
+  const replaySubtitle = [selectedSymbol, replayData?.backtest_config?.interval]
+    .filter(Boolean)
+    .join(' · ') || undefined;
+
   return (
-    <PageContainer title={t('backtest_replay') || '回测回放'} onBack={handleBack}>
+    <PageContainer title={t('backtest_replay')} subtitle={replaySubtitle} onBack={handleBack}>
       {symbols.length > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
           <Segmented
             value={viewMode}
             onChange={(value) => setViewMode(value as 'symbol' | 'portfolio')}
@@ -692,15 +697,15 @@ const BacktestReplay = () => {
       {viewMode === 'portfolio' && backtestId ? (
         <PortfolioReplayView backtestId={backtestId} symbols={symbols.map((s) => s.symbol)} />
       ) : (
-      <div className="space-y-6">
+      <div className="space-y-3">
         {/* 控制栏 - 重新设计 */}
-        <Card size="small" className="replay-control-card">
+        <Card className="qc-card">
           {/* 第一行：货币对选择和播放控制 */}
           <Row align="middle" justify="space-between" gutter={[16, 16]}>
             {/* 左侧：货币对选择 */}
             <Col flex="none">
               <Space align="center">
-                <StockOutlined style={{ fontSize: 18, color: QUANT_COLORS.info }} />
+                <StockOutlined style={{ fontSize: 18, color: 'var(--qc-info)' }} />
                 <span style={{ fontWeight: 500 }}>{t('symbol')}</span>
                 <Select
                   value={selectedSymbol}
@@ -732,7 +737,7 @@ const BacktestReplay = () => {
                     onClick={handleStop}
                     disabled={currentIndex === 0 || !replayData}
                     style={{ 
-                      color: currentIndex === 0 ? undefined : QUANT_COLORS.negative,
+                      color: currentIndex === 0 ? undefined : 'var(--qc-error)',
                       fontSize: 18 
                     }}
                   />
@@ -748,11 +753,11 @@ const BacktestReplay = () => {
                   icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
                   onClick={isPlaying ? handlePause : handlePlay}
                   disabled={!replayData}
+                  className="bt-play-glow"
                   style={{ 
                     width: 48, 
                     height: 48, 
-                    fontSize: 20,
-                    boxShadow: '0 2px 8px rgba(24, 144, 255, 0.35)'
+                    fontSize: 20
                   }}
                 />
 
@@ -785,7 +790,7 @@ const BacktestReplay = () => {
                 {/* 播放速度 */}
                 <Tooltip title={t('play_speed')}>
                   <Space align="center" style={{ marginLeft: 8 }}>
-                    <ClockCircleOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
+                    <ClockCircleOutlined style={{ color: 'var(--qc-text-quaternary)' }} />
                     <Select
                       value={playSpeed}
                       onChange={handleSpeedChange}
@@ -807,16 +812,10 @@ const BacktestReplay = () => {
 
             {/* 右侧：时间显示 */}
             <Col flex="none">
-              <Space align="center" style={{ 
-                background: 'transparent', 
-                padding: '4px 12px', 
-                borderRadius: 4,
-                fontFamily: 'monospace',
-                border: '1px solid var(--ant-color-border)'
-              }}>
-                <ClockCircleOutlined style={{ color: 'var(--ant-color-text-secondary)' }} />
-                <span style={{ color: 'var(--ant-color-text)' }}>{formatTime(elapsedTime)}</span>
-              </Space>
+              <div className="bt-timebox">
+                <ClockCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
+                <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>{formatTime(elapsedTime)}</span>
+              </div>
             </Col>
           </Row>
 
@@ -825,11 +824,7 @@ const BacktestReplay = () => {
           {/* 第二行：进度条 */}
           <Row align="middle" gutter={[16, 0]}>
             <Col flex="none">
-              <span style={{
-                fontSize: 12,
-                color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
-                fontFamily: 'monospace'
-              }}>
+              <span className="qc-mono" style={{ fontSize: 12, color: 'var(--qc-text-quaternary)' }}>
                 {currentIndex + 1}
               </span>
             </Col>
@@ -855,11 +850,7 @@ const BacktestReplay = () => {
               />
             </Col>
             <Col flex="none">
-              <span style={{
-                fontSize: 12,
-                color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
-                fontFamily: 'monospace'
-              }}>
+              <span className="qc-mono" style={{ fontSize: 12, color: 'var(--qc-text-quaternary)' }}>
                 {replayData?.klines?.length || 0}
               </span>
             </Col>
@@ -868,15 +859,13 @@ const BacktestReplay = () => {
           {/* 第三行：时间戳和进度百分比 */}
           <Row justify="center" style={{ marginTop: 4 }}>
             <Col>
-              <span style={{
-                fontSize: 13,
-                color: 'color-mix(in srgb, var(--tw-color-foreground) 70%, transparent)',
-                fontWeight: 500
-              }}>
-                {formatTimestamp(
-                  replayData?.klines?.[currentIndex]?.time || replayData?.klines?.[currentIndex]?.timestamp || ''
-                )}
-                <span style={{ marginLeft: 12, color: QUANT_COLORS.info }}>
+              <span style={{ fontSize: 13, color: 'var(--qc-text-secondary)', fontWeight: 500 }}>
+                <span className="qc-mono">
+                  {formatTimestamp(
+                    replayData?.klines?.[currentIndex]?.time || replayData?.klines?.[currentIndex]?.timestamp || ''
+                  )}
+                </span>
+                <span className="qc-mono" style={{ marginLeft: 12, color: 'var(--qc-info)' }}>
                   {progressPercent}%
                 </span>
               </span>
@@ -886,9 +875,8 @@ const BacktestReplay = () => {
 
         {/* 图表区域 - 优化布局 */}
         <Card 
-          style={{ marginTop: 24 }}
           styles={{ body: { padding: 0, height: '600px' } }}
-          className="replay-chart-card"
+          className="qc-card replay-chart-card"
         >
           <div
             ref={chartRef}
@@ -915,7 +903,7 @@ const BacktestReplay = () => {
 
         {/* 交易详情表格 - 使用 TradeTable 组件，根据播放进度动态显示 */}
         {replayData && (
-          <Card size="small" title={t('backtest_trade_details')} style={{ marginTop: 24 }}>
+          <Card size="small" title={t('backtest_trade_details')} className="qc-card">
             {(() => {
               // 根据当前播放进度过滤交易
               const currentKline = replayData.klines?.[currentIndex];
@@ -930,8 +918,8 @@ const BacktestReplay = () => {
               
               return (
                 <>
-                  <div style={{ marginBottom: 16 }}>
-                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <span className="bt-note">
                       {t('backtest_trade_count_filtered', { visible: visibleTrades.length, total: replayData.trades?.length || 0 })}
                     </span>
                   </div>
