@@ -9,6 +9,7 @@ import contextlib
 from datetime import datetime
 
 from fastapi import APIRouter, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from collector.schemas import ApiResponse
@@ -139,8 +140,11 @@ async def get_system_logs(
                 parsed_end_time = datetime.fromisoformat(end_time)
 
         # 使用文件日志查询引擎查询日志
+        # query_logs 是同步的逐行扫描（可能扫满整个日志目录）。async def 里直接调
+        # 会独占事件循环：2026-11-20 实录，日志页一开整个后端（连 /health）假死
         query_engine = get_log_query_engine()
-        result = query_engine.query_logs(
+        result = await run_in_threadpool(
+            query_engine.query_logs,
             level=level or None,
             log_type=source or None,
             start_time=parsed_start_time,

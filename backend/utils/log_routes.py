@@ -8,6 +8,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from utils.log_query_engine import get_log_query_engine
@@ -361,7 +362,9 @@ async def get_log_files():
         from utils.file_log_manager import get_file_log_manager
 
         file_manager = get_file_log_manager()
-        directory_tree = file_manager.get_directory_tree()
+        # 目录树扫描是全量 os.walk，必须在工作线程里跑：async def 里直接调会占满
+        # 事件循环（2026-11-20 实录：打开日志页时连 /health 都不响应，整个后端假死）
+        directory_tree = await run_in_threadpool(file_manager.get_directory_tree)
 
         logger.info("获取日志文件目录结构")
 
@@ -390,7 +393,8 @@ async def get_log_file_info(file_path: str):
         if not str(full_path).startswith(str(file_manager.base_log_dir)):
             raise HTTPException(status_code=403, detail="访问路径不在允许的范围内")
 
-        file_info = file_manager.get_file_info(full_path)
+        # 逐行计数 + 时间范围扫描，同样不能压事件循环
+        file_info = await run_in_threadpool(file_manager.get_file_info, full_path)
 
         if not file_info:
             raise HTTPException(status_code=404, detail="文件不存在")
@@ -559,7 +563,7 @@ async def get_disk_usage():
         from utils.file_log_manager import get_file_log_manager
 
         file_manager = get_file_log_manager()
-        disk_usage = file_manager.get_disk_usage()
+        disk_usage = await run_in_threadpool(file_manager.get_disk_usage)
 
         logger.info("获取磁盘使用情况")
 
