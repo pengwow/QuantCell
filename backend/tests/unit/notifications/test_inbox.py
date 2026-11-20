@@ -2,12 +2,13 @@
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from collector.db.database import Base, _import_all_models
 from common.notifications import inbox
-from common.notifications.inbox_models import InboxNotification, NotificationState
+from common.notifications.inbox_models import AsyncTaskRecord, InboxNotification, NotificationState
 
 # 预注册全部业务模型，避免 Worker 等 relationship 在 mapper 初始化时找不到 Strategy
 _import_all_models()
@@ -21,7 +22,14 @@ def db_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(eng, tables=[InboxNotification.__table__, NotificationState.__table__])
+    Base.metadata.create_all(
+        eng,
+        tables=[
+            InboxNotification.__table__,
+            NotificationState.__table__,
+            AsyncTaskRecord.__table__,
+        ],
+    )
     factory = sessionmaker(bind=eng, autoflush=False, expire_on_commit=False)
     session = factory()
     yield session
@@ -49,6 +57,14 @@ class TestRecord:
         assert row.level == "warning"
         assert row.source == "alert"
         assert row.created_at is not None
+
+    def test_read_at_and_processed_at_default_none(self, db_session):
+        # fixture 只建表不插数据，先落一行再断言新列默认值
+        _record_n(db_session, 1)
+        row = db_session.query(InboxNotification).first()
+        assert row is not None
+        assert row.read_at is None
+        assert row.processed_at is None
 
 
 class TestList:
@@ -160,6 +176,39 @@ class TestClearRead:
     def test_clear_read_empty_inbox(self, db_session):
         inbox.mark_inbox_read(db_session=db_session)
         assert inbox.clear_read_notifications(db_session=db_session) == (0, 0)
+
+
+class TestAsyncTaskRecord:
+    """异步任务终态影子表（补偿扫描数据源）"""
+
+    def test_upsert_roundtrip(self, db_session):
+        from datetime import UTC, datetime
+
+        row = AsyncTaskRecord(
+            task_type="rl_train",
+            task_id="rl-abc-123",
+            status="queued",
+            name="PPO-LTC",
+        )
+        db_session.add(row)
+        db_session.commit()
+        got = db_session.query(AsyncTaskRecord).filter_by(task_id="rl-abc-123").one()
+        assert got.status == "queued"
+        assert got.created_at is not None and got.updated_at is not None
+
+        # 状态翻转走 update（补偿扫描语义：终态覆盖）
+        got.status = "succeeded"
+        got.updated_at = datetime.now(UTC)
+        db_session.commit()
+        assert db_session.query(AsyncTaskRecord).count() == 1
+
+    def test_task_id_unique(self, db_session):
+        db_session.add(AsyncTaskRecord(task_type="backtest", task_id="dup-1", status="queued"))
+        db_session.commit()
+        db_session.add(AsyncTaskRecord(task_type="backtest", task_id="dup-1", status="failed"))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
 
 
 if __name__ == "__main__":
