@@ -92,6 +92,7 @@ export default function TrainingWorkbench({ onTrainSuccess }: TrainingWorkbenchP
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }} className="w-full">
       <Card
+        className="qc-card"
         title={
           <span>
             <ExperimentOutlined /> {t('rlwb_title_config')}

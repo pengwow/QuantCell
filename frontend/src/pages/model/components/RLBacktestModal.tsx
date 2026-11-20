@@ -56,6 +56,7 @@ export default function RLBacktestModal({ row, onClose }: RLBacktestModalProps) 
 
   return (
     <Modal
+      className="qc-modal"
       title={t('rlbt_title', { name: row?.file_name ?? '' })}
       open={!!row}
       onOk={handleOk}

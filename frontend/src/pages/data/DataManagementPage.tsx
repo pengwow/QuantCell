@@ -5,11 +5,12 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 支持多自选组管理（创建、命名、编辑、删除）
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
-// O2 设计对齐：本页内联 hex/魔法间距已 token 化。保留 style 的例外：
-// - antd Tag/Alert/Button/Empty 的 padding/fontSize 等由 antd unlayered cssinjs 设置，类压不过，必须留 style；
-// - 布局尺寸（width/maxHeight/position 等非间距/颜色值）不在 O2 范围；
-// - L1976 附近颜色选择器的 '#722ed1' 是候选色数据值（会写库的标识色），非主题 UI 色，保留 hex；
-// O2: 原表单 initialValue '#1890ff' 不在任何候选值中，已对齐为 QUANT_COLORS.info（= 蓝色选项）；“青色”选项与“蓝色”同值属既有数据问题，未在本轮修改。
+// 车道 T 设计收口：色值一律 var(--qc-*) / color-mix(in srgb, var(--qc-*) N%, transparent)。
+// 保留例外：
+// - 布局尺寸（width/maxHeight/position 等非间距/颜色值）不在本车道范围；
+// - 自选组颜色选择器候选值（'#722ed1' 等）是**会写库的离散标识色数据**（pin 色 / 图例用），
+//   非 UI 主题色 —— 这类值属于业务数据，换成主题变量会在切主题时改变已存数据；
+// - 原 '#1890ff' initialValue 已对齐为 QUANT_COLORS.info（= 蓝色选项）；“青色”选项与“蓝色”同值属既有数据问题，未在本轮修改。
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
@@ -18,7 +19,6 @@ import {
   Button,
   Input,
   Select,
-  Tag,
   Space,
   Form,
   DatePicker,
@@ -104,12 +104,8 @@ import { setPageTitle } from '@/utils/pageTitle';
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
-// O2 设计对齐：token 未覆盖的低饱和灰/淡底，用主题前景色、信息色按透明度逼近原 hex，亮暗色自动适配（替代 #8c8c8c/#bfbfbf/#e6f4ff 等）
-const QC_TEXT_MUTED = 'color-mix(in srgb, var(--tw-color-foreground) 45%, transparent)'; // ≈ 次要文字 #8c8c8c
-// QC_TEXT_FAINT 已移除——弱提示统一走 Tailwind text-muted 类
-const INFO_BG_SOFT = 'color-mix(in srgb, var(--tw-color-info) 10%, transparent)';        // ≈ 展开态淡蓝底 #e6f4ff
-const INFO_BG_MID = 'color-mix(in srgb, var(--tw-color-info) 8%, transparent)';          // ≈ 市场选中淡蓝底 #f0f5ff
-const INFO_BG_STRONG = 'color-mix(in srgb, var(--tw-color-info) 30%, transparent)';      // ≈ symbol 选中蓝底 #bae0ff
+// 语义色在 JS 侧统一用 var(--qc-*) 字符串：跟主题运行时切换，不再依赖 QUANT_COLORS 静态快照
+// （QUANT_COLORS 仅保留给会写库的离散标识色：自选组候选色）。
 
 // 自选列表「紫色」标识：会写库的品种离散标识色，与品牌语义无关，
 // 故不映射状态/品牌 token；候选后续并入 theme 的离散身份调色板（同 chartSeries 定位）。
@@ -1255,8 +1251,8 @@ const DataManagementPage = () => {
     }
   };
 
-  // 获取价格变化颜色
-  const getPriceChangeColor = (change: number) => change >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative;
+  // 获取价格变化颜色（JS 侧语义色走 var(--qc-*)，跟主题切换）
+  const getPriceChangeColor = (change: number) => change >= 0 ? 'var(--qc-success)' : 'var(--qc-error)';
 
   // 格式化成交量
   const formatVolume = (volume: number) => {
@@ -1284,7 +1280,7 @@ const DataManagementPage = () => {
           <Space>
             <div className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
             <span>{group.name}</span>
-            {group.symbolIds.includes(symbolId) && <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
+            {group.symbolIds.includes(symbolId) && <CheckCircleOutlined style={{ color: 'var(--qc-success)' }} />}
           </Space>
         ),
         onClick: () => {
@@ -1683,7 +1679,7 @@ const DataManagementPage = () => {
                   {subTask.interval && <span className="qc-chip quiet qc-mono">{String(subTask.interval)}</span>}
                   {failed && <span className="qc-chip down">{t('dm_st_failed')}</span>}
                 </span>
-                <span className="qc-mono" style={{ fontSize: 11, color: failed ? QUANT_COLORS.negative : QC_TEXT_MUTED }}>
+                <span className="qc-mono" style={{ fontSize: 11, color: failed ? 'var(--qc-error)' : 'var(--qc-text-tertiary)' }}>
                   {subTask.percentage?.toFixed(1)}%
                 </span>
               </div>
@@ -1718,6 +1714,7 @@ const DataManagementPage = () => {
     <div className="favorite-groups-sidebar w-full">
       <Card
         size="small"
+        className="qc-card"
         title={
           <Space>
             <FolderOutlined />
@@ -1754,7 +1751,7 @@ const DataManagementPage = () => {
               label: (
                 <Space className="w-full justify-between">
                   <span>{t('all')}</span>
-                  <Tag>{symbols.length}</Tag>
+                  <span className="qc-count-chip qc-mono">{symbols.length}</span>
                 </Space>
               ),
             },
@@ -1764,7 +1761,7 @@ const DataManagementPage = () => {
               label: (
                 <Space className="w-full justify-between">
                   <span>{group.name}</span>
-                  <Tag>{group.symbolIds.length}</Tag>
+                  <span className="qc-count-chip qc-mono">{group.symbolIds.length}</span>
                 </Space>
               ),
             })),
@@ -1807,6 +1804,7 @@ const DataManagementPage = () => {
           <Card
             key={group.id}
             size="small"
+            className="qc-card"
             style={{ borderLeft: `4px solid ${group.color}` }}
             // 删除统一放卡片右上角，与其他卡片页面一致；默认组不可删除
             extra={
@@ -1848,7 +1846,7 @@ const DataManagementPage = () => {
               title={
                 <Space>
                   <span>{group.name}</span>
-                  {group.isDefault && <Tag>{t('default')}</Tag>}
+                  {group.isDefault && <span className="qc-count-chip">{t('default')}</span>}
                 </Space>
               }
               description={
@@ -2083,7 +2081,7 @@ const DataManagementPage = () => {
                 <Text>{t('dm_result_interval', { interval: cleanResult.interval || t('dm_all') })}</Text>
                 <Text>{t('dm_result_type', { type: cleanResult.clean_type })}</Text>
                 <Text>{t('dm_result_before', { n: cleanResult.total_before })}</Text>
-                <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_result_deleted', { n: cleanResult.deleted_count })}</Text>
+                <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_result_deleted', { n: cleanResult.deleted_count })}</Text>
               </Space>
             }
             type="success"
@@ -2181,16 +2179,16 @@ const DataManagementPage = () => {
               onClick={() => handleArchiveExpandKind(kind, !expanded)}
               className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-[5px] text-[13px]"
               style={{
-                backgroundColor: expanded ? INFO_BG_SOFT : 'transparent',
+                backgroundColor: expanded ? 'color-mix(in srgb, var(--qc-info) 10%, transparent)' : 'transparent',
                 fontWeight: archiveKind === kind ? 600 : 400,
               }}
             >
               {expanded ? <FolderOpenOutlined /> : <FolderOutlined />}
               <span>{kindLabel}</span>
               {archiveBrowserCategory === 'archive' && KLINE_ARCHIVE_KINDS.includes(kind as ArchiveKind) && (
-                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{t('dm_tag_kline')}</Tag>
+                <span className="qc-chip info">{t('dm_tag_kline')}</span>
               )}
-              {archiveBrowserCategory === 'deriv' && <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{t('dm_tag_deriv')}</Tag>}
+              {archiveBrowserCategory === 'deriv' && <span className="qc-chip pri">{t('dm_tag_deriv')}</span>}
             </div>
             {expanded && (
               <div className="pl-3.5 mt-0.5">
@@ -2206,7 +2204,7 @@ const DataManagementPage = () => {
                       <div
                         className="rounded px-1.5 py-[3px] text-xs text-foreground/60"
                         style={{
-                          backgroundColor: archiveKind === kind && archiveMarket === m ? INFO_BG_MID : 'transparent',
+                          backgroundColor: archiveKind === kind && archiveMarket === m ? 'color-mix(in srgb, var(--qc-info) 8%, transparent)' : 'transparent',
                         }}
                       >
                         <FolderOutlined className="mr-1" />
@@ -2226,12 +2224,12 @@ const DataManagementPage = () => {
                               style={{
                                 backgroundColor:
                                   archiveKind === kind && archiveMarket === m && archiveSymbol === s
-                                    ? INFO_BG_STRONG
+                                    ? 'color-mix(in srgb, var(--qc-info) 30%, transparent)'
                                     : 'transparent',
                                 color:
                                   archiveKind === kind && archiveMarket === m && archiveSymbol === s
-                                    ? 'var(--tw-color-info)'
-                                    : 'var(--tw-color-foreground)',
+                                    ? 'var(--qc-info)'
+                                    : 'var(--qc-text)',
                               }}
                             >
                               {s}
@@ -2617,7 +2615,7 @@ const DataManagementPage = () => {
       {selectedSymbols.length > 0 && (
         <Card
           size="small"
-          className="mb-3"
+          className="mb-3 qc-card"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--qc-success) 8%, transparent)',
             borderColor: 'color-mix(in srgb, var(--qc-success) 45%, transparent)',
@@ -2742,7 +2740,7 @@ const DataManagementPage = () => {
               onClick={(e) => e.stopPropagation()}
             >
               {isInActiveGroup
-                ? <StarFilled style={{ color: displayGroup?.color || QUANT_COLORS.warning }} />
+                ? <StarFilled style={{ color: displayGroup?.color || 'var(--qc-warning)' }} />
                 : <StarOutlined />}
             </button>
           </Dropdown>
@@ -2949,10 +2947,11 @@ const DataManagementPage = () => {
           <Col xs={24} sm={12} md={8} lg={6} key={symbol.symbol}>
             <Card
               size="small"
+              className="qc-card"
               title={
                 <Space>
                   <Text strong>{symbol.symbol}</Text>
-                  {symbol.rank && <Tag>#{symbol.rank}</Tag>}
+                  {symbol.rank && <span className="qc-count-chip qc-mono">#{symbol.rank}</span>}
                 </Space>
               }
               extra={
@@ -2960,7 +2959,7 @@ const DataManagementPage = () => {
                   <Button
                     type="text"
                     size="small"
-                    icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || QUANT_COLORS.warning }} /> : <StarOutlined />}
+                    icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || 'var(--qc-warning)' }} /> : <StarOutlined />}
                   />
                 </Dropdown>
               }
@@ -3513,10 +3512,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.integrity?.missing_columns && qualityDetail.details.integrity.missing_columns.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_missing_cols')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_missing_cols')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.integrity.missing_columns.map((col: string) => (
-                                  <Tag key={col} color="error" className="mb-1">{col}</Tag>
+                                  <span key={col} className="qc-chip down qc-mono mb-1">{col}</span>
                                 ))}
                               </div>
                             </>
@@ -3524,11 +3523,11 @@ const DataManagementPage = () => {
                           {qualityDetail.details.integrity?.missing_values && Object.keys(qualityDetail.details.integrity.missing_values).length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_missing_values')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_missing_values')}</Text>
                               <div className="mt-2">
                                 {Object.entries(qualityDetail.details.integrity.missing_values).map(([key, value]) => (
                                   <div key={key} className="mb-1">
-                                    <Tag color="warning">{key}</Tag>
+                                    <span key={key} className="qc-chip warn qc-mono">{key}</span>
                                     <Text type="secondary"> {t('dm_missing_n', { n: value })}</Text>
                                   </div>
                                 ))}
@@ -3567,7 +3566,7 @@ const DataManagementPage = () => {
                               <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.continuity.missing_time_ranges.map((range, index: number) => (
                                   <div key={index} className="mb-1 text-xs">
-                                    <Tag style={{ fontSize: 12 }}>{range.start}</Tag> ~ <Tag style={{ fontSize: 12 }}>{range.end}</Tag>
+                                    <span className="qc-mono">{range.start}</span> ~ <span className="qc-mono">{range.end}</span>
                                     <Text type="secondary" className="ml-2">
                                       {t('dm_missing_rows', { n: range.count })}
                                     </Text>
@@ -3598,7 +3597,7 @@ const DataManagementPage = () => {
                               <Text strong>{t('dm_dup_ranges')}</Text>
                               <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.uniqueness.duplicate_periods.map((interval: string, index: number) => (
-                                  <Tag key={index} style={{ fontSize: 12 }} className="mb-1">{interval}</Tag>
+                                  <span key={index} className="qc-chip quiet qc-mono mb-1">{interval}</span>
                                 ))}
                               </div>
                             </>
@@ -3609,7 +3608,7 @@ const DataManagementPage = () => {
                               <Text strong>{t('dm_dup_details')}</Text>
                               <div className="mt-2" style={{ maxHeight: 300, overflow: 'auto' }}>
                                 {qualityDetail.details.uniqueness.duplicate_details.map((detail, index: number) => (
-                                  <Card key={index} size="small" className="mb-2">
+                                  <Card key={index} size="small" className="mb-2 qc-card">
                                     <Text strong>{t('dm_time_label', { key: detail.key })}</Text>
                                     <Text className="ml-2" type="secondary">({t('dm_dup_n', { n: detail.count })})</Text>
                                     <div className="mt-2">
@@ -3648,39 +3647,39 @@ const DataManagementPage = () => {
                           {qualityDetail.details.validity?.negative_prices && qualityDetail.details.validity.negative_prices.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_neg_prices')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_neg_prices')}</Text>
                               <Text type="secondary" className="ml-2">{t('dm_n_records', { n: qualityDetail.details.validity.negative_prices.length })}</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.negative_volumes && qualityDetail.details.validity.negative_volumes.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_neg_volumes')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_neg_volumes')}</Text>
                               <Text type="secondary" className="ml-2">{t('dm_n_records', { n: qualityDetail.details.validity.negative_volumes.length })}</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.invalid_high_low && qualityDetail.details.validity.invalid_high_low.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_invalid_hl')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_invalid_hl')}</Text>
                               <Text type="secondary" className="ml-2">{t('dm_n_records', { n: qualityDetail.details.validity.invalid_high_low.length })}</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.invalid_price_logic && qualityDetail.details.validity.invalid_price_logic.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_invalid_price_logic')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_invalid_price_logic')}</Text>
                               <Text type="secondary" className="ml-2">{t('dm_n_records', { n: qualityDetail.details.validity.invalid_price_logic.length })}</Text>
                             </>
                           )}
                           {qualityDetail.details.validity?.abnormal_price_changes && qualityDetail.details.validity.abnormal_price_changes.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.warning }}>{t('dm_abnormal_change')}</Text>
+                              <Text strong style={{ color: 'var(--qc-warning)' }}>{t('dm_abnormal_change')}</Text>
                               <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.validity.abnormal_price_changes.map((item, index: number) => (
                                   <div key={index} className="mb-1 text-xs">
-                                    <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
+                                    <span className="qc-mono">{item.timestamp}</span>
                                     <Text type="secondary" className="ml-2">
                                       {t('dm_change_pct', { v: item.change_pct })}
                                     </Text>
@@ -3692,11 +3691,11 @@ const DataManagementPage = () => {
                           {qualityDetail.details.validity?.abnormal_volumes && qualityDetail.details.validity.abnormal_volumes.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.warning }}>{t('dm_abnormal_volume')}</Text>
+                              <Text strong style={{ color: 'var(--qc-warning)' }}>{t('dm_abnormal_volume')}</Text>
                               <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.validity.abnormal_volumes.map((item, index: number) => (
                                   <div key={index} className="mb-1 text-xs">
-                                    <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
+                                    <span className="qc-mono">{item.timestamp}</span>
                                     <Text type="secondary" className="ml-2">
                                       {t('dm_volume_30d', { v: item.volume, avg: item.avg_30d_volume })}
                                     </Text>
@@ -3708,11 +3707,11 @@ const DataManagementPage = () => {
                           {qualityDetail.details.validity?.price_gaps && qualityDetail.details.validity.price_gaps.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.warning }}>{t('dm_price_gaps')}</Text>
+                              <Text strong style={{ color: 'var(--qc-warning)' }}>{t('dm_price_gaps')}</Text>
                               <div className="mt-2" style={{ maxHeight: 200, overflow: 'auto' }}>
                                 {qualityDetail.details.validity.price_gaps.map((item, index: number) => (
                                   <div key={index} className="mb-1 text-xs">
-                                    <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
+                                    <span className="qc-mono">{item.timestamp}</span>
                                     <Text type="secondary" className="ml-2">
                                       {t('dm_gap_pct', { v: item.gap_pct })}
                                     </Text>
@@ -3737,11 +3736,11 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.time_format_issues && qualityDetail.details.consistency.time_format_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_time_format_issues')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_time_format_issues')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.consistency.time_format_issues.map((issue: string, index: number) => (
                                   <div key={index} className="mb-1">
-                                    <Tag color="error">{issue}</Tag>
+                                    <span className="qc-chip down qc-mono">{issue}</span>
                                   </div>
                                 ))}
                               </div>
@@ -3750,10 +3749,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.duplicate_codes && qualityDetail.details.consistency.duplicate_codes.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_dup_codes')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_dup_codes')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.consistency.duplicate_codes.map((code: string, index: number) => (
-                                  <Tag key={index} color="error" className="mb-1">{code}</Tag>
+                                  <span key={index} className="qc-chip down qc-mono mb-1">{code}</span>
                                 ))}
                               </div>
                             </>
@@ -3761,10 +3760,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.code_name_mismatches && qualityDetail.details.consistency.code_name_mismatches.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_code_name_mismatch')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_code_name_mismatch')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.consistency.code_name_mismatches.map((mismatch: string, index: number) => (
-                                  <Tag key={index} color="warning" className="mb-1">{mismatch}</Tag>
+                                  <span key={index} className="qc-chip warn qc-mono mb-1">{mismatch}</span>
                                 ))}
                               </div>
                             </>
@@ -3772,10 +3771,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.consistency?.inconsistent_adj_factors && qualityDetail.details.consistency.inconsistent_adj_factors.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_adj_factor_mismatch')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_adj_factor_mismatch')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.consistency.inconsistent_adj_factors.map((issue: string, index: number) => (
-                                  <Tag key={index} color="warning" className="mb-1">{issue}</Tag>
+                                  <span key={index} className="qc-chip warn qc-mono mb-1">{issue}</span>
                                 ))}
                               </div>
                             </>
@@ -3796,10 +3795,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.logic?.trading_time_issues && qualityDetail.details.logic.trading_time_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_trading_time_issues')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_trading_time_issues')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.logic.trading_time_issues.map((issue: string, index: number) => (
-                                  <Tag key={index} color="error" className="mb-1">{issue}</Tag>
+                                  <span key={index} className="qc-chip down qc-mono mb-1">{issue}</span>
                                 ))}
                               </div>
                             </>
@@ -3807,10 +3806,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.logic?.suspension_issues && qualityDetail.details.logic.suspension_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_suspension_issues')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_suspension_issues')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.logic.suspension_issues.map((issue: string, index: number) => (
-                                  <Tag key={index} color="warning" className="mb-1">{issue}</Tag>
+                                  <span key={index} className="qc-chip warn qc-mono mb-1">{issue}</span>
                                 ))}
                               </div>
                             </>
@@ -3818,10 +3817,10 @@ const DataManagementPage = () => {
                           {qualityDetail.details.logic?.price_limit_issues && qualityDetail.details.logic.price_limit_issues.length > 0 && (
                             <>
                               <Divider style={{ margin: 'var(--spacing-qc-3) 0' }} />
-                              <Text strong style={{ color: QUANT_COLORS.negative }}>{t('dm_price_limit_issues')}</Text>
+                              <Text strong style={{ color: 'var(--qc-error)' }}>{t('dm_price_limit_issues')}</Text>
                               <div className="mt-2">
                                 {qualityDetail.details.logic.price_limit_issues.map((issue: string, index: number) => (
-                                  <Tag key={index} color="error" className="mb-1">{issue}</Tag>
+                                  <span key={index} className="qc-chip down qc-mono mb-1">{issue}</span>
                                 ))}
                               </div>
                             </>

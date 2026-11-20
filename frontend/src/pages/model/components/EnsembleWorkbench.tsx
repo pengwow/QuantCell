@@ -297,7 +297,7 @@ export default function EnsembleWorkbench() {
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title={t('ens_title_create')} size="small">
+      <Card title={t('ens_title_create')} size="small" className="qc-card">
         <Space wrap>
           <Button icon={<PlusOutlined />} onClick={openModal}>{t('ens_pick_model')}</Button>
           <Button type="primary" disabled={selected.length === 0} loading={creating} onClick={handleCreate}>
@@ -321,7 +321,7 @@ export default function EnsembleWorkbench() {
         )}
       </Card>
 
-      <Card title={t('ens_title_list')} size="small">
+      <Card title={t('ens_title_list')} size="small" className="qc-card">
         <DataTable<EnsembleInfo>
           columns={ensembleColumns}
           dataSource={ensembles}
@@ -334,6 +334,7 @@ export default function EnsembleWorkbench() {
 
       {/* 冒烟预测结果弹窗:D1 零观测,展示聚合结果 + 成员明细 */}
       <Modal
+        className="qc-modal"
         title={t('ens_predict_title', { id: predictRecord?.id ?? '' })}
         open={predictResult !== null}
         width={560}
@@ -391,6 +392,7 @@ export default function EnsembleWorkbench() {
 
       {/* 集成回测弹窗:表单 → 结果(可再次回测) */}
       <Modal
+        className="qc-modal"
         title={t('ens_backtest_title', { id: btRecord?.id ?? '' })}
         open={btOpen}
         width={560}
@@ -440,6 +442,7 @@ export default function EnsembleWorkbench() {
       </Modal>
 
       <Modal
+        className="qc-modal"
         title={t('ens_pick_model')}
         open={modalOpen}
         width={680}

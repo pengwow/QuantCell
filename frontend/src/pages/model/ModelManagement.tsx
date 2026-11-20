@@ -128,6 +128,7 @@ const ModelManagement = () => {
   return (
     <PageContainer title={t('model_management')}>
       <Card
+        className="qc-card"
         title={t('model_management')}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
@@ -138,7 +139,7 @@ const ModelManagement = () => {
         <DataTable columns={columns} dataSource={models} rowKey="id" />
       </Card>
 
-      <Modal title={t('mm_btn_create')} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)}>
+      <Modal className="qc-modal" title={t('mm_btn_create')} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)}>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label={t('mm_field_name')} rules={[{ required: true }]}>
             <Input />
@@ -154,7 +155,7 @@ const ModelManagement = () => {
         </Form>
       </Modal>
 
-      <Modal title={t('mm_detail_title')} open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={800}>
+      <Modal className="qc-modal" title={t('mm_detail_title')} open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={800}>
         {selectedModel && (
           <>
             <p><strong>{t('mm_field_name')}:</strong> {selectedModel.name}</p>

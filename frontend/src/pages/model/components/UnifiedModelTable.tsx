@@ -467,7 +467,7 @@ export default function UnifiedModelTable({
       {view === 'card' ? (
         <>
           {filtered.length === 0 && !loading && (
-            <Card size="small">
+            <Card size="small" className="qc-card">
               <QcEmpty
                 title={hasFilters ? t('no_data') : t('no_models')}
                 description={hasFilters ? t('bt_no_match_desc') : undefined}
@@ -484,7 +484,7 @@ export default function UnifiedModelTable({
                   <Card
                     size="small"
                     hoverable
-                    className={isSelected ? 'qc-card-selected' : ''}
+                    className={`qc-card${isSelected ? ' qc-card-selected' : ''}`}
                     style={{ cursor: 'pointer', height: '100%' }}
                     onClick={() => {
                       // 对齐表格禁选口径:文件缺失(无文件)不可选中

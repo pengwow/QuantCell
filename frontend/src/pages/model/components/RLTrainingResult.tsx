@@ -1,6 +1,5 @@
-import { Card, Statistic, Row, Col, Descriptions, Tag, Typography } from 'antd';
+import { Card, Statistic, Row, Col, Descriptions, Typography } from 'antd';
 import { TrophyOutlined, LineChartOutlined } from '@ant-design/icons';
-import { QUANT_COLORS } from '@/utils/colors';
 import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
@@ -24,14 +23,14 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
 
   return (
     <>
-      <Card title={t('rlres_title_result')}>
+      <Card className="qc-card" title={t('rlres_title_result')}>
         <Row gutter={16}>
           <Col span={8}>
             <Statistic
               title={t('rlres_metric_sharpe')}
               value={num('sharpe_ratio')}
               precision={2}
-              styles={{ content: { color: num('sharpe_ratio') >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
+              styles={{ content: { color: num('sharpe_ratio') >= 0 ? 'var(--qc-success)' : 'var(--qc-error)' } }}
               prefix={<LineChartOutlined />}
             />
           </Col>
@@ -52,7 +51,7 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
               value={num('max_drawdown_pct')}
               precision={2}
               suffix="%"
-              styles={{ content: { color: QUANT_COLORS.negative } }}
+              styles={{ content: { color: 'var(--qc-error)' } }}
             />
           </Col>
           <Col span={8}>
@@ -61,13 +60,16 @@ export default function RLTrainingResult({ result }: RLTrainingResultProps) {
         </Row>
       </Card>
 
-      <Card title={t('rlres_title_model')}>
+      <Card className="qc-card" title={t('rlres_title_model')}>
         <Descriptions column={2} bordered size="small">
           <Descriptions.Item label={t('rlres_label_model_id')}>
             <Text code>{result.model_id}</Text>
           </Descriptions.Item>
           <Descriptions.Item label={t('rlres_label_status')}>
-            <Tag color="green">{result.status.toUpperCase()}</Tag>
+            {/* §6.2 chip：completed→ok / failed→down / 其余→info；status 码大写展示 */}
+            <span className={`qc-chip ${result.status === 'completed' || result.status === 'success' ? 'ok' : result.status === 'failed' ? 'down' : 'info'}`}>
+              {result.status.toUpperCase()}
+            </span>
           </Descriptions.Item>
           <Descriptions.Item label={t('rlres_label_trades')}>
             {num('num_trades')}
