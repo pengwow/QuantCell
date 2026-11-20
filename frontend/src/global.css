@@ -1246,35 +1246,82 @@ ul.qc-pagination li.ant-pagination-jump-next {
   }
 }
 
-/* ---- §6.9 Segmented（容器 8px 圆角 bd 边 padding 2；内钮 24px/12px；选中 primary 12% 底 + 600） ---- */
-.qc-seg.ant-segmented {
-  padding: 2px;
+/* ---- §6.9 Segmented（全站收口，映射 demo .seg）----
+   原实现依赖页面加 .qc-seg 类；基础组件层把这些约束升级为全局口径（页面无需挂钩子类）。
+   容器：bd 边 8px 圆角 padding 2 gap 2、bgc 底；内钮：24px / 0 12px / 6px 圆角 / 12px；
+   选中：primary 12% 底 + 主色字 600（v6 无滑块时落在 item 上，有滑块时 thumb 同色）。
+   特异性设计：antd v6 规则带 :where(css) 前缀（零成本）+ 类链，sm/lg 变体最高 (0,3,0)，
+   这里统一 ≥(0,4,0)，不赌注入顺序。 */
+.ant-segmented.ant-segmented {
+  padding: 2px; /* ponytail: demo .seg padding 亦为 2px，无对应 qc token（--spacing-qc-1=4px），写死并留注释 */
   border-radius: 8px;
   border: 1px solid var(--qc-border);
   background: var(--qc-surface);
 }
 
-.qc-seg.ant-segmented .ant-segmented-item {
+/* sm/lg 变体被 antd 收成 4px/10px 圆角，§6.9 只有一档 8px */
+.ant-segmented.ant-segmented.ant-segmented-sm,
+.ant-segmented.ant-segmented.ant-segmented-lg {
+  border-radius: 8px;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-group {
+  gap: 2px;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item {
   height: 24px;
-  line-height: 22px;
   border-radius: 6px;
   font-size: 12px;
   color: var(--qc-text-secondary);
+  transition: color var(--duration-qc-base) ease-out;
 }
 
-.qc-seg.ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+/* label 承载高度（antd 默认 label 28px = controlHeight-4，§6.9 是 24-2=20） */
+.ant-segmented.ant-segmented .ant-segmented-item .ant-segmented-item-label.ant-segmented-item-label {
+  min-height: 20px;
+  line-height: 20px;
+  padding: 0 12px;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):hover {
   color: var(--qc-text);
 }
 
-.qc-seg.ant-segmented .ant-segmented-item-selected,
-.qc-seg.ant-segmented .ant-segmented-item-selected:hover {
+/* demo `.seg button:hover` 只变色不加底（antd 默认给 fg 6% 悬浮底，这里跟随 demo 置空） */
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):hover::after {
+  opacity: 0;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-selected,
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-selected:hover {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  box-shadow: none;
   color: var(--qc-primary);
   font-weight: 600;
 }
 
-.qc-seg.ant-segmented .ant-segmented-thumb {
+/* 禁用态（§6.19 口径）：选中项仍要看出「值是什么」，但不能再像可点的主色胶囊——
+   主色降为 8% 底 + fg-4 字（回测配置「资金使用方式」单标的时即此时刻） */
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-selected.ant-segmented-item-disabled {
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+  color: var(--qc-text-quaternary);
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-disabled {
+  color: var(--qc-text-quaternary);
+  cursor: not-allowed;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-group .ant-segmented-thumb.ant-segmented-thumb {
   background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
   border-radius: 6px;
+}
+
+/* 键盘可达：segmentedinput 是 0×0 透明 radio，焦点环补在 item 上 */
+.ant-segmented .ant-segmented-item:has(.ant-segmented-item-input:focus-visible) {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 1px;
 }
 
 /* ---- 行内迷你进度条（demo .prog：5px 高 / 3px 圆角 / bd 槽；done 用 success） ---- */
@@ -1300,12 +1347,237 @@ ul.qc-pagination li.ant-pagination-jump-next {
   background: var(--qc-success);
 }
 
-/* ---- §6.10 表单密度（字段 label：mono 11px fg-4 + .02em，垂直表单） ---- */
+/* ---- §6.10 表单密度（字段 label：mono 11px fg-4 + .02em，垂直表单） ----
+   旧口径挂在页面 .qc-form 类上；§6.19 起改为全站垂直表单默认（见下方全局规则），.qc-form 保留兼容水平等特例 */
 .qc-form.ant-form .ant-form-item .ant-form-item-label > label {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   letter-spacing: .02em;
   color: var(--qc-text-quaternary);
+}
+
+form.ant-form.ant-form-vertical .ant-form-item .ant-form-item-label > label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: .02em;
+  color: var(--qc-text-quaternary);
+}
+
+/* ============================================================
+   §6.19 表单控件（Input / Select / DatePicker / Radio / Checkbox / Switch）
+   demo 无对应静态稿的口径统一落在本节；颜色全部走 --qc-* token。
+   特异性规则同 §6.9：antd v6 :where(css) 前缀 + 类链（状态规则最高 (0,5,0)），
+   这里一律元素锚点 + 双类 ≥(0,4,0)（focus 等需压过状态链的到 (0,6,0) 以上）。
+   ============================================================ */
+
+/* ---- 输入字号：32px 高由 controlHeight token 保证；字号 §6.10 取 12.5px ----
+   picker/number 用双类压过 antd 自身的 .ant-picker .ant-picker-input > input (0,2,1) */
+input.ant-input.ant-input,
+input.ant-input-number-input.ant-input-number-input,
+div.ant-picker div.ant-picker-input > input {
+  font-size: 12.5px;
+}
+
+/* textarea：多行例外（§6.10 表格密度延伸）：12px / 1.6 / 9px 11px */
+textarea.ant-input {
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 9px 11px;
+}
+
+/* Select 显示值 / 占位 / 内嵌搜索框跟输入字号 */
+div.ant-select .ant-select-selection-item,
+div.ant-select .ant-select-selection-placeholder,
+div.ant-select .ant-select-selection-search-input {
+  font-size: 12.5px;
+}
+
+/* 工具栏搜索框（§6.6 tsearch）保持 12px —— demo .tsearch 口径，优先于上面的 12.5 */
+.qc-toolbar .qc-tsearch input.ant-input {
+  font-size: 12px;
+}
+
+/* ---- focus 环（§6.10 修订）：border-primary + 0 0 0 3px primary 20%，替代 antd 默认 2px 浅 tint ---- */
+input.ant-input:focus,
+textarea.ant-input:focus,
+span.ant-input-affix-wrapper-focused,
+span.ant-input-affix-wrapper:focus-within,
+.ant-input-number.ant-input-number-focused,
+.ant-input-number:focus-within,
+div.ant-picker-focused,
+div.ant-picker:focus-within,
+.ant-select:not(.ant-select-customize-input).ant-select.ant-select-focused:not(.ant-select-disabled) .ant-select-selector.ant-select-selector {
+  border-color: var(--qc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-primary) 20%, transparent);
+  outline: 0;
+}
+
+/* affix wrapper 内的 raw input 自身不再吃 focus 环（视觉由容器承载）；必须排在本节通用规则之后 */
+span.ant-input-affix-wrapper input.ant-input:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* ---- Checkbox（§6.19：盒 14×14、4px 圆角；选中 primary；表格 rowSelection 同源） ----
+   antd v6 的盒子直接渲染在 span.ant-checkbox 上，勾选符号按盒尺寸百分比缩放 */
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+/* 选中色钉在 token 上：杜绝 cssVar 模式下任何派生蓝 */
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox-checked:not(.ant-checkbox-disabled) {
+  background: var(--qc-primary);
+  border-color: transparent;
+}
+
+/* 半选（表头全选清除态）同样走 primary */
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox-indeterminate:not(.ant-checkbox-disabled) {
+  border-color: var(--qc-primary);
+}
+
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox-indeterminate:not(.ant-checkbox-disabled)::after {
+  background: var(--qc-primary);
+}
+
+/* ---- Radio（§6.19：盒 14px；选中 = primary 实心圆 + 白点，token colorPrimary 已对齐） ----
+  几何由 token（fontSizeLG→14）承担；选中底钉 token，避免任何派生蓝 */
+.ant-radio-wrapper .ant-radio.ant-radio-checked:not(.ant-radio-disabled) {
+  background: var(--qc-primary);
+  border-color: var(--qc-primary);
+}
+
+/* ---- Switch（§6.19：轨道 28×16、滑块 12 —— 即 antd small 几何，全站统一到小号） ----
+   antd v6 组件几何全部走 --ant-switch-* 变量（定义在 .css-var-*.ant-switch，(0,2,0)），
+   用 button.x.x (0,2,1) 元素锚点覆盖变量本身，内边距/滑块位移 calc 自动跟随 */
+button.ant-switch.ant-switch {
+  --ant-switch-track-height: 16px;
+  --ant-switch-track-min-width: 28px;
+  --ant-switch-handle-size: 12px;
+  --ant-switch-inner-min-margin: 6px;
+  --ant-switch-inner-max-margin: 18px;
+}
+
+/* ---- Radio.Group optionType="button"（§6.9 归一：与 .seg 同壳） ----
+   容器用 :has 区分按钮组与 plain 组：按钮组才有 §6.9 外壳；:has 不支持时优雅退化为 antd 原生 */
+.ant-radio-group:has(.ant-radio-button-wrapper) {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--qc-border);
+  border-radius: 8px;
+  background: var(--qc-surface);
+}
+
+/* 内钮：24px / 0 12px / 6px；无框无负 margin，字号 12 次级文本色 */
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper {
+  height: 24px;
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  line-height: 22px;
+  color: var(--qc-text-secondary);
+  font-size: 12px;
+  transition: color var(--duration-qc-base) ease-out, background-color var(--duration-qc-base) ease-out;
+}
+
+/* 相邻分隔线伪元素与 -1px 负 margin 在分块外壳下都不要 */
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper::before {
+  display: none;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:not(:last-child) {
+  margin-inline-end: 0;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:first-child {
+  border-start-start-radius: 6px;
+  border-end-start-radius: 6px;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:last-child {
+  border-start-end-radius: 6px;
+  border-end-end-radius: 6px;
+}
+
+/* hover / 选中 / 禁用 */
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
+  color: var(--qc-text);
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  border: none;
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+/* buttonStyle="solid" 只在选中色上和 outline 有差（antd (0,4,0) 实心橙）——§6.9 归一为同一 tint */
+.ant-radio-group.ant-radio-group-solid .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  border: none;
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-disabled {
+  border: none;
+  background: transparent;
+  color: var(--qc-text-quaternary);
+  cursor: not-allowed;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-checked.ant-radio-button-wrapper-disabled {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  color: var(--qc-text-quaternary);
+  font-weight: 600;
+  cursor: not-allowed;
+}
+
+/* 键盘可达：输入本体 0×0，焦点环补在 wrapper（antd :has 聚焦描边走 token primary，跟随本节不另改） */
+
+/* ---- §6.20 多选胶囊 .qc-pick（映射 demo .pick，qc-prototype-demo 661-666）----
+   「标的（可多选）」「依赖因子」等自绘多选组的标准原语；承载元素 <button type="button">，
+   选中态业务侧加 .on，内部 <span class="ck">✓</span> 仅选中时显示。
+   与 .qc-ichip（筛选胶囊）/ §6.2 徽章 .chip 语义不同，类名不通用。无 antd 对应组件，
+   全自有类无特异性之争；键盘焦点环走 §9 全局 focus-visible（button 原生可聚焦）。 */
+.qc-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.qc-pick:hover {
+  color: var(--qc-text);
+}
+
+.qc-pick .ck {
+  display: none;
+  color: var(--qc-primary);
+  font-weight: 700;
+}
+
+.qc-pick.on {
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+  color: var(--qc-text);
+}
+
+.qc-pick.on .ck {
+  display: inline;
 }
 
 /* ---- §6.11 弹窗 chrome（560/14px 圆角/bd 边/遮罩 44%+blur，head 15/18 标题 14.5/700，body 15/18） ----

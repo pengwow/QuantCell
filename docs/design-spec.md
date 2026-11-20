@@ -287,12 +287,15 @@ font-variant-numeric: tabular-nums;
 
 - 容器：`inline-flex; border:1px solid var(--bd); border-radius:8px; padding:2px; gap:2px; background:var(--bgc);`
 - 内钮：`height:24px; padding:0 12px; border-radius:6px; font-size:12px;` 选中：`primary 12%` 底 + 主色字 600。
+- 禁用态：整组不可点时字色降 `fg-4` 且 `cursor:not-allowed`；**选中项保留 `primary 8%` 底**（要能读出「当前值是什么」），但主色字随禁用降为 `fg-4` —— 禁止把禁用选中态画成与可点选中态相同的主色胶囊。
+- **全站口径（antd 适配）**：antd `Segmented` 与 `Radio.Group optionType="button"` 一律落到本节（后者含 `buttonStyle="solid"`——实心主色变体归一为同一 tint 口径，与 demo `.seg` 侧重合）。实现只允许在 `global.css` 全局收口，页面不得为对齐本节加钩子类；`sm` 尺寸不另设档（内钮恒 24px）。
 
 ### 6.10 输入 / Select / Textarea
 
 - 高 32px、`border-radius:8px`、`border:1px solid var(--bd)`、`background:var(--bgc)`、字号 12-12.5px、`padding:0 11px`。
 - 字段 label：mono 11px `fg-4` + `letter-spacing:.02em`。
-- focus-visible：`outline:2px solid var(--info); outline-offset:2px`（全局统一，不另设边框变色）。
+- **focus 环（基础组件层修订，覆盖本节最初的「outline info、不变边框」口径）**：`border-color: primary` + `box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent)`，适用于 Input / InputNumber / Textarea / Select / DatePicker 的聚焦态；非表单控件的键盘焦点环仍走 §9 的 info outline。复合控件（affix wrapper、picker、input-number、select）的环画在容器上，内部原生 input 不再叠加。
+- Textarea 例外：`font-size:12px; line-height:1.6; padding:9px 11px`，高度按 rows/autoSize，不设全局 min-height。
 
 ### 6.11 弹窗 `.modal`
 
@@ -349,6 +352,25 @@ font-variant-numeric: tabular-nums;
 - body：16px 内边距（antd 默认 24px 过宽，13px 密度体系下收窄），可滚动；内部列表/表格沿用 §6.5 密度。
 - 宽度按内容定，写进各页验收项：因子详情 68vw、模型详情 520px、其余以「不挤压主视图」为准。
 - ESC / 点遮罩 / ✕ 关闭；打开时焦点入面板，关闭后回到触发控件。
+
+### 6.19 表单控件（Radio / Checkbox / Switch —— demo 无静态稿）
+
+demo 没有这三类控件的静态稿；本节口径来自 §2.2 token + 13px 密度推演，**`check-spec.mjs` 不做 demo 断言**，其实现一致性断言直指 `global.css`。实现统一收口在 `global.css`（antd v6 的组件几何走 `--ant-*` 变量，覆盖用 `元素.类.类` 级特异性），页面不得为对齐本节加钩子类。
+
+- **Checkbox**：盒 `14×14; border-radius:4px`（antd v6 盒直接渲染在 `.ant-checkbox` 上，勾选符号按盒尺寸百分比缩放）；悬停边框/选中底 = `primary`，勾选符号 `--on-primary`；禁用态文字与点 = `fg-4`。表格 `rowSelection` 复选框（含表头全选/半选）同源，尺寸与 34px 行高协调；半选指示 = primary。
+- **Radio**：盒 14px（跟随 antd `fontSizeLG`），未选中 `bgc` 底 + `bd` 边；选中 = `primary` 实心圆 + 浅色点；禁用态 `fg-4`。
+- **Switch**：全站统一到 antd small 几何——轨道 `28×16`（全圆）、滑块 `12`、`trackPadding 2`；未选中轨道 = `fg-4`、选中轨道 = `primary`；带文字的变体压缩到同一几何（文字让位于滑块）。
+- **间距**：radio/checkbox 与文本基线对齐（`alignSelf:center`），行内并列间距 6px（`margin-inline-end` 归零后的 gap 由布局层承担）。
+- **键盘可达**：原生 input 均为 0×0 透明层，焦点时由宿主元素补 2px 环（表单控件聚焦走 §6.10 的 primary 环；Segmented/Radio.Button 的宿主环为 info outline），不得出现无焦点指示的纯透明输入。
+
+### 6.20 多选胶囊 `.qc-pick`
+
+「标的（可多选）」「依赖因子」这类自绘多选组的标准原语（demo `.pick`）。承载元素统一为 `<button type="button">`，选中态由业务逻辑加 `.on`，内部勾号 `<span class="ck">✓</span>` 仅选中时显示。自有原语、不挂 antd，键盘焦点环走 §9 的 info outline（button 原生可聚焦）。
+
+- 基础：`inline-flex; align-items:center; gap:5px; height:26px; padding:0 10px; border-radius:13px; border:1px solid var(--bd); background:var(--bgc); color:var(--fg-2); font:inherit; font-size:11.5px; cursor:pointer`。
+- hover：文字转 `--fg`，不换底不抬框（多选组强调即时反馈，密度高于按钮级 hover）。
+- 选中 `.on`：`border-color: color-mix(in srgb, var(--primary) 45%, transparent)`、`background: color-mix(in srgb, var(--primary) 8%, transparent)`、文字 `--fg`；勾号 primary、700。
+- 与 `.qc-ichip` / `.qc-chip` 的区别：`.qc-chip` 是 §6.2 徽章（状态/计数语义，tint 公式着色，无交互）；`.qc-ichip` 是筛选胶囊（回显当前过滤值，点击即清除，属工具栏零件）；`.qc-pick` 是表单里可点选的「值本身」。三者外观相近但语义互斥，类名不通用，页面不得混用。
 
 ---
 

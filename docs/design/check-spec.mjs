@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const dir = dirname(fileURLToPath(import.meta.url));
 const demo = readFileSync(join(dir, 'qc-prototype-demo.html'), 'utf8');
 const spec = readFileSync(join(dir, '..', 'design-spec.md'), 'utf8');
+const impl = readFileSync(join(dir, '..', '..', 'frontend', 'src', 'global.css'), 'utf8');
 
 let fail = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) fail++; };
@@ -97,6 +98,40 @@ for (const [label, demoNeedle, specNeedle] of editorTokens) {
 // 旧近似值（手写 <pre> 时代）不得回流
 for (const stale of ['#8a9199', '#d19a66', 'background:#181818']) {
   ok(!demo.includes(stale), `编辑器色 demo 无旧值 ${stale}`);
+}
+
+/* ---------- 6. 基础组件层实现一致性（§6.9 / §6.10 修订 / §6.19） ----------
+   §6.19 三类控件 demo 无静态稿，不做 demo 断言；这里只查「spec 宣称的口径」与
+   frontend/src/global.css 的实现互相咬合（基础组件层收口在第 J 车道）。 */
+
+const pairs6919 = [
+  ['§6.9 内钮几何 24px/12px', 'height:24px; padding:0 12px', 'height: 24px;\n  margin: 0;\n  padding: 0 12px;'],
+  ['§6.9 选中底 primary 12%', 'primary 12%', 'color-mix(in srgb, var(--qc-primary) 12%, transparent)'],
+  ['§6.9 禁用选中态 primary 8% + fg-4', '选中项保留 `primary 8%` 底', 'ant-segmented-item-selected.ant-segmented-item-disabled'],
+  ['§6.10 focus 环 primary 20%', '0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent)', '0 0 0 3px color-mix(in srgb, var(--qc-primary) 20%, transparent)'],
+  ['§6.19 Switch 轨道 28×16', '轨道 `28×16`', '--ant-switch-track-height: 16px'],
+  ['§6.19 Switch 滑块 12', '滑块 `12`', '--ant-switch-handle-size: 12px'],
+  ['§6.19 Checkbox 盒 14×14 / 4px 圆角', '盒 `14×14; border-radius:4px`', 'border-radius: 4px'],
+  ['§6.19 Radio.Button 外壳经全局收口', '页面不得为对齐本节加钩子类', '.ant-radio-group:has(.ant-radio-button-wrapper)'],
+];
+
+// §6.20 多选胶囊：demo .pick 实存，可做 demo↔spec↔impl 三方咬合
+const pickDemoNeedles = ['height:26px; padding:0 10px; border-radius:13px', 'var(--primary) 45%, transparent', 'var(--primary) 8%, transparent'];
+for (const n of pickDemoNeedles) ok(demo.includes(n), `demo .pick ${n.split(';')[0].trim()}`);
+
+const pairs620 = [
+  ['§6.20 .qc-pick 几何 26/13/0-10', 'height:26px; padding:0 10px; border-radius:13px', 'height: 26px;\n  padding: 0 10px;\n  border-radius: 13px;'],
+  ['§6.20 .qc-pick 选中边 primary 45%', 'primary) 45%, transparent', 'color-mix(in srgb, var(--qc-primary) 45%, transparent)'],
+  ['§6.20 .qc-pick 选中底 primary 8%', 'primary) 8%, transparent', 'color-mix(in srgb, var(--qc-primary) 8%, transparent)'],
+  ['§6.20 与 ichip/chip 语义切割', '页面不得混用', '.qc-pick.on'],
+];
+for (const [label, specNeedle, cssNeedle] of pairs6919) {
+  ok(spec.includes(specNeedle), `规范 ${label}`);
+  ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
+}
+for (const [label, specNeedle, cssNeedle] of pairs620) {
+  ok(spec.includes(specNeedle), `规范 ${label}`);
+  ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
 }
 
 console.log(fail ? `\n✗ ${fail} 项不一致` : '\n✓ 规范与 demo 完全一致');
