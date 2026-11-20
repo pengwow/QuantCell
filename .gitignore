@@ -131,3 +131,6 @@ site/
 
 # desktop 本地构建 CLI(tauri build 不再依赖 bunx 联网解析)
 desktop/node_modules/
+
+# PyInstaller onedir 产物（构建脚本生成，不入库）
+desktop/src-tauri/binaries/backend/
