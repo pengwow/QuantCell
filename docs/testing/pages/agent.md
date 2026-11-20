@@ -22,9 +22,13 @@
 | AG9 | 切到`审计`页签 | 发出 `GET /api/v1/agent/audit`；空数据显示`暂无工具调用审计（工具一旦被调用即落库）`，有数据按时间倒序列表 | L2 |
 | AG10 | 切到`事件与拥挤`页签 | 显示占位文案`事件与拥挤指标将在接入后展示`（该模块未接后端，属如实空态） | L2 |
 | AG11 | 打开会话历史抽屉，点`新会话` | 发出 `POST /api/v1/agent/sessions` 并提示`新会话已创建`；会话名形如`会话 <时间>`，URL 与当前会话同步 | L2（写操作，结束后可删除该会话） |
-| AG12 | 在输入框发送一句话 | 发出 `POST /api/v1/agent/chat/stream`（SSE，HTTP 200 流），气泡逐步渲染`AI 正在思考...`/思考过程；失败以错误气泡呈现可读文案。**真实调用消耗 LLM 配额，默认跳过** | 按需（真实 LLM 配额） |
-| AG13 | 在`自迭代`页签点`开始训练` | 提交后台训练任务并出现 `训练中`/`排队中` 等阶段文案 | 按需（消耗算力，且需已选 Worker/模型） |
+| AG12 | 在输入框发送一句话 | 发出 `POST /api/v1/agent/chat/stream`（SSE，HTTP 200 流），气泡逐步渲染`AI 正在思考...`/思考过程；轮内有工具调用时 AI 气泡头部出现`迭代 N/40`徽标（SSE `iteration_start` 逐轮推进，上限 40 熔断）。失败以错误气泡呈现可读文案。**真实调用消耗 LLM 配额，默认跳过** | 按需（真实 LLM 配额） |
+| AG13 | 在`模型`页签选模型后提交训练 | 提交后台训练任务并出现 `训练中`/`排队中` 等阶段文案（`TrainPanel` 挂在模型页签，不在自迭代页签） | 按需（消耗算力，且需已选 Worker/模型） |
 | AG14 | 把 `agent_gateway` 能力关闭后直达 `/agent` | 渲染 403 页：标题`功能未开启`，副标题含 `agent_gateway`；侧边菜单也不出现该入口 | L2（环境配置分支） |
+| AG15 | 切到`自迭代`页签 | 发出 `GET /api/v1/agent/memory` 与 `GET /api/v1/agent/loop-status`（并行加载、各自失败只在该卡显示重试，不整卡报错）；四卡骨架齐全：`迭代足迹`/`记忆自迭代（Dream）`/`每日闭环时钟线`/`重训台账` | L2 |
+| AG16 | 观察`记忆自迭代（Dream）`卡 | 总闸 chip 与 `QUANTCELL_AGENT_DREAM` 实际值一致；MEMORY.md 只读渲染；`已整合 x/y` 进度（x=模型下游 `.dream_cursor`，y=history.jsonl 行数）；`上次运行`三态如实（无记录`重启后尚未运行`/no-op 灰/失败红可展开 detail）；`下次运行：每日 04:00`；底部注明`Dream 只整理记忆，不会替你执行交易` | L2 |
+| AG17 | 观察`每日闭环时钟线`卡 | 四行 job 与 `core/scheduler.py` 挂载一致（03:30 OOS 审计 / 03:35 每日复盘 / 03:40 自动重训 / 04:00 Dream）；总闸环境变量未开时该行显示`已关闭（总闸未开）`灰点而非红失败；行可点开展开 last_run 详情/错误 | L2 |
+| AG18 | 观察`重训台账`卡 | 双闸 chip 与 `QUANTCELL_AUTO_RETRAIN`/`QUANTCELL_AUTO_PROMOTE` 实际值一致；任一关闭时出现警示条「模型不会自动更换——终点为晋升待审，需人工审核」；空表显示`暂无重训台账记录`并注明 shadow 对照为回测替代口径（已知降级项）。**默认部署双闸全关，`已关闭`是正确断言不是缺陷** | L2 |
 
 ## 历史雷区
 - **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`
@@ -36,3 +40,7 @@
 - **能力关闭即 403**：`agent_gateway` 关闭时菜单隐藏且直达 URL 被 `CapabilityGuard` 拦成`功能未开启`。见到该文案先查 `GET /api/v1/capabilities`，别按前端 bug 追
 - **删除会话需手输确认词**：删除弹窗要求输入`确认删除`才能点确认，自动化误点会被卡在弹窗；L2 收尾清理会话时优先走 API 或直接跳过
 - **SSE 错误不是 HTTP 错误码**：聊天失败在 200 流内以 error 事件返回（气泡标记错误），按状态码断言会误判成功
+- **迭代事件一轮双发**：一条回复的 SSE 流里 `iteration_start`/`complete` 各出现两次（routes 与 loop 各发一波），前端以最后到达为准渲染徽标；自动化断言徽标数值时勿假定事件只发一次
+- **Workbench Tab 内容超视口被裁剪（已修，`8adde8a8`）**：`.agent-work-col` 是 `overflow:hidden` 列而 `.wb-tabs` 高度传导断裂，content-holder 的 `overflow-y:auto` 从未生效，所有 Tab 一起只露首屏。断言方式：content-holder `clientHeight < scrollHeight` 且 `scrollTop` 可推进
+- **i18n 占位符泄漏（已修，`c4766c7e`）**：`selfloop_cursor` 曾把 `{{processed}}/{{total}}` 原样上屏（key 是插值版、调用处按纯 label 渲染）。断言：自迭代 Tab 文本不得包含 `{{`；改 key 文案形态时插值参数与调用必须同时改
+- **Dream 心跳依赖后端进程活过 04:00**：两次平台级重启（11-18/11-19）都撞掉 04:00 调度载体。C/B 卡显示`重启后尚未运行`属预期，不是缺陷；总闸 `QUANTCELL_AGENT_DREAM` 未开时 Dream 行显示`已关闭（总闸未开）`
