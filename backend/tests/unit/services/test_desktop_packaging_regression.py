@@ -108,6 +108,103 @@ def test_add_missing_columns_skips_unsupported_dialect():
         add_missing_columns_from_models(session, "postgresql")  # 不应抛
 
 
+def test_add_missing_columns_renders_function_default_as_sql(monkeypatch, tmp_path):
+    """补列时 server_default=func.now() 必须渲染成 SQL，不能变成字符串 'now()'。
+
+    2026-11-20 实录：旧实现把 Function 默认值当值加引号 → `DEFAULT 'now()'`，
+    该表任何 INSERT 都把字面量 "now()" 写进 DATETIME 列，SQLAlchemy 读回抛
+    `Invalid isoformat string: 'now()'`，整条写入静默失败
+    （indicator_versions 六条指标、零个版本快照，指标保存从不产生快照）。
+    """
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import add_missing_columns_from_models
+
+    monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))
+    eng = create_engine(f"sqlite:///{tmp_path / 'legacy_default.db'}")
+    with eng.begin() as conn:
+        # 旧版 indicator_versions：缺 updated_at（走通用补列通道）
+        conn.execute(
+            text(
+                "CREATE TABLE indicator_versions ("
+                "id INTEGER PRIMARY KEY, indicator_id INTEGER NOT NULL, "
+                "version_no INTEGER NOT NULL, name VARCHAR(100) DEFAULT '' NOT NULL, "
+                "description TEXT, code TEXT NOT NULL, "
+                "source VARCHAR(20) DEFAULT 'save' NOT NULL, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+            )
+        )
+
+    with Session(eng) as session:
+        add_missing_columns_from_models(session, "sqlite")
+        session.commit()
+
+    ddl = eng.connect().execute(text("SELECT sql FROM sqlite_master WHERE name='indicator_versions'")).scalar()
+    assert "DEFAULT 'now()'" not in ddl  # 不得再写字面量
+    assert "now()" not in ddl.replace("CURRENT_TIMESTAMP", "")
+
+    # 补列后的表必须可插入且能读回（旧实现此处抛 Invalid isoformat string）
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO indicator_versions (indicator_id, version_no, name, code) "
+                "VALUES (1, 1, 'x', 'def init(): pass')"
+            )
+        )
+        row = conn.execute(text("SELECT version_no, updated_at FROM indicator_versions")).fetchone()
+    assert row[0] == 1
+    assert row[1] is not None
+
+
+def test_repair_literal_now_defaults_rebuilds_and_keeps_rows(tmp_path):
+    """存量库里被写成字面量默认值的表要被重建，且行数据不丢、索引重建。"""
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import repair_literal_now_defaults
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'broken.db'}")
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE indicator_versions ("
+                "id INTEGER PRIMARY KEY, indicator_id INTEGER NOT NULL, "
+                "version_no INTEGER NOT NULL, code TEXT NOT NULL, "
+                "updated_at DATETIME DEFAULT 'now()')"
+            )
+        )
+        conn.execute(text("CREATE INDEX ix_iv_indicator ON indicator_versions(indicator_id)"))
+        # 畸形表仍能插入（显式给 updated_at 就不触发默认值）
+        conn.execute(
+            text(
+                "INSERT INTO indicator_versions (id, indicator_id, version_no, code, updated_at) VALUES (1, 7, 2, 'x', '2026-01-01 00:00:00')"
+            )
+        )
+
+    with Session(eng) as session:
+        repair_literal_now_defaults(session, "sqlite")
+        session.commit()
+        repair_literal_now_defaults(session, "sqlite")  # 幂等
+        session.commit()
+
+    with eng.begin() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='indicator_versions'")).scalar()
+        assert "DEFAULT 'now()'" not in ddl
+        rows = conn.execute(text("SELECT id, indicator_id, version_no FROM indicator_versions")).fetchall()
+        assert rows == [(1, 7, 2)]  # 行数据保留
+        idx = {
+            r[0]
+            for r in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='indicator_versions'")
+            )
+        }
+        assert "ix_iv_indicator" in idx  # 索引重建
+        # 修复后依赖默认值的 INSERT 可用（旧实现此处失败）
+        conn.execute(text("INSERT INTO indicator_versions (id, indicator_id, version_no, code) VALUES (2, 7, 3, 'y')"))
+        assert conn.execute(text("SELECT updated_at FROM indicator_versions WHERE id=2")).scalar() is not None
+
+
 def _bare_request() -> object:
     """无 Authorization 头的最小 Request 替身（is_guest_user 只读 headers）。"""
 

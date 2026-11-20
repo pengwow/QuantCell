@@ -38,6 +38,9 @@ def add_missing_columns_from_models(session: Session, db_type: str) -> None:
     import agent.models
     import backtest.models
     import factor.models
+    import indicators.models  # 2026-11-20 实录：漏这一行，indicators/indicator_versions/
+
+    # indicator_alert_rules 三表整域不进 metadata，补列通道静默跳过（该域永远拿不到新列）
     import strategy.models
     from collector.db.database import Base
 
@@ -69,12 +72,7 @@ def add_missing_columns_from_models(session: Session, db_type: str) -> None:
             coltype = col.type.compile(inspector.dialect)
             ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}'
             if col.server_default is not None:
-                default_sql = col.server_default.arg
-                # TextClause 已是 SQL 片段；裸字符串按值加引号
-                if hasattr(default_sql, "text"):
-                    ddl += f" DEFAULT {default_sql.text}"
-                else:
-                    ddl += f" DEFAULT '{str(default_sql).replace(chr(39), chr(39) * 2)}'"
+                ddl += f" DEFAULT {_render_server_default(col.server_default.arg, inspector.dialect)}"
             elif not col.nullable:
                 logger.warning(
                     f"add_missing_columns: {table.name}.{col.name} 为 NOT NULL 且无默认值，"
@@ -95,6 +93,78 @@ def add_missing_columns_from_models(session: Session, db_type: str) -> None:
 
     if added:
         logger.info(f"add_missing_columns: 共补齐 {added} 个缺失列")
+
+
+def _render_server_default(default_arg: object, dialect) -> str:
+    """把模型的 server_default 渲染成可拼进 ALTER TABLE 的 SQL 片段。
+
+    2026-11-20 实录：原实现把 TextClause 当 SQL、其余一律加引号，于是
+    `server_default=func.now()`（Function，不是 TextClause）被写成
+    `DEFAULT 'now()'` —— 一个字面量字符串。SQLite 照单全收，此后该表任何
+    INSERT 都把 "now()" 填进 DATETIME 列，SQLAlchemy 读回时抛
+    `Invalid isoformat string: 'now()'`，整条写入静默失败
+    （indicator_versions 因此六条指标、零个版本快照）。
+
+    修正：任何 ColumnElement（text()/func.*/常量表达式）交方言编译
+    （sqlite 下 func.now() → CURRENT_TIMESTAMP），裸标量才当值加引号。
+    """
+    from sqlalchemy.sql.elements import ClauseElement
+
+    if isinstance(default_arg, ClauseElement):
+        return str(default_arg.compile(dialect=dialect))
+    return "'" + str(default_arg).replace("'", "''") + "'"
+
+
+def repair_literal_now_defaults(session: Session, db_type: str) -> None:
+    """修复补列通道旧实现留下的 `DEFAULT 'now()'` 字面量默认值（存量库）。
+
+    症状：该表任何 INSERT 都把字符串 "now()" 写进 DATETIME 列，SQLAlchemy
+    读回抛 `Invalid isoformat string: 'now()'`，整条写入失败 —— 调用方通常
+    只看到"保存成功但查不到"（indicator_versions 版本快照即此）。
+
+    SQLite 不能改列默认值，只能重建表：复用 sqlite_master 里的原建表语句，
+    把字面量换成 CURRENT_TIMESTAMP 建同构临时表 → 整表 COPY → 删原表 →
+    改名 → 重建索引。行数据（若有）原样保留。
+
+    ponytail: 天花板=只处理 sqlite，且只认 "DEFAULT 'now()'" 这一种畸形；
+    将来若发现别的函数默认值被误引号化，往同一替换表里加一条即可。
+    """
+    if db_type != "sqlite":
+        return
+    broken = "DEFAULT 'now()'"
+    tables = session.execute(
+        text("SELECT name, sql FROM sqlite_master WHERE type='table' AND sql LIKE :pat"),
+        {"pat": "%DEFAULT 'now()'%"},
+    ).fetchall()
+    for name, ddl in tables:
+        if not ddl or broken not in ddl:
+            continue
+        # 索引 SQL 先留档：DROP TABLE 会连带删掉它们，改名后按原文重建
+        index_sql = [
+            row[0]
+            for row in session.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=:t AND sql IS NOT NULL"),
+                {"t": name},
+            ).fetchall()
+        ]
+        tmp = f"{name}__nowfix"
+        fixed = ddl.replace(broken, "DEFAULT CURRENT_TIMESTAMP")
+        # 只换建表语句里的表名（首个），避免列名/约束名误伤
+        quoted, bare = f'"{name}"', f"CREATE TABLE {name} "
+        session.execute(text(f'DROP TABLE IF EXISTS "{tmp}"'))
+        session.execute(
+            text(
+                fixed.replace(quoted, f'"{tmp}"', 1)
+                if quoted in fixed
+                else fixed.replace(bare, f'CREATE TABLE "{tmp}" ', 1)
+            )
+        )
+        session.execute(text(f'INSERT INTO "{tmp}" SELECT * FROM "{name}"'))
+        session.execute(text(f'DROP TABLE "{name}"'))
+        session.execute(text(f'ALTER TABLE "{tmp}" RENAME TO "{name}"'))
+        for sql in index_sql:
+            session.execute(text(sql))
+        logger.warning(f"repair_literal_now_defaults: 重建 {name}（DEFAULT 'now()' → CURRENT_TIMESTAMP）")
 
 
 def update_data_pools_table(session: Session, db_type: str) -> None:
@@ -1238,6 +1308,10 @@ def run_migrations() -> None:
 
             # 通用兜底：对照模型补齐遗漏的加列型迁移（桌面实录：owner_id 漏迁）
             add_missing_columns_from_models(session, db_type)
+
+            # 补列通道旧实现把 func.now() 写成字符串默认值的表重建
+            # （否则 INSERT 全部失败：Invalid isoformat string: 'now()'）
+            repair_literal_now_defaults(session, db_type)
 
             # 提交所有更改
             session.commit()
