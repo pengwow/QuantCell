@@ -1,4 +1,4 @@
-import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 // locale 必须走 antd/es 深路径：antd v6 根路径 antd/locale/* 是 CJS 转发文件，
 // vite 依赖预打包做 CJS interop 时会产生双层 default 包装（实际传入 { default: {...} }），
 // 导致 ConfigProvider 下所有内置文案（分页"条/页"、日期选择器等）回退英文
@@ -19,7 +19,7 @@ import { RESEARCH_BUDGET_EXHAUSTED_STAGE, researchWsService } from './services/r
 import type { InboxNotificationItem } from './api';
 import { taskNotificationRoute } from './utils/taskRoutes';
 import { PluginProvider } from './plugins';
-import { applyThemeVars, paletteToTradingToken } from './theme';
+import { applyThemeVars, paletteToTradingToken, themeAlgorithm } from './theme';
 import './i18n/config';
 import './global.css';
 import './index.css';
@@ -33,7 +33,7 @@ import './index.css';
  * 树内 ConfigProvider 与 holderRender（静态 message/Modal）共用本函数，避免两处漂移。
  */
 const baseTheme = (mode: 'light' | 'dark') => ({
-  algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+  algorithm: themeAlgorithm(mode),
   token: {
     ...paletteToTradingToken(mode),
     fontSize: 13,

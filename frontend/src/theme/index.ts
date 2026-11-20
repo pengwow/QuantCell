@@ -7,6 +7,7 @@
  *
  * 三条渠道全部由 src/theme/palettes.ts 派生 —— 修改调色板一处，全站生效。
  */
+import { theme as antdTheme } from 'antd';
 import { resolveTheme } from './config';
 import type { ThemeMode, ThemePalette } from './types';
 
@@ -145,4 +146,33 @@ export function applyThemeVars(mode: ThemeMode): void {
   for (const [name, value] of Object.entries(getCssVars(mode))) {
     html.style.setProperty(name, value);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  渠道 ②辅助：antd 算法                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * antd 主题算法。darkAlgorithm 会拿 seed 主色**重新生成整套暗色调色板**
+ * （`#f97316` → `#d76516`），而 CSS 变量 `--qc-primary` 仍是 palette 值，
+ * 于是暗色下「antd 驱动的按钮/选中态」与「`.qc-*` 自绘原语」变成两种橙 —— 
+ * 违反 §2.2「品牌橙是唯一强调色」。在算法返回后把 primary 一族钉回 palette。
+ *
+ * 注意：只钉主色链路（基础/hover/active/边/底）；其余派生 token 仍用 antd 的，
+ * 它们不承担品牌色语义，改了反而与 antd 内部（如 hover 阴影）不一致。
+ */
+export function themeAlgorithm(mode: ThemeMode) {
+  const base = mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm;
+  const primary = activeTheme[mode].primary;
+  if (mode !== 'dark') return base;
+  return (seedToken: Parameters<typeof base>[0], mapToken?: Parameters<typeof base>[1]) => ({
+    ...base(seedToken, mapToken),
+    colorPrimary: primary,
+    colorPrimaryHover: `color-mix(in srgb, ${primary} 88%, white)`,
+    colorPrimaryActive: `color-mix(in srgb, ${primary} 84%, black)`,
+    colorPrimaryBorder: `color-mix(in srgb, ${primary} 45%, transparent)`,
+    colorPrimaryBorderHover: `color-mix(in srgb, ${primary} 60%, transparent)`,
+    colorPrimaryBg: `color-mix(in srgb, ${primary} 9%, transparent)`,
+    colorPrimaryBgHover: `color-mix(in srgb, ${primary} 14%, transparent)`,
+  });
 }

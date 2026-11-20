@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { paletteToTradingToken, getCssVars, getPalette } from './index';
+import { paletteToTradingToken, getCssVars, getPalette, themeAlgorithm } from './index';
 import { THEMES } from './palettes';
 import { ACTIVE_THEME_ID, resolveTheme } from './config';
 import { THEME_MODES, THEME_PALETTE_FIELDS, THEME_EFFECT_FIELDS, COLOR_RE } from './fields';
@@ -19,6 +19,25 @@ const src = (p: string) => readFileSync(fileURLToPath(new URL(p, import.meta.url
 
 const REQUIRED_FIELDS = THEME_PALETTE_FIELDS;
 const MODES: ThemeMode[] = THEME_MODES;
+
+describe('theme: antd 算法主色', () => {
+  // 暗色下 darkAlgorithm 会把 seed 主色重生成暗色调色板（#f97316 → #d76516），
+  // 导致 antd 按钮与 --qc-primary 出现两种橙。themeAlgorithm 必须把它钉回 palette。
+  it('暗色算法把 primary 一族钉回 palette 主色', () => {
+    const p = getPalette('dark');
+    const algo = themeAlgorithm('dark');
+    const out = algo({ colorPrimary: '#000000' } as never);
+    expect(out.colorPrimary).toBe(p.primary);
+    expect(String(out.colorPrimaryBg)).toContain('color-mix');
+    expect(out.colorPrimaryHover).not.toBe('#000000');
+  });
+
+  it('亮色仍直接使用 antd defaultAlgorithm（不介入派生）', () => {
+    const p = getPalette('light');
+    const out = themeAlgorithm('light')({ colorPrimary: p.primary } as never);
+    expect(out.colorPrimary).toBe(p.primary);
+  });
+});
 
 describe('theme: palettes.ts', () => {
   it('至少注册一个主题，且 ACTIVE_THEME_ID 指向已注册主题', () => {
