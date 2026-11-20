@@ -1,207 +1,404 @@
-/* 首页工作台样式：只放 Tailwind 不便表达的部分（网格背景、行 hover、状态点） */
+/* ============================================================
+   首页看板（/home）页面级样式 —— visual-spec §5/§6.3/§6.4/§6.5/
+   §6.13/§6.17 像素收口。全局原语（.qc-card/.qc-kpi/.qc-chip/
+   .qc-mini-btn/.qc-count-chip/.qc-empty）住在 global.css，这里只放
+   页面布局原语缺口；颜色一律 var(--qc-*) + color-mix tint，零 hex。
+   ============================================================ */
 
-.home-hero {
-  overflow: hidden;
-  border-radius: 12px;
+/* §5 画布网格：demo .home-grid 12 列 / gap 12 */
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
 }
 
-.home-hero__inner {
-  position: relative;
-  overflow: hidden;
+/* demo .col8/.col4/.col6 列跨度 */
+.home-col-8,
+.home-col-6,
+.home-col-4,
+.home-col-12 {
+  grid-column: span 12;
+  min-width: 0;
 }
 
-/* 低透明度网格，给品牌区一点“终端”质感，不抢内容 */
-.home-hero__grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--home-grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--home-grid-color) 1px, transparent 1px);
-  background-size: 24px 24px;
-  mask-image: radial-gradient(ellipse at 15% 0%, black 0%, transparent 72%);
-  pointer-events: none;
+.home-col-8 {
+  grid-column: span 8;
 }
 
-.home-hero__glow {
-  position: absolute;
-  top: -160px;
-  right: -80px;
-  width: 320px;
-  height: 320px;
-  border-radius: 9999px;
-  background: radial-gradient(circle, var(--home-accent-soft) 0%, transparent 70%);
-  pointer-events: none;
+.home-col-6 {
+  grid-column: span 6;
 }
 
-/* 次要文字：跟随 antd 主题 token，避免硬编码灰阶 */
-.home-muted {
-  color: var(--home-text-secondary);
+.home-col-4 {
+  grid-column: span 4;
 }
 
-/* 系统在线状态胶囊 */
-.home-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  border: 1px solid var(--home-border);
-  border-radius: 9999px;
-  font-size: 12px;
-  line-height: 18px;
+/* KPI 行占满整行（§6.4 四卡等宽网格由全局 .qc-kpi-grid 提供） */
+.home-grid > .qc-kpi-grid {
+  grid-column: 1 / -1;
 }
 
-.home-status__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: currentColor;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+.home-col-4 .ant-card-body,
+.home-col-6 .ant-card-body,
+.home-col-8 .ant-card-body,
+.home-col-12 .ant-card-body {
+  min-width: 0;
 }
 
-.home-status.is-online {
-  color: var(--home-positive);
-}
-
-.home-status.is-offline {
-  color: var(--home-negative);
-}
-
-/* KPI 数值：等宽数字，轮询刷新时不抖动 */
-.home-kpi__value {
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-
-.home-kpi__icon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  color: var(--home-accent);
-  background: var(--home-accent-soft);
-}
-
-/* 列表行：整行可点，hover 只做背景反馈 */
-.home-list {
+/* KPI 卡中的 15px 弱色图标（demo .kpi-ico：fg-4） */
+.home-kpi-ico {
   display: flex;
-  flex-direction: column;
+  flex: none;
+  color: var(--qc-text-quaternary);
 }
 
+.home-kpi-ico svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ---- 卡头右侧：count-chip + 「查看全部 →」链接（demo .head-right/.card-link） ---- */
+.home-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-cardlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--qc-info);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.home-cardlink svg {
+  width: 11px;
+  height: 11px;
+}
+
+.home-cardlink:hover {
+  text-decoration: underline;
+}
+
+/* ---- 行原语（demo .task-row 9px 2px / .mini-row 8px 2px；§6.5 密度） ----
+   首行无上边线，行 hover 走 fg 3% tint + 6px 圆角 */
 .home-row {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 8px;
+  min-width: 0;
+  padding: 9px 2px;
   border: none;
-  border-radius: 8px;
+  border-top: 1px solid var(--qc-border);
+  border-radius: 6px;
   background: transparent;
   color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
   transition: background-color 160ms ease-out;
 }
 
-.home-row + .home-row {
-  border-top: 1px solid var(--home-border);
+.home-row.home-row-mini {
+  gap: 9px;
+  padding: 8px 2px;
+}
+
+.home-row:first-child {
+  border-top: none;
 }
 
 .home-row:hover {
-  background: var(--home-hover);
+  background: color-mix(in srgb, var(--qc-text) 3%, transparent);
 }
 
 .home-row:focus-visible {
-  outline: 2px solid var(--home-accent);
-  outline-offset: 1px;
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
 }
 
-.home-num {
-  font-variant-numeric: tabular-nums;
+/* 任务行左列（demo .t-main/.t-sub） */
+.home-t-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
-/* 任务状态点 */
-.home-dot {
+.home-t-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--qc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-t-id {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 9999px;
-  background: var(--home-muted);
 }
 
-.home-dot[data-status='running'] {
-  background: var(--home-positive);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--home-positive) 18%, transparent);
+.home-t-sub {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.home-dot[data-status='error'] {
-  background: var(--home-negative);
-}
-
-.home-dot[data-status='starting'],
-.home-dot[data-status='stopping'] {
-  background: var(--home-warning);
-}
-
-/* 快捷入口 */
-.home-quick-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.home-quick {
+.home-t-right {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px;
-  border: 1px solid var(--home-border);
-  border-radius: 10px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 160ms ease-out,
-    background-color 160ms ease-out;
-}
-
-.home-quick:hover {
-  border-color: var(--home-accent);
-  background: var(--home-hover);
-}
-
-.home-quick:focus-visible {
-  outline: 2px solid var(--home-accent);
-  outline-offset: 1px;
-}
-
-.home-quick__icon {
-  display: inline-flex;
   flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  color: var(--home-accent);
-  background: var(--home-accent-soft);
 }
 
-@media (max-width: 480px) {
+.home-t-pnl {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qc-text);
+}
+
+.home-t-pnl.up {
+  color: var(--qc-success);
+}
+
+.home-t-pnl.down {
+  color: var(--qc-error);
+}
+
+.home-t-pnl.flat {
+  color: var(--qc-text-quaternary);
+}
+
+.home-t-dur {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+/* §6.2 mode-tag（实盘/模拟盘）：9.5px、3px 6px、全圆、bge 底 + bd-2 边；
+   live = primary 9% tint（demo 内联口径）、paper/testnet = info tint */
+.home-mode {
+  flex: none;
+  font-size: 9.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--qc-border-strong);
+  color: var(--qc-text-tertiary);
+  background: var(--qc-surface-raised);
+  white-space: nowrap;
+}
+
+.home-mode.live {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 42%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+}
+
+.home-mode.paper {
+  color: var(--qc-info);
+  border-color: color-mix(in srgb, var(--qc-info) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-info) 8%, transparent);
+}
+
+/* 迷你行（最近回测/研究，demo .mini-name/.mini-x/.mini-pnl） */
+.home-mini-name {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--qc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-mini-id {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--qc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-mini-x {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  flex: none;
+}
+
+.home-mini-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.home-mini-pnl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--qc-text);
+}
+
+.home-mini-pnl.up {
+  color: var(--qc-success);
+}
+
+.home-mini-pnl.down {
+  color: var(--qc-error);
+}
+
+.home-mini-pnl.flat {
+  color: var(--qc-text-quaternary);
+}
+
+/* ---- §6.17 系统状态行：8px 点 + 名称 12px fg-2 + 右值 mono 10.5 fg-4，行距 10px ----
+   spec §6.17 值色为 fg-4（demo 写的 fg-3），按规范以 spec 为准 */
+.home-sys {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.home-sys-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.home-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+}
+
+.home-dot.ok {
+  background: var(--qc-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-success) 16%, transparent);
+}
+
+.home-dot.warn {
+  background: var(--qc-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-warning) 16%, transparent);
+}
+
+.home-dot.down {
+  background: var(--qc-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-error) 16%, transparent);
+}
+
+.home-dot.off {
+  background: var(--qc-surface-raised);
+  border: 1.5px solid var(--qc-border-strong);
+  box-shadow: none;
+}
+
+.home-sys-name {
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-sys-val {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+}
+
+/* §6.3 card-foot：最后刷新时间（10.5px fg-4 + dashed 分线） */
+.home-foot {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+/* ---- 快速操作：qc-mini-btn 横排（图标 14px），3 列网格收紧到 2 列 ---- */
+.home-quick {
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.home-quick svg {
+  width: 14px;
+  height: 14px;
+  color: var(--qc-text-tertiary);
+}
+
+.home-quick:hover svg {
+  color: var(--qc-text);
+}
+
+.home-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* 图标态 mini-btn（刷新钮）：Tabler svg 尺寸压平到 14px */
+.qc-mini-btn.qc-icon-only svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- §6.13 骨架：bge 底 / 6px 圆角 / 无 shimmer ---- */
+.home-skel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 6px 2px;
+}
+
+.home-skel-line {
+  display: block;
+  border-radius: 6px;
+  background: var(--qc-surface-raised);
+}
+
+/* ---- 布局降档：≤1199 双列/三列收单列、KPI 网格交由全局 .qc-kpi-grid ---- */
+@media (max-width: 1199px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-col-8,
+  .home-col-6,
+  .home-col-4,
+  .home-col-12 {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 991px) {
   .home-quick-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-row,
-  .home-quick {
+  .home-row {
     transition: none;
   }
 }
