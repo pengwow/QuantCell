@@ -705,6 +705,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <CodeOutlined />

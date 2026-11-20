@@ -171,7 +171,7 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
         onCancel={onClose}
         footer={null}
         width={640}
-        className="indicator-selector-modal"
+        className="qc-modal indicator-selector-modal"
         centered
       >
         <div className="indicator-selector-content">

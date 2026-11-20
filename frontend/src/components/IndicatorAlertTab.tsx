@@ -399,6 +399,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
       />
 
       <Modal
+        className="qc-modal"
         title={t('indicator.alertAddTitle')}
         open={modalOpen}
         onCancel={() => {
@@ -435,6 +436,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
         <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
         <Form
           form={form}
+          className="qc-form"
           layout="vertical"
           // 默认值对齐弹窗外层：规则名=当前指标名、交易对/周期=图表当前值；间隔默认 30 分钟
           initialValues={{

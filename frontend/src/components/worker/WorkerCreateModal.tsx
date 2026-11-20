@@ -448,6 +448,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <PlusOutlined />
@@ -473,6 +474,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     >
       <Form
         form={form}
+        className="qc-form"
         layout="vertical"
         initialValues={{
           market_type: 'futures',

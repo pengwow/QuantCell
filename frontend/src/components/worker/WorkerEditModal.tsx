@@ -690,6 +690,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <EditOutlined />
@@ -715,6 +716,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     >
       <Form
         form={form}
+        className="qc-form"
         layout="vertical"
       >
         {/* 基本信息 */}

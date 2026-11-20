@@ -742,7 +742,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       styles={{
         body: { padding: 0, maxHeight: height, overflow: 'hidden' },
       }}
-      className={className}
+      className={className ? `qc-modal ${className}` : 'qc-modal'}
     >
       <div className={`flex flex-col w-full ${bodyClassName}`} style={{ height }}>
         {/* 消息区 */}

@@ -494,6 +494,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <ShareAltOutlined />
@@ -506,7 +507,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       width={820}
       destroyOnHidden
     >
-      <Form layout="vertical">
+      <Form className="qc-form" layout="vertical">
         {/* 远端上传失败时给出非阻塞提示 */}
         {generatedUrl === '' && tokens.some((tk) => tk.remote_status === 'FAILED') && (
           <Alert

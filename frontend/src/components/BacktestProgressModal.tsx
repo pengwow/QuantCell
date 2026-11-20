@@ -277,6 +277,7 @@ const BacktestProgressModal = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={t('backtest_progress') || '回测进度'}
       open={visible}
       onCancel={onCancel}

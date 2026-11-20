@@ -120,6 +120,7 @@ const ChartSettingModal: React.FC<ChartSettingModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={t('chart.setting.title')}
       open={open}
       onCancel={onClose}

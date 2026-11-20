@@ -149,6 +149,7 @@ const IndicatorVersionHistory = ({ indicatorId, onRolledBack }: IndicatorVersion
 
       {/* 版本对比弹窗：Monaco DiffEditor 渲染两个快照的代码差异 */}
       <Modal
+        className="qc-modal"
         open={diffVersions !== null}
         title={
           diffVersions
