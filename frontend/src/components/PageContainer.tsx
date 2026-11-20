@@ -20,6 +20,8 @@ export interface PageContainerProps {
   title?: string;
   /** 副标（可选）：mono 11px 数据口径行（§5 page-sub） */
   subtitle?: string;
+  /** 标题右侧同位元素（可选）：demo 里的版本 chip 等，与标题同一基线、间距 10px */
+  titleExtra?: ReactNode;
   /** 右侧操作区（可选）：按钮组，gap 8px（§5 page-actions） */
   actions?: ReactNode;
   /** 返回回调（可选）。提供后在标题左侧渲染统一的返回箭头，详情页统一用此入口，不再各自画返回按钮 */
@@ -34,7 +36,7 @@ export interface PageContainerProps {
  * 叠加水平内边距（模拟 demo：app-body 12 + main 4 + page-head margin 2 ≈ 16px 视觉边距）。
  * 新页面请统一使用本容器。
  */
-const PageContainer = ({ children, title, subtitle, actions, onBack, className = '' }: PageContainerProps) => {
+const PageContainer = ({ children, title, subtitle, titleExtra, actions, onBack, className = '' }: PageContainerProps) => {
   const hasHead = Boolean(title || subtitle || actions || onBack);
 
   return (
@@ -52,7 +54,14 @@ const PageContainer = ({ children, title, subtitle, actions, onBack, className =
               />
             )}
             <div className="min-w-0">
-              {title && <h1 className="qc-page-title">{title}</h1>}
+              {titleExtra ? (
+                <div className="flex min-w-0 items-center gap-[10px]">
+                  {title && <h1 className="qc-page-title">{title}</h1>}
+                  {titleExtra}
+                </div>
+              ) : (
+                title && <h1 className="qc-page-title">{title}</h1>
+              )}
               {subtitle && <p className="qc-page-sub">{subtitle}</p>}
             </div>
           </div>

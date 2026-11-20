@@ -1246,6 +1246,114 @@ ul.qc-pagination li.ant-pagination-jump-next {
   }
 }
 
+/* ---- 详情页头部事实条（demo #view-sagent .ws-strip/.s-chip 的实现）----
+   谁在用：WorkerDetail.tsx 头部（周期/模式/资金/杠杆等中性事实）。
+   为什么不复用 .qc-chip：chip 是语义标签（tint 底 + 语义色字），而事实条是
+   「中性描边胶囊 + label + mono 真值」，不带语义方向，混用会冒充状态。 */
+.qc-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+
+.qc-strip-cap {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-strip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--qc-text-tertiary);
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 999px;
+}
+
+.qc-strip-item b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--qc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 终端日志面板（demo .fail-log 的 mono 10.5px/1.75 行高词法平面）----
+   谁在用：WorkerLogsPanel.tsx（worker 日志流，弹窗与详情页日志 tab 两处）。
+   为什么不复用 .qc-table/.qc-card：日志是只读滚动的词法平面（mono 小字 + 级别着色 +
+   独立滚动 chrome），按 demo 口径底色用 surface-muted 而非黑底，天然兼容亮暗主题。 */
+.qc-term {
+  display: flex;
+  flex-direction: column;
+  background: var(--qc-surface-muted);
+  /* 用 --qc-border 而不是 --qc-border-subtle：后者是图表轴用的实色灰（暗色下是
+     中灰实色），做面板外框在深底上是一圈发亮灰环，与 §6.3 卡片同口径才对。 */
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.qc-term-bar,
+.qc-term-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+  background: var(--qc-surface);
+}
+
+.qc-term-bar {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--qc-border);
+}
+
+.qc-term-foot {
+  border-top: 1px solid var(--qc-border);
+  color: var(--qc-text-quaternary);
+}
+
+.qc-term-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.75;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-term-ts {
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.qc-term-lv {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 15px;
+}
+
+.qc-term-lv-debug { color: var(--qc-text-quaternary); }
+.qc-term-lv-info { color: var(--qc-info); background: color-mix(in srgb, var(--qc-info) 12%, transparent); }
+.qc-term-lv-warn { color: var(--qc-warning); background: color-mix(in srgb, var(--qc-warning) 14%, transparent); }
+.qc-term-lv-error { color: var(--qc-error); background: color-mix(in srgb, var(--qc-error) 14%, transparent); }
+
+.qc-term-msg { color: var(--qc-text-secondary); word-break: break-all; }
+
 /* ---- §6.9 Segmented（全站收口，映射 demo .seg）----
    原实现依赖页面加 .qc-seg 类；基础组件层把这些约束升级为全局口径（页面无需挂钩子类）。
    容器：bd 边 8px 圆角 padding 2 gap 2、bgc 底；内钮：24px / 0 12px / 6px 圆角 / 12px；
