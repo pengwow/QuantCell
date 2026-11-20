@@ -1633,6 +1633,141 @@ button.ant-switch.ant-switch {
   font-weight: 650;
 }
 
+/* ============================================================
+   §6.12 Toast / Notification（design-spec §6.12）
+   demo（qc-prototype-demo 683-689）只有 .toast 一个原语；antd 有两个相近组件，裁决：
+   message（无标题、短文本、自动消失）= toast，从顶部居中挪到右下角按 demo 口径；
+   notification（标题+描述+常驻）≠ toast，保留右上角只做形制对齐（见下分节注释）。
+   特异性设计同 §6.9：antd v6 规则带 :where(css) 前缀（零成本）+ 类链，最深状态链
+   (0,5,0)（类型图标 / notification with-icon 标题），这里全部锚点链 + 双类压过一档、
+   不赌注入顺序（cssinjs <style> 注入在 global.css 的 <link> 之后）；唯一 !important
+   例外是 message 容器的 top/left/transform —— rc-notification 把这三个值写进
+   内联样式（useMessage getStyle），类选择器无论多高特异性都压不过内联，只有 !important 能赢。
+   ============================================================ */
+
+/* ---- 容器：顶部居中 → 右下 18px 网格；antd 的 width:100% + 居中变形在 flex-end
+   布局下失效叠加，收成 shrink-to-fit；z-index 跟随 antd（恒高于 modal），demo 的 99
+   是原型自有序号不搬；pointer-events:none antd 已有，不重复 ---- */
+.ant-message.ant-message {
+  right: 18px;
+  bottom: 18px;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* ---- 条目几何：antd 把 8px padding / text-align:center 放 wrapper、卡片参数放 content；
+   wrapper padding 清零（demo 间距全部交给容器 gap:8px），卡片 = content 盒，
+   参数按 demo .toast 行序逐条落（背景→边→左缘→圆角→阴影→内边距→字） ---- */
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper {
+  padding: 0;
+}
+
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content {
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-left: 3px solid var(--qc-primary);
+  border-radius: 9px;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.2);
+  padding: 9px 14px;
+  max-width: 340px;
+}
+
+/* 文本条：mono 11.5px 次级色（demo --fg-2 槽位 = --qc-text-secondary） */
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-custom-content {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--qc-text-secondary);
+}
+
+/* ---- 类型态：success/error/warning/info 的左缘条与图标走 qc 状态 token（loading 并入
+   info），杜绝 antd 默认绿/红。左缘要通高所以画在 content 盒上，用 :has 判型
+   （文件内 .ant-radio-group:has 先例）；:has 不支持时优雅退化回 primary 左缘 ---- */
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-success) { border-left-color: var(--qc-success); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-error) { border-left-color: var(--qc-error); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-warning) { border-left-color: var(--qc-warning); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-info) { border-left-color: var(--qc-info); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-loading) { border-left-color: var(--qc-info); }
+
+/* 图标：antd 默认 fontSizeLG(16px) 在 11.5px mono 系里过重，收到 14px（demo 无图标，
+   这是 antd 原语差异保留项）；颜色逐类型钉 token，压过 antd 的 (0,4,0) 类型色规则 */
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-custom-content > .anticon {
+  font-size: 14px;
+}
+
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-success > .anticon { color: var(--qc-success); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-error > .anticon { color: var(--qc-error); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-warning > .anticon { color: var(--qc-warning); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-info > .anticon { color: var(--qc-info); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-loading > .anticon { color: var(--qc-info); }
+
+/* ---- 动效（spec：入场 toastIn .2s，退出 fade 下坠 6px = demo .toast.out）。
+   antd 原生 move-up 关键帧带 padding 动画（为 antd 自家 wrapper 8px 间距服务），
+   与「wrapper padding:0 + 容器 gap:8」方案冲突（pad 0→8→0 的兄弟跳位），
+   在同名状态类上整体替换 animation——animationend 照常派发，rc-motion 生命周期
+   不受影响；退出 fill:forwards 把已播完的条目按住到卸载，防复现闪帧 ---- */
+@keyframes qc-toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes qc-toast-out {
+  to { opacity: 0; transform: translateY(6px); }
+}
+
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-appear,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-enter,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-appear-active,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-enter-active {
+  animation: qc-toast-in .2s cubic-bezier(.2, .9, .3, 1.2);
+}
+
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-leave,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-leave-active {
+  animation: qc-toast-out .24s ease forwards;
+}
+
+/* ---- §6.12 notification（≠ toast 的另一原语：标题+描述+常驻时长）----
+   位置保留右上角（antd/rc 默认 placement，不动）；仅形制对齐：面板 = notice-wrapper 盒，
+   card 底 + 1px bd 边 + radius 10 + card 阴影；标题 13px/650、描述 12px 次级；
+   面板右缘收到 toast 同一 18px 网格（antd 默认 24px 偏移），条目间距走 antd 默认。 */
+.ant-notification.ant-notification {
+  margin-right: 18px;
+}
+
+.ant-notification .ant-notification-notice-wrapper.ant-notification-notice-wrapper {
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  box-shadow: var(--qc-shadow-card);
+}
+
+/* v6 给带类型的 notice 设了 colorSuccessBg 系 tint 底（最深 (0,4,0)），锚链再抬一档压平 */
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice.ant-notification-notice.ant-notification-notice {
+  background: var(--qc-surface);
+}
+
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice.ant-notification-notice .ant-notification-notice-title.ant-notification-notice-title {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice.ant-notification-notice .ant-notification-notice-description.ant-notification-notice-description {
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+}
+
+/* 类型图标色钉 token（antd 规则带 .anticon 已 (0,5,0)，双写再抬一档） */
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-success.anticon.anticon { color: var(--qc-success); }
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-error.anticon.anticon { color: var(--qc-error); }
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-warning.anticon.anticon { color: var(--qc-warning); }
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-info.anticon.anticon { color: var(--qc-info); }
+
 /* 系统状态指示器 */
 .status-indicator {
   width: 8px;

@@ -304,10 +304,16 @@ font-variant-numeric: tabular-nums;
 - 结构：head（15/18px padding，标题 14.5/700，✕ 26×26）→ body（15/18px，gap 11px，可滚动）→ foot（右对齐按钮组）。
 - 打开时聚焦首个控件；ESC / 点遮罩 / ✕ 关闭。
 
-### 6.12 Toast `.toast`
+### 6.12 Toast `.toast`（antd 映射：message / notification）
 
-- 容器：`fixed; right:18px; bottom:18px; z-index:99; flex-column; gap:8px; pointer-events:none`。
-- 条目：`background:var(--card); border:1px solid var(--bd); border-left:3px solid var(--primary); border-radius:9px; box-shadow:0 10px 26px rgba(0,0,0,.2); padding:9px 14px; font-family:mono; font-size:11.5px; color:var(--fg-2); max-width:340px;` 入场 `toastIn .2s`；2.5s 自动消失；最多叠 3 条。
+demo 只有 `.toast` 一个原语；antd 有两个相近组件，全站裁决、无例外：
+
+- **message = toast**：从 antd 默认顶部居中**挪到右下角** —— 容器 `right:18px; bottom:18px`，flex 纵列 + `gap:8px`。antd 的条目 wrapper 自带 8px padding，保证 demo 间距恒为 8 的做法是 wrapper padding 清零、间距全部交给容器 gap。antd v6 容器的 top/left/transform 是 rc-notification 写进**内联样式**的，实现侧只能 `top/left:auto + transform:none` 加 `!important` 归位；z-index 跟随 antd（恒高于 modal），demo 的 99 是原型自有序号，不搬。
+- 卡片盒：`background:var(--qc-surface)（--card）; border:1px solid var(--bd); border-left:3px solid var(--primary); border-radius:9px; box-shadow:0 10px 26px rgba(0,0,0,.2); padding:9px 14px; mono 11.5px; color:var(--qc-text-secondary)（--fg-2）; max-width:340px`（mono 栈 = demo 同款 `ui-monospace, SFMono-Regular, Menlo, monospace`）。
+- 状态色：success/error/warning/info（loading 并入 info）的**左缘条与图标**一律 `--qc-success/--qc-error/--qc-warning/--qc-info`，禁止 antd 默认绿/红回流；左缘画在卡片盒上（`:has` 判型）保证通高，无类型态/降级态左缘保持 primary。
+- 动效：入场 `toastIn .2s cubic-bezier(.2,.9,.3,1.2)`（translateY 10px + fade，demo 逐值），退出 fade + 下坠 6px（demo `.out`）。antd 原生 move-up 关键帧含 padding 动画、与 gap:8 方案冲突，实现里在同名状态类上整体替换 animation。**时长语义不变**：demo 2.5s 自动消失 / 实现沿用调用点的 duration（未传时 antd 默认 3s），duration 走 JS 不在样式车道收口。「最多叠 3 条」是 demo 原型上限，**不搬**：antd 6.3 的 `ConfigProvider.message` 只剩 `classNames`/`styles`，v5 的 `maxCount` 已移除（实测 `message={{maxCount:3}}` 直接 TS2559 报错），只剩逐调用点传参；全站 379 个调用点不值得为此改，故录制为「demo 上限不实现」而非缺口。
+- **notification ≠ toast**（另一原语：标题+描述+常驻时长）：位置**保留右上角**，不进 toast 口径；仅形制对齐 —— 面板 `background:var(--qc-surface)`、`border:1px solid var(--bd)`、`border-radius:10px`、`box-shadow:var(--qc-shadow-card)`（压掉 antd v6 给带类型 notice 的 tint 底）、标题 13px/650、描述 12px `var(--qc-text-secondary)`、类型图标同上 4 token；面板右缘收 18px 与 toast 同网格（antd 默认 24px），条目间距走 antd 默认。
+- 实现统一收口在 `frontend/src/global.css` §6.12 段（特异性策略同 §6.9/§6.19：antd v6 `:where(css)` 前缀零成本 + 类链，全部锚点链+双类压过一档；message 容器三个内联位置值是唯一 `!important` 例外），页面不得为对齐本节加钩子类。
 
 ### 6.13 空态 / 骨架
 

@@ -4,6 +4,7 @@
 
 | 路由 | 功能区 | 文档 | 状态 | 层级 | 种子/前置 |
 |---|---|---|---|---|---|
+| —（无独立路由，挂任意已登录页） | 全站通用 chrome：toast / notification | `pages/common.md` | ✅ | L1 | 任一已登录页 |
 | `/login` | 登录注册 | `pages/login.md` | ✅ | L1+L2 | 无（守卫外；真实登录见文档 A4 条件式） |
 | `/home` | 首页看板 | `pages/home.md` | ✅ | L1 | token 注入 |
 | `/chart` | 行情图表 | `pages/chart.md` | ✅ | L1+L2 | token 注入；实时行情按需 |

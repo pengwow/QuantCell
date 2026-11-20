@@ -134,5 +134,38 @@ for (const [label, specNeedle, cssNeedle] of pairs620) {
   ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
 }
 
+/* ---------- 7. §6.12 Toast / notification 实现 ↔ 规范咬合 ----------
+   demo 有 .toast 静态稿，但 antd message ≠ demo DOM（content 盒嵌 custom-content），
+   断言直指 spec 宣称的取值 ↔ global.css 的落值（同 §6.9/§6.19 的 spec↔impl 双侧咬合）。 */
+
+const pairs612 = [
+  ['§6.12 message 容器右下 18/18', 'right:18px; bottom:18px', 'right: 18px;\n  bottom: 18px;'],
+  ['§6.12 容器纵列 + 间距 8', 'flex 纵列 + `gap:8px`', 'flex-direction: column;\n  align-items: flex-end;\n  gap: 8px;'],
+  ['§6.12 卡片盒 card 底 + bd 边 + 左缘 3px primary', 'background:var(--qc-surface)（--card）', 'background: var(--qc-surface);\n  border: 1px solid var(--qc-border);\n  border-left: 3px solid var(--qc-primary);'],
+  ['§6.12 卡片几何 9px 圆角/26px 阴影/9px 14px 内边距/340 上限', 'border-radius:9px; box-shadow:0 10px 26px rgba(0,0,0,.2); padding:9px 14px', 'border-radius: 9px;\n  box-shadow: 0 10px 26px rgb(0 0 0 / 0.2);\n  padding: 9px 14px;\n  max-width: 340px;'],
+  ['§6.12 文本 mono 11.5px 次级色', 'mono 11.5px; color:var(--qc-text-secondary)（--fg-2）', 'font-size: 11.5px;\n  color: var(--qc-text-secondary);'],
+  ['§6.12 入场动画 toastIn .2s（demo 缓动逐值）', 'toastIn .2s cubic-bezier(.2,.9,.3,1.2)', 'animation: qc-toast-in .2s cubic-bezier(.2, .9, .3, 1.2);'],
+  ['§6.12 notification 标题 13px/650', '标题 13px/650、描述 12px `var(--qc-text-secondary)`', 'font-size: 13px;\n  font-weight: 650;'],
+  ['§6.12 notification 描述 12px', '描述 12px `var(--qc-text-secondary)`', 'font-size: 12px;\n  color: var(--qc-text-secondary);'],
+];
+
+/* §6.12 状态色：spec 一句收录 4 个 token，左缘（:has 判型）与图标色在 global.css 逐一对应 */
+ok(spec.includes('--qc-success/--qc-error/--qc-warning/--qc-info'), '规范 §6.12 状态色 4 token 收录');
+for (const t of ['success', 'error', 'warning', 'info']) {
+  ok(impl.includes(`:has(> .ant-message-${t})`) && impl.includes(`.ant-message-custom-content.ant-message-${t} > .anticon`),
+    `实现 global.css §6.12 ${t} 状态色（左缘 + 图标）`);
+}
+
+/* notification 面板形制单独咬合（面板参数不在 pairs 通用循环里，字号项已上表） */
+ok(
+  impl.includes('background: var(--qc-surface);\n  border: 1px solid var(--qc-border);\n  border-radius: 10px;\n  box-shadow: var(--qc-shadow-card);'),
+  '实现 global.css §6.12 notification 面板形制（card 底/1px 边/10px 圆角/card 阴影）',
+);
+
+for (const [label, specNeedle, cssNeedle] of pairs612) {
+  ok(spec.includes(specNeedle), `规范 ${label}`);
+  ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
+}
+
 console.log(fail ? `\n✗ ${fail} 项不一致` : '\n✓ 规范与 demo 完全一致');
 process.exit(fail ? 1 : 0);
