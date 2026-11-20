@@ -117,7 +117,23 @@
 | S40 | 桌面壳（.app）中打开设置页 | 左侧菜单多出「桌面后端」项，点击后 `URL` 为 `/setting/desktop-backend`；页面卡片标题「桌面后端」，两个单选「本机后端（应用自启 sidecar，免登录）」「远程后端（走登录鉴权）」与「保存并切换」按钮可见 | L1（仅 .app） |
 | S41 | 浏览器链路直接访问 `/setting/desktop-backend` | 菜单无此入口但 URL 可达；卡片骨架渲染，状态标签显示「未知」/无「当前地址」（浏览器无 Tauri 桥，`invoke` 不可用）。**这不算失败**，如实记录；不要在浏览器上点「保存并切换」（会整页重载走引导） | L1 |
 
+## 设置模块视觉 token 收口（2026-11-20）
+
+| # | 操作 | 预期（可观测信号） | 层级 |
+|---|---|---|---|
+| V1 | 打开任意设置子页（general / exchange / model / notifications / env / agentTokens / info / plugins / account） | 内容区卡片均为 `qc-card` 规格（10px 圆角、`--qc-border` 边框、分节标题 13px/650）；`grep -rnE "text-gray-|bg-gray-|border-gray-|text-blue-|bg-blue-|text-green-|text-red-|bg-red-|bg-green-" frontend/src/pages/setting/*.tsx` 零命中；无 antd 彩色 `Tag color="blue/green/red"`（LogSettingsUnified 的目录筛选 CheckableTag 与插件 Badge 为 antd 主题 token，已接 qc 调色板，白名单） | L1 |
+| V2 | /setting/general 亮色下查看主题选择卡 | 选中项边框为品牌 primary + 同色 20% ring（非 antd 蓝）；未选中边框 `--qc-border`，hover 变 `--qc-border-strong`；勾选圆点用 primary 底 + `--qc-on-primary` 对勾 | L1 |
+| V3 | /setting/exchange 点「测试连接」看结果面板（未配 key 时只断言面板结构在「未测试」态） | 面板底色为 success/error 8% tint、文字为 `--qc-success`/`--qc-error`（DevTools 可 `getComputedStyle` 读 token）；逐项标签 网络连接/市场数据/WebSocket/API认证 为 `--qc-text-secondary`，「未测试」为 `--qc-text-quaternary`；`$` 前缀装饰为 `--qc-surface-raised` 底 + `--qc-border` 边（非 gray-*） | L2（真实探测外部依赖，按需） |
+| V4 | /setting/model 点「添加」打开弹窗 | 弹窗带 `qc-modal` chrome（14px 圆角/虚线分隔 footer）；确认按钮为主题 primary（非 `bg-gray-900` 黑）；「点击获取 API Key」链接为 `--qc-info`；输入框不加 size/圆角覆盖（global.css 基础层 32px 口径） | L1 |
+| V5 | /setting/notifications 启用渠道点「测试」（或只看结果面板出现条件） | 测试结果面板底色/文字同 V3 的 success/error 语义色；渠道启用开关在页头 actions 区 | L2 |
+| V6 | /setting/info 点「日志设置」打开抽屉 | 文件列表为 DataTable 规格（表头 10.5px、正文 12px、行高 ~45px、`.qc-pg-bar` 分页含每页条数切换）；类型/大小/日期为语义 chip（info/ok/warn/quiet）；选中汇总条为 info 8% tint；批量删除弹窗带 `qc-modal`、合计金额为 `--qc-error`、需勾选风险确认后「确认删除」才可点 | L1 |
+| V7 | /setting/info 页面本体 | 运行状态为语义 chip（运行中=ok）；CPU/内存/磁盘状态点颜色随使用率取 `--qc-success`/`--qc-warning`/`--qc-error`；Descriptions 标签列为 mono 11px 弱灰 kv 口径；系统日志终端区保持恒深色（§6.16 豁免，stone 底保留），但「刷新日志/加载更多」链接为 `--qc-info`、级别徽章为语义 chip | L1 |
+| V8 | 暗色模式重复 V1-V7 抽查（theme.test 守卫之外的手工面） | 无深灰文字压深底；tint/chip 在暗色下同样可读（token 自动降级）；控制台无新增未捕获错误 | L1 |
+
 ## 历史雷区
+- **设置模块视觉收口（2026-11-20，车道 O）**：`src/pages/setting/**` 全量替换 Tailwind 灰阶/语义色为 `--qc-*` token、Card→`qc-card`、页头接 `PageContainer`、日志页 antd Table→`DataTable`、全部弹窗加 `qc-modal`。回归点 V1-V8。注意三处：①交易所页 `$` 前缀装饰在 `Space.Compact` 里手拼内联边框（`--qc-surface-raised`+`--qc-border`），改 Input 组件样式会双线；②LogSettingsUnified 的日志文件表迁移到 DataTable 后，「每页 8/15/25」下拉被分页器自带的条数切换取代，行点击展开详情保留；③系统日志终端（SystemLogs）按 §6.16 豁免保留 stone 深色系，除链接蓝（`--qc-info`）与级别 chip 外 classify 不算违规。
+- **LogSettingsPanel 是薄壳不是独立页**：真正的日志设置 DOM 在 `/setting/info` 页「日志设置」按钮拉起的右侧 Drawer 里（内嵌 LogSettingsUnified），没有独立路由；`/setting/*` 路由表里找不到 log 路由属正常。
+- **Agent Token 页一次弹出两个 Modal**：签发表单与「签发成功明文展示」是两个 Modal，明文 qctk_ 只在第二个里出现一次，关闭后表格行状态正常但**明文不可再取**（S32 证据采集要在关闭前完成）。
 - **主题体系重构（2026-11-20，docs/theme.md）**：全部品牌色收编进 `frontend/src/theme/palettes.ts`（唯一真相源），antd/CSS/canvas 三渠道自动同步；`theme.test.ts` 守卫（global.css 零字面量等）。回归点：亮暗切换全站联动（T1）、暗色首帧不闪白（T2）。遗留待砍：backtest.css 里迁移前的 antd 蓝选中/悬浮底（`rgba(74,108,247,*)`/`rgba(24,144,255,*)`，与橙色品牌现已不一致——** anci 行为保留**，换 `--qc-primary` 属视觉变更需单独拍板）；backtest 进度弹窗的 tint/边框/渐变、`#faad14`、行高亮 `#fff7e6/#ffe7ba` 等五处不等值字面量集中待 palette 补槽位后二次迁移。
 - **ModelObsPanel 的 `var(--text-hint, #999)` 假变量（已修）**：该 CSS 变量从未定义，fallback 恒生效，形似语义化实为硬编码；已改接 `--qc-text-tertiary`。写 `var(--x, fallback)` 前先确认变量真的有人定义。
 - **启动横幅不再阻塞 + onedir 提速（2026-11-20 改）**：双管齐下。① 桌面引导改为**立即进 UI**，后端未就绪时各页以离线态渲染；后端 `/health` 就绪后自动整页刷新一次（`sessionStorage: qc_boot_reloaded_once` 防循环，手动重启场景靠"刷新后首探即健康则清标志"复用）。② sidecar 从 PyInstaller onefile 改 **onedir**（`binaries/backend/` 整目录 → `.app/Contents/Resources/backend/`，`backend.rs` 直启），免每次自解压 ~250MB；matplotlib 字体缓存钉持久目录。实测（Resource 后端直测）：旧 onefile 每次 45-70s → 新 **热启动 ~2.4s / 装后冷首启 ~15s（一次性）**；GUI 界面 <2s 可见。桌面验证回归点：冷启动 app 界面秒现；后端就绪后数据自动出现（热启 ~10s 内）；预热窗口内只一次自动刷新

@@ -4,7 +4,7 @@
  * 适用场景：前后端分离部署时，布局上不常驻用户菜单，用户相关功能收敛到系统设置中
  */
 import { useState } from 'react';
-import { App, Avatar, Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Space, Tag } from 'antd';
+import { App, Avatar, Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Space } from 'antd';
 import type { Rule } from 'antd/es/form';
 import { useTranslation } from 'react-i18next';
 import { IconLock, IconLogout, IconUser } from '@tabler/icons-react';
@@ -144,31 +144,31 @@ const AccountSettings = () => {
     // 后者依赖 margin-top，在 antd v5 CSS-in-JS 场景下会失效导致卡片紧贴
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
       {/* 账户信息：用户名/昵称/角色/ID，全部只读 */}
-      <Card title={t('account_info_title')}>
+      <Card className="qc-card" title={t('account_info_title')}>
         <div className="flex items-center gap-4">
           <Avatar size={56} icon={<IconUser size={28} />} />
-          <Descriptions column={1} size="small" className="flex-1">
+          <Descriptions column={1} size="small" className="flex-1" styles={{ label: { color: 'var(--qc-text-quaternary)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, letterSpacing: '.02em' }, content: { fontSize: 12 } }}>
             <Descriptions.Item label={t('username')}>{account.username}</Descriptions.Item>
             <Descriptions.Item label={t('account_nickname')}>{account.nickname || '-'}</Descriptions.Item>
             <Descriptions.Item label={t('account_role')}>
-              <Tag color={account.role === 'admin' ? 'red' : 'blue'}>
+              <span className={account.role === 'admin' ? 'qc-chip down' : 'qc-chip info'}>
                 {ROLE_LABEL_KEYS[account.role] ? t(ROLE_LABEL_KEYS[account.role]) : account.role}
-              </Tag>
+              </span>
             </Descriptions.Item>
             <Descriptions.Item label={t('account_user_id')}>{account.userId}</Descriptions.Item>
             <Descriptions.Item label={t('account_type')}>
-              {account.isGuest ? <Tag>{t('account_guest')}</Tag> : <Tag color="green">{t('account_registered_user')}</Tag>}
+              {account.isGuest ? <span className="qc-chip quiet">{t('account_guest')}</span> : <span className="qc-chip ok">{t('account_registered_user')}</span>}
             </Descriptions.Item>
           </Descriptions>
         </div>
       </Card>
 
       {/* 修改密码：入口按钮 + Modal 弹窗（账户安全类操作的业内标准交互） */}
-      <Card title={t('account_security_title')}>
+      <Card className="qc-card" title={t('account_security_title')}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <span className="text-sm font-medium">{t('account_login_password')}</span>
-            <span className="text-sm text-gray-500 dark:text-gray-400">
+            <span className="text-sm" style={{ color: 'var(--qc-text-secondary)' }}>
               {t('account_security_hint')}
             </span>
           </div>
@@ -184,6 +184,7 @@ const AccountSettings = () => {
 
       {/* 修改密码弹窗 */}
       <Modal
+        className="qc-modal"
         title={t('account_change_password')}
         open={pwdModalOpen}
         onOk={handleChangePassword}
@@ -228,9 +229,9 @@ const AccountSettings = () => {
       </Modal>
 
       {/* 注销登录 */}
-      <Card title={t('account_logout')}>
+      <Card className="qc-card" title={t('account_logout')}>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="text-sm" style={{ color: 'var(--qc-text-secondary)' }}>
             {t('account_logout_hint')}
           </span>
           <Popconfirm

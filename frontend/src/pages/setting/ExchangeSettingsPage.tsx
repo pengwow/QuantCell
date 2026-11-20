@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import { configApi, exchangeApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
+import PageContainer from "@/components/PageContainer";
 // @web3icons/react 交易所图标
 import {
   ExchangeBinance,
@@ -337,10 +338,10 @@ const ExchangeSettingsPage = () => {
         title: t('live_mode_warning_title'),
         content: (
           <div className="py-2">
-            <p className="text-gray-500 text-sm mb-3">
+            <p className="mb-3 text-sm" style={{ color: 'var(--qc-text-secondary)' }}>
               {t('live_mode_warning_desc')}
             </p>
-            <ul className="text-gray-500 text-sm list-disc pl-4 space-y-1">
+            <ul className="list-disc space-y-1 pl-4 text-sm" style={{ color: 'var(--qc-text-secondary)' }}>
               <li>{t('live_mode_warning_item1')}</li>
               <li>{t('live_mode_warning_item2')}</li>
               <li>{t('live_mode_warning_item3')}</li>
@@ -517,18 +518,19 @@ const ExchangeSettingsPage = () => {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* 左侧交易所列表 */}
           <div className="w-full lg:w-64 flex-shrink-0">
-            <div className="text-base font-medium mb-4 leading-8 h-8">{t("exchange_list")}</div>
-            <Card className="shadow-sm" styles={{ body: { padding: 8 } }}>
+            <div className="h-8 leading-8 mb-4 font-[650]" style={{ fontSize: 13 }}>{t("exchange_list")}</div>
+            <Card className="qc-card">
               {/* 小屏幕：水平排列自动换行；大屏幕：垂直列表 */}
               <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
                 {exchanges.map((exchange) => (
                   <div
                     key={exchange.id}
-                    className={`cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full ${
+                    className="cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full hover:bg-[var(--qc-surface-hover)]"
+                    style={
                       selectedExchangeId === exchange.id
-                        ? "bg-gray-100 dark:bg-gray-800"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-900"
-                    }`}
+                        ? { background: 'color-mix(in srgb, var(--qc-primary) 9%, transparent)' }
+                        : undefined
+                    }
                     onClick={() => setSelectedExchangeId(exchange.id)}
                   >
                     <span className="w-8 h-8 flex items-center justify-center shrink-0">
@@ -536,11 +538,11 @@ const ExchangeSettingsPage = () => {
                     </span>
                     <div className="flex-1 min-w-0 hidden lg:block">
                       <div className="font-medium text-sm truncate">{exchange.name}</div>
-                      <div className="text-xs text-gray-400 truncate">{exchange.id}</div>
+                      <div className="text-xs truncate" style={{ color: 'var(--qc-text-quaternary)' }}>{exchange.id}</div>
                     </div>
                     <span className="lg:hidden font-medium text-sm">{exchange.name}</span>
                     {exchange.isEnabled && (
-                      <span className="w-2 h-2 bg-green-500 rounded-full shrink-0"></span>
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--qc-success)' }}></span>
                     )}
                   </div>
                 ))}
@@ -551,10 +553,9 @@ const ExchangeSettingsPage = () => {
           {/* 右侧配置区域 */}
           <div className="flex-1">
             {selectedExchange ? (
-              <div className="space-y-4">
-                {/* 交易所标题和默认设置 - 与左侧标题对齐 */}
-                <div className="flex items-center justify-between h-8">
-                  <div className="text-base font-medium">{selectedExchange.name}</div>
+              <PageContainer
+                title={selectedExchange.name}
+                actions={
                   <Space>
                     <Text type="secondary" className="text-sm">
                       {t("default_exchange")}
@@ -566,9 +567,10 @@ const ExchangeSettingsPage = () => {
                       }}
                     />
                   </Space>
-                </div>
-
-                <Card className="shadow-sm">
+                }
+              >
+                <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
+                <Card className="qc-card">
                   <Form layout="vertical">
                     {/* 启用开关 */}
                     <Form.Item className="mb-4">
@@ -599,7 +601,7 @@ const ExchangeSettingsPage = () => {
                     </div>
 
                     {/* 当前环境说明 */}
-                    <div className="text-xs text-gray-400 mb-4">
+                    <div className="mb-4 text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>
                       {TRADING_ENVIRONMENTS.find(e => e.value === selectedExchange.tradingEnvironment)?.description}
                     </div>
 
@@ -715,7 +717,17 @@ const ExchangeSettingsPage = () => {
                         extra={t("paper_initial_balance_hint")}
                       >
                         <Space.Compact className="w-full">
-                          <span className="inline-flex items-center px-3 bg-gray-100 dark:bg-gray-700 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-md text-sm">$</span>
+                          <span
+                            className="text-sm inline-flex items-center px-3 rounded-l-lg"
+                            style={{
+                              background: 'var(--qc-surface-raised)',
+                              border: '1px solid var(--qc-border)',
+                              borderRight: 'none',
+                              color: 'var(--qc-text-tertiary)',
+                            }}
+                          >
+                            $
+                          </span>
                           <InputNumber
                             value={selectedExchange.paperInitialBalance}
                             onChange={(value) =>
@@ -796,7 +808,7 @@ const ExchangeSettingsPage = () => {
                       >
                         {testingConnection ? t("testing") : t("test_connection")}
                       </Button>
-                      <div className="text-xs text-gray-400 mt-1">
+                      <div className="mt-1 text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>
                         {t("test_connection_hint")}
                       </div>
                     </Form.Item>
@@ -804,72 +816,79 @@ const ExchangeSettingsPage = () => {
                     {/* 测试结果 */}
                     {testResult && (
                       <Form.Item>
-                        <div className={`p-3 rounded-lg ${testResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                        <div
+                          className="p-3 rounded-lg"
+                          style={{
+                            background: testResult.success
+                              ? 'var(--qc-success-soft-bg)'
+                              : 'var(--qc-error-soft-bg)',
+                          }}
+                        >
                           <div className="flex items-center gap-2 mb-2">
                             {testResult.success ? (
-                              <span className="text-green-500">✓</span>
+                              <span style={{ color: 'var(--qc-success)' }}>✓</span>
                             ) : (
-                              <span className="text-red-500">✗</span>
+                              <span style={{ color: 'var(--qc-error)' }}>✗</span>
                             )}
-                            <span className={testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
+                            <span style={{ color: testResult.success ? 'var(--qc-success)' : 'var(--qc-error)' }}>
                               {testResult.message}
                             </span>
                             {testResult.response_time_ms != null && (
-                              <span className="text-xs text-gray-500">({Number(testResult.response_time_ms).toFixed(0)}ms)</span>
+                              <span className="text-xs" style={{ color: 'var(--qc-text-secondary)' }}> ({Number(testResult.response_time_ms).toFixed(0)}ms)</span>
                             )}
                           </div>
                           {testResult.details?.tests && (
-                            <div className="text-xs space-y-1 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                            <div className="text-xs space-y-1 mt-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
                               {/* 网络连接 */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("network_connection")}:</span>
+                                <span style={{ color: 'var(--qc-text-secondary)' }}>{t("network_connection")}:</span>
                                 <div className="flex items-center gap-1">
-                                  <span className={testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success ? 'text-green-600' : 'text-red-600'}>
+                                  <span className={testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success ? 'text-[color:var(--qc-success)]' : 'text-[color:var(--qc-error)]'}>
                                     {(testResult.details.tests.ping ?? testResult.details.tests.server_time)?.success
                                       ? (t("passed"))
                                       : (t("failed"))}
                                   </span>
                                   {(testResult.details.tests.ping?.error || testResult.details.tests.server_time?.error) && (
                                     <Tooltip title={testResult.details.tests.ping?.error || testResult.details.tests.server_time?.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                   {!(testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success) && !testResult.details.tests.ping?.error && !testResult.details.tests.server_time?.error && (
                                     <Tooltip title={testResult.message || (t("network_error_detail"))}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                 </div>
                               </div>
                               {/* 市场数据 */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("market_data")}:</span>
+                                <span style={{ color: 'var(--qc-text-secondary)' }}>{t("market_data")}:</span>
                                 <div className="flex items-center gap-1">
-                                  <span className={testResult.details.tests.market_data?.success ? 'text-green-600' : 'text-red-600'}>
+                                  <span className={testResult.details.tests.market_data?.success ? 'text-[color:var(--qc-success)]' : 'text-[color:var(--qc-error)]'}>
                                     {testResult.details.tests.market_data?.success ? (t("normal")) : (t("failed"))}
                                   </span>
                                   {testResult.details.tests.market_data?.error && (
                                     <Tooltip title={testResult.details.tests.market_data.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                   {!testResult.details.tests.market_data?.success && !testResult.details.tests.market_data?.error && (
                                     <Tooltip title={testResult.message || (t("market_data_error_detail"))}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                 </div>
                               </div>
                               {/* WebSocket */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("websocket_status") || "WebSocket"}:</span>
+                                <span style={{ color: 'var(--qc-text-secondary)' }}>{t("websocket_status") || "WebSocket"}:</span>
                                 <div className="flex items-center gap-1">
                                   <span className={
                                     testResult.details.tests.websocket?.skipped
-                                      ? 'text-gray-500'
+                                      ? 'text-[color:var(--qc-text-tertiary)]'
                                       : testResult.details.tests.websocket?.success
-                                        ? 'text-green-600'
-                                        : 'text-red-600'
+                                        ? 'text-[color:var(--qc-success)]'
+                                        : 'text-[color:var(--qc-error)]'
                                   }>
                                     {testResult.details.tests.websocket?.skipped
                                       ? (t("not_tested"))
@@ -879,28 +898,28 @@ const ExchangeSettingsPage = () => {
                                   </span>
                                   {testResult.details.tests.websocket?.error && (
                                     <Tooltip title={testResult.details.tests.websocket.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                   {!testResult.details.tests.websocket?.skipped && !testResult.details.tests.websocket?.success && !testResult.details.tests.websocket?.error && (
                                     <Tooltip title={testResult.message || (t("websocket_error_detail"))}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                 </div>
                               </div>
                               {/* API认证 */}
                               <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{t("api_auth")}:</span>
+                                <span style={{ color: 'var(--qc-text-secondary)' }}>{t("api_auth")}:</span>
                                 <div className="flex items-center gap-1">
                                   <span className={
                                     testResult.details.tests.authentication?.skipped
-                                      ? 'text-gray-500'
+                                      ? 'text-[color:var(--qc-text-tertiary)]'
                                       : testResult.details.tests.authentication?.success === true
-                                        ? 'text-green-600'
+                                        ? 'text-[color:var(--qc-success)]'
                                       : testResult.details.tests.authentication?.success === false
-                                        ? 'text-red-600'
-                                        : 'text-gray-500'
+                                        ? 'text-[color:var(--qc-error)]'
+                                        : 'text-[color:var(--qc-text-tertiary)]'
                                   }>
                                     {testResult.details.tests.authentication?.skipped
                                       ? (t("not_tested"))
@@ -912,17 +931,17 @@ const ExchangeSettingsPage = () => {
                                   </span>
                                   {testResult.details.tests.authentication?.error && (
                                     <Tooltip title={testResult.details.tests.authentication.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                   {testResult.details.tests.authentication?.reason && !testResult.details.tests.authentication?.success && (
                                     <Tooltip title={testResult.details.tests.authentication.reason}>
-                                      <span className="cursor-help text-gray-400 text-[10px]">ℹ</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-text-quaternary)' }}>ℹ</span>
                                     </Tooltip>
                                   )}
                                   {testResult.details.tests.authentication?.success === false && !testResult.details.tests.authentication?.error && (
                                     <Tooltip title={testResult.message || (t("auth_error_detail"))}>
-                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                      <span className="cursor-help text-[10px]" style={{ color: 'var(--qc-error)' }}>!</span>
                                     </Tooltip>
                                   )}
                                 </div>
@@ -934,10 +953,11 @@ const ExchangeSettingsPage = () => {
                     )}
                   </Form>
                 </Card>
-              </div>
+                </Space>
+              </PageContainer>
             ) : (
-              <Card className="shadow-sm">
-                <div className="text-center py-12 text-gray-500">
+              <Card className="qc-card">
+                <div className="text-center py-12" style={{ color: 'var(--qc-text-secondary)' }}>
                   <IconBuildingBank size="48" className="mx-auto mb-4 opacity-50" />
                   <p>{t("select_exchange_first")}</p>
                 </div>
@@ -947,7 +967,7 @@ const ExchangeSettingsPage = () => {
         </div>
 
         {/* 操作按钮 */}
-        <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="border-border flex justify-end gap-4 border-t pt-4">
           <Space>
             <Button onClick={handleReset} disabled={saving || isGuest}>
               {t("reset")}

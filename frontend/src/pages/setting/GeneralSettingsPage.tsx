@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip } from 'antd';
+import PageContainer from '@/components/PageContainer';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { PER_PAGE_OPTIONS, snapPageSize } from '../../constants/pagination';
@@ -152,10 +153,11 @@ const GeneralSettingsPage = () => {
 
   return (
     <Spin spinning={loading} description={t('loading')}>
+      <PageContainer title={t('general_settings')}>
       <div className="space-y-6">
         {/* 主题设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('theme')}</h2>
+          <h2 className="mb-3 font-[650]" style={{ fontSize: 13 }}>{t('theme')}</h2>
           <Form layout="vertical">
             <Form.Item
               extra={themeChanged ? t('theme_changed_hint') : undefined}
@@ -166,9 +168,9 @@ const GeneralSettingsPage = () => {
                     key={item.key}
                     className={`relative flex-1 min-w-[120px] max-w-[200px] cursor-pointer overflow-hidden rounded-lg border border-solid transition-colors ${
                       generalSettings.theme === item.key
-                        ? 'border-blue-500 ring-2 ring-blue-500/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-blue-400'
-                    }`}
+                        ? 'border-primary ring-2 ring-primary/20'
+                        : 'border-border'
+                    } hover:border-[color:var(--qc-border-strong)]`}
                     onClick={() => handleThemeChange({ target: { value: item.key } } as RadioChangeEvent)}
                   >
                     {/* 主题预览图 */}
@@ -179,20 +181,20 @@ const GeneralSettingsPage = () => {
                         className="w-full h-full object-cover"
                       />
                     </div>
-                    <div className="p-3 bg-white dark:bg-gray-800 flex items-center gap-2">
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                    <div className="bg-surface flex items-center gap-2 p-3">
+                      <div className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${
                         generalSettings.theme === item.key
-                          ? 'border-blue-500 bg-blue-500'
-                          : 'border-gray-300 dark:border-gray-600'
+                          ? 'border-primary bg-primary'
+                          : 'border-[color:var(--qc-border-strong)]'
                       }`}>
                         {generalSettings.theme === item.key && (
-                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg className="text-[color:var(--qc-on-primary)] h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                           </svg>
                         )}
                       </div>
                       <span className={`text-sm font-medium ${
-                        generalSettings.theme === item.key ? 'text-blue-600 dark:text-blue-400' : ''
+                        generalSettings.theme === item.key ? 'text-primary' : ''
                       }`}>{item.label}</span>
                     </div>
                   </div>
@@ -206,7 +208,7 @@ const GeneralSettingsPage = () => {
 
         {/* 语言设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('language')}</h2>
+          <h2 className="mb-3 font-[650]" style={{ fontSize: 13 }}>{t('language')}</h2>
           <Form layout="vertical">
             <Form.Item
               extra={localeChanged ? t('language_changed_hint') : undefined}
@@ -225,7 +227,7 @@ const GeneralSettingsPage = () => {
 
         {/* 分页设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('pagination')}</h2>
+          <h2 className="mb-3 font-[650]" style={{ fontSize: 13 }}>{t('pagination')}</h2>
           <Form layout="vertical">
             <Form.Item label={t('default_per_page')}>
               <Select
@@ -256,7 +258,7 @@ const GeneralSettingsPage = () => {
 
         {/* 时区设置 */}
         <div>
-          <h2 className="text-lg font-medium mb-4">{t('timezone')}</h2>
+          <h2 className="mb-3 font-[650]" style={{ fontSize: 13 }}>{t('timezone')}</h2>
           <Form layout="vertical">
             <Form.Item label={t('default_timezone')}>
               <Select
@@ -284,7 +286,7 @@ const GeneralSettingsPage = () => {
         )}
 
         {/* 操作按钮 */}
-        <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="border-border flex justify-end gap-4 border-t pt-4">
           <Space>
             <Tooltip title={isGuest ? t('guest_reset_restricted') : ''}>
               <Button onClick={handleReset} disabled={saving || isGuest}>
@@ -312,6 +314,7 @@ const GeneralSettingsPage = () => {
           </Space>
         </div>
       </div>
+      </PageContainer>
     </Spin>
   );
 };

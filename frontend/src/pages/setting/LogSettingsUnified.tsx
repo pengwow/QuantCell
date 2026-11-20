@@ -1,11 +1,9 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 日志设置统一页面 - 与项目风格统一
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Card,
-  Table,
   Button,
   Input,
   Tag,
@@ -22,7 +20,6 @@ import {
   Spin,
   App,
   Divider,
-  Select,
   Space,
 } from 'antd';
 import {
@@ -43,6 +40,8 @@ import {
 import { systemApi } from '../../api';
 import { useTranslation } from 'react-i18next';
 import type { LogDirectoryNode, LogFileInfo, LogAutoCleanupConfig, LogDiskUsage, LogTypeInfo, CleanupResult } from './types';
+import DataTable from '@/components/ui/DataTable';
+import { useQuantColors } from '@/utils/colors';
 
 interface LogSettingsUnifiedProps {
   onClose?: () => void;
@@ -51,6 +50,7 @@ interface LogSettingsUnifiedProps {
 function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
+  const qcColors = useQuantColors();
   // ========== 状态定义 ==========
   const [directoryTree, setDirectoryTree] = useState<LogDirectoryNode | null>(null);
   const [diskUsage, setDiskUsage] = useState<LogDiskUsage | null>(null);
@@ -88,6 +88,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
   // 分页状态
   const [pageSize, setPageSize] = useState(8);
+  const [page, setPage] = useState(1);
   const [selectAllPages, setSelectAllPages] = useState(false);
 
   // ========== 数据加载 ==========
@@ -124,6 +125,11 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   useEffect(() => {
     loadAllData();
   }, [loadAllData]);
+
+  // 过滤条件变化时页码归 1（§6.6 过滤与分页联动）
+  useEffect(() => {
+    setPage(1);
+  }, [searchText, currentDir, sortOrder]);
 
   // ========== 计算属性 ==========
   const currentFiles = useMemo(() => {
@@ -294,7 +300,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       dataIndex: 'name',
       render: (name: string) => (
         <div className="flex items-center gap-2">
-          <IconFile size={16} className="text-blue-500" />
+          <IconFile size={16} style={{ color: 'var(--qc-info)' }} />
           <span className="font-mono text-sm">{name}</span>
         </div>
       ),
@@ -306,7 +312,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       sorter: true,
       sortOrder,
       render: (size: number) => (
-        <Tag color="blue">{formatSize(size)}</Tag>
+        <span className="qc-chip quiet font-mono">{formatSize(size)}</span>
       ),
     },
     {
@@ -314,12 +320,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       dataIndex: 'type',
       width: 90,
       render: (type: string) => {
-        const colors: Record<string, string> = {
-          application: 'blue',
-          system: 'green',
-          api: 'orange',
+        const cls: Record<string, string> = {
+          application: 'qc-chip info',
+          system: 'qc-chip ok',
+          api: 'qc-chip warn',
         };
-        return <Tag color={colors[type] || 'default'}>{type}</Tag>;
+        return <span className={cls[type] || 'qc-chip quiet'}>{type}</span>;
       },
     },
     {
@@ -327,7 +333,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       dataIndex: 'modified_time',
       width: 160,
       render: (time: string) => (
-        <span className="text-xs text-gray-600">
+        <span className="text-xs" style={{ color: 'var(--qc-text-secondary)' }}>
           {getRelativeTime(time)}
         </span>
       ),
@@ -398,9 +404,9 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   }
 
   function getProgressColor(percent: number): string {
-    if (percent > 85) return QUANT_COLORS.negative;
-    if (percent > 70) return QUANT_COLORS.warning;
-    return QUANT_COLORS.positive;
+    if (percent > 85) return qcColors.negative;
+    if (percent > 70) return qcColors.warning;
+    return qcColors.positive;
   }
 
   // ========== 渲染 ==========
@@ -413,12 +419,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
           <div className="xl:col-span-3">
             <Space orientation="vertical" size="large" style={{ width: '100%' }}>
             {/* 筛选工具栏 */}
-            <Card size="small" className="shadow-sm">
+            <Card size="small" className="qc-card">
               <div className="space-y-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Input
                     placeholder={t('log_search_placeholder')}
-                    prefix={<IconSearch size={16} className="text-gray-400" />}
+                    prefix={<IconSearch size={16} style={{ color: 'var(--qc-text-quaternary)' }} />}
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
                     allowClear
@@ -454,9 +460,15 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 </div>
 
                 {selectedKeys.size > 0 && (
-                  <div className="flex items-center justify-between p-2 bg-blue-50 rounded border border-blue-200">
-                    <span className="text-sm text-gray-700">
-                      {t('log_selected_prefix')} <strong>{stats.count}</strong> {t('log_selected_middle')} <strong className="text-blue-600">{formatSize(stats.totalSize)}</strong>{t('log_selected_suffix')}
+                  <div
+                    className="flex items-center justify-between p-2 rounded"
+                    style={{
+                      background: 'color-mix(in srgb, var(--qc-info) 8%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--qc-info) 40%, transparent)',
+                    }}
+                  >
+                    <span className="text-sm" style={{ color: 'var(--qc-text)' }}>
+                      {t('log_selected_prefix')} <strong>{stats.count}</strong> {t('log_selected_middle')} <strong style={{ color: 'var(--qc-info)' }}>{formatSize(stats.totalSize)}</strong>{t('log_selected_suffix')}
                     </span>
                     <Button
                       danger
@@ -473,7 +485,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
             {/* 目录标签组 */}
             {directoryTree && (
-              <Card size="small" className="shadow-sm">
+              <Card size="small" className="qc-card">
                 <div className="flex gap-2 flex-wrap">
                   <Tag.CheckableTag
                     checked={currentDir === directoryTree.path}
@@ -498,9 +510,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
             {/* 文件列表表格 */}
             <Spin spinning={loading}>
-              <Card size="small" className="shadow-sm" styles={{ body: { padding: 0 } }}>
-                <div className="flex items-center gap-2 p-2 bg-gray-50 border-b flex-wrap">
-                  <span className="text-sm text-gray-600">{t('log_select_all_label')}</span>
+              <Card size="small" className="qc-card" styles={{ body: { padding: 0 } }}>
+                <div
+                  className="flex items-center gap-2 p-2 border-b flex-wrap"
+                  style={{ background: 'var(--qc-surface-raised)', borderBottom: '1px solid var(--qc-border)' }}
+                >
+                  <span className="text-sm" style={{ color: 'var(--qc-text-secondary)' }}>{t('log_select_all_label')}</span>
                   <Switch
                     size="small"
                     checked={selectAllPages}
@@ -509,30 +524,30 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     unCheckedChildren={t('none')}
                   />
                   {selectedKeys.size > 0 && (
-                    <span className="text-xs text-blue-600">
+                    <span className="text-xs" style={{ color: 'var(--qc-info)' }}>
                       {t('log_selected_count', { selected: selectedKeys.size, total: currentFiles.length })}
                     </span>
                   )}
                 </div>
-                <Table
+                <DataTable
                   columns={columns}
                   dataSource={currentFiles}
                   rowKey="path"
                   scroll={{ x: 'max-content' }}
                   pagination={{
                     pageSize,
-                    showTotal: (total) => t('log_total_files', { total }),
-                    size: 'small',
-                    showSizeChanger: false,
-                    showQuickJumper: false,
-                    itemRender: (current, type, originalElement) => {
-                      if (type === 'page' || type === 'prev' || type === 'next') {
-                        return originalElement;
+                    current: page,
+                    total: currentFiles.length,
+                    showSizeChanger: true,
+                    pageSizeOptions: [8, 15, 25, 50, 100],
+                    onChange: (nextPage, size) => {
+                      setPage(nextPage);
+                      if (size !== pageSize) {
+                        setPageSize(size);
+                        setSelectAllPages(false);
                       }
-                      return null;
                     },
                   }}
-                  size="small"
                   rowSelection={{
                     type: 'checkbox',
                     selectedRowKeys: Array.from(selectedKeys),
@@ -542,30 +557,6 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     onClick: () => handleRowClick(record),
                     style: { cursor: 'pointer' },
                   })}
-                  rowClassName={(record) => (selectedKeys.has(record.path) ? 'bg-blue-50' : '')}
-                  footer={() => (
-                    <div className="flex items-center justify-between px-4 py-2 border-t bg-gray-50">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-600">{t('log_per_page_label')}</span>
-                        <Select
-                          size="small"
-                          value={pageSize}
-                          onChange={(value: number) => {
-                            setPageSize(value);
-                            setSelectAllPages(false);
-                          }}
-                          style={{ width: 70 }}
-                          options={[
-                            { value: 8, label: t('log_rows_option', { count: 8 }) },
-                            { value: 15, label: t('log_rows_option', { count: 15 }) },
-                            { value: 25, label: t('log_rows_option', { count: 25 }) },
-                            { value: 50, label: t('log_rows_option', { count: 50 }) },
-                            { value: 100, label: t('log_rows_option', { count: 100 }) },
-                          ]}
-                        />
-                      </div>
-                    </div>
-                  )}
                 />
               </Card>
             </Spin>
@@ -576,7 +567,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 size="small"
                 title={
                   <div className="flex items-center justify-between w-full pr-4">
-                    <span className="font-medium">📄 {selectedFile.name}</span>
+                    <span className="font-medium truncate font-mono">📄 {selectedFile.name}</span>
                     <Button
                       type="text"
                       size="small"
@@ -586,17 +577,20 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     </Button>
                   </div>
                 }
-                className="shadow-sm"
+                className="qc-card"
               >
-                <Descriptions column={2} size="small" bordered>
+                <Descriptions column={2} size="small" bordered styles={{ label: { color: 'var(--qc-text-quaternary)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, letterSpacing: '.02em' }, content: { fontSize: 12 } }}>
                   <Descriptions.Item label={t('log_size')}>
-                    <Tag color="blue">{formatSize(selectedFile.size)}</Tag>
+                    <span className="qc-chip quiet font-mono">{formatSize(selectedFile.size)}</span>
                   </Descriptions.Item>
                   <Descriptions.Item label={t('type')}>
-                    <Tag>{selectedFile.type}</Tag>
+                    <span className="qc-chip quiet">{selectedFile.type}</span>
                   </Descriptions.Item>
                   <Descriptions.Item label={t('log_path')} span={2}>
-                    <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all block">
+                    <code
+                      className="text-xs px-2 py-1 rounded break-all block"
+                      style={{ background: 'var(--qc-surface-raised)', color: 'var(--qc-text-secondary)' }}
+                    >
                       {selectedFile.path}
                     </code>
                   </Descriptions.Item>
@@ -604,7 +598,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     {getRelativeTime(selectedFile.modified_time) !== '-' ? new Date(selectedFile.modified_time).toLocaleString('zh-CN') : '-'}
                   </Descriptions.Item>
                   <Descriptions.Item label={t('log_date_label')}>
-                    <Tag color="geekblue">{selectedFile.date}</Tag>
+                    <span className="qc-chip quiet font-mono">{selectedFile.date}</span>
                   </Descriptions.Item>
                   <Descriptions.Item label={t('log_line_count')} span={2}>
                     {/* i18next 的 count 是复数保留参数必须为 number；此处传字符串走下方占位符 */}
@@ -638,7 +632,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     {t('log_storage_overview')}
                   </span>
                 }
-                className="shadow-sm"
+                className="qc-card"
               >
                 <div className="text-center mb-3">
                   <Progress
@@ -652,27 +646,27 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
                 <Row gutter={[12, 12]}>
                   <Col span={12}>
-                    <div className="text-center p-2 bg-gray-50 rounded">
-                      <div className="text-xs text-gray-500">{t('log_total_space')}</div>
-                      <div className="font-medium">{formatSize(diskUsage.total_space || 0)}</div>
+                    <div className="text-center p-2 rounded" style={{ background: 'var(--qc-surface-raised)' }}>
+                      <div className="text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>{t('log_total_space')}</div>
+                      <div className="font-medium font-mono">{formatSize(diskUsage.total_space || 0)}</div>
                     </div>
                   </Col>
                   <Col span={12}>
-                    <div className="text-center p-2 bg-blue-50 rounded">
-                      <div className="text-xs text-gray-500">{t('log_used_space')}</div>
-                      <div className="font-medium text-blue-600">{formatSize(diskUsage.used_space || 0)}</div>
+                    <div className="text-center p-2 rounded" style={{ background: 'var(--qc-surface-raised)' }}>
+                      <div className="text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>{t('log_used_space')}</div>
+                      <div className="font-medium font-mono" style={{ color: 'var(--qc-info)' }}>{formatSize(diskUsage.used_space || 0)}</div>
                     </div>
                   </Col>
                   <Col span={12}>
-                    <div className="text-center p-2 bg-green-50 rounded">
-                      <div className="text-xs text-gray-500">{t('log_free_space')}</div>
-                      <div className="font-medium text-green-600">{formatSize(diskUsage.free_space || 0)}</div>
+                    <div className="text-center p-2 rounded" style={{ background: 'var(--qc-surface-raised)' }}>
+                      <div className="text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>{t('log_free_space')}</div>
+                      <div className="font-medium font-mono" style={{ color: 'var(--qc-success)' }}>{formatSize(diskUsage.free_space || 0)}</div>
                     </div>
                   </Col>
                   <Col span={12}>
-                    <div className="text-center p-2 bg-orange-50 rounded">
-                      <div className="text-xs text-gray-500">{t('log_file_total')}</div>
-                      <div className="font-medium text-orange-600">
+                    <div className="text-center p-2 rounded" style={{ background: 'var(--qc-surface-raised)' }}>
+                      <div className="text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>{t('log_file_total')}</div>
+                      <div className="font-medium font-mono" style={{ color: 'var(--qc-warning)' }}>
                         {t('log_count_files', { count: directoryTree?.file_count || currentFiles.length || 0 })}
                       </div>
                     </div>
@@ -699,14 +693,14 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   />
                 </div>
               }
-              className="shadow-sm"
+              className="qc-card"
             >
               {config.enabled ? (
                 <div className="space-y-6">
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">{t('log_retention_policy')}</div>
+                    <div className="mb-2 font-medium" style={{ fontSize: 13, color: 'var(--qc-text)' }}>{t('log_retention_policy')}</div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">{t('log_retention_prefix')}</span>
+                      <span className="text-sm" style={{ color: 'var(--qc-text-secondary)' }}>{t('log_retention_prefix')}</span>
                       <Space.Compact size="small">
                         <InputNumber
                           min={1}
@@ -723,16 +717,16 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                           aria-label={t('log_unit_day')}
                         />
                       </Space.Compact>
-                      <span className="text-sm text-gray-400">{t('log_retention_suffix')}</span>
+                      <span className="text-sm" style={{ color: 'var(--qc-text-quaternary)' }}>{t('log_retention_suffix')}</span>
                     </div>
                   </div>
 
                   <Divider style={{ margin: '16px 0' }} />
 
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">{t('log_space_limit')}</div>
+                    <div className="mb-2 font-medium" style={{ fontSize: 13, color: 'var(--qc-text)' }}>{t('log_space_limit')}</div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">{t('log_space_limit_prefix')}</span>
+                      <span className="text-sm" style={{ color: 'var(--qc-text-secondary)' }}>{t('log_space_limit_prefix')}</span>
                       <Space.Compact size="small">
                         <InputNumber
                           min={0}
@@ -749,7 +743,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                           aria-label="GB"
                         />
                       </Space.Compact>
-                      <span className="text-sm text-gray-400">{t('log_space_limit_suffix')}</span>
+                      <span className="text-sm" style={{ color: 'var(--qc-text-quaternary)' }}>{t('log_space_limit_suffix')}</span>
                     </div>
                     {config.max_size_gb > 0 && (
                       <Progress
@@ -764,7 +758,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   <Divider style={{ margin: '16px 0' }} />
 
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">{t('log_schedule_title')}</div>
+                    <div className="mb-2 font-medium" style={{ fontSize: 13, color: 'var(--qc-text)' }}>{t('log_schedule_title')}</div>
                     <Radio.Group
                       size="small"
                       value={config.cleanup_schedule}
@@ -778,17 +772,17 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     </Radio.Group>
                     
                     {config.last_cleanup_time && (
-                      <div className="text-xs text-gray-500 mt-3">
+                      <div className="mt-3 text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>
                         {t('log_last_run', { time: new Date(config.last_cleanup_time).toLocaleString('zh-CN') })}
                       </div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-400">
+                <div className="text-center py-8" style={{ color: 'var(--qc-text-quaternary)' }}>
                   <IconSettings size={32} className="mx-auto mb-2 opacity-30" />
                   <p className="text-xs">{t('log_cleanup_disabled')}</p>
-                  <p className="text-xs mt-1 text-gray-300">{t('log_cleanup_disabled_hint')}</p>
+                  <p className="mt-1 text-xs" style={{ color: 'color-mix(in srgb, var(--qc-text-quaternary) 78%, transparent)' }}>{t('log_cleanup_disabled_hint')}</p>
                 </div>
               )}
             </Card>
@@ -803,36 +797,36 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     {t('log_type_stats_title')}
                   </span>
                 }
-                className="shadow-sm"
+                className="qc-card"
               >
                 <div className="space-y-4">
                   {Object.entries(diskUsage.log_types).map(([type, info]: [string, LogTypeInfo]) => {
                     const totalBytes = info.total_size || 0;
                     const maxBytes = Math.max(...Object.values(diskUsage.log_types).map((i: LogTypeInfo) => i.total_size || 0), 1);
                     const percent = (totalBytes / maxBytes) * 100;
-                    
+
                     const colors: Record<string, string> = {
-                      application: QUANT_COLORS.info,
-                      system: QUANT_COLORS.positive,
-                      api: QUANT_COLORS.warning,
+                      application: qcColors.info,
+                      system: qcColors.positive,
+                      api: qcColors.warning,
                     };
-                    
+
                     return (
                       <div key={type}>
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-sm">
-                            <Tag color={colors[type] || 'default'}>{type}</Tag>
+                            <span className={type === 'application' ? 'qc-chip info' : type === 'system' ? 'qc-chip ok' : type === 'api' ? 'qc-chip warn' : 'qc-chip quiet'}>{type}</span>
                           </span>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs font-mono" style={{ color: 'var(--qc-text-quaternary)' }}>
                             {t('log_type_stats_item', { size: (totalBytes / 1024 / 1024).toFixed(2), count: info?.count || 0 })}
                           </span>
                         </div>
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--qc-surface-raised)' }}>
                           <div
                             className="h-full rounded-full transition-all duration-300"
                             style={{
                               width: `${percent}%`,
-                              backgroundColor: colors[type] || QUANT_COLORS.info,
+                              backgroundColor: colors[type] || qcColors.info,
                             }}
                           />
                         </div>
@@ -844,7 +838,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
             )}
 
             {/* 操作按钮区 */}
-            <Card size="small" className="shadow-sm">
+            <Card size="small" className="qc-card">
               <div className="flex gap-2">
                 <Button
                   type="primary"
@@ -868,7 +862,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               </div>
               
               {!isDirty && originalConfig && (
-                <div className="mt-2 text-center text-xs text-gray-400">
+                <div className="mt-2 text-center text-xs" style={{ color: 'var(--qc-text-quaternary)' }}>
                   {t('log_config_up_to_date')}
                 </div>
               )}
@@ -897,9 +891,10 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
       {/* 删除确认对话框 */}
       <Modal
+        className="qc-modal"
         title={
           <span className="flex items-center gap-2">
-            <IconAlertTriangle size={20} className="text-orange-500" />
+            <IconAlertTriangle size={20} style={{ color: 'var(--qc-warning)' }} />
             {t('log_batch_delete_confirm')}
           </span>
         }
@@ -930,22 +925,28 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
           <div>
             <p className="font-medium mb-2">{t('log_files_to_delete')}</p>
-            <div className="max-h-32 overflow-y-auto bg-gray-50 rounded p-2">
+            <div className="max-h-32 overflow-y-auto rounded p-2" style={{ background: 'var(--qc-surface-raised)' }}>
               {currentFiles
                 .filter(file => selectedKeys.has(file.path))
                 .map(file => (
-                  <div key={file.path} className="flex justify-between py-1 px-2 hover:bg-gray-100 rounded text-sm">
+                  <div key={file.path} className="flex justify-between py-1 px-2 hover:bg-[var(--qc-surface-hover)] rounded text-sm">
                     <span className="truncate max-w-[240px] font-mono">{file.name}</span>
-                    <Tag color="red">{formatSize(file.size)}</Tag>
+                    <span className="qc-chip quiet font-mono">{formatSize(file.size)}</span>
                   </div>
                 ))}
             </div>
           </div>
 
-          <div className="bg-red-50 border border-red-200 p-2 rounded">
+          <div
+            className="p-2 rounded"
+            style={{
+              background: 'var(--qc-error-soft-bg)',
+              border: '1px solid color-mix(in srgb, var(--qc-error) 40%, transparent)',
+            }}
+          >
             <p className="text-sm">
-              {t('log_delete_total_label')}<span className="font-bold text-red-600">{formatSize(stats.totalSize)}</span>
-              {' '}(<span className="font-bold text-red-600">{stats.count}</span> {t('log_files_suffix')})
+              {t('log_delete_total_label')}<span className="font-bold" style={{ color: 'var(--qc-error)' }}>{formatSize(stats.totalSize)}</span>
+              {' '}(<span className="font-bold" style={{ color: 'var(--qc-error)' }}>{stats.count}</span> {t('log_files_suffix')})
             </p>
           </div>
 
@@ -957,7 +958,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
               onChange={(e) => setRiskConfirmed(e.target.checked)}
               className="mt-0.5"
             />
-            <label htmlFor="risk-confirm" className="text-sm text-gray-600 cursor-pointer">
+            <label htmlFor="risk-confirm" className="text-sm cursor-pointer" style={{ color: 'var(--qc-text-secondary)' }}>
               {t('log_risk_confirm_label')}
             </label>
           </div>
@@ -965,7 +966,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
           {deleting && (
             <div className="text-center py-2">
               <Progress percent={50} status="active" showInfo={false} />
-              <p className="text-sm text-gray-500 mt-1">{t('log_deleting')}</p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--qc-text-secondary)' }}>{t('log_deleting')}</p>
             </div>
           )}
         </div>

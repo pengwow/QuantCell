@@ -19,7 +19,6 @@ import {
   App,
   Popconfirm,
   Divider,
-  Tag,
 } from "antd";
 import {
   IconPlus,
@@ -28,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import { configApi, aiModelApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
+import PageContainer from "@/components/PageContainer";
 
 const { Text } = Typography;
 
@@ -629,32 +629,33 @@ const ModelSettingsPage = () => {
   };
 
   return (
+    <PageContainer title={t("model_settings")}>
     <Space orientation="vertical" size="large" style={{ display: "flex" }}>
       {/* 主内容区域 - 响应式布局 */}
       <div className="flex flex-col lg:flex-row gap-6">
         {/* 左侧厂商列表：按模型类型分组，每组独立维护默认项 */}
         <div className="w-full lg:w-64 flex-shrink-0">
-          <div className="text-base font-medium mb-4 leading-8 h-8">{t("model_provider")}</div>
+          <div className="h-8 leading-8 mb-4 font-[650]" style={{ fontSize: 13 }}>{t("model_provider")}</div>
           <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
             {(["system_one", "system_two"] as ModelCategory[]).map((category) => {
               const groupProviders = providers.filter((p) => p.category === category);
               return (
                 <Card
                   key={category}
-                  className="shadow-sm"
+                  className="qc-card"
                   size="small"
                   title={<span className="text-sm font-medium">{category === "system_one" ? t("system_one_label") : t("system_two_label")}</span>}
-                  styles={{ body: { padding: 8 } }}
                 >
                   <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
                     {groupProviders.map((provider) => (
                       <div
                         key={provider.id}
-                        className={`cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full ${
+                        className="cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full hover:bg-[var(--qc-surface-hover)]"
+                        style={
                           selectedProviderId === provider.id
-                            ? "bg-gray-100 dark:bg-gray-800"
-                            : "hover:bg-gray-50 dark:hover:bg-gray-900"
-                        }`}
+                            ? { background: 'color-mix(in srgb, var(--qc-primary) 9%, transparent)' }
+                            : undefined
+                        }
                         onClick={() => {
                           setSelectedProviderId(provider.id);
                           setFetchedModels([]);
@@ -670,7 +671,7 @@ const ModelSettingsPage = () => {
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm truncate">{provider.name}</div>
                           {/* 只展示厂商标识：模型名多时会撑爆这一行灰字，详情在右侧表单里看 */}
-                          <div className="text-xs text-gray-400 truncate">{provider.id}</div>
+                          <div className="text-xs truncate" style={{ color: 'var(--qc-text-quaternary)' }}>{provider.id}</div>
                         </div>
                         <Button
                           size="small"
@@ -686,7 +687,7 @@ const ModelSettingsPage = () => {
                       </div>
                     ))}
                     {groupProviders.length === 0 && (
-                      <div className="text-center py-4 text-gray-400 text-sm">
+                      <div className="text-center py-4 text-sm" style={{ color: 'var(--qc-text-quaternary)' }}>
                         {category === "system_one" ? t("no_system_one_provider") : t("no_system_two_provider")}
                       </div>
                     )}
@@ -700,10 +701,9 @@ const ModelSettingsPage = () => {
         {/* 右侧配置区域 */}
         <div className="flex-1">
           {selectedProvider ? (
-            <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
-              {/* 厂商标题和默认设置 - 与左侧标题对齐 */}
-              <div className="flex items-center justify-between h-8">
-                <div className="text-base font-medium">{selectedProvider.name}</div>
+            <PageContainer
+              title={selectedProvider.name}
+              actions={
                 <Space>
                   <Text type="secondary" className="text-sm">{t("default_provider")}</Text>
                   <Switch
@@ -713,15 +713,16 @@ const ModelSettingsPage = () => {
                     }}
                   />
                 </Space>
-              </div>
-
-              <Card className="shadow-sm">
+              }
+            >
+            <Space orientation="vertical" size="middle" style={{ display: "flex", width: '100%' }}>
+              <Card className="qc-card">
                 <Space orientation="vertical" size="middle" style={{ display: "flex" }}>
                   {/* 模型类型：厂商固有属性，只读展示 */}
                   <FieldGroup label={t("model_category")}>
-                    <Tag color={selectedProvider.category === "system_one" ? "blue" : "purple"}>
+                    <span className={selectedProvider.category === "system_one" ? "qc-chip pri" : "qc-chip info"}>
                       {selectedProvider.category === "system_one" ? t("system_one_label") : t("system_two_label")}
-                    </Tag>
+                    </span>
                     {selectedProvider.category === "system_one" && (
                       <Text type="secondary" className="text-xs">
                         {t("system_one_jev_hint")}
@@ -757,7 +758,8 @@ const ModelSettingsPage = () => {
                         href={getApiKeyUrl(selectedProvider.id)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-gray-600 hover:text-gray-800 underline"
+                        style={{ color: 'var(--qc-info)' }}
+                        className="text-sm underline hover:opacity-80"
                       >
                         {t("click_to_get_api_key")}
                       </a>
@@ -844,7 +846,8 @@ const ModelSettingsPage = () => {
                       {selectedProvider.models.map((model) => (
                         <div
                           key={model.id}
-                          className="flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
+                          className="flex items-center justify-between py-3 px-4 rounded-lg"
+                          style={{ background: 'var(--qc-surface-raised)' }}
                         >
                           <Text className="text-sm">{model.name}</Text>
                           <Space>
@@ -873,7 +876,7 @@ const ModelSettingsPage = () => {
                         </div>
                       ))}
                       {selectedProvider.models.length === 0 && (
-                        <div className="text-center py-8 text-gray-400">
+                        <div className="text-center py-8" style={{ color: 'var(--qc-text-quaternary)' }}>
                           {t("no_models")}
                         </div>
                       )}
@@ -882,9 +885,10 @@ const ModelSettingsPage = () => {
                 </Space>
               </Card>
             </Space>
+            </PageContainer>
           ) : (
-            <Card className="shadow-sm">
-              <div className="text-center py-12 text-gray-500">
+            <Card className="qc-card">
+              <div className="text-center py-12" style={{ color: 'var(--qc-text-secondary)' }}>
                 <IconRobot size="48" className="mx-auto mb-4 opacity-50" />
                 <p>{t("select_provider")}</p>
               </div>
@@ -894,7 +898,7 @@ const ModelSettingsPage = () => {
       </div>
 
       {/* 操作按钮 */}
-      <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="border-border flex justify-end gap-4 border-t pt-4">
         <Space>
           <Button onClick={handleReset} disabled={isGuest}>
             {t("reset")}
@@ -907,7 +911,8 @@ const ModelSettingsPage = () => {
 
       {/* 添加模型弹窗 */}
       <Modal
-        title={<span className="text-lg font-medium">{t("add_model")}</span>}
+        title={t("add_model")}
+        className="qc-modal"
         open={isAddModelModalOpen}
         onCancel={() => {
           setIsAddModelModalOpen(false);
@@ -948,7 +953,7 @@ const ModelSettingsPage = () => {
           )}
 
           {fetchedModels.length === 0 && !fetchingModels && (
-            <div className="text-center py-3 text-gray-400 text-sm mb-4">
+            <div className="text-center py-3 text-sm mb-4" style={{ color: 'var(--qc-text-quaternary)' }}>
               {t("click_check_to_fetch_models")}
             </div>
           )}
@@ -962,8 +967,6 @@ const ModelSettingsPage = () => {
           >
             <Input
               placeholder={t("enter_model_id")}
-              size="large"
-              className="rounded-lg"
             />
           </Form.Item>
           <Form.Item
@@ -975,15 +978,12 @@ const ModelSettingsPage = () => {
           >
             <Input
               placeholder={t("enter_model_name")}
-              size="large"
-              className="rounded-lg"
             />
           </Form.Item>
           <Form.Item className="mb-0 mt-6">
             <div className="flex gap-3">
               <Button
-                size="large"
-                className="flex-1 rounded-lg"
+                className="flex-1"
                 onClick={() => {
                   setIsAddModelModalOpen(false);
                   addModelForm.resetFields();
@@ -994,8 +994,7 @@ const ModelSettingsPage = () => {
               <Button
                 type="primary"
                 htmlType="submit"
-                size="large"
-                className="flex-1 rounded-lg bg-gray-900 hover:bg-gray-800 border-gray-900"
+                className="flex-1"
               >
                 {t("confirm")}
               </Button>
@@ -1004,6 +1003,7 @@ const ModelSettingsPage = () => {
         </Form>
       </Modal>
     </Space>
+    </PageContainer>
   );
 };
 

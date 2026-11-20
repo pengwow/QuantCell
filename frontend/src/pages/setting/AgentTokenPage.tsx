@@ -2,10 +2,11 @@
 // 结构：useState + useEffect 加载 + Table + Modal + useTranslation
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, App, Button, Flex, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Flex, Input, InputNumber, Modal, Select, Space, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
+import DataTable from '@/components/ui/DataTable';
 import { agentTokensApi } from '@/api';
 import type { AgentTokenInfo } from '@/api';
 
@@ -88,27 +89,27 @@ const AgentTokenPage = () => {
       title: t('agentToken_scope'),
       dataIndex: 'scope',
       width: 110,
-      render: (v: string) => <Tag color={v === 'write' ? 'orange' : 'blue'}>{v}</Tag>,
+      render: (v: string) => <span className={v === 'write' ? 'qc-chip warn' : 'qc-chip info'}>{v}</span>,
     },
     {
       title: t('agentToken_expires_at'),
       dataIndex: 'expires_at',
       width: 180,
-      render: (v: string | null) => (v ? formatTime(v) : t('agentToken_never_expires')),
+      render: (v: string | null) => <span className="font-mono">{v ? formatTime(v) : t('agentToken_never_expires')}</span>,
     },
     {
       title: t('agentToken_last_used'),
       dataIndex: 'last_used_at',
       width: 180,
-      render: formatTime,
+      render: (v: string | null) => <span className="font-mono">{formatTime(v)}</span>,
     },
-    { title: t('agentToken_use_count'), dataIndex: 'use_count', width: 100 },
+    { title: t('agentToken_use_count'), dataIndex: 'use_count', width: 100, render: (v: number) => <span className="font-mono">{v}</span> },
     {
       title: t('agentToken_status'),
       dataIndex: 'revoked',
       width: 100,
       render: (revoked: boolean) =>
-        revoked ? <Tag color="red">{t('agentToken_revoked')}</Tag> : <Tag color="green">{t('agentToken_active')}</Tag>,
+        revoked ? <span className="qc-chip down">{t('agentToken_revoked')}</span> : <span className="qc-chip ok">{t('agentToken_active')}</span>,
     },
     {
       title: t('agentToken_actions'),
@@ -140,17 +141,18 @@ const AgentTokenPage = () => {
             {t('agentToken_issue')}
           </Button>
         </Flex>
-        <Table
+        <DataTable
           rowKey="id"
           loading={loading}
           columns={columns}
           dataSource={tokens}
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
+          pagination={{ pageSize: 10 }}
         />
       </Space>
 
       {/* 签发表单 */}
       <Modal
+        className="qc-modal"
         title={t('agentToken_issue')}
         open={formOpen}
         onCancel={() => setFormOpen(false)}
@@ -187,6 +189,7 @@ const AgentTokenPage = () => {
 
       {/* 一次性明文展示：仅此一次 */}
       <Modal
+        className="qc-modal"
         title={t('agentToken_issue_success')}
         open={issuedToken !== null}
         onCancel={() => setIssuedToken(null)}
