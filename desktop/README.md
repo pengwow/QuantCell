@@ -62,6 +62,9 @@ sidecar 产物是 **onedir 整目录** `desktop/src-tauri/binaries/backend/`（�
 `.app/Contents/Resources/backend/`；`backend.rs` 从 Resource 目录解析绝对路径后启动，
 不再走 `bundle.externalBin`（onefile 每次启动自解压 ~250MB，实测 10-15s）。
 
+> 构建异常缓慢（远超 3-5 分钟）先查外置盘 Spotlight：`mdutil -s /Volumes/ExtDisk`，
+> 若 Indexing enabled 则 `mdutil -i off /Volumes/ExtDisk` 后重试（实测 176s→拖死 60min+ 的元凶）。
+
 产物：`src-tauri/target/release/bundle/`（dmg / .app）。
 
 ## 浏览器验证打包产物（不安装 .app / 先跑通再打包）
