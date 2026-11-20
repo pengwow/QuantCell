@@ -335,6 +335,8 @@
   "capability_disabled_title": "Capability Disabled",
   "capability_disabled_desc": "This capability ({{capability}}) is not enabled in the current deployment. Enable it via the [capabilities] section in config.toml or the corresponding environment variable.",
   "chart": "Market Chart",
+  "chart.page.sub": "Binance USD-M · data mode {{mode}}",
+  "chart.page.changeSymbol": "Change symbol",
   "backtest_results": "Backtest Results",
   "backtest_replay": "Backtest Replay",
   "success": "Operation Successful",

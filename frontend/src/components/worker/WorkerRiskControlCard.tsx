@@ -136,10 +136,9 @@ const WorkerRiskControlCard: React.FC<WorkerRiskControlCardProps> = ({ workerId,
                       >
                         {t('worker_risk_engine_default')}
                         <Tooltip title={t('worker_risk_engine_default_tooltip', { value: t(engineDefault) })}>
-                          {/* 提示图标：现值为 antd gold-6 (#faad14)，与 palette warning (#eac54f) 不等值，
-                            * 换 token 会改变亮色渲染；候选 palette 补「警示图标色」槽位后派生 */}
+                          {/* 提示图标：警示语义走 --qc-warning token（亮暗随主题换挡） */}
                           <ExclamationCircleOutlined
-                            style={{ marginLeft: 4, fontSize: 12, color: '#faad14', cursor: 'help' }}
+                            style={{ marginLeft: 4, fontSize: 12, color: 'var(--qc-warning)', cursor: 'help' }}
                           />
                         </Tooltip>
                       </span>

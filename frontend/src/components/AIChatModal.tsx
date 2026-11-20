@@ -822,7 +822,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
                   <SendButton disabled={chatMode === 'optimize' ? false : undefined} />
                 )
               }
-              className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1f1f1f]"
+              className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-[var(--qc-surface-raised)]"
             />
           </Space>
         </div>

@@ -62,6 +62,13 @@ export const BUILTIN_THEMES: Record<string, ThemeDefinition> = {
       chartScreenshotBg: '#ffffff',
       chartReplayLabel: '#333333',
       chartSeries: ['#0969da', '#91cc75', '#ea580c', '#7c3aed', '#14b8a6', '#d4a017', '#dc2626', '#9a60b4'],
+      // —— klinecharts 画布专用槽位（canvas 字面色，取值见 types.ts 注释） ——
+      chartCandleUp: '#26A69A',
+      chartCandleDown: '#EF5350',
+      chartBuyMarker: '#00E676',
+      chartSellMarker: '#FF5252',
+      chartMarkerText: '#ffffff',
+      chartPlotExtra: ['#722ed1', '#eb2f96', '#a0d911', '#2f54eb'],
       // —— 系统状态指示灯 ——
       statusDotOk: '#4CAF50',
       statusDotFail: '#F44336',
@@ -123,6 +130,13 @@ export const BUILTIN_THEMES: Record<string, ThemeDefinition> = {
       chartScreenshotBg: '#151517',
       chartReplayLabel: '#ffffff',
       chartSeries: ['#0969da', '#91cc75', '#ea580c', '#7c3aed', '#14b8a6', '#d4a017', '#dc2626', '#9a60b4'],
+      // —— klinecharts 画布专用槽位（暗色蜡烛提亮，标记维持高饱和以在深底上可辨） ——
+      chartCandleUp: '#52c7b8',
+      chartCandleDown: '#ff8a80',
+      chartBuyMarker: '#00E676',
+      chartSellMarker: '#FF5252',
+      chartMarkerText: '#ffffff',
+      chartPlotExtra: ['#722ed1', '#eb2f96', '#a0d911', '#2f54eb'],
       // —— 系统状态指示灯 ——
       statusDotOk: '#4CAF50',
       statusDotFail: '#F44336',

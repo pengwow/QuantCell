@@ -52,7 +52,7 @@ describe('theme: palettes.ts', () => {
       for (const field of REQUIRED_FIELDS) {
         const v = palette[field];
         expect(v, `${name}.${mode}.${field}`).toBeDefined();
-        if (field === 'chartSeries') {
+        if (field === 'chartSeries' || field === 'chartPlotExtra') {
           expect((v as string[]).length).toBeGreaterThanOrEqual(2);
           (v as string[]).forEach((c) => expect(c).toMatch(COLOR_RE));
         } else {

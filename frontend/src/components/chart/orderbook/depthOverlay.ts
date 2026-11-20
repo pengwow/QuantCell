@@ -43,9 +43,8 @@ export function setDepthProfileSymbol(symbol: string): void {
   activeSymbol = (symbol || '').toUpperCase();
 }
 
-// 半透明红绿：涨跌语义色取自 palette success #1a7f37 / error #d1242f，
-// 但深度图需要固定的 0.35 alpha 条带底——palette 没有带 alpha 的语义槽位，
-// 靠 hex→rgba 拼接又会引入取整误差（0.349 vs 0.35），故保留字面量（离散豁免：alpha 变体）。
+// 半透明红绿：涨跌语义取 palette success/error 同值 + 固定 0.35 alpha——palette 没有带
+// alpha 的语义槽位，靠色彩解析再拼 alpha 会引入取整误差，故保留 rgba 字面量（离散豁免：alpha 变体）。
 const BUY_COLOR = 'rgba(26, 127, 55, 0.35)';
 const SELL_COLOR = 'rgba(209, 36, 47, 0.35)';
 const BAR_HEIGHT = 3;

@@ -99,6 +99,20 @@ export interface ThemePalette {
   /** 多系列折线离散调色板（纯视觉可辨，两模式共用一组） */
   chartSeries: string[];
 
+  /* ===== klinecharts 画布专用槽位（canvas 拿不到 CSS 变量，组件一律从电池取字面量） ===== */
+  /** 阳线实体（亮暗分值：暗色提亮防刺眼） */
+  chartCandleUp: string;
+  /** 阴线实体（亮暗分值：暗色提亮防刺眼） */
+  chartCandleDown: string;
+  /** 买向标记（signalTag / 成交标记 B 点，高饱和绿两模式同值：深浅两种 K 线底上都要够跳） */
+  chartBuyMarker: string;
+  /** 卖向标记（signalTag / 成交标记 S 点，高饱和红两模式同值） */
+  chartSellMarker: string;
+  /** 标记实心块上的文字（tag 底为语义实色，反白亮暗恒白） */
+  chartMarkerText: string;
+  /** 指标折线补充离散色（与 chartSeries 互补的 4 个高饱和色，两模式共用，用户以颜色区分指标线） */
+  chartPlotExtra: string[];
+
   /* ===== 系统状态指示灯（既有 Material 色值，两模式共用） ===== */
   statusDotOk: string;
   statusDotFail: string;

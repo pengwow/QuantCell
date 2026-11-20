@@ -22,6 +22,7 @@ export const THEME_PALETTE_FIELDS = [
   'info', 'success', 'warning', 'error', 'successSoftBg', 'warningSoftBg', 'errorSoftBg',
   'chartLine', 'chartAxis', 'chartSplit', 'chartMark', 'chartGradientStart', 'chartGradientEnd',
   'drawdownArea', 'chartScreenshotBg', 'chartReplayLabel', 'chartSeries',
+  'chartCandleUp', 'chartCandleDown', 'chartBuyMarker', 'chartSellMarker', 'chartMarkerText', 'chartPlotExtra',
   'statusDotOk', 'statusDotFail', 'statusDotWarn',
   'chartToolbarText', 'chartToolbarTextMuted', 'chartToolbarBorder', 'chartToolbarAccent', 'chartToolbarAccentTint',
 ] as const satisfies readonly (keyof ThemePalette)[];
@@ -53,6 +54,9 @@ export function validateThemeData(data: unknown): string[] {
       if (field === 'chartSeries') {
         if (!Array.isArray(v) || v.length < 2) errors.push(`${mode}.chartSeries 必须是 ≥2 个颜色的数组`);
         else v.forEach((c, i) => { if (!COLOR_RE.test(String(c))) errors.push(`${mode}.chartSeries[${i}] 非法: ${c}`); });
+      } else if (field === 'chartPlotExtra') {
+        if (!Array.isArray(v)) errors.push(`${mode}.chartPlotExtra 必须是颜色数组`);
+        else v.forEach((c, i) => { if (!COLOR_RE.test(String(c))) errors.push(`${mode}.chartPlotExtra[${i}] 非法: ${c}`); });
       } else if (typeof v !== 'string' || !COLOR_RE.test(v)) {
         errors.push(`${mode}.${field} 非法（须为 hex/rgba）: ${v}`);
       }

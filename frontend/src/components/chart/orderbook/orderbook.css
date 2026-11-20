@@ -79,7 +79,7 @@
 }
 
 .ob-qty {
-  color: #6a737d;
+  color: var(--qc-text-tertiary);
   margin-left: auto;
   padding-left: 12px;
 }
@@ -98,8 +98,8 @@
   justify-content: center;
   gap: 6px;
   padding: 4px 8px;
-  border-top: 1px solid rgba(110, 118, 129, 0.2);
-  border-bottom: 1px solid rgba(110, 118, 129, 0.2);
+  border-top: 1px solid var(--qc-border);
+  border-bottom: 1px solid var(--qc-border);
 }
 
 .ob-mid-value {

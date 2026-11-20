@@ -289,16 +289,14 @@ const WorkerPositionSection: React.FC<WorkerPositionSectionProps> = ({ workerId,
       </Card>
       </Space>
 
-      {/* 高亮行样式：盈亏绝对值 > 5%
-        * 现值 = antd orange-1 / orange-2；palette 的 warningSoftBg (#fffbe6) 与
-        * --qc-warning (#eac54f) 均不等值，换 token 会改变亮色渲染 → 保留，
-        * 候选 palette 补「橙色行高亮底 / 悬停底」槽位后派生 */}
+      {/* 高亮行样式：盈亏绝对值 > 5%。走 warning 语义组：行底 = --qc-warning-soft-bg，
+        * 悬停在其上再混 16% 警示色（color-mix 为全站既有模式）；亮暗两模式均由 token 换挡 */}
       <style>{`
         .position-row-highlight {
-          background-color: #fff7e6 !important;
+          background-color: var(--qc-warning-soft-bg) !important;
         }
         .position-row-highlight:hover td {
-          background-color: #ffe7ba !important;
+          background-color: color-mix(in srgb, var(--qc-warning) 16%, var(--qc-warning-soft-bg)) !important;
         }
       `}</style>
     </div>

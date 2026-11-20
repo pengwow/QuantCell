@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Segmented } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { BellOutlined } from '@ant-design/icons';
 import ChartIcon from './ChartIcon';
@@ -120,17 +121,15 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
           <span>{symbol.name || symbol.code}</span>
         </div>
 
-        {/* 周期条独立成滑动容器：窄屏时 overflow-x 横滑，避免整条工具栏溢出屏幕 */}
+        {/* 周期条独立成滑动容器：窄屏时 overflow-x 横滑，避免整条工具栏溢出屏幕。
+            内钮换 antd Segmented（design-spec §6.9 全站收口，样式由 global.css 既有段落提供） */}
         <div className="period-strip">
-          {periods.map((period) => (
-            <span
-              key={period.value}
-              className={`item period${period.value === currentPeriod ? ' selected' : ''}`}
-              onClick={() => onChangePeriod(period.value)}
-            >
-              {period.label}
-            </span>
-          ))}
+          <Segmented
+            size="small"
+            value={currentPeriod}
+            onChange={(value) => onChangePeriod(value as string)}
+            options={periods.map((period) => ({ label: period.label, value: period.value }))}
+          />
         </div>
 
         <div className="item tools first" title={t('chart.toolbar.indicator')} onClick={() => setIndicatorVisible(true)}>

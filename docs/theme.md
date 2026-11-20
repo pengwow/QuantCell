@@ -51,6 +51,7 @@
 | 图表交易 | `chartLine` `chartAxis` `chartSplit` `chartMark` | 曲线 / 轴 / 分割 / 标记 |
 | | `chartGradientStart/End` `drawdownArea` | 面积渐变 / 回撤阴影 |
 | | `chartScreenshotBg` `chartReplayLabel` `chartSeries[8]` | 截图底色 / 标注文字 / 多系列离散 |
+| klinecharts 画布 | `chartCandleUp/Down` `chartBuyMarker` `chartSellMarker` `chartMarkerText` `chartPlotExtra[4]` | 蜡烛涨跌实体 / 买向标记 / 卖向标记 / 标记实心块文字（反白）/ 指标折线补充离散 —— canvas 拿不到 CSS 变量，组件只从调色板取字面量 |
 | 图表工具条 | `chartToolbarText/TextMuted/Border/Accent/AccentTint` | klinecharts-pro 图纸 chrome（周期条/绘图栏），与页面语义色解耦 |
 | 指示灯 | `statusDotOk/Fail/Warn` | 连接状态点 |
 

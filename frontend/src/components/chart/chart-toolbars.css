@@ -86,28 +86,8 @@
   transition: all 0.2s;
 }
 
-.chart-period-bar .item.selected {
-  background-color: var(--k-selected) !important;
-  color: var(--k-primary);
-}
-
-.chart-period-bar .period {
-  padding: 2px 6px;
-  margin: 0 4px;
-  border-radius: 2px;
-  font-size: 14px;
-}
-
-.chart-period-bar .period:hover {
-  background-color: var(--k-hover);
-}
-
-.chart-period-bar .period:first-of-type {
-  margin-left: 8px;
-}
-
-/* 周期条滑动容器：大屏自然平铺（左距 4px + 首周期 8px = 与旧版 symbol+period 间距 12px 一致）；
-   窄屏经媒体查询开启 overflow-x 横滑 */
+/* 周期条滑动容器：周期钮已换 antd Segmented（design-spec §6.9，样式由 global.css 段提供），
+   这里只管排布与窄屏横滑；原先 `.period`/`.item.selected` 自绘规则随旧 span 一并删除 */
 .chart-period-bar .period-strip {
   display: flex;
   flex-direction: row;

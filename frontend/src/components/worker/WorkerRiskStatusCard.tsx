@@ -9,6 +9,7 @@ import { Alert, Card, Descriptions, Progress, Space, Tag, Typography } from 'ant
 import { useTranslation } from 'react-i18next';
 import { getRiskStatus } from '../../api/workerApi';
 import type { RiskStatusOut } from '../../api/workerApi';
+import { QUANT_COLORS } from '@/utils/colors';
 import { formatUSD } from '../../utils/format';
 
 const POLL_INTERVAL_MS = 30_000;
@@ -89,9 +90,8 @@ const WorkerRiskStatusCard: React.FC<{
           {status.daily_pnl != null && (
             <Descriptions.Item label={t('risk_daily_pnl')}>
               <Space size="small">
-                {/* 负盈亏色：现值 antd red-7 (#cf1322)，与 palette error (#d1242f) 不等值，
-                  * 换 QUANT_COLORS.negative 会改变亮色渲染；候选并入 palette 后派生 */}
-                <span style={{ color: status.daily_pnl >= 0 ? undefined : '#cf1322' }}>
+                {/* 负盈亏色：语义跌色走 QUANT_COLORS.negative（palette error 派生，与涨跌语义同源） */}
+                <span style={{ color: status.daily_pnl >= 0 ? undefined : QUANT_COLORS.negative }}>
                   {formatUSD(status.daily_pnl, { showSign: true })}
                 </span>
                 {status.daily_pnl < 0 && (

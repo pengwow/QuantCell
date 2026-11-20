@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, Modal, Spin, App } from 'antd';
+import { Button, Card, Input, Modal, Spin, App } from 'antd';
+import { ReloadOutlined, SwapOutlined } from '@ant-design/icons';
 import type { KLineData } from 'klinecharts';
 import { dataApi } from '../../api/dataApi';
 import { backtestApi } from '../../api';
 import * as realtimeApi from '../../api/realtimeApi';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
+import PageContainer from '../../components/PageContainer';
 import ChartShell, { type ChartShellHandle } from '../../components/chart/ChartShell';
 import { PERIOD_BAR_ITEMS } from '../../components/chart/chartConstants';
 import { OrderBookPanel } from '../../components/chart/orderbook/OrderBookPanel';
@@ -601,53 +603,79 @@ const ChartPage = () => {
     setIsRealtimeActive(isActive);
   };
 
+  // 页头动作钮（§5 30px）：与 HomePage 页头 actionStyle 同口径
+  const actionStyle = { height: 30, padding: '0 12px', fontSize: 12 } as const;
+
   return (
     <>
-      <ChartShell
-        ref={shellRef}
-        chartId="language-k-line"
-        symbol={currentSymbol}
-        periods={PERIOD_BAR_ITEMS}
-        currentPeriod={currentPeriod}
-        onChangePeriod={handleChangePeriod}
-        getBars={() => klineDataRef.current}
-        onOpenSymbolSearch={() => setSearchVisible(true)}
-        realtimeSlot={
-          <RealtimeToggleButton
-            symbol={currentSymbol.code}
-            interval={currentPeriod.toLowerCase()}
-            defaultRealtimeEnabled={systemConfig.realtime_enabled}
-            onRealtimeData={handleRealtimeData}
-            onStatusChange={handleRealtimeStatusChange}
+      <PageContainer
+        className="chart-page-wrap"
+        title={t('chart')}
+        /* mono 真值副标：市场 + 当前品种 + 引擎数据模式（getRealtimeConfig 真值，非装饰文案） */
+        subtitle={t('chart.page.sub', { mode: systemConfig.data_mode })}
+        actions={
+          <>
+            <Button
+              icon={<SwapOutlined style={{ fontSize: 14 }} />}
+              style={actionStyle}
+              onClick={() => setSearchVisible(true)}
+            >
+              {t('chart.page.changeSymbol')}
+            </Button>
+            <Button icon={<ReloadOutlined style={{ fontSize: 14 }} />} style={actionStyle} onClick={() => loadKlineData()}>
+              {t('refresh')}
+            </Button>
+          </>
+        }
+      >
+        <Card className="qc-card chart-card">
+          <ChartShell
+            ref={shellRef}
+            chartId="language-k-line"
+            symbol={currentSymbol}
+            periods={PERIOD_BAR_ITEMS}
+            currentPeriod={currentPeriod}
+            onChangePeriod={handleChangePeriod}
+            getBars={() => klineDataRef.current}
+            onOpenSymbolSearch={() => setSearchVisible(true)}
+            realtimeSlot={
+              <RealtimeToggleButton
+                symbol={currentSymbol.code}
+                interval={currentPeriod.toLowerCase()}
+                defaultRealtimeEnabled={systemConfig.realtime_enabled}
+                onRealtimeData={handleRealtimeData}
+                onStatusChange={handleRealtimeStatusChange}
+              />
+            }
+            indicatorScope="all"
+            loading={loading}
+            error={error}
+            rightPanelSlot={
+              // 「订单簿面板」是右栏总开关：关闭即整体卸载右栏（含成交流水），
+              // K线图 flex 自动铺满释放的横向空间；重新开启时右栏恢复，图表自动缩回。
+              // 布局偏好由 saveOrderbookPrefs 持久化到后端，下次进入自动套用
+              orderbookPrefs?.panel ? (
+                // 右栏子块为原生元素，间距用 gap；成交流水从属于面板开关
+                <>
+                  <OrderBookPanel symbol={wsSymbol} depthLevels={orderbookPrefs.depthLevels} />
+                  {orderbookPrefs.tradeTape && <TradeTape symbol={wsSymbol} />}
+                </>
+              ) : null
+            }
+            depthData={depthData}
+            orderbookModalProps={
+              orderbookPrefs
+                ? {
+                    orderbook: orderbookPrefs,
+                    onOrderbookChange: updateOrderbookPrefs,
+                    backtestOptions,
+                  }
+                : undefined
+            }
+            backtestFills={backtestFills}
           />
-        }
-        indicatorScope="all"
-        loading={loading}
-        error={error}
-        rightPanelSlot={
-          // 「订单簿面板」是右栏总开关：关闭即整体卸载右栏（含成交流水），
-          // K线图 flex 自动铺满释放的横向空间；重新开启时右栏恢复，图表自动缩回。
-          // 布局偏好由 saveOrderbookPrefs 持久化到后端，下次进入自动套用
-          orderbookPrefs?.panel ? (
-            // 右栏子块为原生元素，间距用 gap；成交流水从属于面板开关
-            <>
-              <OrderBookPanel symbol={wsSymbol} depthLevels={orderbookPrefs.depthLevels} />
-              {orderbookPrefs.tradeTape && <TradeTape symbol={wsSymbol} />}
-            </>
-          ) : null
-        }
-        depthData={depthData}
-        orderbookModalProps={
-          orderbookPrefs
-            ? {
-                orderbook: orderbookPrefs,
-                onOrderbookChange: updateOrderbookPrefs,
-                backtestOptions,
-              }
-            : undefined
-        }
-        backtestFills={backtestFills}
-      />
+        </Card>
+      </PageContainer>
 
       {/* 品种搜索弹窗 */}
       <Modal
