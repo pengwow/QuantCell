@@ -1404,3 +1404,77 @@
 .portfolio-new-trade > td {
   background-color: rgba(24, 144, 255, 0.12) !important;
 }
+
+/* ========================================
+   回测配置页（/backtest/config）—— design-spec §5 page-head / §6.3 卡片 /
+   §6.9 segmented / demo #view-backtest-config (bc-grid / mfield / m2col / mHint)
+   本段只补页面缺口；全部颜色走 --qc-* token + color-mix tint，无 hex 字面量。
+   全局原语（.qc-card 表单 label、.ant-segmented §6.9、.qc-mono、.qc-card-sub）
+   在 global.css，请勿在此重复。
+   ======================================== */
+
+/* demo .bc-grid：两卡并排 + 通栏卡，<1080px 单列 */
+.bc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .bc-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* demo .m2col：字段两列，列距 11px */
+.bc-m2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+}
+
+/* demo .frow-s 密度：字段纵向间距收紧（antd 默认 24px 过疏），间隙留给校验文案 */
+.bc-form .ant-form-item {
+  margin-bottom: 10px;
+}
+
+.bc-form .ant-form-item .ant-form-item-label {
+  padding-bottom: 5px;
+}
+
+/* demo .mHint：11px 弱文本（antd 默认 12px desc 色重一档） */
+.bc-form .ant-form-item .ant-form-item-extra {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--qc-text-quaternary);
+}
+
+/* 末位字段不拖出卡底空隙 */
+.bc-card .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+/* demo .seg 周期组：档位文字用 mono（值本身是 15m/1h 这类代码，非 i18n 词条）。
+   容器几何（2px padding / 8px 圆角 / 24px 内钮 / 选中 tint）由 global.css §6.9 承担 */
+.bc-form .ant-segmented .ant-segmented-item-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 卡 3 参数盒（demo .kvtab 密度映射到 antd 两列表单）：细边浅底 */
+.bc-params-box {
+  padding: 12px 10px 4px;
+  border: 1px solid var(--qc-border);
+  border-radius: 8px;
+  background: var(--qc-surface-muted);
+}
+
+.bc-params-empty {
+  padding: 22px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--qc-text-quaternary);
+  border: 1px dashed var(--qc-border);
+  border-radius: 8px;
+}

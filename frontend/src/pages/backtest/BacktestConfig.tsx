@@ -13,7 +13,7 @@ import {
   Select,
   DatePicker,
   InputNumber,
-  Radio,
+  Segmented,
   Button,
   Space,
   Flex,
@@ -28,7 +28,7 @@ import {
   Tag,
   theme,
 } from 'antd';
-import { PlusOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, InfoCircleOutlined, EyeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { backtestApi, configApi } from '../../api';
 import { dataApi } from '../../api/dataApi';
 import { factorApi } from '../../api/factor';
@@ -45,10 +45,16 @@ import {
   pickDirectSymbols,
   type MarginSpecRow,
 } from './marginSpecs';
+import { formatCashGrouped, formatFeePercent } from './bcFormat';
 import type { Dayjs } from 'dayjs';
+// 页面级样式（.bc-grid / .bc-form 等）：全局原语在 global.css 的 .qc-*，此处只补页面缺口
+import './backtest.css';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
+
+// K 线周期档位：与原 Select 完全同集（真实能力不减），demo .seg 形制为 mono 裸值
+const INTERVAL_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'].map((v) => ({ value: v, label: v }));
 
 interface BacktestConfigProps {
   onRunBacktest?: () => void;
@@ -100,6 +106,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   // 行渲染只依赖已注册的 symbols：若反过来依赖 margin_specs 的 watch 值，
   // 字段又要先渲染才注册，两者互锁会导致整个区块永远不渲染
   const specSymbols = pickDirectSymbols(watchedSymbols);
+  // 页头副标取表单实时值（真实口径）：初始资金/手续费随表单联动，runner 取后端默认 kernel
+  const watchedCommission = Form.useWatch('commission', form);
+  const watchedInitialCash = Form.useWatch('initialCash', form);
+  // 资金使用方式（.qc-seg 形制）：value 沿用后端契约 per_symbol/shared，文案沿用既有词条
+  const capitalOptions = [
+    { value: 'per_symbol', label: t('backtest_capital_per_symbol') },
+    { value: 'shared', label: t('backtest_capital_shared') },
+  ];
 
   // 设置页面标题
   useEffect(() => {
@@ -1107,13 +1121,52 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   };
 
   return (
-    <PageContainer title={t('backtest_config')} onBack={handleBack}>
-      <div className="space-y-6">
-        <Spin spinning={loading}>
+    <PageContainer
+      title={t('backtest_config')}
+      onBack={handleBack}
+      subtitle={t('bc_subtitle', {
+        cash: formatCashGrouped(watchedInitialCash ?? 1000000),
+        fee: formatFeePercent(watchedCommission ?? 0.001),
+      })}
+      actions={
+        <>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={handleBack}
+            style={{ height: 30, padding: '0 12px', fontSize: 12 }}
+          >
+            {t('back')}
+          </Button>
+          {isBacktestRunning && !progressVisible && (
+            <Tooltip title={t('backtest_view_progress_tooltip')}>
+              <Button
+                icon={<EyeOutlined />}
+                onClick={handleViewProgress}
+                style={{ height: 30, padding: '0 12px', fontSize: 12 }}
+              >
+                {t('backtest_view_progress')}
+              </Button>
+            </Tooltip>
+          )}
+          {/* 提交入口移到页头（demo page-actions）：form.submit() 与 htmlType="submit" 同一校验链路 */}
+          <Button
+            type="primary"
+            loading={loading}
+            disabled={isBacktestRunning}
+            onClick={() => form.submit()}
+            style={{ height: 30, padding: '0 12px', fontSize: 12, fontWeight: 550 }}
+          >
+            {t('backtest_run')}
+          </Button>
+        </>
+      }
+    >
+      <Spin spinning={loading}>
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
+          className="bc-form"
           initialValues={{
             interval: '15m',
             commission: 0.001,
@@ -1122,260 +1175,132 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             tradingMode: 'spot',
           }}
         >
-          <Card title={t('backtest_strategy_info')} className="mb-6">
-            <Row gutter={16}>
-              <Col span={24}>
-                <Form.Item
-                  name="strategy"
-                  label={t('backtest_strategy_name')}
-                  rules={[{ required: true, message: t('backtest_strategy_name_required') }]}
-                >
-                  <Select
-                    placeholder={t('backtest_strategy_placeholder')}
-                    style={{ width: '100%' }}
-                    onChange={handleStrategyChange}
-                    // options + optionRender：选中回显只用 label（纯策略名），下拉项额外渲染描述
-                    options={strategies.map((s) => ({ value: s.name, label: s.name, strategy: s }))}
-                    // 下拉底部常驻创建入口：找不到目标策略时就地创建，无需在页面上独占一行
-                    popupRender={(menu) => (
-                      <>
-                        {menu}
-                        <div style={{ padding: 4, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
-                          <Button
-                            type="text"
-                            block
-                            icon={<PlusOutlined />}
-                            // mousedown 不 preventDefault 会让 Select 收起、click 丢失（antd 官方要求）
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={handleCreateStrategy}
+          <div className="bc-grid">
+            {/* 卡 1 · 回测范围 */}
+            <Card title={t('backtest_scope')} className="qc-card bc-card">
+              <Form.Item
+                name="strategy"
+                label={t('backtest_strategy_name')}
+                rules={[{ required: true, message: t('backtest_strategy_name_required') }]}
+              >
+                <Select
+                  placeholder={t('backtest_strategy_placeholder')}
+                  style={{ width: '100%' }}
+                  onChange={handleStrategyChange}
+                  // options + optionRender：选中回显只用 label（纯策略名），下拉项额外渲染描述
+                  options={strategies.map((s) => ({ value: s.name, label: s.name, strategy: s }))}
+                  // 下拉底部常驻创建入口：找不到目标策略时就地创建，无需在页面上独占一行
+                  popupRender={(menu) => (
+                    <>
+                      {menu}
+                      <div style={{ padding: 4, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
+                        <Button
+                          type="text"
+                          block
+                          icon={<PlusOutlined />}
+                          // mousedown 不 preventDefault 会让 Select 收起、click 丢失（antd 官方要求）
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={handleCreateStrategy}
+                        >
+                          {t('backtest_create_strategy')}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  optionRender={(option) => {
+                    const s = option.data.strategy as Strategy;
+                    return (
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        <span style={{ flexShrink: 0 }}>{option.label}</span>
+                        {s.tags?.includes('demo') && (
+                          <Tag color="processing" style={{ marginRight: 0 }}>demo</Tag>
+                        )}
+                        {s.description && (
+                          <span
+                            title={s.description}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: 12,
+                              color: token.colorTextTertiary,
+                            }}
                           >
-                            {t('backtest_create_strategy')}
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                    optionRender={(option) => {
-                      const s = option.data.strategy as Strategy;
-                      return (
-                        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                          <span style={{ flexShrink: 0 }}>{option.label}</span>
-                          {s.tags?.includes('demo') && (
-                            <Tag color="processing" style={{ marginRight: 0 }}>demo</Tag>
-                          )}
-                          {s.description && (
-                            <span
-                              title={s.description}
-                              style={{
-                                flex: 1,
-                                minWidth: 0,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                fontSize: 12,
-                                color: token.colorTextTertiary,
-                              }}
-                            >
-                              {s.description}
-                            </span>
-                          )}
-                        </span>
-                      );
-                    }}
-                  />
-                </Form.Item>
-              </Col>
+                            {s.description}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  }}
+                />
+              </Form.Item>
 
-              <Col span={24}>
-                <div style={{ marginBottom: 8 }}>{t('backtest_params_config')}</div>
-                {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
-                  <div style={{ background: 'transparent', padding: '16px', borderRadius: '4px', border: '1px solid var(--ant-color-border)' }}>
-                    <Row gutter={24}>
-                      {selectedStrategy.params.map((param) => (
-                        <Col span={12} key={param.name}>
-                          <Form.Item
-                            name={['params', param.name]}
-                            label={
-                              <span>
-                                {param.name}
-                                {param.description && (
-                                  <Tooltip title={param.description}>
-                                    <InfoCircleOutlined style={{ marginLeft: 4, color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
-                                  </Tooltip>
-                                )}
-                              </span>
-                            }
-                            initialValue={param.default}
-                            valuePropName={
-                              (param.type === 'bool' || param.type === 'boolean') ? 'checked' : 'value'
-                            }
-                          >
-                            {renderParamInput(param)}
-                          </Form.Item>
-                        </Col>
-                      ))}
-                    </Row>
-                  </div>
-                ) : (
-                  <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', textAlign: 'center', padding: '20px 0', border: '1px dashed var(--tw-color-border)', borderRadius: '4px' }}>
-                    {selectedStrategy ? t('backtest_no_configurable_params') : t('backtest_select_strategy_for_params')}
-                  </div>
-                )}
-              </Col>
-            </Row>
-          </Card>
+              <Form.Item
+                name="symbols"
+                label={t('backtest_symbols')}
+                rules={[{ required: true, message: t('backtest_symbols_required') }]}
+              >
+                <Select
+                  mode="multiple"
+                  placeholder={t('backtest_symbols_placeholder')}
+                  style={{ width: '100%' }}
+                  options={symbolOptions}
+                  loading={symbolOptionsLoading}
+                  showSearch
+                  allowClear
+                  maxTagCount={3}
+                  maxTagPlaceholder={(omittedValues) => t('backtest_max_tags_more', { num: omittedValues.length })}
+                  filterOption={(input, option) => {
+                    if (!input) return true;
+                    const label = option?.label || '';
+                    return label.toLowerCase().includes(input.toLowerCase());
+                  }}
+                />
+              </Form.Item>
 
-          <Card title={t('backtest_info')} className="mb-6">
-            <Row gutter={16}>
-              <Col span={24}>
-                <Form.Item
-                  name="symbols"
-                  label={t('backtest_symbols')}
-                  rules={[{ required: true, message: t('backtest_symbols_required') }]}
-                >
-                  <Select
-                    mode="multiple"
-                    placeholder={t('backtest_symbols_placeholder')}
-                    style={{ width: '100%' }}
-                    options={symbolOptions}
-                    loading={symbolOptionsLoading}
-                    showSearch
-                    allowClear
-                    maxTagCount={3}
-                    maxTagPlaceholder={(omittedValues) => t('backtest_max_tags_more', { num: omittedValues.length })}
-                    filterOption={(input, option) => {
-                      if (!input) return true;
-                      const label = option?.label || '';
-                      return label.toLowerCase().includes(input.toLowerCase());
-                    }}
-                  />
-                </Form.Item>
-              </Col>
+              {/* demo .m2col 位：时间范围一个 RangePicker 占两列，起止两个输入框即两个日期位 */}
+              <Form.Item
+                name="timeRange"
+                label={t('backtest_time_range')}
+                rules={[{ required: true, message: t('backtest_time_range_required') }]}
+              >
+                <RangePicker
+                  format="YYYY-MM-DD"
+                  placeholder={[t('backtest_start_date'), t('backtest_end_date')]}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
 
-              <Col span={12}>
-                <Form.Item
-                  name="timeRange"
-                  label={t('backtest_time_range')}
-                  rules={[{ required: true, message: t('backtest_time_range_required') }]}
-                >
-                  <RangePicker
-                    format="YYYY-MM-DD"
-                    placeholder={[t('backtest_start_date'), t('backtest_end_date')]}
-                  />
-                </Form.Item>
-              </Col>
+              <Form.Item
+                name="interval"
+                label={t('bc_kline_interval')}
+                rules={[{ required: true, message: t('backtest_interval_required') }]}
+              >
+                {/* demo .qc-seg 形制：档位与原 Select 全集一致，不设第二种能力 */}
+                <Segmented className="qc-mono" options={INTERVAL_OPTIONS} />
+              </Form.Item>
 
-              <Col span={12}>
-                <Form.Item
-                  name="interval"
-                  label={t('backtest_interval')}
-                  rules={[{ required: true, message: t('backtest_interval_required') }]}
-                >
-                  <Select placeholder={t('backtest_interval_required')}>
-                    <Option value="1m">{t('interval_1m')}</Option>
-                    <Option value="5m">{t('interval_5m')}</Option>
-                    <Option value="15m">{t('interval_15m')}</Option>
-                    <Option value="30m">{t('interval_30m')}</Option>
-                    <Option value="1h">{t('interval_1h')}</Option>
-                    <Option value="4h">{t('interval_4h')}</Option>
-                    <Option value="1d">{t('interval_1d')}</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
+              <Form.Item
+                name="tradingMode"
+                label={t('backtest_trading_mode')}
+                rules={[{ required: true, message: t('backtest_trading_mode_required') }]}
+                extra={t('backtest_trading_mode_extra')}
+              >
+                <Select placeholder={t('backtest_trading_mode_required')}>
+                  <Option value="spot">{t('trading_mode_spot')}</Option>
+                  <Option value="futures">{t('backtest_futures')}</Option>
+                </Select>
+              </Form.Item>
+            </Card>
 
-              <Col span={24}>
-                <Form.Item
-                  name="tradingMode"
-                  label={t('backtest_trading_mode')}
-                  rules={[{ required: true, message: t('backtest_trading_mode_required') }]}
-                  extra={t('backtest_trading_mode_extra')}
-                >
-                  <Select placeholder={t('backtest_trading_mode_required')}>
-                    <Option value="spot">{t('trading_mode_spot')}</Option>
-                    <Option value="futures">{t('backtest_futures')}</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-
-              {watchedTradingMode === 'futures' && (
-                <Col span={24}>
-                  <Form.Item
-                    label={t('backtest_margin_specs')}
-                    extra={t('backtest_margin_specs_extra')}
-                  >
-                    {/* antd v6 下 space-y-* 会被 CSS-in-JS 覆盖失效，行间距必须用 Space 自己产生 */}
-                    <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-                      {specSymbols.length === 0 ? (
-                        <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_select_symbols_first')}</span>
-                      ) : (
-                        // 行按品种键绑定：字段名里带 symbol，不再用下标对齐，
-                        // 品种增删时自然对应，也就不会被 watch 与条件渲染互锁
-                        specSymbols.map((symbol) => (
-                          <Flex key={symbol} gap="small" align="center">
-                            <span style={{ minWidth: 100 }}>{symbol}</span>
-                            {/* addonAfter 在 antd v6 已废弃，官方迁移方式是 Space.Compact + 禁用按钮作后缀。
-                                注意 Space.Compact 必须在 Form.Item 外面：noStyle Form.Item 通过 cloneElement
-                                把 value/onChange 注入直接子元素，若直接子元素是 Compact div 容器则 InputNumber 拿不到值 */}
-                            <Space.Compact>
-                              <Form.Item
-                                name={['margin_specs', symbol, 'leverage']}
-                                initialValue={1}
-                                noStyle
-                              >
-                                <InputNumber min={1} max={125} step={1} style={{ width: 96 }} />
-                              </Form.Item>
-                              <Button disabled style={{ width: 36, paddingInline: 0 }}>
-                                x
-                              </Button>
-                            </Space.Compact>
-                            <Form.Item
-                              name={['margin_specs', symbol, 'margin_mode']}
-                              initialValue="cross"
-                              noStyle
-                            >
-                              <Select
-                                style={{ width: 110 }}
-                                options={[
-                                  { value: 'cross', label: t('backtest_margin_cross') },
-                                  { value: 'isolated', label: t('backtest_margin_isolated') },
-                                ]}
-                              />
-                            </Form.Item>
-                          </Flex>
-                        ))
-                      )}
-                    </Space>
-                  </Form.Item>
-                </Col>
-              )}
-
-              <Col span={24}>
-                <Form.Item
-                  name="factorNames"
-                  label={t('backtest_factors')}
-                  extra={
-                    watchedStrategy === 'factor_timing'
-                      ? t('backtest_factor_timing_hint')
-                      : t('backtest_factor_optional_hint')
-                  }
-                >
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    placeholder={t('backtest_factors_placeholder')}
-                    options={factorOptions.map((f) => ({
-                      value: f.name,
-                      label: `${f.label} (${f.name})`,
-                    }))}
-                  />
-                </Form.Item>
-              </Col>
-
-              <Col span={12}>
+            {/* 卡 2 · 成本与账户 */}
+            <Card title={t('backtest_cost_account')} className="qc-card bc-card">
+              <div className="bc-m2col">
                 <Form.Item
                   name="commission"
-                  label={t('backtest_commission')}
+                  label={t('bc_commission_side')}
                   rules={[{ required: true, message: t('backtest_commission_placeholder') }]}
                 >
                   <InputNumber
@@ -1386,9 +1311,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     style={{ width: '100%' }}
                   />
                 </Form.Item>
-              </Col>
 
-              <Col span={12}>
                 <Form.Item
                   name="initialCash"
                   label={t('backtest_initial_cash')}
@@ -1402,46 +1325,144 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                     style={{ width: '100%' }}
                   />
                 </Form.Item>
-              </Col>
+              </div>
 
-              <Col span={12}>
+              <Form.Item
+                name="capitalMode"
+                label={t('backtest_capital_mode')}
+                initialValue="per_symbol"
+                extra={
+                  isMultiSymbol
+                    ? t('backtest_capital_mode_multi_hint')
+                    : t('backtest_capital_mode_single_hint')
+                }
+              >
+                {/* demo .qc-seg 形制；value 仍是后端契约 per_symbol/shared，含义不变 */}
+                <Segmented disabled={!isMultiSymbol} options={capitalOptions} />
+              </Form.Item>
+
+              <Form.Item
+                name="factorNames"
+                label={t('backtest_factors')}
+                extra={
+                  watchedStrategy === 'factor_timing'
+                    ? t('backtest_factor_timing_hint')
+                    : t('backtest_factor_optional_hint')
+                }
+              >
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder={t('backtest_factors_placeholder')}
+                  options={factorOptions.map((f) => ({
+                    value: f.name,
+                    label: `${f.label} (${f.name})`,
+                  }))}
+                />
+              </Form.Item>
+
+              {/* 仅永续合约出现；Space.Compact / noStyle 的历史坑见下方注释，结构逻辑不动 */}
+              {watchedTradingMode === 'futures' && (
                 <Form.Item
-                  name="capitalMode"
-                  label={t('backtest_capital_mode')}
-                  initialValue="per_symbol"
-                  extra={
-                    isMultiSymbol
-                      ? t('backtest_capital_mode_multi_hint')
-                      : t('backtest_capital_mode_single_hint')
-                  }
+                  label={t('backtest_margin_specs')}
+                  extra={t('backtest_margin_specs_extra')}
                 >
-                  <Radio.Group disabled={!isMultiSymbol}>
-                    <Radio value="per_symbol">{t('backtest_capital_per_symbol')}</Radio>
-                    <Radio value="shared">{t('backtest_capital_shared')}</Radio>
-                  </Radio.Group>
+                  {/* antd v6 下 space-y-* 会被 CSS-in-JS 覆盖失效，行间距必须用 Space 自己产生 */}
+                  <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
+                    {specSymbols.length === 0 ? (
+                      <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_select_symbols_first')}</span>
+                    ) : (
+                      // 行按品种键绑定：字段名里带 symbol，不再用下标对齐，
+                      // 品种增删时自然对应，也就不会被 watch 与条件渲染互锁
+                      specSymbols.map((symbol) => (
+                        <Flex key={symbol} gap="small" align="center">
+                          <span className="qc-mono" style={{ minWidth: 100 }}>{symbol}</span>
+                          {/* addonAfter 在 antd v6 已废弃，官方迁移方式是 Space.Compact + 禁用按钮作后缀。
+                              注意 Space.Compact 必须在 Form.Item 外面：noStyle Form.Item 通过 cloneElement
+                              把 value/onChange 注入直接子元素，若直接子元素是 Compact div 容器则 InputNumber 拿不到值 */}
+                          <Space.Compact>
+                            <Form.Item
+                              name={['margin_specs', symbol, 'leverage']}
+                              initialValue={1}
+                              noStyle
+                            >
+                              <InputNumber min={1} max={125} step={1} style={{ width: 96 }} />
+                            </Form.Item>
+                            <Button disabled style={{ width: 36, paddingInline: 0 }}>
+                              x
+                            </Button>
+                          </Space.Compact>
+                          <Form.Item
+                            name={['margin_specs', symbol, 'margin_mode']}
+                            initialValue="cross"
+                            noStyle
+                          >
+                            <Select
+                              style={{ width: 110 }}
+                              options={[
+                                { value: 'cross', label: t('backtest_margin_cross') },
+                                { value: 'isolated', label: t('backtest_margin_isolated') },
+                              ]}
+                            />
+                          </Form.Item>
+                        </Flex>
+                      ))
+                    )}
+                  </Space>
                 </Form.Item>
-              </Col>
-            </Row>
-          </Card>
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" loading={loading}>
-                {t('backtest_run')}
-              </Button>
-              {isBacktestRunning && !progressVisible && (
-                <Tooltip title={t('backtest_view_progress_tooltip')}>
-                  <Button
-                    type="default"
-                    icon={<EyeOutlined />}
-                    onClick={handleViewProgress}
-                  >
-                    {t('backtest_view_progress')}
-                  </Button>
-                </Tooltip>
               )}
-            </Space>
-          </Form.Item>
+            </Card>
+          </div>
+
+          {/* 卡 3 · 策略参数配置（通栏）：策略选中后渲染参数表单，未选时占位 */}
+          <Card
+            title={t('backtest_params_config')}
+            className="qc-card bc-card"
+            style={{ marginTop: 12 }}
+            extra={
+              selectedStrategy ? (
+                <span className="qc-card-sub qc-mono">
+                  {t('bc_params_from', { name: selectedStrategy.name })}
+                </span>
+              ) : undefined
+            }
+          >
+            {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
+              <div className="bc-params-box">
+                <Row gutter={24}>
+                  {selectedStrategy.params.map((param) => (
+                    <Col span={12} key={param.name}>
+                      <Form.Item
+                        name={['params', param.name]}
+                        label={
+                          <span>
+                            {param.name}
+                            {param.description && (
+                              <Tooltip title={param.description}>
+                                <InfoCircleOutlined style={{ marginLeft: 4, color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
+                              </Tooltip>
+                            )}
+                          </span>
+                        }
+                        initialValue={param.default}
+                        valuePropName={
+                          (param.type === 'bool' || param.type === 'boolean') ? 'checked' : 'value'
+                        }
+                      >
+                        {renderParamInput(param)}
+                      </Form.Item>
+                    </Col>
+                  ))}
+                </Row>
+              </div>
+            ) : (
+              <div className="bc-params-empty">
+                {selectedStrategy ? t('backtest_no_configurable_params') : t('backtest_select_strategy_for_params')}
+              </div>
+            )}
+          </Card>
         </Form>
       </Spin>
 
@@ -1545,7 +1566,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         taskId={currentTaskId}
         strategyName={selectedStrategy?.name}
       />
-    </div>
     </PageContainer>
   );
 };
