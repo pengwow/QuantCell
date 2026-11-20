@@ -1,13 +1,12 @@
 /**
- * 页面容器组件
- * 功能：提供统一的页面布局结构
+ * 页面容器组件 —— design-spec §5 page-head
+ * 结构：page-head（返回 + 标题 16px/650 + 副标 11px + 右侧操作区）+ 内容
  * 使用方式：
  * <PageContainer title="页面标题">
  *   <div>页面内容</div>
  * </PageContainer>
- * <PageContainer title="详情标题" onBack={handleBack}>
- *   <div>详情页内容</div>
- * </PageContainer>
+ * <PageContainer title="详情标题" onBack={handleBack}>…</PageContainer>
+ * <PageContainer title="列表" subtitle="口径行" actions={<Button/>}>…</PageContainer>
  */
 import { ReactNode } from 'react';
 import { Button } from 'antd';
@@ -19,6 +18,10 @@ export interface PageContainerProps {
   children: ReactNode;
   /** 页面标题（可选） */
   title?: string;
+  /** 副标（可选）：mono 11px 数据口径行（§5 page-sub） */
+  subtitle?: string;
+  /** 右侧操作区（可选）：按钮组，gap 8px（§5 page-actions） */
+  actions?: ReactNode;
   /** 返回回调（可选）。提供后在标题左侧渲染统一的返回箭头，详情页统一用此入口，不再各自画返回按钮 */
   onBack?: () => void;
   /** 自定义类名 */
@@ -27,26 +30,33 @@ export interface PageContainerProps {
 
 /**
  * 页面容器组件
- * 提供统一的页面布局：外层 px-6 py-4 内边距，内容全宽铺满（不做限宽居中，
- * 否则宽屏下内容区与侧边栏之间会出现大片空白）。新页面请统一使用本容器。
+ * 外边距由布局层（.qc-main 4/4/18）与 page-head（2/2/14）提供，容器自身不再
+ * 叠加水平内边距（模拟 demo：app-body 12 + main 4 + page-head margin 2 ≈ 16px 视觉边距）。
+ * 新页面请统一使用本容器。
  */
-const PageContainer = ({ children, title, onBack, className = '' }: PageContainerProps) => {
+const PageContainer = ({ children, title, subtitle, actions, onBack, className = '' }: PageContainerProps) => {
+  const hasHead = Boolean(title || subtitle || actions || onBack);
+
   return (
-    <div className={`flex flex-col px-6 py-4 ${className}`}>
-      {/* 页面标题区域：返回按钮与标题同行、同一底部间距，保证各页面标题行几何一致 */}
-      {(title || onBack) && (
-        <div className="mb-6 flex shrink-0 items-center gap-1">
-          {onBack && (
-            <Button
-              type="text"
-              aria-label="back"
-              icon={<ArrowLeftOutlined />}
-              onClick={onBack}
-            />
-          )}
-          {title && (
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{title}</h1>
-          )}
+    <div className={`flex min-w-0 flex-col ${className}`}>
+      {/* page-head：返回按钮与标题同行、同一底部间距，保证各页面标题行几何一致 */}
+      {hasHead && (
+        <div className="qc-page-head">
+          <div className="flex min-w-0 items-center gap-1">
+            {onBack && (
+              <Button
+                type="text"
+                aria-label="back"
+                icon={<ArrowLeftOutlined />}
+                onClick={onBack}
+              />
+            )}
+            <div className="min-w-0">
+              {title && <h1 className="qc-page-title">{title}</h1>}
+              {subtitle && <p className="qc-page-sub">{subtitle}</p>}
+            </div>
+          </div>
+          {actions && <div className="qc-page-actions">{actions}</div>}
         </div>
       )}
 

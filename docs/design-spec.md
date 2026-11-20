@@ -216,7 +216,7 @@ font-variant-numeric: tabular-nums;
 └──────────┴─────────────────────────────────────────────────────┘
 ```
 
-- **Header**：`height: 52px; flex: 0 0 52px; padding: 0 20px; border-bottom: 1px solid var(--bd); background: var(--bg)`。左：logo（16px 橙色方块 + 「QuantCell」13px 650）+ 面包屑 `crumb`（`fg-2`，13px，`/` 分隔）。右：主题切换胶囊（30px 高、15px 圆角、`bge` 底、图标 16px 主色）、图标钮（30×30、6px 圆角）、铃铛带主色角标。
+- **Header**：`height: 52px; flex: 0 0 52px; padding: 0 16px; border-bottom: 1px solid var(--bd); background: var(--bg)`。左：logo（20px 渐变方块 + 「QuantCell」14px/700，左组 gap 10px）+ 面包屑 `crumb`（`fg-2`，13px，`/` 分隔）。右：主题切换胶囊（30px 高、15px 圆角、`bge` 底、图标 16px 主色）、图标钮（30×30、6px 圆角）、铃铛带主色角标。
 - **Sider**：`flex: 0 0 216px`，`background: var(--bg)`，`border: 1px solid var(--bd)`，`border-radius: 12px`（内嵌画布中）。折叠态 64px（`body.sider-min`），仅图标居中。
 - **main**：`flex: 1; overflow-y: auto; padding: 4px 4px 18px`。
 - **page-head**：`display:flex; align-items:flex-end; justify-content:space-between; margin: 2px 2px 14px`。左：`page-title` 16px/650 + `page-sub` 11px `fg-4`（mono 数据口径行）；右：`page-actions`（按钮组，gap 8px）。
@@ -320,7 +320,7 @@ font-variant-numeric: tabular-nums;
 
 ### 6.15 侧栏导航 `.nav-item`
 
-- 基础：`height auto; padding:7px 10px 7px 13px; border-radius:8px; font-size:13px; color:var(--fg-2); gap:9px;` 图标 16px `fg-3`。
+- 基础：`height auto; padding:7px 10px 7px 13px; line-height:19px（总高 33px）; border-radius:8px; font-size:13px; color:var(--fg-2); gap:9px;` 图标 16px `fg-3`。
 - hover：`fg 5%` 底 + `fg` 字。
 - 选中 `.on`：`primary 9%` 底 + 主色字 550 + 图标主色 + **左侧 3px 主色竖条**（`::before`，top/bottom 22%，2px 圆角）。
 - 分组标题 `.nav-group-t`：`padding:13px 13px 5px; font-size:10.5px; letter-spacing:.16em; color:var(--fg-4)`。

@@ -52,17 +52,27 @@
      颜色值的唯一真相源是 src/theme/palettes.ts —— 修改品牌配色只改那一处，
      本文件不再持有任何颜色字面量（theme.spec.ts 有守卫）。 */
 
-  /* 布局尺寸变量（非颜色） */
+  /* 布局尺寸变量（非颜色）—— design-spec §5：Header 52 / Sider 216、折叠 64 */
   :root {
-    --sider-width: 256px;
-    --sider-collapsed-width: 81px;
-    --header-height: 64px;
+    --sider-width: 216px;
+    --sider-collapsed-width: 64px;
+    --header-height: 52px;
   }
 }
 
 @layer base {
   /* 数字等宽（O3，全局 tnum 规范）：行情/表格/盈亏数字逐位对齐不跳动。
      全局继承，等宽特性只影响数字字形宽度，对文本渲染无副作用 */
+
+  /* 正文基准 13px/1.6（qc-prototype-demo body 基准值）。
+     只写在 body 上、不动 html：Tailwind 间距工具类全部基于根 rem，
+     若把 13px 写到 html 会等比缩放全站 p-x / gap-x 之类工具类。antd 组件字号由
+     ConfigProvider.fontSize 管，这里管 antd 之外的原生文本 */
+  body {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
   body {
     font-feature-settings: 'kern' 1, 'tnum' 1;
     font-variant-numeric: tabular-nums;
@@ -99,10 +109,10 @@
   width: 100%;
 }
 
-/* 自定义滚动条 */
+/* 自定义滚动条（design-spec §5：8px，圆角 4px；thumb = 文本色 18% tint） */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -110,15 +120,409 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--tw-color-border);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--qc-text) 18%, transparent);
+  border-radius: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--tw-color-primary);
+/* ============================================================
+   布局骨架（design-spec §5 / §6.1 / §6.15 / §8 / §9）
+   颜色一律取 src/theme 注入的 --qc-* 变量；本段禁止出现颜色字面量。
+   注意：index.css 在 global.css 之后导入，body 画布底色需用更高
+   特异性（html body）覆盖其 --tw-color-background。
+   ============================================================ */
+
+/* 画布：--qc-canvas + 双 radial 辉光（顶部主色 / 右下 info 色，§5） */
+html body {
+  background-color: var(--qc-canvas);
+  background-image:
+    radial-gradient(1100px 420px at 50% -60px, var(--qc-glow-1), transparent 70%),
+    radial-gradient(900px 380px at 85% 108%, var(--qc-glow-2), transparent 70%);
 }
 
-/* 系统状态指示器样式 */
+/* §9 焦点环统一：仅键盘聚焦时出现 */
+:focus-visible {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
+}
+
+/* §8 主题切换颜色过渡：只动颜色类属性（布局属性单独声明） */
+.qc-header,
+.qc-sider,
+.qc-nav-item,
+.qc-nav-group-t,
+.qc-icon-btn,
+.qc-theme-pill,
+.qc-sider-foot {
+  transition:
+    background-color 0.16s ease-out,
+    border-color 0.16s ease-out,
+    color 0.16s ease-out,
+    box-shadow 0.16s ease-out;
+}
+
+/* ---- 顶部 Header（52px 通栏） ---- */
+.qc-app {
+  /* h-screen：与旧骨架一致（不依赖中间包装层的高度传递，AuthProvider 等包装无高度） */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--qc-text);
+}
+
+.qc-header {
+  flex: 0 0 var(--header-height);
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--qc-border);
+  background: var(--qc-bg);
+  position: relative;
+  z-index: 20;
+}
+
+.qc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.qc-logo {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: inline-flex;
+}
+
+.qc-brand {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--qc-text);
+  white-space: nowrap;
+}
+
+.qc-crumb-sep {
+  color: var(--qc-text-quaternary);
+  font-size: 12px;
+}
+
+.qc-crumb {
+  font-size: 13px;
+  color: var(--qc-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.qc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* §6.15 图标按钮：30×30、6px 圆角、透明底、hover 文字色 5% tint */
+.qc-icon-btn {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: none;
+  background: transparent;
+  color: var(--qc-text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.qc-icon-btn:hover {
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  color: var(--qc-text);
+}
+
+/* 断点显隐全部在本文件用媒体查询管理，不依赖 Tailwind 工具类——
+   本段为 unlayered 规则，恒胜过 @layer utilities 里的 md:hidden 等 */
+.qc-hamburger {
+  display: none;
+}
+
+.qc-header-locale {
+  display: none;
+}
+
+/* 主题切换胶囊（§6.15 / AppTheme）：30px 高、15px 圆角、muted 底、16px 主色图标 */
+.qc-theme-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px 0 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 15px;
+  background: var(--qc-surface-muted);
+  color: var(--qc-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qc-theme-pill svg {
+  width: 16px;
+  height: 16px;
+  color: var(--qc-primary);
+}
+
+.qc-theme-pill:hover {
+  border-color: var(--qc-primary);
+  color: var(--qc-text);
+}
+
+/* 铃铛角标：主色徽章 + 1.5px 画布色描边（demo .badge） */
+.qc-bell .ant-badge-count {
+  border: 1.5px solid var(--qc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ---- 主体两栏（Sider 卡片 + main） ---- */
+.qc-app-body {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  min-height: 0;
+}
+
+/* §6.15 Sider：216px 内嵌圆角卡片，折叠 64px（flex-basis 过渡 180ms） */
+.qc-sider {
+  flex: 0 0 var(--sider-width);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--qc-bg);
+  border: 1px solid var(--qc-border);
+  border-radius: 12px;
+  transition:
+    flex-basis 0.18s ease-out,
+    background-color 0.16s ease-out,
+    border-color 0.16s ease-out;
+}
+
+.qc-sider[data-collapsed='true'] {
+  flex-basis: var(--sider-collapsed-width);
+}
+
+.qc-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scrollbar-width: thin;
+}
+
+/* §6.15 nav-item：7/10/7/13 内边距、8px 圆角、13px 字、图标 16 */
+.qc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  position: relative;
+  padding: 7px 10px 7px 13px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 19px; /* 像素基准：nav-item 总高 33px（demo 实测），不是 body 的 1.6 */
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.qc-nav-item svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-nav-item:hover {
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  color: var(--qc-text);
+}
+
+/* 选中：primary 9% tint 底 + 主色字 550 + 左侧 3px 竖条（top/bottom 22%） */
+.qc-nav-item.on {
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+  color: var(--qc-primary);
+  font-weight: 550;
+}
+
+.qc-nav-item.on svg {
+  color: var(--qc-primary);
+}
+
+.qc-nav-item.on::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--qc-primary);
+}
+
+.qc-nav-group-t {
+  padding: 13px 13px 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  color: var(--qc-text-quaternary);
+}
+
+/* 折叠态：仅图标居中，文案与分组标题隐藏 */
+.qc-sider[data-collapsed='true'] .qc-nav-item {
+  padding: 7px 0;
+  justify-content: center;
+}
+
+.qc-sider[data-collapsed='true'] .qc-nav-label,
+.qc-sider[data-collapsed='true'] .qc-nav-group-t {
+  display: none;
+}
+
+.qc-sider-foot {
+  border-top: 1px solid var(--qc-border);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qc-ver {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.qc-sider[data-collapsed='true'] .qc-ver {
+  display: none;
+}
+
+.qc-sider[data-collapsed='true'] .qc-sider-foot {
+  justify-content: center;
+  padding: 8px 6px;
+  gap: 6px;
+}
+
+.qc-collapse-btn svg {
+  transition: transform 0.18s ease-out;
+}
+
+.qc-sider[data-collapsed='true'] .qc-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+/* §5 main：4/4/18 内边距，纵向滚动 */
+.qc-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 18px;
+}
+
+/* §5 page-head：标题 16/650 + 副标 11 mono + 右侧操作区 */
+.qc-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 2px 14px;
+  flex-wrap: wrap;
+}
+
+.qc-page-title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--qc-text);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-page-sub {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.qc-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 小屏（<md）：卡片 Sider 让位给 Drawer，画布边距收紧，语言/胶囊收成图标 */
+@media (max-width: 767px) {
+  .qc-hamburger,
+  .qc-header-locale {
+    display: inline-flex;
+  }
+
+  .qc-sider {
+    display: none;
+  }
+
+  .qc-app-body {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .qc-crumb,
+  .qc-crumb-sep {
+    display: none;
+  }
+
+  .qc-theme-pill .qc-theme-pill-label {
+    display: none;
+  }
+
+  .qc-theme-pill {
+    padding: 0 7px 0 7px;
+  }
+}
+
+/* §8 动效降级 */
+@media (prefers-reduced-motion: reduce) {
+  .qc-sider,
+  .qc-collapse-btn svg {
+    transition: none;
+  }
+}
+
+/* 系统状态指示器 */
 .status-indicator {
   width: 8px;
   height: 8px;

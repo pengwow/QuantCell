@@ -598,6 +598,7 @@
   "rl_history_hint": "RL model backtest history; see the Backtest Center for all tasks.",
   "rl_history_empty": "Run an RL backtest and its history will appear here.",
   "nav_group_trade": "Trading",
+  "side_navigation": "Sidebar navigation",
   "nav_group_research_data": "Research",
   "backtest_strategy_name_required": "Please select a strategy",
   "backtest_strategy_placeholder": "Select a strategy",

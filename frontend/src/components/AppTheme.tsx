@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- 默认导出为组件集合对象（Dropdown/Icon/LinkButton），属刻意的复合组件 API，插件无法识别，禁用后降级为整页刷新 */
 import { useTranslation } from "react-i18next";
 import { IconDeviceDesktop, IconMoon, IconSun, type IconProps } from "@tabler/icons-react";
-import { Dropdown, type DropdownProps, Typography } from "antd";
+import { Dropdown, type DropdownProps } from "antd";
 import type { MenuProps } from "antd";
 
 import Show from "./Show";
@@ -100,14 +100,18 @@ const AppThemeLinkButton = ({ className, style, ...props }: AppThemeLinkButtonPr
 
   return (
     <AppThemeDropdown trigger={["click", "hover"]} {...props}>
-      <Typography.Text
-        className={`cursor-pointer flex items-center gap-1 ${className || ""}`}
+      {/* 主题入口胶囊（§6.15/§5 Header）：30px 高、15px 圆角、muted 底、16px 主色图标。
+       * 几何与配色在 global.css .qc-theme-pill；小屏只留图标（label 隐藏），
+       * 当前模式由可见文案直接表达，触发器本身用 aria-haspopup 而非 aria-pressed。 */}
+      <button
+        type="button"
+        className={`qc-theme-pill cursor-pointer ${className || ""}`}
         style={style}
-        type="secondary"
+        aria-haspopup="menu"
       >
-        <AppThemeIcon className="size-4" themeMode={themeMode} />
-        <span>{t(`theme_${themeMode}`)}</span>
-      </Typography.Text>
+        <AppThemeIcon themeMode={themeMode} />
+        <span className="qc-theme-pill-label">{t(`theme_${themeMode}`)}</span>
+      </button>
     </AppThemeDropdown>
   );
 };
