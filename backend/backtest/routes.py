@@ -29,9 +29,11 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from backtest.models import BacktestTask
 from collector.db.models import DataPoolBusiness
 from common.notifications.task_notices import (
     TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
     TASK_STATUS_SUCCEEDED,
     notify_task_event,
 )
@@ -39,6 +41,7 @@ from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import get_current_user
+from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
@@ -84,6 +87,33 @@ def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
             name=name or None,
             error=str(result.get("message") or "回测失败"),
         )
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：backtest_tasks 残留 pending/running 的行置 failed 并补发中断通知
+
+    回测跑在后台线程，进程重启即全部中断；status 值域无 interrupted，落库置 failed。
+    """
+    try:
+        with get_db_session() as db:
+            rows = db.query(BacktestTask).filter(BacktestTask.status.in_(("pending", "running"))).all()
+            stale = [(r.id, r.strategy_name) for r in rows]
+            for row in rows:
+                row.status = "failed"
+                row.completed_at = datetime.now(UTC)
+            db.commit()
+    except Exception:
+        logger.exception("[回测] 启动补偿扫描失败")
+        return 0
+    for task_id, strategy_name in stale:
+        notify_task_event(
+            "backtest",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=strategy_name or None,
+            error="服务重启，回测被中断",
+        )
+    return len(stale)
 
 
 # 创建API路由实例

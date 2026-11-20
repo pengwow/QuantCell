@@ -33,12 +33,15 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from common.notifications.inbox_models import AsyncTaskRecord
 from common.notifications.task_notices import (
     TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
     TASK_STATUS_SUCCEEDED,
     notify_task_event,
     upsert_async_task_record,
 )
+from utils.db_session import use_db_session
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -464,3 +467,37 @@ def _progress_callback(reporter: Any, stage: str, *, done_before: int, total: in
             return True
 
     return _TaskProgressCallback()
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：影子表残留 queued/running 的 RL 任务置 interrupted 并补发中断通知
+
+    内存 registry 重启即空（见文件头 ponytail 注释），影子表是重启前任务
+    存在的唯一事实源头（spec §4.2）。
+    """
+    try:
+        with use_db_session() as db:
+            rows = (
+                db.query(AsyncTaskRecord)
+                .filter(
+                    AsyncTaskRecord.task_type == "rl_train",
+                    AsyncTaskRecord.status.in_(("queued", "running")),
+                )
+                .all()
+            )
+            stale = [(r.task_id, r.name or "") for r in rows]
+            for row in rows:
+                row.status = "interrupted"
+            db.commit()
+    except Exception:
+        logger.exception("[RL] 启动补偿扫描失败")
+        return 0
+    for task_id, name in stale:
+        notify_task_event(
+            "rl_train",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=name or None,
+            error="服务重启，训练任务被中断",
+        )
+    return len(stale)

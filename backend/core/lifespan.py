@@ -481,6 +481,38 @@ async def lifespan(app: FastAPI):
     shutdown_watchdog = _ShutdownWatchdog(timeout=_stop_timeout(_LEGACY_WATCHDOG, shutdown_watchdog_timeout()))
     _install_signal_watchdog(shutdown_watchdog)
 
+    # 通知 Hub 绑定主事件循环：任务域在工作线程里调用 notify_task_event 时，
+    # WS 推送经此调度回 asyncio 侧（Task 3 的 bind_event_loop 契约）
+    from common.notifications import task_notices  # 局部 import：避免 lifespan 顶层拉起通知链路
+
+    task_notices.bind_event_loop(asyncio.get_running_loop())
+
+    def _run_task_compensations() -> None:
+        # 函数内 import：五个任务域模块较重（引擎/采集栈），且 lifespan 顶层
+        # import 会放大环引风险（routes → services → lifespan 的模块图不稳定）
+        from backtest.routes import compensate_interrupted_tasks as _backtest_comp
+        from collector.utils.task_manager import compensate_interrupted_tasks as _collector_comp
+        from factor.job_manager import compensate_interrupted_tasks as _factor_comp
+        from research.loop import compensate_interrupted_sessions as _research_comp
+        from services.rl_task_runner import compensate_interrupted_tasks as _rl_comp
+
+        for task_type, fn in (
+            ("rl_train", _rl_comp),
+            ("factor_job", _factor_comp),
+            ("collector_task", _collector_comp),
+            ("backtest", _backtest_comp),
+            ("research", _research_comp),
+        ):
+            try:
+                n = fn()
+            except Exception:
+                logger.exception(f"[启动补偿] {task_type} 扫描异常")
+                continue
+            if n:
+                logger.info(f"[启动补偿] {task_type} 收口中断任务 {n} 个")
+
+    await asyncio.to_thread(_run_task_compensations)
+
     yield
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
@@ -489,6 +521,11 @@ async def lifespan(app: FastAPI):
     shutdown_watchdog.arm()
 
     logger.info("========== 应用开始关闭 ==========")
+
+    # 解绑通知 Hub 事件循环：关闭后不再接受跨线程投递，未决投递自然排空
+    from common.notifications import task_notices
+
+    task_notices.bind_event_loop(None)
 
     # P1-01：关闭段一次性快照 StopConfig 总预算 deadline，
     # 后续各步派生超时（schedulers 步骤再按剩余预算收敛）。

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from common.notifications.task_notices import (
     TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
     TASK_STATUS_SUCCEEDED,
     notify_task_event,
 )
@@ -38,6 +39,7 @@ from research.agents import (
     LLMCall,
     prompt_fingerprint,
 )
+from research.models import ResearchSession
 from research.quick import map_candidates_to_trials, session_cost_from_stats
 from research.scenario import ResearchScenario, get_scenario
 from research.scenarios.factor import load_seed_factor, rank_corr, seed_context
@@ -69,6 +71,51 @@ def _notify_session_terminal(session_id: int, name: str, status: str, *, error: 
     if notify_status is None:
         return
     notify_task_event("research", str(session_id), notify_status, name=name or None, error=error)
+
+
+#: 心跳超此秒数视为租约丢失（持有进程的守护线程 15s 刷一次，10 分钟余量充足）
+_HEARTBEAT_STALE_SECONDS = 600.0
+
+
+def compensate_interrupted_sessions() -> int:
+    """重启补偿：running 且心跳超阈值的会话置 failed 并补发中断通知
+
+    多进程部署下心跳新鲜 = 其它进程正在跑，不能动（防误杀）；
+    pending 不动（从未开工、无心跳线，无法与其它进程排队区分）；
+    paused/delayed 不动（用户主动态）。
+    """
+    now = time.time()
+    sent = 0
+    try:
+        with get_db_session() as db:
+            rows = (
+                db.query(ResearchSession)
+                .filter(
+                    ResearchSession.status == "running",
+                    ResearchSession.heartbeat_at.isnot(None),
+                    ResearchSession.heartbeat_at < now - _HEARTBEAT_STALE_SECONDS,
+                )
+                .all()
+            )
+            for row in rows:
+                try:
+                    service.set_session_status(db, row, "failed", error="服务重启/租约丢失，研究会话被中断")
+                except service.ResearchError:
+                    # 补偿瞬间被其它进程/请求改了状态：CAS 落败即跳过，不覆盖
+                    logger.info(f"[研究] 会话 {row.id} 补偿时状态已被改写，跳过")
+                    continue
+                notify_task_event(
+                    "research",
+                    str(row.id),
+                    TASK_STATUS_INTERRUPTED,
+                    name=row.name or None,
+                    error="服务重启，研究会话被中断",
+                )
+                sent += 1
+    except Exception:
+        logger.exception("[研究] 启动补偿扫描失败")
+        return sent
+    return sent
 
 
 @dataclass

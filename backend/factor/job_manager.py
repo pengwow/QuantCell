@@ -17,13 +17,16 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from common.notifications.inbox_models import AsyncTaskRecord
 from common.notifications.task_notices import (
     TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
     TASK_STATUS_SUCCEEDED,
     notify_task_event,
     upsert_async_task_record,
 )
 from factor.job_lease import LEASE_HOOKS, LEASE_TICK_SECONDS
+from utils.db_session import use_db_session
 from utils.logger import LogType, get_logger
 from websocket.manager import manager
 
@@ -369,3 +372,33 @@ class FactorJobManager:
 
 
 job_manager = FactorJobManager()
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：影子表残留 queued/running 的因子任务置 interrupted 并补发中断通知"""
+    try:
+        with use_db_session() as db:
+            rows = (
+                db.query(AsyncTaskRecord)
+                .filter(
+                    AsyncTaskRecord.task_type == "factor_job",
+                    AsyncTaskRecord.status.in_(("queued", "running")),
+                )
+                .all()
+            )
+            stale = [(r.task_id, r.name or "") for r in rows]
+            for row in rows:
+                row.status = "interrupted"
+            db.commit()
+    except Exception:
+        logger.exception("[因子] 启动补偿扫描失败")
+        return 0
+    for task_id, name in stale:
+        notify_task_event(
+            "factor_job",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=name or None,
+            error="服务重启，因子计算任务被中断",
+        )
+    return len(stale)

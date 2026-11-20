@@ -4,7 +4,7 @@ import asyncio
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -15,6 +15,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.models import Task
 from common.notifications.task_notices import (
     TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
     TASK_STATUS_SUCCEEDED,
     notify_task_event,
 )
@@ -586,3 +587,44 @@ class TaskManager:
 
 # 创建全局任务管理器实例
 task_manager = TaskManager()
+
+
+def _collector_db_session():
+    """采集任务库 session 工厂（补偿扫描用；测试注入内存库工厂）"""
+    from collector.db.database import SessionLocal, init_database_config
+
+    init_database_config()
+    return SessionLocal()
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：tasks 表残留 pending/running 的行置 failed 并补发中断通知
+
+    采集链路无租约（单进程内存 dict 驱动），重启即中断。
+    业务表没有 interrupted 状态值，落库置 failed 避免前端枚举失配；
+    通知级别用 INTERRUPTED（warning，见 Hub 的 level 映射）。
+    """
+    try:
+        db = _collector_db_session()
+        try:
+            rows = db.query(Task).filter(Task.status.in_(("pending", "running"))).all()
+            stale = [(r.task_id, r.task_type) for r in rows]
+            for row in rows:
+                row.status = "failed"
+                row.error_message = "服务重启，任务被中断"
+                row.end_time = datetime.now(UTC)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("[采集] 启动补偿扫描失败")
+        return 0
+    for task_id, task_type in stale:
+        notify_task_event(
+            "collector_task",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=task_type or None,
+            error="服务重启，任务被中断",
+        )
+    return len(stale)
