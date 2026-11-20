@@ -21,8 +21,6 @@ import typing
 
 from sqlalchemy import select
 
-from common.notifications.inbox import record_inbox_notification
-from common.notifications.inbox_models import AsyncTaskRecord
 from common.notifications.models import (
     NotificationCategory,
     NotificationChannel,
@@ -93,6 +91,12 @@ def upsert_async_task_record(
 ) -> None:
     """写/翻影子行（注册态 queued/running 与终态翻转共用；失败仅记日志不阻塞主链路）"""
     try:
+        # 函数内 import 原因：inbox_models 依赖 collector.db.models 的基类，顶层导入会触发
+        # collector 包 __init__ 拉起 routes/task_manager，而 collector 侧任务管理器又顶层导入
+        # 本模块，形成 common.notifications ↔ collector 的包初始化循环； collector 侧的
+        # task_manager 自 2026-11-20 起也走本 Hub，运行期各模块均加载完毕，此处延迟导入无环。
+        from common.notifications.inbox_models import AsyncTaskRecord
+
         with use_db_session() as db:
             row = (
                 db.execute(
@@ -135,6 +139,9 @@ def notify_task_event(
     """
     if status not in _TASK_STATUSES:
         raise ValueError(f"任务通知仅支持终态 {_TASK_STATUSES}，收到 {status!r}")
+
+    # 函数内 import 原因同 upsert_async_task_record：打破 common.notifications ↔ collector 包初始化环
+    from common.notifications.inbox import record_inbox_notification
 
     label = _TASK_TYPE_LABELS.get(task_type, task_type)
     level, shadow_status = _NOTIFICATION_TO_SHADOW[status]

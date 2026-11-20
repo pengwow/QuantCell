@@ -22,6 +22,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+)
 from factor.llm_miner import (
     LLMMineParams,
     _classify_exc,
@@ -52,6 +57,18 @@ class PauseSignal(Exception):
 
 class CancelSignal(Exception):
     """会话被取消。"""
+
+
+#: 研究会话内部状态 → 通知终态；cancel/pause 是用户主动操作，不映射不发
+_RESEARCH_NOTIFY_STATUS = {"completed": TASK_STATUS_SUCCEEDED, "failed": TASK_STATUS_FAILED}
+
+
+def _notify_session_terminal(session_id: int, name: str, status: str, *, error: str | None = None) -> None:
+    """研究会话终态通知唯一出口（_finish 的 CAS 写成功后调用）"""
+    notify_status = _RESEARCH_NOTIFY_STATUS.get(status)
+    if notify_status is None:
+        return
+    notify_task_event("research", str(session_id), notify_status, name=name or None, error=error)
 
 
 @dataclass
@@ -324,11 +341,15 @@ class ResearchLoop:
             row = self._session_row(db)
             if row.status in {"completed", "failed", "cancelled"}:
                 return
+            name = row.name
             try:
                 service.set_session_status(db, row, status, error=error)
             except service.ResearchError:
-                # 外部已按暂停/取消/延期改过状态（CAS 失败），不覆盖
+                # 外部已按暂停/取消/延期改过状态（CAS 失败），不覆盖也不发通知
                 logger.info(f"[研究] 会话 {self.session_id} 收尾状态被并发改写，跳过 {status}")
+                return
+            # CAS 写成功 = 本进程夺得终态，只在此发一次通知
+            _notify_session_terminal(self.session_id, name, status, error=error)
 
     # ---------- 入口 ----------
 

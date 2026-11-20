@@ -13,6 +13,11 @@ from utils.logger import LogType, get_logger
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.models import Task
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+)
 from websocket.manager import manager
 
 
@@ -23,6 +28,15 @@ class TaskStatus(StrEnum):
     RUNNING = "running"  # 运行中
     COMPLETED = "completed"  # 已完成
     FAILED = "failed"  # 失败
+
+
+def _notify_terminal(task_id: str, status: str, *, name: str, error: str | None = None) -> None:
+    """采集任务终态唯一通知出口；complete_task/fail_task 各调一次
+
+    name 用任务类型标识（如 crypto_download）：TaskInfo 没有
+    独立 name 字段，params 里的名字不可靠。
+    """
+    notify_task_event("collector_task", task_id, status, name=name or None, error=error)
 
 
 class TaskManager:
@@ -372,6 +386,9 @@ class TaskManager:
         except Exception as e:
             logger.error(f"更新数据库任务状态失败: task_id={task_id}, error={e}")
 
+        # 终态通知（WS 未连接的提前 return 在其后，不影响本挂钩）
+        _notify_terminal(task_id, TASK_STATUS_SUCCEEDED, name=self._tasks[task_id].get("task_type", ""))
+
         # 通过WebSocket推送状态更新
         try:
             # 检查消息队列是否已初始化（命令行模式下可能未初始化）
@@ -437,6 +454,13 @@ class TaskManager:
             TaskBusiness.fail(task_id, error_message)
         except Exception as e:
             logger.error(f"更新数据库任务状态失败: task_id={task_id}, error={e}")
+
+        _notify_terminal(
+            task_id,
+            TASK_STATUS_FAILED,
+            name=self._tasks[task_id].get("task_type", ""),
+            error=error_message,
+        )
 
         # 通过WebSocket推送状态更新
         try:
