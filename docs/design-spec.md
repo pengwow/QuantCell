@@ -272,7 +272,7 @@ font-variant-numeric: tabular-nums;
 ### 6.7 分页 `.pg-bar`
 
 - 条：`display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:9px; border-top:1px solid var(--bd);`
-- 左：「共 N 条 · 每页 [10|20|50 ▾]」；右：`‹ 1 2 3 … N ›` + 「跳至 [__] 页」。
+- 左：「共 N 条 · 每页 [12|24|36|48|96 ▾]」（档位取 12 的倍数，对齐卡片网格；全站唯一来源 `frontend/src/constants/pagination.ts`，不要改成 10/20/50）；右：`‹ 1 2 3 … N ›` + 「跳至 [__] 页」。
 - 页码钮 `.pg-btn`：`min-width:28px; height:28px; padding:0 7px; border-radius:6px; border:1px solid var(--bd);` 当前页 `.on`：主色字 + `primary 45%` 边 + `primary 10%` 底；禁用 0.35 透明度；省略号非交互。
 - 页码算法：首尾常显 + 当前页 ±1 + 其余 `…`（4/9 → `1 … 3 4 5 … 9`）。
 - `<860px` 压缩为「‹ 2/7 ›」。

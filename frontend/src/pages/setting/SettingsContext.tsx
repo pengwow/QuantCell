@@ -47,7 +47,7 @@ const defaultGeneralSettings: GeneralSettings = {
   showTips: true,
   timezone: 'Asia/Shanghai',
   defaultPerPage: 10,
-  defaultViewType: 'card',
+  defaultViewType: 'list',
 };
 
 // 默认通知设置
@@ -316,7 +316,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         { key: 'theme', value: generalSettings.theme, name: 'general', description: i18n.t('settings_desc_theme') },
         { key: 'language', value: generalSettings.language, name: 'general', description: i18n.t('settings_desc_language') },
         { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: i18n.t('default_per_page') },
-        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'card', name: 'general', description: i18n.t('settings_desc_view_type') },
+        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'list', name: 'general', description: i18n.t('settings_desc_view_type') },
         { key: 'timezone', value: generalSettings.timezone, name: 'general', description: i18n.t('default_timezone') },
         { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: i18n.t('settings_desc_show_tips') },
       ];
@@ -332,7 +332,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       useConfigStore.getState().setConfig({
         ...existingConfig,
         defaultPerPage: snapPageSize(generalSettings.defaultPerPage || 10),
-        defaultViewType: generalSettings.defaultViewType || 'card',
+        defaultViewType: generalSettings.defaultViewType || 'list',
       });
 
       // 持久化语言设置到 localStorage（确保刷新后立即生效）

@@ -522,6 +522,514 @@ html body {
   }
 }
 
+/* ============================================================
+   列表原语（design-spec §6.5 表格 / §6.6 工具栏 / §6.7 分页 /
+   §6.13 空态 / §6.2 徽章 / §6.1 mini-btn）
+   颜色一律 --qc-* 变量 + color-mix tint，本段禁止颜色字面量。
+   选择器用多级类名压过 antd cssinjs 注入样式（unlayered 规则）。
+   ============================================================ */
+
+/* ---- §6.6 PageToolbar ---- */
+.qc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+
+/* 中部过滤插槽（chips / selects） */
+.qc-toolbar-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 右侧操作插槽；紧跟计数时不再叠加 auto margin（见下方相邻选择器） */
+.qc-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* 搜索框（demo .tsearch：32px 高 / 8px 圆角 / 占位 fg-4 / 宽 min(240px,58vw)） */
+.qc-toolbar .qc-tsearch.ant-input-affix-wrapper,
+.qc-toolbar input.qc-tsearch {
+  width: min(240px, 58vw);
+  height: 32px;
+  border-radius: 8px;
+  border-color: var(--qc-border);
+  font-size: 12px;
+}
+
+.qc-toolbar .qc-tsearch input::placeholder {
+  color: var(--qc-text-quaternary);
+}
+
+/* 右侧计数（demo .r-count：mono 11px fg-4，margin-left:auto 推到最右） */
+.qc-toolbar-count {
+  margin-left: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-toolbar-count + .qc-toolbar-actions {
+  margin-left: 0;
+}
+
+/* ---- §6.2 徽章 / chip（tint 公式着色，§2.3） ---- */
+.qc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.qc-chip.ok {
+  color: var(--qc-success);
+  border-color: color-mix(in srgb, var(--qc-success) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 9%, transparent);
+}
+
+.qc-chip.info {
+  color: var(--qc-info);
+  border-color: color-mix(in srgb, var(--qc-info) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-info) 8%, transparent);
+}
+
+.qc-chip.pri {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 42%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+}
+
+.qc-chip.warn {
+  color: var(--qc-warning);
+  border-color: color-mix(in srgb, var(--qc-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--qc-warning) 9%, transparent);
+}
+
+.qc-chip.down {
+  color: var(--qc-error);
+  border-color: color-mix(in srgb, var(--qc-error) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-error) 8%, transparent);
+}
+
+.qc-chip.quiet {
+  color: var(--qc-text-tertiary);
+  border-color: var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+}
+
+/* 进行中圆点（§6.2 pdot：5px，pulse 2.2s） */
+.qc-pdot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: qc-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes qc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qc-pdot {
+    animation: none;
+  }
+}
+
+/* ---- §6.1 mini-btn（24px 高 / 6px 圆角；图标态透明底，hover fg 5% tint） ---- */
+.qc-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  background: var(--qc-surface);
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qc-mini-btn:hover:not(:disabled) {
+  color: var(--qc-text);
+  border-color: var(--qc-border-strong);
+}
+
+.qc-mini-btn:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.qc-mini-btn.danger {
+  color: var(--qc-text-secondary);
+}
+
+.qc-mini-btn.danger:hover:not(:disabled) {
+  color: var(--qc-error);
+  border-color: color-mix(in srgb, var(--qc-error) 42%, transparent);
+  background: color-mix(in srgb, var(--qc-error) 7%, transparent);
+}
+
+.qc-mini-btn.pri {
+  color: var(--qc-on-primary);
+  background: var(--qc-primary);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+.qc-mini-btn.pri:hover:not(:disabled) {
+  color: var(--qc-on-primary);
+  background: color-mix(in srgb, var(--qc-primary) 88%, black);
+  border-color: transparent;
+}
+
+.qc-mini-btn .anticon {
+  display: inline-flex;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* 图标态（无文字）：收成正方形，hover 走 §6.1 icon-btn 的透明 tint */
+.qc-mini-btn.qc-icon-only {
+  width: 24px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--qc-text-secondary);
+}
+
+.qc-mini-btn.qc-icon-only:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  border-color: transparent;
+}
+
+/* 行内操作容器：点击不冒泡到行（由组件层 stopPropagation，这里只管排布） */
+.qc-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 卡片视图选中态：primary 45% 边框 + 5% tint 底（demo .m-row-card.on 口径） */
+.qc-card-selected.ant-card {
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 5%, var(--qc-surface));
+}
+
+/* ---- 单元格工具类（§3 排印：mono 数值 / 次级时间列） ---- */
+.qc-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.qc-cell-time {
+  color: var(--qc-text-tertiary);
+  font-size: 11px;
+}
+
+/* ---- §6.5 DataTable（包 antd Table，size small） ---- */
+
+/* th：10.5px / 500 / fg-4 / 9px 12px / bge 底（= --qc-surface-raised）
+   注意 className 挂在 .ant-table-wrapper（css-var 模式下 antd 自身规则特异性更高），
+   统一用 .qc-table.ant-table-wrapper 前缀 + 元素节点压过运行时注入 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-thead tr > th {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--qc-text-quaternary);
+  padding: 9px 12px;
+  background: var(--qc-surface-raised);
+  border-bottom: 1px solid var(--qc-border);
+  white-space: nowrap;
+}
+
+.qc-table .ant-table-thead > tr > th::before {
+  display: none;
+}
+
+/* td：12px / 10px 12px / 底边 --qc-border / vertical middle / line-height 14px
+   使纯文本行高 ≈34px（10+14+10），杜绝 antd 默认 16px 内边距把行撑到 55px */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody tr > td {
+  font-size: 12px;
+  line-height: 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--qc-border);
+  vertical-align: middle;
+}
+
+/* 末行不再画底边（与 demo tbody tr:last-child 一致，分页时由滚动容器决定别处兜底） */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody tr:last-child > td {
+  border-bottom: none;
+}
+
+/* 行 hover：fg 3% tint（§6.5）；排除选中行——demo 里 .sel-row.on 在 :hover 后声明，
+   同特异性后者胜出 = 选中行 hover 仍保持 primary 5%，此处用 :not() 达成同效 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.ant-table-row:not(.qc-row-selected):hover > td {
+  background: color-mix(in srgb, var(--qc-text) 3%, transparent);
+}
+
+/* 选中行：primary 5% tint + 左侧 3px 主色条（demo .sel-row.on） */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.qc-row-selected > td {
+  background: color-mix(in srgb, var(--qc-primary) 5%, transparent);
+}
+
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.qc-row-selected > td:first-child {
+  box-shadow: inset 3px 0 0 var(--qc-primary);
+}
+
+/* antd 自带勾选行保持同一 tint 口径 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: color-mix(in srgb, var(--qc-primary) 5%, transparent);
+}
+
+/* 表格内的策略名列（mono 600 12px） */
+.qc-cell-strat {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--qc-text);
+}
+
+.qc-cell-strat-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.qc-cell-strat-wrap > .qc-cell-strat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 空态区域：清掉 antd placeholder 默认底色与 hover */
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder .ant-table-cell,
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder {
+  background: transparent;
+}
+
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder:hover > td,
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder > td:hover {
+  background: transparent !important; /* antd hover 带行级优先级，兜底必须同级 */
+}
+
+/* ---- §6.13 空态 .qc-empty ---- */
+.qc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 58px 20px;
+  text-align: center;
+}
+
+.qc-empty-ico {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--qc-surface-raised);
+  border: 1px solid var(--qc-border);
+  color: var(--qc-text-quaternary);
+}
+
+.qc-empty-ico svg,
+.qc-empty-ico .anticon {
+  width: 20px;
+  height: 20px;
+  font-size: 20px;
+}
+
+.qc-empty-t {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--qc-text-secondary);
+  margin: 0;
+}
+
+.qc-empty-h {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  margin: 0;
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+/* ---- §6.8 页签：文字 + 2px 主色下划线（全站；多类 + 元素节点的特异性压过 antd
+   css-var 运行时注入，所有 Tabs 不再区分 card/line —— 全站只有这一种页签） ---- */
+.ant-tabs.ant-tabs-top > .ant-tabs-nav {
+  margin: 0 0 12px;
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--qc-border);
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab {
+  padding: 9px 11px;
+  font-size: 12.5px;
+  color: var(--qc-text-tertiary);
+}
+
+/* 间距交给 11px 内边距（demo .tab 彼此相邻，无额外 margin） */
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab + .ant-tabs-tab {
+  margin: 0;
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab:hover {
+  color: var(--qc-text-secondary);
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: var(--qc-text-secondary);
+}
+
+/* 选中：主色字 + 550 字重（2px 下划线 = ink-bar） */
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active {
+  color: var(--qc-primary);
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--qc-primary);
+  font-weight: 550;
+}
+
+.ant-tabs > .ant-tabs-nav .ant-tabs-ink-bar {
+  background: var(--qc-primary);
+}
+
+/* ---- §6.7 分页条容器：1px 上边线 + 上留白；左「共 N 条 · 每页 [▾]」右「页码 + 跳至」 ---- */
+.qc-pg-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--qc-border);
+}
+
+.qc-pg-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+  white-space: nowrap;
+}
+
+.qc-pg-info .ant-select .ant-select-selector {
+  min-width: 56px;
+  height: 26px;
+  border-radius: 6px;
+  border-color: var(--qc-border);
+}
+
+/* 页码组靠右，与表格右缘对齐 */
+.qc-pg-bar ul.qc-pagination {
+  margin: 0 0 0 auto;
+}
+
+/* ---- §6.7 分页 .qc-pagination（28px 钮 / 6px 圆角 / 当前页 primary tint） ---- */
+ul.qc-pagination li.ant-pagination-item,
+ul.qc-pagination li.ant-pagination-prev,
+ul.qc-pagination li.ant-pagination-next {
+  min-width: 28px;
+  height: 28px;
+  line-height: 26px;
+  border-radius: 6px;
+}
+
+ul.qc-pagination li.ant-pagination-item {
+  border-color: var(--qc-border);
+}
+
+ul.qc-pagination li.ant-pagination-item a {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+ul.qc-pagination li.ant-pagination-prev button.ant-pagination-item-link,
+ul.qc-pagination li.ant-pagination-next button.ant-pagination-item-link {
+  border-radius: 6px;
+  border-color: var(--qc-border);
+  font-size: 12px;
+}
+
+ul.qc-pagination li.ant-pagination-item-active {
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 10%, transparent);
+}
+
+ul.qc-pagination li.ant-pagination-item-active a {
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+ul.qc-pagination li.ant-pagination-disabled button.ant-pagination-item-link {
+  opacity: .35;
+}
+
+/* 「跳至 [__] 页」随钮高对齐（demo .pg-jump） */
+ul.qc-pagination .ant-pagination-options-quick-jumper {
+  color: var(--qc-text-tertiary);
+  font-size: 11px;
+}
+
+ul.qc-pagination .ant-pagination-options-quick-jumper input {
+  width: 44px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border-color: var(--qc-border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* 省略号非交互（itemRender 渲染的 span，§6.7；jump li 的跳页处理器一并禁掉） */
+ul.qc-pagination .qc-pg-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  color: var(--qc-text-quaternary);
+  font-size: 12px;
+}
+
+ul.qc-pagination li.ant-pagination-jump-prev,
+ul.qc-pagination li.ant-pagination-jump-next {
+  pointer-events: none;
+  cursor: default;
+}
+
 /* 系统状态指示器 */
 .status-indicator {
   width: 8px;

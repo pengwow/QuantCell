@@ -1530,6 +1530,8 @@
   "worker_status_paused": "Paused",
   "worker_status_interrupted": "Interrupted",
   "total_items": "Total {{total}} items",
+  "shown_range": "Showing {{start}}-{{end}} / {{total}} total",
+  "per_page": "Per page",
   "strategy": "Strategy",
   "exchange": "Exchange",
   "trading_pair": "Symbol",

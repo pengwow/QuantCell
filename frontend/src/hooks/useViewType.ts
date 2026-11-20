@@ -9,4 +9,4 @@ import { useConfigStore } from '../store/configStore';
 export type ViewType = 'card' | 'list';
 
 export const useViewType = (): ViewType =>
-  useConfigStore((s) => s.config?.defaultViewType) ?? 'card';
+  useConfigStore((s) => s.config?.defaultViewType) ?? 'list';

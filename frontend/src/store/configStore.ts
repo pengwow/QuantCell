@@ -35,7 +35,7 @@ export interface ConfigState {
 // 默认配置
 const DEFAULT_CONFIG: SystemConfig = {
   defaultPerPage: 10,
-  defaultViewType: 'card',
+  defaultViewType: 'list', // 全站默认展示类型（卡片/列表），默认列表（列表是信息密度更高的首个视图）
 };
 
 // 从 window.APP_CONFIG 获取配置（如果存在）

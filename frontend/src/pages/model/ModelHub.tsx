@@ -31,9 +31,7 @@ export default function ModelHub() {
 
   return (
     <PageContainer title={t('model_hub')}>
-      {/* type="card": 卡片式页签,与策略管理页 Tabs 风格统一 */}
       <Tabs
-        type="card"
         activeKey={tab}
         onChange={handleTabChange}
         items={[

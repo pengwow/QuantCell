@@ -4,16 +4,12 @@ import {
   Card,
   Button,
   Space,
-  Tag,
   Tooltip,
   Modal,
   App,
-  Spin,
-  Input,
   Select,
   Row,
   Col,
-  Table,
   Tabs,
   Pagination,
 } from 'antd';
@@ -34,6 +30,8 @@ import { useTranslation } from 'react-i18next';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
+import DataTable from '@/components/ui/DataTable';
+import PageToolbar from '@/components/ui/PageToolbar';
 import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useConfigStore } from '@/store';
@@ -43,7 +41,6 @@ import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 import { QUANT_COLORS } from '@/utils/colors';
 
 const { confirm } = Modal;
-const { Search } = Input;
 
 // 排序字段
 type SortField = 'name' | 'created_at' | 'updated_at';
@@ -93,6 +90,8 @@ const StrategyManagement = () => {
   const [backtestLoading, setBacktestLoading] = useState<boolean>(false);
   const [selectedStrategy, setSelectedStrategy] = useState<string>('');
 
+  // 列表视图行选中（点击行打 primary tint，操作按钮阻止冒泡）
+  const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
   // 回测列表视图类型（跟随系统设置「默认展示类型」，页面不提供切换）
   const backtestViewType = useViewType();
   const [backtestSelectedRowKeys, setBacktestSelectedRowKeys] = useState<React.Key[]>([]);
@@ -106,13 +105,12 @@ const StrategyManagement = () => {
   // 全局分页大小（条数切换器即全站开关，切换后跨页面实时同步并持久化）
   const [pageSize, setPageSize] = useGlobalPageSize();
 
-  // 分页配置 - 策略列表（pageSize 跟随全局配置）
+  // 分页配置 - 策略列表（pageSize 跟随全局配置；「共 N 条」由 DataTable 默认提供）
   const [pagination, setPagination] = useState<TableProps<Strategy>['pagination']>(() => ({
     current: 1,
     pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total_items', { total })}`,
   }));
 
   // 分页配置 - 回测列表；state 恒为对象，false/undefined 只在 Table 的 props 上有意义
@@ -121,7 +119,6 @@ const StrategyManagement = () => {
     pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total_items', { total })}`,
   }));
 
   // 全局条数变化（设置页/其他页面改动）实时同步到两个列表的分页状态
@@ -456,6 +453,31 @@ const StrategyManagement = () => {
     }
   };
 
+  // 工具栏计数「显示 x-y / 共 z」：按当前页与页大小折算，空数据归 0
+  const shownRange = (current: number, size: number, total: number) => {
+    const start = total === 0 ? 0 : (current - 1) * size + 1;
+    const end = Math.min(current * size, total);
+    return t('shown_range', { start, end, total });
+  };
+
+  // 回测状态 → §6.2 chip（视觉迁移，不改状态语义；运行中带 pulse 圆点）
+  const renderStatusChip = (status: string) => {
+    const text = getStatusText(status);
+    switch (status) {
+      case 'completed':
+        return <span className="qc-chip ok">{text}</span>;
+      case 'running':
+      case 'in_progress':
+        return <span className="qc-chip ok"><span className="qc-pdot" />{text}</span>;
+      case 'failed':
+        return <span className="qc-chip down">{text}</span>;
+      case 'pending':
+        return <span className="qc-chip quiet">{text}</span>;
+      default:
+        return <span className="qc-chip quiet">{status}</span>;
+    }
+  };
+
   // 过滤和排序后的数据
   const filteredStrategies = useMemo(() => {
     let result = [...strategies];
@@ -499,35 +521,24 @@ const StrategyManagement = () => {
     return result;
   }, [strategies, searchText, sortField, sortOrder]);
 
-  // 重置筛选
-  const handleResetFilters = () => {
-    setSearchText('');
-    setSortField('updated_at');
-    setSortOrder('desc');
-    setPagination({
-      ...pagination,
-      current: 1,
-    });
-  };
-
-  // 表格列定义
+  // 表格列定义 — §6.5：策略名 mono + 类型/版本 chip；时间列 mono 11px；操作 .qc-mini-btn 图标钮
   const columns: TableProps<Strategy>['columns'] = [
     {
       title: t('strategy_name'),
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 220,
       ellipsis: {
         showTitle: false,
       },
       render: (text: string, record: Strategy) => (
         <Tooltip title={text} placement="topLeft">
-          <Space>
-            <span className="font-medium" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{text}</span>
-            {record.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-            {record.strategy_type === 'rule' && <Tag color="green">{t('sm_tag_rule')}</Tag>}
-            <Tag color="blue">v{(record as unknown as StrategyBackendFields).version || '1.0.0'}</Tag>
-          </Space>
+          <span className="qc-cell-strat-wrap">
+            <span className="qc-cell-strat" style={{ maxWidth: 140 }}>{text}</span>
+            {record.strategy_type === 'rl' && <span className="qc-chip pri">RL</span>}
+            {record.strategy_type === 'rule' && <span className="qc-chip info">{t('sm_tag_rule')}</span>}
+            <span className="qc-chip quiet qc-mono">v{(record as unknown as StrategyBackendFields).version || '1.0.0'}</span>
+          </span>
         </Tooltip>
       ),
     },
@@ -535,13 +546,13 @@ const StrategyManagement = () => {
       title: t('description'),
       dataIndex: 'description',
       key: 'description',
-      width: 250,
+      width: 260,
       ellipsis: {
         showTitle: false,
       },
       render: (text: string) => (
         <Tooltip title={text || t('no_description')} placement="topLeft">
-          <span style={{ maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+          <span style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'middle' }}>
             {text || t('no_description')}
           </span>
         </Tooltip>
@@ -550,151 +561,142 @@ const StrategyManagement = () => {
     {
       title: t('create_time'),
       key: 'created_at',
-      width: 160,
-      render: (_, record: Strategy) => formatDate((record as unknown as StrategyBackendFields).created_at),
+      width: 150,
+      render: (_, record: Strategy) => (
+        <span className="qc-cell-time qc-mono">{formatDate((record as unknown as StrategyBackendFields).created_at)}</span>
+      ),
     },
     {
       title: t('update_time'),
       key: 'updated_at',
-      width: 160,
-      render: (_, record: Strategy) => formatDate((record as unknown as StrategyBackendFields).updated_at),
+      width: 150,
+      render: (_, record: Strategy) => (
+        <span className="qc-cell-time qc-mono">{formatDate((record as unknown as StrategyBackendFields).updated_at)}</span>
+      ),
     },
     {
       title: t('action'),
       key: 'action',
-      width: 180,
+      width: 152,
       fixed: 'right',
       render: (_, record: Strategy) => (
-        <Space size="small">
+        <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
           <Tooltip title={t('edit_strategy')}>
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('edit_strategy')}
               onClick={() => handleEditStrategy(record)}
-            />
-          </Tooltip>
-          <Tooltip title={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeleteStrategy(record)}
-              disabled={isGuest}
-            />
+            >
+              <EditOutlined />
+            </button>
           </Tooltip>
           <Tooltip title={t('backtest_strategy')}>
-            <Button
-              type="text"
-              size="small"
-              icon={<PlayCircleOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('backtest_strategy')}
               onClick={() => handleBacktestStrategy(record)}
-            />
+            >
+              <PlayCircleOutlined />
+            </button>
           </Tooltip>
           <Tooltip title={t('backtest_records')}>
-            <Button
-              type="text"
-              size="small"
-              icon={<HistoryOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('backtest_records')}
               onClick={() => handleViewBacktests(record.name)}
-            />
+            >
+              <HistoryOutlined />
+            </button>
           </Tooltip>
-        </Space>
+          <Tooltip title={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}>
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only danger"
+              aria-label={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}
+              onClick={() => handleDeleteStrategy(record)}
+              disabled={isGuest}
+            >
+              <DeleteOutlined />
+            </button>
+          </Tooltip>
+        </div>
       ),
     },
   ];
 
-  // 渲染工具栏 - 参考策略回测页面风格
-  const renderToolbar = () => (
-    <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索 */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={24}>
-          <Search
-            placeholder={t('search_strategy')}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            allowClear
-            style={{ width: '100%' }}
-          />
-        </Col>
-      </Row>
-
-      {/* 第二行：排序（左） + 操作按钮（右） */}
-      <Row gutter={[12, 12]} align="middle">
-        {/* 排序 - 左侧 */}
-        <Col xs={24} md={16} lg={14}>
-          <Row gutter={[8, 8]}>
-            <Col xs={12} sm={12} md={8}>
-              <Select
-                placeholder={t('sort_by')}
-                value={`${sortField}-${sortOrder}`}
-                onChange={(value) => {
-                  const [field, order] = value.split('-');
-                  setSortField(field as SortField);
-                  setSortOrder(order as SortOrder);
-                }}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'updated_at-desc', label: t('sort_update_time_desc') },
-                  { value: 'updated_at-asc', label: t('sort_update_time_asc') },
-                  { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') },
-                  { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') },
-                  { value: 'name-asc', label: t('sort_name_asc') },
-                  { value: 'name-desc', label: t('sort_name_desc') },
-                ]}
-              />
-            </Col>
-          </Row>
-        </Col>
-
-        {/* 操作按钮 - 右侧 */}
-        <Col xs={24} md={8} lg={10}>
-          <Row gutter={[8, 8]}>
-            <Col xs={12}>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={handleResetFilters}
-                style={{ width: '100%' }}
-              >
-                {t('reset')}
-              </Button>
-            </Col>
-            <Col xs={12}>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={handleCreateStrategy}
-                style={{ width: '100%' }}
-              >
-                {t('new_strategy')}
-              </Button>
-            </Col>
-          </Row>
-        </Col>
-      </Row>
-    </div>
-  );
-
-  // 渲染列表视图
-  const renderListView = () => (
-    <Table
-      columns={columns}
-      dataSource={filteredStrategies}
-      pagination={pagination}
-      loading={loading}
-      scroll={{ x: 'max-content' }}
-      rowKey="name"
-      onChange={(newPagination) => {
-        // 条数变化写回全局配置，全站生效
-        if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
-          setPageSize(newPagination.pageSize);
-        }
-        setPagination(newPagination);
-      }}
-    />
-  );
+  // 渲染列表视图 — §6.5/§6.6：PageToolbar + DataTable，行点击选中（primary tint）
+  const renderListView = () => {
+    const paginationCfg = (pagination ?? {}) as TablePaginationConfig;
+    const current = (paginationCfg.current as number) || 1;
+    const currentSize = (paginationCfg.pageSize as number) || pageSize;
+    return (
+      <>
+        <PageToolbar
+          search={{
+            value: searchText,
+            onChange: (value) => {
+              setSearchText(value);
+              // §6.6 过滤联动：搜索变化页码归 1（历史雷区：搜索不重置页码）
+              setPagination((prev) => ({ ...(prev || {}), current: 1 }));
+            },
+            placeholder: t('search_strategy'),
+            ariaLabel: t('search_strategy'),
+          }}
+          filters={
+            <Select
+              aria-label={t('sort_by')}
+              value={`${sortField}-${sortOrder}`}
+              onChange={(value) => {
+                const [field, order] = value.split('-');
+                setSortField(field as SortField);
+                setSortOrder(order as SortOrder);
+              }}
+              style={{ width: 150 }}
+              options={[
+                { value: 'updated_at-desc', label: t('sort_update_time_desc') },
+                { value: 'updated_at-asc', label: t('sort_update_time_asc') },
+                { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') },
+                { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') },
+                { value: 'name-asc', label: t('sort_name_asc') },
+                { value: 'name-desc', label: t('sort_name_desc') },
+              ]}
+            />
+          }
+          count={shownRange(current, currentSize, filteredStrategies.length)}
+        />
+        <DataTable<Strategy>
+          columns={columns}
+          dataSource={filteredStrategies}
+          pagination={{
+            ...pagination,
+            onChange: (pg, size) => {
+              // 条数变化写回全局配置，全站生效
+              if (size !== pageSize) setPageSize(size);
+              setPagination({ ...pagination, current: pg, pageSize: size });
+            },
+          }}
+          loading={loading}
+          rowKey="name"
+          rowClassName={(record) => (record.name === selectedRowKey ? 'qc-row-selected' : '')}
+          onRow={(record) => ({
+            onClick: () => setSelectedRowKey(record.name),
+            style: { cursor: 'pointer' },
+          })}
+          onChange={(newPagination) => {
+            // 条数变化写回全局配置，全站生效
+            if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
+              setPageSize(newPagination.pageSize);
+            }
+            setPagination(newPagination);
+          }}
+          emptyTitle={searchText ? t('no_data') : t('no_strategies')}
+        />
+      </>
+    );
+  };
 
   // 渲染卡片视图
   const renderCardView = () => {
@@ -739,20 +741,20 @@ const StrategyManagement = () => {
                   }
                   hoverable
                   style={{
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                    boxShadow: 'var(--qc-shadow-card)',
                   }}
                 >
                   <div className="mb-3">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-500 text-sm">{t('strategy_description')}</span>
+                      <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 13 }}>{t('strategy_description')}</span>
                       <Space size={4}>
                         {strategy.strategy_type === 'rl' && (
-                          <Tag color="purple">RL</Tag>
+                          <span className="qc-chip pri">RL</span>
                         )}
                         {strategy.strategy_type === 'rule' && (
-                          <Tag color="green">{t('sm_tag_rule')}</Tag>
+                          <span className="qc-chip info">{t('sm_tag_rule')}</span>
                         )}
-                        <Tag color="blue">v{(strategy as unknown as StrategyBackendFields).version || '1.0.0'}</Tag>
+                        <span className="qc-chip quiet qc-mono">v{(strategy as unknown as StrategyBackendFields).version || '1.0.0'}</span>
                       </Space>
                     </div>
                     <Tooltip title={strategy.description || t('no_description')} placement="topLeft">
@@ -770,18 +772,18 @@ const StrategyManagement = () => {
                     </Tooltip>
                   </div>
 
-                  <div className="text-xs text-gray-500 space-y-1">
+                  <div className="text-xs space-y-1" style={{ color: 'var(--qc-text-tertiary)' }}>
                     <div className="flex justify-between">
                       <span>{t('create_time')}:</span>
-                      <span>{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
+                      <span className="qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>{t('update_time')}:</span>
-                      <span>{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
+                      <span className="qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
                     </div>
                   </div>
 
-                  <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--qc-border)' }}>
                     <Row gutter={[8, 8]}>
                       <Col span={12}>
                         <Button
@@ -846,21 +848,6 @@ const StrategyManagement = () => {
     );
   };
 
-  // 获取状态标签颜色
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'success';
-      case 'running':
-      case 'in_progress':
-        return 'processing';
-      case 'failed':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
   // 获取状态显示文本
   const getStatusText = (status: string) => {
     switch (status) {
@@ -900,18 +887,23 @@ const StrategyManagement = () => {
       title: t('strategy_name'),
       dataIndex: 'strategy_name',
       key: 'strategy_name',
-      width: 150,
-      ellipsis: true,
+      width: 180,
+      ellipsis: {
+        showTitle: false,
+      },
+      render: (text: string) => (
+        <Tooltip title={text} placement="topLeft">
+          <span className="qc-cell-strat">{text}</span>
+        </Tooltip>
+      ),
     },
     {
       title: t('status'),
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 96,
       align: 'center',
-      render: (status: string) => (
-        <Tag color={getStatusColor(status)}>{getStatusText(status)}</Tag>
-      ),
+      render: (status: string) => renderStatusChip(status),
     },
     {
       title: t('total_return'),
@@ -923,7 +915,7 @@ const StrategyManagement = () => {
         if (value === undefined || value === null) return 'N/A';
         const isPositive = value >= 0;
         return (
-          <span style={{ color: isPositive ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+          <span className="qc-mono" style={{ color: isPositive ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
             {isPositive ? '+' : ''}{value.toFixed(2)}%
           </span>
         );
@@ -937,7 +929,7 @@ const StrategyManagement = () => {
       align: 'right',
       render: (value: number | undefined) => {
         if (value === undefined || value === null) return 'N/A';
-        return <span style={{ color: QUANT_COLORS.negative }}>{value.toFixed(2)}%</span>;
+        return <span className="qc-mono" style={{ color: QUANT_COLORS.negative }}>{value.toFixed(2)}%</span>;
       },
     },
     {
@@ -945,81 +937,176 @@ const StrategyManagement = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 160,
-      render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
+      render: (value: string) => (
+        <span className="qc-cell-time qc-mono">{dayjs(value).format('YYYY-MM-DD HH:mm:ss')}</span>
+      ),
     },
     {
       title: t('action'),
       key: 'action',
-      width: 150,
+      width: 122,
       fixed: 'right',
       render: (_, record: BacktestTask) => (
-        <Space size="small">
+        <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
           <Tooltip title={t('view_details')}>
-            <Button
-              type="text"
-              size="small"
-              icon={<LineChartOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('view_details')}
               onClick={() => handleViewDetail(record.id)}
-            />
+            >
+              <LineChartOutlined />
+            </button>
           </Tooltip>
           <Tooltip title={t('replay')}>
-            <Button
-              type="text"
-              size="small"
-              icon={<PlayCircleOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('replay')}
               onClick={() => handleReplay(record.id)}
-            />
+            >
+              <PlayCircleOutlined />
+            </button>
           </Tooltip>
           <Tooltip title={isGuest ? (t('guest_delete_restricted')) : (t('delete'))}>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only danger"
+              aria-label={isGuest ? (t('guest_delete_restricted')) : (t('delete'))}
               onClick={() => handleDeleteBacktest(record.id)}
               disabled={isGuest}
-            />
+            >
+              <DeleteOutlined />
+            </button>
           </Tooltip>
-        </Space>
+        </div>
       ),
     },
   ];
 
-  // 渲染回测列表视图
+  // 渲染回测列表视图 — 与策略列表同一套 DataTable 口径（行点击选中、双击进详情）
   const renderBacktestListView = () => (
-    <Table
-      columns={backtestColumns}
-      dataSource={backtests}
-      loading={backtestLoading}
-      scroll={{ x: 'max-content' }}
-      rowKey="id"
-      pagination={backtestPagination}
-      onChange={(newPagination) => {
-        // 分页事件下沉服务端重新拉取
-        setBacktestPagination((prev) => ({ ...prev, ...newPagination }));
-        loadBacktests({
-          page: newPagination.current ?? 1,
-          pageSize: newPagination.pageSize ?? 10,
-        });
-      }}
-      rowSelection={{
-        selectedRowKeys: backtestSelectedRowKeys,
-        onChange: (newSelectedRowKeys: React.Key[]) => {
-          setBacktestSelectedRowKeys(newSelectedRowKeys);
-        },
-      }}
-      onRow={(record) => ({
-        onClick: () => {
-          setBacktestSelectedRowKeys([record.id]);
-        },
-        onDoubleClick: () => {
-          handleViewDetail(record.id);
-        },
-        style: {
-          cursor: 'pointer',
-        },
-      })}
-    />
+    <>
+      <PageToolbar
+        search={{
+          value: backtestSearchText,
+          onChange: (value) => {
+            setBacktestSearchText(value);
+            // 点 clear 清空时同步重发服务端过滤，避免「界面已清、结果仍是旧过滤」
+            if (value === '') {
+              loadBacktests({ keyword: '', page: 1 });
+            }
+          },
+          onPressEnter: (value) => loadBacktests({ keyword: value, page: 1 }),
+          placeholder: t('search_backtest'),
+          ariaLabel: t('search_backtest'),
+        }}
+        filters={
+          <>
+            <Select
+              aria-label={t('select_strategy')}
+              placeholder={t('select_strategy')}
+              value={selectedStrategy || undefined}
+              onChange={(value) => {
+                setSelectedStrategy(value ?? '');
+                loadBacktests({ strategy: value ?? '', page: 1 });
+              }}
+              allowClear
+              style={{ width: 150 }}
+              options={strategies.map((s) => ({ value: s.name, label: s.name }))}
+            />
+            <Select
+              aria-label={t('status')}
+              value={backtestStatusFilter}
+              onChange={(value) => {
+                setBacktestStatusFilter(value);
+                loadBacktests({ status: value, page: 1 });
+              }}
+              style={{ width: 118 }}
+              options={[
+                { value: 'all', label: t('all_status_backtest') },
+                { value: 'completed', label: t('status_completed') },
+                { value: 'running', label: t('status_running') },
+                { value: 'failed', label: t('status_failed') },
+                { value: 'pending', label: t('status_pending') },
+              ]}
+            />
+            <Select
+              aria-label={t('sort_by')}
+              value={`${backtestSortField}-${backtestSortOrder}`}
+              onChange={(value) => {
+                const [field, order] = value.split('-');
+                setBacktestSortField(field);
+                setBacktestSortOrder(order);
+                loadBacktests({ sortBy: field, sortOrder: order, page: 1 });
+              }}
+              style={{ width: 150 }}
+              options={[
+                { value: 'created_at-desc', label: t('sort_create_time_desc') },
+                { value: 'created_at-asc', label: t('sort_create_time_asc') },
+                { value: 'total_return-desc', label: t('sort_return_desc') },
+                { value: 'total_return-asc', label: t('sort_return_asc') },
+                { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
+                { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
+                { value: 'strategy_name-asc', label: t('sort_name_asc') },
+              ]}
+            />
+          </>
+        }
+        count={shownRange(
+          (backtestPagination.current as number) || 1,
+          (backtestPagination.pageSize as number) || pageSize,
+          (backtestPagination.total as number) || 0
+        )}
+        actions={
+          <>
+            <Button icon={<ReloadOutlined />} onClick={handleResetBacktestFilters} style={{ height: 30 }}>
+              {t('reset')}
+            </Button>
+            <Button type="primary" icon={<ReloadOutlined />} onClick={() => loadBacktests()} loading={backtestLoading} style={{ height: 30 }}>
+              {t('refresh')}
+            </Button>
+            {backtestSelectedRowKeys.length > 0 && (
+              <Button danger icon={<DeleteOutlined />} onClick={handleBatchDeleteBacktests} disabled={isGuest} style={{ height: 30 }}>
+                {t('delete')} ({backtestSelectedRowKeys.length})
+              </Button>
+            )}
+          </>
+        }
+      />
+      <DataTable<BacktestTask>
+        columns={backtestColumns}
+        dataSource={backtests}
+        loading={backtestLoading}
+        rowKey="id"
+        pagination={{
+          ...backtestPagination,
+          onChange: (pg, size) => {
+            // 分页事件下沉服务端重新拉取
+            setBacktestPagination({ ...backtestPagination, current: pg, pageSize: size });
+            loadBacktests({ page: pg, pageSize: size });
+          },
+        }}
+        remote
+        rowSelection={{
+          selectedRowKeys: backtestSelectedRowKeys,
+          onChange: (newSelectedRowKeys: React.Key[]) => {
+            setBacktestSelectedRowKeys(newSelectedRowKeys);
+          },
+        }}
+        onRow={(record) => ({
+          onClick: () => {
+            setBacktestSelectedRowKeys([record.id]);
+          },
+          onDoubleClick: () => {
+            handleViewDetail(record.id);
+          },
+          style: {
+            cursor: 'pointer',
+          },
+        })}
+      />
+    </>
   );
 
   // 渲染回测卡片视图
@@ -1038,12 +1125,10 @@ const StrategyManagement = () => {
                 size="small"
                 title={
                   <div className="flex items-center justify-between">
-                    <span className="font-medium truncate" style={{ maxWidth: '70%' }}>
+                    <span className="font-medium truncate qc-mono" style={{ maxWidth: '70%' }}>
                       {task.strategy_name}
                     </span>
-                    <Tag color={getStatusColor(task.status)}>
-                      {getStatusText(task.status)}
-                    </Tag>
+                    {renderStatusChip(task.status)}
                   </div>
                 }
                 extra={
@@ -1062,14 +1147,14 @@ const StrategyManagement = () => {
                     />
                   </Tooltip>
                 }
-                className={backtestSelectedRowKeys.includes(task.id) ? 'ring-2 ring-blue-500' : ''}
+                className={backtestSelectedRowKeys.includes(task.id) ? 'qc-card-selected' : ''}
                 onClick={() => setBacktestSelectedRowKeys([task.id])}
                 onDoubleClick={() => handleViewDetail(task.id)}
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
               >
-                <div className="space-y-3">
+                <div className="space-y-3" style={{ color: 'var(--qc-text-tertiary)' }}>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('total_return')}</span>
+                    <span>{t('total_return')}</span>
                     <span
                       style={{
                         color:
@@ -1087,7 +1172,7 @@ const StrategyManagement = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('max_drawdown')}</span>
+                    <span>{t('max_drawdown')}</span>
                     <span style={{ color: QUANT_COLORS.negative, fontWeight: 'bold' }}>
                       {task.max_drawdown === undefined || task.max_drawdown === null
                         ? 'N/A'
@@ -1095,10 +1180,10 @@ const StrategyManagement = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">{t('create_time')}</span>
-                    <span className="text-sm text-gray-600">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
+                    <span>{t('create_time')}</span>
+                    <span className="qc-mono">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
                   </div>
-                  <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                  <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
                     <Button
                       type="link"
                       size="small"
@@ -1146,126 +1231,6 @@ const StrategyManagement = () => {
     );
   };
 
-  // 渲染回测工具栏 - 参考策略回测页面风格
-  const renderBacktestToolbar = () => (
-    <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索 */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={24}>
-          <Search
-            placeholder={t('search_backtest')}
-            value={backtestSearchText}
-            onChange={(e) => setBacktestSearchText(e.target.value)}
-            onSearch={(value) => loadBacktests({ keyword: value, page: 1 })}
-            allowClear
-            style={{ width: '100%' }}
-          />
-        </Col>
-      </Row>
-
-      {/* 第二行：筛选工具（左） + 操作按钮（右） */}
-      <Row gutter={[12, 12]} align="middle">
-        {/* 筛选工具 - 左侧 */}
-        <Col xs={24} md={16} lg={14}>
-          <Row gutter={[8, 8]}>
-            <Col xs={12} sm={8} md={8}>
-              <Select
-                placeholder={t('select_strategy')}
-                value={selectedStrategy || undefined}
-                onChange={(value) => {
-                  setSelectedStrategy(value ?? '');
-                  loadBacktests({ strategy: value ?? '', page: 1 });
-                }}
-                style={{ width: '100%' }}
-                allowClear
-                options={strategies.map((s) => ({ value: s.name, label: s.name }))}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={8}>
-              <Select
-                placeholder={t('status')}
-                value={backtestStatusFilter}
-                onChange={(value) => {
-                  setBacktestStatusFilter(value);
-                  loadBacktests({ status: value, page: 1 });
-                }}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'all', label: t('all_status_backtest') },
-                  { value: 'completed', label: t('status_completed') },
-                  { value: 'running', label: t('status_running') },
-                  { value: 'failed', label: t('status_failed') },
-                  { value: 'pending', label: t('status_pending') },
-                ]}
-              />
-            </Col>
-            <Col xs={12} sm={8} md={8}>
-              <Select
-                placeholder={t('sort_by')}
-                value={`${backtestSortField}-${backtestSortOrder}`}
-                onChange={(value) => {
-                  const [field, order] = value.split('-');
-                  setBacktestSortField(field);
-                  setBacktestSortOrder(order);
-                  loadBacktests({ sortBy: field, sortOrder: order, page: 1 });
-                }}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'created_at-desc', label: t('sort_create_time_desc') },
-                  { value: 'created_at-asc', label: t('sort_create_time_asc') },
-                  { value: 'total_return-desc', label: t('sort_return_desc') },
-                  { value: 'total_return-asc', label: t('sort_return_asc') },
-                  { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
-                  { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
-                  { value: 'strategy_name-asc', label: t('sort_name_asc') },
-                ]}
-              />
-            </Col>
-          </Row>
-        </Col>
-
-        {/* 操作按钮 - 右侧 */}
-        <Col xs={24} md={8} lg={10}>
-          <Row gutter={[8, 8]}>
-            <Col xs={backtestSelectedRowKeys.length > 0 ? 8 : 12}>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={handleResetBacktestFilters}
-                style={{ width: '100%' }}
-              >
-                {t('reset')}
-              </Button>
-            </Col>
-            <Col xs={backtestSelectedRowKeys.length > 0 ? 8 : 12}>
-              <Button
-                type="primary"
-                icon={<ReloadOutlined />}
-                onClick={() => loadBacktests()}
-                loading={backtestLoading}
-                style={{ width: '100%' }}
-              >
-                {t('refresh')}
-              </Button>
-            </Col>
-            {backtestSelectedRowKeys.length > 0 && (
-              <Col xs={8}>
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={handleBatchDeleteBacktests}
-                  disabled={isGuest}
-                  style={{ width: '100%' }}
-                >
-                  {t('delete')} ({backtestSelectedRowKeys.length})
-                </Button>
-              </Col>
-            )}
-          </Row>
-        </Col>
-      </Row>
-    </div>
-  );
-
   // Tab 切换项
   const tabItems = [
     {
@@ -1278,10 +1243,7 @@ const StrategyManagement = () => {
       ),
       children: (
         <>
-          {renderToolbar()}
-          <Spin spinning={loading} description={t('loading')}>
-            {viewType === 'list' ? renderListView() : renderCardView()}
-          </Spin>
+          {viewType === 'list' ? renderListView() : renderCardView()}
         </>
       ),
     },
@@ -1291,15 +1253,12 @@ const StrategyManagement = () => {
         <span>
           <HistoryOutlined style={{ marginRight: 8 }} />
           {t('backtest_records')}
-          {selectedStrategy && <Tag color="blue" style={{ marginLeft: 8 }}>{selectedStrategy}</Tag>}
+          {selectedStrategy && <span className="qc-chip info qc-mono" style={{ marginLeft: 8 }}>{selectedStrategy}</span>}
         </span>
       ),
       children: (
         <>
-          {renderBacktestToolbar()}
-          <Spin spinning={backtestLoading} description={t('loading')}>
-            {backtestViewType === 'list' ? renderBacktestListView() : renderBacktestCardView()}
-          </Spin>
+          {backtestViewType === 'list' ? renderBacktestListView() : renderBacktestCardView()}
         </>
       ),
     },
@@ -1316,12 +1275,23 @@ const StrategyManagement = () => {
   };
 
   return (
-    <PageContainer title={t('strategy_management')}>
+    <PageContainer
+      title={t('strategy_management')}
+      actions={
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={handleCreateStrategy}
+          style={{ height: 30, padding: '0 14px', fontSize: 12 }}
+        >
+          {t('new_strategy')}
+        </Button>
+      }
+    >
       <Tabs
         activeKey={activeTab}
         onChange={handleTabChange}
         items={tabItems}
-        type="card"
       />
     </PageContainer>
   );

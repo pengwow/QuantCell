@@ -3552,7 +3552,6 @@ const DataManagementPage = () => {
 
               {qualityDetail.details && (
                 <Tabs
-                  type="card"
                   size="small"
                   items={[
                     {
@@ -3960,7 +3959,6 @@ const DataManagementPage = () => {
       <Tabs
         activeKey={activeTab}
         onChange={handleTabChange}
-        type="card"
         items={[
           {
             key: 'symbols',

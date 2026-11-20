@@ -1530,6 +1530,8 @@
   "worker_status_paused": "已暂停",
   "worker_status_interrupted": "已中断",
   "total_items": "共 {{total}} 条",
+  "shown_range": "显示 {{start}}-{{end}} / 共 {{total}}",
+  "per_page": "每页",
   "strategy": "策略",
   "exchange": "交易所",
   "trading_pair": "标的",
