@@ -1980,7 +1980,7 @@ research 用心跳阈值 `_HEARTBEAT_STALE_SECONDS = 600` 防多进程误杀：�
 守护线程（factor/job_lease.py）刷新，新鲜心跳 = 其它进程正在跑，不动；pending 不动（无心跳线，
 无法与其它进程排队区分）；paused/delayed 不动（用户主动态）。
 
-- [ ] **Step 1: 写失败测试 `tests/unit/notifications/test_compensation.py`**
+- [x] **Step 1: 写失败测试 `tests/unit/notifications/test_compensation.py`**
 
 ```python
 """五域启动补偿扫描单测。
@@ -2190,12 +2190,12 @@ if __name__ == "__main__":
     raise SystemExit("请用 pytest 运行: uv run pytest tests/unit/notifications/test_compensation.py -v")
 ```
 
-- [ ] **Step 2: 跑测试确认失败（补偿函数均不存在）**
+- [x] **Step 2: 跑测试确认失败（补偿函数均不存在）**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/test_compensation.py -v`
 Expected: FAIL/ERROR — `AttributeError: module 'services.rl_task_runner' has no attribute 'compensate_interrupted_tasks'`（其余域同理）。
 
-- [ ] **Step 3: rl / factor 影子表补偿**
+- [x] **Step 3: rl / factor 影子表补偿**
 
 **3a. rl_task_runner.py**：Task 4 加的 `from common.notifications.task_notices import (...)` 元组内追加一行 `TASK_STATUS_INTERRUPTED,`（放 `TASK_STATUS_FAILED,` 之后，保持字母序），其下追加：
 
@@ -2274,12 +2274,12 @@ def compensate_interrupted_tasks() -> int:
     return len(stale)
 ```
 
-- [ ] **Step 4: 跑影子域用例确认通过**
+- [x] **Step 4: 跑影子域用例确认通过**
 
 Run: `cd backend && uv run pytest "tests/unit/notifications/test_compensation.py::TestShadowCompensation" -v`
 Expected: 2 passed。
 
-- [ ] **Step 5: collector 补偿**
+- [x] **Step 5: collector 补偿**
 
 5a. [task_manager.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/collector/utils/task_manager.py) L7 `from datetime import datetime` 改为（补偿要写 aware 终态时间戳）：
 
@@ -2331,7 +2331,7 @@ def compensate_interrupted_tasks() -> int:
     return len(stale)
 ```
 
-- [ ] **Step 6: backtest 补偿**
+- [x] **Step 6: backtest 补偿**
 
 [routes.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/backtest/routes.py) 中 `notify_backtest_result` 函数之后追加（`get_db_session` / `BacktestTask` / `datetime, UTC` / `logger` 顶部 import 均已有）：
 
@@ -2363,7 +2363,7 @@ def compensate_interrupted_tasks() -> int:
     return len(stale)
 ```
 
-- [ ] **Step 7: research 补偿**
+- [x] **Step 7: research 补偿**
 
 [loop.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/research/loop.py) 中 `_notify_session_terminal` 之后追加（`time` / `get_db_session` / `ResearchSession` / `service` 均已 import）：
 
@@ -2413,7 +2413,7 @@ def compensate_interrupted_sessions() -> int:
     return sent
 ```
 
-- [ ] **Step 8: lifespan 挂载（绑定事件循环 + 启动补偿 + 关闭解绑）**
+- [x] **Step 8: lifespan 挂载（绑定事件循环 + 启动补偿 + 关闭解绑）**
 
 8a. [lifespan.py](file:///Users/liupeng/workspace/quant/QuantCell/backend/core/lifespan.py) 启动段 `shutdown_watchdog.arm()`（L479）之后、`yield` 之前插入（Hub 绑定必须早于任何任务域投递事件；补偿是同步 DB 扫描，丢线程池跑不阻塞启动）：
 
@@ -2460,12 +2460,12 @@ def compensate_interrupted_sessions() -> int:
     task_notices.bind_event_loop(None)
 ```
 
-- [ ] **Step 9: 跑全部补偿用例 + 全量通知回归**
+- [x] **Step 9: 跑全部补偿用例 + 全量通知回归**
 
 Run: `cd backend && uv run pytest tests/unit/notifications/ -q`
 Expected: 全部 PASS（Task 3/4/5 的既有用例不受影响）。
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/services/rl_task_runner.py backend/factor/job_manager.py backend/collector/utils/task_manager.py backend/backtest/routes.py backend/research/loop.py backend/core/lifespan.py backend/tests/unit/notifications/test_compensation.py
