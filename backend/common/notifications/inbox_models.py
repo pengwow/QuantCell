@@ -47,7 +47,8 @@ class NotificationState(TimezoneAwareBase):
     last_read_id = Column(Integer)
 
 
-_TASK_TYPES = (
+# 「异步任务域」五类：与 inbox.py 的已读即归档、task_notices.py 的任务通知接线共用
+TASK_TYPES = (
     "rl_train",
     "factor_job",
     "collector_task",
@@ -68,7 +69,7 @@ class AsyncTaskRecord(TimezoneAwareBase):
     __tablename__ = "async_task_records"
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    task_type = Column(String(32), nullable=False, index=True)  # _TASK_TYPES 之一
+    task_type = Column(String(32), nullable=False, index=True)  # TASK_TYPES 之一
     # 各域自己的 task_id（uuid），跨域不加唯一（域内唯一即可，域内以 (task_type, task_id) 定位）
     task_id = Column(String(64), nullable=False, index=True, unique=True)
     # queued / running / succeeded / failed / cancelled
