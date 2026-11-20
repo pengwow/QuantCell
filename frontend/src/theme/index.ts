@@ -43,6 +43,9 @@ export function paletteToTradingToken(mode: ThemeMode): QuantTradingToken {
     colorBgContainer: p.surface,
     colorBgElevated: p.surfaceRaised,
     colorBorder: p.border,
+    // 分割线（抽屉/表格/卡片内部分隔）：antd 默认由 algorithm 派生出一个偏蓝的灰，
+    // 与 spec §2.2 的 --bd 不是同一个色，显式对齐
+    colorSplit: p.border,
     colorText: p.foreground,
     colorTextSecondary: p.textSecondary,
     colorTextTertiary: p.textTertiary,

@@ -131,6 +131,7 @@ export type QuantTradingToken = Pick<
   | 'colorPrimary' | 'colorInfo' | 'colorSuccess' | 'colorWarning' | 'colorError'
   | 'colorBgBase' | 'colorTextBase' | 'colorBorderSecondary'
   | 'colorBgLayout' | 'colorBgContainer' | 'colorBgElevated' | 'colorBorder'
+  | 'colorSplit'
   | 'colorText' | 'colorTextSecondary' | 'colorTextTertiary' | 'colorTextQuaternary'
 > & {
   colorChartLine: string;

@@ -340,6 +340,16 @@ font-variant-numeric: tabular-nums;
 - `.dot`：8px 圆；ok = `up` 实心 + `0 0 0 3px up 16%` 光环；warn = `warn` 同理；off = `bge` 底 + `bd-2` 1.5px 边。
 - 系统状态行：左侧点 + 名称 12px `fg-2` + 右侧 mono 值 10.5px `fg-4`；行距 10px。
 
+### 6.18 抽屉 `.ant-drawer`（demo 无静态稿）
+
+基准 demo 是纯列表/弹窗稿，没有抽屉视图；本节的约束来自 antd Drawer + token 桥，**`check-spec.mjs` 不做 demo 断言**，改这里只改本文件和实现。
+
+- 遮罩与 §6.11 同款：`color-mix(#000 44%)` + `backdrop-filter:blur(2px)`（antd 默认 `rgba(0,0,0,.45)` 已等效）；面板底 `--bge`（抬升面，与 antd `colorBgElevated` 一致），左缘 1px `--bd`，无圆角，右滑入。**body 内的卡片/面板仍走 `--card`** —— 抽屉是抬升面板，卡是面板上的内容层，两者不同槽位。
+- header：标题 13.5px / 650（`colorTextHeading` 走 token，不写死字号档）；`padding:12px 16px`；底边 1px `--bd`（antd 分割线走 `colorSplit`，已对齐 `--bd`，此前 algorithm 派生出偏蓝的 `rgba(19,37,73,.11)`）。
+- body：16px 内边距（antd 默认 24px 过宽，13px 密度体系下收窄），可滚动；内部列表/表格沿用 §6.5 密度。
+- 宽度按内容定，写进各页验收项：因子详情 68vw、模型详情 520px、其余以「不挤压主视图」为准。
+- ESC / 点遮罩 / ✕ 关闭；打开时焦点入面板，关闭后回到触发控件。
+
 ---
 
 ## 7. 交互与路由
