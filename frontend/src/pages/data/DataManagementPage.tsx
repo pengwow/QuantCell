@@ -1,4 +1,4 @@
-import { QUANT_COLORS, useQuantColors } from '@/utils/colors';
+import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 统一数据管理页面 - 多自选组管理优化版
  * 整合数据池、数据采集、数据质量三个核心功能模块
@@ -15,23 +15,18 @@ import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   Card,
   Tabs,
-  Table,
   Button,
   Input,
   Select,
   Tag,
   Space,
-  Badge,
-  Progress,
   Form,
   DatePicker,
-  Empty,
   Switch,
   Divider,
   Typography,
   Row,
   Col,
-  Statistic,
   Menu,
   Dropdown,
   Modal,
@@ -42,7 +37,6 @@ import {
   Transfer,
   Spin,
   Pagination,
-  Grid,
   Alert,
   App,
   Descriptions,
@@ -54,7 +48,6 @@ import {
   StarFilled,
   DownloadOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
   CloseCircleOutlined,
   ReloadOutlined,
   BarChartOutlined,
@@ -75,6 +68,8 @@ import type { MenuProps, TableProps } from 'antd';
 
 import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import PageToolbar from '@/components/ui/PageToolbar';
 import { dataApi } from '@/api/dataApi';
 import type { DataPoolRecord, CryptoSymbol, TaskDetailItem, KlineQualityReport } from '@/api/dataApi';
 import { archiveApi } from '@/api/archiveApi';
@@ -108,8 +103,6 @@ import { setPageTitle } from '@/utils/pageTitle';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
-const { Search } = Input;
-const { useBreakpoint } = Grid;
 
 // O2 设计对齐：token 未覆盖的低饱和灰/淡底，用主题前景色、信息色按透明度逼近原 hex，亮暗色自动适配（替代 #8c8c8c/#bfbfbf/#e6f4ff 等）
 const QC_TEXT_MUTED = 'color-mix(in srgb, var(--tw-color-foreground) 45%, transparent)'; // ≈ 次要文字 #8c8c8c
@@ -122,30 +115,6 @@ const INFO_BG_STRONG = 'color-mix(in srgb, var(--tw-color-info) 30%, transparent
 // 故不映射状态/品牌 token；候选后续并入 theme 的离散身份调色板（同 chartSeries 定位）。
 const WATCHLIST_COLOR_PURPLE = '#722ed1';
 
-// ==================== 采集任务状态/格式常量 ====================
-// 状态文案依赖 i18n，配置移入 TaskCard 组件内定义（label 由 t() 生成，badge/color 为静态值）
-
-/** 数据类型 → 标签颜色 */
-const DATA_TYPE_TAG_COLOR: Record<string, string> = {
-  kline: 'blue',
-  aggTrades: 'cyan',
-  trades: 'geekblue',
-  bookDepth: 'purple',
-  bookTicker: 'magenta',
-  markPriceKlines: 'orange',
-  indexPriceKlines: 'gold',
-  premiumIndexKlines: 'lime',
-  fundingRate: 'green',
-  openInterest: 'volcano',
-};
-
-/** 市场 → 标签颜色 */
-const MARKET_TAG_COLOR: Record<string, string> = {
-  spot: 'blue',
-  um: 'orange',
-  cm: 'purple',
-};
-
 /**
  * 归档预览行 + 视图层注入的序号键。
  * __rk 仅用于 antd v6 的 rowKey（其函数已弃用 index 参数），是前端渲染期注入，
@@ -154,296 +123,6 @@ const MARKET_TAG_COLOR: Record<string, string> = {
 interface KeyedArchiveRow extends ArchiveRow {
   __rk: number;
 }
-
-// 无限滚动容器 —— 监听子 div 滚动，触底触发 onReachBottom
-// 使用 IntersectionObserver 监听一个 sentinel 元素，避免 onScroll 节流烦恼
-interface TasksListScrollProps {
-  onReachBottom: () => void;
-  children: React.ReactNode;
-}
-
-const TasksListScroll: React.FC<TasksListScrollProps> = ({ onReachBottom, children }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const firedRef = useRef(false);
-  // onReachBottom 会捕获父组件最新闭包，放进 ref 让 observer 只建一次
-  const cbRef = useRef(onReachBottom);
-  cbRef.current = onReachBottom;
-
-  useEffect(() => {
-    const container = containerRef.current;
-    const sentinel = sentinelRef.current;
-    if (!container || !sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.target === sentinel && entry.intersectionRatio > 0.1 && !firedRef.current) {
-            firedRef.current = true;
-            cbRef.current();
-          }
-          // 离开视口（滚回上面）重置，下次到底部再触发
-          if (entry.intersectionRatio <= 0.01) {
-            firedRef.current = false;
-          }
-        });
-      },
-      {
-        root: container,
-        // 离底部还有 100px 就开始加载，体感更顺
-        rootMargin: '100px 0px',
-        threshold: [0, 0.1, 1],
-      },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-    // 空依赖：observer 建一次，cb 通过 ref 拿最新值
-     
-  }, []);
-
-  return (
-    <div
-      ref={containerRef}
-      style={{ maxHeight: 560, overflow: 'auto' }}
-    >
-      {children}
-      <div ref={sentinelRef} style={{ height: 1 }} />
-    </div>
-  );
-};
-
-// 任务卡片组件
-interface TaskCardProps {
-  task: Task;
-  isCurrent: boolean;
-  taskProgressList?: TaskDetailItem[];
-  isProgressExpanded?: boolean;
-  setIsProgressExpanded?: (expanded: boolean) => void;
-  onDelete?: (taskId: string) => void;
-  deleting?: boolean;
-}
-
-const TaskCard: React.FC<TaskCardProps> = ({
-  task,
-  isCurrent,
-  taskProgressList: externalProgressList = [],
-  isProgressExpanded = false,
-  setIsProgressExpanded,
-  onDelete,
-  deleting,
-}) => {
-  const [expanded, setExpanded] = useState(false);
-  const [details, setDetails] = useState<TaskDetailItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const qc = useQuantColors();
-  const { t } = useTranslation();
-
-  const displayList = externalProgressList.length > 0 ? externalProgressList : details;
-  // 状态配置依赖 t()，故在组件内定义（原模块级 TASK_STATUS_CONFIG 的 label 为硬编码中文）
-  const statusCfgMap: Record<TaskStatus, { color: string; label: string; badge: 'processing' | 'success' | 'error' | 'default' | 'warning' }> = {
-    running: { color: QUANT_COLORS.info, label: t('dm_st_running'), badge: 'processing' },
-    completed: { color: QUANT_COLORS.positive, label: t('dm_st_completed'), badge: 'success' },
-    failed: { color: QUANT_COLORS.negative, label: t('dm_st_failed'), badge: 'error' },
-    pending: { color: 'var(--tw-color-border)', label: t('dm_st_pending'), badge: 'default' },
-    canceled: { color: QUANT_COLORS.warning, label: t('dm_st_canceled'), badge: 'warning' },
-  };
-  const statusCfg = statusCfgMap[task.status] || statusCfgMap.pending;
-  const progress = task.progress || { percentage: 0, total: 0, completed: 0, failed: 0, current: '' };
-
-  // 仅"当前"卡禁用——那是自己正在盯着跑的那张，别误删
-  // 历史记录里的 running/pending 允许删（采集进程已挂的僵尸任务）
-  const canDelete = !isCurrent;
-
-  // 从 params 提取数据类型和市场
-  const dataType: string = String(task.params?.data_type ?? task.params?.dataType ?? 'kline');
-  const market: string = String(task.params?.market ?? task.params?.candle_type ?? 'spot');
-  const dataTypeLabel = DATA_KIND_LABEL[dataType as keyof typeof DATA_KIND_LABEL] || dataType;
-
-  // 获取任务详情
-  const fetchTaskDetails = async () => {
-    if (task.task_id) {
-      setLoading(true);
-      try {
-        const data = await dataApi.getTaskDetails(task.task_id);
-        if (data?.details) {
-          setDetails(data.details);
-        }
-      } catch (error) {
-        console.error('Failed to fetch task details:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  const handleExpand = async () => {
-    const newExpanded = !expanded;
-    setExpanded(newExpanded);
-    if (newExpanded && details.length === 0) {
-      await fetchTaskDetails();
-    }
-  };
-
-  return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative' }}
-    >
-      <Card
-        size="small"
-        style={{
-          marginBottom: 8,
-          borderLeft: `3px solid ${statusCfg.color}`,
-          opacity: task.status === 'completed' ? 0.85 : 1,
-        }}
-      >
-        {/* 悬停显示的删除按钮 —— 运行中/当前任务被禁用 */}
-        {onDelete && (
-          <Popconfirm
-            title={t('dm_del_confirm_title')}
-            description={t('dm_del_confirm_desc')}
-            okText={t('delete')}
-            okButtonProps={{ danger: true }}
-            cancelText={t('cancel')}
-            disabled={!canDelete}
-            onConfirm={() => onDelete(task.task_id!)}
-          >
-            <Button
-              danger
-              type="text"
-              size="small"
-              icon={<DeleteOutlined />}
-              loading={deleting}
-              disabled={!canDelete}
-              title={canDelete ? t('dm_del_record_tip') : t('dm_del_record_disabled_tip')}
-              style={{
-                position: 'absolute',
-                top: 6,
-                right: 6,
-                opacity: hovered ? 0.8 : 0,
-                transition: 'opacity 0.15s',
-                zIndex: 1,
-              }}
-            />
-          </Popconfirm>
-        )}
-
-        {/* 第一行：类型/来源徽章 + 状态 */}
-        {/* paddingRight 预留悬停删除按钮位置，避免 hover 时 badge 被盖住 */}
-        <Row justify="space-between" align="middle" className="mb-1.5 pr-8">
-          <Space size={4} wrap>
-            <Tag color={DATA_TYPE_TAG_COLOR[dataType] || 'default'} style={{ margin: 0 }}>
-              {dataTypeLabel}
-            </Tag>
-            <Tag color={MARKET_TAG_COLOR[market] || 'default'} style={{ margin: 0 }}>
-              {market.toUpperCase()}
-            </Tag>
-            {isCurrent && <Tag color="blue" style={{ margin: 0 }}>{t('dm_tag_current')}</Tag>}
-          </Space>
-          <Badge status={statusCfg.badge} text={<Text style={{ fontSize: 12, color: statusCfg.color }}>{statusCfg.label}</Text>} />
-        </Row>
-
-      {/* 第二行：进度条 + 数量统计 */}
-      <Progress
-        percent={progress.percentage || 0}
-        size="small"
-        status={task.status === 'failed' ? 'exception' : task.status === 'running' ? 'active' : undefined}
-        format={(percent) => `${percent?.toFixed(1) || '0.0'}%`}
-      />
-      {(progress.total > 0 || progress.completed > 0) && (
-        <div className="mt-0.5 text-[11px] text-foreground/45">
-          {t('dm_completed_of', { done: progress.completed, total: progress.total })}
-          {progress.failed > 0 && <Text type="danger" className="ml-2 text-[11px]">{t('dm_failed_n', { n: progress.failed })}</Text>}
-          {progress.current && <Text type="secondary" className="ml-2 text-[11px]">{t('dm_in_progress', { current: progress.current })}</Text>}
-        </div>
-      )}
-
-      {/* 第三行：时间信息 */}
-      <div className="mt-1 text-[11px] text-foreground/45">
-        <Space size={12}>
-          <span>{t('dm_created_at', { time: task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '-' })}</span>
-          {task.start_time && <span>{t('dm_started_at', { time: dayjs(task.start_time).format('HH:mm:ss') })}</span>}
-          {task.end_time && <span>{t('dm_ended_at', { time: dayjs(task.end_time).format('HH:mm:ss') })}</span>}
-        </Space>
-      </div>
-
-      {/* 错误信息 */}
-      {task.status === 'failed' && task.error_message && (
-        <Alert
-          type="error"
-          showIcon
-          title={task.error_message}
-          style={{ padding: '4px 8px', fontSize: 12 }}
-          className="mt-1.5"
-          banner
-        />
-      )}
-
-      {/* 展开/收起子任务 */}
-      <Button
-        type="link"
-        size="small"
-        onClick={handleExpand}
-        style={{ padding: 0, fontSize: 12 }}
-        className="mt-1"
-        loading={loading}
-      >
-        {expanded ? t('dm_collapse_details') : t('dm_subtask_details', { n: displayList.length || '...' })}
-      </Button>
-
-      {expanded && (
-        <div className="mt-2 rounded-qc-sm bg-foreground/2 px-3 py-2">
-          {displayList.length > 0 ? (
-            <>
-              {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => {
-                // failed>0 表示该品种下载失败: 必须显式标红, 0% 空条无法区分"失败"与"未执行"
-                const failed = Number(subTask.failed ?? 0) > 0;
-                const statusText = typeof subTask.status === 'string' ? subTask.status : '';
-                return (
-                  <div key={String(subTask.task_key ?? subTask.symbol ?? '')} className="mb-1.5">
-                    <div className="mb-0.5 flex items-center justify-between">
-                      <Space size={4}>
-                        <Text className="text-xs font-medium">{String(subTask.symbol ?? '')}</Text>
-                        {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{String(subTask.interval)}</Tag>}
-                        {failed && <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('dm_st_failed')}</Tag>}
-                      </Space>
-                      <Text style={{ fontSize: 11, color: failed ? qc.negative : QC_TEXT_MUTED }}>{subTask.percentage?.toFixed(1)}%</Text>
-                    </div>
-                    <Progress
-                      percent={subTask.percentage || 0}
-                      size="small"
-                      showInfo={false}
-                      status={failed ? 'exception' : task.status === 'running' && (subTask.percentage ?? 0) < 100 ? 'active' : undefined}
-                      strokeColor={!failed && (subTask.percentage ?? 0) >= 100 ? QUANT_COLORS.positive : undefined}
-                    />
-                    {failed && statusText && (
-                      <div className="text-[11px] text-error">{statusText}</div>
-                    )}
-                  </div>
-                );
-              })}
-              {displayList.length > 5 && setIsProgressExpanded && (
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => setIsProgressExpanded(!isProgressExpanded)}
-                  style={{ padding: 0, fontSize: 12 }}
-                >
-                  {isProgressExpanded ? t('dm_collapse') : t('dm_expand_all', { n: displayList.length })}
-                </Button>
-              )}
-            </>
-          ) : (
-            <Empty description={t('dm_no_subtask_details')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '8px 0' }} />
-          )}
-        </div>
-      )}
-      </Card>
-    </div>
-  );
-};
 
 // 系统配置
 const SYSTEM_CONFIG = {
@@ -507,7 +186,6 @@ interface MarketDataPoint {
  */
 const DataManagementPage = () => {
   const { t } = useTranslation();
-  const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -624,13 +302,16 @@ const DataManagementPage = () => {
   // 监听采集表单中的 dataType 变化，用于动态控制 intervals / market 字段
   const collectionDataType = Form.useWatch('dataType', collectionForm) ?? 'kline';
   const [collectionTasks, setCollectionTasks] = useState<Task[]>([]);
-  // 无限滚动分页状态
+  // 服务端分页状态（每页 20 条，与后端 page_size 对齐；页码切换重拉）
   const [tasksPage, setTasksPage] = useState(1);
   const [tasksPageSize] = useState(20);
   const [tasksTotal, setTasksTotal] = useState(0);
-  const [tasksHasMore, setTasksHasMore] = useState(true);
-  const [tasksLoadingMore, setTasksLoadingMore] = useState(false);
   const [tasksDeletingId, setTasksDeletingId] = useState<string | null>(null);
+  // 任务表搜索：对已加载行做前端过滤（过滤后页码归 1，§6.6）
+  const [taskSearchText, setTaskSearchText] = useState('');
+  const [taskSearchPage, setTaskSearchPage] = useState(1);
+  // 展开行的子任务明细缓存：key = task_id（当前任务走 WS 的 taskProgressList，不落这里）
+  const [taskDetailsMap, setTaskDetailsMap] = useState<Record<string, TaskDetailItem[]>>({});
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
   // 当前任务的请求参数（数据类型/市场等），当前任务卡用它在任务列表刷新前就显示正确标签
   const [currentTaskParams, setCurrentTaskParams] = useState<Record<string, unknown>>({});
@@ -1292,24 +973,15 @@ const DataManagementPage = () => {
 
   // ==================== 其他方法 ====================
 
-  // 拉取采集任务列表
-  // mode: 'reset'  —— 从 page1 覆盖全量（筛选变化 / 手动刷新 / 首屏）
-  //       'append' —— 拉取下一页追加（触底自动加载）
+  // 拉取采集任务列表（服务端分页）
+  // mode: 'reset'  —— 覆盖当前页（筛选变化 / 手动刷新 / 翻页 / 首屏）
   //       'refresh-page1' —— 仅刷新 page1，与已有列表按 task_id 合并状态（5s 自动刷新用）
   const fetchCollectionTasks = async (
-    opts: { mode?: 'reset' | 'append' | 'refresh-page1'; page?: number; silent?: boolean } = {},
+    opts: { mode?: 'reset' | 'refresh-page1'; page?: number; silent?: boolean } = {},
   ) => {
     const { mode = 'reset', page, silent = false } = opts;
-    if (mode === 'append' && (tasksLoadingMore || !tasksHasMore)) return;
-    if (mode === 'refresh-page1') {
-      if (tasksLoadingMore) return;
-      setTasksLoadingMore(true);
-    } else if (mode === 'append') {
-      setTasksLoadingMore(true);
-    } else {
-      if (!silent) setTaskListLoading(true);
-    }
-    const targetPage = page ?? (mode === 'append' ? tasksPage + 1 : 1);
+    if (!silent) setTaskListLoading(true);
+    const targetPage = page ?? 1;
     try {
       const params: Record<string, unknown> = {
         page: targetPage,
@@ -1326,24 +998,19 @@ const DataManagementPage = () => {
       const total = response.pagination?.total ?? 0;
 
       if (mode === 'refresh-page1') {
-        // 只更新 page1 的状态，不动后面已加载的页
-        setCollectionTasks((prev) => {
-          const page1Ids = new Set(newTasks.map((t) => t.task_id));
-          const rest = prev.filter((t) => !page1Ids.has(t.task_id));
-          // newTasks 在 desc 排序下排在前面
-          return [...newTasks, ...rest];
-        });
-      } else if (mode === 'append') {
-        setCollectionTasks((prev) => [...prev, ...newTasks]);
-        setTasksPage(targetPage);
+        // 只更新 page1 的状态，不动用户已翻到的页
+        setCollectionTasks((prev) => (targetPage === 1
+          ? [...newTasks, ...prev.filter((t) => !newTasks.some((n) => n.task_id === t.task_id))]
+          : prev));
       } else {
-        // reset
+        // reset：页码越界钳制（筛掉数据后 current 可能超出最大页）
+        const maxPage = Math.max(1, Math.ceil(total / tasksPageSize));
+        const clamped = Math.min(Math.max(1, targetPage), maxPage);
         setCollectionTasks(newTasks);
-        setTasksPage(targetPage);
+        setTasksPage(clamped);
       }
 
       setTasksTotal(total);
-      setTasksHasMore(targetPage * tasksPageSize < total);
 
       // 自动检测并恢复正在运行的任务状态
       const runningTask = newTasks.find(
@@ -1358,11 +1025,7 @@ const DataManagementPage = () => {
       console.error('Failed to fetch task list:', error);
       if (!silent) message.error(t('dm_msg_fetch_tasks_failed'));
     } finally {
-      if (mode === 'refresh-page1' || mode === 'append') {
-        setTasksLoadingMore(false);
-      } else {
-        if (!silent) setTaskListLoading(false);
-      }
+      if (!silent) setTaskListLoading(false);
     }
   };
 
@@ -1373,10 +1036,15 @@ const DataManagementPage = () => {
       await dataApi.deleteTask(taskId);
       message.success(t('dm_msg_task_deleted'));
       // 本地列表直接移除，避免重新拉整个列表
-      setCollectionTasks((prev) => prev.filter((t) => t.task_id !== taskId));
-      setTasksTotal((prev) => Math.max(0, prev - 1));
-      // 若删的是最后一页最后一条，hasMore 可能需要翻页校验，但直接保守设 false
-      setTasksHasMore((prev) => prev); // 不变；删完若当前页空了下次触底会自然触发下一页
+      const next = collectionTasks.filter((t) => t.task_id !== taskId);
+      const remaining = Math.max(0, tasksTotal - 1);
+      setCollectionTasks(next);
+      setTasksTotal(remaining);
+      // 页内删空时钳回上一页重新拉取
+      if (next.length === 0 && remaining > 0 && !taskSearchText) {
+        const maxPage = Math.max(1, Math.ceil(remaining / tasksPageSize));
+        fetchCollectionTasks({ page: Math.min(tasksPage, maxPage), silent: true });
+      }
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       message.error(t('dm_msg_delete_failed', { msg }));
@@ -1573,16 +1241,17 @@ const DataManagementPage = () => {
   };
 
   // 获取质量状态标签
+  // §6.2 chip 化的质量标签（原 antd Tag 改 qc-chip：ok/warn/down/quiet 四态）
   const getQualityTag = (quality?: string) => {
     switch (quality) {
       case 'good':
-        return <Tag icon={<CheckCircleOutlined />} color="success">{t('dm_quality_good')}</Tag>;
+        return <span className="qc-chip ok">{t('dm_quality_good')}</span>;
       case 'warning':
-        return <Tag icon={<ExclamationCircleOutlined />} color="warning">{t('dm_quality_warning')}</Tag>;
+        return <span className="qc-chip warn">{t('dm_quality_warning')}</span>;
       case 'bad':
-        return <Tag icon={<CloseCircleOutlined />} color="error">{t('dm_quality_bad')}</Tag>;
+        return <span className="qc-chip down">{t('dm_quality_bad')}</span>;
       default:
-        return <Tag>{t('dm_quality_unknown')}</Tag>;
+        return <span className="qc-chip quiet">{t('dm_quality_unknown')}</span>;
     }
   };
 
@@ -1783,6 +1452,267 @@ const DataManagementPage = () => {
 
   // ==================== 渲染方法 ====================
 
+  // ---- 采集任务表（demo「同步任务」卡排版：开始时间/任务/范围/状态/备注/操作） ----
+
+  // 状态 → §6.2 chip（运行中带 pulse 圆点；等待中/取消中性）
+  const renderTaskStatusChip = (status: string) => {
+    switch (status) {
+      case 'running':
+        return <span className="qc-chip info"><span className="qc-pdot" />{t('dm_st_running')}</span>;
+      case 'completed':
+        return <span className="qc-chip ok">{t('dm_st_completed')}</span>;
+      case 'failed':
+        return <span className="qc-chip down">{t('dm_st_failed')}</span>;
+      case 'canceled':
+        return <span className="qc-chip warn">{t('dm_st_canceled')}</span>;
+      default:
+        return <span className="qc-chip quiet">{t('dm_st_pending')}</span>;
+    }
+  };
+
+  // 从任务 params 提取数据类型 / 市场 / 标的范围 / 周期 / 时间窗
+  const taskParamsOf = (task: Task): Record<string, unknown> =>
+    (task.params ?? {}) as Record<string, unknown>;
+
+  const taskSymListOf = (task: Task): string[] => {
+    const p = taskParamsOf(task);
+    return Array.isArray(p.symbols) ? p.symbols.map(String) : [];
+  };
+
+  // 范围单元格：symbols(超出 2 个折叠) · 周期 · 时间窗（mono 11px fg-3，demo c-mono c-mute 口径）
+  const renderTaskScope = (task: Task) => {
+    const p = taskParamsOf(task);
+    const syms = taskSymListOf(task);
+    const ivs = Array.isArray(p.interval) ? p.interval.map(String) : [];
+    const start = typeof p.start === 'string' ? p.start : '';
+    const end = typeof p.end === 'string' ? p.end : '';
+    const symText = syms.length > 2
+      ? `${syms[0]}…+${syms.length - 1}`
+      : syms.join(', ');
+    const range = start && end ? `${start.slice(5)} → ${end.slice(5)}` : '';
+    const parts = [symText, ivs.join(','), range].filter(Boolean).join(' · ');
+    if (!parts) return <span className="qc-cell-none qc-mono">—</span>;
+    return (
+      <Tooltip title={parts} placement="topLeft">
+        <span className="qc-cell-id" style={{ fontSize: 11 }}>{parts}</span>
+      </Tooltip>
+    );
+  };
+
+  // 备注单元格：运行中 = 迷你进度条 + 已完成 x/y；失败 = 错误信息；其余弱「—」
+  const renderTaskRemark = (task: Task) => {
+    const progress = task.progress;
+    if (task.status === 'running' && progress) {
+      return (
+        <span className="qc-row-chips" style={{ flexWrap: 'nowrap' }}>
+          <span className="qc-prog" style={{ width: 56 }}><i style={{ width: `${Math.min(100, Math.max(0, progress.percentage || 0))}%` }} /></span>
+          <span className="qc-mono" style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>
+            {t('dm_completed_of', { done: progress.completed || 0, total: progress.total || 0 })}
+          </span>
+        </span>
+      );
+    }
+    if (task.status === 'failed' && task.error_message) {
+      return (
+        <Tooltip title={task.error_message} placement="topLeft">
+          <span className="qc-cell-down" style={{ fontSize: 12 }}>{task.error_message}</span>
+        </Tooltip>
+      );
+    }
+    return <span className="qc-cell-none">—</span>;
+  };
+
+  // 任务行全集（含未入库的当前任务兜底行）
+  const allTaskRows = useMemo<Task[]>(() => {
+    const hasCurrent = currentTaskId && collectionTasks.some((t) => t.task_id === currentTaskId);
+    const currentRow: Task | null = hasCurrent ? null : (currentTaskId && (taskStatusFilter === 'all' || taskStatusFilter === taskStatus) ? {
+      task_id: currentTaskId,
+      status: taskStatus,
+      task_type: 'download',
+      // 使用创建任务时保存的真实请求参数，保证类型/市场标签正确
+      params: currentTaskParams,
+      progress: { percentage: taskProgress, total: taskProgressList.length, completed: taskProgressList.filter((x) => (x.percentage || 0) >= 100).length, failed: 0, current: '' },
+      created_at: new Date().toISOString(),
+    } : null);
+    return currentRow ? [currentRow, ...collectionTasks] : collectionTasks;
+  }, [collectionTasks, currentTaskId, currentTaskParams, taskStatus, taskStatusFilter, taskProgress, taskProgressList]);
+
+  // 搜索命中行（对已加载行做前端过滤，§6.6）
+  const searchedTasks = useMemo(() => {
+    const q = taskSearchText.trim().toLowerCase();
+    if (!q) return allTaskRows;
+    return allTaskRows.filter((task) => {
+      const p = taskParamsOf(task);
+      const haystack = [
+        task.task_id,
+        String(p.data_type ?? ''),
+        String(p.market ?? ''),
+        Array.isArray(p.symbols) ? p.symbols.join(' ') : '',
+        Array.isArray(p.interval) ? p.interval.join(' ') : '',
+      ].join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [allTaskRows, taskSearchText]);
+
+  const isTaskSearching = taskSearchText.trim() !== '';
+  const visibleTasks = isTaskSearching ? searchedTasks : allTaskRows;
+
+  // 任务表列定义：§6.5（时间 mono / 任务 mono / 状态 chip / 备注 / 操作 24px）
+  const taskColumns: TableProps<Task>['columns'] = [
+    {
+      title: t('dm_col_started'),
+      key: 'created_at',
+      width: 100, // 「11-20 14:12」11px mono ≈ 73px + 24px 内边距；再窄会折两行把行高从 45 撑到 51
+      render: (_, record: Task) => (
+        <span className="qc-cell-time qc-mono">
+          {record.created_at ? dayjs(record.created_at).format('MM-DD HH:mm') : '—'}
+        </span>
+      ),
+    },
+    {
+      title: t('dm_col_task'),
+      key: 'task',
+      width: 112,
+      ellipsis: true,
+      render: (_, record: Task) => {
+        const p = taskParamsOf(record);
+        const dataType = String(p.data_type ?? 'kline');
+        const market = String(p.market ?? p.candle_type ?? 'spot');
+        return (
+          <span className="qc-row-chips">
+            <span className="qc-cell-strat">{DATA_KIND_LABEL[dataType as keyof typeof DATA_KIND_LABEL] ?? dataType}</span>
+            <span className="qc-chip quiet qc-mono">{market.toUpperCase()}</span>
+            {record.task_id === currentTaskId && <span className="qc-chip info">{t('dm_tag_current')}</span>}
+          </span>
+        );
+      },
+    },
+    {
+      title: t('dm_col_scope'),
+      key: 'scope',
+      width: 112,
+      ellipsis: true,
+      render: (_, record: Task) => renderTaskScope(record),
+    },
+    {
+      title: t('status'),
+      key: 'status',
+      width: 72,
+      render: (_, record: Task) => renderTaskStatusChip(record.status),
+    },
+    {
+      title: t('dm_col_remark'),
+      key: 'remark',
+      ellipsis: true,
+      render: (_, record: Task) => renderTaskRemark(record),
+    },
+    {
+      title: t('action'),
+      key: 'op',
+      width: 44,
+      render: (_, record: Task) => {
+        // 仅"当前"任务禁用删——那是自己正在盯着跑的；历史 running/pending 允许删（僵尸任务）
+        const canDelete = record.task_id !== currentTaskId
+          && record.status !== 'running'
+          && record.status !== 'pending';
+        return (
+          <div className="qc-row-actions">
+            <Popconfirm
+              title={t('dm_del_confirm_title')}
+              description={t('dm_del_confirm_desc')}
+              okText={t('delete')}
+              okButtonProps={{ danger: true }}
+              cancelText={t('cancel')}
+              disabled={!canDelete}
+              onConfirm={() => handleDeleteTask(record.task_id!)}
+            >
+              <Tooltip title={canDelete ? t('dm_del_record_tip') : t('dm_del_record_disabled_tip')}>
+                <button
+                  type="button"
+                  className="qc-mini-btn qc-icon-only danger"
+                  aria-label={canDelete ? t('dm_del_record_tip') : t('dm_del_record_disabled_tip')}
+                  disabled={!canDelete || tasksDeletingId === record.task_id}
+                >
+                  <DeleteOutlined />
+                </button>
+              </Tooltip>
+            </Popconfirm>
+          </div>
+        );
+      },
+    },
+  ];
+
+  // 展开行：子任务明细（当前任务吃 WS 的 taskProgressList；历史任务按需拉取，走 taskDetailsMap）
+  const fetchTaskDetails = async (taskId: string) => {
+    if (taskDetailsMap[taskId]) return;
+    try {
+      const data = await dataApi.getTaskDetails(taskId);
+      const details = data?.details;
+      if (details) {
+        setTaskDetailsMap((prev) => ({ ...prev, [taskId]: details }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch task details:', error);
+    }
+  };
+
+  const renderTaskDetails = (task: Task) => {
+    const externalProgressList = task.task_id === currentTaskId ? taskProgressList : [];
+    const cachedList = taskDetailsMap[task.task_id] ?? [];
+    const displayList = externalProgressList.length > 0 ? externalProgressList : cachedList;
+    if (displayList.length === 0) {
+      return (
+        <QcEmpty
+          icon={<FileSearchOutlined />}
+          title={t('dm_no_subtask_details')}
+        />
+      );
+    }
+    return (
+      <div className="mb-0.5">
+        {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => {
+          // failed>0 表示该品种下载失败: 必须显式标红, 0% 空条无法区分"失败"与"未执行"
+          const failed = Number(subTask.failed ?? 0) > 0;
+          const statusText = typeof subTask.status === 'string' ? subTask.status : '';
+          return (
+            <div key={String(subTask.task_key ?? subTask.symbol ?? '')} className="mb-1.5">
+              <div className="mb-0.5 flex items-center justify-between">
+                <span className="qc-row-chips">
+                  <Text className="text-xs font-medium">{String(subTask.symbol ?? '')}</Text>
+                  {subTask.interval && <span className="qc-chip quiet qc-mono">{String(subTask.interval)}</span>}
+                  {failed && <span className="qc-chip down">{t('dm_st_failed')}</span>}
+                </span>
+                <span className="qc-mono" style={{ fontSize: 11, color: failed ? QUANT_COLORS.negative : QC_TEXT_MUTED }}>
+                  {subTask.percentage?.toFixed(1)}%
+                </span>
+              </div>
+              <span
+                className={`qc-prog${(subTask.percentage ?? 0) >= 100 && !failed ? ' done' : ''}`}
+                style={{ width: '100%', maxWidth: 420 }}
+              >
+                <i style={{ width: `${Math.min(100, Math.max(0, subTask.percentage || 0))}%`, background: failed ? 'var(--qc-error)' : undefined }} />
+              </span>
+              {failed && statusText && (
+                <div className="text-[11px] text-error">{statusText}</div>
+              )}
+            </div>
+          );
+        })}
+        {displayList.length > 5 && (
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setIsProgressExpanded(!isProgressExpanded)}
+            style={{ padding: 0, fontSize: 12 }}
+          >
+            {isProgressExpanded ? t('dm_collapse') : t('dm_expand_all', { n: displayList.length })}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
   // 渲染自选组侧边栏
   const renderGroupSidebar = () => (
     <div className="favorite-groups-sidebar w-full">
@@ -1862,7 +1792,8 @@ const DataManagementPage = () => {
     <Drawer
       title={t('manage_watchlist')}
       placement="right"
-      size={400}
+      // §6.18：抽屉宽 400（原 size={400} 是无效枚举传参，按意图落为 width）
+      width={400}
       open={isGroupDrawerOpen}
       onClose={() => setIsGroupDrawerOpen(false)}
       extra={
@@ -1940,6 +1871,7 @@ const DataManagementPage = () => {
   // 渲染组编辑弹窗
   const renderGroupModal = () => (
     <Modal
+      className="qc-modal"
       title={editingGroup ? t('edit_watchlist') : t('create_watchlist')}
       open={isGroupModalOpen}
       onOk={handleSaveGroup}
@@ -1947,7 +1879,7 @@ const DataManagementPage = () => {
       okText={t('save')}
       cancelText={t('cancel')}
     >
-      <Form form={groupForm} layout="vertical">
+      <Form form={groupForm} layout="vertical" className="qc-form">
         <Form.Item
           name="name"
           label={t('watchlist_name')}
@@ -1996,6 +1928,7 @@ const DataManagementPage = () => {
 
     return (
       <Modal
+        className="qc-modal"
         title={
           <Space>
             <ImportOutlined />
@@ -2051,6 +1984,7 @@ const DataManagementPage = () => {
   // 渲染数据清理弹窗
   const renderCleanDataModal = () => (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <DeleteOutlined />
@@ -2076,6 +2010,7 @@ const DataManagementPage = () => {
       <Form
         form={cleanForm}
         layout="vertical"
+        className="qc-form"
       >
         <Form.Item
           name="symbol"
@@ -2206,6 +2141,7 @@ const DataManagementPage = () => {
       {/* 分类切换：归档数据（7 种） vs 衍生数据（2 种） */}
       <Segmented
         block
+        className="qc-seg"
         size="small"
         value={archiveBrowserCategory}
         onChange={(v) => {
@@ -2345,6 +2281,15 @@ const DataManagementPage = () => {
         width,
         ellipsis: true,
         align: (isNumeric ? 'right' : 'left') as 'left' | 'right',
+        // 数值/时间列走 mono（§6.5）；布尔列原样文本；空值统一「—」
+        render: (v: unknown) => {
+          if (v === null || v === undefined || v === '') return <span className="qc-cell-none">—</span>;
+          if (typeof v === 'boolean') return <span>{v ? 'true' : 'false'}</span>;
+          if (isNumeric || TIME_KEYS.has(k)) {
+            return <span className="qc-mono">{typeof v === 'number' ? v.toLocaleString() : String(v)}</span>;
+          }
+          return <span className="qc-cell-id">{String(v)}</span>;
+        },
       };
     });
   }, [archiveRows]);
@@ -2359,6 +2304,7 @@ const DataManagementPage = () => {
       {/* 左侧树形导航 */}
       <Col xs={24} md={8} lg={6}>
         <Card
+          className="qc-card"
           size="small"
           title={
             <Space>
@@ -2379,17 +2325,18 @@ const DataManagementPage = () => {
       {/* 右侧内容 */}
       <Col xs={24} md={16} lg={18}>
         <Card
+          className="qc-card"
           size="small"
           title={
             archiveSymbol ? (
               <Space wrap>
-                <Tag color="blue">{kindLabel}</Tag>
-                <Tag color="purple">{archiveMarket}</Tag>
-                <Text strong>{archiveSymbol}</Text>
+                <span className="qc-chip info">{kindLabel}</span>
+                <span className="qc-chip quiet qc-mono">{archiveMarket.toUpperCase()}</span>
+                <span className="qc-cell-id">{archiveSymbol}</span>
                 {needInterval && (
-                  <Tag color="cyan">{archiveInterval}</Tag>
+                  <span className="qc-chip quiet qc-mono">{archiveInterval}</span>
                 )}
-                {isDerivKind(archiveKind as DerivKind) && <Tag color="magenta">{t('dm_tag_deriv')}</Tag>}
+                {isDerivKind(archiveKind as DerivKind) && <span className="qc-chip pri">{t('dm_tag_deriv')}</span>}
               </Space>
             ) : (
               <span>
@@ -2434,27 +2381,20 @@ const DataManagementPage = () => {
           }
         >
           {!archiveSymbol ? (
-            <Empty
-              description={
-                <Space orientation="vertical" size={4}>
-                  <Text type="secondary">{t('dm_pick_browse_hint')}</Text>
-                  <Text type="secondary" className="text-xs">
-                    {t('dm_browse_steps')}
-                  </Text>
-                </Space>
-              }
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              style={{ padding: '48px 0' }}
+            <QcEmpty
+              icon={<FileSearchOutlined />}
+              title={t('dm_pick_browse_hint')}
+              description={t('dm_browse_steps')}
             />
           ) : (
             <Space orientation="vertical" className="w-full" size="middle">
-              {/* 元数据概览 */}
+              {/* 元数据概览（值走 mono，§5 kv 口径） */}
               {archiveMeta && (
                 <Descriptions size="small" column={{ xs: 2, sm: 4 }} bordered={false} className="rounded-qc-sm bg-foreground/2 px-3 py-2">
-                  <Descriptions.Item label={t('dm_meta_start')}>{archiveMeta.earliest_date}</Descriptions.Item>
-                  <Descriptions.Item label={t('dm_meta_end')}>{archiveMeta.latest_date}</Descriptions.Item>
-                  <Descriptions.Item label={t('dm_meta_rows')}>{archiveMeta.total_rows.toLocaleString()}</Descriptions.Item>
-                  <Descriptions.Item label={t('dm_meta_files')}>{archiveMeta.file_count}</Descriptions.Item>
+                  <Descriptions.Item label={t('dm_meta_start')}><span className="qc-mono">{archiveMeta.earliest_date}</span></Descriptions.Item>
+                  <Descriptions.Item label={t('dm_meta_end')}><span className="qc-mono">{archiveMeta.latest_date}</span></Descriptions.Item>
+                  <Descriptions.Item label={t('dm_meta_rows')}><span className="qc-mono">{archiveMeta.total_rows.toLocaleString()}</span></Descriptions.Item>
+                  <Descriptions.Item label={t('dm_meta_files')}><span className="qc-mono">{archiveMeta.file_count}</span></Descriptions.Item>
                 </Descriptions>
               )}
               {archiveMeta && archiveMeta.corrupt_dates.length > 0 && (
@@ -2481,6 +2421,7 @@ const DataManagementPage = () => {
               <Space wrap size={8} align="center">
                 {/* 快捷时间预设 */}
                 <Segmented
+                  className="qc-seg"
                   size="small"
                   value=""
                   onChange={(v) => {
@@ -2533,33 +2474,28 @@ const DataManagementPage = () => {
                 </Text>
               </Space>
 
-              {/* 数据表 */}
-              <Table
-                size="small"
-                // 归档行结构动态无稳定业务键; antd v6 弃用 rowKey 的 index 参数,
-                // 改为渲染时注入序号键(__rk 不会与后端数据列名冲突)
+              {/* 数据表（qc-table 密度 + §6.7 分页；归档独立档位 100/200/500/1000，见上方注释） */}
+              <DataTable<KeyedArchiveRow>
                 dataSource={archiveRows.map((r, i): KeyedArchiveRow => ({ ...r, __rk: i }))}
                 rowKey={(r) => String(r.__rk)}
                 columns={archiveColumns}
                 loading={archiveQueryLoading}
                 scroll={{ x: 'max-content', y: 480 }}
+                remote={true}
                 pagination={{
                   current: archivePage,
                   pageSize: archivePageSize,
                   total: archiveTotal,
                   showSizeChanger: true,
-                  size: 'small',
                   // 归档明细查询一次返回整段数据，单页行数即取数上限，
                   // 与全局每页条数配置语义不同，独立档位不参与全局分页体系
                   pageSizeOptions: [100, 200, 500, 1000],
-                  showTotal: (total) => t('dm_total_rows_n', { n: total.toLocaleString() }),
                   onChange: (p, s) => {
                     setArchivePage(p);
                     setArchivePageSize(s);
                     doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, p, s);
                   },
                 }}
-                bordered
               />
             </Space>
           )}
@@ -2611,176 +2547,162 @@ const DataManagementPage = () => {
 
   const renderSymbolToolbar = () => (
     <div className="mb-4">
-      {/* 第一行：搜索 */}
-      <Row gutter={[12, 12]} className="mb-3" align="middle">
-        <Col xs={24}>
-          <Search
-            placeholder={t('search_symbol')}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            allowClear
-            className="w-full"
-          />
-        </Col>
-      </Row>
-
-      {/* 批量操作工具栏 - 当有选中项时显示 */}
-      {selectedSymbols.length > 0 && (
-        <Row gutter={[12, 12]} className="mb-3" align="middle">
-          <Col xs={24}>
-            <Card
-              size="small"
-              style={{
-                backgroundColor: 'color-mix(in srgb, var(--tw-color-success) 8%, transparent)',
-                borderColor: 'color-mix(in srgb, var(--tw-color-success) 45%, transparent)',
+      {/* §6.6 工具栏：搜索 + 计价货币 ichip + 排序 + 右侧刷新 */}
+      <PageToolbar
+        search={{
+          value: searchText,
+          onChange: setSearchText,
+          placeholder: t('search_symbol'),
+          ariaLabel: t('search_symbol'),
+        }}
+        filters={
+          <>
+            <div role="group" aria-label={t('quote_currency')} style={{ display: 'contents' }}>
+              {(['all', 'USDT', 'BTC', 'ETH'] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className={`qc-ichip${quoteFilter === q ? ' qc-ichip-on' : ''}`}
+                  onClick={() => setQuoteFilter(q)}
+                >
+                  {q === 'all' ? t('all') : q}
+                </button>
+              ))}
+            </div>
+            <Select
+              aria-label={t('dm_sort')}
+              value={`${sortField}-${sortOrder}`}
+              onChange={(value) => {
+                const [field, order] = value.split('-');
+                setSortField(field as SortField);
+                setSortOrder(order as SortOrder);
               }}
-            >
-              <Row align="middle" justify="space-between">
-                <Col>
-                  <Space>
-                    <span className="font-medium text-success">
-                      {t('dm_selected_n', { n: selectedSymbols.length })}
-                    </span>
-                    <Button type="link" size="small" onClick={clearSelection}>
-                      {t('clear_selection')}
-                    </Button>
-                  </Space>
-                </Col>
-                <Col>
-                  <Space wrap>
-                    <Button
-                      size="small"
-                      icon={<CheckCircleOutlined />}
-                      onClick={batchEnableAutoUpdate}
-                    >
-                      {t('batch_enable_auto_update')}
-                    </Button>
-                    <Button
-                      size="small"
-                      icon={<CloseCircleOutlined />}
-                      onClick={batchDisableAutoUpdate}
-                    >
-                      {t('batch_disable_auto_update')}
-                    </Button>
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<CloudDownloadOutlined />}
-                      onClick={batchCollectData}
-                    >
-                      {t('batch_collection')}
-                    </Button>
-                  </Space>
-                </Col>
-              </Row>
-            </Card>
-          </Col>
-        </Row>
+              style={{ width: 170 }}
+              options={[
+                { value: 'rank-asc', label: t('sort_by_rank') },
+                { value: 'symbol-asc', label: t('sort_by_name_asc') },
+                { value: 'symbol-desc', label: t('sort_by_name_desc') },
+                { value: 'price-desc', label: t('sort_by_price_desc') },
+                { value: 'price-asc', label: t('sort_by_price_asc') },
+                { value: 'change-desc', label: t('sort_by_change_desc') },
+                { value: 'change-asc', label: t('sort_by_change_asc') },
+                { value: 'volume-desc', label: t('sort_by_volume_desc') },
+              ]}
+            />
+          </>
+        }
+        count={(() => {
+          // 与 DataTable 分页口径一致；空表按「0 / 共 0」显示
+          const total = filteredSymbols.length;
+          if (total === 0) return t('shown_range', { start: 0, end: 0, total: 0 });
+          const page = Math.min(Math.max(1, currentPage), Math.max(1, Math.ceil(total / pageSize)));
+          return t('shown_range', {
+            start: (page - 1) * pageSize + 1,
+            end: Math.min(page * pageSize, total),
+            total,
+          });
+        })()}
+        actions={
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={fetchSymbols}
+            loading={symbolLoading}
+          >
+            {t('refresh')}
+          </Button>
+        }
+      />
+
+      {/* 批量操作条 - 当有选中项时显示（§6.2 提示条：success 8% 底 + 45% 边） */}
+      {selectedSymbols.length > 0 && (
+        <Card
+          size="small"
+          className="mb-3"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--qc-success) 8%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--qc-success) 45%, transparent)',
+          }}
+        >
+          <Row align="middle" justify="space-between">
+            <Col>
+              <Space>
+                <span className="font-medium text-success">
+                  {t('dm_selected_n', { n: selectedSymbols.length })}
+                </span>
+                <Button type="link" size="small" onClick={clearSelection}>
+                  {t('clear_selection')}
+                </Button>
+              </Space>
+            </Col>
+            <Col>
+              <Space wrap>
+                <Button
+                  size="small"
+                  icon={<CheckCircleOutlined />}
+                  onClick={batchEnableAutoUpdate}
+                >
+                  {t('batch_enable_auto_update')}
+                </Button>
+                <Button
+                  size="small"
+                  icon={<CloseCircleOutlined />}
+                  onClick={batchDisableAutoUpdate}
+                >
+                  {t('batch_disable_auto_update')}
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<CloudDownloadOutlined />}
+                  onClick={batchCollectData}
+                >
+                  {t('batch_collection')}
+                </Button>
+              </Space>
+            </Col>
+          </Row>
+        </Card>
       )}
-
-      {/* 第二行：筛选工具（左） + 刷新按钮（右） */}
-      <Row gutter={[12, 12]} align="middle">
-        {/* 筛选工具 - 左侧 */}
-        <Col xs={24} md={16} lg={14}>
-          <Row gutter={[8, 8]}>
-            <Col xs={12} sm={12} md={12}>
-              <Select
-                placeholder={t('quote_currency')}
-                value={quoteFilter}
-                onChange={setQuoteFilter}
-                className="w-full"
-                options={[
-                  { value: 'all', label: t('all') },
-                  { value: 'USDT', label: 'USDT' },
-                  { value: 'BTC', label: 'BTC' },
-                  { value: 'ETH', label: 'ETH' },
-                ]}
-              />
-            </Col>
-            <Col xs={12} sm={12} md={12}>
-              <Select
-                placeholder={t('dm_sort')}
-                value={`${sortField}-${sortOrder}`}
-                onChange={(value) => {
-                  const [field, order] = value.split('-');
-                  setSortField(field as SortField);
-                  setSortOrder(order as SortOrder);
-                }}
-                className="w-full"
-                options={[
-                  { value: 'rank-asc', label: t('sort_by_rank') },
-                  { value: 'symbol-asc', label: t('sort_by_name_asc') },
-                  { value: 'symbol-desc', label: t('sort_by_name_desc') },
-                  { value: 'price-desc', label: t('sort_by_price_desc') },
-                  { value: 'price-asc', label: t('sort_by_price_asc') },
-                  { value: 'change-desc', label: t('sort_by_change_desc') },
-                  { value: 'change-asc', label: t('sort_by_change_asc') },
-                  { value: 'volume-desc', label: t('sort_by_volume_desc') },
-                ]}
-              />
-            </Col>
-          </Row>
-        </Col>
-
-        {/* 刷新按钮 - 右侧 */}
-        <Col xs={24} md={8} lg={10}>
-          <Row gutter={[8, 8]}>
-            <Col xs={24} className="text-right">
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={fetchSymbols}
-                loading={symbolLoading}
-                style={{ width: screens.xs ? '100%' : 'auto' }}
-              >
-                {t('refresh')}
-              </Button>
-            </Col>
-          </Row>
-        </Col>
-      </Row>
     </div>
   );
 
-  // 渲染统计卡片
+  // 渲染统计卡片（§6.4 KPI：label 11px fg-4 → mono 22px/650 → 弱注 10.5px）
   const renderStatistics = () => (
-    <Row gutter={[16, 16]} className="mb-4">
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('total_symbols')}
-            value={symbols.length}
-            prefix={<DatabaseOutlined />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('current_group')}
-            value={activeGroup?.symbolIds.length || 0}
-            prefix={<FolderOpenOutlined style={{ color: activeGroup?.color }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('has_data')}
-            value={filteredSymbols.filter(s => s.hasData).length}
-            prefix={<CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('auto_update')}
-            value={filteredSymbols.filter(s => s.autoUpdate).length}
-            prefix={<ReloadOutlined style={{ color: QUANT_COLORS.info }} />}
-          />
-        </Card>
-      </Col>
-    </Row>
+    <div className="qc-kpi-grid mb-4">
+      <div className="qc-kpi">
+        <div className="qc-kpi-top">
+          <span className="qc-kpi-lb">{t('total_symbols')}</span>
+          <DatabaseOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 14 }} />
+        </div>
+        <div className="qc-kpi-num">{symbols.length}</div>
+        <div className="qc-kpi-sub">{t('dm_kpi_groups_n', { n: favoriteGroups.length })}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top">
+          <span className="qc-kpi-lb">{t('current_group')}</span>
+          <FolderOpenOutlined style={{ color: activeGroup?.color ?? 'var(--qc-text-quaternary)', fontSize: 14 }} />
+        </div>
+        {/* 「全部」不是自选组（activeGroupId=0），此时口径应等于总标的数，不能显示 0 */}
+        <div className="qc-kpi-num">{activeGroup ? activeGroup.symbolIds.length : symbols.length}</div>
+        <div className="qc-kpi-sub">{activeGroup?.name ?? t('dm_all')}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top">
+          <span className="qc-kpi-lb">{t('has_data')}</span>
+          <CheckCircleOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 14 }} />
+        </div>
+        <div className="qc-kpi-num">{filteredSymbols.filter(s => s.hasData).length}</div>
+        <div className="qc-kpi-sub">{t('dm_kpi_denom', { n: filteredSymbols.length })}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top">
+          <span className="qc-kpi-lb">{t('auto_update')}</span>
+          <ReloadOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 14 }} />
+        </div>
+        <div className="qc-kpi-num">{filteredSymbols.filter(s => s.autoUpdate).length}</div>
+        <div className="qc-kpi-sub">{t('dm_kpi_denom', { n: filteredSymbols.length })}</div>
+      </div>
+    </div>
   );
 
   // 检查货币对是否在任何自选组中
@@ -2793,31 +2715,36 @@ const DataManagementPage = () => {
     return favoriteGroups.find(group => group.symbolIds.includes(symbolId));
   };
 
-  // 列表视图列定义
+  // 列表视图列定义（§6.5：标的双列 mono / 数值右侧 mono / 空值「—」/ 操作 24px）
   const symbolColumns: TableProps<SymbolData>['columns'] = [
     {
       title: '',
       key: 'inGroup',
-      width: 50,
+      width: 44,
       render: (_: unknown, record: SymbolData) => {
         // 在"全部"视图时，检查是否在任何自选组中
         // 在特定自选组视图时，只检查是否在当前组中
-        const isInActiveGroup = activeGroup 
+        const isInActiveGroup = activeGroup
           ? activeGroup.symbolIds.includes(record.symbol)
           : isSymbolInAnyGroup(record.symbol);
         // 获取要显示的组（用于星星颜色）
         const displayGroup = activeGroup || getSymbolFirstGroup(record.symbol);
-        
+
         return (
           <Dropdown
             menu={{ items: getGroupMenuItems(record.symbol) }}
             trigger={['click']}
           >
-            <Button
-              type="text"
-              icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || QUANT_COLORS.warning }} /> : <StarOutlined />}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('favorite_group')}
               onClick={(e) => e.stopPropagation()}
-            />
+            >
+              {isInActiveGroup
+                ? <StarFilled style={{ color: displayGroup?.color || QUANT_COLORS.warning }} />
+                : <StarOutlined />}
+            </button>
           </Dropdown>
         );
       },
@@ -2826,40 +2753,46 @@ const DataManagementPage = () => {
       title: t('symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
+      width: 200,
       render: (text: string, record: SymbolData) => (
-        <Space>
-          <Text strong>{text}</Text>
-          {record.rank && <Tag color="default">#{record.rank}</Tag>}
-          {record.hasData && <Badge status="success" />}
-        </Space>
+        <span className="qc-row-chips">
+          <span className="qc-cell-id">{text}</span>
+          {record.rank && <span className="qc-chip quiet qc-mono">#{record.rank}</span>}
+          {record.hasData && <span className="qc-chip ok"><span className="qc-pdot" />{t('dm_live')}</span>}
+        </span>
       ),
     },
     {
       title: t('latest_price'),
       dataIndex: 'price',
       key: 'price',
+      width: 120,
       align: 'right' as const,
       render: (price: number | null, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
           return <Spin size="small" />;
         }
-        return price ? <Text strong>${price.toLocaleString()}</Text> : '-';
+        return price
+          ? <span className="qc-mono">${price.toLocaleString()}</span>
+          : <span className="qc-cell-none">—</span>;
       },
     },
     {
       title: t('change_24h'),
       key: 'change',
+      width: 108,
       align: 'right' as const,
       render: (_: unknown, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
           return <Spin size="small" />;
         }
-        if (record.priceChangePercent24h === null) return '-';
+        if (record.priceChangePercent24h === null) return <span className="qc-cell-none">—</span>;
+        const cls = record.priceChangePercent24h >= 0 ? 'qc-cell-up' : 'qc-cell-down';
         return (
-          <Text style={{ color: getPriceChangeColor(record.priceChangePercent24h) }}>
+          <span className={`qc-mono ${cls}`}>
             {record.priceChangePercent24h >= 0 ? '+' : ''}
             {record.priceChangePercent24h.toFixed(2)}%
-          </Text>
+          </span>
         );
       },
     },
@@ -2867,37 +2800,42 @@ const DataManagementPage = () => {
       title: t('volume_24h'),
       dataIndex: 'volume24h',
       key: 'volume24h',
+      width: 108,
       align: 'right' as const,
       render: (volume: number | null, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
           return <Spin size="small" />;
         }
-        return volume ? formatVolume(volume) : '-';
+        return volume
+          ? <span className="qc-mono">{formatVolume(volume)}</span>
+          : <span className="qc-cell-none">—</span>;
       },
     },
     {
       title: t('market_cap'),
       dataIndex: 'marketCap',
       key: 'marketCap',
+      width: 104,
       align: 'right' as const,
-      render: (cap?: number) => cap ? `$${(cap / 1000000000).toFixed(2)}B` : '-',
+      render: (cap?: number) => cap
+        ? <span className="qc-mono">${(cap / 1000000000).toFixed(2)}B</span>
+        : <span className="qc-cell-none">—</span>,
     },
     {
       title: t('data_status'),
       key: 'dataStatus',
+      width: 170,
       render: (_: unknown, record: SymbolData) => (
-        <Space>
-          {record.hasData ? (
-            <>
-              {getQualityTag(record.dataQuality)}
-              <Text type="secondary" className="text-xs">
-                {record.lastUpdateTime}
-              </Text>
-            </>
-          ) : (
-            <Tag>{t('no_data')}</Tag>
-          )}
-        </Space>
+        record.hasData ? (
+          <span className="qc-row-chips">
+            {getQualityTag(record.dataQuality)}
+            {record.lastUpdateTime && (
+              <span className="qc-cell-time qc-mono">{record.lastUpdateTime}</span>
+            )}
+          </span>
+        ) : (
+          <span className="qc-chip quiet">{t('no_data')}</span>
+        )
       ),
     },
     {
@@ -2919,65 +2857,72 @@ const DataManagementPage = () => {
     {
       title: t('action'),
       key: 'action',
-      width: 90,
-      // 与策略管理等页面操作列统一：图标按钮 + Tooltip 悬浮文案，固定在表格右侧
+      width: 76,
       fixed: 'right',
       render: (_: unknown, record: SymbolData) => (
-        <Space size={4}>
+        <div className="qc-row-actions">
           {!record.hasData ? (
             <Tooltip title={t('collect')}>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloudDownloadOutlined />}
+              <button
+                type="button"
+                className="qc-mini-btn qc-icon-only"
+                aria-label={t('collect')}
                 onClick={() => startCollection(record.symbol)}
-              />
+              >
+                <CloudDownloadOutlined />
+              </button>
             </Tooltip>
           ) : (
             <>
               <Tooltip title={t('quality')}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<BarChartOutlined />}
+                <button
+                  type="button"
+                  className="qc-mini-btn qc-icon-only"
+                  aria-label={t('quality')}
                   onClick={() => checkQuality(record.symbol, '1h')}
-                />
+                >
+                  <BarChartOutlined />
+                </button>
               </Tooltip>
               <Tooltip title={t('update')}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
+                <button
+                  type="button"
+                  className="qc-mini-btn qc-icon-only"
+                  aria-label={t('update')}
                   onClick={() => startCollection(record.symbol)}
-                />
+                >
+                  <ReloadOutlined />
+                </button>
               </Tooltip>
             </>
           )}
-        </Space>
+        </div>
       ),
     },
   ];
 
-  // 渲染列表视图
+  // 渲染列表视图（DataTable：qc-table 密度 + 空态 + §6.7 自绘分页）
   const renderListView = () => (
-    <Table
+    <DataTable<SymbolData>
       columns={symbolColumns}
       dataSource={filteredSymbols}
       rowKey="symbol"
       loading={symbolLoading}
-      pagination={{
-        current: currentPage,
-        pageSize: pageSize,
-        showSizeChanger: true,
-        pageSizeOptions: PAGE_SIZE_OPTIONS,
-        showTotal: (total) => t('dm_total_n', { n: total }),
-        onChange: handlePageChange,
-      }}
       scroll={{ x: 1200 }}
       rowSelection={{
         selectedRowKeys: selectedSymbols,
         onChange: (keys) => setSelectedSymbols(keys as string[]),
       }}
+      pagination={{
+        current: currentPage,
+        pageSize: pageSize,
+        total: filteredSymbols.length,
+        showSizeChanger: true,
+        pageSizeOptions: PAGE_SIZE_OPTIONS,
+        onChange: handlePageChange,
+      }}
+      emptyTitle={t('no_data')}
+      emptyDescription={searchText.trim() ? t('dm_search_no_match', { q: searchText.trim() }) : undefined}
     />
   );
 
@@ -3105,7 +3050,7 @@ const DataManagementPage = () => {
       </Col>
       {/* 列表内容 */}
       <Col xs={24} lg={20}>
-        <Card>
+        <Card className="qc-card">
           {renderSymbolToolbar()}
           {renderStatistics()}
           {viewType === 'list' ? renderListView() : renderCardView()}
@@ -3124,10 +3069,11 @@ const DataManagementPage = () => {
     return (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={12}>
-        <Card title={t('dm_batch_collect_title')}>
+        <Card className="qc-card" title={t('dm_batch_collect_title')}>
           <Form
             form={collectionForm}
             layout="vertical"
+            className="qc-form"
             onValuesChange={(changed) => {
               // 切到期货专属数据类型时现货市场承载不了，自动纠正为 U本位，
               // 避免用户先选好 spot 再切类型后旧值残留导致提交非法组合
@@ -3196,6 +3142,7 @@ const DataManagementPage = () => {
               tooltip={spotDisabled ? t('dm_tooltip_futures_only') : undefined}
             >
               <Segmented
+                className="qc-seg"
                 options={[
                   { label: t('dm_mkt_spot'), value: 'spot', disabled: spotDisabled },
                   { label: t('dm_mkt_um'), value: 'um' },
@@ -3316,141 +3263,150 @@ const DataManagementPage = () => {
 
       <Col xs={24} lg={12}>
         <Card
-          title={
-            <Space>
-              <span>{t('collection_tasks')}</span>
-              <Badge count={collectionTasks.filter(t => t.status === 'running').length} size="small" color={QUANT_COLORS.info} />
-            </Space>
-          }
-          extra={
-            <Button
-              icon={<ReloadOutlined />}
-              size="small"
-              onClick={() => fetchCollectionTasks()}
-              loading={taskListLoading}
-            >
-              {t('refresh')}
-            </Button>
-          }
+          className="qc-card"
+          title={t('collection_tasks')}
+          extra={<span className="qc-count-chip qc-mono">{t('dm_total_n', { n: tasksTotal })}</span>}
         >
-          {/* 状态筛选 */}
-          <Segmented
-            size="small"
-            value={taskStatusFilter}
-            onChange={(val) => { setTaskStatusFilter(val as string); }}
-            options={[
-              { label: t('dm_all'), value: 'all' },
-              { label: t('dm_st_running'), value: 'running' },
-              { label: t('dm_st_completed'), value: 'completed' },
-              { label: t('dm_st_failed'), value: 'failed' },
-            ]}
-            className="mb-3"
-            block
+          {/* 工具栏 §6.6：搜索（已加载行前端过滤） + 状态 ichip + 右侧计数 */}
+          <PageToolbar
+            search={{
+              value: taskSearchText,
+              onChange: (value) => {
+                setTaskSearchText(value);
+                // §6.6 过滤后页码归 1
+                setTaskSearchPage(1);
+              },
+              placeholder: t('dm_search_tasks'),
+              ariaLabel: t('dm_search_tasks'),
+            }}
+            filters={
+              <div role="group" aria-label={t('filter_status')} style={{ display: 'contents' }}>
+                {[
+                  { value: 'all', i18nKey: 'dm_all' },
+                  { value: 'completed', i18nKey: 'dm_st_completed' },
+                  { value: 'running', i18nKey: 'dm_st_running' },
+                  { value: 'failed', i18nKey: 'dm_st_failed' },
+                ].map((chip) => (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    className={`qc-ichip${taskStatusFilter === chip.value ? ' qc-ichip-on' : ''}`}
+                    onClick={() => {
+                      setTaskStatusFilter(chip.value);
+                      // 服务端状态过滤 + 页码归 1
+                      fetchCollectionTasks({ page: 1 });
+                    }}
+                  >
+                    {t(chip.i18nKey)}
+                  </button>
+                ))}
+              </div>
+            }
+            count={(() => {
+              // 与 DataTable 分页条的钳制口径一致；0 条时按 demo 显示「0 / 共 0」
+              const total = isTaskSearching ? searchedTasks.length : tasksTotal;
+              if (total === 0) return t('shown_range', { start: 0, end: 0, total: 0 });
+              const rawPage = isTaskSearching ? taskSearchPage : tasksPage;
+              const page = Math.min(Math.max(1, rawPage), Math.max(1, Math.ceil(total / tasksPageSize)));
+              return t('shown_range', {
+                start: (page - 1) * tasksPageSize + 1,
+                end: Math.min(page * tasksPageSize, total),
+                total,
+              });
+            })()}
+            actions={
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => fetchCollectionTasks({ page: tasksPage })}
+                loading={taskListLoading}
+              >
+                {t('refresh')}
+              </Button>
+            }
           />
 
-          <Spin spinning={taskListLoading}>
-            <TasksListScroll
-              onReachBottom={() => {
-                if (tasksHasMore && !tasksLoadingMore) {
-                  fetchCollectionTasks({ mode: 'append' });
+          <DataTable<Task>
+            className="qc-tasks-table"
+            columns={taskColumns}
+            dataSource={visibleTasks}
+            rowKey="task_id"
+            loading={taskListLoading}
+            remote={!isTaskSearching}
+            scroll={{ x: 520 }} // 与左侧表单卡同排，容器常 ≈560px；580 会撑出横向滚动条并把操作列切掉
+            expandable={{
+              columnWidth: 40,
+              expandedRowRender: renderTaskDetails,
+              onExpand: (expanded, record) => {
+                if (expanded && record.task_id !== currentTaskId) {
+                  void fetchTaskDetails(record.task_id);
                 }
-              }}
-            >
-              {collectionTasks.length === 0 && !currentTaskId ? (
-                <Empty
-                  description={taskStatusFilter !== 'all' ? t('dm_no_tasks_for_status') : t('no_collection_tasks')}
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  style={{ padding: '32px 0' }}
-                />
-              ) : (
-                <Space orientation="vertical" className="w-full" size={0}>
-                  {/* 当前任务放在最前面 */}
-                  {currentTaskId && taskStatusFilter === 'all' || (currentTaskId && taskStatusFilter === taskStatus) ? (
-                    <TaskCard
-                      task={{
-                        task_id: currentTaskId,
-                        status: taskStatus,
-                        task_type: 'download',
-                        // 使用创建任务时保存的真实请求参数，保证类型/市场标签正确
-                        params: currentTaskParams,
-                        progress: { percentage: taskProgress, total: taskProgressList.length, completed: taskProgressList.filter(t => (t.percentage || 0) >= 100).length, failed: 0, current: '' },
-                        created_at: new Date().toISOString(),
-                      }}
-                      isCurrent={true}
-                      taskProgressList={taskProgressList}
-                      isProgressExpanded={isProgressExpanded}
-                      setIsProgressExpanded={setIsProgressExpanded}
-                    />
-                  ) : null}
-                  {/* 历史任务列表 */}
-                  {collectionTasks
-                    .filter((task) => task.task_id !== currentTaskId)
-                    .map((task) => (
-                      <TaskCard
-                        key={task.task_id}
-                        task={task}
-                        isCurrent={false}
-                        onDelete={handleDeleteTask}
-                        deleting={tasksDeletingId === task.task_id}
-                      />
-                    ))}
-                  {/* 触底加载/结束提示 */}
-                  {tasksLoadingMore && (
-                    <div className="py-2 text-center text-xs text-foreground/45">
-                      {t('dm_loading')}
-                    </div>
-                  )}
-                  {!tasksHasMore && collectionTasks.length > 0 && (
-                    <div className="py-2 text-center text-xs text-foreground/25">
-                      {t('dm_all_loaded', { n: tasksTotal })}
-                    </div>
-                  )}
-                </Space>
-              )}
-            </TasksListScroll>
-          </Spin>
+              },
+            }}
+            pagination={visibleTasks.length > 0 ? {
+              current: isTaskSearching ? taskSearchPage : tasksPage,
+              pageSize: tasksPageSize,
+              total: isTaskSearching ? searchedTasks.length : tasksTotal,
+              showSizeChanger: false,
+              onChange: (page) => {
+                if (isTaskSearching) {
+                  setTaskSearchPage(page);
+                } else {
+                  fetchCollectionTasks({ page });
+                }
+              },
+            } : false}
+            emptyTitle={isTaskSearching
+              ? t('dm_search_no_match', { q: taskSearchText.trim() })
+              : taskStatusFilter !== 'all' ? t('dm_no_tasks_for_status') : t('no_collection_tasks')}
+            emptyDescription={isTaskSearching || taskStatusFilter !== 'all' ? undefined : t('dm_tasks_empty_hint')}
+          />
+
+          <div className="qc-footnote">
+            <span>{t('dm_tasks_footnote')}</span>
+          </div>
         </Card>
       </Col>
     </Row>
     );
   };
 
+  // 质量概览 KPI 计数与占比（分母=已检测数，是纯展示算术）
+  const kpiQualityCount = (q: 'good' | 'warning' | 'bad') =>
+    symbols.filter((s) => s.dataQuality === q).length;
+  const kpiQualityPct = (q: 'good' | 'warning' | 'bad') => {
+    const detected = symbols.filter((s) => s.dataQuality !== 'unknown').length;
+    return detected ? Math.round((kpiQualityCount(q) / detected) * 100) : 0;
+  };
+
   // 渲染数据质量
   const renderQuality = () => (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={8}>
-        <Card title={t('dm_quality_overview')}>
+        <Card className="qc-card" title={t('dm_quality_overview')}>
           <Space orientation="vertical" className="w-full">
-            <Row gutter={[16, 16]}>
-              <Col span={12}>
-                <Statistic
-                  title={t('dm_stat_checked')}
-                  value={symbols.filter((s) => s.dataQuality !== 'unknown').length}
-                  suffix={`/ ${symbols.length}`}
-                />
-              </Col>
-              <Col span={12}>
-                <Statistic
-                  title={t('dm_quality_good')}
-                  value={symbols.filter((s) => s.dataQuality === 'good').length}
-                  styles={{ content: { color: QUANT_COLORS.positive } }}
-                />
-              </Col>
-              <Col span={12}>
-                <Statistic
-                  title={t('dm_quality_warning')}
-                  value={symbols.filter((s) => s.dataQuality === 'warning').length}
-                  styles={{ content: { color: QUANT_COLORS.warning } }}
-                />
-              </Col>
-              <Col span={12}>
-                <Statistic
-                  title={t('dm_quality_bad')}
-                  value={symbols.filter((s) => s.dataQuality === 'bad').length}
-                  styles={{ content: { color: QUANT_COLORS.negative } }}
-                />
-              </Col>
-            </Row>
+            {/* §6.4 KPI：已检测 / 良好 / 警告 / 异常（2×2，复用 qc-kpi 原语） */}
+            <div className="qc-kpi-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+              <div className="qc-kpi">
+                <div className="qc-kpi-lb">{t('dm_stat_checked')}</div>
+                <div className="qc-kpi-num">{symbols.filter((s) => s.dataQuality !== 'unknown').length}</div>
+                <div className="qc-kpi-sub">{t('dm_kpi_of_total', { n: symbols.length })}</div>
+              </div>
+              <div className="qc-kpi">
+                <div className="qc-kpi-lb">{t('dm_quality_good')}</div>
+                <div className="qc-kpi-num up">{kpiQualityCount('good')}</div>
+                <div className="qc-kpi-sub">{t('dm_kpi_pct_detected', { pct: kpiQualityPct('good') })}</div>
+              </div>
+              <div className="qc-kpi">
+                <div className="qc-kpi-lb">{t('dm_quality_warning')}</div>
+                <div className="qc-kpi-num warn">{kpiQualityCount('warning')}</div>
+                <div className="qc-kpi-sub">{t('dm_kpi_pct_detected', { pct: kpiQualityPct('warning') })}</div>
+              </div>
+              <div className="qc-kpi">
+                <div className="qc-kpi-lb">{t('dm_quality_bad')}</div>
+                <div className="qc-kpi-num down">{kpiQualityCount('bad')}</div>
+                <div className="qc-kpi-sub">{t('dm_kpi_pct_detected', { pct: kpiQualityPct('bad') })}</div>
+              </div>
+            </div>
 
             <Divider />
 
@@ -3514,41 +3470,28 @@ const DataManagementPage = () => {
       </Col>
 
       <Col xs={24} lg={16}>
-        <Card title={t('dm_check_results')} loading={qualityLoading}>
+        <Card className="qc-card" title={t('dm_check_results')} loading={qualityLoading}>
           {qualityDetail ? (
             <Space orientation="vertical" className="w-full">
-              <Row gutter={[16, 16]}>
-                <Col span={8}>
-                  <Card size="small">
-                    {(() => {
-                      const status = qualityDetail.summary?.status;
-                      const statusText = status === 'good' || status === 'pass' ? t('dm_q_pass') : status === 'warning' ? t('dm_q_warn') : t('dm_q_fail');
-                      const statusColor = status === 'good' || status === 'pass' ? QUANT_COLORS.positive : status === 'warning' ? QUANT_COLORS.warning : QUANT_COLORS.negative;
-                      return (
-                        <Statistic
-                          title={t('dm_overall_status')}
-                          value={statusText}
-                          styles={{ content: { color: statusColor } }}
-                        />
-                      );
-                    })()}
-                  </Card>
-                </Col>
-                <Col span={8}>
-                  <Card size="small">
-                    <Statistic title={t('dm_total_records')} value={qualityDetail.total_records} />
-                  </Card>
-                </Col>
-                <Col span={8}>
-                  <Card size="small">
-                    <Statistic
-                      title={t('dm_quality_score')}
-                      value={qualityDetail.summary?.score || 0}
-                      suffix={t('dm_score_unit')}
-                    />
-                  </Card>
-                </Col>
-              </Row>
+              <div className="qc-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                <div className="qc-kpi">
+                  <div className="qc-kpi-lb">{t('dm_overall_status')}</div>
+                  {(() => {
+                    const status = qualityDetail.summary?.status;
+                    const ok = status === 'good' || status === 'pass';
+                    const warn = status === 'warning';
+                    return <div className={`qc-kpi-num ${ok ? 'up' : warn ? 'warn' : 'down'}`}>{ok ? t('dm_q_pass') : warn ? t('dm_q_warn') : t('dm_q_fail')}</div>;
+                  })()}
+                </div>
+                <div className="qc-kpi">
+                  <div className="qc-kpi-lb">{t('dm_total_records')}</div>
+                  <div className="qc-kpi-num">{qualityDetail.total_records}</div>
+                </div>
+                <div className="qc-kpi">
+                  <div className="qc-kpi-lb">{t('dm_quality_score')}</div>
+                  <div className="qc-kpi-num">{qualityDetail.summary?.score || 0}<span className="qc-kpi-sub" style={{ marginLeft: 4 }}>{t('dm_score_unit')}</span></div>
+                </div>
+              </div>
 
               {qualityDetail.details && (
                 <Tabs
@@ -3561,7 +3504,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.integrity?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.integrity?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                             <Col span={12}>
                               <Text strong>{t('dm_rec_total')}</Text> {qualityDetail.details.integrity?.total_records || 0}
@@ -3602,7 +3545,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.continuity?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.continuity?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                             <Col span={12}>
                               <Text strong>{t('dm_expected_records')}</Text> {qualityDetail.details.continuity?.expected_records || 0}
@@ -3643,7 +3586,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.uniqueness?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.uniqueness?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                             <Col span={12}>
                               <Text strong>{t('dm_dup_records')}</Text> {qualityDetail.details.uniqueness?.duplicate_records || 0}
@@ -3696,7 +3639,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.validity?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.validity?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                             <Col span={12}>
                               <Text strong>{t('dm_invalid_total')}</Text> {qualityDetail.details.validity?.total_invalid_records || 0}
@@ -3788,7 +3731,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.consistency?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.consistency?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                           </Row>
                           {qualityDetail.details.consistency?.time_format_issues && qualityDetail.details.consistency.time_format_issues.length > 0 && (
@@ -3847,7 +3790,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.logic?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.logic?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                           </Row>
                           {qualityDetail.details.logic?.trading_time_issues && qualityDetail.details.logic.trading_time_issues.length > 0 && (
@@ -3893,7 +3836,7 @@ const DataManagementPage = () => {
                         <Space orientation="vertical" className="w-full">
                           <Row gutter={[16, 8]}>
                             <Col span={12}>
-                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.coverage?.status === 'pass' ? <Tag color="success">{t('dm_q_pass')}</Tag> : <Tag color="error">{t('dm_q_fail')}</Tag>}
+                              <Text strong>{t('dm_status_label')}</Text> {qualityDetail.details.coverage?.status === 'pass' ? <span className="qc-chip ok">{t('dm_q_pass')}</span> : <span className="qc-chip down">{t('dm_q_fail')}</span>}
                             </Col>
                             <Col span={12}>
                               <Text strong>{t('dm_data_start_date')}</Text> {qualityDetail.details.coverage?.data_start_date || '-'}
@@ -3938,7 +3881,11 @@ const DataManagementPage = () => {
               )}
             </Space>
           ) : (
-            <Empty description={t('dm_empty_pick_check')} />
+            <QcEmpty
+              icon={<BarChartOutlined />}
+              title={t('dm_empty_pick_check')}
+              description={t('dm_quick_check')}
+            />
           )}
         </Card>
       </Col>
@@ -3955,45 +3902,32 @@ const DataManagementPage = () => {
   };
 
   return (
-    <PageContainer title={t('data_management')}>
+    <PageContainer
+      title={t('data_management')}
+      subtitle={t('dm_subtitle', { types: Object.keys(DATA_KIND_LABEL).length, symbols: symbols.length })}
+    >
       <Tabs
         activeKey={activeTab}
         onChange={handleTabChange}
         items={[
           {
             key: 'symbols',
-            label: (
-              <span>
-                <DatabaseOutlined /> {t('symbols')}
-              </span>
-            ),
+            label: t('symbols'),
             children: renderSymbolList(),
           },
           {
             key: 'collection',
-            label: (
-              <span>
-                <CloudDownloadOutlined /> {t('data_collection')}
-              </span>
-            ),
+            label: t('data_collection'),
             children: renderCollection(),
           },
           {
             key: 'quality',
-            label: (
-              <span>
-                <BarChartOutlined /> {t('data_quality')}
-              </span>
-            ),
+            label: t('data_quality'),
             children: renderQuality(),
           },
           {
             key: 'archive',
-            label: (
-              <span>
-                <FileSearchOutlined /> {t('dm_archive_browse_title')}
-              </span>
-            ),
+            label: t('dm_archive_browse_title'),
             children: renderArchiveBrowser(),
           },
         ]}

@@ -754,6 +754,8 @@ html body {
 .qc-cell-time {
   color: var(--qc-text-tertiary);
   font-size: 11px;
+  /* 时间戳整体不可折行：折成「11-20 / 14:12」会把行高从 45 撑到 51 */
+  white-space: nowrap;
 }
 
 /* 标识符单元格（因子名/合约号等英文名次行）：mono 次级，标识列 mono 规范（§6.5） */
@@ -1120,6 +1122,243 @@ ul.qc-pagination li.ant-pagination-jump-next {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
   color: var(--qc-text-tertiary);
+}
+
+/* ---- §6.3 卡片 chrome（qc-card：bgc 底 + bd 边 + 10px 圆角 + 12/14 内边距 + head 13px/650） ----
+   demo 卡头无边框（.card-head 仅 margin-bottom 8），antd Card 默认 head 分割线去掉；
+   bordered 边色须显式对齐 --qc-border（antd 默认走 colorBorderSecondary = borderSubtle，不是 --bd） */
+.qc-card.ant-card {
+  border-radius: 10px;
+  border-color: var(--qc-border);
+  box-shadow: var(--qc-shadow-card);
+}
+
+.qc-card.ant-card > .ant-card-head {
+  min-height: 0;
+  padding: 12px 14px 0;
+  border-bottom: none;
+}
+
+.qc-card.ant-card > .ant-card-head .ant-card-head-wrapper {
+  align-items: center;
+}
+
+.qc-card.ant-card > .ant-card-head .ant-card-head-title,
+.qc-card.ant-card > .ant-card-head .ant-card-extra {
+  padding: 0;
+}
+
+.qc-card.ant-card > .ant-card-head .ant-card-head-title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.qc-card.ant-card > .ant-card-body {
+  padding: 10px 14px 12px;
+}
+
+/* 卡头右侧弱注（demo .card-sub：10.5px fg-4） */
+.qc-card-sub {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+}
+
+/* ---- §6.2 count-chip（mono 10px 全圆 + bd-2 边 + bge 底） ---- */
+.qc-count-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 20px;
+  color: var(--qc-text-tertiary);
+  border: 1px solid var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+  white-space: nowrap;
+}
+
+/* ---- §6.4 KPI 卡（label → mono 大字 → 弱注；4 列网格 gap 10） ---- */
+.qc-kpi {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  box-shadow: var(--qc-shadow-card);
+  transition: background-color .16s ease-out, border-color .16s ease-out, box-shadow .16s ease-out;
+}
+
+.qc-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qc-kpi-lb {
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-kpi-num {
+  margin-top: 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: .01em;
+  color: var(--qc-text);
+}
+
+.qc-kpi-num.up { color: var(--qc-success); }
+
+.qc-kpi-num.down { color: var(--qc-error); }
+
+.qc-kpi-num.warn { color: var(--qc-warning); }
+
+.qc-kpi-sub {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 991px) {
+  .qc-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- §6.9 Segmented（容器 8px 圆角 bd 边 padding 2；内钮 24px/12px；选中 primary 12% 底 + 600） ---- */
+.qc-seg.ant-segmented {
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+}
+
+.qc-seg.ant-segmented .ant-segmented-item {
+  height: 24px;
+  line-height: 22px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+}
+
+.qc-seg.ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+  color: var(--qc-text);
+}
+
+.qc-seg.ant-segmented .ant-segmented-item-selected,
+.qc-seg.ant-segmented .ant-segmented-item-selected:hover {
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+.qc-seg.ant-segmented .ant-segmented-thumb {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  border-radius: 6px;
+}
+
+/* ---- 行内迷你进度条（demo .prog：5px 高 / 3px 圆角 / bd 槽；done 用 success） ---- */
+.qc-prog {
+  display: block;
+  width: 120px;
+  max-width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--qc-border);
+  overflow: hidden;
+}
+
+.qc-prog > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--qc-primary);
+  transition: width .3s ease-out;
+}
+
+.qc-prog.done > i {
+  background: var(--qc-success);
+}
+
+/* ---- §6.10 表单密度（字段 label：mono 11px fg-4 + .02em，垂直表单） ---- */
+.qc-form.ant-form .ant-form-item .ant-form-item-label > label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: .02em;
+  color: var(--qc-text-quaternary);
+}
+
+/* ---- §6.11 弹窗 chrome（560/14px 圆角/bd 边/遮罩 44%+blur，head 15/18 标题 14.5/700，body 15/18） ----
+   antd v6 非 wireframe 把 padding 收在 .ant-modal-container 上，这里改为分段下沉到 header/body/footer */
+.qc-modal .ant-modal-container {
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
+}
+
+.qc-modal .ant-modal-header {
+  margin: 0;
+  padding: 15px 44px 15px 18px;
+  border-bottom: none;
+  border-radius: 13px 13px 0 0;
+}
+
+.qc-modal .ant-modal-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.qc-modal .ant-modal-body {
+  padding: 0 18px 15px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+.qc-modal .ant-modal-footer {
+  margin: 0;
+  padding: 11px 18px 15px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.qc-modal .ant-modal-close {
+  top: 12px;
+  inset-inline-end: 12px;
+  width: 26px;
+  height: 26px;
+}
+
+/* 遮罩补 blur（§6.11 黑 44% 已与 antd 默认 .45 等效，这里只补 backdrop-filter） */
+.ant-modal-root:has(.qc-modal) .ant-modal-mask {
+  backdrop-filter: blur(2px);
+}
+
+/* ---- §6.18 抽屉标题字号（13.5px/650；面板底/内边距已由 token 桥 + 既有规则对齐） ---- */
+.ant-drawer .ant-drawer-title {
+  font-size: 13.5px;
+  font-weight: 650;
 }
 
 /* 系统状态指示器 */
