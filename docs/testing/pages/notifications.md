@@ -2,8 +2,9 @@
 
 ## 前置
 - 环境与 token 注入见 `../README.md` 第一节；本页在 `AuthGuard` 内
-- 组件：`frontend/src/pages/notifications/InboxPage.tsx`；接口：`GET /api/v1/notifications/inbox?limit=20`
-- 种子：默认数据目录**无通知**，L1 走空态分支；要验列表/已读/删除需先产生通知（运行任一策略或回测产生站内通知，或沿用已有通知的旧数据目录），在报告中注明种子来源
+- 组件：`frontend/src/pages/notifications/InboxPage.tsx`；预览面板：`frontend/src/components/NotificationInbox.tsx`；任务跳转注册：`frontend/src/utils/taskRoutes.ts`
+- 接口：`GET /api/v1/notifications/inbox?limit=&before_id=&unread=&task_type=`、`POST /api/v1/notifications/inbox/{id}/read`（单条已读，任务类首次已读同时归档）、`POST /api/v1/notifications/inbox/read-all`、`DELETE /api/v1/notifications/inbox/read`、`DELETE /api/v1/notifications/inbox/{id}`
+- 种子：默认数据目录**无通知**，L1 走空态分支；要验列表/已读/删除需先产生通知（运行任一策略或回测产生站内通知，或沿用已有通知的旧数据目录），在报告中注明种子来源；验任务类通知（N13/N14/N16）用任务终态产生：跑一次回测 / RL 训练 / 因子计算 / 数据采集 / 研究会话至终态，五域 key 为 `backtest` / `rl_train` / `factor_job` / `collector_task` / `research`
 - `/setting/notifications` 是**通知渠道配置页**，与本页（站内收件箱）不同，勿混
 
 ## 验证项
@@ -21,6 +22,11 @@
 | N9 | 悬停某条通知，点右侧删除图标 | 弹出确认气泡，文案含`确认删除这条通知？`；确认后 `DELETE /api/v1/notifications/inbox/{id}` 返回 200，该条从列表消失，未读数按响应 `unread_count` 更新 | L2（写操作，用测试种子） |
 | N10 | 空态下点`前往配置通知渠道` | 跳转 `/setting/notifications` 且页面渲染 | L2 |
 | N11 | 保持页面打开，触发一条新通知（如启动策略） | WebSocket 推送到达后未读数 +1，且列表头部插入新条目、页面出现浮动提醒；不刷新页面 | 按需（需 WS 推送 + 业务事件触发） |
+| N12 | 点读写过滤 Segmented（`全部`/`未读`/`已读`） | 每次切换发出 `GET /api/v1/notifications/inbox` 且带 `unread=true` 或 `unread=false`；返回条目与所选态一致（未读项标题加粗、已读项灰显）；切回`全部`不带 `unread` 参数 | L2（需种子） |
+| N13 | 任务域 Select 选`回测` | 请求带 `task_type=backtest`；列表仅剩 source 为 backtest 的条目；清空选择（allowClear）后恢复全量 | L2（需任务终态种子） |
+| N14 | 点一条**任务类**通知行 | 该条未读时先发 `POST /api/v1/notifications/inbox/{id}/read` 返回 200 且行内样式转已读；随后跳转与域一致：RL 训练→`/model-hub?tab=train`、因子→`/factor-analysis`、采集→`/data-management`、研究→`/research`（WS 行带 task_id 时→`/research/{id}`）、回测→`/backtest`（WS 行成功态带 task_id 时→`/backtest/detail/{id}`）；非任务类行点击不跳转 | L2（需任务终态种子） |
+| N15 | WS 推送送达时点浮动 toast | toast 可点击并按 N14 同表规则跳转；`source=system` 等非任务 toast 点击不跳转常背景 | 按需（需 WS 推送 + 业务事件触发） |
+| N16 | 服务重启后的中断补偿 | 重启前人为留下中断任务（如 rl_train / factor_job 的 `async_task_records` 行留 queued、collector `tasks` 行留 running、`backtest_tasks` 行留 pending、research 会话留 running），重启后日志出现`任务通知补偿扫描`行，各域残留行被置终态，收件箱出现对应`已中断`/`失败`通知 | 按需（需重启场景） |
 
 ## 历史雷区
 - **请求失败会伪装成空态**：`loadList` 抛错后仅结束 loading、`items` 保持空数组，页面照样渲染`暂无站内通知`。断言"N2 通过"必须同时看 `GET /notifications/inbox` 的状态码，否则 401/500 会被当成"没有通知"
@@ -28,3 +34,5 @@
 - **401 硬跳登录（已修）**：收件箱曾因 401 把用户踹回 `/login`（首页 H2 是同一回归哨）。本页若出现"打开即回登录页"，先查该接口状态码
 - **WS 断开时列表仍 200**：新通知不会实时出现（只影响 N11），不要据此判列表页失败；先看 `/ws` 连接态
 - **写操作会真删数据**：`清空已读` 与删除单条不可撤销，L1 绝不点击；L2 只用测试种子，且 N7→N8→N9 顺序执行会把种子耗尽，重跑前重新造种子
+- **收件箱 REST 行不带 task_id**：task_id 只在 WS 实时推送的 `metadata` 里（后端 InboxNotification 未扩列）。REST 列表行点击跳的是兜底列表页（回测→`/backtest`、研究→`/research`），不要断言跳详情页；只有 WS 实时插入的行才可能跳 `/backtest/detail/{id}`、`/research/{id}`。N14 断言按行来源区分
+- **跳转落点由 taskRoutes.ts 统一注册**：任务域 → 路径映射在 `frontend/src/utils/taskRoutes.ts`，五域 key 与后端 `task_notices.TASK_TYPES` 必须一致；新增任务域先加 resolver，漏配时点击已读但不跳转（静默，无报错）

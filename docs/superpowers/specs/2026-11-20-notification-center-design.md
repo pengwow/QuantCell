@@ -3,6 +3,14 @@
 日期：2026-11-20
 状态：已评审通过（方案 A：任务终态埋点 + 统一通知 Hub）
 
+> **实施注记（2026-11-20，以实施计划为准）**：实施时做了以下简化与调整：
+> 1. §4.1 的 `task_type/task_id/detail` 三列不上——`source` 列直接承载任务域字符串；task_id/detail 仅经 WS `NotificationMessage.metadata` 携带（REST 收件箱行无 task_id，前端跳转用 source 映射 + metadata 兜底）。
+> 2. §5.3 的 `pending` 过滤参数不实现——`processed_at` 仅任务类使用且已读即归档，收件箱页过滤为 `全部/未读/已读`。
+> 3. §5.1 签名定稿为 `notify_task_event(task_type, task_id, status, *, name=None, error=None, extra=None)`，`status` 用大写字符串常量（`SUCCEEDED/FAILED/INTERRUPTED`），title 由 Hub 模板生成（`{label}任务{状态}`），不由调用方传入；任务域 key 定稿为 `rl_train/factor_job/collector_task/backtest/research`。
+> 4. §4.2 影子表定名 `async_task_records`（states 小写 queued/running/succeeded/failed/interrupted），仅 rl_train/factor_job 两域写入。
+> 5. §5.2 的 `compensate_interrupted_tasks()` 返回 `int`（补偿通知由各域函数内部经 Hub 发出），lifespan 不再统一代发。
+> 实施细节与验收见 `docs/superpowers/plans/2026-11-20-notification-center.md`。
+
 ## 1. 背景与目标
 
 用户触发回测、RL 训练等长耗时异步任务后切换页面，任务完成/失败/异常终止时无任何提醒，用户需要自己回到对应页面翻找结果，甚至遗忘任务存在。本设计建立站内通知闭环：任务终态自动推送站内通知，点击直达任务详情页。

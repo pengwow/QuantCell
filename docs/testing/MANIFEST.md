@@ -15,7 +15,7 @@
 | `/model-hub` | 模型中心 | `pages/model-hub.md` | ✅ | L1+L2 | token 注入；有数据分支需 `$DATA_DIR/models/*.zip` |
 | `/factor-analysis` | 因子分析 | `pages/factor-analysis.md` | ✅ | L1+L2 | token 注入 |
 | `/research` `/research/:id` | 策略研究 | `pages/research.md` | ✅ | L1+L2 | token 注入 |
-| `/notifications` | 消息中心 | `pages/notifications.md` | ✅ | L1+L2 | token 注入；非空态种子靠业务事件 |
+| `/notifications` | 消息中心 | `pages/notifications.md` | ✅ | L1+L2 | token 注入；非空态种子靠业务事件/任务终态；任务过滤与跳转见 N12-N15 |
 | `/model-management` | 模型管理（演示壳） | `pages/model-management.md` | ✅ | L1+L2 | token 注入；仅 URL 直达（无菜单入口） |
 | `/data-management` `/data-management/market-replay` | 数据管理 | `pages/data-management.md` | ✅ | L1+L2 | token 注入 |
 | `/setting` `/setting/account` `/setting/general` `/setting/env` `/setting/exchange` `/setting/notifications` `/setting/model` `/setting/agentTokens` `/setting/info` `/setting/plugins` `/setting/desktop-backend` | 设置页群（10 子页） | `pages/settings.md` | ✅ | L1+L2 | token 注入；AI 提供商配置是全站 L2 的种子 |
