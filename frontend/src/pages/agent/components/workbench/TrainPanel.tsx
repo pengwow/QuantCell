@@ -12,12 +12,12 @@
  * 表单参数与模型页训练表单一致（TrainingWorkbench 的 RLTrainRequest 映射）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { App, Alert, Button, Form, Input, InputNumber, Progress, Select, Spin, Switch, Tag } from 'antd';
+import { App, Alert, Button, Form, Input, InputNumber, Progress, Select, Spin, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { rlApi, RLTrainStreamSSE } from '@/api/rlApi';
 import type { RLTrainTask } from '@/api/rlApi';
 import { useWorkbenchStore } from '../../store/workbenchStore';
-import { TRAIN_STATUS_COLORS, formatElapsed, isTrainTaskTerminal } from './workbenchFormat';
+import { TRAIN_STATUS_LEVELS, formatElapsed, isTrainTaskTerminal } from './workbenchFormat';
 
 /** 任务 id 落 localStorage：跨页面刷新继续跟踪同一次训练（部署确认卡凭它关联最近一次训练） */
 export const TASK_KEY = 'quantcell_workbench_rl_train_task';
@@ -271,9 +271,9 @@ export default function TrainPanel({ onTrained }: { onTrained?: () => void }) {
       ) : (
         <div className={`wb-train-card wb-train-${task.status}`}>
           <div className="wb-train-row">
-            <Tag color={TRAIN_STATUS_COLORS[task.status] ?? 'default'} className="wb-train-status">
+            <span className={`qc-chip ${TRAIN_STATUS_LEVELS[task.status] ?? 'quiet'} wb-train-status`}>
               {t(`wb_train_status_${task.status}`, { defaultValue: task.status })}
-            </Tag>
+            </span>
             <span className="wb-nowrap-mono wb-train-id">{task.task_id || taskId}</span>
             <span className="wb-train-elapsed">
               {t('wb_train_elapsed')} {formatElapsed(elapsedMs)}

@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App, Button, Empty, Space, Spin, Table, Tag, Tooltip } from 'antd';
+import { App, Button, Empty, Space, Spin, Table, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
   CloudUploadOutlined,
@@ -30,11 +30,12 @@ import { isRewardNonDefault, rewardText } from './metaFormat';
 import DeployConfirmModal from './DeployConfirmModal';
 import type { DeployPrefill } from './DeployConfirmModal';
 
-const STAGE_COLORS: Record<string, string> = {
-  production: 'green',
-  staging: 'gold',
-  archived: 'default',
-  '': 'default',
+/** stage → §6.2 qc-chip 档位：生产绿、staging 警示、归档中性 */
+const STAGE_CHIP_LEVEL: Record<string, string> = {
+  production: 'ok',
+  staging: 'warn',
+  archived: 'quiet',
+  '': 'quiet',
 };
 
 export default function ModelsTab() {
@@ -141,11 +142,11 @@ export default function ModelsTab() {
       width: 96,
       render: (v: string, row) =>
         row.registered ? (
-          <Tag color={STAGE_COLORS[v] || 'default'}>{v || '-'}</Tag>
+          <span className={`qc-chip ${STAGE_CHIP_LEVEL[v] ?? 'quiet'}`}>{v || '-'}</span>
         ) : row.size_mb == null ? (
-          <Tag color="red">{t('umt_status_missing')}</Tag>
+          <span className="qc-chip down">{t('umt_status_missing')}</span>
         ) : (
-          <Tag>{t('umt_status_unregistered')}</Tag>
+          <span className="qc-chip quiet">{t('umt_status_unregistered')}</span>
         ),
     },
     { title: t('wb_algorithm'), dataIndex: 'algorithm', width: 80, render: (v: string) => v || '-' },
@@ -166,21 +167,19 @@ export default function ModelsTab() {
         const tags = [
           obsLabel ? (
             <Tooltip key="obs" title={t('wb_meta_label_obs_mode')}>
-              <Tag style={{ marginInlineEnd: 0 }}>{obsLabel}</Tag>
+              <span className="qc-chip quiet">{obsLabel}</span>
             </Tooltip>
           ) : null,
           row.data_type && row.data_type !== 'kline' ? (
             <Tooltip key="dt" title={t('wb_meta_label_data_type')}>
-              <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+              <span className="qc-chip info">
                 {t('wb_meta_data_type_badge', { type: row.data_type })}
-              </Tag>
+              </span>
             </Tooltip>
           ) : null,
           showReward ? (
             <Tooltip key="rw" title={rewardFull}>
-              <Tag color="purple" style={{ marginInlineEnd: 0 }}>
-                {t('wb_meta_reward_badge')}
-              </Tag>
+              <span className="qc-chip pri">{t('wb_meta_reward_badge')}</span>
             </Tooltip>
           ) : null,
         ].filter(Boolean);

@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button, Spin, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Spin, Table, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
@@ -274,17 +274,17 @@ const SelfLoopTab = () => {
                 <span>{t('selfloop_last_run')}</span>
                 <span className="sl-run-state">
                   {memState === 'updated' && (
-                    <Tag color="orange" className="sl-tag-tight">
-                      updated{memChars != null ? ` · ${memChars}` : ''}
-                    </Tag>
+                    <span className="qc-chip warn sl-tag-tight">
+                      {`updated${memChars != null ? ` · ${memChars}` : ''}`}
+                    </span>
                   )}
                   {memState === 'noop' && (
                     <span className="sl-muted">{t('selfloop_run_noop')}</span>
                   )}
                   {memState === 'failed' && (
-                    <Tag color="red" className="sl-tag-tight">
+                    <span className="qc-chip down sl-tag-tight">
                       {t('selfloop_run_failed')}
-                    </Tag>
+                    </span>
                   )}
                   {memState === 'never' && (
                     <span className="sl-muted">{t('selfloop_run_never')}</span>

@@ -7,17 +7,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Input,
   Button,
-  Avatar,
   Spin,
   Modal,
-  Tag,
   Tooltip,
   App,
 } from 'antd';
 import {
   SendOutlined,
   ExclamationCircleOutlined,
-  ToolOutlined,
   RobotOutlined,
   UserOutlined,
   CodeOutlined,
@@ -30,12 +27,11 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../store/agentStore';
-import type { Message } from '../store/agentStore';
+import type { ToolCall, Message } from '../store/agentStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { IntentPanelRenderer } from './IntentPanels';
 import { useNavigate } from 'react-router-dom';
-import { QUANT_COLORS } from '@/utils/colors';
 
 /**
  * 意图面板 action.type → 现有路由（路径均取自 router/DynamicRouter.tsx，勿造新页面）。
@@ -84,6 +80,7 @@ const ErrorDetailModal = ({
         </Button>,
       ]}
       width={600}
+      className="qc-modal"
     >
       <div className="error-detail-content">
         <pre>{errorDetail}</pre>
@@ -119,6 +116,38 @@ const CollapsibleBlock = ({
   );
 };
 
+/** §6.14 头像：32×32 方形（8px 圆角），底色/字色由 Agent.css 按 token 分流 */
+const MessageAvatar = ({ kind, icon }: { kind: 'ai' | 'user' | 'tool' | 'err'; icon: React.ReactNode }) => (
+  <div className={`msg-avatar ${kind}`}>{icon}</div>
+);
+
+/**
+ * §6.14 工具链（demo .chain/.chain-node）：绿轨 + 方徽 + mono 工具名 + 参数摘要 + 状态 chip。
+ * 只展示后端 tool_calls/tool_result 已上报字段（名称 / 参数 / 是否有结果），不编造耗时。
+ */
+const ToolChain = ({ calls, hasResult }: { calls: ToolCall[]; hasResult: boolean }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="tool-chain">
+      {calls.map((tc) => {
+        const args = JSON.stringify(tc.arguments ?? {});
+        return (
+          <div className="chain-node" key={tc.id}>
+            <div className="chain-head">
+              <span className="tool-chip">&lt;/&gt;</span>
+              <span className="chain-name">{tc.name}</span>
+              <span className="chain-args" title={args}>{args === '{}' ? '' : args}</span>
+              <span className={`chain-status ${hasResult ? 'chip-ok' : 'chip-run'}`}>
+                {hasResult ? t('level_success') : t('in_progress')}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const ChatMessage = ({ message }: { message: Message }) => {
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
@@ -150,12 +179,15 @@ const ChatMessage = ({ message }: { message: Message }) => {
   return (
     <>
       <div className={`chat-message ${message.role} ${isError ? 'error' : ''}`}>
-        <div className="message-avatar">
-          {isUser ? <Avatar icon={<UserOutlined />} /> :
-           isTool ? <Avatar icon={<CodeOutlined />} style={{ background: QUANT_COLORS.positive }} /> :
-           isError ? <Avatar icon={<ExclamationCircleOutlined />} style={{ background: QUANT_COLORS.negative }} /> :
-           <Avatar icon={<RobotOutlined />} style={{ background: QUANT_COLORS.info }} />}
-        </div>
+        <MessageAvatar
+          kind={isUser ? 'user' : isTool ? 'tool' : isError ? 'err' : 'ai'}
+          icon={
+            isUser ? <UserOutlined /> :
+            isTool ? <CodeOutlined /> :
+            isError ? <ExclamationCircleOutlined /> :
+            <RobotOutlined />
+          }
+        />
         <div className="message-content">
           <div className="message-header">
             <span className="message-role">
@@ -173,20 +205,10 @@ const ChatMessage = ({ message }: { message: Message }) => {
               </span>
             )}
             <span className="message-time">
-              {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
+              {message.timestamp ? new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : ''}
             </span>
           </div>
           <div className={`message-body ${isError ? 'error-body' : ''}`}>
-            {message.toolCalls && (
-              <div className="tool-calls">
-                {message.toolCalls.map(tc => (
-                  <Tag key={tc.id} color="blue" icon={<ToolOutlined />}>
-                    {tc.name}
-                  </Tag>
-                ))}
-              </div>
-            )}
-            {/* 思考过程：默认折叠，仅后端返回 reasoning 时出现，不挤压正文 */}
             {!isUser && !isTool && message.reasoning && (
               <CollapsibleBlock variant="reasoning" title={t('agent_reasoning')}>
                 <pre>{message.reasoning}</pre>
@@ -198,7 +220,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
                   <Button
                     type="text"
                     size="small"
-                    icon={<ExclamationCircleOutlined style={{ color: QUANT_COLORS.negative }} />}
+                    icon={<ExclamationCircleOutlined style={{ color: 'var(--qc-error)' }} />}
                     onClick={() => setErrorModalVisible(true)}
                     className="error-icon-btn"
                   />
@@ -208,18 +230,17 @@ const ChatMessage = ({ message }: { message: Message }) => {
                 {message.content}
               </ReactMarkdown>
             </div>
-            {/* 工具输出默认折叠，不再全量刷屏；有调用仍无结果时给轻量进行中提示 */}
-            {message.toolResult ? (
-              <CollapsibleBlock variant="tool" title={t('agent_tool_result')}>
-                <pre>{message.toolResult}</pre>
-              </CollapsibleBlock>
-            ) : message.toolCalls?.length ? (
-              <div className="tool-running">
-                <Spin size="small" />
-                <span>{t('agent_tool_running', { name: message.toolCalls[message.toolCalls.length - 1].name })}</span>
-              </div>
-            ) : null}
           </div>
+          {/* 工具链按 §6.14 出气泡外左侧绿轨；有结果时以「已返回」折叠块展示，不再重复进行中行 */}
+          {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+            <ToolChain calls={message.toolCalls} hasResult={!!message.toolResult} />
+          )}
+          {/* 工具输出默认折叠，不再全量刷屏 */}
+          {message.toolResult && (
+            <CollapsibleBlock variant="tool" title={t('agent_tool_result')}>
+              <pre>{message.toolResult}</pre>
+            </CollapsibleBlock>
+          )}
         </div>
       </div>
 

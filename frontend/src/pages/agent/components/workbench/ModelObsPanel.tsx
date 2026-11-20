@@ -16,7 +16,7 @@
  * total_return_pct/passed；注册侧存于 metadata.walk_forward_oos。
  */
 import { useEffect, useState } from 'react';
-import { Alert, Descriptions, Spin, Tag } from 'antd';
+import { Alert, Descriptions, Spin } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { modelApi } from '@/api/modelApi';
 import type { ModelDetail, UnifiedModelRow } from '@/api/modelApi';
@@ -123,9 +123,9 @@ export default function ModelObsPanel({ row }: { row: UnifiedModelRow }) {
             children: featuresText ? (
               <>
                 {featuresText.map((f) => (
-                  <Tag key={f} style={{ marginInlineEnd: 4 }}>
+                  <span key={f} className="qc-chip quiet wb-obs-feature">
                     {f}
-                  </Tag>
+                  </span>
                 ))}
                 <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>
                   {t('wb_meta_label_features_count', { n: featuresText.length })}

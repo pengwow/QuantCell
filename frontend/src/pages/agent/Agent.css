@@ -1,152 +1,114 @@
-/* AI Agent 页面样式 - 支持亮色/暗色主题 */
+/* AI Agent 页面样式（design-spec §6.14 聊天流 DNA + 全站 qc 语义 token）。
+   颜色一律 var(--qc-*) / color-mix，本文件禁止颜色字面量（亮暗随 token 自动换挡）。 */
 
-/* ==================== 主题变量定义 ==================== */
+/* ==================== 局部语义别名（全部指回 --qc-* 规范槽位） ==================== */
 :root {
-  /* O2: 局部变量统一挂到全局语义 token，亮暗自适应；色块微调对（浅色悬浮底、状态气泡
-     着色）用 color-mix 在 token 上调出，hover 底需与页面底色可区分 */
-  --agent-bg: var(--tw-color-background);
-  --agent-header-bg: var(--tw-color-background);
-  --agent-header-border: var(--tw-color-border-secondary);
-  --agent-input-bg: var(--tw-color-background);
-  --agent-input-border: var(--tw-color-border-secondary);
+  /* 面板/输入底：页面底 --qc-bg，浮起来的气泡/卡 --qc-surface（demo --bgc） */
+  --agent-bg: var(--qc-bg);
+  --agent-header-bg: var(--qc-bg);
+  --agent-header-border: var(--qc-border);
+  --agent-input-bg: var(--qc-bg);
+  --agent-input-border: var(--qc-border);
 
-  /* 消息气泡 */
-  --message-bg: var(--tw-color-background);
-  --message-user-bg: var(--tw-color-info);
-  --message-user-color: #ffffff; /* O2: 特殊装饰色，保留（info 色底上的反白文字，亮暗恒白） */
-  --message-tool-bg: color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background));
-  --message-tool-border: color-mix(in srgb, var(--tw-color-success) 40%, var(--tw-color-background));
-  --message-error-bg: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
-  --message-error-border: color-mix(in srgb, var(--tw-color-error) 40%, var(--tw-color-background));
+  /* 消息气泡：AI = 卡面底，用户 = 用户气泡槽（demo --user-bg/--user-fg） */
+  --message-bg: var(--qc-surface);
+  --message-user-bg: var(--qc-user-bubble-bg);
+  --message-user-color: var(--qc-user-bubble-fg);
+  --message-tool-bg: color-mix(in srgb, var(--qc-success) 8%, var(--qc-surface));
+  --message-tool-border: color-mix(in srgb, var(--qc-success) 40%, var(--qc-surface));
+  --message-error-bg: color-mix(in srgb, var(--qc-error) 8%, var(--qc-surface));
+  --message-error-border: color-mix(in srgb, var(--qc-error) 40%, var(--qc-surface));
 
-  /* 文字颜色：次级/弱化文字 = 前景色按比例混入底色 */
-  --text-primary: var(--tw-color-foreground);
-  --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 45%, var(--tw-color-background));
-  --text-muted: color-mix(in srgb, var(--tw-color-foreground) 65%, var(--tw-color-background));
-  --text-hint: color-mix(in srgb, var(--tw-color-foreground) 50%, var(--tw-color-background));
+  /* 文本：§2.2 alpha 阶梯直取（fg / fg-2 / fg-3 / fg-4） */
+  --text-primary: var(--qc-text);
+  --text-secondary: var(--qc-text-secondary);
+  --text-muted: var(--qc-text-tertiary);
+  --text-hint: var(--qc-text-quaternary);
 
-  /* 边框和分隔线 */
-  --border-color: var(--tw-color-border-secondary);
-  --border-light: var(--tw-color-border-secondary);
-  --border-lighter: var(--tw-color-background);
+  /* 边框：--bd = --qc-border；内嵌体底（demo --bg）= --qc-bg */
+  --border-color: var(--qc-border);
+  --border-light: var(--qc-border);
+  --border-lighter: var(--qc-bg);
 
-  /* 交互状态 */
-  --hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
-  --active-color: var(--tw-color-info);
+  /* 交互：hover 走 §2.3 悬浮 tint；选中/进行中 = info */
+  --hover-bg: var(--qc-surface-hover);
+  --active-bg: color-mix(in srgb, var(--qc-info) 16%, transparent);
+  --active-color: var(--qc-info);
 
-  /* 工具面板 */
-  --tool-panel-bg: var(--tw-color-background);
-  --tool-item-bg: var(--tw-color-background);
-  --tool-item-border: var(--tw-color-border-secondary);
-  --tool-item-hover-border: var(--tw-color-border);
-  --param-row-bg: var(--tw-color-background);
-  --param-row-hover-bg: color-mix(in srgb, var(--tw-color-info) 6%, var(--tw-color-background));
+  /* 工具参数面板 */
+  --tool-panel-bg: var(--qc-bg);
+  --tool-item-bg: var(--qc-surface);
+  --tool-item-border: var(--qc-border);
+  --tool-item-hover-border: var(--qc-border-strong);
+  --param-row-bg: var(--qc-surface);
+  --param-row-hover-bg: color-mix(in srgb, var(--qc-info) 6%, transparent);
 
-  /* 会话列表 */
-  --session-hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
-}
+  /* 会话列表：选中 = 导航同款 primary 9% tint（§2.3） */
+  --session-hover-bg: var(--qc-surface-hover);
+  --session-active-bg: color-mix(in srgb, var(--qc-primary) 9%, transparent);
 
-/* 亮色/暗色共用同一组 token 表达式：.dark 下变量自动换挡，故此处只保留
-   「弱化文字混色比例」三档分模式微调，其余声明与 :root 完全一致（已收敛删除） */
-.dark {
-  /* 文字颜色：暗底上提高次级/弱化文字的对比度 */
-  --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
-  --text-muted: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
-  --text-hint: color-mix(in srgb, var(--tw-color-foreground) 38%, var(--tw-color-background));
+  /* 涨跌/告警（老调用点以内联 var 引用：PositionsTab / LogsTab） */
+  --agent-up: var(--qc-success);
+  --agent-down: var(--qc-error);
+  --agent-warn: var(--qc-warning);
 }
 
 /* ==================== 布局容器 ==================== */
 .ai-agent-layout {
   height: 100vh;
   background: var(--agent-bg);
-  transition: background-color 0.3s ease;
+  transition: background-color 160ms ease-out;
 }
 
-/* ==================== 会话列表抽屉 ==================== */
-.session-drawer .ant-drawer-body {
-  padding: 0;
-}
-
-.session-drawer .session-list {
-  padding: 8px;
-}
-
-.session-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 2px;
-  color: var(--text-primary);
-}
-
-.session-item:hover {
-  background: var(--session-hover-bg);
-}
-
-.session-item.active {
-  background: var(--session-active-bg);
-  color: var(--active-color);
-}
-
-.session-name-text {
-  flex: 1;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: 8px;
-}
-
-.session-more-btn {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.session-item:hover .session-more-btn,
-.session-item.active .session-more-btn {
-  opacity: 1;
-}
-
-/* ==================== 主内容区 ==================== */
+/* ==================== 顶栏（§5 Header 同规格：52px / 0 16px / --bg / 下边线） ==================== */
 .agent-content-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-/* ==================== 头部区域 ==================== */
 .agent-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 24px;
+  flex: 0 0 52px;
+  padding: 0 16px;
   background: var(--agent-header-bg);
   border-bottom: 1px solid var(--agent-header-border);
-  transition: all 0.3s ease;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
   color: var(--text-primary);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
+/* 会话名 = 本页标题（page-title 16/650 档） */
 .session-name {
-  font-weight: 500;
+  font-weight: 650;
   font-size: 16px;
+  line-height: 1.4;
   color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-right {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+/* 顶栏图标钮 → §6.1 icon-btn（30×30、6px 圆角、hover fg 5%） */
+.agent-header .ant-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
 }
 
 /* 按钮激活状态 */
@@ -155,7 +117,7 @@
   background: var(--active-bg);
 }
 
-/* ==================== 消息区域 ==================== */
+/* ==================== 消息区（§6.14 聊天流 DNA） ==================== */
 .agent-content {
   flex: 1;
   overflow-y: auto;
@@ -167,11 +129,11 @@
   margin: 0 auto;
 }
 
-/* ==================== 消息气泡 ==================== */
+/* 消息行：avatar 32 + 列，行距 18px（demo .m-row） */
 .chat-message {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   animation: fadeIn 0.3s ease;
 }
 
@@ -186,6 +148,7 @@
   }
 }
 
+/* 用户行右对齐（demo .m-row.user） */
 .chat-message.user {
   flex-direction: row-reverse;
 }
@@ -194,48 +157,108 @@
   align-items: flex-end;
 }
 
-.message-avatar {
-  flex-shrink: 0;
+/* 头像 32×32、8px 圆角（demo .avatar.sq）：AI = info 实底、用户 = 用户头像槽 */
+/* 缺口：spec --avatar-user-bg/--avatar-user-fg 无 palette 槽位，用 text/surface 混色近似
+   （亮色≈中灰、暗色 fg 48% 灰），icon 反衬面底色；需要真槽位时加 avatarUserBg/Fg */
+.msg-avatar {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
 }
 
+.msg-avatar.ai {
+  background: var(--qc-info);
+  /* §6.14 明文「info 实底白字」：用 user-bubble-fg（两主题恒白）而不是 on-primary
+     —— on-primary 是为橙色主钮配的深字，压到 info 蓝底上暗色下会变成近黑字。 */
+  color: var(--qc-user-bubble-fg);
+}
+
+.msg-avatar.user {
+  background: color-mix(in srgb, var(--qc-text) 42%, var(--qc-surface));
+  color: var(--qc-surface);
+}
+
+.msg-avatar.tool {
+  background: color-mix(in srgb, var(--qc-success) 12%, transparent);
+  color: var(--qc-success);
+  border: 1px solid color-mix(in srgb, var(--qc-success) 40%, transparent);
+}
+
+.msg-avatar.err {
+  background: color-mix(in srgb, var(--qc-error) 12%, transparent);
+  color: var(--qc-error);
+  border: 1px solid color-mix(in srgb, var(--qc-error) 40%, transparent);
+}
+
+/* 列（demo .m-col：max-width 82%） */
 .message-content {
   display: flex;
   flex-direction: column;
-  max-width: 80%;
+  max-width: 82%;
+  min-width: 0;
 }
 
+/* 角色行（demo .m-head：gap 8 / mb 4 / 12px fg-3；role 550 fg-2） */
 .message-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
   font-size: 12px;
-  color: var(--text-secondary);
-  transition: color 0.3s ease;
+  color: var(--text-muted);
 }
 
 .message-role {
-  font-weight: 500;
+  font-weight: 550;
+  color: var(--text-secondary);
 }
 
+/* 时间戳 mono（数字/时间 mono 铁律；demo m-head 时间块同尺寸） */
+.message-time {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+/* 迭代徽标：ReAct 轮次计数（count-chip 形制：mono 10 全圆 + bd-2 边 + bge 底） */
+.message-iteration {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 20px;
+  color: var(--text-muted);
+  border: 1px solid var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+  white-space: nowrap;
+}
+
+/* 气泡（demo .bubble：bgc 底 / 12px 圆角 / 11 15 内边距 / bubble-shadow / 13px·1.65） */
 .message-body {
   background: var(--message-bg);
-  padding: 12px 16px;
+  padding: 11px 15px;
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--qc-shadow-bubble);
   color: var(--text-primary);
-  transition: all 0.3s ease;
+  font-size: 13px;
+  line-height: 1.65;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
 
-.dark .message-body {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
+/* 用户气泡：user 槽底色 + 反白字（demo .user .bubble） */
 .chat-message.user .message-body {
   background: var(--message-user-bg);
   color: var(--message-user-color);
 }
 
+/* 工具/错误变体：语义 tint 底 + 40% 边（§2.3 公式） */
 .chat-message.tool .message-body {
   background: var(--message-tool-bg);
   border: 1px solid var(--message-tool-border);
@@ -270,7 +293,7 @@
   padding: 16px;
   border-radius: 8px;
   color: var(--text-primary);
-  transition: background-color 0.3s ease;
+  transition: background-color 160ms ease-out;
 }
 
 .error-detail-content pre {
@@ -281,22 +304,191 @@
   color: inherit;
 }
 
+/* ---- Markdown 正文（ReactMarkdown 输出，对齐 demo .m-text） ---- */
 .message-text {
-  line-height: 1.6;
   white-space: pre-wrap;
   color: inherit;
 }
 
-.tool-calls {
-  margin-bottom: 8px;
+.message-text p {
+  margin: 0 0 6px;
+}
+
+.message-text p:last-child {
+  margin-bottom: 0;
+}
+
+.message-text :is(h1, h2, h3, h4) {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 2px 0 6px;
+}
+
+.message-text ul,
+.message-text ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.message-text li {
+  margin: 3px 0;
+}
+
+.chat-message:not(.user) .message-text li {
+  color: var(--text-secondary);
+}
+
+.message-text strong {
+  color: var(--text-primary);
+}
+
+/* 用户气泡内的 markdown 关系色让位于反白 */
+.chat-message.user .message-text :is(strong, li) {
+  color: inherit;
+}
+
+.message-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--qc-text) 8%, transparent);
+}
+
+.message-text pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.message-text pre code {
+  padding: 0;
+  background: transparent;
+}
+
+/* 用户气泡内 code 用反白 tint */
+.chat-message.user .message-text code {
+  background: color-mix(in srgb, var(--qc-user-bubble-fg) 18%, transparent);
+}
+
+/* ---- 工具链（demo .chain / .chain-node：success 40% 边 + 8% 底 + 左侧 2px 竖轨） ---- */
+.tool-chain {
+  margin: 10px 0 2px;
+  padding-left: 16px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-chain::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--qc-success) 26%, transparent);
+}
+
+.chain-node {
+  border: 1px solid color-mix(in srgb, var(--qc-success) 40%, var(--qc-surface));
+  background: color-mix(in srgb, var(--qc-success) 8%, var(--qc-surface));
+  border-radius: 10px;
+  overflow: hidden;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.chain-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* 工具方徽（demo .tool-chip：20×20 / 5px 圆角 / up 实底 / mono 8.5px） */
+.tool-chip {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--qc-success);
+  color: var(--qc-on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  flex: 0 0 20px;
+  font-style: normal;
+}
+
+/* 工具名 mono 600 + 参数 mono 10.5 fg-4 单行省略 */
+.chain-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chain-args {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.chain-status {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* 成功 chip（demo .chip-ok：4px 圆角紧凑款，非 .qc-chip 全圆） */
+.chip-ok {
+  font-size: 10px;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  line-height: 1;
+  color: var(--qc-success);
+  border: 1px solid color-mix(in srgb, var(--qc-success) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 10%, transparent);
+  white-space: nowrap;
+}
+
+.chip-run {
+  font-size: 10px;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  line-height: 1;
+  color: var(--qc-info);
+  border: 1px solid color-mix(in srgb, var(--qc-info) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-info) 8%, transparent);
+  white-space: nowrap;
+}
+
+/* 工具返回体（demo .chain-body pre：mono 11 / --bg 底 / 6px 圆角 / 200px 限高） */
+.tool-chain .collapse-block {
+  margin-top: 6px;
 }
 
 /* ==================== 消息内折叠块（工具结果 / 思考过程） ==================== */
-/* 默认收起；展开后限高内部滚动，长文本不再把聊天流撑爆 */
 .collapse-block {
   margin-top: 8px;
 }
 
+/* demo .collapse-toggle：12px fg-3，hover info */
 .collapse-toggle {
   display: inline-flex;
   align-items: center;
@@ -306,12 +498,13 @@
   background: transparent;
   cursor: pointer;
   font-size: 12px;
-  color: var(--text-secondary);
-  transition: color 0.2s ease;
+  color: var(--text-muted);
+  transition: color 160ms ease-out;
+  font-family: inherit;
 }
 
 .collapse-toggle:hover {
-  color: var(--active-color);
+  color: var(--qc-info);
 }
 
 .collapse-caret {
@@ -326,36 +519,26 @@
   color: var(--text-hint);
 }
 
+/* demo .think / .chain-body pre：--bg 底（比气泡更深一层的词法平面） */
 .collapse-body {
-  margin-top: 6px;
-  padding: 8px;
-  max-height: 220px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  max-height: 200px;
   overflow-y: auto;
-  background: var(--border-lighter);
-  border-radius: 4px;
+  background: var(--qc-bg);
+  border-radius: 6px;
   color: var(--text-primary);
-  transition: background-color 0.3s ease;
+  transition: background-color 160ms ease-out;
 }
 
 .collapse-body pre {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.65;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
   word-break: break-all;
-}
-
-.collapse-block.reasoning .collapse-body pre {
   color: var(--text-secondary);
-}
-
-/* 工具调用进行中（tool_start 已到、结果未到） */
-.tool-running {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-hint);
 }
 
 /* ==================== 加载指示器 ==================== */
@@ -363,104 +546,92 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+  padding: 8px 0 12px;
   color: var(--text-secondary);
-  font-size: 14px;
-  transition: color 0.3s ease;
+  font-size: 12px;
 }
 
-/* 错误指示器 */
-.error-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  font-size: 14px;
-  background: var(--message-error-bg);
-  border: 1px solid var(--message-error-border);
-  border-radius: 8px;
-  margin: 8px 0;
-  color: var(--text-primary);
-  transition: all 0.3s ease;
-}
-
-/* ==================== 输入区域 ==================== */
+/* ==================== 输入区 ==================== */
 .agent-input-area {
-  padding: 16px 24px;
+  flex: 0 0 auto;
+  padding: 10px 24px 12px;
   background: var(--agent-input-bg);
   border-top: 1px solid var(--agent-input-border);
-  transition: all 0.3s ease;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
 }
 
 .input-wrapper {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  align-items: center;
   max-width: 900px;
   margin: 0 auto;
 }
 
+/* demo .input-box：40px 胶囊槽（autoSize 时内边距 9 16 起步） */
 .input-wrapper .ant-input {
   flex: 1;
+  min-width: 0;
   border-radius: 20px;
-  padding: 12px 20px;
+  padding: 9px 16px;
   background: var(--message-bg);
   border-color: var(--border-color);
   color: var(--text-primary);
-  transition: all 0.3s ease;
+  font-size: 13px;
+  line-height: 1.6;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
 }
 
 .input-wrapper .ant-input::placeholder {
   color: var(--text-hint);
 }
 
-.input-wrapper .ant-input:focus {
-  border-color: var(--active-color);
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
-}
-
-.input-wrapper .ant-btn {
-  height: auto;
-  border-radius: 20px;
-  padding: 0 24px;
+/* 发送钮（demo .send-btn：40×40 正圆 primary 实底 + 35% 投影） */
+.input-wrapper .ant-btn-primary {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--qc-primary) 35%, transparent);
 }
 
 .input-hint {
   text-align: center;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-hint);
-  transition: color 0.3s ease;
 }
 
-/* ==================== 快捷指令条（输入框上方 chips） ==================== */
+/* ==================== 快捷指令条（demo .qchip） ==================== */
 .quick-commands {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
   max-width: 900px;
-  margin: 0 auto 10px;
+  margin: 0 auto 9px;
 }
 
 .quick-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 12px;
+  padding: 4px 12px;
   border-radius: 20px;
   border: 1px solid var(--border-light);
   background: var(--message-bg);
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 20px;
+  font-family: inherit;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 160ms ease-out, border-color 160ms ease-out, background-color 160ms ease-out;
 }
 
 .quick-chip:hover:not(:disabled) {
-  color: var(--active-color);
-  border-color: var(--active-color);
-  background: var(--active-bg);
+  color: var(--qc-info);
+  border-color: var(--qc-info);
 }
 
 .quick-chip:disabled {
@@ -479,7 +650,7 @@
 
 .chat-empty-title {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--text-primary);
 }
 
@@ -506,14 +677,15 @@
   border: 1px solid var(--border-light);
   border-radius: 12px;
   background: var(--message-bg);
+  color: inherit;
+  font: inherit;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 160ms ease-out, background-color 160ms ease-out;
 }
 
 .chat-empty-cap:hover {
   border-color: var(--active-color);
   background: var(--hover-bg);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .cap-icon {
@@ -548,65 +720,92 @@
   }
 }
 
-/* ==================== 工具列表 ==================== */
-.tool-list {
-  padding: 8px 0;
+/* ==================== 会话列表抽屉 ==================== */
+.session-drawer .ant-drawer-body {
+  padding: 0;
 }
 
-.tool-list-item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-light);
+.session-drawer .session-list {
+  padding: 8px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+  margin-bottom: 2px;
   color: var(--text-primary);
-  transition: border-color 0.3s ease;
 }
 
-.tool-list-item:last-child {
-  border-bottom: none;
+.session-item:hover {
+  background: var(--session-hover-bg);
 }
 
-.tool-description {
-  margin: 8px 0 0 0;
-  color: var(--text-muted);
+/* 选中 = 导航同款 primary 9% tint + 主色字（§2.3） */
+.session-item.active {
+  background: var(--session-active-bg);
+  color: var(--qc-primary);
+  font-weight: 550;
+}
+
+.session-name-text {
+  flex: 1;
   font-size: 14px;
-  transition: color 0.3s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
 }
 
-/* 更多操作下拉菜单 */
+.session-more-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.session-item:hover .session-more-btn,
+.session-item.active .session-more-btn {
+  opacity: 1;
+}
+
+/* ==================== 更多操作下拉菜单 ==================== */
 .session-actions-dropdown .ant-dropdown-menu-item-danger {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
 .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
-  background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
+  background: color-mix(in srgb, var(--qc-error) 8%, transparent);
 }
 
-/* 删除确认 Modal */
+/* ==================== 删除确认 Modal ==================== */
 .delete-confirm-modal .ant-modal-header {
   border-bottom: 1px solid var(--message-error-border);
 }
 
 .delete-confirm-modal .ant-modal-title {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
 .delete-confirm-modal .ant-modal-body {
   color: var(--text-primary);
-  transition: color 0.3s ease;
+  transition: color 160ms ease-out;
 }
 
-/* 删除警告框 */
 .delete-warning-box {
   background: var(--message-error-bg);
   border: 1px solid var(--message-error-border);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 12px;
   margin-bottom: 16px;
-  transition: all 0.3s ease;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
 }
 
 .delete-warning-box .delete-warning-title {
   margin: 0 0 8px 0;
-  font-weight: 500;
+  font-weight: 550;
   color: var(--text-primary);
 }
 
@@ -619,28 +818,27 @@
 .delete-warning-box .delete-warning-note {
   margin: 8px 0 0 0;
   color: var(--text-muted);
-  transition: color 0.3s ease;
+  transition: color 160ms ease-out;
 }
 
-/* 删除确认提示 */
 .delete-confirm-hint {
   margin-bottom: 8px;
   color: var(--text-primary);
-  transition: color 0.3s ease;
+  transition: color 160ms ease-out;
 }
 
 .delete-confirm-highlight {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
-/* 响应式适配 */
+/* ==================== 响应式 ==================== */
 @media (max-width: 768px) {
   .message-content {
     max-width: 90%;
   }
 
   .agent-header {
-    padding: 12px 16px;
+    padding: 0 12px;
   }
 
   .session-name {
@@ -652,7 +850,7 @@
   }
 
   .agent-input-area {
-    padding: 12px 16px;
+    padding: 10px 16px 12px;
   }
 }
 
@@ -663,7 +861,7 @@
   }
 }
 
-/* ==================== 工具列表（集成参数配置）样式 ==================== */
+/* ==================== 工具列表（集成参数配置） ==================== */
 .tool-list-note {
   margin: 0 0 12px 0;
   font-size: 12px;
@@ -673,7 +871,7 @@
 .tool-list-config-drawer .ant-drawer-body {
   padding: 12px;
   background: var(--tool-panel-bg);
-  transition: background-color 0.3s ease;
+  transition: background-color 160ms ease-out;
 }
 
 .tool-list-with-config {
@@ -687,27 +885,18 @@
   background: var(--tool-item-bg);
   border-radius: 8px;
   border: 1px solid var(--tool-item-border);
-  transition: all 0.3s ease;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
   overflow: hidden;
   color: var(--text-primary);
 }
 
 .tool-item-wrapper:hover {
   border-color: var(--tool-item-hover-border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.dark .tool-item-wrapper:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .tool-item-wrapper.expanded {
-  border-color: var(--active-color);
-  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
-}
-
-.dark .tool-item-wrapper.expanded {
-  box-shadow: 0 2px 8px rgba(96, 165, 250, 0.15);
+  border-color: color-mix(in srgb, var(--qc-info) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-info) 12%, transparent);
 }
 
 /* 工具项头部 */
@@ -728,6 +917,17 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+/* mono 工具名（工具名属代码标识） */
+.tool-item-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 工具描述 */
@@ -773,7 +973,7 @@
   border-radius: 6px;
   gap: 12px;
   border-left: 2px solid transparent;
-  transition: all 0.2s;
+  transition: background 0.2s, border-color 0.2s;
   color: var(--text-primary);
 }
 
@@ -782,10 +982,10 @@
   border-left-color: var(--active-color);
 }
 
-/* 敏感参数特殊样式（浅底由 warning token 混出，亮暗同一表达式） */
+/* 敏感参数：warning tint 左缘 + 10% 底（§2.3 公式，亮暗同表达式） */
 .param-row:has(.anticon-lock-unfilled) {
-  border-left-color: var(--tw-color-warning);
-  background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
+  border-left-color: var(--qc-warning);
+  background: color-mix(in srgb, var(--qc-warning) 10%, transparent);
 }
 
 /* 参数信息区 */
@@ -812,7 +1012,6 @@
   color: var(--text-hint);
 }
 
-/* 响应式适配 */
 @media (max-width: 480px) {
   .param-row {
     flex-direction: column;
@@ -839,14 +1038,6 @@
 }
 
 /* ==================== 双栏工作台（P1：/agent 聊天 + 工作面板） ==================== */
-:root {
-  /* 涨跌/告警语义色（亮暗自适应，同 --agent 系列走全局 token） */
-  --agent-up: var(--tw-color-success);
-  --agent-down: var(--tw-color-error);
-  --agent-warn: var(--tw-color-warning);
-}
-
-/* 双栏容器：左聊天（弹性），右面板（45%，折叠后由 Agent.tsx 卸载） */
 .agent-workbench {
   flex: 1;
   display: flex;
@@ -862,6 +1053,7 @@
   overflow: hidden;
 }
 
+/* 右栏比页底抬一层（demo 右卡在画布上的层次） */
 .agent-work-col {
   flex: 0 0 45%;
   min-width: 360px;
@@ -870,7 +1062,7 @@
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--tw-color-foreground) 2%, var(--tw-color-background));
+  background: color-mix(in srgb, var(--qc-text) 2%, var(--qc-bg));
 }
 
 .wb-worker-select {
@@ -880,17 +1072,14 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 2px 8px;
+  background: var(--agent-header-bg);
+  transition: border-color 160ms ease-out;
 }
 
 .wb-worker-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.wb-worker-status {
-  margin-inline-end: 0;
   font-size: 11px;
+  color: var(--text-hint);
+  white-space: nowrap;
 }
 
 /* 面板通用 */
@@ -919,13 +1108,25 @@
   margin-bottom: 6px;
 }
 
+/* 尾注（固定窗口提示）：mono 11 弱注 */
+.wb-list-footer {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 0;
+}
+
+.wb-list-footer .ant-btn {
+  font-size: 11px;
+  color: var(--text-hint);
+}
+
 .wb-nowrap-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* 决策流 */
+/* ==================== 决策流 ==================== */
 .wb-dec-list {
   display: flex;
   flex-direction: column;
@@ -939,11 +1140,12 @@
   padding: 7px 10px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: var(--tw-color-background);
+  background: var(--qc-surface);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.2s;
   color: var(--text-primary);
+  width: 100%;
 }
 
 .wb-dec-row:hover {
@@ -959,9 +1161,6 @@
 
 .wb-dec-action {
   flex: 0 0 auto;
-  margin-inline-end: 0;
-  min-width: 52px;
-  text-align: center;
 }
 
 .wb-dec-conf {
@@ -980,7 +1179,7 @@
   display: block;
   height: 5px;
   border-radius: 3px;
-  background: var(--border-color);
+  background: color-mix(in srgb, var(--qc-text) 10%, transparent);
   overflow: hidden;
 }
 
@@ -1010,7 +1209,7 @@
   white-space: nowrap;
 }
 
-/* 绩效 */
+/* ==================== 绩效 ==================== */
 .wb-perf-toolbar {
   margin-bottom: 8px;
 }
@@ -1031,6 +1230,7 @@
 .wb-kpi b {
   display: block;
   font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -1043,7 +1243,13 @@
   color: var(--agent-down);
 }
 
-/* 日志 */
+.wb-per-refresh {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+
+/* ==================== 日志 ==================== */
 .wb-logs {
   display: flex;
   flex-direction: column;
@@ -1065,7 +1271,7 @@
   padding: 8px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: var(--tw-color-background);
+  background: var(--qc-bg);
 }
 
 .wb-log-line {
@@ -1092,11 +1298,13 @@
   padding: 24px 0;
 }
 
-/* 占位 Tab */
+/* ==================== 占位 Tab ==================== */
 .wb-placeholder {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-height: 60%;
 }
 
@@ -1105,7 +1313,7 @@
   color: var(--text-hint);
 }
 
-/* 训练任务（模型 Tab 顶部） */
+/* ==================== 训练任务（模型 Tab 顶部） ==================== */
 .wb-train {
   margin-bottom: 12px;
 }
@@ -1158,7 +1366,7 @@
   padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: var(--tw-color-background);
+  background: var(--qc-surface);
 }
 
 /* 完成/失败/取消态靠边框色区分（卡片内进度条已由 antd Progress status 着色） */
@@ -1181,7 +1389,6 @@
 }
 
 .wb-train-status {
-  margin-inline-end: 0;
   flex: 0 0 auto;
 }
 
@@ -1234,7 +1441,7 @@
   color: var(--text-hint);
 }
 
-/* 审计 Tab */
+/* ==================== 审计 Tab ==================== */
 .wb-audit {
   display: flex;
   flex-direction: column;
@@ -1262,7 +1469,7 @@
   max-height: 220px;
   overflow: auto;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  background: color-mix(in srgb, var(--qc-text) 4%, var(--qc-bg));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   line-height: 1.5;
@@ -1278,10 +1485,15 @@
   }
 }
 
-/* antd Tabs 窄面板密度微调 */
+/* antd Tabs 窄面板密度微调（§6.8：12.5px 档） */
 .wb-tabs .ant-tabs-tab {
   padding: 8px 10px;
   font-size: 12.5px;
+}
+
+/* 观测面板特征 chip 间距（qc-chip 无默认外距） */
+.wb-obs-feature {
+  margin-right: 4px;
 }
 
 /* Tab 内容超出视口时在面板内滚动（Tab 栏吸顶不滚走）：
@@ -1302,20 +1514,7 @@
   padding: 0 10px 12px;
 }
 
-/* 迭代徽标（气泡头）：只在 SSE 上报过 ReAct 轮次时出现 */
-.message-iteration {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  font-size: 10px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 10px;
-  color: var(--text-hint);
-  border: 1px solid var(--border-color);
-  white-space: nowrap;
-}
-
-/* 自迭代 Tab（A–D 卡）：右栏窄，纵向单列，卡片密度对齐审计 Tab */
+/* ==================== 自迭代 Tab（A–D 卡） ==================== */
 .sl-root {
   display: flex;
   flex-direction: column;
@@ -1334,10 +1533,11 @@
   color: var(--text-hint);
 }
 
+/* demo .card 同构：bgc 底 + bd 边 + 10px 圆角 */
 .sl-card {
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  background: var(--tw-color-background);
+  background: var(--qc-surface);
   padding: 10px 12px 9px;
 }
 
@@ -1349,19 +1549,20 @@
   margin-bottom: 8px;
 }
 
+/* 序号徽章（demo .card-idx：mono 10px 主色 40% 边） */
 .sl-card-idx {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 9.5px;
   line-height: 1;
   padding: 2px 5px;
   border-radius: 4px;
-  color: var(--tw-color-primary);
-  border: 1px solid color-mix(in srgb, var(--tw-color-primary) 40%, transparent);
+  color: var(--qc-primary);
+  border: 1px solid color-mix(in srgb, var(--qc-primary) 40%, transparent);
 }
 
 .sl-card-title {
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--text-primary);
 }
 
@@ -1374,6 +1575,7 @@
   margin-left: auto;
 }
 
+/* 状态小结 chip（tint 公式：40% 边 + 8% 底） */
 .sl-chip {
   display: inline-flex;
   align-items: center;
@@ -1383,13 +1585,14 @@
   padding: 3px 7px;
   border-radius: 5px;
   color: var(--text-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--qc-border-strong);
+  background: var(--qc-surface-raised);
 }
 
 .sl-chip.on {
-  color: var(--tw-color-success);
-  border-color: color-mix(in srgb, var(--tw-color-success) 40%, transparent);
-  background: color-mix(in srgb, var(--tw-color-success) 8%, transparent);
+  color: var(--qc-success);
+  border-color: color-mix(in srgb, var(--qc-success) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 8%, transparent);
 }
 
 .sl-chip.off {
@@ -1397,8 +1600,9 @@
 }
 
 .sl-chip.alert {
-  color: var(--tw-color-error);
-  border-color: color-mix(in srgb, var(--tw-color-error) 40%, transparent);
+  color: var(--qc-error);
+  border-color: color-mix(in srgb, var(--qc-error) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-error) 8%, transparent);
 }
 
 /* A 迭代足迹：固定高度轨，柱高按最大值归一 */
@@ -1441,11 +1645,11 @@
   max-width: 26px;
   margin: 0 auto;
   border-radius: 2px 2px 0 0;
-  background: color-mix(in srgb, var(--tw-color-info) 65%, transparent);
+  background: color-mix(in srgb, var(--qc-info) 65%, transparent);
 }
 
 .sl-bar-track i.has-fail {
-  background: color-mix(in srgb, var(--tw-color-error) 60%, transparent);
+  background: color-mix(in srgb, var(--qc-error) 60%, transparent);
 }
 
 .sl-bar-x {
@@ -1474,10 +1678,11 @@
 .sl-mem-viewer {
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--tw-color-foreground) 3%, var(--tw-color-background));
+  background: color-mix(in srgb, var(--qc-text) 3%, var(--qc-bg));
   overflow: hidden;
 }
 
+/* MEMORY.md 头（demo .memhead：mono 10.5 fg-3 + 底边线） */
 .sl-mem-head {
   display: flex;
   align-items: center;
@@ -1486,6 +1691,11 @@
   border-bottom: 1px solid var(--border-color);
   font-size: 10.5px;
   color: var(--text-secondary);
+}
+
+.sl-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .sl-ro-badge {
@@ -1525,7 +1735,7 @@
   font-size: 10.5px;
   padding: 1px 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--tw-color-foreground) 8%, transparent);
+  background: color-mix(in srgb, var(--qc-text) 8%, transparent);
 }
 
 .sl-mem-body pre {
@@ -1533,7 +1743,7 @@
   padding: 6px 8px;
   border-radius: 6px;
   overflow-x: auto;
-  background: color-mix(in srgb, var(--tw-color-foreground) 5%, transparent);
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
 }
@@ -1545,6 +1755,7 @@
   gap: 4px;
 }
 
+/* demo .kv-line：label 11 fg-3 + mono 600 值 */
 .sl-meta-row {
   display: flex;
   align-items: center;
@@ -1554,16 +1765,11 @@
   color: var(--text-secondary);
 }
 
-.sl-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-}
-
 .sl-progress {
   display: block;
   height: 4px;
   border-radius: 2px;
-  background: var(--border-color);
+  background: color-mix(in srgb, var(--qc-text) 10%, transparent);
   overflow: hidden;
 }
 
@@ -1571,7 +1777,7 @@
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: var(--tw-color-info);
+  background: var(--qc-info);
 }
 
 .sl-muted {
@@ -1591,9 +1797,8 @@
 }
 
 .sl-tag-tight {
-  margin-inline-end: 0;
   font-size: 10px;
-  line-height: 16px;
+  line-height: 1;
 }
 
 .sl-pre {
@@ -1602,7 +1807,7 @@
   max-height: 180px;
   overflow: auto;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
+  background: color-mix(in srgb, var(--qc-text) 4%, var(--qc-bg));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
   line-height: 1.55;
@@ -1611,10 +1816,11 @@
   color: var(--text-secondary);
 }
 
+/* demo .card-foot：上虚线 + 10.5 fg-4 */
 .sl-foot {
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px dashed color-mix(in srgb, var(--tw-color-foreground) 10%, transparent);
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
   font-size: 10.5px;
   line-height: 1.6;
   color: var(--text-hint);
@@ -1639,12 +1845,14 @@
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
+  font: inherit;
 }
 
 .sl-job-row:hover {
   background: var(--hover-bg);
 }
 
+/* demo .dot：8px 圆（§6.17） */
 .sl-dot {
   flex: 0 0 8px;
   width: 8px;
@@ -1653,11 +1861,13 @@
 }
 
 .sl-dot.ok {
-  background: var(--tw-color-success);
+  background: var(--qc-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-success) 16%, transparent);
 }
 
 .sl-dot.failed {
-  background: var(--tw-color-error);
+  background: var(--qc-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-error) 16%, transparent);
 }
 
 .sl-dot.idle {
@@ -1666,7 +1876,8 @@
 }
 
 .sl-dot.off {
-  background: color-mix(in srgb, var(--tw-color-foreground) 14%, transparent);
+  background: var(--qc-surface-raised);
+  border: 1.5px solid var(--qc-border-strong);
 }
 
 .sl-job-name {
@@ -1690,11 +1901,11 @@
 }
 
 .sl-job-state.ok {
-  color: var(--tw-color-success);
+  color: var(--qc-success);
 }
 
 .sl-job-state.failed {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
 .sl-job-state.idle,
@@ -1713,6 +1924,7 @@
   flex-wrap: wrap;
 }
 
+/* 警示条：warning 35% 边 + 7% 底（§2.3 tint） */
 .sl-notice {
   margin-top: 8px;
   padding: 6px 9px;
@@ -1720,6 +1932,6 @@
   font-size: 11px;
   line-height: 1.6;
   color: var(--text-secondary);
-  border: 1px solid color-mix(in srgb, var(--tw-color-warning) 35%, transparent);
-  background: color-mix(in srgb, var(--tw-color-warning) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--qc-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--qc-warning) 7%, transparent);
 }

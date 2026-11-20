@@ -6,7 +6,6 @@
 import React from 'react';
 import {
   Card,
-  Tag,
   Button,
   Space,
   Typography,
@@ -102,6 +101,23 @@ function useRoleTheme(roleName: string): RoleTheme {
   return deriveRoleTheme(roleName, token);
 }
 
+/**
+ * 角色/数据徽标：qc-chip 形制 + 色值 tint（§2.3 公式 40% 边 + 8% 底）。
+ * 色值来自 antd token（角色主题）或 O2 保留装饰色，此处只做形制统一。
+ */
+const TintChip = ({ color, children }: { color: string; children: React.ReactNode }) => (
+  <span
+    className="qc-chip info"
+    style={{
+      color,
+      borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+      background: `color-mix(in srgb, ${color} 8%, transparent)`,
+    }}
+  >
+    {children}
+  </span>
+);
+
 // 策略代码面板
 export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
   roleName,
@@ -118,18 +134,19 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_strategy_code')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {codeText && (
         <Collapse defaultActiveKey={['1']}>
           <Panel header={t('agent_panel_strategy_code')} key="1">
             <pre style={{
               background: '#1f1f1f', // O2: 特殊装饰色，保留（终端风代码块，亮暗恒深底）
-              color: '#f0f0f0',
+              color: '#f0f0f0', // O2: 特殊装饰色，保留（上行的终端风反白字，成对使用）
               padding: 16,
               borderRadius: 8,
               overflowX: 'auto',
@@ -144,7 +161,7 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
       {strategyName && (
         <div style={{ marginTop: 12 }}>
           <Text strong>{t('agent_strategy_name_label')}</Text>
-          <Tag color={theme.color}>{strategyName}</Tag>
+          <TintChip color={theme.color}>{strategyName}</TintChip>
         </div>
       )}
 
@@ -195,11 +212,12 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_backtest_result')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {metrics.length > 0 ? (
         <div>
@@ -279,18 +297,19 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_risk_assessment')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       <div style={{ marginBottom: 16 }}>
         <Space orientation="vertical" size="middle">
           {riskInfo.map((item) => (
             <Space key={item.label}>
               <Text>{item.label}：</Text>
-              <Tag color={item.color}>{item.value}</Tag>
+              <TintChip color={item.color}>{item.value}</TintChip>
             </Space>
           ))}
         </Space>
@@ -298,7 +317,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
 
       <div style={{ marginBottom: 16 }}>
         <Title level={5}>{t('agent_risk_warning_title')}</Title>
-        <div style={{ padding: 12, background: 'color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background))', borderRadius: 8 }}>
+        <div style={{ padding: 12, background: 'color-mix(in srgb, var(--qc-error) 8%, var(--qc-bg))', borderRadius: 8 }}>
           <Text type="danger">
             {t('agent_risk_disclaimer')}
           </Text>
@@ -353,18 +372,19 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_trading_decision')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       <div style={{ marginBottom: 16 }}>
         <Space orientation="vertical" size="middle">
           {tradeInfo.map((item) => (
             <Space key={item.label}>
               <Text>{item.label}：</Text>
-              <Tag color={item.color}>{item.value}</Tag>
+              <TintChip color={item.color}>{item.value}</TintChip>
             </Space>
           ))}
         </Space>
@@ -415,11 +435,12 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_data_query')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {dataSource.length > 0 ? (
         <Table
@@ -467,11 +488,12 @@ export const GeneralPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_general')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {actions.length > 0 && (
         <div>

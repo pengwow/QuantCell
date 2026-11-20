@@ -10,7 +10,6 @@ import {
   Spin,
   Empty,
   Drawer,
-  Tag,
   Tooltip,
   App,
   Switch,
@@ -148,15 +147,15 @@ const ToolListDrawerWithConfig = ({
     }
   };
 
-  // 渲染来源标签
+  // 渲染来源标签 → §6.2 qc-chip 语义档位（database=info / environment=ok / 默认=quiet）
   const renderSourceTag = (source: string) => {
-    const config: Record<string, { color: string; icon: React.ReactNode; text: string }> = {
-      database: { color: 'blue', icon: <DatabaseOutlined />, text: t('agent_source_database') },
-      environment: { color: 'green', icon: <GlobalOutlined />, text: t('env_variables') },
-      default: { color: 'default', icon: <SettingOutlined />, text: t('default_value') },
+    const config: Record<string, { level: string; icon: React.ReactNode; text: string }> = {
+      database: { level: 'info', icon: <DatabaseOutlined />, text: t('agent_source_database') },
+      environment: { level: 'ok', icon: <GlobalOutlined />, text: t('env_variables') },
+      default: { level: 'quiet', icon: <SettingOutlined />, text: t('default_value') },
     };
     const c = config[source] || config.default;
-    return <Tag color={c.color} icon={c.icon}>{c.text}</Tag>;
+    return <span className={`qc-chip ${c.level}`}>{c.icon}{c.text}</span>;
   };
 
   // 渲染参数输入控件
@@ -295,7 +294,8 @@ const ToolListDrawerWithConfig = ({
               >
                 <div className="tool-item-info">
                   <Space>
-                    <Tag color="blue">{tool.name}</Tag>
+                    {/* 工具名是代码标识：mono 文本（§6.5），不再挂蓝色徽章 */}
+                    <span className="tool-item-name">{tool.name}</span>
                     {params && (
                       params.params && Object.values(params.params).some(p => p.configured) ? (
                         <CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />

@@ -3,7 +3,7 @@
  * GET /workers/{id}/strategy/orders（分页契约，取第一页最新 20 条）。
  * 数据走 workbenchStore 缓存（useWorkbenchData 5s 轮询）。
  */
-import { Empty, Table, Tag } from 'antd';
+import { Empty, Table } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useWorkbenchStore } from '../../store/workbenchStore';
@@ -12,6 +12,9 @@ import type { Side } from '@/types/vocab.generated';
 import { formatQuantity, formatTimestamp, formatUSD } from '@/utils/format';
 
 const SubTitle = ({ text }: { text: string }) => <div className="wb-section-title">{text}</div>;
+
+/** 方向/动作 → §6.2 qc-chip 档位（多空、买卖各归涨跌语义） */
+const SIDE_CHIP_LEVEL: Record<string, string> = { long: 'ok', buy: 'ok', short: 'down', sell: 'down' };
 
 export default function PositionsTab() {
   const { t } = useTranslation();
@@ -30,15 +33,16 @@ export default function PositionsTab() {
   const positions = positionsEntry.data.filter((p) => p.status === 'OPEN' || p.quantity !== 0);
 
   const positionColumns: TableColumnsType<PositionInfo> = [
-    { title: t('symbol'), dataIndex: 'symbol', width: 110, render: (v: string) => <Tag color="blue">{v}</Tag> },
+    // 标的标识列：mono 文本（§6.5 表格，不再挂蓝色徽章）
+    { title: t('symbol'), dataIndex: 'symbol', width: 110, render: (v: string) => <span className="wb-nowrap-mono">{v}</span> },
     {
       title: t('direction'),
       dataIndex: 'position_side',
       width: 80,
       render: (side: PositionInfo['position_side']) => (
-        <Tag color={side === 'long' ? 'green' : side === 'short' ? 'red' : 'blue'}>
+        <span className={`qc-chip ${SIDE_CHIP_LEVEL[side] ?? 'quiet'}`}>
           {side === 'long' ? t('position_side_long') : side === 'short' ? t('position_side_short') : t('position_side_both')}
-        </Tag>
+        </span>
       ),
     },
     { title: t('quantity'), dataIndex: 'quantity', align: 'right', width: 100, render: (v: number) => formatQuantity(v) },
@@ -59,15 +63,15 @@ export default function PositionsTab() {
 
   const orderColumns: TableColumnsType<OrderInfo> = [
     { title: t('backtest_time'), dataIndex: 'created_at', width: 160, render: (v: string) => <span className="wb-nowrap-mono">{formatTimestamp(v)}</span> },
-    { title: t('symbol'), dataIndex: 'symbol', width: 110 },
+    { title: t('symbol'), dataIndex: 'symbol', width: 110, render: (v: string) => <span className="wb-nowrap-mono">{v}</span> },
     {
       title: t('backtest_action'),
       dataIndex: 'side',
       width: 80,
-      render: (side: Side) => <Tag color={side === 'buy' ? 'green' : side === 'sell' ? 'red' : 'default'}>{(side || '').toUpperCase()}</Tag>,
+      render: (side: Side) => <span className={`qc-chip ${SIDE_CHIP_LEVEL[side] ?? 'quiet'}`}>{(side || '').toUpperCase()}</span>,
     },
     { title: t('quantity'), dataIndex: 'quantity', align: 'right', width: 100, render: (v: number) => formatQuantity(v) },
-    { title: t('status'), dataIndex: 'status', width: 100, render: (v: string) => <Tag>{(v || '-').toUpperCase()}</Tag> },
+    { title: t('status'), dataIndex: 'status', width: 100, render: (v: string) => <span className="qc-chip quiet">{(v || '-').toUpperCase()}</span> },
   ];
 
   return (

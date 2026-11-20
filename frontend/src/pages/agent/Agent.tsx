@@ -7,7 +7,6 @@ import {
   Select,
   Tooltip,
   App,
-  Tag,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -22,7 +21,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAgentStore } from './store/agentStore';
 import { useWorkbenchStore, isWorkbenchTab } from './store/workbenchStore';
 import { workerApi } from '@/api/workerApi';
-import { WorkerStatusText, WorkerStatusColor } from '@/types/worker';
+import { WorkerStatusText, WorkerStatus } from '@/types/worker';
 import type { Worker } from '@/types/worker';
 import { usePolling } from '@/hooks/usePolling';
 import ChatPanel from './components/ChatPanel';
@@ -32,6 +31,31 @@ import WorkbenchPanel from './components/workbench/WorkbenchPanel';
 import './Agent.css';
 
 const { Content } = Layout;
+
+/**
+ * Worker 状态 → §6.2 qc-chip 语义档位（彩色 antd Tag 全量退场）：
+ * 运行/衔接中带 pdot 脉冲，停机中性，异常红、暂停/中断警告。
+ */
+const WORKER_CHIP_LEVEL: Record<string, string> = {
+  [WorkerStatus.INITIALIZING]: 'info',
+  [WorkerStatus.INITIALIZED]: 'quiet',
+  [WorkerStatus.STARTING]: 'info',
+  [WorkerStatus.RUNNING]: 'ok',
+  [WorkerStatus.STOPPING]: 'info',
+  [WorkerStatus.STOPPED]: 'quiet',
+  [WorkerStatus.ERROR]: 'down',
+  [WorkerStatus.RECOVERING]: 'warn',
+  [WorkerStatus.RELOADING]: 'info',
+  [WorkerStatus.RESTARTING]: 'info',
+  [WorkerStatus.PAUSED]: 'warn',
+  [WorkerStatus.INTERRUPTED]: 'warn',
+};
+/** 进行中状态徽标内嵌脉冲点（§6.2 pdot） */
+const WORKER_CHIP_PULSING = new Set<string>([
+  WorkerStatus.INITIALIZING, WorkerStatus.STARTING, WorkerStatus.RUNNING,
+  WorkerStatus.STOPPING, WorkerStatus.RECOVERING, WorkerStatus.RELOADING,
+  WorkerStatus.RESTARTING,
+]);
 
 // 主页面
 const Agent = () => {
@@ -224,9 +248,12 @@ const Agent = () => {
               />
               {currentWorker && (
                 <Tooltip title={t(WorkerStatusText[currentWorker.status] ?? currentWorker.status)}>
-                  <Tag color={WorkerStatusColor[currentWorker.status] ?? 'default'} className="wb-worker-status">
+                  <span
+                    className={`qc-chip ${WORKER_CHIP_LEVEL[currentWorker.status] ?? 'quiet'} wb-worker-status`}
+                  >
+                    {WORKER_CHIP_PULSING.has(currentWorker.status) && <span className="qc-pdot" />}
                     {t(WorkerStatusText[currentWorker.status] ?? currentWorker.status)}
-                  </Tag>
+                  </span>
                 </Tooltip>
               )}
             </div>
@@ -307,7 +334,7 @@ const Agent = () => {
           danger: true,
           disabled: confirmText !== t('confirm_delete'),
         }}
-        className="delete-confirm-modal"
+        className="delete-confirm-modal qc-modal"
       >
         <div style={{ marginBottom: 16 }}>
           <p><strong>{t('agent_delete_warning_main')}</strong></p>

@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Empty, Space, Tag } from 'antd';
+import { Button, Empty, Space } from 'antd';
 import { ClearOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useWorkbenchStore } from '../../store/workbenchStore';
 import type { WorkerLog } from '@/types/worker';
@@ -53,10 +53,11 @@ export default function LogsTab() {
   return (
     <div className="wb-logs">
       <div className="wb-logs-toolbar">
-        <Space size={6}>
-          <Tag color={connected ? 'green' : 'default'}>
+        <Space size={6} align="center">
+          <span className={`qc-chip ${connected ? 'ok' : 'quiet'}`}>
+            {connected && <span className="qc-pdot" />}
             {connected ? t('wb_log_connected') : t('wb_log_disconnected')}
-          </Tag>
+          </span>
           <Button
             size="small"
             icon={paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}

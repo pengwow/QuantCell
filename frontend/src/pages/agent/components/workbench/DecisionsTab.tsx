@@ -5,13 +5,14 @@
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Empty, Spin, Tag, Tooltip } from 'antd';
+import { Button, Empty, Spin, Tooltip } from 'antd';
 import { getWorkerDecisionDetail } from '@/api/workerApi';
 import type { CascadeDecisionRecord } from '@/types/backtest';
 import DecisionDetailDrawer, { fmtDecisionTs } from '@/pages/backtest/DecisionDetailDrawer';
 import { useWorkbenchStore } from '../../store/workbenchStore';
 
-const ACTION_COLORS: Record<string, string> = { buy: 'green', sell: 'red', hold: 'default' };
+/** 动作 → §6.2 qc-chip 档位：买绿卖红、持有中性（替代彩色 antd Tag） */
+const ACTION_CHIP_LEVEL: Record<string, string> = { buy: 'ok', sell: 'down', hold: 'quiet' };
 const VISIBLE_ROWS = 50;
 
 // 决策 _ts 后端带 Z（UTC）；直接截字符串会显示 UTC 时间（08:04 vs 本地 16:04）。
@@ -60,9 +61,9 @@ export default function DecisionsTab() {
               onClick={() => setDetail(r)}
             >
               <span className="wb-dec-time">{timeOf(r._ts)}</span>
-              <Tag color={ACTION_COLORS[r.action] || 'default'} className="wb-dec-action">
+              <span className={`qc-chip ${ACTION_CHIP_LEVEL[r.action] || 'quiet'} wb-dec-action`}>
                 {(r.action || '-').toUpperCase()}
-              </Tag>
+              </span>
               <span className="wb-dec-conf">
                 <span className="wb-dec-conf-label">{t('backtest_confidence')} {typeof r.confidence === 'number' ? r.confidence.toFixed(2) : '-'}</span>
                 <span className="wb-conf-bar">

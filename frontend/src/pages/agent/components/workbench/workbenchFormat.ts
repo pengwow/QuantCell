@@ -9,13 +9,13 @@ import type { AgentLoopJob, AgentRunRecord, ToolAuditRow } from '@/api/agentApi'
 export const isTrainTaskTerminal = (status?: string | null): boolean =>
   status === 'done' || status === 'error' || status === 'cancelled';
 
-/** 训练卡状态徽标色（antd Tag） */
-export const TRAIN_STATUS_COLORS: Record<RLTrainTaskStatus, string> = {
-  queued: 'default',
-  running: 'processing',
-  done: 'green',
-  error: 'red',
-  cancelled: 'orange',
+/** 训练卡状态徽标 → §6.2 qc-chip 语义档位（原 antd Tag 色名全量退役） */
+export const TRAIN_STATUS_LEVELS: Record<RLTrainTaskStatus, string> = {
+  queued: 'quiet',
+  running: 'info',
+  done: 'ok',
+  error: 'down',
+  cancelled: 'warn',
 };
 
 /**
@@ -42,12 +42,13 @@ export const AUDIT_STATUSES = [
   'invalid_params',
 ] as const;
 
-export const AUDIT_STATUS_COLORS: Record<string, string> = {
-  success: 'green',
-  error: 'red',
-  blocked_approval: 'orange',
-  blocked_scope: 'gold',
-  invalid_params: 'volcano',
+/** audit 状态徽标 → §6.2 qc-chip 语义档位（原 antd Tag 色名全量退役） */
+export const AUDIT_STATUS_LEVELS: Record<string, string> = {
+  success: 'ok',
+  error: 'down',
+  blocked_approval: 'warn',
+  blocked_scope: 'warn',
+  invalid_params: 'down',
 };
 
 /**

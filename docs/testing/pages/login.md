@@ -16,8 +16,12 @@
 | A4 | 在`登录`页签用已有账号（qa 账号或 A3 新建账号）填写正确的用户名/密码，点`登录` | `POST /api/v1/auth/login` 返回 HTTP 200 且响应体 `code=0`；提示`登录成功`并跳转 `/home`；浏览器 localStorage 同时写入 `access_token` 与 `quantcell_jwt_token`（两个 key 都在） | L2 |
 | A5 | 用错误密码登录 | `POST /api/v1/auth/login` 仍是 **HTTP 200**，响应体 `code=401`、`message=用户名或密码错误`；页面弹出可读中文错误提示，停留 `/login`，不出现 `[object Object]` | L2（回归哨：状态码 ≠ 业务码） |
 | A6 | 空表单直接点`登录` | 前端校验拦截：用户名/密码处出现`请输入用户名`/`请输入密码`；不发 `/auth/login` 请求 | L2 |
+| A7 | 视觉收口：卡片规格 | 登录卡挂 `.qc-card`：`getComputedStyle` 断言 `background-color` = `--qc-surface` 实际值、`border-color` = `--qc-border` 实际值、`border-radius: 10px`；页面底 = `--qc-canvas` 实际值 | L1 |
+| A8 | 视觉收口：控件档位 | `getComputedStyle` 断言：用户名/密码输入框 `height: 32px`、主按钮（登录/立即注册）`height: 32px` 且底色 = primary token；前缀图标钮与输入框同高对齐 | L1 |
+| A9 | 视觉收口：亮暗可用 | 暗色主题下直开 `/login`：卡面/输入框/网格底纹全部随 token 换挡（无刺眼白块、网格线为弱 tint 而非恒定灰色）；表单可正常输入与提交（A4 链路不变） | L1 |
 
 ## 历史雷区
+- **校验文案曾显示成 i18n key**：`message: t('username_required') || '请输入用户名'` 里的键在 `i18n/*.json` 根本不存在，而 `t()` 缺键时返回**键名本身**（truthy），`||` 兜底永远不生效 → 空表单提交会看到 `username_required`。已改用既有键 `enter_username` / `enter_password`；新增校验文案时必须先确认键存在
 - **两个 token key 缺一不可**：`AuthGuard` 只读 `access_token`，请求头取 `quantcell_jwt_token` 对象。只注入其一会表现为"页面进得去、接口全 401"；免登录注入必须按 `../README.md` 第一节整段执行
 - **登录/注册失败也是 HTTP 200**：后端把业务失败放在响应体 `code`（400/401/409），前端按 `data.code` 判定。拿状态码断言会把登录失败误判为成功
 - **注册成功 ≠ 已登录**：注册接口不返回 token，页面切回登录页签并清空密码；断言"注册后直接进首页"必然失败

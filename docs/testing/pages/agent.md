@@ -29,6 +29,9 @@
 | AG16 | 观察`记忆自迭代（Dream）`卡 | 总闸 chip 与 `QUANTCELL_AGENT_DREAM` 实际值一致；MEMORY.md 只读渲染；`已整合 x/y` 进度（x=模型下游 `.dream_cursor`，y=history.jsonl 行数）；`上次运行`三态如实（无记录`重启后尚未运行`/no-op 灰/失败红可展开 detail）；`下次运行：每日 04:00`；底部注明`Dream 只整理记忆，不会替你执行交易` | L2 |
 | AG17 | 观察`每日闭环时钟线`卡 | 四行 job 与 `core/scheduler.py` 挂载一致（03:30 OOS 审计 / 03:35 每日复盘 / 03:40 自动重训 / 04:00 Dream）；总闸环境变量未开时该行显示`已关闭（总闸未开）`灰点而非红失败；行可点开展开 last_run 详情/错误 | L2 |
 | AG18 | 观察`重训台账`卡 | 双闸 chip 与 `QUANTCELL_AUTO_RETRAIN`/`QUANTCELL_AUTO_PROMOTE` 实际值一致；任一关闭时出现警示条「模型不会自动更换——终点为晋升待审，需人工审核」；空表显示`暂无重训台账记录`并注明 shadow 对照为回测替代口径（已知降级项）。**默认部署双闸全关，`已关闭`是正确断言不是缺陷** | L2 |
+| AG19 | 视觉收口：徽章形制（亮/暗各跑一遍） | 整页（含全部右栏 Tab、抽屉、弹窗）DOM 中 `.ant-tag` 数量为 0；Worker 状态、训练状态、审计状态、模型 stage、决策 buy/sell 徽章均为 `.qc-chip` 形制（tint 底 + 语义档位），进行中徽章带 `.qc-pdot` 脉冲点 | L1 |
+| AG20 | 视觉收口：聊天流形制 | `getComputedStyle` 断言：AI 头像 32×32、`border-radius: 8px`、底色 = info token；消息气泡 `border-radius: 12px`、内边距 11px/15px、有 bubble-shadow；用户消息行右对齐、气泡底色 = `--qc-user-bubble-bg`；工具调用为链式节点形制（mono 工具名 + 参数摘要 + 状态 chip），而非孤立项徽章 | L1 |
+| AG21 | 视觉收口：主题换挡 | 切换亮/暗主题后无需刷新：页面底、气泡底、边框、徽章 tint 全部跟随 token 变化（`computedStyle` 的 `background-color`/`border-color` 应随主题出现两套不同 rgb）；页面任何位置不出现写死的灰阶色块 | L1 |
 
 ## 历史雷区
 - **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`

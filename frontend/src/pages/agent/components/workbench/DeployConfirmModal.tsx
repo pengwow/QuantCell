@@ -198,6 +198,7 @@ export default function DeployConfirmModal({ row, prefill, onClose, onDeployed }
       onCancel={onClose}
       width={560}
       destroyOnHidden
+      className="qc-modal"
       footer={
         <>
           <Button onClick={onClose}>{t('cancel')}</Button>

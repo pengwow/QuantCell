@@ -2,13 +2,14 @@
  * 登录/注册页面
  * 支持用户注册和登录，不再支持访客模式
  */
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { IconArrowRight, IconLock, IconUser, IconUserPlus } from "@tabler/icons-react";
 import { Button, Card, Form, Input, Space, Typography, Tabs, App } from "antd";
 import { saveToken } from "../../utils/tokenManager";
 import { setPageTitle } from "@/utils/pageTitle";
+import "./LoginPage.css";
 
 const { Title, Text } = Typography;
 
@@ -94,14 +95,6 @@ const LoginPage = () => {
     setPageTitle(t('login') || '登录');
   }, [t]);
 
-  const bgStyle = useMemo<React.CSSProperties>(() => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="rgb(100 100 100 / 0.08)"><path d="M0 .5H31.5V32"/></svg>`;
-    return {
-      backgroundImage: `url('data:image/svg+xml;base64,${btoa(svg)}')`,
-      maskImage: `linear-gradient(to bottom right, transparent, black, transparent)`,
-    };
-  }, []);
-
   const getRedirectPath = (): string => {
     const savedPath = sessionStorage.getItem('redirect_after_login');
     if (savedPath && savedPath !== '/login') {
@@ -184,7 +177,7 @@ const LoginPage = () => {
     {
       key: 'login',
       label: (
-        <span className="flex items-center gap-1">
+        <span className="login-tab-label">
           <IconUser size="1em" />
           {t("login_tab") || "登录"}
         </span>
@@ -195,34 +188,33 @@ const LoginPage = () => {
           layout="vertical"
           onFinish={handleLogin}
           autoComplete="off"
-          className="pt-2"
         >
           <Form.Item
             name="username"
             label={<span>{t("username") || "用户名"}</span>}
-            rules={[{ required: true, message: t("username_required") || "请输入用户名" }]}
+            rules={[{ required: true, message: t('enter_username') }]}
             validateTrigger="onSubmit"
           >
-            <Space.Compact block className="h-10">
-              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
-              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10" autoFocus />
+            <Space.Compact block>
+              <Button icon={<IconUser size="1.25em" />} disabled />
+              <Input placeholder={t("enter_username") || "请输入用户名"} autoFocus />
             </Space.Compact>
           </Form.Item>
 
           <Form.Item
             name="password"
             label={<span>{t("password") || "密码"}</span>}
-            rules={[{ required: true, message: t("password_required") || "请输入密码" }]}
+            rules={[{ required: true, message: t('enter_password') }]}
             validateTrigger="onSubmit"
           >
-            <Space.Compact block className="h-10">
-              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
-              <Input.Password placeholder={t("enter_password") || "请输入密码"} className="h-10" />
+            <Space.Compact block>
+              <Button icon={<IconLock size="1.25em" />} disabled />
+              <Input.Password placeholder={t("enter_password") || "请输入密码"} />
             </Space.Compact>
           </Form.Item>
 
-          <Form.Item className="mb-0 mt-8">
-            <Button type="primary" htmlType="submit" block size="large" loading={loading} icon={<IconArrowRight size="1.25em" />} iconPlacement="end">
+          <Form.Item className="login-submit-item">
+            <Button type="primary" htmlType="submit" block loading={loading} icon={<IconArrowRight size="1.25em" />}>
               {t("login") || "登录"}
             </Button>
           </Form.Item>
@@ -232,7 +224,7 @@ const LoginPage = () => {
     {
       key: 'register',
       label: (
-        <span className="flex items-center gap-1">
+        <span className="login-tab-label">
           <IconUserPlus size="1em" />
           {t("register_tab") || "注册"}
         </span>
@@ -243,21 +235,20 @@ const LoginPage = () => {
           layout="vertical"
           onFinish={handleRegister}
           autoComplete="off"
-          className="pt-2"
         >
           <Form.Item
             name="username"
             label={<span>{t("username") || "用户名"}</span>}
             rules={[
-              { required: true, message: t("username_required") || "请输入用户名" },
+              { required: true, message: t('enter_username') },
               { min: 2, message: t("username_min_length") || "用户名至少2个字符" },
               { max: 50, message: t("username_max_length") || "用户名不超过50个字符" },
             ]}
             validateTrigger="onSubmit"
           >
-            <Space.Compact block className="h-10">
-              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
-              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10" autoFocus />
+            <Space.Compact block>
+              <Button icon={<IconUser size="1.25em" />} disabled />
+              <Input placeholder={t("enter_username") || "请输入用户名"} autoFocus />
             </Space.Compact>
           </Form.Item>
 
@@ -265,19 +256,19 @@ const LoginPage = () => {
             name="password"
             label={<span>{t("password") || "密码"}</span>}
             rules={[
-              { required: true, message: t("password_required") || "请输入密码" },
+              { required: true, message: t('enter_password') },
               { min: 6, message: t("password_min_length") || "密码至少6个字符" },
             ]}
             validateTrigger="onSubmit"
           >
-            <Space.Compact block className="h-10">
-              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center" />
-              <Input.Password placeholder={t("enter_password") || "请输入密码（至少6位）"} className="h-10" />
+            <Space.Compact block>
+              <Button icon={<IconLock size="1.25em" />} disabled />
+              <Input.Password placeholder={t("enter_password") || "请输入密码（至少6位）"} />
             </Space.Compact>
           </Form.Item>
 
-          <Form.Item className="mb-0 mt-8">
-            <Button type="primary" htmlType="submit" block size="large" loading={loading} icon={<IconUserPlus size="1.25em" />} iconPlacement="end">
+          <Form.Item className="login-submit-item">
+            <Button type="primary" htmlType="submit" block loading={loading} icon={<IconUserPlus size="1.25em" />}>
               {t("register_btn") || "立即注册"}
             </Button>
           </Form.Item>
@@ -287,24 +278,24 @@ const LoginPage = () => {
   ];
 
   return (
-    <div className="relative min-h-screen w-full bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0" style={bgStyle} />
+    <div className="login-page">
+      <div className="login-grid" />
 
-      <div className="flex h-screen w-full items-center justify-center px-4">
-        <Card className="w-full max-w-md rounded-lg shadow-lg">
-          <div className="px-6 py-8">
-            {/* Logo */}
-            <div className="mb-8 flex flex-col items-center justify-center">
-              <img src="/logo.svg" alt="QuantCell" className="mb-4 h-16 w-16" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              <Title level={3} className="m-0">QuantCell</Title>
-              <Text type="secondary">{t("login_subtitle") || "量化交易平台"}</Text>
-            </div>
+      <div className="login-center">
+        <Card className="login-card qc-card">
+          {/* Logo + 品牌（页内文案维持 i18n 词条） */}
+          <div className="login-brand">
+            <img src="/logo.svg" alt="QuantCell" className="login-logo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <Title level={3} style={{ margin: 0 }}>QuantCell</Title>
+            <Text className="login-subtitle">{t("login_subtitle") || "量化交易平台"}</Text>
+          </div>
 
-            {/* 登录/注册 Tab 切换 */}
+          {/* 登录/注册 Tab 切换 */}
+          <div className="login-form-wrap">
             <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key as 'login' | 'register')} centered items={tabItems} />
 
-            <div className="mt-4 text-center">
-              <Text type="secondary" className="text-xs">
+            <div className="login-hint">
+              <Text className="login-subtitle">
                 {activeTab === 'login'
                   ? (t("login_hint") || "已有账号？请输入用户名和密码登录")
                   : (t("register_hint") || "创建账号后即可使用完整功能")}

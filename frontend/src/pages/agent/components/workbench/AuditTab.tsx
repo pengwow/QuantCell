@@ -9,14 +9,14 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button, Empty, Input, Select, Spin, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Empty, Input, Select, Spin, Table, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { queryToolAudit } from '@/api/agentApi';
 import type { ToolAuditRow } from '@/api/agentApi';
 import { formatTimestamp } from '@/utils/format';
 import { useWorkbenchStore } from '../../store/workbenchStore';
-import { AUDIT_STATUSES, AUDIT_STATUS_COLORS, formatAuditArgs } from './workbenchFormat';
+import { AUDIT_STATUSES, AUDIT_STATUS_LEVELS, formatAuditArgs } from './workbenchFormat';
 
 const PAGE_SIZE = 50;
 
@@ -91,7 +91,7 @@ export default function AuditTab() {
       title: t('wb_audit_status'),
       dataIndex: 'result_status',
       width: 110,
-      render: (v: string) => <Tag color={AUDIT_STATUS_COLORS[v] ?? 'default'}>{v}</Tag>,
+      render: (v: string) => <span className={`qc-chip ${AUDIT_STATUS_LEVELS[v] ?? 'quiet'}`}>{v}</span>,
     },
     {
       title: t('wb_audit_user'),
