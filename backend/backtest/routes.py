@@ -40,6 +40,7 @@ from common.notifications.task_notices import (
 from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
+from strategy.service import StrategyService
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -66,6 +67,26 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 创建回测服务实例
 backtest_service = BacktestService()
+
+# 类型列用的策略元数据读取器（惰性，仅 /list 页码内的策略名会解析）
+_strategy_meta_service: StrategyService | None = None
+
+
+def _attach_strategy_kinds(backtests: list[dict]) -> None:
+    """给每行补 ``strategy_kind``（rule/rl/llm，取不到为 None）。
+
+    口径与策略管理页 kind 一致（同一个 `_strategy_kind`）；只解析本页出现的
+    策略名，不扫全量策略文件。
+    """
+    global _strategy_meta_service
+    names = [b.get("strategy_name") for b in backtests if b.get("strategy_name")]
+    if not names:
+        return
+    if _strategy_meta_service is None:
+        _strategy_meta_service = StrategyService()
+    kinds = _strategy_meta_service.strategy_kinds(names)
+    for item in backtests:
+        item["strategy_kind"] = kinds.get(item.get("strategy_name"))
 
 
 def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
@@ -192,6 +213,9 @@ def get_backtest_list(
         )
 
         logger.info(f"成功获取回测结果列表，共 {total} 条，返回 {len(backtests)} 条")
+
+        # 「类型」列：rule / rl / llm（策略文件 AST 真值；已删策略为 null → 前端显示占位）
+        _attach_strategy_kinds(backtests)
 
         return ApiResponse(
             code=0,

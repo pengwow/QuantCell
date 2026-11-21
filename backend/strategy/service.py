@@ -366,6 +366,36 @@ class StrategyService:
                 return "llm"
         return "rule"
 
+    def strategy_kinds(self, names: Any) -> dict[str, str | None]:
+        """按策略名批量取类型（rule / rl / llm），供列表端点标注「类型」列。
+
+        口径与策略管理页的 kind 完全一致（同一个 ``_strategy_kind``），区别只在
+        数据来源：这里按名字现读策略文件，只解析传入的几个名字，不拉整个列表。
+
+        - ``rl_model:`` / ``rl_ensemble:`` 前缀的回测任务由模型中心直发、不落策略
+          文件，直接归 rl（与 backtest/routes.py 的 ``source='rl'`` 同口径）；
+        - 策略文件不存在（策略已删但历史任务还在）→ None，由调用方显示占位符，
+          不按名字猜类型。
+        """
+        kinds: dict[str, str | None] = {}
+        for name in names or []:
+            if not name or name in kinds:
+                continue
+            if name.startswith(("rl_model:", "rl_ensemble:")):
+                kinds[name] = "rl"
+                continue
+            path = self.strategy_dir / f"{name}.py"
+            if not path.is_file():
+                kinds[name] = None
+                continue
+            try:
+                info = self._parse_strategy_file(name, path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.debug(f"读取策略文件失败 {name}: {e}")
+                info = None
+            kinds[name] = self._strategy_kind(info) if info else None
+        return kinds
+
     @classmethod
     def _latest_backtest_payload(cls, task: Any, cache: dict[str, float | None]) -> dict[str, Any] | None:
         if task is None:

@@ -219,6 +219,21 @@ const BacktestList = () => {
     }
   };
 
+  // 策略类型 chip：rule/rl/llm 三类与策略管理页同形制（info/pri/warn），
+  // 取不到（策略已删）显示占位 —— 不按策略名猜类型
+  const renderKindChip = (kind: BacktestTask['strategy_kind']) => {
+    switch (kind) {
+      case 'rl':
+        return <span className="qc-chip pri">{t('bt_kind_rl')}</span>;
+      case 'llm':
+        return <span className="qc-chip warn">{t('bt_kind_llm')}</span>;
+      case 'rule':
+        return <span className="qc-chip info">{t('bt_kind_rule')}</span>;
+      default:
+        return <span className="qc-mono qc-cell-none">—</span>;
+    }
+  };
+
   // 删除回测任务（Popconfirm 确认；入口按钮由访客禁用兜底）
   const handleDelete = async (taskId: string) => {
     try {
@@ -435,6 +450,7 @@ const BacktestList = () => {
         <div className="bt-summary-head">
           <span className="bt-summary-title">{t('backtest_detail')}</span>
           <span className="qc-mono bt-summary-strat">{selectedTask.strategy_name}</span>
+          {renderKindChip(selectedTask.strategy_kind)}
           {renderStatusChip(selectedTask.status)}
           {subSegs.length > 0 && !summaryLoading && (
             <span className="qc-mono bt-summary-sub">{subSegs.join(' · ')}</span>
@@ -541,6 +557,15 @@ const BacktestList = () => {
           </Tooltip>
         );
       },
+    },
+    {
+      title: t('bt_col_kind'),
+      dataIndex: 'strategy_kind',
+      key: 'strategy_kind',
+      width: 76,
+      // 回测任务混合 rule / rl / llm 三类策略，靠这一列区分；
+      // 值由后端按策略文件 AST 判定（rl_model:/rl_ensemble: 前缀归 rl），不是名字前缀猜测
+      render: (kind: BacktestTask['strategy_kind']) => renderKindChip(kind),
     },
     {
       title: t('symbol'),

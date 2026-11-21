@@ -129,6 +129,9 @@ export interface BacktestTask {
   end_time?: string;
   /** 订单数（metrics_summary.metrics.total_trades；v1 旧摘要无此键 → undefined，UI 显示「—」） */
   total_trades?: number;
+  /** 策略类型（rule/rl/llm，后端按策略文件 AST 判定；rl_model:/rl_ensemble: 前缀归 rl；
+   *  策略已删且无记录 → null，UI 显示「—」，不按名字猜） */
+  strategy_kind?: 'rule' | 'rl' | 'llm' | null;
 }
 
 // 回测行内轻摘要接口（GET /backtest/{id}/summary）：任务级字段 + 组合级指标字典，
