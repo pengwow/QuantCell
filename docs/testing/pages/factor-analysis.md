@@ -11,8 +11,9 @@
 
 | # | 操作 | 预期（可观测信号） | 层级 |
 |---|---|---|---|
-| F1 | 直接打开 `/factor-analysis` | 页头标题「因子分析」+ mono 副标「因子库 N 个 · 有效 x · 观察 y · 失效 z」（N/x/y/z 与 `catalog` 按状态聚合一致：LIVE=有效，DISCOVERED/INSPECTED/PAPER_TRADING=观察，RETIRED=失效）；页头右侧主色「新建因子」；工具栏有搜索框（占位「搜索因子名 / 名称」）、状态胶囊 chips「全部/有效/观察/失效」、下拉「全部分类」「全部来源」、「刷新」、「策略研究」、右侧计数「显示 x-y / 共 z」；主区为表格（列头「因子 / 分类 / 来源 / IC 均值 / ICIR / 状态 / 快照数 / 最近快照 / 操作」）或空态
+| F1 | 直接打开 `/factor-analysis` | 页头标题「因子分析」+ mono 副标「因子库 N 个 · 有效 x · 观察 y · 失效 z」（N/x/y/z 与 `catalog` 按状态聚合一致：LIVE=有效，DISCOVERED/INSPECTED/PAPER_TRADING=观察，RETIRED=失效）；页头右侧主色「新建因子」；工具栏有搜索框（占位「搜索因子名 / 名称」）、状态胶囊 chips「全部/有效/观察/失效」、下拉「全部分类」「全部来源」、「刷新」、「策略研究」、右侧计数「显示 x-y / 共 z」；主区为表格（列头「因子 / 分类 / 来源 / IC 均值 / ICIR / 覆盖率 / 状态 / 快照数 / 最近快照 / 操作」）或空态
 （搜索/筛选无结果时文案为「没有匹配的因子」，库为空时为「因子库为空，可新建因子或使用 LLM 挖掘」，两者不同） | L1 |
+| F1a | 因子库表格「覆盖率」列（位于 ICIR 与「状态」之间） | 列头文本为「覆盖率」（en 为 `Coverage`），单元格右对齐 mono、形如 `98.2%`（一位小数，与右侧概览「覆盖率」同口径）；取首行因子名对照 `curl -s http://localhost:8000/api/v1/factor/catalog` 中该条 `last_metrics.coverage`，单元格文本 = `(coverage × 100).toFixed(1) + '%'`；`last_metrics` 缺失或 `coverage == null` 时显示 `—`（**不是 0.0%**） | L1 |
 | F2 | 观察 F1 加载过程中的网络与 URL | `GET /api/v1/factor/catalog` 返回 200；目录加载后若选中了某因子，URL 变为 `?factor=<name>`（replace 写入，不新增历史）；切换/刷新后选中项保持（记住上次查看因子） | L1 |
 | F3 | 点「因子对比」Tab | URL 变为 `/factor-analysis?tab=compare`（同时保留 `factor` 参数，参数顺序不限）；出现卡「分析参数」，字段「因子 / 品种 / 周期 / 时间范围 / IC方法 / 分组数 / 滚动窗 / 前瞻(根) / 衰减滞后 / 单边成本(bp) / FDR校正」与按钮「开始对比」；下方空提示「选择 2-5 个因子后点击「开始对比」」；`GET /api/v1/factor/list-detail` 与 `GET /api/v1/factor/instruments?candle_type=spot` 均返回 200 | L1 |
 | F4 | 回「因子库」Tab，点任意一行（或行操作列的「眼睛」图标） | 眼睛钮悬浮提示「查看详情」；右侧抽屉打开（宽约 68% 视口），展示该因子的「展示名 + 英文标识（mono）」标签行与 Tab「概览 / 分析 / 快照 / 代码」；标签行用胶囊 chip（内置/代码/合成/AI/无数据），内置因子带「内置」标签 | L1 |

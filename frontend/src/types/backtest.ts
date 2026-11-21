@@ -124,6 +124,11 @@ export interface BacktestTask {
   intervals?: string[];
   engine_type?: string;
   updated_at?: string;
+  /** 回测区间起止（任务行 config 透传；老任务缺 config 时无此字段，UI 显示「—」） */
+  start_time?: string;
+  end_time?: string;
+  /** 订单数（metrics_summary.metrics.total_trades；v1 旧摘要无此键 → undefined，UI 显示「—」） */
+  total_trades?: number;
 }
 
 // 回测行内轻摘要接口（GET /backtest/{id}/summary）：任务级字段 + 组合级指标字典，

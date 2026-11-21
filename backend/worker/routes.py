@@ -23,6 +23,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from sqlalchemy import func
 
 from config.capabilities import require_live_trading
 from strategy.decision_recording import list_decisions_from_file, load_record_by_seq, worker_replay_path
@@ -39,6 +40,7 @@ from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
 )
+from .models import Worker, WorkerCapital, WorkerTrade
 from .vocab import normalize_position_side, normalize_side
 from .worker_state import worker_state_manager
 
@@ -215,6 +217,87 @@ async def list_workers(
             item["status"] = state.status
 
     return schemas.ApiResponse(code=0, message="success", data=result)
+
+
+@router.get(
+    "/stats/pnl-overview",
+    response_model=schemas.ApiResponse,
+    summary="首页 KPI 今日盈亏（近 24h 已实现盈亏占配置资金比）",
+)
+@handle_worker_exceptions("获取今日盈亏汇总")
+async def get_pnl_overview(
+    hours: int = Query(24, ge=1, le=168, description="回看小时数"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """首页看板「今日盈亏」口径（只算真实数据，算不出的留空）：
+
+    - 分子 = SUM(worker_trades.realized_pnl)，窗口按 entry_time 过滤（与
+      ``crud.sum_daily_realized_pnl`` 的日度口径同源）；realized_pnl 是配对
+      **毛**盈亏（见 paper_trade_sync 模块头：手续费不挤入盈亏，live 口径与
+      币安 myTrades.realizedPnl 一致），因此这里不宣称「已扣手续费」。
+    - 分母 = 配置资金合计：worker_capital.initial_capital（有行时）否则
+      workers.config.initial_capital。``current_capital`` 全库无写入方，
+      读它只会拿到默认值，不构成「当前权益」，故不用。
+    - 分母为 0（历史 worker 未配初始资金）→ ``pnl_pct`` 为 null，前端渲染「—」。
+    - 归属过滤与列表同口径（``_worker_owner_filter``）。
+
+    只读聚合，不改动任何既有接口字段。
+    """
+    owner_id = _worker_owner_filter(current_user)
+    query = db.query(Worker.id, Worker.config)
+    if owner_id is not None:
+        query = query.filter(Worker.owner_id == owner_id)
+    rows = query.all()
+    worker_ids = [row[0] for row in rows]
+
+    realized = 0.0
+    trade_count = 0
+    if worker_ids:
+        window_start = datetime.now() - timedelta(hours=hours)
+        pnl, trades = (
+            db.query(
+                func.coalesce(func.sum(WorkerTrade.realized_pnl), 0.0),
+                func.count(WorkerTrade.id),
+            )
+            .filter(
+                WorkerTrade.worker_id.in_(worker_ids),
+                WorkerTrade.realized_pnl.isnot(None),
+                WorkerTrade.entry_time >= window_start,
+            )
+            .one()
+        )
+        realized = float(pnl or 0.0)
+        trade_count = int(trades or 0)
+
+    capital = 0.0
+    if worker_ids:
+        cap_rows = dict(
+            db.query(WorkerCapital.worker_id, WorkerCapital.initial_capital)
+            .filter(WorkerCapital.worker_id.in_(worker_ids))
+            .all()
+        )
+        for worker_id, config_json in rows:
+            cap = cap_rows.get(worker_id)
+            if cap is None:
+                try:
+                    cap = float(json.loads(config_json or "{}").get("initial_capital") or 0.0)
+                except TypeError, ValueError:
+                    cap = 0.0
+            capital += float(cap or 0.0)
+
+    return schemas.ApiResponse(
+        code=0,
+        message="success",
+        data={
+            "window_hours": hours,
+            "realized_pnl": round(realized, 8),
+            "trade_count": trade_count,
+            "capital": round(capital, 8),
+            # 分母为 0 时不给百分比：0/0 不是 0%，是无意义
+            "pnl_pct": round(realized / capital * 100, 4) if capital > 0 else None,
+        },
+    )
 
 
 @router.get("/{worker_id}", response_model=schemas.ApiResponse)

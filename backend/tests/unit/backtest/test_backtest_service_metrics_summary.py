@@ -164,6 +164,7 @@ def _write_task_full(
     strategy_name: str = "dual_ma",
     metrics_summary: dict | None = None,
     created_at: str = "2026-01-01T00:00:00",
+    config: dict | None = None,
 ) -> None:
     """带策略名/摘要/创建时间的任务文件（真分页/筛选/排序用例的数据源）"""
     tasks_dir = svc.results_dir.parent / "backtest_tasks"
@@ -179,7 +180,35 @@ def _write_task_full(
     }
     if metrics_summary is not None:
         task["metrics_summary"] = metrics_summary
+    if config is not None:
+        task["config"] = config
     (tasks_dir / f"task_{task_id}.json").write_text(json.dumps(task), encoding="utf-8")
+
+
+def test_get_result_list_projects_range_and_trade_count(tmp_path) -> None:
+    """列表行透传「区间」与「订单」真值：config 起止 + metrics.total_trades，缺源为 None 不造 0"""
+    svc = _make_service(tmp_path)
+    _write_task_full(
+        svc,
+        "r1",
+        "completed",
+        metrics_summary={
+            "total_return": 12.4,
+            "max_drawdown": 8.3,
+            "metrics": {"total_return": 12.4, "max_drawdown": 8.3, "total_trades": 236},
+        },
+        config={"start_time": "2025-09-01 00:00:00", "end_time": "2026-11-18 23:59:59"},
+    )
+    # v1 旧摘要（无 metrics 字典）与无 config 的任务：字段为 None，前端显示「—」
+    _write_task_full(svc, "r2", "completed", metrics_summary={"total_return": 1.0, "max_drawdown": 2.0})
+
+    rows, _ = svc.get_result_list()
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["r1"]["start_time"] == "2025-09-01 00:00:00"
+    assert by_id["r1"]["end_time"] == "2026-11-18 23:59:59"
+    assert by_id["r1"]["total_trades"] == 236
+    assert by_id["r2"]["start_time"] is None
+    assert by_id["r2"]["total_trades"] is None
 
 
 def test_get_result_list_pagination_filter_sort(tmp_path) -> None:

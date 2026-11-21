@@ -93,6 +93,14 @@ function sharpeText(row: UnifiedModelRow): string {
   return v == null ? '-' : Number(v).toFixed(2);
 }
 
+// Sharpe 染色:正 up / 负 down / 0 与空值中性(表格列与卡片视图共用同一套阈值)
+function sharpeToneClass(row: UnifiedModelRow): string {
+  const v = row.metrics?.sharpe_ratio ?? row.metrics?.sharpe;
+  if (v == null) return '';
+  const n = Number(v);
+  return n > 0 ? ' qc-cell-up' : n < 0 ? ' qc-cell-down' : '';
+}
+
 // 卡片视图元信息行:label 左 value 右（label 不换行，value 可截断）
 function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -361,9 +369,7 @@ export default function UnifiedModelTable({
       render: (_, record) => {
         const v = record.metrics?.sharpe_ratio ?? record.metrics?.sharpe;
         if (v == null) return <span className="qc-mono qc-cell-none">—</span>;
-        const n = Number(v);
-        const tone = n > 0 ? ' qc-cell-up' : n < 0 ? ' qc-cell-down' : '';
-        return <span className={`qc-mono${tone}`}>{n.toFixed(2)}</span>;
+        return <span className={`qc-mono${sharpeToneClass(record)}`}>{Number(v).toFixed(2)}</span>;
       },
     },
     {
@@ -526,7 +532,10 @@ export default function UnifiedModelTable({
                         {/* 状态从右上角挪到标签行,右上角让位给删除按钮 */}
                         <StatusChip row={record} />
                       </Space>
-                      <MetaRow label="Sharpe" value={<span className="qc-mono">{sharpeText(record)}</span>} />
+                      <MetaRow
+                        label="Sharpe"
+                        value={<span className={`qc-mono${sharpeToneClass(record)}`}>{sharpeText(record)}</span>}
+                      />
                       <MetaRow
                         label={t('umt_col_created')}
                         value={

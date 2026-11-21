@@ -1041,6 +1041,7 @@ class BacktestService:
                 self._save_task_file(task_file, task)
                 summary = task["metrics_summary"]
 
+            config = task.get("config") or {}
             rows.append(
                 {
                     "id": task.get("id"),
@@ -1055,6 +1056,13 @@ class BacktestService:
                     "updated_at": task.get("updated_at"),
                     "total_return": (summary or {}).get("total_return"),
                     "max_drawdown": (summary or {}).get("max_drawdown"),
+                    # 「区间」列：起止直接取任务行 config（与 DB 行同源，/summary 也从这里补），
+                    # 老任务无 config 时如实为 None，由前端显示「—」
+                    "start_time": config.get("start_time"),
+                    "end_time": config.get("end_time"),
+                    # 「订单」列：v2 摘要的 metrics 字典里已有 total_trades；
+                    # v1 旧摘要只有两键 → None（不读大结果文件、不造 0）
+                    "total_trades": ((summary or {}).get("metrics") or {}).get("total_trades"),
                 }
             )
 

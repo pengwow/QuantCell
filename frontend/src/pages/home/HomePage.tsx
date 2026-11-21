@@ -29,7 +29,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import PageContainer from '@/components/PageContainer';
 import { QcEmpty } from '@/components/ui/DataTable';
 import { usePolling } from '@/hooks/usePolling';
-import { backtestApi, systemApi } from '@/api';
+import { apiRequest, backtestApi, systemApi } from '@/api';
 import workerApi from '@/api/workerApi';
 import { researchApi } from '@/api/research';
 import type { BacktestTask } from '@/types/backtest';
@@ -42,6 +42,40 @@ import './HomePage.css';
 
 // 「更新于 x 前」需要相对时间；extend 幂等，重复调用无副作用
 dayjs.extend(relativeTime);
+
+/** GET /workers/stats/pnl-overview（backend/worker/routes.py 只读聚合） */
+interface PnlOverview {
+  window_hours: number;
+  /** 窗口内已实现盈亏合计（配对毛口径，手续费不挤入） */
+  realized_pnl: number;
+  trade_count: number;
+  /** 配置资金合计（worker_capital 有行取 initial_capital，否则 workers.config） */
+  capital: number;
+  /** 分母为 0 时后端给 null（0/0 不等于 0%） */
+  pnl_pct: number | null;
+}
+
+/** 回测任务行「区间 · 周期」真值（来自 GET /backtest/{id}/summary 的 backtest_config） */
+interface BacktestRange {
+  start?: string;
+  end?: string;
+  interval?: string;
+}
+
+/** 周期取值校验：历史任务文件里有 "invalid" 这种脏值，不是真周期，不渲染 */
+const showInterval = (interval?: string): string | undefined =>
+  interval && /^\d+[mhdwM]$/.test(interval) ? interval : undefined;
+
+/** 回测行「区间 · 周期」：区间仅在 summary 给到起止时间时渲染，缺失退回创建时间 */
+function backtestRangeLabel(task: BacktestTask, range?: BacktestRange): string {
+  const interval = range?.interval;
+  const suffix = interval ? ` · ${interval}` : '';
+  if (range?.start && range?.end) {
+    return `${dayjs(range.start).format('YYYY-MM-DD')} → ${dayjs(range.end).format('YYYY-MM-DD')}${suffix}`;
+  }
+  if (task.created_at) return `${dayjs(task.created_at).format('MM-DD HH:mm')}${suffix}`;
+  return '—';
+}
 
 /** 回测状态 → §6.2 chip 语义（与 BacktestList 的 renderStatusChip 口径一致） */
 function backtestChip(status: string): { cls: string; label: string; pulse: boolean } {
@@ -117,6 +151,13 @@ const HomePage = () => {
   const [workersTotal, setWorkersTotal] = useState(0);
   const [backtests, setBacktests] = useState<BacktestTask[]>([]);
   const [backtestsTotal, setBacktestsTotal] = useState(0);
+  const [backtestCounts, setBacktestCounts] = useState<{
+    completed: number;
+    running: number;
+    failed: number;
+  } | null>(null);
+  const [backtestRanges, setBacktestRanges] = useState<Record<string, BacktestRange>>({});
+  const [pnlOverview, setPnlOverview] = useState<PnlOverview | null>(null);
   const [research, setResearch] = useState<ResearchSession[]>([]);
   const [researchTotal, setResearchTotal] = useState(0);
   const [system, setSystem] = useState<SystemMetrics | null>(null);
@@ -125,21 +166,65 @@ const HomePage = () => {
 
   // 四个接口互不依赖，用 allSettled 保证单个失败不影响其他区块
   const load = useCallback(async () => {
-    const [workerRes, backtestRes, researchRes, systemRes] = await Promise.allSettled([
-      workerApi.getWorkers({ page: 1, page_size: 50 }),
-      backtestApi.getBacktestList({ page: 1, page_size: 96 }),
-      researchApi.list({ limit: 50, offset: 0 }),
-      systemApi.getSystemMetrics(),
-    ]);
+    const [workerRes, backtestRes, researchRes, systemRes, pnlRes, doneRes, runRes, failRes] =
+      await Promise.allSettled([
+        workerApi.getWorkers({ page: 1, page_size: 50 }),
+        backtestApi.getBacktestList({ page: 1, page_size: 96 }),
+        researchApi.list({ limit: 50, offset: 0 }),
+        systemApi.getSystemMetrics(),
+        // KPI2 今日盈亏：近 24h 已实现盈亏 ÷ 配置资金，后端只读聚合
+        apiRequest.get<PnlOverview>('/workers/stats/pnl-overview'),
+        // KPI3 副标分布：取服务端 total（page_size=1 只要计数），不是本页样本计数
+        // ponytail: 三次请求各扫一遍 task JSON（本地 ~150ms）；升级路径是回测侧提供 status 聚合字段
+        backtestApi.getBacktestList({ page: 1, page_size: 1, status: 'completed' }),
+        backtestApi.getBacktestList({ page: 1, page_size: 1, status: 'running' }),
+        backtestApi.getBacktestList({ page: 1, page_size: 1, status: 'failed' }),
+      ]);
 
     if (workerRes.status === 'fulfilled') {
       setWorkers(workerRes.value.items ?? []);
       setWorkersTotal(workerRes.value.total ?? 0);
     }
     if (backtestRes.status === 'fulfilled') {
-      setBacktests(backtestRes.value.backtests ?? []);
+      const items = backtestRes.value.backtests ?? [];
+      setBacktests(items);
       setBacktestsTotal(backtestRes.value.total ?? 0);
+
+      // 「区间 · 周期」：列表行不带起止时间，只有 /backtest/{id}/summary 的
+      // backtest_config 有真值（DB 行缺配置的旧任务给空对象 → 不给区间）
+      // ponytail: summary 对 completed 任务首次会读结果 JSON 并回写任务文件（一次性，
+      // 之后毫秒级）；固定 5 条不随分页放大，升级路径是列表接口直接回传起止区间
+      const recent = [...items]
+        .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+        .slice(0, 5);
+      const summaries = await Promise.allSettled(
+        recent.map((task) => backtestApi.getBacktestSummary(String(task.id)))
+      );
+      const nextRanges: Record<string, BacktestRange> = {};
+      recent.forEach((task, index) => {
+        const summary = summaries[index];
+        if (summary.status !== 'fulfilled') return;
+        const config = summary.value.backtest_config ?? {};
+        nextRanges[String(task.id)] = {
+          start: config.start_time,
+          end: config.end_time,
+          interval: showInterval(config.interval ?? task.intervals?.[0]),
+        };
+      });
+      setBacktestRanges(nextRanges);
     }
+    if (
+      doneRes.status === 'fulfilled' &&
+      runRes.status === 'fulfilled' &&
+      failRes.status === 'fulfilled'
+    ) {
+      setBacktestCounts({
+        completed: doneRes.value.total ?? 0,
+        running: runRes.value.total ?? 0,
+        failed: failRes.value.total ?? 0,
+      });
+    }
+    if (pnlRes.status === 'fulfilled') setPnlOverview(pnlRes.value);
     if (researchRes.status === 'fulfilled') {
       setResearch(researchRes.value.sessions ?? []);
       setResearchTotal(researchRes.value.total ?? 0);
@@ -158,8 +243,8 @@ const HomePage = () => {
     [workers]
   );
 
-  const totalProfit = useMemo(
-    () => workers.reduce((sum, worker) => sum + (worker.total_profit ?? 0), 0),
+  const pausedWorkers = useMemo(
+    () => workers.filter((worker) => worker.status === 'paused'),
     [workers]
   );
 
@@ -203,7 +288,9 @@ const HomePage = () => {
   const offline = system?.connectionStatus === 'disconnected' || system?.connectionStatus === 'error';
   // 首次加载尚未拿到任何数据时才展示骨架；轮询刷新不打断已有内容
   const firstLoading = loading && updatedAt === null;
-  const pnlTone = firstLoading ? '' : totalProfit > 0 ? ' up' : totalProfit < 0 ? ' down' : '';
+  const pnlPct = pnlOverview?.pnl_pct ?? null;
+  // 0 变动中性不染色：只有严格正/负才上色
+  const pnlTone = firstLoading || pnlPct === null ? '' : pnlPct > 0 ? ' up' : pnlPct < 0 ? ' down' : '';
 
   // 页头副标（§5 mono 口径行）：日期/星期取本地时间，时区取系统偏移，
   // 「系统运行中 / 数据同步时间」只在接口真的给出现状时才写，拿不到就省略
@@ -274,19 +361,25 @@ const HomePage = () => {
             </div>
             {/* ponytail: 运行中数从 page_size=50 样本统计，样本不足时偏小；upgrade path 同上 */}
             <div className="qc-kpi-num">{firstLoading ? '—' : runningWorkers.length}</div>
-            <div className="qc-kpi-sub">{t('home_kpi_running_hint', { total: workersTotal })}</div>
+            <div className="qc-kpi-sub">
+              {t('home_kpi_running_breakdown', {
+                total: workersTotal,
+                running: runningWorkers.length,
+                paused: pausedWorkers.length,
+              })}
+            </div>
           </div>
           <div className="qc-kpi">
             <div className="qc-kpi-top">
-              <span className="qc-kpi-lb">{t('home_kpi_pnl')}</span>
+              <span className="qc-kpi-lb">{t('home_kpi_pnl_today')}</span>
               <span className="home-kpi-ico">
                 <IconTrendingUp />
               </span>
             </div>
             <div className={`qc-kpi-num${pnlTone}`}>
-              {firstLoading ? '—' : formatUSD(totalProfit, { showSign: true })}
+              {firstLoading || pnlPct === null ? '—' : formatPercent(pnlPct, { showSign: true })}
             </div>
-            <div className="qc-kpi-sub">{t('home_kpi_pnl_hint')}</div>
+            <div className="qc-kpi-sub">{t('home_kpi_pnl_today_hint', { hours: pnlOverview?.window_hours ?? 24 })}</div>
           </div>
           <div className="qc-kpi">
             <div className="qc-kpi-top">
@@ -297,7 +390,11 @@ const HomePage = () => {
             </div>
             {/* 服务端 total：真实回测总数（非页面样本长度） */}
             <div className="qc-kpi-num">{firstLoading ? '—' : backtestsTotal}</div>
-            <div className="qc-kpi-sub">{t('home_kpi_backtests_hint')}</div>
+            <div className="qc-kpi-sub">
+              {backtestCounts
+                ? t('home_kpi_backtests_breakdown', backtestCounts)
+                : t('home_kpi_backtests_hint')}
+            </div>
           </div>
           <div className="qc-kpi">
             <div className="qc-kpi-top">
@@ -524,7 +621,7 @@ const HomePage = () => {
                   >
                     <span className="qc-mono home-mini-id">{task.strategy_name}</span>
                     <span className="qc-mono home-mini-x">
-                      {task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '—'}
+                      {backtestRangeLabel(task, backtestRanges[String(task.id)])}
                     </span>
                     <span className="home-mini-right">
                       <span className={`qc-chip ${chip.cls}`}>
@@ -542,6 +639,19 @@ const HomePage = () => {
                   </div>
                 );
               })}
+            </div>
+          )}
+          {/* 卡脚说明（demo 921 对位）：只写真实机制——LLM 回测缺 replay 记录直接报错，不降级 Hold */}
+          {!firstLoading && recentBacktests.length > 0 && (
+            <div
+              className="home-foot"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+            >
+              <span>{t('home_backtest_foot')}</span>
+              <button type="button" className="home-cardlink" onClick={() => navigate('/backtest')}>
+                {t('backtest_center')}
+                <IconArrowRight />
+              </button>
             </div>
           )}
         </Card>

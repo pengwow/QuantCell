@@ -267,6 +267,17 @@ const FactorLibraryPane: React.FC<Props> = ({
       },
     },
     {
+      // 覆盖率：与概览面板同口径（last_metrics.coverage ×100 保留 1 位）；无值写「—」不写 0
+      title: t('factor_stat_coverage'),
+      width: 78,
+      align: 'right',
+      render: (_, r) => {
+        const c = r.last_metrics?.coverage;
+        if (c == null) return <span className="qc-cell-none qc-mono">—</span>;
+        return <span className="qc-mono">{`${(c * 100).toFixed(1)}%`}</span>;
+      },
+    },
+    {
       title: t('factor_lib_col_status'),
       dataIndex: 'lifecycle_status',
       width: 88,
@@ -537,8 +548,8 @@ const FactorLibraryPane: React.FC<Props> = ({
       loading={loading}
       dataSource={filtered}
       rowKey="name"
-      // 9 列总宽 ~840：窄窗口下横向滚动，绝不再把首列压成竖排
-      scroll={{ x: 840 }}
+      // 10 列总宽 ~984：窄窗口下横向滚动，绝不再把首列压成竖排
+      scroll={{ x: 984 }}
       // 选中背景只作为「抽屉打开项」的高亮；打开抽屉走操作列按钮，点行同效
       rowClassName={(r) => (r.name === selected ? 'qc-row-selected' : '')}
       onRow={(r) => ({

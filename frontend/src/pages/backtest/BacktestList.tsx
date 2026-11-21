@@ -5,9 +5,10 @@ import type { Dayjs } from 'dayjs';
 import type { TableProps } from 'antd';
 import { DeleteOutlined, EyeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
+import { getBacktestProgress } from '../../api/backtest';
 import { useTranslation } from 'react-i18next';
 import { setPageTitle } from '@/utils/pageTitle';
-import type { BacktestTask, BacktestSummaryData } from '../../types/backtest';
+import type { BacktestTask, BacktestSummaryData, BacktestProgressData } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
@@ -72,6 +73,11 @@ const BacktestList = () => {
   const [summaryError, setSummaryError] = useState(false);
   const summaryCache = useRef(new Map<string, BacktestSummaryData>());
 
+  // 运行中/失败任务的进度快照（demo bt-run 进度条 / bt-fail 错误块）：
+  // 只在选中任务处于这两种状态时按任务 id 拉一次；progress 是内存态，
+  // 服务重启后的旧失败任务拿不到 error（接口返回空）→ 如实不渲染，不编原因
+  const [progress, setProgress] = useState<BacktestProgressData | null>(null);
+
   // 选中行必须仍在当前页才显示面板（翻页/筛选后行不可见 → 面板自然隐藏，回来又恢复）
   const selectedTask = tasks.find((task) => task.id === selectedRowKey) || null;
 
@@ -114,6 +120,25 @@ const BacktestList = () => {
       cancelled = true;
     };
   }, [selectedRowKey, selectedTask]);
+
+  // 进度快照：仅 running/in_progress/failed 需要（进度条 / 失败原因）
+  const progressTaskId = selectedTask?.status && ['running', 'in_progress', 'failed'].includes(selectedTask.status)
+    ? String(selectedTask.id)
+    : '';
+  useEffect(() => {
+    if (!progressTaskId) {
+      setProgress(null);
+      return;
+    }
+    let cancelled = false;
+    setProgress(null);
+    getBacktestProgress(progressTaskId).then((data) => {
+      if (!cancelled) setProgress(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [progressTaskId]);
 
   // 设置页面标题
   useEffect(() => {
@@ -249,6 +274,30 @@ const BacktestList = () => {
     return <span className="qc-mono">{values.join(',')}</span>;
   };
 
+  // 「区间」列（demo .c-range）：`2025-09-01 → 2026-11-18`，mono 紧凑；
+  // 任务行无 config 起止时整格「—」，不拿创建时间冒充回测区间
+  const renderRange = (start?: string, end?: string) => {
+    const day = (value?: string) => (/^\d{4}-\d{2}-\d{2}/.test(value || '') ? String(value).slice(0, 10) : null);
+    const from = day(start);
+    if (!from) {
+      // 老任务/异常配置里出现过 "invalid-date" 之类非日期串：不渲染成残缺日期
+      return <span className="qc-mono qc-cell-none">—</span>;
+    }
+    return (
+      <span className="qc-cell-time qc-mono">
+        {from} → {day(end) || '—'}
+      </span>
+    );
+  };
+
+  // 「订单」列（demo .c-num）：total_trades 原值右对齐，缺值「—」，不写 0
+  const renderTradeCount = (value: number | undefined) => {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return <span className="qc-mono qc-cell-none">—</span>;
+    }
+    return <span className="qc-mono">{value}</span>;
+  };
+
   // 行内摘要 KPI（demo .mstats）：与详情页同 spec 着色/格式；盈亏为 0 中性不染色
   const renderSummaryStats = (metrics: Record<string, number | string>) => {
     const cards = SUMMARY_METRIC_KEYS
@@ -362,6 +411,16 @@ const BacktestList = () => {
     // 耗时：≥48h（陈旧任务）不显示，见 formatElapsedCompact 注释
     const elapsed = typeof summary?.elapsed_seconds === 'number' ? formatElapsedCompact(summary.elapsed_seconds) : null;
     if (elapsed) subSegs.push(t('bt_summary_elapsed', { elapsed }));
+    // 运行中：已运行时长 = created_at 到现在的真实差值（demo head-right「已运行 01h 07m」）
+    const running = selectedTask.status === 'running' || selectedTask.status === 'in_progress';
+    if (running && selectedTask.created_at) {
+      const runningFor = formatElapsedCompact((Date.now() - dayjs(selectedTask.created_at).valueOf()) / 1000);
+      if (runningFor) subSegs.push(t('bt_running_for', { elapsed: runningFor }));
+    }
+    // 进度接口的 overall_progress 是 0–100 的真实百分比；无快照（服务重启后的旧任务）就不画条
+    const rawPercent = progress ? Number(progress.overall_progress) : NaN;
+    const percent = Number.isFinite(rawPercent) ? Math.max(0, Math.min(100, Math.round(rawPercent))) : null;
+    const failMessage = selectedTask.status === 'failed' ? progress?.error?.message : undefined;
 
     const footSegs: string[] = [];
     if (typeof cfg?.initial_cash === 'number') {
@@ -383,6 +442,45 @@ const BacktestList = () => {
         </div>
         {summaryLoading && (
           <div className="bt-summary-body"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>
+        )}
+        {/* 运行中：真实总体进度（progress 接口）；「预计剩余」无源不做 */}
+        {running && percent !== null && (
+          <div className="bt-summary-body">
+            <div className="qc-mono" style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>
+              {t('bt_progress_label')}{' '}
+              <span style={{ color: 'var(--qc-primary)' }}>{percent}%</span>
+            </div>
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+              style={{ height: 6, marginTop: 4, borderRadius: 3, background: 'var(--qc-border)', overflow: 'hidden' }}
+            >
+              <i style={{ display: 'block', height: '100%', width: `${percent}%`, background: 'var(--qc-primary)' }} />
+            </div>
+          </div>
+        )}
+        {/* 失败原因：progress 接口的 error.message（内存态，旧任务取不到就不渲染，不编结论句） */}
+        {failMessage && (
+          <div className="bt-summary-body">
+            <div style={{ fontSize: 11.5, fontWeight: 550, color: 'var(--qc-error)' }}>
+              {t('bt_fail_reason')}
+              {progress?.error?.stage ? ` · ${progress.error.stage}` : ''}
+            </div>
+            <div
+              className="qc-mono"
+              style={{
+                marginTop: 4,
+                fontSize: 11,
+                color: 'var(--qc-text-tertiary)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {failMessage}
+            </div>
+          </div>
         )}
         {!summaryLoading && summaryError && (
           <div className="bt-summary-body bt-summary-empty">{t('bt_summary_load_failed')}</div>
@@ -457,6 +555,13 @@ const BacktestList = () => {
       ),
     },
     {
+      // demo 列序：时间 / 策略 / 区间 / 周期 …；标的列是现网刻意增量，夹在策略与区间之间
+      title: t('bt_col_range'),
+      key: 'range',
+      width: 190,
+      render: (_, record: BacktestTask) => renderRange(record.start_time, record.end_time),
+    },
+    {
       title: t('bt_col_interval'),
       dataIndex: 'intervals',
       key: 'intervals',
@@ -487,6 +592,15 @@ const BacktestList = () => {
       width: 104,
       align: 'right',
       render: (value: number | undefined) => renderDrawdown(value),
+    },
+    {
+      // demo 列序：收益 → 订单（回撤列是现网刻意增量，按 demo 语义排在订单前）
+      title: t('bt_col_orders'),
+      dataIndex: 'total_trades',
+      key: 'total_trades',
+      width: 80,
+      align: 'right',
+      render: (value: number | undefined) => renderTradeCount(value),
     },
     {
       title: t('action'),
@@ -652,7 +766,12 @@ const BacktestList = () => {
         emptyTitle={hasFilters ? t('bt_no_match_title') : t('no_backtest_tasks')}
         emptyDescription={hasFilters ? t('bt_no_match_desc') : t('bt_empty_desc')}
         emptyAction={
-          hasFilters ? undefined : (
+          hasFilters ? (
+            // demo 1215-1222：空态里直接给「清除筛选」动作（工具栏重置钮仍在）
+            <button type="button" className="qc-mini-btn" onClick={handleResetFilters}>
+              {t('bt_clear_filters')}
+            </button>
+          ) : (
             <button type="button" className="qc-mini-btn pri" onClick={handleStartBacktest}>
               {t('launch_backtest')}
             </button>
@@ -828,7 +947,7 @@ const BacktestList = () => {
   return (
     <PageContainer
       title={t('backtest_center')}
-      subtitle={t('bt_subtitle', { total: overallTotal })}
+      subtitle={t('bt_subtitle', { total: tasks.length, history: overallTotal })}
       actions={
         <>
           <Button
