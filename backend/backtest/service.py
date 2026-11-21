@@ -962,6 +962,9 @@ class BacktestService:
         source: str | None = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        *,
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> tuple[list[dict], int]:
         """
         获取回测结果列表（服务端筛选 + 排序 + 分页）
@@ -975,6 +978,8 @@ class BacktestService:
             source: 来源过滤，'rl' 匹配 rl_model:/rl_ensemble: 前缀策略；其他值忽略不过滤
             sort_by: 排序字段 (created_at/total_return/max_drawdown/strategy_name)，非法值回落 created_at
             sort_order: 排序方向 (asc/desc)
+            start_time: 创建日期过滤起（含），"YYYY-MM-DD"
+            end_time: 创建日期过滤止（含），"YYYY-MM-DD"
 
         Returns:
             (分页后的任务列表, 过滤后的总数)
@@ -1019,6 +1024,13 @@ class BacktestService:
             # 其他 source 值忽略（当前只有一个合法值，不设白名单报错）
             if source == "rl" and not str(task.get("strategy_name") or "").startswith(("rl_model:", "rl_ensemble:")):
                 continue
+
+            # 创建日期过滤（含端点）：created_at 为 ISO 串，取前 10 位日期段与
+            # 日粒度边界做字典序比较（日粒度下等价于数值比较，且对历史杂格式更稳）
+            if start_time or end_time:
+                day = str(task.get("created_at") or "")[:10]
+                if (start_time and day < start_time) or (end_time and day > end_time):
+                    continue
 
             summary = task.get("metrics_summary")
             if status == "completed" and "metrics_summary" not in task:
@@ -1257,14 +1269,49 @@ class BacktestService:
             "metrics": values,
         }
 
+    @staticmethod
+    def _sample_equity_curve(curve: Any, max_points: int = 200) -> list[list[float]]:
+        """把结果 JSON 的 equity_curve（[{timestamp, equity}]，ms 时间戳）降采样为
+        [[ts_ms, equity], ...] 用于行内摘要：均匀取点、保首尾，≤max_points 直出。
+
+        ponytail: 采样为均匀索引而非分桶聚合——摘要卡只画趋势，不追求替代表
+        全分辨率曲线（那仍是详情页整包的事）；真分桶聚合是升级路径。
+        """
+        if not isinstance(curve, list):
+            return []
+        pairs: list[tuple[float, float]] = []
+        for point in curve:
+            if not isinstance(point, dict):
+                continue
+            ts = point.get("timestamp")
+            value = point.get("equity")
+            if ts is None or value is None:
+                continue
+            try:
+                pairs.append((float(ts), float(value)))
+            except TypeError, ValueError:
+                continue
+        if len(pairs) <= max_points:
+            return [[t, v] for t, v in pairs]
+        stride = (len(pairs) - 1) / (max_points - 1)
+        sampled = [[pairs[0][0], pairs[0][1]]]
+        for i in range(1, max_points - 1):
+            t, v = pairs[round(i * stride)]
+            sampled.append([t, v])
+        sampled.append([pairs[-1][0], pairs[-1][1]])
+        return sampled
+
     def get_inline_summary(self, task_id: Any) -> dict | None:
         """列表行内「部分详情」数据源（GET /backtest/{id}/summary）。
 
         任务级字段与列表行完全同源（任务文件）；metrics 优先取 v2 摘要
         （含完整指标字典），只有 v1（旧文件仅 total_return/max_drawdown）时才
         从结果 JSON 重建并回写 —— 单任务一次性慢路径（结果文件可达几百 MB），
-        回写后同任务后续请求毫秒级。失败/运行中任务无结果文件时 metrics 退化为
-        v1 两键或空 dict，前端按「—」渲染。不加载 trades/equity 等大字段。
+        回写后同任务后续请求毫秒级。completed 任务附带 `equity`：行内权益曲线
+        采样点 [[ts_ms, equity], ...]，首次同样走一次结果 JSON 读并回写为
+        任务文件 `equity_sampled`（空列表 = 已查无曲线的哨兵，避免重复大 IO）；
+        running/failed 不给 equity。失败/运行中任务无结果文件时 metrics 退化为
+        v1 两键或空 dict，前端按「—」渲染。不加载 trades/fills 等其余大字段。
 
         Returns:
             dict or None: None = 任务文件不存在
@@ -1280,13 +1327,27 @@ class BacktestService:
             return None
 
         summary = task.get("metrics_summary")
-        if not (isinstance(summary, dict) and isinstance(summary.get("metrics"), dict)):
+        needs_equity = task.get("status") == "completed" and not isinstance(task.get("equity_sampled"), list)
+        if not (isinstance(summary, dict) and isinstance(summary.get("metrics"), dict)) or needs_equity:
             result = self.get_result(task_id)
             if isinstance(result, dict):
-                upgraded = self._metrics_summary_from_result(result)
-                if upgraded.get("metrics"):
-                    summary = upgraded
-                    task["metrics_summary"] = summary
+                dirty = False
+                if not (isinstance(summary, dict) and isinstance(summary.get("metrics"), dict)):
+                    upgraded = self._metrics_summary_from_result(result)
+                    if upgraded.get("metrics"):
+                        summary = upgraded
+                        task["metrics_summary"] = summary
+                        dirty = True
+                if needs_equity:
+                    portfolio = (result.get("results") or {}).get("portfolio") or {}
+                    # 曲线口径与详情页组合视图一致：无 portfolio 条目时退化取品种条目曲线
+                    curve = portfolio.get("equity_curve")
+                    if not curve:
+                        entries = self.extract_symbol_entries(result.get("results") or {})
+                        curve = (next(iter(entries.values()), {}) or {}).get("equity_curve")
+                    task["equity_sampled"] = self._sample_equity_curve(curve)
+                    dirty = True
+                if dirty:
                     self._save_task_file(task_file, task)
 
         # 指标字典：v2 直出；v1 退化为两键；仍无 → 空 dict（前端渲染「—」）
@@ -1299,7 +1360,7 @@ class BacktestService:
                     key: summary[key] for key in ("total_return", "max_drawdown") if summary.get(key) is not None
                 }
 
-        return {
+        data = {
             "id": task.get("id"),
             "strategy_name": task.get("strategy_name"),
             "status": task.get("status"),
@@ -1310,6 +1371,10 @@ class BacktestService:
             "updated_at": task.get("updated_at"),
             "metrics": metrics,
         }
+        # completed 才带权益采样（[] = 查过但无曲线；running/failed 整个字段不给）
+        if task.get("status") == "completed":
+            data["equity"] = task.get("equity_sampled", [])
+        return data
 
     def _write_metrics_summary(self, task_id: Any, summary: dict) -> None:
         """把列表页摘要指标写入任务文件，get_result_list 直接读任务级摘要"""

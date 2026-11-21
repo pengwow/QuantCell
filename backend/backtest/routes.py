@@ -148,6 +148,10 @@ def get_backtest_list(
     source: str | None = Query(None, description="来源过滤：'rl' 匹配 rl_model:/rl_ensemble: 前缀策略，其他值忽略"),
     sort_by: str = Query("created_at", description="排序字段：created_at/total_return/max_drawdown/strategy_name"),
     sort_order: str = Query("desc", description="排序方向：asc/desc"),
+    start_time: str | None = Query(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="创建日期过滤起（含），YYYY-MM-DD"
+    ),
+    end_time: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="创建日期过滤止（含），YYYY-MM-DD"),
 ) -> ApiResponse:
     """
     获取回测结果列表
@@ -183,6 +187,8 @@ def get_backtest_list(
             source=source,
             sort_by=sort_by,
             sort_order=sort_order,
+            start_time=start_time,
+            end_time=end_time,
         )
 
         logger.info(f"成功获取回测结果列表，共 {total} 条，返回 {len(backtests)} 条")
@@ -888,14 +894,15 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
     "/{backtest_id}/summary",
     response_model=ApiResponse,
     summary="获取回测轻量摘要",
-    description="列表行内部分详情：任务级字段 + 组合级指标字典 + 回测配置；不返回 trades/equity 大字段",
+    description="列表行内部分详情：任务级字段 + 组合级指标字典 + 回测配置 + 权益曲线采样（completed）；不返回 trades/equity 全量大字段",
 )
 def get_backtest_summary(backtest_id: str) -> ApiResponse:
     """回测中心行点击的内联摘要（demo #view-backtest .bt-detail 对位）。
 
-    与 GET /{backtest_id}（全量详情）的差异：只读任务文件与任务级指标摘要，
-    不加载 trades / equity_curve / fills —— 结果 JSON 可达几百 MB，行点击的
-    交互延迟不允许整包传输。回测配置（初始资金/手续费/起止区间）任务文件里
+    与 GET /{backtest_id}（全量详情）的差异：只读任务文件与任务级指标摘要。
+    completed 任务附带权益曲线采样点（结果 JSON 首读一次后回写任务文件，
+    之后毫秒级），传输量 ≤ 采样点对，不透传 trades / equity 全量 —— 结果
+    JSON 可达几百 MB。回测配置（初始资金/手续费/起止区间）任务文件里
     常为空对象，从 DB 任务行补全；耗时仅在 completed 且起止时间齐全时给出真实值。
     """
     try:

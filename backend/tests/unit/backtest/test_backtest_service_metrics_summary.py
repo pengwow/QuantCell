@@ -224,3 +224,77 @@ def test_get_result_list_pagination_filter_sort(tmp_path) -> None:
     # 关键字对策略名不区分大小写
     rows_kw, total_kw = svc.get_result_list(keyword="DUAL")
     assert total_kw == 1 and rows_kw[0]["id"] == "a"
+
+
+def _make_equity_curve(n: int = 500, start: float = 1000.0, step: float = 0.5) -> list[dict]:
+    """构造结果 JSON 的 portfolio.equity_curve 同构数据（ms 时间戳 + equity）"""
+    return [
+        {"timestamp": 1777593600000 + i * 900_000, "equity": start + i * step, "balance": start + i * step}
+        for i in range(n)
+    ]
+
+
+def test_get_inline_summary_equity_sampled_and_persisted(tmp_path) -> None:
+    """completed 旧任务首次摘要：附带降采样权益点并回写任务文件，二次调用直出"""
+    svc = _make_service(tmp_path)
+    _write_task_full(svc, "e1", "completed")
+    result = _make_result(3.2, 1.1)
+    result["results"]["portfolio"]["equity_curve"] = _make_equity_curve()
+    (svc.results_dir / "result_e1.json").write_text(json.dumps(result), encoding="utf-8")
+
+    data = svc.get_inline_summary("e1")
+    equity = data["equity"]
+    assert 2 <= len(equity) <= 200
+    assert equity[0] == [1777593600000.0, 1000.0]
+    assert equity[-1] == [1777593600000.0 + 499 * 900_000, 1000.0 + 499 * 0.5]
+
+    # 回写：任务文件带 equity_sampled，二次调用与首次一致（走任务文件）
+    task_file = svc.results_dir.parent / "backtest_tasks" / "task_e1.json"
+    persisted = json.loads(task_file.read_text(encoding="utf-8"))
+    assert persisted["equity_sampled"] == equity
+    assert svc.get_inline_summary("e1")["equity"] == equity
+
+
+def test_get_inline_summary_equity_absent_for_running(tmp_path) -> None:
+    """running 任务即使结果文件有曲线也不给 equity（行内无该形态）"""
+    svc = _make_service(tmp_path)
+    _write_task_full(svc, "e2", "running")
+    result = _make_result(0.0, 0.0)
+    result["results"]["portfolio"]["equity_curve"] = _make_equity_curve(10)
+    (svc.results_dir / "result_e2.json").write_text(json.dumps(result), encoding="utf-8")
+
+    data = svc.get_inline_summary("e2")
+    assert data is not None
+    assert "equity" not in data
+
+
+def test_sample_equity_curve_skips_garbage_points(tmp_path) -> None:
+    """曲线里的非 dict / 缺值 / 非数点被剔除，不产生 NaN"""
+    curve = [
+        "garbage",
+        {"timestamp": 1, "equity": 10.0},
+        {"equity": 11.0},
+        {"timestamp": 3, "equity": "nope"},
+        {"timestamp": 4.0, "equity": 12.5},
+    ]
+    sampled = BacktestService._sample_equity_curve(curve)
+    assert sampled == [[1.0, 10.0], [4.0, 12.5]]
+    assert BacktestService._sample_equity_curve(None) == []
+
+
+def test_get_result_list_filters_by_created_date(tmp_path) -> None:
+    """创建日期过滤含端点：按 created_at 前 10 位日粒度比较"""
+    svc = _make_service(tmp_path)
+    for task_id, day in (("d1", "2026-05-01"), ("d2", "2026-05-02"), ("d3", "2026-05-03")):
+        _write_task_full(svc, task_id, "completed", created_at=f"{day}T12:00:00")
+
+    rows, total = svc.get_result_list(start_time="2026-05-02", end_time="2026-05-02")
+    assert total == 1 and [r["id"] for r in rows] == ["d2"]
+
+    # 端点含入：止日为 05-03 时含 d3
+    rows3, total3 = svc.get_result_list(end_time="2026-05-03")
+    assert total3 == 3 and [r["id"] for r in rows3] == ["d3", "d2", "d1"]
+
+    # 起日为 05-02 时排除 d1
+    rows2, total2 = svc.get_result_list(start_time="2026-05-02")
+    assert total2 == 2 and [r["id"] for r in rows2] == ["d3", "d2"]
