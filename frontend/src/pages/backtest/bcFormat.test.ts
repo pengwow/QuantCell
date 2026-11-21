@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCashGrouped, formatFeePercent } from './bcFormat';
+import { formatCashGrouped, formatFeePercent, formatElapsedCompact } from './bcFormat';
 
 describe('formatCashGrouped', () => {
   it('千分位分组', () => {
@@ -21,5 +21,20 @@ describe('formatFeePercent', () => {
 
   it('零费率不吞零', () => {
     expect(formatFeePercent(0)).toBe('0%');
+  });
+});
+
+describe('formatElapsedCompact', () => {
+  it('分级形制（demo「耗时 42s」）', () => {
+    expect(formatElapsedCompact(42)).toBe('42s');
+    expect(formatElapsedCompact(192)).toBe('3m 12s');
+    expect(formatElapsedCompact(7500)).toBe('2h 05m');
+    expect(formatElapsedCompact(0)).toBe('0s');
+  });
+
+  it('≥48h（陈旧任务）与非法值 → null，重载省略比长串更诚实', () => {
+    expect(formatElapsedCompact(1459037)).toBeNull();
+    expect(formatElapsedCompact(-1)).toBeNull();
+    expect(formatElapsedCompact(NaN)).toBeNull();
   });
 });

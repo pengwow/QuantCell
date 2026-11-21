@@ -13,7 +13,7 @@ import type {
   CleanupResult,
 } from '../pages/setting/types';
 import type { StrategyInfo } from '../types/worker';
-import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
+import type { BacktestTask, BacktestDetailData, BacktestSummaryData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
 import type { DecisionDetailRecord } from '../types/backtest';
 
 // ============================================
@@ -690,6 +690,11 @@ export const backtestApi = {
 
   getBacktestDetail: (backtestId: string, symbol?: string): Promise<BacktestDetailData> => {
     return apiRequest.get(`/backtest/${backtestId}`, symbol ? { symbol } : undefined);
+  },
+
+  // 行内轻摘要（列表行点击的部分详情）：任务级字段 + 组合级指标字典，无 trades/equity 大字段
+  getBacktestSummary: (backtestId: string): Promise<BacktestSummaryData> => {
+    return apiRequest.get(`/backtest/${backtestId}/summary`);
   },
 
   // 决策详情：按 (_seq, fingerprint) 定位单条录制行，返回完整录制内容（决策/快照/Prompt/模型原始输出）

@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Col, Popconfirm, Row, Select, Tooltip, App, Pagination } from 'antd';
+import { Button, Card, Col, Popconfirm, Row, Select, Skeleton, Tooltip, App, Pagination } from 'antd';
 import type { TableProps } from 'antd';
 import { DeleteOutlined, EyeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
 import { useTranslation } from 'react-i18next';
 import { setPageTitle } from '@/utils/pageTitle';
-import type { BacktestTask } from '../../types/backtest';
+import type { BacktestTask, BacktestSummaryData } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
@@ -15,6 +15,9 @@ import dayjs from 'dayjs';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
+import { METRIC_CARDS, formatMetricValue } from './metricCards';
+import { formatCashGrouped, formatElapsedCompact, formatFeePercent } from './bcFormat';
+import './backtest.css';
 
 // 状态筛选（chips）：'all' 不传后端
 type FilterStatus = 'all' | 'completed' | 'running' | 'failed';
@@ -29,6 +32,9 @@ const STATUS_CHIPS: Array<{ value: FilterStatus; i18nKey: string }> = [
   { value: 'running', i18nKey: 'status_running' },
   { value: 'failed', i18nKey: 'status_failed' },
 ];
+
+// 行内摘要 KPI（demo bt-detail mstats 对位）：全部取自组合级真实指标，缺哪个少哪张
+const SUMMARY_METRIC_KEYS = ['total_return', 'sharpe_ratio', 'max_drawdown', 'total_trades', 'win_rate'] as const;
 
 const BacktestList = () => {
   const { t } = useTranslation();
@@ -54,8 +60,57 @@ const BacktestList = () => {
   // 无筛选总数（页头副标「任务表 N 条」口径，不随筛选抖动）
   const [overallTotal, setOverallTotal] = useState<number>(0);
 
-  // 选中的行（点击行进详情前先打选中 tint；键盘 ↑↓ 也可移动）
+  // 选中的行（点击行打选中 tint + 列表下方显示部分详情；键盘 ↑↓ 也可移动，Enter=眼睛进完整详情）
   const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
+
+  // 行内部分详情（demo #view-backtest .bt-detail）：轻摘要按行懒加载，命中过的行复用缓存
+  const [summary, setSummary] = useState<BacktestSummaryData | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState(false);
+  const summaryCache = useRef(new Map<string, BacktestSummaryData>());
+
+  // 选中行必须仍在当前页才显示面板（翻页/筛选后行不可见 → 面板自然隐藏，回来又恢复）
+  const selectedTask = tasks.find((task) => task.id === selectedRowKey) || null;
+
+  useEffect(() => {
+    if (!selectedRowKey || !selectedTask) {
+      setSummary(null);
+      setSummaryError(false);
+      return;
+    }
+    const cached = summaryCache.current.get(String(selectedRowKey));
+    if (cached) {
+      setSummary(cached);
+      setSummaryLoading(false);
+      setSummaryError(false);
+      return;
+    }
+    let cancelled = false;
+    setSummary(null);
+    setSummaryError(false);
+    setSummaryLoading(true);
+    backtestApi
+      .getBacktestSummary(String(selectedRowKey))
+      .then((data) => {
+        if (cancelled) return;
+        if (data && typeof data === 'object' && Array.isArray((data as unknown as { metrics?: unknown }).metrics)) {
+          // 后端契约是 key→value 字典；数组形态说明命中了旧详情接口，按失败处理不渲染
+          setSummaryError(true);
+          return;
+        }
+        summaryCache.current.set(String(selectedRowKey), data);
+        setSummary(data);
+      })
+      .catch(() => {
+        if (!cancelled) setSummaryError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSummaryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRowKey, selectedTask]);
 
   // 设置页面标题
   useEffect(() => {
@@ -155,13 +210,14 @@ const BacktestList = () => {
     navigate('/backtest/config');
   };
 
-  // 数值列：正绿负红；null →「—」弱文本（demo .c-num / .c-muted 口径）
+  // 数值列：正绿负红；null →「—」弱文本（demo .c-num / .c-muted 口径）；0 中性不染色
   const renderReturn = (value: number | null | undefined) => {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return <span className="qc-mono qc-cell-none">—</span>;
     }
+    const cls = value > 0 ? 'qc-cell-up' : value < 0 ? 'qc-cell-down' : '';
     return (
-      <span className={`qc-mono ${value >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>
+      <span className={`qc-mono${cls ? ` ${cls}` : ''}`}>
         {value >= 0 ? '+' : ''}{value.toFixed(2)}%
       </span>
     );
@@ -182,6 +238,85 @@ const BacktestList = () => {
       return <span className="qc-mono qc-cell-none">—</span>;
     }
     return <span className="qc-mono">{values.join(',')}</span>;
+  };
+
+  // 行内摘要 KPI（demo .mstats）：与详情页同 spec 着色/格式；盈亏为 0 中性不染色
+  const renderSummaryStats = (metrics: Record<string, number | string>) => {
+    const cards = SUMMARY_METRIC_KEYS
+      .map((key) => {
+        const spec = METRIC_CARDS.find((m) => m.key === key);
+        const value = Number(metrics[key]);
+        return spec && Number.isFinite(value) ? { spec, value } : null;
+      })
+      .filter((c): c is { spec: (typeof METRIC_CARDS)[number]; value: number } => c !== null);
+    if (cards.length === 0) return null;
+    return (
+      <div className="qc-kpi-grid bt-summary-stats">
+        {cards.map(({ spec, value }) => {
+          const color = spec.color(value, (k) => Number(metrics[k]));
+          const tone = value === 0 ? '' : color === 'positive' ? 'up' : color === 'negative' ? 'down' : '';
+          return (
+            <div className="qc-kpi" key={spec.key}>
+              <div className="qc-kpi-lb">{spec.label}</div>
+              <div className={`qc-kpi-num${tone ? ` ${tone}` : ''}`}>{formatMetricValue(spec, value)}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // 行内摘要卡（demo .bt-detail）：head（标题/策略/chip/sub）+ KPI + 配置脚注；
+  // 全部走轻摘要接口的真实数据，缺段自动省略，不造数
+  const renderInlineSummary = () => {
+    if (!selectedTask) return null;
+    const cfg = summary?.backtest_config;
+    const subSegs: string[] = [];
+    if (cfg?.start_time) {
+      subSegs.push(`${cfg.start_time.slice(0, 10)} → ${cfg.end_time ? cfg.end_time.slice(0, 10) : '—'}`);
+    }
+    const interval = cfg?.interval || summary?.intervals?.join(',');
+    if (interval) subSegs.push(String(interval));
+    // 耗时：≥48h（陈旧任务）不显示，见 formatElapsedCompact 注释
+    const elapsed = typeof summary?.elapsed_seconds === 'number' ? formatElapsedCompact(summary.elapsed_seconds) : null;
+    if (elapsed) subSegs.push(t('bt_summary_elapsed', { elapsed }));
+
+    const footSegs: string[] = [];
+    if (typeof cfg?.initial_cash === 'number') {
+      footSegs.push(`${t('backtest_initial_cash')} ${formatCashGrouped(cfg.initial_cash)}`);
+    }
+    if (typeof cfg?.commission === 'number') {
+      footSegs.push(`${t('backtest_commission')} ${formatFeePercent(cfg.commission)} ${t('bt_summary_fee_side')}`);
+    }
+
+    return (
+      <div className="qc-card bt-summary" role="region" aria-label={t('backtest_detail')}>
+        <div className="bt-summary-head">
+          <span className="bt-summary-title">{t('backtest_detail')}</span>
+          <span className="qc-mono bt-summary-strat">{selectedTask.strategy_name}</span>
+          {renderStatusChip(selectedTask.status)}
+          {subSegs.length > 0 && !summaryLoading && (
+            <span className="qc-mono bt-summary-sub">{subSegs.join(' · ')}</span>
+          )}
+        </div>
+        {summaryLoading && (
+          <div className="bt-summary-body"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>
+        )}
+        {!summaryLoading && summaryError && (
+          <div className="bt-summary-body bt-summary-empty">{t('bt_summary_load_failed')}</div>
+        )}
+        {!summaryLoading && !summaryError && summary && (
+          <>
+            {renderSummaryStats(summary.metrics)}
+            {footSegs.length > 0 && (
+              <div className="bt-summary-foot">
+                <span className="qc-mono bt-summary-config">{footSegs.join(' · ')}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
   };
 
   // 表格列定义 — §6.5：时间 mono 11px fg-3、策略 mono 截断、状态 chip、数值右对齐
@@ -318,7 +453,7 @@ const BacktestList = () => {
 
   const hasFilters = searchText !== '' || statusFilter !== 'all';
 
-  // 渲染列表视图 — §6.5/§6.6/§6.7：chips 状态筛选 + DataTable + 脚注；行点击进详情
+  // 渲染列表视图 — §6.5/§6.6/§6.7：chips 状态筛选 + DataTable + 行内摘要 + 脚注
   const renderListView = () => (
     <>
       <PageToolbar
@@ -408,12 +543,14 @@ const BacktestList = () => {
         }
         onRow={(record) => ({
           onClick: () => {
+            // demo #view-backtest 交互：点击行只做选中 + 列表下方显示部分详情；
+            // 进完整详情走操作列的眼睛（或键盘 Enter），不再直接路由跳转
             setSelectedRowKey(record.id);
-            handleViewDetail(record.id);
           },
           style: { cursor: 'pointer' },
         })}
       />
+      {renderInlineSummary()}
       <div className="qc-footnote">
         <span>{t('bt_footnote')}</span>
       </div>

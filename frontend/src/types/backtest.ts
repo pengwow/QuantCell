@@ -126,6 +126,34 @@ export interface BacktestTask {
   updated_at?: string;
 }
 
+// 回测行内轻摘要接口（GET /backtest/{id}/summary）：任务级字段 + 组合级指标字典，
+// 不含 trades/equity 大字段（结果 JSON 可达几百 MB，行点击交互不允许整包传输）
+export interface BacktestSummaryData {
+  id: string;
+  strategy_name: string;
+  status: string;
+  symbols?: string[];
+  intervals?: string[];
+  engine_type?: string;
+  created_at?: string;
+  updated_at?: string;
+  /** 组合级指标 key→value（与详情页组合视图 metrics 同源；failed/running 常为空） */
+  metrics: Record<string, number | string>;
+  /** 回测配置（任务文件常缺，从 DB 任务行补全；缺哪些键就省略哪些段） */
+  backtest_config?: {
+    symbols?: string[];
+    interval?: string;
+    start_time?: string;
+    end_time?: string;
+    initial_cash?: number;
+    commission?: number;
+    capital_mode?: string;
+    [key: string]: unknown;
+  };
+  /** 耗时（秒）：仅 completed 且后端起止时间齐全时存在 */
+  elapsed_seconds?: number;
+}
+
 // 回测详情数据接口
 export interface BacktestDetailData {
   id: string;
