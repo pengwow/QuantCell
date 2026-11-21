@@ -32,6 +32,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+# 回测结果落盘目录，与 backtest/service.py 的 results_dir 同口径
+# （result_{result_id}.json；单测可 patch 到临时目录）
+_BACKTEST_RESULTS_DIR = Path(__file__).resolve().parent.parent / "data" / "backtest_results"
+
 
 def _annotation_to_str(node: ast.AST | None) -> str:
     """把 type annotation AST 节点转成可读字符串（类外顶层函数，供静态方法调用）。"""
@@ -197,6 +201,236 @@ class StrategyService:
             except Exception as e:
                 logger.warning(f"解析策略文件失败 {file_path.name}: {e}")
         return strategies
+
+    def list_strategies_overview(self) -> list[dict[str, Any]]:
+        """策略管理页列表聚合：策略 × worker × 最近回测（只读，不写库）。
+
+        在 /strategy/list 的每项字段上追加 kind / interval / symbols / state /
+        worker_count / latest_backtest / backtest_count；/list 的既有契约不变（其他页面在用）。
+
+        数据源全部取自真实表，不造字段：
+          - worker：workers.strategy_name（冗余列 + 索引）分组，trading_config
+            是 JSON 文本（interval / symbols_config.symbols / trading_mode）；
+          - 最近回测：backtest_tasks 按 strategy_name 取 created_at 最新一条，
+            total_return 从 result_id 指向的结果文件取，取不到就是 null。
+        """
+        from backtest.models import BacktestTask
+        from utils.db_session import get_db_session
+        from worker.models import Worker
+
+        workers_by_strategy: dict[str, list[Any]] = {}
+        latest_task_by_strategy: dict[str, Any] = {}
+        # 每个策略的历史回测任务总数（真实计数，不是列表样本；footer「累计回测 N 次」）
+        task_counts: dict[str, int] = {}
+        try:
+            with get_db_session() as db:
+                # ponytail: worker 几十条、回测任务几百条，全量拉内存归并即可（避免 N+1）；
+                # 上千级时改成一次 GROUP BY / 窗口函数，不提前建索引表
+                for worker in db.query(Worker).all():
+                    if worker.strategy_name:
+                        workers_by_strategy.setdefault(worker.strategy_name, []).append(worker)
+                # 时间倒序后首次出现即「每个策略最新一条」；同一次遍历顺手累计次数（详情块 footer 用）
+                for task in db.query(BacktestTask).order_by(BacktestTask.created_at.desc()).all():
+                    if not task.strategy_name:
+                        continue
+                    task_counts[task.strategy_name] = task_counts.get(task.strategy_name, 0) + 1
+                    if task.strategy_name not in latest_task_by_strategy:
+                        latest_task_by_strategy[task.strategy_name] = task
+        except Exception as e:
+            # 聚合端点降级：worker/回测读不到时仍返回策略列表（state=undeployed 等），不让整页 500
+            logger.warning(f"策略总览读取 worker/回测数据失败，按空聚合返回: {e}")
+
+        total_return_cache: dict[str, float | None] = {}
+        overview: list[dict[str, Any]] = []
+        for info in self.list_strategies():
+            name = info.get("name", "")
+            workers = workers_by_strategy.get(name, [])
+            # 活跃度排序：interval/symbols 都按「更活跃的 worker 优先」
+            ordered_workers = sorted(workers, key=self._worker_activity_rank)
+            task = latest_task_by_strategy.get(name)
+            overview.append(
+                {
+                    **info,
+                    "kind": self._strategy_kind(info),
+                    "interval": self._first_interval(ordered_workers),
+                    "symbols": self._merged_symbols(ordered_workers),
+                    "state": self._aggregate_worker_state(workers),
+                    "worker_count": len(workers),
+                    "backtest_count": task_counts.get(name, 0),
+                    "latest_backtest": self._latest_backtest_payload(task, total_return_cache),
+                }
+            )
+        return overview
+
+    @staticmethod
+    def _worker_activity_rank(worker: Any) -> int:
+        """worker 活跃度（越小越活跃）：running-live(0) > running-paper/testnet(1)
+        > paused(2) > error(3) > 其他(4)。
+
+        同一策略可以有多个 worker；interval 与 symbols 的合并都以该序为准。
+        """
+        status = (worker.status or "").lower()
+        if status == "running":
+            mode = (worker.get_trading_config_dict().get("trading_mode") or "paper").lower()
+            return 0 if mode == "live" else 1
+        return {"paused": 2, "error": 3}.get(status, 4)
+
+    @classmethod
+    def _aggregate_worker_state(cls, workers: list[Any]) -> str:
+        """策略状态：live > paper > paused > error > stopped；无 worker = undeployed。
+
+        多 worker 冲突时以「更活跃」为准。running 且 trading_mode=live → live；
+        running 的其余模式（paper/testnet）统一算模拟盘 → paper（testnet 不涉及
+        真实资金，归模拟盘比另造枚举诚实）。paused 优先于 error：用户主动暂停
+        是当前意图，error 是执行失败，展示用户动作优先。有 worker 但既无
+        running 也无 paused/error（stopped/interrupted/starting…）→ stopped。
+        """
+        if not workers:
+            return "undeployed"
+        statuses = [(worker.status or "").lower() for worker in workers]
+        if "running" in statuses:
+            for worker in workers:
+                if (worker.status or "").lower() != "running":
+                    continue
+                mode = (worker.get_trading_config_dict().get("trading_mode") or "").lower()
+                if mode == "live":
+                    return "live"
+            return "paper"
+        if "paused" in statuses:
+            return "paused"
+        if "error" in statuses:
+            return "error"
+        return "stopped"
+
+    @staticmethod
+    def _first_interval(ordered_workers: list[Any]) -> str | None:
+        """最活跃 worker 的 K 线周期；无 worker / 未配置 → null。
+
+        直接读 trading_config 的 interval（兼容旧键 timeframe），不调用
+        worker.get_interval() 的 "1h" 兜底默认值——列表要如实显示「未配置」。
+        """
+        for worker in ordered_workers:
+            config = worker.get_trading_config_dict()
+            interval = config.get("interval") or config.get("timeframe")
+            if interval:
+                return str(interval)
+        return None
+
+    @staticmethod
+    def _merged_symbols(ordered_workers: list[Any]) -> list[str]:
+        """关联 worker 的标的去重并集（按活跃度排序）。
+
+        取舍：单 worker 时即其 trading_config.symbols_config.symbols；多 worker 时
+        取并集而非只取最活跃一条，避免同一策略换标的后的旧 worker 让列表漏显示
+        品种。自选组（symbols_config.type=pool）读不到成分，该 worker 不贡献标的
+        （不查库造数）。
+        """
+        symbols: list[str] = []
+        for worker in ordered_workers:
+            config = worker.get_trading_config_dict()
+            for symbol in (config.get("symbols_config") or {}).get("symbols") or []:
+                if symbol and symbol not in symbols:
+                    symbols.append(symbol)
+        return symbols
+
+    @staticmethod
+    def _strategy_kind(info: dict[str, Any]) -> str:
+        """rule / rl / llm。
+
+        rl 取 strategies.strategy_type；llm 的库内约定标记是参数 mode="llm"
+        （llm_signal 模板，与 backtest/routes.py 的 ``params.get("mode") == "llm"``
+        同口径）。没有该标记就只出 rule/rl，不按策略名猜；ML 类型无库内标识，
+        不做。
+        """
+        strategy_type = info.get("strategy_type")
+        # _parse_strategy_file 返回 StrategyType 枚举，兼容成字符串比较
+        strategy_type = getattr(strategy_type, "value", strategy_type)
+        if strategy_type == StrategyType.RL.value:
+            return "rl"
+        for param in info.get("params") or []:
+            if isinstance(param, dict) and param.get("name") == "mode" and param.get("default") == "llm":
+                return "llm"
+        return "rule"
+
+    @classmethod
+    def _latest_backtest_payload(cls, task: Any, cache: dict[str, float | None]) -> dict[str, Any] | None:
+        if task is None:
+            return None
+        created_at = task.created_at
+        return {
+            "status": task.status,
+            "total_return": cls._result_total_return(task.result_id, cache),
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+        }
+
+    @staticmethod
+    def _result_total_return(result_id: str | None, cache: dict[str, float | None]) -> float | None:
+        """从 result_id 指向的结果 JSON 取 total_return（百分比）；取不到 → None，绝不估算。
+
+        结果落盘在 data/backtest_results/result_{id}.json（backtest/service.py 同口径）。
+        账户级指标在 results.portfolio.metrics（[{key,value}] 数组）；无组合视图时
+        退化取第一个品种条目 / results_by_symbol 条目的 metrics（与回测列表同口径）。
+        ponytail: 只对「各策略最新且带 result_id」的任务读文件（单个结果可达几十 MB，
+        实测 result_id 大多为空，开销可控）；量级上来后把 total_return 冗余进任务表，
+        不要在这里加缓存层。
+        """
+        if not result_id:
+            return None
+        key = str(result_id)
+        if key in cache:
+            return cache[key]
+        cache[key] = None
+
+        path = _BACKTEST_RESULTS_DIR / f"result_{key}.json"
+        try:
+            if not path.exists():
+                return None
+            import json
+
+            with open(path, encoding="utf-8") as f:
+                result = json.load(f)
+        except (OSError, ValueError) as e:
+            logger.warning(f"读取回测结果失败 result_id={key}: {e}")
+            return None
+
+        value = StrategyService._extract_total_return(result)
+        cache[key] = value
+        return value
+
+    @staticmethod
+    def _extract_total_return(result: Any) -> float | None:
+        """按回测结果 JSON 的既有结构找 total_return，找不到返回 None。"""
+        if not isinstance(result, dict):
+            return None
+        results = result.get("results")
+        if not isinstance(results, dict):
+            return None
+
+        candidates: list[Any] = []
+        portfolio = results.get("portfolio")
+        if isinstance(portfolio, dict):
+            candidates.append(portfolio.get("metrics"))
+        by_symbol = results.get("results_by_symbol")
+        if isinstance(by_symbol, dict):
+            candidates.extend(entry.get("metrics") for entry in by_symbol.values() if isinstance(entry, dict))
+        for entry in results.values():
+            if isinstance(entry, dict) and entry is not portfolio:
+                candidates.append(entry.get("metrics"))
+
+        for metrics in candidates:
+            if not isinstance(metrics, list):
+                continue
+            for item in metrics:
+                if not isinstance(item, dict) or item.get("key") != "total_return":
+                    continue
+                value = item.get("value")
+                if value is None:
+                    continue
+                try:
+                    return float(value)
+                except TypeError, ValueError:
+                    continue
+        return None
 
     def get_strategy(self, name: str) -> dict[str, Any] | None:
         """获取单个策略详情。

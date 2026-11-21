@@ -10,416 +10,151 @@ import {
   Select,
   Row,
   Col,
-  Tabs,
   Pagination,
 } from 'antd';
 import {
   EditOutlined,
   DeleteOutlined,
-  PlayCircleOutlined,
   PlusOutlined,
-  ReloadOutlined,
-  AppstoreOutlined,
-  HistoryOutlined,
-  LineChartOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
-import { strategyApi, backtestApi } from '../../api';
-import type { Strategy } from '../../types';
-import type { BacktestTask } from '../../types/backtest';
+import { strategyApi } from '../../api';
+import type { StrategyOverviewItem, StrategyParamRecord } from '../../api';
 import { useTranslation } from 'react-i18next';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
+import WorkerCreateModal from '@/components/worker/WorkerCreateModal';
 import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
-import { useConfigStore } from '@/store';
 import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
+import './StrategyManagement.css';
 
 const { confirm } = Modal;
 
-// 排序字段
+// 排序字段（现网增量：排序 Select 保留）
 type SortField = 'name' | 'created_at' | 'updated_at';
 type SortOrder = 'asc' | 'desc';
 
-// Tab 类型
-type TabType = 'strategies' | 'backtests';
-
-// 策略后端返回的 snake_case 扩展字段，仅用于类型读取时的最小收窄
-type StrategyBackendFields = {
-  created_at?: string;
-  updated_at?: string;
-  version?: string;
-};
+// 状态过滤：'' = 全部。其余取值 = /strategy/overview 的 state 契约值
+type StateFilter = '' | 'live' | 'paper' | 'paused' | 'stopped' | 'error' | 'undeployed';
 
 /**
- * 策略管理页面组件
- * 功能：展示策略列表，支持编辑、删除、回测等操作
- * 布局参考策略回测页面
+ * 策略管理页面组件（demo #view-strategy 对齐）
+ *
+ * 数据源：GET /api/v1/strategy/overview（策略 × worker × 最近回测聚合）。
+ * 状态/周期/标的/Worker/最近回测都是 worker 与任务表的聚合投影，本页不做本地拼凑；
+ * 端点不可用时展示空态（不回退 /strategy/list 硬拼假字段）。
+ * 「回测记录」页签已退役：回测统一在回测中心，?tab= 类返回链路进页即 replace 清空。
  */
 const StrategyManagement = () => {
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [items, setItems] = useState<StrategyOverviewItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [searchText, setSearchText] = useState<string>('');
+  const [stateFilter, setStateFilter] = useState<StateFilter>('');
+  const [sortField, setSortField] = useState<SortField>('updated_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  // 行选中（点击行 → 表下详情块；操作钮阻止冒泡）
+  const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
+  // 创建 Worker：复用 worker 模块的现成创建弹窗（真实 POST /workers），不做死钮
+  const [createWorkerOpen, setCreateWorkerOpen] = useState(false);
+
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { isGuest } = useGuestRestriction();
   const [searchParams, setSearchParams] = useSearchParams();
   const { message } = App.useApp();
 
-  // 从 URL 参数读取 Tab 状态
-  const tabFromUrl = searchParams.get('tab') as TabType;
-  const validTab = tabFromUrl === 'strategies' || tabFromUrl === 'backtests' ? tabFromUrl : 'strategies';
-
-  // 视图类型状态 - 策略列表（跟随系统设置「默认展示类型」，页面不提供切换）
+  // 视图类型（跟随系统设置「默认展示类型」，页面不提供切换）
   const viewType = useViewType();
 
-  // Tab 状态 - 从 URL 参数初始化
-  const [activeTab, setActiveTab] = useState<TabType>(validTab);
-
-  // 筛选状态 - 策略列表
-  const [searchText, setSearchText] = useState<string>('');
-  const [sortField, setSortField] = useState<SortField>('updated_at');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-
-  // 回测相关状态
-  const [backtests, setBacktests] = useState<BacktestTask[]>([]);
-  const [backtestLoading, setBacktestLoading] = useState<boolean>(false);
-  const [selectedStrategy, setSelectedStrategy] = useState<string>('');
-
-  // 列表视图行选中（点击行打 primary tint，操作按钮阻止冒泡）
-  const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
-  // 回测列表视图类型（跟随系统设置「默认展示类型」，页面不提供切换）
-  const backtestViewType = useViewType();
-  const [backtestSelectedRowKeys, setBacktestSelectedRowKeys] = useState<React.Key[]>([]);
-
-  // 回测筛选状态
-  const [backtestSearchText, setBacktestSearchText] = useState<string>('');
-  const [backtestStatusFilter, setBacktestStatusFilter] = useState<string>('all');
-  const [backtestSortField, setBacktestSortField] = useState<string>('created_at');
-  const [backtestSortOrder, setBacktestSortOrder] = useState<string>('desc');
-
-  // 全局分页大小（条数切换器即全站开关，切换后跨页面实时同步并持久化）
+  // 全局分页大小（条数切换器即全站开关）
   const [pageSize, setPageSize] = useGlobalPageSize();
 
-  // 分页配置 - 策略列表（pageSize 跟随全局配置；「共 N 条」由 DataTable 默认提供）
-  const [pagination, setPagination] = useState<TableProps<Strategy>['pagination']>(() => ({
+  const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
     current: 1,
     pageSize,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
   }));
 
-  // 分页配置 - 回测列表；state 恒为对象，false/undefined 只在 Table 的 props 上有意义
-  const [backtestPagination, setBacktestPagination] = useState<TablePaginationConfig>(() => ({
-    current: 1,
-    pageSize,
-    showSizeChanger: true,
-    pageSizeOptions: PAGE_SIZE_OPTIONS,
-  }));
-
-  // 全局条数变化（设置页/其他页面改动）实时同步到两个列表的分页状态
   useEffect(() => {
-    setPagination(prev => ({ ...prev, pageSize }));
-    setBacktestPagination(prev => ({ ...prev, pageSize }));
+    setPagination((prev) => ({ ...(prev || {}), pageSize }));
   }, [pageSize]);
 
-  // 页面加载时输出全局配置（用于调试）
-  useEffect(() => {
-    console.log('[StrategyManagement] page loaded, global config state:', useConfigStore.getState());
-  }, []);
-
-  // 设置页面标题
   useEffect(() => {
     setPageTitle(t('strategy_management'));
   }, [t]);
 
-  // 加载策略列表
-  const loadStrategies = async () => {
+  const loadOverview = async () => {
     try {
       setLoading(true);
-      const response = await strategyApi.getStrategies();
-      if (response && response.strategies) {
-        // 后端仅返回精简字段，页面消费 name/description 等子集，富模型字段有兜底
-        setStrategies(response.strategies as unknown as Strategy[]);
-      }
+      const response = await strategyApi.getStrategyOverview();
+      // 拦截器已解包 data，直接得到 { strategies: [...] }
+      setItems(response?.strategies ?? []);
     } catch (error) {
-      console.error('Failed to load strategy list:', error);
+      console.error('Failed to load strategy overview:', error);
+      setItems([]);
       message.error(t('load_strategy_list_failed_generic'));
     } finally {
       setLoading(false);
     }
   };
 
-  // 组件挂载时加载策略列表
+  // 首次挂载：?tab=backtests 等返回链路已随「回测记录」页签退役，
+  // 任何带查询串的进入一律 replace 成裸路径（老书签/旧详情页返回不再复活退役页签）
   useEffect(() => {
-    loadStrategies();
-
-    // 从 URL 参数恢复状态
-    const taskIdFromUrl = searchParams.get('taskId');
-    const strategyFromUrl = searchParams.get('strategy');
-    const searchFromUrl = searchParams.get('search');
-    const statusFromUrl = searchParams.get('status');
-    const sortFieldFromUrl = searchParams.get('sortField');
-    const sortOrderFromUrl = searchParams.get('sortOrder');
-
-    // 如果是从详情页返回（有 returnUrl 相关参数），恢复搜索和筛选状态
-    if (searchFromUrl !== null || statusFromUrl !== null || sortFieldFromUrl !== null || sortOrderFromUrl !== null) {
-      console.log('[StrategyManagement] returning from detail page, restoring search and filter state:', {
-        search: searchFromUrl,
-        strategy: strategyFromUrl,
-        status: statusFromUrl,
-        sortField: sortFieldFromUrl,
-        sortOrder: sortOrderFromUrl,
-      });
-
-      // 恢复搜索文本
-      if (searchFromUrl) {
-        setBacktestSearchText(searchFromUrl);
-      }
-
-      // 恢复策略筛选
-      if (strategyFromUrl) {
-        setSelectedStrategy(strategyFromUrl);
-      }
-
-      // 恢复状态筛选
-      if (statusFromUrl) {
-        setBacktestStatusFilter(statusFromUrl);
-      }
-
-      // 恢复排序
-      if (sortFieldFromUrl) {
-        setBacktestSortField(sortFieldFromUrl);
-      }
-      if (sortOrderFromUrl) {
-        setBacktestSortOrder(sortOrderFromUrl);
-      }
-
-      // 自动切换到回测记录 tab
-      setActiveTab('backtests');
+    if (searchParams.toString()) {
+      setSearchParams({}, { replace: true });
     }
-
-    // 如果是从回测完成跳转过来（有 taskId）
-    if (taskIdFromUrl || strategyFromUrl) {
-      console.log('[StrategyManagement] params from URL:', { taskId: taskIdFromUrl, strategy: strategyFromUrl });
-
-      // 如果有 taskId，填充到回测搜索框
-      if (taskIdFromUrl) {
-        setBacktestSearchText(taskIdFromUrl);
-      }
-
-      // 如果有 strategy，设置选中的策略
-      if (strategyFromUrl) {
-        setSelectedStrategy(strategyFromUrl);
-      }
-
-      // 自动切换到回测记录 tab
-      setActiveTab('backtests');
-
-      // 清除 URL 参数（避免刷新页面时重复填充）
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('taskId');
-      newParams.delete('strategy');
-      if (newParams.toString()) {
-        setSearchParams(newParams);
-      } else {
-        // 如果没有其他参数，移除所有参数
-        setSearchParams({});
-      }
-    }
-
-    // 首次加载：上面的 setXxx 不立即生效，必须把 URL 恢复值显式传给请求
-    loadBacktests({
-      keyword: taskIdFromUrl || searchFromUrl || '',
-      strategy: strategyFromUrl || '',
-      status: statusFromUrl || 'all',
-      sortBy: sortFieldFromUrl || 'created_at',
-      sortOrder: sortOrderFromUrl || 'desc',
-      page: 1,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 路由参数初始化时一次性执行
+    loadOverview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 路由参数一次性清理 + 首载
   }, []);
 
-  // 加载回测列表（服务端分页/筛选/排序）
-  // overrides：setState 异步生效前需要用新值发起请求时的显式传值入口
-  const loadBacktests = async (overrides?: {
-    page?: number;
-    pageSize?: number;
-    status?: string;
-    keyword?: string;
-    strategy?: string;
-    sortBy?: string;
-    sortOrder?: string;
-  }) => {
-    try {
-      setBacktestLoading(true);
-      const status = overrides?.status ?? backtestStatusFilter;
-      const response = await backtestApi.getBacktestList({
-        page: overrides?.page ?? ((backtestPagination.current as number) || 1),
-        page_size: overrides?.pageSize ?? ((backtestPagination.pageSize as number) || 10),
-        // 'all' 表示不筛选状态，不传给后端
-        status: status === 'all' ? undefined : status,
-        keyword: (overrides?.keyword ?? backtestSearchText) || undefined,
-        strategy: (overrides?.strategy ?? selectedStrategy) || undefined,
-        sort_by: overrides?.sortBy ?? backtestSortField,
-        sort_order: overrides?.sortOrder ?? backtestSortOrder,
-      });
-      if (response.backtests && Array.isArray(response.backtests)) {
-        setBacktests(response.backtests);
-        setBacktestPagination((prev) => ({
-          ...prev,
-          current: overrides?.page ?? (prev.current as number),
-          pageSize: overrides?.pageSize ?? (prev.pageSize as number),
-          total: response.total ?? 0,
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to load backtest list:', error);
-      message.error(t('load_backtest_list_failed_generic'));
-    } finally {
-      setBacktestLoading(false);
-    }
-  };
-
-  // 查看策略回测记录
-  const handleViewBacktests = (strategyName: string) => {
-    setSelectedStrategy(strategyName);
-    setActiveTab('backtests');
-    // 切换时按策略过滤重新拉取（setState 不立即生效，显式传值）
-    loadBacktests({ strategy: strategyName, page: 1 });
-  };
-
-  // 构建返回 URL，保留当前的搜索和筛选状态
-  const buildReturnUrl = () => {
-    const params = new URLSearchParams();
-    params.set('tab', 'backtests');
-
-    // 保留搜索和筛选状态
-    if (backtestSearchText) {
-      params.set('search', backtestSearchText);
-    }
-    if (selectedStrategy) {
-      params.set('strategy', selectedStrategy);
-    }
-    if (backtestStatusFilter && backtestStatusFilter !== 'all') {
-      params.set('status', backtestStatusFilter);
-    }
-    if (backtestSortField && backtestSortField !== 'created_at') {
-      params.set('sortField', backtestSortField);
-    }
-    if (backtestSortOrder && backtestSortOrder !== 'desc') {
-      params.set('sortOrder', backtestSortOrder);
-    }
-
-    return encodeURIComponent(`/strategy-management?${params.toString()}`);
-  };
-
-  // 跳转到回放页面 - 添加返回 URL 参数
-  const handleReplay = (backtestId: string) => {
-    const returnUrl = buildReturnUrl();
-    navigate(`/backtest/replay/${backtestId}?returnUrl=${returnUrl}`);
-  };
-
-  // 跳转到详情页面 - 添加返回 URL 参数
-  const handleViewDetail = (backtestId: string) => {
-    const returnUrl = buildReturnUrl();
-    navigate(`/backtest/detail/${backtestId}?returnUrl=${returnUrl}`);
-  };
-
-  // 删除单条回测记录
-  const handleDeleteBacktest = (backtestId: string) => {
-    // 访客用户无法删除
-    if (isGuest) {
-      message.warning(t('guest_delete_restricted'));
-      return;
-    }
-
-    confirm({
-      title: t('confirm_delete_backtest'),
-      content: t('delete_backtest_confirm_msg'),
-      okText: t('delete'),
-      okType: 'danger',
-      cancelText: t('cancel'),
-      onOk: async () => {
-        try {
-          await backtestApi.deleteBacktest(backtestId);
-          message.success(t('backtest_delete_success'));
-          loadBacktests();
-          // 如果删除的是已选中的，清空选择
-          if (backtestSelectedRowKeys.includes(backtestId)) {
-            setBacktestSelectedRowKeys([]);
-          }
-        } catch (error) {
-          console.error('Failed to delete backtest record:', error);
-          message.error(t('backtest_delete_failed'));
-        }
-      },
-    });
-  };
-
-  // 批量删除回测记录
-  const handleBatchDeleteBacktests = () => {
-    // 访客用户无法删除
-    if (isGuest) {
-      message.warning(t('guest_batch_delete_restricted'));
-      return;
-    }
-
-    if (backtestSelectedRowKeys.length === 0) {
-      message.warning(t('please_select_backtest'));
-      return;
-    }
-
-    confirm({
-      title: t('confirm_batch_delete_backtest'),
-      content: t('batch_delete_backtest_confirm_msg', { count: backtestSelectedRowKeys.length }),
-      okText: t('delete'),
-      okType: 'danger',
-      cancelText: t('cancel'),
-      onOk: async () => {
-        try {
-          // 并行删除所有选中的回测记录
-          await Promise.all(
-            backtestSelectedRowKeys.map((id) => backtestApi.deleteBacktest(id as string))
-          );
-          message.success(t('batch_backtest_delete_success'));
-          setBacktestSelectedRowKeys([]);
-          loadBacktests();
-        } catch (error) {
-          console.error('Failed to batch delete backtest records:', error);
-          message.error(t('batch_backtest_delete_failed'));
-        }
-      },
-    });
-  };
-
-  // 创建新策略
+  // 创建策略
   const handleCreateStrategy = () => {
     navigate('/strategy-editor');
   };
 
-  // 编辑策略
-  const handleEditStrategy = (strategy: Strategy) => {
-    navigate(`/strategy-editor/${strategy.name}`);
+  // 页头「发起回测」：回测配置统一在回测中心
+  const handleLaunchBacktest = () => {
+    navigate('/backtest/config');
   };
 
-  // 删除策略
-  const handleDeleteStrategy = (strategy: Strategy) => {
+  // 行级「去回测」：带策略名预填（与策略编辑器同一 state 契约）
+  const handleBacktestStrategy = (item: StrategyOverviewItem) => {
+    navigate('/backtest/config', { state: { strategy: item, showConfig: true } });
+  };
+
+  // 编辑
+  const handleEditStrategy = (item: StrategyOverviewItem) => {
+    navigate(`/strategy-editor/${item.name}`);
+  };
+
+  // 删除策略（收敛为不显眼图标钮；访客早退 + 二次确认）
+  const handleDeleteStrategy = (item: StrategyOverviewItem) => {
+    if (isGuest) {
+      message.warning(t('guest_delete_restricted'));
+      return;
+    }
     confirm({
       title: t('confirm_delete_strategy'),
-      content: t('delete_strategy_confirm_msg', { name: strategy.name }),
+      content: t('delete_strategy_confirm_msg', { name: item.name }),
       okText: t('delete'),
       okType: 'danger',
       cancelText: t('cancel'),
       onOk: async () => {
         try {
           setLoading(true);
-          await strategyApi.deleteStrategy(strategy.name);
+          await strategyApi.deleteStrategy(item.name);
           message.success(t('strategy_delete_success'));
-          loadStrategies();
+          setSelectedRowKey((key) => (key === item.name ? '' : key));
+          setPagination((prev) => ({ ...(prev || {}), current: 1 }));
+          await loadOverview();
         } catch (error) {
           console.error('Failed to delete strategy:', error);
           message.error(t('strategy_delete_failed'));
@@ -430,191 +165,262 @@ const StrategyManagement = () => {
     });
   };
 
-  // 回测策略
-  const handleBacktestStrategy = (strategy: Strategy) => {
-    navigate('/backtest/config', { state: { strategy, showConfig: true } });
+  // —— 状态 → chip（demo 2985 SMAP 口径 + stopped/error 两个契约真实态）——
+  const renderStateChip = (state: string | undefined) => {
+    switch (state) {
+      case 'live':
+        return (
+          <span className="qc-chip ok">
+            <span className="qc-pdot" />
+            {t('sm_state_live')}
+          </span>
+        );
+      case 'paper':
+        return <span className="qc-chip warn">{t('sm_state_paper')}</span>;
+      case 'paused':
+        return <span className="qc-chip quiet">{t('sm_state_paused')}</span>;
+      case 'stopped':
+        return <span className="qc-chip quiet">{t('sm_state_stopped')}</span>;
+      case 'error':
+        return <span className="qc-chip down">{t('sm_state_error')}</span>;
+      case 'undeployed':
+        return <span className="qc-chip info">{t('sm_state_undeployed')}</span>;
+      default:
+        // 契约外的缺席值：显示「—」弱文本，不猜测成某个聚合态
+        return <span className="qc-mono qc-cell-none">—</span>;
+    }
   };
 
-  // 安全的日期格式化函数
-  const formatDate = (dateString: string | undefined): string => {
-    if (!dateString) {
-      return '';
-    }
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) {
-        return '';
-      }
-      return date.toLocaleString();
-    } catch (error) {
-      console.error('Date parsing error:', error);
-      return '';
+  // 类型 chip：规则 info / RL 主色 / LLM warn（demo 1632/1642/1652）
+  const renderKindChip = (kind: string | undefined) => {
+    switch (kind) {
+      case 'rl':
+        return <span className="qc-chip pri">RL</span>;
+      case 'llm':
+        return <span className="qc-chip warn">LLM</span>;
+      case 'rule':
+        return <span className="qc-chip info">{t('sm_tag_rule')}</span>;
+      default:
+        return <span className="qc-mono qc-cell-none">—</span>;
     }
   };
 
-  // 工具栏计数「显示 x-y / 共 z」：按当前页与页大小折算，空数据归 0
+  // 最近回测列：+x.xx% 涨绿/跌红、失败 down、运行中与未回测弱文本、0 不染色
+  const renderLastBacktest = (item: StrategyOverviewItem) => {
+    const lb = item.latest_backtest;
+    if (!lb) return <span className="qc-mono qc-cell-none">{t('sm_bt_none')}</span>;
+    const status = String(lb.status || '');
+    if (status === 'running' || status === 'in_progress' || status === 'pending') {
+      return <span className="qc-mono qc-cell-none">{t('sm_bt_running')}</span>;
+    }
+    if (status === 'failed') {
+      return <span className="qc-mono qc-cell-down">{t('sm_bt_failed')}</span>;
+    }
+    if (typeof lb.total_return === 'number') {
+      if (lb.total_return === 0) return <span className="qc-mono">0.00%</span>;
+      const cls = lb.total_return > 0 ? 'qc-cell-up' : 'qc-cell-down';
+      return (
+        <span className={`qc-mono ${cls}`}>
+          {lb.total_return > 0 ? '+' : ''}
+          {lb.total_return.toFixed(2)}%
+        </span>
+      );
+    }
+    return <span className="qc-mono qc-cell-none">—</span>;
+  };
+
+  // 工具栏计数「显示 x-y / 共 z」
   const shownRange = (current: number, size: number, total: number) => {
     const start = total === 0 ? 0 : (current - 1) * size + 1;
     const end = Math.min(current * size, total);
     return t('shown_range', { start, end, total });
   };
 
-  // 回测状态 → §6.2 chip（视觉迁移，不改状态语义；运行中带 pulse 圆点）
-  const renderStatusChip = (status: string) => {
-    const text = getStatusText(status);
-    switch (status) {
-      case 'completed':
-        return <span className="qc-chip ok">{text}</span>;
-      case 'running':
-      case 'in_progress':
-        return <span className="qc-chip ok"><span className="qc-pdot" />{text}</span>;
-      case 'failed':
-        return <span className="qc-chip down">{text}</span>;
-      case 'pending':
-        return <span className="qc-chip quiet">{text}</span>;
-      default:
-        return <span className="qc-chip quiet">{status}</span>;
-    }
-  };
-
-  // 过滤和排序后的数据
+  // 搜索 + 状态 chips + 排序 + 本地分页
   const filteredStrategies = useMemo(() => {
-    let result = [...strategies];
+    let result = [...items];
 
-    // 搜索过滤
     if (searchText) {
-      const lowerSearch = searchText.toLowerCase();
+      const lower = searchText.toLowerCase();
       result = result.filter(
-        (strategy) =>
-          strategy.name?.toLowerCase().includes(lowerSearch) ||
-          strategy.description?.toLowerCase().includes(lowerSearch)
+        (s) =>
+          s.name?.toLowerCase().includes(lower) ||
+          s.description?.toLowerCase().includes(lower) ||
+          (s.symbols ?? []).some((sym) => sym?.toLowerCase().includes(lower))
       );
     }
 
-    // 排序
-    result.sort((a, b) => {
-      let aVal: string = '';
-      let bVal: string = '';
+    if (stateFilter) {
+      result = result.filter((s) => s.state === stateFilter);
+    }
 
+    result.sort((a, b) => {
+      let aVal = '';
+      let bVal = '';
       switch (sortField) {
         case 'name':
           aVal = a.name || '';
           bVal = b.name || '';
           break;
         case 'created_at':
-          aVal = (a as unknown as StrategyBackendFields).created_at || '';
-          bVal = (b as unknown as StrategyBackendFields).created_at || '';
+          aVal = a.created_at || '';
+          bVal = b.created_at || '';
           break;
         case 'updated_at':
         default:
-          aVal = (a as unknown as StrategyBackendFields).updated_at || '';
-          bVal = (b as unknown as StrategyBackendFields).updated_at || '';
+          aVal = a.updated_at || '';
+          bVal = b.updated_at || '';
           break;
       }
-
-      return sortOrder === 'asc'
-        ? aVal.localeCompare(bVal)
-        : bVal.localeCompare(aVal);
+      return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
 
     return result;
-  }, [strategies, searchText, sortField, sortOrder]);
+  }, [items, searchText, stateFilter, sortField, sortOrder]);
 
-  // 表格列定义 — §6.5：策略名 mono + 类型/版本 chip；时间列 mono 11px；操作 .qc-mini-btn 图标钮
-  const columns: TableProps<Strategy>['columns'] = [
+  // 状态计数（副标口径 + chips 显隐的单一事实源；缺 state 的行不进任何桶，如实）
+  const counts = useMemo(() => {
+    const c = { live: 0, paper: 0, paused: 0, stopped: 0, error: 0, undeployed: 0 };
+    for (const s of items) {
+      if (s.state && s.state in c) c[s.state as keyof typeof c] += 1;
+    }
+    return c;
+  }, [items]);
+
+  // 选中的策略（随筛选收窄，详情块始终对应可见行）
+  const selectedItem = useMemo(
+    () => filteredStrategies.find((s) => s.name === selectedRowKey) ?? null,
+    [filteredStrategies, selectedRowKey]
+  );
+
+  // 页头副标：demo 1601 六段口径 + hint；「草稿」无源不出现，已停止/错误有真数据才补段
+  const pageSubtitle = useMemo(() => {
+    const segs = [
+      t('sm_sub_total', { n: items.length }),
+      t('sm_sub_live', { n: counts.live }),
+      t('sm_sub_paper', { n: counts.paper }),
+      t('sm_sub_paused', { n: counts.paused }),
+      ...(counts.stopped > 0 ? [t('sm_sub_stopped', { n: counts.stopped })] : []),
+      ...(counts.error > 0 ? [t('sm_sub_error', { n: counts.error })] : []),
+      t('sm_sub_undeployed', { n: counts.undeployed }),
+      t('sm_sub_hint'),
+    ];
+    return segs.join(' · ');
+  }, [t, items.length, counts]);
+
+  // chips：全部 + 五个核心态恒显，stopped/error 只在真有数据时出现（不摆死钮），
+  // 桶序与副标一致：运行中 / 模拟盘 / 已暂停 /（已停止、错误）/ 未部署
+  const stateChips = useMemo(() => {
+    const core: { value: StateFilter; count: number; key: string }[] = [
+      { value: 'live', count: counts.live, key: 'sm_state_live' },
+      { value: 'paper', count: counts.paper, key: 'sm_state_paper' },
+      { value: 'paused', count: counts.paused, key: 'sm_state_paused' },
+    ];
+    const extra: { value: StateFilter; count: number; key: string }[] = [];
+    if (counts.stopped > 0) extra.push({ value: 'stopped', count: counts.stopped, key: 'sm_state_stopped' });
+    if (counts.error > 0) extra.push({ value: 'error', count: counts.error, key: 'sm_state_error' });
+    return [...core, ...extra, { value: 'undeployed' as const, count: counts.undeployed, key: 'sm_state_undeployed' }];
+  }, [counts]);
+
+  // 表格列定义 — demo 1628 列序：策略/类型/周期/标的/状态/Worker/最近回测/操作
+  const columns: TableProps<StrategyOverviewItem>['columns'] = [
     {
-      title: t('strategy_name'),
+      title: t('sm_col_strategy'),
       dataIndex: 'name',
       key: 'name',
-      width: 220,
-      ellipsis: {
-        showTitle: false,
-      },
-      render: (text: string, record: Strategy) => (
-        <Tooltip title={text} placement="topLeft">
-          <span className="qc-cell-strat-wrap">
-            <span className="qc-cell-strat" style={{ maxWidth: 140 }}>{text}</span>
-            {record.strategy_type === 'rl' && <span className="qc-chip pri">RL</span>}
-            {record.strategy_type === 'rule' && <span className="qc-chip info">{t('sm_tag_rule')}</span>}
-            <span className="qc-chip quiet qc-mono">v{(record as unknown as StrategyBackendFields).version || '1.0.0'}</span>
-          </span>
-        </Tooltip>
-      ),
-    },
-    {
-      title: t('description'),
-      dataIndex: 'description',
-      key: 'description',
-      width: 260,
-      ellipsis: {
-        showTitle: false,
-      },
+      width: 190,
+      ellipsis: { showTitle: false },
       render: (text: string) => (
-        <Tooltip title={text || t('no_description')} placement="topLeft">
-          <span style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'middle' }}>
-            {text || t('no_description')}
-          </span>
+        <Tooltip title={text} placement="topLeft">
+          <span className="qc-cell-strat" style={{ maxWidth: 150 }}>{text}</span>
         </Tooltip>
       ),
     },
     {
-      title: t('create_time'),
-      key: 'created_at',
-      width: 150,
-      render: (_, record: Strategy) => (
-        <span className="qc-cell-time qc-mono">{formatDate((record as unknown as StrategyBackendFields).created_at)}</span>
-      ),
+      title: t('sm_col_kind'),
+      dataIndex: 'kind',
+      key: 'kind',
+      width: 76,
+      render: (_: unknown, record: StrategyOverviewItem) => renderKindChip(record.kind),
     },
     {
-      title: t('update_time'),
-      key: 'updated_at',
-      width: 150,
-      render: (_, record: Strategy) => (
-        <span className="qc-cell-time qc-mono">{formatDate((record as unknown as StrategyBackendFields).updated_at)}</span>
-      ),
+      title: t('sm_col_interval'),
+      dataIndex: 'interval',
+      key: 'interval',
+      width: 74,
+      render: (text: string | null) =>
+        text ? (
+          <span className="qc-mono qc-cell-id">{text}</span>
+        ) : (
+          <span className="qc-mono qc-cell-none">—</span>
+        ),
+    },
+    {
+      title: t('sm_col_symbols'),
+      dataIndex: 'symbols',
+      key: 'symbols',
+      width: 140,
+      ellipsis: { showTitle: false },
+      render: (symbols: string[] | null | undefined) => {
+        if (!symbols?.length) return <span className="qc-mono qc-cell-none">—</span>;
+        const joined = symbols.join(', ');
+        return (
+          <Tooltip title={joined} placement="topLeft">
+            <span className="qc-mono" style={{ fontSize: 11.5 }}>{joined}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: t('sm_col_state'),
+      dataIndex: 'state',
+      key: 'state',
+      width: 100,
+      render: (state: string | undefined) => renderStateChip(state),
+    },
+    {
+      title: t('sm_col_workers'),
+      dataIndex: 'worker_count',
+      key: 'worker_count',
+      width: 82,
+      align: 'right',
+      render: (n: number | undefined) =>
+        // 0 是真值：显示但走弱色，不染色
+        n ? (
+          <span className="qc-mono">{n}</span>
+        ) : (
+          <span className="qc-mono qc-cell-none">{n ?? 0}</span>
+        ),
+    },
+    {
+      title: t('sm_col_last_backtest'),
+      key: 'latest_backtest',
+      width: 118,
+      align: 'right',
+      render: (_: unknown, record: StrategyOverviewItem) => renderLastBacktest(record),
     },
     {
       title: t('action'),
       key: 'action',
-      width: 152,
+      width: 190,
       fixed: 'right',
-      render: (_, record: Strategy) => (
+      render: (_: unknown, record: StrategyOverviewItem) => (
         <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
-          <Tooltip title={t('edit_strategy')}>
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only"
-              aria-label={t('edit_strategy')}
-              onClick={() => handleEditStrategy(record)}
-            >
-              <EditOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title={t('backtest_strategy')}>
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only"
-              aria-label={t('backtest_strategy')}
-              onClick={() => handleBacktestStrategy(record)}
-            >
-              <PlayCircleOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title={t('backtest_records')}>
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only"
-              aria-label={t('backtest_records')}
-              onClick={() => handleViewBacktests(record.name)}
-            >
-              <HistoryOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}>
+          <button
+            type="button"
+            className="qc-mini-btn"
+            onClick={() => handleBacktestStrategy(record)}
+          >
+            {t('sm_action_backtest')}
+          </button>
+          <button type="button" className="qc-mini-btn" onClick={() => handleEditStrategy(record)}>
+            {t('edit')}
+          </button>
+          <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete_strategy')}>
             <button
               type="button"
               className="qc-mini-btn qc-icon-only danger"
-              aria-label={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}
+              aria-label={isGuest ? t('guest_delete_restricted') : t('delete_strategy')}
               onClick={() => handleDeleteStrategy(record)}
               disabled={isGuest}
             >
@@ -626,18 +432,189 @@ const StrategyManagement = () => {
     },
   ];
 
-  // 页头副标（§5 page-sub）：mono 11 真值口径行，随页签切换取对应列表的真实计数
-  const rlCount = strategies.filter((s) => s.strategy_type === 'rl').length;
-  const ruleCount = strategies.filter((s) => s.strategy_type === 'rule').length;
-  const pageSubtitle =
-    activeTab === 'strategies'
-      ? t('sm_sub_strategies', { total: strategies.length, rl: rlCount, rule: ruleCount })
-      : t('sm_sub_backtests', {
-          total: (backtestPagination.total as number) || 0,
-          size: pageSize,
-        });
+  // 列表视图 — demo 1612-1714：搜索 + chips + 排序 Select（现网增量）+ 计数 + 表格
+  const renderListView = () => {
+    const paginationCfg = (pagination ?? {}) as TablePaginationConfig;
+    const current = (paginationCfg.current as number) || 1;
+    const currentSize = (paginationCfg.pageSize as number) || pageSize;
+    return (
+      <>
+        <PageToolbar
+          search={{
+            value: searchText,
+            onChange: (value) => {
+              setSearchText(value);
+              // §6.6 过滤联动：搜索变化页码归 1（历史雷区：搜索不重置页码）
+              setPagination((prev) => ({ ...(prev || {}), current: 1 }));
+            },
+            placeholder: t('sm_search_placeholder'),
+            ariaLabel: t('sm_search_placeholder'),
+          }}
+          filters={
+            <>
+              <div className="qc-row-chips" role="group" aria-label={t('sm_col_state')}>
+                <button
+                  type="button"
+                  className={`qc-ichip${stateFilter === '' ? ' qc-ichip-on' : ''}`}
+                  aria-pressed={stateFilter === ''}
+                  onClick={() => {
+                    setStateFilter('');
+                    setPagination((prev) => ({ ...(prev || {}), current: 1 }));
+                  }}
+                >
+                  {t('sm_filter_all')}
+                </button>
+                {stateChips.map((chip) => (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    className={`qc-ichip${stateFilter === chip.value ? ' qc-ichip-on' : ''}`}
+                    aria-pressed={stateFilter === chip.value}
+                    onClick={() => {
+                      setStateFilter(chip.value);
+                      setPagination((prev) => ({ ...(prev || {}), current: 1 }));
+                    }}
+                  >
+                    {t(chip.key)}
+                  </button>
+                ))}
+              </div>
+              <Select
+                aria-label={t('sort_by')}
+                value={`${sortField}-${sortOrder}`}
+                onChange={(value) => {
+                  const [field, order] = value.split('-');
+                  setSortField(field as SortField);
+                  setSortOrder(order as SortOrder);
+                }}
+                style={{ width: 150 }}
+                popupMatchSelectWidth={false}
+                options={[
+                  { value: 'updated_at-desc', label: t('sort_update_time_desc') },
+                  { value: 'updated_at-asc', label: t('sort_update_time_asc') },
+                  { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') },
+                  { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') },
+                  { value: 'name-asc', label: t('sort_name_asc') },
+                  { value: 'name-desc', label: t('sort_name_desc') },
+                ]}
+              />
+            </>
+          }
+          count={shownRange(current, currentSize, filteredStrategies.length)}
+        />
+        <DataTable<StrategyOverviewItem>
+          columns={columns}
+          dataSource={filteredStrategies}
+          pagination={{
+            ...pagination,
+            onChange: (pg, size) => {
+              if (size !== pageSize) setPageSize(size);
+              setPagination({ ...(pagination || {}), current: pg, pageSize: size });
+            },
+          }}
+          loading={loading}
+          rowKey="name"
+          rowClassName={(record) => (record.name === selectedRowKey ? 'qc-row-selected' : '')}
+          onRow={(record) => ({
+            onClick: () => setSelectedRowKey(record.name),
+            style: { cursor: 'pointer' },
+          })}
+          onChange={(newPagination) => {
+            if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
+              setPageSize(newPagination.pageSize);
+            }
+            setPagination(newPagination);
+          }}
+          emptyTitle={searchText || stateFilter ? t('no_data') : t('no_strategies')}
+        />
+      </>
+    );
+  };
 
-  // 卡片视图分页条：与 DataTable/研究列表同一 §6.7 原语（.qc-pg-bar + .qc-pagination）
+  // —— demo .kvtab 参数键值：k = 参数名，v = 默认值 + [范围] + 弱色描述 ——
+  const fmtParamValue = (p: StrategyParamRecord): string => {
+    const d = p.default;
+    if (d === null || d === undefined || d === '') return '—';
+    if (Array.isArray(d)) return d.map((x) => String(x)).join(', ') || '—';
+    if (typeof d === 'object') return JSON.stringify(d);
+    return String(d);
+  };
+
+  // ponytail: 范围只合成 min/max（options 少见且宽度受限），补齐需真实参数元数据更全时再做
+  const fmtParamRange = (p: StrategyParamRecord): string => {
+    const parts: string[] = [];
+    if (typeof p.min === 'number' && typeof p.max === 'number') parts.push(`${p.min} ~ ${p.max}`);
+    else if (typeof p.min === 'number') parts.push(`≥ ${p.min}`);
+    else if (typeof p.max === 'number') parts.push(`≤ ${p.max}`);
+    return parts.length ? `[${parts[0]}]` : '';
+  };
+
+  const renderParamsKv = (params: StrategyParamRecord[] | undefined) => {
+    if (!params?.length) {
+      return <div className="sm-detail-empty">{t('sm_detail_no_params')}</div>;
+    }
+    return (
+      <table className="sm-kvtab">
+        <tbody>
+          {params.map((p, i) => {
+            const range = fmtParamRange(p);
+            return (
+              <tr key={p.name || `param-${i}`}>
+                <td className="k">
+                  <span className="qc-mono">{p.name || '—'}</span>
+                </td>
+                <td className="v">
+                  <span className="qc-mono">{fmtParamValue(p)}</span>
+                  {range && <span className="sm-kv-range qc-mono">{range}</span>}
+                  {p.description && <span className="sm-kv-desc">{p.description}</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  };
+
+  // 表下详情块 — demo 1716-1729 同构：标题 + 名称 + 状态 chip + 版本；参数 KV + 去回测/创建 Worker + footer
+  // 「版本历史 N 条」无源（version 是单字符串）不渲染；隐藏选中行时不渲染空壳
+  const renderDetailBlock = () => {
+    if (!selectedItem) return null;
+    const verSegs: string[] = [];
+    if (selectedItem.version) verSegs.push(`v${selectedItem.version}`);
+    if (selectedItem.updated_at) {
+      const d = dayjs(selectedItem.updated_at);
+      if (d.isValid()) verSegs.push(t('sm_detail_updated', { d: d.format('MM-DD') }));
+    }
+
+    // footer 段落：「默认 runner：kernel」恒有（内核默认路径真值），
+    // 累计回测次数取 /strategy/overview 的 backtest_count（真实任务总数）；字段缺席时隐藏该段
+    const footSegs: string[] = [t('sm_detail_runner', { runner: 'kernel' })];
+    if (typeof selectedItem.backtest_count === 'number') {
+      footSegs.push(t('sm_detail_backtest_count', { n: selectedItem.backtest_count }));
+    }
+
+    return (
+      <div className="sm-detail" role="region" aria-label={t('sm_detail_title')}>
+        <div className="sm-detail-head">
+          <span className="sm-detail-title">{t('sm_detail_title')}</span>
+          <span className="qc-mono sm-detail-name">{selectedItem.name}</span>
+          {renderStateChip(selectedItem.state)}
+          {verSegs.length > 0 && <span className="qc-mono sm-detail-ver">{verSegs.join(' · ')}</span>}
+        </div>
+        {renderParamsKv(selectedItem.params)}
+        <div className="sm-detail-actions">
+          <Button type="primary" onClick={() => handleBacktestStrategy(selectedItem)}>
+            {t('sm_action_backtest')}
+          </Button>
+          <Button onClick={() => setCreateWorkerOpen(true)}>{t('create_worker')}</Button>
+          <span className="sm-detail-foot">{footSegs.join(' · ')}</span>
+        </div>
+      </div>
+    );
+  };
+
+  // 卡片视图分页条：与 DataTable 同一 §6.7 原语
   const renderPgBar = (
     current: number,
     size: number,
@@ -681,163 +658,123 @@ const StrategyManagement = () => {
       </div>
     ) : null;
 
-  // 渲染列表视图 — §6.5/§6.6：PageToolbar + DataTable，行点击选中（primary tint）
-  const renderListView = () => {
-    const paginationCfg = (pagination ?? {}) as TablePaginationConfig;
-    const current = (paginationCfg.current as number) || 1;
-    const currentSize = (paginationCfg.pageSize as number) || pageSize;
-    return (
-      <>
-        <PageToolbar
-          search={{
-            value: searchText,
-            onChange: (value) => {
-              setSearchText(value);
-              // §6.6 过滤联动：搜索变化页码归 1（历史雷区：搜索不重置页码）
-              setPagination((prev) => ({ ...(prev || {}), current: 1 }));
-            },
-            placeholder: t('search_strategy'),
-            ariaLabel: t('search_strategy'),
-          }}
-          filters={
-            <Select
-              aria-label={t('sort_by')}
-              value={`${sortField}-${sortOrder}`}
-              onChange={(value) => {
-                const [field, order] = value.split('-');
-                setSortField(field as SortField);
-                setSortOrder(order as SortOrder);
-              }}
-              style={{ width: 150 }}
-              options={[
-                { value: 'updated_at-desc', label: t('sort_update_time_desc') },
-                { value: 'updated_at-asc', label: t('sort_update_time_asc') },
-                { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') },
-                { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') },
-                { value: 'name-asc', label: t('sort_name_asc') },
-                { value: 'name-desc', label: t('sort_name_desc') },
-              ]}
-            />
-          }
-          count={shownRange(current, currentSize, filteredStrategies.length)}
-        />
-        <DataTable<Strategy>
-          columns={columns}
-          dataSource={filteredStrategies}
-          pagination={{
-            ...pagination,
-            onChange: (pg, size) => {
-              // 条数变化写回全局配置，全站生效
-              if (size !== pageSize) setPageSize(size);
-              setPagination({ ...pagination, current: pg, pageSize: size });
-            },
-          }}
-          loading={loading}
-          rowKey="name"
-          rowClassName={(record) => (record.name === selectedRowKey ? 'qc-row-selected' : '')}
-          onRow={(record) => ({
-            onClick: () => setSelectedRowKey(record.name),
-            style: { cursor: 'pointer' },
-          })}
-          onChange={(newPagination) => {
-            // 条数变化写回全局配置，全站生效
-            if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
-              setPageSize(newPagination.pageSize);
-            }
-            setPagination(newPagination);
-          }}
-          emptyTitle={searchText ? t('no_data') : t('no_strategies')}
-        />
-      </>
-    );
-  };
-
-  // 渲染卡片视图 — §6.3 卡片 chrome + §6.7 分页条
+  // 卡片视图 — §6.3 卡片 chrome + §6.7 分页条；不因新列退化：补状态 chip 与 Worker 数
   const renderCardView = () => {
-    const currentPage = typeof pagination === 'object' && pagination ? (pagination.current as number) || 1 : 1;
-    const currentSize = typeof pagination === 'object' && pagination ? (pagination.pageSize as number) || 12 : 12;
+    const currentPage = (pagination?.current as number) || 1;
+    const currentSize = (pagination?.pageSize as number) || pageSize;
     const startIndex = (currentPage - 1) * currentSize;
-    const endIndex = startIndex + currentSize;
-    const currentPageData = filteredStrategies.slice(startIndex, endIndex);
+    const pageData = filteredStrategies.slice(startIndex, startIndex + currentSize);
     const pgChange = (page: number, size: number) => {
       if (size !== pageSize) setPageSize(size);
       setPagination({ ...(pagination || {}), current: page, pageSize: size });
     };
 
+    const infoRow = (label: string, node: React.ReactNode) => (
+      <div className="flex justify-between items-center" key={label}>
+        <span>{label}</span>
+        {node}
+      </div>
+    );
+
     return (
       <>
-        {currentPageData.length > 0 ? (
+        {pageData.length > 0 ? (
           <Row gutter={[16, 16]}>
-            {currentPageData.map((strategy) => (
-              <Col xs={24} sm={12} md={8} lg={6} key={strategy.name}>
+            {pageData.map((item) => (
+              <Col xs={24} sm={12} md={8} lg={6} key={item.name}>
                 <Card
                   size="small"
-                  className="qc-card"
-                  title={<span className="qc-mono">{strategy.name}</span>}
+                  className={`qc-card${item.name === selectedRowKey ? ' qc-card-selected' : ''}`}
+                  title={
+                    <span
+                      title={item.name}
+                      className="qc-mono"
+                      style={{
+                        display: 'inline-block',
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        verticalAlign: 'bottom',
+                      }}
+                    >
+                      {item.name}
+                    </span>
+                  }
                   extra={
-                    <Space size="small">
+                    <Space size={4}>
                       <Tooltip title={t('edit_strategy')}>
                         <Button
                           type="text"
                           size="small"
                           icon={<EditOutlined />}
-                          onClick={() => handleEditStrategy(strategy)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditStrategy(item);
+                          }}
                         />
                       </Tooltip>
-                      <Tooltip title={isGuest ? t('guest_save_restricted') : (t('delete_strategy'))}>
+                      <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete_strategy')}>
                         <Button
                           type="text"
                           size="small"
                           danger
                           icon={<DeleteOutlined />}
-                          onClick={() => handleDeleteStrategy(strategy)}
                           disabled={isGuest}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteStrategy(item);
+                          }}
                         />
                       </Tooltip>
                     </Space>
                   }
                   hoverable
-                  style={{
-                    boxShadow: 'var(--qc-shadow-card)',
-                  }}
+                  onClick={() => setSelectedRowKey(item.name)}
+                  style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
                 >
-                  <div className="mb-3">
-                    <div className="flex justify-between items-center mb-1">
-                      <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 13 }}>{t('strategy_description')}</span>
-                      <Space size={4}>
-                        {strategy.strategy_type === 'rl' && (
-                          <span className="qc-chip pri">RL</span>
-                        )}
-                        {strategy.strategy_type === 'rule' && (
-                          <span className="qc-chip info">{t('sm_tag_rule')}</span>
-                        )}
-                        <span className="qc-chip quiet qc-mono">v{(strategy as unknown as StrategyBackendFields).version || '1.0.0'}</span>
-                      </Space>
-                    </div>
-                    <Tooltip title={strategy.description || t('no_description')} placement="topLeft">
-                      <div
-                        className="overflow-hidden text-ellipsis"
-                        style={{
-                          minHeight: 40,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                        }}
+                  <Space size={4} wrap style={{ marginBottom: 8 }}>
+                    {renderKindChip(item.kind)}
+                    {renderStateChip(item.state)}
+                  </Space>
+                  <div
+                    className="space-y-1"
+                    style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}
+                  >
+                    {infoRow(
+                      t('sm_col_interval'),
+                      item.interval ? (
+                        <span className="qc-mono" style={{ fontSize: 12 }}>{item.interval}</span>
+                      ) : (
+                        <span className="qc-mono qc-cell-none" style={{ fontSize: 12 }}>—</span>
+                      )
+                    )}
+                    {infoRow(
+                      t('sm_col_symbols'),
+                      <span
+                        className="qc-mono"
+                        style={{ fontSize: 12, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                       >
-                        {strategy.description || t('no_description')}
-                      </div>
-                    </Tooltip>
-                  </div>
-
-                  <div className="text-xs space-y-1" style={{ color: 'var(--qc-text-tertiary)' }}>
-                    <div className="flex justify-between">
-                      <span>{t('create_time')}:</span>
-                      <span className="qc-cell-time qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).created_at)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>{t('update_time')}:</span>
-                      <span className="qc-cell-time qc-mono">{formatDate((strategy as unknown as StrategyBackendFields).updated_at)}</span>
-                    </div>
+                        {item.symbols?.length ? item.symbols.join(', ') : '—'}
+                      </span>
+                    )}
+                    {infoRow(
+                      t('sm_col_workers'),
+                      item.worker_count ? (
+                        <span className="qc-mono" style={{ fontSize: 12 }}>{item.worker_count}</span>
+                      ) : (
+                        <span className="qc-mono qc-cell-none" style={{ fontSize: 12 }}>0</span>
+                      )
+                    )}
+                    {infoRow(t('sm_col_last_backtest'), renderLastBacktest(item))}
+                    {infoRow(
+                      t('update_time'),
+                      <span className="qc-cell-time qc-mono">
+                        {item.updated_at && dayjs(item.updated_at).isValid()
+                          ? dayjs(item.updated_at).format('YYYY-MM-DD HH:mm')
+                          : '—'}
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--qc-border)' }}>
@@ -846,21 +783,26 @@ const StrategyManagement = () => {
                         <Button
                           type="primary"
                           size="small"
-                          icon={<PlayCircleOutlined />}
-                          onClick={() => handleBacktestStrategy(strategy)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleBacktestStrategy(item);
+                          }}
                           style={{ width: '100%' }}
                         >
-                          {t('backtest')}
+                          {t('sm_action_backtest')}
                         </Button>
                       </Col>
                       <Col span={12}>
                         <Button
                           size="small"
-                          icon={<HistoryOutlined />}
-                          onClick={() => handleViewBacktests(strategy.name)}
+                          icon={<EditOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditStrategy(item);
+                          }}
                           style={{ width: '100%' }}
                         >
-                          {t('records')}
+                          {t('edit')}
                         </Button>
                       </Col>
                     </Row>
@@ -872,9 +814,9 @@ const StrategyManagement = () => {
         ) : (
           <Card className="qc-card">
             <QcEmpty
-              title={searchText ? t('no_data') : t('no_strategies')}
+              title={searchText || stateFilter ? t('no_data') : t('no_strategies')}
               action={
-                !searchText && (
+                !searchText && !stateFilter && (
                   <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateStrategy}>
                     {t('create_first_strategy')}
                   </Button>
@@ -888,445 +830,40 @@ const StrategyManagement = () => {
     );
   };
 
-  // 获取状态显示文本
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return t('status_completed');
-      case 'running':
-      case 'in_progress':
-        return t('status_running');
-      case 'failed':
-        return t('status_failed');
-      case 'pending':
-        return t('status_pending');
-      default:
-        return status;
-    }
-  };
-
-  // 重置回测筛选（筛选/排序已下沉服务端，重置后用默认参数重拉）
-  const handleResetBacktestFilters = () => {
-    setBacktestSearchText('');
-    setBacktestStatusFilter('all');
-    setBacktestSortField('created_at');
-    setBacktestSortOrder('desc');
-    loadBacktests({
-      page: 1,
-      status: 'all',
-      keyword: '',
-      strategy: '',
-      sortBy: 'created_at',
-      sortOrder: 'desc',
-    });
-  };
-
-  // 回测列表表格列
-  const backtestColumns: TableProps<BacktestTask>['columns'] = [
-    {
-      title: t('strategy_name'),
-      dataIndex: 'strategy_name',
-      key: 'strategy_name',
-      width: 180,
-      ellipsis: {
-        showTitle: false,
-      },
-      render: (text: string) => (
-        <Tooltip title={text} placement="topLeft">
-          <span className="qc-cell-strat">{text}</span>
-        </Tooltip>
-      ),
-    },
-    {
-      title: t('status'),
-      dataIndex: 'status',
-      key: 'status',
-      width: 96,
-      align: 'center',
-      render: (status: string) => renderStatusChip(status),
-    },
-    {
-      title: t('total_return'),
-      dataIndex: 'total_return',
-      key: 'total_return',
-      width: 100,
-      align: 'right',
-      render: (value: number | undefined) => {
-        // §6.5 数值列口径（与回测中心一致）：null →「—」弱文本；正绿负红
-        if (value === undefined || value === null) return <span className="qc-mono qc-cell-none">—</span>;
-        return (
-          <span className={`qc-mono ${value >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>
-            {value >= 0 ? '+' : ''}{value.toFixed(2)}%
-          </span>
-        );
-      },
-    },
-    {
-      title: t('max_drawdown'),
-      dataIndex: 'max_drawdown',
-      key: 'max_drawdown',
-      width: 100,
-      align: 'right',
-      render: (value: number | undefined) => {
-        // 回撤是幅度而非盈亏符号：一律中性前景色（口径同回测中心 renderDrawdown）
-        if (value === undefined || value === null) return <span className="qc-mono qc-cell-none">—</span>;
-        return <span className="qc-mono">{value.toFixed(2)}%</span>;
-      },
-    },
-    {
-      title: t('create_time'),
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 160,
-      render: (value: string) => (
-        <span className="qc-cell-time qc-mono">{dayjs(value).format('YYYY-MM-DD HH:mm:ss')}</span>
-      ),
-    },
-    {
-      title: t('action'),
-      key: 'action',
-      width: 122,
-      fixed: 'right',
-      render: (_, record: BacktestTask) => (
-        <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
-          <Tooltip title={t('view_details')}>
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only"
-              aria-label={t('view_details')}
-              onClick={() => handleViewDetail(record.id)}
-            >
-              <LineChartOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title={t('replay')}>
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only"
-              aria-label={t('replay')}
-              onClick={() => handleReplay(record.id)}
-            >
-              <PlayCircleOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title={isGuest ? (t('guest_delete_restricted')) : (t('delete'))}>
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only danger"
-              aria-label={isGuest ? (t('guest_delete_restricted')) : (t('delete'))}
-              onClick={() => handleDeleteBacktest(record.id)}
-              disabled={isGuest}
-            >
-              <DeleteOutlined />
-            </button>
-          </Tooltip>
-        </div>
-      ),
-    },
-  ];
-
-  // 渲染回测列表视图 — 与策略列表同一套 DataTable 口径（行点击选中、双击进详情）
-  const renderBacktestListView = () => (
-    <>
-      <PageToolbar
-        search={{
-          value: backtestSearchText,
-          onChange: (value) => {
-            setBacktestSearchText(value);
-            // 点 clear 清空时同步重发服务端过滤，避免「界面已清、结果仍是旧过滤」
-            if (value === '') {
-              loadBacktests({ keyword: '', page: 1 });
-            }
-          },
-          onPressEnter: (value) => loadBacktests({ keyword: value, page: 1 }),
-          placeholder: t('search_backtest'),
-          ariaLabel: t('search_backtest'),
-        }}
-        filters={
-          <>
-            <Select
-              aria-label={t('select_strategy')}
-              placeholder={t('select_strategy')}
-              value={selectedStrategy || undefined}
-              onChange={(value) => {
-                setSelectedStrategy(value ?? '');
-                loadBacktests({ strategy: value ?? '', page: 1 });
-              }}
-              allowClear
-              style={{ width: 150 }}
-              options={strategies.map((s) => ({ value: s.name, label: s.name }))}
-            />
-            <Select
-              aria-label={t('status')}
-              value={backtestStatusFilter}
-              onChange={(value) => {
-                setBacktestStatusFilter(value);
-                loadBacktests({ status: value, page: 1 });
-              }}
-              style={{ width: 118 }}
-              options={[
-                { value: 'all', label: t('all_status_backtest') },
-                { value: 'completed', label: t('status_completed') },
-                { value: 'running', label: t('status_running') },
-                { value: 'failed', label: t('status_failed') },
-                { value: 'pending', label: t('status_pending') },
-              ]}
-            />
-            <Select
-              aria-label={t('sort_by')}
-              value={`${backtestSortField}-${backtestSortOrder}`}
-              onChange={(value) => {
-                const [field, order] = value.split('-');
-                setBacktestSortField(field);
-                setBacktestSortOrder(order);
-                loadBacktests({ sortBy: field, sortOrder: order, page: 1 });
-              }}
-              style={{ width: 150 }}
-              options={[
-                { value: 'created_at-desc', label: t('sort_create_time_desc') },
-                { value: 'created_at-asc', label: t('sort_create_time_asc') },
-                { value: 'total_return-desc', label: t('sort_return_desc') },
-                { value: 'total_return-asc', label: t('sort_return_asc') },
-                { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') },
-                { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') },
-                { value: 'strategy_name-asc', label: t('sort_name_asc') },
-              ]}
-            />
-          </>
-        }
-        count={shownRange(
-          (backtestPagination.current as number) || 1,
-          (backtestPagination.pageSize as number) || pageSize,
-          (backtestPagination.total as number) || 0
-        )}
-        actions={
-          <>
-            <Button icon={<ReloadOutlined />} onClick={handleResetBacktestFilters} style={{ height: 30 }}>
-              {t('reset')}
-            </Button>
-            <Button type="primary" icon={<ReloadOutlined />} onClick={() => loadBacktests()} loading={backtestLoading} style={{ height: 30 }}>
-              {t('refresh')}
-            </Button>
-            {backtestSelectedRowKeys.length > 0 && (
-              <Button danger icon={<DeleteOutlined />} onClick={handleBatchDeleteBacktests} disabled={isGuest} style={{ height: 30 }}>
-                {t('delete')} ({backtestSelectedRowKeys.length})
-              </Button>
-            )}
-          </>
-        }
-      />
-      <DataTable<BacktestTask>
-        columns={backtestColumns}
-        dataSource={backtests}
-        loading={backtestLoading}
-        rowKey="id"
-        pagination={{
-          ...backtestPagination,
-          onChange: (pg, size) => {
-            // 分页事件下沉服务端重新拉取
-            setBacktestPagination({ ...backtestPagination, current: pg, pageSize: size });
-            loadBacktests({ page: pg, pageSize: size });
-          },
-        }}
-        remote
-        rowSelection={{
-          selectedRowKeys: backtestSelectedRowKeys,
-          onChange: (newSelectedRowKeys: React.Key[]) => {
-            setBacktestSelectedRowKeys(newSelectedRowKeys);
-          },
-        }}
-        onRow={(record) => ({
-          onClick: () => {
-            setBacktestSelectedRowKeys([record.id]);
-          },
-          onDoubleClick: () => {
-            handleViewDetail(record.id);
-          },
-          style: {
-            cursor: 'pointer',
-          },
-        })}
-      />
-    </>
-  );
-
-  // 渲染回测卡片视图 — §6.3 卡片 chrome + §6.7 分页条（服务端分页）
-  const renderBacktestCardView = () => {
-    const currentPage = (backtestPagination.current as number) || 1;
-    const currentSize = (backtestPagination.pageSize as number) || pageSize;
-    // backtests 即服务端返回的当前页数据，无需再本地切片
-    const currentPageData = backtests;
-    const pgChange = (page: number, size: number) => {
-      // 分页事件下沉服务端重新拉取；条数变化写回全局配置
-      setPageSize(size);
-      loadBacktests({ page, pageSize: size });
-    };
-
-    return (
-      <>
-        {currentPageData.length > 0 ? (
-          <Row gutter={[16, 16]}>
-            {currentPageData.map((task: BacktestTask) => (
-              <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
-                <Card
-                  size="small"
-                  className={`qc-card${backtestSelectedRowKeys.includes(task.id) ? ' qc-card-selected' : ''}`}
-                  title={
-                    <div className="flex items-center justify-between">
-                      <span className="qc-mono truncate" style={{ maxWidth: '70%' }}>
-                        {task.strategy_name}
-                      </span>
-                      {renderStatusChip(task.status)}
-                    </div>
-                  }
-                  extra={
-                    // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
-                    <Tooltip title={isGuest ? t('guest_delete_restricted') : (t('delete'))}>
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        disabled={isGuest}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteBacktest(task.id);
-                        }}
-                      />
-                    </Tooltip>
-                  }
-                  onClick={() => setBacktestSelectedRowKeys([task.id])}
-                  onDoubleClick={() => handleViewDetail(task.id)}
-                  style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
-                >
-                  <div className="space-y-3" style={{ color: 'var(--qc-text-tertiary)' }}>
-                    <div className="flex justify-between items-center">
-                      <span>{t('total_return')}</span>
-                      {task.total_return === undefined || task.total_return === null ? (
-                        <span className="qc-cell-none qc-mono">—</span>
-                      ) : (
-                        <span className={`qc-mono ${task.total_return >= 0 ? 'qc-cell-up' : 'qc-cell-down'}`}>
-                          {task.total_return >= 0 ? '+' : ''}{task.total_return.toFixed(2)}%
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>{t('max_drawdown')}</span>
-                      {/* 幅度类指标恒中性（同回测中心口径） */}
-                      <span className="qc-mono">
-                        {task.max_drawdown === undefined || task.max_drawdown === null ? '—' : `${task.max_drawdown.toFixed(2)}%`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>{t('create_time')}</span>
-                      <span className="qc-cell-time qc-mono">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={<LineChartOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewDetail(task.id);
-                        }}
-                      >
-                        {t('view')}
-                      </Button>
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={<PlayCircleOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReplay(task.id);
-                        }}
-                      >
-                        {t('replay')}
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              </Col>
-            ))}
-          </Row>
-        ) : (
-          <Card className="qc-card">
-            <QcEmpty title={t('no_data')} />
-          </Card>
-        )}
-        {renderPgBar(currentPage, currentSize, (backtestPagination.total as number) || 0, pgChange)}
-      </>
-    );
-  };
-
-  // Tab 切换项
-  const tabItems = [
-    {
-      key: 'strategies',
-      label: (
-        <span>
-          <AppstoreOutlined style={{ marginRight: 8 }} />
-          {t('strategy_list')}
-        </span>
-      ),
-      children: (
-        <>
-          {viewType === 'list' ? renderListView() : renderCardView()}
-        </>
-      ),
-    },
-    {
-      key: 'backtests',
-      label: (
-        <span>
-          <HistoryOutlined style={{ marginRight: 8 }} />
-          {t('backtest_records')}
-          {/* 当前过滤值标注：mono 弱文本（非徽章/非胶囊——不消费点击，不冒充交互原语） */}
-          {selectedStrategy && (
-            <span className="qc-mono" style={{ marginLeft: 8, fontSize: 11, color: 'var(--qc-text-quaternary)' }}>
-              {selectedStrategy}
-            </span>
-          )}
-        </span>
-      ),
-      children: (
-        <>
-          {backtestViewType === 'list' ? renderBacktestListView() : renderBacktestCardView()}
-        </>
-      ),
-    },
-  ];
-
-  // 处理 Tab 切换 - 更新 URL 参数
-  const handleTabChange = (key: string) => {
-    const newTab = key as TabType;
-    setActiveTab(newTab);
-    // 更新 URL 参数，保留其他参数
-    const newParams = new URLSearchParams(searchParams);
-    newParams.set('tab', newTab);
-    setSearchParams(newParams);
-  };
-
   return (
     <PageContainer
       title={t('strategy_management')}
       subtitle={pageSubtitle}
       actions={
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={handleCreateStrategy}
-          style={{ height: 30, padding: '0 14px', fontSize: 12 }}
-        >
-          {t('new_strategy')}
-        </Button>
+        <Space size={8}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleCreateStrategy}
+            style={{ height: 30, padding: '0 14px', fontSize: 12 }}
+          >
+            {t('new_strategy')}
+          </Button>
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={handleLaunchBacktest}
+            style={{ height: 30, padding: '0 14px', fontSize: 12 }}
+          >
+            {t('launch_backtest')}
+          </Button>
+        </Space>
       }
     >
-      <Tabs
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        items={tabItems}
+      {viewType === 'list' ? renderListView() : renderCardView()}
+      {renderDetailBlock()}
+      {/* 创建 Worker：复用 worker 模块创建弹窗（真实 POST /workers；成功后刷新聚合计数） */}
+      <WorkerCreateModal
+        visible={createWorkerOpen}
+        onCancel={() => setCreateWorkerOpen(false)}
+        onSuccess={() => {
+          setCreateWorkerOpen(false);
+          loadOverview();
+        }}
       />
     </PageContainer>
   );

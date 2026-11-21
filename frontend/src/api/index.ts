@@ -474,12 +474,58 @@ export const apiRequest = {
   },
 };
 
+/** /strategy/overview 的参数键值项（name/default 必有，其余为展示用元数据，后端可能缺席） */
+export interface StrategyParamRecord {
+  name?: string;
+  type?: string;
+  default?: unknown;
+  description?: string;
+  min?: number | null;
+  max?: number | null;
+  options?: unknown[] | null;
+}
+
+/**
+ * /strategy/overview 单项契约（策略 × worker × 最近回测聚合；NULL 值一律由页面显示「—」）
+ * 契约字段 kind/interval/symbols/state/worker_count/latest_backtest 由后端聚合，
+ * 页面不得用 /strategy/list 硬拼这些语义（状态必须是 worker 聚合的投影）。
+ */
+export interface StrategyOverviewItem {
+  name: string;
+  description?: string;
+  version?: string;
+  tags?: string[];
+  params?: StrategyParamRecord[];
+  factors?: unknown[];
+  created_at?: string;
+  updated_at?: string;
+  source?: string;
+  strategy_type?: string;
+  strategy_class?: string;
+  kind?: 'rule' | 'rl' | 'llm';
+  interval?: string | null;
+  symbols?: string[] | null;
+  state?: 'live' | 'paper' | 'paused' | 'stopped' | 'error' | 'undeployed';
+  worker_count?: number;
+  latest_backtest?: { status: string; total_return: number | null; created_at: string } | null;
+  /** 后端线可能追加的累计回测次数；契约未定，缺席时详情 footer 隐藏该段（不造数） */
+  backtest_count?: number;
+}
+
 /**
  * 策略相关 API
  */
 export const strategyApi = {
   getStrategies: (): Promise<{ strategies: StrategyInfo[] }> => {
     return apiRequest.get('/strategy/list');
+  },
+
+  /**
+   * 策略总览：/strategy/list 每项字段 + kind/interval/symbols/state/worker_count/latest_backtest 聚合。
+   * 端点由后端线提供；不可用时页面展示空态，不得回退 /strategy/list 伪造聚合列。
+   */
+  getStrategyOverview: (): Promise<{ strategies: StrategyOverviewItem[] }> => {
+    return apiRequest.get('/strategy/overview');
   },
 
   createStrategy: <T>(data: T) => {

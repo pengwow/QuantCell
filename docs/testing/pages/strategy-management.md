@@ -2,39 +2,42 @@
 
 ## 前置
 - 环境与 token 注入见 `../README.md` 第一节
-- 无数据依赖：策略列表为空是合法状态（表格空态为 `.qc-empty` 图标块 +「暂无数据」/「暂无策略」，卡片视图显示「暂无策略」+「创建第一个策略」）
-- 列表/卡片的展示形态跟随系统设置「默认展示类型」（默认已改为 list，列表），页面内没有切换按钮；执行前先确认当前是列表还是卡片视图，断言时按实际形态取舍
-- 造数据（仅行级操作的 L2 需要）：在 `/strategy-editor` 新建 `zz_test_probe` 策略并保存 → 回到本页。收尾：用行内删除或 `DELETE /api/v1/strategy/zz_test_probe`
-- 需要回测记录行时：先对该策略发起一次回测（见 `backtest.md`），或接受「回测记录」页签的空表状态
+- **数据依赖**：本页数据源是 `GET /api/v1/strategy/overview`（策略 × worker × 最近回测聚合，后端提供）。端点不可用/404 时页面为合法空态（表格空态 + toast），此时跳过依赖聚合列的断言（S4-S7、S11-S12）
+- 无数据也是合法状态：表格空态为 `.qc-empty` +「暂无策略」，卡片视图同文案
+- 列表/卡片形态跟随系统设置「默认展示类型」（页面无切换按钮），断言前先确认当前形态
+- 造数据（行级操作 L2 用）：在 `/strategy-editor` 新建 `zz_test_probe` 并保存 → 回到本页。收尾：行内删除或 `DELETE /api/v1/strategy/zz_test_probe`
+- 对照口径：`curl -s http://localhost:8000/api/v1/strategy/overview` 的 `data.strategies[]` 是状态/Worker/最近回测三列的唯一真值来源
+- 展示/回测入口不再指向本页退役页签：「回测记录」页签已删除，回测统一在回测中心（断言见 S10）
 
 ## 验证项
 
 | # | 操作 | 预期（可观测信号） | 层级 |
 |---|---|---|---|
-| S1 | 直接打开 `/strategy-management` | 页头为 §5 page-head 制式：标题「策略管理」（16px/650）+ mono 11px 真值副标（策略页签为「策略共 N 个 · RL N · 规则 N」，回测页签为「回测记录 N 条 · 每页 N 条」，随页签与数据实时变化）+ 右侧「新建策略」主色按钮（30px 高，不随容器拉伸）；页签「策略列表」「回测记录」为 §6.8 下划线式：tab 无边框无底色（computed background 为透明、border-radius 0）、12.5px 字、选中态主色字 + 主色 2px 下划线（ink-bar）+ 550 字重，容器仅一条 1px 底边；列表视图表头含「策略名称」「描述」「创建时间」「更新时间」「操作」且 th 为 10.5px / `--qc-surface-raised` 底（卡片视图则是 `.qc-card` 策略卡片或 `.qc-empty` 空态，卡片底部带同一 §6.7 分页条）；数值列收益率正绿负红且空值显示 mono「—」，最大回撤恒中性色；`GET /api/v1/strategy/list` 返回 200；URL 保持 `/strategy-management` | L1 |
-| S2 | 与 S1 同一次加载中观察网络面板 | 即使停留在「策略列表」，也同时发出 `GET /api/v1/backtest/list` 且返回 200（挂载即预取回测记录，属预期行为，不是串页） | L1 |
-| S3 | 在工具栏搜索框（占位符「搜索策略名称或描述」）输入关键词 | 表格按名称/描述即时过滤，**不发起新请求**（纯前端过滤），工具栏右侧计数「显示 x-y / 共 z」同步更新且**页码归 1**；关键词无匹配时表格显示 `.qc-empty` 空态（搜 `zzzz` 可复现） | L2 |
-| S4 | 排序下拉从「更新时间 ↓」改为「名称 A-Z」 | 行顺序按名称升序重排；不发起新请求 | L2 |
-| S5 | 观察工具栏与 §6.7 分页条 | 工具栏为单行（搜索 + 排序下拉 + 右侧计数），无独立「重置」按钮；分页条容器有 1px 上边线（margin-top 12 / padding-top 9），左侧「共 N 条 · 每页 [▾]」档位为 12 的倍数（12/24/36/48/96，切换写回全局配置、页码自动钳制），右侧页码钮 28px 高、当前页主色字 + primary 10% tint 底 + primary 45% 边；页码省略号为非交互「…」（首尾常显 + 当前页 ±1，如 1 … 3 4 5 … 9），点省略号不翻页；「跳至 [__] 页」输入页码回车跳转，非数字忽略、越界钳制到最近合法页 | L2 |
-| S6 | 点「新建策略」 | 跳转 `/strategy-editor`（空编辑器，见 `strategy-editor.md`） | L2 |
-| S7 | 点某行的编辑图标（悬浮提示「编辑策略」） | 跳转 `/strategy-editor/<策略名>`，编辑器加载该策略源码 | L2 |
-| S8 | 点某行的回测图标（悬浮提示「回测策略」） | 跳转 `/backtest/config`，并直接展开回测配置（带该策略预选） | L2 |
-| S9 | 点某行的记录入口（列表视图是第 3 个图标，悬浮提示「回测记录」；卡片视图是文字按钮「记录」） | 页签切到「回测记录」，URL 带 `?tab=backtests`，页签标题后出现该策略名的 mono 弱文本标注（非徽章，不消费点击）；`GET /api/v1/backtest/list` 带 `strategy=<策略名>` 返回 200 | L2 |
-| S10 | 点某行的删除图标（悬浮提示「删除策略」；操作钮顺序为 编辑/回测/记录/删除） | 弹「确认删除策略」，内容含「您确定要删除策略「<名称>」吗？此操作不可恢复。」；点「取消」关闭且该行仍在（不发起 `DELETE /api/v1/strategy/<名称>`）。真实删除只对 `zz_test_probe` 执行并当场 teardown | L2 |
-| S11 | 切到「回测记录」页签 | 表头含「策略名称」「状态」「总收益率」「最大回撤」「创建时间」「操作」或空表；状态列为语义 chip（已完成=ok / 运行中=ok+pulse 圆点 / 失败=down / 等待中=quiet）；工具栏单行：搜索 + 策略/状态/排序三个下拉 + 右侧「重置」「刷新」按钮；分页条与策略列表同一 §6.7 口径（左侧共 N 条 · 每页档位，右侧页码 + 跳至）；`GET /api/v1/backtest/list` 200（带 page/page_size/sort_by/sort_order） | L2 |
-| S12 | 回测记录页签里状态筛选选「已完成」 | 重新请求 `GET /api/v1/backtest/list` 且带 `status=completed`；结果每行状态标签为「已完成」或空表 | L2 |
-| S13 | 回测记录页签搜索框输入关键词后回车 | 发起 `GET /api/v1/backtest/list` 且带 `keyword=<关键词>`（服务端筛选，非前端过滤）；点 clear 清空时同样以空 keyword 重发 | L2 |
-| S14 | 回测记录页签勾选任意一行 | 工具栏右端出现「删除 (1)」按钮；点它弹「确认批量删除回测记录」，内容含「确定要删除选中的 1 条回测记录吗？」；点「取消」后弹窗关闭、该行仍在，且未发起 `DELETE /api/v1/backtest/<id>` | L2 |
-| S15 | 直接打开 `/strategy-management?tab=backtests&status=failed` | 落地即停在「回测记录」页签，状态筛选显示「失败」，并发出带 `status=failed` 的 `GET /api/v1/backtest/list` | L2 |
-| S16 | 访客账号（`isGuest`）打开本页 | 删除图标/「删除 (n)」按钮为不可点（disabled + 35% 透明度），悬浮提示「访客用户无法删除回测记录」；编辑与回测入口仍可用 | L2（需访客账号，按需） |
-| S17 | 列表视图点击任意行（非操作钮区域） | 该行打 primary 5% tint + 左侧 3px 主色条（行选中）；点击行内操作图标不触发行选中（stopPropagation），并按图标语义跳转 | L2 |
+| S1 | 打开 `/strategy-management` 并读页头副标 | 副标为 mono 单行「共 N 个 · 运行中 N · 模拟盘 N · 已暂停 N · 未部署 N · 点击行查看参数详情」，六段计数与 `/strategy/overview` 逐项一致（live/paper/paused/undeployed 各自求和、N 为 strategies 总数）；若 overview 里真实存在 stopped/error 则副标在「已暂停」与「未部署」之间/之后**如实多出「已停止 N」或「错误 N」段**；全文**不得出现「草稿」**（strategies.status 只有 active，无此语义） | L1 |
+| S2 | 数工具栏状态 chips | 基线 6 枚：全部 / 运行中 / 模拟盘 / 已暂停 / 未部署（+ 真有 stopped/error 数据时增补「已停止」「错误」，此时为 7-8 枚）；点各芯片表格按 state 精确过滤且页码归 1；点「全部」恢复；**不含「草稿」chip** | L1 |
+| S3 | 读表头 | 前七列顺序恰为：策略 / 类型 / 周期 / 标的 / 状态 / Worker / 最近回测，末列操作；Worker 与最近回测两列数字右对齐 | L1 |
+| S4 | 抽查任意一行的「状态」列 vs `curl /strategy/overview` | 状态 chip 与该行 `state` 字段一一对应：live=ok chip+pulse 圆点「运行中」、paper=warn「模拟盘」、paused=quiet「已暂停」、stopped=quiet「已停止」、error=down「错误」、undeployed=info「未部署」；即状态列是 worker 聚合的投影，与 worker 列表页同口径，不是 strategies 表自己的字段 | L1 |
+| S5 | 抽查「Worker」列 vs curl | 值 = 该策略 `worker_count`，右对齐 mono；0 显示弱色 0（不染色不隐藏）；>0 普通前景色 | L1 |
+| S6 | 抽查「最近回测」列 vs curl | `latest_backtest` 为 null → 弱色「未回测」；status running/pending → 弱色「回测运行中」；failed → 红色「失败」；completed 且 total_return>0 → 绿色「+x.xx%」、<0 → 红色「-x.xx%」、**=0 → 中性色「0.00%」（0 不染色）**；completed 但 total_return 为 null → 弱色「—」 | L1 |
+| S7 | 点第一行 | 行打 primary 5% tint + 左侧 3px 主色条；表格下方出现常驻详情块（demo detail-block 同构）：块头 = 「策略详情」+ 策略名（mono）+ 状态 chip（与该行状态列同一映射）+ 右侧「v{version} · 更新 {MM-DD}」；主体 = 参数键值两列表（键列弱色 mono 参数名、值列默认值 + `[min ~ max]` 弱色 + 弱色描述），与 `/strategy/overview` 该项 `params[]` 的 name/default/description/min/max 逐条一致；底部 = 主色「去回测」+「创建 Worker」+ footer 一行「默认 runner：kernel · 累计回测 N 次」（`backtest_count` 由 `/strategy/overview` 回传 = 该策略历史回测任务总数，与 `curl` 原始 JSON 逐条一致；字段缺席时只显示 runner 段，**不得出现编造的 0/固定数**） | L2 |
+| S8 | 详情块/参数为空的策略上点行 | `params` 为空数组或缺失时详情块显示弱提示「该策略没有可调参数」，不留空表壳；**详情块任何位置不出现「版本历史 N 条」**（version 是单字符串，无历史表） | L2 |
+| S9 | 点详情块「创建 Worker」 | 打开 worker 创建弹窗（worker 模块现成组件），提交后真实 `POST /workers` 并刷新本页聚合计数（Worker 列/副标数字变化）；不弹「点了没反应」的死钮行为 | L2 |
+| S10 | 点行内「去回测」（或详情块主色钮） | 跳转 `/backtest/config` 且该策略已预填（state.strategy.name = 点击行名）；点页头「发起回测」跳同一页但不带预填；**页面任何位置不存在「回测记录」页签或指向 `?tab=` 的链接** | L2 |
+| S11 | 直接打开 `/strategy-management?tab=backtests` 或旧返回链路 `?search=..&status=..` | 地址立即被 replace 成裸 `/strategy-management`，落在列表视图，无任何页签；刷新后仍为列表 | L1 |
+| S12 | 千万注意反数据造假 | 全页搜索「草稿」「版本历史」无结果；周期/标的/最近回测字段为 null 时一律显示弱色「—」，Worker 为 0 显示弱色 0；无任何写死/假造的聚合数 | L1 |
+| S13 | 切到卡片视图（系统设置改默认展示类型） | 卡片不因新列退化：卡头名称 mono + 类型/状态 chip 行，卡面含 周期 / 标的 / Worker（0 弱色）/ 最近回测（同 S6 染色）/ 更新时间行，底部「去回测」+「编辑」钮；点卡片选中（primary 边框）且详情块同步；不报错 | L2 |
+| S14 | 工具栏搜索「zzz」/清空 | 按名称/描述/标的即时前端过滤不发请求，页码归 1，无匹配显示空态；排序 Select（更新时间 ↓ 默认）仍在且切换生效，不发请求 | L2 |
+| S15 | 点行内「去回测 / 编辑 / 删除」 | 三个操作钮 stopPropagation（不触发行选中变化）；删除弹「确认删除策略」确认框，取消则行仍在；编辑跳 `/strategy-editor/<名称>`；访客账号删除钮 disabled 且处理函数访客早退（不发 DELETE） | L2 |
 
 ## 历史雷区
-- **搜索不重置页码**（已修复 2026-11-20）：策略列表是前端过滤 + 前端分页，此前改搜索词不归位页码，停在第 2 页再搜索会看到"空表但「共 N 条」非 0"。现在搜索 onChange 已显式把页码拨回 1（S3 断言）；若回归先查 `renderListView` 的 `setPagination(prev→current:1)`
-- **两个列表分页口径不同**：策略列表是本地分页（页码/总数由当前数据算），回测记录是服务端分页（页码/总数由后端返回）。同一页的「共 N 条」不可跨页签类比
-- **挂载即预取回测列表**：S1 一落地就会同时打 `/strategy/list` 与 `/backtest/list`。回测接口慢时容易误判成"页面在请求别的模块"
-- **页签状态双源**：页签只在首次挂载从 `?tab=` 读取并写入 state，之后只写 URL、没有监听 `searchParams` 的同步逻辑。用浏览器前进/后退改 `?tab=` 时内容不会跟着切，必须刷新才生效
-- **删除策略无权限兜底**：删除按钮靠 `disabled` 拦截访客，但删除处理函数内部没有 `isGuest` 早退（对比"删除回测记录"是有早退的）。绕过 disabled 的自动化点击仍会真实发出 `DELETE`
+- **数据源是 overview 不是 list**（2026-11-21 重构）：本页只消费 `GET /strategy/overview`；将其回退成 `/strategy/list` 并在前端拼 state/worker_count 属于造假，禁止。端点 404/405 时是空态 + toast，不是页面 bug
+- **state 是后端优先级投影**（2026-11-21 落联调）：`live > paper > paused > error > stopped`，无 worker → `undeployed`（worker 次/进程异常等中间态由后端归桶，前端照 `state` 字段渲染，不得自行再判）。现网 worker 多为 `interrupted` → 端点落 `stopped`，所以「已停止」「未部署」常态化出现——这两 chip 必须真实可见可筛选，不得为贴近 demo 五桶而隐藏或并桶
+- **「最近回测」取任务表最新一条**（`WHERE strategy_name=? ORDER BY created_at DESC LIMIT 1`，后端聚合）：status 驱动染色（失败 down / 运行中 weak）优先于百分比；`total_return` 为 null（任务无 result_id 是常态）时显示「—」，**不得显示 0.00%**；只有 `total_return === 0` 才显示中性色 0.00%
+- **interval/symbols 来自关联 worker 聚合**（多 worker 去重并集）：无 worker → `null`/`[]` → 显示「—」，不回填策略文件里的默认值
+- **「回测记录」页签已退役**（2026-11-21）：表格、`?tab=backtests`、buildReturnUrl 返回链路全部删除。老入口（回测详情/回放的 returnUrl）进页会被 replace 成裸路径（S11）。后端 `source=` 能力不动
+- **搜索不重置页码**（已修复 2026-11-20）：搜索 onChange 必须把 pagination.current 拨回 1（S14 断言）
+- **删除策略无权限兜底**：删除处理函数内已有 `isGuest` 早退（2026-11-21 补），绕过 disabled 的自动化点击不再发出 DELETE
 - **删除不可恢复**：确认文案已写明，没有回收站/软删。除 `zz_test_probe` 外不要在任何真实策略上点「确定」
-- **「策略」筛选下拉依赖策略列表**：回测记录的策略下拉选项取自 `GET /strategy/list` 的结果，该请求失败时下拉为空且只有一条 toast 提示，页签本身不显示错误块
-- **表头/行密度被 antd 覆盖**（已踩坑 2026-11-20）：antd css-var 模式下 small-table 的 8px 内边距规则特异性高于普通 `.qc-table` 后代选择器，且 `className` 落在 `.ant-table-wrapper` 上——`.qc-table` 的 th/td 密度规则必须写成 `.qc-table.ant-table-wrapper ...` 前缀（见 `global.css` 列表原语段）
+- **状态列语义**：live/paper/paused/stopped/error 全部来自 worker 聚合（见 S4）。「已停止」「错误」chip 只在真有数据时出现（chips 与副标同步增删），不要为了凑 demo 五桶而隐藏
+- **详情块footer 的「累计回测 N 次」**：取 `/strategy/overview` 的 `backtest_count`（同一次任务遍历累计，不加额外查询）；字段缺席时只显示「默认 runner：kernel」，不许写死数字。计数为 0 是真实值（该策略没跑过回测），与「未回测」列语义一致
+- **表头/行密度被 antd 覆盖**（2026-11-20 踩坑）：`.qc-table` 密度规则必须写 `.qc-table.ant-table-wrapper ...` 前缀（见 `global.css`）；详情块的 kvtab 在页面私有 `StrategyManagement.css`，色值只用 `var(--qc-*)`

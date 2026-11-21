@@ -65,6 +65,25 @@ def get_strategy_list() -> StrategyListResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/overview", response_model=ApiResponse, summary="策略总览（策略 × worker × 最近回测聚合）")
+def get_strategy_overview() -> ApiResponse:
+    """策略管理页六列所需的只读聚合端点。
+
+    在 /list 每项字段上追加 kind / interval / symbols / state / worker_count /
+    latest_backtest；不修改 /list 既有契约，也不写库。
+    """
+    try:
+        strategies = get_strategy_service().list_strategies_overview()
+        return ApiResponse(
+            code=0,
+            message="获取策略总览成功",
+            data={"strategies": strategies},
+        )
+    except Exception as e:
+        logger.error(f"获取策略总览失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/detail", response_model=ApiResponse)
 def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
     _validate_strategy_name(request.strategy_name)
