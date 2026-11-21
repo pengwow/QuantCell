@@ -101,6 +101,8 @@ import {
 } from '@/types/data';
 import { setPageTitle } from '@/utils/pageTitle';
 
+import ArchiveWatermarkStrip from './ArchiveWatermarkStrip';
+
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
@@ -3905,6 +3907,8 @@ const DataManagementPage = () => {
       title={t('data_management')}
       subtitle={t('dm_subtitle', { types: Object.keys(DATA_KIND_LABEL).length, symbols: symbols.length })}
     >
+      {/* 首屏两块只读卡（数据源水位 + 存储用量）：四个页签下都可见，demo #view-data 1979-2047 */}
+      <ArchiveWatermarkStrip />
       <Tabs
         activeKey={activeTab}
         onChange={handleTabChange}

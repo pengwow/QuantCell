@@ -34,6 +34,29 @@ export interface TaskDetailItem {
   [key: string]: unknown;
 }
 
+// 归档水位（GET /data/archive/watermark 的 watermarks[] 元素）
+export interface ArchiveWatermarkItem {
+  kind: string;
+  symbol_count: number;
+  total_rows: number;
+  earliest_date: string | null;
+  latest_date: string | null;
+  updated_at: string | null;
+}
+
+// 归档存储占用（storage[] 元素，bytes 为 parquet 文件大小之和）
+export interface ArchiveStorageItem {
+  kind: string;
+  bytes: number;
+}
+
+export interface ArchiveWatermarkResponse {
+  success?: boolean;
+  watermarks: ArchiveWatermarkItem[];
+  storage: ArchiveStorageItem[];
+  total_bytes: number;
+}
+
 // K线质量检查结果（对应后端 /data/quality/kline 的返回结构）
 export interface KlineQualityReport {
   total_records?: number;
@@ -283,6 +306,14 @@ export const dataApi = {
    */
   getQualityOptions: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/quality/options', params);
+  },
+
+  /**
+   * 归档水位 + 存储用量聚合（按 kind 求和 `_meta.json` 与 parquet 体积）
+   * 只返回真实存在的 kind：缺失的 kind 不在数组里，调用方按「无数据」处理
+   */
+  getArchiveWatermark: (): Promise<ArchiveWatermarkResponse> => {
+    return apiRequest.get('/data/archive/watermark');
   },
 
   // ==================== 数据池（自选组）API ====================

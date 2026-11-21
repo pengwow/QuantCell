@@ -30,6 +30,10 @@
 | D13 | 亮 / 暗主题各截一张整页图 | 两主题下页头/页签/KPI 卡/表格/任务表/chip/弹窗抽屉均无白底漏洞或对比度塌陷（暗色 qc 卡底 rgb(29,31,35)、页签选中 rgb(249,115,22)、th fg 弱化） | L1 |
 | D14 | 小徽章形制抽查（树/卡片/明细/回放） | 侧栏「全部/自选组」计数、卡视图 `#rank` 均为 §6.2 count-chip（mono 10px 全圆、bd-2 边、bge 底）；归档树 kind 小标签为 chips：「K线」info 芯 /「衍生」pri 芯（无 antd 彩色 Tag）；质量明细的缺列/重复形态=down 芯、字段警告=warn 芯、重复区间/时间段=quiet 芯且值 mono；回放页「1 / n」进度徽标为 count-chip（非 antd Badge 蓝点）；全页 getComputedStyle 抽查这些元素不出现 antd Tag 的 8c 类硬色 | L1 |
 | D15 | JS 语义色随主题切换 | 24h 涨/跌、清理结果「已删除 N 条」、默认星标黄、质量 KPI 红黄均来自 `var(--qc-success/error/warning)`：切暗色主题后 getComputedStyle 颜色随之变化（亮暗 rgb 值不同）；树/市场/symbol 三级选中底为 `--qc-info` 8%/10%/30% tint，暗色下同样生效 | L1 |
+| D16 | 首屏两块卡（四个页签下都应可见）：页头与页签之间自上而下「数据源水位」四张卡 +「存储用量」卡 | 四张水位卡标题依次为 `kline` / `fundingRate` / `markPriceKlines` / `aggTrades`（mono 11px），右上角状态 dot 只用真值着色（有数据绿、无数据灰、落后 > 1 天黄），卡内为「累计 bar（K 线类）/ 累计条目（其余）」+ mono 数值 +「最新 <日期>」+ 落后 chip；任何卡片都**不出现**「限频 / 断连 / 排队 / 方式 / 频率」等无源文案。切到 `?tab=collection|quality|archive` 两块卡仍在（不随页签消失） | L1 |
+| D16a | 对照 `GET /api/v1/data/archive/watermark` 的返回逐卡核对数值 | 每张水位卡的「累计量」= 接口 `watermarks[]` 中同 kind 的 `total_rows`（≥100 万走紧凑写法如 `8.42M`，其余千分位整数）、「最新」= `latest_date`、落后 chip = 今天 − `latest_date` 的天数（日期粒度，`curl` 后手算核对）；`symbol_count` 作为卡底弱注「N 个标的」；接口里**没有**该 kind 时该卡整体弱色并显示「无数据」+ quiet chip「无数据」（接口不补 0 行占位，卡上也不得显示 0） | L1 |
+| D16b | 存储用量卡逐行核对 | 每行 = `kind · parquet` + 6px 圆角占比条（宽度 = 该 kind `bytes` / `total_bytes`，主色 `var(--qc-primary)`）+ 右对齐 mono 体积（KB/MB/GB/TB 人读）；卡头右侧「合计 <体积>」= 接口 `total_bytes`；行按体积降序；无任何 parquet 时显示「暂无归档 parquet 数据」；**不得**出现「特征缓存 / LLM replay 记录 / 上次压缩 / 保留 180 天」等无源行/脚注 | L1 |
+| D16c | 水位接口自身行为（可 `curl` 复核） | 空归档目录返回 `{"success":true,"watermarks":[],"storage":[],"total_bytes":0}`（空数组而非 0 行占位）；两族布局都统计：有 `_meta.json` 的归档目录以 meta 为权威（同目录 parquet 只计体积、不叠加行数），无 meta 的数据池 parquet（`crypto/{market}/klines/{interval}/{symbol}.parquet` → `kline`，`{fundingRate,openInterest}/{market}/{symbol}/*.parquet`）读 footer 得行数与日期；数据池布局的 `symbol_count` 按 distinct symbol 计（同标的多周期只算一个）；各数组按 kind 升序 | L2（只读） |
 
 ## 历史雷区
 - **采集/K线源数据曾落临时目录（已根治）**：桌面 sidecar 的下载源数据此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/source`；桌面回归点：采集一批数据 → 重启后端 → 历史浏览应仍有该批数据
@@ -41,4 +45,5 @@
 - **删除自选组不可恢复**：`DELETE /data-pools/{id}` 直接删组（含成员关系），验证时务必用 `zz_test_` 前缀并当场清理，不要删默认组。
 - **采集任务表曾按"卡片流+无限滚动"渲染（已改造）**：任务列表现按 demo「同步任务」卡排版成表格 + 服务端分页（每页 20），原 TaskCard 的展开明细/删除能力移入展开行与操作列。搜索框是对**已加载行**的前端过滤（当前页撑满后应翻页再搜，不是全库搜索）。
 - **历史浏览分页档位独立**：归档明细单次按条数拉全页（100/200/500/1000），**不走**全局 12 的倍数档位，也不读"每页显示数量"配置；看到分页档位不是 12 的倍数属预期。
-- **D1 副标口径**：副标只含「数据类型 10 类 · 已接入标的 N 个」两个真实可算数；demo 原文案的「数据源 4 类 / 保留 180 天 / 存储用量」无后端接口支撑，**不得**加回副标或页头。
+- **数据源水位口径（两族布局 + 单位陷阱）**：`data/source` 下并存两种布局——归档布局 `{market}/{kind}/{symbol}/_meta.json`，与数据池布局 `crypto/{market}/klines/{interval}/{symbol}.parquet`、`{fundingRate,openInterest}/{market}/{symbol}/*.parquet`（**无 `_meta.json`**）。只认前者会漏掉全部 K 线（页面显示「kline 无数据」、存储合计少一半），已由 `get_watermark()` 的 parquet footer 兜底修掉。核查时若发现 `kline` 卡又变「无数据」，先看数据池布局是否被整体跳过。时间列有两个坑：名不统一（常规是 `timestamp`，pandas 导出的 `crypto/future/klines/1h/BTCUSDT.parquet` 在索引列 `__index_level_0__`），单位也不统一（`spot/*` 微秒、`future/*` 多为毫秒），必须**逐值按量级判**（`<1e11` 秒 / `<1e14` 毫秒 / `<1e17` 微秒 / 否则纳秒）；按路径硬编单位会算出 `1970-01-21` 这种假日期。stats 缺失只丢日期，行数与体积照算，**不得**用今天或文件名日期顶替
+- **D1 副标口径**：副标只含「数据类型 10 类 · 已接入标的 N 个」两个真实可算数；demo 原文案的「数据源 4 类 / 保留 180 天」无后端接口支撑，**不得**加回副标或页头。存储用量已由首屏「存储用量」卡（`/data/archive/watermark` 的 `storage`）覆盖真实体积，但「特征缓存 / LLM replay / 上次压缩」仍无源，**不得**补；水位卡的 dot 只允许由真实数据推导（有/无数据、落后天数），「限频 / 断连 / 排队」无源，**不得**编造。

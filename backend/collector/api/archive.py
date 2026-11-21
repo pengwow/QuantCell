@@ -1,4 +1,4 @@
-"""归档数据 REST API（6 个端点）。
+"""归档数据 REST API（7 个端点）。
 
 所有端点统一返回 `{success, message, data?, total?}` 风格
 (遵循项目其他路由的约定,例如 collector/api/data.py)。
@@ -11,6 +11,7 @@
 - GET    /api/data/archive/data            分页查询数据
 - GET    /api/data/archive/meta/{kind}/{market}/{symbol}  读 _meta.json
 - DELETE /api/data/archive/data            删除某 symbol 的全部数据
+- GET    /api/data/archive/watermark       按 kind 聚合水位 + 存储用量（首屏只读卡）
 """
 
 from __future__ import annotations
@@ -209,3 +210,19 @@ def delete_data(
             "message": f"已删除 {save_dir}",
         }
     return {"success": True, "deleted": None, "message": "目录不存在, 无需删除"}
+
+
+# =================== 7) GET /watermark ===================
+
+
+@router.get("/watermark")
+@handle_worker_exceptions("聚合归档水位与存储用量")
+def get_watermark() -> dict:
+    """按 kind 聚合数据源水位与 parquet 磁盘占用。
+
+    两族布局都统计：归档布局以 `_meta.json` 为权威来源；数据池布局（`crypto/**/klines`、
+    `fundingRate`、`openInterest`）没有 meta，改读 parquet footer 兜底。没有 parquet 的
+    kind 不出现在 `storage` 里，读不出行数的也不进 `watermarks`（不补 0 占位）。
+    """
+    svc = _get_service()
+    return {"success": True, **svc.get_watermark()}
