@@ -7,6 +7,7 @@ LAST_RUNS / MOUNTED_JOBS 用 core.scheduler 模块属性注入，lifecycle 状�
 
 import asyncio
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -63,6 +64,9 @@ def test_loop_status_passes_through_mounted_and_last_run(monkeypatch, tmp_path):
     last = {"ts_iso": "2026-11-18T03:30:00+00:00", "ok": False, "detail": ""}
     monkeypatch.setattr(scheduler, "MOUNTED_JOBS", {"rl_oos_gate_audit", "agent_dream"})
     monkeypatch.setattr(scheduler, "LAST_RUNS", {"rl_oos_gate_audit": last})
+    # _SCHEDULER 是模块级全局：别的用例起过真调度器会残留实例，这里显式置空，
+    # 断言的是「未启动时的行为」而不是跑测试时的偶然状态
+    monkeypatch.setattr(scheduler, "_SCHEDULER", None)
 
     payload = asyncio.run(routes.get_loop_status())
     jobs = {j["id"]: j for j in payload["jobs"]}
@@ -70,7 +74,54 @@ def test_loop_status_passes_through_mounted_and_last_run(monkeypatch, tmp_path):
     assert jobs["rl_oos_gate_audit"]["last_run"] == last
     assert jobs["rl_auto_retrain"]["mounted"] is False
     assert jobs["rl_auto_retrain"]["last_run"] is None
+    # 调度器未启动（get_scheduler() 为 None）→ next_run_at 键在、值为 null，不猜 cron
+    assert all("next_run_at" in job for job in payload["jobs"])
+    assert all(job["next_run_at"] is None for job in payload["jobs"])
     assert payload["retrain"] == {"gates": {"auto_retrain": False, "auto_promote": False}, "families": []}
+
+
+class _FakeJob:
+    def __init__(self, next_run_time):
+        self.next_run_time = next_run_time
+
+
+class _FakeScheduler:
+    """只实现被测代码用到的 get_job（不起真调度器/真线程）。"""
+
+    def __init__(self, jobs):
+        self._jobs = jobs
+
+    def get_job(self, job_id):
+        return self._jobs.get(job_id)
+
+
+def test_loop_status_next_run_at_from_mounted_job(monkeypatch, tmp_path):
+    """挂载的 job 从真实 APScheduler job 结构取 next_run_time → ISO8601。"""
+    monkeypatch.setenv("QUANTCELL_RL_LIFECYCLE_DIR", str(tmp_path / "lifecycle"))
+    monkeypatch.setattr(scheduler, "LAST_RUNS", {})
+    monkeypatch.setattr(scheduler, "MOUNTED_JOBS", {"agent_dream"})
+    next_run = datetime(2026, 11, 22, 4, 0, tzinfo=UTC)
+    monkeypatch.setattr(scheduler, "get_scheduler", lambda: _FakeScheduler({"agent_dream": _FakeJob(next_run)}))
+
+    jobs = {j["id"]: j for j in asyncio.run(routes.get_loop_status())["jobs"]}
+    assert jobs["agent_dream"]["next_run_at"] == next_run.isoformat()
+    # 未挂载的 job 不做查询（同一假调度器里没有它们的 job）
+    assert jobs["rl_auto_retrain"]["next_run_at"] is None
+
+
+def test_loop_status_next_run_at_null_when_job_missing(monkeypatch, tmp_path):
+    """mounted 但调度器查不到该 job / 抛异常 → null（不 500）。"""
+    monkeypatch.setenv("QUANTCELL_RL_LIFECYCLE_DIR", str(tmp_path / "lifecycle"))
+    monkeypatch.setattr(scheduler, "LAST_RUNS", {})
+    monkeypatch.setattr(scheduler, "MOUNTED_JOBS", {"agent_dream"})
+
+    class _BrokenScheduler:
+        def get_job(self, job_id):
+            raise RuntimeError("Scheduler is not running")
+
+    monkeypatch.setattr(scheduler, "get_scheduler", lambda: _BrokenScheduler())
+    jobs = {j["id"]: j for j in asyncio.run(routes.get_loop_status())["jobs"]}
+    assert jobs["agent_dream"]["next_run_at"] is None
 
 
 def test_loop_status_families_from_state(monkeypatch, tmp_path):

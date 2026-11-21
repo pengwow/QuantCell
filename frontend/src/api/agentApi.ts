@@ -720,6 +720,8 @@ export interface AgentLoopJob {
   /** 总闸开启时 job 才会挂载到调度器 */
   mounted: boolean;
   last_run: AgentRunRecord | null;
+  /** 真实挂载的 APScheduler job 的 next_run_time（ISO8601）；未挂载/取不到为 null */
+  next_run_at: string | null;
 }
 
 /** 重训台账里的单个模型族 */

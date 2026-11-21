@@ -143,6 +143,31 @@ export const retrainGates = (
   return { autoRetrain, autoPromote, anyOff: !autoRetrain || !autoPromote };
 };
 
+/** 下次运行的相对倒计时档位（只给结构与数值，文案由调用方翻译） */
+export type NextRunCountdown =
+  | { kind: 'soon' }
+  | { kind: 'minutes' | 'hours' | 'days'; value: number };
+
+/**
+ * loop-status.next_run_at → 相对倒计时。
+ * 时间戳缺失/解析不出 → null（该行不渲染）；已到期 → 'soon'（不显示负值）。
+ */
+export const nextRunCountdown = (
+  nextRunAt: string | null | undefined,
+  nowMs: number = Date.now(),
+): NextRunCountdown | null => {
+  if (!nextRunAt) return null;
+  const target = new Date(nextRunAt).getTime();
+  if (!Number.isFinite(target)) return null;
+  const remaining = target - nowMs;
+  if (remaining <= 0) return { kind: 'soon' };
+  const minutes = Math.ceil(remaining / 60_000);
+  if (minutes < 60) return { kind: 'minutes', value: minutes };
+  const hours = Math.ceil(remaining / 3_600_000);
+  if (hours < 24) return { kind: 'hours', value: hours };
+  return { kind: 'days', value: Math.ceil(remaining / 86_400_000) };
+};
+
 // ==================== 首屏「迭代足迹」卡（demo 1528–1553 的纯展示函数） ====================
 
 /** 一根足迹柱 = 当前会话一条带 ReAct 轮次的 AI 回复（SSE iteration 聚合结果） */

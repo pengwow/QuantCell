@@ -23,6 +23,8 @@ logger = get_logger(__name__, LogType.APPLICATION)
 LAST_RUNS: dict[str, dict] = {}
 #: 本进程实际挂上的定时 job id（`/agent/loop-status` 判断 mounted）。
 MOUNTED_JOBS: set[str] = set()
+#: 本进程启动的调度器实例（只读暴露 `job.next_run_time` 用；未启动/已关闭为 None）。
+_SCHEDULER: BackgroundScheduler | None = None
 
 
 def _record_run(job_id: str, ok: bool, detail: str = "", **extra) -> None:
@@ -37,6 +39,15 @@ def _record_run(job_id: str, ok: bool, detail: str = "", **extra) -> None:
 def get_last_runs() -> dict[str, dict]:
     """LAST_RUNS 的浅拷贝（调用方不得改动调度器内部状态）。"""
     return dict(LAST_RUNS)
+
+
+def get_scheduler() -> BackgroundScheduler | None:
+    """本进程的调度器实例（未启动返回 None）。
+
+    只读入口：调用方取 `scheduler.get_job(job_id).next_run_time` 拿真实下次触发时间，
+    不要自己解析 cron 猜（croniter 未安装，也不该为展示倒计时引入）。
+    """
+    return _SCHEDULER
 
 
 def run_auto_retrain_job() -> dict[str, Any] | None:
@@ -119,6 +130,7 @@ def start_scheduler(
     scheduler = BackgroundScheduler()
     # 重复调用 start_scheduler（测试/热重启）时以本次挂载为准
     MOUNTED_JOBS.clear()
+    global _SCHEDULER  # 只读暴露用（get_scheduler）
 
     # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
     # 使用同步管理器执行，确保与主动同步的协调
@@ -231,5 +243,7 @@ def start_scheduler(
 
     # 启动调度器
     scheduler.start()
+    # start 之后 job.next_run_time 才有值，写入模块级引用供只读端点取
+    _SCHEDULER = scheduler
     logger.info("定时任务调度器已启动，货币对同步任务将在每周日凌晨2点执行")
     return scheduler

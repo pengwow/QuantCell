@@ -12,6 +12,7 @@ import {
   loopJobState,
   memoryRunChars,
   memoryRunState,
+  nextRunCountdown,
   retrainGates,
 } from './workbenchFormat';
 import type { ToolAuditRow } from '@/api/agentApi';
@@ -178,5 +179,27 @@ describe('footprintBarPct', () => {
     expect(footprintBarPct(40, 40, pts)).toBe(100); // 撞线
     expect(footprintBarPct(2, null, pts)).toBe(10); // 2/20 归一
     expect(footprintBarPct(2, null, [])).toBe(0);
+  });
+});
+
+describe('nextRunCountdown（Dream 卡「下次运行」）', () => {
+  const now = Date.parse('2026-11-21T12:00:00Z');
+
+  it('未挂载 / 无时间戳 / 脏值 → null（该行不渲染）', () => {
+    expect(nextRunCountdown(null, now)).toBeNull();
+    expect(nextRunCountdown(undefined, now)).toBeNull();
+    expect(nextRunCountdown('', now)).toBeNull();
+    expect(nextRunCountdown('not-a-date', now)).toBeNull();
+  });
+
+  it('按分钟/小时/天取最小可读档位', () => {
+    expect(nextRunCountdown('2026-11-21T12:05:00Z', now)).toEqual({ kind: 'minutes', value: 5 });
+    expect(nextRunCountdown('2026-11-21T15:00:00Z', now)).toEqual({ kind: 'hours', value: 3 });
+    expect(nextRunCountdown('2026-11-23T12:00:00Z', now)).toEqual({ kind: 'days', value: 2 });
+  });
+
+  it('到期时刻已过 → soon，不给负值', () => {
+    expect(nextRunCountdown('2026-11-21T11:59:00Z', now)).toEqual({ kind: 'soon' });
+    expect(nextRunCountdown('2026-11-21T12:00:00Z', now)).toEqual({ kind: 'soon' });
   });
 });

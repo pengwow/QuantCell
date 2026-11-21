@@ -5,7 +5,8 @@
  *   agentStore.messages（SSE iteration_start / complete 聚合，与「迭代 X/Y」徽标同源），
  *   不足不补、无数据即空态——会话历史接口不带 iteration，不做跨会话假历史。
  * 卡二「记忆自迭代 · Dream」：GET /agent/memory 只读快照（MEMORY.md / cursor / 待处理 /
- *   上次运行）。loop-status 只有 cron 字符串、没有下次运行时间戳，故不画「下次运行倒计时」行。
+ *   上次运行）+ GET /agent/loop-status 里 agent_dream 的 next_run_at（真实挂载的
+ *   APScheduler job.next_run_time），后者为 null 时「下次运行」整行不渲染。
  *
  * 8 页签工作台（WorkbenchPanel）在两卡下方继续承载完整功能，本组件只是把分析卡搬回第一眼。
  */
@@ -13,9 +14,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Spin } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { getAgentMemory } from '@/api/agentApi';
+import { getAgentLoopStatus, getAgentMemory } from '@/api/agentApi';
 import type { AgentMemoryResponse } from '@/api/agentApi';
 import { formatTimestamp } from '@/utils/format';
 import { useAgentStore } from '../store/agentStore';
@@ -26,6 +28,7 @@ import {
   footprintPoints,
   memoryRunChars,
   memoryRunState,
+  nextRunCountdown,
 } from './workbench/workbenchFormat';
 
 /** demo 口径：图上最多画最近 12 根柱（多出来的回复不进图，均值也只按画出的算） */
@@ -109,18 +112,24 @@ const FootprintCard = () => {
 const DreamCard = () => {
   const { t } = useTranslation();
   const [memory, setMemory] = useState<AgentMemoryResponse | null>(null);
+  const [nextRunAt, setNextRunAt] = useState<string | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   const load = useCallback(async () => {
     setState('loading');
-    try {
-      setMemory(await getAgentMemory());
+    // 并行取两个只读端点：loop-status 挂了不影响记忆卡主体（countdown 行自动不渲染）
+    const [memoryRes, loopRes] = await Promise.allSettled([getAgentMemory(), getAgentLoopStatus()]);
+    if (memoryRes.status === 'fulfilled') {
+      setMemory(memoryRes.value);
       setState('ready');
-    } catch {
+    } else {
       // 失败不伪造数据：留空态 + 头部刷新钮重试（SelfLoopTab 里还有带详情的完整版）
       setMemory(null);
       setState('error');
     }
+    const dreamJob =
+      loopRes.status === 'fulfilled' ? loopRes.value.jobs?.find((job) => job.id === 'agent_dream') : undefined;
+    setNextRunAt(dreamJob?.next_run_at ?? null);
   }, []);
 
   useEffect(() => {
@@ -132,6 +141,19 @@ const DreamCard = () => {
   const progress = dreamProgress(memory?.dream_cursor ?? 0, memory?.history_entries ?? 0);
   const runState = memoryRunState(memory?.last_run ?? null);
   const runChars = memoryRunChars(memory?.last_run ?? null);
+  // ponytail: 倒计时在每次拉取时算一次，不逐秒刷新（分钟级 job 秒抖动无信息量）；
+  // 需要更实时时由头部刷新钮或加 1min interval 触发
+  const countdown = nextRunCountdown(nextRunAt);
+  const countdownText =
+    countdown === null
+      ? null
+      : countdown.kind === 'soon'
+        ? t('agent_next_run_soon')
+        : countdown.kind === 'minutes'
+          ? t('agent_next_run_in_minutes', { n: countdown.value })
+          : countdown.kind === 'hours'
+            ? t('agent_next_run_in_hours', { n: countdown.value })
+            : t('agent_next_run_in_days', { n: countdown.value });
 
   return (
     <section className="sl-card">
@@ -203,7 +225,15 @@ const DreamCard = () => {
                 )}
               </span>
             </div>
-            {/* 「下次运行倒计时」不渲染：loop-status 未提供下次运行时间戳，画倒计时就是编数据 */}
+            {/* 下次运行：只渲染真实调度器给的时间戳；取不到（未挂载）整行不画 */}
+            {nextRunAt && countdownText && (
+              <div className="sl-meta-row">
+                <span>{t('agent_next_run')}</span>
+                <span className="sl-mono sl-muted">
+                  {dayjs(nextRunAt).format('MM-DD HH:mm')} · {countdownText}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="sl-foot">{t('selfloop_memory_note')}</div>

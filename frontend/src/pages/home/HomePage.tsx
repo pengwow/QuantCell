@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- pnlDeltaPp 是纯函数，直接导出给单测（不起 React 渲染） */
 /**
  * 首页看板（/home）—— design-spec §5/§6.3/§6.4/§6.5/§6.13/§6.17 像素收口
  *
@@ -53,7 +54,24 @@ interface PnlOverview {
   capital: number;
   /** 分母为 0 时后端给 null（0/0 不等于 0%） */
   pnl_pct: number | null;
+  /** 昨日**同期**窗口（now-2h ~ now-h）同口径已实现盈亏 */
+  prev_realized_pnl: number;
+  prev_trade_count: number;
+  /** 同一分母下的昨日同期百分比；分母为 0 时为 null */
+  prev_pnl_pct: number | null;
 }
+
+/**
+ * 「较昨日同期」是**百分点差**（today_pct - prev_pct），不是百分比变化。
+ * 任一值为 null 返回 null（该段不渲染，不写 0.00pp）；两位小数内为 0 时归零，
+ * 避免 -0.00 这种带符号的假方向。
+ */
+export function pnlDeltaPp(today: number | null, prev: number | null): number | null {
+  if (today === null || prev === null) return null;
+  const delta = today - prev;
+  return Math.abs(delta) < 0.005 ? 0 : delta;
+}
+
 
 /** 回测任务行「区间 · 周期」真值（来自 GET /backtest/{id}/summary 的 backtest_config） */
 interface BacktestRange {
@@ -291,6 +309,11 @@ const HomePage = () => {
   const pnlPct = pnlOverview?.pnl_pct ?? null;
   // 0 变动中性不染色：只有严格正/负才上色
   const pnlTone = firstLoading || pnlPct === null ? '' : pnlPct > 0 ? ' up' : pnlPct < 0 ? ' down' : '';
+  // 「较昨日同期」百分点差：今日/昨日任一侧算不出（分母为 0）就整段不渲染
+  const ppDelta = firstLoading
+    ? null
+    : pnlDeltaPp(pnlOverview?.pnl_pct ?? null, pnlOverview?.prev_pnl_pct ?? null);
+  const ppTone = ppDelta === null || ppDelta === 0 ? '' : ppDelta > 0 ? ' qc-cell-up' : ' qc-cell-down';
 
   // 页头副标（§5 mono 口径行）：日期/星期取本地时间，时区取系统偏移，
   // 「系统运行中 / 数据同步时间」只在接口真的给出现状时才写，拿不到就省略
@@ -379,7 +402,20 @@ const HomePage = () => {
             <div className={`qc-kpi-num${pnlTone}`}>
               {firstLoading || pnlPct === null ? '—' : formatPercent(pnlPct, { showSign: true })}
             </div>
-            <div className="qc-kpi-sub">{t('home_kpi_pnl_today_hint', { hours: pnlOverview?.window_hours ?? 24 })}</div>
+            <div className="qc-kpi-sub">
+              {t('home_kpi_pnl_today_hint', { hours: pnlOverview?.window_hours ?? 24 })}
+              {ppDelta !== null && (
+                <>
+                  {' · '}
+                  {/* 滚动 24h 窗口对比，措辞固定「较昨日同期」，不得简写成「较昨日」 */}
+                  <span className={`qc-mono${ppTone}`}>
+                    {t('home_kpi_pnl_vs_prev', {
+                      delta: `${ppDelta > 0 ? '+' : ''}${ppDelta.toFixed(2)}pp`,
+                    })}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
           <div className="qc-kpi">
             <div className="qc-kpi-top">

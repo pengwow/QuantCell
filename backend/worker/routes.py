@@ -222,7 +222,7 @@ async def list_workers(
 @router.get(
     "/stats/pnl-overview",
     response_model=schemas.ApiResponse,
-    summary="首页 KPI 今日盈亏（近 24h 已实现盈亏占配置资金比）",
+    summary="首页 KPI 今日盈亏（近 24h 已实现盈亏占配置资金比 + 昨日同期对照）",
 )
 @handle_worker_exceptions("获取今日盈亏汇总")
 async def get_pnl_overview(
@@ -242,6 +242,11 @@ async def get_pnl_overview(
     - 分母为 0（历史 worker 未配初始资金）→ ``pnl_pct`` 为 null，前端渲染「—」。
     - 归属过滤与列表同口径（``_worker_owner_filter``）。
 
+    「较昨日同期」口径（``prev_*``）：把同一窗口整体前移一个 ``hours``，即
+    ``[now-2h, now-h)``。分子分母与今日**完全同源**（同一 SUM/COUNT 子查询、
+    同一 ``Σ initial_capital``），只换时间边界，不另立算法；因此
+    ``pnl_pct - prev_pnl_pct`` 是百分点差，可直接展示为 pp。
+
     只读聚合，不改动任何既有接口字段。
     """
     owner_id = _worker_owner_filter(current_user)
@@ -251,24 +256,31 @@ async def get_pnl_overview(
     rows = query.all()
     worker_ids = [row[0] for row in rows]
 
-    realized = 0.0
-    trade_count = 0
-    if worker_ids:
-        window_start = datetime.now() - timedelta(hours=hours)
-        pnl, trades = (
-            db.query(
-                func.coalesce(func.sum(WorkerTrade.realized_pnl), 0.0),
-                func.count(WorkerTrade.id),
-            )
-            .filter(
-                WorkerTrade.worker_id.in_(worker_ids),
-                WorkerTrade.realized_pnl.isnot(None),
-                WorkerTrade.entry_time >= window_start,
-            )
-            .one()
+    # 单一时点算两个窗口的边界：今日 [window_start, +∞)，昨日同期 [prev_start, window_start)
+    now = datetime.now()
+    window_start = now - timedelta(hours=hours)
+    prev_start = window_start - timedelta(hours=hours)
+
+    def _window_totals(start: datetime | None, end: datetime | None) -> tuple[float, int]:
+        """按 entry_time 统计窗口内已实现盈亏与成交笔数（None 表示该侧不限）。"""
+        if not worker_ids:
+            return 0.0, 0
+        q = db.query(
+            func.coalesce(func.sum(WorkerTrade.realized_pnl), 0.0),
+            func.count(WorkerTrade.id),
+        ).filter(
+            WorkerTrade.worker_id.in_(worker_ids),
+            WorkerTrade.realized_pnl.isnot(None),
         )
-        realized = float(pnl or 0.0)
-        trade_count = int(trades or 0)
+        if start is not None:
+            q = q.filter(WorkerTrade.entry_time >= start)
+        if end is not None:
+            q = q.filter(WorkerTrade.entry_time < end)
+        pnl, trades = q.one()
+        return float(pnl or 0.0), int(trades or 0)
+
+    realized, trade_count = _window_totals(window_start, None)
+    prev_realized, prev_trade_count = _window_totals(prev_start, window_start)
 
     capital = 0.0
     if worker_ids:
@@ -296,6 +308,10 @@ async def get_pnl_overview(
             "capital": round(capital, 8),
             # 分母为 0 时不给百分比：0/0 不是 0%，是无意义
             "pnl_pct": round(realized / capital * 100, 4) if capital > 0 else None,
+            # 昨日同期（now-2h ~ now-h）：同一分子口径、同一分母，仅窗口前移
+            "prev_realized_pnl": round(prev_realized, 8),
+            "prev_trade_count": prev_trade_count,
+            "prev_pnl_pct": round(prev_realized / capital * 100, 4) if capital > 0 else None,
         },
     )
 

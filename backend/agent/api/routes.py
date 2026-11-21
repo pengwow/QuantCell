@@ -660,6 +660,23 @@ def _read_text_or(path: Path, default: str = "") -> str:
         return default
 
 
+def _next_run_at(scheduler: object, job_id: str, mounted: set[str]) -> str | None:
+    """从真实挂载的调度器 job 取 ``next_run_time``（ISO8601）；取不到返回 None。
+
+    scheduler 传进来而不是内部再取，单测可以直接塞假实例；未挂载的 job 不必查询
+    （没挂的 cron 没有「下次」）。调度器已 shutdown 时 APScheduler 会抛
+    SchedulerNotRunningError，同样按「取不到」处理，不让展示层连带 500。
+    """
+    if scheduler is None or job_id not in mounted:
+        return None
+    try:
+        job = scheduler.get_job(job_id)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    next_run = getattr(job, "next_run_time", None) if job is not None else None
+    return next_run.isoformat() if next_run is not None else None
+
+
 def _lifecycle_families() -> list[dict]:
     """lifecycle_state.json → 每族一行（缺失/损坏一律 []，不猜字段）。
 
@@ -726,14 +743,17 @@ async def get_agent_memory():
 
 @router.get("/loop-status", dependencies=[Depends(require_permission(Permission.AI_READ))])
 async def get_loop_status():
-    """自迭代四个 job 的挂载/上次运行 + 重训双闸 + 各族状态。
+    """自迭代四个 job 的挂载/上次运行/下次运行 + 重训双闸 + 各族状态。
 
     mounted 与 last_run 都来自本进程内存（core.scheduler），重启后为空/未挂。
+    next_run_at 直接取真实挂载的 APScheduler job 的 ``next_run_time``（ISO8601）；
+    未挂载 / 调度器未启动 / job 取不到一律 null —— 不解析 cron 猜时间。
     """
-    from core.scheduler import MOUNTED_JOBS, get_last_runs
+    from core.scheduler import MOUNTED_JOBS, get_last_runs, get_scheduler
     from services.retrain_policy import auto_promote_enabled, auto_retrain_enabled
 
     last_runs = get_last_runs()
+    scheduler = get_scheduler()
     return {
         "success": True,
         "jobs": [
@@ -743,6 +763,7 @@ async def get_loop_status():
                 "cron": cron,
                 "mounted": job_id in MOUNTED_JOBS,
                 "last_run": last_runs.get(job_id),
+                "next_run_at": _next_run_at(scheduler, job_id, MOUNTED_JOBS),
             }
             for job_id, name, cron in _LOOP_JOBS
         ],
