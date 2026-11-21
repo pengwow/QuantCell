@@ -37,7 +37,7 @@ const MENU_KEY_HOME = "/home";
 const MENU_KEY_CHART = "/chart";
 const MENU_KEY_AGENT = "/agent";
 const MENU_KEY_STRATEGY = "/strategy-management";
-const MENU_KEY_STRATEGY_TASK = "/strategy-worker";
+const MENU_KEY_STRATEGY_AGENT = "/strategy-worker";
 const MENU_KEY_DATA = "/data-management";
 const MENU_KEY_FACTOR = "/factor-analysis";
 const MENU_KEY_MODEL_HUB = "/model-hub";
@@ -48,9 +48,9 @@ const MENU_KEY_BACKTEST = "/backtest";
 const ROUTE_TITLE_KEYS: Array<[string, string]> = [
   [MENU_KEY_HOME, "home"],
   [MENU_KEY_CHART, "chart"],
-  [MENU_KEY_AGENT, "strategy_agent"],
+  [MENU_KEY_AGENT, "agent_workspace"],
   [MENU_KEY_STRATEGY, "strategy_management"],
-  [MENU_KEY_STRATEGY_TASK, "strategy_task"],
+  [MENU_KEY_STRATEGY_AGENT, "strategy_agent"],
   [MENU_KEY_DATA, "data_management"],
   [MENU_KEY_MODEL_HUB, "model_hub"],
   // 子路由补全 — menu 里没有但需要正确标题的页面
@@ -83,7 +83,7 @@ export function pickRouteTitleKey(pathname: string): string | undefined {
  */
 const ROUTE_PARENT_MAP: Array<[string, string]> = [
   ["/strategy-editor", MENU_KEY_STRATEGY],
-  ["/strategy-worker", MENU_KEY_STRATEGY_TASK],
+  ["/strategy-worker", MENU_KEY_STRATEGY_AGENT],
   ["/data-management/market-replay", MENU_KEY_DATA],
   ["/model-management", MENU_KEY_MODEL_HUB],
   ["/backtest", MENU_KEY_BACKTEST],
@@ -127,9 +127,9 @@ const SideNav = memo(({ collapsed, onSelect }: SideNavProps) => {
     const base: NavLeaf[] = [
       { key: MENU_KEY_HOME, icon: <IconHome size={16} stroke={1.5} />, label: t("home") },
       { key: MENU_KEY_CHART, icon: <IconChartBar size={16} stroke={1.5} />, label: t("chart") },
-      { key: MENU_KEY_AGENT, icon: <IconRobot size={16} stroke={1.5} />, label: t("strategy_agent") },
+      { key: MENU_KEY_AGENT, icon: <IconRobot size={16} stroke={1.5} />, label: t("agent_workspace") },
       { key: MENU_KEY_STRATEGY, icon: <IconCode size={16} stroke={1.5} />, label: t("strategy_management") },
-      { key: MENU_KEY_STRATEGY_TASK, icon: <IconBotId size={16} stroke={1.5} />, label: t("strategy_task") },
+      { key: MENU_KEY_STRATEGY_AGENT, icon: <IconBotId size={16} stroke={1.5} />, label: t("strategy_agent") },
       { key: MENU_KEY_BACKTEST, icon: <IconFlask size={16} stroke={1.5} />, label: t("backtest_center") },
       { key: MENU_KEY_FACTOR, icon: <IconChartHistogram size={16} stroke={1.5} />, label: t("factor_analysis") },
       { key: MENU_KEY_RESEARCH, icon: <IconMicroscope size={16} stroke={1.5} />, label: t("research") },
@@ -154,7 +154,7 @@ const SideNav = memo(({ collapsed, onSelect }: SideNavProps) => {
       keys.map((key) => leafByKey.get(key)).filter((leaf): leaf is NavLeaf => Boolean(leaf));
     return [
       { type: "items" as const, items: pick(MENU_KEY_HOME, MENU_KEY_AGENT) },
-      { type: "group" as const, title: t("nav_group_trade"), items: pick(MENU_KEY_STRATEGY, MENU_KEY_STRATEGY_TASK, MENU_KEY_BACKTEST) },
+      { type: "group" as const, title: t("nav_group_trade"), items: pick(MENU_KEY_STRATEGY, MENU_KEY_STRATEGY_AGENT, MENU_KEY_BACKTEST) },
       {
         type: "group" as const,
         title: t("nav_group_research_data"),

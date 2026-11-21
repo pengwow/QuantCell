@@ -222,7 +222,7 @@ const HomePage = () => {
 
   const quickActions = [
     { path: '/chart', icon: <IconChartCandle />, label: t('chart') },
-    { path: '/agent', icon: <IconRobot />, label: t('strategy_agent') },
+    { path: '/agent', icon: <IconRobot />, label: t('agent_workspace') },
     { path: '/backtest', icon: <IconTrendingUp />, label: t('backtest') },
     { path: '/factor-analysis', icon: <IconChartHistogram />, label: t('factor_analysis') },
     { path: '/research', icon: <IconFlask />, label: t('ai_research') },
@@ -255,9 +255,9 @@ const HomePage = () => {
           <Button
             icon={<IconRobot size={14} stroke={1.8} />}
             style={actionStyle}
-            onClick={() => navigate('/agent')}
+            onClick={() => navigate('/strategy-worker')}
           >
-            {t('strategy_agent')}
+            {t('home_open_strategy_agent')}
           </Button>
         </>
       }

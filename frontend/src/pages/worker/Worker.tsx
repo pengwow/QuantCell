@@ -109,7 +109,7 @@ const Worker = () => {
 
   // Set page title
   useEffect(() => {
-    setPageTitle(t('strategy_task'));
+    setPageTitle(t('strategy_agent'));
   }, [t]);
 
   // Initial data fetch
@@ -924,7 +924,7 @@ const Worker = () => {
   });
 
   return (
-    <PageContainer title={t('strategy_task')} subtitle={pageSubtitle}>
+    <PageContainer title={t('strategy_agent')} subtitle={pageSubtitle}>
       <Spin spinning={loading}>
         {/* Error Alert */}
         {error && (

@@ -11,7 +11,7 @@
 
 | # | 操作 | 预期（可观测信号） | 层级 |
 |---|---|---|---|
-| AG1 | 注入 token 后打开 `/agent` | 工作台骨架渲染：左栏空态标题`策略智能体`、输入框占位`输入消息，按 Enter 发送，Shift+Enter 换行...`；右栏 8 个页签`决策流` `持仓/订单` `绩效` `模型` `日志` `审计` `事件与拥挤` `自迭代` 全部可见；顶栏出现 `Worker` 选择器（有选中 Worker 时另带状态标签） | L1 |
+| AG1 | 注入 token 后打开 `/agent` | 工作台骨架渲染：左栏空态标题`智能体工作台`、输入框占位`输入消息，按 Enter 发送，Shift+Enter 换行...`；右栏 8 个页签`决策流` `持仓/订单` `绩效` `模型` `日志` `审计` `事件与拥挤` `自迭代` 全部可见；顶栏出现 `Worker` 选择器（有选中 Worker 时另带状态标签） | L1 |
 | AG2 | 页面加载完成后查 network | `GET /api/v1/capabilities` 返回 200；`GET /api/v1/agent/sessions` 200；`GET /api/v1/agent/tools` 200；`GET /api/v1/workers?page_size=100` 200；控制台无未捕获错误 | L1 |
 | AG3 | 观察 URL | 稳定后 URL 变为 `/agent?tab=decisions`（存在 Worker 时附带 `worker=<id>`），无刷新；直接打开 `/agent?tab=logs` 时该页签为选中态 | L1 |
 | AG4 | 切到`决策流`页签 | 有选中 Worker 时发出 `GET /api/v1/workers/{id}/decisions?limit=200`（5s 轮询）；无决策时显示`该 Worker 暂无决策记录（运行后自动写入）` | L2 |

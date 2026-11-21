@@ -1,7 +1,7 @@
 /**
  * Worker Store - Zustand Store
  *
- * 管理策略任务Worker的状态，包括：
+ * 管理策略智能体（Worker）的状态，包括：
  * - Worker列表数据
  * - 选中Worker的详细信息
  * - 性能指标数据
