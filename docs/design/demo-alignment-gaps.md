@@ -25,8 +25,10 @@
 | `/home` | KPI2 改「今日盈亏 %」、KPI1/KPI3 副标改真实分布、回测行带区间·周期、回测卡脚注 | 新增 `GET /workers/stats/pnl-overview`（24h 已实现盈亏 ÷ 配置资金）；KPI3 取服务端 total |
 | `/factor-analysis` | 「覆盖率」列 | `last_metrics.coverage` |
 | `/model-hub` | 卡片视图 Sharpe 染色 | 复用表格列同一阈值函数 |
+| `/agent` | 右栏首屏恢复「迭代足迹 + 记忆自迭代(Dream)」两卡（8 页签下移保留）+ 轻量页头（会话 id / 单轮上限 / 两个跳转钮） | 足迹柱 = 当前会话 SSE `iteration_start`/`complete` 聚合（history 不带 iteration，故不做跨会话「近 12 轮」）；Dream 取 `/agent/memory`；无 `next_run_at` 时不出倒计时 |
+| `/data-management` | 首屏「数据源水位」四卡 + 「存储用量」条形卡 | 新增 `GET /data/archive/watermark`：一次 os.walk 聚合两族布局（`_meta.json` 权威 + 无 meta 的 parquet footer 兜底），时间列名与单位逐文件判 |
 
-尚未动：`/agent`、`/strategy-worker` 的形态级改造（见 D 档）、研究「一键转回测」链路、数据管理水位/存储卡、回测配置只读参数行。
+尚未动：`/strategy-worker` 的形态级改造（决策流 bubble 需扩录制 schema，见 D 档）、回测配置只读参数行、「上次压缩 / 特征缓存 / 立即同步全部」等无后端语义项。
 
 ## 页面地图
 
