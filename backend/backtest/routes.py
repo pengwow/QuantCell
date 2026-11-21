@@ -885,6 +885,59 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
 
 
 @router.get(
+    "/{backtest_id}/summary",
+    response_model=ApiResponse,
+    summary="获取回测轻量摘要",
+    description="列表行内部分详情：任务级字段 + 组合级指标字典 + 回测配置；不返回 trades/equity 大字段",
+)
+def get_backtest_summary(backtest_id: str) -> ApiResponse:
+    """回测中心行点击的内联摘要（demo #view-backtest .bt-detail 对位）。
+
+    与 GET /{backtest_id}（全量详情）的差异：只读任务文件与任务级指标摘要，
+    不加载 trades / equity_curve / fills —— 结果 JSON 可达几百 MB，行点击的
+    交互延迟不允许整包传输。回测配置（初始资金/手续费/起止区间）任务文件里
+    常为空对象，从 DB 任务行补全；耗时仅在 completed 且起止时间齐全时给出真实值。
+    """
+    try:
+        summary = backtest_service.get_inline_summary(backtest_id)
+        if summary is None:
+            logger.warning(f"回测任务不存在，回测ID: {backtest_id}")
+            return ApiResponse(code=1, message="回测任务不存在", data={})
+
+        # 任务文件里的 config 键常是空对象：初始资金/手续费/起止区间从 DB 行补
+        config: dict = {}
+        row = None
+        try:
+            from backtest.models import BacktestTask
+            from utils.db_session import get_db_session
+
+            with get_db_session() as db:
+                row = db.query(BacktestTask).filter_by(id=backtest_id).first()
+                if row and row.backtest_config:
+                    config = json.loads(row.backtest_config)
+        except Exception as e:
+            logger.warning(f"读取回测配置失败 task={backtest_id}: {e}")
+
+        summary["backtest_config"] = config
+
+        # 耗时：仅 completed 且 DB 有起止时间时给真实值（秒，整型）；其余不留字段不造数
+        if (
+            summary.get("status") == "completed"
+            and row is not None
+            and row.started_at is not None
+            and row.completed_at is not None
+        ):
+            summary["elapsed_seconds"] = int((row.completed_at - row.started_at).total_seconds())
+
+        logger.info(f"成功获取回测轻量摘要，回测ID: {backtest_id}")
+        return ApiResponse(code=0, message="获取回测轻量摘要成功", data=summary)
+
+    except Exception as e:
+        logger.error(f"获取回测轻量摘要失败，回测ID: {backtest_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
     "/{backtest_id}/decisions/detail",
     response_model=ApiResponse,
     summary="获取单条决策录制详情",

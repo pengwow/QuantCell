@@ -26,6 +26,9 @@ def _make_result(total_return: float, max_drawdown: float) -> dict:
                 "metrics": [
                     {"key": "total_return", "value": total_return},
                     {"key": "max_drawdown", "value": max_drawdown},
+                    {"key": "sharpe_ratio", "value": 1.81},
+                    {"key": "win_rate", "value": 54.0},
+                    {"key": "total_trades", "value": 236},
                 ]
             },
         },
@@ -80,6 +83,66 @@ def test_failed_task_and_missing_result_yield_none(tmp_path) -> None:
     rows, _total = svc.get_result_list()
     assert rows[0]["total_return"] is None
     assert rows[0]["max_drawdown"] is None
+
+
+def test_get_inline_summary_uses_v2_without_result_io(tmp_path) -> None:
+    """任务文件已是 v2 摘要（含 metrics 字典）→ 直出，不读结果 JSON"""
+    svc = _make_service(tmp_path)
+    _write_task_full(
+        svc,
+        "s1",
+        "completed",
+        metrics_summary={
+            "total_return": 1.0,
+            "max_drawdown": 2.0,
+            "metrics": {"total_return": 1.0, "sharpe_ratio": 2.5},
+        },
+    )
+    # 结果文件故意放干扰值：若被读取会覆盖任务文件 v2
+    (svc.results_dir / "result_s1.json").write_text(json.dumps(_make_result(99.0, 99.0)), encoding="utf-8")
+
+    data = svc.get_inline_summary("s1")
+    assert data is not None
+    assert data["metrics"]["total_return"] == 1.0
+    assert data["metrics"]["sharpe_ratio"] == 2.5
+    assert data["strategy_name"] == "dual_ma"
+    assert data["symbols"] == ["BTCUSDT"]
+
+
+def test_get_inline_summary_upgrades_v1_and_persists(tmp_path) -> None:
+    """旧 v1 摘要（只有两键）→ 从结果 JSON 重建完整指标并回写任务文件（一次性慢路径）"""
+    svc = _make_service(tmp_path)
+    _write_task_full(
+        svc,
+        "s2",
+        "completed",
+        metrics_summary={"total_return": 12.4, "max_drawdown": 8.3},
+    )
+    (svc.results_dir / "result_s2.json").write_text(json.dumps(_make_result(12.4, 8.3)), encoding="utf-8")
+
+    data = svc.get_inline_summary("s2")
+    assert data["metrics"]["sharpe_ratio"] == 1.81
+    assert data["metrics"]["total_trades"] == 236
+
+    # 回写后任务文件升级为 v2，后续请求零大结果文件 IO
+    task_file = svc.results_dir.parent / "backtest_tasks" / "task_s2.json"
+    persisted = json.loads(task_file.read_text(encoding="utf-8"))
+    assert persisted["metrics_summary"]["metrics"]["sharpe_ratio"] == 1.81
+
+
+def test_get_inline_summary_failed_and_missing(tmp_path) -> None:
+    """failed 任务（无结果文件）→ metrics 退化为 v1 两键；任务文件缺失 → None"""
+    svc = _make_service(tmp_path)
+    _write_task_full(svc, "s3", "failed", metrics_summary={"total_return": None, "max_drawdown": None})
+    data = svc.get_inline_summary("s3")
+    assert data is not None
+    assert data["metrics"] == {}
+
+    # 无指标摘要的 failed 任务同样空 dict（不渲染假 0）
+    _write_task_full(svc, "s4", "failed")
+    assert svc.get_inline_summary("s4")["metrics"] == {}
+
+    assert svc.get_inline_summary("no_such_task") is None
 
 
 def test_write_metrics_summary_persists_to_task_file(tmp_path) -> None:

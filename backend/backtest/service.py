@@ -1235,17 +1235,80 @@ class BacktestService:
                 json.dump(task, f, indent=2, ensure_ascii=False, default=str)
 
     def _metrics_summary_from_result(self, result: dict) -> dict:
-        """提取列表页摘要指标（total_return / max_drawdown）。
+        """提取列表页摘要指标（total_return / max_drawdown）+ 完整指标字典 metrics。
 
         所有回测模式（单品种/独立多品种/共享资金池）的账户级统一口径都放在
         results.portfolio.metrics（[{key, value}] 数组），列表页取这里即可。
+        `metrics`（v2 起附带）是同一来源的 key→value 字典，供 GET
+        /backtest/{id}/summary 行内摘要直出；旧任务文件只有前两个键（v1），
+        由 summary 端点按需升级，不在列表加载时批量回填大结果文件。
+        单品种结果无 portfolio 视图时退化取第一个品种条目的指标（与详情页
+        缺省视图同口径）。
         """
         portfolio = (result.get("results") or {}).get("portfolio") or {}
         metrics = portfolio.get("metrics") or []
+        if not metrics:
+            entries = self.extract_symbol_entries(result.get("results") or {})
+            metrics = (next(iter(entries.values()), {}) or {}).get("metrics") or []
         values = {m.get("key"): m.get("value") for m in metrics if isinstance(m, dict)}
         return {
             "total_return": values.get("total_return"),
             "max_drawdown": values.get("max_drawdown"),
+            "metrics": values,
+        }
+
+    def get_inline_summary(self, task_id: Any) -> dict | None:
+        """列表行内「部分详情」数据源（GET /backtest/{id}/summary）。
+
+        任务级字段与列表行完全同源（任务文件）；metrics 优先取 v2 摘要
+        （含完整指标字典），只有 v1（旧文件仅 total_return/max_drawdown）时才
+        从结果 JSON 重建并回写 —— 单任务一次性慢路径（结果文件可达几百 MB），
+        回写后同任务后续请求毫秒级。失败/运行中任务无结果文件时 metrics 退化为
+        v1 两键或空 dict，前端按「—」渲染。不加载 trades/equity 等大字段。
+
+        Returns:
+            dict or None: None = 任务文件不存在
+        """
+        task_file = self._get_task_file(task_id)
+        if not task_file.exists():
+            return None
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                task = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self.logger.warning(f"读取回测任务文件失败 {task_file.name}: {e}")
+            return None
+
+        summary = task.get("metrics_summary")
+        if not (isinstance(summary, dict) and isinstance(summary.get("metrics"), dict)):
+            result = self.get_result(task_id)
+            if isinstance(result, dict):
+                upgraded = self._metrics_summary_from_result(result)
+                if upgraded.get("metrics"):
+                    summary = upgraded
+                    task["metrics_summary"] = summary
+                    self._save_task_file(task_file, task)
+
+        # 指标字典：v2 直出；v1 退化为两键；仍无 → 空 dict（前端渲染「—」）
+        metrics: dict = {}
+        if isinstance(summary, dict):
+            if isinstance(summary.get("metrics"), dict):
+                metrics = summary["metrics"]
+            else:
+                metrics = {
+                    key: summary[key] for key in ("total_return", "max_drawdown") if summary.get(key) is not None
+                }
+
+        return {
+            "id": task.get("id"),
+            "strategy_name": task.get("strategy_name"),
+            "status": task.get("status"),
+            "symbols": task.get("symbols", []),
+            "intervals": task.get("timeframes", []),
+            "engine_type": task.get("engine_type"),
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+            "metrics": metrics,
         }
 
     def _write_metrics_summary(self, task_id: Any, summary: dict) -> None:
