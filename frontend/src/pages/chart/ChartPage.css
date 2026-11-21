@@ -53,8 +53,6 @@
    不引入 demo 的 --fg-4 / --info。 */
 .chart-px-box {
   text-align: right;
-  /* 与动作钮的视觉间距 14px：qc-page-actions 自带 gap 8px */
-  margin-right: 6px;
 }
 
 .chart-px-tag {

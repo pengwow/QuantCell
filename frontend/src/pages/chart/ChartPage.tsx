@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Card, Input, Modal, Spin, App } from 'antd';
-import { ReloadOutlined, SwapOutlined } from '@ant-design/icons';
+import { Card, Input, Modal, Spin, App } from 'antd';
 import type { KLineData } from 'klinecharts';
 import { dataApi } from '../../api/dataApi';
 import { backtestApi } from '../../api';
@@ -641,9 +640,6 @@ const ChartPage = () => {
     setIsRealtimeActive(isActive);
   };
 
-  // 页头动作钮（§5 30px）：与 HomePage 页头 actionStyle 同口径
-  const actionStyle = { height: 30, padding: '0 12px', fontSize: 12 } as const;
-
   // 现价块派生：涨跌方向（末根>前根涨 / <前根跌 / 相等中性）；文案正数带 +，0 不带符号
   const pxPct = pxInfo ? (pxInfo.close / pxInfo.prevClose - 1) * 100 : 0;
   const pxUp = pxPct > 0;
@@ -657,34 +653,24 @@ const ChartPage = () => {
         /* mono 真值副标：市场 + 当前品种 + 引擎数据模式（getRealtimeConfig 真值，非装饰文案） */
         subtitle={t('chart.page.sub', { mode: systemConfig.data_mode })}
         actions={
-          <>
-            {/* 右上现价块（形制照 demo px-box）：数据不足 2 根等无效态整块不渲染，无占位 */}
-            {pxInfo && (
-              <div className="chart-px-box">
-                <span className="chart-px-tag qc-mono">
-                  {t('chart.page.px_tag', { symbol: currentSymbol.name, time: formatUtcTime(pxInfo.ts) })}
+          // 页头动作区只留现价块（与 demo #view-charts 的 .page-actions.px-box 同构）：
+          // 「切换品种」在图表卡片顶部 select 已有入口（onOpenSymbolSearch），
+          // 「刷新」由实时 WS + 切周期/切品种自动拉取覆盖，不再留死钮
+          pxInfo && (
+            <div className="chart-px-box">
+              <span className="chart-px-tag qc-mono">
+                {t('chart.page.px_tag', { symbol: currentSymbol.name, time: formatUtcTime(pxInfo.ts) })}
+              </span>
+              <div className="chart-px-line">
+                <span className={`chart-px-num qc-mono${pxUp ? ' up' : pxDown ? ' down' : ''}`}>
+                  {pxPriceFmt.format(pxInfo.close)}
                 </span>
-                <div className="chart-px-line">
-                  <span className={`chart-px-num qc-mono${pxUp ? ' up' : pxDown ? ' down' : ''}`}>
-                    {pxPriceFmt.format(pxInfo.close)}
-                  </span>
-                  <span className={`qc-chip ${pxUp ? 'ok' : pxDown ? 'down' : 'quiet'}`}>
-                    {`${pxPct > 0 ? '+' : ''}${pxPct.toFixed(2)}%`}
-                  </span>
-                </div>
+                <span className={`qc-chip ${pxUp ? 'ok' : pxDown ? 'down' : 'quiet'}`}>
+                  {`${pxPct > 0 ? '+' : ''}${pxPct.toFixed(2)}%`}
+                </span>
               </div>
-            )}
-            <Button
-              icon={<SwapOutlined style={{ fontSize: 14 }} />}
-              style={actionStyle}
-              onClick={() => setSearchVisible(true)}
-            >
-              {t('chart.page.changeSymbol')}
-            </Button>
-            <Button icon={<ReloadOutlined style={{ fontSize: 14 }} />} style={actionStyle} onClick={() => loadKlineData()}>
-              {t('refresh')}
-            </Button>
-          </>
+            </div>
+          )
         }
       >
         <Card className="qc-card chart-card">
