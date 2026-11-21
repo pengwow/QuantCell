@@ -646,6 +646,9 @@ export const backtestApi = {
     source?: string;
     sort_by?: string;
     sort_order?: string;
+    /** 创建日期过滤起/止（含端点），YYYY-MM-DD（格式非法后端 422） */
+    start_time?: string;
+    end_time?: string;
   }): Promise<{ backtests: BacktestTask[]; total: number }> => {
     return apiRequest.get('/backtest/list', params);
   },

@@ -268,3 +268,51 @@
   font-size: 11px;
   color: var(--qc-text-tertiary);
 }
+
+/* ---- 行内权益曲线（demo .curve-wrap/.curve-val/.x-lab 镜像）----
+   数据只够画趋势：服务端均匀采样 ≤200 点保首尾；染色按走势
+   （末>首 up / 末<首 down / 平线中性不画面积），不冒充 K 线级精度。 */
+.bt-curve {
+  position: relative;
+  margin-top: 12px;
+  padding: 12px 12px 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 8px;
+  background: var(--qc-bg);
+}
+
+.bt-curve-val {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  text-align: right;
+  z-index: 1;
+}
+
+/* demo .cv-lb 10px 弱色 */
+.bt-curve-lb {
+  font-size: 10px;
+  color: var(--qc-text-quaternary);
+}
+
+/* demo .cv-num 15px/650；按走势染 up/down（qc-cell-*），平线不染色走默认墨色 */
+.bt-curve-num {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.bt-curve-svg {
+  display: block;
+  width: 100%;
+  height: 170px;
+}
+
+/* demo .x-lab：两行基线对齐的月份刻度，mono 10px 弱色 */
+.bt-curve-x {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 2px 0;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--qc-text-quaternary);
+}

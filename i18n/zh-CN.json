@@ -902,6 +902,7 @@
   "bt_footnote": "点击行在下方查看摘要 · 操作列眼睛进完整详情 · 执行路径 kernel / legacy / python（默认 kernel）",
   "bt_summary_elapsed": "耗时 {{elapsed}}",
   "bt_summary_fee_side": "单边",
+  "bt_final_nav": "期末 NAV",
   "bt_summary_load_failed": "摘要加载失败",
   "bt_no_match_title": "没有匹配的回测任务",
   "bt_no_match_desc": "试试更短的关键词，或清除当前过滤",

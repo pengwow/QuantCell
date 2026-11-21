@@ -902,6 +902,7 @@
   "bt_footnote": "Click a row for the summary below · eye icon in Actions for full details · execution paths kernel / legacy / python (default: kernel)",
   "bt_summary_elapsed": "Elapsed {{elapsed}}",
   "bt_summary_fee_side": "one-way",
+  "bt_final_nav": "Final NAV",
   "bt_summary_load_failed": "Failed to load summary",
   "bt_no_match_title": "No matching backtest tasks",
   "bt_no_match_desc": "Try a shorter keyword or clear the current filters",

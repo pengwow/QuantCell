@@ -152,6 +152,12 @@ export interface BacktestSummaryData {
   };
   /** 耗时（秒）：仅 completed 且后端起止时间齐全时存在 */
   elapsed_seconds?: number;
+  /**
+   * 权益曲线采样点 [[ts_ms, equity], ...]：仅 completed 返回（可能为空数组 =
+   * 后端查过但任务无曲线）；服务端均匀降采样 ≤200 点并保首尾，只够画趋势，
+   * 全分辨率曲线仍走详情页
+   */
+  equity?: [number, number][];
 }
 
 // 回测详情数据接口

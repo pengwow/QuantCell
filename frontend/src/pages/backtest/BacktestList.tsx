@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Col, Popconfirm, Row, Select, Skeleton, Tooltip, App, Pagination } from 'antd';
+import { Button, Card, Col, DatePicker, Popconfirm, Row, Select, Skeleton, Tooltip, App, Pagination } from 'antd';
+import type { Dayjs } from 'dayjs';
 import type { TableProps } from 'antd';
 import { DeleteOutlined, EyeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
@@ -16,7 +17,7 @@ import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import { METRIC_CARDS, formatMetricValue } from './metricCards';
-import { formatCashGrouped, formatElapsedCompact, formatFeePercent } from './bcFormat';
+import { buildEquityGeometry, formatCashGrouped, formatElapsedCompact, formatFeePercent } from './bcFormat';
 import './backtest.css';
 
 // 状态筛选（chips）：'all' 不传后端
@@ -51,6 +52,8 @@ const BacktestList = () => {
   // 筛选状态（搜索词回车/清除才提交服务端；chips 即点即查）
   const [searchText, setSearchText] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
+  // 创建日期范围筛选（工具栏 RangePicker；服务端按 created_at 日粒度含端点过滤）
+  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   // 分页：pageSize 来自全局配置（条数切换器即全站开关）；total 为过滤后总数
@@ -126,6 +129,8 @@ const BacktestList = () => {
     keyword?: string;
     sortBy?: SortField;
     sortOrder?: SortOrder;
+    startTime?: string;
+    endTime?: string;
   }) => {
     setLoading(true);
     try {
@@ -135,6 +140,8 @@ const BacktestList = () => {
       const nextKeyword = overrides?.keyword ?? searchText;
       const nextSortBy = overrides?.sortBy ?? sortField;
       const nextSortOrder = overrides?.sortOrder ?? sortOrder;
+      const nextStartTime = overrides?.startTime ?? dateRange?.[0]?.format('YYYY-MM-DD');
+      const nextEndTime = overrides?.endTime ?? dateRange?.[1]?.format('YYYY-MM-DD');
       const response = await backtestApi.getBacktestList({
         page: nextPage,
         page_size: nextPageSize,
@@ -143,6 +150,8 @@ const BacktestList = () => {
         keyword: nextKeyword || undefined,
         sort_by: nextSortBy,
         sort_order: nextSortOrder,
+        start_time: nextStartTime || undefined,
+        end_time: nextEndTime || undefined,
       });
       const rows = Array.isArray(response.backtests) ? response.backtests : [];
       const nextTotal = typeof response.total === 'number' ? response.total : rows.length;
@@ -151,7 +160,7 @@ const BacktestList = () => {
       // 页码越界钳制（切档位/筛掉数据后 current 可能超出最大页）
       setPage(Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(nextTotal / nextPageSize))));
       // 无筛选请求才刷新「任务表 N 条」口径，副标不随筛选抖动
-      if (nextStatus === 'all' && !nextKeyword) {
+      if (nextStatus === 'all' && !nextKeyword && !nextStartTime && !nextEndTime) {
         setOverallTotal(nextTotal);
       }
     } catch (error) {
@@ -160,7 +169,7 @@ const BacktestList = () => {
     } finally {
       setLoading(false);
     }
-  }, [message, t, page, pageSize, statusFilter, searchText, sortField, sortOrder]);
+  }, [message, t, page, pageSize, statusFilter, searchText, sortField, sortOrder, dateRange]);
 
   // 组件挂载时加载数据
   useEffect(() => {
@@ -266,6 +275,79 @@ const BacktestList = () => {
     );
   };
 
+  // 权益曲线块（demo .curve-wrap）：服务端采样点 ≤200，只画趋势；
+  // 染色按走势（末>首 up / 末<首 down / 平线中性不画面积），期末 NAV 取组合真实 final_equity
+  const renderEquityCurve = (summary: BacktestSummaryData) => {
+    const points = summary.equity;
+    if (!points || points.length < 2) return null;
+    const values = points.map((p) => Number(p[1]));
+    if (values.some((v) => !Number.isFinite(v))) return null;
+    const geo = buildEquityGeometry(values);
+    const tone = geo.flat ? '' : values[values.length - 1] > values[0] ? 'up' : 'down';
+    const gradId = `bt-eq-${tone || 'flat'}`;
+    const stroke = geo.flat ? 'var(--qc-text-quaternary)' : tone === 'up' ? 'var(--qc-success)' : 'var(--qc-error)';
+    const finalNav = Number(summary.metrics.final_equity);
+    const navValue = Number.isFinite(finalNav) ? finalNav : values[values.length - 1];
+
+    // x 轴时间刻度（demo 8 档）：时间轴线性取等分点真实时间戳；标签按跨度自适应
+    // ——≥90 天用 YY-MM，短区间用 MM-DD（8 个等分点落在同一月会得到 8 个相同
+    // 月份标签，那比没有刻度更误导）；连续重复标签折叠，零宽区间不渲染刻度行
+    const t0 = Number(points[0][0]);
+    const t1 = Number(points[points.length - 1][0]);
+    const daySpan = (t1 - t0) / 86_400_000;
+    const labelFmt = daySpan >= 90 ? 'YY-MM' : 'MM-DD';
+    const ticks = t1 > t0
+      ? Array.from({ length: 8 }, (_, i) => t0 + ((t1 - t0) * i) / 7).reduce<string[]>((acc, ts) => {
+          const label = dayjs(ts).format(labelFmt);
+          if (acc[acc.length - 1] !== label) acc.push(label);
+          return acc;
+        }, [])
+      : [];
+
+    return (
+      <div className="bt-curve">
+        <div className="bt-curve-val">
+          <div className="bt-curve-lb">{t('bt_final_nav')}</div>
+          <div className={`qc-mono bt-curve-num${tone ? ` qc-cell-${tone}` : ''}`}>{formatCashGrouped(navValue)}</div>
+        </div>
+        <svg className="bt-curve-svg" viewBox="0 0 640 180" preserveAspectRatio="none" aria-label={t('backtest_equity_curve')}>
+          {geo.area && (
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="0"
+                  style={{ stopColor: stroke, stopOpacity: 0.26 }}
+                />
+                <stop offset="1" style={{ stopColor: stroke, stopOpacity: 0 }} />
+              </linearGradient>
+            </defs>
+          )}
+          {[46, 92, 138].map((y) => (
+            <line key={y} x1="0" y1={y} x2="640" y2={y} style={{ stroke: 'var(--qc-border)' }} strokeDasharray="3 5" />
+          ))}
+          {geo.area && <path d={geo.area} fill={`url(#${gradId})`} />}
+          <path
+            d={geo.line}
+            fill="none"
+            style={{ stroke }}
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          <circle cx={geo.lastX} cy={geo.lastY} r="3" style={{ fill: stroke }} />
+        </svg>
+        {ticks.length > 0 && (
+          <div className="qc-mono bt-curve-x">
+            {ticks.map((label, i) => (
+              <span key={i}>{label}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // 行内摘要卡（demo .bt-detail）：head（标题/策略/chip/sub）+ KPI + 配置脚注；
   // 全部走轻摘要接口的真实数据，缺段自动省略，不造数
   const renderInlineSummary = () => {
@@ -308,6 +390,7 @@ const BacktestList = () => {
         {!summaryLoading && !summaryError && summary && (
           <>
             {renderSummaryStats(summary.metrics)}
+            {renderEquityCurve(summary)}
             {footSegs.length > 0 && (
               <div className="bt-summary-foot">
                 <span className="qc-mono bt-summary-config">{footSegs.join(' · ')}</span>
@@ -429,18 +512,21 @@ const BacktestList = () => {
     },
   ];
 
-  // 重置筛选（chips/排序/搜索归位后按默认参数重拉第一页）
+  // 重置筛选（chips/排序/搜索/日期归位后按默认参数重拉第一页）
   const handleResetFilters = () => {
     setSearchText('');
     setStatusFilter('all');
     setSortField('created_at');
     setSortOrder('desc');
+    setDateRange(null);
     loadBacktestList({
       page: 1,
       status: 'all',
       keyword: '',
       sortBy: 'created_at',
       sortOrder: 'desc',
+      startTime: undefined,
+      endTime: undefined,
     });
   };
 
@@ -451,7 +537,7 @@ const BacktestList = () => {
     return t('shown_range', { start, end, total: totalCount });
   };
 
-  const hasFilters = searchText !== '' || statusFilter !== 'all';
+  const hasFilters = searchText !== '' || statusFilter !== 'all' || dateRange !== null;
 
   // 渲染列表视图 — §6.5/§6.6/§6.7：chips 状态筛选 + DataTable + 行内摘要 + 脚注
   const renderListView = () => (
@@ -487,6 +573,20 @@ const BacktestList = () => {
                 </button>
               ))}
             </div>
+            {/* 创建日期范围（demo 工具栏无此控件，属显式需求扩展）：服务端含端点过滤 */}
+            <DatePicker.RangePicker
+              aria-label={t('date_range')}
+              value={dateRange}
+              allowClear
+              onChange={(dates) => {
+                setDateRange(dates);
+                loadBacktestList({
+                  page: 1,
+                  startTime: dates?.[0]?.format('YYYY-MM-DD'),
+                  endTime: dates?.[1]?.format('YYYY-MM-DD'),
+                });
+              }}
+            />
             <Select
               aria-label={t('sort_by')}
               value={`${sortField}-${sortOrder}`}

@@ -23,3 +23,33 @@ export const formatElapsedCompact = (seconds: number): string | null => {
   if (hours < 48) return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
   return null;
 };
+
+/** 权益曲线 SVG 几何（demo svg.eq viewBox 640×180 的镜像）。
+ * 输入权益值序列（时间轴均匀间隔，来自服务端保首尾的均匀采样），输出折线/面积
+ * 路径与末点坐标；面积只在上/下走势时有意义（平线为一条水平线，返回 flat=true，
+ * 渲染端不画面积、不染色）。 */
+export const buildEquityGeometry = (
+  values: number[],
+  width = 640,
+  top = 8,
+  bottom = 172,
+): { line: string; area: string; lastX: number; lastY: number; flat: boolean } => {
+  const n = values.length;
+  if (n === 0) return { line: '', area: '', lastX: 0, lastY: bottom, flat: true };
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const flat = max === min;
+  const span = bottom - top;
+  const x = (i: number) => (n === 1 ? width : (i * width) / (n - 1));
+  const y = (v: number) => (flat ? (top + bottom) / 2 : bottom - ((v - min) / (max - min)) * span);
+  const pts = values.map((v, i) => `${x(i).toFixed(2)},${y(v).toFixed(2)}`);
+  const line = `M${pts.join(' L')}`;
+  const area = flat ? '' : `${line} L${width.toFixed(2)},${bottom.toFixed(2)} L0,${bottom.toFixed(2)} Z`;
+  return {
+    line,
+    area,
+    lastX: x(n - 1),
+    lastY: y(values[n - 1]),
+    flat,
+  };
+};
