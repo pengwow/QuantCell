@@ -241,9 +241,9 @@ const HomePage = () => {
             type="primary"
             icon={<IconPlus size={14} stroke={1.8} />}
             style={{ ...actionStyle, fontWeight: 550 }}
-            onClick={() => navigate('/strategy-worker')}
+            onClick={() => navigate('/strategy-editor')}
           >
-            {t('home_create_task')}
+            {t('new_strategy')}
           </Button>
           <Button
             icon={<IconPlayerPlay size={14} stroke={1.8} />}
