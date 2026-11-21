@@ -47,6 +47,43 @@
   overflow: hidden;
 }
 
+/* ========== 页头右上现价块（形制 1:1 抄 qc-prototype-demo 的 px-box）==========
+   demo 数值照搬：tag 10.5px 弱色；价格 22px/650；上行 baseline + gap 8px 右对齐；整块 text-align:right。
+   颜色/mono 换本仓口径：--qc-text-quaternary / --qc-success / --qc-error、qc-mono、qc-chip，
+   不引入 demo 的 --fg-4 / --info。 */
+.chart-px-box {
+  text-align: right;
+  /* 与动作钮的视觉间距 14px：qc-page-actions 自带 gap 8px */
+  margin-right: 6px;
+}
+
+.chart-px-tag {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  /* tag 内部不折行；整块换行退化交给下方 <768px 规则 */
+  white-space: nowrap;
+}
+
+.chart-px-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.chart-px-num {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.chart-px-num.up {
+  color: var(--qc-success);
+}
+
+.chart-px-num.down {
+  color: var(--qc-error);
+}
+
 /* 上方工具栏已迁移到 components/chart/ChartPeriodBar（复刻 klinecharts-pro），
    相关样式见 components/chart/chart-toolbars.css */
 
@@ -702,5 +739,11 @@
   .drawing-toolbar-vertical {
     width: 40px;
     min-width: 40px;
+  }
+
+  /* 现价块与动作钮换行时保持右对齐（page-head/actions 自带 flex-wrap）：
+     价格块退到按钮下方或同行，均右对齐、不隐藏、不挤压按钮文字 */
+  .chart-page-wrap .qc-page-actions {
+    justify-content: flex-end;
   }
 }

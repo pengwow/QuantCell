@@ -338,6 +338,7 @@
   "capability_disabled_desc": "当前部署未启用该能力（{{capability}}）。可在 config.toml 的 [capabilities] 分组或对应环境变量中开启。",
   "chart": "行情图表",
   "chart.page.sub": "币安 USD-M · 数据模式 {{mode}}",
+  "chart.page.px_tag": "{{symbol}} · {{time}} UTC 收盘",
   "chart.page.changeSymbol": "切换品种",
   "backtest_results": "回测结果",
   "backtest_replay": "回测回放",
