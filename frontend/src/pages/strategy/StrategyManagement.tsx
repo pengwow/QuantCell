@@ -341,9 +341,23 @@ const StrategyManagement = () => {
       key: 'name',
       width: 190,
       ellipsis: { showTitle: false },
+      // 策略名固定宽度截断（名字最长可达上百字符，会撑爆列宽）：
+      // display:block + maxWidth 才让 max-width/ellipsis 生效 —— 裸 inline span
+      // 上写 max-width 是无效的（浏览器忽略），这正是原来列宽失控的原因
       render: (text: string) => (
         <Tooltip title={text} placement="topLeft">
-          <span className="qc-cell-strat" style={{ maxWidth: 150 }}>{text}</span>
+          <span
+            className="qc-cell-strat"
+            style={{
+              display: 'block',
+              maxWidth: 200,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {text}
+          </span>
         </Tooltip>
       ),
     },

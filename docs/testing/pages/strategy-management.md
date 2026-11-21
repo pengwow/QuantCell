@@ -29,6 +29,7 @@
 | S14 | 工具栏搜索「zzz」/清空 | 按名称/描述/标的即时前端过滤不发请求，页码归 1，无匹配显示空态；排序 Select（更新时间 ↓ 默认）仍在且切换生效，不发请求 | L2 |
 | S15 | 点行内「去回测 / 编辑 / 删除」 | 三个操作钮 stopPropagation（不触发行选中变化）；删除弹「确认删除策略」确认框，取消则行仍在；编辑跳 `/strategy-editor/<名称>`；访客账号删除钮 disabled 且处理函数访客早退（不发 DELETE） | L2 |
 | S16 | 在 `/strategy-editor` 选一个真实策略保存一次（内容确实改动）→ 回本页点该行，再展开「版本历史」 | ① 保存后 `curl /api/v1/strategy/{name}/versions` 的 `count` 比保存前 +1，页面 footer 的「版本历史 N 条」N 与之一致；② 展开列表按时间倒序显示前 20 条（`MM-DD HH:mm` + `v{version}` 或 code_hash 前 8 位），超过 20 条时末尾有「仅显示最近 20 条」；③ **同内容再保存一次 → N 不变**（去重按 code_hash 比对上一条）；④ 从未保存过的策略（`version_count=0`）footer 不出现版本历史段；⑤ 接口 `versions[]` 不含 `code` 字段 | L2 |
+| S17 | 找一个长度 > 30 字符的真实策略名（现网有 `strategy_with_underscores`；不足则用长名策略保存一次），观察「策略」列 | ① 名字被截断并以省略号结尾，**单元格宽度不随名字长度变化**（`document.querySelector('.ant-table-tbody td').getBoundingClientRect().width` 对长/短名两行相等）；② 表格总宽 ≤ 容器宽（`.ant-table-content` 无横向滚动条），长名不会把其余列挤出可视区；③ 鼠标悬停该格 → 浮层显示**完整名字**（与 `curl /strategy/overview` 的 `name` 逐字一致）；④ 短名（如 `trend_follow`）不出现省略号，悬停浮层仍是完整名 | L1 |
 
 ## 历史雷区
 - **数据源是 overview 不是 list**（2026-11-21 重构）：本页只消费 `GET /strategy/overview`；将其回退成 `/strategy/list` 并在前端拼 state/worker_count 属于造假，禁止。端点 404/405 时是空态 + toast，不是页面 bug
@@ -44,3 +45,4 @@
 - **版本历史只记录经过保存入口的保存**（2026-11-21）：`strategy_versions` 只在 `save_strategy()`（以及界面保存实际走的 `upload_strategy_file()`）成功后旁路写入；初始化/批量导入入库的策略没有历史（`version_count=0` 属预期，不是缺陷）。同内容重复保存按 `code_hash` 去重不涨条数。策略删除后历史保留（审计需要），但 overview 按现存策略文件遍历，不会出现幽灵计数
 - **`version` 不是历史序号**：`strategies.version` / 快照里的 `version` 是策略文件声明的版本号（`__version__` / `VERSION` 常量，未声明为 null），与「第几条快照」无关；前端在没有声明版本时展示 `code_hash` 前 8 位，不要把 `1.0.0` 之类的默认值当历史序号写死
 - **表头/行密度被 antd 覆盖**（2026-11-20 踩坑）：`.qc-table` 密度规则必须写 `.qc-table.ant-table-wrapper ...` 前缀（见 `global.css`）；详情块的 kvtab 在页面私有 `StrategyManagement.css`，色值只用 `var(--qc-*)`
+- **策略名列必须限宽截断**（2026-11-21）：`DataTable` 默认 `scroll={{x:'max-content'}}` + 自动表格布局，列上声明的 `width` 不是硬约束——**在裸 `inline` span 上写 `maxWidth` 完全无效**（inline 元素忽略 max-width），长名会把该列撑到 700px+、整表横向溢出。正确写法是给渲染节点 `display:block` + `maxWidth` + `overflow:hidden/text-overflow/white-space`，外层套 `Tooltip` 显示全名（S17）。改列宽时不要靠名字长度"自然"限制
