@@ -71,3 +71,28 @@ class Strategy(Base):
 
     def set_factors_list(self, factors: list[dict[str, Any]]):
         self.factors = json.dumps(factors)
+
+
+class StrategyVersion(Base):
+    """策略版本快照（只在真正走保存入口时写入，见 service._record_version_snapshot）。
+
+    与 strategies.version 的区别：那一列是策略文件里声明的单个版本号，不是历史；
+    本表按保存动作留快照，去重规则写在写入侧（code_hash 与上一条相同则跳过），
+    所以不加唯一约束——同一内容在不同时刻可能被合法重存（历史只留首条）。
+    """
+
+    __tablename__ = "strategy_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_name = Column(String(100), nullable=False)
+    # 策略文件里声明的版本号（__version__ / VERSION 常量）；文件没声明就是 None
+    version = Column(String(20), nullable=True)
+    # 完整快照的 sha256（去重依据；列表接口只回前 8 位给前端展示）
+    code_hash = Column(String(64), nullable=False)
+    code = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("idx_strategy_version_name", "strategy_name"),
+        Index("idx_strategy_version_created", "created_at"),
+    )

@@ -22,6 +22,7 @@
 """
 
 import ast
+import hashlib
 from pathlib import Path
 
 from utils.logger import LogType, get_logger
@@ -212,9 +213,13 @@ class StrategyService:
           - worker：workers.strategy_name（冗余列 + 索引）分组，trading_config
             是 JSON 文本（interval / symbols_config.symbols / trading_mode）；
           - 最近回测：backtest_tasks 按 strategy_name 取 created_at 最新一条，
-            total_return 从 result_id 指向的结果文件取，取不到就是 null。
+            total_return 从 result_id 指向的结果文件取，取不到就是 null；
+          - 版本历史条数：strategy_versions 一次 GROUP BY 聚合（不是 N+1）。
         """
+        from sqlalchemy import func
+
         from backtest.models import BacktestTask
+        from strategy.models import StrategyVersion
         from utils.db_session import get_db_session
         from worker.models import Worker
 
@@ -222,6 +227,8 @@ class StrategyService:
         latest_task_by_strategy: dict[str, Any] = {}
         # 每个策略的历史回测任务总数（真实计数，不是列表样本；footer「累计回测 N 次」）
         task_counts: dict[str, int] = {}
+        # 每个策略的版本快照条数（footer「版本历史 N 条」；已删策略不在 overview 里，不会幽灵计数）
+        version_counts: dict[str, int] = {}
         try:
             with get_db_session() as db:
                 # ponytail: worker 几十条、回测任务几百条，全量拉内存归并即可（避免 N+1）；
@@ -236,6 +243,12 @@ class StrategyService:
                     task_counts[task.strategy_name] = task_counts.get(task.strategy_name, 0) + 1
                     if task.strategy_name not in latest_task_by_strategy:
                         latest_task_by_strategy[task.strategy_name] = task
+                for strategy_name, version_count in (
+                    db.query(StrategyVersion.strategy_name, func.count(StrategyVersion.id))
+                    .group_by(StrategyVersion.strategy_name)
+                    .all()
+                ):
+                    version_counts[strategy_name] = int(version_count)
         except Exception as e:
             # 聚合端点降级：worker/回测读不到时仍返回策略列表（state=undeployed 等），不让整页 500
             logger.warning(f"策略总览读取 worker/回测数据失败，按空聚合返回: {e}")
@@ -257,6 +270,7 @@ class StrategyService:
                     "state": self._aggregate_worker_state(workers),
                     "worker_count": len(workers),
                     "backtest_count": task_counts.get(name, 0),
+                    "version_count": version_counts.get(name, 0),
                     "latest_backtest": self._latest_backtest_payload(task, total_return_cache),
                 }
             )
@@ -484,12 +498,99 @@ class StrategyService:
         return info
 
     def save_strategy(self, name: str, content: str) -> dict[str, Any]:
-        """保存策略文件"""
+        """保存策略文件（成功落盘后旁路记录一条版本快照）"""
         file_path = self.strategy_dir / f"{name}.py"
         file_path.write_text(content, encoding="utf-8")
         info = self._parse_strategy_file(name, content)
+        self._record_version_snapshot(name, content)
         logger.info(f"策略已保存: {name}")
         return info or {"name": name, "file_name": f"{name}.py"}
+
+    def list_strategy_versions(self, strategy_name: str) -> list[dict[str, Any]] | None:
+        """策略版本快照时间线（created_at 倒序），只回元信息、不回 code 全文。
+
+        策略不存在（无 .py 文件）返回 None，由路由翻成 404。
+        """
+        if not (self.strategy_dir / f"{strategy_name}.py").exists():
+            return None
+
+        from strategy.models import StrategyVersion
+        from utils.db_session import get_db_session
+
+        with get_db_session() as db:
+            rows = (
+                db.query(StrategyVersion)
+                .filter_by(strategy_name=strategy_name)
+                .order_by(StrategyVersion.created_at.desc(), StrategyVersion.id.desc())
+                .all()
+            )
+            return [
+                {
+                    "version": row.version,
+                    "code_hash": row.code_hash,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "code_size": len(row.code or ""),
+                }
+                for row in rows
+            ]
+
+    @staticmethod
+    def _declared_strategy_version(content: str) -> str | None:
+        """取策略文件里声明的版本号（模块级 __version__ / VERSION 字符串常量）。
+
+        文件没声明就返回 None——不拿 AST 解析结果里那个 1.0.0 默认值充数，
+        那个值不是「历史序号」，混进来会让每条快照都长一样。
+        """
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return None
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if not ({"__version__", "VERSION"} & set(names)):
+                continue
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                return node.value.value[:20]
+        return None
+
+    def _record_version_snapshot(self, name: str, content: str) -> bool:
+        """保存成功后写一条版本快照；与上一条 code_hash 相同则跳过。
+
+        旁路审计：任何异常只记 warning，绝不打断策略落盘。
+        初始化 / 批量导入路径不调这里，所以它们的版本数是真实的 0（不是缺陷）。
+        """
+        code_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        try:
+            from strategy.models import StrategyVersion
+            from utils.db_session import get_db_session
+
+            with get_db_session() as db:
+                last = (
+                    db.query(StrategyVersion)
+                    .filter_by(strategy_name=name)
+                    .order_by(StrategyVersion.created_at.desc(), StrategyVersion.id.desc())
+                    .first()
+                )
+                if last is not None and last.code_hash == code_hash:
+                    return False
+                db.add(
+                    StrategyVersion(
+                        strategy_name=name,
+                        version=self._declared_strategy_version(content),
+                        code_hash=code_hash,
+                        code=content,
+                        # 与策略文件解析的 created_at 同口径（本地时间）；列默认 func.now() 在
+                        # SQLite 下是 UTC，前端按本地读会差 8 小时，时间线不能带这个坑
+                        created_at=datetime.now(),
+                    )
+                )
+                db.commit()
+            return True
+        except Exception as e:
+            logger.warning(f"策略版本快照写入失败（不影响策略保存）: {name}: {e}")
+            return False
 
     def detect_strategy_type(self, content: str) -> str:
         """检测策略类型"""
@@ -1037,6 +1138,9 @@ class StrategyService:
 
             logger.info(f"策略文件上传成功: {strategy_file}")
 
+            # 界面保存的实际入口（/strategy/upload）：与 save_strategy 共用同一套去重快照
+            self._record_version_snapshot(strategy_name, file_content)
+
             # 将策略信息保存到数据库
             import json
 
@@ -1280,6 +1384,8 @@ class StrategyService:
                 logger.warning(f"策略文件删除失败，但继续尝试删除数据库记录: {strategy_name}")
 
             # 2. 从数据库中删除策略记录
+            # 版本历史（strategy_versions）故意不删：删掉就失去审计能力。overview 按现存
+            # 策略文件遍历，孤儿快照不会出现在页面上（不会幽灵计数）。
             try:
                 from strategy.models import Strategy
                 from utils.db_session import get_db_session

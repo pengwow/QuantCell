@@ -510,6 +510,16 @@ export interface StrategyOverviewItem {
   latest_backtest?: { status: string; total_return: number | null; created_at: string } | null;
   /** 后端线可能追加的累计回测次数；契约未定，缺席时详情 footer 隐藏该段（不造数） */
   backtest_count?: number;
+  /** 版本快照条数（strategy_versions 真实计数；0 时详情 footer 整段不渲染） */
+  version_count?: number;
+}
+
+/** GET /strategy/{name}/versions 单项：只有元信息，后端不返回 code 全文 */
+export interface StrategyVersionItem {
+  version: string | null;
+  code_hash: string;
+  created_at: string | null;
+  code_size: number;
 }
 
 /**
@@ -526,6 +536,11 @@ export const strategyApi = {
    */
   getStrategyOverview: (): Promise<{ strategies: StrategyOverviewItem[] }> => {
     return apiRequest.get('/strategy/overview');
+  },
+
+  /** 策略版本历史时间线（倒序，只有元信息；完整 code 不在本接口契约内） */
+  getStrategyVersions: (name: string): Promise<{ count: number; versions: StrategyVersionItem[] }> => {
+    return apiRequest.get(`/strategy/${encodeURIComponent(name)}/versions`);
   },
 
   createStrategy: <T>(data: T) => {

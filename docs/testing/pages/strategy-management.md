@@ -19,15 +19,16 @@
 | S4 | 抽查任意一行的「状态」列 vs `curl /strategy/overview` | 状态 chip 与该行 `state` 字段一一对应：live=ok chip+pulse 圆点「运行中」、paper=warn「模拟盘」、paused=quiet「已暂停」、stopped=quiet「已停止」、error=down「错误」、undeployed=info「未部署」；即状态列是 worker 聚合的投影，与 worker 列表页同口径，不是 strategies 表自己的字段 | L1 |
 | S5 | 抽查「Worker」列 vs curl | 值 = 该策略 `worker_count`，右对齐 mono；0 显示弱色 0（不染色不隐藏）；>0 普通前景色 | L1 |
 | S6 | 抽查「最近回测」列 vs curl | `latest_backtest` 为 null → 弱色「未回测」；status running/pending → 弱色「回测运行中」；failed → 红色「失败」；completed 且 total_return>0 → 绿色「+x.xx%」、<0 → 红色「-x.xx%」、**=0 → 中性色「0.00%」（0 不染色）**；completed 但 total_return 为 null → 弱色「—」 | L1 |
-| S7 | 点第一行 | 行打 primary 5% tint + 左侧 3px 主色条；表格下方出现常驻详情块（demo detail-block 同构）：块头 = 「策略详情」+ 策略名（mono）+ 状态 chip（与该行状态列同一映射）+ 右侧「v{version} · 更新 {MM-DD}」；主体 = 参数键值两列表（键列弱色 mono 参数名、值列默认值 + `[min ~ max]` 弱色 + 弱色描述），与 `/strategy/overview` 该项 `params[]` 的 name/default/description/min/max 逐条一致；底部 = 主色「去回测」+「创建 Worker」+ footer 一行「默认 runner：kernel · 累计回测 N 次」（`backtest_count` 由 `/strategy/overview` 回传 = 该策略历史回测任务总数，与 `curl` 原始 JSON 逐条一致；字段缺席时只显示 runner 段，**不得出现编造的 0/固定数**） | L2 |
-| S8 | 详情块/参数为空的策略上点行 | `params` 为空数组或缺失时详情块显示弱提示「该策略没有可调参数」，不留空表壳；**详情块任何位置不出现「版本历史 N 条」**（version 是单字符串，无历史表） | L2 |
+| S7 | 点第一行 | 行打 primary 5% tint + 左侧 3px 主色条；表格下方出现常驻详情块（demo detail-block 同构）：块头 = 「策略详情」+ 策略名（mono）+ 状态 chip（与该行状态列同一映射）+ 右侧「v{version} · 更新 {MM-DD}」；主体 = 参数键值两列表（键列弱色 mono 参数名、值列默认值 + `[min ~ max]` 弱色 + 弱色描述），与 `/strategy/overview` 该项 `params[]` 的 name/default/description/min/max 逐条一致；底部 = 主色「去回测」+「创建 Worker」+ footer 一行「默认 runner：kernel · 累计回测 N 次 · 版本历史 N 条」（`backtest_count` / `version_count` 由 `/strategy/overview` 回传 = 该策略历史回测任务总数 / 版本快照总数，与 `curl` 原始 JSON 逐条一致；字段缺席或版本数为 0 时**不显示版本历史段**，**不得出现编造的 0/固定数**） | L2 |
+| S8 | 详情块/参数为空的策略上点行 | `params` 为空数组或缺失时详情块显示弱提示「该策略没有可调参数」，不留空表壳；**`version_count` 为 0 时 footer 不出现「版本历史」字样**（初始化入库、从未经保存入口的策略属于此列，是真实值不是缺陷）；只有 `version_count > 0` 才显示「版本历史 N 条」 | L2 |
 | S9 | 点详情块「创建 Worker」 | 打开 worker 创建弹窗（worker 模块现成组件），提交后真实 `POST /workers` 并刷新本页聚合计数（Worker 列/副标数字变化）；不弹「点了没反应」的死钮行为 | L2 |
 | S10 | 点行内「去回测」（或详情块主色钮） | 跳转 `/backtest/config` 且该策略已预填（state.strategy.name = 点击行名）；点页头「发起回测」跳同一页但不带预填；**页面任何位置不存在「回测记录」页签或指向 `?tab=` 的链接** | L2 |
 | S11 | 直接打开 `/strategy-management?tab=backtests` 或旧返回链路 `?search=..&status=..` | 地址立即被 replace 成裸 `/strategy-management`，落在列表视图，无任何页签；刷新后仍为列表 | L1 |
-| S12 | 千万注意反数据造假 | 全页搜索「草稿」「版本历史」无结果；周期/标的/最近回测字段为 null 时一律显示弱色「—」，Worker 为 0 显示弱色 0；无任何写死/假造的聚合数 | L1 |
+| S12 | 千万注意反数据造假 | 全页搜索「草稿」无结果；「版本历史」只允许出现在详情块 footer（且其 N 必须等于 `curl /strategy/{name}/versions` 的 `count`，为 0 时整段不出现）；周期/标的/最近回测字段为 null 时一律显示弱色「—」，Worker 为 0 显示弱色 0；无任何写死/假造的聚合数 | L1 |
 | S13 | 切到卡片视图（系统设置改默认展示类型） | 卡片不因新列退化：卡头名称 mono + 类型/状态 chip 行，卡面含 周期 / 标的 / Worker（0 弱色）/ 最近回测（同 S6 染色）/ 更新时间行，底部「去回测」+「编辑」钮；点卡片选中（primary 边框）且详情块同步；不报错 | L2 |
 | S14 | 工具栏搜索「zzz」/清空 | 按名称/描述/标的即时前端过滤不发请求，页码归 1，无匹配显示空态；排序 Select（更新时间 ↓ 默认）仍在且切换生效，不发请求 | L2 |
 | S15 | 点行内「去回测 / 编辑 / 删除」 | 三个操作钮 stopPropagation（不触发行选中变化）；删除弹「确认删除策略」确认框，取消则行仍在；编辑跳 `/strategy-editor/<名称>`；访客账号删除钮 disabled 且处理函数访客早退（不发 DELETE） | L2 |
+| S16 | 在 `/strategy-editor` 选一个真实策略保存一次（内容确实改动）→ 回本页点该行，再展开「版本历史」 | ① 保存后 `curl /api/v1/strategy/{name}/versions` 的 `count` 比保存前 +1，页面 footer 的「版本历史 N 条」N 与之一致；② 展开列表按时间倒序显示前 20 条（`MM-DD HH:mm` + `v{version}` 或 code_hash 前 8 位），超过 20 条时末尾有「仅显示最近 20 条」；③ **同内容再保存一次 → N 不变**（去重按 code_hash 比对上一条）；④ 从未保存过的策略（`version_count=0`）footer 不出现版本历史段；⑤ 接口 `versions[]` 不含 `code` 字段 | L2 |
 
 ## 历史雷区
 - **数据源是 overview 不是 list**（2026-11-21 重构）：本页只消费 `GET /strategy/overview`；将其回退成 `/strategy/list` 并在前端拼 state/worker_count 属于造假，禁止。端点 404/405 时是空态 + toast，不是页面 bug
@@ -40,4 +41,6 @@
 - **删除不可恢复**：确认文案已写明，没有回收站/软删。除 `zz_test_probe` 外不要在任何真实策略上点「确定」
 - **状态列语义**：live/paper/paused/stopped/error 全部来自 worker 聚合（见 S4）。「已停止」「错误」chip 只在真有数据时出现（chips 与副标同步增删），不要为了凑 demo 五桶而隐藏
 - **详情块footer 的「累计回测 N 次」**：取 `/strategy/overview` 的 `backtest_count`（同一次任务遍历累计，不加额外查询）；字段缺席时只显示「默认 runner：kernel」，不许写死数字。计数为 0 是真实值（该策略没跑过回测），与「未回测」列语义一致
+- **版本历史只记录经过保存入口的保存**（2026-11-21）：`strategy_versions` 只在 `save_strategy()`（以及界面保存实际走的 `upload_strategy_file()`）成功后旁路写入；初始化/批量导入入库的策略没有历史（`version_count=0` 属预期，不是缺陷）。同内容重复保存按 `code_hash` 去重不涨条数。策略删除后历史保留（审计需要），但 overview 按现存策略文件遍历，不会出现幽灵计数
+- **`version` 不是历史序号**：`strategies.version` / 快照里的 `version` 是策略文件声明的版本号（`__version__` / `VERSION` 常量，未声明为 null），与「第几条快照」无关；前端在没有声明版本时展示 `code_hash` 前 8 位，不要把 `1.0.0` 之类的默认值当历史序号写死
 - **表头/行密度被 antd 覆盖**（2026-11-20 踩坑）：`.qc-table` 密度规则必须写 `.qc-table.ant-table-wrapper ...` 前缀（见 `global.css`）；详情块的 kvtab 在页面私有 `StrategyManagement.css`，色值只用 `var(--qc-*)`

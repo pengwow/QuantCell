@@ -69,6 +69,60 @@
   color: var(--qc-text-tertiary);
 }
 
+/* footer 的「版本历史 N 条」折叠开关：弱色文本钮，不用 antd 彩色 Tag */
+.sm-ver-toggle {
+  align-self: center;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+  cursor: pointer;
+}
+
+.sm-ver-toggle:hover {
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-caret {
+  margin-left: 4px;
+  font-size: 9px;
+}
+
+/* 展开后的紧凑时间线：mono 数字 + 弱色副标，行间虚线分隔 */
+.sm-ver-list {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.sm-ver-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.sm-ver-time {
+  color: var(--qc-text-quaternary);
+  min-width: 82px;
+}
+
+.sm-ver-label {
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-note {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-note-error {
+  color: var(--qc-error);
+}
+
 /* ---- demo .kvtab：两列键值表，参数行虚线分隔 ---- */
 .sm-kvtab {
   width: 100%;

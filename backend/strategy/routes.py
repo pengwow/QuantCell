@@ -84,6 +84,27 @@ def get_strategy_overview() -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{strategy_name}/versions", response_model=ApiResponse, summary="策略版本历史（时间线，不含 code 全文）")
+def api_get_strategy_versions(
+    strategy_name: str = Path(..., description="策略名称"),
+) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
+    try:
+        versions = get_strategy_service().list_strategy_versions(strategy_name)
+        if versions is None:
+            raise HTTPException(status_code=404, detail="策略不存在")
+        return ApiResponse(
+            code=0,
+            message="获取策略版本历史成功",
+            data={"count": len(versions), "versions": versions},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取策略版本历史失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/detail", response_model=ApiResponse)
 def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
     _validate_strategy_name(request.strategy_name)
