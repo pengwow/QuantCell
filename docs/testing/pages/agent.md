@@ -32,6 +32,10 @@
 | AG19 | 视觉收口：徽章形制（亮/暗各跑一遍） | 整页（含全部右栏 Tab、抽屉、弹窗）DOM 中 `.ant-tag` 数量为 0；Worker 状态、训练状态、审计状态、模型 stage、决策 buy/sell 徽章均为 `.qc-chip` 形制（tint 底 + 语义档位），进行中徽章带 `.qc-pdot` 脉冲点 | L1 |
 | AG20 | 视觉收口：聊天流形制 | `getComputedStyle` 断言：AI 头像 32×32、`border-radius: 8px`、底色 = info token；消息气泡 `border-radius: 12px`、内边距 11px/15px、有 bubble-shadow；用户消息行右对齐、气泡底色 = `--qc-user-bubble-bg`；工具调用为链式节点形制（mono 工具名 + 参数摘要 + 状态 chip），而非孤立项徽章 | L1 |
 | AG21 | 视觉收口：主题换挡 | 切换亮/暗主题后无需刷新：页面底、气泡底、边框、徽章 tint 全部跟随 token 变化（`computedStyle` 的 `background-color`/`border-color` 应随主题出现两套不同 rgb）；页面任何位置不出现写死的灰阶色块 | L1 |
+| AG22 | 右栏首屏两卡可见，8 页签退居其下 | 打开 `/agent`（不切 tab）右栏**第一眼**是「迭代足迹」卡（卡头标题 + 右侧弱色说明 + 柱图区）与「记忆自迭代（Dream）」卡（卡头 + MEMORY.md 只读体 + 键值行）；两卡下方 8 个页签（`决策流`…`自迭代`）全部可见且可切换；`/agent?tab=logs` 直达时页签选中态仍生效（tab 持久化不受两卡影响） | L1 |
+| AG23 | 迭代足迹卡柱数 = 真实迭代数 | 无数据（新会话/仅历史恢复）时卡体为弱色空态提示，**不画占位柱**；发一条消息跑完 ReAct（按需，耗 LLM 配额）后出现对应柱：柱数 = 当前会话带轮次的 AI 回复数（SSE `iteration_start`/`complete` 聚合，与气泡「迭代 X/Y」徽标同源），不足 12 不补齐、不循环；均值 chip 只按画出的柱计算；熔断虚线取 SSE 真实上限（40）并置于轨顶，上限不可证时不画线 | L2（空态 L1；柱数须真实 LLM 回合，按需） |
+| AG24 | Dream 卡字段全部来自 self-loop 接口 | `GET /api/v1/agent/memory` 返回值渲染：chip 与 `QUANTCELL_AGENT_DREAM` 实际值一致（`QUANTCELL_AGENT_DREAM = 1/0` mono 形制）、MEMORY.md 只读体、`已整合 x/y` 进度条（x=dream_cursor，y=history_entries）、`待处理`（>0 才显示）、`上次运行` 三态如实；**没有「下次运行倒计时」行**——`/agent/loop-status` 只有 cron 字符串、无下次运行时间戳，塞倒计时即造假；读取失败显示弱色提示 + 右上刷新钮，不显示假数据 | L2 |
+| AG25 | 页头真值 + 两个跳转钮 | 页头轻量行（非 PageContainer）：标题`智能体工作台` + mono 副标`会话 #<id> · ReAct 单轮上限 40 次迭代 · SSE 实时`（会话 id 为真实 session key，「40」为项目常量 backend/agent/core/loop.py `max_iterations` 默认值）；右侧两枚 30px 钮：`策略智能体 →` 跳 `/strategy-worker`、`← 返回首页` 跳 `/home`；既有顶栏（会话/Worker 控件）不受影响 | L1 |
 
 ## 历史雷区
 - **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`
@@ -46,4 +50,6 @@
 - **迭代事件一轮双发**：一条回复的 SSE 流里 `iteration_start`/`complete` 各出现两次（routes 与 loop 各发一波），前端以最后到达为准渲染徽标；自动化断言徽标数值时勿假定事件只发一次
 - **Workbench Tab 内容超视口被裁剪（已修，`8adde8a8`）**：`.agent-work-col` 是 `overflow:hidden` 列而 `.wb-tabs` 高度传导断裂，content-holder 的 `overflow-y:auto` 从未生效，所有 Tab 一起只露首屏。断言方式：content-holder `clientHeight < scrollHeight` 且 `scrollTop` 可推进
 - **i18n 占位符泄漏（已修，`c4766c7e`）**：`selfloop_cursor` 曾把 `{{processed}}/{{total}}` 原样上屏（key 是插值版、调用处按纯 label 渲染）。断言：自迭代 Tab 文本不得包含 `{{`；改 key 文案形态时插值参数与调用必须同时改
+- **首屏「迭代足迹」柱清零是空态不是故障**：柱数据只来自**当前会话**的 SSE 聚合（`agentStore.messages` 的 `iteration` 字段），会话历史接口不带 iteration（`fetchHistory` 不映射），刷新/切会话后柱清零回空态属预期。demo 的「近 12 轮会话」跨会话口径现网无源（`/agent/audit` 按天聚合的是**工具调用**，不是 ReAct 迭代，勿混用口径填柱）
+- **首屏 Dream 卡刻意无倒计时**：`/agent/loop-status` 只回 cron 字符串（如 `0 0 4 * * *`）、没有下次运行时间戳，画倒计时就是编数据；完整版（时钟线卡）在「自迭代」页签
 - **Dream 心跳依赖后端进程活过 04:00**：两次平台级重启（11-18/11-19）都撞掉 04:00 调度载体。C/B 卡显示`重启后尚未运行`属预期，不是缺陷；总闸 `QUANTCELL_AGENT_DREAM` 未开时 Dream 行显示`已关闭（总闸未开）`

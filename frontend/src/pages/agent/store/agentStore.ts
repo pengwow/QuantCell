@@ -26,6 +26,13 @@ export interface IntentAction {
   label: string;
 }
 
+/**
+ * ReAct 单轮迭代上限（页头/徽标兜底展示用）。
+ * 来源：backend/agent/core/loop.py `max_iterations: int = 40`（factory.py 装配同值）；
+ * SSE `iteration_start` 事件每次都会带同值，运行期以上报为准，此常量只用于零消息时的页头真值。
+ */
+export const REACT_MAX_ITERATIONS = 40;
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'tool';

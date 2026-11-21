@@ -143,6 +143,57 @@ export const retrainGates = (
   return { autoRetrain, autoPromote, anyOff: !autoRetrain || !autoPromote };
 };
 
+// ==================== 首屏「迭代足迹」卡（demo 1528–1553 的纯展示函数） ====================
+
+/** 一根足迹柱 = 当前会话一条带 ReAct 轮次的 AI 回复（SSE iteration 聚合结果） */
+export interface FootprintPoint {
+  /** 该轮最终轮次（complete 事件的 iteration） */
+  value: number;
+  /** SSE 上报的单轮上限（max_iterations）；后端未上报时等于 value，视为未知 */
+  ceiling: number;
+  /** 回复时间戳（历史消息为空字符串，但历史消息本就不带 iteration，仅防御） */
+  ts: string;
+}
+
+/** 最小纯形状，避免 import agentStore 造成 store ↔ format 循环依赖 */
+interface IterationLike {
+  role: string;
+  iteration?: { current: number; max: number } | null;
+  timestamp?: string;
+}
+
+/**
+ * 从消息流提取足迹点：只认 role=assistant 且 current>0 的消息。
+ * 会话历史接口不带 iteration（fetchHistory 不映射），恢复会话后自然回到空态——不造数。
+ */
+export const footprintPoints = (messages: IterationLike[]): FootprintPoint[] =>
+  messages
+    .filter((m) => m.role === 'assistant' && m.iteration != null && m.iteration.current > 0)
+    .map((m) => ({
+      value: m.iteration!.current,
+      ceiling: m.iteration!.max,
+      ts: m.timestamp ?? '',
+    }));
+
+/**
+ * 熔断上限：取最近一个 ceiling>value 的点（证明 max 是真实天花板而不是缺省回填）。
+ *永远拿不到证据就返回 null，UI 不画熔断线。
+ */
+export const footprintCap = (points: FootprintPoint[]): number | null => {
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    if (p.ceiling > p.value && p.ceiling > 0) return p.ceiling;
+  }
+  return null;
+};
+
+/** 柱高百分比：有上限按上限归一（熔断线=轨顶），无上限按已见最大值归一 */
+export const footprintBarPct = (value: number, cap: number | null, points: FootprintPoint[]): number => {
+  const base = cap ?? points.reduce((m, p) => Math.max(m, p.value), 0);
+  if (base <= 0) return 0;
+  return Math.min(100, Math.max(4, Math.round((value / base) * 100)));
+};
+
 /** 按本地自然日聚合审计行（date 为 YYYY-MM-DD，标签由调用方本地化） */
 export const auditDayBuckets = (
   rows: ToolAuditRow[],

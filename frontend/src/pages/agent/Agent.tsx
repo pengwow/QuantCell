@@ -17,8 +17,8 @@ import {
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
-import { useAgentStore } from './store/agentStore';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAgentStore, REACT_MAX_ITERATIONS } from './store/agentStore';
 import { useWorkbenchStore, isWorkbenchTab } from './store/workbenchStore';
 import { workerApi } from '@/api/workerApi';
 import { WorkerStatusText, WorkerStatus } from '@/types/worker';
@@ -27,7 +27,9 @@ import { usePolling } from '@/hooks/usePolling';
 import ChatPanel from './components/ChatPanel';
 import SessionListDrawer from './components/SessionListDrawer';
 import ToolListDrawerWithConfig from './components/ToolListDrawerWithConfig';
+import FirstScreenCards from './components/FirstScreenCards';
 import WorkbenchPanel from './components/workbench/WorkbenchPanel';
+import { ArrowRightOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import './Agent.css';
 
 const { Content } = Layout;
@@ -60,6 +62,7 @@ const WORKER_CHIP_PULSING = new Set<string>([
 // 主页面
 const Agent = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { message, modal } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [toolDrawerVisible, setToolDrawerVisible] = useState(false);
@@ -211,8 +214,27 @@ const Agent = () => {
   return (
     // ponytail: Agent 是全屏双栏工作台，ai-agent-layout + page-fullscreen 抵消 ConsoleLayout 的 padding（机制不动）
     <Layout className="ai-agent-layout page-fullscreen">
-      {/* 主内容区：顶栏 + 双栏 */}
+      {/* 主内容区：页头 + 顶栏 + 双栏 */}
       <Layout className="agent-content-layout">
+        {/* 页头（demo #view-agent 1370–1379 的轻量 page-head，不套 PageContainer 以免撞顶栏）；会话 id 与单轮上限均为真值 */}
+        <div className="agent-page-head">
+          <div className="qc-page-head">
+            <div className="agent-page-head-main">
+              <h1 className="qc-page-title">{t('agent_page_title')}</h1>
+              <p className="qc-page-sub">
+                {t('agent_page_sub', { session: currentSessionId, max: REACT_MAX_ITERATIONS })}
+              </p>
+            </div>
+            <div className="qc-page-actions">
+              <Button icon={<ArrowRightOutlined />} onClick={() => navigate('/strategy-worker')}>
+                {t('agent_page_to_workers')}
+              </Button>
+              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/home')}>
+                {t('agent_page_back_home')}
+              </Button>
+            </div>
+          </div>
+        </div>
         {/* 顶栏（会话历史 / 工具参数 / 清空；worker 选择域 + 面板折叠） */}
         <div className="agent-header">
           <div className="header-left">
@@ -288,6 +310,7 @@ const Agent = () => {
           </div>
           {!collapsed && (
             <div className="agent-work-col">
+              <FirstScreenCards />
               <WorkbenchPanel />
             </div>
           )}

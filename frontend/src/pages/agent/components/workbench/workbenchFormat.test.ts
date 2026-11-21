@@ -3,6 +3,9 @@ import {
   AUDIT_STATUSES,
   auditDayBuckets,
   dreamProgress,
+  footprintBarPct,
+  footprintCap,
+  footprintPoints,
   formatAuditArgs,
   formatElapsed,
   isTrainTaskTerminal,
@@ -133,5 +136,47 @@ describe('auditDayBuckets', () => {
     expect(buckets[0]).toEqual({ date: '2026-11-12', total: 0, failed: 0 });
     expect(buckets[6]).toEqual({ date: '2026-11-18', total: 2, failed: 1 });
     expect(buckets.reduce((sum, b) => sum + b.total, 0)).toBe(2);
+  });
+});
+
+describe('footprintPoints', () => {
+  it('只取 AI 回复且 current>0 的点，有几条画几条', () => {
+    const msg = (role: string, current?: number, max = 0, ts = '') => ({
+      role,
+      ...(current != null ? { iteration: { current, max } } : {}),
+      timestamp: ts,
+    });
+    const points = footprintPoints([
+      msg('user'),
+      msg('assistant'), // 无 iteration（工具轮/历史恢复）→ 跳过
+      msg('assistant', 0), // current=0 → 跳过
+      msg('assistant', 2, 40, '2026-11-21T01:00:00Z'),
+      msg('user'),
+      msg('assistant', 5, 40, '2026-11-21T01:05:00Z'),
+    ]);
+    expect(points).toEqual([
+      { value: 2, ceiling: 40, ts: '2026-11-21T01:00:00Z' },
+      { value: 5, ceiling: 40, ts: '2026-11-21T01:05:00Z' },
+    ]);
+  });
+});
+
+describe('footprintCap', () => {
+  it('ceiling>value 才算真实上限；全部相等（max 未上报回填）即 null', () => {
+    expect(footprintCap([{ value: 3, ceiling: 40, ts: '' }])).toBe(40);
+    expect(footprintCap([{ value: 3, ceiling: 3, ts: '' }])).toBeNull();
+    expect(footprintCap([{ value: 3, ceiling: 3, ts: '' }, { value: 2, ceiling: 40, ts: '' }])).toBe(40);
+    expect(footprintCap([])).toBeNull();
+  });
+});
+
+describe('footprintBarPct', () => {
+  it('有上限按上限归一（熔断线=轨顶），无上限按最大值归一，0 兜底', () => {
+    const pts = [{ value: 2, ceiling: 40, ts: '' }, { value: 20, ceiling: 40, ts: '' }];
+    expect(footprintBarPct(20, 40, pts)).toBe(50);
+    expect(footprintBarPct(2, 40, pts)).toBe(5);
+    expect(footprintBarPct(40, 40, pts)).toBe(100); // 撞线
+    expect(footprintBarPct(2, null, pts)).toBe(10); // 2/20 归一
+    expect(footprintBarPct(2, null, [])).toBe(0);
   });
 });
