@@ -267,6 +267,9 @@ const ResearchDetail: React.FC = () => {
   // 回放结果：与原 trial 并排展示差异，不覆盖原记录（后端落 replay_of_id 新行）
   const [replayResult, setReplayResult] = useState<ResearchReplayResult | null>(null);
   const [replaying, setReplaying] = useState(false);
+  // trial.id → 本次会话里已创建的回测 task_id：只认请求结果，不臆造「已转过 N 次」
+  const [backtestTasks, setBacktestTasks] = useState<Record<number, string>>({});
+  const [backtesting, setBacktesting] = useState<number | null>(null);
   // 对比：勾选 2–5 条，批量拉含代码的 trial 后弹窗并排展示
   const [selectedKeys, setSelectedKeys] = useState<number[]>([]);
   const [compareTrials, setCompareTrials] = useState<ResearchTrial[]>([]);
@@ -375,6 +378,29 @@ const ResearchDetail: React.FC = () => {
     }
   };
 
+  const toBacktest = async (row: ResearchTrial) => {
+    setBacktesting(row.id);
+    try {
+      const res = await researchApi.toBacktest(sessionId, row.id);
+      // 只认后端返回的 task_id：重复点击不再建任务，行内按钮就地换成「查看回测」
+      setBacktestTasks((prev) => ({ ...prev, [row.id]: res.task_id }));
+      message.success(
+        <span>
+          {t('research_to_backtest_done', { name: res.strategy_name })}{' '}
+          <Typography.Link onClick={() => navigate('/backtest')}>
+            {t('research_to_backtest_view')}
+          </Typography.Link>
+        </span>,
+      );
+      void load();
+    } catch (err) {
+      // 后端 400 的文案是给人看的，原样提示，不替换成通用错误
+      message.error(err instanceof Error ? err.message : t('research_to_backtest_failed'));
+    } finally {
+      setBacktesting(null);
+    }
+  };
+
   const openCompare = async () => {
     setComparing(true);
     try {
@@ -441,12 +467,45 @@ const ResearchDetail: React.FC = () => {
     },
     {
       title: t('action'),
-      width: 90,
-      render: (_, row) => (
-        <Button size="small" onClick={() => void openTrial(row)}>
-          {t('research_detail_btn_detail')}
-        </Button>
-      ),
+      width: 170,
+      render: (_, row) => {
+        const taskId = backtestTasks[row.id];
+        return (
+          <Space size={4}>
+            <Button size="small" onClick={() => void openTrial(row)}>
+              {t('research_detail_btn_detail')}
+            </Button>
+            {/* 只有 strategy 场景的 trial 是策略代码；factor/model 会话不出现该动作 */}
+            {detail?.scenario === 'strategy' &&
+              (taskId ? (
+                <Button size="small" type="link" onClick={() => navigate('/backtest')}>
+                  {t('research_to_backtest_view')}
+                </Button>
+              ) : (
+                <Tooltip
+                  title={
+                    !row.has_code
+                      ? t('research_to_backtest_no_code')
+                      : row.promoted_factor_name
+                        ? t('research_to_backtest_reuse_hint', { name: row.promoted_factor_name })
+                        : undefined
+                  }
+                >
+                  <span>
+                    <Button
+                      size="small"
+                      loading={backtesting === row.id}
+                      disabled={!row.has_code}
+                      onClick={() => void toBacktest(row)}
+                    >
+                      {t('research_to_backtest')}
+                    </Button>
+                  </span>
+                </Tooltip>
+              ))}
+          </Space>
+        );
+      },
     },
   ];
 

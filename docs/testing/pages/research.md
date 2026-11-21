@@ -5,6 +5,11 @@
 - 列表页无数据依赖：库里没有研究会话时应渲染空态引导（R2），不是白屏
 - 详情页（R4）需要**至少一条已存在的会话**：先跑 R1 看列表是否为空；为空则 R4 标记"跳过"并记录原因，
   或由 API 预置一条（`POST /api/v1/research/sessions`，**按需**——会真实调用 LLM，见 R9）
+- R14/R15 需要**至少一条 `场景=strategy` 且有 trial 代码的会话**。本地开发库通常只有 `factor` 会话
+  （实测 28 条全为 factor），此时 R14/R15 记"跳过"并写明原因；要真验就先新建一条 strategy 会话
+  （同样会真实调用 LLM，按 R9 口径用 `zz_test` 命名并当场删除）。**不要**为了凑数据手改库或伪造 trial
+- 回测侧只读：R15 会真的创建一个回测任务（`POST /api/v1/backtest/run` 同一实现），任务会出现在
+  `/backtest` 列表里；验证后按回测页自身的删除方式清理，不要直接改库
 - 导航入口：左侧菜单「策略研究」，或直接访问 URL
 - 视图类型跟随系统设置「默认展示类型」（`defaultViewType`，默认 list）：验证卡片视图（R12）前先在
   设置→通用 把默认展示类型切「卡片」，不要误判为"页面没有卡片"
@@ -26,6 +31,10 @@
 | R11 | 搜索框输入某会话名/ID 片段 | 列表**即时过滤**（无需回车）、页码归 1；计数变为「显示 1-x / 共 x」（x=命中数，客户端过滤）；命中为 0 → 空态主文案「没有符合条件的会话」（与无数据引导态 R2 文案不同）；清空搜索框 → 恢复服务端分页口径 | L1 |
 | R12 | 系统设置=卡片时，检查卡片与分页条 | 卡片：底 --card、边 --bd、圆角 10px、卡名 mono（13px/650）、chip 组（场景 info / 模式 quiet；运行中 info 带 5px 脉冲点、已完成 ok、排队/取消 quiet）+ 右侧 mono 11px 时间、底部 mini-btn 文字动作（查看/暂停/继续/继续研究/取消/复制配置，删除在卡片右上角）；分页条：1px 上边线、上距 12px、内衬 9px，左「共 N 条 · 每页 [12|24|36|48|96 ▾]」右页码（28px 钮，当前页主色 10% 底）+「跳至 [__] 页」；切档位页码归 1 | L1 |
 | R13 | 点状态胶囊「已完成」 | 列表请求带 `&status=completed` 返回 200 且仅显示已完成会话；胶囊选中态转主色；切回「全部状态」恢复 | L1 |
+| R14 | 打开一条 `场景=strategy` 的会话详情，看试验表「操作」列 | 每行在「详情」旁多一个「转回测」小钮（与「详情」同尺寸默认钮，不是彩色 Tag）；无代码的 trial（`has_code=false`）按钮置灰并悬浮「该 trial 没有可回测的代码」；已采纳过的 trial 悬浮提示「策略 xx 已入库，将直接用它建回测任务」；`场景=factor/model` 的会话**不出现**该动作（不是置灰） | L1 |
+| R15 | 点某一行的「转回测」 | 发出 `POST /api/v1/research/sessions/{sid}/trials/{tid}/to-backtest` 返回 200，响应 `data={task_id, strategy_name:"rs_<sid>_<tid>", reused_promotion:false}`；成功提示「已创建回测任务（策略 rs_<sid>_<tid>）」并带「查看回测」链接；该行按钮就地变「查看回测」，**再点只跳 `/backtest` 不再发请求**（不重复建任务）；到 `/backtest` 列表能看到该任务，`GET /api/v1/backtest/progress/{task_id}` 能轮询到进度。库内无 strategy 会话时本项记"跳过"（见前置）：本次实现落地时库内 28 条会话全为 factor，200 路径只有单测覆盖（`test_run_backtest_task_keeps_real_validation_and_persists`），400/404 路径已在真实服务上实测 | L2 |
+| R16 | 依次触发四类失败：无代码 trial、factor 会话直连接口、会话缺数据窗口、用别的会话 id 调同一 trial | 分别看到后端原文：400「该 trial 没有可回测的代码」、400「场景 factor 的 trial 不是可回测的策略代码，只有 strategy 场景支持转回测」、400「会话配置缺少 start, end，无法确定回测标的与数据窗口」（缺哪个字段就列哪个）、404「trial 不属于该会话」；前端原样展示，不替换成通用错误文案（不出现 `[object Object]`） | L2 |
+| R17 | 在浏览器网络面板检查 R15 的请求体/后端日志 | `strategy_params` 等于该 trial 的 `task_json.params`（没有就是 `{}`），`symbols`/`interval`/`start_time`/`end_time` 与会话 `config_json` 里的 `symbols`/`interval`/`start`/`end` 完全一致；**没有**全市场/全历史/默认窗口之类的兜底值被填进去 | L2 |
 
 ## 历史雷区
 - **轮询是常态，不是 bug**：列表 5s、详情 3s 自动刷新（详情在终态后停）。验证"页面在动"时先看是不是轮询；同一请求短时间重复出现属预期。
@@ -36,3 +45,6 @@
 - **新建即触发真实 LLM**：`POST /research/sessions` 会启动真实研究作业，无 provider 时创建成功但会话很快「失败」。属环境问题，不是页面缺陷；失败态会话同样可删除，可用来做 R9 的清理样本。
 - **`?seed=<factor>` 会自动弹新建抽屉**：因子详情「基于此因子研究」跳进来时 URL 带 seed，抽屉自动打开并清掉 query。验证列表页时若抽屉莫名弹出，先检查 URL。
 - **卡片/表格视图跟系统设置走**：页面不提供视图切换（`useViewType` 读 `defaultViewType`）；截图对不上视图时先看设置→通用→默认展示类型，再怀疑页面。
+- **转回测只用真实记录，缺项就报错**：`to-backtest` 的 `strategy_params` 必须来自 trial 的 `task_json.params`，`symbols`/`interval`/`start_time`/`end_time` 必须来自会话 `config_json` 的 `symbols`/`interval`/`start`/`end`；任一必需项缺失返回 400 并列出缺的字段名。**不许**为了"能跑"默认成全市场/全历史/默认窗口——那会让回测结果与研究记录对不上且无法追溯。
+- **`/backtest` 不支持用 URL 定位任务**：转回测成功后的「查看回测」只跳 `/backtest` 列表，**不要**为了"定位"伪造 `task_id` 之类查询参数；需要看具体任务请到列表里找（任务 id 已在成功提示里给出）。
+- **转回测必须复用 `POST /backtest/run` 的构造与校验**：后端 `research/routes.py::_run_backtest_task` 直接构造 `BacktestRunRequest` 并调用 `run_backtest`，目的是继承 LLM replay 校验、时间范围处理、任务行落库与进度跟踪。**禁止**为了省事改成直接调 `BacktestService.create_task`——那会绕过校验、且任务在回测页不可见（无 `backtest_tasks` 行/无进度）。改这里时先看 `test_run_backtest_task_keeps_real_validation_and_persists` 是否仍绿。
