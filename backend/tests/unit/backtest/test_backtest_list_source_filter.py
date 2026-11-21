@@ -1,7 +1,8 @@
 """get_result_list 的 source 来源过滤行为校验。
 
-RL 模型回测任务 strategy_name 带 rl_model:X / rl_ensemble:X 前缀；模型中心
-「RL 回测历史」Tab 依赖 source='rl' 只取这两类任务。锁四件事：
+RL 模型回测任务 strategy_name 带 rl_model:X / rl_ensemble:X 前缀。
+source='rl' 是 /backtest/list 的公开过滤能力（模型中心「RL 回测历史」页签已并入
+回测中心，前端当前不传该参数，但接口契约与 OpenAPI 描述保留）。锁四件事：
 1. source='rl' 只返回两种 RL 前缀的任务行
 2. 缺省（source=None）返回全量，普通策略不受影响
 3. source 与 keyword 可叠加（两个条件都命中的行才返回）

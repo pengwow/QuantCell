@@ -417,15 +417,32 @@ const BacktestList = () => {
       title: t('strategy'),
       dataIndex: 'strategy_name',
       key: 'strategy_name',
-      width: 200,
+      width: 220,
       ellipsis: { showTitle: false },
-      render: (name: string) => (
-        <Tooltip title={name} placement="topLeft">
-          <span className="qc-cell-strat-wrap">
-            <span className="qc-cell-strat" style={{ maxWidth: 160 }}>{name || '—'}</span>
-          </span>
-        </Tooltip>
-      ),
+      // RL 任务 strategy_name 带 rl_model:/rl_ensemble: 前缀，拆成来源 chip + 模型名
+      // （沿用原模型中心「RL 回测历史」页签的展示口径，合并后回测中心为唯一入口）
+      render: (name: string) => {
+        if (name?.startsWith('rl_model:') || name?.startsWith('rl_ensemble:')) {
+          const [prefix, ...rest] = name.split(':');
+          return (
+            <Tooltip title={name} placement="topLeft">
+              <span className="qc-cell-strat-wrap">
+                <span className={`qc-chip ${prefix === 'rl_model' ? 'pri' : 'info'} qc-mono`}>
+                  {t(prefix === 'rl_model' ? 'backtest_source_rl_model' : 'backtest_source_rl_ensemble')}
+                </span>
+                <span className="qc-cell-strat" style={{ maxWidth: 120 }}>{rest.join(':')}</span>
+              </span>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title={name} placement="topLeft">
+            <span className="qc-cell-strat-wrap">
+              <span className="qc-cell-strat" style={{ maxWidth: 160 }}>{name || '—'}</span>
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('symbol'),

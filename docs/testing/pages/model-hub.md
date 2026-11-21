@@ -13,11 +13,12 @@
 
 | # | 操作 | 预期（可观测信号） | 层级 |
 |---|---|---|---|
-| M1 | 直接打开 `/model-hub` | 标题「模型中心」与四个页签「模型总表 / 训练工作台 / 模型集成 / RL 回测历史」可见（下划线式页签）；页头副标为 mono 口径行，只含接口可算统计：`共 N 条 · production x · staging y`，且仅当计数 > 0 时追加 `shadow / archived / 未注册 / 文件缺失` 段（数据全部来自 `GET /api/v1/models/unified` 全量口径，筛选不改变它）；unified 返回 **200**；URL 保持 `/model-hub`（不回 `/login`） | L1 |
+| M1 | 直接打开 `/model-hub` | 标题「模型中心」与三个页签「模型总表 / 训练工作台 / 模型集成」可见（RL 回测历史已并入回测中心，不再单列页签）（下划线式页签）；页头副标为 mono 口径行，只含接口可算统计：`共 N 条 · production x · staging y`，且仅当计数 > 0 时追加 `shadow / archived / 未注册 / 文件缺失` 段（数据全部来自 `GET /api/v1/models/unified` 全量口径，筛选不改变它）；unified 返回 **200**；URL 保持 `/model-hub`（不回 `/login`） | L1 |
 | M2 | 观察模型总表数据区与工具栏 | 工具栏：搜索框（32px 高/8px 圆角，占位「搜索文件名 / 模型 ID」）+ 状态胶囊 chips（26px 高、圆角 13px，选中主色 tint）「全部/production/staging/shadow/archived/未注册/文件缺失」+ 算法下拉（占位「算法」）+ 右侧 11px mono 计数「显示 x-y / 共 z」+ 刷新钮。有 zip 时渲染卡片（每卡含 Sharpe / 创建时间 / 大小 行，状态为 chip）**或** 表格（10.5px 表头「模型名称 / 状态 / Sharpe / 创建时间 / 大小 / 操作」，模型名 mono 截断带 Tooltip、Sharpe/大小右对齐 mono、时间 `MM-DD HH:mm`、状态 chip：production 绿 / staging 琥珀 / shadow 蓝 / 归档·未注册中性、操作列为 24px 图标钮）；无 zip 时渲染「暂无模型」+ 图标块空态（`.qc-empty`，非 antd 灰图）。两分支都算过 | L1 |
 | M2a | 依次点状态 chips「production / 未注册 / …」 | 过滤即时生效（**不发新请求**，纯前端过滤）、计数联动且页码归 1；点「全部」恢复全量 | L2 |
 | M2b | 单击某数据行（卡片视图则点卡片） | 行打选中样式（primary 5% tint + 左侧 3px 主色条，hover 后仍保持）；工具栏出现「回测选中模型」主色钮；点同行取消、点别行切换。未注册/文件缺失行点击不选中（预期行为，见雷区） | L2 |
-| M3 | 依次点击四个页签 | 训练工作台 → URL 变 `/model-hub?tab=train` 且出现配置卡标题「强化学习训练配置」；模型集成 → `?tab=ensemble` 且出现「创建集成」「集成列表」两卡；RL 回测历史 → `?tab=history` 且出现提示「此处为 RL 模型回测历史；全部回测任务可在回测中心查看。」；点回模型总表 → URL 无 `?tab` | L2 |
+| M3 | 依次点击三个页签 | 训练工作台 → URL 变 `/model-hub?tab=train` 且出现配置卡标题「强化学习训练配置」；模型集成 → `?tab=ensemble` 且出现「创建集成」「集成列表」两卡；点回模型总表 → URL 无 `?tab` | L2 |
+| M3a | 直接打开旧书签 `/model-hub?tab=history` | 不发生页签选中，直接 replace 重定向到 `/backtest`（回测中心），`GET /api/v1/backtest/list` 不带 `source` 参数；模型中心页签只剩三个 | L2 |
 | M4 | 直接打开 `/rl-training`、`/model-registry`、`/ensemble` | 分别落到 `/model-hub?tab=train`、`/model-hub`、`/model-hub?tab=ensemble`，且对应页签为选中态 | L2 |
 | M5 | 在模型总表搜索框输入一个不存在的关键字 | 数据区立即变「暂无数据」+ 说明文案的图标块空态（`.qc-empty`，非 antd 灰图），计数变「显示 0-0 / 共 0」；network **不出现**新的 `/api/v1/models/unified`（纯前端过滤）。清空关键字后数据恢复 | L2 |
 | M6 | 点某行「详情」（表格内为图标按钮，用 tooltip「详情」定位） | 抽屉标题含该文件名；`GET /api/v1/models/{model_id}/detail` 返回 200。「未注册」/「文件缺失」行不发该请求（抽屉内容为空），属正常 | L2 |
