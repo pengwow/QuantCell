@@ -148,7 +148,7 @@ const SideNav = memo(({ collapsed, onSelect }: SideNavProps) => {
     return new Map(all.map((leaf) => [leaf.key, leaf]));
   }, [t, pluginMenus, capabilities]);
 
-  // 分组结构：无组区（首页 / 策略智能体）→「交易」→「研究」→ 插件项
+  // 分组结构：无组区（首页 / 智能体工作台）→「交易」→「研究」→ 插件项
   const sections = useMemo(() => {
     const pick = (...keys: string[]): NavLeaf[] =>
       keys.map((key) => leafByKey.get(key)).filter((leaf): leaf is NavLeaf => Boolean(leaf));
