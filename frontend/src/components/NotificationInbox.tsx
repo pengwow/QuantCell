@@ -48,7 +48,7 @@ export function InboxItemRow({ item }: { item: InboxNotificationItem }) {
 
   return (
     <div
-      className="flex cursor-pointer items-start gap-2 overflow-hidden"
+      className="flex cursor-pointer shrink-0 items-start gap-2 overflow-hidden"
       onClick={handleClick}
     >
       <span

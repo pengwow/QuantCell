@@ -27,8 +27,10 @@
 | N14 | 点一条**任务类**通知行 | 该条未读时先发 `POST /api/v1/notifications/inbox/{id}/read` 返回 200 且行内样式转已读；随后跳转与域一致：RL 训练→`/model-hub?tab=train`、因子→`/factor-analysis`、采集→`/data-management`、研究→`/research`（WS 行带 task_id 时→`/research/{id}`）、回测→`/backtest`（WS 行成功态带 task_id 时→`/backtest/detail/{id}`）；非任务类行点击不跳转 | L2（需任务终态种子） |
 | N15 | WS 推送送达时点浮动 toast | toast 可点击并按 N14 同表规则跳转；`source=system` 等非任务 toast 点击不跳转常背景 | 按需（需 WS 推送 + 业务事件触发） |
 | N16 | 服务重启后的中断补偿 | 重启前人为留下中断任务（如 rl_train / factor_job 的 `async_task_records` 行留 queued、collector `tasks` 行留 running、`backtest_tasks` 行留 pending、research 会话留 running），重启后日志出现`任务通知补偿扫描`行，各域残留行被置终态，收件箱出现对应`已中断`/`失败`通知 | 按需（需重启场景） |
+| N17 | 悬停页头右上角铃铛，打开预览面板 | 面板标题「消息中心」+ 右上「全部已读」；列表每行**完整**显示色点 + 标题 + 时间（`MM-DD HH:mm`），有正文时正文最多两行截断，行高约 39px —— **不得**出现行被压扁成几像素细条/文字被裁掉（见雷区）；列表最高 360px 内部滚动（15 行时应出现滚动条而非全部铺开）；底部「加载更多 / 查看全部」可见 | L1（需种子；无通知走空态） |
 
 ## 历史雷区
+- **预览面板行被压扁成细条（已修）**：预览列表是 `flex flex-col max-h-[360px] overflow-y-auto`，行元素自带 `overflow-hidden`。`overflow:hidden` 会把 flex item 的自动最小高度（`min-height:auto`）置 0，于是 15 行 × 39px 超过 360px 限高时，行被 `flex-shrink` 均摊压缩到 9px —— 浏览器里就是一条条细横条，标题/正文全被裁掉（悬停铃铛看不到任何详细信息）。修法：行加 `shrink-0`。**同类组合排查**：`flex flex-col` + 限高 + 子项 `overflow-hidden`（或 `truncate`）都会踩同一坑，列表项一律要显式 `shrink-0`
 - **请求失败会伪装成空态**：`loadList` 抛错后仅结束 loading、`items` 保持空数组，页面照样渲染`暂无站内通知`。断言"N2 通过"必须同时看 `GET /notifications/inbox` 的状态码，否则 401/500 会被当成"没有通知"
 - **未读数的唯一权威是接口返回的 `unread_count`**：WS 推送只在前端 `bumpUnread` 本地 +1，刷新前可能与后端不一致。断言未读数以 `/notifications/inbox` 返回值为准
 - **401 硬跳登录（已修）**：收件箱曾因 401 把用户踹回 `/login`（首页 H2 是同一回归哨）。本页若出现"打开即回登录页"，先查该接口状态码
