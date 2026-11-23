@@ -13,25 +13,101 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import {
-  IconBotId,
-  IconChartBar,
-  IconChartHistogram,
-  IconCode,
-  IconDatabase,
-  IconFlask,
-  IconHome,
-  IconMicroscope,
-  IconPlug,
-  IconRobot,
-  IconStack,
-} from "@tabler/icons-react";
+import { IconPlug } from "@tabler/icons-react";
 import { Tooltip } from "antd";
 
 // P2-02 能力开关：菜单按部署能力过滤（agent_gateway 关闭时隐藏代理菜单）
 import { isCapabilityEnabled, useCapabilityStore } from "@/store/capabilityStore";
 import { setPageTitle } from "@/utils/pageTitle";
 import { pluginRegistry } from "@/plugins/PluginRegistry";
+
+/**
+ * 侧栏图标：demo 原型（docs/design/qc-prototype-demo.html <aside class="sider">）的
+ * 16px 手绘描边 SVG，路径/线宽数值原样照抄。stroke 写在每个元素上（demo 原样），
+ * 颜色由 .qc-nav-item svg 的 color → currentColor 继承。
+ */
+const NavIconHome = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M2.7 7.3 8 2.9l5.3 4.4" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M4 6.6v6.7h8V6.6" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M6.6 13.3V9.9h2.8v3.4" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const NavIconAgent = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x={2.6} y={4.9} width={10.8} height={8} rx={2.1} stroke="currentColor" strokeWidth={1.4} />
+    <path d="M8 4.9V2.3" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+    <circle cx={5.9} cy={8.9} r={1.05} fill="currentColor" />
+    <circle cx={10.1} cy={8.9} r={1.05} fill="currentColor" />
+  </svg>
+);
+
+const NavIconStrategy = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M2.5 4.2h4.6M11.3 4.2h2.2M2.5 8h.9M7.3 8h6.2M2.5 11.8h3.2M10.2 11.8h3.3" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+    <circle cx={9.5} cy={4.2} r={1.8} stroke="currentColor" strokeWidth={1.4} />
+    <circle cx={5.3} cy={8} r={1.8} stroke="currentColor" strokeWidth={1.4} />
+    <circle cx={8.2} cy={11.8} r={1.8} stroke="currentColor" strokeWidth={1.4} />
+  </svg>
+);
+
+const NavIconStrategyAgent = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x={2.8} y={3.8} width={10.4} height={8.4} rx={2} stroke="currentColor" strokeWidth={1.4} />
+    <path d="M4.9 8h1.7l1.1-2.4 1.6 4.6 1.1-2.2h1.7" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5.6 12.2v1.5M10.4 12.2v1.5" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+  </svg>
+);
+
+const NavIconBacktest = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M2.5 2.8v10.7h11" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="m4.6 10.7 2.4-2.9 2.2 1.7 3.4-4.3" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M10.6 5h2.2v2.2" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const NavIconChart = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x={3.9} y={4.6} width={2.7} height={5} rx={0.7} stroke="currentColor" strokeWidth={1.3} />
+    <path d="M5.25 2.5v2.1M5.25 9.6v2.5" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+    <rect x={9.3} y={6.1} width={2.7} height={4.4} rx={0.7} stroke="currentColor" strokeWidth={1.3} />
+    <path d="M10.65 3.9v2.2M10.65 10.5v2.4" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+  </svg>
+);
+
+const NavIconFactor = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <circle cx={3.4} cy={11.2} r={1.7} stroke="currentColor" strokeWidth={1.4} />
+    <circle cx={8.2} cy={4.6} r={1.7} stroke="currentColor" strokeWidth={1.4} />
+    <circle cx={12.8} cy={10.2} r={1.7} stroke="currentColor" strokeWidth={1.4} />
+    <path d="m4.6 9.7 2.5-3.6M9.8 5.9l2 2.9M5.1 11.2l6-.6" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" />
+  </svg>
+);
+
+const NavIconResearch = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M6.4 2.4h3.2" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+    <path d="M7.2 2.4v3.5L3.9 11.8a1.6 1.6 0 0 0 1.4 2.4h5.4a1.6 1.6 0 0 0 1.4-2.4L8.8 5.9V2.4" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5.4 10.1h5.2" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+  </svg>
+);
+
+const NavIconData = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <ellipse cx={8} cy={3.6} rx={5} ry={1.9} stroke="currentColor" strokeWidth={1.3} />
+    <path d="M3 3.6v8.8c0 1 2.2 1.9 5 1.9s5-.9 5-1.9V3.6" stroke="currentColor" strokeWidth={1.4} />
+    <path d="M3 8c0 1 2.2 1.9 5 1.9s5-.9 5-1.9" stroke="currentColor" strokeWidth={1.4} />
+  </svg>
+);
+
+const NavIconModelHub = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M8 2.2 14 5 8 7.8 2 5l6-2.8Z" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round" />
+    <path d="m2.7 8.3 5.3 2.5 5.3-2.5M2.7 11.3 8 13.8l5.3-2.5" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
 const MENU_KEY_HOME = "/home";
 const MENU_KEY_CHART = "/chart";
@@ -125,16 +201,16 @@ const SideNav = memo(({ collapsed, onSelect }: SideNavProps) => {
 
   const leafByKey = useMemo(() => {
     const base: NavLeaf[] = [
-      { key: MENU_KEY_HOME, icon: <IconHome size={16} stroke={1.5} />, label: t("home") },
-      { key: MENU_KEY_CHART, icon: <IconChartBar size={16} stroke={1.5} />, label: t("chart") },
-      { key: MENU_KEY_AGENT, icon: <IconRobot size={16} stroke={1.5} />, label: t("agent_workspace") },
-      { key: MENU_KEY_STRATEGY, icon: <IconCode size={16} stroke={1.5} />, label: t("strategy_management") },
-      { key: MENU_KEY_STRATEGY_AGENT, icon: <IconBotId size={16} stroke={1.5} />, label: t("strategy_agent") },
-      { key: MENU_KEY_BACKTEST, icon: <IconFlask size={16} stroke={1.5} />, label: t("backtest_center") },
-      { key: MENU_KEY_FACTOR, icon: <IconChartHistogram size={16} stroke={1.5} />, label: t("factor_analysis") },
-      { key: MENU_KEY_RESEARCH, icon: <IconMicroscope size={16} stroke={1.5} />, label: t("research") },
-      { key: MENU_KEY_DATA, icon: <IconDatabase size={16} stroke={1.5} />, label: t("data_management") },
-      { key: MENU_KEY_MODEL_HUB, icon: <IconStack size={16} stroke={1.5} />, label: t("model_hub") },
+      { key: MENU_KEY_HOME, icon: <NavIconHome />, label: t("home") },
+      { key: MENU_KEY_CHART, icon: <NavIconChart />, label: t("chart") },
+      { key: MENU_KEY_AGENT, icon: <NavIconAgent />, label: t("agent_workspace") },
+      { key: MENU_KEY_STRATEGY, icon: <NavIconStrategy />, label: t("strategy_management") },
+      { key: MENU_KEY_STRATEGY_AGENT, icon: <NavIconStrategyAgent />, label: t("strategy_agent") },
+      { key: MENU_KEY_BACKTEST, icon: <NavIconBacktest />, label: t("backtest_center") },
+      { key: MENU_KEY_FACTOR, icon: <NavIconFactor />, label: t("factor_analysis") },
+      { key: MENU_KEY_RESEARCH, icon: <NavIconResearch />, label: t("research") },
+      { key: MENU_KEY_DATA, icon: <NavIconData />, label: t("data_management") },
+      { key: MENU_KEY_MODEL_HUB, icon: <NavIconModelHub />, label: t("model_hub") },
     ];
     const plugins: NavLeaf[] = pluginMenus.map((pm) => ({
       key: pm.key,
