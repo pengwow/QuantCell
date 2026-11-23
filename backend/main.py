@@ -343,11 +343,14 @@ def main(
     host: str = typer.Option("localhost", "--host", help="服务器监听地址 (默认: localhost)"),
     port: int | None = typer.Option(None, "--port", help="首选端口号（留空则自动分配）"),
     debug: bool = typer.Option(False, "--debug", help="启用调试模式 (设置日志级别为 DEBUG)"),
+    reload: bool = typer.Option(
+        False, "--reload", help="开发热重载：改 backend/*.py 自动重启进程（默认关闭，避免 DuckDB 锁与 worker 泵双开）"
+    ),
 ) -> None:
     """启动 QuantCell API 服务
 
     使用 uvicorn 作为 ASGI 服务器，在 localhost:8000 默认启动应用；
-    禁用自动重载，避免 DuckDB 锁冲突。
+    默认禁用自动重载，避免 DuckDB 锁冲突；开发时用 --reload 显式开启。
     """
 
     # ========== 关闭机制说明 ==========
@@ -388,7 +391,10 @@ def main(
         "main:app",  # 指定应用路径
         host=host,  # 主机地址
         port=fastapi_port,  # 使用动态分配的端口
-        reload=False,  # 禁用热重载，避免DuckDB锁冲突
+        reload=reload,  # 默认关闭避免 DuckDB 锁冲突；开发时 --reload 显式开启
+        # ponytail: 热重载时 uvicorn 在子进程里 import main:app，init_db() 仍在父进程执行一次，
+        # 所以 DB 锁不会被两个工作进程同时持有；若换成 --workers N 多进程部署则不能用 reload
+        reload_dirs=["."] if reload else None,
         log_level=log_level.lower(),  # 设置日志级别
         # 优雅关停窗口从 ShutdownConfig 派生（P1-01），不再硬编码：保证
         # lifespan 停机预算(30) < uvicorn 窗口(35) < 看门狗(40) 链式余量成立；
