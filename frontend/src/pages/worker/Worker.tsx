@@ -49,6 +49,7 @@ import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 import { workerStatusChip } from '../../components/worker/statusChip';
+import { formatWorkerRuntime } from './workerRuntime';
 
 const Worker = () => {
   const { t } = useTranslation();
@@ -141,6 +142,8 @@ const Worker = () => {
     return {
       total: workers.length,
       running: workers.filter(w => w.status === 'running').length,
+      // paused 是后端真实状态（worker_state.py PAUSED），不计入任何一档会让四项之和 ≠ 任务数
+      paused: workers.filter(w => w.status === 'paused').length,
       stopped: workers.filter(w => w.status === 'stopped').length,
       error: workers.filter(w => w.status === 'error').length,
       totalProfit,
@@ -383,7 +386,7 @@ const Worker = () => {
         <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('total_tasks')}</span></div>
         <div className="qc-kpi-num">{statusStats.total}</div>
         <div className="qc-kpi-sub">
-          {t('wt_kpi_sub_tasks', { running: statusStats.running, stopped: statusStats.stopped, error: statusStats.error })}
+          {t('wt_kpi_sub_tasks', { running: statusStats.running, paused: statusStats.paused, stopped: statusStats.stopped, error: statusStats.error })}
         </div>
       </div>
       <div className="qc-kpi">
@@ -407,6 +410,18 @@ const Worker = () => {
   // 状态 → §6.2 chip（映射收口在 ./statusChip，详情页/交易 tab 共用）
   const renderStatusChip = (status: WorkerType['status']) =>
     workerStatusChip(status, t(WorkerStatusText[status]));
+
+  // 策略类型：列表接口的 strategy_type 在根层常为空，真值收在 strategy_info 里 —— 两处都读
+  const workerKind = (worker: WorkerType) => worker.strategy_type || worker.strategy_info?.strategy_type;
+
+  // 策略类型 chip：rule/rl 两档与卡片视图、回测列表同形制（info/pri）；
+  // 取不到（策略已删/字段缺）显示占位 —— 不按策略名猜类型
+  const renderTypeChip = (worker: WorkerType) => {
+    const kind = workerKind(worker);
+    if (kind === 'rl') return <span className="qc-chip pri">{t('bt_kind_rl')}</span>;
+    if (kind === 'rule') return <span className="qc-chip info">{t('worker_rule_tag')}</span>;
+    return <span className="qc-mono qc-cell-none">—</span>;
+  };
 
   // 工具栏：§6.6 PageToolbar（搜索 + 状态筛选 + 计数 + 操作）
   const renderToolbar = () => {
@@ -705,8 +720,8 @@ const Worker = () => {
               >
                 <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
                   <Space size={4} wrap style={{ rowGap: 4 }}>
-                    {worker.strategy_type === 'rl' && <span className="qc-chip pri">RL</span>}
-                    {worker.strategy_type === 'rule' && <span className="qc-chip info">{t('worker_rule_tag')}</span>}
+                    {/* 卡片不显示未知类型的占位（列表才显示「—」） */}
+                    {workerKind(worker) && renderTypeChip(worker)}
                     {renderStatusChip(worker.status)}
                   </Space>
                   {infoRow(t('exchange'), <span className="qc-mono" style={{ fontSize: 12 }}>{worker.trading_config?.exchange || '—'}</span>)}
@@ -864,13 +879,21 @@ const Worker = () => {
           title: t('worker_name'),
           dataIndex: 'name',
           key: 'name',
-          width: 220,
+          width: 250,
           render: (text: string, worker: WorkerType) => (
             <Space size={6}>
               <span className="qc-mono qc-cell-strat" title={text}>{text}</span>
+              {/* demo 名称后紧跟弱化 #id：同名 worker 的唯一区分手段 */}
+              <span className="qc-mono" style={{ fontSize: 10.5, color: 'var(--qc-text-quaternary)' }}>#{worker.id}</span>
               {renderStatusChip(worker.status)}
             </Space>
           ),
+        },
+        {
+          title: t('bt_col_kind'),
+          key: 'strategy_kind',
+          width: 76,
+          render: (_: unknown, worker: WorkerType) => renderTypeChip(worker),
         },
         {
           title: t('exchange'),
@@ -905,6 +928,14 @@ const Worker = () => {
           },
         },
         {
+          title: t('worker_runtime'),
+          key: 'runtime',
+          width: 110,
+          render: (_: unknown, worker: WorkerType) => (
+            <span className="qc-mono" style={{ color: 'var(--qc-text-tertiary)' }}>{formatWorkerRuntime(worker)}</span>
+          ),
+        },
+        {
           title: t('action'),
           key: 'action',
           width: 100,
@@ -920,6 +951,7 @@ const Worker = () => {
   const pageSubtitle = t('wt_sub_list', {
     total: statusStats.total,
     running: statusStats.running,
+    paused: statusStats.paused,
     stopped: statusStats.stopped,
     error: statusStats.error,
     pnl: pnlText,

@@ -70,6 +70,13 @@ export default function WorkerDecisionsTab({ workerId, active }: Props) {
               rowKey={(r) => `${r._seq}:${r.fingerprint}`}
               dataSource={rows}
               pagination={{ pageSize: PAGE_SIZE, showSizeChanger: false }}
+              // demo 行点击进详情：无 _seq 的旧录制行定位不到详情，不给手型也不响应
+              onRow={(record) => ({
+                onClick: () => {
+                  if (record._seq != null) setDetailRecord(record);
+                },
+                style: { cursor: record._seq != null ? 'pointer' : 'default' },
+              })}
               columns={[
                 {
                   title: t('backtest_time'),

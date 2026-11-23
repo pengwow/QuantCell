@@ -51,7 +51,7 @@
 | `/home` | 3 | 1 | 运行中行的「今日 +%」仍是累计 USD（需按 worker 拆 24h） |
 | `/chart` | 1 | 0 | 副标口径项建议按现网真值裁（时区可切换 / WS 延迟无源） |
 | `/agent` | 4 | 2 | ReAct 步进卡仍只有「迭代 X/Y」徽标；工具参数仍裸 JSON |
-| `/strategy-worker` | 3 | 3 | 列表补 #id/类型/运行时长三列；副标补 paused 计数；决策展开形态可选 |
+| `/strategy-worker` | 0 | 0 | 已全部落地（列表三列 + paused 计数 + 行点击进详情） |
 | `/strategy-management` | 1 | 0 | footer「默认 runner：kernel」是硬编码 |
 | `/strategy-editor` | 0 | 0 | 已全部落地 |
 | `/backtest`(+detail) | 4 | 2 | 订单列口径不符（值是 fills）；详情配置卡缺手续费/runner |
@@ -125,18 +125,19 @@
 
 ## 4. 策略智能体 `/strategy-worker(+/:id)`（demo 942–1211）
 
-> 2026-11-23 修订后 demo 拆成 `#view-sagent`（列表，942 起）与 `#view-sagent-detail`（详情，1080 起），
-> 与现网两路由一一对应；本节只记修订后仍存在的差异。
+> demo 已在 2026-11-23 修订为 `#view-sagent`（列表）+ `#view-sagent-detail`（详情）两视图，
+> 与现网两路由一一对应；同批差异已全部落到现网（见下「已消项」），本节暂无未消差距。
 
 | 差异点 | demo | 现网 | 可行性 |
 |---|---|---|---|
-| 列表列形制：名称后 `#id`、独立「类型」chip、「运行时长」列、状态用 chips 而非 Select | 942-1078 | `Worker.tsx:851-975` 名称只带状态 chip；工具栏状态筛选是 Select | `已有`（`id` / `strategy_type` / `started_at` 都在列表返回里；纯前端补列） |
-| 页头副标含「已暂停」计数 | 943 | `wt_sub_list` 只有 任务/运行中/已停止/异常/累计盈亏，`paused` 落不进任何一档，四项之和 ≠ 任务数 | `已有`（多透传一个 paused 计数） |
-| 决策页签展开形态 | 1100-1210 行内展开 `state / s1_raw / s2_thinking` | `WorkerDecisionsTab` + `DecisionDetailDrawer`（抽屉四页签，数据同源） | `已有`（形态差异，不阻塞；行内展开只是更紧凑的备选） |
-| 详情头部 `归档日志 / 分享 / 停止` | 1083-1090 | `WorkerDetail.tsx:380-430` 三钮齐全（停止走 `lifecycle/stop`） | `已有` |
-| 事实条 10 项（周期/模式/持仓三件/累计盈亏/初始资金/杠杆/下单方式/最后更新） | 1092-1103 | `WorkerDetail.tsx:405-443` 同口径 | `已有` |
+| —（无未消项） | — | — | — |
 
-**已消项（2026-11-23 demo 修订）**：主从同屏 → 两路由；详情「暂停/继续」→ demo 已删（后端无路由，前端也不该有）；「今日 pnl」→ 改回真实「累计盈亏」；ReAct 步进器 + 工具链 → 从 worker 页移除（`/agent` 保留）；决策「思考折叠」→ 换成录制行 + `s1_raw/s2_raw/s2_thinking` 展开；列表页 KPI 四卡（总任务/运行中/已停止/累计盈亏）与工具栏（搜索 + 状态 + 新建 + 刷新）对齐现网。
+**已消项（2026-11-23）**：
+- 列表列形制：名称后弱化 `#id`、独立「类型」chip（rule=info / rl=pri / 缺字段 `—`）、「运行时长」列（running 算到当前，有 `stopped_at` 算定值，其余状态 `—`，纯前端，`frontend/src/pages/worker/workerRuntime.ts`）。
+- 页头副标与「总任务」卡副标补「已暂停」计数，四项状态之和 = 任务数（`wt_sub_list` / `wt_kpi_sub_tasks` 增 `paused` 占位符）。
+- 决策页签行点击进详情：整行点击与操作列「详情」同效（打开既有四页签抽屉，不另建渲染路径），`_seq` 为空的行不响应。
+- 卡片视图类型 chip 改读 `strategy_info.strategy_type` 兜底（此前根层 `strategy_type` 为空导致卡片无类型 chip）。
+- 主从同屏 → 两路由；详情「暂停/继续」→ demo 已删（后端无路由，前端也不该有）；「今日 pnl」→ 改回真实「累计盈亏」；ReAct 步进器 + 工具链 → 从 worker 页移除（`/agent` 保留）。
 
 **反缺口**：六个页签全部可用（demo 只画总览 / 决策，其余标「原型未包含」）、8 张 KPI 卡（demo 总览 5 项）、批量子集操作、列表/卡片双视图、行内启停、分享/归档弹窗、URL 直达详情。
 
