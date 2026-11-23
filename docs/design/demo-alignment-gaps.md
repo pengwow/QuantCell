@@ -170,7 +170,7 @@
 | 乘数/币本位账务警示 | 2243-2245 | `BacktestConfig.tsx:1289` 只讲现货/永续与资金费 | `已有`（并入 extra 文案；引擎侧确未把乘数计入名义价值） |
 | 资金模式「固定/复利」 | 2254-2256 | `:1330-1342` `per_symbol/shared` | **不照抄**（两条不同轴线，硬加会与 `capital_mode` 契约冲突） |
 
-**已消项**：页头副标 runner（`:1124-1130` 逐字对位）、标的选取（Select multiple 超集）、手续费读出侧百分化（`bc_subtitle` + 行内脚注）、交易模式 hint 基础段、**LLM replay 不降级提示**（选中 `mode=llm` 策略时参数卡底部，`bt_llm_replay_note`）。
+**已消项**：页头副标 runner（`:1124-1130` 逐字对位）、标的选取（Select multiple 超集）、手续费读出侧百分化（`bc_subtitle` + 行内脚注）、交易模式 hint 基础段、**LLM replay 不降级提示**（选中 `mode=llm` 策略时参数卡底部，`bt_llm_replay_note`）、标的下拉自选组标识统一（组色圆点与数据管理页该组自定义色同源，回测配置 / Worker 创建 / 编辑三处共享 `utils/symbolOptions`，⭐ 与固定警示色星标已废；数据管理采集表单的组值前缀一并统一为 `pool_`）。
 
 **反缺口**：保证金规格输入、数据预检下载、进度弹窗、`lastBacktestConfig` 回填。
 

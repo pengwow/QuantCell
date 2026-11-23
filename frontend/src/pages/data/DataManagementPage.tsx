@@ -3164,12 +3164,12 @@ const DataManagementPage = () => {
                 showSearch
                 allowClear
                 options={[
-                  // 自选组选项
+                  // 自选组选项（value 前缀统一 pool_，与回测配置 / Worker 弹窗一致）
                   ...(favoriteGroups.length > 0 ? [
                     {
                       label: <Text type="secondary" className="text-xs">{t('favorite_groups')}</Text>,
                       options: favoriteGroups.map((group) => ({
-                        value: `group:${group.id}`,
+                        value: `pool_${group.id}`,
                         label: t('dm_group_symbols_n', { name: group.name, n: group.symbolIds?.length || 0 }),
                       })),
                     }
@@ -3187,11 +3187,11 @@ const DataManagementPage = () => {
                   (option?.label?.props?.children?.[0] || option?.label || '').toLowerCase().includes(input.toLowerCase())
                 }
                 onChange={(values) => {
-                  // 处理自选组选择
+                  // 处理自选组选择（value 前缀统一 pool_，与回测配置 / Worker 弹窗一致）
                   const expandedSymbols: string[] = [];
                   values.forEach((value: string) => {
-                    if (value.startsWith('group:')) {
-                      const groupId = parseInt(value.replace('group:', ''));
+                    if (value.startsWith('pool_')) {
+                      const groupId = parseInt(value.replace('pool_', ''));
                       const group = favoriteGroups.find(g => g.id === groupId);
                       if (group?.symbolIds) {
                         expandedSymbols.push(...group.symbolIds);

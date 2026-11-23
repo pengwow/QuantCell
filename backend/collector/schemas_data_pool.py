@@ -269,6 +269,11 @@ class CollectionSymbolPool(BaseModel):
         description="数据池名称",
         examples=["我的自选"],
     )
+    color: str | None = Field(
+        default=None,
+        description="数据池标识色（前端下拉用组色圆点，与数据管理页一致；未设置时为 null）",
+        examples=["#0969da"],
+    )
     symbols: list[str] = Field(
         ...,
         description="数据池包含的交易标的",

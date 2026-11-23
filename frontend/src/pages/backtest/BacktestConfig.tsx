@@ -40,6 +40,7 @@ import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
 import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
+import { buildSymbolOptions, type QcSymbolOption } from '@/utils/symbolOptions';
 import {
   buildMarginSpecsPayload,
   pickDirectSymbols,
@@ -172,7 +173,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const stopPollingRef = React.useRef<(() => void) | null>(null);
 
-  const [symbolOptions, setSymbolOptions] = useState<Array<{ value: string; label: string; type: string; symbols?: string[] }>>([]);
+  const [symbolOptions, setSymbolOptions] = useState<QcSymbolOption[]>([]);
   const [symbolOptionsLoading, setSymbolOptionsLoading] = useState(false);
   const [factorOptions, setFactorOptions] = useState<FactorDetail[]>([]);
 
@@ -185,31 +186,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         exchange: 'binance'
       });
 
-      const dataPoolOptions: Array<{ value: string; label: string; type: string; symbols?: string[] }> = [];
-      const directSymbolOptions: Array<{ value: string; label: string; type: string; symbols?: string[] }> = [];
-
-      if (response) {
-        if (Array.isArray(response.data_pools)) {
-          console.log('Data pools response:', response.data_pools);
-          dataPoolOptions.push(...response.data_pools.map((pool) => ({
-            value: `pool_${pool.id}`,
-            label: `⭐ ${pool.name}`,
-            type: 'data_pool',
-            symbols: pool.symbols
-          })));
-        }
-
-        if (Array.isArray(response.direct_symbols)) {
-          directSymbolOptions.push(...response.direct_symbols.map((symbol: string) => ({
-            value: symbol,
-            label: symbol,
-            type: 'direct_symbol'
-          })));
-        }
-      }
-
-      const mergedOptions = [...dataPoolOptions, ...directSymbolOptions];
-      setSymbolOptions(mergedOptions);
+      // 选项构造收敛到共享工具 utils/symbolOptions（组色圆点与数据管理页自选组一致）
+      setSymbolOptions(buildSymbolOptions({
+        dataPools: response?.data_pools,
+        directSymbols: response?.direct_symbols,
+      }));
     } catch (error) {
       console.error('Failed to load symbol options:', error);
       setSymbolOptions(getDefaultSymbolOptions());
@@ -236,18 +217,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     return [];
   };
 
-  const getDefaultSymbolOptions = () => [
-    { value: 'BTC/USDT', label: 'BTC/USDT', type: 'direct_symbol' },
-    { value: 'ETH/USDT', label: 'ETH/USDT', type: 'direct_symbol' },
-    { value: 'BNB/USDT', label: 'BNB/USDT', type: 'direct_symbol' },
-    { value: 'SOL/USDT', label: 'SOL/USDT', type: 'direct_symbol' },
-    { value: 'ADA/USDT', label: 'ADA/USDT', type: 'direct_symbol' },
-    { value: 'DOT/USDT', label: 'DOT/USDT', type: 'direct_symbol' },
-    { value: 'MATIC/USDT', label: 'MATIC/USDT', type: 'direct_symbol' },
-    { value: 'LINK/USDT', label: 'LINK/USDT', type: 'direct_symbol' },
-    { value: 'UNI/USDT', label: 'UNI/USDT', type: 'direct_symbol' },
-    { value: 'LTC/USDT', label: 'LTC/USDT', type: 'direct_symbol' },
-  ];
+  const getDefaultSymbolOptions = (): QcSymbolOption[] => buildSymbolOptions({
+    directSymbols: [
+      'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'ADA/USDT',
+      'DOT/USDT', 'MATIC/USDT', 'LINK/USDT', 'UNI/USDT', 'LTC/USDT',
+    ],
+  });
 
   const loadSystemConfig = async () => {
     try {
@@ -1262,8 +1237,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                   maxTagPlaceholder={(omittedValues) => t('backtest_max_tags_more', { num: omittedValues.length })}
                   filterOption={(input, option) => {
                     if (!input) return true;
-                    const label = option?.label || '';
-                    return label.toLowerCase().includes(input.toLowerCase());
+                    // label 已是 JSX（组色圆点），搜索走纯文本 name（组名 / symbol）
+                    const name: string = option?.name ?? '';
+                    return name.toLowerCase().includes(input.toLowerCase());
                   }}
                 />
               </Form.Item>

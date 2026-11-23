@@ -1,4 +1,3 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker Create Modal
  *
@@ -27,14 +26,14 @@ import {
   PlusOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
-  StarFilled,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
 import { buildWorkerName } from './workerName';
 import { strategyApi, configApi } from '../../api';
-import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
+import { dataApi, type CryptoSymbol } from '../../api/dataApi';
+import { buildSymbolOptions, type QcSymbolOption } from '@/utils/symbolOptions';
 import { upsertRiskControl } from '../../api/workerApi';
 import RiskControlForm, {
   EMPTY_RISK_VALUES,
@@ -129,15 +128,6 @@ interface WorkerCreateModalProps {
   onSuccess?: () => void;
 }
 
-// 交易标的选项（数据池 / 直接货币对）
-interface SymbolOption {
-  label: React.ReactNode;
-  value: string;
-  type: 'data_pool' | 'direct_symbol';
-  symbols?: string[];
-  poolName?: string;
-}
-
 const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   visible,
   onCancel,
@@ -156,7 +146,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const [loadingExchanges, setLoadingExchanges] = useState(false);
 
   // 交易相关
-  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>([]);
+  const [symbolOptions, setSymbolOptions] = useState<QcSymbolOption[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(false);
 
   // 策略参数
@@ -260,41 +250,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 
       console.log('getCollectionSymbols response:', response);
 
-      const dataPoolOptions: SymbolOption[] = [];
-      let directSymbolOptions: SymbolOption[] = [];
-
-      if (response) {
-        // 数据池（自选组）- 只显示组名，不展开内部货币对
-        const dataPools = response.data_pools ?? [];
-        dataPools.forEach((pool: DataPoolRecord) => {
-          dataPoolOptions.push({
-            label: (
-              <Space>
-                <StarFilled style={{ color: QUANT_COLORS.warning }} />
-                <span>{pool.name}</span>
-                <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>({t('favorite_group')})</span>
-              </Space>
-            ),
-            value: `pool_${pool.id}`,
-            type: 'data_pool',
-            symbols: pool.symbols || [],
-            poolName: pool.name,
-          });
-        });
-
-        // 直接交易标的
-        const directSymbols = response.direct_symbols ?? [];
-        directSymbols.forEach((symbol: string) => {
-          directSymbolOptions.push({
-            label: symbol,
-            value: symbol,
-            type: 'direct_symbol',
-          });
-        });
-      }
+      let directSymbols: string[] = response?.direct_symbols ?? [];
 
       // 如果 direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对
-      if (directSymbolOptions.length === 0) {
+      if (directSymbols.length === 0) {
         console.log('direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对');
         try {
           const cryptoResponse = await dataApi.getCryptoSymbols({
@@ -308,25 +267,19 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           const symbolList = cryptoResponse.symbols ?? cryptoResponse.data?.symbols ?? [];
 
           if (Array.isArray(symbolList)) {
-            directSymbolOptions = symbolList.map((item: CryptoSymbol) => {
-              const symbolValue = item.symbol || String(item);
-              return {
-                label: symbolValue,
-                value: symbolValue,
-                type: 'direct_symbol',
-              };
-            });
+            directSymbols = symbolList.map((item: CryptoSymbol) => item.symbol || String(item));
           }
         } catch (cryptoError) {
           console.error('获取全部货币对失败:', cryptoError);
         }
       }
 
-      console.log('dataPoolOptions:', dataPoolOptions);
-      console.log('directSymbolOptions:', directSymbolOptions);
-
-      // 合并选项：数据池在前，直接交易标的在后
-      setSymbolOptions([...dataPoolOptions, ...directSymbolOptions]);
+      // 选项构造收敛到共享工具 utils/symbolOptions（组色圆点与数据管理页自选组一致）
+      setSymbolOptions(buildSymbolOptions({
+        dataPools: response?.data_pools,
+        directSymbols,
+        poolSuffix: t('favorite_group'),
+      }));
     } catch (error) {
       console.error('获取交易对失败:', error);
       setSymbolOptions([]);
@@ -689,25 +642,15 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 loading={loadingSymbols}
                 showSearch
                 allowClear
+                options={symbolOptions}
                 filterOption={(input, option) => {
                   if (!input) return true;
-                  // 搜索时同时搜索 value 和 label
-                  const value = option?.value as string;
-                  const children = option?.children;
-                  const labelText = typeof children === 'string' ? children : value;
-                  return (
-                    value?.toLowerCase().includes(input.toLowerCase()) ||
-                    labelText?.toLowerCase().includes(input.toLowerCase())
-                  );
+                  // label 已是 JSX（组色圆点），搜索走纯文本 name（组名 / symbol）
+                  const name: string = option?.name ?? '';
+                  return name.toLowerCase().includes(input.toLowerCase());
                 }}
                 notFoundContent={loadingSymbols ? <Spin size="small" /> : t('no_trading_target')}
-              >
-                {symbolOptions.map((option) => (
-                  <Option key={option.value} value={option.value}>
-                    {option.label}
-                  </Option>
-                ))}
-              </Select>
+              />
             </Form.Item>
           </Col>
         </Row>
