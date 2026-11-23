@@ -135,6 +135,41 @@
   padding: 0 12px;
 }
 
+/* 常驻指标图例（demo head-right 的 s-chip 形制，10.5px mono 小字 + 10×2 线色块）：
+   紧贴 live-area 左侧随其贴右，不与 pane 悬停管理条争位 */
+.chart-ind-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 4px;
+}
+
+.chart-ind-legend + .live-area {
+  /* 图例在场时不让 live-area 的 auto margin 把空隙一分为二 */
+  margin-left: 0;
+}
+
+.chart-ind-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--qc-text-tertiary);
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.chart-ind-legend-chip i {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+
 /* ============ 窄窗口降级（768~1279px）：单行，工具图标化，周期横滑 ============ */
 @media (max-width: 1279px) {
   /* 工具只留图标，文字收进 title 悬浮提示（省约 4×50px） */

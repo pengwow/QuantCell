@@ -438,6 +438,8 @@ const Worker = () => {
             }}
             options={[
               { value: 'running', label: t('running') },
+              // paused 为后端真实状态（worker_state.py PAUSED='paused'），机制与现有档一致：worker.status 精确匹配
+              { value: 'paused', label: t('paused') },
               { value: 'stopped', label: t('stopped') },
               { value: 'error', label: t('error') },
             ]}
@@ -924,7 +926,8 @@ const Worker = () => {
   });
 
   return (
-    <PageContainer title={t('strategy_agent')} subtitle={pageSubtitle}>
+    // demo 956：「← 返回首页」→ /home；形制同详情页 onBack（PageContainer 统一返回箭头）
+    <PageContainer title={t('strategy_agent')} subtitle={pageSubtitle} onBack={() => navigate('/home')}>
       <Spin spinning={loading}>
         {/* Error Alert */}
         {error && (

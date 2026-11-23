@@ -705,6 +705,8 @@ export const backtestApi = {
     strategy?: string;
     /** 来源过滤：'rl' 只取 rl_model:/rl_ensemble: 前缀策略的 RL 回测任务 */
     source?: string;
+    /** 策略类型过滤：rule/rl/llm（后端按策略文件 AST 判定，与「类型」列同源） */
+    kind?: 'rule' | 'rl' | 'llm';
     sort_by?: string;
     sort_order?: string;
     /** 创建日期过滤起/止（含端点），YYYY-MM-DD（格式非法后端 422） */

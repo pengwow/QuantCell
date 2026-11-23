@@ -27,7 +27,7 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '../store/agentStore';
-import type { ToolCall, Message } from '../store/agentStore';
+import type { ToolCall, Message, DailyReviewSections } from '../store/agentStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { IntentPanelRenderer } from './IntentPanels';
@@ -122,21 +122,49 @@ const MessageAvatar = ({ kind, icon }: { kind: 'ai' | 'user' | 'tool' | 'err'; i
 );
 
 /**
- * §6.14 工具链（demo .chain/.chain-node）：绿轨 + 方徽 + mono 工具名 + 参数摘要 + 状态 chip。
- * 只展示后端 tool_calls/tool_result 已上报字段（名称 / 参数 / 是否有结果），不编造耗时。
+ * 工具耗时展示：后端 SSE tool_result.data.elapsed 为秒（loop.py:426-435）。
+ * <0.1s 记作 "<0.1s"（避免 0.0s 被读成无数据）；<1s 一位小数；<60s 两位小数；≥60s 用 Xm Ys。
+ * 无真实值返回空串（不渲染该段、不补 0s）。
  */
-const ToolChain = ({ calls, hasResult }: { calls: ToolCall[]; hasResult: boolean }) => {
+const formatElapsed = (seconds?: number): string => {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '';
+  if (seconds < 0.1) return '<0.1s';
+  if (seconds < 1) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${seconds.toFixed(2)}s`;
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}m ${total % 60}s`;
+};
+
+/**
+ * §6.14 工具链（demo .chain/.chain-node）：绿轨 + 方徽 + mono 工具名 + 参数摘要 + 状态 chip。
+ * 只展示后端 tool_calls/tool_result 已上报字段（名称 / 参数 / 是否有结果 / 节点耗时），不编造。
+ * 耗时读节点自身的 toolCalls[i].elapsed（store 按 tool_result.data.name 回填），无值不渲染。
+ */
+const ToolChain = ({
+  calls,
+  hasResult,
+}: {
+  calls: ToolCall[];
+  hasResult: boolean;
+}) => {
   const { t } = useTranslation();
   return (
     <div className="tool-chain">
       {calls.map((tc) => {
         const args = JSON.stringify(tc.arguments ?? {});
+        const elapsedText = formatElapsed(tc.elapsed);
         return (
           <div className="chain-node" key={tc.id}>
             <div className="chain-head">
               <span className="tool-chip">&lt;/&gt;</span>
               <span className="chain-name">{tc.name}</span>
               <span className="chain-args" title={args}>{args === '{}' ? '' : args}</span>
+              {/* 耗时 chip 复用 message-iteration 的 count-chip 形制（本文件不新增 CSS） */}
+              {elapsedText && (
+                <span className="message-iteration">
+                  {t('agent_tool_elapsed', { elapsed: elapsedText })}
+                </span>
+              )}
               <span className={`chain-status ${hasResult ? 'chip-ok' : 'chip-run'}`}>
                 {hasResult ? t('level_success') : t('in_progress')}
               </span>
@@ -144,6 +172,101 @@ const ToolChain = ({ calls, hasResult }: { calls: ToolCall[]; hasResult: boolean
           </div>
         );
       })}
+    </div>
+  );
+};
+
+/**
+ * 每日复盘结构化块：只渲染 meta.report.sections 里真实存在的节，缺字段整节跳过、不补内容。
+ * sections 形状来自后端 collect_sections（daily_review.py:196-262）：
+ * overview 平铺统计 / workers 列表 / anomalies[{detail}] / risk_advisories{advisories[{reason}]} / models{blocked[{reason}]}。
+ */
+const DailyReviewSections = ({ sections }: { sections: DailyReviewSections }) => {
+  const { t } = useTranslation();
+  const overview = sections.overview;
+  const workers = (sections.workers ?? []).filter(
+    w => !!w.name && typeof w.pnl === 'number',
+  );
+  const anomalies = (sections.anomalies ?? [])
+    .map(a => a.detail)
+    .filter((d): d is string => !!d);
+  const advisories = (sections.risk_advisories?.advisories ?? [])
+    .map(a => a.reason)
+    .filter((r): r is string => !!r);
+  const models = sections.models;
+  const blocked = (models?.blocked ?? [])
+    .map(b => b.reason)
+    .filter((r): r is string => !!r);
+
+  const blocks: Array<{ title: string; items: string[] }> = [];
+
+  if (
+    overview &&
+    typeof overview.total_pnl === 'number' &&
+    typeof overview.total_trades === 'number'
+  ) {
+    blocks.push({
+      title: t('agent_daily_review_overview'),
+      items: [
+        t('agent_daily_review_overview_line', {
+          date: overview.date ?? '',
+          workers: overview.active_workers ?? 0,
+          pnl: overview.total_pnl.toFixed(2),
+          trades: overview.total_trades,
+          winRate: (overview.win_rate ?? 0).toFixed(2),
+          anomalies: overview.anomaly_count ?? 0,
+          decisions: overview.decisions ?? 0,
+        }),
+      ],
+    });
+  }
+  if (workers.length > 0) {
+    blocks.push({
+      title: t('agent_daily_review_workers'),
+      items: workers.map(w =>
+        t('agent_daily_review_worker_line', {
+          name: w.name ?? '',
+          status: w.status ?? '',
+          pnl: (w.pnl as number).toFixed(2),
+          trades: w.trades ?? 0,
+          winRate: (w.win_rate ?? 0).toFixed(2),
+        }),
+      ),
+    });
+  }
+  if (anomalies.length > 0) {
+    blocks.push({ title: t('agent_daily_review_anomalies'), items: anomalies });
+  }
+  if (advisories.length > 0) {
+    blocks.push({ title: t('agent_daily_review_risk'), items: advisories });
+  }
+  if (models && typeof models.families === 'number') {
+    blocks.push({
+      title: t('agent_daily_review_models'),
+      items: [
+        t('agent_daily_review_models_line', {
+          families: models.families,
+          blocked: blocked.length,
+        }),
+        ...blocked,
+      ],
+    });
+  }
+
+  if (blocks.length === 0) return null;
+  // 复用 .message-text 的标题/列表排版，不新增样式
+  return (
+    <div className="message-text">
+      {blocks.map(b => (
+        <div key={b.title}>
+          <h4>{b.title}</h4>
+          <ul>
+            {b.items.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 };
@@ -175,6 +298,9 @@ const ChatMessage = ({ message }: { message: Message }) => {
 
   // 判断是否为 AI 消息且有意图信息
   const hasIntent = !isUser && !isTool && message.intent;
+  // 定时任务注入的每日复盘：meta.kind === 'daily_review'，报告结构挂在 meta.report
+  const isDailyReview = message.meta?.kind === 'daily_review';
+  const reviewSections = isDailyReview ? message.meta?.report?.sections : undefined;
 
   return (
     <>
@@ -204,6 +330,10 @@ const ChatMessage = ({ message }: { message: Message }) => {
                   : t('agent_iteration_badge_no_max', { current: message.iteration.current })}
               </span>
             )}
+            {/* 出处标识：定时任务写入的每日复盘（同一 chip 形制，仅在有 meta 时出现） */}
+            {isDailyReview && (
+              <span className="message-iteration">{t('agent_daily_review_badge')}</span>
+            )}
             <span className="message-time">
               {message.timestamp ? new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : ''}
             </span>
@@ -230,6 +360,8 @@ const ChatMessage = ({ message }: { message: Message }) => {
                 {message.content}
               </ReactMarkdown>
             </div>
+            {/* 每日复盘附加的结构化数据（正文仍是后端 summary_text，不覆盖） */}
+            {reviewSections && <DailyReviewSections sections={reviewSections} />}
           </div>
           {/* 工具链按 §6.14 出气泡外左侧绿轨；有结果时以「已返回」折叠块展示，不再重复进行中行 */}
           {!isUser && message.toolCalls && message.toolCalls.length > 0 && (

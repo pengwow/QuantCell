@@ -24,11 +24,12 @@
 | B3 | 有 ≥1 条记录时观察表格（预置数据态） | 出现数据行：时间为 `MM-DD HH:mm` 等宽字体、策略名截断（悬停出全名 Tooltip）；RL 任务的 `strategy_name` 带 `rl_model:`/`rl_ensemble:` 前缀时为「来源 chip（RL 模型 主色 / RL 集成 蓝色）+ 模型名」两段式（沿用原模型中心「RL 回测历史」页签口径），无前缀任务仍为纯文本、标的为逗号连接的多标的（老记录无该字段显示「—」）、周期列弱灰色、状态为绿色「已完成」/蓝色带呼吸点「运行中」/红色「失败」/中性「等待中」chip 之一、收益率右对齐（正值绿/负值红/空「—」）、最大回撤右对齐但用中性前景色（幅度值不按符号染色，避免 0.00% 显示成亏损）、操作列有查看/删除两个 24px 图标钮；列序为 时间→策略→类型→标的→区间→周期→状态→收益率→最大回撤→订单（类型紧跟策略，回撤在订单前，见 B3a/B3g/B3b） | L1 |
 | B3a | 观察「区间」列（表头「区间」，位于「标的」与「周期」之间） | 单元格形如 `2025-09-01 → 2026-11-18`，两侧日期为 `YYYY-MM-DD`（后端 `start_time/end_time` 前 10 位），mono 弱色、单行不换行；选中任一 completed 行，该值与行内摘要卡 sub 段的区间（B4a）一致；任务行缺 `config.start_time` 的旧记录整格显示「—」（不拿创建时间冒充区间） | L1 |
 | B3b | 观察「订单」列（表头「订单」，右对齐、位于「最大回撤」之后） | completed 且摘要为 v2 的任务显示整数（如 `236`），数值与行内摘要卡「交易次数」KPI 及 `GET /api/v1/backtest/<id>/summary` 的 `metrics.total_trades` 一致；running/failed 或 v1 旧摘要任务显示「—」而非 `0`；数字为 mono 右对齐，无千分位以外修饰 | L1 |
-| B3g | 观察「类型」列（紧跟「策略」列） | 每行显示策略类型 chip：`规则`=info 蓝、`RL`=pri 主色、`LLM`=warn 橙；取值来自后端 `/backtest/list` 的 `strategy_kind`，与 `curl /api/v1/strategy/overview` 同名策略的 `kind` 逐条一致（同一 `_strategy_kind` 口径）；`rl_model:`/`rl_ensemble:` 前缀的历史任务 → `RL`（模型中心直发不落策略文件）；**策略文件已删的历史任务 → 弱色「—」，不得按名字前缀猜类型**；点行后行内摘要卡头部的类型 chip 与本列一致 | L1 |
+| B3g | 观察「类型」列（紧跟「策略」列） | 每行显示策略类型 chip：`规则`=info 蓝、`RL`=pri 主色、`LLM`=warn 橙；取值来自后端 `/backtest/list` 的 `strategy_kind`，与 `curl /api/v1/strategy/overview` 同名策略的 `kind` 逐条一致（同一 `_strategy_kind` 口径）；`rl_model:`/`rl_ensemble:` 前缀的历史任务 → `RL`（模型中心直发不落策略文件）；**策略文件已删的历史任务 → 弱色「—」，不得按名字前缀猜类型**；点行后行内摘要卡头部的类型 chip 与本列一致；卡片视图下卡片体首行「类型」右侧出现同一 chip | L1 |
+| B3h | 工具栏「类型」下拉切到 `规则` / `RL` / `LLM` | 类型是**服务端过滤**（`GET /api/v1/backtest/list?kind=rule|rl|llm`），不是本地筛当前页：切档后分页条「共 N 条」= 后端返回的 `total`，选 `全部类型` 时不带 `kind` 参数；`RL` 档下所有行类型 chip 均为 `RL`、`规则`/`LLM` 档同理；切档后页码归 1；结果为空时走空态（B3f 的「清除筛选」可复位）；`curl '.../list?kind=llm'` 若库内无 LLM 策略返回 `total: 0` 属正常（不造假行） | L1 |
 | B3c | 对照页头副标与列表计数 | 副标两段数字语义不同：首段「任务表 N 条」= 当前页行数（切分页/页大小后随之变化），次段「历史共 M 条」= 全量任务数；点状态 chips 或搜索收窄结果时次段 M 不变（仅分页条「共 N 条」变化） | L1 |
 | B3d | 点一条**失败**任务行（本进程内失败、progress 快照仍在） | 摘要卡在头部下方出现红色「失败原因」（有 stage 时形如「失败原因 · execution」），下一行 mono 弱色为该任务的 `error.message` 原文（可换行，不截断成一句话结论）；`GET /api/v1/backtest/progress/<id>` 返回 200 且 `error.message` 与展示一致；服务重启后 progress 内存快照丢失的旧失败任务只显示状态 chip、不显示任何编造的诊断文案 | L1 |
 | B3e | 点一条**运行中**任务行 | 摘要卡头部 sub 追加「已运行 <时长>」（如 `已运行 1h 07m`，由 `created_at` 到当前的差值计算；≥48h 的异常时长不显示）；下方出现「回测进度 NN%」（主色数字）+ 6px 高主色进度条（`role="progressbar"`，宽度 = `overall_progress`）；进度条与百分比与 `GET /api/v1/backtest/progress/<id>` 的 `overall_progress` 一致；不出现「预计剩余时间」「中途成交/中途权益」等无源字段 | L1 |
-| B3f | 搜索一个不存在的关键字或选无结果的状态 chip（空态态） | 空态块内除标题/说明文案外出现「清除筛选」mini 按钮；点它后搜索框清空、chips 回「全部」、排序回创建时间倒序、日期范围清空，并按默认参数重拉第一页（`GET /api/v1/backtest/list` 无 status/keyword/start_time）；工具栏「重置」钮同时保留 | L1 |
+| B3f | 搜索一个不存在的关键字或选无结果的状态 chip（空态态） | 空态块内除标题/说明文案外出现「清除筛选」mini 按钮；点它后搜索框清空、chips 回「全部」、**类型下拉回「全部类型」**、排序回创建时间倒序、日期范围清空，并按默认参数重拉第一页（`GET /api/v1/backtest/list` 无 status/kind/keyword/start_time）；工具栏「重置」钮同时保留 | L1 |
 | B4 | 单击某数据行 | 先打选中底色（primary 5% tint + 左侧 3px 主色条），**不发生路由跳转**；列表容器下方展开行内摘要卡 `.bt-summary`（见 B4a–B4c）；操作列眼睛钮或键盘 Enter 才进 `/backtest/detail/<id>`；从详情返回列表不重复绑定双击跳转 | L1 |
 | B4a | 点一个已完成任务，观察行内摘要卡 | 卡为 `.qc-card` 形制（surface 底、1px 边、10px 圆角、12px 上间距）；头部「回测详情」13px/650 + 策略名 mono + 与行一致的状态 chip + mono 弱色 sub「<起> → <止> · <周期> · 耗时 …」（段缺自动省略，DB 无起止时间则无耗时段，≥48h 的陈旧耗时不显示）；中部 `.qc-kpi-grid` 5 列：总收益率/夏普比率/最大回撤/交易次数/胜率，数值与 `GET /backtest/<id>/summary` 及详情页口径一致（正绿负红、0 中性不染色、缺失槽位整张不渲染不造数）；KPI 下方权益曲线块（`.bt-curve`，8px 圆角 + 内边距 12/12/8 + 三条虚线格线）：折线+渐变面积按走势染色（末>首绿 / 末<首红 / 平线中性不画面积），右上「期末 NAV」取组合真实 `final_equity`，x 轴 8 档等分真实时间戳刻度（跨度 ≥90 天用 YY-MM，否则 MM-DD，连续重复折叠）；底部虚线上边的 mono 配置脚注「初始资金 … · 手续费 …% 单边」（DB `backtest_config` 有值才显示） | L1 |
 | B4a1 | 点一个 2 天区间的已完成任务 | x 轴刻度退化为日粒度且不重复（如「05-01 / 05-02 / 05-03」而非 8 个「26-05」）；权益块点数 ≤200（服务端均匀采样保首尾），曲线形态与该任务回测区间走势一致 | L1 |
@@ -41,6 +42,8 @@
 | B6a | 点状态 chips「完成 / 运行中 / 失败」 | 选中 chip 主色 tint；每次点击 `GET /api/v1/backtest/list` 带 `status=completed/running/failed` 且页码归 1；点「全部」清除 status 参数；「运行中」chip 由后端同时匹配 `in_progress` | L1 |
 | B6b | 列表底部 | 分页条为 1px 上边线的自绘条：左「共 N 条 · 每页 [12|24|36|48|96]」、右页码钮（28px，当前页主色 tint）+「跳至 N 页」；切档位立即按新 `page_size` 请求；空态搜索时表格空态替换掉 antd 灰图 | L1 |
 | B6c | 工具栏「时间范围」RangePicker 选 2026-11-01 ~ 2026-11-03 | `GET /api/v1/backtest/list` 带 `start_time=2026-11-01&end_time=2026-11-03`，行的时间列全部落在区间内、计数「共 N 条」为过滤后真实值（本地库当前约 228）；日期含端点（止日当天创建的任务在内）；清空控件或点「重置筛选」后恢复全量；格式非法的日期串后端返回 422 | L1 |
+| B29 | 选中一条 running 任务（行内摘要卡展开）后不再点击任何行，观察 15s+ | 摘要卡「已运行 …」sub、进度条与百分比每 15s 自动更新一次（源仍是 `GET /api/v1/backtest/progress/<id>`，Network 面板按 15s 周期出现该请求）；切到另一行 / 取消选中 / 任务转终态后轮询停止（45s 内不再出现该请求），手动点行仍可立刻刷新一次 | L2 |
+| B30 | 点一条 `strategy_kind=llm` 的**失败**任务行，再切到 `/backtest/config` 选中 `mode=llm` 的策略 | 列表行内摘要的失败块下方出现弱色说明（LLM 回放未命中不降级、任务直接终止）；`/backtest/config` 选中 `mode=llm` 策略时「策略参数配置」卡底部出现同一句说明；非 LLM 任务不出现该提示 | L1 |
 
 ### /backtest/config（回测配置 / 发起）
 
@@ -69,6 +72,7 @@
 | B20 | 点「导出报告」 | `GET /api/v1/backtest/<id>/report` 返回 200 并触发浏览器下载一个 `.html` 文件，文件名含「回测报告」与 id 前 8 位 | L2 |
 | B21 | 直开 `/backtest/detail/not-a-real-id`（无效 id） | 页面显示 `.qc-empty` 图标块空态「未找到回测数据」+ toast「加载回测详情失败」，不白屏、不无限转圈 | L2 |
 | B22 | 点「回放」 | 跳转 `/backtest/replay/<id>`（若多品种可能带 `?symbol=` 查询参数），见 B23 起 | L2 |
+| B31 | URL 直达 `/backtest/detail/<id>`，该任务 status=failed 且本进程内失败（progress 快照仍在） | 页首（「配置信息」卡上方）出现「失败原因」错误块：红字标题「失败原因」+ `stage`（有值时形如「失败原因 · execution」），下一行 mono 弱色为 `error.message` 原文（可换行、不截断）；服务重启导致 progress 快照丢失时**整块不渲染**（只剩状态 chip，不留空块/占位文案） | L2 |
 
 ### /backtest/replay/:backtestId（逐 bar 回放）
 
@@ -84,6 +88,7 @@
 ## 历史雷区
 
 - **「类型」列必须走后端 `strategy_kind`**（2026-11-21）：类型是策略文件 AST 的判定结果（`strategy_type`=RL，或参数 `mode="llm"`），前端**不得**用 `strategy_name` 前缀/后缀猜（`ml_`、`rl_` 命名纯属用户自由，前缀只对 `rl_model:`/`rl_ensemble:` 这两种模型中心直发的任务成立）。策略文件已删但历史任务还在时后端返回 `null`，页面显示「—」——这是真实值，不要为了「好看」回填 rule。
+- **类型筛选在服务端、且与列同源**（2026-11-21）：`kind` 过滤发生在 `get_result_list` 的排序/分页**之前**（`kind` 非法值由 FastAPI `pattern` 挡成 422），所以「共 N 条」是真实过滤后总数，不是当前页剩余行数。别把它退化成前端 `tasks.filter()`——那样翻页后每页条数会缩水，且已删策略的行（kind=None）会行为诡异。`strategy_kinds()` 按策略文件 mtime 缓存解析结果，改完策略文件重新加载进程才需担心旧值（mtime 变了会自然重解析）。
 - **行内摘要卡曾整体无样式（已修）**：`BacktestList.tsx` 历史上从未 `import './backtest.css'`（列表老样式全走 global 原语故未暴露），本次新增 `.bt-summary` 后类名命中但规则不加载——表象是「面板裸奔无 chrome」，且极易误判为 vite 缓存/HMR 问题。凡在 BacktestList 加布局级新类，先确认该 import 还在。
 - **摘要卡全 0.00% 是真数据不是 bug**：`backend/data/backtest_tasks/` 里确有零交易完成任务（如 dd55bf6f，metrics_summary 全 0），面板如实渲染且 0 中性不染色；判断染色 bug 时先核对该任务文件值，别拿它当回归样本验证正负染色。
 - **行内曲线是采样不是全量**：`/summary` 的 `equity` 是服务端均匀采样 ≤200 点保首尾（`_sample_equity_curve`），首次点击 completed 旧任务会完整读一次结果 JSON 并回写任务文件 `equity_sampled`（空数组 = 已查无曲线的哨兵，别删字段否则每次点击都重新大 IO）；详情页才是全分辨率曲线。要提精度改采样上限而不是前端插值。
@@ -108,3 +113,5 @@
 - **决策表每页固定 200 条（前端切片）**：决策详情表是本地分页（3 万条全渲染卡浏览器），页码切换不发请求；「共 N 条」的 N 是 decisions 全量数。别把它当服务端分页断言请求参数。
 - **无效 id 的回放接口不报 404（后端契约缺口）**：`GET /backtest/<不存在的id>/symbols` 返回 200 + 空 symbols（`backtest.routes get_backtest_symbols` 只 WARN 不抛），前端收到「成功但空」就走静默骨架，永远到不了错误提示分支；B28 的「错误」提示条只能由传输层失败（超时/拒绝）触发。要改先动后端返回码，前端分支本身是好的。
 - **详情页旧 cascade 记录会把整页打白（TradeTable 契约缺口，非本区代码）**：历史 LLM/cascade 回测的 round-trip trades 里没有 `quantity` 字段（只有 entry/exit fill 结构），共享组件 `TradeTable.formatQuantity` 对 undefined 调 `.toFixed` 抛错且无错误边界 → 决策详情卡也一起渲染不出来；回测详情的决策 chip / 分页条只能在"RL/规则或有健康 trades 的新记录"上验证。修法在 TradeTable 兜 null 或后端补字段，别在本区绕。
+- **progress 拉取失败必须保留旧快照**（2026-11-23）：`getBacktestProgress` catch 后返回 `null`，前端按「不清空、不弹错」处理（B29 的 15s 轮询会反复打到这个分支）。把 null 当空数据处理会让进度条在服务重启瞬间归零/隐藏，比停在旧值更误导；只有该任务转终态或取消选中才允许清空
+- **LLM replay 提示是静态说明不是错误**：`strategy_kind=llm` 任务失败时的弱色说明与 config 页参数卡底部那句是同一句常量文案（未命中回放不降级、直接终止），不要与 B3d 的红字「失败原因」混为一层样式；非 LLM 任务不渲染（B30）

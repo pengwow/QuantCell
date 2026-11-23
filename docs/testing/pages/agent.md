@@ -37,6 +37,8 @@
 | AG24 | Dream 卡字段全部来自 self-loop 接口 | `GET /api/v1/agent/memory` 返回值渲染：chip 与 `QUANTCELL_AGENT_DREAM` 实际值一致（`QUANTCELL_AGENT_DREAM = 1/0` mono 形制）、MEMORY.md 只读体、`已整合 x/y` 进度条（x=dream_cursor，y=history_entries）、`待处理`（>0 才显示）、`上次运行` 三态如实；读取失败显示弱色提示 + 右上刷新钮，不显示假数据 | L2 |
 | AG26 | Dream 卡「下次运行」行（`next_run_at` 非空才有） | 同时读 `GET /api/v1/agent/loop-status` 里 `agent_dream` 的 `next_run_at`（后端直接取真实挂载的 APScheduler `job.next_run_time`，非解析 cron）：非空时 `上次运行` 下方出现一行「下次运行 `MM-DD HH:mm` · N 小时后」（相对量按分钟/小时/天取最小可读档位）；mount 时刻已过则显示「即将运行」而不是负值；`next_run_at` 为 `null`（job 未挂载，即 `QUANTCELL_AGENT_DREAM` 总闸未开）时**整行不渲染**，不得显示 04:00 之类推算值。`curl /api/v1/agent/loop-status` 可核实：总闸关闭时 `next_run_at: null` | L2 |
 | AG25 | 页头真值 + 两个跳转钮 | 页头轻量行（非 PageContainer）：标题`智能体工作台` + mono 副标`会话 #<id> · ReAct 单轮上限 40 次迭代 · SSE 实时`（会话 id 为真实 session key，「40」为项目常量 backend/agent/core/loop.py `max_iterations` 默认值）；右侧两枚 30px 钮：`策略智能体 →` 跳 `/strategy-worker`、`← 返回首页` 跳 `/home`；既有顶栏（会话/Worker 控件）不受影响 | L1 |
+| AG27 | 观察工具节点耗时 chip | 真实跑一次带工具调用的 ReAct 后（按需，耗 LLM 配额），每个工具节点右侧出现「耗时 x.xxs」chip，数值来自 SSE `tool_result.data.elapsed`（秒）；同轮多个工具各自独立、不共享同一数值；历史消息（无 `elapsed`）不显示该 chip，也不显示 `0s` | L2（按需） |
+| AG28 | 每日复盘消息结构化渲染 | 每日复盘消息（03:35 job 写入 default 会话）在聊天流里带出处 chip「定时任务 · 每日复盘」，并按 `meta.report.sections` 渲染 概览 / 活跃 Worker / 持仓异常 / 风控建议 / 模型与 OOS 小节；空节整节省略；刷新页面后从 history 恢复时同样识别（`meta` 原样回传） | L2 |
 
 ## 历史雷区
 - **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`
@@ -54,3 +56,4 @@
 - **首屏「迭代足迹」柱清零是空态不是故障**：柱数据只来自**当前会话**的 SSE 聚合（`agentStore.messages` 的 `iteration` 字段），会话历史接口不带 iteration（`fetchHistory` 不映射），刷新/切会话后柱清零回空态属预期。demo 的「近 12 轮会话」跨会话口径现网无源（`/agent/audit` 按天聚合的是**工具调用**，不是 ReAct 迭代，勿混用口径填柱）
 - **首屏 Dream 卡「下次运行」必须来自调度器真值**：`/agent/loop-status` 的 `next_run_at` 取自本进程真实挂载的 APScheduler job（`core/scheduler.py::get_scheduler()` → `job.next_run_time`），未挂载/调度器未启动即 `null`；前端此时整行不渲染。**不要**按 `cron` 文案（`每日 04:00`）自己推算时间戳——croniter 未安装，且推算出来的时间在总闸关闭时是假的下次运行
 - **Dream 心跳依赖后端进程活过 04:00**：两次平台级重启（11-18/11-19）都撞掉 04:00 调度载体。C/B 卡显示`重启后尚未运行`属预期，不是缺陷；总闸 `QUANTCELL_AGENT_DREAM` 未开时 Dream 行显示`已关闭（总闸未开）`
+- **`tool_result.elapsed` 单位是秒**（`backend/agent/core/loop.py:426-435`），前端按 `data.name` 回填到同名且尚未填过的 `toolCalls[i].elapsed`；**不要**做消息级共享耗时——同轮多工具会显示成同一个值

@@ -11,16 +11,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { App, Card, Button, Tabs, Spin, Alert, Tooltip } from 'antd';
-import { ClockCircleOutlined, FolderAddOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
+import { App, Card, Button, Tabs, Spin, Alert, Tooltip, Popconfirm } from 'antd';
+import {
+  ClockCircleOutlined,
+  FolderAddOutlined,
+  LoadingOutlined,
+  ShareAltOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
-import { formatUSD } from '@/utils/format';
-import { archiveWorkerJournal } from '../../api/workerApi';
+import { formatQuantity, formatUSD } from '@/utils/format';
+import { archiveWorkerJournal, getPositions } from '../../api/workerApi';
 import { useWorkerStore } from '../../store/workerStore';
+import { useGuestRestriction } from '../../hooks/useGuestRestriction';
+import { usePolling } from '../../hooks/usePolling';
 import { WorkerStatusText } from '../../types/worker';
+import type { PositionInfo } from '../../types/worker';
 import { workerStatusChip } from '../../components/worker/statusChip';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
 import WorkerOverviewTab from '../../components/worker/WorkerOverviewTab';
@@ -61,8 +70,27 @@ const WorkerDetail = () => {
     fetchWorkers,
     fetchWorkerDetail,
     setSelectedWorker,
+    stopWorker,
     clearErrors,
   } = useWorkerStore();
+
+  // 访客口径：停止类生命周期动作禁用 + Tooltip 提示（与全站 getButtonDisabled/Tooltip 一致）
+  const { getButtonDisabled, getButtonTooltip } = useGuestRestriction();
+
+  // 「停止」提交锁：防重复点击（页面不提供暂停/继续，见页头 actions 注释）
+  const [stopPending, setStopPending] = useState<boolean>(false);
+
+  // 头部持仓三件（demo ws-strip 现持仓/均价/未实现）：数据源与总览持仓区完全同源——
+  // workerApi.getPositions（PositionInfo[]，5s 轮询同频）。拉取失败按无持仓处理（整项省略）。
+  const [positions, setPositions] = useState<PositionInfo[]>([]);
+  usePolling(async () => {
+    if (!workerId) return;
+    try {
+      setPositions(await getPositions(parseInt(workerId)));
+    } catch {
+      setPositions([]);
+    }
+  }, { interval: 5000 });
 
   // 设置页面标题
   useEffect(() => {
@@ -174,6 +202,20 @@ const WorkerDetail = () => {
     });
   }, [currentWorker, fetchWorkerDetail, message, modal, t]);
 
+  // 停止（demo 停止钮）：与列表页启停完全同源——useWorkerStore.stopWorker
+  // （内含乐观更新 stopped + 延迟 fetchWorkers 列表刷新），此处只需补拉详情
+  const handleStop = useCallback(async () => {
+    if (!currentWorker || stopPending) return;
+    setStopPending(true);
+    try {
+      await stopWorker(currentWorker.id);
+      setLastUpdateTime(Date.now());
+      await fetchWorkerDetail(currentWorker.id);
+    } finally {
+      setStopPending(false);
+    }
+  }, [currentWorker, stopPending, stopWorker, fetchWorkerDetail]);
+
   // 只在 worker 确实不存在时整页替换 Spin。不能加 loading 条件：fetchWorkers 会
   // 置 store.loading=true，若此处整页 return 会卸载所有 tab（滚动位置丢失、轮询重启）；
   // 下方 <Spin spinning={loading}> 已提供非破坏性加载遮罩
@@ -263,6 +305,14 @@ const WorkerDetail = () => {
   // 头部事实条（demo .ws-strip/.s-chip 口径）：中性描边胶囊 + label + mono 真值
   const pnlProfit = currentWorker.total_profit || 0;
 
+  // 持仓三件（demo 现持仓/均价/未实现）：无持仓整项省略，不造 0 占位。
+  // ponytail: 持仓量/均价仅在恰有一个持仓时展示——多 symbol 合计数量/均价是混合单位的假真值；
+  // 未实现盈亏跨仓位加总恒有意义，取合计。多腿聚合的升级路径：按 symbol 分组后数量加权。
+  const singlePosition = positions.length === 1 ? positions[0] : null;
+  const unrealizedPnl = positions.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0);
+  const positionBase =
+    singlePosition && singlePosition.symbol.includes('/') ? singlePosition.symbol.split('/')[0] : '';
+
   return (
     <PageContainer
       title={currentWorker.name}
@@ -271,6 +321,29 @@ const WorkerDetail = () => {
       actions={
         <>
           {workerStatusChip(currentWorker.status, t(WorkerStatusText[currentWorker.status]))}
+          {/* 页面不提供「暂停/继续」：后端 lifecycle 只有 start/stop/restart，pause/resume 路由不存在
+           * （agentApi.pauseAgent 为死代码），按钮会 404；demo 997-1006 的暂停位先不落。 */}
+          {/* 停止：走真实 lifecycle/stop 二次确认；stopped/stopping 终态不给停止；访客禁用 + Tooltip */}
+          {['running', 'paused'].includes(String(currentWorker.status ?? '')) && (
+            <Popconfirm
+              title={t('confirm_stop_worker')}
+              onConfirm={handleStop}
+              okText={t('yes')}
+              cancelText={t('no')}
+            >
+              <Tooltip title={getButtonTooltip()}>
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  style={{ height: 30 }}
+                  loading={stopPending}
+                  disabled={stopPending || getButtonDisabled()}
+                >
+                  {t('stop')}
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          )}
           <Button
             icon={<ShareAltOutlined />}
             style={{ height: 30 }}
@@ -333,6 +406,27 @@ const WorkerDetail = () => {
         <div className="qc-strip">
           <span className="qc-strip-item">{t('timeframe')} <b>{currentWorker.trading_config?.interval || '—'}</b></span>
           <span className="qc-strip-item">{t('trading_mode')} <b>{modeLabel}</b></span>
+          {/* 持仓三件（demo 1118-1120）：有持仓才出现，数值 mono 右对齐（.qc-strip-item b 已 mono+tabular-nums） */}
+          {singlePosition && (
+            <span className="qc-strip-item">
+              {t('current_position')}
+              <b>{formatQuantity(singlePosition.quantity)}{positionBase ? ` ${positionBase}` : ''}</b>
+            </span>
+          )}
+          {singlePosition && (
+            <span className="qc-strip-item">
+              {t('entry_price')}
+              <b>{formatUSD(singlePosition.entry_price)}</b>
+            </span>
+          )}
+          {positions.length > 0 && (
+            <span className="qc-strip-item">
+              {t('unrealized_pnl')}
+              <b className={unrealizedPnl > 0 ? 'qc-cell-up' : unrealizedPnl < 0 ? 'qc-cell-down' : undefined}>
+                {formatUSD(unrealizedPnl, { showSign: true })}
+              </b>
+            </span>
+          )}
           <span className="qc-strip-item">
             {t('total_profit')}
             <b className={pnlProfit > 0 ? 'qc-cell-up' : pnlProfit < 0 ? 'qc-cell-down' : undefined}>

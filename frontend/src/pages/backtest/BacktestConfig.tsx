@@ -124,6 +124,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
 
+  // LLM 类型判定：与后端 _strategy_kind 同口径（策略 params 里 name=mode 的取值 llm，
+  // 见 backend/strategy/service.py:353）。表单值优先（用户可覆盖 mode），未改过时回落到档案默认值
+  const watchedParams = Form.useWatch('params', form) as Record<string, unknown> | undefined;
+  const modeParamDefault = selectedStrategy?.params?.find((p) => p.name === 'mode')?.default;
+  const isLlmStrategy = watchedParams?.mode !== undefined
+    ? watchedParams.mode === 'llm'
+    : modeParamDefault === 'llm';
+
   // 从 location.state 获取策略信息（从策略管理页面传递过来）
   const locationStrategy = location.state?.strategy as Strategy | undefined;
   const showConfig = location.state?.showConfig as boolean | undefined;
@@ -1461,6 +1469,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <div className="bc-params-empty">
                 {selectedStrategy ? t('backtest_no_configurable_params') : t('backtest_select_strategy_for_params')}
               </div>
+            )}
+            {/* LLM 策略回测只从录制 JSONL 回放，未命中直接失败、不降级（backend/strategy/llm_replay.py） */}
+            {isLlmStrategy && (
+              <div className="bt-note" style={{ marginTop: 8 }}>{t('bt_llm_replay_note')}</div>
             )}
           </Card>
         </Form>

@@ -7,6 +7,8 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  /** 该次工具执行耗时（秒），来源 SSE tool_result.data.elapsed；未上报则 undefined */
+  elapsed?: number;
 }
 
 export interface Tool {
@@ -33,6 +35,82 @@ export interface IntentAction {
  */
 export const REACT_MAX_ITERATIONS = 40;
 
+/**
+ * 每日复盘结构化报告。字段逐项对照后端 `backend/agent/core/daily_review.py`：
+ * `build_report` 返回 `{date, sections, summary_text, template_text, meta}`，
+ * `publish` 把整份 report 挂在消息的 `meta.report` 上（daily_review.py:439-450），
+ * `sections` 的形状来自 `collect_sections`（daily_review.py:196-262）。
+ * 全部可选：后端降级时个别节会缺，渲染层按缺失整节跳过。
+ */
+export interface DailyReviewOverview {
+  date?: string;
+  active_workers?: number;
+  total_pnl?: number;
+  total_trades?: number;
+  win_rate?: number;
+  orders?: number;
+  decisions?: number;
+  anomaly_count?: number;
+}
+
+export interface DailyReviewWorker {
+  worker_id?: number;
+  name?: string;
+  status?: string;
+  pnl?: number;
+  trades?: number;
+  win_rate?: number;
+  orders?: number;
+}
+
+export interface DailyReviewAnomaly {
+  type?: string;
+  /** 后端已拼好的中文描述（daily_review.py:171/176），前端直接展示不重拼 */
+  detail?: string;
+}
+
+export interface DailyReviewAdvisory {
+  severity?: string;
+  reason?: string;
+}
+
+export interface DailyReviewRisk {
+  count?: number;
+  max_severity?: string | null;
+  advisories?: DailyReviewAdvisory[];
+  error?: string;
+}
+
+export interface DailyReviewModels {
+  families?: number;
+  blocked?: Array<{ family?: string; model_id?: string; reason?: string }>;
+  latest_rounds?: Array<Record<string, unknown>>;
+  error?: string;
+}
+
+export interface DailyReviewSections {
+  overview?: DailyReviewOverview;
+  workers?: DailyReviewWorker[];
+  anomalies?: DailyReviewAnomaly[];
+  risk_advisories?: DailyReviewRisk;
+  models?: DailyReviewModels;
+}
+
+export interface DailyReviewReport {
+  date?: string;
+  sections?: DailyReviewSections;
+  summary_text?: string;
+  template_text?: string;
+}
+
+/** 后端消息 meta（history 原样带回）；目前仅定时任务注入的每日复盘使用 */
+export interface MessageMeta {
+  kind?: string;
+  date?: string;
+  degraded?: boolean;
+  report?: DailyReviewReport;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'tool';
@@ -51,6 +129,8 @@ export interface Message {
   reasoning?: string;
   /** ReAct 迭代进度（iteration_start / complete{iteration}），仅当轮流内有值 */
   iteration?: { current: number; max: number };
+  /** 后端消息元信息（如定时任务每日复盘的 meta.kind="daily_review" + meta.report） */
+  meta?: MessageMeta;
 }
 
 interface AgentState {
@@ -309,12 +389,26 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               break;
 
             case 'tool_result':
-              // 工具执行结果（后端 data 形状为 {name, result, elapsed}）
+              // 工具执行结果（后端 data 形状为 {name, result, elapsed}，elapsed 单位为秒：loop.py:426-435）
               if (data.data && assistantMessage) {
                 assistantMessage.toolResult =
                   typeof data.data === 'string'
                     ? data.data
                     : (data.data.result ?? JSON.stringify(data.data));
+                // 逐节点回填耗时：tool_start 与 tool_result 的 name 同源于同一个
+                // tool_call["name"]（loop.py:407 / :430），可直接按名匹配。
+                // 同轮多个同名工具：回填第一个还没有 elapsed 的节点，不覆盖已有值；
+                // 旧后端/历史消息没有 elapsed 时保持 undefined，不补假耗时。
+                if (
+                  typeof data.data.elapsed === 'number' &&
+                  Number.isFinite(data.data.elapsed) &&
+                  Array.isArray(assistantMessage.toolCalls)
+                ) {
+                  const node = assistantMessage.toolCalls.find(
+                    tc => tc.name === data.data.name && tc.elapsed === undefined,
+                  );
+                  if (node) node.elapsed = data.data.elapsed;
+                }
                 upsertAssistant();
               }
               break;
@@ -583,6 +677,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 : rawContent == null
                   ? ''
                   : JSON.stringify(rawContent);
+            // 系统注入消息（每日复盘）的结构化信息全在 meta 上，丢掉就只剩纯文本：
+            // 后端 history 原样返回 messages（session/manager.py:199-206），meta 结构见 daily_review.py:439-450
+            const meta =
+              m.meta && typeof m.meta === 'object' ? (m.meta as MessageMeta) : undefined;
             return {
               id: `history-${sessionId}-${idx}`,
               role,
@@ -590,6 +688,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               // 后端历史不带时间戳；留空由气泡隐藏，避免伪造"当前时间"
               timestamp: '',
               ...(role === 'assistant' ? { roleName: i18n.t('agent_ai_assistant') } : {}),
+              ...(meta ? { meta } : {}),
             } as Message;
           });
         set({ messages: history });

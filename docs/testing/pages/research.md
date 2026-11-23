@@ -35,6 +35,10 @@
 | R15 | 点某一行的「转回测」 | 发出 `POST /api/v1/research/sessions/{sid}/trials/{tid}/to-backtest` 返回 200，响应 `data={task_id, strategy_name:"rs_<sid>_<tid>", reused_promotion:false}`；成功提示「已创建回测任务（策略 rs_<sid>_<tid>）」并带「查看回测」链接；该行按钮就地变「查看回测」，**再点只跳 `/backtest` 不再发请求**（不重复建任务）；到 `/backtest` 列表能看到该任务，`GET /api/v1/backtest/progress/{task_id}` 能轮询到进度。库内无 strategy 会话时本项记"跳过"（见前置）：本次实现落地时库内 28 条会话全为 factor，200 路径只有单测覆盖（`test_run_backtest_task_keeps_real_validation_and_persists`），400/404 路径已在真实服务上实测 | L2 |
 | R16 | 依次触发四类失败：无代码 trial、factor 会话直连接口、会话缺数据窗口、用别的会话 id 调同一 trial | 分别看到后端原文：400「该 trial 没有可回测的代码」、400「场景 factor 的 trial 不是可回测的策略代码，只有 strategy 场景支持转回测」、400「会话配置缺少 start, end，无法确定回测标的与数据窗口」（缺哪个字段就列哪个）、404「trial 不属于该会话」；前端原样展示，不替换成通用错误文案（不出现 `[object Object]`） | L2 |
 | R17 | 在浏览器网络面板检查 R15 的请求体/后端日志 | `strategy_params` 等于该 trial 的 `task_json.params`（没有就是 `{}`），`symbols`/`interval`/`start_time`/`end_time` 与会话 `config_json` 里的 `symbols`/`interval`/`start`/`end` 完全一致；**没有**全市场/全历史/默认窗口之类的兜底值被填进去 | L2 |
+| R18 | 列表页看一条 `场景=strategy` 的会话卡片（表格视图看操作列） | 卡片/操作列出现「转回测」动作，作用于该会话的 `best_trial_id`；无最优轮次时按钮禁用 + Tooltip「会话还没有最优轮次，暂不能转回测」；点击时校验 `has_code`，无代码提示「该 trial 没有可回测的代码」且不发请求；成功后 toast 内含「查看回测」深链至 `/backtest/detail/{task_id}` | L2（写操作：创建并启动回测任务） |
+| R19 | 打开一条 strategy 会话详情页看页头按钮组 | 按钮组**首位**出现会话级「转回测」钮（仅 `场景=strategy` 且有 best trial 时出现，factor/model 会话不出现）；建任务成功后**本次会话内**该钮就地变「查看回测」并直接跳 `/backtest/detail/{task_id}`（再点只跳转不发请求）；刷新页面后映射丢失、钮回到「转回测」（详情接口不返回已建任务 id，属已知限制；再点会**新建一个回测任务**，策略文件复用不重写）；trials 表行内「转回测」入口仍保留（R14） | L2 |
+| R20 | 看详情页「结论」卡 | 有 best trial 时该卡出现，md 渲染含 依据（`judge.reason`）/ 指标（metrics）/ 配置（会话 config）；某字段缺失时该段**整段省略**（不留空标题/空段）；无 best trial 时整卡不渲染 | L1 |
+| R21 | 看 trials 表上方的「Top 5 轮次」小表 | 按 OOS Sharpe 降序排列，列「排名 / 轮次 / 假设 / IC / IC_IR / OOS Sharpe / 决策」；无 Sharpe 数据的 trial **不入榜**（不按 0 参与排序）；不足 5 条按实际条数渲染；全部无数据时整卡不渲染 | L2 |
 
 ## 历史雷区
 - **轮询是常态，不是 bug**：列表 5s、详情 3s 自动刷新（详情在终态后停）。验证"页面在动"时先看是不是轮询；同一请求短时间重复出现属预期。
@@ -48,3 +52,5 @@
 - **转回测只用真实记录，缺项就报错**：`to-backtest` 的 `strategy_params` 必须来自 trial 的 `task_json.params`，`symbols`/`interval`/`start_time`/`end_time` 必须来自会话 `config_json` 的 `symbols`/`interval`/`start`/`end`；任一必需项缺失返回 400 并列出缺的字段名。**不许**为了"能跑"默认成全市场/全历史/默认窗口——那会让回测结果与研究记录对不上且无法追溯。
 - **`/backtest` 不支持用 URL 定位任务**：转回测成功后的「查看回测」只跳 `/backtest` 列表，**不要**为了"定位"伪造 `task_id` 之类查询参数；需要看具体任务请到列表里找（任务 id 已在成功提示里给出）。
 - **转回测必须复用 `POST /backtest/run` 的构造与校验**：后端 `research/routes.py::_run_backtest_task` 直接构造 `BacktestRunRequest` 并调用 `run_backtest`，目的是继承 LLM replay 校验、时间范围处理、任务行落库与进度跟踪。**禁止**为了省事改成直接调 `BacktestService.create_task`——那会绕过校验、且任务在回测页不可见（无 `backtest_tasks` 行/无进度）。改这里时先看 `test_run_backtest_task_keeps_real_validation_and_persists` 是否仍绿。
+- **转回测成功后跳任务详情**（2026-11-23 起）：`/backtest/detail/{task_id}`，只有拿不到 `task_id` 才退回 `/backtest` 列表。退回列表会让用户以为任务没创建（旧行为，已迭代）；上文「`/backtest` 不支持用 URL 定位任务」只约束「伪造查询参数」，详情页有 id 路径即可直达
+- **OOS Sharpe 取值口径**：优先 `metrics_oos.sharpe_ratio`；未启用 OOS 段（`test_ratio=0` → `metrics_oos` 为 null）时回退样本内 `metrics.sharpe_ratio`；两者皆非有限数（null / NaN / Infinity）才算「无数据」，不按 0 处理（R21 的入榜过滤与 R18 禁用判据共用此口径）

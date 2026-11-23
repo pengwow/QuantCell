@@ -269,6 +269,29 @@
   color: var(--qc-text-tertiary);
 }
 
+/* ---- failed 任务失败原因块（详情页页首；列表行内摘要用内联样式同口径）----
+   数据源：progress 接口 error.message（内存态快照，取不到时整块不渲染） */
+.bt-fail-block {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--qc-error) 32%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--qc-error) 6%, transparent);
+}
+
+.bt-fail-title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--qc-error);
+}
+
+.bt-fail-text {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--qc-text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---- 行内权益曲线（demo .curve-wrap/.curve-val/.x-lab 镜像）----
    数据只够画趋势：服务端均匀采样 ≤200 点保首尾；染色按走势
    （末>首 up / 末<首 down / 平线中性不画面积），不冒充 K 线级精度。 */

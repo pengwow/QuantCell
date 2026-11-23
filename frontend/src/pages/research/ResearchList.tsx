@@ -17,6 +17,7 @@ import {
   Row,
   Select,
   Tooltip,
+  Typography,
 } from 'antd';
 import type { TablePaginationConfig } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -30,6 +31,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   StopOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { PAGE_SIZE_OPTIONS, PER_PAGE_OPTIONS } from '@/constants/pagination';
@@ -77,6 +79,8 @@ const ResearchList: React.FC = () => {
   const [seedFactor, setSeedFactor] = useState<string | null>(null);
   // 复制配置：把来源会话带进新建抽屉，按它的 config 预填
   const [copyFrom, setCopyFrom] = useState<ResearchSession | null>(null);
+  // 会话级「转回测」请求中的会话 id（按钮就地禁用防重复提交，与详情页 loading 口径一致）
+  const [bcPending, setBcPending] = useState<number | null>(null);
 
   // 分页：pageSize 走全局档位（与其他分页页共用开关），offset/limit 下推到后端真分页
   const [page, setPage] = useState(1);
@@ -156,6 +160,39 @@ const ResearchList: React.FC = () => {
     });
   };
 
+  // 会话级「一键转回测」（demo 卡片 .js-bc-card）：作用于会话 best_trial_id。
+  // 列表接口不带 trial 级 has_code，点击后按需取一次 best trial 校验（复用现有详情接口，
+  // 不新增后端）；无代码提示与详情页同 key。列表类型没有「已创建回测」承载字段，
+  // 成功后 toast（链接深链到 /backtest/detail/{task_id}）+ 刷新会话状态即可
+  const toBacktestFromList = async (row: ResearchSession) => {
+    if (!row.best_trial_id) return;
+    setBcPending(row.id);
+    try {
+      const trial = await researchApi.getTrial(row.id, row.best_trial_id);
+      if (!trial.has_code) {
+        message.warning(t('research_to_backtest_no_code'));
+        return;
+      }
+      const res = await researchApi.toBacktest(row.id, trial.id);
+      message.success(
+        <span>
+          {t('research_to_backtest_done', { name: res.strategy_name })}{' '}
+          {res.task_id ? (
+            <Typography.Link onClick={() => navigate(`/backtest/detail/${res.task_id}`)}>
+              {t('research_to_backtest_view')}
+            </Typography.Link>
+          ) : null}
+        </span>,
+      );
+      void load();
+    } catch (err) {
+      // 后端 400 的文案是给人看的，原样提示
+      message.error(err instanceof Error ? err.message : t('research_to_backtest_failed'));
+    } finally {
+      setBcPending(null);
+    }
+  };
+
   const actionsFor = (row: ResearchSession) => {
     const actions: {
       key: string;
@@ -169,6 +206,18 @@ const ResearchList: React.FC = () => {
     }[] = [
       { key: 'view', icon: <EyeOutlined />, label: t('view'), pri: true, onClick: () => navigate(`/research/${row.id}`) },
     ];
+    // 仅 strategy 场景出现（demo「一键转回测」）；无最优轮次禁用 + Tooltip，
+    // 无代码在点击后校验（列表接口不带 trial 级 has_code），口径与详情页一致
+    if (row.scenario === 'strategy') {
+      actions.push({
+        key: 'to_backtest',
+        icon: <ThunderboltOutlined />,
+        label: t('research_to_backtest'),
+        hint: row.best_trial_id ? undefined : t('research_to_backtest_no_best'),
+        disabled: !row.best_trial_id || bcPending === row.id,
+        onClick: () => void toBacktestFromList(row),
+      });
+    }
     if (row.status === 'running' && row.mode === 'deep') {
       actions.push({
         key: 'pause', icon: <PauseCircleOutlined />, label: t('research_action_pause'),
@@ -299,7 +348,8 @@ const ResearchList: React.FC = () => {
     },
     {
       title: t('action'),
-      width: 150,
+      // 176px：strategy 终态会话有 6 枚图标钮（查看/转回测/延期/复制/删除 + 透明底 4px 间距）
+      width: 176,
       fixed: 'right',
       render: (_, row) => renderCellActions(row),
     },
@@ -527,9 +577,9 @@ const ResearchList: React.FC = () => {
       columns={columns}
       dataSource={searching ? searchedRows : sessions}
       remote={!searching}
-      /* 固定列总宽 860px（标签~操作，会话列 300px），所有列都有显式宽：
+      /* 固定列总宽 1226px（会话列 300px，其余列均显式宽，操作列含转回测后 176px）：
          容器不足时若无 scroll.x，无宽列会被压成 0 宽整列消失，声明后表格改为内部横滚 */
-      scroll={{ x: 1160 }}
+      scroll={{ x: 1240 }}
       pagination={effTotal > 0 ? paginationCfg : false}
       emptyTitle={hasFilter ? t('research_empty_filtered') : t('research_empty_desc')}
       emptyDescription={hasFilter ? undefined : t('research_empty_hint')}

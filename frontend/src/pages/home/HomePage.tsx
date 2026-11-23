@@ -755,6 +755,19 @@ const HomePage = () => {
               })}
             </div>
           )}
+          {/* 卡脚说明（demo 943 对位）：只写真实机制——产物靠详情页逐个 trial 采纳，不做会话级一键转回测 */}
+          {!firstLoading && recentResearch.length > 0 && (
+            <div
+              className="home-foot"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+            >
+              <span>{t('home_research_foot')}</span>
+              <button type="button" className="home-cardlink" onClick={() => navigate('/research')}>
+                {t('research')}
+                <IconArrowRight />
+              </button>
+            </div>
+          )}
         </Card>
 
         {/* 快速操作（全宽收尾卡；qc-mini-btn 24px + 14px 图标） */}

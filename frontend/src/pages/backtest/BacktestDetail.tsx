@@ -27,6 +27,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { backtestApi } from '../../api';
+import { getBacktestProgress } from '../../api/backtest';
 import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from './DecisionDetailDrawer';
 import type { MetricColor } from './metricCards';
 import { formatMetricValue, visibleMetricCards } from './metricCards';
@@ -34,6 +35,7 @@ import TradeTable, { type Trade } from '../../components/TradeTable';
 import {
   buildLeverageMap,
   type BacktestFill,
+  type BacktestProgressData,
   type CascadeDecisionRecord,
   type EffectiveMarginSpec,
 } from '../../types/backtest';
@@ -234,6 +236,8 @@ const BacktestDetail = () => {
   const [filterDateRange, setFilterDateRange] = useState<[string, string] | null>(null);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [detailRecord, setDetailRecord] = useState<CascadeDecisionRecord | null>(null);
+  // failed 任务的失败原因：progress 接口的 error.message（内存态快照，服务重启后取不到 → 整块不渲染）
+  const [progress, setProgress] = useState<BacktestProgressData | null>(null);
 
   // 设置页面标题
   useEffect(() => {
@@ -286,6 +290,19 @@ const BacktestDetail = () => {
 
     fetchDetail();
   }, [backtestId, navigate, querySymbol]);
+
+  // failed 任务补失败原因（列表行内摘要同源：progress 接口 error.message）。
+  // 快照只在内存里，服务重启后的旧任务接口返回空 → 页面只留状态 chip，不编原因
+  useEffect(() => {
+    if (!backtestId || backtestData?.status !== 'failed') return;
+    let cancelled = false;
+    getBacktestProgress(backtestId).then((data) => {
+      if (!cancelled && data) setProgress(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [backtestId, backtestData?.status]);
 
   /** 多品种切换：驱动后端重新拉取该品种的指标/曲线/成交；切回「全部」时恢复组合视图请求 */
   const handleSymbolChange = (value: string) => {
@@ -481,6 +498,9 @@ const BacktestDetail = () => {
     : '';
   const detailSubtitle = [symbolsLabel, backtestConfig.interval, rangeLabel].filter(Boolean).join(' · ') || undefined;
 
+  // 失败原因块（failed 才有；progress.error 缺失即不渲染，只留状态 chip）
+  const failMessage = backtestData.status === 'failed' ? progress?.error?.message : undefined;
+
   return (
     <PageContainer
       title={`${strategyName} - ${t('backtest_detail')}`}
@@ -508,6 +528,16 @@ const BacktestDetail = () => {
       }
     >
       <div className="space-y-3">
+        {/* 失败原因：放页首，避免 failed 任务（KPI 全空）看起来像空壳；原文 mono 可换行 */}
+        {failMessage && (
+          <div className="bt-fail-block">
+            <div className="bt-fail-title">
+              {t('bt_fail_reason')}
+              {progress?.error?.stage ? ` · ${progress.error.stage}` : ''}
+            </div>
+            <div className="qc-mono bt-fail-text">{failMessage}</div>
+          </div>
+        )}
         {/* 配置信息 */}
         <Card title={t('config_info')} className="qc-card">
           <Flex vertical gap={12}>

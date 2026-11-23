@@ -12,6 +12,12 @@ import IndicatorAlertsModal from '../IndicatorAlertsModal';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
 import type { OrderbookPrefs } from '../../services/chartPreferences';
 
+/** 常驻图例 chip 数据：label 与图内指标 title 同构（MA20 / EMA6 / UP...），color 为图内实际线色 */
+export interface IndicatorLegendChip {
+  label: string;
+  color: string;
+}
+
 export interface ChartPeriodItem {
   label: string;
   value: string;
@@ -28,6 +34,8 @@ interface ChartPeriodBarProps {
   onChangePeriod: (value: string) => void;
   activeIndicators: ActiveIndicator[];
   onToggleIndicator: (indicator: Indicator, params?: Record<string, unknown>) => void;
+  /** 常驻图例 chips（overlay 均线指标，demo card-head 的 MA 图例对应物）；缺省不渲染整个图例区 */
+  indicatorLegend?: IndicatorLegendChip[];
   /** QuantCell 特有的实时行情开关，由 ChartPage 传入，放在工具栏最右 */
   realtimeSlot?: React.ReactNode;
   onOpenSymbolSearch: () => void;
@@ -63,6 +71,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   onChangePeriod,
   activeIndicators,
   onToggleIndicator,
+  indicatorLegend,
   realtimeSlot,
   onOpenSymbolSearch,
   currentTimezone,
@@ -170,6 +179,19 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
               : t('chart.toolbar.fullscreen')}
           </span>
         </div>
+
+        {/* 常驻图例（demo head-right 的 s-chip 形制）：线色与图内实际线一致；hover 原有 pane
+            管理条不受影响。样式见 chart-toolbars.css 的 .chart-ind-legend */}
+        {indicatorLegend && indicatorLegend.length > 0 && (
+          <div className="chart-ind-legend" title={t('chart.ohlc.legend', '主图叠加均线图例')}>
+            {indicatorLegend.map((chip, i) => (
+              <span key={`${chip.label}-${i}`} className="chart-ind-legend-chip">
+                <i style={{ background: chip.color }} />
+                {chip.label}
+              </span>
+            ))}
+          </div>
+        )}
 
         {realtimeSlot ? <div className="live-area">{realtimeSlot}</div> : null}
       </div>

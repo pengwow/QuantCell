@@ -717,7 +717,13 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     <Modal
       title={
         <div className="flex items-center justify-between w-full pr-8">
-          <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-medium">{title || t('ai_chat')}</span>
+            {/* demo 2467：标题旁「kernel 兼容契约」chip（生成结果按统一内核契约输出；info 档 + mono） */}
+            <span className="qc-chip info qc-mono">
+              {t('ai_kernel_contract')}
+            </span>
+          </div>
           {chatMessages.length > 0 && (
             <Popconfirm
               title="清空历史"

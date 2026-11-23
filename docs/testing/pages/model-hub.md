@@ -32,6 +32,9 @@
 | M13 | 在 RL 回测历史点某行「查看」 | 跳转 `/backtest/detail/{id}` | L2 |
 | M14 | 卡/弹窗 chrome 全覆盖抽查 | 总表空态卡/模型卡、训练配置卡、集成「创建集成」与「集成列表」卡头部呈现 qc 卡头（13px/650 标题、无底色分隔线）；注册模型 / RL 回测 / 集成的挑选模型、冒烟预测、集成回测弹窗均为 §6.11 qc-modal chrome（14px 圆角 + 1px 边 + 虚线分隔页脚），DOM 上带 `qc-modal` 类；详见抽屉走全局抽屉样式 | L1 |
 | M15 | 训练进度 / 结果区形制（打开训练页签观察静态渲染即可，不必真跑训练） | 进度卡为四槽 §6.4 KPI（当前步数 / 当前Episode / 耗时 / Episode奖励，label 11px / mono 22px/650），progress 未到达时四槽常驻显示 0；进度条单色（success 色）；结果区 Sharpe 正绿负红、最大回撤恒红、状态为语义 chip（completed→ok / failed→down / 其他→info，值为大写状态码） | L1 |
+| M16 | 打开 `/model-hub`，模型总表加载完成后读页头副标 | 在角色计数之后出现双闸状态段：`auto_retrain_enabled`/`auto_promote_enabled` 同为 true →「双闸开启」、同为 false →「双闸关闭」、一开一关 →「双闸：重训开 · 晋升关」（对称文案同理），取值来自 `GET /api/v1/rl/lifecycle/state`；接口失败或字段缺失时该段**不渲染**（不得兜底成「双闸关闭」） | L2 |
+| M17 | 点页头「重训台账」 | 打开只读 Modal，三段「重训候选 / 待审晋升 / 晋升记录」，字段 family / model_id / reason / evidence / status / created_at 均取自同一 `GET /api/v1/rl/lifecycle/state`；空段显示「暂无记录」；加载失败显示错误提示且**不渲染空表**（不出现零行表头）；弹窗内无任何审批/写操作按钮 | L2 |
+| M18 | 点页头 primary「新建训练」 | 切到训练工作台页签（URL 变 `/model-hub?tab=train`），训练配置表单就绪；该钮同步直跑（走 `POST /api/v1/rl/train`），无排队语义、不落后台队列任务 | L1 |
 
 ## 历史雷区
 - **训练没有进度源**：训练只走同步 `POST /api/v1/rl/train`（后端无 SSE/进度端点），前端 `progress` 恒为 `null` → 训练中进度条恒 0%、当前步数恒 0。这是现状实现，**不要据此判定"训练卡死"**；判据是请求是否 pending/返回
@@ -48,3 +51,5 @@
 - **训练进度 KPI 空槽显示 0**：RLTrainingProgress 在 progress 为空时四槽 KPI（含 Episode 奖励 0.00）常驻渲染——原实现奖励槽在 undefined 时整块隐藏，形制统一为 §6.4 常驻 KPI 卡后不再隐藏。别据此判「奖励异常归零」；真实进度仍以上报报文为准
 - **集成「挑选模型」的已选标签仍是可关闭 antd Tag**（默认灰、无彩色）：`qc-chip` 语法没有关闭槽位原语，本轮按「缺原语只报告」保留现状；感兴趣的切入点：给 global.css 增加 `.qc-chip` 关闭按钮变体后替换
 - **RLTrainingResult 状态值是后端大写原码**：chip 文案直接渲染 `COMPLETED` / `FAILED`（无 i18n 映射），与状态列 chip 口径一致，别当乱码
+- **该页文案硬编码中文**（2026-11-23）：页签 label、页头钮（含「重训台账」「新建训练」）与 M16-M18 的双闸/台账文案均为写死中文，本轮未接 i18n，与页面既有现状一致；英文界面下出现中文**不是缺陷**，不要当 i18n 漏翻追
+- **双闸关闭是默认部署态**：`/rl/lifecycle/state` 正常返回 false/false 时副标显示「双闸关闭」是正确断言（M16）；只有请求失败或字段缺失才应整段缺席，反之「接口错误却显示双闸关闭」才是 bug（默认兜底造假）

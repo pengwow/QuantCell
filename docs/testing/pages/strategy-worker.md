@@ -30,6 +30,10 @@
 | W17 | 悬浮/查看「归档重锚」按钮 | 非 stopped/error 状态下按钮不可点；交易模式为「本地模拟」(paper) 时悬浮提示「paper 模拟盘不产生 journal 文件，启动即全新开始，无需归档」 | L2（只读断言） |
 | W18 | 打开 `/strategy-worker/<id>#performance` | 提示「该视图已合并到 总览」，随后 hash 变为 `#overview` 且「总览」页签激活（旧分享链接兼容） | L2 |
 | W19 | 把某页签（如「交易」）的 hash 复制后刷新页面 | 刷新后仍停在同一个页签（切换页签会同步 URL hash，刷新按 hash 恢复） | L2 |
+| W20 | 详情页点「停止」（worker 为 running/paused） | 详情页头出现「停止」按钮；点击弹二次确认，确认后发起 `lifecycle/stop` 并刷新状态 chip；`stopped`/`stopping` 时该钮不出现；访客身份下按钮禁用并带 Tooltip | L2（写操作） |
+| W21 | 观察详情页头部事实条持仓三件 | 「周期/交易模式」之后出现「当前持仓 / 开仓价格 / 未实现盈亏」；无持仓时整项省略（不留占位）；未实现盈亏正绿负红、`0` 不染色；多持仓时只显示未实现盈亏合计（数量与均价省略，不造均值） | L2 |
+| W22 | 列表页状态筛选选「已暂停」 | 下拉新增「已暂停」项；选中后只显示 `status=paused` 的 worker（无匹配时为空态「暂无Worker」） | L1 |
+| W23 | 观察列表页头左侧 | 出现返回箭头，点击跳 `/home` | L1 |
 
 ## 历史雷区
 - **「创建/编辑 Worker」弹窗不归本页样式门禁**：两个 Modal 的表单交互属创建链路（W3），chrome 已挂 `qc-modal + qc-form`；若表单字段校验文案报错，先查 store 与 API 再怀疑样式收口
@@ -41,3 +45,4 @@
 - **旧 hash 会改写 URL**：打开 `#performance` 等旧 hash 会 toast 提示并 `replaceState` 成 `#overview`，脚本若监听 URL 变化会误判成"多跳了一次导航"
 - **分享弹窗会写数据**：`POST /api/v1/workers/<id>/share` 真实生成 token 并落库，L1/L2 默认只验证弹窗打开，不点「生成链接」
 - **删除 worker 不可撤销**：无回收站，只有确认框；验证删除只允许对 `zz_test_probe_worker` 执行，并当场 teardown
+- **详情页不提供「暂停/继续」**：后端 `backend/worker/routes.py` 的 lifecycle 只有 start/stop/restart，`agentApi.pauseAgent`/`resumeAgent` 是死代码；加按钮会 404。要补必须先加真实 pause/resume 路由与泵线程语义，别只接前端

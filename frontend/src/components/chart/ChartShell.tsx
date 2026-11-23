@@ -46,9 +46,10 @@ import { builtInIndicators, type Indicator, type ActiveIndicator, type Indicator
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
 import ChartPeriodBar, { type ChartPeriodItem } from './ChartPeriodBar';
+import OHLCStrip from './OHLCStrip';
 import { CHART_SETTING_DEFS } from './ChartSettingModal';
 import { setStyleValue, currentChartThemeMode } from './chartStyles';
-import { findPeriodItem } from './chartConstants';
+import { findPeriodItem, INDICATOR_LINE_COLORS, INDICATOR_LEGEND_NAMES } from './chartConstants';
 import {
   cancelPendingSaves,
   loadChartPrefs,
@@ -390,6 +391,11 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<Nullable<Chart>>(null);
+  // 就绪实例的 state 影子：OHLCStrip 以 props 订阅 crosshair，ref 变化不触发子树更新，
+  // 需要这份可渲染引用（init/dispose 各一次低频赋值，与 ref 保持同指针）
+  const [readyChart, setReadyChart] = useState<Nullable<Chart>>(null);
+  // 页面喂数次数：OHLCStrip 借新 prop 重读末根（实时更新后信息条随之刷新）；值本身不参与渲染
+  const [barsTick, setBarsTick] = useState(0);
   // 全屏目标：包含上方工具栏与图表的主体容器
   const fullscreenTargetRef = useRef<HTMLDivElement>(null);
 
@@ -986,6 +992,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       }
     });
     chart.resize();
+    // 通知 OHLCStrip 重读末根（实时批量喂数经页面 100~200ms 节流，频率可控）
+    setBarsTick(t => t + 1);
   }, [getDisplayBars]);
 
   // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis。
@@ -1108,6 +1116,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       if (!chart) return;
 
       chartInstanceRef.current = chart;
+      setReadyChart(chart);
 
       // 兜底：init 时若容器处于布局过渡态（如侧边栏宽度恢复/首帧 flex 计算），
       // 量到的是过期宽度并会一直僵持；隔两帧按最终布局宽度强制重绘一次
@@ -1156,6 +1165,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     return () => {
       if (chartInstanceRef.current) {
         dispose(chartId);
+        setReadyChart(null);
         chartInstanceRef.current = null;
       }
     };
@@ -1457,6 +1467,28 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     ? activeIndicators.filter(ind => ind.paneId === hoveredPaneId)
     : [];
 
+  // 常驻图例 chips（demo card-head 的 MA 图例对应物）：遍历活跃 overlay 均线指标，
+  // 线名/线数与 klinecharts regenerateFigures 同构造，线色取默认色板真值（图内实际线色）。
+  // 无 overlay 型指标时返回空数组 → 周期栏不渲染容器（不显示死 chip）
+  const indicatorLegendChips = useMemo(() => {
+    const chips: { label: string; color: string }[] = [];
+    for (const ind of activeIndicators) {
+      if (ind.isCustom) continue;
+      const name = builtInIndicatorMap[String(ind.id)];
+      if (!name || !INDICATOR_LEGEND_NAMES.has(name)) continue;
+      if (name === 'BOLL') {
+        // BOLL 内置无 regenerateFigures，figures 固定 UP/MID/DN 三条，线色按色板前三位
+        ['UP', 'MID', 'DN'].forEach((seg, i) =>
+          chips.push({ label: seg, color: INDICATOR_LINE_COLORS[i % INDICATOR_LINE_COLORS.length] }));
+      } else {
+        // MA/EMA：一条 calcParams 生成一条线，图内 title 即 `MA20: ` 同构
+        toCalcParamArray(ind.params).forEach((p, i) =>
+          chips.push({ label: `${name}${p}`, color: INDICATOR_LINE_COLORS[i % INDICATOR_LINE_COLORS.length] }));
+      }
+    }
+    return chips;
+  }, [activeIndicators]);
+
   return (
     <div className="chart-page-fullscreen page-fullscreen">
       <div className="chart-page" ref={fullscreenTargetRef}>
@@ -1471,6 +1503,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
           onChangePeriod={onChangePeriod}
           activeIndicators={activeIndicators}
           onToggleIndicator={handleToggleIndicator}
+          indicatorLegend={indicatorLegendChips.length > 0 ? indicatorLegendChips : undefined}
           realtimeSlot={realtimeSlot}
           onOpenSymbolSearch={() => onOpenSymbolSearch?.()}
           currentTimezone={timezone}
@@ -1519,6 +1552,10 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
                 className="kline-chart"
               />
             </Spin>
+
+            {/* OHLC 十字光标联动条（demo .ohlc-row，位于图下沿）：随 crosshair 更新、移出回末根，
+             *  无数据整条不渲染；实例经 readyChart 传入、喂数经 barsTick 促重读末根 */}
+            <OHLCStrip chart={readyChart} getBars={getBars} refreshSignal={barsTick} />
 
             {/* 指标图例 hover 工具条：贴 pane 顶部浮出，⚙ 改参数 / × 移除；无指标的 pane 不显示 */}
             {hoveredPaneId && paneIndicators.length > 0 && (

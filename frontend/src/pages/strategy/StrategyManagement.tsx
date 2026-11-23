@@ -297,6 +297,17 @@ const StrategyManagement = () => {
     [filteredStrategies, selectedRowKey]
   );
 
+  // 首屏/筛选后兜底选中：只在「从未选过」或「当前选中已不在新列表里」时选首行，
+  // 用户手动点行后其行始终在列表里 → 本 effect 早退，不会被每次重载抢回；空列表不选中
+  useEffect(() => {
+    if (loading) return;
+    const names = filteredStrategies.map((s) => s.name);
+    if (names.length === 0) return;
+    if (selectedRowKey !== '' && names.includes(String(selectedRowKey))) return;
+    // ponytail: 取全量首行而非当前页首行 —— 首屏与筛选后页码恒归 1，仅删除兜底时可能跨页
+    setSelectedRowKey(names[0]);
+  }, [filteredStrategies, loading, selectedRowKey]);
+
   // 换选中行 → 收起并清空版本历史缓存（条数来自 overview，重载后跟着变）
   useEffect(() => {
     setVersionsOpen(false);
@@ -652,7 +663,7 @@ const StrategyManagement = () => {
   };
 
   // 表下详情块 — demo 1716-1729 同构：标题 + 名称 + 状态 chip + 版本；参数 KV + 去回测/创建 Worker + footer
-  // 「版本历史 N 条」只读 /strategy/overview 的 version_count（真实快照数，0 时整段不渲染）
+  // 「版本历史 N 条」只读 /strategy/overview 的 version_count（真实快照数，0 时保留弱态段但不可展开）
   const renderDetailBlock = () => {
     if (!selectedItem) return null;
     const verSegs: string[] = [];
@@ -685,7 +696,8 @@ const StrategyManagement = () => {
           </Button>
           <Button onClick={() => setCreateWorkerOpen(true)}>{t('create_worker')}</Button>
           <span className="sm-detail-foot">{footSegs.join(' · ')}</span>
-          {versionCount > 0 && (
+          {/* 0 条也保留该段（demo 1727），但退成与累计回测同形的非交互弱态文字，不给空列表 */}
+          {versionCount > 0 ? (
             <button
               type="button"
               className="sm-ver-toggle"
@@ -697,6 +709,8 @@ const StrategyManagement = () => {
                 {versionsOpen ? '▾' : '▸'}
               </span>
             </button>
+          ) : (
+            <span className="sm-detail-foot">{t('sm_detail_version_count', { n: 0 })}</span>
           )}
         </div>
         {versionCount > 0 && versionsOpen && renderVersionList()}

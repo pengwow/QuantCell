@@ -38,6 +38,9 @@ const STATUS_CHIPS: Array<{ value: FilterStatus; i18nKey: string }> = [
 // 行内摘要 KPI（demo bt-detail mstats 对位）：全部取自组合级真实指标，缺哪个少哪张
 const SUMMARY_METRIC_KEYS = ['total_return', 'sharpe_ratio', 'max_drawdown', 'total_trades', 'win_rate'] as const;
 
+// 运行中任务进度刷新间隔（demo bt-run 1272：运行中定时刷新快照；这里取 15s）
+const PROGRESS_POLL_MS = 15_000;
+
 const BacktestList = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -53,6 +56,8 @@ const BacktestList = () => {
   // 筛选状态（搜索词回车/清除才提交服务端；chips 即点即查）
   const [searchText, setSearchText] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
+  // 类型筛选（rule/rl/llm；'all' 表示不过滤）—— 与列表「类型」列同源，由后端判定
+  const [kindFilter, setKindFilter] = useState<'all' | 'rule' | 'rl' | 'llm'>('all');
   // 创建日期范围筛选（工具栏 RangePicker；服务端按 created_at 日粒度含端点过滤）
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [sortField, setSortField] = useState<SortField>('created_at');
@@ -125,20 +130,44 @@ const BacktestList = () => {
   const progressTaskId = selectedTask?.status && ['running', 'in_progress', 'failed'].includes(selectedTask.status)
     ? String(selectedTask.id)
     : '';
+  // 只有运行中的任务才轮询；failed 只拉一次（错误原因不会变）
+  const progressTaskRunning = selectedTask?.status === 'running' || selectedTask?.status === 'in_progress';
+  const progressPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
+    const stopPoll = () => {
+      if (progressPollRef.current) {
+        clearInterval(progressPollRef.current);
+        progressPollRef.current = null;
+      }
+    };
+    // 切行/取消选中/卸载都先清定时器
+    stopPoll();
     if (!progressTaskId) {
       setProgress(null);
-      return;
+      return stopPoll;
     }
     let cancelled = false;
     setProgress(null);
-    getBacktestProgress(progressTaskId).then((data) => {
-      if (!cancelled) setProgress(data);
-    });
+    const pull = () => {
+      getBacktestProgress(progressTaskId).then((data) => {
+        if (cancelled) return;
+        // 请求失败/内存快照丢失时 getBacktestProgress 返回 null：保留已显示的旧快照，
+        // 不清空、不弹错（进度条停在上次真实值比归零更接近事实）
+        if (!data) return;
+        setProgress(data);
+        // 后端报终态即停（列表状态要等下次刷新才变，不能靠它收尾）
+        if (!['running', 'in_progress', 'pending'].includes(data.status)) stopPoll();
+      });
+    };
+    pull();
+    if (progressTaskRunning) {
+      progressPollRef.current = setInterval(pull, PROGRESS_POLL_MS);
+    }
     return () => {
       cancelled = true;
+      stopPoll();
     };
-  }, [progressTaskId]);
+  }, [progressTaskId, progressTaskRunning]);
 
   // 设置页面标题
   useEffect(() => {
@@ -151,6 +180,7 @@ const BacktestList = () => {
     page?: number;
     pageSize?: number;
     status?: FilterStatus;
+    kind?: 'all' | 'rule' | 'rl' | 'llm';
     keyword?: string;
     sortBy?: SortField;
     sortOrder?: SortOrder;
@@ -162,6 +192,7 @@ const BacktestList = () => {
       const nextPage = overrides?.page ?? page;
       const nextPageSize = overrides?.pageSize ?? pageSize;
       const nextStatus = overrides?.status ?? statusFilter;
+      const nextKind = overrides?.kind ?? kindFilter;
       const nextKeyword = overrides?.keyword ?? searchText;
       const nextSortBy = overrides?.sortBy ?? sortField;
       const nextSortOrder = overrides?.sortOrder ?? sortOrder;
@@ -172,6 +203,7 @@ const BacktestList = () => {
         page_size: nextPageSize,
         // 'all' 表示不筛选状态，不传给后端
         status: nextStatus === 'all' ? undefined : nextStatus,
+        kind: nextKind === 'all' ? undefined : nextKind,
         keyword: nextKeyword || undefined,
         sort_by: nextSortBy,
         sort_order: nextSortOrder,
@@ -185,7 +217,7 @@ const BacktestList = () => {
       // 页码越界钳制（切档位/筛掉数据后 current 可能超出最大页）
       setPage(Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(nextTotal / nextPageSize))));
       // 无筛选请求才刷新「任务表 N 条」口径，副标不随筛选抖动
-      if (nextStatus === 'all' && !nextKeyword && !nextStartTime && !nextEndTime) {
+      if (nextStatus === 'all' && nextKind === 'all' && !nextKeyword && !nextStartTime && !nextEndTime) {
         setOverallTotal(nextTotal);
       }
     } catch (error) {
@@ -194,7 +226,7 @@ const BacktestList = () => {
     } finally {
       setLoading(false);
     }
-  }, [message, t, page, pageSize, statusFilter, searchText, sortField, sortOrder, dateRange]);
+  }, [message, t, page, pageSize, statusFilter, kindFilter, searchText, sortField, sortOrder, dateRange]);
 
   // 组件挂载时加载数据
   useEffect(() => {
@@ -496,6 +528,12 @@ const BacktestList = () => {
             >
               {failMessage}
             </div>
+            {/* LLM 策略：回测只吃录制记录，未命中直接失败 —— 机制是后端 llm_replay 的真实行为，非承诺 */}
+            {selectedTask.strategy_kind === 'llm' && (
+              <div className="bt-note" style={{ marginTop: 4 }}>
+                {t('bt_llm_replay_note')}
+              </div>
+            )}
           </div>
         )}
         {!summaryLoading && summaryError && (
@@ -672,12 +710,14 @@ const BacktestList = () => {
   const handleResetFilters = () => {
     setSearchText('');
     setStatusFilter('all');
+    setKindFilter('all');
     setSortField('created_at');
     setSortOrder('desc');
     setDateRange(null);
     loadBacktestList({
       page: 1,
       status: 'all',
+      kind: 'all',
       keyword: '',
       sortBy: 'created_at',
       sortOrder: 'desc',
@@ -693,7 +733,7 @@ const BacktestList = () => {
     return t('shown_range', { start, end, total: totalCount });
   };
 
-  const hasFilters = searchText !== '' || statusFilter !== 'all' || dateRange !== null;
+  const hasFilters = searchText !== '' || statusFilter !== 'all' || kindFilter !== 'all' || dateRange !== null;
 
   // 渲染列表视图 — §6.5/§6.6/§6.7：chips 状态筛选 + DataTable + 行内摘要 + 脚注
   const renderListView = () => (
@@ -729,6 +769,23 @@ const BacktestList = () => {
                 </button>
               ))}
             </div>
+            {/* 类型筛选（回测任务混合 rule/rl/llm，靠这一项区分）：服务端按策略文件 AST 过滤，
+             *  与列表「类型」列同源；'all' 不传给后端 */}
+            <Select<'all' | 'rule' | 'rl' | 'llm'>
+              aria-label={t('bt_col_kind')}
+              value={kindFilter}
+              onChange={(value) => {
+                setKindFilter(value);
+                loadBacktestList({ kind: value, page: 1 });
+              }}
+              style={{ width: 96 }}
+              options={[
+                { value: 'all', label: t('bt_kind_all') },
+                { value: 'rule', label: t('bt_kind_rule') },
+                { value: 'rl', label: t('bt_kind_rl') },
+                { value: 'llm', label: t('bt_kind_llm') },
+              ]}
+            />
             {/* 创建日期范围（demo 工具栏无此控件，属显式需求扩展）：服务端含端点过滤 */}
             <DatePicker.RangePicker
               aria-label={t('date_range')}
@@ -874,6 +931,10 @@ const BacktestList = () => {
               style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
             >
               <div className="space-y-3" style={{ color: 'var(--qc-text-secondary)' }}>
+                <div className="flex justify-between items-center">
+                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('bt_col_kind')}</span>
+                  {renderKindChip(task.strategy_kind)}
+                </div>
                 <div className="flex justify-between items-center">
                   <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('return_rate')}</span>
                   {renderReturn(task.total_return)}

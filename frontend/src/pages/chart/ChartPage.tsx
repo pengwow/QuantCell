@@ -9,7 +9,7 @@ import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
 import PageContainer from '../../components/PageContainer';
 import ChartShell, { type ChartShellHandle } from '../../components/chart/ChartShell';
-import { PERIOD_BAR_ITEMS } from '../../components/chart/chartConstants';
+import { PERIOD_BAR_ITEMS, formatUtcBarTime } from '../../components/chart/chartConstants';
 import { OrderBookPanel } from '../../components/chart/orderbook/OrderBookPanel';
 import { TradeTape } from '../../components/chart/orderbook/TradeTape';
 import type { FillPoint } from '../../components/chart/orderbook/fillMarkers';
@@ -118,12 +118,9 @@ const computePxInfo = (bars: KLineData[]): PxInfo | null => {
   return { close, prevClose, ts: last.timestamp };
 };
 
-// px_tag 时间段：ms → UTC "MM-DD HH:mm"（直接读 getUTC* 字段，不动 dayjs 全局 UTC 配置）
-const formatUtcTime = (ms: number): string => {
-  const d = new Date(ms);
-  const p2 = (n: number) => String(n).padStart(2, '0');
-  return `${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
-};
+// px_tag 时间段（OHLC 联动条同用）：ms → UTC "MM-DD HH:mm"，统一走 chartConstants 的 formatUtcBarTime
+// （直接读 getUTC* 字段，不动 dayjs 全局 UTC 配置）；页面内沿用旧名少改调用点
+const formatUtcTime = formatUtcBarTime;
 
 // 千分位形制与 demo 68,412.5 同构；8 位小数上限兜底低价品种
 const pxPriceFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 });

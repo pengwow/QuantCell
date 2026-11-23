@@ -62,6 +62,47 @@ export interface RLBacktestResult {
 }
 
 // ============================================
+// 自动重训闭环只读状态（GET /rl/lifecycle/state）
+// 字段与后端 api/rl_routes.py get_lifecycle_state 的 data 段逐一对齐
+//（ApiResponse 信封由 axios 拦截器解包，与 /agent/loop-status 同款消费方式）
+// ============================================
+
+/** 当日重训候选：services/retrain_policy.py RetrainCandidate.to_dict() */
+export interface RlRetrainCandidate {
+  family: string;
+  model_id: string;
+  model_path: string | null;
+  /** oos_decay（OOS 衰减）/ data_stale（数据陈旧） */
+  reason: string;
+  evidence: Record<string, unknown>;
+}
+
+/** 晋升记录：rl/lifecycle.py 写入 lifecycle_state.json 的 promotions 条目 */
+export interface RlPromotionRecord {
+  kind?: string;
+  family?: string;
+  champion_id?: string;
+  challenger_id?: string;
+  /** pending / auto_promoted / auto_promote_failed */
+  status?: string;
+  created_at?: string;
+  evidence?: Record<string, unknown>;
+  registry?: unknown;
+  promote?: Record<string, unknown>;
+}
+
+/** GET /rl/lifecycle/state 的 data 段：双闸开关 + 重训台账三段 + shadow 状态 */
+export interface RlLifecycleState {
+  auto_retrain_enabled: boolean;
+  auto_promote_enabled: boolean;
+  candidates: RlRetrainCandidate[];
+  pending_promotions: RlPromotionRecord[];
+  promotions: RlPromotionRecord[];
+  /** family → shadow 对照条目列表，本页不展示（聚合口径未定），仅透传类型 */
+  shadow: Record<string, unknown>;
+}
+
+// ============================================
 // 异步训练任务（后台训练 + 进度轮询 / SSE）
 // ============================================
 
@@ -231,4 +272,6 @@ export const rlApi = {
   // 同步回测（kernel 秒级）也可能跑几分钟：timeout:0 关闭 axios 默认超时（与 backtestApi.runBacktest 同策略）
   backtest: (data: RLBacktestRequest) =>
     apiRequest.post<RLBacktestResult>('/rl/backtest', data, { timeout: 0 }),
+  // 只读：自动重训闭环状态（双闸 + 候选/待审晋升/晋升记录）；请求失败由调用方自行降级
+  lifecycleState: () => apiRequest.get<RlLifecycleState>('/rl/lifecycle/state'),
 };

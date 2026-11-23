@@ -963,10 +963,22 @@ class NewStrategy(BaseStrategy):
 
   // §5 page-sub mono 真值副标（demo「最近保存 … · 来源 database」）：
   // 真实口径 = updated_at + 数据来源，缺词条 se_sub_last_saved 已报缺口；未选中策略时不出副标，不造假数据
+  // 时间口径统一 demo（MM-DD HH:mm）；完整时间只在档案行 tooltip 里给，不新增字段
+  const fmtShortTime = (value?: string | null): string => {
+    if (!value) return '—';
+    const d = dayjs(value);
+    return d.isValid() ? d.format('MM-DD HH:mm') : '—';
+  };
+  const fmtFullTime = (value?: string | null): string => {
+    if (!value) return '';
+    const d = dayjs(value);
+    return d.isValid() ? d.format('YYYY-MM-DD HH:mm:ss') : '';
+  };
+
   const editorSubtitle = !selectedStrategy
     ? undefined
     : [
-        `${t('updated_at')} ${dayjs(selectedStrategy.updated_at).format('YYYY-MM-DD HH:mm')}`,
+        `${t('updated_at')} ${fmtShortTime(selectedStrategy.updated_at)}`,
         t(dataSource === 'database' ? 'source_db' : 'source_parse'),
       ].join(' · ');
 
@@ -1231,10 +1243,14 @@ class NewStrategy(BaseStrategy):
                               </div>
                             </Descriptions.Item>
                             <Descriptions.Item label={t('created_at')}>
-                              <span className="qc-mono">{selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : '—'}</span>
+                              <span className="qc-mono" title={fmtFullTime(selectedStrategy?.created_at)}>
+                                {fmtShortTime(selectedStrategy?.created_at)}
+                              </span>
                             </Descriptions.Item>
                             <Descriptions.Item label={t('updated_at')}>
-                              <span className="qc-mono">{selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : '—'}</span>
+                              <span className="qc-mono" title={fmtFullTime(selectedStrategy?.updated_at)}>
+                                {fmtShortTime(selectedStrategy?.updated_at)}
+                              </span>
                             </Descriptions.Item>
                           </Descriptions>
 

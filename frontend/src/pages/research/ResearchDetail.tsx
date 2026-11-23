@@ -26,6 +26,8 @@ import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import { formatTokens } from '@/utils/format';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   researchApi,
   type ResearchEvent,
@@ -51,6 +53,25 @@ const STEP_LABEL_KEYS = [
 
 const fmt = (value: unknown, digits = 4): string =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
+
+/** md 数值/标量格式化：整数原样、小数 4 位、其余原样；不校色、不推断 */
+const mdValue = (value: unknown): string => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+      ? Number.isInteger(value)
+        ? String(value)
+        : value.toFixed(4)
+      : '—';
+  }
+  return String(value);
+};
+
+/** OOS Sharpe 口径：优先 OOS 段指标（metrics_oos.sharpe_ratio），test_ratio=0 未启用
+ * OOS 段时回退样本内 sharpe_ratio；两者皆非有限数 = 无数据（不按 0 处理） */
+const oosSharpeOf = (tr: ResearchTrial): number | null => {
+  const v = tr.metrics_oos?.sharpe_ratio ?? tr.metrics?.sharpe_ratio;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+};
 
 const GateTag: React.FC<{ label: string; gate?: ResearchGate }> = ({ label, gate }) => {
   const { t } = useTranslation();
@@ -382,12 +403,18 @@ const ResearchDetail: React.FC = () => {
     setBacktesting(row.id);
     try {
       const res = await researchApi.toBacktest(sessionId, row.id);
-      // 只认后端返回的 task_id：重复点击不再建任务，行内按钮就地换成「查看回测」
+      // 只认后端返回的 task_id：本次会话内行内/页头按钮就地换成「查看回测」，不再重复发请求。
+      // 刷新后映射丢失（详情接口不带已建任务 id），是已知限制；再点会新建一个回测任务（策略文件复用）
       setBacktestTasks((prev) => ({ ...prev, [row.id]: res.task_id }));
       message.success(
         <span>
           {t('research_to_backtest_done', { name: res.strategy_name })}{' '}
-          <Typography.Link onClick={() => navigate('/backtest')}>
+          {/* 深链到回测任务详情；拿不到 task_id 时退回列表页，不编造 id */}
+          <Typography.Link
+            onClick={() =>
+              navigate(res.task_id ? `/backtest/detail/${res.task_id}` : '/backtest')
+            }
+          >
             {t('research_to_backtest_view')}
           </Typography.Link>
         </span>,
@@ -478,7 +505,11 @@ const ResearchDetail: React.FC = () => {
             {/* 只有 strategy 场景的 trial 是策略代码；factor/model 会话不出现该动作 */}
             {detail?.scenario === 'strategy' &&
               (taskId ? (
-                <Button size="small" type="link" onClick={() => navigate('/backtest')}>
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={() => navigate(`/backtest/detail/${taskId}`)}
+                >
                   {t('research_to_backtest_view')}
                 </Button>
               ) : (
@@ -573,6 +604,96 @@ const ResearchDetail: React.FC = () => {
     ];
   })();
 
+  // —— 会话级「转回测」/「结论」卡 / Top5 共用：best trial 从详情响应的 trials 里找 ——
+  const bestTrialId = detail?.best_trial_id ?? null;
+  const bestTrial =
+    bestTrialId != null
+      ? ((detail?.trials ?? []).find((tr) => tr.id === bestTrialId) ?? null)
+      : null;
+  const bestTaskId = bestTrial ? backtestTasks[bestTrial.id] : undefined;
+
+  // 「结论」md（demo #view-research-detail rd-md）：只用 best trial 的真实字段拼装，
+  // 标题层级固定（结论 = 卡片标题，依据 / 指标 / 配置 = md 段落），缺字段的段落整段
+  // 省略，不写任何推断性结论句。配置取会话 config（trial 无 config 字段，转回测也按它执行）
+  const verdictMd = (() => {
+    if (!bestTrial) return '';
+    const parts: string[] = [];
+    const hypothesis = bestTrial.hypothesis?.trim();
+    if (hypothesis) parts.push(hypothesis);
+    const reason = bestTrial.judge?.reason?.trim();
+    if (reason) parts.push(`### ${t('research_detail_verdict_basis')}\n\n${reason}`);
+    const metricEntries = Object.entries(bestTrial.metrics ?? {}).filter(([, v]) =>
+      ['number', 'string', 'boolean'].includes(typeof v),
+    );
+    if (metricEntries.length > 0) {
+      parts.push(
+        `### ${t('research_detail_metrics_label')}\n\n` +
+          metricEntries.map(([k, v]) => `- \`${k}\`: ${mdValue(v)}`).join('\n'),
+      );
+    }
+    const cfg: Record<string, unknown> = detail?.config ?? {};
+    const cfgStr = (v: unknown): string => {
+      const s = Array.isArray(v) ? v.map(String).join(', ') : v == null ? '' : String(v);
+      return s.trim();
+    };
+    const windowVal = [cfgStr(cfg.start), cfgStr(cfg.end)].filter(Boolean).join(' ~ ');
+    const cfgLines = (
+      [
+        [t('research_detail_field_symbol'), cfgStr(cfg.symbols)],
+        [t('research_detail_field_interval'), cfgStr(cfg.interval)],
+        [t('research_detail_field_market'), cfgStr(cfg.candle_type)],
+        [t('research_detail_field_window'), windowVal],
+      ] as [string, string][]
+    ).filter(([, v]) => v !== '');
+    if (cfgLines.length > 0) {
+      parts.push(
+        `### ${t('research_detail_verdict_config')}\n\n` +
+          cfgLines.map(([k, v]) => `- ${k}: \`${v}\``).join('\n'),
+      );
+    }
+    return parts.join('\n\n');
+  })();
+
+  // Top 5 轮次（demo「参数扫描 Top 5 · 按 OOS Sharpe 降序」）：按 oosSharpeOf 取值降序，
+  // 无 Sharpe 数据的 trial 不入榜；replay 复算行（不占轮次编号）同样排除
+  const top5 = [...(detail?.trials ?? [])]
+    .filter((tr) => !tr.replay_of_id && oosSharpeOf(tr) != null)
+    .sort((a, b) => (oosSharpeOf(b) ?? 0) - (oosSharpeOf(a) ?? 0))
+    .slice(0, 5);
+
+  const top5Columns: ColumnsType<ResearchTrial> = [
+    { title: t('research_detail_col_rank'), width: 60, render: (_v, _r, idx) => <span className="qc-mono">{idx + 1}</span> },
+    {
+      title: t('research_detail_col_round'),
+      width: 90,
+      render: (_, row) =>
+        detail?.mode === 'quick'
+          ? t('research_detail_row_quick_round', { idx: row.candidate_idx })
+          : t('research_detail_row_loop_round', { idx: row.loop_idx }),
+    },
+    {
+      title: t('research_detail_col_hypothesis'),
+      ellipsis: true,
+      render: (_, row) =>
+        row.hypothesis ? <span title={row.hypothesis}>{row.hypothesis}</span> : '—',
+    },
+    { title: 'IC', width: 100, align: 'right', render: (_, row) => <span className="qc-mono">{fmt(row.metrics?.ic_mean)}</span> },
+    { title: 'IC_IR', width: 100, align: 'right', render: (_, row) => <span className="qc-mono">{fmt(row.metrics?.ic_ir)}</span> },
+    { title: 'OOS Sharpe', width: 110, align: 'right', render: (_, row) => <span className="qc-mono">{fmt(oosSharpeOf(row))}</span> },
+    {
+      title: t('research_detail_col_decision'),
+      width: 100,
+      render: (_, row) =>
+        row.decision == null ? (
+          <span className="qc-chip quiet">{t('research_detail_decision_pending')}</span>
+        ) : row.decision ? (
+          <span className="qc-chip ok">{t('research_detail_decision_pass')}</span>
+        ) : (
+          <span className="qc-chip down">{t('research_detail_decision_fail')}</span>
+        ),
+    },
+  ];
+
   return (
     <PageContainer
       title={detail?.name || t('research_detail_page_title', { id: sessionId })}
@@ -605,6 +726,46 @@ const ResearchDetail: React.FC = () => {
             )}
           </span>
           <Space wrap>
+            {/* 会话级「转回测」（demo 2290）：作用于 best_trial_id，同为 strategy 场景限定，
+             *  校验/loading/已建任务口径与 trial 行内一致；trial 行内入口保留不删 */}
+            {detail?.scenario === 'strategy' &&
+              (bestTrial && bestTaskId ? (
+                <Button
+                  type="primary"
+                  ghost
+                  onClick={() =>
+                    navigate(bestTaskId ? `/backtest/detail/${bestTaskId}` : '/backtest')
+                  }
+                >
+                  {t('research_to_backtest_view')}
+                </Button>
+              ) : (
+                <Tooltip
+                  title={
+                    bestTrial
+                      ? !bestTrial.has_code
+                        ? t('research_to_backtest_no_code')
+                        : bestTrial.promoted_factor_name
+                          ? t('research_to_backtest_reuse_hint', {
+                              name: bestTrial.promoted_factor_name,
+                            })
+                          : undefined
+                      : t('research_to_backtest_no_best')
+                  }
+                >
+                  <span>
+                    <Button
+                      type="primary"
+                      ghost
+                      loading={!!bestTrial && backtesting === bestTrial.id}
+                      disabled={!bestTrial || !bestTrial.has_code}
+                      onClick={() => bestTrial && void toBacktest(bestTrial)}
+                    >
+                      {t('research_to_backtest')}
+                    </Button>
+                  </span>
+                </Tooltip>
+              ))}
             <Button loading={loading} onClick={refresh}>
               {t('refresh')}
             </Button>
@@ -777,6 +938,42 @@ const ResearchDetail: React.FC = () => {
             </Card>
           </Col>
         </Row>
+
+        {/* 「结论」卡（demo #view-research-detail rd-md 2295-2304）：内容全部来自
+         *  best trial 的真实字段（markdown 渲染），无 best trial / 全字段缺失时整卡不渲染 */}
+        {bestTrial && verdictMd && (
+          <Card
+            size="small"
+            className="qc-card"
+            title={t('research_detail_card_verdict')}
+            extra={<span className="qc-chip quiet qc-mono">{`#${bestTrial.id}`}</span>}
+          >
+            <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{verdictMd}</ReactMarkdown>
+            </div>
+          </Card>
+        )}
+
+        {/* Top 5 轮次（demo 参数扫描 Top 5 2314-2328）：OOS Sharpe 降序，不足 5 条按实际条数 */}
+        {top5.length > 0 && (
+          <Card
+            size="small"
+            className="qc-card"
+            title={t('research_detail_top5_title')}
+            extra={
+              <Typography.Text type="secondary" className="qc-mono">
+                {t('research_detail_top5_sub')}
+              </Typography.Text>
+            }
+          >
+            <DataTable<ResearchTrial>
+              rowKey="id"
+              columns={top5Columns}
+              dataSource={top5}
+              pagination={false}
+            />
+          </Card>
+        )}
 
         <Flex justify="space-between" align="center" wrap gap={8}>
           <Typography.Text type="secondary">{t('research_detail_compare_hint')}</Typography.Text>
