@@ -108,7 +108,7 @@
 
   /* 主题切换的颜色过渡：只动颜色类属性 */
   body, .p-header, .sider, .card, .nav-item, .icon-btn, .theme-toggle, .btn, .chip, .tag-run,
-  .worker-card, .ws-detail, .tabs, .tab, .bubble, .chain-node, .iter-card, .step-dot, .mstat,
+  .ws-detail, .tabs, .tab, .bubble, .chain-node, .iter-card, .step-dot, .mstat,
   .bt th, .bt td, .task-row, .mini-row, .sys-row, .dot, .sider-foot, .fail-row,
   .fail-log, .curve-wrap, .mode-tag, .s-chip, .pdot, .kpi-num, .avatar {
     transition: background-color .16s ease-out, border-color .16s ease-out, color .16s ease-out, box-shadow .16s ease-out;
@@ -215,7 +215,7 @@
   .btn.danger { color:var(--down); border-color:color-mix(in srgb, var(--down) 42%, transparent); background:color-mix(in srgb, var(--down) 7%, transparent); }
   .btn.danger:hover { background:color-mix(in srgb, var(--down) 12%, transparent); color:var(--down); }
 
-  :is(.nav-item, .icon-btn, .theme-toggle, .btn, .worker-card, .bt-row, .task-row, .collapse-toggle, [data-collapse], .card-link):focus-visible {
+  :is(.nav-item, .icon-btn, .theme-toggle, .btn, .bt-row, .task-row, .collapse-toggle, [data-collapse], .card-link):focus-visible {
     outline:2px solid var(--info); outline-offset:2px;
   }
 
@@ -293,18 +293,9 @@
   .mini-right { margin-left:auto; display:flex; align-items:center; gap:8px; }
   .mini-pnl { font-size:11.5px; font-weight:600; }
 
-  /* ============ 策略智能体 ============ */
-  .sagent-grid { display:grid; grid-template-columns:296px minmax(0, 1fr); gap:12px; align-items:start; }
-  .worker-list { display:flex; flex-direction:column; gap:9px; position:sticky; top:0; }
-  .worker-card { cursor:pointer; border:1px solid var(--bd); border-radius:10px; background:var(--bgc);
-    padding:11px 12px; position:relative; box-shadow:var(--card-shadow); }
-  .worker-card:hover { border-color:var(--bd-2); }
-  .worker-card.on { border-color:color-mix(in srgb, var(--primary) 45%, transparent); background:color-mix(in srgb, var(--primary) 5%, var(--bgc)); }
-  .worker-card.on::before { content:''; position:absolute; left:0; top:14px; bottom:14px; width:3px; border-radius:0 2px 2px 0; background:var(--primary); }
-  .worker-card.off { opacity:.66; }
+  /* ============ 策略智能体（列表页 / 详情页） ============ */
+  /* w-head / w-row2 / w-row3 / w-dur / w-pnl 由数据管理与策略研究卡共用，保留 */
   .w-head { display:flex; align-items:center; gap:7px; }
-  .w-name { font-size:12.5px; font-weight:600; }
-  .w-wid { font-size:10.5px; color:var(--fg-4); }
   .w-row2 { display:flex; align-items:center; gap:8px; margin-top:7px; }
   .w-dur { margin-left:auto; font-size:10.5px; color:var(--fg-4); }
   .w-row3 { display:flex; align-items:baseline; gap:7px; margin-top:7px; }
@@ -312,13 +303,7 @@
   .w-pnl { font-size:13.5px; font-weight:650; }
 
   .ws-detail { padding:0; overflow:hidden; }
-  .ws-head { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--bd); flex-wrap:wrap; }
-  .ws-title { font-size:14.5px; font-weight:650; }
   .ws-wid { font-size:11px; color:var(--fg-4); }
-  .ws-kv { display:flex; align-items:baseline; gap:6px; margin-left:4px; }
-  .ws-kv .lbl { font-size:10.5px; color:var(--fg-4); }
-  .ws-kb .mono, .ws-kv .mono { font-weight:600; }
-  .ws-btns { margin-left:auto; display:flex; gap:8px; }
 
   .tabs { display:flex; border-bottom:1px solid var(--bd); padding:0 10px; overflow-x:auto; scrollbar-width:none; }
   .tabs::-webkit-scrollbar { display:none; }
@@ -330,10 +315,7 @@
   .ws-body { padding:16px 16px 14px; }
   .flow { max-width:820px; }
   .ws-note { font-size:10.5px; color:var(--fg-4); margin:14px 2px 0; }
-  .ws-strip { border-top:1px solid var(--bd); padding:11px 14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .strip-cap { font-size:10.5px; color:var(--fg-4); letter-spacing:.08em; margin-right:4px; }
-
-  /* ---- 决策流：ReAct 步进器 + 工具链 + 气泡（DNA 照抄参考稿） ---- */
+  /* ---- 智能体工作台：ReAct 步进器 + 工具链 + 气泡（/agent 专用；策略智能体的决策页签不再复用此语义） ---- */
   .iter-wrap { margin:0 0 8px 44px; }
   .iter-card { border:1px dashed color-mix(in srgb, var(--primary) 40%, transparent);
     background:color-mix(in srgb, var(--primary) 4%, var(--bgc)); border-radius:10px; padding:10px 12px 9px; }
@@ -406,6 +388,22 @@
   .iter-next { margin:2px 0 14px 44px; padding-left:16px; display:flex; align-items:center; gap:9px; font-size:11px; color:var(--fg-4); }
   .iter-next .tick { width:7px; height:7px; border-radius:50%; border:1.5px solid var(--fg-4); flex:0 0 7px; }
   .iter-next .ln { flex:0 0 26px; height:1px; background:var(--bd-2); }
+
+  /* ---- 策略智能体：列表页 + 详情页（对齐现网 /strategy-worker 与 /:id 两路由） ---- */
+  .ws-facts { border:1px solid var(--bd); border-radius:10px; background:var(--bgc); padding:10px 12px;
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 12px; }
+  .ws-facts .s-chip b.up { color:var(--up); }
+  .ws-facts .s-chip b.down { color:var(--down); }
+  button.tab { border:0; border-bottom:2px solid transparent; background:none; font:inherit; font-size:12.5px; color:var(--fg-3); }
+  .sd-pane[hidden] { display:none; }
+  .dec-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .dec-note { font-size:10.5px; color:var(--fg-4); margin-left:auto; }
+  .dec-kv { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--fg-3); margin-bottom:2px; }
+  .dec-kv b { font-family:ui-monospace, Menlo, monospace; color:var(--fg-2); font-weight:600; }
+  .dec-lb { font-size:10.5px; color:var(--fg-4); letter-spacing:.06em; margin:12px 0 5px; }
+  pre.dec-pre { margin:0; padding:9px 11px; max-height:170px; overflow:auto; border-radius:6px;
+    background:var(--bgc); border:1px solid var(--bd); font-family:ui-monospace, Menlo, monospace;
+    font-size:11px; line-height:1.7; color:var(--fg-2); white-space:pre-wrap; }
 
   /* ============ 回测中心 ============ */
   .bt-card { padding:0; overflow:hidden; }
@@ -694,8 +692,6 @@
   @media (max-width:1080px) {
     .col3 { grid-column:span 6; }
     .col4, .col6, .col8 { grid-column:span 12; }
-    .sagent-grid { grid-template-columns:1fr; }
-    .worker-list { position:static; display:grid; grid-template-columns:repeat(auto-fill, minmax(232px, 1fr)); }
     .mstats { grid-template-columns:repeat(auto-fit, minmax(118px, 1fr)); }
   }
   @media (max-width:860px) {
@@ -871,21 +867,21 @@
               <span class="count-chip">3 workers</span>
               <div class="head-right"><button class="card-link" data-goto="sagent">进入策略智能体 →</button></div>
             </div>
-            <div class="task-row" data-goto="sagent" tabindex="0" title="查看决策流">
+            <div class="task-row" data-goto="sagent" tabindex="0" title="打开策略智能体">
               <div>
                 <div class="t-main"><span class="t-name mono">rl-btc-hourly</span><span class="t-id mono">#12</span><span class="mode-tag" style="color:var(--primary);border-color:color-mix(in srgb,var(--primary) 42%,transparent);background:color-mix(in srgb,var(--primary) 9%,transparent)">实盘</span></div>
                 <div class="t-sub">RL · PPO · BTC/USDT · 1h · 统一内核泵</div>
               </div>
               <div class="t-right"><span class="t-pnl mono up">+0.31%</span><span class="t-dur mono">14h 22m</span><span class="tag-run">运行中</span></div>
             </div>
-            <div class="task-row" data-goto="sagent" tabindex="0" title="查看决策流">
+            <div class="task-row" data-goto="sagent" tabindex="0" title="打开策略智能体">
               <div>
                 <div class="t-main"><span class="t-name mono">dualma-btc-4h</span><span class="t-id mono">#5</span><span class="mode-tag" style="color:var(--primary);border-color:color-mix(in srgb,var(--primary) 42%,transparent);background:color-mix(in srgb,var(--primary) 9%,transparent)">实盘</span></div>
                 <div class="t-sub">规则 · 双均线 10/30 · BTC/USDT · 4h</div>
               </div>
               <div class="t-right"><span class="t-pnl mono up">+0.09%</span><span class="t-dur mono">62h 05m</span><span class="tag-run">运行中</span></div>
             </div>
-            <div class="task-row" data-goto="sagent" tabindex="0" title="查看决策流">
+            <div class="task-row" data-goto="sagent" tabindex="0" title="打开策略智能体">
               <div>
                 <div class="t-main"><span class="t-name mono">llm-eth-swing</span><span class="t-id mono">#3</span><span class="mode-tag" style="color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,transparent);background:color-mix(in srgb,var(--info) 8%,transparent)">模拟盘</span></div>
                 <div class="t-sub">LLM 决策 · ETH/USDT · 4h · 决策录制中</div>
@@ -950,178 +946,267 @@
         <div class="page-head">
           <div>
             <h2 class="page-title">策略智能体</h2>
-            <p class="page-sub mono">worker 泵运行中 3 · 暂停 1 · 统一内核驱动（kernel / paper / live 同回路）</p>
+            <p class="page-sub mono">任务 6 · 运行中 3 · 已暂停 1 · 已停止 1 · 异常 1 · 累计盈亏 +$373.30</p>
           </div>
           <div class="page-actions">
+            <button class="btn primary" data-modal="mWorker">
+              <svg viewBox="0 0 16 16" fill="none"><path d="M8 3.2v9.6M3.2 8h9.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              新建 Worker
+            </button>
+            <button class="btn">刷新</button>
             <button class="btn" data-goto="home">← 返回首页</button>
           </div>
         </div>
 
-        <div class="sagent-grid">
-          <!-- 左：worker 卡片列表 -->
-          <div class="worker-list" role="list" aria-label="Worker 列表">
-            <div class="worker-card on" role="listitem" tabindex="0" aria-pressed="true"
-                 data-name="rl-btc-hourly" data-wid="#12" data-type="RL · PPO" data-tag="运行中" data-pnl="+0.31%" data-dir="up">
-              <div class="w-head"><span class="w-name mono">rl-btc-hourly</span><span class="w-wid mono">#12</span><span class="chip up" style="margin-left:auto"><span class="pdot"></span>运行中</span></div>
-              <div class="w-row2"><span class="chip info">RL · PPO</span><span class="w-dur mono">14h 22m</span></div>
-              <div class="w-row3"><span class="w-pnl-lb">今日</span><span class="w-pnl mono up">+0.31%</span></div>
-            </div>
-            <div class="worker-card" role="listitem" tabindex="0" aria-pressed="false"
-                 data-name="dualma-btc-4h" data-wid="#5" data-type="规则 · 双均线" data-tag="运行中" data-pnl="+0.09%" data-dir="up">
-              <div class="w-head"><span class="w-name mono">dualma-btc-4h</span><span class="w-wid mono">#5</span><span class="chip up" style="margin-left:auto"><span class="pdot"></span>运行中</span></div>
-              <div class="w-row2"><span class="chip info">规则 · 双均线</span><span class="w-dur mono">62h 05m</span></div>
-              <div class="w-row3"><span class="w-pnl-lb">今日</span><span class="w-pnl mono up">+0.09%</span></div>
-            </div>
-            <div class="worker-card" role="listitem" tabindex="0" aria-pressed="false"
-                 data-name="llm-eth-swing" data-wid="#3" data-type="LLM 决策" data-tag="运行中" data-pnl="+0.02%" data-dir="up">
-              <div class="w-head"><span class="w-name mono">llm-eth-swing</span><span class="w-wid mono">#3</span><span class="chip up" style="margin-left:auto"><span class="pdot"></span>运行中</span></div>
-              <div class="w-row2"><span class="chip info">LLM 决策</span><span class="w-dur mono">09h 41m</span></div>
-              <div class="w-row3"><span class="w-pnl-lb">今日</span><span class="w-pnl mono up">+0.02%</span></div>
-            </div>
-            <div class="worker-card off" role="listitem" tabindex="0" aria-pressed="false"
-                 data-name="ml-btc-1h-v4" data-wid="#18" data-type="机器学习 · GBDT" data-tag="已暂停" data-pnl="-0.14%" data-dir="down">
-              <div class="w-head"><span class="w-name mono">ml-btc-1h-v4</span><span class="w-wid mono">#18</span><span class="chip quiet" style="margin-left:auto">已暂停</span></div>
-              <div class="w-row2"><span class="chip info">机器学习 · GBDT</span><span class="w-dur mono">暂停 3 天</span></div>
-              <div class="w-row3"><span class="w-pnl-lb">今日</span><span class="w-pnl mono down">-0.14%</span></div>
-            </div>
+        <div class="home-grid">
+          <div class="card kpi col3">
+            <div class="kpi-top"><span class="kpi-label">总任务</span></div>
+            <div class="kpi-num">6</div>
+            <div class="kpi-sub">运行中 3 · 已暂停 1 · 已停止 1 · 异常 1</div>
           </div>
+          <div class="card kpi col3">
+            <div class="kpi-top"><span class="kpi-label">运行中</span></div>
+            <div class="kpi-num">3</div>
+            <div class="kpi-sub">统一内核泵 · paper / live 同回路</div>
+          </div>
+          <div class="card kpi col3">
+            <div class="kpi-top"><span class="kpi-label">已停止</span></div>
+            <div class="kpi-num">1</div>
+            <div class="kpi-sub">异常 1 · 展开行可见 error_message</div>
+          </div>
+          <div class="card kpi col3">
+            <div class="kpi-top"><span class="kpi-label">累计盈亏</span></div>
+            <div class="kpi-num up">+$373.30</div>
+            <div class="kpi-sub">6 个 worker 合计 · 正负号带出</div>
+          </div>
+        </div>
 
-          <!-- 右：选中 worker 详情 -->
-          <div class="card ws-detail" id="wsDetail">
-            <div class="ws-head">
-              <span class="ws-title mono" id="wName">rl-btc-hourly</span>
-              <span class="ws-wid mono" id="wWid">#12</span>
-              <span class="tag-run" id="wTag">运行中</span>
-              <span class="chip info" id="wType">RL · PPO</span>
-              <span class="ws-kv"><span class="lbl">今日</span><span class="mono up" id="wPnl">+0.31%</span></span>
-              <div class="ws-btns">
-                <button class="btn" id="wPause">
-                  <svg viewBox="0 0 16 16" fill="none"><path d="M6 3.8v8.4M10 3.8v8.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                  <span id="wPauseTx">暂停</span>
-                </button>
-                <button class="btn danger" data-modal="mStop">
-                  <svg viewBox="0 0 16 16" fill="none"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.4" stroke="currentColor" stroke-width="1.4"/></svg>
-                  停止
-                </button>
+        <div class="toolbar" style="margin-top:12px">
+          <input class="tsearch" id="saSearch" placeholder="搜索 worker / 策略 / 标的…" aria-label="搜索 worker">
+          <div class="frow" role="group" aria-label="状态过滤" id="saChips">
+            <button class="ichip on" data-f="">全部</button>
+            <button class="ichip" data-f="运行中">运行中</button>
+            <button class="ichip" data-f="已暂停">已暂停</button>
+            <button class="ichip" data-f="已停止">已停止</button>
+            <button class="ichip" data-f="异常">异常</button>
+          </div>
+          <span class="r-count mono" id="saCount"></span>
+        </div>
+
+        <div class="card bt-card" id="saBox">
+          <div class="bt-scroll">
+            <table class="bt">
+              <thead>
+                <tr>
+                  <th>名称</th><th>类型</th><th>交易所</th><th>周期</th>
+                  <th style="text-align:right">累计盈亏</th><th>运行时长</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="saBody">
+                <tr class="bt-row" tabindex="0" aria-selected="false"
+                    data-name="rl-btc-hourly" data-wid="#12" data-type="RL" data-strategy="rl_btc_hourly_ppo"
+                    data-mode="实盘" data-pnl="+$312.40" data-dir="up">
+                  <td><span class="c-strat" title="rl-btc-hourly">rl-btc-hourly</span><span class="mono" style="font-size:10.5px;color:var(--fg-4);margin:0 6px">#12</span><span class="chip info"><span class="pdot"></span>运行中</span></td>
+                  <td><span class="chip pri">RL</span></td>
+                  <td class="c-muted mono">binance</td>
+                  <td class="c-muted mono">1h</td>
+                  <td class="c-num up" style="text-align:right">+$312.40</td>
+                  <td class="c-muted mono">14h 22m</td>
+                  <td><button class="mini-btn js-sa-open">详情</button></td>
+                </tr>
+                <tr class="bt-row" tabindex="0" aria-selected="false"
+                    data-name="dualma-btc-4h" data-wid="#5" data-type="规则" data-strategy="dual_ma_btc_4h"
+                    data-mode="实盘" data-pnl="+$96.80" data-dir="up">
+                  <td><span class="c-strat" title="dualma-btc-4h">dualma-btc-4h</span><span class="mono" style="font-size:10.5px;color:var(--fg-4);margin:0 6px">#5</span><span class="chip info"><span class="pdot"></span>运行中</span></td>
+                  <td><span class="chip info">规则</span></td>
+                  <td class="c-muted mono">binance</td>
+                  <td class="c-muted mono">4h</td>
+                  <td class="c-num up" style="text-align:right">+$96.80</td>
+                  <td class="c-muted mono">62h 05m</td>
+                  <td><button class="mini-btn js-sa-open">详情</button></td>
+                </tr>
+                <tr class="bt-row" tabindex="0" aria-selected="false"
+                    data-name="llm-eth-swing" data-wid="#3" data-type="规则" data-strategy="llm_eth_swing_cascade"
+                    data-mode="模拟盘" data-pnl="+$18.20" data-dir="up">
+                  <td><span class="c-strat" title="llm-eth-swing">llm-eth-swing</span><span class="mono" style="font-size:10.5px;color:var(--fg-4);margin:0 6px">#3</span><span class="chip info"><span class="pdot"></span>运行中</span></td>
+                  <td><span class="chip info">规则</span></td>
+                  <td class="c-muted mono">binance</td>
+                  <td class="c-muted mono">4h</td>
+                  <td class="c-num up" style="text-align:right">+$18.20</td>
+                  <td class="c-muted mono">09h 41m</td>
+                  <td><button class="mini-btn js-sa-open">详情</button></td>
+                </tr>
+                <tr class="bt-row" tabindex="0" aria-selected="false"
+                    data-name="ml-btc-1h-v4" data-wid="#18" data-type="RL" data-strategy="gbdt_btc_1h_v4"
+                    data-mode="模拟盘" data-pnl="-$54.10" data-dir="down">
+                  <td><span class="c-strat" title="ml-btc-1h-v4">ml-btc-1h-v4</span><span class="mono" style="font-size:10.5px;color:var(--fg-4);margin:0 6px">#18</span><span class="chip quiet">已暂停</span></td>
+                  <td><span class="chip pri">RL</span></td>
+                  <td class="c-muted mono">binance</td>
+                  <td class="c-muted mono">1h</td>
+                  <td class="c-num down" style="text-align:right">-$54.10</td>
+                  <td class="c-muted mono">暂停 3 天</td>
+                  <td><button class="mini-btn js-sa-open">详情</button></td>
+                </tr>
+                <tr class="bt-row" tabindex="0" aria-selected="false"
+                    data-name="grid-eth-15m" data-wid="#21" data-type="规则" data-strategy="grid_eth_15m"
+                    data-mode="模拟盘" data-pnl="$0.00" data-dir="">
+                  <td><span class="c-strat" title="grid-eth-15m">grid-eth-15m</span><span class="mono" style="font-size:10.5px;color:var(--fg-4);margin:0 6px">#21</span><span class="chip quiet">已停止</span></td>
+                  <td><span class="chip info">规则</span></td>
+                  <td class="c-muted mono">binance</td>
+                  <td class="c-muted mono">15m</td>
+                  <td class="c-num" style="text-align:right">$0.00</td>
+                  <td class="c-muted mono">5h 12m</td>
+                  <td><button class="mini-btn js-sa-open">详情</button></td>
+                </tr>
+                <tr class="bt-row" tabindex="0" aria-selected="false"
+                    data-name="rl-sol-1h" data-wid="#24" data-type="RL" data-strategy="ppo_sol_1h"
+                    data-mode="模拟盘" data-pnl="—" data-dir="">
+                  <td><span class="c-strat" title="rl-sol-1h">rl-sol-1h</span><span class="mono" style="font-size:10.5px;color:var(--fg-4);margin:0 6px">#24</span><span class="chip down">异常</span></td>
+                  <td><span class="chip pri">RL</span></td>
+                  <td class="c-muted mono">binance</td>
+                  <td class="c-muted mono">1h</td>
+                  <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td class="c-muted mono">0h 06m</td>
+                  <td><button class="mini-btn js-sa-open">详情</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pg-slot in-card" id="saSlot"></div>
+          <div class="card-foot" style="border-top:1px dashed color-mix(in srgb, var(--fg) 10%, transparent); padding:8px 12px; margin-top:0">
+            <span>行点击进入详情（对齐现网 <code>/strategy-worker/:id</code>）· 这里没有「暂停/继续」：后端仅有 start / stop / restart</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 视图 2b：策略智能体详情（现网 /strategy-worker/:id） ================= -->
+      <section class="view" id="view-sagent-detail" aria-label="策略智能体详情">
+        <div class="page-head">
+          <div>
+            <h2 class="page-title"><span class="mono" id="sdName">rl-btc-hourly</span> <span class="ws-wid mono" id="sdWid">#12</span></h2>
+            <p class="page-sub mono"><span id="sdStrategy">rl_btc_hourly_ppo</span> · <span id="sdType">RL</span> · <span id="sdMode">实盘</span> · binance · 1h</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn" data-goto="sagent">← 返回列表</button>
+            <button class="btn">归档日志</button>
+            <button class="btn">分享</button>
+            <button class="btn danger" data-modal="mStop">停止</button>
+          </div>
+        </div>
+
+        <div class="ws-facts">
+          <span class="s-chip">周期 <b>1h</b></span>
+          <span class="s-chip">交易模式 <b id="sdMode2">实盘</b></span>
+          <span class="s-chip">持仓 <b>0.181 BTC</b></span>
+          <span class="s-chip">均价 <b>$67,210.00</b></span>
+          <span class="s-chip">未实现 <b class="up">+$217.66</b></span>
+          <span class="s-chip">累计盈亏 <b class="up" id="sdPnl">+$312.40</b></span>
+          <span class="s-chip">初始资金 <b>$100,000.00</b></span>
+          <span class="s-chip">杠杆 <b>1x</b></span>
+          <span class="s-chip">下单方式 <b>市价</b></span>
+          <span class="s-chip">最后更新 <b>09:31:20</b></span>
+        </div>
+
+        <div class="card ws-detail">
+          <div class="tabs" id="sdTabs" role="tablist">
+            <button class="tab on" role="tab" aria-selected="true" data-pane="sd-overview">总览</button>
+            <span class="tab dis" title="原型只展开总览与决策页签">交易</span>
+            <button class="tab" role="tab" aria-selected="false" data-pane="sd-decisions">决策<span class="newdot"></span></button>
+            <span class="tab dis" title="原型只展开总览与决策页签">风控</span>
+            <span class="tab dis" title="原型只展开总览与决策页签">参数</span>
+            <span class="tab dis" title="原型只展开总览与决策页签">日志</span>
+          </div>
+          <div class="ws-body">
+            <!-- 总览（现网默认页签） -->
+            <div class="sd-pane" id="sd-overview">
+              <div class="mstats">
+                <div class="mstat"><div class="lb">总盈亏</div><div class="v up">+$312.40</div><div class="sub mono">收益率 +0.31%</div></div>
+                <div class="mstat"><div class="lb">胜率</div><div class="v">56.3%</div><div class="sub mono">盈亏比 1.42</div></div>
+                <div class="mstat"><div class="lb">最大回撤</div><div class="v down">-4.8%</div><div class="sub mono">30d 窗口</div></div>
+                <div class="mstat"><div class="lb">夏普</div><div class="v">1.12</div><div class="sub mono">30d 窗口</div></div>
+                <div class="mstat"><div class="lb">交易笔数</div><div class="v">148</div><div class="sub mono">手续费 $42.60</div></div>
               </div>
-            </div>
-            <div class="tabs">
-              <span class="tab on" aria-current="true">决策流<span class="newdot"></span></span>
-              <span class="tab dis" title="原型未包含此 Tab">持仓订单</span>
-              <span class="tab dis" title="原型未包含此 Tab">绩效</span>
-              <span class="tab dis" title="原型未包含此 Tab">风控</span>
-            </div>
-            <div class="ws-body">
-              <div class="flow">
-                <!-- ReAct 步进器（DNA：参考稿 iter-card） -->
-                <div class="iter-wrap">
-                  <div class="iter-card">
-                    <div class="iter-top">
-                      <span class="iter-cap">ReAct<br>迭代</span>
-                      <div class="rail">
-                        <div class="step">
-                          <span class="step-dot">1</span>
-                          <span class="step-name">行情确认</span>
-                          <span class="step-t">1.6s · 2 次工具</span>
-                        </div>
-                        <div class="rail-link"></div>
-                        <div class="rail-end"></div>
-                        <div class="step step-fin">
-                          <span class="step-dot">✓</span>
-                          <span class="step-name">完成</span>
-                          <span class="step-t">09:31 UTC</span>
-                        </div>
-                      </div>
-                      <div class="iter-meta">
-                        <span class="kv">共 <b>1</b> / 上限 <b>40</b> 轮</span>
-                        <span class="cap-bar"><i style="width:3%"></i></span>
-                      </div>
-                    </div>
-                    <div class="iter-evts">
-                      <span>SSE: iteration_start ×1 · tool_start ×2 · complete{iteration: 1}</span>
-                      <span>决策延迟 2.4s</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 观察气泡 -->
-                <div class="m-row">
-                  <div class="avatar sq ai"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3" y="5.5" width="12" height="9" rx="2.4" stroke="currentColor" stroke-width="1.5"/><path d="M9 3v2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="6.6" cy="10" r="1.15" fill="currentColor"/><circle cx="11.4" cy="10" r="1.15" fill="currentColor"/></svg></div>
-                  <div class="m-col">
-                    <div class="m-head"><span class="role">决策引擎</span><span class="schip">rl-btc-hourly · 09:30 收盘</span><span>09:31:02</span></div>
-                    <div class="bubble"><div class="m-text">09:30 的 1h K 线收在 <span class="num strong">68,412.5</span>，上破 <code>ma20</code> 且量比 <span class="num">1.24</span>。我先确认行情与特征，再评估是否加仓。</div>
-                      <div class="collapse"><button class="collapse-toggle" data-collapse><span class="caret">▶</span>思考过程</button>
-                        <div class="think">快慢线状态 → 量能确认（vol_ratio &gt; 1.1 才追）→ 现有仓位 8%，若确认加仓至 12% → 检查日内回撤与风控余量 → 生成 Action(Buy, conf, target=0.12)</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 工具链 ×2（DNA：参考稿 chain-node） -->
-                <div class="chain">
-                  <div class="chain-node open">
-                    <div class="chain-head" data-collapse>
-                      <span class="caret">▼</span>
-                      <span class="tool-chip">&lt;/&gt;</span>
-                      <span class="tn">get_kline</span>
-                      <span class="ta">BTC/USDT · 1h · 240 根</span>
-                      <span class="el">0.9s</span><span class="chip-ok">成功</span>
-                    </div>
-                    <div class="chain-body">
-<pre>{
-  "symbol": "BTC/USDT", "interval": "1h", "bars": 240,
-  "last":  { "ts": "2026-11-20 09:00 (UTC)", "close": 68412.5, "chg_pct": 0.62 },
-  "ma20": 67240.8, "ma60": 65102.3, "fast_gt_slow": true,
-  "vol_ratio_20": 1.24, "atr14": 842.1, "cross_ma20_5d": 2
-}</pre>
-                    </div>
-                  </div>
-                  <div class="chain-node">
-                    <div class="chain-head" data-collapse>
-                      <span class="caret">▶</span>
-                      <span class="tool-chip">&lt;/&gt;</span>
-                      <span class="tn">calc_features</span>
-                      <span class="ta">20 特征 · mock=off</span>
-                      <span class="el">0.6s</span><span class="chip-ok">成功</span>
-                      <span class="el chain-collapsed" style="margin-left:0">工具返回结果（已折叠 · 12 行）</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 决策推进 -->
-                <div class="iter-next">
-                  <span class="tick"></span><span class="ln"></span>
-                  <span>证据已足够 · 置信 0.78 ≥ 阈值 0.60 → 直接输出决策，不再调用工具</span>
-                </div>
-
-                <!-- 决策气泡 -->
-                <div class="m-row">
-                  <div class="avatar sq ai"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><rect x="3" y="5.5" width="12" height="9" rx="2.4" stroke="currentColor" stroke-width="1.5"/><path d="M9 3v2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="6.6" cy="10" r="1.15" fill="currentColor"/><circle cx="11.4" cy="10" r="1.15" fill="currentColor"/></svg></div>
-                  <div class="m-col">
-                    <div class="m-head"><span class="role">决策引擎</span><span class="schip">Action</span><span>09:31:05</span></div>
-                    <div class="bubble"><div class="m-text">
-<h4>决策：Buy · 目标仓位 12%</h4>
-<ul>
-<li>价格站上 <code>ma20</code>（<span class="num">67,240.8</span>）且量为 20 期均量 <strong class="num">1.24</strong> 倍，突破有效；</li>
-<li>ATR(14) <span class="num">842.1</span>，止损随信号下移至 <span class="num">-1.2×ATR</span>；日内回撤余量充足，风控未触发；</li>
-<li>已由 PaperSink 按 <span class="num">68,425.0</span> 模拟成交 <strong class="num">0.060 BTC</strong>（仓位 8% → 12%）。</li>
-</ul>
-</div></div>
-                  </div>
-                </div>
+              <div class="curve-wrap">
+                <div class="curve-val"><div class="cv-lb">累计收益</div><div class="cv-num mono up">+$312.40</div></div>
+                <svg class="eq" viewBox="0 0 640 180" preserveAspectRatio="none" aria-label="累计收益曲线示意">
+                  <defs><linearGradient id="gUpSd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--up);stop-opacity:.26"/><stop offset="1" style="stop-color:var(--up);stop-opacity:0"/></linearGradient></defs>
+                  <line x1="0" y1="46" x2="640" y2="46" style="stroke:var(--bd)" stroke-dasharray="3 5"/>
+                  <line x1="0" y1="92" x2="640" y2="92" style="stroke:var(--bd)" stroke-dasharray="3 5"/>
+                  <line x1="0" y1="138" x2="640" y2="138" style="stroke:var(--bd)" stroke-dasharray="3 5"/>
+                  <path d="M0 150 L80 142 L160 146 L240 128 L320 118 L400 124 L480 104 L560 96 L640 84 L640 180 L0 180 Z" fill="url(#gUpSd)"/>
+                  <path d="M0 150 L80 142 L160 146 L240 128 L320 118 L400 124 L480 104 L560 96 L640 84" fill="none" style="stroke:var(--up)" stroke-width="1.8"/>
+                </svg>
+                <div class="x-lab"><span>10-24</span><span>10-31</span><span>11-07</span><span>11-14</span><span>11-21</span></div>
               </div>
-              <p class="ws-note">演示说明：决策流内容取自 rl-btc-hourly 的最近一轮；点击左侧其他 worker 仅切换头部信息与指标，决策流为静态示例。</p>
+
+              <div class="card-head" style="margin-top:12px">
+                <span class="card-title">持仓</span><span class="count-chip">1</span>
+                <div class="head-right"><span class="mono" style="font-size:10.5px;color:var(--fg-4)">无持仓整块省略</span></div>
+              </div>
+              <table class="gt">
+                <thead><tr><th>标的</th><th>方向</th><th style="text-align:right">数量</th><th style="text-align:right">均价</th><th style="text-align:right">现价</th><th style="text-align:right">未实现盈亏</th></tr></thead>
+                <tbody>
+                  <tr><td class="c-mono">BTC/USDT</td><td><span class="chip ok">多</span></td><td class="c-mono" style="text-align:right">0.181</td><td class="c-mono" style="text-align:right">67,210.0</td><td class="c-mono" style="text-align:right">68,412.5</td><td class="c-mono up" style="text-align:right">+$217.66</td></tr>
+                </tbody>
+              </table>
+              <p class="ws-note">原型固定一套示例数值（rl-btc-hourly）；头部与事实条随所选行切换，页签内容不随行变化。字段逐一对应现网数据源：<code>/workers/{id}/stats/overview</code>（KPI / 累计曲线 / 手续费）、<code>/workers/{id}/positions</code>（持仓）、<code>/workers/{id}</code> + <code>/state</code>（事实条）。</p>
             </div>
-            <!-- 持仓 / 风控迷你指标行 -->
-            <div class="ws-strip">
-              <span class="strip-cap">持仓 · 风控</span>
-              <span class="s-chip">现持仓 <b>0.181 BTC</b></span>
-              <span class="s-chip">均价 <b>67,210.0</b></span>
-              <span class="s-chip">未实现 <b class="up">+1.79%</b></span>
-              <span class="s-chip">日内回撤 <b class="down">-0.8%</b></span>
-              <span class="s-chip">杠杆 <b>1.0x</b></span>
-              <span class="s-chip">风控触发 <b>0 次</b></span>
-              <span class="s-chip">今日手续费 <b>-12.40 USDT</b></span>
+
+            <!-- 决策（仅 cascade 策略有录制） -->
+            <div class="sd-pane" id="sd-decisions" hidden>
+              <div class="dec-top">
+                <span class="card-title" style="font-size:12.5px">决策录制</span>
+                <span class="count-chip">共 20 条</span>
+                <span class="chip warn">兜底 2 / 20</span>
+                <span class="dec-note">仅 cascade（S1/S2 双阶段）策略录制；规则 / RL worker 该页签为空态，不做假数据填充</span>
+              </div>
+              <table class="gt">
+                <thead><tr><th>时间</th><th>动作</th><th style="text-align:right">置信度</th><th>决策者</th><th>兜底原因</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr class="sel-row" data-dec="dec-d1"><td class="c-mono c-mute">11-20 09:31:05</td><td><span class="chip ok">buy</span></td><td class="c-mono" style="text-align:right">0.7800</td><td class="c-mono">S2: llama-3.3-70b</td><td class="c-mute">—</td><td><span class="mini-btn">展开</span></td></tr>
+                  <tr class="sel-row" data-dec="dec-d2"><td class="c-mono c-mute">11-20 08:31:04</td><td><span class="chip quiet">hold</span></td><td class="c-mono" style="text-align:right">0.5200</td><td class="c-mono">规则接管</td><td class="c-mute" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">置信 0.52 &lt; 阈值 0.60</td><td><span class="mini-btn">展开</span></td></tr>
+                  <tr><td class="c-mono c-mute">11-20 07:31:02</td><td><span class="chip down">sell</span></td><td class="c-mono" style="text-align:right">0.6600</td><td class="c-mono">S1: qwen2.5-32b</td><td class="c-mute">—</td><td><span class="c-mute" title="旧录制行无 _seq，不提供详情">—</span></td></tr>
+                  <tr><td class="c-mono c-mute">11-20 06:31:01</td><td><span class="chip ok">buy</span></td><td class="c-mono" style="text-align:right">0.7100</td><td class="c-mono">S1: qwen2.5-32b</td><td class="c-mute">—</td><td><span class="c-mute" title="旧录制行无 _seq，不提供详情">—</span></td></tr>
+                </tbody>
+              </table>
+
+              <div class="detail-block" id="dec-d1">
+                <div class="dec-kv">
+                  <span>最终决策 <b>buy</b></span>
+                  <span>置信度 <b>0.7800</b></span>
+                  <span>阈值 <b>0.6000</b>（已达阈值）</span>
+                  <span>来源 <b>sdm_direct</b></span>
+                  <span>概率分布 <b>buy .78 / hold .14 / sell .08</b></span>
+                </div>
+                <div class="dec-lb">状态快照（state）</div>
+                <table class="kvtab">
+                  <tr><td class="k mono">ma20</td><td class="v mono">67,240.8</td><td class="k mono">ma60</td><td class="v mono">65,102.3</td></tr>
+                  <tr><td class="k mono">vol_ratio_20</td><td class="v mono">1.24</td><td class="k mono">atr14</td><td class="v mono">842.1</td></tr>
+                  <tr><td class="k mono">position_pct</td><td class="v mono">8.0%</td><td class="k mono">target_pct</td><td class="v mono">12.0%</td></tr>
+                </table>
+                <div class="dec-lb">S1 原始输出（s1_raw）</div>
+                <pre class="dec-pre">{ "action": "buy", "confidence": 0.78, "fast_gt_slow": true,
+  "reason": "价格站上 ma20 且量比 1.24 > 1.1" }</pre>
+                <div class="dec-lb">S2 思考（s2_thinking）</div>
+                <pre class="dec-pre">快慢线状态 → 量能确认（vol_ratio &gt; 1.1 才追）→ 现有仓位 8%，确认后加至 12% → 检查日内回撤与风控余量 → 输出 Action(buy, conf=0.78, target=0.12)</pre>
+              </div>
+
+              <div class="detail-block" id="dec-d2">
+                <div class="dec-kv">
+                  <span>最终决策 <b>hold</b></span>
+                  <span>置信度 <b>0.5200</b></span>
+                  <span>阈值 <b>0.6000</b>（未达阈值 → 规则接管）</span>
+                  <span>兜底原因 <b>置信 0.52 &lt; 阈值 0.60，按规则持有</b></span>
+                </div>
+                <div class="dec-lb">状态快照（state）</div>
+                <table class="kvtab">
+                  <tr><td class="k mono">ma20</td><td class="v mono">67,588.2</td><td class="k mono">ma60</td><td class="v mono">65,410.9</td></tr>
+                  <tr><td class="k mono">vol_ratio_20</td><td class="v mono">0.92</td><td class="k mono">atr14</td><td class="v mono">861.7</td></tr>
+                </table>
+                <div class="dec-lb">S2 思考（s2_thinking）</div>
+                <pre class="dec-pre">量比 0.92 未达 1.1 追涨条件，ma20 上方但无新增证据 → 置信 0.52 低于 0.60 阈值，交回规则持有</pre>
+              </div>
+              <p class="ws-note">录制行来自 <code>logs/worker/worker_{id}.jsonl</code>（<code>/workers/{id}/decisions</code>）；展开读同文件 <code>_seq</code> 行（<code>state / questions / s1_raw / s2_raw / s2_thinking</code>），与回测决策抽屉四区块同口径。</p>
             </div>
           </div>
         </div>
@@ -1155,53 +1240,63 @@
           <div class="bt-scroll">
             <table class="bt">
               <thead>
-                <tr><th>时间</th><th>策略</th><th>区间</th><th>周期</th><th>状态</th><th style="text-align:right">收益</th><th style="text-align:right">订单</th></tr>
+                <tr><th>策略</th><th>标的 · 周期</th><th>回测区间</th><th>状态</th><th style="text-align:right">总收益</th><th style="text-align:right">最大回撤</th><th style="text-align:right">订单</th><th style="text-align:right">耗时</th><th>操作</th></tr>
               </thead>
               <tbody id="btBody">
                 <tr class="bt-row on" tabindex="0" aria-selected="true" data-detail="bt-d1">
-                  <td class="c-time mono">11-20 09:12</td>
-                  <td class="c-strat">dual_ma_btc_1h</td>
+                  <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="dual_ma_btc_1h">dual_ma_btc_1h</span><span class="chip info" style="font-size:9px; padding:2px 5px">规则</span></div></td>
+                  <td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · 1h</span></td>
                   <td class="c-range mono">2025-09-01 → 2026-11-18</td>
-                  <td class="c-muted mono">1h</td>
                   <td><span class="chip ok">完成</span></td>
                   <td class="c-num up" style="text-align:right">+12.4%</td>
+                  <td class="c-num" style="text-align:right; color:color-mix(in srgb, var(--down) 72%, transparent)">-8.3%</td>
                   <td class="c-num" style="text-align:right">236</td>
+                  <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">42s</td>
+                  <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
                 <tr class="bt-row" tabindex="0" aria-selected="false" data-detail="bt-run">
-                  <td class="c-time mono">11-19 22:40</td>
-                  <td class="c-strat">ppo_eth_15m_v7</td>
+                  <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="ppo_eth_15m_v7">ppo_eth_15m_v7</span><span class="chip pri" style="font-size:9px; padding:2px 5px">RL</span></div></td>
+                  <td class="mono" title="ETHUSDT"><span style="color:var(--primary); font-weight:600">ETHUSDT</span><span class="c-muted"> · 15m</span></td>
                   <td class="c-range mono">2026-06-01 → 2026-11-20</td>
-                  <td class="c-muted mono">15m</td>
                   <td><span class="chip info"><span class="pdot"></span>运行中</span></td>
                   <td class="c-num c-muted" style="text-align:right">—</td>
                   <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
                 <tr class="bt-row" tabindex="0" aria-selected="false" data-detail="bt-fail">
-                  <td class="c-time mono">11-19 16:05</td>
-                  <td class="c-strat">llm_btc_swing_replay</td>
+                  <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="llm_btc_swing_replay">llm_btc_swing_replay</span><span class="chip warn" style="font-size:9px; padding:2px 5px">LLM</span></div></td>
+                  <td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · 4h</span></td>
                   <td class="c-range mono">2026-08-01 → 2026-11-10</td>
-                  <td class="c-muted mono">4h</td>
                   <td><span class="chip down">失败</span></td>
-                  <td class="c-num down" style="text-align:right">—</td>
                   <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td class="c-num c-muted" style="text-align:right">—</td>
+                  <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">4s</td>
+                  <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
                 <tr class="bt-row" tabindex="0" aria-selected="false" data-detail="bt-d2">
-                  <td class="c-time mono">11-18 11:30</td>
-                  <td class="c-strat">boll_eth_1h</td>
+                  <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="boll_eth_1h">boll_eth_1h</span><span class="chip info" style="font-size:9px; padding:2px 5px">规则</span></div></td>
+                  <td class="mono" title="ETHUSDT"><span style="color:var(--primary); font-weight:600">ETHUSDT</span><span class="c-muted"> · 1h</span></td>
                   <td class="c-range mono">2025-12-01 → 2026-11-18</td>
-                  <td class="c-muted mono">1h</td>
                   <td><span class="chip ok">完成</span></td>
                   <td class="c-num down" style="text-align:right">-3.6%</td>
+                  <td class="c-num" style="text-align:right; color:color-mix(in srgb, var(--down) 72%, transparent)">-14.2%</td>
                   <td class="c-num" style="text-align:right">512</td>
+                  <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">38s</td>
+                  <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
                 <tr class="bt-row" tabindex="0" aria-selected="false" data-detail="bt-d3">
-                  <td class="c-time mono">11-17 19:02</td>
-                  <td class="c-strat">dual_ma_btc_4h</td>
+                  <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="dual_ma_btc_4h">dual_ma_btc_4h</span><span class="chip info" style="font-size:9px; padding:2px 5px">规则</span></div></td>
+                  <td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · 4h</span></td>
                   <td class="c-range mono">2025-06-01 → 2026-11-18</td>
-                  <td class="c-muted mono">4h</td>
                   <td><span class="chip ok">完成</span></td>
                   <td class="c-num up" style="text-align:right">+9.8%</td>
+                  <td class="c-num" style="text-align:right; color:color-mix(in srgb, var(--down) 72%, transparent)">-11.6%</td>
                   <td class="c-num" style="text-align:right">148</td>
+                  <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">21s</td>
+                  <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
               </tbody>
             </table>
@@ -1227,7 +1322,7 @@
             <span class="card-title">回测详情</span>
             <span class="c-strat mono" style="font-size:12px">dual_ma_btc_1h</span>
             <span class="chip ok">完成</span>
-            <div class="head-right"><span class="card-sub mono">2025-09-01 → 2026-11-18 · 1h · 耗时 42s</span></div>
+            <div class="head-right"><span class="card-sub mono">创建 11-20 09:12 · 2025-09-01 → 2026-11-18 · 1h · 耗时 42s</span></div>
           </div>
           <div class="mstats">
             <div class="mstat"><div class="lb">总收益</div><div class="v up">+12.4%</div><div class="sub mono">NAV 112,400</div></div>
@@ -1260,7 +1355,7 @@
             <span class="card-title">回测详情</span>
             <span class="c-strat mono" style="font-size:12px">ppo_eth_15m_v7</span>
             <span class="chip info"><span class="pdot"></span>运行中</span>
-            <div class="head-right"><span class="card-sub mono">已运行 01h 07m · 预计剩余 ~26m</span></div>
+            <div class="head-right"><span class="card-sub mono">创建 11-19 22:40 · 已运行 01h 07m · 预计剩余 ~26m</span></div>
           </div>
           <div class="card-sub" style="margin-bottom:2px">回放进度 <span class="mono">63%</span>（<span class="mono">9,980 / 15,840</span> bar）</div>
           <span class="prog"><i style="width:63%"></i></span>
@@ -1278,7 +1373,7 @@
             <span class="card-title">回测详情</span>
             <span class="c-strat mono" style="font-size:12px">llm_btc_swing_replay</span>
             <span class="chip down">失败</span>
-            <div class="head-right"><span class="card-sub mono">耗时 4s · 2026-11-19 16:05</span></div>
+            <div class="head-right"><span class="card-sub mono">创建 11-19 16:05 · 2026-08-01 → 2026-11-10 · 4h · 耗时 4s</span></div>
           </div>
           <div class="card-sub">mode=llm 的策略回测禁止真实请求 LLM，仅从录制 JSONL 回放，未命中不降级、直接终止。</div>
           <div class="fail-row">
@@ -1303,7 +1398,7 @@
             <span class="card-title">回测详情</span>
             <span class="c-strat mono" style="font-size:12px">boll_eth_1h</span>
             <span class="chip ok">完成</span>
-            <div class="head-right"><span class="card-sub mono">2025-12-01 → 2026-11-18 · 1h · 耗时 38s</span></div>
+            <div class="head-right"><span class="card-sub mono">创建 11-18 11:30 · 2025-12-01 → 2026-11-18 · 1h · 耗时 38s</span></div>
           </div>
           <div class="mstats">
             <div class="mstat"><div class="lb">总收益</div><div class="v down">-3.6%</div><div class="sub mono">NAV 96,400</div></div>
@@ -1336,7 +1431,7 @@
             <span class="card-title">回测详情</span>
             <span class="c-strat mono" style="font-size:12px">dual_ma_btc_4h</span>
             <span class="chip ok">完成</span>
-            <div class="head-right"><span class="card-sub mono">2025-06-01 → 2026-11-18 · 4h · 耗时 21s</span></div>
+            <div class="head-right"><span class="card-sub mono">创建 11-17 19:02 · 2025-06-01 → 2026-11-18 · 4h · 耗时 21s</span></div>
           </div>
           <div class="mstats">
             <div class="mstat"><div class="lb">总收益</div><div class="v up">+9.8%</div><div class="sub mono">NAV 109,800</div></div>
@@ -2481,7 +2576,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-label="停止 Worker">
       <div class="modal-head"><span class="modal-title">停止 Worker</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
       <div class="modal-body">
-        <p style="margin:0; font-size:12.5px; line-height:1.7; color:var(--fg-2)">确认停止 <b class="mono" id="mStopName">rl-btc-hourly</b>？该 worker 将从列表移除并释放泵线程；实盘 worker 需先人工平仓（原型演示直接移除卡片）。</p>
+        <p style="margin:0; font-size:12.5px; line-height:1.7; color:var(--fg-2)">确认停止 <b class="mono" id="mStopName">rl-btc-hourly</b>？停止后状态转「已停止」并释放泵线程，下单历史保留；实盘 worker 需先人工平仓。</p>
       </div>
       <div class="modal-foot"><button class="btn" data-close>取消</button><button class="btn danger" id="jsStopGo">确认停止</button></div>
     </div>
@@ -2512,10 +2607,11 @@
 
     /* ---- 视图路由：菜单 / 快捷操作 / 返回首页 统一走 data-view | data-goto ---- */
     var TITLES = { home: '首页看板', agent: '智能体工作台', strategy: '策略管理', sagent: '策略智能体',
+      'sagent-detail': '策略智能体 · 详情',
       backtest: '回测中心', charts: '行情图表', factors: '因子分析', research: '策略研究', data: '数据管理', models: '模型中心',
       'strategy-editor': '策略编辑器', 'backtest-config': '回测配置', 'research-detail': '研究详情' };
     /* 新页面不占侧栏项：高亮父菜单（编辑器→策略管理 / 配置→回测中心 / 研究详情→策略研究） */
-    var PARENT = { 'strategy-editor': 'strategy', 'backtest-config': 'backtest', 'research-detail': 'research' };
+    var PARENT = { 'strategy-editor': 'strategy', 'backtest-config': 'backtest', 'research-detail': 'research', 'sagent-detail': 'sagent' };
     var curView = 'home', lastView = 'home', bcFill = '';
     function go(v) {
       if (!TITLES[v]) v = 'home';
@@ -2597,7 +2693,8 @@
       var STAT = { '完成': '<span class="chip ok">完成</span>', '运行中': '<span class="chip info"><span class="pdot"></span>运行中</span>', '失败': '<span class="chip down">失败</span>' };
       var body = document.getElementById('btBody'), det = document.getElementById('btSeedDet');
       if (!body || !det) return;
-      /* r = [time, name, range, tf, status, ret, orders, cost, dd, sharpe, trades, win] */
+      /* r = [time, name, range, tf, status, ret, orders, cost, dd, sharpe, trades, win]
+         策略类型 / 标的不入库：从 name 前缀与品种缩写推导（口径同策略管理页 TYPE 表） */
       var D = [
         ['11-17 09:41', 'vwap_revert_eth_15m', '2026-05-01 → 2026-11-17', '15m', '完成', '-0.9%', '322', '38s', '-4.2%', '0.71', '322', '41.3%'],
         ['11-17 02:18', 'funding_carry_btc', '2026-08-01 → 2026-11-16', '8h', '完成', '+2.6%', '46', '21s', '-1.1%', '1.24', '46', '67.4%'],
@@ -2610,23 +2707,44 @@
         ['11-14 21:58', 'obv_div_btc_4h', '2025-11-01 → 2026-11-14', '4h', '完成', '+5.5%', '118', '31s', '-2.9%', '1.31', '118', '55.9%'],
         ['11-14 15:40', 'llm_btc_reversal', '2026-07-01 → 2026-11-14', '1h', '失败', '—', '—', '—', '—', '—', '—', '—']
       ];
+      var TYPE = { '规则': 'chip info', 'RL': 'chip pri', 'LLM': 'chip warn', '机器学习': 'chip quiet' };
+      function btType(n) { return /^rl_/.test(n) ? 'RL' : /^llm_/.test(n) ? 'LLM' : /^ml_/.test(n) ? '机器学习' : '规则'; }
+      function btSym(n) { var m = n.match(/btc|eth|sol|xrp|bnb|ada/); return m ? m[0].toUpperCase() + 'USDT' : ''; }
+      var EYE = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg>';
+      var TRASH = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+      function ops() {
+        return '<td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px">' + EYE +
+          '</button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px">' + TRASH + '</button></td>';
+      }
+      function num(v, cls, extra) {
+        return v === '—'
+          ? '<td class="c-num c-muted" style="text-align:right">—</td>'
+          : '<td class="c-num ' + (cls || '') + '" style="text-align:right' + (extra ? '; ' + extra : '') + '">' + v + '</td>';
+      }
       function mstat(lb, v, sub) {
         var c = v[0] === '+' ? ' up' : v[0] === '-' ? ' down' : '';
         return '<div class="mstat"><div class="lb">' + lb + '</div><div class="v' + c + '">' + v + '</div><div class="sub mono">' + sub + '</div></div>';
       }
       var rows = '', dets = '';
       D.forEach(function (t, i) {
-        var retc = t[5] === '—' ? ' c-muted' : (t[5][0] === '+' ? ' up' : ' down');
+        var btT = btType(t[1]);
+        var sym = btSym(t[1]);
+        var retc = t[5] === '—' ? '' : (t[5][0] === '+' ? ' up' : ' down');
         rows += '<tr class="bt-row" tabindex="0" aria-selected="false" data-detail="bt-g' + i + '">' +
-          '<td class="c-time mono">' + t[0] + '</td><td class="c-strat">' + t[1] + '</td>' +
-          '<td class="c-range mono">' + t[2] + '</td><td class="c-muted mono">' + t[3] + '</td>' +
+          '<td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="' + t[1] + '">' + t[1] + '</span>' +
+          '<span class="' + TYPE[btT] + '" style="font-size:9px; padding:2px 5px">' + btT + '</span></div></td>' +
+          '<td class="mono" title="' + sym + '"><span style="color:var(--primary); font-weight:600">' + sym + '</span><span class="c-muted"> · ' + t[3] + '</span></td>' +
+          '<td class="c-range mono">' + t[2] + '</td>' +
           '<td>' + STAT[t[4]] + '</td>' +
-          '<td class="c-num' + retc + '" style="text-align:right">' + t[5] + '</td>' +
-          '<td class="c-num' + (t[6] === '—' ? ' c-muted' : '') + '" style="text-align:right">' + t[6] + '</td></tr>';
+          num(t[5], retc) +
+          num(t[8], '', 'color:color-mix(in srgb, var(--down) 72%, transparent)') +
+          num(t[6]) +
+          num(t[7], '', 'color:var(--fg-3); font-size:11px') +
+          ops() + '</tr>';
         dets += '<div class="bt-detail card" id="bt-g' + i + '">' +
           '<div class="card-head"><span class="card-title">回测详情</span>' +
           '<span class="c-strat mono" style="font-size:12px">' + t[1] + '</span>' + STAT[t[4]] +
-          '<div class="head-right"><span class="card-sub mono">' + t[2] + ' · ' + t[3] + (t[7] === '—' ? '' : ' · 耗时 ' + t[7]) + '</span></div></div>' +
+          '<div class="head-right"><span class="card-sub mono">创建 ' + t[0] + ' · ' + t[2] + ' · ' + t[3] + (t[7] === '—' ? '' : ' · 耗时 ' + t[7]) + '</span></div></div>' +
           (t[4] === '完成'
             ? '<div class="mstats" style="grid-template-columns:repeat(5,1fr); margin-top:12px">' +
               mstat('总收益', t[5], '已扣手续费') + mstat('最大回撤', t[8], '权益高点') +
@@ -2637,6 +2755,15 @@
       });
       body.insertAdjacentHTML('beforeend', rows);
       det.insertAdjacentHTML('beforeend', dets);
+      /* 操作列接线：挂 #btBody（hero / 播种 / 新插行都覆盖）。
+         stopPropagation 截断行选择的 document 委托；眼睛转触行 .click() 打开详情，垃圾桶仅 toast（原型无删除后端）。 */
+      body.addEventListener('click', function (e) {
+        var b = e.target.closest('.js-bt-op');
+        if (!b) return;
+        e.stopPropagation();
+        if (b.dataset.op === 'del') toast('原型演示：删除回测任务在正式页提供，此处不改动演示数据');
+        else b.closest('.bt-row').click();
+      });
     })();
 
     /* ---- 策略管理：24 行（hero 8 + 播种 16） ---- */
@@ -2921,38 +3048,65 @@
     LISTS.rs = makeList({ slot: 'rsSlot', items: qAll('#rsGrid > .card'), search: 'rsSearch', chips: qAll('#rsChips .ichip'), count: 'rsCount', size: 10 });
     LISTS.sy = makeList({ slot: 'sySlot', items: qAll('#syBody tr'), search: 'sySearch', chips: qAll('#syChips .ichip'), count: 'syCount', size: 10 });
     LISTS.md = makeList({ slot: 'mdSlot', items: qAll('#mdGrid > .m-row-card'), search: 'mdSearch', chips: qAll('#mdChips .ichip'), count: 'mdCount', size: 10 });
+    LISTS.sa = makeList({ slot: 'saSlot', items: qAll('#saBody .bt-row'), search: 'saSearch', chips: qAll('#saChips .ichip'), count: 'saCount', size: 10 });
 
-    /* ---- 策略智能体：worker 卡片选择（切换详情头部信息） ---- */
-    var cards = [].slice.call(document.querySelectorAll('.worker-card'));
-    cards.forEach(function (c) {
-      c.addEventListener('click', function () {
-        /* 停止 worker 后详情被替换为空态；点击任意存活卡时先恢复详情骨架再填充 */
-        if (wsBackup) {
-          var wsBak = document.getElementById('wsDetail');
-          if (wsBak) wsBak.innerHTML = wsBackup;
-          wsBackup = null;
-        }
-        cards.forEach(function (x) {
-          var on = x === c;
-          x.classList.toggle('on', on);
-          x.setAttribute('aria-pressed', String(on));
-        });
-        document.getElementById('wName').textContent = c.dataset.name;
-        document.getElementById('wWid').textContent = c.dataset.wid;
-        document.getElementById('wType').textContent = c.dataset.type;
-        var tag = document.getElementById('wTag');
-        tag.textContent = c.dataset.tag;
-        tag.className = c.dataset.tag === '运行中' ? 'tag-run' : 'chip quiet';
-        var p = document.getElementById('wPnl');
-        p.textContent = c.dataset.pnl;
-        p.className = 'mono ' + (c.dataset.dir === 'up' ? 'up' : c.dataset.dir === 'down' ? 'down' : 'flat');
+    /* ---- 策略智能体：列表行 → 详情页（现网 /strategy-worker 与 /:id 两路由） ---- */
+    var sdCurrent = null;
+    function sdTab(pane) {
+      qAll('#sdTabs [data-pane]').forEach(function (b) {
+        var on = b.dataset.pane === pane;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', String(on));
+      });
+      qAll('.sd-pane').forEach(function (p) { p.hidden = p.id !== pane; });
+    }
+    function saOpen(row) {
+      if (!row) return;
+      sdCurrent = row;
+      var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+      set('sdName', row.dataset.name);
+      set('sdWid', row.dataset.wid);
+      set('sdStrategy', row.dataset.strategy || '—');
+      set('sdType', row.dataset.type || '—');
+      set('sdMode', row.dataset.mode || '—');
+      set('sdMode2', row.dataset.mode || '—');
+      var pnl = document.getElementById('sdPnl');
+      if (pnl) {
+        pnl.textContent = row.dataset.pnl || '—';
+        pnl.className = row.dataset.dir === 'up' ? 'up' : row.dataset.dir === 'down' ? 'down' : '';
+      }
+      sdTab('sd-overview');
+      go('sagent-detail');
+    }
+    qAll('#saBody .bt-row').forEach(function (row) {
+      row.addEventListener('click', function (e) {
+        if (e.target.closest('.mini-btn')) return;
+        saOpen(row);
+      });
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); saOpen(row); }
+      });
+    });
+    qAll('#saBody .js-sa-open').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); saOpen(b.closest('.bt-row')); });
+    });
+    qAll('#sdTabs [data-pane]').forEach(function (b) {
+      b.addEventListener('click', function () { sdTab(b.dataset.pane); });
+    });
+    /* 决策行展开：一次一条，四区块口径同回测决策抽屉（无 _seq 的旧行不给展开） */
+    qAll('#sd-decisions tr[data-dec]').forEach(function (tr) {
+      tr.addEventListener('click', function () {
+        var target = document.getElementById(tr.dataset.dec);
+        var willShow = target && !target.classList.contains('show');
+        qAll('#sd-decisions .detail-block').forEach(function (d) { d.classList.remove('show'); });
+        if (willShow) target.classList.add('show');
       });
     });
 
     /* ---- 回测中心：行选择 → 详情块切换（事件委托：动态新增的回测行同样接管） ---- */
     document.addEventListener('click', function (e) {
       var r = e.target.closest('.bt-row');
-      if (!r) return;
+      if (!r || !r.dataset.detail) return;
       qAll('.bt-row').forEach(function (x) {
         var on = x === r;
         x.classList.toggle('on', on);
@@ -2978,7 +3132,7 @@
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       var t = e.target;
-      if (t && t.matches && t.matches('.bt-row,.worker-card,.st-row,.f-row,.m-row-card')) { e.preventDefault(); t.click(); }
+      if (t && t.matches && t.matches('.bt-row,.st-row,.f-row,.m-row-card')) { e.preventDefault(); t.click(); }
     });
 
     /* ---- 新页 · 策略管理：行选择 + 参数键值填充 ---- */
@@ -3321,34 +3475,20 @@
       go('sagent');
     });
 
-    /* ---- 策略智能体：暂停（直切状态）/ 停止（确认弹窗 → 移除卡片 + 空态） ---- */
-    var wPause = document.getElementById('wPause');
-    if (wPause) wPause.addEventListener('click', function () {
-      var tag = document.getElementById('wTag');
-      if (!tag) return;
-      var paused = tag.textContent === '已暂停';
-      tag.textContent = paused ? '运行中' : '已暂停';
-      tag.className = paused ? 'tag-run' : 'chip quiet';
-      document.getElementById('wPauseTx').textContent = paused ? '暂停' : '恢复';
-      toast(paused ? 'Worker 已恢复（原型）' : 'Worker 已暂停（原型）· 泵线程挂起，可点恢复');
-    });
-    var wsBackup = null;
+    /* ---- 策略智能体：停止（后端只有 lifecycle/stop；无 pause/resume，原型不造假动作） ---- */
     MODAL_FILL.mStop = function () {
-      var sel = document.querySelector('.worker-card.on');
-      document.getElementById('mStopName').textContent = sel ? sel.dataset.name : '（未选中 worker）';
+      document.getElementById('mStopName').textContent = sdCurrent ? sdCurrent.dataset.name : '（未选中 worker）';
     };
     var jsStopGo = document.getElementById('jsStopGo');
     if (jsStopGo) jsStopGo.addEventListener('click', function () {
       var mk = document.getElementById('mStop');
       if (mk) closeMask(mk);
-      var sel = document.querySelector('.worker-card.on');
-      var ws = document.getElementById('wsDetail');
-      if (!sel || !ws) { toast('未选择 worker'); return; }
-      var name = sel.dataset.name;
-      wsBackup = ws.innerHTML;
-      sel.remove();
-      ws.innerHTML = '<div class="empty"><span class="empty-ico"><svg viewBox="0 0 20 20" fill="none"><rect x="4.4" y="4.4" width="11.2" height="11.2" rx="2.4" stroke="currentColor" stroke-width="1.6"/><path d="m7.5 7.5 5 5M12.5 7.5l-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><p class="empty-t">Worker 已停止</p><p class="empty-h">' + escH(name) + ' 已从列表移除并释放泵线程；选择左侧其他 worker 可继续查看决策流，或从策略详情重新创建。</p></div>';
-      toast('Worker 已停止（原型）：' + name);
+      if (!sdCurrent) { toast('未选择 worker'); return; }
+      var chipEl = sdCurrent.querySelector('.chip.info, .chip.quiet, .chip.down');
+      if (chipEl) { chipEl.className = 'chip quiet'; chipEl.textContent = '已停止'; }
+      toast('Worker 已停止（原型）：' + sdCurrent.dataset.name);
+      sdCurrent = null;
+      go('sagent');
     });
 
     /* ---- 因子：加入组合 / 查看明细（完整统计）/ 新建（插行） ---- */
@@ -3458,26 +3598,35 @@
       toast('回测任务已提交 · kernel 路径');
       go('backtest');
       var id = 'bt-n' + (++btSeq);
+      var nType = /^rl_/.test(name) ? 'RL' : /^llm_/.test(name) ? 'LLM' : /^ml_/.test(name) ? '机器学习' : '规则';
+      var nTypeCls = { '规则': 'chip info', 'RL': 'chip pri', 'LLM': 'chip warn', '机器学习': 'chip quiet' }[nType];
       document.getElementById('btBody').insertAdjacentHTML('afterbegin',
         '<tr class="bt-row tr-flash" tabindex="0" aria-selected="false" data-detail="' + id + '">' +
-        '<td class="c-time mono">刚刚</td><td class="c-strat">' + escH(name) + '</td>' +
-        '<td class="c-range mono">2025-09-01 → 2026-11-18</td><td class="c-muted mono">' + tf + '</td>' +
+        '<td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="' + escH(name) + '">' + escH(name) + '</span>' +
+        '<span class="' + nTypeCls + '" style="font-size:9px; padding:2px 5px">' + nType + '</span></div></td>' +
+        '<td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · ' + tf + '</span></td>' +
+        '<td class="c-range mono">2025-09-01 → 2026-11-18</td>' +
         '<td><span class="chip info"><span class="pdot"></span>运行中</span></td>' +
         '<td class="c-num" style="text-align:right"><span class="prog" style="width:110px; margin:0"><i style="width:4%"></i></span></td>' +
-        '<td class="c-num c-muted" style="text-align:right">—</td></tr>');
+        '<td class="c-num c-muted" style="text-align:right">—</td>' +
+        '<td class="c-num c-muted" style="text-align:right">—</td>' +
+        '<td class="c-num c-muted" style="text-align:right">—</td>' +
+        '<td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td></tr>');
       document.getElementById('btSeedDet').insertAdjacentHTML('afterbegin',
         '<div class="bt-detail card" id="' + id + '"><div class="card-head"><span class="card-title">回测详情</span>' +
         '<span class="c-strat mono" style="font-size:12px">' + escH(name) + '</span><span class="chip info"><span class="pdot"></span>运行中</span>' +
-        '<div class="head-right"><span class="card-sub mono">2025-09-01 → 2026-11-18 · ' + tf + '</span></div></div>' +
+        '<div class="head-right"><span class="card-sub mono">创建 刚刚 · 2025-09-01 → 2026-11-18 · ' + tf + '</span></div></div>' +
         '<div class="card-foot" style="border-top:none; padding-top:12px">进行中 · kernel 路径历史回测，完成后此处出现完整指标。</div></div>');
       var row = document.getElementById('btBody').firstElementChild;
       var det = document.getElementById(id);
       LISTS.bt.items.unshift(row);
       LISTS.bt.render();
       runProgress(row.querySelector('.prog i'), function () {
-        row.cells[4].innerHTML = '<span class="chip ok">完成</span>';
-        row.cells[5].textContent = '+2.1%'; row.cells[5].className = 'c-num up';
+        row.cells[3].innerHTML = '<span class="chip ok">完成</span>';
+        row.cells[4].textContent = '+2.1%'; row.cells[4].className = 'c-num up';
+        row.cells[5].textContent = '-2.4%'; row.cells[5].className = 'c-num';
         row.cells[6].textContent = '185'; row.cells[6].className = 'c-num';
+        row.cells[7].textContent = '12s'; row.cells[7].className = 'c-num';
         det.querySelector('.card-foot').innerHTML =
           '<div class="mstats" style="grid-template-columns:repeat(5,1fr); margin-top:12px">' +
           '<div class="mstat"><div class="lb">总收益</div><div class="v up">+2.1%</div><div class="sub mono">已扣手续费</div></div>' +

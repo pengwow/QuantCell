@@ -13,6 +13,13 @@
 > worker 详情「停止」+ 持仓事实条 + 已暂停筛选 + 返回钮、model-hub 双闸 + 重训台账 + 新建训练、
 > chart OHLC 条 + MA 图例、research 双入口转回测 + 深链 + 结论卡 + Top5、home 研究卡脚注）。
 > 唯一**判定翻转**：worker「暂停/继续」不是前端缺口——后端根本没有 pause/resume 路由，已移入 B 档。
+> 
+> **2026-11-23 demo 策略智能体页修订**：审计发现该页 demo 本身不合理，先改 demo 再谈对齐：
+> 主从同屏拆成「列表页 + 详情页」两视图（对齐现网 `/strategy-worker` 与 `/:id` 两路由）；
+> 删掉无后端的「暂停/继续」；删掉用于 worker 的 ReAct 步进器 + 工具链（那是 `/agent` 的语义，
+> worker 产出的是逐 bar `Action`，不是工具调用）；「今日 pnl」改回现网真实的「累计盈亏」；
+> 详情页签改为真实六页签（总览 / 交易 / 决策 / 风控 / 参数 / 日志），总览用
+> `stats/overview + positions` 的真字段，决策页签改成录制行 + `s1_raw / s2_thinking` 展开。
 
 ## 口径
 
@@ -44,7 +51,7 @@
 | `/home` | 3 | 1 | 运行中行的「今日 +%」仍是累计 USD（需按 worker 拆 24h） |
 | `/chart` | 1 | 0 | 副标口径项建议按现网真值裁（时区可切换 / WS 延迟无源） |
 | `/agent` | 4 | 2 | ReAct 步进卡仍只有「迭代 X/Y」徽标；工具参数仍裸 JSON |
-| `/strategy-worker` | 4 | 1 | 「暂停/继续」需先补后端路由（现网只有 start/stop/restart） |
+| `/strategy-worker` | 3 | 3 | 列表补 #id/类型/运行时长三列；副标补 paused 计数；决策展开形态可选 |
 | `/strategy-management` | 1 | 0 | footer「默认 runner：kernel」是硬编码 |
 | `/strategy-editor` | 0 | 0 | 已全部落地 |
 | `/backtest`(+detail) | 4 | 2 | 订单列口径不符（值是 fills）；详情配置卡缺手续费/runner |
@@ -63,13 +70,14 @@
 
 | demo view（行） | 现网路由 | 组件 |
 |---|---|---|
-| `#view-home` 821 | `/home` | `pages/home/HomePage.tsx` |
-| `#view-agent` 1369 | `/agent` | `pages/agent/Agent.tsx` + `components/` |
-| `#view-sagent` 949 | `/strategy-worker`、`/strategy-worker/:workerId` | `pages/worker/Worker.tsx`、`WorkerDetail.tsx` |
-| `#view-strategy` 1597 | `/strategy-management` | `pages/strategy/StrategyManagement.tsx` |
-| `#view-strategy-editor` 2150 | `/strategy-editor`、`/strategy-editor/:name` | `pages/strategy/StrategyEditor.tsx` |
-| `#view-backtest` 1131 | `/backtest`、`/backtest/detail/:id` | `pages/backtest/BacktestList.tsx`、`BacktestDetail.tsx` |
-| `#view-backtest-config` 2210 | `/backtest/config` | `pages/backtest/BacktestConfig.tsx` |
+| `#view-home` 814 | `/home` | `pages/home/HomePage.tsx` |
+| `#view-agent` 1451 | `/agent` | `pages/agent/Agent.tsx` + `components/` |
+| `#view-sagent` 942 | `/strategy-worker` | `pages/worker/Worker.tsx` |
+| `#view-sagent-detail` 1080 | `/strategy-worker/:workerId` | `pages/worker/WorkerDetail.tsx` |
+| `#view-strategy` 1679 | `/strategy-management` | `pages/strategy/StrategyManagement.tsx` |
+| `#view-strategy-editor` 2232 | `/strategy-editor`、`/strategy-editor/:name` | `pages/strategy/StrategyEditor.tsx` |
+| `#view-backtest` 1213 | `/backtest`、`/backtest/detail/:id` | `pages/backtest/BacktestList.tsx`、`BacktestDetail.tsx` |
+| `#view-backtest-config` 2292 | `/backtest/config` | `pages/backtest/BacktestConfig.tsx` |
 | `#view-charts` 1732 | `/chart` | `pages/chart/ChartPage.tsx` |
 | `#view-factors` 1770 | `/factor-analysis` | `pages/factor/…` |
 | `#view-research` 1890 | `/research` | `pages/research/ResearchList.tsx` |
@@ -115,18 +123,27 @@
 
 **反缺口**：Worker 选择器 + 状态 chip、`?tab=&worker=` 持久化、工具参数抽屉、删除需输确认词、自迭代每日闭环、意图面板。
 
-## 4. 策略智能体 `/strategy-worker(+/:id)`（demo 949–1128）
+## 4. 策略智能体 `/strategy-worker(+/:id)`（demo 942–1211）
+
+> 2026-11-23 修订后 demo 拆成 `#view-sagent`（列表，942 起）与 `#view-sagent-detail`（详情，1080 起），
+> 与现网两路由一一对应；本节只记修订后仍存在的差异。
 
 | 差异点 | demo | 现网 | 可行性 |
 |---|---|---|---|
-| 详情页「暂停 / 继续」 | 997-1006 | 后端 `lifecycle` 只有 start/stop/restart，**没有 pause/resume 路由**（`agentApi.pauseAgent/resumeAgent` 为死代码），前端按钮会 404 | `需聚合`（须先加后端路由 + 泵线程暂停语义；不做前端假动作，本轮只落了「停止」） |
-| 列表行 #id / 运行时长 / 今日 pnl | 963-986 | `Worker.tsx:860-909` | #id `已有`；时长 `需聚合`；今日 pnl `需聚合`（同首页口径） |
-| 页头副标（泵运行中 3 · 暂停 1 · 统一内核驱动） | 953 | `Worker.tsx:916-924` 任务/运行/停止/错误/累计盈亏 | 暂停计数 `已有`；固定文案 `已有` |
-| 主从同屏 | 960-1127 | 拆两路由 | D 档结构差异 |
+| 列表列形制：名称后 `#id`、独立「类型」chip、「运行时长」列、状态用 chips 而非 Select | 942-1078 | `Worker.tsx:851-975` 名称只带状态 chip；工具栏状态筛选是 Select | `已有`（`id` / `strategy_type` / `started_at` 都在列表返回里；纯前端补列） |
+| 页头副标含「已暂停」计数 | 943 | `wt_sub_list` 只有 任务/运行中/已停止/异常/累计盈亏，`paused` 落不进任何一档，四项之和 ≠ 任务数 | `已有`（多透传一个 paused 计数） |
+| 决策页签展开形态 | 1100-1210 行内展开 `state / s1_raw / s2_thinking` | `WorkerDecisionsTab` + `DecisionDetailDrawer`（抽屉四页签，数据同源） | `已有`（形态差异，不阻塞；行内展开只是更紧凑的备选） |
+| 详情头部 `归档日志 / 分享 / 停止` | 1083-1090 | `WorkerDetail.tsx:380-430` 三钮齐全（停止走 `lifecycle/stop`） | `已有` |
+| 事实条 10 项（周期/模式/持仓三件/累计盈亏/初始资金/杠杆/下单方式/最后更新） | 1092-1103 | `WorkerDetail.tsx:405-443` 同口径 | `已有` |
 
-**已消项**：详情页「停止」（Popconfirm 二次确认 + 访客禁用，走真实 `lifecycle/stop`）、**头部事实条持仓三件**（当前持仓/开仓价格/未实现盈亏，无持仓整项省略、多仓只出合计）、状态筛选「已暂停」（`paused` 真实状态）、列表页头返回钮（→ `/home`）、决策「思考折叠」数据源确认（`s1_raw/s2_raw/s2_thinking` 有真值，渲染仍未落）。
+**已消项（2026-11-23 demo 修订）**：主从同屏 → 两路由；详情「暂停/继续」→ demo 已删（后端无路由，前端也不该有）；「今日 pnl」→ 改回真实「累计盈亏」；ReAct 步进器 + 工具链 → 从 worker 页移除（`/agent` 保留）；决策「思考折叠」→ 换成录制行 + `s1_raw/s2_raw/s2_thinking` 展开；列表页 KPI 四卡（总任务/运行中/已停止/累计盈亏）与工具栏（搜索 + 状态 + 新建 + 刷新）对齐现网。
 
-**反缺口**：六页签全可用、批量启停/重启、分享/归档、URL 直达详情、行内启停。
+**反缺口**：六个页签全部可用（demo 只画总览 / 决策，其余标「原型未包含」）、8 张 KPI 卡（demo 总览 5 项）、批量子集操作、列表/卡片双视图、行内启停、分享/归档弹窗、URL 直达详情。
+
+**本轮发现的 demo 定性问题（已修，记档防复发）**：
+- 策略智能体不是 ReAct 智能体：worker 的「决策」是逐 bar 的 `Action(action_type, confidence, target_position)` 加 cascade 录制行，**没有工具链、没有迭代上限**——把 `/agent` 的步进卡搬过来会误导实现方向。
+- 后端只有 `start / stop / restart`，demo 里任何「暂停 / 继续」都是无源件。
+- worker 列表页与详情页的数据密度（订单表、持仓表、日志）放不进 296px 侧栏，主从同屏只能承载「决策预览」，与现网六页签详情互斥。
 
 ## 5. 策略管理 `/strategy-management`（demo 1597–1730）
 
