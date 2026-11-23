@@ -117,6 +117,8 @@ class StrategyService:
         self.strategy_dir = get_persistent_dir("strategies", Path(__file__).parent.parent / "strategies")
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
         self.strategy_instances: dict[str, Any] = {}
+        # 策略类型解析缓存：name → (文件 mtime, kind)，见 strategy_kinds()
+        self._kind_cache: dict[str, tuple[float, str | None]] = {}
 
     @staticmethod
     def _merge_db_params_with_ast(
@@ -389,11 +391,23 @@ class StrategyService:
                 kinds[name] = None
                 continue
             try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                kinds[name] = None
+                continue
+            # 按 mtime 缓存解析结果：回测列表每次翻页/筛选都会问一遍类型，
+            # 缓存后常态只有 stat 开销，策略文件一改（mtime 变）自动重解析
+            cached_hit = self._kind_cache.get(name)
+            if cached_hit and cached_hit[0] == mtime:
+                kinds[name] = cached_hit[1]
+                continue
+            try:
                 info = self._parse_strategy_file(name, path.read_text(encoding="utf-8"))
             except Exception as e:
                 logger.debug(f"读取策略文件失败 {name}: {e}")
                 info = None
             kinds[name] = self._strategy_kind(info) if info else None
+            self._kind_cache[name] = (mtime, kinds[name])
         return kinds
 
     @classmethod

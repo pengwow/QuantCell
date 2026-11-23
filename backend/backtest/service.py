@@ -51,6 +51,8 @@ class BacktestService:
         from utils.logger import LogType, get_logger
 
         self.logger = get_logger(self.__class__.__name__, LogType.APPLICATION)
+        # 列表「类型」列用的策略元数据服务（惰性创建，见 get_result_list）
+        self._kind_service: Any = None
 
     def create_task(
         self,
@@ -965,6 +967,7 @@ class BacktestService:
         *,
         start_time: str | None = None,
         end_time: str | None = None,
+        kind: str | None = None,
     ) -> tuple[list[dict], int]:
         """
         获取回测结果列表（服务端筛选 + 排序 + 分页）
@@ -980,6 +983,7 @@ class BacktestService:
             sort_order: 排序方向 (asc/desc)
             start_time: 创建日期过滤起（含），"YYYY-MM-DD"
             end_time: 创建日期过滤止（含），"YYYY-MM-DD"
+            kind: 策略类型过滤 (rule/rl/llm)，由策略文件 AST 判定，见 strategy_kinds()
 
         Returns:
             (分页后的任务列表, 过滤后的总数)
@@ -1067,6 +1071,21 @@ class BacktestService:
             )
 
         total = len(rows)
+
+        # 「类型」列 + 类型筛选：一次算全量策略名 → kind（strategy_kinds 内部按 mtime
+        # 缓存解析结果，常态只有 stat 开销）；已删策略为 None，既不显示类型也不被任何
+        # kind 筛中 —— 不按名字前缀猜
+        if rows:
+            from strategy.service import StrategyService
+
+            if self._kind_service is None:
+                self._kind_service = StrategyService()
+            kinds = self._kind_service.strategy_kinds({r["strategy_name"] for r in rows if r["strategy_name"]})
+            for row in rows:
+                row["strategy_kind"] = kinds.get(row["strategy_name"])
+            if kind:
+                rows = [r for r in rows if r["strategy_kind"] == kind]
+            total = len(rows)
 
         # 基线次序：创建时间倒序。glob 枚举顺序随文件系统变化（本地 APFS ≠ CI ext4），
         # 先固定基线再做业务排序：指标相同的记录 share tie-break、无值垫底的组内顺序都完全确定

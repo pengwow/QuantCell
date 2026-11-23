@@ -40,7 +40,6 @@ from common.notifications.task_notices import (
 from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
-from strategy.service import StrategyService
 from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -67,26 +66,6 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 创建回测服务实例
 backtest_service = BacktestService()
-
-# 类型列用的策略元数据读取器（惰性，仅 /list 页码内的策略名会解析）
-_strategy_meta_service: StrategyService | None = None
-
-
-def _attach_strategy_kinds(backtests: list[dict]) -> None:
-    """给每行补 ``strategy_kind``（rule/rl/llm，取不到为 None）。
-
-    口径与策略管理页 kind 一致（同一个 `_strategy_kind`）；只解析本页出现的
-    策略名，不扫全量策略文件。
-    """
-    global _strategy_meta_service
-    names = [b.get("strategy_name") for b in backtests if b.get("strategy_name")]
-    if not names:
-        return
-    if _strategy_meta_service is None:
-        _strategy_meta_service = StrategyService()
-    kinds = _strategy_meta_service.strategy_kinds(names)
-    for item in backtests:
-        item["strategy_kind"] = kinds.get(item.get("strategy_name"))
 
 
 def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
@@ -152,7 +131,7 @@ router = APIRouter(
     "/list",
     response_model=ApiResponse,
     summary="获取回测列表",
-    description="获取回测任务列表，支持服务端分页、状态/关键字/策略筛选与排序",
+    description="获取回测任务列表，支持服务端分页、状态/关键字/策略/类型筛选与排序",
     responses={
         200: {"description": "获取回测列表成功"},
         500: {"description": "获取回测列表失败"},
@@ -167,6 +146,11 @@ def get_backtest_list(
     keyword: str | None = Query(None, description="关键字，模糊匹配策略名称或任务ID"),
     strategy: str | None = Query(None, description="精确匹配策略名称"),
     source: str | None = Query(None, description="来源过滤：'rl' 匹配 rl_model:/rl_ensemble: 前缀策略，其他值忽略"),
+    kind: str | None = Query(
+        None,
+        pattern=r"^(rule|rl|llm)$",
+        description="策略类型过滤：rule/rl/llm（按策略文件 AST 判定，与列表「类型」列同源）",
+    ),
     sort_by: str = Query("created_at", description="排序字段：created_at/total_return/max_drawdown/strategy_name"),
     sort_order: str = Query("desc", description="排序方向：asc/desc"),
     start_time: str | None = Query(
@@ -186,6 +170,7 @@ def get_backtest_list(
         status: 状态过滤，'all' 视为不过滤
         keyword: 模糊匹配策略名称/任务ID
         strategy: 精确匹配策略名称
+        kind: 策略类型过滤（rule/rl/llm，按策略文件 AST 判定，与列表「类型」列同源）
         sort_by: 排序字段
         sort_order: 排序方向
 
@@ -196,7 +181,7 @@ def get_backtest_list(
         logger.info(
             f"获取回测结果列表请求 page={page} page_size={page_size} "
             f"status={status} keyword={keyword} strategy={strategy} source={source} "
-            f"sort_by={sort_by} sort_order={sort_order}"
+            f"kind={kind} sort_by={sort_by} sort_order={sort_order}"
         )
 
         backtests, total = backtest_service.get_result_list(
@@ -210,12 +195,10 @@ def get_backtest_list(
             sort_order=sort_order,
             start_time=start_time,
             end_time=end_time,
+            kind=kind,
         )
 
         logger.info(f"成功获取回测结果列表，共 {total} 条，返回 {len(backtests)} 条")
-
-        # 「类型」列：rule / rl / llm（策略文件 AST 真值；已删策略为 null → 前端显示占位）
-        _attach_strategy_kinds(backtests)
 
         return ApiResponse(
             code=0,
