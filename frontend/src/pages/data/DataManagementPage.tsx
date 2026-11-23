@@ -623,7 +623,12 @@ const DataManagementPage = () => {
       
       const response = await dataApi.getCryptoSymbols({
         exchange: SYSTEM_CONFIG.exchange,
-        limit: 2000,
+        // 只列现货：本页下载走 crypto_type=spot，期货/永续合约行（BTC/USDT:USDT 等）既下不了也没有对应数据
+        crypto_type: 'spot',
+        // 计价货币不限：列表要带着 BTC/ETH 计价对回来，工具栏「计价货币」chips 才能滤出东西
+        // （后端默认口径会把列表锁死成系统配置的 USDT）
+        quote: 'all',
+        limit: 3000,
         offset: 0,
       });
 

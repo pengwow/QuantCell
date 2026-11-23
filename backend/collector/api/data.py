@@ -612,6 +612,10 @@ def get_crypto_symbols(
     exchange: str = Query(default="binance", description="交易所名称，如binance、okx等"),
     crypto_type: str | None = Query(default=None, description="加密货币类型，如spot（现货）、future（合约）等"),
     filter: str | None = Query(default=None, description="过滤条件，如'USDT'表示只返回USDT交易对"),
+    quote: str | None = Query(
+        default=None,
+        description="计价货币，如BTC；传all表示不限计价货币（数据管理页按计价货币前端筛选用），不传则沿用系统配置计价货币",
+    ),
     limit: int | None = Query(default=100, description="返回数量限制"),
     offset: int | None = Query(default=0, description="返回偏移量"),
 ):
@@ -622,6 +626,7 @@ def get_crypto_symbols(
         exchange: 交易所名称，如binance、okx等
         crypto_type: 加密货币类型，如spot（现货）、future（合约）等
         filter: 过滤条件，如'USDT'表示只返回USDT交易对
+        quote: 计价货币。不传 = 沿用系统配置；all = 不限；BTC 等具体值 = 只返回该计价货币
         limit: 返回数量限制
         offset: 返回偏移量
 
@@ -631,7 +636,7 @@ def get_crypto_symbols(
     try:
         data_service = DataService()
         configs = request.app.state.configs
-        result = data_service.get_crypto_symbols(exchange, filter, limit, offset, configs, crypto_type)
+        result = data_service.get_crypto_symbols(exchange, filter, limit, offset, configs, crypto_type, quote)
 
         if result["success"]:
             return ApiResponse(code=0, message=result["message"], data=result["response_data"])

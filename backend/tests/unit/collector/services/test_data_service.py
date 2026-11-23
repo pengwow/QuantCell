@@ -438,6 +438,38 @@ class TestDataService:
         assert result["response_data"]["symbols"][0]["symbol"] == "BTCUSDT"
         assert result["response_data"]["symbols"][0]["precision"] == {"amount": 8}
 
+    def _collect_quote_filters(self, **kwargs) -> list[str]:
+        """跑一次 get_crypto_symbols，返回 query 上所有 filter 条件的 SQL 文本。"""
+        svc = DataService(db=MagicMock())
+        mock_q = MagicMock()
+        mock_q.count.return_value = 0
+        mock_q.filter.return_value = mock_q
+        mock_q.offset.return_value.limit.return_value.all.return_value = []
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value = mock_q
+        db_ctx = MagicMock()
+        db_ctx.__enter__.return_value = mock_db
+        with (
+            patch("config.get_config", return_value="USDT"),
+            patch("utils.db_session.get_db_session", return_value=db_ctx),
+        ):
+            svc.get_crypto_symbols("binance", limit=10, offset=0, **kwargs)
+        return [str(c.args[0]) for c in mock_q.filter.call_args_list]
+
+    def test_get_crypto_symbols_quote_all_skips_quote_filter(self):
+        """quote=all 不按计价货币收窄 —— 否则前端「计价货币」chips（BTC/ETH）永远为空。"""
+        conds = self._collect_quote_filters(quote="all")
+        assert not any("quote" in c for c in conds), conds
+
+    def test_get_crypto_symbols_quote_specific_filters_that_quote(self):
+        conds = self._collect_quote_filters(quote="btc")
+        assert any("crypto_symbols.quote" in c for c in conds), conds
+
+    def test_get_crypto_symbols_quote_absent_keeps_config_quote(self):
+        """不传 quote 时保持旧口径（系统配置计价货币），其它调用方依赖此行为。"""
+        conds = self._collect_quote_filters()
+        assert any("crypto_symbols.quote" in c for c in conds), conds
+
     def test_get_crypto_symbols_failure(self):
         svc = DataService(db=MagicMock())
         with patch("config.get_config", return_value="USDT"), patch("utils.db_session.get_db_session") as mock_ctx:
