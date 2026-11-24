@@ -1108,8 +1108,10 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
+  /* 卡头永不换行：右侧动作组放不下时由 Worker 选择器让宽 + 标题省略，
+     第二行会把输入区/卡面推出可视区（1280 窄侧栏下实测过） */
+  flex-wrap: nowrap;
+  gap: 10px;
   min-height: 44px;
   padding: 5px 14px;
   border-bottom: 1px solid var(--qc-border);
@@ -1146,32 +1148,14 @@
 .agent-chat-head-right {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  /* 组内永不换行：换 worker 导致状态 chip 字数变化时，只允许 Worker 选择器让宽，
+     否则会出现「折叠/清空」被甩到第二行的抖动（历史 bug） */
+  flex-wrap: nowrap;
   justify-content: flex-end;
-  gap: 6px 8px;
+  gap: 8px;
   margin-left: auto;
+  min-width: 0;
   max-width: 100%;
-}
-
-/* demo `.agent-grid` 在 ≤1080px 退化为单列；本页是定高工作台，
-   堆叠后改由 .agent-workbench 自身滚动，会话卡给固定高度维持内滚 */
-@media (max-width: 1080px) {
-  .agent-workbench {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-
-  .agent-chat-col {
-    flex: 0 0 auto;
-    height: min(560px, 72vh);
-  }
-
-  .agent-work-col {
-    flex: 0 0 auto;
-    min-width: 0;
-    max-width: none;
-    height: auto;
-  }
 }
 
 /* 右栏比页底抬一层（demo 右卡在画布上的层次） */
@@ -1195,17 +1179,27 @@
   padding: 2px 8px;
   background: var(--agent-header-bg);
   transition: border-color 160ms ease-out;
+  /* 基准 210px，挤不下时才让宽（选中值单行省略，换 worker 不会因此换行） */
+  flex: 0 1 210px;
+  min-width: 104px;
+}
+
+/* 选中值与下拉选项都单行省略：长名不换行、短名不抖动。
+   antd v6 的选中值容器是 .ant-select-content（旧 .ant-select-selection-item 已不存在） */
+.wb-worker-select .ant-select-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ant-select-dropdown .ant-select-item-option-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wb-worker-select .ant-select {
   min-width: 0;
-}
-
-/* Worker 选择器是卡头唯一可压缩项：窄窗口先让宽度（ellipsis），
-   而不是把整组动作挤到第二行或溢出卡面 */
-.wb-worker-select {
-  flex: 0 1 210px;
-  min-width: 104px;
 }
 
 .wb-worker-label {
@@ -1222,151 +1216,6 @@
   padding: 32px 0;
 }
 
-.wb-section-title {
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-hint);
-  margin: 12px 0 6px;
-}
-
-.wb-section-title:first-child {
-  margin-top: 0;
-}
-
-.wb-list-meta {
-  font-size: 11px;
-  color: var(--text-hint);
-  margin-bottom: 6px;
-}
-
-/* 尾注（固定窗口提示）：mono 11 弱注 */
-.wb-list-footer {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0 0;
-}
-
-.wb-list-footer .ant-btn {
-  font-size: 11px;
-  color: var(--text-hint);
-}
-
-.wb-nowrap-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* ==================== 决策流 ==================== */
-.wb-dec-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.wb-dec-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--qc-surface);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.2s;
-  color: var(--text-primary);
-  width: 100%;
-}
-
-.wb-dec-row:hover {
-  border-color: var(--active-color);
-}
-
-.wb-dec-time {
-  flex: 0 0 60px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--text-hint);
-}
-
-.wb-dec-action {
-  flex: 0 0 auto;
-}
-
-.wb-dec-conf {
-  flex: 1;
-  min-width: 0;
-}
-
-.wb-dec-conf-label {
-  display: block;
-  font-size: 10.5px;
-  color: var(--text-secondary);
-  margin-bottom: 2px;
-}
-
-.wb-conf-bar {
-  display: block;
-  height: 5px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--qc-text) 10%, transparent);
-  overflow: hidden;
-}
-
-.wb-conf-bar i {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: var(--active-color);
-  transition: width 0.4s;
-}
-
-.wb-conf-bar i.up {
-  background: var(--agent-up);
-}
-
-.wb-conf-bar i.down {
-  background: var(--agent-down);
-}
-
-.wb-dec-decider {
-  flex: 0 0 64px;
-  text-align: right;
-  font-size: 11px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ==================== 绩效 ==================== */
-.wb-perf-toolbar {
-  margin-bottom: 8px;
-}
-
-.wb-kpi-row {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
-.wb-kpi span {
-  display: block;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.wb-kpi b {
-  display: block;
-  font-size: 15px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
 .up {
   color: var(--agent-up);
 }
@@ -1375,275 +1224,26 @@
   color: var(--agent-down);
 }
 
-.wb-per-refresh {
-  display: flex;
-  justify-content: center;
-  padding: 6px 0;
-}
-
-/* ==================== 日志 ==================== */
-.wb-logs {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
-.wb-logs-toolbar {
-  margin-bottom: 6px;
-}
-
-.wb-log-stream {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.7;
-  padding: 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--qc-bg);
-}
-
-.wb-log-line {
-  word-break: break-all;
-}
-
-.wb-log-ts {
-  color: var(--text-hint);
-}
-
-.wb-log-level {
-  display: inline-block;
-  min-width: 52px;
-  font-weight: 600;
-}
-
-.wb-log-msg {
-  color: var(--text-secondary);
-}
-
-.wb-log-empty {
-  color: var(--text-hint);
-  text-align: center;
-  padding: 24px 0;
-}
-
-/* ==================== 占位 Tab ==================== */
-.wb-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 60%;
-}
-
-.wb-placeholder-ref {
-  font-size: 12px;
-  color: var(--text-hint);
-}
-
-/* ==================== 训练任务（模型 Tab 顶部） ==================== */
-.wb-train {
-  margin-bottom: 12px;
-}
-
-.wb-train-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.wb-train-title {
-  margin: 0;
-}
-
-.wb-train-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.wb-train-form {
-  padding: 10px 10px 4px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  margin-bottom: 10px;
-}
-
-.wb-train-form-row {
-  display: flex;
-  gap: 8px;
-}
-
-.wb-train-form-item {
-  flex: 1;
-  min-width: 0;
-  margin-bottom: 8px !important;
-}
-
-.wb-train-empty {
-  font-size: 12px;
-  color: var(--text-hint);
-  padding: 8px 0;
-}
-
-.wb-train-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--qc-surface);
-}
-
-/* 完成/失败/取消态靠边框色区分（卡片内进度条已由 antd Progress status 着色） */
-.wb-train-done {
-  border-color: color-mix(in srgb, var(--agent-up) 50%, var(--border-color));
-}
-
-.wb-train-error {
-  border-color: color-mix(in srgb, var(--agent-down) 50%, var(--border-color));
-}
-
-.wb-train-cancelled {
-  border-color: color-mix(in srgb, var(--text-hint) 45%, var(--border-color));
-}
-
-.wb-train-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.wb-train-status {
-  flex: 0 0 auto;
-}
-
-.wb-train-id {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.wb-train-elapsed {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--text-hint);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.wb-train-stage {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.wb-train-msg {
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  word-break: break-word;
-}
-
-.wb-train-err {
-  font-size: 11.5px;
-  color: var(--agent-down);
-  word-break: break-word;
-}
-
-.wb-train-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  color: var(--text-hint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-train-hint {
-  font-size: 10.5px;
-  color: var(--text-hint);
-}
-
-/* ==================== 审计 Tab ==================== */
-.wb-audit {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.wb-audit-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.wb-audit-filter {
-  flex: 1;
-  min-width: 0;
-}
-
-.wb-audit-status {
-  flex: 0 0 128px;
-}
-
-.wb-audit-args {
-  margin: 0;
-  padding: 8px;
-  max-height: 220px;
-  overflow: auto;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--qc-text) 4%, var(--qc-bg));
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-secondary);
-}
-
-/* 窄屏压缩右栏（聊天优先），再窄由整体布局挤压 */
-@media (max-width: 900px) {
-  .agent-work-col {
-    min-width: 300px;
+/* demo `.agent-grid` 在 ≤1080px 退化为单列；本页是定高工作台，
+   堆叠后改由 .agent-workbench 自身滚动，会话卡给固定高度维持内滚 */
+@media (max-width: 1080px) {
+  .agent-workbench {
+    flex-direction: column;
+    overflow-y: auto;
   }
-}
 
-/* antd Tabs 窄面板密度微调（§6.8：12.5px 档） */
-.wb-tabs .ant-tabs-tab {
-  padding: 8px 10px;
-  font-size: 12.5px;
-}
+  .agent-chat-col {
+    flex: 0 0 auto;
+    height: min(560px, 72vh);
+  }
 
-/* 观测面板特征 chip 间距（qc-chip 无默认外距） */
-.wb-obs-feature {
-  margin-right: 4px;
-}
-
-/* Tab 内容超出视口时在面板内滚动（Tab 栏吸顶不滚走）：
-   .agent-work-col 是 overflow:hidden 的 flex 列，.wb-tabs（antd 自身已是
-   flex-column）必须 min-height:0 才能 shrink，content-holder 才拿得到 flex:1。 */
-.wb-tabs {
-  flex: 1;
-  min-height: 0;
-}
-
-.wb-tabs > .ant-tabs-content-holder {
-  flex: 1;
-  min-height: 0;
-}
-
-.wb-tabs .ant-tabs-content-holder {
-  overflow-y: auto;
-  padding: 0 10px 12px;
+  .agent-work-col {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+  }
 }
 
 /* ==================== 右栏首屏两卡（demo 1528–1592：迭代足迹 + Dream） ==================== */
@@ -1759,24 +1359,7 @@
   white-space: nowrap;
 }
 
-/* ==================== 自迭代 Tab（A–D 卡） ==================== */
-.sl-root {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sl-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sl-toolbar-note {
-  font-size: 10.5px;
-  color: var(--text-hint);
-}
+/* ==================== 右栏卡内容件 ==================== */
 
 /* demo .card 同构：bgc 底 + bd 边 + 10px 圆角 */
 .sl-card {
@@ -1795,15 +1378,6 @@
 }
 
 /* 序号徽章（demo .card-idx：mono 10px 主色 40% 边） */
-.sl-card-idx {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
-  line-height: 1;
-  padding: 2px 5px;
-  border-radius: 4px;
-  color: var(--qc-primary);
-  border: 1px solid color-mix(in srgb, var(--qc-primary) 40%, transparent);
-}
 
 .sl-card-title {
   font-size: 12.5px;
@@ -1834,83 +1408,7 @@
   background: var(--qc-surface-raised);
 }
 
-.sl-chip.on {
-  color: var(--qc-success);
-  border-color: color-mix(in srgb, var(--qc-success) 40%, transparent);
-  background: color-mix(in srgb, var(--qc-success) 8%, transparent);
-}
-
-.sl-chip.off {
-  color: var(--text-hint);
-}
-
-.sl-chip.alert {
-  color: var(--qc-error);
-  border-color: color-mix(in srgb, var(--qc-error) 40%, transparent);
-  background: color-mix(in srgb, var(--qc-error) 8%, transparent);
-}
-
 /* A 迭代足迹：固定高度轨，柱高按最大值归一 */
-.sl-bars {
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-  height: 104px;
-}
-
-.sl-bar {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  height: 100px;
-}
-
-.sl-bar-val {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  font-size: 9.5px;
-  color: var(--text-hint);
-  flex: 0 0 auto;
-}
-
-.sl-bar-track {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  min-height: 0;
-}
-
-.sl-bar-track i {
-  display: block;
-  width: 100%;
-  max-width: 26px;
-  margin: 0 auto;
-  border-radius: 2px 2px 0 0;
-  background: color-mix(in srgb, var(--qc-info) 65%, transparent);
-}
-
-.sl-bar-track i.has-fail {
-  background: color-mix(in srgb, var(--qc-error) 60%, transparent);
-}
-
-.sl-bar-x {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
-  color: var(--text-hint);
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.sl-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
 
 .sl-empty {
   padding: 14px 0;
@@ -2029,10 +1527,6 @@
   color: var(--text-hint);
 }
 
-.sl-small {
-  font-size: 10.5px;
-}
-
 .sl-run-state {
   display: inline-flex;
   align-items: center;
@@ -2046,21 +1540,6 @@
   line-height: 1;
 }
 
-.sl-pre {
-  margin: 6px 0 0;
-  padding: 7px 9px;
-  max-height: 180px;
-  overflow: auto;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--qc-text) 4%, var(--qc-bg));
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-secondary);
-}
-
 /* demo .card-foot：上虚线 + 10.5 fg-4 */
 .sl-foot {
   margin-top: 8px;
@@ -2072,111 +1551,9 @@
 }
 
 /* C 每日闭环时钟线 */
-.sl-jobs {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.sl-job-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 4px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-
-.sl-job-row:hover {
-  background: var(--hover-bg);
-}
 
 /* demo .dot：8px 圆（§6.17） */
-.sl-dot {
-  flex: 0 0 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.sl-dot.ok {
-  background: var(--qc-success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-success) 16%, transparent);
-}
-
-.sl-dot.failed {
-  background: var(--qc-error);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-error) 16%, transparent);
-}
-
-.sl-dot.idle {
-  background: transparent;
-  border: 1.5px solid var(--text-hint);
-}
-
-.sl-dot.off {
-  background: var(--qc-surface-raised);
-  border: 1.5px solid var(--qc-border-strong);
-}
-
-.sl-job-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sl-job-cron {
-  font-size: 10.5px;
-  color: var(--text-hint);
-  white-space: nowrap;
-}
-
-.sl-job-state {
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.sl-job-state.ok {
-  color: var(--qc-success);
-}
-
-.sl-job-state.failed {
-  color: var(--qc-error);
-}
-
-.sl-job-state.idle,
-.sl-job-state.off {
-  color: var(--text-hint);
-}
-
-.sl-job-detail {
-  padding: 2px 6px 8px 20px;
-}
 
 /* D 重训台账 */
-.sl-gates {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
 
 /* 警示条：warning 35% 边 + 7% 底（§2.3 tint） */
-.sl-notice {
-  margin-top: 8px;
-  padding: 6px 9px;
-  border-radius: 6px;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  border: 1px solid color-mix(in srgb, var(--qc-warning) 35%, transparent);
-  background: color-mix(in srgb, var(--qc-warning) 7%, transparent);
-}

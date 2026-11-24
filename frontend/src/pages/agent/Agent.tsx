@@ -12,13 +12,11 @@ import {
   HistoryOutlined,
   SettingOutlined,
   ExclamationCircleOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAgentStore, REACT_MAX_ITERATIONS } from './store/agentStore';
-import { useWorkbenchStore, isWorkbenchTab } from './store/workbenchStore';
+import { useAgentWorkerStore } from './store/agentWorkerStore';
 import { workerApi } from '@/api/workerApi';
 import { WorkerStatusText, WorkerStatus } from '@/types/worker';
 import type { Worker } from '@/types/worker';
@@ -27,7 +25,6 @@ import ChatPanel from './components/ChatPanel';
 import SessionListDrawer from './components/SessionListDrawer';
 import ToolListDrawerWithConfig from './components/ToolListDrawerWithConfig';
 import FirstScreenCards from './components/FirstScreenCards';
-import WorkbenchPanel from './components/workbench/WorkbenchPanel';
 import './Agent.css';
 
 const { Content } = Layout;
@@ -82,13 +79,9 @@ const Agent = () => {
     fetchTools,
   } = useAgentStore();
 
-  // —— 工作面板状态（store 持有，URL 查询参数做持久化：/agent?tab=decisions&worker=1）——
-  const workerId = useWorkbenchStore((s) => s.workerId);
-  const activeTab = useWorkbenchStore((s) => s.activeTab);
-  const collapsed = useWorkbenchStore((s) => s.collapsed);
-  const setWorker = useWorkbenchStore((s) => s.setWorker);
-  const setTab = useWorkbenchStore((s) => s.setTab);
-  const togglePanel = useWorkbenchStore((s) => s.togglePanel);
+  // —— Worker 选择（store 持有，URL ?worker= 做持久化）——
+  const workerId = useAgentWorkerStore((s) => s.workerId);
+  const setWorker = useAgentWorkerStore((s) => s.setWorker);
 
   // 初始化：会话 + 工具列表（原逻辑）
   useEffect(() => {
@@ -110,33 +103,24 @@ const Agent = () => {
 
   // URL → store（进入页面/前进后退时同步），worker 缺省选中首个运行中项
   useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (isWorkbenchTab(tab)) setTab(tab);
     const w = Number(searchParams.get('worker'));
-    if (Number.isInteger(w) && w > 0 && w !== useWorkbenchStore.getState().workerId) {
+    if (Number.isInteger(w) && w > 0 && w !== useAgentWorkerStore.getState().workerId) {
       setWorker(w);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在挂载/URL 外部变化时对齐
   }, [searchParams]);
 
-  // store → URL（用户交互触发；replace 不产生历史噪音）。
-  // 读 getState() 而非渲染闭包：挂载首拍 URL→store 对齐与回写同 commit 执行时，
-  // 闭包还是 store 初值，会把 URL 里的 tab/worker 打回默认（实测发生过）。
+  // store → URL（用户交互触发；replace 不产生历史噪音）。读 getState() 而非渲染闭包，
+  // 否则挂载首拍 URL→store 对齐与回写同 commit 执行时会把 URL 里的 worker 打回默认。
   useEffect(() => {
-    const { workerId: curWorker, activeTab: curTab } = useWorkbenchStore.getState();
+    const curWorker = useAgentWorkerStore.getState().workerId;
+    if (curWorker == null) return;
+    if (searchParams.get('worker') === String(curWorker)) return;
     const next = new URLSearchParams(searchParams);
-    let dirty = false;
-    if (curWorker != null && next.get('worker') !== String(curWorker)) {
-      next.set('worker', String(curWorker));
-      dirty = true;
-    }
-    if (next.get('tab') !== curTab) {
-      next.set('tab', curTab);
-      dirty = true;
-    }
-    if (dirty) setSearchParams(next, { replace: true });
+    next.set('worker', String(curWorker));
+    setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParams 只读当前值，避免与上方对齐效应互相触发
-  }, [workerId, activeTab]);
+  }, [workerId]);
 
   // workers 首次到位且 URL/store 均无 worker → 缺省选中首个运行中 worker
   useEffect(() => {
@@ -299,26 +283,13 @@ const Agent = () => {
                 <button type="button" className="qc-mini-btn" onClick={handleClearSession}>
                   {t('agent_clear_session')}
                 </button>
-                <Tooltip title={collapsed ? t('wb_expand_panel') : t('wb_collapse_panel')}>
-                  <button
-                    type="button"
-                    className="qc-mini-btn qc-icon-only"
-                    aria-label={collapsed ? t('wb_expand_panel') : t('wb_collapse_panel')}
-                    onClick={togglePanel}
-                  >
-                    {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                  </button>
-                </Tooltip>
               </div>
             </div>
             <ChatPanel />
           </div>
-          {!collapsed && (
-            <div className="agent-work-col">
-              <FirstScreenCards />
-              <WorkbenchPanel />
-            </div>
-          )}
+          <div className="agent-work-col">
+            <FirstScreenCards />
+          </div>
         </Content>
       </Layout>
 

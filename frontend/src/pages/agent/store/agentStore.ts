@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 // 非组件模块无法使用 useTranslation hook，直接用 i18n 单例取词（同 useUpdater.ts 先例）
 import i18n from '../../../i18n/config';
-import { useWorkbenchStore } from './workbenchStore';
+import { useAgentWorkerStore } from './agentWorkerStore';
 
 export interface ToolCall {
   id: string;
@@ -166,7 +166,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   sendMessage: async (content: string) => {
     const { currentSessionId } = get();
     // 工作台选中的 Worker 一并带上，供后端注入决策/订单摘要（0/未选不带，后端可选参数）
-    const workerId = useWorkbenchStore.getState().workerId;
+    const workerId = useAgentWorkerStore.getState().workerId;
 
     // 添加用户消息
     const userMessage: Message = {
