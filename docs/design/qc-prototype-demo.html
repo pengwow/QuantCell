@@ -2177,6 +2177,22 @@
                     <button class="ichip" data-f="缺口">存在缺口</button>
                     <button class="ichip" data-f="无数据">无数据</button>
                   </div>
+                  <div class="frow" role="group" aria-label="计价货币" id="symQuoteChips">
+                    <button class="ichip on" data-q="all">全部</button>
+                    <button class="ichip" data-q="USDT">USDT</button>
+                    <button class="ichip" data-q="BTC">BTC</button>
+                    <button class="ichip" data-q="ETH">ETH</button>
+                  </div>
+                  <select class="msel" id="symSort" aria-label="排序" style="width:170px">
+                    <option value="rank-asc" selected>按排名</option>
+                    <option value="symbol-asc">名称 A-Z</option>
+                    <option value="symbol-desc">名称 Z-A</option>
+                    <option value="price-desc">价格 高-低</option>
+                    <option value="price-asc">价格 低-高</option>
+                    <option value="change-desc">涨幅 高-低</option>
+                    <option value="change-asc">涨幅 低-高</option>
+                    <option value="volume-desc">成交量 高-低</option>
+                  </select>
                   <span class="r-count mono" id="symCount"></span>
                 </div>
                 <div class="card bt-card" style="margin-top:0">
@@ -3710,6 +3726,12 @@
           var txt = (inCard && p.b ? p.b : p.a).textContent.toLowerCase();
           return (!ql || txt.indexOf(ql) !== -1) && (!fl || txt.indexOf(fl) !== -1) && (!allowFn || allowFn(p));
         });
+        /* v7：cfg.cmp 可选排序比较器——filter() 产生新数组，就地排序不影响 pairs 原序；vis 重排后再物理
+           重排两形态 DOM（tr / 卡 appendChild 回父容器），保证可见顺序与排序一致（行与卡同序同步）。 */
+        if (cfg.cmp) {
+          vis.sort(cfg.cmp);
+          vis.forEach(function (p) { p.a.parentElement.appendChild(p.a); if (p.b) p.b.parentElement.appendChild(p.b); });
+        }
         var total = vis.length;
         st.pages = Math.max(1, Math.ceil(total / st.size));
         if (st.page > st.pages) st.page = st.pages;
@@ -3757,7 +3779,60 @@
     LISTS.sy = makeList({ slot: 'sySlot', items: qAll('#syBody tr'), search: 'sySearch', chips: qAll('#syChips .ichip'), count: 'syCount', size: 10 });
     LISTS.md = makeList({ slot: 'mdSlot', items: qAll('#mdGrid > .m-row-card'), alt: qAll('#mdListBody > tr'), search: 'mdSearch', chips: qAll('#mdChips .ichip'), count: 'mdCount', size: 10 });
     LISTS.sa = makeList({ slot: 'saSlot', items: qAll('#saBody .bt-row'), alt: qAll('#saCardGrid > .card'), search: 'saSearch', chips: qAll('#saChips .ichip'), count: 'saCount', size: 10 });
-    LISTS.sym = makeList({ slot: 'symSlot', items: qAll('#symBody tr'), alt: qAll('#symGrid > .card'), search: 'symSearch', chips: qAll('#symChips .ichip'), count: 'symCount', size: 10, box: 'symBox', empty: 'symEmpty', filter: wlAllow });
+    /* ---- 行情标的工具栏：计价货币筛选 + 排序（对齐 DataManagementPage.tsx §6.6：quote = all/USDT/BTC/ETH，
+       排序 8 项同序，默认 rank-asc）。与搜索 / 质量 chips / 自选组谓词取交集；排序数值按 data-* 解析
+       （价格带千分位、成交量带 $ / B 量级、排名带 #）；选非全部计价且为空时空态文案切换为计价维度提示 ---- */
+    var symQuote = 'all', symSortKey = 'rank-asc';
+    function symListAllow(p) { return wlAllow(p) && (symQuote === 'all' || (p.a.dataset.sym || '').split('/')[1] === symQuote); }
+    function symNum(v) { return parseFloat(String(v).replace(/[^0-9.+-]/g, '')) || 0; }
+    function symVolNum(v) {
+      var m = String(v).replace(/[$,\s]/g, '').match(/^([\d.]+)([BMK]?)$/);
+      return m ? parseFloat(m[1]) * ({ B: 1e9, M: 1e6, K: 1e3 }[m[2]] || 1) : 0;
+    }
+    function symCmp(a, b) {
+      var ra = a.a.dataset, rb = b.a.dataset;
+      switch (symSortKey) {
+        case 'symbol-asc':  return ra.sym < rb.sym ? -1 : ra.sym > rb.sym ? 1 : 0;
+        case 'symbol-desc': return ra.sym > rb.sym ? -1 : ra.sym < rb.sym ? 1 : 0;
+        case 'price-desc':  return symNum(rb.price) - symNum(ra.price);
+        case 'price-asc':   return symNum(ra.price) - symNum(rb.price);
+        case 'change-desc': return symNum(rb.chg) - symNum(ra.chg);
+        case 'change-asc':  return symNum(ra.chg) - symNum(rb.chg);
+        case 'volume-desc': return symVolNum(rb.vol) - symVolNum(ra.vol);
+        default:            return symNum(ra.rank) - symNum(rb.rank); /* rank-asc */
+      }
+    }
+    LISTS.sym = makeList({ slot: 'symSlot', items: qAll('#symBody tr'), alt: qAll('#symGrid > .card'), search: 'symSearch', chips: qAll('#symChips .ichip'), count: 'symCount', size: 10, box: 'symBox', empty: 'symEmpty', filter: symListAllow, cmp: symCmp });
+
+    (function () {
+      var chips = document.getElementById('symQuoteChips'), sel = document.getElementById('symSort'), empty = document.getElementById('symEmpty');
+      if (!chips || !sel) return;
+      function symEmptyText() {
+        if (!empty) return;
+        var t = empty.querySelector('.empty-t'), h = empty.querySelector('.empty-h');
+        if (!t || !h) return;
+        if (symQuote !== 'all') {
+          t.textContent = '该计价货币下暂无标的';
+          h.textContent = '当前计价货币没有可显示的标的，点下方按钮切回「全部」即可恢复正常列表。';
+        } else {
+          t.textContent = '该自选组暂无标的';
+          h.textContent = '从行内 ★ 收藏、或在「管理自选组」→ 组卡「批量添加」里勾选标的加入当前组。';
+        }
+      }
+      chips.addEventListener('click', function (e) {
+        var b = e.target.closest('.ichip');
+        if (!b) return;
+        qAll('#symQuoteChips .ichip').forEach(function (x) { x.classList.toggle('on', x === b); });
+        symQuote = b.dataset.q || 'all';
+        symEmptyText();
+        if (LISTS.sym) LISTS.sym.render();
+      });
+      sel.addEventListener('change', function () { symSortKey = sel.value; if (LISTS.sym) LISTS.sym.render(); });
+      if (empty) {
+        var clearBtn = empty.querySelector('[data-clear]');
+        if (clearBtn) clearBtn.addEventListener('click', function () { symQuote = 'all'; symEmptyText(); });
+      }
+    })();
 
     /* ---- 策略智能体：列表行 → 详情页（现网 /strategy-worker 与 /:id 两路由） ---- */
     var sdCurrent = null;
