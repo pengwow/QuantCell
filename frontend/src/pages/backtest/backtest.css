@@ -247,6 +247,68 @@
 
 /* demo .card-head mb:8 —— head 与首块内容间距统一 8px（见下各块 margin） */
 
+/* 策略档案行（demo .bt-strat-line）：类型 chip + 跳策略详情，闭环另一头是策略详情的「累计回测 N 次」 */
+.bt-strat-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--qc-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--qc-primary) 3%, var(--qc-surface));
+}
+
+.bt-strat-lb {
+  font-size: 10.5px;
+  color: var(--qc-text-tertiary);
+}
+
+.bt-strat-meta {
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+}
+
+.bt-strat-link {
+  margin-left: auto;
+}
+
+/* 工具栏「按策略筛选」来源提示（从策略详情「累计回测 N 次」跳进来时出现，× 可撤） */
+.qc-filter-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--qc-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+  font-size: 11px;
+  color: var(--qc-primary);
+  white-space: nowrap;
+}
+
+.qc-filter-note b {
+  font-weight: 600;
+}
+
+.qc-filter-note-x {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.qc-filter-note-x:hover {
+  background: color-mix(in srgb, var(--qc-primary) 16%, transparent);
+}
+
 /* demo .card-title：13px/650 */
 .bt-summary-title {
   font-size: 13px;

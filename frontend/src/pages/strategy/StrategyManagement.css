@@ -100,6 +100,30 @@
   color: var(--qc-text-tertiary);
 }
 
+/* footer 的「累计回测 N 次」：可点跳回测中心并按该策略筛选（虚线示可点，与 demo 文字链同形） */
+.sm-bt-link {
+  align-self: center;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--qc-primary);
+  cursor: pointer;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-primary) 45%, transparent);
+}
+
+.sm-bt-link::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--qc-text-tertiary);
+  pointer-events: none;
+}
+
+.sm-bt-link:hover {
+  border-bottom-style: solid;
+}
+
 /* footer 的「版本历史 N 条」折叠开关：弱色文本钮，不用 antd 彩色 Tag */
 .sm-ver-toggle {
   align-self: center;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card,
@@ -62,6 +62,8 @@ const StrategyManagement = () => {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   // 行选中 = 行内展开（同一状态：点行就地展开 → 再点收起；操作钮阻止冒泡）
   const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
+  // ?focus= 一次性定位意图：消费后置空（见下方「消费 ?focus=」effect）
+  const focusRef = useRef<string>('');
   // 创建 Worker：复用 worker 模块的现成创建弹窗（真实 POST /workers），不做死钮
   const [createWorkerOpen, setCreateWorkerOpen] = useState(false);
   // 详情块版本历史：折叠开关；列表本身懒挂载（展开才请求，见 StrategyVersionPanel）
@@ -111,13 +113,34 @@ const StrategyManagement = () => {
 
   // 首次挂载：?tab=backtests 等返回链路已随「回测记录」页签退役，
   // 任何带查询串的进入一律 replace 成裸路径（老书签/旧详情页返回不再复活退役页签）
+  // ?focus=<name> 例外：回测详情「查看策略 →」带过来的一次性定位意图，进页先消费再清地址栏
   useEffect(() => {
+    const focus = searchParams.get('focus');
+    if (focus) {
+      focusRef.current = focus;
+      setSearchText(focus);
+    }
     if (searchParams.toString()) {
       setSearchParams({}, { replace: true });
     }
     loadOverview();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 路由参数一次性清理 + 首载
   }, []);
+
+  // 消费 ?focus=：数据到位后展开该策略行（列表里没有则只保留搜索词，不造行）
+  // 只在命中时才清 focus：首轮渲染 items 还是空的，提前清掉就再也等不到数据了
+  useEffect(() => {
+    const name = focusRef.current;
+    if (!name || loading) return;
+    if (!items.some((s) => s.name === name)) return;
+    focusRef.current = '';
+    setSelectedRowKey(name);
+    // 展开面板由 antd 插入到行下方；滚动定位到该行，避免「跳过来看不出是哪条」
+    requestAnimationFrame(() => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('tr[data-row-key]'));
+      rows.find((r) => r.dataset.rowKey === name)?.scrollIntoView({ block: 'center' });
+    });
+  }, [items, loading]);
 
   // 创建策略
   const handleCreateStrategy = () => {
@@ -688,11 +711,9 @@ const StrategyManagement = () => {
     }
 
     // footer 段落：「默认 runner：kernel」恒有（内核默认路径真值），
-    // 累计回测次数取 /strategy/overview 的 backtest_count（真实任务总数）；字段缺席时隐藏该段
-    const footSegs: string[] = [t('sm_detail_runner', { runner: 'kernel' })];
-    if (typeof item.backtest_count === 'number') {
-      footSegs.push(t('sm_detail_backtest_count', { n: item.backtest_count }));
-    }
+    // 累计回测次数取 /strategy/overview 的 backtest_count（真实任务总数）；
+    // 有该字段才给可点入口，点击跳回测中心并按该策略名筛选（闭环另一头在回测详情「策略档案」）
+    const backtestCount = typeof item.backtest_count === 'number' ? item.backtest_count : null;
     const versionCount = item.version_count ?? 0;
 
     return (
@@ -709,7 +730,20 @@ const StrategyManagement = () => {
             {t('sm_action_backtest')}
           </Button>
           <Button onClick={() => setCreateWorkerOpen(true)}>{t('create_worker')}</Button>
-          <span className="sm-detail-foot">{footSegs.join(' · ')}</span>
+          <span className="sm-detail-foot">{t('sm_detail_runner', { runner: 'kernel' })}</span>
+          {backtestCount !== null && (
+            <button
+              type="button"
+              className="sm-bt-link"
+              title={t('sm_detail_backtest_link_title')}
+              onClick={() =>
+                navigate(`/backtest?strategy=${encodeURIComponent(item.name)}`)
+              }
+            >
+              {t('sm_detail_backtest_count', { n: backtestCount })}
+              <span aria-hidden="true"> →</span>
+            </button>
+          )}
           {/* 0 条也保留该段（demo 1727），但退成与累计回测同形的非交互弱态文字，不给空列表 */}
           {versionCount > 0 ? (
             <button

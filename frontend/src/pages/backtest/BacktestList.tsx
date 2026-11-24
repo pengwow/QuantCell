@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, DatePicker, Popconfirm, Row, Select, Skeleton, Tooltip, App, Pagination } from 'antd';
 import type { Dayjs } from 'dayjs';
 import type { TableProps } from 'antd';
@@ -55,7 +55,11 @@ const BacktestList = () => {
   const viewType = useViewType();
 
   // 筛选状态（搜索词回车/清除才提交服务端；chips 即点即查）
-  const [searchText, setSearchText] = useState<string>('');
+  // ?strategy=<name>（从策略详情「累计回测 N 次」跳来）首屏即作为搜索词，工具栏另给可清除的筛选提示
+  const [searchParams, setSearchParams] = useSearchParams();
+  const strategyParam = searchParams.get('strategy') || '';
+  const [strategyFilter, setStrategyFilter] = useState<string>(() => strategyParam);
+  const [searchText, setSearchText] = useState<string>(() => strategyParam);
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   // 类型筛选（rule/rl/llm；'all' 表示不过滤）—— 与列表「类型」列同源，由后端判定
   const [kindFilter, setKindFilter] = useState<'all' | 'rule' | 'rl' | 'llm'>('all');
@@ -232,6 +236,18 @@ const BacktestList = () => {
   // 组件挂载时加载数据
   useEffect(() => {
     loadBacktestList();
+    // 首屏就带策略筛选时，副标「历史共 N 条」仍要无筛选口径（loadBacktestList 不带筛选才刷新该值）：
+    // 补一次只取 total 的请求，避免跳转进来副标显示 0
+    if (strategyParam) {
+      backtestApi
+        .getBacktestList({ page: 1, page_size: 1 })
+        .then((res) => {
+          if (typeof res.total === 'number') setOverallTotal(res.total);
+        })
+        .catch(() => {
+          /* 副标计数取不到就不刷新，不回退编造数字 */
+        });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 首载一次性执行
   }, []);
 
@@ -519,6 +535,12 @@ const BacktestList = () => {
     const percent = Number.isFinite(rawPercent) ? Math.max(0, Math.min(100, Math.round(rawPercent))) : null;
     const failMessage = record.status === 'failed' ? progress?.error?.message : undefined;
 
+    // 策略档案行：任务行只带 strategy_kind（后端按策略文件 AST 判定），
+    // 策略已删且无记录 → null：如实说明，链接置灰不跳（不按名字猜存在性）
+    const stratName = record.strategy_name || '';
+    const isModelTask = stratName.startsWith('rl_model:') || stratName.startsWith('rl_ensemble:');
+    const strategyMissing = record.strategy_kind === null || record.strategy_kind === undefined;
+
     const footSegs: string[] = [];
     if (typeof cfg?.initial_cash === 'number') {
       footSegs.push(`${t('backtest_initial_cash')} ${formatCashGrouped(cfg.initial_cash)}`);
@@ -537,6 +559,27 @@ const BacktestList = () => {
             {renderStatusChip(record.status)}
             {subSegs.length > 0 && !summaryLoading && (
               <span className="qc-mono bt-summary-sub">{subSegs.join(' · ')}</span>
+            )}
+          </div>
+          {/* 策略档案：跳回策略管理并定位展开该策略（闭环另一头是策略详情的「累计回测 N 次」） */}
+          <div className="bt-strat-line">
+            <span className="bt-strat-lb">{t('bt_strategy_archive')}</span>
+            {!strategyMissing && renderKindChip(record.strategy_kind)}
+            {strategyMissing ? (
+              <span className="bt-strat-meta">{t('bt_strategy_missing')}</span>
+            ) : isModelTask ? (
+              <span className="bt-strat-meta">{t('bt_strategy_model_task')}</span>
+            ) : (
+              <button
+                type="button"
+                className="qc-mini-btn bt-strat-link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/strategy-management?focus=${encodeURIComponent(stratName)}`);
+                }}
+              >
+                {t('bt_view_strategy')} →
+              </button>
             )}
           </div>
           {summaryLoading && (
@@ -743,8 +786,25 @@ const BacktestList = () => {
     },
   ];
 
+  // 清掉「按策略筛选」来源标记 + 地址栏参数（搜索词由调用方决定是否一起清）
+  const clearStrategyFilterParam = () => {
+    setStrategyFilter('');
+    if (!strategyParam) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('strategy');
+    setSearchParams(next, { replace: true });
+  };
+
+  // 点提示 chip 的 ×：策略筛选与搜索词一起撤掉，回全量第一页
+  const handleClearStrategyFilter = () => {
+    clearStrategyFilterParam();
+    setSearchText('');
+    loadBacktestList({ keyword: '', page: 1 });
+  };
+
   // 重置筛选（chips/排序/搜索/日期归位后按默认参数重拉第一页）
   const handleResetFilters = () => {
+    clearStrategyFilterParam();
     setSearchText('');
     setStatusFilter('all');
     setKindFilter('all');
@@ -772,6 +832,22 @@ const BacktestList = () => {
 
   const hasFilters = searchText !== '' || statusFilter !== 'all' || kindFilter !== 'all' || dateRange !== null;
 
+  // 「按策略筛选」来源提示（列表工具栏与卡片视图共用；卡片视图没有搜索框，清除入口只能靠这个 chip）
+  const strategyNote = strategyFilter ? (
+    <span className="qc-filter-note">
+      {t('bt_strategy_filter_note')} <b className="qc-mono">{strategyFilter}</b>
+      <button
+        type="button"
+        className="qc-filter-note-x"
+        aria-label={t('bt_strategy_filter_clear')}
+        title={t('bt_strategy_filter_clear')}
+        onClick={handleClearStrategyFilter}
+      >
+        ×
+      </button>
+    </span>
+  ) : null;
+
   // 渲染列表视图 — §6.5/§6.6/§6.7：chips 状态筛选 + DataTable + 行内摘要 + 脚注
   const renderListView = () => (
     <>
@@ -780,6 +856,8 @@ const BacktestList = () => {
           value: searchText,
           onChange: (value) => {
             setSearchText(value);
+            // 用户自己改搜索词：从策略详情带来的「按策略筛选」标记随之失效（提示 chip 撤掉）
+            if (strategyFilter && value !== strategyFilter) clearStrategyFilterParam();
             // 点 clear 清空时同步重发服务端过滤，避免「界面已清、结果仍是旧过滤」；§6.6 过滤联动页码归 1
             if (value === '') {
               loadBacktestList({ keyword: '', page: 1 });
@@ -806,6 +884,8 @@ const BacktestList = () => {
                 </button>
               ))}
             </div>
+            {/* 来源标记：从策略详情「累计回测 N 次」跳进来（搜索词已预填），可一键撤掉 */}
+            {strategyNote}
             {/* 类型筛选（回测任务混合 rule/rl/llm，靠这一项区分）：服务端按策略文件 AST 过滤，
              *  与列表「类型」列同源；'all' 不传给后端 */}
             <Select<'all' | 'rule' | 'rl' | 'llm'>
@@ -927,6 +1007,7 @@ const BacktestList = () => {
   // 卡片视图 — 保留原结构，样式 token 化（触发服务端同页数据）
   const renderCardView = () => (
     <>
+      {strategyNote && <div className="qc-toolbar">{strategyNote}</div>}
       {tasks.length === 0 && !loading && (
         <Card size="small">
           <QcEmpty

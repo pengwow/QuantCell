@@ -427,6 +427,29 @@
   .bt-exp > td { padding:0; background:color-mix(in srgb, var(--fg) 2.5%, var(--bgc)); }
   .bt-exp .card { margin:8px 10px 10px; box-shadow:none; }
   .bt-caret { display:inline-flex; flex:0 0 12px; width:12px; height:12px; color:var(--fg-3); transition:transform .16s ease-out, color .16s ease-out; }
+  /* 回测详情里的策略档案行：类型/版本/状态 + 跳策略详情（闭环） */
+  .bt-strat-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding:7px 10px;
+    border:1px solid var(--bd); border-radius:8px; background:color-mix(in srgb, var(--primary) 3%, var(--bgc)); }
+  .bt-strat-line .lb { font-size:10.5px; color:var(--fg-4); }
+  .bt-strat-line .meta { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--fg-3); min-width:0; }
+  .bt-strat-line .js-strat-link { margin-left:auto; }
+  /* 工具栏「按策略筛选」chip（从策略详情累计回测跳进来） */
+  .filter-note { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 4px 0 10px; border-radius:6px;
+    border:1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+    background:color-mix(in srgb, var(--primary) 8%, transparent); font-size:11px; color:var(--primary); white-space:nowrap; }
+  .filter-note[hidden] { display:none; } /* 类选择器会盖掉 UA 的 [hidden]，必须显式关掉 */
+  .filter-note b { font-weight:600; }
+  .filter-note-x { width:18px; height:18px; border:none; border-radius:4px; background:transparent; color:inherit;
+    cursor:pointer; font-size:13px; line-height:1; }
+  .filter-note-x:hover { background:color-mix(in srgb, var(--primary) 16%, transparent); }
+  /* 行内可点数字（策略详情的「累计回测 N 次」）：虚线下划线提示可跳转 */
+  .link-count { border:none; background:none; padding:0; font:inherit; color:var(--primary); cursor:pointer;
+    border-bottom:1px dashed color-mix(in srgb, var(--primary) 45%, transparent); }
+  .link-count:hover { border-bottom-style:solid; }
+  .link-count .mono { color:inherit; }
+  /* 定位到策略行时闪一下，避免跳过去「看不出是哪条」 */
+  .flash-hit > td { animation:stFlash 1.2s ease-out; }
+  @keyframes stFlash { 0%, 20% { background:color-mix(in srgb, var(--primary) 16%, transparent); } 100% { background:transparent; } }
   .bt-row.on .bt-caret, .st-row.on .bt-caret, .f-row.on .bt-caret { transform:rotate(90deg); color:var(--primary); }
   /* 通用行内展开（策略管理/因子/智能体/模型中心）：表格行复用 .bt-exp 形制，卡片网格用跨全宽 .row-exp */
   .row-exp > td { padding:0; background:color-mix(in srgb, var(--fg) 2.5%, var(--bgc)); }
@@ -1391,6 +1414,7 @@
             <button class="ichip" data-f="运行中">运行中</button>
             <button class="ichip" data-f="失败">失败</button>
           </div>
+          <span class="filter-note" id="btFilterNote" hidden>策略 <b class="mono js-bt-name"></b><button class="filter-note-x js-bt-clear" type="button" aria-label="清除策略筛选">×</button></span>
           <span class="r-count mono" id="btCount"></span>
         </div>
 
@@ -1402,7 +1426,7 @@
                 <tr><th>策略</th><th>标的 · 周期</th><th>回测区间</th><th>状态</th><th style="text-align:right">总收益</th><th style="text-align:right">最大回撤</th><th style="text-align:right">订单</th><th style="text-align:right">耗时</th><th>操作</th></tr>
               </thead>
               <tbody id="btBody">
-                <tr class="bt-row on" tabindex="0" aria-selected="true" aria-expanded="false" data-detail="bt-d1">
+                <tr class="bt-row on" tabindex="0" aria-selected="true" aria-expanded="false" data-detail="bt-d1" data-name="dual_ma_btc_1h">
                   <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><svg class="bt-caret" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor"/></svg><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="dual_ma_btc_1h">dual_ma_btc_1h</span><span class="chip info" style="font-size:9px; padding:2px 5px">规则</span></div></td>
                   <td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · 1h</span></td>
                   <td class="c-range mono">2025-09-01 → 2026-11-18</td>
@@ -1413,7 +1437,7 @@
                   <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">42s</td>
                   <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
-                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-run">
+                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-run" data-name="ppo_eth_15m_v7">
                   <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><svg class="bt-caret" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor"/></svg><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="ppo_eth_15m_v7">ppo_eth_15m_v7</span><span class="chip pri" style="font-size:9px; padding:2px 5px">RL</span></div></td>
                   <td class="mono" title="ETHUSDT"><span style="color:var(--primary); font-weight:600">ETHUSDT</span><span class="c-muted"> · 15m</span></td>
                   <td class="c-range mono">2026-06-01 → 2026-11-20</td>
@@ -1424,7 +1448,7 @@
                   <td class="c-num c-muted" style="text-align:right">—</td>
                   <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
-                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-fail">
+                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-fail" data-name="llm_btc_swing_replay">
                   <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><svg class="bt-caret" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor"/></svg><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="llm_btc_swing_replay">llm_btc_swing_replay</span><span class="chip warn" style="font-size:9px; padding:2px 5px">LLM</span></div></td>
                   <td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · 4h</span></td>
                   <td class="c-range mono">2026-08-01 → 2026-11-10</td>
@@ -1435,7 +1459,7 @@
                   <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">4s</td>
                   <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
-                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-d2">
+                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-d2" data-name="boll_eth_1h">
                   <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><svg class="bt-caret" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor"/></svg><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="boll_eth_1h">boll_eth_1h</span><span class="chip info" style="font-size:9px; padding:2px 5px">规则</span></div></td>
                   <td class="mono" title="ETHUSDT"><span style="color:var(--primary); font-weight:600">ETHUSDT</span><span class="c-muted"> · 1h</span></td>
                   <td class="c-range mono">2025-12-01 → 2026-11-18</td>
@@ -1446,7 +1470,7 @@
                   <td class="c-num" style="text-align:right; color:var(--fg-3); font-size:11px">38s</td>
                   <td style="white-space:nowrap"><button class="icon-btn js-bt-op" data-op="view" title="查看详情" aria-label="查看详情" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M2.6 10s2.8-5 7.4-5 7.4 5 7.4 5-2.8 5-7.4 5S2.6 10 2.6 10Z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.2" stroke="currentColor" stroke-width="1.5"/></svg></button><button class="icon-btn js-bt-op" data-op="del" title="删除" aria-label="删除这条回测任务" style="width:24px;height:24px"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M8.2 6V4.6c0-.9.7-1.6 1.6-1.6h.4c.9 0 1.6.7 1.6 1.6V6m2.1 0-.5 9.4a1.9 1.9 0 0 1-1.9 1.8H8.5a1.9 1.9 0 0 1-1.9-1.8L6.1 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></td>
                 </tr>
-                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-d3">
+                <tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-d3" data-name="dual_ma_btc_4h">
                   <td class="c-strat"><div style="display:flex; align-items:center; gap:6px"><svg class="bt-caret" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor"/></svg><span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="dual_ma_btc_4h">dual_ma_btc_4h</span><span class="chip info" style="font-size:9px; padding:2px 5px">规则</span></div></td>
                   <td class="mono" title="BTCUSDT"><span style="color:var(--primary); font-weight:600">BTCUSDT</span><span class="c-muted"> · 4h</span></td>
                   <td class="c-range mono">2025-06-01 → 2026-11-18</td>
@@ -1541,6 +1565,9 @@
             <span class="chip ok">完成</span>
             <div class="head-right"><span class="card-sub mono">创建 11-20 09:12 · 2025-09-01 → 2026-11-18 · 1h · 耗时 42s</span></div>
           </div>
+          <div class="bt-strat-line"><span class="lb">策略档案</span>
+            <span class="meta js-strat-meta"></span>
+            <button class="mini-btn js-strat-link" type="button" data-name="dual_ma_btc_1h">查看策略 →</button></div>
           <div class="mstats">
             <div class="mstat"><div class="lb">总收益</div><div class="v up">+12.4%</div><div class="sub mono">NAV 112,400</div></div>
             <div class="mstat"><div class="lb">夏普</div><div class="v">1.81</div><div class="sub mono">OOS 口径</div></div>
@@ -1573,6 +1600,9 @@
             <span class="chip info"><span class="pdot"></span>运行中</span>
             <div class="head-right"><span class="card-sub mono">创建 11-19 22:40 · 已运行 01h 07m · 预计剩余 ~26m</span></div>
           </div>
+          <div class="bt-strat-line"><span class="lb">策略档案</span>
+            <span class="meta js-strat-meta"></span>
+            <button class="mini-btn js-strat-link" type="button" data-name="ppo_eth_15m_v7">查看策略 →</button></div>
           <div class="card-sub" style="margin-bottom:2px">回放进度 <span class="mono">63%</span>（<span class="mono">9,980 / 15,840</span> bar）</div>
           <span class="prog"><i style="width:63%"></i></span>
           <div class="mstats" style="grid-template-columns:repeat(3, 1fr); margin-top:12px">
@@ -1646,6 +1676,9 @@
             <span class="chip ok">完成</span>
             <div class="head-right"><span class="card-sub mono">创建 11-17 19:02 · 2025-06-01 → 2026-11-18 · 4h · 耗时 21s</span></div>
           </div>
+          <div class="bt-strat-line"><span class="lb">策略档案</span>
+            <span class="meta js-strat-meta"></span>
+            <button class="mini-btn js-strat-link" type="button" data-name="dual_ma_btc_4h">查看策略 →</button></div>
           <div class="mstats">
             <div class="mstat"><div class="lb">总收益</div><div class="v up">+9.8%</div><div class="sub mono">NAV 109,800</div></div>
             <div class="mstat"><div class="lb">夏普</div><div class="v">1.42</div><div class="sub mono">OOS 口径</div></div>
@@ -3227,7 +3260,11 @@
         { t: '11-15 14:05', n: 'pool_rotation', sym: { group: '主流币', items: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'] }, tf: '1h', rg: '2026-06-01 → 2026-11-18', st: '完成', ret: '+3.2%', ord: '118', cost: '44s', dd: '-2.8%', sh: '1.36', tr: '118', win: '57.6%', nu: '103,200', labs: ['26-06', '26-07', '26-08', '26-09', '26-10', '26-11'], note: ' · 结论：按自选组轮动再平衡，组内权益曲线整体回测' },
         { t: '11-15 10:12', n: 'trend_ada_1d', sym: 'ADAUSDT', tf: '1d', rg: '2025-05-01 → 2026-11-14', st: '完成', ret: '-2.2%', ord: '63', cost: '18s', dd: '-5.9%', sh: '0.64', tr: '63', win: '44.4%' },
         { t: '11-14 21:58', n: 'obv_div_btc_4h', sym: 'BTCUSDT', tf: '4h', rg: '2025-11-01 → 2026-11-14', st: '完成', ret: '+5.5%', ord: '118', cost: '31s', dd: '-2.9%', sh: '1.31', tr: '118', win: '55.9%' },
-        { t: '11-14 15:40', n: 'llm_btc_reversal', sym: 'BTCUSDT', tf: '1h', rg: '2026-07-01 → 2026-11-14', st: '失败', ret: '—', ord: '—', cost: '—', dd: '—' }
+        { t: '11-14 15:40', n: 'llm_btc_reversal', sym: 'BTCUSDT', tf: '1h', rg: '2026-07-01 → 2026-11-14', st: '失败', ret: '—', ord: '—', cost: '—', dd: '—' },
+        { t: '11-14 09:12', n: 'grid_btc_1h', sym: 'BTCUSDT', tf: '1h', rg: '2026-03-01 → 2026-11-14', st: '完成', ret: '+3.1%', ord: '88', cost: '24s', dd: '-2.4%', sh: '1.18', tr: '88', win: '55.7%' },
+        { t: '11-13 18:40', n: 'rsi_revert', sym: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'], tf: '1h', rg: '2026-02-01 → 2026-11-13', st: '完成', ret: '+1.8%', ord: '142', cost: '47s', dd: '-3.6%', sh: '0.97', tr: '142', win: '48.6%' },
+        { t: '11-12 22:05', n: 'dual_ma_eth_1d', sym: 'ETHUSDT', tf: '1d', rg: '2025-05-01 → 2026-11-12', st: '完成', ret: '+7.0%', ord: '41', cost: '16s', dd: '-4.8%', sh: '1.09', tr: '41', win: '53.7%' },
+        { t: '11-12 10:37', n: 'ml_eth_1h_rf', sym: 'ETHUSDT', tf: '1h', rg: '2026-04-01 → 2026-11-12', st: '完成', ret: '+1.9%', ord: '96', cost: '35s', dd: '-2.9%', sh: '0.91', tr: '96', win: '50.0%' }
       ];
       var TYPE = { '规则': 'chip info', 'RL': 'chip pri', 'LLM': 'chip warn', '机器学习': 'chip quiet' };
       function btType(n) { return /^rl_/.test(n) ? 'RL' : /^llm_/.test(n) ? 'LLM' : /^ml_/.test(n) ? '机器学习' : '规则'; }
@@ -3301,7 +3338,7 @@
       D.forEach(function (o, i) {
         var tp = btType(o.n);
         var retc = o.ret === '—' ? '' : (o.ret[0] === '+' ? ' up' : ' down');
-        rows += '<tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-g' + i + '">' +
+        rows += '<tr class="bt-row" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="bt-g' + i + '" data-name="' + o.n + '">' +
           '<td class="c-strat"><div style="display:flex; align-items:center; gap:6px">' + BT_CARET +
           '<span style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="' + o.n + '">' + o.n + '</span>' +
           '<span class="' + TYPE[tp] + '" style="font-size:9px; padding:2px 5px">' + tp + '</span></div></td>' +
@@ -3318,6 +3355,9 @@
           '<span class="c-strat mono" style="font-size:12px">' + o.n + '</span>' + STAT[o.st] +
           '<div class="head-right"><span class="card-sub mono">创建 ' + o.t + ' · ' + o.rg + ' · ' + o.tf + (o.cost === '—' ? '' : ' · 耗时 ' + o.cost) + '</span></div></div>' +
           symLine(o.sym, o.tf) +
+          '<div class="bt-strat-line"><span class="lb">策略档案</span>' +
+          '<span class="meta js-strat-meta"></span>' +
+          '<button class="mini-btn js-strat-link" type="button" data-name="' + o.n + '">查看策略 →</button></div>' +
           (o.st === '完成'
             ? '<div class="mstats" style="margin-top:12px">' +
               mstat('总收益', o.ret, '已扣手续费') + mstat('最大回撤', o.dd, '权益高点') +
@@ -3916,6 +3956,111 @@
     LISTS.sy = makeList({ slot: 'sySlot', items: qAll('#syBody tr'), search: 'sySearch', chips: qAll('#syChips .ichip'), count: 'syCount', size: 10 });
     LISTS.md = makeList({ slot: 'mdSlot', items: qAll('#mdGrid > .m-row-card'), alt: qAll('#mdListBody > tr'), search: 'mdSearch', chips: qAll('#mdChips .ichip'), count: 'mdCount', size: 10 });
     LISTS.sa = makeList({ slot: 'saSlot', items: qAll('#saBody .bt-row'), alt: qAll('#saCardGrid > .card'), search: 'saSearch', chips: qAll('#saChips .ichip'), count: 'saCount', size: 10 });
+    /* ---- 策略 ↔ 回测 闭环 ----
+       A. 策略详情「累计回测 N 次」→ 回测中心按策略名筛选（复用搜索框，叠加 chips / 分页一致）
+       B. 回测详情「查看策略 →」→ 策略管理定位并展开该策略（列表里没有则提示，不造行） */
+    function btFilterNote(name, on) {
+      var note = document.getElementById('btFilterNote');
+      if (!note) return;
+      note.hidden = !on;
+      var nb = note.querySelector('.js-bt-name');
+      if (nb) nb.textContent = name || '';
+    }
+    window.btFilterByStrategy = function (name) {
+      if (!name) return;
+      go('backtest');
+      var all = document.querySelector('#btChips .ichip[data-f=""]');
+      if (all) all.click(); /* 清状态筛选，避免两个条件叠成空表 */
+      var inp = document.getElementById('btSearch');
+      if (inp) { inp.value = name; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+      btFilterNote(name, true);
+      setTimeout(function () {
+        /* 卡片视图下表格行是隐藏的：开对应卡片的面板，别往看不见的行里塞详情 */
+        if (typeof vtNow === 'function' && vtNow() === 'card') {
+          var card = [].slice.call(document.querySelectorAll('#btCardGrid .vt-item-card')).filter(function (c) {
+            var nm = c.querySelector('.mini-name');
+            return c.offsetParent !== null && nm && nm.textContent === name;
+          })[0];
+          if (card) {
+            if (xpOpen && xpOpen.row === card) xpCollapse();
+            else xpExpand(card, XP_BUILD.btc);
+            card.scrollIntoView({ block: 'center' });
+          }
+          return;
+        }
+        var rows = [].slice.call(document.querySelectorAll('#btBody .bt-row')).filter(function (r) {
+          return r.dataset.name === name && r.style.display !== 'none';
+        });
+        if (!rows.length) return;
+        btExpand(rows[0]); /* 有结果就直接开第一份详情，省一次点击 */
+        rows[0].scrollIntoView({ block: 'center' });
+      }, 80);
+    };
+    window.stFocus = function (name) {
+      if (!name) return;
+      go('strategy');
+      var inp = document.getElementById('stSearch');
+      if (inp) { inp.value = name; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+      var all = document.querySelector('#stChips .ichip[data-f=""]');
+      if (all) all.click();
+      setTimeout(function () {
+        var row = [].slice.call(document.querySelectorAll('#stBody .st-row')).filter(function (r) { return r.dataset.name === name; })[0];
+        if (!row) { toast('策略列表里没有 ' + name + '（可能已删除）'); return; }
+        /* 单开面板：清掉别的行的高亮（hero 默认行也带 on），与 btExpand 口径一致 */
+        [].slice.call(document.querySelectorAll('#stBody .st-row')).forEach(function (r) {
+          if (r !== row) { r.classList.remove('on'); r.setAttribute('aria-selected', 'false'); }
+        });
+        if (!row.classList.contains('on')) row.click(); /* 行点击委托 = 就地展开 */
+        row.scrollIntoView({ block: 'center' });
+        row.classList.add('flash-hit');
+        setTimeout(function () { row.classList.remove('flash-hit'); }, 1200);
+      }, 80);
+    };
+    /* 回测详情策略档案：从策略列表行取同一份真实数据（类型 chip / 版本 / 状态），列表里没有就直说 */
+    function btFillStratMeta(root) {
+      if (!root) return;
+      [].slice.call(root.querySelectorAll('.js-strat-link')).forEach(function (btn) {
+        var host = btn.closest('.bt-strat-line');
+        var meta = host && host.querySelector('.js-strat-meta');
+        if (!meta) return;
+        var row = [].slice.call(document.querySelectorAll('#stBody .st-row')).filter(function (r) { return r.dataset.name === btn.dataset.name; })[0];
+        if (!row) {
+          meta.innerHTML = '<span class="lb">该策略不在当前策略列表（可能已删除）</span>';
+          btn.disabled = true;
+          return;
+        }
+        var chip = row.querySelector('td .chip');
+        meta.innerHTML = (chip ? chip.outerHTML : '') +
+          '<span class="mono">' + (row.dataset.ver || '—') + '</span>' +
+          '<span>状态 <b class="mono">' + (row.dataset.status || '—') + '</b></span>';
+      });
+    }
+    window.btFillStratMeta = btFillStratMeta;
+    /* 用户改了搜索词就把「策略筛选」提示撤掉：提示只代表「由策略详情带过来的那次筛选」 */
+    (function () {
+      var inp = document.getElementById('btSearch');
+      if (!inp) return;
+      inp.addEventListener('input', function () {
+        var note = document.getElementById('btFilterNote');
+        if (!note || note.hidden) return;
+        var name = note.querySelector('.js-bt-name');
+        if (inp.value.trim() !== (name ? name.textContent : '')) btFilterNote('', false);
+      });
+    })();
+    /* 跳转接线：入口按钮只在展开面板里，不触发行/卡切换 */
+    document.addEventListener('click', function (e) {
+      var c = e.target.closest('[data-bt-filter]');
+      if (c) { e.preventDefault(); window.btFilterByStrategy(c.dataset.btFilter); return; }
+      var x = e.target.closest('.js-bt-clear');
+      if (x) {
+        var inp = document.getElementById('btSearch');
+        if (inp) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+        btFilterNote('', false);
+        return;
+      }
+      var sl = e.target.closest('.js-strat-link');
+      if (sl && !sl.disabled) { e.preventDefault(); window.stFocus(sl.dataset.name); }
+    });
     /* ---- 行情标的工具栏：计价货币筛选 + 排序（对齐 DataManagementPage.tsx §6.6：quote = all/USDT/BTC/ETH，
        排序 8 项同序，默认 rank-asc）。与搜索 / 质量 chips / 自选组谓词取交集；排序数值按 data-* 解析
        （价格带千分位、成交量带 $ / B 量级、排名带 #）；选非全部计价且为空时空态文案切换为计价维度提示 ---- */
@@ -4044,6 +4189,7 @@
         if (x !== row) { x.classList.remove('on'); x.setAttribute('aria-selected', 'false'); }
       });
       openExp = { row: row, exp: exp };
+      if (window.btFillStratMeta) window.btFillStratMeta(exp);
       if (!silent) exp.scrollIntoView({ block: 'nearest' });
     }
     document.addEventListener('click', function (e) {
@@ -4226,7 +4372,8 @@
         '<div style="display:flex; gap:8px; margin-top:11px; flex-wrap:wrap; align-items:center">' +
         '<button class="btn primary js-bc-cur" data-goto="backtest-config">去回测</button>' +
         '<button class="btn" data-modal="mWorker">创建 Worker</button>' +
-        '<span class="card-sub" style="align-self:center; margin-left:4px">默认 runner = <span class="mono">kernel</span> · 累计回测 <span class="mono">' + (r.dataset.bt || '0') + '</span> 次</span></div>' +
+        '<span class="card-sub" style="align-self:center; margin-left:4px">默认 runner = <span class="mono">kernel</span> · ' +
+        '<button class="link-count js-bt-count" type="button" data-bt-filter="' + r.dataset.name + '" title="在回测中心查看该策略的回测任务">累计回测 <span class="mono">' + (r.dataset.bt || '0') + '</span> 次 →</button></span></div>' +
         vhCard(r.dataset.name, r.dataset.ver) + '</div>';
     };
     /* 初载不自动展开（列表 / 卡片两形态口径一致：面板一律等点击） */
@@ -4436,6 +4583,7 @@
       var top = card.offsetTop;
       var same = [].slice.call(grid.querySelectorAll('.vt-item-card')).filter(function (c) { return c.offsetParent !== null && c.offsetTop === top; });
       (same.length ? same[same.length - 1] : card).after(exp);
+      if (window.btFillStratMeta) window.btFillStratMeta(exp);
     };
     (function () {
       var grid = document.getElementById('btCardGrid');
