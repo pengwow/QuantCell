@@ -113,6 +113,9 @@ const { RangePicker } = DatePicker;
 // 自选列表「紫色」标识：会写库的品种离散标识色，与品牌语义无关，
 // 故不映射状态/品牌 token；候选后续并入 theme 的离散身份调色板（同 chartSeries 定位）。
 const WATCHLIST_COLOR_PURPLE = '#722ed1';
+// 「青色」候选：此前误复用 info 蓝（与「蓝色」同值 → 选青色实际存蓝、选项值重复）。
+// 单独给一个可区分的青，和紫色一样是写库的离散标识色。
+const WATCHLIST_COLOR_CYAN = '#13c2c2';
 
 /**
  * 归档预览行 + 视图层注入的序号键。
@@ -1938,7 +1941,7 @@ const DataManagementPage = () => {
               { value: QUANT_COLORS.warning, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.warning }} />{t('dm_color_yellow')}</Space> },
               { value: QUANT_COLORS.negative, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.negative }} />{t('dm_color_red')}</Space> },
               { value: WATCHLIST_COLOR_PURPLE, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:WATCHLIST_COLOR_PURPLE }} />{t('dm_color_purple')}</Space> },
-              { value: QUANT_COLORS.info, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.info }} />{t('dm_color_cyan')}</Space> },
+              { value: WATCHLIST_COLOR_CYAN, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:WATCHLIST_COLOR_CYAN }} />{t('dm_color_cyan')}</Space> },
             ]}
           />
         </Form.Item>
@@ -2750,6 +2753,8 @@ const DataManagementPage = () => {
   const renderSymbolDetail = (s: SymbolData) => {
     const change = s.priceChangePercent24h;
     const isLoading = marketDataLoading[s.symbol];
+    // 所属自选组（可多组）：面板直接列全，未加入任何组时给弱提示
+    const symbolGroups = favoriteGroups.filter(group => group.symbolIds.includes(s.symbol));
     // 指标格：label 11px fg-3 + mono 数值（与因子库行内面板同一排印口径）
     const metric = (key: string, label: string, value: React.ReactNode) => (
       <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
@@ -2791,6 +2796,39 @@ const DataManagementPage = () => {
             s.hasData ? getQualityTag(s.dataQuality) : <span className="qc-chip quiet">{t('no_data')}</span>)}
           {metric('auto', t('auto_update'), s.autoUpdate ? t('yes') : t('no'))}
         </div>
+        {/* 所属自选组：一个标的可同属多个组 → 逐组列出（色点 + 组名，随组改名/换色即时跟随） */}
+        <Flex align="center" gap={6} wrap style={{ marginTop: 8 }}>
+          <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{t('dm_symbol_groups')}</span>
+          {symbolGroups.length === 0 ? (
+            <span style={{ fontSize: 11, color: 'var(--qc-text-quaternary)' }}>{t('dm_symbol_no_group')}</span>
+          ) : (
+            symbolGroups.map(group => (
+              <span
+                key={group.id}
+                className="qc-chip quiet"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11,
+                  fontWeight: 500,
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: 6,
+                    height: 6,
+                    flex: '0 0 6px',
+                    borderRadius: 3,
+                    background: group.color || WATCHLIST_COLOR_PURPLE,
+                  }}
+                />
+                {group.name}
+              </span>
+            ))
+          )}
+        </Flex>
       </div>
     );
   };
@@ -4046,6 +4084,8 @@ const DataManagementPage = () => {
       <Tabs
         activeKey={activeTab}
         onChange={handleTabChange}
+        // 页签文字与下方卡头标题共用同一 14px gutter（.qc-card 的卡头/卡身内距），不再贴页面容器左缘
+        tabBarStyle={{ paddingInline: 14 }}
         items={[
           {
             key: 'symbols',

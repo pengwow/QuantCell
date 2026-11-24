@@ -102,6 +102,8 @@ export default function ArchiveWatermarkStrip() {
   const [fillInterval, setFillInterval] = useState<Record<string, string>>({});
   // 补齐成功后重新拉水位 + 重探 symbols（下载是异步任务，不本地假造已完成）
   const [reloadKey, setReloadKey] = useState(0);
+  // 存储用量默认折叠：占用行数会随数据类型增长，只留一行「标题 + 合计」，点标题展开明细
+  const [storageExpanded, setStorageExpanded] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -320,7 +322,37 @@ export default function ArchiveWatermarkStrip() {
 
       <Card
         className="qc-card"
-        title={t('dm_wm_storage_title')}
+        styles={{ body: storageExpanded ? undefined : { display: 'none' } }}
+        title={
+          // 整条卡头可点开合（原生 button：Enter/Space 自带、aria-expanded 可读）；折叠态只占一行
+          <button
+            type="button"
+            onClick={() => setStorageExpanded((prev) => !prev)}
+            aria-expanded={storageExpanded}
+            aria-controls="dm-storage-body"
+            aria-label={storageExpanded ? t('dm_wm_storage_hide') : t('dm_wm_storage_show')}
+            style={{
+              all: 'unset',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+            }}
+          >
+            {t('dm_wm_storage_title')}
+            <span
+              aria-hidden
+              style={{
+                fontSize: 10,
+                color: 'var(--qc-text-tertiary)',
+                transition: 'transform .15s ease',
+                transform: storageExpanded ? 'rotate(180deg)' : 'none',
+              }}
+            >
+              ▼
+            </span>
+          </button>
+        }
         extra={
           <span className="qc-card-sub">
             {t('dm_wm_storage_total')}{' '}
@@ -330,57 +362,59 @@ export default function ArchiveWatermarkStrip() {
           </span>
         }
       >
-        {storage.length === 0 ? (
-          <div className="qc-card-sub">{t('dm_wm_storage_empty')}</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {storage.map((item) => {
-              const pct = totalBytes > 0 ? (item.bytes / totalBytes) * 100 : 0;
-              return (
-                <div key={item.kind} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span
-                    className="qc-card-sub"
-                    style={{ width: 150, flex: '0 0 150px', color: 'var(--qc-text-tertiary)' }}
-                    title={item.kind}
-                  >
-                    {item.kind} · parquet
-                  </span>
-                  <span
-                    aria-hidden
-                    style={{
-                      flex: 1,
-                      height: 6,
-                      borderRadius: 3,
-                      background: 'var(--qc-border)',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <i
+        <div id="dm-storage-body" hidden={!storageExpanded}>
+          {storage.length === 0 ? (
+            <div className="qc-card-sub">{t('dm_wm_storage_empty')}</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {storage.map((item) => {
+                const pct = totalBytes > 0 ? (item.bytes / totalBytes) * 100 : 0;
+                return (
+                  <div key={item.kind} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span
+                      className="qc-card-sub"
+                      style={{ width: 150, flex: '0 0 150px', color: 'var(--qc-text-tertiary)' }}
+                      title={item.kind}
+                    >
+                      {item.kind} · parquet
+                    </span>
+                    <span
+                      aria-hidden
                       style={{
-                        display: 'block',
-                        height: '100%',
-                        width: `${Math.max(pct, 1)}%`,
+                        flex: 1,
+                        height: 6,
                         borderRadius: 3,
-                        background: 'var(--qc-primary)',
+                        background: 'var(--qc-border)',
+                        overflow: 'hidden',
                       }}
-                    />
-                  </span>
-                  <span
-                    className="qc-mono"
-                    style={{
-                      width: 78,
-                      flex: '0 0 78px',
-                      textAlign: 'right',
-                      color: 'var(--qc-text-secondary)',
-                    }}
-                  >
-                    {formatBytes(item.bytes)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                    >
+                      <i
+                        style={{
+                          display: 'block',
+                          height: '100%',
+                          width: `${Math.max(pct, 1)}%`,
+                          borderRadius: 3,
+                          background: 'var(--qc-primary)',
+                        }}
+                      />
+                    </span>
+                    <span
+                      className="qc-mono"
+                      style={{
+                        width: 78,
+                        flex: '0 0 78px',
+                        textAlign: 'right',
+                        color: 'var(--qc-text-secondary)',
+                      }}
+                    >
+                      {formatBytes(item.bytes)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </Card>
     </div>
   );
