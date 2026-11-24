@@ -12,6 +12,7 @@ import i18n from '../../i18n/config';
 import { configApi, systemApi } from '../../api';
 import { useConfigStore } from '../../store/configStore';
 import { snapPageSize } from '../../constants/pagination';
+import { writeThemeMode } from '../../theme/themeMode';
 import type {
   GeneralSettings,
   NotificationSettings,
@@ -180,6 +181,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
     // 同步到 localStorage（用于 useBrowserTheme hook）
     localStorage.setItem('quantcell-ui-theme', effectiveTheme);
+
+    // 用户选择单独落一个 key：顶栏胶囊靠它显示「浅色/暗黑/自动」（auto → system）。
+    // 生效主题仍是上面的 effectiveTheme —— 首帧脚本只认 light/dark，不能把 auto 写进去。
+    writeThemeMode(theme === 'auto' ? 'system' : theme);
   }, []);
 
   // 刷新系统指标

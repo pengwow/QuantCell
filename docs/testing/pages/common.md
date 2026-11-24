@@ -17,6 +17,7 @@
 | C6 | 亮/暗主题切换走查 | toast 底色/文字/边框、notification 面板全部随 token 切换，暗色下**不得白底黑底错乱**；切换无布局跳动 | L1 |
 | C7 | 任一列表页点行展开（回测中心/策略管理/因子分析/策略智能体/模型中心/数据管理任务行） | 面板四周留白与 demo 同口径：展开行 td `9px 12px` + 面板 `margin:8px 10px 10px` + `padding:12px 14px`（视觉上 17 / 下 20 / 侧 22）；面板底 = 卡片面 token（`--qc-surface`），与 td 淡底（`2.5% text`）**不同层不双卡**；面板内指标卡 `10px 12px` / 8px 圆角 / 无投影 | L2 |
 | C8 | 对照 demo 检查全局字体 | `html/body` 与 Portal（Modal/Drawer/下拉）字体族 = demo 同款系统栈（`-apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif`）；侧栏菜单 13px、分组标题 10.5px/.16em、品牌 14px/700、面包屑 13px 与 demo 一致；**不得出现未加载的 webfont 首选（如 Inter）** | L2 |
+| C9 | 顶栏主题胶囊依次点「浅色 / 暗黑 / 自动」，再刷新页面；并在「自动」态下改系统外观（macOS 外观/DevTools `prefers-color-scheme`） | 三个选项都**当场生效**且胶囊自身同步：图标（太阳/月亮/桌面）与文案（浅色/暗黑/自动）随选择立即变化；浅色下 `html.dark` 消失、`data-theme=light`、`quantcell-ui-theme=light`，暗黑反之，「自动」跟随系统偏好（改系统外观后页面即时切换）；刷新后保持上次显式选择（`quantcell-ui-theme-mode` 记忆，浅色不因系统是浅色而被判回「自动」）；显式浅色时系统切暗**不得**被带走 | L2 |
 
 ## 历史雷区
 - （§6.12 初版）antd message 的 top/left/transform 来自 rc-notification **内联样式**，任何仅靠提高类特异性的覆盖都压不过——历史教训：看到 toast 仍在顶部居中先查 `!important` 是否在位
@@ -24,3 +25,4 @@
 - 主题色不在 CSS 里写死：success/error 图标若出现 antd 默认绿/红，说明 token 钉链被绕过（先查 global.css §6.12 段是否被改动）
 - **行内展开面板「四周比 demo 宽」的两个真凶**（2026-11-23 修复，C7）：① antd 给展开行套 `.ant-table-expanded-row-fixed`（内联 `padding:16/margin:-8`，净 +8px），必须清零；② global.css 里展开行 `padding:0` 的规则特异性低于 tbody 密度规则（`tr > td` 的 `10px 12px` 会赢），实际从未生效——现按 demo **实测渲染值**对齐为 td `9px 12px`（demo 源码同样存在这条特异性事故，写 `padding:0` 却渲染 9/12）。别再改回 `padding:0`
 - **字体栈不要写未加载的 webfont**（2026-11-23，C8）：`index.css` 的 `:root` 曾首选 `Inter` 但项目从未加载该字体，只在 `html/body` 与 Portal 上暴露回退差异（antd 树内被 ConfigProvider 兜住，看起来「没问题」）。字体族唯一真相 = demo body 规则
+- **主题胶囊点「浅色」像没反应**（2026-11-24，C9）：旧 `useBrowserTheme` 把 ahooks `useTheme` 的 `themeMode` 当状态，却绕过它的 setter 直接写 `localStorage`/`html.class`，React 侧 mode 永远停在挂载时的值（通常是 `system`）——于是胶囊文案/图标不更新（一直显示「自动」），浅色系统下点「浅色」又本来无视觉变化，被当成按钮坏了；系统偏好变化还会按 system 重算主题、把显式浅色覆盖掉。现模式状态自持（`quantcell-ui-theme-mode`），生效主题由「模式 + 系统偏好」派生，仍写 `quantcell-ui-theme`（首帧脚本只认 light/dark，别往里写 system/auto）
