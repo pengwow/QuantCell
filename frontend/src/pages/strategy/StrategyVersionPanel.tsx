@@ -37,6 +37,9 @@ interface StrategyVersionPanelProps {
 const versionLabel = (v: StrategyVersionItem): string =>
   v.version ? `v${v.version}` : (v.code_hash || '').slice(0, 8) || '—';
 
+/** 行内「版本号」列：没有声明版本时留破折号，hash 由独立列展示，避免同一串重复两遍 */
+const versionTag = (v: StrategyVersionItem): string => (v.version ? `v${v.version}` : '—');
+
 const formatSize = (n: number): string => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
 const StrategyVersionPanel = ({
@@ -176,22 +179,24 @@ const StrategyVersionPanel = ({
         {v.created_at && dayjs(v.created_at).isValid() ? dayjs(v.created_at).format('MM-DD HH:mm') : '—'}
       </span>
       <span className="qc-mono sm-ver-ver">
-        {versionLabel(v)} <i>{v.code_hash.slice(0, 8)}</i>
+        {/* 有声明版本就「vX · hash」，没有就只给 hash（不出现「— hash」的冗余） */}
+        {v.version ? <>{versionTag(v)} <i>{v.code_hash.slice(0, 8)}</i></> : v.code_hash.slice(0, 8)}
       </span>
       <span className="qc-mono sm-ver-size">
         {formatSize(v.code_size)} · {v.code_lines} 行
       </span>
       <span className="sm-ver-curcell">{v.is_current ? <Tag className="sm-ver-current">{t('sm_ver_current')}</Tag> : null}</span>
       <span className="sm-ver-actions">
-        <Button type="link" size="small" onClick={() => void openView(v)}>
+        <Button type="text" size="small" className="sm-ver-btn" onClick={() => void openView(v)}>
           {t('sm_ver_view')}
         </Button>
         <Tooltip title={getButtonTooltip()}>
           {/* 禁用按钮自身不派发 hover，套一层 span 才能让访客限制提示浮出来 */}
           <span className="sm-ver-disabled-wrap">
             <Button
-              type="link"
+              type="text"
               size="small"
+              className="sm-ver-btn pri"
               disabled={getButtonDisabled()}
               onClick={() => onLoadInEditor?.(v)}
             >
@@ -233,7 +238,9 @@ const StrategyVersionPanel = ({
                 <span className="qc-mono sm-ver-tl-t">
                   {v.created_at && dayjs(v.created_at).isValid() ? dayjs(v.created_at).format('MM-DD HH:mm') : '—'}
                 </span>
-                <span className="qc-mono sm-ver-tl-label">{versionLabel(v)}</span>
+                {v.version ? (
+                  <span className="qc-mono sm-ver-tl-label">{versionTag(v)}</span>
+                ) : null}
                 <span className="qc-mono sm-ver-tl-sub">
                   {v.code_hash.slice(0, 8)} · {formatSize(v.code_size)} · {v.code_lines} 行
                   {v.is_current ? t('sm_ver_tl_current_suffix') : ''}
@@ -245,7 +252,7 @@ const StrategyVersionPanel = ({
           <div className="sm-ver-pane">
             <div className="sm-ver-meta">
               <span>
-                {t('sm_ver_meta_version')} <b>{selected ? versionLabel(selected) : '—'}</b>
+                {t('sm_ver_meta_version')} <b>{selected ? versionTag(selected) : '—'}</b>
               </span>
               <span>
                 {t('sm_ver_meta_created')}{' '}

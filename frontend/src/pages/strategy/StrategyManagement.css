@@ -122,16 +122,17 @@
 
 /* ---- 管理页 inline：一行一条「时间 / 版本号+hash / 大小·行数 / 当前 / 操作」 ---- */
 .sm-ver-list {
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 2px;
   border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
 }
 
 .sm-ver-row {
   display: grid;
-  grid-template-columns: 88px 172px minmax(120px, 1fr) 56px auto;
+  grid-template-columns: 96px 190px minmax(120px, 1fr) 56px auto;
   align-items: center;
   gap: 10px;
-  padding: 6px 0;
+  padding: 7px 2px;
   border-bottom: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
 }
 
@@ -140,11 +141,13 @@
 }
 
 .sm-ver-time {
-  color: var(--qc-text-quaternary);
+  font-size: 11.5px;
+  color: var(--qc-text-secondary);
 }
 
 .sm-ver-ver {
-  color: var(--qc-text-secondary);
+  font-size: 11.5px;
+  color: var(--qc-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -156,6 +159,7 @@
 }
 
 .sm-ver-size {
+  font-size: 11px;
   color: var(--qc-text-quaternary);
 }
 
@@ -172,10 +176,32 @@
   gap: 2px;
 }
 
-.sm-ver-actions .ant-btn {
-  height: 18px;
-  padding: 0 4px;
+/* 行尾动作按 demo .mini-btn：24px 描边小钮，主钮用主色 tint */
+.sm-ver-actions .sm-ver-btn {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
   font-size: 11px;
+  color: var(--qc-text-secondary);
+  background: transparent;
+}
+
+.sm-ver-actions .sm-ver-btn:hover {
+  color: var(--qc-text);
+  border-color: var(--qc-border-strong);
+}
+
+.sm-ver-actions .sm-ver-btn.pri {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+}
+
+.sm-ver-actions .sm-ver-btn[disabled] {
+  color: var(--qc-text-quaternary);
+  border-color: var(--qc-border);
+  background: transparent;
 }
 
 .sm-ver-current {
@@ -183,6 +209,9 @@
   padding: 0 5px;
   font-size: 9px;
   line-height: 15px;
+  color: var(--qc-success);
+  border-color: color-mix(in srgb, var(--qc-success) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 10%, transparent);
 }
 
 .sm-ver-modal-foot {
