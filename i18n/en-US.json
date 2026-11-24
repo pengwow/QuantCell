@@ -1524,6 +1524,7 @@
   "batch_collect": "Batch Data Collection",
   "select_symbol_or_group": "Select Symbol",
   "select_symbol_or_group_placeholder": "Please select symbol or watchlist",
+  "symbol_pool_meta": "{{count}} symbols · Watchlist",
   "select_interval": "Interval",
   "select_interval_placeholder": "Select interval",
   "select_date_range": "Date Range",

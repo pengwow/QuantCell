@@ -25,6 +25,7 @@ import { rlApi } from '@/api/rlApi';
 import type { CreateWorkerRequest } from '@/types/worker';
 import type { UnifiedModelRow } from '@/api/modelApi';
 import { TASK_KEY } from './TrainPanel';
+import SymbolSelect from '@/components/SymbolSelect';
 
 /** 「去部署」联动 prefill：来自回测抽屉最后一次回测参数，缺省走表单默认值 */
 export interface DeployPrefill {
@@ -288,7 +289,7 @@ export default function DeployConfirmModal({ row, prefill, onClose, onDeployed }
           rules={[{ required: true }]}
           extra={t('wb_deploy_symbol_hint')}
         >
-          <Input placeholder="BTCUSDT" />
+          <SymbolSelect valueFormat="compact" placeholder="BTCUSDT" />
         </Form.Item>
 
         <Form.Item label={t('rlbt_label_interval')} name="interval" rules={[{ required: true }]}>

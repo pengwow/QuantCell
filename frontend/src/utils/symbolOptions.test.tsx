@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CSSProperties, ReactElement, ReactNode } from 'react';
-import { buildSymbolOptions } from './symbolOptions';
+import { buildSymbolOptions, expandPoolSelection } from './symbolOptions';
 import { QUANT_COLORS } from './colors';
 
 // label 子节点形状断言用的轻量视图类型（React 19 下 ReactElement.props 是 unknown）
@@ -37,15 +37,29 @@ describe('buildSymbolOptions', () => {
     expect(dotColor(options[1])).toBe(QUANT_COLORS.info);
   });
 
-  it('poolSuffix 渲染为第三个弱化子节点，不传则只有圆点+组名', () => {
-    const withSuffix = buildSymbolOptions({ dataPools: pools, poolSuffix: '自选组' });
-    const children = childrenOf(withSuffix[0].label);
+  it('poolMeta 渲染组内标的数（弱化元信息），不传则只有圆点+组名', () => {
+    const withMeta = buildSymbolOptions({ dataPools: pools, poolMeta: (n) => `${n} 标的 · 自选组` });
+    const children = childrenOf(withMeta[0].label);
     expect(children).toHaveLength(3);
-    // JSX 里 ({suffix}) 会编译成 ["(", suffix, ")"] 数组子节点
-    expect((children[2] as SpanEl).props.children).toEqual(['(', '自选组', ')']);
+    expect((children[2] as SpanEl).props.children).toBe('2 标的 · 自选组');
 
     const plain = buildSymbolOptions({ dataPools: pools });
     expect(childrenOf(plain[0].label)).toHaveLength(2);
+  });
+
+  it('自选组选值展开：pool_ → 组内标的，去重保序，空组/已删组不产出', () => {
+    expect(expandPoolSelection(['pool_1', 'SOL/USDT', 'pool_1', 'BTC/USDT'], pools)).toEqual([
+      'BTC/USDT',
+      'ETH/USDT',
+      'SOL/USDT',
+    ]);
+    // 单标的场景可自定义值形态（模型中心 compact 口径）
+    expect(expandPoolSelection(['pool_1'], pools, (s) => s.replace('/', ''))).toEqual([
+      'BTCUSDT',
+      'ETHUSDT',
+    ]);
+    // pool_2 无 symbols、pool_99 已删 → 不产出值
+    expect(expandPoolSelection(['pool_2', 'pool_99'], pools)).toEqual([]);
   });
 
   it('入参缺数组（null / 非法形状）安全返回空数组', () => {

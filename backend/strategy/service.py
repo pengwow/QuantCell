@@ -23,6 +23,7 @@
 
 import ast
 import hashlib
+import json
 from pathlib import Path
 
 from utils.logger import LogType, get_logger
@@ -33,9 +34,40 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-# 回测结果落盘目录，与 backtest/service.py 的 results_dir 同口径
-# （result_{result_id}.json；单测可 patch 到临时目录）
-_BACKTEST_RESULTS_DIR = Path(__file__).resolve().parent.parent / "data" / "backtest_results"
+# 回测任务落盘目录，与 backtest/service.py 同口径（task_{id}.json；单测可 patch 到临时目录）。
+# 「累计回测 N 次」与最近回测都以它为唯一事实来源：回测中心列表扫的就是这一批文件。
+_BACKTEST_TASKS_DIR = Path(__file__).resolve().parent.parent / "data" / "backtest_tasks"
+
+
+def _backtest_task_index() -> list[dict[str, Any]]:
+    """回测任务轻量索引：每个 task_*.json 一行，按 created_at 倒序。
+
+    只读任务文件本身（不读结果 JSON、不回写），字段够 footer 计数与「最近回测」列用。
+    与 GET /backtest/list 同源，保证「累计回测 N 次」恒等于点进去能看到的条数：
+    DB backtest_tasks 会残留「只落库未落盘」的行（后台线程在 create_task 之前就中断），
+    按 DB 计数会多报。
+    """
+    rows: list[dict[str, Any]] = []
+    if not _BACKTEST_TASKS_DIR.exists():
+        return rows
+    for task_file in _BACKTEST_TASKS_DIR.glob("task_*.json"):
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                task = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"读取回测任务文件失败 {task_file.name}: {e}")
+            continue
+        summary = task.get("metrics_summary")
+        rows.append(
+            {
+                "strategy_name": task.get("strategy_name"),
+                "status": task.get("status"),
+                "created_at": str(task.get("created_at") or ""),
+                "total_return": (summary or {}).get("total_return"),
+            }
+        )
+    rows.sort(key=lambda row: row["created_at"], reverse=True)
+    return rows
 
 
 def _annotation_to_str(node: ast.AST | None) -> str:
@@ -214,13 +246,12 @@ class StrategyService:
         数据源全部取自真实表，不造字段：
           - worker：workers.strategy_name（冗余列 + 索引）分组，trading_config
             是 JSON 文本（interval / symbols_config.symbols / trading_mode）；
-          - 最近回测：backtest_tasks 按 strategy_name 取 created_at 最新一条，
-            total_return 从 result_id 指向的结果文件取，取不到就是 null；
+          - 最近回测 / 累计回测次数：与回测中心同源扫 task_*.json（见
+            _backtest_task_index），total_return 取任务文件摘要，取不到就是 null；
           - 版本历史条数：strategy_versions 一次 GROUP BY 聚合（不是 N+1）。
         """
         from sqlalchemy import func
 
-        from backtest.models import BacktestTask
         from strategy.models import StrategyVersion
         from utils.db_session import get_db_session
         from worker.models import Worker
@@ -239,12 +270,11 @@ class StrategyService:
                     if worker.strategy_name:
                         workers_by_strategy.setdefault(worker.strategy_name, []).append(worker)
                 # 时间倒序后首次出现即「每个策略最新一条」；同一次遍历顺手累计次数（详情块 footer 用）
-                for task in db.query(BacktestTask).order_by(BacktestTask.created_at.desc()).all():
-                    if not task.strategy_name:
+                for task in _backtest_task_index():
+                    if not task["strategy_name"]:
                         continue
-                    task_counts[task.strategy_name] = task_counts.get(task.strategy_name, 0) + 1
-                    if task.strategy_name not in latest_task_by_strategy:
-                        latest_task_by_strategy[task.strategy_name] = task
+                    task_counts[task["strategy_name"]] = task_counts.get(task["strategy_name"], 0) + 1
+                    latest_task_by_strategy.setdefault(task["strategy_name"], task)
                 for strategy_name, version_count in (
                     db.query(StrategyVersion.strategy_name, func.count(StrategyVersion.id))
                     .group_by(StrategyVersion.strategy_name)
@@ -255,7 +285,6 @@ class StrategyService:
             # 聚合端点降级：worker/回测读不到时仍返回策略列表（state=undeployed 等），不让整页 500
             logger.warning(f"策略总览读取 worker/回测数据失败，按空聚合返回: {e}")
 
-        total_return_cache: dict[str, float | None] = {}
         overview: list[dict[str, Any]] = []
         for info in self.list_strategies():
             name = info.get("name", "")
@@ -273,7 +302,7 @@ class StrategyService:
                     "worker_count": len(workers),
                     "backtest_count": task_counts.get(name, 0),
                     "version_count": version_counts.get(name, 0),
-                    "latest_backtest": self._latest_backtest_payload(task, total_return_cache),
+                    "latest_backtest": self._latest_backtest_payload(task),
                 }
             )
         return overview
@@ -410,85 +439,16 @@ class StrategyService:
             self._kind_cache[name] = (mtime, kinds[name])
         return kinds
 
-    @classmethod
-    def _latest_backtest_payload(cls, task: Any, cache: dict[str, float | None]) -> dict[str, Any] | None:
+    @staticmethod
+    def _latest_backtest_payload(task: dict[str, Any] | None) -> dict[str, Any] | None:
         if task is None:
             return None
-        created_at = task.created_at
         return {
-            "status": task.status,
-            "total_return": cls._result_total_return(task.result_id, cache),
-            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+            "status": task.get("status"),
+            # 任务文件摘要里的 total_return 与回测中心「收益率」列同一口径，取不到如实 None
+            "total_return": task.get("total_return"),
+            "created_at": task.get("created_at"),
         }
-
-    @staticmethod
-    def _result_total_return(result_id: str | None, cache: dict[str, float | None]) -> float | None:
-        """从 result_id 指向的结果 JSON 取 total_return（百分比）；取不到 → None，绝不估算。
-
-        结果落盘在 data/backtest_results/result_{id}.json（backtest/service.py 同口径）。
-        账户级指标在 results.portfolio.metrics（[{key,value}] 数组）；无组合视图时
-        退化取第一个品种条目 / results_by_symbol 条目的 metrics（与回测列表同口径）。
-        ponytail: 只对「各策略最新且带 result_id」的任务读文件（单个结果可达几十 MB，
-        实测 result_id 大多为空，开销可控）；量级上来后把 total_return 冗余进任务表，
-        不要在这里加缓存层。
-        """
-        if not result_id:
-            return None
-        key = str(result_id)
-        if key in cache:
-            return cache[key]
-        cache[key] = None
-
-        path = _BACKTEST_RESULTS_DIR / f"result_{key}.json"
-        try:
-            if not path.exists():
-                return None
-            import json
-
-            with open(path, encoding="utf-8") as f:
-                result = json.load(f)
-        except (OSError, ValueError) as e:
-            logger.warning(f"读取回测结果失败 result_id={key}: {e}")
-            return None
-
-        value = StrategyService._extract_total_return(result)
-        cache[key] = value
-        return value
-
-    @staticmethod
-    def _extract_total_return(result: Any) -> float | None:
-        """按回测结果 JSON 的既有结构找 total_return，找不到返回 None。"""
-        if not isinstance(result, dict):
-            return None
-        results = result.get("results")
-        if not isinstance(results, dict):
-            return None
-
-        candidates: list[Any] = []
-        portfolio = results.get("portfolio")
-        if isinstance(portfolio, dict):
-            candidates.append(portfolio.get("metrics"))
-        by_symbol = results.get("results_by_symbol")
-        if isinstance(by_symbol, dict):
-            candidates.extend(entry.get("metrics") for entry in by_symbol.values() if isinstance(entry, dict))
-        for entry in results.values():
-            if isinstance(entry, dict) and entry is not portfolio:
-                candidates.append(entry.get("metrics"))
-
-        for metrics in candidates:
-            if not isinstance(metrics, list):
-                continue
-            for item in metrics:
-                if not isinstance(item, dict) or item.get("key") != "total_return":
-                    continue
-                value = item.get("value")
-                if value is None:
-                    continue
-                try:
-                    return float(value)
-                except TypeError, ValueError:
-                    continue
-        return None
 
     def get_strategy(self, name: str) -> dict[str, Any] | None:
         """获取单个策略详情。

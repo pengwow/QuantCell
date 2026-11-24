@@ -1,6 +1,7 @@
 import { Form, Select, InputNumber, Button, Space, Switch } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
 
@@ -62,11 +63,8 @@ export default function RLTrainConfigForm({
       </Form.Item>
 
       <Form.Item label={t('rlcf_label_symbol')} name="symbol" rules={[{ required: true }]}>
-        <Select>
-          <Option value="BTCUSDT">BTCUSDT</Option>
-          <Option value="ETHUSDT">ETHUSDT</Option>
-          <Option value="SOLUSDT">SOLUSDT</Option>
-        </Select>
+        {/* 与回测/Worker 同一份标的池（compact 值形态沿用模型中心既有口径 BTCUSDT） */}
+        <SymbolSelect valueFormat="compact" />
       </Form.Item>
 
       <Form.Item label={t('rlcf_label_interval')} name="interval">

@@ -1525,6 +1525,7 @@
   "batch_collect": "批量数据采集",
   "select_symbol_or_group": "选择标的",
   "select_symbol_or_group_placeholder": "请选择标的或自选组",
+  "symbol_pool_meta": "{{count}} 标的 · 自选组",
   "select_interval": "时间周期",
   "select_interval_placeholder": "选择时间周期",
   "select_date_range": "时间范围",

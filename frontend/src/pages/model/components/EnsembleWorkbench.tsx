@@ -27,6 +27,7 @@ import type { EnsembleBacktestResult } from '@/api/ensembleApi';
 import { modelApi } from '@/api/modelApi';
 import type { UnifiedModelRow } from '@/api/modelApi';
 import DataTable from '@/components/ui/DataTable';
+import SymbolSelect from '@/components/SymbolSelect';
 
 // 模型文件名 → stem:后端契约用 stem,解析为 MODELS_DIR/{stem}.zip
 const fileNameToStem = (name: string) => name.replace(/\.zip$/, '');
@@ -429,7 +430,7 @@ export default function EnsembleWorkbench() {
         ) : (
           <Form form={btForm} layout="vertical" onFinish={handleBacktest}>
             <Form.Item name="symbol" label={t('ens_field_symbol')} rules={[{ required: true, message: t('ens_field_symbol_rule') }]}>
-              <Input placeholder={t('ens_field_symbol_ph')} />
+              <SymbolSelect valueFormat="compact" placeholder={t('ens_field_symbol_ph')} />
             </Form.Item>
             <Form.Item name="interval" label={t('ens_field_interval')} rules={[{ required: true, message: t('ens_field_interval_rule') }]}>
               <Select options={intervalOptions} />

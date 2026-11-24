@@ -101,6 +101,7 @@ import {
   FUTURES_ONLY_KINDS,
 } from '@/types/data';
 import { setPageTitle } from '@/utils/pageTitle';
+import SymbolSelect from '@/components/SymbolSelect';
 
 import ArchiveWatermarkStrip from './ArchiveWatermarkStrip';
 
@@ -3222,6 +3223,20 @@ const DataManagementPage = () => {
   );
 
   // 渲染数据采集
+  // 采集表单的标的下拉数据源：自选组 + 交易所标的（与全站同一个 SymbolSelect 形制）
+  const collectionSymbolSource = useMemo(
+    () => ({
+      dataPools: favoriteGroups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        color: group.color,
+        symbols: group.symbolIds ?? [],
+      })),
+      directSymbols: symbols.map((s) => s.symbol),
+    }),
+    [favoriteGroups, symbols],
+  );
+
   const renderCollection = () => {
     // 判断当前 data_type 是否需要 interval
     const needInterval = INTERVAL_REQUIRED_KINDS.includes(collectionDataType as DataKind);
@@ -3326,51 +3341,10 @@ const DataManagementPage = () => {
               style={{ width: 340, marginBottom: 12 }}
               rules={[{ required: true, message: t('please_select_symbol_or_group') }]}
             >
-              <Select
+              <SymbolSelect
                 mode="multiple"
                 placeholder={t('select_symbol_or_group_placeholder')}
-                showSearch
-                allowClear
-                options={[
-                  // 自选组选项（value 前缀统一 pool_，与回测配置 / Worker 弹窗一致）
-                  ...(favoriteGroups.length > 0 ? [
-                    {
-                      label: <Text type="secondary" className="text-xs">{t('favorite_groups')}</Text>,
-                      options: favoriteGroups.map((group) => ({
-                        value: `pool_${group.id}`,
-                        label: t('dm_group_symbols_n', { name: group.name, n: group.symbolIds?.length || 0 }),
-                      })),
-                    }
-                  ] : []),
-                  // 货币对选项
-                  {
-                    label: <Text type="secondary" className="text-xs">{t('symbols')}</Text>,
-                    options: symbols.map((s) => ({
-                      value: s.symbol,
-                      label: s.symbol,
-                    })),
-                  },
-                ]}
-                filterOption={(input, option) =>
-                  (option?.label?.props?.children?.[0] || option?.label || '').toLowerCase().includes(input.toLowerCase())
-                }
-                onChange={(values) => {
-                  // 处理自选组选择（value 前缀统一 pool_，与回测配置 / Worker 弹窗一致）
-                  const expandedSymbols: string[] = [];
-                  values.forEach((value: string) => {
-                    if (value.startsWith('pool_')) {
-                      const groupId = parseInt(value.replace('pool_', ''));
-                      const group = favoriteGroups.find(g => g.id === groupId);
-                      if (group?.symbolIds) {
-                        expandedSymbols.push(...group.symbolIds);
-                      }
-                    } else {
-                      expandedSymbols.push(value);
-                    }
-                  });
-                  const uniqueSymbols = [...new Set(expandedSymbols)];
-                  collectionForm.setFieldsValue({ symbols: uniqueSymbols });
-                }}
+                source={collectionSymbolSource}
               />
             </Form.Item>
 

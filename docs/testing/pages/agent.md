@@ -39,6 +39,7 @@
 | AG25 | 页头真值 + 两个跳转钮 | 页头轻量行（非 PageContainer）：标题`智能体工作台` + mono 副标`会话 #<id> · ReAct 单轮上限 40 次迭代 · SSE 实时`（会话 id 为真实 session key，「40」为项目常量 backend/agent/core/loop.py `max_iterations` 默认值）；右侧两枚 30px 钮：`策略智能体 →` 跳 `/strategy-worker`、`← 返回首页` 跳 `/home`；既有顶栏（会话/Worker 控件）不受影响 | L1 |
 | AG27 | 观察工具节点耗时 chip | 真实跑一次带工具调用的 ReAct 后（按需，耗 LLM 配额），每个工具节点右侧出现「耗时 x.xxs」chip，数值来自 SSE `tool_result.data.elapsed`（秒）；同轮多个工具各自独立、不共享同一数值；历史消息（无 `elapsed`）不显示该 chip，也不显示 `0s` | L2（按需） |
 | AG28 | 每日复盘消息结构化渲染 | 每日复盘消息（03:35 job 写入 default 会话）在聊天流里带出处 chip「定时任务 · 每日复盘」，并按 `meta.report.sections` 渲染 概览 / 活跃 Worker / 持仓异常 / 风控建议 / 模型与 OOS 小节；空节整节省略；刷新页面后从 history 恢复时同样识别（`meta` 原样回传） | L2 |
+| AG29 | 模型页签「部署」二次确认卡里的「标的」字段 | 与全站同一份标的源下拉（紧凑写法 `BTCUSDT` + 可搜索），不再是无约束手输框；默认值仍取回测/模型 prefill 的 symbol；提交 `POST /workers` 的 symbol 为紧凑形态 | L2 |
 
 ## 历史雷区
 - **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`

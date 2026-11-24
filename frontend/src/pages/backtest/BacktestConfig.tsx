@@ -40,7 +40,7 @@ import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
 import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
-import { buildSymbolOptions, type QcSymbolOption } from '@/utils/symbolOptions';
+import SymbolSelect from '@/components/SymbolSelect';
 import {
   buildMarginSpecsPayload,
   pickDirectSymbols,
@@ -173,56 +173,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const stopPollingRef = React.useRef<(() => void) | null>(null);
 
-  const [symbolOptions, setSymbolOptions] = useState<QcSymbolOption[]>([]);
-  const [symbolOptionsLoading, setSymbolOptionsLoading] = useState(false);
   const [factorOptions, setFactorOptions] = useState<FactorDetail[]>([]);
-
-  const fetchSymbolOptions = async () => {
-    try {
-      setSymbolOptionsLoading(true);
-
-      const response = await dataApi.getCollectionSymbols({
-        type: 'spot',
-        exchange: 'binance'
-      });
-
-      // 选项构造收敛到共享工具 utils/symbolOptions（组色圆点与数据管理页自选组一致）
-      setSymbolOptions(buildSymbolOptions({
-        dataPools: response?.data_pools,
-        directSymbols: response?.direct_symbols,
-      }));
-    } catch (error) {
-      console.error('Failed to load symbol options:', error);
-      setSymbolOptions(getDefaultSymbolOptions());
-    } finally {
-      setSymbolOptionsLoading(false);
-    }
-  };
-
-  const loadPoolSymbols = async (poolId: number) => {
-    try {
-      const response = await dataApi.getCollectionSymbols({
-        type: 'spot',
-        exchange: 'binance'
-      });
-      if (response && response.data_pools) {
-        const pool = response.data_pools.find((p) => p.id === poolId);
-        if (pool && pool.symbols) {
-          return pool.symbols;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load data pool pairs:', error);
-    }
-    return [];
-  };
-
-  const getDefaultSymbolOptions = (): QcSymbolOption[] => buildSymbolOptions({
-    directSymbols: [
-      'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'ADA/USDT',
-      'DOT/USDT', 'MATIC/USDT', 'LINK/USDT', 'UNI/USDT', 'LTC/USDT',
-    ],
-  });
 
   const loadSystemConfig = async () => {
     try {
@@ -388,7 +339,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   useEffect(() => {
     loadStrategies();
     loadSystemConfig();
-    fetchSymbolOptions();
     loadLastBacktestConfig();
 
     // 组件卸载时清理资源
@@ -935,37 +885,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         return;
       }
 
-      let symbols: string[] = [];
-      const selectedValues: string[] = values.symbols || [];
-      const poolIds: number[] = [];
-
-      for (const value of selectedValues) {
-        if (value.startsWith('pool_')) {
-          const poolId = parseInt(value.replace('pool_', ''));
-          poolIds.push(poolId);
-        } else {
-          symbols.push(value);
-        }
-      }
-
-      if (poolIds.length > 0) {
-        message.loading(t('backtest_loading_pool_symbols'), 0);
-        for (const poolId of poolIds) {
-          const poolAssets = await loadPoolSymbols(poolId);
-          symbols = [...symbols, ...poolAssets];
-        }
-        message.destroy();
-
-        symbols = [...new Set(symbols)];
-
-        if (symbols.length === 0) {
-          message.error(t('backtest_pool_no_symbols'));
-          setLoading(false);
-          return;
-        }
-
-        message.success(t('backtest_symbols_loaded', { num: symbols.length }));
-      }
+      // 自选组已由 SymbolSelect 在选择时展开成组内标的（不再提交 pool_ 值）
+      const symbols: string[] = values.symbols || [];
 
       if (symbols.length === 0) {
         message.error(t('backtest_symbols_required_msg'));
@@ -1225,22 +1146,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                 label={t('backtest_symbols')}
                 rules={[{ required: true, message: t('backtest_symbols_required') }]}
               >
-                <Select
+                <SymbolSelect
                   mode="multiple"
                   placeholder={t('backtest_symbols_placeholder')}
                   style={{ width: '100%' }}
-                  options={symbolOptions}
-                  loading={symbolOptionsLoading}
-                  showSearch
-                  allowClear
+                  query={{ type: 'spot', exchange: 'binance' }}
                   maxTagCount={3}
                   maxTagPlaceholder={(omittedValues) => t('backtest_max_tags_more', { num: omittedValues.length })}
-                  filterOption={(input, option) => {
-                    if (!input) return true;
-                    // label 已是 JSX（组色圆点），搜索走纯文本 name（组名 / symbol）
-                    const name: string = option?.name ?? '';
-                    return name.toLowerCase().includes(input.toLowerCase());
-                  }}
                 />
               </Form.Item>
 

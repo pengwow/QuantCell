@@ -1,7 +1,7 @@
 """策略总览聚合端点单测（/api/v1/strategy/overview 的 service 层）。
 
-用真实 SQLAlchemy 模型（strategies / workers / backtest_tasks）建内存库，
-只替换 DB 会话入口与结果目录，不对聚合逻辑打桩。
+用真实 SQLAlchemy 模型（strategies / workers）建内存库，只替换 DB 会话入口；
+回测任务与「累计回测 N 次」同源走 data/backtest_tasks/task_*.json（patch 到 tmp_path）。
 """
 
 import json
@@ -59,7 +59,9 @@ def env(tmp_path, monkeypatch):
     # 顶层 conftest 的 _isolate_backtest_task_storage 也会建同名目录
     results_dir = tmp_path / "backtest_results"
     results_dir.mkdir(exist_ok=True)
-    monkeypatch.setattr(service_module, "_BACKTEST_RESULTS_DIR", results_dir)
+    tasks_dir = tmp_path / "backtest_tasks"
+    tasks_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(service_module, "_BACKTEST_TASKS_DIR", tasks_dir)
 
     strategies_dir = tmp_path / "strategies"
     strategies_dir.mkdir()
@@ -71,6 +73,7 @@ def env(tmp_path, monkeypatch):
         factory=session_factory,
         strategies_dir=strategies_dir,
         results_dir=results_dir,
+        tasks_dir=tasks_dir,
     )
 
 
@@ -115,29 +118,20 @@ def add_task(
     strategy_name: str,
     status: str,
     created_at: datetime,
-    result_id: str | None = None,
+    total_return: float | None = None,
 ) -> None:
-    from backtest.models import BacktestTask
-
-    with env.factory() as db:
-        db.add(
-            BacktestTask(
-                id=task_id,
-                strategy_name=strategy_name,
-                backtest_config="{}",
-                status=status,
-                created_at=created_at,
-                result_id=result_id,
-            )
-        )
-        db.commit()
-
-
-def write_result(env, result_id: str, total_return: float | None) -> None:
-    payload = {"status": "completed", "results": {}}
+    """写一条回测任务文件（回测中心与策略总览共用的唯一事实来源）。"""
+    task = {
+        "id": task_id,
+        "strategy_name": strategy_name,
+        "status": status,
+        "created_at": created_at.isoformat(),
+        "timeframes": ["1h"],
+        "symbols": ["BTC/USDT"],
+    }
     if total_return is not None:
-        payload["results"]["portfolio"] = {"metrics": [{"key": "total_return", "value": total_return}]}
-    (env.results_dir / f"result_{result_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+        task["metrics_summary"] = {"total_return": total_return, "max_drawdown": None}
+    (env.tasks_dir / f"task_{task_id}.json").write_text(json.dumps(task, ensure_ascii=False), encoding="utf-8")
 
 
 def item_of(env, name: str) -> dict:
@@ -218,28 +212,41 @@ def test_multi_worker_interval_most_active_and_symbols_union(env):
 def test_latest_backtest_picks_newest_task_and_reads_total_return(env):
     add_strategy(env, "bt_newest")
     now = datetime.now()
-    add_task(env, "task-old", "bt_newest", "failed", now - timedelta(days=2), result_id="old-result")
-    add_task(env, "task-new", "bt_newest", "completed", now, result_id="new-result")
-    write_result(env, "old-result", 1.5)
-    write_result(env, "new-result", 3.5)
+    add_task(env, "task-old", "bt_newest", "failed", now - timedelta(days=2), total_return=1.5)
+    add_task(env, "task-new", "bt_newest", "completed", now, total_return=3.5)
 
     row = item_of(env, "bt_newest")
 
     assert row["latest_backtest"]["status"] == "completed"
     assert row["latest_backtest"]["total_return"] == pytest.approx(3.5)
     assert row["latest_backtest"]["created_at"].startswith(now.isoformat()[:19])
-    # 详情块 footer「累计回测 N 次」用真实任务总数（不是列表样本、也不是只算最新一条）
+    # 详情块 footer「累计回测 N 次」= 回测中心能列出的任务条数（不是列表样本、也不是只算最新一条）
     assert row["backtest_count"] == 2
 
 
-def test_latest_backtest_total_return_is_null_when_result_missing(env):
+def test_latest_backtest_total_return_is_null_when_summary_missing(env):
     add_strategy(env, "bt_missing")
-    add_task(env, "task-missing", "bt_missing", "completed", datetime.now(), result_id="not-on-disk")
+    add_task(env, "task-missing", "bt_missing", "completed", datetime.now())
 
     row = item_of(env, "bt_missing")
 
     assert row["latest_backtest"]["status"] == "completed"
     assert row["latest_backtest"]["total_return"] is None
+
+
+def test_backtest_count_ignores_db_rows_without_task_file(env):
+    """DB 里「只落库未落盘」的残留行不能计入累计回测次数（否则点进去条数对不上）。"""
+    from backtest.models import BacktestTask
+
+    add_strategy(env, "bt_ghost")
+    add_task(env, "task-real", "bt_ghost", "completed", datetime.now(), total_return=2.0)
+    with env.factory() as db:
+        db.add(BacktestTask(id="ghost", strategy_name="bt_ghost", backtest_config="{}", status="failed"))
+        db.commit()
+
+    row = item_of(env, "bt_ghost")
+
+    assert row["backtest_count"] == 1
 
 
 def test_kind_llm_from_parameters_mode_marker(env):

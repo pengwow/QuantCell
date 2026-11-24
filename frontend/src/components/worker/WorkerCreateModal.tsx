@@ -32,8 +32,6 @@ import { useTranslation } from 'react-i18next';
 import { useWorkerStore } from '../../store/workerStore';
 import { buildWorkerName } from './workerName';
 import { strategyApi, configApi } from '../../api';
-import { dataApi, type CryptoSymbol } from '../../api/dataApi';
-import { buildSymbolOptions, type QcSymbolOption } from '@/utils/symbolOptions';
 import { upsertRiskControl } from '../../api/workerApi';
 import RiskControlForm, {
   EMPTY_RISK_VALUES,
@@ -43,6 +41,7 @@ import RiskControlForm, {
   type RiskFormValues,
 } from './RiskControlForm';
 import type { CreateWorkerRequest, StrategyInfo, StrategyParameter } from '../../types/worker';
+import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -146,8 +145,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const [loadingExchanges, setLoadingExchanges] = useState(false);
 
   // 交易相关
-  const [symbolOptions, setSymbolOptions] = useState<QcSymbolOption[]>([]);
-  const [loadingSymbols, setLoadingSymbols] = useState(false);
 
   // 策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
@@ -163,7 +160,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     if (visible) {
       fetchStrategies();
       fetchExchanges();
-      fetchSymbolsAndGroups();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [visible]);
@@ -239,77 +235,15 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     }
   };
 
-  // 获取交易对和自选组 - 参考数据管理页面的实现
-  const fetchSymbolsAndGroups = async () => {
-    setLoadingSymbols(true);
-    try {
-      // 使用 getCollectionSymbols 接口获取数据池和直接交易标的
-      const response = await dataApi.getCollectionSymbols({
-        type: 'crypto',
-      });
-
-      console.log('getCollectionSymbols response:', response);
-
-      let directSymbols: string[] = response?.direct_symbols ?? [];
-
-      // 如果 direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对
-      if (directSymbols.length === 0) {
-        console.log('direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对');
-        try {
-          const cryptoResponse = await dataApi.getCryptoSymbols({
-            limit: 2000,
-            offset: 0,
-          });
-          console.log('getCryptoSymbols response:', cryptoResponse);
-
-          // API 已经通过拦截器解包，response 直接是 data 字段的内容
-          // 结构为: { symbols: [...], total: ..., offset: ..., limit: ..., exchange: ... }
-          const symbolList = cryptoResponse.symbols ?? cryptoResponse.data?.symbols ?? [];
-
-          if (Array.isArray(symbolList)) {
-            directSymbols = symbolList.map((item: CryptoSymbol) => item.symbol || String(item));
-          }
-        } catch (cryptoError) {
-          console.error('获取全部货币对失败:', cryptoError);
-        }
-      }
-
-      // 选项构造收敛到共享工具 utils/symbolOptions（组色圆点与数据管理页自选组一致）
-      setSymbolOptions(buildSymbolOptions({
-        dataPools: response?.data_pools,
-        directSymbols,
-        poolSuffix: t('favorite_group'),
-      }));
-    } catch (error) {
-      console.error('获取交易对失败:', error);
-      setSymbolOptions([]);
-    } finally {
-      setLoadingSymbols(false);
-    }
-  };
-
   // 处理表单提交
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       setLoading(true);
 
-      // 处理交易标的：多选值可能是直接货币对或 pool_ 前缀的自选组，统一展开为大写货币对数组
+      // 自选组已由 SymbolSelect 在选择时展开成组内标的；统一大写后提交
       const selectedValues: string[] = values.symbol || [];
-      const expandedSymbols: string[] = [];
-      for (const item of selectedValues) {
-        if (item.startsWith('pool_')) {
-          // 自选组展开为组内全部货币对
-          const pool = symbolOptions.find((opt) => opt.value === item);
-          if (pool?.symbols?.length) {
-            expandedSymbols.push(...pool.symbols);
-          }
-        } else {
-          expandedSymbols.push(item);
-        }
-      }
-      // 去重 + 统一大写（后端按扩写后的符号列表启动独立策略实例）
-      const symbols = Array.from(new Set(expandedSymbols.map((s) => s.toUpperCase())));
+      const symbols = Array.from(new Set(selectedValues.map((s) => s.toUpperCase())));
       if (symbols.length === 0) {
         message.error(t('worker_select_valid_trading_target'));
         return;
@@ -636,20 +570,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               }
               rules={[{ required: true, message: t('please_select_trading_target') }]}
             >
-              <Select
+              <SymbolSelect
                 mode="multiple"
                 placeholder={t('select_trading_target')}
-                loading={loadingSymbols}
-                showSearch
-                allowClear
-                options={symbolOptions}
-                filterOption={(input, option) => {
-                  if (!input) return true;
-                  // label 已是 JSX（组色圆点），搜索走纯文本 name（组名 / symbol）
-                  const name: string = option?.name ?? '';
-                  return name.toLowerCase().includes(input.toLowerCase());
-                }}
-                notFoundContent={loadingSymbols ? <Spin size="small" /> : t('no_trading_target')}
+                notFoundContent={t('no_trading_target')}
               />
             </Form.Item>
           </Col>
