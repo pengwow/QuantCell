@@ -3925,5 +3925,6 @@
   "dm_group_manager_hint": "Renaming syncs to the sidebar immediately; clicking a swatch updates the group color instantly (sidebar dot, card top edge and ★ follow); each row's Batch add opens the transfer box for that group; the count is the group's symbol count.",
   "dm_msg_group_renamed": "Watchlist renamed to \"{{name}}\"",
   "dm_msg_group_name_required": "Enter a name for the new watchlist first",
-  "dm_msg_group_name_dup": "A watchlist with this name already exists"
+  "dm_msg_group_name_dup": "A watchlist with this name already exists",
+  "agent_chat_title": "Session · {{name}}"
 }

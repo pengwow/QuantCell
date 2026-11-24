@@ -9,7 +9,6 @@ import {
   App,
 } from 'antd';
 import {
-  DeleteOutlined,
   HistoryOutlined,
   SettingOutlined,
   ExclamationCircleOutlined,
@@ -235,77 +234,86 @@ const Agent = () => {
             </div>
           </div>
         </div>
-        {/* 顶栏（会话历史 / 工具参数 / 清空；worker 选择域 + 面板折叠） */}
-        <div className="agent-header">
-          <div className="header-left">
-            <Tooltip title={t('agent_session_history')}>
-              <Button
-                type="text"
-                icon={<HistoryOutlined />}
-                onClick={toggleSessionDrawer}
-                className={sessionDrawerOpen ? 'active' : ''}
-              />
-            </Tooltip>
-            <span className="session-name">
-              {sessions.find(s => s.id === currentSessionId)?.name || 'AI Agent'}
-            </span>
-          </div>
-          <div className="header-right">
-            <div className="wb-worker-select">
-              <span className="wb-worker-label">Worker</span>
-              <Select
-                size="small"
-                variant="borderless"
-                value={workerId ?? undefined}
-                onChange={handleSelectWorker}
-                placeholder={t('wb_select_worker')}
-                loading={workers.length === 0}
-                popupMatchSelectWidth={false}
-                style={{ minWidth: 150 }}
-                options={workers.map(w => ({
-                  value: w.id,
-                  label: `${w.name} (#${w.id})`,
-                }))}
-                notFoundContent={<span style={{ fontSize: 12 }}>{workers.length === 0 ? t('wb_no_workers') : null}</span>}
-              />
-              {currentWorker && (
-                <Tooltip title={t(WorkerStatusText[currentWorker.status] ?? currentWorker.status)}>
-                  <span
-                    className={`qc-chip ${WORKER_CHIP_LEVEL[currentWorker.status] ?? 'quiet'} wb-worker-status`}
-                  >
-                    {WORKER_CHIP_PULSING.has(currentWorker.status) && <span className="qc-pdot" />}
-                    {t(WorkerStatusText[currentWorker.status] ?? currentWorker.status)}
-                  </span>
-                </Tooltip>
-              )}
-            </div>
-            <Tooltip title={t('agent_tool_settings')}>
-              <Button
-                type="text"
-                icon={<SettingOutlined />}
-                onClick={() => setToolDrawerVisible(true)}
-              />
-            </Tooltip>
-            <Tooltip title={t('agent_clear_session')}>
-              <Button
-                type="text"
-                icon={<DeleteOutlined />}
-                onClick={handleClearSession}
-              />
-            </Tooltip>
-            <Tooltip title={collapsed ? t('wb_expand_panel') : t('wb_collapse_panel')}>
-              <Button
-                type="text"
-                icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                onClick={togglePanel}
-              />
-            </Tooltip>
-          </div>
-        </div>
-
         {/* 双栏主体：左聊天 ~55%，右工作面板 ~45%（可折叠为 0） */}
         <Content className="agent-workbench">
-          <div className="agent-chat-col">
+          {/* 左栏按 demo「会话卡」成型：卡头（会话名 + 实时 chip + 工具/清空）+ 消息流 + 输入区 */}
+          <div className="agent-chat-col qc-card">
+            <div className="agent-chat-head">
+              <div className="agent-chat-head-left">
+                <span className="agent-chat-title">
+                  {t('agent_chat_title', {
+                    name: sessions.find(s => s.id === currentSessionId)?.name || 'AI Agent',
+                  })}
+                </span>
+                <span className="qc-chip ok agent-live-chip">
+                  <span className="qc-pdot" />
+                  {t('worker_realtime')}
+                </span>
+              </div>
+              <div className="agent-chat-head-right">
+                <div className="wb-worker-select">
+                  <span className="wb-worker-label">Worker</span>
+                  <Select
+                    size="small"
+                    variant="borderless"
+                    value={workerId ?? undefined}
+                    onChange={handleSelectWorker}
+                    placeholder={t('wb_select_worker')}
+                    loading={workers.length === 0}
+                    popupMatchSelectWidth={false}
+                    style={{ minWidth: 150 }}
+                    options={workers.map(w => ({
+                      value: w.id,
+                      label: `${w.name} (#${w.id})`,
+                    }))}
+                    notFoundContent={<span style={{ fontSize: 12 }}>{workers.length === 0 ? t('wb_no_workers') : null}</span>}
+                  />
+                  {currentWorker && (
+                    <Tooltip title={t(WorkerStatusText[currentWorker.status] ?? currentWorker.status)}>
+                      <span
+                        className={`qc-chip ${WORKER_CHIP_LEVEL[currentWorker.status] ?? 'quiet'} wb-worker-status`}
+                      >
+                        {WORKER_CHIP_PULSING.has(currentWorker.status) && <span className="qc-pdot" />}
+                        {t(WorkerStatusText[currentWorker.status] ?? currentWorker.status)}
+                      </span>
+                    </Tooltip>
+                  )}
+                </div>
+                <Tooltip title={t('agent_session_history')}>
+                  <button
+                    type="button"
+                    className={`qc-mini-btn qc-icon-only${sessionDrawerOpen ? ' on' : ''}`}
+                    aria-label={t('agent_session_history')}
+                    onClick={toggleSessionDrawer}
+                  >
+                    <HistoryOutlined />
+                  </button>
+                </Tooltip>
+                <Tooltip title={t('agent_tool_settings')}>
+                  <button
+                    type="button"
+                    className="qc-mini-btn qc-icon-only"
+                    aria-label={t('agent_tool_settings')}
+                    onClick={() => setToolDrawerVisible(true)}
+                  >
+                    <SettingOutlined />
+                  </button>
+                </Tooltip>
+                <button type="button" className="qc-mini-btn" onClick={handleClearSession}>
+                  {t('agent_clear_session')}
+                </button>
+                <Tooltip title={collapsed ? t('wb_expand_panel') : t('wb_collapse_panel')}>
+                  <button
+                    type="button"
+                    className="qc-mini-btn qc-icon-only"
+                    aria-label={collapsed ? t('wb_expand_panel') : t('wb_collapse_panel')}
+                    onClick={togglePanel}
+                  >
+                    {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
             <ChatPanel />
           </div>
           {!collapsed && (

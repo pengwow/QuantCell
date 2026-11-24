@@ -402,7 +402,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
 // 聊天面板主组件：消息流 + 输入区（与原 Agent.tsx 渲染结构一致）
 const ChatPanel = () => {
   const { t } = useTranslation();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<React.ComponentRef<typeof Input.TextArea>>(null);
   const [inputValue, setInputValue] = useState('');
 
@@ -412,9 +412,11 @@ const ChatPanel = () => {
     sendMessage,
   } = useAgentStore();
 
-  // 滚动到底部
+  // 滚动到底部：只滚消息容器自身。
+  // 不能用 scrollIntoView —— 它会连带滚动 window，把页头和卡头一起顶出视口（demo 的 .chat-scroll 是内滚）。
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
   const handleSend = async () => {
@@ -440,7 +442,7 @@ const ChatPanel = () => {
   return (
     <>
       {/* 消息列表 */}
-      <div className="agent-content">
+      <div className="agent-content" ref={scrollRef}>
         {messages.length === 0 ? (
           // 空态：定位描述 + 四类能力引导，点击即填充对应指令
           <div className="chat-empty">
@@ -473,7 +475,6 @@ const ChatPanel = () => {
                 <span>{t('agent_thinking')}</span>
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
         )}
       </div>

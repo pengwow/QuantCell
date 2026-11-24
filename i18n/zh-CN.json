@@ -3925,5 +3925,6 @@
   "dm_group_manager_hint": "重命名即时同步到左侧自选组侧栏；点色块即时更新组色（侧栏色点即变；选中具体组时，卡顶色边 / ★ 同步）；每行「批量添加」从穿梭框增删该组标的；数量 = 组内标的数。",
   "dm_msg_group_renamed": "自选组已重命名为「{{name}}」",
   "dm_msg_group_name_required": "先输入新自选组名称",
-  "dm_msg_group_name_dup": "已存在同名自选组"
+  "dm_msg_group_name_dup": "已存在同名自选组",
+  "agent_chat_title": "会话 · {{name}}"
 }

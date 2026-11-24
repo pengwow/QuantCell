@@ -54,8 +54,25 @@
 }
 
 /* ==================== 布局容器 ==================== */
+/* 高度链：qc-main（flex 定高）→ antd App 挂载 div → .ai-agent-layout → .agent-content-layout。
+   三代都是 auto 高度，不能用 100vh（会越过 qc-main 底边，页面整体下溢、输入区被裁）；
+   用 flex 链把可用高度逐级传下去，最后一级自带 min-height:0 才能内部滚动。 */
+.qc-main:has(> .ant-app > .ai-agent-layout) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.qc-main > .ant-app:has(> .ai-agent-layout) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .ai-agent-layout {
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: var(--agent-bg);
   transition: background-color 160ms ease-out;
 }
@@ -86,9 +103,10 @@
 
 /* ==================== 顶栏（§5 Header 同规格：52px / 0 16px / --bg / 下边线） ==================== */
 .agent-content-layout {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
 }
 
 .agent-header {
@@ -145,7 +163,7 @@
 .agent-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 18px 20px;
 }
 
 .messages-container {
@@ -1065,8 +1083,11 @@
 .agent-workbench {
   flex: 1;
   display: flex;
+  gap: 12px;
   min-height: 0;
   overflow: hidden;
+  padding: 12px 16px 16px;
+  background: var(--agent-bg);
 }
 
 .agent-chat-col {
@@ -1075,6 +1096,47 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* demo 会话卡：白面 + 1px 边 + 10px 圆角，卡头 13/650 与右侧动作同排 */
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+}
+
+.agent-chat-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--qc-border);
+}
+
+.agent-chat-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-chat-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--qc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-live-chip .qc-pdot {
+  margin-right: 4px;
+}
+
+.agent-chat-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 /* 右栏比页底抬一层（demo 右卡在画布上的层次） */
@@ -1085,8 +1147,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--qc-text) 2%, var(--qc-bg));
 }
 
 .wb-worker-select {
