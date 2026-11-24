@@ -3,7 +3,7 @@
  * - 后端对每次成功分析强制自动留痕（无开关、无感知），不再提供手动保存按钮；
  * - 分析成功后回调 onAnalyzed，由容器刷新左栏 last_metrics / 快照数。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   App as AntApp,
@@ -29,6 +29,7 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import FactorResultView from './FactorResultView';
+import { parseMissingDataMsg, useFactorDataGuard } from './useFactorDataGuard';
 import { QcEmpty } from '@/components/ui/DataTable';
 
 const { RangePicker } = DatePicker;
@@ -87,6 +88,15 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
+  // 缺数据守卫：下载完成后用保存的参数直接续跑（不重跑预检，避免死循环）
+  const pendingParamsRef = useRef<FactorAnalyzeParams | null>(null);
+  const doRunRef = useRef<(p: FactorAnalyzeParams) => void>(() => {});
+  const { guardModal, ensureData, openFromError } = useFactorDataGuard({
+    onContinue: () => {
+      const p = pendingParamsRef.current;
+      if (p) void doRunRef.current(p);
+    },
+  });
 
   // 因子由左栏锁定：挂载即写入表单（组件在容器内按 factor.name 加 key，切因子整体重挂载）
   useEffect(() => {
@@ -108,6 +118,44 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
     const common = [...sets[0]].filter((x) => sets.every((s) => s.has(x)));
     return (common.length ? common : ['1h']).map((v) => ({ value: v, label: v }));
   }, [instruments, selected]);
+
+  const doRun = useCallback(
+    async (params: FactorAnalyzeParams) => {
+      try {
+        await runJob(
+          'analyze',
+          params,
+          (r) => {
+            setResult(r);
+            setLastParams(params);
+            // 静默：不弹"已留痕"，仅刷新目录让快照数/最近指标自然变化
+            onAnalyzed?.();
+          },
+          (msg) => {
+            // 缺数据报错不直接弹原文：解析品种/周期进同一下载弹窗；其余照旧
+            const miss = parseMissingDataMsg(msg);
+            if (miss) {
+              void openFromError(
+                miss,
+                form.getFieldValue('instruments') ?? [],
+                [form.getFieldValue('interval') ?? miss.interval],
+                form.getFieldValue('range'),
+              );
+              return;
+            }
+            message.error(msg);
+          },
+        );
+      } catch (err) {
+        message.error(errMsg(err));
+      }
+    },
+    [runJob, onAnalyzed, message, form, openFromError],
+  );
+  // 保持 ref 指向最新 doRun（onContinue 由守卫在下载完成后异步触发）
+  useEffect(() => {
+    doRunRef.current = doRun;
+  });
 
   const run = useCallback(async () => {
     const v = await form.validateFields();
@@ -131,24 +179,12 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
       horizons,
       cost_bps: v.costBps ?? 0,
     };
-    try {
-      await runJob(
-        'analyze',
-        params,
-        (r) => {
-          setResult(r);
-          setLastParams(params);
-          // 静默：不弹"已留痕"，仅刷新目录让快照数/最近指标自然变化
-          onAnalyzed?.();
-        },
-        (msg) => {
-          message.error(msg);
-        },
-      );
-    } catch (err) {
-      message.error(errMsg(err));
-    }
-  }, [form, runJob, onAnalyzed]);
+    pendingParamsRef.current = params;
+    // 缺本地数据先弹窗下载；返回 false 表示已弹窗，下载完成后自动续跑
+    const ok = await ensureData(v.instruments, [v.interval], v.range ?? null);
+    if (!ok) return;
+    await doRun(params);
+  }, [form, message, ensureData, doRun]);
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
@@ -257,6 +293,8 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
           <FactorResultView result={result} />
         </Space>
       )}
+
+      {guardModal}
     </Space>
   );
 };

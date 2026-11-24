@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   App as AntApp,
@@ -30,6 +30,7 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import { useQuantColors } from '@/utils/colors';
+import { parseMissingDataMsg, useFactorDataGuard } from './useFactorDataGuard';
 
 const { RangePicker } = DatePicker;
 
@@ -90,6 +91,15 @@ const FactorCompare: React.FC = () => {
     useFactorJob<FactorCompareResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
   const [searchParams, setSearchParams] = useSearchParams();
+  // 缺数据守卫：下载完成后用保存的参数直接续跑（不重跑预检，避免死循环）
+  const pendingParamsRef = useRef<FactorCompareParams | null>(null);
+  const doRunRef = useRef<(p: FactorCompareParams) => void>(() => {});
+  const { guardModal, ensureData, openFromError } = useFactorDataGuard({
+    onContinue: () => {
+      const p = pendingParamsRef.current;
+      if (p) void doRunRef.current(p);
+    },
+  });
 
   useEffect(() => {
     factorApi
@@ -138,6 +148,39 @@ const FactorCompare: React.FC = () => {
     return (common.length ? common : ['1h']).map((v) => ({ value: v, label: v }));
   }, [instruments, selected]);
 
+  const doRun = async (params: FactorCompareParams) => {
+    try {
+      await runJob(
+        'compare',
+        params,
+        setResult,
+        (msg) => {
+          // 缺数据报错不直接弹原文：解析品种/周期进同一下载弹窗；其余照旧
+          const miss = parseMissingDataMsg(msg);
+          if (miss) {
+            void openFromError(
+              miss,
+              form.getFieldValue('instruments') ?? [],
+              [form.getFieldValue('interval') ?? miss.interval],
+              form.getFieldValue('range'),
+            );
+            return;
+          }
+          message.error(msg);
+          setResult(null);
+        },
+      );
+    } catch (err) {
+      // 提交阶段同步 rejection（如 422/网络失败）
+      setResult(null);
+      message.error(errMsg(err));
+    }
+  };
+  // 保持 ref 指向最新 doRun（onContinue 由守卫在下载完成后异步触发）
+  useEffect(() => {
+    doRunRef.current = doRun;
+  });
+
   const run = async () => {
     const v = await form.validateFields();
     const horizons = parseHorizons(v.horizonsText);
@@ -161,21 +204,11 @@ const FactorCompare: React.FC = () => {
       cost_bps: v.costBps ?? 0,
       fdr_method: v.fdrMethod ?? null,
     };
-    try {
-      await runJob(
-        'compare',
-        params,
-        setResult,
-        (msg) => {
-          message.error(msg);
-          setResult(null);
-        },
-      );
-    } catch (err) {
-      // 提交阶段同步 rejection（如 422/网络失败）
-      setResult(null);
-      message.error(errMsg(err));
-    }
+    pendingParamsRef.current = params;
+    // 缺本地数据先弹窗下载；返回 false 表示已弹窗，下载完成后自动续跑
+    const ok = await ensureData(v.instruments, [v.interval], v.range ?? null);
+    if (!ok) return;
+    await doRun(params);
   };
 
   const columns: TableProps<FactorCompareRow>['columns'] = [
@@ -515,6 +548,8 @@ const FactorCompare: React.FC = () => {
           </Card>
         </Space>
       )}
+
+      {guardModal}
     </Space>
   );
 };

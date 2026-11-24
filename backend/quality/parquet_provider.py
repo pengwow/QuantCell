@@ -112,7 +112,7 @@ class ParquetDataProvider(DataProvider):
             msg = (
                 f"未找到 {symbol} {interval} 的Parquet文件\n"
                 f"预期路径: {parquet_path}\n"
-                f"提示: 请先使用 download 命令下载数据"
+                f"提示: 请先在「数据管理」页下载该品种数据，或使用 download 命令"
             )
             raise FileNotFoundError(msg)
 
