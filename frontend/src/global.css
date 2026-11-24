@@ -1315,6 +1315,57 @@ ul.qc-pagination li.ant-pagination-jump-next {
   }
 }
 
+/* ---- 数据管理 · 行情标的两栏（demo .dm-layout：自选组固定 210px + 主列自适应）----
+   为什么不用 Row/Col：侧栏宽度是「组名 + 计数」撑出的定值，栅格百分比会随窗口浮动；
+   固定基准 + 一条断点既能保证卡面宽度不缩，又能在 <lg 整列堆叠。 */
+.dm-split {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.dm-split-side {
+  flex: 0 0 210px;
+  min-width: 0;
+}
+
+.dm-split-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ≤1100px（demo 同一断点）：侧栏落到主列上方，组列表由竖排改横向换行，省出表宽 */
+@media (max-width: 1100px) {
+  .dm-split {
+    flex-direction: column;
+  }
+
+  .dm-split-side {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* 竖排后主列宽度由容器决定（而非内容 min-content）：不然 1200px 宽的表会把主列撑出卡框 */
+  .dm-split-main {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .dm-split-side .ant-menu-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .dm-split-side .ant-menu-inline > .ant-menu-item {
+    width: auto;
+    flex: 0 1 auto;
+    margin: 0;
+    padding-inline: 8px;
+  }
+}
+
 /* ---- 详情页头部事实条（demo #view-sagent .ws-strip/.s-chip 的实现）----
    谁在用：WorkerDetail.tsx 头部（周期/模式/资金/杠杆等中性事实）。
    为什么不复用 .qc-chip：chip 是语义标签（tint 底 + 语义色字），而事实条是

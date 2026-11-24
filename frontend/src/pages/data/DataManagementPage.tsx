@@ -57,7 +57,6 @@ import {
   EditOutlined,
   DeleteOutlined,
   FolderOutlined,
-  FolderOpenOutlined,
   SettingOutlined,
   ImportOutlined,
   FileSearchOutlined,
@@ -91,8 +90,6 @@ import type {
   DataKind,
 } from '@/types/data';
 import {
-  ARCHIVE_KINDS,
-  KLINE_ARCHIVE_KINDS,
   ARCHIVE_MARKETS,
   ARCHIVE_INTERVALS,
   DERIV_KINDS,
@@ -249,6 +246,11 @@ const DataManagementPage = () => {
   const [symbolLoading, setSymbolLoading] = useState(false);
   const [searchText, setSearchText] = useState(restoredState?.pageState?.searchText || '');
   const [quoteFilter, setQuoteFilter] = useState<string>(restoredState?.pageState?.quoteFilter || 'all');
+  // 质量筛选（demo 工具栏的 4 个 chips）：good=数据正常，warning/bad=存在缺口，unknown=无数据
+  const [qualityFilter, setQualityFilter] = useState<'all' | 'good' | 'issue' | 'nodata'>('all');
+  // 行情标的页签底部「批量数据采集」卡：只选数据类型与模式，区间/周期/并发走「数据采集」页签
+  const [quickDataType, setQuickDataType] = useState<DataKind>('kline');
+  const [quickMode, setQuickMode] = useState<'inc' | 'full'>('inc');
   // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
   const viewType = useViewType();
   const [sortField, setSortField] = useState<SortField>(restoredState?.pageState?.sortField || 'rank');
@@ -314,6 +316,8 @@ const DataManagementPage = () => {
   const [selectedIntervalForQuality, setSelectedIntervalForQuality] = useState<string>('');
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityDetail, setQualityDetail] = useState<KlineQualityReport | null>(null);
+  // 最近一次检测的完成时间（demo 质量概览「上次检测」）：只在真实返回后写入，不用挂载时间冒充
+  const [qualityCheckedAt, setQualityCheckedAt] = useState<string>('');
 
   // ==================== 数据清理状态 ====================
   const [cleanForm] = Form.useForm();
@@ -368,13 +372,11 @@ const DataManagementPage = () => {
   // ==================== 归档 / 衍生 浏览状态 ====================
 
   // 'archive' 对应 7 种归档数据；'deriv' 对应 fundingRate/openInterest
-  type ArchiveBrowserCategory = 'archive' | 'deriv';
-  const [archiveBrowserCategory, setArchiveBrowserCategory] = useState<ArchiveBrowserCategory>('archive');
   const [archiveKind, setArchiveKind] = useState<ArchiveKind | DerivKind>('aggTrades');
   const [archiveMarket, setArchiveMarket] = useState<MarketType>('spot');
   const [archiveSymbol, setArchiveSymbol] = useState<string>('');
   // 树形展开状态（kind 节点）
-  const [archiveExpandedKinds, setArchiveExpandedKinds] = useState<(ArchiveKind | DerivKind)[]>(['aggTrades']);
+
   // 当前 (kind, market) 已加载的 symbols 列表缓存：key = kind__market
   const [archiveSymbolsMap, setArchiveSymbolsMap] = useState<Record<string, string[]>>({});
   // 当前 (kind, market) 是否正在加载 symbols
@@ -398,7 +400,7 @@ const DataManagementPage = () => {
   // 删除 loading
   const [archiveDeleting, setArchiveDeleting] = useState(false);
   // 左侧树 symbol 搜索
-  const [archiveSymbolSearch, setArchiveSymbolSearch] = useState<string>('');
+
 
   // 当前激活的自选组
   const activeGroup = useMemo(() => 
@@ -428,6 +430,16 @@ const DataManagementPage = () => {
     // 自选组过滤
     if (activeGroup) {
       result = result.filter((s) => activeGroup.symbolIds.includes(s.symbol));
+    }
+
+    // 质量过滤：无数据 = unknown；存在缺口 = warning/bad；数据正常 = good
+    if (qualityFilter !== 'all') {
+      result = result.filter((s) => {
+        const q = s.dataQuality ?? 'unknown';
+        if (qualityFilter === 'nodata') return q === 'unknown';
+        if (qualityFilter === 'good') return q === 'good';
+        return q === 'warning' || q === 'bad';
+      });
     }
 
     // 排序
@@ -471,7 +483,7 @@ const DataManagementPage = () => {
     });
 
     return result;
-  }, [symbols, searchText, quoteFilter, activeGroup, sortField, sortOrder]);
+  }, [symbols, searchText, quoteFilter, qualityFilter, activeGroup, sortField, sortOrder]);
 
   // 初始化加载
   useEffect(() => {
@@ -1188,6 +1200,8 @@ const DataManagementPage = () => {
         // data_type + market: 新统一入口的两个核心参数
         data_type: dataType,
         market,
+        // 增量按水位续传 / 全量重置区间（后端 mode，默认 inc）
+        mode: (values.mode as string) || 'inc',
         interval,
         start: values.dateRange?.[0]?.format('YYYY-MM-DD') || dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
         end: values.dateRange?.[1]?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD'),
@@ -1232,6 +1246,7 @@ const DataManagementPage = () => {
       });
 
       setQualityDetail(response);
+      setQualityCheckedAt(dayjs().format('MM-DD HH:mm'));
       setActiveTab('quality');
       message.success(t('dm_msg_quality_done'));
     } catch (error) {
@@ -1467,23 +1482,11 @@ const DataManagementPage = () => {
     });
   };
 
-  // 当展开 kind 时，加载其下的 market 子树 symbols
-  const handleArchiveExpandKind = (kind: ArchiveKind | DerivKind, expanded: boolean) => {
-    if (expanded) {
-      setArchiveExpandedKinds((prev) => (prev.includes(kind) ? prev : [...prev, kind]));
-      ensureKindSymbolsLoaded(kind);
-    } else {
-      setArchiveExpandedKinds((prev) => prev.filter((k) => k !== kind));
-    }
-  };
-
-  // 初始 state 默认展开 aggTrades，但展开 state 本身不会触发加载，
-  // 挂载时主动拉一次，否则其下 SPOT/UM/CM 会一直停留在 "..." 占位
+  // 挂载与切换数据类型时预拉该 kind 下各市场的 symbols（检索卡的下拉靠它填充）
   useEffect(() => {
-    ensureKindSymbolsLoaded('aggTrades');
-    // 仅在挂载时执行一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    ensureKindSymbolsLoaded(archiveKind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ensureKindSymbolsLoaded 读 archiveSymbolsMap 缓存，缓存命中不发请求
+  }, [archiveKind]);
 
   // ==================== 渲染方法 ====================
 
@@ -2133,167 +2136,6 @@ const DataManagementPage = () => {
   // 替代写死的 calc(100vh - 260px) 魔法数——页头/Tab/卡片结构变化时自动适应。
   // 滚动宿主是 ConsoleLayout 的 Layout.Content（overflow-y-auto），
   // 补偿其 scrollTop 得到文档坐标，使高度不随外层页面滚动漂移。
-  const treeScrollRef = useRef<HTMLDivElement>(null);
-  const [treeMaxHeight, setTreeMaxHeight] = useState(480);
-  useEffect(() => {
-    const measure = () => {
-      const el = treeScrollRef.current;
-      if (!el) return;
-      const scroller = el.closest('.ant-layout-content');
-      const outerScroll = scroller?.scrollTop ?? window.scrollY;
-      const docTop = el.getBoundingClientRect().top + outerScroll;
-      // 底部留 12px 呼吸边距；下限 320 防极小窗口挤压
-      setTreeMaxHeight(Math.max(320, window.innerHeight - docTop - 12));
-    };
-    measure();
-    // 首测可能早于布局稳定（字体加载 / 浏览器滚动恢复 / Tab 动画，实测曾
-    // 偏差 200px+）：body 高度随这些迟到变化而改变，用 ResizeObserver
-    // 触发重测校准。树展开只向下长、不改变滚动区文档位置，重测值不变，
-    // 不会形成 measure→render→RO 的循环。
-    const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
-    window.addEventListener('resize', measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [activeTab]); // 树仅在 archive tab 激活后挂载，切 tab 需重测一次
-
-  // 渲染左侧树形导航（archive 7 种 + deriv 2 种 → market → symbols）
-  const renderArchiveTree = () => {
-    const kinds = archiveBrowserCategory === 'archive' ? ARCHIVE_KINDS : DERIV_KINDS;
-    const marketsForKind = (k: ArchiveKind | DerivKind): MarketType[] =>
-      isDerivKind(k) ? (['um', 'cm'] as MarketType[]) : ARCHIVE_MARKETS;
-    const searchLower = archiveSymbolSearch.toLowerCase();
-
-    return (
-    // 分类切换 + 搜索框固定在滚动区外（滚到底部分类后无需滚回即可搜索）；
-    // 树滚动区高度跟随视口而非写死 600px——7 类全展开时底部类别可直接滚到，
-    // 不再需要收起上方分支才能点击
-    <Flex vertical gap={8}>
-      {/* 分类切换：归档数据（7 种） vs 衍生数据（2 种） */}
-      <Segmented
-        block
-        className="qc-seg"
-        size="small"
-        value={archiveBrowserCategory}
-        onChange={(v) => {
-          const cat = v as ArchiveBrowserCategory;
-          setArchiveBrowserCategory(cat);
-          const firstKind = cat === 'archive' ? ARCHIVE_KINDS[0] : DERIV_KINDS[0];
-          setArchiveKind(firstKind);
-          setArchiveSymbol('');
-          setArchiveExpandedKinds([firstKind]);
-          // 切换后首个 kind 处于默认展开态，需主动拉取市场列表，否则只显示 "..."
-          ensureKindSymbolsLoaded(firstKind);
-        }}
-        options={[
-          { value: 'archive', label: t('dm_cat_archive', { n: ARCHIVE_KINDS.length }) },
-          { value: 'deriv', label: t('dm_cat_deriv', { n: DERIV_KINDS.length }) },
-        ]}
-      />
-
-      {/* Symbol 搜索框 */}
-      <Input
-        size="small"
-        placeholder={t('dm_ph_search_symbol')}
-        prefix={<SearchOutlined className="text-foreground/25" />}
-        allowClear
-        value={archiveSymbolSearch}
-        onChange={(e) => setArchiveSymbolSearch(e.target.value)}
-      />
-
-      {/* kind 树滚动区：高度按滚动区真实位置自适应视口（treeMaxHeight），单层滚动 */}
-      <div ref={treeScrollRef} style={{ overflow: 'auto', maxHeight: treeMaxHeight, minHeight: 320 }}>
-      {kinds.map((kind) => {
-        const expanded = archiveExpandedKinds.includes(kind);
-        const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[kind] ?? kind;
-        return (
-          <div key={kind} className="mb-0.5">
-            <div
-              onClick={() => handleArchiveExpandKind(kind, !expanded)}
-              className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-[5px] text-[13px]"
-              style={{
-                backgroundColor: expanded ? 'color-mix(in srgb, var(--qc-info) 10%, transparent)' : 'transparent',
-                fontWeight: archiveKind === kind ? 600 : 400,
-              }}
-            >
-              {expanded ? <FolderOpenOutlined /> : <FolderOutlined />}
-              <span>{kindLabel}</span>
-              {archiveBrowserCategory === 'archive' && KLINE_ARCHIVE_KINDS.includes(kind as ArchiveKind) && (
-                <span className="qc-chip info">{t('dm_tag_kline')}</span>
-              )}
-              {archiveBrowserCategory === 'deriv' && <span className="qc-chip pri">{t('dm_tag_deriv')}</span>}
-            </div>
-            {expanded && (
-              <div className="pl-3.5 mt-0.5">
-                {marketsForKind(kind).map((m) => {
-                  const key = `${kind}__${m}`;
-                  const symList = archiveSymbolsMap[key];
-                  // 搜索过滤
-                  const filteredSyms = searchLower && symList
-                    ? symList.filter(s => s.toLowerCase().includes(searchLower))
-                    : symList;
-                  return (
-                    <div key={m} className="mb-0.5">
-                      <div
-                        className="rounded px-1.5 py-[3px] text-xs text-foreground/60"
-                        style={{
-                          backgroundColor: archiveKind === kind && archiveMarket === m ? 'color-mix(in srgb, var(--qc-info) 8%, transparent)' : 'transparent',
-                        }}
-                      >
-                        <FolderOutlined className="mr-1" />
-                        {m.toUpperCase()}
-                        <Text type="secondary" className="ml-1.5 text-[11px]">
-                          {symList ? `(${searchLower && filteredSyms ? `${filteredSyms.length}/${symList.length}` : symList.length})` : '...'}
-                        </Text>
-                      </div>
-                      {/* symbol 列表不再内层滚动：统一交给外层树滚动区，避免双层滚动条 */}
-                      {filteredSyms && filteredSyms.length > 0 && (
-                        <div className="pl-3">
-                          {filteredSyms.slice(0, 100).map((s) => (
-                            <div
-                              key={s}
-                              onClick={() => handleArchiveSelectSymbol(kind, m, s)}
-                              className="cursor-pointer rounded-[3px] px-1.5 py-0.5 text-xs"
-                              style={{
-                                backgroundColor:
-                                  archiveKind === kind && archiveMarket === m && archiveSymbol === s
-                                    ? 'color-mix(in srgb, var(--qc-info) 30%, transparent)'
-                                    : 'transparent',
-                                color:
-                                  archiveKind === kind && archiveMarket === m && archiveSymbol === s
-                                    ? 'var(--qc-info)'
-                                    : 'var(--qc-text)',
-                              }}
-                            >
-                              {s}
-                            </div>
-                          ))}
-                          {filteredSyms.length > 100 && (
-                            <Text type="secondary" className="px-1.5 py-0.5 text-[11px]">
-                              {t('dm_more_n', { n: filteredSyms.length - 100 })}
-                            </Text>
-                          )}
-                        </div>
-                      )}
-                      {searchLower && symList && filteredSyms && filteredSyms.length === 0 && (
-                        <Text type="secondary" className="pl-3 text-[11px]">{t('dm_no_match')}</Text>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      </div>
-    </Flex>
-    );
-  };
-
-  // 表格列根据当前 rows 的 key 动态生成（duck typing）+ 智能列宽/对齐
   const archiveColumns = useMemo(() => {
     if (archiveRows.length === 0) return [] as Array<{ title: string; dataIndex: string; key: string; width?: number; ellipsis?: boolean; align?: 'left' | 'right' | 'center' }>;
     const keys = Object.keys(archiveRows[0] ?? {});
@@ -2328,59 +2170,157 @@ const DataManagementPage = () => {
   }, [archiveRows]);
 
   // 渲染主面板（统一浏览器：归档7种 + 衍生2种）
+  // 归档检索（demo #dm-archive 的检索式）：标的 / 数据类型 / 市场 / 日期范围 → 摘要 → 明细
   const renderArchiveBrowser = () => {
     const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[archiveKind as string] ?? archiveKind;
     // 仅当 kind 是需要 interval 的 K 线类时显示 interval selector
     const needInterval = INTERVAL_REQUIRED_KINDS.includes(archiveKind as DataKind);
-    return (
-    <Row gutter={[16, 16]}>
-      {/* 左侧树形导航 */}
-      <Col xs={24} md={8} lg={6}>
-        <Card
-          className="qc-card"
-          size="small"
-          title={
-            <Space>
-              <DatabaseOutlined />
-              <span>{t('dm_archive_browse_title')}</span>
-            </Space>
-          }
-          extra={
-            <Text type="secondary" className="text-[11px]">
-              {archiveSymbolsLoading ? t('dm_loading') : ''}
-            </Text>
-          }
-        >
-          {renderArchiveTree()}
-        </Card>
-      </Col>
+    // 衍生数据只有 um/cm，spot 无意义
+    const marketOptions: MarketType[] = isDerivKind(archiveKind) ? (['um', 'cm'] as MarketType[]) : ARCHIVE_MARKETS;
+    const symbolOptions = (archiveSymbolsMap[`${archiveKind}__${archiveMarket}`] ?? []).map((sym) => ({ value: sym, label: sym }));
+    const kindGroups = [
+      {
+        label: t('dm_group_kline'),
+        options: (['kline', 'markPriceKlines', 'indexPriceKlines', 'premiumIndexKlines'] as ArchiveKind[]).map((k) => ({
+          value: k,
+          label: (DATA_KIND_LABEL as Record<string, string>)[k] ?? k,
+        })),
+      },
+      {
+        label: t('dm_group_ticker'),
+        options: (['aggTrades', 'trades', 'bookDepth', 'bookTicker'] as ArchiveKind[]).map((k) => ({
+          value: k,
+          label: (DATA_KIND_LABEL as Record<string, string>)[k] ?? k,
+        })),
+      },
+      {
+        label: t('dm_group_deriv'),
+        options: DERIV_KINDS.map((k) => ({
+          value: k,
+          label: (DATA_KIND_LABEL as Record<string, string>)[k] ?? k,
+        })),
+      },
+    ];
+    const resetSelection = () => {
+      setArchiveSymbol('');
+      setArchiveMeta(null);
+      setArchiveRows([]);
+      setArchiveTotal(0);
+      setArchiveTruncated(false);
+    };
 
-      {/* 右侧内容 */}
-      <Col xs={24} md={16} lg={18}>
+    return (
+      <>
+        {/* 归档检索卡：切换标的 / 数据类型 / 市场 / 日期范围后按当前条件重查 */}
         <Card
           className="qc-card"
-          size="small"
+          title={t('dm_archive_search_title')}
+          extra={<span className="qc-card-sub qc-mono">{t('dm_archive_search_hint')}</span>}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px', alignItems: 'flex-end' }}>
+            <div style={{ width: 190 }}>
+              <div className="qc-card-sub" style={{ marginBottom: 4 }}>{t('dm_form_datatype')}</div>
+              <Select
+                className="w-full"
+                value={archiveKind}
+                onChange={(value) => {
+                  const kind = value as ArchiveKind | DerivKind;
+                  setArchiveKind(kind);
+                  resetSelection();
+                  // 切到衍生类时 spot 不适用，直接把市场纠正到 um
+                  if (isDerivKind(kind) && archiveMarket === 'spot') setArchiveMarket('um');
+                  if (!isDerivKind(kind) && archiveMarket !== 'spot' && !ARCHIVE_MARKETS.includes(archiveMarket)) setArchiveMarket('spot');
+                }}
+                options={kindGroups}
+                showSearch
+                optionFilterProp="label"
+              />
+            </div>
+            <div style={{ width: 120 }}>
+              <div className="qc-card-sub" style={{ marginBottom: 4 }}>{t('dm_form_market')}</div>
+              <Select
+                className="w-full"
+                value={archiveMarket}
+                onChange={(value) => {
+                  setArchiveMarket(value as MarketType);
+                  resetSelection();
+                }}
+                options={marketOptions.map((m) => ({ value: m, label: m.toUpperCase() }))}
+              />
+            </div>
+            <div style={{ width: 180 }}>
+              <div className="qc-card-sub" style={{ marginBottom: 4 }}>{t('dm_sector_symbol')}</div>
+              <Select
+                className="w-full"
+                value={archiveSymbol || undefined}
+                placeholder={archiveSymbolsLoading ? t('dm_loading') : t('dm_pick_hint')}
+                onChange={(value) => handleArchiveSelectSymbol(archiveKind, archiveMarket, String(value))}
+                options={symbolOptions}
+                showSearch
+                optionFilterProp="label"
+                allowClear
+              />
+            </div>
+            {needInterval && (
+              <div style={{ width: 90 }}>
+                <div className="qc-card-sub" style={{ marginBottom: 4 }}>{t('interval')}</div>
+                <Select
+                  className="w-full"
+                  value={archiveInterval}
+                  onChange={setArchiveInterval}
+                  options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
+                />
+              </div>
+            )}
+            <div style={{ width: 330 }}>
+              <div className="qc-card-sub" style={{ marginBottom: 4 }}>{t('date_range')}</div>
+              <RangePicker
+                showTime
+                className="w-full"
+                value={[dayjs(archiveTimeRange[0]), dayjs(archiveTimeRange[1])]}
+                onChange={(dates) => {
+                  if (dates && dates[0] && dates[1]) {
+                    setArchiveTimeRange([dates[0].valueOf(), dates[1].valueOf()]);
+                  }
+                }}
+              />
+            </div>
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              loading={archiveQueryLoading}
+              disabled={!archiveSymbol}
+              onClick={() => doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, 1, archivePageSize)}
+            >
+              {t('dm_query')}
+            </Button>
+          </div>
+          <div className="qc-footnote">
+            <span>{t('dm_archive_search_footnote')}</span>
+          </div>
+        </Card>
+
+        {/* 归档摘要卡：元数据 + 浏览（K 线回放）/ 删除 */}
+        <Card
+          className="qc-card"
+          style={{ marginTop: 12 }}
           title={
-            archiveSymbol ? (
-              <Space wrap>
-                <span className="qc-chip info">{kindLabel}</span>
-                <span className="qc-chip quiet qc-mono">{archiveMarket.toUpperCase()}</span>
-                <span className="qc-cell-id">{archiveSymbol}</span>
-                {needInterval && (
-                  <span className="qc-chip quiet qc-mono">{archiveInterval}</span>
-                )}
-                {isDerivKind(archiveKind as DerivKind) && <span className="qc-chip pri">{t('dm_tag_deriv')}</span>}
-              </Space>
-            ) : (
-              <span>
-                <FileSearchOutlined /> {t('dm_pick_hint')}
-              </span>
-            )
+            <Space wrap size={6}>
+              <span>{t('dm_archive_summary')}</span>
+              {archiveSymbol ? (
+                <>
+                  <span className="qc-chip info">{kindLabel}</span>
+                  <span className="qc-chip quiet qc-mono">{archiveMarket.toUpperCase()}</span>
+                  <span className="qc-cell-id">{archiveSymbol}</span>
+                  {needInterval && <span className="qc-chip quiet qc-mono">{archiveInterval}</span>}
+                  {isDerivKind(archiveKind as DerivKind) && <span className="qc-chip pri">{t('dm_tag_deriv')}</span>}
+                </>
+              ) : null}
+            </Space>
           }
           extra={
             archiveSymbol ? (
               <Space size="small">
-                {/* K 线类数据才支持逐根回放 */}
                 {needInterval && (
                   <Button
                     size="small"
@@ -2400,12 +2340,7 @@ const DataManagementPage = () => {
                   okButtonProps={{ danger: true }}
                   onConfirm={handleArchiveDelete}
                 >
-                  <Button
-                    danger
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    loading={archiveDeleting}
-                  >
+                  <Button danger size="small" icon={<DeleteOutlined />} loading={archiveDeleting}>
                     {t('dm_del_symbol_short')}
                   </Button>
                 </Popconfirm>
@@ -2414,23 +2349,20 @@ const DataManagementPage = () => {
           }
         >
           {!archiveSymbol ? (
-            <QcEmpty
-              icon={<FileSearchOutlined />}
-              title={t('dm_pick_browse_hint')}
-              description={t('dm_browse_steps')}
-            />
+            <QcEmpty icon={<FileSearchOutlined />} title={t('dm_pick_browse_hint')} description={t('dm_browse_steps')} />
+          ) : !archiveMeta ? (
+            <QcEmpty icon={<FileSearchOutlined />} title={t('dm_archive_empty_title')} description={t('dm_archive_empty_desc')} />
           ) : (
-            <Space orientation="vertical" className="w-full" size="middle">
-              {/* 元数据概览（值走 mono，§5 kv 口径） */}
-              {archiveMeta && (
-                <Descriptions size="small" column={{ xs: 2, sm: 4 }} bordered={false} className="rounded-qc-sm bg-foreground/2 px-3 py-2">
-                  <Descriptions.Item label={t('dm_meta_start')}><span className="qc-mono">{archiveMeta.earliest_date}</span></Descriptions.Item>
-                  <Descriptions.Item label={t('dm_meta_end')}><span className="qc-mono">{archiveMeta.latest_date}</span></Descriptions.Item>
-                  <Descriptions.Item label={t('dm_meta_rows')}><span className="qc-mono">{archiveMeta.total_rows.toLocaleString()}</span></Descriptions.Item>
-                  <Descriptions.Item label={t('dm_meta_files')}><span className="qc-mono">{archiveMeta.file_count}</span></Descriptions.Item>
-                </Descriptions>
-              )}
-              {archiveMeta && archiveMeta.corrupt_dates.length > 0 && (
+            <Space orientation="vertical" className="w-full">
+              <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }} bordered={false} className="rounded-qc-sm bg-foreground/2 px-3 py-2">
+                <Descriptions.Item label={t('dm_meta_start')}><span className="qc-mono">{archiveMeta.earliest_date}</span></Descriptions.Item>
+                <Descriptions.Item label={t('dm_meta_end')}><span className="qc-mono">{archiveMeta.latest_date}</span></Descriptions.Item>
+                <Descriptions.Item label={t('dm_meta_rows')}><span className="qc-mono">{archiveMeta.total_rows.toLocaleString()}</span></Descriptions.Item>
+                <Descriptions.Item label={t('dm_meta_files')}><span className="qc-mono">{archiveMeta.file_count}</span></Descriptions.Item>
+                <Descriptions.Item label={t('dm_meta_corrupt')}><span className="qc-mono">{archiveMeta.corrupt_dates.length}</span></Descriptions.Item>
+                <Descriptions.Item label={t('dm_meta_queried')}><span className="qc-mono">{archiveTotal.toLocaleString()}</span></Descriptions.Item>
+              </Descriptions>
+              {archiveMeta.corrupt_dates.length > 0 && (
                 <Alert
                   type="warning"
                   showIcon
@@ -2439,102 +2371,59 @@ const DataManagementPage = () => {
                   className="text-xs"
                 />
               )}
-
-              {/* bookDepth 大数据量警告 */}
-              {archiveKind === 'bookDepth' && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  title={t('dm_bookdepth_warn_title')}
-                  description={t('dm_bookdepth_warn_desc')}
-                />
-              )}
-
-              {/* 查询控件 */}
-              <Space wrap size={8} align="center">
-                {/* 快捷时间预设 */}
-                <Segmented
-                  className="qc-seg"
-                  size="small"
-                  value=""
-                  onChange={(v) => {
-                    const end = Date.now();
-                    const ranges: Record<string, number> = { '1d': 86400_000, '7d': 7 * 86400_000, '30d': 30 * 86400_000, 'all': 365 * 86400_000 };
-                    const ms = ranges[v as string] || 7 * 86400_000;
-                    setArchiveTimeRange([end - ms, end]);
-                  }}
-                  options={[
-                    { value: '1d', label: t('dm_prs_1d') },
-                    { value: '7d', label: t('dm_prs_7d') },
-                    { value: '30d', label: t('dm_prs_30d') },
-                    { value: 'all', label: t('dm_prs_1y') },
-                  ]}
-                />
-                <RangePicker
-                  showTime
-                  size="small"
-                  style={{ width: 320 }}
-                  value={[dayjs(archiveTimeRange[0]), dayjs(archiveTimeRange[1])]}
-                  onChange={(dates) => {
-                    if (dates && dates[0] && dates[1]) {
-                      setArchiveTimeRange([dates[0].valueOf(), dates[1].valueOf()]);
-                    }
-                  }}
-                />
-                {needInterval && (
-                  <Select
-                    size="small"
-                    style={{ width: 80 }}
-                    value={archiveInterval}
-                    onChange={setArchiveInterval}
-                    options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
-                  />
-                )}
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<SearchOutlined />}
-                  loading={archiveQueryLoading}
-                  onClick={() =>
-                    doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, 1, archivePageSize)
-                  }
-                >
-                  {t('dm_query')}
-                </Button>
-                <Text type="secondary" className="text-xs">
-                  {t('dm_total_rows_n', { n: archiveTotal.toLocaleString() })}
-                  {archiveTruncated && t('dm_truncated')}
-                </Text>
-              </Space>
-
-              {/* 数据表（qc-table 密度 + §6.7 分页；归档独立档位 100/200/500/1000，见上方注释） */}
-              <DataTable<KeyedArchiveRow>
-                dataSource={archiveRows.map((r, i): KeyedArchiveRow => ({ ...r, __rk: i }))}
-                rowKey={(r) => String(r.__rk)}
-                columns={archiveColumns}
-                loading={archiveQueryLoading}
-                scroll={{ x: 'max-content', y: 480 }}
-                remote={true}
-                pagination={{
-                  current: archivePage,
-                  pageSize: archivePageSize,
-                  total: archiveTotal,
-                  showSizeChanger: true,
-                  // 归档明细查询一次返回整段数据，单页行数即取数上限，
-                  // 与全局每页条数配置语义不同，独立档位不参与全局分页体系
-                  pageSizeOptions: [100, 200, 500, 1000],
-                  onChange: (p, s) => {
-                    setArchivePage(p);
-                    setArchivePageSize(s);
-                    doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, p, s);
-                  },
-                }}
-              />
+              <div className="qc-footnote">
+                <span>{t('dm_archive_summary_footnote')}</span>
+              </div>
             </Space>
           )}
         </Card>
-      </Col>
-    </Row>
+
+        {/* 归档明细卡：按当前查询条件返回的行（分页沿用归档独立档位） */}
+        <Card
+          className="qc-card"
+          style={{ marginTop: 12 }}
+          title={t('dm_archive_rows_title')}
+          extra={
+            <span className="qc-card-sub qc-mono">
+              {t('dm_total_rows_n', { n: archiveTotal.toLocaleString() })}
+              {archiveTruncated ? t('dm_truncated') : ''}
+            </span>
+          }
+        >
+          {archiveKind === 'bookDepth' && (
+            <Alert
+              type="warning"
+              showIcon
+              title={t('dm_bookdepth_warn_title')}
+              description={t('dm_bookdepth_warn_desc')}
+              className="text-xs"
+              style={{ marginBottom: 8 }}
+            />
+          )}
+          <DataTable<KeyedArchiveRow>
+            dataSource={archiveRows.map((r, i): KeyedArchiveRow => ({ ...r, __rk: i }))}
+            rowKey={(r) => String(r.__rk)}
+            columns={archiveColumns}
+            loading={archiveQueryLoading}
+            scroll={{ x: 'max-content', y: 480 }}
+            remote={true}
+            pagination={{
+              current: archivePage,
+              pageSize: archivePageSize,
+              total: archiveTotal,
+              showSizeChanger: true,
+              pageSizeOptions: [100, 200, 500, 1000],
+              onChange: (pg, sz) => {
+                setArchivePage(pg);
+                setArchivePageSize(sz);
+                doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, pg, sz);
+              },
+            }}
+            emptyTitle={archiveSymbol ? t('dm_archive_no_rows') : t('dm_pick_browse_hint')}
+            emptyDescription={archiveSymbol ? t('dm_archive_no_rows_desc') : t('dm_browse_steps')}
+          />
+        </Card>
+      </>
     );
   };
 
@@ -2573,6 +2462,49 @@ const DataManagementPage = () => {
     message.info(t('dm_msg_batch_collect_wip', { n: selectedSymbols.length }));
   };
 
+  // 行情标的页签底部「批量数据采集」：已选标的 × 数据类型 × 模式直接入队。
+  // 与「数据采集」页签表单共用同一后端入口，区间/周期/并发取默认值（详细参数走那边）
+  const handleQuickBatchCollect = async () => {
+    if (selectedSymbols.length === 0) {
+      message.warning(t('dm_msg_select_symbols_first'));
+      return;
+    }
+    const KLINE_TYPES = new Set(['kline', 'markPriceKlines', 'indexPriceKlines', 'premiumIndexKlines']);
+    const market = SYSTEM_CONFIG.crypto_trading_mode || 'spot';
+    if (FUTURES_ONLY_KINDS.includes(quickDataType) && market === 'spot') {
+      message.warning(t('dm_msg_futures_only', { type: DATA_KIND_LABEL[quickDataType] ?? quickDataType }));
+      return;
+    }
+    const interval = KLINE_TYPES.has(quickDataType) ? ['15m', '1h', '1d'] : [];
+    const requestPayload = {
+      symbols: selectedSymbols,
+      data_type: quickDataType,
+      market,
+      mode: quickMode,
+      interval,
+      start: dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
+      end: dayjs().format('YYYY-MM-DD'),
+      exchange: SYSTEM_CONFIG.exchange,
+      max_workers: 4,
+      candle_type: KLINE_TYPES.has(quickDataType) ? market : undefined,
+    };
+    try {
+      const response = await dataApi.downloadCryptoData(requestPayload);
+      if (response.task_id) {
+        setCurrentTaskId(response.task_id);
+        setCurrentTaskParams(requestPayload);
+        setTaskStatus('running');
+        setTaskProgress(0);
+        setTaskProgressList(buildProgressPlaceholders(selectedSymbols, interval));
+        fetchCollectionTasks();
+        message.success(t('dm_msg_task_started', { type: quickDataType, market }));
+      }
+    } catch (error) {
+      message.error(t('start_batch_collection_failed'));
+      console.error('Failed to start quick batch collection:', error);
+    }
+  };
+
   // 清空选择
   const clearSelection = () => {
     setSelectedSymbols([]);
@@ -2590,6 +2522,27 @@ const DataManagementPage = () => {
         }}
         filters={
           <>
+            {/* 质量 chips（demo #symChips）：与搜索 / 计价货币是交集；两组 chips 都含「全部」，各加一个 10.5px 组名前缀避免撞在一起 */}
+            <span className="qc-card-sub">{t('data_quality')}</span>
+            <div role="group" aria-label={t('data_quality')} style={{ display: 'contents' }}>
+              {([
+                { value: 'all', label: t('all') },
+                { value: 'good', label: t('dm_filter_quality_good') },
+                { value: 'issue', label: t('dm_filter_quality_issue') },
+                { value: 'nodata', label: t('dm_filter_quality_nodata') },
+              ] as const).map((chip) => (
+                <button
+                  key={chip.value}
+                  type="button"
+                  className={`qc-ichip${qualityFilter === chip.value ? ' qc-ichip-on' : ''}`}
+                  aria-pressed={qualityFilter === chip.value}
+                  onClick={() => setQualityFilter(chip.value)}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+            <span className="qc-card-sub">{t('quote_currency')}</span>
             <div role="group" aria-label={t('quote_currency')} style={{ display: 'contents' }}>
               {(['all', 'USDT', 'BTC', 'ETH'] as const).map((q) => (
                 <button
@@ -2696,45 +2649,6 @@ const DataManagementPage = () => {
           </Row>
         </Card>
       )}
-    </div>
-  );
-
-  // 渲染统计卡片（§6.4 KPI：label 11px fg-4 → mono 22px/650 → 弱注 10.5px）
-  const renderStatistics = () => (
-    <div className="qc-kpi-grid mb-4">
-      <div className="qc-kpi">
-        <div className="qc-kpi-top">
-          <span className="qc-kpi-lb">{t('total_symbols')}</span>
-          <DatabaseOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 14 }} />
-        </div>
-        <div className="qc-kpi-num">{symbols.length}</div>
-        <div className="qc-kpi-sub">{t('dm_kpi_groups_n', { n: favoriteGroups.length })}</div>
-      </div>
-      <div className="qc-kpi">
-        <div className="qc-kpi-top">
-          <span className="qc-kpi-lb">{t('current_group')}</span>
-          <FolderOpenOutlined style={{ color: activeGroup?.color ?? 'var(--qc-text-quaternary)', fontSize: 14 }} />
-        </div>
-        {/* 「全部」不是自选组（activeGroupId=0），此时口径应等于总标的数，不能显示 0 */}
-        <div className="qc-kpi-num">{activeGroup ? activeGroup.symbolIds.length : symbols.length}</div>
-        <div className="qc-kpi-sub">{activeGroup?.name ?? t('dm_all')}</div>
-      </div>
-      <div className="qc-kpi">
-        <div className="qc-kpi-top">
-          <span className="qc-kpi-lb">{t('has_data')}</span>
-          <CheckCircleOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 14 }} />
-        </div>
-        <div className="qc-kpi-num">{filteredSymbols.filter(s => s.hasData).length}</div>
-        <div className="qc-kpi-sub">{t('dm_kpi_denom', { n: filteredSymbols.length })}</div>
-      </div>
-      <div className="qc-kpi">
-        <div className="qc-kpi-top">
-          <span className="qc-kpi-lb">{t('auto_update')}</span>
-          <ReloadOutlined style={{ color: 'var(--qc-text-quaternary)', fontSize: 14 }} />
-        </div>
-        <div className="qc-kpi-num">{filteredSymbols.filter(s => s.autoUpdate).length}</div>
-        <div className="qc-kpi-sub">{t('dm_kpi_denom', { n: filteredSymbols.length })}</div>
-      </div>
     </div>
   );
 
@@ -3215,21 +3129,100 @@ const DataManagementPage = () => {
   };
 
   // 渲染货币对列表 - 响应式布局：小屏幕自选组在上，列表在下
+  // 行情标的页签底部「批量数据采集」卡（demo #dm-symbols 第二块卡）：
+  // 只暴露「已选标的 × 数据类型 × 模式」，提交后任务落到「数据采集」页签
+  const renderQuickBatchCollect = () => (
+    <Card
+      className="qc-card"
+      style={{ marginTop: 12 }}
+      title={t('dm_bulk_collect_title')}
+      extra={<span className="qc-card-sub qc-mono">{t('dm_quick_collect_hint')}</span>}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span className="qc-card-sub">{t('dm_selected_symbols')}</span>
+        <span className="qc-chip quiet qc-mono">{t('dm_selected_count', { n: selectedSymbols.length })}</span>
+        <Select
+          aria-label={t('dm_form_datatype')}
+          value={quickDataType}
+          onChange={(value) => setQuickDataType(value as DataKind)}
+          style={{ width: 240 }}
+          showSearch
+          optionFilterProp="label"
+          options={[
+            {
+              label: t('dm_group_kline'),
+              options: [
+                { value: 'kline', label: t('dm_opt_kline') },
+                { value: 'markPriceKlines', label: t('dm_opt_mark') },
+                { value: 'indexPriceKlines', label: t('dm_opt_index') },
+                { value: 'premiumIndexKlines', label: t('dm_opt_premium') },
+              ],
+            },
+            {
+              label: t('dm_group_ticker'),
+              options: [
+                { value: 'aggTrades', label: t('dm_opt_aggtrades') },
+                { value: 'trades', label: t('dm_opt_trades') },
+                { value: 'bookDepth', label: t('dm_opt_bookdepth') },
+                { value: 'bookTicker', label: t('dm_opt_bookticker') },
+              ],
+            },
+            {
+              label: t('dm_group_deriv'),
+              options: [
+                { value: 'fundingRate', label: t('dm_opt_funding') },
+                { value: 'openInterest', label: t('dm_opt_oi') },
+              ],
+            },
+          ]}
+        />
+        <Segmented
+          className="qc-seg"
+          value={quickMode}
+          onChange={(value) => setQuickMode(value as 'inc' | 'full')}
+          options={[
+            { label: t('dm_mode_inc'), value: 'inc' },
+            { label: t('dm_mode_full'), value: 'full' },
+          ]}
+        />
+        <Button
+          type="primary"
+          icon={<CloudDownloadOutlined />}
+          disabled={selectedSymbols.length === 0}
+          onClick={handleQuickBatchCollect}
+        >
+          {t('dm_start_collect')}
+        </Button>
+      </div>
+      <div className="qc-footnote">
+        <span>{t('dm_quick_collect_footnote')}</span>
+      </div>
+    </Card>
+  );
+
   const renderSymbolList = () => (
-    <Row gutter={[16, 16]}>
-      {/* 自选组侧边栏 - 小屏幕在上，大屏幕在左 */}
-      <Col xs={24} lg={4}>
-        {renderGroupSidebar()}
-      </Col>
-      {/* 列表内容 */}
-      <Col xs={24} lg={20}>
-        <Card className="qc-card">
+    <>
+      {/* demo .dm-layout：自选组固定 210px + 主列自适应（<lg 整列堆叠） */}
+      <div className="dm-split">
+        <aside className="dm-split-side" aria-label={t('favorite_group')}>
+          {renderGroupSidebar()}
+        </aside>
+        <div className="dm-split-main">
           {renderSymbolToolbar()}
-          {renderStatistics()}
-          {viewType === 'list' ? renderListView() : renderCardView()}
-        </Card>
-      </Col>
-    </Row>
+          <Card
+            className="qc-card"
+            title={t('dm_symbols_title')}
+            extra={<span className="qc-card-sub qc-mono">{t('dm_symbols_card_hint')}</span>}
+          >
+            {viewType === 'list' ? renderListView() : renderCardView()}
+            <div className="qc-footnote">
+              <span>{t('dm_symbols_footnote')}</span>
+            </div>
+          </Card>
+        </div>
+      </div>
+      {renderQuickBatchCollect()}
+    </>
   );
 
   // 渲染数据采集
@@ -3240,8 +3233,9 @@ const DataManagementPage = () => {
     const spotDisabled = FUTURES_ONLY_KINDS.includes(collectionDataType as DataKind);
     // 当前默认 kline + spot，保持与旧行为一致
     return (
-    <Row gutter={[16, 16]}>
-      <Col xs={24} lg={12}>
+    // demo 数据采集页签是单列堆叠：批量采集表单卡 → 工具栏 → 采集任务卡
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div>
         <Card className="qc-card" title={t('dm_batch_collect_title')}>
           <Form
             form={collectionForm}
@@ -3264,12 +3258,16 @@ const DataManagementPage = () => {
               intervals: ['15m'],
               dataType: 'kline',
               market: 'spot',
+              mode: 'inc',
             }}
           >
+            {/* demo .dm-frm：字段排成可换行的横向表单，宽屏一行铺开、窄屏自然折行 */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px', alignItems: 'flex-start' }}>
             {/* 1) 数据类型（下拉选择，支持分组） */}
             <Form.Item
               name="dataType"
               label={t('dm_form_datatype')}
+              style={{ width: 280, marginBottom: 12 }}
               rules={[{ required: true, message: t('dm_msg_select_datatype') }]}
             >
               <Select
@@ -3311,6 +3309,7 @@ const DataManagementPage = () => {
             <Form.Item
               name="market"
               label={t('dm_form_market')}
+              style={{ width: 250, marginBottom: 12 }}
               rules={[{ required: true, message: t('dm_msg_select_market') }]}
               tooltip={spotDisabled ? t('dm_tooltip_futures_only') : undefined}
             >
@@ -3328,6 +3327,7 @@ const DataManagementPage = () => {
             <Form.Item
               name="symbols"
               label={t('select_symbol_or_group')}
+              style={{ width: 340, marginBottom: 12 }}
               rules={[{ required: true, message: t('please_select_symbol_or_group') }]}
             >
               <Select
@@ -3383,6 +3383,7 @@ const DataManagementPage = () => {
               <Form.Item
                 name="intervals"
                 label={t('interval')}
+                style={{ width: 220, marginBottom: 12 }}
                 rules={[{ required: true, message: t('please_select_interval') }]}
               >
                 <Select
@@ -3405,41 +3406,53 @@ const DataManagementPage = () => {
             <Form.Item
               name="dateRange"
               label={t('date_range')}
+              style={{ width: 330, marginBottom: 12 }}
               rules={[{ required: true, message: t('please_select_date_range') }]}
             >
               <RangePicker className="w-full" />
+            </Form.Item>
+
+            {/* 模式：inc 按水位续传 / full 重置区间（后端 mode 字段，默认 inc） */}
+            <Form.Item
+              name="mode"
+              label={t('dm_form_mode')}
+              style={{ width: 200, marginBottom: 12 }}
+            >
+              <Segmented
+                className="qc-seg"
+                options={[
+                  { label: t('dm_mode_inc'), value: 'inc' },
+                  { label: t('dm_mode_full'), value: 'full' },
+                ]}
+              />
             </Form.Item>
 
             {/* 并发数：驱动 symbol 层线程数与单 symbol 日期分片并行数（后端夹紧 1-8） */}
             <Form.Item
               name="maxWorkers"
               label={t('dm_concurrency')}
+              style={{ width: 120, marginBottom: 12 }}
               initialValue={4}
               tooltip={t('dm_tooltip_workers')}
             >
               <InputNumber min={1} max={8} step={1} precision={0} style={{ width: 120 }} />
             </Form.Item>
 
-            <Form.Item>
+            <Form.Item style={{ marginBottom: 12 }}>
               <Button
                 type="primary"
                 icon={<DownloadOutlined />}
                 onClick={handleBatchCollection}
-                block
               >
                 {t('dm_start_collect_type', { type: DATA_KIND_LABEL[collectionDataType as keyof typeof DATA_KIND_LABEL] || collectionDataType })}
               </Button>
             </Form.Item>
+            </div>
           </Form>
         </Card>
-      </Col>
+      </div>
 
-      <Col xs={24} lg={12}>
-        <Card
-          className="qc-card"
-          title={t('collection_tasks')}
-          extra={<span className="qc-count-chip qc-mono">{t('dm_total_n', { n: tasksTotal })}</span>}
-        >
+      <div>
           {/* 工具栏 §6.6：搜索（已加载行前端过滤） + 状态 ichip + 右侧计数 */}
           <PageToolbar
             search={{
@@ -3497,6 +3510,12 @@ const DataManagementPage = () => {
               </Button>
             }
           />
+        <Card
+          className="qc-card"
+          title={t('collection_tasks')}
+          extra={<span className="qc-count-chip qc-mono">{t('dm_total_n', { n: tasksTotal })}</span>}
+        >
+
 
           <DataTable<Task>
             className="qc-tasks-table"
@@ -3538,56 +3557,85 @@ const DataManagementPage = () => {
             <span>{t('dm_tasks_footnote')}</span>
           </div>
         </Card>
-      </Col>
-    </Row>
+      </div>
+    </div>
     );
   };
 
   // 质量概览 KPI 计数与占比（分母=已检测数，是纯展示算术）
   const kpiQualityCount = (q: 'good' | 'warning' | 'bad') =>
     symbols.filter((s) => s.dataQuality === q).length;
-  const kpiQualityPct = (q: 'good' | 'warning' | 'bad') => {
-    const detected = symbols.filter((s) => s.dataQuality !== 'unknown').length;
-    return detected ? Math.round((kpiQualityCount(q) / detected) * 100) : 0;
-  };
-
   // 渲染数据质量
   const renderQuality = () => (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={8}>
         <Card className="qc-card" title={t('dm_quality_overview')}>
-          <Space orientation="vertical" className="w-full">
-            {/* §6.4 KPI：已检测 / 良好 / 警告 / 异常（2×2，复用 qc-kpi 原语） */}
-            <div className="qc-kpi-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-              <div className="qc-kpi">
-                <div className="qc-kpi-lb">{t('dm_stat_checked')}</div>
-                <div className="qc-kpi-num">{symbols.filter((s) => s.dataQuality !== 'unknown').length}</div>
-                <div className="qc-kpi-sub">{t('dm_kpi_of_total', { n: symbols.length })}</div>
-              </div>
-              <div className="qc-kpi">
-                <div className="qc-kpi-lb">{t('dm_quality_good')}</div>
-                <div className="qc-kpi-num up">{kpiQualityCount('good')}</div>
-                <div className="qc-kpi-sub">{t('dm_kpi_pct_detected', { pct: kpiQualityPct('good') })}</div>
-              </div>
-              <div className="qc-kpi">
-                <div className="qc-kpi-lb">{t('dm_quality_warning')}</div>
-                <div className="qc-kpi-num warn">{kpiQualityCount('warning')}</div>
-                <div className="qc-kpi-sub">{t('dm_kpi_pct_detected', { pct: kpiQualityPct('warning') })}</div>
-              </div>
-              <div className="qc-kpi">
-                <div className="qc-kpi-lb">{t('dm_quality_bad')}</div>
-                <div className="qc-kpi-num down">{kpiQualityCount('bad')}</div>
-                <div className="qc-kpi-sub">{t('dm_kpi_pct_detected', { pct: kpiQualityPct('bad') })}</div>
-              </div>
+          {/* demo 质量概览：6 个指标（评分 / 良好 / 警告 / 异常 / 未检测 / 上次检测）+ 运行检查 */}
+          <div className="qc-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('dm_quality_score')}</div>
+              {/* 评分取最近一次检测的 summary.score；未检测过时留空，不用 0 冒充 */}
+              <div className="qc-kpi-num">{qualityDetail?.summary?.score ?? '—'}</div>
+              <div className="qc-kpi-sub">{t('dm_score_range')}</div>
             </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('dm_quality_good')}</div>
+              <div className="qc-kpi-num up">{kpiQualityCount('good')}</div>
+              <div className="qc-kpi-sub">{t('dm_kpi_symbols_unit')}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('dm_quality_warning')}</div>
+              <div className="qc-kpi-num warn">{kpiQualityCount('warning')}</div>
+              <div className="qc-kpi-sub">{t('dm_kpi_symbols_unit')}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('dm_quality_bad')}</div>
+              <div className="qc-kpi-num down">{kpiQualityCount('bad')}</div>
+              <div className="qc-kpi-sub">{t('dm_kpi_symbols_unit')}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('dm_quality_unchecked')}</div>
+              <div className="qc-kpi-num" style={{ color: 'var(--qc-text-quaternary)' }}>
+                {symbols.filter((s) => (s.dataQuality ?? 'unknown') === 'unknown').length}
+              </div>
+              <div className="qc-kpi-sub">{t('dm_kpi_symbols_unit')}</div>
+            </div>
+            <div className="qc-kpi">
+              <div className="qc-kpi-lb">{t('dm_last_check')}</div>
+              <div className="qc-kpi-num" style={{ fontSize: 14, color: 'var(--qc-text-tertiary)' }}>
+                {qualityCheckedAt || '—'}
+              </div>
+              <div className="qc-kpi-sub">{t('dm_last_check_hint')}</div>
+            </div>
+          </div>
 
-            <Divider />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+            <Button
+              type="primary"
+              icon={<BarChartOutlined />}
+              loading={qualityLoading}
+              disabled={!selectedSymbolForQuality || !selectedIntervalForQuality}
+              onClick={() => checkQuality(selectedSymbolForQuality, selectedIntervalForQuality)}
+            >
+              {t('dm_run_check')}
+            </Button>
+            <span className="qc-card-sub">{t('dm_quality_run_hint')}</span>
+          </div>
+        </Card>
+      </Col>
 
-            <div>
-              <Text strong>{t('dm_quick_check')}</Text>
+      <Col xs={24} lg={16}>
+        {/* demo 检查结果卡：标的 / 数据类型选择在卡头，清理工具降为卡头右侧次级动作 */}
+        <Card
+          className="qc-card"
+          title={t('dm_check_results')}
+          loading={qualityLoading}
+          extra={
+            <Space size={8} wrap>
               <Select
+                size="small"
+                style={{ width: 150 }}
                 placeholder={t('dm_ph_pick_symbol')}
-                className="w-full mt-2"
                 value={selectedSymbolForQuality || undefined}
                 onChange={(value) => setSelectedSymbolForQuality(value)}
                 options={symbols
@@ -3595,8 +3643,9 @@ const DataManagementPage = () => {
                   .map((s) => ({ value: s.symbol, label: s.symbol }))}
               />
               <Select
+                size="small"
+                style={{ width: 110 }}
                 placeholder={t('dm_ph_pick_interval')}
-                className="w-full mt-2"
                 value={selectedIntervalForQuality || undefined}
                 onChange={(value) => setSelectedIntervalForQuality(value)}
                 options={[
@@ -3609,62 +3658,36 @@ const DataManagementPage = () => {
                 ]}
               />
               <Button
-                type="primary"
-                icon={<BarChartOutlined />}
-                className="w-full mt-2"
-                loading={qualityLoading}
-                disabled={!selectedSymbolForQuality || !selectedIntervalForQuality}
-                onClick={() =>
-                  checkQuality(selectedSymbolForQuality, selectedIntervalForQuality)
-                }
-              >
-                {t('dm_start_check')}
-              </Button>
-            </div>
-
-            <Divider />
-
-            <div>
-              <Text strong>{t('dm_clean_title')}</Text>
-              <Text type="secondary" className="mt-1 block text-xs">
-                {t('dm_clean_desc')}
-              </Text>
-              <Button
                 danger
+                type="text"
+                size="small"
                 icon={<DeleteOutlined />}
-                className="w-full mt-2"
                 onClick={handleOpenCleanModal}
               >
-                {t('dm_open_clean_tool')}
+                {t('dm_clean_title')}
               </Button>
-            </div>
-          </Space>
-        </Card>
-      </Col>
-
-      <Col xs={24} lg={16}>
-        <Card className="qc-card" title={t('dm_check_results')} loading={qualityLoading}>
+            </Space>
+          }
+        >
           {qualityDetail ? (
             <Space orientation="vertical" className="w-full">
-              <div className="qc-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-                <div className="qc-kpi">
-                  <div className="qc-kpi-lb">{t('dm_overall_status')}</div>
-                  {(() => {
-                    const status = qualityDetail.summary?.status;
-                    const ok = status === 'good' || status === 'pass';
-                    const warn = status === 'warning';
-                    return <div className={`qc-kpi-num ${ok ? 'up' : warn ? 'warn' : 'down'}`}>{ok ? t('dm_q_pass') : warn ? t('dm_q_warn') : t('dm_q_fail')}</div>;
-                  })()}
-                </div>
-                <div className="qc-kpi">
-                  <div className="qc-kpi-lb">{t('dm_total_records')}</div>
-                  <div className="qc-kpi-num">{qualityDetail.total_records}</div>
-                </div>
-                <div className="qc-kpi">
-                  <div className="qc-kpi-lb">{t('dm_quality_score')}</div>
-                  <div className="qc-kpi-num">{qualityDetail.summary?.score || 0}<span className="qc-kpi-sub" style={{ marginLeft: 4 }}>{t('dm_score_unit')}</span></div>
-                </div>
-              </div>
+              {/* 结果条：标的 · 周期 · 检测时间（与卡头选择控件同源，不另存副本） */}
+              <Space wrap size={6} className="qc-card-sub">
+                <span className="qc-chip quiet qc-mono">{selectedSymbolForQuality}</span>
+                <span className="qc-chip quiet qc-mono">{selectedIntervalForQuality}</span>
+                {(() => {
+                  const status = qualityDetail.summary?.status;
+                  const ok = status === 'good' || status === 'pass';
+                  const warn = status === 'warning';
+                  return (
+                    <span className={`qc-chip ${ok ? 'ok' : warn ? 'warn' : 'down'}`}>
+                      {ok ? t('dm_q_pass') : warn ? t('dm_q_warn') : t('dm_q_fail')}
+                    </span>
+                  );
+                })()}
+                <span>{t('dm_total_records')} <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>{qualityDetail.total_records ?? 0}</span></span>
+                <span>{t('dm_last_check')} <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>{qualityCheckedAt || '—'}</span></span>
+              </Space>
 
               {qualityDetail.details && (
                 <Tabs
@@ -4057,7 +4080,7 @@ const DataManagementPage = () => {
             <QcEmpty
               icon={<BarChartOutlined />}
               title={t('dm_empty_pick_check')}
-              description={t('dm_quick_check')}
+              description={t('dm_quality_empty_desc')}
             />
           )}
         </Card>
@@ -4081,34 +4104,38 @@ const DataManagementPage = () => {
     >
       {/* 首屏两块只读卡（数据源水位 + 存储用量）：四个页签下都可见，demo #view-data 1979-2047 */}
       <ArchiveWatermarkStrip />
-      <Tabs
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        // 页签文字与下方卡头标题共用同一 14px gutter（.qc-card 的卡头/卡身内距），不再贴页面容器左缘
-        tabBarStyle={{ paddingInline: 14 }}
-        items={[
-          {
-            key: 'symbols',
-            label: t('symbols'),
-            children: renderSymbolList(),
-          },
-          {
-            key: 'collection',
-            label: t('data_collection'),
-            children: renderCollection(),
-          },
-          {
-            key: 'quality',
-            label: t('data_quality'),
-            children: renderQuality(),
-          },
-          {
-            key: 'archive',
-            label: t('dm_archive_browse_title'),
-            children: renderArchiveBrowser(),
-          },
-        ]}
-      />
+      {/* 四页签收进一张卡壳（demo #view-data 的 .card.ws-detail）：页签条即卡头，卡身零内距，页签内容自带 14px 格线，与卡头标题落在同一 x */}
+      <Card className="qc-card" style={{ marginTop: 12 }} styles={{ body: { padding: 0 } }}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={handleTabChange}
+          // 28px = 页签内容 14px 内距 + 卡头 14px 内距：页签文字要落在下方卡头标题的 x 上，
+          // 而不是落在卡的左缘（卡本身比卡头标题再内缩 14px）
+          tabBarStyle={{ padding: '12px 28px 0' }}
+          items={[
+            {
+              key: 'symbols',
+              label: t('dm_symbols_title'),
+              children: <div style={{ padding: '0 14px 14px' }}>{renderSymbolList()}</div>,
+            },
+            {
+              key: 'collection',
+              label: t('data_collection'),
+              children: <div style={{ padding: '0 14px 14px' }}>{renderCollection()}</div>,
+            },
+            {
+              key: 'quality',
+              label: t('data_quality'),
+              children: <div style={{ padding: '0 14px 14px' }}>{renderQuality()}</div>,
+            },
+            {
+              key: 'archive',
+              label: t('dm_archive_browse_title'),
+              children: <div style={{ padding: '0 14px 14px' }}>{renderArchiveBrowser()}</div>,
+            },
+          ]}
+        />
+      </Card>
       
       {renderGroupDrawer()}
       {renderGroupModal()}
