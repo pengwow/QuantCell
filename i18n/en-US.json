@@ -3459,7 +3459,7 @@
   "dm_mkt_spot": "Spot",
   "dm_mkt_um": "USDT-M (UM)",
   "dm_mkt_cm": "Coin-M (CM)",
-  "dm_group_symbols_n": "{{name}} ({{n}})",
+  "dm_group_symbols_n": "{{n}} symbols",
   "dm_concurrency": "Concurrency",
   "dm_tooltip_workers": "Higher concurrency downloads faster; raise it for cross-exchange/large backfills; 1-8",
   "dm_start_collect_type": "Start collection · {{type}}",
@@ -3886,5 +3886,14 @@
   "dm_archive_no_rows": "No rows in this range",
   "dm_archive_no_rows_desc": "Adjust the date range and press Query, or switch data type",
   "dm_bulk_collect_title": "Batch data collection",
-  "dm_selected_count": "{{n}} selected"
+  "dm_selected_count": "{{n}} selected",
+  "dm_group_new_name_ph": "New watchlist name, e.g. Intraday watch",
+  "dm_group_create": "Create group",
+  "dm_close": "Close",
+  "dm_batch_add": "Batch add",
+  "dm_delete_group": "Delete",
+  "dm_group_manager_hint": "Renaming syncs to the sidebar immediately; clicking a swatch updates the group color instantly (sidebar dot, card top edge and ★ follow); each row's Batch add opens the transfer box for that group; the count is the group's symbol count.",
+  "dm_msg_group_renamed": "Watchlist renamed to \"{{name}}\"",
+  "dm_msg_group_name_required": "Enter a name for the new watchlist first",
+  "dm_msg_group_name_dup": "A watchlist with this name already exists"
 }

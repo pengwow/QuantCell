@@ -32,7 +32,6 @@ import {
   Modal,
   Tooltip,
   Popconfirm,
-  Drawer,
   Segmented,
   Transfer,
   Spin,
@@ -54,7 +53,6 @@ import {
   DatabaseOutlined,
   CloudDownloadOutlined,
   PlusOutlined,
-  EditOutlined,
   DeleteOutlined,
   FolderOutlined,
   SettingOutlined,
@@ -63,7 +61,7 @@ import {
   SearchOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
-import type { MenuProps, TableProps } from 'antd';
+import type { InputRef, MenuProps, TableProps } from 'antd';
 
 import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
@@ -230,10 +228,13 @@ const DataManagementPage = () => {
   // ==================== 自选组管理状态 ====================
   const [favoriteGroups, setFavoriteGroups] = useState<FavoriteGroup[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<number>(restoredState?.pageState?.activeGroupId || 0);
-  const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<FavoriteGroup | null>(null);
-  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
-  const [groupForm] = Form.useForm();
+  // 管理自选组弹窗（demo #mWl 同形制：行内重命名 / 色块 / 计数 / 批量添加 / 删除 + 底部新建行）
+  const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupColor, setNewGroupColor] = useState<string>(QUANT_COLORS.info);
+  const newGroupInputRef = useRef<InputRef>(null);
+  // 「新建自选组」入口打开弹窗后把焦点放到新建名称框（demo 同行为）
+  const focusNewGroupRef = useRef(false);
 
   // ==================== 批量添加自选状态 ====================
   const [isBatchAddModalOpen, setIsBatchAddModalOpen] = useState(false);
@@ -811,23 +812,94 @@ const DataManagementPage = () => {
 
   // ==================== 自选组管理方法 ====================
   
-  // 创建自选组
-  const handleCreateGroup = () => {
-    setEditingGroup(null);
-    groupForm.resetFields();
-    setIsGroupModalOpen(true);
+  // 组色候选（与 demo 管理弹窗 6 色一致；写库的离散标识色，不映射品牌 token）
+  const GROUP_COLOR_OPTIONS = [
+    { value: QUANT_COLORS.info, label: t('dm_color_blue') },
+    { value: QUANT_COLORS.positive, label: t('dm_color_green') },
+    { value: QUANT_COLORS.warning, label: t('dm_color_yellow') },
+    { value: QUANT_COLORS.negative, label: t('dm_color_red') },
+    { value: WATCHLIST_COLOR_PURPLE, label: t('dm_color_purple') },
+    { value: WATCHLIST_COLOR_CYAN, label: t('dm_color_cyan') },
+  ];
+
+  // 历史组的 color 可能是旧值（如 '#1890ff'，不在 6 色里）：显示时归到蓝色，
+  // 与 demo wlColorOf 的「总有一个选中色」同口径；点该色会把旧值规范化写回
+  const groupSwatchColor = (color: string) =>
+    GROUP_COLOR_OPTIONS.some((o) => o.value === color) ? color : QUANT_COLORS.info;
+
+  // 打开管理弹窗；fromSidebar = 侧栏「新建自选组」入口，打开后聚焦新建名称框
+  const openGroupManager = (fromSidebar = false) => {
+    focusNewGroupRef.current = fromSidebar;
+    setNewGroupName('');
+    setNewGroupColor(QUANT_COLORS.info);
+    setIsGroupManagerOpen(true);
   };
 
-  // 编辑自选组
-  const handleEditGroup = (group: FavoriteGroup, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setEditingGroup(group);
-    groupForm.setFieldsValue({
-      name: group.name,
-      description: group.description,
-      color: group.color,
-    });
-    setIsGroupModalOpen(true);
+  // 行内重命名（blur / Enter 提交）：空名或未变化直接回滚显示，不打扰用户
+  const handleRenameGroup = async (group: FavoriteGroup, rawName: string) => {
+    const name = rawName.trim();
+    if (!name || name === group.name) return;
+    try {
+      await dataApi.updateDataPool(group.id, {
+        name,
+        // 描述 / 颜色原样回传：后端 PUT 是整行覆盖，漏字段会被清空
+        description: group.description,
+        color: group.color,
+      });
+      message.success(t('dm_msg_group_renamed', { name }));
+      await fetchFavoriteGroups();
+    } catch (error) {
+      message.error(t('dm_msg_update_failed'));
+      console.error('Failed to rename watchlist group:', error);
+    }
+  };
+
+  // 点色块即时更新组色（demo：侧栏色点 / 卡顶色边 / ★ 同步）
+  const handleUpdateGroupColor = async (group: FavoriteGroup, color: string) => {
+    if (color === group.color) return;
+    try {
+      await dataApi.updateDataPool(group.id, {
+        name: group.name,
+        description: group.description,
+        color,
+      });
+      await fetchFavoriteGroups();
+    } catch (error) {
+      message.error(t('dm_msg_update_failed'));
+      console.error('Failed to update watchlist group color:', error);
+    }
+  };
+
+  // 底部新建行：名称 + 取色 → 建组；空名 / 重名在前端先挡（demo 同口径）
+  const handleCreateGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) {
+      message.warning(t('dm_msg_group_name_required'));
+      return;
+    }
+    if (favoriteGroups.some((g) => g.name === name)) {
+      message.warning(t('dm_msg_group_name_dup'));
+      return;
+    }
+    try {
+      const response = await dataApi.createDataPool({
+        name,
+        type: 'crypto',
+        description: '',
+        color: newGroupColor,
+        tags: [],
+      });
+      if (response && response.pool_id) {
+        setNewGroupName('');
+        message.success(t('dm_msg_group_created'));
+        await fetchFavoriteGroups();
+      } else {
+        message.error(t('dm_msg_create_failed'));
+      }
+    } catch (error) {
+      message.error(t('dm_msg_save_failed'));
+      console.error('Failed to create watchlist group:', error);
+    }
   };
 
   // 删除自选组
@@ -853,49 +925,6 @@ const DataManagementPage = () => {
     } catch (error) {
       message.error(t('dm_msg_group_delete_failed'));
       console.error('Failed to delete watchlist group:', error);
-    }
-  };
-
-  // 保存自选组
-  const handleSaveGroup = async () => {
-    try {
-      const values = await groupForm.validateFields();
-      
-      if (editingGroup) {
-        // 更新现有组
-        const response = await dataApi.updateDataPool(editingGroup.id, {
-          name: values.name,
-          description: values.description,
-          color: values.color,
-        });
-        if (response.code === 0) {
-          message.success(t('dm_msg_group_updated'));
-          await fetchFavoriteGroups(); // 刷新列表
-        } else {
-          message.error(response.message || t('dm_msg_update_failed'));
-        }
-      } else {
-        // 创建新组
-        const response = await dataApi.createDataPool({
-          name: values.name,
-          type: 'crypto',
-          description: values.description,
-          color: values.color || QUANT_COLORS.info,
-          tags: [],
-        });
-        // 拦截器只返回 data 字段，判断 pool_id 是否存在表示成功
-        if (response && response.pool_id) {
-          message.success(t('dm_msg_group_created'));
-          await fetchFavoriteGroups(); // 刷新列表
-        } else {
-          message.error(t('dm_msg_create_failed'));
-        }
-      }
-
-      setIsGroupModalOpen(false);
-    } catch (error) {
-      console.error('Failed to save watchlist group:', error);
-      message.error(t('dm_msg_save_failed'));
     }
   };
 
@@ -1765,7 +1794,7 @@ const DataManagementPage = () => {
               type="text"
               size="small"
               icon={<SettingOutlined />}
-              onClick={() => setIsGroupDrawerOpen(true)}
+              onClick={() => openGroupManager()}
             />
           </Tooltip>
         }
@@ -1812,7 +1841,7 @@ const DataManagementPage = () => {
           type="dashed"
           block
           icon={<PlusOutlined />}
-          onClick={handleCreateGroup}
+          onClick={() => openGroupManager(true)}
           className="mx-4"
           style={{ width: 'calc(100% - 32px)' }}
         >
@@ -1822,133 +1851,125 @@ const DataManagementPage = () => {
     </div>
   );
 
-  // 渲染组管理抽屉
-  const renderGroupDrawer = () => (
-    <Drawer
-      title={t('manage_watchlist')}
-      placement="right"
-      // §6.18：抽屉宽 400（原 size={400} 是无效枚举传参，按意图落为 width）
-      width={400}
-      open={isGroupDrawerOpen}
-      onClose={() => setIsGroupDrawerOpen(false)}
-      extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateGroup}>
-          {t('new')}
-        </Button>
+  // 渲染组管理弹窗（demo #mWl 对齐：每行 = 重命名输入 + 6 色块 + 计数 + 批量添加 + 删除；
+  // 底部 = 新建名称 + 取色 + 关闭 / 新建组。删掉旧的「卡片列表抽屉 + 独立编辑弹窗」两套入口）
+  const renderGroupManager = () => (
+    <Modal
+      className="qc-modal"
+      open={isGroupManagerOpen}
+      onCancel={() => setIsGroupManagerOpen(false)}
+      afterOpenChange={(open) => {
+        if (open && focusNewGroupRef.current) {
+          focusNewGroupRef.current = false;
+          newGroupInputRef.current?.focus();
+        }
+      }}
+      title={
+        <Space size={8}>
+          <span>{t('manage_watchlist')}</span>
+          <span className="qc-chip quiet">{t('default_group_undeletable')}</span>
+        </Space>
+      }
+      footer={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Input
+            ref={newGroupInputRef}
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            onPressEnter={handleCreateGroup}
+            placeholder={t('dm_group_new_name_ph')}
+            style={{ flex: 1, minWidth: 130, marginRight: 'auto' }}
+            aria-label={t('dm_group_new_name_ph')}
+          />
+          <div className="dm-cpick" role="group" aria-label={t('color_tag')}>
+            {GROUP_COLOR_OPTIONS.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                className={`dm-csw${newGroupColor === c.value ? ' on' : ''}`}
+                style={{ background: c.value }}
+                title={c.label}
+                aria-label={c.label}
+                aria-pressed={newGroupColor === c.value}
+                onClick={() => setNewGroupColor(c.value)}
+              >
+                <span aria-hidden="true">✓</span>
+              </button>
+            ))}
+          </div>
+          <Button onClick={() => setIsGroupManagerOpen(false)}>{t('dm_close')}</Button>
+          <Button type="primary" onClick={handleCreateGroup}>
+            {t('dm_group_create')}
+          </Button>
+        </div>
       }
     >
-      <Space orientation="vertical" className="w-full">
-        {favoriteGroups.sort((a, b) => a.sortOrder - b.sortOrder).map((group) => (
-          <Card
-            key={group.id}
-            size="small"
-            className="qc-card"
-            style={{ borderLeft: `4px solid ${group.color}` }}
-            // 删除统一放卡片右上角，与其他卡片页面一致；默认组不可删除
-            extra={
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {[...favoriteGroups]
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((group) => (
+            <div
+              key={group.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+            >
+              <Input
+                // key 绑组名：外部刷新后输入框取新值（行内编辑期间不被覆盖）
+                key={`${group.id}-${group.name}`}
+                defaultValue={group.name}
+                aria-label={t('watchlist_name')}
+                style={{ flex: 1, minWidth: 118 }}
+                onPressEnter={(e) => e.currentTarget.blur()}
+                onBlur={(e) => handleRenameGroup(group, e.target.value)}
+              />
+              <div className="dm-cpick" role="group" aria-label={t('color_tag')}>
+                {GROUP_COLOR_OPTIONS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    className={`dm-csw${groupSwatchColor(group.color) === c.value ? ' on' : ''}`}
+                    style={{ background: c.value }}
+                    title={c.label}
+                    aria-label={c.label}
+                    aria-pressed={groupSwatchColor(group.color) === c.value}
+                    onClick={() => handleUpdateGroupColor(group, c.value)}
+                  >
+                    <span aria-hidden="true">✓</span>
+                  </button>
+                ))}
+              </div>
+              <span className="qc-count-chip qc-mono">
+                {t('dm_group_symbols_n', { n: group.symbolIds.length })}
+              </span>
+              <Button
+                size="small"
+                icon={<ImportOutlined />}
+                onClick={(e) => handleOpenBatchAdd(group, e)}
+                title={t('dm_batch_add_title', { name: group.name })}
+              >
+                {t('dm_batch_add')}
+              </Button>
               <Popconfirm
                 title={t('dm_confirm_delete_group')}
                 description={t('delete_description')}
                 onConfirm={(e) => handleDeleteGroup(group.id, e)}
                 disabled={group.isDefault}
               >
-                <Tooltip title={group.isDefault ? t('default_group_undeletable') : t('delete')}>
-                  <Button
-                    type="text"
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                    disabled={group.isDefault}
-                  />
-                </Tooltip>
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled={group.isDefault}
+                  title={group.isDefault ? t('default_group_undeletable') : t('dm_delete_group')}
+                >
+                  {t('dm_delete_group')}
+                </Button>
               </Popconfirm>
-            }
-            actions={[
-              <Tooltip key="batch-add" title={t('batch_add_favorite')}>
-                <Button
-                  type="text"
-                  icon={<ImportOutlined />}
-                  onClick={(e) => handleOpenBatchAdd(group, e)}
-                />
-              </Tooltip>,
-              <Tooltip key="edit" title={t('edit_watchlist')}>
-                <Button
-                  type="text"
-                  icon={<EditOutlined />}
-                  onClick={(e) => handleEditGroup(group, e)}
-                />
-              </Tooltip>,
-            ]}
-          >
-            <Card.Meta
-              title={
-                <Space>
-                  <span>{group.name}</span>
-                  {group.isDefault && <span className="qc-count-chip">{t('default')}</span>}
-                </Space>
-              }
-              description={
-                <Space orientation="vertical" size={0}>
-                  <Text type="secondary" className="text-xs">
-                    {group.description || t('no_description')}
-                  </Text>
-                  <Text type="secondary" className="text-xs">
-                    {t('dm_n_symbols_created', { n: group.symbolIds.length, date: group.createdAt })}
-                  </Text>
-                </Space>
-              }
-            />
-          </Card>
-        ))}
-      </Space>
-    </Drawer>
-  );
-
-  // 渲染组编辑弹窗
-  const renderGroupModal = () => (
-    <Modal
-      className="qc-modal"
-      title={editingGroup ? t('edit_watchlist') : t('create_watchlist')}
-      open={isGroupModalOpen}
-      onOk={handleSaveGroup}
-      onCancel={() => setIsGroupModalOpen(false)}
-      okText={t('save')}
-      cancelText={t('cancel')}
-    >
-      <Form form={groupForm} layout="vertical" className="qc-form">
-        <Form.Item
-          name="name"
-          label={t('watchlist_name')}
-          rules={[{ required: true, message: t('watchlist_name_placeholder') }]}
-        >
-          <Input placeholder={t('watchlist_name_example')} />
-        </Form.Item>
-
-        <Form.Item
-          name="description"
-          label={t('watchlist_desc')}
-        >
-          <Input.TextArea rows={2} placeholder={t('watchlist_desc_placeholder')} />
-        </Form.Item>
-
-        <Form.Item
-          name="color"
-          label={t('color_tag')}
-          initialValue={QUANT_COLORS.info}
-        >
-          <Select
-            placeholder={t('dm_color_select')}
-            options={[
-              { value: QUANT_COLORS.info, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.info }} />{t('dm_color_blue')}</Space> },
-              { value: QUANT_COLORS.positive, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.positive }} />{t('dm_color_green')}</Space> },
-              { value: QUANT_COLORS.warning, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.warning }} />{t('dm_color_yellow')}</Space> },
-              { value: QUANT_COLORS.negative, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:QUANT_COLORS.negative }} />{t('dm_color_red')}</Space> },
-              { value: WATCHLIST_COLOR_PURPLE, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:WATCHLIST_COLOR_PURPLE }} />{t('dm_color_purple')}</Space> },
-              { value: WATCHLIST_COLOR_CYAN, label: <Space><div className="h-4 w-4 rounded" style={{ backgroundColor:WATCHLIST_COLOR_CYAN }} />{t('dm_color_cyan')}</Space> },
-            ]}
-          />
-        </Form.Item>
-      </Form>
+            </div>
+          ))}
+      </div>
+      <p className="qc-footnote" style={{ marginTop: 12 }}>
+        <span>{t('dm_group_manager_hint')}</span>
+      </p>
     </Modal>
   );
 
@@ -1997,10 +2018,8 @@ const DataManagementPage = () => {
               <Text type="secondary" className="text-xs">{item.description}</Text>
             </div>
           )}
-          listStyle={{
-            width: 360,
-            height: 400,
-          }}
+          // antd v6：listStyle 已弃用，改 styles.section
+          styles={{ section: { width: 360, height: 400 } }}
           showSearch
           filterOption={(inputValue, item) =>
             item.title!.toLowerCase().includes(inputValue.toLowerCase()) ||
@@ -4137,8 +4156,7 @@ const DataManagementPage = () => {
         />
       </Card>
       
-      {renderGroupDrawer()}
-      {renderGroupModal()}
+      {renderGroupManager()}
       {renderBatchAddModal()}
       {renderCleanDataModal()}
     </PageContainer>

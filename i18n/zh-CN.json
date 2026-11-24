@@ -3459,7 +3459,7 @@
   "dm_mkt_spot": "现货 Spot",
   "dm_mkt_um": "U本位 UM",
   "dm_mkt_cm": "币本位 CM",
-  "dm_group_symbols_n": "{{name}} ({{n}}个)",
+  "dm_group_symbols_n": "{{n}} 标的",
   "dm_concurrency": "并发数",
   "dm_tooltip_workers": "并发越高下载越快，跨所/大范围回补可调高；1-8",
   "dm_start_collect_type": "开始采集 · {{type}}",
@@ -3886,5 +3886,14 @@
   "dm_archive_no_rows": "该区间没有数据",
   "dm_archive_no_rows_desc": "调整日期范围后点「查询」，或切换数据类型",
   "dm_bulk_collect_title": "批量数据采集",
-  "dm_selected_count": "选中 {{n}} 个"
+  "dm_selected_count": "选中 {{n}} 个",
+  "dm_group_new_name_ph": "新自选组名称，例：日内观察",
+  "dm_group_create": "新建组",
+  "dm_close": "关闭",
+  "dm_batch_add": "批量添加",
+  "dm_delete_group": "删除",
+  "dm_group_manager_hint": "重命名即时同步到左侧自选组侧栏；点色块即时更新组色（侧栏色点即变；选中具体组时，卡顶色边 / ★ 同步）；每行「批量添加」从穿梭框增删该组标的；数量 = 组内标的数。",
+  "dm_msg_group_renamed": "自选组已重命名为「{{name}}」",
+  "dm_msg_group_name_required": "先输入新自选组名称",
+  "dm_msg_group_name_dup": "已存在同名自选组"
 }

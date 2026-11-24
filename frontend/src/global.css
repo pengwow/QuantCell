@@ -1366,6 +1366,52 @@ ul.qc-pagination li.ant-pagination-jump-next {
   }
 }
 
+/* ---- 管理自选组弹窗的 6 色块（demo .wl-cpick/.wl-csw：18px 圆点，选中 = 描边环 + ✓）----
+   谁在用：DataManagementPage.tsx 的 renderGroupManager（每行组色 + 底部新建取色）。 */
+.dm-cpick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.dm-csw {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--qc-text) 18%, transparent);
+}
+
+.dm-csw > span {
+  display: none;
+  font-size: 10px;
+  line-height: 1;
+  /* 白勾：色块本身是高饱和实色，与主题无关；用主题背景色会在暗色下变成黑勾看不见 */
+  color: #fff;
+}
+
+.dm-csw.on {
+  box-shadow: 0 0 0 1.5px var(--qc-bg),
+    0 0 0 3px color-mix(in srgb, var(--qc-text) 45%, transparent);
+}
+
+.dm-csw.on > span {
+  display: block;
+}
+
+.dm-csw:focus-visible {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
+}
+
 /* ---- 详情页头部事实条（demo #view-sagent .ws-strip/.s-chip 的实现）----
    谁在用：WorkerDetail.tsx 头部（周期/模式/资金/杠杆等中性事实）。
    为什么不复用 .qc-chip：chip 是语义标签（tint 底 + 语义色字），而事实条是
