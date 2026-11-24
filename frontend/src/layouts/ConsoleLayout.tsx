@@ -46,6 +46,13 @@ const ConsoleLayout = () => {
 
   // 站内通知未读数（ws 实时增量 + 收件箱页读取后的权威值）
   const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const syncUnreadCount = useNotificationStore((s) => s.syncUnreadCount);
+
+  // 角标冷启动：刷新后 store 重开、未读数归 0，必须主动取一次权威值；
+  // 之前只在悬浮面板/收件箱页挂载时才 loadList，所以角标要等鼠标悬浮才出现。
+  useEffect(() => {
+    void syncUnreadCount();
+  }, [syncUnreadCount]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);

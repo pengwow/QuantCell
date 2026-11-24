@@ -39,6 +39,8 @@ interface NotificationState {
   clearRead: (limit: number) => Promise<void>;
   /** ws 实时收到新通知：未读 +1 并插入列表头 */
   bumpUnread: (item: InboxNotificationItem) => void;
+  /** 只同步未读数（布局冷启动角标用）：不覆盖 items，避免和收件箱面板抢列表状态 */
+  syncUnreadCount: () => Promise<void>;
 }
 
 export const useNotificationStore = create<NotificationState>()((set, get) => ({
@@ -103,6 +105,19 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
       // 新通知是最新的，插头部；列表超限截尾
       items: [item, ...state.items].slice(0, MAX_ITEMS),
     }));
+  },
+
+  /**
+   * 角标冷启动：后端没有独立的 count 端点，借用收件箱列表（limit=1）取权威计数。
+   * 只写 unreadCount/readCount，items/hasMore 留给收件箱面板与收件箱页自己拉。
+   */
+  syncUnreadCount: async () => {
+    try {
+      const data = await notificationApi.getInbox({ limit: 1 });
+      set({ unreadCount: data.unread_count, readCount: data.read_count });
+    } catch {
+      // 角标失败静默：不阻塞布局；悬浮面板/收件箱页的 loadList 会再校准
+    }
   },
 
   markRead: async (id) => {
