@@ -731,6 +731,13 @@
   #btCardGrid .md-exp, #saCardGrid .md-exp, #stCardGrid .md-exp,
   #fcCardGrid .md-exp, #symGrid .md-exp, #rsGrid .md-exp { grid-column: 1 / -1; padding: 0; margin: -2px 0 10px; }
   .fav-on { color: var(--warn) !important; }
+  /* v6.1 ★ 点亮 = 当前组成员 + 组色（对齐正式页 DataManagementPage :2825）；「全部标的」一律空心无色——与 WL_COLORS 六色一一对应 */
+  .fav-on.f-blue   { color: var(--info) !important; }
+  .fav-on.f-green  { color: var(--up) !important; }
+  .fav-on.f-yellow { color: var(--warn) !important; }
+  .fav-on.f-red    { color: var(--down) !important; }
+  .fav-on.f-purple { color: #722ed1 !important; }
+  .fav-on.f-cyan   { color: #13c2c2 !important; }
 
   /* ---- v6 · 数据管理 4 页签（行情标的 / 数据采集 / 数据质量 / 历史行情浏览）----
      只复用既有 token 与控件原语（.tabs/.tab、.pick、.seg、.chip、.kvtab、.gt），
@@ -741,17 +748,22 @@
   .dm-side { flex:0 0 210px; border:1px solid var(--bd); border-radius:10px; background:var(--bgc); padding:8px; }
   .dm-side-t { font-size:10.5px; color:var(--fg-4); padding:2px 6px 7px; display:flex; align-items:center; justify-content:space-between; letter-spacing:.02em; }
   .dm-main { flex:1; min-width:0; }
+  /* 侧栏组行 = 色点 + 名称 + 计数（v6.2 对齐正式页：侧栏无删除入口，删除只在管理自选组弹窗行内） */
   .wl-list { display:flex; flex-direction:column; gap:2px; }
-  .wl-line { display:flex; align-items:center; }
-  .wl-item { display:flex; align-items:center; gap:7px; flex:1; min-width:0; border:none; background:transparent; border-radius:7px; padding:6px 8px; font:inherit; font-size:12px; color:var(--fg-2); cursor:pointer; text-align:left; }
+  .wl-item { display:flex; align-items:center; gap:7px; flex:1; min-width:0; border:none; background:transparent; border-radius:7px; padding:6px 8px; font:inherit; font-size:12px; color:var(--fg-2); cursor:pointer; text-align:left; width:100%; }
   .wl-item:hover { background:color-mix(in srgb, var(--fg) 4%, transparent); }
   .wl-item.on { background:color-mix(in srgb, var(--primary) 10%, transparent); color:var(--primary); font-weight:600; }
   .wl-item .wl-n { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .wl-item .wl-c { margin-left:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10px; color:var(--fg-4); }
   .wl-item.on .wl-c { color:var(--primary); }
-  .wl-x { flex:0 0 20px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:5px; background:transparent; color:var(--fg-4); cursor:pointer; font-size:11px; }
-  .wl-x:hover { color:var(--down); background:color-mix(in srgb, var(--down) 8%, transparent); }
-  .wl-x[disabled] { color:var(--fg-4); opacity:.4; cursor:not-allowed; }
+  /* v6.1 自选组颜色标识：侧栏 6px 色点（组名前，「全部标的」无）+ 管理弹窗 6 色选择器（选中态 = 描边环 + 对勾 + aria-pressed） */
+  .wl-dot { flex:0 0 6px; width:6px; height:6px; border-radius:50%; background:var(--fg-4); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--fg) 22%, transparent); }
+  .wl-cpick { display:inline-flex; align-items:center; gap:4px; flex-wrap:nowrap; }
+  .wl-csw { position:relative; width:18px; height:18px; flex:0 0 18px; display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:50%; padding:0; cursor:pointer; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--fg) 18%, transparent); }
+  .wl-csw .wl-ck { display:none; font-size:10px; line-height:1; color:var(--bgc); }
+  .wl-csw.on { box-shadow:0 0 0 1.5px var(--bgc), 0 0 0 3px color-mix(in srgb, var(--fg) 45%, transparent); }
+  .wl-csw.on .wl-ck { display:block; }
+  .wl-csw:focus-visible { outline:2px solid var(--info); outline-offset:2px; }
   /* 表单排布（采集表单 / 归档筛选 / 批量采集卡）：label 11px mono，控件纵排 */
   .dm-frm { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
   .dm-fld { display:flex; flex-direction:column; gap:5px; }
@@ -791,7 +803,39 @@
     .dm-side { flex:none; width:100%; }
     .wl-list { display:flex; flex-wrap:wrap; gap:4px; }
     .wl-item { width:auto; flex:0 1 auto; }
-    .wl-line { display:contents !important; }
+  }
+  /* v6.2 管理行 danger 删除小按钮（删除自选组，确认气泡二次确认用 .pop 与 .btn.danger） */
+  .mini-btn.dg { color:var(--down); border-color:color-mix(in srgb, var(--down) 40%, transparent); }
+  .mini-btn.dg:hover { background:color-mix(in srgb, var(--down) 8%, transparent); border-color:color-mix(in srgb, var(--down) 65%, transparent); }
+  /* v6.2 批量添加自选 = 两栏穿梭框（对齐正式页 antd Transfer：右栏预填组成员、计数单位「项」、
+     空态「暂无数据」、标题 + 摘要行）。真实 Transfer 列表自带虚拟滚动扛 1000+ 标的；demo 无虚拟滚动，
+     用「固定高滚动列表 + 每栏搜索 + 全选筛选结果」替代 —— 1000+ 时靠搜索缩小范围，不全量整页渲染 */
+  .tr-sum { font-size:11.5px; color:var(--fg-3); }
+  .tr-box { display:flex; gap:10px; align-items:stretch; }
+  .tr-col { flex:1; min-width:0; border:1px solid var(--bd); border-radius:10px; background:var(--bg); display:flex; flex-direction:column; overflow:hidden; }
+  .tr-col-h { display:flex; align-items:center; gap:6px; padding:8px 12px; border-bottom:1px solid var(--bd); }
+  .tr-col-t { font-size:12px; font-weight:600; color:var(--fg); }
+  .tr-col-n { margin-left:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10.5px; color:var(--fg-4); }
+  .tr-all { border:none; background:transparent; padding:0; font:inherit; font-size:11px; color:var(--info); cursor:pointer; white-space:nowrap; }
+  .tr-all:hover { text-decoration:underline; }
+  .tr-find { margin:8px 10px; height:28px; border:1px solid var(--bd); border-radius:7px; background:var(--bgc); color:var(--fg); font:inherit; font-size:12px; padding:0 9px; min-width:0; }
+  .tr-find:focus-visible { outline:2px solid var(--info); outline-offset:1px; }
+  .tr-list { height:240px; overflow:auto; border-top:1px solid var(--bd); }
+  .tr-row { display:flex; align-items:center; gap:8px; min-height:34px; padding:0 12px; cursor:pointer; font-size:12px; color:var(--fg); }
+  .tr-row:hover { background:color-mix(in srgb, var(--fg) 4%, transparent); }
+  .tr-row.sel { background:color-mix(in srgb, var(--primary) 8%, transparent); }
+  .tr-row input { accent-color:var(--primary); width:13px; height:13px; margin:0; cursor:pointer; flex:0 0 13px; }
+  .tr-row .tr-mkt { flex:0 0 auto; }
+  .tr-row .tr-px { margin-left:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10.5px; color:var(--fg-3); }
+  .tr-empty { min-height:120px; height:100%; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--fg-4); }
+  .tr-mid { flex:0 0 34px; display:flex; flex-direction:column; justify-content:center; gap:8px; align-items:center; }
+  .tr-mv { width:30px; height:30px; border-radius:8px; border:1px solid var(--bd); background:var(--bgc); color:var(--fg-2); font-size:15px; line-height:1; cursor:pointer; padding:0; }
+  .tr-mv:hover { color:var(--fg); border-color:var(--bd-2); }
+  .tr-mv:focus-visible { outline:2px solid var(--info); outline-offset:2px; }
+  @media (max-width:760px) {
+    /* 窄屏穿梭框：两栏纵排，移动按钮列改横排与栏间居中（不溢出即可） */
+    .tr-box { flex-direction:column; }
+    .tr-mid { flex:none; flex-direction:row; justify-content:center; padding:2px 0; }
   }
 </style>
 </head>
@@ -2098,7 +2142,7 @@
               <aside class="dm-side" aria-label="自选组">
                 <div class="dm-side-t"><span>自选组</span><button class="mini-btn" data-modal="mWl">管理自选组</button></div>
                 <div class="wl-list" id="wlList"></div>
-                <button class="mini-btn" data-modal="mWlBatch" style="width:100%; justify-content:center; margin-top:8px">批量添加自选</button>
+                <button class="mini-btn" id="jsWlNewQuick" style="width:100%; justify-content:center; margin-top:8px">新建自选组</button>
               </aside>
               <div class="dm-main">
                 <div class="toolbar" style="margin:0 0 12px">
@@ -2130,7 +2174,7 @@
                   <div class="empty" id="symEmpty" hidden>
                     <div class="empty-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" stroke-linejoin="round"/></svg></div>
                     <div class="empty-t">该自选组暂无标的</div>
-                    <div class="empty-h">从行内 ★ 收藏、或在「批量添加自选」里勾选标的加入当前组。</div>
+                    <div class="empty-h">从行内 ★ 收藏、或在「管理自选组」→ 组卡「批量添加」里勾选标的加入当前组。</div>
                     <button class="mini-btn" data-clear>回到「全部标的」</button>
                   </div>
                   <div class="card-foot"><span>点击行 / 卡就地展开标的简况（两形态同一面板）· ★ = 添加到自选组（默认组）· 采集 = 入队并进「数据采集」· 质量 = 跳「数据质量」页签 · 形态经系统设置切换</span></div>
@@ -2790,10 +2834,11 @@
       <div class="modal-head"><span class="modal-title">管理自选组</span><span class="chip quiet">默认组不可删除</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
       <div class="modal-body">
         <div id="wlMngList" style="display:flex; flex-direction:column; gap:8px"></div>
-        <p class="mHint">重命名即时同步到左侧自选组侧栏；数量 = 组内标的数（原型不写库）。</p>
+        <p class="mHint">重命名即时同步到左侧自选组侧栏；点色块即时更新组色（侧栏色点即变；选中具体组时，卡顶色边 / ★ 同步）；每行「批量添加」从穿梭框增删该组标的；数量 = 组内标的数（原型不写库）。</p>
       </div>
-      <div class="modal-foot" style="align-items:center">
-        <input class="minput" id="wlNewName" placeholder="新自选组名称，例：日内观察" style="flex:1; margin-right:auto">
+      <div class="modal-foot" style="align-items:center; flex-wrap:wrap">
+        <input class="minput" id="wlNewName" placeholder="新自选组名称，例：日内观察" style="flex:1; min-width:130px; margin-right:auto">
+        <span id="wlNewColors" class="wl-cpick" role="group" aria-label="新自选组颜色"></span>
         <button class="btn" data-close>关闭</button>
         <button class="btn primary" id="jsWlCreate">新建组</button>
       </div>
@@ -2801,14 +2846,30 @@
   </div>
 
   <div class="modal-mask" id="mWlBatch" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="批量添加自选">
-      <div class="modal-head"><span class="modal-title">批量添加自选</span><span class="chip info">勾选标的加入组</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
+    <div class="modal" style="width:min(720px, 94vw)" role="dialog" aria-modal="true" aria-label="批量添加自选">
+      <div class="modal-head"><span class="wl-dot" id="wlBatchDot" aria-hidden="true" style="flex:0 0 8px; width:8px; height:8px"></span><span class="modal-title" id="wlBatchTitle">批量添加自选</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
+      <!-- v6.2 穿梭框：左可选 / 右已选（预填该组成员，既可加也可移），仅「确认添加」按差集落组 -->
       <div class="modal-body">
-        <div class="mfield"><label>加入的自选组</label><select class="msel" id="wlBatchGroup"></select></div>
-        <div class="mfield"><label>选择标的（12 个 · 现货 / USD-M 永续）</label><div class="dm-ckgrid" id="wlBatchGrid"></div></div>
-        <p class="mHint">加入后侧栏计数即时更新；单个标的走表格行内的 ★。</p>
+        <p class="tr-sum" id="wlBatchSum">已选择 0 个标的，共 0 个可选</p>
+        <div class="tr-box">
+          <section class="tr-col" aria-label="可选标的">
+            <div class="tr-col-h"><span class="tr-col-t">可选标的</span><span class="tr-col-n" id="wlAvailN">0 项</span><button type="button" class="tr-all" id="wlAvailAll" title="勾选左侧当前搜索命中的全部标的">全选筛选结果</button></div>
+            <input class="tr-find" id="wlAvailQ" placeholder="搜索标的" aria-label="搜索可选标的">
+            <div class="tr-list" id="wlAvailList"></div>
+          </section>
+          <div class="tr-mid">
+            <button type="button" class="tr-mv" id="wlToRight" aria-label="把左侧勾选移入已选" title="把左侧勾选项移入右侧">›</button>
+            <button type="button" class="tr-mv" id="wlToLeft" aria-label="把右侧勾选移回可选" title="把右侧勾选项移回左侧">‹</button>
+          </div>
+          <section class="tr-col" aria-label="已选标的">
+            <div class="tr-col-h"><span class="tr-col-t">已选标的</span><span class="tr-col-n" id="wlPickN">0 项</span><button type="button" class="tr-all" id="wlPickAll" title="勾选右侧当前搜索命中的全部标的">全选筛选结果</button></div>
+            <input class="tr-find" id="wlPickQ" placeholder="搜索标的" aria-label="搜索已选标的">
+            <div class="tr-list" id="wlPickList"></div>
+          </section>
+        </div>
+        <p class="mHint">右侧预填该组现有标的，既可加也可移；点击行 / 复选框勾选，双击行直接移到对侧，移动不落库，「确认添加」才按差集生效。</p>
       </div>
-      <div class="modal-foot"><button class="btn" data-close>取消</button><button class="btn primary" id="jsWlBatchGo">加入自选组</button></div>
+      <div class="modal-foot"><button class="btn" data-close>取消</button><button class="btn primary" id="jsWlBatchGo">确认添加</button></div>
     </div>
   </div>
 
@@ -3516,7 +3577,13 @@
             return;
           }
           var fav = e.target.closest('.js-sym-fav');
-          if (fav) { e.stopPropagation(); fav.classList.toggle('fav-on'); wlFavToggle(fav, fav.classList.contains('fav-on')); return; }
+          if (fav) {
+            e.stopPropagation();
+            var fhost = fav.closest('[data-sym]'), fg = wlGet('g-df');
+            /* ★ 点击仍作用于默认组；实心/组色点亮态由 wlSyncColor 按当前组成员派生（「全部」下保持空心），不在此处直接 toggle class */
+            wlFavToggle(fav, fg && fhost ? fg.syms.indexOf(fhost.dataset.sym) === -1 : true);
+            return;
+          }
           var sel = e.target.closest('.js-sym-sel');
           if (sel) { e.stopPropagation(); return; } /* 勾选框归「批量数据采集」卡，触发改由 change 事件处理 */
           var col = e.target.closest('.js-sym-sync');
@@ -4182,9 +4249,19 @@
     XP_BUILD.sym = function (r) {
       var d = r.dataset;
       var chgc = d.chg[0] === '+' ? ' up' : ' down';
+      /* 所属自选组：一个标的可同属多个组 → 逐组列出（色点 + 组名，色/名跟随管理弹窗实时改）。
+         归属不是 data-* 快照，取实时 WL；组增删/更名/换色时由 wlRefreshSymPanel() 重绘本面板 */
+      var grps = wlGroupsOf(d.sym);
+      var grpCell = grps.length
+        ? '<span style="display:inline-flex; flex-wrap:wrap; gap:5px 6px; align-items:center">' + grps.map(function (g) {
+          return '<span class="chip quiet" style="font-size:9.5px; padding:2px 6px; display:inline-flex; align-items:center; gap:5px; font-weight:500">' +
+            '<span class="wl-dot" style="background:' + wlColorOf(g) + '" aria-hidden="true"></span>' + escH(g.name) + '</span>';
+        }).join('') + '</span>'
+        : '<span class="c-muted" style="font-weight:500">未加入任何自选组</span>';
       var rows = xpRow('价格', d.price || '—', ' mono') +
         xpRow('24h 成交量', d.vol || '—', ' mono') +
         xpRow('市场', d.mkt || 'USD-M 永续', '') +
+        xpRow('所属自选组', grpCell, '') +
         xpRow('累计 bar', d.bars || '—', ' mono') +
         xpRow('采集口径', '1h · WS + 回填', ' mono');
       return '<div class="card"><div class="card-head"><span class="card-title">标的简况</span>' +
@@ -4796,14 +4873,41 @@
     var MKT = { 'BTC/USDT': '现货', 'ETH/USDT': '现货', 'SOL/USDT': '现货', 'BNB/USDT': '现货', 'XRP/USDT': '现货', 'ADA/USDT': '现货',
       'DOGE/USDT': 'USD-M 永续', 'LTC/USDT': '现货', 'LINK/USDT': 'USD-M 永续', 'AVAX/USDT': 'USD-M 永续', 'TON/USDT': 'USD-M 永续', 'PEPE/USDT': 'USD-M 永续' };
     var dmSeq = 0;
+    /* v6.1 组颜色标识：对齐正式页「颜色标识」Form.Item（6 色下拉：蓝/绿/黄/红/紫/青）。
+       蓝/绿/黄/红取 demo 语义 token（--info/--up/--warn/--down），紫/青为字面量；
+       正式页「青色」选项误用了 info 蓝值（DataManagementPage.tsx），demo 不照抄，青色用可区分的 #13c2c2 */
+    var WL_COLORS = [
+      { k: 'blue',   name: '蓝色', v: 'var(--info)' },
+      { k: 'green',  name: '绿色', v: 'var(--up)' },
+      { k: 'yellow', name: '黄色', v: 'var(--warn)' },
+      { k: 'red',    name: '红色', v: 'var(--down)' },
+      { k: 'purple', name: '紫色', v: '#722ed1' },
+      { k: 'cyan',   name: '青色', v: '#13c2c2' }
+    ];
     var WL = [
-      { id: 'g-df', name: '默认组', fixed: true, syms: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'] },
-      { id: 'g-p01', name: '永续 USD-M', syms: ['DOGE/USDT', 'LINK/USDT', 'TON/USDT', 'PEPE/USDT'] },
-      { id: 'g-p02', name: '高市值核心', syms: ['BTC/USDT', 'ETH/USDT', 'LTC/USDT'] }
+      { id: 'g-df', name: '默认组', color: 'var(--info)', fixed: true, syms: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'] },
+      { id: 'g-p01', name: '永续 USD-M', color: '#722ed1', syms: ['DOGE/USDT', 'LINK/USDT', 'TON/USDT', 'PEPE/USDT'] },
+      { id: 'g-p02', name: '高市值核心', color: 'var(--up)', syms: ['BTC/USDT', 'ETH/USDT', 'LTC/USDT'] }
     ];
     var wlCur = 'all';
     var wlSel = {};
     function wlGet(id) { for (var i = 0; i < WL.length; i++) if (WL[i].id === id) return WL[i]; return null; }
+    function wlColorOf(g) { return (g && g.color) || WL_COLORS[0].v; }
+    /* 标的归属反查：一个标的可同属多个组（标的简况「所属自选组」行与卡片色边/★ 共用同一事实源） */
+    function wlGroupsOf(sym) {
+      var out = [];
+      if (!WL) return out;
+      for (var i = 0; i < WL.length; i++) if (WL[i].syms.indexOf(sym) !== -1) out.push(WL[i]);
+      return out;
+    }
+    /* 展开着的「标的简况」在组成员/组名/组色变化后就地重绘（同一 XP_BUILD.sym，行卡同源） */
+    function wlRefreshSymPanel() {
+      if (!xpOpen || xpOpen.key !== 'sym') return;
+      var host = xpOpen.exp.tagName === 'TR' ? xpOpen.exp.firstElementChild : xpOpen.exp;
+      host.innerHTML = XP_BUILD.sym(xpOpen.row);
+    }
+    function wlColorKey(v) { for (var i = 0; i < WL_COLORS.length; i++) if (WL_COLORS[i].v === v) return WL_COLORS[i].k; return WL_COLORS[0].k; }
+    function wlColorName(v) { for (var i = 0; i < WL_COLORS.length; i++) if (WL_COLORS[i].v === v) return WL_COLORS[i].name; return '自定义'; }
     function wlAllow(p) {
       /* LISTS.sym 构造（早于本段赋值）即会调用：WL 未就绪时放行全部 */
       if (!WL || wlCur === 'all') return true;
@@ -4815,13 +4919,33 @@
     function wlRender() {
       var list = document.getElementById('wlList');
       if (!list) return;
+      /* v6.2 对齐正式页侧栏口径（renderGroupSidebar）：只读行 = 色点 + 名称 + 计数，
+         无删除入口（删除只在管理自选组弹窗行内），避免小屏横排时 ✕ 换行跑到行首 */
       var html = '<button type="button" class="wl-item' + (wlCur === 'all' ? ' on' : '') + '" data-wl="all"><span class="wl-n">全部标的</span><span class="wl-c">' + SYMTAB.length + '</span></button>';
       WL.forEach(function (g) {
-        html += '<div class="wl-line">' +
-          '<button type="button" class="wl-item' + (wlCur === g.id ? ' on' : '') + '" data-wl="' + g.id + '" title="' + escA(g.name) + '"><span class="wl-n">' + escH(g.name) + '</span><span class="wl-c">' + g.syms.length + '</span></button>' +
-          '<button type="button" class="wl-x" data-wldel="' + g.id + '" aria-label="删除自选组"' + (g.fixed ? ' disabled title="默认组不可删除"' : ' title="删除自选组"') + '>✕</button></div>';
+        html += '<button type="button" class="wl-item' + (wlCur === g.id ? ' on' : '') + '" data-wl="' + g.id + '" title="' + escA(g.name) + '"><span class="wl-dot" style="background:' + wlColorOf(g) + '" aria-hidden="true"></span><span class="wl-n">' + escH(g.name) + '</span><span class="wl-c">' + g.syms.length + '</span></button>';
       });
       list.innerHTML = html;
+      wlSyncColor();
+      wlRefreshSymPanel();
+    }
+    /* v6.1 组颜色落点同步（组增删/更名/取色/切组/收藏后都经 wlRender 到达）。口径对齐正式页
+       DataManagementPage :3095/:2825 —— 「全部标的」下无 activeGroup（无 displayGroup），一律中性：
+       ① 卡片顶部 3px 色边：仅当前选中组包含该标的时按该组色涂，其余（含「全部」）transparent
+       ② ★：仅当前组成员点亮 + 组色；其余（含「全部」）空心星无色。点亮态为派生（非点击残留） */
+    function wlSyncColor() {
+      var cur = wlCur === 'all' ? null : wlGet(wlCur);
+      var ck = cur ? 'f-' + wlColorKey(wlColorOf(cur)) : null;
+      qAll('#symGrid .sym-item-card').forEach(function (c) {
+        c.style.borderTop = cur && cur.syms.indexOf(c.dataset.sym) !== -1 ? '3px solid ' + wlColorOf(cur) : '3px solid transparent';
+      });
+      qAll('.js-sym-fav').forEach(function (b) {
+        var host = b.closest('[data-sym]');
+        var on = !!(cur && host && cur.syms.indexOf(host.dataset.sym) !== -1);
+        for (var i = 0; i < WL_COLORS.length; i++) b.classList.remove('f-' + WL_COLORS[i].k);
+        b.classList.toggle('fav-on', on);
+        if (on) b.classList.add(ck);
+      });
     }
     function wlSet(id) {
       wlCur = id;
@@ -4830,19 +4954,6 @@
       LISTS.sym.render();
     }
     document.getElementById('wlList').addEventListener('click', function (e) {
-      var del = e.target.closest('[data-wldel]');
-      if (del) {
-        if (del.disabled) return;
-        var g = wlGet(del.dataset.wldel);
-        if (!g) return;
-        popConfirm(del, '删除自选组', '将删除自选组「' + escH(g.name) + '」（组内 ' + g.syms.length + ' 个标的仅移出分组，原型不落库）。', '确认删除', function () {
-          WL = WL.filter(function (x) { return x.id !== g.id; });
-          if (wlCur === g.id) { wlCur = 'all'; LISTS.sym.render(); }
-          wlRender(); renderWlMng();
-          toast('自选组已删除（原型）：' + g.name);
-        });
-        return;
-      }
       var it = e.target.closest('[data-wl]');
       if (it) wlSet(it.dataset.wl);
     });
@@ -5146,27 +5257,37 @@
       document.getElementById('mrBad').textContent = AR_BAD[arState.sym + '|' + arState.kind] || '无损坏日期';
     };
 
-    /* ---- 管理自选组 / 批量添加自选 弹窗（复用 modal 体系） ---- */
+    /* ---- 管理自选组 / 批量添加自选 弹窗（复用 modal 体系） ----
+       v6.2 对齐正式页 renderGroupDrawer：每组卡 actions 内「批量添加」（入口即组，弹窗内不再选组）、
+       danger 删除（默认组 disabled + title）走 .pop 确认气泡；侧栏不再有删除 / 批量添加入口 ---- */
     function renderWlMng() {
       var wrap = document.getElementById('wlMngList');
       if (!wrap) return;
+      wlNewColor = WL_COLORS[0].v; /* 打开弹窗 / 建组、删组后，新建取色复位为默认蓝 */
       wrap.innerHTML = WL.map(function (g) {
-        return '<div style="display:flex; gap:8px; align-items:center" data-wlid="' + g.id + '">' +
-          '<input class="iedit" value="' + escA(g.name) + '" style="flex:1" data-wlrename aria-label="重命名自选组">' +
+        return '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap" data-wlid="' + g.id + '">' +
+          '<input class="iedit" value="' + escA(g.name) + '" style="flex:1; min-width:118px" data-wlrename aria-label="重命名自选组">' +
+          wlSwatches(g.id, wlColorOf(g)) +
           '<span class="count-chip">' + g.syms.length + ' 标的</span>' +
-          '<button class="mini-btn" data-wlmdel' + (g.fixed ? ' disabled title="默认组不可删除"' : '') + '>删除</button></div>';
+          '<button class="mini-btn" data-wlbatch="' + g.id + '" title="批量添加自选 - ' + escA(g.name) + '">批量添加</button>' +
+          '<button class="mini-btn dg" data-wlmdel' + (g.fixed ? ' disabled title="默认组不可删除"' : ' title="删除自选组"') + '>删除</button></div>';
       }).join('');
+      syncWlNew();
     }
     MODAL_FILL.mWl = renderWlMng;
     document.getElementById('wlMngList').addEventListener('click', function (e) {
+      var ba = e.target.closest('[data-wlbatch]');
+      if (ba) { wlBatchGid = ba.dataset.wlbatch; openModal('mWlBatch'); return; }
       var del = e.target.closest('[data-wlmdel]');
       if (!del || del.disabled) return;
       var row = del.closest('[data-wlid]'), g = wlGet(row.dataset.wlid);
       if (!g) return;
-      WL = WL.filter(function (x) { return x.id !== g.id; });
-      if (wlCur === g.id) { wlCur = 'all'; LISTS.sym.render(); }
-      wlRender(); renderWlMng();
-      toast('自选组已删除（原型）：' + g.name);
+      popConfirm(del, '删除自选组', '将删除自选组「' + escH(g.name) + '」（组内 ' + g.syms.length + ' 个标的仅移出分组，原型不落库）。', '确认删除', function () {
+        WL = WL.filter(function (x) { return x.id !== g.id; });
+        if (wlCur === g.id) { wlCur = 'all'; LISTS.sym.render(); }
+        wlRender(); renderWlMng();
+        toast('自选组已删除（原型）：' + g.name);
+      });
     });
     document.getElementById('wlMngList').addEventListener('change', function (e) {
       var inp = e.target.closest('[data-wlrename]');
@@ -5184,31 +5305,183 @@
       if (!nm) { toast('先输入新自选组名称'); return; }
       var dup = WL.some(function (g) { return g.name === nm; });
       if (dup) { toast('已存在同名自选组（原型）'); return; }
-      WL.push({ id: 'g-u' + (++dmSeq), name: nm, syms: [] });
+      WL.push({ id: 'g-u' + (++dmSeq), name: nm, color: wlNewColor, syms: [] });
       inp.value = '';
       wlRender(); renderWlMng();
       toast('自选组已创建（原型）：' + nm);
     });
-    MODAL_FILL.mWlBatch = function () {
-      var gsel = document.getElementById('wlBatchGroup');
-      gsel.innerHTML = WL.map(function (g) { return '<option value="' + g.id + '">' + escH(g.name) + '</option>'; }).join('');
-      document.getElementById('wlBatchGrid').innerHTML = SYMTAB.map(function (s) {
-        return '<label class="dm-ck"><input type="checkbox" value="' + s + '">' + s + ' <span class="mono">' + MKT[s] + '</span></label>';
+    /* v6.2 侧栏底「新建自选组」对齐正式页 create_watchlist 按钮：开管理弹窗并把焦点放到名称输入框
+       （openModal 自带 50ms 聚焦首个输入 = 首行重命名框，这里 60ms 再纠正到 wlNewName） */
+    var jsWlNewQuick = document.getElementById('jsWlNewQuick');
+    if (jsWlNewQuick) jsWlNewQuick.addEventListener('click', function () {
+      openModal('mWl');
+      var inp = document.getElementById('wlNewName');
+      if (inp) setTimeout(function () { try { inp.focus(); } catch (e) {} }, 60);
+    });
+    /* ---- v6.1 组颜色选择器：管理行内色块组 + 新建行共用 wlSwatches()；选中态 = 描边环 + 对勾 + aria-pressed ----
+       点色块即时改组色并同步所有落点（侧栏色点 / 卡顶色边 / ★ 经 wlRender 重涂）；行内只刷本行色块态，不打断未提交的重命名输入 */
+    function wlSwatches(gid, sel) {
+      return '<span class="wl-cpick" role="group" aria-label="组颜色标识">' + WL_COLORS.map(function (c) {
+        var on = sel === c.v;
+        return '<button type="button" class="wl-csw' + (on ? ' on' : '') + '" style="background:' + c.v + '"' +
+          ' data-wlcolor="' + escA(gid) + '" data-cv="' + escA(c.v) + '" title="' + c.name + '" aria-label="' + c.name + '" aria-pressed="' + String(on) + '">' +
+          '<span class="wl-ck" aria-hidden="true">✓</span></button>';
+      }).join('') + '</span>';
+    }
+    var wlNewColor = WL_COLORS[0].v;   /* 新建组取色，默认蓝 */
+    var wlNewColorBox = document.getElementById('wlNewColors');
+    if (wlNewColorBox) wlNewColorBox.innerHTML = wlSwatches('', wlNewColor);
+    function syncWlNew() {
+      if (!wlNewColorBox) return;
+      [].forEach.call(wlNewColorBox.querySelectorAll('.wl-csw'), function (s) {
+        var on = s.dataset.cv === wlNewColor;
+        s.classList.toggle('on', on);
+        s.setAttribute('aria-pressed', String(on));
+      });
+    }
+    document.getElementById('mWl').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-wlcolor]');
+      if (!b) return;
+      var v = b.dataset.cv;
+      if (!b.dataset.wlcolor) { wlNewColor = v; syncWlNew(); return; } /* 空 gid = 新建行取色 */
+      var row = b.closest('[data-wlid]'), g = row ? wlGet(row.dataset.wlid) : null;
+      if (!g || wlColorOf(g) === v) return;
+      g.color = v;
+      [].forEach.call(row.querySelectorAll('.wl-csw'), function (s) {
+        var on = s.dataset.cv === v;
+        s.classList.toggle('on', on);
+        s.setAttribute('aria-pressed', String(on));
+      });
+      wlRender();
+      toast('「' + g.name + '」颜色标识已更新（原型）：' + wlColorName(v));
+    });
+    /* ---- v6.2 批量添加自选 = 两栏穿梭框（对齐正式页 antd Transfer · DataManagementPage :1950-2012）----
+       入口：管理自选组弹窗每行「批量添加」（wlBatchGid 即目标组，弹窗内不再选组）；
+       右栏预填该组成员（handleOpenBatchAdd 的 setTransferTargetKeys），既可加也可移；
+       文案对齐 i18n：标题 dm_batch_add_title「批量添加自选 - {name}」/ 摘要 dm_transfer_summary /
+       计数单位「项」/ 空态「暂无数据」/ 确认「确认添加」；确认按差集 toast dm_msg_batch_mixed / added / removed / no_changes。
+       1000+ 标的口径：正式页 Transfer 列表自带虚拟滚动；demo 无虚拟滚动，以「固定高滚动列表 +
+       每栏搜索 + 全选筛选结果（只勾选当前命中行）」替代，避免全量行一次铺开撑爆页面 ---- */
+    var wlBatchGid = null;
+    var trTarget = [];             /* 右栏名单 = 确认后的组员（打开时预填 g.syms.slice()） */
+    var trSelL = {}, trSelR = {};  /* 两侧勾选态；搜索过滤只影响可见行，勾选不受过滤裁剪 */
+    var trQ = { l: '', r: '' };
+    function trMeta() {            /* 价格 / 市场徽章复用行情标的卡既有数据（data-price / data-mkt） */
+      var m = {};
+      qAll('#symGrid .sym-item-card').forEach(function (c) {
+        m[c.dataset.sym] = { px: c.dataset.price, mk: c.dataset.mkt };
+      });
+      return m;
+    }
+    function trRenderList(el, keys, sel, q, side) {
+      if (!keys.length) { el.innerHTML = '<div class="tr-empty">暂无数据</div>'; return; }
+      var t = q.toLowerCase();
+      var hits = keys.filter(function (s) { return s.toLowerCase().indexOf(t) !== -1; });
+      if (!hits.length) { el.innerHTML = '<div class="tr-empty">无匹配标的</div>'; return; }
+      var meta = trMeta();
+      el.innerHTML = hits.map(function (s) {
+        var m = meta[s] || { px: '—', mk: '—' };
+        return '<div class="tr-row' + (sel[s] ? ' sel' : '') + '" data-tr="' + s + '" data-side="' + side + '" title="双击移到对侧">' +
+          '<input type="checkbox" class="tr-ck" data-tr="' + s + '"' + (sel[s] ? ' checked' : '') + ' aria-label="选择 ' + s + '">' +
+          '<span class="mono">' + s + '</span>' +
+          '<span class="chip quiet tr-mkt">' + m.mk + '</span>' +
+          '<span class="tr-px">' + m.px + '</span></div>';
       }).join('');
+    }
+    function trPaint() {
+      var sl = document.getElementById('wlAvailList').scrollTop, sr = document.getElementById('wlPickList').scrollTop;
+      trRenderList(document.getElementById('wlAvailList'), SYMTAB.filter(function (s) { return trTarget.indexOf(s) === -1; }), trSelL, trQ.l, 'l');
+      trRenderList(document.getElementById('wlPickList'), trTarget.slice(), trSelR, trQ.r, 'r');
+      document.getElementById('wlAvailList').scrollTop = sl;
+      document.getElementById('wlPickList').scrollTop = sr;
+      document.getElementById('wlAvailN').textContent = (SYMTAB.length - trTarget.length) + ' 项';
+      document.getElementById('wlPickN').textContent = trTarget.length + ' 项';
+      document.getElementById('wlBatchSum').textContent = '已选择 ' + trTarget.length + ' 个标的，共 ' + SYMTAB.length + ' 个可选';
+    }
+    function trMove(dir) {   /* dir=1 左→右（加入）；dir=-1 右→左（移回） */
+      var sel = dir === 1 ? trSelL : trSelR;
+      var syms = Object.keys(sel).filter(function (k) { return sel[k]; });
+      if (!syms.length) { toast('先勾选要移动的标的'); return; }
+      syms.forEach(function (s) {
+        if (dir === 1) { if (trTarget.indexOf(s) === -1) trTarget.push(s); }
+        else trTarget = trTarget.filter(function (x) { return x !== s; });
+        delete sel[s];
+      });
+      trPaint();
+    }
+    function trMoveOne(s, dir) {   /* 双击行 = 移动单个 */
+      if (dir === 1) { if (trTarget.indexOf(s) === -1) trTarget.push(s); }
+      else trTarget = trTarget.filter(function (x) { return x !== s; });
+      delete trSelL[s]; delete trSelR[s];
+      trPaint();
+    }
+    function trToggleRow(row, on) {   /* 就地翻转勾选（不重绘列表）：真实双击的两次 click 必须落在同一
+      DOM 节点上，浏览器才会派发 dblclick —— 整列 innerHTML 重绘会让两次 click 目标失联，dblclick 直接丢失 */
+      var sel = row.dataset.side === 'l' ? trSelL : trSelR;
+      sel[row.dataset.tr] = !!on;
+      row.classList.toggle('sel', !!on);
+      var ck = row.querySelector('.tr-ck');
+      if (ck) ck.checked = !!on;
+    }
+    function trMarkVisible(listId, sel) {   /* 「全选筛选结果」：只勾选当前搜索命中（已渲染）的行 */
+      qAll('#' + listId + ' [data-tr]').forEach(function (row) { sel[row.dataset.tr] = true; });
+      trPaint();
+    }
+    MODAL_FILL.mWlBatch = function () {
+      var g = wlGet(wlBatchGid) || WL[0] || null;
+      wlBatchGid = g ? g.id : null;
+      trTarget = g ? g.syms.slice() : [];
+      trSelL = {}; trSelR = {}; trQ.l = ''; trQ.r = '';
+      document.getElementById('wlAvailQ').value = '';
+      document.getElementById('wlPickQ').value = '';
+      document.getElementById('wlBatchDot').style.background = g ? wlColorOf(g) : 'var(--fg-4)';
+      document.getElementById('wlBatchTitle').textContent = '批量添加自选 - ' + (g ? g.name : '');
+      trPaint();
     };
+    (function () {
+      var box = document.querySelector('#mWlBatch .tr-box');
+      if (!box) return;
+      document.getElementById('wlToRight').addEventListener('click', function () { trMove(1); });
+      document.getElementById('wlToLeft').addEventListener('click', function () { trMove(-1); });
+      document.getElementById('wlAvailAll').addEventListener('click', function () { trMarkVisible('wlAvailList', trSelL); });
+      document.getElementById('wlPickAll').addEventListener('click', function () { trMarkVisible('wlPickList', trSelR); });
+      document.getElementById('wlAvailQ').addEventListener('input', function () { trQ.l = this.value.trim(); trPaint(); });
+      document.getElementById('wlPickQ').addEventListener('input', function () { trQ.r = this.value.trim(); trPaint(); });
+      /* 行点击 = 勾选切换（就地翻转，保持 DOM 稳定以让 dblclick 可触发）；checkbox 自身 click 只走 change；双击 = 直接移到对侧 */
+      box.addEventListener('click', function (e) {
+        if (e.target.closest('.tr-ck')) return;
+        var row = e.target.closest('.tr-row');
+        if (!row) return;
+        var sel = row.dataset.side === 'l' ? trSelL : trSelR;
+        trToggleRow(row, !sel[row.dataset.tr]);
+      });
+      box.addEventListener('change', function (e) {
+        var ck = e.target.closest('.tr-ck');
+        if (!ck) return;
+        trToggleRow(ck.closest('.tr-row'), ck.checked);
+      });
+      box.addEventListener('dblclick', function (e) {
+        var row = e.target.closest('.tr-row');
+        if (!row) return;
+        trMoveOne(row.dataset.tr, row.dataset.side === 'l' ? 1 : -1);
+      });
+    })();
     var jsWlBatchGo = document.getElementById('jsWlBatchGo');
     if (jsWlBatchGo) jsWlBatchGo.addEventListener('click', function () {
-      var g = wlGet(document.getElementById('wlBatchGroup').value);
-      var add = qAll('#wlBatchGrid input:checked').map(function (ck) { return ck.value; });
+      var g = wlGet(wlBatchGid);
       if (!g) { toast('先选择目标自选组'); return; }
-      if (!add.length) { toast('先勾选要加入的标的'); return; }
-      var fresh = add.filter(function (s) { return g.syms.indexOf(s) === -1; });
-      fresh.forEach(function (s) { g.syms.push(s); });
+      var added = trTarget.filter(function (s) { return g.syms.indexOf(s) === -1; });
+      var removed = g.syms.filter(function (s) { return trTarget.indexOf(s) === -1; });
       var mk = document.getElementById('mWlBatch');
       if (mk) closeMask(mk);
+      if (!added.length && !removed.length) { toast('没有变化'); return; }   /* dm_msg_no_changes */
+      g.syms = trTarget.slice();
       wlRender();
       if (wlCur === g.id) LISTS.sym.render();
-      toast('已加入 ' + fresh.length + ' 个标的至「' + g.name + '」（原型不落库）');
+      var d = '（原型不落库）';
+      toast(added.length && removed.length ? '已添加 ' + added.length + ' 个，移除 ' + removed.length + ' 个标的' + d
+        : added.length ? '已成功添加 ' + added.length + ' 个标的' + d
+        : '已移除 ' + removed.length + ' 个标的' + d);
     });
 
     /* ---- 页签初始化：默认停在「行情标的」+ 侧栏首渲染 + 任务计数 ---- */
