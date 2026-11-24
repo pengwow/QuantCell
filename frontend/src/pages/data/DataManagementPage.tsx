@@ -2770,7 +2770,9 @@ const DataManagementPage = () => {
       title: t('symbol'),
       dataIndex: 'symbol',
       key: 'symbol',
-      width: 200,
+      // 196：最宽 symbol「1000CHEEMS/USDT」(15 字符 mono) + 三角 + #rank chip 仍不折行；
+      // 旧值 200 被 antd 按比例摊余宽撑到 226（右侧空出一条），才是「标的列过宽」的真因
+      width: 196,
       render: (text: string, record: SymbolData) => (
         <span className="qc-row-chips">
           {/* 行首三角自绘（antd 展开列已关；旋转由 .qc-cell-caret.is-open 负责） */}
@@ -2791,7 +2793,7 @@ const DataManagementPage = () => {
       title: t('latest_price'),
       dataIndex: 'price',
       key: 'price',
-      width: 120,
+      width: 104,
       align: 'right' as const,
       render: (price: number | null, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
@@ -2805,7 +2807,7 @@ const DataManagementPage = () => {
     {
       title: t('change_24h'),
       key: 'change',
-      width: 108,
+      width: 78,
       align: 'right' as const,
       render: (_: unknown, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
@@ -2825,7 +2827,7 @@ const DataManagementPage = () => {
       title: t('volume_24h'),
       dataIndex: 'volume24h',
       key: 'volume24h',
-      width: 108,
+      width: 84,
       align: 'right' as const,
       render: (volume: number | null, record: SymbolData) => {
         if (marketDataLoading[record.symbol]) {
@@ -2840,7 +2842,7 @@ const DataManagementPage = () => {
       title: t('market_cap'),
       dataIndex: 'marketCap',
       key: 'marketCap',
-      width: 104,
+      width: 96,
       align: 'right' as const,
       render: (cap?: number) => cap
         ? <span className="qc-mono">${(cap / 1000000000).toFixed(2)}B</span>
@@ -2849,7 +2851,8 @@ const DataManagementPage = () => {
     {
       title: t('data_status'),
       key: 'dataStatus',
-      width: 170,
+      // 质量 chip + 更新时间两件套（实测最宽「良好 + 11-22 04:00」≈128）
+      width: 132,
       render: (_: unknown, record: SymbolData) => (
         record.hasData ? (
           <span className="qc-row-chips">
@@ -2866,7 +2869,7 @@ const DataManagementPage = () => {
     {
       title: t('auto_update'),
       key: 'autoUpdate',
-      width: 100,
+      width: 80,
       render: (_: unknown, record: SymbolData) => (
         <Switch
           size="small"
@@ -2883,7 +2886,7 @@ const DataManagementPage = () => {
     {
       title: t('action'),
       key: 'action',
-      width: 76,
+      width: 80,
       fixed: 'right',
       render: (_: unknown, record: SymbolData) => (
         <div className="qc-row-actions">
@@ -2943,7 +2946,9 @@ const DataManagementPage = () => {
       dataSource={filteredSymbols}
       rowKey="symbol"
       loading={symbolLoading}
-      scroll={{ x: 1200 }}
+      // 列宽合计 926（含勾选列 36）：= 表格最小宽度。1500 宽下主列可视 ≈958，多出的 30px
+      // 均摊给各列（不再全部堆到「标的」），不出横向滚动；1280/1024 才在表格内部滚
+      scroll={{ x: 926 }}
       rowSelection={{
         selectedRowKeys: selectedSymbols,
         onChange: (keys) => setSelectedSymbols(keys as string[]),
