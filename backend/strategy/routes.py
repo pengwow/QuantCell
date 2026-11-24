@@ -127,29 +127,6 @@ def api_get_strategy_version(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{strategy_name}/versions/{snapshot_id}/restore", response_model=ApiResponse, summary="恢复策略到指定版本（历史不删）")
-def api_restore_strategy_version(
-    strategy_name: str = Path(..., description="策略名称"),
-    snapshot_id: int = Path(..., description="快照 ID"),
-    current_user: dict = Depends(get_current_user),
-) -> ApiResponse:
-    _validate_strategy_name(strategy_name)
-    try:
-        restored = get_strategy_service().restore_strategy_version(strategy_name, snapshot_id)
-        if restored is None:
-            raise HTTPException(status_code=404, detail="策略版本不存在")
-        return ApiResponse(
-            code=0,
-            message="恢复策略版本成功",
-            data=restored,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"恢复策略版本失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/detail", response_model=ApiResponse)
 def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
     _validate_strategy_name(request.strategy_name)

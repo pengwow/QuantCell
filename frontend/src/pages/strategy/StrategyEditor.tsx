@@ -296,6 +296,22 @@ const StrategyEditor = () => {
       setSelectedStrategy(response);
       setCode(response.code);
       setSavedCode(response.code);
+
+      // 版本历史「载入编辑器」跳转进来（?restore=<快照 id>）：只把快照写进缓冲区。
+      // savedCode 保持磁盘当前内容 → dirty 为真，点「保存」才落盘并生成新快照。
+      const restoreId = new URLSearchParams(location.search).get('restore');
+      if (restoreId) {
+        try {
+          const snapshot = await strategyApi.getStrategyVersion(strategyName, Number(restoreId));
+          setCode(snapshot.code);
+          const label = snapshot.version ? `v${snapshot.version}` : snapshot.code_hash.slice(0, 8);
+          appMessage.info(t('sm_ver_loaded_to_editor', { label }));
+        } catch (error) {
+          console.error('Failed to load strategy version:', error);
+          appMessage.error(t('sm_ver_detail_failed'));
+        }
+        navigate(location.pathname, { replace: true });
+      }
     } catch (error) {
       console.error('Failed to load strategy:', error);
       appMessage.error(t('load_strategy_failed'));
@@ -1001,8 +1017,14 @@ class NewStrategy(BaseStrategy):
       onBack={handleBack}
       titleExtra={
         /* 版本 chip（demo #edVer）：真实 version，与标题同一基线（§5 titleExtra 槽） */
-        selectedStrategy?.version ? (
-          <span className="qc-chip info qc-mono">{`v${selectedStrategy.version}`}</span>
+        selectedStrategy ? (
+          <span className="qc-ed-title-extra">
+            {selectedStrategy.version ? (
+              <span className="qc-chip info qc-mono">{`v${selectedStrategy.version}`}</span>
+            ) : null}
+            {/* 载入历史快照 / 手改代码后与磁盘内容不一致：提示未保存，保存后才落盘并生成快照 */}
+            {code !== savedCode ? <span className="qc-chip warn">{t('se_unsaved')}</span> : null}
+          </span>
         ) : undefined
       }
       actions={
@@ -1675,17 +1697,21 @@ class NewStrategy(BaseStrategy):
         title={t('sm_ver_editor_title')}
         open={versionsDrawerOpen}
         onClose={() => setVersionsDrawerOpen(false)}
-        size="720px"
+        size={920}
         destroyOnHidden
       >
         {selectedStrategy && (
           <StrategyVersionPanel
             strategyName={selectedStrategy.name}
+            variant="drawer"
+            className="sm-ver-drawer"
             dirty={code !== savedCode}
-            onRestored={(restoredCode) => {
-              setCode(restoredCode);
-              setSavedCode(restoredCode);
-              void loadStrategyByName(selectedStrategy.name);
+            onLoadToEditor={(snapshotCode, version) => {
+              // 只写缓冲区：savedCode 不动，页头「未保存」与保存按钮高亮由 dirty 驱动
+              setCode(snapshotCode);
+              setVersionsDrawerOpen(false);
+              const label = version.version ? `v${version.version}` : version.code_hash.slice(0, 8);
+              appMessage.info(t('sm_ver_loaded_to_editor', { label }));
             }}
           />
         )}

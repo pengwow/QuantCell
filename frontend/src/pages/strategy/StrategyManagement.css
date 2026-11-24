@@ -120,27 +120,56 @@
   font-size: 9px;
 }
 
-/* 展开后的紧凑时间线：mono 数字 + 弱色副标，行间虚线分隔 */
+/* ---- 管理页 inline：一行一条「时间 / 版本号+hash / 大小·行数 / 当前 / 操作」 ---- */
 .sm-ver-list {
   margin-top: 8px;
-  padding-top: 6px;
   border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
 }
 
 .sm-ver-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 88px 172px minmax(120px, 1fr) 56px auto;
   align-items: center;
-  gap: 12px;
-  padding: 2px 0;
-  font-size: 11px;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
 }
 
-/* 行尾操作与「当前」标记：贴右对齐，按钮压到 11px 紧凑尺寸（面板宽度本来就窄） */
+.sm-ver-row:last-child {
+  border-bottom: none;
+}
+
+.sm-ver-time {
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-ver {
+  color: var(--qc-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sm-ver-ver i {
+  font-style: normal;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-size {
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-curcell {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 行尾操作：贴右对齐，按钮压到 11px 紧凑尺寸（面板宽度本来就窄） */
 .sm-ver-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
-  margin-left: auto;
 }
 
 .sm-ver-actions .ant-btn {
@@ -168,15 +197,6 @@
   gap: 8px;
 }
 
-.sm-ver-time {
-  color: var(--qc-text-quaternary);
-  min-width: 82px;
-}
-
-.sm-ver-label {
-  color: var(--qc-text-secondary);
-}
-
 .sm-ver-note {
   margin-top: 6px;
   font-size: 10.5px;
@@ -185,6 +205,145 @@
 
 .sm-ver-note-error {
   color: var(--qc-error);
+}
+
+/* ---- 编辑器页头 titleExtra：版本 chip + 「未保存」chip 横排 ---- */
+.qc-ed-title-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- 编辑器抽屉：左时间轴 + 右快照预览（面板吃满抽屉高度） ---- */
+.sm-ver-drawer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.sm-ver-split {
+  display: grid;
+  grid-template-columns: minmax(210px, 272px) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sm-ver-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  border-right: 1px solid var(--qc-border);
+}
+
+.sm-ver-tl-item {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 7px 9px 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.sm-ver-tl-item:hover {
+  background: color-mix(in srgb, var(--qc-text) 4%, transparent);
+}
+
+.sm-ver-tl-item.on {
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+  border-color: color-mix(in srgb, var(--qc-primary) 32%, transparent);
+}
+
+.sm-ver-tl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--qc-text) 22%, transparent);
+}
+
+.sm-ver-tl-item.cur .sm-ver-tl-dot {
+  background: var(--qc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-primary) 18%, transparent);
+}
+
+.sm-ver-tl-t {
+  font-size: 11.5px;
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-tl-item.on .sm-ver-tl-t {
+  color: var(--qc-text);
+  font-weight: 600;
+}
+
+.sm-ver-tl-label {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-tl-sub {
+  grid-column: 2 / -1;
+  font-size: 10px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sm-ver-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--qc-border);
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-meta b {
+  font-weight: 600;
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-meta-cur {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  line-height: 16px;
+  color: var(--qc-success);
+  background: color-mix(in srgb, var(--qc-success) 12%, transparent);
+}
+
+/* Monaco 容器靠 flex 吃剩余高度（height:100% 只在父高确定时生效） */
+.sm-ver-code {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sm-ver-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--qc-border);
+}
+
+.sm-ver-foot-btns {
+  margin-left: auto;
 }
 
 /* ---- demo .kvtab：两列键值表，参数行虚线分隔 ----
@@ -234,7 +393,7 @@
 
 /* 暗色主题下 Element 无关；token 自动切换，无需额外覆盖 —— 该文件不用写死色值 */
 
-/* 访客态「恢复」禁用时套的一层包装：让 Tooltip 在禁用按钮上仍能触发 */
-.sm-ver-restore-wrap {
+/* 访客态禁用按钮套的一层包装：让 Tooltip 在禁用按钮上仍能触发 */
+.sm-ver-disabled-wrap {
   display: inline-block;
 }

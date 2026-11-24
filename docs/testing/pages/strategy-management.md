@@ -35,12 +35,12 @@
 | S20 | 看「标的 · 周期」列（多标的策略） | 单标的 = 标的（primary 加粗）+ 弱色「 · 周期」；2 个标的 = 逗号分隔整串（限宽截断）；≥3 个 = 首个 + 小号 quiet 徽章「+N」（N = 总数−1），例如 4 个标的显示「BTC/USDT +3 · 1d」；`symbols` 为空 → 弱色「—」（周期存在时仍显示「— · 周期」）；悬停该列 → Tooltip 显示全部标的 + 周期；数值与 `curl /strategy/overview` 的 `symbols`/`interval` 一致（不显示自选组形态——overview 契约无该字段） | L1 |
 | S21 | 键盘操作 | 行可 Tab 聚焦；聚焦行上按 Enter 或 Space → 展开/收起（与点击同效）；面板展开时按 Esc → 收起（焦点在面板按钮上时也生效）；行首三角随展开态旋转 90° 并变主色，收起恢复 | L1 |
 | S22 | 卡片视图与列表视图各点同一策略（首项）展开详情 | ① 两种形态共用 `selectedRowKey`：列表点首行 / 卡片点首卡都展开**内容逐字相同**的 `.qc-exp-panel`（`innerText` 空白归一后字符串相等，参数 KV、footer、版本历史段一致，不出现串到同行邻卡的情况）；② 卡片态面板插在**被点卡片所在视觉行的最后一张卡之后**、跨满整行（`.qc-card-exp-slot` 与 `.ant-row` 左右边界对齐），展开前后该视觉行卡数不变；③ 再点同一张卡 → 收起；Esc → 收起；列表态搜索 / 状态筛选 / 排序 / 翻页、卡片态分页条翻页，以及切换卡片↔列表视图 → 均收起；首载不自动展开；面板打开不产生 console error | L2 |
-| S23 | 展开一个有版本快照的策略行，点 footer「版本历史 N 条」 | 版本行形制 = `MM-DD HH:mm` + `v{version}` 或 code_hash 前 8 位 + **行尾「查看」「恢复」两个文本钮**；**最新一条内容与磁盘当前文件一致的快照**右侧带「当前」小 Tag（`is_current` 由后端按 sha256 比对文件得出，且只标最新那条 —— 同内容的历史行不重复标；外部改过文件时可能全为 false，属真实值，不补假标记）；Tag 不出现于其余行 | L2 |
-| S24 | 点任一行「查看」 | 弹窗「版本快照 {label}」960px，正文为只读 Monaco（`quantcell-dark`），内容与 `curl /api/v1/strategy/{name}/versions/{id}` 的 `code` **逐字一致**；底部左侧「对比当前文件」开关、右侧「关闭」「恢复」；关闭后不写库（无 POST 请求） | L2 |
+| S23 | 展开一个有版本快照的策略行，点 footer「版本历史 N 条」 | 版本行**单行一条**（不展开双栏），形制 = `MM-DD HH:mm`（`created_at`，`MM-DD HH:mm` 口径）+ `v{version}` 或 code_hash 前 8 位 + `hash 前 8 位` + `大小 · 行数`（`code_size` 格式化 B/KB、`code_lines` 用后端回传的行数，不为算行数另拉全文）+ 行尾「查看」「载入编辑器」两个文本钮；**最新一条内容与磁盘当前文件一致的快照**右侧带「当前」Tag（`is_current` 由后端按 sha256 比对文件得出，且只标最新那条 —— 同内容的历史行不重复标；外部改过文件时可能全为 false，属真实值，不补假标记）；Tag 不出现于其余行；列表下不出现代码预览区（管理页只读审计，预览走「查看」弹窗） | L2 |
+| S24 | 点任一行「查看」 | 弹窗「版本快照 {label}」960px，正文为只读 Monaco（`quantcell-dark`），内容与 `curl /api/v1/strategy/{name}/versions/{id}` 的 `code` **逐字一致**；底部左侧「对比当前文件」开关、右侧「关闭」「载入编辑器」；关闭后不写库（无 POST 请求） | L2 |
 | S25 | 在「查看」弹窗内勾「对比当前文件」 | 切换为 Monaco 差异视图（**行内 diff**，非左右分栏）：基线=该快照，改动=当前磁盘文件（`POST /strategy/detail` 的 `code`）；只读不可编辑；关闭弹窗无 console error（Monaco model 释放不得抛 `TextModel got disposed`） | L2 |
-| S26 | 对较旧的一条（非当前）点「恢复」→ 确认 | Popconfirm 正文「恢复到 {label}？将覆盖当前策略文件，历史版本保留」；确认后 `POST /api/v1/strategy/{name}/versions/{id}/restore` 返 200，提示「已恢复到 {label}」，列表**新增一条**且该新条带「当前」Tag、footer N+1；`curl` 校验 `strategy/{name}/versions` 的 `count` 与最新项 `code_hash` = 被恢复快照的 hash；策略文件内容同步写回（`curl POST /strategy/detail` 的 `code` 与快照逐字相等） | L2 |
-| S27 | 对「当前」条再点一次「恢复」 | 内容与最近快照相同 → 后端去重：`count` **不变**，提示「已恢复到 {label}（内容与最近快照相同，未新增记录）」，列表不新增行；文件内容不变 | L2 |
-| S28 | 访客账号展开版本历史 | 「查看」可用（只读）；「恢复」disabled，悬浮提示为访客限制文案，点确认不发出任何 restore 请求 | L1 |
+| S26 | 对较旧的一条（非当前）点「载入编辑器」 | 跳到 `/strategy-editor/{name}?restore={id}`：编辑器 `code` = 该快照全文（与 `GET /strategy/{name}/versions/{id}` 逐字一致），页头出现「未保存」chip、保存按钮高亮，`savedCode` 基线仍是磁盘当前内容；**不写文件、不新增快照**（无 `POST /versions/{id}/restore`，`curl` 校验 `versions` 的 `count` 与文件 `code` 均不变），地址栏 `restore` 查询参数在载入后清除 | L2 |
+| S27 | 在上述已载入快照的编辑器里点「保存」 | 走既有 `POST /strategy/upload`：文件内容写回 = 该快照内容，`versions` **新增一条**且新条带「当前」Tag、footer N+1；内容与最近快照相同时按 `code_hash` 去重 → `count` 不变；「未保存」chip 消失、保存按钮恢复常态 | L2 |
+| S28 | 访客账号展开版本历史 | 「查看」可用（只读）；「载入编辑器」（列表行与查看弹窗内）disabled，悬浮提示为访客限制文案，点击不跳转、不发出任何写请求 | L1 |
 
 ## 历史雷区
 - **数据源是 overview 不是 list**（2026-11-21 重构）：本页只消费 `GET /strategy/overview`；将其回退成 `/strategy/list` 并在前端拼 state/worker_count 属于造假，禁止。端点 404/405 时是空态 + toast，不是页面 bug
@@ -57,7 +57,7 @@
 - **详情块footer 的「累计回测 N 次」**：取 `/strategy/overview` 的 `backtest_count`（同一次任务遍历累计，不加额外查询）；字段缺席时只显示「默认 runner：kernel」，不许写死数字。计数为 0 是真实值（该策略没跑过回测），与「未回测」列语义一致
 - **版本历史只记录经过保存入口的保存**（2026-11-21）：`strategy_versions` 只在 `save_strategy()`（以及界面保存实际走的 `upload_strategy_file()`）成功后旁路写入；初始化/批量导入入库的策略没有历史（`version_count=0` 属预期，不是缺陷）。同内容重复保存按 `code_hash` 去重不涨条数。策略删除后历史保留（审计需要），但 overview 按现存策略文件遍历，不会出现幽灵计数
 - **版本列表接口不回 code**（2026-11-24）：`GET /strategy/{name}/versions` 只回元信息（含 `id` / `is_current`）；快照全文必须走 `GET /strategy/{name}/versions/{id}`（按 id + strategy_name 双条件查，禁止只按 id 越权读别的策略）。预览/对比是只读路径，不得顺手写库
-- **恢复版本不能落 `1.0.0` 默认值**（2026-11-24）：恢复走 `upload_strategy_file`，其 `version` 参数缺省会写成 `1.0.0`，会覆盖用户在详情页手改的版本号；必须显式传「快照内容声明的版本 → 否则 DB 现值」。恢复是写回 + 留新快照（历史不删），内容与最近快照相同时按 `code_hash` 去重不涨条数
+- **版本历史没有「直接恢复」入口**（2026-11-24）：快照只读，「载入编辑器」把内容放进编辑缓冲区（`savedCode` 不动 → dirty 为真），保存走既有 `POST /strategy/upload` 才写盘并生成新快照；后端 `POST .../versions/{id}/restore` 已删除，不要再加回来（管理页没有保存动作，直接写文件等于静默改盘）。**保存不能落 `1.0.0` 默认值**：`upload_strategy_file` 的 `version` 参数缺省会写成 `1.0.0`，覆盖用户在详情页手改的版本号，编辑器保存沿用原 `version`
 - **`version` 不是历史序号**：`strategies.version` / 快照里的 `version` 是策略文件声明的版本号（`__version__` / `VERSION` 常量，未声明为 null），与「第几条快照」无关；前端在没有声明版本时展示 `code_hash` 前 8 位，不要把 `1.0.0` 之类的默认值当历史序号写死
 - **表头/行密度被 antd 覆盖**（2026-11-20 踩坑）：`.qc-table` 密度规则必须写 `.qc-table.ant-table-wrapper ...` 前缀（见 `global.css`）；详情块的 kvtab 在页面私有 `StrategyManagement.css`，色值只用 `var(--qc-*)`
 - **策略名列必须限宽截断**（2026-11-21）：`DataTable` 默认 `scroll={{x:'max-content'}}` + 自动表格布局，列上声明的 `width` 不是硬约束——**在裸 `inline` span 上写 `maxWidth` 完全无效**（inline 元素忽略 max-width），长名会把该列撑到 700px+、整表横向溢出。正确写法是给渲染节点 `display:block` + `maxWidth` + `overflow:hidden/text-overflow/white-space`，外层套 `Tooltip` 显示全名（S17）。改列宽时不要靠名字长度"自然"限制

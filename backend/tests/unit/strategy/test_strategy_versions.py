@@ -98,6 +98,7 @@ def test_versions_endpoint_returns_desc_without_code(env, monkeypatch):
     # created_at DESC：最新（second）在前
     assert versions[0]["code_hash"] == hashlib.sha256(second.encode("utf-8")).hexdigest()
     assert versions[0]["code_size"] == len(second)
+    assert versions[0]["code_lines"] == len(second.splitlines())
     assert "code" not in versions[0]
     assert isinstance(versions[0]["created_at"], str)
 
@@ -153,10 +154,11 @@ def test_only_latest_matching_snapshot_is_current(env):
     second = source("1.1.0", "b")
     env.service.save_strategy("probe", first)
     env.service.save_strategy("probe", second)
-    old_id = env.service.list_strategy_versions("probe")[1]["id"]
-    env.service.restore_strategy_version("probe", old_id)  # 写回 A，留一条新的 A 快照
+    # A→B→A：去重只挡连续相同，所以会留下两条内容为 A 的快照
+    env.service.save_strategy("probe", first)
 
     versions = env.service.list_strategy_versions("probe")
+    assert len([v for v in versions if v["code_hash"] == hashlib.sha256(first.encode("utf-8")).hexdigest()]) == 2
     current = [v for v in versions if v["is_current"]]
     assert len(current) == 1
     assert current[0]["id"] == versions[0]["id"]
@@ -176,58 +178,3 @@ def test_get_version_returns_code_and_scopes_to_strategy(env):
     env.service.save_strategy("other", source("1.0.0", "o"))
     assert env.service.get_strategy_version("other", snapshot_id) is None
     assert env.service.get_strategy_version("ghost", snapshot_id) is None
-
-
-def test_restore_writes_back_and_keeps_history(env):
-    first = source("1.0.0", "a")
-    second = source("1.1.0", "b")
-    env.service.save_strategy("probe", first)
-    env.service.save_strategy("probe", second)
-    old_id = env.service.list_strategy_versions("probe")[1]["id"]
-
-    restored = env.service.restore_strategy_version("probe", old_id)
-
-    assert restored["code"] == first
-    assert restored["new_snapshot"] is True
-    assert (env.strategies_dir / "probe.py").read_text(encoding="utf-8") == first
-    versions = env.service.list_strategy_versions("probe")
-    # 历史不删：旧两条 + 恢复产生的新一条
-    assert len(versions) == 3
-    assert versions[0]["is_current"] is True
-    assert versions[0]["version"] == "1.0.0"
-
-
-def test_restore_same_content_does_not_bump_count(env):
-    code = source("1.0.0", "a")
-    env.service.save_strategy("probe", code)
-    snapshot_id = env.service.list_strategy_versions("probe")[0]["id"]
-
-    restored = env.service.restore_strategy_version("probe", snapshot_id)
-
-    assert restored["new_snapshot"] is False
-    assert len(env.service.list_strategy_versions("probe")) == 1
-
-
-def test_restore_keeps_user_version_when_content_declares_none(env):
-    """内容没声明版本时沿用 DB 现值，不能落 upload 的 1.0.0 默认值。"""
-    plain = '"""no declared version"""\n\n\nclass ProbeStrategy:\n    def on_bar(self, bar):\n        return None\n'
-    env.service.save_strategy("probe", plain)
-    snapshot_id = env.service.list_strategy_versions("probe")[0]["id"]
-
-    from strategy.models import Strategy
-
-    db = env.factory()
-    try:
-        db.add(Strategy(name="probe", version="v9", file_name="probe.py"))
-        db.commit()
-    finally:
-        db.close()
-
-    restored = env.service.restore_strategy_version("probe", snapshot_id)
-    assert restored["version"] == "v9"
-
-    db = env.factory()
-    try:
-        assert db.query(Strategy).filter_by(name="probe").first().version == "v9"
-    finally:
-        db.close()

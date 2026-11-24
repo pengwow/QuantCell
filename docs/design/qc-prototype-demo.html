@@ -656,6 +656,75 @@
   .ced-status { display:flex; gap:14px; padding:3px 14px; background:#007acc;
     color:#ffffff; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10.5px; }
   .ced-status .sp { margin-left:auto; }
+  /* ---- 版本历史（管理页详情块 / 编辑器抽屉共用：左时间轴 + 右快照预览） ---- */
+  .vh-card { padding:0; overflow:hidden; }
+  .vh-card > .card-head { padding:11px 14px 0; margin-bottom:0; }
+  .vh-split { display:grid; grid-template-columns:minmax(230px, 288px) minmax(0, 1fr); margin-top:10px;
+    border-top:1px solid var(--bd); }
+  .vh-list { list-style:none; margin:0; padding:7px; display:flex; flex-direction:column; gap:2px;
+    border-right:1px solid var(--bd); max-height:436px; overflow:auto; }
+  .vh-item { position:relative; display:grid; grid-template-columns:8px 1fr auto; align-items:center;
+    gap:2px 8px; padding:7px 9px 7px 10px; border-radius:8px; border:1px solid transparent; cursor:pointer; }
+  .vh-item:hover { background:color-mix(in srgb, var(--fg) 4%, transparent); }
+  .vh-item.on { background:color-mix(in srgb, var(--primary) 9%, transparent);
+    border-color:color-mix(in srgb, var(--primary) 32%, transparent); }
+  .vh-dot { width:7px; height:7px; border-radius:50%; background:var(--bd-2); }
+  .vh-item.cur .vh-dot { background:var(--primary); box-shadow:0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+  .vh-item.on .vh-dot { background:var(--primary); }
+  .vh-t { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; color:var(--fg-2); }
+  .vh-item.on .vh-t { color:var(--fg); font-weight:600; }
+  .vh-sub { grid-column:2 / -1; display:flex; gap:7px; align-items:center;
+    font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10px; color:var(--fg-4); }
+  .vh-sub .vh-sep { color:var(--bd-2); }
+  .vh-pane { display:flex; flex-direction:column; min-width:0; }
+  .vh-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px 18px; padding:9px 14px;
+    border-bottom:1px solid var(--bd); font-size:11px; color:var(--fg-4); }
+  .vh-meta b { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px;
+    font-weight:600; color:var(--fg-2); }
+  .vh-meta .vh-mk { margin-left:auto; }
+  .vh-code { height:auto; max-height:340px; overflow:auto; }
+  .vh-code.ced-pre { padding-bottom:12px; }
+  .vh-foot { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:9px 14px; border-top:1px solid var(--bd); }
+  .vh-foot .card-sub { margin-left:auto; }
+  .vh-empty { padding:26px 14px; color:var(--fg-4); font-size:11.5px; }
+  /* 管理页：简单列表（时间 / 版本号+hash / 大小·行数 / 当前 / 操作） */
+  .vh-rows { display:flex; flex-direction:column; margin-top:8px; border-top:1px solid var(--bd); }
+  .vh-row { display:grid; grid-template-columns:96px 190px 1fr auto auto; align-items:center; gap:10px;
+    padding:7px 2px; border-bottom:1px dashed color-mix(in srgb, var(--fg) 10%, transparent); }
+  .vh-row:last-child { border-bottom:none; }
+  .vh-time { font-size:11.5px; color:var(--fg-2); }
+  .vh-ver { font-size:11.5px; color:var(--fg); }
+  .vh-ver i { font-style:normal; color:var(--fg-4); }
+  .vh-size { font-size:11px; color:var(--fg-4); }
+  .vh-curcell { min-width:52px; display:flex; justify-content:flex-end; }
+  .vh-acts { display:flex; gap:4px; justify-content:flex-end; }
+  .vh-acts .mini-btn.pri { border-color:color-mix(in srgb, var(--primary) 45%, transparent);
+    background:color-mix(in srgb, var(--primary) 8%, transparent); color:var(--primary); }
+
+  /* 编辑器右侧抽屉（版本历史入口） */
+  .drw-mask { position:fixed; inset:0; z-index:92; background:color-mix(in srgb, #000 40%, transparent);
+    backdrop-filter:blur(2px); }
+  .drw-mask[hidden] { display:none; }
+  .drw { position:fixed; top:0; right:0; bottom:0; z-index:93; width:min(920px, 95vw);
+    display:flex; flex-direction:column; background:var(--card); border-left:1px solid var(--bd);
+    box-shadow:-24px 0 60px rgba(0,0,0,.26); animation:drwIn .24s cubic-bezier(.2,.9,.3,1.05); }
+  @keyframes drwIn { from { opacity:.5; transform:translateX(26px); } to { opacity:1; transform:none; } }
+  .drw-head { display:flex; align-items:center; gap:9px; padding:13px 18px; border-bottom:1px solid var(--bd); }
+  .drw-title { font-size:14px; font-weight:700; }
+  .drw-body { flex:1; min-height:0; overflow:auto; padding:14px 18px 18px; display:flex; flex-direction:column; gap:12px; }
+  .drw-note { font-size:10.5px; line-height:1.6; color:var(--fg-4); }
+  /* 抽屉内把面板拉伸到剩余高度：代码区吃掉空白，避免「一条列表悬在大片留白里」 */
+  .drw-body > .vh-card { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .drw-body > .vh-card > .vh-split { flex:1; min-height:0; }
+  .drw-body .vh-pane { min-height:0; }
+  .drw-body .vh-list { max-height:none; }
+  .drw-body .vh-code { flex:1; height:auto; max-height:none; min-height:260px; }
+  .ed-unsaved { display:none; }
+  .ed-unsaved.show { display:inline-flex; }
+  .btn.primary.attn { animation:pulseAttn 1.4s ease-in-out infinite; }
+  @keyframes pulseAttn { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb, var(--primary) 42%, transparent); }
+    50% { box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent); } }
+
   /* 编辑器预览 tab / 回测配置表单 */
   .iedit { height:30px; border:1px dashed var(--bd); border-radius:7px; background:var(--bgc); color:var(--fg);
     font:inherit; font-size:12.5px; padding:0 10px; width:100%; }
@@ -694,7 +763,9 @@
   .toast.out { opacity:0; transform:translateY(6px); transition:all .24s ease; }
   @keyframes toastIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
   /* 新视图小屏压缩 */
-  @media (max-width:1080px) { .agent-grid, .bc-grid, .rd-grid { grid-template-columns:1fr; } }
+  @media (max-width:1080px) { .agent-grid, .bc-grid, .rd-grid { grid-template-columns:1fr; }
+    .vh-split { grid-template-columns:1fr; }
+    .vh-list { border-right:none; border-bottom:1px solid var(--bd); max-height:220px; } }
 
   /* ============ 响应式 / 动效偏好 ============ */
   @media (max-width:1080px) {
@@ -2506,12 +2577,14 @@
             <div style="display:flex; align-items:center; gap:10px">
               <h2 class="page-title" id="edTitle">dual_ma_btc_4h</h2>
               <span class="chip info mono" id="edVer">v7</span>
+              <span class="chip warn ed-unsaved" id="edUnsaved">未保存</span>
             </div>
             <p class="page-sub mono">最近保存 11-12 19:40 · 来源 database · Monaco 风格演示（只读高亮）</p>
           </div>
           <div class="page-actions">
             <button class="btn" id="jsReset">重置</button>
             <button class="btn js-bc-ed" data-goto="backtest-config">去回测</button>
+            <button class="btn" id="jsVer">版本历史</button>
             <button class="btn" id="jsSave">保存</button>
             <button class="btn primary" data-modal="mAiGen">
               <svg viewBox="0 0 16 16" fill="none"><path d="m8 1.8 1.5 4.1 4.1 1.5-4.1 1.5L8 13l-1.5-4.1L2.4 7.4l4.1-1.5L8 1.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12.6" cy="12.4" r="1.5" fill="currentColor"/></svg>
@@ -2722,6 +2795,70 @@
 
       <p class="proto-note mono">QuantCell 控制台原型 · 零依赖静态 demo · 设计 token 与 /agent 设计稿同源 · 主题记忆 qc-proto-theme</p>
     </main>
+  </div>
+
+  <!-- ============ v5 · 版本历史抽屉（策略编辑器工具栏入口 · 与管理页详情块同一面板） ============ -->
+  <div class="drw-mask" id="drwVer" hidden>
+    <aside class="drw" role="dialog" aria-modal="true" aria-label="版本历史">
+      <div class="drw-head">
+        <span class="drw-title">版本历史</span>
+        <span class="chip info mono" id="drwVerCur">v7</span>
+        <span class="card-sub mono">dual_ma_btc_4h</span>
+        <div class="head-right">
+          <span class="card-sub mono" id="drwVerCount">共 5 条快照</span>
+          <button class="modal-x" data-drw-close aria-label="关闭">✕</button>
+        </div>
+      </div>
+      <div class="drw-body">
+        <div class="card vh-card" id="drwVerPanel">
+          <div class="card-head">
+            <span class="card-title">快照时间线</span>
+            <span class="chip quiet mono">最新 11-24 16:06</span>
+            <div class="head-right"><span class="card-sub mono">点击左侧任意版本预览全文</span></div>
+          </div>
+          <div class="vh-split">
+            <ol class="vh-list" id="drwVerList">
+              <li class="vh-item on cur" data-idx="0" data-label="v7" data-hash="5efae98b" data-bytes="5.6 KB" data-lines="162" data-time="11-24 16:06">
+                <span class="vh-dot"></span><span class="vh-t">11-24 16:06</span><span class="chip info mono">v7</span>
+                <span class="vh-sub">5efae98b · 5.6 KB · 162 行 · 当前</span>
+              </li>
+              <li class="vh-item" data-idx="1" data-label="v7" data-hash="9c319f9b" data-bytes="5.7 KB" data-lines="164" data-time="11-24 15:37">
+                <span class="vh-dot"></span><span class="vh-t">11-24 15:37</span><span class="chip info mono">v7</span>
+                <span class="vh-sub">9c319f9b · 5.7 KB · 164 行</span>
+              </li>
+              <li class="vh-item" data-idx="2" data-label="v7" data-hash="b29b6361" data-bytes="5.6 KB" data-lines="162" data-time="11-23 16:00">
+                <span class="vh-dot"></span><span class="vh-t">11-23 16:00</span><span class="chip info mono">v7</span>
+                <span class="vh-sub">b29b6361 · 5.6 KB · 162 行</span>
+              </li>
+              <li class="vh-item" data-idx="3" data-label="v6" data-hash="4d8e7a21" data-bytes="5.4 KB" data-lines="158" data-time="11-21 09:12">
+                <span class="vh-dot"></span><span class="vh-t">11-21 09:12</span><span class="chip quiet mono">v6</span>
+                <span class="vh-sub">4d8e7a21 · 5.4 KB · 158 行</span>
+              </li>
+              <li class="vh-item" data-idx="4" data-label="v6" data-hash="7f0c5b3e" data-bytes="5.2 KB" data-lines="151" data-time="11-18 22:40">
+                <span class="vh-dot"></span><span class="vh-t">11-18 22:40</span><span class="chip quiet mono">v6</span>
+                <span class="vh-sub">7f0c5b3e · 5.2 KB · 151 行</span>
+              </li>
+            </ol>
+            <div class="vh-pane">
+              <div class="vh-meta">
+                <span>版本 <b id="drwMetaLabel">v7</b></span>
+                <span>创建 <b id="drwMetaTime">11-24 16:06</b></span>
+                <span>大小 <b id="drwMetaBytes">5.6 KB</b> · <b id="drwMetaLines">162</b> 行</span>
+                <span>hash <b id="drwMetaHash">5efae98b</b></span>
+                <span class="vh-mk chip ok" id="drwMetaCur">当前文件</span>
+              </div>
+              <pre class="ced-pre vh-code" id="drwVerCode"><code class="cl"><span class="tk-cmt"># dual_ma_btc_4h.py — 双均线趋势策略（示例）</span></code><code class="cl"><span class="tk-kw2">from</span> dataclasses <span class="tk-kw2">import</span> <span class="tk-cls">dataclass</span></code><code class="cl"><span class="tk-kw2">from</span> collections <span class="tk-kw2">import</span> <span class="tk-cls">deque</span></code><code class="cl"></code><code class="cl"><span class="tk-kw2">from</span> axon_quant <span class="tk-kw2">import</span> <span class="tk-cls">Action</span>, <span class="tk-cls">ActionType</span></code><code class="cl"></code><code class="cl"></code><code class="cl"><span class="tk-fn">@dataclass</span></code><code class="cl"><span class="tk-kw2">class</span> <span class="tk-cls">DualMAParams</span>:</code><code class="cl">    fast: <span class="tk-kw2">int</span> = <span class="tk-num">20</span>          <span class="tk-cmt"># 快线窗口（bar 数）</span></code><code class="cl">    slow: <span class="tk-kw2">int</span> = <span class="tk-num">60</span>          <span class="tk-cmt"># 慢线窗口</span></code><code class="cl">    target: <span class="tk-kw2">float</span> = <span class="tk-num">0.10</span>    <span class="tk-cmt"># 目标仓位（权益占比）</span></code><code class="cl"></code><code class="cl"></code><code class="cl"><span class="tk-kw2">class</span> <span class="tk-cls">DualMAStrategy</span>:</code><code class="cl">    <span class="tk-str">"""金叉买入、死叉卖出；其余 bar 维持持仓。"""</span></code><code class="cl"></code><code class="cl">    <span class="tk-kw2">def</span> <span class="tk-fn">__init__</span>(<span class="tk-self">self</span>, params: <span class="tk-cls">DualMAParams</span> | <span class="tk-kw2">None</span> = <span class="tk-kw2">None</span>):</code><code class="cl">        <span class="tk-self">self</span>.p = params <span class="tk-kw">or</span> <span class="tk-cls">DualMAParams</span>()</code><code class="cl">        <span class="tk-self">self</span>.closes = <span class="tk-cls">deque</span>(maxlen=<span class="tk-self">self</span>.p.slow)</code><code class="cl">        <span class="tk-self">self</span>.pos: <span class="tk-kw2">float</span> = <span class="tk-num">0.0</span></code><code class="cl"></code><code class="cl">    <span class="tk-kw2">def</span> <span class="tk-fn">on_bar</span>(<span class="tk-self">self</span>, bar: <span class="tk-kw2">dict</span>) -&gt; <span class="tk-cls">Action</span>:</code><code class="cl">        <span class="tk-self">self</span>.closes.<span class="tk-fn">append</span>(bar[<span class="tk-str">"close"</span>])</code><code class="cl">        <span class="tk-kw">if</span> <span class="tk-fn">len</span>(<span class="tk-self">self</span>.closes) &lt; <span class="tk-self">self</span>.p.slow:</code><code class="cl">            <span class="tk-kw">return</span> <span class="tk-cls">Action</span>(<span class="tk-cls">ActionType</span>.Hold, <span class="tk-num">0.0</span>, <span class="tk-self">self</span>.pos, <span class="tk-str">"dual_ma"</span>, <span class="tk-num">0</span>)</code></pre>
+              <div class="vh-foot">
+                <button class="btn" id="drwVerDiff" type="button">对比当前文件</button>
+                <button class="btn primary" id="drwVerLoad" type="button">载入编辑器</button>
+                <span class="card-sub">载入不落盘 · 保存后才生成新快照</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="drw-note">口径：<b>载入编辑器 = 只改编辑缓冲区</b>，页头出现「未保存」并高亮保存按钮；点「保存」才写入策略文件、并按内容 hash 新增一条快照（内容与最近快照相同则去重，不涨条数）。</div>
+      </div>
+    </aside>
   </div>
 
   <!-- ============ v4 · 弹窗层（统一遮罩 · ESC / 点遮罩关闭） ============ -->
@@ -4009,6 +4146,72 @@
     /* ---- 新页 · 策略管理：行选择 + 参数键值填充 ---- */
     var SMAP = { '运行中': 'chip up', '模拟盘': 'chip warn', '已暂停': 'chip quiet', '未部署': 'chip info', '草稿': 'chip warn' };
     /* 策略管理行内展开：参数表（data-params 按 | 拆行）+ 版本 / 累计回测次数 + 面板动作（去回测 / 创建 Worker） */
+    /* ---- 版本历史卡（管理页详情块）----
+       左时间轴 + 右快照预览：纯查看，不提供直接写盘按钮；写路径统一走编辑器
+       （载入 → 未保存 → 保存才留快照），避免「点一下就改文件」的隐式写入。 */
+    var VH_CODE_A =
+      '<code class="cl"><span class="tk-cmt"># 快照内容（只读预览 · 高亮同 Monaco quantcell-dark）</span></code>' +
+      '<code class="cl"><span class="tk-kw2">from</span> dataclasses <span class="tk-kw2">import</span> <span class="tk-cls">dataclass</span></code>' +
+      '<code class="cl"><span class="tk-kw2">from</span> axon_quant <span class="tk-kw2">import</span> <span class="tk-cls">Action</span>, <span class="tk-cls">ActionType</span></code>' +
+      '<code class="cl"></code>' +
+      '<code class="cl"><span class="tk-fn">@dataclass</span></code>' +
+      '<code class="cl"><span class="tk-kw2">class</span> <span class="tk-cls">DualMAParams</span>:</code>' +
+      '<code class="cl">    fast: <span class="tk-kw2">int</span> = <span class="tk-num">20</span></code>' +
+      '<code class="cl">    slow: <span class="tk-kw2">int</span> = <span class="tk-num">60</span></code>' +
+      '<code class="cl">    target: <span class="tk-kw2">float</span> = <span class="tk-num">0.10</span></code>' +
+      '<code class="cl"></code>' +
+      '<code class="cl"><span class="tk-kw2">class</span> <span class="tk-cls">DualMAStrategy</span>:</code>' +
+      '<code class="cl">    <span class="tk-kw2">def</span> <span class="tk-fn">on_bar</span>(<span class="tk-self">self</span>, bar: <span class="tk-kw2">dict</span>) -&gt; <span class="tk-cls">Action</span>:</code>' +
+      '<code class="cl">        <span class="tk-self">self</span>.closes.<span class="tk-fn">append</span>(bar[<span class="tk-str">"close"</span>])</code>' +
+      '<code class="cl">        <span class="tk-kw">if</span> <span class="tk-fn">len</span>(<span class="tk-self">self</span>.closes) &lt; <span class="tk-self">self</span>.p.slow:</code>' +
+      '<code class="cl">            <span class="tk-kw">return</span> <span class="tk-cls">Action</span>(<span class="tk-cls">ActionType</span>.Hold, <span class="tk-num">0.0</span>, <span class="tk-self">self</span>.pos, <span class="tk-str">"dual_ma"</span>, <span class="tk-num">0</span>)</code>';
+    var VH_CODE_B =
+      '<code class="cl"><span class="tk-cmt"># 旧快照内容（v6 · 只有单边做多）</span></code>' +
+      '<code class="cl"><span class="tk-kw2">from</span> axon_quant <span class="tk-kw2">import</span> <span class="tk-cls">Action</span>, <span class="tk-cls">ActionType</span></code>' +
+      '<code class="cl"></code>' +
+      '<code class="cl"><span class="tk-kw2">class</span> <span class="tk-cls">DualMAStrategy</span>:</code>' +
+      '<code class="cl">    <span class="tk-kw2">def</span> <span class="tk-fn">__init__</span>(<span class="tk-self">self</span>):</code>' +
+      '<code class="cl">        <span class="tk-self">self</span>.closes = []</code>' +
+      '<code class="cl">        <span class="tk-self">self</span>.pos = <span class="tk-num">0.0</span></code>' +
+      '<code class="cl"></code>' +
+      '<code class="cl">    <span class="tk-kw2">def</span> <span class="tk-fn">on_bar</span>(<span class="tk-self">self</span>, bar: <span class="tk-kw2">dict</span>) -&gt; <span class="tk-cls">Action</span>:</code>' +
+      '<code class="cl">        <span class="tk-self">self</span>.closes.<span class="tk-fn">append</span>(bar[<span class="tk-str">"close"</span>])</code>' +
+      '<code class="cl">        <span class="tk-kw">if</span> <span class="tk-fn">len</span>(<span class="tk-self">self</span>.closes) &lt; <span class="tk-num">60</span>:</code>' +
+      '<code class="cl">            <span class="tk-kw">return</span> <span class="tk-cls">Action</span>(<span class="tk-cls">ActionType</span>.Hold, <span class="tk-num">0.0</span>, <span class="tk-self">self</span>.pos, <span class="tk-str">"dual_ma"</span>, <span class="tk-num">0</span>)</code>';
+    function vhCard(name, ver) {
+      var vlab = (ver || 'v7').split(' ·')[0];
+      var rows = [
+        { t: '11-24 15:37', lb: vlab, hash: '5efae98b', bytes: '5.6 KB', lines: 162, cur: true },
+        { t: '11-23 16:00', lb: vlab, hash: 'b29b6361', bytes: '5.6 KB', lines: 162, cur: false },
+        { t: '11-21 09:12', lb: 'v6', hash: '4d8e7a21', bytes: '5.4 KB', lines: 158, cur: false }
+      ];
+      var list = rows.map(function (v) {
+        return '<div class="vh-row">' +
+          '<span class="vh-time mono">' + v.t + '</span>' +
+          '<span class="vh-ver mono">' + v.lb + ' <i>' + v.hash + '</i></span>' +
+          '<span class="vh-size mono">' + v.bytes + ' · ' + v.lines + ' 行</span>' +
+          '<span class="vh-curcell">' + (v.cur ? '<span class="chip ok">当前</span>' : '') + '</span>' +
+          '<span class="vh-acts"><button class="mini-btn" type="button" data-vh-view>查看</button>' +
+          '<button class="mini-btn pri" type="button" data-vh-edit="' + name + '">载入编辑器</button></span></div>';
+      }).join('');
+      return '<div class="card vh-card" style="margin-top:10px">' +
+        '<div class="card-head"><span class="card-title">版本历史</span>' +
+        '<span class="chip quiet mono">' + rows.length + ' 条</span>' +
+        '<div class="head-right"><span class="card-sub mono">' + name + ' · 最新 11-24 15:37</span></div></div>' +
+        '<div class="vh-rows">' + list + '</div>' +
+        '<div class="card-foot"><span>只读审计 · 「载入编辑器」把该快照放进编辑缓冲区，仍需手动保存才会生成新快照</span></div></div>';
+    }
+    /* 管理页版本行：查看 / 载入编辑器（抽屉内的行切换由 drwSelect 接管） */
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('[data-vh-view]')) { toast('原型：查看快照全文（正式页为只读 Monaco 弹窗，可切行内 diff）'); return; }
+      var editBtn = e.target.closest('[data-vh-edit]');
+      if (!editBtn) return;
+      edLoad(editBtn.dataset.vhEdit, '');
+      edMarkDirty(true);
+      go('strategy-editor');
+      toast('已载入编辑器 · 尚未保存，点保存才生成快照');
+    });
+
     XP_BUILD.st = function (r) {
       var kv = r.dataset.params.split('|').map(function (p) {
         var i = p.indexOf('=');
@@ -4023,7 +4226,8 @@
         '<div style="display:flex; gap:8px; margin-top:11px; flex-wrap:wrap; align-items:center">' +
         '<button class="btn primary js-bc-cur" data-goto="backtest-config">去回测</button>' +
         '<button class="btn" data-modal="mWorker">创建 Worker</button>' +
-        '<span class="card-sub" style="align-self:center; margin-left:4px">默认 runner = <span class="mono">kernel</span> · 累计回测 <span class="mono">' + (r.dataset.bt || '0') + '</span> 次</span></div></div>';
+        '<span class="card-sub" style="align-self:center; margin-left:4px">默认 runner = <span class="mono">kernel</span> · 累计回测 <span class="mono">' + (r.dataset.bt || '0') + '</span> 次</span></div>' +
+        vhCard(r.dataset.name, r.dataset.ver) + '</div>';
     };
     /* 初载不自动展开（列表 / 卡片两形态口径一致：面板一律等点击） */
     xpKeepTidy('stSlot', 'stChips', 'stSearch');
@@ -4578,6 +4782,7 @@
       document.getElementById('edCode').innerHTML = ED_DEFAULT_CODE;
       document.querySelector('#view-strategy-editor .page-sub').textContent =
         name ? '最近保存 11-12 19:40 · 来源 database · Monaco 风格演示（只读高亮）' : '未保存草稿 · 来源 local · Monaco 风格演示（只读高亮）';
+      edMarkDirty(false);
     }
     document.addEventListener('click', function (e) {
       var ed = e.target.closest('.js-edit');
@@ -4590,14 +4795,90 @@
         document.getElementById('edPanePrev').hidden = tb.dataset.etab !== 'prev';
       }
     });
+    /* ---- 版本历史抽屉（编辑器入口）：
+       载入快照 = 只改编辑缓冲区（页头「未保存」+ 保存按钮高亮），不落盘、不留历史；
+       点「保存」才写文件并按内容 hash 新增一条快照（内容与最近快照相同则去重）。 ---- */
+    var drwVer = document.getElementById('drwVer');
+    var drwList = document.getElementById('drwVerList');
+    var ED_DIRTY = false;
+    var ED_VER_COUNT = 5;
+
+    function edMarkDirty(on) {
+      ED_DIRTY = !!on;
+      var chip = document.getElementById('edUnsaved');
+      if (chip) chip.classList.toggle('show', !!on);
+      var sv = document.getElementById('jsSave');
+      if (sv) { sv.classList.toggle('attn', !!on); sv.classList.toggle('primary', !!on); }
+    }
+    function drwClose() { if (drwVer) drwVer.setAttribute('hidden', ''); }
+    function drwSelect(li) {
+      if (!li || !drwList) return;
+      [].slice.call(drwList.querySelectorAll('.vh-item')).forEach(function (x) { x.classList.toggle('on', x === li); });
+      document.getElementById('drwMetaLabel').textContent = li.dataset.label;
+      document.getElementById('drwMetaTime').textContent = li.dataset.time;
+      document.getElementById('drwMetaBytes').textContent = li.dataset.bytes;
+      document.getElementById('drwMetaLines').textContent = li.dataset.lines;
+      document.getElementById('drwMetaHash').textContent = li.dataset.hash;
+      document.getElementById('drwMetaCur').style.display = li.classList.contains('cur') ? '' : 'none';
+      document.getElementById('drwVerCode').innerHTML = li.classList.contains('cur') ? ED_DEFAULT_CODE : VH_CODE_B;
+    }
+    function drwLoad() {
+      var li = drwList && drwList.querySelector('.vh-item.on');
+      if (!li) return;
+      document.getElementById('edCode').innerHTML = li.classList.contains('cur') ? ED_DEFAULT_CODE : VH_CODE_B;
+      document.getElementById('edFVer').value = li.dataset.label;
+      document.getElementById('edVer').textContent = li.dataset.label;
+      edMarkDirty(true);
+      drwClose();
+      toast('已把 ' + li.dataset.label + '（' + li.dataset.hash + '）载入编辑器 · 尚未保存，点保存才生成历史');
+    }
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('#jsVer')) { if (drwVer) drwVer.removeAttribute('hidden'); return; }
+      if (e.target.closest('[data-drw-close]')) { drwClose(); return; }
+      if (e.target === drwVer) { drwClose(); return; }
+      if (e.target.closest('#drwVerLoad')) { drwLoad(); return; }
+      if (e.target.closest('#drwVerDiff')) { toast('原型：对比视图为行内 diff（基线=所选快照 / 改动=当前文件）'); return; }
+      var li = e.target.closest('#drwVerList .vh-item');
+      if (li) drwSelect(li);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && drwVer && !drwVer.hasAttribute('hidden')) { e.stopPropagation(); drwClose(); }
+    }, true);
+
     var jsSave = document.getElementById('jsSave');
     if (jsSave) jsSave.addEventListener('click', function () {
       document.querySelector('#view-strategy-editor .page-sub').textContent = '最近保存 刚刚 · 来源 database · Monaco 风格演示（只读高亮）';
-      toast('已保存（原型 · 未写库）· 版本 v7');
+      if (!ED_DIRTY) { toast('内容与最近保存版本相同 · 不新增历史（按内容 hash 去重）'); return; }
+      edMarkDirty(false);
+      ED_VER_COUNT += 1;
+      var cnt = document.getElementById('drwVerCount');
+      if (cnt) cnt.textContent = '共 ' + ED_VER_COUNT + ' 条快照';
+      if (drwList) {
+        [].slice.call(drwList.querySelectorAll('.vh-item')).forEach(function (x) {
+          x.classList.remove('cur');
+          var sub = x.querySelector('.vh-sub');
+          if (sub) sub.textContent = sub.textContent.replace(' · 当前', '');
+        });
+        var label = document.getElementById('edFVer').value || 'v7';
+        var li = document.createElement('li');
+        li.className = 'vh-item on cur';
+        li.dataset.label = label;
+        li.dataset.hash = 'a1f3c2d9';
+        li.dataset.time = '刚刚';
+        li.dataset.bytes = '5.7 KB';
+        li.dataset.lines = '165';
+        li.innerHTML = '<span class="vh-dot"></span><span class="vh-t">刚刚</span>' +
+          '<span class="chip info mono">' + label + '</span>' +
+          '<span class="vh-sub">a1f3c2d9 · 5.7 KB · 165 行 · 当前</span>';
+        drwList.insertBefore(li, drwList.firstChild);
+        [].slice.call(drwList.querySelectorAll('.vh-item')).forEach(function (x) { x.classList.toggle('on', x === li); });
+      }
+      toast('已保存 · 新增 1 条快照（a1f3c2d9 · 当前）· 版本号沿用 ' + (document.getElementById('edFVer').value || 'v7'));
     });
     var jsReset = document.getElementById('jsReset');
     if (jsReset) jsReset.addEventListener('click', function () {
       document.getElementById('edCode').innerHTML = ED_DEFAULT_CODE;
+      edMarkDirty(false);
       toast('已重置为最近保存版本');
     });
 

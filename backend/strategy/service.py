@@ -587,6 +587,7 @@ class StrategyService:
                         "code_hash": row.code_hash,
                         "created_at": row.created_at.isoformat() if row.created_at else None,
                         "code_size": len(row.code or ""),
+                        "code_lines": len((row.code or "").splitlines()),
                         "is_current": matched,
                     }
                 )
@@ -617,42 +618,9 @@ class StrategyService:
                 "code_hash": row.code_hash,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "code_size": len(row.code or ""),
+                "code_lines": len((row.code or "").splitlines()),
                 "code": row.code or "",
             }
-
-    def restore_strategy_version(self, strategy_name: str, snapshot_id: int) -> dict[str, Any] | None:
-        """把指定快照内容写回策略文件；历史不删，走上传入口再留一条快照（内容相同则去重）。
-
-        返回值里的 `new_snapshot` 区分「确实新增了一条历史」与「内容与最近快照相同被去重」，
-        UI 据此给出准确提示。版本号优先取快照内容里声明的值，内容没声明就沿用 DB 现值 ——
-        不能落 upload_strategy_file 的 "1.0.0" 默认值，那会覆盖用户在详情页手改的版本号。
-        """
-        snapshot = self.get_strategy_version(strategy_name, snapshot_id)
-        if snapshot is None:
-            return None
-
-        code = snapshot["code"]
-        version = self._declared_strategy_version(code)
-        if version is None:
-            from strategy.models import Strategy
-            from utils.db_session import get_db_session
-
-            with get_db_session() as db:
-                row = db.query(Strategy).filter_by(name=strategy_name).first()
-                version = row.version if row else None
-
-        before = self.list_strategy_versions(strategy_name) or []
-        if not self.upload_strategy_file(strategy_name=strategy_name, file_content=code, version=version):
-            return None
-        after = self.list_strategy_versions(strategy_name) or []
-
-        return {
-            "name": strategy_name,
-            "version": version,
-            "code_hash": snapshot["code_hash"],
-            "code": code,
-            "new_snapshot": len(after) > len(before),
-        }
 
     @staticmethod
     def _declared_strategy_version(content: str) -> str | None:

@@ -728,7 +728,12 @@ const StrategyManagement = () => {
           )}
         </div>
         {versionCount > 0 && versionsOpen && (
-          <StrategyVersionPanel strategyName={item.name} onRestored={() => void loadOverview()} />
+          <StrategyVersionPanel
+            strategyName={item.name}
+            onLoadInEditor={(version) =>
+              navigate(`/strategy-editor/${encodeURIComponent(item.name)}?restore=${version.id}`)
+            }
+          />
         )}
       </div>
     );

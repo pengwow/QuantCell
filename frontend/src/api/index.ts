@@ -521,6 +521,8 @@ export interface StrategyVersionItem {
   code_hash: string;
   created_at: string | null;
   code_size: number;
+  /** 快照内容的行数（列表直接展示，不再为算行数去拉全文） */
+  code_lines: number;
   /** 磁盘当前文件内容与该快照一致（外部改过文件则可能全为 false） */
   is_current?: boolean;
 }
@@ -528,16 +530,6 @@ export interface StrategyVersionItem {
 /** GET /strategy/{name}/versions/{id}：快照全文（预览 / 对比用） */
 export interface StrategyVersionDetail extends StrategyVersionItem {
   code: string;
-}
-
-/** POST /strategy/{name}/versions/{id}/restore 返回：恢复后的策略内容 */
-export interface StrategyVersionRestoreResult {
-  name: string;
-  version: string | null;
-  code_hash: string;
-  code: string;
-  /** false = 恢复内容与最近快照相同被去重，历史条数未增 */
-  new_snapshot: boolean;
 }
 
 /**
@@ -564,11 +556,6 @@ export const strategyApi = {
   /** 单个版本快照全文（预览 / 对比；只读） */
   getStrategyVersion: (name: string, snapshotId: number): Promise<StrategyVersionDetail> => {
     return apiRequest.get(`/strategy/${encodeURIComponent(name)}/versions/${snapshotId}`);
-  },
-
-  /** 恢复到指定版本（写回文件 + 留新快照，历史不删） */
-  restoreStrategyVersion: (name: string, snapshotId: number): Promise<StrategyVersionRestoreResult> => {
-    return apiRequest.post(`/strategy/${encodeURIComponent(name)}/versions/${snapshotId}/restore`, {});
   },
 
   createStrategy: <T>(data: T) => {
