@@ -5,7 +5,6 @@ import {
   App as AntdApp,
   Button,
   Card,
-  Col,
   Pagination,
   Popconfirm,
   Row,
@@ -31,6 +30,7 @@ import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import PageToolbar from '@/components/ui/PageToolbar';
 import ModelDetailDrawer from './ModelDetailDrawer';
 import RLBacktestModal from './RLBacktestModal';
@@ -101,6 +101,26 @@ function sharpeToneClass(row: UnifiedModelRow): string {
   return n > 0 ? ' qc-cell-up' : n < 0 ? ' qc-cell-down' : '';
 }
 
+// OOS Sharpe:优先 walk-forward OOS 口径,缺键回落到 registry metrics(缺值 = 无指标,不兜底成 0)
+function oosSharpe(row: UnifiedModelRow): { text: string; tone: string } {
+  const v = row.oos?.sharpe_ratio ?? row.metrics?.sharpe_ratio ?? row.metrics?.sharpe;
+  if (v == null) return { text: '—', tone: '' };
+  const n = Number(v);
+  return { text: n.toFixed(2), tone: n > 0 ? ' qc-cell-up' : n < 0 ? ' qc-cell-down' : '' };
+}
+
+// 行内展开摘要的单格:label 11px 三级色 + value mono(缺字段的格子由调用侧整格省略)
+function ExpCell({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{label}</span>
+      <span className="qc-mono truncate" style={{ fontSize: 12, color: 'var(--qc-text)' }} title={typeof value === 'string' ? value : undefined}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 // 卡片视图元信息行:label 左 value 右（label 不换行，value 可截断）
 function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -128,6 +148,8 @@ export default function UnifiedModelTable({
   const [stageFilter, setStageFilter] = useState<string>('');
   // 单选行;存 file_name 作为 rowKey/选中键
   const [selectedKey, setSelectedKey] = useState('');
+  // 行内展开:单键(一次只展开一行),初始不展开
+  const [expandedKey, setExpandedKey] = useState('');
   const [registerRow, setRegisterRow] = useState<UnifiedModelRow | null>(null);
   const [detailRow, setDetailRow] = useState<UnifiedModelRow | null>(null);
   const [backtestRow, setBacktestRow] = useState<UnifiedModelRow | null>(null);
@@ -193,10 +215,26 @@ export default function UnifiedModelTable({
     { value: 'missing', label: t('umt_status_missing') },
   ];
 
-  // §6.6 过滤联动:筛选变化页码归 1
+  // §6.6 过滤联动:筛选变化页码归 1,并收起行内展开(筛选后旧行不保证还在当前页)
   useEffect(() => {
     setCurrent(1);
+    setExpandedKey('');
   }, [keyword, algoFilter, stageFilter]);
+
+  // 翻页/改档位同样收起展开,避免翻页后残留上一页的空展开行
+  useEffect(() => {
+    setExpandedKey('');
+  }, [current, pageSize]);
+
+  // Esc 收起当前展开行(键盘可达:行内 Enter/Space 切换,见 onRow)
+  useEffect(() => {
+    if (!expandedKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) setExpandedKey('');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expandedKey]);
 
   // refreshKey 变化后数据可能变短,防止 pageNum 越界空页
   useEffect(() => {
@@ -337,6 +375,39 @@ export default function UnifiedModelTable({
     </Space>
   );
 
+  // 行内展开面板:轻摘要(只读 UnifiedModelRow 真字段,缺字段整格省略);完整详情仍走 Drawer
+  const renderExpanded = (record: UnifiedModelRow) => {
+    const algo = algoLabel(record);
+    const sharpe = oosSharpe(record);
+    return (
+      <div className="qc-exp-panel">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px 18px' }}>
+          {record.model_id ? <ExpCell label={t('umt_exp_model_id')} value={record.model_id} /> : null}
+          <ExpCell label={t('mdd_label_file_name')} value={record.file_name} />
+          {algo ? <ExpCell label={t('mdd_label_algo')} value={algo} /> : null}
+          {record.version ? <ExpCell label={t('mdd_field_version')} value={record.version} /> : null}
+          <ExpCell label={t('umt_col_status')} value={<StatusChip row={record} />} />
+          {sharpe.text === '—' ? (
+            <ExpCell label={t('umt_exp_oos_sharpe')} value={<span className="qc-cell-none">—</span>} />
+          ) : (
+            <ExpCell label={t('umt_exp_oos_sharpe')} value={<span className={sharpe.tone.trim()}>{sharpe.text}</span>} />
+          )}
+          {record.created ? (
+            <ExpCell label={t('mdd_label_created')} value={dayjs(record.created * 1000).format('YYYY-MM-DD HH:mm')} />
+          ) : null}
+          {record.size_mb != null ? <ExpCell label={t('mdd_label_size')} value={`${record.size_mb} MB`} /> : null}
+          {record.path ? <ExpCell label={t('mdd_label_path')} value={record.path} /> : null}
+        </div>
+        {/* demo 动作行 margin-top:11px */}
+        <div style={{ marginTop: 11, display: 'flex', justifyContent: 'flex-end' }}>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => setDetailRow(record)}>
+            {t('umt_exp_open_detail')}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   // 数值/时间为 §3 排印：右对齐 mono、空值弱化、时间 MM-DD HH:mm
   const columns: TableProps<UnifiedModelRow>['columns'] = [
     {
@@ -348,15 +419,24 @@ export default function UnifiedModelTable({
       render: (text: string, record: UnifiedModelRow) => {
         const algo = algoLabel(record);
         const tip = record.model_id ? `${text}（${record.model_id}）` : text;
+        const open = expandedKey === record.file_name;
         return (
-          <Tooltip title={tip} placement="topLeft">
-            <span className="qc-cell-strat-wrap">
-              {algo && <span className="qc-chip quiet qc-mono">{algo}</span>}
-              <span className="qc-cell-strat" style={{ maxWidth: 200 }}>
-                {record.model_id ?? text}
-              </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', maxWidth: '100%', overflow: 'hidden' }}>
+            {/* 三角自绘在模型列(showExpandColumn:false);行点击展开,此图标随选中/展开态旋转 */}
+            <span className={`qc-cell-caret${open ? ' is-open' : ''}`} aria-hidden>
+              <svg viewBox="0 0 12 12" width="12" height="12" fill="none">
+                <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </span>
-          </Tooltip>
+            <Tooltip title={tip} placement="topLeft">
+              <span className="qc-cell-strat-wrap">
+                {algo && <span className="qc-chip quiet qc-mono">{algo}</span>}
+                <span className="qc-cell-strat" style={{ maxWidth: 200 }}>
+                  {record.model_id ?? text}
+                </span>
+              </span>
+            </Tooltip>
+          </span>
         );
       },
     },
@@ -480,13 +560,19 @@ export default function UnifiedModelTable({
               />
             </Card>
           )}
-          <Row gutter={[12, 12]}>
-            {filtered.slice((current - 1) * pageSize, current * pageSize).map((record) => {
+          {/* 卡片与列表是同一份数据的两种排版,点开必须是同一块面板 */}
+          {/* 沿用 ExpandableCardGrid(面板插在被点卡片所在视觉行之后、跨全宽),内容走与列表 expandedRowRender 相同的 renderExpanded */}
+          <ExpandableCardGrid
+            items={filtered.slice((current - 1) * pageSize, current * pageSize)}
+            getKey={(record) => record.file_name}
+            expandedKey={expandedKey || null}
+            gutter={[12, 12]}
+            renderExpanded={renderExpanded}
+            renderCard={(record) => {
               const algo = algoLabel(record);
               const isSelected = selectedKey === record.file_name;
               const nameTooltip = record.model_id ? `${record.file_name}（${record.model_id}）` : record.file_name;
               return (
-                <Col key={record.file_name} xs={24} sm={12} md={8} lg={6}>
                   <Card
                     size="small"
                     hoverable
@@ -495,7 +581,9 @@ export default function UnifiedModelTable({
                     onClick={() => {
                       // 对齐表格禁选口径:文件缺失(无文件)不可选中
                       if (record.size_mb == null) return;
+                      // 选中 + 就地展开/收起,与列表行「点行 = 选中 + 展开」同语义
                       setSelectedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+                      setExpandedKey((prev) => (prev === record.file_name ? '' : record.file_name));
                     }}
                     title={
                       <span className="qc-mono font-medium truncate" style={{ maxWidth: '70%' }} title={nameTooltip}>
@@ -552,10 +640,9 @@ export default function UnifiedModelTable({
                       <div className="pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>{renderCardActions(record)}</div>
                     </div>
                   </Card>
-                </Col>
               );
-            })}
-          </Row>
+            }}
+          />
           {filtered.length > 0 && (
             <Row justify="center" style={{ marginTop: 16 }}>
               <Pagination
@@ -577,11 +664,31 @@ export default function UnifiedModelTable({
           /* 列均有显式宽总和 ≈830:容器不足时表格内部横滚且操作列冻结 */
           scroll={{ x: 830 }}
           rowClassName={(record) => (record.file_name === selectedKey ? 'qc-row-selected' : '')}
+          /* 行内轻摘要:单行互斥、行点击展开(三角自绘在模型列)、初始不展开 */
+          expandable={{
+            expandedRowKeys: expandedKey ? [expandedKey] : [],
+            onExpandedRowsChange: (keys) => setExpandedKey(keys.length ? String(keys[keys.length - 1]) : ''),
+            expandedRowRender: renderExpanded,
+            expandRowByClick: true,
+            showExpandColumn: false,
+          }}
           onRow={(record) => ({
-            // 行点击选中（primary 5% tint）；文件缺失行不可选中（与列表禁选口径一致）
+            tabIndex: 0,
+            // 行点击选中（primary 5% tint）；文件缺失行不可选中（与列表禁选口径一致）。
+            // 展开由 antd expandRowByClick 处理，此处不再重复 toggle。
             onClick: () => {
               if (record.size_mb == null) return;
               setSelectedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+            },
+            onKeyDown: (e) => {
+              // 只响应行自身获得焦点时的按键，避免操作列按钮的回车冒泡到行
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setExpandedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+              } else if (e.key === 'Escape') {
+                setExpandedKey('');
+              }
             },
             style: { cursor: record.size_mb == null ? 'default' : 'pointer' },
           })}
