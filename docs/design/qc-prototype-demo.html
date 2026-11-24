@@ -798,6 +798,25 @@
   .dm-sw[aria-checked="true"] { background:var(--up); }
   .dm-sw[aria-checked="true"]::after { left:15px; }
   .dm-sw:focus-visible { outline:2px solid var(--info); outline-offset:2px; }
+  /* v6.1 · 数据管理统一 gutter：14px = 全站 .card 水平内距。页签条 / 工具栏 / bt-card / 正常卡头共用一套，不再有 10 / 16 / 0 三套值 */
+  #view-data .ws-detail {
+    --dm-gutter: 14px;
+  }
+  #view-data .ws-detail .dm-pane { padding: 16px var(--dm-gutter) 14px; }
+  /* bt-card（padding:0 全铺卡）在数据页含卡头（行情标的）→ 水平补 gutter，卡头与普通卡头对齐；表格 / 网格 / 展开面板随之缩进 */
+  #view-data .ws-detail .bt-card { padding: 0 var(--dm-gutter); }
+  /* 页签条缩 gutter、tab 自身也缩 gutter：页签文字与首个卡头 title 同落 2×gutter 格线 */
+  #view-data .ws-detail > .tabs { padding: 0 var(--dm-gutter); }
+  #view-data .ws-detail > .tabs .tab { padding: 9px var(--dm-gutter); }
+  /* 质量维度骑缝小页签条：首个 tab 盒与卡内容格线对齐（negative margin 保留，下边线仍贯穿卡宽） */
+  #view-data .ws-detail .q-tabs { padding: 0 var(--dm-gutter); }
+  /* 页签内工具栏（卡外条形部件）与卡内内容同格线 */
+  #view-data .ws-detail .toolbar { padding: 0 var(--dm-gutter); }
+  /* 存储用量卡折叠态：头部即整卡（caret 同 bt-caret 形制，展开时右旋朝下） */
+  .store-head { cursor:pointer; user-select:none; }
+  .store-head:focus-visible { outline:2px solid var(--info); outline-offset:-3px; border-radius:6px; }
+  .store-caret { color:var(--fg-4); flex:0 0 auto; transition:transform .15s; }
+  .store-head[aria-expanded="true"] .store-caret { transform:rotate(90deg); }
   @media (max-width:1100px) {
     .dm-layout { flex-direction:column; }
     .dm-side { flex:none; width:100%; }
@@ -2116,14 +2135,19 @@
         </div>
 
         <div class="card" style="margin-top:12px">
-          <div class="card-head"><span class="card-title">存储用量</span><div class="head-right"><span class="s-chip">合计 <b>102.8 GB</b></span></div></div>
-          <div class="cmp">
-            <div class="cmp-row"><span class="cl">aggTrades · parquet</span><span class="bar2"><i style="width:81%;background:var(--info)"></i></span><span class="val">83.1 GB</span></div>
-            <div class="cmp-row"><span class="cl">kline / markPrice / funding</span><span class="bar2"><i style="width:12%;background:var(--info)"></i></span><span class="val">12.4 GB</span></div>
-            <div class="cmp-row"><span class="cl">特征缓存</span><span class="bar2"><i style="width:6%;background:var(--up)"></i></span><span class="val">6.2 GB</span></div>
-            <div class="cmp-row"><span class="cl">LLM replay 记录</span><span class="bar2"><i style="width:1.2%;background:var(--warn)"></i></span><span class="val">1.1 GB</span></div>
+          <div class="card-head store-head" id="storeHead" role="button" tabindex="0" aria-expanded="false" aria-controls="storeBody" aria-label="存储用量：合计 102.8 GB，点按展开各数据类型占用">
+            <span class="card-title">存储用量</span>
+            <div class="head-right"><span class="s-chip">合计 <b>102.8 GB</b></span><svg class="store-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor"/></svg></div>
           </div>
-          <div class="card-foot"><span>归档 parquet 各数据类型占用 · 来源 archiveApi.getMeta 口径（演示播种）</span></div>
+          <div id="storeBody" hidden>
+            <div class="cmp">
+              <div class="cmp-row"><span class="cl">aggTrades · parquet</span><span class="bar2"><i style="width:81%;background:var(--info)"></i></span><span class="val">83.1 GB</span></div>
+              <div class="cmp-row"><span class="cl">kline / markPrice / funding</span><span class="bar2"><i style="width:12%;background:var(--info)"></i></span><span class="val">12.4 GB</span></div>
+              <div class="cmp-row"><span class="cl">特征缓存</span><span class="bar2"><i style="width:6%;background:var(--up)"></i></span><span class="val">6.2 GB</span></div>
+              <div class="cmp-row"><span class="cl">LLM replay 记录</span><span class="bar2"><i style="width:1.2%;background:var(--warn)"></i></span><span class="val">1.1 GB</span></div>
+            </div>
+            <div class="card-foot"><span>归档 parquet 各数据类型占用 · 来源 archiveApi.getMeta 口径（演示播种）</span></div>
+          </div>
         </div>
 
         <div class="card ws-detail" style="margin-top:12px">
@@ -5483,6 +5507,22 @@
         : added.length ? '已成功添加 ' + added.length + ' 个标的' + d
         : '已移除 ' + removed.length + ' 个标的' + d);
     });
+
+    /* ---- 存储用量卡：默认折叠一行（点头部即整行可点）· Enter / Space 切换 · 原型不记忆状态，初始一律折叠 ---- */
+    (function () {
+      var sHead = document.getElementById('storeHead');
+      var sBody = document.getElementById('storeBody');
+      if (!sHead || !sBody) return;
+      function storeToggle() {
+        var open = sHead.getAttribute('aria-expanded') !== 'true';
+        sHead.setAttribute('aria-expanded', String(open));
+        sBody.hidden = !open;
+      }
+      sHead.addEventListener('click', storeToggle);
+      sHead.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); storeToggle(); }
+      });
+    })();
 
     /* ---- 页签初始化：默认停在「行情标的」+ 侧栏首渲染 + 任务计数 ---- */
     wlRender();
