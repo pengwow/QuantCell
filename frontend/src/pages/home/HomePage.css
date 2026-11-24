@@ -266,20 +266,36 @@
   color: var(--qc-text-quaternary);
 }
 
-/* ---- §6.17 系统状态行：8px 点 + 名称 12px fg-2 + 右值 mono 10.5 fg-4，行距 10px ----
-   spec §6.17 值色为 fg-4（demo 写的 fg-3），按规范以 spec 为准 */
+/* ---- §6.17 系统状态行（demo 业务四行口径）----
+   点 + 名称 12px fg-2（同行 mono id 10px fg-4）+ 第二行副说明 10.5px fg-4 + 右值 mono 10.5px fg-4，
+   行间 1px dashed 分隔（首行无），点与首行文字顶对齐。spec §6.17 值色 fg-4（demo 写 fg-3），按规范执行 */
 .home-sys {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   padding: 2px 0;
 }
 
 .home-sys-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
   min-width: 0;
+  padding: 9px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 9%, transparent);
+}
+
+.home-sys-row:first-child {
+  border-top: none;
+  padding-top: 2px;
+}
+
+.home-sys-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-sys-row .home-dot {
+  margin-top: 4px;
 }
 
 .home-dot {
@@ -312,7 +328,24 @@
 
 .home-sys-name {
   font-size: 12px;
+  font-weight: 550;
   color: var(--qc-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-sys-id {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--qc-text-quaternary);
+}
+
+.home-sys-sub {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -320,6 +353,7 @@
 
 .home-sys-val {
   margin-left: auto;
+  padding-top: 2px;
   font-size: 10.5px;
   color: var(--qc-text-quaternary);
   white-space: nowrap;

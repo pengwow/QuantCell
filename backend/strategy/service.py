@@ -24,8 +24,11 @@
 import ast
 import hashlib
 import json
+import time
 from pathlib import Path
 
+from axon_bridge.llm import classify_llm_error
+from observability import runtime_health
 from utils.logger import LogType, get_logger
 from utils.paths import get_persistent_dir
 
@@ -1549,13 +1552,27 @@ class StrategyService:
                 {"role": "user", "content": user_prompt},
             ]
 
-            # 调用AI模型
-            response = adapter.client.chat.completions.create(
-                model=model_name or "gpt-4",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=4000,
-            )
+            # 调用AI模型（耗时/失败计入首页 LLM Provider 读数；策略生成走 openai SDK，不经 axon_bridge）
+            _llm_t0 = time.monotonic()
+            try:
+                response = adapter.client.chat.completions.create(
+                    model=model_name or "gpt-4",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=4000,
+                )
+            except Exception as _llm_err:
+                try:
+                    runtime_health.record_llm_call(
+                        time.monotonic() - _llm_t0, error_kind=classify_llm_error(_llm_err)
+                    )
+                except Exception:
+                    pass
+                raise
+            try:
+                runtime_health.record_llm_call(time.monotonic() - _llm_t0)
+            except Exception:
+                pass
 
             # 解析AI响应
             ai_content = response.choices[0].message.content

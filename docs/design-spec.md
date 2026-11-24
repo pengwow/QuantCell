@@ -347,7 +347,11 @@ demo 只有 `.toast` 一个原语；antd 有两个相近组件，全站裁决、
 ### 6.17 状态点 / 指示灯行
 
 - `.dot`：8px 圆；ok = `up` 实心 + `0 0 0 3px up 16%` 光环；warn = `warn` 同理；off = `bge` 底 + `bd-2` 1.5px 边。
-- 系统状态行：左侧点 + 名称 12px `fg-2` + 右侧 mono 值 10.5px `fg-4`；行距 10px。
+- 系统状态行（首页「系统状态」卡，demo `.sys-row` 口径）：左侧 8px 点（与首行文字顶对齐，`margin-top:4px`）+ 中间两行 + 右侧 mono 值 10.5px `fg-4`。
+  - 首行：名称 12px/550 `fg-2`，同行尾接 mono id 10px/400 `fg-4`（`margin-left:4px`），如「交易引擎 `axon-kernel`」。
+  - 次行：副说明 10.5px `fg-4`，`margin-top:2px`，单行省略。
+  - 行间：`padding:9px 0` + 1px dashed（`fg 9%`）上边，首行无分割线、上内距收到 2px。
+  - 值列：`margin-left:auto; padding-top:2px; white-space:nowrap`，取不到真值时写「—」，不写 0。
 
 ### 6.18 抽屉 `.ant-drawer`（demo 无静态稿）
 

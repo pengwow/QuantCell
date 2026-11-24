@@ -136,3 +136,19 @@ def test_cpu_usage_keeps_last_value_when_counter_not_refreshed(monkeypatch):
     # 模拟已超过 1s 采样窗口，允许重新采样
     svc._cpu_usage_cache = (time.monotonic() - 2.0, 41.0)
     assert svc._sample_cpu_usage() == 41.0
+
+
+async def test_probe_detail_records_latency(monkeypatch):
+    """探测明细带往返延迟（首页 Exchange 行的真值来源），未探测前为空"""
+    svc = SystemService()
+    assert svc.get_exchange_probe_detail() == {"exchanges": [], "timestamp": None}
+
+    _patch_env(monkeypatch, [_FakeAccount("binance")], {"binance": False}, [])
+    assert await svc.get_connection_status() == "disconnected"
+
+    detail = svc.get_exchange_probe_detail()
+    assert [e["exchange"] for e in detail["exchanges"]] == ["binance"]
+    assert detail["exchanges"][0]["ok"] is False
+    # 延迟是实测值：只要健康检查被调用过就必然 >= 0
+    assert detail["exchanges"][0]["latency_ms"] >= 0
+    assert detail["timestamp"]

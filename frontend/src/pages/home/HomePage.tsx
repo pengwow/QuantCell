@@ -161,6 +161,18 @@ function runningDuration(worker: Worker): string | null {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
+type SysTone = 'ok' | 'warn' | 'down' | 'off';
+
+/** 「系统状态」卡的一行：点状态 + 名称(+mono id) + 副说明 + 右侧 mono 值 */
+interface SysRow {
+  key: string;
+  tone: SysTone;
+  name: string;
+  id?: string;
+  sub: string;
+  val: string;
+}
+
 const HomePage = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -303,7 +315,6 @@ const HomePage = () => {
   );
 
   const online = system?.connectionStatus === 'connected';
-  const offline = system?.connectionStatus === 'disconnected' || system?.connectionStatus === 'error';
   // 首次加载尚未拿到任何数据时才展示骨架；轮询刷新不打断已有内容
   const firstLoading = loading && updatedAt === null;
   const pnlPct = pnlOverview?.pnl_pct ?? null;
@@ -329,6 +340,86 @@ const HomePage = () => {
     if (updatedAt) parts.push(`${t('home_last_updated')} ${dayjs(updatedAt).format('HH:mm:ss')}`);
     return parts.join(' · ');
   }, [system, online, updatedAt, t]);
+
+  // 「系统状态」四行：全部取 /system/metrics 的真实业务读数，缺失即「—」，
+  // 不用 0 冒充；口径见 backend/observability/runtime_health.py 与 SystemService
+  const sysRows = useMemo<SysRow[]>(() => {
+    if (!system) return [];
+    const ms = (v: number | null | undefined) =>
+      v == null ? '—' : v >= 10 ? `${Math.round(v)}ms` : `${v.toFixed(1)}ms`;
+
+    const eng = system.engine;
+    const exs = system.exchanges?.exchanges ?? [];
+    const okExs = exs.filter((e) => e.ok);
+    const ds = system.dataSource;
+    const llm = system.llm;
+    const provider = llm?.provider;
+
+    return [
+      {
+        key: 'engine',
+        tone: eng && eng.samples > 0 ? 'ok' : 'off',
+        name: t('home_sys_engine'),
+        id: 'axon-kernel',
+        sub:
+          eng && eng.samples > 0
+            ? t('home_sys_engine_sub', { samples: eng.samples })
+            : t('home_sys_engine_sub_empty'),
+        val: eng?.avg_ms != null ? t('home_sys_engine_val', { ms: ms(eng.avg_ms) }) : '—',
+      },
+      {
+        key: 'exchange',
+        tone:
+          exs.length === 0 ? 'off' : okExs.length === exs.length ? 'ok' : okExs.length > 0 ? 'warn' : 'down',
+        name: t('home_sys_exchange'),
+        id: exs.map((e) => e.exchange).join(' / ') || undefined,
+        sub:
+          exs.length === 0
+            ? t('home_sys_exchange_fail')
+            : exs.length === 1
+              ? t('home_sys_exchange_sub', {
+                  mode: exs[0].trading_mode,
+                  state: exs[0].ok ? t('home_sys_exchange_ok') : t('home_sys_exchange_fail'),
+                })
+              : t('home_sys_exchange_sub_multi', {
+                  mode: exs[0].trading_mode,
+                  ok: okExs.length,
+                  total: exs.length,
+                }),
+        val:
+          okExs.length === 0
+            ? '—'
+            : t('home_sys_exchange_val', {
+                ms: ms(Math.min(...okExs.map((e) => e.latency_ms ?? 0))),
+              }),
+      },
+      {
+        key: 'data',
+        tone: ds && (ds.bar_count ?? 0) > 0 ? 'ok' : 'off',
+        name: t('home_sys_data'),
+        id: 'kline',
+        sub:
+          ds && (ds.bar_count ?? 0) > 0
+            ? t('home_sys_data_sub', {
+                symbols: ds.symbols ?? 0,
+                time: ds.latest_at ? dayjs(ds.latest_at).format('MM-DD HH:mm') : '—',
+              })
+            : t('home_sys_data_sub_empty'),
+        val: ds?.bar_count != null ? t('home_sys_data_val', { n: ds.bar_count.toLocaleString('en-US') }) : '—',
+      },
+      {
+        key: 'llm',
+        tone: !provider ? 'off' : (llm?.rate_limit ?? 0) > 0 ? 'warn' : (llm?.calls ?? 0) > 0 ? 'ok' : 'off',
+        name: t('home_sys_llm'),
+        id: provider?.name || t('home_sys_unconfigured'),
+        sub: provider
+          ? t('home_sys_llm_sub', { model: provider.model || '—', calls: llm?.calls ?? 0 }) +
+            ((llm?.rate_limit ?? 0) > 0 ? t('home_sys_llm_429', { n: llm?.rate_limit ?? 0 }) : '')
+          : t('home_sys_unconfigured'),
+        val: llm?.p95_ms != null ? t('home_sys_llm_val', { ms: ms(llm.p95_ms) }) : '—',
+      },
+    ];
+  }, [system, t]);
 
   const quickActions = [
     { path: '/chart', icon: <IconChartCandle />, label: t('chart') },
@@ -548,23 +639,26 @@ const HomePage = () => {
           )}
         </Card>
 
-        {/* 系统状态（demo col4；§6.17：8px 点 + 名称 12 + 右值 mono 10.5） */}
+        {/* 系统状态（demo col4：点 + 名称 + mono id + 副说明 + 右值；§6.17） */}
         <Card
           className="home-col-4 qc-card"
           title={t('home_system_status')}
           extra={
-            <button
-              type="button"
-              className="qc-mini-btn qc-icon-only"
-              aria-label={t('refresh')}
-              title={t('refresh')}
-              onClick={() => {
-                setLoading(true);
-                void load();
-              }}
-            >
-              <IconRefresh />
-            </button>
+            <span className="home-head-right">
+              <span className="qc-count-chip">{t('home_sys_count', { total: sysRows.length || 4 })}</span>
+              <button
+                type="button"
+                className="qc-mini-btn qc-icon-only"
+                aria-label={t('refresh')}
+                title={t('refresh')}
+                onClick={() => {
+                  setLoading(true);
+                  void load();
+                }}
+              >
+                <IconRefresh />
+              </button>
+            </span>
           }
         >
           {firstLoading && !system ? (
@@ -572,32 +666,19 @@ const HomePage = () => {
           ) : (
             <>
               <div className="home-sys">
-                <div className="home-sys-row">
-                  <span className={`home-dot ${online ? 'ok' : offline ? 'down' : system ? 'warn' : 'off'}`} />
-                  <span className="home-sys-name">{t('home_connection')}</span>
-                  <span className="qc-mono home-sys-val">
-                    {system ? (online ? t('home_system_online') : t('home_system_offline')) : '—'}
-                  </span>
-                </div>
-                <div className="home-sys-row">
-                  <span className={`home-dot ${system ? 'ok' : 'off'}`} />
-                  <span className="home-sys-name">{t('home_cpu')}</span>
-                  <span className="qc-mono home-sys-val">{system ? `${Math.round(system.cpuUsage)}%` : '—'}</span>
-                </div>
-                <div className="home-sys-row">
-                  <span className={`home-dot ${system ? 'ok' : 'off'}`} />
-                  <span className="home-sys-name">{t('home_memory')}</span>
-                  <span className="qc-mono home-sys-val">
-                    {system ? `${system.memoryUsed} / ${system.memoryTotal}` : '—'}
-                  </span>
-                </div>
-                <div className="home-sys-row">
-                  <span className={`home-dot ${system ? 'ok' : 'off'}`} />
-                  <span className="home-sys-name">{t('home_disk')}</span>
-                  <span className="qc-mono home-sys-val">
-                    {system ? `${system.diskUsed} / ${system.diskTotal}` : '—'}
-                  </span>
-                </div>
+                {sysRows.map((row) => (
+                  <div className="home-sys-row" key={row.key}>
+                    <span className={`home-dot ${row.tone}`} />
+                    <div className="home-sys-main">
+                      <div className="home-sys-name">
+                        {row.name}
+                        {row.id && <span className="qc-mono home-sys-id">{row.id}</span>}
+                      </div>
+                      <div className="home-sys-sub">{row.sub}</div>
+                    </div>
+                    <span className="qc-mono home-sys-val">{row.val}</span>
+                  </div>
+                ))}
               </div>
               {/* §6.3 card-foot：真实刷新时间，不编造 */}
               <div className="home-foot">

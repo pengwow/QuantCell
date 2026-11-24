@@ -14,7 +14,11 @@ from pydantic import BaseModel, Field
 
 from collector.schemas import ApiResponse
 from collector.services.system_service import SystemService
+from observability import runtime_health
 from utils.log_query_engine import get_log_query_engine
+from utils.logger import LogType, get_logger
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -32,6 +36,11 @@ class SystemMetrics(BaseModel):
     diskUsed: str = Field(..., description="已用磁盘空间")
     diskTotal: str = Field(..., description="总磁盘空间")
     lastUpdated: str = Field(..., description="最后更新时间")
+    # ---- 业务链路读数（首页「系统状态」卡用；字段缺失即前端显示「—」）----
+    engine: dict | None = Field(None, description="交易引擎泵读数（均值/p95/样本数）")
+    exchanges: dict | None = Field(None, description="交易所探测明细（含往返延迟）")
+    dataSource: dict | None = Field(None, description="本地 K 线库覆盖度")
+    llm: dict | None = Field(None, description="LLM 近 5 分钟调用读数 + 当前 provider")
 
 
 class LogEntry(BaseModel):
@@ -62,6 +71,21 @@ class LogQueryResponse(BaseModel):
     hasMore: bool = Field(..., description="是否有更多数据")
 
 
+def _llm_provider_label() -> dict | None:
+    """当前生效的 LLM provider 名称/模型（未配置时返回 None，前端显示「未配置」）。"""
+    try:
+        from agent.core.factory import get_ai_config
+
+        cfg = get_ai_config() or {}
+        provider = cfg.get("provider") or {}
+        model = cfg.get("enabled_model") or {}
+        if not provider:
+            return None
+        return {"name": provider.get("name"), "model": model.get("name") or model.get("id")}
+    except Exception:
+        return None
+
+
 @router.get("/metrics", response_model=ApiResponse)
 async def get_system_metrics():
     """
@@ -75,6 +99,8 @@ async def get_system_metrics():
     - diskUsed: 已用磁盘空间
     - diskTotal: 总磁盘空间
     - lastUpdated: 最后更新时间
+    - engine/exchanges/dataSource/llm: 首页「系统状态」卡的业务读数，
+      全部来自真实调用点（详见 observability/runtime_health.py 与 SystemService）
     """
     try:
         # 获取系统状态
@@ -87,6 +113,26 @@ async def get_system_metrics():
         memory_parts = system_status.get("memory_usage", "0GB / 0GB").split(" / ")
         disk_parts = system_status.get("disk_space", "0GB / 0GB").split(" / ")
 
+        # 业务读数：三块都能独立降级，任一异常只让该块变 None，不影响主机指标
+        engine_status = None
+        try:
+            engine_status = runtime_health.engine_stats()
+        except Exception as e:
+            logger.warning(f"读取引擎读数失败: {e}")
+
+        llm_status = None
+        try:
+            llm_status = runtime_health.llm_stats()
+            llm_status["provider"] = _llm_provider_label()
+        except Exception as e:
+            logger.warning(f"读取 LLM 读数失败: {e}")
+
+        data_source_status = None
+        try:
+            data_source_status = await run_in_threadpool(system_service.get_data_source_status)
+        except Exception as e:
+            logger.warning(f"读取行情库读数失败: {e}")
+
         # 构建响应数据
         metrics = SystemMetrics(
             connectionStatus=connection_status,
@@ -96,6 +142,10 @@ async def get_system_metrics():
             diskUsed=disk_parts[0] if len(disk_parts) > 0 else "0 GB",
             diskTotal=disk_parts[1] if len(disk_parts) > 1 else "0 GB",
             lastUpdated=system_status.get("timestamp", datetime.now().isoformat()),
+            engine=engine_status,
+            exchanges=system_service.get_exchange_probe_detail(),
+            dataSource=data_source_status,
+            llm=llm_status,
         )
 
         return ApiResponse(code=0, message="获取系统指标成功", data=metrics.model_dump())

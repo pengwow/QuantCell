@@ -25,6 +25,7 @@ from typing import Any
 from axon_quant import worker as axon_worker
 
 from observability import metrics as obs_metrics
+from observability import runtime_health
 from strategy.decision_recording import default_replay_dir, worker_replay_path, wrap_rl_predict
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
@@ -1204,6 +1205,11 @@ class StrategyManager:
                     obs_metrics.observe_pump_round(worker_id, "live", _tick_t0)
                 except Exception:
                     pass
+                # 首页「交易引擎」行：最近 N 轮 tick 的均值/p95（与上面同一计时点）
+                try:
+                    runtime_health.record_engine_tick(time.perf_counter() - _tick_t0)
+                except Exception:
+                    pass
             # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
             now_s = time.monotonic()
             if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
@@ -1446,6 +1452,11 @@ class StrategyManager:
                 # P2-01：paper 泵轮耗时（轮询延迟指标）；观测路径异常不影响交易循环
                 try:
                     obs_metrics.observe_pump_round(worker_id, "paper", _round_t0)
+                except Exception:
+                    pass
+                # 首页「交易引擎」行同源读数（paper 拉取/喂单轮）
+                try:
+                    runtime_health.record_engine_tick(time.perf_counter() - _round_t0)
                 except Exception:
                     pass
             try:
