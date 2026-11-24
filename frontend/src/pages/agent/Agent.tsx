@@ -28,7 +28,6 @@ import SessionListDrawer from './components/SessionListDrawer';
 import ToolListDrawerWithConfig from './components/ToolListDrawerWithConfig';
 import FirstScreenCards from './components/FirstScreenCards';
 import WorkbenchPanel from './components/workbench/WorkbenchPanel';
-import { ArrowRightOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import './Agent.css';
 
 const { Content } = Layout;
@@ -225,12 +224,9 @@ const Agent = () => {
               </p>
             </div>
             <div className="qc-page-actions">
-              <Button icon={<ArrowRightOutlined />} onClick={() => navigate('/strategy-worker')}>
-                {t('agent_page_to_workers')}
-              </Button>
-              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/home')}>
-                {t('agent_page_back_home')}
-              </Button>
+              {/* demo page-head 的两个 btn 是纯文字（箭头写在文案里），不叠加图标钮，避免双箭头且左右不齐 */}
+              <Button onClick={() => navigate('/strategy-worker')}>{t('agent_page_to_workers')}</Button>
+              <Button onClick={() => navigate('/home')}>{t('agent_page_back_home')}</Button>
             </div>
           </div>
         </div>
@@ -261,7 +257,8 @@ const Agent = () => {
                     placeholder={t('wb_select_worker')}
                     loading={workers.length === 0}
                     popupMatchSelectWidth={false}
-                    style={{ minWidth: 150 }}
+                    style={{ width: '100%' }}
+                    styles={{ popup: { root: { minWidth: 220, maxWidth: 320 } } }}
                     options={workers.map(w => ({
                       value: w.id,
                       label: `${w.name} (#${w.id})`,

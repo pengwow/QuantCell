@@ -1102,13 +1102,16 @@
   border-radius: 10px;
 }
 
+/* 卡头：左（标题 + 实时 chip）可压缩省略，右侧动作组放不下就整组换行，
+   不允许任何子项溢出卡面盖住相邻控件（窄窗口下 Worker 选择器曾压住标题/chip） */
 .agent-chat-head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   min-height: 44px;
-  padding: 0 14px;
+  padding: 5px 14px;
   border-bottom: 1px solid var(--qc-border);
 }
 
@@ -1116,16 +1119,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 不吃满首行：留出右侧动作组同排，只有放不下时才整体换行 */
+  flex: 0 1 auto;
   min-width: 0;
 }
 
 .agent-chat-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: 13px;
   font-weight: 650;
   color: var(--qc-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-live-chip {
+  flex: 0 0 auto;
 }
 
 .agent-live-chip .qc-pdot {
@@ -1135,8 +1146,32 @@
 .agent-chat-head-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 8px;
   margin-left: auto;
+  max-width: 100%;
+}
+
+/* demo `.agent-grid` 在 ≤1080px 退化为单列；本页是定高工作台，
+   堆叠后改由 .agent-workbench 自身滚动，会话卡给固定高度维持内滚 */
+@media (max-width: 1080px) {
+  .agent-workbench {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .agent-chat-col {
+    flex: 0 0 auto;
+    height: min(560px, 72vh);
+  }
+
+  .agent-work-col {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+  }
 }
 
 /* 右栏比页底抬一层（demo 右卡在画布上的层次） */
@@ -1153,11 +1188,24 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 2px 8px;
   background: var(--agent-header-bg);
   transition: border-color 160ms ease-out;
+}
+
+.wb-worker-select .ant-select {
+  min-width: 0;
+}
+
+/* Worker 选择器是卡头唯一可压缩项：窄窗口先让宽度（ellipsis），
+   而不是把整组动作挤到第二行或溢出卡面 */
+.wb-worker-select {
+  flex: 0 1 210px;
+  min-width: 104px;
 }
 
 .wb-worker-label {
