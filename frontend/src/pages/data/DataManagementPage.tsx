@@ -47,7 +47,6 @@ import {
   StarFilled,
   DownloadOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined,
   ReloadOutlined,
   BarChartOutlined,
   DatabaseOutlined,
@@ -2447,40 +2446,6 @@ const DataManagementPage = () => {
   };
 
   // 渲染货币对工具栏 - 参考策略回测页面风格
-  // 批量开启自动更新
-  const batchEnableAutoUpdate = () => {
-    if (selectedSymbols.length === 0) {
-      message.warning(t('dm_msg_select_symbols_first'));
-      return;
-    }
-    setSymbols(prev =>
-      prev.map(s => selectedSymbols.includes(s.symbol) ? { ...s, autoUpdate: true } : s)
-    );
-    message.success(t('dm_msg_auto_on', { n: selectedSymbols.length }));
-  };
-
-  // 批量关闭自动更新
-  const batchDisableAutoUpdate = () => {
-    if (selectedSymbols.length === 0) {
-      message.warning(t('dm_msg_select_symbols_first'));
-      return;
-    }
-    setSymbols(prev =>
-      prev.map(s => selectedSymbols.includes(s.symbol) ? { ...s, autoUpdate: false } : s)
-    );
-    message.success(t('dm_msg_auto_off', { n: selectedSymbols.length }));
-  };
-
-  // 批量采集数据
-  const batchCollectData = () => {
-    if (selectedSymbols.length === 0) {
-      message.warning(t('dm_msg_select_symbols_first'));
-      return;
-    }
-    // 这里可以实现批量采集逻辑
-    message.info(t('dm_msg_batch_collect_wip', { n: selectedSymbols.length }));
-  };
-
   // 行情标的页签底部「批量数据采集」：已选标的 × 数据类型 × 模式直接入队。
   // 与「数据采集」页签表单共用同一后端入口，区间/周期/并发取默认值（详细参数走那边）
   const handleQuickBatchCollect = async () => {
@@ -2618,56 +2583,6 @@ const DataManagementPage = () => {
         }
       />
 
-      {/* 批量操作条 - 当有选中项时显示（§6.2 提示条：success 8% 底 + 45% 边） */}
-      {selectedSymbols.length > 0 && (
-        <Card
-          size="small"
-          className="mb-3 qc-card"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--qc-success) 8%, transparent)',
-            borderColor: 'color-mix(in srgb, var(--qc-success) 45%, transparent)',
-          }}
-        >
-          <Row align="middle" justify="space-between">
-            <Col>
-              <Space>
-                <span className="font-medium text-success">
-                  {t('dm_selected_n', { n: selectedSymbols.length })}
-                </span>
-                <Button type="link" size="small" onClick={clearSelection}>
-                  {t('clear_selection')}
-                </Button>
-              </Space>
-            </Col>
-            <Col>
-              <Space wrap>
-                <Button
-                  size="small"
-                  icon={<CheckCircleOutlined />}
-                  onClick={batchEnableAutoUpdate}
-                >
-                  {t('batch_enable_auto_update')}
-                </Button>
-                <Button
-                  size="small"
-                  icon={<CloseCircleOutlined />}
-                  onClick={batchDisableAutoUpdate}
-                >
-                  {t('batch_disable_auto_update')}
-                </Button>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<CloudDownloadOutlined />}
-                  onClick={batchCollectData}
-                >
-                  {t('batch_collection')}
-                </Button>
-              </Space>
-            </Col>
-          </Row>
-        </Card>
-      )}
     </div>
   );
 
@@ -3160,6 +3075,11 @@ const DataManagementPage = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span className="qc-card-sub">{t('dm_selected_symbols')}</span>
         <span className="qc-chip quiet qc-mono">{t('dm_selected_count', { n: selectedSymbols.length })}</span>
+        {selectedSymbols.length > 0 && (
+          <Button type="link" size="small" onClick={clearSelection} style={{ padding: 0, height: 'auto', fontSize: 11 }}>
+            {t('clear_selection')}
+          </Button>
+        )}
         <Select
           aria-label={t('dm_form_datatype')}
           value={quickDataType}
