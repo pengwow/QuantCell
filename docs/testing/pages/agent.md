@@ -2,7 +2,7 @@
 
 ## 前置
 - 环境与 token 注入见 `../README.md` 第一节；本页在 `AuthGuard` 内，且被 `CapabilityGuard capability="agent_gateway"` 包裹
-- 组件：`frontend/src/pages/agent/Agent.tsx`（左聊天 `components/ChatPanel.tsx`，右工作面板 `components/workbench/WorkbenchPanel.tsx`）
+- 组件：`frontend/src/pages/agent/Agent.tsx`（左聊天 `components/ChatPanel.tsx`，右栏两卡 `components/FirstScreenCards.tsx`）
 - **路由形态**：`DynamicRouter.tsx` 里 agent 只有一条路由 `/agent`，**没有子路由**。右栏已按 demo 收敛为「迭代足迹 + 记忆自迭代」两卡（原 8 页签工作台整体删除），URL 只剩 `?worker=<id>` 持久化选中的 Worker；旧的 `?tab=` 参数不再消费，带进来也不报错、直接忽略
 - 能力开关：`GET /api/v1/capabilities` 中 `agent_gateway` 必须为 true，否则整页渲染 403 文案`功能未开启`（这是部署配置，不是页面缺陷）
 - 种子：无需求；没有 Worker 时右栏全部落到空态/占位，页面骨架仍应完好。真实让 AI 跑任务会烧 LLM 配额，标"按需"
@@ -32,6 +32,7 @@
 | AG31 | 长会话滚到底后看整体 | `.ai-agent-layout` 高度吃满 `qc-main`：卡片底边贴在视口内（1440×900 下无纵向溢出、无窗口滚动条），换 1280×720 也不出现输入区被切；明暗两主题下卡片底/边、卡头分隔线、实时 chip 都随 token 切换 | L1 |
 | AG32 | 看页头右上动作钮 | 与 demo `page-head` 一致的两个 30px 文字钮：`策略智能体 →`（→ `/strategy-worker`）与 `← 返回首页`（→ `/home`），箭头是文案的一部分、**不叠加图标钮**（不得出现双箭头）；两钮同高 30px、同底边对齐，间距 8px | L1 |
 | AG33 | 缩小窗口到 ~700/880px 与 1280×720 | 页面在 ≤1080px 退化为单列（demo `.agent-grid` 同口径）：会话卡整宽 560px 定高、右栏两卡堆到下方、整块工作台纵向滚动；任意宽度下会话卡卡头都是单行 44px（不换行）且 `scrollWidth == clientWidth`，Worker 选择器不压住「会话 · xxx」与「实时」chip，标题单行省略 | L1 |
+| AG35 | 页面底色与双栏对齐（亮/暗各跑一遍） | `.ai-agent-layout` 计算样式 `background-color` = `--qc-canvas`（亮 `#f2f3f5` / 暗 `#0b0c0e`），与首页等其他页面同底色，右栏空白处不是白面；1440×900 下页头左右内距 2px、双栏顶边同为页头下 12px，右栏宽 372px（demo `.agent-grid`），右栏两卡底边与左会话卡底边重合；两卡都有 `--qc-shadow-card` 阴影 | L1 |
 | AG34 | 展开 Worker 下拉，依次选名字最短/最长的 Worker | 卡头高度恒为 44px（换 Worker 不换行）；选中值单行省略（`title` 带全名），下拉选项单行省略、行高 32px；弹层宽度 220–320px 且整块落在会话卡内（不越过卡右缘盖到右栏） | L1 |
 
 > 原 8 页签工作台的验收项（旧 AG4–AG10、AG13：决策流/持仓订单/绩效/模型/日志/审计/事件/训练）随页签一起删除，防回归断言见 AG22。

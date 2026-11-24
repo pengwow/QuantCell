@@ -73,7 +73,8 @@
 .ai-agent-layout {
   flex: 1;
   min-height: 0;
-  background: var(--agent-bg);
+  /* 页面底走全站画布色（--qc-canvas）；--qc-bg 是白面，会把整页刷成白底、和其他页不同 */
+  background: var(--qc-canvas);
   transition: background-color 160ms ease-out;
 }
 
@@ -82,12 +83,12 @@
    故只加一行轻量 page-head：标题 16/650 + 副标 11 mono + 右侧 30px 钮（复用 global.css 的 qc-page-* 类）。 */
 .agent-page-head {
   flex: 0 0 auto;
-  padding: 9px 16px 0;
-  background: var(--agent-header-bg);
+  padding: 2px 2px 0;
+  background: transparent;
 }
 
 .agent-page-head .qc-page-head {
-  margin: 0;
+  margin: 0 0 12px;
 }
 
 .agent-page-head-main {
@@ -163,7 +164,8 @@
 .agent-content {
   flex: 1;
   overflow-y: auto;
-  padding: 18px 20px;
+  /* demo 会话卡内容区：卡片内距 14，消息区自身只留 12 顶 + 14 右 */
+  padding: 12px 14px 6px;
 }
 
 .messages-container {
@@ -1086,20 +1088,22 @@
   gap: 12px;
   min-height: 0;
   overflow: hidden;
-  padding: 12px 16px 16px;
-  background: var(--agent-bg);
+  /* 左右留白由 .qc-main 统一给（4px），与 demo #agent-grid 同一条对齐线 */
+  padding: 0;
+  background: transparent;
 }
 
 .agent-chat-col {
-  flex: 1 1 55%;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* demo 会话卡：白面 + 1px 边 + 10px 圆角，卡头 13/650 与右侧动作同排 */
+  /* demo 会话卡：白面 + 1px 边 + 10px 圆角 + 卡阴影（与全站 qc-card 同 token） */
   background: var(--qc-surface);
   border: 1px solid var(--qc-border);
   border-radius: 10px;
+  box-shadow: var(--qc-shadow-card);
 }
 
 /* 卡头：左（标题 + 实时 chip）可压缩省略，右侧动作组放不下就整组换行，
@@ -1112,9 +1116,9 @@
      第二行会把输入区/卡面推出可视区（1280 窄侧栏下实测过） */
   flex-wrap: nowrap;
   gap: 10px;
-  min-height: 44px;
-  padding: 5px 14px;
-  border-bottom: 1px solid var(--qc-border);
+  padding: 12px 14px 0;
+  /* demo card-head 与内容之间留 8px，消息滚到底也不会贴住卡头 */
+  margin-bottom: 6px;
 }
 
 .agent-chat-head-left {
@@ -1160,9 +1164,11 @@
 
 /* 右栏比页底抬一层（demo 右卡在画布上的层次） */
 .agent-work-col {
-  flex: 0 0 45%;
-  min-width: 360px;
-  max-width: 45%;
+  /* demo `.agent-grid` 右列固定 372px（不是百分比），左右两栏顶/底才会对齐 */
+  flex: 0 0 372px;
+  width: 372px;
+  min-width: 0;
+  max-width: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1247,20 +1253,44 @@
 }
 
 /* ==================== 右栏首屏两卡（demo 1528–1592：迭代足迹 + Dream） ==================== */
-/* 卡区排在 8 页签之上：空间富余时全量展开；紧张时自身压缩内滚 */
+/* 卡区铺满右栏高度：两卡的底边与左会话卡对齐（demo 右列整块填满 agent-grid） */
 .fs-cards {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 10px 8px;
+  gap: 12px;
+  padding: 0;
 }
 
-/* 首屏 Dream 体收短（完整内容仍归「自迭代」页签） */
+.fs-cards > .sl-card {
+  flex: 0 0 auto;
+}
+
+.fs-cards > .sl-card:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Dream 卡内部滚动：卡高由列高决定，MEMORY.md 体在卡内滚 */
+.fs-cards > .sl-card:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-cards > .sl-card:last-child .sl-mem-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .fs-cards .sl-mem-body {
-  max-height: 132px;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
 }
 
 /* 足迹柱图：有上限按上限归一，熔断线 = 轨顶（值标签 13px 之下）；无上限按最大值归一、不画线 */
@@ -1366,7 +1396,8 @@
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--qc-surface);
-  padding: 10px 12px 9px;
+  padding: 12px 14px;
+  box-shadow: var(--qc-shadow-card);
 }
 
 .sl-card-head {
@@ -1380,7 +1411,7 @@
 /* 序号徽章（demo .card-idx：mono 10px 主色 40% 边） */
 
 .sl-card-title {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 650;
   color: var(--text-primary);
 }
