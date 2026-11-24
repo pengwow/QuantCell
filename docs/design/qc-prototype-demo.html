@@ -731,6 +731,68 @@
   #btCardGrid .md-exp, #saCardGrid .md-exp, #stCardGrid .md-exp,
   #fcCardGrid .md-exp, #symGrid .md-exp, #rsGrid .md-exp { grid-column: 1 / -1; padding: 0; margin: -2px 0 10px; }
   .fav-on { color: var(--warn) !important; }
+
+  /* ---- v6 · 数据管理 4 页签（行情标的 / 数据采集 / 数据质量 / 历史行情浏览）----
+     只复用既有 token 与控件原语（.tabs/.tab、.pick、.seg、.chip、.kvtab、.gt），
+     新增类只做排布：pane 内距同 .ws-body，自选组侧栏 210px，<1100px 折为上方横排 ---- */
+  .dm-pane { padding:16px 16px 14px; display:flex; flex-direction:column; gap:12px; }
+  .dm-pane[hidden] { display:none; }
+  .dm-layout { display:flex; gap:12px; align-items:flex-start; }
+  .dm-side { flex:0 0 210px; border:1px solid var(--bd); border-radius:10px; background:var(--bgc); padding:8px; }
+  .dm-side-t { font-size:10.5px; color:var(--fg-4); padding:2px 6px 7px; display:flex; align-items:center; justify-content:space-between; letter-spacing:.02em; }
+  .dm-main { flex:1; min-width:0; }
+  .wl-list { display:flex; flex-direction:column; gap:2px; }
+  .wl-line { display:flex; align-items:center; }
+  .wl-item { display:flex; align-items:center; gap:7px; flex:1; min-width:0; border:none; background:transparent; border-radius:7px; padding:6px 8px; font:inherit; font-size:12px; color:var(--fg-2); cursor:pointer; text-align:left; }
+  .wl-item:hover { background:color-mix(in srgb, var(--fg) 4%, transparent); }
+  .wl-item.on { background:color-mix(in srgb, var(--primary) 10%, transparent); color:var(--primary); font-weight:600; }
+  .wl-item .wl-n { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wl-item .wl-c { margin-left:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10px; color:var(--fg-4); }
+  .wl-item.on .wl-c { color:var(--primary); }
+  .wl-x { flex:0 0 20px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:5px; background:transparent; color:var(--fg-4); cursor:pointer; font-size:11px; }
+  .wl-x:hover { color:var(--down); background:color-mix(in srgb, var(--down) 8%, transparent); }
+  .wl-x[disabled] { color:var(--fg-4); opacity:.4; cursor:not-allowed; }
+  /* 表单排布（采集表单 / 归档筛选 / 批量采集卡）：label 11px mono，控件纵排 */
+  .dm-frm { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
+  .dm-fld { display:flex; flex-direction:column; gap:5px; }
+  .dm-fld > label { font-size:11px; color:var(--fg-4); font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.02em; }
+  .dm-fld .msel, .dm-fld .minput { height:30px; width:170px; }
+  .dm-fld .minput[type="date"] { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; }
+  .dm-pickrow { display:flex; gap:6px; flex-wrap:wrap; }
+  .dm-ckgrid { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px 10px; }
+  .dm-ck { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--fg-2); cursor:pointer; padding:4px 2px; }
+  .dm-ck input { accent-color:var(--primary); width:13px; height:13px; margin:0; cursor:pointer; }
+  .dm-ck .mono { font-size:10px; color:var(--fg-4); }
+  /* 质量维度小页签条：复用 .tabs 形制在 pane 内使用（.q-tabs 负边距贴满 card 内距） */
+  .q-tabs { border-bottom:1px solid var(--bd); margin:6px -14px 0; padding:0 10px; }
+  .q-pane2 { padding-top:12px; display:flex; flex-direction:column; gap:9px; }
+  .q-ev { border:1px solid var(--bd); border-radius:9px; background:var(--bg); padding:9px 12px; }
+  .q-ev.down-c { border-color:color-mix(in srgb, var(--down) 32%, transparent); background:color-mix(in srgb, var(--down) 5%, transparent); }
+  .q-ev.warn-c { border-color:color-mix(in srgb, var(--warn) 40%, transparent); background:color-mix(in srgb, var(--warn) 6%, transparent); }
+  .q-ev .q-t { font-size:12px; font-weight:600; }
+  /* 确认气泡（归档删除 / 任务删除 / 自选组删除二次确认）：体量对齐 .noticew，位置由 JS 锚定按钮 */
+  .pop { position:absolute; z-index:95; width:244px; background:var(--bgc); border:1px solid var(--bd-2); border-radius:10px;
+    box-shadow:var(--bubble-shadow); padding:11px 12px; font-size:11.5px; line-height:1.6; color:var(--fg-2); }
+  .pop .pop-t { font-weight:650; color:var(--fg); font-size:12px; margin-bottom:3px; }
+  .pop-foot { display:flex; justify-content:flex-end; gap:7px; margin-top:9px; }
+  .pop .btn { height:26px; padding:0 10px; font-size:11.5px; border-radius:7px; }
+  /* hidden 属性优先于 display:flex 类（.q-pane2 / .empty 自带 display，否则 [hidden] 失效）
+     —— 数据质量空态与结果互斥、标的空态显隐都靠它 */
+  .q-pane2[hidden], .empty[hidden] { display:none; }
+  .q-ok { padding:9px 12px; border-radius:9px; font-size:12px; line-height:1.7; color:var(--fg-2); border:1px solid var(--bd); background:var(--bg); }
+  /* 行情标的「自动更新」开关（列表列内 role=switch；卡片正面为文本徽章 .js-autoc，同一 data 源） */
+  .dm-sw { position:relative; width:30px; height:17px; border:none; border-radius:9px; background:var(--bd-2); cursor:pointer; padding:0; transition:background .15s; vertical-align:middle; }
+  .dm-sw::after { content:''; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:var(--bg); box-shadow:0 1px 2px color-mix(in srgb, var(--fg) 25%, transparent); transition:left .15s; }
+  .dm-sw[aria-checked="true"] { background:var(--up); }
+  .dm-sw[aria-checked="true"]::after { left:15px; }
+  .dm-sw:focus-visible { outline:2px solid var(--info); outline-offset:2px; }
+  @media (max-width:1100px) {
+    .dm-layout { flex-direction:column; }
+    .dm-side { flex:none; width:100%; }
+    .wl-list { display:flex; flex-wrap:wrap; gap:4px; }
+    .wl-item { width:auto; flex:0 1 auto; }
+    .wl-line { display:contents !important; }
+  }
 </style>
 </head>
 <body>
@@ -2009,57 +2071,6 @@
           </div>
         </div>
 
-        <div class="toolbar" style="margin-top:12px">
-          <input class="tsearch" id="symSearch" placeholder="搜索标的…" aria-label="搜索标的">
-          <div class="frow" role="group" aria-label="数据质量过滤" id="symChips">
-            <button class="ichip on" data-f="">全部</button>
-            <button class="ichip" data-f="正常">数据正常</button>
-            <button class="ichip" data-f="缺口">存在缺口</button>
-            <button class="ichip" data-f="无数据">无数据</button>
-          </div>
-          <span class="r-count mono" id="symCount"></span>
-        </div>
-
-        <div class="card bt-card" style="margin-top:0">
-          <div class="card-head"><span class="card-title">行情标的</span><div class="head-right"><span class="card-sub mono">按成交量 Top 12 · 采集 / 质量为演示动作</span></div></div>
-          <div class="vt-list">
-            <div class="bt-scroll">
-              <table class="gt">
-                <thead><tr><th>标的</th><th style="text-align:right">价格</th><th style="text-align:right">24h</th><th style="text-align:right">24h 成交量</th><th>数据状态</th><th>操作</th></tr></thead>
-                <tbody id="symBody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="vt-card">
-            <div class="card-grid" id="symGrid"></div>
-          </div>
-          <div class="pg-slot in-card" id="symSlot"></div>
-          <div class="card-foot"><span>点击行 / 卡就地展开标的简况（两形态同一面板）· ★ 收藏（自选组演示）· 采集 = 入队演示 toast · 质量 = 存储报告口径说明 · 形态经系统设置切换</span></div>
-        </div>
-
-        <div class="toolbar">
-          <input class="tsearch" id="sySearch" placeholder="搜索任务 / 范围…" aria-label="搜索同步任务">
-          <div class="frow" role="group" aria-label="状态过滤" id="syChips">
-            <button class="ichip on" data-f="">全部</button>
-            <button class="ichip" data-f="完成">完成</button>
-            <button class="ichip" data-f="运行中">运行中</button>
-            <button class="ichip" data-f="失败">失败</button>
-          </div>
-          <span class="r-count mono" id="syCount"></span>
-        </div>
-
-        <div class="card" style="margin-top:0">
-          <div class="card-head"><span class="card-title">同步任务</span><div class="head-right"><span class="card-sub mono">最新在前 · 滚动加载更早</span><span class="count-chip">12 条</span></div></div>
-          <div class="bt-scroll">
-            <table class="gt">
-              <thead><tr><th>任务</th><th>状态</th><th>备注</th></tr></thead>
-              <tbody id="syBody"></tbody>
-            </table></tbody>
-            </table>
-          </div>
-          <div class="pg-slot in-card" id="sySlot"></div>
-        </div>
-
         <div class="card" style="margin-top:12px">
           <div class="card-head"><span class="card-title">存储用量</span><div class="head-right"><span class="s-chip">合计 <b>102.8 GB</b></span></div></div>
           <div class="cmp">
@@ -2068,7 +2079,201 @@
             <div class="cmp-row"><span class="cl">特征缓存</span><span class="bar2"><i style="width:6%;background:var(--up)"></i></span><span class="val">6.2 GB</span></div>
             <div class="cmp-row"><span class="cl">LLM replay 记录</span><span class="bar2"><i style="width:1.2%;background:var(--warn)"></i></span><span class="val">1.1 GB</span></div>
           </div>
-          <div class="card-foot"><span>滚动归档策略：Raw trades 保留 180 天，聚合后释放 · 上次压缩 11-18 03:00 耗时 22 分钟</span></div>
+          <div class="card-foot"><span>归档 parquet 各数据类型占用 · 来源 archiveApi.getMeta 口径（演示播种）</span></div>
+        </div>
+
+        <div class="card ws-detail" style="margin-top:12px">
+          <div class="tabs" id="dmTabs" role="tablist" aria-label="数据管理页签">
+            <button class="tab on" role="tab" aria-selected="true" data-pane="dm-symbols">行情标的</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="dm-collection">数据采集</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="dm-quality">数据质量</button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="dm-archive">历史行情浏览</button>
+          </div>
+
+          <!-- ============ 页签 1 · 行情标的：自选组侧栏 + 搜索/筛选 + 标的表/卡 + 批量数据采集 ============ -->
+          <div class="dm-pane" id="dm-symbols">
+            <!-- 布局注记：#symGrid 因左侧自选组栏占 210px，按既有卡宽（≈307px，与其它 6 页 4 列卡面同宽）
+                 自然断行为每行 3 张；刻意不凑满 4 列把卡挤窄，与全站卡面尺寸保持一致 -->
+            <div class="dm-layout">
+              <aside class="dm-side" aria-label="自选组">
+                <div class="dm-side-t"><span>自选组</span><button class="mini-btn" data-modal="mWl">管理自选组</button></div>
+                <div class="wl-list" id="wlList"></div>
+                <button class="mini-btn" data-modal="mWlBatch" style="width:100%; justify-content:center; margin-top:8px">批量添加自选</button>
+              </aside>
+              <div class="dm-main">
+                <div class="toolbar" style="margin:0 0 12px">
+                  <input class="tsearch" id="symSearch" placeholder="搜索标的…" aria-label="搜索标的">
+                  <div class="frow" role="group" aria-label="数据质量过滤" id="symChips">
+                    <button class="ichip on" data-f="">全部</button>
+                    <button class="ichip" data-f="正常">数据正常</button>
+                    <button class="ichip" data-f="缺口">存在缺口</button>
+                    <button class="ichip" data-f="无数据">无数据</button>
+                  </div>
+                  <span class="r-count mono" id="symCount"></span>
+                </div>
+                <div class="card bt-card" style="margin-top:0">
+                  <div class="card-head"><span class="card-title">行情标的</span><div class="head-right"><span class="card-sub mono">按成交量 Top 12 · 现货 / USD-M 永续混合 · 点行/卡就地展开简况</span></div></div>
+                  <div id="symBox">
+                    <div class="vt-list">
+                      <div class="bt-scroll">
+                        <table class="gt">
+                          <thead><tr><th style="width:30px"><input type="checkbox" id="symSelAll" aria-label="全选标的" style="display:block; margin:0 auto; accent-color:var(--primary); width:13px; height:13px; cursor:pointer"></th><th>标的</th><th style="text-align:right">价格</th><th style="text-align:right">24h</th><th style="text-align:right">24h 成交量</th><th>数据状态</th><th style="text-align:center">自动更新</th><th>操作</th></tr></thead>
+                          <tbody id="symBody"></tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div class="vt-card">
+                      <div class="card-grid" id="symGrid"></div>
+                    </div>
+                    <div class="pg-slot in-card" id="symSlot"></div>
+                  </div>
+                  <div class="empty" id="symEmpty" hidden>
+                    <div class="empty-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" stroke-linejoin="round"/></svg></div>
+                    <div class="empty-t">该自选组暂无标的</div>
+                    <div class="empty-h">从行内 ★ 收藏、或在「批量添加自选」里勾选标的加入当前组。</div>
+                    <button class="mini-btn" data-clear>回到「全部标的」</button>
+                  </div>
+                  <div class="card-foot"><span>点击行 / 卡就地展开标的简况（两形态同一面板）· ★ = 添加到自选组（默认组）· 采集 = 入队并进「数据采集」· 质量 = 跳「数据质量」页签 · 形态经系统设置切换</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">批量数据采集</span><div class="head-right"><span class="card-sub mono">勾选标的 × 数据类型 → 提交到「数据采集」页签</span></div></div>
+              <div class="dm-frm">
+                <div class="dm-fld"><label>已选标的</label><span class="s-chip">选中 <b id="bcSelCount">0</b> 个</span></div>
+                <div class="dm-fld"><label>数据类型</label>
+                  <div class="dm-pickrow" id="bcTypes">
+                    <button type="button" class="pick on">K 线数据</button><button type="button" class="pick">行情数据</button><button type="button" class="pick">衍生品指标</button>
+                  </div></div>
+                <div class="dm-fld"><label>模式</label><div class="seg" id="bcMode"><button type="button" class="mono on">增量 inc</button><button type="button" class="mono">全量 full</button></div></div>
+                <button class="btn primary" id="jsBatchGo">开始采集</button>
+              </div>
+              <div class="card-foot"><span>正式页为「选中标的 × 数据类型」口径 · 逐标的单点采集走表格行内「采集」按钮（同样入队）</span></div>
+            </div>
+          </div>
+
+          <!-- ============ 页签 2 · 数据采集：批量采集表单 + 采集任务（含子任务展开） ============ -->
+          <div class="dm-pane" id="dm-collection" hidden>
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">批量数据采集（支持全数据类型）</span><div class="head-right"><span class="card-sub mono">data_type ∈ 引擎放行 10 类 · 增量按水位续传 · 全量重置区间</span></div></div>
+              <div class="dm-frm">
+                <div class="dm-fld"><label>数据类型（多选）</label>
+                  <div class="dm-pickrow" id="colTypes">
+                    <button type="button" class="pick on">K 线数据</button><button type="button" class="pick">行情数据</button><button type="button" class="pick">衍生品指标</button>
+                  </div></div>
+                <div class="dm-fld"><label>市场</label><select class="msel" id="colMarket" style="width:130px"><option>spot 现货</option><option selected>USD-M 永续</option></select></div>
+                <div class="dm-fld"><label>交易所</label><select class="msel" style="width:110px"><option selected>binance</option><option disabled>okx（未接入）</option></select></div>
+                <div class="dm-fld"><label>时间周期</label><div class="seg" id="colTf"><button type="button" class="mono">15m</button><button type="button" class="mono on">1h</button><button type="button" class="mono">4h</button><button type="button" class="mono">1d</button></div></div>
+                <div class="dm-fld"><label>开始日期</label><input class="minput mono" type="date" value="2026-10-01" style="width:140px"></div>
+                <div class="dm-fld"><label>结束日期</label><input class="minput mono" type="date" value="2026-11-20" style="width:140px"></div>
+                <div class="dm-fld"><label>模式</label><div class="seg" id="colMode"><button type="button" class="mono on">增量 inc</button><button type="button" class="mono">全量 full</button></div></div>
+                <button class="btn primary" id="jsColStart">开始采集</button>
+              </div>
+              <div class="card-foot"><span><span class="mono">mode=inc|full</span> · 提交后出现在下方「采集任务」，子任务 = 标的 × 数据类型逐项状态</span></div>
+            </div>
+
+            <div class="toolbar" style="margin:2px 0 0">
+              <input class="tsearch" id="sySearch" placeholder="搜索任务 / 范围…" aria-label="搜索采集任务">
+              <div class="frow" role="group" aria-label="状态过滤" id="syChips">
+                <button class="ichip on" data-f="">全部</button>
+                <button class="ichip" data-f="完成">完成</button>
+                <button class="ichip" data-f="运行中">运行中</button>
+                <button class="ichip" data-f="失败">失败</button>
+              </div>
+              <span class="r-count mono" id="syCount"></span>
+            </div>
+
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">采集任务</span><div class="head-right"><span class="card-sub mono">最新在前 · 点行或「子任务」展开逐项状态</span><span class="count-chip" id="syTotalChip">5 条</span></div></div>
+              <div class="bt-scroll">
+                <table class="gt">
+                  <thead><tr><th>任务</th><th>进度</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
+                  <tbody id="syBody"></tbody>
+                </table>
+              </div>
+              <div class="pg-slot in-card" id="sySlot"></div>
+            </div>
+          </div>
+
+          <!-- ============ 页签 3 · 数据质量：质量概览 + 检查结果（7 维度） ============ -->
+          <div class="dm-pane" id="dm-quality" hidden>
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">质量概览</span><div class="head-right"><span class="card-sub mono">12 标的加权 · 检测 = 引擎逐 bar 校验（演示播种）</span></div></div>
+              <div class="mstats" style="grid-template-columns:repeat(6, 1fr)">
+                <div class="mstat"><div class="lb">质量评分</div><div class="v" id="qScore">—</div><div class="sub mono">0 - 100</div></div>
+                <div class="mstat"><div class="lb">良好</div><div class="v up" id="qGood">0</div><div class="sub mono">标的数</div></div>
+                <div class="mstat"><div class="lb">警告</div><div class="v" style="color:var(--warn)" id="qWarn">0</div><div class="sub mono">标的数</div></div>
+                <div class="mstat"><div class="lb">异常</div><div class="v down" id="qBad">0</div><div class="sub mono">标的数</div></div>
+                <div class="mstat"><div class="lb">未检测</div><div class="v" style="color:var(--fg-4)" id="qNa">12</div><div class="sub mono">标的数</div></div>
+                <div class="mstat"><div class="lb">上次检测</div><div class="v" id="qLast" style="font-size:14px; color:var(--fg-4)">—</div><div class="sub mono">原型 = 本地即时</div></div>
+              </div>
+              <div style="display:flex; gap:12px; align-items:center; margin-top:12px; flex-wrap:wrap">
+                <button class="btn primary" id="jsQRun">运行检查</button>
+                <span class="prog" id="qProg" style="flex:1; max-width:260px; display:none"><i style="width:0%"></i></span>
+                <span class="card-sub" id="qHint">对「检查结果」所选标的运行 7 维校验 · 原型 0.6 秒模拟</span>
+              </div>
+            </div>
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">检查结果</span>
+                <select class="sel" id="qSym" aria-label="检查标的" style="width:150px"></select>
+                <select class="sel" id="qKind" aria-label="检查数据类型" style="width:150px"><option selected>kline · 1h</option><option>aggTrades</option><option>fundingRate · 8h</option></select>
+                <div class="head-right"><span class="card-sub mono" id="qStamp">未检测</span></div>
+              </div>
+              <div class="tabs q-tabs" id="qTabs" role="tablist" aria-label="质量维度">
+                <button class="tab on" role="tab" aria-selected="true" data-qpane="integrity">完整性</button>
+                <button class="tab" role="tab" aria-selected="false" data-qpane="continuity">连续性</button>
+                <button class="tab" role="tab" aria-selected="false" data-qpane="uniqueness">唯一性</button>
+                <button class="tab" role="tab" aria-selected="false" data-qpane="validity">有效性</button>
+                <button class="tab" role="tab" aria-selected="false" data-qpane="consistency">一致性</button>
+                <button class="tab" role="tab" aria-selected="false" data-qpane="logic">逻辑性</button>
+                <button class="tab" role="tab" aria-selected="false" data-qpane="coverage">覆盖率</button>
+              </div>
+              <div class="q-pane2" id="qEmpty">
+                <div class="q-ok" style="font-size:12.5px">未选择标的，先在「行情标的」里选一个再运行检查。</div>
+              </div>
+              <div class="q-pane2" id="qBody" hidden></div>
+            </div>
+          </div>
+
+          <!-- ============ 页签 4 · 历史行情浏览：归档检索 + 摘要 + 浏览/删除 ============ -->
+          <div class="dm-pane" id="dm-archive" hidden>
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">归档检索</span><div class="head-right"><span class="card-sub mono">本地 parquet · 保留 180 天 · 检索即重查</span></div></div>
+              <div class="dm-frm">
+                <div class="dm-fld"><label>标的</label><select class="msel" id="arSym" style="width:140px"></select></div>
+                <div class="dm-fld"><label>数据类型</label><select class="msel" id="arKind" style="width:190px">
+                  <optgroup label="K 线数据"><option value="kline" selected>kline · 1h</option><option value="markPriceKlines">markPriceKlines · 1h</option></optgroup>
+                  <optgroup label="行情数据"><option value="aggTrades">aggTrades</option><option value="trades">trades</option><option value="bookDepth">bookDepth</option><option value="bookTicker">bookTicker</option></optgroup>
+                  <optgroup label="衍生品指标"><option value="fundingRate">fundingRate · 8h</option><option value="openInterest">openInterest · 1h</option></optgroup>
+                </select></div>
+                <div class="dm-fld"><label>开始日期</label><input class="minput mono" type="date" id="arFrom" value="2026-09-01" style="width:140px"></div>
+                <div class="dm-fld"><label>结束日期</label><input class="minput mono" type="date" id="arTo" value="2026-11-20" style="width:140px"></div>
+              </div>
+              <div class="card-foot"><span>切换标的 / 数据类型 / 日期范围即时更新摘要 ·「浏览」对应正式页市场回放 <span class="mono">/data-management/market-replay</span></span></div>
+            </div>
+            <div class="card" style="margin-top:0">
+              <div class="card-head"><span class="card-title">归档摘要</span>
+                <span class="chip quiet mono" id="arKindChip">kline · 1h</span>
+                <div class="head-right"><span class="card-sub mono" id="arSymTitle">BTC/USDT</span></div>
+              </div>
+              <div id="arBody">
+                <table class="kvtab" style="max-width:660px"><tbody>
+                  <tr><td class="k">起止时间</td><td class="v mono" id="arTime">—</td></tr>
+                  <tr><td class="k">条数</td><td class="v mono" id="arRows">—</td></tr>
+                  <tr><td class="k">文件大小</td><td class="v mono" id="arSize">—</td></tr>
+                  <tr><td class="k">损坏日期</td><td class="v" id="arBad">—</td></tr>
+                  <tr><td class="k">列缺失</td><td class="v" id="arMiss">—</td></tr>
+                </tbody></table>
+              </div>
+              <div class="q-ok" id="arEmpty" hidden>该范围内无归档数据 · 请调整日期范围或切换数据类型。</div>
+              <div style="display:flex; gap:8px; margin-top:12px; align-items:center; flex-wrap:wrap">
+                <button class="btn primary" id="jsArView">浏览</button>
+                <button class="btn danger" id="jsArDel">删除数据</button>
+                <span class="card-sub">浏览 = 弹窗展示归档概况（正式页跳市场回放）· 删除 = 危险操作，走确认气泡</span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2580,6 +2785,50 @@
     </div>
   </div>
 
+  <div class="modal-mask" id="mWl" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="管理自选组">
+      <div class="modal-head"><span class="modal-title">管理自选组</span><span class="chip quiet">默认组不可删除</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
+      <div class="modal-body">
+        <div id="wlMngList" style="display:flex; flex-direction:column; gap:8px"></div>
+        <p class="mHint">重命名即时同步到左侧自选组侧栏；数量 = 组内标的数（原型不写库）。</p>
+      </div>
+      <div class="modal-foot" style="align-items:center">
+        <input class="minput" id="wlNewName" placeholder="新自选组名称，例：日内观察" style="flex:1; margin-right:auto">
+        <button class="btn" data-close>关闭</button>
+        <button class="btn primary" id="jsWlCreate">新建组</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-mask" id="mWlBatch" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="批量添加自选">
+      <div class="modal-head"><span class="modal-title">批量添加自选</span><span class="chip info">勾选标的加入组</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
+      <div class="modal-body">
+        <div class="mfield"><label>加入的自选组</label><select class="msel" id="wlBatchGroup"></select></div>
+        <div class="mfield"><label>选择标的（12 个 · 现货 / USD-M 永续）</label><div class="dm-ckgrid" id="wlBatchGrid"></div></div>
+        <p class="mHint">加入后侧栏计数即时更新；单个标的走表格行内的 ★。</p>
+      </div>
+      <div class="modal-foot"><button class="btn" data-close>取消</button><button class="btn primary" id="jsWlBatchGo">加入自选组</button></div>
+    </div>
+  </div>
+
+  <div class="modal-mask" id="mReplay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="浏览归档">
+      <div class="modal-head"><span class="modal-title">浏览归档</span><span class="chip quiet mono" id="mrKind">kline · 1h</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
+      <div class="modal-body">
+        <table class="kvtab"><tbody>
+          <tr><td class="k">标的 · 市场</td><td class="v mono" id="mrSym">BTC/USDT · binance</td></tr>
+          <tr><td class="k">归档区间</td><td class="v mono" id="mrRange">—</td></tr>
+          <tr><td class="k">条数 · 大小</td><td class="v mono" id="mrSize">—</td></tr>
+          <tr><td class="k">文件数</td><td class="v mono" id="mrFiles">—</td></tr>
+          <tr><td class="k">损坏日期</td><td class="v" id="mrBad">—</td></tr>
+        </tbody></table>
+        <div class="noticew"><b>demo 到此为止：</b>正式页此处跳转市场回放 <span class="mono">/data-management/market-replay</span>（K 线逐 bar / 原始成交回放页），原型不内置回放画布，不硬凑假页面。</div>
+      </div>
+      <div class="modal-foot"><button class="btn" data-close>关闭</button><button class="btn primary" data-close data-toast="正式页跳转 /data-management/market-replay（原型仅提示）">去市场回放↗</button></div>
+    </div>
+  </div>
+
   <div class="modal-mask" id="mStop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-label="停止 Worker">
       <div class="modal-head"><span class="modal-title">停止 Worker</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
@@ -3063,27 +3312,28 @@
 
     /* ---- 数据管理 · 同步任务：7 行，合并 3 列（开始时间 · 范围并入任务次行）；
        .bt 表内次值用 c-muted；失败行 data-detail="sy" 才可就地展开（含错误详情） ---- */
+    /* ---- 数据管理 · 采集任务：5 条播种（运行中 / 已完成 / 失败 / 等待 / 已取消各一），
+       行内展开子任务 = 该任务 × 数据类型/标的逐项状态（XP_BUILD.sy）。
+       任务行 = 「任务名 + 当前标记 / 进度（已完成 x/y + bar）/ 状态 chip / 备注 / 操作（子任务、删除）」对齐正式页 ---- */
     (function () {
       var body = document.getElementById('syBody');
       if (!body) return;
-      var STAT = { '完成': '<span class="chip ok">完成</span>', '运行中': '<span class="chip info"><span class="pdot"></span>运行中</span>', '失败': '<span class="chip down">失败</span>' };
+      /* r = [created, name, mark, scope, status, pct, prog, note, subs] */
       var D = [
-        ['11-19 14:00', 'sync_kline_4h', 'BNB/USDT · 11-05 → 11-19', '完成', '增量 84 bar', 0],
-        ['11-19 12:30', 'sync_aggtrades_btc', 'BTC/USDT · 11-18 → 11-19', '完成', '1.2M 条', 0],
-        ['11-18 22:10', 'sync_open_interest', 'BTC/USDT · 11-12 → 11-18', '完成', '168 时点', 0],
-        ['11-18 09:00', 'sync_funding_rate', '全品种 · 11-18', '完成', '3 时点', 0],
-        ['11-17 15:45', 'sync_kline_1h', 'ETH/USDT · 11-10 → 11-17', '完成', '增量 170 bar', 0],
-        ['11-17 03:20', 'sync_bookticker', 'SOL/USDT · 11-16 → 11-17', '失败', 'WS 断连 48s · 已排队重试', 1],
-        ['11-16 08:00', 'backfill_markprice', 'ADA/USDT · 2025-07 → 2025-12', '完成', '4,416 bar', 0]
+        ['11-20 09:30', 'sync_kline_1h_batch', '当前', 'BTC · ETH · SOL（USD-M）× K 线数据 · 1h · 增量', '运行中', 52, '已完成 5/9',
+          '按水位续传 · 最新 bar 11-20 10:00 UTC', 'BTC/USDT|kline 1h|ok|2880/2880 bar;ETH/USDT|kline 1h|ok|2880/2880 bar;SOL/USDT|kline 1h|run|2176/2880 bar'],
+        ['11-20 06:12', 'sync_aggtrades_full', '', 'BTC/USDT（USD-M）× 行情数据 · 全量 2026-01 → 11-20', '已完成', 100, '已完成 3/3',
+          '全量重拉 8.4M 条 · 耗时 41 分钟', 'BTC/USDT|aggTrades|ok|8.4M 条;BTC/USDT|trades|ok|6.1M 条;BTC/USDT|bookTicker|ok|2.9M 条'],
+        ['11-19 22:40', 'sync_bookdepth_backfill', '', 'BNB/USDT · LINK/USDT × 行情数据 · 增量', '失败', 68, '已完成 2/6',
+          'REST 限频 418 · 第 2 段中断已排队重试', 'BNB/USDT|bookDepth|ok|1,022/1,022 档;BNB/USDT|bookTicker|ok|完整;LINK/USDT|bookDepth|down|中断 614/1,022 档;LINK/USDT|bookTicker|down|WS 断连 48s'],
+        ['11-19 18:05', 'sync_funding_oi', '', '全品种（USD-M）× 衍生品指标 · 8h 时点', '等待', 0, '已完成 0/2',
+          '排队中 · 前置任务 sync_kline_1h_batch 完成后启动', 'fundingRate 全品种|fundingRate 8h|warn|等待调度;openInterest 全品种|openInterest 1h|warn|等待调度'],
+        ['11-19 11:26', 'sync_markprice_doge', '', 'DOGE/USDT × K 线数据 · 1h · 全量 2025-09 → 12', '已取消', 33, '已完成 1/3',
+          '手动取消 · 与既有归档重叠 12 天', 'DOGE/USDT|kline 1h|cancel|已取消（1,041/3,120 bar）;DOGE/USDT|markPriceKlines 1h|cancel|未开始;DOGE/USDT|markPriceKlines 1h|ok|948 bar（取消前完成）']
       ];
       var html = '';
       D.forEach(function (r) {
-        html += '<tr' + (r[5] ? ' tabindex="0" aria-selected="false" aria-expanded="false" data-detail="sy" data-name="' + r[1] + '"' : '') + '>' +
-          '<td><div style="display:flex; align-items:center; gap:6px">' + (r[5] ? BT_CARET : '') +
-          '<span class="c-strat mono" style="font-size:11.5px">' + r[1] + '</span></div>' +
-          '<div class="c-muted mono" style="font-size:10.5px; margin-top:2px">' + r[0] + ' · ' + r[2] + '</div></td>' +
-          '<td>' + STAT[r[3]] + '</td>' +
-          '<td class="c-num ' + (r[3] === '失败' ? 'down' : '') + '" style="text-align:left' + (r[3] === '失败' ? '' : '; color:var(--fg-4)') + '">' + r[4] + '</td></tr>';
+        html += dmTaskRow({ created: r[0], name: r[1], mark: r[2], scope: r[3], status: r[4], pct: r[5], prog: r[6], note: r[7], subs: r[8] });
       });
       body.insertAdjacentHTML('beforeend', html);
     })();
@@ -3192,46 +3442,55 @@
     })();
 
     /* ---- 数据管理 · 行情标的：12 行/卡（字段 = DataManagementPage.tsx 标的卡：symbol+#rank / 价格 / 24h 涨跌（涨跌色）/
-       24h 成交量 / 数据状态 chip / 收藏星标 + 采集 / 质量）；两形态由同一 D 产出，动作均为演示 toast / 星标着色 ---- */
+       24h 成交量 / 数据状态 chip / 收藏星标 + 采集 / 质量）；两形态由同一 D 产出，动作均为演示 toast / 星标着色；
+       v6 增列：市场标注（现货 / USD-M 永续）+ 勾选框（「批量数据采集」卡的已选标的源）
+       + 自动更新开关列与「更新」动作（对齐正式页：每标的自动增量开关、操作列「更新」；原型 toast 不落库） ---- */
     (function () {
       var body = document.getElementById('symBody'), grid = document.getElementById('symGrid');
       if (!body || !grid) return;
       var STAT = { '数据正常': 'chip ok', '存在缺口': 'chip warn', '无数据': 'chip down' };
+      var AUTO_OFF = { 'LINK/USDT': 1, 'PEPE/USDT': 1 }; /* 自动更新默认关（无数据标的先停自动增量），其余 8 开；原型不写库 */
       var STAR = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" stroke-linejoin="round"/></svg>';
-      /* s = [sym, rank, price, chg, dir, vol, status] */
+      /* s = [sym, rank, price, chg, dir, vol, status, mkt]  mkt: 现货 | USD-M 永续 */
       var D = [
-        ['BTC/USDT', '#1', '67,842.5', '+2.14%', 'up', '$38.2B', '数据正常'],
-        ['ETH/USDT', '#2', '3,428.7', '+1.36%', 'up', '$21.5B', '数据正常'],
-        ['SOL/USDT', '#3', '201.43', '-0.87%', 'down', '$4.1B', '数据正常'],
-        ['BNB/USDT', '#4', '592.10', '+0.42%', 'up', '$1.9B', '数据正常'],
-        ['XRP/USDT', '#5', '2.3841', '-1.72%', 'down', '$3.4B', '存在缺口'],
-        ['ADA/USDT', '#8', '1.0620', '+0.95%', 'up', '$0.8B', '数据正常'],
-        ['DOGE/USDT', '#7', '0.39214', '+3.28%', 'up', '$2.6B', '存在缺口'],
-        ['LTC/USDT', '#12', '128.44', '-0.31%', 'down', '$0.7B', '数据正常'],
-        ['LINK/USDT', '#14', '22.864', '+1.84%', 'up', '$0.6B', '无数据'],
-        ['AVAX/USDT', '#11', '42.178', '-2.05%', 'down', '$0.9B', '数据正常'],
-        ['TON/USDT', '#10', '5.4821', '+0.57%', 'up', '$0.3B', '存在缺口'],
-        ['PEPE/USDT', '#26', '0.0000192', '+5.60%', 'up', '$1.2B', '无数据']
+        ['BTC/USDT', '#1', '67,842.5', '+2.14%', 'up', '$38.2B', '数据正常', '现货'],
+        ['ETH/USDT', '#2', '3,428.7', '+1.36%', 'up', '$21.5B', '数据正常', '现货'],
+        ['SOL/USDT', '#3', '201.43', '-0.87%', 'down', '$4.1B', '数据正常', '现货'],
+        ['BNB/USDT', '#4', '592.10', '+0.42%', 'up', '$1.9B', '数据正常', '现货'],
+        ['XRP/USDT', '#5', '2.3841', '-1.72%', 'down', '$3.4B', '存在缺口', '现货'],
+        ['ADA/USDT', '#8', '1.0620', '+0.95%', 'up', '$0.8B', '数据正常', '现货'],
+        ['DOGE/USDT', '#7', '0.39214', '+3.28%', 'up', '$2.6B', '存在缺口', 'USD-M 永续'],
+        ['LTC/USDT', '#12', '128.44', '-0.31%', 'down', '$0.7B', '数据正常', '现货'],
+        ['LINK/USDT', '#14', '22.864', '+1.84%', 'up', '$0.6B', '无数据', 'USD-M 永续'],
+        ['AVAX/USDT', '#11', '42.178', '-2.05%', 'down', '$0.9B', '数据正常', 'USD-M 永续'],
+        ['TON/USDT', '#10', '5.4821', '+0.57%', 'up', '$0.3B', '存在缺口', 'USD-M 永续'],
+        ['PEPE/USDT', '#26', '0.0000192', '+5.60%', 'up', '$1.2B', '无数据', 'USD-M 永续']
       ];
       var html = '', cards = '';
       D.forEach(function (s, i) {
         var chgc = s[3][0] === '+' ? ' up' : ' down';
         var bars = (i * 4137 + 2400).toLocaleString(); /* 累计 bar：行与卡同源（面板两形态同文的前提） */
-        var acts = '<button class="icon-btn js-sym-fav" aria-label="收藏" title="收藏（自选组）" style="width:24px;height:24px">' + STAR + '</button>' +
+        var ck = '<input type="checkbox" class="js-sym-sel dm-ck" data-sym="' + s[0] + '" aria-label="勾选 ' + s[0] + '" title="勾选用于批量数据采集">';
+        var acts = '<button class="icon-btn js-sym-fav" aria-label="收藏" title="添加到自选组（默认组）" style="width:24px;height:24px">' + STAR + '</button>' +
+          '<button class="mini-btn js-sym-upd" data-sym="' + s[0] + '" data-toast="已排队增量更新 · 原型不落库">更新</button> ' +
           '<button class="mini-btn js-sym-sync" data-sym="' + s[0] + '">采集</button> <button class="mini-btn js-sym-q" data-sym="' + s[0] + '">质量</button>';
+        var autoTd = '<td style="text-align:center"><button type="button" class="dm-sw" role="switch" aria-checked="' + (AUTO_OFF[s[0]] ? 'false' : 'true') +
+          '" aria-label="自动更新 ' + s[0] + '" data-sym="' + s[0] + '"></button></td>';
         html += '<tr class="sel-row" data-detail="sym" data-sym="' + s[0] + '" data-rank="' + s[1] + '" data-price="' + s[2] + '"' +
-          ' data-chg="' + s[3] + '" data-dir="' + s[4] + '" data-vol="' + s[5] + '" data-bars="' + bars + '" data-status="' + s[6] + '">' +
-          '<td><div style="display:flex; align-items:center; gap:6px"><span class="c-strat mono" title="' + s[0] + '">' + s[0] + '</span><span class="chip quiet" style="font-size:9px; padding:1.5px 5px">' + s[1] + '</span></div></td>' +
+          ' data-chg="' + s[3] + '" data-dir="' + s[4] + '" data-vol="' + s[5] + '" data-bars="' + bars + '" data-status="' + s[6] + '" data-mkt="' + s[7] + '">' +
+          '<td>' + ck + '</td>' +
+          '<td><div style="display:flex; align-items:center; gap:6px"><span class="c-strat mono" title="' + s[0] + '">' + s[0] + '</span><span class="chip quiet" style="font-size:9px; padding:1.5px 5px">' + s[1] + '</span><span class="chip quiet" style="font-size:9px; padding:1.5px 5px">' + s[7] + '</span></div></td>' +
           '<td class="c-num mono" style="text-align:right">' + s[2] + '</td>' +
           '<td class="c-num mono' + chgc + '" style="text-align:right">' + s[3] + '</td>' +
           '<td class="c-num mono" style="text-align:right">' + s[5] + '</td>' +
           '<td><span class="' + STAT[s[6]] + '">' + s[6] + '</span></td>' +
+          autoTd +
           '<td style="white-space:nowrap">' + acts + '</td></tr>';
         cards += '<div class="card vt-item-card sym-item-card" tabindex="0" role="button" aria-selected="false" data-detail="sym" data-sym="' + s[0] + '"' +
           ' data-rank="' + s[1] + '" data-price="' + s[2] + '" data-chg="' + s[3] + '" data-dir="' + s[4] + '"' +
-          ' data-vol="' + s[5] + '" data-bars="' + bars + '" data-status="' + s[6] + '">' +
-          '<div class="w-head"><span class="mini-name mono" title="' + s[0] + '">' + s[0] + '</span><button class="icon-btn js-sym-fav" aria-label="收藏" title="收藏（自选组）" style="width:24px;height:24px">' + STAR + '</button></div>' +
-          '<div class="w-row2"><span class="' + STAT[s[6]] + '">' + s[6] + '</span><span class="chip quiet" style="font-size:9px; padding:1.5px 5px">' + s[1] + '</span></div>' +
+          ' data-vol="' + s[5] + '" data-bars="' + bars + '" data-status="' + s[6] + '" data-mkt="' + s[7] + '">' +
+          '<div class="w-head">' + ck + '<span class="mini-name mono" title="' + s[0] + '">' + s[0] + '</span><button class="icon-btn js-sym-fav" aria-label="收藏" title="添加到自选组（默认组）" style="width:24px;height:24px;margin-left:auto">' + STAR + '</button></div>' +
+          '<div class="w-row2"><span class="' + STAT[s[6]] + '">' + s[6] + '</span><span class="chip quiet" style="font-size:9px; padding:1.5px 5px">' + s[1] + '</span><span class="chip quiet" style="font-size:9px; padding:1.5px 5px">' + s[7] + '</span><span class="chip quiet js-autoc" style="font-size:9px; padding:1.5px 5px">自动更新 ' + (AUTO_OFF[s[0]] ? '关' : '开') + '</span></div>' +
           '<div class="w-row3"><span class="w-pnl-lb">价格</span><span class="w-pnl mono">' + s[2] + '</span></div>' +
           '<div class="kv-line"><span>24h</span><b class="mono' + chgc + '">' + s[3] + '</b></div>' +
           '<div class="kv-line"><span>24h 成交量</span><b class="mono">' + s[5] + '</b></div>' +
@@ -3240,17 +3499,39 @@
       });
       body.insertAdjacentHTML('beforeend', html);
       grid.insertAdjacentHTML('beforeend', cards);
-      /* 星标着色 + 采集 / 质量演示动作：行与卡共用一套委托（stopPropagation 防行点击误触——行本身无点击行为，保持防御） */
+      /* 星标着色 + 采集 / 质量演示动作：行与卡共用一套委托（stopPropagation 防行点击误触——行本身无点击行为，保持防御）。
+         星标 = 添加到自选组：落到 wlFavToggle（v6 自选组建模），组计数与过滤即时联动 */
       ['symBody', 'symGrid'].forEach(function (id) {
         var el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('click', function (e) {
+          var sw = e.target.closest('.dm-sw');
+          if (sw) {
+            e.stopPropagation();
+            var on = sw.getAttribute('aria-checked') !== 'true';
+            sw.setAttribute('aria-checked', String(on));
+            var autoc = document.querySelector('#symGrid .card[data-sym="' + sw.dataset.sym + '"] .js-autoc');
+            if (autoc) autoc.textContent = '自动更新 ' + (on ? '开' : '关');
+            toast(sw.dataset.sym + ' 自动更新已' + (on ? '开启' : '关闭') + '（原型不落库）');
+            return;
+          }
           var fav = e.target.closest('.js-sym-fav');
-          if (fav) { e.stopPropagation(); fav.classList.toggle('fav-on'); toast(fav.classList.contains('fav-on') ? '已加入自选组（演示不落库）' : '已移出自选组（演示不落库）'); return; }
+          if (fav) { e.stopPropagation(); fav.classList.toggle('fav-on'); wlFavToggle(fav, fav.classList.contains('fav-on')); return; }
+          var sel = e.target.closest('.js-sym-sel');
+          if (sel) { e.stopPropagation(); return; } /* 勾选框归「批量数据采集」卡，触发改由 change 事件处理 */
           var col = e.target.closest('.js-sym-sync');
-          if (col) { e.stopPropagation(); toast(col.dataset.sym + ' 增量采集已入队（演示）'); return; }
+          if (col) { e.stopPropagation(); wlQueueCollect(col.dataset.sym); return; }
           var q = e.target.closest('.js-sym-q');
-          if (q) { e.stopPropagation(); toast(q.dataset.sym + ' 质量明细见存储报告（演示）'); }
+          if (q) { e.stopPropagation(); dmGotoQuality(q.dataset.sym); }
+        });
+        /* 勾选框：capture 阶段拦 click 防冒泡触发行/卡与全局展开委托；change 才是业务事件 */
+        el.addEventListener('click', function (e) {
+          if (e.target.closest('.js-sym-sel')) e.stopPropagation();
+        }, true);
+        el.addEventListener('change', function (e) {
+          var ck = e.target.closest('.js-sym-sel');
+          if (!ck) return;
+          wlSelMark(ck.dataset.sym, ck.checked);
         });
       });
     })();
@@ -3332,9 +3613,11 @@
       }
       function render() {
         var inCard = vtNow() === 'card', ql = st.q.toLowerCase(), fl = st.f.toLowerCase();
+        /* v6：cfg.filter 为可选外部谓词（自选组过滤），与搜索 / chips / 分页叠加生效 */
+        var allowFn = cfg.filter || null;
         var vis = pairs.filter(function (p) {
           var txt = (inCard && p.b ? p.b : p.a).textContent.toLowerCase();
-          return (!ql || txt.indexOf(ql) !== -1) && (!fl || txt.indexOf(fl) !== -1);
+          return (!ql || txt.indexOf(ql) !== -1) && (!fl || txt.indexOf(fl) !== -1) && (!allowFn || allowFn(p));
         });
         var total = vis.length;
         st.pages = Math.max(1, Math.ceil(total / st.size));
@@ -3383,7 +3666,7 @@
     LISTS.sy = makeList({ slot: 'sySlot', items: qAll('#syBody tr'), search: 'sySearch', chips: qAll('#syChips .ichip'), count: 'syCount', size: 10 });
     LISTS.md = makeList({ slot: 'mdSlot', items: qAll('#mdGrid > .m-row-card'), alt: qAll('#mdListBody > tr'), search: 'mdSearch', chips: qAll('#mdChips .ichip'), count: 'mdCount', size: 10 });
     LISTS.sa = makeList({ slot: 'saSlot', items: qAll('#saBody .bt-row'), alt: qAll('#saCardGrid > .card'), search: 'saSearch', chips: qAll('#saChips .ichip'), count: 'saCount', size: 10 });
-    LISTS.sym = makeList({ slot: 'symSlot', items: qAll('#symBody tr'), alt: qAll('#symGrid > .card'), search: 'symSearch', chips: qAll('#symChips .ichip'), count: 'symCount', size: 10 });
+    LISTS.sym = makeList({ slot: 'symSlot', items: qAll('#symBody tr'), alt: qAll('#symGrid > .card'), search: 'symSearch', chips: qAll('#symChips .ichip'), count: 'symCount', size: 10, box: 'symBox', empty: 'symEmpty', filter: wlAllow });
 
     /* ---- 策略智能体：列表行 → 详情页（现网 /strategy-worker 与 /:id 两路由） ---- */
     var sdCurrent = null;
@@ -3671,23 +3954,40 @@
     };
     xpKeepTidy('saSlot', 'saChips', 'saSearch');
 
-    /* ---- 同步任务行内展开：仅失败行 —— 缺口定位 / 影响范围 / 处置建议 + 重试 ---- */
+    /* ---- 采集任务行内展开：子任务 = 该任务 × 数据类型/标的逐项状态（进度 mono 文案 + 状态 chip）；
+       失败行附错误明细 + 重试（保留原「失败详情」口径）；等待/已取消行同样可见子任务编排 ---- */
+    var SY_SCHED = { run: ['chip info', '运行中', true], ok: ['chip ok', '已完成', false], down: ['chip down', '失败', false], warn: ['chip warn', '等待', false], cancel: ['chip quiet', '已取消', false] };
     XP_BUILD.sy = function (r) {
-      return '<div class="card"><div class="card-head"><span class="card-title">失败详情</span>' +
-        '<span class="c-strat mono" style="font-size:12px">' + r.dataset.name + '</span>' +
-        '<span class="chip down">失败</span>' +
-        '<div class="head-right"><span class="card-sub mono">SOL/USDT · 11-16 → 11-17</span></div></div>' +
-        '<table class="kvtab"><tbody>' +
-        '<tr><td class="k">error</td><td class="v mono">WebsocketDisconnect: bookTicker 流中断 48s（03:19:40 → 03:20:28），重连后区间存在缺口</td></tr>' +
-        '<tr><td class="k">影响</td><td class="v">SOL/USDT bookTicker · 48s 缺口 · 已进回填队列（第 2 位）</td></tr>' +
-        '<tr><td class="k">建议</td><td class="v">重试增量补齐；连续 3 次失败改走 REST 快照（「立即同步」）</td></tr></tbody></table>' +
+      var d = r.dataset;
+      var rows = '';
+      if (d.subs) {
+        rows = d.subs.split(';').map(function (s) {
+          var p = s.split('|');
+          var m = SY_SCHED[p[2]] || SY_SCHED.cancel;
+          return '<tr><td class="c-mono">' + p[0] + '</td><td class="c-muted mono">' + p[1] + '</td>' +
+            '<td><span class="' + m[0] + '">' + (m[2] ? '<span class="pdot"></span>' : '') + m[1] + '</span>' +
+            '<span class="c-muted mono" style="margin-left:9px; font-size:10.5px">' + p[3] + '</span></td></tr>';
+        }).join('');
+      }
+      var err = d.status === '失败'
+        ? '<table class="kvtab" style="margin-top:10px"><tbody>' +
+          '<tr><td class="k">error</td><td class="v mono">RateLimited(418): REST 快照限频 · bookDepth 第 2 段（LINK/USDT）中断 614 档未落库，已进回填队列（第 2 位）</td></tr>' +
+          '<tr><td class="k">建议</td><td class="v">重试增量补齐；连续 3 次失败改走 REST 快照（页面右上「立即同步」）</td></tr></tbody></table>'
+        : '';
+      var retry = d.status === '失败' ? '<button class="btn primary js-sy-retry">立即重试</button>' : '';
+      return '<div class="card"><div class="card-head"><span class="card-title">采集子任务</span>' +
+        '<span class="c-strat mono" style="font-size:12px">' + (d.name || '采集任务') + '</span>' +
+        '<div class="head-right"><span class="card-sub mono">' + (d.prog || '—') + ' · 子任务 ' + (d.subs ? d.subs.split(';').length : 0) + ' 项</span></div></div>' +
+        (rows ? '<table class="gt"><thead><tr><th>标的 / 范围</th><th>数据类型 · 周期</th><th>子任务状态</th></tr></thead><tbody>' + rows + '</tbody></table>'
+              : '<div class="q-ok">无子任务明细（该行由「立即同步」一键生成，完成后自动折叠为单任务）</div>') +
+        err +
         '<div style="display:flex; gap:8px; margin-top:11px; flex-wrap:wrap; align-items:center">' +
-        '<button class="btn primary js-sy-retry">立即重试</button>' +
-        '<span class="card-sub" style="align-self:center">重试不改原始调度窗口</span></div></div>';
+        retry +
+        '<span class="card-sub" style="align-self:center">子任务状态随任务编排推进（增量按水位 → 全量按区间），重试不改原始调度窗口</span></div></div>';
     };
     XP_ONSHOW.sy = function (host) {
       var b = host.querySelector('.js-sy-retry');
-      if (b) b.addEventListener('click', function (e) { e.stopPropagation(); toast('sync_bookticker 已重新入队 · 预计 1 分钟内完成'); });
+      if (b) b.addEventListener('click', function (e) { e.stopPropagation(); toast('sync_bookdepth_backfill 已重新入队 · 预计 2 分钟内完成'); });
     };
     xpKeepTidy('sySlot', 'syChips', 'sySearch');
     /* 卡片简况同规则：搜索 / chips / 翻页先收起（策略 / 因子 / 智能体 / 模型中心此前已接） */
@@ -3884,6 +4184,7 @@
       var chgc = d.chg[0] === '+' ? ' up' : ' down';
       var rows = xpRow('价格', d.price || '—', ' mono') +
         xpRow('24h 成交量', d.vol || '—', ' mono') +
+        xpRow('市场', d.mkt || 'USD-M 永续', '') +
         xpRow('累计 bar', d.bars || '—', ' mono') +
         xpRow('采集口径', '1h · WS + 回填', ' mono');
       return '<div class="card"><div class="card-head"><span class="card-title">标的简况</span>' +
@@ -4282,21 +4583,19 @@
     }
     var jsSyncNow = document.getElementById('jsSyncNow');
     if (jsSyncNow) jsSyncNow.addEventListener('click', function () {
-      document.getElementById('syBody').insertAdjacentHTML('afterbegin',
-        '<tr class="tr-flash"><td><div style="display:flex; gap:6px; align-items:center"><span class="c-strat mono" style="font-size:11.5px">sync_kline_1h</span></div>' +
-        '<div class="c-muted mono" style="font-size:10.5px; margin-top:2px">刚刚 · BTC/USDT · 11-20 → 11-20</div></td>' +
-        '<td><span class="chip info"><span class="pdot"></span>运行中</span></td>' +
-        '<td><span class="prog" style="width:120px; margin:0"><i style="width:4%"></i></span></td></tr>');
-      var row = document.getElementById('syBody').firstElementChild;
-      LISTS.sy.items.unshift(row);
-      LISTS.sy.render();
-      toast('同步任务已启动 · BTC/USDT 1h 增量');
+      var row = dmAddTask({ name: 'sync_kline_1h', scope: 'BTC/USDT（USD-M）× K 线数据 · 1h · 增量', status: '运行中', pct: 4, prog: '已完成 0/1',
+        note: '按水位续传 · 最新 bar 11-20 10:00 UTC', subs: 'BTC/USDT|kline 1h|run|增量进行中' });
+      toast('采集任务已启动 · BTC/USDT 1h 增量');
       runProgress(row.querySelector('.prog i'), function () {
-        row.cells[1].innerHTML = '<span class="chip ok">完成</span>';
-        row.cells[2].textContent = '增量 24 bar';
+        row.dataset.status = '已完成';
+        row.cells[1].querySelector('.prog i') && (row.cells[1].querySelector('.prog i').style.width = '100%');
+        row.cells[1].querySelector('.c-muted').textContent = '已完成 1/1';
+        row.cells[2].innerHTML = '<span class="chip ok">已完成</span>';
+        row.cells[3].textContent = '增量 24 bar';
+        row.dataset.subs = 'BTC/USDT|kline 1h|ok|2880/2880 bar';
         row.classList.remove('tr-flash'); void row.offsetWidth; row.classList.add('tr-flash');
         LISTS.sy.render();
-        toast('同步完成：BTC/USDT · 增量 24 bar');
+        toast('采集完成：BTC/USDT · 增量 24 bar');
       });
     });
 
@@ -4390,6 +4689,533 @@
       if (mk) closeMask(mk);
       toast('会话已清空（原型 · 不影响真实数据）');
     });
+
+    /* ================= v6 · 数据管理 4 页签：自选组 / 数据采集 / 数据质量 / 归档浏览 =================
+       复用既有机制：.tabs/.tab（aria 的 data-pane 显隐）、makeList 过滤管线（新增 cfg.filter 外部谓词）、
+       xp 行内展开（sy 面板承载子任务）、modal 体系（管理自选组 / 批量添加自选 / 浏览归档）、
+       toast / popConfirm（归档删除等危险动作二次确认）。无新依赖、无请求，全部本地状态。 */
+
+    /* ---- 采集任务行构造（供种子 / 立即同步 / 行内采集 / 批量下发共用；在主 IIFE 顶层供提升） ---- */
+    function dmChip(s) {
+      return { '已完成': '<span class="chip ok">已完成</span>', '运行中': '<span class="chip info"><span class="pdot"></span>运行中</span>',
+        '失败': '<span class="chip down">失败</span>', '等待': '<span class="chip warn">等待</span>', '已取消': '<span class="chip quiet">已取消</span>' }[s] || '<span class="chip quiet">' + s + '</span>';
+    }
+    function escA(s) { return escH(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function dmTaskRow(o) {
+      var cur = o.mark ? '<span class="chip pri" style="font-size:9px; padding:1.5px 5px">当前</span>' : '';
+      return '<tr class="tr-flash" tabindex="0" aria-selected="false" aria-expanded="false" data-detail="sy" data-name="' + escA(o.name) +
+        '" data-status="' + escA(o.status) + '" data-prog="' + escA(o.prog) + '"' + (o.subs ? ' data-subs="' + escA(o.subs) + '"' : '') + '>' +
+        '<td><div style="display:flex; align-items:center; gap:6px">' + BT_CARET + '<span class="c-strat mono" style="font-size:11.5px">' + escH(o.name) + '</span>' + cur + '</div>' +
+        '<div class="c-muted mono" style="font-size:10.5px; margin-top:2px">' + o.created + ' · ' + escH(o.scope) + '</div></td>' +
+        '<td><div style="display:flex; gap:8px; align-items:center"><span class="prog" style="width:90px; margin:0"><i style="width:' + o.pct + '%' + (o.status === '失败' ? ';background:var(--down)' : '') + '"></i></span>' +
+        '<span class="c-muted mono" style="font-size:10.5px; white-space:nowrap">' + escH(o.prog) + '</span></div></td>' +
+        '<td>' + dmChip(o.status) + '</td>' +
+        '<td class="c-muted" style="font-size:11px; white-space:normal; min-width:150px">' + escH(o.note) + '</td>' +
+        '<td style="white-space:nowrap"><button class="mini-btn js-col-exp">子任务</button> <button class="mini-btn js-col-del">删除</button></td></tr>';
+    }
+    function dmAddTask(o) {
+      var body = document.getElementById('syBody');
+      body.insertAdjacentHTML('afterbegin', dmTaskRow(o));
+      var row = body.firstElementChild;
+      LISTS.sy.items.unshift(row);
+      LISTS.sy.render();
+      dmSyChip();
+      return row;
+    }
+    function dmSyChip() {
+      var c = document.getElementById('syTotalChip');
+      if (c) c.textContent = LISTS.sy.items.length + ' 条';
+    }
+    document.addEventListener('click', function (e) {
+      var exp = e.target.closest('.js-col-exp');
+      if (exp) { e.stopPropagation(); var tr = exp.closest('tr'); if (xpOpen && xpOpen.row === tr) xpCollapse(); else xpToggle(tr); return; }
+      var del = e.target.closest('.js-col-del');
+      if (del) {
+        e.stopPropagation();
+        var row = del.closest('tr');
+        var n = (row.dataset.subs || '').split(';').filter(String).length;
+        popConfirm(del, '删除采集任务',
+          '将删除「' + escH(row.dataset.name) + '」及其 ' + n + ' 个子任务（原型不写库）。', '确认删除', function () {
+            var i = LISTS.sy.items.indexOf(row);
+            if (i > -1) LISTS.sy.items.splice(i, 1);
+            if (xpOpen && xpOpen.row === row) xpCollapse();
+            row.remove();
+            LISTS.sy.render(); dmSyChip();
+            toast('采集任务已删除（原型）：' + row.dataset.name);
+          });
+      }
+    });
+
+    /* ---- 确认气泡：锚定按钮 · 外点 / 取消 / Esc 关闭（归档删除 / 任务删除 / 自选组删除共用） ---- */
+    var dmPopEl = null;
+    function dmPopClose() { if (dmPopEl) { dmPopEl.remove(); dmPopEl = null; document.removeEventListener('mousedown', dmPopOut, true); } }
+    function dmPopOut(e) { if (dmPopEl && !dmPopEl.contains(e.target)) dmPopClose(); }
+    function popConfirm(anchor, title, body, okText, cb) {
+      dmPopClose();
+      var el = document.createElement('div');
+      el.className = 'pop';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-label', title);
+      el.innerHTML = '<div class="pop-t">' + title + '</div><div>' + body + '</div>' +
+        '<div class="pop-foot"><button class="btn" data-pop-x>取消</button><button class="btn danger" data-pop-ok>' + okText + '</button></div>';
+      document.body.appendChild(el);
+      var r = anchor.getBoundingClientRect(), sy = window.scrollY || 0;
+      el.style.left = Math.max(8, Math.min(r.left, (window.innerWidth || 1440) - 254)) + 'px';
+      el.style.top = (r.bottom + 6 + sy) + 'px';
+      if (r.bottom + el.offsetHeight + 12 > (window.innerHeight || 900)) el.style.top = (r.top - el.offsetHeight - 6 + sy) + 'px';
+      var ok = el.querySelector('[data-pop-ok]');
+      ok.addEventListener('click', function () { dmPopClose(); cb(); });
+      el.querySelector('[data-pop-x]').addEventListener('click', dmPopClose);
+      document.addEventListener('mousedown', dmPopOut, true);
+      dmPopEl = el;
+      try { ok.focus(); } catch (e2) {}
+    }
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dmPopClose(); });
+
+    /* ---- 页签机制：与 sdTab 同款 data-pane 显隐；切页签收起就地展开面板（避免面板跨页签失联） ---- */
+    var DM_PANES = ['dm-symbols', 'dm-collection', 'dm-quality', 'dm-archive'];
+    function dmTab(pane) {
+      qAll('#dmTabs [data-pane]').forEach(function (b) {
+        var on = b.dataset.pane === pane;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', String(on));
+      });
+      DM_PANES.forEach(function (id) { var el = document.getElementById(id); if (el) el.hidden = id !== pane; });
+      xpCollapse();
+      dmPopClose();
+    }
+    qAll('#dmTabs [data-pane]').forEach(function (b) {
+      b.addEventListener('click', function () { dmTab(b.dataset.pane); });
+    });
+
+    /* ---- 自选组建模：默认组（不可删）+ 自定义组；wlAllow 为 makeList 的外部谓词（列表 / 卡两形态同过） ---- */
+    var SYMTAB = [
+      'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'ADA/USDT',
+      'DOGE/USDT', 'LTC/USDT', 'LINK/USDT', 'AVAX/USDT', 'TON/USDT', 'PEPE/USDT'
+    ];
+    var MKT = { 'BTC/USDT': '现货', 'ETH/USDT': '现货', 'SOL/USDT': '现货', 'BNB/USDT': '现货', 'XRP/USDT': '现货', 'ADA/USDT': '现货',
+      'DOGE/USDT': 'USD-M 永续', 'LTC/USDT': '现货', 'LINK/USDT': 'USD-M 永续', 'AVAX/USDT': 'USD-M 永续', 'TON/USDT': 'USD-M 永续', 'PEPE/USDT': 'USD-M 永续' };
+    var dmSeq = 0;
+    var WL = [
+      { id: 'g-df', name: '默认组', fixed: true, syms: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'] },
+      { id: 'g-p01', name: '永续 USD-M', syms: ['DOGE/USDT', 'LINK/USDT', 'TON/USDT', 'PEPE/USDT'] },
+      { id: 'g-p02', name: '高市值核心', syms: ['BTC/USDT', 'ETH/USDT', 'LTC/USDT'] }
+    ];
+    var wlCur = 'all';
+    var wlSel = {};
+    function wlGet(id) { for (var i = 0; i < WL.length; i++) if (WL[i].id === id) return WL[i]; return null; }
+    function wlAllow(p) {
+      /* LISTS.sym 构造（早于本段赋值）即会调用：WL 未就绪时放行全部 */
+      if (!WL || wlCur === 'all') return true;
+      var el = p.b || p.a, sym = el && el.dataset ? el.dataset.sym : '';
+      if (!sym) return true;
+      var g = wlGet(wlCur);
+      return !!(g && g.syms.indexOf(sym) !== -1);
+    }
+    function wlRender() {
+      var list = document.getElementById('wlList');
+      if (!list) return;
+      var html = '<button type="button" class="wl-item' + (wlCur === 'all' ? ' on' : '') + '" data-wl="all"><span class="wl-n">全部标的</span><span class="wl-c">' + SYMTAB.length + '</span></button>';
+      WL.forEach(function (g) {
+        html += '<div class="wl-line">' +
+          '<button type="button" class="wl-item' + (wlCur === g.id ? ' on' : '') + '" data-wl="' + g.id + '" title="' + escA(g.name) + '"><span class="wl-n">' + escH(g.name) + '</span><span class="wl-c">' + g.syms.length + '</span></button>' +
+          '<button type="button" class="wl-x" data-wldel="' + g.id + '" aria-label="删除自选组"' + (g.fixed ? ' disabled title="默认组不可删除"' : ' title="删除自选组"') + '>✕</button></div>';
+      });
+      list.innerHTML = html;
+    }
+    function wlSet(id) {
+      wlCur = id;
+      if (xpOpen) xpCollapse();
+      wlRender();
+      LISTS.sym.render();
+    }
+    document.getElementById('wlList').addEventListener('click', function (e) {
+      var del = e.target.closest('[data-wldel]');
+      if (del) {
+        if (del.disabled) return;
+        var g = wlGet(del.dataset.wldel);
+        if (!g) return;
+        popConfirm(del, '删除自选组', '将删除自选组「' + escH(g.name) + '」（组内 ' + g.syms.length + ' 个标的仅移出分组，原型不落库）。', '确认删除', function () {
+          WL = WL.filter(function (x) { return x.id !== g.id; });
+          if (wlCur === g.id) { wlCur = 'all'; LISTS.sym.render(); }
+          wlRender(); renderWlMng();
+          toast('自选组已删除（原型）：' + g.name);
+        });
+        return;
+      }
+      var it = e.target.closest('[data-wl]');
+      if (it) wlSet(it.dataset.wl);
+    });
+    function wlSelMark(sym, on) {
+      wlSel[sym] = !!on;
+      var n = 0;
+      for (var k in wlSel) if (wlSel[k]) n++;
+      var c = document.getElementById('bcSelCount');
+      if (c) c.textContent = n;
+    }
+    function wlFavToggle(btn, on) {
+      var host = btn.closest('[data-sym]');
+      var sym = host ? host.dataset.sym : '';
+      if (!sym) { toast(on ? '已加入自选（演示不落库）' : '已移出自选（演示不落库）'); return; }
+      var g = wlGet('g-df');
+      if (on) {
+        if (g.syms.indexOf(sym) === -1) { g.syms.push(sym); wlRender(); }
+        toast('已加入自选「' + g.name + '」（演示不落库）');
+      } else {
+        var had = g.syms.indexOf(sym) !== -1;
+        g.syms = g.syms.filter(function (s) { return s !== sym; });
+        if (had) wlRender();
+        toast('已移出自选「' + g.name + '」（演示不落库）');
+      }
+      if (wlCur === g.id) LISTS.sym.render();
+    }
+    function wlQueueCollect(sym) {
+      dmAddTask({ created: '刚刚', name: 'sync_kline_1h', scope: sym + '（' + MKT[sym] + '）× K 线数据 · 1h · 增量', status: '运行中', pct: 6,
+        prog: '已完成 0/1', note: '行内「采集」按钮触发 · 按水位续传', subs: sym + '|kline 1h|run|排队执行' });
+      toast(sym + ' 增量采集已入队 · 进「数据采集」页签查看');
+    }
+    function dmGotoQuality(sym) {
+      dmTab('dm-quality');
+      var sel = document.getElementById('qSym');
+      var has = [].some.call(sel.options, function (o) { return o.value === sym; });
+      if (!has) sel.insertAdjacentHTML('beforeend', '<option value="' + escA(sym) + '">' + escH(sym) + '</option>');
+      sel.value = sym;
+      qSt.sym = sym; qSt.tested = false; qRender();
+      toast(sym + ' 已带入「数据质量」· 点「运行检查」生成结果');
+    }
+    /* 行头全选（批量采集用） */
+    var symSelAll = document.getElementById('symSelAll');
+    if (symSelAll) symSelAll.addEventListener('change', function () {
+      var on = this.checked;
+      qAll('.js-sym-sel').forEach(function (ck) { ck.checked = on; wlSelMark(ck.dataset.sym, on); });
+    });
+
+    /* ---- 自选组「批量数据采集」卡：勾选标的 × 数据类型 → 插入采集任务（进「数据采集」页签） ---- */
+    var TYPE_SUB = { 'K 线数据': 'kline 1h', '行情数据': 'aggTrades', '衍生品指标': 'fundingRate 8h' };
+    function dmPicks(sel) { return qAll(sel + ' .pick.on').map(function (b) { return b.textContent.trim(); }); }
+    var jsBatchGo = document.getElementById('jsBatchGo');
+    if (jsBatchGo) jsBatchGo.addEventListener('click', function () {
+      var syms = [];
+      for (var k in wlSel) if (wlSel[k]) syms.push(k);
+      if (!syms.length) { toast('先在表格 / 卡片勾选标的（表头可全选），再开始采集'); return; }
+      var types = dmPicks('#bcTypes');
+      if (!types.length) { toast('至少选择一个数据类型'); return; }
+      var mode = document.querySelector('#bcMode .on').textContent;
+      var subs = syms.map(function (s, i) {
+        var st = i === 0 ? 'run' : 'warn';
+        return s + '|' + (TYPE_SUB[types[0]] || 'kline 1h') + '|' + st + '|' + (st === 'run' ? '增量进行中' : '排队执行');
+      }).join(';');
+      dmAddTask({ created: '刚刚', name: 'batch_' + syms.length + 'sym_1h', scope: syms.slice(0, 3).join(' · ') + (syms.length > 3 ? ' 等 ' + syms.length + ' 个' : '') + ' × ' + types.join(' / ') + ' · ' + mode,
+        status: '运行中', pct: 8, prog: '已完成 0/' + syms.length, note: '「行情标的」页签批量下发', subs: subs });
+      toast('批量采集已入队：' + syms.length + ' 标的 × ' + types.length + ' 类 · 进「数据采集」页签查看');
+      wlSel = {};
+      qAll('.js-sym-sel').forEach(function (ck) { ck.checked = false; });
+      document.getElementById('bcSelCount').textContent = '0';
+    });
+
+    /* ---- 数据采集页签：批量采集表单 → 任务插行 ---- */
+    var jsColStart = document.getElementById('jsColStart');
+    if (jsColStart) jsColStart.addEventListener('click', function () {
+      var types = dmPicks('#colTypes');
+      if (!types.length) { toast('至少选择一个数据类型'); return; }
+      var tf = document.querySelector('#colTf .on').textContent;
+      var mode = document.querySelector('#colMode .on').textContent.indexOf('增量') !== -1 ? '增量 inc' : '全量 full';
+      var market = document.getElementById('colMarket').value;
+      var slug = types.map(function (t) { return { 'K 线数据': 'kline', '行情数据': 'aggtrades', '衍生品指标': 'deriv' }[t] || 'x'; }).join('_');
+      var syms3 = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+      var subs = [];
+      types.forEach(function (t, ti) {
+        syms3.forEach(function (s, si) {
+          subs.push(s + '|' + (TYPE_SUB[t] || t) + '|' + (ti === 0 && si === 0 ? 'run' : ti === 0 ? (si === 1 ? 'ok' : 'run') : 'warn') + '|' +
+            (ti === 0 && si === 0 ? (mode.indexOf('增量') !== -1 ? '增量进行中' : '全量进行中') : ti === 0 ? '2880/2880 bar' : '排队执行'));
+        });
+      });
+      dmAddTask({ created: '刚刚', name: 'collect_' + slug + '_' + ({ '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' }[tf] || '1h'),
+        scope: syms3.join(' · ') + ' × ' + types.join(' / ') + ' · ' + market + ' · ' + mode, status: '运行中', pct: 5,
+        prog: '已完成 0/' + subs.length, note: '「数据采集」表单提交 · ' + document.getElementById('colMarket').value, subs: subs.join(';') });
+      toast('采集任务已提交：' + types.join(' / ') + ' · ' + tf + ' · ' + mode);
+    });
+
+    /* ---- 数据质量：7 维证据播种（时间戳 / 条数 / 列名对齐引擎校验口径），运行检查 0.6s 模拟 ---- */
+    var Q_DIMS = [['integrity', '完整性'], ['continuity', '连续性'], ['uniqueness', '唯一性'], ['validity', '有效性'], ['consistency', '一致性'], ['logic', '逻辑性'], ['coverage', '覆盖率']];
+    var Q_DESC = { integrity: '列齐全 · 主键无缺失记录', continuity: '相邻 bar 时间戳无缝隙 · 无陈旧尾部', uniqueness: '(symbol, open_time) 主键唯一', validity: '价格 / 成交量取值区间校验', consistency: '跨数据源同口径对齐', logic: 'OHLC 关系与成交量符号校验', coverage: '应采集 bar / 实有 bar 比例' };
+    var Q_EVD = {
+      'XRP/USDT': {
+        integrity: [['down', '缺失记录:', '37 条（1h kline）', '相邻窗口应有 3,120 bar · 实有 3,083 · 缺失 37 条 待回填（2026-11-16 03:00 → 11-17 22:00 · WS 断连后回填未完成，回填队列第 1 位）']],
+        continuity: [['down', '缺失时间段:', '41 根 1h bar', '2026-11-16 03:00 → 2026-11-17 19:00 · 相邻 bar close/open 对齐校验失败']],
+        uniqueness: [['ok', '重复时间戳', '0 条', '主键 (symbol, open_time) 唯一性校验通过']],
+        validity: [['warn', '价量合法性', '价格逻辑异常记录: 2 条', 'close 越界 [low × 0.98, high × 1.02] · 2026-11-17 08:00 与 09:00 两根']],
+        consistency: [['down', '口径偏差', '3 条', 'kline close ↔ aggTrades 同分钟 vwap 偏差 > 0.5% · 自 2026-11-17 08:00 起连续 3 bar']],
+        logic: [['ok', '逻辑校验', '通过', 'high ≥ max(open, close) 且 low ≤ min(open, close) 无违规']],
+        coverage: [['warn', '覆盖率', '覆盖率: 93.2%', '近 30 天窗口应有 720 bar · 实有 671 · 缺少 2 天的历史数据']]
+      },
+      'DOGE/USDT': {
+        integrity: [['down', 'Schema 校验', '缺失列: quote_asset_volume', 'aggTrades 2026-10-11 → 10-12 批次缺列 · 回拉写入时 schema 未对齐'], ['warn', '缺失记录:', '2026-11-14 14:00 → 15:00（12 bar）', '1h kline 可由增量任务按水位补齐']],
+        continuity: [['ok', '缺失时间段:', '无', '最近 720 bar 连续无缝']],
+        uniqueness: [['down', '重复时间戳', '126 条', 'aggTrades 2026-10-11 08:00 → 09:00 回拉与存量重叠 · 主键去重未执行']],
+        validity: [['ok', '价量合法性', '价格逻辑异常记录: 0 条', '价量区间校验全部通过']],
+        consistency: [['ok', '口径偏差', '< 0.05%', 'kline close ↔ aggTrades vwap 同校准']],
+        logic: [['down', '逻辑校验', '2 条违规', 'high < low · 2026-11-09 03:00 与 04:00（写入时 OHLC 字段错位）']],
+        coverage: [['ok', '覆盖率', '覆盖率: 98.7%', '近 30 天窗口缺 9 bar · 为交易所维护窗口']]
+      },
+      'LINK/USDT': {
+        integrity: [['warn', '缺失记录:', '2026-11-01 整段缺失', 'kline · 该日写入任务被 bookDepth 补拉挤占']],
+        continuity: [['down', '最新数据陈旧', '缺少 2 天的最新数据', '最新 bar 2026-11-18 10:00 · bookDepth 自该时点未再归档']],
+        uniqueness: [['ok', '重复时间戳', '0 条', '主键唯一性校验通过']],
+        validity: [['ok', '价量合法性', '价格逻辑异常记录: 0 条', '价量区间校验通过']],
+        consistency: [['warn', '口径偏差', '1 条', 'bookDepth mid-price 与 kline close 偏差 0.9% · 2026-11-15 21:00']],
+        logic: [['ok', '逻辑校验', '通过', 'H/L/O/C 关系校验无违规']],
+        coverage: [['down', '覆盖率', '覆盖率: 71.4%', 'bookDepth 应有 7,200 档快照 · 实有 5,142 · 缺少 15 天的历史数据']]
+      }
+    };
+    var Q_CLEAN = {
+      integrity: [['ok', '缺失记录:', '0 条', '12/12 列齐全 · 主键唯一']], continuity: [['ok', '缺失时间段:', '无', '最近 720 bar 连续无缝']],
+      uniqueness: [['ok', '重复时间戳', '0 条', '主键唯一性校验通过']], validity: [['ok', '价量合法性', '价格逻辑异常记录: 0 条', '价量区间校验全部通过']],
+      consistency: [['ok', '口径偏差', '< 0.05%', 'kline close ↔ aggTrades vwap 同校准']], logic: [['ok', '逻辑校验', '通过', 'H/L/O/C 关系校验无违规']],
+      coverage: [['ok', '覆盖率', '覆盖率: 99.6%', '近 180 天窗口 · 2 天为交易所维护窗口']]
+    };
+    var Q_SCORE = { 'XRP/USDT': 76.8, 'DOGE/USDT': 71.2, 'LINK/USDT': 58.4 };
+    var Q_HINT0 = '对「检查结果」所选标的运行 7 维校验 · 原型 0.6 秒模拟';
+    var qSt = { sym: '', kind: 'kline · 1h', dim: 'integrity', tested: false };
+    function qEvHtml(e) {
+      var cls = e[0] === 'down' ? 'down-c' : e[0] === 'warn' ? 'warn-c' : '';
+      var chip = e[0] === 'down' ? 'chip down' : e[0] === 'warn' ? 'chip warn' : 'chip ok';
+      var tag = e[0] === 'down' ? '异常' : e[0] === 'warn' ? '警告' : '良好';
+      return '<div class="q-ev ' + cls + '"><div style="display:flex; align-items:center; gap:7px; flex-wrap:wrap">' +
+        '<span class="' + chip + '">' + tag + '</span><span class="q-t">' + escH(e[1]) + '</span>' +
+        '<span class="mono" style="margin-left:auto; font-size:11px">' + escH(e[2]) + '</span></div>' +
+        '<div class="mono" style="margin-top:5px; font-size:10.5px; color:var(--fg-3); line-height:1.7">' + escH(e[3]) + '</div></div>';
+    }
+    /* 三态互斥（A 未选标的 / B 已选未检测 / C 已检测），切标的 / 切数据类型 / 切维度统一走 qRender 收敛：
+       A → 仅引导可见、不渲染任何证据行；B → 待检提示 + 概览回「未检测」态（无已检测数字）；C → 概览数字 + 按维度证据 */
+    function qOverviewReset() {
+      var sc = document.getElementById('qScore');
+      sc.textContent = '—'; sc.style.color = '';
+      document.getElementById('qGood').textContent = '0';
+      document.getElementById('qWarn').textContent = '0';
+      document.getElementById('qBad').textContent = '0';
+      document.getElementById('qNa').textContent = String(SYMTAB.length);
+      var last = document.getElementById('qLast');
+      last.textContent = '—'; last.style.color = 'var(--fg-4)'; last.style.fontSize = '14px';
+    }
+    function qRender() {
+      var body = document.getElementById('qBody'), emp = document.getElementById('qEmpty'), stamp = document.getElementById('qStamp'), hint = document.getElementById('qHint');
+      if (!body || !emp) return;
+      if (!qSt.sym) {                                   /* 状态 A：未选标的 —— 只给引导 */
+        emp.hidden = false; body.hidden = true;
+        stamp.textContent = '未检测';
+        hint.textContent = Q_HINT0;
+        qOverviewReset();
+        return;
+      }
+      emp.hidden = true; body.hidden = false;
+      if (!qSt.tested) {                                /* 状态 B：已选标的未检测 —— 待检提示，概览清回未检测 */
+        body.innerHTML = '<div class="noticew" style="margin-top:0"><b>未检测</b> · ' + escH(qSt.sym) + ' · ' + escH(qSt.kind) + ' — 点上方「运行检查」生成 7 维校验结果（原型 0.6 秒模拟）。</div>';
+        stamp.textContent = '未检测';
+        hint.textContent = Q_HINT0;
+        qOverviewReset();
+        return;
+      }
+      /* 状态 C：已检测 —— 概览数字 + 当前维度证据 */
+      var items = (Q_EVD[qSt.sym] && Q_EVD[qSt.sym][qSt.dim]) || Q_CLEAN[qSt.dim] || [];
+      var label = (Q_DIMS.filter(function (d) { return d[0] === qSt.dim; })[0] || ['', ''])[1];
+      body.innerHTML = '<div class="card-sub"><b>' + escH(label) + '</b> · ' + Q_DESC[qSt.dim] + ' · 校验对象 ' + escH(qSt.sym) + ' · ' + escH(qSt.kind) + ' · 抽样 720 bar</div>' +
+        items.map(qEvHtml).join('');
+      stamp.textContent = '刚刚 · 7 维 · 42 项校验';
+    }
+    (function () {
+      var sel = document.getElementById('qSym');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">— 选择标的 —</option>' + SYMTAB.map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+      sel.addEventListener('change', function () { qSt.sym = sel.value; qSt.tested = false; qRender(); });
+      var kind = document.getElementById('qKind');
+      kind.addEventListener('change', function () { qSt.kind = kind.value; qSt.tested = false; qRender(); });
+      qAll('#qTabs [data-qpane]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          qSt.dim = b.dataset.qpane;
+          qAll('#qTabs [data-qpane]').forEach(function (x) {
+            var on = x === b;
+            x.classList.toggle('on', on);
+            x.setAttribute('aria-selected', String(on));
+          });
+          qRender();
+        });
+      });
+    })();
+    var jsQRun = document.getElementById('jsQRun');
+    if (jsQRun) jsQRun.addEventListener('click', function () {
+      if (!qSt.sym) { toast('未选择标的，先在「行情标的」里选一个再运行检查'); return; }
+      var prog = document.getElementById('qProg'), hint = document.getElementById('qHint'), bar = prog.querySelector('i');
+      prog.style.display = '';
+      bar.style.transition = 'none'; bar.style.width = '0%';
+      jsQRun.disabled = true;
+      hint.textContent = '正在运行 7 维校验…（原型 0.6 秒模拟）';
+      requestAnimationFrame(function () {
+        bar.style.transition = 'width .6s cubic-bezier(.3,.7,.4,1)';
+        bar.style.width = '100%';
+      });
+      setTimeout(function () {
+        prog.style.display = 'none';
+        jsQRun.disabled = false;
+        qSt.tested = true;
+        var sc = Q_SCORE[qSt.sym] != null ? Q_SCORE[qSt.sym] : 92 + (qSt.sym.charCodeAt(0) % 7) + 0.4;
+        document.getElementById('qScore').textContent = sc.toFixed(1);
+        document.getElementById('qScore').style.color = sc >= 90 ? 'var(--up)' : sc >= 70 ? 'var(--warn)' : 'var(--down)';
+        document.getElementById('qGood').textContent = '9';
+        document.getElementById('qWarn').textContent = '2';
+        document.getElementById('qBad').textContent = '1';
+        document.getElementById('qNa').textContent = '0';
+        var last = document.getElementById('qLast'), t = new Date();
+        last.textContent = '刚刚 ' + (t.getHours() < 10 ? '0' : '') + t.getHours() + ':' + (t.getMinutes() < 10 ? '0' : '') + t.getMinutes();
+        last.style.color = '';
+        hint.textContent = '检测完成 · 评分 ' + sc.toFixed(1) + '（良好 9 · 警告 2 · 异常 1）· 切下方 7 个维度查看证据';
+        toast('质量检查完成：' + qSt.sym + ' · 评分 ' + sc.toFixed(1));
+        qRender();
+      }, 620);
+    });
+
+    /* ---- 历史行情浏览：检索即重查（确定性播种），浏览走弹窗说明 · 删除走确认气泡 ---- */
+    var AR_FIRST = { kline: '2025-08-04', markPriceKlines: '2025-08-04', aggTrades: '2026-01-12', trades: '2026-02-01', bookDepth: '2026-09-14', bookTicker: '2026-09-14', fundingRate: '2025-08-04', openInterest: '2025-10-01' };
+    var AR_PPD = { kline: 24, markPriceKlines: 24, aggTrades: 612000, trades: 474000, bookDepth: 1440, bookTicker: 28800, fundingRate: 3, openInterest: 24 };
+    var AR_BYTES = { kline: 46, markPriceKlines: 40, aggTrades: 64, trades: 60, bookDepth: 38, bookTicker: 34, fundingRate: 32, openInterest: 36 };
+    var AR_UNIT = { kline: ' bar', markPriceKlines: ' bar', aggTrades: ' 条', trades: ' 条', bookDepth: ' 快照', bookTicker: ' 条', fundingRate: ' 时点', openInterest: ' bar' };
+    var AR_LABEL = { kline: 'kline · 1h', markPriceKlines: 'markPriceKlines · 1h', aggTrades: 'aggTrades', trades: 'trades', bookDepth: 'bookDepth', bookTicker: 'bookTicker', fundingRate: 'fundingRate · 8h', openInterest: 'openInterest · 1h' };
+    var AR_BAD = { 'XRP/USDT|kline': '2026-09-03', 'DOGE/USDT|aggTrades': '2026-10-11、2026-10-12', 'LINK/USDT|bookDepth': '2026-10-02 → 10-04 连续 3 天' };
+    var arState = { sym: 'BTC/USDT', kind: 'kline' };
+    function arHash(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) % 9973; return h; }
+    function arT(s) { var p = s.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400e3; }
+    function arD(n) { var t = new Date(n * 86400e3); return t.getUTCFullYear() + '-' + (t.getUTCMonth() + 1 < 10 ? '0' : '') + (t.getUTCMonth() + 1) + '-' + (t.getUTCDate() < 10 ? '0' : '') + t.getUTCDate(); }
+    function arMetrics() {
+      var first = arT(AR_FIRST[arState.kind] || '2025-08-04'), last = arT('2026-11-20');
+      var a = Math.max(arT(document.getElementById('arFrom').value || '2026-09-01'), first);
+      var b = Math.min(arT(document.getElementById('arTo').value || '2026-11-20'), last);
+      if (a > b) return null;
+      var h = arHash(arState.sym + '|' + arState.kind);
+      var days = b - a + 1;
+      /* bar 类行数 = 天数 × 周期 精确口径；tick / 快照类按采集扰动打折 */
+      var BARLIKE = arState.kind === 'kline' || arState.kind === 'markPriceKlines' || arState.kind === 'fundingRate' || arState.kind === 'openInterest';
+      var rows = BARLIKE ? days * AR_PPD[arState.kind] : Math.round(days * AR_PPD[arState.kind] * (0.94 + (h % 7) / 100));
+      var bytes = rows * AR_BYTES[arState.kind];
+      var size = bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : (bytes / 1e6).toFixed(1) + ' MB';
+      return { a: a, b: b, days: days, rows: rows, size: size };
+    }
+    function arPaint() {
+      var m = arMetrics();
+      document.getElementById('arKindChip').textContent = AR_LABEL[arState.kind];
+      document.getElementById('arSymTitle').textContent = arState.sym;
+      document.getElementById('arBody').style.display = m ? '' : 'none';
+      document.getElementById('arEmpty').hidden = !!m;
+      if (!m) return;
+      document.getElementById('arTime').textContent = arD(m.a) + ' 00:00 → ' + arD(m.b) + ' 10:00 UTC（' + arState.sym + ' · ' + AR_LABEL[arState.kind] + '）';
+      document.getElementById('arRows').textContent = m.rows.toLocaleString() + AR_UNIT[arState.kind] + ' · ' + m.days + ' 天';
+      document.getElementById('arSize').textContent = m.size + ' · parquet 压缩 · ' + Math.max(1, Math.ceil(m.days / 7)) + ' 个文件';
+      document.getElementById('arBad').textContent = AR_BAD[arState.sym + '|' + arState.kind] || '无损坏日期';
+      document.getElementById('arMiss').innerHTML =
+        arState.kind === 'bookDepth' && arState.sym === 'LINK/USDT' ? '<span class="chip warn">缺失列: quote_qty（09 月前批次）</span>'
+        : arState.kind === 'aggTrades' && arState.sym === 'DOGE/USDT' ? '<span class="chip warn">缺失列: quote_asset_volume</span>'
+        : '<span class="chip ok">无明显缺失 · 列齐全</span>';
+    }
+    (function () {
+      var sel = document.getElementById('arSym');
+      if (!sel) return;
+      sel.innerHTML = SYMTAB.map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+      sel.value = arState.sym;
+      sel.addEventListener('change', function () { arState.sym = sel.value; arPaint(); });
+      var kind = document.getElementById('arKind');
+      kind.addEventListener('change', function () { arState.kind = kind.value; arPaint(); });
+      document.getElementById('arFrom').addEventListener('change', arPaint);
+      document.getElementById('arTo').addEventListener('change', arPaint);
+      arPaint();
+    })();
+    document.getElementById('jsArView').addEventListener('click', function () { openModal('mReplay'); });
+    document.getElementById('jsArDel').addEventListener('click', function (e) {
+      var m = arMetrics();
+      popConfirm(e.currentTarget, '删除归档数据',
+        m ? '将删除 <span class="mono">' + escH(arState.sym) + ' · ' + escH(AR_LABEL[arState.kind]) + '</span> 在 ' + arD(m.a) + ' → ' + arD(m.b) + ' 的归档（' + m.size + ' · 原型不落库）。'
+          : '当前检索范围内没有可删除的归档。', '确认删除', function () {
+        toast('已提交删除任务（原型不落库）· 归档摘要将在下个压缩窗口生效');
+      });
+    });
+    MODAL_FILL.mReplay = function () {
+      var m = arMetrics();
+      document.getElementById('mrKind').textContent = AR_LABEL[arState.kind];
+      document.getElementById('mrSym').textContent = arState.sym + ' · binance ' + (MKT[arState.sym] === '现货' ? 'spot' : 'USD-M');
+      document.getElementById('mrRange').textContent = AR_FIRST[arState.kind] + ' → 2026-11-20（检索窗 ' + (m ? arD(m.a) + ' → ' + arD(m.b) : '无交集') + '）';
+      document.getElementById('mrSize').textContent = m ? m.rows.toLocaleString() + AR_UNIT[arState.kind] + ' · ' + m.size : '范围内无数据';
+      document.getElementById('mrFiles').textContent = m ? Math.max(1, Math.ceil(m.days / 7)) + ' 个 parquet 文件 · 行组 100k 行' : '—';
+      document.getElementById('mrBad').textContent = AR_BAD[arState.sym + '|' + arState.kind] || '无损坏日期';
+    };
+
+    /* ---- 管理自选组 / 批量添加自选 弹窗（复用 modal 体系） ---- */
+    function renderWlMng() {
+      var wrap = document.getElementById('wlMngList');
+      if (!wrap) return;
+      wrap.innerHTML = WL.map(function (g) {
+        return '<div style="display:flex; gap:8px; align-items:center" data-wlid="' + g.id + '">' +
+          '<input class="iedit" value="' + escA(g.name) + '" style="flex:1" data-wlrename aria-label="重命名自选组">' +
+          '<span class="count-chip">' + g.syms.length + ' 标的</span>' +
+          '<button class="mini-btn" data-wlmdel' + (g.fixed ? ' disabled title="默认组不可删除"' : '') + '>删除</button></div>';
+      }).join('');
+    }
+    MODAL_FILL.mWl = renderWlMng;
+    document.getElementById('wlMngList').addEventListener('click', function (e) {
+      var del = e.target.closest('[data-wlmdel]');
+      if (!del || del.disabled) return;
+      var row = del.closest('[data-wlid]'), g = wlGet(row.dataset.wlid);
+      if (!g) return;
+      WL = WL.filter(function (x) { return x.id !== g.id; });
+      if (wlCur === g.id) { wlCur = 'all'; LISTS.sym.render(); }
+      wlRender(); renderWlMng();
+      toast('自选组已删除（原型）：' + g.name);
+    });
+    document.getElementById('wlMngList').addEventListener('change', function (e) {
+      var inp = e.target.closest('[data-wlrename]');
+      if (!inp) return;
+      var row = inp.closest('[data-wlid]'), g = wlGet(row.dataset.wlid);
+      var nm = inp.value.trim();
+      if (!g || !nm) return;
+      g.name = nm;
+      wlRender();
+      toast('自选组已重命名（原型）：' + nm);
+    });
+    var jsWlCreate = document.getElementById('jsWlCreate');
+    if (jsWlCreate) jsWlCreate.addEventListener('click', function () {
+      var inp = document.getElementById('wlNewName'), nm = inp.value.trim();
+      if (!nm) { toast('先输入新自选组名称'); return; }
+      var dup = WL.some(function (g) { return g.name === nm; });
+      if (dup) { toast('已存在同名自选组（原型）'); return; }
+      WL.push({ id: 'g-u' + (++dmSeq), name: nm, syms: [] });
+      inp.value = '';
+      wlRender(); renderWlMng();
+      toast('自选组已创建（原型）：' + nm);
+    });
+    MODAL_FILL.mWlBatch = function () {
+      var gsel = document.getElementById('wlBatchGroup');
+      gsel.innerHTML = WL.map(function (g) { return '<option value="' + g.id + '">' + escH(g.name) + '</option>'; }).join('');
+      document.getElementById('wlBatchGrid').innerHTML = SYMTAB.map(function (s) {
+        return '<label class="dm-ck"><input type="checkbox" value="' + s + '">' + s + ' <span class="mono">' + MKT[s] + '</span></label>';
+      }).join('');
+    };
+    var jsWlBatchGo = document.getElementById('jsWlBatchGo');
+    if (jsWlBatchGo) jsWlBatchGo.addEventListener('click', function () {
+      var g = wlGet(document.getElementById('wlBatchGroup').value);
+      var add = qAll('#wlBatchGrid input:checked').map(function (ck) { return ck.value; });
+      if (!g) { toast('先选择目标自选组'); return; }
+      if (!add.length) { toast('先勾选要加入的标的'); return; }
+      var fresh = add.filter(function (s) { return g.syms.indexOf(s) === -1; });
+      fresh.forEach(function (s) { g.syms.push(s); });
+      var mk = document.getElementById('mWlBatch');
+      if (mk) closeMask(mk);
+      wlRender();
+      if (wlCur === g.id) LISTS.sym.render();
+      toast('已加入 ' + fresh.length + ' 个标的至「' + g.name + '」（原型不落库）');
+    });
+
+    /* ---- 页签初始化：默认停在「行情标的」+ 侧栏首渲染 + 任务计数 ---- */
+    wlRender();
+    dmSyChip();
+    qRender();
+    arPaint();
 
     /* ---- 行情图表：交易对下拉为原型边界（弹回 + 提示） ---- */
     var cSel = document.getElementById('cSel');
