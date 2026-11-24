@@ -449,6 +449,59 @@ def test_get_watermark_pool_parquet_without_time_column_counts_rows_only(tmp_pat
     assert by_kind["openInterest"]["latest_date"] is None
 
 
+# =================== get_symbol_coverage ===================
+
+
+def test_get_symbol_coverage_merges_kline_meta_and_pool(tmp_path: Path):
+    """单标的覆盖：K 线池（周期=目录名）与归档布局（meta + 文件名周期）合并，
+    「累计 bar」只算 K 线类行数，成交/快照行不计入 bar。
+    """
+    base = tmp_path
+    # 数据池 K 线：spot 的 1h / 15m
+    _write_parquet(base / "crypto" / "spot" / "klines" / "1h" / "LTCUSDT.parquet", [1672531200000])
+    _write_parquet(base / "crypto" / "spot" / "klines" / "15m" / "LTCUSDT.parquet", [1672531200000] * 3)
+    # 同名标的的其他市场文件：spot 查询不能读到
+    _write_parquet(base / "crypto" / "future" / "klines" / "1h" / "LTCUSDT.parquet", [1672531200000] * 5)
+    # 归档布局：aggTrades 有 meta
+    agg = base / "spot" / "aggTrades" / "LTCUSDT"
+    _write_meta(agg, kind="aggTrades", total_rows=500, earliest_date="2024-02-01", latest_date="2024-02-03")
+    (agg / "LTCUSDT-aggTrades-2024-02-03.parquet").touch()
+    # 归档布局：标记价 K 线，周期从文件名解析（1h + 4h）
+    mark = base / "spot" / "markPriceKlines" / "LTCUSDT"
+    _write_meta(mark, kind="markPriceKlines", total_rows=24, latest_date="2024-02-04")
+    (mark / "LTCUSDT-markPriceKlines-1h-2024-02-04.parquet").touch()
+    (mark / "LTCUSDT-markPriceKlines-4h-2024-02-04.parquet").touch()
+    # 数据池衍生：fundingRate 在 {kind}/{market}/{symbol} 层序
+    _write_parquet(base / "fundingRate" / "spot" / "LTCUSDT" / "LTCUSDT-fundingRate-20240204.parquet", [1672531200000] * 2)
+    # 不在本次查询范围的其他标的
+    _write_parquet(base / "crypto" / "spot" / "klines" / "1h" / "ETHUSDT.parquet", [1672531200000] * 9)
+
+    result = ArchiveService(base_dir=base).get_symbol_coverage("LTC/USDT", MarketType.SPOT)
+
+    assert result["symbol"] == "LTCUSDT"
+    assert result["market"] == "spot"
+    by_kind = {item["kind"]: item for item in result["items"]}
+    assert sorted(by_kind) == ["aggTrades", "fundingRate", "kline", "markPriceKlines"]
+    # 周期按 15m → 1h → 4h 的规范顺序，不按字母序
+    assert result["intervals"] == ["15m", "1h", "4h"]
+    assert by_kind["kline"]["total_rows"] == 4
+    assert by_kind["markPriceKlines"]["intervals"] == ["1h", "4h"]
+    assert result["total_rows"] == 4 + 500 + 24 + 2
+    # bar = K 线类（kline + markPriceKlines），成交/资金费行不计
+    assert result["bar_rows"] == 4 + 24
+    assert result["latest_date"] == "2024-02-04"
+
+
+def test_get_symbol_coverage_empty_when_symbol_absent(tmp_path: Path):
+    """没有任何落盘：items 空、bar_rows 0、intervals 空、日期 None（不编造今天）。"""
+    result = ArchiveService(base_dir=tmp_path).get_symbol_coverage("NOPE/USDT", MarketType.SPOT)
+    assert result["items"] == []
+    assert result["total_rows"] == 0
+    assert result["bar_rows"] == 0
+    assert result["intervals"] == []
+    assert result["latest_date"] is None
+
+
 # =================== __init__ ===================
 
 

@@ -184,6 +184,27 @@ def get_meta(
     return {"success": True, "meta": meta}
 
 
+# =================== 5b) GET /symbol-coverage ===================
+
+
+@router.get("/symbol-coverage")
+@handle_worker_exceptions("读取单标的归档覆盖")
+def get_symbol_coverage(
+    symbol: str = Query(..., description="交易对，如 LTC/USDT 或 LTCUSDT"),
+    market: str = Query("spot", description="市场 spot/um/cm"),
+) -> dict:
+    """单标的已采集覆盖：各 kind 的行数 / 周期 / 日期（标的简况面板）。
+
+    与 /watermark 的区别：那是按 kind 的全市场聚合，这里是「这一个标的」的明细。
+    """
+    try:
+        market_e = MarketType(market)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"unknown market: {market}") from exc
+    svc = _get_service()
+    return {"success": True, **svc.get_symbol_coverage(symbol, market_e)}
+
+
 # =================== 6) DELETE /data ===================
 
 

@@ -50,6 +50,28 @@ export interface ArchiveStorageItem {
   bytes: number;
 }
 
+// 单标的归档覆盖（GET /data/archive/symbol-coverage，标的简况面板用）
+export interface SymbolCoverageItem {
+  kind: string;
+  market: string;
+  intervals: string[];
+  total_rows: number;
+  earliest_date: string | null;
+  latest_date: string | null;
+}
+
+export interface SymbolCoverageResponse {
+  success?: boolean;
+  symbol: string;
+  market: string;
+  items: SymbolCoverageItem[];
+  total_rows: number;
+  // 只累加 K 线类 kind 的行数（成交/快照的行不是 bar）
+  bar_rows: number;
+  intervals: string[];
+  latest_date: string | null;
+}
+
 export interface ArchiveWatermarkResponse {
   success?: boolean;
   watermarks: ArchiveWatermarkItem[];
@@ -314,6 +336,14 @@ export const dataApi = {
    */
   getArchiveWatermark: (): Promise<ArchiveWatermarkResponse> => {
     return apiRequest.get('/data/archive/watermark');
+  },
+
+  /**
+   * 单个标的在某市场下已采集的覆盖（各 kind 行数 / 周期 / 日期）
+   * 与 getArchiveWatermark 的区别：那是按 kind 的全市场聚合，这是「这一个标的」的明细
+   */
+  getSymbolCoverage: (symbol: string, market = 'spot'): Promise<SymbolCoverageResponse> => {
+    return apiRequest.get('/data/archive/symbol-coverage', { symbol, market });
   },
 
   // ==================== 数据池（自选组）API ====================

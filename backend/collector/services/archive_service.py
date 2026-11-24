@@ -160,6 +160,25 @@ def _pool_symbol(kind: str, path: Path) -> str | None:
     return path.parent.name or None
 
 
+# 标的简况「累计 bar」口径：只有这几个 kind 的行才是 bar，其余是成交/快照条目
+_BAR_KINDS: frozenset[str] = frozenset(
+    {"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
+)
+
+# 归档布局里按 interval 落盘的 K 线 kind（文件名 `{sym}-{kind}-{interval}-{date}.parquet`）
+_ARCHIVE_KLINE_KINDS: frozenset[str] = frozenset(
+    {"markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
+)
+
+# 周期排序口径（面板「采集口径」按此顺序拼，不按字母序）
+_INTERVAL_ORDER: tuple[str, ...] = ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")
+
+
+def _normalize_symbol(symbol: str) -> str:
+    """`LTC/USDT` / `LTC-USDT` → `LTCUSDT`（本地目录名与 K 线池文件名的形态）。"""
+    return symbol.replace("/", "").replace("-", "").replace("_", "").upper()
+
+
 def _epoch(value: object) -> float:
     """ISO 字符串 → 时间戳；无法解析返回 -1（用于 updated_at 跨时区比较）。"""
     try:
@@ -321,6 +340,156 @@ class ArchiveService:
         # ponytail: 每 symbol 一次单层 glob，几百个 symbol 可接受；symbol 量级再涨时改成
         # 建 SQLite 索引或目录标记
         return sorted(p.name for p in base.iterdir() if p.is_dir() and any(p.glob("*.parquet")))
+
+    def get_symbol_coverage(
+        self,
+        symbol: str,
+        market: MarketType = MarketType.SPOT,
+    ) -> dict[str, Any]:
+        """单个标的在某市场下已采集的覆盖情况（标的简况面板用）。
+
+        三族布局一起看，按 kind 汇总：
+
+        - 归档布局 `{market}/{kind}/{symbol}/_meta.json`（7 个 AI kind）：行数/日期读 meta；
+          标记/指数/溢价 K 线再从 `{sym}-{kind}-{interval}-{date}.parquet` 文件名认出周期。
+        - 数据池 K 线：`crypto/{spot|future}/klines/{interval}/{symbol}.parquet`，周期即目录名，
+          行数读 parquet footer（pool 文件的时间列可能是索引列，`_parquet_stats` 已兼容）。
+        - 数据池衍生：`{fundingRate|openInterest}/{market}/{symbol}/*.parquet`。
+
+        Returns:
+            dict: `{symbol, market, items, total_rows, bar_rows, intervals, latest_date}`；
+            items 元素 `{kind, market, intervals, total_rows, earliest_date, latest_date}`。
+            `bar_rows` 只累加 K 线类 kind（成交/快照的行不是 bar）。
+
+        ponytail: 每次展开只 stat / 读单个 symbol 的几个目录，不做全树 walk，前端按
+        symbol 缓存；symbol 数或 kind 数再涨时再考虑落 SQLite 索引。
+        """
+
+        def ensure(kind: str) -> dict[str, Any]:
+            return items.setdefault(
+                kind,
+                {
+                    "kind": kind,
+                    "market": market.value,
+                    "intervals": [],
+                    "total_rows": 0,
+                    "earliest_date": None,
+                    "latest_date": None,
+                },
+            )
+
+        def add(kind: str, rows: int, earliest: str | None, latest: str | None) -> None:
+            item = ensure(kind)
+            item["total_rows"] += rows
+            if earliest and (item["earliest_date"] is None or earliest < item["earliest_date"]):
+                item["earliest_date"] = earliest
+            if latest and (item["latest_date"] is None or latest > item["latest_date"]):
+                item["latest_date"] = latest
+
+        def add_interval(kind: str, interval: str) -> None:
+            intervals = ensure(kind)["intervals"]
+            if interval in _INTERVAL_ORDER and interval not in intervals:
+                intervals.append(interval)
+
+        norm = _normalize_symbol(symbol)
+        items: dict[str, dict[str, Any]] = {}
+
+        # 1) 归档布局（7 个 kind）
+        for kind in ArchiveKind:
+            for save_dir in self._symbol_dirs(market, kind.value, symbol, norm):
+                meta = read_meta(save_dir)
+                if not meta:
+                    continue
+                add(
+                    kind.value,
+                    int(meta.get("total_rows") or 0),
+                    meta.get("earliest_date"),
+                    meta.get("latest_date"),
+                )
+                if kind.value in _ARCHIVE_KLINE_KINDS:
+                    for path in save_dir.glob("*.parquet"):
+                        parts = path.stem.split("-")
+                        if len(parts) >= 3 and parts[1] == kind.value:
+                            add_interval(kind.value, parts[2])
+
+        # 2) 数据池 K 线：周期 = 目录名
+        pool_market = {"spot": "spot", "um": "future"}.get(market.value)
+        kline_root = self.base_dir / "crypto" / pool_market / "klines" if pool_market else None
+        if kline_root is not None and kline_root.is_dir():
+            for interval_dir in sorted(p for p in kline_root.iterdir() if p.is_dir()):
+                path = interval_dir / f"{norm}.parquet"
+                if not path.is_file():
+                    continue
+                try:
+                    rows, earliest, latest = _parquet_stats(path)
+                except Exception as exc:  # 损坏 / 权限：跳过该周期，不拖垮端点
+                    logger.warning(f"读取 parquet footer 失败，跳过 {path}: {exc}")
+                    continue
+                add(_KLINE_POOL_KIND, rows, earliest, latest)
+                add_interval(_KLINE_POOL_KIND, interval_dir.name)
+
+        # 3) 数据池衍生（fundingRate / openInterest）：层序是 {kind}/{market}/{symbol}
+        for kind in ("fundingRate", "openInterest"):
+            for save_dir in self._pool_symbol_dirs(kind, market, symbol, norm):
+                for path in sorted(save_dir.glob("*.parquet")):
+                    try:
+                        rows, earliest, latest = _parquet_stats(path)
+                    except Exception as exc:
+                        logger.warning(f"读取 parquet footer 失败，跳过 {path}: {exc}")
+                        continue
+                    add(kind, rows, earliest, latest)
+
+        for item in items.values():
+            item["intervals"].sort(key=_INTERVAL_ORDER.index)
+        ordered = [items[k] for k in sorted(items)]
+        all_intervals: list[str] = []
+        for item in ordered:
+            for interval in item["intervals"]:
+                if interval not in all_intervals:
+                    all_intervals.append(interval)
+        return {
+            "symbol": norm,
+            "market": market.value,
+            "items": ordered,
+            "total_rows": sum(item["total_rows"] for item in ordered),
+            "bar_rows": sum(item["total_rows"] for item in ordered if item["kind"] in _BAR_KINDS),
+            "intervals": all_intervals,
+            "latest_date": max(
+                (item["latest_date"] for item in ordered if item["latest_date"]),
+                default=None,
+            ),
+        }
+
+    def _symbol_dirs(
+        self,
+        market: MarketType,
+        kind: str,
+        symbol: str,
+        norm: str,
+    ) -> list[Path]:
+        """归档布局 `{market}/{kind}/{symbol}` 下该标的可能落的目录。
+
+        兼容单段 `LTCUSDT` 与旧的两级 `LTC/USDT`。
+        """
+        root = self.base_dir / market.value / kind
+        candidates = [root / norm]
+        if "/" in symbol:
+            candidates.append(root / symbol)
+        return [path for path in candidates if path.is_dir()]
+
+    def _pool_symbol_dirs(
+        self,
+        kind: str,
+        market: MarketType,
+        symbol: str,
+        norm: str,
+    ) -> list[Path]:
+        """数据池布局 `{kind}/{market}/{symbol}` 下该标的可能落的目录（层序与归档布局相反）。"""
+        root = self.base_dir / kind / market.value
+        candidates = [root / norm]
+        if "/" in symbol:
+            candidates.append(root / symbol)
+        return [path for path in candidates if path.is_dir()]
 
     def get_watermark(self) -> dict[str, Any]:
         """按 kind 聚合数据源水位与磁盘占用（首屏「数据源水位 / 存储用量」两块卡）。

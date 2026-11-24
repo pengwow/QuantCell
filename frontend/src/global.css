@@ -857,6 +857,31 @@ html body {
   background: var(--qc-surface);
 }
 
+/* 行内展开面板的 kv 表（demo .kvtab：11.5px、虚线行分隔、key 118px fg-4、value 550） */
+.qc-kvtab {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qc-kvtab td {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.qc-kvtab tr:last-child td {
+  border-bottom: none;
+}
+
+.qc-kvtab .k {
+  width: 118px;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-kvtab .v {
+  font-weight: 550;
+}
+
 /* 面板内指标卡对位 demo .mstat（比页级 .qc-kpi 轻一档：10/12 内距、8px 圆角、无投影、面板底色）,
    只作用于行内展开面板，页级 KPI（首页/详情页）不受影响 */
 .qc-exp-panel .qc-kpi {

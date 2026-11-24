@@ -68,7 +68,13 @@ import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
 import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import { dataApi } from '@/api/dataApi';
-import type { DataPoolRecord, CryptoSymbol, TaskDetailItem, KlineQualityReport } from '@/api/dataApi';
+import type {
+  DataPoolRecord,
+  CryptoSymbol,
+  TaskDetailItem,
+  KlineQualityReport,
+  SymbolCoverageResponse,
+} from '@/api/dataApi';
 import { archiveApi } from '@/api/archiveApi';
 import { derivApi } from '@/api/derivApi';
 import { wsService } from '@/services/websocketService';
@@ -259,6 +265,11 @@ const DataManagementPage = () => {
   // 行内展开的标的 key：列表 expandedRowKeys 与卡片 renderExpanded 共用（单键、初始空 = 首载不展开）
   const [expandedSymbolKey, setExpandedSymbolKey] = useState<string>('');
 
+  // 标的简况的「累计 bar / 采集口径」：展开哪个标的才拉哪个（GET /data/archive/symbol-coverage），
+  // 拉过就缓存（同一 symbol 反复展开不再请求）；失败不重试刷屏，行回落「—」
+  const [symbolCoverage, setSymbolCoverage] = useState<Record<string, SymbolCoverageResponse>>({});
+  const coverageFetchedRef = useRef<Set<string>>(new Set());
+
   // 市场数据加载状态
   const [marketDataLoading, setMarketDataLoading] = useState<Record<string, boolean>>({});
 
@@ -284,6 +295,28 @@ const DataManagementPage = () => {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
+  }, [expandedSymbolKey]);
+
+  // 展开标的时就地拉该标的的归档覆盖（市场固定 spot：本页只列现货标的）
+  useEffect(() => {
+    const symbol = expandedSymbolKey;
+    if (!symbol || coverageFetchedRef.current.has(symbol)) return;
+    coverageFetchedRef.current.add(symbol);
+    let cancelled = false;
+    dataApi
+      .getSymbolCoverage(symbol, 'spot')
+      .then((res) => {
+        if (cancelled) return;
+        setSymbolCoverage((prev) => ({ ...prev, [symbol]: res }));
+      })
+      .catch((error) => {
+        // 覆盖只是补充信息：失败保持「—」，不回滚面板
+        coverageFetchedRef.current.delete(symbol);
+        console.warn('Failed to load symbol coverage:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [expandedSymbolKey]);
 
   // 设置页面标题
@@ -2494,6 +2527,15 @@ const DataManagementPage = () => {
     setSelectedSymbols([]);
   };
 
+  // 标的简况卡底「采集」：把该标的**并入**当前选中集（不清空用户已有勾选），
+  // 然后把底部「批量数据采集」卡滚到视口中央 —— 真正的下发动作在卡里（已选 × 类型 × 模式）
+  const handleSymbolCollect = (symbol: string) => {
+    setSelectedSymbols((prev) => (prev.includes(symbol) ? prev : [...prev, symbol]));
+    requestAnimationFrame(() => {
+      document.getElementById('dm-quick-collect')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
+
   const renderSymbolToolbar = () => (
     <div className="mb-4">
       {/* §6.6 工具栏：搜索 + 计价货币 ichip + 排序 + 右侧刷新 */}
@@ -2597,85 +2639,94 @@ const DataManagementPage = () => {
   };
 
   // 行情标的详情面板：列表 expandedRowRender 与卡片 renderExpanded 共用同一份 JSX（逐字一致）。
-  // 字段全部取自 SymbolData 已有值，不额外请求；缺值统一「—」
+  // 形制对齐 demo `XP_BUILD.sym`：卡头「标的简况 + symbol + rank + 状态 chip + 右侧 24h 涨跌」，
+  // 六行 kv 表（价格 / 24h 成交量 / 市场 / 所属自选组 / 累计 bar / 采集口径），卡底「采集 / 质量」。
+  // 累计 bar 与采集口径来自 GET /data/archive/symbol-coverage（按符号缓存，展开才拉）
   const renderSymbolDetail = (s: SymbolData) => {
     const change = s.priceChangePercent24h;
     const isLoading = marketDataLoading[s.symbol];
     // 所属自选组（可多组）：面板直接列全，未加入任何组时给弱提示
     const symbolGroups = favoriteGroups.filter(group => group.symbolIds.includes(s.symbol));
-    // 指标格：label 11px fg-3 + mono 数值（与因子库行内面板同一排印口径）
-    const metric = (key: string, label: string, value: React.ReactNode) => (
-      <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-        <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{label}</span>
-        <span className="qc-mono" style={{ fontWeight: 600 }}>{value}</span>
-      </div>
+    const coverage = symbolCoverage[s.symbol];
+    // 0 行 = 真的没采过 bar；未回来 = 还不知道 —— 两种都落「—」，不写 0 冒充
+    const barRows = coverage && coverage.bar_rows > 0 ? coverage.bar_rows.toLocaleString() : '—';
+    const collectSpec = coverage && coverage.intervals.length > 0
+      ? `${coverage.intervals.join(' · ')} · ${t('dm_wm_latest')} ${coverage.latest_date ?? '—'}`
+      : '—';
+    const row = (key: string, label: string, value: React.ReactNode, mono = true) => (
+      <tr key={key}>
+        <td className="k">{label}</td>
+        <td className={`v${mono ? ' qc-mono' : ''}`}>{value}</td>
+      </tr>
     );
     return (
       <div className="qc-exp-panel" onClick={(e) => e.stopPropagation()}>
         <Flex align="center" gap={6} wrap style={{ minWidth: 0 }}>
-          <span style={{ fontWeight: 600 }}>{s.symbol}</span>
+          <span style={{ fontSize: 13, fontWeight: 650 }}>{t('dm_symbol_profile')}</span>
+          <span className="qc-mono" style={{ fontSize: 12, color: 'var(--qc-text-secondary)' }}>{s.symbol}</span>
           {s.rank ? <span className="qc-chip quiet qc-mono">#{s.rank}</span> : null}
-          <span
-            className="qc-cell-time qc-mono"
-            style={{ marginInlineStart: 'auto', fontSize: 11 }}
-          >
-            {t('update_time')} <span style={{ color: 'var(--qc-text)' }}>{s.lastUpdateTime || '—'}</span>
-          </span>
-        </Flex>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
-            gap: 10,
-            marginTop: 8,
-          }}
-        >
-          {metric('price', t('latest_price'),
-            isLoading ? <Spin size="small" /> : s.price ? `$${s.price.toLocaleString()}` : '—')}
-          {metric('change', t('change_24h'),
-            isLoading ? <Spin size="small" /> : change == null ? '—' : (
+          {s.hasData ? getQualityTag(s.dataQuality) : <span className="qc-chip quiet">{t('no_data')}</span>}
+          {/* 表内展开时面板宽 = 表格宽（1200 > 可视 958），靠右对齐会把涨跌推出可视区，故跟随流内排 */}
+          <span className="qc-cell-time qc-mono">
+            {t('change_24h')}{' '}
+            {isLoading ? <Spin size="small" /> : change == null ? '—' : (
               <span style={{ color: getPriceChangeColor(change) }}>
                 {change >= 0 ? '+' : ''}{change.toFixed(2)}%
               </span>
-            ))}
-          {metric('volume', t('dm_volume'),
-            isLoading ? <Spin size="small" /> : s.volume24h ? formatVolume(s.volume24h) : '—')}
-          {metric('status', t('data_status'),
-            s.hasData ? getQualityTag(s.dataQuality) : <span className="qc-chip quiet">{t('no_data')}</span>)}
-          {metric('auto', t('auto_update'), s.autoUpdate ? t('yes') : t('no'))}
-        </div>
-        {/* 所属自选组：一个标的可同属多个组 → 逐组列出（色点 + 组名，随组改名/换色即时跟随） */}
-        <Flex align="center" gap={6} wrap style={{ marginTop: 8 }}>
-          <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{t('dm_symbol_groups')}</span>
-          {symbolGroups.length === 0 ? (
-            <span style={{ fontSize: 11, color: 'var(--qc-text-quaternary)' }}>{t('dm_symbol_no_group')}</span>
-          ) : (
-            symbolGroups.map(group => (
-              <span
-                key={group.id}
-                className="qc-chip quiet"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  fontSize: 11,
-                  fontWeight: 500,
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{
-                    width: 6,
-                    height: 6,
-                    flex: '0 0 6px',
-                    borderRadius: 3,
-                    background: group.color || WATCHLIST_COLOR_PURPLE,
-                  }}
-                />
-                {group.name}
+            )}
+          </span>
+        </Flex>
+        <table className="qc-kvtab" style={{ marginTop: 8 }}>
+          <tbody>
+            {row('price', t('dm_symbol_price'),
+              isLoading ? <Spin size="small" /> : s.price ? `$${s.price.toLocaleString()}` : '—')}
+            {row('volume', t('volume_24h'),
+              isLoading ? <Spin size="small" /> : s.volume24h ? formatVolume(s.volume24h) : '—')}
+            {/* 本页只列现货标的：市场是恒定真值，不是编造的分类 */}
+            {row('market', t('dm_symbol_market'), t('spot'), false)}
+            {row('groups', t('dm_symbol_groups'), symbolGroups.length === 0 ? (
+              <span style={{ fontWeight: 500, color: 'var(--qc-text-quaternary)' }}>{t('dm_symbol_no_group')}</span>
+            ) : (
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '5px 6px', alignItems: 'center' }}>
+                {symbolGroups.map(group => (
+                  <span
+                    key={group.id}
+                    className="qc-chip quiet"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 11,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 6,
+                        height: 6,
+                        flex: '0 0 6px',
+                        borderRadius: 3,
+                        background: group.color || WATCHLIST_COLOR_PURPLE,
+                      }}
+                    />
+                    {group.name}
+                  </span>
+                ))}
               </span>
-            ))
-          )}
+            ), false)}
+            {row('bars', t('dm_symbol_cum_bars'), barRows)}
+            {row('spec', t('dm_symbol_collect_spec'), collectSpec)}
+          </tbody>
+        </table>
+        <Flex align="center" gap={8} wrap style={{ marginTop: 11 }}>
+          <Button type="primary" size="small" onClick={() => handleSymbolCollect(s.symbol)}>
+            {t('collect')}
+          </Button>
+          <Button size="small" onClick={() => handleTabChange('quality')}>
+            {t('quality')}
+          </Button>
+          <span className="qc-card-sub" style={{ marginInlineStart: 4 }}>{t('dm_symbol_actions_hint')}</span>
         </Flex>
       </div>
     );
@@ -3067,6 +3118,7 @@ const DataManagementPage = () => {
   // 只暴露「已选标的 × 数据类型 × 模式」，提交后任务落到「数据采集」页签
   const renderQuickBatchCollect = () => (
     <Card
+      id="dm-quick-collect"
       className="qc-card"
       style={{ marginTop: 12 }}
       title={t('dm_bulk_collect_title')}
