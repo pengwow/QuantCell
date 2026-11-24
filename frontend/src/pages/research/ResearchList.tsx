@@ -2,7 +2,8 @@
  * 策略研究列表（design-spec §5 页头 / §6.2 chip / §6.3 卡片 / §6.5 表格 /
  * §6.6 工具栏 / §6.7 分页 / §6.13 空态）。
  * 卡片与表格双视图（视图类型跟随系统设置）+ 搜索 + 模式/状态筛选 + 新建抽屉；
- * 点行/卡片进入 /research/:id。抽屉入参（seed / 复制配置）保持原链路。
+ * 点行/卡片展开详情面板（两形态共用同一块），进详情走面板内按钮与操作列「查看」。
+ * 抽屉入参（seed / 复制配置）保持原链路。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,10 +12,8 @@ import {
   App as AntApp,
   Button,
   Card,
-  Col,
   Flex,
   Pagination,
-  Row,
   Select,
   Tooltip,
   Typography,
@@ -41,6 +40,7 @@ import { formatTokens } from '@/utils/format';
 import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import PageToolbar from '@/components/ui/PageToolbar';
 import {
   researchApi,
@@ -87,6 +87,9 @@ const ResearchList: React.FC = () => {
   const [pageSize, setPageSize] = useGlobalPageSize();
   // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
   const viewType = useViewType();
+  // 行/卡片详情面板：列表与卡片共用同一个键（一次一块，再点同项收起）
+  const [expandedKey, setExpandedKey] = useState<number | null>(null);
+  const toggleExpanded = (id: number) => setExpandedKey((prev) => (prev === id ? null : id));
 
   const searching = keyword.trim() !== '';
   const hasFilter = searching || mode !== 'all' || status !== 'all';
@@ -136,6 +139,30 @@ const ResearchList: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   usePolling(load, { interval: 5000 });
+
+  // 搜索/筛选/翻页/切视图都收起面板：展开锚点只在当前这屏数据里有意义
+  useEffect(() => {
+    setExpandedKey(null);
+  }, [keyword, mode, status, page, pageSize, viewType]);
+
+  // 键盘：Esc 收起面板（输入控件内的按键交给控件自己处理）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === 'Escape') setExpandedKey(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const act = async (action: () => Promise<unknown>, text: string) => {
     try {
@@ -282,6 +309,73 @@ const ResearchList: React.FC = () => {
     </div>
   );
 
+  // 行首展开三角（同回测/策略列表）：收起 ▸ / 展开旋转 90°
+  const renderCaret = (open: boolean) => (
+    <svg className={`qc-cell-caret${open ? ' is-open' : ''}`} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+    </svg>
+  );
+
+  // 详情面板：列表 expandedRowRender 与卡片 renderExpanded 共用同一份 JSX，
+  // 字段全部来自会话行本身（不新增请求/后端字段）；跳详情只留在这里的按钮上
+  const renderResearchDetail = (row: ResearchSession) => {
+    const name = row.name || t('research_session_fallback', { id: row.id });
+    const fields: { label: string; value: React.ReactNode }[] = [
+      { label: t('research_col_progress'), value: <span className="qc-mono">{`${row.loop_done}/${row.loop_n}`}</span> },
+      {
+        label: t('research_col_best_icir'),
+        value:
+          typeof row.best_ic_ir === 'number' ? (
+            <span className="qc-mono">{row.best_ic_ir.toFixed(4)}</span>
+          ) : (
+            <span className="qc-cell-none qc-mono">—</span>
+          ),
+      },
+      {
+        label: t('research_col_cost'),
+        value: (
+          <Tooltip title={`${row.token_used} tokens`}>
+            <span className="qc-mono">
+              {t('research_cost_format', { calls: row.llm_calls, tokens: formatTokens(row.token_used, '0') })}
+            </span>
+          </Tooltip>
+        ),
+      },
+      {
+        label: t('created_at'),
+        value: row.created_at ? (
+          <span className="qc-cell-time qc-mono">{new Date(row.created_at).toLocaleString()}</span>
+        ) : (
+          <span className="qc-cell-none qc-mono">—</span>
+        ),
+      },
+      { label: t('status'), value: researchStatusChip(row, t) },
+    ];
+
+    return (
+      <div className="qc-exp-panel" role="region" aria-label={t('detail')} onClick={(e) => e.stopPropagation()}>
+        <Flex align="center" gap={12} wrap>
+          <span className="qc-row-chips">
+            <span className="qc-mono font-medium">{name}</span>
+            {researchScenarioChip(row, t)}
+            {researchModeChip(row, t)}
+          </span>
+          <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => navigate(`/research/${row.id}`)}>
+            {`${t('view')} ${t('detail')}`}
+          </Button>
+        </Flex>
+        <Flex wrap gap={16} style={{ marginTop: 10 }}>
+          {fields.map((f) => (
+            <Flex key={f.label} vertical gap={2} style={{ minWidth: 130 }}>
+              <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{f.label}</span>
+              {f.value}
+            </Flex>
+          ))}
+        </Flex>
+      </div>
+    );
+  };
+
   const columns: ColumnsType<ResearchSession> = [
     {
       title: t('research_col_session'),
@@ -289,8 +383,9 @@ const ResearchList: React.FC = () => {
       ellipsis: true,
       width: 300,
       render: (name: string, row) => (
-        <span className="qc-cell-strat" title={name}>
-          {name || t('research_session_fallback', { id: row.id })}
+        <span className="qc-cell-strat-wrap" title={name}>
+          {renderCaret(expandedKey === row.id)}
+          <span className="qc-cell-strat">{name || t('research_session_fallback', { id: row.id })}</span>
         </span>
       ),
     },
@@ -464,111 +559,124 @@ const ResearchList: React.FC = () => {
     ) : null;
 
   // 卡片视图 — §6.3 demo .w-head/.w-row2/.card-foot 排版：卡名 mono、chip 组 + mono 时间、
-  // 指标行 mono 数值；真实字段（进度/IC_IR/成本/时间/动作）原样保留
-  const renderCardView = () => (
-    <>
-      {pageRows.length === 0 && !loading ? (
-        renderEmpty()
-      ) : (
-        <Row gutter={[12, 12]}>
-          {pageRows.map((row) => {
-            // 与 actionsFor 同口径：仅终态会话可删除（非终态后端同样拦截 409）
-            const deletable = ['completed', 'failed', 'cancelled'].includes(row.status);
-            const name = row.name || t('research_session_fallback', { id: row.id });
-            return (
-              <Col xs={24} sm={12} md={8} lg={6} key={row.id}>
-                <Card
-                  size="small"
-                  hoverable
-                  /* §6.3 卡片 chrome（qc-card：bgc 底/--bd 边/10px 圆角/12·14 内边距/head 13px·650）
-                     由 global.css 列表卡片段提供 */
-                  className="qc-card"
-                  style={{ cursor: 'pointer', height: '100%' }}
-                  onClick={() => navigate(`/research/${row.id}`)}
-                  title={
-                    <span className="qc-mono font-medium truncate" style={{ maxWidth: '100%' }} title={name}>
-                      {name}
-                    </span>
-                  }
-                  extra={
-                    // 删除统一放卡片右上角；点击不可穿透到卡片跳转
-                    <Tooltip title={!deletable ? (t('research_delete_only_terminal')) : (t('delete'))}>
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        disabled={!deletable}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          confirmDeleteSession(row);
-                        }}
-                      />
-                    </Tooltip>
-                  }
+  // 指标行 mono 数值；展开面板与列表 expandedRowRender 是同一块（ExpandableCardGrid 负责插槽位置）
+  const renderCard = (row: ResearchSession) => {
+    // 与 actionsFor 同口径：仅终态会话可删除（非终态后端同样拦截 409）
+    const deletable = ['completed', 'failed', 'cancelled'].includes(row.status);
+    const name = row.name || t('research_session_fallback', { id: row.id });
+    return (
+      <Card
+        size="small"
+        hoverable
+        /* §6.3 卡片 chrome（qc-card：bgc 底/--bd 边/10px 圆角/12·14 内边距/head 13px·650）
+           由 global.css 列表卡片段提供 */
+        className={`qc-card${expandedKey === row.id ? ' qc-card-selected' : ''}`}
+        style={{ cursor: 'pointer', height: '100%' }}
+        onClick={() => toggleExpanded(row.id)}
+        title={
+          <span style={{ display: 'flex', alignItems: 'center', maxWidth: '100%' }}>
+            {renderCaret(expandedKey === row.id)}
+            <span className="qc-mono font-medium truncate" style={{ maxWidth: '100%' }} title={name}>
+              {name}
+            </span>
+          </span>
+        }
+        extra={
+          // 删除统一放卡片右上角；点击不可穿透到卡片展开
+          <Tooltip title={!deletable ? (t('research_delete_only_terminal')) : (t('delete'))}>
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={!deletable}
+              onClick={(e) => {
+                e.stopPropagation();
+                confirmDeleteSession(row);
+              }}
+            />
+          </Tooltip>
+        }
+      >
+        <Flex vertical gap={8}>
+          <Flex align="center" justify="space-between" gap={6}>
+            <span className="qc-row-chips">
+              {researchScenarioChip(row, t)}
+              {researchModeChip(row, t)}
+              {researchStatusChip(row, t)}
+            </span>
+            <Tooltip title={row.created_at ? new Date(row.created_at).toLocaleString() : ''}>
+              <span className="qc-cell-time qc-mono">
+                {row.created_at ? dayjs(row.created_at).format(CARD_TIME_FMT) : '—'}
+              </span>
+            </Tooltip>
+          </Flex>
+          <Flex justify="space-between" align="center">
+            <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('research_col_progress')}</span>
+            <span className="qc-mono">{`${row.loop_done}/${row.loop_n}`}</span>
+          </Flex>
+          <Flex justify="space-between" align="center">
+            <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('research_col_best_icir')}</span>
+            {typeof row.best_ic_ir === 'number' ? (
+              <span className="qc-mono">{row.best_ic_ir.toFixed(4)}</span>
+            ) : (
+              <span className="qc-cell-none qc-mono">—</span>
+            )}
+          </Flex>
+          <Flex justify="space-between" align="center">
+            <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('research_col_cost')}</span>
+            <Tooltip title={`${row.token_used} tokens`}>
+              <span className="qc-mono">{t('research_cost_format', { calls: row.llm_calls, tokens: formatTokens(row.token_used, '0') })}</span>
+            </Tooltip>
+          </Flex>
+          {/* 操作按钮与表格行同一套动作（文字态，删除已上移卡片右上角） */}
+          <div
+            className="qc-row-actions"
+            style={{ flexWrap: 'wrap', paddingTop: 8, borderTop: '1px dashed var(--qc-border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {actionsFor(row)
+              .filter((a) => a.key !== 'delete')
+              .map((a) => (
+                <button
+                  key={a.key}
+                  type="button"
+                  className={`qc-mini-btn${a.pri ? ' pri' : ''}${a.danger ? ' danger' : ''}`}
+                  disabled={a.disabled}
+                  onClick={a.onClick}
                 >
-                  <Flex vertical gap={8}>
-                    <Flex align="center" justify="space-between" gap={6}>
-                      <span className="qc-row-chips">
-                        {researchScenarioChip(row, t)}
-                        {researchModeChip(row, t)}
-                        {researchStatusChip(row, t)}
-                      </span>
-                      <Tooltip title={row.created_at ? new Date(row.created_at).toLocaleString() : ''}>
-                        <span className="qc-cell-time qc-mono">
-                          {row.created_at ? dayjs(row.created_at).format(CARD_TIME_FMT) : '—'}
-                        </span>
-                      </Tooltip>
-                    </Flex>
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('research_col_progress')}</span>
-                      <span className="qc-mono">{`${row.loop_done}/${row.loop_n}`}</span>
-                    </Flex>
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('research_col_best_icir')}</span>
-                      {typeof row.best_ic_ir === 'number' ? (
-                        <span className="qc-mono">{row.best_ic_ir.toFixed(4)}</span>
-                      ) : (
-                        <span className="qc-cell-none qc-mono">—</span>
-                      )}
-                    </Flex>
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('research_col_cost')}</span>
-                      <Tooltip title={`${row.token_used} tokens`}>
-                        <span className="qc-mono">{t('research_cost_format', { calls: row.llm_calls, tokens: formatTokens(row.token_used, '0') })}</span>
-                      </Tooltip>
-                    </Flex>
-                    {/* 操作按钮与表格行同一套动作（文字态，删除已上移卡片右上角） */}
-                    <div
-                      className="qc-row-actions"
-                      style={{ flexWrap: 'wrap', paddingTop: 8, borderTop: '1px dashed var(--qc-border)' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {actionsFor(row)
-                        .filter((a) => a.key !== 'delete')
-                        .map((a) => (
-                          <button
-                            key={a.key}
-                            type="button"
-                            className={`qc-mini-btn${a.pri ? ' pri' : ''}${a.danger ? ' danger' : ''}`}
-                            disabled={a.disabled}
-                            onClick={a.onClick}
-                          >
-                            {a.pri ? a.icon : null}
-                            {a.label}
-                          </button>
-                        ))}
-                    </div>
-                  </Flex>
-                </Card>
-              </Col>
-            );
-          })}
-        </Row>
-      )}
-      {renderPgBar()}
-    </>
-  );
+                  {a.pri ? a.icon : null}
+                  {a.label}
+                </button>
+              ))}
+          </div>
+        </Flex>
+      </Card>
+    );
+  };
+
+  const renderCardView = () => {
+    // 面板归属由 expandedKey 决定（ExpandableCardGrid 的插槽位置按视觉行算，
+    // 但它的 renderExpanded 入参是「行内最后一张卡」，不能用来定位会话）
+    const expandedRow = pageRows.find((r) => r.id === expandedKey) ?? null;
+    return (
+      <>
+        {pageRows.length === 0 && !loading ? (
+          renderEmpty()
+        ) : (
+          <ExpandableCardGrid
+            items={pageRows}
+            getKey={(row) => row.id}
+            expandedKey={expandedKey}
+            renderCard={renderCard}
+            renderExpanded={() => (expandedRow ? renderResearchDetail(expandedRow) : null)}
+            gutter={[12, 12]}
+          />
+        )}
+        {renderPgBar()}
+      </>
+    );
+  };
 
   const renderListView = () => (
     <DataTable<ResearchSession>
@@ -596,9 +704,24 @@ const ResearchList: React.FC = () => {
         )
       }
       onRow={(row) => ({
-        onClick: () => navigate(`/research/${row.id}`),
+        // 点行只切换面板；进详情走面板内的「查看详情」与操作列「查看」
+        tabIndex: 0,
+        'aria-expanded': expandedKey === row.id,
+        onKeyDown: (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          toggleExpanded(row.id);
+        },
         style: { cursor: 'pointer' },
       })}
+      /* 行内展开：受控单键（与卡片视图共用 expandedKey），三角自绘在会话列故隐藏 antd 展开列 */
+      expandable={{
+        expandedRowKeys: expandedKey == null ? [] : [expandedKey],
+        showExpandColumn: false,
+        expandRowByClick: true,
+        onExpand: (expanded, row) => setExpandedKey(expanded ? row.id : null),
+        expandedRowRender: (row) => renderResearchDetail(row),
+      }}
     />
   );
 

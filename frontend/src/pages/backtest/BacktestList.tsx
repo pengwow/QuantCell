@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Col, DatePicker, Popconfirm, Row, Select, Skeleton, Tooltip, App, Pagination } from 'antd';
+import { Button, Card, DatePicker, Popconfirm, Row, Select, Skeleton, Tooltip, App, Pagination } from 'antd';
 import type { Dayjs } from 'dayjs';
 import type { TableProps } from 'antd';
 import { DeleteOutlined, EyeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
@@ -12,6 +12,7 @@ import type { BacktestTask, BacktestSummaryData, BacktestProgressData } from '..
 import PageContainer from '@/components/PageContainer';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import { useGuestRestriction } from '@/hooks/useGuestRestriction';
 import dayjs from 'dayjs';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
@@ -69,8 +70,9 @@ const BacktestList = () => {
   // 无筛选总数（页头副标「任务表 N 条」口径，不随筛选抖动）
   const [overallTotal, setOverallTotal] = useState<number>(0);
 
-  // 选中的行（点击行打选中 tint + 列表下方显示部分详情；键盘 ↑↓ 也可移动，Enter=眼睛进完整详情）
-  const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
+  // 行内展开（demo #view-backtest .bt-row.on + .bt-exp）：单键数组，一次只开一行；
+  // 点行就地展开/收起，三角自绘在策略列，完整详情仍走操作列眼睛
+  const [expandedRowKey, setExpandedRowKey] = useState<string>('');
 
   // 行内部分详情（demo #view-backtest .bt-detail）：轻摘要按行懒加载，命中过的行复用缓存
   const [summary, setSummary] = useState<BacktestSummaryData | null>(null);
@@ -83,16 +85,13 @@ const BacktestList = () => {
   // 服务重启后的旧失败任务拿不到 error（接口返回空）→ 如实不渲染，不编原因
   const [progress, setProgress] = useState<BacktestProgressData | null>(null);
 
-  // 选中行必须仍在当前页才显示面板（翻页/筛选后行不可见 → 面板自然隐藏，回来又恢复）
-  const selectedTask = tasks.find((task) => task.id === selectedRowKey) || null;
+  // 展开行（翻页/筛选会清空该 key → 面板随之收起，不跨页残留）
+  const expandedTask = tasks.find((task) => task.id === expandedRowKey) || null;
 
+  // 轻摘要懒加载：仅在展开某行时拉一次，命中过的行复用缓存；收起不清缓存
   useEffect(() => {
-    if (!selectedRowKey || !selectedTask) {
-      setSummary(null);
-      setSummaryError(false);
-      return;
-    }
-    const cached = summaryCache.current.get(String(selectedRowKey));
+    if (!expandedRowKey) return;
+    const cached = summaryCache.current.get(String(expandedRowKey));
     if (cached) {
       setSummary(cached);
       setSummaryLoading(false);
@@ -104,7 +103,7 @@ const BacktestList = () => {
     setSummaryError(false);
     setSummaryLoading(true);
     backtestApi
-      .getBacktestSummary(String(selectedRowKey))
+      .getBacktestSummary(String(expandedRowKey))
       .then((data) => {
         if (cancelled) return;
         if (data && typeof data === 'object' && Array.isArray((data as unknown as { metrics?: unknown }).metrics)) {
@@ -112,7 +111,7 @@ const BacktestList = () => {
           setSummaryError(true);
           return;
         }
-        summaryCache.current.set(String(selectedRowKey), data);
+        summaryCache.current.set(String(expandedRowKey), data);
         setSummary(data);
       })
       .catch(() => {
@@ -124,14 +123,14 @@ const BacktestList = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedRowKey, selectedTask]);
+  }, [expandedRowKey]);
 
   // 进度快照：仅 running/in_progress/failed 需要（进度条 / 失败原因）
-  const progressTaskId = selectedTask?.status && ['running', 'in_progress', 'failed'].includes(selectedTask.status)
-    ? String(selectedTask.id)
+  const progressTaskId = expandedTask?.status && ['running', 'in_progress', 'failed'].includes(expandedTask.status)
+    ? String(expandedTask.id)
     : '';
   // 只有运行中的任务才轮询；failed 只拉一次（错误原因不会变）
-  const progressTaskRunning = selectedTask?.status === 'running' || selectedTask?.status === 'in_progress';
+  const progressTaskRunning = expandedTask?.status === 'running' || expandedTask?.status === 'in_progress';
   const progressPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     const stopPoll = () => {
@@ -140,7 +139,7 @@ const BacktestList = () => {
         progressPollRef.current = null;
       }
     };
-    // 切行/取消选中/卸载都先清定时器
+    // 切行/收起/卸载都先清定时器
     stopPoll();
     if (!progressTaskId) {
       setProgress(null);
@@ -187,6 +186,8 @@ const BacktestList = () => {
     startTime?: string;
     endTime?: string;
   }) => {
+    // 搜索/筛选/日期/排序/翻页/删除后重载 → 自动收起展开行（展开面板只在当前页有效）
+    setExpandedRowKey('');
     setLoading(true);
     try {
       const nextPage = overrides?.page ?? page;
@@ -253,14 +254,16 @@ const BacktestList = () => {
 
   // 策略类型 chip：rule/rl/llm 三类与策略管理页同形制（info/pri/warn），
   // 取不到（策略已删）显示占位 —— 不按策略名猜类型
-  const renderKindChip = (kind: BacktestTask['strategy_kind']) => {
+  // compact：策略列内联徽章比状态 chip 更轻（demo 9px/2px 5px），状态 chip 尺寸不动
+  const renderKindChip = (kind: BacktestTask['strategy_kind'], compact = false) => {
+    const style = compact ? { fontSize: 9, padding: '2px 5px', lineHeight: 1.7 } : undefined;
     switch (kind) {
       case 'rl':
-        return <span className="qc-chip pri">{t('bt_kind_rl')}</span>;
+        return <span className="qc-chip pri" style={style}>{t('bt_kind_rl')}</span>;
       case 'llm':
-        return <span className="qc-chip warn">{t('bt_kind_llm')}</span>;
+        return <span className="qc-chip warn" style={style}>{t('bt_kind_llm')}</span>;
       case 'rule':
-        return <span className="qc-chip info">{t('bt_kind_rule')}</span>;
+        return <span className="qc-chip info" style={style}>{t('bt_kind_rule')}</span>;
       default:
         return <span className="qc-mono qc-cell-none">—</span>;
     }
@@ -313,12 +316,51 @@ const BacktestList = () => {
     return <span className="qc-mono">{value.toFixed(2)}%</span>;
   };
 
-  // 空/缺字段统一「—」弱文本（老记录可能没有 symbols / intervals）
-  const renderJoinField = (values: string[] | undefined | null) => {
-    if (!values || values.length === 0) {
+  // 「标的 · 周期」列（demo .c-strat 单行形制）：标的用主色 mono，周期弱化；
+// 多标的 ≥3 折叠成「首个 +N」徽章（全量名进 title/Tooltip），2 个用逗号；
+// 自选组任务（pool_id 非空）显示「【自选组】<组名> · N 品种」，组名查不到退回「自选组」
+  const renderSymbolInterval = (record: BacktestTask) => {
+    const symbols = record.symbols ?? [];
+    const interval = record.intervals?.length ? record.intervals.join(',') : null;
+    const full = [symbols.join(', '), interval].filter(Boolean).join(' · ');
+
+    if (record.pool_id !== null && record.pool_id !== undefined) {
+      return (
+        <Tooltip title={full || undefined} placement="topLeft">
+          <span className="qc-cell-strat-wrap">
+            <span className="bt-pool-badge">{t('bt_pool_badge')}</span>
+            <span className="bt-cell-sym">{record.pool_name || t('bt_pool_unknown')}</span>
+            <span className="bt-cell-mi">· {t('symbol_count', { count: symbols.length })}</span>
+          </span>
+        </Tooltip>
+      );
+    }
+
+    if (symbols.length === 0) {
       return <span className="qc-mono qc-cell-none">—</span>;
     }
-    return <span className="qc-mono">{values.join(',')}</span>;
+
+    return (
+      <Tooltip title={full} placement="topLeft">
+        <span className="qc-cell-strat-wrap">
+          <span className="bt-cell-sym">{symbols[0]}</span>
+          {symbols.length === 2 && <span className="bt-cell-mi">, {symbols[1]}</span>}
+          {symbols.length >= 3 && (
+            <span className="qc-chip quiet" style={{ fontSize: 9, padding: '2px 5px', lineHeight: 1.7 }}>
+              {t('bt_more_symbols', { count: symbols.length - 1 })}
+            </span>
+          )}
+          {interval && <span className="bt-cell-mi"> · {interval}</span>}
+        </span>
+      </Tooltip>
+    );
+  };
+
+  // 「耗时」列：真实 started_at→completed_at 差值（后端按页批量查）；缺值「—」弱化
+  const renderElapsed = (value?: number | null) => {
+    const text = typeof value === 'number' ? formatElapsedCompact(value) : null;
+    if (!text) return <span className="qc-mono qc-cell-none">—</span>;
+    return <span className="qc-mono bt-elapsed">{text}</span>;
   };
 
   // 「区间」列（demo .c-range）：`2025-09-01 → 2026-11-18`，mono 紧凑；
@@ -444,30 +486,38 @@ const BacktestList = () => {
     );
   };
 
-  // 行内摘要卡（demo .bt-detail）：head（标题/策略/chip/sub）+ KPI + 配置脚注；
-  // 全部走轻摘要接口的真实数据，缺段自动省略，不造数
-  const renderInlineSummary = () => {
-    if (!selectedTask) return null;
-    const cfg = summary?.backtest_config;
+  // 行内展开面板（demo .bt-exp > .card）：head（标题/策略/chip/创建+区间+周期+耗时）
+  // + KPI + 权益曲线 + 配置脚注；全部走轻摘要接口的真实数据，缺段自动省略，不造数。
+  // 面板只服务当前展开行：summary 归属别的 id 时视为未加载，避免切行瞬间串数据。
+  const renderExpandedPanel = (record: BacktestTask) => {
+    const activeSummary = summary && String(summary.id) === String(record.id) ? summary : null;
+    const cfg = activeSummary?.backtest_config;
     const subSegs: string[] = [];
+    // 创建时间已从列移进面板头（列序对齐 demo）
+    if (record.created_at) {
+      subSegs.push(t('bt_created_at', { time: dayjs(record.created_at).format('MM-DD HH:mm') }));
+    }
     if (cfg?.start_time) {
       subSegs.push(`${cfg.start_time.slice(0, 10)} → ${cfg.end_time ? cfg.end_time.slice(0, 10) : '—'}`);
     }
-    const interval = cfg?.interval || summary?.intervals?.join(',');
+    const interval = cfg?.interval || activeSummary?.intervals?.join(',');
     if (interval) subSegs.push(String(interval));
-    // 耗时：≥48h（陈旧任务）不显示，见 formatElapsedCompact 注释
-    const elapsed = typeof summary?.elapsed_seconds === 'number' ? formatElapsedCompact(summary.elapsed_seconds) : null;
+    // 耗时：行内 elapsed_seconds 来自 DB 真实起止；≥48h（陈旧任务）不显示，见 formatElapsedCompact
+    const elapsedSource = typeof activeSummary?.elapsed_seconds === 'number'
+      ? activeSummary.elapsed_seconds
+      : record.elapsed_seconds;
+    const elapsed = typeof elapsedSource === 'number' ? formatElapsedCompact(elapsedSource) : null;
     if (elapsed) subSegs.push(t('bt_summary_elapsed', { elapsed }));
     // 运行中：已运行时长 = created_at 到现在的真实差值（demo head-right「已运行 01h 07m」）
-    const running = selectedTask.status === 'running' || selectedTask.status === 'in_progress';
-    if (running && selectedTask.created_at) {
-      const runningFor = formatElapsedCompact((Date.now() - dayjs(selectedTask.created_at).valueOf()) / 1000);
+    const running = record.status === 'running' || record.status === 'in_progress';
+    if (running && record.created_at) {
+      const runningFor = formatElapsedCompact((Date.now() - dayjs(record.created_at).valueOf()) / 1000);
       if (runningFor) subSegs.push(t('bt_running_for', { elapsed: runningFor }));
     }
     // 进度接口的 overall_progress 是 0–100 的真实百分比；无快照（服务重启后的旧任务）就不画条
     const rawPercent = progress ? Number(progress.overall_progress) : NaN;
     const percent = Number.isFinite(rawPercent) ? Math.max(0, Math.min(100, Math.round(rawPercent))) : null;
-    const failMessage = selectedTask.status === 'failed' ? progress?.error?.message : undefined;
+    const failMessage = record.status === 'failed' ? progress?.error?.message : undefined;
 
     const footSegs: string[] = [];
     if (typeof cfg?.initial_cash === 'number') {
@@ -478,160 +528,138 @@ const BacktestList = () => {
     }
 
     return (
-      <div className="qc-card bt-summary" role="region" aria-label={t('backtest_detail')}>
-        <div className="bt-summary-head">
-          <span className="bt-summary-title">{t('backtest_detail')}</span>
-          <span className="qc-mono bt-summary-strat">{selectedTask.strategy_name}</span>
-          {renderKindChip(selectedTask.strategy_kind)}
-          {renderStatusChip(selectedTask.status)}
-          {subSegs.length > 0 && !summaryLoading && (
-            <span className="qc-mono bt-summary-sub">{subSegs.join(' · ')}</span>
+      <div className="qc-exp-panel">
+        <div className="bt-summary" role="region" aria-label={t('backtest_detail')}>
+          <div className="bt-summary-head">
+            <span className="bt-summary-title">{t('backtest_detail')}</span>
+            <span className="qc-mono bt-summary-strat">{record.strategy_name}</span>
+            {renderKindChip(record.strategy_kind)}
+            {renderStatusChip(record.status)}
+            {subSegs.length > 0 && !summaryLoading && (
+              <span className="qc-mono bt-summary-sub">{subSegs.join(' · ')}</span>
+            )}
+          </div>
+          {summaryLoading && (
+            <div className="bt-summary-body"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>
+          )}
+          {/* 运行中：真实总体进度（progress 接口）；「预计剩余」无源不做 */}
+          {running && percent !== null && (
+            <div className="bt-summary-body">
+              <div className="qc-mono" style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>
+                {t('bt_progress_label')}{' '}
+                <span style={{ color: 'var(--qc-primary)' }}>{percent}%</span>
+              </div>
+              <div
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percent}
+                style={{ height: 6, marginTop: 4, borderRadius: 3, background: 'var(--qc-border)', overflow: 'hidden' }}
+              >
+                <i style={{ display: 'block', height: '100%', width: `${percent}%`, background: 'var(--qc-primary)' }} />
+              </div>
+            </div>
+          )}
+          {/* 失败原因：progress 接口的 error.message（内存态，旧任务取不到就不渲染，不编结论句） */}
+          {failMessage && (
+            <div className="bt-summary-body">
+              <div style={{ fontSize: 11.5, fontWeight: 550, color: 'var(--qc-error)' }}>
+                {t('bt_fail_reason')}
+                {progress?.error?.stage ? ` · ${progress.error.stage}` : ''}
+              </div>
+              <div
+                className="qc-mono"
+                style={{
+                  marginTop: 4,
+                  fontSize: 11,
+                  color: 'var(--qc-text-tertiary)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {failMessage}
+              </div>
+              {/* LLM 策略：回测只吃录制记录，未命中直接失败 —— 机制是后端 llm_replay 的真实行为，非承诺 */}
+              {record.strategy_kind === 'llm' && (
+                <div className="bt-note" style={{ marginTop: 4 }}>
+                  {t('bt_llm_replay_note')}
+                </div>
+              )}
+            </div>
+          )}
+          {!summaryLoading && summaryError && (
+            <div className="bt-summary-body bt-summary-empty">{t('bt_summary_load_failed')}</div>
+          )}
+          {!summaryLoading && !summaryError && activeSummary && (
+            <>
+              {renderSummaryStats(activeSummary.metrics)}
+              {renderEquityCurve(activeSummary)}
+              {footSegs.length > 0 && (
+                <div className="bt-summary-foot">
+                  <span className="qc-mono bt-summary-config">{footSegs.join(' · ')}</span>
+                </div>
+              )}
+            </>
           )}
         </div>
-        {summaryLoading && (
-          <div className="bt-summary-body"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>
-        )}
-        {/* 运行中：真实总体进度（progress 接口）；「预计剩余」无源不做 */}
-        {running && percent !== null && (
-          <div className="bt-summary-body">
-            <div className="qc-mono" style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>
-              {t('bt_progress_label')}{' '}
-              <span style={{ color: 'var(--qc-primary)' }}>{percent}%</span>
-            </div>
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={percent}
-              style={{ height: 6, marginTop: 4, borderRadius: 3, background: 'var(--qc-border)', overflow: 'hidden' }}
-            >
-              <i style={{ display: 'block', height: '100%', width: `${percent}%`, background: 'var(--qc-primary)' }} />
-            </div>
-          </div>
-        )}
-        {/* 失败原因：progress 接口的 error.message（内存态，旧任务取不到就不渲染，不编结论句） */}
-        {failMessage && (
-          <div className="bt-summary-body">
-            <div style={{ fontSize: 11.5, fontWeight: 550, color: 'var(--qc-error)' }}>
-              {t('bt_fail_reason')}
-              {progress?.error?.stage ? ` · ${progress.error.stage}` : ''}
-            </div>
-            <div
-              className="qc-mono"
-              style={{
-                marginTop: 4,
-                fontSize: 11,
-                color: 'var(--qc-text-tertiary)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {failMessage}
-            </div>
-            {/* LLM 策略：回测只吃录制记录，未命中直接失败 —— 机制是后端 llm_replay 的真实行为，非承诺 */}
-            {selectedTask.strategy_kind === 'llm' && (
-              <div className="bt-note" style={{ marginTop: 4 }}>
-                {t('bt_llm_replay_note')}
-              </div>
-            )}
-          </div>
-        )}
-        {!summaryLoading && summaryError && (
-          <div className="bt-summary-body bt-summary-empty">{t('bt_summary_load_failed')}</div>
-        )}
-        {!summaryLoading && !summaryError && summary && (
-          <>
-            {renderSummaryStats(summary.metrics)}
-            {renderEquityCurve(summary)}
-            {footSegs.length > 0 && (
-              <div className="bt-summary-foot">
-                <span className="qc-mono bt-summary-config">{footSegs.join(' · ')}</span>
-              </div>
-            )}
-          </>
-        )}
       </div>
     );
   };
 
-  // 表格列定义 — §6.5：时间 mono 11px fg-3、策略 mono 截断、状态 chip、数值右对齐
+  // 行首展开三角（demo .bt-caret）：收起 ▸ / 展开旋转 90°，自绘在策略列最前
+  const renderCaret = (open: boolean) => (
+    <svg className={`qc-cell-caret${open ? ' is-open' : ''}`} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+    </svg>
+  );
+
+  // 表格列定义 — 列序对齐 demo #view-backtest：
+  // 策略(+类型徽章) / 标的·周期 / 回测区间 / 状态 / 总收益 / 最大回撤 / 订单 / 耗时 / 操作
   const columns: TableProps<BacktestTask>['columns'] = [
-    {
-      title: t('bt_col_time'),
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 100,
-      render: (value: string) => (
-        <span className="qc-cell-time qc-mono">{value ? dayjs(value).format('MM-DD HH:mm') : '—'}</span>
-      ),
-    },
     {
       title: t('strategy'),
       dataIndex: 'strategy_name',
       key: 'strategy_name',
-      width: 220,
+      width: 260,
       ellipsis: { showTitle: false },
       // RL 任务 strategy_name 带 rl_model:/rl_ensemble: 前缀，拆成来源 chip + 模型名
       // （沿用原模型中心「RL 回测历史」页签的展示口径，合并后回测中心为唯一入口）
-      render: (name: string) => {
-        if (name?.startsWith('rl_model:') || name?.startsWith('rl_ensemble:')) {
-          const [prefix, ...rest] = name.split(':');
-          return (
-            <Tooltip title={name} placement="topLeft">
-              <span className="qc-cell-strat-wrap">
-                <span className={`qc-chip ${prefix === 'rl_model' ? 'pri' : 'info'} qc-mono`}>
-                  {t(prefix === 'rl_model' ? 'backtest_source_rl_model' : 'backtest_source_rl_ensemble')}
-                </span>
-                <span className="qc-cell-strat" style={{ maxWidth: 120 }}>{rest.join(':')}</span>
-              </span>
-            </Tooltip>
-          );
-        }
+      render: (_: unknown, record: BacktestTask) => {
+        const name = record.strategy_name;
+        const isRlModel = name?.startsWith('rl_model:');
+        const isRlEnsemble = name?.startsWith('rl_ensemble:');
+        const [prefix, ...rest] = (isRlModel || isRlEnsemble) ? name.split(':') : ['', name];
         return (
           <Tooltip title={name} placement="topLeft">
             <span className="qc-cell-strat-wrap">
-              <span className="qc-cell-strat" style={{ maxWidth: 160 }}>{name || '—'}</span>
+              {renderCaret(record.id === expandedRowKey)}
+              {isRlModel || isRlEnsemble ? (
+                <span className={`qc-chip ${prefix === 'rl_model' ? 'pri' : 'info'} qc-mono`}>
+                  {t(isRlModel ? 'backtest_source_rl_model' : 'backtest_source_rl_ensemble')}
+                </span>
+              ) : null}
+              <span className="qc-cell-strat" style={{ maxWidth: 150 }}>
+                {(isRlModel || isRlEnsemble ? rest.join(':') : name) || '—'}
+              </span>
+              {/* 类型徽章并进策略列（比状态 chip 轻一档）：后端按策略文件 AST 判定，不按名字猜 */}
+              {renderKindChip(record.strategy_kind, true)}
             </span>
           </Tooltip>
         );
       },
     },
     {
-      title: t('bt_col_kind'),
-      dataIndex: 'strategy_kind',
-      key: 'strategy_kind',
-      width: 76,
-      // 回测任务混合 rule / rl / llm 三类策略，靠这一列区分；
-      // 值由后端按策略文件 AST 判定（rl_model:/rl_ensemble: 前缀归 rl），不是名字前缀猜测
-      render: (kind: BacktestTask['strategy_kind']) => renderKindChip(kind),
-    },
-    {
-      title: t('symbol'),
-      dataIndex: 'symbols',
-      key: 'symbols',
-      width: 130,
+      title: t('bt_cell_symbol_interval'),
+      key: 'symbol_interval',
+      width: 200,
       ellipsis: { showTitle: false },
-      render: (values: string[] | undefined) => (
-        <Tooltip title={values?.length ? values.join(',') : ''} placement="topLeft">
-          {renderJoinField(values)}
-        </Tooltip>
-      ),
+      render: (_, record: BacktestTask) => renderSymbolInterval(record),
     },
     {
-      // demo 列序：时间 / 策略 / 区间 / 周期 …；标的列是现网刻意增量，夹在策略与区间之间
       title: t('bt_col_range'),
       key: 'range',
       width: 190,
       render: (_, record: BacktestTask) => renderRange(record.start_time, record.end_time),
-    },
-    {
-      title: t('bt_col_interval'),
-      dataIndex: 'intervals',
-      key: 'intervals',
-      width: 84,
-      render: (values: string[] | undefined) => (
-        <span className="qc-mono qc-cell-none">{values?.length ? values.join(',') : '—'}</span>
-      ),
     },
     {
       title: t('status'),
@@ -664,6 +692,15 @@ const BacktestList = () => {
       width: 80,
       align: 'right',
       render: (value: number | undefined) => renderTradeCount(value),
+    },
+    {
+      // demo .c-num 耗时列：真实执行秒数（右对齐 mono 弱色），无值「—」
+      title: t('bt_col_elapsed'),
+      dataIndex: 'elapsed_seconds',
+      key: 'elapsed_seconds',
+      width: 88,
+      align: 'right',
+      render: (value: number | null | undefined) => renderElapsed(value),
     },
     {
       title: t('action'),
@@ -833,7 +870,17 @@ const BacktestList = () => {
         dataSource={tasks}
         loading={loading}
         rowKey="id"
-        rowClassName={(record) => (record.id === selectedRowKey ? 'qc-row-selected' : '')}
+        rowClassName={(record) => (record.id === expandedRowKey ? 'qc-row-selected' : '')}
+        // 行内展开：单键互斥（点新行自动收起旧行），三角自绘在策略列故隐藏 antd 展开列；
+        // 面板内容沿用原轻摘要产物，包在 .qc-exp-panel 里
+        expandable={{
+          expandedRowKeys: expandedRowKey ? [expandedRowKey] : [],
+          showExpandColumn: false,
+          expandRowByClick: true,
+          // 受控展开：antd 只回调，状态由页面持有（单键 → 天然互斥）
+          onExpand: (expanded, record) => setExpandedRowKey(expanded ? String(record.id) : ''),
+          expandedRowRender: (record) => renderExpandedPanel(record),
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -860,15 +907,17 @@ const BacktestList = () => {
           )
         }
         onRow={(record) => ({
-          onClick: () => {
-            // demo #view-backtest 交互：点击行只做选中 + 列表下方显示部分详情；
-            // 进完整详情走操作列的眼睛（或键盘 Enter），不再直接路由跳转
-            setSelectedRowKey(record.id);
+          // expandRowByClick 负责鼠标切换；这里只管键盘可达（Enter/Space 切换展开）
+          tabIndex: 0,
+          'aria-expanded': record.id === expandedRowKey,
+          onKeyDown: (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            setExpandedRowKey((prev) => (prev === record.id ? '' : record.id));
           },
           style: { cursor: 'pointer' },
         })}
       />
-      {renderInlineSummary()}
       <div className="qc-footnote">
         <span>{t('bt_footnote')}</span>
       </div>
@@ -886,85 +935,92 @@ const BacktestList = () => {
           />
         </Card>
       )}
-      <Row gutter={[16, 16]}>
-        {tasks.map((task) => (
-          <Col xs={24} sm={12} md={8} lg={6} key={task.id}>
-            <Card
-              size="small"
-              title={
-                <div className="flex items-center justify-between">
-                  <span className="qc-mono font-medium truncate" style={{ maxWidth: '70%' }}>
-                    {task.strategy_name}
-                  </span>
-                  {renderStatusChip(task.status)}
-                </div>
-              }
-              extra={
-                // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
-                <Popconfirm
-                  title={t('confirm_delete_backtest')}
-                  description={t('delete_backtest_confirm')}
-                  onConfirm={(e) => {
-                    e?.stopPropagation();
-                    handleDelete(task.id);
-                  }}
-                  okText={t('delete')}
-                  cancelText={t('cancel')}
-                  okButtonProps={{ danger: true }}
-                  disabled={isGuest}
-                >
-                  <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete')}>
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      disabled={isGuest}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </Tooltip>
-                </Popconfirm>
-              }
-              className={selectedRowKey === task.id ? 'qc-card-selected' : ''}
-              onClick={() => setSelectedRowKey(task.id)}
-              onDoubleClick={() => handleViewDetail(task.id)}
-              style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
-            >
-              <div className="space-y-3" style={{ color: 'var(--qc-text-secondary)' }}>
-                <div className="flex justify-between items-center">
-                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('bt_col_kind')}</span>
-                  {renderKindChip(task.strategy_kind)}
-                </div>
-                <div className="flex justify-between items-center">
-                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('return_rate')}</span>
-                  {renderReturn(task.total_return)}
-                </div>
-                <div className="flex justify-between items-center">
-                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('max_drawdown')}</span>
-                  {renderDrawdown(task.max_drawdown)}
-                </div>
-                <div className="flex justify-between items-center">
-                  <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('bt_col_time')}</span>
-                  <span className="qc-cell-time qc-mono">{task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '—'}</span>
-                </div>
-                <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<EyeOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleViewDetail(task.id);
-                    }}
-                  >
-                    {t('view')}
-                  </Button>
-                </div>
+      {/* 卡片视图与列表视图共用同一块详情面板：ExpandableCardGrid 把面板插到被点卡片所在的
+       *  视觉行之后（跨全宽），内容仍由 renderExpandedPanel 产出，逐字一致 */}
+      <ExpandableCardGrid<BacktestTask>
+        items={tasks}
+        getKey={(task) => task.id}
+        expandedKey={expandedRowKey || null}
+        gutter={[16, 16]}
+        renderCard={(task) => (
+          <Card
+            size="small"
+            title={
+              <div className="flex items-center justify-between">
+                <span className="qc-mono font-medium truncate" style={{ maxWidth: '70%' }}>
+                  {task.strategy_name}
+                </span>
+                {renderStatusChip(task.status)}
               </div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
+            }
+            extra={
+              // 删除统一放卡片右上角（与策略卡片一致）；卡片可点击需阻止冒泡
+              <Popconfirm
+                title={t('confirm_delete_backtest')}
+                description={t('delete_backtest_confirm')}
+                onConfirm={(e) => {
+                  e?.stopPropagation();
+                  handleDelete(task.id);
+                }}
+                okText={t('delete')}
+                cancelText={t('cancel')}
+                okButtonProps={{ danger: true }}
+                disabled={isGuest}
+              >
+                <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete')}>
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    disabled={isGuest}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </Tooltip>
+              </Popconfirm>
+            }
+            className={expandedRowKey === task.id ? 'qc-card-selected' : ''}
+            onClick={() => setExpandedRowKey((prev) => (prev === task.id ? '' : task.id))}
+            onDoubleClick={() => handleViewDetail(task.id)}
+            style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
+          >
+            <div className="space-y-3" style={{ color: 'var(--qc-text-secondary)' }}>
+              <div className="flex justify-between items-center">
+                <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('bt_col_kind')}</span>
+                {renderKindChip(task.strategy_kind)}
+              </div>
+              <div className="flex justify-between items-center">
+                <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('return_rate')}</span>
+                {renderReturn(task.total_return)}
+              </div>
+              <div className="flex justify-between items-center">
+                <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('max_drawdown')}</span>
+                {renderDrawdown(task.max_drawdown)}
+              </div>
+              <div className="flex justify-between items-center">
+                <span style={{ color: 'var(--qc-text-tertiary)' }}>{t('bt_col_time')}</span>
+                <span className="qc-cell-time qc-mono">{task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '—'}</span>
+              </div>
+              <div className="flex justify-end gap-2 pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<EyeOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleViewDetail(task.id);
+                  }}
+                >
+                  {t('view')}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+        // 与列表 expandedRowRender 同一份面板：面板插在该视觉行「最后一张卡」之后，
+        // 回调参数是那张卡的 item（不一定是选中卡），故按 expandedTask 取，避免串到邻卡
+        renderExpanded={() => (expandedTask ? renderExpandedPanel(expandedTask) : null)}
+      />
       <Row justify="center" style={{ marginTop: 16 }}>
         <Pagination
           current={page}
@@ -983,52 +1039,22 @@ const BacktestList = () => {
     </>
   );
 
-  // 键盘导航（↑↓ 移动选中行、Enter 打开详情；删除必须走 Popconfirm，见历史雷区）
+  // 键盘：Esc 收起当前展开行（Enter/Space 切换在行内 onKeyDown；删除必须走 Popconfirm，见历史雷区）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 输入控件内按键交给控件（搜索框里 Enter 是提交关键词，不能抢跑成「打开选中行详情」）
+      // 输入控件内按键交给控件（搜索框里 Esc 由控件自己处理）
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
         return;
       }
-      if (tasks.length === 0) return;
-
-      const currentIndex = tasks.findIndex((item) => item.id === selectedRowKey);
-
-      switch (e.key) {
-        case 'ArrowUp':
-          e.preventDefault();
-          if (currentIndex > 0) {
-            setSelectedRowKey(tasks[currentIndex - 1].id);
-          } else if (currentIndex === -1) {
-            setSelectedRowKey(tasks[0].id);
-          }
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          if (currentIndex === -1) {
-            setSelectedRowKey(tasks[0].id);
-          } else if (currentIndex < tasks.length - 1) {
-            setSelectedRowKey(tasks[currentIndex + 1].id);
-          }
-          break;
-        case 'Enter':
-          e.preventDefault();
-          if (currentIndex !== -1) {
-            handleViewDetail(tasks[currentIndex].id);
-          }
-          break;
-        default:
-          break;
-      }
+      if (e.key === 'Escape') setExpandedRowKey('');
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
-  }, [selectedRowKey, tasks]);
+  }, []);
 
   return (
     <PageContainer

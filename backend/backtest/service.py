@@ -1067,6 +1067,9 @@ class BacktestService:
                     # 「订单」列：v2 摘要的 metrics 字典里已有 total_trades；
                     # v1 旧摘要只有两键 → None（不读大结果文件、不造 0）
                     "total_trades": ((summary or {}).get("metrics") or {}).get("total_trades"),
+                    # 自选组来源：发起回测时 config.pool_id 原样入库（见 routes.run_backtest），
+                    # 老任务/非自选组任务无此键 → None（列表据此区分「自选组」形态）
+                    "pool_id": config.get("pool_id"),
                 }
             )
 

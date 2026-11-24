@@ -70,6 +70,7 @@ import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import { dataApi } from '@/api/dataApi';
 import type { DataPoolRecord, CryptoSymbol, TaskDetailItem, KlineQualityReport } from '@/api/dataApi';
 import { archiveApi } from '@/api/archiveApi';
@@ -121,6 +122,17 @@ const WATCHLIST_COLOR_PURPLE = '#722ed1';
 interface KeyedArchiveRow extends ArchiveRow {
   __rk: number;
 }
+
+// 采集任务表「任务」列次行（开始时间 · 范围）：mono 10.5px 弱化色，单行截断
+const taskSubStyle = {
+  marginTop: 2,
+  fontSize: 10.5,
+  color: 'var(--qc-text-quaternary)',
+  maxWidth: '100%',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+} as const;
 
 // 系统配置
 const SYSTEM_CONFIG = {
@@ -239,6 +251,8 @@ const DataManagementPage = () => {
   const [sortField, setSortField] = useState<SortField>(restoredState?.pageState?.sortField || 'rank');
   const [sortOrder, setSortOrder] = useState<SortOrder>(restoredState?.pageState?.sortOrder || 'asc');
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(restoredState?.pageState?.selectedSymbols || []);
+  // 行内展开的标的 key：列表 expandedRowKeys 与卡片 renderExpanded 共用（单键、初始空 = 首载不展开）
+  const [expandedSymbolKey, setExpandedSymbolKey] = useState<string>('');
 
   // 市场数据加载状态
   const [marketDataLoading, setMarketDataLoading] = useState<Record<string, boolean>>({});
@@ -251,6 +265,21 @@ const DataManagementPage = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [pageSize]);
+
+  // 筛选 / 排序 / 翻页 / 条数 / 视图任一变化 → 收起展开面板（面板只属于当前页的那个标的）
+  useEffect(() => {
+    setExpandedSymbolKey('');
+  }, [searchText, quoteFilter, activeGroupId, sortField, sortOrder, currentPage, pageSize, viewType]);
+
+  // Esc 收起：行内按钮点击后焦点可能不在行上，故用文档级监听（单键展开，开销可忽略）
+  useEffect(() => {
+    if (!expandedSymbolKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExpandedSymbolKey('');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [expandedSymbolKey]);
 
   // 设置页面标题
   useEffect(() => {
@@ -1455,7 +1484,7 @@ const DataManagementPage = () => {
 
   // ==================== 渲染方法 ====================
 
-  // ---- 采集任务表（demo「同步任务」卡排版：开始时间/任务/范围/状态/备注/操作） ----
+  // ---- 采集任务表（demo「同步任务」卡排版：任务(含开始时间·范围次行)/状态/备注/操作） ----
 
   // 状态 → §6.2 chip（运行中带 pulse 圆点；等待中/取消中性）
   const renderTaskStatusChip = (status: string) => {
@@ -1482,8 +1511,8 @@ const DataManagementPage = () => {
     return Array.isArray(p.symbols) ? p.symbols.map(String) : [];
   };
 
-  // 范围单元格：symbols(超出 2 个折叠) · 周期 · 时间窗（mono 11px fg-3，demo c-mono c-mute 口径）
-  const renderTaskScope = (task: Task) => {
+  // 范围文本：symbols(超出 2 个折叠) · 周期 · 时间窗（demo c-mono c-mute 口径）
+  const taskScopeText = (task: Task): string => {
     const p = taskParamsOf(task);
     const syms = taskSymListOf(task);
     const ivs = Array.isArray(p.interval) ? p.interval.map(String) : [];
@@ -1493,11 +1522,18 @@ const DataManagementPage = () => {
       ? `${syms[0]}…+${syms.length - 1}`
       : syms.join(', ');
     const range = start && end ? `${start.slice(5)} → ${end.slice(5)}` : '';
-    const parts = [symText, ivs.join(','), range].filter(Boolean).join(' · ');
-    if (!parts) return <span className="qc-cell-none qc-mono">—</span>;
+    return [symText, ivs.join(','), range].filter(Boolean).join(' · ');
+  };
+
+  // 任务列次行：开始时间 · 范围（demo .c-muted 10.5px mono，随列宽截断 + Tooltip 看全文）
+  const renderTaskSubLine = (task: Task) => {
+    const time = task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '';
+    const scope = taskScopeText(task);
+    const text = [time, scope].filter(Boolean).join(' · ');
+    if (!text) return <div className="qc-mono" style={taskSubStyle}>—</div>;
     return (
-      <Tooltip title={parts} placement="topLeft">
-        <span className="qc-cell-id" style={{ fontSize: 11 }}>{parts}</span>
+      <Tooltip title={text} placement="topLeft">
+        <div className="qc-mono" style={taskSubStyle}>{text}</div>
       </Tooltip>
     );
   };
@@ -1560,42 +1596,29 @@ const DataManagementPage = () => {
   const isTaskSearching = taskSearchText.trim() !== '';
   const visibleTasks = isTaskSearching ? searchedTasks : allTaskRows;
 
-  // 任务表列定义：§6.5（时间 mono / 任务 mono / 状态 chip / 备注 / 操作 24px）
+  // 任务表列定义（demo「同步任务」4 列：任务 / 状态 / 备注 / 操作；
+  // 开始时间与范围并进「任务」列次行，腾出的宽度留给任务标识与备注）
   const taskColumns: TableProps<Task>['columns'] = [
-    {
-      title: t('dm_col_started'),
-      key: 'created_at',
-      width: 100, // 「11-20 14:12」11px mono ≈ 73px + 24px 内边距；再窄会折两行把行高从 45 撑到 51
-      render: (_, record: Task) => (
-        <span className="qc-cell-time qc-mono">
-          {record.created_at ? dayjs(record.created_at).format('MM-DD HH:mm') : '—'}
-        </span>
-      ),
-    },
     {
       title: t('dm_col_task'),
       key: 'task',
-      width: 112,
+      width: 176,
       ellipsis: true,
       render: (_, record: Task) => {
         const p = taskParamsOf(record);
         const dataType = String(p.data_type ?? 'kline');
         const market = String(p.market ?? p.candle_type ?? 'spot');
         return (
-          <span className="qc-row-chips">
-            <span className="qc-cell-strat">{DATA_KIND_LABEL[dataType as keyof typeof DATA_KIND_LABEL] ?? dataType}</span>
-            <span className="qc-chip quiet qc-mono">{market.toUpperCase()}</span>
-            {record.task_id === currentTaskId && <span className="qc-chip info">{t('dm_tag_current')}</span>}
-          </span>
+          <div style={{ minWidth: 0 }}>
+            <span className="qc-row-chips" style={{ flexWrap: 'nowrap' }}>
+              <span className="qc-cell-strat">{DATA_KIND_LABEL[dataType as keyof typeof DATA_KIND_LABEL] ?? dataType}</span>
+              <span className="qc-chip quiet qc-mono">{market.toUpperCase()}</span>
+              {record.task_id === currentTaskId && <span className="qc-chip info">{t('dm_tag_current')}</span>}
+            </span>
+            {renderTaskSubLine(record)}
+          </div>
         );
       },
-    },
-    {
-      title: t('dm_col_scope'),
-      key: 'scope',
-      width: 112,
-      ellipsis: true,
-      render: (_, record: Task) => renderTaskScope(record),
     },
     {
       title: t('status'),
@@ -1673,7 +1696,9 @@ const DataManagementPage = () => {
       );
     }
     return (
-      <div className="mb-0.5">
+      // 行内展开面板 chrome（td 9/12 + 面板 margin/padding）由 .qc-exp-panel 统一承担，
+      // 与其余五页同形制（demo .bt-exp / .row-exp）
+      <div className="qc-exp-panel">
         {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask) => {
           // failed>0 表示该品种下载失败: 必须显式标红, 0% 空条无法区分"失败"与"未执行"
           const failed = Number(subTask.failed ?? 0) > 0;
@@ -2720,6 +2745,56 @@ const DataManagementPage = () => {
     return favoriteGroups.find(group => group.symbolIds.includes(symbolId));
   };
 
+  // 行情标的详情面板：列表 expandedRowRender 与卡片 renderExpanded 共用同一份 JSX（逐字一致）。
+  // 字段全部取自 SymbolData 已有值，不额外请求；缺值统一「—」
+  const renderSymbolDetail = (s: SymbolData) => {
+    const change = s.priceChangePercent24h;
+    const isLoading = marketDataLoading[s.symbol];
+    // 指标格：label 11px fg-3 + mono 数值（与因子库行内面板同一排印口径）
+    const metric = (key: string, label: string, value: React.ReactNode) => (
+      <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{label}</span>
+        <span className="qc-mono" style={{ fontWeight: 600 }}>{value}</span>
+      </div>
+    );
+    return (
+      <div className="qc-exp-panel" onClick={(e) => e.stopPropagation()}>
+        <Flex align="center" gap={6} wrap style={{ minWidth: 0 }}>
+          <span style={{ fontWeight: 600 }}>{s.symbol}</span>
+          {s.rank ? <span className="qc-chip quiet qc-mono">#{s.rank}</span> : null}
+          <span
+            className="qc-cell-time qc-mono"
+            style={{ marginInlineStart: 'auto', fontSize: 11 }}
+          >
+            {t('update_time')} <span style={{ color: 'var(--qc-text)' }}>{s.lastUpdateTime || '—'}</span>
+          </span>
+        </Flex>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+            gap: 10,
+            marginTop: 8,
+          }}
+        >
+          {metric('price', t('latest_price'),
+            isLoading ? <Spin size="small" /> : s.price ? `$${s.price.toLocaleString()}` : '—')}
+          {metric('change', t('change_24h'),
+            isLoading ? <Spin size="small" /> : change == null ? '—' : (
+              <span style={{ color: getPriceChangeColor(change) }}>
+                {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+              </span>
+            ))}
+          {metric('volume', t('dm_volume'),
+            isLoading ? <Spin size="small" /> : s.volume24h ? formatVolume(s.volume24h) : '—')}
+          {metric('status', t('data_status'),
+            s.hasData ? getQualityTag(s.dataQuality) : <span className="qc-chip quiet">{t('no_data')}</span>)}
+          {metric('auto', t('auto_update'), s.autoUpdate ? t('yes') : t('no'))}
+        </div>
+      </div>
+    );
+  };
+
   // 列表视图列定义（§6.5：标的双列 mono / 数值右侧 mono / 空值「—」/ 操作 24px）
   const symbolColumns: TableProps<SymbolData>['columns'] = [
     {
@@ -2761,6 +2836,14 @@ const DataManagementPage = () => {
       width: 200,
       render: (text: string, record: SymbolData) => (
         <span className="qc-row-chips">
+          {/* 行首三角自绘（antd 展开列已关；旋转由 .qc-cell-caret.is-open 负责） */}
+          <svg
+            className={`qc-cell-caret${record.symbol === expandedSymbolKey ? ' is-open' : ''}`}
+            viewBox="0 0 12 12"
+            aria-hidden="true"
+          >
+            <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+          </svg>
           <span className="qc-cell-id">{text}</span>
           {record.rank && <span className="qc-chip quiet qc-mono">#{record.rank}</span>}
           {record.hasData && <span className="qc-chip ok"><span className="qc-pdot" />{t('dm_live')}</span>}
@@ -2851,6 +2934,7 @@ const DataManagementPage = () => {
         <Switch
           size="small"
           checked={record.autoUpdate}
+          onClick={(_checked, e) => e.stopPropagation()}
           onChange={(checked) => {
             setSymbols(prev =>
               prev.map(s => s.symbol === record.symbol ? { ...s, autoUpdate: checked } : s)
@@ -2872,7 +2956,10 @@ const DataManagementPage = () => {
                 type="button"
                 className="qc-mini-btn qc-icon-only"
                 aria-label={t('collect')}
-                onClick={() => startCollection(record.symbol)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startCollection(record.symbol);
+                }}
               >
                 <CloudDownloadOutlined />
               </button>
@@ -2884,7 +2971,10 @@ const DataManagementPage = () => {
                   type="button"
                   className="qc-mini-btn qc-icon-only"
                   aria-label={t('quality')}
-                  onClick={() => checkQuality(record.symbol, '1h')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    checkQuality(record.symbol, '1h');
+                  }}
                 >
                   <BarChartOutlined />
                 </button>
@@ -2894,7 +2984,10 @@ const DataManagementPage = () => {
                   type="button"
                   className="qc-mini-btn qc-icon-only"
                   aria-label={t('update')}
-                  onClick={() => startCollection(record.symbol)}
+                  onClick={(e) => {
+                  e.stopPropagation();
+                  startCollection(record.symbol);
+                }}
                 >
                   <ReloadOutlined />
                 </button>
@@ -2928,6 +3021,28 @@ const DataManagementPage = () => {
       }}
       emptyTitle={t('no_data')}
       emptyDescription={searchText.trim() ? t('dm_search_no_match', { q: searchText.trim() }) : undefined}
+      // 行内展开（一次一行）：点行走 antd expandRowByClick，展开态视觉由行首三角 .qc-cell-caret.is-open 表达；
+      // 卡片视图复用同一 expandedSymbolKey 与同一块面板（见 renderCardView）
+      expandable={{
+        expandedRowKeys: expandedSymbolKey ? [expandedSymbolKey] : [],
+        expandedRowRender: (record) => renderSymbolDetail(record),
+        expandRowByClick: true,
+        showExpandColumn: false,
+        onExpand: (expanded, record) => setExpandedSymbolKey(expanded ? record.symbol : ''),
+      }}
+      onRow={(record) => ({
+        tabIndex: 0,
+        'aria-expanded': record.symbol === expandedSymbolKey,
+        style: { cursor: 'pointer' },
+        onKeyDown: (e) => {
+          // 只认行自身获得焦点时（行内按钮/开关上的按键归控件）
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpandedSymbolKey((prev) => (prev === record.symbol ? '' : record.symbol));
+          }
+        },
+      })}
     />
   );
 
@@ -2940,98 +3055,112 @@ const DataManagementPage = () => {
 
     return (
       <>
-        <Row gutter={[16, 16]}>
-          {currentPageSymbols.map(symbol => {
-        // 在"全部"视图时，检查是否在任何自选组中
-        // 在特定自选组视图时，只检查是否在当前组中
-        const isInActiveGroup = activeGroup 
-          ? activeGroup.symbolIds.includes(symbol.symbol)
-          : isSymbolInAnyGroup(symbol.symbol);
-        // 获取要显示的组（用于星星颜色和边框）
-        const displayGroup = activeGroup || getSymbolFirstGroup(symbol.symbol);
-        const isLoading = marketDataLoading[symbol.symbol];
-        return (
-          <Col xs={24} sm={12} md={8} lg={6} key={symbol.symbol}>
-            <Card
-              size="small"
-              className="qc-card"
-              title={
-                <Space>
-                  <Text strong>{symbol.symbol}</Text>
-                  {symbol.rank && <span className="qc-count-chip qc-mono">#{symbol.rank}</span>}
-                </Space>
-              }
-              extra={
-                <Dropdown menu={{ items: getGroupMenuItems(symbol.symbol) }} trigger={['click']}>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || 'var(--qc-warning)' }} /> : <StarOutlined />}
-                  />
-                </Dropdown>
-              }
-              style={{ 
-                borderTop: `3px solid ${isInActiveGroup ? displayGroup?.color : 'transparent'}`,
-              }}
-            >
-              <Space orientation="vertical" className="w-full">
-                <Row justify="space-between">
-                  <Text type="secondary">{t('dm_card_price')}</Text>
-                  {isLoading ? <Spin size="small" /> : (
-                    <Text strong className="text-base">
-                      {symbol.price ? `$${symbol.price.toLocaleString()}` : '-'}
-                    </Text>
-                  )}
-                </Row>
-                <Row justify="space-between">
-                  <Text type="secondary">{t('change_24h')}</Text>
-                  {isLoading ? <Spin size="small" /> : (
-                    <Text style={{ color: getPriceChangeColor(symbol.priceChangePercent24h || 0) }}>
-                      {symbol.priceChangePercent24h !== null ? (
-                        <>
-                          {symbol.priceChangePercent24h >= 0 ? '+' : ''}
-                          {symbol.priceChangePercent24h.toFixed(2)}%
-                        </>
-                      ) : '-'}
-                    </Text>
-                  )}
-                </Row>
-                <Row justify="space-between">
-                  <Text type="secondary">{t('dm_volume')}</Text>
-                  {isLoading ? <Spin size="small" /> : (
-                    <Text>{symbol.volume24h ? formatVolume(symbol.volume24h) : '-'}</Text>
-                  )}
-                </Row>
-                <Divider style={{ margin: 'var(--spacing-qc-2) 0' }} />
-                <Row justify="space-between" align="middle">
-                  {getQualityTag(symbol.dataQuality)}
+        {/* 卡片与列表共用同一块详情面板：面板由 ExpandableCardGrid 插到被点卡片所在视觉行之后（跨全宽） */}
+        <ExpandableCardGrid<SymbolData>
+          items={currentPageSymbols}
+          getKey={(s) => s.symbol}
+          expandedKey={expandedSymbolKey || null}
+          gutter={[16, 16]}
+          renderCard={(symbol) => {
+            // 在"全部"视图时，检查是否在任何自选组中
+            // 在特定自选组视图时，只检查是否在当前组中
+            const isInActiveGroup = activeGroup
+              ? activeGroup.symbolIds.includes(symbol.symbol)
+              : isSymbolInAnyGroup(symbol.symbol);
+            // 获取要显示的组（用于星星颜色和边框）
+            const displayGroup = activeGroup || getSymbolFirstGroup(symbol.symbol);
+            const isLoading = marketDataLoading[symbol.symbol];
+            const isOpen = expandedSymbolKey === symbol.symbol;
+            return (
+              <Card
+                size="small"
+                className={`qc-card${isOpen ? ' qc-card-selected' : ''}`}
+                title={
                   <Space>
-                    {!symbol.hasData ? (
-                      <Button
-                        type="primary"
-                        size="small"
-                        icon={<CloudDownloadOutlined />}
-                        onClick={() => startCollection(symbol.symbol)}
-                      >
-                        {t('collect')}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="small"
-                        icon={<BarChartOutlined />}
-                        onClick={() => checkQuality(symbol.symbol, '1h')}
-                      >
-                        {t('quality')}
-                      </Button>
-                    )}
+                    <Text strong>{symbol.symbol}</Text>
+                    {symbol.rank && <span className="qc-count-chip qc-mono">#{symbol.rank}</span>}
                   </Space>
-                </Row>
-              </Space>
-            </Card>
-          </Col>
-        );
-      })}
-        </Row>
+                }
+                extra={
+                  <Dropdown menu={{ items: getGroupMenuItems(symbol.symbol) }} trigger={['click']}>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={isInActiveGroup ? <StarFilled style={{ color: displayGroup?.color || 'var(--qc-warning)' }} /> : <StarOutlined />}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </Dropdown>
+                }
+                style={{
+                  borderTop: `3px solid ${isInActiveGroup ? displayGroup?.color : 'transparent'}`,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setExpandedSymbolKey((prev) => (prev === symbol.symbol ? '' : symbol.symbol))}
+              >
+                <Space orientation="vertical" className="w-full">
+                  <Row justify="space-between">
+                    <Text type="secondary">{t('dm_card_price')}</Text>
+                    {isLoading ? <Spin size="small" /> : (
+                      <Text strong className="text-base">
+                        {symbol.price ? `$${symbol.price.toLocaleString()}` : '-'}
+                      </Text>
+                    )}
+                  </Row>
+                  <Row justify="space-between">
+                    <Text type="secondary">{t('change_24h')}</Text>
+                    {isLoading ? <Spin size="small" /> : (
+                      <Text style={{ color: getPriceChangeColor(symbol.priceChangePercent24h || 0) }}>
+                        {symbol.priceChangePercent24h !== null ? (
+                          <>
+                            {symbol.priceChangePercent24h >= 0 ? '+' : ''}
+                            {symbol.priceChangePercent24h.toFixed(2)}%
+                          </>
+                        ) : '-'}
+                      </Text>
+                    )}
+                  </Row>
+                  <Row justify="space-between">
+                    <Text type="secondary">{t('dm_volume')}</Text>
+                    {isLoading ? <Spin size="small" /> : (
+                      <Text>{symbol.volume24h ? formatVolume(symbol.volume24h) : '-'}</Text>
+                    )}
+                  </Row>
+                  <Divider style={{ margin: 'var(--spacing-qc-2) 0' }} />
+                  <Row justify="space-between" align="middle">
+                    {getQualityTag(symbol.dataQuality)}
+                    <Space>
+                      {!symbol.hasData ? (
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<CloudDownloadOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startCollection(symbol.symbol);
+                          }}
+                        >
+                          {t('collect')}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          icon={<BarChartOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            checkQuality(symbol.symbol, '1h');
+                          }}
+                        >
+                          {t('quality')}
+                        </Button>
+                      )}
+                    </Space>
+                  </Row>
+                </Space>
+              </Card>
+            );
+          }}
+          renderExpanded={(symbol) => renderSymbolDetail(symbol)}
+        />
         <Row justify="center" className="mt-4">
           <Pagination
             current={currentPage}
@@ -3338,7 +3467,7 @@ const DataManagementPage = () => {
             rowKey="task_id"
             loading={taskListLoading}
             remote={!isTaskSearching}
-            scroll={{ x: 520 }} // 与左侧表单卡同排，容器常 ≈560px；580 会撑出横向滚动条并把操作列切掉
+            scroll={{ x: 480 }} // 与左侧表单卡同排（容器常 ≈560px）；合并后固定宽合计 ≈332px（展开 40 + 任务 176 + 状态 72 + 操作 44），备注列吃剩余，480 起窄窗口也能保住操作列不被切
             expandable={{
               columnWidth: 40,
               expandedRowRender: renderTaskDetails,

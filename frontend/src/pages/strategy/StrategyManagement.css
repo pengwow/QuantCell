@@ -1,18 +1,49 @@
-/* 策略管理页局部样式（demo #view-strategy 1597–1730 直迁）
-   全局原语（.qc-card/.qc-chip/.qc-ichip/.qc-mini-btn/.qc-table/.qc-row-selected）
-   住在 global.css，这里只放页面私有的两件：表下详情块（demo .detail-block）
-   与参数键值表（demo .kvtab）。qc-card chrome 手卷（同 backtest .bt-summary，
-   qc-card 类只作用于 .ant-card，手卷 div 吃不到）。 */
+/* 策略管理页局部样式（demo #view-strategy / 行内展开面板）
+   全局原语（.qc-card/.qc-chip/.qc-ichip/.qc-mini-btn/.qc-table/.qc-row-selected/
+   .qc-exp-panel/.qc-cell-caret）住在 global.css，这里只放页面私有的：
+   合并列（标的·周期）排版、策略列类型徽章、行内展开面板内容与参数键值表（demo .kvtab）。 */
 
-/* ---- demo .card.detail-block：表下常驻详情块 ---- */
-.sm-detail {
-  margin-top: 12px;
-  padding: 14px 16px;
-  background: var(--qc-surface);
-  border: 1px solid var(--qc-border);
-  border-radius: 10px;
-  box-shadow: var(--qc-shadow-card);
+/* 三角 + 名称 + 徽章同行，间距由 .qc-cell-strat-wrap 的 gap 统一给，抵消原 margin-right */
+.qc-cell-strat-wrap .qc-cell-caret {
+  margin-right: 0;
+  flex: 0 0 12px;
 }
+
+/* ---- 策略列：类型徽章缩小版并入名称行（demo style="font-size:9px;padding:2px 5px"） ---- */
+.sm-kind-chip .qc-chip {
+  font-size: 9px;
+  padding: 2px 5px;
+}
+
+/* ---- 合并列「标的 · 周期」：标的 primary 600，周期弱化的 fg-4 ---- */
+.sm-sym {
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+/* 2 个标的：整串限宽截断（inline-block 才让 max-width 生效，裸 inline 无效） */
+.sm-sym-ellipsis {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.sm-tf {
+  color: var(--qc-text-quaternary);
+}
+
+/* ≥3 标的的「+N」计数徽章（demo .chip.quiet 缩小版） */
+.sm-chip-n {
+  margin-left: 4px;
+  font-size: 9px;
+  padding: 1.5px 5px;
+  vertical-align: 1px;
+}
+
+/* ---- 行内展开面板（.qc-exp-panel 提供 chrome，这里只排面板内容） ---- */
 
 .sm-detail-head {
   display: flex;
@@ -48,7 +79,7 @@
 }
 
 .sm-detail-empty {
-  margin-top: 10px;
+  margin-top: 8px; /* demo head→内容 8px（.card-head mb） */
   font-size: 11.5px;
   color: var(--qc-text-quaternary);
 }
@@ -123,10 +154,12 @@
   color: var(--qc-error);
 }
 
-/* ---- demo .kvtab：两列键值表，参数行虚线分隔 ---- */
+/* ---- demo .kvtab：两列键值表，参数行虚线分隔 ----
+   demo 里 kvtab 无自身 margin，间距来自 .card-head 的 mb:8 —— head 无 mb，
+   由这里的 8px 承担同一间距 */
 .sm-kvtab {
   width: 100%;
-  margin-top: 4px;
+  margin-top: 8px;
   border-collapse: collapse;
 }
 

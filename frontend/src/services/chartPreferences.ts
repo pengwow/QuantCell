@@ -32,7 +32,7 @@ export interface OrderbookPrefs {
 const ORDERBOOK_DEFAULTS: OrderbookPrefs = {
   panel: true,
   depthProfile: false,
-  tradeTape: true,
+  tradeTape: false,
   depthLevels: 20,
   indicators: { oi: false, funding: false, cvd: false },
   tradeMarkers: { live: true, backtestId: null },

@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from backtest.models import BacktestTask
-from collector.db.models import DataPoolBusiness
+from collector.db.models import DataPool, DataPoolBusiness
 from common.notifications.task_notices import (
     TASK_STATUS_FAILED,
     TASK_STATUS_INTERRUPTED,
@@ -87,6 +87,48 @@ def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
             name=name or None,
             error=str(result.get("message") or "回测失败"),
         )
+
+
+def attach_list_extra_fields(rows: list[dict]) -> None:
+    """列表行补 pool_name / elapsed_seconds（页内一次批量查，不逐行 N+1）。
+
+    - pool_name：用本页出现的 pool_id 一次 IN 查 data_pools；池已删/非自选组任务 → None
+    - elapsed_seconds：backtest_tasks 按本页 id 一次查 started_at/completed_at，
+      两者齐全才算真实差值；running/旧任务缺任一 → None（不写 0 冒充）
+
+    查询失败只降级为 None（列表照常返回），不把整页打成 500。
+    """
+    if not rows:
+        return
+
+    pool_ids = {row.get("pool_id") for row in rows if isinstance(row.get("pool_id"), int)}
+    pool_names: dict[int, str] = {}
+    if pool_ids:
+        try:
+            with get_db_session() as db:
+                for pool_id, name in db.query(DataPool.id, DataPool.name).filter(DataPool.id.in_(pool_ids)).all():
+                    pool_names[pool_id] = name
+        except Exception as e:
+            logger.warning(f"批量查询自选组名称失败: {e}")
+
+    task_ids = [str(row.get("id")) for row in rows if row.get("id") is not None]
+    elapsed: dict[str, int] = {}
+    if task_ids:
+        try:
+            with get_db_session() as db:
+                for task_id, started_at, completed_at in (
+                    db.query(BacktestTask.id, BacktestTask.started_at, BacktestTask.completed_at)
+                    .filter(BacktestTask.id.in_(task_ids))
+                    .all()
+                ):
+                    if started_at is not None and completed_at is not None:
+                        elapsed[str(task_id)] = int((completed_at - started_at).total_seconds())
+        except Exception as e:
+            logger.warning(f"批量查询回测耗时失败: {e}")
+
+    for row in rows:
+        row["pool_name"] = pool_names.get(row.get("pool_id"))
+        row["elapsed_seconds"] = elapsed.get(str(row.get("id")))
 
 
 def compensate_interrupted_tasks() -> int:
@@ -197,6 +239,9 @@ def get_backtest_list(
             end_time=end_time,
             kind=kind,
         )
+
+        # 列表行补自选组名 / 真实耗时（页内批量查；缺值留 None，不改筛选排序分页语义）
+        attach_list_extra_fields(backtests)
 
         logger.info(f"成功获取回测结果列表，共 {total} 条，返回 {len(backtests)} 条")
 

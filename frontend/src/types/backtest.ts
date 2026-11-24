@@ -132,6 +132,12 @@ export interface BacktestTask {
   /** 策略类型（rule/rl/llm，后端按策略文件 AST 判定；rl_model:/rl_ensemble: 前缀归 rl；
    *  策略已删且无记录 → null，UI 显示「—」，不按名字猜） */
   strategy_kind?: 'rule' | 'rl' | 'llm' | null;
+  /** 自选组来源（任务 config.pool_id 原样入库）；非自选组/老任务 → null */
+  pool_id?: number | null;
+  /** 自选组名（后端按 pool_id 页内批量查 data_pools；池已删 → null） */
+  pool_name?: string | null;
+  /** 真实执行耗时（秒）：DB started_at/completed_at 齐全才算，否则 null（UI 显示「—」） */
+  elapsed_seconds?: number | null;
 }
 
 // 回测行内轻摘要接口（GET /backtest/{id}/summary）：任务级字段 + 组合级指标字典，

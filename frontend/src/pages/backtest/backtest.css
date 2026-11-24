@@ -192,17 +192,49 @@
   border-radius: 8px;
 }
 
-/* ---- 行内部分详情（demo #view-backtest .bt-detail）----
-   demo 里详情卡是列表卡（.bt-card）的兄弟节点：点击行只切换下方这张摘要卡，
-   不做路由跳转；完整详情走操作列的眼睛 / 键盘 Enter。卡面 chrome 按 §6.3
-   逐值自绘（qc-card 类只作用于 .ant-card，手卷 div 吃不到）。 */
+/* ---- 行内展开面板（demo #view-backtest .bt-exp > .card）----
+   面板已成 antd expandedRow 的内容：chrome/留白由 .qc-exp-panel（global.css）
+   统一承担，本类只保留内部的排布，不再叠一层卡框。
+   完整详情走操作列的眼睛，行内不再有「下方常驻卡」。 */
 .bt-summary {
-  margin-top: 12px;
-  padding: 14px 16px;
-  background: var(--qc-surface);
-  border: 1px solid var(--qc-border);
-  border-radius: 10px;
-  box-shadow: var(--qc-shadow-card);
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 「标的 · 周期」列：标的为 mono 600 主色，周期弱化（demo .c-strat 单行形制） */
+.bt-cell-sym {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--qc-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bt-cell-mi {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+}
+
+/* 自选组任务前缀（【自选组】）：弱色小字，不抢策略/标的的主次 */
+.bt-pool-badge {
+  font-size: 10px;
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+}
+
+/* 「耗时」列（demo .c-num 右对齐 mono 11px fg-3） */
+.bt-elapsed {
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
 }
 
 .bt-summary-head {
@@ -212,6 +244,8 @@
   gap: 10px;
   min-width: 0;
 }
+
+/* demo .card-head mb:8 —— head 与首块内容间距统一 8px（见下各块 margin） */
 
 /* demo .card-title：13px/650 */
 .bt-summary-title {
@@ -236,7 +270,8 @@
 }
 
 .bt-summary-body {
-  margin-top: 12px;
+  /* body（进度/失败/骨架）总是紧跟 head：demo .card-head mb 8 的间距口径 */
+  margin-top: 8px;
 }
 
 /* 无指标的运行中/失败任务：面板只有头部与配置脚注，中间不留假 0 */
@@ -245,10 +280,15 @@
   color: var(--qc-text-quaternary);
 }
 
-/* demo .mstats：5 列 KPI；继承 .qc-kpi-grid 间距，列数对位 demo */
+/* demo .mstats 口径：无 body 时直接吃 head→内容 8px；有 body（运行中进度条后的
+   3 卡网格）时对位 demo run 模板的 margin-top:12px 内联覆写 */
 .bt-summary-stats {
-  margin-top: 12px;
+  margin-top: 8px;
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.bt-summary-body + .bt-summary-stats {
+  margin-top: 12px;
 }
 
 @media (max-width: 991px) {
@@ -257,10 +297,10 @@
   }
 }
 
-/* demo .card-foot：上虚线分隔 + mono 配置行（真实段才渲染） */
+/* demo .card-foot：上虚线分隔 + mono 配置行（真实段才渲染）—— mt9 / pt8 与 demo 全等 */
 .bt-summary-foot {
-  margin-top: 12px;
-  padding-top: 9px;
+  margin-top: 9px;
+  padding-top: 8px;
   border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
 }
 

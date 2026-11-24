@@ -745,6 +745,12 @@ html body {
   background: color-mix(in srgb, var(--qc-primary) 5%, var(--qc-surface));
 }
 
+/* 卡片网格里的行内展开槽（ExpandableCardGrid）：Row 的垂直 gutter 已给出与上一行的间距，
+   面板自带 8/10/10 外边距在卡片语境里会与 Col 内距叠加成双份，这里清零 */
+.qc-card-exp-slot > .qc-exp-panel {
+  margin: 0;
+}
+
 /* ---- 单元格工具类（§3 排印：mono 数值 / 次级时间列） ---- */
 .qc-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -817,6 +823,69 @@ html body {
 /* antd 自带勾选行保持同一 tint 口径 */
 .qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.ant-table-row-selected > td {
   background: color-mix(in srgb, var(--qc-primary) 5%, transparent);
+}
+
+/* ---- 行内展开（各列表页统一范式，demo .bt-exp / .row-exp 对位） ----
+   点行就地展开：面板走 antd expandedRow，本组类只负责面板底色/留白与行首三角，
+   不参与列宽计算。展开内容由页面组件自绘（通常一张 qc-card / 指标网格）
+
+   间距基准 = demo 实测渲染值（不是 demo 源码的「本意」）：
+   demo 里 .gt td 的 9px/12px 特异性同权重且声明在后，压过了 .bt-exp > td 的 padding:0，
+   所以 demo 展开行 td 实际带 9px/12px padding，面板 margin 8/10/10 叠在上面。
+   这里照抄实测口径：td 9/12 + 面板 margin 8/10/10 + padding 12/14（demo .card）。 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody tr.ant-table-expanded-row > td {
+  /* 比 .ant-table-tbody tr > td 密度规则（0,4,0,2）多一个类，压住其 10px/12px padding */
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--qc-text) 2.5%, var(--qc-surface));
+}
+
+/* antd 对有固定列/滚动语义的表会给展开行套 .ant-table-expanded-row-fixed：
+   自带 padding 16 / margin -8（净 +8px 上下），是「面板四周比 demo 宽」的最大来源，清零 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-expanded-row > td > .ant-table-expanded-row-fixed {
+  padding: 0 !important;
+  margin: 0 !important;
+  /* antd 内联写死宽度（= 内容列宽），清掉自身盒后让它自然铺满 td 内容区 */
+  width: auto !important;
+}
+
+.qc-exp-panel {
+  margin: 8px 10px 10px;
+  /* demo .card：12px 14px；底色 = demo --bgc（卡片面），暗色下比 --qc-bg 亮一档，避免与 td 淡底同层 */
+  padding: 12px 14px;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--radius-qc-md);
+  background: var(--qc-surface);
+}
+
+/* 面板内指标卡对位 demo .mstat（比页级 .qc-kpi 轻一档：10/12 内距、8px 圆角、无投影、面板底色）,
+   只作用于行内展开面板，页级 KPI（首页/详情页）不受影响 */
+.qc-exp-panel .qc-kpi {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--qc-bg);
+  box-shadow: none;
+}
+
+/* 面板内指标数值对位 demo .mstat .v：18px / margin-top 5（页级 .qc-kpi-num 仍 22px/7px） */
+.qc-exp-panel .qc-kpi-num {
+  margin-top: 5px;
+  font-size: 18px;
+}
+
+/* 行首展开三角：收起 ▸ / 展开 ▾（旋转 90°），颜色随选中态升为主色 */
+.qc-cell-caret {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  color: var(--qc-text-tertiary);
+  transition: transform var(--duration-qc-base) ease-out, color var(--duration-qc-base) ease-out;
+}
+
+.qc-cell-caret.is-open {
+  transform: rotate(90deg);
+  color: var(--qc-primary);
 }
 
 /* 表格内的策略名列（mono 600 12px） */

@@ -26,6 +26,7 @@ import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import WorkerCreateModal from '@/components/worker/WorkerCreateModal';
 import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
@@ -58,7 +59,7 @@ const StrategyManagement = () => {
   const [stateFilter, setStateFilter] = useState<StateFilter>('');
   const [sortField, setSortField] = useState<SortField>('updated_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  // 行选中（点击行 → 表下详情块；操作钮阻止冒泡）
+  // 行选中 = 行内展开（同一状态：点行就地展开 → 再点收起；操作钮阻止冒泡）
   const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
   // 创建 Worker：复用 worker 模块的现成创建弹窗（真实 POST /workers），不做死钮
   const [createWorkerOpen, setCreateWorkerOpen] = useState(false);
@@ -209,6 +210,49 @@ const StrategyManagement = () => {
     }
   };
 
+  // 标的·周期合并列（demo stSym 同构）：单标的 / 2 个逗号分隔（截断）/ ≥3 首个 +N 徽章；
+  // symbols 为空仍显示「—」，周期存在则跟在分隔符后（合并列的另一半，信息不丢）；全量进 Tooltip
+  // ponytail: 契约无私选组来源字段（StrategyOverviewItem 只有 symbols: string[]），
+  // 故不做 demo 的 {pool, items} 三形态；后端补字段时再加分支
+  const renderSymbolInterval = (item: StrategyOverviewItem) => {
+    const syms = (item.symbols ?? []).filter(Boolean);
+    const tf = item.interval ? <span className="sm-tf">{item.interval}</span> : null;
+    const sep = tf ? <span className="sm-tf"> · </span> : null;
+    if (!syms.length) {
+      return (
+        <span className="qc-mono">
+          <span className="qc-cell-none">—</span>
+          {sep}
+          {tf}
+        </span>
+      );
+    }
+    const all = syms.join(', ');
+    const title = item.interval ? `${all} · ${item.interval}` : all;
+    let head: React.ReactNode;
+    if (syms.length === 1) {
+      head = <span className="sm-sym">{syms[0]}</span>;
+    } else if (syms.length === 2) {
+      head = <span className="sm-sym sm-sym-ellipsis">{all}</span>;
+    } else {
+      head = (
+        <>
+          <span className="sm-sym">{syms[0]}</span>
+          <span className="qc-chip quiet sm-chip-n">+{syms.length - 1}</span>
+        </>
+      );
+    }
+    return (
+      <Tooltip title={title} placement="topLeft">
+        <span className="qc-mono">
+          {head}
+          {sep}
+          {tf}
+        </span>
+      </Tooltip>
+    );
+  };
+
   // 最近回测列：+x.xx% 涨绿/跌红、失败 down、运行中与未回测弱文本、0 不染色
   const renderLastBacktest = (item: StrategyOverviewItem) => {
     const lb = item.latest_backtest;
@@ -297,18 +341,31 @@ const StrategyManagement = () => {
     [filteredStrategies, selectedRowKey]
   );
 
-  // 首屏/筛选后兜底选中：只在「从未选过」或「当前选中已不在新列表里」时选首行，
-  // 用户手动点行后其行始终在列表里 → 本 effect 早退，不会被每次重载抢回；空列表不选中
+  // 详情改为行内展开后不再首屏预选首行（否则等于首屏自动展开）：
+  // 只在「当前展开行被筛选排除 / 已删除」时清空选中，空列表也不残留面板
   useEffect(() => {
-    if (loading) return;
+    if (loading || selectedRowKey === '') return;
     const names = filteredStrategies.map((s) => s.name);
-    if (names.length === 0) return;
-    if (selectedRowKey !== '' && names.includes(String(selectedRowKey))) return;
-    // ponytail: 取全量首行而非当前页首行 —— 首屏与筛选后页码恒归 1，仅删除兜底时可能跨页
-    setSelectedRowKey(names[0]);
+    if (names.includes(String(selectedRowKey))) return;
+    setSelectedRowKey('');
   }, [filteredStrategies, loading, selectedRowKey]);
 
-  // 换选中行 → 收起并清空版本历史缓存（条数来自 overview，重载后跟着变）
+  // 切换卡片/列表视图 → 收起（两种排版共用同一面板，换版式后定位失效）
+  useEffect(() => {
+    setSelectedRowKey('');
+  }, [viewType]);
+
+  // Esc 收起：行内按钮点击后焦点可能不在行上，故用文档级监听（单行展开，开销可忽略）
+  useEffect(() => {
+    if (selectedRowKey === '') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedRowKey('');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedRowKey]);
+
+  // 换展开行（或收起）→ 收起版本历史并清空缓存（条数来自 overview，重载后跟着变）
   useEffect(() => {
     setVersionsOpen(false);
     setVersions(null);
@@ -344,68 +401,53 @@ const StrategyManagement = () => {
     return [...core, ...extra, { value: 'undeployed' as const, count: counts.undeployed, key: 'sm_state_undeployed' }];
   }, [counts]);
 
-  // 表格列定义 — demo 1628 列序：策略/类型/周期/标的/状态/Worker/最近回测/操作
+  // 表格列定义 — demo 6 列合并列序：策略(三角+名+类型徽章) / 标的·周期 / 状态 / Worker / 最近回测 / 操作
   const columns: TableProps<StrategyOverviewItem>['columns'] = [
     {
       title: t('sm_col_strategy'),
       dataIndex: 'name',
       key: 'name',
-      width: 190,
+      width: 270,
       ellipsis: { showTitle: false },
       // 策略名固定宽度截断（名字最长可达上百字符，会撑爆列宽）：
       // display:block + maxWidth 才让 max-width/ellipsis 生效 —— 裸 inline span
       // 上写 max-width 是无效的（浏览器忽略），这正是原来列宽失控的原因
-      render: (text: string) => (
-        <Tooltip title={text} placement="topLeft">
-          <span
-            className="qc-cell-strat"
-            style={{
-              display: 'block',
-              maxWidth: 200,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
+      render: (text: string, record: StrategyOverviewItem) => (
+        <div className="qc-cell-strat-wrap">
+          {/* 行首三角自绘（antd 展开列已关；旋转由 .qc-cell-caret.is-open 负责） */}
+          <svg
+            className={`qc-cell-caret${record.name === selectedRowKey ? ' is-open' : ''}`}
+            viewBox="0 0 12 12"
+            aria-hidden="true"
           >
-            {text}
-          </span>
-        </Tooltip>
+            <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+          </svg>
+          <Tooltip title={text} placement="topLeft">
+            <span
+              className="qc-cell-strat"
+              style={{
+                display: 'block',
+                minWidth: 0,
+                maxWidth: 170,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {text}
+            </span>
+          </Tooltip>
+          <span className="sm-kind-chip">{renderKindChip(record.kind)}</span>
+        </div>
       ),
     },
     {
-      title: t('sm_col_kind'),
-      dataIndex: 'kind',
-      key: 'kind',
-      width: 76,
-      render: (_: unknown, record: StrategyOverviewItem) => renderKindChip(record.kind),
-    },
-    {
-      title: t('sm_col_interval'),
-      dataIndex: 'interval',
-      key: 'interval',
-      width: 74,
-      render: (text: string | null) =>
-        text ? (
-          <span className="qc-mono qc-cell-id">{text}</span>
-        ) : (
-          <span className="qc-mono qc-cell-none">—</span>
-        ),
-    },
-    {
-      title: t('sm_col_symbols'),
-      dataIndex: 'symbols',
-      key: 'symbols',
-      width: 140,
+      // 合并列标题用两个既有键拼出（不新增词条；英文=Symbols · Interval 亦通顺）
+      title: `${t('sm_col_symbols')} · ${t('sm_col_interval')}`,
+      key: 'symbol_interval',
+      width: 200,
       ellipsis: { showTitle: false },
-      render: (symbols: string[] | null | undefined) => {
-        if (!symbols?.length) return <span className="qc-mono qc-cell-none">—</span>;
-        const joined = symbols.join(', ');
-        return (
-          <Tooltip title={joined} placement="topLeft">
-            <span className="qc-mono" style={{ fontSize: 11.5 }}>{joined}</span>
-          </Tooltip>
-        );
-      },
+      render: (_: unknown, record: StrategyOverviewItem) => renderSymbolInterval(record),
     },
     {
       title: t('sm_col_state'),
@@ -480,6 +522,8 @@ const StrategyManagement = () => {
             value: searchText,
             onChange: (value) => {
               setSearchText(value);
+              // 搜索变化 → 收起行内展开（面板与其行否则会失联）
+              setSelectedRowKey('');
               // §6.6 过滤联动：搜索变化页码归 1（历史雷区：搜索不重置页码）
               setPagination((prev) => ({ ...(prev || {}), current: 1 }));
             },
@@ -495,6 +539,7 @@ const StrategyManagement = () => {
                   aria-pressed={stateFilter === ''}
                   onClick={() => {
                     setStateFilter('');
+                    setSelectedRowKey('');
                     setPagination((prev) => ({ ...(prev || {}), current: 1 }));
                   }}
                 >
@@ -508,6 +553,7 @@ const StrategyManagement = () => {
                     aria-pressed={stateFilter === chip.value}
                     onClick={() => {
                       setStateFilter(chip.value);
+                      setSelectedRowKey('');
                       setPagination((prev) => ({ ...(prev || {}), current: 1 }));
                     }}
                   >
@@ -522,6 +568,8 @@ const StrategyManagement = () => {
                   const [field, order] = value.split('-');
                   setSortField(field as SortField);
                   setSortOrder(order as SortOrder);
+                  // 排序变化 → 收起行内展开（行会移动，面板与其行失联）
+                  setSelectedRowKey('');
                 }}
                 style={{ width: 150 }}
                 popupMatchSelectWidth={false}
@@ -544,6 +592,8 @@ const StrategyManagement = () => {
           pagination={{
             ...pagination,
             onChange: (pg, size) => {
+              // 翻页 → 收起行内展开（行可能不在新页）
+              setSelectedRowKey('');
               if (size !== pageSize) setPageSize(size);
               setPagination({ ...(pagination || {}), current: pg, pageSize: size });
             },
@@ -551,9 +601,27 @@ const StrategyManagement = () => {
           loading={loading}
           rowKey="name"
           rowClassName={(record) => (record.name === selectedRowKey ? 'qc-row-selected' : '')}
+          // 行内展开（一次一行）：点行走 antd expandRowByClick，选中态与展开态共用 selectedRowKey
+          // （expandedRowKeys 受控 + onExpand 单向写回；rc-table 内部多键合并被单键 prop 覆盖）
+          expandable={{
+            expandedRowKeys: selectedRowKey ? [selectedRowKey] : [],
+            expandedRowRender: (record) => renderDetailPanel(record),
+            expandRowByClick: true,
+            showExpandColumn: false,
+            onExpand: (expanded, record) => setSelectedRowKey(expanded ? record.name : ''),
+          }}
           onRow={(record) => ({
-            onClick: () => setSelectedRowKey(record.name),
+            tabIndex: 0,
+            'aria-expanded': record.name === selectedRowKey,
             style: { cursor: 'pointer' },
+            onKeyDown: (e) => {
+              // 只认行自身获得焦点时（行内按钮上的 Enter/Space 归按钮）
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setSelectedRowKey((prev) => (prev === record.name ? '' : record.name));
+              }
+            },
           })}
           onChange={(newPagination) => {
             if (newPagination.pageSize && newPagination.pageSize !== pageSize) {
@@ -662,36 +730,35 @@ const StrategyManagement = () => {
     );
   };
 
-  // 表下详情块 — demo 1716-1729 同构：标题 + 名称 + 状态 chip + 版本；参数 KV + 去回测/创建 Worker + footer
+  // 行内展开面板 — demo 1716-1729 同构：标题 + 名称 + 状态 chip + 版本；参数 KV + 去回测/创建 Worker + footer
   // 「版本历史 N 条」只读 /strategy/overview 的 version_count（真实快照数，0 时保留弱态段但不可展开）
-  const renderDetailBlock = () => {
-    if (!selectedItem) return null;
+  const renderDetailPanel = (item: StrategyOverviewItem) => {
     const verSegs: string[] = [];
-    if (selectedItem.version) verSegs.push(`v${selectedItem.version}`);
-    if (selectedItem.updated_at) {
-      const d = dayjs(selectedItem.updated_at);
+    if (item.version) verSegs.push(`v${item.version}`);
+    if (item.updated_at) {
+      const d = dayjs(item.updated_at);
       if (d.isValid()) verSegs.push(t('sm_detail_updated', { d: d.format('MM-DD') }));
     }
 
     // footer 段落：「默认 runner：kernel」恒有（内核默认路径真值），
     // 累计回测次数取 /strategy/overview 的 backtest_count（真实任务总数）；字段缺席时隐藏该段
     const footSegs: string[] = [t('sm_detail_runner', { runner: 'kernel' })];
-    if (typeof selectedItem.backtest_count === 'number') {
-      footSegs.push(t('sm_detail_backtest_count', { n: selectedItem.backtest_count }));
+    if (typeof item.backtest_count === 'number') {
+      footSegs.push(t('sm_detail_backtest_count', { n: item.backtest_count }));
     }
-    const versionCount = selectedItem.version_count ?? 0;
+    const versionCount = item.version_count ?? 0;
 
     return (
-      <div className="sm-detail" role="region" aria-label={t('sm_detail_title')}>
+      <div className="qc-exp-panel" role="region" aria-label={t('sm_detail_title')}>
         <div className="sm-detail-head">
           <span className="sm-detail-title">{t('sm_detail_title')}</span>
-          <span className="qc-mono sm-detail-name">{selectedItem.name}</span>
-          {renderStateChip(selectedItem.state)}
+          <span className="qc-mono sm-detail-name">{item.name}</span>
+          {renderStateChip(item.state)}
           {verSegs.length > 0 && <span className="qc-mono sm-detail-ver">{verSegs.join(' · ')}</span>}
         </div>
-        {renderParamsKv(selectedItem.params)}
+        {renderParamsKv(item.params)}
         <div className="sm-detail-actions">
-          <Button type="primary" onClick={() => handleBacktestStrategy(selectedItem)}>
+          <Button type="primary" onClick={() => handleBacktestStrategy(item)}>
             {t('sm_action_backtest')}
           </Button>
           <Button onClick={() => setCreateWorkerOpen(true)}>{t('create_worker')}</Button>
@@ -769,6 +836,8 @@ const StrategyManagement = () => {
     const startIndex = (currentPage - 1) * currentSize;
     const pageData = filteredStrategies.slice(startIndex, startIndex + currentSize);
     const pgChange = (page: number, size: number) => {
+      // 翻页 → 收起行内展开（卡可能不在新页；与列表态同口径）
+      setSelectedRowKey('');
       if (size !== pageSize) setPageSize(size);
       setPagination({ ...(pagination || {}), current: page, pageSize: size });
     };
@@ -783,138 +852,144 @@ const StrategyManagement = () => {
     return (
       <>
         {pageData.length > 0 ? (
-          <Row gutter={[16, 16]}>
-            {pageData.map((item) => (
-              <Col xs={24} sm={12} md={8} lg={6} key={item.name}>
-                <Card
-                  size="small"
-                  className={`qc-card${item.name === selectedRowKey ? ' qc-card-selected' : ''}`}
-                  title={
-                    <span
-                      title={item.name}
-                      className="qc-mono"
-                      style={{
-                        display: 'inline-block',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        verticalAlign: 'bottom',
-                      }}
-                    >
-                      {item.name}
-                    </span>
-                  }
-                  extra={
-                    <Space size={4}>
-                      <Tooltip title={t('edit_strategy')}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEditStrategy(item);
-                          }}
-                        />
-                      </Tooltip>
-                      <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete_strategy')}>
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          disabled={isGuest}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteStrategy(item);
-                          }}
-                        />
-                      </Tooltip>
-                    </Space>
-                  }
-                  hoverable
-                  onClick={() => setSelectedRowKey(item.name)}
-                  style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
-                >
-                  <Space size={4} wrap style={{ marginBottom: 8 }}>
-                    {renderKindChip(item.kind)}
-                    {renderStateChip(item.state)}
-                  </Space>
-                  <div
-                    className="space-y-1"
-                    style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}
+          <ExpandableCardGrid
+            items={pageData}
+            getKey={(it) => it.name}
+            expandedKey={selectedRowKey ? String(selectedRowKey) : null}
+            renderCard={(item) => (
+              <Card
+                size="small"
+                className={`qc-card${item.name === selectedRowKey ? ' qc-card-selected' : ''}`}
+                title={
+                  <span
+                    title={item.name}
+                    className="qc-mono"
+                    style={{
+                      display: 'inline-block',
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      verticalAlign: 'bottom',
+                    }}
                   >
-                    {infoRow(
-                      t('sm_col_interval'),
-                      item.interval ? (
-                        <span className="qc-mono" style={{ fontSize: 12 }}>{item.interval}</span>
-                      ) : (
-                        <span className="qc-mono qc-cell-none" style={{ fontSize: 12 }}>—</span>
-                      )
-                    )}
-                    {infoRow(
-                      t('sm_col_symbols'),
-                      <span
-                        className="qc-mono"
-                        style={{ fontSize: 12, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      >
-                        {item.symbols?.length ? item.symbols.join(', ') : '—'}
-                      </span>
-                    )}
-                    {infoRow(
-                      t('sm_col_workers'),
-                      item.worker_count ? (
-                        <span className="qc-mono" style={{ fontSize: 12 }}>{item.worker_count}</span>
-                      ) : (
-                        <span className="qc-mono qc-cell-none" style={{ fontSize: 12 }}>0</span>
-                      )
-                    )}
-                    {infoRow(t('sm_col_last_backtest'), renderLastBacktest(item))}
-                    {infoRow(
-                      t('update_time'),
-                      <span className="qc-cell-time qc-mono">
-                        {item.updated_at && dayjs(item.updated_at).isValid()
-                          ? dayjs(item.updated_at).format('YYYY-MM-DD HH:mm')
-                          : '—'}
-                      </span>
-                    )}
-                  </div>
+                    {item.name}
+                  </span>
+                }
+                extra={
+                  <Space size={4}>
+                    <Tooltip title={t('edit_strategy')}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditStrategy(item);
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip title={isGuest ? t('guest_delete_restricted') : t('delete_strategy')}>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        disabled={isGuest}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteStrategy(item);
+                        }}
+                      />
+                    </Tooltip>
+                  </Space>
+                }
+                hoverable
+                // 与列表行同键同语义：点卡片 toggle 详情（再点收起）
+                onClick={() =>
+                  setSelectedRowKey((prev) => (prev === item.name ? '' : item.name))
+                }
+                style={{ cursor: 'pointer', boxShadow: 'var(--qc-shadow-card)' }}
+              >
+                <Space size={4} wrap style={{ marginBottom: 8 }}>
+                  {renderKindChip(item.kind)}
+                  {renderStateChip(item.state)}
+                </Space>
+                <div className="space-y-1" style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>
+                  {infoRow(
+                    t('sm_col_interval'),
+                    item.interval ? (
+                      <span className="qc-mono" style={{ fontSize: 12 }}>{item.interval}</span>
+                    ) : (
+                      <span className="qc-mono qc-cell-none" style={{ fontSize: 12 }}>—</span>
+                    )
+                  )}
+                  {infoRow(
+                    t('sm_col_symbols'),
+                    <span
+                      className="qc-mono"
+                      style={{ fontSize: 12, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {item.symbols?.length ? item.symbols.join(', ') : '—'}
+                    </span>
+                  )}
+                  {infoRow(
+                    t('sm_col_workers'),
+                    item.worker_count ? (
+                      <span className="qc-mono" style={{ fontSize: 12 }}>{item.worker_count}</span>
+                    ) : (
+                      <span className="qc-mono qc-cell-none" style={{ fontSize: 12 }}>0</span>
+                    )
+                  )}
+                  {infoRow(t('sm_col_last_backtest'), renderLastBacktest(item))}
+                  {infoRow(
+                    t('update_time'),
+                    <span className="qc-cell-time qc-mono">
+                      {item.updated_at && dayjs(item.updated_at).isValid()
+                        ? dayjs(item.updated_at).format('YYYY-MM-DD HH:mm')
+                        : '—'}
+                    </span>
+                  )}
+                </div>
 
-                  <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--qc-border)' }}>
-                    <Row gutter={[8, 8]}>
-                      <Col span={12}>
-                        <Button
-                          type="primary"
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleBacktestStrategy(item);
-                          }}
-                          style={{ width: '100%' }}
-                        >
-                          {t('sm_action_backtest')}
-                        </Button>
-                      </Col>
-                      <Col span={12}>
-                        <Button
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEditStrategy(item);
-                          }}
-                          style={{ width: '100%' }}
-                        >
-                          {t('edit')}
-                        </Button>
-                      </Col>
-                    </Row>
-                  </div>
-                </Card>
-              </Col>
-            ))}
-          </Row>
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--qc-border)' }}>
+                  <Row gutter={[8, 8]}>
+                    <Col span={12}>
+                      <Button
+                        type="primary"
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleBacktestStrategy(item);
+                        }}
+                        style={{ width: '100%' }}
+                      >
+                        {t('sm_action_backtest')}
+                      </Button>
+                    </Col>
+                    <Col span={12}>
+                      <Button
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditStrategy(item);
+                        }}
+                        style={{ width: '100%' }}
+                      >
+                        {t('edit')}
+                      </Button>
+                    </Col>
+                  </Row>
+                </div>
+              </Card>
+            )}
+            // 与列表 expandedRowRender 同一份面板，保证内容逐字同源。
+            // 注意：组件把面板插在该视觉行「最后一张卡」之后，回调参数是那张卡的 item；
+            // 选中卡不一定是行内最后一张，故按当前展开键取 selectedItem，避免面板串到邻卡。
+            renderExpanded={() => (selectedItem ? renderDetailPanel(selectedItem) : null)}
+            gutter={[16, 16]}
+          />
         ) : (
           <Card className="qc-card">
             <QcEmpty
@@ -959,7 +1034,6 @@ const StrategyManagement = () => {
       }
     >
       {viewType === 'list' ? renderListView() : renderCardView()}
-      {renderDetailBlock()}
       {/* 创建 Worker：复用 worker 模块创建弹窗（真实 POST /workers；成功后刷新聚合计数） */}
       <WorkerCreateModal
         visible={createWorkerOpen}

@@ -3,7 +3,8 @@
  * + 目录展示（列表=DataTable 分页表格 / 卡片=Card 网格）。
  * 「新建因子」入口在页头（demo page-actions），弹窗仍由本组件渲染，保存逻辑不变。
  * 数据来自容器单次 catalog() 请求，搜索/筛选/分页全在前端对全量数组做；
- * 「查看详情」（列表操作列/卡片底部）是打开抽屉的唯一入口，无异步竞态。
+ * 列表页对齐 demo #view-factors 新范式：6 列（类别/来源并入因子列），点行就地展开轻摘要，
+ * 完整详情仍走「查看详情」→ 现有抽屉（onSelect），行内不重复渲染抽屉内容。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +14,6 @@ import {
   App as AntdApp,
   Button,
   Card,
-  Col,
   Flex,
   Pagination,
   Popconfirm,
@@ -43,6 +43,7 @@ import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import PageToolbar from '@/components/ui/PageToolbar';
 import FactorFormModal from './FactorFormModal';
 
@@ -51,7 +52,10 @@ interface Props {
   loading: boolean;
   loadError: boolean;
   selected: string | null;
+  /** 打开完整详情抽屉（操作列眼睛 / 展开面板「查看详情」） */
   onSelect: (name: string) => void;
+  /** 行点击只同步选中态（高亮 + 右栏上下文），不开抽屉；缺省退回 onSelect */
+  onActivate?: (name: string) => void;
   onRefresh: () => Promise<void> | void;
   /** 打开「新建因子」弹窗（按钮在页头 demo page-actions） */
   onCreate: () => void;
@@ -80,6 +84,7 @@ const FactorLibraryPane: React.FC<Props> = ({
   loadError,
   selected,
   onSelect,
+  onActivate,
   onRefresh,
   onCreate,
   createVisible,
@@ -102,6 +107,10 @@ const FactorLibraryPane: React.FC<Props> = ({
     current: 1,
     pageSize,
   }));
+  // 行内展开：单键互斥（同一时刻只有一行展开）；初始 null = 初次加载不自动展开
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  // 行点击只切选中，不开抽屉（抽屉留给「查看详情」）
+  const activate = onActivate ?? onSelect;
 
   // 全局条数变化（设置页/其他页面改动）实时同步到本页分页状态
   useEffect(() => {
@@ -119,8 +128,12 @@ const FactorLibraryPane: React.FC<Props> = ({
     return <span className={`qc-chip ${tone}`}>{statusLabel(s)}</span>;
   };
 
-  // §6.6 过滤联动：过滤条件变化后页码归 1（历史雷区：搜索不重置页码）
-  const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
+  // §6.6 过滤联动：过滤条件变化后页码归 1（历史雷区：搜索不重置页码）；
+  // 同口径收起行内展开面板，避免面板与其行失联（demo xpKeepTidy）
+  const gotoPage1 = () => {
+    setOpenKey(null);
+    setPagination((p) => ({ ...p, current: 1 }));
+  };
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(catalog.map((f) => f.category))).sort(),
@@ -197,47 +210,120 @@ const FactorLibraryPane: React.FC<Props> = ({
     </Popconfirm>
   );
 
+  // 行内展开轻摘要的「日期」口径与列表一致：去 T 取到分钟
+  const shortTime = (v: string | null) =>
+    v ? v.replace('T', ' ').slice(0, 16) : '—';
+
+  // 展开面板指标格：label + 值（null 一律 —，绝不输出 NaN/undefined），有语义评级时按 tone 着色
+  const expMetric = (key: string, label: string, value: number | null, text?: string) => (
+    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{label}</span>
+      <span
+        className={`qc-mono${value == null ? ' qc-cell-none' : ''}`}
+        style={value == null ? undefined : { color: toneColor(toneOf(key, value), qc), fontWeight: 600 }}
+      >
+        {value == null ? '—' : (text ?? value.toFixed(4))}
+      </span>
+    </div>
+  );
+
+  // 行内展开面板（轻摘要）：字段全部取 catalog 的 last_metrics / snapshot_*，不新增请求；
+  // 目录没有 IC 时序序列（只有标量），所以不画 IC 柱状图——完整时序在 Drawer 的分析页签
+  const renderExpanded = (r: FactorCatalogItem) => {
+    const lm = r.last_metrics;
+    return (
+      <div className="qc-exp-panel" onClick={(e) => e.stopPropagation()}>
+        <Flex align="center" gap={6} wrap style={{ minWidth: 0 }}>
+          <span style={{ fontWeight: 600 }}>{r.label}</span>
+          <span className="qc-cell-id qc-mono">{r.name}</span>
+          <span className="qc-chip info">{categoryLabel(r.category, t)}</span>
+          {statusChip(r.lifecycle_status)}
+          <span
+            className="qc-cell-time qc-mono"
+            style={{ marginInlineStart: 'auto', fontSize: 11 }}
+          >
+            {t('factor_detail_meta_last_snapshot')} {shortTime(r.last_snapshot_at)}
+          </span>
+        </Flex>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
+            gap: 10,
+            marginTop: 8, // demo 头部→内容 8px（.card-head mb）
+          }}
+        >
+          {expMetric('ic_mean', t('factor_stat_ic_mean'), lm?.ic_mean ?? null)}
+          {expMetric('ic_ir', t('factor_stat_icir'), lm?.ic_ir ?? null)}
+          {expMetric('coverage', t('factor_stat_coverage'), lm?.coverage ?? null,
+            lm?.coverage == null ? undefined : `${(lm.coverage * 100).toFixed(1)}%`)}
+          {expMetric('ic_positive_rate', t('factor_stat_ic_pos_rate'), lm?.ic_positive_rate ?? null,
+            lm?.ic_positive_rate == null ? undefined : `${(lm.ic_positive_rate * 100).toFixed(1)}%`)}
+          {expMetric('turnover', t('factor_stat_turnover'), lm?.turnover ?? null)}
+          {expMetric('nw_t_stat', t('factor_stat_nw_tstat'), lm?.nw_t_stat ?? null,
+            lm?.nw_t_stat == null ? undefined : lm.nw_t_stat.toFixed(2))}
+        </div>
+        {/* demo 动作行 margin-top:11px（三个展开模板统一值） */}
+        <Flex align="center" gap={12} wrap style={{ marginTop: 11 }}>
+          <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>
+            {t('factor_detail_meta_snapshots')}{' '}
+            <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>{r.snapshot_count}</span>
+          </span>
+          {/* 轻摘要 ↔ 重详情分工：完整详情只在 Drawer（onSelect），行内不复刻抽屉内容 */}
+          <button type="button" className="qc-mini-btn pri" onClick={() => onSelect(r.name)}>
+            {t('view_details')}
+          </button>
+        </Flex>
+      </div>
+    );
+  };
+
+  const CHIP_SM: React.CSSProperties = { fontSize: 9, padding: '2px 5px' };
+
   const columns: TableColumnsType<FactorCatalogItem> = [
     {
       title: t('factor_lib_col_factor'),
       dataIndex: 'label',
-      width: 170,
+      width: 260,
       render: (_, r) => (
-        // 窄目录列：中文展示名 / 英文标识（mono）上下双行，各自单行省略（悬浮看全文）；
-        // 内置/代码/合成不在这里打 chip——「来源」列已表达，避免挤宽重叠
-        <div style={{ minWidth: 0 }} title={r.name}>
-          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {r.label}
-          </div>
-          <div className="qc-cell-id" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {r.name}
-            {!r.supported && (
-              <span className="qc-chip down" style={{ marginInlineStart: 6 }}>
-                {t('factor_lib_no_data')}
+        // 类别 / 来源 / AI 徽章并入本列（demo #view-factors 6 列口径）；
+        // 展示名 + 英文标识仍上下双行、单行省略（悬浮看全文）
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <svg
+            className={`qc-cell-caret${openKey === r.name ? ' is-open' : ''}`}
+            viewBox="0 0 12 12"
+            aria-hidden="true"
+          >
+            <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+          </svg>
+          <div style={{ minWidth: 0 }} title={r.name}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+              <span className="qc-chip info" style={{ ...CHIP_SM, flexShrink: 0 }}>
+                {categoryLabel(r.category, t)}
               </span>
-            )}
+              <span className="qc-chip quiet" style={{ ...CHIP_SM, flexShrink: 0 }}>
+                {sourceLabel(factorSource(r))}
+              </span>
+              {isAiProduced(r) && (
+                <span className="qc-chip pri" style={{ ...CHIP_SM, flexShrink: 0 }}>AI</span>
+              )}
+            </div>
+            <div className="qc-cell-id" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {r.name}
+              {!r.supported && (
+                <span className="qc-chip down" style={{ marginInlineStart: 6 }}>
+                  {t('factor_lib_no_data')}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       ),
     },
     {
-      title: t('factor_lib_col_category'),
-      dataIndex: 'category',
-      width: 92,
-      render: (c: string) => <span className="qc-chip info">{categoryLabel(c, t)}</span>,
-    },
-    {
-      title: t('factor_detail_meta_source'),
-      width: 110,
-      render: (_, r) => (
-        <span className="qc-row-chips">
-          <span className="qc-chip quiet">{sourceLabel(factorSource(r))}</span>
-          {isAiProduced(r) && <span className="qc-chip pri">AI</span>}
-        </span>
-      ),
-    },
-    {
-      title: t('factor_stat_ic_mean'),
+      // demo #view-factors 表头就是「IC」；IC 与 ICIR 首字母缩写两种语言同形，不新增词条
+      title: 'IC',
       width: 88,
       align: 'right',
       render: (_, r) => {
@@ -282,24 +368,6 @@ const FactorLibraryPane: React.FC<Props> = ({
       dataIndex: 'lifecycle_status',
       width: 88,
       render: (s: FactorCatalogItem['lifecycle_status']) => statusChip(s),
-    },
-    {
-      title: t('factor_lib_col_snapshots'),
-      dataIndex: 'snapshot_count',
-      width: 72,
-      align: 'right',
-      render: (v: number) => <span className="qc-mono">{v}</span>,
-    },
-    {
-      title: t('factor_detail_meta_last_snapshot'),
-      width: 130,
-      dataIndex: 'last_snapshot_at',
-      render: (v: string | null) =>
-        v ? (
-          <span className="qc-cell-time qc-mono">{v.replace('T', ' ').slice(0, 16)}</span>
-        ) : (
-          <span className="qc-cell-none qc-mono">—</span>
-        ),
     },
     {
       title: t('factor_lib_col_action'),
@@ -442,87 +510,115 @@ const FactorLibraryPane: React.FC<Props> = ({
 
     return (
       <>
-        <Row gutter={[16, 16]}>
-          {pageData.map((f) => {
+        {/* 卡片与列表同一份详情面板（ExpandableCardGrid 负责把面板插到被点卡片所在视觉行之后）；
+            卡片点击 = 选中 + 就地展开/收起，完整详情仍只走「查看详情」→ 抽屉 */}
+        <ExpandableCardGrid
+          items={pageData}
+          getKey={(f) => f.name}
+          expandedKey={openKey}
+          renderExpanded={renderExpanded}
+          gutter={[16, 16]}
+          renderCard={(f) => {
             const lm = f.last_metrics;
+            // 与列表行点击同语义：先同步选中态，再 toggle 单键展开
+            const toggle = () => {
+              activate(f.name);
+              setOpenKey((prev) => (prev === f.name ? null : f.name));
+            };
             return (
-              <Col xs={24} sm={12} md={8} lg={6} key={f.name}>
-                <Card
-                  size="small"
-                  // 选中因子高亮（详情抽屉对应项），与列表行选中背景同语义；
-                  // 整卡不可点击，打开抽屉只走「查看详情」按钮
-                  // §6.3 卡片 chrome + §6.3 选中 tint（qc-card 基础上加 qc-card-selected；
-                  // 阴影由 .qc-card 自带，不再内联）
-                  className={`qc-card${f.name === selected ? ' qc-card-selected' : ''}`}
-                  title={
-                    <span
-                      title={f.label}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        maxWidth: '100%',
-                      }}
-                    >
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {f.label}
-                      </span>
-                      {!f.supported && (
-                        <span className="qc-chip down" style={{ flexShrink: 0 }}>
-                          {t('factor_lib_no_data')}
-                        </span>
-                      )}
-                    </span>
+              <Card
+                size="small"
+                // 选中因子高亮（详情抽屉对应项），与列表行选中背景同语义；
+                // 整卡可点（选中 + 展开），打开抽屉仍只走「查看详情」按钮
+                // §6.3 卡片 chrome + §6.3 选中 tint（qc-card 基础上加 qc-card-selected；
+                // 阴影由 .qc-card 自带，不再内联）
+                className={`qc-card${f.name === selected ? ' qc-card-selected' : ''}`}
+                onClick={toggle}
+                role="button"
+                tabIndex={0}
+                aria-expanded={openKey === f.name}
+                aria-selected={f.name === selected}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                  } else if (e.key === 'Escape') {
+                    setOpenKey(null);
                   }
-                  extra={deleteConfirm(f)}
-                >
-                  <Flex vertical gap={8}>
-                    <div className="qc-cell-id" title={f.name}
-                      style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    >
-                      {f.name}
-                    </div>
-                    <span className="qc-row-chips">
-                      <span className="qc-chip info">{categoryLabel(f.category, t)}</span>
-                      <span className="qc-chip quiet">{sourceLabel(factorSource(f))}</span>
-                      {isAiProduced(f) && <span className="qc-chip pri">AI</span>}
-                      {statusChip(f.lifecycle_status)}
+                }}
+                style={{ cursor: 'pointer' }}
+                title={
+                  <span
+                    title={f.label}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      maxWidth: '100%',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.label}
                     </span>
-                    <div style={{ borderTop: '1px solid var(--qc-border)' }} />
-                    {metricRow(t('factor_stat_ic_mean'), lm?.ic_mean ?? null, 'ic_mean')}
-                    {metricRow(t('factor_stat_icir'), lm?.ic_ir ?? null, 'ic_ir')}
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: 'var(--qc-text-secondary)' }}>
-                        {t('factor_lib_col_snapshots')}
+                    {!f.supported && (
+                      <span className="qc-chip down" style={{ flexShrink: 0 }}>
+                        {t('factor_lib_no_data')}
                       </span>
-                      <span className="qc-mono">{f.snapshot_count}</span>
-                    </Flex>
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: 'var(--qc-text-secondary)' }}>
-                        {t('factor_detail_meta_last_snapshot')}
-                      </span>
-                      {f.last_snapshot_at ? (
-                        <span className="qc-cell-time qc-mono">
-                          {f.last_snapshot_at.replace('T', ' ').slice(0, 16)}
-                        </span>
-                      ) : (
-                        <span className="qc-cell-none qc-mono">—</span>
-                      )}
-                    </Flex>
-                    <button
-                      type="button"
-                      className="qc-mini-btn pri"
-                      style={{ width: '100%' }}
-                      onClick={() => onSelect(f.name)}
-                    >
-                      {t('view_details')}
-                    </button>
+                    )}
+                  </span>
+                }
+                extra={deleteConfirm(f)}
+              >
+                <Flex vertical gap={8}>
+                  <div className="qc-cell-id" title={f.name}
+                    style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >
+                    {f.name}
+                  </div>
+                  <span className="qc-row-chips">
+                    <span className="qc-chip info">{categoryLabel(f.category, t)}</span>
+                    <span className="qc-chip quiet">{sourceLabel(factorSource(f))}</span>
+                    {isAiProduced(f) && <span className="qc-chip pri">AI</span>}
+                    {statusChip(f.lifecycle_status)}
+                  </span>
+                  <div style={{ borderTop: '1px solid var(--qc-border)' }} />
+                  {metricRow(t('factor_stat_ic_mean'), lm?.ic_mean ?? null, 'ic_mean')}
+                  {metricRow(t('factor_stat_icir'), lm?.ic_ir ?? null, 'ic_ir')}
+                  <Flex justify="space-between" align="center">
+                    <span style={{ color: 'var(--qc-text-secondary)' }}>
+                      {t('factor_lib_col_snapshots')}
+                    </span>
+                    <span className="qc-mono">{f.snapshot_count}</span>
                   </Flex>
-                </Card>
-              </Col>
+                  <Flex justify="space-between" align="center">
+                    <span style={{ color: 'var(--qc-text-secondary)' }}>
+                      {t('factor_detail_meta_last_snapshot')}
+                    </span>
+                    {f.last_snapshot_at ? (
+                      <span className="qc-cell-time qc-mono">
+                        {f.last_snapshot_at.replace('T', ' ').slice(0, 16)}
+                      </span>
+                    ) : (
+                      <span className="qc-cell-none qc-mono">—</span>
+                    )}
+                  </Flex>
+                  <button
+                    type="button"
+                    className="qc-mini-btn pri"
+                    style={{ width: '100%' }}
+                    // 卡内按钮只开抽屉，不触发整卡的选中/展开
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelect(f.name);
+                    }}
+                  >
+                    {t('view_details')}
+                  </button>
+                </Flex>
+              </Card>
             );
-          })}
-        </Row>
+          }}
+        />
         <Row justify="center" style={{ marginTop: 16 }}>
           <Pagination
             current={current}
@@ -532,6 +628,8 @@ const FactorLibraryPane: React.FC<Props> = ({
             pageSizeOptions={PAGE_SIZE_OPTIONS}
             showTotal={(total) => t('total_items', { total })}
             onChange={(page, size) => {
+              // 翻页/切档收起展开面板（面板只属于当前页的卡片，与列表口径一致）
+              setOpenKey(null);
               // 条数变化写回全局配置，全站生效
               setPageSize(size);
               setPagination((p) => ({ ...p, current: page, pageSize: size }));
@@ -548,18 +646,43 @@ const FactorLibraryPane: React.FC<Props> = ({
       loading={loading}
       dataSource={filtered}
       rowKey="name"
-      // 10 列总宽 ~984：窄窗口下横向滚动，绝不再把首列压成竖排
-      scroll={{ x: 984 }}
-      // 选中背景只作为「抽屉打开项」的高亮；打开抽屉走操作列按钮，点行同效
+      // 6 列总宽 ~670：窄窗口横向滚动；首列（含类别/来源徽章）不再被压成竖排
+      scroll={{ x: 720 }}
+      // 选中背景只作为「选中项」高亮；展开面板由 openKey 单键控制（行内互斥），
+      // 展开态视觉由行首三角 .qc-cell-caret.is-open 表达（不额外造行类名）
       rowClassName={(r) => (r.name === selected ? 'qc-row-selected' : '')}
+      expandable={{
+        // 单键展开（同一时刻只有一行）；初始 [] = 初次加载不自动展开
+        expandedRowKeys: openKey ? [openKey] : [],
+        expandedRowRender: renderExpanded,
+        // 行点击即展开/收起；三角自绘在因子列（不渲染 antd 展开列）
+        expandRowByClick: true,
+        showExpandColumn: false,
+        onExpand: (expanded, r) => setOpenKey(expanded ? r.name : null),
+      }}
       onRow={(r) => ({
-        onClick: () => onSelect(r.name),
+        // 行点击只同步选中态（高亮 + 右栏上下文），完整详情仍走「查看详情」→ 抽屉
+        onClick: () => activate(r.name),
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            activate(r.name);
+            setOpenKey((prev) => (prev === r.name ? null : r.name));
+          } else if (e.key === 'Escape') {
+            setOpenKey(null);
+          }
+        },
+        tabIndex: 0,
+        'aria-expanded': openKey === r.name,
+        'aria-selected': r.name === selected,
         style: { cursor: 'pointer' },
       })}
       pagination={{
         current,
         pageSize,
         onChange: (pg, size) => {
+          // 翻页/切档收起展开面板（面板只属于当前页的行）
+          setOpenKey(null);
           // 条数变化写回全局配置，全站生效
           if (size !== pageSize) setPageSize(size);
           setPagination((p) => ({ ...p, current: pg, pageSize: size }));

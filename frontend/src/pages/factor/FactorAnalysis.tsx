@@ -156,6 +156,8 @@ const FactorAnalysis: React.FC = () => {
                     setSelected(name);
                     setDetailOpen(true);
                   }}
+                  // 行点击/展开只同步选中态，不弹抽屉（抽屉由「查看详情」打开）
+                  onActivate={setSelected}
                   onRefresh={loadCatalog}
                   onCreate={() => setCreateOpen(true)}
                   createVisible={createOpen}
