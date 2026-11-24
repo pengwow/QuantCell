@@ -3424,6 +3424,7 @@
   "dm_wm_storage_title": "存储用量",
   "dm_wm_storage_total": "合计",
   "dm_wm_storage_empty": "暂无归档 parquet 数据",
+  "dm_wm_storage_note": "归档 parquet 各数据类型占用 · 来源 GET /data/archive/watermark",
   "dm_wm_load_failed": "数据源水位加载失败（/data/archive/watermark）",
   "dm_col_task": "任务",
   "dm_col_remark": "备注",

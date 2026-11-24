@@ -1228,11 +1228,127 @@ ul.qc-pagination li.ant-pagination-jump-next {
   padding: 10px 14px 12px;
 }
 
+/* ---- 存储用量卡（demo #storeHead / #storeBody）----
+   折叠态整条卡头即触发器：标题 + 合计 chip + 三角 caret（展开右旋）。
+   展开为 .cmp 条带：虚线上边 + 11px 行 + 7px 条 + 右对齐 mono 数值 + 卡脚注。 */
+.qc-store-card.ant-card > .ant-card-body {
+  padding: 0 14px 12px;
+}
+
+.qc-store-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.qc-store-head:focus-visible {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.qc-store-head .qc-s-chip {
+  margin-left: auto;
+}
+
+.qc-store-caret {
+  flex: 0 0 auto;
+  color: var(--qc-text-quaternary);
+  transition: transform .15s;
+}
+
+.qc-store-head[aria-expanded="true"] .qc-store-caret {
+  transform: rotate(90deg);
+}
+
+.qc-cmp {
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.qc-cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 5px 0;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-cmp-row .cl {
+  flex: 0 0 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qc-cmp-row .bar {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--qc-border);
+  overflow: hidden;
+}
+
+.qc-cmp-row .bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--qc-info);
+}
+
+/* 数值列 64px（demo 44px；实际值形如「103.1 MB」，44px 会折成两行） */
+.qc-cmp-row .val {
+  flex: 0 0 64px;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--qc-text-secondary);
+}
+
+.qc-cmp-foot {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--qc-text-quaternary);
+}
+
 /* 卡头右侧弱注（demo .card-sub：10.5px fg-4） */
 .qc-card-sub {
   font-size: 10.5px;
   color: var(--qc-text-quaternary);
   white-space: nowrap;
+}
+
+/* ---- §6.2 s-chip（demo .s-chip：10.5px 带框小片，数值 mono 600；用于卡头「合计 X」类事实） ---- */
+.qc-s-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  white-space: nowrap;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-s-chip > b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--qc-text-secondary);
 }
 
 /* ---- §6.2 count-chip（mono 10px 全圆 + bd-2 边 + bge 底） ---- */

@@ -321,98 +321,56 @@ export default function ArchiveWatermarkStrip() {
       </div>
 
       <Card
-        className="qc-card"
-        styles={{ body: storageExpanded ? undefined : { display: 'none' } }}
+        className="qc-card qc-store-card"
+        styles={{
+          header: { paddingBottom: storageExpanded ? 8 : 12 },
+          body: storageExpanded ? undefined : { display: 'none' },
+        }}
         title={
-          // 整条卡头可点开合（原生 button：Enter/Space 自带、aria-expanded 可读）；折叠态只占一行
+          // 整条卡头可点开合（原生 button：Enter/Space 自带、aria-expanded 可读）；
+          // 形制对齐 demo #storeHead：标题 + 右侧「合计 X」s-chip + 三角 caret（展开右旋）
           <button
             type="button"
+            className="qc-store-head"
             onClick={() => setStorageExpanded((prev) => !prev)}
             aria-expanded={storageExpanded}
             aria-controls="dm-storage-body"
             aria-label={storageExpanded ? t('dm_wm_storage_hide') : t('dm_wm_storage_show')}
-            style={{
-              all: 'unset',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              cursor: 'pointer',
-            }}
           >
             {t('dm_wm_storage_title')}
-            <span
-              aria-hidden
-              style={{
-                fontSize: 10,
-                color: 'var(--qc-text-tertiary)',
-                transition: 'transform .15s ease',
-                transform: storageExpanded ? 'rotate(180deg)' : 'none',
-              }}
-            >
-              ▼
+            <span className="qc-s-chip">
+              {t('dm_wm_storage_total')}{' '}
+              <b>{formatBytes(totalBytes)}</b>
             </span>
+            <svg className="qc-store-caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
+              <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+            </svg>
           </button>
         }
-        extra={
-          <span className="qc-card-sub">
-            {t('dm_wm_storage_total')}{' '}
-            <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>
-              {formatBytes(totalBytes)}
-            </span>
-          </span>
-        }
       >
-        <div id="dm-storage-body" hidden={!storageExpanded}>
+        <div id="dm-storage-body">
           {storage.length === 0 ? (
             <div className="qc-card-sub">{t('dm_wm_storage_empty')}</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {storage.map((item) => {
-                const pct = totalBytes > 0 ? (item.bytes / totalBytes) * 100 : 0;
-                return (
-                  <div key={item.kind} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span
-                      className="qc-card-sub"
-                      style={{ width: 150, flex: '0 0 150px', color: 'var(--qc-text-tertiary)' }}
-                      title={item.kind}
-                    >
-                      {item.kind} · parquet
-                    </span>
-                    <span
-                      aria-hidden
-                      style={{
-                        flex: 1,
-                        height: 6,
-                        borderRadius: 3,
-                        background: 'var(--qc-border)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <i
-                        style={{
-                          display: 'block',
-                          height: '100%',
-                          width: `${Math.max(pct, 1)}%`,
-                          borderRadius: 3,
-                          background: 'var(--qc-primary)',
-                        }}
-                      />
-                    </span>
-                    <span
-                      className="qc-mono"
-                      style={{
-                        width: 78,
-                        flex: '0 0 78px',
-                        textAlign: 'right',
-                        color: 'var(--qc-text-secondary)',
-                      }}
-                    >
-                      {formatBytes(item.bytes)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              <div className="qc-cmp">
+                {storage.map((item) => {
+                  const pct = totalBytes > 0 ? (item.bytes / totalBytes) * 100 : 0;
+                  return (
+                    <div className="qc-cmp-row" key={item.kind}>
+                      <span className="cl" title={item.kind}>
+                        {item.kind} · parquet
+                      </span>
+                      <span className="bar" aria-hidden>
+                        <i style={{ width: `${Math.max(pct, 1)}%` }} />
+                      </span>
+                      <span className="val">{formatBytes(item.bytes)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="qc-cmp-foot">{t('dm_wm_storage_note')}</div>
+            </>
           )}
         </div>
       </Card>

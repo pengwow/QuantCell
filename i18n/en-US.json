@@ -3424,6 +3424,7 @@
   "dm_wm_storage_title": "Storage usage",
   "dm_wm_storage_total": "Total",
   "dm_wm_storage_empty": "No archived parquet data",
+  "dm_wm_storage_note": "Archived parquet usage by data type · source GET /data/archive/watermark",
   "dm_wm_load_failed": "Failed to load watermark (/data/archive/watermark)",
   "dm_col_task": "Task",
   "dm_col_remark": "Remark",
