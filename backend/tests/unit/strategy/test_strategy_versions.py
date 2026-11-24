@@ -129,3 +129,105 @@ def test_unknown_strategy_versions_404(env, monkeypatch):
         strategy_routes.api_get_strategy_versions("ghost")
 
     assert exc.value.status_code == 404
+
+
+def test_list_marks_current_snapshot_by_disk_hash(env):
+    first = source("1.0.0", "a")
+    second = source("1.1.0", "b")
+    env.service.save_strategy("probe", first)
+    env.service.save_strategy("probe", second)
+
+    versions = env.service.list_strategy_versions("probe")
+    # 列表项必须有 id（操作定位用）与 is_current（磁盘内容匹配）
+    assert versions[0]["id"] and versions[0]["is_current"] is True
+    assert versions[1]["is_current"] is False
+
+    # 外部直接改文件（不经保存入口）→ 没有任何快照等于当前文件
+    (env.strategies_dir / "probe.py").write_text("external edit\n", encoding="utf-8")
+    assert all(v["is_current"] is False for v in env.service.list_strategy_versions("probe"))
+
+
+def test_only_latest_matching_snapshot_is_current(env):
+    """历史里可能有多条同内容快照，只把最新那条标成当前。"""
+    first = source("1.0.0", "a")
+    second = source("1.1.0", "b")
+    env.service.save_strategy("probe", first)
+    env.service.save_strategy("probe", second)
+    old_id = env.service.list_strategy_versions("probe")[1]["id"]
+    env.service.restore_strategy_version("probe", old_id)  # 写回 A，留一条新的 A 快照
+
+    versions = env.service.list_strategy_versions("probe")
+    current = [v for v in versions if v["is_current"]]
+    assert len(current) == 1
+    assert current[0]["id"] == versions[0]["id"]
+    assert current[0]["code_hash"] == hashlib.sha256(first.encode("utf-8")).hexdigest()
+
+
+def test_get_version_returns_code_and_scopes_to_strategy(env):
+    code = source("1.0.0", "a")
+    env.service.save_strategy("probe", code)
+    snapshot_id = env.service.list_strategy_versions("probe")[0]["id"]
+
+    snapshot = env.service.get_strategy_version("probe", snapshot_id)
+    assert snapshot["code"] == code
+    assert snapshot["code_hash"] == hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+    # 同名 id 挂到别的策略名下不能读出来
+    env.service.save_strategy("other", source("1.0.0", "o"))
+    assert env.service.get_strategy_version("other", snapshot_id) is None
+    assert env.service.get_strategy_version("ghost", snapshot_id) is None
+
+
+def test_restore_writes_back_and_keeps_history(env):
+    first = source("1.0.0", "a")
+    second = source("1.1.0", "b")
+    env.service.save_strategy("probe", first)
+    env.service.save_strategy("probe", second)
+    old_id = env.service.list_strategy_versions("probe")[1]["id"]
+
+    restored = env.service.restore_strategy_version("probe", old_id)
+
+    assert restored["code"] == first
+    assert restored["new_snapshot"] is True
+    assert (env.strategies_dir / "probe.py").read_text(encoding="utf-8") == first
+    versions = env.service.list_strategy_versions("probe")
+    # 历史不删：旧两条 + 恢复产生的新一条
+    assert len(versions) == 3
+    assert versions[0]["is_current"] is True
+    assert versions[0]["version"] == "1.0.0"
+
+
+def test_restore_same_content_does_not_bump_count(env):
+    code = source("1.0.0", "a")
+    env.service.save_strategy("probe", code)
+    snapshot_id = env.service.list_strategy_versions("probe")[0]["id"]
+
+    restored = env.service.restore_strategy_version("probe", snapshot_id)
+
+    assert restored["new_snapshot"] is False
+    assert len(env.service.list_strategy_versions("probe")) == 1
+
+
+def test_restore_keeps_user_version_when_content_declares_none(env):
+    """内容没声明版本时沿用 DB 现值，不能落 upload 的 1.0.0 默认值。"""
+    plain = '"""no declared version"""\n\n\nclass ProbeStrategy:\n    def on_bar(self, bar):\n        return None\n'
+    env.service.save_strategy("probe", plain)
+    snapshot_id = env.service.list_strategy_versions("probe")[0]["id"]
+
+    from strategy.models import Strategy
+
+    db = env.factory()
+    try:
+        db.add(Strategy(name="probe", version="v9", file_name="probe.py"))
+        db.commit()
+    finally:
+        db.close()
+
+    restored = env.service.restore_strategy_version("probe", snapshot_id)
+    assert restored["version"] == "v9"
+
+    db = env.factory()
+    try:
+        assert db.query(Strategy).filter_by(name="probe").first().version == "v9"
+    finally:
+        db.close()

@@ -554,9 +554,14 @@ class StrategyService:
         """策略版本快照时间线（created_at 倒序），只回元信息、不回 code 全文。
 
         策略不存在（无 .py 文件）返回 None，由路由翻成 404。
+        `is_current` 由「磁盘当前文件内容的 sha256」比对得出：文件可能被外部直接改过，
+        所以不能简单地认定第一条就是当前版本。
         """
-        if not (self.strategy_dir / f"{strategy_name}.py").exists():
+        file_path = self.strategy_dir / f"{strategy_name}.py"
+        if not file_path.exists():
             return None
+
+        current_hash = hashlib.sha256(file_path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
 
         from strategy.models import StrategyVersion
         from utils.db_session import get_db_session
@@ -568,15 +573,86 @@ class StrategyService:
                 .order_by(StrategyVersion.created_at.desc(), StrategyVersion.id.desc())
                 .all()
             )
-            return [
-                {
-                    "version": row.version,
-                    "code_hash": row.code_hash,
-                    "created_at": row.created_at.isoformat() if row.created_at else None,
-                    "code_size": len(row.code or ""),
-                }
-                for row in rows
-            ]
+            # 只有「最新的那条内容匹配快照」才算当前版本：历史里可能有多条同内容快照
+            # （去重只挡住连续相同保存），全标 is_current 会让 UI 出现多个「当前」
+            current_marked = False
+            versions: list[dict[str, Any]] = []
+            for row in rows:
+                matched = bool(current_hash) and row.code_hash == current_hash and not current_marked
+                current_marked = current_marked or matched
+                versions.append(
+                    {
+                        "id": row.id,
+                        "version": row.version,
+                        "code_hash": row.code_hash,
+                        "created_at": row.created_at.isoformat() if row.created_at else None,
+                        "code_size": len(row.code or ""),
+                        "is_current": matched,
+                    }
+                )
+            return versions
+
+    def get_strategy_version(self, strategy_name: str, snapshot_id: int) -> dict[str, Any] | None:
+        """取单条快照（含 code 全文，供预览 / 对比）。
+
+        同时按 strategy_name 过滤：只拿 id 会让别的策略的快照被越权读出。
+        """
+        if not (self.strategy_dir / f"{strategy_name}.py").exists():
+            return None
+
+        from strategy.models import StrategyVersion
+        from utils.db_session import get_db_session
+
+        with get_db_session() as db:
+            row = (
+                db.query(StrategyVersion)
+                .filter_by(id=snapshot_id, strategy_name=strategy_name)
+                .first()
+            )
+            if row is None:
+                return None
+            return {
+                "id": row.id,
+                "version": row.version,
+                "code_hash": row.code_hash,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "code_size": len(row.code or ""),
+                "code": row.code or "",
+            }
+
+    def restore_strategy_version(self, strategy_name: str, snapshot_id: int) -> dict[str, Any] | None:
+        """把指定快照内容写回策略文件；历史不删，走上传入口再留一条快照（内容相同则去重）。
+
+        返回值里的 `new_snapshot` 区分「确实新增了一条历史」与「内容与最近快照相同被去重」，
+        UI 据此给出准确提示。版本号优先取快照内容里声明的值，内容没声明就沿用 DB 现值 ——
+        不能落 upload_strategy_file 的 "1.0.0" 默认值，那会覆盖用户在详情页手改的版本号。
+        """
+        snapshot = self.get_strategy_version(strategy_name, snapshot_id)
+        if snapshot is None:
+            return None
+
+        code = snapshot["code"]
+        version = self._declared_strategy_version(code)
+        if version is None:
+            from strategy.models import Strategy
+            from utils.db_session import get_db_session
+
+            with get_db_session() as db:
+                row = db.query(Strategy).filter_by(name=strategy_name).first()
+                version = row.version if row else None
+
+        before = self.list_strategy_versions(strategy_name) or []
+        if not self.upload_strategy_file(strategy_name=strategy_name, file_content=code, version=version):
+            return None
+        after = self.list_strategy_versions(strategy_name) or []
+
+        return {
+            "name": strategy_name,
+            "version": version,
+            "code_hash": snapshot["code_hash"],
+            "code": code,
+            "new_snapshot": len(after) > len(before),
+        }
 
     @staticmethod
     def _declared_strategy_version(content: str) -> str | None:

@@ -26,6 +26,8 @@
 | E13 | 访客账号打开页面 | 「保存」钮 disabled 且 Tooltip 为访客限制文案；重置/去回测/AI 生成仍可点；确认弹窗（保存/重置/重新解析）正常 | L2 |
 | E14 | 对比页头副标与预览档案卡里的时间 | 页头 `qc-page-sub` 的「更新时间 MM-DD HH:mm」与预览档案卡的创建/更新时间**同一套格式**（同为 `MM-DD HH:mm`，不混用 `YYYY-MM-DD`、不带秒）；悬停档案行时间 → Tooltip 显示完整 `YYYY-MM-DD HH:mm:ss` | L1 |
 | E15 | 点「AI 生成策略」打开弹窗 | 弹窗标题右侧出现「kernel 兼容契约」chip（info 档色 + mono 形制，沿用 `qc-chip info` 口径）；不挤压标题、窄窗下不换行错位 | L1 |
+| E16 | 载入已保存策略后点工具栏「版本历史」 | 右侧抽屉（标题「版本历史」）内列出该策略版本快照，行形制与 `/strategy-management` 详情面板**同一组件、逐字相同**（时间 + 标签 + 当前 Tag + 查看/恢复）；未载入策略时该钮 disabled | L2 |
+| E17 | 在编辑器里改代码但不保存 → 打开「版本历史」→ 点「恢复」 | Popconfirm 额外出现「编辑器里尚未保存的改动会丢失」提示；确认后 `POST .../versions/{id}/restore` 200，编辑器 buffer 内容被替换为恢复后的代码、`savedCode` 基线同步（再次打开恢复确认**不再**出现未保存提示），预览页参数/描述随 `getStrategyDetail` 重新载入 | L2 |
 
 ## 历史雷区
 - **成对括号配色**（2026-11-20）：Monaco 默认开启 bracket pair colorization，`()`/`[]`/`{}` 会染金/紫/粉，与基准 demo 的单色括号不一致。修法是在主题里把 `editorBracketHighlight.foreground1..6` 统一到 `#d4d4d4`（`src/monaco/quantcellTheme.ts`）；**注意 `options.bracketPairColorization.enabled: false` 经 `@monaco-editor/react` 传不进去，别走那条路**

@@ -14,6 +14,7 @@ import {
   Segmented,
   Tooltip,
   App,
+  Drawer,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -26,6 +27,7 @@ import {
   EditOutlined,
   CheckOutlined,
   UploadOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import MonacoEditor, { type OnMount } from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
@@ -41,6 +43,7 @@ import {
   registerQuantcellTheme,
 } from '../../monaco/quantcellTheme';
 import QcEditorStatusBar from '../../monaco/QcEditorStatusBar';
+import StrategyVersionPanel from './StrategyVersionPanel';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
 import { factorApi, type FactorDetail } from '../../api/factor';
@@ -141,6 +144,9 @@ const StrategyEditor = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [editorLoading, setEditorLoading] = useState<boolean>(false);
   const [code, setCode] = useState<string>('');
+  // 已保存基线：版本历史恢复前判断编辑器是否有未保存改动
+  const [savedCode, setSavedCode] = useState<string>('');
+  const [versionsDrawerOpen, setVersionsDrawerOpen] = useState(false);
   // 编辑器状态栏光标位置（Ln/Col 必须来自真实光标，不写死）
   const [cursor, setCursor] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
 
@@ -289,6 +295,7 @@ const StrategyEditor = () => {
       const response = await strategyApi.getStrategyDetail(strategyName) as Strategy;
       setSelectedStrategy(response);
       setCode(response.code);
+      setSavedCode(response.code);
     } catch (error) {
       console.error('Failed to load strategy:', error);
       appMessage.error(t('load_strategy_failed'));
@@ -708,6 +715,7 @@ class NewStrategy(BaseStrategy):
             strategy_type: selectedStrategy.strategy_type || 'rule',
           });
 
+          setSavedCode(code);
           appMessage.success(t('strategy_saved'));
         } catch (error) {
           console.error('Failed to save strategy:', error);
@@ -1019,6 +1027,17 @@ class NewStrategy(BaseStrategy):
               aria-label={t('se_action_goto_backtest')}
             >
               {t('se_action_goto_backtest')}
+            </Button>
+          </Tooltip>
+          <Tooltip title={t('sm_ver_editor_entry')}>
+            <Button
+              icon={<HistoryOutlined />}
+              onClick={() => setVersionsDrawerOpen(true)}
+              disabled={!selectedStrategy}
+              style={btn30Style}
+              aria-label={t('sm_ver_editor_entry')}
+            >
+              {t('sm_ver_editor_entry')}
             </Button>
           </Tooltip>
           {/* 访客时 Tooltip 显示保存限制提示，正常显示按钮名 */}
@@ -1652,6 +1671,25 @@ class NewStrategy(BaseStrategy):
           </div>
         </Space>
       </Modal>
+      <Drawer
+        title={t('sm_ver_editor_title')}
+        open={versionsDrawerOpen}
+        onClose={() => setVersionsDrawerOpen(false)}
+        size="720px"
+        destroyOnHidden
+      >
+        {selectedStrategy && (
+          <StrategyVersionPanel
+            strategyName={selectedStrategy.name}
+            dirty={code !== savedCode}
+            onRestored={(restoredCode) => {
+              setCode(restoredCode);
+              setSavedCode(restoredCode);
+              void loadStrategyByName(selectedStrategy.name);
+            }}
+          />
+        )}
+      </Drawer>
     </PageContainer>
   );
 };

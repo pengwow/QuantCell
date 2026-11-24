@@ -19,7 +19,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { strategyApi } from '../../api';
-import type { StrategyOverviewItem, StrategyParamRecord, StrategyVersionItem } from '../../api';
+import type { StrategyOverviewItem, StrategyParamRecord } from '../../api';
 import { useTranslation } from 'react-i18next';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -28,6 +28,7 @@ import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import PageToolbar from '@/components/ui/PageToolbar';
 import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import WorkerCreateModal from '@/components/worker/WorkerCreateModal';
+import StrategyVersionPanel from './StrategyVersionPanel';
 import type { TablePaginationConfig, TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
@@ -63,10 +64,8 @@ const StrategyManagement = () => {
   const [selectedRowKey, setSelectedRowKey] = useState<React.Key>('');
   // 创建 Worker：复用 worker 模块的现成创建弹窗（真实 POST /workers），不做死钮
   const [createWorkerOpen, setCreateWorkerOpen] = useState(false);
-  // 详情块版本历史：懒加载（展开才请求），三态可分（loading / error / 空）
+  // 详情块版本历史：折叠开关；列表本身懒挂载（展开才请求，见 StrategyVersionPanel）
   const [versionsOpen, setVersionsOpen] = useState(false);
-  const [versions, setVersions] = useState<StrategyVersionItem[] | null>(null);
-  const [versionsState, setVersionsState] = useState<'idle' | 'loading' | 'error'>('idle');
 
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -365,11 +364,9 @@ const StrategyManagement = () => {
     return () => document.removeEventListener('keydown', onKey);
   }, [selectedRowKey]);
 
-  // 换展开行（或收起）→ 收起版本历史并清空缓存（条数来自 overview，重载后跟着变）
+  // 换展开行（或收起）→ 收起版本历史（条数来自 overview，恢复后跟着刷新）
   useEffect(() => {
     setVersionsOpen(false);
-    setVersions(null);
-    setVersionsState('idle');
   }, [selectedItem?.name]);
 
   // 页头副标：demo 1601 六段口径 + hint；「草稿」无源不出现，已停止/错误有真数据才补段
@@ -680,56 +677,6 @@ const StrategyManagement = () => {
     );
   };
 
-  // 版本历史折叠：首次展开才请求 /strategy/{name}/versions（只回元信息，不含 code）
-  const toggleVersions = async () => {
-    if (!selectedItem) return;
-    if (versionsOpen) {
-      setVersionsOpen(false);
-      return;
-    }
-    setVersionsOpen(true);
-    if (versions) return; // 已加载过，复用缓存
-    setVersionsState('loading');
-    try {
-      const response = await strategyApi.getStrategyVersions(selectedItem.name);
-      setVersions(response?.versions ?? []);
-      setVersionsState('idle');
-    } catch (error) {
-      console.error('Failed to load strategy versions:', error);
-      setVersionsState('error');
-    }
-  };
-
-  // 版本历史列表：时间 + 版本号（无声明版本则 code_hash 前 8 位），最多 20 条
-  const renderVersionList = () => {
-    if (versionsState === 'loading') {
-      return <div className="sm-ver-note">{t('sm_ver_loading')}</div>;
-    }
-    if (versionsState === 'error') {
-      return <div className="sm-ver-note sm-ver-note-error">{t('sm_ver_failed')}</div>;
-    }
-    if (!versions || versions.length === 0) {
-      return <div className="sm-ver-note">{t('sm_ver_empty')}</div>;
-    }
-    const shown = versions.slice(0, 20);
-    return (
-      <div className="sm-ver-list">
-        {shown.map((v, i) => {
-          const d = v.created_at ? dayjs(v.created_at) : null;
-          const time = d?.isValid() ? d.format('MM-DD HH:mm') : '—';
-          const label = v.version ? `v${v.version}` : (v.code_hash || '').slice(0, 8);
-          return (
-            <div className="sm-ver-row" key={`${v.code_hash}-${i}`}>
-              <span className="qc-mono sm-ver-time">{time}</span>
-              <span className="qc-mono sm-ver-label">{label || '—'}</span>
-            </div>
-          );
-        })}
-        {versions.length > shown.length && <div className="sm-ver-note">{t('sm_ver_more')}</div>}
-      </div>
-    );
-  };
-
   // 行内展开面板 — demo 1716-1729 同构：标题 + 名称 + 状态 chip + 版本；参数 KV + 去回测/创建 Worker + footer
   // 「版本历史 N 条」只读 /strategy/overview 的 version_count（真实快照数，0 时保留弱态段但不可展开）
   const renderDetailPanel = (item: StrategyOverviewItem) => {
@@ -769,7 +716,7 @@ const StrategyManagement = () => {
               type="button"
               className="sm-ver-toggle"
               aria-expanded={versionsOpen}
-              onClick={toggleVersions}
+              onClick={() => setVersionsOpen((v) => !v)}
             >
               <span>{t('sm_detail_version_count', { n: versionCount })}</span>
               <span className="sm-ver-caret" aria-hidden="true">
@@ -780,7 +727,9 @@ const StrategyManagement = () => {
             <span className="sm-detail-foot">{t('sm_detail_version_count', { n: 0 })}</span>
           )}
         </div>
-        {versionCount > 0 && versionsOpen && renderVersionList()}
+        {versionCount > 0 && versionsOpen && (
+          <StrategyVersionPanel strategyName={item.name} onRestored={() => void loadOverview()} />
+        )}
       </div>
     );
   };

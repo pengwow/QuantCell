@@ -129,10 +129,43 @@
 
 .sm-ver-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   padding: 2px 0;
   font-size: 11px;
+}
+
+/* 行尾操作与「当前」标记：贴右对齐，按钮压到 11px 紧凑尺寸（面板宽度本来就窄） */
+.sm-ver-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.sm-ver-actions .ant-btn {
+  height: 18px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+.sm-ver-current {
+  margin: 0;
+  padding: 0 5px;
+  font-size: 9px;
+  line-height: 15px;
+}
+
+.sm-ver-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sm-ver-modal-btns {
+  display: flex;
+  gap: 8px;
 }
 
 .sm-ver-time {
@@ -200,3 +233,8 @@
 }
 
 /* 暗色主题下 Element 无关；token 自动切换，无需额外覆盖 —— 该文件不用写死色值 */
+
+/* 访客态「恢复」禁用时套的一层包装：让 Tooltip 在禁用按钮上仍能触发 */
+.sm-ver-restore-wrap {
+  display: inline-block;
+}
