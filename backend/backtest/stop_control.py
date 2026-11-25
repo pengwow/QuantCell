@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import threading
 
+from jobs import progress_spool
+
 
 class BacktestCancelled(Exception):
     """停止令牌置位后由执行线程抛出，service 层据此走 stopped 收尾路径"""
@@ -28,7 +30,11 @@ _CANCELLED_BEFORE_RUN: set[str] = set()
 
 
 def register(task_id: object) -> threading.Event:
-    """任务开跑时注册令牌（覆盖旧条目；若 stop 已先到达，返回已置位令牌）"""
+    """任务开跑时注册令牌（覆盖旧条目；若 stop 已先到达，返回已置位令牌）
+
+    在作业池 worker 进程里（progress_spool 已绑定作业 id），返回的令牌会额外
+    读取取消标志文件，从而感知 API 进程投递的跨进程停止指令。
+    """
     key = str(task_id)
     event = threading.Event()
     with _LOCK:
@@ -36,7 +42,7 @@ def register(task_id: object) -> threading.Event:
             _CANCELLED_BEFORE_RUN.discard(key)
             event.set()
         _EVENTS[key] = event
-    return event
+    return progress_spool.bound_stop_event(event)
 
 
 def cancel(task_id: object) -> bool:

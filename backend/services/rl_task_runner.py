@@ -14,10 +14,12 @@
 runner 不在训练代码里做 import。
 
 已知取舍：任务表是**进程内内存**（`_tasks`），进程重启即丢历史，不做 DB 落库。
-ponytail: 并发全局=1（`_worker_lock` 串行化），后到的任务停在 `queued` 等前一个
-跑完。天花板是「同一时刻只能跑一个训练任务 + 单进程可见」；升级路径是换成
-独立任务队列进程（arq / celery / redis 队列），本文件退化为提交 / 查询 / 流式
-读取的适配层，训练侧的 reporter 协议不用变。
+并发受配额限制（`_concurrency_limit()`，默认 1），后到的任务停在 `queued` 等配额。
+灰度开启作业池（`jobs.enabled`）时训练投递到 spawn 进程池，GIL 不共享、真并行；
+worker 通过 `jobs.progress_spool` 写进度快照 / NDJSON 日志 / `.stop` 取消标志，
+父进程 relay 线程还原成 TrainTask 的 state/log。天花板仍是「单机 + 单进程可见」；
+升级路径是换成独立任务队列进程（arq / celery / redis 队列），本文件退化为提交 /
+查询 / 流式读取的适配层，训练侧的 reporter 协议不用变。
 """
 
 from __future__ import annotations
@@ -29,8 +31,8 @@ import threading
 import time
 import uuid
 from collections import deque
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any
 
 from common.notifications.inbox_models import AsyncTaskRecord
@@ -41,6 +43,11 @@ from common.notifications.task_notices import (
     notify_task_event,
     upsert_async_task_record,
 )
+from config.settings import get_settings
+from jobs import progress_spool
+from jobs.pool import BoundedJobPool, JobPoolFullError, pool_enabled
+from jobs.spec import JobResult, JobSpec
+from utils.config_manager import get_value
 from utils.db_session import use_db_session
 from utils.logger import LogType, get_logger
 
@@ -216,8 +223,73 @@ class TrainTask:
 
 _tasks: dict[str, TrainTask] = {}
 _registry_lock = threading.Lock()
-#: 全局并发=1：真正的串行化在这里，排队任务停在 queued
-_worker_lock = threading.Lock()
+
+#: 进程池作业类型（与 jobs/worker_entry.py 的 _LAZY_HANDLERS 对齐）
+POOL_KIND = "rl_train"
+#: relay 轮询间隔：worker 快照限频 0.5s，父进程同频读取足够
+RELAY_INTERVAL_SECONDS = 0.5
+
+#: 线程路径的并发配额（替代旧的全局面互斥锁）；None = 尚未按当前上限创建
+_slots_lock = threading.Lock()
+_slots: tuple[int, threading.BoundedSemaphore] | None = None
+
+#: 进程池（懒创建，max_workers = 训练并发上限）
+_pool_lock = threading.Lock()
+_pool: BoundedJobPool | None = None
+
+#: 进程池作业表：task_id → 已消费的 NDJSON 字节偏移
+_pool_jobs: dict[str, int] = {}
+_relay_thread: threading.Thread | None = None
+
+
+def _concurrency_limit() -> int:
+    """训练并发上限（= 显存配额）：settings → config.toml [jobs].rl_max_workers → 1。
+
+    ponytail: 静态配额，不做显存自适应；默认 1 保持旧的全局串行语义，调高前需确认
+    单卡能同时容纳 N 个训练。升级路径是按任务 reserved_mb 做显存预算排队。
+    """
+    configured = get_settings().job_rl_max_workers
+    if configured is not None:
+        return max(1, int(configured))
+    try:
+        return max(1, int(get_value("jobs.rl_max_workers", 1)))
+    except TypeError, ValueError:
+        return 1
+
+
+def _train_slots() -> threading.BoundedSemaphore:
+    """按当前上限返回信号量；配置变更时重建（在跑任务不受影响，只可能短暂超额）。"""
+    limit = _concurrency_limit()
+    global _slots
+    with _slots_lock:
+        if _slots is None or _slots[0] != limit:
+            _slots = (limit, threading.BoundedSemaphore(limit))
+        return _slots[1]
+
+
+def _job_pool() -> BoundedJobPool:
+    """进程池单例；上限只取首次创建时的配额（训练中改配置需重启）。"""
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = BoundedJobPool(max_workers=_concurrency_limit())
+        return _pool
+
+
+def pool_status() -> dict[str, int | list[int]] | None:
+    """只读池状态；池未创建时返回 None（观测接口不应因查询而建池）。"""
+    pool = _pool
+    return pool.status_counts() if pool is not None else None
+
+
+def shutdown_pool() -> None:
+    """应用退出时关闭训练进程池；未建池时为空操作。"""
+    global _pool
+    with _pool_lock:
+        pool = _pool
+        _pool = None
+    if pool is not None:
+        pool.shutdown(wait=False)
 
 
 def get_task(task_id: str) -> TrainTask | None:
@@ -235,32 +307,180 @@ def reset_tasks() -> None:
     """测试专用：清空进程内任务表（生产无调用方）。"""
     with _registry_lock:
         _tasks.clear()
+        _pool_jobs.clear()
 
 
 def submit_train_task(config: Any, *, train_fn: Callable[[Any, Any], Any] | None = None) -> str:
-    """登记任务并起工作线程，立即返回 task_id（status=queued）。
+    """登记任务并立即返回 task_id（status=queued）。
 
     `train_fn(config, reporter) -> RLTrainResult` 可注入（测试用假训练替代真实 SB3）。
+    灰度开启作业池且配置可 JSON 化时投递到进程池，否则退回线程路径；
+    两条路径对前端契约完全一致（提交即 202，进度/日志/终态后续推送）。
     """
     task = TrainTask(task_id=f"rltrain_{uuid.uuid4().hex[:12]}")
     with _registry_lock:
         _tasks[task.task_id] = task
     upsert_async_task_record("rl_train", task.task_id, "queued")
-    runner = train_fn or _default_train
+
+    if train_fn is None and pool_enabled():
+        payload = _config_payload(config)
+        if payload is None:
+            # 配置携带预载 DataFrame 等不可序列化字段，进程边界过不去
+            logger.warning(f"[RLTask] {task.task_id} 训练配置不可序列化，退回线程路径")
+        elif _submit_pool_job(task, payload):
+            return task.task_id
+
     threading.Thread(
         target=_run_task,
-        args=(task, config, runner),
+        args=(task, config, train_fn or _default_train),
         name=f"rl-train-{task.task_id}",
         daemon=True,
     ).start()
     return task.task_id
 
 
+def _config_payload(config: Any) -> dict[str, Any] | None:
+    """训练配置 → 可 JSON 化 dict；过不了进程边界时返回 None（调用方退回线程路径）。"""
+    if is_dataclass(config) and not isinstance(config, type):
+        raw: dict[str, Any] = {}
+        for f in fields(config):
+            value = getattr(config, f.name)
+            if f.name == "data" and value is not None:
+                # 预载 DataFrame 不可 JSON 化，也不能 deepcopy 着往子进程送
+                return None
+            # 嵌套 dataclass（CostProfile / SlippageCurve）转 dict，worker 侧 __post_init__ 会还原
+            raw[f.name] = _to_plain(value)
+    elif isinstance(config, Mapping):
+        if config.get("data") is not None:
+            return None
+        raw = {str(k): _to_plain(v) for k, v in config.items()}
+    else:
+        return None
+
+    try:
+        json.dumps(raw)
+    except TypeError, ValueError:
+        return None
+    return raw
+
+
+def _to_plain(value: Any) -> Any:
+    """递归把 dataclass / 映射 / 序列转成 JSON 友好的纯 Python 结构。
+
+    不用 `dataclasses.asdict`：它对非 dataclass 值做 deepcopy，配置里挂了
+    DataFrame 时会白拷一份大对象。
+    """
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _to_plain(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(k): _to_plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_plain(v) for v in value]
+    return value
+
+
+def _submit_pool_job(task: TrainTask, config_payload: dict[str, Any]) -> bool:
+    """投递进程池；池满 / 已关闭时返回 False，由调用方回退线程路径。"""
+    spec = JobSpec(job_id=task.task_id, kind=POOL_KIND, payload={"config": config_payload})
+    with _registry_lock:
+        _pool_jobs[task.task_id] = 0
+    try:
+        _job_pool().submit(spec, _on_pool_done)
+    except JobPoolFullError as exc:
+        with _registry_lock:
+            _pool_jobs.pop(task.task_id, None)
+        logger.warning(f"[RLTask] 作业池排队已满，{task.task_id} 退回线程路径: {exc}")
+        return False
+    except RuntimeError as exc:  # 池已关闭
+        with _registry_lock:
+            _pool_jobs.pop(task.task_id, None)
+        logger.warning(f"[RLTask] 作业池不可用，{task.task_id} 退回线程路径: {exc}")
+        return False
+    _ensure_relay()
+    return True
+
+
+def _ensure_relay() -> None:
+    """惰性启动 relay 线程：把 worker 的 spool 输出还原到父进程 TrainTask。"""
+    global _relay_thread
+    with _registry_lock:
+        if _relay_thread is not None and _relay_thread.is_alive():
+            return
+        _relay_thread = threading.Thread(target=_relay_loop, name="rl-job-relay", daemon=True)
+        _relay_thread.start()
+
+
+def _relay_loop() -> None:
+    while True:
+        with _registry_lock:
+            job_ids = list(_pool_jobs)
+        for job_id in job_ids:
+            task = get_task(job_id)
+            if task is not None:
+                _sync_from_spool(task)
+        time.sleep(RELAY_INTERVAL_SECONDS)
+
+
+def _sync_from_spool(task: TrainTask) -> None:
+    """读一次快照 + 增量日志：worker 首跳即把任务从 queued 推到 running。"""
+    snap = progress_spool.read_snapshot(task.task_id)
+    if snap:
+        # 状态判断与赋值必须在同一临界区：cancel_task 也持这把锁把 queued 改
+        # cancelled，锁外先判会在取消之后把状态覆盖回 running（DB 也会跟着写脏）
+        with task.lock:
+            became_running = task.status == "queued"
+            if became_running:
+                task.status = "running"
+                task.started_at = time.monotonic()
+        if became_running:
+            upsert_async_task_record("rl_train", task.task_id, "running")
+        task.state(
+            stage=snap.get("stage"),
+            progress=snap.get("progress"),
+            message=snap.get("message") or "",
+        )
+
+    with _registry_lock:
+        offset = _pool_jobs.get(task.task_id, 0)
+    events, new_offset = progress_spool.read_events(task.task_id, offset)
+    with _registry_lock:
+        if task.task_id in _pool_jobs:
+            _pool_jobs[task.task_id] = new_offset
+    for event in events:
+        if event.get("type") == "log":
+            task.log(str(event.get("line", "")))
+
+
+def _on_pool_done(job_id: str, result: JobResult) -> None:
+    """池回调（父进程）：终态映射 + 补齐最后一批进度/日志 + 清理 spool 文件。"""
+    task = get_task(job_id)
+    if task is not None:
+        _sync_from_spool(task)
+        if result.status == "succeeded":
+            metrics = result.metrics or {}
+            _finish(
+                task,
+                "done",
+                progress=1.0,
+                message="训练完成",
+                model_path=metrics.get("model_path"),
+                meta_path=metrics.get("meta_path"),
+            )
+        elif result.status == "cancelled":
+            _finish(task, "cancelled", message="训练已取消")
+        else:
+            _finish(task, "error", error=result.error or "训练异常中断", message="训练失败")
+    with _registry_lock:
+        _pool_jobs.pop(job_id, None)
+    progress_spool.clear(job_id)
+
+
 def cancel_task(task_id: str) -> bool:
     """请求取消；任务已终态返回 False（路由映射 409）。
 
     运行中的任务只置标志，真正停下发生在下一个阶段边界 / 进度回调；
-    排队未开跑的任务直接标 cancelled（工作线程拿到锁后会跳过）。
+    排队未开跑的任务直接标 cancelled。进程池任务额外写 `.stop` 标志文件，
+    worker 侧每次检查取消时都会读到。
     """
     task = get_task(task_id)
     if task is None:
@@ -276,6 +496,10 @@ def cancel_task(task_id: str) -> bool:
             task.message = "已取消（未开始训练）"
             task.finished_at = time.monotonic()
             queued_abort = True
+    with _registry_lock:
+        pool_backed = task.task_id in _pool_jobs
+    if pool_backed:
+        progress_spool.request_stop(task.task_id)
     if queued_abort:
         upsert_async_task_record("rl_train", task.task_id, "cancelled")
         task._broadcast_state()
@@ -327,7 +551,8 @@ def _default_train(config: Any, reporter: Any) -> Any:
 
 
 def _run_task(task: TrainTask, config: Any, train_fn: Callable[[Any, Any], Any]) -> None:
-    with _worker_lock:
+    # 并发配额替代旧的全局互斥锁：默认 1 与旧行为等价，调高后多个任务真并行
+    with _train_slots():
         if task.cancel_event.is_set():
             _finish(task, "cancelled", message="已取消（未开始训练）")
             return

@@ -18,10 +18,13 @@ from services import rl_task_runner as runner
 def _clean_registry():
     runner.reset_tasks()
     yield
+    # 等上一个用例的工作线程把任务推进到终态，再清任务表（并发=1 的断言依赖空闲）
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if all(s["status"] in runner.TERMINAL_STATUSES for s in runner.list_tasks()):
+            break
+        time.sleep(0.01)
     runner.reset_tasks()
-    # 等上一个用例的工作线程退出：并发=1 断言依赖全局锁空闲
-    assert runner._worker_lock.acquire(timeout=5), "上一用例的训练线程未退出"
-    runner._worker_lock.release()
 
 
 def _wait(predicate, timeout: float = 5.0, interval: float = 0.01):
@@ -137,6 +140,28 @@ def test_cancel_queued_task_skips_training():
     gate.set()
     time.sleep(0.1)
     assert calls == ["first"]  # 排队任务被取消后不会真的开跑
+
+
+def test_concurrency_quota_runs_two_tasks_in_parallel(monkeypatch):
+    """配额=2：两个任务同时开跑（旧的全局互斥锁下第二个会一直排队）。"""
+    gate = threading.Event()
+    started: list[str] = []
+
+    def blocking(config, reporter):
+        started.append(config)
+        gate.wait(5)
+        return SimpleNamespace(model_id="m", model_path=None, metrics={})
+
+    monkeypatch.setattr(runner, "_concurrency_limit", lambda: 2)
+    first = runner.submit_train_task("a", train_fn=blocking)
+    second = runner.submit_train_task("b", train_fn=blocking)
+
+    _wait(lambda: len(started) == 2)
+    assert {t["status"] for t in runner.list_tasks()} == {"running"}
+
+    gate.set()
+    assert _wait_status(first, "done")["status"] == "done"
+    assert _wait_status(second, "done")["status"] == "done"
 
 
 def test_cancel_terminal_task_returns_false():

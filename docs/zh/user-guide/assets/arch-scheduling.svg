@@ -1,0 +1,102 @@
+<svg width="980" viewBox="0 0 980 420" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC','Microsoft YaHei',sans-serif" style="max-width:100%;height:auto;background:#fff;border-radius:8px">
+  <defs>
+    <marker id="s-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="s-arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#888"/>
+    </marker>
+    <style>
+      .proc-title { font-size:13px; font-weight:700; fill:#fff; letter-spacing:1px }
+      .step-title { font-size:12px; font-weight:700; fill:#fff }
+      .step-sub { font-size:11px; fill:#fff; opacity:.9 }
+      .arrow-label { font-size:11px; fill:#555 }
+      .ret-label { font-size:10px; fill:#888; font-style:italic }
+          .hv:hover{filter:brightness(1.15);cursor:help}
+    </style>
+  </defs>
+
+  <!-- API 进程 -->
+  <rect class="hv" x="20" y="20" width="220" height="380" rx="12" fill="#0891b2"><title>API 进程：FastAPI 主进程，接收回测请求并追踪任务状态</title></rect>
+  <text x="130" y="48" text-anchor="middle" class="proc-title">API 进程 · FastAPI</text>
+
+  <rect class="hv" x="35" y="70" width="190" height="60" rx="8" fill="#0e7490"><title>① 创建回测任务（BacktestService.create_task），向作业池提交作业</title></rect>
+  <text x="130" y="92" text-anchor="middle" class="step-title">① POST /api/v1/backtest/run</text>
+  <text x="130" y="110" text-anchor="middle" class="step-sub">BacktestService.create_task()</text>
+
+  <rect class="hv" x="35" y="180" width="190" height="60" rx="8" fill="#0e7490"><title>⑦ 收到 JobResult.metrics：更新任务状态、写 DB、SSE 推送前端</title></rect>
+  <text x="130" y="202" text-anchor="middle" class="step-title">⑦ 收到 JobResult.metrics</text>
+  <text x="130" y="220" text-anchor="middle" class="step-sub">更新任务状态 · 写 DB · 推 SSE</text>
+
+  <!-- 作业池进程 -->
+  <rect class="hv" x="270" y="20" width="220" height="380" rx="12" fill="#d97706"><title>作业池进程：BoundedJobPool 主进程——队列、并发上限、调度循环</title></rect>
+  <text x="380" y="48" text-anchor="middle" class="proc-title">作业池进程 · BoundedJobPool</text>
+
+  <rect class="hv" x="285" y="70" width="190" height="50" rx="8" fill="#b45309"><title>② submit JobSpec：kind='backtest' + payload JSON</title></rect>
+  <text x="380" y="92" text-anchor="middle" class="step-title">② submit JobSpec</text>
+  <text x="380" y="108" text-anchor="middle" class="step-sub">kind='backtest' + payload JSON</text>
+
+  <rect class="hv" x="285" y="140" width="190" height="55" rx="8" fill="#b45309"><title>③ dispatch_loop 调度：排队上限控制，并发不超过 max_workers</title></rect>
+  <text x="380" y="162" text-anchor="middle" class="step-title">③ dispatch_loop 调度</text>
+  <text x="380" y="180" text-anchor="middle" class="step-sub">排队上限 · 并发 ≤ max_workers</text>
+
+  <rect class="hv" x="285" y="215" width="190" height="55" rx="8" fill="#b45309"><title>④ executor.submit：spawn 一个独立子进程执行该作业</title></rect>
+  <text x="380" y="237" text-anchor="middle" class="step-title">④ executor.submit → spawn</text>
+  <text x="380" y="255" text-anchor="middle" class="step-sub">启动独立子进程跑回测</text>
+
+  <!-- 回测子进程 -->
+  <rect class="hv" x="520" y="20" width="220" height="380" rx="12" fill="#7c3aed"><title>回测子进程：spawn 出的独立进程，作业完成即退出</title></rect>
+  <text x="630" y="48" text-anchor="middle" class="proc-title">回测子进程（spawn）</text>
+
+  <rect class="hv" x="535" y="70" width="190" height="50" rx="8" fill="#6d28d9"><title>⑤ worker_entry.run_job()：子进程作业入口</title></rect>
+  <text x="630" y="92" text-anchor="middle" class="step-title">⑤ worker_entry.run_job()</text>
+
+  <rect class="hv" x="535" y="140" width="190" height="55" rx="8" fill="#6d28d9"><title>⑥ RustStrategyAdapter：BaseStrategy.on_bar() → Action 桥接</title></rect>
+  <text x="630" y="162" text-anchor="middle" class="step-title">⑥ RustStrategyAdapter</text>
+  <text x="630" y="180" text-anchor="middle" class="step-sub">on_bar() → Action</text>
+
+  <rect class="hv" x="535" y="215" width="190" height="55" rx="8" fill="#6d28d9"><title>⑦ Kernel.run_history()：Rust 九步 per-bar 编排</title></rect>
+  <text x="630" y="237" text-anchor="middle" class="step-title">⑦ Kernel.run_history()</text>
+  <text x="630" y="255" text-anchor="middle" class="step-sub">九步 per-bar 编排</text>
+
+  <rect class="hv" x="535" y="290" width="190" height="50" rx="8" fill="#6d28d9"><title>⑧ BacktestSink 撮合：回测模式 ExecutionSink，逐 bar 撮合成交</title></rect>
+  <text x="630" y="312" text-anchor="middle" class="step-title">⑧ BacktestSink 撮合</text>
+  <text x="630" y="328" text-anchor="middle" class="step-sub">ExecutionSink（回测模式）</text>
+
+  <!-- 返回链路 -->
+  <rect class="hv" x="770" y="20" width="190" height="380" rx="12" fill="#dc2626"><title>返回链路：结果从子进程回传到 API 进程的路径</title></rect>
+  <text x="865" y="48" text-anchor="middle" class="proc-title">返回链路</text>
+
+  <rect class="hv" x="785" y="80" width="160" height="50" rx="8" fill="#b91c1c"><title>BacktestResult：结果 JSON 经进程 Pipe 回传父进程</title></rect>
+  <text x="865" y="100" text-anchor="middle" class="step-title">BacktestResult</text>
+  <text x="865" y="116" text-anchor="middle" class="step-sub">JSON payload 经 Pipe 回传</text>
+
+  <rect class="hv" x="785" y="180" width="160" height="50" rx="8" fill="#b91c1c"><title>JobResult.metrics：callback 通知 API 进程更新任务</title></rect>
+  <text x="865" y="200" text-anchor="middle" class="step-title">JobResult.metrics</text>
+  <text x="865" y="216" text-anchor="middle" class="step-sub">callback 通知 API 进程</text>
+
+  <!-- 主链路箭头 -->
+  <!-- ①→② -->
+  <path d="M225,100 L270,100" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <!-- ②→③ -->
+  <path d="M380,120 L380,140" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <!-- ③→④ -->
+  <path d="M380,195 L380,215" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <!-- ④→⑤ spawn -->
+  <path d="M475,240 L520,95" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <text x="490" y="155" text-anchor="middle" class="arrow-label">spawn 子进程</text>
+  <!-- ⑤→⑥ -->
+  <path d="M630,120 L630,140" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <!-- ⑥→⑦ -->
+  <path d="M630,195 L630,215" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <!-- ⑦→⑧ -->
+  <path d="M630,270 L630,290" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+
+  <!-- 返回箭头 BacktestSink → BacktestResult -->
+  <path d="M725,315 L785,105" stroke="#888" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#s-arrow-back)"/>
+  <text x="750" y="215" class="ret-label">BacktestResult JSON</text>
+
+  <!-- JobResult → API run_backtest -->
+  <path d="M865,180 Q770,260 460,210 L400,210 L400,202" stroke="#888" stroke-width="1.2" stroke-dasharray="5 3" fill="none" marker-end="url(#s-arrow-back)"/>
+  <text x="620" y="275" class="ret-label">JobResult.metrics callback</text>
+</svg>

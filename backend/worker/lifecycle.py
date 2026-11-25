@@ -215,39 +215,58 @@ class WorkerLifecycle:
         """
         from backtest.evaluator import BacktestEvaluator
         from backtest.hpo_runner import HPORunner
+        from jobs.hpo_trial_job import PoolTrialExecutor
+        from jobs.pool import pool_enabled
         from strategy.base import StrategyConfig
         from strategy.templates.dual_ma import DualMA
-
-        df = self._load_market_data(self.config.symbol, self.config.interval)
-
-        def build_strategy(params: dict):
-            fast, slow = int(params["fast"]), int(params["slow"])
-            if fast >= slow:
-                raise ValueError(f"fast({fast}) 必须小于 slow({slow})")
-            return DualMA(
-                StrategyConfig(
-                    name="dual_ma",
-                    symbol=self.config.symbol,
-                    params={"fast": fast, "slow": slow},
-                )
-            )
 
         # evaluator 与 HPORunner 共用同一 param_space(int/low/high 格式由 HPORunner 消费)
         param_space = {
             "fast": {"type": "int", "low": 5, "high": 20},
             "slow": {"type": "int", "low": 20, "high": 50},
         }
-        evaluator = BacktestEvaluator(
-            data=df,
-            symbol=self.config.symbol,
-            build_strategy=build_strategy,
-            param_space=param_space,
-            initial_cash=self.config.initial_capital,
-            metric="total_pnl",
-        )
+
+        # 灰度开关决定 trial 在哪算:
+        # - 开:每个 trial 投进作业池,worker 内重建 K 线跑 BacktestLoop,本进程不跑回测;
+        # - 关:沿用原路径,本地内存 DataFrame + BacktestEvaluator(零行为变化)。
+        # 两条路径的采样都在本进程串行推进,固定 seed 下结果逐值一致。
+        trial_executor = None
+        objective_fn = None
+        if pool_enabled():
+            trial_executor = PoolTrialExecutor(
+                {
+                    "symbol": self.config.symbol,
+                    "interval": self.config.interval,
+                    "initial_cash": self.config.initial_capital,
+                    "metric": "total_pnl",
+                }
+            )
+        else:
+            df = self._load_market_data(self.config.symbol, self.config.interval)
+
+            def build_strategy(params: dict):
+                fast, slow = int(params["fast"]), int(params["slow"])
+                if fast >= slow:
+                    raise ValueError(f"fast({fast}) 必须小于 slow({slow})")
+                return DualMA(
+                    StrategyConfig(
+                        name="dual_ma",
+                        symbol=self.config.symbol,
+                        params={"fast": fast, "slow": slow},
+                    )
+                )
+
+            objective_fn = BacktestEvaluator(
+                data=df,
+                symbol=self.config.symbol,
+                build_strategy=build_strategy,
+                param_space=param_space,
+                initial_cash=self.config.initial_capital,
+                metric="total_pnl",
+            ).evaluate
 
         result = HPORunner().optimize(
-            objective_fn=evaluator.evaluate,
+            objective_fn=objective_fn,
             param_space=param_space,
             n_trials=self.config.hpo_trials,
             directions="maximize",
@@ -255,6 +274,7 @@ class WorkerLifecycle:
             n_startup_trials=3,
             n_warmup_steps=5,
             study_name=f"lifecycle_rule_{self.config.worker_id}",
+            trial_executor=trial_executor,
         )
 
         best = result["best_params"] or {"fast": 10, "slow": 30}

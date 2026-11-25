@@ -1,0 +1,102 @@
+<svg width="980" viewBox="0 0 980 420" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC','Microsoft YaHei',sans-serif" style="max-width:100%;height:auto;background:#fff;border-radius:8px">
+  <defs>
+    <marker id="s-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="s-arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#888"/>
+    </marker>
+    <style>
+      .proc-title { font-size:13px; font-weight:700; fill:#fff; letter-spacing:1px }
+      .step-title { font-size:12px; font-weight:700; fill:#fff }
+      .step-sub { font-size:11px; fill:#fff; opacity:.9 }
+      .arrow-label { font-size:11px; fill:#555 }
+      .ret-label { font-size:10px; fill:#888; font-style:italic }
+          .hv:hover{filter:brightness(1.15);cursor:help}
+    </style>
+  </defs>
+
+  
+  <rect class="hv" x="20" y="20" width="220" height="380" rx="12" fill="#0891b2"><title>API process: FastAPI main process; receives backtest requests and tracks task status</title></rect>
+  <text x="130" y="48" text-anchor="middle" class="proc-title">API process · FastAPI</text>
+
+  <rect class="hv" x="35" y="70" width="190" height="60" rx="8" fill="#0e7490"><title>① create backtest task (BacktestService.create_task), submit job to the pool</title></rect>
+  <text x="130" y="92" text-anchor="middle" class="step-title">① POST /api/v1/backtest/run</text>
+  <text x="130" y="110" text-anchor="middle" class="step-sub">BacktestService.create_task()</text>
+
+  <rect class="hv" x="35" y="180" width="190" height="60" rx="8" fill="#0e7490"><title>⑦ on JobResult.metrics: update task, write DB, push SSE to frontend</title></rect>
+  <text x="130" y="202" text-anchor="middle" class="step-title">⑦ receive JobResult.metrics</text>
+  <text x="130" y="220" text-anchor="middle" class="step-sub">update task · write DB · push SSE</text>
+
+  
+  <rect class="hv" x="270" y="20" width="220" height="380" rx="12" fill="#d97706"><title>Job pool process: BoundedJobPool main process — queues, concurrency cap, dispatch loop</title></rect>
+  <text x="380" y="48" text-anchor="middle" class="proc-title">Job pool process · BoundedJobPool</text>
+
+  <rect class="hv" x="285" y="70" width="190" height="50" rx="8" fill="#b45309"><title>② submit JobSpec: kind='backtest' + payload JSON</title></rect>
+  <text x="380" y="92" text-anchor="middle" class="step-title">② submit JobSpec</text>
+  <text x="380" y="108" text-anchor="middle" class="step-sub">kind='backtest' + payload JSON</text>
+
+  <rect class="hv" x="285" y="140" width="190" height="55" rx="8" fill="#b45309"><title>③ dispatch_loop: queue cap control, concurrency ≤ max_workers</title></rect>
+  <text x="380" y="162" text-anchor="middle" class="step-title">③ dispatch_loop</text>
+  <text x="380" y="180" text-anchor="middle" class="step-sub">queue cap · concurrency ≤ max_workers</text>
+
+  <rect class="hv" x="285" y="215" width="190" height="55" rx="8" fill="#b45309"><title>④ executor.submit: spawn one child process per job</title></rect>
+  <text x="380" y="237" text-anchor="middle" class="step-title">④ executor.submit → spawn</text>
+  <text x="380" y="255" text-anchor="middle" class="step-sub">spawn child proc to run backtest</text>
+
+  
+  <rect class="hv" x="520" y="20" width="220" height="380" rx="12" fill="#7c3aed"><title>Backtest child process: spawned child, exits when the job finishes</title></rect>
+  <text x="630" y="48" text-anchor="middle" class="proc-title">Backtest child (spawn)</text>
+
+  <rect class="hv" x="535" y="70" width="190" height="50" rx="8" fill="#6d28d9"><title>⑤ worker_entry.run_job(): child-process job entry</title></rect>
+  <text x="630" y="92" text-anchor="middle" class="step-title">⑤ worker_entry.run_job()</text>
+
+  <rect class="hv" x="535" y="140" width="190" height="55" rx="8" fill="#6d28d9"><title>⑥ RustStrategyAdapter: BaseStrategy.on_bar() → Action bridge</title></rect>
+  <text x="630" y="162" text-anchor="middle" class="step-title">⑥ RustStrategyAdapter</text>
+  <text x="630" y="180" text-anchor="middle" class="step-sub">on_bar() → Action</text>
+
+  <rect class="hv" x="535" y="215" width="190" height="55" rx="8" fill="#6d28d9"><title>⑦ Kernel.run_history(): Rust 9-step per-bar orchestration</title></rect>
+  <text x="630" y="237" text-anchor="middle" class="step-title">⑦ Kernel.run_history()</text>
+  <text x="630" y="255" text-anchor="middle" class="step-sub">9-step per-bar loop</text>
+
+  <rect class="hv" x="535" y="290" width="190" height="50" rx="8" fill="#6d28d9"><title>⑧ BacktestSink matching: backtest ExecutionSink, fills bar by bar</title></rect>
+  <text x="630" y="312" text-anchor="middle" class="step-title">⑧ BacktestSink matching</text>
+  <text x="630" y="328" text-anchor="middle" class="step-sub">ExecutionSink (backtest)</text>
+
+  
+  <rect class="hv" x="770" y="20" width="190" height="380" rx="12" fill="#dc2626"><title>Return path: how results travel from the child back to the API process</title></rect>
+  <text x="865" y="48" text-anchor="middle" class="proc-title">Return path</text>
+
+  <rect class="hv" x="785" y="80" width="160" height="50" rx="8" fill="#b91c1c"><title>BacktestResult: result JSON returns via process Pipe</title></rect>
+  <text x="865" y="100" text-anchor="middle" class="step-title">BacktestResult</text>
+  <text x="865" y="116" text-anchor="middle" class="step-sub">JSON payload via Pipe</text>
+
+  <rect class="hv" x="785" y="180" width="160" height="50" rx="8" fill="#b91c1c"><title>JobResult.metrics: callback notifies the API process</title></rect>
+  <text x="865" y="200" text-anchor="middle" class="step-title">JobResult.metrics</text>
+  <text x="865" y="216" text-anchor="middle" class="step-sub">callback to API process</text>
+
+  
+  
+  <path d="M225,100 L270,100" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  
+  <path d="M380,120 L380,140" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  
+  <path d="M380,195 L380,215" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  
+  <path d="M475,240 L520,95" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  <text x="490" y="155" text-anchor="middle" class="arrow-label">spawn child proc</text>
+  
+  <path d="M630,120 L630,140" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  
+  <path d="M630,195 L630,215" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+  
+  <path d="M630,270 L630,290" stroke="#333" stroke-width="1.5" marker-end="url(#s-arrow)"/>
+
+  
+  <path d="M725,315 L785,105" stroke="#888" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#s-arrow-back)"/>
+  <text x="750" y="215" class="ret-label">BacktestResult JSON</text>
+
+  
+  <path d="M865,180 Q770,260 460,210 L400,210 L400,202" stroke="#888" stroke-width="1.2" stroke-dasharray="5 3" fill="none" marker-end="url(#s-arrow-back)"/>
+  <text x="620" y="275" class="ret-label">JobResult.metrics callback</text>
+</svg>

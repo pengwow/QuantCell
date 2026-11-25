@@ -36,28 +36,35 @@ QuantCell 是一个 AI 原生量化交易系统，底层交易引擎为 Rust 内
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    API Layer (FastAPI)                    │
+│  /api/v1 · CORS · 认证 · 异常处理 · Prometheus 可观测       │
 └────────────────────────┬────────────────────────────────┘
                          │
-┌────────────────────────▼────────────────────────────────┐
-│        worker_system (StrategyManager 核心单例)           │
-│  - 统一策略生命周期管理                                    │
-│  - 注入 exchange adapter + risk engine                   │
-│  - 桥接 backtest ↔ live                                  │
-└───────┬────────────────┬────────────────┬───────────────┘
-        │                │                │
-        ▼                ▼                ▼
+            ┌────────────┼────────────┐
+            ▼            ▼            ▼
 ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ Live/Paper   │ │ BacktestLoop │ │ RL Inference │
-│ (paper/live) │ │ (回测循环)    │ │ (RL推理)     │
-└──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-       │                │                │
-       ▼                ▼                ▼
-┌──────────────────────────────────────────────────────────┐
-│                      Rust 核心引擎                       │
-│  exchange.adapter  backtest.engine  risk.engine           │
-│  llm.agent         inference.engine  rl.env              │
-│          Kernel / BarLifecycle · PyKernel 绑定           │
-└──────────────────────────────────────────────────────────┘
+│ 应用服务层    │ │  Agent / RL  │ │ 数据 / 因子   │
+│ strategy/    │ │ agent/ rl/   │ │ collector/   │
+│ backtest/    │ │ research/    │ │ marketdata/  │
+└──────┬───────┘ └──────┬───────┘ └──────────────┘
+       │                │
+  ┌────┴────────────────┴───────────────────┐
+  │                                         │
+  ▼  回测/训练/HPO 并发调度                  ▼  实盘策略（长驻进程）
+┌──────────────────────────────────┐  ┌─────────────────────────────┐
+│  jobs/pool.py                    │  │  worker/orchestrator.py     │
+│  BoundedJobPool (spawn)          │  │  ZMQ 5558/5559             │
+│  · 灰度开关 · 绑核切分            │  │  worker/core_service.py    │
+│  · max_pending 上限              │  │  · Worker CRUD · 状态       │
+│  · BrokenProcessPool 恢复        │  │  · journal 归档 · kill     │
+└──────────────┬───────────────────┘  └──────────────┬──────────────┘
+               │ spawn 子进程                         │ 每个 Worker 是独立长驻进程
+               ▼                                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│              axon_quant (Rust 核心引擎)                       │
+│  axon-kernel: Kernel / BarLifecycle 九步 per-bar 编排         │
+│  axon-worker: PyKernel / BacktestRunner（Python 绑定）       │
+│  三种模式共用同一主回路：回测 ↔ paper ↔ live 行为一致           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## 统一主回路（回测 / paper / live）

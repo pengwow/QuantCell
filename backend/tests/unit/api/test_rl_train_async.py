@@ -27,9 +27,13 @@ def _debug_mode(monkeypatch):
 def _clean_registry():
     runner.reset_tasks()
     yield
+    # 等训练线程推进到终态再清任务表（避免下一个用例撞上仍在跑的旧任务）
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if all(s["status"] in runner.TERMINAL_STATUSES for s in runner.list_tasks()):
+            break
+        time.sleep(0.01)
     runner.reset_tasks()
-    assert runner._worker_lock.acquire(timeout=5), "上一用例的训练线程未退出"
-    runner._worker_lock.release()
 
 
 def _make_client() -> TestClient:

@@ -78,7 +78,7 @@ class TestBacktestRunAPI:
             "status": "completed",
             "message": "回测完成",
         }
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {
@@ -104,7 +104,7 @@ class TestBacktestRunAPI:
     def test_run_backtest_failed(self, client: TestClient, mocker):
         """测试执行回测 - 即使策略参数无效也会创建任务"""
         mock_result = {"status": "failed", "message": "策略参数无效"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "InvalidStrategy", "params": {}},
@@ -169,7 +169,7 @@ class TestBacktestRunAPI:
             "status": "completed",
             "message": "回测完成",
         }
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {
@@ -192,7 +192,7 @@ class TestBacktestRunAPI:
     def test_run_backtest_different_intervals(self, client: TestClient, mocker, assert_api_response):
         """测试不同时间周期的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         intervals = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
         for interval in intervals:
@@ -659,7 +659,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_zero_initial_cash(self, client: TestClient, mocker):
         """测试初始资金为0的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -678,7 +678,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_large_commission(self, client: TestClient, mocker):
         """测试高手续费率的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -697,7 +697,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_same_start_end_time(self, client: TestClient, mocker):
         """测试开始结束时间相同的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -715,7 +715,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_special_chars_in_symbol(self, client: TestClient, mocker):
         """测试特殊字符交易对"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -733,7 +733,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_very_long_time_range(self, client: TestClient, mocker):
         """测试超长回测时间范围"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -751,7 +751,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_unicode_strategy_name(self, client: TestClient, mocker):
         """测试Unicode策略名称"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "策略_中文", "params": {}},
@@ -769,7 +769,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_nested_params(self, client: TestClient, mocker):
         """测试嵌套参数策略"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         request_data = {
             "strategy_config": {
@@ -830,7 +830,7 @@ class TestBacktestEdgeCases:
     def test_concurrent_backtest_requests(self, client: TestClient, mocker):
         """测试并发回测请求"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
+        mocker.patch("backtest.routes.run_backtest_task", return_value=mock_result)
 
         import concurrent.futures
 
