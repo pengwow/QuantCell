@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from collector.config import get_archive_base_dir, get_binance_proxy
+from collector.services import kline_browse_service
 from collector.services.archive_service import ArchiveService
 from collector.utils.task_manager import task_manager
 from exchange.binance.archive.kinds import (
@@ -37,6 +38,17 @@ from worker.decorators import handle_worker_exceptions
 logger = get_logger(__name__, LogType.APPLICATION)
 
 router = APIRouter(prefix="/data/archive", tags=["archive"])
+
+# K 线数据不是 Binance Vision 归档 zip，而是本地 parquet（与回测/研究同一份文件）：
+# kind=kline 走 kline_browse_service，其余 7 种仍走 ArchiveService
+KLINE_KIND = "kline"
+
+
+def _parse_market(market: str) -> MarketType:
+    try:
+        return MarketType(market)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"非法 market: {market!r}") from exc
 
 
 def _get_service() -> ArchiveService:
@@ -130,8 +142,13 @@ def get_task_progress(task_id: str = Path(..., description="任务 ID")) -> dict
 def get_symbols(
     kind: str = Query(..., description="数据种类"),
     market: str = Query(..., description="市场"),
+    interval: str | None = Query(None, description="K 线类周期（kline 可选：只列该周期有文件的标的）"),
 ) -> dict:
     """列出 (kind, market) 下已采集的 symbols。"""
+    if kind == KLINE_KIND:
+        market_e = _parse_market(market)
+        symbols = kline_browse_service.list_symbols(market_e.value, interval)
+        return {"success": True, "symbols": symbols, "total": len(symbols)}
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     symbols = svc.list_symbols(kind_e, market_e)
@@ -151,8 +168,15 @@ def get_data(
     end_time: int = Query(..., description="结束时间 (毫秒)"),
     limit: int = Query(1000, ge=1, le=1_000_000, description="分页行数上限"),
     offset: int = Query(0, ge=0, description="分页偏移"),
+    interval: str | None = Query(None, description="K 线类周期（kline 缺省取该标的第一个可用周期）"),
 ) -> dict:
     """分页查询指定 (kind, market, symbol) 在 [start_time, end_time] 区间的数据。"""
+    if kind == KLINE_KIND:
+        market_e = _parse_market(market)
+        result = kline_browse_service.query_data(
+            market_e.value, symbol, start_time, end_time, limit, offset, interval
+        )
+        return {"success": True, **result}
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     result = svc.query_data(
@@ -176,8 +200,12 @@ def get_meta(
     kind: str = Path(..., description="数据种类"),
     market: str = Path(..., description="市场"),
     symbol: str = Path(..., description="交易对"),
+    interval: str | None = Query(None, description="K 线类周期（kline 缺省取该标的第一个可用周期）"),
 ) -> dict:
-    """读取 _meta.json; 不存在时 meta=null。"""
+    """读取 _meta.json; 不存在时 meta=null（kline 按本地 parquet 现算）。"""
+    if kind == KLINE_KIND:
+        market_e = _parse_market(market)
+        return {"success": True, "meta": kline_browse_service.get_meta(market_e.value, symbol, interval)}
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     meta = svc.get_meta(kind_e, market_e, symbol)
@@ -214,11 +242,20 @@ def delete_data(
     kind: str = Query(..., description="数据种类"),
     market: str = Query(..., description="市场"),
     symbol: str = Query(..., description="交易对"),
+    interval: str | None = Query(None, description="K 线类周期（kline 可选：只删该周期）"),
 ) -> dict:
     """删除某 (kind, market, symbol) 目录下的全部数据。
 
     注意: 这是一个破坏性操作, 调用方需自行确认 (前端/CLI 二次确认)。
     """
+    if kind == KLINE_KIND:
+        market_e = _parse_market(market)
+        deleted = kline_browse_service.delete_symbol(market_e.value, symbol, interval)
+        return {
+            "success": True,
+            "deleted": deleted,
+            "message": f"已删除 {deleted}" if deleted else "文件不存在, 无需删除",
+        }
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     save_dir = get_save_dir(svc.base_dir, market_e, kind_e, symbol)

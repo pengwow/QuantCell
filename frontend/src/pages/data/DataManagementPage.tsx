@@ -406,7 +406,9 @@ const DataManagementPage = () => {
   // ==================== 归档 / 衍生 浏览状态 ====================
 
   // 'archive' 对应 7 种归档数据；'deriv' 对应 fundingRate/openInterest
-  const [archiveKind, setArchiveKind] = useState<ArchiveKind | DerivKind>('aggTrades');
+  // 'kline' 是本地 parquet（回测/研究同一份文件），不是 Binance 归档 zip；
+  // 归档接口对 kind=kline 走 kline_browse_service 分支
+  const [archiveKind, setArchiveKind] = useState<ArchiveKind | DerivKind | 'kline'>('aggTrades');
   const [archiveMarket, setArchiveMarket] = useState<MarketType>('spot');
   const [archiveSymbol, setArchiveSymbol] = useState<string>('');
   // 树形展开状态（kind 节点）
@@ -1413,18 +1415,18 @@ const DataManagementPage = () => {
   // ==================== 归档 / 衍生 浏览方法 ====================
 
   // 判断 kind 属于 archive 还是 deriv
-  const isDerivKind = (kind: ArchiveKind | DerivKind): kind is DerivKind =>
+  const isDerivKind = (kind: ArchiveKind | DerivKind | 'kline'): kind is DerivKind =>
     DERIV_KINDS.includes(kind as DerivKind);
 
   // 拉取 (kind, market) 下的 symbols 列表（带缓存）
-  const fetchArchiveSymbols = async (kind: ArchiveKind | DerivKind, market: MarketType) => {
+  const fetchArchiveSymbols = async (kind: ArchiveKind | DerivKind | 'kline', market: MarketType) => {
     const key = `${kind}__${market}`;
     if (archiveSymbolsMap[key]) return;
     setArchiveSymbolsLoading(true);
     try {
       const resp = isDerivKind(kind)
         ? await derivApi.listSymbols(kind, market)
-        : await archiveApi.listSymbols(kind as ArchiveKind, market);
+        : await archiveApi.listSymbols(kind as ArchiveKind | 'kline', market);
       const list = Array.isArray(resp?.symbols) ? resp.symbols : [];
       setArchiveSymbolsMap((prev) => ({ ...prev, [key]: list }));
     } catch (error) {
@@ -1437,7 +1439,13 @@ const DataManagementPage = () => {
   };
 
   // 选中 (kind, market, symbol) 时拉取 meta + 拉一页数据
-  const handleArchiveSelectSymbol = async (kind: ArchiveKind | DerivKind, market: MarketType, symbol: string) => {
+  const handleArchiveSelectSymbol = async (
+    kind: ArchiveKind | DerivKind | 'kline',
+    market: MarketType,
+    symbol: string,
+    // 周期刚切换时 state 还没落地：显式传进来，避免摘要/明细用的是上一个周期
+    intervalOverride?: string,
+  ) => {
     setArchiveKind(kind);
     setArchiveMarket(market);
     setArchiveSymbol(symbol);
@@ -1451,7 +1459,7 @@ const DataManagementPage = () => {
     try {
       const resp = isDerivKind(kind)
         ? await derivApi.getMeta(kind, market, symbol)
-        : await archiveApi.getMeta(kind as ArchiveKind, market, symbol);
+        : await archiveApi.getMeta(kind as ArchiveKind | 'kline', market, symbol, kind === 'kline' ? (intervalOverride ?? archiveInterval) : undefined);
       meta = resp?.meta ?? null;
       setArchiveMeta(meta);
     } catch (error) {
@@ -1469,17 +1477,18 @@ const DataManagementPage = () => {
       setArchiveTimeRange(queryRange);
     }
 
-    await doArchiveQuery(kind, market, symbol, queryRange, 1, archivePageSize);
+    await doArchiveQuery(kind, market, symbol, queryRange, 1, archivePageSize, intervalOverride);
   };
 
   // 实际拉取数据
   const doArchiveQuery = async (
-    kind: ArchiveKind | DerivKind,
+    kind: ArchiveKind | DerivKind | 'kline',
     market: MarketType,
     symbol: string,
     range: [number, number],
     page: number,
     size: number,
+    intervalOverride?: string,
   ) => {
     if (!symbol) {
       message.warning(t('dm_msg_select_symbol_first'));
@@ -1489,7 +1498,17 @@ const DataManagementPage = () => {
     try {
       const resp = isDerivKind(kind)
         ? await derivApi.queryData(kind, market, symbol, range[0], range[1], size, (page - 1) * size)
-        : await archiveApi.queryData(kind as ArchiveKind, market, symbol, range[0], range[1], size, (page - 1) * size);
+        : await archiveApi.queryData(
+            kind as ArchiveKind | 'kline',
+            market,
+            symbol,
+            range[0],
+            range[1],
+            size,
+            (page - 1) * size,
+            // K 线走本地 parquet，周期由检索卡的选择决定（归档 zip 是 fetcher 自适应）
+            kind === 'kline' ? (intervalOverride ?? archiveInterval) : undefined,
+          );
       setArchiveRows(Array.isArray(resp?.rows) ? resp.rows : []);
       setArchiveTotal(resp?.total ?? 0);
       setArchiveTruncated(Boolean(resp?.truncated));
@@ -1509,7 +1528,12 @@ const DataManagementPage = () => {
       if (isDerivKind(archiveKind as DerivKind)) {
         await derivApi.deleteData(archiveKind as DerivKind, archiveMarket, archiveSymbol);
       } else {
-        await archiveApi.deleteData(archiveKind as ArchiveKind, archiveMarket, archiveSymbol);
+        await archiveApi.deleteData(
+          archiveKind as ArchiveKind | 'kline',
+          archiveMarket,
+          archiveSymbol,
+          archiveKind === 'kline' ? archiveInterval : undefined,
+        );
       }
       message.success(t('dm_msg_symbol_deleted', { symbol: archiveSymbol }));
       setArchiveRows([]);
@@ -1533,7 +1557,7 @@ const DataManagementPage = () => {
 
   // 确保某 kind 下各 market 的 symbols 列表都已加载（已缓存的跳过）
   // 衍生数据仅支持 um/cm（spot 无意义），故只拉 2 个；archive 拉全 3 个
-  const ensureKindSymbolsLoaded = (kind: ArchiveKind | DerivKind) => {
+  const ensureKindSymbolsLoaded = (kind: ArchiveKind | DerivKind | 'kline') => {
     const markets: MarketType[] = isDerivKind(kind)
       ? (['um', 'cm'] as MarketType[])
       : ARCHIVE_MARKETS;
@@ -2233,7 +2257,7 @@ const DataManagementPage = () => {
     const kindGroups = [
       {
         label: t('dm_group_kline'),
-        options: (['kline', 'markPriceKlines', 'indexPriceKlines', 'premiumIndexKlines'] as ArchiveKind[]).map((k) => ({
+        options: (['kline', 'markPriceKlines', 'indexPriceKlines', 'premiumIndexKlines'] as Array<ArchiveKind | 'kline'>).map((k) => ({
           value: k,
           label: (DATA_KIND_LABEL as Record<string, string>)[k] ?? k,
         })),
@@ -2319,7 +2343,13 @@ const DataManagementPage = () => {
                 <Select
                   className="w-full"
                   value={archiveInterval}
-                  onChange={setArchiveInterval}
+                  onChange={(value) => {
+                    setArchiveInterval(value);
+                    // K 线摘要/明细都按周期取盘：换周期即重查（归档 zip 由 fetcher 自适应，不重查）
+                    if (archiveKind === 'kline' && archiveSymbol) {
+                      void handleArchiveSelectSymbol('kline', archiveMarket, archiveSymbol, value);
+                    }
+                  }}
                   options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
                 />
               </div>
