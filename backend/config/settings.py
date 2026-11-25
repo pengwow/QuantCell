@@ -57,6 +57,28 @@ class Settings(BaseSettings):
     # 供交易所连通性探测等出网请求使用；为空则直连。
     proxy_url: str | None = None
 
+    # 作业池灰度开关（P0 横向扩展）：关闭时全部作业走原有线程路径。
+    # 环境变量 QUANTCELL_JOB_POOL_ENABLED；None = 未设置，回退 config.toml [jobs].enabled。
+    # 三态是必需的：默认 False 会让显式 false 无法覆盖 config.toml 的 true。
+    job_pool_enabled: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("QUANTCELL_JOB_POOL_ENABLED", "JOB_POOL_ENABLED"),
+    )
+
+    # worker 绑核区间（如 "4-15" / "4,6,8"）；为空 = 不绑核。
+    # 环境变量 QUANTCELL_JOB_CORES；未设置时回退 config.toml [jobs].cores
+    job_cores: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("QUANTCELL_JOB_CORES", "JOB_CORES"),
+    )
+
+    # RL 训练并发上限（按显存配额排队）；None = 回退 config.toml [jobs].rl_max_workers，默认 1。
+    # 环境变量 QUANTCELL_JOB_RL_MAX_WORKERS
+    job_rl_max_workers: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("QUANTCELL_JOB_RL_MAX_WORKERS", "JOB_RL_MAX_WORKERS"),
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

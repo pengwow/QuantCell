@@ -61,6 +61,11 @@ def register_commands() -> None:
 
     app.add_typer(backtest_app, name="backtest")
 
+    # jobs: 作业池观测与自检（多进程作业池的命令行验证入口）
+    from cli.jobs import app as jobs_app
+
+    app.add_typer(jobs_app, name="jobs")
+
     # data: 直接转发到 cli.data (内部有真实实现)
     from cli.data import app as data_app
 

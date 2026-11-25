@@ -37,6 +37,8 @@ from common.notifications.task_notices import (
     TASK_STATUS_SUCCEEDED,
     notify_task_event,
 )
+from jobs.backtest_manager import backtest_job_manager
+from jobs.pool import JobPoolFullError, pool_enabled
 from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
@@ -45,6 +47,7 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
+from .async_runner import run_backtest_task
 from .data_provider import BacktestDataProvider
 from .progress_tracker import StageStatus, get_progress_tracker
 from .report_service import render_backtest_report, report_filename
@@ -452,71 +455,86 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             progress_tracker.create_progress(task_id)
             progress_tracker.update_progress(task_id, "overall", {"status": "running"})
 
-            # 在后台线程中异步执行回测
-            def run_backtest_async():
+            strategy_name = str(strategy_config_dict.get("strategy_name") or "")
+            strategy_params = strategy_config_dict.get("params", {}) or {}
+
+            if pool_enabled():
+                # 进程池路径：API 进程先落任务文件（stop 端点与重启补偿都以该文件判定
+                # 任务存在），之后的执行、进度落库、终态通知全部交给 BacktestJobManager
+                backtest_service.create_task(
+                    strategy_name=strategy_name,
+                    strategy_params=strategy_params,
+                    symbols=backtest_config_dict.get("symbols", []),
+                    timeframes=[backtest_config_dict.get("interval", "1h")],
+                    engine_type=backtest_config_dict.get("engine_type", "default"),
+                    config=backtest_config_dict,
+                    task_id=task_id,
+                )
                 try:
-                    logger.info(f"[任务 {task_id}] 开始后台执行回测")
-                    logger.info(f"[任务 {task_id}] 使用引擎: {backtest_config_dict.get('engine_type', 'default')}")
+                    backtest_job_manager.submit(task_id, strategy_name, strategy_params, backtest_config_dict)
+                except JobPoolFullError as exc:
+                    backtest_job_manager.mark_rejected(task_id, strategy_name, f"回测作业池繁忙: {exc}")
+                    raise HTTPException(status_code=503, detail="回测作业池繁忙，请稍后重试") from exc
+                logger.info(f"回测任务 {task_id} 已投递进程池")
+            else:
+                # 线程路径（灰度开关关闭）：保持原有行为，执行主体为模块级函数
+                def run_backtest_async():
+                    try:
+                        logger.info(f"[任务 {task_id}] 开始后台执行回测")
+                        logger.info(f"[任务 {task_id}] 使用引擎: {backtest_config_dict.get('engine_type', 'default')}")
 
-                    # 先通过 BacktestService 创建任务（保存到文件系统）
-                    service_task_id = backtest_service.create_task(
-                        strategy_name=strategy_config_dict.get("strategy_name", ""),
-                        strategy_params=strategy_config_dict.get("params", {}),
-                        symbols=backtest_config_dict.get("symbols", []),
-                        timeframes=[backtest_config_dict.get("interval", "1h")],
-                        engine_type=backtest_config_dict.get("engine_type", "default"),
-                        config=backtest_config_dict,
-                        task_id=task_id,  # 使用原始的 UUID 作为 task_id
-                    )
-                    logger.info(f"[任务 {task_id}] BacktestService 任务已创建: {service_task_id}")
-
-                    # 执行回测
-                    result = backtest_service.run_backtest(task_id=service_task_id, progress_tracker=progress_tracker)
-
-                    # 终态通知唯一出口：stopped 由挂钩内部静默
-                    notify_backtest_result(task_id, result, name=str(strategy_config_dict.get("strategy_name") or ""))
-
-                    logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
-                    # 回测成功状态可能是 'success' 或 'completed'
-                    if result.get("status") in ("success", "completed"):
-                        logger.info(f"[任务 {task_id}] 回测成功完成: {result.get('message')}")
-                        # 如果有失败的货币对，记录警告日志
-                        failed_currencies = result.get("failed_currencies", [])
-                        if failed_currencies:
-                            logger.warning(f"[任务 {task_id}] 部分货币对回测失败: {failed_currencies}")
-                    elif result.get("status") == "stopped":
-                        # 用户主动终止：不是失败，收尾日志用 info
-                        logger.info(f"[任务 {task_id}] 回测已被用户终止: {result.get('message')}")
-                    else:
-                        # 增强失败日志，显示更多详细信息
-                        failed_currencies = result.get("failed_currencies", [])
-                        successful_currencies = result.get("successful_currencies", [])
-                        error_details = result.get("results", {}).get("errors", [])
-                        logger.error(
-                            f"[任务 {task_id}] 回测失败: {result.get('message')}, "
-                            f"成功: {len(successful_currencies)}个, "
-                            f"失败: {len(failed_currencies)}个, "
-                            f"失败货币对: {failed_currencies}, "
-                            f"错误详情: {error_details}"
+                        result = run_backtest_task(
+                            task_id,
+                            strategy_name,
+                            strategy_params,
+                            backtest_config_dict,
+                            progress_tracker,
                         )
-                except Exception as e:
-                    logger.error(f"[任务 {task_id}] 回测执行发生异常: {e}")
-                    logger.exception(e)
-                    # 更新进度为失败状态
-                    progress_tracker.fail_progress(task_id, f"回测执行失败: {e!s}", "execution")
-                    notify_task_event(
-                        "backtest",
-                        task_id,
-                        TASK_STATUS_FAILED,
-                        name=str(strategy_config_dict.get("strategy_name") or ""),
-                        error=f"回测执行发生异常: {e}",
-                    )
 
-            # 启动后台线程
-            thread = threading.Thread(target=run_backtest_async, daemon=True)
-            thread.start()
+                        # 终态通知唯一出口：stopped 由挂钩内部静默
+                        notify_backtest_result(task_id, result, name=strategy_name)
 
-            logger.info(f"回测任务 {task_id} 已在后台线程启动")
+                        logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
+                        # 回测成功状态可能是 'success' 或 'completed'
+                        if result.get("status") in ("success", "completed"):
+                            logger.info(f"[任务 {task_id}] 回测成功完成: {result.get('message')}")
+                            # 如果有失败的货币对，记录警告日志
+                            failed_currencies = result.get("failed_currencies", [])
+                            if failed_currencies:
+                                logger.warning(f"[任务 {task_id}] 部分货币对回测失败: {failed_currencies}")
+                        elif result.get("status") == "stopped":
+                            # 用户主动终止：不是失败，收尾日志用 info
+                            logger.info(f"[任务 {task_id}] 回测已被用户终止: {result.get('message')}")
+                        else:
+                            # 增强失败日志，显示更多详细信息
+                            failed_currencies = result.get("failed_currencies", [])
+                            successful_currencies = result.get("successful_currencies", [])
+                            error_details = result.get("results", {}).get("errors", [])
+                            logger.error(
+                                f"[任务 {task_id}] 回测失败: {result.get('message')}, "
+                                f"成功: {len(successful_currencies)}个, "
+                                f"失败: {len(failed_currencies)}个, "
+                                f"失败货币对: {failed_currencies}, "
+                                f"错误详情: {error_details}"
+                            )
+                    except Exception as e:
+                        logger.error(f"[任务 {task_id}] 回测执行发生异常: {e}")
+                        logger.exception(e)
+                        # 更新进度为失败状态
+                        progress_tracker.fail_progress(task_id, f"回测执行失败: {e!s}", "execution")
+                        notify_task_event(
+                            "backtest",
+                            task_id,
+                            TASK_STATUS_FAILED,
+                            name=strategy_name,
+                            error=f"回测执行发生异常: {e}",
+                        )
+
+                # 启动后台线程
+                thread = threading.Thread(target=run_backtest_async, daemon=True)
+                thread.start()
+
+                logger.info(f"回测任务 {task_id} 已在后台线程启动")
 
             # 立即返回任务ID
             return ApiResponse(
@@ -529,6 +547,9 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                 },
             )
 
+    except HTTPException:
+        # 作业池满等已知错误已在上面给出明确状态码，不能被兜底 except 改写成 500
+        raise
     except Exception as e:
         logger.error(f"创建回测任务失败: {e}")
         logger.exception(e)
@@ -563,8 +584,11 @@ def stop_backtest(request: BacktestStopRequest) -> ApiResponse:
     try:
         logger.info(f"终止回测请求，任务ID: {request.task_id}")
 
-        # 调用服务层终止回测（同步等待执行线程退出确认，最多 8s，低于前端超时）
-        result = backtest_service.stop_backtest(request.task_id)
+        # 进程池作业（灰度开启）由管理器终结：写取消标志 + 限时等待，超时强杀；
+        # 不是池作业（或开关关闭）走原有线程路径
+        result = backtest_job_manager.stop(request.task_id) if pool_enabled() else None
+        if result is None:
+            result = backtest_service.stop_backtest(request.task_id)
 
         logger.info(f"回测终止完成，结果: {result}")
 
@@ -1408,6 +1432,9 @@ def get_backtest_progress(task_id: str) -> BacktestProgressResponse:
         # 获取进度跟踪器
         tracker = get_progress_tracker()
         progress = tracker.get_progress(task_id)
+        if progress is None:
+            # 内存没有时回退影子表：进程池作业重启后仍能读到最后一次落库的进度
+            progress = backtest_job_manager.load_progress(task_id)
 
         if not progress:
             return BacktestProgressResponse(code=1, message=f"任务不存在: {task_id}", data=None)

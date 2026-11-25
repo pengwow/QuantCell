@@ -650,6 +650,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] 取消指标提醒循环失败: {e}")
 
+    # 步骤 8.6: 关闭多进程作业池（回测 / RL 训练 / HPO trial）
+    # 必须在本函数末尾的 os._exit(0) 之前显式关闭：spawn worker 是独立子进程，
+    # 父进程退出不会带走它们，残留 worker 会在重启后与新池争抢 CPU/绑核
+    try:
+        # 函数内 import 原因：与步骤 9/10 一致按需加载，池未启用时不想让 lifespan
+        # 提前拉起 jobs / rl_task_runner 及其重依赖
+        from jobs import hpo_trial_job
+        from jobs.backtest_manager import backtest_job_manager
+        from services import rl_task_runner
+
+        for _pool_name, _close_pool in (
+            ("backtest", backtest_job_manager.shutdown),
+            ("rl_train", rl_task_runner.shutdown_pool),
+            ("hpo_trial", hpo_trial_job.shutdown_pool),
+        ):
+            try:
+                _close_pool()
+            except Exception as exc:
+                logger.warning(f"[Lifespan] 作业池 {_pool_name} 关闭失败: {exc}")
+        logger.info("[Lifespan] 多进程作业池已全部关闭")
+    except Exception as e:
+        logger.warning(f"[Lifespan] 多进程作业池关闭流程失败: {e}")
+
     # 步骤 9: 关闭 worker_system (StrategyManager) — 含自己的 ThreadPoolExecutor
     try:
         from worker.strategy_manager import worker_system

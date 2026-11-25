@@ -1155,23 +1155,16 @@ class BacktestService:
             task_id = backtest_id
         return self.delete_task(task_id)
 
-    def stop_backtest(self, task_id: str, confirm_timeout: float = 8.0) -> dict[str, Any]:
+    def request_stop(self, task_id: str) -> dict[str, Any]:
         """
-        终止回测任务
+        置停（不等待退出）：校验任务并把任务表 / 进度记录同步为 stopped
 
-        置停后同步等待执行线程退出确认（限时 confirm_timeout），给前端明确的
-        「终止成功 / 超时强制终止」反馈。daemon 线程无法被安全强杀（见
-        stop_control 模块注释）：超时的强制终止 = 任务记录已置 stopped + 取消
-        令牌已置位，引擎在下一品种边界/收尾点自动退出，后续结果写入被竞态
-        防护挡住。
-
-        Args:
-            task_id: 任务ID
-            confirm_timeout: 等待执行线程退出确认的秒数（须小于前端 axios 30s 超时）
+        进程池路径由 BacktestJobManager 复用本方法，再自己等待作业结束或强杀，
+        因此把「置停」与「等待确认」拆开，避免两套路径各写一份置停逻辑。
 
         Returns:
-            dict: 终止结果，status ∈ success（线程确认退出）/ forced（超时，
-            已强制标记终止）/ error
+            dict: {"status": "success", "numeric_id": 任务主键} 或
+            {"status": "error", "message": 错误信息}
         """
         try:
             numeric_id = int(task_id) if task_id.isdigit() else task_id
@@ -1192,9 +1185,33 @@ class BacktestService:
         # 信号，会一直保持运行态并持续刷新进度（终止后进度条仍在更新的根因）。
         # update_progress 的 key 是创建进度时的原始 task_id 字符串
         get_progress_tracker().update_progress(task_id, "overall", {"status": "stopped"})
+        return {"status": "success", "numeric_id": numeric_id}
+
+    def stop_backtest(self, task_id: str, confirm_timeout: float = 8.0) -> dict[str, Any]:
+        """
+        终止回测任务
+
+        置停后同步等待执行线程退出确认（限时 confirm_timeout），给前端明确的
+        「终止成功 / 超时强制终止」反馈。daemon 线程无法被安全强杀（见
+        stop_control 模块注释）：超时的强制终止 = 任务记录已置 stopped + 取消
+        令牌已置位，引擎在下一品种边界/收尾点自动退出，后续结果写入被竞态
+        防护挡住。
+
+        Args:
+            task_id: 任务ID
+            confirm_timeout: 等待执行线程退出确认的秒数（须小于前端 axios 30s 超时）
+
+        Returns:
+            dict: 终止结果，status ∈ success（线程确认退出）/ forced（超时，
+            已强制标记终止）/ error
+        """
+        prepared = self.request_stop(task_id)
+        if prepared["status"] == "error":
+            return prepared
+
         # 投递协作式取消令牌并等待执行线程退出确认：下一品种边界生效，
         # 线程退出（无论取消收尾还是跑完）即唤醒等待器
-        confirmed = stop_control.cancel_and_wait(numeric_id, timeout=confirm_timeout)
+        confirmed = stop_control.cancel_and_wait(prepared["numeric_id"], timeout=confirm_timeout)
         if confirmed:
             return {"status": "success", "message": "回测已终止"}
         return {

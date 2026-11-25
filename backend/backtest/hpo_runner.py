@@ -13,6 +13,7 @@ QuantCell 端只做编排与格式转换,搜索、采样、剪枝、多目标 Pa
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from axon_hpo.optuna_runner import OptunaHPO
@@ -46,6 +47,14 @@ def _to_engine_space(param_space: dict[str, Any]) -> dict[str, SearchSpaceDef]:
     return converted
 
 
+def _normalize_outcome(raw: tuple[float, Any] | float) -> tuple[float, list[tuple[int, float]]]:
+    """trial 执行器返回值 → (value, 中间值)；只返回 float 时视为无中间值。"""
+    if isinstance(raw, tuple):
+        value, intermediate = raw
+        return float(value), [(int(step), float(item)) for step, item in intermediate]
+    return float(raw), []
+
+
 class HPORunner:
     """Hyperparameter optimization runner, backed by engine `OptunaHPO`。
 
@@ -63,7 +72,7 @@ class HPORunner:
 
     def optimize(
         self,
-        objective_fn: Callable[..., list[float] | float],
+        objective_fn: Callable[..., list[float] | float] | None,
         param_space: dict[str, Any],
         n_trials: int = 10,
         *,
@@ -77,6 +86,7 @@ class HPORunner:
         study_name: str = "quantcell_hpo",
         storage: str | None = None,
         reference_point: list[float] | None = None,
+        trial_executor: Callable[[dict[str, Any]], tuple[float, Any] | float] | None = None,
         **pruner_kwargs: Any,
     ) -> dict[str, Any]:
         """执行超参数优化。
@@ -85,6 +95,7 @@ class HPORunner:
             objective_fn: 目标函数。签名可二选一:
                 (params) -> float | list[float]          — 不接收 report,无法剪枝
                 (params, report) -> float | list[float]  — report(step, value) 触发真正剪枝
+                传了 `trial_executor` 时可省略(此时不再在本地算目标)。
             param_space: 搜索空间,格式 {"name": {"type": "int"/"float"/"choice", ...}}。
             n_trials: 总 trial 数。
             directions: 单目标传 "maximize"/"minimize",多目标传 list,默认 "maximize"。
@@ -93,11 +104,14 @@ class HPORunner:
                 objective_fn 内部调 report(step, value) 后剪枝才真正生效。
             n_startup_trials: TPE 冷启动 trial 数,前 N 个用随机采样。
             seed: 随机种子,None 则每次不同。
-            n_jobs: 并行 trial 数,默认 1(单进程)。
+            n_jobs: 并行 trial 数,默认 1。进程池执行器场景必须保持 1(采样顺序决定可复现性)。
             timeout_seconds: 全局超时秒数,None 则不限。
             study_name: Optuna study 名称,持久化时用于复用。
             storage: Optuna 存储 URI,如 "sqlite:///hpo.db",None 则内存临时存储。
             reference_point: 多目标超体积计算的参考点,None 则不计算。
+            trial_executor: 可选的 trial 执行器,签名 (params) -> (value, intermediate) 或 float。
+                每次 trial 交给它算(如投递到进程池),采样与剪枝回放仍在本地进行,
+                因此固定 seed 下结果与 `objective_fn` 串行路径逐值一致。仅支持单目标。
             **pruner_kwargs: 传递给 PrunerConfig 的额外参数(n_warmup_steps / reduction_factor 等)。
 
         Returns:
@@ -105,33 +119,49 @@ class HPORunner:
                 trials 中 state 为 "pruned" 的 trial 表示被剪枝提前终止。
 
         Raises:
-            ValueError: 搜索空间非法(引擎 SearchSpaceDef 校验失败)。
+            ValueError: 搜索空间非法(引擎 SearchSpaceDef 校验失败),或 objective_fn 与
+                trial_executor 都没给。
         """
-        # 兼容两种签名:自动探测 objective_fn 是否接受 report 参数
-        import inspect as _inspect
+        if objective_fn is None and trial_executor is None:
+            raise ValueError("objective_fn 与 trial_executor 至少传一个")
 
-        try:
-            sig = _inspect.signature(objective_fn)
-            accepts_report = len(sig.parameters) >= 2
-        except TypeError, ValueError:
-            accepts_report = False
-
-        _orig = objective_fn
-
-        if accepts_report:
-            # 新签名:objective_fn(params, report) -> float/list[float]
+        if trial_executor is not None:
+            # 进程池路径:本地只做编排 + report 回放,重计算在 trial_executor 里完成。
+            # 回放中间值对单点失败(含剪枝信号)不中断 —— 与 BacktestEvaluator 口径一致,
+            # 否则并行路径会比串行路径多剪掉 trial,破坏结果一致性。
             def _wrapped(params: dict, report: Callable[[int, float], None]) -> list[float]:
-                result = _orig(params, report)  # type: ignore[arg-type]
-                if isinstance(result, (list, tuple)):
-                    return list(result)
-                return [float(result)]
+                value, intermediate = _normalize_outcome(trial_executor(params))
+                for step, partial in intermediate:
+                    with contextlib.suppress(Exception):
+                        report(step, partial)
+                return [value]
+
         else:
-            # 旧签名:objective_fn(params) -> float/list[float],忽略 report
-            def _wrapped(params: dict, report: Callable[[int, float], None]) -> list[float]:
-                result = _orig(params)  # type: ignore[arg-type]
-                if isinstance(result, (list, tuple)):
-                    return list(result)
-                return [float(result)]
+            # 兼容两种签名:自动探测 objective_fn 是否接受 report 参数
+            import inspect as _inspect
+
+            try:
+                sig = _inspect.signature(objective_fn)
+                accepts_report = len(sig.parameters) >= 2
+            except TypeError, ValueError:
+                accepts_report = False
+
+            _orig = objective_fn
+
+            if accepts_report:
+                # 新签名:objective_fn(params, report) -> float/list[float]
+                def _wrapped(params: dict, report: Callable[[int, float], None]) -> list[float]:
+                    result = _orig(params, report)  # type: ignore[arg-type]
+                    if isinstance(result, (list, tuple)):
+                        return list(result)
+                    return [float(result)]
+            else:
+                # 旧签名:objective_fn(params) -> float/list[float],忽略 report
+                def _wrapped(params: dict, report: Callable[[int, float], None]) -> list[float]:
+                    result = _orig(params)  # type: ignore[arg-type]
+                    if isinstance(result, (list, tuple)):
+                        return list(result)
+                    return [float(result)]
 
         # 采样器配置
         sampler_cfg = SamplerConfig(

@@ -97,6 +97,14 @@
 | B32 | 交易模式切「永续合约」，看「杠杆与保证金」的 extra | extra 文案含「引擎尚未把乘数计入名义价值，币本位为近似账务」（对齐 demo 2243-2245/2704 警示）；现货模式无该字段，不得把警示句挂到现货 hint | L1 |
 | B33 | 展开一条 completed 回测行，数行内摘要卡 | 摘要含 7 张卡：总收益/夏普/最大回撤/成交/胜率/盈亏比/交易日（11-25 起）；旧任务缺 `profit_factor`/`duration_days` 时对应卡不渲染（缺失跳过，不显示 0 充数）；盈亏比 0.92 类中性值不上红绿 | L1 |
 
+### 作业池观测（后端 API `/api/v1/jobs/queue`）
+
+| # | 操作 | 预期（可观测信号） | 层级 |
+|---|---|---|---|
+| B29 | 空闲态请求 `GET /api/v1/jobs/queue` | 返回 200 且 `code=0`；`data` 含 `queued`/`running`/`cores`/`blocked` 四个键，`pools` 下有 `backtest`/`rl_train`/`hpo_trial` 三池；未跑过作业的池 `created=false`、计数为 0；连续请求两次 `created` 仍为 false（查询不会触发建池） | L1 |
+| B30 | 发起一次回测后立刻再请求 `/api/v1/jobs/queue`，并用该 taskId 搜后端日志 | `pools.backtest.created=true`，`queued + running ≥ 1`；后端日志可搜到同一 `job_id=<taskId>` 的 `event=enqueue` → `event=start` → `event=finish`（失败/终止分别为 `fail` / `cancel`），单个 job_id 即可串联全链路 | L2（按需：需真实发起回测） |
+| B31 | `cd backend && .venv/bin/python -m cli jobs selftest`（命令行，不起 API 服务） | 退出码 0，9 项自检全部 PASS：真并行区间相交、worker 复用、终态计数保留、排队满拒收 `JobPoolFullError`、`cancel_queued` 语义正确、`shutdown(wait=False)` 不留孤儿进程 | L1（CLI 自检） |
+
 ## 历史雷区
 
 - **详情堆在表格下方导致用户发现不了 → 已改行内展开**（2026-11-23）：旧实现点行只在表格**底部**渲染一张摘要卡，行多时要滚到最下方才能看到，且翻页后面板与行脱节。现改为 antd `expandable` 行内展开（`expandedRowKeys` 单键数组互斥、`expandRowByClick`、`showExpandColumn: false`，三角自绘在策略列），面板随行移动；翻页/筛选/搜索/日期/排序重载会清空展开 key（面板不跨页残留），但 `/summary` 缓存不清（重新展开秒开）。别再往表格下方塞常驻卡。
@@ -130,3 +138,7 @@
 - **详情页旧 cascade 记录会把整页打白（TradeTable 契约缺口，非本区代码）**：历史 LLM/cascade 回测的 round-trip trades 里没有 `quantity` 字段（只有 entry/exit fill 结构），共享组件 `TradeTable.formatQuantity` 对 undefined 调 `.toFixed` 抛错且无错误边界 → 决策详情卡也一起渲染不出来；回测详情的决策 chip / 分页条只能在"RL/规则或有健康 trades 的新记录"上验证。修法在 TradeTable 兜 null 或后端补字段，别在本区绕。
 - **progress 拉取失败必须保留旧快照**（2026-11-23）：`getBacktestProgress` catch 后返回 `null`，前端按「不清空、不弹错」处理（B29 的 15s 轮询会反复打到这个分支）。把 null 当空数据处理会让进度条在服务重启瞬间归零/隐藏，比停在旧值更误导；只有该任务转终态或收起展开才允许清空
 - **LLM replay 提示是静态说明不是错误**：`strategy_kind=llm` 任务失败时的弱色说明与 config 页参数卡底部那句是同一句常量文案（未命中回放不降级、直接终止），不要与 B3d 的红字「失败原因」混为一层样式；非 LLM 任务不渲染（B30）
+- **作业池心跳看门狗曾失效（已修）**：旧代码把超时判定挂在「无快照」的 elif 分支后，worker 卡死时快照文件仍在 → 永不判超时。现判定独立于快照存在性。副作用：数据准备等长静默阶段必须持续产出进度，>75s 无快照更新会被判 interrupted（`回测进程超过 75 秒无进度更新`）；B30 若遇到该文案，先查长静默阶段是否缺进度埋点，别当看门狗误杀。
+- **作业池随应用退出清理（已修）**：lifespan 现在显式 shutdown 回测/RL/HPO 三池，`wait=False` 会 terminate 在跑 worker。Ctrl+C 后在跑回测被强杀属预期（此前 spawn worker 会变孤儿继续跑，重启后与新池抢核）。
+- **灰度开关三态（已修）**：`QUANTCELL_JOB_POOL_ENABLED=false` 现在能覆盖 config.toml `[jobs].enabled=true`；只有未设置（None）才回落 config。此前 bool 默认 False 导致环境变量关不掉 config 打开的池。
+- **绑核区间按池切分（已修）**：配了 `[jobs].cores` 时回测池取前半核、HPO 池取后半核（单核区间两池共享各 1 并发），不再两池绑同一批核互抢；`/jobs/queue` 里各池 `cores` 与配置文件不完全一致属预期。未配绑核时保持 cpu-1 默认，由 OS 调度。

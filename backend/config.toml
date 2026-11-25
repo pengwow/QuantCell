@@ -56,3 +56,15 @@ live_trading = true
 agent_gateway = true
 # mcp_server 能力域尚未实现（P2-04 预留），恒关；实现后由该能力控制 MCP 入口
 mcp_server = false
+
+# 作业池配置（P0 横向扩展，jobs/pool.py 读取）
+# 环境变量 QUANTCELL_JOB_POOL_ENABLED / QUANTCELL_JOB_CORES 优先于本分组
+[jobs]
+# false = 回测 / 训练仍走原有线程路径（默认，灰度期）
+# true  = 走有界 spawn 进程池，活跃 worker 数 ≤ 绑核区间核数
+enabled = false
+# worker 绑核区间，如 "4-15" 或 "4,6,8"；空串 = 不绑核（macOS 无 sched_setaffinity，始终不绑）
+cores = ""
+# RL 训练并发上限（显存配额）：1 = 沿旧行为串行排队；调高前确认单卡能同时容纳 N 个训练
+# 环境变量 QUANTCELL_JOB_RL_MAX_WORKERS 优先于本项
+rl_max_workers = 1

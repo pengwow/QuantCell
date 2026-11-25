@@ -13,6 +13,7 @@
 | `/strategy-editor` `/strategy-editor/:strategyName` | 策略编辑器 + AI 生成 | `pages/strategy-editor.md` | ✅ | L1+L2 | token 注入 |
 | `/backtest` `/backtest/config` | 回测中心 | `pages/backtest.md` | ✅ | L1+L2 | token 注入；详情/回放需有效 backtestId |
 | `/backtest/detail/:backtestId` `/backtest/replay/:backtestId` | 回测详情/回放 | `pages/backtest.md` | ✅ | L2 | 同上 |
+| `GET /api/v1/jobs/queue`（后端 API，无独立前端页） | 作业池队列观测 | `pages/backtest.md`（B29-B30） | ✅ | L1 | token 注入；B30 需真实发起一次回测 |
 | `/model-hub` | 模型中心 | `pages/model-hub.md` | ✅ | L1+L2 | token 注入；有数据分支需 `$DATA_DIR/models/*.zip` |
 | `/factor-analysis` | 因子分析 | `pages/factor-analysis.md` | ✅ | L1+L2 | token 注入 |
 | `/research` `/research/:id` | 策略研究 | `pages/research.md` | ✅ | L1+L2 | token 注入 |

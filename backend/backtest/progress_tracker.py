@@ -248,6 +248,24 @@ class BacktestProgressTracker:
         with self._progress_lock:
             return self._progresses.get(task_id)
 
+    def apply_snapshot(self, task_id: str, snapshot: dict[str, Any]) -> BacktestProgress | None:
+        """用 worker 回传的完整快照覆盖本地进度（进程池路径唯一写入口）。
+
+        快照由 worker 侧同一套 tracker 计算、model_dump 后落盘，父进程只做还原，
+        不再重算权重，避免两侧口径漂移。
+        """
+        try:
+            progress = BacktestProgress.model_validate(snapshot)
+        except Exception as exc:  # 快照损坏不应拖垮轮询接口
+            logger.warning(f"还原任务 {task_id} 进度快照失败: {exc}")
+            return None
+
+        with self._progress_lock:
+            self._progresses[task_id] = progress
+
+        self._notify_ws_callbacks(task_id, progress)
+        return progress
+
     def update_progress(self, task_id: str, stage: str, data: dict[str, Any]) -> BacktestProgress | None:
         """
         更新任务进度
