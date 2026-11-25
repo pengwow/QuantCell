@@ -109,7 +109,17 @@ def _position_side_filter(side: str | None) -> str | None:
 # ==================== WebSocket端点 ====================
 
 
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: str | None = Query(None),
+):
+    # 认证失败：先 accept 才能 close（4401 自定义未授权），与 /ws/research 行为对齐
+    try:
+        await authenticate_request(websocket, token=token)
+    except HTTPException:
+        await websocket.accept()
+        await websocket.close(code=4401)
+        return
     await connection_manager.connect(websocket)
     await websocket.send_json({"type": "connection", "status": "connected"})
 
