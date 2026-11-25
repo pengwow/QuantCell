@@ -59,7 +59,8 @@ node docs/testing/check-coverage.mjs   # 打包验证前必须全绿
 
 - **前端渲染类**：文本缺失/组件未挂载 → 查页面文档"历史雷区"，多半有先例
 - **边界契约类**：错误文案渲染成 `[object Object]`、状态码误判 → 后端错误体形状与前端解析不匹配
-- **环境类**：端口占用、onefile 冷启动慢（外部盘 1-2 分钟属正常）、token 注入遗漏 key
+- **环境类**：端口占用、onefile 时代遗留（现 sidecar 为 onedir，冷启动 1-2 分钟内属正常）、token 注入遗漏 key
+- **打包缺文件类**：PyInstaller 只保证 import 不炸（字节码进 PYZ），运行时按 `spec.origin`/`__file__` 读包内源文件的逻辑会静默缺文件（案例：`strategy/templates/*.py` 漏打 → 策略编辑器模板列表 500）。现由 `desktop/scripts/verify-sidecar.sh` 在 build-backend.sh 末尾冷启动打包产物、真打这些端点兜底；**新写「读包内文件」的端点时必须在脚本 CHECKS 清单补一行**
 
 ## 六、执行技巧（前人踩坑实录）
 
@@ -67,7 +68,7 @@ node docs/testing/check-coverage.mjs   # 打包验证前必须全绿
 - **图标按钮没有文本**：用 `aria-label` 属性定位（如 AI 助手入口），文本扫描会漏
 - antd Modal / CodeMirror 的 a11y 快照经常残缺 → 兜底用 DOM 直查（`document.querySelector('.ant-modal')`、`textarea`、`body.innerText`）
 - 等待用**条件轮询**（wait_for 文本 / 轮询 location.pathname），不要死等固定时长
-- 打包 sidecar 为 onefile：冷启动 1-2 分钟内属正常，脚本已内置健康等待，见到 `/health ✓` 再动
+- 打包 sidecar（onedir）冷启动首跑要 import 全量路由 + 三方库，1-2 分钟内属正常，脚本已内置健康等待，见到 `/health ✓` 再动
 - 页面登录门只认 token 存在性；后端 local 模式不校验值，任何非空 token 均可
 - Tauri 壳专属能力（更新器、崩溃遮罩、系统代理继承、真实窗口行为）不在浏览器链路，**发布前仍需一次 .app 冒烟**（`open` + `/health` 探测，纯后端无需点界面）
 

@@ -43,6 +43,10 @@ uv run --with pyinstaller pyinstaller \
   # Path(__file__).parent/templates 相对定位（manager.py），漏打会在 AI 生成时
   # 报"模板分类 'strategy_generation' 不存在或未加载"` \
   --add-data "ai/strategy/prompts/templates:ai/strategy/prompts/templates" \
+  `# strategy/templates/*.py 是运行时按 spec.origin 读源码的（ai/strategy/routes_strategy.py
+  # _scan_template_list 提取模板参数表单），PyInstaller 只把模块编译进 PYZ、源文件不存在，
+  # 漏打会让策略编辑器模板列表 500（No such file or directory .../strategy/templates/xxx.py）` \
+  --add-data "strategy/templates:strategy/templates" \
   --collect-all axon_quant \
   --collect-all duckdb \
   --collect-all pyarrow \
@@ -86,3 +90,9 @@ if [[ "$TRIPLE" != *windows* ]]; then
 fi
 echo ">> backend onedir 已生成: $SIDECAR_DIR/$BACKEND_EXE"
 echo ">> 目录大小: $(du -sh "$SIDECAR_DIR" | cut -f1)，文件数: $(find "$SIDECAR_DIR" -type f | wc -l | tr -d ' ')"
+
+# 打包后自检：把「运行时会读包内文件」的端点真打一遍。PyInstaller 只保证 import
+# 不炸（字节码进 PYZ），spec.origin/__file__ 指向的源文件缺失只能冷启动探测出来
+# （案例 2026-11-25：strategy/templates/*.py 漏打 → 策略编辑器模板列表 500）。
+# CI 的 desktop-build.yml 调本脚本，缺口在打包阶段直接红，不再漏到运行时。
+bash "$(dirname "$0")/verify-sidecar.sh" "$SIDECAR_DIR"
