@@ -8,6 +8,7 @@ QuantCell 主入口文件
 - utils/: 工具模块
 """
 
+import asyncio
 import sys
 
 # 首先导入策略模型和回测模型以确保正确的表结构被使用
@@ -148,7 +149,7 @@ app.include_router(models_router)
 app.include_router(ensemble_router)
 app.include_router(rl_router)
 # 研究模块（AI 研究闭环；router 自带 /research 前缀，这里统一补 /api/v1）
-app.include_router(research_router, prefix="/api/v1")
+app.include_router(research_router)
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)
@@ -294,7 +295,8 @@ async def health_check():
         # 放在函数内可避免拖慢 main 模块导入（与原有 engine 懒加载同一考量）。
         from worker.strategy_manager import worker_system
 
-        engine_status = worker_system.engine_status()
+        # engine_status 内部持策略表锁，放线程池避免探针期间阻塞事件循环
+        engine_status = await asyncio.to_thread(worker_system.engine_status)
     except Exception:
         engine_status = {"status": "not_initialized"}
     return {

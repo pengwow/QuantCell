@@ -29,8 +29,8 @@ from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# 前缀保持相对：main.py 挂载时传 prefix="/api/v1"，最终路径为 /api/v1/research/*
-router = APIRouter(prefix="/research", tags=["research"])
+# 前缀收口到 router 声明（main.py 不再传 include 层 prefix），最终路径为 /api/v1/research/*
+router = APIRouter(prefix="/api/v1/research", tags=["research"])
 
 
 def _owner(current_user: dict) -> str:
