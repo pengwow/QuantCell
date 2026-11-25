@@ -23,7 +23,7 @@ description: QuantCell system layers, unified kernel main loop, and tech stack
 
 QuantCell's most important architectural decision: **all three modes run the same main loop**.
 
-- The main loop is driven by the **Kernel** of `axon-quant` (Rust), executing the per-bar orchestration
+- The main loop is driven by the **unified kernel** (Rust), executing the per-bar orchestration
 - Mode differences live only in the **wiring layer**:
     - **Data pump**: backtests replay historical frames; paper / live use the realtime KernelPump
     - **Execution layer**: backtests fill via `BacktestSink`, paper simulates via `PaperSink`, live uses the real execution sink

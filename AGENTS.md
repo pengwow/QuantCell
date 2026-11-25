@@ -60,7 +60,7 @@ QuantCell 是一个 AI 原生量化交易系统，底层交易引擎为 Rust 内
                │ spawn 子进程                         │ 每个 Worker 是独立长驻进程
                ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              axon_quant (Rust 核心引擎)                       │
+│                   统一内核（Rust 核心引擎）                   │
 │  axon-kernel: Kernel / BarLifecycle 九步 per-bar 编排         │
 │  axon-worker: PyKernel / BacktestRunner（Python 绑定）       │
 │  三种模式共用同一主回路：回测 ↔ paper ↔ live 行为一致           │

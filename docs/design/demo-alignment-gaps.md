@@ -272,7 +272,7 @@
 4. **eef9bad9 因子数据守卫**：分析/对比前预检缺数据 + 一键下载后自动续跑（demo 无此件；已入 §9 反缺口）。
 5. **共享 `SymbolSelect` 铺开 7 处**（8b16b4e5/1382c31b/b93cf170/8006ef8e；已入 §11 已消项，文档原只记回测配置一处）。
 6. **5843b8cf 回放页隐藏「信号提醒」**：`KlineReplayPage.tsx:624` `showAlerts={false}`（`ChartShell.tsx` 新开关）——回放页与 `/chart` 共用工具栏，「/chart 有信号提醒、回放没有」是**刻意开关**，下轮勿判回归（docs/testing 已记 D8a，此处补记对齐口径）。
-7. **demo `axon*` 命名不是残留**：`backend/research/` 真实使用 `axon_bridge`（`job.py:11`、`loop.py:1128`）与 `axon_quant` 示例契约（`scenarios/strategy.py:48-49`），demo home 的 `axon-kernel` 卡与策略示例 import 与内部命名一致，**勿清理**。
+7. **demo `axon*` 命名分两层看（2026-11-26 口径更新）**：代码层是真实标识符——`backend/research/` 真实使用 `axon_bridge`（`job.py:11`、`loop.py:1128`）与 `axon_quant` 包（`scenarios/strategy.py:48-49`），包名/crate 名**保持原名，勿清理**；UI 与文档叙述层已品牌中性化（2026-11-26 裁定）：demo home 的「axon-kernel」卡实装为中性 `kernel` 徽标（见 `docs/testing/pages/home.md` H10），文档叙述统称「统一内核」，demo 原型文件本身保持原样作为历史参照。
 
 ## 横切结论
 
