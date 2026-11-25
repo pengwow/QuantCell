@@ -360,7 +360,7 @@ const HomePage = () => {
         key: 'engine',
         tone: eng && eng.samples > 0 ? 'ok' : 'off',
         name: t('home_sys_engine'),
-        id: 'axon-kernel',
+        // id 徽标留空：'axon-kernel' 内核代号不进 UI（2026-11-26 用户裁定）；Exchange 行的 id 是真值交易所名，性质不同
         sub:
           eng && eng.samples > 0
             ? t('home_sys_engine_sub', { samples: eng.samples })
