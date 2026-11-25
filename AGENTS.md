@@ -31,7 +31,7 @@ Not lazy about: input validation at trust boundaries, error handling that preven
 
 ## 总览
 
-QuantCell 是一个 AI 原生量化交易系统，使用 axon_quant (Rust) 作为底层引擎。
+QuantCell 是一个 AI 原生量化交易系统，底层交易引擎为 Rust 内核（PyO3 绑定）。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -53,20 +53,20 @@ QuantCell 是一个 AI 原生量化交易系统，使用 axon_quant (Rust) 作�
        │                │                │
        ▼                ▼                ▼
 ┌──────────────────────────────────────────────────────────┐
-│              axon_quant (Rust 核心引擎)                    │
+│                      Rust 核心引擎                       │
 │  exchange.adapter  backtest.engine  risk.engine           │
 │  llm.agent         inference.engine  rl.env              │
-│  axon-kernel(Kernel/BarLifecycle)  axon-worker(PyKernel) │
+│          Kernel / BarLifecycle · PyKernel 绑定           │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ## 统一主回路（回测 / paper / live）
 
-三种模式跑**同一条主回路**：`axon-kernel` 的 `Kernel`（`kernel_loop.rs`）驱动九步 per-bar 编排
-（`axon-kernel/src/lifecycle.rs::BarLifecycle::on_bar_closed`）。模式差异只在装配：数据泵
+三种模式跑**同一条主回路**：Rust 内核的 `Kernel`（`kernel_loop.rs`）驱动九步 per-bar 编排
+（内核 crate 的 `lifecycle.rs::BarLifecycle::on_bar_closed`）。模式差异只在装配：数据泵
 （历史 `build_frames` vs 实时 `KernelPump`）与 `ExecutionSink`（`BacktestSink` 回测撮合 /
-`PaperSink` 模拟盘 / 实盘 sink）。主回路本身没有 mode 分支。Python 侧由
-`axon-worker::PyKernel` 薄包装，暴露为 `axon_quant.worker.Kernel`。
+`PaperSink` 模拟盘 / 实盘 sink）。主回路本身没有 mode 分支。Python 侧由 `PyKernel`
+薄包装，暴露为 `Kernel`（`worker.Kernel`）。
 
 ## 核心接口
 
@@ -110,8 +110,7 @@ class Order:
 ### Action — 统一策略输出
 
 ```python
-# axon_quant (Rust 核心)
-from axon_quant import Action, ActionType
+from strategy.core import Action, ActionType
 
 # Action 是所有策略的统一输出
 # ActionType: Buy, Sell, Hold, ReduceLong, ReduceShort
@@ -155,13 +154,13 @@ class BacktestLoop:
 
 ### 回测编排 — 统一内核（默认） / 两条回退口
 
-`backtest/engine_service.py` 默认构造 `axon_quant.worker.Kernel`（Rust 侧 `PyKernel`，内部调
-`axon-kernel` 的 `Kernel::run_history`）。三条执行路径由 `engine_config['runner']` 选择：
+`backtest/engine_service.py` 默认构造统一内核 `Kernel`（Rust 侧 `PyKernel`，内部调
+`Kernel::run_history`）。三条执行路径由 `engine_config['runner']` 选择：
 
 | `runner` | 走哪条路 | 说明 |
 |----------|----------|------|
-| 缺省（`kernel`） | `worker.Kernel` | 默认路径，统一内核 `run_history` |
-| `legacy`（旧名 `rust`） | `worker.BacktestRunner` | legacy 编排，M6 只冻结不删 |
+| 缺省（`kernel`） | `Kernel` | 默认路径，统一内核 `run_history` |
+| `legacy`（旧名 `rust`） | `BacktestRunner` | legacy 编排，M6 只冻结不删 |
 | `python` | `BacktestLoop` | 纯 Python 回退 |
 
 `data_type` 不在 `RUST_RUNNER_DATA_TYPES` 时无论 runner 配置都会退回 `BacktestLoop`。
@@ -172,22 +171,17 @@ class BacktestLoop:
 永续结算口径：`settle` 由 `market` 推导（`cm` → `coin_margin`，其余 → `usd_margin`），`contract_size` 走 `engine_config['contract_size']`（默认 1.0）。注意引擎尚未把乘数计入名义价值/盈亏，币本位账务仍是近似（详见 `engine_service.py` 里的 ponytail 注释）。
 
 ```python
-# backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → Rust StrategyHost 桥接
-from axon_quant import worker
+# backend/strategy/rust_adapter.py —— BaseStrategy(on_bar) → 内核 StrategyHost 桥接
+from strategy.rust_adapter import RustStrategyAdapter
 
-kernel = worker.Kernel(initial_cash=100_000.0, interval="1h")
-kernel.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
-result = kernel.run(
-    bars_by_symbol={"BTC/USDT": [{"timestamp": ns, "open": .., "high": .., "low": .., "close": .., "volume": ..}]},
-    states_by_symbol={},
-)
-# legacy 回退：worker.BacktestRunner(...)，run 签名与上面一致
+# 内核实例由 backtest/engine_service.py 按 engine_config['runner'] 统一构造并调用 run_history，
+# 业务侧只提供 RustStrategyAdapter；legacy 回退走 BacktestRunner，run 签名与内核一致
 ```
 
 `RustStrategyAdapter` 对齐 `BacktestLoop` 语义：symbol 归一化为 `BASE/QUOTE`；`target_position` 由权益占比按 `ratio * equity / price` 换算为绝对数量；hold 保持上次目标。
 三条路径输出同一 `BacktestResult` 契约。`tests/unit/backtest/test_rust_runner_parity.py` 守护
 Python ↔ legacy（`runner='rust'`）逐字段一致；Kernel 与 legacy 的逐 bar 语义一致性由
-axon-quant 的 kernel 单测与 M3 shadow oracle（`axon-worker::shadow`）守护。
+内核 crate 单测与 M3 shadow oracle 守护。
 
 ### 实盘 / paper 循环
 
@@ -201,7 +195,7 @@ SwarmOrchestrator）处于 M6 冻结状态，无生产调用方，仅测试引�
 ### 规则策略（on_bar → Action）
 
 ```python
-from axon_quant import Action, ActionType
+from strategy.core import Action, ActionType
 
 class DualMA:
     def __init__(self, fast=10, slow=30):
@@ -226,7 +220,7 @@ class DualMA:
 ### RL 策略（TradingEnv + Action）
 
 ```python
-from axon_quant.rl import TradingEnv
+from strategy.core import TradingEnv
 from stable_baselines3 import PPO
 
 env = TradingEnv(config={...}, action_space="discrete", market_data=df, reward="sharpe")
@@ -257,7 +251,7 @@ print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 
 | 文件 | 用途 |
 |------|------|
-| `strategy/core/__init__.py` | 导出 axon_quant 类型 |
+| `strategy/core/__init__.py` | 导出统一策略类型（Action / TradingEnv 等） |
 | `strategy/service.py` | 策略管理服务 |
 | `strategy/routes.py` | 策略 API 路由 |
 | `worker/strategy_manager.py` | worker_system 核心单例（StrategyManager）+ paper/live 泵线程 |
@@ -267,8 +261,8 @@ print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 | `strategy/llm_replay.py` | LLM 决策录制 / 回放 provider |
 | `rl/service.py` | RL 训练服务 |
 | `rl/routes.py` | RL API 路由 |
-| `axon_quant/crates/axon-kernel/src/lifecycle.rs` | 九步 per-bar 编排（回测 / paper / live 共用） |
-| `axon_quant/crates/axon-worker/src/python.rs` | `PyKernel` → `worker.Kernel` Python 绑定 |
+| 内核 crate 的 `lifecycle.rs` | 九步 per-bar 编排（回测 / paper / live 共用） |
+| 内核 crate 的 `python.rs` | `PyKernel` → `Kernel` Python 绑定 |
 
 ## 测试
 

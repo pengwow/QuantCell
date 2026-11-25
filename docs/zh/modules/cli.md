@@ -28,7 +28,7 @@ $ quantcell --help
    account     凭证管理（add/list/remove）
    migrate     数据库迁移(SQLite schema 升级)
    strategy    策略管理命令行工具
-   backtest    QuantCell 回测工具（事件驱动引擎 axon-quant）
+   backtest    QuantCell 回测工具（事件驱动 Rust 引擎）
    data        数据管理命令行工具
 ```
 

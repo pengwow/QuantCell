@@ -52,7 +52,7 @@
 - **视图形态取决于系统设置**：默认 `card`，只按表格选择器断言会误判"列表没渲染"。先读系统设置「默认展示类型」，或同时接受卡片/表格两分支
 - **删除不可逆**：删除按钮打的是 `DELETE /api/v1/rl/models/{stem}`，删的是真实 zip；确认弹窗已写明「文件删除后不可恢复；已注册条目将变为『文件缺失』」。自动化**不要**在真实数据目录跑
 - **下载不走鉴权**：「下载」是 `window.location.href='/api/v1/models/{id}/download'`（后端该端点刻意不校验 Authorization）。大文件走浏览器下载，自动化链路里别点
-- **`/models/unified` 503**：`RuntimeError("axon_quant.registry not available")` 会被包成 503 + 前端 toast「加载模型总表失败：…」。若出现，先查打包是否漏了 `axon_quant.registry`，不是前端问题
+- **`/models/unified` 503**：模型注册表子模块缺失时后端抛 `registry not available`，会被包成 503 + 前端 toast「加载模型总表失败：…」。若出现，先查打包是否漏了注册表子模块，不是前端问题
 - **旧路由是 replace 重定向**：从 `/ensemble` 进入后浏览器后退回不到 `/ensemble`（历史被替换），断言用 pathname 而非后退行为
 - **未注册/文件缺失行点了没反应是预期**：行选中以 `size_mb == null` 判禁（无文件不可回测），这类行不出现「回测选中模型」，详情入口只能走操作列「详情」图标钮
 - **详情只在 Drawer，列表行看不出可点 → 行内轻摘要 + 明确入口**：模型总表原先只有「操作列详情图标」一个入口，行点击仅打选中样式，用户看不出行能点。现改为行点击就地展开 `.qc-exp-panel` 轻摘要（只读 `UnifiedModelRow` 已有字段：模型 ID/文件名/算法/版本/状态/OOS Sharpe/创建时间/大小/路径；缺字段整格省略），面板右下「打开完整详情」再开原 Drawer。**Drawer 才是完整详情（walk-forward/指标/特征规格/文件），摘要不重复拉 `detail` 数据**；改这块时别把两者合并成一处

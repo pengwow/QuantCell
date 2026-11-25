@@ -28,7 +28,7 @@ description: QuantCell 系统分层、统一内核主回路与技术栈
        │                │                │
        ▼                ▼                ▼
 ┌──────────────────────────────────────────────────────────┐
-│      axon-quant (Rust 内核) · Binance / OKX · DuckDB     │
+│            Rust 内核 · Binance / OKX · DuckDB            │
 │      回测 / paper / live 共用统一 per-bar 主回路           │
 └──────────────────────────────────────────────────────────┘
        ▲                ▲                ▲
@@ -43,7 +43,7 @@ description: QuantCell 系统分层、统一内核主回路与技术栈
 
 QuantCell 最重要的架构决策：**三种模式跑同一条主回路**。
 
-- 主回路由 `axon-quant`（Rust）的 **Kernel** 驱动，执行 per-bar 编排
+- 主回路由 Rust 内核的 **Kernel** 驱动，执行 per-bar 编排
 - 模式差异只在**装配层**：
     - **数据泵**：回测用历史帧回放，paper / live 用实时 KernelPump
     - **执行层**：回测用 `BacktestSink` 撮合，paper 用 `PaperSink` 模拟，live 用实盘 sink
@@ -54,7 +54,7 @@ QuantCell 最重要的架构决策：**三种模式跑同一条主回路**。
         │
         ▼
 ┌─────────────────────────────────────┐
-│         axon-quant Kernel            │
+│             统一 Kernel             │
 │   九步 per-bar 编排（每根 K 线）     │
 │   数据更新 → 信号 → 风控 → 撮合      │
 └─────────────────────────────────────┘
@@ -68,7 +68,7 @@ QuantCell 最重要的架构决策：**三种模式跑同一条主回路**。
 所有策略输出统一的 `Action`，风控与执行层都基于同一契约运作：
 
 ```python
-from axon_quant import Action, ActionType
+from strategy.core import Action, ActionType
 
 action = Action(
     action_type=ActionType.Buy,   # Buy / Sell / Hold / ReduceLong / ReduceShort
@@ -110,7 +110,7 @@ action = Action(
 |------|------|
 | 语言 | Python 3.14 |
 | Web 框架 | FastAPI 0.136（uvicorn） |
-| 交易引擎 | axon-quant 0.25.0（Rust 核心，path 依赖） |
+| 交易引擎 | Rust 核心（PyO3，path 依赖） |
 | 数据库 | DuckDB 1.4 + Parquet + SQLAlchemy 2 + Alembic |
 | 数据处理 | Pandas 2.3 / PyArrow 22 |
 | 强化学习 | Gymnasium 1.3 + Stable-Baselines3 2.9 |

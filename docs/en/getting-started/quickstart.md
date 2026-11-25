@@ -57,7 +57,7 @@ quantcell backtest run \
 ```
 
 The output includes total return, max drawdown, fills, and more. Backtests run
-on the axon-quant Rust unified kernel by default.
+on the Rust unified kernel by default.
 
 ## 4. Generate a strategy with AI
 

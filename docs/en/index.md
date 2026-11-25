@@ -5,10 +5,9 @@ description: QuantCell — AI-native quantitative trading system official docume
 
 # QuantCell
 
-**QuantCell** is an AI-native quantitative trading system built on
-[axon-quant](https://github.com/pengwow/axon_quant) (Rust core) as the trading
-engine, with FastAPI as the service framework and React + TypeScript on the
-frontend. It covers the full workflow from strategy development and backtest
+**QuantCell** is an AI-native quantitative trading system built on a Rust core
+trading engine, with FastAPI as the service framework and React + TypeScript on
+the frontend. It covers the full workflow from strategy development and backtest
 validation to live deployment.
 
 Core philosophy: **make quantitative trading simple, efficient, and
@@ -30,9 +29,9 @@ code and validates it with backtests.
 - **Intelligent Agent**: memory and tool calling, multi-turn conversations and task orchestration
 - **LLM decision recording & replay**: LLM strategies replay recorded decisions during backtests without real LLM calls
 
-### ⚡ Axon-Quant High-Performance Engine
+### ⚡ Rust High-Performance Engine
 
-- **Rust core**: powered by `axon-quant 0.25.0`, unified kernel architecture
+- **Rust core**: unified kernel architecture
 - **Unified main loop**: backtest / paper / live share the same per-bar orchestration for consistent semantics
 - **Multi-data-type backtests**: adapters for klines, derivatives data (funding rate etc.), order book, and trades
 - **Walk-forward validation**: rolling-window backtests to prevent overfitting

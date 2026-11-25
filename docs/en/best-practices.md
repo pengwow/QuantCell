@@ -62,13 +62,14 @@ description: Project conventions for strategy R&D, backtesting, data, deployment
   no magic margins
 - After finishing a page, self-check that adjacent blocks have visible gaps
 
-## Engine dependency (axon-quant)
+## Engine dependency (Rust kernel)
 
-After modifying axon-quant Rust sources, the standard command to sync into
-the backend environment:
+After modifying Rust kernel sources, the standard command to sync into the
+backend environment (the package name is the local path dependency in
+`backend/pyproject.toml`):
 
 ```bash
-cd backend && uv sync --frozen --reinstall-package axon-quant
+cd backend && uv sync --frozen --reinstall-package <engine-package>
 ```
 
 - **`--reinstall-package` is mandatory**: uv does not check source

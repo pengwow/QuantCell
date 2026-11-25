@@ -7,29 +7,22 @@ description: 统一内核回测、三条执行路径、Walk-Forward 验证与超
 
 ## 统一内核（默认路径）
 
-回测默认通过 `axon_quant.worker.Kernel`（Rust 侧 `PyKernel`，内部调
-`axon-kernel` 的 `Kernel::run_history`）执行，与 paper / live 共用同一条
-per-bar 主回路，保证语义一致。
+回测默认通过统一内核（Rust 侧 `PyKernel`，内部调 `Kernel::run_history`）执行，与
+paper / live 共用同一条 per-bar 主回路，保证语义一致。
 
 ```python
-from axon_quant import worker
 from strategy.rust_adapter import RustStrategyAdapter
 
-kernel = worker.Kernel(initial_cash=100_000.0, interval="1h")
-kernel.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
-result = kernel.run(
-    bars_by_symbol={"BTC/USDT": [{"timestamp": ns, "open": 1.0, "high": 1.0,
-                                   "low": 1.0, "close": 1.0, "volume": 1.0}]},
-    states_by_symbol={},
-)
+# 内核实例由 backtest/engine_service.py 按 engine_config['runner'] 统一构造，
+# 业务侧只提供 RustStrategyAdapter（BaseStrategy.on_bar → 内核 StrategyHost）
 ```
 
 三条执行路径由 `engine_config['runner']` 选择，输出同一 `BacktestResult` 契约：
 
 | `runner` | 执行路径 | 说明 |
 |----------|----------|------|
-| 缺省（`kernel`） | `worker.Kernel` | 默认，统一内核 `run_history` |
-| `legacy` | `worker.BacktestRunner` | legacy 编排，冻结保留 |
+| 缺省（`kernel`） | `Kernel` | 默认，统一内核 `run_history` |
+| `legacy` | `BacktestRunner` | legacy 编排，冻结保留 |
 | `python` | `BacktestLoop` | 纯 Python 回退路径 |
 
 ## 放行的数据类型
@@ -123,4 +116,4 @@ print(result)
 ## 一致性保障
 
 - `tests/unit/backtest/test_rust_runner_parity.py` 守护 Python ↔ legacy 逐字段一致
-- Kernel 与 legacy 的逐 bar 语义一致性由 axon-quant 内核单测与 shadow oracle 守护
+- Kernel 与 legacy 的逐 bar 语义一致性由内核 crate 单测与 shadow oracle 守护

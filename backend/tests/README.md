@@ -36,7 +36,7 @@ tests/
 ├── README.md            # 本文件
 ├── unit/                # 单元测试（主要部分）
 │   ├── <子包>/          # 按被测模块组织：strategy/ worker/ rl/ engine/
-│   │                    #   services/ axon_bridge/ api/ scripts/ share/ credentials/ ...
+│   │                    #   services/ api/ scripts/ share/ credentials/ ...
 │   └── test_*.py        # 也有部分跨模块的顶层测试文件
 ├── integration/         # 集成测试（API、回测、行情等端到端）
 ├── conformance/         # 一致性/契约测试

@@ -15,7 +15,7 @@ description: Gymnasium 交易环境、Stable-Baselines3 训练与生命周期管
 ## 训练环境
 
 ```python
-from axon_quant.rl import TradingEnv
+from strategy.core import TradingEnv
 from stable_baselines3 import PPO
 
 env = TradingEnv(config={...}, action_space="discrete",

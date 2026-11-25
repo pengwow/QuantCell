@@ -7,21 +7,16 @@ description: Unified-kernel backtests, three execution paths, walk-forward valid
 
 ## Unified kernel (default path)
 
-Backtests run on `axon_quant.worker.Kernel` (Rust-side `PyKernel`, which calls
-`Kernel::run_history` in `axon-kernel`) by default — the same per-bar main
-loop that paper / live use, guaranteeing consistent semantics.
+Backtests run on the unified kernel (Rust-side `PyKernel`, which calls
+`Kernel::run_history`) by default — the same per-bar main loop that paper / live
+use, guaranteeing consistent semantics.
 
 ```python
-from axon_quant import worker
 from strategy.rust_adapter import RustStrategyAdapter
 
-kernel = worker.Kernel(initial_cash=100_000.0, interval="1h")
-kernel.add_strategy(RustStrategyAdapter(strategy, initial_cash=100_000.0))
-result = kernel.run(
-    bars_by_symbol={"BTC/USDT": [{"timestamp": ns, "open": 1.0, "high": 1.0,
-                                   "low": 1.0, "close": 1.0, "volume": 1.0}]},
-    states_by_symbol={},
-)
+# The kernel instance is built by backtest/engine_service.py according to
+# engine_config['runner']; business code only supplies RustStrategyAdapter
+# (BaseStrategy.on_bar → kernel StrategyHost).
 ```
 
 Three execution paths are selected via `engine_config['runner']`, all
@@ -130,5 +125,5 @@ Hyperparameter search built on **Optuna**:
 
 - `tests/unit/backtest/test_rust_runner_parity.py` guards Python ↔ legacy
   field-by-field equality
-- Kernel vs legacy per-bar semantic consistency is guarded by axon-quant
-  kernel unit tests and the shadow oracle
+- Kernel vs legacy per-bar semantic consistency is guarded by kernel crate
+  unit tests and the shadow oracle

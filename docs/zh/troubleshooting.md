@@ -11,7 +11,7 @@ description: 安装、运行、回测与实盘的常见问题与解决方法
 
 - 确认 Python 3.14（项目目标版本）：`python3 --version`
 - 删缓存重装：`uv cache clean && uv sync`
-- axon-quant 是 maturin 完整 path 依赖，首次 sync 需要 Rust 编译环境可耗时较长，
+- 交易内核是 maturin 完整 path 依赖，首次 sync 需要 Rust 编译环境可耗时较长，
   属正常现象
 
 ### `quantcell` 命令不存在
@@ -68,10 +68,10 @@ quantcell data quality check --start <start> --end <end>
 
 ### 引擎行为与预期不符
 
-Rust 引擎 .so 可能过期（改过 axon-quant 源码后未重装）：
+Rust 引擎 .so 可能过期（改过内核源码后未重装，包名取 `backend/pyproject.toml` 的 path 依赖）：
 
 ```bash
-cd backend && uv sync --frozen --reinstall-package axon-quant
+cd backend && uv sync --frozen --reinstall-package <引擎包名>
 uv run pytest tests/conformance/ -q     # 契约门禁最先报警
 ```
 

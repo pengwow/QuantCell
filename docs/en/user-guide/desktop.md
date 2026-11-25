@@ -11,7 +11,7 @@ The desktop app has two layers:
 
 - **Tauri 2 shell**: reuses the same `frontend/` React code from this repo,
   with cross-platform windows and system tray
-- **backend sidecar**: the local `backend` (FastAPI + axon-quant) packaged by
+- **backend sidecar**: the local `backend` (FastAPI + Rust kernel) packaged by
   PyInstaller into a single-file binary, started and stopped automatically
   with the desktop app
 
@@ -19,7 +19,7 @@ The desktop app has two layers:
 QuantCell.app
 ├── Tauri shell (React frontend)
 └── quantcell-backend (sidecar binary, PyInstaller onefile)
-        └── bundled FastAPI + axon-quant + DuckDB
+        └── bundled FastAPI + Rust kernel + DuckDB
 ```
 
 ## Run modes

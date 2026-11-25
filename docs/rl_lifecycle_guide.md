@@ -133,7 +133,7 @@ print(f"Final: ${info['portfolio_value']:.2f}, Trades: {info['trades']}")
 ### 3.1 配置交易所
 
 ```python
-from axon_quant import BinanceAdapter, ExchangeConfig
+# 交易所适配器与配置类型由引擎适配层构造（参数含义见适配层文档）
 
 # 创建交易所适配器（testnet）
 config = ExchangeConfig(

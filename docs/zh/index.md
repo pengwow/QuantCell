@@ -5,7 +5,7 @@ description: QuantCell — AI 原生量化交易系统官方文档
 
 # QuantCell
 
-**QuantCell** 是一款 AI 原生的量化交易系统，以 [axon-quant](https://github.com/pengwow/axon_quant)（Rust 核心）为交易引擎，以 FastAPI 为服务框架、React + TypeScript 为前端，提供从策略开发、回测验证到实盘部署的全流程能力。
+**QuantCell** 是一款 AI 原生的量化交易系统，以 Rust 核心为交易引擎，以 FastAPI 为服务框架、React + TypeScript 为前端，提供从策略开发、回测验证到实盘部署的全流程能力。
 
 核心设计理念：**让量化交易变得简单、高效、智能** —— 自然语言即可描述策略，AI 自动生成代码并完成回测验证。
 
@@ -24,9 +24,9 @@ description: QuantCell — AI 原生量化交易系统官方文档
 - **智能 Agent**：具备记忆与工具调用能力，支持多轮对话与任务编排
 - **LLM 决策录制回放**：LLM 策略回测时从录制记录回放决策，不真实请求 LLM
 
-### ⚡ Axon-Quant 高性能引擎
+### ⚡ Rust 高性能引擎
 
-- **Rust 核心驱动**：底层采用 `axon-quant 0.25.0`，统一内核架构
+- **Rust 核心驱动**：统一内核架构
 - **统一主回路**：回测 / paper / live 共用同一条 per-bar 编排，语义一致
 - **多数据类型回测**：K 线、衍生数据（资金费率等）、订单簿、逐笔成交等数据适配器
 - **Walk-Forward 验证**：滚动窗口回测，防止过拟合

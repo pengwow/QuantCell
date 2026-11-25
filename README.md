@@ -6,15 +6,15 @@ English | [简体中文](README_CN.md)
 
 ## 1. Overview
 
-QuantCell is an AI-native quantitative trading system built on `axon-quant` (Rust core) as the trading engine, with FastAPI as the service framework and React + TypeScript on the frontend. It covers the full workflow from strategy development and backtest validation to live deployment.
+QuantCell is an AI-native quantitative trading system built on a Rust core trading engine, with FastAPI as the service framework and React + TypeScript on the frontend. It covers the full workflow from strategy development and backtest validation to live deployment.
 
 Core philosophy: **make quantitative trading simple, efficient, and intelligent** — describe a strategy in natural language, and AI generates the code and validates it with backtests.
 
-The system follows a **unified kernel architecture**: backtest, paper trading, and live trading share the same per-bar main loop driven by the axon-quant kernel. Modes differ only in the data pump and execution sink wiring, which guarantees behavioral consistency between backtests and live trading.
+The system follows a **unified kernel architecture**: backtest, paper trading, and live trading share the same per-bar main loop driven by the Rust kernel. Modes differ only in the data pump and execution sink wiring, which guarantees behavioral consistency between backtests and live trading.
 
 ## 2. Desktop Client
 
-Desktop builds are available for macOS / Windows / Linux. The desktop app is a Tauri 2 shell reusing the same `frontend/` code, with the local `backend` (FastAPI + axon-quant) packaged via PyInstaller and launched as a sidecar process. `local` mode requires no login and reaches the app directly; `remote` mode connects to a remote server.
+Desktop builds are available for macOS / Windows / Linux. The desktop app is a Tauri 2 shell reusing the same `frontend/` code, with the local `backend` (FastAPI + Rust core) packaged via PyInstaller and launched as a sidecar process. `local` mode requires no login and reaches the app directly; `remote` mode connects to a remote server.
 
 | Platform | Architecture | Package |
 |----------|--------------|---------|
@@ -39,9 +39,9 @@ Desktop builds are available for macOS / Windows / Linux. The desktop app is a T
 - **Intelligent Agent**: an AI agent with memory and tool calling for multi-turn conversations and task orchestration
 - **LLM decision recording & replay**: LLM strategies replay recorded decisions during backtests without real LLM calls
 
-### ⚡ Axon-Quant High-Performance Engine
+### ⚡ Rust High-Performance Engine
 
-- **Rust core**: powered by `axon-quant 0.25.0` with a unified kernel architecture
+- **Rust core**: unified kernel architecture
 - **Unified main loop**: backtest / paper / live share the same per-bar orchestration for consistent semantics
 - **Multi-data-type backtests**: adapters for klines, derivatives data (funding rate etc.), order book, and trades
 - **Walk-forward validation**: rolling-window backtests to prevent overfitting
@@ -105,7 +105,7 @@ Desktop builds are available for macOS / Windows / Linux. The desktop app is a T
        │                │                │
        ▼                ▼                ▼
 ┌──────────────────────────────────────────────────────────┐
-│      axon-quant (Rust kernel) · Binance / OKX · DuckDB    │
+│           Rust kernel · Binance / OKX · DuckDB           │
 │     Backtest / paper / live share one per-bar main loop   │
 └──────────────────────────────────────────────────────────┘
        ▲                ▲                ▲
@@ -122,7 +122,7 @@ Desktop builds are available for macOS / Windows / Linux. The desktop app is a T
 |----------|------------|
 | Backend language | Python 3.14 |
 | Web framework | FastAPI 0.136 (uvicorn) |
-| Trading engine | axon-quant 0.25.0 (Rust core, path dependency) |
+| Trading engine | Rust core (PyO3, path dependency) |
 | Database | DuckDB 1.4 + Parquet + SQLAlchemy 2 + Alembic |
 | Data processing | Pandas 2.3 / PyArrow 22 |
 | Reinforcement learning | Gymnasium 1.3 + Stable-Baselines3 2.9 |
@@ -224,7 +224,7 @@ $ quantcell --help
    account     Credential management (add/list/remove)
    migrate     Database migrations (SQLite schema upgrade)
    strategy    Strategy management CLI
-   backtest    QuantCell backtest tool (event-driven engine axon-quant)
+   backtest    QuantCell backtest tool (event-driven Rust engine)
    data        Data management CLI
 ```
 
@@ -297,7 +297,7 @@ result = service.run_backtest(
 print(result)  # dict with return, max drawdown, fills, and other metrics
 ```
 
-Backtests run on the axon-quant unified kernel (`worker.Kernel`) by default; three execution paths (unified kernel / legacy engine / Python fallback) are selected via `engine_config['runner']`, all producing the same `BacktestResult` contract.
+Backtests run on the unified Rust kernel by default; three execution paths (unified kernel / legacy engine / Python fallback) are selected via `engine_config['runner']`, all producing the same `BacktestResult` contract.
 
 ### 3. Reinforcement learning training
 

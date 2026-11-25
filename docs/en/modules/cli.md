@@ -29,7 +29,7 @@ $ quantcell --help
    account     Credential management (add/list/remove)
    migrate     Database migrations (SQLite schema upgrade)
    strategy    Strategy management CLI
-   backtest    QuantCell backtest tool (event-driven engine axon-quant)
+   backtest    QuantCell backtest tool (event-driven Rust engine)
    data        Data management CLI
 ```
 

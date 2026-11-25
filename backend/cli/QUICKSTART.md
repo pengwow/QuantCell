@@ -24,7 +24,7 @@ quantcell --help
  QuantCell 统一 CLI — 策略 / 回测 / 数据 / 风控 / 工作进程 等
  Commands:
    agent     AI agent 管理
-   backtest  事件驱动回测(axon_quant 唯一)
+   backtest  事件驱动回测(Rust 内核)
    data      数据采集 / 行情 / 存储
    factor    因子研究（分析/对比/代码因子/合成因子/LLM 挖掘/快照）
    market    行情订阅 / 实时数据

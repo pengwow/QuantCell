@@ -16,7 +16,7 @@ QuantCell 提供三条策略开发路径，最终都收敛到同一输出契约�
 所有策略实现同一个接口：每根 K 线收盘时被调用一次，返回一个 `Action`。
 
 ```python
-from axon_quant import Action, ActionType
+from strategy.core import Action, ActionType
 
 class MyStrategy:
     def on_bar(self, bar: dict) -> Action:

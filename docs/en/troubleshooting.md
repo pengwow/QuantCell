@@ -11,7 +11,7 @@ description: Common issues and fixes for installation, runtime, backtesting and 
 
 - Confirm Python 3.14 (the project's target version): `python3 --version`
 - Clean the cache and reinstall: `uv cache clean && uv sync`
-- axon-quant is a full maturin path dependency — the first sync needs a Rust
+- The trading kernel is a full maturin path dependency — the first sync needs a Rust
   toolchain and can take a while; this is normal
 
 ### `quantcell` command not found
@@ -77,11 +77,11 @@ sources first (milliseconds × 1_000_000).
 
 ### Engine behaves unexpectedly
 
-The Rust engine .so may be stale (axon-quant sources changed without
-reinstalling):
+The Rust engine .so may be stale (kernel sources changed without reinstalling;
+the package name is the path dependency in `backend/pyproject.toml`):
 
 ```bash
-cd backend && uv sync --frozen --reinstall-package axon-quant
+cd backend && uv sync --frozen --reinstall-package <engine-package>
 uv run pytest tests/conformance/ -q     # the conformance gate flags this first
 ```
 
