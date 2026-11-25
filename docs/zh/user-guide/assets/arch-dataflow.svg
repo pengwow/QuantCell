@@ -1,0 +1,73 @@
+<svg width="980" viewBox="0 0 980 200" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC','Microsoft YaHei',sans-serif" style="max-width:100%;height:auto;background:#fff;border-radius:8px">
+  <defs>
+    <marker id="d-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <style>
+      .d-title { font-size:12px; font-weight:700; fill:#fff }
+      .d-sub { font-size:10px; fill:#fff; opacity:.85 }
+          .hv:hover{filter:brightness(1.15);cursor:help}
+    </style>
+  </defs>
+
+  <!-- 起点：交易所 -->
+  <rect class="hv" x="20" y="70" width="130" height="60" rx="10" fill="#64748b"><title>交易所 WebSocket：数据源——K 线 / Tick / Depth 原始行情</title></rect>
+  <text x="85" y="95" text-anchor="middle" class="d-title">交易所 WebSocket</text>
+  <text x="85" y="113" text-anchor="middle" class="d-sub">K线 · Tick · Depth</text>
+
+  <path d="M155,100 L205,100" stroke="#333" stroke-width="1.5" marker-end="url(#d-arrow)"/>
+
+  <!-- realtime 分发 -->
+  <rect class="hv" x="210" y="70" width="120" height="60" rx="10" fill="#0891b2"><title>realtime 分发：实时行情总线，订阅后分发到各消费方</title></rect>
+  <text x="270" y="95" text-anchor="middle" class="d-title">realtime 分发</text>
+  <text x="270" y="113" text-anchor="middle" class="d-sub">实时行情总线</text>
+
+  <!-- 分叉 -->
+  <!-- 分支 1：落盘 -->
+  <path d="M335,90 L430,50 L490,50" stroke="#333" stroke-width="1.5" fill="none" marker-end="url(#d-arrow)"/>
+  <!-- 分支 2：paper/live -->
+  <path d="M335,110 L430,150 L490,150" stroke="#333" stroke-width="1.5" fill="none" marker-end="url(#d-arrow)"/>
+
+  <!-- Parquet 落盘 -->
+  <rect class="hv" x="495" y="22" width="110" height="55" rx="8" fill="#059669"><title>Parquet 落盘（落盘分支）：行情列式归档</title></rect>
+  <text x="550" y="44" text-anchor="middle" class="d-title">Parquet 落盘</text>
+  <text x="550" y="60" text-anchor="middle" class="d-sub">行情归档</text>
+
+  <!-- paper/live 泵 -->
+  <rect class="hv" x="495" y="122" width="110" height="55" rx="8" fill="#d97706"><title>paper/live 泵（实时分支）：实时分K驱动统一内核（KernelPump）</title></rect>
+  <text x="550" y="144" text-anchor="middle" class="d-title">paper/live 泵</text>
+  <text x="550" y="160" text-anchor="middle" class="d-sub">实时策略驱动</text>
+
+  <!-- Parquet → 质检 -->
+  <path d="M550,77 L550,95 L625,95 L625,125" stroke="#333" stroke-width="1.2" fill="none" marker-end="url(#d-arrow)"/>
+
+  <!-- quality 质检 -->
+  <rect class="hv" x="630" y="102" width="100" height="50" rx="8" fill="#047857"><title>quality：数据质量检测与修复</title></rect>
+  <text x="680" y="122" text-anchor="middle" class="d-title">quality</text>
+  <text x="680" y="138" text-anchor="middle" class="d-sub">质检 · 修复</text>
+
+  <!-- marketdata 服务 -->
+  <rect class="hv" x="630" y="30" width="100" height="50" rx="8" fill="#047857"><title>marketdata：历史行情查询服务</title></rect>
+  <text x="680" y="50" text-anchor="middle" class="d-title">marketdata</text>
+  <text x="680" y="66" text-anchor="middle" class="d-sub">历史行情查询</text>
+
+  <!-- 回测引擎 -->
+  <path d="M735,55 L785,55" stroke="#333" stroke-width="1.5" marker-end="url(#d-arrow)"/>
+  <rect class="hv" x="790" y="30" width="100" height="50" rx="8" fill="#7c3aed"><title>回测引擎：统一 Kernel 消费历史帧</title></rect>
+  <text x="840" y="50" text-anchor="middle" class="d-title">回测引擎</text>
+  <text x="840" y="66" text-anchor="middle" class="d-sub">统一 Kernel</text>
+
+  <!-- 汇合 → 前端推送 -->
+  <path d="M605,150 L770,170 L840,170" stroke="#333" stroke-width="1.5" fill="none" marker-end="url(#d-arrow)"/>
+  <path d="M840,80 L840,160" stroke="#333" stroke-width="1.5" fill="none" marker-end="url(#d-arrow)"/>
+
+  <!-- 前端推送 -->
+  <rect class="hv" x="850" y="140" width="120" height="50" rx="8" fill="#4f46e5"><title>前端 snapshot：SSE / WebSocket 推送实时快照</title></rect>
+  <text x="910" y="160" text-anchor="middle" class="d-title">前端 snapshot</text>
+  <text x="910" y="176" text-anchor="middle" class="d-sub">SSE / WebSocket 推送</text>
+
+  <!-- 标注 -->
+  <text x="270" y="60" font-size="11" fill="#555">入口</text>
+  <text x="400" y="35" font-size="10" fill="#555">落盘分支</text>
+  <text x="400" y="180" font-size="10" fill="#555">实时分支</text>
+</svg>

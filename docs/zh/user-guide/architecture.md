@@ -7,37 +7,18 @@ description: QuantCell 系统分层、统一内核主回路与技术栈
 
 ## 系统分层
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                  前端 (React + TypeScript)                │
-│    Ant Design 6 · KLineCharts · Zustand · i18n · Tauri   │
-└──────────────────────────┬───────────────────────────────┘
-                           │ HTTP / WebSocket
-┌──────────────────────────▼───────────────────────────────┐
-│                API Layer (FastAPI, /api/v1)               │
-│  CORS · 认证 · 异常处理 · 能力开关 · Prometheus 可观测     │
-└──────┬───────────────┬────────────────┬───────────────────┘
-       │               │                │
-       ▼               ▼                ▼
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ 策略与回测   │  │ 实时交易     │  │ 数据采集     │
-│ strategy/   │  │ realtime/   │  │ collector/  │
-│ backtest/   │  │ worker/     │  │ quality/    │
-│ factor/ rl  │  │ credentials │  │ marketdata/ │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                │
-       ▼                ▼                ▼
-┌──────────────────────────────────────────────────────────┐
-│            Rust 内核 · Binance / OKX · DuckDB            │
-│      回测 / paper / live 共用统一 per-bar 主回路           │
-└──────────────────────────────────────────────────────────┘
-       ▲                ▲                ▲
-┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐
-│    Agent    │  │    CLI      │  │    插件      │
-│   agent/    │  │  quantcell  │  │  plugins/   │
-│  research/  │  │  15 组命令   │  │  事件总线    │
-└─────────────┘  └─────────────┘  └─────────────┘
-```
+![系统分层架构图（鼠标悬停查看各模块职责）](assets/arch-layers.svg)
+
+
+> **Jobs（作业池） vs Worker（实盘策略进程）** — 这是两个独立的调度概念，边界不相交：
+>
+> | | Jobs 作业池 | Worker 实盘策略进程 |
+> |---|---|---|
+> | **作用** | 回测 / RL 训练 / HPO 搜索 的 CPU 并发调度 | 实盘策略实例（每个 Worker = 一个策略 + 交易所 + 交易对） |
+> | **生命周期** | spawn 子进程 → 跑完即死 | 长驻进程（DB + journal 持久化，start/stop/restart/kill） |
+> | **通信** | 共享内存 + JobResult 回传 | ZMQ Orchestrator（5558/5559） |
+> | **配置** | 三态灰度开关 + 绑核切分（`[jobs].cores`） | 每 Worker 独立配置 trading_config / credentials |
+> | **CLI** | `quantcell jobs config / selftest`（不建池） | `quantcell worker summary/start/stop/...`（需 ZMQ 通道） |
 
 ## 统一主回路（回测 / paper / live）
 
@@ -49,19 +30,9 @@ QuantCell 最重要的架构决策：**三种模式跑同一条主回路**。
     - **执行层**：回测用 `BacktestSink` 撮合，paper 用 `PaperSink` 模拟，live 用实盘 sink
 - 主回路本身没有 mode 分支，保证**回测与实盘行为一致**
 
-```
-策略 (on_bar → Action)
-        │
-        ▼
-┌─────────────────────────────────────┐
-│             统一 Kernel             │
-│   九步 per-bar 编排（每根 K 线）     │
-│   数据更新 → 信号 → 风控 → 撮合      │
-└─────────────────────────────────────┘
-        │
-        ▼
-   ExecutionSink（回测 / paper / live 三选一）
-```
+### 统一内核调度路径（回测为例）
+
+![统一内核调度路径图（回测为例）（鼠标悬停查看各模块职责）](assets/arch-scheduling.svg)
 
 ### 策略输出契约
 
@@ -137,15 +108,5 @@ sidecar 进程随桌面端启动。支持 `local`（本地后端，免登录）�
 
 ## 数据流
 
-```mermaid
-flowchart LR
-    A[交易所 WebSocket] --> B[realtime 分发]
-    B --> C[Parquet 落盘]
-    C --> D[quality 质检/修复]
-    C --> E[marketdata 服务]
-    E --> F[回测引擎]
-    B --> G[paper/live 泵]
-    F --> H[BacktestResult]
-    G --> I[前端 snapshot 推送]
-    H --> I
-```
+![实时数据流图（鼠标悬停查看各模块职责）](assets/arch-dataflow.svg)
+
