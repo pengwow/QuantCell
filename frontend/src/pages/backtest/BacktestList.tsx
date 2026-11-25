@@ -37,7 +37,15 @@ const STATUS_CHIPS: Array<{ value: FilterStatus; i18nKey: string }> = [
 ];
 
 // 行内摘要 KPI（demo bt-detail mstats 对位）：全部取自组合级真实指标，缺哪个少哪张
-const SUMMARY_METRIC_KEYS = ['total_return', 'sharpe_ratio', 'max_drawdown', 'total_trades', 'win_rate'] as const;
+const SUMMARY_METRIC_KEYS = [
+  'total_return',
+  'sharpe_ratio',
+  'max_drawdown',
+  'total_trades',
+  'win_rate',
+  'profit_factor',
+  'duration_days',
+] as const;
 
 // 运行中任务进度刷新间隔（demo bt-run 1272：运行中定时刷新快照；这里取 15s）
 const PROGRESS_POLL_MS = 15_000;

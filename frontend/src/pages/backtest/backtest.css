@@ -192,6 +192,14 @@
   border-radius: 8px;
 }
 
+/* demo 2276/2735 参数卡脚注：预计运行 bar 数（前端估算，弱态 mono） */
+.bc-est-bars {
+  margin-top: -8px;
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* ---- 行内展开面板（demo #view-backtest .bt-exp > .card）----
    面板已成 antd expandedRow 的内容：chrome/留白由 .qc-exp-panel（global.css）
    统一承担，本类只保留内部的排布，不再叠一层卡框。

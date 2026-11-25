@@ -57,6 +57,17 @@ const { Option } = Select;
 // K 线周期档位：与原 Select 完全同集（真实能力不减），demo .seg 形制为 mono 裸值
 const INTERVAL_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'].map((v) => ({ value: v, label: v }));
 
+// demo 2276「预计运行 N bar」估算用：bar 间隔 → 毫秒（与 INTERVAL_OPTIONS 同全集）
+const INTERVAL_MS: Record<string, number> = {
+  '1m': 60_000,
+  '5m': 300_000,
+  '15m': 900_000,
+  '30m': 1_800_000,
+  '1h': 3_600_000,
+  '4h': 14_400_000,
+  '1d': 86_400_000,
+};
+
 interface BacktestConfigProps {
   onRunBacktest?: () => void;
   strategy?: Strategy;
@@ -128,7 +139,19 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   // LLM 类型判定：与后端 _strategy_kind 同口径（策略 params 里 name=mode 的取值 llm，
   // 见 backend/strategy/service.py:353）。表单值优先（用户可覆盖 mode），未改过时回落到档案默认值
   const watchedParams = Form.useWatch('params', form) as Record<string, unknown> | undefined;
+  const watchedTimeRange = Form.useWatch('timeRange', form) as [Dayjs, Dayjs] | undefined;
+  const watchedInterval = Form.useWatch('interval', form) as string | undefined;
   const modeParamDefault = selectedStrategy?.params?.find((p) => p.name === 'mode')?.default;
+  // demo 2276/2735「预计运行 N bar」：起止 × bar 间隔纯算术估算（未计缺 bar / 停机段，故 UI 标「估算」）
+  const estimatedBars =
+    watchedTimeRange?.[0] && watchedTimeRange[1] && INTERVAL_MS[watchedInterval ?? '15m']
+      ? Math.max(
+          0,
+          Math.floor(
+            watchedTimeRange[1].diff(watchedTimeRange[0]) / INTERVAL_MS[watchedInterval ?? '15m'],
+          ),
+        )
+      : null;
   const isLlmStrategy = watchedParams?.mode !== undefined
     ? watchedParams.mode === 'llm'
     : modeParamDefault === 'llm';
@@ -1189,6 +1212,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                   <Option value="futures">{t('backtest_futures')}</Option>
                 </Select>
               </Form.Item>
+
+              {/* demo 2276/2735 参数卡脚注：预计 bar 数（前端纯算术估算） */}
+              {estimatedBars !== null && (
+                <div className="bc-est-bars">
+                  {t('backtest_estimated_bars', { bars: estimatedBars.toLocaleString() })}
+                </div>
+              )}
             </Card>
 
             {/* 卡 2 · 成本与账户 */}

@@ -438,6 +438,7 @@ const HomePage = () => {
       subtitle={subtitle}
       actions={
         <>
+          <span className="qc-page-actions-cap">{t('home_quick_actions')}</span>
           <Button
             type="primary"
             icon={<IconPlus size={14} stroke={1.8} />}

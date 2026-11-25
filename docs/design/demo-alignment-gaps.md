@@ -25,8 +25,11 @@
 > 每条给 判定 + file:line）+ Playwright 1440×900 亮色逐页截图比对（demo 全 14 视图经 hash 短名
 > `#sagent` 等重拍；现网 19 屏，页内页签与真详情页单独取证）。**结论：0 条完全消掉；4 条部分落地/
 > 情况变化（§3 转回测预填接收端已备、§7 engine_type 半补、§11 kline 首屏入口缓解、§12 行内展开部分
-> 消解 D-4）；B 档 8 条后端口子全部未动（B4 半补）**。坐实 1 条回归：`/strategy-management` 首屏
-> 预选首行已被后续重构冲掉（重回 §5 未消表）。11-24~25 新增量记入「2026-11-25 新增差异候选」。
+> 消解 D-4）；B 档 8 条后端口子全部未动（B4 半补）**。原判「1 条回归」系误报：`/strategy-management`
+> 首屏零展开是 11-23 行内展开重构的刻意决策（预选=自动展开首行，S18 雷区明令不恢复），11-25 改判
+> 「刻意行为差异」。11-24~25 新增量记入「2026-11-25 新增差异候选」。**同日跟进**：A 档纯前端四项
+> 已落地——agent「转回测验证」带 state 预填、backtest 行内摘要加盈亏比/交易日两卡、config 预计
+> bar 数（估算）+ 币本位账务警示、home cap 标签（§1/§3/§7/§8 与总览已同步）。
 
 ## 口径
 
@@ -51,18 +54,18 @@
 | `/strategy-management` 版本历史「无源」 | **已实现**：快照表 + `/versions` + overview `version_count` | `backend/strategy/models.py:84-98`、`routes.py:87-105` |
 | `/backtest` 订单列「需聚合（metrics.total_trades）」 | **口径暗差**：该值是 fills 成交笔数，不是含撤单的订单数；引擎已算 `orders_accepted/rejected`，只是 formatter 没注入 | `result_formatter_service.py:524-526` vs `engine_service.py:1351-1352` |
 
-## 复检总览（数值为 2026-11-23「A 档纯前端」落地后的余量；2026-11-25 复核：0 条全消，唯一行值变动是 `/strategy-management` 预选首行回归 1→2，状态变化见各节）
+## 复检总览（数值为 2026-11-23「A 档纯前端」落地后的余量；2026-11-25 复核 0 条全消——「strategy 预选首行」改判刻意差异；同日 A 档四项落地，行值已更新至落地后）
 
 | 页 | 仍缺（条） | 其中「纯前端/后端已就绪」 | 最刺眼 |
 |---|---|---|---|
-| `/home` | 3 | 1 | 运行中行的「今日 +%」仍是累计 USD（需按 worker 拆 24h） |
+| `/home` | 2 | 3 | 运行中行「今日 +%」仍累计 USD + KPI4 研究分布副标（均需后端聚合 B5）；cap 标签 11-25 已落 |
 | `/chart` | 1 | 0 | 副标口径项建议按现网真值裁（时区可切换 / WS 延迟无源） |
-| `/agent` | 4 | 2 | ReAct 步进卡仍只有「迭代 X/Y」徽标；工具参数仍裸 JSON |
+| `/agent` | 3 | 3 | ReAct 步进卡仍只有「迭代 X/Y」徽标；参数摘要仍裸 JSON；转回测预填 11-25 已接通 |
 | `/strategy-worker` | 1 | 1 | 仅余「类型」独立列形制（demo 5 列，现网名称内联 chip），低优先级 |
-| `/strategy-management` | 2 | 1 | 首屏预选首行回归（11-23 落地被冲掉）；footer「默认 runner：kernel」是硬编码 |
+| `/strategy-management` | 1 | 2 | footer「默认 runner：kernel」硬编码（B3）；「首屏预选首行」改判刻意差异（S18 零展开口径），不计欠账 |
 | `/strategy-editor` | 0 | 0 | 已全部落地 |
-| `/backtest`(+detail) | 4 | 2 | 订单列口径不符（值是 fills）；详情配置卡缺手续费/runner |
-| `/backtest/config` | 3 | 1 | 参数只读行需后端扩标记；预计 bar 数仍是纯前端估算 |
+| `/backtest`(+detail) | 4 | 2 | 订单列口径不符（值是 fills，B1）；行内摘要盈亏比/交易日两卡 11-25 已落；engine_type 详情半补维持 |
+| `/backtest/config` | 1 | 3 | 参数只读行需后端扩 readonly 标记；预计 bar 数 + 乘数/币本位警示 11-25 已落 |
 | `/factor-analysis` | 5 | 2 | 半衰期列；副标样本/IC 口径未落 |
 | `/research`(+detail) | 3 | 0 | 列表摘要 ic/cov 与研究员署名需后端补两字段 |
 | `/data-management` | 6 | 1 | kline 水位卡没有补齐入口；最新 bar 只到日粒度 |
@@ -100,10 +103,8 @@
 |---|---|---|---|
 | 运行中任务行右侧「今日 +x.xx%」 | 879/886/893 | `HomePage.tsx:567` 读 `total_profit ?? 0`、`:621-628` 仍 `formatUSD`；`/workers/stats/pnl-overview` 仍全局 SUM 不分 worker（`backend/worker/routes.py:264-283`） | `需聚合`：单 worker 24h 已实现盈亏 ÷ 配置资金（B5，11-25 未补） |
 | KPI4 副标研究分布 | 863-864 | `HomePage.tsx:534` 引 `home_kpi_research_hint`（`i18n/zh-CN.json:51`「{{running}} 个进行中」），无 scenario 分布 | `需聚合`：demo 的分类轴（因子/参数扫描/实验）不存在，只能按现网 `scenario`（factor/strategy/model）出分布 |
-| 最近研究卡脚注（说明行 + 「打开研究页 →」） | 943 | `HomePage.tsx:757` 卡底无 foot（回测卡有 `:680-692`） | `已有`：照抄回测卡形态；但 demo 正文提「一键转回测」需改写（会话级入口仍缺） |
-| KPI 区 cap 小标签（如「快捷操作」） | 828 | `PageContainer.tsx:39-69` 仅有 actions 槽位，无 cap-label；`HomePage.tsx:436-464` actions 纯按钮组 | `已有`（纯文案标签） |
 
-**已消项**：KPI2 今日盈亏 %+较昨日同期（`HomePage.tsx:402-417`）、KPI1 状态分布（`:387-393`）、KPI3 回测分布（`:428-433`，服务端 total）、回测行「区间·周期」（`:658-661`）、回测卡脚注（`:680-692`）、**研究卡脚注**（`HomePage.tsx:758-770`，`home_research_foot` + 「策略研究」链接）、系统卡四行形态 + 业务读数真值化（fbe0039d：引擎 / Exchange / 行情 / LLM 真读数，随 `/system/metrics` 埋点；11-25 截图复核一致）。
+**已消项**：KPI2 今日盈亏 %+较昨日同期（`HomePage.tsx:402-417`）、KPI1 状态分布（`:387-393`）、KPI3 回测分布（`:428-433`，服务端 total）、回测行「区间·周期」（`:658-661`）、回测卡脚注（`:680-692`）、**研究卡脚注**（`HomePage.tsx:758-770`，`home_research_foot` + 「策略研究」链接）、系统卡四行形态 + 业务读数真值化（fbe0039d：引擎 / Exchange / 行情 / LLM 真读数，随 `/system/metrics` 埋点；11-25 截图复核一致）、**KPI 区 cap 小标签**（11-25 落地：`HomePage.tsx` actions 首位 11px 弱态「快速操作」，`global.css` `.qc-page-actions-cap` 对位 demo 828 `.pa-cap`，key 沿用现有 `home_quick_actions`）。
 
 **反缺口**：运行中行直达 `/strategy-worker/:id`（`:490`）、三卡空态带动作钮、底部快速操作卡。
 
@@ -123,10 +124,9 @@
 |---|---|---|---|
 | ReAct 步进卡（rail + 容量条 + SSE 计数 + iter-next） | 1414-1446、1490-1493 | `ChatPanel.tsx:322-330` 仍只有「迭代 X/Y」徽标；SSE `iteration_start/complete` 已 parse（`agentStore.ts:242,342`）但只喂徽标 | `需聚合`（前端可做计数/容量条；demo 的步骤命名 `无源`） |
 | 工具节点参数摘要 + 展开体 | 1460-1488 | `ChatPanel.tsx:154` `JSON.stringify(tc.arguments ?? {})`、`:161` 单行裸 JSON（`title` 悬停全文），结果折叠块另在 `:98-` | `已有`（参数摘要是前端提取，非后端字段） |
-| 「转回测验证」预填 | 1506 | `ChatPanel.tsx:43,290-294` 纯 `navigate(target)` 不带 state；**接收端已备**（`BacktestConfig.tsx:136-141` 消费 `location.state?.strategy`） | `已有`（agent 侧带一个 state 即接通；11-25 复核口径） |
 | 迭代足迹口径 | 1528-1553 | `FirstScreenCards.tsx:35-110` 形制已对齐（12 柱上限 / 熔断线 / ≥80% 预警 / 均值 chip），但数据轴仍是当前会话逐条回复、x 轴为时刻（`i18n/zh-CN.json:2828,2832` 自述「仅当前会话」） | `需聚合`（跨会话按天需 audit 聚合；history 不带 iteration，落地时已声明降级） |
 
-**已消项**：页头（会话 id / 单轮上限 / 两个跳转钮，`Agent.tsx:220-237`）、右栏首屏「迭代足迹 + Dream」两卡（`FirstScreenCards.tsx:39-243`）、Dream 倒计时（`:144-146,229-236`）、**工具节点逐节点耗时**（SSE `tool_result.elapsed` 按 `data.name` 回填到 `toolCalls[i].elapsed`，`agentStore.ts:391-414` → `ChatPanel.tsx:155-167`，无值不渲染）、**每日复盘结构化入流**（history 保留 `meta`，识别 `meta.kind='daily_review'` → 出处 chip「定时任务 · 每日复盘」+ 按 `report.sections` 渲染概览/Worker/异常/风控/模型，空节跳过）。
+**已消项**：页头（会话 id / 单轮上限 / 两个跳转钮，`Agent.tsx:220-237`）、右栏首屏「迭代足迹 + Dream」两卡（`FirstScreenCards.tsx:39-243`）、Dream 倒计时（`:144-146,229-236`）、**工具节点逐节点耗时**（SSE `tool_result.elapsed` 按 `data.name` 回填到 `toolCalls[i].elapsed`，`agentStore.ts:391-414` → `ChatPanel.tsx:155-167`，无值不渲染）、**每日复盘结构化入流**（history 保留 `meta`，识别 `meta.kind='daily_review'` → 出处 chip「定时任务 · 每日复盘」+ 按 `report.sections` 渲染概览/Worker/异常/风控/模型，空节跳过）、**「转回测验证」预填**（11-25 落地：`handleIntentAction` 对 `/backtest/config` 带 `state: { strategy: { name } }`——`strategy_name` 来自意图结构化数据（`backend/agent/api/routes.py:290`），接收端按 name 从列表取完整对象；无策略名的回复不带 state，行为同旧）。
 
 **反缺口**：Worker 选择器 + 状态 chip、意图面板、删除需输确认词、工具参数抽屉。（9a49e437 删除右栏 8 页签工作台后，「`?tab=&worker=` 持久化」「自迭代每日闭环」已不存在——URL 只留 `?worker=`，Dream 卡只读态保留在 `FirstScreenCards`；下轮勿再按旧文档找工作台，并警惕同批被砍的观测/回测抽屉/训练面板入口——本项是 11-25 轮最大回归风险点。）
 
@@ -157,11 +157,9 @@
 
 | 差异点 | demo | 现网 | 可行性 |
 |---|---|---|---|
-| 首屏不预选首行（详情块空转） | 1630 + 1716 | **11-25 回归**：`StrategyManagement.tsx:64` 初值 `''`，全文件无载入态选中——唯一自动选中路径是 `?focus=` 命中（`:129-145`）；截图证实首屏无选中态（11-23 A-3 兜底 effect 已被后续重构冲掉） | `已有`（恢复兜底 effect：首载取第一行 name；空列表不选、用户选择不被抢） |
-| 版本 0 条时 footer 整段消失 | 1727 | `:688-702` 仅在 `versionCount > 0` 渲染 | `已有`（0 时渲染禁用态文案，与 demo「版本历史 0 条」语义一致） |
 | footer「默认 runner：kernel」硬编码 | 1727 | `StrategyManagement.tsx:733` `{ runner: 'kernel' }` 写死（`:713` 注释自称「内核默认路径真值」）；现网 runner 可真切换 kernel/legacy/python | `需聚合`（源 `engine_config['runner']`，回测配置接口可透传；B3，11-25 未补） |
 
-**已消项**：七列（类型/周期/标的/状态/Worker/最近回测 + 策略名）+ 点行常驻详情块（`:654-705`）、页头「发起回测」、副标真实计数（`:307-320`）、状态 chips（`:324-334`，草稿态按决策省略）、`GET /strategy/overview` 三表聚合、`?tab=backtests` → replace、策略名 200px 截断 + 悬停全名、**版本历史**（表 + `/versions` + 折叠列表 `:604-652`）、**版本 0 条仍保留 footer 段**（弱态文字）。「首屏预选首行」已于 11-23 落地、后被后续重构冲掉（**11-25 复检回退**，重回上表）。
+**已消项**：七列（类型/周期/标的/状态/Worker/最近回测 + 策略名）+ 点行常驻详情块（`:654-705`）、页头「发起回测」、副标真实计数（`:307-320`）、状态 chips（`:324-334`，草稿态按决策省略）、`GET /strategy/overview` 三表聚合、`?tab=backtests` → replace、策略名 200px 截断 + 悬停全名、**版本历史**（表 + `/versions` + 折叠列表 `:604-652`）、**版本 0 条仍保留 footer 段**（弱态文字，`StrategyManagement.tsx:747-762` else 分支）。「首屏预选首行」11-23 曾按 A-3 落地，同日在「详情块改行内展开」重构中**刻意移除**——预选=自动展开首行（`strategy-management.md` S18 雷区明令不恢复）；2026-11-25 复检曾误判为回归，**同日已改判刻意行为差异，不计欠账**。
 
 **反缺口**：排序 Select、行删除（icon + Popconfirm）、卡片视图、版本历史折叠列表（demo 只有计数文案）、全局分页开关。
 
@@ -176,7 +174,7 @@
 | 差异点 | demo | 现网 | 可行性 |
 |---|---|---|---|
 | 「订单」列口径 | 1168/1195（236 = 成交 229 + 撤单 7） | `BacktestList.tsx:40,733-734` 仍渲染 `total_trades` = fills 笔数（`result_formatter_service.py:522-528` 全文件无 orders_accepted/rejected） | `需聚合`：引擎已产出 `orders_accepted/orders_rejected`（`engine_service.py:968-969,1351-1352`，多品种聚合键也含），formatter 未注入 → 注入两键后**订单列 + KPI「成交/撤单」+ 详情卡三处同时解锁**（B1，11-25 未补） |
-| KPI sub 行（成交/撤单、交易日、盈亏比） | 1233-1237 | 详情页用 29 张独立卡超集覆盖（`metricCards.ts:101-131`），无 sub 形制；行内摘要固定 5 键（`BacktestList.tsx:40`），未含 `profit_factor`/`duration_days` | 前两项随上一条解锁；`profit_factor/duration_days` 已在 `summary.metrics`，`已有`（行内摘要加两卡） |
+| KPI sub 行（成交/撤单、交易日、盈亏比） | 1233-1237 | 详情页用 29 张独立卡超集覆盖（`metricCards.ts:101-131`），无 sub 形制；行内摘要 **11-25 起含 `profit_factor`/`duration_days` 共 7 键**（`BacktestList.tsx` `SUMMARY_METRIC_KEYS`，源 `activeSummary.metrics`，缺键的旧任务该卡不渲染） | 交易日/盈亏比已落；成交/撤单仍随 B1 解锁 |
 | 详情页配置卡缺手续费 / runner | 1253 | `BacktestDetail.tsx:544-583` 纯 8 项 Descriptions；commission 类型已有（`types/backtest.ts:78`）UI 未接；engine_type 已随 `/list`、`/summary` 返回（`backend/backtest/service.py:1057,1399`）但 `BacktestDetailData` 未定义（`types/backtest.ts:178-192`）、详情 0 命中 | commission `已有`；engine_type 后端半补（B4），剩详情响应确认 + 类型/UI 透传 |
 | 配置脚注「滑点」 | 1252-1254 | 全链路无字段（grep slippage 0 命中） | `无源` |
 
@@ -191,11 +189,9 @@
 | 差异点 | demo | 现网 | 可行性 |
 |---|---|---|---|
 | 参数只读行（entry/sl 纯文本） | 2269-2275 | `BacktestConfig.tsx:529-554` 全部可编辑；`StrategyParam` 无只读标记 | `需聚合`（后端扩 `readonly` 标记才做，否则保持现状） |
-| 预计运行 bar 数 | 2276 | 无 | `已有`（timeRange + interval 均在表单，前端推算并标「估算」） |
-| 乘数/币本位账务警示 | 2243-2245 | `backtest_trading_mode_extra`（`i18n/zh-CN.json:655`）仍只讲「现货只能做多；永续支持双向并结算资金费率」；`:658` margin extra 只讲杠杆弱平 | `已有`（并入 extra 文案；引擎侧确未把乘数计入名义价值） |
 | 资金模式「固定/复利」 | 2254-2256 | `BacktestConfig.tsx:1226-1238` 仍 `per_symbol/shared` Segmented（disabled=!isMultiSymbol） | **不照抄**（两条不同轴线，硬加会与 `capital_mode` 契约冲突；11-25 维持） |
 
-**已消项**：页头副标 runner（`:1124-1130` 逐字对位）、标的选取（Select multiple 超集）、手续费读出侧百分化（`bc_subtitle` + 行内脚注）、交易模式 hint 基础段、**LLM replay 不降级提示**（选中 `mode=llm` 策略时参数卡底部，`bt_llm_replay_note`）、标的下拉自选组标识统一（组色圆点与数据管理页该组自定义色同源，回测配置 / Worker 创建 / 编辑三处共享 `utils/symbolOptions`，⭐ 与固定警示色星标已废；数据管理采集表单的组值前缀一并统一为 `pool_`）。
+**已消项**：页头副标 runner（`:1124-1130` 逐字对位）、标的选取（Select multiple 超集）、手续费读出侧百分化（`bc_subtitle` + 行内脚注）、交易模式 hint 基础段、**LLM replay 不降级提示**（选中 `mode=llm` 策略时参数卡底部，`bt_llm_replay_note`）、标的下拉自选组标识统一（组色圆点与数据管理页该组自定义色同源，回测配置 / Worker 创建 / 编辑三处共享 `utils/symbolOptions`，⭐ 与固定警示色星标已废；数据管理采集表单的组值前缀一并统一为 `pool_`）、**预计运行 bar 数（估算）**（11-25 落地：表单起止 × 周期纯算术，`BacktestConfig.tsx` `estimatedBars` → 交易模式卡底 `.bc-est-bars`，`backtest_estimated_bars`，未计缺 bar 故标「估算」）、**币本位账务警示**（11-25 落地：`backtest_margin_specs_extra` 并入「引擎尚未把乘数计入名义价值，币本位为近似账务」，对位 demo 2243-2245/2704）。
 
 **反缺口**：保证金规格输入、数据预检下载、进度弹窗、`lastBacktestConfig` 回填。
 
@@ -270,7 +266,7 @@
 
 ## 2026-11-25 新增差异候选（下轮审计前必读）
 
-1. **回归**：`/strategy-management` 首屏预选首行失效（11-23 A-3 落地被后续重构冲掉）——细节见 §5 表。
+1. ~~回归~~ **改判（11-25 同日，经用户确认）**：`/strategy-management` 首屏零展开是 11-23 行内展开重构的刻意决策（`strategy-management.md` S18 雷区明令不恢复——预选=自动展开首行）；初判「回归」系复检漏读测试文档，勿再按回归追。
 2. **9a49e437 删除 `/agent` 右栏 8 页签工作台**：排队/观测/回测抽屉/训练面板入口整批移除（wb_* 111 条 i18n 删净，URL 只留 `?worker=`，Dream 卡只读态留在 `FirstScreenCards`）。§3 反缺口已同步收缩；自检只覆盖 3 个 GET，**是本轮最大回归风险点**。
 3. **8354baea / 8006ef8e 策略↔回测双向闭环**（现网超集，已记入 §7 已消项）：`backtest_count` 扫任务文件与回测中心同源（`backend/strategy/service.py:306`）、`?strategy=`↔`?focus=` 互跳、回测行内策略档案行、策略已删如实标注。
 4. **eef9bad9 因子数据守卫**：分析/对比前预检缺数据 + 一键下载后自动续跑（demo 无此件；已入 §9 反缺口）。
@@ -290,7 +286,7 @@
 6. ✅ `/chart` OHLC 联动条 + 常驻 MA 图例。
 7. ✅ `/research` 列表卡片 + 详情页头「转回测」、成功跳任务详情、结论 md 块、Top5 按 OOS Sharpe。
 8. ✅ `/home` 研究卡脚注。
-9. ⏳ 仍未做（11-25 复核维持）：`/backtest/config` 预计 bar 数（标「估算」）与乘数/币本位账务警示；`/strategy-worker` 决策流「思考折叠」（`s2_thinking` 有真值）。
+9. ✅ `/backtest/config` 预计 bar 数（标「估算」）与乘数/币本位账务警示——**11-25 同日落地**（同批：agent 转回测预填、backtest 行内摘要两卡、home cap 标签）。⚠️ `/strategy-worker` 决策流「思考折叠」（`s2_thinking` 有真值）仍未做。
 
 ### B. 一次后端聚合解决一页（2026-11-25 复核：1-3、5-8 未动；4 半补）
 

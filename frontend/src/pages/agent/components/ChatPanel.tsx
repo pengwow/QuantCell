@@ -290,7 +290,10 @@ const ChatMessage = ({ message }: { message: Message }) => {
   const handleIntentAction = (actionType: string) => {
     const target = INTENT_ACTION_ROUTES[actionType];
     if (target) {
-      navigate(target);
+      // 「转回测验证」预填：带策略名跳转；接收端（BacktestConfig）按 name 从列表取完整策略对象
+      const strategyName =
+        target === '/backtest/config' ? message.structuredData?.strategy_name : undefined;
+      navigate(target, strategyName ? { state: { strategy: { name: strategyName } } } : undefined);
       return;
     }
     antMessage.info(t('agent_execute_action', { action: actionType }));

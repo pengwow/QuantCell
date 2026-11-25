@@ -484,6 +484,13 @@ html body {
   flex-wrap: wrap;
 }
 
+/* demo .pa-cap（828）：动作钮组左侧 11px 弱态 cap 标签 */
+.qc-page-actions-cap {
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  margin-right: 2px;
+}
+
 /* 小屏（<md）：卡片 Sider 让位给 Drawer，画布边距收紧，语言/胶囊收成图标 */
 @media (max-width: 767px) {
   .qc-hamburger,
