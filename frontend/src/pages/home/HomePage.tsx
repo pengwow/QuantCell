@@ -360,7 +360,9 @@ const HomePage = () => {
         key: 'engine',
         tone: eng && eng.samples > 0 ? 'ok' : 'off',
         name: t('home_sys_engine'),
-        // id 徽标留空：'axon-kernel' 内核代号不进 UI（2026-11-26 用户裁定）；Exchange 行的 id 是真值交易所名，性质不同
+        // id 徽标走中性代号 'kernel'（与「统一内核」描述同源）：内部品牌名 axon-kernel 不入 UI（2026-11-26 裁定），
+        // 形制与其他行一致（Exchange=binance / 数据源=kline / LLM=provider 名）
+        id: 'kernel',
         sub:
           eng && eng.samples > 0
             ? t('home_sys_engine_sub', { samples: eng.samples })
