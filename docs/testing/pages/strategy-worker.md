@@ -58,3 +58,4 @@
 - **分享弹窗会写数据**：`POST /api/v1/workers/<id>/share` 真实生成 token 并落库，L1/L2 默认只验证弹窗打开，不点「生成链接」
 - **删除 worker 不可撤销**：无回收站，只有确认框；验证删除只允许对 `zz_test_probe_worker` 执行，并当场 teardown
 - **详情页不提供「暂停/继续」**：后端 `backend/worker/routes.py` 的 lifecycle 只有 start/stop/restart，`agentApi.pauseAgent`/`resumeAgent` 是死代码；加按钮会 404。要补必须先加真实 pause/resume 路由与泵线程语义，别只接前端
+- **`/ws/worker` 现要求认证**（2026-11-25）：握手 token 走 query 参数（WS 无法带 Authorization 头），失败时 accept 后以 4401 关闭；dev/desktop 本地豁免认证是预期。另：该文件曾有 Python2 语法 `except TypeError, ValueError,` 导致整个后端 import 失败——见到 `SyntaxError: multiple exception types` 优先确认此处无回归

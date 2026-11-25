@@ -55,3 +55,4 @@
 - **首屏 Dream 卡「下次运行」必须来自调度器真值**：`/agent/loop-status` 的 `next_run_at` 取自本进程真实挂载的 APScheduler job（`core/scheduler.py::get_scheduler()` → `job.next_run_time`），未挂载/调度器未启动即 `null`；前端此时整行不渲染。**不要**按 `cron` 文案（`每日 04:00`）自己推算时间戳——croniter 未安装，且推算出来的时间在总闸关闭时是假的下次运行
 - **Dream 心跳依赖后端进程活过 04:00**：两次平台级重启（11-18/11-19）都撞掉 04:00 调度载体。C/B 卡显示`重启后尚未运行`属预期，不是缺陷；总闸 `QUANTCELL_AGENT_DREAM` 未开时 Dream 行显示`已关闭（总闸未开）`
 - **`tool_result.elapsed` 单位是秒**（`backend/agent/core/loop.py:426-435`），前端按 `data.name` 回填到同名且尚未填过的 `toolCalls[i].elapsed`；**不要**做消息级共享耗时——同轮多工具会显示成同一个值
+- **聊天 SSE 已迁移 EventSourceResponse**（2026-11-25）：`/api/v1/agent/chat/stream` 由 `fastapi.sse.EventSourceResponse` 驱动，并删除了端点手写的 `Access-Control-Allow-Origin: *`（与全局 CORS allow_credentials 冲突）。前端若报 CORS 缺头，查 main.py 全局 CORS 配置而不是端点；流内自动出现的 15s 心跳注释帧属正常现象，不是脏数据
