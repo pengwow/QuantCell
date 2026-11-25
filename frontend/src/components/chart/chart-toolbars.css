@@ -87,13 +87,21 @@
 }
 
 /* 周期条滑动容器：周期钮已换 antd Segmented（design-spec §6.9，样式由 global.css 段提供），
-   这里只管排布与窄屏横滑；原先 `.period`/`.item.selected` 自绘规则随旧 span 一并删除 */
+   这里只管排布与横滑。横滑是全宽默认行为而非窄屏专属：periods 平铺 11 项后，右侧面板
+   挤压 / 窗口收窄时容器收缩（min-width:0），没有 overflow 会把溢出钮直接画到工具组上；
+   被截断的最后一个按钮即可视化的可滑动提示 */
 .chart-period-bar .period-strip {
   display: flex;
   flex-direction: row;
   align-items: center;
   min-width: 0;
   margin-left: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chart-period-bar .period-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .chart-period-bar .tools {
@@ -170,7 +178,7 @@
   margin-right: 5px;
 }
 
-/* ============ 窄窗口降级（768~1279px）：单行，工具图标化，周期横滑 ============ */
+/* ============ 窄窗口降级（768~1279px）：单行，工具图标化 ============ */
 @media (max-width: 1279px) {
   /* 工具只留图标，文字收进 title 悬浮提示（省约 4×50px） */
   .chart-period-bar .tool-label {
@@ -181,14 +189,6 @@
   }
   .chart-period-bar .tools .tool-ico {
     margin-right: 0;
-  }
-  /* 周期条自身横滑，不撑破工具栏；被截断的最后一个按钮即可视化的可滑动提示 */
-  .chart-period-bar .period-strip {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .chart-period-bar .period-strip::-webkit-scrollbar {
-    display: none;
   }
 }
 
@@ -206,18 +206,13 @@
   .chart-period-bar .live-area {
     height: 38px;
   }
-  /* 周期条 order 置后 + 独占整行，落到第二行 */
+  /* 周期条 order 置后 + 独占整行，落到第二行（横滑由基础规则提供） */
   .chart-period-bar .period-strip {
     order: 10;
     flex: 1 1 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
     height: 38px;
     padding: 0 8px;
     border-top: 1px solid var(--k-border);
-  }
-  .chart-period-bar .period-strip::-webkit-scrollbar {
-    display: none;
   }
   .chart-period-bar .symbol {
     font-size: 16px;

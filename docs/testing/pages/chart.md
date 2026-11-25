@@ -26,6 +26,7 @@
 | C10 | 观察图卡正下方 OHLC 联动条 | 出现一行「时间 UTC · O H L C · 涨跌% · 量」，默认显示末根 bar；十字光标移入图区并移动时数值随 hover bar 变化，移出图区恢复末根；无数据时整条不渲染（不留空壳）。O/H/L/C 为 mono 右对齐；涨/跌/平分别按 `--qc-success` / `--qc-error` / 不染色；量按 compact 记法（如 `1.2K`）。宽度 <1280 隐藏「量」段，<768 只留「时间 · C · 涨跌」 | L2 |
 | C11 | 观察图卡顶栏常驻 MA 图例 | 工具图标右侧出现图例 chips（每枚 10×2 线色块 + 线名），颜色与图内实际线色一致；默认只开 VOL 副图时整区不渲染；`/data-management/market-replay` 回放页默认无叠加均线，同样不出现该图例 | L2 |
 | C12 | 工具栏「信号提醒」弹窗里的「交易对」下拉 | 与全站同一份标的源下拉（紧凑写法 `BTCUSDT`，可搜索）；不再单独请求 `GET /api/v1/data/products` 拼选项；默认值仍取图表当前品种 | L2 |
+| C13 | 周期条收不下时的横滑收口：缩窄浏览器窗口（或开着订单簿面板挤压图卡宽），使顶部工具栏放不下全部 11 个周期 | 「指标」前的最后一个周期钮被截断一半（可视化的可滑动提示，非 bug）；在周期条上横向滚动可见 2H/1M/1Y；周期条与「指标」及后续工具钮**不重叠**（devtools `elementFromPoint` 打在 fx 钮左缘应命中 `item tools` 而非周期钮）；6 个工具钮完整不挤压 | L2 |
 
 ## 历史雷区
 - **蜡烛颜色断言要看全六个 bar 色**：`candle_up_stroke` / `ohlc` 类型（可在设置里切换并被 uiPrefs 记忆）下阳线实体透明、只画边框/影线。主题收口后六色（upColor/upBorderColor/upWickColor 及 down 同构）全部来自 palette 槽位；只断言 upColor 本体会漏掉边框影线的库默认色残留
@@ -42,3 +43,4 @@
 - **不要照 demo 字面复刻 MA7/MA14**：现网 `sma` 是单 `length` 参数（默认 MA20），图例按「活跃指标的每条真实线」渲染；写死 MA7/MA14 会与图内线色/线名不一致
 - **指标接口已加 router 级认证**（2026-11-25）：`/api/v1/indicators/*` 整组（含 `/ai-generate`）需登录态，匿名调用返回 401 是预期防护——此前 `/ai-generate` 可匿名触发 LLM 消耗配额；`/ai-generate` 同时迁移到 `fastapi.sse.EventSourceResponse`（自带 15s 心跳注释帧）
 - **`/ws`、`/ws/task` 现要求认证**（2026-11-25）：WS 握手无法带 Authorization 头，token 走 query 参数 `?token=`；认证失败时服务端 accept 后以 4401 关闭。前端直连见到 4401 先查 token 是否携带，别当后端崩溃排查
+- **周期条横滑是全宽默认行为，不是窄屏专属**（2026-11-25 修复）：`.chart-period-bar .period-strip` 的 `overflow-x: auto` 在基础规则里。periods 平铺 11 项后（`chartConstants.ts` `PERIOD_BAR_ITEMS`，2H/1M/1Y 一并铺开），右侧订单簿面板挤压或窗口收窄会让容器收缩——若把横滑只留在窄屏媒体查询里，宽屏下溢出周期钮会**直接画到「指标」等工具钮上**（`overflow: visible` 溢出，真实覆盖点击区）。最后一个周期钮被截断一半是刻意的滑动提示，别当缺陷修
