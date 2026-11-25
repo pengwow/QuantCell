@@ -5,6 +5,8 @@
 
 // wire 事件 schema 迁移（P2-10）实现在 wireEventMigration.ts（无浏览器 API 依赖，可单测）
 import { migrate_event } from './wireEventMigration';
+// WS 握手无法自定义请求头，认证 token 走 ?token= query（后端 ws 路由 query token 校验）
+import { getAccessToken } from '../utils/tokenManager';
 
 export { KNOWN_EVENT_SCHEMA_VERSION, migrate_event } from './wireEventMigration';
 
@@ -485,7 +487,14 @@ export class WebSocketService {
 // 创建默认的WebSocket服务实例
 // 使用相对路径，让 Vite 代理处理 WebSocket 连接
 const defaultConfig: WebSocketConfig = {
-  url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
+  // 函数式 url：每次（重）连时取最新 token 以 ?token= 握手（与 researchWs 同惯例，
+  // token 续期后无需刷新页面即可恢复连接；认证关闭时后端豁免，无 token 也放行）
+  url: () => {
+    const token = getAccessToken();
+    return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws${
+      token ? `?token=${encodeURIComponent(token)}` : ''
+    }`;
+  },
   // notification.* 为站内通知实时推送主题（后端 common/notifications/channels.py 按类别广播，
   // 未订阅收不到——broadcast 带 topic 过滤）
   topics: [

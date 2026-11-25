@@ -2,6 +2,7 @@ import { create } from 'zustand';
 // 非组件模块无法使用 useTranslation hook，直接用 i18n 单例取词（同 useUpdater.ts 先例）
 import i18n from '../../../i18n/config';
 import { useAgentWorkerStore } from './agentWorkerStore';
+import { getAccessToken } from '../../../utils/tokenManager';
 
 export interface ToolCall {
   id: string;
@@ -202,7 +203,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         try {
           response = await fetch('/api/v1/agent/chat/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            // 统一带头：端点后续可能收紧为强制 JWT（与 axios 封装行为一致）
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${getAccessToken()}`,
+            },
             body: JSON.stringify(body),
             signal: controller.signal,
           });
