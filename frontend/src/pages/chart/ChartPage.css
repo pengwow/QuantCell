@@ -47,12 +47,15 @@
   overflow: hidden;
 }
 
-/* ========== 页头右上现价块（形制 1:1 抄 qc-prototype-demo 的 px-box）==========
-   demo 数值照搬：tag 10.5px 弱色；价格 22px/650；上行 baseline + gap 8px 右对齐；整块 text-align:right。
-   颜色/mono 换本仓口径：--qc-text-quaternary / --qc-success / --qc-error、qc-mono、qc-chip，
-   不引入 demo 的 --fg-4 / --info。 */
+/* ========== 页头右上现价块（demo px-box 的单行变体）==========
+   11-25 由两行（tag 行 + 22px 价格行）改单行基线式：两行块 ~44px 撑高 qc-page-head
+   （align-items:flex-end 下整条头部被现价块主导），与其他页头（30px 按钮行）间距不一致。
+   页头跨页一致性优先于 demo 两行形制；价格字号降到 16px/650 与标题同级，
+   大行高由 line-height:1.2 锁住；<768 换行退化为 page-head 自带 wrap（QC 页头全局规则）。 */
 .chart-px-box {
-  text-align: right;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .chart-px-tag {
@@ -62,16 +65,10 @@
   white-space: nowrap;
 }
 
-.chart-px-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
 .chart-px-num {
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 650;
+  line-height: 1.2;
 }
 
 .chart-px-num.up {

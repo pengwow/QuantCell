@@ -1258,8 +1258,9 @@ const Worker = () => {
   });
 
   return (
-    // demo 956：「← 返回首页」→ /home；形制同详情页 onBack（PageContainer 统一返回箭头）
-    <PageContainer title={t('strategy_agent')} subtitle={pageSubtitle} onBack={() => navigate('/home')}>
+    // 一级列表页无返回箭头（2026-11-25 用户裁定删除）：与其他一级页头几何一致；
+    // 「← 返回首页」是 demo 956 原型演示形制，不要复刻回列表页（详情页 W2 的返回箭头不受影响）
+    <PageContainer title={t('strategy_agent')} subtitle={pageSubtitle}>
       <Spin spinning={loading}>
         {/* Error Alert */}
         {error && (

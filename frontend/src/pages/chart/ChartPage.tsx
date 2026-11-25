@@ -650,22 +650,21 @@ const ChartPage = () => {
         /* mono 真值副标：市场 + 当前品种 + 引擎数据模式（getRealtimeConfig 真值，非装饰文案） */
         subtitle={t('chart.page.sub', { mode: systemConfig.data_mode })}
         actions={
-          // 页头动作区只留现价块（与 demo #view-charts 的 .page-actions.px-box 同构）：
-          // 「切换品种」在图表卡片顶部 select 已有入口（onOpenSymbolSearch），
-          // 「刷新」由实时 WS + 切周期/切品种自动拉取覆盖，不再留死钮
+          // 页头动作区只留现价块：「切换品种」在图表卡片顶部 select 已有入口（onOpenSymbolSearch），
+          // 「刷新」由实时 WS + 切周期/切品种自动拉取覆盖，不再留死钮。
+          // 形制为单行基线式（tag · 价格 · chip 同行）：原两行块高 ~44px 会撑高 qc-page-head，
+          // 与其他页头（30px 按钮行）间距不一致；头部一致性优先于 demo 两行形制
           pxInfo && (
             <div className="chart-px-box">
               <span className="chart-px-tag qc-mono">
                 {t('chart.page.px_tag', { symbol: currentSymbol.name, time: formatUtcTime(pxInfo.ts) })}
               </span>
-              <div className="chart-px-line">
-                <span className={`chart-px-num qc-mono${pxUp ? ' up' : pxDown ? ' down' : ''}`}>
-                  {pxPriceFmt.format(pxInfo.close)}
-                </span>
-                <span className={`qc-chip ${pxUp ? 'ok' : pxDown ? 'down' : 'quiet'}`}>
-                  {`${pxPct > 0 ? '+' : ''}${pxPct.toFixed(2)}%`}
-                </span>
-              </div>
+              <span className={`chart-px-num qc-mono${pxUp ? ' up' : pxDown ? ' down' : ''}`}>
+                {pxPriceFmt.format(pxInfo.close)}
+              </span>
+              <span className={`qc-chip ${pxUp ? 'ok' : pxDown ? 'down' : 'quiet'}`}>
+                {`${pxPct > 0 ? '+' : ''}${pxPct.toFixed(2)}%`}
+              </span>
             </div>
           )
         }
