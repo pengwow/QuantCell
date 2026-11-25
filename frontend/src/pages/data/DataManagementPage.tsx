@@ -1939,12 +1939,14 @@ const DataManagementPage = () => {
             aria-label={t('dm_group_new_name_ph')}
           />
           <div className="dm-cpick" role="group" aria-label={t('color_tag')}>
+            {/* 白勾与色块同源内联：色块恒为高饱和实色（组色候选，不映射品牌 token、与主题无关），
+                勾固定白才亮暗两模式可读——theme.test 只允许 palettes.ts 持颜色字面量，css/组件样式例外须在此注明 */}
             {GROUP_COLOR_OPTIONS.map((c) => (
               <button
                 key={c.value}
                 type="button"
                 className={`dm-csw${newGroupColor === c.value ? ' on' : ''}`}
-                style={{ background: c.value }}
+                style={{ background: c.value, color: '#fff' }}
                 title={c.label}
                 aria-label={c.label}
                 aria-pressed={newGroupColor === c.value}
@@ -1984,7 +1986,7 @@ const DataManagementPage = () => {
                     key={c.value}
                     type="button"
                     className={`dm-csw${groupSwatchColor(group.color) === c.value ? ' on' : ''}`}
-                    style={{ background: c.value }}
+                    style={{ background: c.value, color: '#fff' }}
                     title={c.label}
                     aria-label={c.label}
                     aria-pressed={groupSwatchColor(group.color) === c.value}

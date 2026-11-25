@@ -1542,8 +1542,8 @@ ul.qc-pagination li.ant-pagination-jump-next {
   display: none;
   font-size: 10px;
   line-height: 1;
-  /* 白勾：色块本身是高饱和实色，与主题无关；用主题背景色会在暗色下变成黑勾看不见 */
-  color: #fff;
+  /* 选中勾的白色随色块内联在 DataManagementPage（色块恒高饱和实色、与主题无关；
+     theme.test 只许 palettes.ts 持颜色字面量，css 不落 hex） */
 }
 
 .dm-csw.on {
