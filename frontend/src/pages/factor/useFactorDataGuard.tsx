@@ -59,6 +59,8 @@ export function useFactorDataGuard(options: { onContinue?: () => void } = {}) {
   const onContinueRef = useRef(options.onContinue);
   onContinueRef.current = options.onContinue;
   const rangeRef = useRef<RangeVal>(null);
+  // 市场类型：因子页固定 spot，研究抽屉按表单的 spot/future 传进来（下载与预检必须同口径）
+  const candleRef = useRef<'spot' | 'future'>('spot');
   const cancelRef = useRef<{ aborted: boolean } | null>(null);
 
   // 卸载时中止前端轮询；后台下载任务不受影响
@@ -66,8 +68,9 @@ export function useFactorDataGuard(options: { onContinue?: () => void } = {}) {
     if (cancelRef.current) cancelRef.current.aborted = true;
   }, []);
 
-  const show = useCallback((items: MissingItem[], range: RangeVal) => {
+  const show = useCallback((items: MissingItem[], range: RangeVal, candleType: 'spot' | 'future') => {
     rangeRef.current = range ?? null;
+    candleRef.current = candleType;
     setDefaultRange(!range || !range.length);
     setMissing(items);
     setDownloadError('');
@@ -76,11 +79,16 @@ export function useFactorDataGuard(options: { onContinue?: () => void } = {}) {
 
   /** 提交前预检。true = 数据齐备（或预检失败降级，按旧流程直接跑）；false = 已弹窗等用户确认 */
   const ensureData = useCallback(
-    async (symbols: string[], intervals: string[], range?: RangeVal) => {
+    async (
+      symbols: string[],
+      intervals: string[],
+      range?: RangeVal,
+      candleType: 'spot' | 'future' = 'spot',
+    ) => {
       try {
-        const pre = await backtestApi.precheckData({ symbols, intervals, candle_type: 'spot' });
+        const pre = await backtestApi.precheckData({ symbols, intervals, candle_type: candleType });
         if (pre.all_available || !pre.missing?.length) return true;
-        show(pre.missing, range);
+        show(pre.missing, range, candleType);
         return false;
       } catch (e) {
         console.warn('[useFactorDataGuard] data precheck failed, skip guard:', e);
@@ -92,19 +100,25 @@ export function useFactorDataGuard(options: { onContinue?: () => void } = {}) {
 
   /** job 报错命中「未找到 … Parquet」时调用：按表单参数补全缺失清单（预检失败退回报错解析到的一对） */
   const openFromError = useCallback(
-    async (found: MissingItem, symbols: string[], intervals: string[], range?: RangeVal) => {
+    async (
+      found: MissingItem,
+      symbols: string[],
+      intervals: string[],
+      range?: RangeVal,
+      candleType: 'spot' | 'future' = 'spot',
+    ) => {
       let items = [found];
       try {
         const pre = await backtestApi.precheckData({
           symbols: symbols.length ? symbols : [found.symbol],
           intervals: intervals.length ? intervals : [found.interval],
-          candle_type: 'spot',
+          candle_type: candleType,
         });
         if (!pre.all_available && pre.missing?.length) items = pre.missing;
       } catch {
         /* 保留报错解析结果 */
       }
-      show(items, range);
+      show(items, range, candleType);
     },
     [show],
   );
@@ -131,7 +145,7 @@ export function useFactorDataGuard(options: { onContinue?: () => void } = {}) {
         interval: intervals,
         start,
         end,
-        candle_type: 'spot',
+        candle_type: candleRef.current,
         mode: 'inc',
         exchange: 'binance',
       });

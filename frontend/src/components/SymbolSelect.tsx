@@ -12,11 +12,13 @@
  * 标的增删只需改数据池/交易所标的表，所有引用点自动跟随。
  */
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Select, Spin } from 'antd';
 import type { SelectProps } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { dataApi } from '@/api/dataApi';
 import type { DataPoolRecord } from '@/api/dataApi';
+import { QUANT_COLORS } from '@/utils/colors';
 import { buildSymbolOptions, expandPoolSelection } from '@/utils/symbolOptions';
 
 export interface SymbolSource {
@@ -91,17 +93,58 @@ export default function SymbolSelect({
     };
   }, [source, queryKey]);
 
-  const options = useMemo(
-    () =>
-      buildSymbolOptions({
-        dataPools: withPools ? loaded?.dataPools : [],
-        directSymbols: (loaded?.directSymbols ?? []).map((symbol) =>
-          valueFormat === 'compact' ? toCompact(symbol) : symbol,
+  const options = useMemo(() => {
+    const directSymbols = (loaded?.directSymbols ?? []).map((symbol) =>
+      valueFormat === 'compact' ? toCompact(symbol) : symbol,
+    );
+    const picked = buildSymbolOptions({
+      dataPools: withPools ? loaded?.dataPools : [],
+      directSymbols,
+      poolMeta: (count) => t('symbol_pool_meta', { count }),
+    });
+    if (withPools) return picked;
+
+    // 单选不出「自选组」本身（一组标的没法折成一个 symbol），但把组内标的按组名分组
+    // 列出来：用户仍能顺着自选组找标的，值仍是裸 symbol（不会提交 pool_x）。
+    const pools = loaded?.dataPools ?? [];
+    const seen = new Set<string>();
+    const groups: { label: ReactNode; name: string; options: { value: string; label: string; name: string }[] }[] = [];
+    for (const pool of pools) {
+      const leaves: { value: string; label: string; name: string }[] = [];
+      for (const symbol of pool.symbols ?? []) {
+        const value = valueFormat === 'compact' ? toCompact(symbol) : symbol;
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        leaves.push({ value, label: value, name: value });
+      }
+      if (!leaves.length) continue;
+      groups.push({
+        name: pool.name,
+        label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: pool.color || QUANT_COLORS.info,
+                flexShrink: 0,
+              }}
+            />
+            <span>{pool.name}</span>
+            <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>
+              {t('symbol_pool_meta', { count: leaves.length })}
+            </span>
+          </span>
         ),
-        poolMeta: (count) => t('symbol_pool_meta', { count }),
-      }),
-    [loaded, withPools, valueFormat, t],
-  );
+        options: leaves,
+      });
+    }
+    if (!groups.length) return picked;
+    // 组内已列的标的从平铺段去掉（同一 symbol 在组里和平铺里出现两次会让用户以为有两个）
+    return [...groups, ...picked.filter((option) => !seen.has(option.value))];
+  }, [loaded, withPools, valueFormat, t]);
 
   // 多选：pool_<id> 当场展开成组内标的，去重保序；各页不必再写一遍解析
   const handleChange: SelectProps['onChange'] = (value, option) => {
