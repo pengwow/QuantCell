@@ -3510,6 +3510,7 @@
   "sm_detail_backtest_link_title": "View this strategy's backtests in Backtest Center",
   "sm_detail_version_count": "{{n}} version snapshots",
   "sm_ver_loading": "Loading…",
+  "sm_ver_size_lines": "{{size}} · {{lines}} lines",
   "sm_ver_empty": "No version snapshots",
   "sm_ver_failed": "Failed to load version history",
   "sm_ver_more": "Showing the latest 20 only",

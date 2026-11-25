@@ -3510,6 +3510,7 @@
   "sm_detail_backtest_link_title": "在回测中心查看该策略的回测任务",
   "sm_detail_version_count": "版本历史 {{n}} 条",
   "sm_ver_loading": "加载中…",
+  "sm_ver_size_lines": "{{size}} · {{lines}} 行",
   "sm_ver_empty": "暂无版本快照",
   "sm_ver_failed": "版本历史加载失败",
   "sm_ver_more": "仅显示最近 20 条",

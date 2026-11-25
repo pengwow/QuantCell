@@ -183,7 +183,7 @@ const StrategyVersionPanel = ({
         {v.version ? <>{versionTag(v)} <i>{v.code_hash.slice(0, 8)}</i></> : v.code_hash.slice(0, 8)}
       </span>
       <span className="qc-mono sm-ver-size">
-        {formatSize(v.code_size)} · {v.code_lines} 行
+        {t('sm_ver_size_lines', { size: formatSize(v.code_size), lines: v.code_lines })}
       </span>
       <span className="sm-ver-curcell">{v.is_current ? <Tag className="sm-ver-current">{t('sm_ver_current')}</Tag> : null}</span>
       <span className="sm-ver-actions">
@@ -242,7 +242,8 @@ const StrategyVersionPanel = ({
                   <span className="qc-mono sm-ver-tl-label">{versionTag(v)}</span>
                 ) : null}
                 <span className="qc-mono sm-ver-tl-sub">
-                  {v.code_hash.slice(0, 8)} · {formatSize(v.code_size)} · {v.code_lines} 行
+                  {v.code_hash.slice(0, 8)} ·{' '}
+                  {t('sm_ver_size_lines', { size: formatSize(v.code_size), lines: v.code_lines })}
                   {v.is_current ? t('sm_ver_tl_current_suffix') : ''}
                 </span>
               </li>

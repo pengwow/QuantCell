@@ -49,7 +49,7 @@ const loadSource = (key: string, query: Record<string, string>): Promise<SymbolS
     .then((res) => ({ dataPools: res?.data_pools ?? [], directSymbols: res?.direct_symbols ?? [] }))
     .catch((error) => {
       // 失败不缓存：网络恢复后下一次挂载重试
-      console.error('加载标的列表失败:', error);
+      console.error('[SymbolSelect] load symbols failed:', error);
       sourceCache.delete(key);
       return { dataPools: [], directSymbols: [] };
     });
