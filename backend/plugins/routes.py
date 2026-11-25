@@ -7,12 +7,13 @@ import re
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.sse import EventSourceResponse, format_sse_event
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
-from utils.auth import get_current_user
+from utils.auth import authenticate_request, get_current_user
 from utils.logger import LogType, get_logger
 from utils.paths import get_persistent_dir
 
@@ -34,6 +35,7 @@ router = APIRouter(
 )
 
 _event_queues: list[asyncio.Queue] = []
+_SSE_QUEUE_MAXSIZE = 256  # 有界队列：慢消费者只丢事件，不撑爆内存
 
 # ponytail: 插件名防路径遍历
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$", re.ASCII)
@@ -59,14 +61,11 @@ def broadcast_event(event_type: str, data: dict):
 
 
 async def _sse_generator(queue: asyncio.Queue):
-    try:
-        while True:
-            event = await queue.get()
-            event_type = event.get("event", "message")
-            data = json.dumps(event.get("data", {}), ensure_ascii=False)
-            yield f"event: {event_type}\ndata: {data}\n\n"
-    except asyncio.CancelledError:
-        return
+    while True:
+        event = await queue.get()
+        event_type = event.get("event", "message")
+        data = json.dumps(event.get("data", {}), ensure_ascii=False)
+        yield format_sse_event(event=event_type, data_str=data)
 
 
 @router.get("/", response_model=ApiResponse)
@@ -83,35 +82,29 @@ async def list_plugins(request: Request):
 
 
 @router.get("/events")
-async def plugin_events(request: Request):
-    queue: asyncio.Queue = asyncio.Queue()
+async def plugin_events(request: Request, token: str | None = Query(None)):
+    # SSE 认证走 query token（EventSource 无法自带请求头）
+    await authenticate_request(request, token=token)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=_SSE_QUEUE_MAXSIZE)
     _event_queues.append(queue)
-
-    async def cleanup():
-        _event_queues.remove(queue)
 
     async def event_stream():
         try:
             async for chunk in _sse_generator(queue):
-                if await request.is_disconnected():
-                    break
                 yield chunk
         finally:
-            await cleanup()
+            # 客户端断开时框架取消生成器，finally 保证队列回收
+            with contextlib.suppress(ValueError):
+                _event_queues.remove(queue)
 
-    return StreamingResponse(
+    return EventSourceResponse(
         event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"X-Accel-Buffering": "no"},
     )
 
 
 @router.get("/{name}", response_model=ApiResponse)
-async def get_plugin(name: str):
+async def get_plugin(name: str, current_user: dict = Depends(get_current_user)):
     try:
         from plugins.plugin_store import PluginStore
 
@@ -265,6 +258,8 @@ async def disable_plugin(request: Request, name: str, current_user: dict = Depen
 
 @router.get("/{name}/assets/{path:path}")
 async def serve_plugin_asset(name: str, path: str):
+    # ponytail: 静态资源保持无认证——iframe/<script>/<link> 无法带请求头，
+    # 加 query token 需要每个插件前端配合改 URL，收益不抵破坏面；资产本身非敏感
     if not _SAFE_NAME_RE.match(name):
         raise HTTPException(status_code=400, detail="插件名称不合法")
     try:
@@ -304,7 +299,7 @@ async def serve_plugin_asset(name: str, path: str):
 
 
 @router.get("/{name}/config", response_model=ApiResponse)
-async def get_plugin_config(name: str):
+async def get_plugin_config(name: str, current_user: dict = Depends(get_current_user)):
     try:
         from plugins.plugin_store import PluginStore
 

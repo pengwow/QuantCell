@@ -3,8 +3,9 @@
 import json
 import time
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
+from utils.auth import authenticate_request
 from utils.logger import LogType, get_logger
 
 # 获取模块日志器
@@ -15,12 +16,29 @@ from websocket.manager import manager
 router = APIRouter()
 
 
+async def _ws_auth_guard(websocket: WebSocket, token: str | None) -> bool:
+    """WS 端点认证守卫：协议文档预留 token 参数，此处落地强制校验。
+
+    认证失败需先 accept 才能发送 close 帧；4401 为自定义"未授权"码。
+    """
+    try:
+        await authenticate_request(websocket, token=token)
+        return True
+    except HTTPException:
+        await websocket.accept()
+        await websocket.close(code=4401)
+        return False
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
+    token: str | None = Query(None),
     client_id: str | None = Query(None),
     topics: str | None = Query(None),
 ):
+    if not await _ws_auth_guard(websocket, token):
+        return
     """WebSocket主端点
 
     Args:
@@ -78,9 +96,12 @@ async def websocket_endpoint(
 @router.websocket("/ws/task")
 async def websocket_task_endpoint(
     websocket: WebSocket,
+    token: str | None = Query(None),
     client_id: str | None = Query(None),
     topics: str | None = Query(None),
 ):
+    if not await _ws_auth_guard(websocket, token):
+        return
     """任务相关WebSocket端点
 
     Args:

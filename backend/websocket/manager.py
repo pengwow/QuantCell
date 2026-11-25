@@ -55,6 +55,8 @@ class ConnectionManager:
         self.client_info: dict[str, dict[str, Any]] = {}
         # 消息队列 - 延迟初始化，在 start() 中创建
         self.message_queue: asyncio.Queue | None = None
+        # 有界队列上限：满时丢最旧语义不适用（丢新），慢消费时保护内存
+        self.queue_maxsize: int = 1024
         # 消息处理任务
         self.processing_task: asyncio.Task | None = None
         # 消息批处理配置
@@ -72,7 +74,7 @@ class ConnectionManager:
         """启动消息处理任务"""
         # 延迟初始化消息队列，确保在事件循环中创建
         if self.message_queue is None:
-            self.message_queue = asyncio.Queue()
+            self.message_queue = asyncio.Queue(maxsize=self.queue_maxsize)
             logger.info("消息队列已初始化")
 
         self.processing_task = asyncio.create_task(self.process_messages())
@@ -109,6 +111,10 @@ class ConnectionManager:
                     # 标记所有消息为已处理
                     for _ in messages_batch:
                         self.message_queue.task_done()
+
+                    # 顺带巡检死连接：超过心跳超时未响应的连接主动踢除，
+                    # 避免 TCP 半开连接永久占据广播列表
+                    await self._evict_stale_connections()
                 else:
                     await asyncio.sleep(0.01)  # 减少等待时间
             except asyncio.CancelledError:
@@ -129,6 +135,10 @@ class ConnectionManager:
             message_with_topic["topic"] = topic
 
         if self.message_queue:
+            if self.message_queue.full():
+                # 有界队列打满：丢弃本条并告警，避免 put 阻塞业务线程
+                logger.warning("WebSocket消息队列已满，丢弃消息: type=%s, topic=%s", message.get("type"), topic)
+                return
             await self.message_queue.put(message_with_topic)
             logger.debug(f"消息加入队列: type={message.get('type')}, topic={topic}")
         else:
@@ -142,6 +152,21 @@ class ConnectionManager:
         """
         if client_id in self.client_info:
             self.client_info[client_id]["last_ping"] = datetime.now()
+
+    # ponytail: 90s 为协议 ping 间隔（30s）的 3 倍容错；更精确可改为指数退避探测
+    _STALE_TIMEOUT_SECONDS = 90
+
+    async def _evict_stale_connections(self):
+        """踢除超时未心跳的死连接（TCP 半开/客户端假死）"""
+        now = datetime.now()
+        stale = [
+            cid
+            for cid, info in self.client_info.items()
+            if (now - info.get("last_ping", now)).total_seconds() > self._STALE_TIMEOUT_SECONDS
+        ]
+        for cid in stale:
+            logger.warning(f"客户端 {cid} 超过 {self._STALE_TIMEOUT_SECONDS}s 未心跳，踢除连接")
+            await self.disconnect(cid)
 
     async def stop(self):
         """停止消息处理任务"""
@@ -297,9 +322,10 @@ class ConnectionManager:
         """
         if client_id in self.active_connections:
             try:
-                # 序列化消息中的datetime对象
-                serialized_message = json.loads(json.dumps(message, cls=DateTimeEncoder))
-                await self.active_connections[client_id].send_json(serialized_message)
+                # 单次序列化：DateTimeEncoder 处理完直接 send_text，
+                # 不再 dumps→loads→send_json 双重编码
+                payload = json.dumps(message, cls=DateTimeEncoder)
+                await self.active_connections[client_id].send_text(payload)
             except Exception as e:
                 logger.error(f"发送消息到客户端 {client_id} 失败: {e}")
                 # 尝试断开连接

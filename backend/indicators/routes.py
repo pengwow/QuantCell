@@ -10,12 +10,13 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.sse import EventSourceResponse, format_sse_event
 from pydantic import BaseModel, Field
 
 from axon_bridge.llm import chat_to_dict, classify_llm_error, create_llm_backend, normalize_finish_reason
 from common.schemas import ApiResponse
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
@@ -37,7 +38,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-router = APIRouter(prefix="/api/v1/indicators", tags=["指标管理"])
+router = APIRouter(
+    prefix="/api/v1/indicators",
+    tags=["指标管理"],
+    # router 级统一认证：此前逐端点声明遗漏导致 /ai-generate 等可匿名触发 LLM 消耗
+    dependencies=[Depends(get_current_user)],
+)
 
 # 全局执行器实例（带缓存）
 _executor: IndicatorExecutor | None = None
@@ -202,12 +208,10 @@ async def ai_generate_indicator(request: IndicatorGenerateRequest):
     """AI流式生成指标代码（SSE）"""
     logger.info(f"AI生成指标: {request.prompt[:50]}...")
 
-    return StreamingResponse(
+    return EventSourceResponse(
         generate_indicator_stream(request.prompt, request.existing_code),
-        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
     )
@@ -575,7 +579,21 @@ async def generate_indicator_stream(prompt: str, existing_code: str = "") -> Asy
         progress: int,
     ) -> str:
         """构建思维链SSE事件"""
-        return f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': current_step, 'total_steps': total_steps, 'step_title': title, 'step_description': description, 'status': status, 'progress': progress}})}\n\n"
+        return format_sse_event(
+            data_str=json.dumps(
+                {
+                    "type": "thinking_chain",
+                    "data": {
+                        "current_step": current_step,
+                        "total_steps": total_steps,
+                        "step_title": title,
+                        "step_description": description,
+                        "status": status,
+                        "progress": progress,
+                    },
+                }
+            )
+        )
 
     # 加载思维链步骤定义
     total_steps = 1
@@ -731,11 +749,20 @@ async def generate_indicator_stream(prompt: str, existing_code: str = "") -> Asy
             100,
         )
 
-        yield f"data: {json.dumps({'type': 'done', 'code': full_code, 'raw_content': full_code, 'quality': {'score': score, 'level': level, 'hints': hints}})}\n\n"
+        yield format_sse_event(
+            data_str=json.dumps(
+                {
+                    "type": "done",
+                    "code": full_code,
+                    "raw_content": full_code,
+                    "quality": {"score": score, "level": level, "hints": hints},
+                }
+            )
+        )
 
     except Exception as e:
         logger.error(f"指标生成失败: {e}")
-        yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        yield format_sse_event(data_str=json.dumps({"type": "error", "error": str(e)}))
 
 
 async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
