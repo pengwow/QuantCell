@@ -621,6 +621,7 @@ const KlineReplayPage: React.FC = () => {
               getBars={() => barsRef.current.slice(0, indexRef.current + 1)}
               drawingBarLocked
               indicatorScope="all"
+              showAlerts={false}
               loading={false}
               error={loadError}
             />

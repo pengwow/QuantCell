@@ -197,6 +197,8 @@ export interface ChartShellProps {
   /** 左侧绘图工具栏常驻不收起（回放页使用；/chart 缺省可收起） */
   drawingBarLocked?: boolean;
   indicatorScope: IndicatorScope;
+  /** 是否显示工具栏「信号提醒」入口（默认 true；行情回放页传 false） */
+  showAlerts?: boolean;
   loading?: boolean;
   error?: string | null;
   /** 订单簿设置弹窗三件套（仅 /chart 页传入；回放页不传即隐藏弹窗中的订单簿分组） */
@@ -373,6 +375,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   realtimeSlot,
   drawingBarLocked = false,
   indicatorScope,
+  showAlerts = true,
   loading = false,
   error = null,
   orderbookModalProps,
@@ -1514,6 +1517,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
           getScreenshotUrl={getScreenshotUrl}
           fullscreenTarget={fullscreenTargetRef}
           indicatorScope={indicatorScope}
+          showAlerts={showAlerts}
           orderbook={orderbookModalProps?.orderbook}
           onOrderbookChange={orderbookModalProps?.onOrderbookChange}
           backtestOptions={orderbookModalProps?.backtestOptions}

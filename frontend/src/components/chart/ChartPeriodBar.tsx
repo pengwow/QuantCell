@@ -50,6 +50,12 @@ interface ChartPeriodBarProps {
   fullscreenTarget: React.RefObject<HTMLElement | null>;
   /** 指标范围：all = 内置 + 自定义；builtin-local = 只展示内置指标（行情回放页） */
   indicatorScope?: 'all' | 'builtin-local';
+  /**
+   * 是否显示「信号提醒」入口。回放页传 false：提醒规则只对实时行情触发，
+   * 在历史回放里建规则既不会响也容易误解（回放页同时开放自定义指标，
+   * 不能再用 indicatorScope 兼作开关，故单列一个 prop）
+   */
+  showAlerts?: boolean;
   /** 订单簿偏好：null/undefined = 调用方未接订单簿（回放页），设置弹窗隐藏整个分组 */
   orderbook?: OrderbookPrefs | null;
   onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
@@ -82,6 +88,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   getScreenshotUrl,
   fullscreenTarget,
   indicatorScope = 'all',
+  showAlerts = true,
   orderbook,
   onOrderbookChange,
   backtestOptions,
@@ -145,8 +152,8 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
           <ChartIcon name="indicator" className="tool-ico" />
           <span className="tool-label">{t('chart.toolbar.indicator')}</span>
         </div>
-        {/* 信号提醒直达入口：规则管理原本藏在编辑器提醒 Tab 三层深处；回放页（builtin-local）无自定义指标，隐藏 */}
-        {indicatorScope !== 'builtin-local' && (
+        {/* 信号提醒直达入口：规则管理原本藏在编辑器提醒 Tab 三层深处；回放页一律隐藏（提醒只对实时行情触发） */}
+        {showAlerts && (
           <div className="item tools" title={t('chart.toolbar.alerts')} onClick={() => setAlertsVisible(true)}>
             {/* 不用 .tool-ico（CSS mask 方案），antd 字体图标直接继承文字色即可与图表图标对齐 */}
             <BellOutlined style={{ fontSize: 16, marginRight: 4 }} />
