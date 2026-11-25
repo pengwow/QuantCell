@@ -57,6 +57,14 @@ def test_train_endpoint_value_error():
         assert "bad config" in resp.json()["detail"]
 
 
+def test_train_request_walk_forward_default_true():
+    """TrainRequest 默认开 WF:显式 false 仍可关,不传则开启(行为变更见 changelog)。"""
+    from api.rl_routes import TrainRequest
+
+    assert TrainRequest(symbol="BTCUSDT").walk_forward is True
+    assert TrainRequest(symbol="BTCUSDT", walk_forward=False).walk_forward is False
+
+
 def test_train_endpoint_missing_symbol_returns_422():
     """缺 symbol → Pydantic 必填校验失败 → 422"""
     client = _make_app()

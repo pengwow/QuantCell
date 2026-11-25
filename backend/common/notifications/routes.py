@@ -13,6 +13,7 @@
     - POST /api/notifications/task: 发送任务通知
     - GET /api/notifications/status: 获取通知渠道状态
     - GET /api/notifications/inbox: 站内收件箱列表（游标分页 + 未读数）
+    - POST /api/notifications/inbox/{id}/read: 单条站内通知已读
     - POST /api/notifications/inbox/read-all: 站内收件箱全部已读
     - DELETE /api/notifications/inbox/read: 清空收件箱已读（保留未读）
     - DELETE /api/notifications/inbox/{id}: 删除单条站内通知
@@ -198,13 +199,18 @@ async def list_inbox_notifications(
     http_request: Request,
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
     before_id: int | None = Query(default=None, description="游标：取 id 小于该值的更旧一页"),
+    unread: bool | None = Query(default=None, description="true 仅未读 / false 仅已读 / 不传全量"),
+    task_type: str | None = Query(
+        default=None,
+        description="任务类型过滤（rl_train/factor_job/collector_task/backtest/research），匹配通知 source",
+    ),
     current_user: dict = Depends(get_current_user),
 ):
-    """站内收件箱列表（按 id 倒序游标分页，携带全局未读数）"""
+    """站内收件箱列表（按 id 倒序游标分页，携带全局未读数，支持任务类型/已读过滤）"""
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权查看站内收件箱")
     try:
-        data = inbox.list_inbox_notifications(limit=limit, before_id=before_id)
+        data = inbox.list_inbox_notifications(limit=limit, before_id=before_id, unread=unread, task_type=task_type)
         return ApiResponse(code=0, message="获取站内收件箱成功", data=data)
     except Exception as e:
         logger.error(f"获取站内收件箱失败: {e}")
@@ -216,14 +222,35 @@ async def mark_inbox_read(
     http_request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    """站内收件箱全部已读（推送全局已读水位到当前时间）"""
+    """站内收件箱全部已读（逐行置 read_at，返回置位条数）"""
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权操作站内收件箱")
     try:
-        inbox.mark_inbox_read()
-        return ApiResponse(code=0, message="站内收件箱已全部标记为已读", data={"ok": True})
+        marked = inbox.mark_inbox_read()
+        return ApiResponse(code=0, message="站内收件箱已全部标记为已读", data={"ok": True, "marked": marked})
     except Exception as e:
         logger.error(f"站内收件箱全部已读失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/inbox/{notification_id}/read", response_model=ApiResponse)
+async def mark_notification_read(
+    http_request: Request,
+    notification_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """单条站内通知已读（任务类通知已读即归档，置 processed_at）"""
+    if is_guest_user(http_request):
+        raise HTTPException(status_code=403, detail="访客无权操作站内收件箱")
+    try:
+        item = inbox.mark_notification_read(notification_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="通知不存在或已删除")
+        return ApiResponse(code=0, message="通知已标记为已读", data=item)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"通知单条已读失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -41,14 +41,15 @@ import {
   buildRangeBars,
 } from '../../utils/priceChartTransforms';
 import { getAccessToken } from '../../utils/tokenManager';
-import { QUANT_COLORS } from '@/utils/colors';
+import { getPalette } from '@/theme';
 import { builtInIndicators, type Indicator, type ActiveIndicator, type IndicatorParams } from '../../hooks/useIndicators';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
 import ChartPeriodBar, { type ChartPeriodItem } from './ChartPeriodBar';
+import OHLCStrip from './OHLCStrip';
 import { CHART_SETTING_DEFS } from './ChartSettingModal';
-import { setStyleValue } from './chartStyles';
-import { findPeriodItem } from './chartConstants';
+import { setStyleValue, currentChartThemeMode } from './chartStyles';
+import { findPeriodItem, INDICATOR_LINE_COLORS, INDICATOR_LEGEND_NAMES } from './chartConstants';
 import {
   cancelPendingSaves,
   loadChartPrefs,
@@ -102,11 +103,48 @@ const CANDLE_TYPE_TO_NATIVE: Record<string, CandleStyle['type']> = {
 const DERIVED_PRICE_TYPES = new Set(['heikin_ashi', 'hlc_area', 'renko', 'range']);
 
 // v10 默认 area 渐变背景（klinecharts 内置 Color.BLUE 派生，离开纯线形时按此值恢复渐变）
+// 离散豁免：这是 klinecharts 引擎自身的默认蓝，不是 palette 槽位（chartLine 亮色为 design-spec 的 info 值），
+// 改走主题会改变线形图面积色的色相 → 保持字面量。
 const AREA_DEFAULT_BG = [
   { offset: 0, color: 'rgba(22, 119, 255, 0.01)' },
   { offset: 1, color: 'rgba(22, 119, 255, 0.2)' },
 ];
 const AREA_TRANSPARENT_BG = 'rgba(22, 119, 255, 0)';
+
+// 图表主题样式片段：网格/蜡烛等 canvas 自绘色全部来自 palette 槽位（亮暗分值），
+// 主题切换时由下方 effect 重新应用（klinecharts 不感知 antd 主题）
+const buildChartThemeStyles = (palette: ReturnType<typeof getPalette>) => ({
+  grid: {
+    show: true,
+    horizontal: {
+      show: true,
+      size: 1,
+      color: palette.border,
+      style: 'dashed' as const,
+    },
+    vertical: {
+      show: true,
+      size: 1,
+      color: palette.border,
+      style: 'dashed' as const,
+    },
+  },
+  candle: {
+    bar: {
+      // candle 色全部走 palette 槽位（亮暗分值防暗色刺眼）：实体 + 边框 + 影线 + 平盘
+      // 同色——candle_up_stroke / ohlc 类型只画边框影线，不接通会露出库默认字面色
+      upColor: palette.chartCandleUp,
+      downColor: palette.chartCandleDown,
+      noChangeColor: palette.textTertiary,
+      upBorderColor: palette.chartCandleUp,
+      downBorderColor: palette.chartCandleDown,
+      noChangeBorderColor: palette.textTertiary,
+      upWickColor: palette.chartCandleUp,
+      downWickColor: palette.chartCandleDown,
+      noChangeWickColor: palette.textTertiary,
+    },
+  },
+});
 
 // params（含 _builtInId 标记）→ klinecharts calcParams 数值数组；依赖 defaultParams 键声明顺序与内置指标 calcParams 顺序一致
 const toCalcParamArray = (params?: Record<string, unknown>): number[] =>
@@ -159,6 +197,8 @@ export interface ChartShellProps {
   /** 左侧绘图工具栏常驻不收起（回放页使用；/chart 缺省可收起） */
   drawingBarLocked?: boolean;
   indicatorScope: IndicatorScope;
+  /** 是否显示工具栏「信号提醒」入口（默认 true；行情回放页传 false） */
+  showAlerts?: boolean;
   loading?: boolean;
   error?: string | null;
   /** 订单簿设置弹窗三件套（仅 /chart 页传入；回放页不传即隐藏弹窗中的订单簿分组） */
@@ -244,8 +284,10 @@ const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ ov
   // extendData（fillMarkers 成交标记与原有 signal 标注均以 OverlayCreate.extendData 传入）；
   // 保留 coord1 点级读取兼容旧扩展路径
   const extendData = ((overlay?.extendData as SignalExtendData | undefined) ?? coord1.extendData ?? {}) as SignalExtendData;
+  // canvas 绘制需字面色：走 palette 槽位（info 底 / 标记反白字）
+  const palette = getPalette(currentChartThemeMode());
   const text = extendData.text || '';
-  const color = extendData.color || QUANT_COLORS.info;
+  const color = extendData.color || palette.info;
   const side = extendData.side || 'buy';
 
   const px = coord0.x ?? 0;
@@ -272,7 +314,8 @@ const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ ov
         x: px,
         y: py + (side === 'buy' ? -10 : 14),
         text: String(text),
-        fill: '#FFFFFF',
+        // 实心色块上的反白字：palette chartMarkerText 槽位（canvas 需字面色，亮暗恒白）
+        fill: getPalette(currentChartThemeMode()).chartMarkerText,
         fontSize: 11,
         textAlign: 'center',
         textBaseline: 'middle',
@@ -332,6 +375,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   realtimeSlot,
   drawingBarLocked = false,
   indicatorScope,
+  showAlerts = true,
   loading = false,
   error = null,
   orderbookModalProps,
@@ -342,9 +386,19 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   const { message } = App.useApp();
   // ponytail: klinecharts 独立于 antd theme，需要从 token 派生主题感知的样式值
   const { token: themeToken } = theme.useToken();
+  // 当前主题模式：antd colorBgBase 由 palette 派生（App.tsx ConfigProvider token），
+  // 与 palette 暗色底对表即得当前模式——不读 DOM、不受 effect 时序影响
+  const isDark = themeToken.colorBgBase === getPalette('dark').background;
+  // 图表 canvas 专用槽位（getPalette 返回注册表的稳定引用，仅模式切换时换挡）
+  const chartPalette = getPalette(isDark ? 'dark' : 'light');
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<Nullable<Chart>>(null);
+  // 就绪实例的 state 影子：OHLCStrip 以 props 订阅 crosshair，ref 变化不触发子树更新，
+  // 需要这份可渲染引用（init/dispose 各一次低频赋值，与 ref 保持同指针）
+  const [readyChart, setReadyChart] = useState<Nullable<Chart>>(null);
+  // 页面喂数次数：OHLCStrip 借新 prop 重读末根（实时更新后信息条随之刷新）；值本身不参与渲染
+  const [barsTick, setBarsTick] = useState(0);
   // 全屏目标：包含上方工具栏与图表的主体容器
   const fullscreenTargetRef = useRef<HTMLDivElement>(null);
 
@@ -385,21 +439,24 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   // 自动添加 VOL 指标（只执行一次）
   const volInitializedRef = useRef(false);
 
-  // ponytail: 指标调色板从 antd theme token 派生（涨跌语义色），
-  // 剩余 4 个饱和色（紫/粉/亮绿/靛蓝）是区分多条指标线的 palette，
-  // 保留硬编码不跟随主题——用户习惯用这些颜色区分不同指标。
-  const DEFAULT_PLOT_COLORS = useMemo(() => [
-    themeToken.colorInfo,
-    themeToken.colorError,
-    themeToken.colorSuccess,
-    themeToken.colorWarning,
-    '#722ed1',  // 紫
-    themeToken.colorInfo,
-    '#eb2f96',  // 粉
-    themeToken.colorWarning,
-    '#a0d911',  // 亮绿
-    '#2f54eb',  // 靛蓝
-  ], [themeToken.colorInfo, themeToken.colorError, themeToken.colorSuccess, themeToken.colorWarning]);
+  // ponytail: 指标调色板的语义位从 antd theme token 派生（涨跌语义色），
+  // 4 个高饱和补充位（紫/粉/亮绿/靛蓝）是区分多条指标线的离散色，走 palette
+  // chartPlotExtra 槽位（两模式同值，用户习惯以颜色区分指标线）。
+  const DEFAULT_PLOT_COLORS = useMemo(() => {
+    const extra = chartPalette.chartPlotExtra;
+    return [
+      themeToken.colorInfo,
+      themeToken.colorError,
+      themeToken.colorSuccess,
+      themeToken.colorWarning,
+      extra[0], // 紫
+      themeToken.colorInfo,
+      extra[1], // 粉
+      themeToken.colorWarning,
+      extra[2], // 亮绿
+      extra[3], // 靛蓝
+    ];
+  }, [chartPalette, themeToken]);
 
   // 安全的figure key（避免klinecharts特殊字符）
   const sanitizeFigureKey = (name: string): string => {
@@ -541,7 +598,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
         price,
         anchorPrice,
         side: isBuy ? 'buy' : 'sell',
-        color: signal.color || (isBuy ? '#00E676' : '#FF5252'),
+        // 信号未自带颜色时的买卖兜底：palette 标记槽位（canvas 需字面色）
+        color: signal.color || getPalette(currentChartThemeMode())[isBuy ? 'chartBuyMarker' : 'chartSellMarker'],
         text: signal.text || (isBuy ? 'B' : 'S'),
       });
     }
@@ -937,6 +995,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       }
     });
     chart.resize();
+    // 通知 OHLCStrip 重读末根（实时批量喂数经页面 100~200ms 节流，频率可控）
+    setBarsTick(t => t + 1);
   }, [getDisplayBars]);
 
   // 设置项统一入口：样式路径走 setStyles；Y 轴反转在 v10 不属于 styles，需走 overrideYAxis。
@@ -1007,7 +1067,9 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   const getScreenshotUrl = useCallback(() => {
     const chart = chartInstanceRef.current;
     if (!chart) return '';
-    const backgroundColor = document.documentElement.classList.contains('dark') ? '#151517' : '#ffffff';
+    const isDark = document.documentElement.classList.contains('dark');
+    // 底色走 palette 语义槽位 chartScreenshotBg（亮/暗分值，与迁移前字面量等值）
+    const backgroundColor = getPalette(isDark ? 'dark' : 'light').chartScreenshotBg;
     return chart.getConvertPictureUrl(true, 'jpeg', backgroundColor);
   }, []);
 
@@ -1057,38 +1119,14 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       if (!chart) return;
 
       chartInstanceRef.current = chart;
+      setReadyChart(chart);
 
       // 兜底：init 时若容器处于布局过渡态（如侧边栏宽度恢复/首帧 flex 计算），
       // 量到的是过期宽度并会一直僵持；隔两帧按最终布局宽度强制重绘一次
       requestAnimationFrame(() => requestAnimationFrame(() => chart.resize()));
 
-      // ponytail: 网格线和 K 线配色从 antd theme token 派生，主题切换时自动适配
-      chart.setStyles({
-        grid: {
-          show: true,
-          horizontal: {
-            show: true,
-            size: 1,
-            color: themeToken.colorBorderSecondary,
-            style: 'dashed',
-          },
-          vertical: {
-            show: true,
-            size: 1,
-            color: themeToken.colorBorderSecondary,
-            style: 'dashed',
-          },
-        },
-        candle: {
-          bar: {
-            // ponytail: K 线配色保持 TradingView 行业惯例（绿涨红跌），
-            // 但跟随暗/亮主题调整亮度，避免在暗色模式下刺眼
-            upColor: themeToken.colorBgBase === '#17191c' ? '#52c7b8' : '#26A69A',
-            downColor: themeToken.colorBgBase === '#17191c' ? '#ff8a80' : '#EF5350',
-            noChangeColor: themeToken.colorTextTertiary ?? '#888888',
-          },
-        },
-      });
+      // 图表主题样式（网格/蜡烛）从 palette 槽位取值；主题切换由下方 effect 重新应用
+      chart.setStyles(buildChartThemeStyles(chartPalette));
 
       // 设置品种和周期
       const period = findPeriodItem(currentPeriod);
@@ -1130,11 +1168,18 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     return () => {
       if (chartInstanceRef.current) {
         dispose(chartId);
+        setReadyChart(null);
         chartInstanceRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, [chartId]);
+
+  // 主题切换 → 重应用网格/蜡烛主题样式（klinecharts 不感知 antd 主题；
+  // chartPalette 仅在模式切换时换挡，故 effect 只在主题翻面时跑）
+  useEffect(() => {
+    chartInstanceRef.current?.setStyles(buildChartThemeStyles(chartPalette));
+  }, [chartPalette]);
 
   // 偏好回放：图表先按默认创建，后端 chart 组加载完成后逐项应用保存值。
   // 只在挂载时回放一次，applyChartSetting 为稳定 useCallback，故意固定空依赖
@@ -1425,6 +1470,28 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     ? activeIndicators.filter(ind => ind.paneId === hoveredPaneId)
     : [];
 
+  // 常驻图例 chips（demo card-head 的 MA 图例对应物）：遍历活跃 overlay 均线指标，
+  // 线名/线数与 klinecharts regenerateFigures 同构造，线色取默认色板真值（图内实际线色）。
+  // 无 overlay 型指标时返回空数组 → 周期栏不渲染容器（不显示死 chip）
+  const indicatorLegendChips = useMemo(() => {
+    const chips: { label: string; color: string }[] = [];
+    for (const ind of activeIndicators) {
+      if (ind.isCustom) continue;
+      const name = builtInIndicatorMap[String(ind.id)];
+      if (!name || !INDICATOR_LEGEND_NAMES.has(name)) continue;
+      if (name === 'BOLL') {
+        // BOLL 内置无 regenerateFigures，figures 固定 UP/MID/DN 三条，线色按色板前三位
+        ['UP', 'MID', 'DN'].forEach((seg, i) =>
+          chips.push({ label: seg, color: INDICATOR_LINE_COLORS[i % INDICATOR_LINE_COLORS.length] }));
+      } else {
+        // MA/EMA：一条 calcParams 生成一条线，图内 title 即 `MA20: ` 同构
+        toCalcParamArray(ind.params).forEach((p, i) =>
+          chips.push({ label: `${name}${p}`, color: INDICATOR_LINE_COLORS[i % INDICATOR_LINE_COLORS.length] }));
+      }
+    }
+    return chips;
+  }, [activeIndicators]);
+
   return (
     <div className="chart-page-fullscreen page-fullscreen">
       <div className="chart-page" ref={fullscreenTargetRef}>
@@ -1439,6 +1506,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
           onChangePeriod={onChangePeriod}
           activeIndicators={activeIndicators}
           onToggleIndicator={handleToggleIndicator}
+          indicatorLegend={indicatorLegendChips.length > 0 ? indicatorLegendChips : undefined}
           realtimeSlot={realtimeSlot}
           onOpenSymbolSearch={() => onOpenSymbolSearch?.()}
           currentTimezone={timezone}
@@ -1449,6 +1517,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
           getScreenshotUrl={getScreenshotUrl}
           fullscreenTarget={fullscreenTargetRef}
           indicatorScope={indicatorScope}
+          showAlerts={showAlerts}
           orderbook={orderbookModalProps?.orderbook}
           onOrderbookChange={orderbookModalProps?.onOrderbookChange}
           backtestOptions={orderbookModalProps?.backtestOptions}
@@ -1487,6 +1556,10 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
                 className="kline-chart"
               />
             </Spin>
+
+            {/* OHLC 十字光标联动条（demo .ohlc-row，位于图下沿）：随 crosshair 更新、移出回末根，
+             *  无数据整条不渲染；实例经 readyChart 传入、喂数经 barsTick 促重读末根 */}
+            <OHLCStrip chart={readyChart} getBars={getBars} refreshSignal={barsTick} />
 
             {/* 指标图例 hover 工具条：贴 pane 顶部浮出，⚙ 改参数 / × 移除；无指标的 pane 不显示 */}
             {hoveredPaneId && paneIndicators.length > 0 && (

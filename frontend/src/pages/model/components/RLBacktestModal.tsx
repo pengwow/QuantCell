@@ -4,6 +4,7 @@ import type { UnifiedModelRow } from '@/api/modelApi';
 import { rlApi, type RLBacktestResult } from '@/api/rlApi';
 import { useTranslation } from 'react-i18next';
 import RLBacktestDetailDrawer from './RLBacktestDetailDrawer';
+import SymbolSelect from '@/components/SymbolSelect';
 
 interface RLBacktestModalProps {
   row: UnifiedModelRow | null; // 当前选中的模型文件行
@@ -56,6 +57,7 @@ export default function RLBacktestModal({ row, onClose }: RLBacktestModalProps) 
 
   return (
     <Modal
+      className="qc-modal"
       title={t('rlbt_title', { name: row?.file_name ?? '' })}
       open={!!row}
       onOk={handleOk}
@@ -74,13 +76,8 @@ export default function RLBacktestModal({ row, onClose }: RLBacktestModalProps) 
         disabled={submitting}
       >
         <Form.Item label={t('rlbt_label_symbol')} name="symbol" rules={[{ required: true }]}>
-          <Select
-            options={[
-              { value: 'BTCUSDT', label: 'BTCUSDT' },
-              { value: 'ETHUSDT', label: 'ETHUSDT' },
-              { value: 'SOLUSDT', label: 'SOLUSDT' },
-            ]}
-          />
+          {/* 与训练表单同一份标的池（compact 值形态 BTCUSDT） */}
+          <SymbolSelect valueFormat="compact" />
         </Form.Item>
 
         <Form.Item label={t('rlbt_label_interval')} name="interval">

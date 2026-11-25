@@ -89,8 +89,9 @@ describe('口径标注', () => {
   it('年化收益率与卡尔马比率的口径说明包含关键信息', () => {
     const cagr = METRIC_CARDS.find((m) => m.key === 'cagr')!;
     expect(cagr.hint).toContain('年化');
-    // 共享资金池品种视角不适用（分子分母不同层级），必须带口径说明
-    expect(METRIC_CARDS.find((m) => m.key === 'calmar_ratio')!.hint).toContain('品种视角不适用');
+    // 共享资金池标的视角不适用（分子分母不同层级），必须带口径说明
+    // （"标的"是全平台标的物称呼统一后的主词，与 i18n 词库 backtest_hint_calmar_ratio 一致）
+    expect(METRIC_CARDS.find((m) => m.key === 'calmar_ratio')!.hint).toContain('标的视角不适用');
   });
 });
 

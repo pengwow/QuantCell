@@ -111,13 +111,21 @@ available="false" 的技能需要先安装依赖 — 你可以尝试用 apt/brew
         skill_names: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
+        extra_system: str | None = None,
     ) -> list[dict[str, Any]]:
-        """构建完整的 LLM 消息列表"""
+        """构建完整的 LLM 消息列表
+
+        `extra_system` 追加到 system 消息尾部（如所选 Worker 的实时上下文），
+        不进用户消息——用户消息会落会话历史，注入的上下文不该被存档。
+        """
         runtime_ctx = self._build_runtime_context(channel, chat_id)
         merged = f"{runtime_ctx}\n\n{current_message}"
+        system_prompt = self.build_system_prompt(skill_names)
+        if extra_system:
+            system_prompt = f"{system_prompt}\n\n{extra_system}"
 
         return [
-            {"role": "system", "content": self.build_system_prompt(skill_names)},
+            {"role": "system", "content": system_prompt},
             *history,
             {"role": "user", "content": merged},
         ]

@@ -172,3 +172,107 @@ def test_unified_endpoint(tmp_path, _model_storage):
     assert data[0]["registered"] is True
     assert data[0]["model_id"] == "api_model"
     assert data[0]["metrics"] == {"sharpe_ratio": 1.1}
+
+
+_TRAINING_META = {
+    "obs_mode": "ohlcv_window",
+    "obs_window": 32,
+    "obs_features": ["open", "high", "low", "close", "volume", "spread"],
+    "data_type": "bookTicker",
+    "reward_terms": {"pnl": 1.0, "downside": 0.4},
+    "transaction_cost": 0.0004,
+    "walk_forward": {
+        "aggregate": {"mean": {"sharpe_ratio": 1.2}, "std": {}, "n_valid_folds": 3},
+        "oos": {
+            "evaluable": True,
+            "n_valid_folds": 3,
+            "sharpe_ratio": 1.2,
+            "total_return_pct": 4.5,
+            "total_pnl": 4500.0,
+            "passed": True,
+            "metric_source": "walk_forward.aggregate.mean",
+        },
+    },
+}
+
+
+def _write_meta(zip_path: str, meta: dict) -> None:
+    import json
+
+    with open(f"{zip_path}.meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f)
+
+
+def test_unified_passes_training_meta_fields(tmp_path):
+    """带训练期旁车的行透传 7 字段;无旁车(旧模型)的行全部为 None。"""
+    from services.model_registry import ModelRegistryService
+
+    new_zip = _write_zip(str(tmp_path), "new_obs_ppo_1782404770")
+    _write_meta(new_zip, {"model_id": "new_obs_ppo_1782404770", **_TRAINING_META})
+    old_zip = _write_zip(str(tmp_path), "old_obs_ppo_1782404760")
+    svc = ModelRegistryService(storage_path=str(tmp_path))
+    svc.register_model(name="new_obs_ppo_1782404770", model_path=new_zip, metadata={"algorithm": "ppo"})
+    svc.register_model(name="old_obs_ppo_1782404760", model_path=old_zip, metadata={"algorithm": "ppo"})
+
+    by_file = {r["file_name"]: r for r in svc.list_unified_models()}
+
+    new_row = by_file["new_obs_ppo_1782404770.zip"]
+    assert new_row["obs_mode"] == "ohlcv_window"
+    assert new_row["obs_window"] == 32
+    assert new_row["obs_features"] == ["open", "high", "low", "close", "volume", "spread"]
+    assert new_row["data_type"] == "bookTicker"
+    assert new_row["reward_terms"] == {"pnl": 1.0, "downside": 0.4}
+    assert new_row["transaction_cost"] == 0.0004
+    # oos 取自 walk_forward.oos(顶层无 oos 键)
+    assert new_row["oos"]["n_valid_folds"] == 3
+    assert new_row["oos"]["sharpe_ratio"] == 1.2
+    assert new_row["oos"]["total_return_pct"] == 4.5
+    assert new_row["oos"]["passed"] is True
+
+    old_row = by_file["old_obs_ppo_1782404760.zip"]
+    assert old_row["registered"] is True
+    for key in ("obs_mode", "obs_window", "obs_features", "data_type", "reward_terms", "transaction_cost", "oos"):
+        assert old_row[key] is None
+
+
+def test_unified_training_meta_bad_sidecar_only_affects_own_row(tmp_path):
+    """旁车损坏/非对象:本行降级为 None,其他行照常透传(列表不整体失败)。"""
+    from services.model_registry import ModelRegistryService
+
+    bad_zip = _write_zip(str(tmp_path), "bad_meta")
+    with open(f"{bad_zip}.meta.json", "w", encoding="utf-8") as f:
+        f.write("{not json")
+    good_zip = _write_zip(str(tmp_path), "good_meta")
+    _write_meta(good_zip, _TRAINING_META)
+
+    rows = ModelRegistryService(storage_path=str(tmp_path)).list_unified_models()
+    by_file = {r["file_name"]: r for r in rows}
+
+    assert by_file["bad_meta.zip"]["obs_mode"] is None
+    assert by_file["bad_meta.zip"]["oos"] is None
+    assert by_file["good_meta.zip"]["obs_mode"] == "ohlcv_window"
+    assert len(rows) == 2
+
+
+def test_unified_endpoint_passes_training_meta(tmp_path, _model_storage):
+    """路由层序列化后 7 字段仍在行上(snake_case 扁平,与前端 UnifiedModelRow 对齐)。"""
+    registered_zip = _write_zip(str(tmp_path), "api_meta_model")
+    _write_meta(registered_zip, _TRAINING_META)
+    from services.model_registry import ModelRegistryService
+
+    ModelRegistryService(storage_path=str(tmp_path)).register_model(
+        name="api_meta_model", model_path=registered_zip, metadata={"algorithm": "ppo"}
+    )
+    from api.model_routes import router
+
+    app = FastAPI()
+    app.include_router(router)
+    resp = TestClient(app).get("/api/v1/models/unified")
+    assert resp.status_code == 200
+    row = resp.json()["data"][0]
+    assert row["obs_mode"] == "ohlcv_window"
+    assert row["obs_window"] == 32
+    assert row["data_type"] == "bookTicker"
+    assert row["reward_terms"] == {"pnl": 1.0, "downside": 0.4}
+    assert row["transaction_cost"] == 0.0004
+    assert row["oos"]["metric_source"] == "walk_forward.aggregate.mean"

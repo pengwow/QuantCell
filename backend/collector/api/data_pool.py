@@ -556,7 +556,7 @@ def get_collection_symbols(
         for pool in asset_pools:
             # 获取数据池包含的资产
             assets = DataPool.get_assets(pool["id"])
-            pool_data.append({"id": pool["id"], "name": pool["name"], "symbols": assets})
+            pool_data.append({"id": pool["id"], "name": pool["name"], "color": pool.get("color"), "symbols": assets})
 
         # 3. 获取直接货币对数据
         # 从数据库中获取有效的加密货币符号

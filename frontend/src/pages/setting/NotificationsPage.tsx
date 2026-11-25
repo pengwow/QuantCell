@@ -24,6 +24,7 @@ import {
   type NotificationTestResult,
 } from "../../services/notificationService";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
+import PageContainer from "@/components/PageContainer";
 import { IconPlugConnected } from "@tabler/icons-react";
 
 const { Text } = Typography;
@@ -276,25 +277,27 @@ const NotificationsPage = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer title={t("notification_settings")}>
+      <div className="space-y-6">
       {/* 主内容区域 - 响应式布局 */}
       <div className="flex flex-col lg:flex-row gap-6">
         {/* 左侧渠道列表 */}
         <div className="w-full lg:w-64 flex-shrink-0">
-          <div className="text-base font-medium mb-4 leading-8 h-8">
+          <div className="h-8 leading-8 mb-4 font-[650]" style={{ fontSize: 13 }}>
             {t("notification_channel")}
           </div>
-          <Card className="shadow-sm" styles={{ body: { padding: 8 } }}>
+          <Card className="qc-card">
             {/* 小屏幕：水平排列自动换行；大屏幕：垂直列表 */}
             <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
               {channels.map((channel) => (
                 <div
                   key={channel.id}
-                  className={`cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full ${
+                  className="cursor-pointer rounded-lg transition-all duration-200 px-3 py-2 flex items-center gap-2 lg:gap-3 lg:w-full hover:bg-[var(--qc-surface-hover)]"
+                  style={
                     selectedChannelId === channel.id
-                      ? "bg-gray-100 dark:bg-gray-800"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-900"
-                  }`}
+                      ? { background: 'color-mix(in srgb, var(--qc-primary) 9%, transparent)' }
+                      : undefined
+                  }
                   onClick={() => setSelectedChannelId(channel.id)}
                 >
                   <span className="w-8 h-8 flex items-center justify-center shrink-0 overflow-hidden">
@@ -302,7 +305,7 @@ const NotificationsPage = () => {
                   </span>
                   <div className="flex-1 min-w-0 hidden lg:block">
                     <div className="font-medium text-sm truncate">{channel.name}</div>
-                    <div className="text-xs text-gray-400 truncate">{channel.id}</div>
+                    <div className="text-xs truncate" style={{ color: 'var(--qc-text-quaternary)' }}>{channel.id}</div>
                   </div>
                   <span className="lg:hidden font-medium text-sm">{channel.name}</span>
                 </div>
@@ -314,11 +317,10 @@ const NotificationsPage = () => {
         {/* 右侧配置区域 */}
         <div className="flex-1">
           {selectedChannel ? (
-            <div className="space-y-4">
-              {/* 渠道标题和测试按钮 - 与左侧标题对齐 */}
-              <div className="flex items-center justify-between h-8">
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-medium">{selectedChannel.name}</span>
+            <PageContainer
+              title={selectedChannel.name}
+              actions={
+                <Space wrap>
                   {/* 渠道启用开关：未启用时测试按钮置灰 */}
                   <Switch
                     size="small"
@@ -328,8 +330,6 @@ const NotificationsPage = () => {
                       toggleChannelEnabled(selectedChannel.id, checked)
                     }
                   />
-                </div>
-                <Space>
                   <Button
                     type="primary"
                     icon={<IconPlugConnected size={16} />}
@@ -340,9 +340,9 @@ const NotificationsPage = () => {
                     {testingChannel ? t("testing") : t("notification_test_channel")}
                   </Button>
                 </Space>
-              </div>
-
-              <Card className="shadow-sm">
+              }
+            >
+              <Card className="qc-card">
                 {/* 邮件配置 */}
                 {selectedChannel.id === "email" && (
                   <div className="space-y-4">
@@ -567,14 +567,21 @@ const NotificationsPage = () => {
 
                 {/* 测试结果 */}
                 {testResult && (
-                  <div className={`mt-4 p-3 rounded-lg ${testResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                  <div
+                    className="mt-4 p-3 rounded-lg"
+                    style={{
+                      background: testResult.success
+                        ? 'var(--qc-success-soft-bg)'
+                        : 'var(--qc-error-soft-bg)',
+                    }}
+                  >
                     <div className="flex items-center gap-2">
                       {testResult.success ? (
-                        <span className="text-green-500">✓</span>
+                        <span style={{ color: 'var(--qc-success)' }}>✓</span>
                       ) : (
-                        <span className="text-red-500">✗</span>
+                        <span style={{ color: 'var(--qc-error)' }}>✗</span>
                       )}
-                      <span className={testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
+                      <span style={{ color: testResult.success ? 'var(--qc-success)' : 'var(--qc-error)' }}>
                         {testResult.message}
                       </span>
                     </div>
@@ -582,10 +589,10 @@ const NotificationsPage = () => {
                 )}
 
               </Card>
-            </div>
+            </PageContainer>
           ) : (
-            <Card className="shadow-sm">
-              <div className="text-center py-12 text-gray-500">
+            <Card className="qc-card">
+              <div className="text-center py-12" style={{ color: 'var(--qc-text-secondary)' }}>
                 <IconMail size="48" className="mx-auto mb-4 opacity-50" />
                 <p>{t("select_channel_first")}</p>
               </div>
@@ -595,7 +602,7 @@ const NotificationsPage = () => {
       </div>
 
       {/* 操作按钮 */}
-      <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="border-border flex justify-end gap-4 border-t pt-4">
         <Space>
           <Button onClick={handleReset} disabled={saving || loading || isGuest}>
             {t("reset")}
@@ -605,7 +612,8 @@ const NotificationsPage = () => {
           </Button>
         </Space>
       </div>
-    </div>
+      </div>
+    </PageContainer>
   );
 };
 

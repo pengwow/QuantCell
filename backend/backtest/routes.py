@@ -29,11 +29,19 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from collector.db.models import DataPoolBusiness
+from backtest.models import BacktestTask
+from collector.db.models import DataPool, DataPoolBusiness
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+)
 from strategy.decision_recording import default_replay_dir, load_record_by_seq
 from strategy.llm_replay import resolve_replay_path
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import get_current_user
+from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
@@ -59,6 +67,97 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # 创建回测服务实例
 backtest_service = BacktestService()
 
+
+def notify_backtest_result(task_id: str, result: dict, *, name: str) -> None:
+    """回测结果 → 终态通知唯一出口
+
+    status∈{success,completed} 发成功；stopped 是用户主动终止不发；
+    其余一律按失败发（未知状态也报，避免静默丢通知）。
+    """
+    status = result.get("status")
+    if status == "stopped":
+        return
+    if status in ("success", "completed"):
+        notify_task_event("backtest", task_id, TASK_STATUS_SUCCEEDED, name=name or None)
+    else:
+        notify_task_event(
+            "backtest",
+            task_id,
+            TASK_STATUS_FAILED,
+            name=name or None,
+            error=str(result.get("message") or "回测失败"),
+        )
+
+
+def attach_list_extra_fields(rows: list[dict]) -> None:
+    """列表行补 pool_name / elapsed_seconds（页内一次批量查，不逐行 N+1）。
+
+    - pool_name：用本页出现的 pool_id 一次 IN 查 data_pools；池已删/非自选组任务 → None
+    - elapsed_seconds：backtest_tasks 按本页 id 一次查 started_at/completed_at，
+      两者齐全才算真实差值；running/旧任务缺任一 → None（不写 0 冒充）
+
+    查询失败只降级为 None（列表照常返回），不把整页打成 500。
+    """
+    if not rows:
+        return
+
+    pool_ids = {row.get("pool_id") for row in rows if isinstance(row.get("pool_id"), int)}
+    pool_names: dict[int, str] = {}
+    if pool_ids:
+        try:
+            with get_db_session() as db:
+                for pool_id, name in db.query(DataPool.id, DataPool.name).filter(DataPool.id.in_(pool_ids)).all():
+                    pool_names[pool_id] = name
+        except Exception as e:
+            logger.warning(f"批量查询自选组名称失败: {e}")
+
+    task_ids = [str(row.get("id")) for row in rows if row.get("id") is not None]
+    elapsed: dict[str, int] = {}
+    if task_ids:
+        try:
+            with get_db_session() as db:
+                for task_id, started_at, completed_at in (
+                    db.query(BacktestTask.id, BacktestTask.started_at, BacktestTask.completed_at)
+                    .filter(BacktestTask.id.in_(task_ids))
+                    .all()
+                ):
+                    if started_at is not None and completed_at is not None:
+                        elapsed[str(task_id)] = int((completed_at - started_at).total_seconds())
+        except Exception as e:
+            logger.warning(f"批量查询回测耗时失败: {e}")
+
+    for row in rows:
+        row["pool_name"] = pool_names.get(row.get("pool_id"))
+        row["elapsed_seconds"] = elapsed.get(str(row.get("id")))
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：backtest_tasks 残留 pending/running 的行置 failed 并补发中断通知
+
+    回测跑在后台线程，进程重启即全部中断；status 值域无 interrupted，落库置 failed。
+    """
+    try:
+        with get_db_session() as db:
+            rows = db.query(BacktestTask).filter(BacktestTask.status.in_(("pending", "running"))).all()
+            stale = [(r.id, r.strategy_name) for r in rows]
+            for row in rows:
+                row.status = "failed"
+                row.completed_at = datetime.now(UTC)
+            db.commit()
+    except Exception:
+        logger.exception("[回测] 启动补偿扫描失败")
+        return 0
+    for task_id, strategy_name in stale:
+        notify_task_event(
+            "backtest",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=strategy_name or None,
+            error="服务重启，回测被中断",
+        )
+    return len(stale)
+
+
 # 创建API路由实例
 router = APIRouter(
     prefix="/api/v1/backtest",
@@ -74,7 +173,7 @@ router = APIRouter(
     "/list",
     response_model=ApiResponse,
     summary="获取回测列表",
-    description="获取回测任务列表，支持服务端分页、状态/关键字/策略筛选与排序",
+    description="获取回测任务列表，支持服务端分页、状态/关键字/策略/类型筛选与排序",
     responses={
         200: {"description": "获取回测列表成功"},
         500: {"description": "获取回测列表失败"},
@@ -89,8 +188,17 @@ def get_backtest_list(
     keyword: str | None = Query(None, description="关键字，模糊匹配策略名称或任务ID"),
     strategy: str | None = Query(None, description="精确匹配策略名称"),
     source: str | None = Query(None, description="来源过滤：'rl' 匹配 rl_model:/rl_ensemble: 前缀策略，其他值忽略"),
+    kind: str | None = Query(
+        None,
+        pattern=r"^(rule|rl|llm)$",
+        description="策略类型过滤：rule/rl/llm（按策略文件 AST 判定，与列表「类型」列同源）",
+    ),
     sort_by: str = Query("created_at", description="排序字段：created_at/total_return/max_drawdown/strategy_name"),
     sort_order: str = Query("desc", description="排序方向：asc/desc"),
+    start_time: str | None = Query(
+        None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="创建日期过滤起（含），YYYY-MM-DD"
+    ),
+    end_time: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="创建日期过滤止（含），YYYY-MM-DD"),
 ) -> ApiResponse:
     """
     获取回测结果列表
@@ -104,6 +212,7 @@ def get_backtest_list(
         status: 状态过滤，'all' 视为不过滤
         keyword: 模糊匹配策略名称/任务ID
         strategy: 精确匹配策略名称
+        kind: 策略类型过滤（rule/rl/llm，按策略文件 AST 判定，与列表「类型」列同源）
         sort_by: 排序字段
         sort_order: 排序方向
 
@@ -114,7 +223,7 @@ def get_backtest_list(
         logger.info(
             f"获取回测结果列表请求 page={page} page_size={page_size} "
             f"status={status} keyword={keyword} strategy={strategy} source={source} "
-            f"sort_by={sort_by} sort_order={sort_order}"
+            f"kind={kind} sort_by={sort_by} sort_order={sort_order}"
         )
 
         backtests, total = backtest_service.get_result_list(
@@ -126,7 +235,13 @@ def get_backtest_list(
             source=source,
             sort_by=sort_by,
             sort_order=sort_order,
+            start_time=start_time,
+            end_time=end_time,
+            kind=kind,
         )
+
+        # 列表行补自选组名 / 真实耗时（页内批量查；缺值留 None，不改筛选排序分页语义）
+        attach_list_extra_fields(backtests)
 
         logger.info(f"成功获取回测结果列表，共 {total} 条，返回 {len(backtests)} 条")
 
@@ -358,6 +473,9 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     # 执行回测
                     result = backtest_service.run_backtest(task_id=service_task_id, progress_tracker=progress_tracker)
 
+                    # 终态通知唯一出口：stopped 由挂钩内部静默
+                    notify_backtest_result(task_id, result, name=str(strategy_config_dict.get("strategy_name") or ""))
+
                     logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
                     # 回测成功状态可能是 'success' 或 'completed'
                     if result.get("status") in ("success", "completed"):
@@ -386,6 +504,13 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     logger.exception(e)
                     # 更新进度为失败状态
                     progress_tracker.fail_progress(task_id, f"回测执行失败: {e!s}", "execution")
+                    notify_task_event(
+                        "backtest",
+                        task_id,
+                        TASK_STATUS_FAILED,
+                        name=str(strategy_config_dict.get("strategy_name") or ""),
+                        error=f"回测执行发生异常: {e}",
+                    )
 
             # 启动后台线程
             thread = threading.Thread(target=run_backtest_async, daemon=True)
@@ -814,6 +939,60 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
 
     except Exception as e:
         logger.error(f"获取回测结果详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{backtest_id}/summary",
+    response_model=ApiResponse,
+    summary="获取回测轻量摘要",
+    description="列表行内部分详情：任务级字段 + 组合级指标字典 + 回测配置 + 权益曲线采样（completed）；不返回 trades/equity 全量大字段",
+)
+def get_backtest_summary(backtest_id: str) -> ApiResponse:
+    """回测中心行点击的内联摘要（demo #view-backtest .bt-detail 对位）。
+
+    与 GET /{backtest_id}（全量详情）的差异：只读任务文件与任务级指标摘要。
+    completed 任务附带权益曲线采样点（结果 JSON 首读一次后回写任务文件，
+    之后毫秒级），传输量 ≤ 采样点对，不透传 trades / equity 全量 —— 结果
+    JSON 可达几百 MB。回测配置（初始资金/手续费/起止区间）任务文件里
+    常为空对象，从 DB 任务行补全；耗时仅在 completed 且起止时间齐全时给出真实值。
+    """
+    try:
+        summary = backtest_service.get_inline_summary(backtest_id)
+        if summary is None:
+            logger.warning(f"回测任务不存在，回测ID: {backtest_id}")
+            return ApiResponse(code=1, message="回测任务不存在", data={})
+
+        # 任务文件里的 config 键常是空对象：初始资金/手续费/起止区间从 DB 行补
+        config: dict = {}
+        row = None
+        try:
+            from backtest.models import BacktestTask
+            from utils.db_session import get_db_session
+
+            with get_db_session() as db:
+                row = db.query(BacktestTask).filter_by(id=backtest_id).first()
+                if row and row.backtest_config:
+                    config = json.loads(row.backtest_config)
+        except Exception as e:
+            logger.warning(f"读取回测配置失败 task={backtest_id}: {e}")
+
+        summary["backtest_config"] = config
+
+        # 耗时：仅 completed 且 DB 有起止时间时给真实值（秒，整型）；其余不留字段不造数
+        if (
+            summary.get("status") == "completed"
+            and row is not None
+            and row.started_at is not None
+            and row.completed_at is not None
+        ):
+            summary["elapsed_seconds"] = int((row.completed_at - row.started_at).total_seconds())
+
+        logger.info(f"成功获取回测轻量摘要，回测ID: {backtest_id}")
+        return ApiResponse(code=0, message="获取回测轻量摘要成功", data=summary)
+
+    except Exception as e:
+        logger.error(f"获取回测轻量摘要失败，回测ID: {backtest_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

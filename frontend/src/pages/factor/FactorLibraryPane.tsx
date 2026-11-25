@@ -1,8 +1,10 @@
 /**
- * 因子库：工具栏（搜索/筛选 + 列表/卡片视图切换）+ 目录展示。
- * 布局对齐策略管理等页面：第一行 搜索(左)+视图切换(右)，第二行 筛选(左)+操作(右)；
- * 列表=带分页表格，卡片=Card 网格 + Pagination。数据来自容器单次 catalog() 请求，
- * 「查看详情」按钮（列表操作列/卡片底部）是打开抽屉的唯一入口，无异步竞态。
+ * 因子库：§6.6 工具栏（搜索 + 状态 ichips + 分类/来源下拉 + 计数 + 刷新/策略研究）
+ * + 目录展示（列表=DataTable 分页表格 / 卡片=Card 网格）。
+ * 「新建因子」入口在页头（demo page-actions），弹窗仍由本组件渲染，保存逻辑不变。
+ * 数据来自容器单次 catalog() 请求，搜索/筛选/分页全在前端对全量数组做；
+ * 列表页对齐 demo #view-factors 新范式：6 列（类别/来源并入因子列），点行就地展开轻摘要，
+ * 完整详情仍走「查看详情」→ 现有抽屉（onSelect），行内不重复渲染抽屉内容。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,17 +14,11 @@ import {
   App as AntdApp,
   Button,
   Card,
-  Col,
-  Empty,
   Flex,
-  Input,
   Pagination,
+  Popconfirm,
   Row,
   Select,
-  Space,
-  Table,
-  Tag,
-  theme,
   Tooltip,
   type TableColumnsType,
   type TablePaginationConfig,
@@ -30,16 +26,12 @@ import {
 import {
   DeleteOutlined,
   EyeOutlined,
-  PlusOutlined,
   ReloadOutlined,
   RobotOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
 import { factorApi, type FactorCatalogItem } from '@/api/factor';
 import {
-  CATEGORY_COLOR,
   categoryLabel,
-  STATUS_COLOR,
   factorSource,
   isAiProduced,
   toneColor,
@@ -50,6 +42,9 @@ import { useQuantColors } from '@/utils/colors';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
+import PageToolbar from '@/components/ui/PageToolbar';
 import FactorFormModal from './FactorFormModal';
 
 interface Props {
@@ -57,9 +52,31 @@ interface Props {
   loading: boolean;
   loadError: boolean;
   selected: string | null;
+  /** 打开完整详情抽屉（操作列眼睛 / 展开面板「查看详情」） */
   onSelect: (name: string) => void;
+  /** 行点击只同步选中态（高亮 + 右栏上下文），不开抽屉；缺省退回 onSelect */
+  onActivate?: (name: string) => void;
   onRefresh: () => Promise<void> | void;
+  /** 打开「新建因子」弹窗（按钮在页头 demo page-actions） */
+  onCreate: () => void;
+  /** 新建弹窗开/关（弹窗本体在本组件，保存后的选中逻辑在 handleCreated） */
+  createVisible: boolean;
+  onCloseCreate: () => void;
 }
+
+/** 状态筛选分组：LIVE=有效 / DISCOVERED·INSPECTED·PAPER_TRADING=观察 / RETIRED=失效
+ *  （与容器副标 factor_sub_status 的聚合规则一致，副标来自同一 catalog 字段） */
+type StatusFilter = 'all' | 'active' | 'watch' | 'retired';
+
+const inGroup = (s: FactorCatalogItem['lifecycle_status'], g: Exclude<StatusFilter, 'all'>) =>
+  g === 'active' ? s === 'LIVE' : g === 'retired' ? s === 'RETIRED' : s !== 'LIVE' && s !== 'RETIRED';
+
+const STATUS_CHIPS: Array<{ value: StatusFilter; labelKey: string }> = [
+  { value: 'all', labelKey: 'all' },
+  { value: 'active', labelKey: 'factor_group_active' },
+  { value: 'watch', labelKey: 'factor_group_watch' },
+  { value: 'retired', labelKey: 'factor_group_retired' },
+];
 
 const FactorLibraryPane: React.FC<Props> = ({
   catalog,
@@ -67,29 +84,33 @@ const FactorLibraryPane: React.FC<Props> = ({
   loadError,
   selected,
   onSelect,
+  onActivate,
   onRefresh,
+  onCreate,
+  createVisible,
+  onCloseCreate,
 }) => {
   const { t } = useTranslation();
-  const { message, modal } = AntdApp.useApp();
+  const { message } = AntdApp.useApp();
   const navigate = useNavigate();
-  const { token } = theme.useToken();
   const qc = useQuantColors();
   // 视图类型：跟随系统设置「默认展示类型」，页面不提供切换
   const viewType = useViewType();
   // 分页大小来自全局配置（条数切换器即全站开关）
   const [pageSize, setPageSize] = useGlobalPageSize();
   const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | FactorSource>('all');
-  const [createOpen, setCreateOpen] = useState(false);
-  // 列表/卡片共用一份分页状态（与策略管理一致）；pageSize 来自全局配置（条数切换器即全站开关）
+  // 列表/卡片共用一份分页状态（与策略管理一致）
   const [pagination, setPagination] = useState<TablePaginationConfig>(() => ({
     current: 1,
     pageSize,
-    showSizeChanger: true,
-    pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `${t('total_items', { total })}`,
   }));
+  // 行内展开：单键互斥（同一时刻只有一行展开）；初始 null = 初次加载不自动展开
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  // 行点击只切选中，不开抽屉（抽屉留给「查看详情」）
+  const activate = onActivate ?? onSelect;
 
   // 全局条数变化（设置页/其他页面改动）实时同步到本页分页状态
   useEffect(() => {
@@ -101,8 +122,18 @@ const FactorLibraryPane: React.FC<Props> = ({
 
   const sourceLabel = (src: FactorSource) => t(`factor_lib_source_${src}`) || src;
 
-  // 筛选条件变化时回到第一页（避免过滤后停留在超出范围的页码）
-  const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
+  // 状态 → §6.2 chip 语气（有效=ok / 观察=warn / 失效=down，demo 原文）
+  const statusChip = (s: FactorCatalogItem['lifecycle_status']) => {
+    const tone = s === 'LIVE' ? 'ok' : s === 'RETIRED' ? 'down' : 'warn';
+    return <span className={`qc-chip ${tone}`}>{statusLabel(s)}</span>;
+  };
+
+  // §6.6 过滤联动：过滤条件变化后页码归 1（历史雷区：搜索不重置页码）；
+  // 同口径收起行内展开面板，避免面板与其行失联（demo xpKeepTidy）
+  const gotoPage1 = () => {
+    setOpenKey(null);
+    setPagination((p) => ({ ...p, current: 1 }));
+  };
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(catalog.map((f) => f.category))).sort(),
@@ -112,413 +143,482 @@ const FactorLibraryPane: React.FC<Props> = ({
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return catalog.filter((f) => {
+      if (statusFilter !== 'all' && !inGroup(f.lifecycle_status, statusFilter)) return false;
       if (categoryFilter !== 'all' && f.category !== categoryFilter) return false;
       if (sourceFilter !== 'all' && factorSource(f) !== sourceFilter) return false;
       if (kw && !(`${f.label} ${f.name}`.toLowerCase().includes(kw))) return false;
       return true;
     });
-  }, [catalog, keyword, categoryFilter, sourceFilter]);
+  }, [catalog, keyword, statusFilter, categoryFilter, sourceFilter]);
 
-  const openCreate = () => setCreateOpen(true);
+  const hasFilter =
+    keyword.trim() !== '' || statusFilter !== 'all' || categoryFilter !== 'all' || sourceFilter !== 'all';
 
-  // 新建成功后：关弹窗、刷新目录、选中新因子（表单与保存逻辑在 FactorFormModal 内）
+  // 工具栏计数「显示 x-y / 共 z」（11px fg-4 mono，PageToolbar 内置样式）
+  const current = (pagination.current as number) || 1;
+  const shownRange = (start: number, end: number, total: number) =>
+    t('shown_range', { start, end, total });
+  const countText = shownRange(
+    filtered.length === 0 ? 0 : (current - 1) * pageSize + 1,
+    Math.min(current * pageSize, filtered.length),
+    filtered.length,
+  );
+
+  // 新建成功后：刷新目录、选中新因子（表单与保存逻辑在 FactorFormModal 内）
   const handleCreated = async (name: string) => {
-    setCreateOpen(false);
+    onCloseCreate();
     await onRefresh();
     onSelect(name);
   };
 
+  // 删除确认（Popconfirm）：表格操作列与卡片右上角 extra 共用
+  const deleteConfirm = (r: FactorCatalogItem) => (
+    <Popconfirm
+      title={t('factor_lib_delete_confirm_title')}
+      description={`${t('factor_lib_delete_confirm_text')}${r.label}（${r.name}）`}
+      okText={t('delete')}
+      cancelText={t('cancel')}
+      okButtonProps={{ danger: true }}
+      onConfirm={async () => {
+        try {
+          await factorApi.remove(r.name);
+          message.success(t('factor_lib_msg_deleted'));
+          // 目录刷新后父容器会自动纠正 selected（选中的因子被删时回退）
+          await onRefresh();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+        }
+      }}
+    >
+      <Tooltip
+        title={
+          r.builtin
+            ? t('factor_lib_delete_builtin_disabled')
+            : t('delete')
+        }
+      >
+        <button
+          type="button"
+          className="qc-mini-btn qc-icon-only danger"
+          aria-label={r.builtin ? t('factor_lib_delete_builtin_disabled') : t('delete')}
+          disabled={r.builtin}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DeleteOutlined />
+        </button>
+      </Tooltip>
+    </Popconfirm>
+  );
+
+  // 行内展开轻摘要的「日期」口径与列表一致：去 T 取到分钟
+  const shortTime = (v: string | null) =>
+    v ? v.replace('T', ' ').slice(0, 16) : '—';
+
+  // 展开面板指标格：label + 值（null 一律 —，绝不输出 NaN/undefined），有语义评级时按 tone 着色
+  const expMetric = (key: string, label: string, value: number | null, text?: string) => (
+    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{label}</span>
+      <span
+        className={`qc-mono${value == null ? ' qc-cell-none' : ''}`}
+        style={value == null ? undefined : { color: toneColor(toneOf(key, value), qc), fontWeight: 600 }}
+      >
+        {value == null ? '—' : (text ?? value.toFixed(4))}
+      </span>
+    </div>
+  );
+
+  // 行内展开面板（轻摘要）：字段全部取 catalog 的 last_metrics / snapshot_*，不新增请求；
+  // 目录没有 IC 时序序列（只有标量），所以不画 IC 柱状图——完整时序在 Drawer 的分析页签
+  const renderExpanded = (r: FactorCatalogItem) => {
+    const lm = r.last_metrics;
+    return (
+      <div className="qc-exp-panel" onClick={(e) => e.stopPropagation()}>
+        <Flex align="center" gap={6} wrap style={{ minWidth: 0 }}>
+          <span style={{ fontWeight: 600 }}>{r.label}</span>
+          <span className="qc-cell-id qc-mono">{r.name}</span>
+          <span className="qc-chip info">{categoryLabel(r.category, t)}</span>
+          {statusChip(r.lifecycle_status)}
+          <span
+            className="qc-cell-time qc-mono"
+            style={{ marginInlineStart: 'auto', fontSize: 11 }}
+          >
+            {t('factor_detail_meta_last_snapshot')} {shortTime(r.last_snapshot_at)}
+          </span>
+        </Flex>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
+            gap: 10,
+            marginTop: 8, // demo 头部→内容 8px（.card-head mb）
+          }}
+        >
+          {expMetric('ic_mean', t('factor_stat_ic_mean'), lm?.ic_mean ?? null)}
+          {expMetric('ic_ir', t('factor_stat_icir'), lm?.ic_ir ?? null)}
+          {expMetric('coverage', t('factor_stat_coverage'), lm?.coverage ?? null,
+            lm?.coverage == null ? undefined : `${(lm.coverage * 100).toFixed(1)}%`)}
+          {expMetric('ic_positive_rate', t('factor_stat_ic_pos_rate'), lm?.ic_positive_rate ?? null,
+            lm?.ic_positive_rate == null ? undefined : `${(lm.ic_positive_rate * 100).toFixed(1)}%`)}
+          {expMetric('turnover', t('factor_stat_turnover'), lm?.turnover ?? null)}
+          {expMetric('nw_t_stat', t('factor_stat_nw_tstat'), lm?.nw_t_stat ?? null,
+            lm?.nw_t_stat == null ? undefined : lm.nw_t_stat.toFixed(2))}
+        </div>
+        {/* demo 动作行 margin-top:11px（三个展开模板统一值） */}
+        <Flex align="center" gap={12} wrap style={{ marginTop: 11 }}>
+          <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>
+            {t('factor_detail_meta_snapshots')}{' '}
+            <span className="qc-mono" style={{ color: 'var(--qc-text)' }}>{r.snapshot_count}</span>
+          </span>
+          {/* 轻摘要 ↔ 重详情分工：完整详情只在 Drawer（onSelect），行内不复刻抽屉内容 */}
+          <button type="button" className="qc-mini-btn pri" onClick={() => onSelect(r.name)}>
+            {t('view_details')}
+          </button>
+        </Flex>
+      </div>
+    );
+  };
+
+  const CHIP_SM: React.CSSProperties = { fontSize: 9, padding: '2px 5px' };
+
   const columns: TableColumnsType<FactorCatalogItem> = [
     {
-      title: t('factor_lib_col_factor') || '因子',
+      title: t('factor_lib_col_factor'),
       dataIndex: 'label',
-      width: 160,
+      width: 260,
       render: (_, r) => (
-        // 窄目录列：中文标签/英文标识上下双行，各自单行省略（悬浮看全文）；
-        // 内置/代码/合成不在这里打 Tag——「来源」列已表达，避免挤宽重叠
-        <div style={{ minWidth: 0 }}>
-          <div
-            title={r.label}
-            style={{
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
+        // 类别 / 来源 / AI 徽章并入本列（demo #view-factors 6 列口径）；
+        // 展示名 + 英文标识仍上下双行、单行省略（悬浮看全文）
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <svg
+            className={`qc-cell-caret${openKey === r.name ? ' is-open' : ''}`}
+            viewBox="0 0 12 12"
+            aria-hidden="true"
           >
-            <span
-              style={{
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {r.label}
-            </span>
-            {!r.supported && (
-              <Tag color="error" style={{ marginInlineEnd: 0, flexShrink: 0 }}>
-                {t('factor_lib_no_data') || '无数据'}
-              </Tag>
-            )}
-          </div>
-          <div
-            title={r.name}
-            style={{
-              color: token.colorTextSecondary,
-              fontSize: 12,
-              lineHeight: 1.5,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {r.name}
+            <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+          </svg>
+          <div style={{ minWidth: 0 }} title={r.name}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+              <span className="qc-chip info" style={{ ...CHIP_SM, flexShrink: 0 }}>
+                {categoryLabel(r.category, t)}
+              </span>
+              <span className="qc-chip quiet" style={{ ...CHIP_SM, flexShrink: 0 }}>
+                {sourceLabel(factorSource(r))}
+              </span>
+              {isAiProduced(r) && (
+                <span className="qc-chip pri" style={{ ...CHIP_SM, flexShrink: 0 }}>AI</span>
+              )}
+            </div>
+            <div className="qc-cell-id" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {r.name}
+              {!r.supported && (
+                <span className="qc-chip down" style={{ marginInlineStart: 6 }}>
+                  {t('factor_lib_no_data')}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       ),
     },
     {
-      title: t('factor_lib_col_category') || '分类',
-      dataIndex: 'category',
-      width: 92,
-      render: (c: string) => <Tag color={CATEGORY_COLOR[c] ?? 'default'}>{categoryLabel(c, t)}</Tag>,
-    },
-    {
-      title: t('factor_detail_meta_source') || '来源',
-      width: 100,
-      render: (_, r) => (
-        <>
-          <Tag>{sourceLabel(factorSource(r))}</Tag>
-          {isAiProduced(r) && (
-            <Tag color="geekblue" style={{ marginInlineStart: 4 }}>
-              AI
-            </Tag>
-          )}
-        </>
-      ),
-    },
-    {
-      title: t('factor_stat_ic_mean') || 'IC 均值',
-      width: 80,
+      // demo #view-factors 表头就是「IC」；IC 与 ICIR 首字母缩写两种语言同形，不新增词条
+      title: 'IC',
+      width: 88,
       align: 'right',
       render: (_, r) => {
         const lm = r.last_metrics;
-        if (!lm) return <span style={{ color: token.colorTextTertiary }}>—</span>;
-        const v = lm.ic_mean ?? 0;
+        if (!lm || lm.ic_mean == null) return <span className="qc-cell-none qc-mono">—</span>;
+        const v = lm.ic_mean;
         return (
-          <span style={{ color: toneColor(toneOf('ic_mean', v), qc), fontWeight: 500 }}>
+          <span className="qc-mono" style={{ color: toneColor(toneOf('ic_mean', v), qc), fontWeight: 500 }}>
             {v.toFixed(4)}
           </span>
         );
       },
     },
     {
-      title: t('factor_stat_icir') || 'ICIR',
-      width: 72,
+      title: t('factor_stat_icir'),
+      width: 76,
       align: 'right',
       render: (_, r) => {
         const lm = r.last_metrics;
-        if (!lm) return <span style={{ color: token.colorTextTertiary }}>—</span>;
-        const v = lm.ic_ir ?? 0;
+        if (!lm || lm.ic_ir == null) return <span className="qc-cell-none qc-mono">—</span>;
+        const v = lm.ic_ir;
         return (
-          <span style={{ color: toneColor(toneOf('ic_ir', v), qc), fontWeight: 500 }}>
+          <span className="qc-mono" style={{ color: toneColor(toneOf('ic_ir', v), qc), fontWeight: 500 }}>
             {v.toFixed(4)}
           </span>
         );
       },
     },
     {
-      title: t('factor_lib_col_status') || '状态',
+      // 覆盖率：与概览面板同口径（last_metrics.coverage ×100 保留 1 位）；无值写「—」不写 0
+      title: t('factor_stat_coverage'),
+      width: 78,
+      align: 'right',
+      render: (_, r) => {
+        const c = r.last_metrics?.coverage;
+        if (c == null) return <span className="qc-cell-none qc-mono">—</span>;
+        return <span className="qc-mono">{`${(c * 100).toFixed(1)}%`}</span>;
+      },
+    },
+    {
+      title: t('factor_lib_col_status'),
       dataIndex: 'lifecycle_status',
+      width: 88,
+      render: (s: FactorCatalogItem['lifecycle_status']) => statusChip(s),
+    },
+    {
+      title: t('factor_lib_col_action'),
       width: 80,
-      render: (s: FactorCatalogItem['lifecycle_status']) => (
-        <Tag color={STATUS_COLOR[s]}>{statusLabel(s)}</Tag>
-      ),
-    },
-    {
-      title: t('factor_lib_col_snapshots') || '快照数',
-      dataIndex: 'snapshot_count',
-      width: 64,
-      align: 'right',
-    },
-    {
-      title: t('factor_detail_meta_last_snapshot') || '最近快照',
-      width: 130,
-      dataIndex: 'last_snapshot_at',
-      render: (v: string | null) => (
-        v
-          ? v.replace('T', ' ').slice(0, 16)
-          : <span style={{ color: token.colorTextTertiary }}>—</span>
-      ),
-    },
-    {
-      title: t('factor_lib_col_action') || '操作',
-      width: 104,
-      // 与策略管理等页面操作列统一：图标按钮 + Tooltip 悬浮文案，固定在表格右侧
+      // 与策略管理等页面操作列统一：24px 图标钮 + Tooltip 悬浮文案，固定在表格右侧
       fixed: 'right',
       render: (_, r) => (
-        <Space size={0}>
+        <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
           {/* 与卡片视图的「查看详情」同语义：唯一的打开抽屉入口 */}
-          <Tooltip title={t('view_details') || '查看详情'}>
-            <Button
-              type="text"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => onSelect(r.name)}
-            />
+          <Tooltip title={t('view_details')}>
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('view_details')}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(r.name);
+              }}
+            >
+              <EyeOutlined />
+            </button>
           </Tooltip>
           {/* 内置因子受后端保护不可删；删除会同步清理因子档案，本地实现一并移除 */}
-          <Tooltip
-            title={
-              r.builtin
-                ? t('factor_lib_delete_builtin_disabled') || '内置因子不可删除'
-                : t('delete') || '删除'
-            }
-          >
-            <Button
-              type="text"
-              size="small"
-              danger
-              disabled={r.builtin}
-              icon={<DeleteOutlined />}
-              onClick={() => confirmDeleteFactor(r)}
-            />
-          </Tooltip>
-        </Space>
+          {deleteConfirm(r)}
+        </div>
       ),
     },
   ];
 
-  // 工具栏：与策略管理一致的「搜索+视图切换 / 筛选+操作」两行布局
+  // 工具栏 — §6.6：搜索 → 状态 chips + 分类/来源下拉 → 计数 → 刷新/策略研究
   const renderToolbar = () => (
-    <Space orientation="vertical" size="middle" style={{ display: 'flex', marginBottom: 8 }}>
-      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
-        <Input
-          allowClear
-          prefix={<SearchOutlined />}
-          style={{ width: 260, maxWidth: '100%' }}
-          placeholder={t('factor_lib_search_ph') || '搜索因子名 / 名称'}
-          value={keyword}
-          onChange={(e) => {
-            setKeyword(e.target.value);
-            gotoPage1();
-          }}
-        />
-      </Flex>
-      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
-        <Space size="small" wrap>
+    <PageToolbar
+      search={{
+        value: keyword,
+        onChange: (value) => {
+          setKeyword(value);
+          gotoPage1();
+        },
+        placeholder: t('factor_lib_search_ph'),
+        ariaLabel: t('factor_lib_search_ph'),
+      }}
+      filters={
+        <>
+          <div role="group" aria-label={t('filter_status')} style={{ display: 'contents' }}>
+            {STATUS_CHIPS.map((chip) => (
+              <button
+                key={chip.value}
+                type="button"
+                className={`qc-ichip${statusFilter === chip.value ? ' qc-ichip-on' : ''}`}
+                onClick={() => {
+                  setStatusFilter(chip.value);
+                  gotoPage1();
+                }}
+              >
+                {t(chip.labelKey)}
+              </button>
+            ))}
+          </div>
           <Select
-            style={{ width: 140 }}
+            aria-label={t('factor_lib_filter_category')}
+            style={{ width: 130 }}
             value={categoryFilter}
             onChange={(v) => {
               setCategoryFilter(v);
               gotoPage1();
             }}
             options={[
-              { value: 'all', label: t('factor_lib_filter_category') || '全部分类' },
+              { value: 'all', label: t('factor_lib_filter_category') },
               ...categoryOptions.map((c) => ({ value: c, label: categoryLabel(c, t) })),
             ]}
           />
           <Select
-            style={{ width: 120 }}
+            aria-label={t('factor_lib_filter_source')}
+            style={{ width: 118 }}
             value={sourceFilter}
             onChange={(v) => {
               setSourceFilter(v);
               gotoPage1();
             }}
             options={[
-              { value: 'all', label: t('factor_lib_filter_source') || '全部来源' },
-              { value: 'builtin', label: t('factor_lib_source_builtin') || '内置' },
-              { value: 'expression', label: t('factor_lib_source_expression') || '表达式' },
-              { value: 'code', label: t('factor_lib_source_code') || '代码' },
-              { value: 'composite', label: t('factor_lib_source_composite') || '合成' },
+              { value: 'all', label: t('factor_lib_filter_source') },
+              { value: 'builtin', label: t('factor_lib_source_builtin') },
+              { value: 'expression', label: t('factor_lib_source_expression') },
+              { value: 'code', label: t('factor_lib_source_code') },
+              { value: 'composite', label: t('factor_lib_source_composite') },
             ]}
           />
+        </>
+      }
+      count={countText}
+      actions={
+        <>
           <Button icon={<ReloadOutlined />} onClick={() => void onRefresh()}>
-            {t('refresh') || '刷新'}
+            {t('refresh')}
           </Button>
-        </Space>
-        <Space size="small" wrap>
           {/* 旧 LLM 挖掘已退役：AI 因子挖掘统一走研究模块 */}
           <Button icon={<RobotOutlined />} onClick={() => navigate('/research')}>
             {t('ai_research')}
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            {t('factor_lib_create_btn') || '新建因子'}
-          </Button>
-        </Space>
-      </Flex>
-    </Space>
+        </>
+      }
+    />
   );
 
   // 指标行：左标签右数值，数值按语义评级着色（与表格列同口径）
   const metricRow = (label: string, v: number | null, key: string) => (
     <Flex justify="space-between" align="center">
-      <span style={{ color: token.colorTextSecondary }}>{label}</span>
+      <span style={{ color: 'var(--qc-text-secondary)' }}>{label}</span>
       {v === null || v === undefined ? (
-        <span style={{ color: token.colorTextTertiary }}>—</span>
+        <span className="qc-cell-none qc-mono">—</span>
       ) : (
-        <span style={{ color: toneColor(toneOf(key, v), qc), fontWeight: 500 }}>
+        <span className="qc-mono" style={{ color: toneColor(toneOf(key, v), qc), fontWeight: 500 }}>
           {v.toFixed(4)}
         </span>
       )}
     </Flex>
   );
 
-  // 删除确认弹窗：表格操作列与卡片右上角 extra 共用
-  const confirmDeleteFactor = (r: FactorCatalogItem) => {
-    modal.confirm({
-      title: t('factor_lib_delete_confirm_title') || '删除因子',
-      content: `${t('factor_lib_delete_confirm_text') || '将删除该因子及其本地实现，因子档案同步清理'}：${r.label}（${r.name}）`,
-      okText: t('delete') || '删除',
-      okButtonProps: { danger: true },
-      cancelText: t('cancel'),
-      onOk: async () => {
-        try {
-          await factorApi.remove(r.name);
-          message.success(t('factor_lib_msg_deleted') || `已删除因子 ${r.name}`);
-          // 目录刷新后父容器会自动纠正 selected（选中的因子被删时回退）
-          await onRefresh();
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : String(err));
-        }
-      },
-    });
-  };
+  const emptyView = (
+    <QcEmpty
+      title={hasFilter ? t('factor_lib_no_match_title') : t('factor_lib_empty')}
+      description={hasFilter ? t('factor_lib_no_match_desc') : undefined}
+      action={
+        hasFilter ? undefined : (
+          <button type="button" className="qc-mini-btn pri" onClick={onCreate}>
+            {t('factor_lib_create_btn')}
+          </button>
+        )
+      }
+    />
+  );
 
   const renderCardView = () => {
-    // pageSize 直接用外层全局 hook 值（与列表视图同源），不再声明同名局部变量遮蔽
-    const current = (pagination.current as number) || 1;
+    // 分页与列表视图共用同一份状态（pageSize 来自全局 hook）
     const pageData = filtered.slice((current - 1) * pageSize, current * pageSize);
 
     if (!pageData.length) {
-      return (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('factor_lib_empty') || '暂无因子'}
-          style={{ padding: '48px 0' }}
-        />
-      );
+      return emptyView;
     }
 
     return (
       <>
-        <Row gutter={[16, 16]}>
-          {pageData.map((f) => {
+        {/* 卡片与列表同一份详情面板（ExpandableCardGrid 负责把面板插到被点卡片所在视觉行之后）；
+            卡片点击 = 选中 + 就地展开/收起，完整详情仍只走「查看详情」→ 抽屉 */}
+        <ExpandableCardGrid
+          items={pageData}
+          getKey={(f) => f.name}
+          expandedKey={openKey}
+          renderExpanded={renderExpanded}
+          gutter={[16, 16]}
+          renderCard={(f) => {
             const lm = f.last_metrics;
+            // 与列表行点击同语义：先同步选中态，再 toggle 单键展开
+            const toggle = () => {
+              activate(f.name);
+              setOpenKey((prev) => (prev === f.name ? null : f.name));
+            };
             return (
-              <Col xs={24} sm={12} md={8} lg={6} key={f.name}>
-                <Card
-                  size="small"
-                  style={{
-                    // 选中因子高亮边框（详情抽屉对应项），与列表行选中背景同语义；
-                    // 整卡不可点击，打开抽屉只走「查看详情」按钮
-                    borderColor: f.name === selected ? token.colorPrimary : undefined,
-                  }}
-                  title={
-                    <span
-                      title={f.label}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        maxWidth: '100%',
-                      }}
-                    >
-                      <span
-                        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      >
-                        {f.label}
-                      </span>
-                      {!f.supported && (
-                        <Tag color="error" style={{ marginInlineEnd: 0, flexShrink: 0 }}>
-                          {t('factor_lib_no_data') || '无数据'}
-                        </Tag>
-                      )}
+              <Card
+                size="small"
+                // 选中因子高亮（详情抽屉对应项），与列表行选中背景同语义；
+                // 整卡可点（选中 + 展开），打开抽屉仍只走「查看详情」按钮
+                // §6.3 卡片 chrome + §6.3 选中 tint（qc-card 基础上加 qc-card-selected；
+                // 阴影由 .qc-card 自带，不再内联）
+                className={`qc-card${f.name === selected ? ' qc-card-selected' : ''}`}
+                onClick={toggle}
+                role="button"
+                tabIndex={0}
+                aria-expanded={openKey === f.name}
+                aria-selected={f.name === selected}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                  } else if (e.key === 'Escape') {
+                    setOpenKey(null);
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+                title={
+                  <span
+                    title={f.label}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      maxWidth: '100%',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.label}
                     </span>
-                  }
-                  extra={
-                    // 删除统一放卡片右上角（与列表视图操作列同口径）：内置因子受保护置灰
-                    <Tooltip
-                      title={
-                        f.builtin
-                          ? t('factor_lib_delete_builtin_disabled') || '内置因子不可删除'
-                          : t('delete') || '删除'
-                      }
-                    >
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        disabled={f.builtin}
-                        icon={<DeleteOutlined />}
-                        onClick={() => confirmDeleteFactor(f)}
-                      />
-                    </Tooltip>
-                  }
-                >
-                  <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
-                    <div
-                      title={f.name}
-                      style={{
-                        color: token.colorTextSecondary,
-                        fontSize: 12,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {f.name}
-                    </div>
-                    <Space size={4} wrap style={{ rowGap: 4 }}>
-                      <Tag color={CATEGORY_COLOR[f.category] ?? 'default'} style={{ marginInlineEnd: 0 }}>
-                        {categoryLabel(f.category, t)}
-                      </Tag>
-                      <Tag style={{ marginInlineEnd: 0 }}>{sourceLabel(factorSource(f))}</Tag>
-                      {isAiProduced(f) && (
-                        <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
-                          AI
-                        </Tag>
-                      )}
-                      <Tag color={STATUS_COLOR[f.lifecycle_status]} style={{ marginInlineEnd: 0 }}>
-                        {statusLabel(f.lifecycle_status)}
-                      </Tag>
-                    </Space>
-                    <div style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }} />
-                    {metricRow(t('factor_stat_ic_mean') || 'IC 均值', lm?.ic_mean ?? null, 'ic_mean')}
-                    {metricRow(t('factor_stat_icir') || 'ICIR', lm?.ic_ir ?? null, 'ic_ir')}
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: token.colorTextSecondary }}>
-                        {t('factor_lib_col_snapshots') || '快照数'}
+                    {!f.supported && (
+                      <span className="qc-chip down" style={{ flexShrink: 0 }}>
+                        {t('factor_lib_no_data')}
                       </span>
-                      <span>{f.snapshot_count}</span>
-                    </Flex>
-                    <Flex justify="space-between" align="center">
-                      <span style={{ color: token.colorTextSecondary }}>
-                        {t('factor_detail_meta_last_snapshot') || '最近快照'}
+                    )}
+                  </span>
+                }
+                extra={deleteConfirm(f)}
+              >
+                <Flex vertical gap={8}>
+                  <div className="qc-cell-id" title={f.name}
+                    style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >
+                    {f.name}
+                  </div>
+                  <span className="qc-row-chips">
+                    <span className="qc-chip info">{categoryLabel(f.category, t)}</span>
+                    <span className="qc-chip quiet">{sourceLabel(factorSource(f))}</span>
+                    {isAiProduced(f) && <span className="qc-chip pri">AI</span>}
+                    {statusChip(f.lifecycle_status)}
+                  </span>
+                  <div style={{ borderTop: '1px solid var(--qc-border)' }} />
+                  {metricRow(t('factor_stat_ic_mean'), lm?.ic_mean ?? null, 'ic_mean')}
+                  {metricRow(t('factor_stat_icir'), lm?.ic_ir ?? null, 'ic_ir')}
+                  <Flex justify="space-between" align="center">
+                    <span style={{ color: 'var(--qc-text-secondary)' }}>
+                      {t('factor_lib_col_snapshots')}
+                    </span>
+                    <span className="qc-mono">{f.snapshot_count}</span>
+                  </Flex>
+                  <Flex justify="space-between" align="center">
+                    <span style={{ color: 'var(--qc-text-secondary)' }}>
+                      {t('factor_detail_meta_last_snapshot')}
+                    </span>
+                    {f.last_snapshot_at ? (
+                      <span className="qc-cell-time qc-mono">
+                        {f.last_snapshot_at.replace('T', ' ').slice(0, 16)}
                       </span>
-                      <span style={{ fontSize: 12 }}>
-                        {f.last_snapshot_at
-                          ? f.last_snapshot_at.replace('T', ' ').slice(0, 16)
-                          : <span style={{ color: token.colorTextTertiary }}>—</span>}
-                      </span>
-                    </Flex>
-                    <Button
-                      type="primary"
-                      size="small"
-                      block
-                      onClick={() => onSelect(f.name)}
-                    >
-                      {t('view_details') || '查看详情'}
-                    </Button>
-                  </Space>
-                </Card>
-              </Col>
+                    ) : (
+                      <span className="qc-cell-none qc-mono">—</span>
+                    )}
+                  </Flex>
+                  <button
+                    type="button"
+                    className="qc-mini-btn pri"
+                    style={{ width: '100%' }}
+                    // 卡内按钮只开抽屉，不触发整卡的选中/展开
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelect(f.name);
+                    }}
+                  >
+                    {t('view_details')}
+                  </button>
+                </Flex>
+              </Card>
             );
-          })}
-        </Row>
+          }}
+        />
         <Row justify="center" style={{ marginTop: 16 }}>
           <Pagination
             current={current}
@@ -526,8 +626,10 @@ const FactorLibraryPane: React.FC<Props> = ({
             total={filtered.length}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `${t('total_items', { total })}`}
+            showTotal={(total) => t('total_items', { total })}
             onChange={(page, size) => {
+              // 翻页/切档收起展开面板（面板只属于当前页的卡片，与列表口径一致）
+              setOpenKey(null);
               // 条数变化写回全局配置，全站生效
               setPageSize(size);
               setPagination((p) => ({ ...p, current: page, pageSize: size }));
@@ -539,30 +641,62 @@ const FactorLibraryPane: React.FC<Props> = ({
   };
 
   const renderListView = () => (
-    <Table
-      rowKey="name"
-      size="small"
+    <DataTable<FactorCatalogItem>
+      columns={columns}
       loading={loading}
       dataSource={filtered}
-      columns={columns}
-      // 分页由共享 pagination 状态控制，卡片视图复用同一份页码
-      pagination={pagination}
-      // 9 列总宽 ~840：窄窗口下横向滚动，绝不再把首列压成竖排
-      scroll={{ x: 840 }}
-      locale={{
-        emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('factor_lib_empty') || '暂无因子'} />,
+      rowKey="name"
+      // 6 列总宽 ~670：窄窗口横向滚动；首列（含类别/来源徽章）不再被压成竖排
+      scroll={{ x: 720 }}
+      // 选中背景只作为「选中项」高亮；展开面板由 openKey 单键控制（行内互斥），
+      // 展开态视觉由行首三角 .qc-cell-caret.is-open 表达（不额外造行类名）
+      rowClassName={(r) => (r.name === selected ? 'qc-row-selected' : '')}
+      expandable={{
+        // 单键展开（同一时刻只有一行）；初始 [] = 初次加载不自动展开
+        expandedRowKeys: openKey ? [openKey] : [],
+        expandedRowRender: renderExpanded,
+        // 行点击即展开/收起；三角自绘在因子列（不渲染 antd 展开列）
+        expandRowByClick: true,
+        showExpandColumn: false,
+        onExpand: (expanded, r) => setOpenKey(expanded ? r.name : null),
       }}
-      // 行不可点击，选中背景只作为「抽屉打开项」的高亮；打开抽屉走操作列按钮
       onRow={(r) => ({
-        style: {
-          background: r.name === selected ? token.colorPrimaryBg : undefined,
+        // 行点击只同步选中态（高亮 + 右栏上下文），完整详情仍走「查看详情」→ 抽屉
+        onClick: () => activate(r.name),
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            activate(r.name);
+            setOpenKey((prev) => (prev === r.name ? null : r.name));
+          } else if (e.key === 'Escape') {
+            setOpenKey(null);
+          }
         },
+        tabIndex: 0,
+        'aria-expanded': openKey === r.name,
+        'aria-selected': r.name === selected,
+        style: { cursor: 'pointer' },
       })}
-      onChange={(next) => {
-        // 条数变化写回全局配置，全站生效
-        if (next.pageSize && next.pageSize !== pageSize) setPageSize(next.pageSize);
-        setPagination(next);
+      pagination={{
+        current,
+        pageSize,
+        onChange: (pg, size) => {
+          // 翻页/切档收起展开面板（面板只属于当前页的行）
+          setOpenKey(null);
+          // 条数变化写回全局配置，全站生效
+          if (size !== pageSize) setPageSize(size);
+          setPagination((p) => ({ ...p, current: pg, pageSize: size }));
+        },
       }}
+      emptyTitle={hasFilter ? t('factor_lib_no_match_title') : t('factor_lib_empty')}
+      emptyDescription={hasFilter ? t('factor_lib_no_match_desc') : undefined}
+      emptyAction={
+        hasFilter ? undefined : (
+          <button type="button" className="qc-mini-btn pri" onClick={onCreate}>
+            {t('factor_lib_create_btn')}
+          </button>
+        )
+      }
     />
   );
 
@@ -573,10 +707,10 @@ const FactorLibraryPane: React.FC<Props> = ({
         <Alert
           type="error"
           showIcon
-          title={t('factor_lib_load_failed') || '因子库加载失败'}
+          title={t('factor_lib_load_failed')}
           action={
             <Button size="small" onClick={() => void onRefresh()}>
-              {t('factor_lib_retry') || '重试'}
+              {t('factor_lib_retry')}
             </Button>
           }
         />
@@ -585,8 +719,8 @@ const FactorLibraryPane: React.FC<Props> = ({
       )}
 
       <FactorFormModal
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
+        open={createVisible}
+        onCancel={onCloseCreate}
         onSaved={handleCreated}
       />
     </>

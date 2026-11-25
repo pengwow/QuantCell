@@ -1,0 +1,97 @@
+/* 登录/注册页（守卫外唯一页面）。
+   无 spec 专节：卡与几何按 §4（surface/bd/10px 圆角），控件走 32px 档，
+   颜色一律 var(--qc-*) / color-mix，亮暗随 token 自动换挡。 */
+
+.login-page {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  background: var(--qc-canvas);
+  color: var(--qc-text);
+}
+
+/* 网格底纹：原 32px 方格 SVG data-URI 改为 css 渐变（data-URI 吃不到主题 token，
+   渐变线用 text 8% tint，暗色自动换挡；对角遮罩沿用原 mask-image）。 */
+.login-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--qc-text) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--qc-text) 8%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+  -webkit-mask-image: linear-gradient(to bottom right, transparent, black, transparent);
+  mask-image: linear-gradient(to bottom right, transparent, black, transparent);
+}
+
+.login-center {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+}
+
+/* 卡面：qc-card 提供 surface/bd/10px 圆角，这里只收宽度与投影 */
+.login-card {
+  width: 100%;
+  max-width: 448px;
+  box-shadow: var(--qc-shadow-card);
+}
+
+.login-card > .ant-card-body {
+  padding: 24px;
+}
+
+.login-brand {
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-logo {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+}
+
+.login-subtitle {
+  color: var(--qc-text-secondary);
+}
+
+/* 页签 + 输入区整体节奏 */
+.login-form-wrap {
+  padding-top: 8px;
+}
+
+.login-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 32px 控件档：前缀图标钮与输入框同高（原 h-10 40px 收 32） */
+.login-form-wrap .ant-space-compact .ant-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-submit-item {
+  margin-bottom: 0 !important;
+  margin-top: 32px;
+}
+
+/* 底部弱提示 */
+.login-hint {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+}

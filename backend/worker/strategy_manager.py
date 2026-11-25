@@ -25,7 +25,8 @@ from typing import Any
 from axon_quant import worker as axon_worker
 
 from observability import metrics as obs_metrics
-from strategy.decision_recording import default_replay_dir, worker_replay_path
+from observability import runtime_health
+from strategy.decision_recording import default_replay_dir, worker_replay_path, wrap_rl_predict
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
@@ -538,7 +539,7 @@ class StrategyManager:
         """装配规则/LLM 策略的 PaperDriver（不启动泵线程，可独立测试）。
 
         fee_rate 用引擎默认（None → 0.001），与回测 Kernel 同口径；RL 路径
-        才传训练环境费率（RL_TRANSACTION_COST）。策略必须经 RustStrategyAdapter
+        才传模型 meta 记录的训练费率（缺字段回落 RL_TRANSACTION_COST）。策略必须经 RustStrategyAdapter
         适配后挂载：target_position 占比换算 / hold 保持目标位 / ctx.features
         注入三处语义都由它对齐回测行为，直接挂 BaseStrategy 会全部偏差。
 
@@ -595,7 +596,8 @@ class StrategyManager:
 
         Returns:
             dict：predict / model_id / spec_version / window_size / features /
-            action_space / stats，调用方按序传入 add_rl_strategy 即可。
+            action_space / stats / fee_rate，调用方按序传入 add_rl_strategy 即可；
+            `fee_rate` 取自训练产物 meta（缺字段回落 `RL_TRANSACTION_COST`）。
 
         Raises:
             ValueError: 模型文件缺失、缺少观测规格元数据、`spec_version` 不匹配，
@@ -609,7 +611,9 @@ class StrategyManager:
             RLService,
             make_predict_fn,
             observation_stats_from_meta,
+            require_kernel_obs,
             rl_meta_path,
+            transaction_cost_from_meta,
         )
 
         # ---- 集成分支:ensemble_id 优先于 model_path(spec §4.3) ----
@@ -623,6 +627,8 @@ class StrategyManager:
             requested_spec = str(params.get("spec_version") or KERNEL_SPEC_VERSION)
             member_specs = load_ensemble_spec(ensemble_id, spec_version=requested_spec)
             meta = member_specs.meta
+            # 内核 host 只喂指标向量 obs：原始序列模型显式拒绝（不静默错维推理）
+            require_kernel_obs(meta)
             return {
                 "predict": make_ensemble_predict_fn(member_specs.member_predict_fns),
                 "model_id": ensemble_id,
@@ -632,6 +638,7 @@ class StrategyManager:
                 "action_space": KERNEL_ACTION_SPACE,
                 # stats 以第一成员 meta 为基准(全成员已通过一致性校验)
                 "stats": observation_stats_from_meta(meta, model_path=member_specs.representative_path),
+                "fee_rate": transaction_cost_from_meta(meta),
             }
 
         model_path = str(params.get("model_path") or "").strip()
@@ -653,6 +660,9 @@ class StrategyManager:
             msg = f"RL 模型 spec_version 不匹配: 模型={meta.get('spec_version')} 期望={requested_spec}"
             raise ValueError(msg)
 
+        # 内核 host 只喂指标向量 obs：原始序列模型显式拒绝（不静默错维推理）
+        require_kernel_obs(meta)
+
         model = RLService().load_model(model_path)
         if model is None:
             msg = f"无法加载 RL 模型: {model_path}"
@@ -667,6 +677,8 @@ class StrategyManager:
             "action_space": KERNEL_ACTION_SPACE,
             # 训练期归一化统计量：缺了内核 Z-Score 恒为 0，与训练分布不一致
             "stats": observation_stats_from_meta(meta, model_path=model_path),
+            # 成本口径与训练同源：训练用的 cost profile 落在 meta；旧模型回落常量
+            "fee_rate": transaction_cost_from_meta(meta),
         }
 
     def build_rl_kernel(
@@ -693,7 +705,6 @@ class StrategyManager:
         # 延迟导入：原生扩展与 RL 服务都是可选重依赖
         from axon_quant import worker as axon_worker
 
-        from services.rl_service import RL_TRANSACTION_COST
         from vocab import expand_symbol
 
         spec = self._load_rl_spec(worker_id, params)
@@ -702,9 +713,8 @@ class StrategyManager:
         kernel = axon_worker.Kernel(
             initial_cash=float(params.get("initial_capital", 100_000.0)),
             interval=timeframe,
-            # 费率与 RL 训练环境同源：常量只在 `services.rl_service` 定义一次，
-            # 这里 import 复用，避免两处各写一个数字后悄悄漂移
-            fee_rate=RL_TRANSACTION_COST,
+            # 费率与训练环境同源：取训练产物 meta 记录的成本（缺字段回落常量）
+            fee_rate=spec["fee_rate"],
         )
         kernel.add_rl_strategy(
             spec["predict"],
@@ -756,7 +766,6 @@ class StrategyManager:
         from axon_quant import worker as axon_worker
         from axon_quant.exchange import ExchangeConfig, ExchangeId
 
-        from services.rl_service import RL_TRANSACTION_COST
         from vocab import expand_symbol
 
         if exchange.lower() != "binance":
@@ -784,19 +793,21 @@ class StrategyManager:
             testnet=True,
         )
 
+        # spec 需在 driver 构造前就位：fee_rate 取自训练产物 meta
+        spec = self._load_rl_spec(worker_id, params)
+
         driver = axon_worker.LiveDriver(
             config,
             [expand_symbol(s) for s in symbols],
             initial_cash=float(params.get("initial_capital", 100_000.0)),
             interval=timeframe,
-            # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
-            fee_rate=RL_TRANSACTION_COST,
+            # 费率与训练环境同源：取训练产物 meta 记录的成本（缺字段回落常量）
+            fee_rate=spec["fee_rate"],
             # adopt 持仓接管（与引擎默认一致）：fresh start 遇交易所残留持仓时
             # 抄进影子账本带仓起跑；前端本期无此表单，需要 reject 时手改 worker params
             existing_positions=params.get("existing_positions", "adopt"),
         )
 
-        spec = self._load_rl_spec(worker_id, params)
         driver.add_rl_strategy(
             spec["predict"],
             spec["model_id"],
@@ -1194,6 +1205,11 @@ class StrategyManager:
                     obs_metrics.observe_pump_round(worker_id, "live", _tick_t0)
                 except Exception:
                     pass
+                # 首页「交易引擎」行：最近 N 轮 tick 的均值/p95（与上面同一计时点）
+                try:
+                    runtime_health.record_engine_tick(time.perf_counter() - _tick_t0)
+                except Exception:
+                    pass
             # snapshot 推送按窗口节流，失败静默（观测性推送不反噬交易循环）
             now_s = time.monotonic()
             if now_s - last_snapshot >= _LIVE_SNAPSHOT_INTERVAL_S:
@@ -1295,7 +1311,6 @@ class StrategyManager:
         """
         from axon_quant import worker as axon_worker
 
-        from services.rl_service import RL_TRANSACTION_COST
         from vocab import expand_symbol
 
         if exchange.lower() != "binance":
@@ -1313,15 +1328,24 @@ class StrategyManager:
 
         spec = self._load_rl_spec(worker_id, params)
 
+        # 决策流插桩（零内核改动）：内核逐 bar 调 predict 后按 cascade 同一 JSONL
+        # schema 追一条录制，Worker 决策页的数据源与规则策略一致。
+        predict = wrap_rl_predict(
+            spec["predict"],
+            path=worker_replay_path(worker_id),
+            model_id=spec["model_id"],
+            symbol=expand_symbol(symbols[0]),
+        )
+
         driver = axon_worker.PaperDriver(
             [expand_symbol(s) for s in symbols],
             initial_cash=float(params.get("initial_capital", 100_000.0)),
-            # 费率与 RL 训练环境同源（services.rl_service 唯一定义）
-            fee_rate=RL_TRANSACTION_COST,
+            # 费率与训练环境同源：取训练产物 meta 记录的成本（缺字段回落常量）
+            fee_rate=spec["fee_rate"],
             interval=timeframe,
         )
         driver.add_rl_strategy(
-            spec["predict"],
+            predict,
             spec["model_id"],
             spec["spec_version"],
             spec["window_size"],
@@ -1428,6 +1452,11 @@ class StrategyManager:
                 # P2-01：paper 泵轮耗时（轮询延迟指标）；观测路径异常不影响交易循环
                 try:
                     obs_metrics.observe_pump_round(worker_id, "paper", _round_t0)
+                except Exception:
+                    pass
+                # 首页「交易引擎」行同源读数（paper 拉取/喂单轮）
+                try:
+                    runtime_health.record_engine_tick(time.perf_counter() - _round_t0)
                 except Exception:
                     pass
             try:

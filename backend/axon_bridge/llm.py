@@ -21,6 +21,7 @@ from typing import Any
 
 from axon_quant.llm import make_backend
 
+from observability import runtime_health
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -95,7 +96,9 @@ def to_axon_messages(messages: list[dict]) -> list[dict]:
     """OpenAI 风格消息列表 → axon dict 消息格式
 
     - content None → ""(axon 要求 str)
-    - assistant 消息的 OpenAI 格式 tool_calls(list) → axon JSON 字符串
+    - assistant 的 tool_calls 原样透传：binding 会把消息字段直接转发给
+      OpenAI 兼容服务，扁平化（function_name/arguments）会被服务端判为
+      缺 function 字段（实测 400）。见 test_to_axon_messages_keeps_tool_calls。
     - tool_call_id 透传
     """
     out = []
@@ -103,21 +106,8 @@ def to_axon_messages(messages: list[dict]) -> list[dict]:
         d: dict[str, Any] = {"role": m.get("role", "user"), "content": m.get("content") or ""}
         if m.get("tool_call_id"):
             d["tool_call_id"] = m["tool_call_id"]
-        tcs = m.get("tool_calls")
-        if tcs:
-            if isinstance(tcs, str):
-                d["tool_calls"] = tcs
-            else:
-                # OpenAI 格式 → axon ToolCall 格式后序列化
-                flat = [
-                    {
-                        "id": tc.get("id", ""),
-                        "function_name": tc.get("function", {}).get("name", ""),
-                        "arguments": tc.get("function", {}).get("arguments", ""),
-                    }
-                    for tc in tcs
-                ]
-                d["tool_calls"] = json.dumps(flat, ensure_ascii=False)
+        if m.get("tool_calls"):
+            d["tool_calls"] = m["tool_calls"]
         out.append(d)
     return out
 
@@ -220,9 +210,18 @@ async def chat_to_dict(
     except Exception as e:
         dt = time.monotonic() - t0
         logger.warning(f"[LLM] 请求失败 {dt:.1f}s {classify_llm_error(e)}: {str(e)[:200]}")
+        # 首页「LLM Provider」行：失败同样计入（429 单独分类计数）
+        try:
+            runtime_health.record_llm_call(dt, error_kind=classify_llm_error(e))
+        except Exception:
+            pass
         raise
     result = normalize_chat_response(raw)
     dt = time.monotonic() - t0
+    try:
+        runtime_health.record_llm_call(dt)
+    except Exception:
+        pass
     u = result["usage"]
     logger.info(
         f"[LLM] 请求完成 {dt:.1f}s finish={result['finish_reason']} "
@@ -246,31 +245,43 @@ async def accumulate_stream(
     msgs = to_axon_messages(messages)
     # 跨 chunk 累积工具调用: id -> {"id","name","arguments"(str)}
     acc: dict[str, dict] = {}
-    async for chunk in backend.stream_chat_async(msgs):
-        ctype = chunk.get("type")
-        if ctype == "content":
-            yield {"delta": chunk.get("content", "")}
-        elif ctype == "reasoning":
-            yield {"reasoning_content": chunk.get("content", "")}
-        elif ctype == "tool_call_start":
-            acc[chunk["id"]] = {
-                "id": chunk["id"],
-                "name": chunk.get("name", ""),
-                "arguments": "",
-            }
-        elif ctype == "tool_call_delta":
-            if chunk.get("id") in acc:
-                acc[chunk["id"]]["arguments"] += chunk.get("arguments", "")
-        elif ctype == "done":
-            tool_calls = []
-            for tc in acc.values():
-                try:
-                    args = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                except json.JSONDecodeError:
-                    args = {}
-                tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
-            yield {
-                "finish_reason": normalize_finish_reason(chunk.get("finish_reason")),
-                "tool_calls": tool_calls or None,
-                "is_tool_call": bool(tool_calls),
-            }
+    t0 = time.monotonic()
+    error_kind: str | None = None
+    try:
+        async for chunk in backend.stream_chat_async(msgs):
+            ctype = chunk.get("type")
+            if ctype == "content":
+                yield {"delta": chunk.get("content", "")}
+            elif ctype == "reasoning":
+                yield {"reasoning_content": chunk.get("content", "")}
+            elif ctype == "tool_call_start":
+                acc[chunk["id"]] = {
+                    "id": chunk["id"],
+                    "name": chunk.get("name", ""),
+                    "arguments": "",
+                }
+            elif ctype == "tool_call_delta":
+                if chunk.get("id") in acc:
+                    acc[chunk["id"]]["arguments"] += chunk.get("arguments", "")
+            elif ctype == "done":
+                tool_calls = []
+                for tc in acc.values():
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
+                yield {
+                    "finish_reason": normalize_finish_reason(chunk.get("finish_reason")),
+                    "tool_calls": tool_calls or None,
+                    "is_tool_call": bool(tool_calls),
+                }
+    except Exception as e:
+        error_kind = classify_llm_error(e)
+        raise
+    finally:
+        # 流式同样计入首页 LLM 读数（耗时含消费完整个流；异常原样抛出）
+        try:
+            runtime_health.record_llm_call(time.monotonic() - t0, error_kind=error_kind)
+        except Exception:
+            pass

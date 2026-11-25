@@ -10,21 +10,24 @@ import {
   App as AntApp,
   Button,
   Card,
+  Col,
   Descriptions,
   Drawer,
   Flex,
   Modal,
   Progress,
+  Row,
   Space,
-  Table,
-  Tag,
   Tooltip,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import PageContainer from '@/components/PageContainer';
 import { usePolling } from '@/hooks/usePolling';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import { formatTokens } from '@/utils/format';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   researchApi,
   type ResearchEvent,
@@ -34,16 +37,7 @@ import {
   type ResearchStatus,
   type ResearchTrial,
 } from '@/api/research';
-
-// 状态样式与文案：常量只存 i18n key，渲染时用 t() 取当前语言文案
-const STATUS_META: Record<ResearchStatus, { color: string; i18nKey: string }> = {
-  pending: { color: 'default', i18nKey: 'research_status_pending' },
-  running: { color: 'processing', i18nKey: 'research_status_running' },
-  paused: { color: 'warning', i18nKey: 'research_status_paused' },
-  completed: { color: 'success', i18nKey: 'research_status_completed' },
-  failed: { color: 'error', i18nKey: 'research_status_failed' },
-  cancelled: { color: 'default', i18nKey: 'research_status_cancelled' },
-};
+import { researchModeChip, researchScenarioChip, researchStatusChip } from './chips';
 
 const TERMINAL: ResearchStatus[] = ['completed', 'failed', 'cancelled'];
 // 编排步骤同样只存 key，避免模块级常量把某种语言固化下来
@@ -60,21 +54,40 @@ const STEP_LABEL_KEYS = [
 const fmt = (value: unknown, digits = 4): string =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
 
+/** md 数值/标量格式化：整数原样、小数 4 位、其余原样；不校色、不推断 */
+const mdValue = (value: unknown): string => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+      ? Number.isInteger(value)
+        ? String(value)
+        : value.toFixed(4)
+      : '—';
+  }
+  return String(value);
+};
+
+/** OOS Sharpe 口径：优先 OOS 段指标（metrics_oos.sharpe_ratio），test_ratio=0 未启用
+ * OOS 段时回退样本内 sharpe_ratio；两者皆非有限数 = 无数据（不按 0 处理） */
+const oosSharpeOf = (tr: ResearchTrial): number | null => {
+  const v = tr.metrics_oos?.sharpe_ratio ?? tr.metrics?.sharpe_ratio;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+};
+
 const GateTag: React.FC<{ label: string; gate?: ResearchGate }> = ({ label, gate }) => {
   const { t } = useTranslation();
   if (!gate) return null;
   // unknown = 缺少对比数据（如续跑时没有持久化 corr），按未通过提示，不能显示成通过
   const unknown = gate.status === 'unknown';
-  const color = unknown ? 'warning' : gate.pass ? 'success' : 'error';
+  const variant = unknown ? 'warn' : gate.pass ? 'ok' : 'down';
   const text = unknown
     ? t('research_detail_gate_unknown')
     : gate.pass
       ? t('research_detail_gate_pass')
       : t('research_detail_gate_fail');
   return (
-    <Tag color={color}>
+    <span className={`qc-chip ${variant}`}>
       {label} {text}
-    </Tag>
+    </span>
   );
 };
 
@@ -182,9 +195,21 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
       if (value && typeof value === 'object' && 'pass' in value) {
         return <GateTag label={t(row.tag ?? row.label)} gate={value as ResearchGate} />;
       }
-      // decision 行返回的是 i18n key，其余行返回原始值
+      // decision 行返回的是 i18n key，其余行返回原始值；chip 按通过/未过/待人工着色
       if (row.i18nValue && typeof value === 'string') {
-        return <Tag>{t(value)}</Tag>;
+        return (
+          <span
+            className={`qc-chip ${
+              value === 'research_detail_decision_pass'
+                ? 'ok'
+                : value === 'research_detail_decision_fail'
+                  ? 'down'
+                  : 'quiet'
+            }`}
+          >
+            {t(value)}
+          </span>
+        );
       }
       if (typeof value === 'number' && Number.isFinite(value)) return fmt(value);
       return String(value ?? '—');
@@ -193,20 +218,18 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Table
-        size="small"
-        pagination={false}
+      <DataTable
         rowKey="key"
+        pagination={false}
         dataSource={metricRows}
         columns={[
           { title: t('research_detail_col_metric'), dataIndex: 'label', width: 120, render: (key: string) => t(key) },
           ...trialColumns,
         ]}
       />
-      <Table
-        size="small"
-        pagination={false}
+      <DataTable
         rowKey="key"
+        pagination={false}
         dataSource={gateRows}
         columns={[
           { title: t('research_detail_col_gate'), dataIndex: 'label', width: 120, render: (key: string) => t(key) },
@@ -221,11 +244,12 @@ const ComparePanel: React.FC<{ trials: ResearchTrial[] }> = ({ trials }) => {
         return (
           <Card
             size="small"
+            className="qc-card"
             key={tr.id}
             title={t('research_detail_code_diff_title', { from: base.id, to: tr.id })}
           >
             {changes.length === 0 ? (
-              <Tag color="success">{t('research_detail_code_identical')}</Tag>
+              <span className="qc-chip ok">{t('research_detail_code_identical')}</span>
             ) : (
               <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12, lineHeight: 1.6 }}>
                 {changes.map((line, idx) => (
@@ -264,6 +288,9 @@ const ResearchDetail: React.FC = () => {
   // 回放结果：与原 trial 并排展示差异，不覆盖原记录（后端落 replay_of_id 新行）
   const [replayResult, setReplayResult] = useState<ResearchReplayResult | null>(null);
   const [replaying, setReplaying] = useState(false);
+  // trial.id → 本次会话里已创建的回测 task_id：只认请求结果，不臆造「已转过 N 次」
+  const [backtestTasks, setBacktestTasks] = useState<Record<number, string>>({});
+  const [backtesting, setBacktesting] = useState<number | null>(null);
   // 对比：勾选 2–5 条，批量拉含代码的 trial 后弹窗并排展示
   const [selectedKeys, setSelectedKeys] = useState<number[]>([]);
   const [compareTrials, setCompareTrials] = useState<ResearchTrial[]>([]);
@@ -372,6 +399,35 @@ const ResearchDetail: React.FC = () => {
     }
   };
 
+  const toBacktest = async (row: ResearchTrial) => {
+    setBacktesting(row.id);
+    try {
+      const res = await researchApi.toBacktest(sessionId, row.id);
+      // 只认后端返回的 task_id：本次会话内行内/页头按钮就地换成「查看回测」，不再重复发请求。
+      // 刷新后映射丢失（详情接口不带已建任务 id），是已知限制；再点会新建一个回测任务（策略文件复用）
+      setBacktestTasks((prev) => ({ ...prev, [row.id]: res.task_id }));
+      message.success(
+        <span>
+          {t('research_to_backtest_done', { name: res.strategy_name })}{' '}
+          {/* 深链到回测任务详情；拿不到 task_id 时退回列表页，不编造 id */}
+          <Typography.Link
+            onClick={() =>
+              navigate(res.task_id ? `/backtest/detail/${res.task_id}` : '/backtest')
+            }
+          >
+            {t('research_to_backtest_view')}
+          </Typography.Link>
+        </span>,
+      );
+      void load();
+    } catch (err) {
+      // 后端 400 的文案是给人看的，原样提示，不替换成通用错误
+      message.error(err instanceof Error ? err.message : t('research_to_backtest_failed'));
+    } finally {
+      setBacktesting(null);
+    }
+  };
+
   const openCompare = async () => {
     setComparing(true);
     try {
@@ -402,7 +458,7 @@ const ResearchDetail: React.FC = () => {
       title: t('status'),
       dataIndex: 'status',
       width: 100,
-      render: (status: string) => <Tag>{status}</Tag>,
+      render: (status: string) => <span className="qc-chip quiet">{status}</span>,
     },
     {
       title: t('research_detail_col_hypothesis'),
@@ -423,11 +479,11 @@ const ResearchDetail: React.FC = () => {
       width: 100,
       render: (_, row) =>
         row.decision == null ? (
-          <Tag>{t('research_detail_decision_pending')}</Tag>
+          <span className="qc-chip quiet">{t('research_detail_decision_pending')}</span>
         ) : row.decision ? (
-          <Tag color="success">{t('research_detail_decision_pass')}</Tag>
+          <span className="qc-chip ok">{t('research_detail_decision_pass')}</span>
         ) : (
-          <Tag color="error">{t('research_detail_decision_fail')}</Tag>
+          <span className="qc-chip down">{t('research_detail_decision_fail')}</span>
         ),
     },
     {
@@ -438,16 +494,52 @@ const ResearchDetail: React.FC = () => {
     },
     {
       title: t('action'),
-      width: 90,
-      render: (_, row) => (
-        <Button size="small" onClick={() => void openTrial(row)}>
-          {t('research_detail_btn_detail')}
-        </Button>
-      ),
+      width: 170,
+      render: (_, row) => {
+        const taskId = backtestTasks[row.id];
+        return (
+          <Space size={4}>
+            <Button size="small" onClick={() => void openTrial(row)}>
+              {t('research_detail_btn_detail')}
+            </Button>
+            {/* 只有 strategy 场景的 trial 是策略代码；factor/model 会话不出现该动作 */}
+            {detail?.scenario === 'strategy' &&
+              (taskId ? (
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={() => navigate(`/backtest/detail/${taskId}`)}
+                >
+                  {t('research_to_backtest_view')}
+                </Button>
+              ) : (
+                <Tooltip
+                  title={
+                    !row.has_code
+                      ? t('research_to_backtest_no_code')
+                      : row.promoted_factor_name
+                        ? t('research_to_backtest_reuse_hint', { name: row.promoted_factor_name })
+                        : undefined
+                  }
+                >
+                  <span>
+                    <Button
+                      size="small"
+                      loading={backtesting === row.id}
+                      disabled={!row.has_code}
+                      onClick={() => void toBacktest(row)}
+                    >
+                      {t('research_to_backtest')}
+                    </Button>
+                  </span>
+                </Tooltip>
+              ))}
+          </Space>
+        );
+      },
     },
   ];
 
-  const statusMeta = detail ? STATUS_META[detail.status] : null;
   const isDeep = detail?.mode === 'deep';
   const tokenPercent =
     detail?.max_tokens && detail.max_tokens > 0
@@ -512,56 +604,168 @@ const ResearchDetail: React.FC = () => {
     ];
   })();
 
+  // —— 会话级「转回测」/「结论」卡 / Top5 共用：best trial 从详情响应的 trials 里找 ——
+  const bestTrialId = detail?.best_trial_id ?? null;
+  const bestTrial =
+    bestTrialId != null
+      ? ((detail?.trials ?? []).find((tr) => tr.id === bestTrialId) ?? null)
+      : null;
+  const bestTaskId = bestTrial ? backtestTasks[bestTrial.id] : undefined;
+
+  // 「结论」md（demo #view-research-detail rd-md）：只用 best trial 的真实字段拼装，
+  // 标题层级固定（结论 = 卡片标题，依据 / 指标 / 配置 = md 段落），缺字段的段落整段
+  // 省略，不写任何推断性结论句。配置取会话 config（trial 无 config 字段，转回测也按它执行）
+  const verdictMd = (() => {
+    if (!bestTrial) return '';
+    const parts: string[] = [];
+    const hypothesis = bestTrial.hypothesis?.trim();
+    if (hypothesis) parts.push(hypothesis);
+    const reason = bestTrial.judge?.reason?.trim();
+    if (reason) parts.push(`### ${t('research_detail_verdict_basis')}\n\n${reason}`);
+    const metricEntries = Object.entries(bestTrial.metrics ?? {}).filter(([, v]) =>
+      ['number', 'string', 'boolean'].includes(typeof v),
+    );
+    if (metricEntries.length > 0) {
+      parts.push(
+        `### ${t('research_detail_metrics_label')}\n\n` +
+          metricEntries.map(([k, v]) => `- \`${k}\`: ${mdValue(v)}`).join('\n'),
+      );
+    }
+    const cfg: Record<string, unknown> = detail?.config ?? {};
+    const cfgStr = (v: unknown): string => {
+      const s = Array.isArray(v) ? v.map(String).join(', ') : v == null ? '' : String(v);
+      return s.trim();
+    };
+    const windowVal = [cfgStr(cfg.start), cfgStr(cfg.end)].filter(Boolean).join(' ~ ');
+    const cfgLines = (
+      [
+        [t('research_detail_field_symbol'), cfgStr(cfg.symbols)],
+        [t('research_detail_field_interval'), cfgStr(cfg.interval)],
+        [t('research_detail_field_market'), cfgStr(cfg.candle_type)],
+        [t('research_detail_field_window'), windowVal],
+      ] as [string, string][]
+    ).filter(([, v]) => v !== '');
+    if (cfgLines.length > 0) {
+      parts.push(
+        `### ${t('research_detail_verdict_config')}\n\n` +
+          cfgLines.map(([k, v]) => `- ${k}: \`${v}\``).join('\n'),
+      );
+    }
+    return parts.join('\n\n');
+  })();
+
+  // Top 5 轮次（demo「参数扫描 Top 5 · 按 OOS Sharpe 降序」）：按 oosSharpeOf 取值降序，
+  // 无 Sharpe 数据的 trial 不入榜；replay 复算行（不占轮次编号）同样排除
+  const top5 = [...(detail?.trials ?? [])]
+    .filter((tr) => !tr.replay_of_id && oosSharpeOf(tr) != null)
+    .sort((a, b) => (oosSharpeOf(b) ?? 0) - (oosSharpeOf(a) ?? 0))
+    .slice(0, 5);
+
+  const top5Columns: ColumnsType<ResearchTrial> = [
+    { title: t('research_detail_col_rank'), width: 60, render: (_v, _r, idx) => <span className="qc-mono">{idx + 1}</span> },
+    {
+      title: t('research_detail_col_round'),
+      width: 90,
+      render: (_, row) =>
+        detail?.mode === 'quick'
+          ? t('research_detail_row_quick_round', { idx: row.candidate_idx })
+          : t('research_detail_row_loop_round', { idx: row.loop_idx }),
+    },
+    {
+      title: t('research_detail_col_hypothesis'),
+      ellipsis: true,
+      render: (_, row) =>
+        row.hypothesis ? <span title={row.hypothesis}>{row.hypothesis}</span> : '—',
+    },
+    { title: 'IC', width: 100, align: 'right', render: (_, row) => <span className="qc-mono">{fmt(row.metrics?.ic_mean)}</span> },
+    { title: 'IC_IR', width: 100, align: 'right', render: (_, row) => <span className="qc-mono">{fmt(row.metrics?.ic_ir)}</span> },
+    { title: 'OOS Sharpe', width: 110, align: 'right', render: (_, row) => <span className="qc-mono">{fmt(oosSharpeOf(row))}</span> },
+    {
+      title: t('research_detail_col_decision'),
+      width: 100,
+      render: (_, row) =>
+        row.decision == null ? (
+          <span className="qc-chip quiet">{t('research_detail_decision_pending')}</span>
+        ) : row.decision ? (
+          <span className="qc-chip ok">{t('research_detail_decision_pass')}</span>
+        ) : (
+          <span className="qc-chip down">{t('research_detail_decision_fail')}</span>
+        ),
+    },
+  ];
+
   return (
     <PageContainer
       title={detail?.name || t('research_detail_page_title', { id: sessionId })}
       // 返回入口统一收敛到 PageContainer 标题行（原「返回列表」按钮已移除）
       onBack={() => navigate('/research')}
+      // 页头副标 mono 口径行（§5）：创建时间 / 轮次 / 最优 IC_IR，全部取自已加载的会话
+      subtitle={
+        detail
+          ? [
+              `${t('created_at')} ${detail.created_at ? new Date(detail.created_at).toLocaleString() : '—'}`,
+              t('research_detail_loop_progress', { done: detail.loop_done, total: detail.loop_n }),
+              t('research_detail_best_icir', { value: fmt(detail.best_ic_ir) }),
+            ].join(' · ')
+          : undefined
+      }
     >
       <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
         <Flex align="center" justify="space-between" wrap gap={8}>
-          <Space size="small" wrap>
-            <Typography.Title level={5} style={{ margin: 0 }}>
-              {detail?.name || t('research_detail_session_title', { id: sessionId })}
-            </Typography.Title>
-            {detail && (
-              <Tag color={statusMeta?.color}>
-                {[
-                  statusMeta ? t(statusMeta.i18nKey) : null,
-                  // 排队位次：仅 pending 且后端返回序号时展示
-                  detail.status === 'pending' && detail.queue_position
-                    ? t('research_queue_position', { pos: detail.queue_position })
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Tag>
-            )}
-            {detail && (
-              <Tag color={detail.scenario === 'strategy' ? 'geekblue' : detail.scenario === 'model' ? 'purple' : 'cyan'}>
-                {detail.scenario === 'strategy'
-                  ? t('research_detail_scenario_strategy')
-                  : detail.scenario === 'model'
-                    ? t('research_detail_scenario_model')
-                    : t('research_detail_scenario_factor')}
-              </Tag>
-            )}
-            {detail && (
-              <Tag>
-                {detail.mode === 'quick'
-                  ? t('research_mode_quick')
-                  : t('research_mode_deep')}
-              </Tag>
-            )}
+          {/* 会话状态/场景/模式 chip 行（§6.2）：替代原 antd Tag 组，口径与列表卡片一致 */}
+          <span className="qc-row-chips">
+            {detail && researchStatusChip(detail, t)}
+            {detail && researchScenarioChip(detail, t)}
+            {detail && researchModeChip(detail, t)}
             {detail?.extended_at && (
-              <Tag color="blue">
+              <span className="qc-chip quiet">
                 {t('research_detail_tag_extended', {
                   time: new Date(detail.extended_at).toLocaleString(),
                 })}
-              </Tag>
+              </span>
             )}
-          </Space>
+          </span>
           <Space wrap>
+            {/* 会话级「转回测」（demo 2290）：作用于 best_trial_id，同为 strategy 场景限定，
+             *  校验/loading/已建任务口径与 trial 行内一致；trial 行内入口保留不删 */}
+            {detail?.scenario === 'strategy' &&
+              (bestTrial && bestTaskId ? (
+                <Button
+                  type="primary"
+                  ghost
+                  onClick={() =>
+                    navigate(bestTaskId ? `/backtest/detail/${bestTaskId}` : '/backtest')
+                  }
+                >
+                  {t('research_to_backtest_view')}
+                </Button>
+              ) : (
+                <Tooltip
+                  title={
+                    bestTrial
+                      ? !bestTrial.has_code
+                        ? t('research_to_backtest_no_code')
+                        : bestTrial.promoted_factor_name
+                          ? t('research_to_backtest_reuse_hint', {
+                              name: bestTrial.promoted_factor_name,
+                            })
+                          : undefined
+                      : t('research_to_backtest_no_best')
+                  }
+                >
+                  <span>
+                    <Button
+                      type="primary"
+                      ghost
+                      loading={!!bestTrial && backtesting === bestTrial.id}
+                      disabled={!bestTrial || !bestTrial.has_code}
+                      onClick={() => bestTrial && void toBacktest(bestTrial)}
+                    >
+                      {t('research_to_backtest')}
+                    </Button>
+                  </span>
+                </Tooltip>
+              ))}
             <Button loading={loading} onClick={refresh}>
               {t('refresh')}
             </Button>
@@ -628,7 +832,10 @@ const ResearchDetail: React.FC = () => {
 
         {detail?.error && <Alert type="error" showIcon title={detail.error} />}
 
-        <Card size="small" title={t('research_detail_card_status')}>
+        {/* 主/侧栏两列（demo rd-grid 1.25fr/.75fr 折成 24 栅格 15/9）：左运行状态、右运行事件 */}
+        <Row gutter={[12, 12]}>
+          <Col xs={24} lg={15}>
+            <Card size="small" className="qc-card" title={t('research_detail_card_status')}>
           <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
             <Space size="large" wrap>
               <span>
@@ -700,7 +907,73 @@ const ResearchDetail: React.FC = () => {
               </Descriptions>
             )}
           </Space>
-        </Card>
+            </Card>
+          </Col>
+          <Col xs={24} lg={9}>
+            <Card
+              size="small"
+              className="qc-card"
+              title={t('research_detail_card_events')}
+              extra={
+                <Typography.Text type="secondary">
+                  {t('research_detail_events_meta', { seq: nextSeqRef.current })}
+                </Typography.Text>
+              }
+            >
+              {events.length === 0 ? (
+                <QcEmpty title={t('research_detail_events_empty')} />
+              ) : (
+                <div style={{ maxHeight: 260, overflow: 'auto', fontSize: 12, lineHeight: 1.8 }}>
+                  {events.map((evt) => (
+                    <div key={evt.seq}>
+                      <span className="qc-cell-time qc-mono">
+                        {new Date(evt.ts * 1000).toLocaleTimeString()}#{evt.seq}
+                      </span>{' '}
+                      <span className="qc-chip quiet">{evt.stage}</span>
+                      {evt.msg}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </Col>
+        </Row>
+
+        {/* 「结论」卡（demo #view-research-detail rd-md 2295-2304）：内容全部来自
+         *  best trial 的真实字段（markdown 渲染），无 best trial / 全字段缺失时整卡不渲染 */}
+        {bestTrial && verdictMd && (
+          <Card
+            size="small"
+            className="qc-card"
+            title={t('research_detail_card_verdict')}
+            extra={<span className="qc-chip quiet qc-mono">{`#${bestTrial.id}`}</span>}
+          >
+            <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{verdictMd}</ReactMarkdown>
+            </div>
+          </Card>
+        )}
+
+        {/* Top 5 轮次（demo 参数扫描 Top 5 2314-2328）：OOS Sharpe 降序，不足 5 条按实际条数 */}
+        {top5.length > 0 && (
+          <Card
+            size="small"
+            className="qc-card"
+            title={t('research_detail_top5_title')}
+            extra={
+              <Typography.Text type="secondary" className="qc-mono">
+                {t('research_detail_top5_sub')}
+              </Typography.Text>
+            }
+          >
+            <DataTable<ResearchTrial>
+              rowKey="id"
+              columns={top5Columns}
+              dataSource={top5}
+              pagination={false}
+            />
+          </Card>
+        )}
 
         <Flex justify="space-between" align="center" wrap gap={8}>
           <Typography.Text type="secondary">{t('research_detail_compare_hint')}</Typography.Text>
@@ -715,14 +988,14 @@ const ResearchDetail: React.FC = () => {
           </Button>
         </Flex>
 
-        <Table<ResearchTrial>
+        <DataTable<ResearchTrial>
           rowKey="id"
-          size="small"
           loading={loading}
           columns={columns}
           dataSource={[...(detail?.trials ?? [])].sort((a, b) => b.id - a.id)}
-          pagination={{ pageSize: 20, hideOnSinglePage: true }}
-          locale={{ emptyText: t('research_detail_empty_trials') }}
+          scroll={{ x: 980 }}
+          pagination={{ pageSize: 12 }}
+          emptyTitle={t('research_detail_empty_trials')}
           rowSelection={{
             selectedRowKeys: selectedKeys,
             onChange: (keys) => setSelectedKeys(keys as number[]),
@@ -732,32 +1005,6 @@ const ResearchDetail: React.FC = () => {
             }),
           }}
         />
-
-        <Card
-          size="small"
-          title={t('research_detail_card_events')}
-          extra={
-            <Typography.Text type="secondary">
-              {t('research_detail_events_meta', { seq: nextSeqRef.current })}
-            </Typography.Text>
-          }
-        >
-          {events.length === 0 ? (
-            <Typography.Text type="secondary">{t('research_detail_events_empty')}</Typography.Text>
-          ) : (
-            <div style={{ maxHeight: 220, overflow: 'auto', fontSize: 12, lineHeight: 1.8 }}>
-              {events.map((evt) => (
-                <div key={evt.seq}>
-                  <Typography.Text type="secondary">
-                    {new Date(evt.ts * 1000).toLocaleTimeString()}#{evt.seq}
-                  </Typography.Text>{' '}
-                  <Tag>{evt.stage}</Tag>
-                  {evt.msg}
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
 
         {/* 试验详情从页面内嵌 Card 改为右侧抽屉，宽度与因子库详情抽屉一致（68%） */}
         <Drawer
@@ -775,9 +1022,9 @@ const ResearchDetail: React.FC = () => {
                   </Button>
                 )}
                 {trial.promoted_factor_name ? (
-                  <Tag color="success">
+                  <span className="qc-chip ok">
                     {t('research_detail_tag_promoted', { name: trial.promoted_factor_name })}
-                  </Tag>
+                  </span>
                 ) : (
                   trial.code && (
                     <Button
@@ -892,26 +1139,27 @@ const ResearchDetail: React.FC = () => {
         {replayResult && (
           <Card
             size="small"
+            className="qc-card"
             title={t('research_detail_replay_title', {
               orig: replayResult.original.id,
               replay: replayResult.trial.id,
             })}
             extra={
-              <Tag
-                color={
+              <span
+                className={`qc-chip ${
                   replayResult.replay_meta.partial
-                    ? 'warning'
+                    ? 'warn'
                     : replayResult.replay_meta.consistent
-                      ? 'success'
-                      : 'error'
-                }
+                      ? 'ok'
+                      : 'down'
+                }`}
               >
                 {replayResult.replay_meta.partial
                   ? t('research_detail_replay_partial')
                   : replayResult.replay_meta.consistent
                     ? t('research_detail_replay_consistent')
                     : t('research_detail_replay_diff')}
-              </Tag>
+              </span>
             }
           >
             <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
@@ -924,10 +1172,9 @@ const ResearchDetail: React.FC = () => {
                   })}
                 />
               )}
-              <Table
-                size="small"
-                pagination={false}
+              <DataTable
                 rowKey="key"
+                pagination={false}
                 dataSource={replayRows}
                 columns={[
                   { title: t('research_detail_col_metric'), dataIndex: 'label', width: 140 },
@@ -971,6 +1218,7 @@ const ResearchDetail: React.FC = () => {
         )}
 
         <Modal
+          className="qc-modal"
           open={compareOpen}
           title={t('research_detail_compare_title', { n: compareTrials.length })}
           footer={null}

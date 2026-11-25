@@ -101,10 +101,11 @@ export const archiveApi = {
    * 3) 列出某 (kind, market) 下已采集的 symbols
    */
   listSymbols: (
-    kind: ArchiveKind,
+    kind: ArchiveKind | 'kline',
     market: MarketType,
+    interval?: string,
   ): Promise<ArchiveSymbolsResponse> => {
-    return apiRequest.get('/data/archive/symbols', { kind, market });
+    return apiRequest.get('/data/archive/symbols', { kind, market, ...(interval ? { interval } : {}) });
   },
 
   /**
@@ -115,13 +116,14 @@ export const archiveApi = {
    * @param offset    分页偏移（默认 0）
    */
   queryData: (
-    kind: ArchiveKind,
+    kind: ArchiveKind | 'kline',
     market: MarketType,
     symbol: string,
     startTime: number,
     endTime: number,
     limit = 1000,
     offset = 0,
+    interval?: string,
   ): Promise<ArchiveQueryResponse> => {
     return apiRequest.get('/data/archive/data', {
       kind,
@@ -131,6 +133,7 @@ export const archiveApi = {
       end_time: endTime,
       limit,
       offset,
+      ...(interval ? { interval } : {}),
     });
   },
 
@@ -138,11 +141,12 @@ export const archiveApi = {
    * 5) 读取 _meta.json；不存在时返回 null
    */
   getMeta: (
-    kind: ArchiveKind,
+    kind: ArchiveKind | 'kline',
     market: MarketType,
     symbol: string,
+    interval?: string,
   ): Promise<ArchiveMetaResponse> => {
-    return apiRequest.get(`/data/archive/meta/${kind}/${market}/${symbol}`);
+    return apiRequest.get(`/data/archive/meta/${kind}/${market}/${symbol}`, interval ? { interval } : undefined);
   },
 
   /**
@@ -150,10 +154,11 @@ export const archiveApi = {
    * 注意：后端不要求确认，前端调用前需自行 Popconfirm
    */
   deleteData: (
-    kind: ArchiveKind,
+    kind: ArchiveKind | 'kline',
     market: MarketType,
     symbol: string,
+    interval?: string,
   ): Promise<ArchiveDeleteResponse> => {
-    return apiRequest.delete('/data/archive/data', { kind, market, symbol });
+    return apiRequest.delete('/data/archive/data', { kind, market, symbol, ...(interval ? { interval } : {}) });
   },
 };

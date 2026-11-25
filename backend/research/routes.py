@@ -340,6 +340,130 @@ def promote_trial(
     return ApiResponse(code=0, message="ok", data={"factor_name": factor_name})
 
 
+def _run_backtest_task(
+    *,
+    strategy_name: str,
+    params: dict[str, Any],
+    symbols: list[str],
+    interval: str,
+    start: str,
+    end: str,
+    cfg: dict[str, Any],
+) -> Any:
+    """构造回测请求并直接调用 /backtest/run 的实现。
+
+    直接调用而非另起一套 create_task：LLM replay 校验、任务行落库、进度跟踪与
+    异步线程都在 run_backtest 里，另写一套会漏掉校验且任务在回测页不可见。
+    研究侧不记录 data_type（会话数据固定是 kline，回测服务按 kline 默认处理）。
+    """
+    from backtest.routes import run_backtest
+    from backtest.schemas import BacktestConfig, BacktestRunRequest, StrategyConfig
+
+    # 会话只记 candle_type（spot/future 数据源），回测侧同义字段是 trading_mode；
+    # 初始资金沿用 research evaluate 的口径（未配置时用 strategy 场景默认值）
+    trading_mode = "futures" if cfg.get("candle_type") == "future" else "spot"
+    request = BacktestRunRequest(
+        strategy_config=StrategyConfig(strategy_name=strategy_name, params=params),
+        backtest_config=BacktestConfig(
+            symbols=symbols,
+            interval=interval,
+            start_time=start,
+            end_time=end,
+            initial_cash=float(cfg.get("initial_cash") or consts.DEFAULT_STRATEGY_INITIAL_CASH),
+            # 与会话评估同口径：每品种独立资金池 + 事件驱动内核
+            capital_mode="per_symbol",
+            engine_type="event",
+            trading_mode=trading_mode,
+        ),
+    )
+    return run_backtest(request)
+
+
+@router.post(
+    "/sessions/{session_id}/trials/{trial_id}/to-backtest",
+    response_model=ApiResponse,
+    summary="把 trial 转成回测任务",
+    description=(
+        "仅 strategy 场景：trial 代码采纳进策略库（幂等，复用 promote + promoted_factor_name），"
+        "再用会话记录的数据窗口创建并启动回测任务（与 POST /backtest/run 同一实现），"
+        "返回 task_id 供前端轮询 /backtest/progress/{task_id}。"
+        "缺代码 / 场景不符 / 窗口缺字段一律 400 并指明缺什么，不默认全市场或全历史。"
+    ),
+)
+def trial_to_backtest(
+    session_id: int,
+    trial_id: int,
+    current_user: dict = Depends(get_current_user),
+) -> ApiResponse:
+    with get_db_session() as db:
+        try:
+            row = service.get_session_row(db, session_id, _owner(current_user))
+            trial = service.get_trial_row(db, trial_id)
+        except service.ResearchError as exc:
+            raise _http_error(exc) from exc
+        if trial.session_id != session_id:
+            raise HTTPException(status_code=404, detail="trial 不属于该会话")
+        cfg = service.session_config(row)
+        scenario_name = row.scenario or str(cfg.get("scenario") or "")
+        # 错误 detail 统一用纯字符串：前端 api/index.ts 只解包 {"detail": "<str>"}，
+        # dict detail 会被当成 message 原样塞进 Error，页面显示成 [object Object]
+        if scenario_name != "strategy":
+            raise HTTPException(
+                status_code=400,
+                detail=f"场景 {scenario_name or '未知'} 的 trial 不是可回测的策略代码，只有 strategy 场景支持转回测",
+            )
+        if not (trial.code or "").strip():
+            raise HTTPException(status_code=400, detail="该 trial 没有可回测的代码")
+        payload = service.trial_to_dict(trial)
+        promoted = trial.promoted_factor_name
+
+    # 标的/周期/窗口全部取会话记录的真值：缺必需项直接报错，不默认全市场/全历史
+    symbols = [str(s).strip() for s in (cfg.get("symbols") or []) if str(s).strip()]
+    interval = str(cfg.get("interval") or "").strip()
+    start = str(cfg.get("start") or "").strip()
+    end = str(cfg.get("end") or "").strip()
+    missing = [
+        key
+        for key, value in (("symbols", symbols), ("interval", interval), ("start", start), ("end", end))
+        if not value
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"会话配置缺少 {', '.join(missing)}，无法确定回测标的与数据窗口",
+        )
+
+    reused = bool(promoted)
+    if reused:
+        strategy_name = str(promoted)
+    else:
+        try:
+            # 复用 strategy 场景的 promote（写 backend/strategies/rs_<sid>_<tid>.py + 回填 trial）
+            strategy_name = get_scenario("strategy").promote(payload)
+        except LookupError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    resp = _run_backtest_task(
+        strategy_name=strategy_name,
+        # trial 任务规格里的 params 原样传给回测；没有就不传（不编默认参数）
+        params=dict((payload.get("task") or {}).get("params") or {}),
+        symbols=symbols,
+        interval=interval,
+        start=start,
+        end=end,
+        cfg=cfg,
+    )
+    task_id = (resp.data or {}).get("task_id")
+    logger.info(f"[研究] trial {trial_id} 转回测 task={task_id} strategy={strategy_name} reused={reused}")
+    return ApiResponse(
+        code=0,
+        message="ok",
+        data={"task_id": task_id, "strategy_name": strategy_name, "reused_promotion": reused},
+    )
+
+
 @router.post(
     "/sessions/{session_id}/trials/{trial_id}/replay",
     response_model=ApiResponse,

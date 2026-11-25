@@ -10,14 +10,14 @@ description: Tauri 2 + PyInstaller sidecar 桌面端 — 安装包、运行模�
 桌面端由两层组成：
 
 - **Tauri 2 壳**：复用仓库同一套 `frontend/` React 代码，跨平台窗口与系统托盘
-- **backend sidecar**：本地 `backend`（FastAPI + axon-quant）通过 PyInstaller 打包为
+- **backend sidecar**：本地 `backend`（FastAPI + Rust 内核）通过 PyInstaller 打包为
   单文件二进制，随桌面端自动拉起与关闭
 
 ```
 QuantCell.app
 ├── Tauri 壳（React 前端）
 └── quantcell-backend（sidecar 二进制，PyInstaller onefile）
-        └── 内嵌 FastAPI + axon-quant + DuckDB
+        └── 内嵌 FastAPI + Rust 内核 + DuckDB
 ```
 
 ## 运行模式

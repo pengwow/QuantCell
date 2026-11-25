@@ -107,6 +107,7 @@ class LogRecord:
 import contextlib
 
 from utils.deprecation import deprecated
+from utils.paths import get_persistent_dir
 
 
 @deprecated("2.0", "3.0", "utils.file_log_manager.FileLogManager")
@@ -448,8 +449,9 @@ class UnifiedLogger:
         """获取默认日志文件路径"""
         try:
             backend_path = Path(__file__).resolve().parent.parent
-            log_dir = backend_path / "logs"
-            log_dir.mkdir(exist_ok=True)
+            # 桌面打包下 backend 相对路径位于临时解压目录 → 日志落持久数据目录
+            log_dir = get_persistent_dir("logs", backend_path / "logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
             return str(log_dir / "quantcell_{time:YYYYMMDD}.log")
         except Exception:
             return None
@@ -523,6 +525,25 @@ class LoggerWrapper:
         self._unified_logger = unified_logger
         self._logger = _loguru_logger.bind(logger_name=name)
 
+    @staticmethod
+    def _resolve_exc_info(exc_info: Any) -> BaseException | None:
+        """兼容 stdlib logging 的 exc_info 传参。
+
+        项目代码混用 stdlib 风格 `logger.warning(msg, exc_info=True)`,此前仅
+        loguru 原生 `exception=` 签名,传 exc_info 直接 TypeError——它在 except
+        块里触发时会吞掉原始异常并让可降级路径升级成启动失败(2026-11-18 打包
+        验证实录)。True→当前异常;BaseException→原样;tuple→取实例。
+        """
+        if not exc_info:
+            return None
+        if exc_info is True:
+            return sys.exc_info()[1]
+        if isinstance(exc_info, BaseException):
+            return exc_info
+        if isinstance(exc_info, tuple) and exc_info and isinstance(exc_info[0], type):
+            return exc_info[1]
+        return None
+
     def _log(
         self,
         level: LogLevel,
@@ -574,35 +595,37 @@ class LoggerWrapper:
         if LoggerConfig.ENABLE_FILE_LOG:
             self._unified_logger._emit_to_file(record)
 
-    def debug(self, message: str, extra: dict[str, Any] | None = None) -> None:
+    def debug(self, message: str, extra: dict[str, Any] | None = None, exc_info: Any = None) -> None:
         """记录DEBUG级别日志"""
-        self._log(LogLevel.DEBUG, message, extra)
+        self._log(LogLevel.DEBUG, message, extra, self._resolve_exc_info(exc_info))
 
-    def info(self, message: str, extra: dict[str, Any] | None = None) -> None:
+    def info(self, message: str, extra: dict[str, Any] | None = None, exc_info: Any = None) -> None:
         """记录INFO级别日志"""
-        self._log(LogLevel.INFO, message, extra)
+        self._log(LogLevel.INFO, message, extra, self._resolve_exc_info(exc_info))
 
-    def warning(self, message: str, extra: dict[str, Any] | None = None) -> None:
+    def warning(self, message: str, extra: dict[str, Any] | None = None, exc_info: Any = None) -> None:
         """记录WARNING级别日志"""
-        self._log(LogLevel.WARNING, message, extra)
+        self._log(LogLevel.WARNING, message, extra, self._resolve_exc_info(exc_info))
 
     def error(
         self,
         message: str,
         extra: dict[str, Any] | None = None,
         exception: BaseException | None = None,
+        exc_info: Any = None,
     ) -> None:
         """记录ERROR级别日志"""
-        self._log(LogLevel.ERROR, message, extra, exception)
+        self._log(LogLevel.ERROR, message, extra, exception or self._resolve_exc_info(exc_info))
 
     def critical(
         self,
         message: str,
         extra: dict[str, Any] | None = None,
         exception: BaseException | None = None,
+        exc_info: Any = None,
     ) -> None:
         """记录CRITICAL级别日志"""
-        self._log(LogLevel.CRITICAL, message, extra, exception)
+        self._log(LogLevel.CRITICAL, message, extra, exception or self._resolve_exc_info(exc_info))
 
     def exception(self, message: str, extra: dict[str, Any] | None = None) -> None:
         """记录异常信息（自动捕获当前异常）"""
@@ -698,8 +721,8 @@ class StrategyLogger:
     为策略提供独立的日志记录功能，自动标记策略名称
     """
 
-    # 策略日志目录
-    LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "strategies"
+    # 策略日志目录（桌面打包下落 QUANTCELL_DATA_DIR/logs/strategies）
+    LOG_DIR = get_persistent_dir("logs/strategies", Path(__file__).resolve().parent.parent / "logs" / "strategies")
 
     # 类级别的logger缓存
     _loggers: dict[str, StrategyLogger] = {}
@@ -775,7 +798,8 @@ class PluginLogger:
     为每个插件提供独立的日志文件，存储在 backend/logs/plugins/ 目录下
     """
 
-    LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "plugins"
+    # 插件日志目录（桌面打包下落 QUANTCELL_DATA_DIR/logs/plugins）
+    LOG_DIR = get_persistent_dir("logs/plugins", Path(__file__).resolve().parent.parent / "logs" / "plugins")
     _loggers: dict[str, PluginLogger] = {}
 
     def __new__(cls, plugin_name: str):

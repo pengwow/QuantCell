@@ -43,7 +43,8 @@ export function setDepthProfileSymbol(symbol: string): void {
   activeSymbol = (symbol || '').toUpperCase();
 }
 
-// 半透明红绿：对齐现场涨跌语义色 QUANT_COLORS.negative/positive(#d1242f/#1a7f37)
+// 半透明红绿：涨跌语义取 palette success/error 同值 + 固定 0.35 alpha——palette 没有带
+// alpha 的语义槽位，靠色彩解析再拼 alpha 会引入取整误差，故保留 rgba 字面量（离散豁免：alpha 变体）。
 const BUY_COLOR = 'rgba(26, 127, 55, 0.35)';
 const SELL_COLOR = 'rgba(209, 36, 47, 0.35)';
 const BAR_HEIGHT = 3;

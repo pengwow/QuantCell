@@ -222,6 +222,9 @@ class SessionManager:
                 sessions_info.append(
                     {
                         "key": data.get("key", session_file.stem),
+                        # 会话名在创建时写入 json（create_session），此前列表漏返，
+                        # 前端会话抽屉只能拿到 key → 名称列恒空
+                        "name": data.get("name") or session_file.stem,
                         "messages_count": len(data.get("messages", [])),
                         "created_at": data.get("created_at"),
                         "updated_at": data.get("updated_at"),

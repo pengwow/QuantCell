@@ -4,18 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Card,
-  Tag,
-  Table,
   Spin,
   Tooltip,
   Popconfirm,
   Row,
   Col,
-  Statistic,
-  Empty,
   Space,
   Alert,
-  Input,
   Select,
   Modal,
   App,
@@ -23,7 +18,6 @@ import {
   Checkbox,
   Flex,
   Pagination,
-  theme,
   type TablePaginationConfig,
 } from 'antd';
 import {
@@ -33,9 +27,6 @@ import {
   StopOutlined,
   EditOutlined,
   DeleteOutlined,
-  CheckCircleOutlined,
-  BarChartOutlined,
-  PoweroffOutlined,
   CaretRightOutlined,
   FileTextOutlined,
   EyeOutlined,
@@ -43,25 +34,29 @@ import {
   CheckSquareOutlined,
   BorderOutlined,
   ThunderboltOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
-import { triggerOptimize } from '../../api/workerApi';
+import { getWorker, triggerOptimize } from '../../api/workerApi';
 import type { Worker as WorkerType, ApiResponse } from '../../types/worker';
-import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
+import { WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
+import PageToolbar from '@/components/ui/PageToolbar';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
 import { setPageTitle } from '@/utils/pageTitle';
 import { QUANT_COLORS } from '@/utils/colors';
 import { useGlobalPageSize } from '../../hooks/useGlobalPageSize';
 import { useViewType } from '../../hooks/useViewType';
 import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
+import { workerStatusChip } from '../../components/worker/statusChip';
+import { formatLeverage, formatTimestamp } from '../../utils/format';
+import { formatWorkerRuntime } from './workerRuntime';
 
 const Worker = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { message: apiMessage, modal } = App.useApp();
-  const { token } = theme.useToken();
 
   // Store state and actions
   // 注意：详情展示已移交 /strategy-worker/:id 独立页（WorkerDetail），
@@ -115,9 +110,54 @@ const Worker = () => {
   const [logsPanelVisible, setLogsPanelVisible] = useState(false);
   const [logsWorkerId, setLogsWorkerId] = useState<number | null>(null);
 
+  // 行内展开：单键（同一时刻只展开一行），初始 null = 初次加载不自动展开
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  // 异常原因缓存（列表接口不含 error_message，只在展开异常行时单查详情接口）
+  const [errorMessages, setErrorMessages] = useState<Record<number, string>>({});
+
+  // error_message 仅 GET /workers/{id} 的 _state_info 提供（列表接口没有）；
+  // 取不到就不渲染该块，不拿状态码/HTTP 文案冒充失败原因
+  const loadErrorMessage = useCallback(async (worker: WorkerType) => {
+    if (worker.status !== 'error') return;
+    try {
+      const detail = await getWorker(worker.id);
+      const message = detail?._state_info?.error_message;
+      if (message) {
+        setErrorMessages((prev) => (prev[worker.id] ? prev : { ...prev, [worker.id]: message }));
+      }
+    } catch {
+      /* 详情接口失败：保持无该块（不造原因） */
+    }
+  }, []);
+
+  const toggleExpand = useCallback((worker: WorkerType) => {
+    const next = expandedId === worker.id ? null : worker.id;
+    setExpandedId(next);
+    if (next !== null) void loadErrorMessage(worker);
+  }, [expandedId, loadErrorMessage]);
+
+  // 筛选 / 搜索 / 翻页变化 → 收起（面板与已被筛掉的行否则会失联）
+  // 取原始值做依赖：pagination.current 是对象成员，eslint 的 exhaustive-deps 不把它当合法依赖
+  const pageCurrent = (pagination.current as number) || 1;
+  const pageSizeCurrent = (pagination.pageSize as number) || pageSize;
+
+  useEffect(() => {
+    setExpandedId(null);
+  }, [searchKeyword, statusFilter, pageCurrent, pageSizeCurrent]);
+
+  // Esc 收起：行/面板内的焦点节点不一定冒泡到行 onKeyDown，挂文档级兜底
+  useEffect(() => {
+    if (expandedId === null) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExpandedId(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [expandedId]);
+
   // Set page title
   useEffect(() => {
-    setPageTitle(t('strategy_task'));
+    setPageTitle(t('strategy_agent'));
   }, [t]);
 
   // Initial data fetch
@@ -149,6 +189,8 @@ const Worker = () => {
     return {
       total: workers.length,
       running: workers.filter(w => w.status === 'running').length,
+      // paused 是后端真实状态（worker_state.py PAUSED），不计入任何一档会让四项之和 ≠ 任务数
+      paused: workers.filter(w => w.status === 'paused').length,
       stopped: workers.filter(w => w.status === 'stopped').length,
       error: workers.filter(w => w.status === 'error').length,
       totalProfit,
@@ -157,14 +199,6 @@ const Worker = () => {
 
   // 筛选条件变化时回到第一页（避免过滤后停留在超出范围的页码）
   const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
-
-  // 表格条数变化写回全局配置，全站生效
-  const handleWorkerTableChange = (nextPagination: TablePaginationConfig) => {
-    if (nextPagination.pageSize && nextPagination.pageSize !== pageSize) {
-      setPageSize(nextPagination.pageSize);
-    }
-    setPagination(nextPagination);
-  };
 
   // Event handlers
   const handleStart = useCallback(async (worker: WorkerType) => {
@@ -187,7 +221,7 @@ const Worker = () => {
           content: (
             <div>
               <div><strong>{worker.name}</strong> {t('worker_cannot_start_now')}</div>
-              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--qc-text-secondary)', marginTop: 4 }}>
                 {t('worker_reason_label', { message: errorMsg })}
               </div>
             </div>
@@ -227,7 +261,7 @@ const Worker = () => {
           content: (
             <div>
               <div><strong>{worker.name}</strong> {t('worker_cannot_stop_now')}</div>
-              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--qc-text-secondary)', marginTop: 4 }}>
                 {t('worker_reason_label', { message: errorMsg })}
               </div>
             </div>
@@ -391,114 +425,131 @@ const Worker = () => {
     );
   };
 
-  // Render statistics cards
+  // Render statistics cards — §6.4 KPI：label 11 fg-4 → mono 22/650 → 真值副标；
+  // 计数类恒中性，仅「总盈亏」按方向染涨跌色（幅度/计数不染色）
   const renderStatistics = () => (
-    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('total_tasks')}
-            value={statusStats.total}
-            prefix={<BarChartOutlined />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('running')}
-            value={statusStats.running}
-            styles={{ content: { color: QUANT_COLORS.positive } }}
-            prefix={<CheckCircleOutlined style={{ color: QUANT_COLORS.positive }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('stopped')}
-            value={statusStats.stopped}
-            styles={{ content: { color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' } }}
-            prefix={<PoweroffOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('total_profit')}
-            value={statusStats.totalProfit}
-            precision={2}
-            prefix={'$'}
-            styles={{ content: { color: statusStats.totalProfit >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative } }}
-          />
-        </Card>
-      </Col>
-    </Row>
+    <div className="qc-kpi-grid" style={{ marginBottom: 12 }}>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('total_tasks')}</span></div>
+        <div className="qc-kpi-num">{statusStats.total}</div>
+        <div className="qc-kpi-sub">
+          {t('wt_kpi_sub_tasks', { running: statusStats.running, paused: statusStats.paused, stopped: statusStats.stopped, error: statusStats.error })}
+        </div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('running')}</span></div>
+        <div className="qc-kpi-num">{statusStats.running}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('stopped')}</span></div>
+        <div className="qc-kpi-num">{statusStats.stopped}</div>
+      </div>
+      <div className="qc-kpi">
+        <div className="qc-kpi-top"><span className="qc-kpi-lb">{t('total_profit')}</span></div>
+        <div className={`qc-kpi-num${statusStats.totalProfit > 0 ? ' up' : statusStats.totalProfit < 0 ? ' down' : ''}`}>
+          {statusStats.totalProfit > 0 ? '+' : ''}${statusStats.totalProfit.toFixed(2)}
+        </div>
+        <div className="qc-kpi-sub">{t('wt_kpi_sub_pnl', { total: workers.length })}</div>
+      </div>
+    </div>
   );
 
-  // 工具栏：与策略管理/因子库一致的「搜索+视图切换 / 筛选+操作」两行布局
-  const renderToolbar = () => (
-    <Space orientation="vertical" size="middle" style={{ display: 'flex', marginBottom: 8 }}>
-      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
-        <Input
-          allowClear
-          prefix={<SearchOutlined />}
-          style={{ width: 260, maxWidth: '100%' }}
-          placeholder={t('search_worker')}
-          value={searchKeyword}
-          onChange={(e) => {
-            setSearchKeyword(e.target.value);
+  // 状态 → §6.2 chip（映射收口在 ./statusChip，详情页/交易 tab 共用）
+  const renderStatusChip = (status: WorkerType['status']) =>
+    workerStatusChip(status, t(WorkerStatusText[status]));
+
+  // 策略类型：列表接口的 strategy_type 在根层常为空，真值收在 strategy_info 里 —— 两处都读
+  const workerKind = (worker: WorkerType) => worker.strategy_type || worker.strategy_info?.strategy_type;
+
+  // 策略类型 chip：rule/rl 两档与卡片视图、回测列表同形制（info/pri）；
+  // 取不到（策略已删/字段缺）显示占位 —— 不按策略名猜类型
+  // small=true：列表名称格内的 9px 徽章（类型不再独占一列）
+  const TYPE_CHIP_SM: React.CSSProperties = { fontSize: 9, padding: '2px 5px' };
+
+  const renderTypeChip = (worker: WorkerType, small = false) => {
+    const kind = workerKind(worker);
+    const style = small ? TYPE_CHIP_SM : undefined;
+    if (kind === 'rl') return <span className="qc-chip pri" style={style}>{t('bt_kind_rl')}</span>;
+    if (kind === 'rule') return <span className="qc-chip info" style={style}>{t('worker_rule_tag')}</span>;
+    return <span className="qc-mono qc-cell-none">—</span>;
+  };
+
+  // 工具栏：§6.6 PageToolbar（搜索 + 状态筛选 + 计数 + 操作）
+  const renderToolbar = () => {
+    const current = (pagination.current as number) || 1;
+    const currentSize = (pagination.pageSize as number) || pageSize;
+    const start = filteredWorkers.length === 0 ? 0 : (current - 1) * currentSize + 1;
+    const end = Math.min(current * currentSize, filteredWorkers.length);
+    return (
+      <PageToolbar
+        search={{
+          value: searchKeyword,
+          onChange: (value) => {
+            setSearchKeyword(value);
             gotoPage1();
-          }}
-        />
-      </Flex>
-      <Flex justify="space-between" align="center" gap="small" wrap="wrap">
-        <Select
-          style={{ width: 120 }}
-          placeholder={t('filter_by_status')}
-          allowClear
-          value={statusFilter || undefined}
-          onChange={(v) => {
-            setStatusFilter(v || '');
-            gotoPage1();
-          }}
-          options={[
-            { value: 'running', label: t('running') },
-            { value: 'stopped', label: t('stopped') },
-            { value: 'error', label: t('error') },
-          ]}
-        />
-        <Space size="small" wrap>
-          <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
-            {t('refresh')}
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
-            {t('create_worker')}
-          </Button>
-        </Space>
-      </Flex>
-    </Space>
-  );
+          },
+          placeholder: t('search_worker'),
+          ariaLabel: t('search_worker'),
+        }}
+        filters={
+          <Select
+            style={{ width: 120 }}
+            aria-label={t('filter_by_status')}
+            placeholder={t('filter_by_status')}
+            allowClear
+            value={statusFilter || undefined}
+            onChange={(v) => {
+              setStatusFilter(v || '');
+              gotoPage1();
+            }}
+            options={[
+              { value: 'running', label: t('running') },
+              // paused 为后端真实状态（worker_state.py PAUSED='paused'），机制与现有档一致：worker.status 精确匹配
+              { value: 'paused', label: t('paused') },
+              { value: 'stopped', label: t('stopped') },
+              { value: 'error', label: t('error') },
+            ]}
+          />
+        }
+        count={t('shown_range', { start, end, total: filteredWorkers.length })}
+        actions={
+          <>
+            <Button icon={<ReloadOutlined />} onClick={handleRefresh} style={{ height: 30 }}>
+              {t('refresh')}
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)} style={{ height: 30 }}>
+              {t('create_worker')}
+            </Button>
+          </>
+        }
+      />
+    );
+  };
 
   // 批量操作工具栏 - 仅在选中 Worker 时显示
+  // 形制：选中态 primary 5% tint 底 + 45% 边（§2.3 表格选中行同源公式），不再用渐变信息蓝
   const renderBatchBar = () => (
     <div
       style={{
-        marginBottom: 16,
-        padding: '12px 16px',
-        background: 'linear-gradient(135deg, color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background)) 0%, color-mix(in srgb, var(--tw-color-info) 28%, var(--tw-color-background)) 100%)',
-        borderRadius: 8,
+        marginBottom: 12,
+        padding: '10px 14px',
+        background: 'color-mix(in srgb, var(--qc-primary) 5%, var(--qc-surface))',
+        border: '1px solid color-mix(in srgb, var(--qc-primary) 45%, transparent)',
+        borderRadius: 10,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        gap: 8,
+        flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontSize: 14, color: QUANT_COLORS.info }}>
-        <CheckSquareOutlined style={{ marginRight: 8 }} />
-        {t('worker_selected_prefix')} <strong>{selectedRowKeys.length}</strong> {t('worker_selected_suffix')}
+      <span style={{ fontSize: 12.5, color: 'var(--qc-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <CheckSquareOutlined style={{ color: 'var(--qc-primary)' }} />
+        {t('worker_selected_prefix')}
+        <span className="qc-count-chip">{selectedRowKeys.length}</span>
+        {t('worker_selected_suffix')}
       </span>
-      <Space>
+      <Space size="small" wrap>
         <Button
           type="primary"
           size="small"
@@ -537,8 +588,9 @@ const Worker = () => {
   );
 
   // 卡片右上角操作：勾选 + 编辑 + 删除（所有视图通用）
+  // 卡片整卡可点（展开详情），操作区自行吃掉冒泡，避免勾选/编辑/删除连带展开
   const renderCardExtra = (worker: WorkerType) => (
-    <Space size={4}>
+    <Space size={4} onClick={(e) => e.stopPropagation()}>
       <Checkbox
         checked={selectedRowKeys.includes(worker.id)}
         onChange={(e) => toggleSelectRow(worker.id, e.target.checked)}
@@ -564,9 +616,9 @@ const Worker = () => {
     </Space>
   );
 
-  // 卡片操作按钮：启停/详情/优化/重启/日志
+  // 卡片操作按钮：启停/详情/优化/重启/日志（§6.1 danger 变体：tint 描边而非实色填充）
   const renderCardActions = (worker: WorkerType) => (
-    <Row gutter={[8, 8]}>
+    <Row gutter={[8, 8]} onClick={(e) => e.stopPropagation()}>
       <Col span={12}>
         {worker.status === 'stopped' ? (
           <Button
@@ -589,7 +641,6 @@ const Worker = () => {
             disabled={submittingWorkerIds.has(worker.id)}
           >
             <Button
-              type="primary"
               danger
               size="small"
               icon={<StopOutlined />}
@@ -662,39 +713,68 @@ const Worker = () => {
     </Row>
   );
 
-  // 信息行：左标签右内容（卡片指标区，与因子库卡片同风格）
+  // 信息行：左标签（12px fg-3）右 mono 值（§6.5 标识 mono）
   const infoRow = (label: string, node: React.ReactNode) => (
-    <Flex justify="space-between" align="center">
-      <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>{label}</span>
+    <Flex justify="space-between" align="center" gap={8}>
+      <span style={{ color: 'var(--qc-text-tertiary)', fontSize: 12 }}>{label}</span>
       {node}
     </Flex>
   );
 
+  // 卡片视图 — §6.3 卡片 + §6.2 chip + §6.7 分页条
   const renderCardView = () => {
     const current = (pagination.current as number) || 1;
-    const pageSize = (pagination.pageSize as number) || 10;
-    const pageData = filteredWorkers.slice((current - 1) * pageSize, current * pageSize);
+    const currentSize = (pagination.pageSize as number) || pageSize;
+    const pageData = filteredWorkers.slice((current - 1) * currentSize, current * currentSize);
+    const pgChange = (page: number, size: number) => {
+      if (size !== pageSize) setPageSize(size);
+      setPagination((p) => ({ ...p, current: page, pageSize: size }));
+    };
 
     if (!pageData.length) {
       return (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('no_workers')}
-          style={{ padding: '48px 0' }}
+        <QcEmpty
+          title={t('no_workers')}
+          action={
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+              {t('create_worker')}
+            </Button>
+          }
         />
       );
     }
 
     return (
       <>
-        <Row gutter={[16, 16]}>
-          {pageData.map((worker) => (
-            <Col xs={24} sm={12} md={8} lg={6} key={worker.id}>
+        {/* 卡片与列表共用同一块详情面板：ExpandableCardGrid 把面板插到被点卡片所在视觉行之后（跨全宽） */}
+        <ExpandableCardGrid<WorkerType>
+          items={pageData}
+          getKey={(worker) => worker.id}
+          expandedKey={expandedId}
+          gutter={[16, 16]}
+          renderCard={(worker) => {
+            const isOpen = expandedId === worker.id;
+            return (
               <Card
                 size="small"
+                className={`qc-card${isOpen ? ' qc-card-selected' : ''}`}
+                role="button"
+                tabIndex={0}
+                aria-expanded={isOpen}
+                style={{ cursor: 'pointer' }}
+                onClick={() => toggleExpand(worker)}
+                onKeyDown={(e) => {
+                  // 卡内按钮自己吃键盘事件，避免 Enter 同时触发按钮与展开
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleExpand(worker);
+                  }
+                }}
                 title={
                   <span
                     title={worker.name}
+                    className="qc-mono"
                     style={{
                       display: 'inline-block',
                       overflow: 'hidden',
@@ -711,184 +791,454 @@ const Worker = () => {
               >
                 <Space orientation="vertical" size={8} style={{ display: 'flex' }}>
                   <Space size={4} wrap style={{ rowGap: 4 }}>
-                    {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-                    {worker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
-                    <Tag color={WorkerStatusColor[worker.status]}>
-                      {t(WorkerStatusText[worker.status])}
-                    </Tag>
+                    {/* 卡片不显示未知类型的占位（列表才显示「—」） */}
+                    {workerKind(worker) && renderTypeChip(worker)}
+                    {renderStatusChip(worker.status)}
                   </Space>
-                  {infoRow(t('exchange'), <Tag>{worker.trading_config?.exchange}</Tag>)}
-                  {infoRow(t('timeframe'), <Tag color="blue">{worker.trading_config?.interval}</Tag>)}
+                  {infoRow(t('exchange'), <span className="qc-mono" style={{ fontSize: 12 }}>{worker.trading_config?.exchange || '—'}</span>)}
+                  {infoRow(t('timeframe'), <span className="qc-mono" style={{ fontSize: 12 }}>{worker.trading_config?.interval || '—'}</span>)}
                   {infoRow(
                     t('total_profit'),
                     <span
+                      className="qc-mono"
                       style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: (worker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: (worker.total_profit || 0) > 0 ? QUANT_COLORS.positive : (worker.total_profit || 0) < 0 ? QUANT_COLORS.negative : 'var(--qc-text)',
                       }}
                     >
-                      {(worker.total_profit || 0) >= 0 ? '+' : ''}
+                      {(worker.total_profit || 0) > 0 ? '+' : ''}
                       ${(worker.total_profit || 0).toFixed(2)}
                     </span>,
                   )}
-                  <div style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }} />
+                  <div style={{ borderTop: '1px solid var(--qc-border)' }} />
                   {renderCardActions(worker)}
                 </Space>
               </Card>
-            </Col>
-          ))}
-        </Row>
-        <Row justify="center" style={{ marginTop: 16 }}>
+            );
+          }}
+          // ExpandableCardGrid 把面板插到「本行最后一张卡」之后，但回调参数是该行的 card；
+          // 这里按 expandedId 反查真正被点开的那张卡，避免同排非末尾卡看到别人的详情
+          renderExpanded={() => {
+            const opened = pageData.find((w) => w.id === expandedId);
+            return opened ? renderExpanded(opened) : null;
+          }}
+        />
+        <div className="qc-pg-bar">
+          <div className="qc-pg-info">
+            <span>{t('total_items', { total: filteredWorkers.length })}</span>
+            <span className="qc-pg-sep">·</span>
+            <span>{t('per_page')}</span>
+            <Select
+              size="small"
+              className="qc-pg-size"
+              value={currentSize}
+              popupMatchSelectWidth={false}
+              aria-label={t('per_page')}
+              onChange={(size) => pgChange(1, size)}
+              options={PAGE_SIZE_OPTIONS.map((n) => ({ value: Number(n), label: n }))}
+            />
+          </div>
           <Pagination
+            size="small"
+            className="qc-pagination"
+            showLessItems
+            showQuickJumper
+            showSizeChanger={false}
             current={current}
-            pageSize={pageSize}
+            pageSize={currentSize}
             total={filteredWorkers.length}
-            showSizeChanger
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => t('total_items', { total })}
-            onChange={(page, size) => {
-              // 条数变化写回全局配置，全站生效
-              setPageSize(size);
-              setPagination((p) => ({ ...p, current: page, pageSize: size }));
-            }}
+            onChange={pgChange}
+            itemRender={(pg, type, node) =>
+              type === 'jump-prev' || type === 'jump-next' ? (
+                <span className="qc-pg-ellipsis">…</span>
+              ) : (
+                node
+              )
+            }
           />
-        </Row>
+        </div>
       </>
     );
   };
 
-  // 列表操作列：详情跳转 + 更多下拉（启停/重启/编辑/删除）
-  const renderListActions = (worker: WorkerType) => (
-    <Space size="small">
-      <Tooltip title={t('detail')}>
+  // 列表操作列：详情跳转 + 就地展开 + 更多下拉（启停/重启/编辑/删除）
+  // 详情改文字按钮、展开用眼睛图标（对齐 demo：详情文字 + 眼睛就地展开），避免两个眼睛图标含义打架
+  const renderListActions = (worker: WorkerType) => {
+    const isOpen = expandedId === worker.id;
+    return (
+      <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
         <Button
           type="text"
           size="small"
-          icon={<EyeOutlined style={{ color: QUANT_COLORS.info }} />}
           onClick={() => navigate(`/strategy-worker/${worker.id}`)}
-        />
-      </Tooltip>
-      <Dropdown
-        menu={{
-          items: [
-            ...(worker.status === 'stopped' ? [{
-              key: 'start',
-              label: t('start'),
-              icon: <CaretRightOutlined />,
-              disabled: submittingWorkerIds.has(worker.id),
-            }] : []),
-            ...(worker.status === 'running' ? [{
-              key: 'stop',
-              label: t('stop'),
-              icon: <StopOutlined />,
-              disabled: submittingWorkerIds.has(worker.id),
-            }] : []),
-            {
-              key: 'restart',
-              label: t('restart'),
-              icon: <ReloadOutlined />,
+        >
+          {t('detail')}
+        </Button>
+        <Tooltip title={isOpen ? t('collapse') : t('expand')}>
+          <Button
+            type="text"
+            size="small"
+            icon={<EyeOutlined />}
+            aria-label={isOpen ? t('collapse') : t('expand')}
+            aria-expanded={isOpen}
+            onClick={() => toggleExpand(worker)}
+          />
+        </Tooltip>
+        <Dropdown
+          menu={{
+            items: [
+              ...(worker.status === 'stopped' ? [{
+                key: 'start',
+                label: t('start'),
+                icon: <CaretRightOutlined />,
+                disabled: submittingWorkerIds.has(worker.id),
+              }] : []),
+              ...(worker.status === 'running' ? [{
+                key: 'stop',
+                label: t('stop'),
+                icon: <StopOutlined />,
+                disabled: submittingWorkerIds.has(worker.id),
+              }] : []),
+              {
+                key: 'restart',
+                label: t('restart'),
+                icon: <ReloadOutlined />,
+              },
+              {
+                key: 'edit',
+                label: t('edit'),
+                icon: <EditOutlined />,
+              },
+              {
+                key: 'delete',
+                label: t('delete'),
+                icon: <DeleteOutlined />,
+                danger: true,
+              },
+            ],
+            onClick: ({ key, domEvent }) => {
+              // 菜单挂在表格行内，阻止事件冒泡污染表格行为
+              domEvent.stopPropagation();
+              if (key === 'start') handleStart(worker);
+              else if (key === 'stop') handleStop(worker);
+              else if (key === 'restart') handleRestart(worker);
+              else if (key === 'edit') handleEdit(worker);
+              else if (key === 'delete') {
+                modal.confirm({
+                  title: t('confirm_delete_worker'),
+                  okText: t('yes'),
+                  cancelText: t('no'),
+                  okType: 'danger',
+                  onOk: () => handleDelete(worker),
+                });
+              }
             },
-            {
-              key: 'edit',
-              label: t('edit'),
-              icon: <EditOutlined />,
-            },
-            {
-              key: 'delete',
-              label: t('delete'),
-              icon: <DeleteOutlined />,
-              danger: true,
-            },
-          ],
-          onClick: ({ key, domEvent }) => {
-            // 菜单挂在表格行内，阻止事件冒泡污染表格行为
-            domEvent.stopPropagation();
-            if (key === 'start') handleStart(worker);
-            else if (key === 'stop') handleStop(worker);
-            else if (key === 'restart') handleRestart(worker);
-            else if (key === 'edit') handleEdit(worker);
-            else if (key === 'delete') {
-              modal.confirm({
-                title: t('confirm_delete_worker'),
-                okText: t('yes'),
-                cancelText: t('no'),
-                okType: 'danger',
-                onOk: () => handleDelete(worker),
-              });
-            }
-          },
-        }}
-        trigger={['click']}
-      >
-        <Button type="text" size="small" icon={<MoreOutlined />} />
-      </Dropdown>
-    </Space>
-  );
+          }}
+          trigger={['click']}
+        >
+          <Button type="text" size="small" icon={<MoreOutlined />} />
+        </Dropdown>
+      </div>
+    );
+  };
 
+  // 行内展开面板（轻摘要）：只取真实字段，完整详情仍走 /strategy-worker/:id
+  const renderExpanded = (worker: WorkerType) => {
+    const kind = workerKind(worker);
+    const kindLabel = kind === 'rl' ? t('bt_kind_rl') : kind === 'rule' ? t('worker_rule_tag') : null;
+    const mode = worker.trading_config?.trading_mode;
+    const modeLabel =
+      mode === 'live'
+        ? t('worker_trading_mode_live')
+        : mode === 'testnet'
+          ? t('worker_trading_mode_testnet')
+          : mode === 'paper'
+            ? t('worker_trading_mode_paper')
+            : null;
+    const cfg = (worker.config ?? {}) as Record<string, unknown>;
+    const profit = worker.total_profit || 0;
+    const errorMessage = errorMessages[worker.id];
+
+    const kv = (label: string, value: React.ReactNode, mono = true) => (
+      <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--qc-text-tertiary)', flexShrink: 0 }}>{label}</span>
+        <span
+          className={mono ? 'qc-mono' : undefined}
+          style={{ fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {value}
+        </span>
+      </div>
+    );
+
+    // 配置摘要：只列 worker.config / trading_config 里真实存在的字段（缺即整行不渲染）
+    const configRows: React.ReactNode[] = [];
+    if (typeof cfg.initial_capital === 'number') {
+      configRows.push(kv(t('initial_capital'), `$${cfg.initial_capital.toFixed(2)}`));
+    }
+    if (typeof cfg.leverage === 'number') {
+      configRows.push(kv(t('leverage'), formatLeverage(cfg.leverage)));
+    }
+    if (typeof cfg.max_position_size === 'number') {
+      configRows.push(kv(t('max_position_size'), String(cfg.max_position_size)));
+    }
+    const marketType = worker.trading_config?.market_type;
+    if (marketType) {
+      const marketLabel =
+        marketType === 'futures' ? t('futures') : marketType === 'spot' ? t('spot') : marketType;
+      configRows.push(kv(t('market_type'), marketLabel, marketLabel === marketType));
+    }
+
+    return (
+      <div className="qc-exp-panel">
+        <Flex justify="space-between" align="center" gap={8} wrap>
+          <Flex align="center" gap={6} wrap>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{worker.name}</span>
+            <span className="qc-mono" style={{ fontSize: 11, color: 'var(--qc-text-quaternary)' }}>#{worker.id}</span>
+            {renderStatusChip(worker.status)}
+          </Flex>
+          <span className="qc-mono" style={{ fontSize: 11.5, color: 'var(--qc-text-tertiary)' }}>
+            {t('total_profit')}{' '}
+            <b
+              style={{
+                fontWeight: 600,
+                color: profit > 0 ? QUANT_COLORS.positive : profit < 0 ? QUANT_COLORS.negative : 'var(--qc-text)',
+              }}
+            >
+              {profit > 0 ? '+' : ''}${profit.toFixed(2)}
+            </b>
+          </span>
+        </Flex>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: '6px 20px',
+            marginTop: 8,
+          }}
+        >
+          {kindLabel || modeLabel
+            ? kv(`${t('bt_col_kind')} · ${t('trading_mode')}`, [kindLabel, modeLabel].filter(Boolean).join(' · '), false)
+            : null}
+          {worker.strategy_info?.name ? kv(t('strategy_name'), worker.strategy_info.name) : null}
+          {kv(t('exchange'), worker.trading_config?.exchange || '—')}
+          {kv(t('interval'), worker.trading_config?.interval || '—')}
+          {kv(t('worker_runtime'), formatWorkerRuntime(worker))}
+          {worker.started_at ? kv(t('worker_started_at'), formatTimestamp(worker.started_at)) : null}
+          {worker.stopped_at ? kv(t('worker_stopped_at'), formatTimestamp(worker.stopped_at)) : null}
+        </div>
+
+        {/* 异常行：error_message 只在详情接口有，展开时单查（KPI 卡承诺的「展开行可见」） */}
+        {worker.status === 'error' && errorMessage && (
+          <div
+            style={{
+              marginTop: 10,
+              border: '1px solid color-mix(in srgb, var(--qc-error) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--qc-error) 7%, transparent)',
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--qc-error)' }}>{t('error_reason')}</div>
+            <div
+              className="qc-mono"
+              style={{ marginTop: 4, fontSize: 11.5, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+            >
+              {errorMessage}
+            </div>
+          </div>
+        )}
+
+        {configRows.length > 0 && (
+          <>
+            <div style={{ marginTop: 11, fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{t('capital_config')}</div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                gap: '6px 20px',
+                marginTop: 4,
+              }}
+            >
+              {configRows}
+            </div>
+          </>
+        )}
+
+        {/* demo 动作行 margin-top:11px */}
+        <Flex gap={8} wrap align="center" style={{ marginTop: 11 }}>
+          <Button type="primary" size="small" onClick={() => navigate(`/strategy-worker/${worker.id}`)}>
+            {t('worker_enter_full_detail')}
+          </Button>
+          {worker.status === 'stopped' && (
+            <Button
+              size="small"
+              icon={<CaretRightOutlined />}
+              loading={submittingWorkerIds.has(worker.id)}
+              disabled={submittingWorkerIds.has(worker.id)}
+              onClick={() => handleStart(worker)}
+            >
+              {t('start')}
+            </Button>
+          )}
+          {worker.status === 'running' && (
+            <Popconfirm
+              title={t('confirm_stop_worker')}
+              onConfirm={() => handleStop(worker)}
+              okText={t('yes')}
+              cancelText={t('no')}
+              disabled={submittingWorkerIds.has(worker.id)}
+            >
+              <Button danger size="small" icon={<StopOutlined />} loading={submittingWorkerIds.has(worker.id)}>
+                {t('stop')}
+              </Button>
+            </Popconfirm>
+          )}
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRestart(worker)}>
+            {t('restart')}
+          </Button>
+        </Flex>
+      </div>
+    );
+  };
+
+  // 列表视图 — §6.5/§6.6：DataTable（qc-table + 自绘 §6.7 分页条），名称 mono、状态 chip、盈亏涨跌色
+  // 列序（demo #view-sagent）：名称（含 #id / 状态 / 类型徽章 / 策略·交易所·周期次级行）→ 累计盈亏 → 运行时长 → 操作
   const renderListView = () => (
-    <Table
+    <DataTable<WorkerType>
       dataSource={filteredWorkers}
       rowKey="id"
-      size="small"
-      // 分页由共享 pagination 状态控制，卡片视图复用同一份页码
-      pagination={pagination}
-      scroll={{ x: 800 }}
+      emptyTitle={t('no_workers')}
+      // 分页由共享 pagination 状态控制，卡片视图复用同一份页码；条数变化写回全局配置
+      pagination={{
+        current: (pagination.current as number) || 1,
+        pageSize: (pagination.pageSize as number) || pageSize,
+        showSizeChanger: true,
+        pageSizeOptions: PAGE_SIZE_OPTIONS,
+        onChange: (page, size) => {
+          if (size !== pageSize) setPageSize(size);
+          setPagination((p) => ({ ...p, current: page, pageSize: size }));
+        },
+      }}
       rowSelection={{
         selectedRowKeys,
         onChange: (keys) => setSelectedRowKeys(keys),
       }}
-      locale={{
-        emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('no_workers')} />,
+      expandable={{
+        // 单键展开（同一时刻一行）；initial [] = 初次加载不自动展开
+        expandedRowKeys: expandedId === null ? [] : [expandedId],
+        expandedRowRender: renderExpanded,
+        // 行点击即展开/收起；三角自绘在名称列（不渲染 antd 展开列）
+        // 勾选列 checkbox 自带 stopPropagation（antd useSelection），勾选不会误触发展开
+        expandRowByClick: true,
+        showExpandColumn: false,
+        onExpand: (expanded, worker) => {
+          const next = expanded ? worker.id : null;
+          setExpandedId(next);
+          if (next !== null) void loadErrorMessage(worker);
+        },
       }}
-      onChange={handleWorkerTableChange}
+      onRow={(worker) => ({
+        tabIndex: 0,
+        'aria-expanded': expandedId === worker.id,
+        style: { cursor: 'pointer' },
+        onKeyDown: (e) => {
+          // 行内按钮/下拉自己吃键盘事件，避免 Enter 同时触发按钮与展开
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleExpand(worker);
+          } else if (e.key === 'Escape') {
+            setExpandedId(null);
+          }
+        },
+      })}
       columns={[
         {
           title: t('worker_name'),
           dataIndex: 'name',
           key: 'name',
-          width: 180,
-          ellipsis: true,
-          render: (text: string, worker: WorkerType) => (
-            <Space size={4}>
-              <span>{text}</span>
-              <Tag color={WorkerStatusColor[worker.status]}>
-                {t(WorkerStatusText[worker.status])}
-              </Tag>
-            </Space>
-          ),
-        },
-        {
-          title: t('exchange'),
-          dataIndex: 'exchange',
-          key: 'exchange',
-          width: 90,
-        },
-        {
-          title: t('interval'),
-          dataIndex: 'interval',
-          key: 'interval',
-          width: 70,
+          width: 300,
+          render: (text: string, worker: WorkerType) => {
+            // 次级行：策略名 · 交易所 · 周期（真实字段拼装，缺项省略；单行省略 + title 看全文）
+            const secondary = [
+              worker.strategy_info?.name,
+              worker.trading_config?.exchange,
+              worker.trading_config?.interval,
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            return (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, minWidth: 0 }}>
+                <svg
+                  className={`qc-cell-caret${expandedId === worker.id ? ' is-open' : ''}`}
+                  viewBox="0 0 12 12"
+                  aria-hidden="true"
+                  style={{ cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+                  onClick={(e) => {
+                    // 自绘三角：吃掉冒泡，避免与 expandRowByClick 双触发
+                    e.stopPropagation();
+                    toggleExpand(worker);
+                  }}
+                >
+                  <path d="M3.2 2.2 9 6l-5.8 3.8z" fill="currentColor" />
+                </svg>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span
+                      className="qc-mono qc-cell-strat"
+                      title={text}
+                      style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {text}
+                    </span>
+                    {/* demo 名称后紧跟弱化 #id：同名 worker 的唯一区分手段 */}
+                    <span className="qc-mono" style={{ flexShrink: 0, fontSize: 10.5, color: 'var(--qc-text-quaternary)' }}>#{worker.id}</span>
+                    <span style={{ flexShrink: 0 }}>{renderStatusChip(worker.status)}</span>
+                    <span style={{ flexShrink: 0 }}>{renderTypeChip(worker, true)}</span>
+                  </div>
+                  <div
+                    className="qc-cell-id"
+                    title={secondary || undefined}
+                    style={{ marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {secondary || '—'}
+                  </div>
+                </div>
+              </div>
+            );
+          },
         },
         {
           title: t('total_profit'),
           dataIndex: 'total_profit',
           key: 'total_profit',
-          width: 100,
-          render: (profit: number) => (
-            <span style={{
-              fontWeight: 500,
-              color: (profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative
-            }}>
-              {(profit || 0) >= 0 ? '+' : ''}
-              ${(profit || 0).toFixed(2)}
-            </span>
+          width: 110,
+          align: 'right',
+          render: (profit: number | undefined) => {
+            const p = profit || 0;
+            // 0 归中性：盈亏才染色，不是「非负即绿」
+            return (
+              <span className={`qc-mono${p > 0 ? ' qc-cell-up' : p < 0 ? ' qc-cell-down' : ''}`}>
+                {p > 0 ? '+' : ''}${p.toFixed(2)}
+              </span>
+            );
+          },
+        },
+        {
+          title: t('worker_runtime'),
+          key: 'runtime',
+          width: 110,
+          render: (_: unknown, worker: WorkerType) => (
+            <span className="qc-mono" style={{ color: 'var(--qc-text-tertiary)' }}>{formatWorkerRuntime(worker)}</span>
           ),
         },
         {
           title: t('action'),
           key: 'action',
-          width: 100,
+          width: 130,
           fixed: 'right',
           render: (_: unknown, worker: WorkerType) => renderListActions(worker),
         },
@@ -896,8 +1246,20 @@ const Worker = () => {
     />
   );
 
+  // 页头副标（§5 page-sub）：mono 11 真值口径行——任务分布 + 累计盈亏（正负号带出）
+  const pnlText = `${statusStats.totalProfit > 0 ? '+' : ''}$${statusStats.totalProfit.toFixed(2)}`;
+  const pageSubtitle = t('wt_sub_list', {
+    total: statusStats.total,
+    running: statusStats.running,
+    paused: statusStats.paused,
+    stopped: statusStats.stopped,
+    error: statusStats.error,
+    pnl: pnlText,
+  });
+
   return (
-    <PageContainer title={t('strategy_task')}>
+    // demo 956：「← 返回首页」→ /home；形制同详情页 onBack（PageContainer 统一返回箭头）
+    <PageContainer title={t('strategy_agent')} subtitle={pageSubtitle} onBack={() => navigate('/home')}>
       <Spin spinning={loading}>
         {/* Error Alert */}
         {error && (
@@ -945,6 +1307,7 @@ const Worker = () => {
       {/* Logs Panel Modal */}
       {logsWorkerId && (
         <Modal
+          className="qc-modal"
           title={t('worker_logs')}
           open={logsPanelVisible}
           onCancel={handleCloseLogsPanel}

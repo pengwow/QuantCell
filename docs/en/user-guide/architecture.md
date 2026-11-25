@@ -29,7 +29,7 @@ description: QuantCell system layers, unified kernel main loop, and tech stack
        │                │                │
        ▼                ▼                ▼
 ┌──────────────────────────────────────────────────────────┐
-│      axon-quant (Rust kernel) · Binance / OKX · DuckDB    │
+│           Rust kernel · Binance / OKX · DuckDB           │
 │    Backtest / paper / live share one per-bar main loop    │
 └──────────────────────────────────────────────────────────┘
        ▲                ▲                ▲
@@ -45,7 +45,7 @@ description: QuantCell system layers, unified kernel main loop, and tech stack
 QuantCell's most important architectural decision: **all three modes run the
 same main loop**.
 
-- The main loop is driven by the **Kernel** in `axon-quant` (Rust), executing
+- The main loop is driven by the Rust **Kernel**, executing
   per-bar orchestration
 - Modes differ only at the **assembly layer**:
     - **Data pump**: backtests replay historical frames; paper / live use the real-time KernelPump
@@ -58,7 +58,7 @@ Strategy (on_bar → Action)
         │
         ▼
 ┌─────────────────────────────────────┐
-│         axon-quant Kernel            │
+│           unified Kernel            │
 │   Nine-step per-bar orchestration    │
 │   data → signal → risk → matching    │
 └─────────────────────────────────────┘
@@ -73,7 +73,7 @@ All strategies emit a unified `Action`; both the risk engine and execution
 layer operate on the same contract:
 
 ```python
-from axon_quant import Action, ActionType
+from strategy.core import Action, ActionType
 
 action = Action(
     action_type=ActionType.Buy,   # Buy / Sell / Hold / ReduceLong / ReduceShort
@@ -115,7 +115,7 @@ action = Action(
 |----------|------------|
 | Language | Python 3.14 |
 | Web framework | FastAPI 0.136 (uvicorn) |
-| Trading engine | axon-quant 0.25.0 (Rust core, path dependency) |
+| Trading engine | Rust core (PyO3, path dependency) |
 | Database | DuckDB 1.4 + Parquet + SQLAlchemy 2 + Alembic |
 | Data processing | Pandas 2.3 / PyArrow 22 |
 | Reinforcement learning | Gymnasium 1.3 + Stable-Baselines3 2.9 |

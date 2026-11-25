@@ -7,6 +7,7 @@ import { useRef, useState, useEffect } from 'react';
 import EChart from '@/components/EChart';
 import type { EChartsOption, LineSeriesOption, TooltipComponentFormatterCallbackParams } from 'echarts';
 import { theme } from 'antd';
+import { getPalette } from '@/theme';
 import { useQuantColors } from '@/utils/colors';
 
 // 权益数据接口（统一用小写字段：equity / balance）
@@ -30,6 +31,9 @@ export interface EquityChartProps {
 const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialCash }: EquityChartProps) => {
   const { token } = theme.useToken();
   const qc = useQuantColors();
+  // 主题模式由 antd colorBgBase 与 palette 暗色底对表得出（token 由 ConfigProvider 注入 palette 值）。
+  // ECharts 是 canvas 自绘，拿不到 CSS 变量：轴/网格/图例字面色一律从 palette 槽位取
+  const palette = getPalette(token.colorBgBase === getPalette('dark').background ? 'dark' : 'light');
   const chartWrapperRef = useRef<HTMLDivElement>(null);
   const [chartHeight, setChartHeight] = useState(0);
 
@@ -196,7 +200,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
       right: 20,
       show: true,
       textStyle: {
-        color: qc.neutral,
+        color: palette.textTertiary,
       },
     },
     // 提示框
@@ -213,7 +217,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
           padding: [4, 8],
         },
         crossStyle: {
-          color: qc.chartAxis,
+          color: palette.border,
         },
       },
       formatter: (params: TooltipComponentFormatterCallbackParams) => {
@@ -261,7 +265,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
             data: dates,
             axisLine: {
               lineStyle: {
-                color: qc.chartAxis,
+                color: palette.border,
               },
             },
             axisLabel: {
@@ -270,7 +274,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
             splitLine: {
               show: true,
               lineStyle: {
-                color: qc.chartSplit,
+                color: palette.border,
               },
             },
           },
@@ -281,11 +285,11 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
             data: dates,
             axisLine: {
               lineStyle: {
-                color: qc.chartAxis,
+                color: palette.border,
               },
             },
             axisLabel: {
-              color: qc.neutral,
+              color: palette.textTertiary,
               formatter: (value: string) => {
                 return value.slice(0, 10);
               },
@@ -294,7 +298,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
             splitLine: {
               show: true,
               lineStyle: {
-                color: qc.chartSplit,
+                color: palette.border,
               },
             },
           },
@@ -305,11 +309,11 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
           data: dates,
           axisLine: {
             lineStyle: {
-              color: qc.chartAxis,
+              color: palette.border,
             },
           },
           axisLabel: {
-            color: qc.neutral,
+            color: palette.textTertiary,
             formatter: (value: string) => {
               return value.slice(0, 10);
             },
@@ -318,7 +322,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
           splitLine: {
             show: true,
             lineStyle: {
-              color: qc.chartSplit,
+              color: palette.border,
             },
           },
         },
@@ -333,17 +337,17 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
             max: maxValue + padding,
             axisLine: {
               lineStyle: {
-                color: qc.chartAxis,
+                color: palette.border,
               },
             },
             axisLabel: {
-              color: qc.neutral,
+              color: palette.textTertiary,
               formatter: (value: number) => value.toFixed(0),
             },
             splitLine: {
               show: true,
               lineStyle: {
-                color: qc.chartSplit,
+                color: palette.border,
               },
             },
           },
@@ -360,7 +364,7 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
               show: false,
             },
             axisLabel: {
-              color: qc.neutral,
+              color: palette.textTertiary,
               formatter: (value: number) => `${value.toFixed(0)}%`,
             },
             splitLine: {
@@ -375,17 +379,17 @@ const EquityChart = ({ data, height = '400px', isDark: _isDark = false, initialC
           max: maxValue + padding,
           axisLine: {
             lineStyle: {
-              color: qc.chartAxis,
+              color: palette.border,
             },
           },
           axisLabel: {
-            color: qc.neutral,
+            color: palette.textTertiary,
             formatter: (value: number) => value.toFixed(0),
           },
           splitLine: {
             show: true,
             lineStyle: {
-              color: qc.chartSplit,
+              color: palette.border,
             },
           },
         },

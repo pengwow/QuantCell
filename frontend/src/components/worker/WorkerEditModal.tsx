@@ -1,4 +1,3 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker Edit Modal
  *
@@ -22,20 +21,17 @@ import {
   App,
   Card,
   Spin,
-  Tag,
   Typography,
 } from 'antd';
 import {
   EditOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
-  StarFilled,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
-import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
 import { getRiskControl, getStrategyParameters, updateStrategyParameters, upsertRiskControl } from '../../api/workerApi';
 import RiskControlForm, {
   EMPTY_RISK_VALUES,
@@ -46,6 +42,7 @@ import RiskControlForm, {
   type RiskFormValues,
 } from './RiskControlForm';
 import type { StrategyInfo, StrategyParameter, TradingConfig, UpdateWorkerRequest, Worker as WorkerModel } from '../../types/worker';
+import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -138,15 +135,6 @@ interface WorkerEditModalProps {
   onSuccess?: () => void;
 }
 
-// 交易标的选项（数据池 / 直接货币对）
-interface SymbolOption {
-  label: React.ReactNode;
-  value: string;
-  type: 'data_pool' | 'direct_symbol';
-  symbols?: string[];
-  poolName?: string;
-}
-
 const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   visible,
   worker,
@@ -169,8 +157,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const [loadingExchanges, setLoadingExchanges] = useState(false);
 
   // 交易相关
-  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>([]);
-  const [loadingSymbols, setLoadingSymbols] = useState(false);
 
   // 策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
@@ -184,7 +170,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     if (visible && worker) {
       fetchStrategies();
       fetchExchanges();
-      fetchSymbolsAndGroups();
       fetchRiskControl();
 
       // 设置表单初始值
@@ -299,8 +284,8 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                     <Text type="secondary">{r.before}</Text>
                     <span>→</span>
                     <Text>{r.after}</Text>
-                    {r.loosen === true && <Tag color="orange">{t('worker_risk_loosen')}</Tag>}
-                    {r.loosen === false && <Tag color="green">{t('worker_risk_tighten')}</Tag>}
+                    {r.loosen === true && <span className="qc-chip warn">{t('worker_risk_loosen')}</span>}
+                    {r.loosen === false && <span className="qc-chip ok">{t('worker_risk_tighten')}</span>}
                   </Space>
                 </Col>
               </Row>
@@ -471,82 +456,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     }
   };
 
-  // 获取交易对和自选组
-  const fetchSymbolsAndGroups = async () => {
-    setLoadingSymbols(true);
-    try {
-      const response = await dataApi.getCollectionSymbols({
-        type: 'crypto',
-      });
-
-      console.log('getCollectionSymbols response:', response);
-
-      const dataPoolOptions: SymbolOption[] = [];
-      let directSymbolOptions: SymbolOption[] = [];
-
-      if (response) {
-        // 数据池（自选组）- 只显示组名，不展开内部货币对
-        const dataPools = response.data_pools ?? [];
-        dataPools.forEach((pool: DataPoolRecord) => {
-          dataPoolOptions.push({
-            label: (
-              <Space>
-                <StarFilled style={{ color: QUANT_COLORS.warning }} />
-                <span>{pool.name}</span>
-                <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
-              </Space>
-            ),
-            value: `pool_${pool.id}`,
-            type: 'data_pool',
-            symbols: pool.symbols || [],
-            poolName: pool.name,
-          });
-        });
-
-        // 直接交易标的
-        const directSymbols = response.direct_symbols ?? [];
-        directSymbols.forEach((symbol: string) => {
-          directSymbolOptions.push({
-            label: symbol,
-            value: symbol,
-            type: 'direct_symbol',
-          });
-        });
-      }
-
-      if (directSymbolOptions.length === 0) {
-        try {
-          const cryptoResponse = await dataApi.getCryptoSymbols({
-            limit: 2000,
-            offset: 0,
-          });
-
-          const symbolList = cryptoResponse.symbols ?? cryptoResponse.data?.symbols ?? [];
-
-          if (Array.isArray(symbolList)) {
-            directSymbolOptions = symbolList.map((item: CryptoSymbol) => {
-              const symbolValue = item.symbol || String(item);
-              return {
-                label: symbolValue,
-                value: symbolValue,
-                type: 'direct_symbol',
-              };
-            });
-          }
-        } catch (cryptoError) {
-          console.error('获取全部货币对失败:', cryptoError);
-        }
-      }
-
-      setSymbolOptions([...dataPoolOptions, ...directSymbolOptions]);
-    } catch (error) {
-      console.error('获取交易对失败:', error);
-      setSymbolOptions([]);
-    } finally {
-      setLoadingSymbols(false);
-    }
-  };
-
   // 处理表单提交
   const handleSubmit = async () => {
     if (!worker) return;
@@ -555,22 +464,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      // 处理交易标的：多选值可能是直接货币对或 pool_ 前缀的自选组，统一展开为大写货币对数组
+      // 自选组已由 SymbolSelect 在选择时展开成组内标的；统一大写后提交
       const selectedValues: string[] = values.symbol || [];
-      const expandedSymbols: string[] = [];
-      for (const item of selectedValues) {
-        if (item.startsWith('pool_')) {
-          // 自选组展开为组内全部货币对
-          const pool = symbolOptions.find((opt) => opt.value === item);
-          if (pool?.symbols?.length) {
-            expandedSymbols.push(...pool.symbols);
-          }
-        } else {
-          expandedSymbols.push(item);
-        }
-      }
-      // 去重 + 统一大写（后端按扩写后的符号列表启动独立策略实例）
-      const symbols = Array.from(new Set(expandedSymbols.map((s) => s.toUpperCase())));
+      const symbols = Array.from(new Set(selectedValues.map((s) => s.toUpperCase())));
       if (symbols.length === 0) {
         message.error(t('worker_select_valid_trading_target'));
         return;
@@ -688,6 +584,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <EditOutlined />
@@ -713,6 +610,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     >
       <Form
         form={form}
+        className="qc-form"
         layout="vertical"
       >
         {/* 基本信息 */}
@@ -784,7 +682,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                         {strategy.description && (
                           <span
                             style={{
-                              color: '#999',
+                              color: 'var(--qc-text-tertiary)',
                               fontSize: 12,
                               marginLeft: 8,
                               overflow: 'hidden',
@@ -824,7 +722,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
-            <Card size="small" variant="borderless" style={{ background: '#fafafa', marginBottom: 16 }}>
+            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
               <Row gutter={[12, 12]}>
                 {strategyParams.map((param) => (
                   <Col span={12} key={param.param_name}>
@@ -835,7 +733,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                           <span>{param.param_name}</span>
                           {param.description && (
                             <Tooltip title={param.description}>
-                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                              <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
                             </Tooltip>
                           )}
                         </Space>
@@ -888,30 +786,11 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               }
               rules={[{ required: true, message: t('please_select_trading_target') }]}
             >
-              <Select
+              <SymbolSelect
                 mode="multiple"
                 placeholder={t('select_trading_target')}
-                loading={loadingSymbols}
-                showSearch
-                allowClear
-                filterOption={(input, option) => {
-                  if (!input) return true;
-                  const value = option?.value as string;
-                  const children = option?.children;
-                  const labelText = typeof children === 'string' ? children : value;
-                  return (
-                    value?.toLowerCase().includes(input.toLowerCase()) ||
-                    labelText?.toLowerCase().includes(input.toLowerCase())
-                  );
-                }}
-                notFoundContent={loadingSymbols ? <Spin size="small" /> : t('no_trading_target')}
-              >
-                {symbolOptions.map((option) => (
-                  <Option key={option.value} value={option.value}>
-                    {option.label}
-                  </Option>
-                ))}
-              </Select>
+                notFoundContent={t('no_trading_target')}
+              />
             </Form.Item>
           </Col>
         </Row>

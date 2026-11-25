@@ -5,18 +5,12 @@ import {
   App as AntdApp,
   Button,
   Card,
-  Col,
-  Empty,
-  Flex,
-  Input,
   Pagination,
+  Popconfirm,
   Row,
   Select,
   Space,
-  Table,
-  Tag,
   Tooltip,
-  Typography,
 } from 'antd';
 import type { TableProps } from 'antd';
 import {
@@ -27,7 +21,6 @@ import {
   ReloadOutlined,
   RocketOutlined,
   RollbackOutlined,
-  SearchOutlined,
   TagOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -36,14 +29,40 @@ import { rlApi } from '@/api/rlApi';
 import { PAGE_SIZE_OPTIONS } from '@/constants/pagination';
 import { useGlobalPageSize } from '@/hooks/useGlobalPageSize';
 import { useViewType } from '@/hooks/useViewType';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { ExpandableCardGrid } from '@/components/ui/ExpandableCardGrid';
+import PageToolbar from '@/components/ui/PageToolbar';
 import ModelDetailDrawer from './ModelDetailDrawer';
 import RLBacktestModal from './RLBacktestModal';
 import RegisterModelModal from './RegisterModelModal';
 
-const { Text } = Typography;
+// 页头副标口径（design-spec §5 page-sub：只写接口能算出的数字，机制描述不编造）
+export interface ModelHubStats {
+  total: number;
+  production: number;
+  staging: number;
+  shadow: number;
+  archived: number;
+  unregistered: number;
+  missing: number;
+}
 
-// 状态五态:未注册(灰)/staging(蓝)/production(绿)/archived(默认)/文件缺失(橙)
-type RowStatus = 'unregistered' | 'missing' | 'staging' | 'production' | 'archived' | string;
+function computeStats(rows: UnifiedModelRow[]): ModelHubStats {
+  const s: ModelHubStats = { total: rows.length, production: 0, staging: 0, shadow: 0, archived: 0, unregistered: 0, missing: 0 };
+  for (const r of rows) {
+    const st = statusOf(r);
+    if (st === 'production' || st === 'staging' || st === 'shadow' || st === 'archived' || st === 'unregistered' || st === 'missing') {
+      s[st]++;
+    } else {
+      // 未知 stage 兜底计入 staging（与 statusOf 默认口径一致）
+      s.staging++;
+    }
+  }
+  return s;
+}
+
+// 状态五态:未注册(灰)/staging(琥珀)/production(绿)/archived(灰)/shadow(蓝)/文件缺失(琥珀)
+type RowStatus = 'unregistered' | 'missing' | 'staging' | 'production' | 'archived' | 'shadow' | string;
 
 function statusOf(row: UnifiedModelRow): RowStatus {
   if (row.registered && row.size_mb == null) return 'missing';
@@ -51,14 +70,16 @@ function statusOf(row: UnifiedModelRow): RowStatus {
   return row.stage || 'staging';
 }
 
-function StatusTag({ row }: { row: UnifiedModelRow }) {
+// §6.2 chip 替代 antd Tag：production→ok / staging→warn / shadow→info / 其余中性；文件缺失 warn
+function StatusChip({ row }: { row: UnifiedModelRow }) {
   const { t } = useTranslation();
   const s = statusOf(row);
-  if (s === 'missing') return <Tag color="orange">{t('umt_status_missing')}</Tag>;
-  if (s === 'unregistered') return <Tag>{t('umt_status_unregistered')}</Tag>;
-  if (s === 'production') return <Tag color="green">{s}</Tag>;
-  if (s === 'archived') return <Tag>{s}</Tag>;
-  return <Tag color="blue">{s}</Tag>;
+  if (s === 'production') return <span className="qc-chip ok">production</span>;
+  if (s === 'shadow') return <span className="qc-chip info">shadow</span>;
+  if (s === 'missing') return <span className="qc-chip warn">{t('umt_status_missing')}</span>;
+  if (s === 'staging') return <span className="qc-chip warn">staging</span>;
+  if (s === 'archived') return <span className="qc-chip quiet">archived</span>;
+  return <span className="qc-chip quiet">{t('umt_status_unregistered')}</span>;
 }
 
 // 算法标签文本:'-' / 空视为无(表格列与卡片视图共用)
@@ -72,26 +93,63 @@ function sharpeText(row: UnifiedModelRow): string {
   return v == null ? '-' : Number(v).toFixed(2);
 }
 
-// 卡片视图元信息行:label 左 value 右
-function MetaRow({ label, value }: { label: string; value: string }) {
+// Sharpe 染色:正 up / 负 down / 0 与空值中性(表格列与卡片视图共用同一套阈值)
+function sharpeToneClass(row: UnifiedModelRow): string {
+  const v = row.metrics?.sharpe_ratio ?? row.metrics?.sharpe;
+  if (v == null) return '';
+  const n = Number(v);
+  return n > 0 ? ' qc-cell-up' : n < 0 ? ' qc-cell-down' : '';
+}
+
+// OOS Sharpe:优先 walk-forward OOS 口径,缺键回落到 registry metrics(缺值 = 无指标,不兜底成 0)
+function oosSharpe(row: UnifiedModelRow): { text: string; tone: string } {
+  const v = row.oos?.sharpe_ratio ?? row.metrics?.sharpe_ratio ?? row.metrics?.sharpe;
+  if (v == null) return { text: '—', tone: '' };
+  const n = Number(v);
+  return { text: n.toFixed(2), tone: n > 0 ? ' qc-cell-up' : n < 0 ? ' qc-cell-down' : '' };
+}
+
+// 行内展开摘要的单格:label 11px 三级色 + value mono(缺字段的格子由调用侧整格省略)
+function ExpCell({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <Flex justify="space-between" gap={8}>
-      <Text type="secondary">{label}</Text>
-      <Text ellipsis>{value}</Text>
-    </Flex>
+    <div className="flex min-w-0 flex-col gap-1">
+      <span style={{ fontSize: 11, color: 'var(--qc-text-tertiary)' }}>{label}</span>
+      <span className="qc-mono truncate" style={{ fontSize: 12, color: 'var(--qc-text)' }} title={typeof value === 'string' ? value : undefined}>
+        {value}
+      </span>
+    </div>
   );
 }
 
-export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }) {
+// 卡片视图元信息行:label 左 value 右（label 不换行，value 可截断）
+function MetaRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="shrink-0 whitespace-nowrap" style={{ color: 'var(--qc-text-tertiary)' }}>{label}</span>
+      <span className="min-w-0 truncate text-right">{value}</span>
+    </div>
+  );
+}
+
+export default function UnifiedModelTable({
+  refreshKey,
+  onStats,
+}: {
+  refreshKey: number;
+  onStats?: (s: ModelHubStats) => void;
+}) {
   const { t } = useTranslation();
   const { message, modal } = AntdApp.useApp();
   const [rows, setRows] = useState<UnifiedModelRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [algoFilter, setAlgoFilter] = useState<string>();
-  const [stageFilter, setStageFilter] = useState<string>();
-  // 单选行;存 file_name 作为 rowKey
-  const [selected, setSelected] = useState<string[]>([]);
+  // 状态筛选 chips（§6.6 ichip 原语）；'' = 全部
+  const [stageFilter, setStageFilter] = useState<string>('');
+  // 单选行;存 file_name 作为 rowKey/选中键
+  const [selectedKey, setSelectedKey] = useState('');
+  // 行内展开:单键(一次只展开一行),初始不展开
+  const [expandedKey, setExpandedKey] = useState('');
   const [registerRow, setRegisterRow] = useState<UnifiedModelRow | null>(null);
   const [detailRow, setDetailRow] = useState<UnifiedModelRow | null>(null);
   const [backtestRow, setBacktestRow] = useState<UnifiedModelRow | null>(null);
@@ -115,15 +173,16 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
 
   useEffect(() => {
     loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshKey 驱动重拉(训练成功后强制刷新)
   }, [refreshKey]);
 
-  // refreshKey 变化后数据可能变短,防止 pageNum 越界空页
+  // 页头副标统计上报：rows 变化即按全量口径重算（不含筛选）
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-    if (current > totalPages) setCurrent(totalPages);
-  }, [rows, pageSize, current]);
+    onStats?.(computeStats(rows));
+  }, [rows, onStats]);
 
   const kw = keyword.trim().toLowerCase();
+  const hasFilters = kw !== '' || !!algoFilter || !!stageFilter;
   const filtered = useMemo(
     () =>
       rows.filter((r) => {
@@ -145,13 +204,43 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
     [rows],
   );
 
-  const stageOptions = [
-    { value: 'unregistered', label: t('umt_status_unregistered') },
-    { value: 'staging', label: 'staging' },
+  // 状态筛选 chips（§6.6 ichip 原语）
+  const stageChips: Array<{ value: string; label: string }> = [
+    { value: '', label: t('all') },
     { value: 'production', label: 'production' },
+    { value: 'staging', label: 'staging' },
+    { value: 'shadow', label: 'shadow' },
     { value: 'archived', label: 'archived' },
+    { value: 'unregistered', label: t('umt_status_unregistered') },
     { value: 'missing', label: t('umt_status_missing') },
   ];
+
+  // §6.6 过滤联动:筛选变化页码归 1,并收起行内展开(筛选后旧行不保证还在当前页)
+  useEffect(() => {
+    setCurrent(1);
+    setExpandedKey('');
+  }, [keyword, algoFilter, stageFilter]);
+
+  // 翻页/改档位同样收起展开,避免翻页后残留上一页的空展开行
+  useEffect(() => {
+    setExpandedKey('');
+  }, [current, pageSize]);
+
+  // Esc 收起当前展开行(键盘可达:行内 Enter/Space 切换,见 onRow)
+  useEffect(() => {
+    if (!expandedKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) setExpandedKey('');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expandedKey]);
+
+  // refreshKey 变化后数据可能变短,防止 pageNum 越界空页
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (current > totalPages) setCurrent(totalPages);
+  }, [filtered, pageSize, current]);
 
   const handlePromote = async (modelId: string) => {
     try {
@@ -173,28 +262,19 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
     }
   };
 
-  const handleDelete = (row: UnifiedModelRow) => {
+  const doDelete = async (row: UnifiedModelRow) => {
     const stem = row.file_name.replace(/\.zip$/, '');
-    modal.confirm({
-      title: t('umt_delete_title'),
-      content: t('umt_delete_confirm', { name: row.file_name }),
-      okText: t('umt_action_delete'),
-      okButtonProps: { danger: true },
-      cancelText: t('umt_action_cancel'),
-      onOk: async () => {
-        try {
-          await rlApi.deleteModel(stem);
-          message.success(t('umt_msg_deleted'));
-          setSelected((prev) => (prev.includes(row.file_name) ? prev.filter((k) => k !== row.file_name) : prev));
-          loadRows();
-        } catch (err) {
-          message.error(t('umt_msg_delete_failed', { err: err instanceof Error ? err.message : String(err) }));
-        }
-      },
-    });
+    try {
+      await rlApi.deleteModel(stem);
+      message.success(t('umt_msg_deleted'));
+      setSelectedKey((prev) => (prev === row.file_name ? '' : prev));
+      loadRows();
+    } catch (err) {
+      message.error(t('umt_msg_delete_failed', { err: err instanceof Error ? err.message : String(err) }));
+    }
   };
 
-  // 动作统一入口:表格操作列(iconOnly=图标+Tooltip)与卡片底部(文字按钮)共用,风格对齐 ResearchList
+  // 动作集合:表格操作列(图标钮)与卡片底部(文字钮)共用;删除在调用侧包 Popconfirm
   const actionsFor = (record: UnifiedModelRow) => {
     const acts: { key: string; icon: ReactNode; label: string; danger?: boolean; onClick: () => void }[] = [
       { key: 'view', icon: <EyeOutlined />, label: t('umt_action_detail'), onClick: () => setDetailRow(record) },
@@ -243,66 +323,149 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       icon: <DeleteOutlined />,
       label: t('umt_action_delete'),
       danger: true,
-      onClick: () => handleDelete(record),
+      onClick: () => doDelete(record),
     });
     return acts;
   };
 
-  const renderActions = (record: UnifiedModelRow, iconOnly = false) => {
+  // 操作列：24px 图标钮 + Tooltip；删除 Popconfirm（历史雷区：删除不可逆必须确认）
+  const renderIconActions = (record: UnifiedModelRow) => {
     const acts = actionsFor(record);
-    if (iconOnly) {
-      return (
-        // 表格操作列图标按钮 + Tooltip(与策略管理页操作列一致);行内点击不冒泡
-        <Space size={4} onClick={(e) => e.stopPropagation()}>
-          {acts.map((a) => (
-            <Tooltip key={a.key} title={a.label}>
-              <Button type="text" size="small" danger={a.danger} icon={a.icon} onClick={a.onClick} />
-            </Tooltip>
-          ))}
-        </Space>
-      );
-    }
     return (
-      <Space size={4} onClick={(e) => e.stopPropagation()} wrap>
-        {/* 删除已上移卡片右上角 extra,文字按钮组不再重复展示 */}
-        {acts
-          .filter((a) => a.key !== 'delete')
-          .map((a) => (
-            <Button key={a.key} size="small" danger={a.danger} onClick={a.onClick}>
-              {a.label}
-            </Button>
-          ))}
-      </Space>
+      <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
+        {acts.map((a) =>
+          a.key === 'delete' ? (
+            <Popconfirm
+              key={a.key}
+              title={t('umt_delete_title')}
+              description={t('umt_delete_confirm', { name: record.file_name })}
+              okText={t('umt_action_delete')}
+              cancelText={t('umt_action_cancel')}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => doDelete(record)}
+            >
+              <Tooltip title={a.label}>
+                <button type="button" className="qc-mini-btn qc-icon-only danger" aria-label={a.label}>
+                  {a.icon}
+                </button>
+              </Tooltip>
+            </Popconfirm>
+          ) : (
+            <Tooltip key={a.key} title={a.label}>
+              <button type="button" className="qc-mini-btn qc-icon-only" aria-label={a.label} onClick={a.onClick}>
+                {a.icon}
+              </button>
+            </Tooltip>
+          ),
+        )}
+      </div>
     );
   };
 
+  // 卡片底部文字钮组（删除走卡片右上角，不重复展示）
+  const renderCardActions = (record: UnifiedModelRow) => (
+    <Space size={4} onClick={(e) => e.stopPropagation()} wrap>
+      {actionsFor(record)
+        .filter((a) => a.key !== 'delete')
+        .map((a) => (
+          <Button key={a.key} size="small" onClick={a.onClick}>
+            {a.label}
+          </Button>
+        ))}
+    </Space>
+  );
+
+  // 行内展开面板:轻摘要(只读 UnifiedModelRow 真字段,缺字段整格省略);完整详情仍走 Drawer
+  const renderExpanded = (record: UnifiedModelRow) => {
+    const algo = algoLabel(record);
+    const sharpe = oosSharpe(record);
+    return (
+      <div className="qc-exp-panel">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px 18px' }}>
+          {record.model_id ? <ExpCell label={t('umt_exp_model_id')} value={record.model_id} /> : null}
+          <ExpCell label={t('mdd_label_file_name')} value={record.file_name} />
+          {algo ? <ExpCell label={t('mdd_label_algo')} value={algo} /> : null}
+          {record.version ? <ExpCell label={t('mdd_field_version')} value={record.version} /> : null}
+          <ExpCell label={t('umt_col_status')} value={<StatusChip row={record} />} />
+          {sharpe.text === '—' ? (
+            <ExpCell label={t('umt_exp_oos_sharpe')} value={<span className="qc-cell-none">—</span>} />
+          ) : (
+            <ExpCell label={t('umt_exp_oos_sharpe')} value={<span className={sharpe.tone.trim()}>{sharpe.text}</span>} />
+          )}
+          {record.created ? (
+            <ExpCell label={t('mdd_label_created')} value={dayjs(record.created * 1000).format('YYYY-MM-DD HH:mm')} />
+          ) : null}
+          {record.size_mb != null ? <ExpCell label={t('mdd_label_size')} value={`${record.size_mb} MB`} /> : null}
+          {record.path ? <ExpCell label={t('mdd_label_path')} value={record.path} /> : null}
+        </div>
+        {/* demo 动作行 margin-top:11px */}
+        <div style={{ marginTop: 11, display: 'flex', justifyContent: 'flex-end' }}>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => setDetailRow(record)}>
+            {t('umt_exp_open_detail')}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  // 数值/时间为 §3 排印：右对齐 mono、空值弱化、时间 MM-DD HH:mm
   const columns: TableProps<UnifiedModelRow>['columns'] = [
     {
       title: t('umt_col_model'),
       dataIndex: 'file_name',
       key: 'file_name',
-      ellipsis: true,
-      // 对齐 ResearchList 会话列:显式宽保证 scroll.x 容器不足时列不被压 0
+      ellipsis: { showTitle: false },
       width: 300,
-      render: (text: string, record: UnifiedModelRow) => (
-        <Space size="small">
-          {algoLabel(record) && <Tag color="blue">{algoLabel(record)}</Tag>}
-          <Text style={{ maxWidth: 260 }} ellipsis={{ tooltip: record.model_id ? `${text}（${record.model_id}）` : text }}>
-            {record.model_id ?? text}
-          </Text>
-        </Space>
-      ),
+      render: (text: string, record: UnifiedModelRow) => {
+        const algo = algoLabel(record);
+        const tip = record.model_id ? `${text}（${record.model_id}）` : text;
+        const open = expandedKey === record.file_name;
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', maxWidth: '100%', overflow: 'hidden' }}>
+            {/* 三角自绘在模型列(showExpandColumn:false);行点击展开,此图标随选中/展开态旋转 */}
+            <span className={`qc-cell-caret${open ? ' is-open' : ''}`} aria-hidden>
+              <svg viewBox="0 0 12 12" width="12" height="12" fill="none">
+                <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <Tooltip title={tip} placement="topLeft">
+              <span className="qc-cell-strat-wrap">
+                {algo && <span className="qc-chip quiet qc-mono">{algo}</span>}
+                <span className="qc-cell-strat" style={{ maxWidth: 200 }}>
+                  {record.model_id ?? text}
+                </span>
+              </span>
+            </Tooltip>
+          </span>
+        );
+      },
     },
-    { title: t('umt_col_status'), key: 'status', width: 110, render: (_, record) => <StatusTag row={record} /> },
-    { title: 'Sharpe', key: 'sharpe', width: 90, align: 'right', render: (_, record) => sharpeText(record) },
+    { title: t('umt_col_status'), key: 'status', width: 104, render: (_, record) => <StatusChip row={record} /> },
+    {
+      title: 'Sharpe',
+      key: 'sharpe',
+      width: 84,
+      align: 'right',
+      render: (_, record) => {
+        const v = record.metrics?.sharpe_ratio ?? record.metrics?.sharpe;
+        if (v == null) return <span className="qc-mono qc-cell-none">—</span>;
+        return <span className={`qc-mono${sharpeToneClass(record)}`}>{Number(v).toFixed(2)}</span>;
+      },
+    },
     {
       title: t('umt_col_created'),
       dataIndex: 'created',
       key: 'created',
-      width: 170,
-      // nowrap:完整时间戳一行展示,避免被截
-      className: 'whitespace-nowrap',
-      render: (ts: number | null) => (ts ? dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss') : '-'),
+      width: 120,
+      render: (ts: number | null) => {
+        if (!ts) return <span className="qc-cell-time qc-mono">—</span>;
+        const full = dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss');
+        return (
+          <Tooltip title={full}>
+            <span className="qc-cell-time qc-mono">{dayjs(ts * 1000).format('MM-DD HH:mm')}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('umt_col_size'),
@@ -310,162 +473,231 @@ export default function UnifiedModelTable({ refreshKey }: { refreshKey: number }
       key: 'size_mb',
       width: 90,
       align: 'right',
-      render: (v: number | null) => (v == null ? '-' : `${v} MB`),
+      render: (v: number | null) => (v == null ? <span className="qc-mono qc-cell-none">—</span> : <span className="qc-mono">{v} MB</span>),
     },
-    // 固定列:容器横向滚动时操作始终可见(production 行最多 4 个图标按钮,140 容纳)
-    { title: t('umt_col_actions'), key: 'actions', width: 140, fixed: 'right', render: (_, record) => renderActions(record, true) },
+    // 固定列:容器横向滚动时操作始终可见
+    { title: t('umt_col_actions'), key: 'actions', width: 130, fixed: 'right', render: (_, record) => renderIconActions(record) },
   ];
 
-  // 双视图共享同一分页配置:列表视图交给 Table,卡片视图配 Grid + Pagination
+  // 工具栏计数「显示 x-y / 共 z」：按当前页与页大小折算，空数据归 0
+  const shownRange = () => {
+    const start = filtered.length === 0 ? 0 : (current - 1) * pageSize + 1;
+    const end = Math.min(current * pageSize, filtered.length);
+    return t('shown_range', { start, end, total: filtered.length });
+  };
+
+  const selectedRow = rows.find((r) => r.file_name === selectedKey && r.size_mb != null);
+
+  // 列表视图当前页由 DataTable 本地切片
   const paginationProps = {
     current,
     pageSize,
-    showSizeChanger: true,
-    pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total: number) => t('umt_total', { total }),
     onChange: (page: number, size: number) => {
-      // 条数变化写回全局配置(与 RLModelList 既有口径一致)
+      // 条数变化写回全局配置(与列表页既有口径一致)
       if (size !== pageSize) setPageSize(size);
       setCurrent(page);
     },
   };
 
-  // 卡片视图当前页数据(与表格同源同分页,筛选/翻页行为一致)
-  const pageRows = useMemo(
-    () => filtered.slice((current - 1) * pageSize, current * pageSize),
-    [filtered, current, pageSize],
-  );
-
   return (
     <>
-      <Card>
-        <Flex vertical gap={16}>
-          <Flex gap={8} wrap="wrap" align="center" justify="space-between">
-            <Flex gap={8} wrap="wrap" align="center">
-              <Input
-                allowClear
-                placeholder={t('umt_search_ph')}
-                prefix={<SearchOutlined />}
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                style={{ width: 240 }}
-              />
-              <Select
-                allowClear
-                placeholder={t('umt_filter_algo')}
-                value={algoFilter}
-                onChange={(v) => setAlgoFilter(v)}
-                options={algoOptions}
-                style={{ width: 120 }}
-              />
-              <Select
-                allowClear
-                placeholder={t('umt_filter_status')}
-                value={stageFilter}
-                onChange={(v) => setStageFilter(v)}
-                options={stageOptions}
-                style={{ width: 140 }}
-              />
-              <Button type="text" icon={<ReloadOutlined />} onClick={loadRows} title={t('umt_action_refresh')} />
-              {selected.length > 0 && (
-                <Button
-                  type="primary"
-                  icon={<BarChartOutlined />}
-                  // selected 里存的是 file_name,回显时从当前数据找回 row 对象
-                  onClick={() => setBacktestRow(rows.find((r) => r.file_name === selected[0]) ?? null)}
+      <PageToolbar
+        search={{
+          value: keyword,
+          onChange: (v) => setKeyword(v),
+          placeholder: t('umt_search_ph'),
+          ariaLabel: t('umt_search_ph'),
+        }}
+        filters={
+          <>
+            <div role="group" aria-label={t('umt_filter_status')} style={{ display: 'contents' }}>
+              {stageChips.map((chip) => (
+                <button
+                  key={chip.value}
+                  type="button"
+                  className={`qc-ichip${stageFilter === chip.value ? ' qc-ichip-on' : ''}`}
+                  onClick={() => setStageFilter(chip.value)}
                 >
-                  {t('umt_btn_backtest_selected')}
-                </Button>
-              )}
-            </Flex>
-          </Flex>
-
-          {view === 'card' ? (
-            pageRows.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '48px 0' }} />
-            ) : (
-              <Row gutter={[16, 16]}>
-                {pageRows.map((record) => {
-                  const algo = algoLabel(record);
-                  const isSelected = selected.includes(record.file_name);
-                  const nameTooltip = record.model_id ? `${record.file_name}（${record.model_id}）` : record.file_name;
-                  return (
-                    <Col key={record.file_name} xs={24} sm={12} md={8} lg={6}>
-                      <Card
-                        size="small"
-                        hoverable
-                        style={{ cursor: 'pointer', height: '100%', ...(isSelected ? { borderColor: 'var(--tw-color-info)' } : {}) }}
-                        onClick={() => {
-                          // 对齐表格禁选口径:文件缺失(无文件)不可选中
-                          if (record.size_mb == null) return;
-                          setSelected((prev) => (prev.includes(record.file_name) ? [] : [record.file_name]));
-                        }}
-                        title={<span className="truncate" title={nameTooltip}>{record.model_id ?? record.file_name}</span>}
-                        extra={
-                          statusOf(record) !== 'missing' && (
-                            <Tooltip title={t('umt_action_delete')}>
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                                // 删除统一放卡片右上角;点击不可穿透到卡片选中
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(record);
-                                }}
-                              />
-                            </Tooltip>
-                          )
-                        }
-                      >
-                        <Flex vertical gap={8}>
-                          <Space size={6} wrap>
-                            {algo ? <Tag color="blue">{algo}</Tag> : null}
-                            {/* 状态从右上角挪到标签行,右上角让位给删除按钮 */}
-                            <StatusTag row={record} />
-                          </Space>
-                          <MetaRow label="Sharpe" value={sharpeText(record)} />
-                          <MetaRow
-                            label={t('umt_col_created')}
-                            value={record.created ? dayjs(record.created * 1000).format('YYYY-MM-DD HH:mm') : '-'}
-                          />
-                          <MetaRow label={t('umt_col_size')} value={record.size_mb == null ? '-' : `${record.size_mb} MB`} />
-                          {/* 操作区 renderActions 内部已阻止冒泡 */}
-                          <div className="pt-2 border-t border-gray-100">{renderActions(record)}</div>
-                        </Flex>
-                      </Card>
-                    </Col>
-                  );
-                })}
-              </Row>
-            )
-          ) : (
-            <Table<UnifiedModelRow>
-              rowKey="file_name"
-              size="middle"
-              columns={columns}
-              dataSource={filtered}
-              loading={loading}
-              /* 固定列总宽 900px(名称 300 + 其余列显式宽),所有列都有显式宽:
-                 容器不足时若无 scroll.x,无宽列会被压成 0 宽整列消失,声明后表格内部横滚且操作列冻结 */
-              scroll={{ x: 900 }}
-              rowSelection={{
-                selectedRowKeys: selected,
-                onChange: (keys) => setSelected(keys.slice(-1).map(String)), // 单选携带
-                getCheckboxProps: (record) => ({ disabled: record.size_mb == null }), // 无文件不可选
-              }}
-              pagination={paginationProps}
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+            <Select
+              allowClear
+              aria-label={t('umt_filter_algo')}
+              placeholder={t('umt_filter_algo')}
+              value={algoFilter}
+              onChange={(v) => setAlgoFilter(v)}
+              options={algoOptions}
+              style={{ width: 130 }}
             />
-          )}
+          </>
+        }
+        count={shownRange()}
+        actions={
+          <>
+            <Button icon={<ReloadOutlined />} onClick={loadRows} aria-label={t('umt_action_refresh')} title={t('umt_action_refresh')} />
+            {selectedRow && (
+              <Button
+                type="primary"
+                icon={<BarChartOutlined />}
+                onClick={() => setBacktestRow(selectedRow)}
+              >
+                {t('umt_btn_backtest_selected')}
+              </Button>
+            )}
+          </>
+        }
+      />
 
-          {view === 'card' && filtered.length > 0 && (
+      {view === 'card' ? (
+        <>
+          {filtered.length === 0 && !loading && (
+            <Card size="small" className="qc-card">
+              <QcEmpty
+                title={hasFilters ? t('no_data') : t('no_models')}
+                description={hasFilters ? t('bt_no_match_desc') : undefined}
+              />
+            </Card>
+          )}
+          {/* 卡片与列表是同一份数据的两种排版,点开必须是同一块面板 */}
+          {/* 沿用 ExpandableCardGrid(面板插在被点卡片所在视觉行之后、跨全宽),内容走与列表 expandedRowRender 相同的 renderExpanded */}
+          <ExpandableCardGrid
+            items={filtered.slice((current - 1) * pageSize, current * pageSize)}
+            getKey={(record) => record.file_name}
+            expandedKey={expandedKey || null}
+            gutter={[12, 12]}
+            renderExpanded={renderExpanded}
+            renderCard={(record) => {
+              const algo = algoLabel(record);
+              const isSelected = selectedKey === record.file_name;
+              const nameTooltip = record.model_id ? `${record.file_name}（${record.model_id}）` : record.file_name;
+              return (
+                  <Card
+                    size="small"
+                    hoverable
+                    className={`qc-card${isSelected ? ' qc-card-selected' : ''}`}
+                    style={{ cursor: 'pointer', height: '100%' }}
+                    onClick={() => {
+                      // 对齐表格禁选口径:文件缺失(无文件)不可选中
+                      if (record.size_mb == null) return;
+                      // 选中 + 就地展开/收起,与列表行「点行 = 选中 + 展开」同语义
+                      setSelectedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+                      setExpandedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+                    }}
+                    title={
+                      <span className="qc-mono font-medium truncate" style={{ maxWidth: '70%' }} title={nameTooltip}>
+                        {record.model_id ?? record.file_name}
+                      </span>
+                    }
+                    extra={
+                      statusOf(record) !== 'missing' && (
+                        <Popconfirm
+                          title={t('umt_delete_title')}
+                          description={t('umt_delete_confirm', { name: record.file_name })}
+                          okText={t('umt_action_delete')}
+                          cancelText={t('umt_action_cancel')}
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => doDelete(record)}
+                        >
+                          <Tooltip title={t('umt_action_delete')}>
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              // 删除统一放卡片右上角;点击不可穿透到卡片选中
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </Tooltip>
+                        </Popconfirm>
+                      )
+                    }
+                  >
+                    <div className="flex flex-col gap-2" style={{ color: 'var(--qc-text-secondary)' }}>
+                      <Space size={6} wrap>
+                        {algo ? <span className="qc-chip quiet qc-mono">{algo}</span> : null}
+                        {/* 状态从右上角挪到标签行,右上角让位给删除按钮 */}
+                        <StatusChip row={record} />
+                      </Space>
+                      <MetaRow
+                        label="Sharpe"
+                        value={<span className={`qc-mono${sharpeToneClass(record)}`}>{sharpeText(record)}</span>}
+                      />
+                      <MetaRow
+                        label={t('umt_col_created')}
+                        value={
+                          <span className="qc-cell-time qc-mono">
+                            {record.created ? dayjs(record.created * 1000).format('YYYY-MM-DD HH:mm') : '—'}
+                          </span>
+                        }
+                      />
+                      <MetaRow
+                        label={t('umt_col_size')}
+                        value={<span className="qc-mono">{record.size_mb == null ? '—' : `${record.size_mb} MB`}</span>}
+                      />
+                      {/* 操作区 renderCardActions 内部已阻止冒泡 */}
+                      <div className="pt-2" style={{ borderTop: '1px solid var(--qc-border)' }}>{renderCardActions(record)}</div>
+                    </div>
+                  </Card>
+              );
+            }}
+          />
+          {filtered.length > 0 && (
             <Row justify="center" style={{ marginTop: 16 }}>
-              <Pagination {...paginationProps} total={filtered.length} />
+              <Pagination
+                {...paginationProps}
+                total={filtered.length}
+                showSizeChanger
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                showTotal={(total) => t('total_items', { total })}
+              />
             </Row>
           )}
-        </Flex>
-      </Card>
+        </>
+      ) : (
+        <DataTable<UnifiedModelRow>
+          rowKey="file_name"
+          columns={columns}
+          dataSource={filtered}
+          loading={loading}
+          /* 列均有显式宽总和 ≈830:容器不足时表格内部横滚且操作列冻结 */
+          scroll={{ x: 830 }}
+          rowClassName={(record) => (record.file_name === selectedKey ? 'qc-row-selected' : '')}
+          /* 行内轻摘要:单行互斥、行点击展开(三角自绘在模型列)、初始不展开 */
+          expandable={{
+            expandedRowKeys: expandedKey ? [expandedKey] : [],
+            onExpandedRowsChange: (keys) => setExpandedKey(keys.length ? String(keys[keys.length - 1]) : ''),
+            expandedRowRender: renderExpanded,
+            expandRowByClick: true,
+            showExpandColumn: false,
+          }}
+          onRow={(record) => ({
+            tabIndex: 0,
+            // 行点击选中（primary 5% tint）；文件缺失行不可选中（与列表禁选口径一致）。
+            // 展开由 antd expandRowByClick 处理，此处不再重复 toggle。
+            onClick: () => {
+              if (record.size_mb == null) return;
+              setSelectedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+            },
+            onKeyDown: (e) => {
+              // 只响应行自身获得焦点时的按键，避免操作列按钮的回车冒泡到行
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setExpandedKey((prev) => (prev === record.file_name ? '' : record.file_name));
+              } else if (e.key === 'Escape') {
+                setExpandedKey('');
+              }
+            },
+            style: { cursor: record.size_mb == null ? 'default' : 'pointer' },
+          })}
+          pagination={paginationProps}
+          emptyTitle={hasFilters ? t('no_data') : t('no_models')}
+          emptyDescription={hasFilters ? t('bt_no_match_desc') : undefined}
+        />
+      )}
+
       <RegisterModelModal
         row={registerRow}
         onClose={() => setRegisterRow(null)}

@@ -1,71 +1,63 @@
-import { useEffect, useCallback } from 'react';
-import { useTheme } from "ahooks";
+import { useCallback, useEffect, useState } from 'react';
+import {
+  THEME_MODE_EVENT,
+  applyEffectiveTheme,
+  readThemeMode,
+  systemTheme,
+  writeThemeMode,
+  type StoredThemeMode,
+} from '@/theme/themeMode';
 
-const LOCAL_STORAGE_KEY = "quantcell-ui-theme";
-
-export type UseBrowserThemeReturns = ReturnType<typeof useTheme> & {
-  setThemeMode: (mode: 'light' | 'dark' | 'system') => void;
+export type UseBrowserThemeReturns = {
+  /** 生效主题（light|dark）：class/data-theme/图表配色都读它 */
+  theme: 'light' | 'dark';
+  /** 用户选择（light|dark|system）：顶栏胶囊的图标与文案读它 */
+  themeMode: StoredThemeMode;
+  setThemeMode: (mode: StoredThemeMode) => void;
 };
 
 /**
- * 获取并设置当前浏览器系统主题。
- * 注意：此 hook 现在与后端配置同步，不再在初始化时设置默认值。
- * 主题值应该从后端配置加载，并同步到 localStorage。
- * @returns {UseBrowserThemeReturns}
+ * 浏览器主题：用户选择（mode）是唯一状态源，生效主题由 mode + 系统偏好派生。
+ *
+ * 之前这里把 ahooks.useTheme 的 themeMode 当状态，却越过它的 setter 直接写 localStorage，
+ * 于是 React 里的 themeMode 永远停在初始值（通常 'system'）——顶栏胶囊点「浅色」后标签仍是「自动」，
+ * 且系统偏好变化时会按 system 重新算主题，把用户显式选的浅色覆盖掉。
  */
 const useBrowserTheme = (): UseBrowserThemeReturns => {
-  const themeState = useTheme({ localStorageKey: LOCAL_STORAGE_KEY });
+  const [themeMode, setMode] = useState<StoredThemeMode>(readThemeMode);
+  const [system, setSystem] = useState<'light' | 'dark'>(systemTheme);
 
-  // 同步主题到 html 元素的 class
+  // 跟随系统偏好（仅在 mode === 'system' 时用于派生）
   useEffect(() => {
-    const html = document.documentElement;
-    const { theme } = themeState;
-
-    // theme 是实际计算后的主题（light 或 dark）
-    if (theme === 'dark') {
-      html.classList.add('dark');
-    } else {
-      html.classList.remove('dark');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- theme 对象每渲染重建，补 deps 会重复执行
-  }, [themeState.theme, themeState.themeMode]);
-
-  // 包装 setThemeMode，确保同时更新 localStorage 和 HTML class
-  const setThemeMode = useCallback((mode: 'light' | 'dark' | 'system') => {
-    const html = document.documentElement;
-    let effectiveTheme: 'light' | 'dark';
-
-    if (mode === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      effectiveTheme = prefersDark ? 'dark' : 'light';
-    } else {
-      effectiveTheme = mode;
-    }
-
-    // 设置 localStorage
-    localStorage.setItem(LOCAL_STORAGE_KEY, effectiveTheme);
-
-    // 设置 HTML class
-    if (effectiveTheme === 'dark') {
-      html.classList.add('dark');
-    } else {
-      html.classList.remove('dark');
-    }
-
-    // 设置 data-theme 属性
-    html.setAttribute('data-theme', effectiveTheme);
-
-    // 触发 storage 事件，让 useTheme 感知变化
-    window.dispatchEvent(new StorageEvent('storage', {
-      key: LOCAL_STORAGE_KEY,
-      newValue: effectiveTheme,
-    }));
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setSystem(mq.matches ? 'dark' : 'light');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  return {
-    ...themeState,
-    setThemeMode,
-  };
+  // 设置页/其他 hook 实例改模式时同步（同文档 storage 事件不触发，走自定义事件）
+  useEffect(() => {
+    const onMode = (e: Event) => {
+      const mode = (e as CustomEvent<StoredThemeMode>).detail;
+      if (mode) setMode(mode);
+    };
+    window.addEventListener(THEME_MODE_EVENT, onMode);
+    return () => window.removeEventListener(THEME_MODE_EVENT, onMode);
+  }, []);
+
+  const theme: 'light' | 'dark' = themeMode === 'system' ? system : themeMode;
+
+  // 生效主题落到 html + 首帧 key
+  useEffect(() => {
+    applyEffectiveTheme(theme);
+  }, [theme]);
+
+  const setThemeMode = useCallback((mode: StoredThemeMode) => {
+    setMode(mode);
+    writeThemeMode(mode);
+  }, []);
+
+  return { theme, themeMode, setThemeMode };
 };
 
 export default useBrowserTheme;

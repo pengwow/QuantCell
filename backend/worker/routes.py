@@ -23,6 +23,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from sqlalchemy import func
 
 from config.capabilities import require_live_trading
 from strategy.decision_recording import list_decisions_from_file, load_record_by_seq, worker_replay_path
@@ -39,6 +40,7 @@ from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
 )
+from .models import Worker, WorkerCapital, WorkerTrade
 from .vocab import normalize_position_side, normalize_side
 from .worker_state import worker_state_manager
 
@@ -46,6 +48,33 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+# 这些角色不做归属过滤：admin 是平台管理角色；agent 是服务间令牌
+# （sub=agent_token:*），供后端内部调用（如智能体拉取 worker 上下文）
+_OWNER_FILTER_EXEMPT_ROLES = {"admin", "agent"}
+
+
+def _worker_owner_filter(current_user: dict) -> int | None:
+    """按当前用户决定 worker 列表归属过滤。
+
+    - 鉴权开启：human（role=user/guest）只能看到 owner_id 等于自己的 worker；
+      admin/agent 免过滤。user_id 是 JWT sub，human 为数字串，解析失败宁可
+      不返回数据（-1）也不全量泄露。
+    - 鉴权关闭（debug/桌面本地，config.toml security.auth_enabled=false）：
+      get_current_user 返回 {}，当前不存在"用户"概念——单机模式不过滤，
+      与整个平台在该模式下的行为（调试、本地跑通）一致。
+    """
+    role = current_user.get("role")
+    if not role:
+        # 鉴权关闭路径：{} 或缺 role 一律视为单机模式
+        return None
+    if role in _OWNER_FILTER_EXEMPT_ROLES:
+        return None
+    try:
+        return int(current_user.get("user_id"))
+    except TypeError, ValueError:
+        return -1
+
 
 router = APIRouter(
     prefix="/api/v1/workers",
@@ -161,7 +190,11 @@ async def list_workers(
     性能优化：使用 get_all_states() 批量获取，避免 N+1 查询问题
     """
     result = await worker_core_service.async_list_workers(
-        status=status, strategy_id=strategy_id, page=page, page_size=page_size
+        status=status,
+        strategy_id=strategy_id,
+        page=page,
+        page_size=page_size,
+        owner_id=_worker_owner_filter(current_user),
     )
 
     all_states = await worker_state_manager.get_all_states()
@@ -184,6 +217,103 @@ async def list_workers(
             item["status"] = state.status
 
     return schemas.ApiResponse(code=0, message="success", data=result)
+
+
+@router.get(
+    "/stats/pnl-overview",
+    response_model=schemas.ApiResponse,
+    summary="首页 KPI 今日盈亏（近 24h 已实现盈亏占配置资金比 + 昨日同期对照）",
+)
+@handle_worker_exceptions("获取今日盈亏汇总")
+async def get_pnl_overview(
+    hours: int = Query(24, ge=1, le=168, description="回看小时数"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """首页看板「今日盈亏」口径（只算真实数据，算不出的留空）：
+
+    - 分子 = SUM(worker_trades.realized_pnl)，窗口按 entry_time 过滤（与
+      ``crud.sum_daily_realized_pnl`` 的日度口径同源）；realized_pnl 是配对
+      **毛**盈亏（见 paper_trade_sync 模块头：手续费不挤入盈亏，live 口径与
+      币安 myTrades.realizedPnl 一致），因此这里不宣称「已扣手续费」。
+    - 分母 = 配置资金合计：worker_capital.initial_capital（有行时）否则
+      workers.config.initial_capital。``current_capital`` 全库无写入方，
+      读它只会拿到默认值，不构成「当前权益」，故不用。
+    - 分母为 0（历史 worker 未配初始资金）→ ``pnl_pct`` 为 null，前端渲染「—」。
+    - 归属过滤与列表同口径（``_worker_owner_filter``）。
+
+    「较昨日同期」口径（``prev_*``）：把同一窗口整体前移一个 ``hours``，即
+    ``[now-2h, now-h)``。分子分母与今日**完全同源**（同一 SUM/COUNT 子查询、
+    同一 ``Σ initial_capital``），只换时间边界，不另立算法；因此
+    ``pnl_pct - prev_pnl_pct`` 是百分点差，可直接展示为 pp。
+
+    只读聚合，不改动任何既有接口字段。
+    """
+    owner_id = _worker_owner_filter(current_user)
+    query = db.query(Worker.id, Worker.config)
+    if owner_id is not None:
+        query = query.filter(Worker.owner_id == owner_id)
+    rows = query.all()
+    worker_ids = [row[0] for row in rows]
+
+    # 单一时点算两个窗口的边界：今日 [window_start, +∞)，昨日同期 [prev_start, window_start)
+    now = datetime.now()
+    window_start = now - timedelta(hours=hours)
+    prev_start = window_start - timedelta(hours=hours)
+
+    def _window_totals(start: datetime | None, end: datetime | None) -> tuple[float, int]:
+        """按 entry_time 统计窗口内已实现盈亏与成交笔数（None 表示该侧不限）。"""
+        if not worker_ids:
+            return 0.0, 0
+        q = db.query(
+            func.coalesce(func.sum(WorkerTrade.realized_pnl), 0.0),
+            func.count(WorkerTrade.id),
+        ).filter(
+            WorkerTrade.worker_id.in_(worker_ids),
+            WorkerTrade.realized_pnl.isnot(None),
+        )
+        if start is not None:
+            q = q.filter(WorkerTrade.entry_time >= start)
+        if end is not None:
+            q = q.filter(WorkerTrade.entry_time < end)
+        pnl, trades = q.one()
+        return float(pnl or 0.0), int(trades or 0)
+
+    realized, trade_count = _window_totals(window_start, None)
+    prev_realized, prev_trade_count = _window_totals(prev_start, window_start)
+
+    capital = 0.0
+    if worker_ids:
+        cap_rows = dict(
+            db.query(WorkerCapital.worker_id, WorkerCapital.initial_capital)
+            .filter(WorkerCapital.worker_id.in_(worker_ids))
+            .all()
+        )
+        for worker_id, config_json in rows:
+            cap = cap_rows.get(worker_id)
+            if cap is None:
+                try:
+                    cap = float(json.loads(config_json or "{}").get("initial_capital") or 0.0)
+                except TypeError, ValueError:
+                    cap = 0.0
+            capital += float(cap or 0.0)
+
+    return schemas.ApiResponse(
+        code=0,
+        message="success",
+        data={
+            "window_hours": hours,
+            "realized_pnl": round(realized, 8),
+            "trade_count": trade_count,
+            "capital": round(capital, 8),
+            # 分母为 0 时不给百分比：0/0 不是 0%，是无意义
+            "pnl_pct": round(realized / capital * 100, 4) if capital > 0 else None,
+            # 昨日同期（now-2h ~ now-h）：同一分子口径、同一分母，仅窗口前移
+            "prev_realized_pnl": round(prev_realized, 8),
+            "prev_trade_count": prev_trade_count,
+            "prev_pnl_pct": round(prev_realized / capital * 100, 4) if capital > 0 else None,
+        },
+    )
 
 
 @router.get("/{worker_id}", response_model=schemas.ApiResponse)

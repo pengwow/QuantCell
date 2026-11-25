@@ -1,27 +1,36 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker 详情页
  *
  * 6 个 tab 布局（顺序：总览、交易、决策、风控、参数、日志）
  * - URL hash 同步：切换 tab 时更新 hash，刷新页面时根据 hash 恢复
  * - 旧 hash (#performance/#stats) 兼容：自动重定向到 #overview 并 toast 提示
- * - 页面头部 Card 增加「最后更新时间」字段，每 60s 刷新
+ * - 页面头部「最后更新时间」每 60s 刷新
  * - 所有 tab 标签使用 i18n 翻译
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions, Alert, Tooltip } from 'antd';
-import { ArrowLeftOutlined, ClockCircleOutlined, FolderAddOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
+import { App, Card, Button, Tabs, Spin, Alert, Tooltip, Popconfirm } from 'antd';
+import {
+  ClockCircleOutlined,
+  FolderAddOutlined,
+  LoadingOutlined,
+  ShareAltOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
-import { formatUSD } from '@/utils/format';
-import { archiveWorkerJournal } from '../../api/workerApi';
+import { formatQuantity, formatUSD } from '@/utils/format';
+import { archiveWorkerJournal, getPositions } from '../../api/workerApi';
 import { useWorkerStore } from '../../store/workerStore';
-import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
+import { useGuestRestriction } from '../../hooks/useGuestRestriction';
+import { usePolling } from '../../hooks/usePolling';
+import { WorkerStatusText } from '../../types/worker';
+import type { PositionInfo } from '../../types/worker';
+import { workerStatusChip } from '../../components/worker/statusChip';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
 import WorkerOverviewTab from '../../components/worker/WorkerOverviewTab';
 import WorkerDecisionsTab from '../../components/worker/WorkerDecisionsTab';
@@ -61,8 +70,27 @@ const WorkerDetail = () => {
     fetchWorkers,
     fetchWorkerDetail,
     setSelectedWorker,
+    stopWorker,
     clearErrors,
   } = useWorkerStore();
+
+  // 访客口径：停止类生命周期动作禁用 + Tooltip 提示（与全站 getButtonDisabled/Tooltip 一致）
+  const { getButtonDisabled, getButtonTooltip } = useGuestRestriction();
+
+  // 「停止」提交锁：防重复点击（页面不提供暂停/继续，见页头 actions 注释）
+  const [stopPending, setStopPending] = useState<boolean>(false);
+
+  // 头部持仓三件（demo ws-strip 现持仓/均价/未实现）：数据源与总览持仓区完全同源——
+  // workerApi.getPositions（PositionInfo[]，5s 轮询同频）。拉取失败按无持仓处理（整项省略）。
+  const [positions, setPositions] = useState<PositionInfo[]>([]);
+  usePolling(async () => {
+    if (!workerId) return;
+    try {
+      setPositions(await getPositions(parseInt(workerId)));
+    } catch {
+      setPositions([]);
+    }
+  }, { interval: 5000 });
 
   // 设置页面标题
   useEffect(() => {
@@ -174,6 +202,20 @@ const WorkerDetail = () => {
     });
   }, [currentWorker, fetchWorkerDetail, message, modal, t]);
 
+  // 停止（demo 停止钮）：与列表页启停完全同源——useWorkerStore.stopWorker
+  // （内含乐观更新 stopped + 延迟 fetchWorkers 列表刷新），此处只需补拉详情
+  const handleStop = useCallback(async () => {
+    if (!currentWorker || stopPending) return;
+    setStopPending(true);
+    try {
+      await stopWorker(currentWorker.id);
+      setLastUpdateTime(Date.now());
+      await fetchWorkerDetail(currentWorker.id);
+    } finally {
+      setStopPending(false);
+    }
+  }, [currentWorker, stopPending, stopWorker, fetchWorkerDetail]);
+
   // 只在 worker 确实不存在时整页替换 Spin。不能加 loading 条件：fetchWorkers 会
   // 置 store.loading=true，若此处整页 return 会卸载所有 tab（滚动位置丢失、轮询重启）；
   // 下方 <Spin spinning={loading}> 已提供非破坏性加载遮罩
@@ -250,135 +292,104 @@ const WorkerDetail = () => {
     ? dayjs(overview.updatedAt).fromNow()
     : dayjs(lastUpdateTime).fromNow();
 
-  return (
-    <PageContainer>
-      <Spin spinning={loading}>
-        {/* 返回按钮 - 独立在页面左上角 */}
-        <div style={{ marginBottom: 16 }}>
-          <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/strategy-worker')}>
-              {t('back_to_list')}
-            </Button>
-            <Button
-              icon={<ShareAltOutlined />}
-              onClick={() => setShareOpen(true)}
-              disabled={!currentWorker}
-            >
-              {t('share.button')}
-            </Button>
-            {/* paper 无 journal 可归档：disabled + Tooltip 说明（disabled 按钮事件不触发，
-             *  Tooltip 必须包在外层才能悬浮提示） */}
-            <Tooltip
-              title={
-                currentWorker?.trading_config?.trading_mode === 'paper'
-                  ? t('worker_archive_paper_hint')
-                  : undefined
-              }
-            >
-              <Button
-                danger
-                icon={<FolderAddOutlined />}
-                disabled={
-                  !currentWorker
-                  || currentWorker.trading_config?.trading_mode === 'paper'
-                  || !['stopped', 'error'].includes(String(currentWorker.status ?? ''))
-                }
-                onClick={handleArchive}
-              >
-                {t('worker_archive_reanchor')}
-              </Button>
-            </Tooltip>
-          </Space>
-        </div>
+  // 页头副标（§5 page-sub）：mono 真值口径——编号 · 标的 · 交易所（状态位在右侧 actions 的 chip 上）
+  const symbolsText = currentWorker.trading_config?.symbols_config?.symbols?.join(', ') || '—';
+  const modeLabel =
+    currentWorker.trading_config?.trading_mode === 'live'
+      ? t('env_live')
+      : currentWorker.trading_config?.trading_mode === 'testnet'
+        ? t('env_testnet')
+        : t('env_paper');
+  const subtitleText = `#${currentWorker.id} · ${symbolsText} · ${currentWorker.trading_config?.exchange || '—'}`;
 
+  // 头部事实条（demo .ws-strip/.s-chip 口径）：中性描边胶囊 + label + mono 真值
+  const pnlProfit = currentWorker.total_profit || 0;
+
+  // 持仓三件（demo 现持仓/均价/未实现）：无持仓整项省略，不造 0 占位。
+  // ponytail: 持仓量/均价仅在恰有一个持仓时展示——多 symbol 合计数量/均价是混合单位的假真值；
+  // 未实现盈亏跨仓位加总恒有意义，取合计。多腿聚合的升级路径：按 symbol 分组后数量加权。
+  const singlePosition = positions.length === 1 ? positions[0] : null;
+  const unrealizedPnl = positions.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0);
+  const positionBase =
+    singlePosition && singlePosition.symbol.includes('/') ? singlePosition.symbol.split('/')[0] : '';
+
+  return (
+    <PageContainer
+      title={currentWorker.name}
+      subtitle={subtitleText}
+      onBack={() => navigate('/strategy-worker')}
+      actions={
+        <>
+          {workerStatusChip(currentWorker.status, t(WorkerStatusText[currentWorker.status]))}
+          {/* 页面不提供「暂停/继续」：后端 lifecycle 只有 start/stop/restart，pause/resume 路由不存在
+           * （agentApi.pauseAgent 为死代码），按钮会 404；demo 997-1006 的暂停位先不落。 */}
+          {/* 停止：走真实 lifecycle/stop 二次确认；stopped/stopping 终态不给停止；访客禁用 + Tooltip */}
+          {['running', 'paused'].includes(String(currentWorker.status ?? '')) && (
+            <Popconfirm
+              title={t('confirm_stop_worker')}
+              onConfirm={handleStop}
+              okText={t('yes')}
+              cancelText={t('no')}
+            >
+              <Tooltip title={getButtonTooltip()}>
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  style={{ height: 30 }}
+                  loading={stopPending}
+                  disabled={stopPending || getButtonDisabled()}
+                >
+                  {t('stop')}
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          )}
+          <Button
+            icon={<ShareAltOutlined />}
+            style={{ height: 30 }}
+            disabled={!currentWorker}
+            onClick={() => setShareOpen(true)}
+          >
+            {t('share.button')}
+          </Button>
+          {/* paper 无 journal 可归档：disabled + Tooltip 说明（disabled 按钮事件不触发，
+           *  Tooltip 必须包在外层才能悬浮提示） */}
+          <Tooltip
+            title={
+              currentWorker?.trading_config?.trading_mode === 'paper'
+                ? t('worker_archive_paper_hint')
+                : undefined
+            }
+          >
+            <Button
+              danger
+              icon={<FolderAddOutlined />}
+              style={{ height: 30 }}
+              disabled={
+                !currentWorker
+                || currentWorker.trading_config?.trading_mode === 'paper'
+                || !['stopped', 'error'].includes(String(currentWorker.status ?? ''))
+              }
+              onClick={handleArchive}
+            >
+              {t('worker_archive_reanchor')}
+            </Button>
+          </Tooltip>
+        </>
+      }
+    >
+      <Spin spinning={loading}>
         {/* 错误提示 */}
         {error && (
-          <div style={{ marginBottom: 16 }}>
-            <Card>
-              <Space>
-                <span style={{ color: QUANT_COLORS.negative }}>{error}</span>
-                <Button size="small" onClick={clearErrors}>
-                  {t('close_button')}
-                </Button>
-              </Space>
-            </Card>
-          </div>
+          <Alert
+            type="error"
+            showIcon
+            closable
+            onClose={clearErrors}
+            style={{ marginBottom: 12 }}
+            description={error}
+          />
         )}
-
-        {/* 页面头部 */}
-        <Card style={{ marginBottom: 16 }}>
-          <Row gutter={[16, 16]} align="middle">
-            <Col flex="auto">
-              <Space size="large" wrap>
-                <Space size="middle">
-                  <span style={{ fontSize: 20, fontWeight: 600 }}>{currentWorker.name}</span>
-                  {currentWorker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
-                  {currentWorker.strategy_type === 'rule' && <Tag color="green">{t('worker_rule_tag')}</Tag>}
-                  <Tag color={WorkerStatusColor[currentWorker.status]}>
-                    {t(WorkerStatusText[currentWorker.status])}
-                  </Tag>
-                </Space>
-
-                <Space size="middle">
-                  <Tag color="blue">{currentWorker.trading_config?.symbols_config?.symbols?.join(', ') || '-'}</Tag>
-                  <Tag>{currentWorker.trading_config?.exchange}</Tag>
-                </Space>
-
-                <Space size="small">
-                  <ClockCircleOutlined style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
-                  <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 60%, transparent)', fontSize: 13 }}>
-                    {t('worker_last_updated', { time: lastUpdateText })}
-                  </span>
-                </Space>
-              </Space>
-            </Col>
-
-            <Col>
-              <Descriptions size="small" column={3}>
-                <Descriptions.Item label={t('timeframe')}>
-                  <Tag color="blue">{currentWorker.trading_config?.interval}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label={t('total_profit')}>
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 16,
-                      color:
-                        (currentWorker.total_profit || 0) >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
-                    }}
-                  >
-                    {formatUSD(currentWorker.total_profit, { showSign: true })}
-                  </span>
-                </Descriptions.Item>
-                <Descriptions.Item label={t('trading_mode')}>
-                  {/* live 红色提醒真实资金，testnet 橙色表示测试网，paper 蓝色本地模拟；文案与创建/编辑弹窗的 TRADING_MODES 保持一致 */}
-                  <Tag color={currentWorker.trading_config?.trading_mode === 'live' ? 'red' : currentWorker.trading_config?.trading_mode === 'testnet' ? 'orange' : 'blue'}>
-                    {currentWorker.trading_config?.trading_mode === 'live'
-                      ? t('env_live')
-                      : currentWorker.trading_config?.trading_mode === 'testnet'
-                        ? t('env_testnet')
-                        : t('env_paper')}
-                  </Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label={t('leverage')}>
-                  <Tag color="orange">{workerConfig.leverage ? `${String(workerConfig.leverage)}x` : '1x'}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label={t('total_investment')}>
-                  {/* config 里没有 total_investment；创建/编辑弹窗提交与启动参数读的都是 initial_capital（worker 初始资金） */}
-                  <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-                    ${typeof workerConfig.initial_capital === 'number' ? workerConfig.initial_capital.toFixed(2) : '-'}
-                  </span>
-                </Descriptions.Item>
-                <Descriptions.Item label={t('order_type')}>
-                  {/* config.order_type 是死字段（worker 配置从未支持过下单方式，读了必是 undefined）。
-                   *  实际执行：paper/live 主回路按目标仓位差额固定下市价单，与 paper_trade_sync「paper 撮合只产市价单」同口径，
-                   *  故此处如实显示市价单；limit 仅存在于订单/成交记录的筛选条件 */}
-                  <Tag color="cyan">{t('market_order')}</Tag>
-                </Descriptions.Item>
-              </Descriptions>
-            </Col>
-          </Row>
-        </Card>
 
         {/* 启动/运行失败原因：仅 error 状态且有记录时展示（error_message 来自详情接口） */}
         {currentWorker.status === 'error' && selectedWorker?._state_info?.error_message && (
@@ -387,17 +398,62 @@ const WorkerDetail = () => {
             showIcon
             title={t('error_reason')}
             description={selectedWorker._state_info.error_message}
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 12 }}
           />
         )}
 
-        {/* 标签页内容区 */}
-        <Card>
+        {/* 头部事实条：周期 / 模式 / 累计盈亏 / 初始资金 / 杠杆 / 下单方式，最右为最后更新时间 */}
+        <div className="qc-strip">
+          <span className="qc-strip-item">{t('timeframe')} <b>{currentWorker.trading_config?.interval || '—'}</b></span>
+          <span className="qc-strip-item">{t('trading_mode')} <b>{modeLabel}</b></span>
+          {/* 持仓三件（demo 1118-1120）：有持仓才出现，数值 mono 右对齐（.qc-strip-item b 已 mono+tabular-nums） */}
+          {singlePosition && (
+            <span className="qc-strip-item">
+              {t('current_position')}
+              <b>{formatQuantity(singlePosition.quantity)}{positionBase ? ` ${positionBase}` : ''}</b>
+            </span>
+          )}
+          {singlePosition && (
+            <span className="qc-strip-item">
+              {t('entry_price')}
+              <b>{formatUSD(singlePosition.entry_price)}</b>
+            </span>
+          )}
+          {positions.length > 0 && (
+            <span className="qc-strip-item">
+              {t('unrealized_pnl')}
+              <b className={unrealizedPnl > 0 ? 'qc-cell-up' : unrealizedPnl < 0 ? 'qc-cell-down' : undefined}>
+                {formatUSD(unrealizedPnl, { showSign: true })}
+              </b>
+            </span>
+          )}
+          <span className="qc-strip-item">
+            {t('total_profit')}
+            <b className={pnlProfit > 0 ? 'qc-cell-up' : pnlProfit < 0 ? 'qc-cell-down' : undefined}>
+              {formatUSD(currentWorker.total_profit, { showSign: true })}
+            </b>
+          </span>
+          <span className="qc-strip-item">
+            {t('total_investment')}
+            <b>${typeof workerConfig.initial_capital === 'number' ? workerConfig.initial_capital.toFixed(2) : '—'}</b>
+          </span>
+          <span className="qc-strip-item">{t('leverage')} <b>{workerConfig.leverage ? `${String(workerConfig.leverage)}x` : '1x'}</b></span>
+          <span className="qc-strip-item">{t('order_type')} <b>{t('market_order')}</b></span>
+          <span
+            className="qc-mono"
+            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--qc-text-quaternary)' }}
+          >
+            <ClockCircleOutlined />
+            {t('worker_last_updated', { time: lastUpdateText })}
+          </span>
+        </div>
+
+        {/* 标签页内容区（§6.8 页签：全站统一下划线式，无需 size 特调） */}
+        <Card className="qc-card">
           <Tabs
             activeKey={activeTab}
             onChange={handleTabChange}
             items={tabItems}
-            size="large"
           />
         </Card>
 

@@ -1,0 +1,171 @@
+#!/usr/bin/env node
+/**
+ * 规范 ↔ 基准 demo 一致性校验（无依赖，node docs/design/check-spec.mjs）
+ *
+ * 守护三件事：
+ *  1. docs/design-spec.md §2.2 的 token 块与 demo 的 :root / [data-theme=dark] 逐值相等；
+ *  2. demo 里每个 .view 的 id 都有 TITLES 路由（v4 曾因 view-btconfig 与路由名不一致整页黑屏）；
+ *  3. demo 中 var(--x) 引用的变量都有定义（曾漏定义 --card 导致弹窗透明底）。
+ * 另附关键几何值抽样断言。任一项失败退出码 1。
+ */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const dir = dirname(fileURLToPath(import.meta.url));
+const demo = readFileSync(join(dir, 'qc-prototype-demo.html'), 'utf8');
+const spec = readFileSync(join(dir, '..', 'design-spec.md'), 'utf8');
+const impl = readFileSync(join(dir, '..', '..', 'frontend', 'src', 'global.css'), 'utf8');
+
+let fail = 0;
+const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) fail++; };
+
+/* ---------- 1. token 块逐值比对 ---------- */
+const tokensOf = (css) => {
+  const m = new Map();
+  for (const [, k, v] of css.matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)) m.set(k, v.trim());
+  return m;
+};
+const cssBlock = (src, re, label) => {
+  const m = src.match(re);
+  if (!m) throw new Error(`未找到 ${label} 的 token 块`);
+  return tokensOf(m[0]);
+};
+
+const specCss = spec.match(/```css\n([\s\S]*?)```/)[1]; // §2.2 单一围栏内含亮暗两块
+const pairs = [
+  ['light', /:root, html\[data-theme='light'\] \{[\s\S]*?\n\s*\}/],
+  ['dark', /html\[data-theme='dark'\] \{[\s\S]*?\n\s*\}/],
+];
+for (const [name, re] of pairs) {
+  const d = cssBlock(demo, re, `demo ${name}`);
+  const s = cssBlock(specCss, re, `spec ${name}`);
+  for (const [k, v] of s) ok(d.get(k) === v, `${name} ${k}: spec=${v} demo=${d.get(k) ?? '<缺失>'}`);
+  for (const k of d.keys()) ok(s.has(k), `${name} ${k}: demo 有而 spec 未收录（${d.get(k)}）`);
+  ok(d.size === s.size, `${name} token 数量 spec=${s.size} demo=${d.size}`);
+}
+
+/* ---------- 2. 视图 id ↔ 路由表 ---------- */
+const viewIds = [...demo.matchAll(/<section class="view[^"]*" id="view-([\w-]+)"/g)].map(m => m[1]);
+const titles = [...demo.match(/var TITLES = \{[\s\S]*?\};/)[0].matchAll(/(?:'([\w-]+)'|(\w+)):\s*'/g)]
+  .map(m => m[1] ?? m[2]);
+ok(viewIds.length === titles.length, `视图数 ${viewIds.length} == 路由数 ${titles.length}`);
+for (const v of viewIds) ok(titles.includes(v), `view-${v} 有对应路由`);
+for (const t of titles) ok(viewIds.includes(t), `路由 ${t} 有对应视图`);
+
+/* ---------- 3. var() 引用都有定义 ---------- */
+const defined = new Set([...demo.matchAll(/^\s*(--[\w-]+):/gm)].map(m => m[1]));
+const used = new Set([...demo.matchAll(/var\((--[\w-]+)/g)].map(m => m[1]));
+for (const v of used) ok(defined.has(v), `var(${v}) 已定义`);
+
+/* ---------- 4. 关键几何抽样 ---------- */
+const geometry = [
+  ['Header 52px', 'height:52px; flex:0 0 52px'],
+  ['Sider 216px', 'flex:0 0 216px'],
+  ['正文 13px', 'font-size:13px; color:var(--fg); overflow:hidden'],
+  ['卡片 10px/12px 14px', '.card { background:var(--bgc); border:1px solid var(--bd); border-radius:10px; padding:12px 14px'],
+  ['表头 10.5px/9px 12px', '.bt th { font-size:10.5px; font-weight:500; color:var(--fg-4); text-align:left; padding:9px 12px'],
+  ['表格 td 12px/10px 12px', '.bt td { padding:10px 12px; font-size:12px'],
+  ['弹窗 560px/14px', 'width:min(560px, 94vw); max-height:86vh; display:flex; flex-direction:column; border-radius:14px'],
+  ['按钮 30px/8px', '.btn {'],
+  ['页码钮 28px', 'height:28px'],
+  // 过滤 chips 与表格内 chip 是两个原语（§6.6 / §6.2）：一个 26px 胶囊，一个 10px 徽章
+  ['过滤 chip 26px/13px/11.5px', '.ichip { display:inline-flex; align-items:center; height:26px; padding:0 11px; border-radius:13px'],
+  ['表格 chip 3px 7px/10px', '.chip { display:inline-flex; align-items:center; gap:4px; font-size:10px; line-height:1; padding:3px 7px; border-radius:20px'],
+  ['导航项 13px', 'font:inherit; font-size:13px; cursor:pointer; text-align:left; white-space:nowrap'],
+  // 编辑器 chrome（§6.16）：唯一真相源是 src/monaco/quantcellTheme.ts，demo 必须逐值跟上
+  ['编辑器容器 10px + 1px 边框', '.ced { border:1px solid var(--bd); border-radius:10px; overflow:hidden; background:#1e1e1e'],
+  ['编辑器 12.5px/1.52', 'font-size:12.5px; line-height:1.52'],
+  ['状态栏 #007acc/10.5px', '.ced-status { display:flex; gap:14px; padding:3px 14px; background:#007acc'],
+];
+for (const [label, needle] of geometry) ok(demo.includes(needle), `几何 ${label}`);
+
+/* ---------- 5. 编辑器 token 色 = §6.16 Dark+ 语义表 ---------- */
+// 每项 [说明, demo 里必须出现的声明, spec 里必须出现的色值]
+const editorTokens = [
+  ['注释 #6a9955 斜体', '.tk-cmt { color:#6a9955; font-style:italic; }', '#6a9955` 斜体'],
+  ['字符串 #ce9178', '.tk-str { color:#ce9178; }', '字符串 `#ce9178`'],
+  ['数字 #b5cea8', '.tk-num { color:#b5cea8; }', '数字 `#b5cea8`'],
+  ['函数 #dcdcaa', '.tk-fn { color:#dcdcaa; }', '函数 `#dcdcaa`'],
+  ['类名 #4ec9b0', '.tk-cls { color:#4ec9b0; }', '类名 `#4ec9b0`'],
+  ['标识符/self #9cdcfe', '.tk-self { color:#9cdcfe; }', '`#9cdcfe`'],
+  ['关键字 #c586c0（含 def/class，Monaco 限制）', '.tk-kw { color:#c586c0; } .tk-kw2 { color:#c586c0; }', '关键字 `#c586c0`'],
+];
+for (const [label, demoNeedle, specNeedle] of editorTokens) {
+  ok(demo.includes(demoNeedle), `编辑器色 demo ${label}`);
+  ok(spec.includes(specNeedle), `编辑器色 spec ${label}`);
+}
+// 旧近似值（手写 <pre> 时代）不得回流
+for (const stale of ['#8a9199', '#d19a66', 'background:#181818']) {
+  ok(!demo.includes(stale), `编辑器色 demo 无旧值 ${stale}`);
+}
+
+/* ---------- 6. 基础组件层实现一致性（§6.9 / §6.10 修订 / §6.19） ----------
+   §6.19 三类控件 demo 无静态稿，不做 demo 断言；这里只查「spec 宣称的口径」与
+   frontend/src/global.css 的实现互相咬合（基础组件层收口在第 J 车道）。 */
+
+const pairs6919 = [
+  ['§6.9 内钮几何 24px/12px', 'height:24px; padding:0 12px', 'height: 24px;\n  margin: 0;\n  padding: 0 12px;'],
+  ['§6.9 选中底 primary 12%', 'primary 12%', 'color-mix(in srgb, var(--qc-primary) 12%, transparent)'],
+  ['§6.9 禁用选中态 primary 8% + fg-4', '选中项保留 `primary 8%` 底', 'ant-segmented-item-selected.ant-segmented-item-disabled'],
+  ['§6.10 focus 环 primary 20%', '0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent)', '0 0 0 3px color-mix(in srgb, var(--qc-primary) 20%, transparent)'],
+  ['§6.19 Switch 轨道 28×16', '轨道 `28×16`', '--ant-switch-track-height: 16px'],
+  ['§6.19 Switch 滑块 12', '滑块 `12`', '--ant-switch-handle-size: 12px'],
+  ['§6.19 Checkbox 盒 14×14 / 4px 圆角', '盒 `14×14; border-radius:4px`', 'border-radius: 4px'],
+  ['§6.19 Radio.Button 外壳经全局收口', '页面不得为对齐本节加钩子类', '.ant-radio-group:has(.ant-radio-button-wrapper)'],
+];
+
+// §6.20 多选胶囊：demo .pick 实存，可做 demo↔spec↔impl 三方咬合
+const pickDemoNeedles = ['height:26px; padding:0 10px; border-radius:13px', 'var(--primary) 45%, transparent', 'var(--primary) 8%, transparent'];
+for (const n of pickDemoNeedles) ok(demo.includes(n), `demo .pick ${n.split(';')[0].trim()}`);
+
+const pairs620 = [
+  ['§6.20 .qc-pick 几何 26/13/0-10', 'height:26px; padding:0 10px; border-radius:13px', 'height: 26px;\n  padding: 0 10px;\n  border-radius: 13px;'],
+  ['§6.20 .qc-pick 选中边 primary 45%', 'primary) 45%, transparent', 'color-mix(in srgb, var(--qc-primary) 45%, transparent)'],
+  ['§6.20 .qc-pick 选中底 primary 8%', 'primary) 8%, transparent', 'color-mix(in srgb, var(--qc-primary) 8%, transparent)'],
+  ['§6.20 与 ichip/chip 语义切割', '页面不得混用', '.qc-pick.on'],
+];
+for (const [label, specNeedle, cssNeedle] of pairs6919) {
+  ok(spec.includes(specNeedle), `规范 ${label}`);
+  ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
+}
+for (const [label, specNeedle, cssNeedle] of pairs620) {
+  ok(spec.includes(specNeedle), `规范 ${label}`);
+  ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
+}
+
+/* ---------- 7. §6.12 Toast / notification 实现 ↔ 规范咬合 ----------
+   demo 有 .toast 静态稿，但 antd message ≠ demo DOM（content 盒嵌 custom-content），
+   断言直指 spec 宣称的取值 ↔ global.css 的落值（同 §6.9/§6.19 的 spec↔impl 双侧咬合）。 */
+
+const pairs612 = [
+  ['§6.12 message 容器右下 18/18', 'right:18px; bottom:18px', 'right: 18px;\n  bottom: 18px;'],
+  ['§6.12 容器纵列 + 间距 8', 'flex 纵列 + `gap:8px`', 'flex-direction: column;\n  align-items: flex-end;\n  gap: 8px;'],
+  ['§6.12 卡片盒 card 底 + bd 边 + 左缘 3px primary', 'background:var(--qc-surface)（--card）', 'background: var(--qc-surface);\n  border: 1px solid var(--qc-border);\n  border-left: 3px solid var(--qc-primary);'],
+  ['§6.12 卡片几何 9px 圆角/26px 阴影/9px 14px 内边距/340 上限', 'border-radius:9px; box-shadow:0 10px 26px rgba(0,0,0,.2); padding:9px 14px', 'border-radius: 9px;\n  box-shadow: 0 10px 26px rgb(0 0 0 / 0.2);\n  padding: 9px 14px;\n  max-width: 340px;'],
+  ['§6.12 文本 mono 11.5px 次级色', 'mono 11.5px; color:var(--qc-text-secondary)（--fg-2）', 'font-size: 11.5px;\n  color: var(--qc-text-secondary);'],
+  ['§6.12 入场动画 toastIn .2s（demo 缓动逐值）', 'toastIn .2s cubic-bezier(.2,.9,.3,1.2)', 'animation: qc-toast-in .2s cubic-bezier(.2, .9, .3, 1.2);'],
+  ['§6.12 notification 标题 13px/650', '标题 13px/650、描述 12px `var(--qc-text-secondary)`', 'font-size: 13px;\n  font-weight: 650;'],
+  ['§6.12 notification 描述 12px', '描述 12px `var(--qc-text-secondary)`', 'font-size: 12px;\n  color: var(--qc-text-secondary);'],
+];
+
+/* §6.12 状态色：spec 一句收录 4 个 token，左缘（:has 判型）与图标色在 global.css 逐一对应 */
+ok(spec.includes('--qc-success/--qc-error/--qc-warning/--qc-info'), '规范 §6.12 状态色 4 token 收录');
+for (const t of ['success', 'error', 'warning', 'info']) {
+  ok(impl.includes(`:has(> .ant-message-${t})`) && impl.includes(`.ant-message-custom-content.ant-message-${t} > .anticon`),
+    `实现 global.css §6.12 ${t} 状态色（左缘 + 图标）`);
+}
+
+/* notification 面板形制单独咬合（面板参数不在 pairs 通用循环里，字号项已上表） */
+ok(
+  impl.includes('background: var(--qc-surface);\n  border: 1px solid var(--qc-border);\n  border-radius: 10px;\n  box-shadow: var(--qc-shadow-card);'),
+  '实现 global.css §6.12 notification 面板形制（card 底/1px 边/10px 圆角/card 阴影）',
+);
+
+for (const [label, specNeedle, cssNeedle] of pairs612) {
+  ok(spec.includes(specNeedle), `规范 ${label}`);
+  ok(impl.includes(cssNeedle), `实现 global.css ${label}${impl.includes(cssNeedle) ? '' : `（缺 ${cssNeedle}）`}`);
+}
+
+console.log(fail ? `\n✗ ${fail} 项不一致` : '\n✓ 规范与 demo 完全一致');
+process.exit(fail ? 1 : 0);

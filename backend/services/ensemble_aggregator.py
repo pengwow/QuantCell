@@ -11,7 +11,6 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from gymnasium import spaces
 
 from utils.logger import LogType, get_logger
 
@@ -27,10 +26,20 @@ MemberPredictFn = Callable[[list[float]], "float | None"]
 BUY_RATIO_EPS = 0.01
 
 
+def _is_discrete_space(model: Any) -> bool:
+    """gymnasium 懒加载判定（与 ensemble_service._is_discrete_space 同因:sidecar 排除 gymnasium）。"""
+    try:
+        from gymnasium import spaces
+
+        return isinstance(model.action_space, spaces.Discrete)
+    except ImportError:
+        return False
+
+
 def member_ratio_predict_fn(model: Any) -> MemberPredictFn:
     """按成员动作空间分派适配器(Box→clip 连续值;Discrete→动作映射)。"""
 
-    if isinstance(model.action_space, spaces.Discrete):
+    if _is_discrete_space(model):
         return _discrete_to_ratio(model)
     return _continuous_to_ratio(model)
 

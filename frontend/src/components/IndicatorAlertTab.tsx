@@ -32,7 +32,7 @@ import {
 } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { indicatorApi, notificationApi } from '../api';
-import { dataApi } from '../api/dataApi';
+import SymbolSelect from '@/components/SymbolSelect';
 
 interface AlertRule {
   id: number;
@@ -134,9 +134,6 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
   const [form] = Form.useForm();
   // 提醒间隔单位（useWatch 保证改单位时校验规则立即使用新值换算）
   const frequencyUnit = (Form.useWatch('frequency_unit', form) as string | undefined) ?? 'minute';
-  // 交易对可搜索下拉的数据源（复用图表交易对接口）
-  const [symbolOptions, setSymbolOptions] = useState<string[]>([]);
-
   // 通知渠道可用性状态（无效项置灰 + 原因提示 + 去配置入口)
   const [channelStatuses, setChannelStatuses] = useState<ChannelStatus[]>([]);
   const [channelChecking, setChannelChecking] = useState(false);
@@ -181,13 +178,6 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
   useEffect(() => {
     if (!modalOpen) return undefined;
     void loadChannelStatus();
-    // 交易对列表：拉一次热门交易对供搜索选择；失败不阻塞（保留手输数据的默认值场景）
-    dataApi
-      .getProducts({ filter: '', limit: 100 })
-      .then((res) => {
-        setSymbolOptions((res?.products ?? []).map((p) => p.symbol));
-      })
-      .catch(() => setSymbolOptions([]));
     const onFocus = () => void loadChannelStatus();
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -399,6 +389,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
       />
 
       <Modal
+        className="qc-modal"
         title={t('indicator.alertAddTitle')}
         open={modalOpen}
         onCancel={() => {
@@ -435,6 +426,7 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
         <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
         <Form
           form={form}
+          className="qc-form"
           layout="vertical"
           // 默认值对齐弹窗外层：规则名=当前指标名、交易对/周期=图表当前值；间隔默认 30 分钟
           initialValues={{
@@ -458,12 +450,10 @@ const IndicatorAlertTab: React.FC<IndicatorAlertTabProps> = ({
               rules={[{ required: true, message: t('indicator.alertSymbolRequired') }]}
               style={{ width: 260 }}
             >
-              {/* 可搜索下拉：输入关键词实时匹配交易对；列表拉取失败时选项为空，但仍展示默认值 */}
-              <Select
-                showSearch
+              {/* 全站共用标的池（compact 口径 BTCUSDT），输入关键词实时匹配 */}
+              <SymbolSelect
+                valueFormat="compact"
                 placeholder={t('indicator.alertSymbolPlaceholder')}
-                optionFilterProp="value"
-                options={symbolOptions.map((s) => ({ value: s, label: s }))}
               />
             </Form.Item>
             <Form.Item name="interval" label={t('indicator.alertPeriod')} style={{ width: 120 }}>

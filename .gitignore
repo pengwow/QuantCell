@@ -25,6 +25,7 @@ frontend/dist/*
 frontend/dist/
 frontend/design-proposal.md
 frontend/test_data/*
+frontend/test-results/
 frontend/tsconfig.tsbuildinfo
 
 crypto_data/
@@ -88,6 +89,13 @@ docs/*
 # 官方文档站源文件（中英双语，mkdocs 构建）必须入库
 !docs/zh/
 !docs/en/
+# 功能验证文档体系（文档即测试，check-coverage 闸门基准）必须入库
+!docs/testing/
+# 主题系统维护者指南（settings.md / 测试文档引用）必须入库
+!docs/theme.md
+# 前端设计规范 + 像素基准 demo（check-spec.mjs 守护一致性）必须入库
+!docs/design-spec.md
+!docs/design/
 docs/compose/specs/*
 .mimocode/
 .mimocode/plans/
@@ -126,3 +134,9 @@ logs/*
 
 # mkdocs 文档站构建产物
 site/
+
+# desktop 本地构建 CLI(tauri build 不再依赖 bunx 联网解析)
+desktop/node_modules/
+
+# PyInstaller onedir 产物（构建脚本生成，不入库）
+desktop/src-tauri/binaries/backend/

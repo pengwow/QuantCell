@@ -13,13 +13,10 @@ import {
   Select,
   Spin,
   message,
-  Empty,
   Descriptions,
   Space,
-  Table,
   DatePicker,
   Modal,
-  Tag,
   Alert,
   Flex,
   Tooltip,
@@ -27,15 +24,18 @@ import {
 import {
   PlayCircleOutlined,
   DownloadOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { backtestApi } from '../../api';
+import { getBacktestProgress } from '../../api/backtest';
 import DecisionDetailDrawer, { fmtDecisionTs, humanizeFallbackReason } from './DecisionDetailDrawer';
-import MetricCard from '../../components/MetricCard';
+import type { MetricColor } from './metricCards';
 import { formatMetricValue, visibleMetricCards } from './metricCards';
 import TradeTable, { type Trade } from '../../components/TradeTable';
 import {
   buildLeverageMap,
   type BacktestFill,
+  type BacktestProgressData,
   type CascadeDecisionRecord,
   type EffectiveMarginSpec,
 } from '../../types/backtest';
@@ -43,34 +43,67 @@ import EquityChart from '../../components/EquityChart';
 import EChart from '@/components/EChart';
 import { useQuantColors } from '@/utils/colors';
 import PageContainer from '@/components/PageContainer';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'ahooks';
+// 页面级样式（.bt-kpi-grid / .bt-note 等缺口类）：全局原语在 global.css 的 .qc-*
+import './backtest.css';
+
+// metricCards 的着色档位 → §6.4 qc-kpi-num 语义类（+表示涨/盈、-表示跌/亏；中性不染色）
+const kpiTone = (type: MetricColor): '' | 'up' | 'down' =>
+  type === 'positive' ? 'up' : type === 'negative' ? 'down' : '';
+
+/** §6.4 KPI 卡：label 11px → mono 22px/650（语义着色）；hint 悬浮/点击出说明 */
+const KpiCard = ({ label, value, tone, hint }: { label: string; value: string; tone?: string; hint?: string }) => (
+  <div className="qc-kpi">
+    <div className="qc-kpi-top">
+      <span className="qc-kpi-lb">{label}</span>
+      {hint && (
+        <Tooltip title={hint} trigger={['hover', 'click']}>
+          <InfoCircleOutlined className="bt-kpi-hint" aria-label={hint} />
+        </Tooltip>
+      )}
+    </div>
+    <div className={`qc-kpi-num${tone ? ` ${tone}` : ''}`}>{value}</div>
+  </div>
+);
 
 // 逐笔成交兜底表：round-trip 稀疏（如 RL 目标仓位策略持仓长期不归零）时
 // 在交易详情 Card 内展示 fill 粒度记录，替代误导性的「无完整交易记录」空态
 const FillsDetailTable = ({ fills }: { fills: BacktestFill[] }) => {
   const { t } = useTranslation();
+  // 客户端分页（fill 是结果 JSON 附属数据，无服务端分页端点）；DataTable 必须受控传 current/onChange
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   return (
     <>
-      <Alert type="info" showIcon style={{ marginBottom: 16 }} title={t('backtest_fills_detail_hint')} />
-      <Table
-        size="small"
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} title={t('backtest_fills_detail_hint')} />
+      <DataTable<BacktestFill>
         rowKey="fill_id"
         dataSource={fills}
-        scroll={{ y: 480 }}
-        pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (total) => t('total_count', { count: total }) }}
+        scroll={{ x: 'max-content', y: 480 }}
+        pagination={{
+          current: page,
+          pageSize,
+          onChange: (p, s) => {
+            setPage(p);
+            setPageSize(s);
+          },
+        }}
         columns={[
-          { title: t('trade_time'), dataIndex: 'formatted_time', key: 'ft' },
+          { title: t('trade_time'), dataIndex: 'formatted_time', key: 'ft', render: (v: string) => <span className="qc-mono">{v || '—'}</span> },
           {
             title: t('direction'),
             dataIndex: 'side',
             key: 'side',
-            render: (v: string) => <Tag color={v === 'buy' ? 'green' : 'red'}>{v === 'buy' ? t('buy') : t('sell')}</Tag>,
+            render: (v: string) => (v === 'buy'
+              ? <span className="qc-chip ok">{t('buy')}</span>
+              : <span className="qc-chip down">{t('sell')}</span>),
           },
-          { title: t('price'), dataIndex: 'price', key: 'p', align: 'right', render: (v: number) => v.toFixed(4) },
-          { title: t('quantity'), dataIndex: 'quantity', key: 'q', align: 'right', render: (v: number) => v.toFixed(4) },
+          { title: t('price'), dataIndex: 'price', key: 'p', align: 'right', render: (v: number) => <span className="qc-mono">{v?.toFixed(4)}</span> },
+          { title: t('quantity'), dataIndex: 'quantity', key: 'q', align: 'right', render: (v: number) => <span className="qc-mono">{v?.toFixed(4)}</span> },
         ]}
       />
     </>
@@ -203,6 +236,8 @@ const BacktestDetail = () => {
   const [filterDateRange, setFilterDateRange] = useState<[string, string] | null>(null);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [detailRecord, setDetailRecord] = useState<CascadeDecisionRecord | null>(null);
+  // failed 任务的失败原因：progress 接口的 error.message（内存态快照，服务重启后取不到 → 整块不渲染）
+  const [progress, setProgress] = useState<BacktestProgressData | null>(null);
 
   // 设置页面标题
   useEffect(() => {
@@ -255,6 +290,19 @@ const BacktestDetail = () => {
 
     fetchDetail();
   }, [backtestId, navigate, querySymbol]);
+
+  // failed 任务补失败原因（列表行内摘要同源：progress 接口 error.message）。
+  // 快照只在内存里，服务重启后的旧任务接口返回空 → 页面只留状态 chip，不编原因
+  useEffect(() => {
+    if (!backtestId || backtestData?.status !== 'failed') return;
+    let cancelled = false;
+    getBacktestProgress(backtestId).then((data) => {
+      if (!cancelled && data) setProgress(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [backtestId, backtestData?.status]);
 
   /** 多品种切换：驱动后端重新拉取该品种的指标/曲线/成交；切回「全部」时恢复组合视图请求 */
   const handleSymbolChange = (value: string) => {
@@ -392,7 +440,7 @@ const BacktestDetail = () => {
     return (
       <PageContainer title={t('backtest_detail')} onBack={handleBack}>
         <div style={{ padding: '100px 0' }}>
-          <Empty description={t('backtest_not_found')} />
+          <QcEmpty title={t('backtest_not_found')} />
         </div>
       </PageContainer>
     );
@@ -424,15 +472,47 @@ const BacktestDetail = () => {
           ? t('backtest_bracket_source_default')
           : t('backtest_bracket_source_config');
 
+  // §6.2 状态徽章：完成=ok、运行中=info+呼吸点、失败=down、等待中=quiet；未知值原样展示（数据枚举）
+  const statusChip = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <span className="qc-chip ok">{t('status_completed')}</span>;
+      case 'running':
+      case 'in_progress':
+        return <span className="qc-chip info"><span className="qc-pdot" />{t('status_running')}</span>;
+      case 'failed':
+        return <span className="qc-chip down">{t('status_failed')}</span>;
+      case 'pending':
+        return <span className="qc-chip quiet">{t('status_pending')}</span>;
+      default:
+        return <span className="qc-chip quiet">{status}</span>;
+    }
+  };
+
+  // 页头副标只写真实数据（§5）：标的（最多 3 个，余量以 … 收尾）· 周期 · 回测区间
+  const symbolsLabel = symbols.length
+    ? `${symbols.slice(0, 3).join(',')}${symbols.length > 3 ? '…' : ''}`
+    : '';
+  const rangeLabel = backtestConfig.start_time && backtestConfig.end_time
+    ? `${backtestConfig.start_time} → ${backtestConfig.end_time}`
+    : '';
+  const detailSubtitle = [symbolsLabel, backtestConfig.interval, rangeLabel].filter(Boolean).join(' · ') || undefined;
+
+  // 失败原因块（failed 才有；progress.error 缺失即不渲染，只留状态 chip）
+  const failMessage = backtestData.status === 'failed' ? progress?.error?.message : undefined;
+
   return (
-    <PageContainer title={`${strategyName} - ${t('backtest_detail')}`} onBack={handleBack}>
-      <div className="space-y-6">
-        {/* 页面操作按钮 */}
-        <div className="flex flex-wrap justify-start sm:justify-end gap-2">
+    <PageContainer
+      title={`${strategyName} - ${t('backtest_detail')}`}
+      subtitle={detailSubtitle}
+      onBack={handleBack}
+      actions={
+        <>
           <Button
+            type="primary"
             icon={<PlayCircleOutlined />}
             onClick={handleReplay}
-            type="primary"
+            style={{ height: 30, padding: '0 12px', fontSize: 12, fontWeight: 550 }}
           >
             {t('replay')}
           </Button>
@@ -440,20 +520,33 @@ const BacktestDetail = () => {
             icon={<DownloadOutlined />}
             onClick={handleExport}
             loading={exporting}
+            style={{ height: 30, padding: '0 12px', fontSize: 12 }}
           >
             {t('export_report')}
           </Button>
-        </div>
-
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {/* 失败原因：放页首，避免 failed 任务（KPI 全空）看起来像空壳；原文 mono 可换行 */}
+        {failMessage && (
+          <div className="bt-fail-block">
+            <div className="bt-fail-title">
+              {t('bt_fail_reason')}
+              {progress?.error?.stage ? ` · ${progress.error.stage}` : ''}
+            </div>
+            <div className="qc-mono bt-fail-text">{failMessage}</div>
+          </div>
+        )}
         {/* 配置信息 */}
-        <Card title={t('config_info')} className="mb-6">
+        <Card title={t('config_info')} className="qc-card">
           <Flex vertical gap={12}>
-          <Descriptions bordered column={{ xs: 1, sm: 2, md: 3, lg: 4 }}>
+          <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3, lg: 4 }}>
             <Descriptions.Item label={t('backtest_strategy_name')}>
               {strategyName}
             </Descriptions.Item>
             <Descriptions.Item label={t('backtest_symbols')}>
-              {symbols.length === 0 ? '-' : (
+              {symbols.length === 0 ? '—' : (
                 <>
                   {symbols.slice(0, 3).join('、')}
                   {symbols.length > 3 && (
@@ -468,61 +561,62 @@ const BacktestDetail = () => {
               )}
             </Descriptions.Item>
             <Descriptions.Item label={t('backtest_timeframe')}>
-              {backtestConfig.interval || '-'}
+              <span className="qc-mono">{backtestConfig.interval || '—'}</span>
             </Descriptions.Item>
             <Descriptions.Item label={t('backtest_trading_mode')}>
               {backtestConfig.trading_mode === 'futures' ? t('backtest_futures') : t('spot')}
             </Descriptions.Item>
             <Descriptions.Item label={t('backtest_period')}>
               {backtestConfig.start_time && backtestConfig.end_time
-                ? t('backtest_date_span', { start: backtestConfig.start_time, end: backtestConfig.end_time })
-                : '-'}
+                ? <span className="qc-mono">{t('backtest_date_span', { start: backtestConfig.start_time, end: backtestConfig.end_time })}</span>
+                : '—'}
             </Descriptions.Item>
             <Descriptions.Item label={t('backtest_initial_cash')}>
-              {formatNumber(backtestConfig.initial_cash || 0)}
+              <span className="qc-mono">{formatNumber(backtestConfig.initial_cash || 0)}</span>
             </Descriptions.Item>
             <Descriptions.Item label={t('backtest_capital_mode')}>
               {backtestConfig.capital_mode === 'shared' ? t('backtest_capital_shared') : t('backtest_capital_per_symbol')}
             </Descriptions.Item>
             <Descriptions.Item label={t('status')}>
-              {backtestData.status}
+              {statusChip(backtestData.status)}
             </Descriptions.Item>
           </Descriptions>
           {/* 杠杆与保证金：整块常显，未启用时明确告诉用户「没算保证金」，而不是悄悄消失 */}
           <div>
-            <div className="mb-2 text-sm font-medium">{t('backtest_margin_specs')}</div>
+            <div className="bt-subhead">{t('backtest_margin_specs')}</div>
             <Space size={4} wrap>
               {effectiveSpecs.map((item) => (
-                <Tag key={item.symbol} className="mb-0">
+                <span key={item.symbol} className="qc-chip quiet">
                   {`${item.symbol} ${item.leverage}x ${item.margin_mode === 'isolated' ? t('backtest_margin_isolated') : t('backtest_margin_cross')} · ${bracketSourceLabel(item)}`}
-                </Tag>
+                </span>
               ))}
               {marginApplied && (
                 <>
-                  <Tag color="blue" className="mb-0">{t('backtest_liquidation_count', { num: liquidationCount })}</Tag>
+                  <span className="qc-chip info">{t('backtest_liquidation_count', { num: liquidationCount })}</span>
                   {shortfallCount > 0 && (
-                    <Tag color="orange" className="mb-0">{t('backtest_shortfall_count', { num: shortfallCount })}</Tag>
+                    <span className="qc-chip warn">{t('backtest_shortfall_count', { num: shortfallCount })}</span>
                   )}
                 </>
               )}
             </Space>
             {!marginApplied && (
-              <div style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 4 }}>
+              <div className="bt-note" style={{ marginTop: 6 }}>
                 {t('backtest_margin_disabled_hint')}
               </div>
             )}
           </div>
           {/* 策略参数独占一块：参数条目数量不定，塞进 Descriptions 格子会显示不全 */}
           <div>
-            <div className="mb-2 text-sm font-medium">{t('strategy_params')}</div>
+            <div className="bt-subhead">{t('strategy_params')}</div>
             {Object.keys(backtestConfig.strategy_params || {}).length === 0 ? (
-              '-'
+              <span className="qc-mono qc-cell-none">—</span>
             ) : (
               <Space size={4} wrap>
                 {Object.entries(backtestConfig.strategy_params!).map(([k, v]) => (
-                  <Tag key={k} className="mb-0">
-                    {k}: {String(v)}
-                  </Tag>
+                  <span key={k} className="qc-chip quiet">
+                    {/* 参数可能为 null（未设上限/未启用），别把 JS 的 "null" 当值展示 */}
+                    <span className="qc-mono">{`${k}: ${v == null ? '—' : String(v)}`}</span>
+                  </span>
                 ))}
               </Space>
             )}
@@ -532,7 +626,7 @@ const BacktestDetail = () => {
 
         {/* 强平记录：逐档部分强平的审计视图；无事件（含旧任务缺失字段）时整块不渲染 */}
         {liquidationEvents.length > 0 && (
-          <Card title={t('backtest_liquidation_records')} className="mb-6">
+          <Card title={t('backtest_liquidation_records')} className="qc-card">
             <Flex vertical gap={12}>
               {insuranceFundLoss > 0 && (
                 <Alert
@@ -541,8 +635,7 @@ const BacktestDetail = () => {
                   title={t('backtest_insurance_fund_loss', { v: formatNumber(insuranceFundLoss) })}
                 />
               )}
-              <Table
-                size="small"
+              <DataTable<LiquidationEventRecord>
                 pagination={false}
                 scroll={{ x: 'max-content' }}
                 dataSource={liquidationEvents}
@@ -554,9 +647,9 @@ const BacktestDetail = () => {
                     title: t('backtest_time'),
                     dataIndex: 'timestamp_ns',
                     // 引擎时间戳是纳秒，换成毫秒再本地化展示
-                    render: (value: number) => new Date(value / 1e6).toLocaleString(),
+                    render: (value: number) => <span className="qc-mono">{new Date(value / 1e6).toLocaleString()}</span>,
                   },
-                  { title: t('backtest_symbol'), dataIndex: 'symbol' },
+                  { title: t('backtest_symbol'), dataIndex: 'symbol', render: (value: string) => <span className="qc-mono">{value}</span> },
                   {
                     title: t('backtest_mode'),
                     dataIndex: 'margin_mode',
@@ -565,17 +658,19 @@ const BacktestDetail = () => {
                   {
                     title: t('backtest_tier'),
                     render: (_: unknown, record: LiquidationEventRecord) =>
-                      `${record.tier_from ?? '-'} → ${record.tier_to ?? '-'}`,
+                      <span className="qc-mono">{`${record.tier_from ?? '—'} → ${record.tier_to ?? '—'}`}</span>,
                   },
                   {
                     title: t('backtest_reduced_qty'),
                     dataIndex: 'reduced_qty',
-                    render: (value: number) => formatNumber(value ?? 0, 4),
+                    align: 'right',
+                    render: (value: number) => <span className="qc-mono">{formatNumber(value ?? 0, 4)}</span>,
                   },
                   {
                     title: t('backtest_liquidation_fee'),
                     dataIndex: 'fee',
-                    render: (value: number) => formatNumber(value ?? 0),
+                    align: 'right',
+                    render: (value: number) => <span className="qc-mono">{formatNumber(value ?? 0)}</span>,
                   },
                 ]}
               />
@@ -586,10 +681,10 @@ const BacktestDetail = () => {
         {/* 回测概览指标（多品种时右上角切换品种，指标/曲线/成交均按品种展示） */}
         <Card
           title={t('backtest_overview')}
-          className="mb-6"
+          className="qc-card"
           extra={isMultiSymbol && symbols.length > 0 ? (
             <Space>
-              <span>{t('backtest_symbol')}</span>
+              <span className="bt-subhead" style={{ margin: 0 }}>{t('backtest_symbol')}</span>
               <Select
                 value={selectedSymbol}
                 onChange={handleSymbolChange}
@@ -600,7 +695,7 @@ const BacktestDetail = () => {
           ) : undefined}
         >
           {/* 卡片由 metricCards 清单驱动；共享资金池 + 品种视角只渲染按品种归因的指标 */}
-          <Flex vertical gap={16}>
+          <Flex vertical gap={12}>
             {/* 无数据被跳过的品种提示：解释「选了 N 个标的跑完只剩 M 个」的原因 */}
             {Object.keys(skippedSymbols).length > 0 && (
               <Alert
@@ -613,43 +708,42 @@ const BacktestDetail = () => {
                 }
               />
             )}
-            <Row gutter={[16, 16]}>
+            <div className="bt-kpi-grid">
               {visibleMetricCards(backtestConfig.capital_mode, selectedSymbol).map((spec) => {
                 // 指标显式为 null（如 Deflated Sharpe 数据不足）时展示 '—'，着色回退 0
                 const raw = backtestData?.metrics?.find((m) => m.key === spec.key)?.value;
                 const value = raw ?? 0;
                 return (
-                  <Col key={spec.key} xs={12} sm={8} md={6} lg={4}>
-                    <MetricCard
-                      label={spec.label}
-                      value={raw == null ? '—' : formatMetricValue(spec, value)}
-                      type={spec.color(value, getMetricValue)}
-                      hint={spec.hint}
-                    />
-                  </Col>
+                  <KpiCard
+                    key={spec.key}
+                    label={spec.label}
+                    value={raw == null ? '—' : formatMetricValue(spec, value)}
+                    tone={kpiTone(spec.color(value, getMetricValue))}
+                    hint={spec.hint}
+                  />
                 );
               })}
-            </Row>
+            </div>
           </Flex>
         </Card>
 
         {/* 绩效分析图表 */}
-        <Card title={t('backtest_equity_curve')} className="mb-6">
+        <Card title={t('backtest_equity_curve')} className="qc-card">
           {getEquityCurve().length > 0 ? (
             <EquityChart data={getEquityCurve()} isDark={isDark} initialCash={backtestData?.backtest_config?.initial_cash} />
           ) : (
-            <Empty description={t('no_equity_data')} />
+            <QcEmpty title={t('no_equity_data')} />
           )}
         </Card>
 
         {/* 因子分析（品种维度数据，组合视图「全部」下无口径，仅具体品种且配置了 factor_names 时渲染） */}
         {selectedSymbol !== 'all' && backtestData.factors && backtestData.factors.names && backtestData.factors.names.length > 0 && (
-          <Card title={t('factor_analysis')} className="mb-6">
+          <Card title={t('factor_analysis')} className="qc-card">
             <Space orientation="vertical" size="large" style={{ display: 'flex', width: '100%' }}>
               {/* 因子概览：名称 + 阈值 */}
-              <Descriptions bordered column={{ xs: 1, sm: 2, md: 3 }} size="small">
+              <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
                 <Descriptions.Item label={t('backtest_factors_used')}>
-                  {backtestData.factors.names.join('、')}
+                  <span className="qc-mono">{backtestData.factors.names.join('、')}</span>
                 </Descriptions.Item>
                 {Object.entries(backtestData.factors.thresholds || {}).map(([fname, th]) => (
                   <Descriptions.Item key={fname} label={t('backtest_factor_threshold', { name: fname })}>
@@ -662,7 +756,7 @@ const BacktestDetail = () => {
 
               {/* 因子时序曲线 */}
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('backtest_factor_time_series')}</div>
+                <div className="bt-subhead" style={{ marginTop: 0 }}>{t('backtest_factor_time_series')}</div>
                 {(() => {
                   const ts = backtestData.factors!.time_series;
                   const xData = ts.formatted_times as string[];
@@ -695,27 +789,15 @@ const BacktestDetail = () => {
               {/* 因子归因指标 + 分组收益 */}
               {Object.entries(backtestData.factors.attribution || {}).map(([fname, attr]) => (
                 <div key={fname}>
-                  <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('backtest_factor_attribution', { name: fname })}</div>
-                  <Row gutter={[12, 12]}>
-                    <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label="IC" value={attr.ic != null ? attr.ic.toFixed(4) : 'N/A'} type={attr.ic && attr.ic >= 0 ? 'positive' : 'negative'} />
-                    </Col>
-                    <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label="Rank IC" value={attr.rank_ic != null ? attr.rank_ic.toFixed(4) : 'N/A'} type={attr.rank_ic && attr.rank_ic >= 0 ? 'positive' : 'negative'} />
-                    </Col>
-                    <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label="ICIR" value={attr.icir != null ? attr.icir.toFixed(4) : 'N/A'} />
-                    </Col>
-                    <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label={t('research_detail_metric_long_short')} value={attr.long_short_return != null ? (attr.long_short_return * 100).toFixed(2) + '%' : 'N/A'} type={attr.long_short_return && attr.long_short_return >= 0 ? 'positive' : 'negative'} />
-                    </Col>
-                    <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label={t('backtest_factor_mean')} value={attr.stats?.mean != null ? attr.stats.mean.toFixed(4) : 'N/A'} />
-                    </Col>
-                    <Col xs={12} sm={8} md={6} lg={4}>
-                      <MetricCard label={t('backtest_factor_std')} value={attr.stats?.std != null ? attr.stats.std.toFixed(4) : 'N/A'} />
-                    </Col>
-                  </Row>
+                  <div className="bt-subhead" style={{ marginTop: 0 }}>{t('backtest_factor_attribution', { name: fname })}</div>
+                  <div className="bt-kpi-grid">
+                    <KpiCard label="IC" value={attr.ic != null ? attr.ic.toFixed(4) : '—'} tone={kpiTone(attr.ic && attr.ic >= 0 ? 'positive' : 'negative')} />
+                    <KpiCard label="Rank IC" value={attr.rank_ic != null ? attr.rank_ic.toFixed(4) : '—'} tone={kpiTone(attr.rank_ic && attr.rank_ic >= 0 ? 'positive' : 'negative')} />
+                    <KpiCard label="ICIR" value={attr.icir != null ? attr.icir.toFixed(4) : '—'} />
+                    <KpiCard label={t('research_detail_metric_long_short')} value={attr.long_short_return != null ? (attr.long_short_return * 100).toFixed(2) + '%' : '—'} tone={kpiTone(attr.long_short_return && attr.long_short_return >= 0 ? 'positive' : 'negative')} />
+                    <KpiCard label={t('backtest_factor_mean')} value={attr.stats?.mean != null ? attr.stats.mean.toFixed(4) : '—'} />
+                    <KpiCard label={t('backtest_factor_std')} value={attr.stats?.std != null ? attr.stats.std.toFixed(4) : '—'} />
+                  </div>
                   {/* 分组收益柱状图 */}
                   {attr.group_returns && Object.keys(attr.group_returns).length > 0 && (
                     <div style={{ marginTop: 16 }}>
@@ -744,21 +826,20 @@ const BacktestDetail = () => {
         {/* 交易详情 */}
         <Card
           title={t('trade_details')}
-          className="mb-6"
+          className="qc-card"
           extra={
-            <Space>
-              <Button
-                type={showAdvancedFilter ? 'primary' : 'default'}
-                onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
-              >
-                {t('backtest_filter')}
-              </Button>
-            </Space>
+            <Button
+              size="small"
+              type={showAdvancedFilter ? 'primary' : 'default'}
+              onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
+            >
+              {t('backtest_filter')}
+            </Button>
           }
         >
-          {/* 高级筛选区域 */}
+          {/* 高级筛选区域（§4 内嵌面板） */}
           {showAdvancedFilter && (
-            <div style={{ marginBottom: 16, padding: 16, backgroundColor: 'transparent', border: '1px solid var(--ant-color-border)', borderRadius: 8 }}>
+            <div className="bt-filter-box">
               <Row gutter={[16, 16]} align="middle">
                 <Col xs={24} sm={12} md={6}>
                   <div style={{ marginBottom: 8 }}>{t('backtest_symbols')}</div>
@@ -813,8 +894,8 @@ const BacktestDetail = () => {
           )}
 
           {/* 筛选结果统计（fills 兜底分支计数跟随展示粒度，避免「共 0 条」与逐笔表矛盾） */}
-          <div style={{ marginBottom: 16 }}>
-            <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
+          <div style={{ marginBottom: 12 }}>
+            <span className="bt-note">
               {t('total_count', { count: getTrades().length || (backtestData?.fills_detail?.length ?? 0) })}
               {selectedSymbol !== 'all' && t('backtest_filter_symbol', { v: selectedSymbol })}
               {filterSide !== 'all' && t('backtest_filter_side', { v: filterSide === 'long' ? t('long') : t('short') })}
@@ -828,17 +909,17 @@ const BacktestDetail = () => {
             // round-trip 为空但有逐笔成交（RL 目标仓位策略常态）：展示 fill 粒度明细
             <FillsDetailTable fills={backtestData!.fills_detail!} />
           ) : isLegacyOnly ? (
-            <Empty description={t('backtest_legacy_no_trades')} />
+            <QcEmpty title={t('backtest_legacy_no_trades')} />
           ) : rawTrades.length === 0 ? (
-            <Empty
-              description={
+            <QcEmpty
+              title={
                 getMetricValue('total_trades') > 0
                   ? t('backtest_trades_unclosed', { num: getMetricValue('total_trades') })
                   : t('backtest_no_fills_hint')
               }
             />
           ) : (
-            <Empty description={t('no_trade_records')} />
+            <QcEmpty title={t('no_trade_records')} />
           )}
         </Card>
 
@@ -873,20 +954,22 @@ const BacktestDetail = () => {
             deciderCounts[dv] = (deciderCounts[dv] || 0) + 1;
           });
 
-          const deciderColor = (v: string): string | undefined => {
-            if (v.startsWith('S1')) return 'blue';
-            if (v.startsWith('S2')) return 'purple';
+          // 决策者 chip 语义（§6.2）：S1=info、S2=pri、规则=ok；回放/兜底/其他走 neutral
+          const deciderClassOf = (v: string): string => {
+            if (v.startsWith('S1')) return 'info';
+            if (v.startsWith('S2')) return 'pri';
             // '规则' 是录制数据里 _decider 的历史取值（数据枚举值而非 UI 文案），翻译会导致英文环境下匹配失效，保留原样
-            if (v === '规则') return 'cyan';
-            return undefined; // 回放 / 降级兜底 / 其他 → antd 默认灰
+            if (v === '规则') return 'ok';
+            return 'quiet'; // 回放 / 降级兜底 / 其他 → 中性
           };
           // 新决策 action 词表为 long/short（Rust cascade 方向语义）；历史报表仍存 buy/sell，两套都备齐
-          const actionColor: Record<string, string> = {
-            long: 'green',
-            short: 'red',
-            buy: 'green',
-            sell: 'red',
-            hold: 'default',
+          // §6.2 盈亏方向语义：开多/买入=ok、开空/卖出=down、持有=quiet
+          const actionClasses: Record<string, string> = {
+            long: 'ok',
+            short: 'down',
+            buy: 'ok',
+            sell: 'down',
+            hold: 'quiet',
           };
           const actionLabel = (v: string) =>
             v === 'long' || v === 'buy'
@@ -899,54 +982,53 @@ const BacktestDetail = () => {
           const PAGE_SIZE = 200;
 
           return (
-            <Card title={t('backtest_decision_details')} className="mb-6">
+            <Card title={t('backtest_decision_details')} className="qc-card">
               <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
                 {/* 统计摘要 */}
                 <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
                   {/* 原文案用 <strong> 包住数字，插值词条无法承载富文本，改为整句纯文本 */}
-                  <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>
+                  <span className="bt-note">
                     {t('backtest_decisions_total', { num: decisions.length.toLocaleString() })}
                   </span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_decider_prefix')}</span>
+                    <span className="bt-note">{t('backtest_decider_prefix')}</span>
                     {Object.entries(deciderCounts).map(([dv, cnt]) => (
-                      <Tag key={dv} color={deciderColor(dv)}>
-                        {dv}: {cnt.toLocaleString()}
-                      </Tag>
+                      <span key={dv} className={`qc-chip ${deciderClassOf(dv)}`}>
+                        {dv}: <span className="qc-mono">{cnt.toLocaleString()}</span>
+                      </span>
                     ))}
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_action_prefix')}</span>
+                    <span className="bt-note">{t('backtest_action_prefix')}</span>
                     {Object.entries(actionCounts).map(([act, cnt]) => (
-                      <Tag key={act} color={actionColor[act] || 'default'}>
-                        {actionLabel(act)}: {cnt.toLocaleString()}
-                      </Tag>
+                      <span key={act} className={`qc-chip ${actionClasses[act] || 'quiet'}`}>
+                        {actionLabel(act)}: <span className="qc-mono">{cnt.toLocaleString()}</span>
+                      </span>
                     ))}
                   </div>
                 </div>
                 {Object.keys(reasonCounts).length > 0 && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{t('backtest_fallback_top')}</span>
+                    <span className="bt-note">{t('backtest_fallback_top')}</span>
                     {Object.entries(reasonCounts)
                       .sort((a, b) => b[1] - a[1])
                       .slice(0, 5)
                       .map(([reason, cnt]) => (
-                        <Tag key={reason}>{humanizeFallbackReason(reason)}: {cnt.toLocaleString()}</Tag>
+                        <span key={reason} className="qc-chip quiet">
+                          {humanizeFallbackReason(reason)}: <span className="qc-mono">{cnt.toLocaleString()}</span>
+                        </span>
                       ))}
                   </div>
                 )}
 
-                {/* 决策表格 */}
-                <Table
-                  size="small"
+                {/* 决策表格（只展示前 … 分页由 DataTable 承接，3 万条全渲染卡浏览器） */}
+                <DataTable<CascadeDecisionRecord>
                   scroll={{ x: 'max-content' }}
                   dataSource={decisions}
                   rowKey={(_, idx) => String(idx)}
                   pagination={{
                     pageSize: PAGE_SIZE,
                     showSizeChanger: false,
-                    showQuickJumper: true,
-                    showTotal: (total, range) => t('backtest_page_total', { start: range[0], end: range[1], total: total.toLocaleString() }),
                   }}
                   columns={[
                     {
@@ -954,24 +1036,28 @@ const BacktestDetail = () => {
                       dataIndex: '_ts',
                       width: 200,
                       render: (_v: unknown, record: CascadeDecisionRecord) => (
-                        <Tooltip title={record._ts}>{fmtDecisionTs(record._ts)}</Tooltip>
+                        <Tooltip title={record._ts}>
+                          <span className="qc-mono">{fmtDecisionTs(record._ts)}</span>
+                        </Tooltip>
                       ),
                     },
                     {
                       title: t('backtest_action'),
                       dataIndex: 'action',
-                      width: 80,
-                      render: (v: string) => {
-                        const color = actionColor[v] || 'default';
-                        return <Tag color={color}>{actionLabel(v)}</Tag>;
-                      },
+                      width: 90,
+                      render: (v: string) => (
+                        <span className={`qc-chip ${actionClasses[v] || 'quiet'}`}>{actionLabel(v)}</span>
+                      ),
                     },
                     {
                       title: t('backtest_confidence'),
                       dataIndex: 'confidence',
-                      width: 100,
+                      width: 110,
                       align: 'right',
-                      render: (v: number) => (v != null ? (v * 100).toFixed(1) + '%' : '-'),
+                      render: (v: number) =>
+                        v != null
+                          ? <span className="qc-mono">{(v * 100).toFixed(1)}%</span>
+                          : <span className="qc-cell-none">—</span>,
                     },
                     {
                       title: t('backtest_decider'),
@@ -980,14 +1066,14 @@ const BacktestDetail = () => {
                       ellipsis: true,
                       render: (_v: unknown, record: CascadeDecisionRecord) => {
                         const dv = deciderOf(record);
-                        return <Tag color={deciderColor(dv)}>{dv}</Tag>;
+                        return <span className={`qc-chip ${deciderClassOf(dv)}`}>{dv}</span>;
                       },
                     },
                     {
                       title: t('backtest_fallback_reason'),
                       dataIndex: 'fallback_reason',
                       ellipsis: true,
-                      render: (v: string) => humanizeFallbackReason(v),
+                      render: (v: string) => (v ? humanizeFallbackReason(v) : <span className="qc-cell-none">—</span>),
                     },
                     {
                       title: t('action'),
@@ -996,7 +1082,9 @@ const BacktestDetail = () => {
                       fixed: 'right' as const,
                       render: (_v: unknown, record: CascadeDecisionRecord) =>
                         record._seq == null ? (
-                          <Tooltip title={t('backtest_no_seq_tooltip')}>-</Tooltip>
+                          <Tooltip title={t('backtest_no_seq_tooltip')}>
+                            <span className="qc-cell-none">—</span>
+                          </Tooltip>
                         ) : (
                           <Button size="small" onClick={() => setDetailRecord(record)}>
                             {t('details')}
@@ -1023,11 +1111,14 @@ const BacktestDetail = () => {
         onCancel={() => setShowAllSymbols(false)}
         footer={<Button onClick={() => setShowAllSymbols(false)}>{t('backtest_close')}</Button>}
         width={640}
+        className="qc-modal"
       >
         <div style={{ maxHeight: 500, overflowY: 'auto' }}>
           <Space wrap size={[8, 8]}>
             {symbols.map((s) => (
-              <Tag key={s} style={{ fontSize: 13, fontFamily: 'monospace' }}>{s}</Tag>
+              <span key={s} className="qc-chip quiet">
+                <span className="qc-mono">{s}</span>
+              </span>
             ))}
           </Space>
         </div>

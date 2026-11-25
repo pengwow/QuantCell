@@ -45,6 +45,7 @@ export const IndicatorParamModal = ({ open, indicatorName, paramSchema, initialV
 
   return (
     <Modal
+      className="qc-modal"
       title={`${indicatorName} 参数`}
       open={open}
       onCancel={onCancel}
@@ -52,7 +53,7 @@ export const IndicatorParamModal = ({ open, indicatorName, paramSchema, initialV
       width={380}
       onOk={() => form.submit()}
     >
-      <Form form={form} layout="vertical" onFinish={(values) => {
+      <Form form={form} className="qc-form" layout="vertical" onFinish={(values) => {
         // 只透传数值参数（InputNumber 已约束），与 klinecharts calcParams 语义一致
         const numeric: IndicatorParams = {};
         keys.forEach((k) => {

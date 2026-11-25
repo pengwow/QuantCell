@@ -3,7 +3,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App as AntApp, Card, Drawer, Popconfirm, Space, Table, type TableColumnsType } from 'antd';
+import { App as AntApp, Card, Drawer, Flex, Popconfirm, Space, Tooltip, type TableColumnsType } from 'antd';
+import { DeleteOutlined } from '@ant-design/icons';
 import {
   factorApi,
   type FactorCatalogItem,
@@ -11,6 +12,7 @@ import {
   type FactorSnapshotSummary,
 } from '@/api/factor';
 import FactorResultView from './FactorResultView';
+import DataTable from '@/components/ui/DataTable';
 import { num } from './factorMeta';
 
 const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
@@ -76,50 +78,93 @@ const FactorSnapshotsPanel: React.FC<{
     {
       title: t('factor_snap_col_time') || '保存时间',
       dataIndex: 'created_at',
-      width: 180,
-      render: (v: string | null) => v?.replace('T', ' ').slice(0, 19) ?? '—',
+      width: 170,
+      render: (v: string | null) =>
+        v ? (
+          <span className="qc-cell-time qc-mono">{v.replace('T', ' ').slice(0, 19)}</span>
+        ) : (
+          <span className="qc-cell-none qc-mono">—</span>
+        ),
     },
     {
-      title: t('factor_snap_col_scope') || '周期/品种',
-      render: (_, r) => `${r.params.interval} × ${r.params.instruments?.length ?? 0}`,
+      title: t('factor_snap_col_scope') || '周期/标的',
+      render: (_, r) => (
+        <span className="qc-mono">{`${r.params.interval} × ${r.params.instruments?.length ?? 0}`}</span>
+      ),
     },
-    { title: t('factor_snap_col_samples') || '样本数', dataIndex: 'bar_count', width: 90 },
-    { title: t('factor_stat_ic_mean') || 'IC 均值', dataIndex: 'ic_mean', render: (v: number | null) => num(v) },
-    { title: t('factor_stat_icir') || 'ICIR', dataIndex: 'ic_ir', render: (v: number | null) => num(v) },
+    {
+      title: t('factor_snap_col_samples') || '样本数',
+      dataIndex: 'bar_count',
+      width: 84,
+      align: 'right',
+      render: (v: number) => <span className="qc-mono">{v}</span>,
+    },
+    {
+      title: t('factor_stat_ic_mean') || 'IC 均值',
+      dataIndex: 'ic_mean',
+      width: 88,
+      align: 'right',
+      render: (v: number | null) =>
+        v == null ? <span className="qc-cell-none qc-mono">—</span> : <span className="qc-mono">{num(v)}</span>,
+    },
+    {
+      title: t('factor_stat_icir') || 'ICIR',
+      dataIndex: 'ic_ir',
+      width: 76,
+      align: 'right',
+      render: (v: number | null) =>
+        v == null ? <span className="qc-cell-none qc-mono">—</span> : <span className="qc-mono">{num(v)}</span>,
+    },
     {
       title: t('factor_stat_ls_return') || '多空收益',
       dataIndex: 'long_short_return',
-      render: (v: number | null) => num(v, 4),
+      width: 92,
+      align: 'right',
+      render: (v: number | null) =>
+        v == null ? <span className="qc-cell-none qc-mono">—</span> : <span className="qc-mono">{num(v, 4)}</span>,
     },
-    { title: t('factor_snap_col_ic_len') || 'IC 序列长', dataIndex: 'ic_series_len', width: 90 },
+    {
+      title: t('factor_snap_col_ic_len') || 'IC 序列长',
+      dataIndex: 'ic_series_len',
+      width: 90,
+      align: 'right',
+      render: (v: number) => <span className="qc-mono">{v}</span>,
+    },
     {
       title: t('factor_snap_col_action') || '操作',
-      width: 90,
+      width: 64,
       render: (_, r) => (
         // span 拦截冒泡：Popconfirm 弹层走 Portal，但 React 合成事件沿组件树冒泡，
         // 不拦截会在点确认/取消时同时触发行点击打开详情
-        <span onClick={(e) => e.stopPropagation()}>
+        <Flex onClick={(e) => e.stopPropagation()}>
           <Popconfirm
             title={t('factor_snap_delete_confirm') || '删除该快照？parquet 将归档'}
             onConfirm={() => remove(r.id)}
           >
-            <a style={{ color: 'var(--tw-color-error)' }}>{t('factor_snap_delete_btn') || '删除'}</a>
+            <Tooltip title={t('factor_snap_delete_btn')}>
+              <button
+                type="button"
+                className="qc-mini-btn qc-icon-only danger"
+                aria-label={t('factor_snap_delete_btn')}
+              >
+                <DeleteOutlined />
+              </button>
+            </Tooltip>
           </Popconfirm>
-        </span>
+        </Flex>
       ),
     },
   ];
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Table
+      <DataTable
         rowKey="id"
-        size="small"
         loading={loading}
         dataSource={rows}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: t('factor_snap_empty') || '暂无快照' }}
+        emptyTitle={t('factor_snap_empty') || '暂无快照'}
         onRow={(r) => ({
           onClick: () => openDetail(r.id),
           style: { cursor: 'pointer' },
@@ -137,7 +182,7 @@ const FactorSnapshotsPanel: React.FC<{
         destroyOnHidden
       >
         {detailLoading || !detail ? (
-          <Card loading />
+          <Card loading className="qc-card" />
         ) : (
           <FactorResultView result={detail.result} />
         )}

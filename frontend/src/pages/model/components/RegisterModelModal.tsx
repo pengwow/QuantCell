@@ -46,6 +46,7 @@ export default function RegisterModelModal({ row, onClose, onSuccess }: Register
 
   return (
     <Modal
+      className="qc-modal"
       title={t('rmreg_title', { name: row?.file_name ?? '' })}
       open={!!row}
       onOk={handleOk}

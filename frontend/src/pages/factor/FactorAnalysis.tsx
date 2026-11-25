@@ -1,14 +1,18 @@
 /**
- * 因子分析页面容器：主 Tab [因子库 | 因子对比]
+ * 因子分析页面容器：页头（标题 + 真实聚合副标 + 新建因子）+ 主 Tab [因子库 | 因子对比]
  *
  * 因子库为左右主从：
  * - catalog 由本容器单次拉取，是左右两栏唯一数据源；
  * - 选中决策链：?factor=（命中才生效）> localStorage.factor.lastViewed > catalog[0] > null；
  * - tab/factor 变更一律 replace，切 tab 保留 factor；右栏按 factor.name 加 key，切因子整体重挂载。
+ * - 副标（demo 口径）：按 lifecycle_status 聚合「因子库 N 个 · 有效 x · 观察 y · 失效 z」，
+ *   分组规则见 statusGroupOf（与 FactorLibraryPane 的筛选 chips 同一字段；接口未提供
+ *   样本/IC 频率口径，demo 的「样本 1h 全品种 · RankIC（日频）」不写，避免编造）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App as AntApp, Drawer, Tabs } from 'antd';
+import { App as AntApp, Button, Drawer, Tabs } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
@@ -19,6 +23,10 @@ import FactorDetailPane from './FactorDetailPane';
 
 const TAB_KEYS = ['library', 'compare'] as const;
 const LAST_VIEWED_KEY = 'factor.lastViewed';
+
+/** 生命周期 → 演示分组（有效/观察/失效）：与 FactorLibraryPane 的筛选 chips 同一规则 */
+const statusGroupOf = (s: FactorCatalogItem['lifecycle_status']): 'active' | 'watch' | 'retired' =>
+  s === 'LIVE' ? 'active' : s === 'RETIRED' ? 'retired' : 'watch';
 
 const FactorAnalysis: React.FC = () => {
   const { t } = useTranslation();
@@ -33,6 +41,7 @@ const FactorAnalysis: React.FC = () => {
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   // 初始选中只决策一次，避免 StrictMode/刷新重复回退
   const decidedRef = useRef(false);
 
@@ -97,10 +106,38 @@ const FactorAnalysis: React.FC = () => {
     [searchParams, setSearchParams],
   );
 
+  // 副标：按生命周期聚合（LIVE=有效 / DISCOVERED·INSPECTED·PAPER_TRADING=观察 / RETIRED=失效），
+  // 只在成功加载后展示，加载失败不编造数字
+  const subtitle = useMemo(() => {
+    if (loadError || loading) return undefined;
+    const active = catalog.filter((f) => statusGroupOf(f.lifecycle_status) === 'active').length;
+    const retired = catalog.filter((f) => statusGroupOf(f.lifecycle_status) === 'retired').length;
+    return t('factor_sub_status', {
+      total: catalog.length,
+      active,
+      watch: catalog.length - active - retired,
+      retired,
+    });
+  }, [catalog, loadError, loading, t]);
+
   const selectedFactor = catalog.find((f) => f.name === selected) ?? null;
 
   return (
-    <PageContainer title={t('factor_analysis')}>
+    <PageContainer
+      title={t('factor_analysis')}
+      subtitle={subtitle}
+      actions={
+        // demo page-actions：新建因子（主色 30px 钮，与回测中心「发起回测」同款）
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setCreateOpen(true)}
+          style={{ height: 30, padding: '0 12px', fontSize: 12, fontWeight: 550 }}
+        >
+          {t('factor_lib_create_btn')}
+        </Button>
+      }
+    >
       <Tabs
         activeKey={tab}
         onChange={switchTab}
@@ -119,7 +156,12 @@ const FactorAnalysis: React.FC = () => {
                     setSelected(name);
                     setDetailOpen(true);
                   }}
+                  // 行点击/展开只同步选中态，不弹抽屉（抽屉由「查看详情」打开）
+                  onActivate={setSelected}
                   onRefresh={loadCatalog}
+                  onCreate={() => setCreateOpen(true)}
+                  createVisible={createOpen}
+                  onCloseCreate={() => setCreateOpen(false)}
                 />
                 <Drawer
                   open={detailOpen}

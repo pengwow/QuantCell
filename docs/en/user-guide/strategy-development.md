@@ -18,7 +18,7 @@ Every strategy implements the same interface: it is called once per closed
 bar and returns an `Action`.
 
 ```python
-from axon_quant import Action, ActionType
+from strategy.core import Action, ActionType
 
 class MyStrategy:
     def on_bar(self, bar: dict) -> Action:

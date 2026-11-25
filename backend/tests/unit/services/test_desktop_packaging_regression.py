@@ -1,0 +1,246 @@
+"""桌面 sidecar 打包回归:数据根目录锚定 + LoggerWrapper exc_info 兼容。
+
+来源:2026-11-18 桌面打包验证实录——
+1) services.model_registry 以相对 "data" 建目录,GUI 场景 CWD=/ 只读 →
+   OSError [Errno 30] → seed 失败 → 启动即崩;
+2) 降级告警用 stdlib 风格 exc_info=True,LoggerWrapper 不识别 → TypeError
+   在 except 块里二次爆炸,把可降级路径升级成 lifespan 启动失败。
+"""
+
+import os
+
+
+def test_default_models_dir_is_absolute():
+    """DEFAULT_MODELS_DIR 必须是绝对路径(CWD 无关),避免 GUI 场景 CWD=/ 只读崩溃。"""
+    import services.model_registry as mr
+
+    assert os.path.isabs(mr.DEFAULT_MODELS_DIR)
+    assert mr.DEFAULT_MODELS_DIR.endswith("models")
+
+
+def test_service_default_storage_is_not_cwd_relative():
+    """ModelRegistryService 默认 storage 不得再是相对 'data/models'。"""
+    import inspect
+
+    from services import model_registry as mr
+
+    default = inspect.signature(mr.ModelRegistryService.__init__).parameters["storage_path"].default
+    if isinstance(default, str):
+        assert os.path.isabs(default)
+    # default=None 时走类内 DEFAULT_MODELS_DIR(绝对路径),由上一断言覆盖
+
+
+def test_logger_wrapper_accepts_stdlib_exc_info():
+    """except 块内 logger.warning(msg, exc_info=True) 不得 TypeError(打包实录放大器)。"""
+    from utils.logger import LogType, get_logger
+
+    log = get_logger("pkg_verify", LogType.APPLICATION)
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        # 修复前:TypeError: warning() got an unexpected keyword argument 'exc_info'
+        log.warning("seed 跳过", exc_info=True)
+        log.info("plain", exc_info=None)
+
+
+def test_logger_wrapper_resolve_exc_info_variants():
+    from utils.logger import LogType, get_logger
+
+    log = get_logger("pkg_verify", LogType.APPLICATION)
+    try:
+        raise ValueError("v")
+    except ValueError as e:
+        assert log._resolve_exc_info(True) is e
+        assert log._resolve_exc_info(e) is e
+        assert log._resolve_exc_info((ValueError, e, e.__traceback__)) is e
+        assert log._resolve_exc_info(None) is None
+        assert log._resolve_exc_info(False) is None
+        # 之外的 tuple 形态不预测,返回 None 即不附加异常
+        assert log._resolve_exc_info(("not", "exception")) is None
+
+
+def test_add_missing_columns_upgrades_legacy_workers_table(monkeypatch, tmp_path):
+    """存量库缺 owner_id 列时,通用补列通道自动补齐(桌面实录 /workers 500 根因)。
+
+    本测试用独立 sqlite 文件构造旧版 workers 表(仅历史列),再跑
+    add_missing_columns_from_models——它按 collector Base.metadata 对照补列。
+    """
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import add_missing_columns_from_models
+
+    monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))  # database 模块 import 期读 env
+    eng = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE workers ("
+                "id INTEGER PRIMARY KEY, name VARCHAR, status VARCHAR, "
+                "strategy_id INTEGER, created_at TIMESTAMP)"
+            )
+        )
+
+    with Session(eng) as session:
+        add_missing_columns_from_models(session, "sqlite")
+        session.commit()
+        # 幂等:第二遍不得报错或重复加列
+        add_missing_columns_from_models(session, "sqlite")
+        session.commit()
+
+    insp = inspect(eng)
+    cols = {c["name"] for c in insp.get_columns("workers")}
+    assert "owner_id" in cols  # 实录缺失列
+    assert "id" in cols and cols.__len__() >= 16  # 其余模型列也已补齐
+    index_names = {ix["name"] for ix in insp.get_indexes("workers")}
+    assert "ix_workers_owner_id" in index_names  # index=True 的索引也要补建
+
+
+def test_add_missing_columns_skips_unsupported_dialect():
+    """非 sqlite/duckdb 方言直接跳过,不抛异常(守护 boot 路径)。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import add_missing_columns_from_models
+
+    eng = create_engine("sqlite://")
+    with Session(eng) as session:
+        add_missing_columns_from_models(session, "postgresql")  # 不应抛
+
+
+def test_add_missing_columns_renders_function_default_as_sql(monkeypatch, tmp_path):
+    """补列时 server_default=func.now() 必须渲染成 SQL，不能变成字符串 'now()'。
+
+    2026-11-20 实录：旧实现把 Function 默认值当值加引号 → `DEFAULT 'now()'`，
+    该表任何 INSERT 都把字面量 "now()" 写进 DATETIME 列，SQLAlchemy 读回抛
+    `Invalid isoformat string: 'now()'`，整条写入静默失败
+    （indicator_versions 六条指标、零个版本快照，指标保存从不产生快照）。
+    """
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import add_missing_columns_from_models
+
+    monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))
+    eng = create_engine(f"sqlite:///{tmp_path / 'legacy_default.db'}")
+    with eng.begin() as conn:
+        # 旧版 indicator_versions：缺 updated_at（走通用补列通道）
+        conn.execute(
+            text(
+                "CREATE TABLE indicator_versions ("
+                "id INTEGER PRIMARY KEY, indicator_id INTEGER NOT NULL, "
+                "version_no INTEGER NOT NULL, name VARCHAR(100) DEFAULT '' NOT NULL, "
+                "description TEXT, code TEXT NOT NULL, "
+                "source VARCHAR(20) DEFAULT 'save' NOT NULL, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+            )
+        )
+
+    with Session(eng) as session:
+        add_missing_columns_from_models(session, "sqlite")
+        session.commit()
+
+    ddl = eng.connect().execute(text("SELECT sql FROM sqlite_master WHERE name='indicator_versions'")).scalar()
+    assert "DEFAULT 'now()'" not in ddl  # 不得再写字面量
+    assert "now()" not in ddl.replace("CURRENT_TIMESTAMP", "")
+
+    # 补列后的表必须可插入且能读回（旧实现此处抛 Invalid isoformat string）
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO indicator_versions (indicator_id, version_no, name, code) "
+                "VALUES (1, 1, 'x', 'def init(): pass')"
+            )
+        )
+        row = conn.execute(text("SELECT version_no, updated_at FROM indicator_versions")).fetchone()
+    assert row[0] == 1
+    assert row[1] is not None
+
+
+def test_repair_literal_now_defaults_rebuilds_and_keeps_rows(tmp_path):
+    """存量库里被写成字面量默认值的表要被重建，且行数据不丢、索引重建。"""
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from collector.db.migrations import repair_literal_now_defaults
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'broken.db'}")
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE indicator_versions ("
+                "id INTEGER PRIMARY KEY, indicator_id INTEGER NOT NULL, "
+                "version_no INTEGER NOT NULL, code TEXT NOT NULL, "
+                "updated_at DATETIME DEFAULT 'now()')"
+            )
+        )
+        conn.execute(text("CREATE INDEX ix_iv_indicator ON indicator_versions(indicator_id)"))
+        # 畸形表仍能插入（显式给 updated_at 就不触发默认值）
+        conn.execute(
+            text(
+                "INSERT INTO indicator_versions (id, indicator_id, version_no, code, updated_at) VALUES (1, 7, 2, 'x', '2026-01-01 00:00:00')"
+            )
+        )
+
+    with Session(eng) as session:
+        repair_literal_now_defaults(session, "sqlite")
+        session.commit()
+        repair_literal_now_defaults(session, "sqlite")  # 幂等
+        session.commit()
+
+    with eng.begin() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='indicator_versions'")).scalar()
+        assert "DEFAULT 'now()'" not in ddl
+        rows = conn.execute(text("SELECT id, indicator_id, version_no FROM indicator_versions")).fetchall()
+        assert rows == [(1, 7, 2)]  # 行数据保留
+        idx = {
+            r[0]
+            for r in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='indicator_versions'")
+            )
+        }
+        assert "ix_iv_indicator" in idx  # 索引重建
+        # 修复后依赖默认值的 INSERT 可用（旧实现此处失败）
+        conn.execute(text("INSERT INTO indicator_versions (id, indicator_id, version_no, code) VALUES (2, 7, 3, 'y')"))
+        assert conn.execute(text("SELECT updated_at FROM indicator_versions WHERE id=2")).scalar() is not None
+
+
+def _bare_request() -> object:
+    """无 Authorization 头的最小 Request 替身（is_guest_user 只读 headers）。"""
+
+    class _R:
+        headers: dict[str, str] = {}
+        url = type("U", (), {"path": "/api/v1/notifications/inbox"})()
+
+    return _R()
+
+
+def test_is_guest_user_allows_desktop_local_without_header(monkeypatch):
+    """桌面实录:免登录模式下无 Authorization 头被 is_guest_user 401 踢回登录页。
+
+    rbac 必须走中央豁免判定(is_auth_exempt→_auth_disabled),与其余端点
+    的整体豁免(QUANTCELL_DESKTOP_LOCAL)口径一致。
+    """
+    from fastapi import HTTPException
+
+    from utils.rbac import is_guest_user
+
+    monkeypatch.setenv("QUANTCELL_DESKTOP_LOCAL", "1")
+    try:
+        assert is_guest_user(_bare_request()) is False  # 非访客,放行,不得 401
+    except HTTPException as e:  # pragma: no cover
+        raise AssertionError(f"桌面 local 免登录被 401 拦截: {e}") from e
+
+
+def test_is_guest_user_still_401_when_fail_closed(monkeypatch):
+    """豁免收紧时(AP_ENV=production 强制)缺头仍须 401——修复不得裸奔生产。"""
+    from fastapi import HTTPException
+
+    from utils.rbac import is_guest_user
+
+    monkeypatch.setenv("APP_ENV", "production")  # fail-closed 优先级最高
+    import pytest
+
+    with pytest.raises(HTTPException) as exc:
+        is_guest_user(_bare_request())
+    assert exc.value.status_code == 401

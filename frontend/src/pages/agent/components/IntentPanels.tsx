@@ -6,7 +6,6 @@
 import React from 'react';
 import {
   Card,
-  Tag,
   Button,
   Space,
   Typography,
@@ -38,6 +37,19 @@ interface IntentPanelProps {
   actions: IntentAction[];
   onAction: (actionType: string) => void;
 }
+
+/**
+ * structuredData 中文字段名常量。
+ * 值是后端数据契约（backend/agent/api/routes.py 的指标正则按中文名抽取），**不可改**；
+ * 此处集中定义只是为了让展示层不再散落中文字符串字面量。
+ */
+export const SD = {
+  annualizedReturn: '年化收益率',
+  sharpeRatio: '夏普比率',
+  maxDrawdown: '最大回撤',
+  totalReturn: '总收益',
+  winRate: '胜率',
+} as const;
 
 // 将结构化数据中的值安全转换为数字，非数字返回 0
 const toNumber = (value: unknown): number => {
@@ -89,6 +101,23 @@ function useRoleTheme(roleName: string): RoleTheme {
   return deriveRoleTheme(roleName, token);
 }
 
+/**
+ * 角色/数据徽标：qc-chip 形制 + 色值 tint（§2.3 公式 40% 边 + 8% 底）。
+ * 色值来自 antd token（角色主题）或 O2 保留装饰色，此处只做形制统一。
+ */
+const TintChip = ({ color, children }: { color: string; children: React.ReactNode }) => (
+  <span
+    className="qc-chip info"
+    style={{
+      color,
+      borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+      background: `color-mix(in srgb, ${color} 8%, transparent)`,
+    }}
+  >
+    {children}
+  </span>
+);
+
 // 策略代码面板
 export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
   roleName,
@@ -105,18 +134,19 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_strategy_code')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {codeText && (
         <Collapse defaultActiveKey={['1']}>
           <Panel header={t('agent_panel_strategy_code')} key="1">
             <pre style={{
               background: '#1f1f1f', // O2: 特殊装饰色，保留（终端风代码块，亮暗恒深底）
-              color: '#f0f0f0',
+              color: '#f0f0f0', // O2: 特殊装饰色，保留（上行的终端风反白字，成对使用）
               padding: 16,
               borderRadius: 8,
               overflowX: 'auto',
@@ -131,7 +161,7 @@ export const StrategyCodePanel: React.FC<IntentPanelProps> = ({
       {strategyName && (
         <div style={{ marginTop: 12 }}>
           <Text strong>{t('agent_strategy_name_label')}</Text>
-          <Tag color={theme.color}>{strategyName}</Tag>
+          <TintChip color={theme.color}>{strategyName}</TintChip>
         </div>
       )}
 
@@ -169,24 +199,25 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
   const { t } = useTranslation();
 
   // 收益/夏普/回撤等指标色全部走量化语义色（O2），紫色为行业惯例强调色保留
-  // key 为后端 structuredData 的中文字段名（数据契约不可改），label 为 i18n 显示文案
+  // key 为后端 structuredData 的中文字段名（见 SD 常量，数据契约不可改），label 为 i18n 显示文案
   const metrics = [
-    { key: '年化收益率', label: t('annual_return'), value: structuredData['年化收益率'], suffix: '%', color: quant.positive },
-    { key: '夏普比率', label: t('sharpe_ratio'), value: structuredData['夏普比率'], suffix: '', color: quant.info },
-    { key: '最大回撤', label: t('max_drawdown'), value: structuredData['最大回撤'], suffix: '%', color: quant.negative },
-    { key: '总收益', label: t('total_profit'), value: structuredData['总收益'], suffix: '%', color: quant.positive },
-    { key: '胜率', label: t('win_rate'), value: structuredData['胜率'], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
+    { key: SD.annualizedReturn, label: t('annual_return'), value: structuredData[SD.annualizedReturn], suffix: '%', color: quant.positive },
+    { key: SD.sharpeRatio, label: t('sharpe_ratio'), value: structuredData[SD.sharpeRatio], suffix: '', color: quant.info },
+    { key: SD.maxDrawdown, label: t('max_drawdown'), value: structuredData[SD.maxDrawdown], suffix: '%', color: quant.negative },
+    { key: SD.totalReturn, label: t('total_profit'), value: structuredData[SD.totalReturn], suffix: '%', color: quant.positive },
+    { key: SD.winRate, label: t('win_rate'), value: structuredData[SD.winRate], suffix: '%', color: '#722ed1' }, // O2: 特殊装饰色，保留
   ].filter((m) => m.value !== undefined);
 
   return (
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_backtest_result')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {metrics.length > 0 ? (
         <div>
@@ -200,7 +231,7 @@ export const BacktestResultPanel: React.FC<IntentPanelProps> = ({
                     {String(metric.value)}{metric.suffix}
                   </Text>
                 </div>
-                {metric.key === '最大回撤' && (
+                {metric.key === SD.maxDrawdown && (
                   <Progress
                     percent={Math.abs(metricValue)}
                     status={metricValue > 20 ? 'exception' : metricValue > 10 ? 'active' : 'success'}
@@ -266,18 +297,19 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_risk_assessment')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       <div style={{ marginBottom: 16 }}>
         <Space orientation="vertical" size="middle">
           {riskInfo.map((item) => (
             <Space key={item.label}>
               <Text>{item.label}：</Text>
-              <Tag color={item.color}>{item.value}</Tag>
+              <TintChip color={item.color}>{item.value}</TintChip>
             </Space>
           ))}
         </Space>
@@ -285,7 +317,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
 
       <div style={{ marginBottom: 16 }}>
         <Title level={5}>{t('agent_risk_warning_title')}</Title>
-        <div style={{ padding: 12, background: 'color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background))', borderRadius: 8 }}>
+        <div style={{ padding: 12, background: 'color-mix(in srgb, var(--qc-error) 8%, var(--qc-bg))', borderRadius: 8 }}>
           <Text type="danger">
             {t('agent_risk_disclaimer')}
           </Text>
@@ -340,18 +372,19 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_trading_decision')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       <div style={{ marginBottom: 16 }}>
         <Space orientation="vertical" size="middle">
           {tradeInfo.map((item) => (
             <Space key={item.label}>
               <Text>{item.label}：</Text>
-              <Tag color={item.color}>{item.value}</Tag>
+              <TintChip color={item.color}>{item.value}</TintChip>
             </Space>
           ))}
         </Space>
@@ -402,11 +435,12 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_data_query')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {dataSource.length > 0 ? (
         <Table
@@ -454,11 +488,12 @@ export const GeneralPanel: React.FC<IntentPanelProps> = ({
     <Card
       title={
         <Space>
-          <Tag color={theme.color}>{roleName}</Tag>
+          <TintChip color={theme.color}>{roleName}</TintChip>
           <span>{t('agent_panel_general')}</span>
         </Space>
       }
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
+      className="qc-card"
     >
       {actions.length > 0 && (
         <div>

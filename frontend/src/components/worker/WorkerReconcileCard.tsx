@@ -7,8 +7,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
-import { Button, Card, Empty, Skeleton, Space, Tag, Typography } from 'antd';
+import { Button, Card, Skeleton, Space, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import { QcEmpty } from '@/components/ui/DataTable';
 import { getReconcileSummary } from '../../api/workerApi';
 import type { ReconcileSummaryItem } from '../../types/worker';
 
@@ -57,9 +58,9 @@ const WorkerReconcileCard: React.FC<{ workerId: number; active?: boolean }> = ({
     return (
       <Space wrap size={4}>
         {nonzero.map(([key, n]) => (
-          <Tag key={key} color="error">
-            {t(BREAK_LABEL_KEYS[key] ?? key)} × {n}
-          </Tag>
+          <span key={key} className="qc-chip down">
+            {t(BREAK_LABEL_KEYS[key] ?? key)} × <span className="qc-mono">{n}</span>
+          </span>
         ))}
       </Space>
     );
@@ -67,6 +68,7 @@ const WorkerReconcileCard: React.FC<{ workerId: number; active?: boolean }> = ({
 
   return (
     <Card
+      className="qc-card"
       title={t('worker_recent_reconcile')}
       extra={
         <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void refresh()} />
@@ -76,7 +78,7 @@ const WorkerReconcileCard: React.FC<{ workerId: number; active?: boolean }> = ({
       {loading && items.length === 0 ? (
         <Skeleton active paragraph={{ rows: 2 }} />
       ) : items.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('reconcile_no_records')} />
+        <QcEmpty title={t('reconcile_no_records')} />
       ) : (
         <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
           {items.map((item, idx) => {
@@ -84,12 +86,13 @@ const WorkerReconcileCard: React.FC<{ workerId: number; active?: boolean }> = ({
             return (
               <Space key={idx} orientation="vertical" size={2} style={{ display: 'flex' }}>
                 <Space size={8} wrap>
-                  <span style={{ color: 'var(--ant-color-text-tertiary)', fontSize: 12 }}>
+                  {/* §6.5 时间列：mono 11px 弱文本 */}
+                  <span className="qc-cell-time qc-mono">
                     {item.timestamp ? dayjs(item.timestamp).format('MM-DD HH:mm') : '--'}
                   </span>
-                  <Tag color={abnormal ? 'error' : 'success'}>
+                  <span className={`qc-chip${abnormal ? ' down' : ' ok'}`}>
                     {abnormal ? t('reconcile_status_abnormal') : t('reconcile_status_ok')}
-                  </Tag>
+                  </span>
                 </Space>
                 {renderBreaks(item)}
               </Space>

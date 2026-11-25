@@ -142,6 +142,52 @@ export interface SystemMetrics {
   diskUsed: string;
   diskTotal: string;
   lastUpdated: string;
+  /** 业务链路读数（首页「系统状态」卡）。block 缺失 = 后端未提供，前端显示「—」 */
+  engine?: EngineStats | null;
+  exchanges?: ExchangeProbe | null;
+  dataSource?: DataSourceStatus | null;
+  llm?: LlmStatus | null;
+}
+
+/** worker 泵每轮 tick 的墙钟耗时聚合（observability/runtime_health.py） */
+export interface EngineStats {
+  avg_ms: number | null;
+  p95_ms: number | null;
+  samples: number;
+  last_at: number | null;
+}
+
+/** 交易所公共端点探测明细（延迟 = health_check 往返实测，不是报价延迟） */
+export interface ExchangeProbe {
+  exchanges: Array<{
+    exchange: string;
+    ok: boolean;
+    latency_ms: number | null;
+    trading_mode: string;
+    checked_at: string | null;
+  }>;
+  timestamp: string | null;
+}
+
+/** 本地 K 线库覆盖度（collector SystemService.get_data_source_status） */
+export interface DataSourceStatus {
+  bar_count: number | null;
+  symbols: number | null;
+  latest_at: string | null;
+  tables: Array<{ table: string; bar_count: number; symbols: number; latest_ts: number | null }>;
+  timestamp: string;
+  error?: string;
+}
+
+/** LLM 近 5 分钟调用读数 + 当前生效 provider */
+export interface LlmStatus {
+  window_seconds: number;
+  calls: number;
+  p95_ms: number | null;
+  rate_limit: number;
+  failed: number;
+  last_at: number | null;
+  provider?: { name?: string | null; model?: string | null } | null;
 }
 
 // 日志查询参数

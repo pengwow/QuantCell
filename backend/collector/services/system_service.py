@@ -9,7 +9,10 @@ from enum import Enum
 from typing import Any
 
 import psutil
+from sqlalchemy import func, select
 
+from collector.db.database import SessionLocal
+from collector.db.models import CryptoFutureKline, CryptoSpotKline
 from config.settings import get_settings
 from credentials.service import CredentialsService
 from exchange.connection import create_exchange_instance
@@ -157,6 +160,10 @@ class SystemService:
         self.start_time = time.time()
         # 系统信息推送定时器
         self.push_timer: asyncio.Task | None = None
+        # 最近一次交易所探测明细（含延迟），/system/metrics 直接用
+        self._probe_detail: dict[str, dict[str, Any]] = {}
+        # 行情库读数缓存（条数/覆盖标的/最新 bar），60s 同 TTL
+        self._data_source_cache: tuple[float, dict[str, Any]] | None = None
         # 推送间隔（秒）
         self.push_interval: int = 10
         # 交易所连接监测器
@@ -308,8 +315,12 @@ class SystemService:
                 "exchange_connections": self.get_exchange_connections_status(),
             }
 
-    def _probe_exchange_connections(self) -> dict[str, bool]:
-        """同步探测各交易所公共端点可达性。
+    def _probe_exchange_connections(self) -> dict[str, dict[str, Any]]:
+        """同步探测各交易所公共端点可达性，并记录往返耗时。
+
+        返回值每项为 {ok, latency_ms, checked_at, trading_mode}：latency_ms 是
+        health_check（公共行情端点）的实测往返，不是交易所报价延迟，
+        不得在 UI 上标成「盘口延迟」。
 
         探测目标取凭据库已配置账户的去重交易所；未配置或读取失败时退化为默认
         binance（与 engine_status 的默认交易所一致）。health_check 走公共行情
@@ -325,16 +336,24 @@ class SystemService:
         if not exchanges:
             exchanges = ["binance"]
 
-        results: dict[str, bool] = {}
+        results: dict[str, dict[str, Any]] = {}
         proxy_url = get_settings().proxy_url
         for name in exchanges:
+            t0 = time.monotonic()
+            ok = False
             try:
                 # QuantCell 主用途是 USDT 永续，按 future 域名探测更贴近真实交易链路
                 exchange = create_exchange_instance(exchange_name=name, trading_mode="future", proxy_url=proxy_url)
-                results[name] = bool(exchange.health_check())
+                ok = bool(exchange.health_check())
             except Exception as e:
                 logger.warning(f"交易所 {name} 连接探测失败: {e}")
-                results[name] = False
+            results[name] = {
+                "ok": ok,
+                "latency_ms": round((time.monotonic() - t0) * 1000, 1),
+                "checked_at": datetime.now().isoformat(),
+                "trading_mode": "future",
+            }
+        self._probe_detail = results
         return results
 
     async def get_connection_status(self) -> str:
@@ -351,8 +370,8 @@ class SystemService:
         # 探测是最长 ccxt 默认超时(10s)的同步网络 IO，放线程防止卡死事件循环
         detail = await asyncio.to_thread(self._probe_exchange_connections)
         # 有任何一家交易所可达即视为系统在线（部分中断的明细已记日志）
-        status = "connected" if detail and any(detail.values()) else "disconnected"
-        logger.info(f"交易所连接探测结果: {detail} -> {status}")
+        status = "connected" if detail and any(d["ok"] for d in detail.values()) else "disconnected"
+        logger.info(f"交易所连接探测结果: {[(k, v['ok'], v['latency_ms']) for k, v in detail.items()]} -> {status}")
         self._conn_probe_cache = (now, status)
         return status
 
@@ -402,6 +421,79 @@ class SystemService:
                 "timestamp": datetime.now().isoformat(),
                 "error": str(e),
             }
+
+    def get_exchange_probe_detail(self) -> dict[str, Any]:
+        """最近一次交易所探测明细。
+
+        延迟 = health_check 公共端点往返实测（与连接状态同一次探测、同 60s 缓存），
+        不是交易所报价延迟；未探测过时返回空列表，前端显示「—」。
+        """
+        if not self._probe_detail:
+            return {"exchanges": [], "timestamp": None}
+        rows = [
+            {
+                "exchange": name,
+                "ok": bool(info.get("ok")),
+                "latency_ms": info.get("latency_ms"),
+                "trading_mode": info.get("trading_mode", "future"),
+                "checked_at": info.get("checked_at"),
+            }
+            for name, info in sorted(self._probe_detail.items())
+        ]
+        return {"exchanges": rows, "timestamp": rows[0]["checked_at"]}
+
+    def get_data_source_status(self) -> dict[str, Any]:
+        """本地 K 线库读数：总条数 / 覆盖标的数 / 最新 bar 时间（60s 缓存）。
+
+        首页「行情数据源」行用它说明数据面是否在更新；WS 断线重连计数当前
+        没有可信来源（行情 WS 在 Rust 驱动内，Python 侧只有面向浏览器的
+        广播管理器），所以这里不提供该字段，前端也不得显示 0 冒充「无重连」。
+        """
+        now = time.monotonic()
+        if self._data_source_cache is not None and now - self._data_source_cache[0] < _CONN_PROBE_TTL_SECONDS:
+            return self._data_source_cache[1]
+
+        try:
+            with SessionLocal() as db:
+                tables = []
+                for model in (CryptoSpotKline, CryptoFutureKline):
+                    count, latest, symbols = db.execute(
+                        select(
+                            func.count(model.id),
+                            func.max(model.timestamp),
+                            func.count(func.distinct(model.symbol)),
+                        )
+                    ).one()
+                    tables.append(
+                        {
+                            "table": model.__tablename__,
+                            "bar_count": int(count or 0),
+                            "symbols": int(symbols or 0),
+                            "latest_ts": int(latest) if latest is not None else None,
+                        }
+                    )
+        except Exception as e:
+            logger.warning(f"读取本地 K 线库读数失败: {e}")
+            result: dict[str, Any] = {
+                "bar_count": None,
+                "symbols": None,
+                "latest_at": None,
+                "tables": [],
+                "timestamp": datetime.now().isoformat(),
+                "error": str(e),
+            }
+        else:
+            latest_ns = max((t["latest_ts"] for t in tables if t["latest_ts"]), default=None)
+            result = {
+                "bar_count": sum(t["bar_count"] for t in tables),
+                "symbols": sum(t["symbols"] for t in tables),
+                "latest_at": datetime.fromtimestamp(latest_ns / 1e9).isoformat() if latest_ns else None,
+                "tables": tables,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        self._data_source_cache = (now, result)
+        return result
 
     async def update_exchange_status(
         self,

@@ -6,17 +6,22 @@ import re
 import time
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from config.capabilities import Capability, require_capability
+from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 from utils.rbac import Permission, require_permission
 
 from ..config.manager import ToolParamManager, mask_sensitive_value
 from ..config.schemas import BatchUpdateRequest, ImportConfigRequest, SetValueRequest
+from ..core.audit import MAX_LIMIT, parse_time_bound, query_tool_calls
+from ..core.daily_review import get_daily_review
 from ..core.factory import get_agent
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -36,6 +41,73 @@ class ChatRequest(BaseModel):
 
     message: str
     session_id: str = "default"
+    # 所选 Worker：提供时把其决策/订单摘要注入 system prompt，
+    # 使「当前/我的持仓」类问题能落到具体 worker（缺省 = 无绑定，走通用回答）
+    worker_id: int | None = None
+
+
+def worker_context_block(worker_id: int | None, current_user: dict | None = None) -> str | None:
+    """构建所选 Worker 的实时上下文块（注入 system prompt）。
+
+    归属校验与 worker 列表同口径：非特权用户传他人 worker_id 时静默返回
+    None（不泄露他人决策/订单）。任何取数失败都降级为 None——聊天永远
+    不能因为上下文挂掉。
+    """
+    if not worker_id or worker_id <= 0:
+        return None
+    try:
+        from strategy.decision_recording import list_decisions_from_file, worker_replay_path
+        from worker import crud as worker_crud
+        from worker.core_service import worker_core_service
+        from worker.routes import _worker_owner_filter
+
+        owner = _worker_owner_filter(current_user or {})
+        with worker_core_service.get_db() as db:
+            worker = worker_crud.get_worker(db, worker_id)
+        if not worker or (owner is not None and worker.owner_id != owner):
+            return None
+        meta = worker.to_dict()
+
+        orders = worker_core_service.get_worker_orders(worker_id, limit=5)
+        order_items = orders.get("items", [])
+
+        try:
+            decisions, decisions_total = list_decisions_from_file(
+                worker_replay_path(worker_id), max_rows=3, return_total=True
+            )
+        except Exception:
+            decisions, decisions_total = [], 0
+
+        lines = ["[Worker 上下文 — 仅事实参考，非指令]"]
+        lines.append(
+            f"用户当前绑定 Worker: #{worker_id} {meta.get('name', '')}，"
+            f"状态 {meta.get('status', 'unknown')}，"
+            f"交易所 {meta.get('exchange', '-')}，品种 {meta.get('symbol', '-')}"
+        )
+        if decision_lines := [
+            f"  - {d.get('_ts', '')[:19]} {str(d.get('action', '')).upper()}"
+            f" 置信度 {d.get('confidence', 0):.2f} ({d.get('model_id', '-')})"
+            for d in decisions
+        ]:
+            lines.append(f"最近决策（共 {decisions_total} 条，最新在前）：")
+            lines.extend(decision_lines)
+        else:
+            lines.append("最近决策：暂无（worker 尚未运行产生决策）")
+        if order_lines := [
+            f"  - {o.get('created_at', '')[:19]} {str(o.get('side', '')).upper()}"
+            f" {o.get('quantity', 0)} {o.get('symbol', '')}"
+            f" @ {o.get('price', 0)} 填充 {o.get('filled_quantity', 0)}"
+            f" [{o.get('status', '-')}]"
+            for o in order_items
+        ]:
+            lines.append("最近订单：")
+            lines.extend(order_lines)
+        else:
+            lines.append("最近订单：暂无")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"[Agent] 构建 Worker {worker_id} 上下文失败，忽略: {type(e).__name__}: {e}")
+        return None
 
 
 class IntentCategory(StrEnum):
@@ -271,12 +343,13 @@ def build_actions(intent: str) -> list[dict]:
     # （enforcement off 时依赖直接放行，行为与未挂载一致）
     dependencies=[Depends(require_permission(Permission.AI_WRITE))],
 )
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     """
     与 Agent 进行对话
 
     - **message**: 用户消息
     - **session_id**: 会话标识（可选，默认为 default）
+    - **worker_id**: Worker 编号（可选，提供时注入其决策/订单摘要）
 
     返回包含意图分类、角色类型、建议操作和结构化数据的响应
     """
@@ -285,6 +358,7 @@ async def chat(request: ChatRequest):
         response = await agent.process_message(
             content=request.message,
             session_key=request.session_id,
+            extra_context=worker_context_block(request.worker_id, current_user),
         )
 
         # 意图检测和角色识别
@@ -308,7 +382,7 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/chat/stream", dependencies=[Depends(require_permission(Permission.AI_WRITE))])
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     """
     流式对话端点 (SSE - Server-Sent Events)
 
@@ -365,10 +439,15 @@ async def chat_stream(request: ChatRequest):
             async for event in agent.iter_message_stream(
                 content=request.message,
                 session_key=request.session_id,
+                extra_context=worker_context_block(request.worker_id, current_user),
             ):
-                # 累积内容用于后续结构化数据提取
+                # 累积内容用于后续结构化数据提取（loop 的 content 事件 data 是
+                # dict：{"content": 增量, "full_content": 累计}——直接 += 会抛
+                # "can only concatenate str (not \"dict\") to str"）
                 if event.event_type == "content" and event.data:
-                    accumulated_content += event.data
+                    accumulated_content += (
+                        event.data.get("content", "") if isinstance(event.data, dict) else str(event.data)
+                    )
 
                 # 格式化为 SSE 事件
                 event_data = json.dumps(
@@ -530,6 +609,210 @@ async def get_session(session_id: str):
     except Exception as e:
         logger.error(f"获取会话详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 每日复盘 API ====================
+
+
+@router.get("/daily-review", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def get_daily_review_report(
+    date_str: str | None = Query(None, alias="date", description="复盘日期 YYYY-MM-DD，默认昨天"),
+    llm: bool = Query(False, description="是否追加 LLM 自然语言摘要（不可用时降级为模板文本）"),
+):
+    """每日复盘报告：数据聚合 + 模板/LLM 摘要。
+
+    sections 为确定性数据（worker 盈亏/持仓/订单、决策录制、模型 OOS 门槛、风控建议），
+    风控建议只读评估并给出建议额度，不写任何风控参数/不热更引擎；
+    meta.mode 区分 template / llm / template_fallback，degraded=True 表示 LLM 请求失败已兜底。
+    复盘入聊天流由调度器完成（assistant 消息 + meta.kind=daily_review），本端点只读不发布。
+    """
+    try:
+        report = await asyncio.to_thread(get_daily_review, date_str, use_llm=llm)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"生成每日复盘失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, **report}
+
+
+# ==================== 自迭代（Loop）状态 API ====================
+
+#: Agent 工作区（与 agent/core/factory.py::get_agent 同口径；桌面=持久数据目录）
+_AGENT_WORKSPACE = get_persistent_dir(
+    "data/agent_workspace",
+    Path(__file__).parent.parent.parent / "data" / "agent_workspace",
+)
+
+#: 自迭代链路四个 job：(id, 展示名, cron 文案)；cron 文案与 core/scheduler.py 手写对齐
+_LOOP_JOBS = (
+    ("rl_oos_gate_audit", "RL OOS gate audit", "每日 03:30"),
+    ("agent_daily_review", "Agent daily review", "每日 03:35"),
+    ("rl_auto_retrain", "RL auto retrain (closed loop)", "每日 03:40"),
+    ("agent_dream", "Agent dream (memory self-edit)", "每日 04:00"),
+)
+
+
+def _read_text_or(path: Path, default: str = "") -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError, ValueError:
+        return default
+
+
+def _next_run_at(scheduler: object, job_id: str, mounted: set[str]) -> str | None:
+    """从真实挂载的调度器 job 取 ``next_run_time``（ISO8601）；取不到返回 None。
+
+    scheduler 传进来而不是内部再取，单测可以直接塞假实例；未挂载的 job 不必查询
+    （没挂的 cron 没有「下次」）。调度器已 shutdown 时 APScheduler 会抛
+    SchedulerNotRunningError，同样按「取不到」处理，不让展示层连带 500。
+    """
+    if scheduler is None or job_id not in mounted:
+        return None
+    try:
+        job = scheduler.get_job(job_id)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    next_run = getattr(job, "next_run_time", None) if job is not None else None
+    return next_run.isoformat() if next_run is not None else None
+
+
+def _lifecycle_families() -> list[dict]:
+    """lifecycle_state.json → 每族一行（缺失/损坏一律 []，不猜字段）。
+
+    shadow 台账条目只有 date/winner/engine/degraded/error，没有 status：
+    有 promotion 记录就用它的 status，否则给 lifecycle 结果里同义的 shadow_running。
+    其余字段映射不了的，原样塞进 note（截断 200 字），不新造字段。
+    """
+    try:
+        from rl.lifecycle import load_lifecycle_state
+
+        state = load_lifecycle_state()
+    except Exception:
+        return []
+    shadow = state.get("shadow") if isinstance(state.get("shadow"), dict) else {}
+    promo_status = {
+        str(rec["family"]): str(rec.get("status") or "")
+        for rec in state.get("promotions") or []
+        if isinstance(rec, dict) and rec.get("family")
+    }
+    families: list[dict] = []
+    for family in [*shadow, *(f for f in promo_status if f not in shadow)]:
+        entries = [e for e in (shadow.get(family) or []) if isinstance(e, dict)]
+        last = entries[-1] if entries else {}
+        item: dict = {"family": family, "status": promo_status.get(family) or "shadow_running"}
+        days = {str(e["date"]) for e in entries if e.get("date")}
+        if days:
+            item["shadow_days"] = len(days)
+        raw = {k: last[k] for k in ("winner", "engine", "degraded", "error") if last.get(k) is not None}
+        if raw:
+            item["note"] = str(raw)[:200]
+        families.append(item)
+    return families
+
+
+@router.get("/memory", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def get_agent_memory():
+    """记忆自迭代只读视图：MEMORY.md 全文 / Dream 游标 / 历史条数 / 上次运行。
+
+    全部软失败（缺文件给空值），进程内 LAST_RUNS 重启即空属预期。
+    """
+    from core.scheduler import get_last_runs
+    from services.retrain_policy import env_flag
+
+    memory_dir = _AGENT_WORKSPACE / "memory"
+    try:
+        dream_cursor = int(_read_text_or(memory_dir / ".dream_cursor").strip() or 0)
+    except ValueError:
+        dream_cursor = 0
+    history_entries = 0
+    try:
+        with open(memory_dir / "history.jsonl", encoding="utf-8") as f:
+            history_entries = sum(1 for _ in f)
+    except OSError:
+        pass
+    return {
+        "success": True,
+        "enabled": env_flag("QUANTCELL_AGENT_DREAM"),
+        "memory_markdown": _read_text_or(memory_dir / "MEMORY.md"),
+        "dream_cursor": dream_cursor,
+        "history_entries": history_entries,
+        "last_run": get_last_runs().get("agent_dream"),
+    }
+
+
+@router.get("/loop-status", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def get_loop_status():
+    """自迭代四个 job 的挂载/上次运行/下次运行 + 重训双闸 + 各族状态。
+
+    mounted 与 last_run 都来自本进程内存（core.scheduler），重启后为空/未挂。
+    next_run_at 直接取真实挂载的 APScheduler job 的 ``next_run_time``（ISO8601）；
+    未挂载 / 调度器未启动 / job 取不到一律 null —— 不解析 cron 猜时间。
+    """
+    from core.scheduler import MOUNTED_JOBS, get_last_runs, get_scheduler
+    from services.retrain_policy import auto_promote_enabled, auto_retrain_enabled
+
+    last_runs = get_last_runs()
+    scheduler = get_scheduler()
+    return {
+        "success": True,
+        "jobs": [
+            {
+                "id": job_id,
+                "name": name,
+                "cron": cron,
+                "mounted": job_id in MOUNTED_JOBS,
+                "last_run": last_runs.get(job_id),
+                "next_run_at": _next_run_at(scheduler, job_id, MOUNTED_JOBS),
+            }
+            for job_id, name, cron in _LOOP_JOBS
+        ],
+        "retrain": {
+            "gates": {
+                "auto_retrain": auto_retrain_enabled(),
+                "auto_promote": auto_promote_enabled(),
+            },
+            "families": _lifecycle_families(),
+        },
+    }
+
+
+# ==================== 工具调用审计 API ====================
+
+
+@router.get("/audit", dependencies=[Depends(require_permission(Permission.AI_READ))])
+async def list_tool_audit(
+    start: str | None = Query(None, description="起始时间（ISO8601 或 epoch 秒/毫秒，含边界）"),
+    end: str | None = Query(None, description="结束时间（ISO8601 或 epoch 秒/毫秒，含边界）"),
+    tool: str | None = Query(None, description="工具名（前缀匹配，传完整工具名即精确）"),
+    result_status: str | None = Query(None, description="结果状态，如 success / error / blocked_scope"),
+    user: str | None = Query(None, description="调用方（JWT sub 或 token 名称）"),
+    token: str | None = Query(None, description='令牌来源："jwt" 或 "#<token_id>"'),
+    limit: int = Query(50, ge=1, description="每页条数（上限 500，超出按 500 截断）"),
+    offset: int = Query(0, ge=0, description="分页偏移"),
+):
+    """查询工具调用审计（P2-06 落库表 agent_tool_audit），created_at 倒序。
+
+    args_redacted 落库时已脱敏，原样返回；args_hash 为参数摘要，供等幂比对。
+    """
+    limit = min(limit, MAX_LIMIT)
+    try:
+        total, audits = query_tool_calls(
+            start=parse_time_bound(start, name="start"),
+            end=parse_time_bound(end, name="end"),
+            tool=tool,
+            result_status=result_status,
+            user=user,
+            token=token,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"查询工具调用审计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "total": total, "limit": limit, "offset": offset, "audits": audits}
 
 
 # ==================== 工具参数管理 API ====================

@@ -1,10 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import { Card, Row, Col, Descriptions, Tag, Space } from 'antd';
+import { Card, Row, Col, Descriptions, Space, Spin, Tooltip } from 'antd';
 import type { Worker as WorkerType, StrategyParameter } from '../../types/worker';
-import { CodeOutlined, TagOutlined } from '@ant-design/icons';
+import { CodeOutlined } from '@ant-design/icons';
 import { getStrategyParameters } from '../../api/workerApi';
-import { QUANT_COLORS } from '@/utils/colors';
 import { useState, useEffect } from 'react';
+
+// 策略类型 → §6.2 chip 语义档：RL=pri、规则=info、未知=quiet
+const STRATEGY_TYPE_CHIP: Record<string, string> = { rl: ' pri', rule: ' info' };
 
 interface WorkerParamsTabProps {
   worker: WorkerType;
@@ -54,6 +56,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
       {/* 策略信息 */}
       {worker.strategy_info && (
         <Card
+          className="qc-card"
           title={
             <Space>
               <CodeOutlined />
@@ -64,39 +67,40 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
         >
           <Row gutter={[24, 16]}>
             <Col xs={24} sm={12} md={8}>
-              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                 <Descriptions.Item label={t('strategy_name')}>
-                  <Tag color="blue">{worker.strategy_info.name}</Tag>
+                  {/* 标识类中性 mono（§6.5）：名称不上色 */}
+                  <span className="qc-mono">{worker.strategy_info.name}</span>
                 </Descriptions.Item>
               </Descriptions>
             </Col>
 
             <Col xs={24} sm={12} md={8}>
-              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                 <Descriptions.Item label={t('strategy_type')}>
                   {/* 值域对齐策略库 models（rule/rl）；'default' 为无关联策略时的兜底档，未知值归默认 */}
-                  <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'rl' ? 'purple' : 'green'}>
+                  <span className={`qc-chip${STRATEGY_TYPE_CHIP[worker.strategy_info.strategy_type] ?? ' quiet'}`}>
                     {worker.strategy_info.strategy_type === 'rl'
                       ? t('rl_strategy')
                       : worker.strategy_info.strategy_type === 'rule'
                         ? t('rule_strategy')
                         : t('default_strategy')}
-                  </Tag>
+                  </span>
                 </Descriptions.Item>
               </Descriptions>
             </Col>
 
             <Col xs={24} sm={12} md={8}>
-              <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+              <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                 <Descriptions.Item label={t('strategy_version')}>
-                  <span style={{ fontWeight: 500 }}>v{worker.strategy_info.version}</span>
+                  <span className="qc-mono">v{worker.strategy_info.version}</span>
                 </Descriptions.Item>
               </Descriptions>
             </Col>
 
             {worker.strategy_info.description && (
               <Col span={24}>
-                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                   <Descriptions.Item label={t('strategy_description')}>
                     <span>{worker.strategy_info.description}</span>
                   </Descriptions.Item>
@@ -109,9 +113,10 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
 
       {/* 策略参数 - 动态加载 */}
       <Card
+        className="qc-card"
         title={
           <Space>
-            <span>📊</span>
+            <CodeOutlined />
             <span>{t('strategy_params')}</span>
           </Space>
         }
@@ -124,44 +129,48 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
               // 生效值优先级：运行配置覆盖 > 后端合并的 param_value（快照覆盖 ?? schema 默认）> schema 默认
               const displayValue = currentValue ?? param.param_value ?? param.default_value ?? '-';
               let valueDisplay: React.ReactNode;
-              const valueStyle: React.CSSProperties = { fontWeight: 500 };
 
               if (typeof displayValue === 'number' && param.param_type === 'float') {
-                valueDisplay = typeof displayValue === 'number' ? displayValue.toFixed(2) : String(displayValue);
-                if (param.param_name?.includes('loss') || param.param_name?.includes('stop')) {
-                  valueStyle.color = QUANT_COLORS.negative;
-                } else if (param.param_name?.includes('profit')) {
-                  valueStyle.color = QUANT_COLORS.positive;
-                }
-              } else if (typeof displayValue === 'boolean') {
+                // 数值 mono；loss/stop 归 down、profit 归 up（涨跌语义，不按词感乱染色）
+                const dirCls = param.param_name?.includes('loss') || param.param_name?.includes('stop')
+                  ? ' qc-cell-down'
+                  : param.param_name?.includes('profit')
+                    ? ' qc-cell-up'
+                    : '';
                 valueDisplay = (
-                  <Tag color={displayValue ? 'green' : 'red'}>
+                  <span className={`qc-mono${dirCls}`}>
+                    {typeof displayValue === 'number' ? displayValue.toFixed(2) : String(displayValue)}
+                  </span>
+                );
+              } else if (typeof displayValue === 'boolean') {
+                // 布尔开关：true=ok / false=quiet（未开启不是错误）
+                valueDisplay = (
+                  <span className={`qc-chip${displayValue ? ' ok' : ' quiet'}`}>
                     {displayValue ? t('yes') : t('no')}
-                  </Tag>
+                  </span>
                 );
               } else {
-                valueDisplay = String(displayValue);
+                valueDisplay = <span className="qc-mono">{String(displayValue)}</span>;
               }
 
               return (
                 <Col key={param.param_name} xs={24} sm={12} md={8}>
-                  <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
+                  <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
                     <Descriptions.Item
                       label={
                         <Space size={4}>
-                          <span>{param.param_name}</span>
+                          <span className="qc-mono">{param.param_name}</span>
                           {param.description && (
-                            <Tag
-                              style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
-                              color="processing"
-                            >
-                              {param.description.length > 20 ? `${param.description.slice(0, 18)}...` : param.description}
-                            </Tag>
+                            <Tooltip title={param.description}>
+                              <span style={{ fontSize: 10.5, color: 'var(--qc-text-quaternary)' }}>
+                                {param.description.length > 20 ? `${param.description.slice(0, 18)}...` : param.description}
+                              </span>
+                            </Tooltip>
                           )}
                         </Space>
                       }
                     >
-                      <span style={valueStyle}>{valueDisplay}</span>
+                      {valueDisplay}
                     </Descriptions.Item>
                   </Descriptions>
                 </Col>
@@ -170,23 +179,23 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           </Row>
         ) : loadingParams ? (
           <div style={{ textAlign: 'center', padding: 30 }}>
-            <Tag icon={<CodeOutlined />} color="processing">{t('loading')}</Tag>
+            <Spin size="small" />
           </div>
         ) : Object.keys(currentStrategyParams).length > 0 ? (
           <Row gutter={[24, 16]}>
             {Object.entries(currentStrategyParams).map(([key, value]) => (
               <Col key={key} xs={24} sm={12} md={8}>
-                <Descriptions column={1} size="small" styles={{ label: { color: '#666' } }}>
-                  <Descriptions.Item label={key}>
-                    <span style={{ fontWeight: 500 }}>{String(value)}</span>
+                <Descriptions column={1} size="small" styles={{ label: { color: 'var(--qc-text-secondary)' } }}>
+                  <Descriptions.Item label={<span className="qc-mono">{key}</span>}>
+                    <span className="qc-mono">{String(value)}</span>
                   </Descriptions.Item>
                 </Descriptions>
               </Col>
             ))}
           </Row>
         ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-            <Tag>{t('no_configurable_params')}</Tag>
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--qc-text-tertiary)' }}>
+            {t('no_configurable_params')}
           </div>
         )}
       </Card>

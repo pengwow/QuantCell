@@ -32,7 +32,7 @@ export interface OrderbookPrefs {
 const ORDERBOOK_DEFAULTS: OrderbookPrefs = {
   panel: true,
   depthProfile: false,
-  tradeTape: true,
+  tradeTape: false,
   depthLevels: 20,
   indicators: { oi: false, funding: false, cvd: false },
   tradeMarkers: { live: true, backtestId: null },
@@ -53,7 +53,7 @@ const PARAMS_PREFIX = 'indicatorParams.';
 const UI_PREFS_KEY = 'uiPrefs';
 const DEBOUNCE_MS = 800;
 // indicatorParams 动态键落库时的描述（schema 不覆盖动态键，只能写入方携带）
-const INDICATOR_PARAMS_DESCRIPTION = '图表指标参数（品种×指标维度），由图表页自动保存，JSON 对象';
+const INDICATOR_PARAMS_DESCRIPTION = '图表指标参数（标的×指标维度），由图表页自动保存，JSON 对象';
 
 // 旧 localStorage 键（持久化切后端前的一次性迁移来源；迁移成功后清理）
 const LEGACY_USER_PREFS_KEY = 'chart_user_preferences';

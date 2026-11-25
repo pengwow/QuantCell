@@ -1,5 +1,7 @@
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* demo（docs/design/qc-prototype-demo.html）body 同款栈。不首选任何未加载的 webfont：
+     Inter 之类没有真字体文件，写了也只是「看起来对的回退」，还不如直接用系统栈 */
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei', sans-serif;
   font-weight: 400;
   font-synthesis: none;
   line-height: 1.5;

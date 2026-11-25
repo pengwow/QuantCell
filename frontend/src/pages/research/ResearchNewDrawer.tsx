@@ -18,6 +18,8 @@ import {
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { researchApi, type ResearchCreateParams, type ResearchMode, type ResearchSession } from '@/api/research';
+import SymbolSelect from '@/components/SymbolSelect';
+import { useFactorDataGuard } from '../factor/useFactorDataGuard';
 
 interface Props {
   open: boolean;
@@ -139,10 +141,12 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
     }
   }, [scenario, mode, form]);
 
-  const submit = async () => {
+  const pendingRef = useRef<FormValues | null>(null);
+
+  /** 真正建会话：预检通过或下载完成后都以保存的表单值走这里（不再重跑预检，避免死循环） */
+  const createSession = async (values: FormValues) => {
     setError(null);
     try {
-      const values = await form.validateFields();
       // 预算估算仅提示（见上方 Alert），不再拦截提交：真实单次消耗常低于估算
       const [start, end] = values.window;
       const isStrategy = values.scenario === 'strategy';
@@ -170,15 +174,39 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
       };
       setSubmitting(true);
       const res = await researchApi.create(payload);
+      pendingRef.current = null;
       onCreated(res.session_id);
       form.resetFields();
       onClose();
     } catch (err) {
-      // 表单校验错误已在字段下展示；接口错误单独提示
-      if (err && typeof err === 'object' && 'errorFields' in err) return;
       setError(err instanceof Error ? err.message : t('research_msg_create_failed'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // 缺数据守卫：提交前预检本地 Parquet，缺失品种弹窗下载，完成后用同一份表单值续跑
+  const { guardModal, ensureData } = useFactorDataGuard({
+    onContinue: () => {
+      const values = pendingRef.current;
+      if (values) void createSession(values);
+    },
+  });
+
+  const submit = async () => {
+    setError(null);
+    try {
+      const values = await form.validateFields();
+      const ok = await ensureData(values.symbols, [values.interval], values.window, values.candle_type);
+      if (!ok) {
+        pendingRef.current = values;
+        return;
+      }
+      await createSession(values);
+    } catch (err) {
+      // 表单校验错误已在字段下展示，不重复提示
+      if (err && typeof err === 'object' && 'errorFields' in err) return;
+      setError(err instanceof Error ? err.message : t('research_msg_create_failed'));
     }
   };
 
@@ -244,7 +272,8 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
             label={t('research_field_symbols')}
             rules={[{ required: true, message: t('research_symbols_required') }]}
           >
-            <Select mode="tags" tokenSeparators={[',', ' ']} options={DEFAULT_SYMBOLS.map((s) => ({ value: s, label: s }))} />
+            {/* 全站标的下拉：自选组 + 交易所全量标的（原来写死两个 BTC/ETH 建议值，等于限制了可选标的） */}
+            <SymbolSelect mode="multiple" valueFormat="compact" />
           </Form.Item>
 
           <Space size="middle" style={{ display: 'flex' }}>
@@ -346,6 +375,7 @@ const ResearchNewDrawer: React.FC<Props> = ({ open, initialMode, seedFactor, cop
           </Space>
         </Space>
       </Form>
+      {guardModal}
     </Drawer>
   );
 };

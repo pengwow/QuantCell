@@ -20,6 +20,153 @@ except ImportError:
     SessionLocal = Session
 
 
+def add_missing_columns_from_models(session: Session, db_type: str) -> None:
+    """通用兜底迁移：对照模型 Base.metadata，为已存在的表补齐缺失列/索引。
+
+    动机（2026-11-18 桌面打包实录）：worker.Worker 新增 owner_id 只改了模型
+    没写迁移，桌面存量库 create_all 不改已存在的表 → GET /api/v1/workers
+    500。逐表手写 update_xxx_table 每加一列都要记得补一行，必然再漏。
+
+    ponytail: 天花板=仅做「加列/加索引」这类可幂等叠加的变更；改名、删列、
+    改类型、约束收紧无法自动推导，仍需专用迁移
+    （update_kline_volume_to_decimal、rename_kline_interval_columns 等）。
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    # 与 init_db 相同的模型注册前置:metadata 必须含有全部模型,
+    # 否则 sorted_tables/FK 解析会因缺表引用报 NoReferencedTableError
+    import agent.models
+    import backtest.models
+    import factor.models
+    import indicators.models  # 2026-11-20 实录：漏这一行，indicators/indicator_versions/
+
+    # indicator_alert_rules 三表整域不进 metadata，补列通道静默跳过（该域永远拿不到新列）
+    import strategy.models
+    from collector.db.database import Base
+
+    if db_type not in ("sqlite", "duckdb"):
+        logger.info(f"add_missing_columns: 方言 {db_type} 不支持通用补列，跳过")
+        return
+
+    inspector = sa_inspect(session.get_bind())
+    try:
+        existing_tables = set(inspector.get_table_names())
+    except Exception as e:
+        logger.warning(f"add_missing_columns: 读取表清单失败，跳过（{e}）")
+        return
+
+    added = 0
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        try:
+            existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+            existing_ix = {ix["name"] for ix in inspector.get_indexes(table.name)}
+        except Exception as e:
+            logger.warning(f"add_missing_columns: 读取 {table.name} 结构失败，跳过（{e}）")
+            continue
+
+        for col in table.columns:
+            if col.name in existing_cols:
+                continue
+            coltype = col.type.compile(inspector.dialect)
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}'
+            if col.server_default is not None:
+                ddl += f" DEFAULT {_render_server_default(col.server_default.arg, inspector.dialect)}"
+            elif not col.nullable:
+                logger.warning(
+                    f"add_missing_columns: {table.name}.{col.name} 为 NOT NULL 且无默认值，"
+                    "跳过自动补列（需要专用迁移，存量行无法安全填值）"
+                )
+                continue
+            session.execute(text(ddl))
+            added += 1
+            logger.info(f"add_missing_columns: 表 {table.name} 补齐缺失列 {col.name}")
+
+        # 模型里有、旧库没有的索引（如 owner_id 的 index=True）
+        for ix in table.indexes:
+            if ix.name in existing_ix or not ix.columns:
+                continue
+            cols = ", ".join(f'"{c.name}"' for c in ix.columns)
+            session.execute(text(f'CREATE INDEX IF NOT EXISTS "{ix.name}" ON "{table.name}" ({cols})'))
+            logger.info(f"add_missing_columns: 表 {table.name} 补建索引 {ix.name}")
+
+    if added:
+        logger.info(f"add_missing_columns: 共补齐 {added} 个缺失列")
+
+
+def _render_server_default(default_arg: object, dialect) -> str:
+    """把模型的 server_default 渲染成可拼进 ALTER TABLE 的 SQL 片段。
+
+    2026-11-20 实录：原实现把 TextClause 当 SQL、其余一律加引号，于是
+    `server_default=func.now()`（Function，不是 TextClause）被写成
+    `DEFAULT 'now()'` —— 一个字面量字符串。SQLite 照单全收，此后该表任何
+    INSERT 都把 "now()" 填进 DATETIME 列，SQLAlchemy 读回时抛
+    `Invalid isoformat string: 'now()'`，整条写入静默失败
+    （indicator_versions 因此六条指标、零个版本快照）。
+
+    修正：任何 ColumnElement（text()/func.*/常量表达式）交方言编译
+    （sqlite 下 func.now() → CURRENT_TIMESTAMP），裸标量才当值加引号。
+    """
+    from sqlalchemy.sql.elements import ClauseElement
+
+    if isinstance(default_arg, ClauseElement):
+        return str(default_arg.compile(dialect=dialect))
+    return "'" + str(default_arg).replace("'", "''") + "'"
+
+
+def repair_literal_now_defaults(session: Session, db_type: str) -> None:
+    """修复补列通道旧实现留下的 `DEFAULT 'now()'` 字面量默认值（存量库）。
+
+    症状：该表任何 INSERT 都把字符串 "now()" 写进 DATETIME 列，SQLAlchemy
+    读回抛 `Invalid isoformat string: 'now()'`，整条写入失败 —— 调用方通常
+    只看到"保存成功但查不到"（indicator_versions 版本快照即此）。
+
+    SQLite 不能改列默认值，只能重建表：复用 sqlite_master 里的原建表语句，
+    把字面量换成 CURRENT_TIMESTAMP 建同构临时表 → 整表 COPY → 删原表 →
+    改名 → 重建索引。行数据（若有）原样保留。
+
+    ponytail: 天花板=只处理 sqlite，且只认 "DEFAULT 'now()'" 这一种畸形；
+    将来若发现别的函数默认值被误引号化，往同一替换表里加一条即可。
+    """
+    if db_type != "sqlite":
+        return
+    broken = "DEFAULT 'now()'"
+    tables = session.execute(
+        text("SELECT name, sql FROM sqlite_master WHERE type='table' AND sql LIKE :pat"),
+        {"pat": "%DEFAULT 'now()'%"},
+    ).fetchall()
+    for name, ddl in tables:
+        if not ddl or broken not in ddl:
+            continue
+        # 索引 SQL 先留档：DROP TABLE 会连带删掉它们，改名后按原文重建
+        index_sql = [
+            row[0]
+            for row in session.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=:t AND sql IS NOT NULL"),
+                {"t": name},
+            ).fetchall()
+        ]
+        tmp = f"{name}__nowfix"
+        fixed = ddl.replace(broken, "DEFAULT CURRENT_TIMESTAMP")
+        # 只换建表语句里的表名（首个），避免列名/约束名误伤
+        quoted, bare = f'"{name}"', f"CREATE TABLE {name} "
+        session.execute(text(f'DROP TABLE IF EXISTS "{tmp}"'))
+        session.execute(
+            text(
+                fixed.replace(quoted, f'"{tmp}"', 1)
+                if quoted in fixed
+                else fixed.replace(bare, f'CREATE TABLE "{tmp}" ', 1)
+            )
+        )
+        session.execute(text(f'INSERT INTO "{tmp}" SELECT * FROM "{name}"'))
+        session.execute(text(f'DROP TABLE "{name}"'))
+        session.execute(text(f'ALTER TABLE "{tmp}" RENAME TO "{name}"'))
+        for sql in index_sql:
+            session.execute(text(sql))
+        logger.warning(f"repair_literal_now_defaults: 重建 {name}（DEFAULT 'now()' → CURRENT_TIMESTAMP）")
+
+
 def update_data_pools_table(session: Session, db_type: str) -> None:
     """更新data_pools表结构，添加缺失的列
 
@@ -1158,6 +1305,13 @@ def run_migrations() -> None:
 
             # 历史 K线周期列统一改名 interval（features.freq / indicator_alert_rules.period）
             rename_kline_interval_columns(session, db_type)
+
+            # 通用兜底：对照模型补齐遗漏的加列型迁移（桌面实录：owner_id 漏迁）
+            add_missing_columns_from_models(session, db_type)
+
+            # 补列通道旧实现把 func.now() 写成字符串默认值的表重建
+            # （否则 INSERT 全部失败：Invalid isoformat string: 'now()'）
+            repair_literal_now_defaults(session, db_type)
 
             # 提交所有更改
             session.commit()

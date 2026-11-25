@@ -14,13 +14,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
 def _default_archive_base_dir() -> Path:
-    """归档数据默认根目录: backend/data/source/archive."""
-    return Path(__file__).resolve().parent.parent / "data" / "source" / "archive"
+    """归档数据默认根目录: backend/data/source/archive（桌面= QUANTCELL_DATA_DIR/data/source/archive）。"""
+    return get_persistent_dir(
+        "data/source/archive",
+        Path(__file__).resolve().parent.parent / "data" / "source" / "archive",
+    )
 
 
 def _read_config(key: str, default: str) -> str:
@@ -46,8 +50,8 @@ def get_archive_base_dir() -> Path:
     raw = _read_config("data.archive.base_dir", str(_default_archive_base_dir()))
     p = Path(raw)
     if not p.is_absolute():
-        # 相对路径相对 backend 根目录解析
-        backend_root = Path(__file__).resolve().parent.parent
+        # 相对路径：开发态相对 backend 根目录；桌面相对 QUANTCELL_DATA_DIR
+        backend_root = get_persistent_dir("", Path(__file__).resolve().parent.parent)
         p = backend_root / raw
     return p
 

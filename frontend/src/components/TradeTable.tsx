@@ -8,6 +8,8 @@ import type { ColumnsType } from 'antd/es/table';
 import type { Trade, TradeFill } from '../types/backtest';
 import { useGlobalPageSize } from '../hooks/useGlobalPageSize';
 
+import { fmtNum } from './tradeFormat';
+
 export type { Trade };
 
 // 组件属性接口
@@ -21,11 +23,11 @@ export interface TradeTableProps {
   leverageBySymbol?: Record<string, number>;
 }
 
-const formatPrice = (price: number): string => price.toFixed(4);
+const formatPrice = (price: number): string => fmtNum(price, 4);
 
-const formatQuantity = (quantity: number): string => quantity.toFixed(4);
+const formatQuantity = (quantity: number): string => fmtNum(quantity, 4);
 
-const formatVolume = (volume: number): string => volume.toFixed(2);
+const formatVolume = (volume: number): string => fmtNum(volume, 2);
 
 // 引擎回显的 symbol 可能是 ETH//USDT（Rust instrument key），交易契约是 ETH/USDT，统一后再查表
 const normalizeSymbolKey = (symbol: string): string =>
@@ -121,8 +123,13 @@ const TradeTable = ({
       key: 'pnl',
       // 已实现盈亏，正绿负红，附收益率
       render: (value: number, record: Trade) => (
-        <span style={{ color: value >= 0 ? '#3f8600' : '#cf1322', fontWeight: 500 }}>
-          {value.toFixed(4)} ({record.return_pct.toFixed(2)}%)
+        <span
+          style={{
+            color: value >= 0 ? 'var(--qc-success)' : 'var(--qc-error)',
+            fontWeight: 500,
+          }}
+        >
+          {fmtNum(value, 4)} ({fmtNum(record.return_pct, 2)}%)
         </span>
       ),
       align: 'right',
@@ -138,7 +145,7 @@ const TradeTable = ({
       ),
     },
     {
-      title: '交易标的',
+      title: '标的',
       dataIndex: 'symbol',
       key: 'symbol',
       render: (value: string) => <span style={{ fontFamily: 'monospace' }}>{value || '-'}</span>,
@@ -165,13 +172,13 @@ const TradeTable = ({
         key: 'off',
         render: (v: string) => <Tag>{v === 'open' ? '开仓' : '平仓'}</Tag>,
       },
-      { title: '成交价', dataIndex: 'price', key: 'p', render: (v: number) => v.toFixed(4), align: 'right' },
-      { title: '数量', dataIndex: 'quantity', key: 'q', render: (v: number) => v.toFixed(4), align: 'right' },
+      { title: '成交价', dataIndex: 'price', key: 'p', render: (v: number) => fmtNum(v, 4), align: 'right' },
+      { title: '数量', dataIndex: 'quantity', key: 'q', render: (v: number) => fmtNum(v, 4), align: 'right' },
     ];
     return (
       <div style={{ padding: '8px 0' }}>
         {fills.length === 0 ? (
-          <span style={{ color: '#999' }}>无逐笔明细</span>
+          <span style={{ color: 'var(--qc-text-quaternary)' }}>无逐笔明细</span>
         ) : (
           <Table size="small" rowKey="fill_id" columns={cols} dataSource={fills} pagination={false} />
         )}

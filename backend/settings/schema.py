@@ -138,7 +138,8 @@ SETTINGS_SCHEMA: dict[str, SchemaGroup] = {
                 key="defaultViewType",
                 label="settings_view_type_label",
                 type=FieldType.SELECT,
-                default="card",
+                # 默认列表：列表是信息密度更高的首个视图（与前端 useViewType 兜底一致）
+                default="list",
                 description="settings_view_type_hint",
                 options=[
                     SchemaOption(value="card", label="settings_view_type_card"),

@@ -6,15 +6,15 @@
 
 ## 1. 项目简介
 
-QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核心）为交易引擎，以 FastAPI 为服务框架、React + TypeScript 为前端，提供从策略开发、回测验证到实盘部署的全流程能力。
+QuantCell 是一款 AI 原生的量化交易系统，以 Rust 核心为交易引擎，以 FastAPI 为服务框架、React + TypeScript 为前端，提供从策略开发、回测验证到实盘部署的全流程能力。
 
 核心设计理念：**让量化交易变得简单、高效、智能**——自然语言即可描述策略，AI 自动生成代码并完成回测验证。
 
-系统采用**统一内核架构**：回测、模拟盘（paper）与实盘（live）共用同一条由 axon-quant 内核驱动的 per-bar 主回路，模式差异只在数据泵与执行层装配，保证回测与实盘行为一致。
+系统采用**统一内核架构**：回测、模拟盘（paper）与实盘（live）共用同一条由 Rust 内核驱动的 per-bar 主回路，模式差异只在数据泵与执行层装配，保证回测与实盘行为一致。
 
 ## 2. 桌面客户端
 
-支持 macOS / Windows / Linux 桌面端。桌面版基于 Tauri 2 壳复用同一套 `frontend/` 代码，通过 PyInstaller 打包本地 `backend`（FastAPI + axon-quant）作为 sidecar 进程随桌面端自动拉起；`local` 模式免登录直达，也支持 `remote` 模式连接远端服务。
+支持 macOS / Windows / Linux 桌面端。桌面版基于 Tauri 2 壳复用同一套 `frontend/` 代码，通过 PyInstaller 打包本地 `backend`（FastAPI + Rust 核心）作为 sidecar 进程随桌面端自动拉起；`local` 模式免登录直达，也支持 `remote` 模式连接远端服务。
 
 | 平台 | 架构 | 安装包 |
 |------|------|--------|
@@ -39,9 +39,9 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 - **智能 Agent**：具备记忆与工具调用能力的 AI Agent，可进行多轮对话与操作编排
 - **LLM 决策录制回放**：LLM 策略回测时从录制记录回放决策，不真实请求 LLM
 
-### ⚡ Axon-Quant 高性能引擎
+### ⚡ Rust 高性能引擎
 
-- **Rust 核心驱动**：底层采用 `axon-quant 0.25.0`，统一内核架构
+- **Rust 核心驱动**：统一内核架构
 - **统一主回路**：回测 / paper / live 共用同一条 per-bar 编排，语义一致
 - **多数据类型回测**：K 线、衍生数据（资金费率等）、订单簿、逐笔成交等数据适配器
 - **Walk-Forward 验证**：滚动窗口回测，防止过拟合
@@ -104,7 +104,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
        │                │                │
        ▼                ▼                ▼
 ┌──────────────────────────────────────────────────────────┐
-│       axon-quant (Rust 内核) · Binance / OKX · DuckDB     │
+│            Rust 内核 · Binance / OKX · DuckDB            │
 │        回测 / paper / live 共用统一 per-bar 主回路          │
 └──────────────────────────────────────────────────────────┘
        ▲                ▲                ▲
@@ -121,7 +121,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 |------|------|
 | 后端语言 | Python 3.14 |
 | Web 框架 | FastAPI 0.136（uvicorn） |
-| 交易引擎 | axon-quant 0.25.0（Rust 核心，path 依赖） |
+| 交易引擎 | Rust 核心（PyO3，path 依赖） |
 | 数据库 | DuckDB 1.4 + Parquet + SQLAlchemy 2 + Alembic |
 | 数据处理 | Pandas 2.3 / PyArrow 22 |
 | 强化学习 | Gymnasium 1.3 + Stable-Baselines3 2.9 |
@@ -223,7 +223,7 @@ $ quantcell --help
    account     凭证管理（add/list/remove）
    migrate     数据库迁移(SQLite schema 升级)
    strategy    策略管理命令行工具
-   backtest    QuantCell 回测工具（事件驱动引擎 axon-quant）
+   backtest    QuantCell 回测工具（事件驱动 Rust 引擎）
    data        数据管理命令行工具
 ```
 
@@ -296,7 +296,7 @@ result = service.run_backtest(
 print(result)  # 返回含收益率/最大回撤/成交记录等指标的 dict
 ```
 
-回测默认走 axon-quant 统一内核（`worker.Kernel`），三条执行路径（统一内核 / legacy 引擎 / Python 回退）由 `engine_config['runner']` 选择，输出统一 `BacktestResult` 契约。
+回测默认走 Rust 统一内核，三条执行路径（统一内核 / legacy 引擎 / Python 回退）由 `engine_config['runner']` 选择，输出统一 `BacktestResult` 契约。
 
 ### 3. 强化学习训练
 

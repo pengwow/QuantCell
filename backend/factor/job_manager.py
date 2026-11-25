@@ -17,7 +17,16 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from common.notifications.inbox_models import AsyncTaskRecord
+from common.notifications.task_notices import (
+    TASK_STATUS_FAILED,
+    TASK_STATUS_INTERRUPTED,
+    TASK_STATUS_SUCCEEDED,
+    notify_task_event,
+    upsert_async_task_record,
+)
 from factor.job_lease import LEASE_HOOKS, LEASE_TICK_SECONDS
+from utils.db_session import use_db_session
 from utils.logger import LogType, get_logger
 from websocket.manager import manager
 
@@ -99,6 +108,7 @@ class FactorJobManager:
         with self._lock:
             self._jobs[job_id] = job
         self._emit(job)
+        upsert_async_task_record("factor_job", job_id, "queued")
         self._executor.submit(self._run, job, runner, on_terminal, on_event_cb)
         return job_id
 
@@ -124,6 +134,7 @@ class FactorJobManager:
 
         try:
             self._update(job.job_id, status=JobStatus.RUNNING, progress=0.0, stage="running")
+            self._report_status(job)
             result = runner(on_progress, on_progress, on_event)
             with self._lock:
                 job.result = result
@@ -134,6 +145,7 @@ class FactorJobManager:
                 stage="completed",
                 message="完成",
             )
+            self._report_status(job)
             if on_terminal is not None:
                 try:
                     on_terminal(job.job_id, True, result)
@@ -143,6 +155,7 @@ class FactorJobManager:
         except Exception as e:
             logger.exception(f"因子任务失败: {job.job_id}")
             self._update(job.job_id, status=JobStatus.FAILED, error=str(e), message="失败")
+            self._report_status(job)
             if on_terminal is not None:
                 try:
                     on_terminal(job.job_id, False, str(e))
@@ -214,6 +227,26 @@ class FactorJobManager:
         return {"events": evts, "next_idx": next_idx}
 
     # ---------- 内部 ----------
+
+    def _report_status(self, job: FactorJob) -> None:
+        """通知中心挂钩：running 落影子行；completed/failed 发终态通知。
+
+        JobStatus 无取消语义（仅四值），cancelled 不存在；影子表只写
+        rl_train/factor_job 两域（见 task_notices._SHADOWED_TASK_TYPES）。
+        """
+        status = str(job.status)
+        if status == "running":
+            upsert_async_task_record("factor_job", job.job_id, "running")
+        elif status == "completed":
+            notify_task_event("factor_job", job.job_id, TASK_STATUS_SUCCEEDED, extra={"kind": job.kind})
+        elif status == "failed":
+            notify_task_event(
+                "factor_job",
+                job.job_id,
+                TASK_STATUS_FAILED,
+                error=job.error,
+                extra={"kind": job.kind},
+            )
 
     def _update(self, job_id: str, **fields: Any) -> None:
         with self._lock:
@@ -339,3 +372,33 @@ class FactorJobManager:
 
 
 job_manager = FactorJobManager()
+
+
+def compensate_interrupted_tasks() -> int:
+    """重启补偿：影子表残留 queued/running 的因子任务置 interrupted 并补发中断通知"""
+    try:
+        with use_db_session() as db:
+            rows = (
+                db.query(AsyncTaskRecord)
+                .filter(
+                    AsyncTaskRecord.task_type == "factor_job",
+                    AsyncTaskRecord.status.in_(("queued", "running")),
+                )
+                .all()
+            )
+            stale = [(r.task_id, r.name or "") for r in rows]
+            for row in rows:
+                row.status = "interrupted"
+            db.commit()
+    except Exception:
+        logger.exception("[因子] 启动补偿扫描失败")
+        return 0
+    for task_id, name in stale:
+        notify_task_event(
+            "factor_job",
+            task_id,
+            TASK_STATUS_INTERRUPTED,
+            name=name or None,
+            error="服务重启，因子计算任务被中断",
+        )
+    return len(stale)

@@ -3,7 +3,7 @@
  * 功能：显示系统日志，支持刷新和加载更多
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Tag, Collapse, Divider, Button } from 'antd';
+import { Collapse, Divider, Button } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
 import { IconSettings } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
@@ -18,22 +18,21 @@ interface SystemLogsProps {
 const { Panel } = Collapse;
 
 /**
- * 获取日志级别颜色
+ * 获取日志级别徽章 class（语义 chip，§2.2）
  */
-const getLevelColor = (level: LogLevel): string => {
+const getLevelChip = (level: LogLevel): string => {
   switch (level) {
     case 'debug':
-      return 'default';
+      return 'qc-chip quiet';
     case 'info':
-      return 'blue';
+      return 'qc-chip info';
     case 'warn':
-      return 'orange';
+      return 'qc-chip warn';
     case 'error':
-      return 'red';
     case 'fatal':
-      return 'purple';
+      return 'qc-chip down';
     default:
-      return 'default';
+      return 'qc-chip quiet';
   }
 };
 
@@ -132,7 +131,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
     <div>
       {/* 标题栏 - 包含日志设置按钮 */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium">{t('system_logs')}</h3>
+        <h3 className="font-[650]" style={{ fontSize: 13 }}>{t('system_logs')}</h3>
         {onLogSettingsClick && (
           <Button
             type="default"
@@ -164,7 +163,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                 <div className="flex w-full items-center mt-4">
                   <a
                     onClick={handleRefresh}
-                    className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                    className="text-xs cursor-pointer hover:opacity-80" style={{ color: 'var(--qc-info)' }}
                   >
                     {t('refresh_logs')}
                   </a>
@@ -183,13 +182,12 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                         </span>
 
                         {/* 日志级别 */}
-                        <Tag
-                          color={getLevelColor(log.level)}
-                          className="shrink-0 m-0"
-                          style={{ fontSize: '10px', padding: '0 4px', lineHeight: '16px' }}
+                        <span
+                          className={`${getLevelChip(log.level)} shrink-0 m-0`}
+                          style={{ padding: '0 4px' }}
                         >
                           {getLevelLabel(log.level)}
-                        </Tag>
+                        </span>
 
                         {/* 消息内容 */}
                         <span className="break-all">{log.message}</span>
@@ -225,7 +223,7 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                 <div className="flex w-full items-center mt-4">
                   <a
                     onClick={handleRefresh}
-                    className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                    className="text-xs cursor-pointer hover:opacity-80" style={{ color: 'var(--qc-info)' }}
                   >
                     {t('refresh_logs')}
                   </a>
@@ -234,7 +232,8 @@ const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
                   {hasMore ? (
                     <a
                       onClick={handleLoadMore}
-                      className={`text-xs cursor-pointer ${loadingMore ? 'text-stone-500' : 'text-blue-400 hover:text-blue-300'}`}
+                      className="text-xs cursor-pointer hover:opacity-80"
+                      style={{ color: 'var(--qc-info)', opacity: loadingMore ? 0.45 : 1 }}
                     >
                       {loadingMore ? (t('loading')) : (t('load_more'))}
                     </a>

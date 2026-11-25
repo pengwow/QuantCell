@@ -1,0 +1,452 @@
+/* 策略管理页局部样式（demo #view-strategy / 行内展开面板）
+   全局原语（.qc-card/.qc-chip/.qc-ichip/.qc-mini-btn/.qc-table/.qc-row-selected/
+   .qc-exp-panel/.qc-cell-caret）住在 global.css，这里只放页面私有的：
+   合并列（标的·周期）排版、策略列类型徽章、行内展开面板内容与参数键值表（demo .kvtab）。 */
+
+/* 三角 + 名称 + 徽章同行，间距由 .qc-cell-strat-wrap 的 gap 统一给，抵消原 margin-right */
+.qc-cell-strat-wrap .qc-cell-caret {
+  margin-right: 0;
+  flex: 0 0 12px;
+}
+
+/* ---- 策略列：类型徽章缩小版并入名称行（demo style="font-size:9px;padding:2px 5px"） ---- */
+.sm-kind-chip .qc-chip {
+  font-size: 9px;
+  padding: 2px 5px;
+}
+
+/* ---- 合并列「标的 · 周期」：标的 primary 600，周期弱化的 fg-4 ---- */
+.sm-sym {
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+/* 2 个标的：整串限宽截断（inline-block 才让 max-width 生效，裸 inline 无效） */
+.sm-sym-ellipsis {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.sm-tf {
+  color: var(--qc-text-quaternary);
+}
+
+/* ≥3 标的的「+N」计数徽章（demo .chip.quiet 缩小版） */
+.sm-chip-n {
+  margin-left: 4px;
+  font-size: 9px;
+  padding: 1.5px 5px;
+  vertical-align: 1px;
+}
+
+/* ---- 行内展开面板（.qc-exp-panel 提供 chrome，这里只排面板内容） ---- */
+
+.sm-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* demo .card-title：13px/650 */
+.sm-detail-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--qc-text);
+}
+
+/* demo #sdName：mono 12px 策略名 */
+.sm-detail-name {
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* demo .head-right .card-sub：右对齐 mono 11px（v{版本} · 更新 {MM-DD}） */
+.sm-detail-ver {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+}
+
+.sm-detail-empty {
+  margin-top: 8px; /* demo head→内容 8px（.card-head mb） */
+  font-size: 11.5px;
+  color: var(--qc-text-quaternary);
+}
+
+/* 底部动作行：主钮 + 次钮 + footer 口径行，与 demo 1724-1728 同构 */
+.sm-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.sm-detail-foot {
+  align-self: center;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+}
+
+/* footer 的「累计回测 N 次」：可点跳回测中心并按该策略筛选（虚线示可点，与 demo 文字链同形） */
+.sm-bt-link {
+  align-self: center;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--qc-primary);
+  cursor: pointer;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-primary) 45%, transparent);
+}
+
+.sm-bt-link::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--qc-text-tertiary);
+  pointer-events: none;
+}
+
+.sm-bt-link:hover {
+  border-bottom-style: solid;
+}
+
+/* footer 的「版本历史 N 条」折叠开关：弱色文本钮，不用 antd 彩色 Tag */
+.sm-ver-toggle {
+  align-self: center;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+  cursor: pointer;
+}
+
+.sm-ver-toggle:hover {
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-caret {
+  margin-left: 4px;
+  font-size: 9px;
+}
+
+/* ---- 管理页 inline：一行一条「时间 / 版本号+hash / 大小·行数 / 当前 / 操作」 ---- */
+.sm-ver-list {
+  margin-top: 10px;
+  padding-top: 2px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.sm-ver-row {
+  display: grid;
+  grid-template-columns: 96px 190px minmax(120px, 1fr) 56px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.sm-ver-row:last-child {
+  border-bottom: none;
+}
+
+.sm-ver-time {
+  font-size: 11.5px;
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-ver {
+  font-size: 11.5px;
+  color: var(--qc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sm-ver-ver i {
+  font-style: normal;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-size {
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-curcell {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 行尾操作：贴右对齐，按钮压到 11px 紧凑尺寸（面板宽度本来就窄） */
+.sm-ver-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* 行尾动作按 demo .mini-btn：24px 描边小钮，主钮用主色 tint */
+.sm-ver-actions .sm-ver-btn {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--qc-text-secondary);
+  background: transparent;
+}
+
+.sm-ver-actions .sm-ver-btn:hover {
+  color: var(--qc-text);
+  border-color: var(--qc-border-strong);
+}
+
+.sm-ver-actions .sm-ver-btn.pri {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+}
+
+.sm-ver-actions .sm-ver-btn[disabled] {
+  color: var(--qc-text-quaternary);
+  border-color: var(--qc-border);
+  background: transparent;
+}
+
+.sm-ver-current {
+  margin: 0;
+  padding: 0 5px;
+  font-size: 9px;
+  line-height: 15px;
+  color: var(--qc-success);
+  border-color: color-mix(in srgb, var(--qc-success) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 10%, transparent);
+}
+
+.sm-ver-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sm-ver-modal-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.sm-ver-note {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-note-error {
+  color: var(--qc-error);
+}
+
+/* ---- 编辑器页头 titleExtra：版本 chip + 「未保存」chip 横排 ---- */
+.qc-ed-title-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- 编辑器抽屉：左时间轴 + 右快照预览（面板吃满抽屉高度） ---- */
+.sm-ver-drawer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.sm-ver-split {
+  display: grid;
+  grid-template-columns: minmax(210px, 272px) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sm-ver-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  border-right: 1px solid var(--qc-border);
+}
+
+.sm-ver-tl-item {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 7px 9px 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.sm-ver-tl-item:hover {
+  background: color-mix(in srgb, var(--qc-text) 4%, transparent);
+}
+
+.sm-ver-tl-item.on {
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+  border-color: color-mix(in srgb, var(--qc-primary) 32%, transparent);
+}
+
+.sm-ver-tl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--qc-text) 22%, transparent);
+}
+
+.sm-ver-tl-item.cur .sm-ver-tl-dot {
+  background: var(--qc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-primary) 18%, transparent);
+}
+
+.sm-ver-tl-t {
+  font-size: 11.5px;
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-tl-item.on .sm-ver-tl-t {
+  color: var(--qc-text);
+  font-weight: 600;
+}
+
+.sm-ver-tl-label {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-tl-sub {
+  grid-column: 2 / -1;
+  font-size: 10px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sm-ver-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--qc-border);
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-ver-meta b {
+  font-weight: 600;
+  color: var(--qc-text-secondary);
+}
+
+.sm-ver-meta-cur {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  line-height: 16px;
+  color: var(--qc-success);
+  background: color-mix(in srgb, var(--qc-success) 12%, transparent);
+}
+
+/* Monaco 容器靠 flex 吃剩余高度（height:100% 只在父高确定时生效） */
+.sm-ver-code {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sm-ver-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--qc-border);
+}
+
+.sm-ver-foot-btns {
+  margin-left: auto;
+}
+
+/* ---- demo .kvtab：两列键值表，参数行虚线分隔 ----
+   demo 里 kvtab 无自身 margin，间距来自 .card-head 的 mb:8 —— head 无 mb，
+   由这里的 8px 承担同一间距 */
+.sm-kvtab {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+}
+
+.sm-kvtab td {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  vertical-align: top;
+}
+
+.sm-kvtab tr:last-child td {
+  border-bottom: none;
+}
+
+/* demo .kvtab .k：弱色窄列（参数名 mono）；.v：550 正文值 + 弱色注脚 */
+.sm-kvtab .k {
+  width: 150px;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-kvtab .v {
+  font-weight: 550;
+  color: var(--qc-text);
+  word-break: break-word;
+}
+
+.sm-kv-desc {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--qc-text-quaternary);
+}
+
+.sm-kv-range {
+  margin-left: 8px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+}
+
+/* 暗色主题下 Element 无关；token 自动切换，无需额外覆盖 —— 该文件不用写死色值 */
+
+/* 访客态禁用按钮套的一层包装：让 Tooltip 在禁用按钮上仍能触发 */
+.sm-ver-disabled-wrap {
+  display: inline-block;
+}

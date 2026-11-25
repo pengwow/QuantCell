@@ -57,7 +57,7 @@
 
 | 文件 | 内容 |
 |------|------|
-| `backend/data/live/worker_{id}.jsonl` | 规则 / LLM 策略的 paper/live 决策与事件记录（JSONL，逐行一个 JSON 对象；行内容由 axon-quant Rust live_driver 写入，本仓库只消费与归档） |
+| `backend/data/live/worker_{id}.jsonl` | 规则 / LLM 策略的 paper/live 决策与事件记录（JSONL，逐行一个 JSON 对象；行内容由 Rust live driver 写入，本仓库只消费与归档） |
 | `backend/data/rl_live/worker_{id}.jsonl` | RL 策略同上 |
 
 ### 2.2 对账报告

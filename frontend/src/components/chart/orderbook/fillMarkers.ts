@@ -6,6 +6,8 @@
  * source 字段用于回放/实时两组标记的幂等增删互不干扰。
  */
 import type { Chart, Nullable } from 'klinecharts';
+import { getPalette } from '@/theme';
+import { currentChartThemeMode } from '../chartStyles';
 
 export interface FillPoint {
   /** 成交时间（毫秒） */
@@ -16,8 +18,10 @@ export interface FillPoint {
   source: 'backtest' | 'live';
 }
 
-const BUY_COLOR = '#00E676';
-const SELL_COLOR = '#FF5252';
+// 买/卖标记色：palette chartBuyMarker/chartSellMarker 槽位（高饱和绿/红，深浅两种 K 线底上
+// 都要够跳，故两模式同值）。canvas 绘制需字面色，绘制时按当前主题模式取值。
+const buyMarkerColor = (): string => getPalette(currentChartThemeMode()).chartBuyMarker;
+const sellMarkerColor = (): string => getPalette(currentChartThemeMode()).chartSellMarker;
 
 // 成交 ts 向下取整到所属 bar 起点（barMs 见 extraIndicators.periodToMs），保证落点在 K 网格上
 export const alignToBar = (ts: number, barMs: number): number =>
@@ -33,7 +37,7 @@ export const createFillMarker = (chart: Nullable<Chart>, fill: FillPoint): void 
       lock: true,
       extendData: {
         text: fill.side === 'buy' ? 'B' : 'S',
-        color: fill.side === 'buy' ? BUY_COLOR : SELL_COLOR,
+        color: fill.side === 'buy' ? buyMarkerColor() : sellMarkerColor(),
         side: fill.side,
         source: fill.source,
         quantity: fill.quantity,

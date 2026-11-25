@@ -5,10 +5,12 @@ import os
 import re
 import shutil
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config.settings import get_settings
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 from .event_bus import EventBus
 from .plugin_base import PluginBase
@@ -39,10 +41,11 @@ class PluginManager:
     def __init__(self, app: FastAPI | None = None, plugin_dir: str | None = None):
         self._app = app
         if plugin_dir is None:
-            plugin_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "data",
-                "installed_plugins",
+            plugin_dir = str(
+                get_persistent_dir(
+                    "data/installed_plugins",
+                    Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "data" / "installed_plugins",
+                )
             )
         self.plugin_dir = plugin_dir
         self.plugins: dict[str, PluginBase] = {}

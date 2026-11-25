@@ -9,13 +9,11 @@ import {
   App as AntApp,
   Button,
   Card,
-  Empty,
   Flex,
   Popconfirm,
   Select,
   Space,
   Tabs,
-  Tag,
   Tooltip,
 } from 'antd';
 import { DeleteOutlined, EditOutlined, ExperimentOutlined } from '@ant-design/icons';
@@ -24,12 +22,13 @@ import {
   type FactorCatalogItem,
   type LifecycleStatus,
 } from '@/api/factor';
-import { NEXT_STATUS, STATUS_COLOR, factorSource, isAiProduced } from './factorMeta';
+import { NEXT_STATUS, factorSource, isAiProduced } from './factorMeta';
 import FactorOverviewPanel from './FactorOverviewPanel';
 import FactorAnalyzePanel from './FactorAnalyzePanel';
 import FactorSnapshotsPanel from './FactorSnapshotsPanel';
 import FactorCodePanel from './FactorCodePanel';
 import FactorFormModal from './FactorFormModal';
+import { QcEmpty } from '@/components/ui/DataTable';
 
 const errMsg = (e: unknown) => (e as Error)?.message || '操作失败';
 
@@ -48,8 +47,8 @@ const FactorDetailPane: React.FC<{
 
   if (!factor) {
     return (
-      <Card>
-        <Empty description={t('factor_detail_empty') || '请在左侧选择因子'} />
+      <Card className="qc-card">
+        <QcEmpty title={t('factor_detail_empty')} />
       </Card>
     );
   }
@@ -104,24 +103,30 @@ const FactorDetailPane: React.FC<{
   // 代码因子可在线编辑（同名覆盖）；合成因子涉及成分/权重，仍禁止在线编辑
   const isComposite = factorSource(factor) === 'composite';
 
+  // 生命周期 → §6.2 chip 语气（与左栏表格状态列同口径：有效=ok / 观察=warn / 失效=down）
+  const statusTone =
+    factor.lifecycle_status === 'LIVE' ? 'ok' : factor.lifecycle_status === 'RETIRED' ? 'down' : 'warn';
+
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card size="small">
+      <Card size="small" className="qc-card">
         <Flex justify="space-between" align="center" wrap="wrap" gap="small">
-          <Flex gap="small" align="center" wrap>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>{factor.label}</span>
-            <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }}>{factor.name}</span>
-            {factor.builtin && <Tag>{t('factor_lib_builtin') || '内置'}</Tag>}
-            {factorSource(factor) === 'code' && <Tag color="magenta">{t('factor_lib_code') || '代码'}</Tag>}
-            {factorSource(factor) === 'composite' && <Tag color="purple">{t('factor_lib_composite') || '合成'}</Tag>}
-            {isAiProduced(factor) && <Tag color="geekblue">AI</Tag>}
-            {!factor.supported && <Tag color="error">{t('factor_lib_no_data') || '无数据'}</Tag>}
+          <Flex gap={6} align="center" wrap>
+            <span style={{ fontSize: 16, fontWeight: 650, color: 'var(--qc-text)' }}>{factor.label}</span>
+            <span className="qc-cell-id">{factor.name}</span>
+            <span className="qc-row-chips">
+              {factor.builtin && <span className="qc-chip quiet">{t('factor_lib_builtin')}</span>}
+              {factorSource(factor) === 'code' && <span className="qc-chip info">{t('factor_lib_code')}</span>}
+              {factorSource(factor) === 'composite' && <span className="qc-chip pri">{t('factor_lib_composite')}</span>}
+              {isAiProduced(factor) && <span className="qc-chip pri">AI</span>}
+              {!factor.supported && <span className="qc-chip down">{t('factor_lib_no_data')}</span>}
+            </span>
           </Flex>
           <Flex gap="small" align="center">
             {locked ? (
-              <Tag color={STATUS_COLOR[factor.lifecycle_status]} style={{ marginInlineEnd: 0 }}>
+              <span className={`qc-chip ${statusTone}`} style={{ marginInlineEnd: 0 }}>
                 {statusLabel(factor.lifecycle_status)}
-              </Tag>
+              </span>
             ) : (
               <Select
                 size="small"
@@ -153,7 +158,7 @@ const FactorDetailPane: React.FC<{
                 icon={<ExperimentOutlined />}
                 onClick={() => navigate(`/research?seed=${encodeURIComponent(factor.name)}`)}
               >
-                基于此因子研究
+                {t('factor_research_seed')}
               </Button>
             </span>
             <Popconfirm
@@ -170,6 +175,7 @@ const FactorDetailPane: React.FC<{
       </Card>
 
       <Card
+        className="qc-card"
         styles={{ body: { paddingTop: 8 } }}
       >
         <Tabs

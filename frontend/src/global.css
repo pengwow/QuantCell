@@ -17,6 +17,8 @@
   --color-error: var(--tw-color-error);
   --color-border: var(--tw-color-border);
   --color-border-secondary: var(--tw-color-border-secondary);
+  --color-surface: var(--qc-surface);
+  --color-surface-muted: var(--qc-surface-muted);
 
   /* ===== 设计 token（qc- 五档间距体系，O1） =====
      命名必须带 qc- 前缀：Tailwind v4 中 --spacing-4 / --radius-lg 等裸名
@@ -45,41 +47,32 @@
 }
 
 @layer base {
-  :root {
-    /* 亮色模式配色 */
-    --tw-color-background: #ffffff;
-    --tw-color-foreground: #141414;
-    --tw-color-primary: #ea580c;
-    --tw-color-info: #0969da;
-    --tw-color-success: #1a7f37;
-    --tw-color-warning: #eac54f;
-    --tw-color-error: #d1242f;
-    --tw-color-border: #d1d5db;
-    --tw-color-border-secondary: #e5e7eb;
-    
-    /* 侧边栏变量 */
-    --sider-width: 256px;
-    --sider-collapsed-width: 81px;
-    --header-height: 64px;
-  }
+  /* 主题色变量（亮/暗两套 --qc-* / --tw-color-*）由 src/theme 在运行时注入：
+     main.tsx 首帧 + App.tsx 监听 .dark class 切换时调用 applyThemeVars()。
+     颜色值的唯一真相源是 src/theme/palettes.ts —— 修改品牌配色只改那一处，
+     本文件不再持有任何颜色字面量（theme.spec.ts 有守卫）。 */
 
-  .dark {
-    /* 暗色模式配色 */
-    --tw-color-background: #17191c;
-    --tw-color-foreground: #fafaf9;
-    --tw-color-primary: #f97316;
-    --tw-color-info: #478be6;
-    --tw-color-success: #57ab5a;
-    --tw-color-warning: #daaa3f;
-    --tw-color-error: #e5534b;
-    --tw-color-border: #374151;
-    --tw-color-border-secondary: #4b5563;
+  /* 布局尺寸变量（非颜色）—— design-spec §5：Header 52 / Sider 216、折叠 64 */
+  :root {
+    --sider-width: 216px;
+    --sider-collapsed-width: 64px;
+    --header-height: 52px;
   }
 }
 
 @layer base {
   /* 数字等宽（O3，全局 tnum 规范）：行情/表格/盈亏数字逐位对齐不跳动。
      全局继承，等宽特性只影响数字字形宽度，对文本渲染无副作用 */
+
+  /* 正文基准 13px/1.6（qc-prototype-demo body 基准值）。
+     只写在 body 上、不动 html：Tailwind 间距工具类全部基于根 rem，
+     若把 13px 写到 html 会等比缩放全站 p-x / gap-x 之类工具类。antd 组件字号由
+     ConfigProvider.fontSize 管，这里管 antd 之外的原生文本 */
+  body {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
   body {
     font-feature-settings: 'kern' 1, 'tnum' 1;
     font-variant-numeric: tabular-nums;
@@ -116,10 +109,10 @@
   width: 100%;
 }
 
-/* 自定义滚动条 */
+/* 自定义滚动条（design-spec §5：8px，圆角 4px；thumb = 文本色 18% tint） */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -127,15 +120,2077 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--tw-color-border);
+  background: color-mix(in srgb, var(--qc-text) 18%, transparent);
+  border-radius: 4px;
+}
+
+/* ============================================================
+   布局骨架（design-spec §5 / §6.1 / §6.15 / §8 / §9）
+   颜色一律取 src/theme 注入的 --qc-* 变量；本段禁止出现颜色字面量。
+   注意：index.css 在 global.css 之后导入，body 画布底色需用更高
+   特异性（html body）覆盖其 --tw-color-background。
+   ============================================================ */
+
+/* 画布：--qc-canvas + 双 radial 辉光（顶部主色 / 右下 info 色，§5） */
+html body {
+  background-color: var(--qc-canvas);
+  background-image:
+    radial-gradient(1100px 420px at 50% -60px, var(--qc-glow-1), transparent 70%),
+    radial-gradient(900px 380px at 85% 108%, var(--qc-glow-2), transparent 70%);
+}
+
+/* §9 焦点环统一：仅键盘聚焦时出现 */
+:focus-visible {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
+}
+
+/* §8 主题切换颜色过渡：只动颜色类属性（布局属性单独声明） */
+.qc-header,
+.qc-sider,
+.qc-nav-item,
+.qc-nav-group-t,
+.qc-icon-btn,
+.qc-theme-pill,
+.qc-sider-foot {
+  transition:
+    background-color 0.16s ease-out,
+    border-color 0.16s ease-out,
+    color 0.16s ease-out,
+    box-shadow 0.16s ease-out;
+}
+
+/* ---- 顶部 Header（52px 通栏） ---- */
+.qc-app {
+  /* h-screen：与旧骨架一致（不依赖中间包装层的高度传递，AuthProvider 等包装无高度） */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--qc-text);
+}
+
+.qc-header {
+  flex: 0 0 var(--header-height);
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--qc-border);
+  background: var(--qc-bg);
+  position: relative;
+  z-index: 20;
+}
+
+.qc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.qc-logo {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: inline-flex;
+}
+
+.qc-brand {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--qc-text);
+  white-space: nowrap;
+}
+
+.qc-crumb-sep {
+  color: var(--qc-text-quaternary);
+  font-size: 12px;
+}
+
+.qc-crumb {
+  font-size: 13px;
+  color: var(--qc-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.qc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* §6.15 图标按钮：30×30、6px 圆角、透明底、hover 文字色 5% tint */
+.qc-icon-btn {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: none;
+  background: transparent;
+  color: var(--qc-text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.qc-icon-btn:hover {
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  color: var(--qc-text);
+}
+
+/* 断点显隐全部在本文件用媒体查询管理，不依赖 Tailwind 工具类——
+   本段为 unlayered 规则，恒胜过 @layer utilities 里的 md:hidden 等 */
+.qc-hamburger {
+  display: none;
+}
+
+.qc-header-locale {
+  display: none;
+}
+
+/* 主题切换胶囊（§6.15 / AppTheme）：30px 高、15px 圆角、muted 底、16px 主色图标 */
+.qc-theme-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px 0 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 15px;
+  background: var(--qc-surface-muted);
+  color: var(--qc-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qc-theme-pill svg {
+  width: 16px;
+  height: 16px;
+  color: var(--qc-primary);
+}
+
+.qc-theme-pill:hover {
+  border-color: var(--qc-primary);
+  color: var(--qc-text);
+}
+
+/* 铃铛角标：主色徽章 + 1.5px 画布色描边（demo .badge） */
+.qc-bell .ant-badge-count {
+  border: 1.5px solid var(--qc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ---- 主体两栏（Sider 卡片 + main） ---- */
+.qc-app-body {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  min-height: 0;
+}
+
+/* §6.15 Sider：216px 内嵌圆角卡片，折叠 64px（flex-basis 过渡 180ms） */
+.qc-sider {
+  flex: 0 0 var(--sider-width);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--qc-bg);
+  border: 1px solid var(--qc-border);
+  border-radius: 12px;
+  transition:
+    flex-basis 0.18s ease-out,
+    background-color 0.16s ease-out,
+    border-color 0.16s ease-out;
+}
+
+.qc-sider[data-collapsed='true'] {
+  flex-basis: var(--sider-collapsed-width);
+}
+
+.qc-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scrollbar-width: thin;
+}
+
+/* §6.15 nav-item：7/10/7/13 内边距、8px 圆角、13px 字、图标 16 */
+.qc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  position: relative;
+  padding: 7px 10px 7px 13px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 19px; /* 像素基准：nav-item 总高 33px（demo 实测），不是 body 的 1.6 */
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.qc-nav-item svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-nav-item:hover {
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  color: var(--qc-text);
+}
+
+/* 选中：primary 9% tint 底 + 主色字 550 + 左侧 3px 竖条（top/bottom 22%） */
+.qc-nav-item.on {
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+  color: var(--qc-primary);
+  font-weight: 550;
+}
+
+.qc-nav-item.on svg {
+  color: var(--qc-primary);
+}
+
+.qc-nav-item.on::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--qc-primary);
+}
+
+.qc-nav-group-t {
+  padding: 13px 13px 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  color: var(--qc-text-quaternary);
+}
+
+/* 折叠态：仅图标居中，文案与分组标题隐藏 */
+.qc-sider[data-collapsed='true'] .qc-nav-item {
+  padding: 7px 0;
+  justify-content: center;
+}
+
+.qc-sider[data-collapsed='true'] .qc-nav-label,
+.qc-sider[data-collapsed='true'] .qc-nav-group-t {
+  display: none;
+}
+
+.qc-sider-foot {
+  border-top: 1px solid var(--qc-border);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qc-ver {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.qc-sider[data-collapsed='true'] .qc-ver {
+  display: none;
+}
+
+.qc-sider[data-collapsed='true'] .qc-sider-foot {
+  justify-content: center;
+  padding: 8px 6px;
+  gap: 6px;
+}
+
+.qc-collapse-btn svg {
+  transition: transform 0.18s ease-out;
+}
+
+.qc-sider[data-collapsed='true'] .qc-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+/* §5 main：4/4/18 内边距，纵向滚动 */
+.qc-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 18px;
+}
+
+/* §5 page-head：标题 16/650 + 副标 11 mono + 右侧操作区 */
+.qc-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 2px 14px;
+  flex-wrap: wrap;
+}
+
+.qc-page-title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--qc-text);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-page-sub {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.qc-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* demo .pa-cap（828）：动作钮组左侧 11px 弱态 cap 标签 */
+.qc-page-actions-cap {
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  margin-right: 2px;
+}
+
+/* 小屏（<md）：卡片 Sider 让位给 Drawer，画布边距收紧，语言/胶囊收成图标 */
+@media (max-width: 767px) {
+  .qc-hamburger,
+  .qc-header-locale {
+    display: inline-flex;
+  }
+
+  .qc-sider {
+    display: none;
+  }
+
+  .qc-app-body {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .qc-crumb,
+  .qc-crumb-sep {
+    display: none;
+  }
+
+  .qc-theme-pill .qc-theme-pill-label {
+    display: none;
+  }
+
+  .qc-theme-pill {
+    padding: 0 7px 0 7px;
+  }
+}
+
+/* §8 动效降级 */
+@media (prefers-reduced-motion: reduce) {
+  .qc-sider,
+  .qc-collapse-btn svg {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   列表原语（design-spec §6.5 表格 / §6.6 工具栏 / §6.7 分页 /
+   §6.13 空态 / §6.2 徽章 / §6.1 mini-btn）
+   颜色一律 --qc-* 变量 + color-mix tint，本段禁止颜色字面量。
+   选择器用多级类名压过 antd cssinjs 注入样式（unlayered 规则）。
+   ============================================================ */
+
+/* ---- §6.6 PageToolbar ---- */
+.qc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+
+/* 中部过滤插槽（chips / selects） */
+.qc-toolbar-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 右侧操作插槽；紧跟计数时不再叠加 auto margin（见下方相邻选择器） */
+.qc-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* 搜索框（demo .tsearch：32px 高 / 8px 圆角 / 占位 fg-4 / 宽 min(240px,58vw)） */
+.qc-toolbar .qc-tsearch.ant-input-affix-wrapper,
+.qc-toolbar input.qc-tsearch {
+  width: min(240px, 58vw);
+  height: 32px;
+  border-radius: 8px;
+  border-color: var(--qc-border);
+  font-size: 12px;
+}
+
+.qc-toolbar .qc-tsearch input::placeholder {
+  color: var(--qc-text-quaternary);
+}
+
+/* 右侧计数（demo .r-count：mono 11px fg-4，margin-left:auto 推到最右） */
+.qc-toolbar-count {
+  margin-left: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-toolbar-count + .qc-toolbar-actions {
+  margin-left: 0;
+}
+
+/* ---- §6.2 徽章 / chip（tint 公式着色，§2.3） ---- */
+.qc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.qc-chip.ok {
+  color: var(--qc-success);
+  border-color: color-mix(in srgb, var(--qc-success) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 9%, transparent);
+}
+
+.qc-chip.info {
+  color: var(--qc-info);
+  border-color: color-mix(in srgb, var(--qc-info) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-info) 8%, transparent);
+}
+
+.qc-chip.pri {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 42%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+}
+
+.qc-chip.warn {
+  color: var(--qc-warning);
+  border-color: color-mix(in srgb, var(--qc-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--qc-warning) 9%, transparent);
+}
+
+.qc-chip.down {
+  color: var(--qc-error);
+  border-color: color-mix(in srgb, var(--qc-error) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-error) 8%, transparent);
+}
+
+.qc-chip.quiet {
+  color: var(--qc-text-tertiary);
+  border-color: var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+}
+
+/* 进行中圆点（§6.2 pdot：5px，pulse 2.2s） */
+.qc-pdot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: qc-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes qc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qc-pdot {
+    animation: none;
+  }
+}
+
+/* ---- §6.1 mini-btn（24px 高 / 6px 圆角；图标态透明底，hover fg 5% tint） ---- */
+.qc-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  background: var(--qc-surface);
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qc-mini-btn:hover:not(:disabled) {
+  color: var(--qc-text);
+  border-color: var(--qc-border-strong);
+}
+
+.qc-mini-btn:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.qc-mini-btn.danger {
+  color: var(--qc-text-secondary);
+}
+
+.qc-mini-btn.danger:hover:not(:disabled) {
+  color: var(--qc-error);
+  border-color: color-mix(in srgb, var(--qc-error) 42%, transparent);
+  background: color-mix(in srgb, var(--qc-error) 7%, transparent);
+}
+
+.qc-mini-btn.pri {
+  color: var(--qc-on-primary);
+  background: var(--qc-primary);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+.qc-mini-btn.pri:hover:not(:disabled) {
+  color: var(--qc-on-primary);
+  background: color-mix(in srgb, var(--qc-primary) 88%, black);
+  border-color: transparent;
+}
+
+.qc-mini-btn .anticon {
+  display: inline-flex;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* 图标态（无文字）：收成正方形，hover 走 §6.1 icon-btn 的透明 tint */
+.qc-mini-btn.qc-icon-only {
+  width: 24px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--qc-text-secondary);
+}
+
+.qc-mini-btn.qc-icon-only:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  border-color: transparent;
+}
+
+/* 行内操作容器：点击不冒泡到行（由组件层 stopPropagation，这里只管排布） */
+.qc-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 行内 chip 组（分类/来源/状态并排）：4px 间距、可换行 */
+.qc-row-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* 卡片视图选中态：primary 45% 边框 + 5% tint 底（demo .m-row-card.on 口径） */
+.qc-card-selected.ant-card {
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 5%, var(--qc-surface));
+}
+
+/* 卡片网格里的行内展开槽（ExpandableCardGrid）：Row 的垂直 gutter 已给出与上一行的间距，
+   面板自带 8/10/10 外边距在卡片语境里会与 Col 内距叠加成双份，这里清零 */
+.qc-card-exp-slot > .qc-exp-panel {
+  margin: 0;
+}
+
+/* ---- 单元格工具类（§3 排印：mono 数值 / 次级时间列） ---- */
+.qc-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.qc-cell-time {
+  color: var(--qc-text-tertiary);
+  font-size: 11px;
+  /* 时间戳整体不可折行：折成「11-20 / 14:12」会把行高从 45 撑到 51 */
+  white-space: nowrap;
+}
+
+/* 标识符单元格（因子名/合约号等英文名次行）：mono 次级，标识列 mono 规范（§6.5） */
+.qc-cell-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--qc-text-tertiary);
+}
+
+/* ---- §6.5 DataTable（包 antd Table，size small） ---- */
+
+/* th：10.5px / 500 / fg-4 / 9px 12px / bge 底（= --qc-surface-raised）
+   注意 className 挂在 .ant-table-wrapper（css-var 模式下 antd 自身规则特异性更高），
+   统一用 .qc-table.ant-table-wrapper 前缀 + 元素节点压过运行时注入 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-thead tr > th {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--qc-text-quaternary);
+  padding: 9px 12px;
+  background: var(--qc-surface-raised);
+  border-bottom: 1px solid var(--qc-border);
+  white-space: nowrap;
+}
+
+.qc-table .ant-table-thead > tr > th::before {
+  display: none;
+}
+
+/* td：12px / 10px 12px / 底边 --qc-border / vertical middle / line-height 14px
+   使纯文本行高 ≈34px（10+14+10），杜绝 antd 默认 16px 内边距把行撑到 55px */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody tr > td {
+  font-size: 12px;
+  line-height: 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--qc-border);
+  vertical-align: middle;
+}
+
+/* 末行不再画底边（与 demo tbody tr:last-child 一致，分页时由滚动容器决定别处兜底） */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody tr:last-child > td {
+  border-bottom: none;
+}
+
+/* 行 hover：fg 3% tint（§6.5）；排除选中行——demo 里 .sel-row.on 在 :hover 后声明，
+   同特异性后者胜出 = 选中行 hover 仍保持 primary 5%，此处用 :not() 达成同效 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.ant-table-row:not(.qc-row-selected):hover > td {
+  background: color-mix(in srgb, var(--qc-text) 3%, transparent);
+}
+
+/* 选中行：primary 5% tint + 左侧 3px 主色条（demo .sel-row.on） */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.qc-row-selected > td {
+  background: color-mix(in srgb, var(--qc-primary) 5%, transparent);
+}
+
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.qc-row-selected > td:first-child {
+  box-shadow: inset 3px 0 0 var(--qc-primary);
+}
+
+/* antd 自带勾选行保持同一 tint 口径 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: color-mix(in srgb, var(--qc-primary) 5%, transparent);
+}
+
+/* ---- 行内展开（各列表页统一范式，demo .bt-exp / .row-exp 对位） ----
+   点行就地展开：面板走 antd expandedRow，本组类只负责面板底色/留白与行首三角，
+   不参与列宽计算。展开内容由页面组件自绘（通常一张 qc-card / 指标网格）
+
+   间距基准 = demo 实测渲染值（不是 demo 源码的「本意」）：
+   demo 里 .gt td 的 9px/12px 特异性同权重且声明在后，压过了 .bt-exp > td 的 padding:0，
+   所以 demo 展开行 td 实际带 9px/12px padding，面板 margin 8/10/10 叠在上面。
+   这里照抄实测口径：td 9/12 + 面板 margin 8/10/10 + padding 12/14（demo .card）。 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-tbody tr.ant-table-expanded-row > td {
+  /* 比 .ant-table-tbody tr > td 密度规则（0,4,0,2）多一个类，压住其 10px/12px padding */
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--qc-text) 2.5%, var(--qc-surface));
+}
+
+/* antd 对有固定列/滚动语义的表会给展开行套 .ant-table-expanded-row-fixed：
+   自带 padding 16 / margin -8（净 +8px 上下），是「面板四周比 demo 宽」的最大来源，清零 */
+.qc-table.ant-table-wrapper .ant-table .ant-table-expanded-row > td > .ant-table-expanded-row-fixed {
+  padding: 0 !important;
+  margin: 0 !important;
+  /* antd 内联写死宽度（= 内容列宽），清掉自身盒后让它自然铺满 td 内容区 */
+  width: auto !important;
+}
+
+.qc-exp-panel {
+  margin: 8px 10px 10px;
+  /* demo .card：12px 14px；底色 = demo --bgc（卡片面），暗色下比 --qc-bg 亮一档，避免与 td 淡底同层 */
+  padding: 12px 14px;
+  border: 1px solid var(--qc-border);
+  border-radius: var(--radius-qc-md);
+  background: var(--qc-surface);
+}
+
+/* 行内展开面板的 kv 表（demo .kvtab：11.5px、虚线行分隔、key 118px fg-4、value 550） */
+.qc-kvtab {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qc-kvtab td {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.qc-kvtab tr:last-child td {
+  border-bottom: none;
+}
+
+.qc-kvtab .k {
+  width: 118px;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-kvtab .v {
+  font-weight: 550;
+}
+
+/* 面板内指标卡对位 demo .mstat（比页级 .qc-kpi 轻一档：10/12 内距、8px 圆角、无投影、面板底色）,
+   只作用于行内展开面板，页级 KPI（首页/详情页）不受影响 */
+.qc-exp-panel .qc-kpi {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--qc-bg);
+  box-shadow: none;
+}
+
+/* 面板内指标数值对位 demo .mstat .v：18px / margin-top 5（页级 .qc-kpi-num 仍 22px/7px） */
+.qc-exp-panel .qc-kpi-num {
+  margin-top: 5px;
+  font-size: 18px;
+}
+
+/* 行首展开三角：收起 ▸ / 展开 ▾（旋转 90°），颜色随选中态升为主色 */
+.qc-cell-caret {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  color: var(--qc-text-tertiary);
+  transition: transform var(--duration-qc-base) ease-out, color var(--duration-qc-base) ease-out;
+}
+
+.qc-cell-caret.is-open {
+  transform: rotate(90deg);
+  color: var(--qc-primary);
+}
+
+/* 表格内的策略名列（mono 600 12px） */
+.qc-cell-strat {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--qc-text);
+}
+
+.qc-cell-strat-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.qc-cell-strat-wrap > .qc-cell-strat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 空态区域：清掉 antd placeholder 默认底色与 hover */
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder .ant-table-cell,
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder {
+  background: transparent;
+}
+
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder:hover > td,
+.qc-table.ant-table-wrapper .ant-table .ant-table-placeholder > td:hover {
+  background: transparent !important; /* antd hover 带行级优先级，兜底必须同级 */
+}
+
+/* ---- §6.13 空态 .qc-empty ---- */
+.qc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 58px 20px;
+  text-align: center;
+}
+
+.qc-empty-ico {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--qc-surface-raised);
+  border: 1px solid var(--qc-border);
+  color: var(--qc-text-quaternary);
+}
+
+.qc-empty-ico svg,
+.qc-empty-ico .anticon {
+  width: 20px;
+  height: 20px;
+  font-size: 20px;
+}
+
+.qc-empty-t {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--qc-text-secondary);
+  margin: 0;
+}
+
+.qc-empty-h {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  margin: 0;
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+/* ---- §6.8 页签：文字 + 2px 主色下划线（全站；多类 + 元素节点的特异性压过 antd
+   css-var 运行时注入，所有 Tabs 不再区分 card/line —— 全站只有这一种页签） ---- */
+.ant-tabs.ant-tabs-top > .ant-tabs-nav {
+  margin: 0 0 12px;
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--qc-border);
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab {
+  padding: 9px 11px;
+  font-size: 12.5px;
+  color: var(--qc-text-tertiary);
+}
+
+/* 间距交给 11px 内边距（demo .tab 彼此相邻，无额外 margin） */
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab + .ant-tabs-tab {
+  margin: 0;
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab:hover {
+  color: var(--qc-text-secondary);
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: var(--qc-text-secondary);
+}
+
+/* 选中：主色字 + 550 字重（2px 下划线 = ink-bar） */
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active {
+  color: var(--qc-primary);
+}
+
+.ant-tabs.ant-tabs-top > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--qc-primary);
+  font-weight: 550;
+}
+
+.ant-tabs > .ant-tabs-nav .ant-tabs-ink-bar {
+  background: var(--qc-primary);
+}
+
+/* ---- §6.18 抽屉 chrome：antd 默认 24px 内边距过宽（13px 密度体系），收到 16px；
+       面板左缘补 1px 分隔线（antd v6 的 .ant-drawer-section 无边框），与 --qc-border 对齐 ---- */
+.ant-drawer .ant-drawer-section,
+.ant-drawer .ant-drawer-content {
+  border-left: 1px solid var(--qc-border);
+}
+
+.ant-drawer .ant-drawer-header {
+  padding: 12px 16px;
+}
+
+.ant-drawer .ant-drawer-body {
+  padding: 16px;
+}
+
+/* ---- §6.7 分页条容器：1px 上边线 + 上留白；左「共 N 条 · 每页 [▾]」右「页码 + 跳至」 ---- */
+.qc-pg-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--qc-border);
+}
+
+.qc-pg-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+  white-space: nowrap;
+}
+
+.qc-pg-info .ant-select .ant-select-selector {
+  min-width: 56px;
+  height: 26px;
+  border-radius: 6px;
+  border-color: var(--qc-border);
+}
+
+/* 页码组靠右，与表格右缘对齐 */
+.qc-pg-bar ul.qc-pagination {
+  margin: 0 0 0 auto;
+}
+
+/* ---- §6.7 分页 .qc-pagination（28px 钮 / 6px 圆角 / 当前页 primary tint） ---- */
+ul.qc-pagination li.ant-pagination-item,
+ul.qc-pagination li.ant-pagination-prev,
+ul.qc-pagination li.ant-pagination-next {
+  min-width: 28px;
+  height: 28px;
+  line-height: 26px;
+  border-radius: 6px;
+}
+
+ul.qc-pagination li.ant-pagination-item {
+  border-color: var(--qc-border);
+}
+
+ul.qc-pagination li.ant-pagination-item a {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+ul.qc-pagination li.ant-pagination-prev button.ant-pagination-item-link,
+ul.qc-pagination li.ant-pagination-next button.ant-pagination-item-link {
+  border-radius: 6px;
+  border-color: var(--qc-border);
+  font-size: 12px;
+}
+
+ul.qc-pagination li.ant-pagination-item-active {
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 10%, transparent);
+}
+
+ul.qc-pagination li.ant-pagination-item-active a {
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+ul.qc-pagination li.ant-pagination-disabled button.ant-pagination-item-link {
+  opacity: .35;
+}
+
+/* 「跳至 [__] 页」随钮高对齐（demo .pg-jump） */
+ul.qc-pagination .ant-pagination-options-quick-jumper {
+  color: var(--qc-text-tertiary);
+  font-size: 11px;
+}
+
+ul.qc-pagination .ant-pagination-options-quick-jumper input {
+  width: 44px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border-color: var(--qc-border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* 省略号非交互（itemRender 渲染的 span，§6.7；jump li 的跳页处理器一并禁掉） */
+ul.qc-pagination .qc-pg-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  color: var(--qc-text-quaternary);
+  font-size: 12px;
+}
+
+ul.qc-pagination li.ant-pagination-jump-prev,
+ul.qc-pagination li.ant-pagination-jump-next {
+  pointer-events: none;
+  cursor: default;
+}
+
+/* ---- §6.6 状态过滤 chips（demo .ichip：26px / 13px 圆角 / 11.5px；选中主色 tint） ---- */
+.qc-ichip {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 13px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qc-ichip:hover:not(.qc-ichip-on) {
+  color: var(--qc-text);
+  border-color: var(--qc-border-strong);
+}
+
+.qc-ichip.qc-ichip-on,
+.qc-ichip:disabled.qc-ichip-on {
+  color: var(--qc-primary);
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 9%, transparent);
+  font-weight: 550;
+}
+
+/* ---- 单元格数值色（§6.5 收益正绿 / 负红；空值走弱文本） ---- */
+.qc-cell-up {
+  color: var(--qc-success);
+}
+
+.qc-cell-down {
+  color: var(--qc-error);
+}
+
+/* 空值「—」与卡片口径一致：fg-4 弱文本 */
+.qc-cell-none {
+  color: var(--qc-text-quaternary);
+}
+
+/* ---- 列表脚注（demo .card-foot 口径：虚线上边 + 10.5px fg-4 + mono code） ---- */
+.qc-footnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-footnote code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--qc-text-tertiary);
+}
+
+/* ---- §6.3 卡片 chrome（qc-card：bgc 底 + bd 边 + 10px 圆角 + 12/14 内边距 + head 13px/650） ----
+   demo 卡头无边框（.card-head 仅 margin-bottom 8），antd Card 默认 head 分割线去掉；
+   bordered 边色须显式对齐 --qc-border（antd 默认走 colorBorderSecondary = borderSubtle，不是 --bd） */
+.qc-card.ant-card {
+  border-radius: 10px;
+  border-color: var(--qc-border);
+  box-shadow: var(--qc-shadow-card);
+}
+
+.qc-card.ant-card > .ant-card-head {
+  min-height: 0;
+  padding: 12px 14px 0;
+  border-bottom: none;
+}
+
+.qc-card.ant-card > .ant-card-head .ant-card-head-wrapper {
+  align-items: center;
+}
+
+.qc-card.ant-card > .ant-card-head .ant-card-head-title,
+.qc-card.ant-card > .ant-card-head .ant-card-extra {
+  padding: 0;
+}
+
+.qc-card.ant-card > .ant-card-head .ant-card-head-title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.qc-card.ant-card > .ant-card-body {
+  padding: 10px 14px 12px;
+}
+
+/* ---- 存储用量卡（demo #storeHead / #storeBody）----
+   折叠态整条卡头即触发器：标题 + 合计 chip + 三角 caret（展开右旋）。
+   展开为 .cmp 条带：虚线上边 + 11px 行 + 7px 条 + 右对齐 mono 数值 + 卡脚注。 */
+.qc-store-card.ant-card > .ant-card-body {
+  padding: 0 14px 12px;
+}
+
+.qc-store-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.qc-store-head:focus-visible {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.qc-store-head .qc-s-chip {
+  margin-left: auto;
+}
+
+.qc-store-caret {
+  flex: 0 0 auto;
+  color: var(--qc-text-quaternary);
+  transition: transform .15s;
+}
+
+.qc-store-head[aria-expanded="true"] .qc-store-caret {
+  transform: rotate(90deg);
+}
+
+.qc-cmp {
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.qc-cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 5px 0;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-cmp-row .cl {
+  flex: 0 0 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qc-cmp-row .bar {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--qc-border);
+  overflow: hidden;
+}
+
+.qc-cmp-row .bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--qc-info);
+}
+
+/* 数值列 64px（demo 44px；实际值形如「103.1 MB」，44px 会折成两行） */
+.qc-cmp-row .val {
+  flex: 0 0 64px;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--qc-text-secondary);
+}
+
+.qc-cmp-foot {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--qc-text-quaternary);
+}
+
+/* 卡头右侧弱注（demo .card-sub：10.5px fg-4） */
+.qc-card-sub {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+}
+
+/* ---- §6.2 s-chip（demo .s-chip：10.5px 带框小片，数值 mono 600；用于卡头「合计 X」类事实） ---- */
+.qc-s-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  white-space: nowrap;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-s-chip > b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--qc-text-secondary);
+}
+
+/* ---- §6.2 count-chip（mono 10px 全圆 + bd-2 边 + bge 底） ---- */
+.qc-count-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 20px;
+  color: var(--qc-text-tertiary);
+  border: 1px solid var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+  white-space: nowrap;
+}
+
+/* ---- §6.4 KPI 卡（label → mono 大字 → 弱注；4 列网格 gap 10） ---- */
+.qc-kpi {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  box-shadow: var(--qc-shadow-card);
+  transition: background-color .16s ease-out, border-color .16s ease-out, box-shadow .16s ease-out;
+}
+
+.qc-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qc-kpi-lb {
+  font-size: 11px;
+  color: var(--qc-text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-kpi-num {
+  margin-top: 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: .01em;
+  color: var(--qc-text);
+}
+
+.qc-kpi-num.up { color: var(--qc-success); }
+
+.qc-kpi-num.down { color: var(--qc-error); }
+
+.qc-kpi-num.warn { color: var(--qc-warning); }
+
+.qc-kpi-sub {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 991px) {
+  .qc-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- 数据管理 · 行情标的两栏（demo .dm-layout：自选组固定 210px + 主列自适应）----
+   为什么不用 Row/Col：侧栏宽度是「组名 + 计数」撑出的定值，栅格百分比会随窗口浮动；
+   固定基准 + 一条断点既能保证卡面宽度不缩，又能在 <lg 整列堆叠。 */
+.dm-split {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.dm-split-side {
+  flex: 0 0 210px;
+  min-width: 0;
+}
+
+.dm-split-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ≤1100px（demo 同一断点）：侧栏落到主列上方，组列表由竖排改横向换行，省出表宽 */
+@media (max-width: 1100px) {
+  .dm-split {
+    flex-direction: column;
+  }
+
+  .dm-split-side {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* 竖排后主列宽度由容器决定（而非内容 min-content）：不然 1200px 宽的表会把主列撑出卡框 */
+  .dm-split-main {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .dm-split-side .ant-menu-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .dm-split-side .ant-menu-inline > .ant-menu-item {
+    width: auto;
+    flex: 0 1 auto;
+    margin: 0;
+    padding-inline: 8px;
+  }
+}
+
+/* ---- 管理自选组弹窗的 6 色块（demo .wl-cpick/.wl-csw：18px 圆点，选中 = 描边环 + ✓）----
+   谁在用：DataManagementPage.tsx 的 renderGroupManager（每行组色 + 底部新建取色）。 */
+.dm-cpick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.dm-csw {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--qc-text) 18%, transparent);
+}
+
+.dm-csw > span {
+  display: none;
+  font-size: 10px;
+  line-height: 1;
+  /* 选中勾的白色随色块内联在 DataManagementPage（色块恒高饱和实色、与主题无关；
+     theme.test 只许 palettes.ts 持颜色字面量，css 不落 hex） */
+}
+
+.dm-csw.on {
+  box-shadow: 0 0 0 1.5px var(--qc-bg),
+    0 0 0 3px color-mix(in srgb, var(--qc-text) 45%, transparent);
+}
+
+.dm-csw.on > span {
+  display: block;
+}
+
+.dm-csw:focus-visible {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 2px;
+}
+
+/* ---- 详情页头部事实条（demo #view-sagent .ws-strip/.s-chip 的实现）----
+   谁在用：WorkerDetail.tsx 头部（周期/模式/资金/杠杆等中性事实）。
+   为什么不复用 .qc-chip：chip 是语义标签（tint 底 + 语义色字），而事实条是
+   「中性描边胶囊 + label + mono 真值」，不带语义方向，混用会冒充状态。 */
+.qc-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+
+.qc-strip-cap {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--qc-text-quaternary);
+}
+
+.qc-strip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--qc-text-tertiary);
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 999px;
+}
+
+.qc-strip-item b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--qc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 终端日志面板（demo .fail-log 的 mono 10.5px/1.75 行高词法平面）----
+   谁在用：WorkerLogsPanel.tsx（worker 日志流，弹窗与详情页日志 tab 两处）。
+   为什么不复用 .qc-table/.qc-card：日志是只读滚动的词法平面（mono 小字 + 级别着色 +
+   独立滚动 chrome），按 demo 口径底色用 surface-muted 而非黑底，天然兼容亮暗主题。 */
+.qc-term {
+  display: flex;
+  flex-direction: column;
+  background: var(--qc-surface-muted);
+  /* 用 --qc-border 而不是 --qc-border-subtle：后者是图表轴用的实色灰（暗色下是
+     中灰实色），做面板外框在深底上是一圈发亮灰环，与 §6.3 卡片同口径才对。 */
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.qc-term-bar,
+.qc-term-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--qc-text-tertiary);
+  background: var(--qc-surface);
+}
+
+.qc-term-bar {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--qc-border);
+}
+
+.qc-term-foot {
+  border-top: 1px solid var(--qc-border);
+  color: var(--qc-text-quaternary);
+}
+
+.qc-term-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.75;
+  color: var(--qc-text-tertiary);
+}
+
+.qc-term-ts {
+  color: var(--qc-text-quaternary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.qc-term-lv {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 15px;
+}
+
+.qc-term-lv-debug { color: var(--qc-text-quaternary); }
+.qc-term-lv-info { color: var(--qc-info); background: color-mix(in srgb, var(--qc-info) 12%, transparent); }
+.qc-term-lv-warn { color: var(--qc-warning); background: color-mix(in srgb, var(--qc-warning) 14%, transparent); }
+.qc-term-lv-error { color: var(--qc-error); background: color-mix(in srgb, var(--qc-error) 14%, transparent); }
+
+.qc-term-msg { color: var(--qc-text-secondary); word-break: break-all; }
+
+/* ---- §6.9 Segmented（全站收口，映射 demo .seg）----
+   原实现依赖页面加 .qc-seg 类；基础组件层把这些约束升级为全局口径（页面无需挂钩子类）。
+   容器：bd 边 8px 圆角 padding 2 gap 2、bgc 底；内钮：24px / 0 12px / 6px 圆角 / 12px；
+   选中：primary 12% 底 + 主色字 600（v6 无滑块时落在 item 上，有滑块时 thumb 同色）。
+   特异性设计：antd v6 规则带 :where(css) 前缀（零成本）+ 类链，sm/lg 变体最高 (0,3,0)，
+   这里统一 ≥(0,4,0)，不赌注入顺序。 */
+.ant-segmented.ant-segmented {
+  padding: 2px; /* ponytail: demo .seg padding 亦为 2px，无对应 qc token（--spacing-qc-1=4px），写死并留注释 */
+  border-radius: 8px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+}
+
+/* sm/lg 变体被 antd 收成 4px/10px 圆角，§6.9 只有一档 8px */
+.ant-segmented.ant-segmented.ant-segmented-sm,
+.ant-segmented.ant-segmented.ant-segmented-lg {
+  border-radius: 8px;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-group {
+  gap: 2px;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item {
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+  transition: color var(--duration-qc-base) ease-out;
+}
+
+/* label 承载高度（antd 默认 label 28px = controlHeight-4，§6.9 是 24-2=20） */
+.ant-segmented.ant-segmented .ant-segmented-item .ant-segmented-item-label.ant-segmented-item-label {
+  min-height: 20px;
+  line-height: 20px;
+  padding: 0 12px;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):hover {
+  color: var(--qc-text);
+}
+
+/* demo `.seg button:hover` 只变色不加底（antd 默认给 fg 6% 悬浮底，这里跟随 demo 置空） */
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):hover::after {
+  opacity: 0;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-selected,
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-selected:hover {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  box-shadow: none;
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+/* 禁用态（§6.19 口径）：选中项仍要看出「值是什么」，但不能再像可点的主色胶囊——
+   主色降为 8% 底 + fg-4 字（回测配置「资金使用方式」单标的时即此时刻） */
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-selected.ant-segmented-item-disabled {
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+  color: var(--qc-text-quaternary);
+}
+
+.ant-segmented.ant-segmented .ant-segmented-item.ant-segmented-item-disabled {
+  color: var(--qc-text-quaternary);
+  cursor: not-allowed;
+}
+
+.ant-segmented.ant-segmented .ant-segmented-group .ant-segmented-thumb.ant-segmented-thumb {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  border-radius: 6px;
+}
+
+/* 键盘可达：segmentedinput 是 0×0 透明 radio，焦点环补在 item 上 */
+.ant-segmented .ant-segmented-item:has(.ant-segmented-item-input:focus-visible) {
+  outline: 2px solid var(--qc-info);
+  outline-offset: 1px;
+}
+
+/* ---- 行内迷你进度条（demo .prog：5px 高 / 3px 圆角 / bd 槽；done 用 success） ---- */
+.qc-prog {
+  display: block;
+  width: 120px;
+  max-width: 100%;
+  height: 5px;
   border-radius: 3px;
+  background: var(--qc-border);
+  overflow: hidden;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--tw-color-primary);
+.qc-prog > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--qc-primary);
+  transition: width .3s ease-out;
 }
 
-/* 系统状态指示器样式 */
+.qc-prog.done > i {
+  background: var(--qc-success);
+}
+
+/* ---- §6.10 表单密度（字段 label：mono 11px fg-4 + .02em，垂直表单） ----
+   旧口径挂在页面 .qc-form 类上；§6.19 起改为全站垂直表单默认（见下方全局规则），.qc-form 保留兼容水平等特例 */
+.qc-form.ant-form .ant-form-item .ant-form-item-label > label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: .02em;
+  color: var(--qc-text-quaternary);
+}
+
+form.ant-form.ant-form-vertical .ant-form-item .ant-form-item-label > label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: .02em;
+  color: var(--qc-text-quaternary);
+}
+
+/* ============================================================
+   §6.19 表单控件（Input / Select / DatePicker / Radio / Checkbox / Switch）
+   demo 无对应静态稿的口径统一落在本节；颜色全部走 --qc-* token。
+   特异性规则同 §6.9：antd v6 :where(css) 前缀 + 类链（状态规则最高 (0,5,0)），
+   这里一律元素锚点 + 双类 ≥(0,4,0)（focus 等需压过状态链的到 (0,6,0) 以上）。
+   ============================================================ */
+
+/* ---- 输入字号：32px 高由 controlHeight token 保证；字号 §6.10 取 12.5px ----
+   picker/number 用双类压过 antd 自身的 .ant-picker .ant-picker-input > input (0,2,1) */
+input.ant-input.ant-input,
+input.ant-input-number-input.ant-input-number-input,
+div.ant-picker div.ant-picker-input > input {
+  font-size: 12.5px;
+}
+
+/* textarea：多行例外（§6.10 表格密度延伸）：12px / 1.6 / 9px 11px */
+textarea.ant-input {
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 9px 11px;
+}
+
+/* Select 显示值 / 占位 / 内嵌搜索框跟输入字号 */
+div.ant-select .ant-select-selection-item,
+div.ant-select .ant-select-selection-placeholder,
+div.ant-select .ant-select-selection-search-input {
+  font-size: 12.5px;
+}
+
+/* 工具栏搜索框（§6.6 tsearch）保持 12px —— demo .tsearch 口径，优先于上面的 12.5 */
+.qc-toolbar .qc-tsearch input.ant-input {
+  font-size: 12px;
+}
+
+/* ---- focus 环（§6.10 修订）：border-primary + 0 0 0 3px primary 20%，替代 antd 默认 2px 浅 tint ---- */
+input.ant-input:focus,
+textarea.ant-input:focus,
+span.ant-input-affix-wrapper-focused,
+span.ant-input-affix-wrapper:focus-within,
+.ant-input-number.ant-input-number-focused,
+.ant-input-number:focus-within,
+div.ant-picker-focused,
+div.ant-picker:focus-within,
+.ant-select:not(.ant-select-customize-input).ant-select.ant-select-focused:not(.ant-select-disabled) .ant-select-selector.ant-select-selector {
+  border-color: var(--qc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-primary) 20%, transparent);
+  outline: 0;
+}
+
+/* affix wrapper 内的 raw input 自身不再吃 focus 环（视觉由容器承载）；必须排在本节通用规则之后 */
+span.ant-input-affix-wrapper input.ant-input:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* ---- Checkbox（§6.19：盒 14×14、4px 圆角；选中 primary；表格 rowSelection 同源） ----
+   antd v6 的盒子直接渲染在 span.ant-checkbox 上，勾选符号按盒尺寸百分比缩放 */
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+/* 选中色钉在 token 上：杜绝 cssVar 模式下任何派生蓝 */
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox-checked:not(.ant-checkbox-disabled) {
+  background: var(--qc-primary);
+  border-color: transparent;
+}
+
+/* 半选（表头全选清除态）同样走 primary */
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox-indeterminate:not(.ant-checkbox-disabled) {
+  border-color: var(--qc-primary);
+}
+
+.ant-checkbox-wrapper .ant-checkbox.ant-checkbox-indeterminate:not(.ant-checkbox-disabled)::after {
+  background: var(--qc-primary);
+}
+
+/* ---- Radio（§6.19：盒 14px；选中 = primary 实心圆 + 白点，token colorPrimary 已对齐） ----
+  几何由 token（fontSizeLG→14）承担；选中底钉 token，避免任何派生蓝 */
+.ant-radio-wrapper .ant-radio.ant-radio-checked:not(.ant-radio-disabled) {
+  background: var(--qc-primary);
+  border-color: var(--qc-primary);
+}
+
+/* ---- Switch（§6.19：轨道 28×16、滑块 12 —— 即 antd small 几何，全站统一到小号） ----
+   antd v6 组件几何全部走 --ant-switch-* 变量（定义在 .css-var-*.ant-switch，(0,2,0)），
+   用 button.x.x (0,2,1) 元素锚点覆盖变量本身，内边距/滑块位移 calc 自动跟随 */
+button.ant-switch.ant-switch {
+  --ant-switch-track-height: 16px;
+  --ant-switch-track-min-width: 28px;
+  --ant-switch-handle-size: 12px;
+  --ant-switch-inner-min-margin: 6px;
+  --ant-switch-inner-max-margin: 18px;
+}
+
+/* ---- Radio.Group optionType="button"（§6.9 归一：与 .seg 同壳） ----
+   容器用 :has 区分按钮组与 plain 组：按钮组才有 §6.9 外壳；:has 不支持时优雅退化为 antd 原生 */
+.ant-radio-group:has(.ant-radio-button-wrapper) {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--qc-border);
+  border-radius: 8px;
+  background: var(--qc-surface);
+}
+
+/* 内钮：24px / 0 12px / 6px；无框无负 margin，字号 12 次级文本色 */
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper {
+  height: 24px;
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  line-height: 22px;
+  color: var(--qc-text-secondary);
+  font-size: 12px;
+  transition: color var(--duration-qc-base) ease-out, background-color var(--duration-qc-base) ease-out;
+}
+
+/* 相邻分隔线伪元素与 -1px 负 margin 在分块外壳下都不要 */
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper::before {
+  display: none;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:not(:last-child) {
+  margin-inline-end: 0;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:first-child {
+  border-start-start-radius: 6px;
+  border-end-start-radius: 6px;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:last-child {
+  border-start-end-radius: 6px;
+  border-end-end-radius: 6px;
+}
+
+/* hover / 选中 / 禁用 */
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
+  color: var(--qc-text);
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  border: none;
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+/* buttonStyle="solid" 只在选中色上和 outline 有差（antd (0,4,0) 实心橙）——§6.9 归一为同一 tint */
+.ant-radio-group.ant-radio-group-solid .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  border: none;
+  color: var(--qc-primary);
+  font-weight: 600;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-disabled {
+  border: none;
+  background: transparent;
+  color: var(--qc-text-quaternary);
+  cursor: not-allowed;
+}
+
+.ant-radio-group .ant-radio-button-wrapper.ant-radio-button-wrapper.ant-radio-button-wrapper-checked.ant-radio-button-wrapper-disabled {
+  background: color-mix(in srgb, var(--qc-primary) 12%, transparent);
+  color: var(--qc-text-quaternary);
+  font-weight: 600;
+  cursor: not-allowed;
+}
+
+/* 键盘可达：输入本体 0×0，焦点环补在 wrapper（antd :has 聚焦描边走 token primary，跟随本节不另改） */
+
+/* ---- §6.20 多选胶囊 .qc-pick（映射 demo .pick，qc-prototype-demo 661-666）----
+   「标的（可多选）」「依赖因子」等自绘多选组的标准原语；承载元素 <button type="button">，
+   选中态业务侧加 .on，内部 <span class="ck">✓</span> 仅选中时显示。
+   与 .qc-ichip（筛选胶囊）/ §6.2 徽章 .chip 语义不同，类名不通用。无 antd 对应组件，
+   全自有类无特异性之争；键盘焦点环走 §9 全局 focus-visible（button 原生可聚焦）。 */
+.qc-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+  color: var(--qc-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.qc-pick:hover {
+  color: var(--qc-text);
+}
+
+.qc-pick .ck {
+  display: none;
+  color: var(--qc-primary);
+  font-weight: 700;
+}
+
+.qc-pick.on {
+  border-color: color-mix(in srgb, var(--qc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--qc-primary) 8%, transparent);
+  color: var(--qc-text);
+}
+
+.qc-pick.on .ck {
+  display: inline;
+}
+
+/* ---- §6.11 弹窗 chrome（560/14px 圆角/bd 边/遮罩 44%+blur，head 15/18 标题 14.5/700，body 15/18） ----
+   antd v6 非 wireframe 把 padding 收在 .ant-modal-container 上，这里改为分段下沉到 header/body/footer */
+.qc-modal .ant-modal-container {
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid var(--qc-border);
+  background: var(--qc-surface);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
+}
+
+.qc-modal .ant-modal-header {
+  margin: 0;
+  padding: 15px 44px 15px 18px;
+  border-bottom: none;
+  border-radius: 13px 13px 0 0;
+}
+
+.qc-modal .ant-modal-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.qc-modal .ant-modal-body {
+  padding: 0 18px 15px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+.qc-modal .ant-modal-footer {
+  margin: 0;
+  padding: 11px 18px 15px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+}
+
+.qc-modal .ant-modal-close {
+  top: 12px;
+  inset-inline-end: 12px;
+  width: 26px;
+  height: 26px;
+}
+
+/* 遮罩补 blur（§6.11 黑 44% 已与 antd 默认 .45 等效，这里只补 backdrop-filter） */
+.ant-modal-root:has(.qc-modal) .ant-modal-mask {
+  backdrop-filter: blur(2px);
+}
+
+/* ---- §6.18 抽屉标题字号（13.5px/650；面板底/内边距已由 token 桥 + 既有规则对齐） ---- */
+.ant-drawer .ant-drawer-title {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+/* ============================================================
+   §6.12 Toast / Notification（design-spec §6.12）
+   demo（qc-prototype-demo 683-689）只有 .toast 一个原语；antd 有两个相近组件，裁决：
+   message（无标题、短文本、自动消失）= toast，从顶部居中挪到右下角按 demo 口径；
+   notification（标题+描述+常驻）≠ toast，保留右上角只做形制对齐（见下分节注释）。
+   特异性设计同 §6.9：antd v6 规则带 :where(css) 前缀（零成本）+ 类链，最深状态链
+   (0,5,0)（类型图标 / notification with-icon 标题），这里全部锚点链 + 双类压过一档、
+   不赌注入顺序（cssinjs <style> 注入在 global.css 的 <link> 之后）；唯一 !important
+   例外是 message 容器的 top/left/transform —— rc-notification 把这三个值写进
+   内联样式（useMessage getStyle），类选择器无论多高特异性都压不过内联，只有 !important 能赢。
+   ============================================================ */
+
+/* ---- 容器：顶部居中 → 右下 18px 网格；antd 的 width:100% + 居中变形在 flex-end
+   布局下失效叠加，收成 shrink-to-fit；z-index 跟随 antd（恒高于 modal），demo 的 99
+   是原型自有序号不搬；pointer-events:none antd 已有，不重复 ---- */
+.ant-message.ant-message {
+  right: 18px;
+  bottom: 18px;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* ---- 条目几何：antd 把 8px padding / text-align:center 放 wrapper、卡片参数放 content；
+   wrapper padding 清零（demo 间距全部交给容器 gap:8px），卡片 = content 盒，
+   参数按 demo .toast 行序逐条落（背景→边→左缘→圆角→阴影→内边距→字） ---- */
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper {
+  padding: 0;
+}
+
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content {
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-left: 3px solid var(--qc-primary);
+  border-radius: 9px;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.2);
+  padding: 9px 14px;
+  max-width: 340px;
+}
+
+/* 文本条：mono 11.5px 次级色（demo --fg-2 槽位 = --qc-text-secondary） */
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-custom-content {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--qc-text-secondary);
+}
+
+/* ---- 类型态：success/error/warning/info 的左缘条与图标走 qc 状态 token（loading 并入
+   info），杜绝 antd 默认绿/红。左缘要通高所以画在 content 盒上，用 :has 判型
+   （文件内 .ant-radio-group:has 先例）；:has 不支持时优雅退化回 primary 左缘 ---- */
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-success) { border-left-color: var(--qc-success); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-error) { border-left-color: var(--qc-error); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-warning) { border-left-color: var(--qc-warning); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-info) { border-left-color: var(--qc-info); }
+.ant-message .ant-message-notice-wrapper .ant-message-notice-content.ant-message-notice-content:has(> .ant-message-loading) { border-left-color: var(--qc-info); }
+
+/* 图标：antd 默认 fontSizeLG(16px) 在 11.5px mono 系里过重，收到 14px（demo 无图标，
+   这是 antd 原语差异保留项）；颜色逐类型钉 token，压过 antd 的 (0,4,0) 类型色规则 */
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-custom-content > .anticon {
+  font-size: 14px;
+}
+
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-success > .anticon { color: var(--qc-success); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-error > .anticon { color: var(--qc-error); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-warning > .anticon { color: var(--qc-warning); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-info > .anticon { color: var(--qc-info); }
+.ant-message .ant-message-notice-wrapper .ant-message-custom-content.ant-message-loading > .anticon { color: var(--qc-info); }
+
+/* ---- 动效（spec：入场 toastIn .2s，退出 fade 下坠 6px = demo .toast.out）。
+   antd 原生 move-up 关键帧带 padding 动画（为 antd 自家 wrapper 8px 间距服务），
+   与「wrapper padding:0 + 容器 gap:8」方案冲突（pad 0→8→0 的兄弟跳位），
+   在同名状态类上整体替换 animation——animationend 照常派发，rc-motion 生命周期
+   不受影响；退出 fill:forwards 把已播完的条目按住到卸载，防复现闪帧 ---- */
+@keyframes qc-toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes qc-toast-out {
+  to { opacity: 0; transform: translateY(6px); }
+}
+
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-appear,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-enter,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-appear-active,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-enter-active {
+  animation: qc-toast-in .2s cubic-bezier(.2, .9, .3, 1.2);
+}
+
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-leave,
+.ant-message .ant-message-notice-wrapper.ant-message-notice-wrapper.ant-message-move-up-leave-active {
+  animation: qc-toast-out .24s ease forwards;
+}
+
+/* ---- §6.12 notification（≠ toast 的另一原语：标题+描述+常驻时长）----
+   位置保留右上角（antd/rc 默认 placement，不动）；仅形制对齐：面板 = notice-wrapper 盒，
+   card 底 + 1px bd 边 + radius 10 + card 阴影；标题 13px/650、描述 12px 次级；
+   面板右缘收到 toast 同一 18px 网格（antd 默认 24px 偏移），条目间距走 antd 默认。 */
+.ant-notification.ant-notification {
+  margin-right: 18px;
+}
+
+.ant-notification .ant-notification-notice-wrapper.ant-notification-notice-wrapper {
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  box-shadow: var(--qc-shadow-card);
+}
+
+/* v6 给带类型的 notice 设了 colorSuccessBg 系 tint 底（最深 (0,4,0)），锚链再抬一档压平 */
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice.ant-notification-notice.ant-notification-notice {
+  background: var(--qc-surface);
+}
+
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice.ant-notification-notice .ant-notification-notice-title.ant-notification-notice-title {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice.ant-notification-notice .ant-notification-notice-description.ant-notification-notice-description {
+  font-size: 12px;
+  color: var(--qc-text-secondary);
+}
+
+/* 类型图标色钉 token（antd 规则带 .anticon 已 (0,5,0)，双写再抬一档） */
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-success.anticon.anticon { color: var(--qc-success); }
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-error.anticon.anticon { color: var(--qc-error); }
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-warning.anticon.anticon { color: var(--qc-warning); }
+.ant-notification .ant-notification-notice-wrapper .ant-notification-notice-icon.ant-notification-notice-icon-info.anticon.anticon { color: var(--qc-info); }
+
+/* 系统状态指示器 */
 .status-indicator {
   width: 8px;
   height: 8px;
@@ -147,16 +2202,16 @@
 
 .status-indicator[data-status="connected"],
 .status-indicator[data-status="normal"] {
-  --status-color: #4CAF50;
+  --status-color: var(--qc-status-dot-ok);
 }
 
 .status-indicator[data-status="disconnected"],
 .status-indicator[data-status="critical"] {
-  --status-color: #F44336;
+  --status-color: var(--qc-status-dot-fail);
 }
 
 .status-indicator[data-status="warning"] {
-  --status-color: #FFC107;
+  --status-color: var(--qc-status-dot-warn);
 }
 
 /* ========== AI Chat Markdown 样式 ========== */
@@ -220,7 +2275,7 @@
 }
 
 .prose thead {
-  background-color: rgba(128, 128, 128, 0.1);
+  background-color: var(--qc-overlay);
 }
 
 .prose th {
@@ -270,7 +2325,7 @@
 
 /* 内联代码 */
 .prose code:not(.hljs) {
-  background-color: rgba(128, 128, 128, 0.15);
+  background-color: var(--qc-overlay-strong);
   padding: 0.2em 0.4em;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -285,23 +2340,23 @@
   margin: 1em 0;
 }
 
-/* 暗色模式下的 Prose 样式调整 */
+/* 暗色模式下的 Prose 样式调整（值取自主题暗色 palette 对应槽位） */
 .dark .prose {
-  color: #e5e7eb;
+  color: var(--qc-text-secondary);
 }
 
 .dark .prose h2 {
-  border-bottom-color: #374151;
+  border-bottom-color: var(--qc-border);
 }
 
 .dark .prose th {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--qc-overlay);
 }
 
 .dark .prose code:not(.hljs) {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--qc-overlay-strong);
 }
 
 .dark .prose blockquote {
-  color: #9ca3af;
+  color: var(--qc-text-tertiary);
 }

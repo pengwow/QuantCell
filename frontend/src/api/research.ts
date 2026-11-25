@@ -68,7 +68,14 @@ export interface ResearchTrial {
   hypothesis: string | null;
   hypothesis_reason?: string | null;
   hypothesis_prediction?: string | null;
-  task: { name?: string; description?: string; formulation?: string } | null;
+  task: {
+    name?: string;
+    description?: string;
+    formulation?: string;
+    params?: Record<string, number>;
+  } | null;
+  /** 是否有可执行代码：列表接口不返回 code，行内动作按此判断可操作性 */
+  has_code?: boolean;
   code_hash: string | null;
   code?: string | null;
   metrics: ResearchMetrics;
@@ -115,6 +122,13 @@ export interface ResearchReplayResult {
   trial: ResearchTrial;
   original: ResearchTrial;
   replay_meta: ResearchReplayMeta;
+}
+
+/** trial → 回测：策略已入库时复用既有策略名，不重复写文件 */
+export interface ResearchToBacktestResult {
+  task_id: string;
+  strategy_name: string;
+  reused_promotion: boolean;
 }
 
 export interface ResearchSession {
@@ -203,6 +217,11 @@ export const researchApi = {
     ),
   replay: (id: number, trialId: number) =>
     apiRequest.post<ResearchReplayResult>(`/research/sessions/${id}/trials/${trialId}/replay`),
+  /** 仅 strategy 场景：策略入库（幂等）并创建回测任务，返回 task_id 供轮询进度 */
+  toBacktest: (id: number, trialId: number) =>
+    apiRequest.post<ResearchToBacktestResult>(
+      `/research/sessions/${id}/trials/${trialId}/to-backtest`,
+    ),
   // 对比用：一次 2–5 条，返回含 code 的完整 trial
   batchTrials: (id: number, trialIds: number[]) =>
     apiRequest.post<{ trials: ResearchTrial[] }>(`/research/sessions/${id}/trials/batch`, {

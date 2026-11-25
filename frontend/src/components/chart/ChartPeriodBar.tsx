@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Segmented } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { BellOutlined } from '@ant-design/icons';
 import ChartIcon from './ChartIcon';
@@ -10,6 +11,12 @@ import IndicatorSelectorModal from '../IndicatorSelectorModal';
 import IndicatorAlertsModal from '../IndicatorAlertsModal';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
 import type { OrderbookPrefs } from '../../services/chartPreferences';
+
+/** 常驻图例 chip 数据：label 与图内指标 title 同构（MA20 / EMA6 / UP...），color 为图内实际线色 */
+export interface IndicatorLegendChip {
+  label: string;
+  color: string;
+}
 
 export interface ChartPeriodItem {
   label: string;
@@ -27,6 +34,8 @@ interface ChartPeriodBarProps {
   onChangePeriod: (value: string) => void;
   activeIndicators: ActiveIndicator[];
   onToggleIndicator: (indicator: Indicator, params?: Record<string, unknown>) => void;
+  /** 常驻图例 chips（overlay 均线指标，demo card-head 的 MA 图例对应物）；缺省不渲染整个图例区 */
+  indicatorLegend?: IndicatorLegendChip[];
   /** QuantCell 特有的实时行情开关，由 ChartPage 传入，放在工具栏最右 */
   realtimeSlot?: React.ReactNode;
   onOpenSymbolSearch: () => void;
@@ -41,6 +50,12 @@ interface ChartPeriodBarProps {
   fullscreenTarget: React.RefObject<HTMLElement | null>;
   /** 指标范围：all = 内置 + 自定义；builtin-local = 只展示内置指标（行情回放页） */
   indicatorScope?: 'all' | 'builtin-local';
+  /**
+   * 是否显示「信号提醒」入口。回放页传 false：提醒规则只对实时行情触发，
+   * 在历史回放里建规则既不会响也容易误解（回放页同时开放自定义指标，
+   * 不能再用 indicatorScope 兼作开关，故单列一个 prop）
+   */
+  showAlerts?: boolean;
   /** 订单簿偏好：null/undefined = 调用方未接订单簿（回放页），设置弹窗隐藏整个分组 */
   orderbook?: OrderbookPrefs | null;
   onOrderbookChange?: (patch: Partial<OrderbookPrefs>) => void;
@@ -62,6 +77,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   onChangePeriod,
   activeIndicators,
   onToggleIndicator,
+  indicatorLegend,
   realtimeSlot,
   onOpenSymbolSearch,
   currentTimezone,
@@ -72,6 +88,7 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
   getScreenshotUrl,
   fullscreenTarget,
   indicatorScope = 'all',
+  showAlerts = true,
   orderbook,
   onOrderbookChange,
   backtestOptions,
@@ -120,25 +137,23 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
           <span>{symbol.name || symbol.code}</span>
         </div>
 
-        {/* 周期条独立成滑动容器：窄屏时 overflow-x 横滑，避免整条工具栏溢出屏幕 */}
+        {/* 周期条独立成滑动容器：窄屏时 overflow-x 横滑，避免整条工具栏溢出屏幕。
+            内钮换 antd Segmented（design-spec §6.9 全站收口，样式由 global.css 既有段落提供） */}
         <div className="period-strip">
-          {periods.map((period) => (
-            <span
-              key={period.value}
-              className={`item period${period.value === currentPeriod ? ' selected' : ''}`}
-              onClick={() => onChangePeriod(period.value)}
-            >
-              {period.label}
-            </span>
-          ))}
+          <Segmented
+            size="small"
+            value={currentPeriod}
+            onChange={(value) => onChangePeriod(value as string)}
+            options={periods.map((period) => ({ label: period.label, value: period.value }))}
+          />
         </div>
 
         <div className="item tools first" title={t('chart.toolbar.indicator')} onClick={() => setIndicatorVisible(true)}>
           <ChartIcon name="indicator" className="tool-ico" />
           <span className="tool-label">{t('chart.toolbar.indicator')}</span>
         </div>
-        {/* 信号提醒直达入口：规则管理原本藏在编辑器提醒 Tab 三层深处；回放页（builtin-local）无自定义指标，隐藏 */}
-        {indicatorScope !== 'builtin-local' && (
+        {/* 信号提醒直达入口：规则管理原本藏在编辑器提醒 Tab 三层深处；回放页一律隐藏（提醒只对实时行情触发） */}
+        {showAlerts && (
           <div className="item tools" title={t('chart.toolbar.alerts')} onClick={() => setAlertsVisible(true)}>
             {/* 不用 .tool-ico（CSS mask 方案），antd 字体图标直接继承文字色即可与图表图标对齐 */}
             <BellOutlined style={{ fontSize: 16, marginRight: 4 }} />
@@ -171,6 +186,19 @@ const ChartPeriodBar: React.FC<ChartPeriodBarProps> = ({
               : t('chart.toolbar.fullscreen')}
           </span>
         </div>
+
+        {/* 常驻图例（demo head-right 的 s-chip 形制）：线色与图内实际线一致；hover 原有 pane
+            管理条不受影响。样式见 chart-toolbars.css 的 .chart-ind-legend */}
+        {indicatorLegend && indicatorLegend.length > 0 && (
+          <div className="chart-ind-legend" title={t('chart.ohlc.legend', '主图叠加均线图例')}>
+            {indicatorLegend.map((chip, i) => (
+              <span key={`${chip.label}-${i}`} className="chart-ind-legend-chip">
+                <i style={{ background: chip.color }} />
+                {chip.label}
+              </span>
+            ))}
+          </div>
+        )}
 
         {realtimeSlot ? <div className="live-area">{realtimeSlot}</div> : null}
       </div>

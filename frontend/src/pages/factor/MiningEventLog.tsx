@@ -1,19 +1,22 @@
 /**
  * 挖掘过程事件时间线：实时态（WS 事件）与历史态（run detail.events）共用。
  * 固定高度可滚动，新事件自动滚到底部；warning 行橙色。
+ * （旧 LLM 挖掘退役后暂无页面引用，保留共用原语供研究事件流之外的复用）
  */
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Empty, Tag } from 'antd';
 import type { MiningEvent } from '@/api/factor';
+import { QcEmpty } from '@/components/ui/DataTable';
 
-const STAGE_COLOR: Record<string, string> = {
-  data_load: 'default',
-  generating: 'processing',
-  evaluating: 'blue',
-  dedup: 'purple',
-  composite: 'cyan',
-  completed: 'green',
+/** 阶段 → §6.2 chip 语义槽位（生成/评估=进行中 info，完成=ok，其余 quiet；
+ *  全站只允许语义色，不再用 antd 预设彩色 Tag 调色板） */
+const STAGE_VARIANT: Record<string, string> = {
+  data_load: 'quiet',
+  generating: 'info',
+  evaluating: 'info',
+  dedup: 'quiet',
+  composite: 'quiet',
+  completed: 'ok',
 };
 
 const fmtTs = (iso: string) => {
@@ -31,12 +34,7 @@ const MiningEventLog: React.FC<{ events: MiningEvent[] }> = ({ events }) => {
   }, [events.length]);
 
   if (events.length === 0) {
-    return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description={t('factor_mining_event_empty') || '暂无过程事件'}
-      />
-    );
+    return <QcEmpty title={t('factor_mining_event_empty') || '暂无过程事件'} />;
   }
 
   return (
@@ -44,7 +42,7 @@ const MiningEventLog: React.FC<{ events: MiningEvent[] }> = ({ events }) => {
       style={{
         height: 220,
         overflowY: 'auto',
-        border: '1px solid var(--tw-color-border-secondary)',
+        border: '1px solid var(--qc-border)',
         borderRadius: 6,
         padding: 8,
       }}
@@ -57,21 +55,21 @@ const MiningEventLog: React.FC<{ events: MiningEvent[] }> = ({ events }) => {
             gap: 8,
             alignItems: 'baseline',
             padding: '2px 0',
-            color: e.level === 'warning' ? 'var(--tw-color-warning)' : undefined,
+            color: e.level === 'warning' ? 'var(--qc-warning)' : undefined,
           }}
         >
           <span
             style={{
-              color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)',
+              color: 'var(--qc-text-tertiary)',
               fontVariantNumeric: 'tabular-nums',
               whiteSpace: 'nowrap',
             }}
           >
             {fmtTs(e.ts)}
           </span>
-          <Tag color={STAGE_COLOR[e.stage] ?? 'default'} style={{ marginInlineEnd: 0 }}>
+          <span className={`qc-chip ${STAGE_VARIANT[e.stage] ?? 'quiet'}`}>
             {t(`factor_mining_stage_${e.stage}`) || e.stage}
-          </Tag>
+          </span>
           <span>{e.msg}</span>
         </div>
       ))}

@@ -6,8 +6,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Card,
   Button,
-  Table,
-  Tag,
   Space,
   Modal,
   Form,
@@ -18,6 +16,7 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import EChart from '@/components/EChart';
+import DataTable from '@/components/ui/DataTable';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/utils/pageTitle';
 
@@ -61,19 +60,25 @@ const ModelManagement = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
-        const colorMap: Record<string, string> = { trained: 'success', training: 'processing', untrained: 'default' };
+        // §6.2 chip：trained→ok / training→info(进行中带呼吸点) / untrained→中性
+        const cls = status === 'trained' ? 'ok' : status === 'training' ? 'info' : 'quiet';
         const textMap: Record<string, string> = {
           trained: t('mm_status_trained'),
           training: t('mm_status_training'),
           untrained: t('mm_status_untrained'),
         };
-        return <Tag color={colorMap[status]}>{textMap[status]}</Tag>;
+        return (
+          <span className={`qc-chip ${cls}`}>
+            {status === 'training' && <span className="qc-pdot" />}
+            {textMap[status]}
+          </span>
+        );
       },
     },
-    { title: t('mm_col_accuracy'), dataIndex: 'accuracy', key: 'accuracy', render: (v: number) => v ? `${(v * 100).toFixed(2)}%` : '-' },
-    { title: 'MSE', dataIndex: 'mse', key: 'mse', render: (v: number) => v ? v.toFixed(4) : '-' },
-    { title: 'MAE', dataIndex: 'mae', key: 'mae', render: (v: number) => v ? v.toFixed(4) : '-' },
-    { title: 'R²', dataIndex: 'r2', key: 'r2', render: (v: number) => v ? v.toFixed(4) : '-' },
+    { title: t('mm_col_accuracy'), dataIndex: 'accuracy', key: 'accuracy', align: 'right' as const, render: (v: number) => (v ? <span className="qc-mono">{(v * 100).toFixed(2)}%</span> : <span className="qc-mono qc-cell-none">-</span>) },
+    { title: 'MSE', dataIndex: 'mse', key: 'mse', align: 'right' as const, render: (v: number) => (v ? <span className="qc-mono">{v.toFixed(4)}</span> : <span className="qc-mono qc-cell-none">-</span>) },
+    { title: 'MAE', dataIndex: 'mae', key: 'mae', align: 'right' as const, render: (v: number) => (v ? <span className="qc-mono">{v.toFixed(4)}</span> : <span className="qc-mono qc-cell-none">-</span>) },
+    { title: 'R²', dataIndex: 'r2', key: 'r2', align: 'right' as const, render: (v: number) => (v ? <span className="qc-mono">{v.toFixed(4)}</span> : <span className="qc-mono qc-cell-none">-</span>) },
     {
       title: t('mm_col_actions'),
       key: 'action',
@@ -123,6 +128,7 @@ const ModelManagement = () => {
   return (
     <PageContainer title={t('model_management')}>
       <Card
+        className="qc-card"
         title={t('model_management')}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
@@ -130,10 +136,10 @@ const ModelManagement = () => {
           </Button>
         }
       >
-        <Table columns={columns} dataSource={models} rowKey="id" />
+        <DataTable columns={columns} dataSource={models} rowKey="id" />
       </Card>
 
-      <Modal title={t('mm_btn_create')} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)}>
+      <Modal className="qc-modal" title={t('mm_btn_create')} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)}>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label={t('mm_field_name')} rules={[{ required: true }]}>
             <Input />
@@ -149,12 +155,12 @@ const ModelManagement = () => {
         </Form>
       </Modal>
 
-      <Modal title={t('mm_detail_title')} open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={800}>
+      <Modal className="qc-modal" title={t('mm_detail_title')} open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={800}>
         {selectedModel && (
           <>
             <p><strong>{t('mm_field_name')}:</strong> {selectedModel.name}</p>
             <p><strong>{t('mm_field_type')}:</strong> {selectedModel.type}</p>
-            <p><strong>{t('mm_col_status')}:</strong> <Tag color={selectedModel.status === 'trained' ? 'success' : 'processing'}>{selectedModel.status}</Tag></p>
+            <p><strong>{t('mm_col_status')}:</strong> <span className={`qc-chip ${selectedModel.status === 'trained' ? 'ok' : 'info'}`}>{selectedModel.status}</span></p>
             {selectedModel.status === 'training' && <Progress percent={65} status="active" />}
             <EChart option={performanceChartOption} style={{ height: 400, marginTop: 20 }} />
           </>

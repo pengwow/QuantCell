@@ -12,6 +12,7 @@ import i18n from '../../i18n/config';
 import { configApi, systemApi } from '../../api';
 import { useConfigStore } from '../../store/configStore';
 import { snapPageSize } from '../../constants/pagination';
+import { writeThemeMode } from '../../theme/themeMode';
 import type {
   GeneralSettings,
   NotificationSettings,
@@ -47,7 +48,7 @@ const defaultGeneralSettings: GeneralSettings = {
   showTips: true,
   timezone: 'Asia/Shanghai',
   defaultPerPage: 10,
-  defaultViewType: 'card',
+  defaultViewType: 'list',
 };
 
 // 默认通知设置
@@ -180,6 +181,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
     // 同步到 localStorage（用于 useBrowserTheme hook）
     localStorage.setItem('quantcell-ui-theme', effectiveTheme);
+
+    // 用户选择单独落一个 key：顶栏胶囊靠它显示「浅色/暗黑/自动」（auto → system）。
+    // 生效主题仍是上面的 effectiveTheme —— 首帧脚本只认 light/dark，不能把 auto 写进去。
+    writeThemeMode(theme === 'auto' ? 'system' : theme);
   }, []);
 
   // 刷新系统指标
@@ -316,7 +321,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         { key: 'theme', value: generalSettings.theme, name: 'general', description: i18n.t('settings_desc_theme') },
         { key: 'language', value: generalSettings.language, name: 'general', description: i18n.t('settings_desc_language') },
         { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: i18n.t('default_per_page') },
-        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'card', name: 'general', description: i18n.t('settings_desc_view_type') },
+        { key: 'defaultViewType', value: generalSettings.defaultViewType || 'list', name: 'general', description: i18n.t('settings_desc_view_type') },
         { key: 'timezone', value: generalSettings.timezone, name: 'general', description: i18n.t('default_timezone') },
         { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: i18n.t('settings_desc_show_tips') },
       ];
@@ -332,7 +337,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       useConfigStore.getState().setConfig({
         ...existingConfig,
         defaultPerPage: snapPageSize(generalSettings.defaultPerPage || 10),
-        defaultViewType: generalSettings.defaultViewType || 'card',
+        defaultViewType: generalSettings.defaultViewType || 'list',
       });
 
       // 持久化语言设置到 localStorage（确保刷新后立即生效）

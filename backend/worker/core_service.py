@@ -228,6 +228,7 @@ class WorkerCoreService:
         strategy_id: int | None = None,
         page: int = 1,
         page_size: int = 20,
+        owner_id: int | None = None,
     ) -> dict[str, Any]:
         """
         获取Worker列表（同步版本，支持分页）
@@ -237,6 +238,7 @@ class WorkerCoreService:
             strategy_id: 按策略ID筛选
             page: 页码（从1开始）
             page_size: 每页数量
+            owner_id: 归属用户过滤（None = 不过滤，仅特权调用方使用）
 
         Returns:
             包含items、total、page、page_size的字典
@@ -249,6 +251,7 @@ class WorkerCoreService:
                 limit=page_size,
                 status=status,
                 strategy_id=strategy_id,
+                owner_id=owner_id,
             )
             logger.debug(f"[WorkerCoreService] 获取到 {total} 个Worker，返回第 {page} 页")
             return {
@@ -373,9 +376,10 @@ class WorkerCoreService:
         strategy_id: int | None = None,
         page: int = 1,
         page_size: int = 20,
+        owner_id: int | None = None,
     ) -> dict[str, Any]:
         """获取Worker列表（异步版本，通过线程池执行同步DB操作）"""
-        return await asyncio.to_thread(self.list_workers, status, strategy_id, page, page_size)
+        return await asyncio.to_thread(self.list_workers, status, strategy_id, page, page_size, owner_id)
 
     async def async_update_worker(self, worker_id: int, data: dict[str, Any]) -> dict[str, Any]:
         """更新Worker（异步版本，通过线程池执行同步DB操作）"""

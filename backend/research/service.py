@@ -649,6 +649,8 @@ def trial_to_dict(row: ResearchTrial, *, include_code: bool = True) -> dict[str,
         "hypothesis_reason": row.hypothesis_reason,
         "hypothesis_prediction": row.hypothesis_prediction,
         "task": _loads(row.task_json, None),
+        # 会话详情里的 trials 不带 code（体积大），行内动作按 has_code 判断可操作性
+        "has_code": bool((row.code or "").strip()),
         "code_hash": row.code_hash,
         "metrics": _loads(row.metrics_json, {}),
         "metrics_oos": _loads(row.metrics_oos_json, {}),

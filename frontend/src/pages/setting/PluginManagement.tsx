@@ -16,7 +16,6 @@ import {
   Space,
   Switch,
   Tabs,
-  Tag,
   Tooltip,
   Typography,
   Upload,
@@ -215,6 +214,7 @@ function PluginCard({
 
   return (
     <Card
+      className="qc-card"
       hoverable
       loading={loading}
       // 卸载（删除）统一放卡片右上角，与其他卡片页面一致；详情留在底栏 actions
@@ -254,7 +254,7 @@ function PluginCard({
               {plugin.description || t('no_description')}
             </Paragraph>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Tag>{plugin.version}</Tag>
+              <span className="qc-chip quiet font-mono">{plugin.version}</span>
               <Switch
                 size="small"
                 checked={plugin.status === 'enabled'}
@@ -293,6 +293,7 @@ function InstallModal({
 
   return (
     <Modal
+      className="qc-modal"
       title={t('plugin_install')}
       open={open}
       onCancel={onClose}
@@ -317,7 +318,7 @@ function InstallModal({
                 }}
                 disabled={uploading}
               >
-                <p style={{ fontSize: 40, color: 'color-mix(in srgb, var(--tw-color-foreground) 20%, transparent)' }}>
+                <p style={{ fontSize: 40, color: 'color-mix(in srgb, var(--qc-text) 20%, transparent)' }}>
                   {uploading ? <LoadingOutlined /> : <CloudUploadOutlined />}
                 </p>
                 <p>{uploading ? t('plugin_installing') : t('plugin_drop_zip')}</p>
@@ -368,6 +369,7 @@ function DetailModal({
 
   return (
     <Modal
+      className="qc-modal"
       title={t('plugin_detail_title', { name: plugin.name })}
       open={open}
       onCancel={onClose}
@@ -388,7 +390,7 @@ function DetailModal({
         </Descriptions.Item>
         <Descriptions.Item label={t('plugin_permissions')} span={2}>
           {plugin.permissions?.length
-            ? plugin.permissions.map((p) => <Tag key={p}>{p}</Tag>)
+            ? plugin.permissions.map((p) => <span key={p} className="qc-chip quiet">{p}</span>)
             : t('plugin_no_permissions')}
         </Descriptions.Item>
         <Descriptions.Item label={t('plugin_installed_at')} span={2}>{plugin.installed_at}</Descriptions.Item>
@@ -416,7 +418,7 @@ function DetailModal({
           <Typography.Title level={5}>{t('plugin_config_schema')}</Typography.Title>
           <pre
             style={{
-              background: 'color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background))',
+              background: 'color-mix(in srgb, var(--qc-text) 4%, var(--qc-bg))',
               padding: 12,
               borderRadius: 6,
               maxHeight: 300,

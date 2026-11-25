@@ -441,7 +441,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                         fontSize: 12,
                         padding: '2px 8px',
                         borderRadius: 4,
-                        background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                        background: verifyResult.quality.score >= 80 ? 'var(--qc-success-soft-bg)' : verifyResult.quality.score >= 60 ? 'var(--qc-warning-soft-bg)' : 'var(--qc-error-soft-bg)',
                         color: verifyResult.quality.score >= 80 ? QUANT_COLORS.positive : verifyResult.quality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                         cursor: 'help',
                       }}>
@@ -451,7 +451,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                     </Tooltip>
                   )}
                   {verifyResult.plots_count != null && (
-                    <span style={{ fontSize: 12, color: '#666' }}>
+                    <span style={{ fontSize: 12, color: 'var(--qc-text-secondary)' }}>
                       {t('ie_quality_plots_signals', { plots: verifyResult.plots_count, signals: verifyResult.signals_count || 0 })}
                     </span>
                   )}
@@ -528,7 +528,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                   >
                     <span style={{
                       fontSize: 12, padding: '2px 8px', borderRadius: 4, cursor: 'help',
-                      background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                      background: verifyResult.quality.score >= 80 ? 'var(--qc-success-soft-bg)' : verifyResult.quality.score >= 60 ? 'var(--qc-warning-soft-bg)' : 'var(--qc-error-soft-bg)',
                       color: verifyResult.quality.score >= 80 ? QUANT_COLORS.positive : verifyResult.quality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                     }}>
                       {t('ie_quality_score', { score: verifyResult.quality.score, level: verifyResult.quality.level })}
@@ -536,7 +536,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                     </span>
                   </Tooltip>
                   {verifyResult.plots_count != null && (
-                    <span style={{ fontSize: 12, color: '#666' }}>
+                    <span style={{ fontSize: 12, color: 'var(--qc-text-secondary)' }}>
                       {t('ie_quality_plots_signals', { plots: verifyResult.plots_count, signals: verifyResult.signals_count || 0 })}
                     </span>
                   )}
@@ -582,7 +582,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                                   </li>
                                 ))}
                                 {generatedQuality.hints.length > 3 && (
-                                  <li style={{ color: '#999' }}>{t('ie_quality_more_issues', { n: generatedQuality.hints.length - 3 })}</li>
+                                  <li style={{ color: 'var(--qc-text-tertiary)' }}>{t('ie_quality_more_issues', { n: generatedQuality.hints.length - 3 })}</li>
                                 )}
                               </ul>
                             </>
@@ -594,7 +594,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                         fontSize: 12, 
                         padding: '2px 8px', 
                         borderRadius: 4,
-                        background: generatedQuality.score >= 80 ? '#f6ffed' : generatedQuality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                        background: generatedQuality.score >= 80 ? 'var(--qc-success-soft-bg)' : generatedQuality.score >= 60 ? 'var(--qc-warning-soft-bg)' : 'var(--qc-error-soft-bg)',
                         color: generatedQuality.score >= 80 ? QUANT_COLORS.positive : generatedQuality.score >= 60 ? QUANT_COLORS.warning : QUANT_COLORS.negative,
                         cursor: 'help',
                       }}>
@@ -705,6 +705,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <CodeOutlined />

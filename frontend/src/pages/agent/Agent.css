@@ -1,190 +1,157 @@
-/* AI Agent 页面样式 - 支持亮色/暗色主题 */
+/* AI Agent 页面样式（design-spec §6.14 聊天流 DNA + 全站 qc 语义 token）。
+   颜色一律 var(--qc-*) / color-mix，本文件禁止颜色字面量（亮暗随 token 自动换挡）。 */
 
-/* ==================== 主题变量定义 ==================== */
+/* ==================== 局部语义别名（全部指回 --qc-* 规范槽位） ==================== */
 :root {
-  /* O2: 局部变量统一挂到全局语义 token，亮暗自适应；色块微调对（浅色悬浮底、状态气泡
-     着色）用 color-mix 在 token 上调出，hover 底需与页面底色可区分 */
-  --agent-bg: var(--tw-color-background);
-  --agent-header-bg: var(--tw-color-background);
-  --agent-header-border: var(--tw-color-border-secondary);
-  --agent-input-bg: var(--tw-color-background);
-  --agent-input-border: var(--tw-color-border-secondary);
+  /* 面板/输入底：页面底 --qc-bg，浮起来的气泡/卡 --qc-surface（demo --bgc） */
+  --agent-bg: var(--qc-bg);
+  --agent-header-bg: var(--qc-bg);
+  --agent-header-border: var(--qc-border);
+  --agent-input-bg: var(--qc-bg);
+  --agent-input-border: var(--qc-border);
 
-  /* 消息气泡 */
-  --message-bg: var(--tw-color-background);
-  --message-user-bg: var(--tw-color-info);
-  --message-user-color: #ffffff; /* O2: 特殊装饰色，保留（info 色底上的反白文字，亮暗恒白） */
-  --message-tool-bg: color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background));
-  --message-tool-border: color-mix(in srgb, var(--tw-color-success) 40%, var(--tw-color-background));
-  --message-error-bg: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
-  --message-error-border: color-mix(in srgb, var(--tw-color-error) 40%, var(--tw-color-background));
+  /* 消息气泡：AI = 卡面底，用户 = 用户气泡槽（demo --user-bg/--user-fg） */
+  --message-bg: var(--qc-surface);
+  --message-user-bg: var(--qc-user-bubble-bg);
+  --message-user-color: var(--qc-user-bubble-fg);
+  --message-tool-bg: color-mix(in srgb, var(--qc-success) 8%, var(--qc-surface));
+  --message-tool-border: color-mix(in srgb, var(--qc-success) 40%, var(--qc-surface));
+  --message-error-bg: color-mix(in srgb, var(--qc-error) 8%, var(--qc-surface));
+  --message-error-border: color-mix(in srgb, var(--qc-error) 40%, var(--qc-surface));
 
-  /* 文字颜色：次级/弱化文字 = 前景色按比例混入底色 */
-  --text-primary: var(--tw-color-foreground);
-  --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 45%, var(--tw-color-background));
-  --text-muted: color-mix(in srgb, var(--tw-color-foreground) 65%, var(--tw-color-background));
-  --text-hint: color-mix(in srgb, var(--tw-color-foreground) 50%, var(--tw-color-background));
+  /* 文本：§2.2 alpha 阶梯直取（fg / fg-2 / fg-3 / fg-4） */
+  --text-primary: var(--qc-text);
+  --text-secondary: var(--qc-text-secondary);
+  --text-muted: var(--qc-text-tertiary);
+  --text-hint: var(--qc-text-quaternary);
 
-  /* 边框和分隔线 */
-  --border-color: var(--tw-color-border-secondary);
-  --border-light: var(--tw-color-border-secondary);
-  --border-lighter: var(--tw-color-background);
+  /* 边框：--bd = --qc-border；内嵌体底（demo --bg）= --qc-bg */
+  --border-color: var(--qc-border);
+  --border-light: var(--qc-border);
+  --border-lighter: var(--qc-bg);
 
-  /* 交互状态 */
-  --hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
-  --active-color: var(--tw-color-info);
+  /* 交互：hover 走 §2.3 悬浮 tint；选中/进行中 = info */
+  --hover-bg: var(--qc-surface-hover);
+  --active-bg: color-mix(in srgb, var(--qc-info) 16%, transparent);
+  --active-color: var(--qc-info);
 
-  /* 工具面板 */
-  --tool-panel-bg: var(--tw-color-background);
-  --tool-item-bg: var(--tw-color-background);
-  --tool-item-border: var(--tw-color-border-secondary);
-  --tool-item-hover-border: var(--tw-color-border);
-  --param-row-bg: var(--tw-color-background);
-  --param-row-hover-bg: color-mix(in srgb, var(--tw-color-info) 6%, var(--tw-color-background));
+  /* 工具参数面板 */
+  --tool-panel-bg: var(--qc-bg);
+  --tool-item-bg: var(--qc-surface);
+  --tool-item-border: var(--qc-border);
+  --tool-item-hover-border: var(--qc-border-strong);
+  --param-row-bg: var(--qc-surface);
+  --param-row-hover-bg: color-mix(in srgb, var(--qc-info) 6%, transparent);
 
-  /* 会话列表 */
-  --session-hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
-}
+  /* 会话列表：选中 = 导航同款 primary 9% tint（§2.3） */
+  --session-hover-bg: var(--qc-surface-hover);
+  --session-active-bg: color-mix(in srgb, var(--qc-primary) 9%, transparent);
 
-/* 亮色/暗色共用同一组 token 表达式，.dark 下变量自动换挡，仅保留结构占位 */
-.dark {
-  /* 暗色模式 - Agent 页面专用变量（与亮色共享 token，无需重复调色） */
-  --agent-bg: var(--tw-color-background);
-  --agent-header-bg: var(--tw-color-background);
-  --agent-header-border: var(--tw-color-border-secondary);
-  --agent-input-bg: var(--tw-color-background);
-  --agent-input-border: var(--tw-color-border-secondary);
-
-  /* 消息气泡 */
-  --message-bg: var(--tw-color-background);
-  --message-user-bg: var(--tw-color-info);
-  --message-user-color: #ffffff; /* O2: 特殊装饰色，保留（同上） */
-  --message-tool-bg: color-mix(in srgb, var(--tw-color-success) 8%, var(--tw-color-background));
-  --message-tool-border: color-mix(in srgb, var(--tw-color-success) 40%, var(--tw-color-background));
-  --message-error-bg: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
-  --message-error-border: color-mix(in srgb, var(--tw-color-error) 40%, var(--tw-color-background));
-
-  /* 文字颜色 */
-  --text-primary: var(--tw-color-foreground);
-  --text-secondary: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
-  --text-muted: color-mix(in srgb, var(--tw-color-foreground) 58%, var(--tw-color-background));
-  --text-hint: color-mix(in srgb, var(--tw-color-foreground) 38%, var(--tw-color-background));
-
-  /* 边框和分隔线 */
-  --border-color: var(--tw-color-border-secondary);
-  --border-light: var(--tw-color-border-secondary);
-  --border-lighter: var(--tw-color-background);
-
-  /* 交互状态 */
-  --hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
-  --active-color: var(--tw-color-info);
-
-  /* 工具面板 */
-  --tool-panel-bg: var(--tw-color-background);
-  --tool-item-bg: var(--tw-color-background);
-  --tool-item-border: var(--tw-color-border-secondary);
-  --tool-item-hover-border: var(--tw-color-border);
-  --param-row-bg: var(--tw-color-background);
-  --param-row-hover-bg: color-mix(in srgb, var(--tw-color-info) 6%, var(--tw-color-background));
-
-  /* 会话列表 */
-  --session-hover-bg: color-mix(in srgb, var(--tw-color-foreground) 4%, var(--tw-color-background));
-  --session-active-bg: color-mix(in srgb, var(--tw-color-info) 16%, var(--tw-color-background));
+  /* 涨跌/告警（老调用点以内联 var 引用：PositionsTab / LogsTab） */
+  --agent-up: var(--qc-success);
+  --agent-down: var(--qc-error);
+  --agent-warn: var(--qc-warning);
 }
 
 /* ==================== 布局容器 ==================== */
-.ai-agent-layout {
-  height: 100vh;
-  background: var(--agent-bg);
-  transition: background-color 0.3s ease;
-}
-
-/* ==================== 会话列表抽屉 ==================== */
-.session-drawer .ant-drawer-body {
-  padding: 0;
-}
-
-.session-drawer .session-list {
-  padding: 8px;
-}
-
-.session-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 2px;
-  color: var(--text-primary);
-}
-
-.session-item:hover {
-  background: var(--session-hover-bg);
-}
-
-.session-item.active {
-  background: var(--session-active-bg);
-  color: var(--active-color);
-}
-
-.session-name-text {
-  flex: 1;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: 8px;
-}
-
-.session-more-btn {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.session-item:hover .session-more-btn,
-.session-item.active .session-more-btn {
-  opacity: 1;
-}
-
-/* ==================== 主内容区 ==================== */
-.agent-content-layout {
+/* 高度链：qc-main（flex 定高）→ antd App 挂载 div → .ai-agent-layout → .agent-content-layout。
+   三代都是 auto 高度，不能用 100vh（会越过 qc-main 底边，页面整体下溢、输入区被裁）；
+   用 flex 链把可用高度逐级传下去，最后一级自带 min-height:0 才能内部滚动。 */
+.qc-main:has(> .ant-app > .ai-agent-layout) {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  overflow: hidden;
 }
 
-/* ==================== 头部区域 ==================== */
+.qc-main > .ant-app:has(> .ai-agent-layout) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-agent-layout {
+  flex: 1;
+  min-height: 0;
+  /* 页面底走全站画布色（--qc-canvas）；--qc-bg 是白面，会把整页刷成白底、和其他页不同 */
+  background: var(--qc-canvas);
+  transition: background-color 160ms ease-out;
+}
+
+/* ==================== 页头（demo page-head 轻量行：§5 口径，不套 PageContainer） ==================== */
+/* Agent 页是全屏工作台（.ai-agent-layout 100vh 双栏），PageContainer 的画布内边距会撞顶栏，
+   故只加一行轻量 page-head：标题 16/650 + 副标 11 mono + 右侧 30px 钮（复用 global.css 的 qc-page-* 类）。 */
+.agent-page-head {
+  flex: 0 0 auto;
+  padding: 2px 2px 0;
+  background: transparent;
+}
+
+.agent-page-head .qc-page-head {
+  margin: 0 0 12px;
+}
+
+.agent-page-head-main {
+  min-width: 0;
+}
+
+/* §5/§6.1 主按钮 30px（antd 默认 32，本页页头动作钮压到规范值） */
+.agent-page-head .qc-page-actions .ant-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+}
+
+/* ==================== 顶栏（§5 Header 同规格：52px / 0 16px / --bg / 下边线） ==================== */
+.agent-content-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .agent-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 24px;
+  flex: 0 0 52px;
+  padding: 0 16px;
   background: var(--agent-header-bg);
   border-bottom: 1px solid var(--agent-header-border);
-  transition: all 0.3s ease;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
   color: var(--text-primary);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
+/* 会话名 = 本页标题（page-title 16/650 档） */
 .session-name {
-  font-weight: 500;
+  font-weight: 650;
   font-size: 16px;
+  line-height: 1.4;
   color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-right {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+/* 顶栏图标钮 → §6.1 icon-btn（30×30、6px 圆角、hover fg 5%） */
+.agent-header .ant-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
 }
 
 /* 按钮激活状态 */
@@ -193,11 +160,12 @@
   background: var(--active-bg);
 }
 
-/* ==================== 消息区域 ==================== */
+/* ==================== 消息区（§6.14 聊天流 DNA） ==================== */
 .agent-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  /* demo 会话卡内容区：卡片内距 14，消息区自身只留 12 顶 + 14 右 */
+  padding: 12px 14px 6px;
 }
 
 .messages-container {
@@ -205,11 +173,11 @@
   margin: 0 auto;
 }
 
-/* ==================== 消息气泡 ==================== */
+/* 消息行：avatar 32 + 列，行距 18px（demo .m-row） */
 .chat-message {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   animation: fadeIn 0.3s ease;
 }
 
@@ -224,6 +192,7 @@
   }
 }
 
+/* 用户行右对齐（demo .m-row.user） */
 .chat-message.user {
   flex-direction: row-reverse;
 }
@@ -232,48 +201,108 @@
   align-items: flex-end;
 }
 
-.message-avatar {
-  flex-shrink: 0;
+/* 头像 32×32、8px 圆角（demo .avatar.sq）：AI = info 实底、用户 = 用户头像槽 */
+/* 缺口：spec --avatar-user-bg/--avatar-user-fg 无 palette 槽位，用 text/surface 混色近似
+   （亮色≈中灰、暗色 fg 48% 灰），icon 反衬面底色；需要真槽位时加 avatarUserBg/Fg */
+.msg-avatar {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
 }
 
+.msg-avatar.ai {
+  background: var(--qc-info);
+  /* §6.14 明文「info 实底白字」：用 user-bubble-fg（两主题恒白）而不是 on-primary
+     —— on-primary 是为橙色主钮配的深字，压到 info 蓝底上暗色下会变成近黑字。 */
+  color: var(--qc-user-bubble-fg);
+}
+
+.msg-avatar.user {
+  background: color-mix(in srgb, var(--qc-text) 42%, var(--qc-surface));
+  color: var(--qc-surface);
+}
+
+.msg-avatar.tool {
+  background: color-mix(in srgb, var(--qc-success) 12%, transparent);
+  color: var(--qc-success);
+  border: 1px solid color-mix(in srgb, var(--qc-success) 40%, transparent);
+}
+
+.msg-avatar.err {
+  background: color-mix(in srgb, var(--qc-error) 12%, transparent);
+  color: var(--qc-error);
+  border: 1px solid color-mix(in srgb, var(--qc-error) 40%, transparent);
+}
+
+/* 列（demo .m-col：max-width 82%） */
 .message-content {
   display: flex;
   flex-direction: column;
-  max-width: 80%;
+  max-width: 82%;
+  min-width: 0;
 }
 
+/* 角色行（demo .m-head：gap 8 / mb 4 / 12px fg-3；role 550 fg-2） */
 .message-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
   font-size: 12px;
-  color: var(--text-secondary);
-  transition: color 0.3s ease;
+  color: var(--text-muted);
 }
 
 .message-role {
-  font-weight: 500;
+  font-weight: 550;
+  color: var(--text-secondary);
 }
 
+/* 时间戳 mono（数字/时间 mono 铁律；demo m-head 时间块同尺寸） */
+.message-time {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+/* 迭代徽标：ReAct 轮次计数（count-chip 形制：mono 10 全圆 + bd-2 边 + bge 底） */
+.message-iteration {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 20px;
+  color: var(--text-muted);
+  border: 1px solid var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+  white-space: nowrap;
+}
+
+/* 气泡（demo .bubble：bgc 底 / 12px 圆角 / 11 15 内边距 / bubble-shadow / 13px·1.65） */
 .message-body {
   background: var(--message-bg);
-  padding: 12px 16px;
+  padding: 11px 15px;
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--qc-shadow-bubble);
   color: var(--text-primary);
-  transition: all 0.3s ease;
+  font-size: 13px;
+  line-height: 1.65;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
 
-.dark .message-body {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
+/* 用户气泡：user 槽底色 + 反白字（demo .user .bubble） */
 .chat-message.user .message-body {
   background: var(--message-user-bg);
   color: var(--message-user-color);
 }
 
+/* 工具/错误变体：语义 tint 底 + 40% 边（§2.3 公式） */
 .chat-message.tool .message-body {
   background: var(--message-tool-bg);
   border: 1px solid var(--message-tool-border);
@@ -308,7 +337,7 @@
   padding: 16px;
   border-radius: 8px;
   color: var(--text-primary);
-  transition: background-color 0.3s ease;
+  transition: background-color 160ms ease-out;
 }
 
 .error-detail-content pre {
@@ -319,30 +348,241 @@
   color: inherit;
 }
 
+/* ---- Markdown 正文（ReactMarkdown 输出，对齐 demo .m-text） ---- */
 .message-text {
-  line-height: 1.6;
   white-space: pre-wrap;
   color: inherit;
 }
 
-.tool-calls {
-  margin-bottom: 8px;
+.message-text p {
+  margin: 0 0 6px;
 }
 
-.tool-result {
-  margin-top: 8px;
-  padding: 8px;
-  background: var(--border-lighter);
+.message-text p:last-child {
+  margin-bottom: 0;
+}
+
+.message-text :is(h1, h2, h3, h4) {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 2px 0 6px;
+}
+
+.message-text ul,
+.message-text ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.message-text li {
+  margin: 3px 0;
+}
+
+.chat-message:not(.user) .message-text li {
+  color: var(--text-secondary);
+}
+
+.message-text strong {
+  color: var(--text-primary);
+}
+
+/* 用户气泡内的 markdown 关系色让位于反白 */
+.chat-message.user .message-text :is(strong, li) {
+  color: inherit;
+}
+
+.message-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 5px;
   border-radius: 4px;
-  transition: background-color 0.3s ease;
+  background: color-mix(in srgb, var(--qc-text) 8%, transparent);
 }
 
-.tool-result pre {
-  margin: 0;
+.message-text pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.message-text pre code {
+  padding: 0;
+  background: transparent;
+}
+
+/* 用户气泡内 code 用反白 tint */
+.chat-message.user .message-text code {
+  background: color-mix(in srgb, var(--qc-user-bubble-fg) 18%, transparent);
+}
+
+/* ---- 工具链（demo .chain / .chain-node：success 40% 边 + 8% 底 + 左侧 2px 竖轨） ---- */
+.tool-chain {
+  margin: 10px 0 2px;
+  padding-left: 16px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-chain::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--qc-success) 26%, transparent);
+}
+
+.chain-node {
+  border: 1px solid color-mix(in srgb, var(--qc-success) 40%, var(--qc-surface));
+  background: color-mix(in srgb, var(--qc-success) 8%, var(--qc-surface));
+  border-radius: 10px;
+  overflow: hidden;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.chain-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
   font-size: 12px;
+  min-width: 0;
+}
+
+/* 工具方徽（demo .tool-chip：20×20 / 5px 圆角 / up 实底 / mono 8.5px） */
+.tool-chip {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--qc-success);
+  color: var(--qc-on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  flex: 0 0 20px;
+  font-style: normal;
+}
+
+/* 工具名 mono 600 + 参数 mono 10.5 fg-4 单行省略 */
+.chain-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chain-args {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.chain-status {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* 成功 chip（demo .chip-ok：4px 圆角紧凑款，非 .qc-chip 全圆） */
+.chip-ok {
+  font-size: 10px;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  line-height: 1;
+  color: var(--qc-success);
+  border: 1px solid color-mix(in srgb, var(--qc-success) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-success) 10%, transparent);
+  white-space: nowrap;
+}
+
+.chip-run {
+  font-size: 10px;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  line-height: 1;
+  color: var(--qc-info);
+  border: 1px solid color-mix(in srgb, var(--qc-info) 40%, transparent);
+  background: color-mix(in srgb, var(--qc-info) 8%, transparent);
+  white-space: nowrap;
+}
+
+/* 工具返回体（demo .chain-body pre：mono 11 / --bg 底 / 6px 圆角 / 200px 限高） */
+.tool-chain .collapse-block {
+  margin-top: 6px;
+}
+
+/* ==================== 消息内折叠块（工具结果 / 思考过程） ==================== */
+.collapse-block {
+  margin-top: 8px;
+}
+
+/* demo .collapse-toggle：12px fg-3，hover info */
+.collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: color 160ms ease-out;
+  font-family: inherit;
+}
+
+.collapse-toggle:hover {
+  color: var(--qc-info);
+}
+
+.collapse-caret {
+  font-size: 10px;
+}
+
+.collapse-block.reasoning {
+  margin-top: 4px;
+}
+
+.collapse-block.reasoning .collapse-toggle {
+  color: var(--text-hint);
+}
+
+/* demo .think / .chain-body pre：--bg 底（比气泡更深一层的词法平面） */
+.collapse-body {
+  margin-top: 8px;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--qc-bg);
+  border-radius: 6px;
+  color: var(--text-primary);
+  transition: background-color 160ms ease-out;
+}
+
+.collapse-body pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ==================== 加载指示器 ==================== */
@@ -350,138 +590,266 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+  padding: 8px 0 12px;
   color: var(--text-secondary);
-  font-size: 14px;
-  transition: color 0.3s ease;
+  font-size: 12px;
 }
 
-/* 错误指示器 */
-.error-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  font-size: 14px;
-  background: var(--message-error-bg);
-  border: 1px solid var(--message-error-border);
-  border-radius: 8px;
-  margin: 8px 0;
-  color: var(--text-primary);
-  transition: all 0.3s ease;
-}
-
-/* ==================== 输入区域 ==================== */
+/* ==================== 输入区 ==================== */
 .agent-input-area {
-  padding: 16px 24px;
+  flex: 0 0 auto;
+  padding: 10px 24px 12px;
   background: var(--agent-input-bg);
   border-top: 1px solid var(--agent-input-border);
-  transition: all 0.3s ease;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
 }
 
 .input-wrapper {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  align-items: center;
   max-width: 900px;
   margin: 0 auto;
 }
 
+/* demo .input-box：40px 胶囊槽（autoSize 时内边距 9 16 起步） */
 .input-wrapper .ant-input {
   flex: 1;
+  min-width: 0;
   border-radius: 20px;
-  padding: 12px 20px;
+  padding: 9px 16px;
   background: var(--message-bg);
   border-color: var(--border-color);
   color: var(--text-primary);
-  transition: all 0.3s ease;
+  font-size: 13px;
+  line-height: 1.6;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
 }
 
 .input-wrapper .ant-input::placeholder {
   color: var(--text-hint);
 }
 
-.input-wrapper .ant-input:focus {
-  border-color: var(--active-color);
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
-}
-
-.input-wrapper .ant-btn {
-  height: auto;
-  border-radius: 20px;
-  padding: 0 24px;
+/* 发送钮（demo .send-btn：40×40 正圆 primary 实底 + 35% 投影） */
+.input-wrapper .ant-btn-primary {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--qc-primary) 35%, transparent);
 }
 
 .input-hint {
   text-align: center;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-hint);
-  transition: color 0.3s ease;
 }
 
-/* ==================== 工具列表 ==================== */
-.tool-list {
-  padding: 8px 0;
+/* ==================== 快捷指令条（demo .qchip） ==================== */
+.quick-commands {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 900px;
+  margin: 0 auto 9px;
 }
 
-.tool-list-item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-light);
+.quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  background: var(--message-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 160ms ease-out, border-color 160ms ease-out, background-color 160ms ease-out;
+}
+
+.quick-chip:hover:not(:disabled) {
+  color: var(--qc-info);
+  border-color: var(--qc-info);
+}
+
+.quick-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== 空态引导（策略能力） ==================== */
+.chat-empty {
+  max-width: 560px;
+  margin: 0 auto;
+  padding-top: 10vh;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.chat-empty-title {
+  font-size: 20px;
+  font-weight: 650;
   color: var(--text-primary);
-  transition: border-color 0.3s ease;
 }
 
-.tool-list-item:last-child {
-  border-bottom: none;
+.chat-empty-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
-.tool-description {
-  margin: 8px 0 0 0;
-  color: var(--text-muted);
+.chat-empty-caps {
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+
+.chat-empty-cap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--message-bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 160ms ease-out, background-color 160ms ease-out;
+}
+
+.chat-empty-cap:hover {
+  border-color: var(--active-color);
+  background: var(--hover-bg);
+}
+
+.cap-icon {
+  font-size: 16px;
+  line-height: 1;
+  margin-top: 2px;
+  color: var(--active-color);
+}
+
+.cap-copy {
+  min-width: 0;
+}
+
+.cap-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cap-desc {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-hint);
+}
+
+@media (max-width: 576px) {
+  .chat-empty-caps {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==================== 会话列表抽屉 ==================== */
+.session-drawer .ant-drawer-body {
+  padding: 0;
+}
+
+.session-drawer .session-list {
+  padding: 8px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+  margin-bottom: 2px;
+  color: var(--text-primary);
+}
+
+.session-item:hover {
+  background: var(--session-hover-bg);
+}
+
+/* 选中 = 导航同款 primary 9% tint + 主色字（§2.3） */
+.session-item.active {
+  background: var(--session-active-bg);
+  color: var(--qc-primary);
+  font-weight: 550;
+}
+
+.session-name-text {
+  flex: 1;
   font-size: 14px;
-  transition: color 0.3s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
 }
 
-/* 更多操作下拉菜单 */
+.session-more-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.session-item:hover .session-more-btn,
+.session-item.active .session-more-btn {
+  opacity: 1;
+}
+
+/* ==================== 更多操作下拉菜单 ==================== */
 .session-actions-dropdown .ant-dropdown-menu-item-danger {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
 .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
-  background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
+  background: color-mix(in srgb, var(--qc-error) 8%, transparent);
 }
 
-.dark .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
-  background: color-mix(in srgb, var(--tw-color-error) 8%, var(--tw-color-background));
-}
-
-/* 删除确认 Modal */
+/* ==================== 删除确认 Modal ==================== */
 .delete-confirm-modal .ant-modal-header {
   border-bottom: 1px solid var(--message-error-border);
 }
 
 .delete-confirm-modal .ant-modal-title {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
 .delete-confirm-modal .ant-modal-body {
   color: var(--text-primary);
-  transition: color 0.3s ease;
+  transition: color 160ms ease-out;
 }
 
-/* 删除警告框 */
 .delete-warning-box {
   background: var(--message-error-bg);
   border: 1px solid var(--message-error-border);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 12px;
   margin-bottom: 16px;
-  transition: all 0.3s ease;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
 }
 
 .delete-warning-box .delete-warning-title {
   margin: 0 0 8px 0;
-  font-weight: 500;
+  font-weight: 550;
   color: var(--text-primary);
 }
 
@@ -494,28 +862,27 @@
 .delete-warning-box .delete-warning-note {
   margin: 8px 0 0 0;
   color: var(--text-muted);
-  transition: color 0.3s ease;
+  transition: color 160ms ease-out;
 }
 
-/* 删除确认提示 */
 .delete-confirm-hint {
   margin-bottom: 8px;
   color: var(--text-primary);
-  transition: color 0.3s ease;
+  transition: color 160ms ease-out;
 }
 
 .delete-confirm-highlight {
-  color: var(--tw-color-error);
+  color: var(--qc-error);
 }
 
-/* 响应式适配 */
+/* ==================== 响应式 ==================== */
 @media (max-width: 768px) {
   .message-content {
     max-width: 90%;
   }
 
   .agent-header {
-    padding: 12px 16px;
+    padding: 0 12px;
   }
 
   .session-name {
@@ -527,7 +894,7 @@
   }
 
   .agent-input-area {
-    padding: 12px 16px;
+    padding: 10px 16px 12px;
   }
 }
 
@@ -538,11 +905,17 @@
   }
 }
 
-/* ==================== 工具列表（集成参数配置）样式 ==================== */
+/* ==================== 工具列表（集成参数配置） ==================== */
+.tool-list-note {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: var(--text-hint);
+}
+
 .tool-list-config-drawer .ant-drawer-body {
   padding: 12px;
   background: var(--tool-panel-bg);
-  transition: background-color 0.3s ease;
+  transition: background-color 160ms ease-out;
 }
 
 .tool-list-with-config {
@@ -556,27 +929,18 @@
   background: var(--tool-item-bg);
   border-radius: 8px;
   border: 1px solid var(--tool-item-border);
-  transition: all 0.3s ease;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
   overflow: hidden;
   color: var(--text-primary);
 }
 
 .tool-item-wrapper:hover {
   border-color: var(--tool-item-hover-border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.dark .tool-item-wrapper:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .tool-item-wrapper.expanded {
-  border-color: var(--active-color);
-  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
-}
-
-.dark .tool-item-wrapper.expanded {
-  box-shadow: 0 2px 8px rgba(96, 165, 250, 0.15);
+  border-color: color-mix(in srgb, var(--qc-info) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc-info) 12%, transparent);
 }
 
 /* 工具项头部 */
@@ -597,6 +961,17 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+/* mono 工具名（工具名属代码标识） */
+.tool-item-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 工具描述 */
@@ -642,7 +1017,7 @@
   border-radius: 6px;
   gap: 12px;
   border-left: 2px solid transparent;
-  transition: all 0.2s;
+  transition: background 0.2s, border-color 0.2s;
   color: var(--text-primary);
 }
 
@@ -651,14 +1026,10 @@
   border-left-color: var(--active-color);
 }
 
-/* 敏感参数特殊样式 */
+/* 敏感参数：warning tint 左缘 + 10% 底（§2.3 公式，亮暗同表达式） */
 .param-row:has(.anticon-lock-unfilled) {
-  border-left-color: var(--tw-color-warning);
-  background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
-}
-
-.dark .param-row:has(.anticon-lock-unfilled) {
-  background: color-mix(in srgb, var(--tw-color-warning) 10%, var(--tw-color-background));
+  border-left-color: var(--qc-warning);
+  background: color-mix(in srgb, var(--qc-warning) 10%, transparent);
 }
 
 /* 参数信息区 */
@@ -685,7 +1056,6 @@
   color: var(--text-hint);
 }
 
-/* 响应式适配 */
 @media (max-width: 480px) {
   .param-row {
     flex-direction: column;
@@ -710,3 +1080,511 @@
     width: 100% !important;
   }
 }
+
+/* ==================== 双栏工作台（P1：/agent 聊天 + 工作面板） ==================== */
+.agent-workbench {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+  /* 左右留白由 .qc-main 统一给（4px），与 demo #agent-grid 同一条对齐线 */
+  padding: 0;
+  background: transparent;
+}
+
+.agent-chat-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* demo 会话卡：白面 + 1px 边 + 10px 圆角 + 卡阴影（与全站 qc-card 同 token） */
+  background: var(--qc-surface);
+  border: 1px solid var(--qc-border);
+  border-radius: 10px;
+  box-shadow: var(--qc-shadow-card);
+}
+
+/* 卡头：左（标题 + 实时 chip）可压缩省略，右侧动作组放不下就整组换行，
+   不允许任何子项溢出卡面盖住相邻控件（窄窗口下 Worker 选择器曾压住标题/chip） */
+.agent-chat-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* 卡头永不换行：右侧动作组放不下时由 Worker 选择器让宽 + 标题省略，
+     第二行会把输入区/卡面推出可视区（1280 窄侧栏下实测过） */
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 12px 14px 0;
+  /* demo card-head 与内容之间留 8px，消息滚到底也不会贴住卡头 */
+  margin-bottom: 6px;
+}
+
+.agent-chat-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 不吃满首行：留出右侧动作组同排，只有放不下时才整体换行 */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.agent-chat-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--qc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-live-chip {
+  flex: 0 0 auto;
+}
+
+.agent-live-chip .qc-pdot {
+  margin-right: 4px;
+}
+
+.agent-chat-head-right {
+  display: flex;
+  align-items: center;
+  /* 组内永不换行：换 worker 导致状态 chip 字数变化时，只允许 Worker 选择器让宽，
+     否则会出现「折叠/清空」被甩到第二行的抖动（历史 bug） */
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 右栏比页底抬一层（demo 右卡在画布上的层次） */
+.agent-work-col {
+  /* demo `.agent-grid` 右列固定 372px（不是百分比），左右两栏顶/底才会对齐 */
+  flex: 0 0 372px;
+  width: 372px;
+  min-width: 0;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wb-worker-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 2px 8px;
+  background: var(--agent-header-bg);
+  transition: border-color 160ms ease-out;
+  /* 基准 210px，挤不下时才让宽（选中值单行省略，换 worker 不会因此换行） */
+  flex: 0 1 210px;
+  min-width: 104px;
+}
+
+/* 选中值与下拉选项都单行省略：长名不换行、短名不抖动。
+   antd v6 的选中值容器是 .ant-select-content（旧 .ant-select-selection-item 已不存在） */
+.wb-worker-select .ant-select-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ant-select-dropdown .ant-select-item-option-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-worker-select .ant-select {
+  min-width: 0;
+}
+
+.wb-worker-label {
+  font-size: 11px;
+  color: var(--text-hint);
+  white-space: nowrap;
+}
+
+/* 面板通用 */
+.wb-center-spin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.up {
+  color: var(--agent-up);
+}
+
+.down {
+  color: var(--agent-down);
+}
+
+/* demo `.agent-grid` 在 ≤1080px 退化为单列；本页是定高工作台，
+   堆叠后改由 .agent-workbench 自身滚动，会话卡给固定高度维持内滚 */
+@media (max-width: 1080px) {
+  .agent-workbench {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .agent-chat-col {
+    flex: 0 0 auto;
+    height: min(560px, 72vh);
+  }
+
+  .agent-work-col {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+  }
+}
+
+/* ==================== 右栏首屏两卡（demo 1528–1592：迭代足迹 + Dream） ==================== */
+/* 卡区铺满右栏高度：两卡的底边与左会话卡对齐（demo 右列整块填满 agent-grid） */
+.fs-cards {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+}
+
+.fs-cards > .sl-card {
+  flex: 0 0 auto;
+}
+
+.fs-cards > .sl-card:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Dream 卡内部滚动：卡高由列高决定，MEMORY.md 体在卡内滚 */
+.fs-cards > .sl-card:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-cards > .sl-card:last-child .sl-mem-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-cards .sl-mem-body {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+
+/* 足迹柱图：有上限按上限归一，熔断线 = 轨顶（值标签 13px 之下）；无上限按最大值归一、不画线 */
+.fs-bars {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  height: 104px;
+}
+
+.fs-capline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 13px;
+  border-top: 1.5px dashed color-mix(in srgb, var(--qc-error) 60%, transparent);
+  pointer-events: none;
+}
+
+.fs-capline span {
+  position: absolute;
+  right: 0;
+  top: -14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--qc-error);
+}
+
+.fs-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-val {
+  flex: 0 0 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 9.5px;
+  line-height: 13px;
+  text-align: center;
+  color: var(--text-hint);
+}
+
+/* 只有距熔断 ≥80% 的柱染色，0/小值一律中性灰 */
+.fs-val.near {
+  color: var(--qc-warning);
+}
+
+.fs-col.near .fs-track i {
+  background: color-mix(in srgb, var(--qc-warning) 70%, transparent);
+}
+
+.fs-track {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.fs-track i {
+  display: block;
+  width: 100%;
+  max-width: 24px;
+  margin: 0 auto;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--qc-info) 65%, transparent);
+}
+
+/* 末根（当前回复）描边强调，demo .bar.cur 同款 */
+.fs-col.cur .fs-track i {
+  outline: 1.5px solid color-mix(in srgb, var(--qc-info) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.fs-x {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border-color);
+}
+
+.fs-x span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  color: var(--text-hint);
+  white-space: nowrap;
+}
+
+/* ==================== 右栏卡内容件 ==================== */
+
+/* demo .card 同构：bgc 底 + bd 边 + 10px 圆角 */
+.sl-card {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--qc-surface);
+  padding: 12px 14px;
+  box-shadow: var(--qc-shadow-card);
+}
+
+.sl-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+/* 序号徽章（demo .card-idx：mono 10px 主色 40% 边） */
+
+.sl-card-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.sl-card-note {
+  font-size: 10.5px;
+  color: var(--text-hint);
+}
+
+.sl-card-head-right {
+  margin-left: auto;
+}
+
+/* 状态小结 chip（tint 公式：40% 边 + 8% 底） */
+.sl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  border: 1px solid var(--qc-border-strong);
+  background: var(--qc-surface-raised);
+}
+
+/* A 迭代足迹：固定高度轨，柱高按最大值归一 */
+
+.sl-empty {
+  padding: 14px 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-hint);
+}
+
+/* B 记忆自迭代 */
+.sl-mem-viewer {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--qc-text) 3%, var(--qc-bg));
+  overflow: hidden;
+}
+
+/* MEMORY.md 头（demo .memhead：mono 10.5 fg-3 + 底边线） */
+.sl-mem-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.sl-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.sl-ro-badge {
+  font-size: 9.5px;
+  color: var(--text-hint);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.sl-mem-body {
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+.sl-mem-body :is(h1, h2, h3, h4) {
+  font-size: 12px;
+  color: var(--text-primary);
+  margin: 9px 0 4px;
+}
+
+.sl-mem-body :is(h1, h2, h3, h4):first-child {
+  margin-top: 0;
+}
+
+.sl-mem-body :is(ul, ol) {
+  padding-left: 16px;
+  margin: 3px 0;
+}
+
+.sl-mem-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--qc-text) 8%, transparent);
+}
+
+.sl-mem-body pre {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--qc-text) 5%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}
+
+.sl-meta {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* demo .kv-line：label 11 fg-3 + mono 600 值 */
+.sl-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.sl-progress {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--qc-text) 10%, transparent);
+  overflow: hidden;
+}
+
+.sl-progress i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--qc-info);
+}
+
+.sl-muted {
+  color: var(--text-hint);
+}
+
+.sl-run-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sl-tag-tight {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* demo .card-foot：上虚线 + 10.5 fg-4 */
+.sl-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-hint);
+}
+
+/* C 每日闭环时钟线 */
+
+/* demo .dot：8px 圆（§6.17） */
+
+/* D 重训台账 */
+
+/* 警示条：warning 35% 边 + 7% 底（§2.3 tint） */

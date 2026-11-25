@@ -4,24 +4,19 @@
    public/chart-icons/*.svg 经 CSS mask 渲染，颜色受 background-color 控制。
    ========================================================================== */
 
-/* 主题变量：亮色为默认，暗色由 html.dark 覆盖（项目既有主题机制） */
+/* 主题变量：全部取 src/theme 注入的 --qc-*（亮/暗自动换挡，无需 .dark 覆盖）。
+   图纸色槽位 --qc-chart-toolbar-* 见 palettes.ts，品牌换色时可一并调整 */
 .chart-page {
-  --k-bg: #ffffff;
-  --k-popover: #ffffff;
-  --k-text: #051441;
-  --k-text-second: #76808f;
-  --k-border: #ebedf1;
-  --k-primary: #1677ff;
-  --k-hover: rgba(22, 119, 255, 0.15);
-  --k-selected: rgba(22, 119, 255, 0.15);
-}
-
-html.dark .chart-page {
-  --k-bg: #151517;
-  --k-popover: #1c1c1f;
-  --k-text: #f8f8f8;
-  --k-text-second: #929aa5;
-  --k-border: #292929;
+  /* 图表画布底色：与 chartScreenshotBg 同槽位，亮暗都与迁移前逐值一致 */
+  --k-bg: var(--qc-chart-screenshot-bg);
+  /* 浮层底：亮色精确同值；暗色落到同灰阶 Δ3（肉眼不可辨） */
+  --k-popover: var(--qc-surface-raised);
+  --k-text: var(--qc-chart-toolbar-text);
+  --k-text-second: var(--qc-chart-toolbar-text-muted);
+  --k-border: var(--qc-chart-toolbar-border);
+  --k-primary: var(--qc-chart-toolbar-accent);
+  --k-hover: var(--qc-chart-toolbar-accent-tint);
+  --k-selected: var(--qc-chart-toolbar-accent-tint);
 }
 
 /* mask 图标基类：形状来自 svg，颜色来自 background-color */
@@ -91,28 +86,8 @@ html.dark .chart-page {
   transition: all 0.2s;
 }
 
-.chart-period-bar .item.selected {
-  background-color: var(--k-selected) !important;
-  color: var(--k-primary);
-}
-
-.chart-period-bar .period {
-  padding: 2px 6px;
-  margin: 0 4px;
-  border-radius: 2px;
-  font-size: 14px;
-}
-
-.chart-period-bar .period:hover {
-  background-color: var(--k-hover);
-}
-
-.chart-period-bar .period:first-of-type {
-  margin-left: 8px;
-}
-
-/* 周期条滑动容器：大屏自然平铺（左距 4px + 首周期 8px = 与旧版 symbol+period 间距 12px 一致）；
-   窄屏经媒体查询开启 overflow-x 横滑 */
+/* 周期条滑动容器：周期钮已换 antd Segmented（design-spec §6.9，样式由 global.css 段提供），
+   这里只管排布与窄屏横滑；原先 `.period`/`.item.selected` 自绘规则随旧 span 一并删除 */
 .chart-period-bar .period-strip {
   display: flex;
   flex-direction: row;
@@ -158,6 +133,41 @@ html.dark .chart-page {
   align-items: center;
   margin-left: auto;
   padding: 0 12px;
+}
+
+/* 常驻指标图例（demo head-right 的 s-chip 形制，10.5px mono 小字 + 10×2 线色块）：
+   紧贴 live-area 左侧随其贴右，不与 pane 悬停管理条争位 */
+.chart-ind-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 4px;
+}
+
+.chart-ind-legend + .live-area {
+  /* 图例在场时不让 live-area 的 auto margin 把空隙一分为二 */
+  margin-left: 0;
+}
+
+.chart-ind-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--qc-text-tertiary);
+  border: 1px solid var(--qc-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.chart-ind-legend-chip i {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  vertical-align: middle;
+  margin-right: 5px;
 }
 
 /* ============ 窄窗口降级（768~1279px）：单行，工具图标化，周期横滑 ============ */
@@ -432,11 +442,7 @@ html.dark .chart-page {
   width: 24px;
   height: 18px;
   overflow: visible;
-  color: #76808f;
-}
-
-html.dark .candle-type-icon {
-  color: #929aa5;
+  color: var(--qc-chart-toolbar-text-muted);
 }
 
 .candle-type-icon i {

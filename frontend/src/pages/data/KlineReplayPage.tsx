@@ -1,4 +1,3 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * 行情回放页：基于历史K线的「时间机器」——只喂给图表已播放的 bar，
  * 指标在截断数组上计算，避免未来函数偷看。
@@ -9,7 +8,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   App,
-  Badge,
   Button,
   Card,
   Col,
@@ -502,7 +500,7 @@ const KlineReplayPage: React.FC = () => {
   return (
     <PageContainer title={t('market_replay') || '行情回放'} onBack={handleBack}>
       {!started ? (
-        <Card title={t('backtest_launch_replay')} style={{ maxWidth: 720 }}>
+        <Card title={t('backtest_launch_replay')} className="qc-card" style={{ maxWidth: 720 }}>
           <Alert
             type="info"
             showIcon
@@ -544,7 +542,7 @@ const KlineReplayPage: React.FC = () => {
         >
           {/* 高度 88px = PageContainer 上下内边距 py-4(32) + 标题 h1(32) + mb-6(24)，
               整页恰好占满视口无滚动；图表区 flex:1 自动吃掉剩余高度，底部不留白 */}
-          <Card size="small">
+          <Card size="small" className="qc-card">
             <Space orientation="vertical" size="small" style={{ display: 'flex', width: '100%' }}>
               <Row align="middle" gutter={[12, 12]}>
                 <Col>
@@ -590,10 +588,8 @@ const KlineReplayPage: React.FC = () => {
               </Row>
               <Row align="middle" gutter={[12, 12]}>
                 <Col flex="none">
-                  <Badge
-                    count={`${currentIndex + 1} / ${barsCount}`}
-                    style={{ backgroundColor: QUANT_COLORS.info }}
-                  />
+                  {/* 回放进度徽标：§6.2 count-chip 口径（mono 10px 全圆），代替 antd Badge */}
+                  <span className="qc-count-chip qc-mono">{currentIndex + 1} / {barsCount}</span>
                 </Col>
                 <Col flex="auto" style={{ padding: '0 12px' }}>
                   <Slider
@@ -605,7 +601,7 @@ const KlineReplayPage: React.FC = () => {
                   />
                 </Col>
                 <Col flex="none">
-                  <span style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
+                  <span className="qc-mono" style={{ fontSize: 12, color: 'var(--qc-text-secondary)' }}>
                     {formatTs(barsRef.current[currentIndex]?.timestamp)}
                   </span>
                 </Col>
@@ -625,6 +621,7 @@ const KlineReplayPage: React.FC = () => {
               getBars={() => barsRef.current.slice(0, indexRef.current + 1)}
               drawingBarLocked
               indicatorScope="all"
+              showAlerts={false}
               loading={false}
               error={loadError}
             />

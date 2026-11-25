@@ -717,7 +717,13 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     <Modal
       title={
         <div className="flex items-center justify-between w-full pr-8">
-          <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-medium">{title || t('ai_chat')}</span>
+            {/* demo 2467：标题旁「kernel 兼容契约」chip（生成结果按统一内核契约输出；info 档 + mono） */}
+            <span className="qc-chip info qc-mono">
+              {t('ai_kernel_contract')}
+            </span>
+          </div>
           {chatMessages.length > 0 && (
             <Popconfirm
               title="清空历史"
@@ -742,11 +748,11 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       styles={{
         body: { padding: 0, maxHeight: height, overflow: 'hidden' },
       }}
-      className={className}
+      className={className ? `qc-modal ${className}` : 'qc-modal'}
     >
       <div className={`flex flex-col w-full ${bodyClassName}`} style={{ height }}>
         {/* 消息区 */}
-        <div className="flex-1 min-h-0 overflow-y-auto bg-[#f5f5f5] dark:bg-[#141414] w-full">
+        <div className="flex-1 min-h-0 overflow-y-auto w-full" style={{ backgroundColor: 'var(--qc-surface-muted)' }}>
           {chatMessages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500 px-6">
               {welcomeIcon || <ThunderboltOutlined style={{ fontSize: 48 }} className="mb-4" />}
@@ -784,7 +790,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
         </div>
 
         {/* 输入区：模式切换（仅在携带编辑器代码时显示「优化当前代码」）+ Sender；loading 时 Sender 自带停止按钮 */}
-        <div className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#141414] p-4">
+        <div className="border-t border-gray-200 dark:border-gray-800 p-4" style={{ backgroundColor: 'var(--qc-surface)' }}>
           <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
             {currentCode?.trim() && (
               <Segmented
@@ -822,7 +828,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
                   <SendButton disabled={chatMode === 'optimize' ? false : undefined} />
                 )
               }
-              className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1f1f1f]"
+              className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-[var(--qc-surface-raised)]"
             />
           </Space>
         </div>

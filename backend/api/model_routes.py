@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
+from services.oos_gate import OosGateError
 from utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/models", tags=["Models"])
@@ -64,7 +65,10 @@ async def register_model(req: RegisterModelRequest, current_user: dict = Depends
 
 @router.post("/{model_id}/promote")
 async def promote_model(model_id: str, current_user: dict = Depends(get_current_user)):
-    """Promote model to production."""
+    """Promote model to production.
+
+    OOS 门槛:同族最近 2 轮 walk-forward OOS 连续不达标 → 409,detail 带指标证据。
+    """
     try:
         from services.model_registry import ModelRegistryService
 
@@ -75,6 +79,8 @@ async def promote_model(model_id: str, current_user: dict = Depends(get_current_
             message="晋升成功" if success else "晋升失败",
             data={"success": success},
         )
+    except OosGateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 

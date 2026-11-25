@@ -51,6 +51,8 @@ class BacktestService:
         from utils.logger import LogType, get_logger
 
         self.logger = get_logger(self.__class__.__name__, LogType.APPLICATION)
+        # 列表「类型」列用的策略元数据服务（惰性创建，见 get_result_list）
+        self._kind_service: Any = None
 
     def create_task(
         self,
@@ -962,6 +964,10 @@ class BacktestService:
         source: str | None = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        *,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        kind: str | None = None,
     ) -> tuple[list[dict], int]:
         """
         获取回测结果列表（服务端筛选 + 排序 + 分页）
@@ -975,6 +981,9 @@ class BacktestService:
             source: 来源过滤，'rl' 匹配 rl_model:/rl_ensemble: 前缀策略；其他值忽略不过滤
             sort_by: 排序字段 (created_at/total_return/max_drawdown/strategy_name)，非法值回落 created_at
             sort_order: 排序方向 (asc/desc)
+            start_time: 创建日期过滤起（含），"YYYY-MM-DD"
+            end_time: 创建日期过滤止（含），"YYYY-MM-DD"
+            kind: 策略类型过滤 (rule/rl/llm)，由策略文件 AST 判定，见 strategy_kinds()
 
         Returns:
             (分页后的任务列表, 过滤后的总数)
@@ -1020,6 +1029,13 @@ class BacktestService:
             if source == "rl" and not str(task.get("strategy_name") or "").startswith(("rl_model:", "rl_ensemble:")):
                 continue
 
+            # 创建日期过滤（含端点）：created_at 为 ISO 串，取前 10 位日期段与
+            # 日粒度边界做字典序比较（日粒度下等价于数值比较，且对历史杂格式更稳）
+            if start_time or end_time:
+                day = str(task.get("created_at") or "")[:10]
+                if (start_time and day < start_time) or (end_time and day > end_time):
+                    continue
+
             summary = task.get("metrics_summary")
             if status == "completed" and "metrics_summary" not in task:
                 # 旧任务文件没有摘要指标：从结果 JSON 提取并回写，之后列表零大文件 IO
@@ -1029,6 +1045,7 @@ class BacktestService:
                 self._save_task_file(task_file, task)
                 summary = task["metrics_summary"]
 
+            config = task.get("config") or {}
             rows.append(
                 {
                     "id": task.get("id"),
@@ -1043,10 +1060,35 @@ class BacktestService:
                     "updated_at": task.get("updated_at"),
                     "total_return": (summary or {}).get("total_return"),
                     "max_drawdown": (summary or {}).get("max_drawdown"),
+                    # 「区间」列：起止直接取任务行 config（与 DB 行同源，/summary 也从这里补），
+                    # 老任务无 config 时如实为 None，由前端显示「—」
+                    "start_time": config.get("start_time"),
+                    "end_time": config.get("end_time"),
+                    # 「订单」列：v2 摘要的 metrics 字典里已有 total_trades；
+                    # v1 旧摘要只有两键 → None（不读大结果文件、不造 0）
+                    "total_trades": ((summary or {}).get("metrics") or {}).get("total_trades"),
+                    # 自选组来源：发起回测时 config.pool_id 原样入库（见 routes.run_backtest），
+                    # 老任务/非自选组任务无此键 → None（列表据此区分「自选组」形态）
+                    "pool_id": config.get("pool_id"),
                 }
             )
 
         total = len(rows)
+
+        # 「类型」列 + 类型筛选：一次算全量策略名 → kind（strategy_kinds 内部按 mtime
+        # 缓存解析结果，常态只有 stat 开销）；已删策略为 None，既不显示类型也不被任何
+        # kind 筛中 —— 不按名字前缀猜
+        if rows:
+            from strategy.service import StrategyService
+
+            if self._kind_service is None:
+                self._kind_service = StrategyService()
+            kinds = self._kind_service.strategy_kinds({r["strategy_name"] for r in rows if r["strategy_name"]})
+            for row in rows:
+                row["strategy_kind"] = kinds.get(row["strategy_name"])
+            if kind:
+                rows = [r for r in rows if r["strategy_kind"] == kind]
+            total = len(rows)
 
         # 基线次序：创建时间倒序。glob 枚举顺序随文件系统变化（本地 APFS ≠ CI ext4），
         # 先固定基线再做业务排序：指标相同的记录 share tie-break、无值垫底的组内顺序都完全确定
@@ -1235,18 +1277,134 @@ class BacktestService:
                 json.dump(task, f, indent=2, ensure_ascii=False, default=str)
 
     def _metrics_summary_from_result(self, result: dict) -> dict:
-        """提取列表页摘要指标（total_return / max_drawdown）。
+        """提取列表页摘要指标（total_return / max_drawdown）+ 完整指标字典 metrics。
 
         所有回测模式（单品种/独立多品种/共享资金池）的账户级统一口径都放在
         results.portfolio.metrics（[{key, value}] 数组），列表页取这里即可。
+        `metrics`（v2 起附带）是同一来源的 key→value 字典，供 GET
+        /backtest/{id}/summary 行内摘要直出；旧任务文件只有前两个键（v1），
+        由 summary 端点按需升级，不在列表加载时批量回填大结果文件。
+        单品种结果无 portfolio 视图时退化取第一个品种条目的指标（与详情页
+        缺省视图同口径）。
         """
         portfolio = (result.get("results") or {}).get("portfolio") or {}
         metrics = portfolio.get("metrics") or []
+        if not metrics:
+            entries = self.extract_symbol_entries(result.get("results") or {})
+            metrics = (next(iter(entries.values()), {}) or {}).get("metrics") or []
         values = {m.get("key"): m.get("value") for m in metrics if isinstance(m, dict)}
         return {
             "total_return": values.get("total_return"),
             "max_drawdown": values.get("max_drawdown"),
+            "metrics": values,
         }
+
+    @staticmethod
+    def _sample_equity_curve(curve: Any, max_points: int = 200) -> list[list[float]]:
+        """把结果 JSON 的 equity_curve（[{timestamp, equity}]，ms 时间戳）降采样为
+        [[ts_ms, equity], ...] 用于行内摘要：均匀取点、保首尾，≤max_points 直出。
+
+        ponytail: 采样为均匀索引而非分桶聚合——摘要卡只画趋势，不追求替代表
+        全分辨率曲线（那仍是详情页整包的事）；真分桶聚合是升级路径。
+        """
+        if not isinstance(curve, list):
+            return []
+        pairs: list[tuple[float, float]] = []
+        for point in curve:
+            if not isinstance(point, dict):
+                continue
+            ts = point.get("timestamp")
+            value = point.get("equity")
+            if ts is None or value is None:
+                continue
+            try:
+                pairs.append((float(ts), float(value)))
+            except TypeError, ValueError:
+                continue
+        if len(pairs) <= max_points:
+            return [[t, v] for t, v in pairs]
+        stride = (len(pairs) - 1) / (max_points - 1)
+        sampled = [[pairs[0][0], pairs[0][1]]]
+        for i in range(1, max_points - 1):
+            t, v = pairs[round(i * stride)]
+            sampled.append([t, v])
+        sampled.append([pairs[-1][0], pairs[-1][1]])
+        return sampled
+
+    def get_inline_summary(self, task_id: Any) -> dict | None:
+        """列表行内「部分详情」数据源（GET /backtest/{id}/summary）。
+
+        任务级字段与列表行完全同源（任务文件）；metrics 优先取 v2 摘要
+        （含完整指标字典），只有 v1（旧文件仅 total_return/max_drawdown）时才
+        从结果 JSON 重建并回写 —— 单任务一次性慢路径（结果文件可达几百 MB），
+        回写后同任务后续请求毫秒级。completed 任务附带 `equity`：行内权益曲线
+        采样点 [[ts_ms, equity], ...]，首次同样走一次结果 JSON 读并回写为
+        任务文件 `equity_sampled`（空列表 = 已查无曲线的哨兵，避免重复大 IO）；
+        running/failed 不给 equity。失败/运行中任务无结果文件时 metrics 退化为
+        v1 两键或空 dict，前端按「—」渲染。不加载 trades/fills 等其余大字段。
+
+        Returns:
+            dict or None: None = 任务文件不存在
+        """
+        task_file = self._get_task_file(task_id)
+        if not task_file.exists():
+            return None
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                task = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self.logger.warning(f"读取回测任务文件失败 {task_file.name}: {e}")
+            return None
+
+        summary = task.get("metrics_summary")
+        needs_equity = task.get("status") == "completed" and not isinstance(task.get("equity_sampled"), list)
+        if not (isinstance(summary, dict) and isinstance(summary.get("metrics"), dict)) or needs_equity:
+            result = self.get_result(task_id)
+            if isinstance(result, dict):
+                dirty = False
+                if not (isinstance(summary, dict) and isinstance(summary.get("metrics"), dict)):
+                    upgraded = self._metrics_summary_from_result(result)
+                    if upgraded.get("metrics"):
+                        summary = upgraded
+                        task["metrics_summary"] = summary
+                        dirty = True
+                if needs_equity:
+                    portfolio = (result.get("results") or {}).get("portfolio") or {}
+                    # 曲线口径与详情页组合视图一致：无 portfolio 条目时退化取品种条目曲线
+                    curve = portfolio.get("equity_curve")
+                    if not curve:
+                        entries = self.extract_symbol_entries(result.get("results") or {})
+                        curve = (next(iter(entries.values()), {}) or {}).get("equity_curve")
+                    task["equity_sampled"] = self._sample_equity_curve(curve)
+                    dirty = True
+                if dirty:
+                    self._save_task_file(task_file, task)
+
+        # 指标字典：v2 直出；v1 退化为两键；仍无 → 空 dict（前端渲染「—」）
+        metrics: dict = {}
+        if isinstance(summary, dict):
+            if isinstance(summary.get("metrics"), dict):
+                metrics = summary["metrics"]
+            else:
+                metrics = {
+                    key: summary[key] for key in ("total_return", "max_drawdown") if summary.get(key) is not None
+                }
+
+        data = {
+            "id": task.get("id"),
+            "strategy_name": task.get("strategy_name"),
+            "status": task.get("status"),
+            "symbols": task.get("symbols", []),
+            "intervals": task.get("timeframes", []),
+            "engine_type": task.get("engine_type"),
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+            "metrics": metrics,
+        }
+        # completed 才带权益采样（[] = 查过但无曲线；running/failed 整个字段不给）
+        if task.get("status") == "completed":
+            data["equity"] = task.get("equity_sampled", [])
+        return data
 
     def _write_metrics_summary(self, task_id: Any, summary: dict) -> None:
         """把列表页摘要指标写入任务文件，get_result_list 直接读任务级摘要"""

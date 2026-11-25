@@ -22,14 +22,55 @@
 """
 
 import ast
+import hashlib
+import json
+import time
 from pathlib import Path
 
+from axon_bridge.llm import classify_llm_error
+from observability import runtime_health
 from utils.logger import LogType, get_logger
+from utils.paths import get_persistent_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
 from datetime import datetime
 from enum import Enum
 from typing import Any
+
+# 回测任务落盘目录，与 backtest/service.py 同口径（task_{id}.json；单测可 patch 到临时目录）。
+# 「累计回测 N 次」与最近回测都以它为唯一事实来源：回测中心列表扫的就是这一批文件。
+_BACKTEST_TASKS_DIR = Path(__file__).resolve().parent.parent / "data" / "backtest_tasks"
+
+
+def _backtest_task_index() -> list[dict[str, Any]]:
+    """回测任务轻量索引：每个 task_*.json 一行，按 created_at 倒序。
+
+    只读任务文件本身（不读结果 JSON、不回写），字段够 footer 计数与「最近回测」列用。
+    与 GET /backtest/list 同源，保证「累计回测 N 次」恒等于点进去能看到的条数：
+    DB backtest_tasks 会残留「只落库未落盘」的行（后台线程在 create_task 之前就中断），
+    按 DB 计数会多报。
+    """
+    rows: list[dict[str, Any]] = []
+    if not _BACKTEST_TASKS_DIR.exists():
+        return rows
+    for task_file in _BACKTEST_TASKS_DIR.glob("task_*.json"):
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                task = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"读取回测任务文件失败 {task_file.name}: {e}")
+            continue
+        summary = task.get("metrics_summary")
+        rows.append(
+            {
+                "strategy_name": task.get("strategy_name"),
+                "status": task.get("status"),
+                "created_at": str(task.get("created_at") or ""),
+                "total_return": (summary or {}).get("total_return"),
+            }
+        )
+    rows.sort(key=lambda row: row["created_at"], reverse=True)
+    return rows
 
 
 def _annotation_to_str(node: ast.AST | None) -> str:
@@ -107,9 +148,12 @@ class StrategyService:
     """策略服务类"""
 
     def __init__(self):
-        self.strategy_dir = Path(__file__).parent.parent / "strategies"
+        # 桌面打包下 __file__ 在临时解压目录，策略 .py 必须落 QUANTCELL_DATA_DIR 才能升级存活
+        self.strategy_dir = get_persistent_dir("strategies", Path(__file__).parent.parent / "strategies")
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
         self.strategy_instances: dict[str, Any] = {}
+        # 策略类型解析缓存：name → (文件 mtime, kind)，见 strategy_kinds()
+        self._kind_cache: dict[str, tuple[float, str | None]] = {}
 
     @staticmethod
     def _merge_db_params_with_ast(
@@ -196,6 +240,219 @@ class StrategyService:
                 logger.warning(f"解析策略文件失败 {file_path.name}: {e}")
         return strategies
 
+    def list_strategies_overview(self) -> list[dict[str, Any]]:
+        """策略管理页列表聚合：策略 × worker × 最近回测（只读，不写库）。
+
+        在 /strategy/list 的每项字段上追加 kind / interval / symbols / state /
+        worker_count / latest_backtest / backtest_count；/list 的既有契约不变（其他页面在用）。
+
+        数据源全部取自真实表，不造字段：
+          - worker：workers.strategy_name（冗余列 + 索引）分组，trading_config
+            是 JSON 文本（interval / symbols_config.symbols / trading_mode）；
+          - 最近回测 / 累计回测次数：与回测中心同源扫 task_*.json（见
+            _backtest_task_index），total_return 取任务文件摘要，取不到就是 null；
+          - 版本历史条数：strategy_versions 一次 GROUP BY 聚合（不是 N+1）。
+        """
+        from sqlalchemy import func
+
+        from strategy.models import StrategyVersion
+        from utils.db_session import get_db_session
+        from worker.models import Worker
+
+        workers_by_strategy: dict[str, list[Any]] = {}
+        latest_task_by_strategy: dict[str, Any] = {}
+        # 每个策略的历史回测任务总数（真实计数，不是列表样本；footer「累计回测 N 次」）
+        task_counts: dict[str, int] = {}
+        # 每个策略的版本快照条数（footer「版本历史 N 条」；已删策略不在 overview 里，不会幽灵计数）
+        version_counts: dict[str, int] = {}
+        try:
+            with get_db_session() as db:
+                # ponytail: worker 几十条、回测任务几百条，全量拉内存归并即可（避免 N+1）；
+                # 上千级时改成一次 GROUP BY / 窗口函数，不提前建索引表
+                for worker in db.query(Worker).all():
+                    if worker.strategy_name:
+                        workers_by_strategy.setdefault(worker.strategy_name, []).append(worker)
+                # 时间倒序后首次出现即「每个策略最新一条」；同一次遍历顺手累计次数（详情块 footer 用）
+                for task in _backtest_task_index():
+                    if not task["strategy_name"]:
+                        continue
+                    task_counts[task["strategy_name"]] = task_counts.get(task["strategy_name"], 0) + 1
+                    latest_task_by_strategy.setdefault(task["strategy_name"], task)
+                for strategy_name, version_count in (
+                    db.query(StrategyVersion.strategy_name, func.count(StrategyVersion.id))
+                    .group_by(StrategyVersion.strategy_name)
+                    .all()
+                ):
+                    version_counts[strategy_name] = int(version_count)
+        except Exception as e:
+            # 聚合端点降级：worker/回测读不到时仍返回策略列表（state=undeployed 等），不让整页 500
+            logger.warning(f"策略总览读取 worker/回测数据失败，按空聚合返回: {e}")
+
+        overview: list[dict[str, Any]] = []
+        for info in self.list_strategies():
+            name = info.get("name", "")
+            workers = workers_by_strategy.get(name, [])
+            # 活跃度排序：interval/symbols 都按「更活跃的 worker 优先」
+            ordered_workers = sorted(workers, key=self._worker_activity_rank)
+            task = latest_task_by_strategy.get(name)
+            overview.append(
+                {
+                    **info,
+                    "kind": self._strategy_kind(info),
+                    "interval": self._first_interval(ordered_workers),
+                    "symbols": self._merged_symbols(ordered_workers),
+                    "state": self._aggregate_worker_state(workers),
+                    "worker_count": len(workers),
+                    "backtest_count": task_counts.get(name, 0),
+                    "version_count": version_counts.get(name, 0),
+                    "latest_backtest": self._latest_backtest_payload(task),
+                }
+            )
+        return overview
+
+    @staticmethod
+    def _worker_activity_rank(worker: Any) -> int:
+        """worker 活跃度（越小越活跃）：running-live(0) > running-paper/testnet(1)
+        > paused(2) > error(3) > 其他(4)。
+
+        同一策略可以有多个 worker；interval 与 symbols 的合并都以该序为准。
+        """
+        status = (worker.status or "").lower()
+        if status == "running":
+            mode = (worker.get_trading_config_dict().get("trading_mode") or "paper").lower()
+            return 0 if mode == "live" else 1
+        return {"paused": 2, "error": 3}.get(status, 4)
+
+    @classmethod
+    def _aggregate_worker_state(cls, workers: list[Any]) -> str:
+        """策略状态：live > paper > paused > error > stopped；无 worker = undeployed。
+
+        多 worker 冲突时以「更活跃」为准。running 且 trading_mode=live → live；
+        running 的其余模式（paper/testnet）统一算模拟盘 → paper（testnet 不涉及
+        真实资金，归模拟盘比另造枚举诚实）。paused 优先于 error：用户主动暂停
+        是当前意图，error 是执行失败，展示用户动作优先。有 worker 但既无
+        running 也无 paused/error（stopped/interrupted/starting…）→ stopped。
+        """
+        if not workers:
+            return "undeployed"
+        statuses = [(worker.status or "").lower() for worker in workers]
+        if "running" in statuses:
+            for worker in workers:
+                if (worker.status or "").lower() != "running":
+                    continue
+                mode = (worker.get_trading_config_dict().get("trading_mode") or "").lower()
+                if mode == "live":
+                    return "live"
+            return "paper"
+        if "paused" in statuses:
+            return "paused"
+        if "error" in statuses:
+            return "error"
+        return "stopped"
+
+    @staticmethod
+    def _first_interval(ordered_workers: list[Any]) -> str | None:
+        """最活跃 worker 的 K 线周期；无 worker / 未配置 → null。
+
+        直接读 trading_config 的 interval（兼容旧键 timeframe），不调用
+        worker.get_interval() 的 "1h" 兜底默认值——列表要如实显示「未配置」。
+        """
+        for worker in ordered_workers:
+            config = worker.get_trading_config_dict()
+            interval = config.get("interval") or config.get("timeframe")
+            if interval:
+                return str(interval)
+        return None
+
+    @staticmethod
+    def _merged_symbols(ordered_workers: list[Any]) -> list[str]:
+        """关联 worker 的标的去重并集（按活跃度排序）。
+
+        取舍：单 worker 时即其 trading_config.symbols_config.symbols；多 worker 时
+        取并集而非只取最活跃一条，避免同一策略换标的后的旧 worker 让列表漏显示
+        品种。自选组（symbols_config.type=pool）读不到成分，该 worker 不贡献标的
+        （不查库造数）。
+        """
+        symbols: list[str] = []
+        for worker in ordered_workers:
+            config = worker.get_trading_config_dict()
+            for symbol in (config.get("symbols_config") or {}).get("symbols") or []:
+                if symbol and symbol not in symbols:
+                    symbols.append(symbol)
+        return symbols
+
+    @staticmethod
+    def _strategy_kind(info: dict[str, Any]) -> str:
+        """rule / rl / llm。
+
+        rl 取 strategies.strategy_type；llm 的库内约定标记是参数 mode="llm"
+        （llm_signal 模板，与 backtest/routes.py 的 ``params.get("mode") == "llm"``
+        同口径）。没有该标记就只出 rule/rl，不按策略名猜；ML 类型无库内标识，
+        不做。
+        """
+        strategy_type = info.get("strategy_type")
+        # _parse_strategy_file 返回 StrategyType 枚举，兼容成字符串比较
+        strategy_type = getattr(strategy_type, "value", strategy_type)
+        if strategy_type == StrategyType.RL.value:
+            return "rl"
+        for param in info.get("params") or []:
+            if isinstance(param, dict) and param.get("name") == "mode" and param.get("default") == "llm":
+                return "llm"
+        return "rule"
+
+    def strategy_kinds(self, names: Any) -> dict[str, str | None]:
+        """按策略名批量取类型（rule / rl / llm），供列表端点标注「类型」列。
+
+        口径与策略管理页的 kind 完全一致（同一个 ``_strategy_kind``），区别只在
+        数据来源：这里按名字现读策略文件，只解析传入的几个名字，不拉整个列表。
+
+        - ``rl_model:`` / ``rl_ensemble:`` 前缀的回测任务由模型中心直发、不落策略
+          文件，直接归 rl（与 backtest/routes.py 的 ``source='rl'`` 同口径）；
+        - 策略文件不存在（策略已删但历史任务还在）→ None，由调用方显示占位符，
+          不按名字猜类型。
+        """
+        kinds: dict[str, str | None] = {}
+        for name in names or []:
+            if not name or name in kinds:
+                continue
+            if name.startswith(("rl_model:", "rl_ensemble:")):
+                kinds[name] = "rl"
+                continue
+            path = self.strategy_dir / f"{name}.py"
+            if not path.is_file():
+                kinds[name] = None
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                kinds[name] = None
+                continue
+            # 按 mtime 缓存解析结果：回测列表每次翻页/筛选都会问一遍类型，
+            # 缓存后常态只有 stat 开销，策略文件一改（mtime 变）自动重解析
+            cached_hit = self._kind_cache.get(name)
+            if cached_hit and cached_hit[0] == mtime:
+                kinds[name] = cached_hit[1]
+                continue
+            try:
+                info = self._parse_strategy_file(name, path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.debug(f"读取策略文件失败 {name}: {e}")
+                info = None
+            kinds[name] = self._strategy_kind(info) if info else None
+            self._kind_cache[name] = (mtime, kinds[name])
+        return kinds
+
+    @staticmethod
+    def _latest_backtest_payload(task: dict[str, Any] | None) -> dict[str, Any] | None:
+        if task is None:
+            return None
+        return {
+            "status": task.get("status"),
+            # 任务文件摘要里的 total_return 与回测中心「收益率」列同一口径，取不到如实 None
+            "total_return": task.get("total_return"),
+            "created_at": task.get("created_at"),
+        }
+
     def get_strategy(self, name: str) -> dict[str, Any] | None:
         """获取单个策略详情。
 
@@ -248,12 +505,143 @@ class StrategyService:
         return info
 
     def save_strategy(self, name: str, content: str) -> dict[str, Any]:
-        """保存策略文件"""
+        """保存策略文件（成功落盘后旁路记录一条版本快照）"""
         file_path = self.strategy_dir / f"{name}.py"
         file_path.write_text(content, encoding="utf-8")
         info = self._parse_strategy_file(name, content)
+        self._record_version_snapshot(name, content)
         logger.info(f"策略已保存: {name}")
         return info or {"name": name, "file_name": f"{name}.py"}
+
+    def list_strategy_versions(self, strategy_name: str) -> list[dict[str, Any]] | None:
+        """策略版本快照时间线（created_at 倒序），只回元信息、不回 code 全文。
+
+        策略不存在（无 .py 文件）返回 None，由路由翻成 404。
+        `is_current` 由「磁盘当前文件内容的 sha256」比对得出：文件可能被外部直接改过，
+        所以不能简单地认定第一条就是当前版本。
+        """
+        file_path = self.strategy_dir / f"{strategy_name}.py"
+        if not file_path.exists():
+            return None
+
+        current_hash = hashlib.sha256(file_path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+
+        from strategy.models import StrategyVersion
+        from utils.db_session import get_db_session
+
+        with get_db_session() as db:
+            rows = (
+                db.query(StrategyVersion)
+                .filter_by(strategy_name=strategy_name)
+                .order_by(StrategyVersion.created_at.desc(), StrategyVersion.id.desc())
+                .all()
+            )
+            # 只有「最新的那条内容匹配快照」才算当前版本：历史里可能有多条同内容快照
+            # （去重只挡住连续相同保存），全标 is_current 会让 UI 出现多个「当前」
+            current_marked = False
+            versions: list[dict[str, Any]] = []
+            for row in rows:
+                matched = bool(current_hash) and row.code_hash == current_hash and not current_marked
+                current_marked = current_marked or matched
+                versions.append(
+                    {
+                        "id": row.id,
+                        "version": row.version,
+                        "code_hash": row.code_hash,
+                        "created_at": row.created_at.isoformat() if row.created_at else None,
+                        "code_size": len(row.code or ""),
+                        "code_lines": len((row.code or "").splitlines()),
+                        "is_current": matched,
+                    }
+                )
+            return versions
+
+    def get_strategy_version(self, strategy_name: str, snapshot_id: int) -> dict[str, Any] | None:
+        """取单条快照（含 code 全文，供预览 / 对比）。
+
+        同时按 strategy_name 过滤：只拿 id 会让别的策略的快照被越权读出。
+        """
+        if not (self.strategy_dir / f"{strategy_name}.py").exists():
+            return None
+
+        from strategy.models import StrategyVersion
+        from utils.db_session import get_db_session
+
+        with get_db_session() as db:
+            row = (
+                db.query(StrategyVersion)
+                .filter_by(id=snapshot_id, strategy_name=strategy_name)
+                .first()
+            )
+            if row is None:
+                return None
+            return {
+                "id": row.id,
+                "version": row.version,
+                "code_hash": row.code_hash,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "code_size": len(row.code or ""),
+                "code_lines": len((row.code or "").splitlines()),
+                "code": row.code or "",
+            }
+
+    @staticmethod
+    def _declared_strategy_version(content: str) -> str | None:
+        """取策略文件里声明的版本号（模块级 __version__ / VERSION 字符串常量）。
+
+        文件没声明就返回 None——不拿 AST 解析结果里那个 1.0.0 默认值充数，
+        那个值不是「历史序号」，混进来会让每条快照都长一样。
+        """
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return None
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if not ({"__version__", "VERSION"} & set(names)):
+                continue
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                return node.value.value[:20]
+        return None
+
+    def _record_version_snapshot(self, name: str, content: str) -> bool:
+        """保存成功后写一条版本快照；与上一条 code_hash 相同则跳过。
+
+        旁路审计：任何异常只记 warning，绝不打断策略落盘。
+        初始化 / 批量导入路径不调这里，所以它们的版本数是真实的 0（不是缺陷）。
+        """
+        code_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        try:
+            from strategy.models import StrategyVersion
+            from utils.db_session import get_db_session
+
+            with get_db_session() as db:
+                last = (
+                    db.query(StrategyVersion)
+                    .filter_by(strategy_name=name)
+                    .order_by(StrategyVersion.created_at.desc(), StrategyVersion.id.desc())
+                    .first()
+                )
+                if last is not None and last.code_hash == code_hash:
+                    return False
+                db.add(
+                    StrategyVersion(
+                        strategy_name=name,
+                        version=self._declared_strategy_version(content),
+                        code_hash=code_hash,
+                        code=content,
+                        # 与策略文件解析的 created_at 同口径（本地时间）；列默认 func.now() 在
+                        # SQLite 下是 UTC，前端按本地读会差 8 小时，时间线不能带这个坑
+                        created_at=datetime.now(),
+                    )
+                )
+                db.commit()
+            return True
+        except Exception as e:
+            logger.warning(f"策略版本快照写入失败（不影响策略保存）: {name}: {e}")
+            return False
 
     def detect_strategy_type(self, content: str) -> str:
         """检测策略类型"""
@@ -801,6 +1189,9 @@ class StrategyService:
 
             logger.info(f"策略文件上传成功: {strategy_file}")
 
+            # 界面保存的实际入口（/strategy/upload）：与 save_strategy 共用同一套去重快照
+            self._record_version_snapshot(strategy_name, file_content)
+
             # 将策略信息保存到数据库
             import json
 
@@ -1044,6 +1435,8 @@ class StrategyService:
                 logger.warning(f"策略文件删除失败，但继续尝试删除数据库记录: {strategy_name}")
 
             # 2. 从数据库中删除策略记录
+            # 版本历史（strategy_versions）故意不删：删掉就失去审计能力。overview 按现存
+            # 策略文件遍历，孤儿快照不会出现在页面上（不会幽灵计数）。
             try:
                 from strategy.models import Strategy
                 from utils.db_session import get_db_session
@@ -1159,13 +1552,27 @@ class StrategyService:
                 {"role": "user", "content": user_prompt},
             ]
 
-            # 调用AI模型
-            response = adapter.client.chat.completions.create(
-                model=model_name or "gpt-4",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=4000,
-            )
+            # 调用AI模型（耗时/失败计入首页 LLM Provider 读数；策略生成走 openai SDK，不经 axon_bridge）
+            _llm_t0 = time.monotonic()
+            try:
+                response = adapter.client.chat.completions.create(
+                    model=model_name or "gpt-4",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=4000,
+                )
+            except Exception as _llm_err:
+                try:
+                    runtime_health.record_llm_call(
+                        time.monotonic() - _llm_t0, error_kind=classify_llm_error(_llm_err)
+                    )
+                except Exception:
+                    pass
+                raise
+            try:
+                runtime_health.record_llm_call(time.monotonic() - _llm_t0)
+            except Exception:
+                pass
 
             # 解析AI响应
             ai_content = response.choices[0].message.content

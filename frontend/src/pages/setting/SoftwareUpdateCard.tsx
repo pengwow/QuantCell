@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Card, Input, Modal, Progress, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Input, Modal, Progress, Space, Typography, message } from 'antd';
 import { getVersion } from '@tauri-apps/api/app';
 import { getUpdateMirror, setUpdateMirror } from '../../desktop/updateBridge';
 import { useUpdateStore } from '../../desktop/updateStore';
@@ -57,23 +57,23 @@ export default function SoftwareUpdateCard() {
   const busy = status === 'checking' || status === 'downloading';
 
   return (
-    <Card title={t('update_title')} style={{ maxWidth: 640 }}>
+    <Card title={t('update_title')} className="qc-card" style={{ maxWidth: 640 }}>
       <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
         <Space size="small" wrap>
           <span>
             {t('update_current_version')}: {currentVersion || '-'}
           </span>
-          {status === 'idle' && <Tag color="success">{t('update_latest')}</Tag>}
-          {status === 'checking' && <Tag>{t('update_checking')}</Tag>}
+          {status === 'idle' && <span className="qc-chip ok">{t('update_latest')}</span>}
+          {status === 'checking' && <span className="qc-chip quiet">{t('update_checking')}</span>}
           {status === 'available' && info && (
-            <Tag color="processing">
+            <span className="qc-chip pri">
               {t('update_available', { version: info.version })}
-            </Tag>
+            </span>
           )}
           {status === 'downloading' && (
-            <Tag color="processing">{t('update_downloading')}</Tag>
+            <span className="qc-chip info">{t('update_downloading')}</span>
           )}
-          {status === 'error' && <Tag color="error">{t('update_failed')}</Tag>}
+          {status === 'error' && <span className="qc-chip down">{t('update_failed')}</span>}
         </Space>
 
         {status === 'error' && error && <Typography.Text type="danger">{error}</Typography.Text>}
@@ -106,7 +106,7 @@ export default function SoftwareUpdateCard() {
         </Space>
 
         {status === 'available' && (
-          <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
+          <span style={{ color: 'color-mix(in srgb, var(--qc-text) 50%, transparent)', fontSize: 12 }}>
             {t('update_restart_hint')}
           </span>
         )}
@@ -121,7 +121,7 @@ export default function SoftwareUpdateCard() {
             {t('update_mirror_save')}
           </Button>
         </Space.Compact>
-        <span style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12 }}>
+        <span style={{ color: 'color-mix(in srgb, var(--qc-text) 50%, transparent)', fontSize: 12 }}>
           {t('update_mirror_label')}
         </span>
       </Space>

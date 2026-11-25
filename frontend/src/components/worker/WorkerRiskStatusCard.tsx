@@ -5,10 +5,11 @@
  * 数据源 GET /workers/{id}/risk-status；30s 轮询，随 active 生命周期启停。
  */
 import { useEffect, useState } from 'react';
-import { Alert, Card, Descriptions, Progress, Space, Tag, Typography } from 'antd';
+import { Alert, Card, Descriptions, Progress, Space, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { getRiskStatus } from '../../api/workerApi';
 import type { RiskStatusOut } from '../../api/workerApi';
+import { QUANT_COLORS } from '@/utils/colors';
 import { formatUSD } from '../../utils/format';
 
 const POLL_INTERVAL_MS = 30_000;
@@ -38,7 +39,7 @@ const WorkerRiskStatusCard: React.FC<{
 
   if (failed) {
     return (
-      <Card size="small" title={t('risk_status_title')}>
+      <Card size="small" className="qc-card" title={t('risk_status_title')}>
         <Typography.Text type="secondary">{t('risk_status_failed')}</Typography.Text>
       </Card>
     );
@@ -46,7 +47,7 @@ const WorkerRiskStatusCard: React.FC<{
   if (!status) return null;
   if (!status.configured) {
     return (
-      <Card size="small" title={t('risk_status_title')}>
+      <Card size="small" className="qc-card" title={t('risk_status_title')}>
         <Typography.Text type="secondary">{t('risk_not_configured')}</Typography.Text>
       </Card>
     );
@@ -56,8 +57,11 @@ const WorkerRiskStatusCard: React.FC<{
   const usagePct = usage != null ? Math.min(100, Math.max(0, usage * 100)) : 0;
 
   return (
-    <Card size="small" title={t('risk_status_title')} extra={
-      <Tag color={status.source === 'manual' ? 'blue' : 'purple'}>{t(status.source === 'manual' ? 'risk_source_manual' : 'risk_source_params')}</Tag>
+    <Card size="small" className="qc-card" title={t('risk_status_title')} extra={
+      // 来源档：人工管控=info、继承策略参数=quiet（§6.2 语义 chip，不再用彩色 Tag）
+      <span className={`qc-chip${status.source === 'manual' ? ' info' : ' quiet'}`}>
+        {t(status.source === 'manual' ? 'risk_source_manual' : 'risk_source_params')}
+      </span>
     }>
       <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
         {status.circuit_breaker_tripped && (
@@ -89,7 +93,8 @@ const WorkerRiskStatusCard: React.FC<{
           {status.daily_pnl != null && (
             <Descriptions.Item label={t('risk_daily_pnl')}>
               <Space size="small">
-                <span style={{ color: status.daily_pnl >= 0 ? undefined : '#cf1322' }}>
+                {/* 负盈亏色：语义跌色走 QUANT_COLORS.negative（palette error 派生，与涨跌语义同源） */}
+                <span style={{ color: status.daily_pnl >= 0 ? undefined : QUANT_COLORS.negative }}>
                   {formatUSD(status.daily_pnl, { showSign: true })}
                 </span>
                 {status.daily_pnl < 0 && (

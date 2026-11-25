@@ -3,7 +3,7 @@
  * 功能：显示系统日志、系统信息（版本+状态）等信息
  */
 import { useState } from 'react';
-import { Card, Descriptions, Tag, Drawer } from 'antd';
+import { Card, Descriptions, Drawer } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useSettings } from './SettingsContext';
 import SystemLogs from './SystemLogs';
@@ -19,29 +19,36 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
   const { systemMetrics } = useSettings();
   const [showLogSettings, setShowLogSettings] = useState(false);
 
-  // 获取状态标签颜色
-  const getStatusColor = (status: string) => {
+  // 获取状态徽章（语义 chip）
+  const getStatusChip = (status: string) => {
     switch (status.toLowerCase()) {
       case 'running':
       case '运行中':
-        return 'green';
+        return 'qc-chip ok';
       case 'stopped':
       case '已停止':
-        return 'red';
       case 'error':
       case '错误':
-        return 'red';
+        return 'qc-chip down';
       default:
-        return 'default';
+        return 'qc-chip quiet';
     }
   };
 
-  // 获取使用率状态
+  // 使用率状态
   const getUsageStatus = (percent: number): 'normal' | 'warning' | 'critical' => {
     if (percent >= 85) return 'critical';
     if (percent >= 70) return 'warning';
     return 'normal';
   };
+
+  // 使用率状态点颜色：≥85 error、≥70 warning、其余 success（§2.2 语义色）
+  const usageDotColor = (percent: number) =>
+    getUsageStatus(percent) === 'critical'
+      ? 'var(--qc-error)'
+      : getUsageStatus(percent) === 'warning'
+      ? 'var(--qc-warning)'
+      : 'var(--qc-success)';
 
   return (
     <div className="space-y-6">
@@ -50,9 +57,16 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
 
       {/* 系统信息 - 合并版本信息和系统状态 */}
       <div>
-        <h3 className="text-lg font-medium mb-4">{t('system_info')}</h3>
-        <Card size="small">
-          <Descriptions bordered column={1}>
+        <h3 className="mb-3 font-[650]" style={{ fontSize: 13 }}>{t('system_info')}</h3>
+        <Card size="small" className="qc-card">
+          <Descriptions
+            bordered
+            column={1}
+            styles={{
+              label: { color: 'var(--qc-text-quaternary)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, letterSpacing: '.02em' },
+              content: { fontSize: 12 },
+            }}
+          >
             {/* 版本信息 */}
             <Descriptions.Item label={t('system_version')}>
               {systemInfo.version.system_version}
@@ -69,22 +83,17 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
               {systemInfo.running_status.uptime}
             </Descriptions.Item>
             <Descriptions.Item label={t('running_status')}>
-              <Tag color={getStatusColor(systemInfo.running_status.status)}>
+              <span className={getStatusChip(systemInfo.running_status.status)}>
                 {systemInfo.running_status.status}
-              </Tag>
+              </span>
             </Descriptions.Item>
 
             {/* 资源状态 */}
             <Descriptions.Item label={t('cpu_usage')}>
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-block w-2 h-2 rounded-full ${
-                    getUsageStatus(systemMetrics.cpuUsage) === 'critical'
-                      ? 'bg-red-500'
-                      : getUsageStatus(systemMetrics.cpuUsage) === 'warning'
-                      ? 'bg-yellow-500'
-                      : 'bg-green-500'
-                  }`}
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ background: usageDotColor(systemMetrics.cpuUsage) }}
                 />
                 <span>{systemMetrics.cpuUsage}%</span>
               </div>
@@ -92,17 +101,12 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
             <Descriptions.Item label={t('memory_usage')}>
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-block w-2 h-2 rounded-full ${
-                    getUsageStatus(
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{
+                    background: usageDotColor(
                       (parseFloat(systemMetrics.memoryUsed) / parseFloat(systemMetrics.memoryTotal)) * 100
-                    ) === 'critical'
-                      ? 'bg-red-500'
-                      : getUsageStatus(
-                          (parseFloat(systemMetrics.memoryUsed) / parseFloat(systemMetrics.memoryTotal)) * 100
-                        ) === 'warning'
-                      ? 'bg-yellow-500'
-                      : 'bg-green-500'
-                  }`}
+                    ),
+                  }}
                 />
                 <span>{systemMetrics.memoryUsed} / {systemMetrics.memoryTotal}</span>
               </div>
@@ -110,17 +114,12 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
             <Descriptions.Item label={t('disk_space')}>
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-block w-2 h-2 rounded-full ${
-                    getUsageStatus(
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{
+                    background: usageDotColor(
                       (parseFloat(systemMetrics.diskUsed) / parseFloat(systemMetrics.diskTotal)) * 100
-                    ) === 'critical'
-                      ? 'bg-red-500'
-                      : getUsageStatus(
-                          (parseFloat(systemMetrics.diskUsed) / parseFloat(systemMetrics.diskTotal)) * 100
-                        ) === 'warning'
-                      ? 'bg-yellow-500'
-                      : 'bg-green-500'
-                  }`}
+                    ),
+                  }}
                 />
                 <span>{systemMetrics.diskUsed} / {systemMetrics.diskTotal}</span>
               </div>

@@ -26,6 +26,8 @@ import type { EnsembleInfo, EnsemblePredictResult } from '@/api/ensembleApi';
 import type { EnsembleBacktestResult } from '@/api/ensembleApi';
 import { modelApi } from '@/api/modelApi';
 import type { UnifiedModelRow } from '@/api/modelApi';
+import DataTable from '@/components/ui/DataTable';
+import SymbolSelect from '@/components/SymbolSelect';
 
 // 模型文件名 → stem:后端契约用 stem,解析为 MODELS_DIR/{stem}.zip
 const fileNameToStem = (name: string) => name.replace(/\.zip$/, '');
@@ -191,31 +193,31 @@ export default function EnsembleWorkbench() {
       title: t('ens_col_model'), dataIndex: 'file_name', key: 'file_name', ellipsis: true,
       render: (text: string, record) => (
         <Tooltip title={record.model_id ? `${record.model_id}（${text}）` : text}>
-          <span className="truncate">{record.model_id ?? text}</span>
+          <span className="qc-mono truncate">{record.model_id ?? text}</span>
         </Tooltip>
       ),
     },
     {
       title: t('ens_col_algo'), dataIndex: 'algorithm', key: 'algorithm', width: 110,
-      render: (a: string) => (a && a !== '-' ? <Tag color="blue">{a}</Tag> : '-'),
+      render: (a: string) => (a && a !== '-' ? <span className="qc-chip quiet qc-mono">{a}</span> : <span className="qc-mono qc-cell-none">—</span>),
     },
     {
       title: t('ens_col_size'), dataIndex: 'size_mb', key: 'size_mb', width: 90, align: 'right',
-      render: (v: number | null) => (v == null ? '-' : `${v} MB`),
+      render: (v: number | null) => (v == null ? <span className="qc-mono qc-cell-none">—</span> : <span className="qc-mono">{v} MB</span>),
     },
   ];
 
   const ensembleColumns: TableProps<EnsembleInfo>['columns'] = [
     {
-      title: t('ens_col_id'), dataIndex: 'id', key: 'id', width: 120,
-      render: (id: string) => <Tag>{id}</Tag>,
+      title: t('ens_col_id'), dataIndex: 'id', key: 'id', width: 130,
+      render: (id: string) => <span className="qc-chip quiet qc-mono">{id}</span>,
     },
     {
       title: t('ens_col_agg'), key: 'strategy', width: 100,
       // D2:方案 A 聚合口径固定均值,records.strategy 仅存档,不再渲染历史投票值
-      render: () => <Tag color="blue">{t('ens_agg_mean')}</Tag>,
+      render: () => <span className="qc-chip info">{t('ens_agg_mean')}</span>,
     },
-    { title: t('ens_col_model_count'), dataIndex: 'models', key: 'models', width: 80, align: 'right' },
+    { title: t('ens_col_model_count'), dataIndex: 'models', key: 'models', width: 84, align: 'right', render: (n: number) => <span className="qc-mono">{n}</span> },
     {
       title: t('ens_col_model_list'), key: 'model_paths', width: 260,
       render: (_, record) => {
@@ -224,7 +226,7 @@ export default function EnsembleWorkbench() {
         if (members.length === 0) {
           return (
             <Tooltip title={record.model_paths.join('、')}>
-              <span className="truncate">{record.model_paths.join('、') || '-'}</span>
+              <span className="truncate">{record.model_paths.join('、') || '—'}</span>
             </Tooltip>
           );
         }
@@ -232,12 +234,12 @@ export default function EnsembleWorkbench() {
           <Tooltip title={members.map((m) => `${m.stem}（${m.action_space === 'box' ? t('ens_space_box') : t('ens_space_discrete')}）`).join('、')}>
             <Space size={4} wrap>
               {members.map((m) => (
-                <span key={m.stem}>
+                <span key={m.stem} className="inline-flex items-center gap-1">
                   {/* 成员动作空间:box=连续(0~1) / discrete=离散投票映射 */}
-                  <Tag color={m.action_space === 'box' ? 'blue' : 'default'}>
+                  <span className={`qc-chip ${m.action_space === 'box' ? 'info' : 'quiet'} qc-mono`}>
                     {m.action_space === 'box' ? t('ens_space_box') : t('ens_space_discrete')}
-                  </Tag>
-                  {m.stem}
+                  </span>
+                  <span className="qc-mono">{m.stem}</span>
                 </span>
               ))}
             </Space>
@@ -246,40 +248,57 @@ export default function EnsembleWorkbench() {
       },
     },
     {
-      title: t('ens_col_created'), dataIndex: 'created_at', key: 'created_at', width: 160,
-      className: 'whitespace-nowrap',
-      render: (ts: number | null) => (ts ? dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss') : '-'),
+      title: t('ens_col_created'), dataIndex: 'created_at', key: 'created_at', width: 150,
+      render: (ts: number | null) => {
+        if (!ts) return <span className="qc-cell-time qc-mono">—</span>;
+        const full = dayjs(ts * 1000).format('YYYY-MM-DD HH:mm:ss');
+        return (
+          <Tooltip title={full}>
+            <span className="qc-cell-time qc-mono">{dayjs(ts * 1000).format('MM-DD HH:mm')}</span>
+          </Tooltip>
+        );
+      },
     },
     {
-      title: t('ens_col_actions'), key: 'actions', width: 190, fixed: 'right',
+      title: t('ens_col_actions'), key: 'actions', width: 150, fixed: 'right',
       render: (_, record) => (
-        <Space size={0}>
+        <div className="qc-row-actions" onClick={(e) => e.stopPropagation()}>
           <Tooltip title={t('ens_tip_smoke')}>
-            <Button
-              type="text"
-              size="small"
-              icon={<ExperimentOutlined />}
-              loading={predictingId === record.id}
+            <button
+              type="button"
+              className="qc-mini-btn qc-icon-only"
+              aria-label={t('ens_tip_smoke')}
               onClick={() => handlePredict(record)}
-            />
+            >
+              {/* predicting 用旋转态表达（原语无 loading 属性） */}
+              <span className={predictingId === record.id ? 'animate-spin inline-flex' : 'inline-flex'}>
+                <ExperimentOutlined />
+              </span>
+            </button>
           </Tooltip>
           <Tooltip title={t('ens_tip_backtest')}>
-            <Button type="text" size="small" icon={<LineChartOutlined />} onClick={() => openBacktest(record)} />
+            <button type="button" className="qc-mini-btn qc-icon-only" aria-label={t('ens_tip_backtest')} onClick={() => openBacktest(record)}>
+              <LineChartOutlined />
+            </button>
           </Tooltip>
           <Tooltip title={t('ens_tip_new_strategy')}>
-            <Button type="text" size="small" icon={<RocketOutlined />} onClick={() => goCreateStrategy(record)} />
+            <button type="button" className="qc-mini-btn qc-icon-only" aria-label={t('ens_tip_new_strategy')} onClick={() => goCreateStrategy(record)}>
+              <RocketOutlined />
+            </button>
           </Tooltip>
           <Tooltip title={t('ens_action_delete')}>
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
+            <button type="button" className="qc-mini-btn qc-icon-only danger" aria-label={t('ens_action_delete')} onClick={() => handleDelete(record)}>
+              <DeleteOutlined />
+            </button>
           </Tooltip>
-        </Space>
+        </div>
       ),
     },
   ];
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title={t('ens_title_create')} size="small">
+      <Card title={t('ens_title_create')} size="small" className="qc-card">
         <Space wrap>
           <Button icon={<PlusOutlined />} onClick={openModal}>{t('ens_pick_model')}</Button>
           <Button type="primary" disabled={selected.length === 0} loading={creating} onClick={handleCreate}>
@@ -303,20 +322,20 @@ export default function EnsembleWorkbench() {
         )}
       </Card>
 
-      <Card title={t('ens_title_list')} size="small">
-        <Table<EnsembleInfo>
+      <Card title={t('ens_title_list')} size="small" className="qc-card">
+        <DataTable<EnsembleInfo>
           columns={ensembleColumns}
           dataSource={ensembles}
           loading={loading}
           rowKey="id"
-          size="small"
           scroll={{ x: 980 }}
-          pagination={{ pageSize: 10, showTotal: (total) => t('ens_total', { total }) }}
+          pagination={{ pageSize: 12, showSizeChanger: false }}
         />
       </Card>
 
       {/* 冒烟预测结果弹窗:D1 零观测,展示聚合结果 + 成员明细 */}
       <Modal
+        className="qc-modal"
         title={t('ens_predict_title', { id: predictRecord?.id ?? '' })}
         open={predictResult !== null}
         width={560}
@@ -327,9 +346,9 @@ export default function EnsembleWorkbench() {
           <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
             <Descriptions size="small" column={3}>
               <Descriptions.Item label={t('ens_field_agg_action')}>
-                <Tag color={predictResult.action_type === 'buy' ? 'green' : 'default'}>
+                <span className={`qc-chip ${predictResult.action_type === 'buy' ? 'ok' : 'quiet'}`}>
                   {predictResult.action_type === 'buy' ? 'BUY' : 'HOLD'}
-                </Tag>
+                </span>
               </Descriptions.Item>
               <Descriptions.Item label={t('ens_field_ratio')}>
                 {(predictResult.ratio * 100).toFixed(2)}%
@@ -353,11 +372,15 @@ export default function EnsembleWorkbench() {
                 {
                   title: t('ens_col_type'), dataIndex: 'action_space', key: 'action_space', width: 80,
                   render: (a?: string) =>
-                    a ? <Tag color={a === 'box' ? 'blue' : 'default'}>{a === 'box' ? t('ens_space_box') : t('ens_space_discrete')}</Tag> : '-',
+                    a ? (
+                      <span className={`qc-chip ${a === 'box' ? 'info' : 'quiet'} qc-mono`}>
+                        {a === 'box' ? t('ens_space_box') : t('ens_space_discrete')}
+                      </span>
+                    ) : '—',
                 },
                 {
                   title: 'ratio', dataIndex: 'ratio', key: 'ratio', width: 110, align: 'right' as const,
-                  render: (r: number | null) => (r == null ? <Tag>{t('ens_abstain')}</Tag> : r.toFixed(4)),
+                  render: (r: number | null) => (r == null ? <span className="qc-chip quiet">{t('ens_abstain')}</span> : <span className="qc-mono">{r.toFixed(4)}</span>),
                 },
               ]}
             />
@@ -370,6 +393,7 @@ export default function EnsembleWorkbench() {
 
       {/* 集成回测弹窗:表单 → 结果(可再次回测) */}
       <Modal
+        className="qc-modal"
         title={t('ens_backtest_title', { id: btRecord?.id ?? '' })}
         open={btOpen}
         width={560}
@@ -400,13 +424,13 @@ export default function EnsembleWorkbench() {
             <Descriptions.Item label={t('ens_metric_funding')}>{btResult.total_funding.toFixed(2)}</Descriptions.Item>
             <Descriptions.Item label={t('ens_metric_bars')}>{btResult.data_bars}</Descriptions.Item>
             <Descriptions.Item label={t('ens_metric_engine')}>
-              <Tag color="purple">{btResult.engine}</Tag>
+              <span className="qc-chip pri qc-mono">{btResult.engine}</span>
             </Descriptions.Item>
           </Descriptions>
         ) : (
           <Form form={btForm} layout="vertical" onFinish={handleBacktest}>
             <Form.Item name="symbol" label={t('ens_field_symbol')} rules={[{ required: true, message: t('ens_field_symbol_rule') }]}>
-              <Input placeholder={t('ens_field_symbol_ph')} />
+              <SymbolSelect valueFormat="compact" placeholder={t('ens_field_symbol_ph')} />
             </Form.Item>
             <Form.Item name="interval" label={t('ens_field_interval')} rules={[{ required: true, message: t('ens_field_interval_rule') }]}>
               <Select options={intervalOptions} />
@@ -419,6 +443,7 @@ export default function EnsembleWorkbench() {
       </Modal>
 
       <Modal
+        className="qc-modal"
         title={t('ens_pick_model')}
         open={modalOpen}
         width={680}

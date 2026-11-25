@@ -49,6 +49,26 @@ type StrategyRequestClass = ChatProviderConfig<
   StrategyChatMessage
 >['request'];
 
+/** 从后端错误体提取可读文案。
+ *
+ * 形状发散（实测实录）：FastAPI HTTPException 把内容包进 detail——
+ * {detail:{message,error}}（strategy/generate 400）、ApiResponse 形状
+ * {message}、裸字符串 detail。取到嵌套对象时继续下钻；任何一层取到
+ * 非字符串直接 stringify，保证抛出的 Error.message 一定是字符串
+ * （此前 detail 对象被原样塞进 new Error → 气泡渲染成 [object Object]）。
+ */
+export function extractBackendErrorMessage(body: unknown): string | null {
+  const pick = (value: unknown, depth = 0): string | null => {
+    if (depth > 2 || value == null) return null;
+    if (typeof value === 'string') return value.trim() || null;
+    if (typeof value !== 'object') return null;
+    const obj = value as Record<string, unknown>;
+    return pick(obj.message, depth + 1) ?? pick(obj.error, depth + 1) ?? pick(obj.detail, depth + 1);
+  };
+  const picked = pick(body);
+  return picked ?? (body != null && typeof body === 'object' ? JSON.stringify(body) : null);
+}
+
 /** 请求实例：模块级创建，由 useXChat.onRequest 触发；401/非 2xx 在中间件统一处理 */
 export const strategyChatRequest = XRequest<
   StrategyChatInput,
@@ -76,7 +96,7 @@ export const strategyChatRequest = XRequest<
         let errorMessage = `请求失败 (HTTP ${response.status})`;
         try {
           const errorData = await response.clone().json();
-          errorMessage = errorData.message || errorData.detail || errorMessage;
+          errorMessage = extractBackendErrorMessage(errorData) ?? errorMessage;
         } catch {
           // 错误体非 JSON 时使用默认文案
         }
@@ -153,19 +173,6 @@ export class StrategyChatProvider extends AbstractChatProvider<
     // done：后端一次性返回完整结果（raw_content 为说明文案，code 为策略代码）
     const content = event.raw_content || '';
     const code = event.code || '';
-
-    // [DEBUG] 临时调试：打印 done 事件实际字段，用户反馈"还有两个代码框"
-    // 必须拿到前端实际收到的 content/code 才能确定畸形来源
-    if (event.type === 'done') {
-      const doneMeta = (event as unknown as { metadata?: Record<string, unknown> }).metadata;
-      console.log('[AI策略 DEBUG done]', {
-        raw_content_length: content.length,
-        code_length: code.length,
-        content,
-        code,
-        metadata: doneMeta,
-      });
-    }
 
     if (!content && !code) {
       // 空结果按失败处理，避免误显示"生成成功"

@@ -11,18 +11,14 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Badge,
   Button,
   Card,
   DatePicker,
-  Empty,
   Form,
   Input,
   Select,
   Space,
   Spin,
-  Table,
-  Tag,
   Tooltip,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -30,18 +26,20 @@ import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/ic
 import type { Dayjs } from 'dayjs';
 import { workerApi } from '@/api/workerApi';
 import { usePolling } from '@/hooks/usePolling';
-import { formatQuantity, formatTimestamp, formatUSD, truncateId, QUANT_COLORS } from '@/utils/format';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import { formatQuantity, formatTimestamp, formatUSD, truncateId } from '@/utils/format';
 import { downloadCsv, timestampedFilename } from '@/utils/exportCsv';
+import { PER_PAGE_OPTIONS } from '../../constants/pagination';
 import type { Side, PositionSide, TradeQueryParams } from '@/types/worker';
 
 const { RangePicker } = DatePicker;
 
-// 状态 -> Tag 颜色（业界标准）。订单表只写 FILLED（成交回推）与 OPEN（挂单）
-const STATUS_COLOR_MAP: Record<string, string> = {
-  OPEN: 'processing',      // 蓝（进行中）
-  FILLED: 'success',       // 绿（已成交）
-  CANCELED: 'default',     // 灰（已撤销）
-  REJECTED: 'error',       // 红（已拒绝）
+// 状态 -> §6.2 chip 语义档。订单表只写 FILLED（成交回推）与 OPEN（挂单）
+const STATUS_CHIP_CLS: Record<string, string> = {
+  OPEN: ' info',      // 进行中（带 pulse 圆点）
+  FILLED: ' ok',      // 已成交
+  CANCELED: ' quiet', // 已撤销
+  REJECTED: ' down',  // 已拒绝
 };
 
 // 状态 -> i18n key（未知状态回退显示原始英文枚举）
@@ -53,6 +51,14 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = Object.keys(STATUS_LABEL_KEYS);
+
+// 订单状态 → §6.2 chip（OPEN 进行中带 pulse 圆点；未知状态回退 quiet）
+const renderOrderStatusChip = (status: string, label: string) => (
+  <span className={`qc-chip${STATUS_CHIP_CLS[status] ?? ' quiet'}`}>
+    {status === 'OPEN' && <span className="qc-pdot" />}
+    {label}
+  </span>
+);
 
 // 方向枚举：canonical 小写（铁律1），显示标签走 i18n（买入/卖出）
 const SIDE_OPTIONS: Side[] = ['buy', 'sell'];
@@ -107,7 +113,8 @@ interface WorkerOrderTabProps {
   active?: boolean;
 }
 
-const PAGE_SIZE = 20;
+// §6.7 分页档位：12 的倍数（与全站 DataTable 同一套），20 非 12 倍数档位已弃用
+const PAGE_SIZE = 12;
 
 const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true }) => {
   const { t } = useTranslation();
@@ -299,9 +306,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       width: 190,
       render: (id: string, record: MergedRow) => (
         <Tooltip title={record.kind === 'trade' ? 'fill_id' : 'client_order_id'}>
-          <span style={{ fontFamily: 'monospace', fontSize: 12 }}>
-            {truncateId(id, 8, 6)}
-          </span>
+          <span className="qc-mono">{truncateId(id, 8, 6)}</span>
         </Tooltip>
       ),
     },
@@ -310,17 +315,19 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       dataIndex: 'symbol',
       key: 'symbol',
       width: 110,
-      render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
+      // 标识类中性 mono 文本（§6.5）：symbol 不是状态，上色会冒充语义
+      render: (symbol: string) => <span className="qc-mono">{symbol}</span>,
     },
     {
       title: t('direction'),
       dataIndex: 'side',
       key: 'side',
       width: 80,
+      // 方向值涨跌色（§6.5 数值列口径）：买 up / 卖 down
       render: (side: string) => (
-        <Tag color={side === 'buy' ? 'green' : side === 'sell' ? 'red' : 'default'}>
+        <span className={`qc-mono${side === 'buy' ? ' qc-cell-up' : side === 'sell' ? ' qc-cell-down' : ''}`}>
           {side ? t(side) : '-'}
-        </Tag>
+        </span>
       ),
     },
     {
@@ -328,7 +335,8 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       dataIndex: 'order_type',
       key: 'order_type',
       width: 120,
-      render: (type: string) => (type ? <Tag color="orange">{orderTypeLabel(type)}</Tag> : '-'),
+      // 类别值不上色（§6.5）：订单类型是中性类别，不是状态
+      render: (type: string) => (type ? orderTypeLabel(type) : <span className="qc-mono qc-cell-none">—</span>),
     },
     {
       title: t('quantity'),
@@ -345,7 +353,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       render: (price?: number | null) =>
         price !== undefined && price !== null
           ? formatUSD(price)
-          : <span style={{ color: '#999' }}>-</span>,
+          : <span style={{ color: 'var(--qc-text-tertiary)' }}>-</span>,
     },
     {
       title: t('worker_avg_fill_price'),
@@ -362,15 +370,11 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       width: 150,
       render: (_: unknown, record: MergedRow) =>
         record.kind === 'trade' ? (
-          <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-            {formatQuantity(record.filled_quantity)}
-          </span>
+          <span className="qc-mono">{formatQuantity(record.filled_quantity)}</span>
         ) : (
-          <span>
-            <span style={{ fontWeight: 600, color: QUANT_COLORS.info }}>
-              {formatQuantity(record.filled_quantity ?? 0)}
-            </span>
-            <span style={{ color: '#999' }}> / {formatQuantity(record.quantity ?? 0)}</span>
+          <span className="qc-mono">
+            {formatQuantity(record.filled_quantity ?? 0)}
+            <span style={{ color: 'var(--qc-text-tertiary)' }}> / {formatQuantity(record.quantity ?? 0)}</span>
           </span>
         ),
     },
@@ -379,9 +383,7 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (status: string) => (
-        <Tag color={STATUS_COLOR_MAP[status] || 'default'}>{statusLabel(status)}</Tag>
-      ),
+      render: (status: string) => renderOrderStatusChip(status, statusLabel(status)),
     },
     {
       title: t('realized_pnl'),
@@ -390,23 +392,14 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       align: 'right',
       width: 120,
       render: (pnl?: number | null) => {
-        if (pnl === undefined || pnl === null) return '-';
+        if (pnl === undefined || pnl === null) return <span className="qc-mono qc-cell-none">—</span>;
         // 盈亏只在平仓 finalize 行有值（round-trip 配对回填），该行即整轮建仓→平仓的盈亏归属行
         return (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span
-              style={{
-                fontFamily: 'monospace',
-                fontWeight: 600,
-                color:
-                  pnl >= 0
-                    ? QUANT_COLORS.positive
-                    : QUANT_COLORS.negative,
-              }}
-            >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span className={`qc-mono${pnl >= 0 ? ' qc-cell-up' : ' qc-cell-down'}`}>
               {formatUSD(pnl)}
             </span>
-            <Tag style={{ marginInlineEnd: 0 }}>{t('trade_closed_tag')}</Tag>
+            <span className="qc-chip quiet">{t('trade_closed_tag')}</span>
           </span>
         );
       },
@@ -416,7 +409,12 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
       dataIndex: 'created_at',
       key: 'created_at',
       width: 170,
-      render: (time: string) => (time ? formatTimestamp(time) : '-'),
+      // §6.5 时间列：mono 11px fg-3 口径
+      render: (time: string) => (
+        <span className="qc-mono" style={{ fontSize: 11.5, color: 'var(--qc-text-tertiary)' }}>
+          {time ? formatTimestamp(time) : '—'}
+        </span>
+      ),
     },
   ];
 
@@ -447,17 +445,17 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
   return (
     <div>
       <Card
+        className="qc-card"
         title={
-          <span>
-            {t('trade_details')}
+          <Space size={12}>
+            <span>{t('trade_details')}</span>
             {active && (
-              <Badge
-                status="processing"
-                text={t('worker_realtime')}
-                style={{ marginLeft: 12, color: QUANT_COLORS.info }}
-              />
+              <span className="qc-chip info">
+                <span className="qc-pdot" />
+                {t('worker_realtime')}
+              </span>
             )}
-          </span>
+          </Space>
         }
         extra={
           <Space>
@@ -487,18 +485,15 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
           </Space>
         }
       >
-        {/* 活跃挂单提示行：只统计第一页可见的订单行 */}
+        {/* 活跃挂单提示行：只统计第一页可见的订单行（语义 chip + mono 计数，非彩色 Tag） */}
         {summaryItems.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <Space size="small" wrap>
               {summaryItems.map(({ status, count }) => (
-                <Tag
-                  key={status}
-                  color={STATUS_COLOR_MAP[status] || 'default'}
-                  style={{ fontSize: 13, padding: '2px 10px' }}
-                >
-                  {statusLabel(status)}: {count}
-                </Tag>
+                <span key={status} className={`qc-chip${STATUS_CHIP_CLS[status] ?? ' quiet'}`}>
+                  {statusLabel(status)}
+                  <span className="qc-count-chip">{count}</span>
+                </span>
               ))}
             </Space>
           </div>
@@ -557,41 +552,37 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         )}
 
         {rows.length === 0 ? (
-          <Empty
-            description={t('no_order_data')}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          />
+          <QcEmpty title={t('no_order_data')} />
         ) : (
           <Space orientation="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
             {/* 挂单置顶表：独立于分页（不计入 total/pageSize），仅在合并模式且有挂单时渲染 */}
             {!orderMainMode && openOnlyRows.length > 0 && (
-              <Table
-                columns={columns}
-                dataSource={openOnlyRows}
-                rowKey="key"
-                title={() => `${t('worker_open_orders')} (${openOnlyRows.length})`}
-                pagination={false}
-                size="small"
-                scroll={{ x: 'max-content' }}
-              />
+              <div>
+                <div className="qc-card-sub" style={{ marginBottom: 6 }}>
+                  {t('worker_open_orders')} ({openOnlyRows.length})
+                </div>
+                <DataTable
+                  columns={columns}
+                  dataSource={openOnlyRows}
+                  rowKey="key"
+                  pagination={false}
+                />
+              </div>
             )}
-            {/* 成交/订单明细主体：纯服务端分页 */}
-            <Table
+            {/* 成交/订单明细主体：纯服务端分页（remote：rows 已是服务端裁好的当页） */}
+            <DataTable
               columns={columns}
               dataSource={orderMainMode ? rows : tradeOnlyRows}
               rowKey="key"
+              remote
+              loading={loading && initialized}
               pagination={{
                 current: page,
                 pageSize,
                 total,
-                size: 'small',
-                showSizeChanger: true,
-                showTotal: (n) => `${t('total')} ${n}`,
                 onChange: handlePageChange,
+                pageSizeOptions: PER_PAGE_OPTIONS,
               }}
-              size="middle"
-              scroll={{ x: 'max-content' }}
-              loading={loading && initialized}
             />
           </Space>
         )}

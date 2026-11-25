@@ -13,9 +13,9 @@ import { setPageTitle } from '@/utils/pageTitle';
 const BacktestLayout = () => {
   const { t } = useTranslation();
 
-  // 设置页面标题
+  // 设置页面标题（与导航「回测中心」一致；旧值 strategy_backtest = 「策略回测」是遗留名）
   useEffect(() => {
-    setPageTitle(t('strategy_backtest'));
+    setPageTitle(t('backtest_center'));
   }, [t]);
 
   return <Outlet />;

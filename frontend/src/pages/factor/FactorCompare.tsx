@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   App as AntApp,
   Button,
   Card,
   DatePicker,
-  Empty,
   Flex,
   Form,
   Input,
@@ -13,8 +12,6 @@ import {
   Progress,
   Select,
   Space,
-  Table,
-  Tag,
 } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -22,6 +19,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { EChartsOption } from 'echarts';
 import type { TableProps } from 'antd';
 import EChart from '@/components/EChart';
+import DataTable, { QcEmpty } from '@/components/ui/DataTable';
 import {
   factorApi,
   type FactorCompareParams,
@@ -32,6 +30,7 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import { useQuantColors } from '@/utils/colors';
+import { parseMissingDataMsg, useFactorDataGuard } from './useFactorDataGuard';
 
 const { RangePicker } = DatePicker;
 
@@ -92,6 +91,15 @@ const FactorCompare: React.FC = () => {
     useFactorJob<FactorCompareResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
   const [searchParams, setSearchParams] = useSearchParams();
+  // 缺数据守卫：下载完成后用保存的参数直接续跑（不重跑预检，避免死循环）
+  const pendingParamsRef = useRef<FactorCompareParams | null>(null);
+  const doRunRef = useRef<(p: FactorCompareParams) => void>(() => {});
+  const { guardModal, ensureData, openFromError } = useFactorDataGuard({
+    onContinue: () => {
+      const p = pendingParamsRef.current;
+      if (p) void doRunRef.current(p);
+    },
+  });
 
   useEffect(() => {
     factorApi
@@ -140,6 +148,39 @@ const FactorCompare: React.FC = () => {
     return (common.length ? common : ['1h']).map((v) => ({ value: v, label: v }));
   }, [instruments, selected]);
 
+  const doRun = async (params: FactorCompareParams) => {
+    try {
+      await runJob(
+        'compare',
+        params,
+        setResult,
+        (msg) => {
+          // 缺数据报错不直接弹原文：解析品种/周期进同一下载弹窗；其余照旧
+          const miss = parseMissingDataMsg(msg);
+          if (miss) {
+            void openFromError(
+              miss,
+              form.getFieldValue('instruments') ?? [],
+              [form.getFieldValue('interval') ?? miss.interval],
+              form.getFieldValue('range'),
+            );
+            return;
+          }
+          message.error(msg);
+          setResult(null);
+        },
+      );
+    } catch (err) {
+      // 提交阶段同步 rejection（如 422/网络失败）
+      setResult(null);
+      message.error(errMsg(err));
+    }
+  };
+  // 保持 ref 指向最新 doRun（onContinue 由守卫在下载完成后异步触发）
+  useEffect(() => {
+    doRunRef.current = doRun;
+  });
+
   const run = async () => {
     const v = await form.validateFields();
     const horizons = parseHorizons(v.horizonsText);
@@ -163,21 +204,11 @@ const FactorCompare: React.FC = () => {
       cost_bps: v.costBps ?? 0,
       fdr_method: v.fdrMethod ?? null,
     };
-    try {
-      await runJob(
-        'compare',
-        params,
-        setResult,
-        (msg) => {
-          message.error(msg);
-          setResult(null);
-        },
-      );
-    } catch (err) {
-      // 提交阶段同步 rejection（如 422/网络失败）
-      setResult(null);
-      message.error(errMsg(err));
-    }
+    pendingParamsRef.current = params;
+    // 缺本地数据先弹窗下载；返回 false 表示已弹窗，下载完成后自动续跑
+    const ok = await ensureData(v.instruments, [v.interval], v.range ?? null);
+    if (!ok) return;
+    await doRun(params);
   };
 
   const columns: TableProps<FactorCompareRow>['columns'] = [
@@ -271,11 +302,11 @@ const FactorCompare: React.FC = () => {
       align: 'center',
       render: (v: boolean | null) =>
         v == null ? (
-          '—'
+          <span className="qc-cell-none">—</span>
         ) : v ? (
-          <Tag color="success">{t('factor_cmp_fdr_pass') || '通过'}</Tag>
+          <span className="qc-chip ok">{t('factor_cmp_fdr_pass') || '通过'}</span>
         ) : (
-          <Tag>{t('factor_cmp_fdr_fail') || '未通过'}</Tag>
+          <span className="qc-chip quiet">{t('factor_cmp_fdr_fail') || '未通过'}</span>
         ),
     },
     {
@@ -351,7 +382,7 @@ const FactorCompare: React.FC = () => {
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title={t('factor_wb_card_params') || '对比参数'}>
+      <Card className="qc-card" title={t('factor_wb_card_params') || '对比参数'}>
         {/* inline 表单项换行后默认无垂直间距，用 flex rowGap 补到 middle 档 */}
         <Form<FormValues>
           form={form}
@@ -394,18 +425,18 @@ const FactorCompare: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="instruments"
-            label={t('factor_wb_form_instruments') || '品种'}
+            label={t('factor_wb_form_instruments') || '标的'}
             rules={[
               {
                 required: true,
-                message: t('factor_wb_form_instruments_req') || '选择品种',
+                message: t('factor_wb_form_instruments_req') || '选择标的',
               },
             ]}
           >
             <Select
               mode="multiple"
               style={{ minWidth: 220 }}
-              placeholder={t('factor_wb_form_instruments_ph') || '选择品种'}
+              placeholder={t('factor_wb_form_instruments_ph') || '选择标的'}
               options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>
@@ -475,15 +506,15 @@ const FactorCompare: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
-        <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ color: 'var(--qc-text-tertiary)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
           {t('factor_cmp_form_hint') ||
             '2-5 个可计算因子共用一组参数横向对比；滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数。'}
         </p>
       </Card>
 
-      {jobLoading && <Card loading />}
+      {jobLoading && <Card loading className="qc-card" />}
       {jobLoading && jobStatus && (
-        <Card size="small">
+        <Card size="small" className="qc-card">
           <Flex gap="middle" align="center">
             <Progress
               type="circle"
@@ -496,20 +527,15 @@ const FactorCompare: React.FC = () => {
         </Card>
       )}
       {!jobLoading && !result && (
-        <Card>
-          <Empty
-            description={
-              t('factor_cmp_empty_hint') ||
-              '选择 2-5 个因子后点击「开始对比」'
-            }
-          />
+        <Card className="qc-card">
+          <QcEmpty title={t('factor_cmp_empty_hint') || '选择 2-5 个因子后点击「开始对比」'} />
         </Card>
       )}
 
       {!jobLoading && result && (
         <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-          <Card title={t('factor_cmp_card_metrics') || '指标对比'}>
-            <Table<FactorCompareRow>
+          <Card className="qc-card" title={t('factor_cmp_card_metrics') || '指标对比'}>
+            <DataTable<FactorCompareRow>
               rowKey="factor_name"
               columns={columns}
               dataSource={result.factors}
@@ -517,11 +543,13 @@ const FactorCompare: React.FC = () => {
               scroll={{ x: 'max-content' }}
             />
           </Card>
-          <Card title={t('factor_cmp_card_ic_ts') || 'IC 时序叠加'}>
+          <Card className="qc-card" title={t('factor_cmp_card_ic_ts') || 'IC 时序叠加'}>
             <EChart option={icOption} style={{ height: 360 }} opts={{ renderer: 'svg' }} />
           </Card>
         </Space>
       )}
+
+      {guardModal}
     </Space>
   );
 };

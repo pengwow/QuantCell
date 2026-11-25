@@ -5,7 +5,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Table,
   Button,
   Modal,
   Form,
@@ -18,6 +17,8 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import PageContainer from '@/components/PageContainer';
+import DataTable from '@/components/ui/DataTable';
 import { envVarApi } from '../../api';
 import type { EnvVariable, EnvVariableListResponse } from './types';
 
@@ -188,22 +189,19 @@ const EnvironmentVariablesPage = () => {
 
   return (
     <Spin spinning={loading}>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium m-0">
-            {t('env_variables')}
-          </h2>
+      <PageContainer
+        title={t('env_variables')}
+        actions={
           <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
             {t('add')}
           </Button>
-        </div>
-
-        <Table
+        }
+      >
+        <DataTable
           columns={columns}
           dataSource={dataSource.map((item) => ({ ...item, _key: item.key }))}
           rowKey="_key"
           pagination={false}
-          size="middle"
           onRow={(record: EnvVariable) => ({
             onClick: () => openEditModal(record),
             style: { cursor: 'pointer' },
@@ -212,13 +210,15 @@ const EnvironmentVariablesPage = () => {
             emptyText: t('no_env_vars'),
           }}
         />
+      </PageContainer>
 
-        <Modal
-          title={
-            editingRecord
-              ? t('edit_env_var')
-              : t('add_env_var')
-          }
+      <Modal
+        className="qc-modal"
+        title={
+          editingRecord
+            ? t('edit_env_var')
+            : t('add_env_var')
+        }
           open={modalVisible}
           onOk={handleSubmit}
           onCancel={() => setModalVisible(false)}
@@ -272,7 +272,6 @@ const EnvironmentVariablesPage = () => {
             </Form.Item>
           </Form>
         </Modal>
-      </div>
     </Spin>
   );
 };

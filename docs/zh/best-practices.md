@@ -44,12 +44,12 @@ description: 策略研发、回测、数据、部署与安全的项目约定
 - 间距取值统一：`small`(8px) / `middle`(16px) / `large`(24px)，不写魔法 margin
 - 页面写完自查相邻区块间距是否可见
 
-## 引擎依赖（axon-quant）
+## 引擎依赖（Rust 内核）
 
-修改 axon-quant Rust 源码后，同步到 backend 的标准命令：
+修改 Rust 内核源码后，同步到 backend 的标准命令（包名取 `backend/pyproject.toml` 里那条本地 path 依赖）：
 
 ```bash
-cd backend && uv sync --frozen --reinstall-package axon-quant
+cd backend && uv sync --frozen --reinstall-package <引擎包名>
 ```
 
 - **必须带 `--reinstall-package`**：uv 对 maturin path 依赖不做源码新鲜度比对，

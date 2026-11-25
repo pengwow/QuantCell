@@ -3,14 +3,13 @@
  * - 后端对每次成功分析强制自动留痕（无开关、无感知），不再提供手动保存按钮；
  * - 分析成功后回调 onAnalyzed，由容器刷新左栏 last_metrics / 快照数。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   App as AntApp,
   Button,
   Card,
   DatePicker,
-  Empty,
   Flex,
   Form,
   Input,
@@ -30,6 +29,8 @@ import {
 } from '@/api/factor';
 import { useFactorJob } from '@/hooks/useFactorJob';
 import FactorResultView from './FactorResultView';
+import { parseMissingDataMsg, useFactorDataGuard } from './useFactorDataGuard';
+import { QcEmpty } from '@/components/ui/DataTable';
 
 const { RangePicker } = DatePicker;
 
@@ -87,6 +88,15 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
   const { run: runJob, status: jobStatus, loading: jobLoading } =
     useFactorJob<FactorAnalyzeResult>();
   const selected: string[] = Form.useWatch('instruments', form) ?? [];
+  // 缺数据守卫：下载完成后用保存的参数直接续跑（不重跑预检，避免死循环）
+  const pendingParamsRef = useRef<FactorAnalyzeParams | null>(null);
+  const doRunRef = useRef<(p: FactorAnalyzeParams) => void>(() => {});
+  const { guardModal, ensureData, openFromError } = useFactorDataGuard({
+    onContinue: () => {
+      const p = pendingParamsRef.current;
+      if (p) void doRunRef.current(p);
+    },
+  });
 
   // 因子由左栏锁定：挂载即写入表单（组件在容器内按 factor.name 加 key，切因子整体重挂载）
   useEffect(() => {
@@ -108,6 +118,44 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
     const common = [...sets[0]].filter((x) => sets.every((s) => s.has(x)));
     return (common.length ? common : ['1h']).map((v) => ({ value: v, label: v }));
   }, [instruments, selected]);
+
+  const doRun = useCallback(
+    async (params: FactorAnalyzeParams) => {
+      try {
+        await runJob(
+          'analyze',
+          params,
+          (r) => {
+            setResult(r);
+            setLastParams(params);
+            // 静默：不弹"已留痕"，仅刷新目录让快照数/最近指标自然变化
+            onAnalyzed?.();
+          },
+          (msg) => {
+            // 缺数据报错不直接弹原文：解析品种/周期进同一下载弹窗；其余照旧
+            const miss = parseMissingDataMsg(msg);
+            if (miss) {
+              void openFromError(
+                miss,
+                form.getFieldValue('instruments') ?? [],
+                [form.getFieldValue('interval') ?? miss.interval],
+                form.getFieldValue('range'),
+              );
+              return;
+            }
+            message.error(msg);
+          },
+        );
+      } catch (err) {
+        message.error(errMsg(err));
+      }
+    },
+    [runJob, onAnalyzed, message, form, openFromError],
+  );
+  // 保持 ref 指向最新 doRun（onContinue 由守卫在下载完成后异步触发）
+  useEffect(() => {
+    doRunRef.current = doRun;
+  });
 
   const run = useCallback(async () => {
     const v = await form.validateFields();
@@ -131,28 +179,16 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
       horizons,
       cost_bps: v.costBps ?? 0,
     };
-    try {
-      await runJob(
-        'analyze',
-        params,
-        (r) => {
-          setResult(r);
-          setLastParams(params);
-          // 静默：不弹"已留痕"，仅刷新目录让快照数/最近指标自然变化
-          onAnalyzed?.();
-        },
-        (msg) => {
-          message.error(msg);
-        },
-      );
-    } catch (err) {
-      message.error(errMsg(err));
-    }
-  }, [form, runJob, onAnalyzed]);
+    pendingParamsRef.current = params;
+    // 缺本地数据先弹窗下载；返回 false 表示已弹窗，下载完成后自动续跑
+    const ok = await ensureData(v.instruments, [v.interval], v.range ?? null);
+    if (!ok) return;
+    await doRun(params);
+  }, [form, message, ensureData, doRun]);
 
   return (
     <Space orientation="vertical" size="middle" style={{ display: 'flex' }}>
-      <Card title={t('factor_wb_card_params') || '分析参数'}>
+      <Card className="qc-card" title={t('factor_wb_card_params') || '分析参数'}>
         {/* inline 表单项换行后默认无垂直间距，用 rowGap 补到 middle 档 16px */}
         <Form<FormValues>
           form={form}
@@ -176,13 +212,13 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
           </Form.Item>
           <Form.Item
             name="instruments"
-            label={t('factor_wb_form_instruments') || '品种'}
-            rules={[{ required: true, message: t('factor_wb_form_instruments_req') || '请选择品种' }]}
+            label={t('factor_wb_form_instruments') || '标的'}
+            rules={[{ required: true, message: t('factor_wb_form_instruments_req') || '请选择标的' }]}
           >
             <Select
               mode="multiple"
               style={{ minWidth: 220 }}
-              placeholder={t('factor_wb_form_instruments_ph') || '选择品种'}
+              placeholder={t('factor_wb_form_instruments_ph') || '选择标的'}
               options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>
@@ -230,15 +266,15 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
             </Button>
           </Form.Item>
         </Form>
-        <p style={{ color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <p style={{ color: 'var(--qc-text-tertiary)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>
           {t('factor_wb_form_hint') ||
             '滚动窗 / 前瞻 / 衰减滞后单位均为 K 线根数；财务因子无数据来源，不在可选列表'}
         </p>
       </Card>
 
-      {jobLoading && <Card loading />}
+      {jobLoading && <Card loading className="qc-card" />}
       {jobLoading && jobStatus && (
-        <Card size="small">
+        <Card size="small" className="qc-card">
           <Flex gap="middle" align="center">
             <Progress type="circle" size={48} percent={Math.round(jobStatus.progress)} status="active" />
             <span>{jobStatus.message || t('factor_wb_queueing') || 'Queueing…'}</span>
@@ -246,8 +282,9 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
         </Card>
       )}
       {!jobLoading && !result && (
-        <Card>
-          <Empty description={t('factor_wb_empty_hint') || '选择参数后点击「开始分析」'} />
+        <Card className="qc-card">
+          {/* §6.13 空态原语（与对比 Tab / 快照 Tab 的 QcEmpty 同源） */}
+          <QcEmpty title={t('factor_wb_empty_hint') || '选择参数后点击「开始分析」'} />
         </Card>
       )}
 
@@ -256,6 +293,8 @@ const FactorAnalyzePanel: React.FC<Props> = ({ factor, onAnalyzed }) => {
           <FactorResultView result={result} />
         </Space>
       )}
+
+      {guardModal}
     </Space>
   );
 };

@@ -137,6 +137,7 @@ const IndicatorAlertsModal: React.FC<IndicatorAlertsModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <div className="indicator-modal-title">
           <BellOutlined />

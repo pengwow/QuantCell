@@ -98,6 +98,20 @@ class TestContextBuilder:
         assert messages[-1]["role"] == "user"
         assert "What is 2+2?" in messages[-1]["content"]
 
+    def test_build_messages_extra_system_goes_to_system_only(self, context):
+        """extra_context 必须并入 system 消息，不污染会落档的用户消息"""
+        history = [{"role": "user", "content": "Hello"}]
+        messages = context.build_messages(
+            history=history,
+            current_message="现在多少钱？",
+            extra_system="[Worker 上下文] #6 e2e_browsertest running",
+        )
+
+        assert "[Worker 上下文]" in messages[0]["content"]
+        # 用户消息不含注入内容（历史会被持久化）
+        assert "[Worker 上下文]" not in messages[-1]["content"]
+        assert "现在多少钱？" in messages[-1]["content"]
+
     def test_build_messages_with_channel(self, context):
         """测试带频道信息的消息构建"""
         messages = context.build_messages(

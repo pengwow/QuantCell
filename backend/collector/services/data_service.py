@@ -35,8 +35,10 @@ if TYPE_CHECKING:
         ExportCryptoRequest,
     )
 
-# 基础源数据目录：项目后端根目录的 data/source 目录
-SOURCE_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "source"
+# 基础源数据目录：开发态=backend/data/source；桌面(QUANTCELL_DATA_DIR)=<data>/data/source
+from utils.paths import get_persistent_dir
+
+SOURCE_DATA_DIR = get_persistent_dir("data/source", Path(__file__).parent.parent.parent / "data" / "source")
 
 
 def get_crypto_kline_dir(exchange_type: str = "spot", data_type: str = "klines") -> Path:
@@ -728,6 +730,7 @@ class DataService:
         offset: int | None = 0,
         configs: dict[str, Any] | None = None,
         crypto_type: str | None = None,
+        quote: str | None = None,
     ) -> dict[str, Any]:
         """获取加密货币对列表
 
@@ -738,6 +741,9 @@ class DataService:
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
             crypto_type: 加密货币类型，如spot（现货）、future（合约）等
+            quote: 计价货币。不传 = 沿用系统配置的计价货币（旧口径，其它调用方依赖）；
+                传 'all' = 不限计价货币（数据管理页按计价货币前端筛选时需要）；
+                传具体值如 'BTC' = 只返回该计价货币的交易对
 
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
@@ -756,10 +762,9 @@ class DataService:
 
             from ..db.models import CryptoSymbol
 
-            # 从系统配置获取计价货币
-            quote_currency = get_config("quote", "USDT")
-            logger.info(f"系统配置计价货币: quote={quote_currency}")
-
+            # 计价货币过滤（使用数据库 quote 字段）
+            # 显式传 all 表示不限；传具体值按该值过滤；不传才回落到系统配置的计价货币。
+            # 配置口径会把列表锁死成 USDT，前端「计价货币」筛选 chips（BTC/ETH）因此永远为空。
             with get_db_session() as db:
                 # 查询数据库中的货币对
                 query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
@@ -768,9 +773,14 @@ class DataService:
                 if crypto_type:
                     query = query.filter(CryptoSymbol.type == crypto_type)
 
-                # 应用计价货币过滤（使用数据库 quote 字段）
-                if quote_currency:
-                    query = query.filter(CryptoSymbol.quote == quote_currency)
+                if quote:
+                    if quote.lower() != "all":
+                        query = query.filter(CryptoSymbol.quote == quote.upper())
+                else:
+                    quote_currency = get_config("quote", "USDT")
+                    logger.info(f"系统配置计价货币: quote={quote_currency}")
+                    if quote_currency:
+                        query = query.filter(CryptoSymbol.quote == quote_currency)
 
                 # 应用 symbol 过滤条件
                 if filter:

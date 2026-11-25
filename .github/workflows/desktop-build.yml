@@ -37,9 +37,9 @@ jobs:
           cd frontend
           bun run test
 
-      # tauri-build 在编译期校验 externalBin 资源存在（binaries/quantcell-backend-<triple>）。
-      # 快检同样构建真实 sidecar（2026-10-30 用户确认不用占位文件——假资源可能掩盖问题）：
-      # 与 build job 用同一构建脚本，平台固定为 ubuntu runner 原生的 x86_64 triple。
+      # tauri-build 在编译期校验 bundle.resources 的源路径存在（binaries/backend/ 整目录，
+      # 即 PyInstaller --onedir 产物）。快检同样构建真实 sidecar（2026-10-30 用户确认不用占位文件——
+      # 假资源可能掩盖问题）：与 build job 用同一构建脚本，平台固定为 ubuntu runner 原生的 x86_64 triple。
       # ponytail: uv 依赖与 PyInstaller 每次全量构建（无缓存），快检变重约几分钟；
       # 升级路径：把 build job 的 uv/pyinstaller 缓存段复制到此 job。
       - name: Setup uv + Python 3.14
@@ -142,12 +142,13 @@ jobs:
           path: ~/.cache/pyinstaller
           key: pyinstaller-${{ matrix.triple }}-${{ hashFiles('backend/pyproject.toml') }}
 
-      # sidecar 产物缓存：命中（依赖未变）直接复用，跳过 PyInstaller
-      - name: Cache sidecar binary
+      # sidecar 产物缓存：命中（依赖未变）直接复用，跳过 PyInstaller。
+      # onedir 是整目录（可执行 + _internal/），缓存路径必须带上目录本身。
+      - name: Cache sidecar onedir
         id: sidecar-cache
         uses: actions/cache@v4
         with:
-          path: desktop/src-tauri/binaries/quantcell-backend-*
+          path: desktop/src-tauri/binaries/backend
           key: sidecar-${{ matrix.triple }}-${{ hashFiles('backend/uv.lock', 'backend/pyproject.toml', 'desktop/scripts/build-backend.sh') }}
 
       # ---------- 构建 ----------

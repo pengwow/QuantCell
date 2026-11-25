@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { getAccessToken, updateAccessToken, removeToken } from '../utils/tokenManager';
+import { desktopBypassAuth } from '../desktop/env';
 import { getApiBaseUrl, initializePortConfig, type PortConfig } from '../utils/portConfig';
 import type {
   LogQueryParams,
@@ -12,7 +13,7 @@ import type {
   CleanupResult,
 } from '../pages/setting/types';
 import type { StrategyInfo } from '../types/worker';
-import type { BacktestTask, BacktestDetailData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
+import type { BacktestTask, BacktestDetailData, BacktestSummaryData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
 import type { DecisionDetailRecord } from '../types/backtest';
 
 // ============================================
@@ -46,6 +47,11 @@ let isRedirecting = false;
 
 // 导出供非 axios 通道（如 XRequest 中间件）复用同一套 401 跳转逻辑
 export const handleUnauthorized = (): void => {
+  // 桌面 local 模式：sidecar 自启绑定 127.0.0.1，后端整体豁免鉴权。
+  // 个别未接豁免的端点返回 401 时跳登录页，只会把免登录用户踹出主界面
+  // （桌面实录：点击菜单经 notifications/inbox 401 被硬跳 /login）。
+  // 此处忽略，让页面按"无通知数据"降级。
+  if (desktopBypassAuth()) return;
   if (isRedirecting) return;
   isRedirecting = true;
 
@@ -468,12 +474,88 @@ export const apiRequest = {
   },
 };
 
+/** /strategy/overview 的参数键值项（name/default 必有，其余为展示用元数据，后端可能缺席） */
+export interface StrategyParamRecord {
+  name?: string;
+  type?: string;
+  default?: unknown;
+  description?: string;
+  min?: number | null;
+  max?: number | null;
+  options?: unknown[] | null;
+}
+
+/**
+ * /strategy/overview 单项契约（策略 × worker × 最近回测聚合；NULL 值一律由页面显示「—」）
+ * 契约字段 kind/interval/symbols/state/worker_count/latest_backtest 由后端聚合，
+ * 页面不得用 /strategy/list 硬拼这些语义（状态必须是 worker 聚合的投影）。
+ */
+export interface StrategyOverviewItem {
+  name: string;
+  description?: string;
+  version?: string;
+  tags?: string[];
+  params?: StrategyParamRecord[];
+  factors?: unknown[];
+  created_at?: string;
+  updated_at?: string;
+  source?: string;
+  strategy_type?: string;
+  strategy_class?: string;
+  kind?: 'rule' | 'rl' | 'llm';
+  interval?: string | null;
+  symbols?: string[] | null;
+  state?: 'live' | 'paper' | 'paused' | 'stopped' | 'error' | 'undeployed';
+  worker_count?: number;
+  latest_backtest?: { status: string; total_return: number | null; created_at: string } | null;
+  /** 后端线可能追加的累计回测次数；契约未定，缺席时详情 footer 隐藏该段（不造数） */
+  backtest_count?: number;
+  /** 版本快照条数（strategy_versions 真实计数；0 时详情 footer 整段不渲染） */
+  version_count?: number;
+}
+
+/** GET /strategy/{name}/versions 单项：只有元信息，后端不返回 code 全文 */
+export interface StrategyVersionItem {
+  id: number;
+  version: string | null;
+  code_hash: string;
+  created_at: string | null;
+  code_size: number;
+  /** 快照内容的行数（列表直接展示，不再为算行数去拉全文） */
+  code_lines: number;
+  /** 磁盘当前文件内容与该快照一致（外部改过文件则可能全为 false） */
+  is_current?: boolean;
+}
+
+/** GET /strategy/{name}/versions/{id}：快照全文（预览 / 对比用） */
+export interface StrategyVersionDetail extends StrategyVersionItem {
+  code: string;
+}
+
 /**
  * 策略相关 API
  */
 export const strategyApi = {
   getStrategies: (): Promise<{ strategies: StrategyInfo[] }> => {
     return apiRequest.get('/strategy/list');
+  },
+
+  /**
+   * 策略总览：/strategy/list 每项字段 + kind/interval/symbols/state/worker_count/latest_backtest 聚合。
+   * 端点由后端线提供；不可用时页面展示空态，不得回退 /strategy/list 伪造聚合列。
+   */
+  getStrategyOverview: (): Promise<{ strategies: StrategyOverviewItem[] }> => {
+    return apiRequest.get('/strategy/overview');
+  },
+
+  /** 策略版本历史时间线（倒序，只有元信息；完整 code 不在本接口契约内） */
+  getStrategyVersions: (name: string): Promise<{ count: number; versions: StrategyVersionItem[] }> => {
+    return apiRequest.get(`/strategy/${encodeURIComponent(name)}/versions`);
+  },
+
+  /** 单个版本快照全文（预览 / 对比；只读） */
+  getStrategyVersion: (name: string, snapshotId: number): Promise<StrategyVersionDetail> => {
+    return apiRequest.get(`/strategy/${encodeURIComponent(name)}/versions/${snapshotId}`);
   },
 
   createStrategy: <T>(data: T) => {
@@ -638,8 +720,13 @@ export const backtestApi = {
     strategy?: string;
     /** 来源过滤：'rl' 只取 rl_model:/rl_ensemble: 前缀策略的 RL 回测任务 */
     source?: string;
+    /** 策略类型过滤：rule/rl/llm（后端按策略文件 AST 判定，与「类型」列同源） */
+    kind?: 'rule' | 'rl' | 'llm';
     sort_by?: string;
     sort_order?: string;
+    /** 创建日期过滤起/止（含端点），YYYY-MM-DD（格式非法后端 422） */
+    start_time?: string;
+    end_time?: string;
   }): Promise<{ backtests: BacktestTask[]; total: number }> => {
     return apiRequest.get('/backtest/list', params);
   },
@@ -684,6 +771,11 @@ export const backtestApi = {
 
   getBacktestDetail: (backtestId: string, symbol?: string): Promise<BacktestDetailData> => {
     return apiRequest.get(`/backtest/${backtestId}`, symbol ? { symbol } : undefined);
+  },
+
+  // 行内轻摘要（列表行点击的部分详情）：任务级字段 + 组合级指标字典，无 trades/equity 大字段
+  getBacktestSummary: (backtestId: string): Promise<BacktestSummaryData> => {
+    return apiRequest.get(`/backtest/${backtestId}/summary`);
   },
 
   // 决策详情：按 (_seq, fingerprint) 定位单条录制行，返回完整录制内容（决策/快照/Prompt/模型原始输出）
@@ -1036,7 +1128,12 @@ export const notificationApi = {
   /**
    * 站内收件箱列表（按 id 倒序游标分页，携带未读/已读数）
    */
-  getInbox: (params?: { limit?: number; before_id?: number }): Promise<{
+  getInbox: (params?: {
+    limit?: number;
+    before_id?: number;
+    unread?: boolean;
+    task_type?: string;
+  }): Promise<{
     items: InboxNotificationItem[];
     unread_count: number;
     read_count: number;
@@ -1050,6 +1147,13 @@ export const notificationApi = {
    */
   markInboxRead: (): Promise<{ ok: boolean }> => {
     return apiRequest.post('/notifications/inbox/read-all');
+  },
+
+  /**
+   * 单条已读（任务类通知首次已读同时置归档），返回更新后的条目；404 由拦截器抛出
+   */
+  markInboxItemRead: (id: number): Promise<InboxNotificationItem> => {
+    return apiRequest.post(`/notifications/inbox/${id}/read`);
   },
 
   /**
@@ -1067,14 +1171,20 @@ export const notificationApi = {
   },
 };
 
-/** 站内收件箱条目（与后端 common/notifications/inbox.py::_to_dict 对齐） */
+/** 站内收件箱条目（与后端 common/notifications/inbox.py::_to_dict 对齐；
+ * metadata 仅 WS 实时推送携带（NotificationMessage.metadata 透传），REST 列表不返回 */
 export interface InboxNotificationItem {
   id: number;
   title: string;
   content: string;
   level: string; // NotificationLevel 枚举字符串：info/success/warning/error/critical
-  source: string; // NotificationCategory 枚举字符串：system/task/alert/trade/security
+  source: string; // NotificationCategory 或任务域：system/task/.../rl_train/factor_job/...
   created_at: string | null;
+  // 迁移 48 逐行语义：read = read_at 非空；任务类首次读置 processed（已读即归档）
+  read: boolean;
+  processed: boolean;
+  /** 任务终态元数据：{ task_type, task_id, status, name? }（仅 WS 推送） */
+  metadata?: Record<string, unknown>;
 }
 
 /**

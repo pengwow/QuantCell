@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App as AntdApp, Descriptions, Drawer, Space, Spin, Table, Tag } from 'antd';
+import { App as AntdApp, Descriptions, Drawer, Space, Spin, Table } from 'antd';
 import type { TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { modelApi, type ModelDetail, type ModelFeatureSpec, type UnifiedModelRow } from '@/api/modelApi';
@@ -95,7 +95,7 @@ export default function ModelDetailDrawer({ row, onClose }: ModelDetailDrawerPro
           <Descriptions title={t('mdd_sec_spec')} column={1} size="small" bordered items={Object.entries(specKv).map(([k, v]) => ({ key: k, label: k, children: v }))} />
           {detail.features && detail.features.length > 0 && (
             <>
-              <Tag>{t('mdd_feature_count', { n: detail.features.length })}</Tag>
+              <span className="qc-chip quiet qc-mono">{t('mdd_feature_count', { n: detail.features.length })}</span>
               <Table<ModelFeatureSpec>
                 size="small"
                 rowKey="name"

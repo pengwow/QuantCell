@@ -2,7 +2,9 @@
 """
 Agent 管理 CLI
 
-提供会话管理、工具管理、对话交互、工作空间、参数配置、高级操作等功能。
+当前口径：`tool` / `params` 两组命令为真实功能（反射 backend/agent 的工具注册表
+与参数配置）；`session` / `chat` / `workspace` / `action` 尚未接入实现，一律显式失败
+（`typer.Exit(1)` + 提示语），不做静默 no-op / 假成功。
 """
 
 import asyncio
@@ -10,6 +12,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 import typer
 
@@ -21,53 +24,17 @@ app = typer.Typer(help="Agent 管理命令行工具")
 
 WORKSPACE = Path(__file__).resolve().parent.parent / "workspace"
 
+_SESSION_HINT = (
+    "CLI 会话暂未接入持久层；请用 Web `/agent` 页的会话功能，"
+    "或直接使用 `backend/agent/session/manager.py` 的落盘实现（SessionManager）。"
+)
+_WORKSPACE_HINT = "workspace 功能规划中；文件读写请直接用 shell 或 Web `/agent` 页。"
 
-class SessionManager:
-    """会话管理器"""
 
-    def __init__(self):
-        self._sessions = {}
-
-    def list_sessions(self):
-        """列出所有会话"""
-        return list(self._sessions.values())
-
-    def get_session_info(self, session_id: str):
-        """获取会话信息"""
-        return self._sessions.get(session_id)
-
-    def create_session(self, name: str = ""):
-        """创建新会话"""
-        import uuid
-
-        session_id = f"session-{uuid.uuid4().hex[:8]}"
-        session = {
-            "id": session_id,
-            "name": name or f"会话 {session_id}",
-            "created_at": "2024-01-01T00:00:00",
-            "updated_at": "2024-01-01T00:00:00",
-            "message_count": 0,
-        }
-        self._sessions[session_id] = session
-        return session
-
-    def delete(self, session_id: str):
-        """删除会话"""
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            return True
-        return False
-
-    def get_history(self, session_id: str):
-        """获取会话历史"""
-        return {"history": [], "total_messages": 0}
-
-    def clear(self, session_id: str):
-        """清空会话"""
-        if session_id in self._sessions:
-            self._sessions[session_id]["message_count"] = 0
-            return True
-        return False
+def _not_implemented(feature: str, hint: str) -> NoReturn:
+    """显式失败：功能未实现，绝不静默返回 None / 打印假成功。"""
+    typer.echo(f"错误: {feature} 未实现。{hint}", err=True)
+    raise typer.Exit(1)
 
 
 def _get_tools_from_registry():
@@ -92,13 +59,14 @@ def _get_tools_from_registry():
 
 
 def _run_tool_async(tool_name: str, **kwargs):
-    """异步运行工具"""
+    """异步运行工具（未实现：CLI 侧尚未接入 Agent 工具执行）
 
-    async def _run():
-        return None
-
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(_run())
+    显式失败而不是静默返回 None，避免 action 子命令打印假的成功结果。
+    """
+    raise NotImplementedError(
+        f"action 子命令未实现：CLI 尚未接入 Agent 工具执行（请求工具: {tool_name}）。"
+        "查看工具与参数请用 `quantcell agent tool list` / `quantcell agent params ...`。"
+    )
 
 
 # ==================== Session 命令组 ====================
@@ -107,77 +75,37 @@ def _run_tool_async(tool_name: str, **kwargs):
 def session_list(
     format: str = typer.Option("text", "--format", "-f", help="输出格式 (text/json)"),
 ):
-    """列出所有会话"""
-    sm = SessionManager()
-    sessions = sm.list_sessions()
-
-    if not sessions:
-        typer.echo("暂无会话")
-        return
-
-    if format == "json":
-        typer.echo(json.dumps(sessions, ensure_ascii=False, indent=2))
-    else:
-        typer.echo(f"共 {len(sessions)} 个会话:")
-        for s in sessions:
-            typer.echo(f"  {s.get('key', s.get('id'))} - {s.get('updated_at', '')}")
+    """列出所有会话（未实现）"""
+    _not_implemented("agent session list", _SESSION_HINT)
 
 
 def session_info(
     session_id: str = typer.Argument(..., help="会话ID"),
 ):
-    """查看会话详情"""
-    sm = SessionManager()
-    info = sm.get_session_info(session_id)
-
-    if info is None:
-        typer.echo(f"会话 {session_id} 不存在")
-        raise typer.Exit(1)
-
-    typer.echo(json.dumps(info, ensure_ascii=False, indent=2))
+    """查看会话详情（未实现）"""
+    _not_implemented("agent session info", _SESSION_HINT)
 
 
 def session_create(
     name: str = typer.Option("", "--name", "-n", help="会话名称"),
 ):
-    """创建新会话"""
-    sm = SessionManager()
-    session = sm.create_session(name=name)
-    typer.echo(f"会话已创建: {json.dumps(session, ensure_ascii=False)}")
+    """创建新会话（未实现）"""
+    _not_implemented("agent session create", _SESSION_HINT)
 
 
 def session_delete(
     session_id: str = typer.Argument(..., help="会话ID"),
     force: bool = typer.Option(False, "--force", "-f", help="跳过确认"),
 ):
-    """删除会话"""
-    sm = SessionManager()
-
-    if not force:
-        confirm = typer.confirm(f"确认删除会话 '{session_id}'?")
-        if not confirm:
-            typer.echo("已取消")
-            return
-
-    success = sm.delete(session_id)
-    if success:
-        typer.echo(f"会话 {session_id} 已删除")
-    else:
-        typer.echo(f"会话 {session_id} 不存在")
-        raise typer.Exit(1)
+    """删除会话（未实现）"""
+    _not_implemented("agent session delete", _SESSION_HINT)
 
 
 def session_clear(
     session_id: str = typer.Argument(..., help="会话ID"),
 ):
-    """清空会话历史"""
-    sm = SessionManager()
-    success = sm.clear(session_id)
-    if success:
-        typer.echo(f"会话 {session_id} 已清空")
-    else:
-        typer.echo(f"会话 {session_id} 不存在")
-        raise typer.Exit(1)
+    """清空会话历史（未实现）"""
+    _not_implemented("agent session clear", _SESSION_HINT)
 
 
 # ==================== Tool 命令组 ====================
@@ -256,86 +184,36 @@ def chat_send(
 
 
 async def _run_chat(message: str, session_id: str | None):
-    """运行聊天"""
-    return None
+    """运行聊天（未实现：CLI 侧尚未接入 AgentLoop）
+
+    显式失败而不是静默返回 None，避免 `chat send` 打印「消息已发送」却什么都没做。
+    """
+    raise NotImplementedError(
+        "chat send 未实现：CLI 尚未接入 AgentLoop，请改用 `POST /api/v1/agent/chat/stream` 或 Web 前端对话。"
+    )
 
 
 def chat_history(
     session_id: str = typer.Argument(..., help="会话ID"),
 ):
-    """查看聊天历史"""
-    sm = SessionManager()
-    data = sm.get_history(session_id)
-
-    history = data.get("history", [])
-    if not history:
-        typer.echo("暂无历史消息")
-        return
-
-    for msg in history:
-        role = "用户" if msg.get("role") == "user" else "Agent"
-        typer.echo(f"{role}: {msg.get('content', '')}")
+    """查看聊天历史（未实现）"""
+    _not_implemented("agent chat history", _SESSION_HINT)
 
 
 # ==================== Workspace 命令组 ====================
 
 
 def workspace_list():
-    """列出工作空间文件"""
-    try:
-        # asyncio.run 每次新建事件循环，不依赖全局 loop 状态
-        # （get_event_loop().run_until_complete 在 Python 3.14 下已不可靠）
-        result = asyncio.run(_workspace_list())
-        data = json.loads(result)
-        files = data.get("files", [])
-        directories = data.get("directories", [])
-
-        if not files and not directories:
-            typer.echo("工作空间为空目录")
-            return
-
-        if directories:
-            typer.echo("目录:")
-            for d in directories:
-                typer.echo(f"  {d.get('name', '')}/")
-
-        if files:
-            typer.echo("文件:")
-            for f in files:
-                size = f.get("size", 0)
-                typer.echo(f"  {f.get('name', '')} ({size} bytes)")
-    except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
-
-
-async def _workspace_list():
-    """列出工作空间"""
-    return json.dumps({"files": [], "directories": []})
+    """列出工作空间文件（未实现）"""
+    _not_implemented("agent workspace list", _WORKSPACE_HINT)
 
 
 def workspace_cat(
     file_name: str = typer.Argument(..., help="文件名"),
 ):
-    """查看工作空间文件内容"""
-    file_path = WORKSPACE / file_name
-    if not file_path.exists():
-        typer.echo(f"文件 {file_name} 不存在")
-        raise typer.Exit(1)
-
-    try:
-        content = asyncio.run(_workspace_cat(file_path))
-        typer.echo(content)
-    except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
-
-
-async def _workspace_cat(file_path):
-    """读取文件内容"""
-    if file_path.exists() and file_path.is_file():
-        return file_path.read_text()
-    return ""
+    """查看工作空间文件内容（未实现）"""
+    # 不再走 `WORKSPACE / file_name` 的必然失败路径（backend/workspace 不存在）
+    _not_implemented("agent workspace cat", _WORKSPACE_HINT)
 
 
 def workspace_clean(

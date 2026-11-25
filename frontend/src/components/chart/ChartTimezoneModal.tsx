@@ -46,6 +46,7 @@ const ChartTimezoneModal: React.FC<ChartTimezoneModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={t('chart.timezone.title', '时区')}
       open={open}
       onCancel={onClose}

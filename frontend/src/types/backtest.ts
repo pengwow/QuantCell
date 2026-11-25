@@ -124,6 +124,54 @@ export interface BacktestTask {
   intervals?: string[];
   engine_type?: string;
   updated_at?: string;
+  /** 回测区间起止（任务行 config 透传；老任务缺 config 时无此字段，UI 显示「—」） */
+  start_time?: string;
+  end_time?: string;
+  /** 订单数（metrics_summary.metrics.total_trades；v1 旧摘要无此键 → undefined，UI 显示「—」） */
+  total_trades?: number;
+  /** 策略类型（rule/rl/llm，后端按策略文件 AST 判定；rl_model:/rl_ensemble: 前缀归 rl；
+   *  策略已删且无记录 → null，UI 显示「—」，不按名字猜） */
+  strategy_kind?: 'rule' | 'rl' | 'llm' | null;
+  /** 自选组来源（任务 config.pool_id 原样入库）；非自选组/老任务 → null */
+  pool_id?: number | null;
+  /** 自选组名（后端按 pool_id 页内批量查 data_pools；池已删 → null） */
+  pool_name?: string | null;
+  /** 真实执行耗时（秒）：DB started_at/completed_at 齐全才算，否则 null（UI 显示「—」） */
+  elapsed_seconds?: number | null;
+}
+
+// 回测行内轻摘要接口（GET /backtest/{id}/summary）：任务级字段 + 组合级指标字典，
+// 不含 trades/equity 大字段（结果 JSON 可达几百 MB，行点击交互不允许整包传输）
+export interface BacktestSummaryData {
+  id: string;
+  strategy_name: string;
+  status: string;
+  symbols?: string[];
+  intervals?: string[];
+  engine_type?: string;
+  created_at?: string;
+  updated_at?: string;
+  /** 组合级指标 key→value（与详情页组合视图 metrics 同源；failed/running 常为空） */
+  metrics: Record<string, number | string>;
+  /** 回测配置（任务文件常缺，从 DB 任务行补全；缺哪些键就省略哪些段） */
+  backtest_config?: {
+    symbols?: string[];
+    interval?: string;
+    start_time?: string;
+    end_time?: string;
+    initial_cash?: number;
+    commission?: number;
+    capital_mode?: string;
+    [key: string]: unknown;
+  };
+  /** 耗时（秒）：仅 completed 且后端起止时间齐全时存在 */
+  elapsed_seconds?: number;
+  /**
+   * 权益曲线采样点 [[ts_ms, equity], ...]：仅 completed 返回（可能为空数组 =
+   * 后端查过但任务无曲线）；服务端均匀降采样 ≤200 点并保首尾，只够画趋势，
+   * 全分辨率曲线仍走详情页
+   */
+  equity?: [number, number][];
 }
 
 // 回测详情数据接口

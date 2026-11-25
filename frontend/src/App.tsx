@@ -1,4 +1,4 @@
-import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 // locale 必须走 antd/es 深路径：antd v6 根路径 antd/locale/* 是 CJS 转发文件，
 // vite 依赖预打包做 CJS interop 时会产生双层 default 包装（实际传入 { default: {...} }），
 // 导致 ConfigProvider 下所有内置文案（分页"条/页"、日期选择器等）回退英文
@@ -6,7 +6,7 @@ import zhCN from 'antd/es/locale/zh_CN';
 import enUS from 'antd/es/locale/en_US';
 import { useTranslation } from 'react-i18next';
 import type { MessageInstance } from 'antd/es/message/interface';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DynamicRouter } from './router/DynamicRouter';
 import CrashMask from './desktop/CrashMask';
@@ -17,10 +17,40 @@ import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
 import { RESEARCH_BUDGET_EXHAUSTED_STAGE, researchWsService } from './services/researchWs';
 import type { InboxNotificationItem } from './api';
+import { taskNotificationRoute } from './utils/taskRoutes';
 import { PluginProvider } from './plugins';
+import { applyThemeVars, paletteToTradingToken, themeAlgorithm } from './theme';
 import './i18n/config';
 import './global.css';
 import './index.css';
+
+/**
+ * ConfigProvider 主题基座（组件外定义，单点维护）：
+ * - algorithm 仍随亮暗切换（唯一动态部分）；
+ * - token 由 palette 派生（品牌色唯一真相源 = src/theme/builtin.ts），再叠加 design-spec §3/§10.2
+ *   的紧凑排印与几何（13px 正文 / 32px 控件 / 8-10 圆角 / 1.6 行高）；
+ * - Layout 底色统一透明，页面底色交给 --qc-canvas / background 控制。
+ * 树内 ConfigProvider 与 holderRender（静态 message/Modal）共用本函数，避免两处漂移。
+ */
+const baseTheme = (mode: 'light' | 'dark') => ({
+  algorithm: themeAlgorithm(mode),
+  token: {
+    ...paletteToTradingToken(mode),
+    fontSize: 13,
+    controlHeight: 32,
+    borderRadius: 8,
+    borderRadiusLG: 10,
+    lineHeight: 1.6,
+    fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif',
+  },
+  components: {
+    Layout: {
+      bodyBg: 'transparent',
+      headerBg: 'transparent',
+      siderBg: 'transparent',
+    },
+  },
+});
 
 function App() {
   const { i18n } = useTranslation();
@@ -61,11 +91,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 监听主题变化
+    // 监听主题变化：.dark class 是模式开关的唯一真相（index.html 首帧脚本 / useBrowserTheme / 设置页都改它），
+    // 任一路径触发时同步重写 CSS 变量 + 通知 React 侧 isDarkMode
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.attributeName === 'class') {
           const isDark = document.documentElement.classList.contains('dark');
+          applyThemeVars(isDark ? 'dark' : 'light');
           setIsDarkMode(isDark);
         }
       });
@@ -79,46 +111,10 @@ function App() {
     return () => observer.disconnect();
   }, []);
 
-  // ponytail: 量化交易语义色，集中在 ConfigProvider token 里作为单一真相源。
-  // 各组件（QUANT_COLORS、ECharts、MetricCard）通过 theme.useToken() 取色，
-  // 禁止在子组件里硬编码 QUANT_COLORS.positive / QUANT_COLORS.negative / QUANT_COLORS.info 等 antd v5 风格颜色。
-  const tradingToken = useMemo(() => (isDarkMode
-    ? {
-        // 暗色模式
-        colorPrimary: '#f97316',
-        colorInfo: '#478be6',
-        colorSuccess: '#57ab5a',   // 正收益 / 盈利
-        colorWarning: '#daaa3f',
-        colorError: '#e5534b',     // 负收益 / 亏损
-        colorBgBase: '#17191c',
-        colorTextBase: '#fafaf9',
-        // Chart/ECharts 专用
-        colorChartLine: '#478be6',
-        colorChartAxis: '#4b5563',
-        colorChartSplit: '#374151',
-        colorChartMark: '#9ca3af',
-        colorChartGradientStart: 'rgba(71, 139, 230, 0.35)',
-        colorChartGradientEnd: 'rgba(71, 139, 230, 0.04)',
-        colorDrawdownArea: 'rgba(229, 83, 75, 0.18)',
-      }
-    : {
-        // 亮色模式
-        colorPrimary: '#ea580c',
-        colorInfo: '#0969da',
-        colorSuccess: '#1a7f37',
-        colorWarning: '#eac54f',
-        colorError: '#d1242f',
-        colorBgBase: '#ffffff',
-        colorTextBase: '#141414',
-        // Chart/ECharts 专用
-        colorChartLine: '#0969da',
-        colorChartAxis: '#d1d5db',
-        colorChartSplit: '#e5e7eb',
-        colorChartMark: '#9ca3af',
-        colorChartGradientStart: 'rgba(9, 105, 218, 0.25)',
-        colorChartGradientEnd: 'rgba(9, 105, 218, 0.02)',
-        colorDrawdownArea: 'rgba(209, 36, 47, 0.12)',
-      }), [isDarkMode]);
+  // ponytail: 交易语义色一切以 src/theme/palettes.ts 为准（品牌色唯一真相源）。
+  // 这里只做 palette → antd token 的渠道映射；各组件（QUANT_COLORS、ECharts、MetricCard）
+  // 通过 theme.useToken() / useQuantColors() 取色，禁止在子组件里硬编码颜色值。
+  const appTheme = useMemo(() => baseTheme(isDarkMode ? 'dark' : 'light'), [isDarkMode]);
 
   // 静态方法主题桥接：message/notification/Modal 的静态调用通过独立 render 创建弹窗 DOM，
   // 不消费 React 树内 ConfigProvider 的动态主题（dev 下会报
@@ -127,34 +123,15 @@ function App() {
   useEffect(() => {
     ConfigProvider.config({
       holderRender: (node) => (
-        <ConfigProvider
-          locale={antdLocale}
-          theme={{
-            algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-            token: tradingToken,
-          }}
-        >
+        <ConfigProvider locale={antdLocale} theme={appTheme}>
           {node}
         </ConfigProvider>
       ),
     });
-  }, [isDarkMode, tradingToken, antdLocale]);
+  }, [appTheme, antdLocale]);
 
   return (
-    <ConfigProvider
-      locale={antdLocale}
-      theme={{
-        algorithm: isDarkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: tradingToken,
-        components: {
-          Layout: {
-            bodyBg: 'transparent',
-            headerBg: 'transparent',
-            siderBg: 'transparent',
-          },
-        },
-      }}
-    >
+    <ConfigProvider locale={antdLocale} theme={appTheme}>
       <AntdApp>
         <BrowserRouter>
           <PluginProvider>
@@ -227,12 +204,20 @@ function ResearchEventBridge() {
  */
 function NotificationBridge() {
   const { notification } = AntdApp.useApp();
+  const navigate = useNavigate();
   const bumpUnread = useNotificationStore((s) => s.bumpUnread);
 
   useEffect(() => {
     const handler = (data: unknown) => {
       const payload = data as
-        | { title?: string; content?: string; level?: string; source?: string; created_at?: string }
+        | {
+            title?: string;
+            content?: string;
+            level?: string;
+            source?: string;
+            created_at?: string;
+            metadata?: Record<string, unknown>;
+          }
         | undefined;
       if (!payload?.title) return;
 
@@ -244,11 +229,20 @@ function NotificationBridge() {
         level: payload.level ?? 'info',
         source: payload.source ?? 'system',
         created_at: payload.created_at ?? null,
+        read: false,
+        processed: false,
+        metadata: payload.metadata,
       };
       bumpUnread(item);
 
+      // 任务类通知点击浮层直达详情页（兜底逻辑见 taskRoutes.ts 头注释）
+      const route = taskNotificationRoute(payload.source ?? '', {
+        id: typeof payload.metadata?.task_id === 'string' ? payload.metadata.task_id : null,
+        detail: payload.metadata,
+      });
+
       // 浮层按 level 分级：info/success 自动关，error/critical 常驻需手动关
-      const byLevel: Record<string, (cfg: { message: string; description?: string; duration?: number }) => void> = {
+      const byLevel: Record<string, (cfg: { message: string; description?: string; duration?: number; onClick?: () => void }) => void> = {
         info: notification.info,
         success: notification.success,
         warning: notification.warning,
@@ -260,13 +254,14 @@ function NotificationBridge() {
         message: payload.title,
         description: payload.content || undefined,
         duration: payload.level === 'error' || payload.level === 'critical' ? 0 : 4.5,
+        ...(route ? { onClick: () => navigate(route) } : {}),
       });
     };
 
     // 消息结构 {type:'notification', data:{...}}，wsService 对未知 type 走 fallback 分发
     wsService.on('notification', handler);
     return () => wsService.off('notification', handler);
-  }, [notification, bumpUnread]);
+  }, [notification, bumpUnread, navigate]);
 
   return null;
 }

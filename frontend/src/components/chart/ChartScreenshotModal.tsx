@@ -23,6 +23,7 @@ const ChartScreenshotModal: React.FC<ChartScreenshotModalProps> = ({ open, onClo
 
   return (
     <Modal
+      className="qc-modal"
       title={t('chart.screenshot.title', '图表截图')}
       open={open}
       onCancel={onClose}

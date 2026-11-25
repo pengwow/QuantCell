@@ -1,4 +1,3 @@
-import { QUANT_COLORS } from '@/utils/colors';
 /**
  * Worker Create Modal
  *
@@ -6,7 +5,7 @@ import { QUANT_COLORS } from '@/utils/colors';
  * 包含表单验证、策略选择、交易所配置等功能
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   Form,
@@ -27,13 +26,12 @@ import {
   PlusOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
-  StarFilled,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
+import { buildWorkerName } from './workerName';
 import { strategyApi, configApi } from '../../api';
-import { dataApi, type DataPoolRecord, type CryptoSymbol } from '../../api/dataApi';
 import { upsertRiskControl } from '../../api/workerApi';
 import RiskControlForm, {
   EMPTY_RISK_VALUES,
@@ -43,6 +41,7 @@ import RiskControlForm, {
   type RiskFormValues,
 } from './RiskControlForm';
 import type { CreateWorkerRequest, StrategyInfo, StrategyParameter } from '../../types/worker';
+import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -128,15 +127,6 @@ interface WorkerCreateModalProps {
   onSuccess?: () => void;
 }
 
-// 交易标的选项（数据池 / 直接货币对）
-interface SymbolOption {
-  label: React.ReactNode;
-  value: string;
-  type: 'data_pool' | 'direct_symbol';
-  symbols?: string[];
-  poolName?: string;
-}
-
 const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   visible,
   onCancel,
@@ -145,7 +135,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [form] = Form.useForm();
-  const { createWorker } = useWorkerStore();
+  const { createWorker, workers } = useWorkerStore();
 
   const [loading, setLoading] = useState(false);
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
@@ -155,20 +145,21 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const [loadingExchanges, setLoadingExchanges] = useState(false);
 
   // 交易相关
-  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>([]);
-  const [loadingSymbols, setLoadingSymbols] = useState(false);
 
   // 策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
   const [loadingParams, setLoadingParams] = useState(false);
   const [, setSelectedStrategyId] = useState<number | null>(null);
 
+  // Worker名称自动生成：用户手输过就不再覆盖（onChange 只在真实键入时触发，
+  // setFieldValue 不触发，正好用作"是否手输"的判定标志）
+  const nameTouchedByUserRef = useRef(false);
+
   // 获取所有数据
   useEffect(() => {
     if (visible) {
       fetchStrategies();
       fetchExchanges();
-      fetchSymbolsAndGroups();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [visible]);
@@ -244,114 +235,15 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     }
   };
 
-  // 获取交易对和自选组 - 参考数据管理页面的实现
-  const fetchSymbolsAndGroups = async () => {
-    setLoadingSymbols(true);
-    try {
-      // 使用 getCollectionSymbols 接口获取数据池和直接交易标的
-      const response = await dataApi.getCollectionSymbols({
-        type: 'crypto',
-      });
-
-      console.log('getCollectionSymbols response:', response);
-
-      const dataPoolOptions: SymbolOption[] = [];
-      let directSymbolOptions: SymbolOption[] = [];
-
-      if (response) {
-        // 数据池（自选组）- 只显示组名，不展开内部货币对
-        const dataPools = response.data_pools ?? [];
-        dataPools.forEach((pool: DataPoolRecord) => {
-          dataPoolOptions.push({
-            label: (
-              <Space>
-                <StarFilled style={{ color: QUANT_COLORS.warning }} />
-                <span>{pool.name}</span>
-                <span style={{ color: '#999', fontSize: 12 }}>({t('favorite_group')})</span>
-              </Space>
-            ),
-            value: `pool_${pool.id}`,
-            type: 'data_pool',
-            symbols: pool.symbols || [],
-            poolName: pool.name,
-          });
-        });
-
-        // 直接交易标的
-        const directSymbols = response.direct_symbols ?? [];
-        directSymbols.forEach((symbol: string) => {
-          directSymbolOptions.push({
-            label: symbol,
-            value: symbol,
-            type: 'direct_symbol',
-          });
-        });
-      }
-
-      // 如果 direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对
-      if (directSymbolOptions.length === 0) {
-        console.log('direct_symbols 为空，尝试使用 getCryptoSymbols 获取全部货币对');
-        try {
-          const cryptoResponse = await dataApi.getCryptoSymbols({
-            limit: 2000,
-            offset: 0,
-          });
-          console.log('getCryptoSymbols response:', cryptoResponse);
-
-          // API 已经通过拦截器解包，response 直接是 data 字段的内容
-          // 结构为: { symbols: [...], total: ..., offset: ..., limit: ..., exchange: ... }
-          const symbolList = cryptoResponse.symbols ?? cryptoResponse.data?.symbols ?? [];
-
-          if (Array.isArray(symbolList)) {
-            directSymbolOptions = symbolList.map((item: CryptoSymbol) => {
-              const symbolValue = item.symbol || String(item);
-              return {
-                label: symbolValue,
-                value: symbolValue,
-                type: 'direct_symbol',
-              };
-            });
-          }
-        } catch (cryptoError) {
-          console.error('获取全部货币对失败:', cryptoError);
-        }
-      }
-
-      console.log('dataPoolOptions:', dataPoolOptions);
-      console.log('directSymbolOptions:', directSymbolOptions);
-
-      // 合并选项：数据池在前，直接交易标的在后
-      setSymbolOptions([...dataPoolOptions, ...directSymbolOptions]);
-    } catch (error) {
-      console.error('获取交易对失败:', error);
-      setSymbolOptions([]);
-    } finally {
-      setLoadingSymbols(false);
-    }
-  };
-
   // 处理表单提交
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       setLoading(true);
 
-      // 处理交易标的：多选值可能是直接货币对或 pool_ 前缀的自选组，统一展开为大写货币对数组
+      // 自选组已由 SymbolSelect 在选择时展开成组内标的；统一大写后提交
       const selectedValues: string[] = values.symbol || [];
-      const expandedSymbols: string[] = [];
-      for (const item of selectedValues) {
-        if (item.startsWith('pool_')) {
-          // 自选组展开为组内全部货币对
-          const pool = symbolOptions.find((opt) => opt.value === item);
-          if (pool?.symbols?.length) {
-            expandedSymbols.push(...pool.symbols);
-          }
-        } else {
-          expandedSymbols.push(item);
-        }
-      }
-      // 去重 + 统一大写（后端按扩写后的符号列表启动独立策略实例）
-      const symbols = Array.from(new Set(expandedSymbols.map((s) => s.toUpperCase())));
+      const symbols = Array.from(new Set(selectedValues.map((s) => s.toUpperCase())));
       if (symbols.length === 0) {
         message.error(t('worker_select_valid_trading_target'));
         return;
@@ -376,7 +268,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       });
 
       const requestData: CreateWorkerRequest = {
-        name: values.name,
+        // 选策略时已自动生成（或用户手改）；此处兜底用户清空后直接提交的场景
+        name: (values.name || '').trim() || buildWorkerName(
+          selectedStrategy?.name || '',
+          workers.map((w) => w.name)
+        ),
         description: values.description,
         strategy_id: strategyId,
         strategy_file_name: strategyFileName,  // 策略文件名
@@ -412,6 +308,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         }
         message.success(t('worker_create_success'));
         form.resetFields();
+        nameTouchedByUserRef.current = false;
         setStrategyParams([]);
         setSelectedStrategyId(null);
         onSuccess?.();
@@ -428,6 +325,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // 处理取消
   const handleCancel = () => {
     form.resetFields();
+    nameTouchedByUserRef.current = false;
     setStrategyParams([]);
     setSelectedStrategyId(null);
     onCancel();
@@ -435,6 +333,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 
   return (
     <Modal
+      className="qc-modal"
       title={
         <Space>
           <PlusOutlined />
@@ -460,6 +359,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     >
       <Form
         form={form}
+        className="qc-form"
         layout="vertical"
         initialValues={{
           market_type: 'futures',
@@ -474,21 +374,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         <Divider>{t('basic_info')}</Divider>
 
         <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              name="name"
-              label={t('worker_name')}
-              rules={[
-                { required: true, message: t('worker_name_required') },
-                { max: 50, message: t('worker_name_max_length') },
-              ]}
-            >
-              <Input
-                placeholder={t('worker_name_placeholder')}
-                prefix={<InfoCircleOutlined />}
-              />
-            </Form.Item>
-          </Col>
           <Col span={12}>
             <Form.Item
               name="strategy_id"
@@ -520,6 +405,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 onChange={(value: number) => {
                   setSelectedStrategyId(value);
                   fetchStrategyParams(value);
+                  // 名称未手输时按所选策略自动生成（策略名+短码，避开现有 Worker 名单）
+                  if (!nameTouchedByUserRef.current) {
+                    // 与下方 Option 的 value 逻辑一致：无 id 策略用名称 hash 当 id
+                    const hashName = (n: string) =>
+                      Math.abs(n.split('').reduce((a: number, b: string) => {
+                        a = ((a << 5) - a) + b.charCodeAt(0);
+                        return a & a;
+                      }, 0)) % 2147483647 + 1;
+                    const strategy = strategies.find(
+                      (s) => (s.id !== undefined && s.id !== null ? s.id : hashName(s.name)) === value
+                    );
+                    if (strategy) {
+                      form.setFieldValue(
+                        'name',
+                        buildWorkerName(strategy.name, workers.map((w) => w.name))
+                      );
+                    }
+                  }
                 }}
               >
                 {strategies
@@ -544,7 +447,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                           {strategy.description && (
                             <span
                               style={{
-                                color: '#999',
+                                color: 'var(--qc-text-tertiary)',
                                 fontSize: 12,
                                 marginLeft: 8,
                                 overflow: 'hidden',
@@ -560,6 +463,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                     );
                   })}
               </Select>
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
+              name="name"
+              label={t('worker_name')}
+              rules={[
+                { max: 50, message: t('worker_name_max_length') },
+              ]}
+            >
+              <Input
+                placeholder={t('worker_name_placeholder')}
+                prefix={<InfoCircleOutlined />}
+                // 用户键入后不再被选策略的自动生成覆盖
+                onChange={() => {
+                  nameTouchedByUserRef.current = true;
+                }}
+              />
             </Form.Item>
           </Col>
         </Row>
@@ -585,7 +506,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
-            <Card size="small" variant="borderless" style={{ background: '#fafafa', marginBottom: 16 }}>
+            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
               <Row gutter={[12, 12]}>
                 {strategyParams.map((param) => (
                   <Col span={12} key={param.param_name}>
@@ -596,7 +517,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                           <span>{param.param_name}</span>
                           {param.description && (
                             <Tooltip title={param.description}>
-                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                              <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
                             </Tooltip>
                           )}
                         </Space>
@@ -649,31 +570,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               }
               rules={[{ required: true, message: t('please_select_trading_target') }]}
             >
-              <Select
+              <SymbolSelect
                 mode="multiple"
                 placeholder={t('select_trading_target')}
-                loading={loadingSymbols}
-                showSearch
-                allowClear
-                filterOption={(input, option) => {
-                  if (!input) return true;
-                  // 搜索时同时搜索 value 和 label
-                  const value = option?.value as string;
-                  const children = option?.children;
-                  const labelText = typeof children === 'string' ? children : value;
-                  return (
-                    value?.toLowerCase().includes(input.toLowerCase()) ||
-                    labelText?.toLowerCase().includes(input.toLowerCase())
-                  );
-                }}
-                notFoundContent={loadingSymbols ? <Spin size="small" /> : t('no_trading_target')}
-              >
-                {symbolOptions.map((option) => (
-                  <Option key={option.value} value={option.value}>
-                    {option.label}
-                  </Option>
-                ))}
-              </Select>
+                notFoundContent={t('no_trading_target')}
+              />
             </Form.Item>
           </Col>
         </Row>

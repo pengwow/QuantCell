@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, Modal, Spin, App } from 'antd';
+import { Card, Input, Modal, Spin, App } from 'antd';
 import type { KLineData } from 'klinecharts';
 import { dataApi } from '../../api/dataApi';
 import { backtestApi } from '../../api';
 import * as realtimeApi from '../../api/realtimeApi';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
+import PageContainer from '../../components/PageContainer';
 import ChartShell, { type ChartShellHandle } from '../../components/chart/ChartShell';
-import { PERIOD_BAR_ITEMS } from '../../components/chart/chartConstants';
+import { PERIOD_BAR_ITEMS, formatUtcBarTime } from '../../components/chart/chartConstants';
 import { OrderBookPanel } from '../../components/chart/orderbook/OrderBookPanel';
 import { TradeTape } from '../../components/chart/orderbook/TradeTape';
 import type { FillPoint } from '../../components/chart/orderbook/fillMarkers';
@@ -98,6 +99,32 @@ const toSymbols = (list: ProductItem[]): Symbol[] =>
     base: item.base,
   }));
 
+// 页头现价块数据（demo px-box 语义）：价格 = 末根 close，涨跌 = 末根/前根 close - 1
+interface PxInfo {
+  close: number;
+  prevClose: number;
+  /** 末根 bar 时间戳（ms epoch，用于 px_tag 的 UTC 时间） */
+  ts: number;
+}
+
+// 现价块口径（demo 已验证：68412.5/67991-1 = +0.6198%）：数据不足 2 根或 close 非有限数 → null，整块不渲染
+const computePxInfo = (bars: KLineData[]): PxInfo | null => {
+  if (!bars || bars.length < 2) return null;
+  const last = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
+  const close = Number(last.close);
+  const prevClose = Number(prev.close);
+  if (!(close > 0) || !(prevClose > 0)) return null;
+  return { close, prevClose, ts: last.timestamp };
+};
+
+// px_tag 时间段（OHLC 联动条同用）：ms → UTC "MM-DD HH:mm"，统一走 chartConstants 的 formatUtcBarTime
+// （直接读 getUTC* 字段，不动 dayjs 全局 UTC 配置）；页面内沿用旧名少改调用点
+const formatUtcTime = formatUtcBarTime;
+
+// 千分位形制与 demo 68,412.5 同构；8 位小数上限兜底低价品种
+const pxPriceFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 });
+
 /**
  * 实时图表页：只负责数据加载、实时订阅队列、品种搜索与系统配置自动连接。
  * 图表实例、指标、画图、周期栏、设置等通用能力全部由共享壳 ChartShell 承载
@@ -154,6 +181,8 @@ const ChartPage = () => {
   const klineDataRef = useRef<KLineData[]>([]);
   // K线请求序号：品种/周期切换并发拉取时，只有最后一次请求允许写回 klineDataRef（防旧响应盖新图）
   const klineReqSeqRef = useRef(0);
+  // 页头现价块（右上「标的 · 时间 UTC 收盘 + 价格 + 涨跌」）：ref 不触发渲染，用该 state 承载数据变化
+  const [pxInfo, setPxInfo] = useState<PxInfo | null>(null);
 
   // 保存用户偏好：写后端 chart.uiPrefs（800ms 防抖合并，见 services/chartPreferences）
   const saveUserPreferences = (symbol: string, interval: string) => {
@@ -180,6 +209,7 @@ const ChartPage = () => {
         // types/data 的 KlineData 与 klinecharts KLineData 字段一致（后者多 volume?/turnover? 可选字段与索引签名），此处做受控断言
         klineDataRef.current = data as unknown as KLineData[];
         shellRef.current?.refreshData();
+        setPxInfo(computePxInfo(klineDataRef.current));
       }
     } catch (error) {
       // 过时请求的失败同样静默丢弃，避免已被取代的旧请求误报错误
@@ -202,6 +232,11 @@ const ChartPage = () => {
     }
     preferSavingRef.current = true;
   }, [currentSymbol, currentPeriod, loadKlineData]);
+
+  // 切品种/周期即清现价块：旧 close 属旧数据，新数据到位前不得闪现（到位后由 loadKlineData 重设）
+  useEffect(() => {
+    setPxInfo(null);
+  }, [currentSymbol.code, currentPeriod]);
 
   // 组件挂载时读取图表偏好：恢复周期；品种需与商品列表对账取完整 Symbol 对象
   useEffect(() => {
@@ -534,6 +569,7 @@ const ChartPage = () => {
       } else {
         klineDataRef.current = currentData;
       }
+      setPxInfo(computePxInfo(klineDataRef.current));
 
       requestAnimationFrame(() => {
         // 数据已在 klineDataRef 更新完毕，通知壳重新喂数（setDataLoader + resize）
@@ -601,57 +637,91 @@ const ChartPage = () => {
     setIsRealtimeActive(isActive);
   };
 
+  // 现价块派生：涨跌方向（末根>前根涨 / <前根跌 / 相等中性）；文案正数带 +，0 不带符号
+  const pxPct = pxInfo ? (pxInfo.close / pxInfo.prevClose - 1) * 100 : 0;
+  const pxUp = pxPct > 0;
+  const pxDown = pxPct < 0;
+
   return (
     <>
-      <ChartShell
-        ref={shellRef}
-        chartId="language-k-line"
-        symbol={currentSymbol}
-        periods={PERIOD_BAR_ITEMS}
-        currentPeriod={currentPeriod}
-        onChangePeriod={handleChangePeriod}
-        getBars={() => klineDataRef.current}
-        onOpenSymbolSearch={() => setSearchVisible(true)}
-        realtimeSlot={
-          <RealtimeToggleButton
-            symbol={currentSymbol.code}
-            interval={currentPeriod.toLowerCase()}
-            defaultRealtimeEnabled={systemConfig.realtime_enabled}
-            onRealtimeData={handleRealtimeData}
-            onStatusChange={handleRealtimeStatusChange}
+      <PageContainer
+        className="chart-page-wrap"
+        title={t('chart')}
+        /* mono 真值副标：市场 + 当前品种 + 引擎数据模式（getRealtimeConfig 真值，非装饰文案） */
+        subtitle={t('chart.page.sub', { mode: systemConfig.data_mode })}
+        actions={
+          // 页头动作区只留现价块（与 demo #view-charts 的 .page-actions.px-box 同构）：
+          // 「切换品种」在图表卡片顶部 select 已有入口（onOpenSymbolSearch），
+          // 「刷新」由实时 WS + 切周期/切品种自动拉取覆盖，不再留死钮
+          pxInfo && (
+            <div className="chart-px-box">
+              <span className="chart-px-tag qc-mono">
+                {t('chart.page.px_tag', { symbol: currentSymbol.name, time: formatUtcTime(pxInfo.ts) })}
+              </span>
+              <div className="chart-px-line">
+                <span className={`chart-px-num qc-mono${pxUp ? ' up' : pxDown ? ' down' : ''}`}>
+                  {pxPriceFmt.format(pxInfo.close)}
+                </span>
+                <span className={`qc-chip ${pxUp ? 'ok' : pxDown ? 'down' : 'quiet'}`}>
+                  {`${pxPct > 0 ? '+' : ''}${pxPct.toFixed(2)}%`}
+                </span>
+              </div>
+            </div>
+          )
+        }
+      >
+        <Card className="qc-card chart-card">
+          <ChartShell
+            ref={shellRef}
+            chartId="language-k-line"
+            symbol={currentSymbol}
+            periods={PERIOD_BAR_ITEMS}
+            currentPeriod={currentPeriod}
+            onChangePeriod={handleChangePeriod}
+            getBars={() => klineDataRef.current}
+            onOpenSymbolSearch={() => setSearchVisible(true)}
+            realtimeSlot={
+              <RealtimeToggleButton
+                symbol={currentSymbol.code}
+                interval={currentPeriod.toLowerCase()}
+                defaultRealtimeEnabled={systemConfig.realtime_enabled}
+                onRealtimeData={handleRealtimeData}
+                onStatusChange={handleRealtimeStatusChange}
+              />
+            }
+            indicatorScope="all"
+            loading={loading}
+            error={error}
+            rightPanelSlot={
+              // 「订单簿面板」是右栏总开关：关闭即整体卸载右栏（含成交流水），
+              // K线图 flex 自动铺满释放的横向空间；重新开启时右栏恢复，图表自动缩回。
+              // 布局偏好由 saveOrderbookPrefs 持久化到后端，下次进入自动套用
+              orderbookPrefs?.panel ? (
+                // 右栏子块为原生元素，间距用 gap；成交流水从属于面板开关
+                <>
+                  <OrderBookPanel symbol={wsSymbol} depthLevels={orderbookPrefs.depthLevels} />
+                  {orderbookPrefs.tradeTape && <TradeTape symbol={wsSymbol} />}
+                </>
+              ) : null
+            }
+            depthData={depthData}
+            orderbookModalProps={
+              orderbookPrefs
+                ? {
+                    orderbook: orderbookPrefs,
+                    onOrderbookChange: updateOrderbookPrefs,
+                    backtestOptions,
+                  }
+                : undefined
+            }
+            backtestFills={backtestFills}
           />
-        }
-        indicatorScope="all"
-        loading={loading}
-        error={error}
-        rightPanelSlot={
-          // 「订单簿面板」是右栏总开关：关闭即整体卸载右栏（含成交流水），
-          // K线图 flex 自动铺满释放的横向空间；重新开启时右栏恢复，图表自动缩回。
-          // 布局偏好由 saveOrderbookPrefs 持久化到后端，下次进入自动套用
-          orderbookPrefs?.panel ? (
-            // 右栏子块为原生元素，间距用 gap；成交流水从属于面板开关
-            <>
-              <OrderBookPanel symbol={wsSymbol} depthLevels={orderbookPrefs.depthLevels} />
-              {orderbookPrefs.tradeTape && <TradeTape symbol={wsSymbol} />}
-            </>
-          ) : null
-        }
-        depthData={depthData}
-        orderbookModalProps={
-          orderbookPrefs
-            ? {
-                orderbook: orderbookPrefs,
-                onOrderbookChange: updateOrderbookPrefs,
-                backtestOptions,
-              }
-            : undefined
-        }
-        backtestFills={backtestFills}
-      />
+        </Card>
+      </PageContainer>
 
       {/* 品种搜索弹窗 */}
       <Modal
-        title={t('chart.searchSymbol', '搜索品种')}
+        title={t('chart.searchSymbol', '搜索标的')}
         open={searchVisible}
         onCancel={() => {
           setSearchVisible(false);
@@ -662,7 +732,7 @@ const ChartPage = () => {
         width={600}
       >
         <Input
-          placeholder={t('chart.searchPlaceholder', '输入品种代码或名称')}
+          placeholder={t('chart.searchPlaceholder', '输入标的代码或名称')}
           value={searchKeyword}
           onChange={(e) => setSearchKeyword(e.target.value)}
           allowClear

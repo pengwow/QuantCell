@@ -8,12 +8,78 @@
   padding-left: 16px; /* 为侧边栏收缩按钮留出空间 */
 }
 
+/* ===== /chart 页结构收口（design-spec §5 page-head + .qc-card） =====
+   PageContainer（title 16/650 + mono 副标真值 + 30px 动作钮）→ 单张 .qc-card 包图表壳。
+   高度链：qc-main（定高滚动容器）→ chart-page-wrap height:100% → 卡片 flex:1 吃满剩余视口 */
+.chart-page-wrap {
+  height: 100%;
+}
+
+.chart-card.ant-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 图表壳体接管卡片内容：body 归零内边距，ChartShell 根从「撑满 qc-main」改为吃满卡片剩余高度 */
+.chart-card .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.chart-card .chart-page-fullscreen {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+  padding-left: 0; /* 原 16px 側边栏呼吸空隙由卡片外沿承担 */
+}
+
 .chart-page {
   display: flex;
   flex-direction: column;
   flex: 1;
   background-color: var(--ant-color-bg-container);
   overflow: hidden;
+}
+
+/* ========== 页头右上现价块（形制 1:1 抄 qc-prototype-demo 的 px-box）==========
+   demo 数值照搬：tag 10.5px 弱色；价格 22px/650；上行 baseline + gap 8px 右对齐；整块 text-align:right。
+   颜色/mono 换本仓口径：--qc-text-quaternary / --qc-success / --qc-error、qc-mono、qc-chip，
+   不引入 demo 的 --fg-4 / --info。 */
+.chart-px-box {
+  text-align: right;
+}
+
+.chart-px-tag {
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  /* tag 内部不折行；整块换行退化交给下方 <768px 规则 */
+  white-space: nowrap;
+}
+
+.chart-px-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.chart-px-num {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.chart-px-num.up {
+  color: var(--qc-success);
+}
+
+.chart-px-num.down {
+  color: var(--qc-error);
 }
 
 /* 上方工具栏已迁移到 components/chart/ChartPeriodBar（复刻 klinecharts-pro），
@@ -147,6 +213,57 @@
   width: 100%;
   flex: 1;
   min-height: 0;
+}
+
+/* ========== OHLC 十字光标联动条（demo .ohlc-row 1:1 行距/字号/下划虚线形制）==========
+   位置：图容器正下方（chart-area 内 flex 流），与图等宽；颜色换本仓口径：
+   --qc-text-quaternary / --qc-text-secondary / --qc-success / --qc-error，不引入 demo 变量 */
+.ohlc-strip {
+  flex: none;
+  margin-top: 2px;
+  padding: 8px 12px 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--qc-text) 10%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--qc-text-quaternary);
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ohlc-strip b {
+  color: var(--qc-text-secondary);
+  font-weight: 600;
+}
+
+/* 涨跌染色（全站口径之页面级作用域）：涨 success / 跌 error / 平与 0 不染色 */
+.ohlc-strip .up {
+  color: var(--qc-success);
+}
+
+.ohlc-strip .down {
+  color: var(--qc-error);
+}
+
+/* 窄桌面降级（<1280）：先收成交量段（OHLC 数值与涨跌判定优先保留），其余原样 */
+@media (max-width: 1279px) {
+  .ohlc-strip .ohlc-vol {
+    display: none;
+  }
+}
+
+/* 手机降级（<768）：O/H/L 收场，只留时间 · C · 涨跌 一眼可读；gap 收紧 */
+@media (max-width: 767px) {
+  .ohlc-strip {
+    gap: 10px;
+  }
+
+  .ohlc-strip > span:nth-child(2),
+  .ohlc-strip > span:nth-child(3),
+  .ohlc-strip > span:nth-child(4) {
+    display: none;
+  }
 }
 
 /* 品种搜索弹窗样式 */
@@ -516,7 +633,8 @@
 }
 
 .custom-indicator-item:hover {
-  background: rgba(100, 108, 255, 0.05);
+  /* hover 底：迁移前为旧主色 indigo 5% 淡染，合成后与中性 hover 底在肉眼上不可辨 */
+  background: var(--qc-surface-hover);
   border-color: var(--ant-color-primary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
@@ -670,5 +788,11 @@
   .drawing-toolbar-vertical {
     width: 40px;
     min-width: 40px;
+  }
+
+  /* 现价块与动作钮换行时保持右对齐（page-head/actions 自带 flex-wrap）：
+     价格块退到按钮下方或同行，均右对齐、不隐藏、不挤压按钮文字 */
+  .chart-page-wrap .qc-page-actions {
+    justify-content: flex-end;
   }
 }

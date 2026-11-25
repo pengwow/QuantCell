@@ -14,8 +14,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from gymnasium import spaces
-
 from services.ensemble_aggregator import BUY_RATIO_EPS, aggregate_ratios, member_ratio_predict_fn
 from services.rl_service import MODELS_DIR, RLService, rl_meta_path  # 单一事实源,严禁在本模块重新定义(spec §8)
 from utils.logger import LogType, get_logger
@@ -24,6 +22,21 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 集成元数据落盘:与 MODELS_DIR 同级(backend/data/ensembles.json)
 ENSEMBLES_STORE = MODELS_DIR.parent / "ensembles.json"
+
+
+def _is_discrete_space(action_space: Any) -> bool:
+    """gymnasium 懒加载判定离散动作空间。
+
+    ponytail: PyInstaller sidecar 刻意 --exclude-module gymnasium（可选 RL 扩展，
+    见 desktop/scripts/build-backend.sh），顶层 import 会让冻结产物启动即崩；
+    未安装时按非离散处理（无 SB3 时成员本就加载不出 discrete 空间，语义等价）。
+    """
+    try:
+        from gymnasium import spaces
+
+        return isinstance(action_space, spaces.Discrete)
+    except ImportError:
+        return False
 
 
 def _resolve_sb3_zip(entry: str) -> Path | None:
@@ -180,7 +193,7 @@ class EnsembleService:
             if model is None:
                 skipped.append({"model_path": stem, "reason": "加载返回空"})
                 continue
-            kind = "discrete" if isinstance(model.action_space, spaces.Discrete) else "box"
+            kind = "discrete" if _is_discrete_space(model.action_space) else "box"
             members.append({"stem": stem, "zip_path": str(zip_path), "action_space": kind})
 
         if not members:

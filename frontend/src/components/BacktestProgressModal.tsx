@@ -14,6 +14,7 @@ import {
   Button,
   Tooltip,
   Popconfirm,
+  theme,
 } from 'antd';
 import {
   DatabaseOutlined,
@@ -31,6 +32,25 @@ import { useTranslation } from 'react-i18next';
 import { QUANT_COLORS } from '@/utils/colors';
 
 const { Text } = Typography;
+
+/**
+ * 进度卡状态配色（仅本组件使用）。
+ *
+ * 原来是 antd v5 预设色阶字面量（1 号淡底 + 3 号边框），亮暗不跟随主题 —— 暗色下
+ * 淡粉淡绿底直接糊在深底上。改为语义 token 的透明度派生：底 10%、边 30% 混卡底，
+ * 数值即原预设色阶的近似（antd 的 1/3 号色本身就是同色相的低饱和派生）。
+ */
+const tint = (token: string, pct: number) => `color-mix(in srgb, ${token} ${pct}%, transparent)`;
+const tintBorder = (token: string) => `color-mix(in srgb, ${token} 30%, var(--qc-surface))`;
+
+const STATE_STYLE = {
+  error: { cardBg: tint('var(--qc-error)', 10), cardBorder: tintBorder('var(--qc-error)') },
+  success: { cardBg: tint('var(--qc-success)', 10), cardBorder: tintBorder('var(--qc-success)') },
+  running: { cardBg: tint('var(--qc-info)', 10), cardBorder: tintBorder('var(--qc-info)') },
+} as const;
+
+/** 进行中进度条渐变（信息色 → 成功色；CSS 变量在 background-image 里可解析） */
+const RUNNING_STROKE = { '0%': 'var(--qc-info)', '100%': 'var(--qc-success)' };
 
 // 步骤状态类型
 export type StepStatus = 'wait' | 'process' | 'finish' | 'error';
@@ -92,6 +112,7 @@ const BacktestProgressModal = ({
 }: BacktestProgressModalProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { token } = theme.useToken();
 
   // 获取步骤图标
   const getStepIcon = (status: StepStatus, defaultIcon: React.ReactNode) => {
@@ -166,7 +187,7 @@ const BacktestProgressModal = ({
             <>
               <Text type="secondary">
                 {progressData.execution.message || (t('backtest_executing', { progress: progressData.execution.currentSymbol || t('loading') || '准备中' }) || `正在回测: ${progressData.execution.currentSymbol || '准备中'}`)}
-                <span style={{ marginLeft: 8, color: '#8c8c8c' }}>
+                <span style={{ marginLeft: 8, color: token.colorTextTertiary }}>
                   ({progressData.execution.current}/{progressData.execution.total})
                 </span>
               </Text>
@@ -254,8 +275,11 @@ const BacktestProgressModal = ({
     navigate(`/strategy-management?${params.toString()}`);
   };
 
+  const stateStyle = isError ? STATE_STYLE.error : isFinished ? STATE_STYLE.success : STATE_STYLE.running;
+
   return (
     <Modal
+      className="qc-modal"
       title={t('backtest_progress') || '回测进度'}
       open={visible}
       onCancel={onCancel}
@@ -277,8 +301,8 @@ const BacktestProgressModal = ({
         size="small"
         style={{
           marginTop: '24px',
-          background: isError ? 'rgba(255, 241, 240, 0.1)' : isFinished ? 'rgba(246, 255, 237, 0.1)' : 'rgba(230, 247, 255, 0.1)',
-          borderColor: isError ? '#ffccc7' : isFinished ? '#b7eb8f' : '#91d5ff',
+          background: stateStyle.cardBg,
+          borderColor: stateStyle.cardBorder,
         }}
       >
         <Space orientation="vertical" style={{ width: '100%' }}>
@@ -291,10 +315,7 @@ const BacktestProgressModal = ({
             strokeColor={
               isError
                 ? QUANT_COLORS.negative
-                : {
-                    '0%': '#108ee9',
-                    '100%': '#87d068',
-                  }
+                : RUNNING_STROKE
             }
           />
           {isFinished && (

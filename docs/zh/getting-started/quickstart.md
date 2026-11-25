@@ -54,7 +54,7 @@ quantcell backtest run \
   --trading-mode spot
 ```
 
-输出包含总收益、最大回撤、成交记录等指标，回测默认走 axon-quant Rust 统一内核。
+输出包含总收益、最大回撤、成交记录等指标，回测默认走 Rust 统一内核。
 
 ## 4. AI 生成一个策略
 

@@ -34,6 +34,51 @@ export interface TaskDetailItem {
   [key: string]: unknown;
 }
 
+// 归档水位（GET /data/archive/watermark 的 watermarks[] 元素）
+export interface ArchiveWatermarkItem {
+  kind: string;
+  symbol_count: number;
+  total_rows: number;
+  earliest_date: string | null;
+  latest_date: string | null;
+  updated_at: string | null;
+}
+
+// 归档存储占用（storage[] 元素，bytes 为 parquet 文件大小之和）
+export interface ArchiveStorageItem {
+  kind: string;
+  bytes: number;
+}
+
+// 单标的归档覆盖（GET /data/archive/symbol-coverage，标的简况面板用）
+export interface SymbolCoverageItem {
+  kind: string;
+  market: string;
+  intervals: string[];
+  total_rows: number;
+  earliest_date: string | null;
+  latest_date: string | null;
+}
+
+export interface SymbolCoverageResponse {
+  success?: boolean;
+  symbol: string;
+  market: string;
+  items: SymbolCoverageItem[];
+  total_rows: number;
+  // 只累加 K 线类 kind 的行数（成交/快照的行不是 bar）
+  bar_rows: number;
+  intervals: string[];
+  latest_date: string | null;
+}
+
+export interface ArchiveWatermarkResponse {
+  success?: boolean;
+  watermarks: ArchiveWatermarkItem[];
+  storage: ArchiveStorageItem[];
+  total_bytes: number;
+}
+
 // K线质量检查结果（对应后端 /data/quality/kline 的返回结构）
 export interface KlineQualityReport {
   total_records?: number;
@@ -283,6 +328,22 @@ export const dataApi = {
    */
   getQualityOptions: (params: Record<string, unknown>) => {
     return apiRequest.get('/data/quality/options', params);
+  },
+
+  /**
+   * 归档水位 + 存储用量聚合（按 kind 求和 `_meta.json` 与 parquet 体积）
+   * 只返回真实存在的 kind：缺失的 kind 不在数组里，调用方按「无数据」处理
+   */
+  getArchiveWatermark: (): Promise<ArchiveWatermarkResponse> => {
+    return apiRequest.get('/data/archive/watermark');
+  },
+
+  /**
+   * 单个标的在某市场下已采集的覆盖（各 kind 行数 / 周期 / 日期）
+   * 与 getArchiveWatermark 的区别：那是按 kind 的全市场聚合，这是「这一个标的」的明细
+   */
+  getSymbolCoverage: (symbol: string, market = 'spot'): Promise<SymbolCoverageResponse> => {
+    return apiRequest.get('/data/archive/symbol-coverage', { symbol, market });
   },
 
   // ==================== 数据池（自选组）API ====================

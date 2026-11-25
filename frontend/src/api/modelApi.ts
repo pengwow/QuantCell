@@ -46,6 +46,23 @@ export interface UnifiedModelRow {
   version: string;
   stage: string; // staging | production | archived;未注册为 ""
   metrics: Record<string, number>;
+  // P2/P3 训练期 meta 契约(rl_service 落 meta.json)的透传位:
+  // 当前 unified 端点未透传(缺口已上报),字段到位后行内徽标/面板即刻生效;
+  // 展开面板以 detail.metadata 为主要数据源,行字段作直读兜底
+  obs_mode?: 'features' | 'ohlcv_window' | string; // 缺键 = 旧模型(指标向量口径)
+  obs_window?: number;
+  obs_features?: string[]; // 通道名清单(open/high/low/close/volume/spread...)
+  data_type?: string; // kline | bookTicker | ...(缺键 = kline)
+  reward_terms?: Record<string, number>; // REWARD_TERM_KEYS 权重
+  transaction_cost?: number;
+  oos?: {
+    evaluable?: boolean;
+    n_valid_folds?: number;
+    sharpe_ratio?: number | null;
+    total_return_pct?: number | null;
+    total_pnl?: number | null;
+    passed?: boolean | null;
+  } | null;
 }
 
 export const modelApi = {
