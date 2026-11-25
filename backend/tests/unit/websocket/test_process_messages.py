@@ -8,6 +8,7 @@
 
 import asyncio
 import contextlib
+import json
 
 import pytest
 
@@ -20,6 +21,10 @@ class _FakeWS:
 
     async def send_json(self, message: dict):
         self.sent.append(message)
+
+    # send_personal_message 已改为单次 json.dumps + send_text（省一次往返序列化），fake 同步该接口
+    async def send_text(self, message: str):
+        self.sent.append(json.loads(message))
 
 
 @pytest.mark.asyncio
