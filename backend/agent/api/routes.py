@@ -9,7 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, format_sse_event
 from pydantic import BaseModel
 
 from config.capabilities import Capability, require_capability
@@ -433,8 +433,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 },
                 ensure_ascii=False,
             )
-            yield f"event: start\ndata: {start_data}\n\n"
-            await asyncio.sleep(0)
+            yield format_sse_event(event="start", data_str=start_data)
 
             async for event in agent.iter_message_stream(
                 content=request.message,
@@ -459,10 +458,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                     ensure_ascii=False,
                 )
 
-                yield f"event: {event.event_type}\ndata: {event_data}\n\n"
-
-                # 确保缓冲区刷新，让客户端能及时收到数据
-                await asyncio.sleep(0)
+                yield format_sse_event(event=event.event_type, data_str=event_data)
 
             # 发送 complete 事件（包含结构化数据和建议操作）
             structured_data = extract_structured_data(accumulated_content, intent)
@@ -481,7 +477,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 },
                 ensure_ascii=False,
             )
-            yield f"event: complete\ndata: {complete_data}\n\n"
+            yield format_sse_event(event="complete", data_str=complete_data)
 
         except Exception as e:
             # 发送错误事件
@@ -492,16 +488,14 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 },
                 ensure_ascii=False,
             )
-            yield f"event: error\ndata: {error_data}\n\n"
+            yield format_sse_event(event="error", data_str=error_data)
 
-    return StreamingResponse(
+    # CORS 统一交给 CORSMiddleware（手写 ACAO 与 allow_credentials 组合冲突）
+    return EventSourceResponse(
         event_generator(),
-        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲，确保实时传输
-            "Access-Control-Allow-Origin": "*",  # 允许跨域访问
         },
     )
 
