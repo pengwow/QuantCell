@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { indicatorApi, type Indicator } from '../api';
+import { getAccessToken } from '../utils/tokenManager';
 
 export type { Indicator } from '../api';
 
@@ -188,6 +189,8 @@ export const useIndicators = (autoFetch = true) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        // /ai-generate 位于 router 级认证之后（JWT 关闭时后端豁免），裸 fetch 也必须带头
+        'Authorization': `Bearer ${getAccessToken()}`,
       },
       body: JSON.stringify({
         prompt,

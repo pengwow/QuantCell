@@ -204,9 +204,12 @@ class TestRunEvaluationRound:
 def alert_client(alert_db, monkeypatch):
     """仅挂 alerts 路由的 TestClient，guest 判定固定放行。"""
     from indicators import alerts_routes
+    from utils.auth import get_current_user
 
     monkeypatch.setattr(alerts_routes, "is_guest_user", lambda request: False)
     app = FastAPI()
+    # router 级已声明 get_current_user 认证依赖（与生产 main.py 一致），测试用 override 绕过真实 JWT
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 1, "username": "tester"}
     app.include_router(alerts_routes.router)
     return TestClient(app, raise_server_exceptions=False)
 
@@ -268,10 +271,13 @@ class TestAlertRoutes:
         """
         from indicators import alerts_routes
         from indicators import routes as indicator_routes
+        from utils.auth import get_current_user
 
         monkeypatch.setattr(alerts_routes, "is_guest_user", lambda request: False)
         monkeypatch.setattr(indicator_routes, "is_guest_user", lambda request: False)
         app = FastAPI()
+        # 两个 router 均已声明 router 级认证依赖，测试用 override 绕过真实 JWT
+        app.dependency_overrides[get_current_user] = lambda: {"user_id": 1, "username": "tester"}
         # 顺序必须与 main.py 一致：alerts 在前
         app.include_router(alerts_routes.router)
         app.include_router(indicator_routes.router)

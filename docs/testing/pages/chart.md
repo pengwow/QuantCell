@@ -40,3 +40,5 @@
 - **自动连接失败是静默的**：`realtime_enabled=true` 时页面挂载 1s 后自动启动引擎并连交易所，失败只 `console.error`。打包链路无系统代理，交易所不通很常见，页面骨架仍应完好
 - **OHLC 条时间必须与页头现价块同源**：两处都用 `formatUtcBarTime`（`components/chart/chartConstants.ts`），不要各写一套格式化；时间戳取 `bar.timestamp`（UTC）
 - **不要照 demo 字面复刻 MA7/MA14**：现网 `sma` 是单 `length` 参数（默认 MA20），图例按「活跃指标的每条真实线」渲染；写死 MA7/MA14 会与图内线色/线名不一致
+- **指标接口已加 router 级认证**（2026-11-25）：`/api/v1/indicators/*` 整组（含 `/ai-generate`）需登录态，匿名调用返回 401 是预期防护——此前 `/ai-generate` 可匿名触发 LLM 消耗配额；`/ai-generate` 同时迁移到 `fastapi.sse.EventSourceResponse`（自带 15s 心跳注释帧）
+- **`/ws`、`/ws/task` 现要求认证**（2026-11-25）：WS 握手无法带 Authorization 头，token 走 query 参数 `?token=`；认证失败时服务端 accept 后以 4401 关闭。前端直连见到 4401 先查 token 是否携带，别当后端崩溃排查

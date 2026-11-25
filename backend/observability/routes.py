@@ -10,11 +10,11 @@ from starlette.responses import Response
 
 from observability.metrics import metrics_enabled, render_metrics
 
-router = APIRouter(tags=["observability"])
+router = APIRouter(prefix="/api/v1", tags=["observability"])
 
 
 @router.get(
-    "/api/v1/metrics",
+    "/metrics",
     summary="Prometheus 指标查询",
     description="返回 Prometheus 文本格式的指标数据；开关 observability.metrics_enabled "
     "关闭时 404（P2-01 指标埋点默认关闭）",

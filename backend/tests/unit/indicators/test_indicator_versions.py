@@ -50,9 +50,12 @@ def version_db(version_db_engine, monkeypatch):
 def client(version_db, monkeypatch):
     """挂载指标路由的 TestClient，guest 判定固定放行（与 alert_client 同模式）。"""
     from indicators import routes as indicator_routes
+    from utils.auth import get_current_user
 
     monkeypatch.setattr(indicator_routes, "is_guest_user", lambda request: False)
     app = FastAPI()
+    # router 级已声明 get_current_user 认证依赖（与生产 main.py 一致），测试用 override 绕过真实 JWT
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": 1, "username": "tester"}
     app.include_router(indicator_routes.router)
     return TestClient(app)
 

@@ -4,11 +4,12 @@
 通知投递复用 common/notifications 统一服务（websocket/email/feishu/wecom）。
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -23,13 +24,19 @@ from indicators import alerts
 from indicators.builtin_alerts import BUILTIN_ALERT_INDICATORS, builtin_definitions
 from indicators.executor import IndicatorExecutor
 from indicators.models import CustomIndicator, CustomIndicatorBusiness, IndicatorAlertRule
+from utils.auth import get_current_user
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-router = APIRouter(prefix="/api/v1/indicators/alerts", tags=["指标信号提醒"])
+router = APIRouter(
+    prefix="/api/v1/indicators/alerts",
+    tags=["指标信号提醒"],
+    # router 级统一认证，避免再依赖逐端点声明（此前全部端点匿名可访问）
+    dependencies=[Depends(get_current_user)],
+)
 
 # 频率上限放宽到 30 天（分钟）：支持前端"小时/天"单位的组合控件
 FREQUENCY_MIN = 1
@@ -148,10 +155,14 @@ async def list_builtin_indicators():
     return ApiResponse(code=0, message="ok", data=builtin_definitions())
 
 
+# 下列 4 个端点为纯同步 ORM 操作，用 def 让 FastAPI 调度到线程池执行，
+# 避免同步 DB 往返阻塞事件循环（async def 内跑同步 Session 会挂起整个 loop）
+
+
 @router.get(
     "", summary="提醒规则列表", description="按 indicator_id 或 builtin_id 过滤（可选），返回指标信号提醒规则。"
 )
-async def list_alert_rules(indicator_id: int | None = None, builtin_id: str | None = None):
+def list_alert_rules(indicator_id: int | None = None, builtin_id: str | None = None):
     with get_db_session() as db:
         stmt = select(IndicatorAlertRule).order_by(IndicatorAlertRule.id.desc())
         if indicator_id is not None:
@@ -163,7 +174,7 @@ async def list_alert_rules(indicator_id: int | None = None, builtin_id: str | No
 
 
 @router.post("", summary="创建提醒规则", description="为指定指标创建信号提醒规则，校验指标存在性与通知渠道合法性。")
-async def create_alert_rule(request_body: AlertRuleUpsert, http_request: Request):
+def create_alert_rule(request_body: AlertRuleUpsert, http_request: Request):
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权创建提醒规则")
     validate_channels(request_body.channels)
@@ -195,7 +206,7 @@ async def create_alert_rule(request_body: AlertRuleUpsert, http_request: Request
 
 
 @router.put("/{rule_id}", summary="更新提醒规则", description="更新规则字段；enabled=false 即暂停提醒。")
-async def update_alert_rule(rule_id: int, request_body: AlertRuleUpdate, http_request: Request):
+def update_alert_rule(rule_id: int, request_body: AlertRuleUpdate, http_request: Request):
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权更新提醒规则")
     updates = request_body.model_dump(exclude_unset=True)
@@ -218,7 +229,7 @@ async def update_alert_rule(rule_id: int, request_body: AlertRuleUpdate, http_re
 
 
 @router.delete("/{rule_id}", summary="删除提醒规则")
-async def delete_alert_rule(rule_id: int, http_request: Request):
+def delete_alert_rule(rule_id: int, http_request: Request):
     if is_guest_user(http_request):
         raise HTTPException(status_code=403, detail="访客无权删除提醒规则")
     with get_db_session() as db:
@@ -241,7 +252,8 @@ async def test_alert_rule(rule_id: int):
     if not code:
         raise HTTPException(status_code=404, detail=f"指标不存在或已删除: {rule['indicator_id']}")
 
-    bars = alerts.fetch_kline_bars(rule)
+    # fetch_kline_bars 同步读 parquet，放线程池避免阻塞事件循环
+    bars = await asyncio.to_thread(alerts.fetch_kline_bars, rule)
     evaluation = await alerts.evaluate_rule(rule, code, IndicatorExecutor(timeout=10.0), bars)
     title, message = alerts.build_alert_texts(rule, evaluation)
     channels = validate_channels(rule["channels"])
@@ -305,7 +317,8 @@ async def preview_alert_rule(request_body: AlertPreviewRequest, http_request: Re
     if not code:
         raise HTTPException(status_code=404, detail=f"指标不存在或已删除: {rule['indicator_id']}")
 
-    bars = alerts.fetch_kline_bars(rule)
+    # fetch_kline_bars 同步读 parquet，放线程池避免阻塞事件循环
+    bars = await asyncio.to_thread(alerts.fetch_kline_bars, rule)
     evaluation = await alerts.evaluate_rule(rule, code, IndicatorExecutor(timeout=10.0), bars)
     title, message = alerts.build_alert_texts(rule, evaluation)
     data: dict[str, Any] = {

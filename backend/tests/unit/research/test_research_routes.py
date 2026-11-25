@@ -53,7 +53,8 @@ def client(monkeypatch):
     monkeypatch.setattr(research_routes, "_start_job", lambda **kwargs: "job-test")
 
     app = FastAPI()
-    app.include_router(research_routes.router, prefix="/api/v1")
+    # 路由前缀已收口到 router 声明（/api/v1/research），与生产 main.py 的 include 方式一致
+    app.include_router(research_routes.router)
     app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1"}
     try:
         yield TestClient(app), db

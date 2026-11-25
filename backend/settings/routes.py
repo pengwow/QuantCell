@@ -95,8 +95,8 @@ from utils.db_session import get_db_session
 # 创建API路由实例
 router = APIRouter()
 
-# 创建认证API路由子路由（不需要前缀，单独处理）
-auth_router = APIRouter(tags=["auth"])
+# 创建认证API路由子路由（前缀收口到 router 声明，与其他子路由风格一致）
+auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # 创建配置管理API路由子路由
 config_router = APIRouter(prefix="/api/v1/config", tags=["config-management"])
@@ -105,7 +105,7 @@ config_router = APIRouter(prefix="/api/v1/config", tags=["config-management"])
 system_router = APIRouter(prefix="/api/v1/system", tags=["system-info"])
 
 
-@auth_router.post("/api/v1/auth/login", response_model=ApiResponse)
+@auth_router.post("/login", response_model=ApiResponse)
 def login(request: Request, credentials: dict[str, str] = Body(...)):
     """用户登录
 
@@ -154,7 +154,7 @@ def login(request: Request, credentials: dict[str, str] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@auth_router.post("/api/v1/auth/register", response_model=ApiResponse)
+@auth_router.post("/register", response_model=ApiResponse)
 def register(request: Request, credentials: dict[str, str] = Body(...)):
     """用户注册
 
@@ -204,7 +204,7 @@ def register(request: Request, credentials: dict[str, str] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@auth_router.post("/api/v1/auth/logout", response_model=ApiResponse)
+@auth_router.post("/logout", response_model=ApiResponse)
 def logout(request: Request):
     """用户注销
 
@@ -230,7 +230,7 @@ def logout(request: Request):
 
 
 @auth_router.post(
-    "/api/v1/auth/change-password",
+    "/change-password",
     response_model=ApiResponse,
     summary="修改当前用户密码",
     description=(
