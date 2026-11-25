@@ -48,10 +48,10 @@
 }
 
 /* ========== 页头右上现价块（demo px-box 的单行变体）==========
-   11-25 由两行（tag 行 + 22px 价格行）改单行基线式：两行块 ~44px 撑高 qc-page-head
-   （align-items:flex-end 下整条头部被现价块主导），与其他页头（30px 按钮行）间距不一致。
-   页头跨页一致性优先于 demo 两行形制；价格字号降到 16px/650 与标题同级，
-   大行高由 line-height:1.2 锁住；<768 换行退化为 page-head 自带 wrap（QC 页头全局规则）。 */
+   单行基线式：tag · 价格 · chip 同一基线。demo 的 22px/650 大价格保留（11-26 复原——
+   16px 用户嫌小），撑高头部的元凶是两行结构（tag 行 + 价格行 ≈44px）而非字号：
+   单行 22px 行盒仅 ~26px，head 高度仍由标题块主导，与其他页保持一致。
+   line-height:1.2 锁行盒；<768 换行退化为 page-head 自带 wrap（QC 页头全局规则）。 */
 .chart-px-box {
   display: flex;
   align-items: baseline;
@@ -66,7 +66,7 @@
 }
 
 .chart-px-num {
-  font-size: 16px;
+  font-size: 22px;
   font-weight: 650;
   line-height: 1.2;
 }
