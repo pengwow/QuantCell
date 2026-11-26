@@ -50,7 +50,7 @@
   "home_kpi_research": "研究会话",
   "home_kpi_research_hint": "{{running}} 个进行中",
   "home_research_loop": "{{done}}/{{n}} 轮",
-  "home_research_foot": "轮次与最优指标只存于会话；在详情页采纳 trial 才写入因子库 / 策略库 / 模型注册表",
+  "home_research_foot": "轮次与最优指标只存于会话；采纳 trial 才入库",
   "home_quick_research_desc": "AI 驱动因子与策略研究",
   "starting": "启动中",
   "stopping": "停止中",

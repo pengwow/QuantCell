@@ -50,7 +50,7 @@
   "home_kpi_research": "Research sessions",
   "home_kpi_research_hint": "{{running}} in progress",
   "home_research_loop": "{{done}}/{{n}} loops",
-  "home_research_foot": "Rounds and best metrics live in the session; only promoting a trial writes into the factor library, strategy library or model registry",
+  "home_research_foot": "Rounds and best metrics live in the session; only a promoted trial lands in any library",
   "home_quick_research_desc": "AI-driven factor & strategy research",
   "starting": "Starting",
   "stopping": "Stopping",
