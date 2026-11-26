@@ -65,8 +65,6 @@ def test_memory_store():
 
     shutil.rmtree(workspace, ignore_errors=True)
 
-    return True
-
 
 async def test_consolidator():
     """测试 Consolidator 功能"""
@@ -131,8 +129,6 @@ async def test_consolidator():
     import shutil
 
     shutil.rmtree(workspace, ignore_errors=True)
-
-    return True
 
 
 async def test_auto_compact():
@@ -212,8 +208,6 @@ async def test_auto_compact():
 
     shutil.rmtree(workspace, ignore_errors=True)
 
-    return True
-
 
 async def test_dream():
     """测试 Dream 功能"""
@@ -252,49 +246,15 @@ async def test_dream():
 
     shutil.rmtree(workspace, ignore_errors=True)
 
-    return True
-
 
 async def main():
-    """运行所有测试"""
-
-    results = {}
-
-    try:
-        results["memory_store"] = test_memory_store()
-    except Exception:
-        results["memory_store"] = False
-
-    try:
-        results["consolidator"] = await test_consolidator()
-    except Exception:
-        results["consolidator"] = False
-
-    try:
-        results["auto_compact"] = await test_auto_compact()
-    except Exception:
-        results["auto_compact"] = False
-
-    try:
-        results["dream"] = await test_dream()
-    except Exception:
-        results["dream"] = False
-
-    # 汇总结果
-
-    for _name, _passed in results.items():
-        pass
-
-    all_passed = all(results.values())
-
-    if all_passed:
-        pass
-    else:
-        [k for k, v in results.items() if not v]
-
-    return all_passed
+    """运行所有测试（失败直接抛异常，由非零退出码体现）"""
+    test_memory_store()
+    await test_consolidator()
+    await test_auto_compact()
+    await test_dream()
 
 
 if __name__ == "__main__":
-    success = asyncio.run(main())
-    sys.exit(0 if success else 1)
+    asyncio.run(main())
+    sys.exit(0)

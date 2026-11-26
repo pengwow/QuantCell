@@ -25,7 +25,6 @@ class BaseSchema(BaseModel):
     """基础模型类"""
 
     class Config:
-        json_encoders = {}
         from_attributes = True
 
 

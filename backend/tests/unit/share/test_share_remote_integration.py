@@ -203,7 +203,6 @@ def _build_test_client(db_session):
     import share.models
     import share.routes
     from main import app
-    from share import router as share_router
     from worker.dependencies import get_current_user, get_db_session
 
     def _override_get_db():
@@ -219,9 +218,6 @@ def _build_test_client(db_session):
     prior_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_db_session] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
-
-    if share_router not in app.router.routes:
-        app.include_router(share_router)
 
     client = TestClient(app)
     # 绑定清理:close TestClient 并把 dependency_overrides 还原

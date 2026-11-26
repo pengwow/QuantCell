@@ -51,16 +51,12 @@ def test_default_path_generation():
         # 验证结果
         expected_path = backend_path / "data" / case["expected_table"] / case["expected_filename"]
 
-        if output_path == expected_path:
-            pass
-        else:
-            return False
+        assert output_path == expected_path
 
     # 显示使用示例
 
-    return True
-
 
 if __name__ == "__main__":
-    success = test_default_path_generation()
-    sys.exit(0 if success else 1)
+    test_default_path_generation()
+    print("default path generation OK")
+    sys.exit(0)

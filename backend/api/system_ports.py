@@ -125,12 +125,15 @@ async def get_service_port(service_name: str):
         raise HTTPException(status_code=500, detail=f"Failed to get port for {service_name}: {e!s}")
 
 
-@router.get("/health")
+@router.get("/port-manager/health")
 async def health_check():
     """
-    健康检查端点
+    端口管理服务健康检查端点
 
-    简单的健康检查，确认端口管理服务正常工作。
+    使用独立路径 /port-manager/health，避免与 settings 的
+    GET /api/v1/system/health 同路径冲突（历史上两者同路径，
+    运行时先注册的 settings 版本生效，本端点被遮蔽，
+    且 FastAPI 0.165+ 会报重复 operation id）。
 
     Returns:
         dict: 健康状态

@@ -26,7 +26,6 @@ class BaseSchema(BaseModel):
     """基础模型类"""
 
     class Config:
-        json_encoders = {}
         from_attributes = True
 
 
@@ -74,9 +73,6 @@ class StrategyInfo(BaseSchema):
 
     model_config = {
         "from_attributes": False,  # 禁用从属性读取，使用字典键
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None,
-        },
     }
 
     id: int | None = Field(default=None, description="策略ID")
