@@ -184,25 +184,6 @@ class WorkerLogEntry(BaseModel):
         from_attributes = True
 
 
-class WorkerPerformance(BaseModel):
-    """Worker绩效数据"""
-
-    worker_id: int = Field(..., description="Worker ID")
-    total_trades: int = Field(..., description="总交易次数")
-    winning_trades: int = Field(..., description="盈利交易次数")
-    losing_trades: int = Field(..., description="亏损交易次数")
-    win_rate: float = Field(..., description="胜率(%)")
-    total_profit: float = Field(..., description="总盈利")
-    total_loss: float = Field(..., description="总亏损")
-    net_profit: float = Field(..., description="净利润")
-    max_drawdown: float = Field(..., description="最大回撤")
-    sharpe_ratio: float = Field(..., description="夏普比率")
-    date: datetime = Field(..., description="日期")
-
-    class Config:
-        from_attributes = True
-
-
 class StrategyDeployRequest(BaseModel):
     """策略部署请求"""
 

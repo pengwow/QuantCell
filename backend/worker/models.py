@@ -119,7 +119,6 @@ class Worker(Base):
 
     # 关联关系
     logs = relationship("WorkerLog", back_populates="worker", cascade="all, delete-orphan")
-    performance = relationship("WorkerPerformance", back_populates="worker", cascade="all, delete-orphan")
     risk_config = relationship(
         "WorkerRiskControl",
         back_populates="worker",
@@ -301,71 +300,6 @@ class WorkerLog(Base):
             "message": self.message,
             "source": self.source,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-        }
-
-
-class WorkerPerformance(Base):
-    """Worker绩效模型"""
-
-    __tablename__ = "worker_performance"
-
-    id = Column(Integer, primary_key=True, index=True)
-    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
-    worker = relationship("Worker", back_populates="performance")
-
-    # 交易统计
-    total_trades = Column(Integer, default=0)
-    winning_trades = Column(Integer, default=0)
-    losing_trades = Column(Integer, default=0)
-
-    # 收益统计
-    total_profit = Column(Float, default=0.0)
-    total_loss = Column(Float, default=0.0)
-    gross_profit = Column(Float, default=0.0)  # 毛利润
-    net_profit = Column(Float, default=0.0)  # 净利润
-
-    # 风险指标
-    max_drawdown = Column(Float, default=0.0)  # 最大回撤
-    max_drawdown_pct = Column(Float, default=0.0)  # 最大回撤百分比
-    sharpe_ratio = Column(Float, default=0.0)  # 夏普比率
-    sortino_ratio = Column(Float, default=0.0)  # 索提诺比率
-    calmar_ratio = Column(Float, default=0.0)  # 卡尔马比率
-
-    # 其他指标
-    win_rate = Column(Float, default=0.0)  # 胜率
-    profit_factor = Column(Float, default=0.0)  # 盈亏比
-    avg_profit = Column(Float, default=0.0)  # 平均盈利
-    avg_loss = Column(Float, default=0.0)  # 平均亏损
-
-    # 日期
-    date = Column(DateTime, nullable=False, index=True)
-
-    __table_args__ = (
-        UniqueConstraint("worker_id", "date", name="unique_worker_performance_date"),
-        Index("idx_worker_performance_date", "worker_id", "date"),
-    )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "worker_id": self.worker_id,
-            "total_trades": self.total_trades,
-            "winning_trades": self.winning_trades,
-            "losing_trades": self.losing_trades,
-            "total_profit": self.total_profit,
-            "total_loss": self.total_loss,
-            "gross_profit": self.gross_profit,
-            "net_profit": self.net_profit,
-            "max_drawdown": self.max_drawdown,
-            "max_drawdown_pct": self.max_drawdown_pct,
-            "sharpe_ratio": self.sharpe_ratio,
-            "sortino_ratio": self.sortino_ratio,
-            "calmar_ratio": self.calmar_ratio,
-            "win_rate": self.win_rate,
-            "profit_factor": self.profit_factor,
-            "avg_profit": self.avg_profit,
-            "avg_loss": self.avg_loss,
-            "date": self.date.isoformat() if self.date else None,
         }
 
 

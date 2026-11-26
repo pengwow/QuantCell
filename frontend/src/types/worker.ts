@@ -220,21 +220,6 @@ export interface WorkerLog {
   timestamp: string;
 }
 
-// Worker绩效
-export interface WorkerPerformance {
-  worker_id: number;
-  total_trades: number;
-  winning_trades: number;
-  losing_trades: number;
-  win_rate: number;
-  total_profit: number;
-  total_loss: number;
-  net_profit: number;
-  max_drawdown: number;
-  sharpe_ratio: number;
-  date: string;
-}
-
 // 交易记录
 export interface WorkerTrade {
   id: number;
@@ -411,117 +396,8 @@ export type WebSocketMessage =
   | WebSocketErrorMessage;
 
 // ============================================
-// Store 状态类型
+// UI展示扩展类型
 // ============================================
-
-// Worker Store 状态
-export interface WorkerStoreState {
-  // 数据
-  workers: Worker[];
-  selectedWorker: Worker | null;
-  performance: WorkerPerformance | null;
-  trades: WorkerTrade[];
-  logs: WorkerLog[];
-  returnRateData: ReturnRateDataPoint[];
-
-  // 分页
-  total: number;
-  page: number;
-  pageSize: number;
-
-  // 加载状态
-  loading: boolean;
-  loadingDetail: boolean;
-  loadingPerformance: boolean;
-  loadingTrades: boolean;
-  loadingLogs: boolean;
-
-  // 错误状态
-  error: string | null;
-  detailError: string | null;
-  performanceError: string | null;
-  tradesError: string | null;
-  logsError: string | null;
-
-  // WebSocket
-  logStream: WorkerLogStreamType | null;
-  isLogStreamConnected: boolean;
-}
-
-// Worker Store 操作
-export interface WorkerStoreActions {
-  // 数据获取
-  fetchWorkers: (params?: WorkerFilterParams) => Promise<void>;
-  fetchWorkerDetail: (workerId: number) => Promise<void>;
-  fetchPerformance: (workerId: number, days?: number) => Promise<void>;
-  fetchTrades: (workerId: number, params?: TradeQueryParams) => Promise<void>;
-  fetchLogs: (workerId: number, params?: LogQueryParams) => Promise<void>;
-
-  // CRUD 操作
-  createWorker: (data: CreateWorkerRequest) => Promise<Worker>;
-  updateWorker: (workerId: number, data: UpdateWorkerRequest) => Promise<Worker>;
-  deleteWorker: (workerId: number) => Promise<void>;
-
-  // 生命周期控制
-  startWorker: (workerId: number) => Promise<void>;
-  stopWorker: (workerId: number) => Promise<void>;
-
-  // WebSocket
-  connectLogStream: (workerId: number) => void;
-  disconnectLogStream: () => void;
-
-  // 状态管理
-  setSelectedWorker: (worker: Worker | null) => void;
-  clearErrors: () => void;
-}
-
-// WorkerLogStream 类型占位（避免循环依赖）
-// 实际类型在 workerApi.ts 中定义，这里使用 any 作为占位
-type WorkerLogStreamType = unknown;
-
-// ==================== UI展示扩展类型 ====================
-
-// 收益率曲线数据点
-export interface ReturnRateDataPoint {
-  timestamp: string;
-  value: number;
-}
-
-// 策略绩效指标（前端展示用）
-export interface WorkerPerformanceMetrics {
-  winRate: number;           // 胜率 (%)
-  profitLossRatio: number;   // 盈亏比
-  maxDrawdown: number;       // 最大回撤 (%)
-  sharpeRatio: number;       // 夏普比率
-  totalTrades: number;       // 总交易数
-  winningTrades: number;     // 盈利交易数
-  losingTrades: number;      // 亏损交易数
-  totalProfit: number;       // 总收益 ($)
-  totalLoss: number;         // 总亏损 ($)
-}
-
-// 策略交易记录（前端展示用）
-export interface WorkerTradeRecord {
-  id: string;
-  timestamp: string;
-  symbol: string;
-  action: Side;
-  price: number;
-  quantity: number;
-  notional: number;
-  status: 'filled' | 'pending' | 'cancelled';
-}
-
-// 扩展 Worker 类型，添加 UI 展示字段
-export interface WorkerWithPerformance extends Worker {
-  totalReturn: number;                    // 总收益率 (%)
-  currentReturn: number;                  // 今日收益率 (%)
-  startTime?: string;                     // 启动时间
-  lastTradeTime?: string;                 // 最后交易时间
-  performance: WorkerPerformanceMetrics;   // 绩效指标
-  tradeRecords: WorkerTradeRecord[];       // 交易记录
-  returnRateData: ReturnRateDataPoint[];  // 收益率曲线数据
-}
 
 export interface TradingSummary {
   total_trades: number

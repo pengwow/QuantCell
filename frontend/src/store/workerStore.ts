@@ -18,10 +18,8 @@ import type { MessageInstance } from 'antd/es/message/interface';
 import type {
   Worker,
   WorkerStatus,
-  WorkerPerformance,
   WorkerTrade,
   WorkerLog,
-  ReturnRateDataPoint,
   CreateWorkerRequest,
   UpdateWorkerRequest,
   WorkerFilterParams,
@@ -41,19 +39,8 @@ export interface WorkerState {
   // 数据
   workers: Worker[];
   selectedWorker: Worker | null;
-  /**
-   * @deprecated 自 2026-06 改为 `overview` 聚合状态。
-   * 旧 WorkerPerformanceTab / WorkerTradingStatsTab 合并到 WorkerOverviewTab 后，
-   * 不再单独维护 performance / tradingSummary / returnRateData。
-   * 仍保留字段以避免对其他模块的影响，过渡期结束后可移除。
-   */
-  performance: WorkerPerformance | null;
   trades: WorkerTrade[];
   logs: WorkerLog[];
-  /**
-   * @deprecated 见 performance 注释。
-   */
-  returnRateData: ReturnRateDataPoint[];
 
   /**
    * 总览（Overview）聚合状态：合并自旧 performance + tradingSummary + returnRateData。
@@ -69,7 +56,6 @@ export interface WorkerState {
   // 加载状态
   loading: boolean;
   loadingDetail: boolean;
-  loadingPerformance: boolean;
   loadingOverview: boolean;
   loadingTrades: boolean;
   loadingLogs: boolean;
@@ -77,7 +63,6 @@ export interface WorkerState {
   // 错误状态
   error: string | null;
   detailError: string | null;
-  performanceError: string | null;
   overviewError: string | null;
   tradesError: string | null;
   logsError: string | null;
@@ -98,10 +83,8 @@ interface WorkerActions {
   // 数据获取
   fetchWorkers: (params?: WorkerFilterParams) => Promise<void>;
   fetchWorkerDetail: (workerId: number) => Promise<void>;
-  fetchPerformance: (workerId: number, days?: number) => Promise<void>;
   fetchTrades: (workerId: number, params?: TradeQueryParams) => Promise<void>;
   fetchLogs: (workerId: number, params?: LogQueryParams) => Promise<void>;
-  fetchReturnRateData: (workerId: number, days?: number) => Promise<void>;
   fetchOverview: (workerId: number, window?: OverviewWindow) => Promise<void>;
 
   // CRUD 操作
@@ -142,10 +125,8 @@ interface WorkerActions {
 const initialState: WorkerState = {
   workers: [],
   selectedWorker: null,
-  performance: null,
   trades: [],
   logs: [],
-  returnRateData: [],
 
   overview: null,
   overviewWindow: '30d',
@@ -156,14 +137,12 @@ const initialState: WorkerState = {
 
   loading: false,
   loadingDetail: false,
-  loadingPerformance: false,
   loadingOverview: false,
   loadingTrades: false,
   loadingLogs: false,
 
   error: null,
   detailError: null,
-  performanceError: null,
   overviewError: null,
   tradesError: null,
   logsError: null,
@@ -236,25 +215,6 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         }
       },
 
-      fetchPerformance: async (workerId, days = 30) => {
-        set({ loadingPerformance: true, performanceError: null });
-        try {
-          const performance = await workerApi.getWorkerPerformance(workerId, days);
-          // 取最新的绩效数据
-          const latestPerformance = performance[performance.length - 1] || null;
-          set({
-            performance: latestPerformance,
-            loadingPerformance: false,
-          });
-        } catch (error) {
-          set({
-            performanceError: error instanceof Error ? error.message : '获取绩效数据失败',
-            loadingPerformance: false,
-          });
-          get().messageApi?.error(error instanceof Error ? error.message : '获取绩效数据失败');
-        }
-      },
-
       fetchTrades: async (workerId, params) => {
         set({ loadingTrades: true, tradesError: null });
         try {
@@ -293,20 +253,6 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             loadingLogs: false,
           });
           get().messageApi?.error(error instanceof Error ? error.message : '获取日志失败');
-        }
-      },
-
-      fetchReturnRateData: async (workerId, days = 30) => {
-        try {
-          const performance = await workerApi.getWorkerPerformance(workerId, days);
-          // 将绩效数据转换为收益率曲线数据
-          const returnRateData: ReturnRateDataPoint[] = performance.map((p, index) => ({
-            timestamp: p.date,
-            value: index === 0 ? 0 : ((p.net_profit / (p.total_trades || 1)) * 100),
-          }));
-          set({ returnRateData });
-        } catch (error) {
-          console.error('获取收益率数据失败:', error);
         }
       },
 
@@ -609,7 +555,6 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         set({
           error: null,
           detailError: null,
-          performanceError: null,
           tradesError: null,
           logsError: null,
         });

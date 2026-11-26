@@ -1031,23 +1031,6 @@ async def log_stream(websocket: WebSocket, worker_id: int):
 
 
 @router.get(
-    "/{worker_id}/monitoring/performance",
-    response_model=schemas.ApiResponse,
-    dependencies=[Depends(check_worker_permission)],
-)
-@handle_worker_exceptions("获取Worker绩效统计")
-async def get_worker_performance(
-    worker_id: int,
-    days: int = Query(30, ge=1, le=365, description="查询天数"),
-    db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user),
-):
-    """获取Worker绩效统计 - 委托给 WorkerCoreService"""
-    result = await worker_core_service.async_get_worker_performance(worker_id, days)
-    return schemas.ApiResponse(code=0, message="success", data=result)
-
-
-@router.get(
     "/{worker_id}/monitoring/trades",
     response_model=schemas.ApiResponse,
     dependencies=[Depends(check_worker_permission)],

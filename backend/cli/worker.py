@@ -422,53 +422,6 @@ def worker_trading_stats(
         raise typer.Exit(1)
 
 
-@app.command("pnl-distribution")
-def worker_pnl_distribution(
-    worker_id: str = typer.Argument(..., help="Worker ID"),
-):
-    """查看盈亏分布"""
-    wid = _to_int(worker_id, "Worker ID")
-    try:
-        data = _service.get_worker_performance(wid, days=30)
-        if not data:
-            typer.echo("暂无盈亏分布数据")
-            return
-
-        typer.echo(f"Worker {wid} 盈亏分布 (近30天):")
-        total_pnl = sum(p.get("pnl", 0) for p in data)
-        total_trades = sum(p.get("trades", 0) for p in data)
-        typer.echo(f"  总盈亏: {total_pnl:.2f}")
-        typer.echo(f"  总交易数: {total_trades}")
-
-        # 按日期展示
-        for p in data[:10]:  # 最多显示10天
-            typer.echo(f"  {p.get('date', 'N/A')}: PnL={p.get('pnl', 0):.2f}, 交易数={p.get('trades', 0)}")
-        if len(data) > 10:
-            typer.echo(f"  ... 还有 {len(data) - 10} 天数据")
-    except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
-
-
-@app.command("trade-history")
-def worker_trade_history(
-    worker_id: str = typer.Argument(..., help="Worker ID"),
-):
-    """查看交易历史"""
-    wid = _to_int(worker_id, "Worker ID")
-    try:
-        data = _service.get_worker_performance(wid, days=30)
-        if not data:
-            typer.echo("暂无交易历史数据")
-            return
-        typer.echo(f"Worker {wid} 交易历史 (近30天):")
-        for d in data:
-            typer.echo(f"  {d.get('date')}: PnL={d.get('pnl', 0):.2f}, 交易数={d.get('trades', 0)}")
-    except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
-
-
 @app.command("kill")
 def worker_kill(worker_id: str = typer.Argument(..., help="Worker ID")):
     """强制终止 Worker 进程"""

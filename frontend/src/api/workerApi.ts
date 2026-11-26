@@ -19,7 +19,6 @@ import type {
   HealthCheckResponse,
   WorkerMetrics,
   WorkerLog,
-  WorkerPerformance,
   WorkerTrade,
   StrategyParameter,
   UpdateStrategyParametersRequest,
@@ -230,15 +229,6 @@ export const getReconcileSummary = (workerId: number, limit = 5): Promise<Reconc
  */
 export const clearWorkerLogs = (workerId: number): Promise<unknown> => {
   return apiRequest.delete(`/workers/${workerId}/monitoring/logs`, { confirm: true });
-};
-
-/**
- * 获取 Worker 绩效统计
- * @param workerId Worker ID
- * @param days 查询天数
- */
-export const getWorkerPerformance = (workerId: number, days?: number): Promise<WorkerPerformance[]> => {
-  return apiRequest.get(`/workers/${workerId}/monitoring/performance`, { days });
 };
 
 /**
@@ -930,7 +920,6 @@ export const workerApi = {
   getMetricsHistory,
   getWorkerLogs,
   clearWorkerLogs,
-  getWorkerPerformance,
   getWorkerTrades,
 
   // Strategy

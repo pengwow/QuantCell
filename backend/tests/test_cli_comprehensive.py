@@ -108,8 +108,6 @@ class TestCLIWorker:
         "positions",
         "orders",
         "trading-stats",
-        "pnl-distribution",
-        "trade-history",
     ]
 
     @pytest.mark.parametrize("cmd", WORKER_SUBCOMMANDS)

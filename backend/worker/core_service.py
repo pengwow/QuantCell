@@ -1737,30 +1737,6 @@ class WorkerCoreService:
         """异步版本获取 Worker 统计信息（通过线程池执行同步操作）"""
         return await asyncio.to_thread(self.get_worker_stats, worker_id)
 
-    def get_worker_performance(self, worker_id: int, days: int = 30) -> list:
-        """
-        获取 Worker 绩效统计
-
-        Args:
-            worker_id: Worker ID
-            days: 查询天数
-
-        Returns:
-            list: 绩效数据列表
-        """
-        try:
-            with self.get_db() as db:
-                performance = crud.get_worker_performance(db, worker_id, days)
-                return [p.to_dict() for p in performance]
-        except Exception as e:
-            logger.error(f"[get_worker_performance] Worker {worker_id} 获取绩效统计失败: {e}")
-            msg = "绩效统计"
-            raise WorkerOperationException(msg, worker_id, message=str(e))
-
-    async def async_get_worker_performance(self, worker_id: int, days: int = 30) -> list:
-        """异步版本获取 Worker 绩效统计（通过线程池执行同步操作）"""
-        return await asyncio.to_thread(self.get_worker_performance, worker_id, days)
-
     # ---------- 诊断功能 ----------
 
     def diagnose_worker(self, worker_id: int | None = None) -> dict:

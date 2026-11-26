@@ -28,7 +28,6 @@ def _mock_service(**overrides):
     svc.get_worker_trades.return_value = {"items": [], "total": 0}
     svc.get_worker_orders.return_value = {"items": [], "total": 0}
     svc.get_worker_stats.return_value = {"total_workers": 0}
-    svc.get_worker_performance.return_value = []
     # 应用覆盖
     for k, v in overrides.items():
         getattr(svc, k).return_value = v
@@ -577,62 +576,6 @@ class TestWorkerCliTradingStats:
 
             result = runner.invoke(app, ["trading-stats", "1"])
             assert result.exit_code == 1
-
-
-class TestWorkerCliPnlDistribution:
-    """测试盈亏分布命令"""
-
-    def test_pnl_distribution_success(self):
-        """测试盈亏分布成功"""
-        svc = _mock_service()
-        svc.get_worker_performance.return_value = [
-            {"date": "2024-01-01", "pnl": 100.0, "trades": 5},
-        ]
-        with patch("cli.worker._service", svc):
-            from cli.worker import app
-
-            result = runner.invoke(app, ["pnl-distribution", "1"])
-            assert result.exit_code == 0
-
-    def test_pnl_distribution_empty(self):
-        """测试无盈亏分布"""
-        svc = _mock_service()
-        svc.get_worker_performance.return_value = []
-        with patch("cli.worker._service", svc):
-            from cli.worker import app
-
-            result = runner.invoke(app, ["pnl-distribution", "1"])
-            assert result.exit_code == 0
-            assert "暂无" in result.output
-
-
-class TestWorkerCliTradeHistory:
-    """测试交易历史命令"""
-
-    def test_trade_history_success(self):
-        """测试交易历史成功"""
-        svc = _mock_service()
-        svc.get_worker_performance.return_value = [
-            {"date": "2024-01-01", "pnl": 100.0, "trades": 5},
-            {"date": "2024-01-02", "pnl": -50.0, "trades": 3},
-        ]
-        with patch("cli.worker._service", svc):
-            from cli.worker import app
-
-            result = runner.invoke(app, ["trade-history", "1"])
-            assert result.exit_code == 0
-            assert "2024-01-01" in result.output
-
-    def test_trade_history_empty(self):
-        """测试无交易历史"""
-        svc = _mock_service()
-        svc.get_worker_performance.return_value = []
-        with patch("cli.worker._service", svc):
-            from cli.worker import app
-
-            result = runner.invoke(app, ["trade-history", "1"])
-            assert result.exit_code == 0
-            assert "暂无" in result.output
 
 
 class TestWorkerCliKill:

@@ -102,13 +102,6 @@ export interface AgentLog {
   source?: string;
 }
 
-export interface AgentPerformance {
-  date: string;
-  trades_count: number;
-  profit_loss: number;
-  win_rate: number;
-}
-
 export interface AgentTrade {
   id: string;
   symbol: string;
@@ -330,16 +323,6 @@ export const getAgentLogs = async (
 };
 
 /**
- * 获取Agent绩效统计
- */
-export const getAgentPerformance = async (
-  agentId: number,
-  days: number = 30
-): Promise<AgentPerformance[]> => {
-  return apiRequest.get<AgentPerformance[]>(`/workers/${agentId}/monitoring/performance`, { days });
-};
-
-/**
  * 获取Agent交易记录
  */
 export const getAgentTrades = async (
@@ -491,7 +474,6 @@ export const agentApi = {
   getAgentMetrics,
   getMetricsHistory,
   getAgentLogs,
-  getAgentPerformance,
   getAgentTrades,
   deployStrategy,
   undeployStrategy,

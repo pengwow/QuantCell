@@ -27,7 +27,6 @@ def _mock_service():
     svc.get_worker_trades.return_value = {"items": [], "total": 0}
     svc.get_worker_orders.return_value = {"items": [], "total": 0}
     svc.get_worker_stats.return_value = {"total_workers": 0}
-    svc.get_worker_performance.return_value = []
     return svc
 
 
@@ -394,30 +393,6 @@ class TestWorkerMonitoring:
             from cli.worker import app
 
             result = runner.invoke(app, ["trading-stats", "1"])
-            assert result.exit_code == 0
-
-    def test_pnl_distribution(self):
-        svc = _mock_service()
-        svc.get_worker_performance.return_value = [
-            {"date": "2024-01-01", "pnl": 100.0, "trades": 5},
-            {"date": "2024-01-02", "pnl": -50.0, "trades": 3},
-        ]
-        with patch("cli.worker._service", svc):
-            from cli.worker import app
-
-            result = runner.invoke(app, ["pnl-distribution", "1"])
-            assert result.exit_code == 0
-
-    def test_trade_history(self):
-        svc = _mock_service()
-        svc.get_worker_performance.return_value = [
-            {"date": "2024-01-01", "pnl": 100.0, "trades": 5},
-            {"date": "2024-01-02", "pnl": -50.0, "trades": 3},
-        ]
-        with patch("cli.worker._service", svc):
-            from cli.worker import app
-
-            result = runner.invoke(app, ["trade-history", "1"])
             assert result.exit_code == 0
 
     def test_orders(self):

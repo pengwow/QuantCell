@@ -20,7 +20,6 @@ from .models import (
     WorkerMetric,
     WorkerOrder,
     WorkerParameter,
-    WorkerPerformance,
     WorkerPosition,
     WorkerTrade,
 )
@@ -444,25 +443,6 @@ def get_metrics_history(
     return [m.to_dict() for m in metrics]
 
 
-# Worker绩效操作
-
-
-def get_worker_performance(db: Session, worker_id: int, days: int = 30) -> list[WorkerPerformance]:
-    """获取Worker绩效"""
-    start_date = datetime.now() - timedelta(days=days)
-    return (
-        db.query(WorkerPerformance)
-        .filter(
-            and_(
-                WorkerPerformance.worker_id == worker_id,
-                WorkerPerformance.date >= start_date,
-            )
-        )
-        .order_by(WorkerPerformance.date)
-        .all()
-    )
-
-
 # Worker参数操作
 
 
@@ -758,9 +738,10 @@ def update_position(db: Session, position_id: str, position_data: dict) -> Worke
 def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
     """从 worker_trades 未配对 fill（round_trip_id IS NULL）推导当前持仓。
 
-    worker_positions 表在两种模式下都无常态写入口（live 的 LiveTradeRecorder
-    事件链路未接线、paper 内核持仓仅存引擎内存），故统一从成交明细推导，「当前
-    持仓」与「持仓中」行（同一份数据的未配对 fill 视图）保持同一口径。
+    worker_positions 表常态写入口：paper 由 PaperTradeSync._sync_positions 每泵
+    轮对账落库（P1-10）；live 的 LiveTradeRecorder 事件链路仍未接线。表为空时
+    （worker 已停止 / 引擎尚未产出 fill）以本推导兜底，「当前持仓」与「持仓中」
+    行（同一份数据的未配对 fill 视图）保持同一口径。
 
     过滤用 round_trip_id 而非 realized_pnl：paper 配对语义下两者等价（组键只在
     round-trip 关闭时回填）；live 由 LiveTradeSync 落库、从不回填组键——若按
@@ -771,9 +752,10 @@ def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
     返回字段形状与 WorkerPosition.to_dict() 完全对齐。
 
     ponytail: 反手场景下反手 fill 已被配对（有组键）而排除在推导之外，其作为
-    反手后新仓 entry 的部分会丢失——天花板是引擎不回传 per-fill 净仓轨迹；
-    升级路径是泵线程直接同步内核 snapshot 落 worker_positions（live 则需接
-    binance user-data position 流）。
+    反手后新仓 entry 的部分会丢失——paper 侧已由 PaperTradeSync._sync_positions
+    以引擎 snapshot 净仓为权威落库规避（本推导仅作表空兜底）；live 天花板仍在
+    （引擎/交易所不回传 per-fill 净仓轨迹），升级路径是接 binance user-data
+    position 流。
     """
     fills = (
         db.query(WorkerTrade)
