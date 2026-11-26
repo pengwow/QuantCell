@@ -131,10 +131,48 @@ SSE 事件类型全集：`start / content / reasoning / tool_calls / tool_start 
 
 System prompt 组装顺序（`context.py::build_system_prompt`）：身份 → workspace 引导文件（AGENTS.md/SOUL.md/USER.md/TOOLS.md/IDENTITY.md）→ 记忆 → always 技能 → 技能摘要（其余技能让模型用 read_file 读 SKILL.md）→（运行时元数据块）+（Worker 上下文块）。
 
-## 8. 工具系统
+## 8. 工具系统与参数设置（新工具接入 + 参数 CRUD）
+
+### 8.1 一个工具 = 三份声明（同一类内）
+
+以 `agent/tools/web.py::WebSearchTool` 为样板：
+
+| 层 | 类成员 | 消费方 | 作用 |
+|---|---|---|---|
+| LLM 调用契约 | `parameters`（JSON Schema） | `Tool.to_schema()` → `get_definitions()` 随每次请求发 LLM | 模型据此生成 tool_calls |
+| 页面参数配置 | `param_template` dict | `templates.py` 反射收集 → 工具抽屉参数表单 | 声明可配参数：`default`/`env_key`/`sensitive`/`type`/`description`/`validation` |
+| 实现 | `async execute(**kwargs)` | ReAct 循环调用 | 内部用 `ToolParamResolver.resolve(self.name, param)` 取配置 |
+
+外加 `risk_level: read/write/dangerous` 与 `requires_approval` 类属性。参数校验（enum/min/max/minLength/required 递归）在 `Tool.validate_params`，registry 执行前先风险拦截再校验。
+
+### 8.2 新工具接入（零登记机制）
+
+- **发现**：`templates.py::_discover_tool_classes` 与 `tools/__init__.py::create_registry` 各自 `rglob("*.py")` 扫描 `agent/tools/` 目录动态导入；模板收集条件只有「类有非空 `name` 且带 `param_template` dict」（不强制 Tool 子类）；实例化注册按类名分流构造参数（ReadFile/WriteFile/ListDir 需要 workspace+allowed_dir、Exec 需要 working_dir+timeout 等，见 `create_registry`）。
+- **五步接入**：① `agent/tools/<域>/新工具.py` 继承 `Tool` 实现 `name/description/parameters/execute` 四要素；② 页面可配参数加 `param_template`；③ 按副作用标 `risk_level`；④ **重启后端**（`_template_cache` 与工具注册都是进程级缓存，get_agent 单例只在首建时扫描——LLM 模型热替换不覆盖工具集）；⑤ 自检 `python -c "from agent.tools import get_tool_list; print(get_tool_list())"`，页面工具抽屉与参数表单自动出现。
+- **删除/改实现**：删文件即下线（重启生效）；改名会丢该工具在 DB 里的参数配置（键名含工具名）。
+
+### 8.3 参数取值优先级与 CRUD
+
+- 取值（`ToolParamResolver.resolve`，`tool_params.py`）：**DB**（`system_config` 表键 `agent.tools.<tool>.<param>`，类型按模板 `type` 回转）→ **环境变量**（模板 `env_key`）→ **模板 default**；读取侧 `get_tool_params(include_sensitive=False)` 对非默认来源的敏感值脱敏（`mask_sensitive_value`）。
+- 端点（`routes.py`，AI_READ/AI_WRITE 权限）：
+
+| 动作 | 端点 | 备注 |
+|---|---|---|
+| 查（工具列表+参数状态） | `GET /tools/params/tools` | 参数管理抽屉数据源 |
+| 查（单工具参数） | `GET /tools/params/{tool}?include_sensitive=` | 未知工具 404；含数据来源 database/environment/default |
+| 改 | `PUT /tools/params/{tool}/{param}` | 先模板查参再 `validate`，违例 400 |
+| 批量改 | `POST /tools/params/{tool}/batch` | `overwrite=false` 时跳过已有值 |
+| 删（恢复 env/默认） | `DELETE /tools/params/{tool}/{param}` | |
+| 迁移 | `GET /tools/params/export`（脱敏）/ `POST /tools/params/import` | 导入只接受 `templates` 里已登记的工具 |
+
+- 改参数**即改即生效无需重启**（每次 resolve 实时读 DB）；页面入口：`/agent` 工具列表按钮（`ToolListDrawerWithConfig`，敏感值展示掩码）。
+- 全部执行留痕：`registry.execute` → `record_tool_call`（success/error/blocked_approval/blocked_scope）→ `GET /audit` 可查。
+
+### 8.4 风险分级与拦截（P2-06）
+
+`dangerous` 工具默认不注册/不放行（需环境变量 `QUANTCELL_AGENT_ALLOW_DANGEROUS=1` 显式信任）；read-scope 的 Agent Token 不能执行 write/dangerous 工具（`agent_caller.get()[2]` 判 scope）；拦截事件记录审计（blocked_approval/blocked_scope）。
 
 - 注册：`create_registry`（`agent/tools/__init__.py`）**自动发现** `agent/tools/` 下所有 `Tool` 子类并实例化；目录现状：filesystem.py（ReadFile/WriteFile/ListDir，allowed_dir 锁定 workspace）、shell.py（Exec）、web.py（WebSearch/WebFetch）、trading/（market_data、news、_strategy_experimental——策略生成/详情/参数优化/诊断等）。
-- 风险分级（P2-06）：每个 Tool 带 `risk_level`（read/write/dangerous）与 `requires_approval`；`QUANTCELL_AGENT_ALLOW_DANGEROUS=1` 环境变量显式开启后才注册 dangerous 工具（`ToolRegistry(allow_dangerous=...)`）。
 - 参数管理与审计：工具参数可经页面改写（`ToolParamManager`，PUT/批量/导入导出端点），敏感值响应端掩码（`mask_sensitive_value`）；工具调用审计可查（`GET /audit`，`core/audit.py`）。
 - `GET /tools` 返回 ToolInfo 列表（name/description/risk_level/requires_approval），页面工具抽屉的数据源。
 - 状态自检：`GET /loop-status`。
