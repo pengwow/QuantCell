@@ -158,9 +158,9 @@ def get_agent() -> AgentLoop:
         enabled_model = ai_config.get("enabled_model", {})
         # 使用 name 进行API调用（与策略生成接口保持一致），如果没有则使用 id
         model_id = enabled_model.get("name") or enabled_model.get("id") if enabled_model else None
-        new_signature = "|".join(
-            str(provider_config.get(k) or "") for k in ("id", "api_host", "api_key")
-        ) + f"|{model_id}"
+        new_signature = (
+            "|".join(str(provider_config.get(k) or "") for k in ("id", "api_host", "api_key")) + f"|{model_id}"
+        )
     else:
         provider_config = None
         model_id = None

@@ -252,8 +252,8 @@ class PluginManager:
         try:
             return _parse_version(system_version) >= _parse_version(min_version)
         except ValueError, TypeError:
-            # 原写法 `except ValueError, TypeError:` 是 Python 2 语法（3.14 解析为元组捕获，
-            # 属历史遗留），这里规范化为标准元组形式，捕获语义不变
+            # 原写法是不带括号的裸多异常捕获（Python 2 语法遗留，3.14 解析为元组捕获），
+            # 已规范化为标准元组形式，捕获语义不变
             logger.warning(f"版本号解析失败: min_system_version={min_version}")
             return False
 

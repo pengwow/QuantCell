@@ -161,14 +161,10 @@ def _pool_symbol(kind: str, path: Path) -> str | None:
 
 
 # 标的简况「累计 bar」口径：只有这几个 kind 的行才是 bar，其余是成交/快照条目
-_BAR_KINDS: frozenset[str] = frozenset(
-    {"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
-)
+_BAR_KINDS: frozenset[str] = frozenset({"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"})
 
 # 归档布局里按 interval 落盘的 K 线 kind（文件名 `{sym}-{kind}-{interval}-{date}.parquet`）
-_ARCHIVE_KLINE_KINDS: frozenset[str] = frozenset(
-    {"markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
-)
+_ARCHIVE_KLINE_KINDS: frozenset[str] = frozenset({"markPriceKlines", "indexPriceKlines", "premiumIndexKlines"})
 
 # 周期排序口径（面板「采集口径」按此顺序拼，不按字母序）
 _INTERVAL_ORDER: tuple[str, ...] = ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")

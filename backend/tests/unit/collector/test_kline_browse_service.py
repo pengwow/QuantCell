@@ -72,6 +72,7 @@ def test_query_data_pages_and_normalizes_timestamps(parquet_root):
     assert page2["truncated"] is False
     assert len(page2["rows"]) == 2
 
+
 def test_delete_symbol_scoped_to_interval(parquet_root):
     # 再有第二个周期文件，验证「只删当前周期」不会连坐
     _write_kline(parquet_root, "spot", "15m", "BTCUSDT", 1_782_864_000_000_000, rows=2)

@@ -173,9 +173,7 @@ def get_data(
     """分页查询指定 (kind, market, symbol) 在 [start_time, end_time] 区间的数据。"""
     if kind == KLINE_KIND:
         market_e = _parse_market(market)
-        result = kline_browse_service.query_data(
-            market_e.value, symbol, start_time, end_time, limit, offset, interval
-        )
+        result = kline_browse_service.query_data(market_e.value, symbol, start_time, end_time, limit, offset, interval)
         return {"success": True, **result}
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()

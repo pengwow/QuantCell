@@ -472,7 +472,9 @@ def test_get_symbol_coverage_merges_kline_meta_and_pool(tmp_path: Path):
     (mark / "LTCUSDT-markPriceKlines-1h-2024-02-04.parquet").touch()
     (mark / "LTCUSDT-markPriceKlines-4h-2024-02-04.parquet").touch()
     # 数据池衍生：fundingRate 在 {kind}/{market}/{symbol} 层序
-    _write_parquet(base / "fundingRate" / "spot" / "LTCUSDT" / "LTCUSDT-fundingRate-20240204.parquet", [1672531200000] * 2)
+    _write_parquet(
+        base / "fundingRate" / "spot" / "LTCUSDT" / "LTCUSDT-fundingRate-20240204.parquet", [1672531200000] * 2
+    )
     # 不在本次查询范围的其他标的
     _write_parquet(base / "crypto" / "spot" / "klines" / "1h" / "ETHUSDT.parquet", [1672531200000] * 9)
 

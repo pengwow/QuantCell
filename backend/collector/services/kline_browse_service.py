@@ -122,9 +122,7 @@ def get_meta(market: str, symbol: str, interval: str | None = None) -> dict | No
         "total_rows": len(df),
         "file_count": len(files),
         "corrupt_dates": [],
-        "updated_at": (
-            datetime.fromtimestamp(updated, tz=UTC).isoformat() if updated else ""
-        ),
+        "updated_at": (datetime.fromtimestamp(updated, tz=UTC).isoformat() if updated else ""),
     }
 
 

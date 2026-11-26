@@ -568,11 +568,7 @@ class StrategyService:
         from utils.db_session import get_db_session
 
         with get_db_session() as db:
-            row = (
-                db.query(StrategyVersion)
-                .filter_by(id=snapshot_id, strategy_name=strategy_name)
-                .first()
-            )
+            row = db.query(StrategyVersion).filter_by(id=snapshot_id, strategy_name=strategy_name).first()
             if row is None:
                 return None
             return {
@@ -1563,9 +1559,7 @@ class StrategyService:
                 )
             except Exception as _llm_err:
                 try:
-                    runtime_health.record_llm_call(
-                        time.monotonic() - _llm_t0, error_kind=classify_llm_error(_llm_err)
-                    )
+                    runtime_health.record_llm_call(time.monotonic() - _llm_t0, error_kind=classify_llm_error(_llm_err))
                 except Exception:
                     pass
                 raise

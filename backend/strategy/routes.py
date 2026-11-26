@@ -105,7 +105,9 @@ def api_get_strategy_versions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{strategy_name}/versions/{snapshot_id}", response_model=ApiResponse, summary="策略版本快照全文（预览 / 对比用）")
+@router.get(
+    "/{strategy_name}/versions/{snapshot_id}", response_model=ApiResponse, summary="策略版本快照全文（预览 / 对比用）"
+)
 def api_get_strategy_version(
     strategy_name: str = Path(..., description="策略名称"),
     snapshot_id: int = Path(..., description="快照 ID（/versions 列表项的 id）"),

@@ -22,6 +22,17 @@ repos:
         always_run: true
         exclude: ^(\.trae_deleted/|backend/decision_py_archive_v2_202610/|\.github/)
 
+      # PEP 758 裸多异常捕获防回潮：统一带括号形式（裸语法 3.14 合法 / 3.13- 直接
+      # SyntaxError，会让低版本工具链解析整文件失败）。hook 注释/文案不可写出完整
+      # 裸语法示例，否则 pattern 尾随冒号条件会让 hook 自命中
+      - id: pep758-paren-except
+        name: forbid bare multi-except syntax (PEP 758)
+        entry: bash -c 'if grep -rnE "except\*?[[:space:]]+[A-Za-z_][^():]*,[[:space:]]*[A-Za-z_.]+[[:space:]]*:" backend --include="*.py" --exclude-dir=".venv" --exclude-dir="data" --exclude-dir=".archive" --exclude-dir=".trae_deleted" --exclude-dir="decision_py_archive_v2_202610"; then echo "PEP 758 裸多异常捕获禁止（3.13- 直接 SyntaxError）：请改用带括号形式，异常类型用元组包裹"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+        exclude: ^(\.trae_deleted/|backend/decision_py_archive_v2_202610/|\.github/)
+
       # banned 词条 lint 门禁（命名审计 P2-6）：消费 vocab.py 的 banned 词条事实源，
       # 基线只降不升（backend/scripts/vocab_lint.py 顶部注释有完整用法）
       - id: vocab-lint
