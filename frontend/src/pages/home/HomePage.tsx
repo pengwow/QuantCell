@@ -764,18 +764,10 @@ const HomePage = () => {
               })}
             </div>
           )}
-          {/* 卡脚说明（demo 921 对位）：只写真实机制——LLM 回测缺 replay 记录直接报错，不降级 Hold */}
+          {/* 卡脚说明（demo 921 对位）：只写真实机制——LLM 回测缺 replay 记录直接报错，不降级 Hold。
+              不放跳转链接：与卡头「查看全部 →」重复（2026-11-26 删，卡头是全站统一的列表出口） */}
           {!firstLoading && recentBacktests.length > 0 && (
-            <div
-              className="home-foot"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
-            >
-              <span>{t('home_backtest_foot')}</span>
-              <button type="button" className="home-cardlink" onClick={() => navigate('/backtest')}>
-                {t('backtest_center')}
-                <IconArrowRight />
-              </button>
-            </div>
+            <div className="home-foot">{t('home_backtest_foot')}</div>
           )}
         </Card>
 
@@ -842,18 +834,10 @@ const HomePage = () => {
               })}
             </div>
           )}
-          {/* 卡脚说明（demo 943 对位）：只写真实机制——产物靠详情页逐个 trial 采纳，不做会话级一键转回测 */}
+          {/* 卡脚说明（demo 943 对位）：只写真实机制——产物靠详情页逐个 trial 采纳，不做会话级一键转回测。
+              不放跳转链接：与卡头「查看全部 →」重复（2026-11-26 删） */}
           {!firstLoading && recentResearch.length > 0 && (
-            <div
-              className="home-foot"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
-            >
-              <span>{t('home_research_foot')}</span>
-              <button type="button" className="home-cardlink" onClick={() => navigate('/research')}>
-                {t('research')}
-                <IconArrowRight />
-              </button>
-            </div>
+            <div className="home-foot">{t('home_research_foot')}</div>
           )}
         </Card>
 

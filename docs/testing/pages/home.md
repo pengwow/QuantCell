@@ -24,11 +24,11 @@
 | H9 | 「运行中任务」行点击与标签 | 行内 strategy 名 mono 加粗 + `#id` 弱色 + 交易模式 tag（实盘=主色 tint 全圆 tag、模拟=info tint、无配置=中性）；第二行为 策略类型 · 策略名 · 标的 · 周期（10.5px 弱色）；右侧 盈亏 mono（正绿/负红）+ 运行时长（running 且有 `started_at` 时显示 `14h 22m` 形态）+ 状态 chip（运行中=info 带呼吸点、失败/中断=down、暂停=warn、停止/初始化=quiet）；点击整行跳 `/strategy-worker/:id` | L1 |
 | H10 | 「系统状态」行点 | 4 行业务读数（交易引擎 / Exchange / 行情数据源 / LLM Provider），每行 = 8px 状态点 + 名称 12px/550 与同行 mono id 10px 徽标 + 副说明 10.5px + 右值 mono 10.5px，行间 1px dashed 分割、首行无；id 徽标统一灰色小字、值为中性技术短词（引擎=`kernel`、交易所名、数据源=`kline`、LLM=provider 名；**内部品牌名 `axon-kernel` 不入 UI**——2026-11-26 裁定）；卡头右侧「4 项」count-chip + 24px 刷新图标钮，卡底 dashed 分线上方为「最后更新 HH:mm:ss」真实刷新时间。全部取 `/system/metrics` 的 `engine/exchanges/dataSource/llm` 块：引擎 tick 均值、Exchange 公共端点往返延迟（失败时右值「—」、点转红）、行情库 bar 数与最新 bar 时间、LLM provider 名/模型 + 近 5 分钟调用数与 p95（429 时点转黄）。无 worker、无 LLM 调用、无探测结果时点显灰圈、右值「—」，不得显示 0 或示例数字 | L1 |
 | H11 | 「最近回测/最近研究」行 | 回测行：策略名 mono + 「区间 · 周期」（`2026-10-21 → 2026-11-20 · 15m`，区间取 `GET /backtest/{id}/summary` 的 `backtest_config.start_time/end_time`，周期取 `interval` 或列表 `intervals[0]`；summary 无起止时间的任务退回「创建时间 `MM-DD HH:mm`」+ 周期，`invalid` 这类脏周期不渲染）+ 状态 chip（完成 ok/运行中 info 点/失败 down）+ 收益率（正绿负红，失败或空显示「—」）；研究行：标题 + 类型 chip（factor=因子 / model=模型 / strategy=策略，info tint）+ 状态 chip + 「x 前」相对时间；分别点击跳 `/backtest/detail/:id`、`/research/:id` | L1 |
-| H18 | 观察「最近回测」卡脚注 | 行列表下方 dashed 分线内有说明「回测失败不降级为 Hold；LLM 决策缺 replay 记录即报错终止」（对应 `strategy/llm_replay.py` 的 `ReplayMissError`：不降级 heuristic、不返回空串）+ 右侧「回测中心 →」链接跳 `/backtest`；无回测行时不渲染该脚注 | L1 |
+| H18 | 观察「最近回测」卡脚注 | 行列表下方 dashed 分线内是说明「回测失败不降级为 Hold；LLM 决策缺 replay 记录即报错终止」（对应 `strategy/llm_replay.py` 的 `ReplayMissError`：不降级 heuristic、不返回空串）；**脚注内无跳转链接**（2026-11-26 删「回测中心 →」：与卡头「查看全部 →」重复，列表出口统一走卡头）；无回测行时不渲染该脚注 | L1 |
 | H12 | 空态与加载态 | 首次加载未返回前，四个区块显示灰色骨架条（`--bge` 底、6px 圆角、无 shimmer），KPI 数值显示「—」，不白屏；无数据时区块内渲染图标块空态（46×46 圆角块 + 主文案 + 操作 mini 按钮），按钮可跳创建入口：任务→新建、回测→发起回测、研究→新研究 | L1 |
 | H13 | 主题切换走查 | 暗/亮分别观察：卡片底/边、KPI 数值色、chip 三色 tint、系统状态点光环均随 token 切换，不发灰不串色；颜色类属性 160ms 过渡无布局跳动 | L1 |
 | H14 | 「快速操作」卡 | 底部全宽卡内 6 个 24px mini 钮（**单行 6 列**，2026-11-26 由 3 列 2 行压单省一排高度；≤991px 收 2 列）：行情图表/智能体工作台/回测/因子分析/策略研究/数据管理，图标 14px 弱色，点击分别跳对应路由 | L1 |
-| H19 | 观察「最近研究」卡脚注 | 卡底部出现弱色说明行「轮次与最优指标只存于会话；在详情页采纳 trial 才写入因子库 / 策略库 / 模型注册表」，右侧「策略研究」链接点击跳 `/research`；无研究会话时整行不渲染（不留占位） | L1 |
+| H19 | 观察「最近研究」卡脚注 | 卡底部为弱色说明行「轮次与最优指标只存于会话；在详情页采纳 trial 才写入因子库 / 策略库 / 模型注册表」；**脚注内无跳转链接**（2026-11-26 删「策略研究 →」：与卡头「查看全部 →」重复）；无研究会话时整行不渲染（不留占位） | L1 |
 
 ## 历史雷区
 - **401 踢登录**（已修）：`notifications/inbox` 曾 401 硬跳 `/login`。H2 就是针对它的回归哨
