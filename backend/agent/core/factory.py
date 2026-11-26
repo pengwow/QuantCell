@@ -14,6 +14,9 @@ from .loop import AgentLoop
 logger = get_logger(__name__, LogType.APPLICATION)
 
 _agent_instance: AgentLoop | None = None
+# 当前实例使用的 LLM 配置签名（provider|host|key|model）；设置页保存后签名变化即热替换，
+# 否则单例永远用首次快照——会话报错一直显示旧模型（2026-11-26 用户实测踩中）
+_agent_signature: str | None = None
 
 
 def get_ai_config() -> dict[str, Any] | None:
@@ -138,74 +141,94 @@ def get_ai_config() -> dict[str, Any] | None:
 
 
 def get_agent() -> AgentLoop:
-    """获取或创建 Agent 实例"""
-    global _agent_instance
+    """获取或创建 Agent 实例
 
-    if _agent_instance is None:
-        # Agent 工作区统一放到 data 目录下；桌面打包下落 QUANTCELL_DATA_DIR（临时解压目录重启即丢）
-        workspace = get_persistent_dir(
-            "data/agent_workspace",
-            Path(__file__).parent.parent.parent / "data" / "agent_workspace",
-        )
-        workspace.mkdir(parents=True, exist_ok=True)
+    每次调用都重读 system_config 的 ai_model.* 做签名比对：provider/host/key/model
+    任一变化就重建 llm_backend 热替换进现有实例（会话历史/工具注册不受影响）。
+    ponytail: 设置页保存低频，多一次 SELECT 开销可忽略；若未来要求「会话中途换模型
+    立即生效于下一条消息」，签名比对已覆盖——模型报错文案里的 model 来自 self.model。
+    """
+    global _agent_instance, _agent_signature
 
-        # 从系统配置获取AI模型配置
-        ai_config = get_ai_config()
+    # 从系统配置获取AI模型配置（每次调用都读，见 docstring）
+    ai_config = get_ai_config()
 
-        if ai_config:
-            # 使用系统配置中的模型设置
-            provider_config = ai_config["provider"]
-            enabled_model = ai_config.get("enabled_model", {})
+    if ai_config:
+        provider_config = ai_config["provider"]
+        enabled_model = ai_config.get("enabled_model", {})
+        # 使用 name 进行API调用（与策略生成接口保持一致），如果没有则使用 id
+        model_id = enabled_model.get("name") or enabled_model.get("id") if enabled_model else None
+        new_signature = "|".join(
+            str(provider_config.get(k) or "") for k in ("id", "api_host", "api_key")
+        ) + f"|{model_id}"
+    else:
+        provider_config = None
+        model_id = None
+        new_signature = "env"
 
-            # 获取启用的模型信息
-            if enabled_model:
-                # 使用 name 进行API调用（与策略生成接口保持一致），如果没有则使用 id
-                model_id = enabled_model.get("name") or enabled_model.get("id")
-                logger.info(f"Agent使用模型: id={enabled_model.get('id')}, name={enabled_model.get('name')}")
-            else:
-                model_id = None
+    if _agent_instance is not None:
+        if new_signature == _agent_signature:
+            return _agent_instance
+        # 配置变化：只换 LLM backend，保留会话内存与已注册工具
+        logger.info(f"检测到 AI 模型配置变化，热替换 Agent LLM backend（{_agent_signature} -> {new_signature}）")
 
-            model = model_id or os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
-            llm_backend = create_llm_backend(
-                api_key=provider_config.get("api_key") or "",
-                base_url=provider_config.get("api_host") or "",
-                model=model,
-                temperature=0.1,
-                max_tokens=4096,
-            )
-            logger.info(f"Agent使用系统配置: 提供商={provider_config['name']}, 模型={model}")
-        else:
-            # 使用环境变量配置
-            model = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
-            llm_backend = create_llm_backend(
-                api_key=os.environ.get("OPENAI_API_KEY", ""),
-                base_url=os.environ.get("OPENAI_BASE_URL") or "",
-                model=model,
-                temperature=0.1,
-                max_tokens=4096,
-            )
-            logger.info("Agent使用环境变量配置")
-
-        # 创建 Agent
-        _agent_instance = AgentLoop(
-            llm_backend=llm_backend,
-            workspace=workspace,
+    if provider_config:
+        model = model_id or os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+        llm_backend = create_llm_backend(
+            api_key=provider_config.get("api_key") or "",
+            base_url=provider_config.get("api_host") or "",
             model=model,
-            max_iterations=40,
             temperature=0.1,
             max_tokens=4096,
-            memory_window=100,
         )
+        logger.info(f"Agent使用系统配置: 提供商={provider_config['name']}, 模型={model}")
+    else:
+        # 使用环境变量配置
+        model = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+        llm_backend = create_llm_backend(
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            base_url=os.environ.get("OPENAI_BASE_URL") or "",
+            model=model,
+            temperature=0.1,
+            max_tokens=4096,
+        )
+        logger.info("Agent使用环境变量配置")
 
-        # 使用统一的工具注册机制（自动发现并注册所有工具）
-        from agent.tools import create_registry
+    if _agent_instance is not None:
+        # 热替换：AgentLoop 内部一律经 self.llm_backend / self.model 取用（loop.py chat_to_dict 调用点）
+        _agent_instance.llm_backend = llm_backend
+        _agent_instance.model = model
+        _agent_signature = new_signature
+        return _agent_instance
 
-        tools_registry = create_registry(workspace)
+    # Agent 工作区统一放到 data 目录下；桌面打包下落 QUANTCELL_DATA_DIR（临时解压目录重启即丢）
+    workspace = get_persistent_dir(
+        "data/agent_workspace",
+        Path(__file__).parent.parent.parent / "data" / "agent_workspace",
+    )
+    workspace.mkdir(parents=True, exist_ok=True)
 
-        # 将工具注册到 Agent 实例
-        for tool in tools_registry._tools.values():
-            _agent_instance.register_tool(tool)
+    # 创建 Agent
+    _agent_instance = AgentLoop(
+        llm_backend=llm_backend,
+        workspace=workspace,
+        model=model,
+        max_iterations=40,
+        temperature=0.1,
+        max_tokens=4096,
+        memory_window=100,
+    )
 
-        logger.info("Agent 实例已初始化")
+    # 使用统一的工具注册机制（自动发现并注册所有工具）
+    from agent.tools import create_registry
+
+    tools_registry = create_registry(workspace)
+
+    # 将工具注册到 Agent 实例
+    for tool in tools_registry._tools.values():
+        _agent_instance.register_tool(tool)
+
+    _agent_signature = new_signature
+    logger.info("Agent 实例已初始化")
 
     return _agent_instance

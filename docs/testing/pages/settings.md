@@ -132,6 +132,7 @@
 | V8 | 暗色模式重复 V1-V7 抽查（theme.test 守卫之外的手工面） | 无深灰文字压深底；tint/chip 在暗色下同样可读（token 自动降级）；控制台无新增未捕获错误 | L1 |
 
 ## 历史雷区
+- **模型设置保存后会话仍用旧模型**（2026-11-26 已修，定位顺序备忘）：用户在 `/setting/model` 改模型保存后，`/agent` 会话报错仍显示旧模型。排查顺序：①先查 DB——system_config 表 `ai_model.openai-compatible.is_enabled` 等键已即时更新，保存链路（`configApi.updateConfig` → `update_config`）无罪；②真凶在后端 `agent/core/factory.py::get_agent()` 单例——LLM 配置只在进程首次调用读一次，此后永用旧快照。已改为每次调用重读 + 签名比对热替换（详见 agent.md 雷区与 `tests/agent/test_factory_hotswap.py`）。以后遇到「改设置不生效」先分清**存储层已写入、读取方有进程级缓存**，两类问题修法完全不同
 - **设置模块视觉收口（2026-11-20，车道 O）**：`src/pages/setting/**` 全量替换 Tailwind 灰阶/语义色为 `--qc-*` token、Card→`qc-card`、页头接 `PageContainer`、日志页 antd Table→`DataTable`、全部弹窗加 `qc-modal`。回归点 V1-V8。注意三处：①交易所页 `$` 前缀装饰在 `Space.Compact` 里手拼内联边框（`--qc-surface-raised`+`--qc-border`），改 Input 组件样式会双线；②LogSettingsUnified 的日志文件表迁移到 DataTable 后，「每页 8/15/25」下拉被分页器自带的条数切换取代，行点击展开详情保留；③系统日志终端（SystemLogs）按 §6.16 豁免保留 stone 深色系，除链接蓝（`--qc-info`）与级别 chip 外 classify 不算违规。
 - **LogSettingsPanel 是薄壳不是独立页**：真正的日志设置 DOM 在 `/setting/info` 页「日志设置」按钮拉起的右侧 Drawer 里（内嵌 LogSettingsUnified），没有独立路由；`/setting/*` 路由表里找不到 log 路由属正常。
 - **Agent Token 页一次弹出两个 Modal**：签发表单与「签发成功明文展示」是两个 Modal，明文 qctk_ 只在第二个里出现一次，关闭后表格行状态正常但**明文不可再取**（S32 证据采集要在关闭前完成）。

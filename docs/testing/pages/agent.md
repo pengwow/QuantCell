@@ -42,6 +42,7 @@
 - **工作区曾落临时目录（已根治）**：agent 会话/工作区文件此前写进 PyInstaller 临时解压目录，升级/重启即丢。现已统一落 `QUANTCELL_DATA_DIR/data/agent_workspace`
 - **无子路由**：不要构造 `/agent/xxx` 之类的地址找子页——React Router 里只有 `/agent`。右栏页签已于 2026-11 整体删除，`?tab=` 不再有任何效果，别按旧地址找入口
 - **URL 与 store 双向同步有回写竞态**（已修）：挂载首拍同时执行 URL→store 与 store→URL，曾把 URL 里的 tab/worker 打回默认值。断言 AG3 要等同步稳定（条件轮询 URL），不要在 `domcontentloaded` 瞬间取值
+- **会话报错一直显示旧模型**（已修 2026-11-26）：`get_agent()` 单例此前只在进程首次调用时读 `system_config` 的 `ai_model.*`，设置页保存新模型后单例仍持旧 provider/model 快照发请求，错误信息永远是旧模型名。已改为每次调用重读配置做签名（provider|host|key|model）比对，变化即热替换 `llm_backend/model`、实例复用（会话历史与工具不丢）；回归用例 `backend/tests/agent/test_factory_hotswap.py`。改模型设置后的验证口径：不重启后端，直接在 `/agent` 发一条新消息即可生效
 - **图标按钮无文本**：顶栏`会话历史`/`工具参数设置`/`清空会话`/`展开或收起面板`都是纯图标 + tooltip，文本扫描找不到，按 `aria-label`/tooltip 或 DOM 直查定位
 - **日志 SSE 重连有上限**：`WorkerLogStreamSSE` 内部最多重连 5 次，超限断开后需重新挂载页面才会再连；"日志一直未连接"先看是否已超限，而非后端无日志
 - **无 Worker 时右栏是空态不是故障**：所有 Tab 都靠 `workerId` 取数，`workerId` 为空即不发请求、不建日志流。L1 只验骨架，别把空态当数据缺失
