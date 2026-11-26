@@ -14,8 +14,15 @@ pyproject 声明为直接依赖，不为一次调用升级它。api_symbol/timef
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from typing import Any, TypedDict
+
+# 拉取失败的短退避重试（P1-03）：testnet 端瞬时抖动/限频时，泵轮异常会让
+# 对应 bar 缺口拖到下一周期；窂数重试在单轮内吸收瞬时故障。指数退避
+# 0.5s/1s，两轮打住——持续故障超出单轮预算，交给泵轮常态告警路径。
+PAPER_FETCH_RETRIES = 2
+PAPER_RETRY_BASE_DELAY_S = 0.5
 
 
 class PaperKline(TypedDict):
@@ -65,15 +72,27 @@ def as_kline(row: Any) -> PaperKline:
     )
 
 
-def fetch_paper_klines(api_symbol: str, timeframe: str, limit: int) -> list[PaperKline]:
+def fetch_paper_klines(
+    api_symbol: str, timeframe: str, limit: int, retries: int = PAPER_FETCH_RETRIES
+) -> list[PaperKline]:
     """拉取已收市判定用的公共 K 线（不签名），返回 typed 行列表。
 
     端点错误（限频/参数错）时响应是 ``{"code": ..., "msg": ...}`` dict 而非
     list，显式抛 ValueError 让泵轮按常态异常路径降级告警。
+    瞬时网络/限频失败做短指数退避重试（P1-03），耗尽后抛最后一轮异常。
     """
     url = f"{PAPER_KLINES_URL}?symbol={api_symbol}&interval={timeframe}&limit={limit}"
-    with PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
-        rows = json.loads(resp.read().decode("utf-8"))
-    if not isinstance(rows, list):
-        raise ValueError(f"paper klines 响应非 list: {rows}")
-    return [as_kline(r) for r in rows]
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            with PAPER_NO_PROXY_OPENER.open(url, timeout=10) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(rows, list):
+                raise ValueError(f"paper klines 响应非 list: {rows}")
+            return [as_kline(r) for r in rows]
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(PAPER_RETRY_BASE_DELAY_S * (2**attempt))
+    assert last_err is not None  # 循环至少跑一轮
+    raise last_err

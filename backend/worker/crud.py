@@ -228,17 +228,28 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
 
 
 def update_worker_config(db: Session, worker_id: int, config: dict[str, Any]) -> Worker | None:
-    """更新Worker配置"""
-    import json
+    """更新Worker配置
 
+    P1-6：写回收为单条 UPDATE 直改 config/updated_at 列（原来是先改 ORM
+    对象再 commit，fk：ORM 脏对象在并发 session 复用下有隐性覆盖面）。
+    ponytail: 跨方言（sqlite/duckdb）没有可用的 JSON merge 原生函数，「合并
+    到最新 config」必须在应用层读到现状后进行，读写窗内的并发更新仍可能
+    互覆盖；当前调用链均为单请求线程串行，窗口可接受。切 PostgreSQL 后可
+    换 jsonb 合并运算符做成纯原子语句。
+    """
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         return None
 
     current_config = worker.get_config_dict()
     current_config.update(config)
-    worker.config = json.dumps(current_config)
-    worker.updated_at = datetime.now()
+    db.query(Worker).filter(Worker.id == worker_id).update(
+        {
+            "config": json.dumps(current_config),
+            "updated_at": datetime.now(),
+        },
+        synchronize_session=False,
+    )
     db.commit()
     db.refresh(worker)
     return worker
@@ -256,7 +267,12 @@ def delete_worker(db: Session, worker_id: int) -> bool:
 
 
 def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneRequest) -> Worker:
-    """克隆Worker"""
+    """克隆Worker
+
+    P1-6：原实现「先 commit 主记录、再复制参数、再次 commit」，中途失败会
+    留下半克隆。改为单事务：主记录 flush 生成 id 后在同一事务内复制参数，
+    任一步失败整体回滚。
+    """
     source_worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not source_worker:
         msg = "源Worker不存在"
@@ -275,24 +291,28 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
-    db.add(new_worker)
-    db.commit()
-    db.refresh(new_worker)
+    try:
+        db.add(new_worker)
+        # flush 拿到 new_worker.id，参数复制仍在同一事务内
+        db.flush()
 
-    # 复制参数
-    if request.copy_parameters:
-        params = db.query(WorkerParameter).filter(WorkerParameter.worker_id == worker_id).all()
-        for param in params:
-            new_param = WorkerParameter(
-                worker_id=new_worker.id,
-                param_name=param.param_name,
-                param_value=param.param_value,
-                param_type=param.param_type,
-                description=param.description,
-            )
-            db.add(new_param)
+        if request.copy_parameters:
+            params = db.query(WorkerParameter).filter(WorkerParameter.worker_id == worker_id).all()
+            for param in params:
+                db.add(
+                    WorkerParameter(
+                        worker_id=new_worker.id,
+                        param_name=param.param_name,
+                        param_value=param.param_value,
+                        param_type=param.param_type,
+                        description=param.description,
+                    )
+                )
         db.commit()
-
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(new_worker)
     return new_worker
 
 

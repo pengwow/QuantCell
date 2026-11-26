@@ -21,6 +21,7 @@ worker_sync_cursor，进程重启后从上次提交位置续拉，不再漏停�
 """
 
 import json
+import os
 from datetime import datetime
 from hashlib import sha1
 
@@ -39,9 +40,14 @@ logger = get_logger(__name__, LogType.APPLICATION)
 LIVE_TRADE_SYNC_INTERVAL_S = 10.0
 
 # 同步游标告警/截断阈值：游标落后当前时刻超过 6h 记一次 sync_gap 告警；
-# 超过 24h 直接截断为最近 24h（放弃更早的成交，避免一次回补拉上万笔拖死驱动线程）
+# 超过截断阈值（默认 24h）直接截断（放弃更早的成交，避免一次回补拉上万笔
+# 拖死驱动线程）。截断阈值支持 env 覆盖（P1-4）：长周期策略希望保留更长
+# 断点回补窗口时按毫秒设置 QUANTCELL_CURSOR_TRUNCATE_GAP_MS。
 CURSOR_WARN_GAP_MS = 6 * 3600 * 1000
-CURSOR_TRUNCATE_GAP_MS = 24 * 3600 * 1000
+CURSOR_TRUNCATE_GAP_MS = max(
+    CURSOR_WARN_GAP_MS,
+    int(os.environ.get("QUANTCELL_CURSOR_TRUNCATE_GAP_MS", str(24 * 3600 * 1000))),
+)
 
 
 def account_id_for_key(api_key: str) -> str:

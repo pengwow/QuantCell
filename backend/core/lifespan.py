@@ -17,7 +17,6 @@ from datetime import datetime
 from collector.db import init_db
 from observability.metrics import inc_worker_restart
 from utils.logger import LogType, get_logger
-from worker.events import EVENTS_SCHEMA_VERSION
 
 # 获取生命周期管理模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
@@ -396,50 +395,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"WebSocket连接管理器或系统信息推送服务启动失败: {e}")
 
-    # 初始化策略执行引擎（TradingSystem，全局单例）
-    try:
-        from worker.trading_system import trading_system
-
-        await trading_system.initialize()
-        logger.info("策略执行引擎 (TradingSystem) 初始化完成")
-    except Exception as e:
-        logger.error(f"策略执行引擎初始化失败: {e}")
-
-    # 初始化 WorkerOrchestrator (ZMQ 通道 + 供 CLI/API 管理独立 Worker 进程)
-    try:
-        from worker.orchestrator import WorkerOrchestrator
-
-        orchestrator = WorkerOrchestrator.get_instance()
-        orchestrator.ensure_transport()
-        logger.info("[Lifespan] WorkerOrchestrator ZMQ 通道已初始化")
-
-        # 健康检查循环: 独立进程 Worker 的心跳超时检测 + 事件消费
-        async def _orchestrator_health_check():
-            while True:
-                await asyncio.sleep(30)
-                try:
-                    # check_health 内部先 drain event_pull 积压（heartbeat 回填
-                    # 注册表、order/log 落入外部事件队列），再做 60s 离线判定。
-                    # 经 to_thread 执行：drain 含短超时 socket 轮询，不阻塞事件循环
-                    await asyncio.to_thread(orchestrator.check_health)
-                    for wid, event_type, payload in orchestrator.pop_external_events():
-                        await manager.broadcast(
-                            {
-                                "type": "worker_event",
-                                "schema_version": EVENTS_SCHEMA_VERSION,
-                                "topic": "worker",
-                                "data": {"worker_id": wid, "event_type": event_type, "payload": payload},
-                            },
-                            topic="worker",
-                        )
-                except Exception as e:
-                    logger.warning(f"[健康检查循环] 异常: {e}")
-
-        app.state.orchestrator_health_check_task = asyncio.create_task(_orchestrator_health_check())
-        logger.info("[Lifespan] WorkerOrchestrator 健康检查循环已启动")
-    except Exception as e:
-        logger.warning(f"[Lifespan] WorkerOrchestrator 初始化失败 (ZMQ 不可用): {e}")
-
     # 指标信号提醒评估循环（P2-07）：60s 一轮，评估在 to_thread 内同步执行，
     # 命中后此协程侧经统一通知服务投递；规则本身可随时暂停/恢复
     async def _indicator_alert_loop():
@@ -534,21 +489,9 @@ async def lifespan(app: FastAPI):
     _shut_cfg = ShutdownConfig()
     _shut_deadline = time.monotonic() + _shut_cfg.total_timeout
 
-    # 步骤 1: 停止所有运行中的策略（通过 TradingSystem）
-    try:
-        from worker.state import strategy_registry
-        from worker.trading_system import trading_system
-
-        _stop_budget = _stop_timeout(_LEGACY_STOP_TIMEOUT, worker_stop_budget())
-        for runtime in strategy_registry.list_all():
-            if runtime.is_running:
-                try:
-                    await asyncio.wait_for(trading_system.stop_strategy(runtime.worker_id), timeout=_stop_budget)
-                except TimeoutError:
-                    logger.warning(f"停止策略 {runtime.worker_id} 超时（>{_stop_budget:g}s），强制跳过")
-        logger.info("✓ 所有策略已停止")
-    except Exception as e:
-        logger.error(f"停止策略时发生意外错误: {e}")
+    # （原步骤 1 "停止所有运行中的策略" 已删除：trading_system.stop_strategy 是
+    # 多进程时代的空操作——driver 模式下无 _run_task 可取消。策略运行时的真实
+    # 收口在下方步骤 9 的 worker_system.shutdown()，遍历 _kernel_runs 逐个停 driver）
 
     # 步骤 3: 停止实时引擎（带超时保护）
     if realtime_engine:
@@ -634,14 +577,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"关闭调度器或插件失败: {e}")
 
-    # 步骤 8: 取消 WorkerOrchestrator 健康检查循环
-    try:
-        if hasattr(app.state, "orchestrator_health_check_task") and not app.state.orchestrator_health_check_task.done():
-            app.state.orchestrator_health_check_task.cancel()
-            logger.info("[Lifespan] 已取消 WorkerOrchestrator 健康检查循环")
-    except Exception as e:
-        logger.warning(f"[Lifespan] 取消健康检查循环失败: {e}")
-
     # 步骤 8.5: 取消指标信号提醒评估循环
     try:
         if hasattr(app.state, "indicator_alert_task") and not app.state.indicator_alert_task.done():
@@ -696,17 +631,6 @@ async def lifespan(app: FastAPI):
         job_manager.shutdown()
     except Exception as e:
         logger.warning(f"[Lifespan] FactorJobManager.shutdown() 失败: {e}")
-
-    # 清理 WorkerOrchestrator ZMQ 通道 (不动独立 Worker 进程)
-    try:
-        from worker.orchestrator import WorkerOrchestrator
-
-        _orch = WorkerOrchestrator.get_instance()
-        _orch.cleanup()
-        WorkerOrchestrator.reset_instance()
-        logger.info("[Lifespan] WorkerOrchestrator 已清理 (Worker 进程保持运行)")
-    except Exception as e:
-        logger.warning(f"[Lifespan] WorkerOrchestrator 清理失败: {e}")
 
     shutdown_watchdog.complete()  # 优雅关闭完成，撤销看门狗
     logger.info("========== 应用关闭完成 ==========")
