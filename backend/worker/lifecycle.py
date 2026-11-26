@@ -91,6 +91,13 @@ class WorkerLifecycle:
         current_metrics = self._evaluate_current()
         logger.info(f"[RL] 当前表现: PnL=${current_metrics.get('pnl', 0):.2f}")
 
+        # P2-08 空观测守卫：_evaluate_current 拿不到真实交易记录时三值恒 0，
+        # _should_retrain 的 trades<10 会把它误判成「需要重训练」，导致每次
+        # 定时迭代都无条件重训。没有观测就不自动重训（人工可显式触发）。
+        if not self._has_real_observations(current_metrics):
+            logger.warning("[RL] 当前无真实交易观测，跳过自动重训练（人工触发不受影响）")
+            return
+
         # 检查是否需要重训练
         if self._should_retrain(current_metrics):
             logger.info("[RL] 触发重训练")
@@ -110,6 +117,11 @@ class WorkerLifecycle:
         # 评估当前参数
         current_metrics = self._evaluate_current()
         logger.info(f"[Rule] 当前表现: PnL=${current_metrics.get('pnl', 0):.2f}")
+
+        # P2-08 空观测守卫：同 _rl_iteration，无观测不触发 HPO 优化
+        if not self._has_real_observations(current_metrics):
+            logger.warning("[Rule] 当前无真实交易观测，跳过自动参数优化（人工触发不受影响）")
+            return
 
         # 检查是否需要优化
         if self._should_optimize(current_metrics):
@@ -131,6 +143,14 @@ class WorkerLifecycle:
         升级路径：接入 worker 状态后根据最近交易记录计算真实指标替换此处。
         """
         return {"pnl": 0.0, "sharpe": 0.0, "trades": 0, "drawdown": 0.0}
+
+    @staticmethod
+    def _has_real_observations(metrics: dict) -> bool:
+        """P2-08：评估结果是否来自真实交易（而非 _evaluate_current 的空回退）。
+
+        无 trades 记录时三指标恒 0，任何基于阈值的自动决策都没有依据。
+        """
+        return bool(metrics.get("trades", 0) > 0)
 
     def _should_retrain(self, metrics: dict) -> bool:
         """RL: 检查是否需要重训练"""
