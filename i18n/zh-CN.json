@@ -2898,6 +2898,7 @@
   "agent_value": "数值",
   "agent_panel_data_query": "数据查询",
   "agent_no_structured_data": "暂无结构化数据",
+  "agent_data_actions": "相关操作",
   "agent_panel_general": "对话",
   "wb_select_worker": "选择 Worker（右栏数据域）",
   "wb_no_workers": "暂无可用 Worker",

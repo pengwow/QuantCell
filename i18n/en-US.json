@@ -2898,6 +2898,7 @@
   "agent_value": "Value",
   "agent_panel_data_query": "Data Query",
   "agent_no_structured_data": "No structured data yet",
+  "agent_data_actions": "Suggested actions",
   "agent_panel_general": "Conversation",
   "wb_select_worker": "Select a worker (right panel data domain)",
   "wb_no_workers": "No workers available",
