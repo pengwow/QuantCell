@@ -11,8 +11,8 @@
  * baseline 存 scripts/i18n-audit-baseline.json；--check 保证"清零增长"：
  * 新增硬编码会让 CI/本地门禁变红，迁出词条后主动 --update-baseline 收紧基线。
  *
- * ponytail: 行级正则排除注释，跨行块注释体内的中文会误报——探测器允许少量误报，
- * 升级路径：换 AST 解析（@babel/parser）。
+ * ponytail: 行级正则排除注释，跨行块注释由开闭状态机跳过体内行；
+ * 极端嵌套/字符串内伪注释仍可能少量误报，升级路径：换 AST 解析（@babel/parser）。
  */
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -52,10 +52,26 @@ for (const sub of SCAN_DIRS) {
   for (const file of walk(dir)) {
     const lines = readFileSync(file, 'utf-8').split('\n')
     let count = 0
+    // 跨行块注释状态：{/* 或 /* 开启、*/ 关闭，体内行全部跳过（修复把多行
+    // JSX 注释续行误报为硬编码中文的问题——43e97e1c/528405bb 即此误报）
+    let inBlockComment = false
     for (const line of lines) {
-      if (COMMENT_LINE_RE.test(line)) continue
+      let code = line
+      if (inBlockComment) {
+        const end = code.indexOf('*/')
+        if (end === -1) continue
+        code = code.slice(end + 2)
+        inBlockComment = false
+        if (!code.trim()) continue
+      }
+      if (COMMENT_LINE_RE.test(code)) {
+        if (code.includes('/*') && !code.includes('*/')) inBlockComment = true
+        continue
+      }
       // 行尾注释同样不计文案（如行内 // 说明）。要求注释符前有空白，避免误伤字符串里的 https://
-      const code = line.replace(/\s+\/\/.*$/, '').replace(/\s+\{?\/\*[\s\S]*?\*\/\s*$/, '')
+      code = code.replace(/\s+\/\/.*$/, '').replace(/\s+\{?\/\*[\s\S]*?\*\/\s*$/, '')
+      // 行尾开块注释未闭合，后续行进入注释体
+      if (/\{?\/\*(?!.*\*\/)/.test(code)) inBlockComment = true
       if (CJK_RE.test(code)) count++
     }
     if (count > 0) results.push({ file: relative(frontendRoot, file), count })
