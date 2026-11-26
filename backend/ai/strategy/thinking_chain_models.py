@@ -124,7 +124,7 @@ class ThinkingChain(Base):
 
         try:
             raw_steps = json.loads(self.steps)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return []
 
         # 标准化步骤字段，兼容 name/title, description/content 等多种命名

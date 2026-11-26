@@ -237,7 +237,7 @@ class StrategyLoaderService:
         try:
             sig = inspect.signature(cls.__init__)
             param_names = [p for p in sig.parameters if p != "self"]
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # 当 __init__ 来自 C 扩展或不可内省时，回退到 Pydantic/dataclass 字段
             pass
 
@@ -337,7 +337,7 @@ class StrategyLoaderService:
         try:
             sig = inspect.signature(strategy_class.__init__)
             param_names = list(sig.parameters.keys())
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             param_names = []
 
         if "config" in param_names:

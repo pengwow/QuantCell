@@ -32,7 +32,7 @@ def _to_int(value: str, name: str = "ID") -> int:
     """将字符串 ID 转为 int，失败则报错退出"""
     try:
         return int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         typer.echo(f"错误: {name} 必须是整数, 收到: {value}")
         raise typer.Exit(1)
 

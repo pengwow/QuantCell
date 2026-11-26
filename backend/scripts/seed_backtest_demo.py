@@ -404,7 +404,7 @@ def _load_manifest() -> dict | None:
         return None
     try:
         return json.loads(MANIFEST.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return None
 
 
@@ -425,7 +425,7 @@ def _fmt(value) -> str:
         return "—"
     try:
         return f"{float(value):.4f}"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(value)
 
 

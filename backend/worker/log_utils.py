@@ -234,7 +234,7 @@ class LogTimezoneParser:
                     sign = 1 if tz_str[0] == "+" else -1
                     hours, minutes = map(int, tz_str[1:].split(":"))
                     return timezone(timedelta(hours=sign * hours, minutes=sign * minutes))
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 pass
         return None
 
@@ -376,14 +376,14 @@ class LogRingBuffer:
                     entry_ts = datetime.fromisoformat(entry.timestamp)
                     if entry_ts < start_time:
                         continue
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             if end_time:
                 try:
                     entry_ts = datetime.fromisoformat(entry.timestamp)
                     if entry_ts > end_time:
                         continue
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             if keyword and keyword.lower() not in entry.message.lower():
                 continue

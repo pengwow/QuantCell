@@ -64,7 +64,7 @@ def _apply_limits(limits: dict) -> None:
         resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
         # 32 个 FD：stdin/out/err 之外几乎无余量，socket 连接无法建立
         resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
-    except (ImportError, OSError, ValueError):
+    except ImportError, OSError, ValueError:
         # 非 POSIX 平台退化为仅 wall-clock 超时
         pass
 

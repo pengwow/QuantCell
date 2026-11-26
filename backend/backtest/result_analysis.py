@@ -32,7 +32,7 @@ def _format_ts_iso(ts_ns: int) -> str:
         return "N/A"
     try:
         return datetime.fromtimestamp(ts_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
-    except (OSError, OverflowError, ValueError):
+    except OSError, OverflowError, ValueError:
         return str(ts_ns)
 
 
@@ -714,7 +714,7 @@ class ResultSerializer:
             try:
                 dt = datetime.fromisoformat(timestamp)
                 return int(dt.timestamp())
-            except (ValueError, TypeError, OSError):
+            except ValueError, TypeError, OSError:
                 return 0
         else:
             # 保持原始时间戳值不变
@@ -740,7 +740,7 @@ class ResultSerializer:
 
                 dt = datetime.fromtimestamp(ts_sec)
                 return dt.strftime("%Y-%m-%d %H:%M:%S")
-            except (ValueError, TypeError, OSError):
+            except ValueError, TypeError, OSError:
                 return str(timestamp)
 
     def _serialize_value(self, value: Any) -> Any:
@@ -749,7 +749,7 @@ class ResultSerializer:
         try:
             if pd.isna(value):
                 return None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # pd.isna 对自定义类型可能抛出异常，继续其他检查
             pass
 

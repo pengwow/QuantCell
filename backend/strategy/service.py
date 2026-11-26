@@ -775,7 +775,7 @@ class StrategyService:
                 try:
                     default_val = ast.literal_eval(defaults[default_idx])
                     required = False
-                except (ValueError, TypeError, SyntaxError):
+                except ValueError, TypeError, SyntaxError:
                     default_val = None
                     required = False  # 有 default 但算不出具体值，也算非必填
 
@@ -802,7 +802,7 @@ class StrategyService:
                             val = ast.literal_eval(item.value)
                             if isinstance(val, dict):
                                 return val
-                        except (ValueError, TypeError, SyntaxError):
+                        except ValueError, TypeError, SyntaxError:
                             pass
         return None
 
@@ -838,7 +838,7 @@ class StrategyService:
                                     {"name": str(f), "type": "factor", "description": ""} if isinstance(f, str) else f
                                     for f in val
                                 ]
-                        except (ValueError, TypeError, SyntaxError):
+                        except ValueError, TypeError, SyntaxError:
                             pass
         return None
 
@@ -911,7 +911,7 @@ class StrategyService:
                         if default_idx >= 0 and default_idx < n_default:
                             try:
                                 default_val = ast.literal_eval(defaults[default_idx])
-                            except (ValueError, TypeError, SyntaxError):
+                            except ValueError, TypeError, SyntaxError:
                                 pass
 
                         entry = {
@@ -995,7 +995,7 @@ class StrategyService:
             if len(node.args) >= 2:
                 try:
                     default_val = ast.literal_eval(node.args[1])
-                except (ValueError, TypeError, SyntaxError):
+                except ValueError, TypeError, SyntaxError:
                     default_val = None
 
             guessed_type = _guess_param_type(default_val)
@@ -1070,7 +1070,7 @@ class StrategyService:
         if len(value.args) >= 2:
             try:
                 default_val = ast.literal_eval(value.args[1])
-            except (ValueError, TypeError, SyntaxError):
+            except ValueError, TypeError, SyntaxError:
                 default_val = None
 
         return {
@@ -1135,7 +1135,7 @@ class StrategyService:
             if method == "get_param" and len(node.args) >= 2:
                 try:
                     default_val = ast.literal_eval(node.args[1])
-                except (ValueError, TypeError, SyntaxError):
+                except ValueError, TypeError, SyntaxError:
                     default_val = None
             elif method == "_param":
                 default_val = defaults.get(name)

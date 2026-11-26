@@ -211,10 +211,10 @@ def get_current_user_id(request: Request) -> int | None:
         if sub:
             try:
                 return int(sub)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return None
         return None
-    except (IndexError, JWTError):
+    except IndexError, JWTError:
         return None
 
 
@@ -405,5 +405,5 @@ def get_current_user_info(request: Request) -> dict:
             "role": role,
             "is_guest": role == UserRole.GUEST.value,
         }
-    except (IndexError, JWTError):
+    except IndexError, JWTError:
         return {"role": UserRole.GUEST.value, "is_guest": True}

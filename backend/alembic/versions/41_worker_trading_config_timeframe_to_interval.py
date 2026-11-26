@@ -33,7 +33,7 @@ def _iter_worker_configs():
             continue
         try:
             cfg = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             continue
         yield worker_id, cfg
 

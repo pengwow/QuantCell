@@ -51,7 +51,7 @@ def write_snapshot(job_id: str, payload: dict[str, Any]) -> None:
 def read_snapshot(job_id: str) -> dict[str, Any] | None:
     try:
         return json.loads(snapshot_path(job_id).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError, json.JSONDecodeError:
         return None
 
 

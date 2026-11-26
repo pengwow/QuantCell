@@ -81,14 +81,14 @@ def safe_float(value: NumberType, field_name: str = "", default: float = 0.0) ->
     if isinstance(value, Decimal):
         try:
             return float(value)
-        except (ValueError, InvalidOperation):
+        except ValueError, InvalidOperation:
             if field_name:
                 logger.warning(f"无法转换 {field_name} Decimal 数值: {value}")
             return default
 
     try:
         return float(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         if field_name:
             logger.warning(f"无法转换 {field_name} 数值: {value}")
         return default
@@ -137,14 +137,14 @@ def safe_int(value: NumberType, field_name: str = "", default: int = 0) -> int:
     if isinstance(value, Decimal):
         try:
             return int(value)
-        except (ValueError, InvalidOperation):
+        except ValueError, InvalidOperation:
             if field_name:
                 logger.warning(f"无法转换 {field_name} Decimal 数值: {value}")
             return default
 
     try:
         return int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         if field_name:
             logger.warning(f"无法转换 {field_name} 数值: {value}")
         return default
@@ -198,7 +198,7 @@ def safe_decimal(value: NumberType, field_name: str = "", default: Decimal | Non
 
     try:
         return Decimal(str(value))
-    except (ValueError, InvalidOperation, TypeError):
+    except ValueError, InvalidOperation, TypeError:
         if field_name:
             logger.warning(f"无法转换 {field_name} 数值: {value}")
         return default

@@ -156,7 +156,7 @@ def _as_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -208,7 +208,7 @@ def family_snapshots(
             if not isinstance(meta, dict):
                 continue
             mtime = os.path.getmtime(meta_path)
-        except (OSError, ValueError, TypeError):
+        except OSError, ValueError, TypeError:
             logger.warning(f"跳过无法解析的模型旁车: {meta_path}")
             continue
         stem = os.path.basename(meta_path)[: -len(".meta.json")]
@@ -266,7 +266,7 @@ def load_retrain_history(
     try:
         with open(target, encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, ValueError, TypeError):
+    except OSError, ValueError, TypeError:
         return []
     records = data.get("records") if isinstance(data, dict) else data
     return [r for r in records if isinstance(r, dict)] if isinstance(records, list) else []

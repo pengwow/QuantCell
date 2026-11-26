@@ -68,7 +68,7 @@ async def check_worker_permission(
         raise HTTPException(status_code=404, detail=f"Worker {worker_id} 不存在")
     try:
         owner_id = int(current_user.get("user_id"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         # user_id 非数字（异常 token）：置为不可能匹配的值，宁拒不放
         owner_id = -1
     if worker.owner_id != owner_id:

@@ -650,7 +650,7 @@ _LOOP_JOBS = (
 def _read_text_or(path: Path, default: str = "") -> str:
     try:
         return path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return default
 
 

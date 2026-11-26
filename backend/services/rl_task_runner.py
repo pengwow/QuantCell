@@ -253,7 +253,7 @@ def _concurrency_limit() -> int:
         return max(1, int(configured))
     try:
         return max(1, int(get_value("jobs.rl_max_workers", 1)))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 1
 
 
@@ -359,7 +359,7 @@ def _config_payload(config: Any) -> dict[str, Any] | None:
 
     try:
         json.dumps(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return raw
 

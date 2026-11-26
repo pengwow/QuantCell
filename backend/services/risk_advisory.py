@@ -69,7 +69,7 @@ def _finite(values: Any) -> list[float]:
     for v in values or ():
         try:
             f = float(v)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if math.isfinite(f):
             out.append(f)
@@ -313,7 +313,7 @@ def _worker_equity(db: Any, worker_id: int) -> float:
     try:
         config = json.loads(row[0])
         return float(config.get("initial_capital", 0.0)) if isinstance(config, dict) else 0.0
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 

@@ -72,7 +72,7 @@ def _worker_owner_filter(current_user: dict) -> int | None:
         return None
     try:
         return int(current_user.get("user_id"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return -1
 
 
@@ -304,7 +304,7 @@ async def get_pnl_overview(
             if cap is None:
                 try:
                     cap = float(json.loads(config_json or "{}").get("initial_capital") or 0.0)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     cap = 0.0
             capital += float(cap or 0.0)
 
@@ -588,7 +588,7 @@ async def batch_operation(
     if role and role not in _OWNER_FILTER_EXEMPT_ROLES:
         try:
             owner_id = int(current_user.get("user_id"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             owner_id = -1
         for wid in request.worker_ids:
             worker_rec = crud.get_worker(db, wid)
@@ -1350,7 +1350,7 @@ async def get_worker_recent_logs(
             raise WorkerNotFoundException(worker_id)
         try:
             owner_id = int(current_user.get("user_id"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             owner_id = -1
         if worker_rec.owner_id != owner_id:
             raise HTTPException(status_code=403, detail="无权访问该 Worker")

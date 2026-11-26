@@ -213,7 +213,7 @@ def restore_value(field: SchemaField, stored: str | None) -> Any:
             num = float(stored)
             return int(num) if num.is_integer() else num
         return stored
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return field.default
 
 
@@ -231,7 +231,7 @@ def store_value(field: SchemaField, value: Any) -> str:
     if field.type == FieldType.NUMBER:
         try:
             num = float(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValueError(f"字段 {field.key} 需要数字值") from None
         # 整值去掉 ".0" 尾巴，与旧配置入口存 "24" 的口径完全一致
         return str(int(num)) if num.is_integer() else str(num)

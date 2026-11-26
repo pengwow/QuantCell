@@ -59,7 +59,7 @@ class StdoutCapture:
             return 0
         try:
             result = self._original_stdout.write(data)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
             return 0
 
@@ -75,7 +75,7 @@ class StdoutCapture:
             return
         try:
             self._original_stdout.flush()
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
         if self._unified_logger:
             with contextlib.suppress(Exception):
@@ -128,7 +128,7 @@ class StderrCapture:
             return 0
         try:
             result = self._original_stderr.write(data)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
             return 0
 
@@ -144,7 +144,7 @@ class StderrCapture:
             return
         try:
             self._original_stderr.flush()
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
         if self._unified_logger:
             with contextlib.suppress(Exception):

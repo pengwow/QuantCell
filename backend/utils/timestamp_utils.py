@@ -339,7 +339,7 @@ def is_valid_nanoseconds(timestamp: str | int) -> bool:
         # 合理的范围: 2000-01-01 到 2100-01-01
         # 946684800000000000 (2000年) 到 4102444800000000000 (2100年)
         return 10**18 <= ts < 10**19
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
 
@@ -580,7 +580,7 @@ def _get_first_valid_value(data):
         else:
             return data if _is_valid_timestamp(data) else None
 
-    except (TypeError, AttributeError):
+    except TypeError, AttributeError:
         return data
 
 
@@ -606,7 +606,7 @@ def _is_valid_timestamp(value):
     try:
         int(float(value))
         return True
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
 

@@ -61,7 +61,7 @@ def _as_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -135,7 +135,7 @@ def load_oos_rounds(models_dir: str | os.PathLike[str], model_id: str) -> list[d
             item = _round_from_meta(meta, stem, mtime)
             if item is not None:
                 rounds.append(item)
-        except (OSError, ValueError, TypeError):
+        except OSError, ValueError, TypeError:
             # 旁车损坏不该让 promote 500:跳过并在日志留痕
             logger.warning("跳过无法解析的模型旁车: %s", meta_path, exc_info=False)
     rounds.sort(key=lambda r: (r["created_at"], r["trained_at_mtime"]), reverse=True)
@@ -230,6 +230,6 @@ def audit_oos_gate(models_dir: str | os.PathLike[str]) -> list[dict[str, Any]]:
                 meta = json.load(f)
             stem = os.path.basename(meta_path)[: -len(".meta.json")]
             families.add(model_family(str(meta.get("model_id") or stem) if isinstance(meta, dict) else stem))
-        except (OSError, ValueError, TypeError):
+        except OSError, ValueError, TypeError:
             continue
     return [check_oos_gate(family, models_dir) for family in sorted(families)]

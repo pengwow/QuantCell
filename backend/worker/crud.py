@@ -470,7 +470,7 @@ def get_worker_strategy_parameters(db: Session, worker_id: int) -> list[dict[str
         if strategy is not None and strategy.parameters:
             try:
                 raw = json.loads(strategy.parameters)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 raw = None
             if isinstance(raw, list):
                 schema_items = [item for item in raw if isinstance(item, dict) and item.get("name")]

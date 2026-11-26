@@ -123,7 +123,7 @@ def _to_date(value: object) -> str | None:
         seconds = number / 1e9  # 纳秒
     try:
         return datetime.fromtimestamp(seconds, tz=UTC).date().isoformat()
-    except (OverflowError, OSError, ValueError):
+    except OverflowError, OSError, ValueError:
         return None
 
 
@@ -179,7 +179,7 @@ def _epoch(value: object) -> float:
     """ISO 字符串 → 时间戳；无法解析返回 -1（用于 updated_at 跨时区比较）。"""
     try:
         return datetime.fromisoformat(str(value)).timestamp()
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return -1.0
 
 
@@ -591,7 +591,7 @@ class ArchiveService:
         item["symbol_count"] += 1
         try:
             item["total_rows"] += int(meta.get("total_rows") or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         ArchiveService._merge_dates(item, meta.get("earliest_date"), meta.get("latest_date"))
         updated = meta.get("updated_at")

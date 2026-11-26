@@ -1460,7 +1460,7 @@ class RLService:
             return {}
         try:
             raw = json.loads(row.parameters)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return {}
         return raw if isinstance(raw, dict) else {}
 

@@ -34,7 +34,7 @@ def detect_precision(ts_str: str) -> str:
             return "ms"
         else:  # 秒级 (10位)
             return "s"
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return "unknown"
 
 

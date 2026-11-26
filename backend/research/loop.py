@@ -577,7 +577,7 @@ class ResearchLoop:
                 code, usage, calls, tokens = self._budgeted_call(
                     budget, self._scenario_obj.generate_code, self.deps.llm_call, task
                 )
-            except (BudgetExhausted, CancelSignal, PauseSignal):
+            except BudgetExhausted, CancelSignal, PauseSignal:
                 raise
             except Exception as exc:
                 kind = "timeout" if isinstance(exc, TimeoutError) else _classify_exc(exc)[0]
@@ -836,7 +836,7 @@ class ResearchLoop:
                     try:
                         analysis = self.deps.evaluate(code, raw_map, cfg)
                         break
-                    except (BudgetExhausted, PauseSignal, CancelSignal):
+                    except BudgetExhausted, PauseSignal, CancelSignal:
                         raise
                     except Exception as exc:
                         # 评估失败：分类后回灌重写代码，最多 repair_rounds 轮

@@ -82,7 +82,7 @@ def _extract_symbols_from_trading_config(trading_config_str: str) -> list:
         return []
     try:
         cfg = json.loads(trading_config_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return []
     symbols_cfg = cfg.get("symbols_config", {}) or {}
     items = symbols_cfg.get("symbols") or []
@@ -113,7 +113,7 @@ def _safe_get_trading_cfg_field(trading_cfg_str: str, field: str):
     """从 trading_config 中安全读取字段"""
     try:
         cfg = json.loads(trading_cfg_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None
     val = cfg.get(field)
     return val if val is not None else None

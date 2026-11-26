@@ -87,7 +87,7 @@ class TradingStatsService:
         try:
             config = json.loads(row[0])
             return float(config.get("initial_capital", 0.0)) if isinstance(config, dict) else 0.0
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return 0.0
 
     def get_trading_summary(self, worker_id: int, window: str | None = "30d") -> dict:

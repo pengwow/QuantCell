@@ -67,7 +67,7 @@ def _read_sidecar_meta(zip_path: str | None) -> dict[str, Any]:
     try:
         with open(f"{zip_path}.meta.json", encoding="utf-8") as f:
             meta = json.load(f)
-    except (OSError, ValueError, TypeError):
+    except OSError, ValueError, TypeError:
         return {}
     return meta if isinstance(meta, dict) else {}
 
@@ -145,7 +145,7 @@ def seed_demo_models(count: int = 3, storage_path: str = DEFAULT_MODELS_DIR) -> 
                 },
             )
             registered.append(name)
-        except (OSError, ValueError, KeyError):
+        except OSError, ValueError, KeyError:
             logger.warning("跳过无法解析的模型产物: %s", zip_path, exc_info=True)
 
     # 第一个示例晋升为 Production,页面状态列可呈现完整生命周期
@@ -215,7 +215,7 @@ class ModelRegistryService:
                 stage = record.get("stage", "development")
                 try:
                     metrics = json.loads(record.get("description", "{}")).get("metrics", {})
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     metrics = {}
             rows.append(
                 {
@@ -261,7 +261,7 @@ class ModelRegistryService:
                 continue
             try:
                 desc = json.loads(record.get("description", "{}"))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 desc = {}
             meta = desc.get("metadata")
             meta = meta if isinstance(meta, dict) else {}
@@ -347,7 +347,7 @@ class ModelRegistryService:
         try:
             desc = json.loads(record.get("description", "{}"))
         # description 是注册时写入的 JSON 字符串,损坏不应导致 500
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             desc = {}
         meta = desc.get("metadata", {})
         if not isinstance(meta, dict):

@@ -48,7 +48,7 @@ def args_digest(params: Any) -> str:
     """参数规范化摘要：sha256(排序键 JSON)。参数不可序列化时退化为空摘要。"""
     try:
         canonical = json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return ""
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -59,7 +59,7 @@ def record_tool_call(tool: str, params: Any, result_status: str, duration_ms: in
     user, token_src, _scope = caller or (None, None, None)
     try:
         args_json = json.dumps(redact_secrets(params), ensure_ascii=False, default=str)[:_MAX_ARGS_JSON_LENGTH]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         args_json = None
 
     payload = {

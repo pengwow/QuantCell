@@ -168,14 +168,14 @@ class ToolParamResolver:
         if target_type == "integer":
             try:
                 return int(value)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.warning(f"无法将 {value} 转换为 integer")
                 return value
 
         elif target_type == "float":
             try:
                 return float(value)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.warning(f"无法将 {value} 转换为 float")
                 return value
 
@@ -220,7 +220,7 @@ class ToolParamResolver:
                 elif target_type == "boolean" and isinstance(value, str):
                     if value.lower() not in ("true", "1", "yes", "on"):
                         raise ValueError(value)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return (
                     False,
                     f"类型错误: 期望 {target_type}, 得到 {type(value).__name__}",
@@ -242,7 +242,7 @@ class ToolParamResolver:
                     if max_val is not None and num_value > max_val:
                         return False, f"值 {value} 大于最大值 {max_val}"
 
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         # 必填检查

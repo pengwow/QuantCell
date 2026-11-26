@@ -314,7 +314,7 @@ class LiveTradeSync:
                 # ponytail: 恰好 0 盈亏的平仓 fill 会被误判为开仓（少一行 0 盈亏
                 # 展示）；区分需 venue 端逐笔方向元数据，不做。
                 realized = value or None
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 realized = None
 
         entry_time = None

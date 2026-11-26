@@ -236,7 +236,7 @@ def load_lifecycle_state(models_dir: str | os.PathLike[str] | None = None) -> di
     path = lifecycle_state_path(models_dir)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
+    except OSError, ValueError, TypeError:
         return {"shadow": {}, "promotions": []}
     if not isinstance(data, dict):
         return {"shadow": {}, "promotions": []}

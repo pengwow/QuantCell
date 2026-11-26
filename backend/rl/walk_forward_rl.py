@@ -193,7 +193,7 @@ def _close_return_stats(data: Any) -> dict[str, Any]:
     stats: dict[str, Any] = {"bars": len(data), "mean_return": None, "return_vol": None}
     try:
         close = np.asarray(data["close"], dtype=float)
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return stats
     close = close[np.isfinite(close)]
     if close.size < 2:
