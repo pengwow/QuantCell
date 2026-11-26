@@ -36,8 +36,10 @@ Agent.tsx（页面壳）
 前端 `agentStore.sendMessage`：
 
 1. 先本地乐观插入 user 消息，`loading/streaming` 置位；
-2. `fetch POST /api/v1/agent/chat/stream`（SSE），body = `{message, session_id, worker_id?}`；3 分钟 AbortController 超时；建连失败重试最多 2 次、间隔 800ms，**一旦收到过流内容，断流直接报错不重试**（防重复注入，store 内 ponytail 注释）；
+2. `fetch POST /api/v1/agent/chat/stream`（SSE），body = `{message, session_id, worker_id?}`；3 分钟 AbortController 超时；**流式进行中输入区发送钮切换为红色停止钮**（`store.stopGeneration()` → abort → 后端消费者断开 → `task.cancel()`，见 §3 末）；建连失败重试最多 2 次、间隔 800ms，**一旦收到过流内容，断流直接报错不重试**（防重复注入，store 内 ponytail 注释）；
 3. 逐事件更新消息对象：正文增量、reasoning 折叠块、工具链气泡、迭代徽标（ReAct 轮次，纯展示）。
+
+停止生成：前端 abort 触发 `EventSourceResponse` 客户端断开，`iter_message_stream` 消费侧 `finally task.cancel()`（`loop.py:647-649`）取消后台 LLM 循环——已收到的半截回复保留，补「已停止生成」状态提示（非错误气泡）。
 
 后端 `routes.py::chat_stream`（非流式 `/chat` 为同构简化版）：
 
@@ -141,6 +143,6 @@ System prompt 组装顺序（`context.py::build_system_prompt`）：身份 → w
 
 1. **意图面板是「启发式装饰」而非数据通道**：分类靠关键词、提取靠正则、按钮是静态表。data_query/risk_assessment 的提取分支薄，回测指标要模型按「指标名：数值」逐行输出才能被提取；按钮五缺四（多数无对应交互落地，见 §5.4 降级清单）。
 2. 按钮 label 为后端硬编码中文，多语言场景不随前端语言切换。
-3. 流式断线：已收到内容后不自动重连（有意为之，防重复注入），用户需重新发送。
+3. 流式断线：已收到内容后不自动重连（有意为之，防重复注入），用户需重新发送；长循环（工具反复重试）可手动点停止钮终止（前端 abort → 后端 task.cancel()），三层兜底 = 工具内部超时 / 前端 3 分钟超时 / 40 轮迭代熔断。
 4. 工具结果气泡预览上限 500 字符，完整输出不回传前端。
 5. 非流式 `/chat` 端点仍保留（测试/兼容用），页面主链路只走 `/chat/stream`。

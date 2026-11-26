@@ -146,6 +146,7 @@ interface AgentState {
 
   // Actions
   sendMessage: (content: string) => Promise<void>;
+  stopGeneration: () => void;
   fetchSessions: () => Promise<void>;
   switchSession: (sessionId: string) => void;
   createSession: () => Promise<void>;
@@ -154,6 +155,13 @@ interface AgentState {
   fetchTools: () => Promise<void>;
   fetchHistory: (sessionId: string) => Promise<void>;
 }
+
+// 当前活跃流的中断句柄（stopGeneration 与 3 分钟超时共用；
+// AbortController/定时器不可序列化，放模块级而非 store state）
+let activeController: AbortController | null = null;
+let activeTimeoutId: ReturnType<typeof setTimeout> | null = null;
+// 区分「主动停止」与「超时 abort」：前者对用户呈现为状态提示而非错误
+let stoppedManually = false;
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   messages: [],
@@ -187,11 +195,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     // 是否已收到过流内容：收到后断线不重试（避免重复注入消息）
     let receivedAny = false;
     const retryNoticeId = `${Date.now()}-retry`;
+    stoppedManually = false;
 
     try {
       // 创建 AbortController 用于超时控制
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3分钟超时
+      activeController = controller;
+      activeTimeoutId = timeoutId;
 
       const body: Record<string, unknown> = { message: content, session_id: currentSessionId };
       if (workerId) body.worker_id = workerId;
@@ -474,6 +485,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ loading: false, streaming: false, error: null });
 
     } catch (error) {
+      // 用户主动停止：半截气泡保留（已收到的内容不丢），补一条状态提示而非错误气泡
+      if (error instanceof Error && error.name === 'AbortError' && stoppedManually) {
+        const stoppedNotice: Message = {
+          id: `${Date.now()}-stopped`,
+          role: 'assistant',
+          content: i18n.t('agent_generation_stopped'),
+          timestamp: new Date().toISOString(),
+        };
+        set(state => ({
+          messages: [...state.messages, stoppedNotice],
+          loading: false,
+          streaming: false,
+          error: null,
+        }));
+        return;
+      }
+
       let errorMsg = i18n.t('agent_send_failed');
       let errorDetail = String(error);
 
@@ -505,7 +533,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         streaming: false,
         error: errorMsg,
       }));
+    } finally {
+      activeController = null;
     }
+  },
+
+  // 停止生成：abort 当前 SSE fetch。后端 EventSourceResponse 检测到客户端断开后
+  // 经 iter_message_stream 的 finally task.cancel() 取消 LLM 循环（loop.py:647-649）
+  stopGeneration: () => {
+    if (!activeController) return;
+    stoppedManually = true;
+    if (activeTimeoutId) {
+      clearTimeout(activeTimeoutId);
+      activeTimeoutId = null;
+    }
+    activeController.abort();
   },
   
   fetchSessions: async () => {

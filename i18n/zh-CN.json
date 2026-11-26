@@ -3838,5 +3838,7 @@
   "home_sys_llm": "LLM Provider",
   "home_sys_llm_sub": "{{model}} · 近 5 分钟 {{calls}} 次",
   "home_sys_llm_429": " · 429 {{n}} 次",
-  "home_sys_llm_val": "p95 {{ms}}"
+  "home_sys_llm_val": "p95 {{ms}}",
+  "agent_stop_generation": "停止生成",
+  "agent_generation_stopped": "已停止生成——本次回复不完整，可重新提问或换个说法"
 }

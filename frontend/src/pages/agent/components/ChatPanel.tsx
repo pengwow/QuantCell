@@ -14,6 +14,7 @@ import {
 } from 'antd';
 import {
   SendOutlined,
+  StopOutlined,
   ExclamationCircleOutlined,
   RobotOutlined,
   UserOutlined,
@@ -413,6 +414,7 @@ const ChatPanel = () => {
     messages,
     loading,
     sendMessage,
+    stopGeneration,
   } = useAgentStore();
 
   // 滚动到底部：只滚消息容器自身。
@@ -508,13 +510,25 @@ const ChatPanel = () => {
             autoSize={{ minRows: 1, maxRows: 6 }}
             disabled={loading}
           />
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={handleSend}
-            loading={loading}
-            disabled={!inputValue.trim()}
-          />
+          {/* 流式进行中变红色停止钮（点头终止 ReAct 循环：前端 abort → 后端 SSE 断开 task.cancel()），
+              非 loading 才是发送钮。不用 antd loading 属性——它会禁用点击 */}
+          {loading ? (
+            <Button
+              type="primary"
+              danger
+              icon={<StopOutlined />}
+              onClick={stopGeneration}
+              title={t('agent_stop_generation')}
+              aria-label={t('agent_stop_generation')}
+            />
+          ) : (
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handleSend}
+              disabled={!inputValue.trim()}
+            />
+          )}
         </div>
         <div className="input-hint">
           {t('agent_input_hint')}
