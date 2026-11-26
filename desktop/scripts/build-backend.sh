@@ -50,7 +50,6 @@ uv run --with pyinstaller pyinstaller \
   --collect-all axon_quant \
   --collect-all duckdb \
   --collect-all pyarrow \
-  --collect-all zmq \
   --collect-all ccxt \
   --collect-all statsmodels \
   --collect-submodules uvicorn \
