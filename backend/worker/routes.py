@@ -35,7 +35,11 @@ from worker.state import connection_manager, strategy_registry
 from . import crud, schemas
 from .core_service import worker_core_service
 from .decorators import handle_worker_exceptions
-from .dependencies import get_db_session
+from .dependencies import (
+    _OWNER_FILTER_EXEMPT_ROLES,
+    check_worker_permission,
+    get_db_session,
+)
 from .exceptions import (
     WorkerAlreadyRunningException,
     WorkerNotFoundException,
@@ -48,10 +52,6 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
-
-# 这些角色不做归属过滤：admin 是平台管理角色；agent 是服务间令牌
-# （sub=agent_token:*），供后端内部调用（如智能体拉取 worker 上下文）
-_OWNER_FILTER_EXEMPT_ROLES = {"admin", "agent"}
 
 
 def _worker_owner_filter(current_user: dict) -> int | None:
@@ -326,7 +326,11 @@ async def get_pnl_overview(
     )
 
 
-@router.get("/{worker_id}", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker详情")
 async def get_worker(
     worker_id: int,
@@ -356,7 +360,11 @@ async def get_worker(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
-@router.get("/{worker_id}/state", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/state",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker状态")
 async def get_worker_state(
     worker_id: int,
@@ -425,7 +433,11 @@ async def get_worker_state(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
-@router.get("/{worker_id}/decisions", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/decisions",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker决策列表")
 async def get_worker_decisions(
     worker_id: int,
@@ -453,7 +465,11 @@ async def get_worker_decisions(
     )
 
 
-@router.get("/{worker_id}/decisions/detail", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/decisions/detail",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker单条决策详情")
 async def get_worker_decision_detail(
     worker_id: int,
@@ -487,7 +503,7 @@ async def get_worker_decision_detail(
 @router.put(
     "/{worker_id}",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("更新Worker")
 async def update_worker(
@@ -504,7 +520,7 @@ async def update_worker(
 @router.patch(
     "/{worker_id}/config",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("更新Worker配置")
 async def update_worker_config(
@@ -521,7 +537,7 @@ async def update_worker_config(
 @router.delete(
     "/{worker_id}",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("删除Worker")
 async def delete_worker(
@@ -537,7 +553,7 @@ async def delete_worker(
 @router.post(
     "/{worker_id}/clone",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("克隆Worker")
 async def clone_worker(
@@ -566,6 +582,20 @@ async def batch_operation(
     current_user: dict = Depends(get_current_user),
 ):
     """批量操作Worker（支持批量启动、停止、重启）- 委托给 WorkerCoreService"""
+    # P0-1 归属校验：批量端点接收 id 列表而非 path worker_id，逐个校验归属；
+    # 非本人 worker 直接 403（宁整批拒绝也不放行越权子集）
+    role = current_user.get("role")
+    if role and role not in _OWNER_FILTER_EXEMPT_ROLES:
+        try:
+            owner_id = int(current_user.get("user_id"))
+        except TypeError, ValueError:
+            owner_id = -1
+        for wid in request.worker_ids:
+            worker_rec = crud.get_worker(db, wid)
+            if worker_rec is None:
+                raise WorkerNotFoundException(wid)
+            if worker_rec.owner_id != owner_id:
+                raise HTTPException(status_code=403, detail=f"无权访问 Worker {wid}")
     # P2-02 实盘闸门：批量启动/重启时任一 live/testnet worker 命中即整批 403
     # （stop 是安全方向操作，不拦；命中后整批拒绝，避免部分启动造成状态混乱）
     if request.operation in ("start", "restart"):
@@ -584,7 +614,7 @@ async def batch_operation(
     "/{worker_id}/lifecycle/start",
     response_model=schemas.ApiResponse,
     # 生命周期操作单独走 WORKER_OPERATE（启停/归档/优化），与配置写分离
-    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("启动Worker")
 async def start_worker(
@@ -645,7 +675,7 @@ async def start_worker(
 @router.post(
     "/{worker_id}/lifecycle/stop",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("停止Worker")
 async def stop_worker(
@@ -702,7 +732,7 @@ async def stop_worker(
 @router.post(
     "/{worker_id}/lifecycle/restart",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("重启Worker")
 async def restart_worker(
@@ -719,7 +749,7 @@ async def restart_worker(
 @router.post(
     "/{worker_id}/lifecycle/archive",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("归档Worker journal")
 async def archive_worker_journal(
@@ -732,7 +762,11 @@ async def archive_worker_journal(
     return schemas.ApiResponse(code=0, message="归档完成", data=result)
 
 
-@router.get("/{worker_id}/lifecycle/status", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/lifecycle/status",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker实时状态")
 async def get_worker_status(
     worker_id: int,
@@ -744,7 +778,11 @@ async def get_worker_status(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
-@router.get("/{worker_id}/lifecycle/health", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/lifecycle/health",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("Worker健康检查")
 async def health_check(
     worker_id: int,
@@ -759,7 +797,11 @@ async def health_check(
 # ==================== 监控数据模块 ====================
 
 
-@router.get("/{worker_id}/monitoring/metrics", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/monitoring/metrics",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker性能指标")
 async def get_worker_metrics(
     worker_id: int,
@@ -771,7 +813,11 @@ async def get_worker_metrics(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
-@router.get("/{worker_id}/monitoring/metrics/history", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/monitoring/metrics/history",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker历史指标")
 async def get_metrics_history(
     worker_id: int,
@@ -786,7 +832,11 @@ async def get_metrics_history(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
-@router.get("/{worker_id}/monitoring/logs", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/monitoring/logs",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker日志")
 async def get_worker_logs(
     worker_id: int,
@@ -813,7 +863,7 @@ async def get_worker_logs(
 @router.delete(
     "/{worker_id}/monitoring/logs",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("清理Worker日志")
 async def clear_worker_logs(
@@ -843,7 +893,11 @@ async def clear_worker_logs(
         return schemas.ApiResponse(code=400, message=str(e), data=None)
 
 
-@router.get("/{worker_id}/reconciliation/summary", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/reconciliation/summary",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取最近对账摘要")
 async def get_reconcile_summary(
     worker_id: int,
@@ -868,7 +922,10 @@ async def get_reconcile_summary(
     )
 
 
-@router.get("/{worker_id}/monitoring/logs/stream")
+@router.get(
+    "/{worker_id}/monitoring/logs/stream",
+    dependencies=[Depends(check_worker_permission)],
+)
 async def log_stream_sse(
     worker_id: int,
     request: Request,
@@ -953,7 +1010,10 @@ async def log_stream_sse(
     return EventSourceResponse(event_generator())
 
 
-@router.websocket("/{worker_id}/monitoring/logs/stream/ws")
+@router.websocket(
+    "/{worker_id}/monitoring/logs/stream/ws",
+    dependencies=[Depends(check_worker_permission)],
+)
 async def log_stream(websocket: WebSocket, worker_id: int):
     """
     WebSocket实时日志流 (降级方案)
@@ -970,7 +1030,11 @@ async def log_stream(websocket: WebSocket, worker_id: int):
         await websocket.close(code=1011, reason=str(e))
 
 
-@router.get("/{worker_id}/monitoring/performance", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/monitoring/performance",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker绩效统计")
 async def get_worker_performance(
     worker_id: int,
@@ -983,7 +1047,11 @@ async def get_worker_performance(
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
-@router.get("/{worker_id}/monitoring/trades", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/monitoring/trades",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker交易记录")
 async def get_worker_trades(
     worker_id: int,
@@ -1025,6 +1093,7 @@ async def get_worker_trades(
     response_model=schemas.ApiResponse,
     summary="获取Worker成交分组（round-trip）",
     description="按引擎配对（round_trip_id）聚合的成交列表，响应契约与回测结果详情页一致；无配对行自成一组并标记 unpaired。",
+    dependencies=[Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("获取Worker成交分组")
 async def get_worker_trades_grouped(
@@ -1054,7 +1123,11 @@ async def get_worker_trades_grouped(
 # ==================== 策略代理模块 ====================
 
 
-@router.get("/{worker_id}/strategy/parameters", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/strategy/parameters",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取策略参数")
 async def get_strategy_parameters(
     worker_id: int,
@@ -1071,7 +1144,7 @@ async def get_strategy_parameters(
 @router.put(
     "/{worker_id}/strategy/parameters",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("更新策略参数")
 async def update_strategy_parameters(
@@ -1094,7 +1167,11 @@ async def update_strategy_parameters(
 # ==================== 人工风控管控 ====================
 
 
-@router.get("/{worker_id}/risk-control", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/risk-control",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("查询人工风控配置")
 async def get_worker_risk_control(
     worker_id: int,
@@ -1112,6 +1189,7 @@ async def get_worker_risk_control(
     description="返回风控装配三态（人工管控/策略参数直通/未配置）、当日盈亏与亏损额度消耗、推导熔断态。"
     "当日盈亏与 B3 风控回灌共用同一聚合口径；熔断态为推导值（tripped_source=derived），"
     "引擎侧精确快照（含冷却恢复）由后续引擎迭代提供。",
+    dependencies=[Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("查询风控状态快照")
 async def get_worker_risk_status(
@@ -1126,7 +1204,7 @@ async def get_worker_risk_status(
 @router.put(
     "/{worker_id}/risk-control",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("保存人工风控配置")
 async def update_worker_risk_control(
@@ -1142,7 +1220,7 @@ async def update_worker_risk_control(
 @router.delete(
     "/{worker_id}/risk-control",
     response_model=schemas.ApiResponse,
-    dependencies=[Depends(require_permission(Permission.WORKER_WRITE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("取消人工风控管控")
 async def delete_worker_risk_control(
@@ -1154,7 +1232,11 @@ async def delete_worker_risk_control(
     return schemas.ApiResponse(code=0, message="人工风控管控已取消", data=data)
 
 
-@router.get("/{worker_id}/strategy/positions", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/strategy/positions",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker持仓信息")
 async def get_positions(
     worker_id: int,
@@ -1185,7 +1267,11 @@ async def get_positions(
     return schemas.ApiResponse(code=0, message="success", data=derived)
 
 
-@router.get("/{worker_id}/strategy/orders", response_model=schemas.ApiResponse)
+@router.get(
+    "/{worker_id}/strategy/orders",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker订单信息")
 async def get_orders(
     worker_id: int,
@@ -1265,7 +1351,27 @@ async def get_worker_recent_logs(
         description="日志级别过滤",
     ),
     keyword: str | None = Query(default=None, description="关键词搜索（不区分大小写）"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
 ):
+    # P0-1 归属校验：path 参数是字符串（历史契约），不走 check_worker_permission
+    # 依赖（其声明 int 类型会对 "001" 这类旧写法抛 422），在函数内转换校验
+    role = current_user.get("role")
+    if role and role not in _OWNER_FILTER_EXEMPT_ROLES:
+        try:
+            numeric_id = int(worker_id)
+        except ValueError:
+            numeric_id = -1
+        worker_rec = crud.get_worker(db, numeric_id)
+        if worker_rec is None:
+            raise WorkerNotFoundException(worker_id)
+        try:
+            owner_id = int(current_user.get("user_id"))
+        except TypeError, ValueError:
+            owner_id = -1
+        if worker_rec.owner_id != owner_id:
+            raise HTTPException(status_code=403, detail="无权访问该 Worker")
+
     """
     获取 Worker 最近日志（从内存缓冲区实时查询）
 
@@ -1366,7 +1472,11 @@ def _resolve_window(window: str) -> datetime | None:
     return datetime.now() - delta
 
 
-@router.get("/{worker_id}/stats/trading-summary", summary="获取交易汇总统计")
+@router.get(
+    "/{worker_id}/stats/trading-summary",
+    summary="获取交易汇总统计",
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取交易汇总统计")
 async def get_trading_summary(
     worker_id: int,
@@ -1389,7 +1499,11 @@ async def get_trading_summary(
     return schemas.ApiResponse(data=result)
 
 
-@router.get("/{worker_id}/stats/overview", summary="获取Worker总览（合并绩效+统计+图表）")
+@router.get(
+    "/{worker_id}/stats/overview",
+    summary="获取Worker总览（合并绩效+统计+图表）",
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取Worker总览")
 async def get_overview(
     worker_id: int,
@@ -1412,7 +1526,11 @@ async def get_overview(
     return schemas.ApiResponse(data=result)
 
 
-@router.get("/{worker_id}/stats/position-summary", summary="获取持仓汇总统计")
+@router.get(
+    "/{worker_id}/stats/position-summary",
+    summary="获取持仓汇总统计",
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取持仓汇总统计")
 async def get_position_summary(
     worker_id: int,
@@ -1430,7 +1548,11 @@ async def get_position_summary(
     return schemas.ApiResponse(data=result)
 
 
-@router.get("/{worker_id}/stats/pnl-distribution", summary="获取盈亏分布")
+@router.get(
+    "/{worker_id}/stats/pnl-distribution",
+    summary="获取盈亏分布",
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取盈亏分布")
 async def get_pnl_distribution(
     worker_id: int,
@@ -1448,7 +1570,11 @@ async def get_pnl_distribution(
     return schemas.ApiResponse(data=result)
 
 
-@router.get("/{worker_id}/stats/trade-history-chart", summary="获取交易历史图表数据")
+@router.get(
+    "/{worker_id}/stats/trade-history-chart",
+    summary="获取交易历史图表数据",
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取交易历史图表数据")
 async def get_trade_history_chart(
     worker_id: int,
@@ -1467,7 +1593,11 @@ async def get_trade_history_chart(
     return schemas.ApiResponse(data=result)
 
 
-@router.get("/{worker_id}/stats/trading-summary-filtered", summary="获取带时间过滤的交易汇总")
+@router.get(
+    "/{worker_id}/stats/trading-summary-filtered",
+    summary="获取带时间过滤的交易汇总",
+    dependencies=[Depends(check_worker_permission)],
+)
 @handle_worker_exceptions("获取带时间过滤的交易汇总")
 async def get_trading_summary_filtered(
     worker_id: int,
@@ -1495,7 +1625,7 @@ async def get_trading_summary_filtered(
 @router.post(
     "/{worker_id}/lifecycle/optimize",
     summary="手动触发一次优化",
-    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE))],
+    dependencies=[Depends(require_permission(Permission.WORKER_OPERATE)), Depends(check_worker_permission)],
 )
 @handle_worker_exceptions("触发优化")
 async def trigger_optimize(
