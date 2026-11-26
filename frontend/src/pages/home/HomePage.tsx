@@ -280,13 +280,13 @@ const HomePage = () => {
   );
 
   // 运行中的任务优先展示，其余按原顺序补位
-  // 三卡预览行数 = demo 口径（运行中任务 3 / 最近回测 3「共 N 条 · 显示 3」/ 最近研究 4），
-  // 看板目标一屏不滚动（2026-11-26 裁定）；完整列表走卡头「查看全部 →」
+  // 三卡预览行数 5/5/5（2026-11-26 曾按 demo 砍到 3/3/4：行数少了以后同行列
+  // stretch 拉出大片空白，用户裁定恢复 5——看板允许滚动，不牺牲信息密度）
   const taskPreview = useMemo(
     () =>
       [...workers]
         .sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running'))
-        .slice(0, 3),
+        .slice(0, 5),
     [workers]
   );
 
@@ -294,7 +294,7 @@ const HomePage = () => {
     () =>
       [...backtests]
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-        .slice(0, 3),
+        .slice(0, 5),
     [backtests]
   );
 
@@ -303,7 +303,7 @@ const HomePage = () => {
     () =>
       [...research]
         .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
-        .slice(0, 4),
+        .slice(0, 5),
     [research]
   );
 
