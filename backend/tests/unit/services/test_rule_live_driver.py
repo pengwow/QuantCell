@@ -352,3 +352,66 @@ def test_resolve_live_credentials_falls_back_to_system_config(monkeypatch):
     )
     # 前缀过滤只认 binance 的 testnet key/secret，其余配置项被忽略
     assert _resolve_live_credentials(1, "binance", {}) == ("cfg-key", "cfg-secret")
+
+
+def test_stop_strategy_join_timeout_fail_closed(monkeypatch, tmp_path):
+    """P0-4 停止链竞态：join 超时（线程卡死 tick）时必须 fail-closed——
+
+    1. 不收口 driver（活线程仍持有它，shutdown 是 use-after-shutdown）；
+    2. 运行条目保留（_kernel_runs），供下次 stop 重试；
+    3. 状态显式落 error（registry 层），返回 False，不继续走 stopped 落位。
+    """
+    from worker.state import StrategyRuntime, strategy_registry
+    from worker.strategy_manager import StrategyManager
+
+    monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path))
+    _patch_db(monkeypatch)
+    # transition / 错误日志的下游全部替换 no-op（DB 与 asyncio 桥接不发真请求）
+    transitions: list[tuple[int, str]] = []
+
+    async def _fake_transition(worker_id, to_status, **kwargs):
+        transitions.append((worker_id, to_status))
+        return True
+
+    monkeypatch.setattr(
+        "worker.strategy_manager.worker_state_manager",
+        SimpleNamespace(transition=_fake_transition),
+    )
+    monkeypatch.setattr("worker.strategy_manager.append_worker_error_log", lambda *a, **k: None)
+    # 缩短 join 超时，避免测试真实等 5s
+    monkeypatch.setattr("worker.strategy_manager._DRIVER_STOP_JOIN_TIMEOUT_S", 0.2)
+
+    class StuckDriver:
+        def __init__(self):
+            self.shutdown_called = False
+
+        def shutdown(self):
+            self.shutdown_called = True
+
+    stop_event = threading.Event()
+    release = threading.Event()
+
+    def stuck_loop():
+        # 模拟 tick 卡在外部调用（网络/锁）里：stop_event 置位也唤不醒，
+        # 只等 release（测试收尾置位），期间 join(0.2) 必然超时
+        release.wait(timeout=3.0)
+
+    mgr = StrategyManager(max_workers=1)
+    driver = StuckDriver()
+    stuck_thread = threading.Thread(target=stuck_loop, daemon=True)
+    stuck_thread.start()
+    mgr._kernel_runs[21] = {"stop_event": stop_event, "thread": stuck_thread, "driver": driver}
+
+    runtime = StrategyRuntime(worker_id=21, strategy_id=0, name="w21", status="running")
+    strategy_registry.register(runtime)
+    try:
+        assert asyncio.run(mgr.stop_strategy(21)) is False
+        assert driver.shutdown_called is False, "join 超时时绝不能收口仍被活线程持有的 driver"
+        assert 21 in mgr._kernel_runs, "超时后运行条目必须保留，供下次 stop 重试 join"
+        assert strategy_registry.get(21).status == "error", "超时须落 error，而非继续走 stopped"
+        assert transitions[0][1] == "stopping"
+    finally:
+        release.set()
+        stuck_thread.join(timeout=5)
+        mgr._kernel_runs.pop(21, None)
+        strategy_registry.unregister(21)

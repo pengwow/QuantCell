@@ -46,6 +46,9 @@ from .worker_state import worker_state_manager
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+# 停止链等待 driver 驱动线程退出的上限（秒）。提为常量便于测试内缩短插 null
+_DRIVER_STOP_JOIN_TIMEOUT_S = 5.0
+
 # paper 行情泵支持的 K 线周期 → 周期秒数（与 exchange/base.py 的 interval 映射同口径；
 # 键同时作为 binance REST 的 interval 参数，周期外直接在装配期拒绝）
 _PAPER_INTERVAL_SECONDS = {
@@ -1705,12 +1708,26 @@ class StrategyManager:
 
         # driver 运行态（规则/LLM paper、RL paper、RL live 共用）：先通知停驱动线程
         # 并等待退出，再收口 driver（线程退出前 driver 仍被循环使用，必须先 join）
-        run = self._kernel_runs.pop(worker_id, None)
+        run = self._kernel_runs.get(worker_id, None)
         if run is not None:
             run["stop_event"].set()
-            run["thread"].join(timeout=5)
+            run["thread"].join(timeout=_DRIVER_STOP_JOIN_TIMEOUT_S)
             if run["thread"].is_alive():
-                logger.error(f"[StrategyManager] driver 线程未能在 5s 内停止: worker_id={worker_id}")
+                # P0-4 停止链竞态：join 超时说明线程仍卡在 tick 内（网络阻塞/死锁），
+                # 此时收口 driver 与活线程并发使用会踩 use-after-shutdown——跳过收口，
+                # 状态显式落 error 而非继续谎报 stopped；运行条目保留，下次 stop 重试
+                # join（届时线程大概率已退出，可安全收口）。线程永不退出的最坏代价是
+                # 残留一条运行条目，随进程退出回收
+                logger.error(
+                    f"[StrategyManager] driver 线程未能在 {_DRIVER_STOP_JOIN_TIMEOUT_S:.0f}s 内停止，"
+                    f"拒绝收口 driver，状态落 error: worker_id={worker_id}"
+                )
+                self._mark_rl_live_error(
+                    worker_id,
+                    f"停止超时：driver 线程未能在 {_DRIVER_STOP_JOIN_TIMEOUT_S:.0f}s 内退出，已拒绝收口 driver",
+                )
+                return False
+            self._kernel_runs.pop(worker_id, None)
             try:
                 run["driver"].shutdown()
             except Exception as e:
@@ -1911,15 +1928,20 @@ class StrategyManager:
             f"其中运行中 {sum(1 for s in strategies if s.is_running)} 个"
         )
 
-        # 停掉 driver 驱动线程并收口（规则/LLM paper、RL paper、RL live 共用）
+        # 停掉 driver 驱动线程并收口（规则/LLM paper、RL paper、RL live 共用）。
+        # 与 stop_strategy 同语义：超时线程仍持有 driver，收口会踩 use-after-shutdown，
+        # 跳过即可（进程随即退出，由 OS 回收）
         for worker_id, run in self._kernel_runs.items():
             try:
                 run["stop_event"].set()
-                run["thread"].join(timeout=5)
+                run["thread"].join(timeout=_DRIVER_STOP_JOIN_TIMEOUT_S)
                 if run["thread"].is_alive():
-                    logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} driver线程未在 5s 内停止")
-                run["driver"].shutdown()
-                logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} driver 已停止")
+                    logger.warning(
+                        f"[StrategyManager] shutdown: worker_id={worker_id} driver线程未在 5s 内停止，跳过收口"
+                    )
+                else:
+                    run["driver"].shutdown()
+                    logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} driver 已停止")
             except Exception as e:
                 logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止 driver 失败: {e}")
         self._kernel_runs.clear()
