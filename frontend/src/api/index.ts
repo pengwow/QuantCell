@@ -15,6 +15,7 @@ import type {
 import type { StrategyInfo } from '../types/worker';
 import type { BacktestTask, BacktestDetailData, BacktestSummaryData, ReplayKline, ReplayTrade, PortfolioReplayData, BacktestFactors, EffectiveMarginSpec } from '../types/backtest';
 import type { DecisionDetailRecord } from '../types/backtest';
+import type { AccountSnapshot } from '../pages/setting/exacctData';
 
 // ============================================
 // 全局401错误处理配置
@@ -1650,6 +1651,16 @@ export const exchangeApi = {
    */
   getSupportedExchanges: () => {
     return apiRequest.get<{ exchanges: string[] }>('/exchanges/supported');
+  },
+
+  /**
+   * 账户快照：余额/持仓/委托/成交（按已保存的交易所配置走真实端点）
+   * 未配置密钥时返回 configured=false（而不是抛错）
+   */
+  getAccountSnapshot: (exchangeId: string, env?: string, refresh?: boolean) => {
+    // 后端带 5min 定时同步的缓存：进入页面命中即秒回（旧数据 + 旧「刷新于」）；
+    // refresh=true 强制拉新（手动刷新按钮，经代理可达 30s+ 故放宽超时）
+    return apiRequest.get<AccountSnapshot>('/exchanges/account-snapshot', { exchange_id: exchangeId, env: env || undefined, refresh: refresh || undefined }, { timeout: 120_000 });
   },
 };
 

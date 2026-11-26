@@ -5,7 +5,7 @@
  * 新增图表类型时，在此注册对应 Chart 与 Component 即可。
  */
 import * as echarts from 'echarts/core'
-import { BarChart, LineChart, RadarChart } from 'echarts/charts'
+import { BarChart, LineChart, PieChart, RadarChart } from 'echarts/charts'
 import {
   DataZoomComponent,
   GridComponent,
@@ -19,6 +19,7 @@ import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 echarts.use([
   LineChart,
   BarChart,
+  PieChart,
   RadarChart,
   TitleComponent,
   TooltipComponent,

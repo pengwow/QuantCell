@@ -37,6 +37,8 @@ const BacktestReplay = lazy(() => import('@/pages/backtest/BacktestReplay'));
 
 const GeneralSettingsPage = lazy(() => import('@/pages/setting/GeneralSettingsPage'));
 const ExchangeSettingsPage = lazy(() => import('@/pages/setting/ExchangeSettingsPage'));
+// 账户总览（设计 Demo，mock 数据）——从交易所设置页跳入
+const ExchangeAccountPage = lazy(() => import('@/pages/setting/ExchangeAccountPage'));
 const NotificationsPage = lazy(() => import('@/pages/setting/NotificationsPage'));
 const ModelSettingsPage = lazy(() => import('@/pages/setting/ModelSettingsPage'));
 const SystemInfoPage = lazy(() => import('@/pages/setting/SystemInfoPage'));
@@ -119,6 +121,7 @@ function createBaseRoutes(): RouteObject[] {
             { path: 'general', element: <GeneralSettingsPage /> },
             { path: 'env', element: <EnvironmentVariablesPage /> },
             { path: 'exchange', element: <ExchangeSettingsPage /> },
+            { path: 'exchange-account', element: <ExchangeAccountPage /> },
             { path: 'notifications', element: <NotificationsPage /> },
             { path: 'model', element: <ModelSettingsPage /> },
             { path: 'agentTokens', element: <AgentTokenPage /> },

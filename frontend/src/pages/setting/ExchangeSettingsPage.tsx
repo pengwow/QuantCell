@@ -25,9 +25,11 @@ import {
 import {
   IconBuildingBank,
   IconPlugConnected,
+  IconWallet,
 } from "@tabler/icons-react";
 import { configApi, exchangeApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
+import { useNavigate } from "react-router-dom";
 import PageContainer from "@/components/PageContainer";
 // @web3icons/react 交易所图标
 import {
@@ -180,6 +182,7 @@ const ExchangeSettingsPage = () => {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const { isGuest } = useGuestRestriction();
+  const navigate = useNavigate();
   const [exchanges, setExchanges] = useState<ExchangeConfig[]>([]);
   const [selectedExchangeId, setSelectedExchangeId] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -557,6 +560,17 @@ const ExchangeSettingsPage = () => {
                 title={selectedExchange.name}
                 actions={
                   <Space>
+                    <Button
+                      size="small"
+                      icon={<IconWallet size={14} />}
+                      onClick={() =>
+                        navigate(
+                          `/setting/exchange-account?exchange=${selectedExchange.id}&env=${selectedExchange.tradingEnvironment || 'live'}`
+                        )
+                      }
+                    >
+                      {t('exacct_title')}
+                    </Button>
                     <Text type="secondary" className="text-sm">
                       {t("default_exchange")}
                     </Text>

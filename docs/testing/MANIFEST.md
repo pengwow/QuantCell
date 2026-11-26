@@ -20,6 +20,6 @@
 | `/notifications` | 消息中心 | `pages/notifications.md` | ✅ | L1+L2 | token 注入；非空态种子靠业务事件/任务终态；任务过滤与跳转见 N12-N15 |
 | `/model-management` | 模型管理（演示壳） | `pages/model-management.md` | ✅ | L1+L2 | token 注入；仅 URL 直达（无菜单入口） |
 | `/data-management` `/data-management/market-replay` | 数据管理 | `pages/data-management.md` | ✅ | L1+L2 | token 注入 |
-| `/setting` `/setting/account` `/setting/general` `/setting/env` `/setting/exchange` `/setting/notifications` `/setting/model` `/setting/agentTokens` `/setting/info` `/setting/plugins` `/setting/desktop-backend` | 设置页群（10 子页） | `pages/settings.md` | ✅ | L1+L2 | token 注入；AI 提供商配置是全站 L2 的种子 |
+| `/setting` `/setting/account` `/setting/general` `/setting/env` `/setting/exchange` `/setting/exchange-account` `/setting/notifications` `/setting/model` `/setting/agentTokens` `/setting/info` `/setting/plugins` `/setting/desktop-backend` | 设置页群（11 子页；exchange-account 为账户总览设计 Demo，mock 数据） | `pages/settings.md` | ✅ | L1+L2 | token 注入；AI 提供商配置是全站 L2 的种子 |
 | `/agent` | 智能体工作台（`?tab=` 八视图） | `pages/agent.md` | ✅ | L1+L2 | token 注入；真实 LLM 任务按需 |
 | 插件注册的动态路由（`pluginRegistry`） | 插件页 | 按插件单独补 | ⏳ | 按需 | 安装对应插件 |
