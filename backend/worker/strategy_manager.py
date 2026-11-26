@@ -1242,6 +1242,13 @@ class StrategyManager:
                         pnl_feeder.feed(trade_sync.daily_realized_pnl())
                     except Exception as e:
                         wlog.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
+                # live 持仓对账落库：交易所 fetch_positions 为权威源，幻影持仓
+                # （未配对 fill 净额推导）就此根治。失败只记日志（同 trade_sync：
+                # 观测性不反噬交易循环）
+                try:
+                    trade_sync.sync_positions()
+                except Exception as e:
+                    wlog.warning(f"[StrategyManager] live 持仓对账失败: worker_id={worker_id}, error={e}")
             # 运行期周期对账（P1-02/P1-05，默认开）：本地影子账 vs 交易所三资，结果与
             # resume 对账落同一套报告文件并写入 worker_logs。fill 快照是覆盖型
             # 窗口，venue ⊇ local 永不产生 extra_fills 误报。失败只记日志

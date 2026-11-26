@@ -300,22 +300,28 @@ class TestAsyncLifecycleConvergence:
             await asyncio.sleep(0.01)
 
     @pytest.mark.asyncio
-    async def test_async_restart_waits_for_stop_convergence(self):
-        """回归：restart 在 stop 返回 stopping 后必须等收敛，再执行 start。"""
+    async def test_async_restart_defers_start_to_background(self):
+        """回归（2026-11-26 更新契约）：restart 立即返回，「等 stop 收敛 + start」全部后台化。
+
+        旧实现在请求协程里 _wait_for_terminal_state(15s)，前端转圈 15s+ 才恢复；
+        现在接口入队 stop 即返（毫秒级），编排由后台 runner 接力，失败 transition(error)。
+        """
         service = WorkerCoreService()
         with (
-            patch.object(
-                service, "async_stop_worker", AsyncMock(return_value={"worker_id": 11, "status": "stopping"})
-            ) as mock_stop,
+            patch.object(service, "async_stop_worker", AsyncMock(return_value={"worker_id": 11, "status": "stopping"})),
             patch.object(service, "_wait_for_terminal_state", new=AsyncMock()) as mock_wait,
             patch.object(
                 service, "async_start_worker", AsyncMock(return_value={"worker_id": 11, "status": "starting"})
             ) as mock_start,
         ):
-            await service.async_restart_worker(11)
-        mock_stop.assert_awaited_once_with(11)
-        mock_wait.assert_awaited_once_with(11, timeout=15.0)
-        mock_start.assert_awaited_once_with(11)
+            result = await service.async_restart_worker(11)
+            # 立即返回：不等待收敛，此时 start 尚未发起
+            assert result["status"] == "stopping"
+            mock_start.assert_not_awaited()
+
+            await self._drain_runner()  # 后台 runner 跑完（_spawn_background_task 默认 create_task，真实执行）
+            mock_wait.assert_awaited_once_with(11, timeout=15.0)
+            mock_start.assert_awaited_once_with(11)
 
     @pytest.mark.asyncio
     async def test_async_stop_runner_syncs_state_machine(self):

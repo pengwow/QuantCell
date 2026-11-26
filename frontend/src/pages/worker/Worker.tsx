@@ -37,7 +37,7 @@ import {
 } from '@ant-design/icons';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
-import { getWorker, triggerOptimize } from '../../api/workerApi';
+import { triggerOptimize } from '../../api/workerApi';
 import type { Worker as WorkerType, ApiResponse } from '../../types/worker';
 import { WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
@@ -112,29 +112,18 @@ const Worker = () => {
 
   // 行内展开：单键（同一时刻只展开一行），初始 null = 初次加载不自动展开
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  // 异常原因缓存（列表接口不含 error_message，只在展开异常行时单查详情接口）
-  const [errorMessages, setErrorMessages] = useState<Record<number, string>>({});
-
-  // error_message 仅 GET /workers/{id} 的 _state_info 提供（列表接口没有）；
-  // 取不到就不渲染该块，不拿状态码/HTTP 文案冒充失败原因
-  const loadErrorMessage = useCallback(async (worker: WorkerType) => {
-    if (worker.status !== 'error') return;
-    try {
-      const detail = await getWorker(worker.id);
-      const message = detail?._state_info?.error_message;
-      if (message) {
-        setErrorMessages((prev) => (prev[worker.id] ? prev : { ...prev, [worker.id]: message }));
-      }
-    } catch {
-      /* 详情接口失败：保持无该块（不造原因） */
+  // 失败原因直接来自列表接口的 _error_message（后端已随状态快照带出，无需展开时单查详情）
+  const errorMessages = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const w of workers) {
+      if (w.status === 'error' && w._error_message) map[w.id] = w._error_message;
     }
-  }, []);
+    return map;
+  }, [workers]);
 
   const toggleExpand = useCallback((worker: WorkerType) => {
-    const next = expandedId === worker.id ? null : worker.id;
-    setExpandedId(next);
-    if (next !== null) void loadErrorMessage(worker);
-  }, [expandedId, loadErrorMessage]);
+    setExpandedId(expandedId === worker.id ? null : worker.id);
+  }, [expandedId]);
 
   // 筛选 / 搜索 / 翻页变化 → 收起（面板与已被筛掉的行否则会失联）
   // 取原始值做依赖：pagination.current 是对象成员，eslint 的 exhaustive-deps 不把它当合法依赖
@@ -1135,9 +1124,7 @@ const Worker = () => {
         expandRowByClick: true,
         showExpandColumn: false,
         onExpand: (expanded, worker) => {
-          const next = expanded ? worker.id : null;
-          setExpandedId(next);
-          if (next !== null) void loadErrorMessage(worker);
+          setExpandedId(expanded ? worker.id : null);
         },
       }}
       onRow={(worker) => ({

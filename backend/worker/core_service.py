@@ -1053,6 +1053,10 @@ class WorkerCoreService:
 
         Returns:
             dict: {"worker_id": int, "status": str}
+
+        编排全部后台化：stop 收敛最长要等 15s，若在请求协程里等待会让
+        前端转圈到超时。这里只入队 stop 后立即返回，收敛 + start 由后台
+        任务接力；失败会 transition(error) 且原因随列表 `_error_message` 可见。
         """
         logger.info(f"[WorkerCoreService] 异步重启 Worker {worker_id}")
 
@@ -1060,9 +1064,22 @@ class WorkerCoreService:
             stop_result = await self.async_stop_worker(worker_id)
 
             if stop_result.get("status", "") == "stopping":
-                # stop 是后台任务，先等它收敛到 stopped/error 再启动；
-                # 超时余量 = stop 链路（asyncio.to_thread + 策略收尾 join）的经验值
-                await self._wait_for_terminal_state(worker_id, timeout=15.0)
+
+                async def _runner() -> None:
+                    # stop 是后台任务，先等它收敛到 stopped/error 再启动；
+                    # 超时余量 = stop 链路（asyncio.to_thread + 策略收尾 join）的经验值
+                    await self._wait_for_terminal_state(worker_id, timeout=15.0)
+                    try:
+                        await self.async_start_worker(worker_id)
+                    except Exception as e:
+                        logger.error(f"[async_restart_worker] Worker {worker_id} 重启拉起失败: {e}")
+
+                self._spawn_background_task(_runner())
+                return {
+                    "worker_id": worker_id,
+                    "status": "stopping",
+                    "message": "重启请求已接收：停止中，收尾后自动拉起",
+                }
 
             return await self.async_start_worker(worker_id)
         except Exception as e:
