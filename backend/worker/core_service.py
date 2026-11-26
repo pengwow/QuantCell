@@ -35,7 +35,7 @@ from .exceptions import (
 )
 from .risk_config import risk_status_snapshot
 from .state import strategy_registry
-from .worker_state import worker_state_manager
+from .worker_state import WorkerState, worker_state_manager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
@@ -43,6 +43,20 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+class BatchOpResult:
+    """批量操作结果（原 state_guard.BatchOperationResult 的精简版）
+
+    P1-1 收敛：状态双轨（StateMachineGuard 内存机 vs worker_state_manager）
+    合并为 worker_state_manager 单轨，批量结果结构随之内聚到 core_service。
+    """
+
+    def __init__(self, total: int):
+        self.total = total
+        self.success_ids: list[int] = []
+        self.failed_dict: dict[int, str] = {}
+        self.results: list[dict[str, Any]] = []
 
 
 # 异常类统一在 exceptions.py 中定义并直接使用，不再保留向后兼容别名
@@ -88,8 +102,25 @@ class WorkerCoreService:
         self._initialized = True
         self._config = self._load_config()
 
+        # P0-2 修复：asyncio 后台任务必须持有强引用。裸 asyncio.create_task
+        # 的返回值无人持有时，事件循环仅存弱引用，任务可能在执行中被 GC 静默
+        # 取消（表现为 Worker 永远卡在 starting/stopping）。done callback 负责
+        # 收尾清理，防止集合无限增长。
+        self._background_tasks: set[asyncio.Task] = set()
+
         self._register_state_event_handlers()
         logger.info("[WorkerCoreService] 初始化完成（单例枢纽模式），trading_system 已集成")
+
+    def _spawn_background_task(self, coro) -> asyncio.Task:
+        """创建并持有引用的后台任务（P0-2）。
+
+        启动/停止为异步操作：API 先返回，_runner 在后台执行真实启停。
+        必须持引用否则任务可能被 GC，见 __init__ 注释。
+        """
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     @classmethod
     def reset_instance(cls):
@@ -440,9 +471,9 @@ class WorkerCoreService:
         批量操作Worker（同步版本，供CLI使用）
 
         两步语义：
-        1. 状态机校验/转换（StateMachineGuard.batch_transition）
-        2. 对转换成功的 Worker 逐个执行真实操作（start/stop/restart，
-           与单机命令同一调用链，经 Orchestrator→ZMQ 管理独立进程）
+        1. 状态合法性预检（worker_state_manager + WorkerState 转换表）
+        2. 对预检通过的 Worker 逐个执行真实操作（start/stop/restart，
+           与单机命令同一调用链）
 
         Args:
             worker_ids: Worker ID列表
@@ -451,8 +482,6 @@ class WorkerCoreService:
         Returns:
             包含success、failed、total、results的字典
         """
-        from .state_guard import StateMachineGuard, WorkerState
-
         valid_operations = {
             "start": WorkerState.STARTING,
             "stop": WorkerState.STOPPING,
@@ -466,7 +495,6 @@ class WorkerCoreService:
             )
 
         target_state = valid_operations[operation]
-        guard = StateMachineGuard()
 
         try:
             loop = asyncio.get_running_loop()
@@ -480,10 +508,10 @@ class WorkerCoreService:
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 batch_result = pool.submit(
                     asyncio.run,
-                    self._run_batch_core(guard, worker_ids, target_state, operation),
+                    self._run_batch_core(worker_ids, target_state, operation),
                 ).result()
         else:
-            batch_result = asyncio.run(self._run_batch_core(guard, worker_ids, target_state, operation))
+            batch_result = asyncio.run(self._run_batch_core(worker_ids, target_state, operation))
 
         result = {
             "success": batch_result.success_ids,
@@ -503,25 +531,42 @@ class WorkerCoreService:
 
     async def _run_batch_core(
         self,
-        guard: Any,
         worker_ids: list[int],
         target_state: Any,
         operation: str,
-    ) -> Any:
+    ) -> BatchOpResult:
         """批量操作的统一内核（同步/异步两条路径共用）。历经三阶段：
 
-        1. 状态机校验/批量转换（StateMachineGuard）
-        2. 对转换成功的 Worker 顺序执行真实操作（与单机命令同一调用链）
-        3. 回写状态机终态（running/stopped/error），防止机器长期停留在
+        1. 状态合法性预检（worker_state_manager 水合出的 DB 事实现状 +
+           WorkerState.can_transition_to 转换表，唯一权威来源）
+        2. 对预检通过的 Worker 顺序执行真实操作（与单机命令同一调用链）
+        3. 回写终态（running/stopped/error），防止机器长期停留在
            starting/stopping 中间态，阻塞后续批量/单机状态转换
 
         ponytail: 步骤 2 顺序执行而非并发——批量 Worker 数通常很小，
         并发 Popen+ZMQ 注册窗会放大路由竞态，收益不抵复杂度。
         """
-        from .state_guard import WorkerState
         from .worker_state import worker_state_manager
 
-        batch_result = await guard.batch_transition(worker_ids, target_state, operation)
+        batch_result = BatchOpResult(total=len(worker_ids))
+
+        for wid in worker_ids:
+            state_record = await worker_state_manager.get_state(wid)
+            if state_record is None:
+                batch_result.failed_dict[wid] = "Worker 不存在或状态不可用"
+                continue
+            try:
+                cur = WorkerState(state_record.status)
+            except ValueError:
+                batch_result.failed_dict[wid] = f"未知状态: {state_record.status}"
+                continue
+            if not cur.can_transition_to(target_state):
+                batch_result.failed_dict[wid] = f"非法状态转换: {cur.value} -> {target_state.value}"
+                continue
+            batch_result.success_ids.append(wid)
+
+        if batch_result.failed_dict:
+            logger.warning(f"[WorkerCoreService] 批量{operation}预检拒绝: {dict(batch_result.failed_dict)}")
 
         op_fn = {
             "start": self.start_worker,
@@ -533,18 +578,11 @@ class WorkerCoreService:
         for wid in list(batch_result.success_ids):
             try:
                 await asyncio.to_thread(op_fn, wid)
-                # 回写状态机终态：真实操作已完成的语义不能被 starting/stopping 覆盖
-                write_result = guard.transition(wid, final_state)
-                if not write_result.success:
-                    logger.warning(
-                        f"[WorkerCoreService] 批量{operation}: Worker {wid} 终态回写失败: {write_result.message}"
-                    )
                 await worker_state_manager.transition(wid, final_state.value)
                 logger.info(f"[WorkerCoreService] 批量{operation}: Worker {wid} 执行成功")
             except Exception as e:
                 logger.warning(f"[WorkerCoreService] 批量{operation}: Worker {wid} 执行失败: {e}")
                 try:
-                    guard.transition(wid, WorkerState.ERROR)
                     await worker_state_manager.transition(wid, "error", error_message=str(e))
                 except Exception:
                     pass
@@ -557,8 +595,6 @@ class WorkerCoreService:
 
         与同步版本共用 _run_batch_core 内核，行为完全一致。
         """
-        from .state_guard import StateMachineGuard, WorkerState
-
         valid_operations = {
             "start": WorkerState.STARTING,
             "stop": WorkerState.STOPPING,
@@ -572,8 +608,7 @@ class WorkerCoreService:
             )
 
         target_state = valid_operations[operation]
-        guard = StateMachineGuard()
-        batch_result = await self._run_batch_core(guard, worker_ids, target_state, operation)
+        batch_result = await self._run_batch_core(worker_ids, target_state, operation)
 
         result = {
             "success": batch_result.success_ids,
@@ -769,72 +804,6 @@ class WorkerCoreService:
             logger.info(f"[WorkerCoreService] Worker {worker_id} 无运行时记录，视为已停止")
         return {"worker_id": worker_id, "status": "stopped"}
 
-    def _get_status_via_orchestrator(self, worker_id: int) -> dict:
-        """通过 WorkerOrchestrator 获取实时状态。
-
-        启动/停止已切进程内直调后，orchestrator 仅保留 status 查询职责
-        （Task 5 摘除启动引用；daemon 侧策略运行时废码已清理）。
-
-        CLI 独立进程场景：注册表为空时主动建立 ZMQ 通道探测 daemon；
-        通道不可用（如 FastAPI 占用）则回退返回 DB 状态。
-        """
-        # 延迟导入：避免 core_service 模块加载时引入 orchestrator 对 ZMQ
-        # 传输层的传递依赖，保持 core_service 可独立导入
-        from .orchestrator import WorkerOrchestrator
-
-        orchestrator = WorkerOrchestrator.get_instance()
-
-        with self.get_db() as db:
-            worker = crud.get_worker(db, worker_id)
-            if not worker:
-                raise WorkerNotFoundException(worker_id)
-
-        info = orchestrator.get_worker_info(worker_id)
-        if info and info.is_alive:
-            response = orchestrator.send_command_and_wait(worker_id, "status")
-            if response and response.get("status") == "ok":
-                data = response.get("data", {})
-                return {
-                    "worker_id": worker_id,
-                    "db_status": worker.status,
-                    "runtime_status": data.get("status"),
-                    "is_running": data.get("status") == "running",
-                    "pid": data.get("pid"),
-                }
-
-        # CLI 独立进程：注册表为空 → 尝试建立通道直接探测（短超时，避免久等）
-        try:
-            orchestrator.ensure_transport()
-        except Exception as e:
-            logger.warning(f"[WorkerCoreService] ZMQ 通道不可用，返回 DB 状态: {e}")
-            return {
-                "worker_id": worker_id,
-                "db_status": worker.status,
-                "runtime_status": None,
-                "is_running": False,
-                "message": "ZMQ 通道不可用，显示数据库状态",
-            }
-
-        response = orchestrator.send_command_and_wait(worker_id, "status", timeout=2.0)
-        if response and response.get("status") == "ok" and response.get("data", {}).get("status"):
-            data = response.get("data", {})
-            return {
-                "worker_id": worker_id,
-                "db_status": worker.status,
-                "runtime_status": data.get("status"),
-                "is_running": data.get("status") == "running",
-                "pid": data.get("pid") or worker.pid,
-            }
-
-        # daemon 无响应，返回 DB 状态
-        return {
-            "worker_id": worker_id,
-            "db_status": worker.status,
-            "runtime_status": None,
-            "is_running": False,
-            "message": "Worker 进程未连接",
-        }
-
     async def async_start_worker(self, worker_id: int) -> dict:
         """异步启动 Worker（与 CLI 同步版本调用链一致，进程内直调 worker_system）。
 
@@ -879,7 +848,7 @@ class WorkerCoreService:
                     logger.exception(f"[async_start_worker] Worker {worker_id} 启动失败")
                     await worker_state_manager.transition(worker_id, "error", error_message=str(e))
 
-            asyncio.create_task(_runner())
+            self._spawn_background_task(_runner())
 
             return {
                 "worker_id": worker_id,
@@ -971,7 +940,7 @@ class WorkerCoreService:
                     logger.exception(f"[async_stop_worker] Worker {worker_id} 停止失败")
                     await worker_state_manager.transition(worker_id, "error", error_message=str(e))
 
-            asyncio.create_task(_runner())
+            self._spawn_background_task(_runner())
 
             return {
                 "worker_id": worker_id,
@@ -1216,8 +1185,8 @@ class WorkerCoreService:
         """
         获取 Worker 实时状态
 
-        优先通过 WorkerOrchestrator 获取独立进程的真实状态（ZMQ 探测），
-        ZMQ 通道不可用时回退到 strategy_registry + DB 状态。
+        进程内直调模式：runtime 事实源是 strategy_registry（StrategyManager
+        驱动线程维护），DB status 为持久化视图；registry 无记录时回退 DB。
 
         Args:
             worker_id: Worker ID
@@ -1225,14 +1194,6 @@ class WorkerCoreService:
         Returns:
             dict: Worker 状态信息
         """
-        try:
-            return self._get_status_via_orchestrator(worker_id)
-        except WorkerNotFoundException:
-            raise
-        except Exception as e:
-            logger.warning(f"[get_worker_status] ZMQ 路径失败，回退 registry/DB: {e}")
-
-        # 回退: 直接读 strategy_registry + DB（进程内模式）
         try:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
@@ -1251,14 +1212,13 @@ class WorkerCoreService:
                     "stopped_at": runtime.stopped_at,
                     "error_message": runtime.error_message,
                 }
-            else:
-                return {
-                    "worker_id": worker_id,
-                    "db_status": worker.status,
-                    "runtime_status": None,
-                    "is_running": False,
-                    "message": "Worker 未在 strategy_registry 中注册（可能尚未通过 trading_system 创建）",
-                }
+            return {
+                "worker_id": worker_id,
+                "db_status": worker.status,
+                "runtime_status": None,
+                "is_running": False,
+                "message": "Worker 无运行时记录（未启动或服务重启后未重新拉起）",
+            }
 
         except WorkerNotFoundException:
             raise

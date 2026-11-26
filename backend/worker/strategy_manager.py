@@ -17,7 +17,7 @@ import os
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -57,6 +57,9 @@ _PAPER_INTERVAL_SECONDS = {
     "4h": 14400,
     "1d": 86400,
 }
+
+# P1-03：paper 泵异常轮之后的漏 bar 回看补拉窗口（根数），见 _paper_thread_main
+PAPER_CATCHUP_LIMIT = 50
 
 # paper 行情泵的 HTTP 端点与 no-proxy 直连 opener 已迁至 pump_client（P2-09 typed client），
 # 本模块只经 fetch_paper_klines 调用，行格式由 PaperKline 定义
@@ -144,25 +147,18 @@ class StrategyManager:
     """
 
     def __init__(self, max_workers: int | None = None):
+        # ponytail: max_workers 参数保留（外部有位置传参），线程池本体已删除
+        # ——驱动线程一律 per-worker 按需创建，全局池从未被 submit 过
+        del max_workers
         self._lock = asyncio.Lock()
         self._initialized = False
 
-        # 线程池大小：优先使用配置值，否则根据 CPU 核心数自适应
-        if max_workers is None:
-            cpu_count = os.cpu_count() or 4
-            max_workers = min(cpu_count, 8)
-
-        self._executor = ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix="axon-backtest",
-        )
         # RL 策略已装配但尚未被数据泵驱动的内核（worker_id → worker.Kernel）
         self._rl_kernels: dict[int, Any] = {}
         # driver 运行态缓存（worker_id → {driver, stop_event, thread, journal_path?}）：
         # 规则/LLM paper、RL paper、RL live 三类运行共用，停机统一走 stop_strategy；
         # live 额外带 journal_path，paper 无持久化
         self._kernel_runs: dict[int, dict[str, Any]] = {}
-        logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
         """初始化系统，从数据库恢复策略状态"""
@@ -1091,22 +1087,24 @@ class StrategyManager:
         # trade_sync 为 None（无落库通道 → 无账户口径）时不参与锁。函数内 import
         # get_flag 与 crud 同口径（utils.config_manager 顶层拉 collector.db，防
         # worker.__init__ 循环链在部分入口被点爆）
+        # P1-05：对账是发现账实漂移的唯一运行期手段，默认必须开；需要静默的
+        # 部署通过 config_manager 显式关掉
         exec_lock_on = False
-        periodic_recon_on = False
-        funding_close_on = False
+        periodic_recon_on = True
+        funding_close_on = True
         if trade_sync is not None:
             from utils.config_manager import get_flag
 
             exec_lock_on = get_flag("worker.execution.execution_lock_enabled", False)
-            # P1-02 运行期周期对账（灰度，默认关）：与执行锁开关同部位读取，
+            # P1-02/P1-05 运行期周期对账（默认开）：与执行锁开关同部位读取，
             # 线程生命周期内只读一次
-            if get_flag("worker.reconciliation.periodic_enabled", False):
+            if get_flag("worker.reconciliation.periodic_enabled", True):
                 from worker.reconciliation import run_periodic_reconcile
 
                 periodic_recon_on = True
-            # P1-03 资金费/平仓专项对账（灰度，默认关）：并入周期对账 tick，
+            # P1-03 资金费/平仓专项对账（默认开）：并入周期对账 tick，
             # 二开关独立，只开专项不跑三资时也可工作
-            if get_flag("worker.reconciliation.funding_close_enabled", False):
+            if get_flag("worker.reconciliation.funding_close_enabled", True):
                 from worker.reconciliation import run_funding_close_reconcile
 
                 funding_close_on = True
@@ -1124,6 +1122,10 @@ class StrategyManager:
         last_trade_sync = 0.0
         # 周期对账起点锚在"现在"：resume 刚做过全量对账，首轮 tick 不必重复跑
         last_reconcile = time.monotonic()
+        # P1-05 超窗告警：对账连续失败跨过 2 个窗口说明观测通道实质失效
+        # （告警只在状态沿打一次，防逐 tick 刷屏）
+        recon_fail_streak = 0
+        recon_overwindow_alerted = False
         # 当日盈亏回灌：live 以 DB 当日已实现盈亏为准（重启不重置当日亏损额度）。
         # 注意 resume 恢复路径不装配风控（Rust 侧契约），此时绑定层方法 no-op
         pnl_feeder = RiskPnlFeeder(driver, daily_scoped=True) if risk_enabled else None
@@ -1237,7 +1239,7 @@ class StrategyManager:
                         pnl_feeder.feed(trade_sync.daily_realized_pnl())
                     except Exception as e:
                         wlog.warning(f"[StrategyManager] live 当日盈亏回灌失败: worker_id={worker_id}, error={e}")
-            # 运行期周期对账（P1-02，默认关）：本地影子账 vs 交易所三资，结果与
+            # 运行期周期对账（P1-02/P1-05，默认开）：本地影子账 vs 交易所三资，结果与
             # resume 对账落同一套报告文件并写入 worker_logs。fill 快照是覆盖型
             # 窗口，venue ⊇ local 永不产生 extra_fills 误报。失败只记日志
             # （观测性不反噬交易循环，同 trade_sync 口径）
@@ -1252,8 +1254,19 @@ class StrategyManager:
                                 f"[StrategyManager] 周期对账发现账实不符: worker_id={worker_id}, "
                                 f"file={item['file']}, counts={item['counts']}"
                             )
+                    recon_fail_streak = 0
+                    recon_overwindow_alerted = False
                 except Exception as e:
+                    recon_fail_streak += 1
                     wlog.warning(f"[StrategyManager] 周期对账失败: worker_id={worker_id}, error={e}")
+                # 连续失败跨 2 个窗口（每次失败都在窗口边界记账）→ 观测通道
+                # 失效，升级告警（状态沿只打一次）
+                if recon_fail_streak >= 2 and not recon_overwindow_alerted:
+                    recon_overwindow_alerted = True
+                    wlog.error(
+                        f"[StrategyManager] 周期对账连续 {recon_fail_streak} 个窗口失败，账实漂移无法观测，请人工介入: "
+                        f"worker_id={worker_id}"
+                    )
             # 资金费/平仓专项对账（P1-03，默认关）：与周期对账同节奏，先后
             # 独立 try——专项挂了不拖累三资对账结果
             if funding_close_on and now_s - last_reconcile >= _LIVE_RECONCILE_INTERVAL_S:
@@ -1446,8 +1459,17 @@ class StrategyManager:
                 else:
                     last_risk_reject = None
                     wlog.error(f"[StrategyManager] paper 泵拉取/喂单异常: worker_id={worker_id}, error={e}")
-                # ponytail: 连续失败跨多根 K 线会漏 bar（下轮 limit=2 补不回更早的），
-                # paper 演练可接受；彻底解法按 seen 与当前时间差值动态拉取
+                    # P1-03 漏 bar 补拉：失败轮之后直接回 limit=2 会漏掉中断期间
+                    # 收市的 bar。改用固定回看窗口，seen_open_ms 去重保证窗口内
+                    # 已喂过的 bar 不重喂。
+                    # ponytail: 固定窗口而非按时间差精确算根数——testnet 单轮
+                    # REST 拉取便宜，50 根对 1m 约覆盖 50 分钟、15m 覆盖 12h，
+                    # paper 演练场景足够；若泵中断超窗再靠启动时 first_limit
+                    # 重置观测窗口，不在热循环里做精确补齐。
+                    limit = PAPER_CATCHUP_LIMIT
+                    wlog.warning(
+                        f"[StrategyManager] paper 泵下轮回看补拉 {PAPER_CATCHUP_LIMIT} 根: worker_id={worker_id}"
+                    )
             finally:
                 # P2-01：paper 泵轮耗时（轮询延迟指标）；观测路径异常不影响交易循环
                 try:
@@ -1859,8 +1881,9 @@ class StrategyManager:
         """注册策略（内存级别，无持久化，兼容 TradingEngine API）"""
         from .state import StrategyRuntime, strategy_registry
 
-        # 生成临时 worker_id
-        temp_id = hash((id(strategy), time.monotonic())) % 1000000
+        # 生成临时 worker_id：uuid4 代替 hash()——Python 对对象 id 的哈希
+        # 随机化使 hash() 跨进程不可复现，uuid12 位数撞库概率可忽略
+        temp_id = int(uuid.uuid4().hex[:12], 16)
         runtime = StrategyRuntime(
             worker_id=temp_id,
             strategy_id=0,
@@ -1902,10 +1925,6 @@ class StrategyManager:
         self._kernel_runs.clear()
 
         self._rl_kernels.clear()
-
-        # 关闭线程池
-        logger.info("[StrategyManager] shutdown: 开始关闭 ThreadPoolExecutor...")
-        self._executor.shutdown(wait=False)
 
         elapsed = time.monotonic() - start_time
         logger.info(
