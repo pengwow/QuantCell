@@ -49,15 +49,15 @@ QuantCell 是一个 AI 原生量化交易系统，底层交易引擎为 Rust 内
        │                │
   ┌────┴────────────────┴───────────────────┐
   │                                         │
-  ▼  回测/训练/HPO 并发调度                  ▼  实盘策略（长驻进程）
+  ▼  回测/训练/HPO 并发调度                  ▼  实盘策略（进程内驱动线程）
 ┌──────────────────────────────────┐  ┌─────────────────────────────┐
-│  jobs/pool.py                    │  │  worker/orchestrator.py     │
-│  BoundedJobPool (spawn)          │  │  ZMQ 5558/5559             │
-│  · 灰度开关 · 绑核切分            │  │  worker/core_service.py    │
-│  · max_pending 上限              │  │  · Worker CRUD · 状态       │
-│  · BrokenProcessPool 恢复        │  │  · journal 归档 · kill     │
+│  jobs/pool.py                    │  │  worker/core_service.py     │
+│  BoundedJobPool (spawn)          │  │  · Worker CRUD · 状态收口   │
+│  · 灰度开关 · 绑核切分            │  │  · 启停进程内直调           │
+│  · max_pending 上限              │  │  · journal 归档 · kill     │
+│  · BrokenProcessPool 恢复        │  │  worker/strategy_manager.py │
 └──────────────┬───────────────────┘  └──────────────┬──────────────┘
-               │ spawn 子进程                         │ 每个 Worker 是独立长驻进程
+               │ spawn 子进程                         │ 每 Worker 一条驱动线程
                ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                   统一内核（Rust 核心引擎）                   │
@@ -194,8 +194,11 @@ Python ↔ legacy（`runner='rust'`）逐字段一致；Kernel 与 legacy 的逐
 
 `strategy/loop.py`（旧 StrategyLoop）已退役。paper / live 由 StrategyManager 的泵线程驱动
 统一内核（`worker/strategy_manager.py`），差异只在 ExecutionSink（`PaperSink` / `LiveSink`），
-事件回调推送 snapshot 到前端。旧事件驱动链路 `strategy/event_loop.py`（EventDrivenLoop +
-SwarmOrchestrator）处于 M6 冻结状态，无生产调用方，仅测试引用。
+事件回调推送 snapshot 到前端。启停由 `worker/core_service.py` 进程内直调 `worker_system`
+（历史 ZMQ orchestrator 多进程层已于 2026-11-26 删除；状态收口统一走
+`worker/worker_state.py` 的 WorkerStateManager，DB 为事实源）。旧事件驱动链路
+`strategy/event_loop.py`（EventDrivenLoop + SwarmOrchestrator）处于 M6 冻结状态，
+无生产调用方，仅测试引用。
 
 ## 策略编写示例
 
