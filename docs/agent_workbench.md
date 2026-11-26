@@ -107,7 +107,7 @@ SSE 事件类型全集：`start / content / reasoning / tool_calls / tool_start 
 
 ### 5.4 面板渲染与按钮跳转（前端）
 
-`IntentPanelRenderer`（`IntentPanels.tsx`）按意图选面板：strategy_generation→StrategyCodePanel、backtest→BacktestResultPanel、risk_assessment→RiskAssessmentPanel、trading_decision→TradingDecisionPanel、data_query→DataQueryPanel、rl_training/general→GeneralPanel。
+`IntentPanelRenderer`（`IntentPanels.tsx`）按意图选面板：strategy_generation→StrategyCodePanel、backtest→BacktestResultPanel、risk_assessment→RiskAssessmentPanel、trading_decision→TradingDecisionPanel、data_query→DataQueryPanel、rl_training/general→GeneralPanel。**GeneralPanel 在 actions 为空时整卡不渲染**（general/rl_training 在后端 `build_actions` 无映射恒空 actions，空壳只剩标题纯属噪音；普通对话的 AI 回复下方因此没有任何意图面板，2026-11-26 起）。
 
 按钮点击 `handleIntentAction`：`INTENT_ACTION_ROUTES` 有映射的路由跳转——`view Chart/view_kline→/chart`、`backtest_strategy/optimize_params→/backtest/config`（带 strategy_name 预填）、`view_code→/strategy-editor`、`deploy_strategy→/strategy-worker`；其余（view_positions/place_order/export_*/compare_symbols/view_risk_report 等）**降级为 info 提示**，设计归属注释在 `ChatPanel.tsx::handleIntentAction` 上方（等对应路由/交互落地再接线）。
 

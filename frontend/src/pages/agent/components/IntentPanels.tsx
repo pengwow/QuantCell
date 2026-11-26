@@ -475,7 +475,8 @@ export const DataQueryPanel: React.FC<IntentPanelProps> = ({
   );
 };
 
-// 通用面板（默认）
+// 通用面板（默认）。general/rl_training/未知意图在后端 build_actions 无映射恒空 actions，
+// 空壳卡片只剩标题纯属噪音——整卡不渲染（2026-11-26，此前对话流下出现一张只有「AI 助手 对话」标题的蓝卡）
 export const GeneralPanel: React.FC<IntentPanelProps> = ({
   roleName,
   actions,
@@ -483,6 +484,8 @@ export const GeneralPanel: React.FC<IntentPanelProps> = ({
 }) => {
   const theme = useRoleTheme(roleName);
   const { t } = useTranslation();
+
+  if (actions.length === 0) return null;
 
   return (
     <Card
