@@ -223,10 +223,11 @@ const HomePage = () => {
       // 「区间 · 周期」：列表行不带起止时间，只有 /backtest/{id}/summary 的
       // backtest_config 有真值（DB 行缺配置的旧任务给空对象 → 不给区间）
       // ponytail: summary 对 completed 任务首次会读结果 JSON 并回写任务文件（一次性，
-      // 之后毫秒级）；固定 5 条不随分页放大，升级路径是列表接口直接回传起止区间
+      // 之后毫秒级）；固定 3 条是 demo 口径（count-chip「显示 3」），看板要一屏放下，
+      // 更多条目走「回测中心 →」；升级路径是列表接口直接回传起止区间
       const recent = [...items]
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-        .slice(0, 5);
+        .slice(0, 3);
       const summaries = await Promise.allSettled(
         recent.map((task) => backtestApi.getBacktestSummary(String(task.id)))
       );
@@ -279,11 +280,13 @@ const HomePage = () => {
   );
 
   // 运行中的任务优先展示，其余按原顺序补位
+  // 三卡预览行数 = demo 口径（运行中任务 3 / 最近回测 3「共 N 条 · 显示 3」/ 最近研究 4），
+  // 看板目标一屏不滚动（2026-11-26 裁定）；完整列表走卡头「查看全部 →」
   const taskPreview = useMemo(
     () =>
       [...workers]
         .sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running'))
-        .slice(0, 5),
+        .slice(0, 3),
     [workers]
   );
 
@@ -291,7 +294,7 @@ const HomePage = () => {
     () =>
       [...backtests]
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-        .slice(0, 5),
+        .slice(0, 3),
     [backtests]
   );
 
@@ -300,7 +303,7 @@ const HomePage = () => {
     () =>
       [...research]
         .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
-        .slice(0, 5),
+        .slice(0, 4),
     [research]
   );
 

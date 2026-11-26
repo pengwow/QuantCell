@@ -88,6 +88,37 @@
   text-decoration: underline;
 }
 
+/* 行高收紧：antd 全局 line-height 1.57 把 demo normal(≈1.2) 的行盒撑高 3-4px/行，
+   六卡累计 ~30px 导致 1440×900 滚动 32px（2026-11-26 实测 qc-main 852/820）。
+   页面级统一 1.35，不碰全局 reset */
+.home-t-name,
+.home-t-id,
+.home-t-sub,
+.home-t-pnl,
+.home-t-dur,
+.home-mini-name,
+.home-mini-id,
+.home-mini-x,
+.home-mini-pnl,
+.home-sys-name,
+.home-sys-id,
+.home-sys-sub,
+.home-sys-val,
+.home-foot,
+.home-mode {
+  line-height: 1.35;
+}
+
+/* KPI 卡纵向 -6px（num 行高 1.3→1.2、上下 padding 12→10），demo kpi 卡 94px 口径 */
+.home-grid .qc-kpi {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.home-grid .qc-kpi-num {
+  line-height: 1.2;
+}
+
 /* ---- 行原语（demo .task-row 9px 2px / .mini-row 8px 2px；§6.5 密度） ----
    首行无上边线，行 hover 走 fg 3% tint + 6px 圆角 */
 .home-row {
@@ -385,9 +416,11 @@
   color: var(--qc-text);
 }
 
+/* 快速操作单行 6 列（24px mini 钮一排；2026-11-26 对齐 demo 一屏目标，
+   原 3 列 2 行多占 ~35px；≤991 保 2 列降档） */
 .home-quick-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -411,8 +444,10 @@
   background: var(--qc-surface-raised);
 }
 
-/* ---- 布局降档：≤1199 双列/三列收单列、KPI 网格交由全局 .qc-kpi-grid ---- */
-@media (max-width: 1199px) {
+/* ---- 布局降档：≤767 才收单列（demo 无 1199 档——1021 一类的窄桌面在 demo 是
+   12 列拼排，单列堆叠会让内容高度 ×2 出长滚动条；2026-11-26 对齐 demo 口径）。
+   ≤991 KPI 2 列网格由全局 .qc-kpi-grid 提供 ---- */
+@media (max-width: 767px) {
   .home-grid {
     grid-template-columns: minmax(0, 1fr);
   }
