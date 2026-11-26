@@ -1,7 +1,8 @@
 # QuantCell CLI 快速入门
 
-`quantcell` 统一了原本分散在 `backend/scripts/` 下 12 个独立命令,
-通过 typer 聚合为一个命令,12 个子命令,保持 6 个月兼容期 shim。
+`quantcell` 把原本散落在 `backend/scripts/` 的命令聚合为一个 typer 入口，当前注册
+16 个子命令。历史上的 `scripts/*_cli.py` 薄 shim 已删除、兼容期结束，命令统一走
+`quantcell`（或等价的 `python -m cli`）。
 
 ## 安装
 
@@ -17,47 +18,75 @@ cd backend && uv pip install -e .
 quantcell --help
 ```
 
-输出:
+输出（rich 表格边框从略）：
 
 ```
  Usage: quantcell [OPTIONS] COMMAND [ARGS]...
- QuantCell 统一 CLI — 策略 / 回测 / 数据 / 风控 / 工作进程 等
+
+ QuantCell 命令行工具
+
  Commands:
-   agent     AI agent 管理
-   backtest  事件驱动回测(Rust 内核)
-   data      数据采集 / 行情 / 存储
+   agent     Agent 管理命令行工具
    factor    因子研究（分析/对比/代码因子/合成因子/LLM 挖掘/快照）
-   market    行情订阅 / 实时数据
-   migrate   数据库迁移
-   news      新闻 / 情绪数据
-   plugin    插件管理
-   rl        强化学习训练 / 推理
-   strategy  策略 CRUD / 生成 / 分析 / 优化 / 部署
-   tests     跑测试套件
-   web       启动 / 停止 Web 服务
-   worker    Worker 工作进程管理
+   market    市场数据命令行工具
+   news      新闻与市场情绪工具
+   plugin    插件管理命令行工具
+   research  研究模块运维命令
+   rl        RL 命令行工具
+   web       Web 搜索与抓取工具
+   worker    Worker 管理命令行工具
+   tests     QuantCell 测试运行脚本
+   account   凭证管理（add/list/remove）
+   migrate   数据库迁移(SQLite schema 升级)
+   strategy  策略管理命令行工具
+   backtest  QuantCell 回测工具（事件驱动引擎 axon-quant）
+   jobs      作业池观测与自检
+   data      数据管理命令行工具
 ```
 
 ## 常用命令速查
 
-| 任务 | 新命令 (推荐) | 旧 shim (6 个月内可用) |
-|------|--------------|---------------------|
-| 列出策略 | `quantcell strategy list` | `python scripts/strategy_cli.py list` |
-| 启动回测 | `quantcell backtest run ...` | `python scripts/backtest_cli.py run ...` |
-| 训练 RL | `quantcell rl train --symbol BTCUSDT` | `python scripts/rl_cli.py train --symbol BTCUSDT` |
-| 启动 Worker | `quantcell worker start <id>` | `python scripts/worker_cli.py start <id>` |
-| 安装插件 | `quantcell plugin install --zip x.zip` | `python scripts/plugin_cli.py install --zip x.zip` |
-| 跑测试 | `quantcell tests main --unit` | `python scripts/run_tests.py --unit` |
-| 迁移数据库 | `quantcell migrate run -y` | `python scripts/migrate_db.py` |
-| 拉行情 | `quantcell market klines --symbol BTCUSDT` | `python scripts/market_cli.py klines --symbol BTCUSDT` |
-| 拉新闻 | `quantcell news news --query bitcoin` | `python scripts/news_cli.py news --query bitcoin` |
-| 下载数据 | `quantcell data download -s BTCUSDT -i 1d` | `python scripts/data_cli.py download -s BTCUSDT -i 1d` |
-| 搜网页 | `quantcell web search "bitcoin"` | `python scripts/web_cli.py search "bitcoin"` |
-| 聊 Agent | `quantcell agent chat send "hi"` | `python scripts/agent_cli.py chat send "hi"` |
-| 分析因子 | `quantcell factor analyze momentum_20d -s BTCUSDT -s ETHUSDT` | — |
-| 对比因子 | `quantcell factor compare momentum_10d momentum_60d -s BTCUSDT` | — |
-| LLM 挖掘 | `quantcell factor mine -s BTCUSDT -s ETHUSDT --candidates 4 --rounds 2 -o mine.json` | — |
-| 代码因子入库 | `quantcell factor code add my_alpha -f alpha.py` | — |
+| 任务 | 命令 |
+|------|------|
+| 列出策略 | `quantcell strategy list` |
+| 启动回测 | `quantcell backtest run --strategy sma_crossover --symbols BTCUSDT --timeframes 1h` |
+| 训练 RL | `quantcell rl train --symbol BTCUSDT` |
+| 启动 Worker | `quantcell worker start <id>` |
+| 安装插件 | `quantcell plugin install --zip plugin.zip` |
+| 跑测试 | `quantcell tests main --unit` |
+| 迁移数据库 | `quantcell migrate -y`（等价 `quantcell migrate run -y`） |
+| 拉行情 | `quantcell market klines --symbol BTCUSDT --timeframe 1h` |
+| 拉新闻 | `quantcell news news bitcoin -n 5` |
+| 下载归档数据 | `quantcell data archive download -k aggTrades -m spot -s BTCUSDT --start 2024-01-01 --end 2024-01-02` |
+| 搜网页 | `quantcell web search "bitcoin"` |
+| 列出 Agent 工具 | `quantcell agent tool list` |
+| 分析因子 | `quantcell factor analyze momentum_20d -s BTCUSDT -s ETHUSDT` |
+| 对比因子 | `quantcell factor compare momentum_10d momentum_60d -s BTCUSDT` |
+| LLM 挖掘 | `quantcell factor mine -s BTCUSDT -s ETHUSDT --candidates 4 --rounds 2 -o mine.json` |
+| 代码因子入库 | `quantcell factor code add -n my_alpha -f alpha.py` |
+
+## 命令行为要点
+
+- **失败即非 0 退出**：`news news` / `news sentiment` / `web search` / `web fetch`
+  在缺 API key、网络异常、非法 URL 等情况下把错误写到 stderr 并 exit 1，不再打
+  一行错误后返回 0；成功时的输出格式与以前一致。
+- **migrate 三种写法等价**：`quantcell migrate -y`、`quantcell migrate run -y`、
+  `python -m cli.migrate -y` 都会直接执行迁移；漏掉 `-y` 时先确认。
+- **tests 按路径直达**：`--unit` / `--integration` / `--api` / `--auth` / `--schema`
+  / `--error` 分别落到 `tests/unit`、`tests/integration`、`tests/integration/api`、
+  `tests/integration/api/test_auth.py` 等具体文件或目录，不再用 pytest 的 `-m`
+  标记筛选（那些目录里几乎没有对应 mark，筛出来是 0 个用例）。也可以直接传路径：
+  `quantcell tests main tests/unit/cli`。
+- **data download 已废弃**：`quantcell data download` 只打印错误并 exit 1，指向
+  `quantcell data archive download`。后者必须给 `-k/--kind`（aggTrades、trades、
+  bookDepth、bookTicker、markPriceKlines、indexPriceKlines、premiumIndexKlines）、
+  `-m/--market`（spot / um / cm）、`-s/--symbols`（逗号分隔）、`--start`、`--end`，
+  `-i/--interval` 按需给。
+- **strategy 走真实服务**：`strategy list` 直查策略库（空库输出「系统中暂无策略」）；
+  `strategy generate` 调用 `strategy.service.generate_strategy` 并把代码落盘为
+  `backend/strategies/<name>.py`（需要先配置可用 AI 模型）；`strategy deploy --auto-start`
+  不受 CLI 支持 —— 只注册 runtime 并在 stderr 提示改用 `quantcell worker start`
+  或 Web 页面启动。
 
 ## factor 子命令
 
@@ -103,12 +132,11 @@ quantcell factor snapshot delete 12
 quantcell factor catalog
 ```
 
-自定义因子存储路径可用环境变量覆盖（便于隔离环境）：
-`QC_FACTOR_EXPR_STORE` / `QC_FACTOR_CODE_STORE` / `QC_FACTOR_COMPOSITE_STORE`。
+因子定义（内置 / 表达式 / 代码 / 合成）统一存在 SQLite 的 `factor_catalog` 表，与 Web 端
+是同一份数据，没有按因子类型拆分的独立存储开关。需要隔离环境时改数据目录
+（`QUANTCELL_DATA_DIR`）或库文件（`DB_FILE`）。
 
-## 三个等价入口
-
-CLI 支持 3 种调用方式,完全等价:
+## 两个等价入口
 
 ```bash
 # 1. 安装后直接用 quantcell(推荐)
@@ -116,28 +144,43 @@ quantcell strategy list
 
 # 2. 不安装,直接用模块方式调入口
 python -m cli strategy list
-
-# 3. 6 个月内继续用旧 scripts
-python scripts/strategy_cli.py list
 ```
 
-## 子命令分组
+`python -m cli.<子模块>`（如 `python -m cli.migrate -y`）也可单独跑某个子命令，用于调试。
 
-`quantcell agent` 还支持二级子命令:
+## agent 子命令分组
+
+`quantcell agent` 分 6 组，目前只有 `tool` / `params` 是真实实现：
 
 ```bash
-quantcell agent session list          # 列出所有会话
-quantcell agent chat send "Hello"     # 发送消息
-quantcell agent tool list             # 列出所有工具
-quantcell agent workspace cat README  # 查看工作空间文件
-quantcell agent action generate-strategy -r "双均线" -n my_strat
+quantcell agent tool list             # 列出后端注册表里的工具
+quantcell agent tool info <tool>      # 工具描述与参数 schema
+quantcell agent params tools          # 有可配置参数的工具清单
+quantcell agent params show <tool>    # 查看某工具的参数
+quantcell agent params set <tool> <param> <value>
 ```
 
-## 迁移策略
+`session` / `chat` / `workspace` / `action` 四组是显式未实现：执行即 exit 1 并在
+stderr 提示改用 Web `/agent` 页（会话持久层、AgentLoop、工作区读写都还没接到 CLI），
+不会静默返回或打印假成功。
 
-- **本次(已完成)**: 12 个 scripts 平迁到 `cli/<name>.py`,原 scripts 改为薄 shim,转调 `cli.<name>.app`
-- **6 个月后**: 删除整个 `backend/scripts/` 目录(除 `__pycache__` 等),`quantcell` 命令继续工作
-- **回滚方案**: shim 文件备份在 `backend/.trash/scripts_shim_backups/`,如需回滚直接 `mv` 回来
+```bash
+quantcell agent session list          # exit 1:提示用 Web /agent 页
+quantcell agent chat history <sid>    # exit 1:同上
+quantcell agent workspace cat README  # exit 1:同上
+quantcell agent action generate-strategy -r "双均线" -n my_strat   # exit 1:同上
+```
+
+## 迁移现状
+
+- **已完成**: 命令全部平迁到 `cli/<name>.py` 并注册进主 app；`backend/scripts/` 下的
+  `*_cli.py`、`run_tests.py`、`migrate_db.py` 等兼容 shim 已删除（见提交 `23fd06ad`），
+  兼容期结束。
+- **scripts 目录只剩工具脚本**: `bench_backtest_baseline.py`、
+  `export_leverage_brackets.py`、`export_vocab_types.py`、`seed_backtest_demo.py`、
+  `vocab_lint.py` —— 它们是按原用途直接运行的工具，不提供 `quantcell` 子命令。
+- **回滚**: shim 已从工作区移除，`.trash/scripts_shim_backups/` 备份目录也已清理；
+  确需旧文件用 `git checkout <commit> -- backend/scripts/` 从历史取回。
 
 ## 开发扩展
 

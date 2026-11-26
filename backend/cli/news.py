@@ -19,12 +19,28 @@ if str(backend_path) not in sys.path:
 app = typer.Typer(help="新闻与市场情绪工具")
 
 
-def get_news(query: str, category: str = "general", count: int = 10) -> str:
+class NewsError(Exception):
+    """失败信号：命令层捕获后写 stderr 并以非 0 退出。
+
+    agent 工具仍按字符串返回值使用，只有 CLI 传 raise_on_error=True。
+    """
+
+
+def get_news(
+    query: str,
+    category: str = "general",
+    count: int = 10,
+    *,
+    raise_on_error: bool = False,
+) -> str:
     """从 NewsAPI 获取新闻"""
     api_key = os.environ.get("NEWSAPI_KEY", "")
 
     if not api_key:
-        return "错误: 未配置 NEWSAPI_KEY 环境变量"
+        msg = "错误: 未配置 NEWSAPI_KEY 环境变量"
+        if raise_on_error:
+            raise NewsError(msg)
+        return msg
 
     try:
         url = "https://newsapi.org/v2/everything"
@@ -64,10 +80,13 @@ def get_news(query: str, category: str = "general", count: int = 10) -> str:
 
         return "\n".join(lines)
     except Exception as e:
-        return f"错误: {e}"
+        msg = f"错误: {e}"
+        if raise_on_error:
+            raise NewsError(msg) from e
+        return msg
 
 
-def get_market_sentiment() -> str:
+def get_market_sentiment(*, raise_on_error: bool = False) -> str:
     """获取市场情绪指数（恐惧与贪婪指数）"""
     try:
         url = "https://api.alternative.me/fng/"
@@ -98,7 +117,10 @@ def get_market_sentiment() -> str:
 
         return result
     except Exception as e:
-        return f"错误: {e}"
+        msg = f"错误: {e}"
+        if raise_on_error:
+            raise NewsError(msg) from e
+        return msg
 
 
 @app.command("news")
@@ -108,14 +130,22 @@ def cli_news(
     count: int = typer.Option(10, "--count", "-n", help="返回条数"),
 ):
     """获取相关新闻"""
-    result = get_news(query, category, count)
+    try:
+        result = get_news(query, category, count, raise_on_error=True)
+    except NewsError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
     typer.echo(result)
 
 
 @app.command("sentiment")
 def cli_sentiment():
     """获取市场情绪指数"""
-    result = get_market_sentiment()
+    try:
+        result = get_market_sentiment(raise_on_error=True)
+    except NewsError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
     typer.echo(result)
 
 

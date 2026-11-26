@@ -16,12 +16,14 @@ def runner():
 
 @pytest.fixture(autouse=True)
 def isolated_stores(tmp_path, monkeypatch):
-    """表达式/代码/合成三个 JSON store 全部指向 tmp。"""
+    """DB 写全部落 conftest 的 DB_FILE 临时副本库（真实读写、零污染开发库）。
+
+    ponytail: 旧的手法是 QC_FACTOR_EXPR/CODE/COMPOSITE_STORE 三个 env 指向 tmp
+    JSON——因子真相源已迁 SQLite factor_catalog 表后这些 env 无任何读者，
+    纯死重已删除；本 fixture 保留 CLI_MODE 与档案钩子打桩。
+    """
     # 与真实 CLI 入口一致：抑制 INFO 日志，避免其进入 stdout 干扰 JSON 断言
     monkeypatch.setenv("CLI_MODE", "1")
-    monkeypatch.setenv("QC_FACTOR_EXPR_STORE", str(tmp_path / "expr.json"))
-    monkeypatch.setenv("QC_FACTOR_CODE_STORE", str(tmp_path / "code.json"))
-    monkeypatch.setenv("QC_FACTOR_COMPOSITE_STORE", str(tmp_path / "comp.json"))
     # 档案 DB 钩子不参与 CLI 单测（路由层已覆盖），打桩避免写开发库
     monkeypatch.setattr(factor_cli, "_catalog_after_add", lambda name: None)
     monkeypatch.setattr(factor_cli, "_catalog_after_delete", lambda name: None)

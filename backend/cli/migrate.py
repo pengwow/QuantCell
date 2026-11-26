@@ -82,9 +82,10 @@ def _run_migration() -> int:
         return 1
 
 
-def main():
-    """CLI 入口函数"""
-    return _run_migration()
+def _migrate(confirm: bool) -> None:
+    if not confirm:
+        typer.confirm("确认执行数据库迁移?", abort=True)
+    sys.exit(_run_migration() or 0)
 
 
 @app.callback(invoke_without_command=True)
@@ -95,6 +96,16 @@ def migrate_main(
     """执行数据库迁移。"""
     if ctx.invoked_subcommand is not None:
         return
-    if not confirm:
-        typer.confirm("确认执行数据库迁移?", abort=True)
-    sys.exit(_run_migration() or 0)
+    _migrate(confirm)
+
+
+@app.command("run")
+def migrate_run(
+    confirm: bool = typer.Option(False, "--yes", "-y", help="跳过确认提示"),
+):
+    """执行数据库迁移（与 `migrate` 等价）。"""
+    _migrate(confirm)
+
+
+if __name__ == "__main__":
+    app()

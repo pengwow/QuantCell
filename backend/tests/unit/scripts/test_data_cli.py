@@ -1,7 +1,6 @@
 """数据管理CLI单元测试"""
 
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -9,6 +8,11 @@ import pytest
 from typer.testing import CliRunner
 
 runner = CliRunner()
+
+
+def _all_output(result) -> str:
+    """CliRunner 的 stdout + stderr（click 8.2+ 默认分离）"""
+    return result.output + getattr(result, "stderr", "")
 
 
 class TestFormatSize:
@@ -294,33 +298,51 @@ class TestValidateParquetExport:
 
 
 class TestFindParquetFile:
-    """测试 _find_parquet_file 函数"""
+    """测试 _find_parquet_file 函数
 
-    def test_find_parquet_file_spot(self):
-        """测试查找现货Parquet文件"""
+    patch 必须打在函数实际读取的 utils.data_utils 命名空间；打在 cli.data 的重导出名上
+    只是改了一个没人读的模块属性，测试会裸扫真实 backend/data。
+    """
+
+    def test_find_parquet_file_spot(self, tmp_path):
+        """无历史布局文件时回退采集器统一布局，路径精确到 tmp 下"""
         from cli.data import _find_parquet_file
 
-        with patch("cli.data.get_source_data_dir", return_value=Path("/data")):
+        with patch("utils.data_utils.get_source_data_dir", return_value=tmp_path):
             result = _find_parquet_file("BTCUSDT", "1h", "spot")
-            assert "spot" in str(result)
-            assert "BTCUSDT.parquet" in str(result)
 
-    def test_find_parquet_file_future(self):
-        """测试查找合约Parquet文件"""
+        assert result == tmp_path / "crypto" / "spot" / "klines" / "1h" / "BTCUSDT.parquet"
+
+    def test_find_parquet_file_future(self, tmp_path):
+        """合约市场同样落到 crypto/{market}/klines/{interval}/"""
         from cli.data import _find_parquet_file
 
-        with patch("cli.data.get_source_data_dir", return_value=Path("/data")):
+        with patch("utils.data_utils.get_source_data_dir", return_value=tmp_path):
             result = _find_parquet_file("ETHUSDT", "15m", "future")
-            assert "future" in str(result)
-            assert "ETHUSDT.parquet" in str(result)
 
-    def test_find_parquet_file_normalize_symbol(self):
-        """测试交易对名称标准化"""
+        assert result == tmp_path / "crypto" / "future" / "klines" / "15m" / "ETHUSDT.parquet"
+
+    def test_find_parquet_file_legacy_layout_preferred(self, tmp_path):
+        """历史布局 {market}/{interval}/ 已存在时优先返回它"""
         from cli.data import _find_parquet_file
 
-        with patch("cli.data.get_source_data_dir", return_value=Path("/data")):
+        legacy = tmp_path / "spot" / "1h" / "BTCUSDT.parquet"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_bytes(b"x")
+
+        with patch("utils.data_utils.get_source_data_dir", return_value=tmp_path):
+            result = _find_parquet_file("BTCUSDT", "1h", "spot")
+
+        assert result == legacy
+
+    def test_find_parquet_file_normalize_symbol(self, tmp_path):
+        """ETH/USDT → ETHUSDT.parquet"""
+        from cli.data import _find_parquet_file
+
+        with patch("utils.data_utils.get_source_data_dir", return_value=tmp_path):
             result = _find_parquet_file("ETH/USDT", "1h", "spot")
-            assert "ETHUSDT.parquet" in str(result)
+
+        assert result == tmp_path / "crypto" / "spot" / "klines" / "1h" / "ETHUSDT.parquet"
 
 
 class TestGetDefaultDateRange:
@@ -346,57 +368,47 @@ class TestGetDefaultDateRange:
 
 
 class TestScanParquetFiles:
-    """测试 scan_parquet_files 函数"""
+    """测试 scan_parquet_files 函数（真实 tmp 目录，不走 Path 全局 patch）"""
 
-    def test_scan_empty_directory(self):
-        """测试空目录"""
+    def test_scan_missing_directory(self, tmp_path):
+        """base_dir 不存在 → 空列表"""
         from cli.data import scan_parquet_files
 
-        with patch("pathlib.Path.iterdir", return_value=[]):
-            with patch("cli.data.get_source_data_dir", return_value=Path("/empty")):
-                result = scan_parquet_files(base_dir=Path("/empty"))
-                assert result == []
+        assert scan_parquet_files(base_dir=tmp_path / "nope") == []
 
-    def test_scan_with_files(self):
-        """测试有文件的情况"""
+    def test_scan_empty_directory(self, tmp_path):
+        """市场目录存在但无 parquet → 空列表"""
         from cli.data import scan_parquet_files
 
-        mock_file = MagicMock()
-        mock_file.stem = "BTCUSDT"
-        mock_file.name = "BTCUSDT.parquet"
-        mock_file.stat.return_value = MagicMock(st_mtime=1704067200)
+        (tmp_path / "spot").mkdir()
+        assert scan_parquet_files(base_dir=tmp_path) == []
 
-        mock_interval_dir = MagicMock()
-        mock_interval_dir.is_dir.return_value = True
-        mock_interval_dir.name = "1h"
-        mock_interval_dir.iterdir.return_value = [mock_file]
-        mock_interval_dir.glob.return_value = [mock_file]
+    def test_scan_with_files(self, tmp_path):
+        """真实 parquet 文件 → 命中 symbol/interval/info，行数为实际写入行数"""
+        from cli.data import scan_parquet_files
 
-        mock_klines_dir = MagicMock()
-        mock_klines_dir.is_dir.return_value = True
-        mock_klines_dir.iterdir.return_value = [mock_interval_dir]
+        interval_dir = tmp_path / "spot" / "BTCUSDT" / "1h"
+        interval_dir.mkdir(parents=True)
+        parquet = interval_dir / "BTCUSDT.parquet"
+        pd.DataFrame({"timestamp": [1, 2], "close": [10.0, 11.0]}).to_parquet(parquet, index=False)
 
-        with patch("pathlib.Path.exists", return_value=True):
-            with patch("pathlib.Path.iterdir", return_value=[mock_interval_dir]):
-                with patch(
-                    "cli.data.get_parquet_info",
-                    return_value={"num_rows": 100, "file_size_bytes": 1024},
-                ):
-                    with patch("cli.data.get_source_data_dir", return_value=Path("/data")):
-                        result = scan_parquet_files(symbol="BTCUSDT", interval="1h")
-                        assert len(result) >= 0
+        result = scan_parquet_files(symbol="BTCUSDT", interval="1h", base_dir=tmp_path)
+
+        assert len(result) == 1
+        assert result[0]["symbol"] == "BTCUSDT"
+        assert result[0]["interval"] == "1h"
+        assert result[0]["file"] == parquet
+        assert result[0]["info"]["num_rows"] == 2
+        assert result[0]["info"]["columns"] == ["timestamp", "close"]
 
 
 class TestDataCliCommands:
     """测试 data_cli.py 的 Typer 命令"""
 
-    @patch("cli.data._find_parquet_file")
-    @patch("cli.data.load_from_parquet")
-    def test_export_csv_file_not_found(self, mock_load, mock_find):
-        """测试导出CSV文件不存在"""
+    @patch("cli.data._find_parquet_file", return_value=None)
+    def test_export_csv_file_not_found(self, mock_find):
+        """测试导出CSV文件不存在：exit 1 + 具体提示"""
         from cli.data import app
-
-        mock_find.return_value.exists.return_value = False
 
         result = runner.invoke(
             app,
@@ -412,35 +424,35 @@ class TestDataCliCommands:
             ],
         )
         assert result.exit_code == 1
+        assert "未找到 BTCUSDT 1h 的数据文件" in _all_output(result)
+        mock_find.assert_called_once_with("BTCUSDT", "1h")
 
-    @patch("cli.data._find_parquet_file")
-    @patch("cli.data.load_from_parquet")
-    def test_export_parquet_file_not_found(self, mock_load, mock_find):
-        """测试导出Parquet文件不存在"""
+    @patch("cli.data._find_parquet_file", return_value=None)
+    def test_export_parquet_file_not_found(self, mock_find):
+        """测试导出Parquet文件不存在：exit 1 + 具体提示"""
         from cli.data import app
-
-        mock_find.return_value.exists.return_value = False
 
         result = runner.invoke(app, ["export", "parquet", "--symbol", "BTCUSDT", "--interval", "1h"])
         assert result.exit_code == 1
+        assert "未找到 BTCUSDT 1h 的数据文件" in _all_output(result)
 
-    @patch("cli.data.task_manager")
-    def test_status_task_not_found(self, mock_task_manager):
+    @patch("cli.data._get_task_manager")
+    def test_status_task_not_found(self, mock_get_manager):
         """测试查询不存在的任务"""
         from cli.data import app
 
-        mock_task_manager.get_task.return_value = None
+        mock_get_manager.return_value.get_task.return_value = None
 
         result = runner.invoke(app, ["status", "--task-id", "nonexistent"])
         assert result.exit_code == 1
-        assert "不存在" in result.output
+        assert "任务 nonexistent 不存在" in _all_output(result)
 
-    @patch("cli.data.task_manager")
-    def test_status_task_found(self, mock_task_manager):
-        """测试查询存在的任务"""
+    @patch("cli.data._get_task_manager")
+    def test_status_task_found(self, mock_get_manager):
+        """测试查询存在的任务：逐字段落到输出"""
         from cli.data import app
 
-        mock_task_manager.get_task.return_value = {
+        mock_get_manager.return_value.get_task.return_value = {
             "task_id": "test-123",
             "status": "completed",
             "task_type": "download",
@@ -457,116 +469,143 @@ class TestDataCliCommands:
 
         result = runner.invoke(app, ["status", "--task-id", "test-123"])
         assert result.exit_code == 0
-        assert "test-123" in result.output
+        assert "任务ID: test-123" in result.output
+        assert "状态: completed" in result.output
+        assert "类型: download" in result.output
+        assert "进度: 100.0%" in result.output
 
-    def test_list_symbols_no_data(self):
-        """测试无本地数据时列出交易对"""
+    def test_download_deprecated(self):
+        """直接 download 已废弃：exit 1 并指向 archive download，不得打印假成功。"""
         from cli.data import app
 
-        with patch("cli.data.scan_parquet_files", return_value=[]):
+        result = runner.invoke(app, ["download", "-s", "BTCUSDT", "-i", "1d"])
+        assert result.exit_code == 1
+        assert "archive download" in result.output
+        assert "下载完成" not in result.output
+
+    def test_list_symbols_no_data(self, tmp_path):
+        """无本地数据时列出交易对（真实空目录，不 mock scan）"""
+        from cli.data import app
+
+        with patch("cli.data.get_source_data_dir", return_value=tmp_path):
             result = runner.invoke(app, ["list-symbols"])
-            assert result.exit_code == 0
-            assert "未找到" in result.output
-
-    def test_list_local_data_no_data(self):
-        """测试无本地数据时列出数据"""
-        from cli.data import app
-
-        with patch("cli.data.scan_parquet_files", return_value=[]):
-            result = runner.invoke(app, ["list-local-data"])
-            assert result.exit_code == 0
-            assert "未找到" in result.output
-
-    @patch("cli.data.scan_parquet_files")
-    def test_delete_local_data_not_found(self, mock_scan):
-        """测试删除不存在的本地数据"""
-        from cli.data import app
-
-        mock_scan.return_value = []
-
-        result = runner.invoke(app, ["delete-local-data", "--symbol", "NONEXISTENT"])
         assert result.exit_code == 0
-        assert "未找到" in result.output
+        assert result.output.strip() == "未找到本地数据"
+
+    def test_list_local_data_no_data(self, tmp_path):
+        """无本地数据时列出数据（真实空目录，不 mock scan）"""
+        from cli.data import app
+
+        with patch("cli.data.get_source_data_dir", return_value=tmp_path):
+            result = runner.invoke(app, ["list-local-data"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "未找到本地数据"
+
+    def test_delete_local_data_not_found(self, tmp_path):
+        """删除不存在的本地数据：不报错，提示具体交易对未找到"""
+        from cli.data import app
+
+        with patch("cli.data.get_source_data_dir", return_value=tmp_path):
+            result = runner.invoke(app, ["delete-local-data", "--symbol", "NONEXISTENT"])
+        assert result.exit_code == 0
+        assert "未找到 NONEXISTENT 的本地数据" in result.output
 
 
 class TestImportCsv:
-    """测试导入CSV功能"""
+    """测试导入CSV功能（真实临时 CSV 文件，不 patch pathlib.Path）"""
 
-    @patch("cli.data.pd.read_csv")
-    @patch("cli.data.Path")
-    def test_import_csv_file_not_found(self, mock_path_cls, mock_read_csv):
+    def test_import_csv_file_not_found(self, tmp_path):
         """测试导入不存在的CSV文件"""
         from cli.data import app
 
-        mock_path_instance = MagicMock()
-        mock_path_instance.exists.return_value = False
-        mock_path_cls.return_value = mock_path_instance
-
-        result = runner.invoke(app, ["import", "csv", "nonexistent.csv", "--interval", "1h"])
+        missing = tmp_path / "nonexistent.csv"
+        result = runner.invoke(app, ["import", "csv", str(missing), "--interval", "1h"])
         assert result.exit_code == 1
-        assert "不存在" in result.output
+        assert f"文件 {missing} 不存在" in _all_output(result)
 
-    @patch("cli.data.pd.read_csv")
-    def test_import_csv_empty_file(self, mock_read_csv):
-        """测试导入空CSV文件"""
+    def test_import_csv_empty_file(self, tmp_path):
+        """测试导入空CSV文件（仅表头）"""
         from cli.data import app
 
-        mock_read_csv.return_value = pd.DataFrame()
+        empty = tmp_path / "empty.csv"
+        empty.write_text("timestamp,open,high,low,close,volume\n", encoding="utf-8")
 
-        with patch("pathlib.Path.exists", return_value=True):
-            result = runner.invoke(app, ["import", "csv", "empty.csv", "--interval", "1h"])
-            assert result.exit_code == 1
-            assert "为空" in result.output
+        result = runner.invoke(app, ["import", "csv", str(empty), "--interval", "1h"])
+        assert result.exit_code == 1
+        assert "CSV文件为空" in _all_output(result)
 
-    @patch("cli.data.pd.read_csv")
-    def test_import_csv_missing_columns(self, mock_read_csv):
-        """测试导入缺少必需列的CSV"""
+    def test_import_csv_missing_columns(self, tmp_path):
+        """测试导入缺少必需列的CSV：逐列点名缺失项"""
         from cli.data import app
 
-        mock_read_csv.return_value = pd.DataFrame(
-            {
-                "symbol": ["BTCUSDT"],
-                "timestamp": [1704067200000000000],
-            }
-        )
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("symbol,timestamp\nBTCUSDT,1704067200000000000\n", encoding="utf-8")
 
-        with patch("pathlib.Path.exists", return_value=True):
-            result = runner.invoke(app, ["import", "csv", "data.csv", "--interval", "1h"])
-            assert result.exit_code == 1
-            assert "缺少" in result.output
+        result = runner.invoke(app, ["import", "csv", str(csv_file), "--interval", "1h"])
+        assert result.exit_code == 1
+        assert "CSV缺少必需列" in _all_output(result)
+        for col in ("open", "high", "low", "close", "volume"):
+            assert col in _all_output(result)
 
 
 class TestQualityCommands:
-    """测试数据质量命令"""
+    """测试数据质量命令（真实 parquet 文件，不 patch typer.secho）"""
 
-    @patch("cli.data.typer.secho")
-    def test_quality_check_error(self, mock_secho):
-        """测试质量检查错误"""
+    def test_quality_check_no_data(self):
+        """未找到数据文件 → exit 1 + 具体提示"""
         from cli.data import app
 
-        with patch(
-            "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: __import__(name, *args, **kwargs),
-        ):
+        with patch("cli.data._find_parquet_file", return_value=None):
             result = runner.invoke(app, ["quality", "check", "-s", "BTCUSDT", "-i", "1h"])
-            # 由于内部导入在函数内，测试验证命令能正常执行
-            assert result.exit_code in [0, 1]
 
-    @patch("cli.data.typer.secho")
-    def test_quality_check_empty(self, mock_secho):
-        """测试质量检查空数据"""
+        assert result.exit_code == 1
+        assert "未找到 BTCUSDT 1h 的数据文件" in _all_output(result)
+
+    def test_quality_check_real_file(self, tmp_path):
+        """24 根小时线覆盖整日 → 完整率 100% 且无缺失"""
         from cli.data import app
 
-        result = runner.invoke(app, ["quality", "check", "-s", "BTCUSDT", "-i", "1h"])
-        assert result.exit_code in [0, 1]
+        parquet = tmp_path / "BTCUSDT.parquet"
+        hours = pd.date_range("2024-01-01", periods=24, freq="h")
+        pd.DataFrame(
+            {
+                "timestamp": [int(t.timestamp() * 1_000_000_000) for t in hours],
+                "close": [100.0] * 24,
+            }
+        ).to_parquet(parquet, index=False)
 
-    @patch("cli.data.typer.secho")
-    def test_quality_options_no_data(self, mock_secho):
-        """测试无数据时列出选项"""
+        with patch("cli.data._find_parquet_file", return_value=parquet):
+            result = runner.invoke(
+                app,
+                [
+                    "quality",
+                    "check",
+                    "-s",
+                    "BTCUSDT",
+                    "-i",
+                    "1h",
+                    "--start",
+                    "2024-01-01",
+                    "--end",
+                    "2024-01-02",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "数据质量报告: BTCUSDT 1h" in result.output
+        assert "总行数: 24" in result.output
+        assert "数据完整率: 100% ✓" in result.output
+        assert "无明显缺失" in result.output
+
+    def test_quality_options(self):
+        """quality options 打印完整帮助字段"""
         from cli.data import app
 
         result = runner.invoke(app, ["quality", "options"])
-        assert result.exit_code in [0, 1]
+        assert result.exit_code == 0
+        assert "=== 质量检查选项 ===" in result.output
+        assert "--symbol, -s" in result.output
+        assert "--start" in result.output
 
 
 class TestFormatTimeRange:

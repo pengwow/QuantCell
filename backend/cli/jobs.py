@@ -188,3 +188,7 @@ def selftest() -> None:
         raise typer.Exit(1)
     logger.info(f"作业池 CLI 自检通过: {len(checks)} 项")
     typer.echo(f"自检通过（{len(checks)}/{len(checks)}）")
+
+
+if __name__ == "__main__":
+    app()

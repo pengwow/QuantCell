@@ -19,13 +19,29 @@ if str(backend_path) not in sys.path:
 app = typer.Typer(help="Web 搜索与抓取工具")
 
 
-def web_search(query: str, count: int = 10, api_key: str | None = None) -> str:
+class WebError(Exception):
+    """失败信号：命令层捕获后写 stderr 并以非 0 退出。
+
+    agent 工具仍按字符串返回值使用，只有 CLI 传 raise_on_error=True。
+    """
+
+
+def web_search(
+    query: str,
+    count: int = 10,
+    api_key: str | None = None,
+    *,
+    raise_on_error: bool = False,
+) -> str:
     """使用 Brave Search API 进行网页搜索"""
     if api_key is None:
         api_key = os.environ.get("BRAVE_API_KEY", "")
 
     if not api_key:
-        return "错误: 未配置 BRAVE_API_KEY 环境变量"
+        msg = "错误: 未配置 BRAVE_API_KEY 环境变量"
+        if raise_on_error:
+            raise WebError(msg)
+        return msg
 
     try:
         url = "https://api.search.brave.com/res/v1/web/search"
@@ -61,16 +77,22 @@ def web_search(query: str, count: int = 10, api_key: str | None = None) -> str:
 
         return "\n".join(lines)
     except Exception as e:
-        return f"错误: {e}"
+        msg = f"错误: {e}"
+        if raise_on_error:
+            raise WebError(msg) from e
+        return msg
 
 
-def web_fetch(url: str) -> str:
+def web_fetch(url: str, *, raise_on_error: bool = False) -> str:
     """抓取指定 URL 的内容并提取文本"""
     from urllib.parse import urlparse
 
     parsed = urlparse(url)
     if not parsed.scheme or not parsed.netloc:
-        return json.dumps({"error": "URL 验证失败: 无效的 URL 格式"}, ensure_ascii=False)
+        msg = json.dumps({"error": "URL 验证失败: 无效的 URL 格式"}, ensure_ascii=False)
+        if raise_on_error:
+            raise WebError(msg)
+        return msg
 
     try:
         with httpx.Client() as client:
@@ -106,7 +128,10 @@ def web_fetch(url: str) -> str:
 
             return json.dumps(result, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False)
+        msg = json.dumps({"error": str(e)}, ensure_ascii=False)
+        if raise_on_error:
+            raise WebError(msg) from e
+        return msg
 
 
 @app.command("search")
@@ -116,7 +141,11 @@ def cli_search(
     api_key: str | None = typer.Option(None, "--api-key", help="Brave API Key"),
 ):
     """使用 Brave Search API 搜索网页"""
-    result = web_search(query, count, api_key)
+    try:
+        result = web_search(query, count, api_key, raise_on_error=True)
+    except WebError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
     typer.echo(result)
 
 
@@ -125,7 +154,11 @@ def cli_fetch(
     url: str = typer.Argument(..., help="要抓取的 URL"),
 ):
     """抓取指定 URL 的内容"""
-    result = web_fetch(url)
+    try:
+        result = web_fetch(url, raise_on_error=True)
+    except WebError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
     typer.echo(result)
 
 

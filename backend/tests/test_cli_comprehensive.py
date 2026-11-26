@@ -33,6 +33,10 @@ CLI_MODULES = [
     "agent",
     "rl",
     "market",
+    "migrate",
+    "research",
+    "jobs",
+    "factor",
     # "run" 模块已随死代码归档（commit 113b3652）移除，不再列入 CLI 模块清单
 ]
 

@@ -105,13 +105,13 @@ class TestMigrateStrategiesTable:
 
 
 class TestMain:
-    """测试 main 函数"""
+    """测试 _run_migration 函数"""
 
     @patch("cli.migrate.get_db_path")
     @patch("sqlite3.connect")
     def test_main_success(self, mock_connect, mock_get_db_path):
         """测试完整迁移流程成功"""
-        from cli.migrate import main
+        from cli.migrate import _run_migration as main
 
         mock_db_path = MagicMock()
         mock_db_path.__str__ = MagicMock(return_value="/fake/db/path.db")
@@ -131,7 +131,7 @@ class TestMain:
     @patch("sqlite3.connect")
     def test_main_no_migration_needed(self, mock_connect, mock_get_db_path):
         """测试无需迁移的情况"""
-        from cli.migrate import main
+        from cli.migrate import _run_migration as main
 
         mock_db_path = MagicMock()
         mock_get_db_path.return_value = mock_db_path
@@ -148,7 +148,7 @@ class TestMain:
     @patch("cli.migrate.get_db_path")
     def test_main_db_not_found(self, mock_get_db_path):
         """测试数据库文件不存在"""
-        from cli.migrate import main
+        from cli.migrate import _run_migration as main
 
         mock_get_db_path.side_effect = FileNotFoundError("未找到数据库文件")
 
@@ -159,7 +159,7 @@ class TestMain:
     @patch("sqlite3.connect")
     def test_main_sqlite_error(self, mock_connect, mock_get_db_path):
         """测试数据库操作错误"""
-        from cli.migrate import main
+        from cli.migrate import _run_migration as main
 
         mock_db_path = MagicMock()
         mock_get_db_path.return_value = mock_db_path
@@ -172,7 +172,7 @@ class TestMain:
     @patch("sqlite3.connect")
     def test_main_unexpected_error(self, mock_connect, mock_get_db_path):
         """测试意外错误"""
-        from cli.migrate import main
+        from cli.migrate import _run_migration as main
 
         mock_db_path = MagicMock()
         mock_get_db_path.return_value = mock_db_path

@@ -101,7 +101,9 @@ def run_unit_tests(verbose: bool = False) -> int:
 
 def run_integration_tests(verbose: bool = False, parallel: bool = False) -> int:
     """运行集成测试"""
-    cmd = ["uv", "run", "pytest", "tests/integration", "-m", "integration"]
+    # ponytail: 目标目录里几乎无用例带 mark，靠 -m 筛选会静默匹配 0 个（pytest exit 5），
+    # 因此直接按路径选，path 就是唯一事实来源。
+    cmd = ["uv", "run", "pytest", "tests/integration"]
 
     if verbose:
         cmd.append("-v")
@@ -118,7 +120,7 @@ def run_integration_tests(verbose: bool = False, parallel: bool = False) -> int:
 
 def run_api_tests(verbose: bool = False) -> int:
     """运行API测试"""
-    cmd = ["uv", "run", "pytest", "tests/integration/api", "-m", "api"]
+    cmd = ["uv", "run", "pytest", "tests/integration/api"]
 
     if verbose:
         cmd.append("-v")
@@ -132,7 +134,7 @@ def run_api_tests(verbose: bool = False) -> int:
 
 def run_auth_tests(verbose: bool = False) -> int:
     """运行认证测试"""
-    cmd = ["uv", "run", "pytest", "tests/integration/api/test_auth.py", "-m", "auth"]
+    cmd = ["uv", "run", "pytest", "tests/integration/api/test_auth.py"]
 
     if verbose:
         cmd.append("-v")
@@ -146,14 +148,7 @@ def run_auth_tests(verbose: bool = False) -> int:
 
 def run_schema_tests(verbose: bool = False) -> int:
     """运行模型验证测试"""
-    cmd = [
-        "uv",
-        "run",
-        "pytest",
-        "tests/integration/api/test_schema_validation.py",
-        "-m",
-        "schema",
-    ]
+    cmd = ["uv", "run", "pytest", "tests/integration/api/test_schema_validation.py"]
 
     if verbose:
         cmd.append("-v")
@@ -167,14 +162,7 @@ def run_schema_tests(verbose: bool = False) -> int:
 
 def run_error_tests(verbose: bool = False) -> int:
     """运行错误处理测试"""
-    cmd = [
-        "uv",
-        "run",
-        "pytest",
-        "tests/integration/api/test_error_handling.py",
-        "-m",
-        "error",
-    ]
+    cmd = ["uv", "run", "pytest", "tests/integration/api/test_error_handling.py"]
 
     if verbose:
         cmd.append("-v")
@@ -231,12 +219,20 @@ def run_specific_test(test_path: str, verbose: bool = False) -> int:
 
 @app.command()
 def main(
-    unit: bool = typer.Option(False, "--unit", help="仅运行单元测试"),
-    integration: bool = typer.Option(False, "--integration", help="仅运行集成测试"),
-    api: bool = typer.Option(False, "--api", help="仅运行API测试"),
-    auth: bool = typer.Option(False, "--auth", help="仅运行认证测试"),
-    schema: bool = typer.Option(False, "--schema", help="仅运行模型验证测试"),
-    error: bool = typer.Option(False, "--error", help="仅运行错误处理测试"),
+    unit: bool = typer.Option(False, "--unit", help="仅运行单元测试（tests/unit）"),
+    integration: bool = typer.Option(False, "--integration", help="仅运行集成测试（tests/integration 目录）"),
+    api: bool = typer.Option(False, "--api", help="仅运行API测试（tests/integration/api 目录）"),
+    auth: bool = typer.Option(False, "--auth", help="仅运行认证测试（tests/integration/api/test_auth.py）"),
+    schema: bool = typer.Option(
+        False,
+        "--schema",
+        help="仅运行模型验证测试（tests/integration/api/test_schema_validation.py）",
+    ),
+    error: bool = typer.Option(
+        False,
+        "--error",
+        help="仅运行错误处理测试（tests/integration/api/test_error_handling.py）",
+    ),
     coverage: bool = typer.Option(False, "--coverage", help="生成测试覆盖率报告"),
     parallel: bool = typer.Option(False, "--parallel", help="并行运行测试"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="显示详细输出"),

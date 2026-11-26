@@ -7,7 +7,7 @@
 使用方式: uv run python -m cli.data <命令>
 
 示例:
-    uv run python -m cli.data download --symbol BTCUSDT --interval 1h
+    uv run python -m cli.data archive download -k aggTrades -m spot -s BTCUSDT --start 2024-01-01 --end 2024-01-02
     uv run python -m cli.data export csv --symbol BTCUSDT --interval 1h --output btc.csv
 """
 
@@ -25,14 +25,12 @@ app = typer.Typer(help="数据管理命令行工具")
 
 import pandas as pd
 
-task_manager = None
-
-# 从 utils 重导出工具函数（保持向后兼容，测试和其他模块可从 cli.data 导入）
+# 从 utils 重导出工具函数（保持向后兼容，测试和其他模块可从 cli.data 导入。
+# `_validate_parquet_export` / `scan_parquet_files` 仍被 tests/unit/scripts 直接导入 / patch）
 from utils.data_utils import (
     _find_parquet_file,
     _get_default_date_range,
     _parse_interval_minutes,
-    _ts_to_datetime,
     _validate_parquet_export,
     calculate_data_completeness,
     filter_by_date_range,
@@ -42,9 +40,16 @@ from utils.data_utils import (
     get_parquet_info,
     get_source_data_dir,
     load_from_parquet,
-    normalize_symbol,
     scan_parquet_files,
 )
+
+
+def _get_task_manager():
+    """取采集任务单例（惰性导入：该模块会拉起 DB / worker 依赖，仅 status 需要）。"""
+    from collector.utils.task_manager import task_manager
+
+    return task_manager
+
 
 # === CLI 命令 ===
 
@@ -55,9 +60,19 @@ def download_data(
     interval: str = typer.Option(..., "--interval", "-i", help="时间框架"),
     exchange: str = typer.Option("binance", "--exchange", "-e", help="交易所"),
 ):
-    """下载K线数据"""
-    typer.echo(f"下载 {exchange} {symbol} {interval} 数据...")
-    typer.echo("下载完成")
+    """直接下载K线数据（已废弃，改走 archive）"""
+    typer.secho(
+        f"错误: 直接下载已废弃，未执行任何下载（{exchange} {symbol} {interval}）。"
+        "请用 `python -m cli data archive download ...`",
+        fg="red",
+        err=True,
+    )
+    typer.echo(
+        "  示例: python -m cli data archive download -k aggTrades -m spot -s BTCUSDT "
+        "--start 2024-01-01 --end 2024-01-02",
+        err=True,
+    )
+    raise typer.Exit(1)
 
 
 @app.command("export")
@@ -93,11 +108,7 @@ def task_status(
     task_id: str = typer.Option(..., "--task-id", help="任务ID"),
 ):
     """查询任务状态"""
-    if task_manager is None:
-        typer.secho("错误: 任务管理器未初始化", fg="red", err=True)
-        raise typer.Exit(1)
-
-    task = task_manager.get_task(task_id)
+    task = _get_task_manager().get_task(task_id)
     if task is None:
         typer.secho(f"任务 {task_id} 不存在", fg="red", err=True)
         raise typer.Exit(1)

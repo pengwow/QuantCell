@@ -126,5 +126,41 @@ class TestGetMarketSentiment:
         assert "API错误" in result
 
 
+class TestNewsCliExitCodes:
+    """命令层：失败必须以 exit 1 + stderr 提示表达。"""
+
+    def _runner(self):
+        from typer.testing import CliRunner
+
+        return CliRunner()
+
+    def test_news_missing_key_exits_1(self):
+        from cli.news import app
+
+        with patch.dict("os.environ", {"NEWSAPI_KEY": ""}, clear=False):
+            result = self._runner().invoke(app, ["news", "bitcoin"])
+        assert result.exit_code == 1
+        assert "NEWSAPI_KEY" in result.output
+
+    @patch("cli.news.httpx.get")
+    def test_news_network_error_exits_1(self, mock_get):
+        from cli.news import app
+
+        mock_get.side_effect = Exception("网络错误")
+        with patch.dict("os.environ", {"NEWSAPI_KEY": "test_key"}, clear=False):
+            result = self._runner().invoke(app, ["news", "bitcoin"])
+        assert result.exit_code == 1
+        assert "网络错误" in result.output
+
+    @patch("cli.news.httpx.get")
+    def test_sentiment_network_error_exits_1(self, mock_get):
+        from cli.news import app
+
+        mock_get.side_effect = Exception("API错误")
+        result = self._runner().invoke(app, ["sentiment"])
+        assert result.exit_code == 1
+        assert "API错误" in result.output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

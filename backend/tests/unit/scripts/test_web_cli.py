@@ -150,5 +150,47 @@ class TestWebFetch:
         assert "连接超时" in data["error"]
 
 
+class TestWebCliExitCodes:
+    """命令层：失败必须以 exit 1 + stderr 提示表达。"""
+
+    def _runner(self):
+        from typer.testing import CliRunner
+
+        return CliRunner()
+
+    def test_search_missing_key_exits_1(self):
+        from cli.web import app
+
+        with patch.dict("os.environ", {"BRAVE_API_KEY": ""}, clear=False):
+            result = self._runner().invoke(app, ["search", "bitcoin"])
+        assert result.exit_code == 1
+        assert "BRAVE_API_KEY" in result.output
+
+    @patch("cli.web.httpx.Client")
+    def test_search_network_error_exits_1(self, mock_client_cls):
+        from cli.web import app
+
+        mock_client_cls.side_effect = Exception("网络错误")
+        result = self._runner().invoke(app, ["search", "bitcoin", "--api-key", "k"])
+        assert result.exit_code == 1
+        assert "网络错误" in result.output
+
+    def test_fetch_invalid_url_exits_1(self):
+        from cli.web import app
+
+        result = self._runner().invoke(app, ["fetch", "not_a_url"])
+        assert result.exit_code == 1
+        assert "URL" in result.output
+
+    @patch("cli.web.httpx.Client")
+    def test_fetch_network_error_exits_1(self, mock_client_cls):
+        from cli.web import app
+
+        mock_client_cls.side_effect = Exception("连接超时")
+        result = self._runner().invoke(app, ["fetch", "https://example.com"])
+        assert result.exit_code == 1
+        assert "连接超时" in result.output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
