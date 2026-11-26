@@ -234,9 +234,9 @@ def get_positions_sync(worker_id: int) -> dict[str, Any]:
             if positions:
                 items = [pos.to_dict() for pos in positions]
             else:
-                # worker_positions 两模式均无常态写入口（live 事件链路未接线、
-                # paper 持仓仅在引擎内存），表为空时从成交明细未配对 fill 推导，
-                # 与「持仓中」行保持同一口径
+                # paper 持仓由 PaperTradeSync._sync_positions 每泵轮对账落库
+                # （引擎 snapshot 净仓为权威）；live 事件链路仍未接线。表为空时
+                # （worker 已停止/尚未首轮 Pump）从成交明细未配对 fill 推导兜底
                 items = crud.derive_positions_from_trades(db, worker_id)
 
             return {

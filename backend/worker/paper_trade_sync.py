@@ -64,6 +64,7 @@ class PaperTradeSync:
 
         inserted = self._sync_fills(driver, crud)
         self._sync_trade_pnl(driver, crud)
+        self._sync_positions(driver, crud)
         return inserted
 
     # ── 成交明细落库（fills 游标） ─────────────────────────────────
@@ -211,6 +212,117 @@ class PaperTradeSync:
         if updated:
             logger.info(f"PaperTradeSync: worker_id={self.worker_id} 回填 {updated} 笔配对盈亏")
         return updated
+
+    def _sync_positions(self, driver, crud) -> int:
+        """对账式把引擎 snapshot 持仓落 worker_positions（P1-10 统一持仓口径）。
+
+        此前 paper 持仓只存引擎内存，get_positions 在表空时退化为未配对 fill
+        推导（derive_positions_from_trades），与引擎内存口径分裂且受推导天花板
+        限制（反手 fill 已配对被排除，新仓 entry 丢失）。现在每轮 pump 后：
+
+        - 引擎 snapshot 的净仓数量是权威（sign 定方向、abs 定数量）；
+        - entry_price / current_price / opened_at 等明细从同 symbol 未配对 fill
+          推导复用 crud.derive_positions_from_trades（同表推导，不另立算法）；
+          反手场景 derive 缺行时退回该 symbol 最后一笔 fill 的成交价；
+        - 引擎已无仓的 OPEN 行标 CLOSED 留痕（position_id 稳定，重启重演复用）。
+
+        无变化不写库；异常只记日志不反噬行情泵（与成交落库同款兜底策略）。
+        """
+        try:
+            snap = driver.snapshot()
+            positions = snap.get("positions") or {}
+        except Exception as e:
+            logger.warning(f"PaperTradeSync: 读取引擎持仓 snapshot 失败 (worker_id={self.worker_id}): {e}")
+            return 0
+
+        # snapshot 键与 fill symbol 同为 "BASE/QUOTE" 口径（_to_trade_data 同规则归一）
+        engine_positions = {str(sym).replace("_", "/"): float(qty or 0.0) for sym, qty in positions.items()}
+
+        written = 0
+        try:
+            with get_db_session() as db:
+                derived = {d["symbol"]: d for d in crud.derive_positions_from_trades(db, self.worker_id)}
+                # 行查找不带 status 过滤：position_id 是稳定业务键（paper:{wid}:{symbol}），
+                # 引擎重启重演重新持仓时 CLOSED 行要能复活为 OPEN；只查 OPEN 会查不到
+                # 已关闭行而走新建分支，UNIQUE(position_id) 冲突导致整轮对账白跑。
+                # 同 worker 同 symbol 至多一行（position_id unique），按 symbol 收集安全。
+                worker_rows = (
+                    db.query(crud.WorkerPosition).filter(crud.WorkerPosition.worker_id == self.worker_id).all()
+                )
+                rows_by_symbol = {row.symbol: row for row in worker_rows}
+
+                # 引擎有仓的 symbol：upsert（quantity/方向以引擎为准）
+                for symbol, qty in engine_positions.items():
+                    if qty == 0.0:
+                        continue
+                    row = rows_by_symbol.get(symbol)
+                    dv = derived.get(symbol) or {}
+                    entry_price = float(dv.get("entry_price") or 0.0)
+                    current_price = float(dv.get("current_price") or 0.0)
+                    if entry_price == 0.0 or abs(dv.get("quantity", 0.0) - abs(qty)) > 1e-12:
+                        # derive 缺行（反手）或数量与引擎不一致：entry 退回最后一笔 fill 价
+                        last = (
+                            db.query(crud.WorkerTrade.price)
+                            .filter(crud.WorkerTrade.worker_id == self.worker_id, crud.WorkerTrade.symbol == symbol)
+                            .order_by(crud.WorkerTrade.entry_time.desc())
+                            .first()
+                        )
+                        last_price = float(last[0]) if last and last[0] else 0.0
+                        entry_price = entry_price or last_price
+                        current_price = current_price or last_price
+
+                    if row is not None:
+                        # 全字段命中视为无变化：跳过赋值避免 SQLA dirty 触发无谓 UPDATE
+                        unchanged = (
+                            row.status == "OPEN"
+                            and abs(float(row.quantity or 0.0) - abs(qty)) <= 1e-12
+                            and abs(float(row.entry_price or 0.0) - entry_price) <= 1e-12
+                            and abs(float(row.current_price or 0.0) - current_price) <= 1e-12
+                        )
+                        if unchanged:
+                            continue
+                    else:
+                        row = crud.WorkerPosition(
+                            worker_id=self.worker_id,
+                            position_id=f"paper:{self.worker_id}:{symbol}",
+                            symbol=symbol,
+                        )
+                        db.add(row)
+                        row.opened_at = None
+
+                    written += 1
+                    row.quantity = abs(qty)
+                    # 引擎净仓符号推导 long/short（推导合法：源头是引擎权威净仓）
+                    row.position_side = "long" if qty > 0 else "short"
+                    row.entry_price = entry_price
+                    row.current_price = current_price
+                    row.unrealized_pnl = (current_price - entry_price) * abs(qty) * (1 if qty > 0 else -1)
+                    row.notional = current_price * abs(qty)
+                    row.margin_used = 0.0
+                    row.status = "OPEN"
+                    row.closed_at = None  # CLOSED 复活（重演重新建仓）时清历史关闭时刻
+                    if row.opened_at is None:
+                        row.opened_at = (
+                            datetime.fromisoformat(dv["opened_at"]) if dv.get("opened_at") else datetime.now()
+                        )
+                    row.updated_at = datetime.now()
+
+                # 引擎已无仓的 OPEN 行：标 CLOSED 留痕
+                for symbol, row in rows_by_symbol.items():
+                    if engine_positions.get(symbol, 0.0) == 0.0:
+                        if row.status != "CLOSED":
+                            row.status = "CLOSED"
+                            row.quantity = 0.0
+                            row.unrealized_pnl = 0.0
+                            row.closed_at = datetime.now()
+                            row.updated_at = datetime.now()
+                            written += 1
+
+                if written:
+                    db.commit()
+        except Exception as e:
+            logger.warning(f"PaperTradeSync: 持仓对账落库失败 (worker_id={self.worker_id}): {e}")
+        return written
 
     def _to_trade_data(self, fill: dict) -> dict:
         """PaperDriver.fills_since 的 fill dict → WorkerTrade 字段映射（键名严格一致）。"""
