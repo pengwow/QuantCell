@@ -640,6 +640,15 @@
   box-shadow: 0 2px 10px color-mix(in srgb, var(--qc-primary) 35%, transparent);
 }
 
+/* 停止钮字形：媒体播放器式实心方块（antd 无对应图标，CSS 画——currentColor 随按钮字色变白） */
+.stop-square {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  border-radius: 2px;
+}
+
 .input-hint {
   text-align: center;
   margin-top: 8px;

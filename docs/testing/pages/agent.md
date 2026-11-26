@@ -15,7 +15,7 @@
 | AG2 | 页面加载完成后查 network | `GET /api/v1/capabilities` 返回 200；`GET /api/v1/agent/sessions` 200；`GET /api/v1/agent/tools` 200；`GET /api/v1/workers?page_size=100` 200；控制台无未捕获错误 | L1 |
 | AG3 | 观察 URL | 稳定后 URL 变为 `/agent?worker=<id>`（选中 Worker 时附带），无刷新；`?tab=...` 不再写入也不再消费（右栏无页签），直开 `/agent?tab=logs` 与 `/agent` 表现一致 | L1 |
 | AG11 | 打开会话历史抽屉，点`新会话` | 发出 `POST /api/v1/agent/sessions` 并提示`新会话已创建`；会话名形如`会话 <时间>`，URL 与当前会话同步 | L2（写操作，结束后可删除该会话） |
-| AG12 | 在输入框发送一句话 | 发出 `POST /api/v1/agent/chat/stream`（SSE，HTTP 200 流），气泡逐步渲染`AI 正在思考...`/思考过程；轮内有工具调用时 AI 气泡头部出现`迭代 N/40`徽标（SSE `iteration_start` 逐轮推进，上限 40 熔断）。流式进行中输入区右侧发送钮变为红色`停止生成`钮（danger/StopOutlined，2026-11-26 加），点击立即终止：半截回复保留，下方附普通提示「已停止生成——本次回复不完整」（非错误气泡）；点击后输入框立即可再发送。失败以错误气泡呈现可读文案。**真实调用消耗 LLM 配额，默认跳过** | 按需（真实 LLM 配额） |
+| AG12 | 在输入框发送一句话 | 发出 `POST /api/v1/agent/chat/stream`（SSE，HTTP 200 流），气泡逐步渲染`AI 正在思考...`/思考过程；轮内有工具调用时 AI 气泡头部出现`迭代 N/40`徽标（SSE `iteration_start` 逐轮推进，上限 40 熔断）。流式进行中输入区右侧发送钮变为红色`停止生成`钮（danger/实心方块字形，2026-11-26 加，antd 无停止方块图标故用 CSS `.stop-square` 绘制），点击立即终止：半截回复保留，下方附普通提示「已停止生成——本次回复不完整」（非错误气泡）；点击后输入框立即可再发送。失败以错误气泡呈现可读文案。**真实调用消耗 LLM 配额，默认跳过** | 按需（真实 LLM 配额） |
 | AG14 | 把 `agent_gateway` 能力关闭后直达 `/agent` | 渲染 403 页：标题`功能未开启`，副标题含 `agent_gateway`；侧边菜单也不出现该入口 | L2（环境配置分支） |
 | AG16 | 观察`记忆自迭代（Dream）`卡 | 总闸 chip 与 `QUANTCELL_AGENT_DREAM` 实际值一致；MEMORY.md 只读渲染；`已整合 x/y` 进度（x=模型下游 `.dream_cursor`，y=history.jsonl 行数）；`上次运行`三态如实（无记录`重启后尚未运行`/no-op 灰/失败红可展开 detail）；`下次运行：每日 04:00`；底部注明`Dream 只整理记忆，不会替你执行交易` | L2 |
 | AG19 | 视觉收口：徽章形制（亮/暗各跑一遍） | 整页（含右栏两卡、抽屉、弹窗）DOM 中 `.ant-tag` 数量为 0；Worker 状态、Dream 总闸、迭代均值等徽章均为 `.qc-chip` 形制（tint 底 + 语义档位），进行中徽章带 `.qc-pdot` 脉冲点 | L1 |

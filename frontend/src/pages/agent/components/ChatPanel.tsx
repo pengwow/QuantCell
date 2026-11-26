@@ -14,7 +14,6 @@ import {
 } from 'antd';
 import {
   SendOutlined,
-  StopOutlined,
   ExclamationCircleOutlined,
   RobotOutlined,
   UserOutlined,
@@ -511,12 +510,13 @@ const ChatPanel = () => {
             disabled={loading}
           />
           {/* 流式进行中变红色停止钮（点头终止 ReAct 循环：前端 abort → 后端 SSE 断开 task.cancel()），
-              非 loading 才是发送钮。不用 antd loading 属性——它会禁用点击 */}
+              非 loading 才是发送钮。不用 antd loading 属性——它会禁用点击。
+              字形用 CSS 实心方块：antd 无"停止方块"图标，StopOutlined 是"禁止"（圆斜杠）语义不对 */}
           {loading ? (
             <Button
               type="primary"
               danger
-              icon={<StopOutlined />}
+              icon={<span className="stop-square" aria-hidden />}
               onClick={stopGeneration}
               title={t('agent_stop_generation')}
               aria-label={t('agent_stop_generation')}
