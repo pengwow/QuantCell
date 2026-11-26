@@ -16,9 +16,9 @@ description: QuantCell 系统分层、统一内核主回路与技术栈
 > |---|---|---|
 > | **作用** | 回测 / RL 训练 / HPO 搜索 的 CPU 并发调度 | 实盘策略实例（每个 Worker = 一个策略 + 交易所 + 交易对） |
 > | **生命周期** | spawn 子进程 → 跑完即死 | 长驻进程（DB + journal 持久化，start/stop/restart/kill） |
-> | **通信** | 共享内存 + JobResult 回传 | ZMQ Orchestrator（5558/5559） |
+> | **通信** | 共享内存 + JobResult 回传 | 进程内直调（worker_system 单例 + 驱动线程） |
 > | **配置** | 三态灰度开关 + 绑核切分（`[jobs].cores`） | 每 Worker 独立配置 trading_config / credentials |
-> | **CLI** | `quantcell jobs config / selftest`（不建池） | `quantcell worker summary/start/stop/...`（需 ZMQ 通道） |
+> | **CLI** | `quantcell jobs config / selftest`（不建池） | `quantcell worker summary/start/stop/...`（进程内直调；API 未运行时走 DB pid 兜底） |
 
 ## 统一主回路（回测 / paper / live）
 

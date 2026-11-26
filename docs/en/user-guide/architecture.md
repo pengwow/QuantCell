@@ -15,9 +15,9 @@ description: QuantCell system layers, unified kernel main loop, and tech stack
 > |---|---|---|
 > | **Purpose** | CPU concurrency scheduling for backtest / RL training / HPO search | Live strategy instances (each Worker = one strategy + one exchange + one trading pair) |
 > | **Lifecycle** | spawn child process → exits when the job finishes | Long-running process (DB + journal persistence, start/stop/restart/kill) |
-> | **Communication** | shared memory + `JobResult` return | ZMQ Orchestrator (5558/5559) |
+> | **Communication** | shared memory + `JobResult` return | in-process call (worker_system singleton + driver threads) |
 > | **Config** | 3-state toggle + core pinning (`[jobs].cores`) | per-Worker `trading_config` / credentials |
-> | **CLI** | `quantcell jobs config / selftest` (no pool created) | `quantcell worker summary/start/stop/...` (requires the ZMQ channel) |
+> | **CLI** | `quantcell jobs config / selftest` (no pool created) | `quantcell worker summary/start/stop/...` (in-process call; falls back to DB-pid when the API is not running) |
 
 ## Unified main loop (backtest / paper / live)
 

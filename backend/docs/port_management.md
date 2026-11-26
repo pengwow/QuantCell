@@ -15,10 +15,6 @@ QuantCell 从 v1.x 版本开始引入智能端口管理系统（PortManager）�
 | 服务 | 默认端口 | 可用范围 | 说明 |
 |------|---------|---------|------|
 | fastapi | 8000 | 8000-8010 | HTTP API 服务 |
-| zmq_data | 5555 | 5550-5560 | ZMQ 数据通道 |
-| zmq_control | 5556 | 5560-5570 | ZMQ 控制通道 |
-| zmq_status | 5557 | 5570-5580 | ZMQ 状态通道 |
-| zmq_broadcast | 5558 | 5580-5590 | ZMQ 广播通道 |
 
 启动时，PortManager 会：
 1. 尝试绑定默认端口
@@ -69,10 +65,6 @@ python scripts/worker_cli.py list  # 连接到指定地址
 ```json
 {
   "fastapi": 8000,
-  "zmq_data": 5555,
-  "zmq_control": 5556,
-  "zmq_status": 5557,
-  "zmq_broadcast": 5558,
   "pid": 12345,
   "start_time": "2026-05-13T10:30:00Z",
   "last_updated": "2026-05-13T10:30:00Z"
@@ -80,7 +72,7 @@ python scripts/worker_cli.py list  # 连接到指定地址
 ```
 
 **字段说明**:
-- `fastapi`, `zmq_*`: 各服务的实际端口号
+- `fastapi`: API 服务的实际端口号
 - `pid`: 启动时的进程 ID
 - `start_time`: 服务启动时间（ISO 8601 格式）
 - `last_updated`: 配置最后更新时间
@@ -97,7 +89,6 @@ python scripts/worker_cli.py list  # 连接到指定地址
   "message": "success",
   "data": {
     "fastapi": {"port": 8000, "service": "HTTP API Server"},
-    "zmq_data": {"port": 5555, "service": "ZMQ Data Channel"},
     "metadata": {
       "pid": 12345,
       "start_time": "...",
@@ -111,7 +102,7 @@ python scripts/worker_cli.py list  # 连接到指定地址
 获取指定服务的端口配置。
 
 **参数**:
-- `service_name`: fastapi, zmq_data, zmq_control, zmq_status, zmq_broadcast
+- `service_name`: fastapi
 
 ## CLI 工具集成
 

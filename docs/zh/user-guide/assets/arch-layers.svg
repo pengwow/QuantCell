@@ -111,27 +111,27 @@
   <text x="255" y="567" text-anchor="middle" class="pool-sub">· max_pending 排队上限 · BrokenProcessPool 崩溃恢复</text>
 
   <!-- Worker 实盘进程 -->
-  <rect class="hv" x="500" y="405" width="440" height="210" rx="12" fill="#fee2e2" stroke="#dc2626" stroke-dasharray="6 3"><title>分组框：实盘策略长驻进程区</title></rect>
-  <text x="720" y="425" text-anchor="middle" class="group-title-dark" font-size="12px">▶ 实盘策略（长驻进程）</text>
+  <rect class="hv" x="500" y="405" width="440" height="210" rx="12" fill="#fee2e2" stroke="#dc2626" stroke-dasharray="6 3"><title>分组框：策略任务运行区（后端进程内驱动线程）</title></rect>
+  <text x="720" y="425" text-anchor="middle" class="group-title-dark" font-size="12px">▶ 策略任务（进程内驱动线程）</text>
 
-  <rect class="hv" x="515" y="432" width="410" height="175" rx="8" fill="#dc2626"><title>worker/orchestrator.py：ZMQ(5558/5559) 编排器，统一调度所有实盘 Worker 进程</title></rect>
-  <text x="720" y="455" text-anchor="middle" class="group-title">worker/orchestrator.py · ZMQ 5558/5559</text>
+  <rect class="hv" x="515" y="432" width="410" height="175" rx="8" fill="#dc2626"><title>worker/strategy_manager.py（worker_system 单例）：进程内直调，为每个策略任务驱动一条线程 + 一个 Rust Driver</title></rect>
+  <text x="720" y="455" text-anchor="middle" class="group-title">worker/strategy_manager.py · 进程内直调</text>
   <text x="720" y="472" text-anchor="middle" class="sub">worker/core_service.py · Worker CRUD · journal 归档 · kill</text>
 
-  <rect class="hv" x="530" y="482" width="120" height="55" rx="6" fill="#b91c1c"><title>一个实盘 Worker = 一个策略 + 交易所 + 交易对，独立长驻进程</title></rect>
+  <rect class="hv" x="530" y="482" width="120" height="55" rx="6" fill="#b91c1c"><title>每个运行中的 Worker = 后端进程内一条驱动线程 + 一个 Rust Driver 实例</title></rect>
   <text x="590" y="502" text-anchor="middle" class="pool-node">Worker A</text>
-  <text x="590" y="520" text-anchor="middle" class="pool-sub">策略+交易所+交易对</text>
+  <text x="590" y="520" text-anchor="middle" class="pool-sub">进程内驱动线程</text>
 
-  <rect class="hv" x="655" y="482" width="120" height="55" rx="6" fill="#b91c1c"><title>一个实盘 Worker = 一个策略 + 交易所 + 交易对，独立长驻进程</title></rect>
+  <rect class="hv" x="655" y="482" width="120" height="55" rx="6" fill="#b91c1c"><title>每个运行中的 Worker = 后端进程内一条驱动线程 + 一个 Rust Driver 实例</title></rect>
   <text x="715" y="502" text-anchor="middle" class="pool-node">Worker B</text>
-  <text x="715" y="520" text-anchor="middle" class="pool-sub">策略+交易所+交易对</text>
+  <text x="715" y="520" text-anchor="middle" class="pool-sub">进程内驱动线程</text>
 
-  <rect class="hv" x="780" y="482" width="120" height="55" rx="6" fill="#b91c1c"><title>……可扩展任意多个 Worker 实例</title></rect>
+  <rect class="hv" x="780" y="482" width="120" height="55" rx="6" fill="#b91c1c"><title>……可扩展任意多个任务实例</title></rect>
   <text x="840" y="502" text-anchor="middle" class="pool-node">Worker N</text>
   <text x="840" y="520" text-anchor="middle" class="pool-sub">· · ·</text>
 
-  <rect class="hv" x="530" y="545" width="370" height="35" rx="6" fill="#991b1b" opacity=".9"><title>Worker 公共能力：DB + journal 持久化，start/stop/restart/kill 生命周期管理</title></rect>
-  <text x="715" y="567" text-anchor="middle" class="pool-sub">· DB 持久化 · start/stop/restart/kill · 实盘长驻</text>
+  <rect class="hv" x="530" y="545" width="370" height="35" rx="6" fill="#991b1b" opacity=".9"><title>Worker 公共能力：DB + journal 持久化，start/stop/restart/kill 生命周期管理（core_service 进程内直调）</title></rect>
+  <text x="715" y="567" text-anchor="middle" class="pool-sub">· DB 持久化 · start/stop/restart/kill · 驱动线程</text>
 
   <!-- 箭头 调度层→内核 -->
   <line x1="260" y1="600" x2="260" y2="670" stroke="#d97706" stroke-width="2" marker-end="url(#arrow)"/>
