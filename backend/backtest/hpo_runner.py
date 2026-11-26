@@ -143,7 +143,7 @@ class HPORunner:
             try:
                 sig = _inspect.signature(objective_fn)
                 accepts_report = len(sig.parameters) >= 2
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 accepts_report = False
 
             _orig = objective_fn

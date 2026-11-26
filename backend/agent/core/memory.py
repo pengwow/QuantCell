@@ -107,7 +107,7 @@ class MemoryStore:
         if self._cursor_file.exists():
             try:
                 return int(self._cursor_file.read_text(encoding="utf-8").strip()) + 1
-            except ValueError, OSError:
+            except (ValueError, OSError):
                 pass
         last = self._read_last_entry()
         if last and last.get("cursor"):
@@ -145,7 +145,7 @@ class MemoryStore:
                 if not lines:
                     return None
                 return json.loads(lines[-1])
-        except FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError:
+        except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
             return None
 
     def _write_entries(self, entries: list[dict[str, Any]]) -> None:
@@ -160,7 +160,7 @@ class MemoryStore:
         if self._dream_cursor_file.exists():
             try:
                 return int(self._dream_cursor_file.read_text(encoding="utf-8").strip())
-            except ValueError, OSError:
+            except (ValueError, OSError):
                 pass
         return 0
 

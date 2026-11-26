@@ -168,7 +168,7 @@ class PluginInstaller:
             try:
                 with open(direct_path, encoding="utf-8") as f:
                     return direct_path, json.load(f)
-            except json.JSONDecodeError, OSError:
+            except (json.JSONDecodeError, OSError):
                 return None, None
 
         for entry in os.listdir(root_dir):
@@ -177,7 +177,7 @@ class PluginInstaller:
                 try:
                     with open(sub_path, encoding="utf-8") as f:
                         return sub_path, json.load(f)
-                except json.JSONDecodeError, OSError:
+                except (json.JSONDecodeError, OSError):
                     return None, None
 
         return None, None

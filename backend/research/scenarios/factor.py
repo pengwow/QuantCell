@@ -145,7 +145,7 @@ class FactorScenario(ScenarioDefaults):
         if existing is not None and existing.provenance:
             try:
                 prev = json.loads(existing.provenance)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 prev = {}
         provenance = {
             **prev,

@@ -492,7 +492,7 @@ async def validate_notification_channels(
                 host = str(config.get("smtpHost")).strip()
                 try:
                     port = int(config.get("smtpPort") or 465)
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     port = 465
                 if not await _probe_tcp(host, port):
                     reason_code, detail = "unreachable", f"{host}:{port}"

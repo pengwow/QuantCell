@@ -127,7 +127,7 @@ def live_total_size_mb(deps: tuple[str, ...]) -> int | None:
     for pkg in deps:
         try:
             data = _pypi_json(pkg)
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return None
         size = _pick_download_size(data.get("urls", []))
         if size is None:

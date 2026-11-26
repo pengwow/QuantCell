@@ -364,7 +364,7 @@ class FileLogManager:
                             if file_date < cutoff_date:
                                 log_file.unlink()
                                 deleted_count += 1
-                    except ValueError, IndexError:
+                    except (ValueError, IndexError):
                         continue
 
         except Exception as e:
@@ -417,7 +417,7 @@ class FileLogManager:
 
                             if in_range:
                                 files.append(log_file)
-                    except ValueError, IndexError:
+                    except (ValueError, IndexError):
                         # 无法解析日期的文件也包含在内
                         files.append(log_file)
 
@@ -463,7 +463,7 @@ class FileLogManager:
                         if isinstance(extra_data, str):
                             try:
                                 log_entry["extra_data"] = json.loads(extra_data)
-                            except json.JSONDecodeError, TypeError:
+                            except (json.JSONDecodeError, TypeError):
                                 pass  # 无法解析时保留原字符串,降低 API 损坏风险
 
                         # 应用过滤条件
@@ -525,7 +525,7 @@ class FileLogManager:
                             return False
                         if filters.end_time and log_time > filters.end_time:
                             return False
-                    except ValueError, AttributeError:
+                    except (ValueError, AttributeError):
                         pass
 
             # 关键词搜索（在message中搜索）
@@ -830,7 +830,7 @@ class FileLogManager:
                 date_str = parts[-1]
                 if len(date_str) == 8 and date_str.isdigit():
                     return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-        except ValueError, IndexError:
+        except (ValueError, IndexError):
             pass
         return None
 

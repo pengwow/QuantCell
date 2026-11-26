@@ -110,7 +110,7 @@ def get_market_sentiment(*, raise_on_error: bool = False) -> str:
         try:
             dt = datetime.fromtimestamp(int(timestamp))
             time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError, TypeError, OSError:
+        except (ValueError, TypeError, OSError):
             time_str = str(timestamp)
 
         result = f"市场情绪指数 (恐惧与贪婪指数):\n  数值: {value}\n  分类: {classification}\n  时间: {time_str}"

@@ -162,7 +162,7 @@ class BaseBinanceArchiveDownloader:
                 date_part = stem.split("-")[-3:]
                 d = date(int(date_part[0]), int(date_part[1]), int(date_part[2]))
                 existing.add(d)
-            except ValueError, IndexError:
+            except (ValueError, IndexError):
                 continue
 
         missing: list[tuple[date, date]] = []
@@ -258,7 +258,7 @@ class BaseBinanceArchiveDownloader:
                 day_ms = int(datetime(d.year, d.month, d.day).timestamp() * 1000)
                 if start_time <= day_ms + 86_400_000 <= end_time + 86_400_000:
                     target_files.append(p)
-            except ValueError, IndexError:
+            except (ValueError, IndexError):
                 continue
 
         if not target_files:

@@ -2039,7 +2039,7 @@ class WorkerCoreService:
                         if not isinstance(params, dict):
                             params = {}
                         initial_cash = float(params.get("initial_capital", 100_000.0))
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         params, initial_cash = {}, 100_000.0
             return worker, params, initial_cash
 

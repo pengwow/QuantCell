@@ -108,7 +108,7 @@ class StrategyScenario(ScenarioDefaults):
                         params={str(k): float(v) for k, v in (item.get("params") or {}).items()},
                     )
                 )
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 # 单条任务坏了不影响其余候选
                 continue
         return tasks[: max(int(n), 1)], usage

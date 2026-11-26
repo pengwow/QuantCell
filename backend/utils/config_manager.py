@@ -550,7 +550,7 @@ class ConfigManager:
         # 尝试解析为JSON
         try:
             return json.loads(value)
-        except json.JSONDecodeError, TypeError:
+        except (json.JSONDecodeError, TypeError):
             pass
 
         # 尝试转换为整数

@@ -386,7 +386,7 @@ def _extract_positions(positions: Any) -> list[dict[str, Any]]:
             instrument_id = ""
         try:
             out.append({"instrument_id": instrument_id, "quantity": float(qty)})
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
     return out
 
@@ -472,7 +472,7 @@ def to_ns_timestamp(ts: Any) -> int:
 
             dt = datetime.fromisoformat(ts)
             return int(dt.timestamp() * 1_000_000_000)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return 0
     return 0
 

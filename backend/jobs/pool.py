@@ -256,7 +256,7 @@ class BoundedJobPool:
             logger.info(f"作业事件 job_id={spec.job_id} event=start kind={spec.kind}")
             try:
                 future = self._executor.submit(run_job, spec)
-            except BrokenProcessPool, RuntimeError:
+            except (BrokenProcessPool, RuntimeError):
                 self._recover(spec.job_id, "进程池已损坏，作业未启动")
                 continue
             future.add_done_callback(lambda f, job_id=spec.job_id, gen=generation: self._finish(job_id, f, gen))

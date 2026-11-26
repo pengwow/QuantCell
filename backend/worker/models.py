@@ -529,7 +529,7 @@ class WorkerParameter(Base):
                 return json.loads(self.param_value)
             else:
                 return self.param_value
-        except ValueError, json.JSONDecodeError:
+        except (ValueError, json.JSONDecodeError):
             return self.param_value
 
     def set_value(self, value: Any):

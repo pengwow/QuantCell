@@ -193,7 +193,7 @@ class BaselineBacktestService:
         if "timestamp" in row.index and not isinstance(row["timestamp"], (int, float)):
             try:
                 return int(pd.Timestamp(row["timestamp"]).timestamp() * 1000)
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 pass
         idx_name = row.name
         if isinstance(idx_name, pd.Timestamp):
@@ -404,7 +404,7 @@ class BaselineBacktestService:
                 return 0.0
             # 1h bar, periods_per_year = 24 * 365 = 8760
             return float(log_ret.mean() / log_ret.std() * np.sqrt(8760))
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return 0.0
 
     @staticmethod

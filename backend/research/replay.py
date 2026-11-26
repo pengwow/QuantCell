@@ -50,7 +50,7 @@ def _diff(left: Any, right: Any) -> float | None:
         if left is None or right is None:
             return None
         return abs(float(left) - float(right))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

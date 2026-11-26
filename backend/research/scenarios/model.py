@@ -57,7 +57,7 @@ class ModelTask(BaseModel):
 def _clamp_int(value: Any, lo: int, hi: int, field_name: str) -> int:
     try:
         num = int(float(value))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         raise ValueError(f"{field_name}={value!r} 不是有效整数") from None
     return min(max(num, lo), hi)
 
@@ -94,7 +94,7 @@ class ModelScenario(ScenarioDefaults):
                         params=dict(item.get("params") or {}),
                     )
                 )
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 # 单条任务坏了不影响其余候选
                 continue
         return tasks[: max(int(n), 1)], usage

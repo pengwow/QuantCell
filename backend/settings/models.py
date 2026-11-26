@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 def _parse_config_value(value: str):
     try:
         return json.loads(value)
-    except json.JSONDecodeError, TypeError:
+    except (json.JSONDecodeError, TypeError):
         if value == "1":
             return True
         elif value == "0":

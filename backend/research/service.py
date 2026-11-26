@@ -61,7 +61,7 @@ def _loads(raw: str | None, default: Any) -> Any:
     try:
         # 历史行可能已落库了原始控制字符，先清洗再解析，避免整个接口 500
         return json.loads(_CONTROL_CHARS.sub("", raw))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -432,7 +432,7 @@ def best_evaluated_trial(db: Session, session_id: int, metric: str = "ic_ir") ->
             continue
         try:
             score = float(metrics[metric])
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if score > best_score:
             best, best_score = row, score

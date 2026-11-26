@@ -525,7 +525,7 @@ class StrategyASTParser:
                 if default_node.args and isinstance(default_node.args[0], ast.Constant):
                     try:
                         return float(default_node.args[0].value)
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         return None
             elif isinstance(default_node.func, ast.Attribute):
                 # 处理其他类型的调用

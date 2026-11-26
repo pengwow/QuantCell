@@ -285,7 +285,7 @@ def decimal_or_zero(value: Any) -> Decimal:
         return Decimal(0)
     try:
         return Decimal(str(value))
-    except InvalidOperation, ValueError:
+    except (InvalidOperation, ValueError):
         return Decimal(0)
 
 

@@ -178,7 +178,7 @@ class TestRealtimeEngineMessageHandling:
         # 这里应该能够处理None而不抛出异常
         try:
             engine._handle_message(None)
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             # 如果抛出异常，测试通过（表示需要修复）
             pass
         # 如果不抛出异常，也测试通过
@@ -255,7 +255,7 @@ class TestRealtimeEngineEdgeCases:
         # 应该能够处理None而不抛出异常
         try:
             engine._handle_message(None)
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             # 如果抛出异常，这是预期的行为
             pass
 
