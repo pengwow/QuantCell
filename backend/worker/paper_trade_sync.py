@@ -251,6 +251,13 @@ class PaperTradeSync:
                 )
                 rows_by_symbol = {row.symbol: row for row in worker_rows}
 
+                # paper 杠杆取引擎配置（富化列；两平/强平/保证金比率 live 专属，paper 恒 NULL）
+                try:
+                    _config = crud.get_worker(db, self.worker_id).get_trading_config_dict() or {}
+                except Exception:
+                    _config = {}
+                paper_leverage = _config.get("leverage")
+
                 # 引擎有仓的 symbol：upsert（quantity/方向以引擎为准）
                 for symbol, qty in engine_positions.items():
                     if qty == 0.0:
@@ -299,6 +306,7 @@ class PaperTradeSync:
                     row.unrealized_pnl = (current_price - entry_price) * abs(qty) * (1 if qty > 0 else -1)
                     row.notional = current_price * abs(qty)
                     row.margin_used = 0.0
+                    row.leverage = paper_leverage
                     row.status = "OPEN"
                     row.closed_at = None  # CLOSED 复活（重演重新建仓）时清历史关闭时刻
                     if row.opened_at is None:

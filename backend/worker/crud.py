@@ -739,8 +739,9 @@ def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
     """从 worker_trades 未配对 fill（round_trip_id IS NULL）推导当前持仓。
 
     worker_positions 表常态写入口：paper 由 PaperTradeSync._sync_positions 每泵
-    轮对账落库（P1-10）；live 的 LiveTradeRecorder 事件链路仍未接线。表为空时
-    （worker 已停止 / 引擎尚未产出 fill）以本推导兜底，「当前持仓」与「持仓中」
+    轮对账落库（P1-10）；live/testnet 由 LiveTradeSync.sync_positions 以交易所
+    fetch_positions 对账落库。表为空时（worker 已停止 / 引擎尚未产出 fill）以
+    本推导兜底（仅 paper 路径会被 get_positions 使用），「当前持仓」与「持仓中」
     行（同一份数据的未配对 fill 视图）保持同一口径。
 
     过滤用 round_trip_id 而非 realized_pnl：paper 配对语义下两者等价（组键只在
@@ -804,6 +805,11 @@ def derive_positions_from_trades(db: Session, worker_id: int) -> list[dict]:
                 "unrealized_pnl_pct": (unrealized / (quantity * entry_price) * 100 if quantity and entry_price else 0),
                 "realized_pnl": 0.0,
                 "margin_used": 0.0,
+                # 推导行无交易所富化来源（表空兜底路径），富化列恒 None → 前端显示 —
+                "leverage": None,
+                "breakeven_price": None,
+                "liquidation_price": None,
+                "margin_ratio": None,
                 "status": "OPEN",
                 "opened_at": rows[0].entry_time.isoformat() if rows[0].entry_time else None,
                 "updated_at": datetime.now().isoformat(),
@@ -1034,11 +1040,15 @@ def get_worker_orders_paginated(
     limit: int = 50,
     position_side: str | None = None,
     reduce_only: bool | None = None,
+    exclude_open: bool = False,
 ) -> tuple[list[WorkerOrder], int]:
     query = db.query(WorkerOrder).filter(WorkerOrder.worker_id == worker_id)
 
     if status:
         query = query.filter(WorkerOrder.status == status)
+    if exclude_open:
+        # 「历史委托」语义：OPEN 挂单是进行时，归当前委托页签，不进历史
+        query = query.filter(WorkerOrder.status != "OPEN")
     if symbol:
         query = query.filter(WorkerOrder.symbol == symbol)
     if side:

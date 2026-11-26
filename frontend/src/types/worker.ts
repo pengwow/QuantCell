@@ -113,6 +113,11 @@ export interface Worker {
   started_at?: string;
   stopped_at?: string;
   total_profit?: number;
+  /** 列表/详情接口注入的实时状态字段（GET /workers 列表带 `_status/_pid/_updated_at/_error_message`） */
+  _status?: WorkerStatus;
+  _pid?: number | null;
+  _updated_at?: string;
+  _error_message?: string | null;
   /** 详情接口注入的内核状态信息（GET /workers/{id} 独有；列表接口不含） */
   _state_info?: {
     status?: string;
@@ -284,6 +289,9 @@ export interface PositionInfo {
   // 对齐后端 WorkerPosition.to_dict() 契约（字段名为 unrealized_pnl_pct / opened_at）
   unrealized_pnl_pct: number;
   roe?: number;
+  // 交易所富化列（live/testnet 由 sync_positions 填充；paper 恒 null → 显示 —）
+  breakeven_price?: number | null;
+  margin_ratio?: number | null;
   status: string;
   opened_at?: string;
   updated_at?: string;

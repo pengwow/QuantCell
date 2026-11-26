@@ -761,6 +761,14 @@ class WorkerPosition(Base):
     # 持仓状态
     status = Column(String(20), nullable=False, index=True)  # OPEN, CLOSED
 
+    # 交易所富化字段（live/testnet 由 LiveTradeSync.sync_positions 填充；paper 为 None → 前端显示 —）
+    leverage = Column(
+        PriceAsFloat(), nullable=True
+    )  # 杠杆（live 交易所值，缺字段按 名义/初始保证金 推算；paper 取引擎配置）
+    breakeven_price = Column(PriceAsFloat(), nullable=True)  # 损益两平价（live: info.breakEvenPrice）
+    liquidation_price = Column(PriceAsFloat(), nullable=True)  # 预估强平价（live: liquidationPrice）
+    margin_ratio = Column(PriceAsFloat(), nullable=True)  # 保证金比率 %（币安 marginRatio×100 口径，与账户总览同口径）
+
     # 时间戳
     opened_at = Column(DateTime, nullable=True)
     closed_at = Column(DateTime, nullable=True)
@@ -795,6 +803,11 @@ class WorkerPosition(Base):
             ),
             "realized_pnl": self.realized_pnl,
             "margin_used": self.margin_used,
+            # 交易所富化列（live/testnet 由 sync_positions 填充；paper 恒 None，前端显示 —）
+            "leverage": self.leverage,
+            "breakeven_price": self.breakeven_price,
+            "liquidation_price": self.liquidation_price,
+            "margin_ratio": self.margin_ratio,
             "status": self.status,
             "opened_at": self.opened_at.isoformat() if self.opened_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

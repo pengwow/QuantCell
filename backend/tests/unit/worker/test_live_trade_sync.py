@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+import strategy.models
 import worker.live_trade_sync as lts
 from collector.db.database import Base
 from worker.live_trade_sync import LiveTradeSync
@@ -133,3 +134,109 @@ def test_sync_once_persists_order_rows(monkeypatch):
     assert s.sync_once() == 0
     with factory() as db:
         assert len(db.scalars(select(WorkerOrder)).all()) == 2
+
+
+def test_sync_positions_upsert_and_close(monkeypatch):
+    """持仓对账落库：交易所为权威源——OPEN 行 upsert，平仓后 CLOSE（幻影持仓根治点）。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(lts, "get_db_session", factory)
+    from worker.models import WorkerPosition
+
+    s = _make_sync()
+    venue_long = [
+        {
+            "symbol": "BTC/USDT:USDT",
+            "side": "long",
+            "contracts": 0.5,
+            "entryPrice": 60000.0,
+            "markPrice": 61000.0,
+            "unrealizedPnl": 500.0,
+            "initialMargin": 3050.0,
+            "notional": 30500.0,
+            "leverage": 10,
+            "liquidationPrice": 55000.0,
+            "info": {"breakEvenPrice": "60120.5", "marginRatio": "0.0198"},
+        },
+        # 合约数为 0 的回报行（交易所空仓也返回条目）必须被过滤
+        {"symbol": "BTC/USDT:USDT", "side": "long", "contracts": 0},
+    ]
+    monkeypatch.setattr(s.exchange.exchange, "fetch_positions", lambda symbols=None: venue_long)
+
+    assert s.sync_positions() == 1
+    with factory() as db:
+        rows = db.scalars(select(WorkerPosition)).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.position_id == "live:7:BTC/USDT"
+    assert row.symbol == "BTC/USDT"
+    assert row.status == "OPEN"
+    assert row.position_side == "long"
+    assert row.quantity == pytest.approx(0.5)
+    assert row.entry_price == pytest.approx(60000.0)
+    assert row.current_price == pytest.approx(61000.0)
+    assert row.unrealized_pnl == pytest.approx(500.0)
+    assert row.margin_used == pytest.approx(3050.0)
+    # 交易所富化列：杠杆直取、两平价/强平价原生透出、保证金比率×100 百分比口径
+    assert row.leverage == pytest.approx(10.0)
+    assert row.breakeven_price == pytest.approx(60120.5)
+    assert row.liquidation_price == pytest.approx(55000.0)
+    assert row.margin_ratio == pytest.approx(1.98)
+
+    # 交易所平仓（空回报）→ OPEN 行收口 CLOSED
+    monkeypatch.setattr(s.exchange.exchange, "fetch_positions", lambda symbols=None: [])
+    assert s.sync_positions() == 1
+    with factory() as db:
+        row = db.scalars(select(WorkerPosition)).one()
+    assert row.status == "CLOSED"
+    assert row.closed_at is not None
+
+    # 重启重演重新持仓 → CLOSED 行复活为 OPEN（position_id 稳定，与 paper 同语义）
+    monkeypatch.setattr(s.exchange.exchange, "fetch_positions", lambda symbols=None: venue_long)
+    assert s.sync_positions() == 1
+    with factory() as db:
+        rows = db.scalars(select(WorkerPosition)).all()
+    assert len(rows) == 1  # 不另起新行
+    assert rows[0].status == "OPEN"
+
+
+def test_sync_positions_leverage_inferred_when_missing(monkeypatch):
+    """demo v3 positionRisk 无 leverage 字段 → 按 名义/初始保证金 推算（与账户总览同款兜底）。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(lts, "get_db_session", factory)
+    from worker.models import WorkerPosition
+
+    s = _make_sync()
+    venue = [
+        {
+            "symbol": "ETH/USDT:USDT",
+            "side": "long",
+            "contracts": 2.0,
+            "entryPrice": 1700.0,
+            "notional": 3976.63,
+            "initialMargin": 795.33,
+            "info": {},
+        }
+    ]
+    monkeypatch.setattr(s.exchange.exchange, "fetch_positions", lambda symbols=None: venue)
+    assert s.sync_positions() == 1
+    with factory() as db:
+        row = db.scalars(select(WorkerPosition)).one()
+    assert row.leverage == pytest.approx(5.0)
+    assert row.breakeven_price is None
+    assert row.liquidation_price is None
+    assert row.margin_ratio is None
+
+
+def test_sync_positions_fetch_failure_is_harmless(monkeypatch):
+    """fetch_positions 抛错不反噬 tick 循环：记日志返回 0"""
+    s = _make_sync()
+
+    def _boom(symbols=None):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(s.exchange.exchange, "fetch_positions", _boom)
+    assert s.sync_positions() == 0

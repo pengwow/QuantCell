@@ -223,6 +223,8 @@ async def list_workers(
             item["_status"] = state.status
             item["_pid"] = state.pid
             item["_updated_at"] = state.updated_at.isoformat()
+            # 启动/重启失败原因直接随列表返回（此前只在详情接口有，异常行展开为空）
+            item["_error_message"] = state.error_message
             # 优先使用实时状态覆盖数据库中的过时status值
             item["status"] = state.status
 
@@ -1231,15 +1233,23 @@ async def get_positions(
 ):
     """获取Worker持仓。
 
-    worker_positions 表两模式均无常态写入口（live 的 LiveTradeRecorder 事件
-    链路未接线、paper 内核持仓仅存引擎内存）——表为空且查询 OPEN 时从成交
-    明细未配对 fill 推导兜底（crud.derive_positions_from_trades），与「交易」
-    tab 的「持仓中」行同口径，避免 paper/live 账总览「当前持仓」恒空而成交
-    明细有数据。
+    worker_positions 表常态写入口：paper 由 PaperTradeSync._sync_positions 每泵
+    轮对账落库（P1-10）；live/testnet 由 LiveTradeSync.sync_positions 每 10s 以
+    交易所 fetch_positions 对账落库。表空且查询 OPEN 时仅 paper 走成交明细
+    未配对 fill 推导兜底（crud.derive_positions_from_trades），与「交易」tab
+    的「持仓中」行同口径。
+
+    live/testnet 不走推导兜底：未配对 fill 净额跨重启/round-trip 聚合出幻影
+    持仓（交易所实际已平仓），宁可显示空也不显示幻影。
     """
     positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, _position_side_filter(side))
     if positions or status != "OPEN":
         return schemas.ApiResponse(code=0, message="success", data=positions)
+
+    worker_rec = crud.get_worker(db, worker_id)
+    trading_mode = (worker_rec.get_trading_config_dict() or {}).get("trading_mode", "paper") if worker_rec else "paper"
+    if trading_mode != "paper":
+        return schemas.ApiResponse(code=0, message="success", data=[])
 
     # 兜底推导行同样应用 symbol/side 过滤（与 canonical 别名等值比较，垃圾值由 helper 已拦截）
     derived = crud.derive_positions_from_trades(db, worker_id)
@@ -1269,6 +1279,7 @@ async def get_orders(
     # 新增两个过滤参数（追加在原参数列表尾部，顺序不影响既有 front-end 调用）
     position_side: str | None = Query(None, description="持仓方向过滤（canonical，大小写不敏感）: long/short/both"),
     reduce_only: bool | None = Query(None, description="只减仓过滤: true/false"),
+    exclude_open: bool = Query(False, description="排除 OPEN（历史委托页签语义，total 即历史精确计数）"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -1288,6 +1299,7 @@ async def get_orders(
         limit=page_size,
         position_side=_position_side_filter(position_side),
         reduce_only=reduce_only,
+        exclude_open=exclude_open,
     )
     return schemas.ApiResponse(
         code=0,

@@ -279,6 +279,118 @@ class LiveTradeSync:
             )
         return inserted
 
+    def sync_positions(self) -> int:
+        """交易所 fetch_positions 对账式落 worker_positions（live 持仓权威源）。
+
+        此前 live 无常态持仓写入口，get_positions 在表空时退化为未配对 fill
+        净额推导——跨重启/跨 round-trip 聚合出幻影持仓（交易所实际已平仓，
+        本地仍显示残仓）。现在与成交同步同节拍轮询：交易所持仓是唯一事实源，
+        数值漂移一律以它收口；交易所已不再持有的 OPEN 行标 CLOSED 留痕。
+
+        ponytail: 多 worker 同账户同 symbol 时，账户级持仓无法按 worker 归属
+        （按 symbol 过滤即尽力归属）；升级路径是 binance user-data position 流。
+        """
+        from .models import WorkerPosition  # 同包 models 顶层无环，与 sync_once 的 crud 口径一致
+
+        try:
+            raw = self.exchange.exchange.fetch_positions([self._ccxt_symbol]) or []
+        except Exception as e:
+            logger.warning(f"LiveTradeSync: fetch_positions 失败 (worker_id={self.worker_id}): {e}")
+            return 0
+
+        # 统一 DB symbol 口径 "BASE/QUOTE"（去 :结算后缀），只留非零仓
+        venue: dict[str, dict] = {}
+        for p in raw:
+            try:
+                qty = abs(float(p.get("contracts") or 0.0))
+            except TypeError, ValueError:
+                continue
+            if qty <= 1e-12:
+                continue
+            symbol = str(p.get("symbol") or "").split(":")[0]
+            if not symbol:
+                continue
+            info = p.get("info") or {}
+            # 交易所富化（缺失为 None，前端显示 —）：
+            # - 杠杆：币安 demo v3 positionRisk 不带 leverage 字段，按 名义/初始保证金 推算
+            #   （与账户总览 _norm_position 同款兜底）
+            # - 两平价：info.breakEvenPrice（ccxt 未解析，原生透出）
+            # - 保证金比率：info.marginRatio×100（百分比口径，与账户总览同）
+            lev = p.get("leverage")
+            if lev is None:
+                try:
+                    notional = abs(float(p.get("notional") or 0.0))
+                    init_margin = float(p.get("initialMargin") or 0.0)
+                    lev = round(notional / init_margin, 1) if init_margin > 0 else None
+                except TypeError, ValueError:
+                    lev = None
+
+            def _to_f(v) -> float | None:
+                try:
+                    f = float(v)
+                    return f or None
+                except TypeError, ValueError:
+                    return None
+
+            venue[symbol] = {
+                "position_side": "short" if p.get("side") == "short" else "long",
+                "quantity": qty,
+                "entry_price": _to_f(p.get("entryPrice")) or 0.0,
+                "current_price": _to_f(p.get("markPrice")) or 0.0,
+                "unrealized_pnl": _to_f(p.get("unrealizedPnl")) or 0.0,
+                "margin_used": _to_f(p.get("initialMargin")) or 0.0,
+                "leverage": _to_f(lev),
+                "breakeven_price": _to_f(info.get("breakEvenPrice")),
+                "liquidation_price": _to_f(p.get("liquidationPrice")),
+                "margin_ratio": (_to_f(info.get("marginRatio")) * 100) if _to_f(info.get("marginRatio")) else None,
+            }
+
+        written = 0
+        with get_db_session() as db:
+            # 行查找只限定本 worker 的 live 前缀：position_id 是稳定业务键，
+            # CLOSED 行要能复活（重启重演重新持仓），不能只查 OPEN
+            rows = (
+                db.query(WorkerPosition)
+                .filter(
+                    WorkerPosition.worker_id == self.worker_id,
+                    WorkerPosition.position_id.like(f"live:{self.worker_id}:%"),
+                )
+                .all()
+            )
+            rows_by_symbol = {r.symbol: r for r in rows}
+            now = datetime.now()
+            for symbol, data in venue.items():
+                row = rows_by_symbol.get(symbol)
+                if row is None:
+                    db.add(
+                        WorkerPosition(
+                            worker_id=self.worker_id,
+                            position_id=f"live:{self.worker_id}:{symbol}",
+                            symbol=symbol,
+                            status="OPEN",
+                            opened_at=now,
+                            realized_pnl=0.0,
+                            **data,
+                        )
+                    )
+                else:
+                    for field, value in data.items():
+                        setattr(row, field, value)
+                    if row.status != "OPEN":
+                        row.status = "OPEN"
+                        row.closed_at = None
+                    row.updated_at = now
+                written += 1
+            # 交易所已不再持有的 OPEN 行收口（幻影持仓的根治点）
+            for symbol, row in rows_by_symbol.items():
+                if symbol not in venue and row.status == "OPEN":
+                    row.status = "CLOSED"
+                    row.closed_at = now
+                    row.updated_at = now
+                    written += 1
+            db.commit()
+        return written
+
     def _strategy_id(self) -> str:
         """worker↔strategy 绑定运行期不变：首次广播前解析一次并缓存。"""
         if self._strategy_id_cache is None:

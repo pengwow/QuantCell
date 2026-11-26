@@ -1033,6 +1033,63 @@ def update_ai_models_table(session: Session, db_type: str) -> None:
         logger.error(f"添加 ai_models.category 列失败: {e}")
 
 
+def update_worker_positions_table(session: Session, db_type: str) -> None:
+    """为 worker_positions 增加交易所富化列（杠杆/两平价/强平价/保证金比率）。
+
+    live/testnet 由 LiveTradeSync.sync_positions 填充，paper 恒 NULL（前端显示 —）。
+    幂等可重跑；第一次跑交易 tab 仓位页签上线时执行。
+    """
+    logger.info("开始更新 worker_positions 表结构（交易所富化列）...")
+
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='worker_positions'")
+            ).fetchone()
+        else:
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='worker_positions'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查 worker_positions 表是否存在失败: {e}")
+        return
+
+    if not table_exists:
+        logger.info("worker_positions 表不存在（首次建库由 create_all 负责），跳过富化列迁移")
+        return
+
+    # (列名, SQLite DDL)——PriceAsFloat 数值口径用 REAL，NULL 允许缺失
+    columns = [
+        ("leverage", "ALTER TABLE worker_positions ADD COLUMN leverage REAL"),
+        ("breakeven_price", "ALTER TABLE worker_positions ADD COLUMN breakeven_price REAL"),
+        ("liquidation_price", "ALTER TABLE worker_positions ADD COLUMN liquidation_price REAL"),
+        ("margin_ratio", "ALTER TABLE worker_positions ADD COLUMN margin_ratio REAL"),
+    ]
+    for name, ddl in columns:
+        try:
+            if db_type == "sqlite":
+                column_exists = session.execute(
+                    text(f"SELECT name FROM pragma_table_info('worker_positions') WHERE name='{name}'")
+                ).fetchone()
+            else:
+                column_exists = session.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name='worker_positions' AND column_name='{name}'"
+                    )
+                ).fetchone()
+
+            if column_exists:
+                logger.info(f"worker_positions.{name} 列已存在，跳过")
+                continue
+
+            session.execute(text(ddl))
+            session.commit()
+            logger.info(f"worker_positions.{name} 列添加成功")
+        except Exception as e:
+            logger.error(f"添加 worker_positions.{name} 列失败: {e}")
+
+
 def update_indicator_alert_rules_table(session, db_type: str) -> None:
     """indicator_alert_rules 增加 builtin_id 列（系统内置指标提醒，indicators/builtin_alerts.py）。"""
     table_exists = session.execute(
@@ -1302,6 +1359,7 @@ def run_migrations() -> None:
 
             # indicator_alert_rules 增加 builtin_id 列（系统内置指标提醒）
             update_indicator_alert_rules_table(session, db_type)
+            update_worker_positions_table(session, db_type)
 
             # 历史 K线周期列统一改名 interval（features.freq / indicator_alert_rules.period）
             rename_kline_interval_columns(session, db_type)

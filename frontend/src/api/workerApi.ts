@@ -698,13 +698,13 @@ export const getPositions = (
   workerId: number,
   params?: { status?: string; symbol?: string; side?: string }
 ): Promise<PositionInfo[]> => {
-  return apiRequest.get(`/workers/${workerId}/strategy/positions`, { params });
+  return apiRequest.get(`/workers/${workerId}/strategy/positions`, params);
 };
 
 /**
  * 获取订单信息
  * @param workerId Worker ID
- * @param params 筛选参数：status/symbol/side/order_type/start_time/end_time
+ * @param params 筛选参数：status/symbol/side/order_type/start_time/end_time + 分页 page/page_size
  * @returns 分页对象（后端契约为 {items,total,page,page_size}，非数组）
  */
 export const getOrders = (
@@ -716,9 +716,12 @@ export const getOrders = (
     order_type?: string;
     start_time?: string;
     end_time?: string;
+    page?: number;
+    page_size?: number;
+    exclude_open?: boolean;
   }
 ): Promise<{ items: OrderInfo[]; total: number; page: number; page_size: number }> => {
-  return apiRequest.get(`/workers/${workerId}/strategy/orders`, { params });
+  return apiRequest.get(`/workers/${workerId}/strategy/orders`, params);
 };
 
 // ============================================
@@ -749,7 +752,7 @@ export const fetchRecentLogs = (
       query_time: string;
     };
   }> => {
-  return apiRequest.get(`/workers/${workerId}/logs/recent`, { params });
+  return apiRequest.get(`/workers/${workerId}/logs/recent`, params);
 };
 
 /**
@@ -784,7 +787,7 @@ export const getPnLDistribution = (workerId: number): Promise<ApiResponse<PnLDis
 };
 
 export const getTradeHistoryChart = (workerId: number, days?: number): Promise<ApiResponse<TradeHistoryChart>> => {
-  return apiRequest.get(`/workers/${workerId}/stats/trade-history-chart`, { params: { days: days || 30 } });
+  return apiRequest.get(`/workers/${workerId}/stats/trade-history-chart`, { days: days || 30 });
 };
 
 // ============================================
@@ -822,7 +825,7 @@ export const getTradingSummaryFiltered = (
   workerId: number,
   params?: { window?: OverviewWindow }
 ): Promise<TradingSummary> => {
-  return apiRequest.get(`/workers/${workerId}/stats/trading-summary`, { params });
+  return apiRequest.get(`/workers/${workerId}/stats/trading-summary`, params);
 };
 
 // ============================================

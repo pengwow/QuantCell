@@ -43,6 +43,14 @@ def client(monkeypatch):
     # 默认：DB 表为空、推导返回一行 paper 持仓（各用例按需覆盖）
     monkeypatch.setattr(crud, "get_worker_positions_filtered", lambda *a, **k: [])
     monkeypatch.setattr(crud, "derive_positions_from_trades", lambda db, wid: [dict(DERIVED_ROW)])
+
+    class _PaperWorker:
+        """get_positions 表空时会查 worker 判定 trading_mode；db=None 下必须打桩"""
+
+        def get_trading_config_dict(self):
+            return {"trading_mode": "paper"}
+
+    monkeypatch.setattr(crud, "get_worker", lambda db, wid: _PaperWorker())
     return TestClient(app)
 
 
