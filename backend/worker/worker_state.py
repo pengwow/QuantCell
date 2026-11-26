@@ -38,7 +38,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # 到下一次 transition 随 _persist_state 覆写。
 RECOVERABLE_STATUSES = {"starting", "stopping", "restarting", "paused", "interrupted"}
 
-# 中间态超过该时长仍未收敛即视为残留（正常的同步 stop 最长约 10s ZMQ 超时 + 兜底，
+# 中间态超过该时长仍未收敛即视为残留（正常的同步 stop 为进程内直调、秒级收敛 + 兜底，
 # 预留三倍余量），transition 拒绝时以 DB 复核自愈，避免分叉状态永久冻住
 STALE_INTERMEDIATE_AFTER_SECONDS = 30.0
 

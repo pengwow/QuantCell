@@ -544,7 +544,7 @@ class WorkerCoreService:
            starting/stopping 中间态，阻塞后续批量/单机状态转换
 
         ponytail: 步骤 2 顺序执行而非并发——批量 Worker 数通常很小，
-        并发 Popen+ZMQ 注册窗会放大路由竞态，收益不抵复杂度。
+        并发启停会互相挤占状态机转换窗口与阻塞段，收益不抵复杂度。
         """
         from .worker_state import worker_state_manager
 
@@ -1030,7 +1030,7 @@ class WorkerCoreService:
     async def _wait_for_terminal_state(self, worker_id: int, timeout: float) -> None:
         """等待 Worker 状态收敛到终态（stopped/error）。
 
-        stop 是后台任务（ZMQ 优雅停止最长约 10s + SIGTERM 兜底），
+        stop 是后台任务（进程内直调停止，驱动线程退出 + SIGTERM 兜底），
         必须等它真正收尾后才能执行后续 start，否则 start 撞上
         stopping 过渡态必然被状态机拒绝。
         """

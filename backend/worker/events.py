@@ -1,9 +1,8 @@
 """推向前端 WebSocket 的 wire 事件 schema 版本出口。
 
-这里的「事件」指主进程推给前端的业务事件（worker_event / strategy_event /
-kernel.snapshot 等），与 worker/protocol.py 的 ZMQ 控制面信封版本是两个层级：
-P2-09 的 PROTOCOL_SCHEMA_VERSION 管主进程 ↔ worker 进程的信封，本模块管
-主进程 → 前端的事件本体。
+这里的「事件」指推给前端的业务事件（worker_event / strategy_event /
+kernel.snapshot 等）。本模块只管事件本体的 wire schema 版本，与传输层
+（REST/WS/SSE）无关。
 
 版本语义（前端 websocketService.ts 的 migrate_event 依此实现）：
 - 事件缺 schema_version 视为 v0，前端原样放行（向后兼容读旧版）

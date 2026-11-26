@@ -1,7 +1,7 @@
 """
 PortManager 集成测试
 
-验证 PortManager 与其他模块（FastAPI、ZMQ、Worker IPC）的集成是否正常工作。
+验证 PortManager 与其他模块（FastAPI、Worker）的集成是否正常工作。
 涵盖完整系统启动流程、多实例端口隔离、异常退出恢复、前后端同步等场景。
 
 作者: QuantCell Team

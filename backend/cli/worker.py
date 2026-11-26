@@ -427,8 +427,8 @@ def worker_kill(worker_id: str = typer.Argument(..., help="Worker ID")):
     """强制终止 Worker 进程"""
     wid = _to_int(worker_id, "Worker ID")
     try:
-        # CLI 是独立进程，orchestrator 注册表恒为空；FastAPI 运行时又占用 5559
-        # 无法 bind 路由命令，因此 kill 直接读 DB pid 发 SIGKILL，与 stop 的
+        # CLI 是独立进程，worker_system 单例只存活于 FastAPI 进程内，
+        # CLI 无法进程内直调，因此 kill 直接读 DB pid 发 SIGKILL，与 stop 的
         # pid 兜底保持一致，保证 API 运行/非运行两种场景都可用。
         with _service.get_db() as db:
             worker = crud.get_worker(db, wid)

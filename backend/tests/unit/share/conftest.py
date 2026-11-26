@@ -106,7 +106,7 @@ def test_client(db_session):
     让测试无需登录即可调用受保护端点。
 
     故意使用 TestClient(app) 而非 `with TestClient(app) as client`,
-    以跳过 FastAPI lifespan(后者会启动 ZMQ 监控等后台任务,
+    以跳过 FastAPI lifespan(后者会启动调度器等后台任务,
     在测试结束时不清理干净,会阻塞后续 async 测试的事件循环)。
     """
     from fastapi.testclient import TestClient
@@ -140,7 +140,7 @@ def test_client(db_session):
     # 默认覆盖:避免无 token 时直接 raise 401
     app.dependency_overrides[get_current_user] = override_get_current_user
 
-    # 不走 lifespan,避免 ZMQ 监控 / 调度器等后台任务污染事件循环
+    # 不走 lifespan,避免调度器等后台任务污染事件循环
     client = TestClient(app)
     try:
         yield client
