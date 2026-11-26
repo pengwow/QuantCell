@@ -5,10 +5,6 @@ import { getDesktopRuntime, isTauri } from '@/desktop/env';
 
 export interface PortConfig {
   fastapi: number;
-  zmq_data: number;
-  zmq_control: number;
-  zmq_status: number;
-  zmq_broadcast: number;
   metadata?: {
     pid: number;
     start_time: string;
@@ -22,19 +18,11 @@ export interface PortConfig {
  */
 interface PortsResponseData {
   fastapi?: { port?: number };
-  zmq_data?: { port?: number };
-  zmq_control?: { port?: number };
-  zmq_status?: { port?: number };
-  zmq_broadcast?: { port?: number };
   metadata?: PortConfig['metadata'];
 }
 
 const DEFAULT_PORTS: PortConfig = {
   fastapi: 8000,
-  zmq_data: 5555,
-  zmq_control: 5556,
-  zmq_status: 5557,
-  zmq_broadcast: 5558,
 };
 
 let cachedPortConfig: PortConfig | null = null;
@@ -77,10 +65,6 @@ export async function fetchPortConfig(): Promise<PortConfig> {
 
       const portConfig: PortConfig = {
         fastapi: data.fastapi?.port ?? DEFAULT_PORTS.fastapi,
-        zmq_data: data.zmq_data?.port ?? DEFAULT_PORTS.zmq_data,
-        zmq_control: data.zmq_control?.port ?? DEFAULT_PORTS.zmq_control,
-        zmq_status: data.zmq_status?.port ?? DEFAULT_PORTS.zmq_status,
-        zmq_broadcast: data.zmq_broadcast?.port ?? DEFAULT_PORTS.zmq_broadcast,
         metadata: data.metadata,
       };
 
