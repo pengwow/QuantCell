@@ -42,7 +42,9 @@ def resolve_risk_settings(
       未知键由 Rust 侧报错（统一单点校验，防拼错键名静默走默认值）；
       额外支持 "max_position_value"（目标净仓名义额上限，独立参数）。
     """
-    row = _load_risk_control_row(worker_id)
+    # P1-8 fail-closed：启动装配路径 strict 化——人工配置过风控的 worker 在 DB 抖动时
+    # 宁可启动失败，也不能被静默降级为"未配置"裸跑
+    row = _load_risk_control_row(worker_id, strict=True)
     if row is not None:
         if not row["enabled"]:
             return None
@@ -219,11 +221,14 @@ class RiskPnlFeeder:
         return True
 
 
-def _load_risk_control_row(worker_id: int) -> dict[str, Any] | None:
-    """读 worker_risk_control 单行 → 平铺 dict（无行 / 查询失败返回 None）。
+def _load_risk_control_row(worker_id: int, *, strict: bool = False) -> dict[str, Any] | None:
+    """读 worker_risk_control 单行 → 平铺 dict（无行返回 None）。
 
-    fallback 是尽力而为：查询失败只 warn（视为未配置），不阻断启动——
-    正式风控配置请走 params.risk 直通口，它失败会直接抛错。
+    - strict=True（启动装配路径，resolve_risk_settings）：P1-8 fail-closed——查询失败
+      直接抛错中断启动。人工已经配置过风控的 worker，在 DB 抖动时宁可拒绝启动，
+      也不能被静默降级为"未配置"而裸跑。
+    - strict=False（展示快照路径，risk_status_snapshot）：查询失败只 warn 后视为
+      未配置（仅影响展示，不涉及资金安全）。
     返回平铺 dict 而非 ORM 对象：session 关闭后仍可安全访问。
     """
     try:
@@ -248,6 +253,12 @@ def _load_risk_control_row(worker_id: int) -> dict[str, Any] | None:
                 "circuit_breaker_cooldown_secs": row.circuit_breaker_cooldown_secs,
             }
     except Exception as e:
+        if strict:
+            logger.error(
+                f"[risk_config] worker_risk_control 查询失败（启动装配 fail-closed，拒绝启动）: "
+                f"worker_id={worker_id}, error={e}"
+            )
+            raise
         logger.warning(f"[risk_config] worker_risk_control 查询失败（视为未配置）: worker_id={worker_id}, error={e}")
         return None
 

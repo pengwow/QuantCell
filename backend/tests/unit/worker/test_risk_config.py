@@ -7,6 +7,8 @@ fallback 的 DB 访问（_load_risk_control_row）通过 mock 注入 row dict，
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import worker.risk_config as risk_config_module
 from worker.risk_config import (
     RiskPnlFeeder,
@@ -143,10 +145,24 @@ class TestApplyRiskConfig:
         driver.set_risk_config.assert_called_once_with({"max_daily_loss": 100.0}, max_position_value=5000.0)
 
 
-def test_load_row_swallows_db_error():
-    """DB 访问异常 → 视为未配置返回 None（fallback 尽力而为，不阻断启动）"""
+def test_load_row_strict_raises_on_db_error():
+    """P1-8 fail-closed：启动装配路径（strict=True）DB 异常直接抛错，拒绝静默降级为未配置裸跑"""
+    with patch("utils.db_session.get_db_session", side_effect=RuntimeError("db down")):
+        with pytest.raises(RuntimeError, match="db down"):
+            _load_risk_control_row(worker_id=1, strict=True)
+
+
+def test_load_row_swallows_db_error_by_default():
+    """展示快照路径（strict=False 默认）：DB 异常仅 warn 后视为未配置，不影响展示端点可用性"""
     with patch("utils.db_session.get_db_session", side_effect=RuntimeError("db down")):
         assert _load_risk_control_row(worker_id=1) is None
+
+
+def test_resolve_risk_settings_fail_closed_on_db_error():
+    """启动装配桥接同样 fail-closed：DB 异常向上传播，由启动链落 error，而非带着假配置裸跑"""
+    with patch("utils.db_session.get_db_session", side_effect=RuntimeError("db down")):
+        with pytest.raises(RuntimeError, match="db down"):
+            resolve_risk_settings({"risk": {"max_daily_loss": 100.0}}, worker_id=1, initial_cash=10_000.0)
 
 
 class TestRiskPnlFeeder:
