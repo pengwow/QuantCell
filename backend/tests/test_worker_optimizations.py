@@ -2,16 +2,17 @@
 Worker 优化功能单元测试
 
 覆盖范围：
-1. StateMachineGuard - 状态机守卫器测试
-2. GracefulShutdownManager - 优雅停机管理器测试
-3. LogRingBuffer - 日志环形缓冲区测试
+1. GracefulShutdownManager - 优雅停机管理器测试
+2. LogRingBuffer - 日志环形缓冲区测试
+
+（原 StateMachineGuard 测试随 state_guard 模块删除——状态收口已统一
+到 worker_state_manager，其行为由 tests/unit/worker/test_core_service.py 覆盖）
 
 运行方式：
     cd backend && python -m pytest tests/test_worker_optimizations.py -v
 """
 
 import asyncio
-from unittest import mock
 
 import pytest
 
@@ -27,119 +28,6 @@ from worker.log_utils import (
     get_global_buffer,
     reset_global_buffer,
 )
-
-# 导入被测模块
-from worker.state_guard import (
-    StateMachineGuard,
-    WorkerState,
-)
-
-# ==================== StateMachineGuard 测试 ====================
-
-
-class TestStateMachineGuard:
-    """状态机守卫器测试套件"""
-
-    def setup_method(self):
-        """每个测试方法前重置"""
-        self.guard = StateMachineGuard()
-        # get_machine 懒加载会查真实 worker 表，本地开发库 id=1 可能停留
-        # 在 error 等任意状态，导致「默认初始状态 STOPPED」断言失败。
-        # 单测不依赖真实库：patch 掉 DB 查询，走「worker 不存在 → STOPPED」默认路径。
-        self._guard_patcher = mock.patch("worker.crud.get_worker", return_value=None)
-        self._guard_patcher.start()
-
-    def teardown_method(self):
-        """释放 setup_method 里启动的 DB patch"""
-        self._guard_patcher.stop()
-
-    def test_single_valid_transition(self):
-        """单个有效状态转换"""
-        result = self.guard.transition(
-            worker_id=1,
-            target_state=WorkerState.STARTING,
-        )
-
-        assert result.success is True
-        assert result.worker_id == 1
-        assert result.old_state == WorkerState.STOPPED  # 默认初始状态
-        assert result.new_state == WorkerState.STARTING
-
-    def test_invalid_transition_rejected(self):
-        """非法状态转换应被拒绝"""
-        # 先转换到 STARTING
-        self.guard.transition(1, WorkerState.STARTING)
-
-        # 尝试再次 STARTING（应该失败）
-        result = self.guard.transition(1, WorkerState.STARTING)
-
-        assert result.success is False
-        assert "非法状态转换" in result.message
-
-    def test_batch_transition_all_success(self):
-        """批量转换全部成功"""
-        # Python 3.14 中 asyncio.get_event_loop() 不再隐式创建 loop，用 asyncio.run
-        result = asyncio.run(
-            self.guard.batch_transition(
-                worker_ids=[1, 2, 3],
-                target_state=WorkerState.STARTING,
-            )
-        )
-
-        assert result.all_success is True
-        assert len(result.success_ids) == 3
-        assert len(result.failed_dict) == 0
-
-    def test_batch_mixed_success_failure(self):
-        """批量操作中部分成功、部分失败"""
-        # Worker 1 先转换为 RUNNING（可以停止）
-        self.guard.transition(1, WorkerState.STARTING)
-        self.guard.transition(1, WorkerState.RUNNING)
-
-        # Worker 2 保持 STOPPED（不能停止）
-        result = asyncio.run(
-            self.guard.batch_transition(
-                worker_ids=[1, 2],
-                target_state=WorkerState.STOPPING,
-            )
-        )
-
-        assert result.partial_failure is True
-        assert len(result.success_ids) >= 1
-        assert len(result.failed_dict) >= 1
-
-    def test_state_history_recorded(self):
-        """状态转换历史应被记录"""
-        self.guard.transition(1, WorkerState.STARTING)
-        self.guard.transition(1, WorkerState.RUNNING)
-
-        history = self.guard.get_state_history(worker_id=1)
-
-        assert len(history) == 2
-        assert history[0]["old_state"] == "stopped"
-        assert history[0]["new_state"] == "starting"
-        assert history[1]["old_state"] == "starting"
-        assert history[1]["new_state"] == "running"
-
-    def test_statistics_collection(self):
-        """统计信息应正确收集"""
-        self.guard.transition(1, WorkerState.STARTING)
-        self.guard.transition(1, WorkerState.RUNNING)
-        self.guard.transition(2, WorkerState.STARTING)
-
-        stats = self.guard.get_statistics()
-
-        assert stats["cached_machines"] == 2
-        assert stats["total_transitions"] == 3
-
-    def test_cache_invalidation(self):
-        """缓存失效应强制重新加载"""
-        self.guard.transition(1, WorkerState.STARTING)
-        assert 1 in self.guard._machines
-
-        self.guard.invalidate_cache(worker_id=1)
-        assert 1 not in self.guard._machines
-
 
 # ==================== GracefulShutdownManager 测试 ====================
 
@@ -396,55 +284,6 @@ class TestLogRingBuffer:
 
         assert "entries" in json_str
         assert "Test" in json_str
-
-
-# ==================== 集成测试 ====================
-
-
-class TestIntegration:
-    """集成测试：验证组件协同工作"""
-
-    @pytest.mark.asyncio
-    async def test_state_machine_with_graceful_shutdown(self):
-        """状态机和优雅停机的集成"""
-        guard = StateMachineGuard()
-        state_changed = False
-
-        async def on_drain():
-            nonlocal state_changed
-            guard.transition(1, WorkerState.STOPPING)
-            state_changed = True
-
-        mgr = GracefulShutdownManager(
-            config=ShutdownConfig(drain_timeout=1.0),
-            on_drain=on_drain,
-        )
-
-        # 初始状态：先到 STARTING 再到 RUNNING
-        guard.transition(1, WorkerState.STARTING)
-        guard.transition(1, WorkerState.RUNNING)
-
-        # 执行优雅停机
-        await mgr.shutdown()
-
-        assert state_changed is True
-        final_state = guard.get_current_state(1)
-        assert final_state == WorkerState.STOPPING
-
-    def test_logging_during_state_transitions(self):
-        """状态转换过程中的日志记录"""
-        guard = StateMachineGuard()
-        buffer = LogRingBuffer()
-
-        # 模拟状态转换并记录日志
-        buffer.append_raw("[INFO] Starting transition to STARTING")
-        guard.transition(1, WorkerState.STARTING)
-        buffer.append_raw("[SUCCESS] Transition completed: STOPPED -> STARTING")
-
-        logs = buffer.get_recent(limit=10)
-
-        assert any("Starting transition" in log["message"] for log in logs)
-        assert any("Transition completed" in log["message"] for log in logs)
 
 
 if __name__ == "__main__":

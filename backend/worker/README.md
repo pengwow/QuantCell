@@ -2,8 +2,11 @@
 
 ## 概述
 
-Worker 管理策略进程的完整生命周期，支持实盘（Live）、模拟盘（Demo）与纸上交易（Paper）
+Worker 管理策略的完整生命周期，支持实盘（Live）、模拟盘（Demo）与纸上交易（Paper）
 三种模式；回测、paper、live 共用同一条 per-bar 主回路，差异只在执行层装配。
+
+每个 Worker 由 StrategyManager 的驱动线程在主进程内运行（进程内直调模型，
+历史上存在过 ZMQ 多进程 daemon 编排层，已随统一内核方案移除）。
 
 ## 主要组件
 
@@ -11,10 +14,8 @@ Worker 管理策略进程的完整生命周期，支持实盘（Live）、模拟
 |------|------|------|
 | `StrategyManager` / `worker_system` | `worker/strategy_manager.py` | 统一策略执行引擎（模块级单例），paper / live 泵线程 |
 | `TradingNodeWorkerManager` | `worker/manager.py` | Worker 生命周期协调（启动 / 暂停 / 恢复 / 停止） |
-| `TradingSystem` / `trading_system` | `worker/trading_system.py` | 交易系统枢纽（引擎 + 账户 + 风控装配） |
-| `EventHandler` | `worker/event_handler.py` | 事件缓冲、日志与向前端推送 |
-| `ZmqConfig` | `worker/config.py` | 独立进程 ZMQ 通信（事件拉 / 命令推 / 心跳） |
-| `router` | `worker/routes.py` | Worker 管理 API |
+| `WorkerCoreService` | `worker/core_service.py` | Worker 启停编排 + 状态收口（`worker_state_manager`，DB 事实源） |
+| `router` | `worker/routes.py` | Worker 管理 API（带 RBAC + 归属校验） |
 
 ## 交易模式
 
@@ -53,28 +54,11 @@ export OKX_API_SECRET="..."
 export OKX_PASSPHRASE="..."
 ```
 
-**ZMQ 通信**（独立进程 IPC，默认地址见 `worker/config.py::ZmqConfig`）：
+## 状态机
 
-| 字段 | 默认值 | 含义 |
-|------|--------|------|
-| `event_pull_addr` | `tcp://127.0.0.1:5558` | 事件拉取 |
-| `cmd_push_addr` | `tcp://127.0.0.1:5559` | 命令下发 |
-| `heartbeat_interval` | 5s | 心跳间隔 |
-| `offline_threshold` | 60s | 判定离线阈值 |
-
-## 事件处理
-
-```python
-from worker.event_handler import create_event_handler
-
-def on_event(event_type: str, event_data: dict):
-    print(f"收到 {event_type} 事件: {event_data}")
-
-event_handler = create_event_handler(trader=trading_system.trader, send_event_func=on_event)
-event_handler.subscribe_events()
-# ...
-event_handler.unsubscribe_events()
-```
+Worker 运行状态统一由 `worker/worker_state.py` 管理：DB 是事实源，
+内存缓存 30s 陈旧自愈；启停后台任务完成后向状态机补 transition，
+非法转换（如 stopped → running 直达）会被拒绝。
 
 ## 故障排除
 
@@ -98,9 +82,9 @@ event_handler.unsubscribe_events()
 backend/worker/
 ├── strategy_manager.py   # StrategyManager 单例 + paper/live 泵线程
 ├── manager.py            # Worker 生命周期协调
-├── trading_system.py     # 交易系统枢纽
-├── event_handler.py      # 事件处理器
-├── config.py             # ZMQ / 运行环境配置
+├── core_service.py       # Worker 启停编排 + 状态收口
+├── worker_state.py       # 状态机（DB 事实源 + 缓存自愈）
+├── config.py             # 运行环境配置
 ├── routes.py             # Worker 管理 API
 └── README.md             # 本文档
 ```

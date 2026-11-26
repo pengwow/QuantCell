@@ -3,6 +3,7 @@
 Mock WorkerCoreService 实例，验证 CLI 命令的输入/输出行为。
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -632,6 +633,231 @@ class TestWorkerCliTradeHistory:
             result = runner.invoke(app, ["trade-history", "1"])
             assert result.exit_code == 0
             assert "暂无" in result.output
+
+
+class TestWorkerCliKill:
+    """测试强制终止命令（os.kill 必须被 mock，绝不真杀进程）"""
+
+    @staticmethod
+    def _svc_with_db():
+        svc = _mock_service()
+        db = MagicMock()
+        svc.get_db.return_value.__enter__.return_value = db
+        return svc, db
+
+    def test_kill_success(self, monkeypatch):
+        """记录存在且有 pid → 调 os.kill(pid, 9) 并写回 stopped/pid=None"""
+        svc, db = self._svc_with_db()
+        worker = SimpleNamespace(id=1, pid=4242)
+        kills = []
+        monkeypatch.setattr("cli.worker.os.kill", lambda pid, sig: kills.append((pid, sig)))
+        with (
+            patch("cli.worker._service", svc),
+            patch("cli.worker.crud.get_worker", return_value=worker),
+            patch("cli.worker.crud.update_worker_status") as upd,
+        ):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["kill", "1"])
+
+        assert result.exit_code == 0
+        assert kills == [(4242, 9)]
+        assert "已强制终止" in result.output
+        assert upd.call_args.args[0] is db
+        assert upd.call_args.args[1:] == (1, "stopped")
+        assert upd.call_args.kwargs == {"pid": None}
+
+    def test_kill_process_already_gone(self, monkeypatch):
+        """进程已不存在 → 诚实提示，仍把 DB 状态收口为 stopped"""
+
+        def gone(pid, sig):
+            raise ProcessLookupError
+
+        svc, _db = self._svc_with_db()
+        worker = SimpleNamespace(id=1, pid=4242)
+        monkeypatch.setattr("cli.worker.os.kill", gone)
+        with (
+            patch("cli.worker._service", svc),
+            patch("cli.worker.crud.get_worker", return_value=worker),
+            patch("cli.worker.crud.update_worker_status") as upd,
+        ):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["kill", "1"])
+
+        assert result.exit_code == 0
+        assert "已不存在" in result.output
+        assert upd.call_args.args[1:] == (1, "stopped")
+
+    def test_kill_worker_not_found(self, monkeypatch):
+        """worker 不存在 → 报错退出，不碰 os.kill / DB 状态"""
+        svc, _ = self._svc_with_db()
+        kills = []
+        monkeypatch.setattr("cli.worker.os.kill", lambda pid, sig: kills.append(pid))
+        with (
+            patch("cli.worker._service", svc),
+            patch("cli.worker.crud.get_worker", return_value=None),
+            patch("cli.worker.crud.update_worker_status") as upd,
+        ):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["kill", "999"])
+
+        assert result.exit_code == 1
+        assert "不存在" in result.output
+        assert kills == []
+        upd.assert_not_called()
+
+    def test_kill_no_pid(self, monkeypatch):
+        """有记录但无 pid（未启动）→ 直接返回，不杀、不写状态"""
+        svc, _ = self._svc_with_db()
+        worker = SimpleNamespace(id=1, pid=None)
+        kills = []
+        monkeypatch.setattr("cli.worker.os.kill", lambda pid, sig: kills.append(pid))
+        with (
+            patch("cli.worker._service", svc),
+            patch("cli.worker.crud.get_worker", return_value=worker),
+            patch("cli.worker.crud.update_worker_status") as upd,
+        ):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["kill", "1"])
+
+        assert result.exit_code == 0
+        assert "无进程 PID" in result.output
+        assert kills == []
+        upd.assert_not_called()
+
+    def test_kill_permission_error(self, monkeypatch):
+        """os.kill 抛非 ProcessLookupError（如权限）→ 错误退出，不误写 stopped"""
+        svc, _ = self._svc_with_db()
+        worker = SimpleNamespace(id=1, pid=4242)
+
+        def denied(pid, sig):
+            raise PermissionError("not permitted")
+
+        monkeypatch.setattr("cli.worker.os.kill", denied)
+        with (
+            patch("cli.worker._service", svc),
+            patch("cli.worker.crud.get_worker", return_value=worker),
+            patch("cli.worker.crud.update_worker_status") as upd,
+        ):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["kill", "1"])
+
+        assert result.exit_code == 1
+        assert "错误" in result.output
+        upd.assert_not_called()
+
+
+class TestWorkerCliArchive:
+    """测试 journal 归档命令（tmp 目录造文件，无 --yes 时零移动）"""
+
+    @staticmethod
+    def _env(tmp_path, monkeypatch):
+        monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path / "data"))
+        live = tmp_path / "data" / "live"
+        live.mkdir(parents=True)
+        (live / "worker_5.jsonl").write_text('{"t":1}\n', encoding="utf-8")
+        (live / "worker_5.reconcile.json").write_text("{}", encoding="utf-8")
+        return live
+
+    def test_archive_cancel_moves_nothing(self, tmp_path, monkeypatch):
+        """无 --yes 且确认拒绝 → 服务未被调用、文件原地不动"""
+        live = self._env(tmp_path, monkeypatch)
+        svc = _mock_service()
+        with patch("cli.worker._service", svc):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["archive", "5"], input="n\n")
+
+        assert result.exit_code == 0
+        assert "已取消" in result.output
+        svc.archive_worker_journal.assert_not_called()
+        assert (live / "worker_5.jsonl").is_file()
+        assert not (live / "archive").exists()
+
+    def test_archive_worker_not_found(self, tmp_path, monkeypatch):
+        """worker 不存在 → 报错退出，零移动"""
+        from worker.core_service import WorkerNotFoundException
+
+        live = self._env(tmp_path, monkeypatch)
+        svc = _mock_service()
+        svc.get_worker.side_effect = WorkerNotFoundException(5)
+        with patch("cli.worker._service", svc):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["archive", "5", "--yes"])
+
+        assert result.exit_code == 1
+        assert "不存在" in result.output
+        svc.archive_worker_journal.assert_not_called()
+        assert (live / "worker_5.jsonl").is_file()
+
+    def test_archive_confirmed_moves_files_and_lists_paths(self, tmp_path, monkeypatch):
+        """--yes → 真实移动到 archive/ 并逐文件打印 from -> to"""
+        live = self._env(tmp_path, monkeypatch)
+        svc = _mock_service()
+
+        def real_archive(worker_id):
+            # 调被测的真实文件移动实现（不构造 StrategyManager，避开重装配）
+            from worker.strategy_manager import StrategyManager
+
+            manager = object.__new__(StrategyManager)
+            return {"worker_id": worker_id, "archived": manager.archive_journal_files(worker_id)}
+
+        svc.archive_worker_journal.side_effect = real_archive
+        with patch("cli.worker._service", svc):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["archive", "5", "--yes"])
+
+        assert result.exit_code == 0
+        assert result.output.count("moved:") == 2
+        assert str(live / "worker_5.jsonl") in result.output
+        assert str(live / "worker_5.reconcile.json") in result.output
+        assert not (live / "worker_5.jsonl").exists()
+        assert not (live / "worker_5.reconcile.json").exists()
+        archived = list((live / "archive").iterdir())
+        assert len(archived) == 2
+        assert "已归档（2 个文件）" in result.output
+
+    def test_archive_no_files_reports_error(self, tmp_path, monkeypatch):
+        """journal 不存在 → 服务异常走统一错误分支（exit 1）"""
+        monkeypatch.setenv("QUANTCELL_DATA_DIR", str(tmp_path / "empty"))
+        svc = _mock_service()
+
+        def real_archive(worker_id):
+            from worker.strategy_manager import StrategyManager
+
+            manager = object.__new__(StrategyManager)
+            return manager.archive_journal_files(worker_id)
+
+        svc.archive_worker_journal.side_effect = real_archive
+        with patch("cli.worker._service", svc):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["archive", "5", "--yes"])
+
+        assert result.exit_code == 1
+        assert "错误" in result.output
+
+
+class TestWorkerCliLogsClearCancel:
+    """补 logs --clear 的取消分支（--yes 已有覆盖）"""
+
+    def test_logs_clear_cancel(self):
+        """确认拒绝 → 已取消，不调用清理服务"""
+        svc = _mock_service()
+        with patch("cli.worker._service", svc):
+            from cli.worker import app
+
+            result = runner.invoke(app, ["logs", "1", "--clear"], input="n\n")
+
+        assert result.exit_code == 0
+        assert "已取消" in result.output
+        svc.clear_worker_logs.assert_not_called()
 
 
 if __name__ == "__main__":

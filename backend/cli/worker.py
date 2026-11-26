@@ -15,14 +15,12 @@ backend_path = __import__("pathlib").Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-# 确保 worker 模块完整初始化（trading_system 等单例注册）
 from worker import crud
 from worker.core_service import (
     WorkerAlreadyRunningException,
     WorkerCoreService,
     WorkerNotFoundException,
 )
-from worker.trading_system import trading_system
 
 app = typer.Typer(help="Worker 管理命令行工具")
 
@@ -36,21 +34,6 @@ def _to_int(value: str, name: str = "ID") -> int:
         return int(value)
     except ValueError, TypeError:
         typer.echo(f"错误: {name} 必须是整数, 收到: {value}")
-        raise typer.Exit(1)
-
-
-def _ensure_zmq_available(orch) -> None:
-    """确保 Orchestrator 的 ZMQ 通道可用。
-
-    CLI 是独立进程，需 bind 5558/5559 才能作为路由端收发命令；若 FastAPI 正在
-    运行并占用这两个端口，bind 会失败。此时给出明确提示而非底层报错，引导用户
-    走 API 或先停 FastAPI（不引入 HTTP 回退，尊重"CLI 不依赖 FastAPI"约束）。
-    """
-    try:
-        orch.ensure_transport()
-    except Exception:
-        typer.echo("ZMQ 通道不可用（FastAPI 可能正在运行并占用 5558/5559 端口）。", err=True)
-        typer.echo("请通过 API 管理 Worker，或先停止 FastAPI 后再执行本命令。", err=True)
         raise typer.Exit(1)
 
 
@@ -513,57 +496,6 @@ def worker_kill(worker_id: str = typer.Argument(..., help="Worker ID")):
 
         with _service.get_db() as db:
             crud.update_worker_status(db, wid, "stopped", pid=None)
-    except typer.Exit:
-        raise
-    except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
-
-
-@app.command("discover")
-def worker_discover():
-    """手动触发 Worker 自发现"""
-    try:
-        from worker.orchestrator import WorkerOrchestrator
-
-        orch = WorkerOrchestrator.get_instance()
-        _ensure_zmq_available(orch)
-        typer.echo("正在扫描 Worker...")
-        # 发送 ping 到所有 DB 中的 running Worker
-        # 注: crud 中函数是 get_workers（返回 (workers, total) 元组），不是 list_workers
-        with _service.get_db() as db:
-            workers, _ = crud.get_workers(db, status="running")
-        for w in workers:
-            response = orch.send_command_and_wait(w.id, "ping", timeout=3.0)
-            if response:
-                orch._register_worker(w.id)
-                typer.echo(f"  Worker {w.id} ({w.name}) 已发现")
-            else:
-                typer.echo(f"  Worker {w.id} ({w.name}) 无响应")
-        connected = orch.list_connected_workers()
-        typer.echo(f"\n已连接: {len(connected)} 个 Worker")
-    except typer.Exit:
-        raise
-    except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
-
-
-@app.command("health")
-def worker_health():
-    """健康检查报告"""
-    try:
-        from worker.orchestrator import WorkerOrchestrator
-
-        orch = WorkerOrchestrator.get_instance()
-        _ensure_zmq_available(orch)
-        summary = orch.check_health()
-        typer.echo("=== Worker 健康检查 ===")
-        typer.echo(f"总数: {summary['total']}")
-        typer.echo(f"已连接: {summary['connected']}")
-        typer.echo(f"已断开: {summary['disconnected']}")
-        if summary["disconnected_ids"]:
-            typer.echo(f"断开的 Worker: {summary['disconnected_ids']}")
     except typer.Exit:
         raise
     except Exception as e:
