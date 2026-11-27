@@ -15,6 +15,10 @@ from cli import tests_cmd
 
 BACKEND_DIR = Path(__file__).resolve().parents[3]
 
+# 用例内部拉真实嵌套 pytest --collect-only 子进程，单跑就要 18-30s；
+# xdist 邻居进程争 CPU 时全局 timeout=30 必炸，故放宽到 180s
+pytestmark = pytest.mark.timeout(180)
+
 # (flag, 构造函数, 期望目标路径)
 CASES = [
     ("--integration", tests_cmd.run_integration_tests, "tests/integration"),

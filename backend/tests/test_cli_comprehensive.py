@@ -19,6 +19,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLI_DIR = PROJECT_ROOT / "cli"
 
+# CLI 全链路用例会拉真实 CLI 子进程（含 build_cmd 内部 30s sleep 桩），
+# xdist 邻居争抢 CPU 时全局 timeout=30 不够用，放宽到 180s
+pytestmark = pytest.mark.timeout(180)
+
 # 所有 CLI 模块列表
 CLI_MODULES = [
     "worker",

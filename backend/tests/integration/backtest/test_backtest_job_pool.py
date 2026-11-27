@@ -11,6 +11,8 @@ import signal
 import threading
 import time
 
+import pytest
+
 from jobs.pool import BoundedJobPool
 from jobs.spec import JobResult, JobSpec
 
@@ -34,6 +36,7 @@ def _worker_pids() -> list[int]:
     return [p.pid for p in multiprocessing.active_children() if p.pid]
 
 
+@pytest.mark.timeout(120)  # xdist 下邻居争抢 CPU 拉长 spawn 冷启动，timeout=30 余量不足
 def test_jobs_run_in_parallel_on_exactly_two_workers():
     """两个长作业的执行区间应重叠（真并行），且进程数恰为 2 并复用。"""
     pool = BoundedJobPool(max_workers=2, max_pending=8)
