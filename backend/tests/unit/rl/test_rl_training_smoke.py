@@ -14,8 +14,8 @@ import math
 import pandas as pd
 import pytest
 
-sb3 = pytest.importorskip("stable_baselines3", reason="stable_baselines3 未安装")
-
+# 注意：stable_baselines3 不能模块级 importorskip——收集期 import torch 约 9s，
+# 即使 -m "not slow" 排除用例时也照付；改为在各测试函数内 skip。
 from services.rl_service import GymnasiumWrapper, RLService
 
 
@@ -36,6 +36,7 @@ def _sample_df(rows: int = 64) -> pd.DataFrame:
 @pytest.mark.slow
 def test_ppo_short_training_loss_finite() -> None:
     """PPO 训练 10 个 rollout:loss 有限,训练后策略可推理。"""
+    pytest.importorskip("stable_baselines3", reason="stable_baselines3 未安装")
     from stable_baselines3 import PPO
 
     service = RLService()
@@ -61,6 +62,7 @@ def test_rl_service_train_full_cycle(tmp_path, monkeypatch) -> None:
 
     monkeypatch 重定向 MODELS_DIR 到 tmp_path,避免污染 data/models。
     """
+    pytest.importorskip("stable_baselines3", reason="stable_baselines3 未安装")
     import services.rl_service as rl_service_mod
     from services.rl_service import RLTrainConfig
 

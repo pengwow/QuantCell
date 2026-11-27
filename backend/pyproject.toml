@@ -64,7 +64,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers -m \"not slow\" --durations=15"
 timeout = 30
 markers = [
     # 上游引擎(axon-quant)契约门禁:tests/conformance/ 全部用例,
