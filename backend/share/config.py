@@ -79,9 +79,10 @@ class ShareRemoteConfig:
         self.api_key: str | None = os.getenv("SHARE_REMOTE_API_KEY") or remote.get("api_key")
         self.hmac_secret: str | None = os.getenv("SHARE_REMOTE_HMAC_SECRET") or remote.get("hmac_secret")
 
-        # 重试策略
-        self.max_retries: int = int(remote.get("max_retries", 3))
-        self.retry_backoff: float = float(remote.get("retry_backoff", 0.6))
+        # 重试策略（与其它字段同口径：环境变量优先，TOML 兜底；
+        # 测试用 SHARE_REMOTE_RETRY_BACKOFF=0 缩短退避窗口，只读 TOML 时该覆盖会静默失效）
+        self.max_retries: int = int(os.getenv("SHARE_REMOTE_MAX_RETRIES") or remote.get("max_retries", 3))
+        self.retry_backoff: float = float(os.getenv("SHARE_REMOTE_RETRY_BACKOFF") or remote.get("retry_backoff", 0.6))
 
     @property
     def is_ready(self) -> bool:

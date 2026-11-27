@@ -67,6 +67,35 @@ def test_remote_config_ready_when_all_set():
         _reset_singleton()
 
 
+def test_remote_config_env_overrides_retry_policy():
+    """重试策略同样遵守「环境变量优先」契约（TOML 兜底）。
+
+    回归背景：max_retries/retry_backoff 曾只读 TOML，测试里
+    SHARE_REMOTE_RETRY_BACKOFF=0 被静默忽略，退避窗口 1.8s 让并发泄漏
+    有机会把 ClientSession 计数从 3 抬到 32（xdist flaky）。
+    """
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "SHARE_REMOTE_MAX_RETRIES": "5",
+                "SHARE_REMOTE_RETRY_BACKOFF": "0",
+            },
+        ),
+        patch(
+            "share.config._load_toml_chain",
+            return_value={"share_remote": {"max_retries": 3, "retry_backoff": 0.6}},
+        ),
+    ):
+        _reset_singleton()
+        from share.config import ShareRemoteConfig
+
+        cfg = ShareRemoteConfig()
+        assert cfg.max_retries == 5
+        assert cfg.retry_backoff == 0.0
+        _reset_singleton()
+
+
 # ============================================================
 # 2. RemoteShareClient HMAC 签名稳定性
 # ============================================================
