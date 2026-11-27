@@ -165,10 +165,10 @@ class BacktestDataDownloader:
                 logger.error(f"数据下载失败: {symbol}")
                 return False, result
 
-            # 4. 重新检查数据完整性
+            # 4. 重新检查数据完整性（同入口——parquet 口径，与回测读取同源）
             logger.info(f"下载完成，重新检查数据完整性: {symbol}")
             result = self.integrity_checker.check_data_completeness(
-                symbol, interval, start_time, end_time, market_type, crypto_type
+                symbol, interval, start_time, end_time, market_type, crypto_type, source="parquet"
             )
 
             if result.is_complete:
