@@ -330,7 +330,7 @@ class StrategyManager:
                 plans[symbol] = None
         crud.save_worker_price_plans(int(worker_id), plans)
 
-    async def start_strategy(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> bool:
+    async def start_strategy(self, worker_id: int, ref_price: float | dict[str, float | None] | None = None) -> bool:
         """启动策略
 
         Args:
@@ -367,7 +367,9 @@ class StrategyManager:
             append_worker_error_log(worker_id, f"启动失败: {e}")
             return False
 
-    async def _do_start_strategy(self, worker_id: int, worker, db=None, ref_price: float | None = None) -> bool:
+    async def _do_start_strategy(
+        self, worker_id: int, worker, db=None, ref_price: float | dict[str, float | None] | None = None
+    ) -> bool:
         """实际执行策略启动操作
 
         使用 axon_quant 的 exchange adapter 替代 交易引擎的 TradingNode。

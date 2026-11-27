@@ -732,7 +732,7 @@ class WorkerCoreService:
 
     # ==================== 启动 / 停止 / 重启 ====================
 
-    def start_worker(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> dict:
+    def start_worker(self, worker_id: int, ref_price: float | dict[str, float | None] | None = None) -> dict:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
@@ -772,7 +772,9 @@ class WorkerCoreService:
             logger.error(f"[WorkerCoreService] 进程内启动 Worker {worker_id} 失败: {e}")
             raise WorkerOperationException("启动", worker_id, message=str(e)) from e
 
-    def _start_worker_in_process(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> dict:
+    def _start_worker_in_process(
+        self, worker_id: int, ref_price: float | dict[str, float | None] | None = None
+    ) -> dict:
         """进程内直调 worker_system 启动策略（同步上下文入口）。
 
         本方法运行在工作线程（asyncio.to_thread / CLI 主线程），必须用
@@ -814,7 +816,9 @@ class WorkerCoreService:
             logger.info(f"[WorkerCoreService] Worker {worker_id} 无运行时记录，视为已停止")
         return {"worker_id": worker_id, "status": "stopped"}
 
-    async def async_start_worker(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> dict:
+    async def async_start_worker(
+        self, worker_id: int, ref_price: float | dict[str, float | None] | None = None
+    ) -> dict:
         """异步启动 Worker（与 CLI 同步版本调用链一致，进程内直调 worker_system）。
 
         统一走 self.start_worker() 的同步实现，通过线程池执行，保证 FastAPI

@@ -41,6 +41,17 @@ def test_grid_plan_fixed_on_start():
     assert s._plan.levels[0].price == 100.0  # 区间未被自适应改写
 
 
+def test_grid_default_range_derives_from_ref():
+    """D2：worker 未配置 lower/upper 时，首根 bar 按 close ±20% 推导区间（不再用 60000/70000）。"""
+    from strategy.price_plan import GRID_DEFAULT_SPREAD
+
+    s = Grid(_cfg("grid"))
+    s.on_start(None)
+    s.on_bar(_bar(100.0), None)
+    assert s._plan.summary.price_min == pytest.approx(100.0 * (1 - GRID_DEFAULT_SPREAD))
+    assert s._plan.summary.price_max == pytest.approx(100.0 * (1 + GRID_DEFAULT_SPREAD))
+
+
 def test_grid_cross_level_triggers_action():
     s = _run_grid_and_expose_plan()
     # helper 里首根 bar(150) 已按中枢定档；此后穿层才触发

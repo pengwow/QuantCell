@@ -156,7 +156,9 @@ class WorkerStartRequest(BaseModel):
 
     ref_price: float | None = Field(None, description="启动参考价（锚定并固化价格计划；缺省时计划落 pending）")
     # 多标的启动参考价（启动确认弹窗逐标的采集）；与 ref_price 并存，ref_prices 优先
-    ref_prices: dict[str, float] | None = Field(None, description="多标的启动参考价 {symbol: price}，缺价标的传 null")
+    ref_prices: dict[str, float | None] | None = Field(
+        None, description="多标的启动参考价 {symbol: price}，缺价标的传 null（该标的固化落 pending，不阻断其他标的）"
+    )
 
 
 class WorkerStatusResponse(BaseModel):

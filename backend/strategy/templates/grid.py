@@ -42,13 +42,19 @@ class Grid(BaseStrategy):
     def _fused_params(self) -> dict:
         # 模板版刻意逐参 get_param 显式读取（而非吞 config.params）：
         # AST 据此提取创建表单 variables，价格计划四件套在创建时即可配置；
-        # 运行时语义与 get_param 缺省兜底一致（params 显式 None 视同缺省）
-        return {
-            "lower": float(self.get_param("lower", 60000.0)),
-            "upper": float(self.get_param("upper", 70000.0)),
+        # lower/upper 不设数值缺省：未配置时 grid_plan 按参考价 ±20% 推导（D2），
+        # 显式配置则透传（params 显式值优先）
+        params: dict = {
             "levels": int(self.get_param("levels", 20)),
             "position_limit": float(self.get_param("position_limit", self.config.position_limit)),
         }
+        lower = self.get_param("lower", None)
+        upper = self.get_param("upper", None)
+        if lower is not None:
+            params["lower"] = float(lower)
+        if upper is not None:
+            params["upper"] = float(upper)
+        return params
 
     def on_start(self, ctx: StrategyContext | None = None) -> None:
         self._position_grid_idx = 0

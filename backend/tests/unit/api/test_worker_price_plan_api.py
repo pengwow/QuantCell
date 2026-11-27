@@ -169,3 +169,20 @@ def test_fixed_plan_reread_from_db(db, worker_row):
     again, _ = worker_crud.get_worker_price_plan(str(worker_row.id))
     assert again == first
     assert again["ref_price"] == 100.0 and again["plan"]["levels"][0]["price"] == 100.0
+
+
+def test_start_accepts_ref_prices_with_null_values(monkeypatch, worker_row):
+    """多标的启动：ref_prices 允许 null（缺价标的固化落 pending），不得因校验 422 阻断整个启动。"""
+    called: dict = {}
+
+    async def fake_start(worker_id, ref_price=None):
+        called["ref_price"] = ref_price
+        return {"status": "starting"}
+
+    monkeypatch.setattr("worker.routes.worker_core_service.async_start_worker", fake_start)
+    r = client.post(
+        f"/api/v1/workers/{worker_row.id}/lifecycle/start",
+        json={"ref_prices": {"BTCUSDT": 100.0, "ETHUSDT": None}},
+    )
+    assert r.status_code == 200, r.text
+    assert called["ref_price"] == {"BTCUSDT": 100.0, "ETHUSDT": None}
