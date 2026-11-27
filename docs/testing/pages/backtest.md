@@ -67,6 +67,7 @@
 | B12 | 走完一次 B11 后刷新 `/backtest/config` | 表单被上次提交的配置回填（标的/周期/手续费/初始资金/交易模式有值）而非空表单——这来自 localStorage `lastBacktestConfig`，属预期行为 | L1 |
 | B13 | 预检返回缺失数据时（`precheck-data` 返回 `all_available=false`） | 弹出标题「数据缺失提醒」的弹窗，正文含「以下 N 个品种×周期缺少本地数据，回测前需要下载」，缺失项以橙色标签「<symbol> · <interval>」列出，底部按钮「取消」「下载并回测」；点「取消」后不发 `POST /api/v1/backtest/run` | L2 |
 | B14 | 在「数据缺失提醒」弹窗点「下载并回测」 | 创建下载任务（`POST /api/v1/data/download/crypto` 200），随后每 2s 轮询 `GET /api/v1/data/task/<taskId>` 200，弹窗内出现进度条与逐品种「<symbol> · <interval>  xx% / 下载完成」；下载完成后自动回到「回测进度」弹窗。仅在需要真实下行网络时执行，可点弹窗关闭中止前端轮询（后端任务可能继续） | 按需 |
+| B14a | 走完一次 B14 下载闭环后，确认「下载并回测」的回测真的吃到了数据：后端日志检索 `成功加载 Parquet 文件: .*backend/data/source/crypto/.*/klines/` 与下载日志中「合并后共 N 行」路径一致（均为 `backend/data/source/crypto/...` 单文件，不再出现 `~/.quantcell` 路径）；进度弹窗「数据准备」段不再循环出现下载后仍缺失 | L2（按需） |
 | B15a | 视觉抽查（≥1280 宽视口） | 两卡等分且卡间距 12px；卡片 10px 圆角、无卡头分隔线；字段 label 为 11px mono 弱色；控件高 32px、8px 圆角；分段器内钮 24px 高、选中档为 primary 12% 淡底 + 主色字；无横向滚动 | L1 |
 
 ### /backtest/detail/:backtestId（回测详情）
@@ -120,6 +121,8 @@
 - **列表页 Delete 键直接删除（已修）**：此前代码在 `keydown` 里对选中行直接调删除接口、不弹确认。现已移除键盘删除，删除只能走操作列图标钮的 Popconfirm 确认（访客禁用）。B 系列验证按鼠标路径即可；若在别的页面复现"按键即删"，属于新 bug。
 - **列表未走服务端分页（已修）**：此前 `getBacktestList()` 不带参数、前端拉全量后过滤+假分页（记录数上千时首屏拉全量）。现已接入 `page/page_size/status/keyword/sort_by/sort_order`，B1/B6a 的请求参数断言是本条的回归哨。日期范围筛选一度因后端无过滤参数而从工具栏移除，现已补回：`/backtest/list` 支持 `start_time/end_time`（created_at 日粒度、含端点、格式 `YYYY-MM-DD`，非法 422），工具栏恢复 RangePicker（demo 工具栏无此控件，属显式需求扩展），B6c 为回归哨。
 - **RL 回测历史已并入本页（页签下线）**：模型中心第四个页签「RL 回测历史」已删除，旧 `?tab=history` 走 ModelHub 的 replace 重定向落到 `/backtest`。回测中心默认列表本就返回全量任务（`/backtest/list` 缺省 `source=None`），RL 任务靠策略列来源 chip 区分，不再有「只看 RL」的独立视图；`source=rl` 仍是 `/backtest/list` 的有效参数（OpenAPI 有描述、单测 `test_backtest_list_source_filter.py` 守护），要按来源筛时前端传它即可，别重新造页面。
+- **回测自动下载→回测读取三口径曾脱节**（2026-11-27）：完整性检查查 DB（毫秒/纳秒错配恒报缺）、独立下载器落 DB 副本 + 另写 `~/.quantcell/data/kline` 按日分片（无人读的死存储）、回测读 source 单文件 parquet 被绕过 → 下载完成仍报不完整 死循环。现已统一：检查切 parquet 口径、skip 检查查 source 文件、下载同时落 DB 副本并合并进 source 单文件、get_source_data_dir 跟随 `QUANTCELL_DATA_DIR` 重定向；`~/.quantcell` 分片写入已删除。存量分片不迁移（spec 决策）。
+
 - **副标「任务表 N 条 · 历史共 M 条」是两段口径**：N = 当前页行数（`tasks.length`，翻页/切页大小即变），M = 无筛选请求刷新的全量 `total`（带 status/keyword/日期筛选时不动）——这不是不同步 bug；B6a 的筛选只应改分页条/计数的「共 N 条」而保留 M。
 - **失败原因是内存态快照**：展开面板的「失败原因」/运行中进度条数据来自 `GET /backtest/progress/<id>`，progress tracker 只存进程内存（`progress_tracker.py` 无落盘），服务重启后旧任务的失败原因查不到 → 前端按「无源不渲染」处理，只留状态 chip。验证 B3d/B3e 必须用**本次进程内**刚失败/正在跑的任务；"旧失败任务没有原因"不是丢样式。
 - **「区间」/「订单」列来自任务行而非结果 JSON**：`/backtest/list` 行的 `start_time/end_time` 取任务文件 `config`（与 DB 行同源），`total_trades` 取 `metrics_summary.metrics`（v2 摘要）。v1 旧摘要没有 `metrics` 字典 → 订单显示「—」，要补就得让该任务走一次 summary 升级（点行即可），列表加载时不会批量读大结果文件。
@@ -143,3 +146,4 @@
 - **作业池随应用退出清理（已修）**：lifespan 现在显式 shutdown 回测/RL/HPO 三池，`wait=False` 会 terminate 在跑 worker。Ctrl+C 后在跑回测被强杀属预期（此前 spawn worker 会变孤儿继续跑，重启后与新池抢核）。
 - **灰度开关三态（已修）**：`QUANTCELL_JOB_POOL_ENABLED=false` 现在能覆盖 config.toml `[jobs].enabled=true`；只有未设置（None）才回落 config。此前 bool 默认 False 导致环境变量关不掉 config 打开的池。
 - **绑核区间按池切分（已修）**：配了 `[jobs].cores` 时回测池取前半核、HPO 池取后半核（单核区间两池共享各 1 并发），不再两池绑同一批核互抢；`/jobs/queue` 里各池 `cores` 与配置文件不完全一致属预期。未配绑核时保持 cpu-1 默认，由 OS 调度。
+- 2026-11-27 回测自动下载闭环：检查口径曾查 DB（毫秒/纳秒错配恒报缺）、下载写 `~/.quantcell` 分片无人读、下载段 ±1h 缓冲跨天不完整；现统一为 source 单文件 Parquet（检查=下载=回测同源），下载段天对齐。
