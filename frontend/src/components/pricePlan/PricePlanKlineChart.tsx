@@ -178,7 +178,9 @@ export default function PricePlanKlineChart({
     const chart = chartRef.current;
     if (!chart) return;
     chart.removeIndicator({ name: PLAN_INDICATOR_NAME });
-    chart.createIndicator({ name: PLAN_INDICATOR_NAME }, true);
+    // paneId 必须显式指向主图：v10 不给 paneId 时默认新建独立副图 pane，
+    // 会出现一条空的「PRICE PLAN LEVELS」指标栏（2026-11-27 实测踩坑；'candle_pane' 是 v10 内建主图 id）
+    chart.createIndicator({ name: PLAN_INDICATOR_NAME, paneId: 'candle_pane' }, true);
   }, []);
 
   // 容器仅在 symbol 存在时渲染，故 init 依赖 canRender：标的从无到有时才建实例
@@ -195,6 +197,8 @@ export default function PricePlanKlineChart({
           horizontal: { color: 'rgba(128,128,128,0.12)' },
           vertical: { color: 'rgba(128,128,128,0.08)' },
         },
+        // 档位 indicator 只画线、不带图例：隐藏指标名/参数 tooltip，主图左上角只留 OHLC
+        indicator: { tooltip: { showRule: 'none' } },
       },
     });
     if (!chart) return;
