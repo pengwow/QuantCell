@@ -29,3 +29,9 @@ def test_two_layers_triggered():
 def test_no_last_price_returns_zero():
     out = _plan_runtime_progress({"levels": LEVELS}, None)
     assert out == {"triggered_count": 0, "triggered_indexes": [], "next_trigger": None}
+
+
+def test_zero_last_price_returns_zero():
+    """刚启动快照 last_price=0：不得除零炸 500（2026-11-28 冒烟回归）"""
+    out = _plan_runtime_progress({"levels": LEVELS}, {"last_price": 0.0})
+    assert out == {"triggered_count": 0, "triggered_indexes": [], "next_trigger": None}

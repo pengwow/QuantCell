@@ -393,7 +393,9 @@ def _plan_runtime_progress(plan: dict, snapshot: dict | None) -> dict:
         # 旧式嵌套快照是 {"status": {"last_price": ...}}
         last_price = (status.get("last_price") if isinstance(status, dict) else None) or snapshot.get("last_price")
     levels = [lv for lv in (plan.get("levels") or []) if lv.get("action") in ("buy", "sell", "tp")]
-    if last_price is None or not levels:
+    # last_price 未就绪（None）或非法（<=0，如刚启动快照尚未收到行情）时无运行态增量可算；
+    # 0 值放行会在 distance_pct 除零炸 500（2026-11-28 多标的启动冒烟踩坑）
+    if last_price is None or last_price <= 0 or not levels:
         return {"triggered_count": 0, "triggered_indexes": [], "next_trigger": None}
     triggered = [
         lv for lv in levels if (lv["price"] > last_price if lv["action"] == "buy" else lv["price"] < last_price)
