@@ -15,7 +15,8 @@
 （搜索/筛选无结果时文案为「没有匹配的因子」，库为空时为「因子库为空，可新建因子或使用 LLM 挖掘」，两者不同） | L1 |
 | F1a | 因子库表格「覆盖率」列（位于 ICIR 与「状态」之间） | 列头文本为「覆盖率」（en 为 `Coverage`），单元格右对齐 mono、形如 `98.2%`（一位小数，与右侧概览「覆盖率」同口径）；取首行因子名对照 `curl -s http://localhost:8000/api/v1/factor/catalog` 中该条 `last_metrics.coverage`，单元格文本 = `(coverage × 100).toFixed(1) + '%'`；`last_metrics` 缺失或 `coverage == null` 时显示 `—`（**不是 0.0%**） | L1 |
 | F2 | 观察 F1 加载过程中的网络与 URL | `GET /api/v1/factor/catalog` 返回 200；目录加载后若选中了某因子，URL 变为 `?factor=<name>`（replace 写入，不新增历史）；切换/刷新后选中项保持（记住上次查看因子） | L1 |
-| F3 | 点「因子对比」Tab | URL 变为 `/factor-analysis?tab=compare`（同时保留 `factor` 参数，参数顺序不限）；出现卡「分析参数」，字段「因子 / 品种 / 周期 / 时间范围 / IC方法 / 分组数 / 滚动窗 / 前瞻(根) / 衰减滞后 / 单边成本(bp) / FDR校正」与按钮「开始对比」；下方空提示「选择 2-5 个因子后点击「开始对比」」；`GET /api/v1/factor/list-detail` 与 `GET /api/v1/factor/instruments?candle_type=spot` 均返回 200 | L1 |
+| F3 | 点「因子对比」Tab | URL 变为 `/factor-analysis?tab=compare`（同时保留 `factor` 参数，参数顺序不限）；出现卡「分析参数」，字段「因子 / 品种 / 周期 / 时间范围 / IC方法 / 分组数 / 滚动窗 / 前瞻(根) / 衰减滞后 / 单边成本(bp) / FDR校正」与按钮「开始对比」；下方空提示「选择 2-5 个因子后点击「开始对比」」；`GET /api/v1/factor/list-detail` 与 `GET /api/v1/factor/instruments?candle_type=spot` 均返回 200（后者**不再喂标的下拉**，只驱动周期交集与 `?syms=` 预校验）；标的下拉额外发 `GET /api/v1/data-pools/collection/symbols` | L1 |
+| F3a | 对比表单点开「标的」下拉 | 全站公共 `SymbolSelect`（2026-11-27 换入）：顶部为**自选组**（组色圆点 + 组名 + 「N 标的 · 自选组」元信息，与回测配置等页同款数据源 `/data-pools/collection/symbols`），下方平铺交易所标的；搜索走组名/标的纯文本过滤；**多选点选一个自选组当场展开成组内标的 tag**（compact 口径如 `BTCUSDT`，非组名）；值无斜杠（factor 引擎口径，`valueFormat="compact"` 桥接），提交参数、周期交集、URL 预填全部沿用 compact | L1 |
 | F4 | 回「因子库」Tab，点任意一行 | 该行**就地展开轻摘要**（不再直接弹抽屉）：行首三角 ▸→▾（`.qc-cell-caret.is-open`，主色），行高亮 + `aria-selected=true`/`aria-expanded=true`；同一时刻只有一行展开（点另一行时上一行收起）；行内面板底部「查看详情」按钮或行操作列「眼睛」图标才打开右侧详情抽屉（宽约 68% 视口），标签行用胶囊 chip（内置/代码/合成/AI/无数据） | L1 |
 | F4a | 观察行内展开面板内容（对齐 demo #view-factors） | 头部：「展示名 + 英文标识（mono）+ 类别 chip + 状态 chip + 右侧「最近快照 <yyyy-mm-dd hh:mm>」」；指标网格 6 格：「IC 均值 / ICIR / 覆盖率 / IC 胜率(即 IC>0 比例) / 换手率 / NW t-stat」，覆盖率与 IC 胜率为一位小数百分比，NW t 两位小数；底部「快照数 <n>」+「查看详情」按钮。字段来自 `catalog.last_metrics` / `snapshot_count` / `last_snapshot_at`，**不发起新请求**；目录没有 IC 时序序列，**行内没有 IC 柱状图**（时序在抽屉「分析」页签） | L1 |
 | F4b | 展开一个 `last_metrics == null` 的因子（新加未分析的因子） | 6 个指标全部显示 `—`，面板正常渲染、无白屏、无 `NaN` / `undefined` / 控制台报错；「最近快照」显示 `—`。**卡死态回归项：不要修成隐藏面板或 0 值** | L1 |
@@ -44,6 +45,7 @@
 - **状态只有一组演示口径（有效/观察/失效）**：接口给的是 5 态生命周期，页头副标与筛选 chips 共用同一映射：LIVE=有效、DISCOVERED/INSPECTED/PAPER_TRADING=观察、RETIRED=失效（映射写在 `FactorAnalysis.tsx` 的 `statusGroupOf` 与 `FactorLibraryPane.tsx` 的 `inGroup`，改口径两处要同步）。demo 副标的「样本 1h 全品种 · RankIC（日频）」接口没有返回，**不写**。
 - **新建因子入口在页头右侧**（demo page-actions），不在工具栏；弹窗本体仍在 `FactorLibraryPane`，页头只持有开/关状态。
 - **列表删除已从 modal.confirm 换成 Popconfirm 气泡**（与回测中心同款，避免键盘 Delete 直删的老雷区复发），确认文案保持「删除因子 / 将删除该因子及其本地实现…」不变。
+- **因子对比「标的」下拉的口径桥接**（2026-11-27 换公共 SymbolSelect 时处理）：两套数据源符号形态不同——`/factor/instruments` 是 **compact**（`BTCUSDT`，factor 引擎唯一认的口径），`/data-pools/collection/symbols` 是 **slash**（`BTC/USDT`）。必须 `valueFormat="compact"` 桥接，漏了会把带斜杠的值直接提交给 factor 后端。`/factor/instruments` 换组件后仍要拉：它的 `intervals` 字段驱动「周期」下拉的交集逻辑，URL `?syms=` 预校验也靠它过滤——这两个别试图从数据池数据源补（没有周期信息）。注意下拉列出的是全交易所标的超集，选中超出 factor instruments 的标的时周期交集按剩余成员计算（退 `1h` 兜底不变），提交由后端报可读错误——这是全站公共组件的统一语义（回测配置等页同此），不要在本页私加白名单过滤。
 - **工具栏状态筛选是 `.qc-ichip`（26px 胶囊）**，表格内状态是 `.qc-chip`（10px 徽章），是两个原语，不许混用（spec §6.6/§6.2）。
 - **抽屉无标题栏**：详情抽屉不带 title，靠内容里的展示名/英文标识识别；自动化断言请取 `body.innerText` 而不是找 `.ant-drawer-title`。
 - **图标按钮无文本**：列表操作列是纯图标（查看详情/删除），只能用 Tooltip 文案或 `aria-label` 定位，文本扫描会漏。

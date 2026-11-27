@@ -20,6 +20,7 @@ import type { EChartsOption } from 'echarts';
 import type { TableProps } from 'antd';
 import EChart from '@/components/EChart';
 import DataTable, { QcEmpty } from '@/components/ui/DataTable';
+import SymbolSelect from '@/components/SymbolSelect';
 import {
   factorApi,
   type FactorCompareParams,
@@ -433,11 +434,14 @@ const FactorCompare: React.FC = () => {
               },
             ]}
           >
-            <Select
+            {/* 全站公共标的下拉（自选组 + 交易所标的，选中自选组当场展开成组内标的）。
+                factor 引擎的标的口径是 compact（BTCUSDT），故 valueFormat="compact"；
+                页面自拉 /factor/instruments（含 intervals）继续驱动周期交集与 ?syms= 预校验 */}
+            <SymbolSelect
               mode="multiple"
+              valueFormat="compact"
               style={{ minWidth: 220 }}
               placeholder={t('factor_wb_form_instruments_ph') || '选择标的'}
-              options={instruments.map((i) => ({ value: i.symbol, label: i.symbol }))}
             />
           </Form.Item>
           <Form.Item name="interval" label={t('factor_wb_form_interval') || '周期'}>
